@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <functional>
 #include <string>
@@ -41,6 +42,7 @@ enum class EditMode {
   kConnection = 1,
   kBranch = 2,
   kDetail = 3,
+  kDrawPath = 4,
 };
 
 struct ViewerUiState {
@@ -83,15 +85,45 @@ struct ViewerUiState {
   double drop_target_z = 3.0;
   int detail_pole_type_index = 0;
   bool show_debug_labels = false;
+  bool show_whole_aabb = false;
+  bool show_segment_aabb = false;
+  bool geometry_settings_loaded = false;
+  int geometry_samples = 8;
+  bool geometry_sag_enabled = false;
+  double geometry_sag_factor = 0.03;
+  std::uint64_t road_id = 1;
+  double road_start_x = -20.0;
+  double road_start_y = 0.0;
+  double road_start_z = 0.0;
+  bool road_use_mid = false;
+  double road_mid_x = 0.0;
+  double road_mid_y = 0.0;
+  double road_mid_z = 0.0;
+  double road_end_x = 20.0;
+  double road_end_y = 0.0;
+  double road_end_z = 0.0;
+  double road_interval = 8.0;
+  int road_category_index = static_cast<int>(wire::core::ConnectionCategory::kLowVoltage);
+  int road_pole_type_index = 0;
+  int last_generated_poles = 0;
+  int last_generated_spans = 0;
+  std::uint64_t last_generation_session = 0;
+  std::vector<wire::core::Vec3d> draw_path_points{};
+  bool draw_hover_valid = false;
+  wire::core::Vec3d draw_hover_point{};
+  bool draw_show_preview = true;
+  bool draw_keep_path_after_generate = true;
 
   std::string last_error;
   std::vector<std::string> logs;
   CameraDragMode camera_drag_mode = CameraDragMode::kNone;
-  bool auto_recalc = false;
+  bool auto_recalc = true;
   double edit_x = 0.0;
   double edit_y = 0.0;
   double edit_z = 0.0;
 };
+
+void PushLog(ViewerUiState& ui_state, const std::string& line);
 
 constexpr std::array<wire::core::ConnectionCategory, 5> kAllCategories = {
     wire::core::ConnectionCategory::kHighVoltage,
@@ -128,6 +160,8 @@ const char* ModeLabel(EditMode mode) {
       return "Branch";
     case EditMode::kDetail:
       return "Detail";
+    case EditMode::kDrawPath:
+      return "DrawPath";
     default:
       return "Unknown";
   }
@@ -157,6 +191,175 @@ Vector3 ToRaylib(const wire::core::Vec3d& ue_xyz) {
       static_cast<float>(ue_xyz.z),
       static_cast<float>(ue_xyz.y),
   };
+}
+
+BoundingBox ToRaylibBounds(const wire::core::AABBd& box_ue) {
+  const Vector3 a = ToRaylib(box_ue.min);
+  const Vector3 b = ToRaylib(box_ue.max);
+  BoundingBox out{};
+  out.min = {
+      std::min(a.x, b.x),
+      std::min(a.y, b.y),
+      std::min(a.z, b.z),
+  };
+  out.max = {
+      std::max(a.x, b.x),
+      std::max(a.y, b.y),
+      std::max(a.z, b.z),
+  };
+  return out;
+}
+
+double PolylineLength(const std::vector<wire::core::Vec3d>& points) {
+  if (points.size() < 2) {
+    return 0.0;
+  }
+  double length = 0.0;
+  for (std::size_t i = 0; i + 1 < points.size(); ++i) {
+    const wire::core::Vec3d d = points[i + 1] - points[i];
+    length += std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+  }
+  return length;
+}
+
+wire::core::Vec3d FromRaylib(const Vector3& raylib_xyz) {
+  return wire::core::Vec3d{
+      static_cast<double>(raylib_xyz.x),
+      static_cast<double>(raylib_xyz.z),
+      static_cast<double>(raylib_xyz.y),
+  };
+}
+
+bool TryPickGroundPoint(const Camera3D& camera, wire::core::Vec3d* out_ue_point) {
+  if (out_ue_point == nullptr) {
+    return false;
+  }
+  const Vector2 mouse = GetMousePosition();
+  const Ray ray = GetMouseRay(mouse, camera);
+  if (std::abs(ray.direction.y) <= 1e-6f) {
+    return false;
+  }
+  const float t = -ray.position.y / ray.direction.y;  // y=0 plane in raylib == UE z=0 plane
+  if (t < 0.0f) {
+    return false;
+  }
+  const Vector3 hit{
+      ray.position.x + ray.direction.x * t,
+      ray.position.y + ray.direction.y * t,
+      ray.position.z + ray.direction.z * t,
+  };
+  *out_ue_point = FromRaylib(hit);
+  return true;
+}
+
+void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool from_enter_key) {
+  if (ui_state.draw_path_points.size() < 2) {
+    ui_state.last_error = "path needs at least 2 points";
+    return;
+  }
+
+  const auto type_ids = SortedPoleTypeIds(state);
+  if (type_ids.empty()) {
+    ui_state.last_error = "no pole type available";
+    return;
+  }
+
+  const std::size_t road_type_index = ClampedTypeIndex(ui_state.road_pole_type_index, type_ids.size());
+  ui_state.road_pole_type_index = static_cast<int>(road_type_index);
+  const int road_category_index = std::clamp(ui_state.road_category_index, 0, static_cast<int>(kAllCategories.size() - 1));
+  ui_state.road_category_index = road_category_index;
+
+  wire::core::RoadSegment road{};
+  road.id = ui_state.road_id++;
+  road.polyline = ui_state.draw_path_points;
+
+  const auto result = state.GenerateSimpleLine(
+      road,
+      ui_state.road_interval,
+      type_ids[ui_state.road_pole_type_index],
+      kAllCategories[ui_state.road_category_index]);
+
+  if (!result.ok) {
+    ui_state.last_error = result.error;
+    PushLog(ui_state, from_enter_key ? "Generate path (Enter) failed" : "Generate path failed");
+    return;
+  }
+
+  ui_state.last_error.clear();
+  ui_state.last_generated_poles = static_cast<int>(result.value.pole_ids.size());
+  ui_state.last_generated_spans = static_cast<int>(result.value.span_ids.size());
+  ui_state.last_generation_session = result.value.generation_session_id;
+  if (!result.value.pole_ids.empty()) {
+    ui_state.selected_type = SelectedType::kPole;
+    ui_state.selected_id = result.value.pole_ids.back();
+  }
+  if (!ui_state.draw_keep_path_after_generate) {
+    ui_state.draw_path_points.clear();
+  }
+  PushLog(
+      ui_state,
+      "Generated path poles=" + std::to_string(ui_state.last_generated_poles) +
+          " spans=" + std::to_string(ui_state.last_generated_spans));
+}
+
+void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState& ui_state) {
+  if (ui_state.mode != EditMode::kDrawPath) {
+    ui_state.draw_hover_valid = false;
+    return;
+  }
+
+  ImGuiIO& io = ImGui::GetIO();
+  wire::core::Vec3d hover{};
+  ui_state.draw_hover_valid = TryPickGroundPoint(camera, &hover);
+  if (ui_state.draw_hover_valid) {
+    ui_state.draw_hover_point = hover;
+  }
+
+  if (!io.WantCaptureMouse && ui_state.camera_drag_mode == CameraDragMode::kNone) {
+    if (ui_state.draw_hover_valid && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+      ui_state.draw_path_points.push_back(ui_state.draw_hover_point);
+    }
+    if (IsMouseButtonPressed(MOUSE_RIGHT_BUTTON) && !ui_state.draw_path_points.empty()) {
+      ui_state.draw_path_points.pop_back();
+    }
+  }
+
+  if (!io.WantCaptureKeyboard) {
+    if (IsKeyPressed(KEY_BACKSPACE) && !ui_state.draw_path_points.empty()) {
+      ui_state.draw_path_points.pop_back();
+    }
+    if (IsKeyPressed(KEY_ESCAPE)) {
+      ui_state.draw_path_points.clear();
+    }
+    if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER)) {
+      ExecuteGenerateFromDrawPath(state, ui_state, true);
+    }
+  }
+}
+
+void DrawPathPreview(const ViewerUiState& ui_state) {
+  if (!ui_state.draw_show_preview || ui_state.mode != EditMode::kDrawPath) {
+    return;
+  }
+  if (ui_state.draw_path_points.empty() && !ui_state.draw_hover_valid) {
+    return;
+  }
+
+  for (std::size_t i = 0; i < ui_state.draw_path_points.size(); ++i) {
+    DrawSphere(ToRaylib(ui_state.draw_path_points[i]), 0.12f, Color{255, 200, 0, 255});
+    if (i + 1 < ui_state.draw_path_points.size()) {
+      DrawLine3D(ToRaylib(ui_state.draw_path_points[i]), ToRaylib(ui_state.draw_path_points[i + 1]), Color{255, 220, 80, 255});
+    }
+  }
+  if (ui_state.draw_hover_valid) {
+    DrawSphere(ToRaylib(ui_state.draw_hover_point), 0.08f, Color{120, 255, 180, 200});
+    if (!ui_state.draw_path_points.empty()) {
+      DrawLine3D(
+          ToRaylib(ui_state.draw_path_points.back()),
+          ToRaylib(ui_state.draw_hover_point),
+          Color{120, 255, 180, 180});
+    }
+  }
 }
 
 wire::core::Vec3d Lerp(const wire::core::Vec3d& a, const wire::core::Vec3d& b, double t) {
@@ -346,7 +549,27 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
     if (ui_state.selected_type == SelectedType::kSpan && ui_state.selected_id == span.id) {
       color = GOLD;
     }
-    DrawLine3D(ToRaylib(start_port->world_position), ToRaylib(end_port->world_position), color);
+
+    const wire::core::CurveCacheEntry* curve = state.find_curve_cache(span.id);
+    if (curve != nullptr && curve->points.size() >= 2) {
+      for (std::size_t i = 0; i + 1 < curve->points.size(); ++i) {
+        DrawLine3D(ToRaylib(curve->points[i]), ToRaylib(curve->points[i + 1]), color);
+      }
+    } else {
+      DrawLine3D(ToRaylib(start_port->world_position), ToRaylib(end_port->world_position), color);
+    }
+
+    const wire::core::BoundsCacheEntry* bounds = state.find_bounds_cache(span.id);
+    if (bounds != nullptr) {
+      if (ui_state.show_whole_aabb) {
+        DrawBoundingBox(ToRaylibBounds(bounds->whole), DARKGREEN);
+      }
+      if (ui_state.show_segment_aabb) {
+        for (const wire::core::AABBd& segment : bounds->segments) {
+          DrawBoundingBox(ToRaylibBounds(segment), Color{70, 130, 180, 180});
+        }
+      }
+    }
   }
 
   for (const wire::core::Attachment& attachment : edit.attachments.items()) {
@@ -410,6 +633,9 @@ void DrawSelectedInfo(const CoreState& state, const ViewerUiState& ui_state) {
       ImGui::Text("ID: %s", pole->display_id.c_str());
       ImGui::Text("Name: %s", pole->name.c_str());
       ImGui::Text("PoleTypeId: %u", static_cast<unsigned int>(pole->pole_type_id));
+      ImGui::Text("Generated: %s", pole->generation.generated ? "true" : "false");
+      ImGui::Text("Gen Source: %d", static_cast<int>(pole->generation.source));
+      ImGui::Text("Gen Session: %llu", static_cast<unsigned long long>(pole->generation.generation_session_id));
       ImGui::Text("Pos: %.2f %.2f %.2f", pole->world_transform.position.x, pole->world_transform.position.y, pole->world_transform.position.z);
       ImGui::Text("Height: %.2f", pole->height_m);
       return;
@@ -439,6 +665,23 @@ void DrawSelectedInfo(const CoreState& state, const ViewerUiState& ui_state) {
       ImGui::Text("portA: %llu", static_cast<unsigned long long>(span->port_a_id));
       ImGui::Text("portB: %llu", static_cast<unsigned long long>(span->port_b_id));
       ImGui::Text("bundle: %llu", static_cast<unsigned long long>(span->bundle_id));
+      ImGui::Text("Generated: %s", span->generation.generated ? "true" : "false");
+      ImGui::Text("Gen Session: %llu", static_cast<unsigned long long>(span->generation.generation_session_id));
+      const auto* curve = state.find_curve_cache(span->id);
+      if (curve != nullptr) {
+        ImGui::Text("curveSamples: %d", static_cast<int>(curve->points.size()));
+        ImGui::Text("curveLength: %.2f", PolylineLength(curve->points));
+      } else {
+        ImGui::TextUnformatted("curveSamples: (none)");
+      }
+      const auto* bounds = state.find_bounds_cache(span->id);
+      if (bounds != nullptr) {
+        const double sx = bounds->whole.max.x - bounds->whole.min.x;
+        const double sy = bounds->whole.max.y - bounds->whole.min.y;
+        const double sz = bounds->whole.max.z - bounds->whole.min.z;
+        ImGui::Text("AABB size: %.2f %.2f %.2f", sx, sy, sz);
+        ImGui::Text("segmentAABBs: %d", static_cast<int>(bounds->segments.size()));
+      }
       const auto* runtime_state = state.find_span_runtime_state(span->id);
       if (runtime_state != nullptr) {
         ImGui::Separator();
@@ -651,6 +894,94 @@ void DrawPlacementModePanel(CoreState& state, ViewerUiState& ui_state) {
     ui_state.selected_id = add_pole_result.value;
     PushLog(ui_state, "Placed Pole id=" + std::to_string(add_pole_result.value));
   }
+
+  ImGui::Separator();
+  ImGui::TextUnformatted("Road Auto Generate");
+  ImGui::InputScalar("Road Id", ImGuiDataType_U64, &ui_state.road_id);
+  ImGui::InputDouble("Road Start X", &ui_state.road_start_x);
+  ImGui::InputDouble("Road Start Y", &ui_state.road_start_y);
+  ImGui::InputDouble("Road Start Z", &ui_state.road_start_z);
+  ImGui::Checkbox("Use Mid Point", &ui_state.road_use_mid);
+  if (ui_state.road_use_mid) {
+    ImGui::InputDouble("Road Mid X", &ui_state.road_mid_x);
+    ImGui::InputDouble("Road Mid Y", &ui_state.road_mid_y);
+    ImGui::InputDouble("Road Mid Z", &ui_state.road_mid_z);
+  }
+  ImGui::InputDouble("Road End X", &ui_state.road_end_x);
+  ImGui::InputDouble("Road End Y", &ui_state.road_end_y);
+  ImGui::InputDouble("Road End Z", &ui_state.road_end_z);
+  ImGui::InputDouble("Pole Interval", &ui_state.road_interval);
+
+  const std::size_t road_type_index = ClampedTypeIndex(ui_state.road_pole_type_index, type_ids.size());
+  ui_state.road_pole_type_index = static_cast<int>(road_type_index);
+  const wire::core::PoleTypeId road_type_id = type_ids[road_type_index];
+  const auto road_type_it = state.pole_types().find(road_type_id);
+  const std::string road_type_name = (road_type_it != state.pole_types().end()) ? road_type_it->second.name : std::to_string(road_type_id);
+  if (ImGui::BeginCombo("Road PoleType", road_type_name.c_str())) {
+    for (std::size_t i = 0; i < type_ids.size(); ++i) {
+      const auto it = state.pole_types().find(type_ids[i]);
+      const std::string label = (it != state.pole_types().end()) ? it->second.name : std::to_string(type_ids[i]);
+      const bool selected = (i == road_type_index);
+      if (ImGui::Selectable(label.c_str(), selected)) {
+        ui_state.road_pole_type_index = static_cast<int>(i);
+      }
+      if (selected) {
+        ImGui::SetItemDefaultFocus();
+      }
+    }
+    ImGui::EndCombo();
+  }
+
+  const int road_category_index = std::clamp(ui_state.road_category_index, 0, static_cast<int>(kAllCategories.size() - 1));
+  ui_state.road_category_index = road_category_index;
+  if (ImGui::BeginCombo("Road Category", CategoryLabel(kAllCategories[road_category_index]))) {
+    for (int i = 0; i < static_cast<int>(kAllCategories.size()); ++i) {
+      const bool selected = (i == road_category_index);
+      if (ImGui::Selectable(CategoryLabel(kAllCategories[i]), selected)) {
+        ui_state.road_category_index = i;
+      }
+      if (selected) {
+        ImGui::SetItemDefaultFocus();
+      }
+    }
+    ImGui::EndCombo();
+  }
+
+  if (ImGui::Button("Generate Road Line")) {
+    wire::core::RoadSegment road{};
+    road.id = ui_state.road_id;
+    road.polyline.push_back({ui_state.road_start_x, ui_state.road_start_y, ui_state.road_start_z});
+    if (ui_state.road_use_mid) {
+      road.polyline.push_back({ui_state.road_mid_x, ui_state.road_mid_y, ui_state.road_mid_z});
+    }
+    road.polyline.push_back({ui_state.road_end_x, ui_state.road_end_y, ui_state.road_end_z});
+
+    const auto result = state.GenerateSimpleLine(
+        road,
+        ui_state.road_interval,
+        type_ids[ui_state.road_pole_type_index],
+        kAllCategories[ui_state.road_category_index]);
+    if (!result.ok) {
+      ui_state.last_error = result.error;
+      PushLog(ui_state, "GenerateSimpleLine failed");
+    } else {
+      ui_state.last_error.clear();
+      ui_state.last_generated_poles = static_cast<int>(result.value.pole_ids.size());
+      ui_state.last_generated_spans = static_cast<int>(result.value.span_ids.size());
+      ui_state.last_generation_session = result.value.generation_session_id;
+      if (!result.value.pole_ids.empty()) {
+        ui_state.selected_type = SelectedType::kPole;
+        ui_state.selected_id = result.value.pole_ids.back();
+      }
+      PushLog(
+          ui_state,
+          "Generated road poles=" + std::to_string(ui_state.last_generated_poles) +
+              " spans=" + std::to_string(ui_state.last_generated_spans));
+    }
+  }
+  ImGui::Text("Last generated poles: %d", ui_state.last_generated_poles);
+  ImGui::Text("Last generated spans: %d", ui_state.last_generated_spans);
+  ImGui::Text("Last generation session: %llu", static_cast<unsigned long long>(ui_state.last_generation_session));
 }
 
 void DrawConnectionModePanel(CoreState& state, ViewerUiState& ui_state) {
@@ -693,6 +1024,79 @@ void DrawConnectionModePanel(CoreState& state, ViewerUiState& ui_state) {
               " portB=" + std::to_string(result.value.port_b_id) +
               " slotB=" + std::to_string(result.value.slot_b_id));
     }
+  }
+}
+
+void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
+  ImGui::TextUnformatted("Draw Path");
+  ImGui::TextUnformatted("LMB: add point on ground");
+  ImGui::TextUnformatted("RMB/Backspace: undo last");
+  ImGui::TextUnformatted("Esc: clear path, Enter: generate");
+  ImGui::Checkbox("Show Preview", &ui_state.draw_show_preview);
+  ImGui::Checkbox("Keep Path After Generate", &ui_state.draw_keep_path_after_generate);
+  ImGui::Text("Path points: %d", static_cast<int>(ui_state.draw_path_points.size()));
+  if (ui_state.draw_hover_valid) {
+    ImGui::Text(
+        "Hover: %.2f %.2f %.2f",
+        ui_state.draw_hover_point.x,
+        ui_state.draw_hover_point.y,
+        ui_state.draw_hover_point.z);
+  } else {
+    ImGui::TextUnformatted("Hover: (no ground hit)");
+  }
+
+  const auto type_ids = SortedPoleTypeIds(state);
+  if (!type_ids.empty()) {
+    const std::size_t road_type_index = ClampedTypeIndex(ui_state.road_pole_type_index, type_ids.size());
+    ui_state.road_pole_type_index = static_cast<int>(road_type_index);
+    const wire::core::PoleTypeId road_type_id = type_ids[road_type_index];
+    const auto road_type_it = state.pole_types().find(road_type_id);
+    const std::string road_type_name =
+        (road_type_it != state.pole_types().end()) ? road_type_it->second.name : std::to_string(road_type_id);
+    if (ImGui::BeginCombo("Path PoleType", road_type_name.c_str())) {
+      for (std::size_t i = 0; i < type_ids.size(); ++i) {
+        const auto it = state.pole_types().find(type_ids[i]);
+        const std::string label = (it != state.pole_types().end()) ? it->second.name : std::to_string(type_ids[i]);
+        const bool selected = (i == road_type_index);
+        if (ImGui::Selectable(label.c_str(), selected)) {
+          ui_state.road_pole_type_index = static_cast<int>(i);
+        }
+        if (selected) {
+          ImGui::SetItemDefaultFocus();
+        }
+      }
+      ImGui::EndCombo();
+    }
+  }
+
+  const int category_index = std::clamp(ui_state.road_category_index, 0, static_cast<int>(kAllCategories.size() - 1));
+  ui_state.road_category_index = category_index;
+  if (ImGui::BeginCombo("Path Category", CategoryLabel(kAllCategories[category_index]))) {
+    for (int i = 0; i < static_cast<int>(kAllCategories.size()); ++i) {
+      const bool selected = (i == category_index);
+      if (ImGui::Selectable(CategoryLabel(kAllCategories[i]), selected)) {
+        ui_state.road_category_index = i;
+      }
+      if (selected) {
+        ImGui::SetItemDefaultFocus();
+      }
+    }
+    ImGui::EndCombo();
+  }
+  ImGui::InputDouble("Path Interval", &ui_state.road_interval);
+
+  if (ImGui::Button("Generate From Path")) {
+    ExecuteGenerateFromDrawPath(state, ui_state, false);
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Undo Last Point")) {
+    if (!ui_state.draw_path_points.empty()) {
+      ui_state.draw_path_points.pop_back();
+    }
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Clear Path")) {
+    ui_state.draw_path_points.clear();
   }
 }
 
@@ -876,6 +1280,26 @@ void DrawStatsPanel(CoreState& state, ViewerUiState& ui_state) {
       ImGuiWindowFlags_NoCollapse;
 
   ImGui::Begin("Wire Viewer", nullptr, flags);
+  if (ImGui::CollapsingHeader("Guide", ImGuiTreeNodeFlags_DefaultOpen)) {
+    ImGui::TextUnformatted("Camera");
+    ImGui::BulletText("MMB orbit");
+    ImGui::BulletText("Shift+MMB pan");
+    ImGui::BulletText("Ctrl+MMB dolly");
+    ImGui::BulletText("Wheel zoom");
+    ImGui::Separator();
+    ImGui::TextUnformatted("Modes");
+    ImGui::BulletText("Placement: add pole / generate line by form");
+    ImGui::BulletText("Connection: connect selected pole ids");
+    ImGui::BulletText("Branch: split span and add drop");
+    ImGui::BulletText("Detail: inspect and tweak selected pole");
+    ImGui::BulletText("DrawPath: click points and press Enter/Generate");
+    ImGui::Separator();
+    ImGui::TextUnformatted("DrawPath shortcuts");
+    ImGui::BulletText("LMB add point, RMB/Backspace undo");
+    ImGui::BulletText("Esc clear, Enter generate");
+  }
+  ImGui::Separator();
+
   ImGui::Text("Poles: %d", static_cast<int>(state.edit_state().poles.size()));
   ImGui::Text("Ports: %d", static_cast<int>(state.edit_state().ports.size()));
   ImGui::Text("Spans: %d", static_cast<int>(state.edit_state().spans.size()));
@@ -891,6 +1315,9 @@ void DrawStatsPanel(CoreState& state, ViewerUiState& ui_state) {
   ImGui::Text("DirtyQueue Raycast: %d", static_cast<int>(state.dirty_queue().raycast_dirty_span_ids.size()));
   const auto& recalc = state.last_recalc_stats();
   ImGui::Text("Recalc last frame: %d", static_cast<int>(recalc.total_processed()));
+  ImGui::Text("  Geometry processed: %d", static_cast<int>(recalc.geometry_processed));
+  ImGui::Text("  Bounds processed: %d", static_cast<int>(recalc.bounds_processed));
+  ImGui::Text("  Render processed: %d", static_cast<int>(recalc.render_processed));
   ImGui::Checkbox("Auto Recalc", &ui_state.auto_recalc);
   ImGui::SameLine();
   if (ImGui::Button("Run Recalc")) {
@@ -898,18 +1325,63 @@ void DrawStatsPanel(CoreState& state, ViewerUiState& ui_state) {
     PushLog(ui_state, "Recalc processed=" + std::to_string(stats.total_processed()));
   }
 
+  if (!ui_state.geometry_settings_loaded) {
+    const auto& gs = state.geometry_settings();
+    ui_state.geometry_samples = gs.curve_samples;
+    ui_state.geometry_sag_enabled = gs.sag_enabled;
+    ui_state.geometry_sag_factor = gs.sag_factor;
+    ui_state.geometry_settings_loaded = true;
+  }
+
+  ImGui::Separator();
+  ImGui::TextUnformatted("Geometry Settings");
+  ImGui::SliderInt("Curve Samples", &ui_state.geometry_samples, 2, 64);
+  ImGui::Checkbox("Sag Enabled", &ui_state.geometry_sag_enabled);
+  ImGui::InputDouble("Sag Factor", &ui_state.geometry_sag_factor, 0.005, 0.01, "%.4f");
+  if (ImGui::Button("Apply Geometry")) {
+    wire::core::GeometrySettings settings{};
+    settings.curve_samples = ui_state.geometry_samples;
+    settings.sag_enabled = ui_state.geometry_sag_enabled;
+    settings.sag_factor = ui_state.geometry_sag_factor;
+    const auto result = state.UpdateGeometrySettings(settings, true);
+    if (!result.ok) {
+      ui_state.last_error = result.error;
+      PushLog(ui_state, "UpdateGeometrySettings failed");
+    } else {
+      ui_state.last_error.clear();
+      PushLog(
+          ui_state,
+          "Geometry settings updated changed=" +
+              std::string(result.value ? "true" : "false") +
+              " dirtySpans=" + std::to_string(result.change_set.dirty_span_ids.size()));
+    }
+  }
+
+  ImGui::Separator();
+  ImGui::TextUnformatted("Debug Draw");
+  ImGui::Checkbox("Show Span AABB", &ui_state.show_whole_aabb);
+  ImGui::Checkbox("Show Segment AABB", &ui_state.show_segment_aabb);
+
   const wire::core::ValidationResult validation = state.Validate();
   ImGui::Text("Validation: %s", validation.ok() ? "OK" : "ERROR");
 
   ImGui::Separator();
   ImGui::Text("Mode: %s", ModeLabel(ui_state.mode));
-  if (ImGui::RadioButton("Placement", ui_state.mode == EditMode::kPlacement)) ui_state.mode = EditMode::kPlacement;
-  ImGui::SameLine();
-  if (ImGui::RadioButton("Connection", ui_state.mode == EditMode::kConnection)) ui_state.mode = EditMode::kConnection;
-  ImGui::SameLine();
-  if (ImGui::RadioButton("Branch", ui_state.mode == EditMode::kBranch)) ui_state.mode = EditMode::kBranch;
-  ImGui::SameLine();
-  if (ImGui::RadioButton("Detail", ui_state.mode == EditMode::kDetail)) ui_state.mode = EditMode::kDetail;
+  int mode_index = static_cast<int>(ui_state.mode);
+  const std::array<const char*, 5> mode_names = {"Placement", "Connection", "Branch", "Detail", "DrawPath"};
+  if (ImGui::BeginCombo("Edit Mode", mode_names[mode_index])) {
+    for (int i = 0; i < static_cast<int>(mode_names.size()); ++i) {
+      const bool selected = (mode_index == i);
+      if (ImGui::Selectable(mode_names[i], selected)) {
+        mode_index = i;
+      }
+      if (selected) {
+        ImGui::SetItemDefaultFocus();
+      }
+    }
+    ImGui::EndCombo();
+  }
+  ui_state.mode = static_cast<EditMode>(std::clamp(mode_index, 0, static_cast<int>(mode_names.size() - 1)));
 
   ImGui::Separator();
   if (ui_state.mode == EditMode::kPlacement) {
@@ -920,6 +1392,8 @@ void DrawStatsPanel(CoreState& state, ViewerUiState& ui_state) {
     DrawBranchModePanel(state, ui_state);
   } else if (ui_state.mode == EditMode::kDetail) {
     DrawDetailModePanel(state, ui_state);
+  } else if (ui_state.mode == EditMode::kDrawPath) {
+    DrawPathModePanel(state, ui_state);
   }
   DrawDebugDirectPanel(state, ui_state);
 
@@ -1020,7 +1494,7 @@ int main() {
   ViewerUiState ui_state;
   PushLog(ui_state, "[info] viewer started");
   PushLog(ui_state, "[info] demo state loaded");
-  PushLog(ui_state, "[mode] Placement/Connection/Branch/Detail");
+  PushLog(ui_state, "[mode] Placement/Connection/Branch/Detail/DrawPath");
   PushLog(ui_state, "[flow] Main path: Pole->Pole connection");
   PushLog(ui_state, "[hint] Blender style controls enabled");
   PushLog(ui_state, "[hint] MMB orbit, Shift+MMB pan, Ctrl+MMB dolly");
@@ -1033,6 +1507,7 @@ int main() {
 
     rlImGuiBegin();
     UpdateCameraForViewport(&camera, ui_state);
+    UpdateDrawPathInput(state, camera, ui_state);
     if (ui_state.auto_recalc) {
       (void)state.ProcessDirtyQueues();
     }
@@ -1041,6 +1516,7 @@ int main() {
     DrawGrid(40, 1.0f);
     DrawAxes();
     DrawCore(state, ui_state);
+    DrawPathPreview(ui_state);
     EndMode3D();
 
     DrawStatsPanel(state, ui_state);

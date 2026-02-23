@@ -22,7 +22,36 @@ struct EditState {
   ObjectStore<Attachment> attachments;
 };
 
-struct CacheState {};
+struct GeometrySettings {
+  int curve_samples = 8;
+  bool sag_enabled = false;
+  double sag_factor = 0.03;
+};
+
+struct CurveCacheEntry {
+  std::vector<Vec3d> points{};
+  std::uint64_t source_version = 0;
+};
+
+struct CurveCache {
+  std::unordered_map<ObjectId, CurveCacheEntry> by_span{};
+};
+
+struct BoundsCacheEntry {
+  AABBd whole{};
+  std::vector<AABBd> segments{};
+  std::uint64_t source_version = 0;
+};
+
+struct BoundsCache {
+  std::unordered_map<ObjectId, BoundsCacheEntry> by_span{};
+};
+
+struct CacheState {
+  GeometrySettings geometry_settings{};
+  CurveCache curve_cache{};
+  BoundsCache bounds_cache{};
+};
 
 struct ConnectionIndex {
   std::unordered_map<ObjectId, std::vector<ObjectId>> spans_by_port;
@@ -136,6 +165,8 @@ class CoreState {
     ObjectId bundle_id = kInvalidObjectId;
     bool auto_create_bundle = true;
     bool allow_generate_port = true;
+    ObjectId preferred_port_a_id = kInvalidObjectId;
+    ObjectId preferred_port_b_id = kInvalidObjectId;
   };
 
   struct AddConnectionByPoleResult {
@@ -151,6 +182,12 @@ class CoreState {
     ObjectId source_port_id = kInvalidObjectId;
     ObjectId target_port_id = kInvalidObjectId;
     ObjectId split_port_id = kInvalidObjectId;
+  };
+
+  struct GenerateSimpleLineResult {
+    std::vector<ObjectId> pole_ids{};
+    std::vector<ObjectId> span_ids{};
+    std::uint64_t generation_session_id = 0;
   };
 
   struct PoleDetailInfo {
@@ -220,7 +257,22 @@ class CoreState {
       double t,
       const Vec3d& target_world_position,
       ConnectionCategory category = ConnectionCategory::kDrop);
+  EditResult<std::vector<ObjectId>> GeneratePolesAlongRoad(
+      const RoadSegment& road,
+      double interval,
+      PoleTypeId pole_type_id);
+  EditResult<std::vector<ObjectId>> GenerateSpansBetweenPoles(
+      const std::vector<ObjectId>& poles,
+      ConnectionCategory category);
+  EditResult<GenerateSimpleLineResult> GenerateSimpleLine(
+      const RoadSegment& road,
+      double interval,
+      PoleTypeId pole_type_id,
+      ConnectionCategory category);
   [[nodiscard]] PoleDetailInfo GetPoleDetail(ObjectId pole_id) const;
+  EditResult<bool> UpdateGeometrySettings(const GeometrySettings& settings, bool mark_all_spans_dirty = true);
+  [[nodiscard]] const CurveCacheEntry* find_curve_cache(ObjectId span_id) const;
+  [[nodiscard]] const BoundsCacheEntry* find_bounds_cache(ObjectId span_id) const;
 
   RecalcStats ProcessDirtyQueues();
 
@@ -237,6 +289,7 @@ class CoreState {
   [[nodiscard]] const DirtyQueue& dirty_queue() const { return dirty_queue_; }
   [[nodiscard]] const RecalcStats& last_recalc_stats() const { return last_recalc_stats_; }
   [[nodiscard]] const std::unordered_map<PoleTypeId, PoleTypeDefinition>& pole_types() const { return pole_types_; }
+  [[nodiscard]] const GeometrySettings& geometry_settings() const { return cache_state_.geometry_settings; }
 
   [[nodiscard]] const CacheState& cache_state() const { return cache_state_; }
   [[nodiscard]] CacheState& cache_state() { return cache_state_; }
@@ -252,6 +305,14 @@ class CoreState {
   void add_dirty_queue(ObjectId span_id, DirtyBits dirty_bits);
   void mark_connected_spans_dirty_from_port(ObjectId port_id, DirtyBits dirty_bits, ChangeSet* change_set);
   void mark_connected_spans_dirty_from_anchor(ObjectId anchor_id, DirtyBits dirty_bits, ChangeSet* change_set);
+  [[nodiscard]] bool rebuild_span_curve(ObjectId span_id, std::string* error_message);
+  [[nodiscard]] bool rebuild_span_bounds(ObjectId span_id, std::string* error_message);
+  [[nodiscard]] std::vector<Vec3d> generate_span_points(const Span& span, std::string* error_message) const;
+  [[nodiscard]] static AABBd build_aabb_from_points(const std::vector<Vec3d>& points);
+  [[nodiscard]] static AABBd build_aabb_from_two_points(const Vec3d& a, const Vec3d& b);
+  void remove_span_from_caches(ObjectId span_id);
+  [[nodiscard]] static std::vector<Vec3d> sample_polyline_points(const std::vector<Vec3d>& polyline, double interval);
+  [[nodiscard]] static double polyline_length(const std::vector<Vec3d>& polyline);
   [[nodiscard]] static PortLayer category_to_port_layer(ConnectionCategory category);
   [[nodiscard]] static SpanLayer category_to_span_layer(ConnectionCategory category);
   [[nodiscard]] static BundleKind category_to_bundle_kind(ConnectionCategory category);
@@ -264,10 +325,12 @@ class CoreState {
       ObjectId pole_id,
       ConnectionCategory category,
       bool allow_generate_port,
-      int* out_slot_id);
+      int* out_slot_id,
+      int preferred_slot_id = -1);
   EditResult<ObjectId> ensure_bundle_for_category(ConnectionCategory category, const AddConnectionByPoleOptions& options);
   static void add_unique_id(std::vector<ObjectId>& ids, ObjectId id);
   static std::string dirty_bits_to_string(DirtyBits bits);
+  std::string next_display_id(std::string_view prefix);
 
   [[nodiscard]] static bool has_zero_length(const Port& a, const Port& b);
   [[nodiscard]] static std::unordered_map<ObjectId, std::vector<ObjectId>> make_expected_port_index(const EditState& edit_state);
@@ -275,6 +338,8 @@ class CoreState {
 
   IdGenerator id_generator_{};
   std::uint64_t next_data_version_ = 1;
+  std::uint64_t next_generation_session_id_ = 1;
+  std::unordered_map<std::string, std::uint64_t> display_id_counters_{};
   EditState edit_state_{};
   ConnectionIndex connection_index_{};
   std::unordered_map<PoleTypeId, PoleTypeDefinition> pole_types_{};

@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cmath>
 #include <functional>
 #include <iostream>
 #include <string>
@@ -41,6 +42,24 @@ bool has_issue_code(const wire::core::ValidationResult& validation, const std::s
   return false;
 }
 
+bool almost_equal(double a, double b, double eps = 1e-9) {
+  return std::abs(a - b) <= eps;
+}
+
+bool almost_equal(const wire::core::Vec3d& a, const wire::core::Vec3d& b, double eps = 1e-9) {
+  return almost_equal(a.x, b.x, eps) && almost_equal(a.y, b.y, eps) && almost_equal(a.z, b.z, eps);
+}
+
+bool aabb_valid(const wire::core::AABBd& aabb) {
+  return aabb.min.x <= aabb.max.x &&
+         aabb.min.y <= aabb.max.y &&
+         aabb.min.z <= aabb.max.z;
+}
+
+bool starts_with(const std::string& value, const std::string& prefix) {
+  return value.rfind(prefix, 0) == 0;
+}
+
 std::vector<PoleTypeId> sorted_pole_type_ids(const CoreState& state) {
   std::vector<PoleTypeId> ids;
   ids.reserve(state.pole_types().size());
@@ -66,7 +85,7 @@ bool test_span_runtime_initialized_on_add() {
   return runtime != nullptr &&
          runtime->span_id == span_result.value &&
          runtime->data_version > 0 &&
-         has_dirty(runtime, DirtyBits::kTopology | DirtyBits::kGeometry | DirtyBits::kBounds | DirtyBits::kRender);
+         has_dirty(runtime, DirtyBits::kTopology | DirtyBits::kGeometry);
 }
 
 // Intent: MovePole should dirty only related spans.
@@ -91,8 +110,8 @@ bool test_move_pole_dirties_only_related_span() {
     return false;
   }
 
-  return has_dirty(state.find_span_runtime_state(related), DirtyBits::kGeometry | DirtyBits::kBounds | DirtyBits::kRender) &&
-         !has_dirty(state.find_span_runtime_state(unrelated), DirtyBits::kGeometry | DirtyBits::kBounds | DirtyBits::kRender);
+  return has_dirty(state.find_span_runtime_state(related), DirtyBits::kGeometry) &&
+         !has_dirty(state.find_span_runtime_state(unrelated), DirtyBits::kGeometry);
 }
 
 // Intent: SplitSpan should replace old span with two new spans and create split port.
@@ -252,7 +271,7 @@ bool test_add_connection_by_pole_updates_dirty_version_and_indices() {
 
   return contains_id(it_a->second, span->id) &&
          contains_id(it_b->second, span->id) &&
-         has_dirty(runtime, DirtyBits::kGeometry | DirtyBits::kBounds | DirtyBits::kRender) &&
+         has_dirty(runtime, DirtyBits::kGeometry) &&
          contains_id(connection.change_set.created_ids, span->id) &&
          contains_id(connection.change_set.dirty_span_ids, span->id);
 }
@@ -351,6 +370,465 @@ bool test_validation_detects_template_slot_mismatch() {
   return has_issue_code(validation, "PortSlotMissing");
 }
 
+// Intent: Line mode curve cache should be generated deterministically for the same input.
+bool test_curve_cache_line_mode_is_deterministic() {
+  CoreState state;
+  wire::core::GeometrySettings settings{};
+  settings.curve_samples = 9;
+  settings.sag_enabled = false;
+  settings.sag_factor = 0.0;
+  (void)state.UpdateGeometrySettings(settings, false);
+
+  const ObjectId pole = state.AddPole({}, 10.0, "P").value;
+  const ObjectId a = state.AddPort(pole, {0.0, 0.0, 5.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId b = state.AddPort(pole, {10.0, 0.0, 5.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId span = state.AddSpan(a, b, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
+  (void)state.ProcessDirtyQueues();
+
+  const auto* curve1 = state.find_curve_cache(span);
+  if (curve1 == nullptr || curve1->points.size() != 9) {
+    return false;
+  }
+
+  const auto move_result = state.MovePort(a, {0.0, 0.0, 5.0});
+  if (!move_result.ok) {
+    return false;
+  }
+  (void)state.ProcessDirtyQueues();
+  const auto* curve2 = state.find_curve_cache(span);
+  if (curve2 == nullptr || curve2->points.size() != curve1->points.size()) {
+    return false;
+  }
+
+  if (!almost_equal(curve2->points.front(), {0.0, 0.0, 5.0}) ||
+      !almost_equal(curve2->points.back(), {10.0, 0.0, 5.0})) {
+    return false;
+  }
+  for (std::size_t i = 0; i < curve1->points.size(); ++i) {
+    if (!almost_equal(curve1->points[i], curve2->points[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Intent: Sag mode should change middle points while keeping endpoints fixed.
+bool test_sag_mode_changes_midpoint_and_keeps_endpoints() {
+  CoreState state;
+  const ObjectId pole = state.AddPole({}, 10.0, "P").value;
+  const ObjectId a = state.AddPort(pole, {0.0, 0.0, 4.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId b = state.AddPort(pole, {12.0, 0.0, 4.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId span = state.AddSpan(a, b, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
+
+  wire::core::GeometrySettings line{};
+  line.curve_samples = 11;
+  line.sag_enabled = false;
+  line.sag_factor = 0.05;
+  (void)state.UpdateGeometrySettings(line, true);
+  (void)state.ProcessDirtyQueues();
+  const auto* line_curve = state.find_curve_cache(span);
+  if (line_curve == nullptr || line_curve->points.size() != 11) {
+    return false;
+  }
+  const std::vector<wire::core::Vec3d> line_points = line_curve->points;
+
+  wire::core::GeometrySettings sag = line;
+  sag.sag_enabled = true;
+  sag.sag_factor = 0.10;
+  (void)state.UpdateGeometrySettings(sag, true);
+  (void)state.ProcessDirtyQueues();
+  const auto* sag_curve = state.find_curve_cache(span);
+  if (sag_curve == nullptr || sag_curve->points.size() != 11) {
+    return false;
+  }
+
+  const std::size_t mid = sag_curve->points.size() / 2;
+  return almost_equal(sag_curve->points.front(), line_points.front()) &&
+         almost_equal(sag_curve->points.back(), line_points.back()) &&
+         sag_curve->points[mid].z < line_points[mid].z;
+}
+
+// Intent: Geometry dirty should rebuild only related span and propagate bounds/render versions.
+bool test_geometry_bounds_version_follow_and_locality() {
+  CoreState state;
+  wire::core::GeometrySettings settings{};
+  settings.curve_samples = 8;
+  settings.sag_enabled = false;
+  settings.sag_factor = 0.0;
+  (void)state.UpdateGeometrySettings(settings, false);
+
+  const ObjectId pole = state.AddPole({}, 10.0, "P").value;
+  const ObjectId p1 = state.AddPort(pole, {0.0, 0.0, 1.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId p2 = state.AddPort(pole, {5.0, 0.0, 1.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId p3 = state.AddPort(pole, {10.0, 0.0, 1.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId p4 = state.AddPort(pole, {15.0, 0.0, 1.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId span_a = state.AddSpan(p1, p2, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
+  const ObjectId span_b = state.AddSpan(p3, p4, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
+  (void)state.ProcessDirtyQueues();
+
+  const auto* before_b = state.find_span_runtime_state(span_b);
+  if (before_b == nullptr) {
+    return false;
+  }
+  const std::uint64_t span_b_geometry_before = before_b->geometry_version;
+
+  const auto move_result = state.MovePort(p1, {0.0, 1.0, 1.0});
+  if (!move_result.ok) {
+    return false;
+  }
+  const auto* dirty_a = state.find_span_runtime_state(span_a);
+  const auto* dirty_b = state.find_span_runtime_state(span_b);
+  if (dirty_a == nullptr || dirty_b == nullptr) {
+    return false;
+  }
+  if (!has_dirty(dirty_a, DirtyBits::kGeometry) || has_dirty(dirty_b, DirtyBits::kGeometry)) {
+    return false;
+  }
+
+  (void)state.ProcessDirtyQueues();
+  const auto* after_a = state.find_span_runtime_state(span_a);
+  const auto* after_b = state.find_span_runtime_state(span_b);
+  if (after_a == nullptr || after_b == nullptr) {
+    return false;
+  }
+
+  return after_a->geometry_version == after_a->data_version &&
+         after_a->bounds_version == after_a->data_version &&
+         after_a->render_version == after_a->data_version &&
+         after_b->geometry_version == span_b_geometry_before;
+}
+
+// Intent: Bounds cache should be generated and valid from curve cache.
+bool test_bounds_cache_generated_and_valid() {
+  CoreState state;
+  wire::core::GeometrySettings settings{};
+  settings.curve_samples = 7;
+  settings.sag_enabled = true;
+  settings.sag_factor = 0.08;
+  (void)state.UpdateGeometrySettings(settings, false);
+
+  const ObjectId pole = state.AddPole({}, 10.0, "P").value;
+  const ObjectId a = state.AddPort(pole, {0.0, 0.0, 5.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId b = state.AddPort(pole, {10.0, 2.0, 5.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId span = state.AddSpan(a, b, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
+  (void)state.ProcessDirtyQueues();
+
+  const auto* curve = state.find_curve_cache(span);
+  const auto* bounds = state.find_bounds_cache(span);
+  if (curve == nullptr || bounds == nullptr) {
+    return false;
+  }
+  if (curve->points.size() < 2 || bounds->segments.size() != curve->points.size() - 1) {
+    return false;
+  }
+  if (!aabb_valid(bounds->whole)) {
+    return false;
+  }
+  for (const auto& segment : bounds->segments) {
+    if (!aabb_valid(segment)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Intent: Bounds should follow geometry change when sag setting changes.
+bool test_bounds_follow_geometry_change() {
+  CoreState state;
+  const ObjectId pole = state.AddPole({}, 10.0, "P").value;
+  const ObjectId a = state.AddPort(pole, {0.0, 0.0, 6.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId b = state.AddPort(pole, {12.0, 0.0, 6.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId span = state.AddSpan(a, b, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
+
+  wire::core::GeometrySettings line{};
+  line.curve_samples = 9;
+  line.sag_enabled = false;
+  line.sag_factor = 0.1;
+  (void)state.UpdateGeometrySettings(line, true);
+  (void)state.ProcessDirtyQueues();
+  const auto* bounds_line = state.find_bounds_cache(span);
+  if (bounds_line == nullptr) {
+    return false;
+  }
+  const double line_min_z = bounds_line->whole.min.z;
+
+  wire::core::GeometrySettings sag = line;
+  sag.sag_enabled = true;
+  (void)state.UpdateGeometrySettings(sag, true);
+  (void)state.ProcessDirtyQueues();
+  const auto* bounds_sag = state.find_bounds_cache(span);
+  if (bounds_sag == nullptr) {
+    return false;
+  }
+
+  return bounds_sag->whole.min.z < line_min_z;
+}
+
+// Intent: Validation should detect invalid bounds data in cache.
+bool test_validation_detects_invalid_bounds() {
+  CoreState state;
+  const ObjectId pole = state.AddPole({}, 10.0, "P").value;
+  const ObjectId a = state.AddPort(pole, {0.0, 0.0, 1.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId b = state.AddPort(pole, {5.0, 0.0, 1.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId span = state.AddSpan(a, b, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
+  (void)state.ProcessDirtyQueues();
+
+  auto bounds_it = state.cache_state().bounds_cache.by_span.find(span);
+  if (bounds_it == state.cache_state().bounds_cache.by_span.end()) {
+    return false;
+  }
+  bounds_it->second.whole.min.x = 10.0;
+  bounds_it->second.whole.max.x = -10.0;
+
+  const auto validation = state.Validate();
+  return has_issue_code(validation, "BoundsInvalid");
+}
+
+// Intent: GeneratePolesAlongRoad places poles at interval and applies pole type.
+bool test_generate_poles_along_road_basic() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::RoadSegment road{};
+  road.id = 10;
+  road.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
+  const auto result = state.GeneratePolesAlongRoad(road, 5.0, type_ids.front());
+  if (!result.ok) {
+    return false;
+  }
+  if (result.value.size() != 5) {
+    return false;
+  }
+
+  for (std::size_t i = 0; i < result.value.size(); ++i) {
+    const auto* pole = state.edit_state().poles.find(result.value[i]);
+    if (pole == nullptr) {
+      return false;
+    }
+    if (pole->pole_type_id != type_ids.front()) {
+      return false;
+    }
+    if (!pole->generation.generated || pole->generation.source != wire::core::GenerationSource::kRoadAuto) {
+      return false;
+    }
+    if (!almost_equal(pole->world_transform.position.y, 0.0) || !almost_equal(pole->world_transform.position.z, 0.0)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Intent: GenerateSimpleLine should fail when polyline has less than 2 points.
+bool test_generate_simple_line_fails_with_short_polyline() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  wire::core::RoadSegment road{};
+  road.id = 80;
+  road.polyline = {{0.0, 0.0, 0.0}};
+  const auto result = state.GenerateSimpleLine(road, 5.0, type_ids.front(), ConnectionCategory::kLowVoltage);
+  return !result.ok;
+}
+
+// Intent: GenerateSimpleLine should fail when interval is non-positive.
+bool test_generate_simple_line_fails_with_invalid_interval() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  wire::core::RoadSegment road{};
+  road.id = 81;
+  road.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}};
+  const auto result = state.GenerateSimpleLine(road, 0.0, type_ids.front(), ConnectionCategory::kLowVoltage);
+  return !result.ok;
+}
+
+// Intent: GenerateSpansBetweenPoles connects adjacent poles and keeps index/runtime consistent.
+bool test_generate_spans_between_poles_basic() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  std::vector<ObjectId> poles;
+  for (int i = 0; i < 4; ++i) {
+    wire::core::Transformd tf{};
+    tf.position = {static_cast<double>(i) * 10.0, 0.0, 0.0};
+    const ObjectId pole_id = state.AddPole(tf, 10.0, "P", wire::core::PoleKind::kConcrete).value;
+    if (!state.ApplyPoleType(pole_id, type_ids.front()).ok) {
+      return false;
+    }
+    poles.push_back(pole_id);
+  }
+
+  const auto result = state.GenerateSpansBetweenPoles(poles, ConnectionCategory::kLowVoltage);
+  if (!result.ok) {
+    return false;
+  }
+  if (result.value.size() != poles.size() - 1) {
+    return false;
+  }
+  for (ObjectId span_id : result.value) {
+    const auto* span = state.edit_state().spans.find(span_id);
+    const auto* runtime = state.find_span_runtime_state(span_id);
+    if (span == nullptr || runtime == nullptr) {
+      return false;
+    }
+    if (!span->generation.generated || span->generation.source != wire::core::GenerationSource::kRoadAuto) {
+      return false;
+    }
+    if (!has_dirty(runtime, DirtyBits::kGeometry)) {
+      return false;
+    }
+  }
+  return state.Validate().ok();
+}
+
+// Intent: GenerateSimpleLine should create poles+spans and drive geometry/bounds recalc.
+bool test_generate_simple_line_integration() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::RoadSegment road{};
+  road.id = 44;
+  road.polyline = {{0.0, 0.0, 0.0}, {15.0, 5.0, 0.0}, {30.0, 0.0, 0.0}};
+  const auto result = state.GenerateSimpleLine(road, 6.0, type_ids.front(), ConnectionCategory::kLowVoltage);
+  if (!result.ok) {
+    return false;
+  }
+  if (result.value.pole_ids.size() < 3) {
+    return false;
+  }
+  if (result.value.span_ids.size() != result.value.pole_ids.size() - 1) {
+    return false;
+  }
+  if (result.value.generation_session_id == 0) {
+    return false;
+  }
+
+  for (ObjectId pole_id : result.value.pole_ids) {
+    const auto* pole = state.edit_state().poles.find(pole_id);
+    if (pole == nullptr || pole->generation.generation_session_id != result.value.generation_session_id) {
+      return false;
+    }
+  }
+  for (ObjectId span_id : result.value.span_ids) {
+    const auto* span = state.edit_state().spans.find(span_id);
+    if (span == nullptr || span->generation.generation_session_id != result.value.generation_session_id) {
+      return false;
+    }
+  }
+
+  if (state.dirty_queue().geometry_dirty_span_ids.size() < result.value.span_ids.size()) {
+    return false;
+  }
+
+  (void)state.ProcessDirtyQueues();
+  for (ObjectId span_id : result.value.span_ids) {
+    const auto* runtime = state.find_span_runtime_state(span_id);
+    const auto* curve = state.find_curve_cache(span_id);
+    const auto* bounds = state.find_bounds_cache(span_id);
+    if (runtime == nullptr || curve == nullptr || bounds == nullptr) {
+      return false;
+    }
+    if (runtime->geometry_version != runtime->data_version ||
+        runtime->bounds_version != runtime->data_version ||
+        runtime->render_version != runtime->data_version) {
+      return false;
+    }
+  }
+  return state.Validate().ok();
+}
+
+// Intent: Auto-generated line should reuse the same intermediate pole port for through continuity.
+bool test_generate_simple_line_reuses_intermediate_ports() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::RoadSegment road{};
+  road.id = 55;
+  road.polyline = {{0.0, 0.0, 0.0}, {40.0, 0.0, 0.0}};
+  const auto result = state.GenerateSimpleLine(road, 10.0, type_ids.front(), ConnectionCategory::kLowVoltage);
+  if (!result.ok || result.value.pole_ids.size() < 4) {
+    return false;
+  }
+
+  for (std::size_t i = 1; i + 1 < result.value.pole_ids.size(); ++i) {
+    const ObjectId pole_id = result.value.pole_ids[i];
+    std::vector<ObjectId> used_ports;
+    for (ObjectId span_id : result.value.span_ids) {
+      const auto* span = state.edit_state().spans.find(span_id);
+      if (span == nullptr) {
+        return false;
+      }
+      const auto* port_a = state.edit_state().ports.find(span->port_a_id);
+      const auto* port_b = state.edit_state().ports.find(span->port_b_id);
+      if (port_a == nullptr || port_b == nullptr) {
+        return false;
+      }
+      if (port_a->owner_pole_id == pole_id) {
+        used_ports.push_back(port_a->id);
+      }
+      if (port_b->owner_pole_id == pole_id) {
+        used_ports.push_back(port_b->id);
+      }
+    }
+    if (used_ports.size() != 2) {
+      return false;
+    }
+    if (used_ports[0] != used_ports[1]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Intent: Display IDs should increment independently per prefix while ObjectId remains global.
+bool test_display_id_is_per_prefix_sequence() {
+  CoreState state;
+  const ObjectId pole1 = state.AddPole({}, 10.0, "P1").value;
+  const ObjectId pole2 = state.AddPole({}, 10.0, "P2").value;
+  const ObjectId port1 = state.AddPort(pole1, {0.0, 0.0, 1.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId port2 = state.AddPort(pole2, {1.0, 0.0, 1.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId span1 = state.AddSpan(port1, port2, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
+
+  const auto* p1 = state.edit_state().poles.find(pole1);
+  const auto* p2 = state.edit_state().poles.find(pole2);
+  const auto* pt1 = state.edit_state().ports.find(port1);
+  const auto* pt2 = state.edit_state().ports.find(port2);
+  const auto* sp1 = state.edit_state().spans.find(span1);
+  if (p1 == nullptr || p2 == nullptr || pt1 == nullptr || pt2 == nullptr || sp1 == nullptr) {
+    return false;
+  }
+
+  return p1->display_id == "P-000001" &&
+         p2->display_id == "P-000002" &&
+         pt1->display_id == "PT-000001" &&
+         pt2->display_id == "PT-000002" &&
+         starts_with(sp1->display_id, "SP-000001");
+}
+
+// Intent: Viewer default demo should have enough spans to visually inspect behavior.
+bool test_demo_state_has_dense_spans() {
+  CoreState state = wire::core::make_demo_state();
+  return state.edit_state().poles.size() >= 3 &&
+         state.edit_state().spans.size() >= 10 &&
+         state.edit_state().ports.size() >= 20;
+}
+
 }  // namespace
 
 int main() {
@@ -365,6 +843,20 @@ int main() {
       {"Phase35_AddDropFromPole_Basic", "Drop from pole creates service span", test_add_drop_from_pole_creates_service_connection},
       {"Phase35_AddDropFromSpan_Basic", "Drop from span splits and connects", test_add_drop_from_span_splits_and_connects_drop},
       {"Phase35_Validation_TemplateMismatch", "Validation detects slot mismatch", test_validation_detects_template_slot_mismatch},
+      {"Phase4_Curve_LineDeterministic", "Line mode curve cache is deterministic", test_curve_cache_line_mode_is_deterministic},
+      {"Phase4_Curve_SagBasic", "Sag mode changes midpoint and keeps endpoints", test_sag_mode_changes_midpoint_and_keeps_endpoints},
+      {"Phase4_DirtyVersion_LocalGeometryBounds", "Geometry dirty propagates to bounds/render locally", test_geometry_bounds_version_follow_and_locality},
+      {"Phase4_Bounds_Generated", "Bounds cache is generated and valid", test_bounds_cache_generated_and_valid},
+      {"Phase4_Bounds_FollowGeometry", "Bounds follows geometry setting change", test_bounds_follow_geometry_change},
+      {"Phase4_Validation_BoundsInvalid", "Validation detects invalid bounds", test_validation_detects_invalid_bounds},
+      {"Phase4_DemoState_Dense", "Demo state has dense enough spans for initial viewer", test_demo_state_has_dense_spans},
+      {"Phase45_GeneratePolesAlongRoad_Basic", "Road interval generates pole line with pole type", test_generate_poles_along_road_basic},
+      {"Phase46_GenerateSimpleLine_FailShortPolyline", "Simple line fails for short polyline", test_generate_simple_line_fails_with_short_polyline},
+      {"Phase46_GenerateSimpleLine_FailInvalidInterval", "Simple line fails for invalid interval", test_generate_simple_line_fails_with_invalid_interval},
+      {"Phase45_GenerateSpansBetweenPoles_Basic", "Adjacent poles are auto connected", test_generate_spans_between_poles_basic},
+      {"Phase45_GenerateSimpleLine_Integration", "Simple line generation integrates dirty/recalc/caches", test_generate_simple_line_integration},
+      {"Phase45_GenerateSimpleLine_Continuity", "Intermediate poles reuse same through-port", test_generate_simple_line_reuses_intermediate_ports},
+      {"Phase45_DisplayId_PerPrefix", "Display IDs increment per prefix", test_display_id_is_per_prefix_sequence},
   };
 
   bool all_passed = true;

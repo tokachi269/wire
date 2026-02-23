@@ -11,6 +11,7 @@ namespace wire::core {
 
 using PoleTypeId = std::uint32_t;
 constexpr PoleTypeId kInvalidPoleTypeId = 0;
+using RoadId = std::uint64_t;
 
 enum class ConnectionCategory : std::uint8_t {
   kHighVoltage = 0,
@@ -76,6 +77,23 @@ enum class AttachmentKind : std::uint8_t {
   kMarker = 3,
 };
 
+enum class GenerationSource : std::uint8_t {
+  kManual = 0,
+  kRoadAuto = 1,
+};
+
+struct GenerationMeta {
+  bool generated = false;
+  GenerationSource source = GenerationSource::kManual;
+  std::uint64_t generation_session_id = 0;
+  std::uint32_t generation_order = 0;
+};
+
+struct RoadSegment {
+  RoadId id = 0;
+  std::vector<Vec3d> polyline{};
+};
+
 struct PortSlotTemplate {
   int slot_id = 0;
   ConnectionCategory category = ConnectionCategory::kLowVoltage;
@@ -110,6 +128,7 @@ struct Pole {
   double height_m = 10.0;
   PoleKind kind = PoleKind::kGeneric;
   PoleTypeId pole_type_id = kInvalidPoleTypeId;
+  GenerationMeta generation{};
 };
 
 struct Port {
@@ -154,6 +173,7 @@ struct Span {
   ObjectId bundle_id = kInvalidObjectId;
   ObjectId anchor_a_id = kInvalidObjectId;
   ObjectId anchor_b_id = kInvalidObjectId;
+  GenerationMeta generation{};
 };
 
 struct Attachment {

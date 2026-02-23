@@ -1,0 +1,1056 @@
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstdio>
+#include <functional>
+#include <string>
+#include <vector>
+
+#include "imgui.h"
+#include "raylib.h"
+#include "raymath.h"
+#include "rlImGui.h"
+#include "wire/core/core_state.hpp"
+
+namespace {
+
+using wire::core::CoreState;
+using wire::core::ObjectId;
+
+constexpr float kAxisLength = 2.0f;
+
+enum class SelectedType {
+  kNone = 0,
+  kPole = 1,
+  kPort = 2,
+  kSpan = 3,
+  kAnchor = 4,
+  kBundle = 5,
+  kAttachment = 6,
+};
+
+enum class CameraDragMode {
+  kNone = 0,
+  kOrbit = 1,
+  kPan = 2,
+  kDolly = 3,
+};
+
+enum class EditMode {
+  kPlacement = 0,
+  kConnection = 1,
+  kBranch = 2,
+  kDetail = 3,
+};
+
+struct ViewerUiState {
+  EditMode mode = EditMode::kPlacement;
+  SelectedType selected_type = SelectedType::kNone;
+  ObjectId selected_id = wire::core::kInvalidObjectId;
+
+  double pole_x = 0.0;
+  double pole_y = 0.0;
+  double pole_z = 0.0;
+  double pole_height = 9.0;
+  int pole_kind = static_cast<int>(wire::core::PoleKind::kWood);
+
+  ObjectId port_owner_pole_id = wire::core::kInvalidObjectId;
+  double port_x = 0.0;
+  double port_y = 0.0;
+  double port_z = 7.0;
+  int port_kind = static_cast<int>(wire::core::PortKind::kPower);
+  int port_layer = static_cast<int>(wire::core::PortLayer::kLowVoltage);
+
+  ObjectId span_port_a_id = wire::core::kInvalidObjectId;
+  ObjectId span_port_b_id = wire::core::kInvalidObjectId;
+  ObjectId span_bundle_id = wire::core::kInvalidObjectId;
+  int span_kind = static_cast<int>(wire::core::SpanKind::kDistribution);
+  int span_layer = static_cast<int>(wire::core::SpanLayer::kLowVoltage);
+  double split_t = 0.5;
+
+  int placement_pole_type_index = 0;
+  ObjectId connect_pole_a_id = wire::core::kInvalidObjectId;
+  ObjectId connect_pole_b_id = wire::core::kInvalidObjectId;
+  int connect_category = static_cast<int>(wire::core::ConnectionCategory::kLowVoltage);
+  ObjectId branch_source_span_id = wire::core::kInvalidObjectId;
+  double branch_t = 0.5;
+  double branch_target_x = 0.0;
+  double branch_target_y = 0.0;
+  double branch_target_z = 3.0;
+  ObjectId drop_source_pole_id = wire::core::kInvalidObjectId;
+  double drop_target_x = 0.0;
+  double drop_target_y = 4.0;
+  double drop_target_z = 3.0;
+  int detail_pole_type_index = 0;
+  bool show_debug_labels = false;
+
+  std::string last_error;
+  std::vector<std::string> logs;
+  CameraDragMode camera_drag_mode = CameraDragMode::kNone;
+  bool auto_recalc = false;
+  double edit_x = 0.0;
+  double edit_y = 0.0;
+  double edit_z = 0.0;
+};
+
+constexpr std::array<wire::core::ConnectionCategory, 5> kAllCategories = {
+    wire::core::ConnectionCategory::kHighVoltage,
+    wire::core::ConnectionCategory::kLowVoltage,
+    wire::core::ConnectionCategory::kCommunication,
+    wire::core::ConnectionCategory::kOptical,
+    wire::core::ConnectionCategory::kDrop,
+};
+
+const char* CategoryLabel(wire::core::ConnectionCategory category) {
+  switch (category) {
+    case wire::core::ConnectionCategory::kHighVoltage:
+      return "HighVoltage";
+    case wire::core::ConnectionCategory::kLowVoltage:
+      return "LowVoltage";
+    case wire::core::ConnectionCategory::kCommunication:
+      return "Communication";
+    case wire::core::ConnectionCategory::kOptical:
+      return "Optical";
+    case wire::core::ConnectionCategory::kDrop:
+      return "Drop";
+    default:
+      return "Unknown";
+  }
+}
+
+const char* ModeLabel(EditMode mode) {
+  switch (mode) {
+    case EditMode::kPlacement:
+      return "Placement";
+    case EditMode::kConnection:
+      return "Connection";
+    case EditMode::kBranch:
+      return "Branch";
+    case EditMode::kDetail:
+      return "Detail";
+    default:
+      return "Unknown";
+  }
+}
+
+std::vector<wire::core::PoleTypeId> SortedPoleTypeIds(const CoreState& state) {
+  std::vector<wire::core::PoleTypeId> ids;
+  ids.reserve(state.pole_types().size());
+  for (const auto& [id, _] : state.pole_types()) {
+    ids.push_back(id);
+  }
+  std::sort(ids.begin(), ids.end());
+  return ids;
+}
+
+std::size_t ClampedTypeIndex(int current, std::size_t count) {
+  if (count == 0) {
+    return 0;
+  }
+  const int max_index = static_cast<int>(count - 1);
+  return static_cast<std::size_t>(std::clamp(current, 0, max_index));
+}
+
+Vector3 ToRaylib(const wire::core::Vec3d& ue_xyz) {
+  return Vector3{
+      static_cast<float>(ue_xyz.x),
+      static_cast<float>(ue_xyz.z),
+      static_cast<float>(ue_xyz.y),
+  };
+}
+
+wire::core::Vec3d Lerp(const wire::core::Vec3d& a, const wire::core::Vec3d& b, double t) {
+  return wire::core::Vec3d{
+      a.x + (b.x - a.x) * t,
+      a.y + (b.y - a.y) * t,
+      a.z + (b.z - a.z) * t,
+  };
+}
+
+void OrbitCameraTurntable(Camera3D* camera, Vector2 mouse_delta, float orbit_speed) {
+  const Vector3 offset = Vector3Subtract(camera->position, camera->target);
+  const float radius = Vector3Length(offset);
+  if (radius <= 1e-5f) {
+    return;
+  }
+
+  float yaw = std::atan2(offset.z, offset.x);
+  float pitch = std::asin(offset.y / radius);
+
+  yaw -= mouse_delta.x * orbit_speed;
+  pitch -= mouse_delta.y * orbit_speed;
+
+  const float pitch_limit = 1.55334f;  // about 89 degrees
+  pitch = std::clamp(pitch, -pitch_limit, pitch_limit);
+
+  const float cos_pitch = std::cos(pitch);
+  Vector3 new_offset{
+      radius * cos_pitch * std::cos(yaw),
+      radius * std::sin(pitch),
+      radius * cos_pitch * std::sin(yaw),
+  };
+
+  camera->position = Vector3Add(camera->target, new_offset);
+}
+
+void PanCamera(Camera3D* camera, Vector2 mouse_delta, float pan_speed) {
+  const Vector3 forward = Vector3Normalize(Vector3Subtract(camera->target, camera->position));
+  const Vector3 right = Vector3Normalize(Vector3CrossProduct(forward, camera->up));
+  const Vector3 up = Vector3Normalize(camera->up);
+  const float distance = Vector3Distance(camera->position, camera->target);
+  const float scale = pan_speed * std::max(0.1f, distance);
+
+  const Vector3 pan_x = Vector3Scale(right, -mouse_delta.x * scale);
+  const Vector3 pan_y = Vector3Scale(up, mouse_delta.y * scale);
+  const Vector3 pan = Vector3Add(pan_x, pan_y);
+
+  camera->position = Vector3Add(camera->position, pan);
+  camera->target = Vector3Add(camera->target, pan);
+}
+
+void DollyCamera(Camera3D* camera, float amount, float dolly_speed) {
+  const Vector3 view = Vector3Subtract(camera->position, camera->target);
+  float distance = Vector3Length(view);
+  if (distance <= 1e-5f) {
+    distance = 1e-5f;
+  }
+  distance *= (1.0f + amount * dolly_speed);
+  distance = std::clamp(distance, 0.2f, 10000.0f);
+
+  const Vector3 dir = Vector3Normalize(view);
+  camera->position = Vector3Add(camera->target, Vector3Scale(dir, distance));
+}
+
+void UpdateCameraForViewport(Camera3D* camera, ViewerUiState& ui_state) {
+  ImGuiIO& io = ImGui::GetIO();
+  const bool ui_captures_mouse = io.WantCaptureMouse;
+  const bool ui_captures_keyboard = io.WantCaptureKeyboard;
+  const Vector2 mouse_delta = GetMouseDelta();
+  const bool shift = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
+  const bool ctrl = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+
+  if (!ui_captures_mouse && IsMouseButtonPressed(MOUSE_BUTTON_MIDDLE)) {
+    if (shift) {
+      ui_state.camera_drag_mode = CameraDragMode::kPan;
+    } else if (ctrl) {
+      ui_state.camera_drag_mode = CameraDragMode::kDolly;
+    } else {
+      ui_state.camera_drag_mode = CameraDragMode::kOrbit;
+    }
+    DisableCursor();
+  }
+
+  if (ui_state.camera_drag_mode != CameraDragMode::kNone) {
+    if (ui_state.camera_drag_mode == CameraDragMode::kOrbit) {
+      OrbitCameraTurntable(camera, mouse_delta, 0.006f);
+    } else if (ui_state.camera_drag_mode == CameraDragMode::kPan) {
+      PanCamera(camera, mouse_delta, 0.002f);
+    } else if (ui_state.camera_drag_mode == CameraDragMode::kDolly) {
+      DollyCamera(camera, mouse_delta.y, 0.01f);
+    }
+
+    if (IsMouseButtonReleased(MOUSE_BUTTON_MIDDLE)) {
+      ui_state.camera_drag_mode = CameraDragMode::kNone;
+      EnableCursor();
+    }
+  }
+
+  if (!ui_captures_mouse && !ui_captures_keyboard && ui_state.camera_drag_mode == CameraDragMode::kNone) {
+    const float wheel = GetMouseWheelMove();
+    if (std::fabs(wheel) > 0.0f) {
+      DollyCamera(camera, -wheel, 0.12f);
+    }
+  }
+}
+
+void PushLog(ViewerUiState& ui_state, const std::string& line) {
+  ui_state.logs.push_back(line);
+  if (ui_state.logs.size() > 12) {
+    ui_state.logs.erase(ui_state.logs.begin());
+  }
+}
+
+std::string DirtyBitsToText(wire::core::DirtyBits bits) {
+  std::string text;
+  if (wire::core::any(bits, wire::core::DirtyBits::kTopology)) text += "Topology|";
+  if (wire::core::any(bits, wire::core::DirtyBits::kGeometry)) text += "Geometry|";
+  if (wire::core::any(bits, wire::core::DirtyBits::kBounds)) text += "Bounds|";
+  if (wire::core::any(bits, wire::core::DirtyBits::kRender)) text += "Render|";
+  if (wire::core::any(bits, wire::core::DirtyBits::kRaycast)) text += "Raycast|";
+  if (text.empty()) {
+    return "None";
+  }
+  text.pop_back();
+  return text;
+}
+
+Color DirtyColorForSpan(const wire::core::SpanRuntimeState* runtime_state) {
+  if (runtime_state == nullptr) {
+    return GRAY;
+  }
+  if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kTopology)) return PURPLE;
+  if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kGeometry)) return YELLOW;
+  if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kBounds)) return BLUE;
+  if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kRender)) return RED;
+  if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kRaycast)) return GREEN;
+  return SKYBLUE;
+}
+
+void DrawAxes() {
+  DrawLine3D(ToRaylib({0.0, 0.0, 0.0}), ToRaylib({kAxisLength, 0.0, 0.0}), RED);
+  DrawLine3D(ToRaylib({0.0, 0.0, 0.0}), ToRaylib({0.0, kAxisLength, 0.0}), GREEN);
+  DrawLine3D(ToRaylib({0.0, 0.0, 0.0}), ToRaylib({0.0, 0.0, kAxisLength}), BLUE);
+}
+
+void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
+  const auto& edit = state.edit_state();
+
+  for (const wire::core::Pole& pole : edit.poles.items()) {
+    const wire::core::Vec3d pole_center_ue{
+        pole.world_transform.position.x,
+        pole.world_transform.position.y,
+        pole.world_transform.position.z + (pole.height_m * 0.5),
+    };
+
+    Color color = DARKGRAY;
+    if (ui_state.selected_type == SelectedType::kPole && ui_state.selected_id == pole.id) {
+      color = GOLD;
+    }
+    DrawCylinderWires(ToRaylib(pole_center_ue), 0.12f, 0.12f, static_cast<float>(pole.height_m), 10, color);
+  }
+
+  for (const wire::core::Port& port : edit.ports.items()) {
+    Color color = ORANGE;
+    if (ui_state.selected_type == SelectedType::kPort && ui_state.selected_id == port.id) {
+      color = GOLD;
+    }
+    DrawSphere(ToRaylib(port.world_position), 0.09f, color);
+  }
+
+  for (const wire::core::Anchor& anchor : edit.anchors.items()) {
+    Color color = PURPLE;
+    if (ui_state.selected_type == SelectedType::kAnchor && ui_state.selected_id == anchor.id) {
+      color = GOLD;
+    }
+    DrawSphere(ToRaylib(anchor.world_position), 0.08f, color);
+  }
+
+  for (const wire::core::Span& span : edit.spans.items()) {
+    const wire::core::Port* start_port = edit.ports.find(span.port_a_id);
+    const wire::core::Port* end_port = edit.ports.find(span.port_b_id);
+    if (start_port == nullptr || end_port == nullptr) {
+      continue;
+    }
+    const wire::core::SpanRuntimeState* runtime_state = state.find_span_runtime_state(span.id);
+    Color color = DirtyColorForSpan(runtime_state);
+    if (ui_state.selected_type == SelectedType::kSpan && ui_state.selected_id == span.id) {
+      color = GOLD;
+    }
+    DrawLine3D(ToRaylib(start_port->world_position), ToRaylib(end_port->world_position), color);
+  }
+
+  for (const wire::core::Attachment& attachment : edit.attachments.items()) {
+    const wire::core::Span* span = edit.spans.find(attachment.span_id);
+    if (span == nullptr) {
+      continue;
+    }
+    const wire::core::Port* port_a = edit.ports.find(span->port_a_id);
+    const wire::core::Port* port_b = edit.ports.find(span->port_b_id);
+    if (port_a == nullptr || port_b == nullptr) {
+      continue;
+    }
+    wire::core::Vec3d pos = Lerp(port_a->world_position, port_b->world_position, attachment.t);
+    pos.z += attachment.offset_m;
+
+    Color color = MAGENTA;
+    if (ui_state.selected_type == SelectedType::kAttachment && ui_state.selected_id == attachment.id) {
+      color = GOLD;
+    }
+    DrawCubeV(ToRaylib(pos), Vector3{0.14f, 0.14f, 0.14f}, color);
+  }
+}
+
+void DrawObjectList(
+    ViewerUiState& ui_state,
+    const char* header,
+    SelectedType type,
+    const std::vector<ObjectId>& ids,
+    std::function<std::string(ObjectId)> make_label) {
+  if (!ImGui::CollapsingHeader(header, ImGuiTreeNodeFlags_DefaultOpen)) {
+    return;
+  }
+
+  for (ObjectId id : ids) {
+    const std::string label = make_label(id);
+    const bool is_selected = (ui_state.selected_type == type && ui_state.selected_id == id);
+    if (ImGui::Selectable(label.c_str(), is_selected)) {
+      ui_state.selected_type = type;
+      ui_state.selected_id = id;
+    }
+  }
+}
+
+void DrawSelectedInfo(const CoreState& state, const ViewerUiState& ui_state) {
+  ImGui::TextUnformatted("Selected");
+  ImGui::Separator();
+  if (ui_state.selected_type == SelectedType::kNone || ui_state.selected_id == wire::core::kInvalidObjectId) {
+    ImGui::TextUnformatted("None");
+    return;
+  }
+
+  const auto& edit = state.edit_state();
+  switch (ui_state.selected_type) {
+    case SelectedType::kPole: {
+      const auto* pole = edit.poles.find(ui_state.selected_id);
+      if (pole == nullptr) {
+        ImGui::TextUnformatted("Selected pole is missing");
+        return;
+      }
+      ImGui::Text("Type: Pole");
+      ImGui::Text("ID: %s", pole->display_id.c_str());
+      ImGui::Text("Name: %s", pole->name.c_str());
+      ImGui::Text("PoleTypeId: %u", static_cast<unsigned int>(pole->pole_type_id));
+      ImGui::Text("Pos: %.2f %.2f %.2f", pole->world_transform.position.x, pole->world_transform.position.y, pole->world_transform.position.z);
+      ImGui::Text("Height: %.2f", pole->height_m);
+      return;
+    }
+    case SelectedType::kPort: {
+      const auto* port = edit.ports.find(ui_state.selected_id);
+      if (port == nullptr) {
+        ImGui::TextUnformatted("Selected port is missing");
+        return;
+      }
+      ImGui::Text("Type: Port");
+      ImGui::Text("ID: %s", port->display_id.c_str());
+      ImGui::Text("Owner Pole: %llu", static_cast<unsigned long long>(port->owner_pole_id));
+      ImGui::Text("Pos: %.2f %.2f %.2f", port->world_position.x, port->world_position.y, port->world_position.z);
+      ImGui::Text("Category: %s", CategoryLabel(port->category));
+      ImGui::Text("SlotId: %d", port->source_slot_id);
+      return;
+    }
+    case SelectedType::kSpan: {
+      const auto* span = edit.spans.find(ui_state.selected_id);
+      if (span == nullptr) {
+        ImGui::TextUnformatted("Selected span is missing");
+        return;
+      }
+      ImGui::Text("Type: Span");
+      ImGui::Text("ID: %s", span->display_id.c_str());
+      ImGui::Text("portA: %llu", static_cast<unsigned long long>(span->port_a_id));
+      ImGui::Text("portB: %llu", static_cast<unsigned long long>(span->port_b_id));
+      ImGui::Text("bundle: %llu", static_cast<unsigned long long>(span->bundle_id));
+      const auto* runtime_state = state.find_span_runtime_state(span->id);
+      if (runtime_state != nullptr) {
+        ImGui::Separator();
+        ImGui::Text("dataVersion: %llu", static_cast<unsigned long long>(runtime_state->data_version));
+        ImGui::Text("geometryVersion: %llu", static_cast<unsigned long long>(runtime_state->geometry_version));
+        ImGui::Text("boundsVersion: %llu", static_cast<unsigned long long>(runtime_state->bounds_version));
+        ImGui::Text("renderVersion: %llu", static_cast<unsigned long long>(runtime_state->render_version));
+        ImGui::Text("dirtyBits: %s", DirtyBitsToText(runtime_state->dirty_bits).c_str());
+      }
+      return;
+    }
+    case SelectedType::kAnchor: {
+      const auto* anchor = edit.anchors.find(ui_state.selected_id);
+      if (anchor == nullptr) {
+        ImGui::TextUnformatted("Selected anchor is missing");
+        return;
+      }
+      ImGui::Text("Type: Anchor");
+      ImGui::Text("ID: %s", anchor->display_id.c_str());
+      ImGui::Text("Owner Pole: %llu", static_cast<unsigned long long>(anchor->owner_pole_id));
+      ImGui::Text("Pos: %.2f %.2f %.2f", anchor->world_position.x, anchor->world_position.y, anchor->world_position.z);
+      return;
+    }
+    case SelectedType::kBundle: {
+      const auto* bundle = edit.bundles.find(ui_state.selected_id);
+      if (bundle == nullptr) {
+        ImGui::TextUnformatted("Selected bundle is missing");
+        return;
+      }
+      ImGui::Text("Type: Bundle");
+      ImGui::Text("ID: %s", bundle->display_id.c_str());
+      ImGui::Text("Conductor count: %d", bundle->conductor_count);
+      ImGui::Text("Spacing: %.2f", bundle->phase_spacing_m);
+      return;
+    }
+    case SelectedType::kAttachment: {
+      const auto* attachment = edit.attachments.find(ui_state.selected_id);
+      if (attachment == nullptr) {
+        ImGui::TextUnformatted("Selected attachment is missing");
+        return;
+      }
+      ImGui::Text("Type: Attachment");
+      ImGui::Text("ID: %s", attachment->display_id.c_str());
+      ImGui::Text("Span: %llu", static_cast<unsigned long long>(attachment->span_id));
+      ImGui::Text("t: %.3f", attachment->t);
+      return;
+    }
+    default:
+      break;
+  }
+}
+
+void HandleResultError(ViewerUiState& ui_state, const std::string& error, const std::string& fallback_log) {
+  if (!error.empty()) {
+    ui_state.last_error = error;
+  } else {
+    ui_state.last_error = fallback_log;
+  }
+  PushLog(ui_state, fallback_log);
+}
+
+void DrawEditSelectedPanel(CoreState& state, ViewerUiState& ui_state) {
+  ImGui::Separator();
+  ImGui::TextUnformatted("Edit Selected");
+  ImGui::InputDouble("Edit X", &ui_state.edit_x);
+  ImGui::InputDouble("Edit Y", &ui_state.edit_y);
+  ImGui::InputDouble("Edit Z", &ui_state.edit_z);
+
+  if (ui_state.selected_type == SelectedType::kPole) {
+    if (ImGui::Button("Load Pole Pos")) {
+      const auto* pole = state.edit_state().poles.find(ui_state.selected_id);
+      if (pole != nullptr) {
+        ui_state.edit_x = pole->world_transform.position.x;
+        ui_state.edit_y = pole->world_transform.position.y;
+        ui_state.edit_z = pole->world_transform.position.z;
+      }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Move Pole")) {
+      const auto* pole = state.edit_state().poles.find(ui_state.selected_id);
+      if (pole != nullptr) {
+        wire::core::Transformd moved = pole->world_transform;
+        moved.position = {ui_state.edit_x, ui_state.edit_y, ui_state.edit_z};
+        const auto result = state.MovePole(ui_state.selected_id, moved);
+        if (!result.ok) {
+          HandleResultError(ui_state, result.error, "Move Pole failed");
+        } else {
+          ui_state.last_error.clear();
+          PushLog(ui_state, "Moved Pole id=" + std::to_string(ui_state.selected_id));
+        }
+      }
+    }
+  } else if (ui_state.selected_type == SelectedType::kPort) {
+    if (ImGui::Button("Load Port Pos")) {
+      const auto* port = state.edit_state().ports.find(ui_state.selected_id);
+      if (port != nullptr) {
+        ui_state.edit_x = port->world_position.x;
+        ui_state.edit_y = port->world_position.y;
+        ui_state.edit_z = port->world_position.z;
+      }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Move Port")) {
+      const auto result = state.MovePort(ui_state.selected_id, {ui_state.edit_x, ui_state.edit_y, ui_state.edit_z});
+      if (!result.ok) {
+        HandleResultError(ui_state, result.error, "Move Port failed");
+      } else {
+        ui_state.last_error.clear();
+        PushLog(ui_state, "Moved Port id=" + std::to_string(ui_state.selected_id));
+      }
+    }
+  } else if (ui_state.selected_type == SelectedType::kAnchor) {
+    if (ImGui::Button("Load Anchor Pos")) {
+      const auto* anchor = state.edit_state().anchors.find(ui_state.selected_id);
+      if (anchor != nullptr) {
+        ui_state.edit_x = anchor->world_position.x;
+        ui_state.edit_y = anchor->world_position.y;
+        ui_state.edit_z = anchor->world_position.z;
+      }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Move Anchor")) {
+      const auto result = state.MoveAnchor(ui_state.selected_id, {ui_state.edit_x, ui_state.edit_y, ui_state.edit_z});
+      if (!result.ok) {
+        HandleResultError(ui_state, result.error, "Move Anchor failed");
+      } else {
+        ui_state.last_error.clear();
+        PushLog(ui_state, "Moved Anchor id=" + std::to_string(ui_state.selected_id));
+      }
+    }
+  } else if (ui_state.selected_type == SelectedType::kSpan) {
+    ImGui::InputDouble("Split t", &ui_state.split_t);
+    if (ImGui::Button("Split Span")) {
+      const auto result = state.SplitSpan(ui_state.selected_id, ui_state.split_t);
+      if (!result.ok) {
+        HandleResultError(ui_state, result.error, "Split Span failed");
+      } else {
+        ui_state.last_error.clear();
+        PushLog(ui_state, "Split Span id=" + std::to_string(ui_state.selected_id));
+        ui_state.selected_type = SelectedType::kPort;
+        ui_state.selected_id = result.value.new_port_id;
+      }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Delete Span")) {
+      const auto result = state.DeleteSpan(ui_state.selected_id);
+      if (!result.ok) {
+        HandleResultError(ui_state, result.error, "Delete Span failed");
+      } else {
+        ui_state.last_error.clear();
+        PushLog(ui_state, "Deleted Span id=" + std::to_string(ui_state.selected_id));
+        ui_state.selected_type = SelectedType::kNone;
+        ui_state.selected_id = wire::core::kInvalidObjectId;
+      }
+    }
+  } else {
+    ImGui::TextUnformatted("Select Pole/Port/Anchor/Span to edit");
+  }
+}
+
+void DrawPlacementModePanel(CoreState& state, ViewerUiState& ui_state) {
+  ImGui::TextUnformatted("Placement");
+  const auto type_ids = SortedPoleTypeIds(state);
+  if (type_ids.empty()) {
+    ImGui::TextUnformatted("No PoleType available");
+    return;
+  }
+  const std::size_t type_index = ClampedTypeIndex(ui_state.placement_pole_type_index, type_ids.size());
+  ui_state.placement_pole_type_index = static_cast<int>(type_index);
+  const wire::core::PoleTypeId selected_type_id = type_ids[type_index];
+  const auto type_it = state.pole_types().find(selected_type_id);
+  const std::string selected_type_name = (type_it != state.pole_types().end()) ? type_it->second.name : std::to_string(selected_type_id);
+
+  if (ImGui::BeginCombo("PoleType", selected_type_name.c_str())) {
+    for (std::size_t i = 0; i < type_ids.size(); ++i) {
+      const auto it = state.pole_types().find(type_ids[i]);
+      const std::string label = (it != state.pole_types().end()) ? it->second.name : std::to_string(type_ids[i]);
+      const bool selected = (i == type_index);
+      if (ImGui::Selectable(label.c_str(), selected)) {
+        ui_state.placement_pole_type_index = static_cast<int>(i);
+      }
+      if (selected) {
+        ImGui::SetItemDefaultFocus();
+      }
+    }
+    ImGui::EndCombo();
+  }
+
+  ImGui::InputDouble("Pole X", &ui_state.pole_x);
+  ImGui::InputDouble("Pole Y", &ui_state.pole_y);
+  ImGui::InputDouble("Pole Z", &ui_state.pole_z);
+  ImGui::InputDouble("Pole Height", &ui_state.pole_height);
+  if (ImGui::Button("Place Pole")) {
+    wire::core::Transformd tf{};
+    tf.position = {ui_state.pole_x, ui_state.pole_y, ui_state.pole_z};
+    const auto add_pole_result = state.AddPole(tf, ui_state.pole_height, "Pole", static_cast<wire::core::PoleKind>(ui_state.pole_kind));
+    if (!add_pole_result.ok) {
+      ui_state.last_error = add_pole_result.error;
+      PushLog(ui_state, "Place Pole failed");
+      return;
+    }
+    const auto apply_result = state.ApplyPoleType(add_pole_result.value, type_ids[ui_state.placement_pole_type_index]);
+    if (!apply_result.ok) {
+      ui_state.last_error = apply_result.error;
+      PushLog(ui_state, "ApplyPoleType failed");
+      return;
+    }
+    ui_state.last_error.clear();
+    ui_state.selected_type = SelectedType::kPole;
+    ui_state.selected_id = add_pole_result.value;
+    PushLog(ui_state, "Placed Pole id=" + std::to_string(add_pole_result.value));
+  }
+}
+
+void DrawConnectionModePanel(CoreState& state, ViewerUiState& ui_state) {
+  ImGui::TextUnformatted("Connection (Pole -> Pole)");
+  ImGui::InputScalar("Source PoleId", ImGuiDataType_U64, &ui_state.connect_pole_a_id);
+  ImGui::InputScalar("Target PoleId", ImGuiDataType_U64, &ui_state.connect_pole_b_id);
+
+  const int category_index = std::clamp(ui_state.connect_category, 0, static_cast<int>(kAllCategories.size() - 1));
+  ui_state.connect_category = category_index;
+  if (ImGui::BeginCombo("Category", CategoryLabel(kAllCategories[category_index]))) {
+    for (int i = 0; i < static_cast<int>(kAllCategories.size()); ++i) {
+      const bool selected = (i == category_index);
+      if (ImGui::Selectable(CategoryLabel(kAllCategories[i]), selected)) {
+        ui_state.connect_category = i;
+      }
+      if (selected) {
+        ImGui::SetItemDefaultFocus();
+      }
+    }
+    ImGui::EndCombo();
+  }
+
+  if (ImGui::Button("Connect Pole -> Pole")) {
+    const auto result = state.AddConnectionByPole(
+        ui_state.connect_pole_a_id,
+        ui_state.connect_pole_b_id,
+        kAllCategories[ui_state.connect_category]);
+    if (!result.ok) {
+      ui_state.last_error = result.error;
+      PushLog(ui_state, "Connect Pole->Pole failed");
+    } else {
+      ui_state.last_error.clear();
+      ui_state.selected_type = SelectedType::kSpan;
+      ui_state.selected_id = result.value.span_id;
+      PushLog(
+          ui_state,
+          "Connected span=" + std::to_string(result.value.span_id) +
+              " portA=" + std::to_string(result.value.port_a_id) +
+              " slotA=" + std::to_string(result.value.slot_a_id) +
+              " portB=" + std::to_string(result.value.port_b_id) +
+              " slotB=" + std::to_string(result.value.slot_b_id));
+    }
+  }
+}
+
+void DrawBranchModePanel(CoreState& state, ViewerUiState& ui_state) {
+  ImGui::TextUnformatted("Branch / Drop");
+  ImGui::InputScalar("Branch Source SpanId", ImGuiDataType_U64, &ui_state.branch_source_span_id);
+  ImGui::InputDouble("Branch t", &ui_state.branch_t);
+  ImGui::InputDouble("Branch Target X", &ui_state.branch_target_x);
+  ImGui::InputDouble("Branch Target Y", &ui_state.branch_target_y);
+  ImGui::InputDouble("Branch Target Z", &ui_state.branch_target_z);
+  if (ImGui::Button("Add Drop From Span")) {
+    const auto result = state.AddDropFromSpan(
+        ui_state.branch_source_span_id,
+        ui_state.branch_t,
+        {ui_state.branch_target_x, ui_state.branch_target_y, ui_state.branch_target_z},
+        wire::core::ConnectionCategory::kDrop);
+    if (!result.ok) {
+      ui_state.last_error = result.error;
+      PushLog(ui_state, "AddDropFromSpan failed");
+    } else {
+      ui_state.last_error.clear();
+      ui_state.selected_type = SelectedType::kSpan;
+      ui_state.selected_id = result.value.span_id;
+      PushLog(
+          ui_state,
+          "DropFromSpan span=" + std::to_string(result.value.span_id) +
+              " splitPort=" + std::to_string(result.value.split_port_id));
+    }
+  }
+
+  ImGui::Separator();
+  ImGui::TextUnformatted("Drop From Pole");
+  ImGui::InputScalar("Drop Source PoleId", ImGuiDataType_U64, &ui_state.drop_source_pole_id);
+  ImGui::InputDouble("Drop Target X", &ui_state.drop_target_x);
+  ImGui::InputDouble("Drop Target Y", &ui_state.drop_target_y);
+  ImGui::InputDouble("Drop Target Z", &ui_state.drop_target_z);
+  if (ImGui::Button("Add Drop From Pole")) {
+    const auto result = state.AddDropFromPole(
+        ui_state.drop_source_pole_id,
+        {ui_state.drop_target_x, ui_state.drop_target_y, ui_state.drop_target_z},
+        wire::core::ConnectionCategory::kDrop);
+    if (!result.ok) {
+      ui_state.last_error = result.error;
+      PushLog(ui_state, "AddDropFromPole failed");
+    } else {
+      ui_state.last_error.clear();
+      ui_state.selected_type = SelectedType::kSpan;
+      ui_state.selected_id = result.value.span_id;
+      PushLog(
+          ui_state,
+          "DropFromPole span=" + std::to_string(result.value.span_id) +
+              " sourcePort=" + std::to_string(result.value.source_port_id));
+    }
+  }
+}
+
+void DrawDetailModePanel(CoreState& state, ViewerUiState& ui_state) {
+  ImGui::TextUnformatted("Detail");
+  ImGui::Checkbox("Debug Labels", &ui_state.show_debug_labels);
+
+  if (ui_state.selected_type != SelectedType::kPole || ui_state.selected_id == wire::core::kInvalidObjectId) {
+    ImGui::TextUnformatted("Select a Pole in list to edit details");
+    return;
+  }
+
+  const auto detail = state.GetPoleDetail(ui_state.selected_id);
+  if (detail.pole == nullptr) {
+    ImGui::TextUnformatted("Selected pole is missing");
+    return;
+  }
+
+  ImGui::Text("Pole: %s", detail.pole->display_id.c_str());
+  ImGui::Text("PoleTypeId: %u", static_cast<unsigned int>(detail.pole->pole_type_id));
+
+  const auto type_ids = SortedPoleTypeIds(state);
+  if (!type_ids.empty()) {
+    const std::size_t idx = ClampedTypeIndex(ui_state.detail_pole_type_index, type_ids.size());
+    ui_state.detail_pole_type_index = static_cast<int>(idx);
+    const auto type_it = state.pole_types().find(type_ids[idx]);
+    const std::string selected_name = (type_it != state.pole_types().end()) ? type_it->second.name : std::to_string(type_ids[idx]);
+    if (ImGui::BeginCombo("Set PoleType", selected_name.c_str())) {
+      for (std::size_t i = 0; i < type_ids.size(); ++i) {
+        const auto it = state.pole_types().find(type_ids[i]);
+        const std::string label = (it != state.pole_types().end()) ? it->second.name : std::to_string(type_ids[i]);
+        const bool selected = (i == idx);
+        if (ImGui::Selectable(label.c_str(), selected)) {
+          ui_state.detail_pole_type_index = static_cast<int>(i);
+        }
+      }
+      ImGui::EndCombo();
+    }
+
+    if (ImGui::Button("Apply PoleType To Selected")) {
+      const auto apply_result = state.ApplyPoleType(ui_state.selected_id, type_ids[ui_state.detail_pole_type_index]);
+      if (!apply_result.ok) {
+        ui_state.last_error = apply_result.error;
+        PushLog(ui_state, "ApplyPoleType failed");
+      } else {
+        ui_state.last_error.clear();
+        PushLog(ui_state, "Applied PoleType to " + std::to_string(ui_state.selected_id));
+      }
+    }
+  }
+
+  ImGui::Separator();
+  ImGui::Text("Ports: %d", static_cast<int>(detail.owned_ports.size()));
+  for (const auto* port : detail.owned_ports) {
+    const auto it = state.connection_index().spans_by_port.find(port->id);
+    const int usage = (it == state.connection_index().spans_by_port.end()) ? 0 : static_cast<int>(it->second.size());
+    ImGui::Text(
+        "%s cat=%s slot=%d used=%d",
+        port->display_id.c_str(),
+        CategoryLabel(port->category),
+        port->source_slot_id,
+        usage);
+  }
+
+  ImGui::Separator();
+  ImGui::Text("Anchors: %d", static_cast<int>(detail.owned_anchors.size()));
+  for (const auto* anchor : detail.owned_anchors) {
+    ImGui::Text("%s slot=%d", anchor->display_id.c_str(), anchor->source_slot_id);
+  }
+}
+
+void DrawDebugDirectPanel(CoreState& state, ViewerUiState& ui_state) {
+  if (!ImGui::CollapsingHeader("Debug: Direct Port/Span Editing")) {
+    return;
+  }
+
+  ImGui::InputScalar("Port Owner PoleId", ImGuiDataType_U64, &ui_state.port_owner_pole_id);
+  ImGui::InputDouble("Port X", &ui_state.port_x);
+  ImGui::InputDouble("Port Y", &ui_state.port_y);
+  ImGui::InputDouble("Port Z", &ui_state.port_z);
+  if (ImGui::Button("Debug Add Port")) {
+    const auto result = state.AddPort(
+        ui_state.port_owner_pole_id,
+        {ui_state.port_x, ui_state.port_y, ui_state.port_z},
+        static_cast<wire::core::PortKind>(ui_state.port_kind),
+        static_cast<wire::core::PortLayer>(ui_state.port_layer));
+    if (!result.ok) {
+      ui_state.last_error = result.error;
+    } else {
+      ui_state.last_error.clear();
+      ui_state.selected_type = SelectedType::kPort;
+      ui_state.selected_id = result.value;
+      PushLog(ui_state, "Debug Add Port id=" + std::to_string(result.value));
+    }
+  }
+
+  ImGui::InputScalar("Span PortAId", ImGuiDataType_U64, &ui_state.span_port_a_id);
+  ImGui::InputScalar("Span PortBId", ImGuiDataType_U64, &ui_state.span_port_b_id);
+  ImGui::InputScalar("Span BundleId (0=none)", ImGuiDataType_U64, &ui_state.span_bundle_id);
+  if (ImGui::Button("Debug Add Span")) {
+    const auto result = state.AddSpan(
+        ui_state.span_port_a_id,
+        ui_state.span_port_b_id,
+        static_cast<wire::core::SpanKind>(ui_state.span_kind),
+        static_cast<wire::core::SpanLayer>(ui_state.span_layer),
+        ui_state.span_bundle_id);
+    if (!result.ok) {
+      ui_state.last_error = result.error;
+      PushLog(ui_state, "Debug Add Span failed");
+    } else {
+      ui_state.last_error.clear();
+      ui_state.selected_type = SelectedType::kSpan;
+      ui_state.selected_id = result.value;
+      PushLog(ui_state, "Debug Add Span id=" + std::to_string(result.value));
+    }
+  }
+}
+
+void DrawStatsPanel(CoreState& state, ViewerUiState& ui_state) {
+  constexpr float panel_width = 400.0f;
+
+  ImGui::SetNextWindowPos(ImVec2(static_cast<float>(GetScreenWidth()) - panel_width, 0.0f), ImGuiCond_Always);
+  ImGui::SetNextWindowSize(ImVec2(panel_width, static_cast<float>(GetScreenHeight())), ImGuiCond_Always);
+
+  const ImGuiWindowFlags flags =
+      ImGuiWindowFlags_NoMove |
+      ImGuiWindowFlags_NoResize |
+      ImGuiWindowFlags_NoCollapse;
+
+  ImGui::Begin("Wire Viewer", nullptr, flags);
+  ImGui::Text("Poles: %d", static_cast<int>(state.edit_state().poles.size()));
+  ImGui::Text("Ports: %d", static_cast<int>(state.edit_state().ports.size()));
+  ImGui::Text("Spans: %d", static_cast<int>(state.edit_state().spans.size()));
+  ImGui::Text("Anchors: %d", static_cast<int>(state.edit_state().anchors.size()));
+  ImGui::Text("Bundles: %d", static_cast<int>(state.edit_state().bundles.size()));
+  ImGui::Text("Attachments: %d", static_cast<int>(state.edit_state().attachments.size()));
+  ImGui::Text("Next ID: %llu", static_cast<unsigned long long>(state.next_id()));
+  ImGui::Separator();
+  ImGui::Text("DirtyQueue Topology: %d", static_cast<int>(state.dirty_queue().topology_dirty_span_ids.size()));
+  ImGui::Text("DirtyQueue Geometry: %d", static_cast<int>(state.dirty_queue().geometry_dirty_span_ids.size()));
+  ImGui::Text("DirtyQueue Bounds: %d", static_cast<int>(state.dirty_queue().bounds_dirty_span_ids.size()));
+  ImGui::Text("DirtyQueue Render: %d", static_cast<int>(state.dirty_queue().render_dirty_span_ids.size()));
+  ImGui::Text("DirtyQueue Raycast: %d", static_cast<int>(state.dirty_queue().raycast_dirty_span_ids.size()));
+  const auto& recalc = state.last_recalc_stats();
+  ImGui::Text("Recalc last frame: %d", static_cast<int>(recalc.total_processed()));
+  ImGui::Checkbox("Auto Recalc", &ui_state.auto_recalc);
+  ImGui::SameLine();
+  if (ImGui::Button("Run Recalc")) {
+    const auto stats = state.ProcessDirtyQueues();
+    PushLog(ui_state, "Recalc processed=" + std::to_string(stats.total_processed()));
+  }
+
+  const wire::core::ValidationResult validation = state.Validate();
+  ImGui::Text("Validation: %s", validation.ok() ? "OK" : "ERROR");
+
+  ImGui::Separator();
+  ImGui::Text("Mode: %s", ModeLabel(ui_state.mode));
+  if (ImGui::RadioButton("Placement", ui_state.mode == EditMode::kPlacement)) ui_state.mode = EditMode::kPlacement;
+  ImGui::SameLine();
+  if (ImGui::RadioButton("Connection", ui_state.mode == EditMode::kConnection)) ui_state.mode = EditMode::kConnection;
+  ImGui::SameLine();
+  if (ImGui::RadioButton("Branch", ui_state.mode == EditMode::kBranch)) ui_state.mode = EditMode::kBranch;
+  ImGui::SameLine();
+  if (ImGui::RadioButton("Detail", ui_state.mode == EditMode::kDetail)) ui_state.mode = EditMode::kDetail;
+
+  ImGui::Separator();
+  if (ui_state.mode == EditMode::kPlacement) {
+    DrawPlacementModePanel(state, ui_state);
+  } else if (ui_state.mode == EditMode::kConnection) {
+    DrawConnectionModePanel(state, ui_state);
+  } else if (ui_state.mode == EditMode::kBranch) {
+    DrawBranchModePanel(state, ui_state);
+  } else if (ui_state.mode == EditMode::kDetail) {
+    DrawDetailModePanel(state, ui_state);
+  }
+  DrawDebugDirectPanel(state, ui_state);
+
+  ImGui::Separator();
+  DrawObjectList(
+      ui_state,
+      "Poles",
+      SelectedType::kPole,
+      [&]() {
+        std::vector<ObjectId> ids;
+        ids.reserve(state.edit_state().poles.size());
+        for (const auto& pole : state.edit_state().poles.items()) {
+          ids.push_back(pole.id);
+        }
+        return ids;
+      }(),
+      [&](ObjectId id) {
+        const auto* pole = state.edit_state().poles.find(id);
+        if (pole == nullptr) {
+          return std::to_string(id);
+        }
+        return pole->display_id + " " + pole->name;
+      });
+
+  DrawObjectList(
+      ui_state,
+      "Ports",
+      SelectedType::kPort,
+      [&]() {
+        std::vector<ObjectId> ids;
+        ids.reserve(state.edit_state().ports.size());
+        for (const auto& port : state.edit_state().ports.items()) {
+          ids.push_back(port.id);
+        }
+        return ids;
+      }(),
+      [&](ObjectId id) {
+        const auto* port = state.edit_state().ports.find(id);
+        if (port == nullptr) {
+          return std::to_string(id);
+        }
+        return port->display_id;
+      });
+
+  DrawObjectList(
+      ui_state,
+      "Spans",
+      SelectedType::kSpan,
+      [&]() {
+        std::vector<ObjectId> ids;
+        ids.reserve(state.edit_state().spans.size());
+        for (const auto& span : state.edit_state().spans.items()) {
+          ids.push_back(span.id);
+        }
+        return ids;
+      }(),
+      [&](ObjectId id) {
+        const auto* span = state.edit_state().spans.find(id);
+        if (span == nullptr) {
+          return std::to_string(id);
+        }
+        return span->display_id;
+      });
+
+  DrawSelectedInfo(state, ui_state);
+  DrawEditSelectedPanel(state, ui_state);
+
+  if (!ui_state.last_error.empty()) {
+    ImGui::Separator();
+    ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "Error: %s", ui_state.last_error.c_str());
+  }
+
+  ImGui::Separator();
+  ImGui::TextUnformatted("Logs");
+  ImGui::BeginChild("LogArea", ImVec2(0.0f, 140.0f), true);
+  for (const std::string& line : ui_state.logs) {
+    ImGui::TextUnformatted(line.c_str());
+  }
+  ImGui::EndChild();
+  ImGui::End();
+}
+
+}  // namespace
+
+int main() {
+  SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT);
+  InitWindow(1280, 720, "wire viewer");
+  SetTargetFPS(60);
+
+  Camera3D camera{};
+  camera.position = ToRaylib({10.0, -10.0, 8.0});
+  camera.target = ToRaylib({6.0, 0.0, 4.0});
+  camera.up = {0.0f, 1.0f, 0.0f};
+  camera.fovy = 45.0f;
+  camera.projection = CAMERA_PERSPECTIVE;
+
+  CoreState state = wire::core::make_demo_state();
+  ViewerUiState ui_state;
+  PushLog(ui_state, "[info] viewer started");
+  PushLog(ui_state, "[info] demo state loaded");
+  PushLog(ui_state, "[mode] Placement/Connection/Branch/Detail");
+  PushLog(ui_state, "[flow] Main path: Pole->Pole connection");
+  PushLog(ui_state, "[hint] Blender style controls enabled");
+  PushLog(ui_state, "[hint] MMB orbit, Shift+MMB pan, Ctrl+MMB dolly");
+  PushLog(ui_state, "[hint] Mouse wheel zoom");
+
+  rlImGuiSetup(true);
+  while (!WindowShouldClose()) {
+    BeginDrawing();
+    ClearBackground(Color{26, 32, 39, 255});
+
+    rlImGuiBegin();
+    UpdateCameraForViewport(&camera, ui_state);
+    if (ui_state.auto_recalc) {
+      (void)state.ProcessDirtyQueues();
+    }
+
+    BeginMode3D(camera);
+    DrawGrid(40, 1.0f);
+    DrawAxes();
+    DrawCore(state, ui_state);
+    EndMode3D();
+
+    DrawStatsPanel(state, ui_state);
+    rlImGuiEnd();
+
+    DrawFPS(10, 10);
+    EndDrawing();
+  }
+
+  rlImGuiShutdown();
+  CloseWindow();
+  return 0;
+}

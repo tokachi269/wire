@@ -1,0 +1,12 @@
+build/
+imgui.ini
+.vs/
+*.user
+*.VC.db
+*.suo
+*.obj
+*.pdb
+*.ilk
+*.tlog
+*.recipe
+*.lastbuildstate

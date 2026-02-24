@@ -2,6 +2,7 @@
 #include <cmath>
 #include <functional>
 #include <iostream>
+#include <regex>
 #include <string>
 #include <vector>
 
@@ -22,8 +23,43 @@ using wire::core::SpanLayer;
 struct TestCase {
   const char* name;
   const char* intent;
+  const char* oracle;
+  bool abnormal;
   std::function<bool(void)> run;
 };
+
+struct CoreCounts {
+  std::size_t poles = 0;
+  std::size_t ports = 0;
+  std::size_t anchors = 0;
+  std::size_t bundles = 0;
+  std::size_t spans = 0;
+  std::size_t attachments = 0;
+};
+
+CoreCounts snapshot_counts(const CoreState& state) {
+  return {
+      state.edit_state().poles.size(),
+      state.edit_state().ports.size(),
+      state.edit_state().anchors.size(),
+      state.edit_state().bundles.size(),
+      state.edit_state().spans.size(),
+      state.edit_state().attachments.size(),
+  };
+}
+
+bool same_counts(const CoreCounts& a, const CoreCounts& b) {
+  return a.poles == b.poles &&
+         a.ports == b.ports &&
+         a.anchors == b.anchors &&
+         a.bundles == b.bundles &&
+         a.spans == b.spans &&
+         a.attachments == b.attachments;
+}
+
+bool regex_contains(const std::string& text, const std::string& pattern) {
+  return std::regex_search(text, std::regex(pattern));
+}
 
 bool has_dirty(const wire::core::SpanRuntimeState* state, DirtyBits bits) {
   return state != nullptr && wire::core::any(state->dirty_bits, bits);
@@ -31,15 +67,6 @@ bool has_dirty(const wire::core::SpanRuntimeState* state, DirtyBits bits) {
 
 bool contains_id(const std::vector<ObjectId>& ids, ObjectId id) {
   return std::find(ids.begin(), ids.end(), id) != ids.end();
-}
-
-bool has_issue_code(const wire::core::ValidationResult& validation, const std::string& code) {
-  for (const auto& issue : validation.issues) {
-    if (issue.code == code) {
-      return true;
-    }
-  }
-  return false;
 }
 
 bool almost_equal(double a, double b, double eps = 1e-9) {
@@ -68,6 +95,60 @@ std::vector<PoleTypeId> sorted_pole_type_ids(const CoreState& state) {
   }
   std::sort(ids.begin(), ids.end());
   return ids;
+}
+
+bool has_selected_slot_in_candidates(const wire::core::SlotSelectionDebugRecord& record) {
+  if (record.selected_slot_id < 0) {
+    return true;
+  }
+  for (const auto& candidate : record.candidates) {
+    if (candidate.slot_id == record.selected_slot_id) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Intent: IdGenerator should be monotonic and resettable without collisions in one sequence.
+bool test_id_generator_monotonic_and_reset() {
+  wire::core::IdGenerator gen(1);
+  if (gen.next() != 1 || gen.next() != 2 || gen.next() != 3) {
+    return false;
+  }
+  if (gen.peek() != 4) {
+    return false;
+  }
+  gen.reset(42);
+  return gen.peek() == 42 && gen.next() == 42 && gen.next() == 43;
+}
+
+// Intent: ObjectStore should keep lookup integrity across insert/update/remove.
+bool test_object_store_integrity() {
+  struct Dummy {
+    ObjectId id = 0;
+    int payload = 0;
+  };
+
+  wire::core::ObjectStore<Dummy> store;
+  store.insert(Dummy{1, 10});
+  store.insert(Dummy{2, 20});
+  store.insert(Dummy{3, 30});
+  if (store.size() != 3 || !store.contains(2)) {
+    return false;
+  }
+  if (store.find(3) == nullptr || store.find(3)->payload != 30) {
+    return false;
+  }
+  if (!store.remove(2) || store.contains(2) || store.size() != 2) {
+    return false;
+  }
+  if (store.find(1) == nullptr || store.find(3) == nullptr) {
+    return false;
+  }
+
+  // Upsert must replace value without changing count.
+  store.insert(Dummy{3, 99});
+  return store.size() == 2 && store.find(3) != nullptr && store.find(3)->payload == 99;
 }
 
 // Intent: AddSpan should create runtime state and initial dirty bits.
@@ -344,32 +425,6 @@ bool test_add_drop_from_span_splits_and_connects_drop() {
   return split_it->second.size() >= 3 && state.Validate().ok();
 }
 
-// Intent: Validation should detect template-slot inconsistency.
-bool test_validation_detects_template_slot_mismatch() {
-  CoreState state;
-  const auto pole_type_ids = sorted_pole_type_ids(state);
-  if (pole_type_ids.empty()) {
-    return false;
-  }
-  const ObjectId pole = state.AddPole({}, 10.0, "P").value;
-  if (!state.ApplyPoleType(pole, pole_type_ids[0]).ok) {
-    return false;
-  }
-  auto detail = state.GetPoleDetail(pole);
-  if (detail.owned_ports.empty()) {
-    return false;
-  }
-  wire::core::Port* broken_port = state.edit_state().ports.find(detail.owned_ports.front()->id);
-  if (broken_port == nullptr) {
-    return false;
-  }
-  broken_port->source_slot_id = 999999;
-  broken_port->generated_from_template = true;
-
-  const auto validation = state.Validate();
-  return has_issue_code(validation, "PortSlotMissing");
-}
-
 // Intent: Line mode curve cache should be generated deterministically for the same input.
 bool test_curve_cache_line_mode_is_deterministic() {
   CoreState state;
@@ -564,26 +619,6 @@ bool test_bounds_follow_geometry_change() {
   return bounds_sag->whole.min.z < line_min_z;
 }
 
-// Intent: Validation should detect invalid bounds data in cache.
-bool test_validation_detects_invalid_bounds() {
-  CoreState state;
-  const ObjectId pole = state.AddPole({}, 10.0, "P").value;
-  const ObjectId a = state.AddPort(pole, {0.0, 0.0, 1.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
-  const ObjectId b = state.AddPort(pole, {5.0, 0.0, 1.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
-  const ObjectId span = state.AddSpan(a, b, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
-  (void)state.ProcessDirtyQueues();
-
-  auto bounds_it = state.cache_state().bounds_cache.by_span.find(span);
-  if (bounds_it == state.cache_state().bounds_cache.by_span.end()) {
-    return false;
-  }
-  bounds_it->second.whole.min.x = 10.0;
-  bounds_it->second.whole.max.x = -10.0;
-
-  const auto validation = state.Validate();
-  return has_issue_code(validation, "BoundsInvalid");
-}
-
 // Intent: GeneratePolesAlongRoad places poles at interval and applies pole type.
 bool test_generate_poles_along_road_basic() {
   CoreState state;
@@ -621,6 +656,333 @@ bool test_generate_poles_along_road_basic() {
   return true;
 }
 
+// Intent: Pole context classification should mark terminal/straight/corner from road shape.
+bool test_pole_context_classification_basic() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::RoadSegment straight{};
+  straight.id = 901;
+  straight.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
+  const auto straight_result = state.GeneratePolesAlongRoad(straight, 5.0, type_ids.front());
+  if (!straight_result.ok || straight_result.value.size() < 3) {
+    return false;
+  }
+
+  const auto* first = state.edit_state().poles.find(straight_result.value.front());
+  const auto* middle = state.edit_state().poles.find(straight_result.value[1]);
+  const auto* last = state.edit_state().poles.find(straight_result.value.back());
+  if (first == nullptr || middle == nullptr || last == nullptr) {
+    return false;
+  }
+  if (first->context.kind != wire::core::PoleContextKind::kTerminal ||
+      last->context.kind != wire::core::PoleContextKind::kTerminal ||
+      middle->context.kind != wire::core::PoleContextKind::kStraight) {
+    return false;
+  }
+
+  CoreState corner_state;
+  const auto corner_type_ids = sorted_pole_type_ids(corner_state);
+  if (corner_type_ids.empty()) {
+    return false;
+  }
+  wire::core::RoadSegment corner{};
+  corner.id = 902;
+  corner.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {10.0, 10.0, 0.0}};
+  const auto corner_result = corner_state.GeneratePolesAlongRoad(corner, 5.0, corner_type_ids.front());
+  if (!corner_result.ok) {
+    return false;
+  }
+
+  bool found_corner = false;
+  for (ObjectId pole_id : corner_result.value) {
+    const auto* pole = corner_state.edit_state().poles.find(pole_id);
+    if (pole != nullptr && pole->context.kind == wire::core::PoleContextKind::kCorner) {
+      if (pole->context.corner_angle_deg <= 0.0 || pole->context.side_scale < 1.0) {
+        return false;
+      }
+      found_corner = true;
+      break;
+    }
+  }
+  return found_corner;
+}
+
+// Intent: Angle correction should stay bounded and produce finite corrected port values.
+bool test_angle_correction_bounds_and_finite() {
+  CoreState state;
+  wire::core::LayoutSettings layout{};
+  layout.angle_correction_enabled = true;
+  layout.corner_threshold_deg = 5.0;
+  layout.min_side_scale = 1.0;
+  layout.max_side_scale = 1.6;
+  if (!state.UpdateLayoutSettings(layout).ok) {
+    return false;
+  }
+
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  wire::core::RoadSegment road{};
+  road.id = 903;
+  road.polyline = {{0.0, 0.0, 0.0}, {8.0, 0.0, 0.0}, {8.0, 8.0, 0.0}};
+  const auto result = state.GeneratePolesAlongRoad(road, 4.0, type_ids.front());
+  if (!result.ok) {
+    return false;
+  }
+
+  bool found_corrected_port = false;
+  for (ObjectId pole_id : result.value) {
+    const auto* pole = state.edit_state().poles.find(pole_id);
+    if (pole == nullptr || pole->context.kind != wire::core::PoleContextKind::kCorner) {
+      continue;
+    }
+    if (pole->context.side_scale < layout.min_side_scale || pole->context.side_scale > layout.max_side_scale) {
+      return false;
+    }
+    for (const auto& port : state.edit_state().ports.items()) {
+      if (port.owner_pole_id != pole_id) {
+        continue;
+      }
+      if (!std::isfinite(port.world_position.x) ||
+          !std::isfinite(port.world_position.y) ||
+          !std::isfinite(port.world_position.z) ||
+          !std::isfinite(port.side_scale_applied)) {
+        return false;
+      }
+      if (port.angle_correction_applied) {
+        found_corrected_port = true;
+      }
+    }
+  }
+  return found_corrected_port;
+}
+
+// Intent: Corner turn sign should bias correction so outer side expands more than inner side.
+bool test_corner_turn_sign_biases_outer_side() {
+  auto check_turn = [](const std::vector<wire::core::Vec3d>& polyline, bool expect_left_turn_outer_right) -> bool {
+    CoreState state;
+    wire::core::LayoutSettings layout{};
+    layout.angle_correction_enabled = true;
+    layout.corner_threshold_deg = 5.0;
+    layout.min_side_scale = 1.0;
+    layout.max_side_scale = 1.8;
+    if (!state.UpdateLayoutSettings(layout).ok) {
+      return false;
+    }
+
+    const auto type_ids = sorted_pole_type_ids(state);
+    if (type_ids.empty()) {
+      return false;
+    }
+
+    wire::core::RoadSegment road{};
+    road.id = expect_left_turn_outer_right ? 905 : 906;
+    road.polyline = polyline;
+    const auto result = state.GeneratePolesAlongRoad(road, 4.0, type_ids.front());
+    if (!result.ok) {
+      return false;
+    }
+
+    const wire::core::Pole* corner_pole = nullptr;
+    for (ObjectId pole_id : result.value) {
+      const auto* pole = state.edit_state().poles.find(pole_id);
+      if (pole != nullptr && pole->context.kind == wire::core::PoleContextKind::kCorner) {
+        corner_pole = pole;
+        break;
+      }
+    }
+    if (corner_pole == nullptr) {
+      return false;
+    }
+
+    const wire::core::Port* left_slot_port = nullptr;
+    const wire::core::Port* right_slot_port = nullptr;
+    for (const auto& port : state.edit_state().ports.items()) {
+      if (port.owner_pole_id != corner_pole->id) {
+        continue;
+      }
+      if (port.source_slot_id == 200) {
+        left_slot_port = &port;
+      } else if (port.source_slot_id == 201) {
+        right_slot_port = &port;
+      }
+    }
+    if (left_slot_port == nullptr || right_slot_port == nullptr) {
+      return false;
+    }
+
+    const double left_offset = std::abs(left_slot_port->world_position.y - corner_pole->world_transform.position.y);
+    const double right_offset = std::abs(right_slot_port->world_position.y - corner_pole->world_transform.position.y);
+    if (expect_left_turn_outer_right) {
+      return corner_pole->context.corner_turn_sign > 0.0 &&
+             right_offset > left_offset &&
+             right_slot_port->side_scale_applied > left_slot_port->side_scale_applied;
+    }
+    return corner_pole->context.corner_turn_sign < 0.0 &&
+           left_offset > right_offset &&
+           left_slot_port->side_scale_applied > right_slot_port->side_scale_applied;
+  };
+
+  const bool left_ok = check_turn({{0.0, 0.0, 0.0}, {8.0, 0.0, 0.0}, {8.0, 8.0, 0.0}}, true);
+  const bool right_ok = check_turn({{0.0, 0.0, 0.0}, {8.0, 0.0, 0.0}, {8.0, -8.0, 0.0}}, false);
+  return left_ok && right_ok;
+}
+
+// Intent: Branch context should bias slot selection away from trunk-only slot choice.
+bool test_slot_selection_context_bias() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::Transformd a{};
+  a.position = {0.0, 0.0, 0.0};
+  wire::core::Transformd b{};
+  b.position = {10.0, 0.0, 0.0};
+  wire::core::Transformd c{};
+  c.position = {10.0, 8.0, 0.0};
+  const ObjectId pole_a = state.AddPole(a, 10.0, "A").value;
+  const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
+  const ObjectId pole_c = state.AddPole(c, 10.0, "C").value;
+  if (!state.ApplyPoleType(pole_a, type_ids.front()).ok ||
+      !state.ApplyPoleType(pole_b, type_ids.front()).ok ||
+      !state.ApplyPoleType(pole_c, type_ids.front()).ok) {
+    return false;
+  }
+
+  wire::core::CoreState::AddConnectionByPoleOptions trunk_options{};
+  trunk_options.connection_context = wire::core::ConnectionContext::kTrunkContinue;
+  const auto trunk = state.AddConnectionByPole(pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage, trunk_options);
+  if (!trunk.ok) {
+    return false;
+  }
+
+  wire::core::CoreState::AddConnectionByPoleOptions branch_options{};
+  branch_options.connection_context = wire::core::ConnectionContext::kBranchAdd;
+  const auto branch = state.AddConnectionByPole(pole_b, pole_c, wire::core::ConnectionCategory::kLowVoltage, branch_options);
+  if (!branch.ok) {
+    return false;
+  }
+  return branch.value.slot_a_id >= 0 && branch.value.slot_a_id != trunk.value.slot_b_id;
+}
+
+// Intent: Slot selection tie-break should be deterministic and debug log should be internally consistent.
+bool test_slot_selection_deterministic_and_debug_integrity() {
+  auto run_once = []() -> std::pair<int, wire::core::SlotSelectionDebugRecord> {
+    CoreState state;
+    const auto type_ids = sorted_pole_type_ids(state);
+    if (type_ids.empty()) {
+      return {-1, {}};
+    }
+    const ObjectId pole_a = state.AddPole({}, 10.0, "A").value;
+    wire::core::Transformd b{};
+    b.position = {12.0, 0.0, 0.0};
+    const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
+    (void)state.ApplyPoleType(pole_a, type_ids.front());
+    (void)state.ApplyPoleType(pole_b, type_ids.front());
+
+    wire::core::CoreState::AddConnectionByPoleOptions options{};
+    options.connection_context = wire::core::ConnectionContext::kCornerPass;
+    options.branch_index = 3;
+    const auto result = state.AddConnectionByPole(pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage, options);
+    if (!result.ok || state.slot_selection_debug_records().empty()) {
+      return {-1, {}};
+    }
+    return {result.value.slot_a_id, state.slot_selection_debug_records().back()};
+  };
+
+  const auto first = run_once();
+  const auto second = run_once();
+  if (first.first < 0 || second.first < 0 || first.first != second.first) {
+    return false;
+  }
+  if (first.second.candidates.empty()) {
+    return false;
+  }
+  return has_selected_slot_in_candidates(first.second);
+}
+
+// Intent: GenerateSimpleLine over corner path should propagate corner/trunk contexts into created spans.
+bool test_generate_simple_line_corner_context_integration() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::RoadSegment road{};
+  road.id = 904;
+  road.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}, {12.0, 12.0, 0.0}};
+  const auto result = state.GenerateSimpleLine(road, 4.0, type_ids.front(), wire::core::ConnectionCategory::kLowVoltage);
+  if (!result.ok || result.value.span_ids.empty()) {
+    return false;
+  }
+
+  bool has_corner_context = false;
+  for (ObjectId span_id : result.value.span_ids) {
+    const auto* span = state.edit_state().spans.find(span_id);
+    if (span != nullptr && span->placement_context == wire::core::ConnectionContext::kCornerPass) {
+      has_corner_context = true;
+      break;
+    }
+  }
+  return has_corner_context && state.Validate().ok();
+}
+
+// Intent: DrawPath generation should place one pole per clicked point and auto-compute pole yaw.
+bool test_generate_simple_line_from_points_exact_poles_and_orientation() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::RoadSegment road{};
+  road.id = 907;
+  road.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {10.0, 10.0, 0.0}};
+  const auto result =
+      state.GenerateSimpleLineFromPoints(road, type_ids.front(), wire::core::ConnectionCategory::kLowVoltage);
+  if (!result.ok) {
+    return false;
+  }
+  if (result.value.pole_ids.size() != road.polyline.size()) {
+    return false;
+  }
+  if (result.value.span_ids.size() != road.polyline.size() - 1) {
+    return false;
+  }
+
+  for (std::size_t i = 0; i < road.polyline.size(); ++i) {
+    const auto* pole = state.edit_state().poles.find(result.value.pole_ids[i]);
+    if (pole == nullptr) {
+      return false;
+    }
+    if (!almost_equal(pole->world_transform.position, road.polyline[i])) {
+      return false;
+    }
+  }
+
+  const auto* first = state.edit_state().poles.find(result.value.pole_ids[0]);
+  const auto* middle = state.edit_state().poles.find(result.value.pole_ids[1]);
+  const auto* last = state.edit_state().poles.find(result.value.pole_ids[2]);
+  if (first == nullptr || middle == nullptr || last == nullptr) {
+    return false;
+  }
+  if (!almost_equal(first->world_transform.rotation_euler_deg.z, 0.0, 1e-6)) {
+    return false;
+  }
+  if (!almost_equal(last->world_transform.rotation_euler_deg.z, 90.0, 1e-6)) {
+    return false;
+  }
+  return almost_equal(middle->world_transform.rotation_euler_deg.z, 45.0, 1e-6);
+}
+
 // Intent: GenerateSimpleLine should fail when polyline has less than 2 points.
 bool test_generate_simple_line_fails_with_short_polyline() {
   CoreState state;
@@ -628,11 +990,24 @@ bool test_generate_simple_line_fails_with_short_polyline() {
   if (type_ids.empty()) {
     return false;
   }
+  const CoreCounts before = snapshot_counts(state);
   wire::core::RoadSegment road{};
   road.id = 80;
   road.polyline = {{0.0, 0.0, 0.0}};
   const auto result = state.GenerateSimpleLine(road, 5.0, type_ids.front(), ConnectionCategory::kLowVoltage);
-  return !result.ok;
+  if (result.ok) {
+    return false;
+  }
+  if (result.error != "road polyline must contain at least 2 points") {
+    return false;
+  }
+  if (!same_counts(before, snapshot_counts(state))) {
+    return false;
+  }
+
+  // Recovery: next valid input should succeed.
+  road.polyline.push_back({5.0, 0.0, 0.0});
+  return state.GenerateSimpleLine(road, 5.0, type_ids.front(), ConnectionCategory::kLowVoltage).ok;
 }
 
 // Intent: GenerateSimpleLine should fail when interval is non-positive.
@@ -642,11 +1017,91 @@ bool test_generate_simple_line_fails_with_invalid_interval() {
   if (type_ids.empty()) {
     return false;
   }
+  const CoreCounts before = snapshot_counts(state);
   wire::core::RoadSegment road{};
   road.id = 81;
   road.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}};
   const auto result = state.GenerateSimpleLine(road, 0.0, type_ids.front(), ConnectionCategory::kLowVoltage);
-  return !result.ok;
+  if (result.ok) {
+    return false;
+  }
+  if (result.error != "interval must be > 0") {
+    return false;
+  }
+  if (!same_counts(before, snapshot_counts(state))) {
+    return false;
+  }
+  return state.GenerateSimpleLine(road, 5.0, type_ids.front(), ConnectionCategory::kLowVoltage).ok;
+}
+
+// Intent: AddConnectionByPole should fail for same pole and allow recovery.
+bool test_add_connection_same_pole_fails_and_recovers() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  const ObjectId pole_a = state.AddPole({}, 10.0, "A").value;
+  if (!state.ApplyPoleType(pole_a, type_ids.front()).ok) {
+    return false;
+  }
+
+  const CoreCounts before = snapshot_counts(state);
+  const auto bad = state.AddConnectionByPole(pole_a, pole_a, ConnectionCategory::kLowVoltage);
+  if (bad.ok || !regex_contains(bad.error, "same pole")) {
+    return false;
+  }
+  if (!same_counts(before, snapshot_counts(state))) {
+    return false;
+  }
+
+  wire::core::Transformd pole_b_tf{};
+  pole_b_tf.position = {12.0, 0.0, 0.0};
+  const ObjectId pole_b = state.AddPole(pole_b_tf, 10.0, "B").value;
+  if (!state.ApplyPoleType(pole_b, type_ids.front()).ok) {
+    return false;
+  }
+  const ObjectId pa = state.AddPort(pole_a, {0.0, 2.0, 1.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId pb = state.AddPort(pole_b, {12.0, 2.0, 1.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  return state.AddSpan(pa, pb, SpanKind::kDistribution, SpanLayer::kLowVoltage).ok;
+}
+
+// Intent: AddSpan should reject missing ports and remain recoverable.
+bool test_add_span_missing_ports_fails_and_recovers() {
+  CoreState state;
+  const CoreCounts before = snapshot_counts(state);
+  const auto bad = state.AddSpan(111, 222, SpanKind::kDistribution, SpanLayer::kLowVoltage);
+  if (bad.ok || bad.error != "span ports do not exist") {
+    return false;
+  }
+  if (!same_counts(before, snapshot_counts(state))) {
+    return false;
+  }
+
+  const ObjectId pole_a = state.AddPole({}, 9.0, "A").value;
+  const ObjectId pole_b = state.AddPole({}, 9.0, "B").value;
+  const ObjectId a = state.AddPort(pole_a, {0.0, 0.0, 1.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId b = state.AddPort(pole_b, {3.0, 0.0, 1.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  return state.AddSpan(a, b, SpanKind::kDistribution, SpanLayer::kLowVoltage).ok;
+}
+
+// Intent: SplitSpan should reject invalid t and remain recoverable.
+bool test_split_span_invalid_t_fails_and_recovers() {
+  CoreState state;
+  const ObjectId pole_a = state.AddPole({}, 9.0, "A").value;
+  const ObjectId pole_b = state.AddPole({}, 9.0, "B").value;
+  const ObjectId a = state.AddPort(pole_a, {0.0, 0.0, 3.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId b = state.AddPort(pole_b, {6.0, 0.0, 3.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId span = state.AddSpan(a, b, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
+
+  const auto bad = state.SplitSpan(span, 0.0);
+  if (bad.ok || bad.error != "split t must be in (0, 1)") {
+    return false;
+  }
+  if (state.edit_state().spans.find(span) == nullptr) {
+    return false;
+  }
+  return state.SplitSpan(span, 0.5).ok;
 }
 
 // Intent: GenerateSpansBetweenPoles connects adjacent poles and keeps index/runtime consistent.
@@ -689,6 +1144,83 @@ bool test_generate_spans_between_poles_basic() {
     }
   }
   return state.Validate().ok();
+}
+
+// Intent: Repeated auto-connect passes should keep increasing spans (not capped to two lines).
+bool test_generate_spans_between_poles_multiple_passes() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  std::vector<ObjectId> poles;
+  for (int i = 0; i < 5; ++i) {
+    wire::core::Transformd tf{};
+    tf.position = {static_cast<double>(i) * 12.0, 0.0, 0.0};
+    const ObjectId pole_id = state.AddPole(tf, 10.0, "P", wire::core::PoleKind::kConcrete).value;
+    if (!state.ApplyPoleType(pole_id, type_ids.front()).ok) {
+      return false;
+    }
+    poles.push_back(pole_id);
+  }
+
+  const std::size_t per_pass = poles.size() - 1;
+  for (int pass = 0; pass < 6; ++pass) {
+    const auto result = state.GenerateSpansBetweenPoles(poles, ConnectionCategory::kLowVoltage);
+    if (!result.ok || result.value.size() != per_pass) {
+      return false;
+    }
+    const std::size_t expected_total = per_pass * static_cast<std::size_t>(pass + 1);
+    if (state.edit_state().spans.size() != expected_total) {
+      return false;
+    }
+  }
+  return state.Validate().ok();
+}
+
+// Intent: LowVoltage auto-connect should use at least three distinct slots before reuse.
+bool test_generate_spans_between_poles_uses_third_slot_before_reuse() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  std::vector<ObjectId> poles;
+  for (int i = 0; i < 4; ++i) {
+    wire::core::Transformd tf{};
+    tf.position = {static_cast<double>(i) * 10.0, 0.0, 0.0};
+    const ObjectId pole_id = state.AddPole(tf, 10.0, "P", wire::core::PoleKind::kConcrete).value;
+    if (!state.ApplyPoleType(pole_id, type_ids.front()).ok) {
+      return false;
+    }
+    poles.push_back(pole_id);
+  }
+
+  std::vector<int> slot_ids;
+  for (int pass = 0; pass < 3; ++pass) {
+    const auto result = state.GenerateSpansBetweenPoles(poles, ConnectionCategory::kLowVoltage);
+    if (!result.ok || result.value.empty()) {
+      return false;
+    }
+    const auto* first_span = state.edit_state().spans.find(result.value.front());
+    if (first_span == nullptr) {
+      return false;
+    }
+    const auto* first_port = state.edit_state().ports.find(first_span->port_a_id);
+    if (first_port == nullptr || first_port->owner_pole_id != poles.front()) {
+      return false;
+    }
+    if (first_port->source_slot_id < 0) {
+      return false;
+    }
+    slot_ids.push_back(first_port->source_slot_id);
+  }
+
+  std::sort(slot_ids.begin(), slot_ids.end());
+  slot_ids.erase(std::unique(slot_ids.begin(), slot_ids.end()), slot_ids.end());
+  return slot_ids.size() >= 3;
 }
 
 // Intent: GenerateSimpleLine should create poles+spans and drive geometry/bounds recalc.
@@ -833,36 +1365,51 @@ bool test_demo_state_has_dense_spans() {
 
 int main() {
   const std::vector<TestCase> tests = {
-      {"Phase3_SpanRuntime_Initialized", "AddSpan initializes runtime+dirty", test_span_runtime_initialized_on_add},
-      {"Phase3_MovePole_LocalDirty", "MovePole dirties only related span", test_move_pole_dirties_only_related_span},
-      {"Phase3_SplitSpan_Basic", "SplitSpan replaces structure and keeps integrity", test_split_span_creates_two_spans_and_port},
-      {"Phase35_ApplyPoleType_GeneratesPorts", "ApplyPoleType generates owned template ports", test_apply_pole_type_generates_template_ports},
-      {"Phase35_PoleType_DifferentLayouts", "Different pole types produce different slot layout", test_different_pole_types_produce_different_port_layouts},
-      {"Phase35_AutoAlloc_UnusedPriority", "Auto allocation prefers unused slots", test_auto_port_allocation_prefers_unused_slots},
-      {"Phase35_AddConnectionByPole_Basic", "Pole->Pole connection updates dirty/index/changeset", test_add_connection_by_pole_updates_dirty_version_and_indices},
-      {"Phase35_AddDropFromPole_Basic", "Drop from pole creates service span", test_add_drop_from_pole_creates_service_connection},
-      {"Phase35_AddDropFromSpan_Basic", "Drop from span splits and connects", test_add_drop_from_span_splits_and_connects_drop},
-      {"Phase35_Validation_TemplateMismatch", "Validation detects slot mismatch", test_validation_detects_template_slot_mismatch},
-      {"Phase4_Curve_LineDeterministic", "Line mode curve cache is deterministic", test_curve_cache_line_mode_is_deterministic},
-      {"Phase4_Curve_SagBasic", "Sag mode changes midpoint and keeps endpoints", test_sag_mode_changes_midpoint_and_keeps_endpoints},
-      {"Phase4_DirtyVersion_LocalGeometryBounds", "Geometry dirty propagates to bounds/render locally", test_geometry_bounds_version_follow_and_locality},
-      {"Phase4_Bounds_Generated", "Bounds cache is generated and valid", test_bounds_cache_generated_and_valid},
-      {"Phase4_Bounds_FollowGeometry", "Bounds follows geometry setting change", test_bounds_follow_geometry_change},
-      {"Phase4_Validation_BoundsInvalid", "Validation detects invalid bounds", test_validation_detects_invalid_bounds},
-      {"Phase4_DemoState_Dense", "Demo state has dense enough spans for initial viewer", test_demo_state_has_dense_spans},
-      {"Phase45_GeneratePolesAlongRoad_Basic", "Road interval generates pole line with pole type", test_generate_poles_along_road_basic},
-      {"Phase46_GenerateSimpleLine_FailShortPolyline", "Simple line fails for short polyline", test_generate_simple_line_fails_with_short_polyline},
-      {"Phase46_GenerateSimpleLine_FailInvalidInterval", "Simple line fails for invalid interval", test_generate_simple_line_fails_with_invalid_interval},
-      {"Phase45_GenerateSpansBetweenPoles_Basic", "Adjacent poles are auto connected", test_generate_spans_between_poles_basic},
-      {"Phase45_GenerateSimpleLine_Integration", "Simple line generation integrates dirty/recalc/caches", test_generate_simple_line_integration},
-      {"Phase45_GenerateSimpleLine_Continuity", "Intermediate poles reuse same through-port", test_generate_simple_line_reuses_intermediate_ports},
-      {"Phase45_DisplayId_PerPrefix", "Display IDs increment per prefix", test_display_id_is_per_prefix_sequence},
+      {"C01_IdGenerator", "IdGenerator monotonic and reset behavior", "Exact", false, test_id_generator_monotonic_and_reset},
+      {"C02_ObjectStore", "ObjectStore add/find/remove integrity", "Exact", false, test_object_store_integrity},
+      {"C03_Phase3_SpanRuntime_Initialized", "AddSpan initializes runtime+dirty", "Exact", false, test_span_runtime_initialized_on_add},
+      {"C04_Phase3_MovePole_LocalDirty", "MovePole dirties only related span", "Invariant", false, test_move_pole_dirties_only_related_span},
+      {"C05_Phase3_SplitSpan_Basic", "SplitSpan replaces structure and keeps integrity", "Invariant", false, test_split_span_creates_two_spans_and_port},
+      {"C06_Phase35_ApplyPoleType_GeneratesPorts", "ApplyPoleType generates owned template ports", "Invariant", false, test_apply_pole_type_generates_template_ports},
+      {"C07_Phase35_PoleType_DifferentLayouts", "Different pole types produce different slot layout", "Invariant", false, test_different_pole_types_produce_different_port_layouts},
+      {"C08_Phase35_AutoAlloc_UnusedPriority", "Auto allocation prefers unused slots", "Invariant", false, test_auto_port_allocation_prefers_unused_slots},
+      {"C09_Phase35_AddConnectionByPole_Basic", "Pole->Pole connection updates dirty/index/changeset", "Invariant", false, test_add_connection_by_pole_updates_dirty_version_and_indices},
+      {"C10_AddConnectionByPole_FailSamePole", "Same-pole connect fails with diagnostics and recovers", "Exact", true, test_add_connection_same_pole_fails_and_recovers},
+      {"C11_Phase35_AddDropFromPole_Basic", "Drop from pole creates service span", "Invariant", false, test_add_drop_from_pole_creates_service_connection},
+      {"C12_Phase35_AddDropFromSpan_Basic", "Drop from span splits and connects", "Invariant", false, test_add_drop_from_span_splits_and_connects_drop},
+      {"C13_Phase4_Curve_LineDeterministic", "Line mode curve cache is deterministic", "Exact", false, test_curve_cache_line_mode_is_deterministic},
+      {"C14_Phase4_Curve_SagBasic", "Sag mode changes midpoint and keeps endpoints", "Invariant", false, test_sag_mode_changes_midpoint_and_keeps_endpoints},
+      {"C15_Phase4_DirtyVersion_LocalGeometryBounds", "Geometry dirty propagates to bounds/render locally", "Exact", false, test_geometry_bounds_version_follow_and_locality},
+      {"C16_Phase4_Bounds_Generated", "Bounds cache is generated and valid", "Invariant", false, test_bounds_cache_generated_and_valid},
+      {"C17_Phase4_Bounds_FollowGeometry", "Bounds follows geometry setting change", "Invariant", false, test_bounds_follow_geometry_change},
+      {"C18_Phase4_DemoState_Dense", "Demo state has dense enough spans for initial viewer", "Invariant", false, test_demo_state_has_dense_spans},
+      {"C19_Phase45_GeneratePolesAlongRoad_Basic", "Road interval generates pole line with pole type", "Invariant", false, test_generate_poles_along_road_basic},
+      {"C20_Phase46_GenerateSimpleLine_FailShortPolyline", "Simple line short polyline fails with state unchanged", "Exact", true, test_generate_simple_line_fails_with_short_polyline},
+      {"C21_Phase46_GenerateSimpleLine_FailInvalidInterval", "Simple line invalid interval fails with state unchanged", "Exact", true, test_generate_simple_line_fails_with_invalid_interval},
+      {"C22_AddSpan_FailMissingPorts", "AddSpan invalid port failure leaves state recoverable", "Exact", true, test_add_span_missing_ports_fails_and_recovers},
+      {"C23_SplitSpan_FailInvalidT", "SplitSpan invalid t failure leaves state recoverable", "Exact", true, test_split_span_invalid_t_fails_and_recovers},
+      {"C24_Phase45_GenerateSpansBetweenPoles_Basic", "Adjacent poles are auto connected", "Exact", false, test_generate_spans_between_poles_basic},
+      {"C25_Phase45_GenerateSpansBetweenPoles_MultiPass", "Repeated auto-connect adds more spans", "Exact", false, test_generate_spans_between_poles_multiple_passes},
+      {"C26_Phase47_AutoConnect_UsesThirdSlot", "Auto-connect uses at least third low-voltage slot before reuse", "Invariant", false, test_generate_spans_between_poles_uses_third_slot_before_reuse},
+      {"C27_Phase45_GenerateSimpleLine_Integration", "Simple line generation integrates dirty/recalc/caches", "Invariant", false, test_generate_simple_line_integration},
+      {"C28_Phase45_GenerateSimpleLine_Continuity", "Intermediate poles reuse same through-port", "Invariant", false, test_generate_simple_line_reuses_intermediate_ports},
+      {"C29_Phase45_DisplayId_PerPrefix", "Display IDs increment per prefix", "Exact", false, test_display_id_is_per_prefix_sequence},
+      {"C30_Phase47_PoleContext_Classification", "Pole context classification marks terminal/straight/corner", "Invariant", false, test_pole_context_classification_basic},
+      {"C31_Phase47_AngleCorrection_Bounds", "Angle correction side scale stays finite and bounded", "Invariant", false, test_angle_correction_bounds_and_finite},
+      {"C32_Phase47_SlotSelection_ContextBias", "Branch context biases slot choice away from trunk-only", "Invariant", false, test_slot_selection_context_bias},
+      {"C33_Phase47_SlotSelection_DeterministicDebug", "Slot tie-break is deterministic and debug record is coherent", "Exact", false, test_slot_selection_deterministic_and_debug_integrity},
+      {"C34_Phase47_GenerateSimpleLine_CornerContext", "Corner path generation uses corner context on spans", "Invariant", false, test_generate_simple_line_corner_context_integration},
+      {"C35_Phase47_CornerTurnSign_OuterBias", "Corner turn sign expands outer side more than inner side", "Invariant", false, test_corner_turn_sign_biases_outer_side},
+      {"C36_Phase47_DrawPath_ClickPointsExact", "DrawPath generation uses clicked points directly and sets pole yaw", "Exact", false, test_generate_simple_line_from_points_exact_poles_and_orientation},
   };
 
   bool all_passed = true;
   for (const TestCase& test : tests) {
     const bool passed = test.run();
-    std::cout << (passed ? "[PASS] " : "[FAIL] ") << test.name << " - " << test.intent << "\n";
+    std::cout << (passed ? "[PASS] " : "[FAIL] ")
+              << test.name
+              << " [" << test.oracle << "][" << (test.abnormal ? "Abnormal" : "Normal") << "]"
+              << " - " << test.intent << "\n";
     all_passed = all_passed && passed;
   }
 

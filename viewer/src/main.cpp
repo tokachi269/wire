@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <functional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "imgui.h"
@@ -74,6 +75,7 @@ struct ViewerUiState {
   ObjectId connect_pole_a_id = wire::core::kInvalidObjectId;
   ObjectId connect_pole_b_id = wire::core::kInvalidObjectId;
   int connect_category = static_cast<int>(wire::core::ConnectionCategory::kLowVoltage);
+  int connect_context = static_cast<int>(wire::core::ConnectionContext::kTrunkContinue);
   ObjectId branch_source_span_id = wire::core::kInvalidObjectId;
   double branch_t = 0.5;
   double branch_target_x = 0.0;
@@ -111,8 +113,16 @@ struct ViewerUiState {
   std::vector<wire::core::Vec3d> draw_path_points{};
   bool draw_hover_valid = false;
   wire::core::Vec3d draw_hover_point{};
+  double draw_plane_z = 0.0;
   bool draw_show_preview = true;
   bool draw_keep_path_after_generate = true;
+  int draw_parallel_spans = 0;  // 0 = auto by category
+  bool layout_settings_loaded = false;
+  bool layout_angle_correction_enabled = true;
+  double layout_corner_threshold_deg = 12.0;
+  double layout_min_side_scale = 1.0;
+  double layout_max_side_scale = 1.8;
+  int selected_slot_debug_index = 0;
 
   std::string last_error;
   std::vector<std::string> logs;
@@ -133,6 +143,13 @@ constexpr std::array<wire::core::ConnectionCategory, 5> kAllCategories = {
     wire::core::ConnectionCategory::kDrop,
 };
 
+constexpr std::array<wire::core::ConnectionContext, 4> kAllConnectionContexts = {
+    wire::core::ConnectionContext::kTrunkContinue,
+    wire::core::ConnectionContext::kCornerPass,
+    wire::core::ConnectionContext::kBranchAdd,
+    wire::core::ConnectionContext::kDropAdd,
+};
+
 const char* CategoryLabel(wire::core::ConnectionCategory category) {
   switch (category) {
     case wire::core::ConnectionCategory::kHighVoltage:
@@ -144,6 +161,64 @@ const char* CategoryLabel(wire::core::ConnectionCategory category) {
     case wire::core::ConnectionCategory::kOptical:
       return "Optical";
     case wire::core::ConnectionCategory::kDrop:
+      return "Drop";
+    default:
+      return "Unknown";
+  }
+}
+
+const char* ContextLabel(wire::core::ConnectionContext context) {
+  switch (context) {
+    case wire::core::ConnectionContext::kTrunkContinue:
+      return "Trunk";
+    case wire::core::ConnectionContext::kCornerPass:
+      return "Corner";
+    case wire::core::ConnectionContext::kBranchAdd:
+      return "Branch";
+    case wire::core::ConnectionContext::kDropAdd:
+      return "Drop";
+    default:
+      return "Unknown";
+  }
+}
+
+const char* PoleContextLabel(wire::core::PoleContextKind context) {
+  switch (context) {
+    case wire::core::PoleContextKind::kStraight:
+      return "Straight";
+    case wire::core::PoleContextKind::kCorner:
+      return "Corner";
+    case wire::core::PoleContextKind::kBranch:
+      return "Branch";
+    case wire::core::PoleContextKind::kTerminal:
+      return "Terminal";
+    default:
+      return "Unknown";
+  }
+}
+
+const char* SlotSideLabel(wire::core::SlotSide side) {
+  switch (side) {
+    case wire::core::SlotSide::kLeft:
+      return "L";
+    case wire::core::SlotSide::kCenter:
+      return "C";
+    case wire::core::SlotSide::kRight:
+      return "R";
+    default:
+      return "?";
+  }
+}
+
+const char* SlotRoleLabel(wire::core::SlotRole role) {
+  switch (role) {
+    case wire::core::SlotRole::kNeutral:
+      return "Neutral";
+    case wire::core::SlotRole::kTrunkPreferred:
+      return "Trunk";
+    case wire::core::SlotRole::kBranchPreferred:
+      return "Branch";
+    case wire::core::SlotRole::kDropPreferred:
       return "Drop";
     default:
       return "Unknown";
@@ -164,6 +239,23 @@ const char* ModeLabel(EditMode mode) {
       return "DrawPath";
     default:
       return "Unknown";
+  }
+}
+
+int DefaultParallelSpanCount(wire::core::ConnectionCategory category) {
+  switch (category) {
+    case wire::core::ConnectionCategory::kHighVoltage:
+      return 3;
+    case wire::core::ConnectionCategory::kLowVoltage:
+      return 4;
+    case wire::core::ConnectionCategory::kCommunication:
+      return 4;
+    case wire::core::ConnectionCategory::kOptical:
+      return 2;
+    case wire::core::ConnectionCategory::kDrop:
+      return 1;
+    default:
+      return 1;
   }
 }
 
@@ -230,7 +322,7 @@ wire::core::Vec3d FromRaylib(const Vector3& raylib_xyz) {
   };
 }
 
-bool TryPickGroundPoint(const Camera3D& camera, wire::core::Vec3d* out_ue_point) {
+bool TryPickGroundPoint(const Camera3D& camera, double ue_plane_z, wire::core::Vec3d* out_ue_point) {
   if (out_ue_point == nullptr) {
     return false;
   }
@@ -239,7 +331,8 @@ bool TryPickGroundPoint(const Camera3D& camera, wire::core::Vec3d* out_ue_point)
   if (std::abs(ray.direction.y) <= 1e-6f) {
     return false;
   }
-  const float t = -ray.position.y / ray.direction.y;  // y=0 plane in raylib == UE z=0 plane
+  const float plane_y = static_cast<float>(ue_plane_z);  // raylib y == UE z
+  const float t = (plane_y - ray.position.y) / ray.direction.y;
   if (t < 0.0f) {
     return false;
   }
@@ -273,11 +366,11 @@ void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool
   road.id = ui_state.road_id++;
   road.polyline = ui_state.draw_path_points;
 
-  const auto result = state.GenerateSimpleLine(
+  const wire::core::ConnectionCategory category = kAllCategories[ui_state.road_category_index];
+  const auto result = state.GenerateSimpleLineFromPoints(
       road,
-      ui_state.road_interval,
       type_ids[ui_state.road_pole_type_index],
-      kAllCategories[ui_state.road_category_index]);
+      category);
 
   if (!result.ok) {
     ui_state.last_error = result.error;
@@ -285,9 +378,33 @@ void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool
     return;
   }
 
-  ui_state.last_error.clear();
+  int parallel_spans = ui_state.draw_parallel_spans;
+  if (parallel_spans <= 0) {
+    parallel_spans = DefaultParallelSpanCount(category);
+  }
+  parallel_spans = std::clamp(parallel_spans, 1, 8);
+
+  int total_generated_spans = static_cast<int>(result.value.span_ids.size());
+  bool extra_pass_failed = false;
+  for (int i = 1; i < parallel_spans; ++i) {
+    const auto extra = state.GenerateSpansBetweenPoles(result.value.pole_ids, category);
+    if (!extra.ok) {
+      ui_state.last_error = extra.error;
+      extra_pass_failed = true;
+      PushLog(
+          ui_state,
+          "Additional span pass failed at pass=" + std::to_string(i + 1) +
+              " error=" + extra.error);
+      break;
+    }
+    total_generated_spans += static_cast<int>(extra.value.size());
+  }
+
+  if (!extra_pass_failed) {
+    ui_state.last_error.clear();
+  }
   ui_state.last_generated_poles = static_cast<int>(result.value.pole_ids.size());
-  ui_state.last_generated_spans = static_cast<int>(result.value.span_ids.size());
+  ui_state.last_generated_spans = total_generated_spans;
   ui_state.last_generation_session = result.value.generation_session_id;
   if (!result.value.pole_ids.empty()) {
     ui_state.selected_type = SelectedType::kPole;
@@ -299,7 +416,8 @@ void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool
   PushLog(
       ui_state,
       "Generated path poles=" + std::to_string(ui_state.last_generated_poles) +
-          " spans=" + std::to_string(ui_state.last_generated_spans));
+          " spans=" + std::to_string(ui_state.last_generated_spans) +
+          " parallel=" + std::to_string(parallel_spans));
 }
 
 void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState& ui_state) {
@@ -310,7 +428,7 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
 
   ImGuiIO& io = ImGui::GetIO();
   wire::core::Vec3d hover{};
-  ui_state.draw_hover_valid = TryPickGroundPoint(camera, &hover);
+  ui_state.draw_hover_valid = TryPickGroundPoint(camera, ui_state.draw_plane_z, &hover);
   if (ui_state.draw_hover_valid) {
     ui_state.draw_hover_point = hover;
   }
@@ -638,6 +756,13 @@ void DrawSelectedInfo(const CoreState& state, const ViewerUiState& ui_state) {
       ImGui::Text("Gen Session: %llu", static_cast<unsigned long long>(pole->generation.generation_session_id));
       ImGui::Text("Pos: %.2f %.2f %.2f", pole->world_transform.position.x, pole->world_transform.position.y, pole->world_transform.position.z);
       ImGui::Text("Height: %.2f", pole->height_m);
+      ImGui::Text("PoleContext: %s", PoleContextLabel(pole->context.kind));
+      ImGui::Text("cornerAngle: %.2f", pole->context.corner_angle_deg);
+      ImGui::Text("cornerTurnSign: %.0f", pole->context.corner_turn_sign);
+      ImGui::Text("sideScale: %.3f", pole->context.side_scale);
+      ImGui::Text("angleCorrectionApplied: %s", pole->context.angle_correction_applied ? "true" : "false");
+      ImGui::Text("placementOverride: %s", pole->placement_override_flag ? "true" : "false");
+      ImGui::Text("orientationOverride: %s", pole->orientation_override_flag ? "true" : "false");
       return;
     }
     case SelectedType::kPort: {
@@ -652,6 +777,12 @@ void DrawSelectedInfo(const CoreState& state, const ViewerUiState& ui_state) {
       ImGui::Text("Pos: %.2f %.2f %.2f", port->world_position.x, port->world_position.y, port->world_position.z);
       ImGui::Text("Category: %s", CategoryLabel(port->category));
       ImGui::Text("SlotId: %d", port->source_slot_id);
+      ImGui::Text("Layer: %d Side: %s Role: %s", port->template_layer, SlotSideLabel(port->template_side), SlotRoleLabel(port->template_role));
+      ImGui::Text("GeneratedByRule: %s", port->generated_by_rule ? "true" : "false");
+      ImGui::Text("PlacementContext: %s", ContextLabel(port->placement_context));
+      ImGui::Text("AngleCorrected: %s sideScale=%.3f", port->angle_correction_applied ? "true" : "false", port->side_scale_applied);
+      ImGui::Text("placementOverride: %s", port->placement_override_flag ? "true" : "false");
+      ImGui::Text("orientationOverride: %s", port->orientation_override_flag ? "true" : "false");
       return;
     }
     case SelectedType::kSpan: {
@@ -667,6 +798,10 @@ void DrawSelectedInfo(const CoreState& state, const ViewerUiState& ui_state) {
       ImGui::Text("bundle: %llu", static_cast<unsigned long long>(span->bundle_id));
       ImGui::Text("Generated: %s", span->generation.generated ? "true" : "false");
       ImGui::Text("Gen Session: %llu", static_cast<unsigned long long>(span->generation.generation_session_id));
+      ImGui::Text("GeneratedByRule: %s", span->generated_by_rule ? "true" : "false");
+      ImGui::Text("PlacementContext: %s", ContextLabel(span->placement_context));
+      ImGui::Text("placementOverride: %s", span->placement_override_flag ? "true" : "false");
+      ImGui::Text("orientationOverride: %s", span->orientation_override_flag ? "true" : "false");
       const auto* curve = state.find_curve_cache(span->id);
       if (curve != nullptr) {
         ImGui::Text("curveSamples: %d", static_cast<int>(curve->points.size()));
@@ -991,6 +1126,8 @@ void DrawConnectionModePanel(CoreState& state, ViewerUiState& ui_state) {
 
   const int category_index = std::clamp(ui_state.connect_category, 0, static_cast<int>(kAllCategories.size() - 1));
   ui_state.connect_category = category_index;
+  const int context_index = std::clamp(ui_state.connect_context, 0, static_cast<int>(kAllConnectionContexts.size() - 1));
+  ui_state.connect_context = context_index;
   if (ImGui::BeginCombo("Category", CategoryLabel(kAllCategories[category_index]))) {
     for (int i = 0; i < static_cast<int>(kAllCategories.size()); ++i) {
       const bool selected = (i == category_index);
@@ -1003,12 +1140,29 @@ void DrawConnectionModePanel(CoreState& state, ViewerUiState& ui_state) {
     }
     ImGui::EndCombo();
   }
+  if (ImGui::BeginCombo("Context", ContextLabel(kAllConnectionContexts[context_index]))) {
+    for (int i = 0; i < static_cast<int>(kAllConnectionContexts.size()); ++i) {
+      const bool selected = (i == context_index);
+      if (ImGui::Selectable(ContextLabel(kAllConnectionContexts[i]), selected)) {
+        ui_state.connect_context = i;
+      }
+      if (selected) {
+        ImGui::SetItemDefaultFocus();
+      }
+    }
+    ImGui::EndCombo();
+  }
 
   if (ImGui::Button("Connect Pole -> Pole")) {
+    const int selected_context_index =
+        std::clamp(ui_state.connect_context, 0, static_cast<int>(kAllConnectionContexts.size() - 1));
+    wire::core::CoreState::AddConnectionByPoleOptions options{};
+    options.connection_context = kAllConnectionContexts[selected_context_index];
     const auto result = state.AddConnectionByPole(
         ui_state.connect_pole_a_id,
         ui_state.connect_pole_b_id,
-        kAllCategories[ui_state.connect_category]);
+        kAllCategories[ui_state.connect_category],
+        options);
     if (!result.ok) {
       ui_state.last_error = result.error;
       PushLog(ui_state, "Connect Pole->Pole failed");
@@ -1029,11 +1183,15 @@ void DrawConnectionModePanel(CoreState& state, ViewerUiState& ui_state) {
 
 void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
   ImGui::TextUnformatted("Draw Path");
-  ImGui::TextUnformatted("LMB: add point on ground");
+  ImGui::TextUnformatted("LMB: add point on draw plane");
   ImGui::TextUnformatted("RMB/Backspace: undo last");
   ImGui::TextUnformatted("Esc: clear path, Enter: generate");
+  ImGui::InputDouble("Draw Plane Z", &ui_state.draw_plane_z, 0.1, 1.0, "%.2f");
   ImGui::Checkbox("Show Preview", &ui_state.draw_show_preview);
   ImGui::Checkbox("Keep Path After Generate", &ui_state.draw_keep_path_after_generate);
+  ImGui::InputInt("Parallel Spans (0=auto)", &ui_state.draw_parallel_spans);
+  ui_state.draw_parallel_spans = std::clamp(ui_state.draw_parallel_spans, 0, 8);
+  ImGui::TextUnformatted("Pole placement: one pole per clicked path point");
   ImGui::Text("Path points: %d", static_cast<int>(ui_state.draw_path_points.size()));
   if (ui_state.draw_hover_valid) {
     ImGui::Text(
@@ -1083,7 +1241,9 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
     }
     ImGui::EndCombo();
   }
-  ImGui::InputDouble("Path Interval", &ui_state.road_interval);
+  const int resolved_parallel =
+      (ui_state.draw_parallel_spans > 0) ? ui_state.draw_parallel_spans : DefaultParallelSpanCount(kAllCategories[category_index]);
+  ImGui::Text("Resolved Parallel Spans: %d", resolved_parallel);
 
   if (ImGui::Button("Generate From Path")) {
     ExecuteGenerateFromDrawPath(state, ui_state, false);
@@ -1203,15 +1363,49 @@ void DrawDetailModePanel(CoreState& state, ViewerUiState& ui_state) {
 
   ImGui::Separator();
   ImGui::Text("Ports: %d", static_cast<int>(detail.owned_ports.size()));
+  std::unordered_map<int, const wire::core::Port*> by_slot;
   for (const auto* port : detail.owned_ports) {
-    const auto it = state.connection_index().spans_by_port.find(port->id);
-    const int usage = (it == state.connection_index().spans_by_port.end()) ? 0 : static_cast<int>(it->second.size());
-    ImGui::Text(
-        "%s cat=%s slot=%d used=%d",
-        port->display_id.c_str(),
-        CategoryLabel(port->category),
-        port->source_slot_id,
-        usage);
+    by_slot[port->source_slot_id] = port;
+  }
+
+  if (detail.pole_type != nullptr) {
+    ImGui::TextUnformatted("Slot usage");
+    for (const auto& slot : detail.pole_type->port_slots) {
+      const auto it = by_slot.find(slot.slot_id);
+      if (it == by_slot.end()) {
+        ImGui::Text(
+            "slot=%d cat=%s layer=%d side=%s role=%s used=0 [empty]",
+            slot.slot_id,
+            CategoryLabel(slot.category),
+            slot.layer,
+            SlotSideLabel(slot.side),
+            SlotRoleLabel(slot.role));
+        continue;
+      }
+      const auto* port = it->second;
+      const auto usage_it = state.connection_index().spans_by_port.find(port->id);
+      const int usage = (usage_it == state.connection_index().spans_by_port.end()) ? 0 : static_cast<int>(usage_it->second.size());
+      ImGui::Text(
+          "slot=%d cat=%s layer=%d side=%s role=%s used=%d -> %s",
+          slot.slot_id,
+          CategoryLabel(slot.category),
+          slot.layer,
+          SlotSideLabel(slot.side),
+          SlotRoleLabel(slot.role),
+          usage,
+          port->display_id.c_str());
+    }
+  } else {
+    for (const auto* port : detail.owned_ports) {
+      const auto it = state.connection_index().spans_by_port.find(port->id);
+      const int usage = (it == state.connection_index().spans_by_port.end()) ? 0 : static_cast<int>(it->second.size());
+      ImGui::Text(
+          "%s cat=%s slot=%d used=%d",
+          port->display_id.c_str(),
+          CategoryLabel(port->category),
+          port->source_slot_id,
+          usage);
+    }
   }
 
   ImGui::Separator();
@@ -1297,6 +1491,9 @@ void DrawStatsPanel(CoreState& state, ViewerUiState& ui_state) {
     ImGui::TextUnformatted("DrawPath shortcuts");
     ImGui::BulletText("LMB add point, RMB/Backspace undo");
     ImGui::BulletText("Esc clear, Enter generate");
+    ImGui::BulletText("Each clicked point becomes one pole");
+    ImGui::BulletText("Draw Plane Z controls input height");
+    ImGui::BulletText("Parallel Spans: 0=auto, 1..8 fixed");
   }
   ImGui::Separator();
 
@@ -1332,6 +1529,14 @@ void DrawStatsPanel(CoreState& state, ViewerUiState& ui_state) {
     ui_state.geometry_sag_factor = gs.sag_factor;
     ui_state.geometry_settings_loaded = true;
   }
+  if (!ui_state.layout_settings_loaded) {
+    const auto& ls = state.layout_settings();
+    ui_state.layout_angle_correction_enabled = ls.angle_correction_enabled;
+    ui_state.layout_corner_threshold_deg = ls.corner_threshold_deg;
+    ui_state.layout_min_side_scale = ls.min_side_scale;
+    ui_state.layout_max_side_scale = ls.max_side_scale;
+    ui_state.layout_settings_loaded = true;
+  }
 
   ImGui::Separator();
   ImGui::TextUnformatted("Geometry Settings");
@@ -1355,6 +1560,70 @@ void DrawStatsPanel(CoreState& state, ViewerUiState& ui_state) {
               std::string(result.value ? "true" : "false") +
               " dirtySpans=" + std::to_string(result.change_set.dirty_span_ids.size()));
     }
+  }
+
+  ImGui::Separator();
+  ImGui::TextUnformatted("Layout Settings");
+  ImGui::Checkbox("Angle Correction Enabled", &ui_state.layout_angle_correction_enabled);
+  ImGui::InputDouble("Corner Threshold Deg", &ui_state.layout_corner_threshold_deg, 1.0, 5.0, "%.2f");
+  ImGui::InputDouble("Min Side Scale", &ui_state.layout_min_side_scale, 0.05, 0.1, "%.3f");
+  ImGui::InputDouble("Max Side Scale", &ui_state.layout_max_side_scale, 0.05, 0.1, "%.3f");
+  if (ImGui::Button("Apply Layout")) {
+    wire::core::LayoutSettings settings{};
+    settings.angle_correction_enabled = ui_state.layout_angle_correction_enabled;
+    settings.corner_threshold_deg = ui_state.layout_corner_threshold_deg;
+    settings.min_side_scale = ui_state.layout_min_side_scale;
+    settings.max_side_scale = ui_state.layout_max_side_scale;
+    const auto result = state.UpdateLayoutSettings(settings);
+    if (!result.ok) {
+      ui_state.last_error = result.error;
+      PushLog(ui_state, "UpdateLayoutSettings failed");
+    } else {
+      ui_state.last_error.clear();
+      PushLog(ui_state, "Layout settings updated");
+    }
+  }
+  if (ImGui::Button("Clear Slot Debug Log")) {
+    state.clear_slot_selection_debug_records();
+    ui_state.selected_slot_debug_index = 0;
+  }
+
+  ImGui::Separator();
+  ImGui::TextUnformatted("Slot Selection Debug");
+  const auto& debug_records = state.slot_selection_debug_records();
+  ImGui::Text("Events: %d", static_cast<int>(debug_records.size()));
+  if (!debug_records.empty()) {
+    ui_state.selected_slot_debug_index =
+        std::clamp(ui_state.selected_slot_debug_index, 0, static_cast<int>(debug_records.size() - 1));
+    ImGui::SliderInt("Event Index", &ui_state.selected_slot_debug_index, 0, static_cast<int>(debug_records.size() - 1));
+    const auto& event = debug_records[static_cast<std::size_t>(ui_state.selected_slot_debug_index)];
+    ImGui::Text("Pole=%llu Peer=%llu Ctx=%s Cat=%s", static_cast<unsigned long long>(event.pole_id), static_cast<unsigned long long>(event.peer_pole_id), ContextLabel(event.connection_context), CategoryLabel(event.category));
+    ImGui::Text(
+        "PoleContext=%s corner=%.2f turn=%.0f sideScale=%.3f",
+        PoleContextLabel(event.pole_context),
+        event.corner_angle_deg,
+        event.corner_turn_sign,
+        event.side_scale);
+    ImGui::Text("Selected slot=%d result=%s", event.selected_slot_id, event.result.c_str());
+    ImGui::BeginChild("SlotScoreLog", ImVec2(0.0f, 140.0f), true);
+    for (const auto& c : event.candidates) {
+      ImGui::Text(
+          "slot=%d total=%d eligible=%d cat=%d ctx=%d layer=%d side=%d role=%d pri=%d usage=%d cong=%d tie=%d reason=%s",
+          c.slot_id,
+          c.total_score,
+          c.eligible ? 1 : 0,
+          c.category_score,
+          c.context_score,
+          c.layer_score,
+          c.side_score,
+          c.role_score,
+          c.priority_score,
+          c.usage_score,
+          c.congestion_score,
+          c.tie_breaker,
+          c.reason.c_str());
+    }
+    ImGui::EndChild();
   }
 
   ImGui::Separator();

@@ -21,6 +21,33 @@ enum class ConnectionCategory : std::uint8_t {
   kDrop = 4,
 };
 
+enum class ConnectionContext : std::uint8_t {
+  kTrunkContinue = 0,
+  kCornerPass = 1,
+  kBranchAdd = 2,
+  kDropAdd = 3,
+};
+
+enum class PoleContextKind : std::uint8_t {
+  kStraight = 0,
+  kCorner = 1,
+  kBranch = 2,
+  kTerminal = 3,
+};
+
+enum class SlotSide : std::uint8_t {
+  kLeft = 0,
+  kCenter = 1,
+  kRight = 2,
+};
+
+enum class SlotRole : std::uint8_t {
+  kNeutral = 0,
+  kTrunkPreferred = 1,
+  kBranchPreferred = 2,
+  kDropPreferred = 3,
+};
+
 enum class PortKind : std::uint8_t {
   kGeneric = 0,
   kPower = 1,
@@ -99,6 +126,9 @@ struct PortSlotTemplate {
   ConnectionCategory category = ConnectionCategory::kLowVoltage;
   Vec3d local_position{};
   Frame3d local_direction{};
+  int layer = 1;
+  SlotSide side = SlotSide::kCenter;
+  SlotRole role = SlotRole::kNeutral;
   int priority = 0;
   bool allow_multiple = false;
   bool enabled = true;
@@ -120,6 +150,14 @@ struct PoleTypeDefinition {
   std::vector<AnchorSlotTemplate> anchor_slots{};
 };
 
+struct PoleContextInfo {
+  PoleContextKind kind = PoleContextKind::kStraight;
+  double corner_angle_deg = 0.0;
+  double corner_turn_sign = 0.0;  // -1:right turn, +1:left turn, 0:undefined/straight
+  double side_scale = 1.0;
+  bool angle_correction_applied = false;
+};
+
 struct Pole {
   ObjectId id = kInvalidObjectId;
   std::string display_id{};
@@ -128,6 +166,9 @@ struct Pole {
   double height_m = 10.0;
   PoleKind kind = PoleKind::kGeneric;
   PoleTypeId pole_type_id = kInvalidPoleTypeId;
+  PoleContextInfo context{};
+  bool placement_override_flag = false;
+  bool orientation_override_flag = false;
   GenerationMeta generation{};
 };
 
@@ -141,7 +182,16 @@ struct Port {
   Frame3d direction{};
   ConnectionCategory category = ConnectionCategory::kLowVoltage;
   int source_slot_id = -1;
+  int template_layer = 1;
+  SlotSide template_side = SlotSide::kCenter;
+  SlotRole template_role = SlotRole::kNeutral;
   bool generated_from_template = false;
+  bool generated_by_rule = false;
+  ConnectionContext placement_context = ConnectionContext::kTrunkContinue;
+  bool angle_correction_applied = false;
+  double side_scale_applied = 1.0;
+  bool placement_override_flag = false;
+  bool orientation_override_flag = false;
 };
 
 struct Anchor {
@@ -173,6 +223,10 @@ struct Span {
   ObjectId bundle_id = kInvalidObjectId;
   ObjectId anchor_a_id = kInvalidObjectId;
   ObjectId anchor_b_id = kInvalidObjectId;
+  ConnectionContext placement_context = ConnectionContext::kTrunkContinue;
+  bool generated_by_rule = false;
+  bool placement_override_flag = false;
+  bool orientation_override_flag = false;
   GenerationMeta generation{};
 };
 

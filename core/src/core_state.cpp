@@ -18,6 +18,7 @@ namespace {
 constexpr double kZeroLengthEps = 1e-9;
 constexpr PoleTypeId kDistributionPoleType = 1;
 constexpr PoleTypeId kCommunicationPoleType = 2;
+constexpr double kPi = 3.14159265358979323846;
 
 ConnectionCategory port_layer_to_category(PortLayer layer) {
   switch (layer) {
@@ -64,6 +65,72 @@ ConnectionCategory span_layer_to_category(SpanLayer layer) {
   }
 }
 
+int target_template_layer_for_category(ConnectionCategory category) {
+  switch (category) {
+    case ConnectionCategory::kHighVoltage:
+      return 2;
+    case ConnectionCategory::kLowVoltage:
+      return 1;
+    case ConnectionCategory::kCommunication:
+      return 1;
+    case ConnectionCategory::kOptical:
+      return 1;
+    case ConnectionCategory::kDrop:
+      return 0;
+    default:
+      return 1;
+  }
+}
+
+int role_score_for_context(SlotRole role, ConnectionContext context) {
+  switch (context) {
+    case ConnectionContext::kTrunkContinue:
+    case ConnectionContext::kCornerPass:
+      if (role == SlotRole::kTrunkPreferred) return 120;
+      if (role == SlotRole::kNeutral) return 40;
+      return 0;
+    case ConnectionContext::kBranchAdd:
+      if (role == SlotRole::kBranchPreferred) return 120;
+      if (role == SlotRole::kNeutral) return 20;
+      if (role == SlotRole::kTrunkPreferred) return 10;
+      return 0;
+    case ConnectionContext::kDropAdd:
+      if (role == SlotRole::kDropPreferred) return 120;
+      if (role == SlotRole::kNeutral) return 10;
+      return 0;
+    default:
+      return 0;
+  }
+}
+
+SlotSide inner_side_for_turn(double turn_sign) {
+  if (turn_sign > 1e-9) {
+    return SlotSide::kLeft;
+  }
+  if (turn_sign < -1e-9) {
+    return SlotSide::kRight;
+  }
+  return SlotSide::kCenter;
+}
+
+double apply_corner_side_scale(
+    double local_y,
+    SlotSide slot_side,
+    double turn_sign,
+    double side_scale) {
+  if (slot_side == SlotSide::kCenter) {
+    return local_y;
+  }
+  const SlotSide inner_side = inner_side_for_turn(turn_sign);
+  if (inner_side == SlotSide::kCenter) {
+    return local_y * side_scale;
+  }
+  if (slot_side == inner_side) {
+    return local_y;
+  }
+  return local_y * side_scale;
+}
+
 template <typename TValue>
 void append_unique(std::vector<TValue>& dst, const std::vector<TValue>& src) {
   for (const TValue& value : src) {
@@ -78,6 +145,45 @@ void append_change_set(ChangeSet& dst, const ChangeSet& src) {
   append_unique(dst.updated_ids, src.updated_ids);
   append_unique(dst.deleted_ids, src.deleted_ids);
   append_unique(dst.dirty_span_ids, src.dirty_span_ids);
+}
+
+Vec3d rotate_xy_by_yaw_deg(const Vec3d& local, double yaw_deg) {
+  const double rad = yaw_deg * (kPi / 180.0);
+  const double c = std::cos(rad);
+  const double s = std::sin(rad);
+  return {
+      local.x * c - local.y * s,
+      local.x * s + local.y * c,
+      local.z,
+  };
+}
+
+Vec3d local_to_world_on_pole(const Transformd& tf, const Vec3d& local) {
+  return tf.position + rotate_xy_by_yaw_deg(local, tf.rotation_euler_deg.z);
+}
+
+Transformd make_auto_pole_transform(
+    const std::vector<Vec3d>& points,
+    std::size_t index) {
+  Transformd tf{};
+  tf.position = points[index];
+
+  Vec3d tangent{};
+  if (points.size() >= 2) {
+    if (index == 0) {
+      tangent = points[1] - points[0];
+    } else if (index + 1 >= points.size()) {
+      tangent = points[index] - points[index - 1];
+    } else {
+      tangent = points[index + 1] - points[index - 1];
+    }
+  }
+
+  const double len2 = tangent.x * tangent.x + tangent.y * tangent.y + tangent.z * tangent.z;
+  if (len2 > 1e-12) {
+    tf.rotation_euler_deg.z = std::atan2(tangent.y, tangent.x) * (180.0 / kPi);
+  }
+  return tf;
 }
 
 template <typename TKey>
@@ -155,7 +261,14 @@ EditResult<ObjectId> CoreState::AddPort(
   port.direction = direction;
   port.category = port_layer_to_category(layer);
   port.source_slot_id = -1;
+  port.template_layer = target_template_layer_for_category(port.category);
+  port.template_side = SlotSide::kCenter;
+  port.template_role = SlotRole::kNeutral;
   port.generated_from_template = false;
+  port.generated_by_rule = false;
+  port.placement_context = ConnectionContext::kTrunkContinue;
+  port.angle_correction_applied = false;
+  port.side_scale_applied = 1.0;
   edit_state_.ports.insert(port);
 
   result.ok = true;
@@ -522,7 +635,23 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
     if (!slot.enabled || is_port_slot_used(pole_id, slot.slot_id)) {
       continue;
     }
-    const Vec3d world_position = pole->world_transform.position + slot.local_position;
+    Vec3d adjusted_local = slot.local_position;
+    const bool apply_angle_correction =
+        layout_settings_.angle_correction_enabled &&
+        pole->context.kind == PoleContextKind::kCorner &&
+        slot.side != SlotSide::kCenter;
+    double applied_scale = 1.0;
+    if (apply_angle_correction) {
+      adjusted_local.y = apply_corner_side_scale(
+          adjusted_local.y,
+          slot.side,
+          pole->context.corner_turn_sign,
+          pole->context.side_scale);
+      if (std::abs(slot.local_position.y) > 1e-9) {
+        applied_scale = std::abs(adjusted_local.y / slot.local_position.y);
+      }
+    }
+    const Vec3d world_position = local_to_world_on_pole(pole->world_transform, adjusted_local);
     EditResult<ObjectId> add_port_result = AddPort(
         pole_id,
         world_position,
@@ -537,7 +666,13 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
     if (created != nullptr) {
       created->category = slot.category;
       created->source_slot_id = slot.slot_id;
+      created->template_layer = slot.layer;
+      created->template_side = slot.side;
+      created->template_role = slot.role;
       created->generated_from_template = true;
+      created->generated_by_rule = true;
+      created->angle_correction_applied = apply_angle_correction;
+      created->side_scale_applied = apply_angle_correction ? applied_scale : 1.0;
       add_unique_id(result.change_set.updated_ids, created->id);
     }
     append_change_set(result.change_set, add_port_result.change_set);
@@ -558,7 +693,7 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
       continue;
     }
 
-    const Vec3d world_position = pole->world_transform.position + slot.local_position;
+    const Vec3d world_position = local_to_world_on_pole(pole->world_transform, slot.local_position);
     EditResult<ObjectId> add_anchor_result = AddAnchor(pole_id, world_position, slot.usage, 1.0);
     if (!add_anchor_result.ok) {
       result.error = add_anchor_result.error;
@@ -596,6 +731,33 @@ EditResult<CoreState::AddConnectionByPoleResult> CoreState::AddConnectionByPole(
   int slot_a_id = -1;
   int slot_b_id = -1;
 
+  const Pole* pole_a = edit_state_.poles.find(pole_a_id);
+  const Pole* pole_b = edit_state_.poles.find(pole_b_id);
+  const PoleContextKind pole_context_a =
+      (options.pole_context_a != PoleContextKind::kStraight || (pole_a == nullptr))
+          ? options.pole_context_a
+          : pole_a->context.kind;
+  const PoleContextKind pole_context_b =
+      (options.pole_context_b != PoleContextKind::kStraight || (pole_b == nullptr))
+          ? options.pole_context_b
+          : pole_b->context.kind;
+  const double corner_angle_a =
+      (std::abs(options.corner_angle_deg_a) > 1e-9 || pole_a == nullptr)
+          ? options.corner_angle_deg_a
+          : pole_a->context.corner_angle_deg;
+  const double corner_angle_b =
+      (std::abs(options.corner_angle_deg_b) > 1e-9 || pole_b == nullptr)
+          ? options.corner_angle_deg_b
+          : pole_b->context.corner_angle_deg;
+  const double corner_turn_sign_a =
+      (std::abs(options.corner_turn_sign_a) > 1e-9 || pole_a == nullptr)
+          ? options.corner_turn_sign_a
+          : pole_a->context.corner_turn_sign;
+  const double corner_turn_sign_b =
+      (std::abs(options.corner_turn_sign_b) > 1e-9 || pole_b == nullptr)
+          ? options.corner_turn_sign_b
+          : pole_b->context.corner_turn_sign;
+
   auto resolve_port = [&](ObjectId pole_id, ObjectId preferred_port_id, int* out_slot_id, int preferred_slot_id) -> EditResult<ObjectId> {
     if (preferred_port_id != kInvalidObjectId) {
       const Port* preferred_port = edit_state_.ports.find(preferred_port_id);
@@ -611,12 +773,19 @@ EditResult<CoreState::AddConnectionByPoleResult> CoreState::AddConnectionByPole(
         return preferred_result;
       }
     }
-    return ensure_pole_slot_port(
-        pole_id,
-        category,
-        options.allow_generate_port,
-        out_slot_id,
-        preferred_slot_id);
+    SlotSelectionRequest request{};
+    request.pole_id = pole_id;
+    request.peer_pole_id = (pole_id == pole_a_id) ? pole_b_id : pole_a_id;
+    request.reference_span_id = options.reference_span_id;
+    request.category = category;
+    request.connection_context = options.connection_context;
+    request.pole_context = (pole_id == pole_a_id) ? pole_context_a : pole_context_b;
+    request.corner_angle_deg = (pole_id == pole_a_id) ? corner_angle_a : corner_angle_b;
+    request.corner_turn_sign = (pole_id == pole_a_id) ? corner_turn_sign_a : corner_turn_sign_b;
+    request.allow_generate_port = options.allow_generate_port;
+    request.preferred_slot_id = preferred_slot_id;
+    request.branch_index = options.branch_index;
+    return ensure_pole_slot_port(request, out_slot_id);
   };
 
   EditResult<ObjectId> port_a_result =
@@ -649,6 +818,12 @@ EditResult<CoreState::AddConnectionByPoleResult> CoreState::AddConnectionByPole(
     result.error = span_result.error;
     return result;
   }
+  Span* created_span = edit_state_.spans.find(span_result.value);
+  if (created_span != nullptr) {
+    created_span->placement_context = options.connection_context;
+    created_span->generated_by_rule = (created_span->generation.source == GenerationSource::kRoadAuto) || options.connection_context != ConnectionContext::kTrunkContinue;
+    add_unique_id(span_result.change_set.updated_ids, created_span->id);
+  }
 
   result.ok = true;
   result.value.span_id = span_result.value;
@@ -674,7 +849,17 @@ EditResult<CoreState::AddDropResult> CoreState::AddDropFromPole(
   }
 
   int slot_id = -1;
-  EditResult<ObjectId> source_port_result = ensure_pole_slot_port(source_pole_id, category, true, &slot_id);
+  SlotSelectionRequest request{};
+  request.pole_id = source_pole_id;
+  request.category = category;
+  request.connection_context = ConnectionContext::kDropAdd;
+  const Pole* source_pole = edit_state_.poles.find(source_pole_id);
+  request.pole_context = (source_pole == nullptr) ? PoleContextKind::kTerminal : source_pole->context.kind;
+  request.corner_angle_deg = (source_pole == nullptr) ? 0.0 : source_pole->context.corner_angle_deg;
+  request.corner_turn_sign = (source_pole == nullptr) ? 0.0 : source_pole->context.corner_turn_sign;
+  request.allow_generate_port = true;
+  request.preferred_slot_id = -1;
+  EditResult<ObjectId> source_port_result = ensure_pole_slot_port(request, &slot_id);
   if (!source_port_result.ok) {
     result.error = source_port_result.error;
     return result;
@@ -702,6 +887,12 @@ EditResult<CoreState::AddDropResult> CoreState::AddDropFromPole(
   if (!span_result.ok) {
     result.error = span_result.error;
     return result;
+  }
+  Span* created_span = edit_state_.spans.find(span_result.value);
+  if (created_span != nullptr) {
+    created_span->placement_context = ConnectionContext::kDropAdd;
+    created_span->generated_by_rule = true;
+    add_unique_id(span_result.change_set.updated_ids, created_span->id);
   }
 
   result.ok = true;
@@ -751,6 +942,12 @@ EditResult<CoreState::AddDropResult> CoreState::AddDropFromSpan(
     result.error = span_result.error;
     return result;
   }
+  Span* created_span = edit_state_.spans.find(span_result.value);
+  if (created_span != nullptr) {
+    created_span->placement_context = ConnectionContext::kDropAdd;
+    created_span->generated_by_rule = true;
+    add_unique_id(span_result.change_set.updated_ids, created_span->id);
+  }
 
   result.ok = true;
   result.value.span_id = span_result.value;
@@ -787,11 +984,30 @@ EditResult<std::vector<ObjectId>> CoreState::GeneratePolesAlongRoad(
     result.error = "failed to sample road points";
     return result;
   }
+  return generate_poles_from_points(road, pole_type_id, points);
+}
+
+EditResult<std::vector<ObjectId>> CoreState::generate_poles_from_points(
+    const RoadSegment& road,
+    PoleTypeId pole_type_id,
+    const std::vector<Vec3d>& points) {
+  EditResult<std::vector<ObjectId>> result;
+  if (road.polyline.size() < 2) {
+    result.error = "road polyline must contain at least 2 points";
+    return result;
+  }
+  if (find_pole_type(pole_type_id) == nullptr) {
+    result.error = "pole type not found";
+    return result;
+  }
+  if (points.size() < 2) {
+    result.error = "failed to build pole points";
+    return result;
+  }
 
   const std::uint64_t session_id = next_generation_session_id_++;
   for (std::size_t i = 0; i < points.size(); ++i) {
-    Transformd tf{};
-    tf.position = points[i];
+    Transformd tf = make_auto_pole_transform(points, i);
     EditResult<ObjectId> add_pole_result = AddPole(tf, 10.0, "AutoPole", PoleKind::kConcrete);
     if (!add_pole_result.ok) {
       result.error = add_pole_result.error;
@@ -799,6 +1015,7 @@ EditResult<std::vector<ObjectId>> CoreState::GeneratePolesAlongRoad(
     }
     Pole* pole = edit_state_.poles.find(add_pole_result.value);
     if (pole != nullptr) {
+      pole->context = classify_pole_context_from_path(points, i, 0);
       pole->generation.generated = true;
       pole->generation.source = GenerationSource::kRoadAuto;
       pole->generation.generation_session_id = session_id;
@@ -838,6 +1055,24 @@ EditResult<std::vector<ObjectId>> CoreState::GenerateSpansBetweenPoles(
   for (std::size_t i = 0; i + 1 < poles.size(); ++i) {
     AddConnectionByPoleOptions options{};
     options.preferred_port_a_id = carry_port_on_next_left;
+    options.branch_index = static_cast<std::uint32_t>(i);
+
+    const Pole* pole_a = edit_state_.poles.find(poles[i]);
+    const Pole* pole_b = edit_state_.poles.find(poles[i + 1]);
+    if (pole_a != nullptr) {
+      options.pole_context_a = pole_a->context.kind;
+      options.corner_angle_deg_a = pole_a->context.corner_angle_deg;
+      options.corner_turn_sign_a = pole_a->context.corner_turn_sign;
+    }
+    if (pole_b != nullptr) {
+      options.pole_context_b = pole_b->context.kind;
+      options.corner_angle_deg_b = pole_b->context.corner_angle_deg;
+      options.corner_turn_sign_b = pole_b->context.corner_turn_sign;
+    }
+    const bool corner_pass =
+        (pole_a != nullptr && pole_a->context.kind == PoleContextKind::kCorner) ||
+        (pole_b != nullptr && pole_b->context.kind == PoleContextKind::kCorner);
+    options.connection_context = corner_pass ? ConnectionContext::kCornerPass : ConnectionContext::kTrunkContinue;
 
     EditResult<AddConnectionByPoleResult> add_result =
         AddConnectionByPole(poles[i], poles[i + 1], category, options);
@@ -856,6 +1091,7 @@ EditResult<std::vector<ObjectId>> CoreState::GenerateSpansBetweenPoles(
       span->generation.source = GenerationSource::kRoadAuto;
       span->generation.generation_session_id = session_id;
       span->generation.generation_order = static_cast<std::uint32_t>(i);
+      span->generated_by_rule = true;
       add_unique_id(add_result.change_set.updated_ids, span->id);
     }
 
@@ -912,6 +1148,57 @@ EditResult<CoreState::GenerateSimpleLineResult> CoreState::GenerateSimpleLine(
       span->generation.source = GenerationSource::kRoadAuto;
       span->generation.generation_session_id = session_id;
       span->generation.generation_order = static_cast<std::uint32_t>(i);
+      span->generated_by_rule = true;
+    }
+  }
+
+  result.ok = true;
+  result.value.pole_ids = poles_result.value;
+  result.value.span_ids = spans_result.value;
+  result.value.generation_session_id = session_id;
+  append_change_set(result.change_set, poles_result.change_set);
+  append_change_set(result.change_set, spans_result.change_set);
+  return result;
+}
+
+EditResult<CoreState::GenerateSimpleLineResult> CoreState::GenerateSimpleLineFromPoints(
+    const RoadSegment& road,
+    PoleTypeId pole_type_id,
+    ConnectionCategory category) {
+  EditResult<GenerateSimpleLineResult> result;
+  const std::uint64_t session_id = next_generation_session_id_++;
+
+  EditResult<std::vector<ObjectId>> poles_result =
+      generate_poles_from_points(road, pole_type_id, road.polyline);
+  if (!poles_result.ok) {
+    result.error = poles_result.error;
+    return result;
+  }
+
+  for (std::size_t i = 0; i < poles_result.value.size(); ++i) {
+    Pole* pole = edit_state_.poles.find(poles_result.value[i]);
+    if (pole != nullptr) {
+      pole->generation.generated = true;
+      pole->generation.source = GenerationSource::kRoadAuto;
+      pole->generation.generation_session_id = session_id;
+      pole->generation.generation_order = static_cast<std::uint32_t>(i);
+    }
+  }
+
+  EditResult<std::vector<ObjectId>> spans_result =
+      GenerateSpansBetweenPoles(poles_result.value, category);
+  if (!spans_result.ok) {
+    result.error = spans_result.error;
+    return result;
+  }
+  for (std::size_t i = 0; i < spans_result.value.size(); ++i) {
+    Span* span = edit_state_.spans.find(spans_result.value[i]);
+    if (span != nullptr) {
+      span->generation.generated = true;
+      span->generation.source = GenerationSource::kRoadAuto;
+      span->generation.generation_session_id = session_id;
+      span->generation.generation_order = static_cast<std::uint32_t>(i);
+      span->generated_by_rule = true;
     }
   }
 
@@ -970,6 +1257,25 @@ EditResult<bool> CoreState::UpdateGeometrySettings(const GeometrySettings& setti
       add_unique_id(result.change_set.updated_ids, span.id);
     }
   }
+  return result;
+}
+
+EditResult<bool> CoreState::UpdateLayoutSettings(const LayoutSettings& settings) {
+  EditResult<bool> result;
+  LayoutSettings normalized = settings;
+  normalized.corner_threshold_deg = std::clamp(normalized.corner_threshold_deg, 0.0, 179.0);
+  normalized.min_side_scale = std::clamp(normalized.min_side_scale, 0.5, 4.0);
+  normalized.max_side_scale = std::clamp(normalized.max_side_scale, normalized.min_side_scale, 6.0);
+
+  const bool changed =
+      normalized.angle_correction_enabled != layout_settings_.angle_correction_enabled ||
+      std::abs(normalized.corner_threshold_deg - layout_settings_.corner_threshold_deg) > 1e-9 ||
+      std::abs(normalized.min_side_scale - layout_settings_.min_side_scale) > 1e-9 ||
+      std::abs(normalized.max_side_scale - layout_settings_.max_side_scale) > 1e-9;
+
+  layout_settings_ = normalized;
+  result.ok = true;
+  result.value = changed;
   return result;
 }
 
@@ -1087,6 +1393,23 @@ ValidationResult CoreState::Validate() const {
     if (pole.pole_type_id != kInvalidPoleTypeId && !pole_types_.contains(pole.pole_type_id)) {
       result.issues.push_back({ValidationSeverity::kError, "PoleTypeMissing", "Pole references unknown PoleType", pole.id});
     }
+    if (!std::isfinite(pole.context.corner_angle_deg) ||
+        !std::isfinite(pole.context.corner_turn_sign) ||
+        !std::isfinite(pole.context.side_scale)) {
+      result.issues.push_back({ValidationSeverity::kError, "PoleContextInvalid", "Pole context has non-finite value", pole.id});
+    }
+    if (pole.context.corner_turn_sign < -1.0 - 1e-9 || pole.context.corner_turn_sign > 1.0 + 1e-9) {
+      result.issues.push_back({
+          ValidationSeverity::kWarning,
+          "PoleTurnSignOutOfRange",
+          "Pole corner_turn_sign is out of range",
+          pole.id,
+      });
+    }
+    if (pole.context.side_scale < layout_settings_.min_side_scale - 1e-9 ||
+        pole.context.side_scale > layout_settings_.max_side_scale + 1e-9) {
+      result.issues.push_back({ValidationSeverity::kWarning, "PoleSideScaleOutOfRange", "Pole side_scale is out of configured range", pole.id});
+    }
   }
 
   for (const Port& port : edit_state_.ports.items()) {
@@ -1111,6 +1434,14 @@ ValidationResult CoreState::Validate() const {
                 port.id,
             });
           }
+          if (!is_valid_slot_side(slot.side) || !is_valid_slot_role(slot.role)) {
+            result.issues.push_back({
+                ValidationSeverity::kError,
+                "PortSlotAttributeInvalid",
+                "Slot side/role contains invalid value",
+                port.id,
+            });
+          }
           break;
         }
       }
@@ -1122,6 +1453,16 @@ ValidationResult CoreState::Validate() const {
             port.id,
         });
       }
+    }
+    if (!std::isfinite(port.world_position.x) ||
+        !std::isfinite(port.world_position.y) ||
+        !std::isfinite(port.world_position.z) ||
+        !std::isfinite(port.side_scale_applied)) {
+      result.issues.push_back({ValidationSeverity::kError, "PortTransformInvalid", "Port position or side_scale is non-finite", port.id});
+    }
+    if (port.side_scale_applied < layout_settings_.min_side_scale - 1e-9 ||
+        port.side_scale_applied > layout_settings_.max_side_scale + 1e-9) {
+      result.issues.push_back({ValidationSeverity::kWarning, "PortSideScaleOutOfRange", "Port side_scale_applied is out of range", port.id});
     }
   }
 
@@ -1243,6 +1584,34 @@ ValidationResult CoreState::Validate() const {
             "BoundsVersionMismatch",
             "Bounds cache sourceVersion does not match boundsVersion",
             span.id,
+        });
+      }
+    }
+  }
+
+  for (const SlotSelectionDebugRecord& debug : slot_selection_debug_records_) {
+    if (!std::isfinite(debug.corner_turn_sign)) {
+      result.issues.push_back({
+          ValidationSeverity::kError,
+          "SlotSelectionDebugInvalid",
+          "Slot selection debug corner_turn_sign is non-finite",
+          debug.pole_id,
+      });
+    }
+    if (debug.selected_slot_id >= 0) {
+      bool found = false;
+      for (const SlotCandidateDebug& c : debug.candidates) {
+        if (c.slot_id == debug.selected_slot_id) {
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        result.issues.push_back({
+            ValidationSeverity::kError,
+            "SlotSelectionDebugMismatch",
+            "Selected slot id does not exist in candidate list",
+            debug.pole_id,
         });
       }
     }
@@ -1557,14 +1926,15 @@ void CoreState::register_default_pole_types() {
   dist.name = "DistributionPole";
   dist.description = "Default distribution pole";
   dist.port_slots = {
-      {100, ConnectionCategory::kHighVoltage, {0.0, -0.6, 9.2}, {}, 30, false, true},
-      {101, ConnectionCategory::kHighVoltage, {0.0, 0.0, 9.3}, {}, 29, false, true},
-      {102, ConnectionCategory::kHighVoltage, {0.0, 0.6, 9.2}, {}, 28, false, true},
-      {200, ConnectionCategory::kLowVoltage, {0.0, -0.4, 6.8}, {}, 20, false, true},
-      {201, ConnectionCategory::kLowVoltage, {0.0, 0.4, 6.8}, {}, 19, false, true},
-      {300, ConnectionCategory::kCommunication, {0.0, -0.8, 7.8}, {}, 15, false, true},
-      {301, ConnectionCategory::kOptical, {0.0, 0.8, 7.8}, {}, 14, false, true},
-      {400, ConnectionCategory::kDrop, {0.0, 0.0, 4.2}, {}, 10, true, true},
+      {100, ConnectionCategory::kHighVoltage, {0.0, -0.6, 9.2}, {}, 2, SlotSide::kLeft, SlotRole::kTrunkPreferred, 30, false, true},
+      {101, ConnectionCategory::kHighVoltage, {0.0, 0.0, 9.3}, {}, 2, SlotSide::kCenter, SlotRole::kTrunkPreferred, 29, false, true},
+      {102, ConnectionCategory::kHighVoltage, {0.0, 0.6, 9.2}, {}, 2, SlotSide::kRight, SlotRole::kTrunkPreferred, 28, false, true},
+      {200, ConnectionCategory::kLowVoltage, {0.0, -0.4, 6.8}, {}, 1, SlotSide::kLeft, SlotRole::kTrunkPreferred, 20, false, true},
+      {201, ConnectionCategory::kLowVoltage, {0.0, 0.4, 6.8}, {}, 1, SlotSide::kRight, SlotRole::kTrunkPreferred, 19, false, true},
+      {202, ConnectionCategory::kLowVoltage, {0.0, 0.0, 6.6}, {}, 1, SlotSide::kCenter, SlotRole::kBranchPreferred, 18, false, true},
+      {300, ConnectionCategory::kCommunication, {0.0, -0.8, 7.8}, {}, 1, SlotSide::kLeft, SlotRole::kTrunkPreferred, 15, false, true},
+      {301, ConnectionCategory::kOptical, {0.0, 0.8, 7.8}, {}, 1, SlotSide::kRight, SlotRole::kTrunkPreferred, 14, false, true},
+      {400, ConnectionCategory::kDrop, {0.0, 0.0, 4.2}, {}, 0, SlotSide::kCenter, SlotRole::kDropPreferred, 10, true, true},
   };
   dist.anchor_slots = {
       {500, AnchorSupportKind::kGround, {0.0, 0.0, 0.5}, 10, true},
@@ -1576,13 +1946,13 @@ void CoreState::register_default_pole_types() {
   comm.name = "CommunicationPole";
   comm.description = "Communication-first pole";
   comm.port_slots = {
-      {600, ConnectionCategory::kCommunication, {0.0, -0.7, 8.6}, {}, 30, false, true},
-      {601, ConnectionCategory::kCommunication, {0.0, 0.0, 8.7}, {}, 29, false, true},
-      {602, ConnectionCategory::kCommunication, {0.0, 0.7, 8.6}, {}, 28, false, true},
-      {700, ConnectionCategory::kOptical, {0.0, -0.4, 7.6}, {}, 25, false, true},
-      {701, ConnectionCategory::kOptical, {0.0, 0.4, 7.6}, {}, 24, false, true},
-      {800, ConnectionCategory::kLowVoltage, {0.0, 0.0, 5.8}, {}, 10, false, true},
-      {801, ConnectionCategory::kDrop, {0.0, 0.0, 4.0}, {}, 9, true, true},
+      {600, ConnectionCategory::kCommunication, {0.0, -0.7, 8.6}, {}, 2, SlotSide::kLeft, SlotRole::kTrunkPreferred, 30, false, true},
+      {601, ConnectionCategory::kCommunication, {0.0, 0.0, 8.7}, {}, 2, SlotSide::kCenter, SlotRole::kTrunkPreferred, 29, false, true},
+      {602, ConnectionCategory::kCommunication, {0.0, 0.7, 8.6}, {}, 2, SlotSide::kRight, SlotRole::kTrunkPreferred, 28, false, true},
+      {700, ConnectionCategory::kOptical, {0.0, -0.4, 7.6}, {}, 1, SlotSide::kLeft, SlotRole::kTrunkPreferred, 25, false, true},
+      {701, ConnectionCategory::kOptical, {0.0, 0.4, 7.6}, {}, 1, SlotSide::kRight, SlotRole::kTrunkPreferred, 24, false, true},
+      {800, ConnectionCategory::kLowVoltage, {0.0, 0.0, 5.8}, {}, 1, SlotSide::kCenter, SlotRole::kBranchPreferred, 10, false, true},
+      {801, ConnectionCategory::kDrop, {0.0, 0.0, 4.0}, {}, 0, SlotSide::kCenter, SlotRole::kDropPreferred, 9, true, true},
   };
   comm.anchor_slots = {
       {900, AnchorSupportKind::kGround, {0.0, 0.0, 0.5}, 10, true},
@@ -1626,15 +1996,34 @@ bool CoreState::is_port_slot_used(ObjectId pole_id, int slot_id) const {
 }
 
 EditResult<ObjectId> CoreState::ensure_pole_slot_port(
-    ObjectId pole_id,
-    ConnectionCategory category,
-    bool allow_generate_port,
-    int* out_slot_id,
-    int preferred_slot_id) {
+    const SlotSelectionRequest& request,
+    int* out_slot_id) {
   EditResult<ObjectId> result;
-  const Pole* pole = edit_state_.poles.find(pole_id);
+  const Pole* pole = edit_state_.poles.find(request.pole_id);
+
+  SlotSelectionDebugRecord debug{};
+  debug.pole_id = request.pole_id;
+  debug.peer_pole_id = request.peer_pole_id;
+  debug.reference_span_id = request.reference_span_id;
+  debug.category = request.category;
+  debug.connection_context = request.connection_context;
+  debug.pole_context = request.pole_context;
+  debug.corner_angle_deg = request.corner_angle_deg;
+  debug.corner_turn_sign = request.corner_turn_sign;
+  debug.side_scale = compute_side_scale(request.pole_context, request.corner_angle_deg);
+
+  auto push_debug = [&]() {
+    slot_selection_debug_records_.push_back(debug);
+    constexpr std::size_t kMaxDebugRecords = 256;
+    if (slot_selection_debug_records_.size() > kMaxDebugRecords) {
+      slot_selection_debug_records_.erase(slot_selection_debug_records_.begin());
+    }
+  };
+
   if (pole == nullptr) {
     result.error = "pole not found";
+    debug.result = result.error;
+    push_debug();
     return result;
   }
 
@@ -1646,12 +2035,28 @@ EditResult<ObjectId> CoreState::ensure_pole_slot_port(
     return it->second.size();
   };
 
+  auto same_side_layer_usage = [&](SlotSide side, int layer) -> std::size_t {
+    std::size_t count = 0;
+    for (const Port& port : edit_state_.ports.items()) {
+      if (port.owner_pole_id != request.pole_id) {
+        continue;
+      }
+      if (port.template_side != side || port.template_layer != layer) {
+        continue;
+      }
+      if (connection_count(port.id) > 0) {
+        ++count;
+      }
+    }
+    return count;
+  };
+
   const PoleTypeDefinition* pole_type = find_pole_type(pole->pole_type_id);
   if (pole_type != nullptr) {
-    auto slots = sorted_port_slots(*pole_type, category);
-    if (preferred_slot_id >= 0) {
+    auto slots = sorted_port_slots(*pole_type, request.category);
+    if (request.preferred_slot_id >= 0) {
       auto it = std::find_if(slots.begin(), slots.end(), [&](const PortSlotTemplate& slot) {
-        return slot.slot_id == preferred_slot_id;
+        return slot.slot_id == request.preferred_slot_id;
       });
       if (it != slots.end() && it != slots.begin()) {
         PortSlotTemplate preferred = *it;
@@ -1659,54 +2064,176 @@ EditResult<ObjectId> CoreState::ensure_pole_slot_port(
         slots.insert(slots.begin(), preferred);
       }
     }
+
+    const int target_layer = target_template_layer_for_category(request.category);
+    const bool prefer_non_center =
+        request.connection_context == ConnectionContext::kCornerPass ||
+        request.connection_context == ConnectionContext::kBranchAdd;
+    const SlotSide preferred_side =
+        ((request.branch_index & 1u) == 0u) ? SlotSide::kLeft : SlotSide::kRight;
+
+    int best_total = std::numeric_limits<int>::min();
+    int best_tie = -1;
+    const PortSlotTemplate* best_slot = nullptr;
+    Port* best_port = nullptr;
+
     for (const PortSlotTemplate& slot : slots) {
+      SlotCandidateDebug candidate{};
+      candidate.slot_id = slot.slot_id;
+      candidate.category_score = (slot.category == request.category) ? 500 : -100000;
+      if (candidate.category_score < 0) {
+        candidate.eligible = false;
+        candidate.reason = "category mismatch";
+        debug.candidates.push_back(candidate);
+        continue;
+      }
+
+      candidate.role_score = role_score_for_context(slot.role, request.connection_context);
+      candidate.context_score = 0;
+      if (request.connection_context == ConnectionContext::kCornerPass) {
+        candidate.context_score += (slot.side == SlotSide::kCenter) ? 10 : 30;
+      } else if (request.connection_context == ConnectionContext::kBranchAdd) {
+        candidate.context_score += (slot.side == SlotSide::kCenter) ? 0 : 20;
+      } else if (request.connection_context == ConnectionContext::kDropAdd) {
+        candidate.context_score += (slot.side == SlotSide::kCenter) ? 25 : 0;
+      }
+
+      candidate.layer_score = 60 - (20 * std::abs(slot.layer - target_layer));
+      candidate.side_score = 0;
+      if (prefer_non_center) {
+        if (slot.side == preferred_side) {
+          candidate.side_score += 40;
+        } else if (slot.side == SlotSide::kCenter) {
+          candidate.side_score += 5;
+        }
+      }
+      candidate.priority_score = slot.priority;
+
       Port* slot_port = nullptr;
       for (Port& port : edit_state_.ports.items()) {
-        if (port.owner_pole_id == pole_id && port.source_slot_id == slot.slot_id) {
+        if (port.owner_pole_id == request.pole_id && port.source_slot_id == slot.slot_id) {
           slot_port = &port;
           break;
         }
       }
-      if (slot_port != nullptr) {
-        const std::size_t usage = connection_count(slot_port->id);
-        if (usage == 0 || slot.allow_multiple) {
-          result.ok = true;
-          result.value = slot_port->id;
-          if (out_slot_id != nullptr) {
-            *out_slot_id = slot.slot_id;
-          }
-          return result;
-        }
-      } else if (allow_generate_port) {
-        const Vec3d world_position = pole->world_transform.position + slot.local_position;
-        EditResult<ObjectId> add_port_result = AddPort(
-            pole_id,
-            world_position,
-            category_to_port_kind(category),
-            category_to_port_layer(category),
-            slot.local_direction);
-        if (!add_port_result.ok) {
-          return add_port_result;
-        }
-        Port* created = edit_state_.ports.find(add_port_result.value);
-        if (created != nullptr) {
-          created->category = category;
-          created->source_slot_id = slot.slot_id;
-          created->generated_from_template = true;
-          add_unique_id(add_port_result.change_set.updated_ids, created->id);
-        }
+
+      candidate.usage_count = (slot_port == nullptr) ? 0 : connection_count(slot_port->id);
+      if (slot_port == nullptr) {
+        candidate.usage_score = request.allow_generate_port ? 75 : -100000;
+      } else if (candidate.usage_count == 0) {
+        candidate.usage_score = 80;
+      } else if (slot.allow_multiple) {
+        candidate.usage_score = -25 * static_cast<int>(candidate.usage_count);
+      } else {
+        candidate.usage_score = -100000;
+      }
+
+      candidate.congestion_count = same_side_layer_usage(slot.side, slot.layer);
+      candidate.congestion_score = -15 * static_cast<int>(candidate.congestion_count);
+      candidate.tie_breaker = static_cast<int>(deterministic_tiebreak_0_255(
+          request.pole_id,
+          slot.slot_id,
+          request.category,
+          request.connection_context,
+          request.peer_pole_id,
+          request.reference_span_id,
+          request.branch_index));
+      candidate.total_score =
+          candidate.category_score +
+          candidate.context_score +
+          candidate.layer_score +
+          candidate.side_score +
+          candidate.role_score +
+          candidate.priority_score +
+          candidate.usage_score +
+          candidate.congestion_score +
+          (candidate.tie_breaker / 16);
+
+      candidate.eligible = candidate.usage_score > -100000;
+      candidate.reason = candidate.eligible ? "ok" : "slot unavailable";
+      debug.candidates.push_back(candidate);
+
+      if (!candidate.eligible) {
+        continue;
+      }
+      if (candidate.total_score > best_total ||
+          (candidate.total_score == best_total && candidate.tie_breaker > best_tie)) {
+        best_total = candidate.total_score;
+        best_tie = candidate.tie_breaker;
+        best_slot = &slot;
+        best_port = slot_port;
+      }
+    }
+
+    if (best_slot != nullptr) {
+      if (best_port != nullptr) {
+        result.ok = true;
+        result.value = best_port->id;
         if (out_slot_id != nullptr) {
-          *out_slot_id = slot.slot_id;
+          *out_slot_id = best_slot->slot_id;
         }
+        debug.selected_slot_id = best_slot->slot_id;
+        debug.result = "selected existing slot port";
+        push_debug();
+        return result;
+      }
+
+      Vec3d adjusted_local = best_slot->local_position;
+      const bool apply_angle_correction =
+          layout_settings_.angle_correction_enabled &&
+          request.pole_context == PoleContextKind::kCorner &&
+          best_slot->side != SlotSide::kCenter;
+      double applied_scale = 1.0;
+      if (apply_angle_correction) {
+        adjusted_local.y = apply_corner_side_scale(
+            adjusted_local.y,
+            best_slot->side,
+            request.corner_turn_sign,
+            debug.side_scale);
+        if (std::abs(best_slot->local_position.y) > 1e-9) {
+          applied_scale = std::abs(adjusted_local.y / best_slot->local_position.y);
+        }
+      }
+      const Vec3d world_position = local_to_world_on_pole(pole->world_transform, adjusted_local);
+      EditResult<ObjectId> add_port_result = AddPort(
+          request.pole_id,
+          world_position,
+          category_to_port_kind(request.category),
+          category_to_port_layer(request.category),
+          best_slot->local_direction);
+      if (!add_port_result.ok) {
+        debug.result = "failed to create slot port: " + add_port_result.error;
+        push_debug();
         return add_port_result;
       }
+      Port* created = edit_state_.ports.find(add_port_result.value);
+      if (created != nullptr) {
+        created->category = request.category;
+        created->source_slot_id = best_slot->slot_id;
+        created->template_layer = best_slot->layer;
+        created->template_side = best_slot->side;
+        created->template_role = best_slot->role;
+        created->generated_from_template = true;
+        created->generated_by_rule = true;
+        created->placement_context = request.connection_context;
+        created->angle_correction_applied = apply_angle_correction;
+        created->side_scale_applied = apply_angle_correction ? applied_scale : 1.0;
+        add_unique_id(add_port_result.change_set.updated_ids, created->id);
+      }
+      if (out_slot_id != nullptr) {
+        *out_slot_id = best_slot->slot_id;
+      }
+      debug.selected_slot_id = best_slot->slot_id;
+      debug.result = "created slot port";
+      push_debug();
+      return add_port_result;
     }
   }
 
   ObjectId fallback = kInvalidObjectId;
   std::size_t fallback_usage = std::numeric_limits<std::size_t>::max();
   for (const Port& port : edit_state_.ports.items()) {
-    if (port.owner_pole_id != pole_id || port.category != category) {
+    if (port.owner_pole_id != request.pole_id || port.category != request.category) {
       continue;
     }
     const std::size_t usage = connection_count(port.id);
@@ -1722,41 +2249,51 @@ EditResult<ObjectId> CoreState::ensure_pole_slot_port(
       const Port* port = edit_state_.ports.find(fallback);
       *out_slot_id = (port == nullptr) ? -1 : port->source_slot_id;
     }
+    debug.selected_slot_id = (out_slot_id == nullptr) ? -1 : *out_slot_id;
+    debug.result = "fallback existing category port";
+    push_debug();
     return result;
   }
 
-  if (allow_generate_port) {
-    // Fallback: no template slot and no category port found.
-    // Create one generated port near the pole so Pole->Pole flow remains usable.
+  if (request.allow_generate_port) {
     const Vec3d world_position{
         pole->world_transform.position.x,
         pole->world_transform.position.y,
         pole->world_transform.position.z + std::max(1.0, pole->height_m * 0.7),
     };
     EditResult<ObjectId> add_port_result = AddPort(
-        pole_id,
+        request.pole_id,
         world_position,
-        category_to_port_kind(category),
-        category_to_port_layer(category));
+        category_to_port_kind(request.category),
+        category_to_port_layer(request.category));
     if (!add_port_result.ok) {
+      debug.result = "fallback generated port failed: " + add_port_result.error;
+      push_debug();
       return add_port_result;
     }
     Port* created = edit_state_.ports.find(add_port_result.value);
     if (created != nullptr) {
-      created->category = category;
+      created->category = request.category;
       created->generated_from_template = true;
+      created->generated_by_rule = true;
+      created->placement_context = request.connection_context;
       created->source_slot_id = -1;
       add_unique_id(add_port_result.change_set.updated_ids, created->id);
     }
     if (out_slot_id != nullptr) {
       *out_slot_id = -1;
     }
+    debug.selected_slot_id = -1;
+    debug.result = "fallback generated category port";
+    push_debug();
     return add_port_result;
   }
 
   std::ostringstream oss;
-  oss << "no port available for pole " << pole_id << " category " << static_cast<int>(category);
+  oss << "no port available for pole " << request.pole_id << " category " << static_cast<int>(request.category);
   result.error = oss.str();
+  debug.result = result.error;
+  push_debug();
   return result;
 }
 
@@ -1783,6 +2320,131 @@ EditResult<ObjectId> CoreState::ensure_bundle_for_category(
   const int conductor_count = (category == ConnectionCategory::kHighVoltage) ? 3 : 1;
   const double spacing = (category == ConnectionCategory::kHighVoltage) ? 0.45 : 0.15;
   return AddBundle(conductor_count, spacing, category_to_bundle_kind(category));
+}
+
+std::uint8_t CoreState::deterministic_tiebreak_0_255(
+    ObjectId pole_id,
+    int slot_id,
+    ConnectionCategory category,
+    ConnectionContext context,
+    ObjectId peer_pole_id,
+    ObjectId reference_span_id,
+    std::uint32_t branch_index) {
+  auto mix = [](std::uint32_t h, std::uint64_t v) -> std::uint32_t {
+    h ^= static_cast<std::uint32_t>(v & 0xFFFFFFFFu);
+    h *= 16777619u;
+    h ^= static_cast<std::uint32_t>((v >> 32) & 0xFFFFFFFFu);
+    h *= 16777619u;
+    return h;
+  };
+
+  std::uint32_t h = 2166136261u;
+  h = mix(h, pole_id);
+  h = mix(h, static_cast<std::uint64_t>(slot_id));
+  h = mix(h, static_cast<std::uint64_t>(static_cast<std::uint8_t>(category)));
+  h = mix(h, static_cast<std::uint64_t>(static_cast<std::uint8_t>(context)));
+  h = mix(h, peer_pole_id);
+  h = mix(h, reference_span_id);
+  h = mix(h, branch_index);
+  return static_cast<std::uint8_t>(h & 0xFFu);
+}
+
+bool CoreState::is_valid_slot_side(SlotSide side) {
+  return side == SlotSide::kLeft || side == SlotSide::kCenter || side == SlotSide::kRight;
+}
+
+bool CoreState::is_valid_slot_role(SlotRole role) {
+  return role == SlotRole::kNeutral ||
+         role == SlotRole::kTrunkPreferred ||
+         role == SlotRole::kBranchPreferred ||
+         role == SlotRole::kDropPreferred;
+}
+
+double CoreState::compute_side_scale(PoleContextKind context, double corner_angle_deg) const {
+  if (!layout_settings_.angle_correction_enabled || context != PoleContextKind::kCorner) {
+    return 1.0;
+  }
+  const double threshold = std::max(0.0, layout_settings_.corner_threshold_deg);
+  if (corner_angle_deg <= threshold + 1e-9) {
+    return 1.0;
+  }
+  const double denom = std::max(1e-6, 180.0 - threshold);
+  const double normalized = std::clamp((corner_angle_deg - threshold) / denom, 0.0, 1.0);
+  const double scale =
+      layout_settings_.min_side_scale +
+      (layout_settings_.max_side_scale - layout_settings_.min_side_scale) * normalized;
+  return std::clamp(scale, layout_settings_.min_side_scale, layout_settings_.max_side_scale);
+}
+
+double CoreState::compute_corner_angle_deg(const Vec3d& prev, const Vec3d& curr, const Vec3d& next) {
+  const Vec3d a{prev.x - curr.x, prev.y - curr.y, prev.z - curr.z};
+  const Vec3d b{next.x - curr.x, next.y - curr.y, next.z - curr.z};
+  const double la = std::sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
+  const double lb = std::sqrt(b.x * b.x + b.y * b.y + b.z * b.z);
+  if (la <= 1e-9 || lb <= 1e-9) {
+    return 0.0;
+  }
+  double dot = (a.x * b.x + a.y * b.y + a.z * b.z) / (la * lb);
+  dot = std::clamp(dot, -1.0, 1.0);
+  const double interior_rad = std::acos(dot);
+  const double turn_deg = 180.0 - (interior_rad * (180.0 / 3.14159265358979323846));
+  return std::max(0.0, turn_deg);
+}
+
+double CoreState::compute_corner_turn_sign_xy(const Vec3d& prev, const Vec3d& curr, const Vec3d& next) {
+  const Vec3d in{curr.x - prev.x, curr.y - prev.y, 0.0};
+  const Vec3d out{next.x - curr.x, next.y - curr.y, 0.0};
+  return in.x * out.y - in.y * out.x;
+}
+
+PoleContextInfo CoreState::classify_pole_context_from_path(
+    const std::vector<Vec3d>& points,
+    std::size_t index,
+    std::size_t pending_degree) const {
+  PoleContextInfo info{};
+  if (points.empty() || index >= points.size()) {
+    return info;
+  }
+
+  if (pending_degree > 2) {
+    info.kind = PoleContextKind::kBranch;
+    info.corner_angle_deg = 0.0;
+    info.corner_turn_sign = 0.0;
+    info.side_scale = 1.0;
+    info.angle_correction_applied = false;
+    return info;
+  }
+
+  if (index == 0 || index + 1 >= points.size()) {
+    info.kind = PoleContextKind::kTerminal;
+    info.corner_angle_deg = 0.0;
+    info.corner_turn_sign = 0.0;
+    info.side_scale = 1.0;
+    info.angle_correction_applied = false;
+    return info;
+  }
+
+  info.corner_angle_deg = compute_corner_angle_deg(points[index - 1], points[index], points[index + 1]);
+  const double turn_cross = compute_corner_turn_sign_xy(points[index - 1], points[index], points[index + 1]);
+  if (turn_cross > 1e-9) {
+    info.corner_turn_sign = 1.0;
+  } else if (turn_cross < -1e-9) {
+    info.corner_turn_sign = -1.0;
+  } else {
+    info.corner_turn_sign = 0.0;
+  }
+  if (info.corner_angle_deg >= layout_settings_.corner_threshold_deg) {
+    info.kind = PoleContextKind::kCorner;
+    info.side_scale = compute_side_scale(info.kind, info.corner_angle_deg);
+    info.angle_correction_applied = layout_settings_.angle_correction_enabled;
+  } else {
+    info.kind = PoleContextKind::kStraight;
+    info.corner_angle_deg = 0.0;
+    info.corner_turn_sign = 0.0;
+    info.side_scale = 1.0;
+    info.angle_correction_applied = false;
+  }
+  return info;
 }
 
 std::string CoreState::next_display_id(std::string_view prefix) {

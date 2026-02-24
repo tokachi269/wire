@@ -53,6 +53,13 @@ struct CacheState {
   BoundsCache bounds_cache{};
 };
 
+struct LayoutSettings {
+  bool angle_correction_enabled = true;
+  double corner_threshold_deg = 12.0;
+  double min_side_scale = 1.0;
+  double max_side_scale = 1.8;
+};
+
 struct ConnectionIndex {
   std::unordered_map<ObjectId, std::vector<ObjectId>> spans_by_port;
   std::unordered_map<ObjectId, std::vector<ObjectId>> spans_by_anchor;
@@ -155,6 +162,39 @@ struct ValidationResult {
   [[nodiscard]] bool ok() const { return !has_errors(); }
 };
 
+struct SlotCandidateDebug {
+  int slot_id = -1;
+  bool eligible = false;
+  int total_score = 0;
+  int category_score = 0;
+  int context_score = 0;
+  int layer_score = 0;
+  int side_score = 0;
+  int role_score = 0;
+  int priority_score = 0;
+  int usage_score = 0;
+  int congestion_score = 0;
+  int tie_breaker = 0;
+  std::size_t usage_count = 0;
+  std::size_t congestion_count = 0;
+  std::string reason{};
+};
+
+struct SlotSelectionDebugRecord {
+  ObjectId pole_id = kInvalidObjectId;
+  ObjectId peer_pole_id = kInvalidObjectId;
+  ObjectId reference_span_id = kInvalidObjectId;
+  ConnectionCategory category = ConnectionCategory::kLowVoltage;
+  ConnectionContext connection_context = ConnectionContext::kTrunkContinue;
+  PoleContextKind pole_context = PoleContextKind::kStraight;
+  double corner_angle_deg = 0.0;
+  double corner_turn_sign = 0.0;
+  double side_scale = 1.0;
+  int selected_slot_id = -1;
+  std::string result{};
+  std::vector<SlotCandidateDebug> candidates{};
+};
+
 class CoreState {
  public:
   CoreState();
@@ -165,6 +205,15 @@ class CoreState {
     ObjectId bundle_id = kInvalidObjectId;
     bool auto_create_bundle = true;
     bool allow_generate_port = true;
+    ConnectionContext connection_context = ConnectionContext::kTrunkContinue;
+    PoleContextKind pole_context_a = PoleContextKind::kStraight;
+    PoleContextKind pole_context_b = PoleContextKind::kStraight;
+    double corner_angle_deg_a = 0.0;
+    double corner_angle_deg_b = 0.0;
+    double corner_turn_sign_a = 0.0;
+    double corner_turn_sign_b = 0.0;
+    ObjectId reference_span_id = kInvalidObjectId;
+    std::uint32_t branch_index = 0;
     ObjectId preferred_port_a_id = kInvalidObjectId;
     ObjectId preferred_port_b_id = kInvalidObjectId;
   };
@@ -269,8 +318,13 @@ class CoreState {
       double interval,
       PoleTypeId pole_type_id,
       ConnectionCategory category);
+  EditResult<GenerateSimpleLineResult> GenerateSimpleLineFromPoints(
+      const RoadSegment& road,
+      PoleTypeId pole_type_id,
+      ConnectionCategory category);
   [[nodiscard]] PoleDetailInfo GetPoleDetail(ObjectId pole_id) const;
   EditResult<bool> UpdateGeometrySettings(const GeometrySettings& settings, bool mark_all_spans_dirty = true);
+  EditResult<bool> UpdateLayoutSettings(const LayoutSettings& settings);
   [[nodiscard]] const CurveCacheEntry* find_curve_cache(ObjectId span_id) const;
   [[nodiscard]] const BoundsCacheEntry* find_bounds_cache(ObjectId span_id) const;
 
@@ -290,6 +344,11 @@ class CoreState {
   [[nodiscard]] const RecalcStats& last_recalc_stats() const { return last_recalc_stats_; }
   [[nodiscard]] const std::unordered_map<PoleTypeId, PoleTypeDefinition>& pole_types() const { return pole_types_; }
   [[nodiscard]] const GeometrySettings& geometry_settings() const { return cache_state_.geometry_settings; }
+  [[nodiscard]] const LayoutSettings& layout_settings() const { return layout_settings_; }
+  [[nodiscard]] const std::vector<SlotSelectionDebugRecord>& slot_selection_debug_records() const {
+    return slot_selection_debug_records_;
+  }
+  void clear_slot_selection_debug_records() { slot_selection_debug_records_.clear(); }
 
   [[nodiscard]] const CacheState& cache_state() const { return cache_state_; }
   [[nodiscard]] CacheState& cache_state() { return cache_state_; }
@@ -312,6 +371,10 @@ class CoreState {
   [[nodiscard]] static AABBd build_aabb_from_two_points(const Vec3d& a, const Vec3d& b);
   void remove_span_from_caches(ObjectId span_id);
   [[nodiscard]] static std::vector<Vec3d> sample_polyline_points(const std::vector<Vec3d>& polyline, double interval);
+  EditResult<std::vector<ObjectId>> generate_poles_from_points(
+      const RoadSegment& road,
+      PoleTypeId pole_type_id,
+      const std::vector<Vec3d>& points);
   [[nodiscard]] static double polyline_length(const std::vector<Vec3d>& polyline);
   [[nodiscard]] static PortLayer category_to_port_layer(ConnectionCategory category);
   [[nodiscard]] static SpanLayer category_to_span_layer(ConnectionCategory category);
@@ -321,12 +384,47 @@ class CoreState {
   [[nodiscard]] const PoleTypeDefinition* find_pole_type(PoleTypeId pole_type_id) const;
   [[nodiscard]] std::vector<PortSlotTemplate> sorted_port_slots(const PoleTypeDefinition& pole_type, ConnectionCategory category) const;
   [[nodiscard]] bool is_port_slot_used(ObjectId pole_id, int slot_id) const;
+
+  struct SlotSelectionRequest {
+    ObjectId pole_id = kInvalidObjectId;
+    ObjectId peer_pole_id = kInvalidObjectId;
+    ObjectId reference_span_id = kInvalidObjectId;
+    ConnectionCategory category = ConnectionCategory::kLowVoltage;
+    ConnectionContext connection_context = ConnectionContext::kTrunkContinue;
+    PoleContextKind pole_context = PoleContextKind::kStraight;
+    double corner_angle_deg = 0.0;
+    double corner_turn_sign = 0.0;
+    bool allow_generate_port = true;
+    int preferred_slot_id = -1;
+    std::uint32_t branch_index = 0;
+  };
+
+  struct SlotSelectionResolved {
+    ObjectId port_id = kInvalidObjectId;
+    int slot_id = -1;
+    ChangeSet change_set{};
+  };
+
   EditResult<ObjectId> ensure_pole_slot_port(
+      const SlotSelectionRequest& request,
+      int* out_slot_id);
+  [[nodiscard]] static std::uint8_t deterministic_tiebreak_0_255(
       ObjectId pole_id,
+      int slot_id,
       ConnectionCategory category,
-      bool allow_generate_port,
-      int* out_slot_id,
-      int preferred_slot_id = -1);
+      ConnectionContext context,
+      ObjectId peer_pole_id,
+      ObjectId reference_span_id,
+      std::uint32_t branch_index);
+  [[nodiscard]] static bool is_valid_slot_side(SlotSide side);
+  [[nodiscard]] static bool is_valid_slot_role(SlotRole role);
+  [[nodiscard]] double compute_side_scale(PoleContextKind context, double corner_angle_deg) const;
+  [[nodiscard]] static double compute_corner_angle_deg(const Vec3d& prev, const Vec3d& curr, const Vec3d& next);
+  [[nodiscard]] static double compute_corner_turn_sign_xy(const Vec3d& prev, const Vec3d& curr, const Vec3d& next);
+  [[nodiscard]] PoleContextInfo classify_pole_context_from_path(
+      const std::vector<Vec3d>& points,
+      std::size_t index,
+      std::size_t pending_degree) const;
   EditResult<ObjectId> ensure_bundle_for_category(ConnectionCategory category, const AddConnectionByPoleOptions& options);
   static void add_unique_id(std::vector<ObjectId>& ids, ObjectId id);
   static std::string dirty_bits_to_string(DirtyBits bits);
@@ -347,6 +445,8 @@ class CoreState {
   DirtyQueue dirty_queue_{};
   RecalcStats last_recalc_stats_{};
   CacheState cache_state_{};
+  LayoutSettings layout_settings_{};
+  std::vector<SlotSelectionDebugRecord> slot_selection_debug_records_{};
 };
 
 CoreState make_demo_state();

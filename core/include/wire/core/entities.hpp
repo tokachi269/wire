@@ -79,6 +79,19 @@ enum class PortLayer : std::uint8_t {
   kOptical = 4,
 };
 
+enum class PortPositionMode : std::uint8_t {
+  kAuto = 0,
+  kManual = 1,
+};
+
+enum class PortPlacementSourceKind : std::uint8_t {
+  kUnknown = 0,
+  kTemplateSlot = 1,
+  kGenerated = 2,
+  kManualEdit = 3,
+  kAerialBranch = 4,
+};
+
 enum class SpanKind : std::uint8_t {
   kGeneric = 0,
   kDistribution = 1,
@@ -112,6 +125,25 @@ enum class BundleKind : std::uint8_t {
   kHighVoltage = 1,
   kCommunication = 2,
   kOptical = 3,
+};
+
+enum class WireGroupKind : std::uint8_t {
+  kUnknown = 0,
+  kPowerHighVoltage = 1,
+  kPowerLowVoltage = 2,
+  kComm = 3,
+  kOptical = 4,
+};
+
+enum class WireLaneRole : std::uint8_t {
+  kUnknown = 0,
+  kPhaseA = 1,
+  kPhaseB = 2,
+  kPhaseC = 3,
+  kNeutral = 4,
+  kCommLine = 5,
+  kOpticalFiber = 6,
+  kAux = 7,
 };
 
 enum class AttachmentKind : std::uint8_t {
@@ -218,6 +250,9 @@ struct Port {
   ConnectionContext placement_context = ConnectionContext::kTrunkContinue;
   bool angle_correction_applied = false;
   double side_scale_applied = 1.0;
+  PortPositionMode position_mode = PortPositionMode::kAuto;
+  PortPlacementSourceKind placement_source = PortPlacementSourceKind::kUnknown;
+  bool user_edited_position = false;
   bool placement_override_flag = false;
   bool orientation_override_flag = false;
 };
@@ -241,6 +276,29 @@ struct Bundle {
   int conductor_count = 1;
   double phase_spacing_m = 0.3;
   BundleKind kind = BundleKind::kLowVoltage;
+};
+
+// Entity-layer grouped wiring logical unit (separate responsibility from visual Bundle).
+struct WireGroup {
+  ObjectId id = kInvalidObjectId;
+  std::string display_id{};
+  WireGroupKind kind = WireGroupKind::kUnknown;
+  std::string network_tag{};
+  std::string feeder_tag{};
+  std::uint64_t generation_session_id = 0;
+  bool user_edited = false;
+  bool visible = true;
+};
+
+// Entity-layer lane identifier inside WireGroup.
+struct WireLane {
+  ObjectId id = kInvalidObjectId;
+  std::string display_id{};
+  ObjectId wire_group_id = kInvalidObjectId;
+  int lane_index = 0;
+  WireLaneRole role = WireLaneRole::kUnknown;
+  bool enabled = true;
+  bool user_locked_order = false;
 };
 
 // Workflow-layer grouped generation input.
@@ -272,6 +330,8 @@ struct Span {
   SpanKind kind = SpanKind::kGeneric;
   SpanLayer layer = SpanLayer::kUnknown;
   ObjectId bundle_id = kInvalidObjectId;
+  ObjectId wire_group_id = kInvalidObjectId;
+  ObjectId wire_lane_id = kInvalidObjectId;
   ObjectId anchor_a_id = kInvalidObjectId;
   ObjectId anchor_b_id = kInvalidObjectId;
   ConnectionContext placement_context = ConnectionContext::kTrunkContinue;

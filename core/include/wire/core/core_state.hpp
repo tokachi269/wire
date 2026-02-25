@@ -19,6 +19,8 @@ struct EditState {
   ObjectStore<Port> ports;
   ObjectStore<Anchor> anchors;
   ObjectStore<Bundle> bundles;
+  ObjectStore<WireGroup> wire_groups;
+  ObjectStore<WireLane> wire_lanes;
   ObjectStore<Span> spans;
   ObjectStore<Attachment> attachments;
 };
@@ -295,9 +297,27 @@ class CoreState {
     std::vector<ObjectId> pole_ids{};
     std::vector<ObjectId> span_ids{};
     ObjectId bundle_id = kInvalidObjectId;
+    ObjectId wire_group_id = kInvalidObjectId;
+    std::vector<ObjectId> wire_lane_ids{};
     std::vector<SegmentLaneAssignment> lane_assignments{};
     PathDirectionEvaluationDebug direction_debug{};
     std::uint64_t generation_session_id = 0;
+  };
+
+  struct GenerateWireGroupFromPathInput {
+    std::vector<Vec3d> polyline{};
+    double interval_m = 0.0;
+    PoleTypeId pole_type_id = kInvalidPoleTypeId;
+    ConnectionCategory category = ConnectionCategory::kLowVoltage;
+    PathDirectionMode direction_mode = PathDirectionMode::kAuto;
+    int requested_lane_count = 0;  // 0: use category standard lanes.
+  };
+
+  struct GenerateWireGroupFromPathResult {
+    ObjectId wire_group_id = kInvalidObjectId;
+    std::vector<ObjectId> wire_lane_ids{};
+    std::vector<ObjectId> generated_span_ids{};
+    std::vector<ObjectId> generated_pole_ids{};
   };
 
   struct PoleDetailInfo {
@@ -327,6 +347,14 @@ class CoreState {
       int conductor_count,
       double phase_spacing_m,
       BundleKind kind = BundleKind::kLowVoltage);
+  EditResult<ObjectId> AddWireGroup(
+      WireGroupKind kind = WireGroupKind::kUnknown,
+      std::string_view network_tag = {},
+      std::string_view feeder_tag = {});
+  EditResult<ObjectId> AddWireLane(
+      ObjectId wire_group_id,
+      int lane_index,
+      WireLaneRole role = WireLaneRole::kUnknown);
   EditResult<ObjectId> AddSpan(
       ObjectId port_a_id,
       ObjectId port_b_id,
@@ -340,8 +368,14 @@ class CoreState {
       double t,
       AttachmentKind kind = AttachmentKind::kGeneric,
       double offset_m = 0.0);
+  EditResult<ObjectId> AssignSpanToWireLane(
+      ObjectId span_id,
+      ObjectId wire_group_id,
+      ObjectId wire_lane_id);
   EditResult<ObjectId> MovePole(ObjectId pole_id, const Transformd& new_world_transform);
   EditResult<ObjectId> MovePort(ObjectId port_id, const Vec3d& new_world_position);
+  EditResult<ObjectId> SetPortWorldPositionManual(ObjectId port_id, const Vec3d& new_world_position);
+  EditResult<ObjectId> ResetPortPositionToAuto(ObjectId port_id);
   EditResult<ObjectId> MoveAnchor(ObjectId anchor_id, const Vec3d& new_world_position);
   EditResult<ObjectId> DeleteSpan(ObjectId span_id);
 
@@ -385,8 +419,14 @@ class CoreState {
       ConnectionCategory category);
   EditResult<GenerateGroupedLineResult> GenerateGroupedLine(
       const GenerateGroupedLineOptions& options);
+  EditResult<GenerateWireGroupFromPathResult> GenerateWireGroupFromPath(
+      const GenerateWireGroupFromPathInput& input);
   EditResult<ObjectId> SetPoleFlip180(ObjectId pole_id, bool flip_180);
   [[nodiscard]] PoleDetailInfo GetPoleDetail(ObjectId pole_id) const;
+  [[nodiscard]] const WireGroup* GetWireGroup(ObjectId wire_group_id) const;
+  [[nodiscard]] const WireLane* GetWireLane(ObjectId wire_lane_id) const;
+  [[nodiscard]] std::vector<ObjectId> GetSpansByWireGroup(ObjectId wire_group_id) const;
+  [[nodiscard]] std::vector<ObjectId> GetWireLanesByGroup(ObjectId wire_group_id) const;
   EditResult<bool> UpdateGeometrySettings(const GeometrySettings& settings, bool mark_all_spans_dirty = true);
   EditResult<bool> UpdateLayoutSettings(const LayoutSettings& settings);
   [[nodiscard]] const CurveCacheEntry* find_curve_cache(ObjectId span_id) const;
@@ -472,6 +512,8 @@ class CoreState {
   [[nodiscard]] static SpanLayer category_to_span_layer(ConnectionCategory category);
   [[nodiscard]] static BundleKind category_to_bundle_kind(ConnectionCategory category);
   [[nodiscard]] static PortKind category_to_port_kind(ConnectionCategory category);
+  [[nodiscard]] static int default_lane_count_for_category(ConnectionCategory category);
+  [[nodiscard]] static bool is_supported_category(ConnectionCategory category);
   void register_default_pole_types();
   [[nodiscard]] const PoleTypeDefinition* find_pole_type(PoleTypeId pole_type_id) const;
   [[nodiscard]] std::vector<PortSlotTemplate> sorted_port_slots(const PoleTypeDefinition& pole_type, ConnectionCategory category) const;

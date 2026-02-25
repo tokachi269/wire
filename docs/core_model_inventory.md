@@ -39,8 +39,10 @@ Forbidden reverse dependencies:
 | Type | File | Responsibility (one line) | Main deps | Persist class |
 |---|---|---|---|---|
 | `Pole` | `core/include/wire/core/entities.hpp` | Stores support structure identity, transform, and template reference. | `Transformd`, `PoleTypeId` | `PersistCore` |
-| `Port` | `core/include/wire/core/entities.hpp` | Stores a concrete connectable endpoint in world space. | `ObjectId`, `Vec3d`, category/layer | `PersistCore` |
+| `Port` | `core/include/wire/core/entities.hpp` | Stores a concrete connectable endpoint in world space including Auto/Manual position mode. | `ObjectId`, `Vec3d`, category/layer, position mode | `PersistCore` |
 | `Span` | `core/include/wire/core/entities.hpp` | Stores a concrete connection between two ports. | `port_a_id`, `port_b_id`, `bundle_id` | `PersistCore` |
+| `WireGroup` | `core/include/wire/core/entities.hpp` | Stores logical/generated grouping for multiple spans. | kind/tags/session refs | `PersistCore` |
+| `WireLane` | `core/include/wire/core/entities.hpp` | Stores one lane identity/order inside a wire group. | `wire_group_id`, `lane_index`, role | `PersistCore` |
 | `Anchor` | `core/include/wire/core/entities.hpp` | Stores a concrete support point used by spans. | `owner_pole_id`, `Vec3d` | `PersistCore` |
 | `Bundle` | `core/include/wire/core/entities.hpp` | Stores conductor bundle attributes shared across spans. | `conductor_count`, `kind` | `PersistCore` |
 | `Attachment` | `core/include/wire/core/entities.hpp` | Stores an item attached to a span at parametric position `t`. | `span_id`, `t` | `PersistCore` |
@@ -57,6 +59,7 @@ Forbidden reverse dependencies:
 | `ConductorLaneId`, `ConductorGroupState` | `core/include/wire/core/entities.hpp` | Holds lane-order state used by grouped generation workflow. | bundle ref + lane order | `SessionDebug` |
 | `ChangeSet`, `EditResult<T>` | `core/include/wire/core/core_state.hpp` | Reports externally observable effects of an operation. | entity IDs + error | `SessionDebug` |
 | `GenerateSimpleLine*`, `GenerateGroupedLine*` option/result structs | `core/include/wire/core/core_state.hpp` | Encapsulate generation command I/O. | entity IDs + workflow params | `SessionDebug` |
+| `GenerateWireGroupFromPath*` option/result structs | `core/include/wire/core/core_state.hpp` | Encapsulate DrawPath-oriented group generation I/O. | polyline/category/lanes + generated IDs | `SessionDebug` |
 | `PathDirectionCostBreakdown`, `PathDirectionEvaluationDebug` | `core/include/wire/core/core_state.hpp` | Stores path direction evaluation diagnostics. | scoring values | `SessionDebug` |
 | `SegmentLaneAssignment` | `core/include/wire/core/core_state.hpp` | Stores lane mapping diagnostics per generated segment. | poles/ports/slot IDs | `SessionDebug` |
 | `SlotCandidateDebug`, `SlotSelectionDebugRecord` | `core/include/wire/core/core_state.hpp` | Stores slot selection diagnostics and score breakdown. | score fields + IDs | `SessionDebug` |
@@ -87,6 +90,8 @@ Forbidden reverse dependencies:
 - `port`: runtime connection endpoint (`Port`), may originate from a template slot.
 - `span`: runtime edge connecting two ports.
 - `bundle`: conductor attributes shared by one or more spans.
+- `wire_group`: logical/generated parent for grouped spans.
+- `wire_lane`: per-group lane identity and order.
 - `road/path/guide`: workflow input path (`RoadSegment` today, UI label may be `DrawPath`).
 - `debug record`: session-only diagnostics (`SlotSelectionDebugRecord`, `PathDirectionEvaluationDebug`, `SegmentLaneAssignment`).
 
@@ -116,4 +121,4 @@ Forbidden reverse dependencies:
 - Team can consistently read `slot` as template and `port` as entity.
 - Debug/session data is treated as non-authoritative.
 - Phase5 serializer can ignore DerivedCache and SessionDebug without data loss of core topology.
-- WireGroup/WireLane can be added under workflow/entity split without redefining current terms.
+- WireGroup/WireLane are now in Entity layer and remain responsibility-separated from visual Bundle.

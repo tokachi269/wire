@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <functional>
 #include <iostream>
@@ -1143,6 +1144,12 @@ bool test_generate_grouped_line_high_voltage_three_phase() {
   if (result.value.pole_ids.size() != options.road.polyline.size()) {
     return false;
   }
+  if (result.value.wire_group_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  if (result.value.wire_lane_ids.size() != 3) {
+    return false;
+  }
   const std::size_t expected_spans = (result.value.pole_ids.size() - 1) * 3;
   if (result.value.span_ids.size() != expected_spans) {
     return false;
@@ -1159,6 +1166,19 @@ bool test_generate_grouped_line_high_voltage_three_phase() {
       return false;
     }
     if (assignment.slot_ids_a.size() != 3 || assignment.slot_ids_b.size() != 3) {
+      return false;
+    }
+  }
+  for (std::size_t i = 0; i < result.value.span_ids.size(); ++i) {
+    const auto* span = state.edit_state().spans.find(result.value.span_ids[i]);
+    if (span == nullptr) {
+      return false;
+    }
+    if (span->wire_group_id != result.value.wire_group_id) {
+      return false;
+    }
+    const ObjectId expected_lane = result.value.wire_lane_ids[i % result.value.wire_lane_ids.size()];
+    if (span->wire_lane_id != expected_lane) {
       return false;
     }
   }
@@ -1199,6 +1219,375 @@ bool test_generate_grouped_line_direction_forced_reverse() {
     return false;
   }
   return true;
+}
+
+// Intent: WireGroup/WireLane APIs should assign spans and expose queryable membership.
+bool test_wire_group_lane_assign_and_query() {
+  CoreState state;
+  const ObjectId pole_a = state.AddPole({}, 10.0, "A").value;
+  wire::core::Transformd b{};
+  b.position = {8.0, 0.0, 0.0};
+  const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
+  const ObjectId port_a = state.AddPort(pole_a, {0.0, 0.0, 7.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId port_b = state.AddPort(pole_b, {8.0, 0.0, 7.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const auto add_span = state.AddSpan(port_a, port_b, SpanKind::kDistribution, SpanLayer::kLowVoltage);
+  if (!add_span.ok) {
+    return false;
+  }
+
+  const auto add_group = state.AddWireGroup(wire::core::WireGroupKind::kPowerLowVoltage, "N1", "F1");
+  if (!add_group.ok) {
+    return false;
+  }
+  const auto add_lane = state.AddWireLane(add_group.value, 0, wire::core::WireLaneRole::kNeutral);
+  if (!add_lane.ok) {
+    return false;
+  }
+  const auto assign = state.AssignSpanToWireLane(add_span.value, add_group.value, add_lane.value);
+  if (!assign.ok) {
+    return false;
+  }
+
+  const auto* span = state.edit_state().spans.find(add_span.value);
+  const auto* group = state.GetWireGroup(add_group.value);
+  const auto* lane = state.GetWireLane(add_lane.value);
+  if (span == nullptr || group == nullptr || lane == nullptr) {
+    return false;
+  }
+  if (span->wire_group_id != add_group.value || span->wire_lane_id != add_lane.value) {
+    return false;
+  }
+  if (group->kind != wire::core::WireGroupKind::kPowerLowVoltage || group->network_tag != "N1") {
+    return false;
+  }
+  if (lane->wire_group_id != add_group.value || lane->lane_index != 0) {
+    return false;
+  }
+
+  const auto grouped_spans = state.GetSpansByWireGroup(add_group.value);
+  const auto grouped_lanes = state.GetWireLanesByGroup(add_group.value);
+  if (grouped_spans.size() != 1 || grouped_spans[0] != add_span.value) {
+    return false;
+  }
+  if (grouped_lanes.size() != 1 || grouped_lanes[0] != add_lane.value) {
+    return false;
+  }
+
+  return state.Validate().ok();
+}
+
+// Intent: WireGroup/WireLane API must reject invalid IDs and group-lane mismatches.
+bool test_wire_group_lane_invalid_ids_and_mismatch_fail() {
+  CoreState state;
+  const ObjectId pole_a = state.AddPole({}, 10.0, "A").value;
+  wire::core::Transformd b{};
+  b.position = {6.0, 0.0, 0.0};
+  const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
+  const ObjectId port_a = state.AddPort(pole_a, {0.0, 0.0, 7.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId port_b = state.AddPort(pole_b, {6.0, 0.0, 7.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId span_id = state.AddSpan(port_a, port_b, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
+
+  const auto bad_lane = state.AddWireLane(wire::core::kInvalidObjectId, 0, wire::core::WireLaneRole::kUnknown);
+  if (bad_lane.ok || bad_lane.error != "wire group does not exist") {
+    return false;
+  }
+
+  const auto group_a = state.AddWireGroup(wire::core::WireGroupKind::kPowerLowVoltage);
+  const auto group_b = state.AddWireGroup(wire::core::WireGroupKind::kPowerLowVoltage);
+  if (!group_a.ok || !group_b.ok) {
+    return false;
+  }
+  const auto lane_b = state.AddWireLane(group_b.value, 0, wire::core::WireLaneRole::kNeutral);
+  if (!lane_b.ok) {
+    return false;
+  }
+
+  const auto bad_assign = state.AssignSpanToWireLane(span_id, group_a.value, lane_b.value);
+  if (bad_assign.ok || !regex_contains(bad_assign.error, "not owned")) {
+    return false;
+  }
+  const auto bad_span = state.AssignSpanToWireLane(999999, group_a.value, lane_b.value);
+  if (bad_span.ok || !regex_contains(bad_span.error, "span does not exist")) {
+    return false;
+  }
+
+  const auto* span = state.edit_state().spans.find(span_id);
+  if (span == nullptr) {
+    return false;
+  }
+  return span->wire_group_id == wire::core::kInvalidObjectId &&
+         span->wire_lane_id == wire::core::kInvalidObjectId &&
+         state.Validate().ok();
+}
+
+// Intent: Spans without WireGroup/WireLane remain valid and keep legacy behavior.
+bool test_wire_group_lane_unassigned_span_compatibility() {
+  CoreState state;
+  const ObjectId pole_a = state.AddPole({}, 10.0, "A").value;
+  wire::core::Transformd b{};
+  b.position = {9.0, 0.0, 0.0};
+  const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
+  const ObjectId port_a = state.AddPort(pole_a, {0.0, 0.0, 7.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId port_b = state.AddPort(pole_b, {9.0, 0.0, 7.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId span_id = state.AddSpan(port_a, port_b, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
+  const auto* span_before = state.edit_state().spans.find(span_id);
+  if (span_before == nullptr) {
+    return false;
+  }
+  if (span_before->wire_group_id != wire::core::kInvalidObjectId ||
+      span_before->wire_lane_id != wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  const auto recalc = state.ProcessDirtyQueues();
+  const auto* runtime = state.find_span_runtime_state(span_id);
+  if (runtime == nullptr || recalc.geometry_processed == 0) {
+    return false;
+  }
+  return state.GetSpansByWireGroup(wire::core::kInvalidObjectId).empty() &&
+         state.GetWireLanesByGroup(wire::core::kInvalidObjectId).empty() &&
+         state.Validate().ok();
+}
+
+// Intent: DrawPath-oriented WireGroup API should create category-default lanes and assign spans.
+bool test_generate_wire_group_from_path_basic_hv_default_lanes() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  CoreState::GenerateWireGroupFromPathInput input{};
+  input.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}, {24.0, 4.0, 0.0}};
+  input.interval_m = 6.0;
+  input.pole_type_id = type_ids.front();
+  input.category = ConnectionCategory::kHighVoltage;
+  input.direction_mode = wire::core::PathDirectionMode::kAuto;
+  input.requested_lane_count = 0;  // category standard
+
+  const auto result = state.GenerateWireGroupFromPath(input);
+  if (!result.ok) {
+    return false;
+  }
+  if (result.value.wire_group_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  if (result.value.wire_lane_ids.size() != 3) {
+    return false;
+  }
+  if (result.value.generated_pole_ids.size() < 2 || result.value.generated_span_ids.empty()) {
+    return false;
+  }
+  for (const ObjectId span_id : result.value.generated_span_ids) {
+    const auto* span = state.edit_state().spans.find(span_id);
+    if (span == nullptr) {
+      return false;
+    }
+    if (span->wire_group_id != result.value.wire_group_id) {
+      return false;
+    }
+    if (!contains_id(result.value.wire_lane_ids, span->wire_lane_id)) {
+      return false;
+    }
+  }
+  return state.Validate().ok();
+}
+
+// Intent: Direction modes on WireGroup path generation should all execute without failure.
+bool test_generate_wire_group_from_path_direction_modes_nonfailing() {
+  const std::array<wire::core::PathDirectionMode, 3> modes = {
+      wire::core::PathDirectionMode::kForward,
+      wire::core::PathDirectionMode::kReverse,
+      wire::core::PathDirectionMode::kAuto,
+  };
+  for (const auto mode : modes) {
+    CoreState state;
+    const auto type_ids = sorted_pole_type_ids(state);
+    if (type_ids.empty()) {
+      return false;
+    }
+    CoreState::GenerateWireGroupFromPathInput input{};
+    input.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {20.0, 2.0, 0.0}};
+    input.interval_m = 5.0;
+    input.pole_type_id = type_ids.front();
+    input.category = ConnectionCategory::kLowVoltage;
+    input.direction_mode = mode;
+    input.requested_lane_count = 0;
+    const auto result = state.GenerateWireGroupFromPath(input);
+    if (!result.ok || result.value.generated_span_ids.empty()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Intent: WireGroup path generation should reject invalid input and keep state recoverable.
+bool test_generate_wire_group_from_path_invalid_inputs_fail() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  const CoreCounts before = snapshot_counts(state);
+
+  CoreState::GenerateWireGroupFromPathInput too_short{};
+  too_short.polyline = {{0.0, 0.0, 0.0}};
+  too_short.interval_m = 5.0;
+  too_short.pole_type_id = type_ids.front();
+  too_short.category = ConnectionCategory::kLowVoltage;
+  const auto r_short = state.GenerateWireGroupFromPath(too_short);
+  if (r_short.ok || !regex_contains(r_short.error, "at least 2 points")) {
+    return false;
+  }
+
+  CoreState::GenerateWireGroupFromPathInput bad_interval{};
+  bad_interval.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}};
+  bad_interval.interval_m = 0.0;
+  bad_interval.pole_type_id = type_ids.front();
+  bad_interval.category = ConnectionCategory::kLowVoltage;
+  const auto r_interval = state.GenerateWireGroupFromPath(bad_interval);
+  if (r_interval.ok || !regex_contains(r_interval.error, "interval_m")) {
+    return false;
+  }
+
+  CoreState::GenerateWireGroupFromPathInput bad_category{};
+  bad_category.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}};
+  bad_category.interval_m = 5.0;
+  bad_category.pole_type_id = type_ids.front();
+  bad_category.category = static_cast<ConnectionCategory>(255);
+  const auto r_category = state.GenerateWireGroupFromPath(bad_category);
+  if (r_category.ok || !regex_contains(r_category.error, "unsupported")) {
+    return false;
+  }
+
+  CoreState::GenerateWireGroupFromPathInput bad_type{};
+  bad_type.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}};
+  bad_type.interval_m = 5.0;
+  bad_type.pole_type_id = 999999;
+  bad_type.category = ConnectionCategory::kLowVoltage;
+  const auto r_type = state.GenerateWireGroupFromPath(bad_type);
+  if (r_type.ok || !regex_contains(r_type.error, "pole type")) {
+    return false;
+  }
+
+  if (!same_counts(before, snapshot_counts(state))) {
+    return false;
+  }
+
+  CoreState::GenerateWireGroupFromPathInput recover{};
+  recover.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}, {24.0, 0.0, 0.0}};
+  recover.interval_m = 6.0;
+  recover.pole_type_id = type_ids.front();
+  recover.category = ConnectionCategory::kLowVoltage;
+  return state.GenerateWireGroupFromPath(recover).ok;
+}
+
+// Intent: Newly created ports should default to Auto position mode.
+bool test_port_position_mode_defaults_auto() {
+  CoreState state;
+  const ObjectId pole = state.AddPole({}, 10.0, "P").value;
+  const auto add = state.AddPort(pole, {0.0, 0.0, 6.0}, PortKind::kPower, PortLayer::kLowVoltage);
+  if (!add.ok) {
+    return false;
+  }
+  const auto* port = state.edit_state().ports.find(add.value);
+  if (port == nullptr) {
+    return false;
+  }
+  return port->position_mode == wire::core::PortPositionMode::kAuto &&
+         !port->user_edited_position;
+}
+
+// Intent: Manual set/reset APIs should transition mode and keep local dirty scope.
+bool test_port_manual_set_and_reset_to_auto() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  wire::core::Transformd a{};
+  a.position = {0.0, 0.0, 0.0};
+  wire::core::Transformd b{};
+  b.position = {10.0, 0.0, 0.0};
+  const ObjectId pole_a = state.AddPole(a, 10.0, "A").value;
+  const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
+  (void)state.ApplyPoleType(pole_a, type_ids.front());
+  (void)state.ApplyPoleType(pole_b, type_ids.front());
+  const auto add = state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kLowVoltage);
+  if (!add.ok) {
+    return false;
+  }
+  (void)state.ProcessDirtyQueues();
+
+  const ObjectId port_id = add.value.port_a_id;
+  const wire::core::Vec3d manual_pos{123.0, 45.0, 9.0};
+  const auto manual = state.SetPortWorldPositionManual(port_id, manual_pos);
+  if (!manual.ok) {
+    return false;
+  }
+  const auto* runtime = state.find_span_runtime_state(add.value.span_id);
+  const auto* manual_port = state.edit_state().ports.find(port_id);
+  if (runtime == nullptr || manual_port == nullptr) {
+    return false;
+  }
+  if (!has_dirty(runtime, DirtyBits::kGeometry)) {
+    return false;
+  }
+  if (manual_port->position_mode != wire::core::PortPositionMode::kManual ||
+      manual_port->placement_source != wire::core::PortPlacementSourceKind::kManualEdit ||
+      !manual_port->user_edited_position ||
+      !almost_equal(manual_port->world_position, manual_pos)) {
+    return false;
+  }
+
+  const auto reset = state.ResetPortPositionToAuto(port_id);
+  if (!reset.ok) {
+    return false;
+  }
+  const auto* reset_port = state.edit_state().ports.find(port_id);
+  if (reset_port == nullptr) {
+    return false;
+  }
+  return reset_port->position_mode == wire::core::PortPositionMode::kAuto &&
+         !reset_port->user_edited_position &&
+         reset_port->placement_source != wire::core::PortPlacementSourceKind::kManualEdit &&
+         !almost_equal(reset_port->world_position, manual_pos);
+}
+
+// Intent: Manual port position must not be overwritten by auto pole flip recomputation.
+bool test_manual_port_not_overwritten_by_auto_relayout() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  wire::core::Transformd a{};
+  a.position = {0.0, 0.0, 0.0};
+  wire::core::Transformd b{};
+  b.position = {12.0, 0.0, 0.0};
+  const ObjectId pole_a = state.AddPole(a, 10.0, "A").value;
+  const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
+  (void)state.ApplyPoleType(pole_a, type_ids.front());
+  (void)state.ApplyPoleType(pole_b, type_ids.front());
+  const auto add = state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kLowVoltage);
+  if (!add.ok) {
+    return false;
+  }
+  const ObjectId manual_port_id = add.value.port_a_id;
+  const wire::core::Vec3d manual_pos{77.0, -12.0, 8.0};
+  if (!state.SetPortWorldPositionManual(manual_port_id, manual_pos).ok) {
+    return false;
+  }
+  (void)state.ProcessDirtyQueues();
+  if (!state.SetPoleFlip180(pole_a, true).ok) {
+    return false;
+  }
+  const auto* port_after = state.edit_state().ports.find(manual_port_id);
+  if (port_after == nullptr) {
+    return false;
+  }
+  return port_after->position_mode == wire::core::PortPositionMode::kManual &&
+         almost_equal(port_after->world_position, manual_pos);
 }
 
 // Intent: Pole flip_180 should rotate owned ports and dirty only connected spans.
@@ -1775,6 +2164,15 @@ int main() {
       {"C41_Phase4x_ClearDebug_NoEntityMutation", "Clearing session debug records does not mutate core entities", "Exact", false, test_clear_debug_records_is_entity_noop},
       {"C42_Phase4x_RecalcCache_NoEntityMutation", "Derived cache rebuild does not mutate entity identity/counts", "Invariant", false, test_recalc_cache_pipeline_is_entity_noop},
       {"C43_Phase4x_SharpCorner_PoleYawPerpendicular", "Sharp-corner middle pole yaw is perpendicular to bisector", "Exact", false, test_generate_simple_line_from_points_sharp_corner_perpendicular_orientation},
+      {"C44_Phase48a_WireGroupLane_AssignQuery", "WireGroup/WireLane assignment and queries work on spans", "Invariant", false, test_wire_group_lane_assign_and_query},
+      {"C45_Phase48a_WireGroupLane_InvalidReject", "WireGroup/WireLane rejects invalid IDs and mismatched ownership", "Exact", true, test_wire_group_lane_invalid_ids_and_mismatch_fail},
+      {"C46_Phase48a_WireGroupLane_LegacyCompat", "Unassigned spans stay valid and legacy recalc behavior remains", "Invariant", false, test_wire_group_lane_unassigned_span_compatibility},
+      {"C47_Phase48b_DrawPathWireGroup_HVDefault", "WireGroup path generation creates default HV lanes and assigns spans", "Invariant", false, test_generate_wire_group_from_path_basic_hv_default_lanes},
+      {"C48_Phase48b_DrawPathWireGroup_DirectionModes", "WireGroup path generation supports Forward/Reverse/Auto modes", "Invariant", false, test_generate_wire_group_from_path_direction_modes_nonfailing},
+      {"C49_Phase48b_DrawPathWireGroup_InvalidInputs", "WireGroup path generation rejects invalid input and recovers", "Exact", true, test_generate_wire_group_from_path_invalid_inputs_fail},
+      {"C50_Phase48c_PortMode_DefaultAuto", "New ports default to Auto mode", "Exact", false, test_port_position_mode_defaults_auto},
+      {"C51_Phase48c_PortMode_ManualReset", "Manual set/reset toggles port mode and keeps dirty local", "Invariant", false, test_port_manual_set_and_reset_to_auto},
+      {"C52_Phase48c_PortMode_ProtectFromRelayout", "Manual ports are not overwritten by auto pole relayout", "Invariant", false, test_manual_port_not_overwritten_by_auto_relayout},
   };
 
   bool all_passed = true;

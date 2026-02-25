@@ -317,6 +317,9 @@ EditResult<ObjectId> CoreState::AddPort(
   port.placement_context = ConnectionContext::kTrunkContinue;
   port.angle_correction_applied = false;
   port.side_scale_applied = 1.0;
+  port.position_mode = PortPositionMode::kAuto;
+  port.placement_source = PortPlacementSourceKind::kGenerated;
+  port.user_edited_position = false;
   edit_state_.ports.insert(port);
 
   result.ok = true;
@@ -380,6 +383,54 @@ EditResult<ObjectId> CoreState::AddBundle(
   result.ok = true;
   result.value = bundle.id;
   result.change_set.created_ids.push_back(bundle.id);
+  return result;
+}
+
+EditResult<ObjectId> CoreState::AddWireGroup(
+    WireGroupKind kind,
+    std::string_view network_tag,
+    std::string_view feeder_tag) {
+  EditResult<ObjectId> result;
+
+  WireGroup group{};
+  group.id = id_generator_.next();
+  group.display_id = next_display_id("WG");
+  group.kind = kind;
+  group.network_tag = std::string(network_tag);
+  group.feeder_tag = std::string(feeder_tag);
+  edit_state_.wire_groups.insert(group);
+
+  result.ok = true;
+  result.value = group.id;
+  result.change_set.created_ids.push_back(group.id);
+  return result;
+}
+
+EditResult<ObjectId> CoreState::AddWireLane(
+    ObjectId wire_group_id,
+    int lane_index,
+    WireLaneRole role) {
+  EditResult<ObjectId> result;
+  if (edit_state_.wire_groups.find(wire_group_id) == nullptr) {
+    result.error = "wire group does not exist";
+    return result;
+  }
+  if (lane_index < 0) {
+    result.error = "lane_index must be >= 0";
+    return result;
+  }
+
+  WireLane lane{};
+  lane.id = id_generator_.next();
+  lane.display_id = next_display_id("WL");
+  lane.wire_group_id = wire_group_id;
+  lane.lane_index = lane_index;
+  lane.role = role;
+  edit_state_.wire_lanes.insert(lane);
+
+  result.ok = true;
+  result.value = lane.id;
+  result.change_set.created_ids.push_back(lane.id);
   return result;
 }
 
@@ -472,6 +523,41 @@ EditResult<ObjectId> CoreState::AddAttachment(
   return result;
 }
 
+EditResult<ObjectId> CoreState::AssignSpanToWireLane(
+    ObjectId span_id,
+    ObjectId wire_group_id,
+    ObjectId wire_lane_id) {
+  EditResult<ObjectId> result;
+  Span* span = edit_state_.spans.find(span_id);
+  if (span == nullptr) {
+    result.error = "span does not exist";
+    return result;
+  }
+  const WireGroup* group = edit_state_.wire_groups.find(wire_group_id);
+  if (group == nullptr) {
+    result.error = "wire group does not exist";
+    return result;
+  }
+  const WireLane* lane = edit_state_.wire_lanes.find(wire_lane_id);
+  if (lane == nullptr) {
+    result.error = "wire lane does not exist";
+    return result;
+  }
+  if (lane->wire_group_id != wire_group_id) {
+    result.error = "wire lane is not owned by specified wire group";
+    return result;
+  }
+
+  span->wire_group_id = group->id;
+  span->wire_lane_id = lane->id;
+  result.ok = true;
+  result.value = span_id;
+  add_unique_id(result.change_set.updated_ids, span_id);
+  add_unique_id(result.change_set.dirty_span_ids, span_id);
+  mark_span_dirty(span_id, DirtyBits::kTopology, true);
+  return result;
+}
+
 EditResult<ObjectId> CoreState::MovePole(ObjectId pole_id, const Transformd& new_world_transform) {
   EditResult<ObjectId> result;
   Pole* pole = edit_state_.poles.find(pole_id);
@@ -487,6 +573,9 @@ EditResult<ObjectId> CoreState::MovePole(ObjectId pole_id, const Transformd& new
   std::vector<ObjectId> moved_port_ids;
   for (Port& port : edit_state_.ports.items()) {
     if (port.owner_pole_id == pole_id) {
+      if (port.position_mode == PortPositionMode::kManual) {
+        continue;
+      }
       port.world_position = port.world_position + delta;
       moved_port_ids.push_back(port.id);
       add_unique_id(result.change_set.updated_ids, port.id);
@@ -516,6 +605,10 @@ EditResult<ObjectId> CoreState::MovePole(ObjectId pole_id, const Transformd& new
 }
 
 EditResult<ObjectId> CoreState::MovePort(ObjectId port_id, const Vec3d& new_world_position) {
+  return SetPortWorldPositionManual(port_id, new_world_position);
+}
+
+EditResult<ObjectId> CoreState::SetPortWorldPositionManual(ObjectId port_id, const Vec3d& new_world_position) {
   EditResult<ObjectId> result;
   Port* port = edit_state_.ports.find(port_id);
   if (port == nullptr) {
@@ -523,6 +616,76 @@ EditResult<ObjectId> CoreState::MovePort(ObjectId port_id, const Vec3d& new_worl
     return result;
   }
   port->world_position = new_world_position;
+  port->position_mode = PortPositionMode::kManual;
+  port->placement_source = PortPlacementSourceKind::kManualEdit;
+  port->user_edited_position = true;
+  result.change_set.updated_ids.push_back(port_id);
+  mark_connected_spans_dirty_from_port(
+      port_id,
+      DirtyBits::kGeometry,
+      &result.change_set);
+  result.ok = true;
+  result.value = port_id;
+  return result;
+}
+
+EditResult<ObjectId> CoreState::ResetPortPositionToAuto(ObjectId port_id) {
+  EditResult<ObjectId> result;
+  Port* port = edit_state_.ports.find(port_id);
+  if (port == nullptr) {
+    result.error = "port not found";
+    return result;
+  }
+
+  port->position_mode = PortPositionMode::kAuto;
+  port->user_edited_position = false;
+
+  bool recomputed = false;
+  if (port->owner_pole_id != kInvalidObjectId && port->source_slot_id >= 0) {
+    const Pole* pole = edit_state_.poles.find(port->owner_pole_id);
+    if (pole != nullptr) {
+      const PoleTypeDefinition* pole_type = find_pole_type(pole->pole_type_id);
+      if (pole_type != nullptr) {
+        const PortSlotTemplate* slot_ptr = nullptr;
+        for (const PortSlotTemplate& slot : pole_type->port_slots) {
+          if (slot.slot_id == port->source_slot_id) {
+            slot_ptr = &slot;
+            break;
+          }
+        }
+        if (slot_ptr != nullptr) {
+          Vec3d adjusted_local = slot_ptr->local_position;
+          const bool apply_angle_correction =
+              layout_settings_.angle_correction_enabled &&
+              pole->context.kind == PoleContextKind::kCorner &&
+              slot_ptr->side != SlotSide::kCenter;
+          double applied_scale = 1.0;
+          if (apply_angle_correction) {
+            adjusted_local.y = apply_corner_side_scale(
+                adjusted_local.y,
+                slot_ptr->side,
+                pole->context.corner_turn_sign,
+                pole->context.side_scale);
+            if (std::abs(slot_ptr->local_position.y) > 1e-9) {
+              applied_scale = std::abs(adjusted_local.y / slot_ptr->local_position.y);
+            }
+          }
+          port->world_position = local_to_world_on_pole(
+              pole->world_transform,
+              effective_pole_yaw_for_layout(*pole),
+              adjusted_local);
+          port->angle_correction_applied = apply_angle_correction;
+          port->side_scale_applied = apply_angle_correction ? applied_scale : 1.0;
+          port->placement_source = PortPlacementSourceKind::kTemplateSlot;
+          recomputed = true;
+        }
+      }
+    }
+  }
+  if (!recomputed && port->placement_source == PortPlacementSourceKind::kManualEdit) {
+    port->placement_source = PortPlacementSourceKind::kGenerated;
+  }
+
   result.change_set.updated_ids.push_back(port_id);
   mark_connected_spans_dirty_from_port(
       port_id,
@@ -593,6 +756,9 @@ EditResult<ObjectId> CoreState::SetPoleFlip180(ObjectId pole_id, bool flip_180) 
 
   for (Port& port : edit_state_.ports.items()) {
     if (port.owner_pole_id != pole_id) {
+      continue;
+    }
+    if (port.position_mode == PortPositionMode::kManual) {
       continue;
     }
     Vec3d new_world = port.world_position;
@@ -722,6 +888,12 @@ EditResult<CoreState::SplitSpanResult> CoreState::SplitSpan(ObjectId span_id, do
     result.error = add_port_result.error;
     return result;
   }
+  if (Port* split_port = edit_state_.ports.find(add_port_result.value); split_port != nullptr) {
+    split_port->placement_source = PortPlacementSourceKind::kAerialBranch;
+    split_port->position_mode = PortPositionMode::kAuto;
+    split_port->user_edited_position = false;
+    add_unique_id(add_port_result.change_set.updated_ids, split_port->id);
+  }
 
   EditResult<ObjectId> add_span_a_result = AddSpan(
       old_span.port_a_id,
@@ -747,6 +919,23 @@ EditResult<CoreState::SplitSpanResult> CoreState::SplitSpan(ObjectId span_id, do
   if (!add_span_b_result.ok) {
     result.error = add_span_b_result.error;
     return result;
+  }
+
+  if (old_span.wire_group_id != kInvalidObjectId && old_span.wire_lane_id != kInvalidObjectId) {
+    EditResult<ObjectId> assign_a =
+        AssignSpanToWireLane(add_span_a_result.value, old_span.wire_group_id, old_span.wire_lane_id);
+    if (!assign_a.ok) {
+      result.error = assign_a.error;
+      return result;
+    }
+    EditResult<ObjectId> assign_b =
+        AssignSpanToWireLane(add_span_b_result.value, old_span.wire_group_id, old_span.wire_lane_id);
+    if (!assign_b.ok) {
+      result.error = assign_b.error;
+      return result;
+    }
+    append_change_set(result.change_set, assign_a.change_set);
+    append_change_set(result.change_set, assign_b.change_set);
   }
 
   EditResult<ObjectId> delete_result = DeleteSpan(old_span.id);
@@ -828,6 +1017,9 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
       created->generated_by_rule = true;
       created->angle_correction_applied = apply_angle_correction;
       created->side_scale_applied = apply_angle_correction ? applied_scale : 1.0;
+      created->position_mode = PortPositionMode::kAuto;
+      created->placement_source = PortPlacementSourceKind::kTemplateSlot;
+      created->user_edited_position = false;
       add_unique_id(result.change_set.updated_ids, created->id);
     }
     append_change_set(result.change_set, add_port_result.change_set);
@@ -1764,6 +1956,60 @@ EditResult<CoreState::GenerateGroupedLineResult> CoreState::GenerateGroupedLine(
     return result;
   }
 
+  auto to_wire_group_kind = [](ConnectionCategory category) -> WireGroupKind {
+    switch (category) {
+      case ConnectionCategory::kHighVoltage:
+        return WireGroupKind::kPowerHighVoltage;
+      case ConnectionCategory::kLowVoltage:
+      case ConnectionCategory::kDrop:
+        return WireGroupKind::kPowerLowVoltage;
+      case ConnectionCategory::kCommunication:
+        return WireGroupKind::kComm;
+      case ConnectionCategory::kOptical:
+        return WireGroupKind::kOptical;
+      default:
+        return WireGroupKind::kUnknown;
+    }
+  };
+  auto default_lane_role = [&](int lane_index) -> WireLaneRole {
+    if (options.group_spec.group_kind == ConductorGroupKind::kThreePhase &&
+        options.group_spec.conductor_count >= 3) {
+      if (lane_index == 0) return WireLaneRole::kPhaseA;
+      if (lane_index == 1) return WireLaneRole::kPhaseB;
+      if (lane_index == 2) return WireLaneRole::kPhaseC;
+      return WireLaneRole::kAux;
+    }
+    switch (options.group_spec.category) {
+      case ConnectionCategory::kCommunication:
+        return WireLaneRole::kCommLine;
+      case ConnectionCategory::kOptical:
+        return WireLaneRole::kOpticalFiber;
+      case ConnectionCategory::kDrop:
+        return WireLaneRole::kNeutral;
+      default:
+        return WireLaneRole::kUnknown;
+    }
+  };
+
+  EditResult<ObjectId> wire_group_result = AddWireGroup(to_wire_group_kind(options.group_spec.category));
+  if (!wire_group_result.ok) {
+    result.error = wire_group_result.error;
+    return result;
+  }
+  const int lane_count = std::max(1, options.group_spec.conductor_count);
+  std::vector<ObjectId> wire_lane_ids;
+  wire_lane_ids.reserve(static_cast<std::size_t>(lane_count));
+  for (int lane_index = 0; lane_index < lane_count; ++lane_index) {
+    EditResult<ObjectId> lane_result =
+        AddWireLane(wire_group_result.value, lane_index, default_lane_role(lane_index));
+    if (!lane_result.ok) {
+      result.error = lane_result.error;
+      return result;
+    }
+    wire_lane_ids.push_back(lane_result.value);
+    append_change_set(result.change_set, lane_result.change_set);
+  }
+
   std::vector<SegmentLaneAssignment> lane_assignments;
   EditResult<std::vector<ObjectId>> spans_result = generate_grouped_spans_between_poles(
       poles_result.value,
@@ -1775,7 +2021,26 @@ EditResult<CoreState::GenerateGroupedLineResult> CoreState::GenerateGroupedLine(
     return result;
   }
 
+  for (std::size_t i = 0; i < spans_result.value.size(); ++i) {
+    const std::size_t lane_index = (lane_count <= 0) ? 0 : (i % static_cast<std::size_t>(lane_count));
+    const ObjectId lane_id = wire_lane_ids[lane_index];
+    EditResult<ObjectId> assign_result = AssignSpanToWireLane(
+        spans_result.value[i],
+        wire_group_result.value,
+        lane_id);
+    if (!assign_result.ok) {
+      result.error = assign_result.error;
+      return result;
+    }
+    append_change_set(result.change_set, assign_result.change_set);
+  }
+
   const std::uint64_t session_id = next_generation_session_id_++;
+  if (WireGroup* group = edit_state_.wire_groups.find(wire_group_result.value); group != nullptr) {
+    group->generation_session_id = session_id;
+    group->user_edited = false;
+    add_unique_id(result.change_set.updated_ids, group->id);
+  }
   for (std::size_t i = 0; i < poles_result.value.size(); ++i) {
     Pole* pole = edit_state_.poles.find(poles_result.value[i]);
     if (pole != nullptr) {
@@ -1809,12 +2074,79 @@ EditResult<CoreState::GenerateGroupedLineResult> CoreState::GenerateGroupedLine(
   result.value.pole_ids = poles_result.value;
   result.value.span_ids = spans_result.value;
   result.value.bundle_id = bundle_result.value;
+  result.value.wire_group_id = wire_group_result.value;
+  result.value.wire_lane_ids = wire_lane_ids;
   result.value.lane_assignments = lane_assignments;
   result.value.direction_debug = direction_debug;
   result.value.generation_session_id = session_id;
   append_change_set(result.change_set, poles_result.change_set);
   append_change_set(result.change_set, bundle_result.change_set);
+  append_change_set(result.change_set, wire_group_result.change_set);
   append_change_set(result.change_set, spans_result.change_set);
+  return result;
+}
+
+EditResult<CoreState::GenerateWireGroupFromPathResult> CoreState::GenerateWireGroupFromPath(
+    const GenerateWireGroupFromPathInput& input) {
+  EditResult<GenerateWireGroupFromPathResult> result;
+  if (input.polyline.size() < 2) {
+    result.error = "path polyline must contain at least 2 points";
+    return result;
+  }
+  if (input.interval_m <= 0.0) {
+    result.error = "interval_m must be > 0";
+    return result;
+  }
+  if (!is_supported_category(input.category)) {
+    result.error = "unsupported connection category";
+    return result;
+  }
+  if (find_pole_type(input.pole_type_id) == nullptr) {
+    result.error = "pole type not found";
+    return result;
+  }
+
+  int lane_count = input.requested_lane_count;
+  if (lane_count <= 0) {
+    lane_count = default_lane_count_for_category(input.category);
+  }
+  if (lane_count <= 0) {
+    result.error = "failed to resolve lane count";
+    return result;
+  }
+
+  GenerateGroupedLineOptions options{};
+  options.road.id = next_generation_session_id_;
+  options.road.polyline = input.polyline;
+  options.interval = input.interval_m;
+  options.pole_type_id = input.pole_type_id;
+  options.direction_mode = input.direction_mode;
+  options.group_spec.category = input.category;
+  options.group_spec.conductor_count = lane_count;
+  options.group_spec.group_kind =
+      (lane_count <= 1)
+          ? ConductorGroupKind::kSingle
+          : ((input.category == ConnectionCategory::kHighVoltage && lane_count == 3)
+                 ? ConductorGroupKind::kThreePhase
+                 : ConductorGroupKind::kParallel);
+  options.group_spec.lane_spacing_m = (input.category == ConnectionCategory::kHighVoltage) ? 0.45 : 0.20;
+  options.group_spec.maintain_lane_order = true;
+  options.group_spec.allow_lane_mirror = true;
+
+  const CoreState snapshot = *this;
+  EditResult<GenerateGroupedLineResult> grouped_result = GenerateGroupedLine(options);
+  if (!grouped_result.ok) {
+    *this = snapshot;  // rollback partial generation
+    result.error = grouped_result.error;
+    return result;
+  }
+
+  result.ok = true;
+  result.value.wire_group_id = grouped_result.value.wire_group_id;
+  result.value.wire_lane_ids = grouped_result.value.wire_lane_ids;
+  result.value.generated_span_ids = grouped_result.value.span_ids;
+  result.value.generated_pole_ids = grouped_result.value.pole_ids;
+  result.change_set = grouped_result.change_set;
   return result;
 }
 
@@ -1838,6 +2170,40 @@ CoreState::PoleDetailInfo CoreState::GetPoleDetail(ObjectId pole_id) const {
   std::sort(detail.owned_ports.begin(), detail.owned_ports.end(), [](const Port* a, const Port* b) { return a->id < b->id; });
   std::sort(detail.owned_anchors.begin(), detail.owned_anchors.end(), [](const Anchor* a, const Anchor* b) { return a->id < b->id; });
   return detail;
+}
+
+const WireGroup* CoreState::GetWireGroup(ObjectId wire_group_id) const {
+  return edit_state_.wire_groups.find(wire_group_id);
+}
+
+const WireLane* CoreState::GetWireLane(ObjectId wire_lane_id) const {
+  return edit_state_.wire_lanes.find(wire_lane_id);
+}
+
+std::vector<ObjectId> CoreState::GetSpansByWireGroup(ObjectId wire_group_id) const {
+  std::vector<ObjectId> span_ids;
+  if (wire_group_id == kInvalidObjectId) {
+    return span_ids;
+  }
+  for (const Span& span : edit_state_.spans.items()) {
+    if (span.wire_group_id == wire_group_id) {
+      span_ids.push_back(span.id);
+    }
+  }
+  return span_ids;
+}
+
+std::vector<ObjectId> CoreState::GetWireLanesByGroup(ObjectId wire_group_id) const {
+  std::vector<ObjectId> lane_ids;
+  if (wire_group_id == kInvalidObjectId) {
+    return lane_ids;
+  }
+  for (const WireLane& lane : edit_state_.wire_lanes.items()) {
+    if (lane.wire_group_id == wire_group_id) {
+      lane_ids.push_back(lane.id);
+    }
+  }
+  return lane_ids;
 }
 
 EditResult<bool> CoreState::UpdateGeometrySettings(const GeometrySettings& settings, bool mark_all_spans_dirty) {
@@ -2082,6 +2448,15 @@ ValidationResult CoreState::Validate() const {
     }
   }
 
+  for (const WireLane& lane : edit_state_.wire_lanes.items()) {
+    if (edit_state_.wire_groups.find(lane.wire_group_id) == nullptr) {
+      result.issues.push_back({ValidationSeverity::kError, "WireLaneGroupMissing", "WireLane owner group is missing", lane.id});
+    }
+    if (lane.lane_index < 0) {
+      result.issues.push_back({ValidationSeverity::kError, "WireLaneIndexInvalid", "WireLane lane_index must be >= 0", lane.id});
+    }
+  }
+
   for (const Span& span : edit_state_.spans.items()) {
     const Port* port_a = edit_state_.ports.find(span.port_a_id);
     const Port* port_b = edit_state_.ports.find(span.port_b_id);
@@ -2097,6 +2472,30 @@ ValidationResult CoreState::Validate() const {
     }
     if (span.bundle_id != kInvalidObjectId && edit_state_.bundles.find(span.bundle_id) == nullptr) {
       result.issues.push_back({ValidationSeverity::kError, "SpanBundleMissing", "Span bundle is missing", span.id});
+    }
+    if (span.wire_group_id != kInvalidObjectId && edit_state_.wire_groups.find(span.wire_group_id) == nullptr) {
+      result.issues.push_back({ValidationSeverity::kError, "SpanWireGroupMissing", "Span wire_group is missing", span.id});
+    }
+    if (span.wire_lane_id != kInvalidObjectId) {
+      if (span.wire_group_id == kInvalidObjectId) {
+        result.issues.push_back({
+            ValidationSeverity::kError,
+            "SpanWireGroupUnset",
+            "Span wire_lane is set but wire_group is not set",
+            span.id,
+        });
+      }
+      const WireLane* lane = edit_state_.wire_lanes.find(span.wire_lane_id);
+      if (lane == nullptr) {
+        result.issues.push_back({ValidationSeverity::kError, "SpanWireLaneMissing", "Span wire_lane is missing", span.id});
+      } else if (span.wire_group_id != kInvalidObjectId && lane->wire_group_id != span.wire_group_id) {
+        result.issues.push_back({
+            ValidationSeverity::kError,
+            "SpanWireLaneGroupMismatch",
+            "Span wire_lane belongs to different wire_group",
+            span.id,
+        });
+      }
     }
     if (span.anchor_a_id != kInvalidObjectId && edit_state_.anchors.find(span.anchor_a_id) == nullptr) {
       result.issues.push_back({ValidationSeverity::kError, "SpanAnchorMissing", "Span anchorA is missing", span.id});
@@ -2530,6 +2929,27 @@ PortKind CoreState::category_to_port_kind(ConnectionCategory category) {
   }
 }
 
+int CoreState::default_lane_count_for_category(ConnectionCategory category) {
+  switch (category) {
+    case ConnectionCategory::kHighVoltage:
+      return 3;
+    case ConnectionCategory::kLowVoltage:
+      return 2;
+    case ConnectionCategory::kCommunication:
+      return 1;
+    case ConnectionCategory::kOptical:
+      return 1;
+    case ConnectionCategory::kDrop:
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+bool CoreState::is_supported_category(ConnectionCategory category) {
+  return default_lane_count_for_category(category) > 0;
+}
+
 void CoreState::register_default_pole_types() {
   PoleTypeDefinition dist{};
   dist.id = kDistributionPoleType;
@@ -2835,6 +3255,9 @@ EditResult<ObjectId> CoreState::ensure_pole_slot_port(
         created->placement_context = request.connection_context;
         created->angle_correction_applied = apply_angle_correction;
         created->side_scale_applied = apply_angle_correction ? applied_scale : 1.0;
+        created->position_mode = PortPositionMode::kAuto;
+        created->placement_source = PortPlacementSourceKind::kTemplateSlot;
+        created->user_edited_position = false;
         add_unique_id(add_port_result.change_set.updated_ids, created->id);
       }
       if (out_slot_id != nullptr) {
@@ -2895,6 +3318,9 @@ EditResult<ObjectId> CoreState::ensure_pole_slot_port(
       created->generated_by_rule = true;
       created->placement_context = request.connection_context;
       created->source_slot_id = -1;
+      created->position_mode = PortPositionMode::kAuto;
+      created->placement_source = PortPlacementSourceKind::kGenerated;
+      created->user_edited_position = false;
       add_unique_id(add_port_result.change_set.updated_ids, created->id);
     }
     if (out_slot_id != nullptr) {

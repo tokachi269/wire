@@ -51,6 +51,15 @@
 | C41 | debug記録クリアの無害性 | 生成/接続でdebug記録あり | clear_slot_selection_debug_records + clear_path_direction_debug_records | Exact: 記録だけ消え、Entity件数/ID/整合は不変 | counts/ID集合/Validate | デバッグ操作で本体破壊しない |
 | C42 | 再計算の非破壊性 | Spanを含む状態 | UpdateGeometrySettings→ProcessDirtyQueues | Invariant: cache/version更新のみでEntity件数/ID不変 | counts/ID集合/runtime/cache | キャッシュ再生成で正本が歪まない |
 | C43 | 鋭角時ポール向き補正 | クリック点3(turn<40°) | GenerateSimpleLineFromPoints | Exact: 中間Poleのyawが中線直交方向 | pole yaw | 鋭角での見た目破綻抑制 |
+| C44 | Group/Lane割当と参照 | Span1本+Group/Lane作成 | AssignSpanToWireLane/Get*ByGroup | Invariant: Spanにgroup/lane設定, 参照API整合 | span fields/query API/Validate | 複数本配線の論理まとまり維持 |
+| C45 | Group/Lane不正拒否 | Span1本+別Group lane | AddWireLane(無効), Assign(不整合) | Exact: failし状態保全, 診断文言あり | error/span fields | 不正参照でデータ破壊しない |
+| C46 | 既存Span互換性 | Group未設定Span | ProcessDirtyQueues | Invariant: 従来再計算/Validate維持 | runtime/Validate/query API | 既存データ互換維持 |
+| C47 | DrawPath Group生成(HV標準) | 有効Path+PoleType | GenerateWireGroupFromPath(HV, lane=0) | Invariant: Group作成+標準3lane+全Spanにgroup/lane | result IDs/span fields/Validate | 群単位生成の成立 |
+| C48 | DrawPath Group生成方向モード | 有効Path | GenerateWireGroupFromPath(Forward/Reverse/Auto) | Invariant: 全モードで生成成功 | result/generated spans | Group単位向き指定の入口 |
+| C49 | DrawPath Group生成の異常系 | 新規CoreState | polyline不足/interval<=0/未知category/未知PoleType | Exact: fail+状態不変+復帰成功 | error/counts/後続成功 | 入力不正耐性と運用安定 |
+| C50 | Port初期モード | 新規Port追加 | AddPort | Exact: position_mode=Auto | port fields | 既存互換維持 |
+| C51 | Port手修正/解除 | 接続済Port | SetPortWorldPositionManual→ResetPortPositionToAuto | Invariant: Manual化→Auto復帰, 関連SpanのみDirty | port/runtime | 手直し維持と復帰性 |
+| C52 | Manual保護 | 手修正Portあり | SetPoleFlip180 | Invariant: Manual Port位置が維持される | port position/mode | 軽微再生成で手修正消失防止 |
 
 ## LLM self-review
 - 実装依存か: private順序/内部関数呼び出し順には依存しない。

@@ -2,6 +2,7 @@
 #include <cmath>
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <regex>
 #include <string>
 #include <vector>
@@ -77,6 +78,44 @@ bool almost_equal(const wire::core::Vec3d& a, const wire::core::Vec3d& b, double
   return almost_equal(a.x, b.x, eps) && almost_equal(a.y, b.y, eps) && almost_equal(a.z, b.z, eps);
 }
 
+double angle_diff_abs_deg(double a, double b) {
+  double d = std::fmod(a - b, 360.0);
+  if (d <= -180.0) {
+    d += 360.0;
+  } else if (d > 180.0) {
+    d -= 360.0;
+  }
+  return std::abs(d);
+}
+
+wire::core::Vec3d rotate_xy_by_yaw_test(const wire::core::Vec3d& local, double yaw_deg) {
+  constexpr double kPi = 3.14159265358979323846;
+  const double rad = yaw_deg * (kPi / 180.0);
+  const double c = std::cos(rad);
+  const double s = std::sin(rad);
+  return {
+      local.x * c - local.y * s,
+      local.x * s + local.y * c,
+      local.z,
+  };
+}
+
+double effective_pole_yaw_deg_test(const wire::core::Pole& pole) {
+  double yaw = pole.world_transform.rotation_euler_deg.z;
+  if (pole.orientation_control.manual_yaw_override) {
+    yaw = pole.orientation_control.manual_yaw_deg;
+  }
+  if (pole.orientation_control.flip_180) {
+    yaw += 180.0;
+  }
+  return yaw;
+}
+
+wire::core::Vec3d to_local_on_pole_test(const wire::core::Pole& pole, const wire::core::Vec3d& world) {
+  const wire::core::Vec3d delta = world - pole.world_transform.position;
+  return rotate_xy_by_yaw_test(delta, -effective_pole_yaw_deg_test(pole));
+}
+
 bool aabb_valid(const wire::core::AABBd& aabb) {
   return aabb.min.x <= aabb.max.x &&
          aabb.min.y <= aabb.max.y &&
@@ -107,6 +146,17 @@ bool has_selected_slot_in_candidates(const wire::core::SlotSelectionDebugRecord&
     }
   }
   return false;
+}
+
+template <typename T>
+std::vector<ObjectId> collect_sorted_ids(const std::vector<T>& items) {
+  std::vector<ObjectId> ids;
+  ids.reserve(items.size());
+  for (const auto& item : items) {
+    ids.push_back(item.id);
+  }
+  std::sort(ids.begin(), ids.end());
+  return ids;
 }
 
 // Intent: IdGenerator should be monotonic and resettable without collisions in one sequence.
@@ -983,6 +1033,221 @@ bool test_generate_simple_line_from_points_exact_poles_and_orientation() {
   return almost_equal(middle->world_transform.rotation_euler_deg.z, 45.0, 1e-6);
 }
 
+// Intent: Sharp corner (turn<40 deg) should orient middle pole perpendicular to centerline.
+bool test_generate_simple_line_from_points_sharp_corner_perpendicular_orientation() {
+  CoreState state;
+  const auto pole_type_ids = sorted_pole_type_ids(state);
+  if (pole_type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::RoadSegment road{};
+  road.id = 931;
+  road.polyline = {
+      {0.0, 0.0, 0.0},
+      {10.0, 0.0, 0.0},
+      {20.0, 5.0, 0.0},
+  };
+  const auto result =
+      state.GenerateSimpleLineFromPoints(road, pole_type_ids.front(), ConnectionCategory::kLowVoltage);
+  if (!result.ok || result.value.pole_ids.size() != 3) {
+    return false;
+  }
+
+  const auto* middle = state.edit_state().poles.find(result.value.pole_ids[1]);
+  if (middle == nullptr) {
+    return false;
+  }
+  constexpr double kPi = 3.14159265358979323846;
+  // Expected by current rule: centerline yaw (prev->next) + 90 deg.
+  const double centerline_yaw =
+      std::atan2(road.polyline[2].y - road.polyline[0].y, road.polyline[2].x - road.polyline[0].x) * (180.0 / kPi);
+  const double expected_yaw = centerline_yaw + 90.0;
+  return angle_diff_abs_deg(middle->world_transform.rotation_euler_deg.z, expected_yaw) <= 1e-6;
+}
+
+// Intent: Preferred side should come from geometry (peer location), not branch_index parity.
+bool test_preferred_side_uses_geometry() {
+  auto pick_side = [](double peer_y) -> wire::core::SlotSide {
+    CoreState state;
+    const auto type_ids = sorted_pole_type_ids(state);
+    if (type_ids.empty()) {
+      return wire::core::SlotSide::kCenter;
+    }
+    const ObjectId pole_a = state.AddPole({}, 10.0, "A").value;
+    wire::core::Transformd b{};
+    b.position = {10.0, peer_y, 0.0};
+    const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
+    (void)state.ApplyPoleType(pole_a, type_ids.front());
+    (void)state.ApplyPoleType(pole_b, type_ids.front());
+    state.clear_slot_selection_debug_records();
+
+    wire::core::CoreState::AddConnectionByPoleOptions options{};
+    options.connection_context = wire::core::ConnectionContext::kBranchAdd;
+    options.branch_index = 7;  // deliberately fixed; geometry should dominate.
+    const auto add = state.AddConnectionByPole(
+        pole_a,
+        pole_b,
+        wire::core::ConnectionCategory::kLowVoltage,
+        options);
+    if (!add.ok) {
+      return wire::core::SlotSide::kCenter;
+    }
+    for (const auto& debug : state.slot_selection_debug_records()) {
+      if (debug.pole_id != pole_a || debug.selected_slot_id < 0) {
+        continue;
+      }
+      const auto detail = state.GetPoleDetail(pole_a);
+      if (detail.pole_type == nullptr) {
+        return wire::core::SlotSide::kCenter;
+      }
+      for (const auto& slot : detail.pole_type->port_slots) {
+        if (slot.slot_id == debug.selected_slot_id) {
+          return slot.side;
+        }
+      }
+    }
+    return wire::core::SlotSide::kCenter;
+  };
+
+  const wire::core::SlotSide right = pick_side(+8.0);
+  const wire::core::SlotSide left = pick_side(-8.0);
+  return right == wire::core::SlotSide::kRight && left == wire::core::SlotSide::kLeft;
+}
+
+// Intent: GenerateGroupedLine should produce grouped spans with lane assignments and bundle linkage.
+bool test_generate_grouped_line_high_voltage_three_phase() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::CoreState::GenerateGroupedLineOptions options{};
+  options.road.id = 1001;
+  options.road.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {20.0, 2.0, 0.0}, {30.0, 2.0, 0.0}};
+  options.interval = 0.0;
+  options.pole_type_id = type_ids.front();
+  options.group_spec.category = wire::core::ConnectionCategory::kHighVoltage;
+  options.group_spec.group_kind = wire::core::ConductorGroupKind::kThreePhase;
+  options.group_spec.conductor_count = 3;
+  options.group_spec.lane_spacing_m = 0.45;
+  options.group_spec.maintain_lane_order = true;
+  options.group_spec.allow_lane_mirror = true;
+  options.direction_mode = wire::core::PathDirectionMode::kAuto;
+
+  const auto result = state.GenerateGroupedLine(options);
+  if (!result.ok) {
+    return false;
+  }
+  if (result.value.pole_ids.size() != options.road.polyline.size()) {
+    return false;
+  }
+  const std::size_t expected_spans = (result.value.pole_ids.size() - 1) * 3;
+  if (result.value.span_ids.size() != expected_spans) {
+    return false;
+  }
+  const auto* bundle = state.edit_state().bundles.find(result.value.bundle_id);
+  if (bundle == nullptr || bundle->conductor_count != 3) {
+    return false;
+  }
+  if (result.value.lane_assignments.size() != result.value.pole_ids.size() - 1) {
+    return false;
+  }
+  for (const auto& assignment : result.value.lane_assignments) {
+    if (assignment.port_ids_a.size() != 3 || assignment.port_ids_b.size() != 3) {
+      return false;
+    }
+    if (assignment.slot_ids_a.size() != 3 || assignment.slot_ids_b.size() != 3) {
+      return false;
+    }
+  }
+  const auto validation = state.Validate();
+  if (!validation.ok()) {
+    return false;
+  }
+  return true;
+}
+
+// Intent: Direction mode force flags should deterministically choose path orientation.
+bool test_generate_grouped_line_direction_forced_reverse() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::CoreState::GenerateGroupedLineOptions options{};
+  options.road.id = 1002;
+  options.road.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
+  options.interval = 0.0;
+  options.pole_type_id = type_ids.front();
+  options.group_spec.category = wire::core::ConnectionCategory::kLowVoltage;
+  options.group_spec.group_kind = wire::core::ConductorGroupKind::kSingle;
+  options.group_spec.conductor_count = 1;
+  options.direction_mode = wire::core::PathDirectionMode::kReverse;
+
+  const auto reverse = state.GenerateGroupedLine(options);
+  if (!reverse.ok || reverse.value.pole_ids.empty()) {
+    return false;
+  }
+  const auto* first_reverse = state.edit_state().poles.find(reverse.value.pole_ids.front());
+  if (first_reverse == nullptr || !almost_equal(first_reverse->world_transform.position, options.road.polyline.back())) {
+    return false;
+  }
+  if (reverse.value.direction_debug.chosen != wire::core::PathDirectionChosen::kReverse) {
+    return false;
+  }
+  return true;
+}
+
+// Intent: Pole flip_180 should rotate owned ports and dirty only connected spans.
+bool test_set_pole_flip180_updates_ports_and_dirty() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::Transformd a{};
+  a.position = {0.0, 0.0, 0.0};
+  wire::core::Transformd b{};
+  b.position = {12.0, 0.0, 0.0};
+  const ObjectId pole_a = state.AddPole(a, 10.0, "A").value;
+  const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
+  (void)state.ApplyPoleType(pole_a, type_ids.front());
+  (void)state.ApplyPoleType(pole_b, type_ids.front());
+  const auto add = state.AddConnectionByPole(pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage);
+  if (!add.ok) {
+    return false;
+  }
+  (void)state.ProcessDirtyQueues();
+
+  const auto* port_before = state.edit_state().ports.find(add.value.port_a_id);
+  if (port_before == nullptr) {
+    return false;
+  }
+  const wire::core::Vec3d before_pos = port_before->world_position;
+  const auto flip = state.SetPoleFlip180(pole_a, true);
+  if (!flip.ok) {
+    return false;
+  }
+
+  const auto* port_after = state.edit_state().ports.find(add.value.port_a_id);
+  const auto* runtime = state.find_span_runtime_state(add.value.span_id);
+  if (port_after == nullptr || runtime == nullptr) {
+    return false;
+  }
+  if (almost_equal(before_pos, port_after->world_position)) {
+    return false;
+  }
+  if (!has_dirty(runtime, DirtyBits::kGeometry)) {
+    return false;
+  }
+  const auto* pole = state.edit_state().poles.find(pole_a);
+  return pole != nullptr && pole->orientation_control.flip_180;
+}
+
 // Intent: GenerateSimpleLine should fail when polyline has less than 2 points.
 bool test_generate_simple_line_fails_with_short_polyline() {
   CoreState state;
@@ -1361,6 +1626,108 @@ bool test_demo_state_has_dense_spans() {
          state.edit_state().ports.size() >= 20;
 }
 
+// Intent: Clearing session debug records must not mutate persistent entities or connectivity.
+bool test_clear_debug_records_is_entity_noop() {
+  CoreState state;
+  const auto pole_type_ids = sorted_pole_type_ids(state);
+  if (pole_type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::Transformd pole_a_tf{};
+  pole_a_tf.position = {0.0, 0.0, 0.0};
+  wire::core::Transformd pole_b_tf{};
+  pole_b_tf.position = {12.0, 0.0, 0.0};
+  const auto add_a = state.AddPole(pole_a_tf, 10.0, "A");
+  const auto add_b = state.AddPole(pole_b_tf, 10.0, "B");
+  if (!add_a.ok || !add_b.ok) {
+    return false;
+  }
+  const ObjectId pole_a = add_a.value;
+  const ObjectId pole_b = add_b.value;
+  if (!state.ApplyPoleType(pole_a, pole_type_ids[0]).ok || !state.ApplyPoleType(pole_b, pole_type_ids[0]).ok) {
+    return false;
+  }
+  if (!state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kLowVoltage).ok) {
+    return false;
+  }
+
+  wire::core::RoadSegment road{};
+  road.id = 10;
+  road.polyline = {{0.0, 0.0, 0.0}, {6.0, 0.0, 0.0}, {12.0, 3.0, 0.0}};
+  CoreState::GenerateGroupedLineOptions options{};
+  options.road = road;
+  options.interval = 0.0;
+  options.pole_type_id = pole_type_ids[0];
+  options.group_spec.category = ConnectionCategory::kLowVoltage;
+  options.group_spec.conductor_count = 2;
+  const auto grouped = state.GenerateGroupedLine(options);
+  if (!grouped.ok) {
+    return false;
+  }
+
+  const std::size_t slot_debug_before = state.slot_selection_debug_records().size();
+  const std::size_t path_debug_before = state.path_direction_debug_records().size();
+
+  const CoreCounts before = snapshot_counts(state);
+  const auto poles_before = collect_sorted_ids(state.edit_state().poles.items());
+  const auto ports_before = collect_sorted_ids(state.edit_state().ports.items());
+  const auto spans_before = collect_sorted_ids(state.edit_state().spans.items());
+  const bool validate_before = state.Validate().ok();
+
+  state.clear_slot_selection_debug_records();
+  state.clear_path_direction_debug_records();
+
+  const CoreCounts after = snapshot_counts(state);
+  const auto poles_after = collect_sorted_ids(state.edit_state().poles.items());
+  const auto ports_after = collect_sorted_ids(state.edit_state().ports.items());
+  const auto spans_after = collect_sorted_ids(state.edit_state().spans.items());
+
+  return slot_debug_before >= state.slot_selection_debug_records().size() &&
+         path_debug_before >= state.path_direction_debug_records().size() &&
+         state.slot_selection_debug_records().empty() &&
+         state.path_direction_debug_records().empty() &&
+         same_counts(before, after) &&
+         poles_before == poles_after &&
+         ports_before == ports_after &&
+         spans_before == spans_after &&
+         state.Validate().ok() == validate_before;
+}
+
+// Intent: Rebuilding derived caches must not change entity identity/counts.
+bool test_recalc_cache_pipeline_is_entity_noop() {
+  CoreState state = wire::core::make_demo_state();
+  if (state.edit_state().spans.empty()) {
+    return false;
+  }
+
+  const CoreCounts before = snapshot_counts(state);
+  const auto poles_before = collect_sorted_ids(state.edit_state().poles.items());
+  const auto ports_before = collect_sorted_ids(state.edit_state().ports.items());
+  const auto spans_before = collect_sorted_ids(state.edit_state().spans.items());
+
+  (void)state.ProcessDirtyQueues();
+  wire::core::GeometrySettings settings = state.geometry_settings();
+  settings.curve_samples = std::max(2, settings.curve_samples + 2);
+  const auto update = state.UpdateGeometrySettings(settings, true);
+  if (!update.ok) {
+    return false;
+  }
+  const auto recalc = state.ProcessDirtyQueues();
+
+  const CoreCounts after = snapshot_counts(state);
+  const auto poles_after = collect_sorted_ids(state.edit_state().poles.items());
+  const auto ports_after = collect_sorted_ids(state.edit_state().ports.items());
+  const auto spans_after = collect_sorted_ids(state.edit_state().spans.items());
+
+  return recalc.geometry_processed > 0 &&
+         same_counts(before, after) &&
+         poles_before == poles_after &&
+         ports_before == ports_after &&
+         spans_before == spans_after &&
+         state.Validate().ok();
+}
+
 }  // namespace
 
 int main() {
@@ -1401,6 +1768,13 @@ int main() {
       {"C34_Phase47_GenerateSimpleLine_CornerContext", "Corner path generation uses corner context on spans", "Invariant", false, test_generate_simple_line_corner_context_integration},
       {"C35_Phase47_CornerTurnSign_OuterBias", "Corner turn sign expands outer side more than inner side", "Invariant", false, test_corner_turn_sign_biases_outer_side},
       {"C36_Phase47_DrawPath_ClickPointsExact", "DrawPath generation uses clicked points directly and sets pole yaw", "Exact", false, test_generate_simple_line_from_points_exact_poles_and_orientation},
+      {"C37_Phase48_PreferredSide_Geometry", "Preferred side is decided by peer geometry", "Invariant", false, test_preferred_side_uses_geometry},
+      {"C38_Phase48_GroupedLine_HV3", "Grouped line generation creates 3-lane high-voltage spans", "Invariant", false, test_generate_grouped_line_high_voltage_three_phase},
+      {"C39_Phase48_Direction_ForcedReverse", "Grouped line honors forced reverse direction", "Exact", false, test_generate_grouped_line_direction_forced_reverse},
+      {"C40_Phase48_PoleFlip180_Dirty", "Pole flip180 updates owned ports and dirties connected spans", "Invariant", false, test_set_pole_flip180_updates_ports_and_dirty},
+      {"C41_Phase4x_ClearDebug_NoEntityMutation", "Clearing session debug records does not mutate core entities", "Exact", false, test_clear_debug_records_is_entity_noop},
+      {"C42_Phase4x_RecalcCache_NoEntityMutation", "Derived cache rebuild does not mutate entity identity/counts", "Invariant", false, test_recalc_cache_pipeline_is_entity_noop},
+      {"C43_Phase4x_SharpCorner_PoleYawPerpendicular", "Sharp-corner middle pole yaw is perpendicular to bisector", "Exact", false, test_generate_simple_line_from_points_sharp_corner_perpendicular_orientation},
   };
 
   bool all_passed = true;

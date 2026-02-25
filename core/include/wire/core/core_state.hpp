@@ -14,6 +14,7 @@
 namespace wire::core {
 
 struct EditState {
+  // Entity-layer authoritative stores.
   ObjectStore<Pole> poles;
   ObjectStore<Port> ports;
   ObjectStore<Anchor> anchors;
@@ -23,6 +24,7 @@ struct EditState {
 };
 
 struct GeometrySettings {
+  // Persisted generation settings. Derived caches are rebuilt from these.
   int curve_samples = 8;
   bool sag_enabled = false;
   double sag_factor = 0.03;
@@ -48,6 +50,7 @@ struct BoundsCache {
 };
 
 struct CacheState {
+  // Derived cache layer. Not treated as authoritative topology state.
   GeometrySettings geometry_settings{};
   CurveCache curve_cache{};
   BoundsCache bounds_cache{};
@@ -58,6 +61,44 @@ struct LayoutSettings {
   double corner_threshold_deg = 12.0;
   double min_side_scale = 1.0;
   double max_side_scale = 1.8;
+};
+
+struct PathDirectionCostWeights {
+  int estimated_cross_penalty = 100;
+  int side_flip_penalty = 30;
+  int layer_jump_penalty = 20;
+  int corner_compression_penalty = 25;
+  int branch_conflict_penalty = 15;
+};
+
+struct PathDirectionCostBreakdown {
+  int estimated_cross_penalty = 0;
+  int side_flip_penalty = 0;
+  int layer_jump_penalty = 0;
+  int corner_compression_penalty = 0;
+  int branch_conflict_penalty = 0;
+  int total = 0;
+};
+
+struct PathDirectionEvaluationDebug {
+  RoadId road_id = 0;
+  PathDirectionMode requested_mode = PathDirectionMode::kAuto;
+  PathDirectionChosen chosen = PathDirectionChosen::kForward;
+  PathDirectionCostBreakdown forward_cost{};
+  PathDirectionCostBreakdown reverse_cost{};
+  std::string reason{};
+};
+
+struct SegmentLaneAssignment {
+  std::size_t segment_index = 0;
+  ObjectId pole_a_id = kInvalidObjectId;
+  ObjectId pole_b_id = kInvalidObjectId;
+  ObjectId bundle_id = kInvalidObjectId;
+  std::vector<int> slot_ids_a{};
+  std::vector<int> slot_ids_b{};
+  std::vector<ObjectId> port_ids_a{};
+  std::vector<ObjectId> port_ids_b{};
+  bool mirrored = false;
 };
 
 struct ConnectionIndex {
@@ -99,6 +140,7 @@ inline bool any(DirtyBits bits, DirtyBits flag) {
 }
 
 struct SpanRuntimeState {
+  // Derived runtime/version state for incremental recomputation.
   ObjectId span_id = kInvalidObjectId;
   std::uint64_t data_version = 0;
   std::uint64_t geometry_version = 0;
@@ -109,6 +151,7 @@ struct SpanRuntimeState {
 };
 
 struct DirtyQueue {
+  // Derived work queues. Content is rebuildable from edit operations.
   std::vector<ObjectId> topology_dirty_span_ids;
   std::vector<ObjectId> geometry_dirty_span_ids;
   std::vector<ObjectId> bounds_dirty_span_ids;
@@ -181,6 +224,7 @@ struct SlotCandidateDebug {
 };
 
 struct SlotSelectionDebugRecord {
+  // Session diagnostics for slot selection; not part of entity model.
   ObjectId pole_id = kInvalidObjectId;
   ObjectId peer_pole_id = kInvalidObjectId;
   ObjectId reference_span_id = kInvalidObjectId;
@@ -236,6 +280,23 @@ class CoreState {
   struct GenerateSimpleLineResult {
     std::vector<ObjectId> pole_ids{};
     std::vector<ObjectId> span_ids{};
+    std::uint64_t generation_session_id = 0;
+  };
+
+  struct GenerateGroupedLineOptions {
+    RoadSegment road{};
+    double interval = 30.0;
+    PoleTypeId pole_type_id = kInvalidPoleTypeId;
+    ConductorGroupSpec group_spec{};
+    PathDirectionMode direction_mode = PathDirectionMode::kAuto;
+  };
+
+  struct GenerateGroupedLineResult {
+    std::vector<ObjectId> pole_ids{};
+    std::vector<ObjectId> span_ids{};
+    ObjectId bundle_id = kInvalidObjectId;
+    std::vector<SegmentLaneAssignment> lane_assignments{};
+    PathDirectionEvaluationDebug direction_debug{};
     std::uint64_t generation_session_id = 0;
   };
 
@@ -322,6 +383,9 @@ class CoreState {
       const RoadSegment& road,
       PoleTypeId pole_type_id,
       ConnectionCategory category);
+  EditResult<GenerateGroupedLineResult> GenerateGroupedLine(
+      const GenerateGroupedLineOptions& options);
+  EditResult<ObjectId> SetPoleFlip180(ObjectId pole_id, bool flip_180);
   [[nodiscard]] PoleDetailInfo GetPoleDetail(ObjectId pole_id) const;
   EditResult<bool> UpdateGeometrySettings(const GeometrySettings& settings, bool mark_all_spans_dirty = true);
   EditResult<bool> UpdateLayoutSettings(const LayoutSettings& settings);
@@ -345,6 +409,15 @@ class CoreState {
   [[nodiscard]] const std::unordered_map<PoleTypeId, PoleTypeDefinition>& pole_types() const { return pole_types_; }
   [[nodiscard]] const GeometrySettings& geometry_settings() const { return cache_state_.geometry_settings; }
   [[nodiscard]] const LayoutSettings& layout_settings() const { return layout_settings_; }
+  [[nodiscard]] const PathDirectionCostWeights& path_direction_cost_weights() const { return path_direction_cost_weights_; }
+  [[nodiscard]] const PathDirectionEvaluationDebug& last_path_direction_debug() const { return last_path_direction_debug_; }
+  [[nodiscard]] const std::vector<PathDirectionEvaluationDebug>& path_direction_debug_records() const {
+    return path_direction_debug_records_;
+  }
+  [[nodiscard]] const std::vector<SegmentLaneAssignment>& last_lane_assignments() const {
+    return last_lane_assignments_;
+  }
+  void clear_path_direction_debug_records() { path_direction_debug_records_.clear(); }
   [[nodiscard]] const std::vector<SlotSelectionDebugRecord>& slot_selection_debug_records() const {
     return slot_selection_debug_records_;
   }
@@ -375,6 +448,25 @@ class CoreState {
       const RoadSegment& road,
       PoleTypeId pole_type_id,
       const std::vector<Vec3d>& points);
+  EditResult<std::vector<ObjectId>> generate_grouped_spans_between_poles(
+      const std::vector<ObjectId>& poles,
+      ObjectId bundle_id,
+      const ConductorGroupSpec& group_spec,
+      std::vector<SegmentLaneAssignment>* out_lane_assignments);
+  [[nodiscard]] PathDirectionCostBreakdown evaluate_path_direction_cost(
+      const std::vector<Vec3d>& points,
+      const ConductorGroupSpec& group_spec) const;
+  [[nodiscard]] static std::uint64_t hash_path_points(const std::vector<Vec3d>& points);
+  [[nodiscard]] PathDirectionChosen choose_path_direction(
+      const GenerateGroupedLineOptions& options,
+      const std::vector<Vec3d>& sampled_points,
+      PathDirectionEvaluationDebug* out_debug) const;
+  [[nodiscard]] static double effective_pole_yaw_deg(const Pole& pole);
+  [[nodiscard]] static Vec3d to_local_on_pole(const Pole& pole, const Vec3d& world);
+  [[nodiscard]] static SlotSide preferred_side_from_geometry(
+      const Pole& pole,
+      const Pole* peer,
+      double eps);
   [[nodiscard]] static double polyline_length(const std::vector<Vec3d>& polyline);
   [[nodiscard]] static PortLayer category_to_port_layer(ConnectionCategory category);
   [[nodiscard]] static SpanLayer category_to_span_layer(ConnectionCategory category);
@@ -418,6 +510,7 @@ class CoreState {
       std::uint32_t branch_index);
   [[nodiscard]] static bool is_valid_slot_side(SlotSide side);
   [[nodiscard]] static bool is_valid_slot_role(SlotRole role);
+  [[nodiscard]] static int inversion_count(const std::vector<double>& values);
   [[nodiscard]] double compute_side_scale(PoleContextKind context, double corner_angle_deg) const;
   [[nodiscard]] static double compute_corner_angle_deg(const Vec3d& prev, const Vec3d& curr, const Vec3d& next);
   [[nodiscard]] static double compute_corner_turn_sign_xy(const Vec3d& prev, const Vec3d& curr, const Vec3d& next);
@@ -438,14 +531,22 @@ class CoreState {
   std::uint64_t next_data_version_ = 1;
   std::uint64_t next_generation_session_id_ = 1;
   std::unordered_map<std::string, std::uint64_t> display_id_counters_{};
+  // PersistCore entity layer.
   EditState edit_state_{};
   ConnectionIndex connection_index_{};
   std::unordered_map<PoleTypeId, PoleTypeDefinition> pole_types_{};
+  // Derived cache/runtime layer.
   std::unordered_map<ObjectId, SpanRuntimeState> span_runtime_states_{};
   DirtyQueue dirty_queue_{};
   RecalcStats last_recalc_stats_{};
   CacheState cache_state_{};
+  // Persisted/authoritative generation policy layer.
   LayoutSettings layout_settings_{};
+  PathDirectionCostWeights path_direction_cost_weights_{};
+  // Session debug layer (non-authoritative, non-persist by policy).
+  PathDirectionEvaluationDebug last_path_direction_debug_{};
+  std::vector<PathDirectionEvaluationDebug> path_direction_debug_records_{};
+  std::vector<SegmentLaneAssignment> last_lane_assignments_{};
   std::vector<SlotSelectionDebugRecord> slot_selection_debug_records_{};
 };
 

@@ -28,6 +28,23 @@ enum class ConnectionContext : std::uint8_t {
   kDropAdd = 3,
 };
 
+enum class PathDirectionMode : std::uint8_t {
+  kAuto = 0,
+  kForward = 1,
+  kReverse = 2,
+};
+
+enum class PathDirectionChosen : std::uint8_t {
+  kForward = 0,
+  kReverse = 1,
+};
+
+enum class ConductorGroupKind : std::uint8_t {
+  kSingle = 0,
+  kParallel = 1,
+  kThreePhase = 2,
+};
+
 enum class PoleContextKind : std::uint8_t {
   kStraight = 0,
   kCorner = 1,
@@ -116,11 +133,13 @@ struct GenerationMeta {
   std::uint32_t generation_order = 0;
 };
 
+// Workflow input polyline for generation commands (not an entity).
 struct RoadSegment {
   RoadId id = 0;
   std::vector<Vec3d> polyline{};
 };
 
+// Definition-layer slot candidate. This is not a runtime connection endpoint.
 struct PortSlotTemplate {
   int slot_id = 0;
   ConnectionCategory category = ConnectionCategory::kLowVoltage;
@@ -158,6 +177,13 @@ struct PoleContextInfo {
   bool angle_correction_applied = false;
 };
 
+struct PoleOrientationControl {
+  bool flip_180 = false;
+  bool manual_yaw_override = false;
+  double manual_yaw_deg = 0.0;
+};
+
+// Entity-layer support object.
 struct Pole {
   ObjectId id = kInvalidObjectId;
   std::string display_id{};
@@ -167,11 +193,13 @@ struct Pole {
   PoleKind kind = PoleKind::kGeneric;
   PoleTypeId pole_type_id = kInvalidPoleTypeId;
   PoleContextInfo context{};
+  PoleOrientationControl orientation_control{};
   bool placement_override_flag = false;
   bool orientation_override_flag = false;
   GenerationMeta generation{};
 };
 
+// Entity-layer endpoint used by spans. Ports may originate from template slots.
 struct Port {
   ObjectId id = kInvalidObjectId;
   std::string display_id{};
@@ -194,6 +222,7 @@ struct Port {
   bool orientation_override_flag = false;
 };
 
+// Entity-layer support point.
 struct Anchor {
   ObjectId id = kInvalidObjectId;
   std::string display_id{};
@@ -205,6 +234,7 @@ struct Anchor {
   bool generated_from_template = false;
 };
 
+// Entity-layer bundle attribute object.
 struct Bundle {
   ObjectId id = kInvalidObjectId;
   std::string display_id{};
@@ -213,6 +243,27 @@ struct Bundle {
   BundleKind kind = BundleKind::kLowVoltage;
 };
 
+// Workflow-layer grouped generation input.
+struct ConductorGroupSpec {
+  ConnectionCategory category = ConnectionCategory::kHighVoltage;
+  ConductorGroupKind group_kind = ConductorGroupKind::kSingle;
+  int conductor_count = 1;
+  double lane_spacing_m = 0.3;
+  bool maintain_lane_order = true;
+  bool allow_lane_mirror = true;
+};
+
+struct ConductorLaneId {
+  int lane_index = 0;
+};
+
+struct ConductorGroupState {
+  ObjectId bundle_id = kInvalidObjectId;
+  ConductorGroupSpec spec{};
+  std::vector<int> canonical_lane_order{};
+};
+
+// Entity-layer connection edge.
 struct Span {
   ObjectId id = kInvalidObjectId;
   std::string display_id{};
@@ -230,6 +281,7 @@ struct Span {
   GenerationMeta generation{};
 };
 
+// Entity-layer span attachment.
 struct Attachment {
   ObjectId id = kInvalidObjectId;
   std::string display_id{};

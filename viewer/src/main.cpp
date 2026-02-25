@@ -117,6 +117,7 @@ struct ViewerUiState {
   bool draw_show_preview = true;
   bool draw_keep_path_after_generate = true;
   int draw_parallel_spans = 0;  // 0 = auto by category
+  int draw_direction_mode = static_cast<int>(wire::core::PathDirectionMode::kAuto);
   bool layout_settings_loaded = false;
   bool layout_angle_correction_enabled = true;
   double layout_corner_threshold_deg = 12.0;
@@ -225,6 +226,30 @@ const char* SlotRoleLabel(wire::core::SlotRole role) {
   }
 }
 
+const char* PathDirectionModeLabel(wire::core::PathDirectionMode mode) {
+  switch (mode) {
+    case wire::core::PathDirectionMode::kAuto:
+      return "Auto";
+    case wire::core::PathDirectionMode::kForward:
+      return "Forward";
+    case wire::core::PathDirectionMode::kReverse:
+      return "Reverse";
+    default:
+      return "Unknown";
+  }
+}
+
+const char* PathDirectionChosenLabel(wire::core::PathDirectionChosen chosen) {
+  switch (chosen) {
+    case wire::core::PathDirectionChosen::kForward:
+      return "Forward";
+    case wire::core::PathDirectionChosen::kReverse:
+      return "Reverse";
+    default:
+      return "Unknown";
+  }
+}
+
 const char* ModeLabel(EditMode mode) {
   switch (mode) {
     case EditMode::kPlacement:
@@ -242,7 +267,7 @@ const char* ModeLabel(EditMode mode) {
   }
 }
 
-int DefaultParallelSpanCount(wire::core::ConnectionCategory category) {
+int FallbackParallelSpanCount(wire::core::ConnectionCategory category) {
   switch (category) {
     case wire::core::ConnectionCategory::kHighVoltage:
       return 3;
@@ -257,6 +282,23 @@ int DefaultParallelSpanCount(wire::core::ConnectionCategory category) {
     default:
       return 1;
   }
+}
+
+int AutoParallelSpanCountFromPoleType(
+    const CoreState& state,
+    wire::core::PoleTypeId pole_type_id,
+    wire::core::ConnectionCategory category) {
+  const auto it = state.pole_types().find(pole_type_id);
+  if (it == state.pole_types().end()) {
+    return FallbackParallelSpanCount(category);
+  }
+  int count = 0;
+  for (const auto& slot : it->second.port_slots) {
+    if (slot.enabled && slot.category == category) {
+      ++count;
+    }
+  }
+  return (count > 0) ? count : FallbackParallelSpanCount(category);
 }
 
 std::vector<wire::core::PoleTypeId> SortedPoleTypeIds(const CoreState& state) {
@@ -367,44 +409,42 @@ void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool
   road.polyline = ui_state.draw_path_points;
 
   const wire::core::ConnectionCategory category = kAllCategories[ui_state.road_category_index];
-  const auto result = state.GenerateSimpleLineFromPoints(
-      road,
-      type_ids[ui_state.road_pole_type_index],
-      category);
+  int parallel_spans = ui_state.draw_parallel_spans;
+  if (parallel_spans <= 0) {
+    parallel_spans =
+        AutoParallelSpanCountFromPoleType(state, type_ids[road_type_index], category);
+  }
+  parallel_spans = std::clamp(parallel_spans, 1, 8);
+  const int mode_index = std::clamp(ui_state.draw_direction_mode, 0, 2);
+  ui_state.draw_direction_mode = mode_index;
 
+  wire::core::CoreState::GenerateGroupedLineOptions options{};
+  options.road = road;
+  options.interval = 0.0;  // DrawPath uses clicked points directly.
+  options.pole_type_id = type_ids[ui_state.road_pole_type_index];
+  options.direction_mode = static_cast<wire::core::PathDirectionMode>(mode_index);
+  options.group_spec.category = category;
+  options.group_spec.conductor_count = parallel_spans;
+  options.group_spec.group_kind =
+      (parallel_spans <= 1)
+          ? wire::core::ConductorGroupKind::kSingle
+          : ((category == wire::core::ConnectionCategory::kHighVoltage && parallel_spans == 3)
+                 ? wire::core::ConductorGroupKind::kThreePhase
+                 : wire::core::ConductorGroupKind::kParallel);
+  options.group_spec.lane_spacing_m =
+      (category == wire::core::ConnectionCategory::kHighVoltage) ? 0.45 : 0.2;
+  options.group_spec.maintain_lane_order = true;
+  options.group_spec.allow_lane_mirror = true;
+
+  const auto result = state.GenerateGroupedLine(options);
   if (!result.ok) {
     ui_state.last_error = result.error;
     PushLog(ui_state, from_enter_key ? "Generate path (Enter) failed" : "Generate path failed");
     return;
   }
-
-  int parallel_spans = ui_state.draw_parallel_spans;
-  if (parallel_spans <= 0) {
-    parallel_spans = DefaultParallelSpanCount(category);
-  }
-  parallel_spans = std::clamp(parallel_spans, 1, 8);
-
-  int total_generated_spans = static_cast<int>(result.value.span_ids.size());
-  bool extra_pass_failed = false;
-  for (int i = 1; i < parallel_spans; ++i) {
-    const auto extra = state.GenerateSpansBetweenPoles(result.value.pole_ids, category);
-    if (!extra.ok) {
-      ui_state.last_error = extra.error;
-      extra_pass_failed = true;
-      PushLog(
-          ui_state,
-          "Additional span pass failed at pass=" + std::to_string(i + 1) +
-              " error=" + extra.error);
-      break;
-    }
-    total_generated_spans += static_cast<int>(extra.value.size());
-  }
-
-  if (!extra_pass_failed) {
-    ui_state.last_error.clear();
-  }
+  ui_state.last_error.clear();
   ui_state.last_generated_poles = static_cast<int>(result.value.pole_ids.size());
-  ui_state.last_generated_spans = total_generated_spans;
+  ui_state.last_generated_spans = static_cast<int>(result.value.span_ids.size());
   ui_state.last_generation_session = result.value.generation_session_id;
   if (!result.value.pole_ids.empty()) {
     ui_state.selected_type = SelectedType::kPole;
@@ -417,7 +457,8 @@ void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool
       ui_state,
       "Generated path poles=" + std::to_string(ui_state.last_generated_poles) +
           " spans=" + std::to_string(ui_state.last_generated_spans) +
-          " parallel=" + std::to_string(parallel_spans));
+          " lanes=" + std::to_string(parallel_spans) +
+          " dir=" + PathDirectionChosenLabel(result.value.direction_debug.chosen));
 }
 
 void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState& ui_state) {
@@ -761,6 +802,8 @@ void DrawSelectedInfo(const CoreState& state, const ViewerUiState& ui_state) {
       ImGui::Text("cornerTurnSign: %.0f", pole->context.corner_turn_sign);
       ImGui::Text("sideScale: %.3f", pole->context.side_scale);
       ImGui::Text("angleCorrectionApplied: %s", pole->context.angle_correction_applied ? "true" : "false");
+      ImGui::Text("flip180: %s", pole->orientation_control.flip_180 ? "true" : "false");
+      ImGui::Text("manualYawOverride: %s", pole->orientation_control.manual_yaw_override ? "true" : "false");
       ImGui::Text("placementOverride: %s", pole->placement_override_flag ? "true" : "false");
       ImGui::Text("orientationOverride: %s", pole->orientation_override_flag ? "true" : "false");
       return;
@@ -1189,7 +1232,7 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
   ImGui::InputDouble("Draw Plane Z", &ui_state.draw_plane_z, 0.1, 1.0, "%.2f");
   ImGui::Checkbox("Show Preview", &ui_state.draw_show_preview);
   ImGui::Checkbox("Keep Path After Generate", &ui_state.draw_keep_path_after_generate);
-  ImGui::InputInt("Parallel Spans (0=auto)", &ui_state.draw_parallel_spans);
+  ImGui::InputInt("Parallel Spans (0=auto by PoleType slots)", &ui_state.draw_parallel_spans);
   ui_state.draw_parallel_spans = std::clamp(ui_state.draw_parallel_spans, 0, 8);
   ImGui::TextUnformatted("Pole placement: one pole per clicked path point");
   ImGui::Text("Path points: %d", static_cast<int>(ui_state.draw_path_points.size()));
@@ -1241,9 +1284,55 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
     }
     ImGui::EndCombo();
   }
+  if (ImGui::BeginCombo(
+          "Direction Mode",
+          PathDirectionModeLabel(static_cast<wire::core::PathDirectionMode>(ui_state.draw_direction_mode)))) {
+    for (int i = 0; i < 3; ++i) {
+      const bool selected = (i == ui_state.draw_direction_mode);
+      const auto mode = static_cast<wire::core::PathDirectionMode>(i);
+      if (ImGui::Selectable(PathDirectionModeLabel(mode), selected)) {
+        ui_state.draw_direction_mode = i;
+      }
+      if (selected) {
+        ImGui::SetItemDefaultFocus();
+      }
+    }
+    ImGui::EndCombo();
+  }
+  const wire::core::PoleTypeId resolved_type_id =
+      type_ids.empty()
+          ? wire::core::kInvalidPoleTypeId
+          : type_ids[ClampedTypeIndex(ui_state.road_pole_type_index, type_ids.size())];
+  const int auto_parallel =
+      (resolved_type_id == wire::core::kInvalidPoleTypeId)
+          ? FallbackParallelSpanCount(kAllCategories[category_index])
+          : AutoParallelSpanCountFromPoleType(state, resolved_type_id, kAllCategories[category_index]);
   const int resolved_parallel =
-      (ui_state.draw_parallel_spans > 0) ? ui_state.draw_parallel_spans : DefaultParallelSpanCount(kAllCategories[category_index]);
+      (ui_state.draw_parallel_spans > 0) ? ui_state.draw_parallel_spans : auto_parallel;
   ImGui::Text("Resolved Parallel Spans: %d", resolved_parallel);
+  if (ImGui::Button("Flip Direction (Manual)")) {
+    if (ui_state.draw_direction_mode == static_cast<int>(wire::core::PathDirectionMode::kReverse)) {
+      ui_state.draw_direction_mode = static_cast<int>(wire::core::PathDirectionMode::kForward);
+    } else {
+      ui_state.draw_direction_mode = static_cast<int>(wire::core::PathDirectionMode::kReverse);
+    }
+  }
+  const auto& dir_debug = state.last_path_direction_debug();
+  ImGui::Text(
+      "Direction chosen: %s (mode=%s)",
+      PathDirectionChosenLabel(dir_debug.chosen),
+      PathDirectionModeLabel(dir_debug.requested_mode));
+  ImGui::Text(
+      "Cost F/R: %d / %d",
+      dir_debug.forward_cost.total,
+      dir_debug.reverse_cost.total);
+  ImGui::Text(
+      "Cost detail cross=%d side=%d layer=%d corner=%d branch=%d",
+      dir_debug.forward_cost.estimated_cross_penalty,
+      dir_debug.forward_cost.side_flip_penalty,
+      dir_debug.forward_cost.layer_jump_penalty,
+      dir_debug.forward_cost.corner_compression_penalty,
+      dir_debug.forward_cost.branch_conflict_penalty);
 
   if (ImGui::Button("Generate From Path")) {
     ExecuteGenerateFromDrawPath(state, ui_state, false);
@@ -1257,6 +1346,19 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
   ImGui::SameLine();
   if (ImGui::Button("Clear Path")) {
     ui_state.draw_path_points.clear();
+  }
+
+  const auto& lane_assignments = state.last_lane_assignments();
+  ImGui::Separator();
+  ImGui::Text("Lane assignments: %d", static_cast<int>(lane_assignments.size()));
+  for (const auto& a : lane_assignments) {
+    ImGui::Text(
+        "seg=%d A=%llu B=%llu lanes=%d mirrored=%s",
+        static_cast<int>(a.segment_index),
+        static_cast<unsigned long long>(a.pole_a_id),
+        static_cast<unsigned long long>(a.pole_b_id),
+        static_cast<int>(a.port_ids_a.size()),
+        a.mirrored ? "true" : "false");
   }
 }
 
@@ -1330,6 +1432,17 @@ void DrawDetailModePanel(CoreState& state, ViewerUiState& ui_state) {
 
   ImGui::Text("Pole: %s", detail.pole->display_id.c_str());
   ImGui::Text("PoleTypeId: %u", static_cast<unsigned int>(detail.pole->pole_type_id));
+  bool flip_180 = detail.pole->orientation_control.flip_180;
+  if (ImGui::Checkbox("Flip 180", &flip_180)) {
+    const auto flip_result = state.SetPoleFlip180(ui_state.selected_id, flip_180);
+    if (!flip_result.ok) {
+      ui_state.last_error = flip_result.error;
+      PushLog(ui_state, "SetPoleFlip180 failed");
+    } else {
+      ui_state.last_error.clear();
+      PushLog(ui_state, "SetPoleFlip180 updated");
+    }
+  }
 
   const auto type_ids = SortedPoleTypeIds(state);
   if (!type_ids.empty()) {
@@ -1463,17 +1576,26 @@ void DrawDebugDirectPanel(CoreState& state, ViewerUiState& ui_state) {
 }
 
 void DrawStatsPanel(CoreState& state, ViewerUiState& ui_state) {
-  constexpr float panel_width = 400.0f;
+  const float screen_width = static_cast<float>(GetScreenWidth());
+  const float screen_height = static_cast<float>(GetScreenHeight());
+  const float min_panel_width = 280.0f;
+  const float max_panel_width = std::max(min_panel_width, screen_width - 220.0f);
+  static float panel_width = 360.0f;
+  panel_width = std::clamp(panel_width, min_panel_width, max_panel_width);
 
-  ImGui::SetNextWindowPos(ImVec2(static_cast<float>(GetScreenWidth()) - panel_width, 0.0f), ImGuiCond_Always);
-  ImGui::SetNextWindowSize(ImVec2(panel_width, static_cast<float>(GetScreenHeight())), ImGuiCond_Always);
+  ImGui::SetNextWindowPos(ImVec2(std::max(0.0f, screen_width - panel_width), 0.0f), ImGuiCond_Always);
+  ImGui::SetNextWindowSize(ImVec2(panel_width, screen_height), ImGuiCond_Always);
+  ImGui::SetNextWindowSizeConstraints(
+      ImVec2(min_panel_width, 320.0f),
+      ImVec2(max_panel_width, screen_height));
 
   const ImGuiWindowFlags flags =
       ImGuiWindowFlags_NoMove |
-      ImGuiWindowFlags_NoResize |
       ImGuiWindowFlags_NoCollapse;
 
   ImGui::Begin("Wire Viewer", nullptr, flags);
+  panel_width = ImGui::GetWindowSize().x;
+  ImGui::PushTextWrapPos(0.0f);
   if (ImGui::CollapsingHeader("Guide", ImGuiTreeNodeFlags_DefaultOpen)) {
     ImGui::TextUnformatted("Camera");
     ImGui::BulletText("MMB orbit");
@@ -1493,6 +1615,7 @@ void DrawStatsPanel(CoreState& state, ViewerUiState& ui_state) {
     ImGui::BulletText("Esc clear, Enter generate");
     ImGui::BulletText("Each clicked point becomes one pole");
     ImGui::BulletText("Draw Plane Z controls input height");
+    ImGui::BulletText("Direction Mode: Auto/Forward/Reverse");
     ImGui::BulletText("Parallel Spans: 0=auto, 1..8 fixed");
   }
   ImGui::Separator();
@@ -1605,13 +1728,16 @@ void DrawStatsPanel(CoreState& state, ViewerUiState& ui_state) {
         event.corner_turn_sign,
         event.side_scale);
     ImGui::Text("Selected slot=%d result=%s", event.selected_slot_id, event.result.c_str());
-    ImGui::BeginChild("SlotScoreLog", ImVec2(0.0f, 140.0f), true);
+    ImGui::BeginChild("SlotScoreLog", ImVec2(0.0f, 160.0f), true, ImGuiWindowFlags_HorizontalScrollbar);
     for (const auto& c : event.candidates) {
       ImGui::Text(
-          "slot=%d total=%d eligible=%d cat=%d ctx=%d layer=%d side=%d role=%d pri=%d usage=%d cong=%d tie=%d reason=%s",
+          "slot=%d total=%d eligible=%d tie=%d",
           c.slot_id,
           c.total_score,
           c.eligible ? 1 : 0,
+          c.tie_breaker);
+      ImGui::Text(
+          "cat=%d ctx=%d layer=%d side=%d role=%d pri=%d usage=%d cong=%d",
           c.category_score,
           c.context_score,
           c.layer_score,
@@ -1619,9 +1745,9 @@ void DrawStatsPanel(CoreState& state, ViewerUiState& ui_state) {
           c.role_score,
           c.priority_score,
           c.usage_score,
-          c.congestion_score,
-          c.tie_breaker,
-          c.reason.c_str());
+          c.congestion_score);
+      ImGui::TextWrapped("reason=%s", c.reason.c_str());
+      ImGui::Separator();
     }
     ImGui::EndChild();
   }
@@ -1732,16 +1858,17 @@ void DrawStatsPanel(CoreState& state, ViewerUiState& ui_state) {
 
   if (!ui_state.last_error.empty()) {
     ImGui::Separator();
-    ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "Error: %s", ui_state.last_error.c_str());
+    ImGui::TextWrapped("Error: %s", ui_state.last_error.c_str());
   }
 
   ImGui::Separator();
   ImGui::TextUnformatted("Logs");
-  ImGui::BeginChild("LogArea", ImVec2(0.0f, 140.0f), true);
+  ImGui::BeginChild("LogArea", ImVec2(0.0f, 140.0f), true, ImGuiWindowFlags_HorizontalScrollbar);
   for (const std::string& line : ui_state.logs) {
-    ImGui::TextUnformatted(line.c_str());
+    ImGui::TextWrapped("%s", line.c_str());
   }
   ImGui::EndChild();
+  ImGui::PopTextWrapPos();
   ImGui::End();
 }
 
@@ -1750,6 +1877,7 @@ void DrawStatsPanel(CoreState& state, ViewerUiState& ui_state) {
 int main() {
   SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT);
   InitWindow(1280, 720, "wire viewer");
+  SetExitKey(KEY_NULL);
   SetTargetFPS(60);
 
   Camera3D camera{};

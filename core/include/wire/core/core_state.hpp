@@ -137,9 +137,7 @@ inline DirtyBits& operator|=(DirtyBits& a, DirtyBits b) {
   return a;
 }
 
-inline bool any(DirtyBits bits, DirtyBits flag) {
-  return (bits & flag) != DirtyBits::kNone;
-}
+inline bool any(DirtyBits bits, DirtyBits flag) { return (bits & flag) != DirtyBits::kNone; }
 
 struct SpanRuntimeState {
   // Derived runtime/version state for incremental recomputation.
@@ -180,8 +178,7 @@ struct ChangeSet {
   std::vector<ObjectId> dirty_span_ids;
 };
 
-template <typename TValue>
-struct EditResult {
+template <typename TValue> struct EditResult {
   bool ok = false;
   TValue value{};
   std::string error{};
@@ -242,7 +239,7 @@ struct SlotSelectionDebugRecord {
 };
 
 class CoreState {
- public:
+public:
   CoreState();
 
   struct AddConnectionByPoleOptions {
@@ -310,7 +307,7 @@ class CoreState {
     PoleTypeId pole_type_id = kInvalidPoleTypeId;
     ConnectionCategory category = ConnectionCategory::kLowVoltage;
     PathDirectionMode direction_mode = PathDirectionMode::kAuto;
-    int requested_lane_count = 0;  // 0: use category standard lanes.
+    int requested_lane_count = 0; // 0: use category standard lanes.
   };
 
   struct GenerateWireGroupFromPathResult {
@@ -327,51 +324,25 @@ class CoreState {
     std::vector<const Anchor*> owned_anchors{};
   };
 
-  EditResult<ObjectId> AddPole(
-      const Transformd& world_transform,
-      double height_m = 10.0,
-      std::string_view name = {},
-      PoleKind kind = PoleKind::kGeneric);
-  EditResult<ObjectId> AddPort(
-      ObjectId owner_pole_id,
-      const Vec3d& world_position,
-      PortKind kind = PortKind::kGeneric,
-      PortLayer layer = PortLayer::kUnknown,
-      const Frame3d& direction = {});
-  EditResult<ObjectId> AddAnchor(
-      ObjectId owner_pole_id,
-      const Vec3d& world_position,
-      AnchorSupportKind support_kind = AnchorSupportKind::kGeneric,
-      double support_strength = 1.0);
-  EditResult<ObjectId> AddBundle(
-      int conductor_count,
-      double phase_spacing_m,
-      BundleKind kind = BundleKind::kLowVoltage);
-  EditResult<ObjectId> AddWireGroup(
-      WireGroupKind kind = WireGroupKind::kUnknown,
-      std::string_view network_tag = {},
-      std::string_view feeder_tag = {});
-  EditResult<ObjectId> AddWireLane(
-      ObjectId wire_group_id,
-      int lane_index,
-      WireLaneRole role = WireLaneRole::kUnknown);
-  EditResult<ObjectId> AddSpan(
-      ObjectId port_a_id,
-      ObjectId port_b_id,
-      SpanKind kind = SpanKind::kGeneric,
-      SpanLayer layer = SpanLayer::kUnknown,
-      ObjectId bundle_id = kInvalidObjectId,
-      ObjectId anchor_a_id = kInvalidObjectId,
-      ObjectId anchor_b_id = kInvalidObjectId);
-  EditResult<ObjectId> AddAttachment(
-      ObjectId span_id,
-      double t,
-      AttachmentKind kind = AttachmentKind::kGeneric,
-      double offset_m = 0.0);
-  EditResult<ObjectId> AssignSpanToWireLane(
-      ObjectId span_id,
-      ObjectId wire_group_id,
-      ObjectId wire_lane_id);
+  EditResult<ObjectId> AddPole(const Transformd& world_transform, double height_m = 10.0, std::string_view name = {},
+                               PoleKind kind = PoleKind::kGeneric,
+                               PlacementMode placement_mode = PlacementMode::kAuto);
+  EditResult<ObjectId> AddPort(ObjectId owner_pole_id, const Vec3d& world_position, PortKind kind = PortKind::kGeneric,
+                               PortLayer layer = PortLayer::kUnknown, const Frame3d& direction = {});
+  EditResult<ObjectId> AddAnchor(ObjectId owner_pole_id, const Vec3d& world_position,
+                                 AnchorSupportKind support_kind = AnchorSupportKind::kGeneric,
+                                 double support_strength = 1.0);
+  EditResult<ObjectId> AddBundle(int conductor_count, double phase_spacing_m,
+                                 BundleKind kind = BundleKind::kLowVoltage);
+  EditResult<ObjectId> AddWireGroup(WireGroupKind kind = WireGroupKind::kUnknown, std::string_view network_tag = {},
+                                    std::string_view feeder_tag = {});
+  EditResult<ObjectId> AddWireLane(ObjectId wire_group_id, int lane_index, WireLaneRole role = WireLaneRole::kUnknown);
+  EditResult<ObjectId> AddSpan(ObjectId port_a_id, ObjectId port_b_id, SpanKind kind = SpanKind::kGeneric,
+                               SpanLayer layer = SpanLayer::kUnknown, ObjectId bundle_id = kInvalidObjectId,
+                               ObjectId anchor_a_id = kInvalidObjectId, ObjectId anchor_b_id = kInvalidObjectId);
+  EditResult<ObjectId> AddAttachment(ObjectId span_id, double t, AttachmentKind kind = AttachmentKind::kGeneric,
+                                     double offset_m = 0.0);
+  EditResult<ObjectId> AssignSpanToWireLane(ObjectId span_id, ObjectId wire_group_id, ObjectId wire_lane_id);
   EditResult<ObjectId> MovePole(ObjectId pole_id, const Transformd& new_world_transform);
   EditResult<ObjectId> MovePort(ObjectId port_id, const Vec3d& new_world_position);
   EditResult<ObjectId> SetPortWorldPositionManual(ObjectId port_id, const Vec3d& new_world_position);
@@ -387,46 +358,33 @@ class CoreState {
   };
   EditResult<SplitSpanResult> SplitSpan(ObjectId span_id, double t);
   EditResult<ObjectId> ApplyPoleType(ObjectId pole_id, PoleTypeId pole_type_id);
-  EditResult<AddConnectionByPoleResult> AddConnectionByPole(
-      ObjectId pole_a_id,
-      ObjectId pole_b_id,
-      ConnectionCategory category,
-      const AddConnectionByPoleOptions& options = {});
-  EditResult<AddDropResult> AddDropFromPole(
-      ObjectId source_pole_id,
-      const Vec3d& target_world_position,
-      ConnectionCategory category = ConnectionCategory::kDrop);
-  EditResult<AddDropResult> AddDropFromSpan(
-      ObjectId source_span_id,
-      double t,
-      const Vec3d& target_world_position,
-      ConnectionCategory category = ConnectionCategory::kDrop);
-  EditResult<std::vector<ObjectId>> GeneratePolesAlongRoad(
-      const RoadSegment& road,
-      double interval,
-      PoleTypeId pole_type_id);
-  EditResult<std::vector<ObjectId>> GenerateSpansBetweenPoles(
-      const std::vector<ObjectId>& poles,
-      ConnectionCategory category);
-  EditResult<GenerateSimpleLineResult> GenerateSimpleLine(
-      const RoadSegment& road,
-      double interval,
-      PoleTypeId pole_type_id,
-      ConnectionCategory category);
-  EditResult<GenerateSimpleLineResult> GenerateSimpleLineFromPoints(
-      const RoadSegment& road,
-      PoleTypeId pole_type_id,
-      ConnectionCategory category);
-  EditResult<GenerateGroupedLineResult> GenerateGroupedLine(
-      const GenerateGroupedLineOptions& options);
-  EditResult<GenerateWireGroupFromPathResult> GenerateWireGroupFromPath(
-      const GenerateWireGroupFromPathInput& input);
+  EditResult<AddConnectionByPoleResult> AddConnectionByPole(ObjectId pole_a_id, ObjectId pole_b_id,
+                                                            ConnectionCategory category,
+                                                            const AddConnectionByPoleOptions& options = {});
+  EditResult<AddDropResult> AddDropFromPole(ObjectId source_pole_id, const Vec3d& target_world_position,
+                                            ConnectionCategory category = ConnectionCategory::kDrop);
+  EditResult<AddDropResult> AddDropFromSpan(ObjectId source_span_id, double t, const Vec3d& target_world_position,
+                                            ConnectionCategory category = ConnectionCategory::kDrop);
+  EditResult<std::vector<ObjectId>> GeneratePolesAlongRoad(const RoadSegment& road, double interval,
+                                                           PoleTypeId pole_type_id);
+  EditResult<std::vector<ObjectId>> GenerateSpansBetweenPoles(const std::vector<ObjectId>& poles,
+                                                              ConnectionCategory category);
+  EditResult<GenerateSimpleLineResult> GenerateSimpleLine(const RoadSegment& road, double interval,
+                                                          PoleTypeId pole_type_id, ConnectionCategory category);
+  EditResult<GenerateSimpleLineResult> GenerateSimpleLineFromPoints(const RoadSegment& road, PoleTypeId pole_type_id,
+                                                                    ConnectionCategory category);
+  EditResult<GenerateGroupedLineResult> GenerateGroupedLine(const GenerateGroupedLineOptions& options);
+  EditResult<GenerateWireGroupFromPathResult> GenerateFromGuide(const GenerationRequest& request);
+  EditResult<GenerateWireGroupFromPathResult> GenerateWireGroupFromPath(const GenerateWireGroupFromPathInput& input);
+  EditResult<ObjectId> SetPolePlacementMode(ObjectId pole_id, PlacementMode mode);
   EditResult<ObjectId> SetPoleFlip180(ObjectId pole_id, bool flip_180);
   [[nodiscard]] PoleDetailInfo GetPoleDetail(ObjectId pole_id) const;
   [[nodiscard]] const WireGroup* GetWireGroup(ObjectId wire_group_id) const;
   [[nodiscard]] const WireLane* GetWireLane(ObjectId wire_lane_id) const;
   [[nodiscard]] std::vector<ObjectId> GetSpansByWireGroup(ObjectId wire_group_id) const;
   [[nodiscard]] std::vector<ObjectId> GetWireLanesByGroup(ObjectId wire_group_id) const;
+  [[nodiscard]] std::vector<BackboneEdge> BuildBackboneEdges() const;
+  [[nodiscard]] std::vector<ObjectId> FindBackboneRoute(ObjectId start_node_id, ObjectId end_node_id) const;
   EditResult<bool> UpdateGeometrySettings(const GeometrySettings& settings, bool mark_all_spans_dirty = true);
   EditResult<bool> UpdateLayoutSettings(const LayoutSettings& settings);
   [[nodiscard]] const CurveCacheEntry* find_curve_cache(ObjectId span_id) const;
@@ -442,15 +400,21 @@ class CoreState {
   [[nodiscard]] EditState& edit_state() { return edit_state_; }
 
   [[nodiscard]] const ConnectionIndex& connection_index() const { return connection_index_; }
-  [[nodiscard]] const std::unordered_map<ObjectId, SpanRuntimeState>& span_runtime_states() const { return span_runtime_states_; }
+  [[nodiscard]] const std::unordered_map<ObjectId, SpanRuntimeState>& span_runtime_states() const {
+    return span_runtime_states_;
+  }
   [[nodiscard]] const SpanRuntimeState* find_span_runtime_state(ObjectId span_id) const;
   [[nodiscard]] const DirtyQueue& dirty_queue() const { return dirty_queue_; }
   [[nodiscard]] const RecalcStats& last_recalc_stats() const { return last_recalc_stats_; }
   [[nodiscard]] const std::unordered_map<PoleTypeId, PoleTypeDefinition>& pole_types() const { return pole_types_; }
   [[nodiscard]] const GeometrySettings& geometry_settings() const { return cache_state_.geometry_settings; }
   [[nodiscard]] const LayoutSettings& layout_settings() const { return layout_settings_; }
-  [[nodiscard]] const PathDirectionCostWeights& path_direction_cost_weights() const { return path_direction_cost_weights_; }
-  [[nodiscard]] const PathDirectionEvaluationDebug& last_path_direction_debug() const { return last_path_direction_debug_; }
+  [[nodiscard]] const PathDirectionCostWeights& path_direction_cost_weights() const {
+    return path_direction_cost_weights_;
+  }
+  [[nodiscard]] const PathDirectionEvaluationDebug& last_path_direction_debug() const {
+    return last_path_direction_debug_;
+  }
   [[nodiscard]] const std::vector<PathDirectionEvaluationDebug>& path_direction_debug_records() const {
     return path_direction_debug_records_;
   }
@@ -469,7 +433,7 @@ class CoreState {
   [[nodiscard]] const IdGenerator& id_generator() const { return id_generator_; }
   [[nodiscard]] IdGenerator& id_generator() { return id_generator_; }
 
- private:
+private:
   void remove_span_from_indexes(const Span& span);
   void add_span_to_index(const Span& span);
   void initialize_span_runtime_state(ObjectId span_id);
@@ -484,29 +448,21 @@ class CoreState {
   [[nodiscard]] static AABBd build_aabb_from_two_points(const Vec3d& a, const Vec3d& b);
   void remove_span_from_caches(ObjectId span_id);
   [[nodiscard]] static std::vector<Vec3d> sample_polyline_points(const std::vector<Vec3d>& polyline, double interval);
-  EditResult<std::vector<ObjectId>> generate_poles_from_points(
-      const RoadSegment& road,
-      PoleTypeId pole_type_id,
-      const std::vector<Vec3d>& points);
-  EditResult<std::vector<ObjectId>> generate_grouped_spans_between_poles(
-      const std::vector<ObjectId>& poles,
-      ObjectId bundle_id,
-      const ConductorGroupSpec& group_spec,
-      std::vector<SegmentLaneAssignment>* out_lane_assignments);
-  [[nodiscard]] PathDirectionCostBreakdown evaluate_path_direction_cost(
-      const std::vector<Vec3d>& points,
-      const ConductorGroupSpec& group_spec) const;
+  EditResult<std::vector<ObjectId>> generate_poles_from_points(const RoadSegment& road, PoleTypeId pole_type_id,
+                                                               const std::vector<Vec3d>& points);
+  EditResult<std::vector<ObjectId>>
+  generate_grouped_spans_between_poles(const std::vector<ObjectId>& poles, ObjectId bundle_id,
+                                       const ConductorGroupSpec& group_spec,
+                                       std::vector<SegmentLaneAssignment>* out_lane_assignments);
+  [[nodiscard]] PathDirectionCostBreakdown evaluate_path_direction_cost(const std::vector<Vec3d>& points,
+                                                                        const ConductorGroupSpec& group_spec) const;
   [[nodiscard]] static std::uint64_t hash_path_points(const std::vector<Vec3d>& points);
-  [[nodiscard]] PathDirectionChosen choose_path_direction(
-      const GenerateGroupedLineOptions& options,
-      const std::vector<Vec3d>& sampled_points,
-      PathDirectionEvaluationDebug* out_debug) const;
+  [[nodiscard]] PathDirectionChosen choose_path_direction(const GenerateGroupedLineOptions& options,
+                                                          const std::vector<Vec3d>& sampled_points,
+                                                          PathDirectionEvaluationDebug* out_debug) const;
   [[nodiscard]] static double effective_pole_yaw_deg(const Pole& pole);
   [[nodiscard]] static Vec3d to_local_on_pole(const Pole& pole, const Vec3d& world);
-  [[nodiscard]] static SlotSide preferred_side_from_geometry(
-      const Pole& pole,
-      const Pole* peer,
-      double eps);
+  [[nodiscard]] static SlotSide preferred_side_from_geometry(const Pole& pole, const Pole* peer, double eps);
   [[nodiscard]] static double polyline_length(const std::vector<Vec3d>& polyline);
   [[nodiscard]] static PortLayer category_to_port_layer(ConnectionCategory category);
   [[nodiscard]] static SpanLayer category_to_span_layer(ConnectionCategory category);
@@ -516,7 +472,8 @@ class CoreState {
   [[nodiscard]] static bool is_supported_category(ConnectionCategory category);
   void register_default_pole_types();
   [[nodiscard]] const PoleTypeDefinition* find_pole_type(PoleTypeId pole_type_id) const;
-  [[nodiscard]] std::vector<PortSlotTemplate> sorted_port_slots(const PoleTypeDefinition& pole_type, ConnectionCategory category) const;
+  [[nodiscard]] std::vector<PortSlotTemplate> sorted_port_slots(const PoleTypeDefinition& pole_type,
+                                                                ConnectionCategory category) const;
   [[nodiscard]] bool is_port_slot_used(ObjectId pole_id, int slot_id) const;
 
   struct SlotSelectionRequest {
@@ -539,35 +496,30 @@ class CoreState {
     ChangeSet change_set{};
   };
 
-  EditResult<ObjectId> ensure_pole_slot_port(
-      const SlotSelectionRequest& request,
-      int* out_slot_id);
-  [[nodiscard]] static std::uint8_t deterministic_tiebreak_0_255(
-      ObjectId pole_id,
-      int slot_id,
-      ConnectionCategory category,
-      ConnectionContext context,
-      ObjectId peer_pole_id,
-      ObjectId reference_span_id,
-      std::uint32_t branch_index);
+  EditResult<ObjectId> ensure_pole_slot_port(const SlotSelectionRequest& request, int* out_slot_id);
+  [[nodiscard]] static std::uint8_t deterministic_tiebreak_0_255(ObjectId pole_id, int slot_id,
+                                                                 ConnectionCategory category, ConnectionContext context,
+                                                                 ObjectId peer_pole_id, ObjectId reference_span_id,
+                                                                 std::uint32_t branch_index);
   [[nodiscard]] static bool is_valid_slot_side(SlotSide side);
   [[nodiscard]] static bool is_valid_slot_role(SlotRole role);
   [[nodiscard]] static int inversion_count(const std::vector<double>& values);
   [[nodiscard]] double compute_side_scale(PoleContextKind context, double corner_angle_deg) const;
   [[nodiscard]] static double compute_corner_angle_deg(const Vec3d& prev, const Vec3d& curr, const Vec3d& next);
   [[nodiscard]] static double compute_corner_turn_sign_xy(const Vec3d& prev, const Vec3d& curr, const Vec3d& next);
-  [[nodiscard]] PoleContextInfo classify_pole_context_from_path(
-      const std::vector<Vec3d>& points,
-      std::size_t index,
-      std::size_t pending_degree) const;
-  EditResult<ObjectId> ensure_bundle_for_category(ConnectionCategory category, const AddConnectionByPoleOptions& options);
+  [[nodiscard]] PoleContextInfo classify_pole_context_from_path(const std::vector<Vec3d>& points, std::size_t index,
+                                                                std::size_t pending_degree) const;
+  EditResult<ObjectId> ensure_bundle_for_category(ConnectionCategory category,
+                                                  const AddConnectionByPoleOptions& options);
   static void add_unique_id(std::vector<ObjectId>& ids, ObjectId id);
   static std::string dirty_bits_to_string(DirtyBits bits);
   std::string next_display_id(std::string_view prefix);
 
   [[nodiscard]] static bool has_zero_length(const Port& a, const Port& b);
-  [[nodiscard]] static std::unordered_map<ObjectId, std::vector<ObjectId>> make_expected_port_index(const EditState& edit_state);
-  [[nodiscard]] static std::unordered_map<ObjectId, std::vector<ObjectId>> make_expected_anchor_index(const EditState& edit_state);
+  [[nodiscard]] static std::unordered_map<ObjectId, std::vector<ObjectId>>
+  make_expected_port_index(const EditState& edit_state);
+  [[nodiscard]] static std::unordered_map<ObjectId, std::vector<ObjectId>>
+  make_expected_anchor_index(const EditState& edit_state);
 
   IdGenerator id_generator_{};
   std::uint64_t next_data_version_ = 1;
@@ -594,4 +546,4 @@ class CoreState {
 
 CoreState make_demo_state();
 
-}  // namespace wire::core
+} // namespace wire::core

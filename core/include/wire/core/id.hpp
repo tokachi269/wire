@@ -12,7 +12,7 @@ using ObjectId = std::uint64_t;
 constexpr ObjectId kInvalidObjectId = 0;
 
 class IdGenerator {
- public:
+public:
   explicit IdGenerator(ObjectId next_id = 1) : next_id_(next_id) {}
 
   [[nodiscard]] ObjectId next() { return next_id_++; }
@@ -21,7 +21,7 @@ class IdGenerator {
 
   void reset(ObjectId next_id = 1) { next_id_ = next_id; }
 
- private:
+private:
   ObjectId next_id_ = 1;
 };
 
@@ -31,4 +31,4 @@ inline std::string make_display_id(std::string_view prefix, ObjectId id, int pad
   return oss.str();
 }
 
-}  // namespace wire::core
+} // namespace wire::core

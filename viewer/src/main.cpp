@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <functional>
+#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -107,6 +108,7 @@ struct ViewerUiState {
   double road_end_z = 0.0;
   double road_interval = 8.0;
   int road_category_index = static_cast<int>(wire::core::ConnectionCategory::kLowVoltage);
+  std::uint32_t draw_category_mask = (1u << static_cast<int>(wire::core::ConnectionCategory::kLowVoltage));
   int road_pole_type_index = 0;
   int last_generated_poles = 0;
   int last_generated_spans = 0;
@@ -118,7 +120,7 @@ struct ViewerUiState {
   bool draw_show_preview = true;
   bool draw_keep_path_after_generate = true;
   double draw_interval_m = 8.0;
-  int draw_parallel_spans = 0;  // 0 = category standard lanes
+  int draw_parallel_spans = 0; // 0 = category standard lanes
   int draw_direction_mode = static_cast<int>(wire::core::PathDirectionMode::kAuto);
   bool layout_settings_loaded = false;
   bool layout_angle_correction_enabled = true;
@@ -139,10 +141,8 @@ struct ViewerUiState {
 void PushLog(ViewerUiState& ui_state, const std::string& line);
 
 constexpr std::array<wire::core::ConnectionCategory, 5> kAllCategories = {
-    wire::core::ConnectionCategory::kHighVoltage,
-    wire::core::ConnectionCategory::kLowVoltage,
-    wire::core::ConnectionCategory::kCommunication,
-    wire::core::ConnectionCategory::kOptical,
+    wire::core::ConnectionCategory::kHighVoltage,   wire::core::ConnectionCategory::kLowVoltage,
+    wire::core::ConnectionCategory::kCommunication, wire::core::ConnectionCategory::kOptical,
     wire::core::ConnectionCategory::kDrop,
 };
 
@@ -155,206 +155,215 @@ constexpr std::array<wire::core::ConnectionContext, 4> kAllConnectionContexts = 
 
 const char* CategoryLabel(wire::core::ConnectionCategory category) {
   switch (category) {
-    case wire::core::ConnectionCategory::kHighVoltage:
-      return "HighVoltage";
-    case wire::core::ConnectionCategory::kLowVoltage:
-      return "LowVoltage";
-    case wire::core::ConnectionCategory::kCommunication:
-      return "Communication";
-    case wire::core::ConnectionCategory::kOptical:
-      return "Optical";
-    case wire::core::ConnectionCategory::kDrop:
-      return "Drop";
-    default:
-      return "Unknown";
+  case wire::core::ConnectionCategory::kHighVoltage:
+    return "HighVoltage";
+  case wire::core::ConnectionCategory::kLowVoltage:
+    return "LowVoltage";
+  case wire::core::ConnectionCategory::kCommunication:
+    return "Communication";
+  case wire::core::ConnectionCategory::kOptical:
+    return "Optical";
+  case wire::core::ConnectionCategory::kDrop:
+    return "Drop";
+  default:
+    return "Unknown";
   }
 }
 
 const char* ContextLabel(wire::core::ConnectionContext context) {
   switch (context) {
-    case wire::core::ConnectionContext::kTrunkContinue:
-      return "Trunk";
-    case wire::core::ConnectionContext::kCornerPass:
-      return "Corner";
-    case wire::core::ConnectionContext::kBranchAdd:
-      return "Branch";
-    case wire::core::ConnectionContext::kDropAdd:
-      return "Drop";
-    default:
-      return "Unknown";
+  case wire::core::ConnectionContext::kTrunkContinue:
+    return "Trunk";
+  case wire::core::ConnectionContext::kCornerPass:
+    return "Corner";
+  case wire::core::ConnectionContext::kBranchAdd:
+    return "Branch";
+  case wire::core::ConnectionContext::kDropAdd:
+    return "Drop";
+  default:
+    return "Unknown";
   }
 }
 
 const char* PoleContextLabel(wire::core::PoleContextKind context) {
   switch (context) {
-    case wire::core::PoleContextKind::kStraight:
-      return "Straight";
-    case wire::core::PoleContextKind::kCorner:
-      return "Corner";
-    case wire::core::PoleContextKind::kBranch:
-      return "Branch";
-    case wire::core::PoleContextKind::kTerminal:
-      return "Terminal";
-    default:
-      return "Unknown";
+  case wire::core::PoleContextKind::kStraight:
+    return "Straight";
+  case wire::core::PoleContextKind::kCorner:
+    return "Corner";
+  case wire::core::PoleContextKind::kBranch:
+    return "Branch";
+  case wire::core::PoleContextKind::kTerminal:
+    return "Terminal";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* PolePlacementModeLabel(wire::core::PlacementMode mode) {
+  switch (mode) {
+  case wire::core::PlacementMode::kAuto:
+    return "Auto";
+  case wire::core::PlacementMode::kManual:
+    return "Manual";
+  default:
+    return "Unknown";
   }
 }
 
 const char* SlotSideLabel(wire::core::SlotSide side) {
   switch (side) {
-    case wire::core::SlotSide::kLeft:
-      return "L";
-    case wire::core::SlotSide::kCenter:
-      return "C";
-    case wire::core::SlotSide::kRight:
-      return "R";
-    default:
-      return "?";
+  case wire::core::SlotSide::kLeft:
+    return "L";
+  case wire::core::SlotSide::kCenter:
+    return "C";
+  case wire::core::SlotSide::kRight:
+    return "R";
+  default:
+    return "?";
   }
 }
 
 const char* SlotRoleLabel(wire::core::SlotRole role) {
   switch (role) {
-    case wire::core::SlotRole::kNeutral:
-      return "Neutral";
-    case wire::core::SlotRole::kTrunkPreferred:
-      return "Trunk";
-    case wire::core::SlotRole::kBranchPreferred:
-      return "Branch";
-    case wire::core::SlotRole::kDropPreferred:
-      return "Drop";
-    default:
-      return "Unknown";
+  case wire::core::SlotRole::kNeutral:
+    return "Neutral";
+  case wire::core::SlotRole::kTrunkPreferred:
+    return "Trunk";
+  case wire::core::SlotRole::kBranchPreferred:
+    return "Branch";
+  case wire::core::SlotRole::kDropPreferred:
+    return "Drop";
+  default:
+    return "Unknown";
   }
 }
 
 const char* PortPositionModeLabel(wire::core::PortPositionMode mode) {
   switch (mode) {
-    case wire::core::PortPositionMode::kAuto:
-      return "Auto";
-    case wire::core::PortPositionMode::kManual:
-      return "Manual";
-    default:
-      return "Unknown";
+  case wire::core::PortPositionMode::kAuto:
+    return "Auto";
+  case wire::core::PortPositionMode::kManual:
+    return "Manual";
+  default:
+    return "Unknown";
   }
 }
 
 const char* PortPlacementSourceLabel(wire::core::PortPlacementSourceKind source) {
   switch (source) {
-    case wire::core::PortPlacementSourceKind::kTemplateSlot:
-      return "TemplateSlot";
-    case wire::core::PortPlacementSourceKind::kGenerated:
-      return "Generated";
-    case wire::core::PortPlacementSourceKind::kManualEdit:
-      return "ManualEdit";
-    case wire::core::PortPlacementSourceKind::kAerialBranch:
-      return "AerialBranch";
-    case wire::core::PortPlacementSourceKind::kUnknown:
-    default:
-      return "Unknown";
+  case wire::core::PortPlacementSourceKind::kTemplateSlot:
+    return "TemplateSlot";
+  case wire::core::PortPlacementSourceKind::kGenerated:
+    return "Generated";
+  case wire::core::PortPlacementSourceKind::kManualEdit:
+    return "ManualEdit";
+  case wire::core::PortPlacementSourceKind::kAerialBranch:
+    return "AerialBranch";
+  case wire::core::PortPlacementSourceKind::kUnknown:
+  default:
+    return "Unknown";
   }
 }
 
 const char* WireGroupKindLabel(wire::core::WireGroupKind kind) {
   switch (kind) {
-    case wire::core::WireGroupKind::kPowerHighVoltage:
-      return "PowerHighVoltage";
-    case wire::core::WireGroupKind::kPowerLowVoltage:
-      return "PowerLowVoltage";
-    case wire::core::WireGroupKind::kComm:
-      return "Comm";
-    case wire::core::WireGroupKind::kOptical:
-      return "Optical";
-    case wire::core::WireGroupKind::kUnknown:
-    default:
-      return "Unknown";
+  case wire::core::WireGroupKind::kPowerHighVoltage:
+    return "PowerHighVoltage";
+  case wire::core::WireGroupKind::kPowerLowVoltage:
+    return "PowerLowVoltage";
+  case wire::core::WireGroupKind::kComm:
+    return "Comm";
+  case wire::core::WireGroupKind::kOptical:
+    return "Optical";
+  case wire::core::WireGroupKind::kUnknown:
+  default:
+    return "Unknown";
   }
 }
 
 const char* WireLaneRoleLabel(wire::core::WireLaneRole role) {
   switch (role) {
-    case wire::core::WireLaneRole::kPhaseA:
-      return "PhaseA";
-    case wire::core::WireLaneRole::kPhaseB:
-      return "PhaseB";
-    case wire::core::WireLaneRole::kPhaseC:
-      return "PhaseC";
-    case wire::core::WireLaneRole::kNeutral:
-      return "Neutral";
-    case wire::core::WireLaneRole::kCommLine:
-      return "CommLine";
-    case wire::core::WireLaneRole::kOpticalFiber:
-      return "OpticalFiber";
-    case wire::core::WireLaneRole::kAux:
-      return "Aux";
-    case wire::core::WireLaneRole::kUnknown:
-    default:
-      return "Unknown";
+  case wire::core::WireLaneRole::kPhaseA:
+    return "PhaseA";
+  case wire::core::WireLaneRole::kPhaseB:
+    return "PhaseB";
+  case wire::core::WireLaneRole::kPhaseC:
+    return "PhaseC";
+  case wire::core::WireLaneRole::kNeutral:
+    return "Neutral";
+  case wire::core::WireLaneRole::kCommLine:
+    return "CommLine";
+  case wire::core::WireLaneRole::kOpticalFiber:
+    return "OpticalFiber";
+  case wire::core::WireLaneRole::kAux:
+    return "Aux";
+  case wire::core::WireLaneRole::kUnknown:
+  default:
+    return "Unknown";
   }
 }
 
 const char* PathDirectionModeLabel(wire::core::PathDirectionMode mode) {
   switch (mode) {
-    case wire::core::PathDirectionMode::kAuto:
-      return "Auto";
-    case wire::core::PathDirectionMode::kForward:
-      return "Forward";
-    case wire::core::PathDirectionMode::kReverse:
-      return "Reverse";
-    default:
-      return "Unknown";
+  case wire::core::PathDirectionMode::kAuto:
+    return "Auto";
+  case wire::core::PathDirectionMode::kForward:
+    return "Forward";
+  case wire::core::PathDirectionMode::kReverse:
+    return "Reverse";
+  default:
+    return "Unknown";
   }
 }
 
 const char* PathDirectionChosenLabel(wire::core::PathDirectionChosen chosen) {
   switch (chosen) {
-    case wire::core::PathDirectionChosen::kForward:
-      return "Forward";
-    case wire::core::PathDirectionChosen::kReverse:
-      return "Reverse";
-    default:
-      return "Unknown";
+  case wire::core::PathDirectionChosen::kForward:
+    return "Forward";
+  case wire::core::PathDirectionChosen::kReverse:
+    return "Reverse";
+  default:
+    return "Unknown";
   }
 }
 
 const char* ModeLabel(EditMode mode) {
   switch (mode) {
-    case EditMode::kPlacement:
-      return "Placement";
-    case EditMode::kConnection:
-      return "Connection";
-    case EditMode::kBranch:
-      return "Branch";
-    case EditMode::kDetail:
-      return "Detail";
-    case EditMode::kDrawPath:
-      return "DrawPath";
-    default:
-      return "Unknown";
+  case EditMode::kPlacement:
+    return "Placement";
+  case EditMode::kConnection:
+    return "Connection";
+  case EditMode::kBranch:
+    return "Branch";
+  case EditMode::kDetail:
+    return "Detail";
+  case EditMode::kDrawPath:
+    return "DrawPath";
+  default:
+    return "Unknown";
   }
 }
 
 int FallbackParallelSpanCount(wire::core::ConnectionCategory category) {
   switch (category) {
-    case wire::core::ConnectionCategory::kHighVoltage:
-      return 3;
-    case wire::core::ConnectionCategory::kLowVoltage:
-      return 2;
-    case wire::core::ConnectionCategory::kCommunication:
-      return 1;
-    case wire::core::ConnectionCategory::kOptical:
-      return 1;
-    case wire::core::ConnectionCategory::kDrop:
-      return 1;
-    default:
-      return 1;
+  case wire::core::ConnectionCategory::kHighVoltage:
+    return 3;
+  case wire::core::ConnectionCategory::kLowVoltage:
+    return 2;
+  case wire::core::ConnectionCategory::kCommunication:
+    return 1;
+  case wire::core::ConnectionCategory::kOptical:
+    return 1;
+  case wire::core::ConnectionCategory::kDrop:
+    return 1;
+  default:
+    return 1;
   }
 }
 
-int AutoParallelSpanCountFromPoleType(
-    const CoreState& state,
-    wire::core::PoleTypeId pole_type_id,
-    wire::core::ConnectionCategory category) {
+int AutoParallelSpanCountFromPoleType(const CoreState& state, wire::core::PoleTypeId pole_type_id,
+                                      wire::core::ConnectionCategory category) {
   const auto it = state.pole_types().find(pole_type_id);
   if (it == state.pole_types().end()) {
     return FallbackParallelSpanCount(category);
@@ -366,6 +375,53 @@ int AutoParallelSpanCountFromPoleType(
     }
   }
   return (count > 0) ? count : FallbackParallelSpanCount(category);
+}
+
+bool IsDrawCategorySelected(const ViewerUiState& ui_state, int category_index) {
+  if (category_index < 0 || category_index >= static_cast<int>(kAllCategories.size())) {
+    return false;
+  }
+  return (ui_state.draw_category_mask & (1u << category_index)) != 0u;
+}
+
+void SetDrawCategorySelected(ViewerUiState& ui_state, int category_index, bool selected) {
+  if (category_index < 0 || category_index >= static_cast<int>(kAllCategories.size())) {
+    return;
+  }
+  const std::uint32_t bit = (1u << category_index);
+  if (selected) {
+    ui_state.draw_category_mask |= bit;
+  } else {
+    ui_state.draw_category_mask &= ~bit;
+  }
+}
+
+std::vector<wire::core::ConnectionCategory> SelectedDrawCategories(const ViewerUiState& ui_state) {
+  std::vector<wire::core::ConnectionCategory> categories;
+  for (int i = 0; i < static_cast<int>(kAllCategories.size()); ++i) {
+    if (IsDrawCategorySelected(ui_state, i)) {
+      categories.push_back(kAllCategories[i]);
+    }
+  }
+  return categories;
+}
+
+std::string DrawCategoryPreview(const ViewerUiState& ui_state) {
+  const auto categories = SelectedDrawCategories(ui_state);
+  if (categories.empty()) {
+    return "(none)";
+  }
+  if (categories.size() == 1) {
+    return CategoryLabel(categories.front());
+  }
+  std::ostringstream oss;
+  for (std::size_t i = 0; i < categories.size(); ++i) {
+    if (i > 0) {
+      oss << ", ";
+    }
+    oss << CategoryLabel(categories[i]);
+  }
+  return oss.str();
 }
 
 std::vector<wire::core::PoleTypeId> SortedPoleTypeIds(const CoreState& state) {
@@ -440,7 +496,7 @@ bool TryPickGroundPoint(const Camera3D& camera, double ue_plane_z, wire::core::V
   if (std::abs(ray.direction.y) <= 1e-6f) {
     return false;
   }
-  const float plane_y = static_cast<float>(ue_plane_z);  // raylib y == UE z
+  const float plane_y = static_cast<float>(ue_plane_z); // raylib y == UE z
   const float t = (plane_y - ray.position.y) / ray.direction.y;
   if (t < 0.0f) {
     return false;
@@ -468,61 +524,75 @@ void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool
 
   const std::size_t road_type_index = ClampedTypeIndex(ui_state.road_pole_type_index, type_ids.size());
   ui_state.road_pole_type_index = static_cast<int>(road_type_index);
-  const int road_category_index = std::clamp(ui_state.road_category_index, 0, static_cast<int>(kAllCategories.size() - 1));
-  ui_state.road_category_index = road_category_index;
 
   wire::core::RoadSegment road{};
   road.id = ui_state.road_id++;
   road.polyline = ui_state.draw_path_points;
 
-  const wire::core::ConnectionCategory category = kAllCategories[ui_state.road_category_index];
-  int parallel_spans = ui_state.draw_parallel_spans;
-  if (parallel_spans <= 0) {
-    parallel_spans = FallbackParallelSpanCount(category);
+  const auto selected_categories = SelectedDrawCategories(ui_state);
+  if (selected_categories.empty()) {
+    ui_state.last_error = "select at least one path category";
+    return;
   }
-  parallel_spans = std::clamp(parallel_spans, 0, 8);
   const int mode_index = std::clamp(ui_state.draw_direction_mode, 0, 2);
   ui_state.draw_direction_mode = mode_index;
 
-  wire::core::CoreState::GenerateWireGroupFromPathInput input{};
-  input.polyline = road.polyline;
-  input.interval_m = ui_state.draw_interval_m;
-  input.pole_type_id = type_ids[ui_state.road_pole_type_index];
-  input.category = category;
-  input.direction_mode = static_cast<wire::core::PathDirectionMode>(mode_index);
-  input.requested_lane_count = parallel_spans;
+  int total_generated_poles = 0;
+  int total_generated_spans = 0;
+  std::size_t success_categories = 0;
+  std::ostringstream failure_details;
+  bool has_failure = false;
 
-  const auto result = state.GenerateWireGroupFromPath(input);
-  if (!result.ok) {
-    ui_state.last_error = result.error;
+  for (const auto category : selected_categories) {
+    int parallel_spans = ui_state.draw_parallel_spans;
+    if (parallel_spans <= 0) {
+      parallel_spans = FallbackParallelSpanCount(category);
+    }
+    parallel_spans = std::clamp(parallel_spans, 0, 8);
+
+    wire::core::CoreState::GenerateWireGroupFromPathInput input{};
+    input.polyline = road.polyline;
+    input.interval_m = ui_state.draw_interval_m;
+    input.pole_type_id = type_ids[ui_state.road_pole_type_index];
+    input.category = category;
+    input.direction_mode = static_cast<wire::core::PathDirectionMode>(mode_index);
+    input.requested_lane_count = parallel_spans;
+
+    const auto result = state.GenerateWireGroupFromPath(input);
+    if (!result.ok) {
+      has_failure = true;
+      failure_details << CategoryLabel(category) << ": " << result.error << "; ";
+      continue;
+    }
+    ++success_categories;
+    total_generated_poles += static_cast<int>(result.value.generated_pole_ids.size());
+    total_generated_spans += static_cast<int>(result.value.generated_span_ids.size());
+    if (!result.value.generated_pole_ids.empty()) {
+      ui_state.selected_type = SelectedType::kPole;
+      ui_state.selected_id = result.value.generated_pole_ids.back();
+    } else if (!result.value.generated_span_ids.empty()) {
+      ui_state.selected_type = SelectedType::kSpan;
+      ui_state.selected_id = result.value.generated_span_ids.back();
+    }
+  }
+
+  if (success_categories == 0) {
+    ui_state.last_error = failure_details.str();
     PushLog(ui_state, from_enter_key ? "Generate path (Enter) failed" : "Generate path failed");
     return;
   }
-  ui_state.last_error.clear();
-  ui_state.last_generated_poles = static_cast<int>(result.value.generated_pole_ids.size());
-  ui_state.last_generated_spans = static_cast<int>(result.value.generated_span_ids.size());
+
+  ui_state.last_error = has_failure ? failure_details.str() : "";
+  ui_state.last_generated_poles = total_generated_poles;
+  ui_state.last_generated_spans = total_generated_spans;
   ui_state.last_generation_session = 0;
-  if (!result.value.generated_span_ids.empty()) {
-    const auto* generated_span = state.edit_state().spans.find(result.value.generated_span_ids.front());
-    if (generated_span != nullptr) {
-      ui_state.last_generation_session = generated_span->generation.generation_session_id;
-    }
-  }
-  if (!result.value.generated_pole_ids.empty()) {
-    ui_state.selected_type = SelectedType::kPole;
-    ui_state.selected_id = result.value.generated_pole_ids.back();
-  }
+
   if (!ui_state.draw_keep_path_after_generate) {
     ui_state.draw_path_points.clear();
   }
-  const int resolved_lanes =
-      result.value.wire_lane_ids.empty() ? FallbackParallelSpanCount(category) : static_cast<int>(result.value.wire_lane_ids.size());
-  PushLog(
-      ui_state,
-      "Generated path poles=" + std::to_string(ui_state.last_generated_poles) +
-          " spans=" + std::to_string(ui_state.last_generated_spans) +
-          " lanes=" + std::to_string(resolved_lanes) +
-          " wireGroup=" + std::to_string(result.value.wire_group_id));
+  PushLog(ui_state, "Generated path categories=" + std::to_string(success_categories) +
+                        " poles=" + std::to_string(ui_state.last_generated_poles) +
+                        " spans=" + std::to_string(ui_state.last_generated_spans));
 }
 
 void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState& ui_state) {
@@ -571,16 +641,15 @@ void DrawPathPreview(const ViewerUiState& ui_state) {
   for (std::size_t i = 0; i < ui_state.draw_path_points.size(); ++i) {
     DrawSphere(ToRaylib(ui_state.draw_path_points[i]), 0.12f, Color{255, 200, 0, 255});
     if (i + 1 < ui_state.draw_path_points.size()) {
-      DrawLine3D(ToRaylib(ui_state.draw_path_points[i]), ToRaylib(ui_state.draw_path_points[i + 1]), Color{255, 220, 80, 255});
+      DrawLine3D(ToRaylib(ui_state.draw_path_points[i]), ToRaylib(ui_state.draw_path_points[i + 1]),
+                 Color{255, 220, 80, 255});
     }
   }
   if (ui_state.draw_hover_valid) {
     DrawSphere(ToRaylib(ui_state.draw_hover_point), 0.08f, Color{120, 255, 180, 200});
     if (!ui_state.draw_path_points.empty()) {
-      DrawLine3D(
-          ToRaylib(ui_state.draw_path_points.back()),
-          ToRaylib(ui_state.draw_hover_point),
-          Color{120, 255, 180, 180});
+      DrawLine3D(ToRaylib(ui_state.draw_path_points.back()), ToRaylib(ui_state.draw_hover_point),
+                 Color{120, 255, 180, 180});
     }
   }
 }
@@ -606,7 +675,7 @@ void OrbitCameraTurntable(Camera3D* camera, Vector2 mouse_delta, float orbit_spe
   yaw -= mouse_delta.x * orbit_speed;
   pitch -= mouse_delta.y * orbit_speed;
 
-  const float pitch_limit = 1.55334f;  // about 89 degrees
+  const float pitch_limit = 1.55334f; // about 89 degrees
   pitch = std::clamp(pitch, -pitch_limit, pitch_limit);
 
   const float cos_pitch = std::cos(pitch);
@@ -698,11 +767,16 @@ void PushLog(ViewerUiState& ui_state, const std::string& line) {
 
 std::string DirtyBitsToText(wire::core::DirtyBits bits) {
   std::string text;
-  if (wire::core::any(bits, wire::core::DirtyBits::kTopology)) text += "Topology|";
-  if (wire::core::any(bits, wire::core::DirtyBits::kGeometry)) text += "Geometry|";
-  if (wire::core::any(bits, wire::core::DirtyBits::kBounds)) text += "Bounds|";
-  if (wire::core::any(bits, wire::core::DirtyBits::kRender)) text += "Render|";
-  if (wire::core::any(bits, wire::core::DirtyBits::kRaycast)) text += "Raycast|";
+  if (wire::core::any(bits, wire::core::DirtyBits::kTopology))
+    text += "Topology|";
+  if (wire::core::any(bits, wire::core::DirtyBits::kGeometry))
+    text += "Geometry|";
+  if (wire::core::any(bits, wire::core::DirtyBits::kBounds))
+    text += "Bounds|";
+  if (wire::core::any(bits, wire::core::DirtyBits::kRender))
+    text += "Render|";
+  if (wire::core::any(bits, wire::core::DirtyBits::kRaycast))
+    text += "Raycast|";
   if (text.empty()) {
     return "None";
   }
@@ -714,11 +788,16 @@ Color DirtyColorForSpan(const wire::core::SpanRuntimeState* runtime_state) {
   if (runtime_state == nullptr) {
     return GRAY;
   }
-  if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kTopology)) return PURPLE;
-  if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kGeometry)) return YELLOW;
-  if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kBounds)) return BLUE;
-  if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kRender)) return RED;
-  if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kRaycast)) return GREEN;
+  if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kTopology))
+    return PURPLE;
+  if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kGeometry))
+    return YELLOW;
+  if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kBounds))
+    return BLUE;
+  if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kRender))
+    return RED;
+  if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kRaycast))
+    return GREEN;
   return SKYBLUE;
 }
 
@@ -778,8 +857,7 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
     Color color = DirtyColorForSpan(runtime_state);
     if (ui_state.selected_type == SelectedType::kSpan && ui_state.selected_id == span.id) {
       color = GOLD;
-    } else if (ui_state.show_selected_wire_group_highlight &&
-               selected_wire_group_id != wire::core::kInvalidObjectId &&
+    } else if (ui_state.show_selected_wire_group_highlight && selected_wire_group_id != wire::core::kInvalidObjectId &&
                span.wire_group_id == selected_wire_group_id) {
       color = ORANGE;
     }
@@ -827,12 +905,8 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
   }
 }
 
-void DrawObjectList(
-    ViewerUiState& ui_state,
-    const char* header,
-    SelectedType type,
-    const std::vector<ObjectId>& ids,
-    std::function<std::string(ObjectId)> make_label) {
+void DrawObjectList(ViewerUiState& ui_state, const char* header, SelectedType type, const std::vector<ObjectId>& ids,
+                    std::function<std::string(ObjectId)> make_label) {
   if (!ImGui::CollapsingHeader(header, ImGuiTreeNodeFlags_DefaultOpen)) {
     return;
   }
@@ -857,158 +931,161 @@ void DrawSelectedInfo(const CoreState& state, const ViewerUiState& ui_state) {
 
   const auto& edit = state.edit_state();
   switch (ui_state.selected_type) {
-    case SelectedType::kPole: {
-      const auto* pole = edit.poles.find(ui_state.selected_id);
-      if (pole == nullptr) {
-        ImGui::TextUnformatted("Selected pole is missing");
-        return;
-      }
-      ImGui::Text("Type: Pole");
-      ImGui::Text("ID: %s", pole->display_id.c_str());
-      ImGui::Text("Name: %s", pole->name.c_str());
-      ImGui::Text("PoleTypeId: %u", static_cast<unsigned int>(pole->pole_type_id));
-      ImGui::Text("Generated: %s", pole->generation.generated ? "true" : "false");
-      ImGui::Text("Gen Source: %d", static_cast<int>(pole->generation.source));
-      ImGui::Text("Gen Session: %llu", static_cast<unsigned long long>(pole->generation.generation_session_id));
-      ImGui::Text("Pos: %.2f %.2f %.2f", pole->world_transform.position.x, pole->world_transform.position.y, pole->world_transform.position.z);
-      ImGui::Text("Height: %.2f", pole->height_m);
-      ImGui::Text("PoleContext: %s", PoleContextLabel(pole->context.kind));
-      ImGui::Text("cornerAngle: %.2f", pole->context.corner_angle_deg);
-      ImGui::Text("cornerTurnSign: %.0f", pole->context.corner_turn_sign);
-      ImGui::Text("sideScale: %.3f", pole->context.side_scale);
-      ImGui::Text("angleCorrectionApplied: %s", pole->context.angle_correction_applied ? "true" : "false");
-      ImGui::Text("flip180: %s", pole->orientation_control.flip_180 ? "true" : "false");
-      ImGui::Text("manualYawOverride: %s", pole->orientation_control.manual_yaw_override ? "true" : "false");
-      ImGui::Text("placementOverride: %s", pole->placement_override_flag ? "true" : "false");
-      ImGui::Text("orientationOverride: %s", pole->orientation_override_flag ? "true" : "false");
+  case SelectedType::kPole: {
+    const auto* pole = edit.poles.find(ui_state.selected_id);
+    if (pole == nullptr) {
+      ImGui::TextUnformatted("Selected pole is missing");
       return;
     }
-    case SelectedType::kPort: {
-      const auto* port = edit.ports.find(ui_state.selected_id);
-      if (port == nullptr) {
-        ImGui::TextUnformatted("Selected port is missing");
-        return;
-      }
-      ImGui::Text("Type: Port");
-      ImGui::Text("ID: %s", port->display_id.c_str());
-      ImGui::Text("Owner Pole: %llu", static_cast<unsigned long long>(port->owner_pole_id));
-      ImGui::Text("Pos: %.2f %.2f %.2f", port->world_position.x, port->world_position.y, port->world_position.z);
-      ImGui::Text("Category: %s", CategoryLabel(port->category));
-      ImGui::Text("SlotId: %d", port->source_slot_id);
-      ImGui::Text("Layer: %d Side: %s Role: %s", port->template_layer, SlotSideLabel(port->template_side), SlotRoleLabel(port->template_role));
-      ImGui::Text("PositionMode: %s", PortPositionModeLabel(port->position_mode));
-      ImGui::Text("PlacementSource: %s", PortPlacementSourceLabel(port->placement_source));
-      ImGui::Text("UserEditedPos: %s", port->user_edited_position ? "true" : "false");
-      ImGui::Text("GeneratedByRule: %s", port->generated_by_rule ? "true" : "false");
-      ImGui::Text("PlacementContext: %s", ContextLabel(port->placement_context));
-      ImGui::Text("AngleCorrected: %s sideScale=%.3f", port->angle_correction_applied ? "true" : "false", port->side_scale_applied);
-      ImGui::Text("placementOverride: %s", port->placement_override_flag ? "true" : "false");
-      ImGui::Text("orientationOverride: %s", port->orientation_override_flag ? "true" : "false");
+    ImGui::Text("Type: Pole");
+    ImGui::Text("ID: %s", pole->display_id.c_str());
+    ImGui::Text("Name: %s", pole->name.c_str());
+    ImGui::Text("PoleTypeId: %u", static_cast<unsigned int>(pole->pole_type_id));
+    ImGui::Text("Generated: %s", pole->generation.generated ? "true" : "false");
+    ImGui::Text("Gen Source: %d", static_cast<int>(pole->generation.source));
+    ImGui::Text("Gen Session: %llu", static_cast<unsigned long long>(pole->generation.generation_session_id));
+    ImGui::Text("Pos: %.2f %.2f %.2f", pole->world_transform.position.x, pole->world_transform.position.y,
+                pole->world_transform.position.z);
+    ImGui::Text("Height: %.2f", pole->height_m);
+    ImGui::Text("PoleContext: %s", PoleContextLabel(pole->context.kind));
+    ImGui::Text("cornerAngle: %.2f", pole->context.corner_angle_deg);
+    ImGui::Text("cornerTurnSign: %.0f", pole->context.corner_turn_sign);
+    ImGui::Text("sideScale: %.3f", pole->context.side_scale);
+    ImGui::Text("angleCorrectionApplied: %s", pole->context.angle_correction_applied ? "true" : "false");
+    ImGui::Text("flip180: %s", pole->orientation_control.flip_180 ? "true" : "false");
+    ImGui::Text("manualYawOverride: %s", pole->orientation_control.manual_yaw_override ? "true" : "false");
+    ImGui::Text("placementOverride: %s", pole->placement_override_flag ? "true" : "false");
+    ImGui::Text("orientationOverride: %s", pole->orientation_override_flag ? "true" : "false");
+    return;
+  }
+  case SelectedType::kPort: {
+    const auto* port = edit.ports.find(ui_state.selected_id);
+    if (port == nullptr) {
+      ImGui::TextUnformatted("Selected port is missing");
       return;
     }
-    case SelectedType::kSpan: {
-      const auto* span = edit.spans.find(ui_state.selected_id);
-      if (span == nullptr) {
-        ImGui::TextUnformatted("Selected span is missing");
-        return;
-      }
-      ImGui::Text("Type: Span");
-      ImGui::Text("ID: %s", span->display_id.c_str());
-      ImGui::Text("portA: %llu", static_cast<unsigned long long>(span->port_a_id));
-      ImGui::Text("portB: %llu", static_cast<unsigned long long>(span->port_b_id));
-      ImGui::Text("bundle: %llu", static_cast<unsigned long long>(span->bundle_id));
-      ImGui::Text("wireGroup: %llu", static_cast<unsigned long long>(span->wire_group_id));
-      ImGui::Text("wireLane: %llu", static_cast<unsigned long long>(span->wire_lane_id));
-      if (span->wire_group_id != wire::core::kInvalidObjectId) {
-        const auto* group = state.GetWireGroup(span->wire_group_id);
-        if (group != nullptr) {
-          ImGui::Text("wireGroup kind: %s", WireGroupKindLabel(group->kind));
-        } else {
-          ImGui::TextUnformatted("wireGroup: missing");
-        }
+    ImGui::Text("Type: Port");
+    ImGui::Text("ID: %s", port->display_id.c_str());
+    ImGui::Text("Owner Pole: %llu", static_cast<unsigned long long>(port->owner_pole_id));
+    ImGui::Text("Pos: %.2f %.2f %.2f", port->world_position.x, port->world_position.y, port->world_position.z);
+    ImGui::Text("Category: %s", CategoryLabel(port->category));
+    ImGui::Text("SlotId: %d", port->source_slot_id);
+    ImGui::Text("Layer: %d Side: %s Role: %s", port->template_layer, SlotSideLabel(port->template_side),
+                SlotRoleLabel(port->template_role));
+    ImGui::Text("PositionMode: %s", PortPositionModeLabel(port->position_mode));
+    ImGui::Text("PlacementSource: %s", PortPlacementSourceLabel(port->placement_source));
+    ImGui::Text("UserEditedPos: %s", port->user_edited_position ? "true" : "false");
+    ImGui::Text("GeneratedByRule: %s", port->generated_by_rule ? "true" : "false");
+    ImGui::Text("PlacementContext: %s", ContextLabel(port->placement_context));
+    ImGui::Text("AngleCorrected: %s sideScale=%.3f", port->angle_correction_applied ? "true" : "false",
+                port->side_scale_applied);
+    ImGui::Text("placementOverride: %s", port->placement_override_flag ? "true" : "false");
+    ImGui::Text("orientationOverride: %s", port->orientation_override_flag ? "true" : "false");
+    return;
+  }
+  case SelectedType::kSpan: {
+    const auto* span = edit.spans.find(ui_state.selected_id);
+    if (span == nullptr) {
+      ImGui::TextUnformatted("Selected span is missing");
+      return;
+    }
+    ImGui::Text("Type: Span");
+    ImGui::Text("ID: %s", span->display_id.c_str());
+    ImGui::Text("portA: %llu", static_cast<unsigned long long>(span->port_a_id));
+    ImGui::Text("portB: %llu", static_cast<unsigned long long>(span->port_b_id));
+    ImGui::Text("bundle: %llu", static_cast<unsigned long long>(span->bundle_id));
+    ImGui::Text("wireGroup: %llu", static_cast<unsigned long long>(span->wire_group_id));
+    ImGui::Text("wireLane: %llu", static_cast<unsigned long long>(span->wire_lane_id));
+    if (span->wire_group_id != wire::core::kInvalidObjectId) {
+      const auto* group = state.GetWireGroup(span->wire_group_id);
+      if (group != nullptr) {
+        ImGui::Text("wireGroup kind: %s", WireGroupKindLabel(group->kind));
       } else {
-        ImGui::TextUnformatted("wireGroup: unassigned");
+        ImGui::TextUnformatted("wireGroup: missing");
       }
-      if (span->wire_lane_id != wire::core::kInvalidObjectId) {
-        const auto* lane = state.GetWireLane(span->wire_lane_id);
-        if (lane != nullptr) {
-          ImGui::Text("wireLane index=%d role=%s", lane->lane_index, WireLaneRoleLabel(lane->role));
-        } else {
-          ImGui::TextUnformatted("wireLane: missing");
-        }
+    } else {
+      ImGui::TextUnformatted("wireGroup: unassigned");
+    }
+    if (span->wire_lane_id != wire::core::kInvalidObjectId) {
+      const auto* lane = state.GetWireLane(span->wire_lane_id);
+      if (lane != nullptr) {
+        ImGui::Text("wireLane index=%d role=%s", lane->lane_index, WireLaneRoleLabel(lane->role));
       } else {
-        ImGui::TextUnformatted("wireLane: unassigned");
+        ImGui::TextUnformatted("wireLane: missing");
       }
-      ImGui::Text("Generated: %s", span->generation.generated ? "true" : "false");
-      ImGui::Text("Gen Session: %llu", static_cast<unsigned long long>(span->generation.generation_session_id));
-      ImGui::Text("GeneratedByRule: %s", span->generated_by_rule ? "true" : "false");
-      ImGui::Text("PlacementContext: %s", ContextLabel(span->placement_context));
-      ImGui::Text("placementOverride: %s", span->placement_override_flag ? "true" : "false");
-      ImGui::Text("orientationOverride: %s", span->orientation_override_flag ? "true" : "false");
-      const auto* curve = state.find_curve_cache(span->id);
-      if (curve != nullptr) {
-        ImGui::Text("curveSamples: %d", static_cast<int>(curve->points.size()));
-        ImGui::Text("curveLength: %.2f", PolylineLength(curve->points));
-      } else {
-        ImGui::TextUnformatted("curveSamples: (none)");
-      }
-      const auto* bounds = state.find_bounds_cache(span->id);
-      if (bounds != nullptr) {
-        const double sx = bounds->whole.max.x - bounds->whole.min.x;
-        const double sy = bounds->whole.max.y - bounds->whole.min.y;
-        const double sz = bounds->whole.max.z - bounds->whole.min.z;
-        ImGui::Text("AABB size: %.2f %.2f %.2f", sx, sy, sz);
-        ImGui::Text("segmentAABBs: %d", static_cast<int>(bounds->segments.size()));
-      }
-      const auto* runtime_state = state.find_span_runtime_state(span->id);
-      if (runtime_state != nullptr) {
-        ImGui::Separator();
-        ImGui::Text("dataVersion: %llu", static_cast<unsigned long long>(runtime_state->data_version));
-        ImGui::Text("geometryVersion: %llu", static_cast<unsigned long long>(runtime_state->geometry_version));
-        ImGui::Text("boundsVersion: %llu", static_cast<unsigned long long>(runtime_state->bounds_version));
-        ImGui::Text("renderVersion: %llu", static_cast<unsigned long long>(runtime_state->render_version));
-        ImGui::Text("dirtyBits: %s", DirtyBitsToText(runtime_state->dirty_bits).c_str());
-      }
+    } else {
+      ImGui::TextUnformatted("wireLane: unassigned");
+    }
+    ImGui::Text("Generated: %s", span->generation.generated ? "true" : "false");
+    ImGui::Text("Gen Session: %llu", static_cast<unsigned long long>(span->generation.generation_session_id));
+    ImGui::Text("GeneratedByRule: %s", span->generated_by_rule ? "true" : "false");
+    ImGui::Text("PlacementContext: %s", ContextLabel(span->placement_context));
+    ImGui::Text("placementOverride: %s", span->placement_override_flag ? "true" : "false");
+    ImGui::Text("orientationOverride: %s", span->orientation_override_flag ? "true" : "false");
+    const auto* curve = state.find_curve_cache(span->id);
+    if (curve != nullptr) {
+      ImGui::Text("curveSamples: %d", static_cast<int>(curve->points.size()));
+      ImGui::Text("curveLength: %.2f", PolylineLength(curve->points));
+    } else {
+      ImGui::TextUnformatted("curveSamples: (none)");
+    }
+    const auto* bounds = state.find_bounds_cache(span->id);
+    if (bounds != nullptr) {
+      const double sx = bounds->whole.max.x - bounds->whole.min.x;
+      const double sy = bounds->whole.max.y - bounds->whole.min.y;
+      const double sz = bounds->whole.max.z - bounds->whole.min.z;
+      ImGui::Text("AABB size: %.2f %.2f %.2f", sx, sy, sz);
+      ImGui::Text("segmentAABBs: %d", static_cast<int>(bounds->segments.size()));
+    }
+    const auto* runtime_state = state.find_span_runtime_state(span->id);
+    if (runtime_state != nullptr) {
+      ImGui::Separator();
+      ImGui::Text("dataVersion: %llu", static_cast<unsigned long long>(runtime_state->data_version));
+      ImGui::Text("geometryVersion: %llu", static_cast<unsigned long long>(runtime_state->geometry_version));
+      ImGui::Text("boundsVersion: %llu", static_cast<unsigned long long>(runtime_state->bounds_version));
+      ImGui::Text("renderVersion: %llu", static_cast<unsigned long long>(runtime_state->render_version));
+      ImGui::Text("dirtyBits: %s", DirtyBitsToText(runtime_state->dirty_bits).c_str());
+    }
+    return;
+  }
+  case SelectedType::kAnchor: {
+    const auto* anchor = edit.anchors.find(ui_state.selected_id);
+    if (anchor == nullptr) {
+      ImGui::TextUnformatted("Selected anchor is missing");
       return;
     }
-    case SelectedType::kAnchor: {
-      const auto* anchor = edit.anchors.find(ui_state.selected_id);
-      if (anchor == nullptr) {
-        ImGui::TextUnformatted("Selected anchor is missing");
-        return;
-      }
-      ImGui::Text("Type: Anchor");
-      ImGui::Text("ID: %s", anchor->display_id.c_str());
-      ImGui::Text("Owner Pole: %llu", static_cast<unsigned long long>(anchor->owner_pole_id));
-      ImGui::Text("Pos: %.2f %.2f %.2f", anchor->world_position.x, anchor->world_position.y, anchor->world_position.z);
+    ImGui::Text("Type: Anchor");
+    ImGui::Text("ID: %s", anchor->display_id.c_str());
+    ImGui::Text("Owner Pole: %llu", static_cast<unsigned long long>(anchor->owner_pole_id));
+    ImGui::Text("Pos: %.2f %.2f %.2f", anchor->world_position.x, anchor->world_position.y, anchor->world_position.z);
+    return;
+  }
+  case SelectedType::kBundle: {
+    const auto* bundle = edit.bundles.find(ui_state.selected_id);
+    if (bundle == nullptr) {
+      ImGui::TextUnformatted("Selected bundle is missing");
       return;
     }
-    case SelectedType::kBundle: {
-      const auto* bundle = edit.bundles.find(ui_state.selected_id);
-      if (bundle == nullptr) {
-        ImGui::TextUnformatted("Selected bundle is missing");
-        return;
-      }
-      ImGui::Text("Type: Bundle");
-      ImGui::Text("ID: %s", bundle->display_id.c_str());
-      ImGui::Text("Conductor count: %d", bundle->conductor_count);
-      ImGui::Text("Spacing: %.2f", bundle->phase_spacing_m);
+    ImGui::Text("Type: Bundle");
+    ImGui::Text("ID: %s", bundle->display_id.c_str());
+    ImGui::Text("Conductor count: %d", bundle->conductor_count);
+    ImGui::Text("Spacing: %.2f", bundle->phase_spacing_m);
+    return;
+  }
+  case SelectedType::kAttachment: {
+    const auto* attachment = edit.attachments.find(ui_state.selected_id);
+    if (attachment == nullptr) {
+      ImGui::TextUnformatted("Selected attachment is missing");
       return;
     }
-    case SelectedType::kAttachment: {
-      const auto* attachment = edit.attachments.find(ui_state.selected_id);
-      if (attachment == nullptr) {
-        ImGui::TextUnformatted("Selected attachment is missing");
-        return;
-      }
-      ImGui::Text("Type: Attachment");
-      ImGui::Text("ID: %s", attachment->display_id.c_str());
-      ImGui::Text("Span: %llu", static_cast<unsigned long long>(attachment->span_id));
-      ImGui::Text("t: %.3f", attachment->t);
-      return;
-    }
-    default:
-      break;
+    ImGui::Text("Type: Attachment");
+    ImGui::Text("ID: %s", attachment->display_id.c_str());
+    ImGui::Text("Span: %llu", static_cast<unsigned long long>(attachment->span_id));
+    ImGui::Text("t: %.3f", attachment->t);
+    return;
+  }
+  default:
+    break;
   }
 }
 
@@ -1140,7 +1217,8 @@ void DrawPlacementModePanel(CoreState& state, ViewerUiState& ui_state) {
   ui_state.placement_pole_type_index = static_cast<int>(type_index);
   const wire::core::PoleTypeId selected_type_id = type_ids[type_index];
   const auto type_it = state.pole_types().find(selected_type_id);
-  const std::string selected_type_name = (type_it != state.pole_types().end()) ? type_it->second.name : std::to_string(selected_type_id);
+  const std::string selected_type_name =
+      (type_it != state.pole_types().end()) ? type_it->second.name : std::to_string(selected_type_id);
 
   if (ImGui::BeginCombo("PoleType", selected_type_name.c_str())) {
     for (std::size_t i = 0; i < type_ids.size(); ++i) {
@@ -1164,7 +1242,8 @@ void DrawPlacementModePanel(CoreState& state, ViewerUiState& ui_state) {
   if (ImGui::Button("Place Pole")) {
     wire::core::Transformd tf{};
     tf.position = {ui_state.pole_x, ui_state.pole_y, ui_state.pole_z};
-    const auto add_pole_result = state.AddPole(tf, ui_state.pole_height, "Pole", static_cast<wire::core::PoleKind>(ui_state.pole_kind));
+    const auto add_pole_result =
+        state.AddPole(tf, ui_state.pole_height, "Pole", static_cast<wire::core::PoleKind>(ui_state.pole_kind));
     if (!add_pole_result.ok) {
       ui_state.last_error = add_pole_result.error;
       PushLog(ui_state, "Place Pole failed");
@@ -1203,7 +1282,8 @@ void DrawPlacementModePanel(CoreState& state, ViewerUiState& ui_state) {
   ui_state.road_pole_type_index = static_cast<int>(road_type_index);
   const wire::core::PoleTypeId road_type_id = type_ids[road_type_index];
   const auto road_type_it = state.pole_types().find(road_type_id);
-  const std::string road_type_name = (road_type_it != state.pole_types().end()) ? road_type_it->second.name : std::to_string(road_type_id);
+  const std::string road_type_name =
+      (road_type_it != state.pole_types().end()) ? road_type_it->second.name : std::to_string(road_type_id);
   if (ImGui::BeginCombo("Road PoleType", road_type_name.c_str())) {
     for (std::size_t i = 0; i < type_ids.size(); ++i) {
       const auto it = state.pole_types().find(type_ids[i]);
@@ -1219,7 +1299,8 @@ void DrawPlacementModePanel(CoreState& state, ViewerUiState& ui_state) {
     ImGui::EndCombo();
   }
 
-  const int road_category_index = std::clamp(ui_state.road_category_index, 0, static_cast<int>(kAllCategories.size() - 1));
+  const int road_category_index =
+      std::clamp(ui_state.road_category_index, 0, static_cast<int>(kAllCategories.size() - 1));
   ui_state.road_category_index = road_category_index;
   if (ImGui::BeginCombo("Road Category", CategoryLabel(kAllCategories[road_category_index]))) {
     for (int i = 0; i < static_cast<int>(kAllCategories.size()); ++i) {
@@ -1243,11 +1324,8 @@ void DrawPlacementModePanel(CoreState& state, ViewerUiState& ui_state) {
     }
     road.polyline.push_back({ui_state.road_end_x, ui_state.road_end_y, ui_state.road_end_z});
 
-    const auto result = state.GenerateSimpleLine(
-        road,
-        ui_state.road_interval,
-        type_ids[ui_state.road_pole_type_index],
-        kAllCategories[ui_state.road_category_index]);
+    const auto result = state.GenerateSimpleLine(road, ui_state.road_interval, type_ids[ui_state.road_pole_type_index],
+                                                 kAllCategories[ui_state.road_category_index]);
     if (!result.ok) {
       ui_state.last_error = result.error;
       PushLog(ui_state, "GenerateSimpleLine failed");
@@ -1260,10 +1338,8 @@ void DrawPlacementModePanel(CoreState& state, ViewerUiState& ui_state) {
         ui_state.selected_type = SelectedType::kPole;
         ui_state.selected_id = result.value.pole_ids.back();
       }
-      PushLog(
-          ui_state,
-          "Generated road poles=" + std::to_string(ui_state.last_generated_poles) +
-              " spans=" + std::to_string(ui_state.last_generated_spans));
+      PushLog(ui_state, "Generated road poles=" + std::to_string(ui_state.last_generated_poles) +
+                            " spans=" + std::to_string(ui_state.last_generated_spans));
     }
   }
   ImGui::Text("Last generated poles: %d", ui_state.last_generated_poles);
@@ -1278,7 +1354,8 @@ void DrawConnectionModePanel(CoreState& state, ViewerUiState& ui_state) {
 
   const int category_index = std::clamp(ui_state.connect_category, 0, static_cast<int>(kAllCategories.size() - 1));
   ui_state.connect_category = category_index;
-  const int context_index = std::clamp(ui_state.connect_context, 0, static_cast<int>(kAllConnectionContexts.size() - 1));
+  const int context_index =
+      std::clamp(ui_state.connect_context, 0, static_cast<int>(kAllConnectionContexts.size() - 1));
   ui_state.connect_context = context_index;
   if (ImGui::BeginCombo("Category", CategoryLabel(kAllCategories[category_index]))) {
     for (int i = 0; i < static_cast<int>(kAllCategories.size()); ++i) {
@@ -1310,11 +1387,8 @@ void DrawConnectionModePanel(CoreState& state, ViewerUiState& ui_state) {
         std::clamp(ui_state.connect_context, 0, static_cast<int>(kAllConnectionContexts.size() - 1));
     wire::core::CoreState::AddConnectionByPoleOptions options{};
     options.connection_context = kAllConnectionContexts[selected_context_index];
-    const auto result = state.AddConnectionByPole(
-        ui_state.connect_pole_a_id,
-        ui_state.connect_pole_b_id,
-        kAllCategories[ui_state.connect_category],
-        options);
+    const auto result = state.AddConnectionByPole(ui_state.connect_pole_a_id, ui_state.connect_pole_b_id,
+                                                  kAllCategories[ui_state.connect_category], options);
     if (!result.ok) {
       ui_state.last_error = result.error;
       PushLog(ui_state, "Connect Pole->Pole failed");
@@ -1322,13 +1396,11 @@ void DrawConnectionModePanel(CoreState& state, ViewerUiState& ui_state) {
       ui_state.last_error.clear();
       ui_state.selected_type = SelectedType::kSpan;
       ui_state.selected_id = result.value.span_id;
-      PushLog(
-          ui_state,
-          "Connected span=" + std::to_string(result.value.span_id) +
-              " portA=" + std::to_string(result.value.port_a_id) +
-              " slotA=" + std::to_string(result.value.slot_a_id) +
-              " portB=" + std::to_string(result.value.port_b_id) +
-              " slotB=" + std::to_string(result.value.slot_b_id));
+      PushLog(ui_state, "Connected span=" + std::to_string(result.value.span_id) +
+                            " portA=" + std::to_string(result.value.port_a_id) +
+                            " slotA=" + std::to_string(result.value.slot_a_id) +
+                            " portB=" + std::to_string(result.value.port_b_id) +
+                            " slotB=" + std::to_string(result.value.slot_b_id));
     }
   }
 }
@@ -1348,11 +1420,8 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
   ImGui::TextUnformatted("Generate by WireGroup/WireLane (not per-wire manual placement)");
   ImGui::Text("Path points: %d", static_cast<int>(ui_state.draw_path_points.size()));
   if (ui_state.draw_hover_valid) {
-    ImGui::Text(
-        "Hover: %.2f %.2f %.2f",
-        ui_state.draw_hover_point.x,
-        ui_state.draw_hover_point.y,
-        ui_state.draw_hover_point.z);
+    ImGui::Text("Hover: %.2f %.2f %.2f", ui_state.draw_hover_point.x, ui_state.draw_hover_point.y,
+                ui_state.draw_hover_point.z);
   } else {
     ImGui::TextUnformatted("Hover: (no ground hit)");
   }
@@ -1381,23 +1450,24 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
     }
   }
 
-  const int category_index = std::clamp(ui_state.road_category_index, 0, static_cast<int>(kAllCategories.size() - 1));
-  ui_state.road_category_index = category_index;
-  if (ImGui::BeginCombo("Path Category", CategoryLabel(kAllCategories[category_index]))) {
+  if (ImGui::BeginCombo("Path Categories", DrawCategoryPreview(ui_state).c_str())) {
     for (int i = 0; i < static_cast<int>(kAllCategories.size()); ++i) {
-      const bool selected = (i == category_index);
-      if (ImGui::Selectable(CategoryLabel(kAllCategories[i]), selected)) {
-        ui_state.road_category_index = i;
-      }
-      if (selected) {
-        ImGui::SetItemDefaultFocus();
+      bool selected = IsDrawCategorySelected(ui_state, i);
+      if (ImGui::Selectable(CategoryLabel(kAllCategories[i]), selected, ImGuiSelectableFlags_DontClosePopups)) {
+        selected = !selected;
+        SetDrawCategorySelected(ui_state, i, selected);
       }
     }
     ImGui::EndCombo();
   }
-  if (ImGui::BeginCombo(
-          "Direction Mode",
-          PathDirectionModeLabel(static_cast<wire::core::PathDirectionMode>(ui_state.draw_direction_mode)))) {
+  const auto selected_categories = SelectedDrawCategories(ui_state);
+  if (selected_categories.empty()) {
+    ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "Select at least one category");
+  } else {
+    ImGui::Text("Selected Categories: %d", static_cast<int>(selected_categories.size()));
+  }
+  if (ImGui::BeginCombo("Direction Mode", PathDirectionModeLabel(static_cast<wire::core::PathDirectionMode>(
+                                              ui_state.draw_direction_mode)))) {
     for (int i = 0; i < 3; ++i) {
       const bool selected = (i == ui_state.draw_direction_mode);
       const auto mode = static_cast<wire::core::PathDirectionMode>(i);
@@ -1411,14 +1481,23 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
     ImGui::EndCombo();
   }
   const wire::core::PoleTypeId resolved_type_id =
-      type_ids.empty()
-          ? wire::core::kInvalidPoleTypeId
-          : type_ids[ClampedTypeIndex(ui_state.road_pole_type_index, type_ids.size())];
+      type_ids.empty() ? wire::core::kInvalidPoleTypeId
+                       : type_ids[ClampedTypeIndex(ui_state.road_pole_type_index, type_ids.size())];
   (void)resolved_type_id;
-  const int auto_parallel = FallbackParallelSpanCount(kAllCategories[category_index]);
-  const int resolved_parallel =
-      (ui_state.draw_parallel_spans > 0) ? ui_state.draw_parallel_spans : auto_parallel;
-  ImGui::Text("Resolved Group Lanes: %d", resolved_parallel);
+  if (!selected_categories.empty()) {
+    std::ostringstream lane_info;
+    lane_info << "Resolved Group Lanes: ";
+    for (std::size_t i = 0; i < selected_categories.size(); ++i) {
+      const auto category = selected_categories[i];
+      const int auto_parallel = FallbackParallelSpanCount(category);
+      const int resolved_parallel = (ui_state.draw_parallel_spans > 0) ? ui_state.draw_parallel_spans : auto_parallel;
+      if (i > 0) {
+        lane_info << " / ";
+      }
+      lane_info << CategoryLabel(category) << "=" << resolved_parallel;
+    }
+    ImGui::TextUnformatted(lane_info.str().c_str());
+  }
   if (ui_state.draw_interval_m <= 0.0) {
     ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "Path Interval must be > 0");
   }
@@ -1430,21 +1509,13 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
     }
   }
   const auto& dir_debug = state.last_path_direction_debug();
-  ImGui::Text(
-      "Direction chosen: %s (mode=%s)",
-      PathDirectionChosenLabel(dir_debug.chosen),
-      PathDirectionModeLabel(dir_debug.requested_mode));
-  ImGui::Text(
-      "Cost F/R: %d / %d",
-      dir_debug.forward_cost.total,
-      dir_debug.reverse_cost.total);
-  ImGui::Text(
-      "Cost detail cross=%d side=%d layer=%d corner=%d branch=%d",
-      dir_debug.forward_cost.estimated_cross_penalty,
-      dir_debug.forward_cost.side_flip_penalty,
-      dir_debug.forward_cost.layer_jump_penalty,
-      dir_debug.forward_cost.corner_compression_penalty,
-      dir_debug.forward_cost.branch_conflict_penalty);
+  ImGui::Text("Direction chosen: %s (mode=%s)", PathDirectionChosenLabel(dir_debug.chosen),
+              PathDirectionModeLabel(dir_debug.requested_mode));
+  ImGui::Text("Cost F/R: %d / %d", dir_debug.forward_cost.total, dir_debug.reverse_cost.total);
+  ImGui::Text("Cost detail cross=%d side=%d layer=%d corner=%d branch=%d",
+              dir_debug.forward_cost.estimated_cross_penalty, dir_debug.forward_cost.side_flip_penalty,
+              dir_debug.forward_cost.layer_jump_penalty, dir_debug.forward_cost.corner_compression_penalty,
+              dir_debug.forward_cost.branch_conflict_penalty);
 
   if (ImGui::Button("Generate From Path")) {
     ExecuteGenerateFromDrawPath(state, ui_state, false);
@@ -1464,13 +1535,9 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
   ImGui::Separator();
   ImGui::Text("Lane assignments: %d", static_cast<int>(lane_assignments.size()));
   for (const auto& a : lane_assignments) {
-    ImGui::Text(
-        "seg=%d A=%llu B=%llu lanes=%d mirrored=%s",
-        static_cast<int>(a.segment_index),
-        static_cast<unsigned long long>(a.pole_a_id),
-        static_cast<unsigned long long>(a.pole_b_id),
-        static_cast<int>(a.port_ids_a.size()),
-        a.mirrored ? "true" : "false");
+    ImGui::Text("seg=%d A=%llu B=%llu lanes=%d mirrored=%s", static_cast<int>(a.segment_index),
+                static_cast<unsigned long long>(a.pole_a_id), static_cast<unsigned long long>(a.pole_b_id),
+                static_cast<int>(a.port_ids_a.size()), a.mirrored ? "true" : "false");
   }
 }
 
@@ -1482,11 +1549,10 @@ void DrawBranchModePanel(CoreState& state, ViewerUiState& ui_state) {
   ImGui::InputDouble("Branch Target Y", &ui_state.branch_target_y);
   ImGui::InputDouble("Branch Target Z", &ui_state.branch_target_z);
   if (ImGui::Button("Add Drop From Span")) {
-    const auto result = state.AddDropFromSpan(
-        ui_state.branch_source_span_id,
-        ui_state.branch_t,
-        {ui_state.branch_target_x, ui_state.branch_target_y, ui_state.branch_target_z},
-        wire::core::ConnectionCategory::kDrop);
+    const auto result =
+        state.AddDropFromSpan(ui_state.branch_source_span_id, ui_state.branch_t,
+                              {ui_state.branch_target_x, ui_state.branch_target_y, ui_state.branch_target_z},
+                              wire::core::ConnectionCategory::kDrop);
     if (!result.ok) {
       ui_state.last_error = result.error;
       PushLog(ui_state, "AddDropFromSpan failed");
@@ -1494,10 +1560,8 @@ void DrawBranchModePanel(CoreState& state, ViewerUiState& ui_state) {
       ui_state.last_error.clear();
       ui_state.selected_type = SelectedType::kSpan;
       ui_state.selected_id = result.value.span_id;
-      PushLog(
-          ui_state,
-          "DropFromSpan span=" + std::to_string(result.value.span_id) +
-              " splitPort=" + std::to_string(result.value.split_port_id));
+      PushLog(ui_state, "DropFromSpan span=" + std::to_string(result.value.span_id) +
+                            " splitPort=" + std::to_string(result.value.split_port_id));
     }
   }
 
@@ -1508,10 +1572,9 @@ void DrawBranchModePanel(CoreState& state, ViewerUiState& ui_state) {
   ImGui::InputDouble("Drop Target Y", &ui_state.drop_target_y);
   ImGui::InputDouble("Drop Target Z", &ui_state.drop_target_z);
   if (ImGui::Button("Add Drop From Pole")) {
-    const auto result = state.AddDropFromPole(
-        ui_state.drop_source_pole_id,
-        {ui_state.drop_target_x, ui_state.drop_target_y, ui_state.drop_target_z},
-        wire::core::ConnectionCategory::kDrop);
+    const auto result = state.AddDropFromPole(ui_state.drop_source_pole_id,
+                                              {ui_state.drop_target_x, ui_state.drop_target_y, ui_state.drop_target_z},
+                                              wire::core::ConnectionCategory::kDrop);
     if (!result.ok) {
       ui_state.last_error = result.error;
       PushLog(ui_state, "AddDropFromPole failed");
@@ -1519,10 +1582,8 @@ void DrawBranchModePanel(CoreState& state, ViewerUiState& ui_state) {
       ui_state.last_error.clear();
       ui_state.selected_type = SelectedType::kSpan;
       ui_state.selected_id = result.value.span_id;
-      PushLog(
-          ui_state,
-          "DropFromPole span=" + std::to_string(result.value.span_id) +
-              " sourcePort=" + std::to_string(result.value.source_port_id));
+      PushLog(ui_state, "DropFromPole span=" + std::to_string(result.value.span_id) +
+                            " sourcePort=" + std::to_string(result.value.source_port_id));
     }
   }
 }
@@ -1544,6 +1605,29 @@ void DrawDetailModePanel(CoreState& state, ViewerUiState& ui_state) {
 
   ImGui::Text("Pole: %s", detail.pole->display_id.c_str());
   ImGui::Text("PoleTypeId: %u", static_cast<unsigned int>(detail.pole->pole_type_id));
+  wire::core::PlacementMode placement_mode = detail.pole->placement_mode;
+  if (ImGui::BeginCombo("Placement Mode", PolePlacementModeLabel(placement_mode))) {
+    for (int i = 0; i < 2; ++i) {
+      const auto candidate = static_cast<wire::core::PlacementMode>(i);
+      const bool selected = (candidate == placement_mode);
+      if (ImGui::Selectable(PolePlacementModeLabel(candidate), selected)) {
+        const auto mode_result = state.SetPolePlacementMode(ui_state.selected_id, candidate);
+        if (!mode_result.ok) {
+          ui_state.last_error = mode_result.error;
+          PushLog(ui_state, "SetPolePlacementMode failed");
+        } else {
+          ui_state.last_error.clear();
+          PushLog(ui_state, std::string("SetPolePlacementMode -> ") + PolePlacementModeLabel(candidate));
+          placement_mode = candidate;
+        }
+      }
+      if (selected) {
+        ImGui::SetItemDefaultFocus();
+      }
+    }
+    ImGui::EndCombo();
+  }
+  ImGui::Text("UserEditedPole: %s", detail.pole->user_edited ? "true" : "false");
   bool flip_180 = detail.pole->orientation_control.flip_180;
   if (ImGui::Checkbox("Flip 180", &flip_180)) {
     const auto flip_result = state.SetPoleFlip180(ui_state.selected_id, flip_180);
@@ -1561,7 +1645,8 @@ void DrawDetailModePanel(CoreState& state, ViewerUiState& ui_state) {
     const std::size_t idx = ClampedTypeIndex(ui_state.detail_pole_type_index, type_ids.size());
     ui_state.detail_pole_type_index = static_cast<int>(idx);
     const auto type_it = state.pole_types().find(type_ids[idx]);
-    const std::string selected_name = (type_it != state.pole_types().end()) ? type_it->second.name : std::to_string(type_ids[idx]);
+    const std::string selected_name =
+        (type_it != state.pole_types().end()) ? type_it->second.name : std::to_string(type_ids[idx]);
     if (ImGui::BeginCombo("Set PoleType", selected_name.c_str())) {
       for (std::size_t i = 0; i < type_ids.size(); ++i) {
         const auto it = state.pole_types().find(type_ids[i]);
@@ -1598,38 +1683,23 @@ void DrawDetailModePanel(CoreState& state, ViewerUiState& ui_state) {
     for (const auto& slot : detail.pole_type->port_slots) {
       const auto it = by_slot.find(slot.slot_id);
       if (it == by_slot.end()) {
-        ImGui::Text(
-            "slot=%d cat=%s layer=%d side=%s role=%s used=0 [empty]",
-            slot.slot_id,
-            CategoryLabel(slot.category),
-            slot.layer,
-            SlotSideLabel(slot.side),
-            SlotRoleLabel(slot.role));
+        ImGui::Text("slot=%d cat=%s layer=%d side=%s role=%s used=0 [empty]", slot.slot_id,
+                    CategoryLabel(slot.category), slot.layer, SlotSideLabel(slot.side), SlotRoleLabel(slot.role));
         continue;
       }
       const auto* port = it->second;
       const auto usage_it = state.connection_index().spans_by_port.find(port->id);
-      const int usage = (usage_it == state.connection_index().spans_by_port.end()) ? 0 : static_cast<int>(usage_it->second.size());
-      ImGui::Text(
-          "slot=%d cat=%s layer=%d side=%s role=%s used=%d -> %s",
-          slot.slot_id,
-          CategoryLabel(slot.category),
-          slot.layer,
-          SlotSideLabel(slot.side),
-          SlotRoleLabel(slot.role),
-          usage,
-          port->display_id.c_str());
+      const int usage =
+          (usage_it == state.connection_index().spans_by_port.end()) ? 0 : static_cast<int>(usage_it->second.size());
+      ImGui::Text("slot=%d cat=%s layer=%d side=%s role=%s used=%d -> %s", slot.slot_id, CategoryLabel(slot.category),
+                  slot.layer, SlotSideLabel(slot.side), SlotRoleLabel(slot.role), usage, port->display_id.c_str());
     }
   } else {
     for (const auto* port : detail.owned_ports) {
       const auto it = state.connection_index().spans_by_port.find(port->id);
       const int usage = (it == state.connection_index().spans_by_port.end()) ? 0 : static_cast<int>(it->second.size());
-      ImGui::Text(
-          "%s cat=%s slot=%d used=%d",
-          port->display_id.c_str(),
-          CategoryLabel(port->category),
-          port->source_slot_id,
-          usage);
+      ImGui::Text("%s cat=%s slot=%d used=%d", port->display_id.c_str(), CategoryLabel(port->category),
+                  port->source_slot_id, usage);
     }
   }
 
@@ -1650,11 +1720,9 @@ void DrawDebugDirectPanel(CoreState& state, ViewerUiState& ui_state) {
   ImGui::InputDouble("Port Y", &ui_state.port_y);
   ImGui::InputDouble("Port Z", &ui_state.port_z);
   if (ImGui::Button("Debug Add Port")) {
-    const auto result = state.AddPort(
-        ui_state.port_owner_pole_id,
-        {ui_state.port_x, ui_state.port_y, ui_state.port_z},
-        static_cast<wire::core::PortKind>(ui_state.port_kind),
-        static_cast<wire::core::PortLayer>(ui_state.port_layer));
+    const auto result = state.AddPort(ui_state.port_owner_pole_id, {ui_state.port_x, ui_state.port_y, ui_state.port_z},
+                                      static_cast<wire::core::PortKind>(ui_state.port_kind),
+                                      static_cast<wire::core::PortLayer>(ui_state.port_layer));
     if (!result.ok) {
       ui_state.last_error = result.error;
     } else {
@@ -1669,12 +1737,9 @@ void DrawDebugDirectPanel(CoreState& state, ViewerUiState& ui_state) {
   ImGui::InputScalar("Span PortBId", ImGuiDataType_U64, &ui_state.span_port_b_id);
   ImGui::InputScalar("Span BundleId (0=none)", ImGuiDataType_U64, &ui_state.span_bundle_id);
   if (ImGui::Button("Debug Add Span")) {
-    const auto result = state.AddSpan(
-        ui_state.span_port_a_id,
-        ui_state.span_port_b_id,
-        static_cast<wire::core::SpanKind>(ui_state.span_kind),
-        static_cast<wire::core::SpanLayer>(ui_state.span_layer),
-        ui_state.span_bundle_id);
+    const auto result = state.AddSpan(ui_state.span_port_a_id, ui_state.span_port_b_id,
+                                      static_cast<wire::core::SpanKind>(ui_state.span_kind),
+                                      static_cast<wire::core::SpanLayer>(ui_state.span_layer), ui_state.span_bundle_id);
     if (!result.ok) {
       ui_state.last_error = result.error;
       PushLog(ui_state, "Debug Add Span failed");
@@ -1697,13 +1762,9 @@ void DrawStatsPanel(CoreState& state, ViewerUiState& ui_state) {
 
   ImGui::SetNextWindowPos(ImVec2(std::max(0.0f, screen_width - panel_width), 0.0f), ImGuiCond_Always);
   ImGui::SetNextWindowSize(ImVec2(panel_width, screen_height), ImGuiCond_Always);
-  ImGui::SetNextWindowSizeConstraints(
-      ImVec2(min_panel_width, 320.0f),
-      ImVec2(max_panel_width, screen_height));
+  ImGui::SetNextWindowSizeConstraints(ImVec2(min_panel_width, 320.0f), ImVec2(max_panel_width, screen_height));
 
-  const ImGuiWindowFlags flags =
-      ImGuiWindowFlags_NoMove |
-      ImGuiWindowFlags_NoCollapse;
+  const ImGuiWindowFlags flags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse;
 
   ImGui::Begin("Wire Viewer", nullptr, flags);
   panel_width = ImGui::GetWindowSize().x;
@@ -1793,11 +1854,8 @@ void DrawStatsPanel(CoreState& state, ViewerUiState& ui_state) {
       PushLog(ui_state, "UpdateGeometrySettings failed");
     } else {
       ui_state.last_error.clear();
-      PushLog(
-          ui_state,
-          "Geometry settings updated changed=" +
-              std::string(result.value ? "true" : "false") +
-              " dirtySpans=" + std::to_string(result.change_set.dirty_span_ids.size()));
+      PushLog(ui_state, "Geometry settings updated changed=" + std::string(result.value ? "true" : "false") +
+                            " dirtySpans=" + std::to_string(result.change_set.dirty_span_ids.size()));
     }
   }
 
@@ -1836,32 +1894,17 @@ void DrawStatsPanel(CoreState& state, ViewerUiState& ui_state) {
         std::clamp(ui_state.selected_slot_debug_index, 0, static_cast<int>(debug_records.size() - 1));
     ImGui::SliderInt("Event Index", &ui_state.selected_slot_debug_index, 0, static_cast<int>(debug_records.size() - 1));
     const auto& event = debug_records[static_cast<std::size_t>(ui_state.selected_slot_debug_index)];
-    ImGui::Text("Pole=%llu Peer=%llu Ctx=%s Cat=%s", static_cast<unsigned long long>(event.pole_id), static_cast<unsigned long long>(event.peer_pole_id), ContextLabel(event.connection_context), CategoryLabel(event.category));
-    ImGui::Text(
-        "PoleContext=%s corner=%.2f turn=%.0f sideScale=%.3f",
-        PoleContextLabel(event.pole_context),
-        event.corner_angle_deg,
-        event.corner_turn_sign,
-        event.side_scale);
+    ImGui::Text("Pole=%llu Peer=%llu Ctx=%s Cat=%s", static_cast<unsigned long long>(event.pole_id),
+                static_cast<unsigned long long>(event.peer_pole_id), ContextLabel(event.connection_context),
+                CategoryLabel(event.category));
+    ImGui::Text("PoleContext=%s corner=%.2f turn=%.0f sideScale=%.3f", PoleContextLabel(event.pole_context),
+                event.corner_angle_deg, event.corner_turn_sign, event.side_scale);
     ImGui::Text("Selected slot=%d result=%s", event.selected_slot_id, event.result.c_str());
     ImGui::BeginChild("SlotScoreLog", ImVec2(0.0f, 160.0f), true, ImGuiWindowFlags_HorizontalScrollbar);
     for (const auto& c : event.candidates) {
-      ImGui::Text(
-          "slot=%d total=%d eligible=%d tie=%d",
-          c.slot_id,
-          c.total_score,
-          c.eligible ? 1 : 0,
-          c.tie_breaker);
-      ImGui::Text(
-          "cat=%d ctx=%d layer=%d side=%d role=%d pri=%d usage=%d cong=%d",
-          c.category_score,
-          c.context_score,
-          c.layer_score,
-          c.side_score,
-          c.role_score,
-          c.priority_score,
-          c.usage_score,
-          c.congestion_score);
+      ImGui::Text("slot=%d total=%d eligible=%d tie=%d", c.slot_id, c.total_score, c.eligible ? 1 : 0, c.tie_breaker);
+      ImGui::Text("cat=%d ctx=%d layer=%d side=%d role=%d pri=%d usage=%d cong=%d", c.category_score, c.context_score,
+                  c.layer_score, c.side_score, c.role_score, c.priority_score, c.usage_score, c.congestion_score);
       ImGui::TextWrapped("reason=%s", c.reason.c_str());
       ImGui::Separator();
     }
@@ -1910,9 +1953,7 @@ void DrawStatsPanel(CoreState& state, ViewerUiState& ui_state) {
 
   ImGui::Separator();
   DrawObjectList(
-      ui_state,
-      "Poles",
-      SelectedType::kPole,
+      ui_state, "Poles", SelectedType::kPole,
       [&]() {
         std::vector<ObjectId> ids;
         ids.reserve(state.edit_state().poles.size());
@@ -1930,9 +1971,7 @@ void DrawStatsPanel(CoreState& state, ViewerUiState& ui_state) {
       });
 
   DrawObjectList(
-      ui_state,
-      "Ports",
-      SelectedType::kPort,
+      ui_state, "Ports", SelectedType::kPort,
       [&]() {
         std::vector<ObjectId> ids;
         ids.reserve(state.edit_state().ports.size());
@@ -1950,9 +1989,7 @@ void DrawStatsPanel(CoreState& state, ViewerUiState& ui_state) {
       });
 
   DrawObjectList(
-      ui_state,
-      "Spans",
-      SelectedType::kSpan,
+      ui_state, "Spans", SelectedType::kSpan,
       [&]() {
         std::vector<ObjectId> ids;
         ids.reserve(state.edit_state().spans.size());
@@ -1988,7 +2025,7 @@ void DrawStatsPanel(CoreState& state, ViewerUiState& ui_state) {
   ImGui::End();
 }
 
-}  // namespace
+} // namespace
 
 int main() {
   SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT);

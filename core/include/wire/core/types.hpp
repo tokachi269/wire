@@ -8,13 +8,9 @@ struct Vec3d {
   double z = 0.0;
 };
 
-inline Vec3d operator+(const Vec3d& a, const Vec3d& b) {
-  return {a.x + b.x, a.y + b.y, a.z + b.z};
-}
+inline Vec3d operator+(const Vec3d& a, const Vec3d& b) { return {a.x + b.x, a.y + b.y, a.z + b.z}; }
 
-inline Vec3d operator-(const Vec3d& a, const Vec3d& b) {
-  return {a.x - b.x, a.y - b.y, a.z - b.z};
-}
+inline Vec3d operator-(const Vec3d& a, const Vec3d& b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
 
 struct Transformd {
   Vec3d position{};
@@ -34,4 +30,4 @@ struct AABBd {
   Vec3d max{};
 };
 
-}  // namespace wire::core
+} // namespace wire::core

@@ -16,9 +16,8 @@ concept HasObjectId = requires(T value) {
   { value.id } -> std::convertible_to<ObjectId>;
 };
 
-template <HasObjectId T>
-class ObjectStore {
- public:
+template <HasObjectId T> class ObjectStore {
+public:
   ObjectStore() = default;
 
   [[nodiscard]] std::size_t size() const { return items_.size(); }
@@ -115,9 +114,9 @@ class ObjectStore {
   [[nodiscard]] const std::vector<T>& items() const { return items_; }
   [[nodiscard]] std::vector<T>& items() { return items_; }
 
- private:
+private:
   std::vector<T> items_;
   std::unordered_map<ObjectId, std::size_t> index_by_id_;
 };
 
-}  // namespace wire::core
+} // namespace wire::core

@@ -79,6 +79,11 @@ enum class PortLayer : std::uint8_t {
   kOptical = 4,
 };
 
+enum class PlacementMode : std::uint8_t {
+  kAuto = 0,
+  kManual = 1,
+};
+
 enum class PortPositionMode : std::uint8_t {
   kAuto = 0,
   kManual = 1,
@@ -171,6 +176,27 @@ struct RoadSegment {
   std::vector<Vec3d> polyline{};
 };
 
+// Workflow input guide path (DrawPath/road adapters share this shape).
+struct GuidePath {
+  std::vector<Vec3d> polyline{};
+};
+
+struct GenerationConstraints {
+  std::vector<Vec3d> avoid_points{};
+  double avoid_radius_m = 0.0;
+  double lateral_offset_m = 0.0;
+};
+
+struct GenerationRequest {
+  GuidePath path{};
+  double interval_m = 0.0;
+  PoleTypeId pole_type_id = kInvalidPoleTypeId;
+  ConnectionCategory category = ConnectionCategory::kLowVoltage;
+  GenerationConstraints constraints{};
+  PathDirectionMode direction_mode = PathDirectionMode::kAuto;
+  int requested_lane_count = 0;
+};
+
 // Definition-layer slot candidate. This is not a runtime connection endpoint.
 struct PortSlotTemplate {
   int slot_id = 0;
@@ -204,7 +230,7 @@ struct PoleTypeDefinition {
 struct PoleContextInfo {
   PoleContextKind kind = PoleContextKind::kStraight;
   double corner_angle_deg = 0.0;
-  double corner_turn_sign = 0.0;  // -1:right turn, +1:left turn, 0:undefined/straight
+  double corner_turn_sign = 0.0; // -1:right turn, +1:left turn, 0:undefined/straight
   double side_scale = 1.0;
   bool angle_correction_applied = false;
 };
@@ -226,6 +252,8 @@ struct Pole {
   PoleTypeId pole_type_id = kInvalidPoleTypeId;
   PoleContextInfo context{};
   PoleOrientationControl orientation_control{};
+  PlacementMode placement_mode = PlacementMode::kAuto;
+  bool user_edited = false;
   bool placement_override_flag = false;
   bool orientation_override_flag = false;
   GenerationMeta generation{};
@@ -351,4 +379,11 @@ struct Attachment {
   double offset_m = 0.0;
 };
 
-}  // namespace wire::core
+// Backbone route edge (NodeId == PoleId for current phase).
+struct BackboneEdge {
+  ObjectId node_a = kInvalidObjectId;
+  ObjectId node_b = kInvalidObjectId;
+  std::vector<ObjectId> groups{};
+};
+
+} // namespace wire::core

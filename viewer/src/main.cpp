@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <fstream>
 #include <functional>
 #include <sstream>
 #include <string>
@@ -119,6 +120,7 @@ struct ViewerUiState {
   double draw_plane_z = 0.0;
   bool draw_show_preview = true;
   bool draw_keep_path_after_generate = true;
+  bool draw_clicked_points_only = false;
   double draw_interval_m = 8.0;
   int draw_parallel_spans = 0; // 0 = category standard lanes
   int draw_direction_mode = static_cast<int>(wire::core::PathDirectionMode::kAuto);
@@ -136,7 +138,79 @@ struct ViewerUiState {
   double edit_x = 0.0;
   double edit_y = 0.0;
   double edit_z = 0.0;
+  bool ui_unified_workspace = true;
+  bool ui_show_workspace = true;
+  float ui_workspace_width = 0.0f;
 };
+
+struct ViewerPersistentSettings {
+  int window_width = 1280;
+  int window_height = 720;
+  bool ui_unified_workspace = true;
+  bool ui_show_workspace = true;
+  float ui_workspace_width = 420.0f;
+};
+
+constexpr const char* kViewerSettingsFile = "viewer_state.ini";
+
+bool parse_bool(std::string_view value, bool fallback) {
+  if (value == "1" || value == "true" || value == "True") {
+    return true;
+  }
+  if (value == "0" || value == "false" || value == "False") {
+    return false;
+  }
+  return fallback;
+}
+
+ViewerPersistentSettings LoadViewerPersistentSettings() {
+  ViewerPersistentSettings settings{};
+  std::ifstream ifs(kViewerSettingsFile);
+  if (!ifs.is_open()) {
+    return settings;
+  }
+
+  std::string line;
+  while (std::getline(ifs, line)) {
+    if (line.empty()) {
+      continue;
+    }
+    const std::size_t eq = line.find('=');
+    if (eq == std::string::npos || eq == 0 || eq + 1 >= line.size()) {
+      continue;
+    }
+    const std::string key = line.substr(0, eq);
+    const std::string value = line.substr(eq + 1);
+    try {
+      if (key == "window_width") {
+        settings.window_width = std::max(640, std::stoi(value));
+      } else if (key == "window_height") {
+        settings.window_height = std::max(480, std::stoi(value));
+      } else if (key == "ui_unified_workspace") {
+        settings.ui_unified_workspace = parse_bool(value, settings.ui_unified_workspace);
+      } else if (key == "ui_show_workspace") {
+        settings.ui_show_workspace = parse_bool(value, settings.ui_show_workspace);
+      } else if (key == "ui_workspace_width") {
+        settings.ui_workspace_width = std::clamp(std::stof(value), 300.0f, 900.0f);
+      }
+    } catch (...) {
+      // Ignore malformed line and keep defaults.
+    }
+  }
+  return settings;
+}
+
+void SaveViewerPersistentSettings(const ViewerPersistentSettings& settings) {
+  std::ofstream ofs(kViewerSettingsFile, std::ios::trunc);
+  if (!ofs.is_open()) {
+    return;
+  }
+  ofs << "window_width=" << settings.window_width << "\n";
+  ofs << "window_height=" << settings.window_height << "\n";
+  ofs << "ui_unified_workspace=" << (settings.ui_unified_workspace ? 1 : 0) << "\n";
+  ofs << "ui_show_workspace=" << (settings.ui_show_workspace ? 1 : 0) << "\n";
+  ofs << "ui_workspace_width=" << settings.ui_workspace_width << "\n";
+}
 
 void PushLog(ViewerUiState& ui_state, const std::string& line);
 
@@ -552,7 +626,12 @@ void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool
 
     wire::core::CoreState::GenerateWireGroupFromPathInput input{};
     input.polyline = road.polyline;
-    input.interval_m = ui_state.draw_interval_m;
+    if (ui_state.draw_clicked_points_only) {
+      // Disable intermediate poles by using an interval longer than the whole path.
+      input.interval_m = std::max(0.001, PolylineLength(road.polyline) + 1.0);
+    } else {
+      input.interval_m = ui_state.draw_interval_m;
+    }
     input.pole_type_id = type_ids[ui_state.road_pole_type_index];
     input.category = category;
     input.direction_mode = static_cast<wire::core::PathDirectionMode>(mode_index);
@@ -818,17 +897,18 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
   }
 
   for (const wire::core::Pole& pole : edit.poles.items()) {
-    const wire::core::Vec3d pole_center_ue{
+    // raylib DrawCylinderWires uses base-center as position.
+    const wire::core::Vec3d pole_base_ue{
         pole.world_transform.position.x,
         pole.world_transform.position.y,
-        pole.world_transform.position.z + (pole.height_m * 0.5),
+        pole.world_transform.position.z,
     };
 
     Color color = DARKGRAY;
     if (ui_state.selected_type == SelectedType::kPole && ui_state.selected_id == pole.id) {
       color = GOLD;
     }
-    DrawCylinderWires(ToRaylib(pole_center_ue), 0.12f, 0.12f, static_cast<float>(pole.height_m), 10, color);
+    DrawCylinderWires(ToRaylib(pole_base_ue), 0.12f, 0.12f, static_cast<float>(pole.height_m), 10, color);
   }
 
   for (const wire::core::Port& port : edit.ports.items()) {
@@ -1413,6 +1493,7 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
   ImGui::InputDouble("Draw Plane Z", &ui_state.draw_plane_z, 0.1, 1.0, "%.2f");
   ImGui::InputDouble("Path Interval (m)", &ui_state.draw_interval_m, 0.5, 1.0, "%.2f");
   ui_state.draw_interval_m = std::max(0.0, ui_state.draw_interval_m);
+  ImGui::Checkbox("Clicked Points Only (No Intermediate Pole)", &ui_state.draw_clicked_points_only);
   ImGui::Checkbox("Show Preview", &ui_state.draw_show_preview);
   ImGui::Checkbox("Keep Path After Generate", &ui_state.draw_keep_path_after_generate);
   ImGui::InputInt("Lane Override (0=category standard)", &ui_state.draw_parallel_spans);
@@ -1498,7 +1579,7 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
     }
     ImGui::TextUnformatted(lane_info.str().c_str());
   }
-  if (ui_state.draw_interval_m <= 0.0) {
+  if (!ui_state.draw_clicked_points_only && ui_state.draw_interval_m <= 0.0) {
     ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "Path Interval must be > 0");
   }
   if (ImGui::Button("Flip Direction (Manual)")) {
@@ -1752,191 +1833,76 @@ void DrawDebugDirectPanel(CoreState& state, ViewerUiState& ui_state) {
   }
 }
 
-void DrawStatsPanel(CoreState& state, ViewerUiState& ui_state) {
-  const float screen_width = static_cast<float>(GetScreenWidth());
-  const float screen_height = static_cast<float>(GetScreenHeight());
-  const float min_panel_width = 280.0f;
-  const float max_panel_width = std::max(min_panel_width, screen_width - 220.0f);
-  static float panel_width = 360.0f;
-  panel_width = std::clamp(panel_width, min_panel_width, max_panel_width);
-
-  ImGui::SetNextWindowPos(ImVec2(std::max(0.0f, screen_width - panel_width), 0.0f), ImGuiCond_Always);
-  ImGui::SetNextWindowSize(ImVec2(panel_width, screen_height), ImGuiCond_Always);
-  ImGui::SetNextWindowSizeConstraints(ImVec2(min_panel_width, 320.0f), ImVec2(max_panel_width, screen_height));
-
-  const ImGuiWindowFlags flags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse;
-
-  ImGui::Begin("Wire Viewer", nullptr, flags);
-  panel_width = ImGui::GetWindowSize().x;
-  ImGui::PushTextWrapPos(0.0f);
-  if (ImGui::CollapsingHeader("Guide", ImGuiTreeNodeFlags_DefaultOpen)) {
-    ImGui::TextUnformatted("Camera");
-    ImGui::BulletText("MMB orbit");
-    ImGui::BulletText("Shift+MMB pan");
-    ImGui::BulletText("Ctrl+MMB dolly");
-    ImGui::BulletText("Wheel zoom");
-    ImGui::Separator();
-    ImGui::TextUnformatted("Modes");
-    ImGui::BulletText("Placement: add pole / generate line by form");
-    ImGui::BulletText("Connection: connect selected pole ids");
-    ImGui::BulletText("Branch: split span and add drop");
-    ImGui::BulletText("Detail: inspect and tweak selected pole");
-    ImGui::BulletText("DrawPath: click points and press Enter/Generate");
-    ImGui::Separator();
-    ImGui::TextUnformatted("DrawPath shortcuts");
-    ImGui::BulletText("LMB add point, RMB/Backspace undo");
-    ImGui::BulletText("Esc clear, Enter generate");
-    ImGui::BulletText("Generate creates a WireGroup with category-based lanes");
-    ImGui::BulletText("Draw Plane Z controls input height");
-    ImGui::BulletText("Path Interval must be > 0");
-    ImGui::BulletText("Direction Mode: Auto/Forward/Reverse");
-    ImGui::BulletText("Lane Override: 0=category standard, 1..8 fixed");
+void DrawModeButtons(ViewerUiState& ui_state) {
+  const std::array<std::pair<EditMode, const char*>, 5> modes = {{
+      {EditMode::kPlacement, "Placement"},
+      {EditMode::kConnection, "Connection"},
+      {EditMode::kBranch, "Branch"},
+      {EditMode::kDetail, "Detail"},
+      {EditMode::kDrawPath, "DrawPath"},
+  }};
+  for (std::size_t i = 0; i < modes.size(); ++i) {
+    const bool active = (ui_state.mode == modes[i].first);
+    if (active) {
+      ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.22f, 0.34f, 0.48f, 1.0f));
+      ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.26f, 0.40f, 0.58f, 1.0f));
+    }
+    if (ImGui::Button(modes[i].second)) {
+      ui_state.mode = modes[i].first;
+    }
+    if (active) {
+      ImGui::PopStyleColor(2);
+    }
+    if (i + 1 < modes.size()) {
+      ImGui::SameLine();
+    }
   }
-  ImGui::Separator();
+}
 
-  ImGui::Text("Poles: %d", static_cast<int>(state.edit_state().poles.size()));
-  ImGui::Text("Ports: %d", static_cast<int>(state.edit_state().ports.size()));
-  ImGui::Text("Spans: %d", static_cast<int>(state.edit_state().spans.size()));
-  ImGui::Text("Anchors: %d", static_cast<int>(state.edit_state().anchors.size()));
-  ImGui::Text("Bundles: %d", static_cast<int>(state.edit_state().bundles.size()));
-  ImGui::Text("WireGroups: %d", static_cast<int>(state.edit_state().wire_groups.size()));
-  ImGui::Text("WireLanes: %d", static_cast<int>(state.edit_state().wire_lanes.size()));
-  ImGui::Text("Attachments: %d", static_cast<int>(state.edit_state().attachments.size()));
-  ImGui::Text("Next ID: %llu", static_cast<unsigned long long>(state.next_id()));
-  ImGui::Checkbox("Highlight Selected WireGroup", &ui_state.show_selected_wire_group_highlight);
-  ImGui::Separator();
-  ImGui::Text("DirtyQueue Topology: %d", static_cast<int>(state.dirty_queue().topology_dirty_span_ids.size()));
-  ImGui::Text("DirtyQueue Geometry: %d", static_cast<int>(state.dirty_queue().geometry_dirty_span_ids.size()));
-  ImGui::Text("DirtyQueue Bounds: %d", static_cast<int>(state.dirty_queue().bounds_dirty_span_ids.size()));
-  ImGui::Text("DirtyQueue Render: %d", static_cast<int>(state.dirty_queue().render_dirty_span_ids.size()));
-  ImGui::Text("DirtyQueue Raycast: %d", static_cast<int>(state.dirty_queue().raycast_dirty_span_ids.size()));
-  const auto& recalc = state.last_recalc_stats();
-  ImGui::Text("Recalc last frame: %d", static_cast<int>(recalc.total_processed()));
-  ImGui::Text("  Geometry processed: %d", static_cast<int>(recalc.geometry_processed));
-  ImGui::Text("  Bounds processed: %d", static_cast<int>(recalc.bounds_processed));
-  ImGui::Text("  Render processed: %d", static_cast<int>(recalc.render_processed));
-  ImGui::Checkbox("Auto Recalc", &ui_state.auto_recalc);
+void DrawTopbarWindow(const CoreState& state, ViewerUiState& ui_state) {
+  const float w = static_cast<float>(GetScreenWidth());
+  const float topbar_h = 74.0f;
+  ImGui::SetNextWindowPos(ImVec2(8.0f, 8.0f), ImGuiCond_Always);
+  ImGui::SetNextWindowSize(ImVec2(std::max(320.0f, w - 16.0f), topbar_h), ImGuiCond_Always);
+  const ImGuiWindowFlags flags =
+      ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize;
+  if (!ImGui::Begin("Topbar", nullptr, flags)) {
+    ImGui::End();
+    return;
+  }
+
+  DrawModeButtons(ui_state);
   ImGui::SameLine();
-  if (ImGui::Button("Run Recalc")) {
-    const auto stats = state.ProcessDirtyQueues();
-    PushLog(ui_state, "Recalc processed=" + std::to_string(stats.total_processed()));
+  ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowWidth() - 250.0f));
+  ImGui::Checkbox("Unified UI", &ui_state.ui_unified_workspace);
+  ImGui::SameLine();
+  ImGui::Checkbox("Show Workspace", &ui_state.ui_show_workspace);
+  if (ui_state.ui_unified_workspace) {
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(140.0f);
+    if (ui_state.ui_workspace_width <= 1.0f) {
+      ui_state.ui_workspace_width = 420.0f;
+    }
+    ImGui::SliderFloat("##WorkspaceWidth", &ui_state.ui_workspace_width, 300.0f, 760.0f, "W %.0f");
   }
-
-  if (!ui_state.geometry_settings_loaded) {
-    const auto& gs = state.geometry_settings();
-    ui_state.geometry_samples = gs.curve_samples;
-    ui_state.geometry_sag_enabled = gs.sag_enabled;
-    ui_state.geometry_sag_factor = gs.sag_factor;
-    ui_state.geometry_settings_loaded = true;
-  }
-  if (!ui_state.layout_settings_loaded) {
-    const auto& ls = state.layout_settings();
-    ui_state.layout_angle_correction_enabled = ls.angle_correction_enabled;
-    ui_state.layout_corner_threshold_deg = ls.corner_threshold_deg;
-    ui_state.layout_min_side_scale = ls.min_side_scale;
-    ui_state.layout_max_side_scale = ls.max_side_scale;
-    ui_state.layout_settings_loaded = true;
-  }
-
   ImGui::Separator();
-  ImGui::TextUnformatted("Geometry Settings");
-  ImGui::SliderInt("Curve Samples", &ui_state.geometry_samples, 2, 64);
-  ImGui::Checkbox("Sag Enabled", &ui_state.geometry_sag_enabled);
-  ImGui::InputDouble("Sag Factor", &ui_state.geometry_sag_factor, 0.005, 0.01, "%.4f");
-  if (ImGui::Button("Apply Geometry")) {
-    wire::core::GeometrySettings settings{};
-    settings.curve_samples = ui_state.geometry_samples;
-    settings.sag_enabled = ui_state.geometry_sag_enabled;
-    settings.sag_factor = ui_state.geometry_sag_factor;
-    const auto result = state.UpdateGeometrySettings(settings, true);
-    if (!result.ok) {
-      ui_state.last_error = result.error;
-      PushLog(ui_state, "UpdateGeometrySettings failed");
-    } else {
-      ui_state.last_error.clear();
-      PushLog(ui_state, "Geometry settings updated changed=" + std::string(result.value ? "true" : "false") +
-                            " dirtySpans=" + std::to_string(result.change_set.dirty_span_ids.size()));
+  ImGui::Text("Poles:%d  Ports:%d  Spans:%d  Groups:%d  Lanes:%d",
+              static_cast<int>(state.edit_state().poles.size()), static_cast<int>(state.edit_state().ports.size()),
+              static_cast<int>(state.edit_state().spans.size()), static_cast<int>(state.edit_state().wire_groups.size()),
+              static_cast<int>(state.edit_state().wire_lanes.size()));
+  ImGui::SameLine();
+  ImGui::Text("|  Mode: %s", ModeLabel(ui_state.mode));
+  if (ui_state.selected_type == SelectedType::kPole) {
+    if (const auto* pole = state.edit_state().poles.find(ui_state.selected_id); pole != nullptr) {
+      ImGui::SameLine();
+      ImGui::Text("|  Selected Pole Placement: %s", PolePlacementModeLabel(pole->placement_mode));
     }
   }
+  ImGui::End();
+}
 
-  ImGui::Separator();
-  ImGui::TextUnformatted("Layout Settings");
-  ImGui::Checkbox("Angle Correction Enabled", &ui_state.layout_angle_correction_enabled);
-  ImGui::InputDouble("Corner Threshold Deg", &ui_state.layout_corner_threshold_deg, 1.0, 5.0, "%.2f");
-  ImGui::InputDouble("Min Side Scale", &ui_state.layout_min_side_scale, 0.05, 0.1, "%.3f");
-  ImGui::InputDouble("Max Side Scale", &ui_state.layout_max_side_scale, 0.05, 0.1, "%.3f");
-  if (ImGui::Button("Apply Layout")) {
-    wire::core::LayoutSettings settings{};
-    settings.angle_correction_enabled = ui_state.layout_angle_correction_enabled;
-    settings.corner_threshold_deg = ui_state.layout_corner_threshold_deg;
-    settings.min_side_scale = ui_state.layout_min_side_scale;
-    settings.max_side_scale = ui_state.layout_max_side_scale;
-    const auto result = state.UpdateLayoutSettings(settings);
-    if (!result.ok) {
-      ui_state.last_error = result.error;
-      PushLog(ui_state, "UpdateLayoutSettings failed");
-    } else {
-      ui_state.last_error.clear();
-      PushLog(ui_state, "Layout settings updated");
-    }
-  }
-  if (ImGui::Button("Clear Slot Debug Log")) {
-    state.clear_slot_selection_debug_records();
-    ui_state.selected_slot_debug_index = 0;
-  }
-
-  ImGui::Separator();
-  ImGui::TextUnformatted("Slot Selection Debug");
-  const auto& debug_records = state.slot_selection_debug_records();
-  ImGui::Text("Events: %d", static_cast<int>(debug_records.size()));
-  if (!debug_records.empty()) {
-    ui_state.selected_slot_debug_index =
-        std::clamp(ui_state.selected_slot_debug_index, 0, static_cast<int>(debug_records.size() - 1));
-    ImGui::SliderInt("Event Index", &ui_state.selected_slot_debug_index, 0, static_cast<int>(debug_records.size() - 1));
-    const auto& event = debug_records[static_cast<std::size_t>(ui_state.selected_slot_debug_index)];
-    ImGui::Text("Pole=%llu Peer=%llu Ctx=%s Cat=%s", static_cast<unsigned long long>(event.pole_id),
-                static_cast<unsigned long long>(event.peer_pole_id), ContextLabel(event.connection_context),
-                CategoryLabel(event.category));
-    ImGui::Text("PoleContext=%s corner=%.2f turn=%.0f sideScale=%.3f", PoleContextLabel(event.pole_context),
-                event.corner_angle_deg, event.corner_turn_sign, event.side_scale);
-    ImGui::Text("Selected slot=%d result=%s", event.selected_slot_id, event.result.c_str());
-    ImGui::BeginChild("SlotScoreLog", ImVec2(0.0f, 160.0f), true, ImGuiWindowFlags_HorizontalScrollbar);
-    for (const auto& c : event.candidates) {
-      ImGui::Text("slot=%d total=%d eligible=%d tie=%d", c.slot_id, c.total_score, c.eligible ? 1 : 0, c.tie_breaker);
-      ImGui::Text("cat=%d ctx=%d layer=%d side=%d role=%d pri=%d usage=%d cong=%d", c.category_score, c.context_score,
-                  c.layer_score, c.side_score, c.role_score, c.priority_score, c.usage_score, c.congestion_score);
-      ImGui::TextWrapped("reason=%s", c.reason.c_str());
-      ImGui::Separator();
-    }
-    ImGui::EndChild();
-  }
-
-  ImGui::Separator();
-  ImGui::TextUnformatted("Debug Draw");
-  ImGui::Checkbox("Show Span AABB", &ui_state.show_whole_aabb);
-  ImGui::Checkbox("Show Segment AABB", &ui_state.show_segment_aabb);
-
-  const wire::core::ValidationResult validation = state.Validate();
-  ImGui::Text("Validation: %s", validation.ok() ? "OK" : "ERROR");
-
-  ImGui::Separator();
-  ImGui::Text("Mode: %s", ModeLabel(ui_state.mode));
-  int mode_index = static_cast<int>(ui_state.mode);
-  const std::array<const char*, 5> mode_names = {"Placement", "Connection", "Branch", "Detail", "DrawPath"};
-  if (ImGui::BeginCombo("Edit Mode", mode_names[mode_index])) {
-    for (int i = 0; i < static_cast<int>(mode_names.size()); ++i) {
-      const bool selected = (mode_index == i);
-      if (ImGui::Selectable(mode_names[i], selected)) {
-        mode_index = i;
-      }
-      if (selected) {
-        ImGui::SetItemDefaultFocus();
-      }
-    }
-    ImGui::EndCombo();
-  }
-  ui_state.mode = static_cast<EditMode>(std::clamp(mode_index, 0, static_cast<int>(mode_names.size() - 1)));
-
+void DrawToolboxContent(CoreState& state, ViewerUiState& ui_state) {
+  ImGui::Text("Active Tool: %s", ModeLabel(ui_state.mode));
   ImGui::Separator();
   if (ui_state.mode == EditMode::kPlacement) {
     DrawPlacementModePanel(state, ui_state);
@@ -1949,9 +1915,57 @@ void DrawStatsPanel(CoreState& state, ViewerUiState& ui_state) {
   } else if (ui_state.mode == EditMode::kDrawPath) {
     DrawPathModePanel(state, ui_state);
   }
-  DrawDebugDirectPanel(state, ui_state);
+}
 
-  ImGui::Separator();
+void DrawToolboxWindow(CoreState& state, ViewerUiState& ui_state) {
+  ImGui::SetNextWindowPos(ImVec2(8.0f, 90.0f), ImGuiCond_FirstUseEver);
+  ImGui::SetNextWindowSize(ImVec2(420.0f, 520.0f), ImGuiCond_FirstUseEver);
+  const ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse;
+  if (!ImGui::Begin("Toolbox", nullptr, flags)) {
+    ImGui::End();
+    return;
+  }
+  DrawToolboxContent(state, ui_state);
+  ImGui::End();
+}
+
+void DrawInspectorContent(CoreState& state, ViewerUiState& ui_state) {
+  if (ui_state.selected_type == SelectedType::kPole &&
+      ui_state.selected_id != wire::core::kInvalidObjectId) {
+    if (const auto* pole = state.edit_state().poles.find(ui_state.selected_id); pole != nullptr) {
+      int placement_mode = static_cast<int>(pole->placement_mode);
+      if (ImGui::Combo("Placement Mode (Quick)", &placement_mode, "Auto\0Manual\0")) {
+        const auto result =
+            state.SetPolePlacementMode(ui_state.selected_id, static_cast<wire::core::PlacementMode>(placement_mode));
+        if (!result.ok) {
+          ui_state.last_error = result.error;
+          PushLog(ui_state, "SetPolePlacementMode failed");
+        } else {
+          ui_state.last_error.clear();
+          PushLog(ui_state, "SetPolePlacementMode updated");
+        }
+      }
+    }
+  }
+
+  DrawSelectedInfo(state, ui_state);
+  DrawEditSelectedPanel(state, ui_state);
+}
+
+void DrawInspectorWindow(CoreState& state, ViewerUiState& ui_state) {
+  const float w = static_cast<float>(GetScreenWidth());
+  ImGui::SetNextWindowPos(ImVec2(std::max(440.0f, w - 430.0f), 90.0f), ImGuiCond_FirstUseEver);
+  ImGui::SetNextWindowSize(ImVec2(420.0f, 620.0f), ImGuiCond_FirstUseEver);
+  const ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse;
+  if (!ImGui::Begin("Inspector", nullptr, flags)) {
+    ImGui::End();
+    return;
+  }
+  DrawInspectorContent(state, ui_state);
+  ImGui::End();
+}
+
+void DrawOutlinerContent(CoreState& state, ViewerUiState& ui_state) {
   DrawObjectList(
       ui_state, "Poles", SelectedType::kPole,
       [&]() {
@@ -2005,31 +2019,218 @@ void DrawStatsPanel(CoreState& state, ViewerUiState& ui_state) {
         }
         return span->display_id;
       });
+}
 
-  DrawSelectedInfo(state, ui_state);
-  DrawEditSelectedPanel(state, ui_state);
+void DrawOutlinerWindow(CoreState& state, ViewerUiState& ui_state) {
+  ImGui::SetNextWindowPos(ImVec2(8.0f, 620.0f), ImGuiCond_FirstUseEver);
+  ImGui::SetNextWindowSize(ImVec2(420.0f, 260.0f), ImGuiCond_FirstUseEver);
+  const ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse;
+  if (!ImGui::Begin("Outliner", nullptr, flags)) {
+    ImGui::End();
+    return;
+  }
+  DrawOutlinerContent(state, ui_state);
+  ImGui::End();
+}
+
+void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
+  if (!ui_state.geometry_settings_loaded) {
+    const auto& gs = state.geometry_settings();
+    ui_state.geometry_samples = gs.curve_samples;
+    ui_state.geometry_sag_enabled = gs.sag_enabled;
+    ui_state.geometry_sag_factor = gs.sag_factor;
+    ui_state.geometry_settings_loaded = true;
+  }
+  if (!ui_state.layout_settings_loaded) {
+    const auto& ls = state.layout_settings();
+    ui_state.layout_angle_correction_enabled = ls.angle_correction_enabled;
+    ui_state.layout_corner_threshold_deg = ls.corner_threshold_deg;
+    ui_state.layout_min_side_scale = ls.min_side_scale;
+    ui_state.layout_max_side_scale = ls.max_side_scale;
+    ui_state.layout_settings_loaded = true;
+  }
+
+  const auto& recalc = state.last_recalc_stats();
+  ImGui::Text("Dirty T/G/B/R/X: %d / %d / %d / %d / %d",
+              static_cast<int>(state.dirty_queue().topology_dirty_span_ids.size()),
+              static_cast<int>(state.dirty_queue().geometry_dirty_span_ids.size()),
+              static_cast<int>(state.dirty_queue().bounds_dirty_span_ids.size()),
+              static_cast<int>(state.dirty_queue().render_dirty_span_ids.size()),
+              static_cast<int>(state.dirty_queue().raycast_dirty_span_ids.size()));
+  ImGui::Text("Last Recalc total=%d geom=%d bounds=%d render=%d", static_cast<int>(recalc.total_processed()),
+              static_cast<int>(recalc.geometry_processed), static_cast<int>(recalc.bounds_processed),
+              static_cast<int>(recalc.render_processed));
+  ImGui::Checkbox("Auto Recalc", &ui_state.auto_recalc);
+  ImGui::SameLine();
+  if (ImGui::Button("Run Recalc")) {
+    const auto stats = state.ProcessDirtyQueues();
+    PushLog(ui_state, "Recalc processed=" + std::to_string(stats.total_processed()));
+  }
+
+  if (ImGui::CollapsingHeader("Geometry/Layout", ImGuiTreeNodeFlags_DefaultOpen)) {
+    ImGui::SliderInt("Curve Samples", &ui_state.geometry_samples, 2, 64);
+    ImGui::Checkbox("Sag Enabled", &ui_state.geometry_sag_enabled);
+    ImGui::InputDouble("Sag Factor", &ui_state.geometry_sag_factor, 0.005, 0.01, "%.4f");
+    if (ImGui::Button("Apply Geometry")) {
+      wire::core::GeometrySettings settings{};
+      settings.curve_samples = ui_state.geometry_samples;
+      settings.sag_enabled = ui_state.geometry_sag_enabled;
+      settings.sag_factor = ui_state.geometry_sag_factor;
+      const auto result = state.UpdateGeometrySettings(settings, true);
+      if (!result.ok) {
+        ui_state.last_error = result.error;
+        PushLog(ui_state, "UpdateGeometrySettings failed");
+      } else {
+        ui_state.last_error.clear();
+        PushLog(ui_state, "Geometry settings updated");
+      }
+    }
+    ImGui::Separator();
+    ImGui::Checkbox("Angle Correction Enabled", &ui_state.layout_angle_correction_enabled);
+    ImGui::InputDouble("Corner Threshold Deg", &ui_state.layout_corner_threshold_deg, 1.0, 5.0, "%.2f");
+    ImGui::InputDouble("Min Side Scale", &ui_state.layout_min_side_scale, 0.05, 0.1, "%.3f");
+    ImGui::InputDouble("Max Side Scale", &ui_state.layout_max_side_scale, 0.05, 0.1, "%.3f");
+    if (ImGui::Button("Apply Layout")) {
+      wire::core::LayoutSettings settings{};
+      settings.angle_correction_enabled = ui_state.layout_angle_correction_enabled;
+      settings.corner_threshold_deg = ui_state.layout_corner_threshold_deg;
+      settings.min_side_scale = ui_state.layout_min_side_scale;
+      settings.max_side_scale = ui_state.layout_max_side_scale;
+      const auto result = state.UpdateLayoutSettings(settings);
+      if (!result.ok) {
+        ui_state.last_error = result.error;
+        PushLog(ui_state, "UpdateLayoutSettings failed");
+      } else {
+        ui_state.last_error.clear();
+        PushLog(ui_state, "Layout settings updated");
+      }
+    }
+  }
+
+  if (ImGui::CollapsingHeader("Debug View", ImGuiTreeNodeFlags_DefaultOpen)) {
+    ImGui::Checkbox("Show Span AABB", &ui_state.show_whole_aabb);
+    ImGui::Checkbox("Show Segment AABB", &ui_state.show_segment_aabb);
+    ImGui::Checkbox("Highlight Selected WireGroup", &ui_state.show_selected_wire_group_highlight);
+    const wire::core::ValidationResult validation = state.Validate();
+    ImGui::Text("Validation: %s", validation.ok() ? "OK" : "ERROR");
+  }
+
+  if (ImGui::CollapsingHeader("Slot Selection Debug")) {
+    if (ImGui::Button("Clear Slot Debug Log")) {
+      state.clear_slot_selection_debug_records();
+      ui_state.selected_slot_debug_index = 0;
+    }
+    const auto& debug_records = state.slot_selection_debug_records();
+    ImGui::Text("Events: %d", static_cast<int>(debug_records.size()));
+    if (!debug_records.empty()) {
+      ui_state.selected_slot_debug_index =
+          std::clamp(ui_state.selected_slot_debug_index, 0, static_cast<int>(debug_records.size() - 1));
+      ImGui::SliderInt("Event Index", &ui_state.selected_slot_debug_index, 0,
+                       static_cast<int>(debug_records.size() - 1));
+      const auto& event = debug_records[static_cast<std::size_t>(ui_state.selected_slot_debug_index)];
+      ImGui::Text("Pole=%llu Peer=%llu Ctx=%s Cat=%s", static_cast<unsigned long long>(event.pole_id),
+                  static_cast<unsigned long long>(event.peer_pole_id), ContextLabel(event.connection_context),
+                  CategoryLabel(event.category));
+      ImGui::Text("Selected slot=%d result=%s", event.selected_slot_id, event.result.c_str());
+    }
+  }
+
+  DrawDebugDirectPanel(state, ui_state);
 
   if (!ui_state.last_error.empty()) {
     ImGui::Separator();
     ImGui::TextWrapped("Error: %s", ui_state.last_error.c_str());
   }
-
   ImGui::Separator();
-  ImGui::TextUnformatted("Logs");
-  ImGui::BeginChild("LogArea", ImVec2(0.0f, 140.0f), true, ImGuiWindowFlags_HorizontalScrollbar);
+  ImGui::BeginChild("LogArea", ImVec2(0.0f, 90.0f), true, ImGuiWindowFlags_HorizontalScrollbar);
   for (const std::string& line : ui_state.logs) {
     ImGui::TextWrapped("%s", line.c_str());
   }
   ImGui::EndChild();
-  ImGui::PopTextWrapPos();
+}
+
+void DrawDiagnosticsWindow(CoreState& state, ViewerUiState& ui_state) {
+  const float w = static_cast<float>(GetScreenWidth());
+  const float h = static_cast<float>(GetScreenHeight());
+  ImGui::SetNextWindowPos(ImVec2(std::max(440.0f, w - 430.0f), std::max(90.0f, h - 360.0f)), ImGuiCond_FirstUseEver);
+  ImGui::SetNextWindowSize(ImVec2(420.0f, 340.0f), ImGuiCond_FirstUseEver);
+  const ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse;
+  if (!ImGui::Begin("Diagnostics", nullptr, flags)) {
+    ImGui::End();
+    return;
+  }
+  DrawDiagnosticsContent(state, ui_state);
   ImGui::End();
+}
+
+void DrawUnifiedWorkspaceWindow(CoreState& state, ViewerUiState& ui_state) {
+  if (!ui_state.ui_show_workspace) {
+    return;
+  }
+  const float screen_w = static_cast<float>(GetScreenWidth());
+  const float screen_h = static_cast<float>(GetScreenHeight());
+  const float topbar_h = 74.0f;
+  const float margin = 8.0f;
+  const float min_w = 300.0f;
+  const float max_w = std::max(min_w, screen_w - margin * 2.0f);
+  if (ui_state.ui_workspace_width <= 1.0f) {
+    ui_state.ui_workspace_width = std::clamp(screen_w * 0.36f, min_w, std::min(760.0f, max_w));
+  }
+  ui_state.ui_workspace_width = std::clamp(ui_state.ui_workspace_width, min_w, std::min(760.0f, max_w));
+  const float workspace_w = ui_state.ui_workspace_width;
+  const float x = std::max(margin, screen_w - workspace_w - margin);
+  const float y = topbar_h + margin + 8.0f;
+  const float h = std::max(240.0f, screen_h - y - margin);
+
+  ImGui::SetNextWindowPos(ImVec2(x, y), ImGuiCond_Always);
+  ImGui::SetNextWindowSize(ImVec2(workspace_w, h), ImGuiCond_FirstUseEver);
+  ImGui::SetNextWindowSizeConstraints(ImVec2(min_w, 240.0f), ImVec2(std::min(760.0f, max_w), h));
+  const ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove;
+  if (!ImGui::Begin("Workspace", nullptr, flags)) {
+    ImGui::End();
+    return;
+  }
+  ui_state.ui_workspace_width = ImGui::GetWindowSize().x;
+  if (ImGui::BeginTabBar("WorkspaceTabs")) {
+    if (ImGui::BeginTabItem("Toolbox")) {
+      DrawToolboxContent(state, ui_state);
+      ImGui::EndTabItem();
+    }
+    if (ImGui::BeginTabItem("Inspector")) {
+      DrawInspectorContent(state, ui_state);
+      ImGui::EndTabItem();
+    }
+    if (ImGui::BeginTabItem("Outliner")) {
+      DrawOutlinerContent(state, ui_state);
+      ImGui::EndTabItem();
+    }
+    if (ImGui::BeginTabItem("Diagnostics")) {
+      DrawDiagnosticsContent(state, ui_state);
+      ImGui::EndTabItem();
+    }
+    ImGui::EndTabBar();
+  }
+  ImGui::End();
+}
+
+void DrawStatsPanel(CoreState& state, ViewerUiState& ui_state) {
+  DrawTopbarWindow(state, ui_state);
+  if (ui_state.ui_unified_workspace) {
+    DrawUnifiedWorkspaceWindow(state, ui_state);
+  } else {
+    DrawToolboxWindow(state, ui_state);
+    DrawInspectorWindow(state, ui_state);
+    DrawOutlinerWindow(state, ui_state);
+    DrawDiagnosticsWindow(state, ui_state);
+  }
 }
 
 } // namespace
 
 int main() {
+  const ViewerPersistentSettings persisted = LoadViewerPersistentSettings();
   SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT);
-  InitWindow(1280, 720, "wire viewer");
+  InitWindow(persisted.window_width, persisted.window_height, "wire viewer");
   SetExitKey(KEY_NULL);
   SetTargetFPS(60);
 
@@ -2042,6 +2243,9 @@ int main() {
 
   CoreState state = wire::core::make_demo_state();
   ViewerUiState ui_state;
+  ui_state.ui_unified_workspace = persisted.ui_unified_workspace;
+  ui_state.ui_show_workspace = persisted.ui_show_workspace;
+  ui_state.ui_workspace_width = persisted.ui_workspace_width;
   PushLog(ui_state, "[info] viewer started");
   PushLog(ui_state, "[info] demo state loaded");
   PushLog(ui_state, "[mode] Placement/Connection/Branch/Detail/DrawPath");
@@ -2051,6 +2255,15 @@ int main() {
   PushLog(ui_state, "[hint] Mouse wheel zoom");
 
   rlImGuiSetup(true);
+  ImGui::StyleColorsDark();
+  {
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.WindowRounding = 3.0f;
+    style.FrameRounding = 2.0f;
+    style.GrabRounding = 2.0f;
+    style.WindowBorderSize = 1.0f;
+    style.FrameBorderSize = 0.0f;
+  }
   while (!WindowShouldClose()) {
     BeginDrawing();
     ClearBackground(Color{26, 32, 39, 255});
@@ -2077,6 +2290,15 @@ int main() {
   }
 
   rlImGuiShutdown();
+  {
+    ViewerPersistentSettings out{};
+    out.window_width = GetScreenWidth();
+    out.window_height = GetScreenHeight();
+    out.ui_unified_workspace = ui_state.ui_unified_workspace;
+    out.ui_show_workspace = ui_state.ui_show_workspace;
+    out.ui_workspace_width = ui_state.ui_workspace_width;
+    SaveViewerPersistentSettings(out);
+  }
   CloseWindow();
   return 0;
 }

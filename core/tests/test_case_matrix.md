@@ -43,6 +43,7 @@
 | C33 | 決定的タイブレーク | 同一入力2回 | AddConnectionByPole | Exact: 同slot+debug整合 | debug records | 再現性 |
 | C34 | Corner文脈統合 | 折れ線 | GenerateSimpleLine | Invariant: CornerPass含有 | span.context | 角付き路線維持 |
 | C35 | 内外補正差 | 左折/右折 | GeneratePolesAlongRoad | Invariant: 外側オフセット>内側 | turn_sign/slot座標 | 角圧縮の低減 |
+| C61 | 鋭角自動拡幅 | 鋭角/鈍角の同一テンプレート比較 | GenerateSimpleLineFromPoints | Invariant: 鋭角の左右レーン間隔が鈍角より広い（カテゴリ非依存） | corner poleのlocal Y差 | 鋭角での線間距離不足防止 |
 | C36 | DrawPath点直配置 | クリック点3 | GenerateSimpleLineFromPoints | Exact: Pole数=点数,位置一致,yaw一致 | pole position/yaw | DrawPath直感性 |
 | C37 | 幾何based side選定 | 2Pole(左右) | AddConnectionByPole(Branch) | Invariant: 右手前でRight,左手前でLeft | selected slot side | 偶奇依存排除 |
 | C38 | 高圧3相群生成 | 有効Path | GenerateGroupedLine(HV,3) | Invariant: 3レーン×区間数生成, lane記録あり | span数/bundle/lane_assignments | 高圧ねじれ抑制 |
@@ -50,7 +51,7 @@
 | C40 | Pole flip_180 | 接続済Pole | SetPoleFlip180(true) | Invariant: 配下Port更新+接続Span dirty | port位置/runtime dirty | 局所向き修正性 |
 | C41 | debug記録クリアの無害性 | 生成/接続でdebug記録あり | clear_slot_selection_debug_records + clear_path_direction_debug_records | Exact: 記録だけ消え、Entity件数/ID/整合は不変 | counts/ID集合/Validate | デバッグ操作で本体破壊しない |
 | C42 | 再計算の非破壊性 | Spanを含む状態 | UpdateGeometrySettings→ProcessDirtyQueues | Invariant: cache/version更新のみでEntity件数/ID不変 | counts/ID集合/runtime/cache | キャッシュ再生成で正本が歪まない |
-| C43 | 鋭角時ポール向き補正 | クリック点3(turn<40°) | GenerateSimpleLineFromPoints | Exact: 中間Poleのyawが中線直交方向 | pole yaw | 鋭角での見た目破綻抑制 |
+| C43 | 鋭角時ポール向き補正 | クリック点3(内角<75°) | GenerateSimpleLineFromPoints | Exact: 中間Poleのyawが内角二等分線に一致（結果として展開軸が直交） | pole yaw | 鋭角での線間距離潰れ抑制 |
 | C44 | Group/Lane割当と参照 | Span1本+Group/Lane作成 | AssignSpanToWireLane/Get*ByGroup | Invariant: Spanにgroup/lane設定, 参照API整合 | span fields/query API/Validate | 複数本配線の論理まとまり維持 |
 | C45 | Group/Lane不正拒否 | Span1本+別Group lane | AddWireLane(無効), Assign(不整合) | Exact: failし状態保全, 診断文言あり | error/span fields | 不正参照でデータ破壊しない |
 | C46 | 既存Span互換性 | Group未設定Span | ProcessDirtyQueues | Invariant: 従来再計算/Validate維持 | runtime/Validate/query API | 既存データ互換維持 |
@@ -60,10 +61,18 @@
 | C50 | Port初期モード | 新規Port追加 | AddPort | Exact: position_mode=Auto | port fields | 既存互換維持 |
 | C51 | Port手修正/解除 | 接続済Port | SetPortWorldPositionManual→ResetPortPositionToAuto | Invariant: Manual化→Auto復帰, 関連SpanのみDirty | port/runtime | 手直し維持と復帰性 |
 | C52 | Manual保護 | 手修正Portあり | SetPoleFlip180 | Invariant: Manual Port位置が維持される | port position/mode | 軽微再生成で手修正消失防止 |
+| C53 | Guide境界手動点安定 | Guide初回生成済 | Guide延長して再GenerateFromGuide | Invariant: 既存Manual境界Poleの位置/Mode不変 | pole position/mode | 軽微変更で手直し消失防止 |
+| C54 | Guide局所更新 | Guide生成済 | 同一Guide再実行→延長再実行 | Invariant: 同一入力で重複増殖なし、延長で末端のみ追加 | span数/生成結果 | 全再生成回帰防止 |
+| C55 | Backbone経路 | Group付きSpan生成済 | BuildBackboneEdges/FindBackboneRoute | Invariant: group付きedge構築と経路取得 | backbone edge/route | ルート計算基盤維持 |
+| C56 | 鋭角閾値境界 | 非対称3点角（内角基準） | 内角74度/75度でGenerateSimpleLineFromPoints | Exact: `内角<75`のみ二等分線yaw、`内角==75`は通常向き | middle pole yaw | 閾値バグによる向き破綻防止 |
+| C60 | Guide再利用頂点の向き再評価 | 既存頂点Poleを再利用可能なGuide | 同一Guideを再生成（頂点PoleのYawを事前に崩す） | Invariant: override無しなら再利用頂点Poleが二等分線yawへ再評価される | vertex pole yaw | 再生成で角向きが古いまま残る不具合防止 |
+| C57 | Guide重複点ロバスト | PoleTypeあり | 重複点含むGuideでGenerateFromGuide | Invariant: 成功しPole座標有限、path Z維持 | generated pole positions/Validate | 入力ノイズ耐性 |
+| C58 | Reverse対称性 | 同一Guide | Forward/ReverseでGenerateFromGuide | Invariant: 生成Pole位置集合が一致（順序非依存） | generated pole positions set | 方向モードで幾何が破綻しない |
+| C59 | Avoid制約尊重 | PoleTypeあり | avoid_points/avoid_radius指定GenerateFromGuide | Invariant: 生成Poleが禁止半径内に入らない | pole positions vs avoid radius | 回避制約の信頼性 |
 
 ## LLM self-review
 - 実装依存か: private順序/内部関数呼び出し順には依存しない。
 - 期待値は観測可能か: すべて公開APIと公開状態で観測。
 - モック過多か: モック未使用。
-- 異常系が入っているか: C10/C20/C21/C22/C23で失敗診断・状態保全・復帰を検証。
+- 異常系が入っているか: C10/C20/C21/C22/C23/C49で失敗診断・状態保全・復帰を検証。
 - フレーク要因がないか: 実時間待ち/非決定乱数なし。

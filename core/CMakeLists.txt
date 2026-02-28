@@ -2,6 +2,8 @@ add_library(
   wire_core
   STATIC
   src/core_state.cpp
+  src/core_state_generation.cpp
+  src/core_state_backbone.cpp
 )
 
 target_include_directories(

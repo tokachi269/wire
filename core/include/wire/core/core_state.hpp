@@ -6,12 +6,16 @@
 #include <unordered_map>
 #include <vector>
 
+#include "wire/core/debug_types.hpp"
 #include "wire/core/entities.hpp"
 #include "wire/core/id.hpp"
 #include "wire/core/object_store.hpp"
 #include "wire/core/types.hpp"
+#include "wire/core/workflow_types.hpp"
 
 namespace wire::core {
+
+class CoreView;
 
 struct EditState {
   // Entity-layer authoritative stores.
@@ -63,44 +67,6 @@ struct LayoutSettings {
   double corner_threshold_deg = 12.0;
   double min_side_scale = 1.0;
   double max_side_scale = 1.8;
-};
-
-struct PathDirectionCostWeights {
-  int estimated_cross_penalty = 100;
-  int side_flip_penalty = 30;
-  int layer_jump_penalty = 20;
-  int corner_compression_penalty = 25;
-  int branch_conflict_penalty = 15;
-};
-
-struct PathDirectionCostBreakdown {
-  int estimated_cross_penalty = 0;
-  int side_flip_penalty = 0;
-  int layer_jump_penalty = 0;
-  int corner_compression_penalty = 0;
-  int branch_conflict_penalty = 0;
-  int total = 0;
-};
-
-struct PathDirectionEvaluationDebug {
-  RoadId road_id = 0;
-  PathDirectionMode requested_mode = PathDirectionMode::kAuto;
-  PathDirectionChosen chosen = PathDirectionChosen::kForward;
-  PathDirectionCostBreakdown forward_cost{};
-  PathDirectionCostBreakdown reverse_cost{};
-  std::string reason{};
-};
-
-struct SegmentLaneAssignment {
-  std::size_t segment_index = 0;
-  ObjectId pole_a_id = kInvalidObjectId;
-  ObjectId pole_b_id = kInvalidObjectId;
-  ObjectId bundle_id = kInvalidObjectId;
-  std::vector<int> slot_ids_a{};
-  std::vector<int> slot_ids_b{};
-  std::vector<ObjectId> port_ids_a{};
-  std::vector<ObjectId> port_ids_b{};
-  bool mirrored = false;
 };
 
 struct ConnectionIndex {
@@ -204,38 +170,14 @@ struct ValidationResult {
   [[nodiscard]] bool ok() const { return !has_errors(); }
 };
 
-struct SlotCandidateDebug {
-  int slot_id = -1;
-  bool eligible = false;
-  int total_score = 0;
-  int category_score = 0;
-  int context_score = 0;
-  int layer_score = 0;
-  int side_score = 0;
-  int role_score = 0;
-  int priority_score = 0;
-  int usage_score = 0;
-  int congestion_score = 0;
-  int tie_breaker = 0;
-  std::size_t usage_count = 0;
-  std::size_t congestion_count = 0;
-  std::string reason{};
+struct CommitOptions {
+  bool run_recalc = true;
+  bool run_validate = false;
 };
 
-struct SlotSelectionDebugRecord {
-  // Session diagnostics for slot selection; not part of entity model.
-  ObjectId pole_id = kInvalidObjectId;
-  ObjectId peer_pole_id = kInvalidObjectId;
-  ObjectId reference_span_id = kInvalidObjectId;
-  ConnectionCategory category = ConnectionCategory::kLowVoltage;
-  ConnectionContext connection_context = ConnectionContext::kTrunkContinue;
-  PoleContextKind pole_context = PoleContextKind::kStraight;
-  double corner_angle_deg = 0.0;
-  double corner_turn_sign = 0.0;
-  double side_scale = 1.0;
-  int selected_slot_id = -1;
-  std::string result{};
-  std::vector<SlotCandidateDebug> candidates{};
+struct CommitResult {
+  RecalcStats recalc_stats{};
+  ValidationResult validation{};
 };
 
 class CoreState {
@@ -392,50 +334,19 @@ public:
   [[nodiscard]] const CurveCacheEntry* find_curve_cache(ObjectId span_id) const;
   [[nodiscard]] const BoundsCacheEntry* find_bounds_cache(ObjectId span_id) const;
 
-  RecalcStats ProcessDirtyQueues();
-
-  [[nodiscard]] ValidationResult Validate() const;
+  [[nodiscard]] CommitResult Commit(const CommitOptions& options = {});
 
   [[nodiscard]] ObjectId next_id() const { return id_generator_.peek(); }
-
-  [[nodiscard]] const EditState& edit_state() const { return edit_state_; }
-  [[nodiscard]] EditState& edit_state() { return edit_state_; }
-
-  [[nodiscard]] const ConnectionIndex& connection_index() const { return connection_index_; }
-  [[nodiscard]] const std::unordered_map<ObjectId, SpanRuntimeState>& span_runtime_states() const {
-    return span_runtime_states_;
-  }
-  [[nodiscard]] const SpanRuntimeState* find_span_runtime_state(ObjectId span_id) const;
-  [[nodiscard]] const DirtyQueue& dirty_queue() const { return dirty_queue_; }
-  [[nodiscard]] const RecalcStats& last_recalc_stats() const { return last_recalc_stats_; }
-  [[nodiscard]] const std::unordered_map<PoleTypeId, PoleTypeDefinition>& pole_types() const { return pole_types_; }
-  [[nodiscard]] const GeometrySettings& geometry_settings() const { return cache_state_.geometry_settings; }
-  [[nodiscard]] const LayoutSettings& layout_settings() const { return layout_settings_; }
-  [[nodiscard]] const PathDirectionCostWeights& path_direction_cost_weights() const {
-    return path_direction_cost_weights_;
-  }
-  [[nodiscard]] const PathDirectionEvaluationDebug& last_path_direction_debug() const {
-    return last_path_direction_debug_;
-  }
-  [[nodiscard]] const std::vector<PathDirectionEvaluationDebug>& path_direction_debug_records() const {
-    return path_direction_debug_records_;
-  }
-  [[nodiscard]] const std::vector<SegmentLaneAssignment>& last_lane_assignments() const {
-    return last_lane_assignments_;
-  }
   void clear_path_direction_debug_records() { path_direction_debug_records_.clear(); }
-  [[nodiscard]] const std::vector<SlotSelectionDebugRecord>& slot_selection_debug_records() const {
-    return slot_selection_debug_records_;
-  }
   void clear_slot_selection_debug_records() { slot_selection_debug_records_.clear(); }
 
-  [[nodiscard]] const CacheState& cache_state() const { return cache_state_; }
-  [[nodiscard]] CacheState& cache_state() { return cache_state_; }
-
-  [[nodiscard]] const IdGenerator& id_generator() const { return id_generator_; }
-  [[nodiscard]] IdGenerator& id_generator() { return id_generator_; }
+  [[nodiscard]] CoreView view() const;
 
 private:
+#if defined(WIRE_INTERNAL) || defined(WIRE_TESTING)
+  friend struct CoreStateTestHook;
+#endif
+  friend class CoreView;
   void remove_span_from_indexes(const Span& span);
   void add_span_to_index(const Span& span);
   void initialize_span_runtime_state(ObjectId span_id);
@@ -515,10 +426,34 @@ private:
                                                   const AddConnectionByPoleOptions& options);
   static void add_unique_id(std::vector<ObjectId>& ids, ObjectId id);
   static std::string dirty_bits_to_string(DirtyBits bits);
+  static void apply_pole_placement_mode(Pole& pole, PlacementMode mode);
+  static void apply_port_position_mode(Port& port, PortPositionMode mode, PortPlacementSourceKind source_hint);
   std::string next_display_id(std::string_view prefix);
   void refresh_owned_endpoints_from_pole(ObjectId pole_id, ChangeSet* change_set, const Pole* previous_pole = nullptr);
+  [[nodiscard]] EditState& edit_state_access() { return edit_state_; }
+  [[nodiscard]] const EditState& edit_state_access() const { return edit_state_; }
+  [[nodiscard]] ConnectionIndex& connection_index_access() { return connection_index_; }
+  [[nodiscard]] const ConnectionIndex& connection_index_access() const { return connection_index_; }
+  [[nodiscard]] std::unordered_map<ObjectId, SpanRuntimeState>& span_runtime_states_access() {
+    return span_runtime_states_;
+  }
+  [[nodiscard]] const std::unordered_map<ObjectId, SpanRuntimeState>& span_runtime_states_access() const {
+    return span_runtime_states_;
+  }
+  [[nodiscard]] DirtyQueue& dirty_queue_access() { return dirty_queue_; }
+  [[nodiscard]] const DirtyQueue& dirty_queue_access() const { return dirty_queue_; }
+  [[nodiscard]] CacheState& cache_state_access() { return cache_state_; }
+  [[nodiscard]] const CacheState& cache_state_access() const { return cache_state_; }
+  [[nodiscard]] std::uint64_t& next_generation_session_id_access() { return next_generation_session_id_; }
+  [[nodiscard]] std::vector<PathDirectionEvaluationDebug>& path_direction_debug_records_access() {
+    return path_direction_debug_records_;
+  }
+  [[nodiscard]] std::vector<SegmentLaneAssignment>& last_lane_assignments_access() { return last_lane_assignments_; }
 
   [[nodiscard]] static bool has_zero_length(const Port& a, const Port& b);
+  RecalcStats ProcessDirtyQueues();
+  [[nodiscard]] ValidationResult Validate() const;
+  [[nodiscard]] const SpanRuntimeState* find_span_runtime_state(ObjectId span_id) const;
   [[nodiscard]] static std::unordered_map<ObjectId, std::vector<ObjectId>>
   make_expected_port_index(const EditState& edit_state);
   [[nodiscard]] static std::unordered_map<ObjectId, std::vector<ObjectId>>
@@ -546,6 +481,57 @@ private:
   std::vector<SegmentLaneAssignment> last_lane_assignments_{};
   std::vector<SlotSelectionDebugRecord> slot_selection_debug_records_{};
 };
+
+class CoreView {
+public:
+  explicit CoreView(const CoreState& state) : state_(state) {}
+
+  [[nodiscard]] const EditState& edit_state() const { return state_.edit_state_; }
+  [[nodiscard]] const ObjectStore<Pole>& poles() const { return state_.edit_state_.poles; }
+  [[nodiscard]] const ObjectStore<Port>& ports() const { return state_.edit_state_.ports; }
+  [[nodiscard]] const ObjectStore<Anchor>& anchors() const { return state_.edit_state_.anchors; }
+  [[nodiscard]] const ObjectStore<Bundle>& bundles() const { return state_.edit_state_.bundles; }
+  [[nodiscard]] const ObjectStore<WireGroup>& wire_groups() const { return state_.edit_state_.wire_groups; }
+  [[nodiscard]] const ObjectStore<WireLane>& wire_lanes() const { return state_.edit_state_.wire_lanes; }
+  [[nodiscard]] const ObjectStore<Span>& spans() const { return state_.edit_state_.spans; }
+  [[nodiscard]] const ObjectStore<Attachment>& attachments() const { return state_.edit_state_.attachments; }
+
+  [[nodiscard]] const ConnectionIndex& connection_index() const { return state_.connection_index_; }
+  [[nodiscard]] const DirtyQueue& dirty_queue() const { return state_.dirty_queue_; }
+  [[nodiscard]] const RecalcStats& last_recalc_stats() const { return state_.last_recalc_stats_; }
+  [[nodiscard]] const GeometrySettings& geometry_settings() const { return state_.cache_state_.geometry_settings; }
+  [[nodiscard]] const LayoutSettings& layout_settings() const { return state_.layout_settings_; }
+  [[nodiscard]] const PathDirectionCostWeights& path_direction_cost_weights() const {
+    return state_.path_direction_cost_weights_;
+  }
+  [[nodiscard]] const PathDirectionEvaluationDebug& last_path_direction_debug() const {
+    return state_.last_path_direction_debug_;
+  }
+  [[nodiscard]] const std::vector<PathDirectionEvaluationDebug>& path_direction_debug_records() const {
+    return state_.path_direction_debug_records_;
+  }
+  [[nodiscard]] const std::vector<SegmentLaneAssignment>& last_lane_assignments() const {
+    return state_.last_lane_assignments_;
+  }
+  [[nodiscard]] const CacheState& cache_state() const { return state_.cache_state_; }
+  [[nodiscard]] const std::unordered_map<PoleTypeId, PoleTypeDefinition>& pole_types() const {
+    return state_.pole_types_;
+  }
+  [[nodiscard]] const std::vector<SlotSelectionDebugRecord>& slot_selection_debug_records() const {
+    return state_.slot_selection_debug_records_;
+  }
+  [[nodiscard]] const std::unordered_map<ObjectId, SpanRuntimeState>& span_runtime_states() const {
+    return state_.span_runtime_states_;
+  }
+  [[nodiscard]] const SpanRuntimeState* find_span_runtime_state(ObjectId span_id) const {
+    return state_.find_span_runtime_state(span_id);
+  }
+
+private:
+  const CoreState& state_;
+};
+
+inline CoreView CoreState::view() const { return CoreView(*this); }
 
 CoreState make_demo_state();
 

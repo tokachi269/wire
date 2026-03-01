@@ -451,8 +451,8 @@ int FallbackParallelSpanCount(wire::core::ConnectionCategory category) {
 
 int AutoParallelSpanCountFromPoleType(const CoreState& state, wire::core::PoleTypeId pole_type_id,
                                       wire::core::ConnectionCategory category) {
-  const auto it = state.pole_types().find(pole_type_id);
-  if (it == state.pole_types().end()) {
+  const auto it = state.view().pole_types().find(pole_type_id);
+  if (it == state.view().pole_types().end()) {
     return FallbackParallelSpanCount(category);
   }
   int count = 0;
@@ -513,8 +513,8 @@ std::string DrawCategoryPreview(const ViewerUiState& ui_state) {
 
 std::vector<wire::core::PoleTypeId> SortedPoleTypeIds(const CoreState& state) {
   std::vector<wire::core::PoleTypeId> ids;
-  ids.reserve(state.pole_types().size());
-  for (const auto& [id, _] : state.pole_types()) {
+  ids.reserve(state.view().pole_types().size());
+  for (const auto& [id, _] : state.view().pole_types()) {
     ids.push_back(id);
   }
   std::sort(ids.begin(), ids.end());
@@ -1011,7 +1011,8 @@ void DrawAxes() {
 }
 
 void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
-  const auto& edit = state.edit_state();
+  const auto view = state.view();
+  const auto& edit = view.edit_state();
   ObjectId selected_wire_group_id = wire::core::kInvalidObjectId;
   if (ui_state.selected_type == SelectedType::kSpan && ui_state.selected_id != wire::core::kInvalidObjectId) {
     const wire::core::Span* selected_span = edit.spans.find(ui_state.selected_id);
@@ -1057,7 +1058,7 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
     if (start_port == nullptr || end_port == nullptr) {
       continue;
     }
-    const wire::core::SpanRuntimeState* runtime_state = state.find_span_runtime_state(span.id);
+    const wire::core::SpanRuntimeState* runtime_state = state.view().find_span_runtime_state(span.id);
     Color color = DirtyColorForSpan(runtime_state);
     if (ui_state.selected_type == SelectedType::kSpan && ui_state.selected_id == span.id) {
       color = GOLD;
@@ -1133,7 +1134,8 @@ void DrawSelectedInfo(const CoreState& state, const ViewerUiState& ui_state) {
     return;
   }
 
-  const auto& edit = state.edit_state();
+  const auto view = state.view();
+  const auto& edit = view.edit_state();
   switch (ui_state.selected_type) {
   case SelectedType::kPole: {
     const auto* pole = edit.poles.find(ui_state.selected_id);
@@ -1247,7 +1249,7 @@ void DrawSelectedInfo(const CoreState& state, const ViewerUiState& ui_state) {
       ImGui::Text("AABB size: %.2f %.2f %.2f", sx, sy, sz);
       ImGui::Text("segmentAABBs: %d", static_cast<int>(bounds->segments.size()));
     }
-    const auto* runtime_state = state.find_span_runtime_state(span->id);
+    const auto* runtime_state = state.view().find_span_runtime_state(span->id);
     if (runtime_state != nullptr) {
       ImGui::Separator();
       ImGui::Text("dataVersion: %llu", static_cast<unsigned long long>(runtime_state->data_version));
@@ -1309,6 +1311,7 @@ void HandleResultError(ViewerUiState& ui_state, const std::string& error, const 
 }
 
 void DrawEditSelectedPanel(CoreState& state, ViewerUiState& ui_state) {
+  const auto view = state.view();
   ImGui::Separator();
   ImGui::TextUnformatted("Edit Selected");
   ImGui::InputDouble("Edit X", &ui_state.edit_x);
@@ -1317,7 +1320,7 @@ void DrawEditSelectedPanel(CoreState& state, ViewerUiState& ui_state) {
 
   if (ui_state.selected_type == SelectedType::kPole) {
     if (ImGui::Button("Load Pole Pos")) {
-      const auto* pole = state.edit_state().poles.find(ui_state.selected_id);
+      const auto* pole = view.poles().find(ui_state.selected_id);
       if (pole != nullptr) {
         ui_state.edit_x = pole->world_transform.position.x;
         ui_state.edit_y = pole->world_transform.position.y;
@@ -1326,7 +1329,7 @@ void DrawEditSelectedPanel(CoreState& state, ViewerUiState& ui_state) {
     }
     ImGui::SameLine();
     if (ImGui::Button("Move Pole")) {
-      const auto* pole = state.edit_state().poles.find(ui_state.selected_id);
+      const auto* pole = view.poles().find(ui_state.selected_id);
       if (pole != nullptr) {
         wire::core::Transformd moved = pole->world_transform;
         moved.position = {ui_state.edit_x, ui_state.edit_y, ui_state.edit_z};
@@ -1341,7 +1344,7 @@ void DrawEditSelectedPanel(CoreState& state, ViewerUiState& ui_state) {
     }
   } else if (ui_state.selected_type == SelectedType::kPort) {
     if (ImGui::Button("Load Port Pos")) {
-      const auto* port = state.edit_state().ports.find(ui_state.selected_id);
+      const auto* port = view.ports().find(ui_state.selected_id);
       if (port != nullptr) {
         ui_state.edit_x = port->world_position.x;
         ui_state.edit_y = port->world_position.y;
@@ -1369,7 +1372,7 @@ void DrawEditSelectedPanel(CoreState& state, ViewerUiState& ui_state) {
     }
   } else if (ui_state.selected_type == SelectedType::kAnchor) {
     if (ImGui::Button("Load Anchor Pos")) {
-      const auto* anchor = state.edit_state().anchors.find(ui_state.selected_id);
+      const auto* anchor = view.anchors().find(ui_state.selected_id);
       if (anchor != nullptr) {
         ui_state.edit_x = anchor->world_position.x;
         ui_state.edit_y = anchor->world_position.y;
@@ -1426,14 +1429,14 @@ void DrawPlacementModePanel(CoreState& state, ViewerUiState& ui_state) {
   const std::size_t type_index = ClampedTypeIndex(ui_state.placement_pole_type_index, type_ids.size());
   ui_state.placement_pole_type_index = static_cast<int>(type_index);
   const wire::core::PoleTypeId selected_type_id = type_ids[type_index];
-  const auto type_it = state.pole_types().find(selected_type_id);
+  const auto type_it = state.view().pole_types().find(selected_type_id);
   const std::string selected_type_name =
-      (type_it != state.pole_types().end()) ? type_it->second.name : std::to_string(selected_type_id);
+      (type_it != state.view().pole_types().end()) ? type_it->second.name : std::to_string(selected_type_id);
 
   if (ImGui::BeginCombo("PoleType", selected_type_name.c_str())) {
     for (std::size_t i = 0; i < type_ids.size(); ++i) {
-      const auto it = state.pole_types().find(type_ids[i]);
-      const std::string label = (it != state.pole_types().end()) ? it->second.name : std::to_string(type_ids[i]);
+      const auto it = state.view().pole_types().find(type_ids[i]);
+      const std::string label = (it != state.view().pole_types().end()) ? it->second.name : std::to_string(type_ids[i]);
       const bool selected = (i == type_index);
       if (ImGui::Selectable(label.c_str(), selected)) {
         ui_state.placement_pole_type_index = static_cast<int>(i);
@@ -1491,13 +1494,13 @@ void DrawPlacementModePanel(CoreState& state, ViewerUiState& ui_state) {
   const std::size_t road_type_index = ClampedTypeIndex(ui_state.road_pole_type_index, type_ids.size());
   ui_state.road_pole_type_index = static_cast<int>(road_type_index);
   const wire::core::PoleTypeId road_type_id = type_ids[road_type_index];
-  const auto road_type_it = state.pole_types().find(road_type_id);
+  const auto road_type_it = state.view().pole_types().find(road_type_id);
   const std::string road_type_name =
-      (road_type_it != state.pole_types().end()) ? road_type_it->second.name : std::to_string(road_type_id);
+      (road_type_it != state.view().pole_types().end()) ? road_type_it->second.name : std::to_string(road_type_id);
   if (ImGui::BeginCombo("Road PoleType", road_type_name.c_str())) {
     for (std::size_t i = 0; i < type_ids.size(); ++i) {
-      const auto it = state.pole_types().find(type_ids[i]);
-      const std::string label = (it != state.pole_types().end()) ? it->second.name : std::to_string(type_ids[i]);
+      const auto it = state.view().pole_types().find(type_ids[i]);
+      const std::string label = (it != state.view().pole_types().end()) ? it->second.name : std::to_string(type_ids[i]);
       const bool selected = (i == road_type_index);
       if (ImGui::Selectable(label.c_str(), selected)) {
         ui_state.road_pole_type_index = static_cast<int>(i);
@@ -1642,13 +1645,13 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
     const std::size_t road_type_index = ClampedTypeIndex(ui_state.road_pole_type_index, type_ids.size());
     ui_state.road_pole_type_index = static_cast<int>(road_type_index);
     const wire::core::PoleTypeId road_type_id = type_ids[road_type_index];
-    const auto road_type_it = state.pole_types().find(road_type_id);
+    const auto road_type_it = state.view().pole_types().find(road_type_id);
     const std::string road_type_name =
-        (road_type_it != state.pole_types().end()) ? road_type_it->second.name : std::to_string(road_type_id);
+        (road_type_it != state.view().pole_types().end()) ? road_type_it->second.name : std::to_string(road_type_id);
     if (ImGui::BeginCombo("Path PoleType", road_type_name.c_str())) {
       for (std::size_t i = 0; i < type_ids.size(); ++i) {
-        const auto it = state.pole_types().find(type_ids[i]);
-        const std::string label = (it != state.pole_types().end()) ? it->second.name : std::to_string(type_ids[i]);
+        const auto it = state.view().pole_types().find(type_ids[i]);
+        const std::string label = (it != state.view().pole_types().end()) ? it->second.name : std::to_string(type_ids[i]);
         const bool selected = (i == road_type_index);
         if (ImGui::Selectable(label.c_str(), selected)) {
           ui_state.road_pole_type_index = static_cast<int>(i);
@@ -1719,7 +1722,7 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
       ui_state.draw_direction_mode = static_cast<int>(wire::core::PathDirectionMode::kReverse);
     }
   }
-  const auto& dir_debug = state.last_path_direction_debug();
+  const auto& dir_debug = state.view().last_path_direction_debug();
   ImGui::Text("Direction chosen: %s (mode=%s)", PathDirectionChosenLabel(dir_debug.chosen),
               PathDirectionModeLabel(dir_debug.requested_mode));
   ImGui::Text("Cost F/R: %d / %d", dir_debug.forward_cost.total, dir_debug.reverse_cost.total);
@@ -1742,7 +1745,7 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
     ui_state.draw_path_points.clear();
   }
 
-  const auto& lane_assignments = state.last_lane_assignments();
+  const auto& lane_assignments = state.view().last_lane_assignments();
   ImGui::Separator();
   ImGui::Text("Lane assignments: %d", static_cast<int>(lane_assignments.size()));
   for (const auto& a : lane_assignments) {
@@ -1855,13 +1858,13 @@ void DrawDetailModePanel(CoreState& state, ViewerUiState& ui_state) {
   if (!type_ids.empty()) {
     const std::size_t idx = ClampedTypeIndex(ui_state.detail_pole_type_index, type_ids.size());
     ui_state.detail_pole_type_index = static_cast<int>(idx);
-    const auto type_it = state.pole_types().find(type_ids[idx]);
+    const auto type_it = state.view().pole_types().find(type_ids[idx]);
     const std::string selected_name =
-        (type_it != state.pole_types().end()) ? type_it->second.name : std::to_string(type_ids[idx]);
+        (type_it != state.view().pole_types().end()) ? type_it->second.name : std::to_string(type_ids[idx]);
     if (ImGui::BeginCombo("Set PoleType", selected_name.c_str())) {
       for (std::size_t i = 0; i < type_ids.size(); ++i) {
-        const auto it = state.pole_types().find(type_ids[i]);
-        const std::string label = (it != state.pole_types().end()) ? it->second.name : std::to_string(type_ids[i]);
+        const auto it = state.view().pole_types().find(type_ids[i]);
+        const std::string label = (it != state.view().pole_types().end()) ? it->second.name : std::to_string(type_ids[i]);
         const bool selected = (i == idx);
         if (ImGui::Selectable(label.c_str(), selected)) {
           ui_state.detail_pole_type_index = static_cast<int>(i);
@@ -1899,16 +1902,16 @@ void DrawDetailModePanel(CoreState& state, ViewerUiState& ui_state) {
         continue;
       }
       const auto* port = it->second;
-      const auto usage_it = state.connection_index().spans_by_port.find(port->id);
+      const auto usage_it = state.view().connection_index().spans_by_port.find(port->id);
       const int usage =
-          (usage_it == state.connection_index().spans_by_port.end()) ? 0 : static_cast<int>(usage_it->second.size());
+          (usage_it == state.view().connection_index().spans_by_port.end()) ? 0 : static_cast<int>(usage_it->second.size());
       ImGui::Text("slot=%d cat=%s layer=%d side=%s role=%s used=%d -> %s", slot.slot_id, CategoryLabel(slot.category),
                   slot.layer, SlotSideLabel(slot.side), SlotRoleLabel(slot.role), usage, port->display_id.c_str());
     }
   } else {
     for (const auto* port : detail.owned_ports) {
-      const auto it = state.connection_index().spans_by_port.find(port->id);
-      const int usage = (it == state.connection_index().spans_by_port.end()) ? 0 : static_cast<int>(it->second.size());
+      const auto it = state.view().connection_index().spans_by_port.find(port->id);
+      const int usage = (it == state.view().connection_index().spans_by_port.end()) ? 0 : static_cast<int>(it->second.size());
       ImGui::Text("%s cat=%s slot=%d used=%d", port->display_id.c_str(), CategoryLabel(port->category),
                   port->source_slot_id, usage);
     }
@@ -1990,6 +1993,7 @@ void DrawModeButtons(ViewerUiState& ui_state) {
 }
 
 void DrawTopbarWindow(const CoreState& state, ViewerUiState& ui_state) {
+  const auto view = state.view();
   const float w = static_cast<float>(GetScreenWidth());
   const float topbar_h = 74.0f;
   ImGui::SetNextWindowPos(ImVec2(8.0f, 8.0f), ImGuiCond_Always);
@@ -2017,9 +2021,9 @@ void DrawTopbarWindow(const CoreState& state, ViewerUiState& ui_state) {
   }
   ImGui::Separator();
   ImGui::Text("Poles:%d  Ports:%d  Spans:%d  Groups:%d  Lanes:%d",
-              static_cast<int>(state.edit_state().poles.size()), static_cast<int>(state.edit_state().ports.size()),
-              static_cast<int>(state.edit_state().spans.size()), static_cast<int>(state.edit_state().wire_groups.size()),
-              static_cast<int>(state.edit_state().wire_lanes.size()));
+              static_cast<int>(view.poles().size()), static_cast<int>(view.ports().size()),
+              static_cast<int>(view.spans().size()), static_cast<int>(view.wire_groups().size()),
+              static_cast<int>(view.wire_lanes().size()));
   ImGui::SameLine();
   ImGui::Text("|  Mode: %s", ModeLabel(ui_state.mode));
   ImGui::SameLine();
@@ -2027,7 +2031,7 @@ void DrawTopbarWindow(const CoreState& state, ViewerUiState& ui_state) {
   ImGui::SameLine();
   ImGui::Text("|  Walk %s", ui_state.camera_walk_mode ? "ON" : "OFF");
   if (ui_state.selected_type == SelectedType::kPole) {
-    if (const auto* pole = state.edit_state().poles.find(ui_state.selected_id); pole != nullptr) {
+    if (const auto* pole = view.poles().find(ui_state.selected_id); pole != nullptr) {
       ImGui::SameLine();
       ImGui::Text("|  Selected Pole Placement: %s", PolePlacementModeLabel(pole->placement_mode));
     }
@@ -2064,9 +2068,10 @@ void DrawToolboxWindow(CoreState& state, ViewerUiState& ui_state) {
 }
 
 void DrawInspectorContent(CoreState& state, ViewerUiState& ui_state) {
+  const auto view = state.view();
   if (ui_state.selected_type == SelectedType::kPole &&
       ui_state.selected_id != wire::core::kInvalidObjectId) {
-    if (const auto* pole = state.edit_state().poles.find(ui_state.selected_id); pole != nullptr) {
+    if (const auto* pole = view.poles().find(ui_state.selected_id); pole != nullptr) {
       int placement_mode = static_cast<int>(pole->placement_mode);
       if (ImGui::Combo("Placement Mode (Quick)", &placement_mode, "Auto\0Manual\0")) {
         const auto result =
@@ -2100,18 +2105,19 @@ void DrawInspectorWindow(CoreState& state, ViewerUiState& ui_state) {
 }
 
 void DrawOutlinerContent(CoreState& state, ViewerUiState& ui_state) {
+  const auto view = state.view();
   DrawObjectList(
       ui_state, "Poles", SelectedType::kPole,
       [&]() {
         std::vector<ObjectId> ids;
-        ids.reserve(state.edit_state().poles.size());
-        for (const auto& pole : state.edit_state().poles.items()) {
+        ids.reserve(view.poles().size());
+        for (const auto& pole : view.poles().items()) {
           ids.push_back(pole.id);
         }
         return ids;
       }(),
       [&](ObjectId id) {
-        const auto* pole = state.edit_state().poles.find(id);
+        const auto* pole = view.poles().find(id);
         if (pole == nullptr) {
           return std::to_string(id);
         }
@@ -2122,14 +2128,14 @@ void DrawOutlinerContent(CoreState& state, ViewerUiState& ui_state) {
       ui_state, "Ports", SelectedType::kPort,
       [&]() {
         std::vector<ObjectId> ids;
-        ids.reserve(state.edit_state().ports.size());
-        for (const auto& port : state.edit_state().ports.items()) {
+        ids.reserve(view.ports().size());
+        for (const auto& port : view.ports().items()) {
           ids.push_back(port.id);
         }
         return ids;
       }(),
       [&](ObjectId id) {
-        const auto* port = state.edit_state().ports.find(id);
+        const auto* port = view.ports().find(id);
         if (port == nullptr) {
           return std::to_string(id);
         }
@@ -2140,14 +2146,14 @@ void DrawOutlinerContent(CoreState& state, ViewerUiState& ui_state) {
       ui_state, "Spans", SelectedType::kSpan,
       [&]() {
         std::vector<ObjectId> ids;
-        ids.reserve(state.edit_state().spans.size());
-        for (const auto& span : state.edit_state().spans.items()) {
+        ids.reserve(view.spans().size());
+        for (const auto& span : view.spans().items()) {
           ids.push_back(span.id);
         }
         return ids;
       }(),
       [&](ObjectId id) {
-        const auto* span = state.edit_state().spans.find(id);
+        const auto* span = view.spans().find(id);
         if (span == nullptr) {
           return std::to_string(id);
         }
@@ -2169,14 +2175,14 @@ void DrawOutlinerWindow(CoreState& state, ViewerUiState& ui_state) {
 
 void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
   if (!ui_state.geometry_settings_loaded) {
-    const auto& gs = state.geometry_settings();
+    const auto& gs = state.view().geometry_settings();
     ui_state.geometry_samples = gs.curve_samples;
     ui_state.geometry_sag_enabled = gs.sag_enabled;
     ui_state.geometry_sag_factor = gs.sag_factor;
     ui_state.geometry_settings_loaded = true;
   }
   if (!ui_state.layout_settings_loaded) {
-    const auto& ls = state.layout_settings();
+    const auto& ls = state.view().layout_settings();
     ui_state.layout_angle_correction_enabled = ls.angle_correction_enabled;
     ui_state.layout_corner_threshold_deg = ls.corner_threshold_deg;
     ui_state.layout_min_side_scale = ls.min_side_scale;
@@ -2184,20 +2190,23 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
     ui_state.layout_settings_loaded = true;
   }
 
-  const auto& recalc = state.last_recalc_stats();
+  const auto& recalc = state.view().last_recalc_stats();
   ImGui::Text("Dirty T/G/B/R/X: %d / %d / %d / %d / %d",
-              static_cast<int>(state.dirty_queue().topology_dirty_span_ids.size()),
-              static_cast<int>(state.dirty_queue().geometry_dirty_span_ids.size()),
-              static_cast<int>(state.dirty_queue().bounds_dirty_span_ids.size()),
-              static_cast<int>(state.dirty_queue().render_dirty_span_ids.size()),
-              static_cast<int>(state.dirty_queue().raycast_dirty_span_ids.size()));
+              static_cast<int>(state.view().dirty_queue().topology_dirty_span_ids.size()),
+              static_cast<int>(state.view().dirty_queue().geometry_dirty_span_ids.size()),
+              static_cast<int>(state.view().dirty_queue().bounds_dirty_span_ids.size()),
+              static_cast<int>(state.view().dirty_queue().render_dirty_span_ids.size()),
+              static_cast<int>(state.view().dirty_queue().raycast_dirty_span_ids.size()));
   ImGui::Text("Last Recalc total=%d geom=%d bounds=%d render=%d", static_cast<int>(recalc.total_processed()),
               static_cast<int>(recalc.geometry_processed), static_cast<int>(recalc.bounds_processed),
               static_cast<int>(recalc.render_processed));
   ImGui::Checkbox("Auto Recalc", &ui_state.auto_recalc);
   ImGui::SameLine();
   if (ImGui::Button("Run Recalc")) {
-    const auto stats = state.ProcessDirtyQueues();
+    wire::core::CommitOptions options{};
+    options.run_recalc = true;
+    options.run_validate = false;
+    const auto stats = state.Commit(options).recalc_stats;
     PushLog(ui_state, "Recalc processed=" + std::to_string(stats.total_processed()));
   }
 
@@ -2263,7 +2272,10 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
     ImGui::Checkbox("Show Span AABB", &ui_state.show_whole_aabb);
     ImGui::Checkbox("Show Segment AABB", &ui_state.show_segment_aabb);
     ImGui::Checkbox("Highlight Selected WireGroup", &ui_state.show_selected_wire_group_highlight);
-    const wire::core::ValidationResult validation = state.Validate();
+    wire::core::CommitOptions options{};
+    options.run_recalc = false;
+    options.run_validate = true;
+    const wire::core::ValidationResult validation = state.Commit(options).validation;
     ImGui::Text("Validation: %s", validation.ok() ? "OK" : "ERROR");
   }
 
@@ -2272,7 +2284,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
       state.clear_slot_selection_debug_records();
       ui_state.selected_slot_debug_index = 0;
     }
-    const auto& debug_records = state.slot_selection_debug_records();
+    const auto& debug_records = state.view().slot_selection_debug_records();
     ImGui::Text("Events: %d", static_cast<int>(debug_records.size()));
     if (!debug_records.empty()) {
       ui_state.selected_slot_debug_index =
@@ -2427,7 +2439,10 @@ int main() {
     UpdateCameraForViewport(&camera, ui_state);
     UpdateDrawPathInput(state, camera, ui_state);
     if (ui_state.auto_recalc) {
-      (void)state.ProcessDirtyQueues();
+      wire::core::CommitOptions options{};
+      options.run_recalc = true;
+      options.run_validate = false;
+      (void)state.Commit(options);
     }
 
     BeginMode3D(camera);
@@ -2459,3 +2474,4 @@ int main() {
   CloseWindow();
   return 0;
 }
+

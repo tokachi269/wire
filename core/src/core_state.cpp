@@ -286,27 +286,7 @@ Transformd make_auto_pole_transform(const std::vector<Vec3d>& points, std::size_
   return tf;
 }
 
-template <typename TKey>
-std::unordered_map<TKey, std::vector<ObjectId>>
-canonical_index_map(const std::unordered_map<TKey, std::vector<ObjectId>>& map) {
-  auto out = map;
-  for (auto& [_, ids] : out) {
-    std::sort(ids.begin(), ids.end());
-    ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
-  }
-  return out;
-}
-
 } // namespace
-
-bool ValidationResult::has_errors() const {
-  for (const ValidationIssue& issue : issues) {
-    if (issue.severity == ValidationSeverity::kError) {
-      return true;
-    }
-  }
-  return false;
-}
 
 CoreState::CoreState() { register_default_pole_types(); }
 
@@ -326,8 +306,7 @@ EditResult<ObjectId> CoreState::AddPole(const Transformd& world_transform, doubl
   pole.height_m = height_m;
   pole.kind = kind;
   pole.pole_type_id = kInvalidPoleTypeId;
-  pole.placement_mode = placement_mode;
-  pole.user_edited = (placement_mode == PlacementMode::kManual);
+  apply_pole_placement_mode(pole, placement_mode);
   edit_state_.poles.insert(pole);
 
   result.ok = true;
@@ -362,9 +341,7 @@ EditResult<ObjectId> CoreState::AddPort(ObjectId owner_pole_id, const Vec3d& wor
   port.placement_context = ConnectionContext::kTrunkContinue;
   port.angle_correction_applied = false;
   port.side_scale_applied = 1.0;
-  port.position_mode = PortPositionMode::kAuto;
-  port.placement_source = PortPlacementSourceKind::kGenerated;
-  port.user_edited_position = false;
+  apply_port_position_mode(port, PortPositionMode::kAuto, PortPlacementSourceKind::kGenerated);
   edit_state_.ports.insert(port);
 
   result.ok = true;
@@ -589,8 +566,7 @@ EditResult<ObjectId> CoreState::MovePole(ObjectId pole_id, const Transformd& new
 
   const Pole old_pole = *pole;
   pole->world_transform = new_world_transform;
-  pole->placement_mode = PlacementMode::kManual;
-  pole->user_edited = true;
+  apply_pole_placement_mode(*pole, PlacementMode::kManual);
   result.change_set.updated_ids.push_back(pole_id);
   refresh_owned_endpoints_from_pole(pole_id, &result.change_set, &old_pole);
 
@@ -611,9 +587,7 @@ EditResult<ObjectId> CoreState::SetPortWorldPositionManual(ObjectId port_id, con
     return result;
   }
   port->world_position = new_world_position;
-  port->position_mode = PortPositionMode::kManual;
-  port->placement_source = PortPlacementSourceKind::kManualEdit;
-  port->user_edited_position = true;
+  apply_port_position_mode(*port, PortPositionMode::kManual, PortPlacementSourceKind::kManualEdit);
   result.change_set.updated_ids.push_back(port_id);
   mark_connected_spans_dirty_from_port(port_id, DirtyBits::kGeometry, &result.change_set);
   result.ok = true;
@@ -629,8 +603,7 @@ EditResult<ObjectId> CoreState::ResetPortPositionToAuto(ObjectId port_id) {
     return result;
   }
 
-  port->position_mode = PortPositionMode::kAuto;
-  port->user_edited_position = false;
+  apply_port_position_mode(*port, PortPositionMode::kAuto, port->placement_source);
 
   bool recomputed = false;
   if (port->owner_pole_id != kInvalidObjectId && port->source_slot_id >= 0) {
@@ -662,14 +635,14 @@ EditResult<ObjectId> CoreState::ResetPortPositionToAuto(ObjectId port_id) {
               local_to_world_on_pole(pole->world_transform, effective_pole_yaw_for_layout(*pole), adjusted_local);
           port->angle_correction_applied = apply_angle_correction;
           port->side_scale_applied = apply_angle_correction ? applied_scale : 1.0;
-          port->placement_source = PortPlacementSourceKind::kTemplateSlot;
+          apply_port_position_mode(*port, PortPositionMode::kAuto, PortPlacementSourceKind::kTemplateSlot);
           recomputed = true;
         }
       }
     }
   }
   if (!recomputed && port->placement_source == PortPlacementSourceKind::kManualEdit) {
-    port->placement_source = PortPlacementSourceKind::kGenerated;
+    apply_port_position_mode(*port, PortPositionMode::kAuto, PortPlacementSourceKind::kGenerated);
   }
 
   result.change_set.updated_ids.push_back(port_id);
@@ -729,12 +702,7 @@ EditResult<ObjectId> CoreState::SetPolePlacementMode(ObjectId pole_id, Placement
     result.value = pole_id;
     return result;
   }
-  pole->placement_mode = mode;
-  if (mode == PlacementMode::kManual) {
-    pole->user_edited = true;
-  } else {
-    pole->user_edited = false;
-  }
+  apply_pole_placement_mode(*pole, mode);
   add_unique_id(result.change_set.updated_ids, pole_id);
   result.ok = true;
   result.value = pole_id;
@@ -773,7 +741,7 @@ void CoreState::refresh_owned_endpoints_from_pole(ObjectId pole_id, ChangeSet* c
 
   const double effective_yaw = effective_pole_yaw_for_layout(*pole);
 
-  for (Port& port : edit_state_.ports.items()) {
+  for (Port& port : edit_state_.ports.items_mutable()) {
     if (port.owner_pole_id != pole_id || port.position_mode == PortPositionMode::kManual) {
       continue;
     }
@@ -810,14 +778,14 @@ void CoreState::refresh_owned_endpoints_from_pole(ObjectId pole_id, ChangeSet* c
     port.world_position = new_world;
     port.angle_correction_applied = apply_angle_correction;
     port.side_scale_applied = apply_angle_correction ? applied_scale : 1.0;
-    port.placement_source = PortPlacementSourceKind::kTemplateSlot;
+    apply_port_position_mode(port, PortPositionMode::kAuto, PortPlacementSourceKind::kTemplateSlot);
     if (change_set != nullptr) {
       add_unique_id(change_set->updated_ids, port.id);
       mark_connected_spans_dirty_from_port(port.id, DirtyBits::kGeometry, change_set);
     }
   }
 
-  for (Anchor& anchor : edit_state_.anchors.items()) {
+  for (Anchor& anchor : edit_state_.anchors.items_mutable()) {
     if (anchor.owner_pole_id != pole_id) {
       continue;
     }
@@ -909,9 +877,7 @@ EditResult<CoreState::SplitSpanResult> CoreState::SplitSpan(ObjectId span_id, do
     return result;
   }
   if (Port* split_port = edit_state_.ports.find(add_port_result.value); split_port != nullptr) {
-    split_port->placement_source = PortPlacementSourceKind::kAerialBranch;
-    split_port->position_mode = PortPositionMode::kAuto;
-    split_port->user_edited_position = false;
+    apply_port_position_mode(*split_port, PortPositionMode::kAuto, PortPlacementSourceKind::kAerialBranch);
     add_unique_id(add_port_result.change_set.updated_ids, split_port->id);
   }
 
@@ -1017,9 +983,7 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
       created->generated_by_rule = true;
       created->angle_correction_applied = apply_angle_correction;
       created->side_scale_applied = apply_angle_correction ? applied_scale : 1.0;
-      created->position_mode = PortPositionMode::kAuto;
-      created->placement_source = PortPlacementSourceKind::kTemplateSlot;
-      created->user_edited_position = false;
+      apply_port_position_mode(*created, PortPositionMode::kAuto, PortPlacementSourceKind::kTemplateSlot);
       add_unique_id(result.change_set.updated_ids, created->id);
     }
     append_change_set(result.change_set, add_port_result.change_set);
@@ -1429,286 +1393,15 @@ RecalcStats CoreState::ProcessDirtyQueues() {
   return stats;
 }
 
-ValidationResult CoreState::Validate() const {
-  ValidationResult result;
-
-  for (const Pole& pole : edit_state_.poles.items()) {
-    if (pole.pole_type_id != kInvalidPoleTypeId && !pole_types_.contains(pole.pole_type_id)) {
-      result.issues.push_back(
-          {ValidationSeverity::kError, "PoleTypeMissing", "Pole references unknown PoleType", pole.id});
-    }
-    if (!std::isfinite(pole.context.corner_angle_deg) || !std::isfinite(pole.context.corner_turn_sign) ||
-        !std::isfinite(pole.context.side_scale) || !std::isfinite(pole.context.sharp_theta_deg) ||
-        !std::isfinite(pole.context.sharp_bisector_dir.x) || !std::isfinite(pole.context.sharp_bisector_dir.y) ||
-        !std::isfinite(pole.context.sharp_bisector_dir.z) || !std::isfinite(pole.context.sharp_side_dir.x) ||
-        !std::isfinite(pole.context.sharp_side_dir.y) || !std::isfinite(pole.context.sharp_side_dir.z)) {
-      result.issues.push_back(
-          {ValidationSeverity::kError, "PoleContextInvalid", "Pole context has non-finite value", pole.id});
-    }
-    if (pole.context.corner_turn_sign < -1.0 - 1e-9 || pole.context.corner_turn_sign > 1.0 + 1e-9) {
-      result.issues.push_back({
-          ValidationSeverity::kWarning,
-          "PoleTurnSignOutOfRange",
-          "Pole corner_turn_sign is out of range",
-          pole.id,
-      });
-    }
-    if (pole.context.side_scale < layout_settings_.min_side_scale - 1e-9 ||
-        pole.context.side_scale > layout_settings_.max_side_scale + 1e-9) {
-      result.issues.push_back({ValidationSeverity::kWarning, "PoleSideScaleOutOfRange",
-                               "Pole side_scale is out of configured range", pole.id});
-    }
-    if (!std::isfinite(pole.orientation_control.manual_yaw_deg)) {
-      result.issues.push_back(
-          {ValidationSeverity::kError, "PoleOrientationInvalid", "Pole manual yaw is non-finite", pole.id});
-    }
+CommitResult CoreState::Commit(const CommitOptions& options) {
+  CommitResult out{};
+  if (options.run_recalc) {
+    out.recalc_stats = ProcessDirtyQueues();
   }
-
-  for (const Port& port : edit_state_.ports.items()) {
-    if (port.owner_pole_id != kInvalidObjectId && edit_state_.poles.find(port.owner_pole_id) == nullptr) {
-      result.issues.push_back({ValidationSeverity::kError, "PortOwnerMissing", "Port owner pole is missing", port.id});
-    }
-    if (port.source_slot_id >= 0 && port.owner_pole_id != kInvalidObjectId) {
-      const Pole* owner = edit_state_.poles.find(port.owner_pole_id);
-      const PoleTypeDefinition* pole_type = (owner == nullptr) ? nullptr : find_pole_type(owner->pole_type_id);
-      bool slot_found = false;
-      if (pole_type != nullptr) {
-        for (const PortSlotTemplate& slot : pole_type->port_slots) {
-          if (slot.slot_id != port.source_slot_id) {
-            continue;
-          }
-          slot_found = true;
-          if (slot.category != port.category) {
-            result.issues.push_back({
-                ValidationSeverity::kError,
-                "PortSlotCategoryMismatch",
-                "Port category differs from slot category",
-                port.id,
-            });
-          }
-          if (!is_valid_slot_side(slot.side) || !is_valid_slot_role(slot.role)) {
-            result.issues.push_back({
-                ValidationSeverity::kError,
-                "PortSlotAttributeInvalid",
-                "Slot side/role contains invalid value",
-                port.id,
-            });
-          }
-          break;
-        }
-      }
-      if (!slot_found) {
-        result.issues.push_back({
-            ValidationSeverity::kWarning,
-            "PortSlotMissing",
-            "Port source slot id is not defined on owner PoleType",
-            port.id,
-        });
-      }
-    }
-    if (!std::isfinite(port.world_position.x) || !std::isfinite(port.world_position.y) ||
-        !std::isfinite(port.world_position.z) || !std::isfinite(port.side_scale_applied)) {
-      result.issues.push_back(
-          {ValidationSeverity::kError, "PortTransformInvalid", "Port position or side_scale is non-finite", port.id});
-    }
-    if (port.side_scale_applied < layout_settings_.min_side_scale - 1e-9 ||
-        port.side_scale_applied > layout_settings_.max_side_scale + 1e-9) {
-      result.issues.push_back({ValidationSeverity::kWarning, "PortSideScaleOutOfRange",
-                               "Port side_scale_applied is out of range", port.id});
-    }
+  if (options.run_validate) {
+    out.validation = Validate();
   }
-
-  for (const Anchor& anchor : edit_state_.anchors.items()) {
-    if (anchor.owner_pole_id != kInvalidObjectId && edit_state_.poles.find(anchor.owner_pole_id) == nullptr) {
-      result.issues.push_back(
-          {ValidationSeverity::kError, "AnchorOwnerMissing", "Anchor owner pole is missing", anchor.id});
-    }
-  }
-
-  for (const WireLane& lane : edit_state_.wire_lanes.items()) {
-    if (edit_state_.wire_groups.find(lane.wire_group_id) == nullptr) {
-      result.issues.push_back(
-          {ValidationSeverity::kError, "WireLaneGroupMissing", "WireLane owner group is missing", lane.id});
-    }
-    if (lane.lane_index < 0) {
-      result.issues.push_back(
-          {ValidationSeverity::kError, "WireLaneIndexInvalid", "WireLane lane_index must be >= 0", lane.id});
-    }
-  }
-
-  for (const Span& span : edit_state_.spans.items()) {
-    const Port* port_a = edit_state_.ports.find(span.port_a_id);
-    const Port* port_b = edit_state_.ports.find(span.port_b_id);
-    if (port_a == nullptr || port_b == nullptr) {
-      result.issues.push_back({ValidationSeverity::kError, "SpanPortMissing", "Span references missing port", span.id});
-      continue;
-    }
-    if (span.port_a_id == span.port_b_id) {
-      result.issues.push_back({ValidationSeverity::kError, "SpanSelfReference", "Span has same endpoint", span.id});
-    }
-    if (has_zero_length(*port_a, *port_b)) {
-      result.issues.push_back({ValidationSeverity::kWarning, "SpanZeroLength", "Span endpoints overlap", span.id});
-    }
-    if (span.bundle_id != kInvalidObjectId && edit_state_.bundles.find(span.bundle_id) == nullptr) {
-      result.issues.push_back({ValidationSeverity::kError, "SpanBundleMissing", "Span bundle is missing", span.id});
-    }
-    if (span.wire_group_id != kInvalidObjectId && edit_state_.wire_groups.find(span.wire_group_id) == nullptr) {
-      result.issues.push_back(
-          {ValidationSeverity::kError, "SpanWireGroupMissing", "Span wire_group is missing", span.id});
-    }
-    if (span.wire_lane_id != kInvalidObjectId) {
-      if (span.wire_group_id == kInvalidObjectId) {
-        result.issues.push_back({
-            ValidationSeverity::kError,
-            "SpanWireGroupUnset",
-            "Span wire_lane is set but wire_group is not set",
-            span.id,
-        });
-      }
-      const WireLane* lane = edit_state_.wire_lanes.find(span.wire_lane_id);
-      if (lane == nullptr) {
-        result.issues.push_back(
-            {ValidationSeverity::kError, "SpanWireLaneMissing", "Span wire_lane is missing", span.id});
-      } else if (span.wire_group_id != kInvalidObjectId && lane->wire_group_id != span.wire_group_id) {
-        result.issues.push_back({
-            ValidationSeverity::kError,
-            "SpanWireLaneGroupMismatch",
-            "Span wire_lane belongs to different wire_group",
-            span.id,
-        });
-      }
-    }
-    if (span.anchor_a_id != kInvalidObjectId && edit_state_.anchors.find(span.anchor_a_id) == nullptr) {
-      result.issues.push_back({ValidationSeverity::kError, "SpanAnchorMissing", "Span anchorA is missing", span.id});
-    }
-    if (span.anchor_b_id != kInvalidObjectId && edit_state_.anchors.find(span.anchor_b_id) == nullptr) {
-      result.issues.push_back({ValidationSeverity::kError, "SpanAnchorMissing", "Span anchorB is missing", span.id});
-    }
-  }
-
-  const auto expected_port_index = canonical_index_map(make_expected_port_index(edit_state_));
-  const auto expected_anchor_index = canonical_index_map(make_expected_anchor_index(edit_state_));
-  const auto actual_port_index = canonical_index_map(connection_index_.spans_by_port);
-  const auto actual_anchor_index = canonical_index_map(connection_index_.spans_by_anchor);
-
-  if (expected_port_index != actual_port_index) {
-    result.issues.push_back(
-        {ValidationSeverity::kError, "PortIndexMismatch", "Port->Span index mismatch", kInvalidObjectId});
-  }
-  if (expected_anchor_index != actual_anchor_index) {
-    result.issues.push_back(
-        {ValidationSeverity::kError, "AnchorIndexMismatch", "Anchor->Span index mismatch", kInvalidObjectId});
-  }
-
-  for (const Span& span : edit_state_.spans.items()) {
-    auto it = span_runtime_states_.find(span.id);
-    if (it == span_runtime_states_.end()) {
-      result.issues.push_back(
-          {ValidationSeverity::kError, "SpanRuntimeMissing", "Span runtime state missing", span.id});
-      continue;
-    }
-    if (it->second.span_id != span.id) {
-      result.issues.push_back({ValidationSeverity::kError, "SpanRuntimeCorrupt", "Span runtime id mismatch", span.id});
-    }
-  }
-  for (const auto& [span_id, runtime] : span_runtime_states_) {
-    if (edit_state_.spans.find(span_id) == nullptr || runtime.span_id != span_id) {
-      result.issues.push_back(
-          {ValidationSeverity::kError, "SpanRuntimeDangling", "Runtime state points to removed span", span_id});
-    }
-  }
-
-  for (const Span& span : edit_state_.spans.items()) {
-    const auto runtime_it = span_runtime_states_.find(span.id);
-    if (runtime_it == span_runtime_states_.end()) {
-      continue;
-    }
-    const SpanRuntimeState& runtime = runtime_it->second;
-
-    auto curve_it = cache_state_.curve_cache.by_span.find(span.id);
-    if (curve_it != cache_state_.curve_cache.by_span.end()) {
-      const CurveCacheEntry& curve = curve_it->second;
-      if (curve.points.size() < 2) {
-        result.issues.push_back({
-            ValidationSeverity::kError,
-            "CurveSampleCountInvalid",
-            "Curve cache has less than 2 points",
-            span.id,
-        });
-      }
-      if (curve.source_version != runtime.geometry_version) {
-        result.issues.push_back({
-            ValidationSeverity::kWarning,
-            "GeometryVersionMismatch",
-            "Curve cache sourceVersion does not match geometryVersion",
-            span.id,
-        });
-      }
-    }
-
-    auto bounds_it = cache_state_.bounds_cache.by_span.find(span.id);
-    if (bounds_it != cache_state_.bounds_cache.by_span.end()) {
-      const BoundsCacheEntry& bounds = bounds_it->second;
-      if (bounds.whole.min.x > bounds.whole.max.x || bounds.whole.min.y > bounds.whole.max.y ||
-          bounds.whole.min.z > bounds.whole.max.z) {
-        result.issues.push_back({
-            ValidationSeverity::kError,
-            "BoundsInvalid",
-            "Whole bounds has min > max",
-            span.id,
-        });
-      }
-      for (const AABBd& segment : bounds.segments) {
-        if (segment.min.x > segment.max.x || segment.min.y > segment.max.y || segment.min.z > segment.max.z) {
-          result.issues.push_back({
-              ValidationSeverity::kError,
-              "SegmentBoundsInvalid",
-              "Segment bounds has min > max",
-              span.id,
-          });
-          break;
-        }
-      }
-      if (bounds.source_version != runtime.bounds_version) {
-        result.issues.push_back({
-            ValidationSeverity::kWarning,
-            "BoundsVersionMismatch",
-            "Bounds cache sourceVersion does not match boundsVersion",
-            span.id,
-        });
-      }
-    }
-  }
-
-  for (const SlotSelectionDebugRecord& debug : slot_selection_debug_records_) {
-    if (!std::isfinite(debug.corner_turn_sign)) {
-      result.issues.push_back({
-          ValidationSeverity::kError,
-          "SlotSelectionDebugInvalid",
-          "Slot selection debug corner_turn_sign is non-finite",
-          debug.pole_id,
-      });
-    }
-    if (debug.selected_slot_id >= 0) {
-      bool found = false;
-      for (const SlotCandidateDebug& c : debug.candidates) {
-        if (c.slot_id == debug.selected_slot_id) {
-          found = true;
-          break;
-        }
-      }
-      if (!found) {
-        result.issues.push_back({
-            ValidationSeverity::kError,
-            "SlotSelectionDebugMismatch",
-            "Selected slot id does not exist in candidate list",
-            debug.pole_id,
-        });
-      }
-    }
-  }
-
-  return result;
+  return out;
 }
 
 const SpanRuntimeState* CoreState::find_span_runtime_state(ObjectId span_id) const {
@@ -2372,7 +2065,7 @@ EditResult<ObjectId> CoreState::ensure_pole_slot_port(const SlotSelectionRequest
       candidate.priority_score = slot.priority;
 
       Port* slot_port = nullptr;
-      for (Port& port : edit_state_.ports.items()) {
+      for (Port& port : edit_state_.ports.items_mutable()) {
         if (port.owner_pole_id == request.pole_id && port.source_slot_id == slot.slot_id) {
           slot_port = &port;
           break;
@@ -2462,9 +2155,7 @@ EditResult<ObjectId> CoreState::ensure_pole_slot_port(const SlotSelectionRequest
         created->placement_context = request.connection_context;
         created->angle_correction_applied = apply_angle_correction;
         created->side_scale_applied = apply_angle_correction ? applied_scale : 1.0;
-        created->position_mode = PortPositionMode::kAuto;
-        created->placement_source = PortPlacementSourceKind::kTemplateSlot;
-        created->user_edited_position = false;
+        apply_port_position_mode(*created, PortPositionMode::kAuto, PortPlacementSourceKind::kTemplateSlot);
         add_unique_id(add_port_result.change_set.updated_ids, created->id);
       }
       if (out_slot_id != nullptr) {
@@ -2523,9 +2214,7 @@ EditResult<ObjectId> CoreState::ensure_pole_slot_port(const SlotSelectionRequest
       created->generated_by_rule = true;
       created->placement_context = request.connection_context;
       created->source_slot_id = -1;
-      created->position_mode = PortPositionMode::kAuto;
-      created->placement_source = PortPlacementSourceKind::kGenerated;
-      created->user_edited_position = false;
+      apply_port_position_mode(*created, PortPositionMode::kAuto, PortPlacementSourceKind::kGenerated);
       add_unique_id(add_port_result.change_set.updated_ids, created->id);
     }
     if (out_slot_id != nullptr) {
@@ -2738,6 +2427,28 @@ std::string CoreState::dirty_bits_to_string(DirtyBits bits) {
   return text;
 }
 
+void CoreState::apply_pole_placement_mode(Pole& pole, PlacementMode mode) {
+  pole.placement_mode = mode;
+  pole.user_edited = (mode == PlacementMode::kManual);
+}
+
+void CoreState::apply_port_position_mode(Port& port, PortPositionMode mode, PortPlacementSourceKind source_hint) {
+  port.position_mode = mode;
+  if (mode == PortPositionMode::kManual) {
+    port.user_edited_position = true;
+    port.placement_source = PortPlacementSourceKind::kManualEdit;
+    return;
+  }
+
+  // Auto mode keeps source semantics explicit and clears manual marker.
+  port.user_edited_position = false;
+  if (source_hint == PortPlacementSourceKind::kManualEdit) {
+    port.placement_source = PortPlacementSourceKind::kGenerated;
+  } else {
+    port.placement_source = source_hint;
+  }
+}
+
 bool CoreState::has_zero_length(const Port& a, const Port& b) {
   const double dx = a.world_position.x - b.world_position.x;
   const double dy = a.world_position.y - b.world_position.y;
@@ -2878,7 +2589,7 @@ CoreState make_demo_state() {
 
   (void)state.AddDropFromPole(pole_b, {13.0, 4.0, 3.0}, ConnectionCategory::kDrop);
   (void)state.AddDropFromPole(pole_b, {14.0, -4.0, 3.0}, ConnectionCategory::kDrop);
-  (void)state.ProcessDirtyQueues();
+  (void)state.Commit();
 
   return state;
 }

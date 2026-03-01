@@ -3,7 +3,7 @@
 ## 1. Scope
 - Purpose: lock data responsibilities before adding new features and save/load.
 - Priority: clarify boundaries, not add behavior.
-- Code baseline: `core/include/wire/core/*.hpp`, `core/src/core_state.cpp`.
+- Code baseline: `core/include/wire/core/*.hpp`, `core/src/core_state*.cpp`.
 
 ## 2. Layer Model (adopted)
 ```text
@@ -54,15 +54,16 @@ Forbidden reverse dependencies:
 ### 4.3 Operation/Workflow Layer
 | Type | File | Responsibility (one line) | Main deps | Persist class |
 |---|---|---|---|---|
-| `RoadSegment` | `core/include/wire/core/entities.hpp` | Carries polyline input used for generation workflows. | `RoadId`, `Vec3d[]` | `SessionDebug` |
-| `ConductorGroupSpec` | `core/include/wire/core/entities.hpp` | Describes grouped connection intent for a generation run. | category/count/kind | `SessionDebug` |
-| `ConductorLaneId`, `ConductorGroupState` | `core/include/wire/core/entities.hpp` | Holds lane-order state used by grouped generation workflow. | bundle ref + lane order | `SessionDebug` |
+| `RoadSegment` | `core/include/wire/core/workflow_types.hpp` | Carries polyline input used for generation workflows. | `RoadId`, `Vec3d[]` | `SessionDebug` |
+| `GuidePath`, `GenerationConstraints`, `GuidePolePlacementOptions`, `GenerationRequest` | `core/include/wire/core/workflow_types.hpp` | Define generic Guide-based generation input independent from road systems. | path + constraints + mode | `SessionDebug` |
+| `ConductorGroupSpec` | `core/include/wire/core/workflow_types.hpp` | Describes grouped connection intent for a generation run. | category/count/kind | `SessionDebug` |
+| `ConductorLaneId`, `ConductorGroupState` | `core/include/wire/core/workflow_types.hpp` | Holds lane-order state used by grouped generation workflow. | bundle ref + lane order | `SessionDebug` |
 | `ChangeSet`, `EditResult<T>` | `core/include/wire/core/core_state.hpp` | Reports externally observable effects of an operation. | entity IDs + error | `SessionDebug` |
 | `GenerateSimpleLine*`, `GenerateGroupedLine*` option/result structs | `core/include/wire/core/core_state.hpp` | Encapsulate generation command I/O. | entity IDs + workflow params | `SessionDebug` |
 | `GenerateWireGroupFromPath*` option/result structs | `core/include/wire/core/core_state.hpp` | Encapsulate DrawPath-oriented group generation I/O. | polyline/category/lanes + generated IDs | `SessionDebug` |
-| `PathDirectionCostBreakdown`, `PathDirectionEvaluationDebug` | `core/include/wire/core/core_state.hpp` | Stores path direction evaluation diagnostics. | scoring values | `SessionDebug` |
-| `SegmentLaneAssignment` | `core/include/wire/core/core_state.hpp` | Stores lane mapping diagnostics per generated segment. | poles/ports/slot IDs | `SessionDebug` |
-| `SlotCandidateDebug`, `SlotSelectionDebugRecord` | `core/include/wire/core/core_state.hpp` | Stores slot selection diagnostics and score breakdown. | score fields + IDs | `SessionDebug` |
+| `PathDirectionCostBreakdown`, `PathDirectionEvaluationDebug` | `core/include/wire/core/debug_types.hpp` | Stores path direction evaluation diagnostics. | scoring values | `SessionDebug` |
+| `SegmentLaneAssignment` | `core/include/wire/core/debug_types.hpp` | Stores lane mapping diagnostics per generated segment. | poles/ports/slot IDs | `SessionDebug` |
+| `SlotCandidateDebug`, `SlotSelectionDebugRecord` | `core/include/wire/core/debug_types.hpp` | Stores slot selection diagnostics and score breakdown. | score fields + IDs | `SessionDebug` |
 | `ValidationIssue`, `ValidationResult` | `core/include/wire/core/core_state.hpp` | Reports structural validity and diagnostics. | code/message/object_id | `SessionDebug` |
 
 ### 4.4 Cache/Derived Layer
@@ -113,6 +114,9 @@ Forbidden reverse dependencies:
 ## 8. Minimal Refactor Applied in this phase
 - Added layer boundary comments in core headers to reduce naming ambiguity (`slot` vs `port`).
 - Added session/debug separation comments to `CoreState` debug/cache fields.
+- Sealed mutable mutation path: `CoreState` no longer exposes mutable `edit_state/cache/id_generator`; `ObjectStore` mutable vector access is `CoreState`-internal only.
+- Added `CoreView` as explicit read-only access façade for viewer/tools.
+- Split validation implementation out of `core_state.cpp` into `core_state_validation.cpp`.
 - Added regression tests that enforce:
   - clearing debug records does not mutate entity state,
   - cache recomputation does not mutate entity identity/counts.

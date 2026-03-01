@@ -11,6 +11,8 @@
 
 namespace wire::core {
 
+class CoreState;
+
 template <typename T>
 concept HasObjectId = requires(T value) {
   { value.id } -> std::convertible_to<ObjectId>;
@@ -112,9 +114,12 @@ public:
   }
 
   [[nodiscard]] const std::vector<T>& items() const { return items_; }
-  [[nodiscard]] std::vector<T>& items() { return items_; }
 
 private:
+  [[nodiscard]] std::vector<T>& items_mutable() { return items_; }
+
+  friend class CoreState;
+
   std::vector<T> items_;
   std::unordered_map<ObjectId, std::size_t> index_by_id_;
 };

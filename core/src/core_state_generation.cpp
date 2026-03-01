@@ -234,7 +234,7 @@ EditResult<std::vector<ObjectId>> CoreState::generate_poles_from_points(const Ro
     return result;
   }
 
-  const std::uint64_t session_id = next_generation_session_id_++;
+  const std::uint64_t session_id = next_generation_session_id_access()++;
   for (std::size_t i = 0; i < points.size(); ++i) {
     const AutoPoleTransformResult auto_tf = make_auto_pole_transform(points, i);
     EditResult<ObjectId> add_pole_result = AddPole(auto_tf.transform, 10.0, "AutoPole", PoleKind::kConcrete);
@@ -242,7 +242,7 @@ EditResult<std::vector<ObjectId>> CoreState::generate_poles_from_points(const Ro
       result.error = add_pole_result.error;
       return result;
     }
-    Pole* pole = edit_state_.poles.find(add_pole_result.value);
+    Pole* pole = edit_state_access().poles.find(add_pole_result.value);
     if (pole != nullptr) {
       pole->context = classify_pole_context_from_path(points, i, 0);
       apply_sharp_debug_to_context(&pole->context, auto_tf.sharp);
@@ -276,7 +276,7 @@ EditResult<std::vector<ObjectId>> CoreState::GenerateSpansBetweenPoles(const std
     return result;
   }
 
-  const std::uint64_t session_id = next_generation_session_id_++;
+  const std::uint64_t session_id = next_generation_session_id_access()++;
   std::ostringstream errors;
   bool has_failure = false;
   ObjectId carry_port_on_next_left = kInvalidObjectId;
@@ -286,8 +286,8 @@ EditResult<std::vector<ObjectId>> CoreState::GenerateSpansBetweenPoles(const std
     options.preferred_port_a_id = carry_port_on_next_left;
     options.branch_index = static_cast<std::uint32_t>(i);
 
-    const Pole* pole_a = edit_state_.poles.find(poles[i]);
-    const Pole* pole_b = edit_state_.poles.find(poles[i + 1]);
+    const Pole* pole_a = edit_state_access().poles.find(poles[i]);
+    const Pole* pole_b = edit_state_access().poles.find(poles[i + 1]);
     if (pole_a != nullptr) {
       options.pole_context_a = pole_a->context.kind;
       options.corner_angle_deg_a = pole_a->context.corner_angle_deg;
@@ -312,7 +312,7 @@ EditResult<std::vector<ObjectId>> CoreState::GenerateSpansBetweenPoles(const std
 
     carry_port_on_next_left = add_result.value.port_b_id;
 
-    Span* span = edit_state_.spans.find(add_result.value.span_id);
+    Span* span = edit_state_access().spans.find(add_result.value.span_id);
     if (span != nullptr) {
       span->generation.generated = true;
       span->generation.source = GenerationSource::kRoadAuto;
@@ -343,7 +343,7 @@ EditResult<CoreState::GenerateSimpleLineResult> CoreState::GenerateSimpleLine(co
                                                                               PoleTypeId pole_type_id,
                                                                               ConnectionCategory category) {
   EditResult<GenerateSimpleLineResult> result;
-  const std::uint64_t session_id = next_generation_session_id_++;
+  const std::uint64_t session_id = next_generation_session_id_access()++;
 
   EditResult<std::vector<ObjectId>> poles_result = GeneratePolesAlongRoad(road, interval, pole_type_id);
   if (!poles_result.ok) {
@@ -352,7 +352,7 @@ EditResult<CoreState::GenerateSimpleLineResult> CoreState::GenerateSimpleLine(co
   }
 
   for (std::size_t i = 0; i < poles_result.value.size(); ++i) {
-    Pole* pole = edit_state_.poles.find(poles_result.value[i]);
+    Pole* pole = edit_state_access().poles.find(poles_result.value[i]);
     if (pole != nullptr) {
       pole->generation.generated = true;
       pole->generation.source = GenerationSource::kRoadAuto;
@@ -367,7 +367,7 @@ EditResult<CoreState::GenerateSimpleLineResult> CoreState::GenerateSimpleLine(co
     return result;
   }
   for (std::size_t i = 0; i < spans_result.value.size(); ++i) {
-    Span* span = edit_state_.spans.find(spans_result.value[i]);
+    Span* span = edit_state_access().spans.find(spans_result.value[i]);
     if (span != nullptr) {
       span->generation.generated = true;
       span->generation.source = GenerationSource::kRoadAuto;
@@ -389,7 +389,7 @@ EditResult<CoreState::GenerateSimpleLineResult> CoreState::GenerateSimpleLine(co
 EditResult<CoreState::GenerateSimpleLineResult>
 CoreState::GenerateSimpleLineFromPoints(const RoadSegment& road, PoleTypeId pole_type_id, ConnectionCategory category) {
   EditResult<GenerateSimpleLineResult> result;
-  const std::uint64_t session_id = next_generation_session_id_++;
+  const std::uint64_t session_id = next_generation_session_id_access()++;
 
   EditResult<std::vector<ObjectId>> poles_result = generate_poles_from_points(road, pole_type_id, road.polyline);
   if (!poles_result.ok) {
@@ -398,7 +398,7 @@ CoreState::GenerateSimpleLineFromPoints(const RoadSegment& road, PoleTypeId pole
   }
 
   for (std::size_t i = 0; i < poles_result.value.size(); ++i) {
-    Pole* pole = edit_state_.poles.find(poles_result.value[i]);
+    Pole* pole = edit_state_access().poles.find(poles_result.value[i]);
     if (pole != nullptr) {
       pole->generation.generated = true;
       pole->generation.source = GenerationSource::kRoadAuto;
@@ -413,7 +413,7 @@ CoreState::GenerateSimpleLineFromPoints(const RoadSegment& road, PoleTypeId pole
     return result;
   }
   for (std::size_t i = 0; i < spans_result.value.size(); ++i) {
-    Span* span = edit_state_.spans.find(spans_result.value[i]);
+    Span* span = edit_state_access().spans.find(spans_result.value[i]);
     if (span != nullptr) {
       span->generation.generated = true;
       span->generation.source = GenerationSource::kRoadAuto;
@@ -579,15 +579,15 @@ CoreState::generate_grouped_spans_between_poles(const std::vector<ObjectId>& pol
 
   auto ensure_ports = [&](ObjectId pole_id, ObjectId peer_id, int segment_index) -> EditResult<std::vector<ObjectId>> {
     EditResult<std::vector<ObjectId>> ports_result;
-    for (const Port& port : edit_state_.ports.items()) {
+    for (const Port& port : edit_state_access().ports.items()) {
       if (port.owner_pole_id == pole_id && port.category == group_spec.category) {
         ports_result.value.push_back(port.id);
       }
     }
-    const Pole* pole = edit_state_.poles.find(pole_id);
+    const Pole* pole = edit_state_access().poles.find(pole_id);
     std::sort(ports_result.value.begin(), ports_result.value.end(), [&](ObjectId a, ObjectId b) {
-      const Port* pa = edit_state_.ports.find(a);
-      const Port* pb = edit_state_.ports.find(b);
+      const Port* pa = edit_state_access().ports.find(a);
+      const Port* pb = edit_state_access().ports.find(b);
       if (pa == nullptr || pb == nullptr || pole == nullptr) {
         return a < b;
       }
@@ -610,7 +610,7 @@ CoreState::generate_grouped_spans_between_poles(const std::vector<ObjectId>& pol
       request.category = group_spec.category;
       request.connection_context = ConnectionContext::kTrunkContinue;
       request.branch_index = static_cast<std::uint32_t>(segment_index);
-      if (const Pole* p = edit_state_.poles.find(pole_id); p != nullptr) {
+      if (const Pole* p = edit_state_access().poles.find(pole_id); p != nullptr) {
         request.pole_context = p->context.kind;
         request.corner_angle_deg = p->context.corner_angle_deg;
         request.corner_turn_sign = p->context.corner_turn_sign;
@@ -625,7 +625,7 @@ CoreState::generate_grouped_spans_between_poles(const std::vector<ObjectId>& pol
         ports_result.value.push_back(one.value);
       } else {
         // If slot allocator repeated same port, force-create a deterministic fallback port.
-        const Pole* p = edit_state_.poles.find(pole_id);
+        const Pole* p = edit_state_access().poles.find(pole_id);
         if (p != nullptr) {
           const double lane_offset = 0.2 * static_cast<double>(ports_result.value.size() + 1);
           EditResult<ObjectId> extra =
@@ -649,8 +649,8 @@ CoreState::generate_grouped_spans_between_poles(const std::vector<ObjectId>& pol
     }
     if (pole != nullptr) {
       std::sort(ports_result.value.begin(), ports_result.value.end(), [&](ObjectId a, ObjectId b) {
-        const Port* pa = edit_state_.ports.find(a);
-        const Port* pb = edit_state_.ports.find(b);
+        const Port* pa = edit_state_access().ports.find(a);
+        const Port* pb = edit_state_access().ports.find(b);
         if (pa == nullptr || pb == nullptr) {
           return a < b;
         }
@@ -692,8 +692,8 @@ CoreState::generate_grouped_spans_between_poles(const std::vector<ObjectId>& pol
     std::vector<ObjectId> lanes_b = lanes_b_base;
     bool mirrored = false;
     if (group_spec.allow_lane_mirror && lane_count > 1) {
-      const Pole* pa = edit_state_.poles.find(pole_a);
-      const Pole* pb = edit_state_.poles.find(pole_b);
+      const Pole* pa = edit_state_access().poles.find(pole_a);
+      const Pole* pb = edit_state_access().poles.find(pole_b);
       auto evaluate_mapping_score = [&](const std::vector<ObjectId>& candidate_b) -> std::int64_t {
         // Weighted local score to avoid lane crossings first, then reduce Z/layer discontinuity.
         int cross_y = 0;
@@ -708,8 +708,8 @@ CoreState::generate_grouped_spans_between_poles(const std::vector<ObjectId>& pol
 
         for (int lane = 0; lane < lane_count; ++lane) {
           const std::size_t idx = static_cast<std::size_t>(lane);
-          const Port* port_a = edit_state_.ports.find(lanes_a[idx]);
-          const Port* port_b = edit_state_.ports.find(candidate_b[idx]);
+          const Port* port_a = edit_state_access().ports.find(lanes_a[idx]);
+          const Port* port_b = edit_state_access().ports.find(candidate_b[idx]);
           if (port_a == nullptr || port_b == nullptr) {
             layer_jump += 4;
             span_z_delta += 5.0;
@@ -780,12 +780,12 @@ CoreState::generate_grouped_spans_between_poles(const std::vector<ObjectId>& pol
       options.preferred_port_b_id = lanes_b[static_cast<std::size_t>(lane)];
       options.connection_context = ConnectionContext::kTrunkContinue;
       options.branch_index = static_cast<std::uint32_t>(lane);
-      if (const Pole* pa = edit_state_.poles.find(pole_a); pa != nullptr) {
+      if (const Pole* pa = edit_state_access().poles.find(pole_a); pa != nullptr) {
         options.pole_context_a = pa->context.kind;
         options.corner_angle_deg_a = pa->context.corner_angle_deg;
         options.corner_turn_sign_a = pa->context.corner_turn_sign;
       }
-      if (const Pole* pb = edit_state_.poles.find(pole_b); pb != nullptr) {
+      if (const Pole* pb = edit_state_access().poles.find(pole_b); pb != nullptr) {
         options.pole_context_b = pb->context.kind;
         options.corner_angle_deg_b = pb->context.corner_angle_deg;
         options.corner_turn_sign_b = pb->context.corner_turn_sign;
@@ -799,14 +799,14 @@ CoreState::generate_grouped_spans_between_poles(const std::vector<ObjectId>& pol
       append_change_set(result.change_set, add.change_set);
       result.value.push_back(add.value.span_id);
 
-      const Port* pa = edit_state_.ports.find(add.value.port_a_id);
-      const Port* pb = edit_state_.ports.find(add.value.port_b_id);
+      const Port* pa = edit_state_access().ports.find(add.value.port_a_id);
+      const Port* pb = edit_state_access().ports.find(add.value.port_b_id);
       assignment.port_ids_a.push_back(add.value.port_a_id);
       assignment.port_ids_b.push_back(add.value.port_b_id);
       assignment.slot_ids_a.push_back((pa == nullptr) ? -1 : pa->source_slot_id);
       assignment.slot_ids_b.push_back((pb == nullptr) ? -1 : pb->source_slot_id);
 
-      Span* span = edit_state_.spans.find(add.value.span_id);
+      Span* span = edit_state_access().spans.find(add.value.span_id);
       if (span != nullptr) {
         span->generated_by_rule = true;
         span->generation.generated = true;
@@ -950,14 +950,14 @@ CoreState::GenerateGroupedLine(const GenerateGroupedLineOptions& options) {
     append_change_set(result.change_set, assign_result.change_set);
   }
 
-  const std::uint64_t session_id = next_generation_session_id_++;
-  if (WireGroup* group = edit_state_.wire_groups.find(wire_group_result.value); group != nullptr) {
+  const std::uint64_t session_id = next_generation_session_id_access()++;
+  if (WireGroup* group = edit_state_access().wire_groups.find(wire_group_result.value); group != nullptr) {
     group->generation_session_id = session_id;
     group->user_edited = false;
     add_unique_id(result.change_set.updated_ids, group->id);
   }
   for (std::size_t i = 0; i < poles_result.value.size(); ++i) {
-    Pole* pole = edit_state_.poles.find(poles_result.value[i]);
+    Pole* pole = edit_state_access().poles.find(poles_result.value[i]);
     if (pole != nullptr) {
       pole->generation.generated = true;
       pole->generation.source = GenerationSource::kRoadAuto;
@@ -966,7 +966,7 @@ CoreState::GenerateGroupedLine(const GenerateGroupedLineOptions& options) {
     }
   }
   for (std::size_t i = 0; i < spans_result.value.size(); ++i) {
-    Span* span = edit_state_.spans.find(spans_result.value[i]);
+    Span* span = edit_state_access().spans.find(spans_result.value[i]);
     if (span != nullptr) {
       span->generation.generated = true;
       span->generation.source = GenerationSource::kRoadAuto;
@@ -979,11 +979,11 @@ CoreState::GenerateGroupedLine(const GenerateGroupedLineOptions& options) {
 
   direction_debug.chosen = chosen;
   last_path_direction_debug_ = direction_debug;
-  path_direction_debug_records_.push_back(direction_debug);
-  if (path_direction_debug_records_.size() > 128) {
-    path_direction_debug_records_.erase(path_direction_debug_records_.begin());
+  path_direction_debug_records_access().push_back(direction_debug);
+  if (path_direction_debug_records_access().size() > 128) {
+    path_direction_debug_records_access().erase(path_direction_debug_records_access().begin());
   }
-  last_lane_assignments_ = lane_assignments;
+  last_lane_assignments_access() = lane_assignments;
 
   result.ok = true;
   result.value.pole_ids = poles_result.value;
@@ -1152,7 +1152,7 @@ CoreState::GenerateFromGuide(const GenerationRequest& request) {
   }
 
   const CoreState snapshot = *this;
-  const std::uint64_t session_id = next_generation_session_id_++;
+  const std::uint64_t session_id = next_generation_session_id_access()++;
 
   auto find_near_pole = [&](const Vec3d& world, PlacementMode preferred_mode) -> ObjectId {
     constexpr double kReuseRadius = 0.25;
@@ -1160,7 +1160,7 @@ CoreState::GenerateFromGuide(const GenerationRequest& request) {
     ObjectId best_id = kInvalidObjectId;
     double best_d2 = reuse_r2 + 1.0;
     bool best_mode_match = false;
-    for (const Pole& pole : edit_state_.poles.items()) {
+    for (const Pole& pole : edit_state_access().poles.items()) {
       if (request.pole_placement.restrict_reuse_to_session) {
         if (request.pole_placement.reuse_session_id == 0 ||
             pole.generation.generation_session_id != request.pole_placement.reuse_session_id) {
@@ -1190,13 +1190,12 @@ CoreState::GenerateFromGuide(const GenerationRequest& request) {
     const CandidatePole& candidate = candidates[i];
     ObjectId pole_id = find_near_pole(candidate.world, candidate.mode);
     if (pole_id != kInvalidObjectId) {
-      Pole* pole = edit_state_.poles.find(pole_id);
+      Pole* pole = edit_state_access().poles.find(pole_id);
       if (pole != nullptr) {
         const Pole old_pole = *pole;
         bool updated = false;
         if (candidate.mode == PlacementMode::kManual) {
-          pole->placement_mode = PlacementMode::kManual;
-          pole->user_edited = true;
+          apply_pole_placement_mode(*pole, PlacementMode::kManual);
           updated = true;
         }
 
@@ -1259,7 +1258,7 @@ CoreState::GenerateFromGuide(const GenerationRequest& request) {
       result.error = add_pole.error;
       return result;
     }
-    Pole* pole = edit_state_.poles.find(add_pole.value);
+    Pole* pole = edit_state_access().poles.find(add_pole.value);
     if (pole != nullptr) {
       if (candidate.vertex_index >= 0) {
         pole->context = classify_pole_context_from_path(guide_points, static_cast<std::size_t>(candidate.vertex_index), 0);
@@ -1311,12 +1310,12 @@ CoreState::GenerateFromGuide(const GenerationRequest& request) {
   auto count_existing_segment_spans = [&](ObjectId pole_a, ObjectId pole_b) -> int {
     int count = 0;
     const SpanLayer target_layer = category_to_span_layer(request.category);
-    for (const Span& span : edit_state_.spans.items()) {
+    for (const Span& span : edit_state_access().spans.items()) {
       if (span.layer != target_layer) {
         continue;
       }
-      const Port* pa = edit_state_.ports.find(span.port_a_id);
-      const Port* pb = edit_state_.ports.find(span.port_b_id);
+      const Port* pa = edit_state_access().ports.find(span.port_a_id);
+      const Port* pb = edit_state_access().ports.find(span.port_b_id);
       if (pa == nullptr || pb == nullptr) {
         continue;
       }
@@ -1378,7 +1377,7 @@ CoreState::GenerateFromGuide(const GenerationRequest& request) {
     }
     wire_group_id = wire_group_result.value;
     append_change_set(result.change_set, wire_group_result.change_set);
-    if (WireGroup* group = edit_state_.wire_groups.find(wire_group_id); group != nullptr) {
+    if (WireGroup* group = edit_state_access().wire_groups.find(wire_group_id); group != nullptr) {
       group->generation_session_id = session_id;
       group->user_edited = false;
       add_unique_id(result.change_set.updated_ids, group->id);
@@ -1445,7 +1444,7 @@ CoreState::GenerateFromGuide(const GenerationRequest& request) {
         }
         append_change_set(result.change_set, assign_result.change_set);
       }
-      Span* span = edit_state_.spans.find(span_id);
+      Span* span = edit_state_access().spans.find(span_id);
       if (span != nullptr) {
         span->generation.generated = true;
         span->generation.source = GenerationSource::kRoadAuto;
@@ -1479,9 +1478,9 @@ CoreState::RegenerateSessionAutoParts(std::uint64_t generation_session_id, const
   ChangeSet cleanup_changes{};
 
   std::vector<ObjectId> target_span_ids{};
-  target_span_ids.reserve(edit_state_.spans.size());
+  target_span_ids.reserve(edit_state_access().spans.size());
   std::unordered_set<ObjectId> candidate_bundle_ids{};
-  for (const Span& span : edit_state_.spans.items()) {
+  for (const Span& span : edit_state_access().spans.items()) {
     if (span.generation.generation_session_id != generation_session_id) {
       continue;
     }
@@ -1492,25 +1491,25 @@ CoreState::RegenerateSessionAutoParts(std::uint64_t generation_session_id, const
   }
 
   for (ObjectId span_id : target_span_ids) {
-    const Span* span_ptr = edit_state_.spans.find(span_id);
+    const Span* span_ptr = edit_state_access().spans.find(span_id);
     if (span_ptr == nullptr) {
       continue;
     }
     const Span span = *span_ptr;
     remove_span_from_indexes(span);
-    edit_state_.spans.remove(span_id);
-    span_runtime_states_.erase(span_id);
+    edit_state_access().spans.remove(span_id);
+    span_runtime_states_access().erase(span_id);
     remove_span_from_caches(span_id);
     add_unique_id(cleanup_changes.deleted_ids, span_id);
 
     std::vector<ObjectId> remove_attachments{};
-    for (const Attachment& attachment : edit_state_.attachments.items()) {
+    for (const Attachment& attachment : edit_state_access().attachments.items()) {
       if (attachment.span_id == span_id) {
         remove_attachments.push_back(attachment.id);
       }
     }
     for (ObjectId attachment_id : remove_attachments) {
-      edit_state_.attachments.remove(attachment_id);
+      edit_state_access().attachments.remove(attachment_id);
       add_unique_id(cleanup_changes.deleted_ids, attachment_id);
     }
   }
@@ -1523,15 +1522,15 @@ CoreState::RegenerateSessionAutoParts(std::uint64_t generation_session_id, const
                                }),
                 queue.end());
   };
-  erase_removed_spans_from_queue(dirty_queue_.topology_dirty_span_ids);
-  erase_removed_spans_from_queue(dirty_queue_.geometry_dirty_span_ids);
-  erase_removed_spans_from_queue(dirty_queue_.bounds_dirty_span_ids);
-  erase_removed_spans_from_queue(dirty_queue_.render_dirty_span_ids);
-  erase_removed_spans_from_queue(dirty_queue_.raycast_dirty_span_ids);
+  erase_removed_spans_from_queue(dirty_queue_access().topology_dirty_span_ids);
+  erase_removed_spans_from_queue(dirty_queue_access().geometry_dirty_span_ids);
+  erase_removed_spans_from_queue(dirty_queue_access().bounds_dirty_span_ids);
+  erase_removed_spans_from_queue(dirty_queue_access().render_dirty_span_ids);
+  erase_removed_spans_from_queue(dirty_queue_access().raycast_dirty_span_ids);
 
   std::vector<ObjectId> target_auto_pole_ids{};
-  target_auto_pole_ids.reserve(edit_state_.poles.size());
-  for (const Pole& pole : edit_state_.poles.items()) {
+  target_auto_pole_ids.reserve(edit_state_access().poles.size());
+  for (const Pole& pole : edit_state_access().poles.items()) {
     if (pole.generation.generation_session_id != generation_session_id) {
       continue;
     }
@@ -1541,18 +1540,18 @@ CoreState::RegenerateSessionAutoParts(std::uint64_t generation_session_id, const
   }
 
   for (ObjectId pole_id : target_auto_pole_ids) {
-    const Pole* pole = edit_state_.poles.find(pole_id);
+    const Pole* pole = edit_state_access().poles.find(pole_id);
     if (pole == nullptr) {
       continue;
     }
     std::vector<ObjectId> owned_ports{};
     std::vector<ObjectId> owned_anchors{};
-    for (const Port& port : edit_state_.ports.items()) {
+    for (const Port& port : edit_state_access().ports.items()) {
       if (port.owner_pole_id == pole_id) {
         owned_ports.push_back(port.id);
       }
     }
-    for (const Anchor& anchor : edit_state_.anchors.items()) {
+    for (const Anchor& anchor : edit_state_access().anchors.items()) {
       if (anchor.owner_pole_id == pole_id) {
         owned_anchors.push_back(anchor.id);
       }
@@ -1560,8 +1559,8 @@ CoreState::RegenerateSessionAutoParts(std::uint64_t generation_session_id, const
 
     bool has_live_connections = false;
     for (ObjectId port_id : owned_ports) {
-      auto it = connection_index_.spans_by_port.find(port_id);
-      if (it != connection_index_.spans_by_port.end() && !it->second.empty()) {
+      auto it = connection_index_access().spans_by_port.find(port_id);
+      if (it != connection_index_access().spans_by_port.end() && !it->second.empty()) {
         has_live_connections = true;
         break;
       }
@@ -1571,38 +1570,38 @@ CoreState::RegenerateSessionAutoParts(std::uint64_t generation_session_id, const
     }
 
     for (ObjectId port_id : owned_ports) {
-      connection_index_.spans_by_port.erase(port_id);
-      if (edit_state_.ports.remove(port_id)) {
+      connection_index_access().spans_by_port.erase(port_id);
+      if (edit_state_access().ports.remove(port_id)) {
         add_unique_id(cleanup_changes.deleted_ids, port_id);
       }
     }
     for (ObjectId anchor_id : owned_anchors) {
-      connection_index_.spans_by_anchor.erase(anchor_id);
-      if (edit_state_.anchors.remove(anchor_id)) {
+      connection_index_access().spans_by_anchor.erase(anchor_id);
+      if (edit_state_access().anchors.remove(anchor_id)) {
         add_unique_id(cleanup_changes.deleted_ids, anchor_id);
       }
     }
-    if (edit_state_.poles.remove(pole_id)) {
+    if (edit_state_access().poles.remove(pole_id)) {
       add_unique_id(cleanup_changes.deleted_ids, pole_id);
     }
   }
 
   std::vector<ObjectId> session_group_ids{};
-  for (const WireGroup& group : edit_state_.wire_groups.items()) {
+  for (const WireGroup& group : edit_state_access().wire_groups.items()) {
     if (group.generation_session_id == generation_session_id) {
       session_group_ids.push_back(group.id);
     }
   }
   std::unordered_set<ObjectId> session_group_set(session_group_ids.begin(), session_group_ids.end());
   std::vector<ObjectId> session_lane_ids{};
-  for (const WireLane& lane : edit_state_.wire_lanes.items()) {
+  for (const WireLane& lane : edit_state_access().wire_lanes.items()) {
     if (session_group_set.contains(lane.wire_group_id)) {
       session_lane_ids.push_back(lane.id);
     }
   }
 
   auto is_lane_referenced = [&](ObjectId lane_id) {
-    for (const Span& span : edit_state_.spans.items()) {
+    for (const Span& span : edit_state_access().spans.items()) {
       if (span.wire_lane_id == lane_id) {
         return true;
       }
@@ -1610,13 +1609,13 @@ CoreState::RegenerateSessionAutoParts(std::uint64_t generation_session_id, const
     return false;
   };
   for (ObjectId lane_id : session_lane_ids) {
-    if (!is_lane_referenced(lane_id) && edit_state_.wire_lanes.remove(lane_id)) {
+    if (!is_lane_referenced(lane_id) && edit_state_access().wire_lanes.remove(lane_id)) {
       add_unique_id(cleanup_changes.deleted_ids, lane_id);
     }
   }
 
   auto is_group_referenced = [&](ObjectId group_id) {
-    for (const Span& span : edit_state_.spans.items()) {
+    for (const Span& span : edit_state_access().spans.items()) {
       if (span.wire_group_id == group_id) {
         return true;
       }
@@ -1624,20 +1623,20 @@ CoreState::RegenerateSessionAutoParts(std::uint64_t generation_session_id, const
     return false;
   };
   for (ObjectId group_id : session_group_ids) {
-    if (!is_group_referenced(group_id) && edit_state_.wire_groups.remove(group_id)) {
+    if (!is_group_referenced(group_id) && edit_state_access().wire_groups.remove(group_id)) {
       add_unique_id(cleanup_changes.deleted_ids, group_id);
     }
   }
 
   for (ObjectId bundle_id : candidate_bundle_ids) {
     bool used = false;
-    for (const Span& span : edit_state_.spans.items()) {
+    for (const Span& span : edit_state_access().spans.items()) {
       if (span.bundle_id == bundle_id) {
         used = true;
         break;
       }
     }
-    if (!used && edit_state_.bundles.remove(bundle_id)) {
+    if (!used && edit_state_access().bundles.remove(bundle_id)) {
       add_unique_id(cleanup_changes.deleted_ids, bundle_id);
     }
   }
@@ -1653,21 +1652,21 @@ CoreState::RegenerateSessionAutoParts(std::uint64_t generation_session_id, const
   }
 
   for (ObjectId pole_id : regenerated.value.generated_pole_ids) {
-    Pole* pole = edit_state_.poles.find(pole_id);
+    Pole* pole = edit_state_access().poles.find(pole_id);
     if (pole != nullptr) {
       pole->generation.generation_session_id = generation_session_id;
       add_unique_id(regenerated.change_set.updated_ids, pole_id);
     }
   }
   for (ObjectId span_id : regenerated.value.generated_span_ids) {
-    Span* span = edit_state_.spans.find(span_id);
+    Span* span = edit_state_access().spans.find(span_id);
     if (span != nullptr) {
       span->generation.generation_session_id = generation_session_id;
       add_unique_id(regenerated.change_set.updated_ids, span_id);
     }
   }
   if (regenerated.value.wire_group_id != kInvalidObjectId) {
-    WireGroup* group = edit_state_.wire_groups.find(regenerated.value.wire_group_id);
+    WireGroup* group = edit_state_access().wire_groups.find(regenerated.value.wire_group_id);
     if (group != nullptr) {
       group->generation_session_id = generation_session_id;
       add_unique_id(regenerated.change_set.updated_ids, group->id);
@@ -1691,3 +1690,4 @@ CoreState::GenerateWireGroupFromPath(const GenerateWireGroupFromPathInput& input
 }
 
 } // namespace wire::core
+

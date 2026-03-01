@@ -1,7 +1,7 @@
 ﻿# Core Test Case Matrix (Phase4.8)
 
 ## Scope and policy
-- 観測根拠: 公開API戻り値、`edit_state()`、`connection_index()`、`find_*cache()`、`slot_selection_debug_records()`、`last_path_direction_debug()`、`last_lane_assignments()`、`Validate()` のみ。
+- 観測根拠: 公開API戻り値、`view()`、`connection_index()`、`find_*cache()`、`slot_selection_debug_records()`、`last_path_direction_debug()`、`last_lane_assignments()`、`Validate()` のみ。
 - 期待値粒度: `Exact` は決定論のみ、`Invariant` は不変条件のみ。
 - モック方針: ドメインロジックのモック禁止（本スイートはモック未使用）。
 - 時間/並行: 実時間待ち・非決定並行を使わない。

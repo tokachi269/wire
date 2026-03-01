@@ -4,6 +4,7 @@ add_library(
   src/core_state.cpp
   src/core_state_generation.cpp
   src/core_state_backbone.cpp
+  src/core_state_validation.cpp
 )
 
 target_include_directories(
@@ -22,6 +23,12 @@ if(BUILD_TESTING)
     wire_core_tests
     PRIVATE
     wire_core
+  )
+
+  target_compile_definitions(
+    wire_core_tests
+    PRIVATE
+    WIRE_INTERNAL=1
   )
 
   add_test(NAME wire_core_tests COMMAND wire_core_tests)

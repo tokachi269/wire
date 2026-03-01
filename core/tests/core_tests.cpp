@@ -42,8 +42,8 @@ struct CoreCounts {
 
 CoreCounts snapshot_counts(const CoreState& state) {
   return {
-      state.edit_state().poles.size(),   state.edit_state().ports.size(), state.edit_state().anchors.size(),
-      state.edit_state().bundles.size(), state.edit_state().spans.size(), state.edit_state().attachments.size(),
+      state.view().edit_state().poles.size(),   state.view().edit_state().ports.size(), state.view().edit_state().anchors.size(),
+      state.view().edit_state().bundles.size(), state.view().edit_state().spans.size(), state.view().edit_state().attachments.size(),
   };
 }
 
@@ -130,10 +130,16 @@ bool aabb_valid(const wire::core::AABBd& aabb) {
 
 bool starts_with(const std::string& value, const std::string& prefix) { return value.rfind(prefix, 0) == 0; }
 
+wire::core::ValidationResult validate_now(CoreState& state) {
+  wire::core::CommitOptions options{};
+  options.run_recalc = false;
+  options.run_validate = true;
+  return state.Commit(options).validation;
+}
 std::vector<PoleTypeId> sorted_pole_type_ids(const CoreState& state) {
   std::vector<PoleTypeId> ids;
-  ids.reserve(state.pole_types().size());
-  for (const auto& [id, _] : state.pole_types()) {
+  ids.reserve(state.view().pole_types().size());
+  for (const auto& [id, _] : state.view().pole_types()) {
     ids.push_back(id);
   }
   std::sort(ids.begin(), ids.end());
@@ -154,8 +160,8 @@ LaneOrderMetrics compute_lane_order_metrics(const CoreState& state,
                                             const std::vector<wire::core::SegmentLaneAssignment>& assignments) {
   LaneOrderMetrics metrics{};
   for (const auto& assignment : assignments) {
-    const auto* pole_a = state.edit_state().poles.find(assignment.pole_a_id);
-    const auto* pole_b = state.edit_state().poles.find(assignment.pole_b_id);
+    const auto* pole_a = state.view().edit_state().poles.find(assignment.pole_a_id);
+    const auto* pole_b = state.view().edit_state().poles.find(assignment.pole_b_id);
     if (pole_a == nullptr || pole_b == nullptr) {
       continue;
     }
@@ -172,8 +178,8 @@ LaneOrderMetrics compute_lane_order_metrics(const CoreState& state,
     std::vector<int> layer_b(lane_count, 0);
 
     for (std::size_t lane = 0; lane < lane_count; ++lane) {
-      const auto* port_a = state.edit_state().ports.find(assignment.port_ids_a[lane]);
-      const auto* port_b = state.edit_state().ports.find(assignment.port_ids_b[lane]);
+      const auto* port_a = state.view().edit_state().ports.find(assignment.port_ids_a[lane]);
+      const auto* port_b = state.view().edit_state().ports.find(assignment.port_ids_b[lane]);
       if (port_a == nullptr || port_b == nullptr) {
         continue;
       }
@@ -279,7 +285,7 @@ bool test_span_runtime_initialized_on_add() {
     return false;
   }
 
-  const auto* runtime = state.find_span_runtime_state(span_result.value);
+  const auto* runtime = state.view().find_span_runtime_state(span_result.value);
   return runtime != nullptr && runtime->span_id == span_result.value && runtime->data_version > 0 &&
          has_dirty(runtime, DirtyBits::kTopology | DirtyBits::kGeometry);
 }
@@ -297,7 +303,7 @@ bool test_move_pole_dirties_only_related_span() {
 
   const ObjectId related = state.AddSpan(a1, a2, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
   const ObjectId unrelated = state.AddSpan(b1, b2, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
-  (void)state.ProcessDirtyQueues();
+  (void)state.Commit().recalc_stats;
 
   wire::core::Transformd moved{};
   moved.position = {2.0, 0.0, 0.0};
@@ -306,8 +312,8 @@ bool test_move_pole_dirties_only_related_span() {
     return false;
   }
 
-  return has_dirty(state.find_span_runtime_state(related), DirtyBits::kGeometry) &&
-         !has_dirty(state.find_span_runtime_state(unrelated), DirtyBits::kGeometry);
+  return has_dirty(state.view().find_span_runtime_state(related), DirtyBits::kGeometry) &&
+         !has_dirty(state.view().find_span_runtime_state(unrelated), DirtyBits::kGeometry);
 }
 
 // Intent: SplitSpan should replace old span with two new spans and create split port.
@@ -317,24 +323,24 @@ bool test_split_span_creates_two_spans_and_port() {
   const ObjectId a = state.AddPort(pole, {0.0, 0.0, 1.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
   const ObjectId b = state.AddPort(pole, {10.0, 0.0, 1.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
   const ObjectId span_id = state.AddSpan(a, b, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
-  (void)state.ProcessDirtyQueues();
+  (void)state.Commit().recalc_stats;
 
   const auto split_result = state.SplitSpan(span_id, 0.5);
   if (!split_result.ok) {
     return false;
   }
 
-  if (state.edit_state().spans.find(span_id) != nullptr) {
+  if (state.view().edit_state().spans.find(span_id) != nullptr) {
     return false;
   }
-  if (state.edit_state().ports.find(split_result.value.new_port_id) == nullptr) {
+  if (state.view().edit_state().ports.find(split_result.value.new_port_id) == nullptr) {
     return false;
   }
-  if (state.edit_state().spans.find(split_result.value.new_span_a_id) == nullptr ||
-      state.edit_state().spans.find(split_result.value.new_span_b_id) == nullptr) {
+  if (state.view().edit_state().spans.find(split_result.value.new_span_a_id) == nullptr ||
+      state.view().edit_state().spans.find(split_result.value.new_span_b_id) == nullptr) {
     return false;
   }
-  return state.Validate().ok();
+  return validate_now(state).ok();
 }
 
 // Intent: ApplyPoleType should create template ports owned by the pole.
@@ -448,10 +454,10 @@ bool test_add_connection_by_pole_updates_dirty_version_and_indices() {
     return false;
   }
 
-  const auto* span = state.edit_state().spans.find(connection.value.span_id);
-  const auto* port_a = state.edit_state().ports.find(connection.value.port_a_id);
-  const auto* port_b = state.edit_state().ports.find(connection.value.port_b_id);
-  const auto* runtime = state.find_span_runtime_state(connection.value.span_id);
+  const auto* span = state.view().edit_state().spans.find(connection.value.span_id);
+  const auto* port_a = state.view().edit_state().ports.find(connection.value.port_a_id);
+  const auto* port_b = state.view().edit_state().ports.find(connection.value.port_b_id);
+  const auto* runtime = state.view().find_span_runtime_state(connection.value.span_id);
   if (span == nullptr || port_a == nullptr || port_b == nullptr || runtime == nullptr) {
     return false;
   }
@@ -459,9 +465,9 @@ bool test_add_connection_by_pole_updates_dirty_version_and_indices() {
     return false;
   }
 
-  auto it_a = state.connection_index().spans_by_port.find(port_a->id);
-  auto it_b = state.connection_index().spans_by_port.find(port_b->id);
-  if (it_a == state.connection_index().spans_by_port.end() || it_b == state.connection_index().spans_by_port.end()) {
+  auto it_a = state.view().connection_index().spans_by_port.find(port_a->id);
+  auto it_b = state.view().connection_index().spans_by_port.find(port_b->id);
+  if (it_a == state.view().connection_index().spans_by_port.end() || it_b == state.view().connection_index().spans_by_port.end()) {
     return false;
   }
 
@@ -485,14 +491,14 @@ bool test_add_drop_from_pole_creates_service_connection() {
     return false;
   }
 
-  const auto* span = state.edit_state().spans.find(drop.value.span_id);
-  const auto* source_port = state.edit_state().ports.find(drop.value.source_port_id);
-  const auto* target_port = state.edit_state().ports.find(drop.value.target_port_id);
+  const auto* span = state.view().edit_state().spans.find(drop.value.span_id);
+  const auto* source_port = state.view().edit_state().ports.find(drop.value.source_port_id);
+  const auto* target_port = state.view().edit_state().ports.find(drop.value.target_port_id);
   if (span == nullptr || source_port == nullptr || target_port == nullptr) {
     return false;
   }
   return source_port->owner_pole_id == pole && target_port->owner_pole_id == wire::core::kInvalidObjectId &&
-         state.Validate().ok();
+         validate_now(state).ok();
 }
 
 // Intent: AddDropFromSpan should split source span then add drop span from split port.
@@ -522,19 +528,19 @@ bool test_add_drop_from_span_splits_and_connects_drop() {
     return false;
   }
 
-  if (state.edit_state().spans.find(base.value.span_id) != nullptr) {
+  if (state.view().edit_state().spans.find(base.value.span_id) != nullptr) {
     return false;
   }
-  const auto* split_port = state.edit_state().ports.find(drop.value.split_port_id);
-  const auto* drop_span = state.edit_state().spans.find(drop.value.span_id);
+  const auto* split_port = state.view().edit_state().ports.find(drop.value.split_port_id);
+  const auto* drop_span = state.view().edit_state().spans.find(drop.value.span_id);
   if (split_port == nullptr || drop_span == nullptr) {
     return false;
   }
-  auto split_it = state.connection_index().spans_by_port.find(drop.value.split_port_id);
-  if (split_it == state.connection_index().spans_by_port.end()) {
+  auto split_it = state.view().connection_index().spans_by_port.find(drop.value.split_port_id);
+  if (split_it == state.view().connection_index().spans_by_port.end()) {
     return false;
   }
-  return split_it->second.size() >= 3 && state.Validate().ok();
+  return split_it->second.size() >= 3 && validate_now(state).ok();
 }
 
 // Intent: Line mode curve cache should be generated deterministically for the same input.
@@ -550,7 +556,7 @@ bool test_curve_cache_line_mode_is_deterministic() {
   const ObjectId a = state.AddPort(pole, {0.0, 0.0, 5.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
   const ObjectId b = state.AddPort(pole, {10.0, 0.0, 5.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
   const ObjectId span = state.AddSpan(a, b, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
-  (void)state.ProcessDirtyQueues();
+  (void)state.Commit().recalc_stats;
 
   const auto* curve1 = state.find_curve_cache(span);
   if (curve1 == nullptr || curve1->points.size() != 9) {
@@ -561,7 +567,7 @@ bool test_curve_cache_line_mode_is_deterministic() {
   if (!move_result.ok) {
     return false;
   }
-  (void)state.ProcessDirtyQueues();
+  (void)state.Commit().recalc_stats;
   const auto* curve2 = state.find_curve_cache(span);
   if (curve2 == nullptr || curve2->points.size() != curve1->points.size()) {
     return false;
@@ -592,7 +598,7 @@ bool test_sag_mode_changes_midpoint_and_keeps_endpoints() {
   line.sag_enabled = false;
   line.sag_factor = 0.05;
   (void)state.UpdateGeometrySettings(line, true);
-  (void)state.ProcessDirtyQueues();
+  (void)state.Commit().recalc_stats;
   const auto* line_curve = state.find_curve_cache(span);
   if (line_curve == nullptr || line_curve->points.size() != 11) {
     return false;
@@ -603,7 +609,7 @@ bool test_sag_mode_changes_midpoint_and_keeps_endpoints() {
   sag.sag_enabled = true;
   sag.sag_factor = 0.10;
   (void)state.UpdateGeometrySettings(sag, true);
-  (void)state.ProcessDirtyQueues();
+  (void)state.Commit().recalc_stats;
   const auto* sag_curve = state.find_curve_cache(span);
   if (sag_curve == nullptr || sag_curve->points.size() != 11) {
     return false;
@@ -630,9 +636,9 @@ bool test_geometry_bounds_version_follow_and_locality() {
   const ObjectId p4 = state.AddPort(pole, {15.0, 0.0, 1.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
   const ObjectId span_a = state.AddSpan(p1, p2, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
   const ObjectId span_b = state.AddSpan(p3, p4, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
-  (void)state.ProcessDirtyQueues();
+  (void)state.Commit().recalc_stats;
 
-  const auto* before_b = state.find_span_runtime_state(span_b);
+  const auto* before_b = state.view().find_span_runtime_state(span_b);
   if (before_b == nullptr) {
     return false;
   }
@@ -642,8 +648,8 @@ bool test_geometry_bounds_version_follow_and_locality() {
   if (!move_result.ok) {
     return false;
   }
-  const auto* dirty_a = state.find_span_runtime_state(span_a);
-  const auto* dirty_b = state.find_span_runtime_state(span_b);
+  const auto* dirty_a = state.view().find_span_runtime_state(span_a);
+  const auto* dirty_b = state.view().find_span_runtime_state(span_b);
   if (dirty_a == nullptr || dirty_b == nullptr) {
     return false;
   }
@@ -651,9 +657,9 @@ bool test_geometry_bounds_version_follow_and_locality() {
     return false;
   }
 
-  (void)state.ProcessDirtyQueues();
-  const auto* after_a = state.find_span_runtime_state(span_a);
-  const auto* after_b = state.find_span_runtime_state(span_b);
+  (void)state.Commit().recalc_stats;
+  const auto* after_a = state.view().find_span_runtime_state(span_a);
+  const auto* after_b = state.view().find_span_runtime_state(span_b);
   if (after_a == nullptr || after_b == nullptr) {
     return false;
   }
@@ -675,7 +681,7 @@ bool test_bounds_cache_generated_and_valid() {
   const ObjectId a = state.AddPort(pole, {0.0, 0.0, 5.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
   const ObjectId b = state.AddPort(pole, {10.0, 2.0, 5.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
   const ObjectId span = state.AddSpan(a, b, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
-  (void)state.ProcessDirtyQueues();
+  (void)state.Commit().recalc_stats;
 
   const auto* curve = state.find_curve_cache(span);
   const auto* bounds = state.find_bounds_cache(span);
@@ -709,7 +715,7 @@ bool test_bounds_follow_geometry_change() {
   line.sag_enabled = false;
   line.sag_factor = 0.1;
   (void)state.UpdateGeometrySettings(line, true);
-  (void)state.ProcessDirtyQueues();
+  (void)state.Commit().recalc_stats;
   const auto* bounds_line = state.find_bounds_cache(span);
   if (bounds_line == nullptr) {
     return false;
@@ -719,7 +725,7 @@ bool test_bounds_follow_geometry_change() {
   wire::core::GeometrySettings sag = line;
   sag.sag_enabled = true;
   (void)state.UpdateGeometrySettings(sag, true);
-  (void)state.ProcessDirtyQueues();
+  (void)state.Commit().recalc_stats;
   const auto* bounds_sag = state.find_bounds_cache(span);
   if (bounds_sag == nullptr) {
     return false;
@@ -748,7 +754,7 @@ bool test_generate_poles_along_road_basic() {
   }
 
   for (std::size_t i = 0; i < result.value.size(); ++i) {
-    const auto* pole = state.edit_state().poles.find(result.value[i]);
+    const auto* pole = state.view().edit_state().poles.find(result.value[i]);
     if (pole == nullptr) {
       return false;
     }
@@ -781,9 +787,9 @@ bool test_pole_context_classification_basic() {
     return false;
   }
 
-  const auto* first = state.edit_state().poles.find(straight_result.value.front());
-  const auto* middle = state.edit_state().poles.find(straight_result.value[1]);
-  const auto* last = state.edit_state().poles.find(straight_result.value.back());
+  const auto* first = state.view().edit_state().poles.find(straight_result.value.front());
+  const auto* middle = state.view().edit_state().poles.find(straight_result.value[1]);
+  const auto* last = state.view().edit_state().poles.find(straight_result.value.back());
   if (first == nullptr || middle == nullptr || last == nullptr) {
     return false;
   }
@@ -808,7 +814,7 @@ bool test_pole_context_classification_basic() {
 
   bool found_corner = false;
   for (ObjectId pole_id : corner_result.value) {
-    const auto* pole = corner_state.edit_state().poles.find(pole_id);
+    const auto* pole = corner_state.view().edit_state().poles.find(pole_id);
     if (pole != nullptr && pole->context.kind == wire::core::PoleContextKind::kCorner) {
       if (pole->context.corner_angle_deg <= 0.0 || pole->context.side_scale < 1.0) {
         return false;
@@ -846,14 +852,14 @@ bool test_angle_correction_bounds_and_finite() {
 
   bool found_corrected_port = false;
   for (ObjectId pole_id : result.value) {
-    const auto* pole = state.edit_state().poles.find(pole_id);
+    const auto* pole = state.view().edit_state().poles.find(pole_id);
     if (pole == nullptr || pole->context.kind != wire::core::PoleContextKind::kCorner) {
       continue;
     }
     if (pole->context.side_scale < layout.min_side_scale || pole->context.side_scale > layout.max_side_scale) {
       return false;
     }
-    for (const auto& port : state.edit_state().ports.items()) {
+    for (const auto& port : state.view().edit_state().ports.items()) {
       if (port.owner_pole_id != pole_id) {
         continue;
       }
@@ -897,7 +903,7 @@ bool test_corner_turn_sign_biases_outer_side() {
 
     const wire::core::Pole* corner_pole = nullptr;
     for (ObjectId pole_id : result.value) {
-      const auto* pole = state.edit_state().poles.find(pole_id);
+      const auto* pole = state.view().edit_state().poles.find(pole_id);
       if (pole != nullptr && pole->context.kind == wire::core::PoleContextKind::kCorner) {
         corner_pole = pole;
         break;
@@ -909,7 +915,7 @@ bool test_corner_turn_sign_biases_outer_side() {
 
     const wire::core::Port* left_slot_port = nullptr;
     const wire::core::Port* right_slot_port = nullptr;
-    for (const auto& port : state.edit_state().ports.items()) {
+    for (const auto& port : state.view().edit_state().ports.items()) {
       if (port.owner_pole_id != corner_pole->id) {
         continue;
       }
@@ -971,13 +977,13 @@ bool test_acute_corner_auto_widens_lane_spacing() {
       return std::numeric_limits<double>::quiet_NaN();
     }
 
-    const auto* pole = state.edit_state().poles.find(gen.value.pole_ids[1]);
+    const auto* pole = state.view().edit_state().poles.find(gen.value.pole_ids[1]);
     if (pole == nullptr) {
       return std::numeric_limits<double>::quiet_NaN();
     }
     const wire::core::Port* p_left = nullptr;
     const wire::core::Port* p_right = nullptr;
-    for (const auto& port : state.edit_state().ports.items()) {
+    for (const auto& port : state.view().edit_state().ports.items()) {
       if (port.owner_pole_id != pole->id) {
         continue;
       }
@@ -1063,10 +1069,10 @@ bool test_slot_selection_deterministic_and_debug_integrity() {
     options.connection_context = wire::core::ConnectionContext::kCornerPass;
     options.branch_index = 3;
     const auto result = state.AddConnectionByPole(pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage, options);
-    if (!result.ok || state.slot_selection_debug_records().empty()) {
+    if (!result.ok || state.view().slot_selection_debug_records().empty()) {
       return {-1, {}};
     }
-    return {result.value.slot_a_id, state.slot_selection_debug_records().back()};
+    return {result.value.slot_a_id, state.view().slot_selection_debug_records().back()};
   };
 
   const auto first = run_once();
@@ -1099,13 +1105,13 @@ bool test_generate_simple_line_corner_context_integration() {
 
   bool has_corner_context = false;
   for (ObjectId span_id : result.value.span_ids) {
-    const auto* span = state.edit_state().spans.find(span_id);
+    const auto* span = state.view().edit_state().spans.find(span_id);
     if (span != nullptr && span->placement_context == wire::core::ConnectionContext::kCornerPass) {
       has_corner_context = true;
       break;
     }
   }
-  return has_corner_context && state.Validate().ok();
+  return has_corner_context && validate_now(state).ok();
 }
 
 // Intent: DrawPath generation should place one pole per clicked point and auto-compute pole yaw.
@@ -1132,7 +1138,7 @@ bool test_generate_simple_line_from_points_exact_poles_and_orientation() {
   }
 
   for (std::size_t i = 0; i < road.polyline.size(); ++i) {
-    const auto* pole = state.edit_state().poles.find(result.value.pole_ids[i]);
+    const auto* pole = state.view().edit_state().poles.find(result.value.pole_ids[i]);
     if (pole == nullptr) {
       return false;
     }
@@ -1141,9 +1147,9 @@ bool test_generate_simple_line_from_points_exact_poles_and_orientation() {
     }
   }
 
-  const auto* first = state.edit_state().poles.find(result.value.pole_ids[0]);
-  const auto* middle = state.edit_state().poles.find(result.value.pole_ids[1]);
-  const auto* last = state.edit_state().poles.find(result.value.pole_ids[2]);
+  const auto* first = state.view().edit_state().poles.find(result.value.pole_ids[0]);
+  const auto* middle = state.view().edit_state().poles.find(result.value.pole_ids[1]);
+  const auto* last = state.view().edit_state().poles.find(result.value.pole_ids[2]);
   if (first == nullptr || middle == nullptr || last == nullptr) {
     return false;
   }
@@ -1176,7 +1182,7 @@ bool test_generate_simple_line_from_points_sharp_corner_perpendicular_orientatio
     return false;
   }
 
-  const auto* middle = state.edit_state().poles.find(result.value.pole_ids[1]);
+  const auto* middle = state.view().edit_state().poles.find(result.value.pole_ids[1]);
   if (middle == nullptr) {
     return false;
   }
@@ -1234,7 +1240,7 @@ bool test_sharp_corner_threshold_boundary_orientation() {
     if (!result.ok || result.value.pole_ids.size() != 3) {
       return {std::numeric_limits<double>::quiet_NaN(), false};
     }
-    const auto* middle = state.edit_state().poles.find(result.value.pole_ids[1]);
+    const auto* middle = state.view().edit_state().poles.find(result.value.pole_ids[1]);
     if (middle == nullptr) {
       return {std::numeric_limits<double>::quiet_NaN(), false};
     }
@@ -1261,22 +1267,20 @@ bool test_generate_from_guide_reused_vertex_reorients_to_corner_rule() {
     return false;
   }
 
-  wire::core::GenerationRequest req{};
-  req.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {2.9289321881345245, 7.0710678118654755, 0.0}};
-  // corner interior ~= 45deg (<75)
-  req.interval_m = 100.0;                                                     // only vertices
-  req.pole_type_id = type_ids.front();
-  req.category = ConnectionCategory::kLowVoltage;
-  req.requested_lane_count = 1;
-
-  const auto first = state.GenerateFromGuide(req);
+  wire::core::GenerationRequest req_obtuse{};
+  req_obtuse.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {15.0, 8.660254037844386, 0.0}}; // interior ~=120
+  req_obtuse.interval_m = 100.0;                                                                     // only vertices
+  req_obtuse.pole_type_id = type_ids.front();
+  req_obtuse.category = ConnectionCategory::kLowVoltage;
+  req_obtuse.requested_lane_count = 1;
+  const auto first = state.GenerateFromGuide(req_obtuse);
   if (!first.ok) {
     return false;
   }
 
   ObjectId vertex_id = wire::core::kInvalidObjectId;
-  for (const auto& pole : state.edit_state().poles.items()) {
-    if (almost_equal(pole.world_transform.position, req.path.polyline[1], 1e-6)) {
+  for (const auto& pole : state.view().edit_state().poles.items()) {
+    if (almost_equal(pole.world_transform.position, req_obtuse.path.polyline[1], 1e-6)) {
       vertex_id = pole.id;
       break;
     }
@@ -1285,25 +1289,19 @@ bool test_generate_from_guide_reused_vertex_reorients_to_corner_rule() {
     return false;
   }
 
-  auto* vertex = state.edit_state().poles.find(vertex_id);
-  if (vertex == nullptr) {
-    return false;
-  }
-  vertex->orientation_override_flag = false;
-  vertex->orientation_control.manual_yaw_override = false;
-  vertex->world_transform.rotation_euler_deg.z = 0.0; // force wrong yaw
-
-  const auto second = state.GenerateFromGuide(req);
+  wire::core::GenerationRequest req_acute = req_obtuse;
+  req_acute.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {2.9289321881345245, 7.0710678118654755, 0.0}}; // ~45
+  const auto second = state.GenerateFromGuide(req_acute);
   if (!second.ok) {
     return false;
   }
-  vertex = state.edit_state().poles.find(vertex_id);
+  const auto* vertex = state.view().edit_state().poles.find(vertex_id);
   if (vertex == nullptr) {
     return false;
   }
 
-  const wire::core::Vec3d u0 = normalize_xy_safe(req.path.polyline[0] - req.path.polyline[1]); // corner->prev
-  const wire::core::Vec3d u1 = normalize_xy_safe(req.path.polyline[2] - req.path.polyline[1]); // corner->next
+  const wire::core::Vec3d u0 = normalize_xy_safe(req_acute.path.polyline[0] - req_acute.path.polyline[1]); // corner->prev
+  const wire::core::Vec3d u1 = normalize_xy_safe(req_acute.path.polyline[2] - req_acute.path.polyline[1]); // corner->next
   const wire::core::Vec3d bisector = normalize_xy_safe({u0.x + u1.x, u0.y + u1.y, 0.0});
   const wire::core::Vec3d side_from_yaw = local_side_axis_from_yaw(vertex->world_transform.rotation_euler_deg.z);
   return vertex->context.sharp_orientation_applied && std::abs(dot_xy(side_from_yaw, bisector)) <= 1e-6;
@@ -1329,7 +1327,7 @@ bool test_generate_from_guide_reused_pole_reprojects_owned_ports() {
   }
 
   ObjectId vertex_id = wire::core::kInvalidObjectId;
-  for (const auto& pole : state.edit_state().poles.items()) {
+  for (const auto& pole : state.view().edit_state().poles.items()) {
     if (almost_equal(pole.world_transform.position, req_obtuse.path.polyline[1], 1e-6)) {
       vertex_id = pole.id;
       break;
@@ -1339,7 +1337,7 @@ bool test_generate_from_guide_reused_pole_reprojects_owned_ports() {
     return false;
   }
 
-  const wire::core::Pole* before_pole = state.edit_state().poles.find(vertex_id);
+  const wire::core::Pole* before_pole = state.view().edit_state().poles.find(vertex_id);
   if (before_pole == nullptr) {
     return false;
   }
@@ -1349,7 +1347,7 @@ bool test_generate_from_guide_reused_pole_reprojects_owned_ports() {
   ObjectId slot201_id = wire::core::kInvalidObjectId;
   wire::core::Vec3d slot200_before{};
   wire::core::Vec3d slot201_before{};
-  for (const auto& port : state.edit_state().ports.items()) {
+  for (const auto& port : state.view().edit_state().ports.items()) {
     if (port.owner_pole_id != vertex_id) {
       continue;
     }
@@ -1372,9 +1370,9 @@ bool test_generate_from_guide_reused_pole_reprojects_owned_ports() {
     return false;
   }
 
-  const wire::core::Pole* after_pole = state.edit_state().poles.find(vertex_id);
-  const wire::core::Port* slot200_after = state.edit_state().ports.find(slot200_id);
-  const wire::core::Port* slot201_after = state.edit_state().ports.find(slot201_id);
+  const wire::core::Pole* after_pole = state.view().edit_state().poles.find(vertex_id);
+  const wire::core::Port* slot200_after = state.view().edit_state().ports.find(slot200_id);
+  const wire::core::Port* slot201_after = state.view().edit_state().ports.find(slot201_id);
   if (after_pole == nullptr || slot200_after == nullptr || slot201_after == nullptr) {
     return false;
   }
@@ -1410,7 +1408,7 @@ bool test_generate_from_guide_with_duplicate_points_is_robust() {
     return false;
   }
   for (ObjectId pole_id : result.value.generated_pole_ids) {
-    const auto* pole = state.edit_state().poles.find(pole_id);
+    const auto* pole = state.view().edit_state().poles.find(pole_id);
     if (pole == nullptr) {
       return false;
     }
@@ -1422,7 +1420,7 @@ bool test_generate_from_guide_with_duplicate_points_is_robust() {
       return false;
     }
   }
-  return state.Validate().ok();
+  return validate_now(state).ok();
 }
 
 // Intent: Guide reverse mode should preserve generated geometry set (same positions, different order allowed).
@@ -1454,7 +1452,7 @@ bool test_generate_from_guide_reverse_mode_position_symmetry() {
     out.guide = req.path.polyline;
     out.poles.reserve(result.value.generated_pole_ids.size());
     for (ObjectId pole_id : result.value.generated_pole_ids) {
-      const auto* pole = state.edit_state().poles.find(pole_id);
+      const auto* pole = state.view().edit_state().poles.find(pole_id);
       if (pole == nullptr) {
         out.ok = false;
         return out;
@@ -1539,7 +1537,7 @@ bool test_generate_from_guide_respects_avoid_constraints() {
   const wire::core::Vec3d avoid = req.constraints.avoid_points.front();
   const double avoid_r2 = req.constraints.avoid_radius_m * req.constraints.avoid_radius_m;
   for (ObjectId pole_id : result.value.generated_pole_ids) {
-    const auto* pole = state.edit_state().poles.find(pole_id);
+    const auto* pole = state.view().edit_state().poles.find(pole_id);
     if (pole == nullptr) {
       return false;
     }
@@ -1576,7 +1574,7 @@ bool test_preferred_side_uses_geometry() {
     if (!add.ok) {
       return wire::core::SlotSide::kCenter;
     }
-    for (const auto& debug : state.slot_selection_debug_records()) {
+    for (const auto& debug : state.view().slot_selection_debug_records()) {
       if (debug.pole_id != pole_a || debug.selected_slot_id < 0) {
         continue;
       }
@@ -1636,7 +1634,7 @@ bool test_generate_grouped_line_high_voltage_three_phase() {
   if (result.value.span_ids.size() != expected_spans) {
     return false;
   }
-  const auto* bundle = state.edit_state().bundles.find(result.value.bundle_id);
+  const auto* bundle = state.view().edit_state().bundles.find(result.value.bundle_id);
   if (bundle == nullptr || bundle->conductor_count != 3) {
     return false;
   }
@@ -1652,7 +1650,7 @@ bool test_generate_grouped_line_high_voltage_three_phase() {
     }
   }
   for (std::size_t i = 0; i < result.value.span_ids.size(); ++i) {
-    const auto* span = state.edit_state().spans.find(result.value.span_ids[i]);
+    const auto* span = state.view().edit_state().spans.find(result.value.span_ids[i]);
     if (span == nullptr) {
       return false;
     }
@@ -1664,7 +1662,7 @@ bool test_generate_grouped_line_high_voltage_three_phase() {
       return false;
     }
   }
-  const auto validation = state.Validate();
+  const auto validation = validate_now(state);
   if (!validation.ok()) {
     return false;
   }
@@ -1693,7 +1691,7 @@ bool test_generate_grouped_line_direction_forced_reverse() {
   if (!reverse.ok || reverse.value.pole_ids.empty()) {
     return false;
   }
-  const auto* first_reverse = state.edit_state().poles.find(reverse.value.pole_ids.front());
+  const auto* first_reverse = state.view().edit_state().poles.find(reverse.value.pole_ids.front());
   if (first_reverse == nullptr ||
       !almost_equal(first_reverse->world_transform.position, options.road.polyline.back())) {
     return false;
@@ -1811,7 +1809,7 @@ bool test_wire_group_lane_assign_and_query() {
     return false;
   }
 
-  const auto* span = state.edit_state().spans.find(add_span.value);
+  const auto* span = state.view().edit_state().spans.find(add_span.value);
   const auto* group = state.GetWireGroup(add_group.value);
   const auto* lane = state.GetWireLane(add_lane.value);
   if (span == nullptr || group == nullptr || lane == nullptr) {
@@ -1836,7 +1834,7 @@ bool test_wire_group_lane_assign_and_query() {
     return false;
   }
 
-  return state.Validate().ok();
+  return validate_now(state).ok();
 }
 
 // Intent: WireGroup/WireLane API must reject invalid IDs and group-lane mismatches.
@@ -1874,12 +1872,12 @@ bool test_wire_group_lane_invalid_ids_and_mismatch_fail() {
     return false;
   }
 
-  const auto* span = state.edit_state().spans.find(span_id);
+  const auto* span = state.view().edit_state().spans.find(span_id);
   if (span == nullptr) {
     return false;
   }
   return span->wire_group_id == wire::core::kInvalidObjectId && span->wire_lane_id == wire::core::kInvalidObjectId &&
-         state.Validate().ok();
+         validate_now(state).ok();
 }
 
 // Intent: Spans without WireGroup/WireLane remain valid and keep legacy behavior.
@@ -1892,7 +1890,7 @@ bool test_wire_group_lane_unassigned_span_compatibility() {
   const ObjectId port_a = state.AddPort(pole_a, {0.0, 0.0, 7.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
   const ObjectId port_b = state.AddPort(pole_b, {9.0, 0.0, 7.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
   const ObjectId span_id = state.AddSpan(port_a, port_b, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
-  const auto* span_before = state.edit_state().spans.find(span_id);
+  const auto* span_before = state.view().edit_state().spans.find(span_id);
   if (span_before == nullptr) {
     return false;
   }
@@ -1901,13 +1899,13 @@ bool test_wire_group_lane_unassigned_span_compatibility() {
     return false;
   }
 
-  const auto recalc = state.ProcessDirtyQueues();
-  const auto* runtime = state.find_span_runtime_state(span_id);
+  const auto recalc = state.Commit().recalc_stats;
+  const auto* runtime = state.view().find_span_runtime_state(span_id);
   if (runtime == nullptr || recalc.geometry_processed == 0) {
     return false;
   }
   return state.GetSpansByWireGroup(wire::core::kInvalidObjectId).empty() &&
-         state.GetWireLanesByGroup(wire::core::kInvalidObjectId).empty() && state.Validate().ok();
+         state.GetWireLanesByGroup(wire::core::kInvalidObjectId).empty() && validate_now(state).ok();
 }
 
 // Intent: DrawPath-oriented WireGroup API should create category-default lanes and assign spans.
@@ -1940,7 +1938,7 @@ bool test_generate_wire_group_from_path_basic_hv_default_lanes() {
     return false;
   }
   for (const ObjectId span_id : result.value.generated_span_ids) {
-    const auto* span = state.edit_state().spans.find(span_id);
+    const auto* span = state.view().edit_state().spans.find(span_id);
     if (span == nullptr) {
       return false;
     }
@@ -1951,7 +1949,7 @@ bool test_generate_wire_group_from_path_basic_hv_default_lanes() {
       return false;
     }
   }
-  return state.Validate().ok();
+  return validate_now(state).ok();
 }
 
 // Intent: Direction modes on WireGroup path generation should all execute without failure.
@@ -2051,7 +2049,7 @@ bool test_port_position_mode_defaults_auto() {
   if (!add.ok) {
     return false;
   }
-  const auto* port = state.edit_state().ports.find(add.value);
+  const auto* port = state.view().edit_state().ports.find(add.value);
   if (port == nullptr) {
     return false;
   }
@@ -2077,7 +2075,7 @@ bool test_port_manual_set_and_reset_to_auto() {
   if (!add.ok) {
     return false;
   }
-  (void)state.ProcessDirtyQueues();
+  (void)state.Commit().recalc_stats;
 
   const ObjectId port_id = add.value.port_a_id;
   const wire::core::Vec3d manual_pos{123.0, 45.0, 9.0};
@@ -2085,8 +2083,8 @@ bool test_port_manual_set_and_reset_to_auto() {
   if (!manual.ok) {
     return false;
   }
-  const auto* runtime = state.find_span_runtime_state(add.value.span_id);
-  const auto* manual_port = state.edit_state().ports.find(port_id);
+  const auto* runtime = state.view().find_span_runtime_state(add.value.span_id);
+  const auto* manual_port = state.view().edit_state().ports.find(port_id);
   if (runtime == nullptr || manual_port == nullptr) {
     return false;
   }
@@ -2103,7 +2101,7 @@ bool test_port_manual_set_and_reset_to_auto() {
   if (!reset.ok) {
     return false;
   }
-  const auto* reset_port = state.edit_state().ports.find(port_id);
+  const auto* reset_port = state.view().edit_state().ports.find(port_id);
   if (reset_port == nullptr) {
     return false;
   }
@@ -2136,11 +2134,11 @@ bool test_manual_port_not_overwritten_by_auto_relayout() {
   if (!state.SetPortWorldPositionManual(manual_port_id, manual_pos).ok) {
     return false;
   }
-  (void)state.ProcessDirtyQueues();
+  (void)state.Commit().recalc_stats;
   if (!state.SetPoleFlip180(pole_a, true).ok) {
     return false;
   }
-  const auto* port_after = state.edit_state().ports.find(manual_port_id);
+  const auto* port_after = state.view().edit_state().ports.find(manual_port_id);
   if (port_after == nullptr) {
     return false;
   }
@@ -2166,7 +2164,7 @@ bool test_move_pole_reprojects_auto_ports_and_preserves_manual_ports() {
   ObjectId manual_port_id = wire::core::kInvalidObjectId;
   wire::core::Vec3d auto_before{};
   wire::core::Vec3d manual_before{};
-  for (const auto& port : state.edit_state().ports.items()) {
+  for (const auto& port : state.view().edit_state().ports.items()) {
     if (port.owner_pole_id != pole_id) {
       continue;
     }
@@ -2192,8 +2190,8 @@ bool test_move_pole_reprojects_auto_ports_and_preserves_manual_ports() {
     return false;
   }
 
-  const auto* auto_after = state.edit_state().ports.find(auto_port_id);
-  const auto* manual_after = state.edit_state().ports.find(manual_port_id);
+  const auto* auto_after = state.view().edit_state().ports.find(auto_port_id);
+  const auto* manual_after = state.view().edit_state().ports.find(manual_port_id);
   if (auto_after == nullptr || manual_after == nullptr) {
     return false;
   }
@@ -2223,7 +2221,7 @@ bool test_generate_from_guide_keeps_manual_boundaries_stable() {
 
   auto find_pole_at = [&](const wire::core::Vec3d& pos) -> const wire::core::Pole* {
     const wire::core::Pole* found = nullptr;
-    for (const auto& pole : state.edit_state().poles.items()) {
+    for (const auto& pole : state.view().edit_state().poles.items()) {
       if (almost_equal(pole.world_transform.position, pos)) {
         if (found == nullptr || pole.placement_mode == wire::core::PlacementMode::kManual) {
           found = &pole;
@@ -2246,8 +2244,8 @@ bool test_generate_from_guide_keeps_manual_boundaries_stable() {
       !state.SetPolePlacementMode(mid_id, wire::core::PlacementMode::kManual).ok) {
     return false;
   }
-  start_before = state.edit_state().poles.find(start_id);
-  mid_before = state.edit_state().poles.find(mid_id);
+  start_before = state.view().edit_state().poles.find(start_id);
+  mid_before = state.view().edit_state().poles.find(mid_id);
   if (start_before == nullptr || mid_before == nullptr ||
       start_before->placement_mode != wire::core::PlacementMode::kManual ||
       mid_before->placement_mode != wire::core::PlacementMode::kManual) {
@@ -2259,8 +2257,8 @@ bool test_generate_from_guide_keeps_manual_boundaries_stable() {
   if (!second.ok) {
     return false;
   }
-  const auto* start_after = state.edit_state().poles.find(start_id);
-  const auto* mid_after = state.edit_state().poles.find(mid_id);
+  const auto* start_after = state.view().edit_state().poles.find(start_id);
+  const auto* mid_after = state.view().edit_state().poles.find(mid_id);
   if (start_after == nullptr || mid_after == nullptr) {
     return false;
   }
@@ -2289,7 +2287,7 @@ bool test_generate_from_guide_local_update_no_duplicate_unchanged_segments() {
   if (!first.ok || first.value.generated_span_ids.empty()) {
     return false;
   }
-  const std::size_t spans_after_first = state.edit_state().spans.size();
+  const std::size_t spans_after_first = state.view().edit_state().spans.size();
 
   const auto second = state.GenerateFromGuide(req);
   if (!second.ok) {
@@ -2298,7 +2296,7 @@ bool test_generate_from_guide_local_update_no_duplicate_unchanged_segments() {
   if (!second.value.generated_span_ids.empty()) {
     return false;
   }
-  if (state.edit_state().spans.size() != spans_after_first) {
+  if (state.view().edit_state().spans.size() != spans_after_first) {
     return false;
   }
 
@@ -2307,7 +2305,7 @@ bool test_generate_from_guide_local_update_no_duplicate_unchanged_segments() {
   if (!third.ok || third.value.generated_span_ids.empty()) {
     return false;
   }
-  return state.edit_state().spans.size() > spans_after_first;
+  return state.view().edit_state().spans.size() > spans_after_first;
 }
 
 // Intent: Guide polyline vertices should not become forced-manual by default.
@@ -2330,7 +2328,7 @@ bool test_generate_from_guide_vertices_are_not_forced_manual_by_default() {
   }
 
   auto find_pole_at = [&](const wire::core::Vec3d& pos) -> const wire::core::Pole* {
-    for (const auto& pole : state.edit_state().poles.items()) {
+    for (const auto& pole : state.view().edit_state().poles.items()) {
       if (almost_equal(pole.world_transform.position, pos)) {
         return &pole;
       }
@@ -2369,7 +2367,7 @@ bool test_generate_from_guide_pin_vertices_option() {
     return false;
   }
 
-  for (const auto& pole : state.edit_state().poles.items()) {
+  for (const auto& pole : state.view().edit_state().poles.items()) {
     if (almost_equal(pole.world_transform.position, wire::core::Vec3d{10.0, 0.0, 0.0})) {
       return pole.placement_mode == wire::core::PlacementMode::kManual;
     }
@@ -2381,7 +2379,7 @@ bool test_generate_from_guide_pin_vertices_option() {
 bool test_set_pole_placement_mode_auto_manual_roundtrip() {
   CoreState state;
   const ObjectId pole_id = state.AddPole({}, 10.0, "P").value;
-  const auto* pole = state.edit_state().poles.find(pole_id);
+  const auto* pole = state.view().edit_state().poles.find(pole_id);
   if (pole == nullptr || pole->placement_mode != wire::core::PlacementMode::kAuto) {
     return false;
   }
@@ -2389,7 +2387,7 @@ bool test_set_pole_placement_mode_auto_manual_roundtrip() {
   if (!to_manual.ok) {
     return false;
   }
-  pole = state.edit_state().poles.find(pole_id);
+  pole = state.view().edit_state().poles.find(pole_id);
   if (pole == nullptr || pole->placement_mode != wire::core::PlacementMode::kManual || !pole->user_edited) {
     return false;
   }
@@ -2397,7 +2395,7 @@ bool test_set_pole_placement_mode_auto_manual_roundtrip() {
   if (!to_auto.ok) {
     return false;
   }
-  pole = state.edit_state().poles.find(pole_id);
+  pole = state.view().edit_state().poles.find(pole_id);
   return pole != nullptr && pole->placement_mode == wire::core::PlacementMode::kAuto && !pole->user_edited;
 }
 
@@ -2419,14 +2417,14 @@ bool test_regenerate_session_auto_parts_keeps_manual_pole() {
   if (!first.ok || first.value.generated_pole_ids.empty()) {
     return false;
   }
-  const auto* any_generated = state.edit_state().poles.find(first.value.generated_pole_ids.front());
+  const auto* any_generated = state.view().edit_state().poles.find(first.value.generated_pole_ids.front());
   if (any_generated == nullptr || any_generated->generation.generation_session_id == 0) {
     return false;
   }
   const std::uint64_t session_id = any_generated->generation.generation_session_id;
 
   ObjectId middle_id = wire::core::kInvalidObjectId;
-  for (const auto& pole : state.edit_state().poles.items()) {
+  for (const auto& pole : state.view().edit_state().poles.items()) {
     if (pole.generation.generation_session_id == session_id &&
         almost_equal(pole.world_transform.position, wire::core::Vec3d{10.0, 0.0, 0.0})) {
       middle_id = pole.id;
@@ -2452,7 +2450,7 @@ bool test_regenerate_session_auto_parts_keeps_manual_pole() {
     return false;
   }
 
-  const auto* middle_after = state.edit_state().poles.find(middle_id);
+  const auto* middle_after = state.view().edit_state().poles.find(middle_id);
   if (middle_after == nullptr) {
     return false;
   }
@@ -2479,17 +2477,17 @@ bool test_regenerate_session_auto_parts_keeps_manual_port() {
     return false;
   }
 
-  const auto* any_generated = state.edit_state().poles.find(first.value.generated_pole_ids.front());
+  const auto* any_generated = state.view().edit_state().poles.find(first.value.generated_pole_ids.front());
   if (any_generated == nullptr || any_generated->generation.generation_session_id == 0) {
     return false;
   }
   const std::uint64_t session_id = any_generated->generation.generation_session_id;
 
-  const auto* span = state.edit_state().spans.find(first.value.generated_span_ids.front());
+  const auto* span = state.view().edit_state().spans.find(first.value.generated_span_ids.front());
   if (span == nullptr) {
     return false;
   }
-  const auto* port = state.edit_state().ports.find(span->port_a_id);
+  const auto* port = state.view().edit_state().ports.find(span->port_a_id);
   if (port == nullptr || port->owner_pole_id == wire::core::kInvalidObjectId) {
     return false;
   }
@@ -2509,7 +2507,7 @@ bool test_regenerate_session_auto_parts_keeps_manual_port() {
     return false;
   }
 
-  const auto* port_after = state.edit_state().ports.find(manual_port_id);
+  const auto* port_after = state.view().edit_state().ports.find(manual_port_id);
   return port_after != nullptr && port_after->position_mode == wire::core::PortPositionMode::kManual &&
          almost_equal(port_after->world_position, manual_pos);
 }
@@ -2532,7 +2530,7 @@ bool test_regenerate_session_auto_parts_isolation_across_sessions() {
   if (!gen_a.ok || gen_a.value.generated_pole_ids.empty()) {
     return false;
   }
-  const auto* pole_a0 = state.edit_state().poles.find(gen_a.value.generated_pole_ids.front());
+  const auto* pole_a0 = state.view().edit_state().poles.find(gen_a.value.generated_pole_ids.front());
   if (pole_a0 == nullptr || pole_a0->generation.generation_session_id == 0) {
     return false;
   }
@@ -2548,7 +2546,7 @@ bool test_regenerate_session_auto_parts_isolation_across_sessions() {
   if (!gen_b.ok || gen_b.value.generated_pole_ids.empty()) {
     return false;
   }
-  const auto* pole_b0 = state.edit_state().poles.find(gen_b.value.generated_pole_ids.front());
+  const auto* pole_b0 = state.view().edit_state().poles.find(gen_b.value.generated_pole_ids.front());
   if (pole_b0 == nullptr || pole_b0->generation.generation_session_id == 0) {
     return false;
   }
@@ -2556,12 +2554,12 @@ bool test_regenerate_session_auto_parts_isolation_across_sessions() {
 
   std::vector<std::pair<ObjectId, wire::core::Vec3d>> session_b_poles{};
   std::vector<ObjectId> session_b_spans{};
-  for (const auto& pole : state.edit_state().poles.items()) {
+  for (const auto& pole : state.view().edit_state().poles.items()) {
     if (pole.generation.generation_session_id == session_b) {
       session_b_poles.push_back({pole.id, pole.world_transform.position});
     }
   }
-  for (const auto& span : state.edit_state().spans.items()) {
+  for (const auto& span : state.view().edit_state().spans.items()) {
     if (span.generation.generation_session_id == session_b) {
       session_b_spans.push_back(span.id);
     }
@@ -2577,13 +2575,13 @@ bool test_regenerate_session_auto_parts_isolation_across_sessions() {
   }
 
   for (const auto& [pole_id, pos] : session_b_poles) {
-    const auto* pole = state.edit_state().poles.find(pole_id);
+    const auto* pole = state.view().edit_state().poles.find(pole_id);
     if (pole == nullptr || !almost_equal(pole->world_transform.position, pos)) {
       return false;
     }
   }
   for (ObjectId span_id : session_b_spans) {
-    if (state.edit_state().spans.find(span_id) == nullptr) {
+    if (state.view().edit_state().spans.find(span_id) == nullptr) {
       return false;
     }
   }
@@ -2650,9 +2648,9 @@ bool test_set_pole_flip180_updates_ports_and_dirty() {
   if (!add.ok) {
     return false;
   }
-  (void)state.ProcessDirtyQueues();
+  (void)state.Commit().recalc_stats;
 
-  const auto* port_before = state.edit_state().ports.find(add.value.port_a_id);
+  const auto* port_before = state.view().edit_state().ports.find(add.value.port_a_id);
   if (port_before == nullptr) {
     return false;
   }
@@ -2662,8 +2660,8 @@ bool test_set_pole_flip180_updates_ports_and_dirty() {
     return false;
   }
 
-  const auto* port_after = state.edit_state().ports.find(add.value.port_a_id);
-  const auto* runtime = state.find_span_runtime_state(add.value.span_id);
+  const auto* port_after = state.view().edit_state().ports.find(add.value.port_a_id);
+  const auto* runtime = state.view().find_span_runtime_state(add.value.span_id);
   if (port_after == nullptr || runtime == nullptr) {
     return false;
   }
@@ -2673,7 +2671,7 @@ bool test_set_pole_flip180_updates_ports_and_dirty() {
   if (!has_dirty(runtime, DirtyBits::kGeometry)) {
     return false;
   }
-  const auto* pole = state.edit_state().poles.find(pole_a);
+  const auto* pole = state.view().edit_state().poles.find(pole_a);
   return pole != nullptr && pole->orientation_control.flip_180;
 }
 
@@ -2792,7 +2790,7 @@ bool test_split_span_invalid_t_fails_and_recovers() {
   if (bad.ok || bad.error != "split t must be in (0, 1)") {
     return false;
   }
-  if (state.edit_state().spans.find(span) == nullptr) {
+  if (state.view().edit_state().spans.find(span) == nullptr) {
     return false;
   }
   return state.SplitSpan(span, 0.5).ok;
@@ -2825,8 +2823,8 @@ bool test_generate_spans_between_poles_basic() {
     return false;
   }
   for (ObjectId span_id : result.value) {
-    const auto* span = state.edit_state().spans.find(span_id);
-    const auto* runtime = state.find_span_runtime_state(span_id);
+    const auto* span = state.view().edit_state().spans.find(span_id);
+    const auto* runtime = state.view().find_span_runtime_state(span_id);
     if (span == nullptr || runtime == nullptr) {
       return false;
     }
@@ -2837,7 +2835,7 @@ bool test_generate_spans_between_poles_basic() {
       return false;
     }
   }
-  return state.Validate().ok();
+  return validate_now(state).ok();
 }
 
 // Intent: Repeated auto-connect passes should keep increasing spans (not capped to two lines).
@@ -2866,11 +2864,11 @@ bool test_generate_spans_between_poles_multiple_passes() {
       return false;
     }
     const std::size_t expected_total = per_pass * static_cast<std::size_t>(pass + 1);
-    if (state.edit_state().spans.size() != expected_total) {
+    if (state.view().edit_state().spans.size() != expected_total) {
       return false;
     }
   }
-  return state.Validate().ok();
+  return validate_now(state).ok();
 }
 
 // Intent: LowVoltage auto-connect should use at least three distinct slots before reuse.
@@ -2898,11 +2896,11 @@ bool test_generate_spans_between_poles_uses_third_slot_before_reuse() {
     if (!result.ok || result.value.empty()) {
       return false;
     }
-    const auto* first_span = state.edit_state().spans.find(result.value.front());
+    const auto* first_span = state.view().edit_state().spans.find(result.value.front());
     if (first_span == nullptr) {
       return false;
     }
-    const auto* first_port = state.edit_state().ports.find(first_span->port_a_id);
+    const auto* first_port = state.view().edit_state().ports.find(first_span->port_a_id);
     if (first_port == nullptr || first_port->owner_pole_id != poles.front()) {
       return false;
     }
@@ -2943,25 +2941,25 @@ bool test_generate_simple_line_integration() {
   }
 
   for (ObjectId pole_id : result.value.pole_ids) {
-    const auto* pole = state.edit_state().poles.find(pole_id);
+    const auto* pole = state.view().edit_state().poles.find(pole_id);
     if (pole == nullptr || pole->generation.generation_session_id != result.value.generation_session_id) {
       return false;
     }
   }
   for (ObjectId span_id : result.value.span_ids) {
-    const auto* span = state.edit_state().spans.find(span_id);
+    const auto* span = state.view().edit_state().spans.find(span_id);
     if (span == nullptr || span->generation.generation_session_id != result.value.generation_session_id) {
       return false;
     }
   }
 
-  if (state.dirty_queue().geometry_dirty_span_ids.size() < result.value.span_ids.size()) {
+  if (state.view().dirty_queue().geometry_dirty_span_ids.size() < result.value.span_ids.size()) {
     return false;
   }
 
-  (void)state.ProcessDirtyQueues();
+  (void)state.Commit().recalc_stats;
   for (ObjectId span_id : result.value.span_ids) {
-    const auto* runtime = state.find_span_runtime_state(span_id);
+    const auto* runtime = state.view().find_span_runtime_state(span_id);
     const auto* curve = state.find_curve_cache(span_id);
     const auto* bounds = state.find_bounds_cache(span_id);
     if (runtime == nullptr || curve == nullptr || bounds == nullptr) {
@@ -2972,7 +2970,7 @@ bool test_generate_simple_line_integration() {
       return false;
     }
   }
-  return state.Validate().ok();
+  return validate_now(state).ok();
 }
 
 // Intent: Auto-generated line should reuse the same intermediate pole port for through continuity.
@@ -2995,12 +2993,12 @@ bool test_generate_simple_line_reuses_intermediate_ports() {
     const ObjectId pole_id = result.value.pole_ids[i];
     std::vector<ObjectId> used_ports;
     for (ObjectId span_id : result.value.span_ids) {
-      const auto* span = state.edit_state().spans.find(span_id);
+      const auto* span = state.view().edit_state().spans.find(span_id);
       if (span == nullptr) {
         return false;
       }
-      const auto* port_a = state.edit_state().ports.find(span->port_a_id);
-      const auto* port_b = state.edit_state().ports.find(span->port_b_id);
+      const auto* port_a = state.view().edit_state().ports.find(span->port_a_id);
+      const auto* port_b = state.view().edit_state().ports.find(span->port_b_id);
       if (port_a == nullptr || port_b == nullptr) {
         return false;
       }
@@ -3030,11 +3028,11 @@ bool test_display_id_is_per_prefix_sequence() {
   const ObjectId port2 = state.AddPort(pole2, {1.0, 0.0, 1.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
   const ObjectId span1 = state.AddSpan(port1, port2, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
 
-  const auto* p1 = state.edit_state().poles.find(pole1);
-  const auto* p2 = state.edit_state().poles.find(pole2);
-  const auto* pt1 = state.edit_state().ports.find(port1);
-  const auto* pt2 = state.edit_state().ports.find(port2);
-  const auto* sp1 = state.edit_state().spans.find(span1);
+  const auto* p1 = state.view().edit_state().poles.find(pole1);
+  const auto* p2 = state.view().edit_state().poles.find(pole2);
+  const auto* pt1 = state.view().edit_state().ports.find(port1);
+  const auto* pt2 = state.view().edit_state().ports.find(port2);
+  const auto* sp1 = state.view().edit_state().spans.find(span1);
   if (p1 == nullptr || p2 == nullptr || pt1 == nullptr || pt2 == nullptr || sp1 == nullptr) {
     return false;
   }
@@ -3046,8 +3044,8 @@ bool test_display_id_is_per_prefix_sequence() {
 // Intent: Viewer default demo should have enough spans to visually inspect behavior.
 bool test_demo_state_has_dense_spans() {
   CoreState state = wire::core::make_demo_state();
-  return state.edit_state().poles.size() >= 3 && state.edit_state().spans.size() >= 10 &&
-         state.edit_state().ports.size() >= 20;
+  return state.view().edit_state().poles.size() >= 3 && state.view().edit_state().spans.size() >= 10 &&
+         state.view().edit_state().ports.size() >= 20;
 }
 
 // Intent: Clearing session debug records must not mutate persistent entities or connectivity.
@@ -3090,58 +3088,58 @@ bool test_clear_debug_records_is_entity_noop() {
     return false;
   }
 
-  const std::size_t slot_debug_before = state.slot_selection_debug_records().size();
-  const std::size_t path_debug_before = state.path_direction_debug_records().size();
+  const std::size_t slot_debug_before = state.view().slot_selection_debug_records().size();
+  const std::size_t path_debug_before = state.view().path_direction_debug_records().size();
 
   const CoreCounts before = snapshot_counts(state);
-  const auto poles_before = collect_sorted_ids(state.edit_state().poles.items());
-  const auto ports_before = collect_sorted_ids(state.edit_state().ports.items());
-  const auto spans_before = collect_sorted_ids(state.edit_state().spans.items());
-  const bool validate_before = state.Validate().ok();
+  const auto poles_before = collect_sorted_ids(state.view().edit_state().poles.items());
+  const auto ports_before = collect_sorted_ids(state.view().edit_state().ports.items());
+  const auto spans_before = collect_sorted_ids(state.view().edit_state().spans.items());
+  const bool validate_before = validate_now(state).ok();
 
   state.clear_slot_selection_debug_records();
   state.clear_path_direction_debug_records();
 
   const CoreCounts after = snapshot_counts(state);
-  const auto poles_after = collect_sorted_ids(state.edit_state().poles.items());
-  const auto ports_after = collect_sorted_ids(state.edit_state().ports.items());
-  const auto spans_after = collect_sorted_ids(state.edit_state().spans.items());
+  const auto poles_after = collect_sorted_ids(state.view().edit_state().poles.items());
+  const auto ports_after = collect_sorted_ids(state.view().edit_state().ports.items());
+  const auto spans_after = collect_sorted_ids(state.view().edit_state().spans.items());
 
-  return slot_debug_before >= state.slot_selection_debug_records().size() &&
-         path_debug_before >= state.path_direction_debug_records().size() &&
-         state.slot_selection_debug_records().empty() && state.path_direction_debug_records().empty() &&
+  return slot_debug_before >= state.view().slot_selection_debug_records().size() &&
+         path_debug_before >= state.view().path_direction_debug_records().size() &&
+         state.view().slot_selection_debug_records().empty() && state.view().path_direction_debug_records().empty() &&
          same_counts(before, after) && poles_before == poles_after && ports_before == ports_after &&
-         spans_before == spans_after && state.Validate().ok() == validate_before;
+         spans_before == spans_after && validate_now(state).ok() == validate_before;
 }
 
 // Intent: Rebuilding derived caches must not change entity identity/counts.
 bool test_recalc_cache_pipeline_is_entity_noop() {
   CoreState state = wire::core::make_demo_state();
-  if (state.edit_state().spans.empty()) {
+  if (state.view().edit_state().spans.empty()) {
     return false;
   }
 
   const CoreCounts before = snapshot_counts(state);
-  const auto poles_before = collect_sorted_ids(state.edit_state().poles.items());
-  const auto ports_before = collect_sorted_ids(state.edit_state().ports.items());
-  const auto spans_before = collect_sorted_ids(state.edit_state().spans.items());
+  const auto poles_before = collect_sorted_ids(state.view().edit_state().poles.items());
+  const auto ports_before = collect_sorted_ids(state.view().edit_state().ports.items());
+  const auto spans_before = collect_sorted_ids(state.view().edit_state().spans.items());
 
-  (void)state.ProcessDirtyQueues();
-  wire::core::GeometrySettings settings = state.geometry_settings();
+  (void)state.Commit().recalc_stats;
+  wire::core::GeometrySettings settings = state.view().geometry_settings();
   settings.curve_samples = std::max(2, settings.curve_samples + 2);
   const auto update = state.UpdateGeometrySettings(settings, true);
   if (!update.ok) {
     return false;
   }
-  const auto recalc = state.ProcessDirtyQueues();
+  const auto recalc = state.Commit().recalc_stats;
 
   const CoreCounts after = snapshot_counts(state);
-  const auto poles_after = collect_sorted_ids(state.edit_state().poles.items());
-  const auto ports_after = collect_sorted_ids(state.edit_state().ports.items());
-  const auto spans_after = collect_sorted_ids(state.edit_state().spans.items());
+  const auto poles_after = collect_sorted_ids(state.view().edit_state().poles.items());
+  const auto ports_after = collect_sorted_ids(state.view().edit_state().ports.items());
+  const auto spans_after = collect_sorted_ids(state.view().edit_state().spans.items());
 
   return recalc.geometry_processed > 0 && same_counts(before, after) && poles_before == poles_after &&
-         ports_before == ports_after && spans_before == spans_after && state.Validate().ok();
+         ports_before == ports_after && spans_before == spans_after && validate_now(state).ok();
 }
 
 } // namespace
@@ -3326,3 +3324,6 @@ int main() {
   std::cout << "core tests passed (" << tests.size() << " cases)\n";
   return 0;
 }
+
+
+

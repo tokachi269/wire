@@ -271,7 +271,7 @@ Transformd make_auto_pole_transform(const std::vector<Vec3d>& points, std::size_
     double yaw_deg = std::atan2(tangent.y, tangent.x) * (180.0 / kPi);
     // For sharp corners (corner interior angle < 75 deg), orient pole axis perpendicular to corner bisector.
     const double corner_interior_deg = compute_corner_interior_angle_deg_at_point(points, index);
-    if (corner_interior_deg > 1e-6 && corner_interior_deg < kSharpCornerInteriorAngleMaxDeg) {
+    if (corner_interior_deg > 1e-6 && corner_interior_deg <= kSharpCornerInteriorAngleMaxDeg + 1e-6) {
       Vec3d bisector_xy{};
       if (compute_corner_bisector_xy(points, index, &bisector_xy)) {
         // Keep slot spread axis (local Y) perpendicular to bisector to avoid lane compression at acute corners.
@@ -587,40 +587,12 @@ EditResult<ObjectId> CoreState::MovePole(ObjectId pole_id, const Transformd& new
     return result;
   }
 
-  const Vec3d delta = new_world_transform.position - pole->world_transform.position;
+  const Pole old_pole = *pole;
   pole->world_transform = new_world_transform;
   pole->placement_mode = PlacementMode::kManual;
   pole->user_edited = true;
   result.change_set.updated_ids.push_back(pole_id);
-
-  std::vector<ObjectId> moved_port_ids;
-  for (Port& port : edit_state_.ports.items()) {
-    if (port.owner_pole_id == pole_id) {
-      if (port.position_mode == PortPositionMode::kManual) {
-        continue;
-      }
-      port.world_position = port.world_position + delta;
-      moved_port_ids.push_back(port.id);
-      add_unique_id(result.change_set.updated_ids, port.id);
-    }
-  }
-
-  std::vector<ObjectId> moved_anchor_ids;
-  for (Anchor& anchor : edit_state_.anchors.items()) {
-    if (anchor.owner_pole_id == pole_id) {
-      anchor.world_position = anchor.world_position + delta;
-      moved_anchor_ids.push_back(anchor.id);
-      add_unique_id(result.change_set.updated_ids, anchor.id);
-    }
-  }
-
-  const DirtyBits dirty = DirtyBits::kGeometry;
-  for (ObjectId port_id : moved_port_ids) {
-    mark_connected_spans_dirty_from_port(port_id, dirty, &result.change_set);
-  }
-  for (ObjectId anchor_id : moved_anchor_ids) {
-    mark_connected_spans_dirty_from_anchor(anchor_id, dirty, &result.change_set);
-  }
+  refresh_owned_endpoints_from_pole(pole_id, &result.change_set, &old_pole);
 
   result.ok = true;
   result.value = pole_id;
@@ -735,85 +707,10 @@ EditResult<ObjectId> CoreState::SetPoleFlip180(ObjectId pole_id, bool flip_180) 
     return result;
   }
 
+  const Pole old_pole = *pole;
   pole->orientation_control.flip_180 = flip_180;
   add_unique_id(result.change_set.updated_ids, pole_id);
-
-  const PoleTypeDefinition* pole_type = find_pole_type(pole->pole_type_id);
-  auto find_port_slot = [&](int slot_id) -> const PortSlotTemplate* {
-    if (pole_type == nullptr) {
-      return nullptr;
-    }
-    for (const PortSlotTemplate& slot : pole_type->port_slots) {
-      if (slot.slot_id == slot_id) {
-        return &slot;
-      }
-    }
-    return nullptr;
-  };
-  auto find_anchor_slot = [&](int slot_id) -> const AnchorSlotTemplate* {
-    if (pole_type == nullptr) {
-      return nullptr;
-    }
-    for (const AnchorSlotTemplate& slot : pole_type->anchor_slots) {
-      if (slot.slot_id == slot_id) {
-        return &slot;
-      }
-    }
-    return nullptr;
-  };
-
-  for (Port& port : edit_state_.ports.items()) {
-    if (port.owner_pole_id != pole_id) {
-      continue;
-    }
-    if (port.position_mode == PortPositionMode::kManual) {
-      continue;
-    }
-    Vec3d new_world = port.world_position;
-    if (const PortSlotTemplate* slot = find_port_slot(port.source_slot_id); slot != nullptr) {
-      Vec3d adjusted_local = slot->local_position;
-      const bool apply_angle_correction = layout_settings_.angle_correction_enabled &&
-                                          pole->context.kind == PoleContextKind::kCorner &&
-                                          slot->side != SlotSide::kCenter;
-      if (apply_angle_correction) {
-        adjusted_local.y = apply_corner_side_scale(adjusted_local.y, slot->side, pole->context.corner_turn_sign,
-                                                   pole->context.side_scale);
-      }
-      new_world = local_to_world_on_pole(pole->world_transform, effective_pole_yaw_for_layout(*pole), adjusted_local);
-    } else {
-      // Fallback for ad-hoc ports: 180 degree rotation around pole.
-      const Vec3d d = port.world_position - pole->world_transform.position;
-      new_world = {
-          pole->world_transform.position.x - d.x,
-          pole->world_transform.position.y - d.y,
-          port.world_position.z,
-      };
-    }
-    port.world_position = new_world;
-    add_unique_id(result.change_set.updated_ids, port.id);
-    mark_connected_spans_dirty_from_port(port.id, DirtyBits::kGeometry, &result.change_set);
-  }
-
-  for (Anchor& anchor : edit_state_.anchors.items()) {
-    if (anchor.owner_pole_id != pole_id) {
-      continue;
-    }
-    Vec3d new_world = anchor.world_position;
-    if (const AnchorSlotTemplate* slot = find_anchor_slot(anchor.source_slot_id); slot != nullptr) {
-      new_world =
-          local_to_world_on_pole(pole->world_transform, effective_pole_yaw_for_layout(*pole), slot->local_position);
-    } else {
-      const Vec3d d = anchor.world_position - pole->world_transform.position;
-      new_world = {
-          pole->world_transform.position.x - d.x,
-          pole->world_transform.position.y - d.y,
-          anchor.world_position.z,
-      };
-    }
-    anchor.world_position = new_world;
-    add_unique_id(result.change_set.updated_ids, anchor.id);
-    mark_connected_spans_dirty_from_anchor(anchor.id, DirtyBits::kGeometry, &result.change_set);
-  }
+  refresh_owned_endpoints_from_pole(pole_id, &result.change_set, &old_pole);
 
   result.ok = true;
   result.value = pole_id;
@@ -842,6 +739,109 @@ EditResult<ObjectId> CoreState::SetPolePlacementMode(ObjectId pole_id, Placement
   result.ok = true;
   result.value = pole_id;
   return result;
+}
+
+void CoreState::refresh_owned_endpoints_from_pole(ObjectId pole_id, ChangeSet* change_set, const Pole* previous_pole) {
+  Pole* pole = edit_state_.poles.find(pole_id);
+  if (pole == nullptr) {
+    return;
+  }
+
+  const PoleTypeDefinition* pole_type = find_pole_type(pole->pole_type_id);
+  auto find_port_slot = [&](int slot_id) -> const PortSlotTemplate* {
+    if (pole_type == nullptr) {
+      return nullptr;
+    }
+    for (const PortSlotTemplate& slot : pole_type->port_slots) {
+      if (slot.slot_id == slot_id) {
+        return &slot;
+      }
+    }
+    return nullptr;
+  };
+  auto find_anchor_slot = [&](int slot_id) -> const AnchorSlotTemplate* {
+    if (pole_type == nullptr) {
+      return nullptr;
+    }
+    for (const AnchorSlotTemplate& slot : pole_type->anchor_slots) {
+      if (slot.slot_id == slot_id) {
+        return &slot;
+      }
+    }
+    return nullptr;
+  };
+
+  const double effective_yaw = effective_pole_yaw_for_layout(*pole);
+
+  for (Port& port : edit_state_.ports.items()) {
+    if (port.owner_pole_id != pole_id || port.position_mode == PortPositionMode::kManual) {
+      continue;
+    }
+    const PortSlotTemplate* slot = find_port_slot(port.source_slot_id);
+    Vec3d new_world = port.world_position;
+    bool apply_angle_correction = false;
+    double applied_scale = 1.0;
+    if (slot != nullptr) {
+      Vec3d adjusted_local = slot->local_position;
+      apply_angle_correction = layout_settings_.angle_correction_enabled &&
+                               pole->context.kind == PoleContextKind::kCorner &&
+                               slot->side != SlotSide::kCenter;
+      if (apply_angle_correction) {
+        adjusted_local.y = apply_corner_side_scale(adjusted_local.y, slot->side, pole->context.corner_turn_sign,
+                                                   pole->context.side_scale);
+        if (std::abs(slot->local_position.y) > 1e-9) {
+          applied_scale = std::abs(adjusted_local.y / slot->local_position.y);
+        }
+      }
+      new_world = local_to_world_on_pole(pole->world_transform, effective_yaw, adjusted_local);
+    } else if (previous_pole != nullptr) {
+      const Vec3d old_local = to_local_on_pole(*previous_pole, port.world_position);
+      new_world = local_to_world_on_pole(pole->world_transform, effective_yaw, old_local);
+    }
+    const bool moved = std::abs(new_world.x - port.world_position.x) > 1e-9 ||
+                       std::abs(new_world.y - port.world_position.y) > 1e-9 ||
+                       std::abs(new_world.z - port.world_position.z) > 1e-9;
+    const bool changed_scale = std::abs(port.side_scale_applied - (apply_angle_correction ? applied_scale : 1.0)) > 1e-9;
+    const bool changed_angle_flag = port.angle_correction_applied != apply_angle_correction;
+    if (!moved && !changed_scale && !changed_angle_flag) {
+      continue;
+    }
+
+    port.world_position = new_world;
+    port.angle_correction_applied = apply_angle_correction;
+    port.side_scale_applied = apply_angle_correction ? applied_scale : 1.0;
+    port.placement_source = PortPlacementSourceKind::kTemplateSlot;
+    if (change_set != nullptr) {
+      add_unique_id(change_set->updated_ids, port.id);
+      mark_connected_spans_dirty_from_port(port.id, DirtyBits::kGeometry, change_set);
+    }
+  }
+
+  for (Anchor& anchor : edit_state_.anchors.items()) {
+    if (anchor.owner_pole_id != pole_id) {
+      continue;
+    }
+    const AnchorSlotTemplate* slot = find_anchor_slot(anchor.source_slot_id);
+    Vec3d new_world = anchor.world_position;
+    if (slot != nullptr) {
+      new_world = local_to_world_on_pole(pole->world_transform, effective_yaw, slot->local_position);
+    } else if (previous_pole != nullptr) {
+      const Vec3d old_local = to_local_on_pole(*previous_pole, anchor.world_position);
+      new_world = local_to_world_on_pole(pole->world_transform, effective_yaw, old_local);
+    }
+    const bool moved = std::abs(new_world.x - anchor.world_position.x) > 1e-9 ||
+                       std::abs(new_world.y - anchor.world_position.y) > 1e-9 ||
+                       std::abs(new_world.z - anchor.world_position.z) > 1e-9;
+    if (!moved) {
+      continue;
+    }
+
+    anchor.world_position = new_world;
+    if (change_set != nullptr) {
+      add_unique_id(change_set->updated_ids, anchor.id);
+      mark_connected_spans_dirty_from_anchor(anchor.id, DirtyBits::kGeometry, change_set);
+    }
+  }
 }
 
 EditResult<ObjectId> CoreState::DeleteSpan(ObjectId span_id) {
@@ -1438,7 +1438,10 @@ ValidationResult CoreState::Validate() const {
           {ValidationSeverity::kError, "PoleTypeMissing", "Pole references unknown PoleType", pole.id});
     }
     if (!std::isfinite(pole.context.corner_angle_deg) || !std::isfinite(pole.context.corner_turn_sign) ||
-        !std::isfinite(pole.context.side_scale)) {
+        !std::isfinite(pole.context.side_scale) || !std::isfinite(pole.context.sharp_theta_deg) ||
+        !std::isfinite(pole.context.sharp_bisector_dir.x) || !std::isfinite(pole.context.sharp_bisector_dir.y) ||
+        !std::isfinite(pole.context.sharp_bisector_dir.z) || !std::isfinite(pole.context.sharp_side_dir.x) ||
+        !std::isfinite(pole.context.sharp_side_dir.y) || !std::isfinite(pole.context.sharp_side_dir.z)) {
       result.issues.push_back(
           {ValidationSeverity::kError, "PoleContextInvalid", "Pole context has non-finite value", pole.id});
     }

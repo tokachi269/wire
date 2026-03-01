@@ -6,6 +6,7 @@
 #include <limits>
 #include <regex>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "wire/core/core_state.hpp"
@@ -69,6 +70,22 @@ bool almost_equal(const wire::core::Vec3d& a, const wire::core::Vec3d& b, double
   return almost_equal(a.x, b.x, eps) && almost_equal(a.y, b.y, eps) && almost_equal(a.z, b.z, eps);
 }
 
+wire::core::Vec3d normalize_xy_safe(const wire::core::Vec3d& v) {
+  const double len = std::sqrt(v.x * v.x + v.y * v.y);
+  if (len <= 1e-12) {
+    return {0.0, 0.0, 0.0};
+  }
+  return {v.x / len, v.y / len, 0.0};
+}
+
+double dot_xy(const wire::core::Vec3d& a, const wire::core::Vec3d& b) { return a.x * b.x + a.y * b.y; }
+
+wire::core::Vec3d local_side_axis_from_yaw(double yaw_deg) {
+  constexpr double kPi = 3.14159265358979323846;
+  const double rad = yaw_deg * (kPi / 180.0);
+  return normalize_xy_safe(wire::core::Vec3d{-std::sin(rad), std::cos(rad), 0.0});
+}
+
 double angle_diff_abs_deg(double a, double b) {
   double d = std::fmod(a - b, 360.0);
   if (d <= -180.0) {
@@ -121,6 +138,70 @@ std::vector<PoleTypeId> sorted_pole_type_ids(const CoreState& state) {
   }
   std::sort(ids.begin(), ids.end());
   return ids;
+}
+
+struct LaneOrderMetrics {
+  int y_inversions = 0;
+  int z_inversions = 0;
+  int layer_jumps = 0;
+
+  [[nodiscard]] int weighted_score() const {
+    return y_inversions * 1000 + z_inversions * 600 + layer_jumps * 30;
+  }
+};
+
+LaneOrderMetrics compute_lane_order_metrics(const CoreState& state,
+                                            const std::vector<wire::core::SegmentLaneAssignment>& assignments) {
+  LaneOrderMetrics metrics{};
+  for (const auto& assignment : assignments) {
+    const auto* pole_a = state.edit_state().poles.find(assignment.pole_a_id);
+    const auto* pole_b = state.edit_state().poles.find(assignment.pole_b_id);
+    if (pole_a == nullptr || pole_b == nullptr) {
+      continue;
+    }
+    const std::size_t lane_count = std::min(assignment.port_ids_a.size(), assignment.port_ids_b.size());
+    if (lane_count < 2) {
+      continue;
+    }
+
+    std::vector<double> y_a(lane_count, 0.0);
+    std::vector<double> y_b(lane_count, 0.0);
+    std::vector<double> z_a(lane_count, 0.0);
+    std::vector<double> z_b(lane_count, 0.0);
+    std::vector<int> layer_a(lane_count, 0);
+    std::vector<int> layer_b(lane_count, 0);
+
+    for (std::size_t lane = 0; lane < lane_count; ++lane) {
+      const auto* port_a = state.edit_state().ports.find(assignment.port_ids_a[lane]);
+      const auto* port_b = state.edit_state().ports.find(assignment.port_ids_b[lane]);
+      if (port_a == nullptr || port_b == nullptr) {
+        continue;
+      }
+      y_a[lane] = to_local_on_pole_test(*pole_a, port_a->world_position).y;
+      y_b[lane] = to_local_on_pole_test(*pole_b, port_b->world_position).y;
+      z_a[lane] = port_a->world_position.z;
+      z_b[lane] = port_b->world_position.z;
+      layer_a[lane] = port_a->template_layer;
+      layer_b[lane] = port_b->template_layer;
+      metrics.layer_jumps += std::abs(layer_a[lane] - layer_b[lane]);
+    }
+
+    for (std::size_t i = 0; i < lane_count; ++i) {
+      for (std::size_t j = i + 1; j < lane_count; ++j) {
+        const double dy_a = y_a[i] - y_a[j];
+        const double dy_b = y_b[i] - y_b[j];
+        if (dy_a * dy_b < -1e-9) {
+          ++metrics.y_inversions;
+        }
+        const double dz_a = z_a[i] - z_a[j];
+        const double dz_b = z_b[i] - z_b[j];
+        if (dz_a * dz_b < -1e-9) {
+          ++metrics.z_inversions;
+        }
+      }
+    }
+  }
+  return metrics;
 }
 
 bool has_selected_slot_in_candidates(const wire::core::SlotSelectionDebugRecord& record) {
@@ -1075,7 +1156,7 @@ bool test_generate_simple_line_from_points_exact_poles_and_orientation() {
   return almost_equal(middle->world_transform.rotation_euler_deg.z, 45.0, 1e-6);
 }
 
-// Intent: Sharp corner (interior<75 deg) should orient pole yaw to corner bisector so local-Y spread is perpendicular.
+// Intent: Sharp corner should align pole local-Y(side axis) perpendicular to bisector and avoid inward direction.
 bool test_generate_simple_line_from_points_sharp_corner_perpendicular_orientation() {
   CoreState state;
   const auto pole_type_ids = sorted_pole_type_ids(state);
@@ -1088,7 +1169,7 @@ bool test_generate_simple_line_from_points_sharp_corner_perpendicular_orientatio
   road.polyline = {
       {0.0, 0.0, 0.0},
       {10.0, 0.0, 0.0},
-      {-7.320508075688772, 10.0, 0.0},
+      {5.0, 8.660254037844386, 0.0}, // interior ~= 60 deg at middle
   };
   const auto result = state.GenerateSimpleLineFromPoints(road, pole_type_ids.front(), ConnectionCategory::kLowVoltage);
   if (!result.ok || result.value.pole_ids.size() != 3) {
@@ -1099,49 +1180,49 @@ bool test_generate_simple_line_from_points_sharp_corner_perpendicular_orientatio
   if (middle == nullptr) {
     return false;
   }
-  constexpr double kPi = 3.14159265358979323846;
-  // Expected by rule: yaw aligns to interior-angle bisector (local Y is yaw+90 and becomes perpendicular).
-  wire::core::Vec3d in_dir{
-      road.polyline[0].x - road.polyline[1].x,
-      road.polyline[0].y - road.polyline[1].y,
-      0.0,
-  };
-  wire::core::Vec3d out_dir{
-      road.polyline[2].x - road.polyline[1].x,
-      road.polyline[2].y - road.polyline[1].y,
-      0.0,
-  };
-  const double in_len = std::sqrt(in_dir.x * in_dir.x + in_dir.y * in_dir.y);
-  const double out_len = std::sqrt(out_dir.x * out_dir.x + out_dir.y * out_dir.y);
-  if (in_len <= 1e-9 || out_len <= 1e-9) {
+  const wire::core::Vec3d u0 = normalize_xy_safe(road.polyline[0] - road.polyline[1]); // corner->prev
+  const wire::core::Vec3d u1 = normalize_xy_safe(road.polyline[2] - road.polyline[1]); // corner->next
+  const wire::core::Vec3d bisector = normalize_xy_safe({u0.x + u1.x, u0.y + u1.y, 0.0});
+  if (std::abs(bisector.x) < 1e-9 && std::abs(bisector.y) < 1e-9) {
     return false;
   }
-  in_dir.x /= in_len;
-  in_dir.y /= in_len;
-  out_dir.x /= out_len;
-  out_dir.y /= out_len;
-  const wire::core::Vec3d bisector{
-      in_dir.x + out_dir.x,
-      in_dir.y + out_dir.y,
-      0.0,
-  };
-  const double expected_yaw = std::atan2(bisector.y, bisector.x) * (180.0 / kPi);
-  return angle_diff_abs_deg(middle->world_transform.rotation_euler_deg.z, expected_yaw) <= 1e-4;
+
+  const wire::core::Vec3d side_from_yaw = local_side_axis_from_yaw(middle->world_transform.rotation_euler_deg.z);
+  const wire::core::Vec3d side_debug = normalize_xy_safe(middle->context.sharp_side_dir);
+  const wire::core::Vec3d bisector_debug = normalize_xy_safe(middle->context.sharp_bisector_dir);
+
+  const wire::core::Vec3d t_in = normalize_xy_safe(road.polyline[1] - road.polyline[0]);
+  const wire::core::Vec3d t_out = normalize_xy_safe(road.polyline[2] - road.polyline[1]);
+  const double turn = t_in.x * t_out.y - t_in.y * t_out.x;
+  wire::core::Vec3d inward{};
+  if (turn > 1e-9) {
+    inward = normalize_xy_safe({-t_in.y, t_in.x, 0.0});
+  } else if (turn < -1e-9) {
+    inward = normalize_xy_safe({t_in.y, -t_in.x, 0.0});
+  }
+
+  const bool ok_sharp = middle->context.sharp_orientation_applied;
+  const bool ok_perp = std::abs(dot_xy(side_from_yaw, bisector)) <= 1e-6;
+  const bool ok_side = std::abs(dot_xy(side_debug, side_from_yaw) - 1.0) <= 1e-6;
+  const bool ok_b = std::abs(dot_xy(bisector_debug, bisector) - 1.0) <= 1e-6;
+  const bool ok_inward =
+      (std::abs(inward.x) < 1e-9 && std::abs(inward.y) < 1e-9) ? true : (dot_xy(side_from_yaw, inward) <= 1e-9);
+  return ok_sharp && ok_perp && ok_side && ok_b && ok_inward;
 }
 
-// Intent: Sharp-corner threshold (interior<75 only) should switch orientation rule at the exact boundary.
+// Intent: Sharp-corner threshold (75deg) should apply at <=75 and be disabled above 75.
 bool test_sharp_corner_threshold_boundary_orientation() {
-  auto generate_middle_yaw = [](double interior_deg) -> double {
+  auto generate_middle = [](double corner_interior_deg) -> std::pair<double, bool> {
     CoreState state;
     const auto pole_type_ids = sorted_pole_type_ids(state);
     if (pole_type_ids.empty()) {
-      return std::numeric_limits<double>::quiet_NaN();
+      return {std::numeric_limits<double>::quiet_NaN(), false};
     }
     constexpr double kPi = 3.14159265358979323846;
-    const double interior_rad = interior_deg * (kPi / 180.0);
+    const double interior_rad = corner_interior_deg * (kPi / 180.0);
     const double out_heading_rad = kPi - interior_rad;
     wire::core::RoadSegment road{};
-    road.id = static_cast<std::uint64_t>(950 + static_cast<int>(interior_deg * 10.0));
+    road.id = static_cast<std::uint64_t>(950 + static_cast<int>(corner_interior_deg * 10.0));
     // Unequal segment lengths so "bisector" and "chord(prev->next)" are different.
     road.polyline = {
         {-5.0, 0.0, 0.0},
@@ -1151,36 +1232,25 @@ bool test_sharp_corner_threshold_boundary_orientation() {
     const auto result =
         state.GenerateSimpleLineFromPoints(road, pole_type_ids.front(), wire::core::ConnectionCategory::kLowVoltage);
     if (!result.ok || result.value.pole_ids.size() != 3) {
-      return std::numeric_limits<double>::quiet_NaN();
+      return {std::numeric_limits<double>::quiet_NaN(), false};
     }
     const auto* middle = state.edit_state().poles.find(result.value.pole_ids[1]);
     if (middle == nullptr) {
-      return std::numeric_limits<double>::quiet_NaN();
+      return {std::numeric_limits<double>::quiet_NaN(), false};
     }
-    return middle->world_transform.rotation_euler_deg.z;
+    return {middle->world_transform.rotation_euler_deg.z, middle->context.sharp_orientation_applied};
   };
 
-  constexpr double kPi = 3.14159265358979323846;
-  const double yaw74 = generate_middle_yaw(74.0);
-  const double yaw75 = generate_middle_yaw(75.0);
-  if (!std::isfinite(yaw74) || !std::isfinite(yaw75)) {
+  const auto [yaw74, sharp74] = generate_middle(74.0);
+  const auto [yaw75, sharp75] = generate_middle(75.0);
+  const auto [yaw76, sharp76] = generate_middle(76.0);
+  if (!std::isfinite(yaw74) || !std::isfinite(yaw75) || !std::isfinite(yaw76)) {
     return false;
   }
 
-  const double interior74 = 74.0 * (kPi / 180.0);
-  const double out_heading74 = kPi - interior74;
-  const wire::core::Vec3d in74{-1.0, 0.0, 0.0};
-  const wire::core::Vec3d out74{std::cos(out_heading74), std::sin(out_heading74), 0.0};
-  const wire::core::Vec3d bisector74{in74.x + out74.x, in74.y + out74.y, 0.0};
-  const double expected_sharp74 = std::atan2(bisector74.y, bisector74.x) * (180.0 / kPi);
-
-  const double interior75 = 75.0 * (kPi / 180.0);
-  const double out_heading75 = kPi - interior75;
-  const double chord75 = std::atan2(20.0 * std::sin(out_heading75), 20.0 * std::cos(out_heading75) + 5.0) *
-                         (180.0 / kPi);
-
-  return angle_diff_abs_deg(yaw74, expected_sharp74) <= 1e-3 &&
-         angle_diff_abs_deg(yaw75, chord75) <= 1e-3;
+  return sharp74 && sharp75 && !sharp76 &&
+         angle_diff_abs_deg(yaw74, yaw76) > 1e-3 &&
+         angle_diff_abs_deg(yaw75, yaw76) > 1e-3;
 }
 
 // Intent: Reused guide vertex poles should be reoriented by current sharp-corner rule when not manually overridden.
@@ -1192,7 +1262,8 @@ bool test_generate_from_guide_reused_vertex_reorients_to_corner_rule() {
   }
 
   wire::core::GenerationRequest req{};
-  req.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {0.0, 10.0, 0.0}}; // interior=45deg (<75)
+  req.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {2.9289321881345245, 7.0710678118654755, 0.0}};
+  // corner interior ~= 45deg (<75)
   req.interval_m = 100.0;                                                     // only vertices
   req.pole_type_id = type_ids.front();
   req.category = ConnectionCategory::kLowVoltage;
@@ -1231,29 +1302,88 @@ bool test_generate_from_guide_reused_vertex_reorients_to_corner_rule() {
     return false;
   }
 
-  constexpr double kPi = 3.14159265358979323846;
-  wire::core::Vec3d in_dir{
-      req.path.polyline[0].x - req.path.polyline[1].x,
-      req.path.polyline[0].y - req.path.polyline[1].y,
-      0.0,
-  };
-  wire::core::Vec3d out_dir{
-      req.path.polyline[2].x - req.path.polyline[1].x,
-      req.path.polyline[2].y - req.path.polyline[1].y,
-      0.0,
-  };
-  const double in_len = std::sqrt(in_dir.x * in_dir.x + in_dir.y * in_dir.y);
-  const double out_len = std::sqrt(out_dir.x * out_dir.x + out_dir.y * out_dir.y);
-  if (in_len <= 1e-9 || out_len <= 1e-9) {
+  const wire::core::Vec3d u0 = normalize_xy_safe(req.path.polyline[0] - req.path.polyline[1]); // corner->prev
+  const wire::core::Vec3d u1 = normalize_xy_safe(req.path.polyline[2] - req.path.polyline[1]); // corner->next
+  const wire::core::Vec3d bisector = normalize_xy_safe({u0.x + u1.x, u0.y + u1.y, 0.0});
+  const wire::core::Vec3d side_from_yaw = local_side_axis_from_yaw(vertex->world_transform.rotation_euler_deg.z);
+  return vertex->context.sharp_orientation_applied && std::abs(dot_xy(side_from_yaw, bisector)) <= 1e-6;
+}
+
+// Intent: Reused poles must reproject template-owned ports after yaw/context changes during guide regeneration.
+bool test_generate_from_guide_reused_pole_reprojects_owned_ports() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
     return false;
   }
-  in_dir.x /= in_len;
-  in_dir.y /= in_len;
-  out_dir.x /= out_len;
-  out_dir.y /= out_len;
-  const wire::core::Vec3d bisector{in_dir.x + out_dir.x, in_dir.y + out_dir.y, 0.0};
-  const double expected_yaw = std::atan2(bisector.y, bisector.x) * (180.0 / kPi);
-  return angle_diff_abs_deg(vertex->world_transform.rotation_euler_deg.z, expected_yaw) <= 1e-3;
+
+  wire::core::GenerationRequest req_obtuse{};
+  req_obtuse.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {15.0, 8.660254037844386, 0.0}}; // interior ~=120
+  req_obtuse.interval_m = 100.0; // vertices only
+  req_obtuse.pole_type_id = type_ids.front();
+  req_obtuse.category = ConnectionCategory::kLowVoltage;
+  req_obtuse.requested_lane_count = 1;
+  const auto first = state.GenerateFromGuide(req_obtuse);
+  if (!first.ok) {
+    return false;
+  }
+
+  ObjectId vertex_id = wire::core::kInvalidObjectId;
+  for (const auto& pole : state.edit_state().poles.items()) {
+    if (almost_equal(pole.world_transform.position, req_obtuse.path.polyline[1], 1e-6)) {
+      vertex_id = pole.id;
+      break;
+    }
+  }
+  if (vertex_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  const wire::core::Pole* before_pole = state.edit_state().poles.find(vertex_id);
+  if (before_pole == nullptr) {
+    return false;
+  }
+  double yaw_before = before_pole->world_transform.rotation_euler_deg.z;
+
+  ObjectId slot200_id = wire::core::kInvalidObjectId;
+  ObjectId slot201_id = wire::core::kInvalidObjectId;
+  wire::core::Vec3d slot200_before{};
+  wire::core::Vec3d slot201_before{};
+  for (const auto& port : state.edit_state().ports.items()) {
+    if (port.owner_pole_id != vertex_id) {
+      continue;
+    }
+    if (port.source_slot_id == 200) {
+      slot200_id = port.id;
+      slot200_before = port.world_position;
+    } else if (port.source_slot_id == 201) {
+      slot201_id = port.id;
+      slot201_before = port.world_position;
+    }
+  }
+  if (slot200_id == wire::core::kInvalidObjectId || slot201_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::GenerationRequest req_acute = req_obtuse;
+  req_acute.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {2.9289321881345245, 7.0710678118654755, 0.0}}; // ~45
+  const auto second = state.GenerateFromGuide(req_acute);
+  if (!second.ok) {
+    return false;
+  }
+
+  const wire::core::Pole* after_pole = state.edit_state().poles.find(vertex_id);
+  const wire::core::Port* slot200_after = state.edit_state().ports.find(slot200_id);
+  const wire::core::Port* slot201_after = state.edit_state().ports.find(slot201_id);
+  if (after_pole == nullptr || slot200_after == nullptr || slot201_after == nullptr) {
+    return false;
+  }
+
+  const double yaw_after = after_pole->world_transform.rotation_euler_deg.z;
+  const bool yaw_changed = angle_diff_abs_deg(yaw_before, yaw_after) > 1e-3;
+  const bool moved200 = !almost_equal(slot200_after->world_position, slot200_before, 1e-6);
+  const bool moved201 = !almost_equal(slot201_after->world_position, slot201_before, 1e-6);
+  return yaw_changed && (moved200 || moved201);
 }
 
 // Intent: Guide generation should stay robust on duplicate points and keep generated poles finite/on-path-z.
@@ -1572,6 +1702,86 @@ bool test_generate_grouped_line_direction_forced_reverse() {
     return false;
   }
   return true;
+}
+
+// Intent: Group lane assignment on a U-shaped path should avoid lane-order inversions per segment.
+bool test_grouped_line_lane_order_no_inversion_on_u_path() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::CoreState::GenerateGroupedLineOptions options{};
+  options.road.id = 1101;
+  options.road.polyline = {
+      {-18.0, -6.0, 0.0},
+      {-6.0, -6.0, 0.0},
+      {-6.0, 6.0, 0.0},
+      {6.0, 6.0, 0.0},
+      {6.0, -6.0, 0.0},
+      {18.0, -6.0, 0.0},
+  };
+  options.interval = 0.0;
+  options.pole_type_id = type_ids.front();
+  options.group_spec.category = wire::core::ConnectionCategory::kHighVoltage;
+  options.group_spec.group_kind = wire::core::ConductorGroupKind::kThreePhase;
+  options.group_spec.conductor_count = 3;
+  options.group_spec.allow_lane_mirror = true;
+  options.group_spec.maintain_lane_order = true;
+  options.direction_mode = wire::core::PathDirectionMode::kAuto;
+
+  const auto generated = state.GenerateGroupedLine(options);
+  if (!generated.ok) {
+    return false;
+  }
+  const LaneOrderMetrics metrics = compute_lane_order_metrics(state, generated.value.lane_assignments);
+  return metrics.y_inversions == 0;
+}
+
+// Intent: Enabling lane mirror must not worsen grouped-lane quality metrics (Y/Z order and layer continuity).
+bool test_grouped_line_mirror_metric_non_regression() {
+  const auto run_with_mirror = [](bool allow_mirror) -> std::pair<bool, LaneOrderMetrics> {
+    CoreState state;
+    const auto type_ids = sorted_pole_type_ids(state);
+    if (type_ids.empty()) {
+      return {false, {}};
+    }
+    wire::core::CoreState::GenerateGroupedLineOptions options{};
+    options.road.id = 1102;
+    options.road.polyline = {
+        {-20.0, 0.0, 0.0},
+        {-8.0, 0.0, 0.0},
+        {-8.0, 10.0, 0.0},
+        {8.0, 10.0, 0.0},
+        {8.0, -2.0, 0.0},
+        {20.0, -2.0, 0.0},
+    };
+    options.interval = 0.0;
+    options.pole_type_id = type_ids.front();
+    options.group_spec.category = wire::core::ConnectionCategory::kLowVoltage;
+    options.group_spec.group_kind = wire::core::ConductorGroupKind::kParallel;
+    options.group_spec.conductor_count = 4;
+    options.group_spec.allow_lane_mirror = allow_mirror;
+    options.group_spec.maintain_lane_order = true;
+    options.direction_mode = wire::core::PathDirectionMode::kAuto;
+
+    const auto generated = state.GenerateGroupedLine(options);
+    if (!generated.ok) {
+      return {false, {}};
+    }
+    return {true, compute_lane_order_metrics(state, generated.value.lane_assignments)};
+  };
+
+  const auto without_mirror = run_with_mirror(false);
+  const auto with_mirror = run_with_mirror(true);
+  if (!without_mirror.first || !with_mirror.first) {
+    return false;
+  }
+
+  return with_mirror.second.weighted_score() <= without_mirror.second.weighted_score() &&
+         with_mirror.second.y_inversions <= without_mirror.second.y_inversions &&
+         with_mirror.second.z_inversions <= without_mirror.second.z_inversions;
 }
 
 // Intent: WireGroup/WireLane APIs should assign spans and expose queryable membership.
@@ -1938,7 +2148,61 @@ bool test_manual_port_not_overwritten_by_auto_relayout() {
          almost_equal(port_after->world_position, manual_pos);
 }
 
-// Intent: Guide generation must keep manual boundary poles fixed when the path is extended.
+// Intent: Pole transform changes must reproject owned Auto ports while preserving Manual ports.
+bool test_move_pole_reprojects_auto_ports_and_preserves_manual_ports() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  wire::core::Transformd tf{};
+  tf.position = {0.0, 0.0, 0.0};
+  const ObjectId pole_id = state.AddPole(tf, 10.0, "P").value;
+  if (!state.ApplyPoleType(pole_id, type_ids.front()).ok) {
+    return false;
+  }
+
+  ObjectId auto_port_id = wire::core::kInvalidObjectId;
+  ObjectId manual_port_id = wire::core::kInvalidObjectId;
+  wire::core::Vec3d auto_before{};
+  wire::core::Vec3d manual_before{};
+  for (const auto& port : state.edit_state().ports.items()) {
+    if (port.owner_pole_id != pole_id) {
+      continue;
+    }
+    if (port.source_slot_id == 200) {
+      auto_port_id = port.id;
+      auto_before = port.world_position;
+    } else if (port.source_slot_id == 201) {
+      manual_port_id = port.id;
+      manual_before = port.world_position;
+    }
+  }
+  if (auto_port_id == wire::core::kInvalidObjectId || manual_port_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  if (!state.SetPortWorldPositionManual(manual_port_id, manual_before).ok) {
+    return false;
+  }
+
+  wire::core::Transformd moved{};
+  moved.position = {3.0, 4.0, 0.0};
+  moved.rotation_euler_deg.z = 90.0;
+  if (!state.MovePole(pole_id, moved).ok) {
+    return false;
+  }
+
+  const auto* auto_after = state.edit_state().ports.find(auto_port_id);
+  const auto* manual_after = state.edit_state().ports.find(manual_port_id);
+  if (auto_after == nullptr || manual_after == nullptr) {
+    return false;
+  }
+  const bool auto_moved = !almost_equal(auto_after->world_position, auto_before, 1e-6);
+  const bool manual_kept = almost_equal(manual_after->world_position, manual_before, 1e-6);
+  return auto_moved && manual_kept && manual_after->position_mode == wire::core::PortPositionMode::kManual;
+}
+
+// Intent: Guide generation keeps explicitly pinned poles fixed when the path is extended.
 bool test_generate_from_guide_keeps_manual_boundaries_stable() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
@@ -1978,7 +2242,14 @@ bool test_generate_from_guide_keeps_manual_boundaries_stable() {
   const ObjectId mid_id = mid_before->id;
   const auto start_pos_before = start_before->world_transform.position;
   const auto mid_pos_before = mid_before->world_transform.position;
-  if (start_before->placement_mode != wire::core::PlacementMode::kManual ||
+  if (!state.SetPolePlacementMode(start_id, wire::core::PlacementMode::kManual).ok ||
+      !state.SetPolePlacementMode(mid_id, wire::core::PlacementMode::kManual).ok) {
+    return false;
+  }
+  start_before = state.edit_state().poles.find(start_id);
+  mid_before = state.edit_state().poles.find(mid_id);
+  if (start_before == nullptr || mid_before == nullptr ||
+      start_before->placement_mode != wire::core::PlacementMode::kManual ||
       mid_before->placement_mode != wire::core::PlacementMode::kManual) {
     return false;
   }
@@ -2037,6 +2308,286 @@ bool test_generate_from_guide_local_update_no_duplicate_unchanged_segments() {
     return false;
   }
   return state.edit_state().spans.size() > spans_after_first;
+}
+
+// Intent: Guide polyline vertices should not become forced-manual by default.
+bool test_generate_from_guide_vertices_are_not_forced_manual_by_default() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::GenerationRequest req{};
+  req.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
+  req.interval_m = 10.0;
+  req.pole_type_id = type_ids.front();
+  req.category = ConnectionCategory::kLowVoltage;
+  req.requested_lane_count = 1;
+  const auto generated = state.GenerateFromGuide(req);
+  if (!generated.ok) {
+    return false;
+  }
+
+  auto find_pole_at = [&](const wire::core::Vec3d& pos) -> const wire::core::Pole* {
+    for (const auto& pole : state.edit_state().poles.items()) {
+      if (almost_equal(pole.world_transform.position, pos)) {
+        return &pole;
+      }
+    }
+    return nullptr;
+  };
+
+  const auto* start = find_pole_at({0.0, 0.0, 0.0});
+  const auto* mid = find_pole_at({10.0, 0.0, 0.0});
+  const auto* end = find_pole_at({20.0, 0.0, 0.0});
+  if (start == nullptr || mid == nullptr || end == nullptr) {
+    return false;
+  }
+  return start->placement_mode == wire::core::PlacementMode::kAuto &&
+         end->placement_mode == wire::core::PlacementMode::kAuto &&
+         mid->placement_mode == wire::core::PlacementMode::kAuto;
+}
+
+// Intent: pin_vertices option should allow explicit manual pinning of guide vertices.
+bool test_generate_from_guide_pin_vertices_option() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::GenerationRequest req{};
+  req.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
+  req.interval_m = 10.0;
+  req.pole_type_id = type_ids.front();
+  req.category = ConnectionCategory::kLowVoltage;
+  req.requested_lane_count = 1;
+  req.pole_placement.pin_vertices = true;
+  const auto generated = state.GenerateFromGuide(req);
+  if (!generated.ok) {
+    return false;
+  }
+
+  for (const auto& pole : state.edit_state().poles.items()) {
+    if (almost_equal(pole.world_transform.position, wire::core::Vec3d{10.0, 0.0, 0.0})) {
+      return pole.placement_mode == wire::core::PlacementMode::kManual;
+    }
+  }
+  return false;
+}
+
+// Intent: Pole placement mode should be user-switchable between Auto and Manual.
+bool test_set_pole_placement_mode_auto_manual_roundtrip() {
+  CoreState state;
+  const ObjectId pole_id = state.AddPole({}, 10.0, "P").value;
+  const auto* pole = state.edit_state().poles.find(pole_id);
+  if (pole == nullptr || pole->placement_mode != wire::core::PlacementMode::kAuto) {
+    return false;
+  }
+  const auto to_manual = state.SetPolePlacementMode(pole_id, wire::core::PlacementMode::kManual);
+  if (!to_manual.ok) {
+    return false;
+  }
+  pole = state.edit_state().poles.find(pole_id);
+  if (pole == nullptr || pole->placement_mode != wire::core::PlacementMode::kManual || !pole->user_edited) {
+    return false;
+  }
+  const auto to_auto = state.SetPolePlacementMode(pole_id, wire::core::PlacementMode::kAuto);
+  if (!to_auto.ok) {
+    return false;
+  }
+  pole = state.edit_state().poles.find(pole_id);
+  return pole != nullptr && pole->placement_mode == wire::core::PlacementMode::kAuto && !pole->user_edited;
+}
+
+// Intent: Session-local regeneration should preserve manual poles while updating auto-generated parts.
+bool test_regenerate_session_auto_parts_keeps_manual_pole() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::GenerationRequest req{};
+  req.path.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
+  req.interval_m = 10.0;
+  req.pole_type_id = type_ids.front();
+  req.category = ConnectionCategory::kLowVoltage;
+  req.requested_lane_count = 1;
+  const auto first = state.GenerateFromGuide(req);
+  if (!first.ok || first.value.generated_pole_ids.empty()) {
+    return false;
+  }
+  const auto* any_generated = state.edit_state().poles.find(first.value.generated_pole_ids.front());
+  if (any_generated == nullptr || any_generated->generation.generation_session_id == 0) {
+    return false;
+  }
+  const std::uint64_t session_id = any_generated->generation.generation_session_id;
+
+  ObjectId middle_id = wire::core::kInvalidObjectId;
+  for (const auto& pole : state.edit_state().poles.items()) {
+    if (pole.generation.generation_session_id == session_id &&
+        almost_equal(pole.world_transform.position, wire::core::Vec3d{10.0, 0.0, 0.0})) {
+      middle_id = pole.id;
+      break;
+    }
+  }
+  if (middle_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  if (!state.SetPolePlacementMode(middle_id, wire::core::PlacementMode::kManual).ok) {
+    return false;
+  }
+  wire::core::Transformd moved{};
+  moved.position = {11.0, 1.0, 0.0};
+  if (!state.MovePole(middle_id, moved).ok) {
+    return false;
+  }
+
+  req.path.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}, {30.0, 0.0, 0.0}};
+  const auto regen = state.RegenerateSessionAutoParts(session_id, req);
+  if (!regen.ok) {
+    return false;
+  }
+
+  const auto* middle_after = state.edit_state().poles.find(middle_id);
+  if (middle_after == nullptr) {
+    return false;
+  }
+  return middle_after->placement_mode == wire::core::PlacementMode::kManual &&
+         almost_equal(middle_after->world_transform.position, moved.position);
+}
+
+// Intent: Session-local regeneration must not overwrite manual port position edits.
+bool test_regenerate_session_auto_parts_keeps_manual_port() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::GenerationRequest req{};
+  req.path.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
+  req.interval_m = 10.0;
+  req.pole_type_id = type_ids.front();
+  req.category = ConnectionCategory::kLowVoltage;
+  req.requested_lane_count = 1;
+  const auto first = state.GenerateFromGuide(req);
+  if (!first.ok || first.value.generated_span_ids.empty()) {
+    return false;
+  }
+
+  const auto* any_generated = state.edit_state().poles.find(first.value.generated_pole_ids.front());
+  if (any_generated == nullptr || any_generated->generation.generation_session_id == 0) {
+    return false;
+  }
+  const std::uint64_t session_id = any_generated->generation.generation_session_id;
+
+  const auto* span = state.edit_state().spans.find(first.value.generated_span_ids.front());
+  if (span == nullptr) {
+    return false;
+  }
+  const auto* port = state.edit_state().ports.find(span->port_a_id);
+  if (port == nullptr || port->owner_pole_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  const ObjectId manual_port_id = port->id;
+  const ObjectId manual_port_owner = port->owner_pole_id;
+  if (!state.SetPolePlacementMode(manual_port_owner, wire::core::PlacementMode::kManual).ok) {
+    return false;
+  }
+  const wire::core::Vec3d manual_pos{77.0, -14.0, 8.0};
+  if (!state.SetPortWorldPositionManual(manual_port_id, manual_pos).ok) {
+    return false;
+  }
+
+  req.path.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}, {35.0, 0.0, 0.0}};
+  const auto regen = state.RegenerateSessionAutoParts(session_id, req);
+  if (!regen.ok) {
+    return false;
+  }
+
+  const auto* port_after = state.edit_state().ports.find(manual_port_id);
+  return port_after != nullptr && port_after->position_mode == wire::core::PortPositionMode::kManual &&
+         almost_equal(port_after->world_position, manual_pos);
+}
+
+// Intent: Session-local regeneration must not mutate objects that belong to other sessions.
+bool test_regenerate_session_auto_parts_isolation_across_sessions() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::GenerationRequest req_a{};
+  req_a.path.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
+  req_a.interval_m = 10.0;
+  req_a.pole_type_id = type_ids.front();
+  req_a.category = ConnectionCategory::kLowVoltage;
+  req_a.requested_lane_count = 1;
+  const auto gen_a = state.GenerateFromGuide(req_a);
+  if (!gen_a.ok || gen_a.value.generated_pole_ids.empty()) {
+    return false;
+  }
+  const auto* pole_a0 = state.edit_state().poles.find(gen_a.value.generated_pole_ids.front());
+  if (pole_a0 == nullptr || pole_a0->generation.generation_session_id == 0) {
+    return false;
+  }
+  const std::uint64_t session_a = pole_a0->generation.generation_session_id;
+
+  wire::core::GenerationRequest req_b{};
+  req_b.path.polyline = {{0.0, 30.0, 0.0}, {20.0, 30.0, 0.0}};
+  req_b.interval_m = 10.0;
+  req_b.pole_type_id = type_ids.front();
+  req_b.category = ConnectionCategory::kLowVoltage;
+  req_b.requested_lane_count = 1;
+  const auto gen_b = state.GenerateFromGuide(req_b);
+  if (!gen_b.ok || gen_b.value.generated_pole_ids.empty()) {
+    return false;
+  }
+  const auto* pole_b0 = state.edit_state().poles.find(gen_b.value.generated_pole_ids.front());
+  if (pole_b0 == nullptr || pole_b0->generation.generation_session_id == 0) {
+    return false;
+  }
+  const std::uint64_t session_b = pole_b0->generation.generation_session_id;
+
+  std::vector<std::pair<ObjectId, wire::core::Vec3d>> session_b_poles{};
+  std::vector<ObjectId> session_b_spans{};
+  for (const auto& pole : state.edit_state().poles.items()) {
+    if (pole.generation.generation_session_id == session_b) {
+      session_b_poles.push_back({pole.id, pole.world_transform.position});
+    }
+  }
+  for (const auto& span : state.edit_state().spans.items()) {
+    if (span.generation.generation_session_id == session_b) {
+      session_b_spans.push_back(span.id);
+    }
+  }
+  if (session_b_poles.empty()) {
+    return false;
+  }
+
+  req_a.path.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}, {30.0, 0.0, 0.0}};
+  const auto regen = state.RegenerateSessionAutoParts(session_a, req_a);
+  if (!regen.ok) {
+    return false;
+  }
+
+  for (const auto& [pole_id, pos] : session_b_poles) {
+    const auto* pole = state.edit_state().poles.find(pole_id);
+    if (pole == nullptr || !almost_equal(pole->world_transform.position, pos)) {
+      return false;
+    }
+  }
+  for (ObjectId span_id : session_b_spans) {
+    if (state.edit_state().spans.find(span_id) == nullptr) {
+      return false;
+    }
+  }
+  return true;
 }
 
 // Intent: Backbone graph should be built from wire-grouped spans and support route search.
@@ -2669,6 +3220,12 @@ int main() {
       {"C61_Phase48h_AcuteCorner_AutoWidenSpacing",
        "Acute corners auto-widen lane spacing without category-specific branching", "Invariant", false,
        test_acute_corner_auto_widens_lane_spacing},
+      {"C62_Phase48d_GroupLane_NoInversionOnU",
+       "Grouped lane assignment on U-path avoids per-segment lane-order inversions", "Invariant", false,
+       test_grouped_line_lane_order_no_inversion_on_u_path},
+      {"C63_Phase48d_GroupLane_MirrorMetricNonRegression",
+       "Enabling lane mirror does not worsen Y/Z/layer grouped-lane quality metrics", "Invariant", false,
+       test_grouped_line_mirror_metric_non_regression},
       {"C36_Phase47_DrawPath_ClickPointsExact", "DrawPath generation uses clicked points directly and sets pole yaw",
        "Exact", false, test_generate_simple_line_from_points_exact_poles_and_orientation},
       {"C37_Phase48_PreferredSide_Geometry", "Preferred side is decided by peer geometry", "Invariant", false,
@@ -2683,8 +3240,9 @@ int main() {
        "Exact", false, test_clear_debug_records_is_entity_noop},
       {"C42_Phase4x_RecalcCache_NoEntityMutation", "Derived cache rebuild does not mutate entity identity/counts",
        "Invariant", false, test_recalc_cache_pipeline_is_entity_noop},
-      {"C43_Phase4x_SharpCorner_PoleYawBisector", "Sharp-corner middle pole yaw aligns to interior bisector",
-       "Exact", false, test_generate_simple_line_from_points_sharp_corner_perpendicular_orientation},
+      {"C43_Phase4x_SharpCorner_SideAxisPerpendicular",
+       "Sharp-corner pole side axis is perpendicular to bisector and points away from inward side", "Invariant", false,
+       test_generate_simple_line_from_points_sharp_corner_perpendicular_orientation},
       {"C44_Phase48a_WireGroupLane_AssignQuery", "WireGroup/WireLane assignment and queries work on spans", "Invariant",
        false, test_wire_group_lane_assign_and_query},
       {"C45_Phase48a_WireGroupLane_InvalidReject", "WireGroup/WireLane rejects invalid IDs and mismatched ownership",
@@ -2704,8 +3262,11 @@ int main() {
        false, test_port_manual_set_and_reset_to_auto},
       {"C52_Phase48c_PortMode_ProtectFromRelayout", "Manual ports are not overwritten by auto pole relayout",
        "Invariant", false, test_manual_port_not_overwritten_by_auto_relayout},
+      {"C71_Phase48k_MovePole_ReprojectAutoPreserveManual",
+       "MovePole reprojects owned Auto ports and preserves Manual ports", "Invariant", false,
+       test_move_pole_reprojects_auto_ports_and_preserves_manual_ports},
       {"C53_Phase48h_Guide_ManualBoundaryStable",
-       "Guide extension keeps existing manual boundary poles fixed", "Invariant", false,
+       "Guide extension keeps explicitly pinned poles fixed", "Invariant", false,
        test_generate_from_guide_keeps_manual_boundaries_stable},
       {"C54_Phase48h_Guide_LocalUpdate",
        "Guide regeneration adds only missing segments without duplicating unchanged spans", "Invariant", false,
@@ -2713,11 +3274,14 @@ int main() {
       {"C55_Phase48h_Backbone_Route", "Backbone edges are built from grouped spans and route search works",
        "Invariant", false, test_backbone_edges_and_route_search},
       {"C56_Phase48h_SharpCorner_ThresholdBoundary",
-       "Sharp-corner orientation switches rule exactly at <75deg threshold", "Exact", false,
+       "Sharp-corner orientation applies at <=75deg and disables above threshold", "Invariant", false,
        test_sharp_corner_threshold_boundary_orientation},
       {"C60_Phase48h_Guide_ReusedVertexReorient",
        "Reused guide vertex pole is reoriented by sharp-corner rule when not manually overridden", "Invariant", false,
        test_generate_from_guide_reused_vertex_reorients_to_corner_rule},
+      {"C70_Phase48h_Guide_ReusedVertexPortReproject",
+       "Reused guide vertex reprojections move template-owned ports when corner orientation changes", "Invariant", false,
+       test_generate_from_guide_reused_pole_reprojects_owned_ports},
       {"C57_Phase48h_Guide_DuplicatePointsRobust",
        "Guide generation with duplicate points stays finite and keeps path Z", "Invariant", false,
        test_generate_from_guide_with_duplicate_points_is_robust},
@@ -2727,6 +3291,22 @@ int main() {
       {"C59_Phase48h_Guide_AvoidConstraint",
        "Guide generation avoids forbidden radius around avoid_points", "Invariant", false,
        test_generate_from_guide_respects_avoid_constraints},
+      {"C64_Phase48i_Guide_NoForcedManualVertices",
+       "Guide generation does not force manual poles by default (including endpoints)", "Exact", false,
+       test_generate_from_guide_vertices_are_not_forced_manual_by_default},
+      {"C65_Phase48i_Guide_PinVerticesOption", "Guide pin_vertices option explicitly pins intermediate vertices",
+       "Exact", false, test_generate_from_guide_pin_vertices_option},
+      {"C66_Phase48i_PolePlacementMode_Roundtrip", "Pole placement mode can round-trip Auto<->Manual by API", "Exact",
+       false, test_set_pole_placement_mode_auto_manual_roundtrip},
+      {"C67_Phase48i_Regenerate_KeepManualPole",
+       "Session-local regeneration preserves manually pinned pole position", "Invariant", false,
+       test_regenerate_session_auto_parts_keeps_manual_pole},
+      {"C68_Phase48i_Regenerate_KeepManualPort",
+       "Session-local regeneration preserves manual port position edits", "Invariant", false,
+       test_regenerate_session_auto_parts_keeps_manual_port},
+      {"C69_Phase48i_Regenerate_SessionIsolation",
+       "Session-local regeneration does not mutate other generation sessions", "Invariant", false,
+       test_regenerate_session_auto_parts_isolation_across_sessions},
   };
 
   bool all_passed = true;

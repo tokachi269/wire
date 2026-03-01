@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -14,6 +15,18 @@ namespace {
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kZeroLengthEps = 1e-9;
 constexpr double kSharpCornerInteriorAngleMaxDeg = 75.0;
+
+struct SharpCornerOrientationDebug {
+  bool applied = false;
+  double theta_deg = 0.0;
+  Vec3d bisector_dir{};
+  Vec3d side_dir{};
+};
+
+struct AutoPoleTransformResult {
+  Transformd transform{};
+  SharpCornerOrientationDebug sharp{};
+};
 
 template <typename TValue>
 void append_unique(std::vector<TValue>& dst, const std::vector<TValue>& src) {
@@ -41,71 +54,118 @@ double normalize_yaw_deg(double yaw_deg) {
   return out;
 }
 
-double compute_corner_interior_angle_deg_at_point(const std::vector<Vec3d>& points, std::size_t index) {
-  if (points.size() < 3 || index == 0 || index + 1 >= points.size()) {
-    return 0.0;
+bool normalize_xy(Vec3d* v) {
+  if (v == nullptr) {
+    return false;
   }
-  const Vec3d a{points[index - 1].x - points[index].x, points[index - 1].y - points[index].y,
-                points[index - 1].z - points[index].z};
-  const Vec3d b{points[index + 1].x - points[index].x, points[index + 1].y - points[index].y,
-                points[index + 1].z - points[index].z};
-  const double la = std::sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
-  const double lb = std::sqrt(b.x * b.x + b.y * b.y + b.z * b.z);
-  if (la <= 1e-9 || lb <= 1e-9) {
-    return 0.0;
+  const double len = std::sqrt(v->x * v->x + v->y * v->y);
+  if (len <= 1e-9) {
+    return false;
   }
-  double dot = (a.x * b.x + a.y * b.y + a.z * b.z) / (la * lb);
-  dot = std::clamp(dot, -1.0, 1.0);
-  const double interior_deg = std::acos(dot) * (180.0 / kPi);
-  return std::clamp(interior_deg, 0.0, 180.0);
+  v->x /= len;
+  v->y /= len;
+  v->z = 0.0;
+  return true;
 }
 
-bool compute_corner_bisector_xy(const std::vector<Vec3d>& points, std::size_t index, Vec3d* out_bisector_xy) {
-  if (out_bisector_xy == nullptr) {
-    return false;
-  }
+double dot_xy(const Vec3d& a, const Vec3d& b) { return a.x * b.x + a.y * b.y; }
+
+Vec3d left_perp_xy(const Vec3d& v) { return Vec3d{-v.y, v.x, 0.0}; }
+
+SharpCornerOrientationDebug compute_sharp_corner_orientation(const std::vector<Vec3d>& points, std::size_t index,
+                                                             double sharp_threshold_deg) {
+  SharpCornerOrientationDebug out{};
   if (points.size() < 3 || index == 0 || index + 1 >= points.size()) {
-    return false;
+    return out;
   }
-  // Interior-angle bisector uses rays from corner to prev/next.
-  Vec3d in_dir{
+
+  // Corner-interior definition:
+  // u0 = normalize(p[i-1]-p[i]) (corner -> prev), u1 = normalize(p[i+1]-p[i]) (corner -> next)
+  // theta = acos(dot(u0,u1)), b = normalize(u0+u1)
+  Vec3d u0{
       points[index - 1].x - points[index].x,
       points[index - 1].y - points[index].y,
       0.0,
   };
-  Vec3d out_dir{
+  Vec3d u1{
       points[index + 1].x - points[index].x,
       points[index + 1].y - points[index].y,
       0.0,
   };
-  const double in_len = std::sqrt(in_dir.x * in_dir.x + in_dir.y * in_dir.y);
-  const double out_len = std::sqrt(out_dir.x * out_dir.x + out_dir.y * out_dir.y);
-  if (in_len <= 1e-9 || out_len <= 1e-9) {
-    return false;
+  if (!normalize_xy(&u0) || !normalize_xy(&u1)) {
+    return out;
   }
-  in_dir.x /= in_len;
-  in_dir.y /= in_len;
-  out_dir.x /= out_len;
-  out_dir.y /= out_len;
+
+  double d = dot_xy(u0, u1);
+  d = std::clamp(d, -1.0, 1.0);
+  out.theta_deg = std::acos(d) * (180.0 / kPi);
+  if (out.theta_deg <= 1e-6 || out.theta_deg > sharp_threshold_deg + 1e-6) {
+    return out;
+  }
 
   Vec3d bisector{
-      in_dir.x + out_dir.x,
-      in_dir.y + out_dir.y,
+      u0.x + u1.x,
+      u0.y + u1.y,
       0.0,
   };
-  const double b_len = std::sqrt(bisector.x * bisector.x + bisector.y * bisector.y);
-  if (b_len <= 1e-9) {
-    return false;
+  if (!normalize_xy(&bisector)) {
+    // v0 ~= -v1 (degenerate): fallback to default tangent orientation.
+    return out;
   }
-  bisector.x /= b_len;
-  bisector.y /= b_len;
-  *out_bisector_xy = bisector;
-  return true;
+  out.bisector_dir = bisector;
+
+  // side candidate = cross(up, b) in XY.
+  Vec3d side1 = left_perp_xy(bisector);
+  if (!normalize_xy(&side1)) {
+    return out;
+  }
+  Vec3d side2{-side1.x, -side1.y, 0.0};
+  Vec3d selected = side1;
+
+  // Turn sign from travel directions (prev->curr, curr->next).
+  Vec3d t_in{
+      points[index].x - points[index - 1].x,
+      points[index].y - points[index - 1].y,
+      0.0,
+  };
+  Vec3d t_out{
+      points[index + 1].x - points[index].x,
+      points[index + 1].y - points[index].y,
+      0.0,
+  };
+  if (!normalize_xy(&t_in) || !normalize_xy(&t_out)) {
+    return out;
+  }
+  const double turn = t_in.x * t_out.y - t_in.y * t_out.x;
+  if (std::abs(turn) > 1e-9) {
+    // Inward direction from incoming travel side: left for left-turn, right for right-turn.
+    Vec3d inward = (turn > 0.0) ? left_perp_xy(t_in) : Vec3d{t_in.y, -t_in.x, 0.0};
+    if (normalize_xy(&inward)) {
+      const double inward_proj_1 = dot_xy(side1, inward);
+      const double inward_proj_2 = dot_xy(side2, inward);
+      // Pick side that points less toward the inner corner.
+      selected = (inward_proj_1 <= inward_proj_2) ? side1 : side2;
+    }
+  }
+
+  out.side_dir = selected;
+  out.applied = true;
+  return out;
 }
 
-Transformd make_auto_pole_transform(const std::vector<Vec3d>& points, std::size_t index) {
-  Transformd tf{};
-  tf.position = points[index];
+void apply_sharp_debug_to_context(PoleContextInfo* context, const SharpCornerOrientationDebug& sharp) {
+  if (context == nullptr) {
+    return;
+  }
+  context->sharp_orientation_applied = sharp.applied;
+  context->sharp_theta_deg = sharp.theta_deg;
+  context->sharp_bisector_dir = sharp.bisector_dir;
+  context->sharp_side_dir = sharp.side_dir;
+}
+
+AutoPoleTransformResult make_auto_pole_transform(const std::vector<Vec3d>& points, std::size_t index) {
+  AutoPoleTransformResult out{};
+  out.transform.position = points[index];
 
   Vec3d tangent{};
   if (points.size() >= 2) {
@@ -121,21 +181,14 @@ Transformd make_auto_pole_transform(const std::vector<Vec3d>& points, std::size_
   const double len2 = tangent.x * tangent.x + tangent.y * tangent.y + tangent.z * tangent.z;
   if (len2 > 1e-12) {
     double yaw_deg = std::atan2(tangent.y, tangent.x) * (180.0 / kPi);
-    // Sharp-corner rule is based on corner interior angle (< 75 deg).
-    const double corner_interior_deg = compute_corner_interior_angle_deg_at_point(points, index);
-    if (corner_interior_deg > 1e-6 && corner_interior_deg < kSharpCornerInteriorAngleMaxDeg) {
-      Vec3d bisector_xy{};
-      if (compute_corner_bisector_xy(points, index, &bisector_xy)) {
-        // Keep slot spread axis (local Y) perpendicular to bisector to avoid lane compression at acute corners.
-        yaw_deg = std::atan2(bisector_xy.y, bisector_xy.x) * (180.0 / kPi);
-      } else {
-        // Fallback keeps legacy behavior when bisector is degenerate.
-        yaw_deg += 90.0;
-      }
+    out.sharp = compute_sharp_corner_orientation(points, index, kSharpCornerInteriorAngleMaxDeg);
+    if (out.sharp.applied) {
+      // Align local Y (slot side axis) to selected side_dir.
+      yaw_deg = std::atan2(out.sharp.side_dir.y, out.sharp.side_dir.x) * (180.0 / kPi) - 90.0;
     }
-    tf.rotation_euler_deg.z = normalize_yaw_deg(yaw_deg);
+    out.transform.rotation_euler_deg.z = normalize_yaw_deg(yaw_deg);
   }
-  return tf;
+  return out;
 }
 
 } // namespace
@@ -183,8 +236,8 @@ EditResult<std::vector<ObjectId>> CoreState::generate_poles_from_points(const Ro
 
   const std::uint64_t session_id = next_generation_session_id_++;
   for (std::size_t i = 0; i < points.size(); ++i) {
-    Transformd tf = make_auto_pole_transform(points, i);
-    EditResult<ObjectId> add_pole_result = AddPole(tf, 10.0, "AutoPole", PoleKind::kConcrete);
+    const AutoPoleTransformResult auto_tf = make_auto_pole_transform(points, i);
+    EditResult<ObjectId> add_pole_result = AddPole(auto_tf.transform, 10.0, "AutoPole", PoleKind::kConcrete);
     if (!add_pole_result.ok) {
       result.error = add_pole_result.error;
       return result;
@@ -192,6 +245,7 @@ EditResult<std::vector<ObjectId>> CoreState::generate_poles_from_points(const Ro
     Pole* pole = edit_state_.poles.find(add_pole_result.value);
     if (pole != nullptr) {
       pole->context = classify_pole_context_from_path(points, i, 0);
+      apply_sharp_debug_to_context(&pole->context, auto_tf.sharp);
       pole->generation.generated = true;
       pole->generation.source = GenerationSource::kRoadAuto;
       pole->generation.generation_session_id = session_id;
@@ -638,22 +692,75 @@ CoreState::generate_grouped_spans_between_poles(const std::vector<ObjectId>& pol
     std::vector<ObjectId> lanes_b = lanes_b_base;
     bool mirrored = false;
     if (group_spec.allow_lane_mirror && lane_count > 1) {
-      std::vector<double> y_id;
-      std::vector<double> y_mirror;
-      y_id.reserve(static_cast<std::size_t>(lane_count));
-      y_mirror.reserve(static_cast<std::size_t>(lane_count));
+      const Pole* pa = edit_state_.poles.find(pole_a);
       const Pole* pb = edit_state_.poles.find(pole_b);
-      for (int lane = 0; lane < lane_count; ++lane) {
-        const Port* p_id = edit_state_.ports.find(lanes_b_base[static_cast<std::size_t>(lane)]);
-        const Port* p_mr = edit_state_.ports.find(lanes_b_base[static_cast<std::size_t>(lane_count - 1 - lane)]);
-        y_id.push_back((pb == nullptr || p_id == nullptr) ? 0.0 : to_local_on_pole(*pb, p_id->world_position).y);
-        y_mirror.push_back((pb == nullptr || p_mr == nullptr) ? 0.0 : to_local_on_pole(*pb, p_mr->world_position).y);
-      }
-      const int c_id = inversion_count(y_id);
-      const int c_mr = inversion_count(y_mirror);
-      if (c_mr < c_id) {
+      auto evaluate_mapping_score = [&](const std::vector<ObjectId>& candidate_b) -> std::int64_t {
+        // Weighted local score to avoid lane crossings first, then reduce Z/layer discontinuity.
+        int cross_y = 0;
+        int cross_z = 0;
+        int layer_jump = 0;
+        double span_z_delta = 0.0;
+
+        std::vector<double> y_a(static_cast<std::size_t>(lane_count), 0.0);
+        std::vector<double> y_b(static_cast<std::size_t>(lane_count), 0.0);
+        std::vector<double> z_a(static_cast<std::size_t>(lane_count), 0.0);
+        std::vector<double> z_b(static_cast<std::size_t>(lane_count), 0.0);
+
+        for (int lane = 0; lane < lane_count; ++lane) {
+          const std::size_t idx = static_cast<std::size_t>(lane);
+          const Port* port_a = edit_state_.ports.find(lanes_a[idx]);
+          const Port* port_b = edit_state_.ports.find(candidate_b[idx]);
+          if (port_a == nullptr || port_b == nullptr) {
+            layer_jump += 4;
+            span_z_delta += 5.0;
+            continue;
+          }
+          y_a[idx] = (pa == nullptr) ? 0.0 : to_local_on_pole(*pa, port_a->world_position).y;
+          y_b[idx] = (pb == nullptr) ? 0.0 : to_local_on_pole(*pb, port_b->world_position).y;
+          z_a[idx] = port_a->world_position.z;
+          z_b[idx] = port_b->world_position.z;
+          layer_jump += std::abs(port_a->template_layer - port_b->template_layer);
+          span_z_delta += std::abs(port_a->world_position.z - port_b->world_position.z);
+        }
+
+        for (int i = 0; i < lane_count; ++i) {
+          for (int j = i + 1; j < lane_count; ++j) {
+            const std::size_t ii = static_cast<std::size_t>(i);
+            const std::size_t jj = static_cast<std::size_t>(j);
+            const double dy_a = y_a[ii] - y_a[jj];
+            const double dy_b = y_b[ii] - y_b[jj];
+            if (dy_a * dy_b < -1e-9) {
+              ++cross_y;
+            }
+            const double dz_a = z_a[ii] - z_a[jj];
+            const double dz_b = z_b[ii] - z_b[jj];
+            if (dz_a * dz_b < -1e-9) {
+              ++cross_z;
+            }
+          }
+        }
+
+        return static_cast<std::int64_t>(cross_y) * 100000 + static_cast<std::int64_t>(cross_z) * 50000 +
+               static_cast<std::int64_t>(layer_jump) * 200 +
+               static_cast<std::int64_t>(std::llround(span_z_delta * 1000.0));
+      };
+
+      const std::int64_t identity_score = evaluate_mapping_score(lanes_b_base);
+      std::vector<ObjectId> mirrored_candidate(lanes_b_base.rbegin(), lanes_b_base.rend());
+      const std::int64_t mirror_score = evaluate_mapping_score(mirrored_candidate);
+
+      if (mirror_score < identity_score) {
         mirrored = true;
-        lanes_b.assign(lanes_b_base.rbegin(), lanes_b_base.rend());
+        lanes_b = std::move(mirrored_candidate);
+      } else if (mirror_score == identity_score) {
+        // Deterministic tie-break to avoid frame-to-frame mapping jitter.
+        const std::uint8_t tie = deterministic_tiebreak_0_255(
+            pole_b, static_cast<int>(seg), group_spec.category, ConnectionContext::kTrunkContinue, pole_a,
+            kInvalidObjectId, static_cast<std::uint32_t>(lane_count));
+        if ((tie & 1u) != 0u) {
+          mirrored = true;
+          lanes_b = std::move(mirrored_candidate);
+        }
       }
     }
 
@@ -963,6 +1070,8 @@ CoreState::GenerateFromGuide(const GenerationRequest& request) {
 
   std::vector<CandidatePole> candidates{};
   candidates.reserve(guide_points.size() * 2);
+  const bool pin_endpoints = request.pole_placement.pin_endpoints;
+  const bool pin_vertices = request.pole_placement.pin_vertices;
   for (std::size_t i = 0; i + 1 < guide_points.size(); ++i) {
     const Vec3d a = guide_points[i];
     const Vec3d b = guide_points[i + 1];
@@ -988,7 +1097,8 @@ CoreState::GenerateFromGuide(const GenerationRequest& request) {
     start.segment_index = i;
     start.vertex_index = static_cast<int>(i);
     start.t = 0.0;
-    start.mode = PlacementMode::kManual;
+    const bool is_start_endpoint = (i == 0);
+    start.mode = (pin_vertices || (pin_endpoints && is_start_endpoint)) ? PlacementMode::kManual : PlacementMode::kAuto;
     add_unique_candidate(candidates, start);
 
     if (request.interval_m > 0.0) {
@@ -1033,7 +1143,7 @@ CoreState::GenerateFromGuide(const GenerationRequest& request) {
   end.segment_index = guide_points.size() - 2;
   end.vertex_index = static_cast<int>(guide_points.size() - 1);
   end.t = 1.0;
-  end.mode = PlacementMode::kManual;
+  end.mode = pin_endpoints ? PlacementMode::kManual : PlacementMode::kAuto;
   add_unique_candidate(candidates, end);
 
   if (candidates.size() < 2) {
@@ -1051,6 +1161,12 @@ CoreState::GenerateFromGuide(const GenerationRequest& request) {
     double best_d2 = reuse_r2 + 1.0;
     bool best_mode_match = false;
     for (const Pole& pole : edit_state_.poles.items()) {
+      if (request.pole_placement.restrict_reuse_to_session) {
+        if (request.pole_placement.reuse_session_id == 0 ||
+            pole.generation.generation_session_id != request.pole_placement.reuse_session_id) {
+          continue;
+        }
+      }
       const Vec3d d = pole.world_transform.position - world;
       const double d2 = d.x * d.x + d.y * d.y + d.z * d.z;
       if (d2 > reuse_r2) {
@@ -1076,6 +1192,7 @@ CoreState::GenerateFromGuide(const GenerationRequest& request) {
     if (pole_id != kInvalidObjectId) {
       Pole* pole = edit_state_.poles.find(pole_id);
       if (pole != nullptr) {
+        const Pole old_pole = *pole;
         bool updated = false;
         if (candidate.mode == PlacementMode::kManual) {
           pole->placement_mode = PlacementMode::kManual;
@@ -1085,15 +1202,18 @@ CoreState::GenerateFromGuide(const GenerationRequest& request) {
 
         if (candidate.vertex_index >= 0) {
           pole->context = classify_pole_context_from_path(guide_points, static_cast<std::size_t>(candidate.vertex_index), 0);
+          const AutoPoleTransformResult auto_tf =
+              make_auto_pole_transform(guide_points, static_cast<std::size_t>(candidate.vertex_index));
+          apply_sharp_debug_to_context(&pole->context, auto_tf.sharp);
           updated = true;
           // Reused poles must follow current corner-orientation rule unless explicitly overridden.
           if (!pole->orientation_override_flag && !pole->orientation_control.manual_yaw_override) {
-            const Transformd auto_tf = make_auto_pole_transform(guide_points, static_cast<std::size_t>(candidate.vertex_index));
-            pole->world_transform.rotation_euler_deg.z = auto_tf.rotation_euler_deg.z;
+            pole->world_transform.rotation_euler_deg.z = auto_tf.transform.rotation_euler_deg.z;
             updated = true;
           }
         } else {
           pole->context.kind = PoleContextKind::kStraight;
+          apply_sharp_debug_to_context(&pole->context, SharpCornerOrientationDebug{});
           if (!pole->orientation_override_flag && !pole->orientation_control.manual_yaw_override) {
             const Vec3d dir = guide_points[candidate.segment_index + 1] - guide_points[candidate.segment_index];
             if ((dir.x * dir.x + dir.y * dir.y + dir.z * dir.z) > 1e-12) {
@@ -1104,6 +1224,9 @@ CoreState::GenerateFromGuide(const GenerationRequest& request) {
         }
 
         if (updated) {
+          // Reused poles need endpoint reprojection after context/yaw updates;
+          // otherwise DrawPath re-generate can look unchanged.
+          refresh_owned_endpoints_from_pole(pole->id, &result.change_set, &old_pole);
           add_unique_id(result.change_set.updated_ids, pole->id);
         }
       }
@@ -1112,10 +1235,16 @@ CoreState::GenerateFromGuide(const GenerationRequest& request) {
     }
 
     Transformd tf{};
+    SharpCornerOrientationDebug created_sharp_debug{};
+    bool has_created_sharp_debug = false;
     tf.position = candidate.world;
     if (candidate.vertex_index >= 0) {
-      tf = make_auto_pole_transform(guide_points, static_cast<std::size_t>(candidate.vertex_index));
+      const AutoPoleTransformResult auto_tf =
+          make_auto_pole_transform(guide_points, static_cast<std::size_t>(candidate.vertex_index));
+      tf = auto_tf.transform;
       tf.position = candidate.world;
+      created_sharp_debug = auto_tf.sharp;
+      has_created_sharp_debug = true;
     } else {
       const Vec3d dir = guide_points[candidate.segment_index + 1] - guide_points[candidate.segment_index];
       if ((dir.x * dir.x + dir.y * dir.y + dir.z * dir.z) > 1e-12) {
@@ -1134,8 +1263,11 @@ CoreState::GenerateFromGuide(const GenerationRequest& request) {
     if (pole != nullptr) {
       if (candidate.vertex_index >= 0) {
         pole->context = classify_pole_context_from_path(guide_points, static_cast<std::size_t>(candidate.vertex_index), 0);
+        apply_sharp_debug_to_context(&pole->context, has_created_sharp_debug ? created_sharp_debug
+                                                                              : SharpCornerOrientationDebug{});
       } else {
         pole->context.kind = PoleContextKind::kStraight;
+        apply_sharp_debug_to_context(&pole->context, SharpCornerOrientationDebug{});
       }
       pole->generation.generated = true;
       pole->generation.source = GenerationSource::kRoadAuto;
@@ -1333,6 +1465,217 @@ CoreState::GenerateFromGuide(const GenerationRequest& request) {
 
   result.ok = true;
   return result;
+}
+
+EditResult<CoreState::GenerateWireGroupFromPathResult>
+CoreState::RegenerateSessionAutoParts(std::uint64_t generation_session_id, const GenerationRequest& request) {
+  EditResult<GenerateWireGroupFromPathResult> result;
+  if (generation_session_id == 0) {
+    result.error = "generation_session_id must be non-zero";
+    return result;
+  }
+
+  const CoreState snapshot = *this;
+  ChangeSet cleanup_changes{};
+
+  std::vector<ObjectId> target_span_ids{};
+  target_span_ids.reserve(edit_state_.spans.size());
+  std::unordered_set<ObjectId> candidate_bundle_ids{};
+  for (const Span& span : edit_state_.spans.items()) {
+    if (span.generation.generation_session_id != generation_session_id) {
+      continue;
+    }
+    target_span_ids.push_back(span.id);
+    if (span.bundle_id != kInvalidObjectId) {
+      candidate_bundle_ids.insert(span.bundle_id);
+    }
+  }
+
+  for (ObjectId span_id : target_span_ids) {
+    const Span* span_ptr = edit_state_.spans.find(span_id);
+    if (span_ptr == nullptr) {
+      continue;
+    }
+    const Span span = *span_ptr;
+    remove_span_from_indexes(span);
+    edit_state_.spans.remove(span_id);
+    span_runtime_states_.erase(span_id);
+    remove_span_from_caches(span_id);
+    add_unique_id(cleanup_changes.deleted_ids, span_id);
+
+    std::vector<ObjectId> remove_attachments{};
+    for (const Attachment& attachment : edit_state_.attachments.items()) {
+      if (attachment.span_id == span_id) {
+        remove_attachments.push_back(attachment.id);
+      }
+    }
+    for (ObjectId attachment_id : remove_attachments) {
+      edit_state_.attachments.remove(attachment_id);
+      add_unique_id(cleanup_changes.deleted_ids, attachment_id);
+    }
+  }
+
+  auto erase_removed_spans_from_queue = [&](std::vector<ObjectId>& queue) {
+    queue.erase(std::remove_if(queue.begin(), queue.end(),
+                               [&](ObjectId id) {
+                                 return std::find(target_span_ids.begin(), target_span_ids.end(), id) !=
+                                        target_span_ids.end();
+                               }),
+                queue.end());
+  };
+  erase_removed_spans_from_queue(dirty_queue_.topology_dirty_span_ids);
+  erase_removed_spans_from_queue(dirty_queue_.geometry_dirty_span_ids);
+  erase_removed_spans_from_queue(dirty_queue_.bounds_dirty_span_ids);
+  erase_removed_spans_from_queue(dirty_queue_.render_dirty_span_ids);
+  erase_removed_spans_from_queue(dirty_queue_.raycast_dirty_span_ids);
+
+  std::vector<ObjectId> target_auto_pole_ids{};
+  target_auto_pole_ids.reserve(edit_state_.poles.size());
+  for (const Pole& pole : edit_state_.poles.items()) {
+    if (pole.generation.generation_session_id != generation_session_id) {
+      continue;
+    }
+    if (pole.placement_mode == PlacementMode::kAuto) {
+      target_auto_pole_ids.push_back(pole.id);
+    }
+  }
+
+  for (ObjectId pole_id : target_auto_pole_ids) {
+    const Pole* pole = edit_state_.poles.find(pole_id);
+    if (pole == nullptr) {
+      continue;
+    }
+    std::vector<ObjectId> owned_ports{};
+    std::vector<ObjectId> owned_anchors{};
+    for (const Port& port : edit_state_.ports.items()) {
+      if (port.owner_pole_id == pole_id) {
+        owned_ports.push_back(port.id);
+      }
+    }
+    for (const Anchor& anchor : edit_state_.anchors.items()) {
+      if (anchor.owner_pole_id == pole_id) {
+        owned_anchors.push_back(anchor.id);
+      }
+    }
+
+    bool has_live_connections = false;
+    for (ObjectId port_id : owned_ports) {
+      auto it = connection_index_.spans_by_port.find(port_id);
+      if (it != connection_index_.spans_by_port.end() && !it->second.empty()) {
+        has_live_connections = true;
+        break;
+      }
+    }
+    if (has_live_connections) {
+      continue;
+    }
+
+    for (ObjectId port_id : owned_ports) {
+      connection_index_.spans_by_port.erase(port_id);
+      if (edit_state_.ports.remove(port_id)) {
+        add_unique_id(cleanup_changes.deleted_ids, port_id);
+      }
+    }
+    for (ObjectId anchor_id : owned_anchors) {
+      connection_index_.spans_by_anchor.erase(anchor_id);
+      if (edit_state_.anchors.remove(anchor_id)) {
+        add_unique_id(cleanup_changes.deleted_ids, anchor_id);
+      }
+    }
+    if (edit_state_.poles.remove(pole_id)) {
+      add_unique_id(cleanup_changes.deleted_ids, pole_id);
+    }
+  }
+
+  std::vector<ObjectId> session_group_ids{};
+  for (const WireGroup& group : edit_state_.wire_groups.items()) {
+    if (group.generation_session_id == generation_session_id) {
+      session_group_ids.push_back(group.id);
+    }
+  }
+  std::unordered_set<ObjectId> session_group_set(session_group_ids.begin(), session_group_ids.end());
+  std::vector<ObjectId> session_lane_ids{};
+  for (const WireLane& lane : edit_state_.wire_lanes.items()) {
+    if (session_group_set.contains(lane.wire_group_id)) {
+      session_lane_ids.push_back(lane.id);
+    }
+  }
+
+  auto is_lane_referenced = [&](ObjectId lane_id) {
+    for (const Span& span : edit_state_.spans.items()) {
+      if (span.wire_lane_id == lane_id) {
+        return true;
+      }
+    }
+    return false;
+  };
+  for (ObjectId lane_id : session_lane_ids) {
+    if (!is_lane_referenced(lane_id) && edit_state_.wire_lanes.remove(lane_id)) {
+      add_unique_id(cleanup_changes.deleted_ids, lane_id);
+    }
+  }
+
+  auto is_group_referenced = [&](ObjectId group_id) {
+    for (const Span& span : edit_state_.spans.items()) {
+      if (span.wire_group_id == group_id) {
+        return true;
+      }
+    }
+    return false;
+  };
+  for (ObjectId group_id : session_group_ids) {
+    if (!is_group_referenced(group_id) && edit_state_.wire_groups.remove(group_id)) {
+      add_unique_id(cleanup_changes.deleted_ids, group_id);
+    }
+  }
+
+  for (ObjectId bundle_id : candidate_bundle_ids) {
+    bool used = false;
+    for (const Span& span : edit_state_.spans.items()) {
+      if (span.bundle_id == bundle_id) {
+        used = true;
+        break;
+      }
+    }
+    if (!used && edit_state_.bundles.remove(bundle_id)) {
+      add_unique_id(cleanup_changes.deleted_ids, bundle_id);
+    }
+  }
+
+  GenerationRequest regen_request = request;
+  regen_request.pole_placement.restrict_reuse_to_session = true;
+  regen_request.pole_placement.reuse_session_id = generation_session_id;
+  EditResult<GenerateWireGroupFromPathResult> regenerated = GenerateFromGuide(regen_request);
+  if (!regenerated.ok) {
+    *this = snapshot;
+    result.error = regenerated.error;
+    return result;
+  }
+
+  for (ObjectId pole_id : regenerated.value.generated_pole_ids) {
+    Pole* pole = edit_state_.poles.find(pole_id);
+    if (pole != nullptr) {
+      pole->generation.generation_session_id = generation_session_id;
+      add_unique_id(regenerated.change_set.updated_ids, pole_id);
+    }
+  }
+  for (ObjectId span_id : regenerated.value.generated_span_ids) {
+    Span* span = edit_state_.spans.find(span_id);
+    if (span != nullptr) {
+      span->generation.generation_session_id = generation_session_id;
+      add_unique_id(regenerated.change_set.updated_ids, span_id);
+    }
+  }
+  if (regenerated.value.wire_group_id != kInvalidObjectId) {
+    WireGroup* group = edit_state_.wire_groups.find(regenerated.value.wire_group_id);
+    if (group != nullptr) {
+      group->generation_session_id = generation_session_id;
+      add_unique_id(regenerated.change_set.updated_ids, group->id);
+    }
+  }
+
+  append_change_set(regenerated.change_set, cleanup_changes);
+  return regenerated;
 }
 
 EditResult<CoreState::GenerateWireGroupFromPathResult>

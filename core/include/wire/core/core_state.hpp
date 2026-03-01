@@ -375,6 +375,8 @@ public:
                                                                     ConnectionCategory category);
   EditResult<GenerateGroupedLineResult> GenerateGroupedLine(const GenerateGroupedLineOptions& options);
   EditResult<GenerateWireGroupFromPathResult> GenerateFromGuide(const GenerationRequest& request);
+  EditResult<GenerateWireGroupFromPathResult> RegenerateSessionAutoParts(std::uint64_t generation_session_id,
+                                                                         const GenerationRequest& request);
   EditResult<GenerateWireGroupFromPathResult> GenerateWireGroupFromPath(const GenerateWireGroupFromPathInput& input);
   EditResult<ObjectId> SetPolePlacementMode(ObjectId pole_id, PlacementMode mode);
   EditResult<ObjectId> SetPoleFlip180(ObjectId pole_id, bool flip_180);
@@ -514,6 +516,7 @@ private:
   static void add_unique_id(std::vector<ObjectId>& ids, ObjectId id);
   static std::string dirty_bits_to_string(DirtyBits bits);
   std::string next_display_id(std::string_view prefix);
+  void refresh_owned_endpoints_from_pole(ObjectId pole_id, ChangeSet* change_set, const Pole* previous_pole = nullptr);
 
   [[nodiscard]] static bool has_zero_length(const Port& a, const Port& b);
   [[nodiscard]] static std::unordered_map<ObjectId, std::vector<ObjectId>>

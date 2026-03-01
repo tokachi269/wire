@@ -138,6 +138,11 @@ struct ViewerUiState {
   double edit_x = 0.0;
   double edit_y = 0.0;
   double edit_z = 0.0;
+  bool camera_walk_mode = false;
+  float camera_walk_speed = 6.0f;
+  float camera_mouse_sensitivity = 0.003f;
+  float camera_fov_deg = 45.0f;
+  bool camera_consumed_escape = false;
   bool ui_unified_workspace = true;
   bool ui_show_workspace = true;
   float ui_workspace_width = 0.0f;
@@ -149,6 +154,8 @@ struct ViewerPersistentSettings {
   bool ui_unified_workspace = true;
   bool ui_show_workspace = true;
   float ui_workspace_width = 420.0f;
+  float camera_fov_deg = 45.0f;
+  float camera_walk_speed = 6.0f;
 };
 
 constexpr const char* kViewerSettingsFile = "viewer_state.ini";
@@ -192,6 +199,10 @@ ViewerPersistentSettings LoadViewerPersistentSettings() {
         settings.ui_show_workspace = parse_bool(value, settings.ui_show_workspace);
       } else if (key == "ui_workspace_width") {
         settings.ui_workspace_width = std::clamp(std::stof(value), 300.0f, 900.0f);
+      } else if (key == "camera_fov_deg") {
+        settings.camera_fov_deg = std::clamp(std::stof(value), 20.0f, 110.0f);
+      } else if (key == "camera_walk_speed") {
+        settings.camera_walk_speed = std::clamp(std::stof(value), 0.5f, 80.0f);
       }
     } catch (...) {
       // Ignore malformed line and keep defaults.
@@ -210,6 +221,8 @@ void SaveViewerPersistentSettings(const ViewerPersistentSettings& settings) {
   ofs << "ui_unified_workspace=" << (settings.ui_unified_workspace ? 1 : 0) << "\n";
   ofs << "ui_show_workspace=" << (settings.ui_show_workspace ? 1 : 0) << "\n";
   ofs << "ui_workspace_width=" << settings.ui_workspace_width << "\n";
+  ofs << "camera_fov_deg=" << settings.camera_fov_deg << "\n";
+  ofs << "camera_walk_speed=" << settings.camera_walk_speed << "\n";
 }
 
 void PushLog(ViewerUiState& ui_state, const std::string& line);
@@ -687,7 +700,7 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
     ui_state.draw_hover_point = hover;
   }
 
-  if (!io.WantCaptureMouse && ui_state.camera_drag_mode == CameraDragMode::kNone) {
+  if (!io.WantCaptureMouse && ui_state.camera_drag_mode == CameraDragMode::kNone && !ui_state.camera_walk_mode) {
     if (ui_state.draw_hover_valid && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
       ui_state.draw_path_points.push_back(ui_state.draw_hover_point);
     }
@@ -696,7 +709,7 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
     }
   }
 
-  if (!io.WantCaptureKeyboard) {
+  if (!io.WantCaptureKeyboard && !ui_state.camera_walk_mode && !ui_state.camera_consumed_escape) {
     if (IsKeyPressed(KEY_BACKSPACE) && !ui_state.draw_path_points.empty()) {
       ui_state.draw_path_points.pop_back();
     }
@@ -767,6 +780,70 @@ void OrbitCameraTurntable(Camera3D* camera, Vector2 mouse_delta, float orbit_spe
   camera->position = Vector3Add(camera->target, new_offset);
 }
 
+Vector3 CameraForward(const Camera3D& camera) {
+  return Vector3Normalize(Vector3Subtract(camera.target, camera.position));
+}
+
+Vector3 CameraRight(const Camera3D& camera) {
+  const Vector3 fwd = CameraForward(camera);
+  return Vector3Normalize(Vector3CrossProduct(fwd, camera.up));
+}
+
+void UpdateWalkCamera(Camera3D* camera, ViewerUiState& ui_state) {
+  const float dt = std::max(GetFrameTime(), 1.0f / 240.0f);
+  const bool speed_boost = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
+  const float speed = ui_state.camera_walk_speed * (speed_boost ? 3.0f : 1.0f);
+
+  Vector3 forward = CameraForward(*camera);
+  Vector3 right = Vector3Normalize(Vector3CrossProduct(forward, camera->up));
+
+  const Vector2 mouse_delta = GetMouseDelta();
+  const float yaw = -mouse_delta.x * ui_state.camera_mouse_sensitivity;
+  const float pitch = -mouse_delta.y * ui_state.camera_mouse_sensitivity;
+  if (std::fabs(yaw) > 0.0f) {
+    forward = Vector3Normalize(Vector3RotateByAxisAngle(forward, camera->up, yaw));
+  }
+  if (std::fabs(pitch) > 0.0f) {
+    right = Vector3Normalize(Vector3CrossProduct(forward, camera->up));
+    Vector3 pitched = Vector3Normalize(Vector3RotateByAxisAngle(forward, right, pitch));
+    const float up_dot = std::fabs(Vector3DotProduct(pitched, camera->up));
+    if (up_dot < 0.995f) {
+      forward = pitched;
+    }
+  }
+  right = Vector3Normalize(Vector3CrossProduct(forward, camera->up));
+
+  Vector3 move{0.0f, 0.0f, 0.0f};
+  if (IsKeyDown(KEY_W)) {
+    move = Vector3Add(move, forward);
+  }
+  if (IsKeyDown(KEY_S)) {
+    move = Vector3Subtract(move, forward);
+  }
+  if (IsKeyDown(KEY_A)) {
+    move = Vector3Subtract(move, right);
+  }
+  if (IsKeyDown(KEY_D)) {
+    move = Vector3Add(move, right);
+  }
+  if (IsKeyDown(KEY_E)) {
+    move = Vector3Add(move, camera->up);
+  }
+  if (IsKeyDown(KEY_Q)) {
+    move = Vector3Subtract(move, camera->up);
+  }
+  if (Vector3Length(move) > 1e-5f) {
+    move = Vector3Scale(Vector3Normalize(move), speed * dt);
+    camera->position = Vector3Add(camera->position, move);
+  }
+  camera->target = Vector3Add(camera->position, forward);
+
+  const float wheel = GetMouseWheelMove();
+  if (std::fabs(wheel) > 0.0f) {
+    ui_state.camera_walk_speed = std::clamp(ui_state.camera_walk_speed + wheel * 0.75f, 0.5f, 80.0f);
+  }
+}
+
 void PanCamera(Camera3D* camera, Vector2 mouse_delta, float pan_speed) {
   const Vector3 forward = Vector3Normalize(Vector3Subtract(camera->target, camera->position));
   const Vector3 right = Vector3Normalize(Vector3CrossProduct(forward, camera->up));
@@ -795,13 +872,60 @@ void DollyCamera(Camera3D* camera, float amount, float dolly_speed) {
   camera->position = Vector3Add(camera->target, Vector3Scale(dir, distance));
 }
 
+void UpdateCameraFov(Camera3D* camera, ViewerUiState& ui_state, bool ui_captures_keyboard) {
+  ui_state.camera_fov_deg = std::clamp(ui_state.camera_fov_deg, 20.0f, 110.0f);
+  if (!ui_captures_keyboard) {
+    if (IsKeyPressed(KEY_LEFT_BRACKET)) {
+      ui_state.camera_fov_deg = std::clamp(ui_state.camera_fov_deg - 2.0f, 20.0f, 110.0f);
+    } else if (IsKeyPressed(KEY_RIGHT_BRACKET)) {
+      ui_state.camera_fov_deg = std::clamp(ui_state.camera_fov_deg + 2.0f, 20.0f, 110.0f);
+    }
+  }
+  camera->fovy = ui_state.camera_fov_deg;
+}
+
 void UpdateCameraForViewport(Camera3D* camera, ViewerUiState& ui_state) {
+  ui_state.camera_consumed_escape = false;
   ImGuiIO& io = ImGui::GetIO();
   const bool ui_captures_mouse = io.WantCaptureMouse;
   const bool ui_captures_keyboard = io.WantCaptureKeyboard;
   const Vector2 mouse_delta = GetMouseDelta();
   const bool shift = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
   const bool ctrl = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+  const bool alt = IsKeyDown(KEY_LEFT_ALT) || IsKeyDown(KEY_RIGHT_ALT);
+
+  UpdateCameraFov(camera, ui_state, ui_captures_keyboard);
+
+  if (!ui_captures_keyboard && shift && IsKeyPressed(KEY_F)) {
+    ui_state.camera_walk_mode = !ui_state.camera_walk_mode;
+    ui_state.camera_drag_mode = CameraDragMode::kNone;
+    if (ui_state.camera_walk_mode) {
+      DisableCursor();
+      PushLog(ui_state, "Camera: Walk mode ON (WASD + mouse, Q/E up/down, Esc exit)");
+    } else {
+      EnableCursor();
+      PushLog(ui_state, "Camera: Walk mode OFF");
+    }
+  }
+  if (ui_state.camera_walk_mode) {
+    if (IsKeyPressed(KEY_ESCAPE)) {
+      ui_state.camera_walk_mode = false;
+      ui_state.camera_consumed_escape = true;
+      EnableCursor();
+      PushLog(ui_state, "Camera: Walk mode OFF");
+      return;
+    }
+    UpdateWalkCamera(camera, ui_state);
+    return;
+  }
+
+  if (!ui_captures_mouse && alt && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+    wire::core::Vec3d picked{};
+    if (TryPickGroundPoint(*camera, ui_state.draw_plane_z, &picked)) {
+      camera->target = ToRaylib(picked);
+      PushLog(ui_state, "Camera: orbit pivot set from click");
+    }
+  }
 
   if (!ui_captures_mouse && IsMouseButtonPressed(MOUSE_BUTTON_MIDDLE)) {
     if (shift) {
@@ -1032,6 +1156,12 @@ void DrawSelectedInfo(const CoreState& state, const ViewerUiState& ui_state) {
     ImGui::Text("cornerTurnSign: %.0f", pole->context.corner_turn_sign);
     ImGui::Text("sideScale: %.3f", pole->context.side_scale);
     ImGui::Text("angleCorrectionApplied: %s", pole->context.angle_correction_applied ? "true" : "false");
+    ImGui::Text("sharpOrientationApplied: %s", pole->context.sharp_orientation_applied ? "true" : "false");
+    ImGui::Text("sharpTheta: %.2f", pole->context.sharp_theta_deg);
+    ImGui::Text("sharpBisector: %.3f %.3f %.3f", pole->context.sharp_bisector_dir.x, pole->context.sharp_bisector_dir.y,
+                pole->context.sharp_bisector_dir.z);
+    ImGui::Text("sharpSideDir: %.3f %.3f %.3f", pole->context.sharp_side_dir.x, pole->context.sharp_side_dir.y,
+                pole->context.sharp_side_dir.z);
     ImGui::Text("flip180: %s", pole->orientation_control.flip_180 ? "true" : "false");
     ImGui::Text("manualYawOverride: %s", pole->orientation_control.manual_yaw_override ? "true" : "false");
     ImGui::Text("placementOverride: %s", pole->placement_override_flag ? "true" : "false");
@@ -1892,6 +2022,10 @@ void DrawTopbarWindow(const CoreState& state, ViewerUiState& ui_state) {
               static_cast<int>(state.edit_state().wire_lanes.size()));
   ImGui::SameLine();
   ImGui::Text("|  Mode: %s", ModeLabel(ui_state.mode));
+  ImGui::SameLine();
+  ImGui::Text("|  FOV %.1f", ui_state.camera_fov_deg);
+  ImGui::SameLine();
+  ImGui::Text("|  Walk %s", ui_state.camera_walk_mode ? "ON" : "OFF");
   if (ui_state.selected_type == SelectedType::kPole) {
     if (const auto* pole = state.edit_state().poles.find(ui_state.selected_id); pole != nullptr) {
       ImGui::SameLine();
@@ -2067,6 +2201,24 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
     PushLog(ui_state, "Recalc processed=" + std::to_string(stats.total_processed()));
   }
 
+  if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen)) {
+    ImGui::SliderFloat("FOV", &ui_state.camera_fov_deg, 20.0f, 110.0f, "%.1f deg");
+    ImGui::SliderFloat("Walk Speed", &ui_state.camera_walk_speed, 0.5f, 80.0f, "%.1f");
+    ImGui::SliderFloat("Mouse Sensitivity", &ui_state.camera_mouse_sensitivity, 0.001f, 0.02f, "%.4f");
+    if (ImGui::Button(ui_state.camera_walk_mode ? "Stop Walk (Shift+F)" : "Start Walk (Shift+F)")) {
+      ui_state.camera_walk_mode = !ui_state.camera_walk_mode;
+      if (ui_state.camera_walk_mode) {
+        DisableCursor();
+        PushLog(ui_state, "Camera: Walk mode ON (WASD + mouse, Q/E up/down, Esc exit)");
+      } else {
+        EnableCursor();
+        PushLog(ui_state, "Camera: Walk mode OFF");
+      }
+    }
+    ImGui::TextUnformatted("Alt+LMB: set orbit pivot on draw plane");
+    ImGui::TextUnformatted("[ / ]: FOV down/up");
+  }
+
   if (ImGui::CollapsingHeader("Geometry/Layout", ImGuiTreeNodeFlags_DefaultOpen)) {
     ImGui::SliderInt("Curve Samples", &ui_state.geometry_samples, 2, 64);
     ImGui::Checkbox("Sag Enabled", &ui_state.geometry_sag_enabled);
@@ -2238,7 +2390,7 @@ int main() {
   camera.position = ToRaylib({10.0, -10.0, 8.0});
   camera.target = ToRaylib({6.0, 0.0, 4.0});
   camera.up = {0.0f, 1.0f, 0.0f};
-  camera.fovy = 45.0f;
+  camera.fovy = persisted.camera_fov_deg;
   camera.projection = CAMERA_PERSPECTIVE;
 
   CoreState state = wire::core::make_demo_state();
@@ -2246,12 +2398,15 @@ int main() {
   ui_state.ui_unified_workspace = persisted.ui_unified_workspace;
   ui_state.ui_show_workspace = persisted.ui_show_workspace;
   ui_state.ui_workspace_width = persisted.ui_workspace_width;
+  ui_state.camera_fov_deg = persisted.camera_fov_deg;
+  ui_state.camera_walk_speed = persisted.camera_walk_speed;
   PushLog(ui_state, "[info] viewer started");
   PushLog(ui_state, "[info] demo state loaded");
   PushLog(ui_state, "[mode] Placement/Connection/Branch/Detail/DrawPath");
   PushLog(ui_state, "[flow] Main path: Pole->Pole connection");
   PushLog(ui_state, "[hint] Blender style controls enabled");
   PushLog(ui_state, "[hint] MMB orbit, Shift+MMB pan, Ctrl+MMB dolly");
+  PushLog(ui_state, "[hint] Alt+LMB: set orbit pivot, [ / ]: FOV, Shift+F: Walk");
   PushLog(ui_state, "[hint] Mouse wheel zoom");
 
   rlImGuiSetup(true);
@@ -2297,6 +2452,8 @@ int main() {
     out.ui_unified_workspace = ui_state.ui_unified_workspace;
     out.ui_show_workspace = ui_state.ui_show_workspace;
     out.ui_workspace_width = ui_state.ui_workspace_width;
+    out.camera_fov_deg = ui_state.camera_fov_deg;
+    out.camera_walk_speed = ui_state.camera_walk_speed;
     SaveViewerPersistentSettings(out);
   }
   CloseWindow();

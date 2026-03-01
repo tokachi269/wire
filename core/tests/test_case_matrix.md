@@ -44,6 +44,14 @@
 | C34 | Corner文脈統合 | 折れ線 | GenerateSimpleLine | Invariant: CornerPass含有 | span.context | 角付き路線維持 |
 | C35 | 内外補正差 | 左折/右折 | GeneratePolesAlongRoad | Invariant: 外側オフセット>内側 | turn_sign/slot座標 | 角圧縮の低減 |
 | C61 | 鋭角自動拡幅 | 鋭角/鈍角の同一テンプレート比較 | GenerateSimpleLineFromPoints | Invariant: 鋭角の左右レーン間隔が鈍角より広い（カテゴリ非依存） | corner poleのlocal Y差 | 鋭角での線間距離不足防止 |
+| C62 | 群レーンねじれ抑制 | U字Guide + HV3 lane | GenerateGroupedLine(allow_lane_mirror=true) | Invariant: 区間ごとのlane順逆転数が0 | lane assignment port local Y順 | 群配線のクロス抑制 |
+| C63 | mirror導入の非悪化（Y/Z/Layer） | 同一路線をmirror無効/有効で比較 | GenerateGroupedLine(allow_lane_mirror=false/true) | Invariant: 有効時の複合指標（Y逆転+Z逆転+layer jump）が無効時以下 | lane assignment/port座標/template layer | 生成品質調整で見た目悪化させない |
+| C64 | Guide頂点の強制Manual解除 | 3頂点Guide | GenerateFromGuide(既定設定) | Exact: 中間頂点PoleはAuto、端点のみManual（既定） | pole placement_mode | DrawPath点=強制Pinの回避 |
+| C65 | pin_verticesオプション | 3頂点Guide | GenerateFromGuide(pin_vertices=true) | Exact: 中間頂点PoleもManual | pole placement_mode | ピン留め挙動の明示制御 |
+| C66 | Pole Pin/Unpin切替 | 既存Pole | SetPolePlacementMode(Auto→Manual→Auto) | Exact: mode遷移とuser_edited整合 | pole fields | ユーザー明示ピン留め運用 |
+| C67 | セッション局所再生成でManual Pole保持 | 既存session生成 + 中間PoleをManual化 | RegenerateSessionAutoParts(session,newGuide) | Invariant: Manual Pole位置不変、Auto部分のみ更新 | pole位置/mode/span数 | 軽微変更で手直し消失防止 |
+| C68 | セッション局所再生成でManual Port保持 | 既存session生成 + PortをManual化 | RegenerateSessionAutoParts(session,newGuide) | Invariant: Manual Port位置不変 | port位置/mode | ポート手直し保護 |
+| C69 | 他セッション非干渉 | session1/session2を別生成 | RegenerateSessionAutoParts(session1,...) | Invariant: session2のPole/Span不変 | pole/span存在と位置 | 局所更新の安全性 |
 | C36 | DrawPath点直配置 | クリック点3 | GenerateSimpleLineFromPoints | Exact: Pole数=点数,位置一致,yaw一致 | pole position/yaw | DrawPath直感性 |
 | C37 | 幾何based side選定 | 2Pole(左右) | AddConnectionByPole(Branch) | Invariant: 右手前でRight,左手前でLeft | selected slot side | 偶奇依存排除 |
 | C38 | 高圧3相群生成 | 有効Path | GenerateGroupedLine(HV,3) | Invariant: 3レーン×区間数生成, lane記録あり | span数/bundle/lane_assignments | 高圧ねじれ抑制 |
@@ -51,7 +59,7 @@
 | C40 | Pole flip_180 | 接続済Pole | SetPoleFlip180(true) | Invariant: 配下Port更新+接続Span dirty | port位置/runtime dirty | 局所向き修正性 |
 | C41 | debug記録クリアの無害性 | 生成/接続でdebug記録あり | clear_slot_selection_debug_records + clear_path_direction_debug_records | Exact: 記録だけ消え、Entity件数/ID/整合は不変 | counts/ID集合/Validate | デバッグ操作で本体破壊しない |
 | C42 | 再計算の非破壊性 | Spanを含む状態 | UpdateGeometrySettings→ProcessDirtyQueues | Invariant: cache/version更新のみでEntity件数/ID不変 | counts/ID集合/runtime/cache | キャッシュ再生成で正本が歪まない |
-| C43 | 鋭角時ポール向き補正 | クリック点3(内角<75°) | GenerateSimpleLineFromPoints | Exact: 中間Poleのyawが内角二等分線に一致（結果として展開軸が直交） | pole yaw | 鋭角での線間距離潰れ抑制 |
+| C43 | 鋭角時Port展開軸補正 | クリック点3(コーナー内角<75°) | GenerateSimpleLineFromPoints | Invariant: 中間Poleのside軸が内角二等分線に直交し、内側へ向かない | pole yaw/context(sharp_theta,b,side_dir) | 鋭角での線間距離潰れ抑制 |
 | C44 | Group/Lane割当と参照 | Span1本+Group/Lane作成 | AssignSpanToWireLane/Get*ByGroup | Invariant: Spanにgroup/lane設定, 参照API整合 | span fields/query API/Validate | 複数本配線の論理まとまり維持 |
 | C45 | Group/Lane不正拒否 | Span1本+別Group lane | AddWireLane(無効), Assign(不整合) | Exact: failし状態保全, 診断文言あり | error/span fields | 不正参照でデータ破壊しない |
 | C46 | 既存Span互換性 | Group未設定Span | ProcessDirtyQueues | Invariant: 従来再計算/Validate維持 | runtime/Validate/query API | 既存データ互換維持 |
@@ -64,8 +72,8 @@
 | C53 | Guide境界手動点安定 | Guide初回生成済 | Guide延長して再GenerateFromGuide | Invariant: 既存Manual境界Poleの位置/Mode不変 | pole position/mode | 軽微変更で手直し消失防止 |
 | C54 | Guide局所更新 | Guide生成済 | 同一Guide再実行→延長再実行 | Invariant: 同一入力で重複増殖なし、延長で末端のみ追加 | span数/生成結果 | 全再生成回帰防止 |
 | C55 | Backbone経路 | Group付きSpan生成済 | BuildBackboneEdges/FindBackboneRoute | Invariant: group付きedge構築と経路取得 | backbone edge/route | ルート計算基盤維持 |
-| C56 | 鋭角閾値境界 | 非対称3点角（内角基準） | 内角74度/75度でGenerateSimpleLineFromPoints | Exact: `内角<75`のみ二等分線yaw、`内角==75`は通常向き | middle pole yaw | 閾値バグによる向き破綻防止 |
-| C60 | Guide再利用頂点の向き再評価 | 既存頂点Poleを再利用可能なGuide | 同一Guideを再生成（頂点PoleのYawを事前に崩す） | Invariant: override無しなら再利用頂点Poleが二等分線yawへ再評価される | vertex pole yaw | 再生成で角向きが古いまま残る不具合防止 |
+| C56 | 鋭角閾値境界 | 非対称3点角（コーナー内角基準） | コーナー内角74度/75度/76度でGenerateSimpleLineFromPoints | Invariant: `内角<=75`で補正適用、`内角>75`で非適用 | middle pole context.sharp_orientation_applied | 閾値バグによる向き破綻防止 |
+| C60 | Guide再利用頂点の向き再評価 | 既存頂点Poleを再利用可能なGuide | 同一Guideを再生成（頂点PoleのYawを事前に崩す） | Invariant: override無しなら再利用頂点Poleのside軸が二等分線直交方向へ再評価される | vertex pole yaw/context(sharp_*) | 再生成で角向きが古いまま残る不具合防止 |
 | C57 | Guide重複点ロバスト | PoleTypeあり | 重複点含むGuideでGenerateFromGuide | Invariant: 成功しPole座標有限、path Z維持 | generated pole positions/Validate | 入力ノイズ耐性 |
 | C58 | Reverse対称性 | 同一Guide | Forward/ReverseでGenerateFromGuide | Invariant: 生成Pole位置集合が一致（順序非依存） | generated pole positions set | 方向モードで幾何が破綻しない |
 | C59 | Avoid制約尊重 | PoleTypeあり | avoid_points/avoid_radius指定GenerateFromGuide | Invariant: 生成Poleが禁止半径内に入らない | pole positions vs avoid radius | 回避制約の信頼性 |

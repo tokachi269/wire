@@ -15,7 +15,7 @@ This document fixes the architecture rules used by `core` so feature growth does
 
 3. `Workflow` (operation input/output, non-authoritative)
 - Generation/edit requests and transient planning structures.
-- Example: `RoadSegment`, `GuidePath`, `GenerationRequest`, `ConductorGroupSpec`.
+- Example: `RoadSegment`, `BackboneInputSpec`, `BackboneSpec`, `ConductorGroupSpec`.
 
 4. `Cache/Debug` (derived/session)
 - Rebuildable cache and diagnostics.
@@ -47,6 +47,7 @@ This document fixes the architecture rules used by `core` so feature growth does
 - If `Span.wire_lane_id` is set, `Span.wire_group_id` must be set.
 - `WireLane.wire_group_id` must exist.
 - Lane index must be unique per group.
+- `Span.wire_group_id` may be set without requiring `wire_lane_id` (lane is optional for external authoring).
 
 3. Index/cache integrity
 - `ConnectionIndex` must match expected Span relations.
@@ -69,5 +70,5 @@ This document fixes the architecture rules used by `core` so feature growth does
 - `port`: runtime connection endpoint.
 - `span`: runtime edge between ports.
 - `bundle`: visual/attribute grouping aid, not logical network authority.
-- `wire_group`/`wire_lane`: logical grouped wiring authority above spans.
-
+- `wire_group`: grouped-authoring logical unit above spans.
+- `wire_lane`: internal lane identity/order (optional in external UI/API).

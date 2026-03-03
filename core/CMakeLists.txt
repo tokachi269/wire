@@ -2,9 +2,10 @@ add_library(
   wire_core
   STATIC
   src/core_state.cpp
-  src/core_state_generation.cpp
+  src/generation/generation_service.cpp
   src/core_state_backbone.cpp
-  src/core_state_validation.cpp
+  src/validation/validator.cpp
+  src/recalc/recalc_pipeline.cpp
 )
 
 target_include_directories(

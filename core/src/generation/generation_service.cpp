@@ -1002,10 +1002,11 @@ CoreState::GenerateGroupedLine(const GenerateGroupedLineOptions& options) {
 }
 
 EditResult<CoreState::GenerateWireGroupFromPathResult>
-CoreState::GenerateFromGuide(const GenerationRequest& request) {
+CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
+  const BackboneSpec& request = spec;
   EditResult<GenerateWireGroupFromPathResult> result;
   if (request.path.polyline.size() < 2) {
-    result.error = "guide path must contain at least 2 points";
+    result.error = "backbone input path must contain at least 2 points";
     return result;
   }
   if (request.interval_m <= 0.0) {
@@ -1223,10 +1224,8 @@ CoreState::GenerateFromGuide(const GenerationRequest& request) {
         }
 
         if (updated) {
-          // Reused poles need endpoint reprojection after context/yaw updates;
-          // otherwise DrawPath re-generate can look unchanged.
-          refresh_owned_endpoints_from_pole(pole->id, &result.change_set, &old_pole);
-          add_unique_id(result.change_set.updated_ids, pole->id);
+          // Reused poles need endpoint reprojection after context/yaw updates.
+          finalize_pole_transform_update(pole->id, old_pole, &result.change_set);
         }
       }
       ordered_pole_ids.push_back(pole_id);
@@ -1252,7 +1251,7 @@ CoreState::GenerateFromGuide(const GenerationRequest& request) {
     }
 
     EditResult<ObjectId> add_pole =
-        AddPole(tf, 10.0, "GuidePole", PoleKind::kConcrete, candidate.mode);
+        AddPole(tf, 10.0, "PathPole", PoleKind::kConcrete, candidate.mode);
     if (!add_pole.ok) {
       *this = snapshot;
       result.error = add_pole.error;
@@ -1467,7 +1466,12 @@ CoreState::GenerateFromGuide(const GenerationRequest& request) {
 }
 
 EditResult<CoreState::GenerateWireGroupFromPathResult>
-CoreState::RegenerateSessionAutoParts(std::uint64_t generation_session_id, const GenerationRequest& request) {
+CoreState::GenerateFromGuide(const BackboneSpec& spec) {
+  return GenerateFromBackboneSpec(spec);
+}
+
+EditResult<CoreState::GenerateWireGroupFromPathResult>
+CoreState::RegenerateSessionAutoParts(std::uint64_t generation_session_id, const BackboneSpec& request) {
   EditResult<GenerateWireGroupFromPathResult> result;
   if (generation_session_id == 0) {
     result.error = "generation_session_id must be non-zero";
@@ -1641,10 +1645,10 @@ CoreState::RegenerateSessionAutoParts(std::uint64_t generation_session_id, const
     }
   }
 
-  GenerationRequest regen_request = request;
+  BackboneSpec regen_request = request;
   regen_request.pole_placement.restrict_reuse_to_session = true;
   regen_request.pole_placement.reuse_session_id = generation_session_id;
-  EditResult<GenerateWireGroupFromPathResult> regenerated = GenerateFromGuide(regen_request);
+  EditResult<GenerateWireGroupFromPathResult> regenerated = GenerateFromBackboneSpec(regen_request);
   if (!regenerated.ok) {
     *this = snapshot;
     result.error = regenerated.error;
@@ -1679,14 +1683,14 @@ CoreState::RegenerateSessionAutoParts(std::uint64_t generation_session_id, const
 
 EditResult<CoreState::GenerateWireGroupFromPathResult>
 CoreState::GenerateWireGroupFromPath(const GenerateWireGroupFromPathInput& input) {
-  GenerationRequest request{};
+  BackboneSpec request{};
   request.path.polyline = input.polyline;
   request.interval_m = input.interval_m;
   request.pole_type_id = input.pole_type_id;
   request.category = input.category;
   request.direction_mode = input.direction_mode;
   request.requested_lane_count = input.requested_lane_count;
-  return GenerateFromGuide(request);
+  return GenerateFromBackboneSpec(request);
 }
 
 } // namespace wire::core

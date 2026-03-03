@@ -172,6 +172,7 @@ struct ValidationResult {
 
 struct CommitOptions {
   bool run_recalc = true;
+  bool run_validate_fast = true;
   bool run_validate = false;
 };
 
@@ -316,9 +317,12 @@ public:
   EditResult<GenerateSimpleLineResult> GenerateSimpleLineFromPoints(const RoadSegment& road, PoleTypeId pole_type_id,
                                                                     ConnectionCategory category);
   EditResult<GenerateGroupedLineResult> GenerateGroupedLine(const GenerateGroupedLineOptions& options);
-  EditResult<GenerateWireGroupFromPathResult> GenerateFromGuide(const GenerationRequest& request);
+  // Canonical path-generation API.
+  EditResult<GenerateWireGroupFromPathResult> GenerateFromBackboneSpec(const BackboneSpec& spec);
+  // Backward-compatible name kept for staged migration.
+  EditResult<GenerateWireGroupFromPathResult> GenerateFromGuide(const BackboneSpec& spec);
   EditResult<GenerateWireGroupFromPathResult> RegenerateSessionAutoParts(std::uint64_t generation_session_id,
-                                                                         const GenerationRequest& request);
+                                                                         const BackboneSpec& spec);
   EditResult<GenerateWireGroupFromPathResult> GenerateWireGroupFromPath(const GenerateWireGroupFromPathInput& input);
   EditResult<ObjectId> SetPolePlacementMode(ObjectId pole_id, PlacementMode mode);
   EditResult<ObjectId> SetPoleFlip180(ObjectId pole_id, bool flip_180);
@@ -327,12 +331,14 @@ public:
   [[nodiscard]] const WireLane* GetWireLane(ObjectId wire_lane_id) const;
   [[nodiscard]] std::vector<ObjectId> GetSpansByWireGroup(ObjectId wire_group_id) const;
   [[nodiscard]] std::vector<ObjectId> GetWireLanesByGroup(ObjectId wire_group_id) const;
+  [[nodiscard]] BackboneResult BuildBackboneResult() const;
   [[nodiscard]] std::vector<BackboneEdge> BuildBackboneEdges() const;
   [[nodiscard]] std::vector<ObjectId> FindBackboneRoute(ObjectId start_node_id, ObjectId end_node_id) const;
   EditResult<bool> UpdateGeometrySettings(const GeometrySettings& settings, bool mark_all_spans_dirty = true);
   EditResult<bool> UpdateLayoutSettings(const LayoutSettings& settings);
   [[nodiscard]] const CurveCacheEntry* find_curve_cache(ObjectId span_id) const;
   [[nodiscard]] const BoundsCacheEntry* find_bounds_cache(ObjectId span_id) const;
+  [[nodiscard]] ValidationResult ValidateFast() const;
 
   [[nodiscard]] CommitResult Commit(const CommitOptions& options = {});
 
@@ -428,6 +434,7 @@ private:
   static std::string dirty_bits_to_string(DirtyBits bits);
   static void apply_pole_placement_mode(Pole& pole, PlacementMode mode);
   static void apply_port_position_mode(Port& port, PortPositionMode mode, PortPlacementSourceKind source_hint);
+  void finalize_pole_transform_update(ObjectId pole_id, const Pole& old_pole, ChangeSet* change_set);
   std::string next_display_id(std::string_view prefix);
   void refresh_owned_endpoints_from_pole(ObjectId pole_id, ChangeSet* change_set, const Pole* previous_pole = nullptr);
   [[nodiscard]] EditState& edit_state_access() { return edit_state_; }

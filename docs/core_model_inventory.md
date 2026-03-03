@@ -55,7 +55,8 @@ Forbidden reverse dependencies:
 | Type | File | Responsibility (one line) | Main deps | Persist class |
 |---|---|---|---|---|
 | `RoadSegment` | `core/include/wire/core/workflow_types.hpp` | Carries polyline input used for generation workflows. | `RoadId`, `Vec3d[]` | `SessionDebug` |
-| `GuidePath`, `GenerationConstraints`, `GuidePolePlacementOptions`, `GenerationRequest` | `core/include/wire/core/workflow_types.hpp` | Define generic Guide-based generation input independent from road systems. | path + constraints + mode | `SessionDebug` |
+| `BackboneInputSpec`, `BackboneGenerationConstraints`, `BackbonePolePlacementOptions`, `BackboneSpec` | `core/include/wire/core/workflow_types.hpp` | Define backbone-oriented generation input independent from road systems. | path + constraints + mode | `SessionDebug` |
+| `BackboneResult` | `core/include/wire/core/workflow_types.hpp` | Defines derived backbone graph output separate from generation input spec. | `BackboneEdge[]` | `DerivedCache` |
 | `ConductorGroupSpec` | `core/include/wire/core/workflow_types.hpp` | Describes grouped connection intent for a generation run. | category/count/kind | `SessionDebug` |
 | `ConductorLaneId`, `ConductorGroupState` | `core/include/wire/core/workflow_types.hpp` | Holds lane-order state used by grouped generation workflow. | bundle ref + lane order | `SessionDebug` |
 | `ChangeSet`, `EditResult<T>` | `core/include/wire/core/core_state.hpp` | Reports externally observable effects of an operation. | entity IDs + error | `SessionDebug` |
@@ -92,8 +93,8 @@ Forbidden reverse dependencies:
 - `span`: runtime edge connecting two ports.
 - `bundle`: conductor attributes shared by one or more spans.
 - `wire_group`: logical/generated parent for grouped spans.
-- `wire_lane`: per-group lane identity and order.
-- `road/path/guide`: workflow input path (`RoadSegment` today, UI label may be `DrawPath`).
+- `wire_lane`: internal per-group lane identity/order (not required as external authoring concept).
+- `road/path`: workflow input path (`RoadSegment` today, UI label may be `DrawPath`; legacy `Guide*` names are compatibility aliases).
 - `debug record`: session-only diagnostics (`SlotSelectionDebugRecord`, `PathDirectionEvaluationDebug`, `SegmentLaneAssignment`).
 
 ## 7. Persist/Derived/Session Policy (Phase5 preparation)
@@ -116,7 +117,7 @@ Forbidden reverse dependencies:
 - Added session/debug separation comments to `CoreState` debug/cache fields.
 - Sealed mutable mutation path: `CoreState` no longer exposes mutable `edit_state/cache/id_generator`; `ObjectStore` mutable vector access is `CoreState`-internal only.
 - Added `CoreView` as explicit read-only access façade for viewer/tools.
-- Split validation implementation out of `core_state.cpp` into `core_state_validation.cpp`.
+- Split validation implementation out of `core_state.cpp` into `validation/validator.cpp`.
 - Added regression tests that enforce:
   - clearing debug records does not mutate entity state,
   - cache recomputation does not mutate entity identity/counts.
@@ -125,4 +126,4 @@ Forbidden reverse dependencies:
 - Team can consistently read `slot` as template and `port` as entity.
 - Debug/session data is treated as non-authoritative.
 - Phase5 serializer can ignore DerivedCache and SessionDebug without data loss of core topology.
-- WireGroup/WireLane are now in Entity layer and remain responsibility-separated from visual Bundle.
+- WireGroup is the external grouped-authoring concept; WireLane may remain internal and optional for external tooling, while Bundle remains visual-oriented.

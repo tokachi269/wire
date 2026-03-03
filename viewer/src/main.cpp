@@ -1206,27 +1206,24 @@ void DrawSelectedInfo(const CoreState& state, const ViewerUiState& ui_state) {
     ImGui::Text("portA: %llu", static_cast<unsigned long long>(span->port_a_id));
     ImGui::Text("portB: %llu", static_cast<unsigned long long>(span->port_b_id));
     ImGui::Text("bundle: %llu", static_cast<unsigned long long>(span->bundle_id));
-    ImGui::Text("wireGroup: %llu", static_cast<unsigned long long>(span->wire_group_id));
-    ImGui::Text("wireLane: %llu", static_cast<unsigned long long>(span->wire_lane_id));
+    ImGui::Text("bundleGroup: %llu", static_cast<unsigned long long>(span->wire_group_id));
     if (span->wire_group_id != wire::core::kInvalidObjectId) {
       const auto* group = state.GetWireGroup(span->wire_group_id);
       if (group != nullptr) {
-        ImGui::Text("wireGroup kind: %s", WireGroupKindLabel(group->kind));
+        ImGui::Text("bundleGroup kind: %s", WireGroupKindLabel(group->kind));
       } else {
-        ImGui::TextUnformatted("wireGroup: missing");
+        ImGui::TextUnformatted("bundleGroup: missing");
       }
     } else {
-      ImGui::TextUnformatted("wireGroup: unassigned");
+      ImGui::TextUnformatted("bundleGroup: unassigned");
     }
     if (span->wire_lane_id != wire::core::kInvalidObjectId) {
       const auto* lane = state.GetWireLane(span->wire_lane_id);
       if (lane != nullptr) {
-        ImGui::Text("wireLane index=%d role=%s", lane->lane_index, WireLaneRoleLabel(lane->role));
+        ImGui::Text("internalLane: #%d (%s)", lane->lane_index, WireLaneRoleLabel(lane->role));
       } else {
-        ImGui::TextUnformatted("wireLane: missing");
+        ImGui::TextUnformatted("internalLane: missing");
       }
-    } else {
-      ImGui::TextUnformatted("wireLane: unassigned");
     }
     ImGui::Text("Generated: %s", span->generation.generated ? "true" : "false");
     ImGui::Text("Gen Session: %llu", static_cast<unsigned long long>(span->generation.generation_session_id));
@@ -1631,7 +1628,7 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
   ImGui::Checkbox("Keep Path After Generate", &ui_state.draw_keep_path_after_generate);
   ImGui::InputInt("Lane Override (0=category standard)", &ui_state.draw_parallel_spans);
   ui_state.draw_parallel_spans = std::clamp(ui_state.draw_parallel_spans, 0, 8);
-  ImGui::TextUnformatted("Generate by WireGroup/WireLane (not per-wire manual placement)");
+  ImGui::TextUnformatted("Generate by Bundle unit (internal lanes are auto-managed)");
   ImGui::Text("Path points: %d", static_cast<int>(ui_state.draw_path_points.size()));
   if (ui_state.draw_hover_valid) {
     ImGui::Text("Hover: %.2f %.2f %.2f", ui_state.draw_hover_point.x, ui_state.draw_hover_point.y,
@@ -1700,7 +1697,7 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
   (void)resolved_type_id;
   if (!selected_categories.empty()) {
     std::ostringstream lane_info;
-    lane_info << "Resolved Group Lanes: ";
+    lane_info << "Resolved Bundle Wires: ";
     for (std::size_t i = 0; i < selected_categories.size(); ++i) {
       const auto category = selected_categories[i];
       const int auto_parallel = FallbackParallelSpanCount(category);
@@ -1897,7 +1894,7 @@ void DrawDetailModePanel(CoreState& state, ViewerUiState& ui_state) {
     for (const auto& slot : detail.pole_type->port_slots) {
       const auto it = by_slot.find(slot.slot_id);
       if (it == by_slot.end()) {
-        ImGui::Text("slot=%d cat=%s layer=%d side=%s role=%s used=0 [empty]", slot.slot_id,
+        ImGui::Text("templateSlot=%d cat=%s layer=%d side=%s role=%s used=0 [empty]", slot.slot_id,
                     CategoryLabel(slot.category), slot.layer, SlotSideLabel(slot.side), SlotRoleLabel(slot.role));
         continue;
       }
@@ -1905,14 +1902,14 @@ void DrawDetailModePanel(CoreState& state, ViewerUiState& ui_state) {
       const auto usage_it = state.view().connection_index().spans_by_port.find(port->id);
       const int usage =
           (usage_it == state.view().connection_index().spans_by_port.end()) ? 0 : static_cast<int>(usage_it->second.size());
-      ImGui::Text("slot=%d cat=%s layer=%d side=%s role=%s used=%d -> %s", slot.slot_id, CategoryLabel(slot.category),
+      ImGui::Text("templateSlot=%d cat=%s layer=%d side=%s role=%s used=%d -> %s", slot.slot_id, CategoryLabel(slot.category),
                   slot.layer, SlotSideLabel(slot.side), SlotRoleLabel(slot.role), usage, port->display_id.c_str());
     }
   } else {
     for (const auto* port : detail.owned_ports) {
       const auto it = state.view().connection_index().spans_by_port.find(port->id);
       const int usage = (it == state.view().connection_index().spans_by_port.end()) ? 0 : static_cast<int>(it->second.size());
-      ImGui::Text("%s cat=%s slot=%d used=%d", port->display_id.c_str(), CategoryLabel(port->category),
+      ImGui::Text("%s cat=%s templateSlot=%d used=%d", port->display_id.c_str(), CategoryLabel(port->category),
                   port->source_slot_id, usage);
     }
   }
@@ -1920,7 +1917,7 @@ void DrawDetailModePanel(CoreState& state, ViewerUiState& ui_state) {
   ImGui::Separator();
   ImGui::Text("Anchors: %d", static_cast<int>(detail.owned_anchors.size()));
   for (const auto* anchor : detail.owned_anchors) {
-    ImGui::Text("%s slot=%d", anchor->display_id.c_str(), anchor->source_slot_id);
+    ImGui::Text("%s templateSlot=%d", anchor->display_id.c_str(), anchor->source_slot_id);
   }
 }
 
@@ -2020,7 +2017,7 @@ void DrawTopbarWindow(const CoreState& state, ViewerUiState& ui_state) {
     ImGui::SliderFloat("##WorkspaceWidth", &ui_state.ui_workspace_width, 300.0f, 760.0f, "W %.0f");
   }
   ImGui::Separator();
-  ImGui::Text("Poles:%d  Ports:%d  Spans:%d  Groups:%d  Lanes:%d",
+  ImGui::Text("Poles:%d  Ports:%d  Spans:%d  BundleGroups:%d  InternalLanes:%d",
               static_cast<int>(view.poles().size()), static_cast<int>(view.ports().size()),
               static_cast<int>(view.spans().size()), static_cast<int>(view.wire_groups().size()),
               static_cast<int>(view.wire_lanes().size()));
@@ -2271,7 +2268,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
   if (ImGui::CollapsingHeader("Debug View", ImGuiTreeNodeFlags_DefaultOpen)) {
     ImGui::Checkbox("Show Span AABB", &ui_state.show_whole_aabb);
     ImGui::Checkbox("Show Segment AABB", &ui_state.show_segment_aabb);
-    ImGui::Checkbox("Highlight Selected WireGroup", &ui_state.show_selected_wire_group_highlight);
+    ImGui::Checkbox("Highlight Selected BundleGroup", &ui_state.show_selected_wire_group_highlight);
     wire::core::CommitOptions options{};
     options.run_recalc = false;
     options.run_validate = true;
@@ -2295,7 +2292,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
       ImGui::Text("Pole=%llu Peer=%llu Ctx=%s Cat=%s", static_cast<unsigned long long>(event.pole_id),
                   static_cast<unsigned long long>(event.peer_pole_id), ContextLabel(event.connection_context),
                   CategoryLabel(event.category));
-      ImGui::Text("Selected slot=%d result=%s", event.selected_slot_id, event.result.c_str());
+      ImGui::Text("Selected templateSlot=%d result=%s", event.selected_slot_id, event.result.c_str());
     }
   }
 

@@ -31,6 +31,44 @@ bool ValidationResult::has_errors() const {
   return false;
 }
 
+ValidationResult CoreState::ValidateFast() const {
+  ValidationResult result;
+  const CoreView core = view();
+  const EditState& edit_state = core.edit_state();
+
+  for (const Port& port : edit_state.ports.items()) {
+    if (port.owner_pole_id != kInvalidObjectId && edit_state.poles.find(port.owner_pole_id) == nullptr) {
+      result.issues.push_back({ValidationSeverity::kError, "PortOwnerMissing", "Port owner pole is missing", port.id});
+    }
+  }
+
+  for (const Span& span : edit_state.spans.items()) {
+    if (edit_state.ports.find(span.port_a_id) == nullptr || edit_state.ports.find(span.port_b_id) == nullptr) {
+      result.issues.push_back({ValidationSeverity::kError, "SpanPortMissing", "Span references missing port", span.id});
+    }
+    if (span.wire_group_id != kInvalidObjectId && edit_state.wire_groups.find(span.wire_group_id) == nullptr) {
+      result.issues.push_back(
+          {ValidationSeverity::kError, "SpanWireGroupMissing", "Span wire_group is missing", span.id});
+    }
+    if (span.wire_lane_id != kInvalidObjectId) {
+      const WireLane* lane = edit_state.wire_lanes.find(span.wire_lane_id);
+      if (lane == nullptr) {
+        result.issues.push_back(
+            {ValidationSeverity::kError, "SpanWireLaneMissing", "Span wire_lane is missing", span.id});
+      } else if (span.wire_group_id != kInvalidObjectId && lane->wire_group_id != span.wire_group_id) {
+        result.issues.push_back({
+            ValidationSeverity::kError,
+            "SpanWireLaneGroupMismatch",
+            "Span wire_lane belongs to different wire_group",
+            span.id,
+        });
+      }
+    }
+  }
+
+  return result;
+}
+
 ValidationResult CoreState::Validate() const {
   ValidationResult result;
   const CoreView core = view();
@@ -218,14 +256,6 @@ ValidationResult CoreState::Validate() const {
     if (span.wire_group_id != kInvalidObjectId && edit_state.wire_groups.find(span.wire_group_id) == nullptr) {
       result.issues.push_back(
           {ValidationSeverity::kError, "SpanWireGroupMissing", "Span wire_group is missing", span.id});
-    }
-    if (span.wire_group_id != kInvalidObjectId && span.wire_lane_id == kInvalidObjectId) {
-      result.issues.push_back({
-          ValidationSeverity::kWarning,
-          "SpanWireLaneUnset",
-          "Span wire_group is set but wire_lane is not set",
-          span.id,
-      });
     }
     if (span.wire_lane_id != kInvalidObjectId) {
       if (span.wire_group_id == kInvalidObjectId) {

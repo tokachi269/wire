@@ -67,6 +67,12 @@ std::vector<ObjectId> CoreState::GetWireLanesByGroup(ObjectId wire_group_id) con
   return lane_ids;
 }
 
+BackboneResult CoreState::BuildBackboneResult() const {
+  BackboneResult out{};
+  out.edges = BuildBackboneEdges();
+  return out;
+}
+
 std::vector<BackboneEdge> CoreState::BuildBackboneEdges() const {
   struct EdgeKey {
     ObjectId a = kInvalidObjectId;

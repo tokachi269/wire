@@ -15,18 +15,18 @@ struct RoadSegment {
   std::vector<Vec3d> polyline{};
 };
 
-// Workflow input guide path (DrawPath/road adapters share this shape).
-struct GuidePath {
+// Workflow input path spec (DrawPath/road adapters share this shape).
+struct BackboneInputSpec {
   std::vector<Vec3d> polyline{};
 };
 
-struct GenerationConstraints {
+struct BackboneGenerationConstraints {
   std::vector<Vec3d> avoid_points{};
   double avoid_radius_m = 0.0;
   double lateral_offset_m = 0.0;
 };
 
-struct GuidePolePlacementOptions {
+struct BackbonePolePlacementOptions {
   // Do not force manual poles from guide by default; users pin explicitly.
   bool pin_endpoints = false;
   bool pin_vertices = false;
@@ -35,16 +35,22 @@ struct GuidePolePlacementOptions {
   std::uint64_t reuse_session_id = 0;
 };
 
-struct GenerationRequest {
-  GuidePath path{};
+struct BackboneSpec {
+  BackboneInputSpec path{};
   double interval_m = 0.0;
   PoleTypeId pole_type_id = kInvalidPoleTypeId;
   ConnectionCategory category = ConnectionCategory::kLowVoltage;
-  GenerationConstraints constraints{};
-  GuidePolePlacementOptions pole_placement{};
+  BackboneGenerationConstraints constraints{};
+  BackbonePolePlacementOptions pole_placement{};
   PathDirectionMode direction_mode = PathDirectionMode::kAuto;
   int requested_lane_count = 0;
 };
+
+// Compatibility aliases. Prefer Backbone* names for new code.
+using GuidePath = BackboneInputSpec;
+using GenerationConstraints = BackboneGenerationConstraints;
+using GuidePolePlacementOptions = BackbonePolePlacementOptions;
+using GenerationRequest = BackboneSpec;
 
 // Workflow-layer grouped generation input.
 struct ConductorGroupSpec {
@@ -66,5 +72,9 @@ struct ConductorGroupState {
   std::vector<int> canonical_lane_order{};
 };
 
-} // namespace wire::core
+// Derived backbone output (no generation-input policy mixed in this type).
+struct BackboneResult {
+  std::vector<BackboneEdge> edges{};
+};
 
+} // namespace wire::core

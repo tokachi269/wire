@@ -142,36 +142,30 @@ const SpanRuntimeState* CoreState::find_span_runtime_state(ObjectId span_id) con
 }
 
 void CoreState::remove_span_from_indexes(const Span& span) {
-  auto remove_from_map = [&](std::unordered_map<ObjectId, std::vector<ObjectId>>& map, ObjectId key) {
-    auto it = map.find(key);
-    if (it == map.end()) {
-      return;
-    }
-    std::vector<ObjectId>& ids = it->second;
-    ids.erase(std::remove(ids.begin(), ids.end(), span.id), ids.end());
-    if (ids.empty()) {
-      map.erase(it);
-    }
-  };
-
-  remove_from_map(connection_index_.spans_by_port, span.port_a_id);
-  remove_from_map(connection_index_.spans_by_port, span.port_b_id);
+  index_remove(connection_index_.spans_by_port, span.port_a_id, span.id);
+  index_remove(connection_index_.spans_by_port, span.port_b_id, span.id);
   if (span.anchor_a_id != kInvalidObjectId) {
-    remove_from_map(connection_index_.spans_by_anchor, span.anchor_a_id);
+    index_remove(connection_index_.spans_by_anchor, span.anchor_a_id, span.id);
   }
   if (span.anchor_b_id != kInvalidObjectId) {
-    remove_from_map(connection_index_.spans_by_anchor, span.anchor_b_id);
+    index_remove(connection_index_.spans_by_anchor, span.anchor_b_id, span.id);
+  }
+  if (span.bundle_id != kInvalidObjectId) {
+    index_remove(relation_index_.spans_by_bundle, span.bundle_id, span.id);
   }
 }
 
 void CoreState::add_span_to_index(const Span& span) {
-  connection_index_.spans_by_port[span.port_a_id].push_back(span.id);
-  connection_index_.spans_by_port[span.port_b_id].push_back(span.id);
+  index_add(connection_index_.spans_by_port, span.port_a_id, span.id);
+  index_add(connection_index_.spans_by_port, span.port_b_id, span.id);
   if (span.anchor_a_id != kInvalidObjectId) {
-    connection_index_.spans_by_anchor[span.anchor_a_id].push_back(span.id);
+    index_add(connection_index_.spans_by_anchor, span.anchor_a_id, span.id);
   }
   if (span.anchor_b_id != kInvalidObjectId) {
-    connection_index_.spans_by_anchor[span.anchor_b_id].push_back(span.id);
+    index_add(connection_index_.spans_by_anchor, span.anchor_b_id, span.id);
+  }
+  if (span.bundle_id != kInvalidObjectId) {
+    index_add(relation_index_.spans_by_bundle, span.bundle_id, span.id);
   }
 }
 

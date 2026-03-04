@@ -210,6 +210,68 @@ LaneOrderMetrics compute_lane_order_metrics(const CoreState& state,
   return metrics;
 }
 
+double orient2d_xy_test(const wire::core::Vec3d& a, const wire::core::Vec3d& b, const wire::core::Vec3d& c) {
+  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+}
+
+bool xy_bbox_overlap_test(const wire::core::Vec3d& a, const wire::core::Vec3d& b, const wire::core::Vec3d& c,
+                          const wire::core::Vec3d& d) {
+  const double min_ax = std::min(a.x, b.x);
+  const double max_ax = std::max(a.x, b.x);
+  const double min_ay = std::min(a.y, b.y);
+  const double max_ay = std::max(a.y, b.y);
+  const double min_cx = std::min(c.x, d.x);
+  const double max_cx = std::max(c.x, d.x);
+  const double min_cy = std::min(c.y, d.y);
+  const double max_cy = std::max(c.y, d.y);
+  return !(max_ax < min_cx || max_cx < min_ax || max_ay < min_cy || max_cy < min_ay);
+}
+
+bool segments_intersect_xy_strict_test(const wire::core::Vec3d& a, const wire::core::Vec3d& b,
+                                       const wire::core::Vec3d& c, const wire::core::Vec3d& d) {
+  if (!xy_bbox_overlap_test(a, b, c, d)) {
+    return false;
+  }
+  constexpr double kEps = 1e-9;
+  const double o1 = orient2d_xy_test(a, b, c);
+  const double o2 = orient2d_xy_test(a, b, d);
+  const double o3 = orient2d_xy_test(c, d, a);
+  const double o4 = orient2d_xy_test(c, d, b);
+  const bool ab_straddle_cd = ((o1 > kEps && o2 < -kEps) || (o1 < -kEps && o2 > kEps));
+  const bool cd_straddle_ab = ((o3 > kEps && o4 < -kEps) || (o3 < -kEps && o4 > kEps));
+  return ab_straddle_cd && cd_straddle_ab;
+}
+
+int count_lane_segment_xy_intersections(const CoreState& state,
+                                        const std::vector<wire::core::SegmentLaneAssignment>& assignments) {
+  int intersections = 0;
+  for (const auto& assignment : assignments) {
+    const std::size_t lane_count = std::min(assignment.port_ids_a.size(), assignment.port_ids_b.size());
+    if (lane_count < 2) {
+      continue;
+    }
+    for (std::size_t i = 0; i < lane_count; ++i) {
+      const auto* a0 = state.view().edit_state().ports.find(assignment.port_ids_a[i]);
+      const auto* a1 = state.view().edit_state().ports.find(assignment.port_ids_b[i]);
+      if (a0 == nullptr || a1 == nullptr) {
+        continue;
+      }
+      for (std::size_t j = i + 1; j < lane_count; ++j) {
+        const auto* b0 = state.view().edit_state().ports.find(assignment.port_ids_a[j]);
+        const auto* b1 = state.view().edit_state().ports.find(assignment.port_ids_b[j]);
+        if (b0 == nullptr || b1 == nullptr) {
+          continue;
+        }
+        if (segments_intersect_xy_strict_test(a0->world_position, a1->world_position, b0->world_position,
+                                              b1->world_position)) {
+          ++intersections;
+        }
+      }
+    }
+  }
+  return intersections;
+}
+
 bool has_selected_slot_in_candidates(const wire::core::SlotSelectionDebugRecord& record) {
   if (record.selected_slot_id < 0) {
     return true;
@@ -1730,6 +1792,39 @@ bool test_grouped_line_lane_order_no_inversion_on_u_path() {
   return metrics.y_inversions == 0;
 }
 
+// Intent: Group lane assignment on an acute corner path should avoid per-segment XY crossings.
+bool test_grouped_line_acute_corner_no_xy_crossing() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::CoreState::GenerateGroupedLineOptions options{};
+  options.road.id = 1103;
+  options.road.polyline = {
+      {-20.0, 0.0, 0.0},
+      {-8.0, 0.0, 0.0},
+      {2.0, 0.0, 0.0},
+      {-2.0, 6.0, 0.0},
+      {10.0, 6.0, 0.0},
+  };
+  options.interval = 0.0;
+  options.pole_type_id = type_ids.front();
+  options.group_spec.category = wire::core::ConnectionCategory::kCommunication;
+  options.group_spec.group_kind = wire::core::ConductorGroupKind::kParallel;
+  options.group_spec.conductor_count = 4;
+  options.group_spec.allow_lane_mirror = true;
+  options.group_spec.maintain_lane_order = true;
+  options.direction_mode = wire::core::PathDirectionMode::kAuto;
+
+  const auto generated = state.GenerateGroupedLine(options);
+  if (!generated.ok) {
+    return false;
+  }
+  return count_lane_segment_xy_intersections(state, generated.value.lane_assignments) == 0;
+}
+
 // Intent: Enabling lane mirror must not worsen grouped-lane quality metrics (Y/Z order and layer continuity).
 bool test_grouped_line_mirror_metric_non_regression() {
   const auto run_with_mirror = [](bool allow_mirror) -> std::pair<bool, LaneOrderMetrics> {
@@ -1795,6 +1890,17 @@ bool test_bundle_query_spans_by_bundle() {
 
   const auto grouped_spans = state.GetSpansByBundle(add_bundle.value);
   if (grouped_spans.size() != 1 || grouped_spans[0] != add_span.value) {
+    return false;
+  }
+  const auto& relation_index = state.view().relation_index();
+  const auto bundle_it = relation_index.spans_by_bundle.find(add_bundle.value);
+  if (bundle_it == relation_index.spans_by_bundle.end() ||
+      std::find(bundle_it->second.begin(), bundle_it->second.end(), add_span.value) == bundle_it->second.end()) {
+    return false;
+  }
+  const auto pole_port_it = relation_index.ports_by_pole.find(pole_a);
+  if (pole_port_it == relation_index.ports_by_pole.end() ||
+      std::find(pole_port_it->second.begin(), pole_port_it->second.end(), port_a) == pole_port_it->second.end()) {
     return false;
   }
   return validate_now(state).ok();
@@ -1959,6 +2065,131 @@ bool test_generate_bundle_from_path_invalid_inputs_fail() {
   recover.pole_type_id = type_ids.front();
   recover.category = ConnectionCategory::kLowVoltage;
   return state.GenerateBundleFromPath(recover).ok;
+}
+
+// Intent: Fixed bundle template must reject explicit count override inputs.
+bool test_backbone_bundle_template_fixed_count_rejects_override() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  wire::core::BackboneSpec req{};
+  req.path.polyline = {{0.0, 0.0, 0.0}, {16.0, 0.0, 0.0}};
+  req.interval_m = 8.0;
+  req.pole_type_id = type_ids.front();
+  req.direction_mode = wire::core::PathDirectionMode::kAuto;
+  wire::core::BackboneBundleSpec bundle{};
+  bundle.bundle_template_id = wire::core::BundleKind::kHighVoltage;
+  bundle.count = 3; // fixed template should reject any explicit count input.
+  req.bundles.push_back(bundle);
+  const auto result = state.GenerateFromBackboneSpec(req);
+  return !result.ok && regex_contains(result.error, "count override");
+}
+
+// Intent: Variable communication bundle should scale generated span count by requested count.
+bool test_backbone_bundle_template_comm_variable_count_scales_spans() {
+  auto run_with_count = [&](int count) -> std::pair<bool, std::size_t> {
+    CoreState state;
+    const auto type_ids = sorted_pole_type_ids(state);
+    if (type_ids.empty()) {
+      return {false, 0};
+    }
+    wire::core::BackboneSpec req{};
+    req.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}, {24.0, 0.0, 0.0}};
+    req.interval_m = 6.0;
+    req.pole_type_id = type_ids.front();
+    wire::core::BackboneBundleSpec bundle{};
+    bundle.bundle_template_id = wire::core::BundleKind::kCommunication;
+    bundle.count = count;
+    req.bundles.push_back(bundle);
+    const auto result = state.GenerateFromBackboneSpec(req);
+    if (!result.ok || result.value.bundle_id == wire::core::kInvalidObjectId || result.value.generated_pole_ids.size() < 2) {
+      return {false, 0};
+    }
+    const auto* created_bundle = state.view().edit_state().bundles.find(result.value.bundle_id);
+    if (created_bundle == nullptr || created_bundle->conductor_count != count) {
+      return {false, 0};
+    }
+    const std::size_t segment_count = result.value.generated_pole_ids.size() - 1;
+    return {true, segment_count == 0 ? 0 : result.value.generated_span_ids.size() / segment_count};
+  };
+
+  const auto one = run_with_count(1);
+  const auto three = run_with_count(3);
+  return one.first && three.first && one.second == 1 && three.second == 3;
+}
+
+// Intent: Variable communication bundle must reject out-of-range counts.
+bool test_backbone_bundle_template_comm_count_out_of_range_fails() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  wire::core::BackboneSpec req{};
+  req.path.polyline = {{0.0, 0.0, 0.0}, {16.0, 0.0, 0.0}};
+  req.interval_m = 8.0;
+  req.pole_type_id = type_ids.front();
+  wire::core::BackboneBundleSpec bundle{};
+  bundle.bundle_template_id = wire::core::BundleKind::kCommunication;
+  bundle.count = 9; // COMM_BUNDLE max is 8.
+  req.bundles.push_back(bundle);
+  const auto result = state.GenerateFromBackboneSpec(req);
+  return !result.ok && regex_contains(result.error, "out of template range");
+}
+
+// Intent: Multiple bundle template requests should generate multiple bundles and combined spans.
+bool test_backbone_bundle_template_multi_request_generates_multiple_bundles() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec req{};
+  req.path.polyline = {{0.0, 0.0, 0.0}, {16.0, 0.0, 0.0}};
+  req.interval_m = 8.0;
+  req.pole_type_id = type_ids.front();
+
+  wire::core::BackboneBundleSpec lv{};
+  lv.bundle_template_id = wire::core::BundleKind::kLowVoltage;
+  lv.count = 2;
+  req.bundles.push_back(lv);
+
+  wire::core::BackboneBundleSpec comm{};
+  comm.bundle_template_id = wire::core::BundleKind::kCommunication;
+  comm.count = 1;
+  req.bundles.push_back(comm);
+
+  const auto result = state.GenerateFromBackboneSpec(req);
+  if (!result.ok) {
+    return false;
+  }
+  if (result.value.bundle_ids.size() != 2 || result.value.generated_pole_ids.size() < 2) {
+    return false;
+  }
+
+  const std::size_t segment_count = result.value.generated_pole_ids.size() - 1;
+  const std::size_t expected_span_count = segment_count * 3; // LV2 + COMM1
+  if (result.value.generated_span_ids.size() != expected_span_count) {
+    return false;
+  }
+
+  std::size_t low_voltage_bundle_count = 0;
+  std::size_t communication_bundle_count = 0;
+  for (ObjectId bundle_id : result.value.bundle_ids) {
+    const auto* bundle = state.view().edit_state().bundles.find(bundle_id);
+    if (bundle == nullptr) {
+      return false;
+    }
+    if (bundle->kind == wire::core::BundleKind::kLowVoltage) {
+      ++low_voltage_bundle_count;
+    } else if (bundle->kind == wire::core::BundleKind::kCommunication) {
+      ++communication_bundle_count;
+    }
+  }
+  return low_voltage_bundle_count == 1 && communication_bundle_count == 1;
 }
 
 // Intent: Newly created ports should default to Auto position mode.
@@ -2429,6 +2660,67 @@ bool test_regenerate_session_auto_parts_keeps_manual_port() {
 
   const auto* port_after = state.view().edit_state().ports.find(manual_port_id);
   return port_after != nullptr && port_after->position_mode == wire::core::PortPositionMode::kManual &&
+         almost_equal(port_after->world_position, manual_pos);
+}
+
+// Intent: Manual port edits must remain stable even when the owner pole stays Auto during session regeneration.
+bool test_regenerate_session_auto_parts_keeps_manual_port_on_auto_pole() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::GenerationRequest req{};
+  req.path.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
+  req.interval_m = 10.0;
+  req.pole_type_id = type_ids.front();
+  req.category = ConnectionCategory::kLowVoltage;
+  req.requested_lane_count = 1;
+  const auto first = state.GenerateFromGuide(req);
+  if (!first.ok || first.value.generated_span_ids.empty() || first.value.generated_pole_ids.empty()) {
+    return false;
+  }
+
+  const auto* any_generated = state.view().edit_state().poles.find(first.value.generated_pole_ids.front());
+  if (any_generated == nullptr || any_generated->generation.generation_session_id == 0) {
+    return false;
+  }
+  const std::uint64_t session_id = any_generated->generation.generation_session_id;
+
+  const auto* span = state.view().edit_state().spans.find(first.value.generated_span_ids.front());
+  if (span == nullptr) {
+    return false;
+  }
+  const auto* port = state.view().edit_state().ports.find(span->port_a_id);
+  if (port == nullptr || port->owner_pole_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  const ObjectId manual_port_id = port->id;
+  const ObjectId owner_pole_id = port->owner_pole_id;
+  const auto* owner_before = state.view().edit_state().poles.find(owner_pole_id);
+  if (owner_before == nullptr || owner_before->placement_mode != wire::core::PlacementMode::kAuto) {
+    return false;
+  }
+
+  const wire::core::Vec3d manual_pos{61.0, -9.0, 7.0};
+  if (!state.SetPortWorldPositionManual(manual_port_id, manual_pos).ok) {
+    return false;
+  }
+
+  req.path.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}, {35.0, 0.0, 0.0}};
+  const auto regen = state.RegenerateSessionAutoParts(session_id, req);
+  if (!regen.ok) {
+    return false;
+  }
+
+  const auto* owner_after = state.view().edit_state().poles.find(owner_pole_id);
+  const auto* port_after = state.view().edit_state().ports.find(manual_port_id);
+  if (owner_after == nullptr || port_after == nullptr) {
+    return false;
+  }
+  return owner_after->placement_mode == wire::core::PlacementMode::kAuto &&
+         port_after->position_mode == wire::core::PortPositionMode::kManual &&
          almost_equal(port_after->world_position, manual_pos);
 }
 
@@ -3141,6 +3433,9 @@ int main() {
       {"C62_Phase48d_GroupLane_NoInversionOnU",
        "Grouped lane assignment on U-path avoids per-segment lane-order inversions", "Invariant", false,
        test_grouped_line_lane_order_no_inversion_on_u_path},
+      {"C76_Phase49_GroupLane_AcuteNoXYCrossing",
+       "Grouped lane assignment on acute-corner path avoids per-segment XY crossings", "Invariant", false,
+       test_grouped_line_acute_corner_no_xy_crossing},
       {"C63_Phase48d_GroupLane_MirrorMetricNonRegression",
        "Enabling lane mirror does not worsen Y/Z/layer grouped-lane quality metrics", "Invariant", false,
        test_grouped_line_mirror_metric_non_regression},
@@ -3174,6 +3469,18 @@ int main() {
        "Invariant", false, test_generate_bundle_from_path_direction_modes_nonfailing},
       {"C49_Phase48b_DrawPathBundle_InvalidInputs", "Bundle path generation rejects invalid input and recovers",
        "Exact", true, test_generate_bundle_from_path_invalid_inputs_fail},
+      {"C73_Phase49_Template_FixedCountReject",
+       "Fixed bundle template rejects explicit count override", "Exact", true,
+       test_backbone_bundle_template_fixed_count_rejects_override},
+      {"C74_Phase49_Template_CommVariableCount",
+       "Communication bundle template scales span generation by requested count", "Invariant", false,
+       test_backbone_bundle_template_comm_variable_count_scales_spans},
+      {"C75_Phase49_Template_CommRangeReject",
+       "Communication bundle template rejects out-of-range count without clamping", "Exact", true,
+       test_backbone_bundle_template_comm_count_out_of_range_fails},
+      {"C77_Phase49_Template_MultiBundleRequest",
+       "Multiple bundle templates in one BackboneSpec generate multiple bundles and combined spans", "Invariant",
+       false, test_backbone_bundle_template_multi_request_generates_multiple_bundles},
       {"C50_Phase48c_PortMode_DefaultAuto", "New ports default to Auto mode", "Exact", false,
        test_port_position_mode_defaults_auto},
       {"C51_Phase48c_PortMode_ManualReset", "Manual set/reset toggles port mode and keeps dirty local", "Invariant",
@@ -3222,6 +3529,9 @@ int main() {
       {"C68_Phase48i_Regenerate_KeepManualPort",
        "Session-local regeneration preserves manual port position edits", "Invariant", false,
        test_regenerate_session_auto_parts_keeps_manual_port},
+      {"C72_Phase48i_Regenerate_KeepManualPortOnAutoPole",
+       "Session-local regeneration preserves manual port edits even when owner pole remains Auto", "Invariant", false,
+       test_regenerate_session_auto_parts_keeps_manual_port_on_auto_pole},
       {"C69_Phase48i_Regenerate_SessionIsolation",
        "Session-local regeneration does not mutate other generation sessions", "Invariant", false,
        test_regenerate_session_auto_parts_isolation_across_sessions},

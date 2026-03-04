@@ -46,11 +46,14 @@
 2. Bundle/Span 整合
 - `Span.bundle_id` が設定されている場合、参照先 `Bundle` が存在する。
 - 複数本配線は同一 `bundle_id` を共有する複数 `Span` で表現する。
+- Bundle本数は `BundleTemplate` で決定する（固定テンプレは上書き不可、可変テンプレは範囲制約内のみ）。
 - lane は workflow/debug メタデータであり、entity 不変条件には含めない。
 
 3. インデックス/キャッシュ整合
 - `ConnectionIndex` は `Span` 関係と一致する。
+- `RelationIndex` は `Pole/Bundle` との所有・所属関係と一致する。
 - 全 `Span` に `SpanRuntimeState` が存在し、ダングリング状態を残さない。
+- index 更新は編集 API の内部で `index_add/index_remove` を共通利用し、個別ロジックの重複を作らない。
 
 4. Manual/Auto 優先
 - `Pole.placement_mode=Manual` はユーザー意図配置（再生成時に尊重）。

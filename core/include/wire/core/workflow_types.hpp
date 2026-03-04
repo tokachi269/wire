@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include "wire/core/entities.hpp"
@@ -35,14 +36,43 @@ struct BackbonePolePlacementOptions {
   std::uint64_t reuse_session_id = 0;
 };
 
+enum class BundleCountRuleKind : std::uint8_t {
+  kFixed = 0,
+  kRange = 1,
+};
+
+struct BundleTemplate {
+  BundleKind id = BundleKind::kLowVoltage;
+  std::string name{};
+  ConnectionCategory category = ConnectionCategory::kLowVoltage;
+  SpanLayer default_layer = SpanLayer::kLowVoltage;
+  BundleCountRuleKind count_rule = BundleCountRuleKind::kFixed;
+  int fixed_count = 1;
+  int min_count = 1;
+  int max_count = 1;
+  int default_count = 1;
+  double default_spacing_m = 0.2;
+  bool allow_mirror = true;
+};
+
+struct BackboneBundleSpec {
+  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  SpanLayer layer = SpanLayer::kUnknown;
+  // Used only for variable-count templates. Fixed templates reject count input.
+  int count = 0;
+};
+
 struct BackboneSpec {
   BackboneInputSpec path{};
   double interval_m = 0.0;
   PoleTypeId pole_type_id = kInvalidPoleTypeId;
+  std::vector<BackboneBundleSpec> bundles{};
+  // Legacy fallback input (prefer bundles[] for new call sites).
   ConnectionCategory category = ConnectionCategory::kLowVoltage;
   BackboneGenerationConstraints constraints{};
   BackbonePolePlacementOptions pole_placement{};
   PathDirectionMode direction_mode = PathDirectionMode::kAuto;
+  // Legacy fallback input (prefer bundles[] for new call sites).
   int requested_lane_count = 0;
 };
 

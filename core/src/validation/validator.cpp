@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace wire::core {
@@ -18,6 +19,17 @@ canonical_index_map(const std::unordered_map<TKey, std::vector<ObjectId>>& map) 
     ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
   }
   return out;
+}
+
+bool has_duplicate_ids(const std::vector<ObjectId>& ids) {
+  std::unordered_set<ObjectId> seen{};
+  seen.reserve(ids.size());
+  for (ObjectId id : ids) {
+    if (!seen.insert(id).second) {
+      return true;
+    }
+  }
+  return false;
 }
 
 } // namespace
@@ -61,6 +73,7 @@ ValidationResult CoreState::Validate() const {
   const LayoutSettings& layout_settings = core.layout_settings();
   const CacheState& cache_state = core.cache_state();
   const ConnectionIndex& connection_index = core.connection_index();
+  const RelationIndex& relation_index = core.relation_index();
   const auto& span_runtime_states = core.span_runtime_states();
   const auto& pole_types = core.pole_types();
   const auto& slot_debug_records = core.slot_selection_debug_records();
@@ -225,8 +238,14 @@ ValidationResult CoreState::Validate() const {
 
   const auto expected_port_index = canonical_index_map(make_expected_port_index(edit_state));
   const auto expected_anchor_index = canonical_index_map(make_expected_anchor_index(edit_state));
+  const auto expected_pole_port_index = canonical_index_map(make_expected_pole_port_index(edit_state));
+  const auto expected_pole_anchor_index = canonical_index_map(make_expected_pole_anchor_index(edit_state));
+  const auto expected_bundle_span_index = canonical_index_map(make_expected_bundle_span_index(edit_state));
   const auto actual_port_index = canonical_index_map(connection_index.spans_by_port);
   const auto actual_anchor_index = canonical_index_map(connection_index.spans_by_anchor);
+  const auto actual_pole_port_index = canonical_index_map(relation_index.ports_by_pole);
+  const auto actual_pole_anchor_index = canonical_index_map(relation_index.anchors_by_pole);
+  const auto actual_bundle_span_index = canonical_index_map(relation_index.spans_by_bundle);
 
   if (expected_port_index != actual_port_index) {
     result.issues.push_back(
@@ -235,6 +254,68 @@ ValidationResult CoreState::Validate() const {
   if (expected_anchor_index != actual_anchor_index) {
     result.issues.push_back(
         {ValidationSeverity::kError, "AnchorIndexMismatch", "Anchor->Span index mismatch", kInvalidObjectId});
+  }
+  if (expected_pole_port_index != actual_pole_port_index) {
+    result.issues.push_back(
+        {ValidationSeverity::kError, "PolePortIndexMismatch", "Pole->Port index mismatch", kInvalidObjectId});
+  }
+  if (expected_pole_anchor_index != actual_pole_anchor_index) {
+    result.issues.push_back(
+        {ValidationSeverity::kError, "PoleAnchorIndexMismatch", "Pole->Anchor index mismatch", kInvalidObjectId});
+  }
+  if (expected_bundle_span_index != actual_bundle_span_index) {
+    result.issues.push_back(
+        {ValidationSeverity::kError, "BundleSpanIndexMismatch", "Bundle->Span index mismatch", kInvalidObjectId});
+  }
+  for (const auto& [port_id, span_ids] : connection_index.spans_by_port) {
+    if (has_duplicate_ids(span_ids)) {
+      result.issues.push_back({
+          ValidationSeverity::kError,
+          "PortIndexDuplicateEntries",
+          "Port->Span index contains duplicate span ids",
+          port_id,
+      });
+    }
+  }
+  for (const auto& [anchor_id, span_ids] : connection_index.spans_by_anchor) {
+    if (has_duplicate_ids(span_ids)) {
+      result.issues.push_back({
+          ValidationSeverity::kError,
+          "AnchorIndexDuplicateEntries",
+          "Anchor->Span index contains duplicate span ids",
+          anchor_id,
+      });
+    }
+  }
+  for (const auto& [pole_id, port_ids] : relation_index.ports_by_pole) {
+    if (has_duplicate_ids(port_ids)) {
+      result.issues.push_back({
+          ValidationSeverity::kError,
+          "PolePortIndexDuplicateEntries",
+          "Pole->Port index contains duplicate port ids",
+          pole_id,
+      });
+    }
+  }
+  for (const auto& [pole_id, anchor_ids] : relation_index.anchors_by_pole) {
+    if (has_duplicate_ids(anchor_ids)) {
+      result.issues.push_back({
+          ValidationSeverity::kError,
+          "PoleAnchorIndexDuplicateEntries",
+          "Pole->Anchor index contains duplicate anchor ids",
+          pole_id,
+      });
+    }
+  }
+  for (const auto& [bundle_id, span_ids] : relation_index.spans_by_bundle) {
+    if (has_duplicate_ids(span_ids)) {
+      result.issues.push_back({
+          ValidationSeverity::kError,
+          "BundleSpanIndexDuplicateEntries",
+          "Bundle->Span index contains duplicate span ids",
+          bundle_id,
+      });
+    }
   }
   for (const auto& [port_id, span_ids] : connection_index.spans_by_port) {
     if (edit_state.ports.find(port_id) == nullptr) {
@@ -275,6 +356,75 @@ ValidationResult CoreState::Validate() const {
             "AnchorIndexDanglingSpan",
             "Anchor index references removed span",
             anchor_id,
+        });
+        break;
+      }
+    }
+  }
+  for (const auto& [pole_id, port_ids] : relation_index.ports_by_pole) {
+    if (edit_state.poles.find(pole_id) == nullptr) {
+      result.issues.push_back({
+          ValidationSeverity::kError,
+          "PolePortIndexDanglingPole",
+          "Pole->Port index references removed pole",
+          pole_id,
+      });
+      continue;
+    }
+    for (ObjectId port_id : port_ids) {
+      const Port* port = edit_state.ports.find(port_id);
+      if (port == nullptr || port->owner_pole_id != pole_id) {
+        result.issues.push_back({
+            ValidationSeverity::kError,
+            "PolePortIndexDanglingPort",
+            "Pole->Port index references removed or mismatched port",
+            pole_id,
+        });
+        break;
+      }
+    }
+  }
+  for (const auto& [pole_id, anchor_ids] : relation_index.anchors_by_pole) {
+    if (edit_state.poles.find(pole_id) == nullptr) {
+      result.issues.push_back({
+          ValidationSeverity::kError,
+          "PoleAnchorIndexDanglingPole",
+          "Pole->Anchor index references removed pole",
+          pole_id,
+      });
+      continue;
+    }
+    for (ObjectId anchor_id : anchor_ids) {
+      const Anchor* anchor = edit_state.anchors.find(anchor_id);
+      if (anchor == nullptr || anchor->owner_pole_id != pole_id) {
+        result.issues.push_back({
+            ValidationSeverity::kError,
+            "PoleAnchorIndexDanglingAnchor",
+            "Pole->Anchor index references removed or mismatched anchor",
+            pole_id,
+        });
+        break;
+      }
+    }
+  }
+  for (const auto& [bundle_id, span_ids] : relation_index.spans_by_bundle) {
+    if (edit_state.bundles.find(bundle_id) == nullptr) {
+      result.issues.push_back({
+          ValidationSeverity::kError,
+          "BundleSpanIndexDanglingBundle",
+          "Bundle->Span index references removed bundle",
+          bundle_id,
+      });
+      continue;
+    }
+    for (ObjectId span_id : span_ids) {
+      const Span* span = edit_state.spans.find(span_id);
+      if (span == nullptr || span->bundle_id != bundle_id) {
+        result.issues.push_back({
+            ValidationSeverity::kError,
+            "BundleSpanIndexDanglingSpan",
+            "Bundle->Span index references removed or mismatched span",
+            bundle_id,
         });
         break;
       }

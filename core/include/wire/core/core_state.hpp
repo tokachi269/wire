@@ -72,6 +72,12 @@ struct ConnectionIndex {
   std::unordered_map<ObjectId, std::vector<ObjectId>> spans_by_anchor;
 };
 
+struct RelationIndex {
+  std::unordered_map<ObjectId, std::vector<ObjectId>> ports_by_pole;
+  std::unordered_map<ObjectId, std::vector<ObjectId>> anchors_by_pole;
+  std::unordered_map<ObjectId, std::vector<ObjectId>> spans_by_bundle;
+};
+
 enum class DirtyBits : std::uint32_t {
   kNone = 0,
   kTopology = 1u << 0,
@@ -244,13 +250,18 @@ public:
     std::vector<Vec3d> polyline{};
     double interval_m = 0.0;
     PoleTypeId pole_type_id = kInvalidPoleTypeId;
+    BundleKind bundle_template_id = BundleKind::kLowVoltage;
+    SpanLayer layer = SpanLayer::kUnknown;
+    int count = 0;
+    // Legacy fallback input (prefer template/count/layer for new call sites).
     ConnectionCategory category = ConnectionCategory::kLowVoltage;
     PathDirectionMode direction_mode = PathDirectionMode::kAuto;
-    int requested_lane_count = 0; // 0: use category standard lanes.
+    int requested_lane_count = 0;
   };
 
   struct GenerateBundleFromPathResult {
     ObjectId bundle_id = kInvalidObjectId;
+    std::vector<ObjectId> bundle_ids{};
     std::vector<ObjectId> generated_span_ids{};
     std::vector<ObjectId> generated_pole_ids{};
   };
@@ -378,7 +389,9 @@ private:
   [[nodiscard]] static int default_lane_count_for_category(ConnectionCategory category);
   [[nodiscard]] static bool is_supported_category(ConnectionCategory category);
   void register_default_pole_types();
+  void register_default_bundle_templates();
   [[nodiscard]] const PoleTypeDefinition* find_pole_type(PoleTypeId pole_type_id) const;
+  [[nodiscard]] const BundleTemplate* find_bundle_template(BundleKind bundle_template_id) const;
   [[nodiscard]] std::vector<PortSlotTemplate> sorted_port_slots(const PoleTypeDefinition& pole_type,
                                                                 ConnectionCategory category) const;
   [[nodiscard]] bool is_port_slot_used(ObjectId pole_id, int slot_id) const;
@@ -419,6 +432,8 @@ private:
   EditResult<ObjectId> ensure_bundle_for_category(ConnectionCategory category,
                                                   const AddConnectionByPoleOptions& options);
   static void add_unique_id(std::vector<ObjectId>& ids, ObjectId id);
+  static void index_add(std::unordered_map<ObjectId, std::vector<ObjectId>>& map, ObjectId key, ObjectId value);
+  static void index_remove(std::unordered_map<ObjectId, std::vector<ObjectId>>& map, ObjectId key, ObjectId value);
   static std::string dirty_bits_to_string(DirtyBits bits);
   static void apply_pole_placement_mode(Pole& pole, PlacementMode mode);
   static void apply_port_position_mode(Port& port, PortPositionMode mode, PortPlacementSourceKind source_hint);
@@ -429,6 +444,8 @@ private:
   [[nodiscard]] const EditState& edit_state_access() const { return edit_state_; }
   [[nodiscard]] ConnectionIndex& connection_index_access() { return connection_index_; }
   [[nodiscard]] const ConnectionIndex& connection_index_access() const { return connection_index_; }
+  [[nodiscard]] RelationIndex& relation_index_access() { return relation_index_; }
+  [[nodiscard]] const RelationIndex& relation_index_access() const { return relation_index_; }
   [[nodiscard]] std::unordered_map<ObjectId, SpanRuntimeState>& span_runtime_states_access() {
     return span_runtime_states_;
   }
@@ -453,6 +470,12 @@ private:
   make_expected_port_index(const EditState& edit_state);
   [[nodiscard]] static std::unordered_map<ObjectId, std::vector<ObjectId>>
   make_expected_anchor_index(const EditState& edit_state);
+  [[nodiscard]] static std::unordered_map<ObjectId, std::vector<ObjectId>>
+  make_expected_pole_port_index(const EditState& edit_state);
+  [[nodiscard]] static std::unordered_map<ObjectId, std::vector<ObjectId>>
+  make_expected_pole_anchor_index(const EditState& edit_state);
+  [[nodiscard]] static std::unordered_map<ObjectId, std::vector<ObjectId>>
+  make_expected_bundle_span_index(const EditState& edit_state);
 
   IdGenerator id_generator_{};
   std::uint64_t next_data_version_ = 1;
@@ -461,7 +484,9 @@ private:
   // PersistCore entity layer.
   EditState edit_state_{};
   ConnectionIndex connection_index_{};
+  RelationIndex relation_index_{};
   std::unordered_map<PoleTypeId, PoleTypeDefinition> pole_types_{};
+  std::unordered_map<BundleKind, BundleTemplate> bundle_templates_{};
   // Derived cache/runtime layer.
   std::unordered_map<ObjectId, SpanRuntimeState> span_runtime_states_{};
   DirtyQueue dirty_queue_{};
@@ -490,6 +515,7 @@ public:
   [[nodiscard]] const ObjectStore<Attachment>& attachments() const { return state_.edit_state_.attachments; }
 
   [[nodiscard]] const ConnectionIndex& connection_index() const { return state_.connection_index_; }
+  [[nodiscard]] const RelationIndex& relation_index() const { return state_.relation_index_; }
   [[nodiscard]] const DirtyQueue& dirty_queue() const { return state_.dirty_queue_; }
   [[nodiscard]] const RecalcStats& last_recalc_stats() const { return state_.last_recalc_stats_; }
   [[nodiscard]] const GeometrySettings& geometry_settings() const { return state_.cache_state_.geometry_settings; }
@@ -509,6 +535,9 @@ public:
   [[nodiscard]] const CacheState& cache_state() const { return state_.cache_state_; }
   [[nodiscard]] const std::unordered_map<PoleTypeId, PoleTypeDefinition>& pole_types() const {
     return state_.pole_types_;
+  }
+  [[nodiscard]] const std::unordered_map<BundleKind, BundleTemplate>& bundle_templates() const {
+    return state_.bundle_templates_;
   }
   [[nodiscard]] const std::vector<SlotSelectionDebugRecord>& slot_selection_debug_records() const {
     return state_.slot_selection_debug_records_;

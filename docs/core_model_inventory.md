@@ -45,7 +45,8 @@ Definition Layer
 | `Bundle` | `core/include/wire/core/entities.hpp` | 複数本配線の束属性を保持する。 | `conductor_count`, `kind`, spacing | `PersistCore` |
 | `Attachment` | `core/include/wire/core/entities.hpp` | Span 上 `t` 位置の付属物を保持する。 | `span_id`, `t` | `PersistCore` |
 | `EditState` | `core/include/wire/core/core_state.hpp` | 編集対象 entity を ID 索引ストアで保持する。 | `ObjectStore<T>` | `PersistCore` |
-| `ConnectionIndex` | `core/include/wire/core/core_state.hpp` | entity 関係の接続検索マップを保持する。 | entity IDs | `PersistCore`（再構築可能） |
+| `ConnectionIndex` | `core/include/wire/core/core_state.hpp` | `Span` 接続関係（port/anchor -> span 群）の検索マップを保持する。 | entity IDs | `PersistCore`（再構築可能） |
+| `RelationIndex` | `core/include/wire/core/core_state.hpp` | 所有/所属関係（pole -> ports/anchors, bundle -> spans）の検索マップを保持する。 | entity IDs | `PersistCore`（再構築可能） |
 | `IdGenerator` | `core/include/wire/core/id.hpp` | 単調増加の一意 ID を発行する。 | none | `PersistCore` |
 | `make_display_id` + 表示IDカウンタ | `core/include/wire/core/id.hpp` / `core_state.hpp` | 接頭辞付き表示 ID を生成する。 | prefix + counter | `PersistCore` |
 
@@ -53,13 +54,14 @@ Definition Layer
 | 型 | ファイル | 責務（1行） | 主依存 | 保存分類 |
 |---|---|---|---|---|
 | `RoadSegment` | `core/include/wire/core/workflow_types.hpp` | 生成入力用ポリラインを運ぶ。 | `RoadId`, `Vec3d[]` | `SessionDebug` |
-| `BackboneInputSpec`, `BackboneGenerationConstraints`, `BackbonePolePlacementOptions`, `BackboneSpec` | `core/include/wire/core/workflow_types.hpp` | 道路概念に依存しない backbone 指向の生成入力を定義する。 | path + constraints + mode | `SessionDebug` |
+| `BackboneInputSpec`, `BackboneGenerationConstraints`, `BackbonePolePlacementOptions`, `BackboneBundleSpec`, `BackboneSpec` | `core/include/wire/core/workflow_types.hpp` | 道路概念に依存しない backbone 指向の生成入力を定義する。 | path + bundles[] + constraints + mode | `SessionDebug` |
+| `BundleTemplate` | `core/include/wire/core/workflow_types.hpp` | 束テンプレ（固定本数/可変範囲、既定layer、mirror許可）を定義する。 | template id + count rules | `PersistCore` |
 | `BackboneResult` | `core/include/wire/core/workflow_types.hpp` | 入力仕様から分離した骨格グラフ結果を保持する。 | `BackboneEdge[]` | `DerivedCache` |
 | `ConductorGroupSpec` | `core/include/wire/core/workflow_types.hpp` | 束生成1回分の意図（カテゴリ/本数/種別）を定義する。 | category/count/kind | `SessionDebug` |
 | `ConductorLaneId`, `ConductorGroupState` | `core/include/wire/core/workflow_types.hpp` | 束生成時の lane 順序管理（内部）を保持する。 | bundle ref + lane order | `SessionDebug` |
 | `ChangeSet`, `EditResult<T>` | `core/include/wire/core/core_state.hpp` | 操作結果の外部観測差分を返す。 | entity IDs + error | `SessionDebug` |
 | `GenerateSimpleLine*`, `GenerateGroupedLine*` 入出力 | `core/include/wire/core/core_state.hpp` | 生成コマンド I/O を定義する。 | entity IDs + workflow params | `SessionDebug` |
-| `GenerateBundleFromPath*` 入出力 | `core/include/wire/core/core_state.hpp` | DrawPath 系束生成 I/O を定義する。 | polyline/category/parallel spans + generated IDs | `SessionDebug` |
+| `GenerateBundleFromPath*` 入出力 | `core/include/wire/core/core_state.hpp` | DrawPath 系束生成 I/O を定義する。 | polyline + bundle_template/count/layer + generated IDs | `SessionDebug` |
 | `PathDirectionCostBreakdown`, `PathDirectionEvaluationDebug` | `core/include/wire/core/debug_types.hpp` | 経路方向評価の診断内訳を保持する。 | scoring values | `SessionDebug` |
 | `SegmentLaneAssignment` | `core/include/wire/core/debug_types.hpp` | 区間ごとの lane 対応診断を保持する。 | poles/ports/slot IDs | `SessionDebug` |
 | `SlotCandidateDebug`, `SlotSelectionDebugRecord` | `core/include/wire/core/debug_types.hpp` | slot 選定診断とスコア内訳を保持する。 | score fields + IDs | `SessionDebug` |
@@ -83,7 +85,7 @@ Definition Layer
 | `Port` の `source_slot_id`, `template_layer/side/role`, 補正フラグ | テンプレ由来情報/生成診断と実接続点が同居。 | `PortPlacementMeta`（永続）と `PortPlacementDebug`（セッション）へ分割。 |
 | `Pole`/`Span` 内 `GenerationMeta` | セッション順序/由来と永続トポロジが同居。 | `generated/source` は必要時のみ残し、順序情報は workflow 側へ移す。 |
 | `CacheState` が設定と派生を同居 | 設定寿命とキャッシュ寿命が異なる。 | `GenerationSettingsState` と `DerivedCacheState` 分割。 |
-| `ConnectionIndex` の分類 | 再構築可能だが高速参照のため正本近傍にある。 | 当面は維持し、Phase5 serializer で再構築可能扱いを明示。 |
+| `ConnectionIndex` / `RelationIndex` の分類 | 再構築可能だが高速参照のため正本近傍にある。 | 当面は維持し、Phase5 serializer で再構築可能扱いを明示。 |
 
 ## 6. 命名整理（固定語彙）
 - `slot`: テンプレ候補点（`PortSlotTemplate`, `AnchorSlotTemplate`）

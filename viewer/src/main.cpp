@@ -110,6 +110,8 @@ struct ViewerUiState {
   double road_interval = 8.0;
   int road_category_index = static_cast<int>(wire::core::ConnectionCategory::kLowVoltage);
   std::uint32_t draw_category_mask = (1u << static_cast<int>(wire::core::ConnectionCategory::kLowVoltage));
+  std::uint32_t draw_bundle_template_mask = (1u << static_cast<int>(wire::core::BundleKind::kLowVoltage));
+  std::unordered_map<int, int> draw_bundle_count_by_template{};
   int road_pole_type_index = 0;
   int last_generated_poles = 0;
   int last_generated_spans = 0;
@@ -122,7 +124,6 @@ struct ViewerUiState {
   bool draw_keep_path_after_generate = true;
   bool draw_clicked_points_only = false;
   double draw_interval_m = 8.0;
-  int draw_parallel_spans = 0; // 0 = category standard lanes
   int draw_direction_mode = static_cast<int>(wire::core::PathDirectionMode::kAuto);
   bool layout_settings_loaded = false;
   bool layout_angle_correction_enabled = true;
@@ -473,6 +474,89 @@ std::string DrawCategoryPreview(const ViewerUiState& ui_state) {
   return oss.str();
 }
 
+std::vector<wire::core::BundleKind> SortedBundleTemplateKinds(const CoreState& state) {
+  std::vector<wire::core::BundleKind> ids;
+  ids.reserve(state.view().bundle_templates().size());
+  for (const auto& [id, _] : state.view().bundle_templates()) {
+    ids.push_back(id);
+  }
+  std::sort(ids.begin(), ids.end(), [](wire::core::BundleKind a, wire::core::BundleKind b) {
+    return static_cast<int>(a) < static_cast<int>(b);
+  });
+  return ids;
+}
+
+bool IsBundleTemplateSelected(const ViewerUiState& ui_state, wire::core::BundleKind kind) {
+  const int bit_index = static_cast<int>(kind);
+  if (bit_index < 0 || bit_index >= 32) {
+    return false;
+  }
+  return (ui_state.draw_bundle_template_mask & (1u << bit_index)) != 0u;
+}
+
+void SetBundleTemplateSelected(ViewerUiState& ui_state, wire::core::BundleKind kind, bool selected) {
+  const int bit_index = static_cast<int>(kind);
+  if (bit_index < 0 || bit_index >= 32) {
+    return;
+  }
+  const std::uint32_t bit = (1u << bit_index);
+  if (selected) {
+    ui_state.draw_bundle_template_mask |= bit;
+  } else {
+    ui_state.draw_bundle_template_mask &= ~bit;
+  }
+}
+
+std::vector<wire::core::BundleKind> SelectedBundleTemplates(const CoreState& state, const ViewerUiState& ui_state) {
+  std::vector<wire::core::BundleKind> selected{};
+  const auto all = SortedBundleTemplateKinds(state);
+  for (wire::core::BundleKind kind : all) {
+    if (IsBundleTemplateSelected(ui_state, kind)) {
+      selected.push_back(kind);
+    }
+  }
+  return selected;
+}
+
+std::string BundleTemplatePreview(const CoreState& state, wire::core::BundleKind kind) {
+  const auto it = state.view().bundle_templates().find(kind);
+  if (it == state.view().bundle_templates().end()) {
+    return "UnknownTemplate";
+  }
+  return it->second.name.empty() ? std::to_string(static_cast<int>(kind)) : it->second.name;
+}
+
+std::string BundleTemplateMultiPreview(const CoreState& state, const ViewerUiState& ui_state) {
+  const auto selected = SelectedBundleTemplates(state, ui_state);
+  if (selected.empty()) {
+    return "(none)";
+  }
+  if (selected.size() == 1) {
+    return BundleTemplatePreview(state, selected.front());
+  }
+  std::ostringstream oss;
+  for (std::size_t i = 0; i < selected.size(); ++i) {
+    if (i > 0) {
+      oss << ", ";
+    }
+    oss << BundleTemplatePreview(state, selected[i]);
+  }
+  return oss.str();
+}
+
+int ResolveBundleTemplateCount(ViewerUiState& ui_state, const wire::core::BundleTemplate& bundle_template,
+                               wire::core::BundleKind kind) {
+  if (bundle_template.count_rule == wire::core::BundleCountRuleKind::kFixed) {
+    return bundle_template.fixed_count;
+  }
+  const int key = static_cast<int>(kind);
+  auto it = ui_state.draw_bundle_count_by_template.find(key);
+  int value = (it == ui_state.draw_bundle_count_by_template.end()) ? bundle_template.default_count : it->second;
+  value = std::clamp(value, bundle_template.min_count, bundle_template.max_count);
+  ui_state.draw_bundle_count_by_template[key] = value;
+  return value;
+}
+
 std::vector<wire::core::PoleTypeId> SortedPoleTypeIds(const CoreState& state) {
   std::vector<wire::core::PoleTypeId> ids;
   ids.reserve(state.view().pole_types().size());
@@ -578,73 +662,65 @@ void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool
   road.id = ui_state.road_id++;
   road.polyline = ui_state.draw_path_points;
 
-  const auto selected_categories = SelectedDrawCategories(ui_state);
-  if (selected_categories.empty()) {
-    ui_state.last_error = "select at least one path category";
+  const auto selected_templates = SelectedBundleTemplates(state, ui_state);
+  if (selected_templates.empty()) {
+    ui_state.last_error = "select at least one bundle template";
     return;
   }
+
   const int mode_index = std::clamp(ui_state.draw_direction_mode, 0, 2);
   ui_state.draw_direction_mode = mode_index;
 
-  int total_generated_poles = 0;
-  int total_generated_spans = 0;
-  std::size_t success_categories = 0;
-  std::ostringstream failure_details;
-  bool has_failure = false;
-
-  for (const auto category : selected_categories) {
-    int parallel_spans = ui_state.draw_parallel_spans;
-    if (parallel_spans <= 0) {
-      parallel_spans = FallbackParallelSpanCount(category);
+  wire::core::BackboneSpec request{};
+  request.path.polyline = road.polyline;
+  if (ui_state.draw_clicked_points_only) {
+    // Disable intermediate poles by using an interval longer than the whole path.
+    request.interval_m = std::max(0.001, PolylineLength(road.polyline) + 1.0);
+  } else {
+    request.interval_m = ui_state.draw_interval_m;
+  }
+  request.pole_type_id = type_ids[ui_state.road_pole_type_index];
+  request.direction_mode = static_cast<wire::core::PathDirectionMode>(mode_index);
+  for (wire::core::BundleKind kind : selected_templates) {
+    const auto it = state.view().bundle_templates().find(kind);
+    if (it == state.view().bundle_templates().end()) {
+      ui_state.last_error = "selected bundle template is not available";
+      return;
     }
-    parallel_spans = std::clamp(parallel_spans, 0, 8);
-
-    wire::core::CoreState::GenerateBundleFromPathInput input{};
-    input.polyline = road.polyline;
-    if (ui_state.draw_clicked_points_only) {
-      // Disable intermediate poles by using an interval longer than the whole path.
-      input.interval_m = std::max(0.001, PolylineLength(road.polyline) + 1.0);
-    } else {
-      input.interval_m = ui_state.draw_interval_m;
+    const wire::core::BundleTemplate& bundle_template = it->second;
+    wire::core::BackboneBundleSpec bundle_request{};
+    bundle_request.bundle_template_id = kind;
+    bundle_request.layer = wire::core::SpanLayer::kUnknown;
+    bundle_request.count = 0;
+    if (bundle_template.count_rule == wire::core::BundleCountRuleKind::kRange) {
+      bundle_request.count = ResolveBundleTemplateCount(ui_state, bundle_template, kind);
     }
-    input.pole_type_id = type_ids[ui_state.road_pole_type_index];
-    input.category = category;
-    input.direction_mode = static_cast<wire::core::PathDirectionMode>(mode_index);
-    input.requested_lane_count = parallel_spans;
-
-    const auto result = state.GenerateBundleFromPath(input);
-    if (!result.ok) {
-      has_failure = true;
-      failure_details << CategoryLabel(category) << ": " << result.error << "; ";
-      continue;
-    }
-    ++success_categories;
-    total_generated_poles += static_cast<int>(result.value.generated_pole_ids.size());
-    total_generated_spans += static_cast<int>(result.value.generated_span_ids.size());
-    if (!result.value.generated_pole_ids.empty()) {
-      ui_state.selected_type = SelectedType::kPole;
-      ui_state.selected_id = result.value.generated_pole_ids.back();
-    } else if (!result.value.generated_span_ids.empty()) {
-      ui_state.selected_type = SelectedType::kSpan;
-      ui_state.selected_id = result.value.generated_span_ids.back();
-    }
+    request.bundles.push_back(bundle_request);
   }
 
-  if (success_categories == 0) {
-    ui_state.last_error = failure_details.str();
+  const auto result = state.GenerateFromBackboneSpec(request);
+  if (!result.ok) {
+    ui_state.last_error = result.error;
     PushLog(ui_state, from_enter_key ? "Generate path (Enter) failed" : "Generate path failed");
     return;
   }
 
-  ui_state.last_error = has_failure ? failure_details.str() : "";
-  ui_state.last_generated_poles = total_generated_poles;
-  ui_state.last_generated_spans = total_generated_spans;
+  ui_state.last_error.clear();
+  ui_state.last_generated_poles = static_cast<int>(result.value.generated_pole_ids.size());
+  ui_state.last_generated_spans = static_cast<int>(result.value.generated_span_ids.size());
   ui_state.last_generation_session = 0;
+  if (!result.value.generated_pole_ids.empty()) {
+    ui_state.selected_type = SelectedType::kPole;
+    ui_state.selected_id = result.value.generated_pole_ids.back();
+  } else if (!result.value.generated_span_ids.empty()) {
+    ui_state.selected_type = SelectedType::kSpan;
+    ui_state.selected_id = result.value.generated_span_ids.back();
+  }
 
   if (!ui_state.draw_keep_path_after_generate) {
     ui_state.draw_path_points.clear();
   }
-  PushLog(ui_state, "Generated path categories=" + std::to_string(success_categories) +
+  PushLog(ui_state, "Generated path templates=" + BundleTemplateMultiPreview(state, ui_state) +
                         " poles=" + std::to_string(ui_state.last_generated_poles) +
                         " spans=" + std::to_string(ui_state.last_generated_spans));
 }
@@ -1569,9 +1645,7 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
   ImGui::Checkbox("Clicked Points Only (No Intermediate Pole)", &ui_state.draw_clicked_points_only);
   ImGui::Checkbox("Show Preview", &ui_state.draw_show_preview);
   ImGui::Checkbox("Keep Path After Generate", &ui_state.draw_keep_path_after_generate);
-  ImGui::InputInt("Lane Override (0=category standard)", &ui_state.draw_parallel_spans);
-  ui_state.draw_parallel_spans = std::clamp(ui_state.draw_parallel_spans, 0, 8);
-  ImGui::TextUnformatted("Generate by Bundle unit (internal lanes are auto-managed)");
+  ImGui::TextUnformatted("Template-driven bundle generation");
   ImGui::Text("Path points: %d", static_cast<int>(ui_state.draw_path_points.size()));
   if (ui_state.draw_hover_valid) {
     ImGui::Text("Hover: %.2f %.2f %.2f", ui_state.draw_hover_point.x, ui_state.draw_hover_point.y,
@@ -1604,21 +1678,53 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
     }
   }
 
-  if (ImGui::BeginCombo("Path Categories", DrawCategoryPreview(ui_state).c_str())) {
-    for (int i = 0; i < static_cast<int>(kAllCategories.size()); ++i) {
-      bool selected = IsDrawCategorySelected(ui_state, i);
-      if (ImGui::Selectable(CategoryLabel(kAllCategories[i]), selected, ImGuiSelectableFlags_DontClosePopups)) {
-        selected = !selected;
-        SetDrawCategorySelected(ui_state, i, selected);
-      }
-    }
-    ImGui::EndCombo();
-  }
-  const auto selected_categories = SelectedDrawCategories(ui_state);
-  if (selected_categories.empty()) {
-    ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "Select at least one category");
+  const auto template_ids = SortedBundleTemplateKinds(state);
+  if (template_ids.empty()) {
+    ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "No bundle template registered in core");
   } else {
-    ImGui::Text("Selected Categories: %d", static_cast<int>(selected_categories.size()));
+    if (ImGui::BeginCombo("Bundle Templates", BundleTemplateMultiPreview(state, ui_state).c_str())) {
+      for (const wire::core::BundleKind kind : template_ids) {
+        bool selected = IsBundleTemplateSelected(ui_state, kind);
+        if (ImGui::Selectable(BundleTemplatePreview(state, kind).c_str(), selected,
+                              ImGuiSelectableFlags_DontClosePopups)) {
+          selected = !selected;
+          SetBundleTemplateSelected(ui_state, kind, selected);
+        }
+        if (selected) {
+          ImGui::SetItemDefaultFocus();
+        }
+      }
+      ImGui::EndCombo();
+    }
+    const auto selected_templates = SelectedBundleTemplates(state, ui_state);
+    if (selected_templates.empty()) {
+      ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "Select at least one bundle template");
+    }
+    for (wire::core::BundleKind kind : selected_templates) {
+      const auto it = state.view().bundle_templates().find(kind);
+      if (it == state.view().bundle_templates().end()) {
+        continue;
+      }
+      const wire::core::BundleTemplate& bundle_template = it->second;
+      ImGui::Separator();
+      ImGui::TextUnformatted(BundleTemplatePreview(state, kind).c_str());
+      ImGui::Text("Category: %s", CategoryLabel(bundle_template.category));
+      if (bundle_template.count_rule == wire::core::BundleCountRuleKind::kRange) {
+        const int key = static_cast<int>(kind);
+        int count = ResolveBundleTemplateCount(ui_state, bundle_template, kind);
+        ImGui::PushID(key);
+        ImGui::InputInt("Count", &count);
+        ImGui::PopID();
+        count = std::clamp(count, bundle_template.min_count, bundle_template.max_count);
+        ui_state.draw_bundle_count_by_template[key] = count;
+        ImGui::Text("Allowed Range: %d..%d (default=%d)", bundle_template.min_count, bundle_template.max_count,
+                    bundle_template.default_count);
+      } else {
+        ImGui::Text("Fixed Count: %d (template rule)", bundle_template.fixed_count);
+      }
+      ImGui::Text("Template Layer: %d", static_cast<int>(bundle_template.default_layer));
+      ImGui::Text("Allow Mirror: %s", bundle_template.allow_mirror ? "true" : "false");
+    }
   }
   if (ImGui::BeginCombo("Direction Mode", PathDirectionModeLabel(static_cast<wire::core::PathDirectionMode>(
                                               ui_state.draw_direction_mode)))) {
@@ -1638,20 +1744,6 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
       type_ids.empty() ? wire::core::kInvalidPoleTypeId
                        : type_ids[ClampedTypeIndex(ui_state.road_pole_type_index, type_ids.size())];
   (void)resolved_type_id;
-  if (!selected_categories.empty()) {
-    std::ostringstream lane_info;
-    lane_info << "Resolved Bundle Wires: ";
-    for (std::size_t i = 0; i < selected_categories.size(); ++i) {
-      const auto category = selected_categories[i];
-      const int auto_parallel = FallbackParallelSpanCount(category);
-      const int resolved_parallel = (ui_state.draw_parallel_spans > 0) ? ui_state.draw_parallel_spans : auto_parallel;
-      if (i > 0) {
-        lane_info << " / ";
-      }
-      lane_info << CategoryLabel(category) << "=" << resolved_parallel;
-    }
-    ImGui::TextUnformatted(lane_info.str().c_str());
-  }
   if (!ui_state.draw_clicked_points_only && ui_state.draw_interval_m <= 0.0) {
     ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "Path Interval must be > 0");
   }

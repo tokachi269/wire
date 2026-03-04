@@ -72,6 +72,36 @@ double dot_xy(const Vec3d& a, const Vec3d& b) { return a.x * b.x + a.y * b.y; }
 
 Vec3d left_perp_xy(const Vec3d& v) { return Vec3d{-v.y, v.x, 0.0}; }
 
+double orient2d_xy(const Vec3d& a, const Vec3d& b, const Vec3d& c) {
+  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+}
+
+bool xy_bbox_overlap(const Vec3d& a, const Vec3d& b, const Vec3d& c, const Vec3d& d) {
+  const double min_ax = std::min(a.x, b.x);
+  const double max_ax = std::max(a.x, b.x);
+  const double min_ay = std::min(a.y, b.y);
+  const double max_ay = std::max(a.y, b.y);
+  const double min_cx = std::min(c.x, d.x);
+  const double max_cx = std::max(c.x, d.x);
+  const double min_cy = std::min(c.y, d.y);
+  const double max_cy = std::max(c.y, d.y);
+  return !(max_ax < min_cx || max_cx < min_ax || max_ay < min_cy || max_cy < min_ay);
+}
+
+bool segments_intersect_xy_strict(const Vec3d& a, const Vec3d& b, const Vec3d& c, const Vec3d& d) {
+  if (!xy_bbox_overlap(a, b, c, d)) {
+    return false;
+  }
+  constexpr double kEps = 1e-9;
+  const double o1 = orient2d_xy(a, b, c);
+  const double o2 = orient2d_xy(a, b, d);
+  const double o3 = orient2d_xy(c, d, a);
+  const double o4 = orient2d_xy(c, d, b);
+  const bool ab_straddle_cd = ((o1 > kEps && o2 < -kEps) || (o1 < -kEps && o2 > kEps));
+  const bool cd_straddle_ab = ((o3 > kEps && o4 < -kEps) || (o3 < -kEps && o4 > kEps));
+  return ab_straddle_cd && cd_straddle_ab;
+}
+
 SharpCornerOrientationDebug compute_sharp_corner_orientation(const std::vector<Vec3d>& points, std::size_t index,
                                                              double sharp_threshold_deg) {
   SharpCornerOrientationDebug out{};
@@ -696,6 +726,7 @@ CoreState::generate_grouped_spans_between_poles(const std::vector<ObjectId>& pol
       const Pole* pb = edit_state_access().poles.find(pole_b);
       auto evaluate_mapping_score = [&](const std::vector<ObjectId>& candidate_b) -> std::int64_t {
         // Weighted local score to avoid lane crossings first, then reduce Z/layer discontinuity.
+        int cross_xy_geometry = 0;
         int cross_y = 0;
         int cross_z = 0;
         int layer_jump = 0;
@@ -705,6 +736,9 @@ CoreState::generate_grouped_spans_between_poles(const std::vector<ObjectId>& pol
         std::vector<double> y_b(static_cast<std::size_t>(lane_count), 0.0);
         std::vector<double> z_a(static_cast<std::size_t>(lane_count), 0.0);
         std::vector<double> z_b(static_cast<std::size_t>(lane_count), 0.0);
+        std::vector<Vec3d> pos_a(static_cast<std::size_t>(lane_count), Vec3d{});
+        std::vector<Vec3d> pos_b(static_cast<std::size_t>(lane_count), Vec3d{});
+        std::vector<bool> has_pair(static_cast<std::size_t>(lane_count), false);
 
         for (int lane = 0; lane < lane_count; ++lane) {
           const std::size_t idx = static_cast<std::size_t>(lane);
@@ -719,6 +753,9 @@ CoreState::generate_grouped_spans_between_poles(const std::vector<ObjectId>& pol
           y_b[idx] = (pb == nullptr) ? 0.0 : to_local_on_pole(*pb, port_b->world_position).y;
           z_a[idx] = port_a->world_position.z;
           z_b[idx] = port_b->world_position.z;
+          pos_a[idx] = port_a->world_position;
+          pos_b[idx] = port_b->world_position;
+          has_pair[idx] = true;
           layer_jump += std::abs(port_a->template_layer - port_b->template_layer);
           span_z_delta += std::abs(port_a->world_position.z - port_b->world_position.z);
         }
@@ -737,10 +774,15 @@ CoreState::generate_grouped_spans_between_poles(const std::vector<ObjectId>& pol
             if (dz_a * dz_b < -1e-9) {
               ++cross_z;
             }
+            if (has_pair[ii] && has_pair[jj] &&
+                segments_intersect_xy_strict(pos_a[ii], pos_b[ii], pos_a[jj], pos_b[jj])) {
+              ++cross_xy_geometry;
+            }
           }
         }
 
-        return static_cast<std::int64_t>(cross_y) * 100000 + static_cast<std::int64_t>(cross_z) * 50000 +
+        return static_cast<std::int64_t>(cross_xy_geometry) * 300000 +
+               static_cast<std::int64_t>(cross_y) * 100000 + static_cast<std::int64_t>(cross_z) * 50000 +
                static_cast<std::int64_t>(layer_jump) * 200 +
                static_cast<std::int64_t>(std::llround(span_z_delta * 1000.0));
       };
@@ -941,22 +983,75 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     result.error = "interval_m must be > 0";
     return result;
   }
-  if (!is_supported_category(request.category)) {
-    result.error = "unsupported connection category";
-    return result;
-  }
   if (find_pole_type(request.pole_type_id) == nullptr) {
     result.error = "pole type not found";
     return result;
   }
 
-  int lane_count = request.requested_lane_count;
-  if (lane_count <= 0) {
-    lane_count = default_lane_count_for_category(request.category);
+  struct ResolvedBundlePlan {
+    BundleKind template_id = BundleKind::kLowVoltage;
+    ConnectionCategory category = ConnectionCategory::kLowVoltage;
+    SpanLayer layer = SpanLayer::kUnknown;
+    int count = 1;
+    double spacing_m = 0.2;
+    bool allow_mirror = true;
+  };
+
+  std::vector<BackboneBundleSpec> bundle_requests = request.bundles;
+  const bool legacy_bundle_conversion = bundle_requests.empty();
+  if (legacy_bundle_conversion) {
+    if (!is_supported_category(request.category)) {
+      result.error = "unsupported connection category";
+      return result;
+    }
+    BackboneBundleSpec legacy{};
+    legacy.bundle_template_id = category_to_bundle_kind(request.category);
+    legacy.layer = category_to_span_layer(request.category);
+    legacy.count = request.requested_lane_count;
+    bundle_requests.push_back(legacy);
   }
-  if (lane_count <= 0) {
-    result.error = "failed to resolve lane count";
+  if (bundle_requests.empty()) {
+    result.error = "at least one bundle request is required";
     return result;
+  }
+
+  std::vector<ResolvedBundlePlan> bundle_plans{};
+  bundle_plans.reserve(bundle_requests.size());
+  for (const BackboneBundleSpec& bundle_request : bundle_requests) {
+    const BundleTemplate* bundle_template = find_bundle_template(bundle_request.bundle_template_id);
+    if (bundle_template == nullptr) {
+      result.error = "bundle template not found";
+      return result;
+    }
+    ResolvedBundlePlan plan{};
+    plan.template_id = bundle_template->id;
+    plan.category = bundle_template->category;
+    plan.layer = (bundle_request.layer == SpanLayer::kUnknown) ? bundle_template->default_layer : bundle_request.layer;
+    plan.spacing_m = bundle_template->default_spacing_m;
+    plan.allow_mirror = bundle_template->allow_mirror;
+    if (bundle_template->count_rule == BundleCountRuleKind::kFixed) {
+      if (bundle_request.count > 0 &&
+          !(legacy_bundle_conversion && bundle_request.count == bundle_template->fixed_count)) {
+        result.error = "count override is not allowed for fixed bundle template";
+        return result;
+      }
+      plan.count = bundle_template->fixed_count;
+    } else {
+      plan.count = (bundle_request.count > 0) ? bundle_request.count : bundle_template->default_count;
+      if (plan.count < bundle_template->min_count || plan.count > bundle_template->max_count) {
+        result.error = "bundle count is out of template range";
+        return result;
+      }
+    }
+    if (plan.count <= 0) {
+      result.error = "resolved bundle count must be > 0";
+      return result;
+    }
+    if (plan.layer == SpanLayer::kUnknown) {
+      result.error = "bundle layer could not be resolved";
+      return result;
+    }
+    bundle_plans.push_back(plan);
   }
 
   std::vector<Vec3d> guide_points = request.path.polyline;
@@ -1234,11 +1329,14 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     return result;
   }
 
-  auto count_existing_segment_spans = [&](ObjectId pole_a, ObjectId pole_b) -> int {
+  auto count_existing_segment_spans = [&](ObjectId pole_a, ObjectId pole_b, const ResolvedBundlePlan& plan) -> int {
     int count = 0;
-    const SpanLayer target_layer = category_to_span_layer(request.category);
     for (const Span& span : edit_state_access().spans.items()) {
-      if (span.layer != target_layer) {
+      if (span.layer != plan.layer || span.bundle_id == kInvalidObjectId) {
+        continue;
+      }
+      const Bundle* bundle = edit_state_access().bundles.find(span.bundle_id);
+      if (bundle == nullptr || bundle->kind != plan.template_id) {
         continue;
       }
       const Port* pa = edit_state_access().ports.find(span.port_a_id);
@@ -1255,47 +1353,52 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     return count;
   };
 
-  int missing_total = 0;
-  std::size_t first_missing_segment = ordered_pole_ids.size();
-  for (std::size_t i = 0; i + 1 < ordered_pole_ids.size(); ++i) {
-    const int existing_count = count_existing_segment_spans(ordered_pole_ids[i], ordered_pole_ids[i + 1]);
-    const int missing = std::max(0, lane_count - existing_count);
-    missing_total += missing;
-    if (missing > 0 && first_missing_segment == ordered_pole_ids.size()) {
-      first_missing_segment = i;
+  for (const ResolvedBundlePlan& plan : bundle_plans) {
+    int missing_total = 0;
+    std::size_t first_missing_segment = ordered_pole_ids.size();
+    for (std::size_t i = 0; i + 1 < ordered_pole_ids.size(); ++i) {
+      const int existing_count = count_existing_segment_spans(ordered_pole_ids[i], ordered_pole_ids[i + 1], plan);
+      const int missing = std::max(0, plan.count - existing_count);
+      missing_total += missing;
+      if (missing > 0 && first_missing_segment == ordered_pole_ids.size()) {
+        first_missing_segment = i;
+      }
     }
-  }
+    if (missing_total <= 0) {
+      continue;
+    }
 
-  ObjectId bundle_id = kInvalidObjectId;
-  if (missing_total > 0) {
-    const BundleKind bundle_kind = category_to_bundle_kind(request.category);
-    const double spacing = (request.category == ConnectionCategory::kHighVoltage) ? 0.45 : 0.20;
-    EditResult<ObjectId> bundle_result = AddBundle(lane_count, spacing, bundle_kind);
+    EditResult<ObjectId> bundle_result = AddBundle(plan.count, plan.spacing_m, plan.template_id);
     if (!bundle_result.ok) {
       *this = snapshot;
       result.error = bundle_result.error;
       return result;
     }
-    bundle_id = bundle_result.value;
+    const ObjectId bundle_id = bundle_result.value;
     append_change_set(result.change_set, bundle_result.change_set);
-  }
+    result.value.bundle_ids.push_back(bundle_id);
+    if (result.value.bundle_id == kInvalidObjectId) {
+      result.value.bundle_id = bundle_id;
+    }
 
-  if (missing_total > 0 && first_missing_segment < ordered_pole_ids.size() - 1) {
+    if (first_missing_segment >= ordered_pole_ids.size() - 1) {
+      continue;
+    }
     std::vector<ObjectId> local_poles{};
     local_poles.insert(local_poles.end(), ordered_pole_ids.begin() + static_cast<std::ptrdiff_t>(first_missing_segment),
                        ordered_pole_ids.end());
 
     ConductorGroupSpec group_spec{};
-    group_spec.category = request.category;
-    group_spec.conductor_count = lane_count;
-    group_spec.group_kind = (lane_count <= 1)
+    group_spec.category = plan.category;
+    group_spec.conductor_count = plan.count;
+    group_spec.group_kind = (plan.count <= 1)
                                 ? ConductorGroupKind::kSingle
-                                : ((request.category == ConnectionCategory::kHighVoltage && lane_count == 3)
+                                : ((plan.category == ConnectionCategory::kHighVoltage && plan.count == 3)
                                        ? ConductorGroupKind::kThreePhase
                                        : ConductorGroupKind::kParallel);
-    group_spec.lane_spacing_m = (request.category == ConnectionCategory::kHighVoltage) ? 0.45 : 0.20;
+    group_spec.lane_spacing_m = plan.spacing_m;
     group_spec.maintain_lane_order = true;
-    group_spec.allow_lane_mirror = true;
+    group_spec.allow_lane_mirror = plan.allow_mirror;
 
     std::vector<SegmentLaneAssignment> lane_assignments{};
     EditResult<std::vector<ObjectId>> spans_result =
@@ -1311,6 +1414,7 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       const ObjectId span_id = spans_result.value[i];
       Span* span = edit_state_access().spans.find(span_id);
       if (span != nullptr) {
+        span->layer = plan.layer;
         span->generation.generated = true;
         span->generation.source = GenerationSource::kRoadAuto;
         span->generation.generation_session_id = session_id;
@@ -1320,10 +1424,6 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       }
       result.value.generated_span_ids.push_back(span_id);
     }
-  }
-
-  if (bundle_id != kInvalidObjectId) {
-    result.value.bundle_id = bundle_id;
   }
 
   result.ok = true;
@@ -1415,38 +1515,51 @@ CoreState::RegenerateSessionAutoParts(std::uint64_t generation_session_id, const
     }
     std::vector<ObjectId> owned_ports{};
     std::vector<ObjectId> owned_anchors{};
-    for (const Port& port : edit_state_access().ports.items()) {
-      if (port.owner_pole_id == pole_id) {
-        owned_ports.push_back(port.id);
-      }
+    if (const auto it = relation_index_access().ports_by_pole.find(pole_id);
+        it != relation_index_access().ports_by_pole.end()) {
+      owned_ports = it->second;
     }
-    for (const Anchor& anchor : edit_state_access().anchors.items()) {
-      if (anchor.owner_pole_id == pole_id) {
-        owned_anchors.push_back(anchor.id);
-      }
+    if (const auto it = relation_index_access().anchors_by_pole.find(pole_id);
+        it != relation_index_access().anchors_by_pole.end()) {
+      owned_anchors = it->second;
     }
 
     bool has_live_connections = false;
+    bool has_manual_port = false;
     for (ObjectId port_id : owned_ports) {
+      const Port* owned_port = edit_state_access().ports.find(port_id);
+      if (owned_port != nullptr && owned_port->position_mode == PortPositionMode::kManual) {
+        has_manual_port = true;
+      }
       auto it = connection_index_access().spans_by_port.find(port_id);
       if (it != connection_index_access().spans_by_port.end() && !it->second.empty()) {
         has_live_connections = true;
         break;
       }
     }
-    if (has_live_connections) {
+    if (has_live_connections || has_manual_port) {
       continue;
     }
 
     for (ObjectId port_id : owned_ports) {
       connection_index_access().spans_by_port.erase(port_id);
+      const Port* port_ptr = edit_state_access().ports.find(port_id);
+      const Port port_copy = (port_ptr == nullptr) ? Port{} : *port_ptr;
       if (edit_state_access().ports.remove(port_id)) {
+        if (port_copy.owner_pole_id != kInvalidObjectId) {
+          index_remove(relation_index_access().ports_by_pole, port_copy.owner_pole_id, port_id);
+        }
         add_unique_id(cleanup_changes.deleted_ids, port_id);
       }
     }
     for (ObjectId anchor_id : owned_anchors) {
       connection_index_access().spans_by_anchor.erase(anchor_id);
+      const Anchor* anchor_ptr = edit_state_access().anchors.find(anchor_id);
+      const Anchor anchor_copy = (anchor_ptr == nullptr) ? Anchor{} : *anchor_ptr;
       if (edit_state_access().anchors.remove(anchor_id)) {
+        if (anchor_copy.owner_pole_id != kInvalidObjectId) {
+          index_remove(relation_index_access().anchors_by_pole, anchor_copy.owner_pole_id, anchor_id);
+        }
         add_unique_id(cleanup_changes.deleted_ids, anchor_id);
       }
     }
@@ -1464,6 +1577,7 @@ CoreState::RegenerateSessionAutoParts(std::uint64_t generation_session_id, const
       }
     }
     if (!used && edit_state_access().bundles.remove(bundle_id)) {
+      relation_index_access().spans_by_bundle.erase(bundle_id);
       add_unique_id(cleanup_changes.deleted_ids, bundle_id);
     }
   }
@@ -1502,6 +1616,18 @@ CoreState::GenerateBundleFromPath(const GenerateBundleFromPathInput& input) {
   request.path.polyline = input.polyline;
   request.interval_m = input.interval_m;
   request.pole_type_id = input.pole_type_id;
+  const bool use_legacy_bundle_input = (input.bundle_template_id == BundleKind::kLowVoltage &&
+                                        input.layer == SpanLayer::kUnknown && input.count == 0 &&
+                                        (input.category != ConnectionCategory::kLowVoltage ||
+                                         input.requested_lane_count > 0));
+  if (!use_legacy_bundle_input) {
+    BackboneBundleSpec bundle{};
+    bundle.bundle_template_id = input.bundle_template_id;
+    bundle.layer = input.layer;
+    bundle.count = input.count;
+    request.bundles.push_back(bundle);
+  }
+  // Legacy fallback input (kept for staged migration).
   request.category = input.category;
   request.direction_mode = input.direction_mode;
   request.requested_lane_count = input.requested_lane_count;

@@ -19,10 +19,12 @@
 - `Pole`, `Port`, `Anchor`, `Bundle`, `Span`, `Attachment`
 - 複数本配線は `Bundle + 複数 Span`
 - `lane` は workflow/debug の内部概念で、公開正本 API にはしない
+- Bundle本数は `BundleTemplate` で決める（固定テンプレは上書き禁止、可変テンプレは範囲制約）。
 
 ## 4. 重要な境界ルール
 - DrawPath は入力ツール。正本ではない。
 - 生成器の中心入力は `BackboneSpec`。
+- `BackboneSpec.bundles[]` で束テンプレを指定する。
 - `slot` はテンプレ候補、`Port` は実接続点（混同しない）。
 - 更新は編集 API 経由のみ。外部から mutable 参照で正本を直接触らない。
 

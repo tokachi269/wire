@@ -288,7 +288,10 @@ Transformd make_auto_pole_transform(const std::vector<Vec3d>& points, std::size_
 
 } // namespace
 
-CoreState::CoreState() { register_default_pole_types(); }
+CoreState::CoreState() {
+  register_default_pole_types();
+  register_default_bundle_templates();
+}
 
 EditResult<ObjectId> CoreState::AddPole(const Transformd& world_transform, double height_m, std::string_view name,
                                         PoleKind kind, PlacementMode placement_mode) {
@@ -343,6 +346,9 @@ EditResult<ObjectId> CoreState::AddPort(ObjectId owner_pole_id, const Vec3d& wor
   port.side_scale_applied = 1.0;
   apply_port_position_mode(port, PortPositionMode::kAuto, PortPlacementSourceKind::kGenerated);
   edit_state_.ports.insert(port);
+  if (owner_pole_id != kInvalidObjectId) {
+    index_add(relation_index_.ports_by_pole, owner_pole_id, port.id);
+  }
 
   result.ok = true;
   result.value = port.id;
@@ -370,6 +376,9 @@ EditResult<ObjectId> CoreState::AddAnchor(ObjectId owner_pole_id, const Vec3d& w
   anchor.support_kind = support_kind;
   anchor.support_strength = support_strength;
   edit_state_.anchors.insert(anchor);
+  if (owner_pole_id != kInvalidObjectId) {
+    index_add(relation_index_.anchors_by_pole, owner_pole_id, anchor.id);
+  }
 
   result.ok = true;
   result.value = anchor.id;
@@ -1472,6 +1481,72 @@ const PoleTypeDefinition* CoreState::find_pole_type(PoleTypeId pole_type_id) con
   return &it->second;
 }
 
+void CoreState::register_default_bundle_templates() {
+  BundleTemplate hv{};
+  hv.id = BundleKind::kHighVoltage;
+  hv.name = "HV_3PH";
+  hv.category = ConnectionCategory::kHighVoltage;
+  hv.default_layer = SpanLayer::kHighVoltage;
+  hv.count_rule = BundleCountRuleKind::kFixed;
+  hv.fixed_count = 3;
+  hv.min_count = 3;
+  hv.max_count = 3;
+  hv.default_count = 3;
+  hv.default_spacing_m = 0.45;
+  hv.allow_mirror = true;
+  bundle_templates_[hv.id] = hv;
+
+  BundleTemplate lv{};
+  lv.id = BundleKind::kLowVoltage;
+  lv.name = "LV_BUNDLE";
+  lv.category = ConnectionCategory::kLowVoltage;
+  lv.default_layer = SpanLayer::kLowVoltage;
+  lv.count_rule = BundleCountRuleKind::kRange;
+  lv.fixed_count = 0;
+  lv.min_count = 1;
+  lv.max_count = 8;
+  lv.default_count = 2;
+  lv.default_spacing_m = 0.20;
+  lv.allow_mirror = true;
+  bundle_templates_[lv.id] = lv;
+
+  BundleTemplate comm{};
+  comm.id = BundleKind::kCommunication;
+  comm.name = "COMM_BUNDLE";
+  comm.category = ConnectionCategory::kCommunication;
+  comm.default_layer = SpanLayer::kCommunication;
+  comm.count_rule = BundleCountRuleKind::kRange;
+  comm.fixed_count = 0;
+  comm.min_count = 1;
+  comm.max_count = 8;
+  comm.default_count = 1;
+  comm.default_spacing_m = 0.20;
+  comm.allow_mirror = true;
+  bundle_templates_[comm.id] = comm;
+
+  BundleTemplate optical{};
+  optical.id = BundleKind::kOptical;
+  optical.name = "OPTICAL_FIXED";
+  optical.category = ConnectionCategory::kOptical;
+  optical.default_layer = SpanLayer::kOptical;
+  optical.count_rule = BundleCountRuleKind::kFixed;
+  optical.fixed_count = 1;
+  optical.min_count = 1;
+  optical.max_count = 1;
+  optical.default_count = 1;
+  optical.default_spacing_m = 0.20;
+  optical.allow_mirror = true;
+  bundle_templates_[optical.id] = optical;
+}
+
+const BundleTemplate* CoreState::find_bundle_template(BundleKind bundle_template_id) const {
+  auto it = bundle_templates_.find(bundle_template_id);
+  if (it == bundle_templates_.end()) {
+    return nullptr;
+  }
+  return &it->second;
+}
+
 std::vector<PortSlotTemplate> CoreState::sorted_port_slots(const PoleTypeDefinition& pole_type,
                                                            ConnectionCategory category) const {
   std::vector<PortSlotTemplate> out;
@@ -1958,6 +2033,31 @@ void CoreState::add_unique_id(std::vector<ObjectId>& ids, ObjectId id) {
   }
 }
 
+void CoreState::index_add(std::unordered_map<ObjectId, std::vector<ObjectId>>& map, ObjectId key, ObjectId value) {
+  if (key == kInvalidObjectId || value == kInvalidObjectId) {
+    return;
+  }
+  std::vector<ObjectId>& ids = map[key];
+  if (std::find(ids.begin(), ids.end(), value) == ids.end()) {
+    ids.push_back(value);
+  }
+}
+
+void CoreState::index_remove(std::unordered_map<ObjectId, std::vector<ObjectId>>& map, ObjectId key, ObjectId value) {
+  if (key == kInvalidObjectId || value == kInvalidObjectId) {
+    return;
+  }
+  auto it = map.find(key);
+  if (it == map.end()) {
+    return;
+  }
+  std::vector<ObjectId>& ids = it->second;
+  ids.erase(std::remove(ids.begin(), ids.end(), value), ids.end());
+  if (ids.empty()) {
+    map.erase(it);
+  }
+}
+
 std::string CoreState::dirty_bits_to_string(DirtyBits bits) {
   std::string text;
   if (any(bits, DirtyBits::kTopology))
@@ -2022,6 +2122,37 @@ std::unordered_map<ObjectId, std::vector<ObjectId>> CoreState::make_expected_anc
     }
     if (span.anchor_b_id != kInvalidObjectId) {
       out[span.anchor_b_id].push_back(span.id);
+    }
+  }
+  return out;
+}
+
+std::unordered_map<ObjectId, std::vector<ObjectId>> CoreState::make_expected_pole_port_index(const EditState& edit_state) {
+  std::unordered_map<ObjectId, std::vector<ObjectId>> out;
+  for (const Port& port : edit_state.ports.items()) {
+    if (port.owner_pole_id != kInvalidObjectId) {
+      out[port.owner_pole_id].push_back(port.id);
+    }
+  }
+  return out;
+}
+
+std::unordered_map<ObjectId, std::vector<ObjectId>>
+CoreState::make_expected_pole_anchor_index(const EditState& edit_state) {
+  std::unordered_map<ObjectId, std::vector<ObjectId>> out;
+  for (const Anchor& anchor : edit_state.anchors.items()) {
+    if (anchor.owner_pole_id != kInvalidObjectId) {
+      out[anchor.owner_pole_id].push_back(anchor.id);
+    }
+  }
+  return out;
+}
+
+std::unordered_map<ObjectId, std::vector<ObjectId>> CoreState::make_expected_bundle_span_index(const EditState& edit_state) {
+  std::unordered_map<ObjectId, std::vector<ObjectId>> out;
+  for (const Span& span : edit_state.spans.items()) {
+    if (span.bundle_id != kInvalidObjectId) {
+      out[span.bundle_id].push_back(span.id);
     }
   }
   return out;

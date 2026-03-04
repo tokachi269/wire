@@ -16,14 +16,18 @@ CoreState::PoleDetailInfo CoreState::GetPoleDetail(ObjectId pole_id) const {
     return detail;
   }
   detail.pole_type = find_pole_type(detail.pole->pole_type_id);
-  for (const Port& port : edit_state_.ports.items()) {
-    if (port.owner_pole_id == pole_id) {
-      detail.owned_ports.push_back(&port);
+  if (const auto it = relation_index_.ports_by_pole.find(pole_id); it != relation_index_.ports_by_pole.end()) {
+    for (ObjectId port_id : it->second) {
+      if (const Port* port = edit_state_.ports.find(port_id); port != nullptr) {
+        detail.owned_ports.push_back(port);
+      }
     }
   }
-  for (const Anchor& anchor : edit_state_.anchors.items()) {
-    if (anchor.owner_pole_id == pole_id) {
-      detail.owned_anchors.push_back(&anchor);
+  if (const auto it = relation_index_.anchors_by_pole.find(pole_id); it != relation_index_.anchors_by_pole.end()) {
+    for (ObjectId anchor_id : it->second) {
+      if (const Anchor* anchor = edit_state_.anchors.find(anchor_id); anchor != nullptr) {
+        detail.owned_anchors.push_back(anchor);
+      }
     }
   }
   std::sort(detail.owned_ports.begin(), detail.owned_ports.end(),
@@ -38,11 +42,18 @@ std::vector<ObjectId> CoreState::GetSpansByBundle(ObjectId bundle_id) const {
   if (bundle_id == kInvalidObjectId) {
     return span_ids;
   }
-  for (const Span& span : edit_state_.spans.items()) {
-    if (span.bundle_id == bundle_id) {
-      span_ids.push_back(span.id);
+  auto it = relation_index_.spans_by_bundle.find(bundle_id);
+  if (it == relation_index_.spans_by_bundle.end()) {
+    return span_ids;
+  }
+  span_ids.reserve(it->second.size());
+  for (ObjectId span_id : it->second) {
+    if (edit_state_.spans.find(span_id) != nullptr) {
+      span_ids.push_back(span_id);
     }
   }
+  std::sort(span_ids.begin(), span_ids.end());
+  span_ids.erase(std::unique(span_ids.begin(), span_ids.end()), span_ids.end());
   return span_ids;
 }
 

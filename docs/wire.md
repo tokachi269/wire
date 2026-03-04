@@ -47,12 +47,15 @@
 ### 6.1 生成入力
 - DrawPath はツール入力。
 - 生成器は `BackboneSpec` を受け取る。
+- `BackboneSpec.bundles[]` で束テンプレを指定する（`bundle_template_id` 必須）。
 - 生成結果は `BackboneResult` で扱う（入力条件と分離）。
 
 ### 6.2 生成原則
 - DrawPath 点は既定で強制 Manual にしない。
 - Manual はユーザー操作（Pin/Unpin）で明示する。
 - 複数本は `Bundle + 複数 Span` で表現する。
+- 固定テンプレ（例: 高圧3本）は `count` 上書きを許可しない。
+- 可変テンプレ（例: 通信束）はテンプレ範囲内でのみ `count` を受け付ける。
 
 ### 6.3 再生成原則
 - Manual Pole / Manual Port は保持する。

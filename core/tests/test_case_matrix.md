@@ -1,7 +1,7 @@
 ﻿# Core Test Case Matrix (Phase4.8)
 
 ## Scope and policy
-- 観測根拠: 公開API戻り値、`view()`、`connection_index()`、`find_*cache()`、`slot_selection_debug_records()`、`last_path_direction_debug()`、`last_lane_assignments()`、`Validate()` のみ。
+- 観測根拠: 公開API戻り値、`view()`、`connection_index()`、`relation_index()`、`find_*cache()`、`slot_selection_debug_records()`、`last_path_direction_debug()`、`last_lane_assignments()`、`Validate()` のみ。
 - 期待値粒度: `Exact` は決定論のみ、`Invariant` は不変条件のみ。
 - モック方針: ドメインロジックのモック禁止（本スイートはモック未使用）。
 - 時間/並行: 実時間待ち・非決定並行を使わない。
@@ -45,12 +45,14 @@
 | C35 | 内外補正差 | 左折/右折 | GeneratePolesAlongRoad | Invariant: 外側オフセット>内側 | turn_sign/slot座標 | 角圧縮の低減 |
 | C61 | 鋭角自動拡幅 | 鋭角/鈍角の同一テンプレート比較 | GenerateSimpleLineFromPoints | Invariant: 鋭角の左右レーン間隔が鈍角より広い（カテゴリ非依存） | corner poleのlocal Y差 | 鋭角での線間距離不足防止 |
 | C62 | 群レーンねじれ抑制 | U字Guide + HV3 lane | GenerateGroupedLine(allow_lane_mirror=true) | Invariant: 区間ごとのlane順逆転数が0 | lane assignment port local Y順 | 群配線のクロス抑制 |
+| C76 | 鋭角コーナーXY交差抑制 | 鋭角コーナーを含むGuide + COMM4 lane | GenerateGroupedLine(allow_lane_mirror=true) | Invariant: 区間内のlane線分XY交差数が0 | lane assignment/port world位置 | 鋭角時の見た目破綻防止 |
 | C63 | mirror導入の非悪化（Y/Z/Layer） | 同一路線をmirror無効/有効で比較 | GenerateGroupedLine(allow_lane_mirror=false/true) | Invariant: 有効時の複合指標（Y逆転+Z逆転+layer jump）が無効時以下 | lane assignment/port座標/template layer | 生成品質調整で見た目悪化させない |
-| C64 | Guide頂点の強制Manual解除 | 3頂点Guide | GenerateFromGuide(既定設定) | Exact: 中間頂点PoleはAuto、端点のみManual（既定） | pole placement_mode | DrawPath点=強制Pinの回避 |
+| C64 | Guide頂点の強制Manual解除 | 3頂点Guide | GenerateFromGuide(既定設定) | Exact: 中間頂点/端点PoleともにAuto（既定） | pole placement_mode | DrawPath点=強制Pinの回避 |
 | C65 | pin_verticesオプション | 3頂点Guide | GenerateFromGuide(pin_vertices=true) | Exact: 中間頂点PoleもManual | pole placement_mode | ピン留め挙動の明示制御 |
 | C66 | Pole Pin/Unpin切替 | 既存Pole | SetPolePlacementMode(Auto→Manual→Auto) | Exact: mode遷移とuser_edited整合 | pole fields | ユーザー明示ピン留め運用 |
 | C67 | セッション局所再生成でManual Pole保持 | 既存session生成 + 中間PoleをManual化 | RegenerateSessionAutoParts(session,newGuide) | Invariant: Manual Pole位置不変、Auto部分のみ更新 | pole位置/mode/span数 | 軽微変更で手直し消失防止 |
 | C68 | セッション局所再生成でManual Port保持 | 既存session生成 + PortをManual化 | RegenerateSessionAutoParts(session,newGuide) | Invariant: Manual Port位置不変 | port位置/mode | ポート手直し保護 |
+| C72 | セッション局所再生成でAuto Pole配下Manual Port保持 | 既存session生成 + Auto Pole配下PortをManual化 | RegenerateSessionAutoParts(session,newGuide) | Invariant: owner PoleはAutoのまま、Manual Port位置不変 | pole mode/port位置 | Port手直しをPole Pin必須にしない |
 | C69 | 他セッション非干渉 | session1/session2を別生成 | RegenerateSessionAutoParts(session1,...) | Invariant: session2のPole/Span不変 | pole/span存在と位置 | 局所更新の安全性 |
 | C36 | DrawPath点直配置 | クリック点3 | GenerateSimpleLineFromPoints | Exact: Pole数=点数,位置一致,yaw一致 | pole position/yaw | DrawPath直感性 |
 | C37 | 幾何based side選定 | 2Pole(左右) | AddConnectionByPole(Branch) | Invariant: 右手前でRight,左手前でLeft | selected slot side | 偶奇依存排除 |
@@ -66,6 +68,10 @@
 | C47 | DrawPath Bundle生成(HV標準) | 有効Path+PoleType | GenerateBundleFromPath(HV, lane=0) | Invariant: Bundle作成+標準3並列+全Spanにbundle_id | result IDs/span fields/Validate | 束単位生成の成立 |
 | C48 | DrawPath Bundle生成方向モード | 有効Path | GenerateBundleFromPath(Forward/Reverse/Auto) | Invariant: 全モードで生成成功 | result/generated spans | 束単位向き指定の入口 |
 | C49 | DrawPath Bundle生成の異常系 | 新規CoreState | polyline不足/interval<=0/未知category/未知PoleType | Exact: fail+状態不変+復帰成功 | error/counts/後続成功 | 入力不正耐性と運用安定 |
+| C73 | 固定テンプレcount上書き拒否 | BackboneSpec + HV_3PH | GenerateFromBackboneSpec(bundle=count指定) | Exact: fail（上書き不可） | error | 固定規格の強制 |
+| C74 | 通信可変テンプレ本数反映 | BackboneSpec + COMM_BUNDLE | GenerateFromBackboneSpec(count=1/3) | Invariant: countに応じてSpan本数が増減 | generated span数/bundle count | 可変束の運用性 |
+| C75 | 通信可変テンプレ範囲外拒否 | BackboneSpec + COMM_BUNDLE | GenerateFromBackboneSpec(count=max超過) | Exact: fail（丸めなし） | error | 入力異常の早期検出 |
+| C77 | 複数テンプレ同時生成 | BackboneSpec + LV/COMM複合指定 | GenerateFromBackboneSpec(bundles複数) | Invariant: bundleが複数生成され、Span数が合算本数に一致 | result.bundle_ids/generated spans | 複数束同時入力の成立 |
 | C50 | Port初期モード | 新規Port追加 | AddPort | Exact: position_mode=Auto | port fields | 既存互換維持 |
 | C51 | Port手修正/解除 | 接続済Port | SetPortWorldPositionManual→ResetPortPositionToAuto | Invariant: Manual化→Auto復帰, 関連SpanのみDirty | port/runtime | 手直し維持と復帰性 |
 | C52 | Manual保護 | 手修正Portあり | SetPoleFlip180 | Invariant: Manual Port位置が維持される | port position/mode | 軽微再生成で手修正消失防止 |

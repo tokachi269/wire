@@ -93,4 +93,4 @@ build\viewer\Debug\wire_viewer.exe
 
 ---
 
-詳細は `docs/wire.md` と `docs/codex_shared_context.md` を参照してください。
+詳細は `docs/README.md` を入口に参照してください。

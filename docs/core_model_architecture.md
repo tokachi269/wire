@@ -1,73 +1,72 @@
-﻿# Core Model Architecture
+﻿# コアモデル設計方針
 
-## Purpose
-This document fixes the architecture rules used by `core` so feature growth does not reintroduce hidden mutation paths or layer violations.
+## 目的
+この文書は `core` の設計ルールを固定し、機能追加時に隠れた更新経路やレイヤ違反が再発しないようにするためのものです。
 
-## Layer Model
+## レイヤモデル
 
 1. `Definition`
-- Template/static definitions.
-- Example: `PoleTypeDefinition`, `PortSlotTemplate`, `AnchorSlotTemplate`.
+- テンプレート/静的定義。
+- 例: `PoleTypeDefinition`, `PortSlotTemplate`, `AnchorSlotTemplate`。
 
-2. `Entity` (authoritative persist core)
-- Runtime authoritative network objects.
-- Example: `Pole`, `Port`, `Anchor`, `Bundle`, `Span`, `Attachment`.
+2. `Entity`（永続正本）
+- 実行時の正本ネットワーク実体。
+- 例: `Pole`, `Port`, `Anchor`, `Bundle`, `Span`, `Attachment`。
 
-3. `Workflow` (operation input/output, non-authoritative)
-- Generation/edit requests and transient planning structures.
-- Example: `RoadSegment`, `BackboneInputSpec`, `BackboneSpec`, `ConductorGroupSpec`.
+3. `Workflow`（操作入力/出力、非正本）
+- 生成/編集要求や一時的な計画構造。
+- 例: `RoadSegment`, `BackboneInputSpec`, `BackboneSpec`, `ConductorGroupSpec`。
 
-4. `Cache/Debug` (derived/session)
-- Rebuildable cache and diagnostics.
-- Example: `CurveCache`, `BoundsCache`, `DirtyQueue`, `SpanRuntimeState`, path/slot debug records.
+4. `Cache/Debug`（派生/セッション）
+- 再構築可能なキャッシュと診断情報。
+- 例: `CurveCache`, `BoundsCache`, `DirtyQueue`, `SpanRuntimeState`, path/slot デバッグ記録。
 
-## Dependency Rules (fixed)
+## 依存ルール（固定）
 
-- `Definition` must not depend on `Entity`.
-- `Entity` must not depend on `Workflow` or `Debug`.
-- `Workflow` may read `Definition` and `Entity`, but must not mutate entity state directly.
-- `Cache/Debug` may read `Entity`, but must not become authoritative.
-- Viewer/tool state never belongs to entity model.
+- `Definition` は `Entity` に依存しない。
+- `Entity` は `Workflow` / `Debug` に依存しない。
+- `Workflow` は `Definition` / `Entity` を参照してよいが、`Entity` を直接更新してはいけない。
+- `Cache/Debug` は `Entity` を参照してよいが、正本になってはいけない。
+- viewer/tool の状態は entity モデルに入れない。
 
-## Mutation Rules (fixed)
+## 変更ルール（固定）
 
-- Authoritative updates must go through `CoreState` edit APIs.
-- External mutable references to internal stores are prohibited.
-- `ObjectStore` mutable backing (`items_mutable`) is restricted to `CoreState` internals.
-- Direct store mutation in viewer/tools is prohibited by design.
+- 正本更新は必ず `CoreState` の編集 API を通す。
+- 外部から内部ストアへの mutable 参照は公開しない。
+- `ObjectStore` の mutable 実体（`items_mutable`）は `CoreState` 内部に限定する。
+- viewer/tool からのストア直接変更は設計上禁止する。
 
-## Invariants (minimum required)
+## 不変条件（最低限）
 
-1. Reference integrity
-- `Span.port_a_id`/`port_b_id` point to existing ports.
-- `Port.owner_pole_id` points to existing pole when set.
-- `Span.anchor_*` point to existing anchors when set.
+1. 参照整合
+- `Span.port_a_id` / `port_b_id` は既存 `Port` を指す。
+- `Port.owner_pole_id` が設定されている場合は既存 `Pole` を指す。
+- `Span.anchor_*` が設定されている場合は既存 `Anchor` を指す。
 
-2. Bundle/span integrity
-- If `Span.bundle_id` is set, the referenced bundle must exist.
-- Grouped wires are represented as multiple spans that share one `bundle_id`.
-- Lane is workflow/debug metadata and is not an entity-level invariant.
+2. Bundle/Span 整合
+- `Span.bundle_id` が設定されている場合、参照先 `Bundle` が存在する。
+- 複数本配線は同一 `bundle_id` を共有する複数 `Span` で表現する。
+- lane は workflow/debug メタデータであり、entity 不変条件には含めない。
 
-3. Index/cache integrity
-- `ConnectionIndex` must match expected Span relations.
-- `SpanRuntimeState` exists for every span and no dangling runtime remains.
+3. インデックス/キャッシュ整合
+- `ConnectionIndex` は `Span` 関係と一致する。
+- 全 `Span` に `SpanRuntimeState` が存在し、ダングリング状態を残さない。
 
-4. Manual/Auto precedence
-- `Pole.placement_mode=Manual` means user-intent placement (regeneration should respect it).
-- `Port.position_mode=Manual` means position is not auto-overwritten.
-- `Auto` state is eligible for regeneration/reprojection.
+4. Manual/Auto 優先
+- `Pole.placement_mode=Manual` はユーザー意図配置（再生成時に尊重）。
+- `Port.position_mode=Manual` は自動上書きしない。
+- `Auto` は再生成/再投影対象になり得る。
 
-## Edit Priority Rules
+## 編集優先ルール
 
-- Manual user edits take precedence over auto generation.
-- Regeneration targets auto parts first; manual parts are preserved by default.
-- Dirty propagation is local (connected spans/anchors), not global.
+- 手動編集は自動生成より優先。
+- 再生成は Auto 部分を先に対象化し、Manual 部分は既定で保持。
+- Dirty 伝播は局所（接続 span/anchor）に限定し、全体波及を避ける。
 
-## Naming Rules
+## 命名ルール
 
-- `slot`: template candidate position, not runtime endpoint.
-- `port`: runtime connection endpoint.
-- `span`: runtime edge between ports.
-- `bundle`: grouped-authoring logical unit above spans (authoritative for grouped wires).
-- `lane`: internal workflow/debug sequencing label (not exposed as external entity API).
-
+- `slot`: テンプレート候補点（runtime endpoint ではない）
+- `port`: runtime 接続点
+- `span`: port 間 runtime edge
+- `bundle`: span 群を束ねる正本単位
+- `lane`: workflow/debug 用の内部シーケンスラベル（公開 entity API には出さない）

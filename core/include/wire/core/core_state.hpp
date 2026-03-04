@@ -23,8 +23,6 @@ struct EditState {
   ObjectStore<Port> ports;
   ObjectStore<Anchor> anchors;
   ObjectStore<Bundle> bundles;
-  ObjectStore<WireGroup> wire_groups;
-  ObjectStore<WireLane> wire_lanes;
   ObjectStore<Span> spans;
   ObjectStore<Attachment> attachments;
 };
@@ -237,14 +235,12 @@ public:
     std::vector<ObjectId> pole_ids{};
     std::vector<ObjectId> span_ids{};
     ObjectId bundle_id = kInvalidObjectId;
-    ObjectId wire_group_id = kInvalidObjectId;
-    std::vector<ObjectId> wire_lane_ids{};
     std::vector<SegmentLaneAssignment> lane_assignments{};
     PathDirectionEvaluationDebug direction_debug{};
     std::uint64_t generation_session_id = 0;
   };
 
-  struct GenerateWireGroupFromPathInput {
+  struct GenerateBundleFromPathInput {
     std::vector<Vec3d> polyline{};
     double interval_m = 0.0;
     PoleTypeId pole_type_id = kInvalidPoleTypeId;
@@ -253,9 +249,8 @@ public:
     int requested_lane_count = 0; // 0: use category standard lanes.
   };
 
-  struct GenerateWireGroupFromPathResult {
-    ObjectId wire_group_id = kInvalidObjectId;
-    std::vector<ObjectId> wire_lane_ids{};
+  struct GenerateBundleFromPathResult {
+    ObjectId bundle_id = kInvalidObjectId;
     std::vector<ObjectId> generated_span_ids{};
     std::vector<ObjectId> generated_pole_ids{};
   };
@@ -277,15 +272,11 @@ public:
                                  double support_strength = 1.0);
   EditResult<ObjectId> AddBundle(int conductor_count, double phase_spacing_m,
                                  BundleKind kind = BundleKind::kLowVoltage);
-  EditResult<ObjectId> AddWireGroup(WireGroupKind kind = WireGroupKind::kUnknown, std::string_view network_tag = {},
-                                    std::string_view feeder_tag = {});
-  EditResult<ObjectId> AddWireLane(ObjectId wire_group_id, int lane_index, WireLaneRole role = WireLaneRole::kUnknown);
   EditResult<ObjectId> AddSpan(ObjectId port_a_id, ObjectId port_b_id, SpanKind kind = SpanKind::kGeneric,
                                SpanLayer layer = SpanLayer::kUnknown, ObjectId bundle_id = kInvalidObjectId,
                                ObjectId anchor_a_id = kInvalidObjectId, ObjectId anchor_b_id = kInvalidObjectId);
   EditResult<ObjectId> AddAttachment(ObjectId span_id, double t, AttachmentKind kind = AttachmentKind::kGeneric,
                                      double offset_m = 0.0);
-  EditResult<ObjectId> AssignSpanToWireLane(ObjectId span_id, ObjectId wire_group_id, ObjectId wire_lane_id);
   EditResult<ObjectId> MovePole(ObjectId pole_id, const Transformd& new_world_transform);
   EditResult<ObjectId> MovePort(ObjectId port_id, const Vec3d& new_world_position);
   EditResult<ObjectId> SetPortWorldPositionManual(ObjectId port_id, const Vec3d& new_world_position);
@@ -318,19 +309,16 @@ public:
                                                                     ConnectionCategory category);
   EditResult<GenerateGroupedLineResult> GenerateGroupedLine(const GenerateGroupedLineOptions& options);
   // Canonical path-generation API.
-  EditResult<GenerateWireGroupFromPathResult> GenerateFromBackboneSpec(const BackboneSpec& spec);
+  EditResult<GenerateBundleFromPathResult> GenerateFromBackboneSpec(const BackboneSpec& spec);
   // Backward-compatible name kept for staged migration.
-  EditResult<GenerateWireGroupFromPathResult> GenerateFromGuide(const BackboneSpec& spec);
-  EditResult<GenerateWireGroupFromPathResult> RegenerateSessionAutoParts(std::uint64_t generation_session_id,
-                                                                         const BackboneSpec& spec);
-  EditResult<GenerateWireGroupFromPathResult> GenerateWireGroupFromPath(const GenerateWireGroupFromPathInput& input);
+  EditResult<GenerateBundleFromPathResult> GenerateFromGuide(const BackboneSpec& spec);
+  EditResult<GenerateBundleFromPathResult> RegenerateSessionAutoParts(std::uint64_t generation_session_id,
+                                                                      const BackboneSpec& spec);
+  EditResult<GenerateBundleFromPathResult> GenerateBundleFromPath(const GenerateBundleFromPathInput& input);
   EditResult<ObjectId> SetPolePlacementMode(ObjectId pole_id, PlacementMode mode);
   EditResult<ObjectId> SetPoleFlip180(ObjectId pole_id, bool flip_180);
   [[nodiscard]] PoleDetailInfo GetPoleDetail(ObjectId pole_id) const;
-  [[nodiscard]] const WireGroup* GetWireGroup(ObjectId wire_group_id) const;
-  [[nodiscard]] const WireLane* GetWireLane(ObjectId wire_lane_id) const;
-  [[nodiscard]] std::vector<ObjectId> GetSpansByWireGroup(ObjectId wire_group_id) const;
-  [[nodiscard]] std::vector<ObjectId> GetWireLanesByGroup(ObjectId wire_group_id) const;
+  [[nodiscard]] std::vector<ObjectId> GetSpansByBundle(ObjectId bundle_id) const;
   [[nodiscard]] BackboneResult BuildBackboneResult() const;
   [[nodiscard]] std::vector<BackboneEdge> BuildBackboneEdges() const;
   [[nodiscard]] std::vector<ObjectId> FindBackboneRoute(ObjectId start_node_id, ObjectId end_node_id) const;
@@ -498,8 +486,6 @@ public:
   [[nodiscard]] const ObjectStore<Port>& ports() const { return state_.edit_state_.ports; }
   [[nodiscard]] const ObjectStore<Anchor>& anchors() const { return state_.edit_state_.anchors; }
   [[nodiscard]] const ObjectStore<Bundle>& bundles() const { return state_.edit_state_.bundles; }
-  [[nodiscard]] const ObjectStore<WireGroup>& wire_groups() const { return state_.edit_state_.wire_groups; }
-  [[nodiscard]] const ObjectStore<WireLane>& wire_lanes() const { return state_.edit_state_.wire_lanes; }
   [[nodiscard]] const ObjectStore<Span>& spans() const { return state_.edit_state_.spans; }
   [[nodiscard]] const ObjectStore<Attachment>& attachments() const { return state_.edit_state_.attachments; }
 

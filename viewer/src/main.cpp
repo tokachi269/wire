@@ -91,7 +91,7 @@ struct ViewerUiState {
   bool show_debug_labels = false;
   bool show_whole_aabb = false;
   bool show_segment_aabb = false;
-  bool show_selected_wire_group_highlight = true;
+  bool show_selected_bundle_highlight = true;
   bool geometry_settings_loaded = false;
   int geometry_samples = 8;
   bool geometry_sag_enabled = false;
@@ -353,44 +353,6 @@ const char* PortPlacementSourceLabel(wire::core::PortPlacementSourceKind source)
   }
 }
 
-const char* WireGroupKindLabel(wire::core::WireGroupKind kind) {
-  switch (kind) {
-  case wire::core::WireGroupKind::kPowerHighVoltage:
-    return "PowerHighVoltage";
-  case wire::core::WireGroupKind::kPowerLowVoltage:
-    return "PowerLowVoltage";
-  case wire::core::WireGroupKind::kComm:
-    return "Comm";
-  case wire::core::WireGroupKind::kOptical:
-    return "Optical";
-  case wire::core::WireGroupKind::kUnknown:
-  default:
-    return "Unknown";
-  }
-}
-
-const char* WireLaneRoleLabel(wire::core::WireLaneRole role) {
-  switch (role) {
-  case wire::core::WireLaneRole::kPhaseA:
-    return "PhaseA";
-  case wire::core::WireLaneRole::kPhaseB:
-    return "PhaseB";
-  case wire::core::WireLaneRole::kPhaseC:
-    return "PhaseC";
-  case wire::core::WireLaneRole::kNeutral:
-    return "Neutral";
-  case wire::core::WireLaneRole::kCommLine:
-    return "CommLine";
-  case wire::core::WireLaneRole::kOpticalFiber:
-    return "OpticalFiber";
-  case wire::core::WireLaneRole::kAux:
-    return "Aux";
-  case wire::core::WireLaneRole::kUnknown:
-  default:
-    return "Unknown";
-  }
-}
-
 const char* PathDirectionModeLabel(wire::core::PathDirectionMode mode) {
   switch (mode) {
   case wire::core::PathDirectionMode::kAuto:
@@ -637,7 +599,7 @@ void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool
     }
     parallel_spans = std::clamp(parallel_spans, 0, 8);
 
-    wire::core::CoreState::GenerateWireGroupFromPathInput input{};
+    wire::core::CoreState::GenerateBundleFromPathInput input{};
     input.polyline = road.polyline;
     if (ui_state.draw_clicked_points_only) {
       // Disable intermediate poles by using an interval longer than the whole path.
@@ -650,7 +612,7 @@ void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool
     input.direction_mode = static_cast<wire::core::PathDirectionMode>(mode_index);
     input.requested_lane_count = parallel_spans;
 
-    const auto result = state.GenerateWireGroupFromPath(input);
+    const auto result = state.GenerateBundleFromPath(input);
     if (!result.ok) {
       has_failure = true;
       failure_details << CategoryLabel(category) << ": " << result.error << "; ";
@@ -1013,11 +975,11 @@ void DrawAxes() {
 void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
   const auto view = state.view();
   const auto& edit = view.edit_state();
-  ObjectId selected_wire_group_id = wire::core::kInvalidObjectId;
+  ObjectId selected_bundle_id = wire::core::kInvalidObjectId;
   if (ui_state.selected_type == SelectedType::kSpan && ui_state.selected_id != wire::core::kInvalidObjectId) {
     const wire::core::Span* selected_span = edit.spans.find(ui_state.selected_id);
     if (selected_span != nullptr) {
-      selected_wire_group_id = selected_span->wire_group_id;
+      selected_bundle_id = selected_span->bundle_id;
     }
   }
 
@@ -1062,8 +1024,8 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
     Color color = DirtyColorForSpan(runtime_state);
     if (ui_state.selected_type == SelectedType::kSpan && ui_state.selected_id == span.id) {
       color = GOLD;
-    } else if (ui_state.show_selected_wire_group_highlight && selected_wire_group_id != wire::core::kInvalidObjectId &&
-               span.wire_group_id == selected_wire_group_id) {
+    } else if (ui_state.show_selected_bundle_highlight && selected_bundle_id != wire::core::kInvalidObjectId &&
+               span.bundle_id == selected_bundle_id) {
       color = ORANGE;
     }
 
@@ -1206,25 +1168,6 @@ void DrawSelectedInfo(const CoreState& state, const ViewerUiState& ui_state) {
     ImGui::Text("portA: %llu", static_cast<unsigned long long>(span->port_a_id));
     ImGui::Text("portB: %llu", static_cast<unsigned long long>(span->port_b_id));
     ImGui::Text("bundle: %llu", static_cast<unsigned long long>(span->bundle_id));
-    ImGui::Text("bundleGroup: %llu", static_cast<unsigned long long>(span->wire_group_id));
-    if (span->wire_group_id != wire::core::kInvalidObjectId) {
-      const auto* group = state.GetWireGroup(span->wire_group_id);
-      if (group != nullptr) {
-        ImGui::Text("bundleGroup kind: %s", WireGroupKindLabel(group->kind));
-      } else {
-        ImGui::TextUnformatted("bundleGroup: missing");
-      }
-    } else {
-      ImGui::TextUnformatted("bundleGroup: unassigned");
-    }
-    if (span->wire_lane_id != wire::core::kInvalidObjectId) {
-      const auto* lane = state.GetWireLane(span->wire_lane_id);
-      if (lane != nullptr) {
-        ImGui::Text("internalLane: #%d (%s)", lane->lane_index, WireLaneRoleLabel(lane->role));
-      } else {
-        ImGui::TextUnformatted("internalLane: missing");
-      }
-    }
     ImGui::Text("Generated: %s", span->generation.generated ? "true" : "false");
     ImGui::Text("Gen Session: %llu", static_cast<unsigned long long>(span->generation.generation_session_id));
     ImGui::Text("GeneratedByRule: %s", span->generated_by_rule ? "true" : "false");
@@ -2017,10 +1960,9 @@ void DrawTopbarWindow(const CoreState& state, ViewerUiState& ui_state) {
     ImGui::SliderFloat("##WorkspaceWidth", &ui_state.ui_workspace_width, 300.0f, 760.0f, "W %.0f");
   }
   ImGui::Separator();
-  ImGui::Text("Poles:%d  Ports:%d  Spans:%d  BundleGroups:%d  InternalLanes:%d",
-              static_cast<int>(view.poles().size()), static_cast<int>(view.ports().size()),
-              static_cast<int>(view.spans().size()), static_cast<int>(view.wire_groups().size()),
-              static_cast<int>(view.wire_lanes().size()));
+  ImGui::Text("Poles:%d  Ports:%d  Spans:%d  Bundles:%d", static_cast<int>(view.poles().size()),
+              static_cast<int>(view.ports().size()), static_cast<int>(view.spans().size()),
+              static_cast<int>(view.bundles().size()));
   ImGui::SameLine();
   ImGui::Text("|  Mode: %s", ModeLabel(ui_state.mode));
   ImGui::SameLine();
@@ -2268,7 +2210,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
   if (ImGui::CollapsingHeader("Debug View", ImGuiTreeNodeFlags_DefaultOpen)) {
     ImGui::Checkbox("Show Span AABB", &ui_state.show_whole_aabb);
     ImGui::Checkbox("Show Segment AABB", &ui_state.show_segment_aabb);
-    ImGui::Checkbox("Highlight Selected BundleGroup", &ui_state.show_selected_wire_group_highlight);
+    ImGui::Checkbox("Highlight Selected Bundle", &ui_state.show_selected_bundle_highlight);
     wire::core::CommitOptions options{};
     options.run_recalc = false;
     options.run_validate = true;

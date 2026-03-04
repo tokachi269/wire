@@ -1,4 +1,4 @@
-# Core Model Architecture
+﻿# Core Model Architecture
 
 ## Purpose
 This document fixes the architecture rules used by `core` so feature growth does not reintroduce hidden mutation paths or layer violations.
@@ -11,7 +11,7 @@ This document fixes the architecture rules used by `core` so feature growth does
 
 2. `Entity` (authoritative persist core)
 - Runtime authoritative network objects.
-- Example: `Pole`, `Port`, `Anchor`, `WireGroup`, `WireLane`, `Span`, `Attachment`, `Bundle`.
+- Example: `Pole`, `Port`, `Anchor`, `Bundle`, `Span`, `Attachment`.
 
 3. `Workflow` (operation input/output, non-authoritative)
 - Generation/edit requests and transient planning structures.
@@ -43,11 +43,10 @@ This document fixes the architecture rules used by `core` so feature growth does
 - `Port.owner_pole_id` points to existing pole when set.
 - `Span.anchor_*` point to existing anchors when set.
 
-2. Group/lane integrity
-- If `Span.wire_lane_id` is set, `Span.wire_group_id` must be set.
-- `WireLane.wire_group_id` must exist.
-- Lane index must be unique per group.
-- `Span.wire_group_id` may be set without requiring `wire_lane_id` (lane is optional for external authoring).
+2. Bundle/span integrity
+- If `Span.bundle_id` is set, the referenced bundle must exist.
+- Grouped wires are represented as multiple spans that share one `bundle_id`.
+- Lane is workflow/debug metadata and is not an entity-level invariant.
 
 3. Index/cache integrity
 - `ConnectionIndex` must match expected Span relations.
@@ -69,6 +68,6 @@ This document fixes the architecture rules used by `core` so feature growth does
 - `slot`: template candidate position, not runtime endpoint.
 - `port`: runtime connection endpoint.
 - `span`: runtime edge between ports.
-- `bundle`: visual/attribute grouping aid, not logical network authority.
-- `wire_group`: grouped-authoring logical unit above spans.
-- `wire_lane`: internal lane identity/order (optional in external UI/API).
+- `bundle`: grouped-authoring logical unit above spans (authoritative for grouped wires).
+- `lane`: internal workflow/debug sequencing label (not exposed as external entity API).
+

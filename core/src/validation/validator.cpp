@@ -46,23 +46,8 @@ ValidationResult CoreState::ValidateFast() const {
     if (edit_state.ports.find(span.port_a_id) == nullptr || edit_state.ports.find(span.port_b_id) == nullptr) {
       result.issues.push_back({ValidationSeverity::kError, "SpanPortMissing", "Span references missing port", span.id});
     }
-    if (span.wire_group_id != kInvalidObjectId && edit_state.wire_groups.find(span.wire_group_id) == nullptr) {
-      result.issues.push_back(
-          {ValidationSeverity::kError, "SpanWireGroupMissing", "Span wire_group is missing", span.id});
-    }
-    if (span.wire_lane_id != kInvalidObjectId) {
-      const WireLane* lane = edit_state.wire_lanes.find(span.wire_lane_id);
-      if (lane == nullptr) {
-        result.issues.push_back(
-            {ValidationSeverity::kError, "SpanWireLaneMissing", "Span wire_lane is missing", span.id});
-      } else if (span.wire_group_id != kInvalidObjectId && lane->wire_group_id != span.wire_group_id) {
-        result.issues.push_back({
-            ValidationSeverity::kError,
-            "SpanWireLaneGroupMismatch",
-            "Span wire_lane belongs to different wire_group",
-            span.id,
-        });
-      }
+    if (span.bundle_id != kInvalidObjectId && edit_state.bundles.find(span.bundle_id) == nullptr) {
+      result.issues.push_back({ValidationSeverity::kError, "SpanBundleMissing", "Span bundle is missing", span.id});
     }
   }
 
@@ -214,29 +199,6 @@ ValidationResult CoreState::Validate() const {
     }
   }
 
-  std::unordered_map<ObjectId, std::unordered_map<int, ObjectId>> lane_index_map{};
-  for (const WireLane& lane : edit_state.wire_lanes.items()) {
-    if (edit_state.wire_groups.find(lane.wire_group_id) == nullptr) {
-      result.issues.push_back(
-          {ValidationSeverity::kError, "WireLaneGroupMissing", "WireLane owner group is missing", lane.id});
-    }
-    if (lane.lane_index < 0) {
-      result.issues.push_back(
-          {ValidationSeverity::kError, "WireLaneIndexInvalid", "WireLane lane_index must be >= 0", lane.id});
-      continue;
-    }
-    auto& per_group = lane_index_map[lane.wire_group_id];
-    auto [it, inserted] = per_group.emplace(lane.lane_index, lane.id);
-    if (!inserted) {
-      result.issues.push_back({
-          ValidationSeverity::kError,
-          "WireLaneIndexDuplicate",
-          "WireLane lane_index duplicates inside one wire_group",
-          lane.id,
-      });
-    }
-  }
-
   for (const Span& span : edit_state.spans.items()) {
     const Port* port_a = edit_state.ports.find(span.port_a_id);
     const Port* port_b = edit_state.ports.find(span.port_b_id);
@@ -252,32 +214,6 @@ ValidationResult CoreState::Validate() const {
     }
     if (span.bundle_id != kInvalidObjectId && edit_state.bundles.find(span.bundle_id) == nullptr) {
       result.issues.push_back({ValidationSeverity::kError, "SpanBundleMissing", "Span bundle is missing", span.id});
-    }
-    if (span.wire_group_id != kInvalidObjectId && edit_state.wire_groups.find(span.wire_group_id) == nullptr) {
-      result.issues.push_back(
-          {ValidationSeverity::kError, "SpanWireGroupMissing", "Span wire_group is missing", span.id});
-    }
-    if (span.wire_lane_id != kInvalidObjectId) {
-      if (span.wire_group_id == kInvalidObjectId) {
-        result.issues.push_back({
-            ValidationSeverity::kError,
-            "SpanWireGroupUnset",
-            "Span wire_lane is set but wire_group is not set",
-            span.id,
-        });
-      }
-      const WireLane* lane = edit_state.wire_lanes.find(span.wire_lane_id);
-      if (lane == nullptr) {
-        result.issues.push_back(
-            {ValidationSeverity::kError, "SpanWireLaneMissing", "Span wire_lane is missing", span.id});
-      } else if (span.wire_group_id != kInvalidObjectId && lane->wire_group_id != span.wire_group_id) {
-        result.issues.push_back({
-            ValidationSeverity::kError,
-            "SpanWireLaneGroupMismatch",
-            "Span wire_lane belongs to different wire_group",
-            span.id,
-        });
-      }
     }
     if (span.anchor_a_id != kInvalidObjectId && edit_state.anchors.find(span.anchor_a_id) == nullptr) {
       result.issues.push_back({ValidationSeverity::kError, "SpanAnchorMissing", "Span anchorA is missing", span.id});

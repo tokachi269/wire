@@ -876,60 +876,7 @@ CoreState::GenerateGroupedLine(const GenerateGroupedLineOptions& options) {
     return result;
   }
 
-  auto to_wire_group_kind = [](ConnectionCategory category) -> WireGroupKind {
-    switch (category) {
-    case ConnectionCategory::kHighVoltage:
-      return WireGroupKind::kPowerHighVoltage;
-    case ConnectionCategory::kLowVoltage:
-    case ConnectionCategory::kDrop:
-      return WireGroupKind::kPowerLowVoltage;
-    case ConnectionCategory::kCommunication:
-      return WireGroupKind::kComm;
-    case ConnectionCategory::kOptical:
-      return WireGroupKind::kOptical;
-    default:
-      return WireGroupKind::kUnknown;
-    }
-  };
-  auto default_lane_role = [&](int lane_index) -> WireLaneRole {
-    if (options.group_spec.group_kind == ConductorGroupKind::kThreePhase && options.group_spec.conductor_count >= 3) {
-      if (lane_index == 0)
-        return WireLaneRole::kPhaseA;
-      if (lane_index == 1)
-        return WireLaneRole::kPhaseB;
-      if (lane_index == 2)
-        return WireLaneRole::kPhaseC;
-      return WireLaneRole::kAux;
-    }
-    switch (options.group_spec.category) {
-    case ConnectionCategory::kCommunication:
-      return WireLaneRole::kCommLine;
-    case ConnectionCategory::kOptical:
-      return WireLaneRole::kOpticalFiber;
-    case ConnectionCategory::kDrop:
-      return WireLaneRole::kNeutral;
-    default:
-      return WireLaneRole::kUnknown;
-    }
-  };
-
-  EditResult<ObjectId> wire_group_result = AddWireGroup(to_wire_group_kind(options.group_spec.category));
-  if (!wire_group_result.ok) {
-    result.error = wire_group_result.error;
-    return result;
-  }
   const int lane_count = std::max(1, options.group_spec.conductor_count);
-  std::vector<ObjectId> wire_lane_ids;
-  wire_lane_ids.reserve(static_cast<std::size_t>(lane_count));
-  for (int lane_index = 0; lane_index < lane_count; ++lane_index) {
-    EditResult<ObjectId> lane_result = AddWireLane(wire_group_result.value, lane_index, default_lane_role(lane_index));
-    if (!lane_result.ok) {
-      result.error = lane_result.error;
-      return result;
-    }
-    wire_lane_ids.push_back(lane_result.value);
-    append_change_set(result.change_set, lane_result.change_set);
-  }
 
   std::vector<SegmentLaneAssignment> lane_assignments;
   EditResult<std::vector<ObjectId>> spans_result = generate_grouped_spans_between_poles(
@@ -939,23 +886,7 @@ CoreState::GenerateGroupedLine(const GenerateGroupedLineOptions& options) {
     return result;
   }
 
-  for (std::size_t i = 0; i < spans_result.value.size(); ++i) {
-    const std::size_t lane_index = (lane_count <= 0) ? 0 : (i % static_cast<std::size_t>(lane_count));
-    const ObjectId lane_id = wire_lane_ids[lane_index];
-    EditResult<ObjectId> assign_result = AssignSpanToWireLane(spans_result.value[i], wire_group_result.value, lane_id);
-    if (!assign_result.ok) {
-      result.error = assign_result.error;
-      return result;
-    }
-    append_change_set(result.change_set, assign_result.change_set);
-  }
-
   const std::uint64_t session_id = next_generation_session_id_access()++;
-  if (WireGroup* group = edit_state_access().wire_groups.find(wire_group_result.value); group != nullptr) {
-    group->generation_session_id = session_id;
-    group->user_edited = false;
-    add_unique_id(result.change_set.updated_ids, group->id);
-  }
   for (std::size_t i = 0; i < poles_result.value.size(); ++i) {
     Pole* pole = edit_state_access().poles.find(poles_result.value[i]);
     if (pole != nullptr) {
@@ -989,22 +920,19 @@ CoreState::GenerateGroupedLine(const GenerateGroupedLineOptions& options) {
   result.value.pole_ids = poles_result.value;
   result.value.span_ids = spans_result.value;
   result.value.bundle_id = bundle_result.value;
-  result.value.wire_group_id = wire_group_result.value;
-  result.value.wire_lane_ids = wire_lane_ids;
   result.value.lane_assignments = lane_assignments;
   result.value.direction_debug = direction_debug;
   result.value.generation_session_id = session_id;
   append_change_set(result.change_set, poles_result.change_set);
   append_change_set(result.change_set, bundle_result.change_set);
-  append_change_set(result.change_set, wire_group_result.change_set);
   append_change_set(result.change_set, spans_result.change_set);
   return result;
 }
 
-EditResult<CoreState::GenerateWireGroupFromPathResult>
+EditResult<CoreState::GenerateBundleFromPathResult>
 CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
   const BackboneSpec& request = spec;
-  EditResult<GenerateWireGroupFromPathResult> result;
+  EditResult<GenerateBundleFromPathResult> result;
   if (request.path.polyline.size() < 2) {
     result.error = "backbone input path must contain at least 2 points";
     return result;
@@ -1339,8 +1267,6 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
   }
 
   ObjectId bundle_id = kInvalidObjectId;
-  ObjectId wire_group_id = kInvalidObjectId;
-  std::vector<ObjectId> wire_lane_ids{};
   if (missing_total > 0) {
     const BundleKind bundle_kind = category_to_bundle_kind(request.category);
     const double spacing = (request.category == ConnectionCategory::kHighVoltage) ? 0.45 : 0.20;
@@ -1352,56 +1278,6 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     }
     bundle_id = bundle_result.value;
     append_change_set(result.change_set, bundle_result.change_set);
-
-    auto to_wire_group_kind = [](ConnectionCategory category) -> WireGroupKind {
-      switch (category) {
-      case ConnectionCategory::kHighVoltage:
-        return WireGroupKind::kPowerHighVoltage;
-      case ConnectionCategory::kLowVoltage:
-      case ConnectionCategory::kDrop:
-        return WireGroupKind::kPowerLowVoltage;
-      case ConnectionCategory::kCommunication:
-        return WireGroupKind::kComm;
-      case ConnectionCategory::kOptical:
-        return WireGroupKind::kOptical;
-      default:
-        return WireGroupKind::kUnknown;
-      }
-    };
-    EditResult<ObjectId> wire_group_result = AddWireGroup(to_wire_group_kind(request.category));
-    if (!wire_group_result.ok) {
-      *this = snapshot;
-      result.error = wire_group_result.error;
-      return result;
-    }
-    wire_group_id = wire_group_result.value;
-    append_change_set(result.change_set, wire_group_result.change_set);
-    if (WireGroup* group = edit_state_access().wire_groups.find(wire_group_id); group != nullptr) {
-      group->generation_session_id = session_id;
-      group->user_edited = false;
-      add_unique_id(result.change_set.updated_ids, group->id);
-    }
-
-    for (int lane = 0; lane < lane_count; ++lane) {
-      WireLaneRole role = WireLaneRole::kUnknown;
-      if (request.category == ConnectionCategory::kHighVoltage && lane_count >= 3) {
-        role = (lane == 0) ? WireLaneRole::kPhaseA : ((lane == 1) ? WireLaneRole::kPhaseB
-                                                                   : ((lane == 2) ? WireLaneRole::kPhaseC
-                                                                                  : WireLaneRole::kAux));
-      } else if (request.category == ConnectionCategory::kCommunication) {
-        role = WireLaneRole::kCommLine;
-      } else if (request.category == ConnectionCategory::kOptical) {
-        role = WireLaneRole::kOpticalFiber;
-      }
-      EditResult<ObjectId> lane_result = AddWireLane(wire_group_id, lane, role);
-      if (!lane_result.ok) {
-        *this = snapshot;
-        result.error = lane_result.error;
-        return result;
-      }
-      wire_lane_ids.push_back(lane_result.value);
-      append_change_set(result.change_set, lane_result.change_set);
-    }
   }
 
   if (missing_total > 0 && first_missing_segment < ordered_pole_ids.size() - 1) {
@@ -1433,16 +1309,6 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
 
     for (std::size_t i = 0; i < spans_result.value.size(); ++i) {
       const ObjectId span_id = spans_result.value[i];
-      if (wire_group_id != kInvalidObjectId && !wire_lane_ids.empty()) {
-        const std::size_t lane_index = i % wire_lane_ids.size();
-        EditResult<ObjectId> assign_result = AssignSpanToWireLane(span_id, wire_group_id, wire_lane_ids[lane_index]);
-        if (!assign_result.ok) {
-          *this = snapshot;
-          result.error = assign_result.error;
-          return result;
-        }
-        append_change_set(result.change_set, assign_result.change_set);
-      }
       Span* span = edit_state_access().spans.find(span_id);
       if (span != nullptr) {
         span->generation.generated = true;
@@ -1456,23 +1322,22 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     }
   }
 
-  if (wire_group_id != kInvalidObjectId) {
-    result.value.wire_group_id = wire_group_id;
-    result.value.wire_lane_ids = wire_lane_ids;
+  if (bundle_id != kInvalidObjectId) {
+    result.value.bundle_id = bundle_id;
   }
 
   result.ok = true;
   return result;
 }
 
-EditResult<CoreState::GenerateWireGroupFromPathResult>
+EditResult<CoreState::GenerateBundleFromPathResult>
 CoreState::GenerateFromGuide(const BackboneSpec& spec) {
   return GenerateFromBackboneSpec(spec);
 }
 
-EditResult<CoreState::GenerateWireGroupFromPathResult>
+EditResult<CoreState::GenerateBundleFromPathResult>
 CoreState::RegenerateSessionAutoParts(std::uint64_t generation_session_id, const BackboneSpec& request) {
-  EditResult<GenerateWireGroupFromPathResult> result;
+  EditResult<GenerateBundleFromPathResult> result;
   if (generation_session_id == 0) {
     result.error = "generation_session_id must be non-zero";
     return result;
@@ -1590,48 +1455,6 @@ CoreState::RegenerateSessionAutoParts(std::uint64_t generation_session_id, const
     }
   }
 
-  std::vector<ObjectId> session_group_ids{};
-  for (const WireGroup& group : edit_state_access().wire_groups.items()) {
-    if (group.generation_session_id == generation_session_id) {
-      session_group_ids.push_back(group.id);
-    }
-  }
-  std::unordered_set<ObjectId> session_group_set(session_group_ids.begin(), session_group_ids.end());
-  std::vector<ObjectId> session_lane_ids{};
-  for (const WireLane& lane : edit_state_access().wire_lanes.items()) {
-    if (session_group_set.contains(lane.wire_group_id)) {
-      session_lane_ids.push_back(lane.id);
-    }
-  }
-
-  auto is_lane_referenced = [&](ObjectId lane_id) {
-    for (const Span& span : edit_state_access().spans.items()) {
-      if (span.wire_lane_id == lane_id) {
-        return true;
-      }
-    }
-    return false;
-  };
-  for (ObjectId lane_id : session_lane_ids) {
-    if (!is_lane_referenced(lane_id) && edit_state_access().wire_lanes.remove(lane_id)) {
-      add_unique_id(cleanup_changes.deleted_ids, lane_id);
-    }
-  }
-
-  auto is_group_referenced = [&](ObjectId group_id) {
-    for (const Span& span : edit_state_access().spans.items()) {
-      if (span.wire_group_id == group_id) {
-        return true;
-      }
-    }
-    return false;
-  };
-  for (ObjectId group_id : session_group_ids) {
-    if (!is_group_referenced(group_id) && edit_state_access().wire_groups.remove(group_id)) {
-      add_unique_id(cleanup_changes.deleted_ids, group_id);
-    }
-  }
-
   for (ObjectId bundle_id : candidate_bundle_ids) {
     bool used = false;
     for (const Span& span : edit_state_access().spans.items()) {
@@ -1648,7 +1471,7 @@ CoreState::RegenerateSessionAutoParts(std::uint64_t generation_session_id, const
   BackboneSpec regen_request = request;
   regen_request.pole_placement.restrict_reuse_to_session = true;
   regen_request.pole_placement.reuse_session_id = generation_session_id;
-  EditResult<GenerateWireGroupFromPathResult> regenerated = GenerateFromBackboneSpec(regen_request);
+  EditResult<GenerateBundleFromPathResult> regenerated = GenerateFromBackboneSpec(regen_request);
   if (!regenerated.ok) {
     *this = snapshot;
     result.error = regenerated.error;
@@ -1669,20 +1492,12 @@ CoreState::RegenerateSessionAutoParts(std::uint64_t generation_session_id, const
       add_unique_id(regenerated.change_set.updated_ids, span_id);
     }
   }
-  if (regenerated.value.wire_group_id != kInvalidObjectId) {
-    WireGroup* group = edit_state_access().wire_groups.find(regenerated.value.wire_group_id);
-    if (group != nullptr) {
-      group->generation_session_id = generation_session_id;
-      add_unique_id(regenerated.change_set.updated_ids, group->id);
-    }
-  }
-
   append_change_set(regenerated.change_set, cleanup_changes);
   return regenerated;
 }
 
-EditResult<CoreState::GenerateWireGroupFromPathResult>
-CoreState::GenerateWireGroupFromPath(const GenerateWireGroupFromPathInput& input) {
+EditResult<CoreState::GenerateBundleFromPathResult>
+CoreState::GenerateBundleFromPath(const GenerateBundleFromPathInput& input) {
   BackboneSpec request{};
   request.path.polyline = input.polyline;
   request.interval_m = input.interval_m;

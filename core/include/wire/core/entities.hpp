@@ -130,25 +130,6 @@ enum class BundleKind : std::uint8_t {
   kOptical = 3,
 };
 
-enum class WireGroupKind : std::uint8_t {
-  kUnknown = 0,
-  kPowerHighVoltage = 1,
-  kPowerLowVoltage = 2,
-  kComm = 3,
-  kOptical = 4,
-};
-
-enum class WireLaneRole : std::uint8_t {
-  kUnknown = 0,
-  kPhaseA = 1,
-  kPhaseB = 2,
-  kPhaseC = 3,
-  kNeutral = 4,
-  kCommLine = 5,
-  kOpticalFiber = 6,
-  kAux = 7,
-};
-
 enum class AttachmentKind : std::uint8_t {
   kGeneric = 0,
   kDamper = 1,
@@ -282,29 +263,6 @@ struct Bundle {
   BundleKind kind = BundleKind::kLowVoltage;
 };
 
-// Entity-layer grouped wiring logical unit (separate responsibility from visual Bundle).
-struct WireGroup {
-  ObjectId id = kInvalidObjectId;
-  std::string display_id{};
-  WireGroupKind kind = WireGroupKind::kUnknown;
-  std::string network_tag{};
-  std::string feeder_tag{};
-  std::uint64_t generation_session_id = 0;
-  bool user_edited = false;
-  bool visible = true;
-};
-
-// Entity-layer lane identifier inside WireGroup.
-struct WireLane {
-  ObjectId id = kInvalidObjectId;
-  std::string display_id{};
-  ObjectId wire_group_id = kInvalidObjectId;
-  int lane_index = 0;
-  WireLaneRole role = WireLaneRole::kUnknown;
-  bool enabled = true;
-  bool user_locked_order = false;
-};
-
 // Entity-layer connection edge.
 struct Span {
   ObjectId id = kInvalidObjectId;
@@ -314,8 +272,6 @@ struct Span {
   SpanKind kind = SpanKind::kGeneric;
   SpanLayer layer = SpanLayer::kUnknown;
   ObjectId bundle_id = kInvalidObjectId;
-  ObjectId wire_group_id = kInvalidObjectId;
-  ObjectId wire_lane_id = kInvalidObjectId;
   ObjectId anchor_a_id = kInvalidObjectId;
   ObjectId anchor_b_id = kInvalidObjectId;
   ConnectionContext placement_context = ConnectionContext::kTrunkContinue;
@@ -339,7 +295,7 @@ struct Attachment {
 struct BackboneEdge {
   ObjectId node_a = kInvalidObjectId;
   ObjectId node_b = kInvalidObjectId;
-  std::vector<ObjectId> groups{};
+  std::vector<ObjectId> bundles{};
 };
 
 } // namespace wire::core

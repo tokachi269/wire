@@ -402,48 +402,6 @@ EditResult<ObjectId> CoreState::AddBundle(int conductor_count, double phase_spac
   return result;
 }
 
-EditResult<ObjectId> CoreState::AddWireGroup(WireGroupKind kind, std::string_view network_tag,
-                                             std::string_view feeder_tag) {
-  EditResult<ObjectId> result;
-
-  WireGroup group{};
-  group.id = id_generator_.next();
-  group.display_id = next_display_id("WG");
-  group.kind = kind;
-  group.network_tag = std::string(network_tag);
-  group.feeder_tag = std::string(feeder_tag);
-  edit_state_.wire_groups.insert(group);
-
-  result.ok = true;
-  result.value = group.id;
-  result.change_set.created_ids.push_back(group.id);
-  return result;
-}
-
-EditResult<ObjectId> CoreState::AddWireLane(ObjectId wire_group_id, int lane_index, WireLaneRole role) {
-  EditResult<ObjectId> result;
-  if (edit_state_.wire_groups.find(wire_group_id) == nullptr) {
-    result.error = "wire group does not exist";
-    return result;
-  }
-  if (lane_index < 0) {
-    result.error = "lane_index must be >= 0";
-    return result;
-  }
-
-  WireLane lane{};
-  lane.id = id_generator_.next();
-  lane.display_id = next_display_id("WL");
-  lane.wire_group_id = wire_group_id;
-  lane.lane_index = lane_index;
-  lane.role = role;
-  edit_state_.wire_lanes.insert(lane);
-
-  result.ok = true;
-  result.value = lane.id;
-  result.change_set.created_ids.push_back(lane.id);
-  return result;
-}
 
 EditResult<ObjectId> CoreState::AddSpan(ObjectId port_a_id, ObjectId port_b_id, SpanKind kind, SpanLayer layer,
                                         ObjectId bundle_id, ObjectId anchor_a_id, ObjectId anchor_b_id) {
@@ -524,37 +482,6 @@ EditResult<ObjectId> CoreState::AddAttachment(ObjectId span_id, double t, Attach
   return result;
 }
 
-EditResult<ObjectId> CoreState::AssignSpanToWireLane(ObjectId span_id, ObjectId wire_group_id, ObjectId wire_lane_id) {
-  EditResult<ObjectId> result;
-  Span* span = edit_state_.spans.find(span_id);
-  if (span == nullptr) {
-    result.error = "span does not exist";
-    return result;
-  }
-  const WireGroup* group = edit_state_.wire_groups.find(wire_group_id);
-  if (group == nullptr) {
-    result.error = "wire group does not exist";
-    return result;
-  }
-  const WireLane* lane = edit_state_.wire_lanes.find(wire_lane_id);
-  if (lane == nullptr) {
-    result.error = "wire lane does not exist";
-    return result;
-  }
-  if (lane->wire_group_id != wire_group_id) {
-    result.error = "wire lane is not owned by specified wire group";
-    return result;
-  }
-
-  span->wire_group_id = group->id;
-  span->wire_lane_id = lane->id;
-  result.ok = true;
-  result.value = span_id;
-  add_unique_id(result.change_set.updated_ids, span_id);
-  add_unique_id(result.change_set.dirty_span_ids, span_id);
-  mark_span_dirty(span_id, DirtyBits::kTopology, true);
-  return result;
-}
 
 EditResult<ObjectId> CoreState::MovePole(ObjectId pole_id, const Transformd& new_world_transform) {
   EditResult<ObjectId> result;
@@ -900,23 +827,6 @@ EditResult<CoreState::SplitSpanResult> CoreState::SplitSpan(ObjectId span_id, do
   if (!add_span_b_result.ok) {
     result.error = add_span_b_result.error;
     return result;
-  }
-
-  if (old_span.wire_group_id != kInvalidObjectId && old_span.wire_lane_id != kInvalidObjectId) {
-    EditResult<ObjectId> assign_a =
-        AssignSpanToWireLane(add_span_a_result.value, old_span.wire_group_id, old_span.wire_lane_id);
-    if (!assign_a.ok) {
-      result.error = assign_a.error;
-      return result;
-    }
-    EditResult<ObjectId> assign_b =
-        AssignSpanToWireLane(add_span_b_result.value, old_span.wire_group_id, old_span.wire_lane_id);
-    if (!assign_b.ok) {
-      result.error = assign_b.error;
-      return result;
-    }
-    append_change_set(result.change_set, assign_a.change_set);
-    append_change_set(result.change_set, assign_b.change_set);
   }
 
   EditResult<ObjectId> delete_result = DeleteSpan(old_span.id);

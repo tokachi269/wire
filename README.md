@@ -14,7 +14,7 @@
 - DrawPath 入力からの自動生成
 - `Port` を中心にした接続点分離設計（slot はテンプレ候補、Port は実接続点）
 - `Span` 単位の部分再計算（DirtyQueue + Version）
-- `WireGroup` / `WireLane` による複数本配線の論理管理
+- `Bundle` を正本とした複数本配線管理（Laneは外部仕様に露出しない）
 - raylib + ImGui の軽量 viewer で可視化・編集・検証
 
 ## 構成
@@ -27,7 +27,7 @@ wire.md    要求仕様書
 
 ## データモデル
 
-コアは以下の **4層モデル** で構成されます。 [5](#0-4) 
+コアは以下の **4層モデル** で構成されます。
 
 ### エンティティ層（永続化対象）
 
@@ -36,17 +36,15 @@ wire.md    要求仕様書
 | `Pole` | 電柱・鉄塔等の支持構造 |
 | `Port` | 電線が接続する具体的な接続点（実在する接続エンドポイント） |
 | `Anchor` | 支持専用点（碍子・支持金具等） |
-| `Bundle` | 導体束の属性（本数・相間距離等）。見た目寄り補助情報 |
-| `WireGroup` | 複数スパンをまとめる論理/生成単位 |
-| `WireLane` | WireGroup 内の1本識別・順序情報 |
+| `Bundle` | 複数本配線の正本単位（本数・相間距離等） |
 | `Span` | 2つの Port 間を結ぶ実体的な接続区間 |
-| `Attachment` | Span 上のパラメトリック位置 `t` に配置される付属物（ダンパ等） | [6](#0-5) 
+| `Attachment` | Span 上のパラメトリック位置 `t` に配置される付属物（ダンパ等） |
 
-> **slot と Port の区別**：`slot`（`PortSlotTemplate`）はテンプレート上の配置候補であり、`Port` は実在する接続点です。この区別は厳格に保たれます。 [7](#0-6) 
+> **slot と Port の区別**：`slot`（`PortSlotTemplate`）はテンプレート上の配置候補であり、`Port` は実在する接続点です。この区別は厳格に保たれます。
 
 ### キャッシュ層（永続化対象外・再生成可能）
 
-`CurveCache`・`BoundsCache`・`DirtyQueue`・`SpanRuntimeState` 等は保存対象外です。 [8](#0-7) 
+`CurveCache`・`BoundsCache`・`DirtyQueue`・`SpanRuntimeState` 等は保存対象外です。
 
 
 ## 設計方針
@@ -91,8 +89,8 @@ build\viewer\Debug\wire_viewer.exe
 | Phase 5 | 保存読込（編集状態のみ） |
 | Phase 6 | レイキャスト基礎・選択機能 |
 | Phase 7 | カリング/LOD調整 |
-| Phase 8〜 | 表現強化・将来拡張（風揺れ・電気計算・UE接続等） | [20](#0-19) 
+| Phase 8〜 | 表現強化・将来拡張（風揺れ・電気計算・UE接続等） |
 
 ---
 
-詳細は `wire.md` と `codex_shared_context.md` を参照してください。
+詳細は `docs/wire.md` と `docs/codex_shared_context.md` を参照してください。

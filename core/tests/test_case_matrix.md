@@ -60,18 +60,18 @@
 | C41 | debug記録クリアの無害性 | 生成/接続でdebug記録あり | clear_slot_selection_debug_records + clear_path_direction_debug_records | Exact: 記録だけ消え、Entity件数/ID/整合は不変 | counts/ID集合/Validate | デバッグ操作で本体破壊しない |
 | C42 | 再計算の非破壊性 | Spanを含む状態 | UpdateGeometrySettings→ProcessDirtyQueues | Invariant: cache/version更新のみでEntity件数/ID不変 | counts/ID集合/runtime/cache | キャッシュ再生成で正本が歪まない |
 | C43 | 鋭角時Port展開軸補正 | クリック点3(コーナー内角<75°) | GenerateSimpleLineFromPoints | Invariant: 中間Poleのside軸が内角二等分線に直交し、内側へ向かない | pole yaw/context(sharp_theta,b,side_dir) | 鋭角での線間距離潰れ抑制 |
-| C44 | Group/Lane割当と参照 | Span1本+Group/Lane作成 | AssignSpanToWireLane/Get*ByGroup | Invariant: Spanにgroup/lane設定, 参照API整合 | span fields/query API/Validate | 複数本配線の論理まとまり維持 |
-| C45 | Group/Lane不正拒否 | Span1本+別Group lane | AddWireLane(無効), Assign(不整合) | Exact: failし状態保全, 診断文言あり | error/span fields | 不正参照でデータ破壊しない |
-| C46 | 既存Span互換性 | Group未設定Span | ProcessDirtyQueues | Invariant: 従来再計算/Validate維持 | runtime/Validate/query API | 既存データ互換維持 |
-| C47 | DrawPath Group生成(HV標準) | 有効Path+PoleType | GenerateWireGroupFromPath(HV, lane=0) | Invariant: Group作成+標準3lane+全Spanにgroup/lane | result IDs/span fields/Validate | 群単位生成の成立 |
-| C48 | DrawPath Group生成方向モード | 有効Path | GenerateWireGroupFromPath(Forward/Reverse/Auto) | Invariant: 全モードで生成成功 | result/generated spans | Group単位向き指定の入口 |
-| C49 | DrawPath Group生成の異常系 | 新規CoreState | polyline不足/interval<=0/未知category/未知PoleType | Exact: fail+状態不変+復帰成功 | error/counts/後続成功 | 入力不正耐性と運用安定 |
+| C44 | Bundle参照API整合 | Span1本+Bundle作成 | AddBundle + AddSpan + GetSpansByBundle | Invariant: Spanがbundle参照を保持し検索整合 | span fields/query API/Validate | 複数本配線の正本一貫性維持 |
+| C45 | 不正Bundle参照拒否 | Span1本 | AddSpan(bundle_id不正) | Exact: failし状態保全, 診断文言あり | error/span fields | 不正参照でデータ破壊しない |
+| C46 | 既存Span互換性 | Bundle未設定Span | ProcessDirtyQueues | Invariant: 従来再計算/Validate維持 | runtime/Validate/query API | 既存データ互換維持 |
+| C47 | DrawPath Bundle生成(HV標準) | 有効Path+PoleType | GenerateBundleFromPath(HV, lane=0) | Invariant: Bundle作成+標準3並列+全Spanにbundle_id | result IDs/span fields/Validate | 束単位生成の成立 |
+| C48 | DrawPath Bundle生成方向モード | 有効Path | GenerateBundleFromPath(Forward/Reverse/Auto) | Invariant: 全モードで生成成功 | result/generated spans | 束単位向き指定の入口 |
+| C49 | DrawPath Bundle生成の異常系 | 新規CoreState | polyline不足/interval<=0/未知category/未知PoleType | Exact: fail+状態不変+復帰成功 | error/counts/後続成功 | 入力不正耐性と運用安定 |
 | C50 | Port初期モード | 新規Port追加 | AddPort | Exact: position_mode=Auto | port fields | 既存互換維持 |
 | C51 | Port手修正/解除 | 接続済Port | SetPortWorldPositionManual→ResetPortPositionToAuto | Invariant: Manual化→Auto復帰, 関連SpanのみDirty | port/runtime | 手直し維持と復帰性 |
 | C52 | Manual保護 | 手修正Portあり | SetPoleFlip180 | Invariant: Manual Port位置が維持される | port position/mode | 軽微再生成で手修正消失防止 |
-| C53 | Guide境界手動点安定 | Guide初回生成済 | Guide延長して再GenerateFromGuide | Invariant: 既存Manual境界Poleの位置/Mode不変 | pole position/mode | 軽微変更で手直し消失防止 |
-| C54 | Guide局所更新 | Guide生成済 | 同一Guide再実行→延長再実行 | Invariant: 同一入力で重複増殖なし、延長で末端のみ追加 | span数/生成結果 | 全再生成回帰防止 |
-| C55 | Backbone経路 | Group付きSpan生成済 | BuildBackboneEdges/FindBackboneRoute | Invariant: group付きedge構築と経路取得 | backbone edge/route | ルート計算基盤維持 |
+| C53 | BackboneSpec境界手動点安定 | BackboneSpec初回生成済 | BackboneSpec延長して再GenerateFromGuide | Invariant: 既存Manual境界Poleの位置/Mode不変 | pole position/mode | 軽微変更で手直し消失防止 |
+| C54 | BackboneSpec局所更新 | BackboneSpec生成済 | 同一BackboneSpec再実行→延長再実行 | Invariant: 同一入力で重複増殖なし、延長で末端のみ追加 | span数/生成結果 | 全再生成回帰防止 |
+| C55 | Backbone経路 | Bundle付きSpan生成済 | BuildBackboneEdges/FindBackboneRoute | Invariant: bundle付きedge構築と経路取得 | backbone edge/route | ルート計算基盤維持 |
 | C56 | 鋭角閾値境界 | 非対称3点角（コーナー内角基準） | コーナー内角74度/75度/76度でGenerateSimpleLineFromPoints | Invariant: `内角<=75`で補正適用、`内角>75`で非適用 | middle pole context.sharp_orientation_applied | 閾値バグによる向き破綻防止 |
 | C60 | Guide再利用頂点の向き再評価 | 既存頂点Poleを再利用可能なGuide | 同一Guideを再生成（頂点PoleのYawを事前に崩す） | Invariant: override無しなら再利用頂点Poleのside軸が二等分線直交方向へ再評価される | vertex pole yaw/context(sharp_*) | 再生成で角向きが古いまま残る不具合防止 |
 | C57 | Guide重複点ロバスト | PoleTypeあり | 重複点含むGuideでGenerateFromGuide | Invariant: 成功しPole座標有限、path Z維持 | generated pole positions/Validate | 入力ノイズ耐性 |
@@ -84,3 +84,4 @@
 - モック過多か: モック未使用。
 - 異常系が入っているか: C10/C20/C21/C22/C23/C49で失敗診断・状態保全・復帰を検証。
 - フレーク要因がないか: 実時間待ち/非決定乱数なし。
+

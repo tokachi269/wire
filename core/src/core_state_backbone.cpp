@@ -33,38 +33,17 @@ CoreState::PoleDetailInfo CoreState::GetPoleDetail(ObjectId pole_id) const {
   return detail;
 }
 
-const WireGroup* CoreState::GetWireGroup(ObjectId wire_group_id) const {
-  return edit_state_.wire_groups.find(wire_group_id);
-}
-
-const WireLane* CoreState::GetWireLane(ObjectId wire_lane_id) const {
-  return edit_state_.wire_lanes.find(wire_lane_id);
-}
-
-std::vector<ObjectId> CoreState::GetSpansByWireGroup(ObjectId wire_group_id) const {
-  std::vector<ObjectId> span_ids;
-  if (wire_group_id == kInvalidObjectId) {
+std::vector<ObjectId> CoreState::GetSpansByBundle(ObjectId bundle_id) const {
+  std::vector<ObjectId> span_ids{};
+  if (bundle_id == kInvalidObjectId) {
     return span_ids;
   }
   for (const Span& span : edit_state_.spans.items()) {
-    if (span.wire_group_id == wire_group_id) {
+    if (span.bundle_id == bundle_id) {
       span_ids.push_back(span.id);
     }
   }
   return span_ids;
-}
-
-std::vector<ObjectId> CoreState::GetWireLanesByGroup(ObjectId wire_group_id) const {
-  std::vector<ObjectId> lane_ids;
-  if (wire_group_id == kInvalidObjectId) {
-    return lane_ids;
-  }
-  for (const WireLane& lane : edit_state_.wire_lanes.items()) {
-    if (lane.wire_group_id == wire_group_id) {
-      lane_ids.push_back(lane.id);
-    }
-  }
-  return lane_ids;
 }
 
 BackboneResult CoreState::BuildBackboneResult() const {
@@ -89,13 +68,13 @@ std::vector<BackboneEdge> CoreState::BuildBackboneEdges() const {
   struct EdgeAgg {
     ObjectId a = kInvalidObjectId;
     ObjectId b = kInvalidObjectId;
-    std::unordered_set<ObjectId> groups{};
+    std::unordered_set<ObjectId> bundles{};
   };
 
   std::unordered_map<EdgeKey, EdgeAgg, EdgeKeyHash> edge_map{};
 
   for (const Span& span : edit_state_.spans.items()) {
-    if (span.wire_group_id == kInvalidObjectId) {
+    if (span.bundle_id == kInvalidObjectId) {
       continue;
     }
     const Port* pa = edit_state_.ports.find(span.port_a_id);
@@ -116,7 +95,7 @@ std::vector<BackboneEdge> CoreState::BuildBackboneEdges() const {
     EdgeAgg& agg = edge_map[key];
     agg.a = node_a;
     agg.b = node_b;
-    agg.groups.insert(span.wire_group_id);
+    agg.bundles.insert(span.bundle_id);
   }
 
   std::vector<BackboneEdge> edges{};
@@ -126,8 +105,8 @@ std::vector<BackboneEdge> CoreState::BuildBackboneEdges() const {
     BackboneEdge edge{};
     edge.node_a = agg.a;
     edge.node_b = agg.b;
-    edge.groups.assign(agg.groups.begin(), agg.groups.end());
-    std::sort(edge.groups.begin(), edge.groups.end());
+    edge.bundles.assign(agg.bundles.begin(), agg.bundles.end());
+    std::sort(edge.bundles.begin(), edge.bundles.end());
     edges.push_back(std::move(edge));
   }
   std::sort(edges.begin(), edges.end(), [](const BackboneEdge& lhs, const BackboneEdge& rhs) {
@@ -150,7 +129,7 @@ std::vector<ObjectId> CoreState::FindBackboneRoute(ObjectId start_node_id, Objec
   const std::vector<BackboneEdge> edges = BuildBackboneEdges();
   std::unordered_map<ObjectId, std::vector<ObjectId>> adjacency{};
   for (const BackboneEdge& edge : edges) {
-    if (edge.groups.empty()) {
+    if (edge.bundles.empty()) {
       continue;
     }
     adjacency[edge.node_a].push_back(edge.node_b);

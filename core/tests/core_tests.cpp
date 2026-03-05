@@ -6,6 +6,7 @@
 #include <limits>
 #include <regex>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -272,6 +273,148 @@ int count_lane_segment_xy_intersections(const CoreState& state,
   return intersections;
 }
 
+int count_bundle_lane_polyline_xy_intersections(const CoreState& state,
+                                                const std::vector<wire::core::SegmentLaneAssignment>& assignments) {
+  std::unordered_map<ObjectId, std::vector<const wire::core::SegmentLaneAssignment*>> by_bundle{};
+  for (const auto& assignment : assignments) {
+    by_bundle[assignment.bundle_id].push_back(&assignment);
+  }
+
+  int intersections = 0;
+  for (auto& [_, bundle_assignments] : by_bundle) {
+    if (bundle_assignments.empty()) {
+      continue;
+    }
+    std::sort(bundle_assignments.begin(), bundle_assignments.end(),
+              [](const wire::core::SegmentLaneAssignment* a, const wire::core::SegmentLaneAssignment* b) {
+                if (a->segment_index != b->segment_index) {
+                  return a->segment_index < b->segment_index;
+                }
+                if (a->pole_a_id != b->pole_a_id) {
+                  return a->pole_a_id < b->pole_a_id;
+                }
+                return a->pole_b_id < b->pole_b_id;
+              });
+
+    std::size_t lane_count = std::numeric_limits<std::size_t>::max();
+    for (const auto* assignment : bundle_assignments) {
+      lane_count = std::min(lane_count, std::min(assignment->port_ids_a.size(), assignment->port_ids_b.size()));
+    }
+    if (lane_count == std::numeric_limits<std::size_t>::max() || lane_count < 2) {
+      continue;
+    }
+
+    std::vector<std::vector<std::pair<wire::core::Vec3d, wire::core::Vec3d>>> lane_segments(lane_count);
+    for (const auto* assignment : bundle_assignments) {
+      const std::size_t assignment_lane_count = std::min(
+          lane_count, std::min(assignment->port_ids_a.size(), assignment->port_ids_b.size()));
+      for (std::size_t lane = 0; lane < assignment_lane_count; ++lane) {
+        const auto* a = state.view().edit_state().ports.find(assignment->port_ids_a[lane]);
+        const auto* b = state.view().edit_state().ports.find(assignment->port_ids_b[lane]);
+        if (a == nullptr || b == nullptr) {
+          continue;
+        }
+        lane_segments[lane].push_back({a->world_position, b->world_position});
+      }
+    }
+
+    for (std::size_t i = 0; i < lane_count; ++i) {
+      for (std::size_t j = i + 1; j < lane_count; ++j) {
+        for (const auto& seg_i : lane_segments[i]) {
+          for (const auto& seg_j : lane_segments[j]) {
+            if (segments_intersect_xy_strict_test(seg_i.first, seg_i.second, seg_j.first, seg_j.second)) {
+              ++intersections;
+            }
+          }
+        }
+      }
+    }
+  }
+  return intersections;
+}
+
+int count_mirrored_assignments(const std::vector<wire::core::SegmentLaneAssignment>& assignments) {
+  int mirrored = 0;
+  for (const auto& assignment : assignments) {
+    if (assignment.mirrored) {
+      ++mirrored;
+    }
+  }
+  return mirrored;
+}
+
+const wire::core::JunctionInfo* find_junction(const wire::core::BackboneResult& backbone, ObjectId node_id) {
+  for (const auto& junction : backbone.junctions) {
+    if (junction.node_id == node_id) {
+      return &junction;
+    }
+  }
+  return nullptr;
+}
+
+ObjectId find_pole_id_by_position(const CoreState& state, const wire::core::Vec3d& pos, double eps = 1e-6) {
+  for (const auto& pole : state.view().poles().items()) {
+    if (std::abs(pole.world_transform.position.x - pos.x) <= eps &&
+        std::abs(pole.world_transform.position.y - pos.y) <= eps &&
+        std::abs(pole.world_transform.position.z - pos.z) <= eps) {
+      return pole.id;
+    }
+  }
+  return wire::core::kInvalidObjectId;
+}
+
+bool is_monotonic(const std::vector<double>& values) {
+  if (values.size() < 2) {
+    return true;
+  }
+  bool non_decreasing = true;
+  bool non_increasing = true;
+  for (std::size_t i = 1; i < values.size(); ++i) {
+    if (values[i] + 1e-9 < values[i - 1]) {
+      non_decreasing = false;
+    }
+    if (values[i] > values[i - 1] + 1e-9) {
+      non_increasing = false;
+    }
+  }
+  return non_decreasing || non_increasing;
+}
+
+void add_backbone_bundle(wire::core::BackboneSpec& req, wire::core::BundleKind template_id,
+                         wire::core::SpanLayer layer = wire::core::SpanLayer::kUnknown, int count = 0) {
+  wire::core::BackboneBundleSpec bundle{};
+  bundle.bundle_template_id = template_id;
+  bundle.layer = layer;
+  bundle.count = count;
+  req.bundles.push_back(bundle);
+}
+
+wire::core::BundleKind bundle_template_for_category_test(wire::core::ConnectionCategory category) {
+  switch (category) {
+  case wire::core::ConnectionCategory::kHighVoltage:
+    return wire::core::BundleKind::kHighVoltage;
+  case wire::core::ConnectionCategory::kCommunication:
+    return wire::core::BundleKind::kCommunication;
+  case wire::core::ConnectionCategory::kOptical:
+    return wire::core::BundleKind::kOptical;
+  case wire::core::ConnectionCategory::kLowVoltage:
+  case wire::core::ConnectionCategory::kDrop:
+  default:
+    return wire::core::BundleKind::kLowVoltage;
+  }
+}
+
+wire::core::EditResult<wire::core::CoreState::AddConnectionByPoleResult>
+add_connection_by_category(wire::core::CoreState& state, wire::core::ObjectId pole_a_id, wire::core::ObjectId pole_b_id,
+                           wire::core::ConnectionCategory category,
+                           wire::core::CoreState::AddConnectionByPoleOptions options = {}) {
+  if (!options.use_bundle_template) {
+    options.bundle_template_id = bundle_template_for_category_test(category);
+    options.use_bundle_template = true;
+  }
+  return state.AddConnectionByPole(pole_a_id, pole_b_id, category, options);
+}
+
 bool has_selected_slot_in_candidates(const wire::core::SlotSelectionDebugRecord& record) {
   if (record.selected_slot_id < 0) {
     return true;
@@ -486,8 +629,8 @@ bool test_auto_port_allocation_prefers_unused_slots() {
     return false;
   }
 
-  const auto first = state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kHighVoltage);
-  const auto second = state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kHighVoltage);
+  const auto first = add_connection_by_category(state, pole_a, pole_b, ConnectionCategory::kHighVoltage);
+  const auto second = add_connection_by_category(state, pole_a, pole_b, ConnectionCategory::kHighVoltage);
   if (!first.ok || !second.ok) {
     return false;
   }
@@ -511,7 +654,7 @@ bool test_add_connection_by_pole_updates_dirty_version_and_indices() {
   (void)state.ApplyPoleType(pole_a, pole_type_ids[0]);
   (void)state.ApplyPoleType(pole_b, pole_type_ids[0]);
 
-  const auto connection = state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kLowVoltage);
+  const auto connection = add_connection_by_category(state, pole_a, pole_b, ConnectionCategory::kLowVoltage);
   if (!connection.ok) {
     return false;
   }
@@ -580,7 +723,7 @@ bool test_add_drop_from_span_splits_and_connects_drop() {
   (void)state.ApplyPoleType(pole_a, pole_type_ids[0]);
   (void)state.ApplyPoleType(pole_b, pole_type_ids[0]);
 
-  const auto base = state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kLowVoltage);
+  const auto base = add_connection_by_category(state, pole_a, pole_b, ConnectionCategory::kLowVoltage);
   if (!base.ok) {
     return false;
   }
@@ -1097,7 +1240,7 @@ bool test_slot_selection_context_bias() {
   wire::core::CoreState::AddConnectionByPoleOptions trunk_options{};
   trunk_options.connection_context = wire::core::ConnectionContext::kTrunkContinue;
   const auto trunk =
-      state.AddConnectionByPole(pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage, trunk_options);
+      add_connection_by_category(state, pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage, trunk_options);
   if (!trunk.ok) {
     return false;
   }
@@ -1105,7 +1248,7 @@ bool test_slot_selection_context_bias() {
   wire::core::CoreState::AddConnectionByPoleOptions branch_options{};
   branch_options.connection_context = wire::core::ConnectionContext::kBranchAdd;
   const auto branch =
-      state.AddConnectionByPole(pole_b, pole_c, wire::core::ConnectionCategory::kLowVoltage, branch_options);
+      add_connection_by_category(state, pole_b, pole_c, wire::core::ConnectionCategory::kLowVoltage, branch_options);
   if (!branch.ok) {
     return false;
   }
@@ -1130,7 +1273,7 @@ bool test_slot_selection_deterministic_and_debug_integrity() {
     wire::core::CoreState::AddConnectionByPoleOptions options{};
     options.connection_context = wire::core::ConnectionContext::kCornerPass;
     options.branch_index = 3;
-    const auto result = state.AddConnectionByPole(pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage, options);
+    const auto result = add_connection_by_category(state, pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage, options);
     if (!result.ok || state.view().slot_selection_debug_records().empty()) {
       return {-1, {}};
     }
@@ -1329,13 +1472,12 @@ bool test_generate_from_guide_reused_vertex_reorients_to_corner_rule() {
     return false;
   }
 
-  wire::core::GenerationRequest req_obtuse{};
+  wire::core::BackboneSpec req_obtuse{};
   req_obtuse.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {15.0, 8.660254037844386, 0.0}}; // interior ~=120
   req_obtuse.interval_m = 100.0;                                                                     // only vertices
   req_obtuse.pole_type_id = type_ids.front();
-  req_obtuse.category = ConnectionCategory::kLowVoltage;
-  req_obtuse.requested_lane_count = 1;
-  const auto first = state.GenerateFromGuide(req_obtuse);
+  add_backbone_bundle(req_obtuse, wire::core::BundleKind::kLowVoltage);
+  const auto first = state.GenerateFromBackboneSpec(req_obtuse);
   if (!first.ok) {
     return false;
   }
@@ -1351,9 +1493,9 @@ bool test_generate_from_guide_reused_vertex_reorients_to_corner_rule() {
     return false;
   }
 
-  wire::core::GenerationRequest req_acute = req_obtuse;
+  wire::core::BackboneSpec req_acute = req_obtuse;
   req_acute.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {2.9289321881345245, 7.0710678118654755, 0.0}}; // ~45
-  const auto second = state.GenerateFromGuide(req_acute);
+  const auto second = state.GenerateFromBackboneSpec(req_acute);
   if (!second.ok) {
     return false;
   }
@@ -1377,13 +1519,12 @@ bool test_generate_from_guide_reused_pole_reprojects_owned_ports() {
     return false;
   }
 
-  wire::core::GenerationRequest req_obtuse{};
+  wire::core::BackboneSpec req_obtuse{};
   req_obtuse.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {15.0, 8.660254037844386, 0.0}}; // interior ~=120
   req_obtuse.interval_m = 100.0; // vertices only
   req_obtuse.pole_type_id = type_ids.front();
-  req_obtuse.category = ConnectionCategory::kLowVoltage;
-  req_obtuse.requested_lane_count = 1;
-  const auto first = state.GenerateFromGuide(req_obtuse);
+  add_backbone_bundle(req_obtuse, wire::core::BundleKind::kLowVoltage);
+  const auto first = state.GenerateFromBackboneSpec(req_obtuse);
   if (!first.ok) {
     return false;
   }
@@ -1425,9 +1566,9 @@ bool test_generate_from_guide_reused_pole_reprojects_owned_ports() {
     return false;
   }
 
-  wire::core::GenerationRequest req_acute = req_obtuse;
+  wire::core::BackboneSpec req_acute = req_obtuse;
   req_acute.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {2.9289321881345245, 7.0710678118654755, 0.0}}; // ~45
-  const auto second = state.GenerateFromGuide(req_acute);
+  const auto second = state.GenerateFromBackboneSpec(req_acute);
   if (!second.ok) {
     return false;
   }
@@ -1453,7 +1594,7 @@ bool test_generate_from_guide_with_duplicate_points_is_robust() {
   if (type_ids.empty()) {
     return false;
   }
-  wire::core::GenerationRequest req{};
+  wire::core::BackboneSpec req{};
   req.path.polyline = {
       {0.0, 0.0, 0.0},
       {0.0, 0.0, 0.0}, // duplicate
@@ -1463,9 +1604,8 @@ bool test_generate_from_guide_with_duplicate_points_is_robust() {
   };
   req.interval_m = 10.0;
   req.pole_type_id = type_ids.front();
-  req.category = ConnectionCategory::kLowVoltage;
-  req.requested_lane_count = 1;
-  const auto result = state.GenerateFromGuide(req);
+  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
+  const auto result = state.GenerateFromBackboneSpec(req);
   if (!result.ok || result.value.generated_pole_ids.size() < 2) {
     return false;
   }
@@ -1499,14 +1639,13 @@ bool test_generate_from_guide_reverse_mode_position_symmetry() {
     if (type_ids.empty()) {
       return out;
     }
-    wire::core::GenerationRequest req{};
+    wire::core::BackboneSpec req{};
     req.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}, {24.0, 6.0, 0.0}};
     req.interval_m = 6.0;
     req.pole_type_id = type_ids.front();
-    req.category = ConnectionCategory::kLowVoltage;
-    req.requested_lane_count = 1;
+  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
     req.direction_mode = mode;
-    const auto result = state.GenerateFromGuide(req);
+    const auto result = state.GenerateFromBackboneSpec(req);
     if (!result.ok) {
       return out;
     }
@@ -1584,15 +1723,14 @@ bool test_generate_from_guide_respects_avoid_constraints() {
   if (type_ids.empty()) {
     return false;
   }
-  wire::core::GenerationRequest req{};
+  wire::core::BackboneSpec req{};
   req.path.polyline = {{0.0, 0.0, 0.0}, {30.0, 0.0, 0.0}};
   req.interval_m = 10.0;
   req.pole_type_id = type_ids.front();
-  req.category = ConnectionCategory::kLowVoltage;
-  req.requested_lane_count = 1;
+  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
   req.constraints.avoid_points = {{10.0, 0.0, 0.0}};
   req.constraints.avoid_radius_m = 1.0;
-  const auto result = state.GenerateFromGuide(req);
+  const auto result = state.GenerateFromBackboneSpec(req);
   if (!result.ok || result.value.generated_pole_ids.empty()) {
     return false;
   }
@@ -1632,7 +1770,7 @@ bool test_preferred_side_uses_geometry() {
     wire::core::CoreState::AddConnectionByPoleOptions options{};
     options.connection_context = wire::core::ConnectionContext::kBranchAdd;
     options.branch_index = 7; // deliberately fixed; geometry should dominate.
-    const auto add = state.AddConnectionByPole(pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage, options);
+    const auto add = add_connection_by_category(state, pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage, options);
     if (!add.ok) {
       return wire::core::SlotSide::kCenter;
     }
@@ -1757,6 +1895,69 @@ bool test_generate_grouped_line_direction_forced_reverse() {
   return true;
 }
 
+// Intent: Legacy GenerateGroupedLine should align with BackboneSpec path when request is template-compatible.
+bool test_generate_grouped_line_compatible_case_matches_backbone_generation() {
+  const auto run_grouped = [](CoreState& state, PoleTypeId pole_type_id)
+      -> wire::core::EditResult<wire::core::CoreState::GenerateGroupedLineResult> {
+    wire::core::CoreState::GenerateGroupedLineOptions options{};
+    options.road.id = 9001;
+    options.road.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {20.0, 2.0, 0.0}, {30.0, 2.0, 0.0}};
+    options.interval = 0.0;
+    options.pole_type_id = pole_type_id;
+    options.group_spec.category = wire::core::ConnectionCategory::kHighVoltage;
+    options.group_spec.group_kind = wire::core::ConductorGroupKind::kThreePhase;
+    options.group_spec.conductor_count = 3;
+    options.group_spec.lane_spacing_m = 0.45;
+    options.group_spec.maintain_lane_order = true;
+    options.group_spec.allow_lane_mirror = false;
+    options.direction_mode = wire::core::PathDirectionMode::kAuto;
+    return state.GenerateGroupedLine(options);
+  };
+
+  const auto run_backbone = [](CoreState& state, PoleTypeId pole_type_id)
+      -> wire::core::EditResult<wire::core::CoreState::GenerateBundleFromPathResult> {
+    wire::core::BackboneSpec req{};
+    req.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {20.0, 2.0, 0.0}, {30.0, 2.0, 0.0}};
+    req.interval_m = std::numeric_limits<double>::max() / 4.0;
+    req.pole_type_id = pole_type_id;
+    req.direction_mode = wire::core::PathDirectionMode::kAuto;
+    wire::core::BackboneBundleSpec bundle{};
+    bundle.bundle_template_id = wire::core::BundleKind::kHighVoltage;
+    req.bundles.push_back(bundle);
+    return state.GenerateFromBackboneSpec(req);
+  };
+
+  CoreState grouped_state;
+  CoreState backbone_state;
+  const auto grouped_types = sorted_pole_type_ids(grouped_state);
+  const auto backbone_types = sorted_pole_type_ids(backbone_state);
+  if (grouped_types.empty() || backbone_types.empty()) {
+    return false;
+  }
+
+  const auto grouped = run_grouped(grouped_state, grouped_types.front());
+  const auto backbone = run_backbone(backbone_state, backbone_types.front());
+  if (!grouped.ok || !backbone.ok) {
+    return false;
+  }
+  if (grouped.value.pole_ids.size() != backbone.value.generated_pole_ids.size()) {
+    return false;
+  }
+  if (grouped.value.span_ids.size() != backbone.value.generated_span_ids.size()) {
+    return false;
+  }
+  if (grouped.value.lane_assignments.size() != backbone_state.view().last_lane_assignments().size()) {
+    return false;
+  }
+  const auto* grouped_bundle = grouped_state.view().edit_state().bundles.find(grouped.value.bundle_id);
+  const auto* backbone_bundle = backbone_state.view().edit_state().bundles.find(backbone.value.bundle_id);
+  if (grouped_bundle == nullptr || backbone_bundle == nullptr) {
+    return false;
+  }
+  return grouped_bundle->kind == backbone_bundle->kind &&
+         grouped_bundle->conductor_count == backbone_bundle->conductor_count;
+}
+
 // Intent: Group lane assignment on a U-shaped path should avoid lane-order inversions per segment.
 bool test_grouped_line_lane_order_no_inversion_on_u_path() {
   CoreState state;
@@ -1792,7 +1993,7 @@ bool test_grouped_line_lane_order_no_inversion_on_u_path() {
   return metrics.y_inversions == 0;
 }
 
-// Intent: Group lane assignment on an acute corner path should avoid per-segment XY crossings.
+// Intent: Group lane assignment on an acute corner path should avoid global XY crossings.
 bool test_grouped_line_acute_corner_no_xy_crossing() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
@@ -1822,7 +2023,318 @@ bool test_grouped_line_acute_corner_no_xy_crossing() {
   if (!generated.ok) {
     return false;
   }
-  return count_lane_segment_xy_intersections(state, generated.value.lane_assignments) == 0;
+  const int intersections = count_bundle_lane_polyline_xy_intersections(state, generated.value.lane_assignments);
+  return intersections == 0;
+}
+
+// Intent: Acute/zigzag path variants should avoid global XY crossings under mirror two-choice policy.
+bool test_grouped_line_acute_pattern_suite_no_xy_crossing() {
+  const std::vector<std::vector<wire::core::Vec3d>> paths = {
+      {
+          {-20.0, 0.0, 0.0},
+          {-8.0, 0.0, 0.0},
+          {2.0, 0.0, 0.0},
+          {-2.0, 6.0, 0.0},
+          {10.0, 6.0, 0.0},
+      },
+      {
+          {-20.0, 0.0, 0.0},
+          {-8.0, 0.0, 0.0},
+          {2.0, 0.0, 0.0},
+          {-2.0, -6.0, 0.0},
+          {10.0, -6.0, 0.0},
+      },
+      {
+          {-20.0, 0.0, 0.0},
+          {-8.0, 0.0, 0.0},
+          {0.0, 6.0, 0.0},
+          {8.0, 0.0, 0.0},
+          {16.0, 6.0, 0.0},
+      },
+      {
+          {-18.0, -4.0, 0.0},
+          {-8.0, -4.0, 0.0},
+          {-2.0, 3.0, 0.0},
+          {6.0, -3.0, 0.0},
+          {14.0, 4.0, 0.0},
+      },
+  };
+
+  for (std::size_t i = 0; i < paths.size(); ++i) {
+    CoreState state;
+    const auto type_ids = sorted_pole_type_ids(state);
+    if (type_ids.empty()) {
+      return false;
+    }
+    wire::core::CoreState::GenerateGroupedLineOptions options{};
+    options.road.id = 1200 + static_cast<wire::core::RoadId>(i);
+    options.road.polyline = paths[i];
+    options.interval = 0.0;
+    options.pole_type_id = type_ids.front();
+    options.group_spec.category = wire::core::ConnectionCategory::kLowVoltage;
+    options.group_spec.group_kind = wire::core::ConductorGroupKind::kParallel;
+    options.group_spec.conductor_count = 4;
+    options.group_spec.allow_lane_mirror = true;
+    options.group_spec.maintain_lane_order = true;
+    const auto generated = state.GenerateGroupedLine(options);
+    if (!generated.ok) {
+      return false;
+    }
+    const int intersections = count_bundle_lane_polyline_xy_intersections(state, generated.value.lane_assignments);
+    if (intersections != 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Intent: Acute high-voltage 3-phase path should also suppress XY twists like other bundle types.
+bool test_grouped_line_hv3_acute_no_phase_twist() {
+  const std::vector<std::vector<wire::core::Vec3d>> paths = {
+      {
+          {-20.0, 0.0, 0.0},
+          {-8.0, 0.0, 0.0},
+          {2.0, 0.0, 0.0},
+          {-2.0, 6.0, 0.0},
+          {10.0, 6.0, 0.0},
+      },
+      {
+          {-20.0, 0.0, 0.0},
+          {-8.0, 0.0, 0.0},
+          {2.0, 0.0, 0.0},
+          {-2.0, -6.0, 0.0},
+          {10.0, -6.0, 0.0},
+      },
+      {
+          {-18.0, -4.0, 0.0},
+          {-8.0, -4.0, 0.0},
+          {-2.0, 3.0, 0.0},
+          {6.0, -3.0, 0.0},
+          {14.0, 4.0, 0.0},
+      },
+  };
+
+  for (std::size_t i = 0; i < paths.size(); ++i) {
+    CoreState state;
+    const auto type_ids = sorted_pole_type_ids(state);
+    if (type_ids.empty()) {
+      return false;
+    }
+    wire::core::CoreState::GenerateGroupedLineOptions options{};
+    options.road.id = 1300 + static_cast<wire::core::RoadId>(i);
+    options.road.polyline = paths[i];
+    options.interval = 0.0;
+    options.pole_type_id = type_ids.front();
+    options.group_spec.category = wire::core::ConnectionCategory::kHighVoltage;
+    options.group_spec.group_kind = wire::core::ConductorGroupKind::kThreePhase;
+    options.group_spec.conductor_count = 3;
+    options.group_spec.allow_lane_mirror = true;
+    options.group_spec.maintain_lane_order = true;
+    const auto generated = state.GenerateGroupedLine(options);
+    if (!generated.ok) {
+      return false;
+    }
+    const int intersections = count_bundle_lane_polyline_xy_intersections(state, generated.value.lane_assignments);
+    if (intersections != 0) {
+      return false;
+    }
+    if (count_mirrored_assignments(generated.value.lane_assignments) <= 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Intent: Backbone HV template should allow mirror-two-choice on acute path when it improves continuity.
+bool test_backbone_hv3_template_acute_no_phase_twist() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  wire::core::BackboneSpec req{};
+  req.path.polyline = {
+      {15.2954, -10.2356, 0.0},
+      {2.87944, -2.16948, 0.0},
+      {12.0546, -16.1829, 0.0},
+      {-2.43956, -5.96523, 0.0},
+      {-14.3612, -6.28665, 0.0},
+      {-14.1685, 6.36328, 0.0},
+      {-2.66804, 5.17324, 0.0},
+      {-13.2896, 13.4663, 0.0},
+      {-20.9067, 19.9314, 0.0},
+      {-24.7745, 14.455, 0.0},
+  };
+  req.interval_m = 8.0;
+  req.pole_type_id = type_ids.front();
+  wire::core::BackboneBundleSpec hv{};
+  hv.bundle_template_id = wire::core::BundleKind::kHighVoltage;
+  req.bundles.push_back(hv);
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  if (!generated.ok) {
+    return false;
+  }
+  const auto tpl_it = state.view().bundle_templates().find(wire::core::BundleKind::kHighVoltage);
+  if (tpl_it == state.view().bundle_templates().end() || !tpl_it->second.allow_mirror) {
+    return false;
+  }
+  const auto& assignments = state.view().last_lane_assignments();
+  if (assignments.empty()) {
+    return false;
+  }
+  const int intersections = count_bundle_lane_polyline_xy_intersections(state, assignments);
+  if (intersections != 0) {
+    return false;
+  }
+  return true;
+}
+
+// Intent: Captured zigzag DrawPath shape should keep HV3 bundle globally non-crossing in XY.
+bool test_backbone_hv3_capture_shape_no_global_xy_crossing() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  wire::core::BackboneSpec req{};
+  req.path.polyline = {
+      {19.6087, -16.6408, 0.0},
+      {8.22759, -11.9276, 0.0},
+      {16.8051, -20.9148, 0.0},
+      {8.62249, -16.7209, 0.0},
+      {12.2073, -24.74, 0.0},
+      {4.69953, -21.4095, 0.0},
+  };
+  req.interval_m = 1000.0; // clicked points only
+  req.pole_type_id = type_ids.front();
+  wire::core::BackboneBundleSpec hv{};
+  hv.bundle_template_id = wire::core::BundleKind::kHighVoltage;
+  req.bundles.push_back(hv);
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  if (!generated.ok) {
+    return false;
+  }
+  const auto& assignments = state.view().last_lane_assignments();
+  if (assignments.empty()) {
+    return false;
+  }
+  return count_bundle_lane_polyline_xy_intersections(state, assignments) == 0;
+}
+
+// Intent: ThreePhase group-kind should still permit mirror-two-choice when allow_lane_mirror=true.
+bool test_grouped_line_threephase_policy_is_category_agnostic() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  wire::core::CoreState::GenerateGroupedLineOptions options{};
+  options.road.id = 1308;
+  options.road.polyline = {
+      {-20.0, 0.0, 0.0},
+      {-8.0, 0.0, 0.0},
+      {2.0, 0.0, 0.0},
+      {-2.0, 6.0, 0.0},
+      {10.0, 6.0, 0.0},
+  };
+  options.interval = 0.0;
+  options.pole_type_id = type_ids.front();
+  options.group_spec.category = wire::core::ConnectionCategory::kLowVoltage;
+  options.group_spec.group_kind = wire::core::ConductorGroupKind::kThreePhase;
+  options.group_spec.conductor_count = 3;
+  options.group_spec.allow_lane_mirror = true;
+  options.group_spec.maintain_lane_order = true;
+  const auto generated = state.GenerateGroupedLine(options);
+  if (!generated.ok) {
+    return false;
+  }
+  return count_mirrored_assignments(generated.value.lane_assignments) > 0 &&
+         count_bundle_lane_polyline_xy_intersections(state, generated.value.lane_assignments) == 0;
+}
+
+// Intent: Path extension should preserve lane order at boundary pole between existing and newly generated segment.
+bool test_backbone_extension_preserves_boundary_lane_order() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  auto make_request = [&](const std::vector<wire::core::Vec3d>& path) {
+    wire::core::BackboneSpec req{};
+    req.path.polyline = path;
+    req.interval_m = 1000.0; // keep clicked vertices only
+    req.pole_type_id = type_ids.front();
+    wire::core::BackboneBundleSpec hv{};
+    hv.bundle_template_id = wire::core::BundleKind::kHighVoltage;
+    req.bundles.push_back(hv);
+    return req;
+  };
+
+  const std::vector<wire::core::Vec3d> base_path = {
+      {19.6087, -16.6408, 0.0},
+      {8.22759, -11.9276, 0.0},
+      {16.8051, -20.9148, 0.0},
+      {8.62249, -16.7209, 0.0},
+      {12.2073, -24.74, 0.0},
+  };
+  const std::vector<wire::core::Vec3d> extended_path = {
+      {19.6087, -16.6408, 0.0},
+      {8.22759, -11.9276, 0.0},
+      {16.8051, -20.9148, 0.0},
+      {8.62249, -16.7209, 0.0},
+      {12.2073, -24.74, 0.0},
+      {4.69953, -21.4095, 0.0},
+  };
+
+  const auto first = state.GenerateFromBackboneSpec(make_request(base_path));
+  if (!first.ok) {
+    return false;
+  }
+  const auto& first_assignments = state.view().last_lane_assignments();
+  if (first_assignments.empty()) {
+    return false;
+  }
+  const wire::core::SegmentLaneAssignment* tail = nullptr;
+  for (const auto& a : first_assignments) {
+    if (a.port_ids_a.size() != 3) {
+      continue;
+    }
+    if (tail == nullptr || a.segment_index > tail->segment_index) {
+      tail = &a;
+    }
+  }
+  if (tail == nullptr || tail->port_ids_b.size() != 3) {
+    return false;
+  }
+  const ObjectId boundary_pole = tail->pole_b_id;
+  const std::vector<ObjectId> expected_order = tail->port_ids_b;
+
+  const auto second = state.GenerateFromBackboneSpec(make_request(extended_path));
+  if (!second.ok) {
+    return false;
+  }
+  const auto& second_assignments = state.view().last_lane_assignments();
+  const wire::core::SegmentLaneAssignment* boundary = nullptr;
+  int hv_assignments = 0;
+  for (const auto& a : second_assignments) {
+    if (a.port_ids_a.size() != 3) {
+      continue;
+    }
+    ++hv_assignments;
+    if (a.pole_a_id == boundary_pole) {
+      boundary = &a;
+    }
+  }
+  if (boundary == nullptr || hv_assignments != 1 || boundary->port_ids_a.size() != expected_order.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < expected_order.size(); ++i) {
+    if (boundary->port_ids_a[i] != expected_order[i]) {
+      return false;
+    }
+  }
+  return true;
 }
 
 // Intent: Enabling lane mirror must not worsen grouped-lane quality metrics (Y/Z order and layer continuity).
@@ -1868,6 +2380,186 @@ bool test_grouped_line_mirror_metric_non_regression() {
   return with_mirror.second.weighted_score() <= without_mirror.second.weighted_score() &&
          with_mirror.second.y_inversions <= without_mirror.second.y_inversions &&
          with_mirror.second.z_inversions <= without_mirror.second.z_inversions;
+}
+
+// Intent: In T-junction, earlier DrawPath session should keep order=0 primary incident.
+bool test_junction_t_shape_preserves_first_session_primary_order() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  auto run_path = [&](const std::vector<wire::core::Vec3d>& path) -> std::pair<bool, std::uint64_t> {
+    wire::core::BackboneSpec req{};
+    req.path.polyline = path;
+    req.interval_m = 8.0;
+    req.pole_type_id = type_ids.front();
+    wire::core::BackboneBundleSpec b{};
+    b.bundle_template_id = wire::core::BundleKind::kLowVoltage;
+    req.bundles.push_back(b);
+    const auto r = state.GenerateFromBackboneSpec(req);
+    if (!r.ok || r.value.generated_span_ids.empty()) {
+      return {false, 0};
+    }
+    const auto* span = state.view().edit_state().spans.find(r.value.generated_span_ids.front());
+    return {span != nullptr, (span == nullptr) ? 0 : span->generation.generation_session_id};
+  };
+
+  const auto first = run_path({{-12.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}});
+  const auto second = run_path({{0.0, -12.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 12.0, 0.0}});
+  if (!first.first || !second.first || first.second == 0 || second.second == 0 || first.second == second.second) {
+    return false;
+  }
+  const ObjectId center_id = find_pole_id_by_position(state, {0.0, 0.0, 0.0});
+  if (center_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  const wire::core::BackboneResult backbone = state.BuildBackboneResult();
+  const auto* junction = find_junction(backbone, center_id);
+  if (junction == nullptr) {
+    return false;
+  }
+  bool first_is_primary = false;
+  bool second_not_primary = true;
+  for (const auto& inc : junction->incidents) {
+    if (inc.source_session_id == first.second && inc.order == 0) {
+      first_is_primary = true;
+    }
+    if (inc.source_session_id == second.second && inc.order == 0) {
+      second_not_primary = false;
+    }
+  }
+  return first_is_primary && second_not_primary;
+}
+
+// Intent: Junction order should be stable across repeated evaluations (no alternating jitter).
+bool test_junction_cross_order_stable_across_rebuilds() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  auto run_path = [&](const std::vector<wire::core::Vec3d>& path) -> bool {
+    wire::core::BackboneSpec req{};
+    req.path.polyline = path;
+    req.interval_m = 8.0;
+    req.pole_type_id = type_ids.front();
+    wire::core::BackboneBundleSpec b{};
+    b.bundle_template_id = wire::core::BundleKind::kLowVoltage;
+    req.bundles.push_back(b);
+    return state.GenerateFromBackboneSpec(req).ok;
+  };
+  if (!run_path({{-12.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}}) ||
+      !run_path({{0.0, -12.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 12.0, 0.0}})) {
+    return false;
+  }
+  const ObjectId center_id = find_pole_id_by_position(state, {0.0, 0.0, 0.0});
+  if (center_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  const wire::core::BackboneResult a = state.BuildBackboneResult();
+  const wire::core::BackboneResult b = state.BuildBackboneResult();
+  const auto* ja = find_junction(a, center_id);
+  const auto* jb = find_junction(b, center_id);
+  if (ja == nullptr || jb == nullptr || ja->incidents.size() != jb->incidents.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < ja->incidents.size(); ++i) {
+    if (ja->incidents[i].neighbor_node_id != jb->incidents[i].neighbor_node_id ||
+        ja->incidents[i].order != jb->incidents[i].order ||
+        ja->incidents[i].source_session_id != jb->incidents[i].source_session_id) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Intent: Later DrawPath should not overwrite prioritized session at junction.
+bool test_junction_first_session_priority_not_overwritten_by_later_paths() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  auto run_path = [&](const std::vector<wire::core::Vec3d>& path) -> std::uint64_t {
+    wire::core::BackboneSpec req{};
+    req.path.polyline = path;
+    req.interval_m = 8.0;
+    req.pole_type_id = type_ids.front();
+    wire::core::BackboneBundleSpec b{};
+    b.bundle_template_id = wire::core::BundleKind::kLowVoltage;
+    req.bundles.push_back(b);
+    const auto r = state.GenerateFromBackboneSpec(req);
+    if (!r.ok || r.value.generated_span_ids.empty()) {
+      return 0;
+    }
+    const auto* span = state.view().edit_state().spans.find(r.value.generated_span_ids.front());
+    return (span == nullptr) ? 0 : span->generation.generation_session_id;
+  };
+  const std::uint64_t first_session = run_path({{-12.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}});
+  (void)run_path({{0.0, 0.0, 0.0}, {0.0, 10.0, 0.0}});
+  (void)run_path({{0.0, 0.0, 0.0}, {0.0, -10.0, 0.0}});
+  if (first_session == 0) {
+    return false;
+  }
+  const ObjectId center_id = find_pole_id_by_position(state, {0.0, 0.0, 0.0});
+  if (center_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  const auto backbone = state.BuildBackboneResult();
+  const auto* junction = find_junction(backbone, center_id);
+  return junction != nullptr && junction->prioritized_session_id == first_session;
+}
+
+// Intent: Grouped mirror handling should keep lane ordering monotonic (identity/reverse only).
+bool test_grouped_lane_mirror_is_two_choice_only() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  wire::core::CoreState::GenerateGroupedLineOptions options{};
+  options.road.id = 1199;
+  options.road.polyline = {
+      {-20.0, 0.0, 0.0},
+      {-6.0, 0.0, 0.0},
+      {-6.0, 8.0, 0.0},
+      {8.0, 8.0, 0.0},
+      {8.0, -2.0, 0.0},
+      {20.0, -2.0, 0.0},
+  };
+  options.interval = 0.0;
+  options.pole_type_id = type_ids.front();
+  options.group_spec.category = wire::core::ConnectionCategory::kLowVoltage;
+  options.group_spec.group_kind = wire::core::ConductorGroupKind::kParallel;
+  options.group_spec.conductor_count = 4;
+  options.group_spec.allow_lane_mirror = true;
+  options.group_spec.maintain_lane_order = true;
+
+  const auto generated = state.GenerateGroupedLine(options);
+  if (!generated.ok) {
+    return false;
+  }
+
+  for (const auto& assignment : generated.value.lane_assignments) {
+    const auto* pole_b = state.view().edit_state().poles.find(assignment.pole_b_id);
+    if (pole_b == nullptr) {
+      return false;
+    }
+    std::vector<double> y_values{};
+    for (ObjectId port_id : assignment.port_ids_b) {
+      const auto* port = state.view().edit_state().ports.find(port_id);
+      if (port == nullptr) {
+        return false;
+      }
+      y_values.push_back(to_local_on_pole_test(*pole_b, port->world_position).y);
+    }
+    if (!is_monotonic(y_values)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 // Intent: Bundle query API should return only spans that reference the target bundle.
@@ -1939,23 +2631,22 @@ bool test_unbundled_span_compatibility() {
   return runtime != nullptr && recalc.geometry_processed > 0 && validate_now(state).ok();
 }
 
-// Intent: DrawPath-oriented bundle API should create category-default lanes and assign spans to one bundle.
-bool test_generate_bundle_from_path_basic_hv_default_lanes() {
+// Intent: Backbone generation should create template-default lanes and assign spans to one bundle.
+bool test_generate_from_backbone_spec_basic_hv_default_lanes() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
   if (type_ids.empty()) {
     return false;
   }
 
-  CoreState::GenerateBundleFromPathInput input{};
-  input.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}, {24.0, 4.0, 0.0}};
-  input.interval_m = 6.0;
-  input.pole_type_id = type_ids.front();
-  input.category = ConnectionCategory::kHighVoltage;
-  input.direction_mode = wire::core::PathDirectionMode::kAuto;
-  input.requested_lane_count = 0; // category standard
+  wire::core::BackboneSpec req{};
+  req.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}, {24.0, 4.0, 0.0}};
+  req.interval_m = 6.0;
+  req.pole_type_id = type_ids.front();
+  req.direction_mode = wire::core::PathDirectionMode::kAuto;
+  add_backbone_bundle(req, wire::core::BundleKind::kHighVoltage);
 
-  const auto result = state.GenerateBundleFromPath(input);
+  const auto result = state.GenerateFromBackboneSpec(req);
   if (!result.ok) {
     return false;
   }
@@ -1979,7 +2670,7 @@ bool test_generate_bundle_from_path_basic_hv_default_lanes() {
 }
 
 // Intent: Direction modes on path generation should all execute without failure.
-bool test_generate_bundle_from_path_direction_modes_nonfailing() {
+bool test_generate_from_backbone_spec_direction_modes_nonfailing() {
   const std::array<wire::core::PathDirectionMode, 3> modes = {
       wire::core::PathDirectionMode::kForward,
       wire::core::PathDirectionMode::kReverse,
@@ -1991,14 +2682,13 @@ bool test_generate_bundle_from_path_direction_modes_nonfailing() {
     if (type_ids.empty()) {
       return false;
     }
-    CoreState::GenerateBundleFromPathInput input{};
-    input.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {20.0, 2.0, 0.0}};
-    input.interval_m = 5.0;
-    input.pole_type_id = type_ids.front();
-    input.category = ConnectionCategory::kLowVoltage;
-    input.direction_mode = mode;
-    input.requested_lane_count = 0;
-    const auto result = state.GenerateBundleFromPath(input);
+    wire::core::BackboneSpec req{};
+    req.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {20.0, 2.0, 0.0}};
+    req.interval_m = 5.0;
+    req.pole_type_id = type_ids.front();
+    req.direction_mode = mode;
+    add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
+    const auto result = state.GenerateFromBackboneSpec(req);
     if (!result.ok || result.value.generated_span_ids.empty()) {
       return false;
     }
@@ -2006,8 +2696,8 @@ bool test_generate_bundle_from_path_direction_modes_nonfailing() {
   return true;
 }
 
-// Intent: Bundle path generation should reject invalid input and keep state recoverable.
-bool test_generate_bundle_from_path_invalid_inputs_fail() {
+// Intent: Backbone generation should reject invalid input and keep state recoverable.
+bool test_generate_from_backbone_spec_invalid_inputs_fail() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
   if (type_ids.empty()) {
@@ -2015,42 +2705,42 @@ bool test_generate_bundle_from_path_invalid_inputs_fail() {
   }
   const CoreCounts before = snapshot_counts(state);
 
-  CoreState::GenerateBundleFromPathInput too_short{};
-  too_short.polyline = {{0.0, 0.0, 0.0}};
+  wire::core::BackboneSpec too_short{};
+  too_short.path.polyline = {{0.0, 0.0, 0.0}};
   too_short.interval_m = 5.0;
   too_short.pole_type_id = type_ids.front();
-  too_short.category = ConnectionCategory::kLowVoltage;
-  const auto r_short = state.GenerateBundleFromPath(too_short);
+  add_backbone_bundle(too_short, wire::core::BundleKind::kLowVoltage);
+  const auto r_short = state.GenerateFromBackboneSpec(too_short);
   if (r_short.ok || !regex_contains(r_short.error, "at least 2 points")) {
     return false;
   }
 
-  CoreState::GenerateBundleFromPathInput bad_interval{};
-  bad_interval.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}};
+  wire::core::BackboneSpec bad_interval{};
+  bad_interval.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}};
   bad_interval.interval_m = 0.0;
   bad_interval.pole_type_id = type_ids.front();
-  bad_interval.category = ConnectionCategory::kLowVoltage;
-  const auto r_interval = state.GenerateBundleFromPath(bad_interval);
+  add_backbone_bundle(bad_interval, wire::core::BundleKind::kLowVoltage);
+  const auto r_interval = state.GenerateFromBackboneSpec(bad_interval);
   if (r_interval.ok || !regex_contains(r_interval.error, "interval_m")) {
     return false;
   }
 
-  CoreState::GenerateBundleFromPathInput bad_category{};
-  bad_category.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}};
-  bad_category.interval_m = 5.0;
-  bad_category.pole_type_id = type_ids.front();
-  bad_category.category = static_cast<ConnectionCategory>(255);
-  const auto r_category = state.GenerateBundleFromPath(bad_category);
-  if (r_category.ok || !regex_contains(r_category.error, "unsupported")) {
+  wire::core::BackboneSpec bad_template{};
+  bad_template.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}};
+  bad_template.interval_m = 5.0;
+  bad_template.pole_type_id = type_ids.front();
+  add_backbone_bundle(bad_template, static_cast<wire::core::BundleKind>(255));
+  const auto r_category = state.GenerateFromBackboneSpec(bad_template);
+  if (r_category.ok || !regex_contains(r_category.error, "template")) {
     return false;
   }
 
-  CoreState::GenerateBundleFromPathInput bad_type{};
-  bad_type.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}};
+  wire::core::BackboneSpec bad_type{};
+  bad_type.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}};
   bad_type.interval_m = 5.0;
   bad_type.pole_type_id = 999999;
-  bad_type.category = ConnectionCategory::kLowVoltage;
-  const auto r_type = state.GenerateBundleFromPath(bad_type);
+  add_backbone_bundle(bad_type, wire::core::BundleKind::kLowVoltage);
+  const auto r_type = state.GenerateFromBackboneSpec(bad_type);
   if (r_type.ok || !regex_contains(r_type.error, "pole type")) {
     return false;
   }
@@ -2059,12 +2749,190 @@ bool test_generate_bundle_from_path_invalid_inputs_fail() {
     return false;
   }
 
-  CoreState::GenerateBundleFromPathInput recover{};
-  recover.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}, {24.0, 0.0, 0.0}};
+  wire::core::BackboneSpec recover{};
+  recover.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}, {24.0, 0.0, 0.0}};
   recover.interval_m = 6.0;
   recover.pole_type_id = type_ids.front();
-  recover.category = ConnectionCategory::kLowVoltage;
-  return state.GenerateBundleFromPath(recover).ok;
+  add_backbone_bundle(recover, wire::core::BundleKind::kLowVoltage);
+  return state.GenerateFromBackboneSpec(recover).ok;
+}
+
+// Intent: Backbone generation must require bundles[] and reject legacy-only fields.
+bool test_backbone_generation_requires_non_empty_bundles() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  wire::core::BackboneSpec req{};
+  req.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}};
+  req.interval_m = 5.0;
+  req.pole_type_id = type_ids.front();
+  const auto result = state.GenerateFromBackboneSpec(req);
+  return !result.ok && regex_contains(result.error, "bundles\\[\\]");
+}
+
+// Intent: Auto bundle creation on AddConnectionByPole must require explicit bundle template.
+bool test_add_connection_requires_bundle_template_when_auto_create_enabled() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  const ObjectId pole_a = state.AddPole({}, 10.0, "A").value;
+  wire::core::Transformd b{};
+  b.position = {10.0, 0.0, 0.0};
+  const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
+  (void)state.ApplyPoleType(pole_a, type_ids.front());
+  (void)state.ApplyPoleType(pole_b, type_ids.front());
+
+  wire::core::CoreState::AddConnectionByPoleOptions options{};
+  options.auto_create_bundle = true;
+  options.use_bundle_template = false;
+  options.bundle_id = wire::core::kInvalidObjectId;
+  const auto result = state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kLowVoltage, options);
+  return !result.ok && regex_contains(result.error, "bundle_template_id");
+}
+
+// Intent: AddConnectionByPole should derive behavior from template/bundle, not caller category.
+bool test_add_connection_template_profile_overrides_category_fallback() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  const ObjectId pole_a = state.AddPole({}, 10.0, "A").value;
+  wire::core::Transformd b{};
+  b.position = {10.0, 0.0, 0.0};
+  const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
+  (void)state.ApplyPoleType(pole_a, type_ids.front());
+  (void)state.ApplyPoleType(pole_b, type_ids.front());
+
+  wire::core::CoreState::AddConnectionByPoleOptions options{};
+  options.auto_create_bundle = true;
+  options.use_bundle_template = true;
+  options.bundle_template_id = wire::core::BundleKind::kHighVoltage;
+  options.span_kind = SpanKind::kDistribution;
+
+  // Intentionally pass a mismatched category; template must win.
+  const auto add = state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kLowVoltage, options);
+  if (!add.ok) {
+    return false;
+  }
+
+  const auto* span = state.view().edit_state().spans.find(add.value.span_id);
+  if (span == nullptr || span->layer != SpanLayer::kHighVoltage) {
+    return false;
+  }
+  const auto* bundle = state.view().edit_state().bundles.find(span->bundle_id);
+  if (bundle == nullptr || bundle->kind != wire::core::BundleKind::kHighVoltage || bundle->conductor_count != 3) {
+    return false;
+  }
+  const auto* port_a = state.view().edit_state().ports.find(add.value.port_a_id);
+  const auto* port_b = state.view().edit_state().ports.find(add.value.port_b_id);
+  if (port_a == nullptr || port_b == nullptr) {
+    return false;
+  }
+  return port_a->category == ConnectionCategory::kHighVoltage && port_b->category == ConnectionCategory::kHighVoltage;
+}
+
+// Intent: Explicit bundle_id and bundle_template_id mismatch must be rejected.
+bool test_add_connection_rejects_bundle_id_template_mismatch() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  const ObjectId pole_a = state.AddPole({}, 10.0, "A").value;
+  wire::core::Transformd b{};
+  b.position = {10.0, 0.0, 0.0};
+  const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
+  (void)state.ApplyPoleType(pole_a, type_ids.front());
+  (void)state.ApplyPoleType(pole_b, type_ids.front());
+  const auto bundle = state.AddBundle(1, 0.2, wire::core::BundleKind::kLowVoltage);
+  if (!bundle.ok) {
+    return false;
+  }
+
+  wire::core::CoreState::AddConnectionByPoleOptions options{};
+  options.bundle_id = bundle.value;
+  options.use_bundle_template = true;
+  options.bundle_template_id = wire::core::BundleKind::kHighVoltage;
+  options.auto_create_bundle = false;
+  const auto add = state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kLowVoltage, options);
+  return !add.ok && regex_contains(add.error, "mismatch");
+}
+
+// Intent: use_bundle_template with auto_create disabled must require explicit bundle_id.
+bool test_add_connection_template_requires_bundle_id_when_auto_create_disabled() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  const ObjectId pole_a = state.AddPole({}, 10.0, "A").value;
+  wire::core::Transformd b{};
+  b.position = {10.0, 0.0, 0.0};
+  const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
+  (void)state.ApplyPoleType(pole_a, type_ids.front());
+  (void)state.ApplyPoleType(pole_b, type_ids.front());
+
+  wire::core::CoreState::AddConnectionByPoleOptions options{};
+  options.auto_create_bundle = false;
+  options.use_bundle_template = true;
+  options.bundle_template_id = wire::core::BundleKind::kHighVoltage;
+  const auto add = state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kLowVoltage, options);
+  return !add.ok && regex_contains(add.error, "bundle_id is required");
+}
+
+// Intent: span_layer override must not conflict with bundle template default layer.
+bool test_add_connection_rejects_span_layer_override_conflict() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  const ObjectId pole_a = state.AddPole({}, 10.0, "A").value;
+  wire::core::Transformd b{};
+  b.position = {10.0, 0.0, 0.0};
+  const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
+  (void)state.ApplyPoleType(pole_a, type_ids.front());
+  (void)state.ApplyPoleType(pole_b, type_ids.front());
+
+  wire::core::CoreState::AddConnectionByPoleOptions options{};
+  options.auto_create_bundle = true;
+  options.use_bundle_template = true;
+  options.bundle_template_id = wire::core::BundleKind::kHighVoltage;
+  options.span_layer = SpanLayer::kLowVoltage;
+  const auto add = state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kLowVoltage, options);
+  return !add.ok && regex_contains(add.error, "span_layer override");
+}
+
+// Intent: Drop generation should use bundle template defaults (not hardcoded spacing/category mapping).
+bool test_drop_generation_uses_template_defaults() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  const ObjectId pole = state.AddPole({}, 10.0, "DropSrc").value;
+  (void)state.ApplyPoleType(pole, type_ids.front());
+  const auto drop = state.AddDropFromPole(pole, {8.0, 2.0, 3.0}, ConnectionCategory::kDrop);
+  if (!drop.ok) {
+    return false;
+  }
+  const auto* span = state.view().edit_state().spans.find(drop.value.span_id);
+  if (span == nullptr || span->bundle_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  const auto* bundle = state.view().edit_state().bundles.find(span->bundle_id);
+  const auto tpl_it = state.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  if (bundle == nullptr || tpl_it == state.view().bundle_templates().end()) {
+    return false;
+  }
+  const auto& tpl = tpl_it->second;
+  return span->layer == tpl.default_layer && bundle->kind == tpl.id &&
+         almost_equal(bundle->phase_spacing_m, tpl.default_spacing_m, 1e-9);
 }
 
 // Intent: Fixed bundle template must reject explicit count override inputs.
@@ -2087,41 +2955,34 @@ bool test_backbone_bundle_template_fixed_count_rejects_override() {
   return !result.ok && regex_contains(result.error, "count override");
 }
 
-// Intent: Variable communication bundle should scale generated span count by requested count.
-bool test_backbone_bundle_template_comm_variable_count_scales_spans() {
-  auto run_with_count = [&](int count) -> std::pair<bool, std::size_t> {
-    CoreState state;
-    const auto type_ids = sorted_pole_type_ids(state);
-    if (type_ids.empty()) {
-      return {false, 0};
-    }
-    wire::core::BackboneSpec req{};
-    req.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}, {24.0, 0.0, 0.0}};
-    req.interval_m = 6.0;
-    req.pole_type_id = type_ids.front();
-    wire::core::BackboneBundleSpec bundle{};
-    bundle.bundle_template_id = wire::core::BundleKind::kCommunication;
-    bundle.count = count;
-    req.bundles.push_back(bundle);
-    const auto result = state.GenerateFromBackboneSpec(req);
-    if (!result.ok || result.value.bundle_id == wire::core::kInvalidObjectId || result.value.generated_pole_ids.size() < 2) {
-      return {false, 0};
-    }
-    const auto* created_bundle = state.view().edit_state().bundles.find(result.value.bundle_id);
-    if (created_bundle == nullptr || created_bundle->conductor_count != count) {
-      return {false, 0};
-    }
-    const std::size_t segment_count = result.value.generated_pole_ids.size() - 1;
-    return {true, segment_count == 0 ? 0 : result.value.generated_span_ids.size() / segment_count};
-  };
-
-  const auto one = run_with_count(1);
-  const auto three = run_with_count(3);
-  return one.first && three.first && one.second == 1 && three.second == 3;
+// Intent: Non-HV templates should default to fixed single conductor generation.
+bool test_backbone_bundle_template_default_single_generates_one_span_per_segment() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  wire::core::BackboneSpec req{};
+  req.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}, {24.0, 0.0, 0.0}};
+  req.interval_m = 6.0;
+  req.pole_type_id = type_ids.front();
+  wire::core::BackboneBundleSpec comm{};
+  comm.bundle_template_id = wire::core::BundleKind::kCommunication;
+  req.bundles.push_back(comm);
+  const auto result = state.GenerateFromBackboneSpec(req);
+  if (!result.ok || result.value.generated_pole_ids.size() < 2 || result.value.bundle_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  const auto* bundle = state.view().edit_state().bundles.find(result.value.bundle_id);
+  if (bundle == nullptr || bundle->conductor_count != 1) {
+    return false;
+  }
+  const std::size_t segment_count = result.value.generated_pole_ids.size() - 1;
+  return result.value.generated_span_ids.size() == segment_count;
 }
 
-// Intent: Variable communication bundle must reject out-of-range counts.
-bool test_backbone_bundle_template_comm_count_out_of_range_fails() {
+// Intent: Non-HV fixed single templates must reject count override.
+bool test_backbone_bundle_template_default_single_rejects_count_override() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
   if (type_ids.empty()) {
@@ -2133,10 +2994,10 @@ bool test_backbone_bundle_template_comm_count_out_of_range_fails() {
   req.pole_type_id = type_ids.front();
   wire::core::BackboneBundleSpec bundle{};
   bundle.bundle_template_id = wire::core::BundleKind::kCommunication;
-  bundle.count = 9; // COMM_BUNDLE max is 8.
+  bundle.count = 2;
   req.bundles.push_back(bundle);
   const auto result = state.GenerateFromBackboneSpec(req);
-  return !result.ok && regex_contains(result.error, "out of template range");
+  return !result.ok && regex_contains(result.error, "count override");
 }
 
 // Intent: Multiple bundle template requests should generate multiple bundles and combined spans.
@@ -2154,12 +3015,10 @@ bool test_backbone_bundle_template_multi_request_generates_multiple_bundles() {
 
   wire::core::BackboneBundleSpec lv{};
   lv.bundle_template_id = wire::core::BundleKind::kLowVoltage;
-  lv.count = 2;
   req.bundles.push_back(lv);
 
   wire::core::BackboneBundleSpec comm{};
   comm.bundle_template_id = wire::core::BundleKind::kCommunication;
-  comm.count = 1;
   req.bundles.push_back(comm);
 
   const auto result = state.GenerateFromBackboneSpec(req);
@@ -2171,7 +3030,7 @@ bool test_backbone_bundle_template_multi_request_generates_multiple_bundles() {
   }
 
   const std::size_t segment_count = result.value.generated_pole_ids.size() - 1;
-  const std::size_t expected_span_count = segment_count * 3; // LV2 + COMM1
+  const std::size_t expected_span_count = segment_count * 2; // LV1 + COMM1
   if (result.value.generated_span_ids.size() != expected_span_count) {
     return false;
   }
@@ -2190,6 +3049,203 @@ bool test_backbone_bundle_template_multi_request_generates_multiple_bundles() {
     }
   }
   return low_voltage_bundle_count == 1 && communication_bundle_count == 1;
+}
+
+// Intent: Pole tilt should reproject auto ports and regenerate visual cache parts through one update path.
+bool test_pole_tilt_reprojects_auto_ports_and_updates_visual_cache() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  wire::core::Transformd a_tf{};
+  a_tf.position = {0.0, 0.0, 0.0};
+  wire::core::Transformd b_tf{};
+  b_tf.position = {12.0, 0.0, 0.0};
+  const ObjectId pole_a = state.AddPole(a_tf, 10.0, "A").value;
+  const ObjectId pole_b = state.AddPole(b_tf, 10.0, "B").value;
+  if (!state.ApplyPoleType(pole_a, type_ids.front()).ok || !state.ApplyPoleType(pole_b, type_ids.front()).ok) {
+    return false;
+  }
+  const auto add = add_connection_by_category(state, pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage);
+  if (!add.ok) {
+    return false;
+  }
+  const auto* before = state.view().edit_state().ports.find(add.value.port_a_id);
+  if (before == nullptr || before->position_mode != wire::core::PortPositionMode::kAuto) {
+    return false;
+  }
+  const wire::core::Vec3d before_pos = before->world_position;
+
+  const auto tilt = state.SetPoleTilt(pole_a, 10.0, 0.0);
+  if (!tilt.ok) {
+    return false;
+  }
+  const auto* after = state.view().edit_state().ports.find(add.value.port_a_id);
+  if (after == nullptr || after->position_mode != wire::core::PortPositionMode::kAuto) {
+    return false;
+  }
+  const double moved = std::sqrt(std::pow(after->world_position.x - before_pos.x, 2.0) +
+                                 std::pow(after->world_position.y - before_pos.y, 2.0) +
+                                 std::pow(after->world_position.z - before_pos.z, 2.0));
+  if (moved <= 1e-5) {
+    return false;
+  }
+
+  wire::core::CommitOptions options{};
+  options.run_recalc = true;
+  options.run_validate = false;
+  (void)state.Commit(options);
+  const auto* visual = state.find_span_visual_cache(add.value.span_id);
+  if (visual == nullptr) {
+    return false;
+  }
+  for (const auto& part : visual->parts) {
+    if (part.kind == wire::core::VisualPartKind::kInsulator) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Intent: Reference length should keep sag depth visually stable across tilt edits.
+bool test_span_reference_length_keeps_sag_depth_stable_across_tilt() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  wire::core::GeometrySettings gs = state.view().geometry_settings();
+  gs.sag_enabled = true;
+  gs.sag_factor = 0.08;
+  if (!state.UpdateGeometrySettings(gs, true).ok) {
+    return false;
+  }
+
+  wire::core::Transformd a_tf{};
+  a_tf.position = {0.0, 0.0, 0.0};
+  wire::core::Transformd b_tf{};
+  b_tf.position = {18.0, 0.0, 0.0};
+  const ObjectId pole_a = state.AddPole(a_tf, 11.0, "A").value;
+  const ObjectId pole_b = state.AddPole(b_tf, 11.0, "B").value;
+  if (!state.ApplyPoleType(pole_a, type_ids.front()).ok || !state.ApplyPoleType(pole_b, type_ids.front()).ok) {
+    return false;
+  }
+  const auto add = add_connection_by_category(state, pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage);
+  if (!add.ok) {
+    return false;
+  }
+
+  wire::core::CommitOptions options{};
+  options.run_recalc = true;
+  options.run_validate = false;
+  (void)state.Commit(options);
+
+  auto sag_depth = [&](ObjectId span_id) -> double {
+    const auto* span = state.view().edit_state().spans.find(span_id);
+    const auto* pa = (span == nullptr) ? nullptr : state.view().edit_state().ports.find(span->port_a_id);
+    const auto* pb = (span == nullptr) ? nullptr : state.view().edit_state().ports.find(span->port_b_id);
+    const auto* curve = state.find_curve_cache(span_id);
+    if (span == nullptr || pa == nullptr || pb == nullptr || curve == nullptr || curve->points.size() < 3) {
+      return std::numeric_limits<double>::quiet_NaN();
+    }
+    const wire::core::Vec3d line_mid{
+        (pa->world_position.x + pb->world_position.x) * 0.5,
+        (pa->world_position.y + pb->world_position.y) * 0.5,
+        (pa->world_position.z + pb->world_position.z) * 0.5,
+    };
+    const wire::core::Vec3d curve_mid = curve->points[curve->points.size() / 2];
+    return line_mid.z - curve_mid.z;
+  };
+
+  const double depth_before = sag_depth(add.value.span_id);
+  if (!std::isfinite(depth_before)) {
+    return false;
+  }
+  if (!state.SetPoleTilt(pole_a, 14.0, 4.0).ok) {
+    return false;
+  }
+  (void)state.Commit(options);
+  const double depth_after = sag_depth(add.value.span_id);
+  if (!std::isfinite(depth_after)) {
+    return false;
+  }
+  return std::abs(depth_before - depth_after) <= 0.15;
+}
+
+// Intent: Center template slots should be offset from pole center by radius+clearance rule.
+bool test_center_slot_ports_are_offset_from_pole_centerline() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  const ObjectId pole = state.AddPole({}, 10.0, "P").value;
+  if (!state.ApplyPoleType(pole, type_ids.front()).ok) {
+    return false;
+  }
+  const auto detail = state.GetPoleDetail(pole);
+  if (detail.pole == nullptr) {
+    return false;
+  }
+  bool checked_center = false;
+  for (const auto* port : detail.owned_ports) {
+    if (port == nullptr || port->template_side != wire::core::SlotSide::kCenter) {
+      continue;
+    }
+    checked_center = true;
+    const wire::core::Vec3d local = to_local_on_pole_test(*detail.pole, port->world_position);
+    if (std::abs(local.y) <= 1e-6) {
+      return false;
+    }
+  }
+  return checked_center;
+}
+
+// Intent: Insulators should be generated only for electric lines.
+bool test_visual_insulators_only_for_electric_lines() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  const ObjectId pole_a = state.AddPole({}, 10.0, "A").value;
+  wire::core::Transformd b_tf{};
+  b_tf.position = {10.0, 0.0, 0.0};
+  const ObjectId pole_b = state.AddPole(b_tf, 10.0, "B").value;
+  wire::core::Transformd c_tf{};
+  c_tf.position = {0.0, 10.0, 0.0};
+  const ObjectId pole_c = state.AddPole(c_tf, 10.0, "C").value;
+  if (!state.ApplyPoleType(pole_a, type_ids.front()).ok || !state.ApplyPoleType(pole_b, type_ids.front()).ok ||
+      !state.ApplyPoleType(pole_c, type_ids.front()).ok) {
+    return false;
+  }
+
+  const auto lv = add_connection_by_category(state, pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage);
+  const auto comm = add_connection_by_category(state, pole_a, pole_c, wire::core::ConnectionCategory::kCommunication);
+  if (!lv.ok || !comm.ok) {
+    return false;
+  }
+  wire::core::CommitOptions options{};
+  options.run_recalc = true;
+  options.run_validate = false;
+  (void)state.Commit(options);
+
+  auto has_insulator = [&](ObjectId span_id) -> bool {
+    const auto* visual = state.find_span_visual_cache(span_id);
+    if (visual == nullptr) {
+      return false;
+    }
+    for (const auto& part : visual->parts) {
+      if (part.kind == wire::core::VisualPartKind::kInsulator) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  return has_insulator(lv.value.span_id) && !has_insulator(comm.value.span_id);
 }
 
 // Intent: Newly created ports should default to Auto position mode.
@@ -2222,7 +3278,7 @@ bool test_port_manual_set_and_reset_to_auto() {
   const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
   (void)state.ApplyPoleType(pole_a, type_ids.front());
   (void)state.ApplyPoleType(pole_b, type_ids.front());
-  const auto add = state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kLowVoltage);
+  const auto add = add_connection_by_category(state, pole_a, pole_b, ConnectionCategory::kLowVoltage);
   if (!add.ok) {
     return false;
   }
@@ -2276,7 +3332,7 @@ bool test_manual_port_not_overwritten_by_auto_relayout() {
   const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
   (void)state.ApplyPoleType(pole_a, type_ids.front());
   (void)state.ApplyPoleType(pole_b, type_ids.front());
-  const auto add = state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kLowVoltage);
+  const auto add = add_connection_by_category(state, pole_a, pole_b, ConnectionCategory::kLowVoltage);
   if (!add.ok) {
     return false;
   }
@@ -2359,13 +3415,12 @@ bool test_generate_from_guide_keeps_manual_boundaries_stable() {
     return false;
   }
 
-  wire::core::GenerationRequest req{};
+  wire::core::BackboneSpec req{};
   req.path.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
   req.interval_m = 10.0;
   req.pole_type_id = type_ids.front();
-  req.category = ConnectionCategory::kLowVoltage;
-  req.requested_lane_count = 1;
-  const auto first = state.GenerateFromGuide(req);
+  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
+  const auto first = state.GenerateFromBackboneSpec(req);
   if (!first.ok || first.value.generated_pole_ids.size() < 2) {
     return false;
   }
@@ -2404,7 +3459,7 @@ bool test_generate_from_guide_keeps_manual_boundaries_stable() {
   }
 
   req.path.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}, {40.0, 0.0, 0.0}};
-  const auto second = state.GenerateFromGuide(req);
+  const auto second = state.GenerateFromBackboneSpec(req);
   if (!second.ok) {
     return false;
   }
@@ -2427,20 +3482,19 @@ bool test_generate_from_guide_local_update_no_duplicate_unchanged_segments() {
     return false;
   }
 
-  wire::core::GenerationRequest req{};
+  wire::core::BackboneSpec req{};
   req.path.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
   req.interval_m = 10.0;
   req.pole_type_id = type_ids.front();
-  req.category = ConnectionCategory::kLowVoltage;
-  req.requested_lane_count = 1;
+  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
 
-  const auto first = state.GenerateFromGuide(req);
+  const auto first = state.GenerateFromBackboneSpec(req);
   if (!first.ok || first.value.generated_span_ids.empty()) {
     return false;
   }
   const std::size_t spans_after_first = state.view().edit_state().spans.size();
 
-  const auto second = state.GenerateFromGuide(req);
+  const auto second = state.GenerateFromBackboneSpec(req);
   if (!second.ok) {
     return false;
   }
@@ -2452,7 +3506,7 @@ bool test_generate_from_guide_local_update_no_duplicate_unchanged_segments() {
   }
 
   req.path.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}, {30.0, 0.0, 0.0}};
-  const auto third = state.GenerateFromGuide(req);
+  const auto third = state.GenerateFromBackboneSpec(req);
   if (!third.ok || third.value.generated_span_ids.empty()) {
     return false;
   }
@@ -2467,13 +3521,12 @@ bool test_generate_from_guide_vertices_are_not_forced_manual_by_default() {
     return false;
   }
 
-  wire::core::GenerationRequest req{};
+  wire::core::BackboneSpec req{};
   req.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
   req.interval_m = 10.0;
   req.pole_type_id = type_ids.front();
-  req.category = ConnectionCategory::kLowVoltage;
-  req.requested_lane_count = 1;
-  const auto generated = state.GenerateFromGuide(req);
+  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
+  const auto generated = state.GenerateFromBackboneSpec(req);
   if (!generated.ok) {
     return false;
   }
@@ -2506,14 +3559,13 @@ bool test_generate_from_guide_pin_vertices_option() {
     return false;
   }
 
-  wire::core::GenerationRequest req{};
+  wire::core::BackboneSpec req{};
   req.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
   req.interval_m = 10.0;
   req.pole_type_id = type_ids.front();
-  req.category = ConnectionCategory::kLowVoltage;
-  req.requested_lane_count = 1;
+  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
   req.pole_placement.pin_vertices = true;
-  const auto generated = state.GenerateFromGuide(req);
+  const auto generated = state.GenerateFromBackboneSpec(req);
   if (!generated.ok) {
     return false;
   }
@@ -2558,13 +3610,12 @@ bool test_regenerate_session_auto_parts_keeps_manual_pole() {
     return false;
   }
 
-  wire::core::GenerationRequest req{};
+  wire::core::BackboneSpec req{};
   req.path.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
   req.interval_m = 10.0;
   req.pole_type_id = type_ids.front();
-  req.category = ConnectionCategory::kLowVoltage;
-  req.requested_lane_count = 1;
-  const auto first = state.GenerateFromGuide(req);
+  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
+  const auto first = state.GenerateFromBackboneSpec(req);
   if (!first.ok || first.value.generated_pole_ids.empty()) {
     return false;
   }
@@ -2617,13 +3668,12 @@ bool test_regenerate_session_auto_parts_keeps_manual_port() {
     return false;
   }
 
-  wire::core::GenerationRequest req{};
+  wire::core::BackboneSpec req{};
   req.path.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
   req.interval_m = 10.0;
   req.pole_type_id = type_ids.front();
-  req.category = ConnectionCategory::kLowVoltage;
-  req.requested_lane_count = 1;
-  const auto first = state.GenerateFromGuide(req);
+  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
+  const auto first = state.GenerateFromBackboneSpec(req);
   if (!first.ok || first.value.generated_span_ids.empty()) {
     return false;
   }
@@ -2671,13 +3721,12 @@ bool test_regenerate_session_auto_parts_keeps_manual_port_on_auto_pole() {
     return false;
   }
 
-  wire::core::GenerationRequest req{};
+  wire::core::BackboneSpec req{};
   req.path.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
   req.interval_m = 10.0;
   req.pole_type_id = type_ids.front();
-  req.category = ConnectionCategory::kLowVoltage;
-  req.requested_lane_count = 1;
-  const auto first = state.GenerateFromGuide(req);
+  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
+  const auto first = state.GenerateFromBackboneSpec(req);
   if (!first.ok || first.value.generated_span_ids.empty() || first.value.generated_pole_ids.empty()) {
     return false;
   }
@@ -2732,13 +3781,12 @@ bool test_regenerate_session_auto_parts_isolation_across_sessions() {
     return false;
   }
 
-  wire::core::GenerationRequest req_a{};
+  wire::core::BackboneSpec req_a{};
   req_a.path.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
   req_a.interval_m = 10.0;
   req_a.pole_type_id = type_ids.front();
-  req_a.category = ConnectionCategory::kLowVoltage;
-  req_a.requested_lane_count = 1;
-  const auto gen_a = state.GenerateFromGuide(req_a);
+  add_backbone_bundle(req_a, wire::core::BundleKind::kLowVoltage);
+  const auto gen_a = state.GenerateFromBackboneSpec(req_a);
   if (!gen_a.ok || gen_a.value.generated_pole_ids.empty()) {
     return false;
   }
@@ -2748,13 +3796,12 @@ bool test_regenerate_session_auto_parts_isolation_across_sessions() {
   }
   const std::uint64_t session_a = pole_a0->generation.generation_session_id;
 
-  wire::core::GenerationRequest req_b{};
+  wire::core::BackboneSpec req_b{};
   req_b.path.polyline = {{0.0, 30.0, 0.0}, {20.0, 30.0, 0.0}};
   req_b.interval_m = 10.0;
   req_b.pole_type_id = type_ids.front();
-  req_b.category = ConnectionCategory::kLowVoltage;
-  req_b.requested_lane_count = 1;
-  const auto gen_b = state.GenerateFromGuide(req_b);
+  add_backbone_bundle(req_b, wire::core::BundleKind::kLowVoltage);
+  const auto gen_b = state.GenerateFromBackboneSpec(req_b);
   if (!gen_b.ok || gen_b.value.generated_pole_ids.empty()) {
     return false;
   }
@@ -2808,13 +3855,12 @@ bool test_backbone_edges_and_route_search() {
     return false;
   }
 
-  wire::core::GenerationRequest req{};
+  wire::core::BackboneSpec req{};
   req.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}, {24.0, 0.0, 0.0}};
   req.interval_m = 6.0;
   req.pole_type_id = type_ids.front();
-  req.category = ConnectionCategory::kHighVoltage;
-  req.requested_lane_count = 3;
-  const auto generated = state.GenerateFromGuide(req);
+  add_backbone_bundle(req, wire::core::BundleKind::kHighVoltage);
+  const auto generated = state.GenerateFromBackboneSpec(req);
   if (!generated.ok || generated.value.generated_pole_ids.size() < 2) {
     return false;
   }
@@ -2856,7 +3902,7 @@ bool test_set_pole_flip180_updates_ports_and_dirty() {
   const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
   (void)state.ApplyPoleType(pole_a, type_ids.front());
   (void)state.ApplyPoleType(pole_b, type_ids.front());
-  const auto add = state.AddConnectionByPole(pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage);
+  const auto add = add_connection_by_category(state, pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage);
   if (!add.ok) {
     return false;
   }
@@ -2951,7 +3997,7 @@ bool test_add_connection_same_pole_fails_and_recovers() {
   }
 
   const CoreCounts before = snapshot_counts(state);
-  const auto bad = state.AddConnectionByPole(pole_a, pole_a, ConnectionCategory::kLowVoltage);
+  const auto bad = add_connection_by_category(state, pole_a, pole_a, ConnectionCategory::kLowVoltage);
   if (bad.ok || !regex_contains(bad.error, "same pole")) {
     return false;
   }
@@ -3282,7 +4328,7 @@ bool test_clear_debug_records_is_entity_noop() {
   if (!state.ApplyPoleType(pole_a, pole_type_ids[0]).ok || !state.ApplyPoleType(pole_b, pole_type_ids[0]).ok) {
     return false;
   }
-  if (!state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kLowVoltage).ok) {
+  if (!add_connection_by_category(state, pole_a, pole_b, ConnectionCategory::kLowVoltage).ok) {
     return false;
   }
 
@@ -3436,9 +4482,39 @@ int main() {
       {"C76_Phase49_GroupLane_AcuteNoXYCrossing",
        "Grouped lane assignment on acute-corner path avoids per-segment XY crossings", "Invariant", false,
        test_grouped_line_acute_corner_no_xy_crossing},
+      {"C86_Phase51_GroupLane_AcutePatternSuite",
+       "Acute/zigzag variants avoid XY crossings under two-choice mirror policy", "Invariant", false,
+       test_grouped_line_acute_pattern_suite_no_xy_crossing},
+      {"C87_Phase51_HV3_Acute_NoPhaseTwist",
+       "Acute high-voltage 3-phase grouped generation suppresses XY twist with mirror two-choice", "Invariant", false,
+       test_grouped_line_hv3_acute_no_phase_twist},
+      {"C88_Phase51_HV3_Template_Acute_NoPhaseTwist",
+       "Backbone HV template allows mirror two-choice on acute path and suppresses XY twist", "Invariant", false,
+       test_backbone_hv3_template_acute_no_phase_twist},
+      {"C99_Phase53_Backbone_HV3_CaptureShape_NoGlobalXYCrossing",
+       "Backbone HV3 capture-shape regression keeps bundle globally non-crossing in XY", "Invariant", false,
+       test_backbone_hv3_capture_shape_no_global_xy_crossing},
+      {"C89_Phase51_ThreePhasePolicy_CategoryAgnostic",
+       "ThreePhase grouped policy remains category-agnostic while allowing mirror two-choice", "Invariant", false,
+       test_grouped_line_threephase_policy_is_category_agnostic},
+      {"C98_Phase53_Backbone_ExtensionBoundaryOrder",
+       "Backbone path extension preserves boundary lane order between existing and new segment", "Invariant", false,
+       test_backbone_extension_preserves_boundary_lane_order},
       {"C63_Phase48d_GroupLane_MirrorMetricNonRegression",
        "Enabling lane mirror does not worsen Y/Z/layer grouped-lane quality metrics", "Invariant", false,
        test_grouped_line_mirror_metric_non_regression},
+      {"C82_Phase51_Junction_T_FirstPrimary",
+       "T-junction keeps first DrawPath session on primary order=0", "Invariant", false,
+       test_junction_t_shape_preserves_first_session_primary_order},
+      {"C83_Phase51_Junction_Cross_OrderStable",
+       "Cross junction order stays stable across repeated rebuilds", "Invariant", false,
+       test_junction_cross_order_stable_across_rebuilds},
+      {"C84_Phase51_Junction_NoOverwriteByLater",
+       "Later DrawPath does not overwrite prioritized first session at junction", "Invariant", false,
+       test_junction_first_session_priority_not_overwritten_by_later_paths},
+      {"C85_Phase51_Mirror_TwoChoiceOnly",
+       "Grouped mirror handling keeps lane ordering monotonic (two-choice)", "Invariant", false,
+       test_grouped_lane_mirror_is_two_choice_only},
       {"C36_Phase47_DrawPath_ClickPointsExact", "DrawPath generation uses clicked points directly and sets pole yaw",
        "Exact", false, test_generate_simple_line_from_points_exact_poles_and_orientation},
       {"C37_Phase48_PreferredSide_Geometry", "Preferred side is decided by peer geometry", "Invariant", false,
@@ -3447,6 +4523,9 @@ int main() {
        test_generate_grouped_line_high_voltage_three_phase},
       {"C39_Phase48_Direction_ForcedReverse", "Grouped line honors forced reverse direction", "Exact", false,
        test_generate_grouped_line_direction_forced_reverse},
+      {"C97_Phase52_GroupedLine_Compatible_ParityWithBackbone",
+       "Template-compatible GenerateGroupedLine request matches BackboneSpec generation behavior", "Invariant", false,
+       test_generate_grouped_line_compatible_case_matches_backbone_generation},
       {"C40_Phase48_PoleFlip180_Dirty", "Pole flip180 updates owned ports and dirties connected spans", "Invariant",
        false, test_set_pole_flip180_updates_ports_and_dirty},
       {"C41_Phase4x_ClearDebug_NoEntityMutation", "Clearing session debug records does not mutate core entities",
@@ -3463,24 +4542,57 @@ int main() {
       {"C46_Phase48a_Bundle_LegacyCompat", "Unbundled spans remain valid and legacy recalc behavior remains",
        "Invariant", false, test_unbundled_span_compatibility},
       {"C47_Phase48b_DrawPathBundle_HVDefault",
-       "Bundle path generation creates default HV bundle spans", "Invariant", false,
-       test_generate_bundle_from_path_basic_hv_default_lanes},
+       "Backbone generation creates default HV bundle spans", "Invariant", false,
+       test_generate_from_backbone_spec_basic_hv_default_lanes},
       {"C48_Phase48b_DrawPathBundle_DirectionModes", "Bundle path generation supports Forward/Reverse/Auto modes",
-       "Invariant", false, test_generate_bundle_from_path_direction_modes_nonfailing},
-      {"C49_Phase48b_DrawPathBundle_InvalidInputs", "Bundle path generation rejects invalid input and recovers",
-       "Exact", true, test_generate_bundle_from_path_invalid_inputs_fail},
+       "Invariant", false, test_generate_from_backbone_spec_direction_modes_nonfailing},
+      {"C49_Phase48b_DrawPathBundle_InvalidInputs", "Backbone generation rejects invalid input and recovers", "Exact",
+       true, test_generate_from_backbone_spec_invalid_inputs_fail},
+      {"C90_Phase52_Backbone_BundlesRequired",
+       "Backbone generation rejects requests without bundles[] even if legacy category/count are set", "Exact", true,
+       test_backbone_generation_requires_non_empty_bundles},
+      {"C91_Phase52_AddConnection_TemplateRequired",
+       "AddConnectionByPole auto bundle creation requires explicit bundle template", "Exact", true,
+       test_add_connection_requires_bundle_template_when_auto_create_enabled},
+      {"C92_Phase52_AddConnection_TemplateWins",
+       "AddConnectionByPole derives span/port behavior from template even when category argument mismatches",
+       "Invariant", false, test_add_connection_template_profile_overrides_category_fallback},
+      {"C93_Phase52_AddConnection_BundleTemplateMismatchReject",
+       "AddConnectionByPole rejects explicit bundle_id and bundle_template_id mismatch", "Exact", true,
+       test_add_connection_rejects_bundle_id_template_mismatch},
+      {"C94_Phase52_AddConnection_TemplateNeedsBundleIdWhenNoAutoCreate",
+       "AddConnectionByPole requires bundle_id when use_bundle_template=true and auto_create_bundle=false", "Exact",
+       true, test_add_connection_template_requires_bundle_id_when_auto_create_disabled},
+      {"C95_Phase52_AddConnection_SpanLayerConflictReject",
+       "AddConnectionByPole rejects span_layer override conflict against bundle template", "Exact", true,
+       test_add_connection_rejects_span_layer_override_conflict},
+      {"C96_Phase52_Drop_UsesTemplateDefaults",
+       "Drop generation uses bundle template defaults for layer/spacing instead of hardcoded values", "Invariant",
+       false, test_drop_generation_uses_template_defaults},
       {"C73_Phase49_Template_FixedCountReject",
        "Fixed bundle template rejects explicit count override", "Exact", true,
        test_backbone_bundle_template_fixed_count_rejects_override},
-      {"C74_Phase49_Template_CommVariableCount",
-       "Communication bundle template scales span generation by requested count", "Invariant", false,
-       test_backbone_bundle_template_comm_variable_count_scales_spans},
-      {"C75_Phase49_Template_CommRangeReject",
-       "Communication bundle template rejects out-of-range count without clamping", "Exact", true,
-       test_backbone_bundle_template_comm_count_out_of_range_fails},
+      {"C74_Phase49_Template_DefaultSingleOneSpan",
+       "Non-HV template defaults to fixed single conductor generation", "Invariant", false,
+       test_backbone_bundle_template_default_single_generates_one_span_per_segment},
+      {"C75_Phase49_Template_DefaultSingleRejectCount",
+       "Non-HV fixed single template rejects explicit count override", "Exact", true,
+       test_backbone_bundle_template_default_single_rejects_count_override},
       {"C77_Phase49_Template_MultiBundleRequest",
        "Multiple bundle templates in one BackboneSpec generate multiple bundles and combined spans", "Invariant",
        false, test_backbone_bundle_template_multi_request_generates_multiple_bundles},
+      {"C78_Phase50_Tilt_ReprojectAndVisualFollow",
+       "Pole tilt reprojects Auto ports and updates span visual cache through one path", "Invariant", false,
+       test_pole_tilt_reprojects_auto_ports_and_updates_visual_cache},
+      {"C79_Phase50_ReferenceLength_StableSag",
+       "Reference length keeps sag depth visually stable across tilt", "Invariant", false,
+       test_span_reference_length_keeps_sag_depth_stable_across_tilt},
+      {"C80_Phase50_CenterOffset_NoPoleOverlap",
+       "Center slots are offset from pole centerline by radius+clearance", "Invariant", false,
+       test_center_slot_ports_are_offset_from_pole_centerline},
+      {"C81_Phase50_Insulator_ElectricOnly",
+       "Visual insulators are generated only for electric lines", "Invariant", false,
+       test_visual_insulators_only_for_electric_lines},
       {"C50_Phase48c_PortMode_DefaultAuto", "New ports default to Auto mode", "Exact", false,
        test_port_position_mode_defaults_auto},
       {"C51_Phase48c_PortMode_ManualReset", "Manual set/reset toggles port mode and keeps dirty local", "Invariant",

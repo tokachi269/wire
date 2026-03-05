@@ -164,8 +164,36 @@ Vec3d rotate_xy_by_yaw_deg(const Vec3d& local, double yaw_deg) {
   };
 }
 
+Vec3d rotate_x_deg(const Vec3d& v, double deg) {
+  const double rad = deg * (kPi / 180.0);
+  const double c = std::cos(rad);
+  const double s = std::sin(rad);
+  return {v.x, v.y * c - v.z * s, v.y * s + v.z * c};
+}
+
+Vec3d rotate_y_deg(const Vec3d& v, double deg) {
+  const double rad = deg * (kPi / 180.0);
+  const double c = std::cos(rad);
+  const double s = std::sin(rad);
+  return {v.x * c + v.z * s, v.y, -v.x * s + v.z * c};
+}
+
+Vec3d rotate_euler_xyz_deg(const Vec3d& local, const Vec3d& euler_deg) {
+  const Vec3d rx = rotate_x_deg(local, euler_deg.x);
+  const Vec3d ry = rotate_y_deg(rx, euler_deg.y);
+  return rotate_xy_by_yaw_deg(ry, euler_deg.z);
+}
+
+Vec3d inverse_rotate_euler_xyz_deg(const Vec3d& world_delta, const Vec3d& euler_deg) {
+  const Vec3d rz = rotate_xy_by_yaw_deg(world_delta, -euler_deg.z);
+  const Vec3d ry = rotate_y_deg(rz, -euler_deg.y);
+  return rotate_x_deg(ry, -euler_deg.x);
+}
+
 Vec3d local_to_world_on_pole(const Transformd& tf, double yaw_deg, const Vec3d& local) {
-  return tf.position + rotate_xy_by_yaw_deg(local, yaw_deg);
+  Vec3d euler = tf.rotation_euler_deg;
+  euler.z = yaw_deg;
+  return tf.position + rotate_euler_xyz_deg(local, euler);
 }
 
 double normalize_yaw_deg(double yaw_deg) {
@@ -403,6 +431,9 @@ EditResult<ObjectId> CoreState::AddBundle(int conductor_count, double phase_spac
   bundle.conductor_count = conductor_count;
   bundle.phase_spacing_m = phase_spacing_m;
   bundle.kind = kind;
+  bundle.visual_sag_ratio = cache_state_.geometry_settings.sag_factor;
+  bundle.visual_wire_radius_m = 0.015;
+  bundle.visual_use_reference_length = true;
   edit_state_.bundles.insert(bundle);
 
   result.ok = true;
@@ -452,6 +483,10 @@ EditResult<ObjectId> CoreState::AddSpan(ObjectId port_a_id, ObjectId port_b_id, 
   span.bundle_id = bundle_id;
   span.anchor_a_id = anchor_a_id;
   span.anchor_b_id = anchor_b_id;
+  const double dx = port_b->world_position.x - port_a->world_position.x;
+  const double dy = port_b->world_position.y - port_a->world_position.y;
+  const double dz = port_b->world_position.z - port_a->world_position.z;
+  span.reference_length_m = std::sqrt(dx * dx + dy * dy + dz * dz);
   edit_state_.spans.insert(span);
 
   add_span_to_index(span);
@@ -507,6 +542,45 @@ EditResult<ObjectId> CoreState::MovePole(ObjectId pole_id, const Transformd& new
 
   result.ok = true;
   result.value = pole_id;
+  return result;
+}
+
+EditResult<ObjectId> CoreState::SetPoleTilt(ObjectId pole_id, double tilt_x_deg, double tilt_y_deg) {
+  EditResult<ObjectId> result;
+  Pole* pole = edit_state_.poles.find(pole_id);
+  if (pole == nullptr) {
+    result.error = "pole not found";
+    return result;
+  }
+  if (std::abs(pole->world_transform.rotation_euler_deg.x - tilt_x_deg) <= 1e-9 &&
+      std::abs(pole->world_transform.rotation_euler_deg.y - tilt_y_deg) <= 1e-9) {
+    result.ok = true;
+    result.value = pole_id;
+    return result;
+  }
+  const Pole old_pole = *pole;
+  pole->world_transform.rotation_euler_deg.x = tilt_x_deg;
+  pole->world_transform.rotation_euler_deg.y = tilt_y_deg;
+  finalize_pole_transform_update(pole_id, old_pole, &result.change_set);
+  result.ok = true;
+  result.value = pole_id;
+  return result;
+}
+
+EditResult<bool> CoreState::SetAllPoleTilt(double tilt_x_deg, double tilt_y_deg) {
+  EditResult<bool> result;
+  for (Pole& pole : edit_state_.poles.items_mutable()) {
+    const Pole old_pole = pole;
+    if (std::abs(pole.world_transform.rotation_euler_deg.x - tilt_x_deg) <= 1e-9 &&
+        std::abs(pole.world_transform.rotation_euler_deg.y - tilt_y_deg) <= 1e-9) {
+      continue;
+    }
+    pole.world_transform.rotation_euler_deg.x = tilt_x_deg;
+    pole.world_transform.rotation_euler_deg.y = tilt_y_deg;
+    finalize_pole_transform_update(pole.id, old_pole, &result.change_set);
+  }
+  result.ok = true;
+  result.value = true;
   return result;
 }
 
@@ -566,6 +640,7 @@ EditResult<ObjectId> CoreState::ResetPortPositionToAuto(ObjectId port_id) {
               applied_scale = std::abs(adjusted_local.y / slot_ptr->local_position.y);
             }
           }
+          adjusted_local = apply_pole_clearance_to_local(*pole, adjusted_local, slot_ptr->side);
           port->world_position =
               local_to_world_on_pole(pole->world_transform, effective_pole_yaw_for_layout(*pole), adjusted_local);
           port->angle_correction_applied = apply_angle_correction;
@@ -702,6 +777,7 @@ void CoreState::refresh_owned_endpoints_from_pole(ObjectId pole_id, ChangeSet* c
           applied_scale = std::abs(adjusted_local.y / slot->local_position.y);
         }
       }
+      adjusted_local = apply_pole_clearance_to_local(*pole, adjusted_local, slot->side);
       new_world = local_to_world_on_pole(pole->world_transform, effective_yaw, adjusted_local);
     } else if (previous_pole != nullptr) {
       const Vec3d old_local = to_local_on_pole(*previous_pole, port.world_position);
@@ -888,6 +964,7 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
         applied_scale = std::abs(adjusted_local.y / slot.local_position.y);
       }
     }
+    adjusted_local = apply_pole_clearance_to_local(*pole, adjusted_local, slot.side);
     const Vec3d world_position =
         local_to_world_on_pole(pole->world_transform, effective_pole_yaw_for_layout(*pole), adjusted_local);
     EditResult<ObjectId> add_port_result = AddPort(pole_id, world_position, category_to_port_kind(slot.category),
@@ -962,6 +1039,29 @@ CoreState::AddConnectionByPole(ObjectId pole_a_id, ObjectId pole_b_id, Connectio
     return result;
   }
 
+  ConnectionCategory resolved_category = category;
+  SpanLayer resolved_span_layer = category_to_span_layer(category);
+  const BundleTemplate* resolved_bundle_template = nullptr;
+  if (options.use_bundle_template) {
+    resolved_bundle_template = find_bundle_template(options.bundle_template_id);
+  } else if (options.bundle_id != kInvalidObjectId) {
+    const Bundle* existing_bundle = edit_state_.bundles.find(options.bundle_id);
+    if (existing_bundle != nullptr) {
+      resolved_bundle_template = find_bundle_template(existing_bundle->kind);
+    }
+  }
+  if (resolved_bundle_template != nullptr) {
+    resolved_category = resolved_bundle_template->category;
+    resolved_span_layer = resolved_bundle_template->default_layer;
+  }
+  if (options.span_layer != SpanLayer::kUnknown) {
+    if (resolved_bundle_template != nullptr && options.span_layer != resolved_bundle_template->default_layer) {
+      result.error = "span_layer override conflicts with bundle template default layer";
+      return result;
+    }
+    resolved_span_layer = options.span_layer;
+  }
+
   int slot_a_id = -1;
   int slot_b_id = -1;
 
@@ -991,7 +1091,8 @@ CoreState::AddConnectionByPole(ObjectId pole_a_id, ObjectId pole_b_id, Connectio
     if (preferred_port_id != kInvalidObjectId) {
       const Port* preferred_port = edit_state_.ports.find(preferred_port_id);
       if (preferred_port != nullptr && preferred_port->owner_pole_id == pole_id &&
-          (preferred_port->category == category || preferred_port->layer == category_to_port_layer(category))) {
+          (preferred_port->category == resolved_category ||
+           preferred_port->layer == category_to_port_layer(resolved_category))) {
         EditResult<ObjectId> preferred_result;
         preferred_result.ok = true;
         preferred_result.value = preferred_port_id;
@@ -1005,7 +1106,7 @@ CoreState::AddConnectionByPole(ObjectId pole_a_id, ObjectId pole_b_id, Connectio
     request.pole_id = pole_id;
     request.peer_pole_id = (pole_id == pole_a_id) ? pole_b_id : pole_a_id;
     request.reference_span_id = options.reference_span_id;
-    request.category = category;
+    request.category = resolved_category;
     request.connection_context = options.connection_context;
     request.pole_context = (pole_id == pole_a_id) ? pole_context_a : pole_context_b;
     request.corner_angle_deg = (pole_id == pole_a_id) ? corner_angle_a : corner_angle_b;
@@ -1027,15 +1128,15 @@ CoreState::AddConnectionByPole(ObjectId pole_a_id, ObjectId pole_b_id, Connectio
     return result;
   }
 
-  EditResult<ObjectId> bundle_result = ensure_bundle_for_category(category, options);
+  EditResult<ObjectId> bundle_result = ensure_bundle_for_template(options);
   if (!bundle_result.ok) {
     result.error = bundle_result.error;
     return result;
   }
 
-  const SpanKind span_kind = (category == ConnectionCategory::kDrop) ? SpanKind::kService : options.span_kind;
+  const SpanKind span_kind = (resolved_category == ConnectionCategory::kDrop) ? SpanKind::kService : options.span_kind;
   EditResult<ObjectId> span_result = AddSpan(port_a_result.value, port_b_result.value, span_kind,
-                                             category_to_span_layer(category), bundle_result.value);
+                                             resolved_span_layer, bundle_result.value);
   if (!span_result.ok) {
     result.error = span_result.error;
     return result;
@@ -1068,11 +1169,26 @@ CoreState::AddDropFromPole(ObjectId source_pole_id, const Vec3d& target_world_po
     result.error = "source pole does not exist";
     return result;
   }
+  const BundleTemplate* bundle_template = find_bundle_template(category_to_bundle_kind(category));
+  if (bundle_template == nullptr) {
+    result.error = "bundle template not found";
+    return result;
+  }
+  const ConnectionCategory resolved_category = bundle_template->category;
+  const SpanLayer resolved_span_layer = bundle_template->default_layer;
+  const PortLayer resolved_port_layer = span_layer_to_port_layer(resolved_span_layer);
+  const int conductor_count = (bundle_template->count_rule == BundleCountRuleKind::kFixed)
+                                  ? bundle_template->fixed_count
+                                  : bundle_template->default_count;
+  if (conductor_count <= 0) {
+    result.error = "bundle template resolved invalid conductor count";
+    return result;
+  }
 
   int slot_id = -1;
   SlotSelectionRequest request{};
   request.pole_id = source_pole_id;
-  request.category = category;
+  request.category = resolved_category;
   request.connection_context = ConnectionContext::kDropAdd;
   const Pole* source_pole = edit_state_.poles.find(source_pole_id);
   request.pole_context = (source_pole == nullptr) ? PoleContextKind::kTerminal : source_pole->context.kind;
@@ -1085,19 +1201,20 @@ CoreState::AddDropFromPole(ObjectId source_pole_id, const Vec3d& target_world_po
     result.error = source_port_result.error;
     return result;
   }
-  EditResult<ObjectId> target_port_result = AddPort(kInvalidObjectId, target_world_position,
-                                                    category_to_port_kind(category), category_to_port_layer(category));
+  EditResult<ObjectId> target_port_result =
+      AddPort(kInvalidObjectId, target_world_position, category_to_port_kind(resolved_category), resolved_port_layer);
   if (!target_port_result.ok) {
     result.error = target_port_result.error;
     return result;
   }
-  EditResult<ObjectId> bundle_result = AddBundle(1, 0.15, category_to_bundle_kind(category));
+  EditResult<ObjectId> bundle_result =
+      AddBundle(conductor_count, std::max(0.01, bundle_template->default_spacing_m), bundle_template->id);
   if (!bundle_result.ok) {
     result.error = bundle_result.error;
     return result;
   }
   EditResult<ObjectId> span_result = AddSpan(source_port_result.value, target_port_result.value, SpanKind::kService,
-                                             category_to_span_layer(category), bundle_result.value);
+                                             resolved_span_layer, bundle_result.value);
   if (!span_result.ok) {
     result.error = span_result.error;
     return result;
@@ -1125,24 +1242,40 @@ EditResult<CoreState::AddDropResult> CoreState::AddDropFromSpan(ObjectId source_
                                                                 const Vec3d& target_world_position,
                                                                 ConnectionCategory category) {
   EditResult<AddDropResult> result;
+  const BundleTemplate* bundle_template = find_bundle_template(category_to_bundle_kind(category));
+  if (bundle_template == nullptr) {
+    result.error = "bundle template not found";
+    return result;
+  }
+  const ConnectionCategory resolved_category = bundle_template->category;
+  const SpanLayer resolved_span_layer = bundle_template->default_layer;
+  const PortLayer resolved_port_layer = span_layer_to_port_layer(resolved_span_layer);
+  const int conductor_count = (bundle_template->count_rule == BundleCountRuleKind::kFixed)
+                                  ? bundle_template->fixed_count
+                                  : bundle_template->default_count;
+  if (conductor_count <= 0) {
+    result.error = "bundle template resolved invalid conductor count";
+    return result;
+  }
   EditResult<SplitSpanResult> split_result = SplitSpan(source_span_id, t);
   if (!split_result.ok) {
     result.error = split_result.error;
     return result;
   }
-  EditResult<ObjectId> target_port_result = AddPort(kInvalidObjectId, target_world_position,
-                                                    category_to_port_kind(category), category_to_port_layer(category));
+  EditResult<ObjectId> target_port_result =
+      AddPort(kInvalidObjectId, target_world_position, category_to_port_kind(resolved_category), resolved_port_layer);
   if (!target_port_result.ok) {
     result.error = target_port_result.error;
     return result;
   }
-  EditResult<ObjectId> bundle_result = AddBundle(1, 0.15, category_to_bundle_kind(category));
+  EditResult<ObjectId> bundle_result =
+      AddBundle(conductor_count, std::max(0.01, bundle_template->default_spacing_m), bundle_template->id);
   if (!bundle_result.ok) {
     result.error = bundle_result.error;
     return result;
   }
   EditResult<ObjectId> span_result = AddSpan(split_result.value.new_port_id, target_port_result.value,
-                                             SpanKind::kService, category_to_span_layer(category), bundle_result.value);
+                                             SpanKind::kService, resolved_span_layer, bundle_result.value);
   if (!span_result.ok) {
     result.error = span_result.error;
     return result;
@@ -1173,10 +1306,12 @@ EditResult<bool> CoreState::UpdateGeometrySettings(const GeometrySettings& setti
   if (normalized.sag_factor < 0.0) {
     normalized.sag_factor = 0.0;
   }
+  normalized.pole_clearance_m = std::max(0.0, normalized.pole_clearance_m);
 
   const bool changed = normalized.curve_samples != cache_state_.geometry_settings.curve_samples ||
                        normalized.sag_enabled != cache_state_.geometry_settings.sag_enabled ||
-                       std::abs(normalized.sag_factor - cache_state_.geometry_settings.sag_factor) > 1e-12;
+                       std::abs(normalized.sag_factor - cache_state_.geometry_settings.sag_factor) > 1e-12 ||
+                       std::abs(normalized.pole_clearance_m - cache_state_.geometry_settings.pole_clearance_m) > 1e-12;
 
   cache_state_.geometry_settings = normalized;
   result.ok = true;
@@ -1205,6 +1340,98 @@ EditResult<bool> CoreState::UpdateLayoutSettings(const LayoutSettings& settings)
                        std::abs(normalized.max_side_scale - layout_settings_.max_side_scale) > 1e-9;
 
   layout_settings_ = normalized;
+  result.ok = true;
+  result.value = changed;
+  return result;
+}
+
+EditResult<bool> CoreState::UpdateVisualSettings(const VisualSettings& settings, bool mark_all_spans_dirty) {
+  EditResult<bool> result;
+  VisualSettings normalized = settings;
+  normalized.support_center_threshold_m = std::max(0.0, normalized.support_center_threshold_m);
+  normalized.support_arm_extra_m = std::max(0.0, normalized.support_arm_extra_m);
+  normalized.insulator_radius_m = std::max(0.0, normalized.insulator_radius_m);
+  normalized.insulator_length_m = std::max(0.0, normalized.insulator_length_m);
+
+  const bool changed = normalized.enable_support_structures != cache_state_.visual_settings.enable_support_structures ||
+                       normalized.enable_insulators != cache_state_.visual_settings.enable_insulators ||
+                       std::abs(normalized.support_center_threshold_m -
+                                cache_state_.visual_settings.support_center_threshold_m) > 1e-12 ||
+                       std::abs(normalized.support_arm_extra_m - cache_state_.visual_settings.support_arm_extra_m) > 1e-12 ||
+                       std::abs(normalized.insulator_radius_m - cache_state_.visual_settings.insulator_radius_m) > 1e-12 ||
+                       std::abs(normalized.insulator_length_m - cache_state_.visual_settings.insulator_length_m) > 1e-12;
+
+  cache_state_.visual_settings = normalized;
+  result.ok = true;
+  result.value = changed;
+  if (changed && mark_all_spans_dirty) {
+    for (const Span& span : edit_state_.spans.items()) {
+      mark_span_dirty(span.id, DirtyBits::kRender, true);
+      add_unique_id(result.change_set.dirty_span_ids, span.id);
+      add_unique_id(result.change_set.updated_ids, span.id);
+    }
+  }
+  return result;
+}
+
+EditResult<bool> CoreState::UpdateAllBundleVisualSettings(double sag_ratio, double wire_radius_m,
+                                                          bool use_reference_length, bool mark_all_spans_dirty) {
+  EditResult<bool> result;
+  sag_ratio = std::max(0.0, sag_ratio);
+  wire_radius_m = std::max(0.0, wire_radius_m);
+  bool changed = false;
+  for (Bundle& bundle : edit_state_.bundles.items_mutable()) {
+    const bool one_changed = std::abs(bundle.visual_sag_ratio - sag_ratio) > 1e-12 ||
+                             std::abs(bundle.visual_wire_radius_m - wire_radius_m) > 1e-12 ||
+                             bundle.visual_use_reference_length != use_reference_length;
+    if (!one_changed) {
+      continue;
+    }
+    bundle.visual_sag_ratio = sag_ratio;
+    bundle.visual_wire_radius_m = wire_radius_m;
+    bundle.visual_use_reference_length = use_reference_length;
+    changed = true;
+    add_unique_id(result.change_set.updated_ids, bundle.id);
+  }
+  if (changed && mark_all_spans_dirty) {
+    for (const Span& span : edit_state_.spans.items()) {
+      mark_span_dirty(span.id, DirtyBits::kGeometry | DirtyBits::kRender, true);
+      add_unique_id(result.change_set.dirty_span_ids, span.id);
+      add_unique_id(result.change_set.updated_ids, span.id);
+    }
+  }
+  result.ok = true;
+  result.value = changed;
+  return result;
+}
+
+EditResult<bool> CoreState::ResetAllSpanReferenceLengths(bool mark_all_spans_dirty) {
+  EditResult<bool> result;
+  bool changed = false;
+  for (Span& span : edit_state_.spans.items_mutable()) {
+    const Port* a = edit_state_.ports.find(span.port_a_id);
+    const Port* b = edit_state_.ports.find(span.port_b_id);
+    if (a == nullptr || b == nullptr) {
+      continue;
+    }
+    const double dx = b->world_position.x - a->world_position.x;
+    const double dy = b->world_position.y - a->world_position.y;
+    const double dz = b->world_position.z - a->world_position.z;
+    const double length = std::sqrt(dx * dx + dy * dy + dz * dz);
+    if (std::abs(span.reference_length_m - length) <= 1e-9) {
+      continue;
+    }
+    span.reference_length_m = length;
+    changed = true;
+    add_unique_id(result.change_set.updated_ids, span.id);
+  }
+  if (changed && mark_all_spans_dirty) {
+    for (const Span& span : edit_state_.spans.items()) {
+      mark_span_dirty(span.id, DirtyBits::kGeometry | DirtyBits::kRender, true);
+      add_unique_id(result.change_set.dirty_span_ids, span.id);
+      add_unique_id(result.change_set.updated_ids, span.id);
+    }
+  }
   result.ok = true;
   result.value = changed;
   return result;
@@ -1266,27 +1493,6 @@ PortKind CoreState::category_to_port_kind(ConnectionCategory category) {
   default:
     return PortKind::kPower;
   }
-}
-
-int CoreState::default_lane_count_for_category(ConnectionCategory category) {
-  switch (category) {
-  case ConnectionCategory::kHighVoltage:
-    return 3;
-  case ConnectionCategory::kLowVoltage:
-    return 2;
-  case ConnectionCategory::kCommunication:
-    return 1;
-  case ConnectionCategory::kOptical:
-    return 1;
-  case ConnectionCategory::kDrop:
-    return 1;
-  default:
-    return 0;
-  }
-}
-
-bool CoreState::is_supported_category(ConnectionCategory category) {
-  return default_lane_count_for_category(category) > 0;
 }
 
 void CoreState::register_default_pole_types() {
@@ -1487,6 +1693,8 @@ void CoreState::register_default_bundle_templates() {
   hv.name = "HV_3PH";
   hv.category = ConnectionCategory::kHighVoltage;
   hv.default_layer = SpanLayer::kHighVoltage;
+  hv.is_electric = true;
+  hv.preserve_conductor_identity = true;
   hv.count_rule = BundleCountRuleKind::kFixed;
   hv.fixed_count = 3;
   hv.min_count = 3;
@@ -1498,27 +1706,31 @@ void CoreState::register_default_bundle_templates() {
 
   BundleTemplate lv{};
   lv.id = BundleKind::kLowVoltage;
-  lv.name = "LV_BUNDLE";
+  lv.name = "DEFAULT_SINGLE";
   lv.category = ConnectionCategory::kLowVoltage;
   lv.default_layer = SpanLayer::kLowVoltage;
-  lv.count_rule = BundleCountRuleKind::kRange;
-  lv.fixed_count = 0;
+  lv.is_electric = true;
+  lv.preserve_conductor_identity = false;
+  lv.count_rule = BundleCountRuleKind::kFixed;
+  lv.fixed_count = 1;
   lv.min_count = 1;
-  lv.max_count = 8;
-  lv.default_count = 2;
+  lv.max_count = 1;
+  lv.default_count = 1;
   lv.default_spacing_m = 0.20;
   lv.allow_mirror = true;
   bundle_templates_[lv.id] = lv;
 
   BundleTemplate comm{};
   comm.id = BundleKind::kCommunication;
-  comm.name = "COMM_BUNDLE";
+  comm.name = "DEFAULT_SINGLE_COMM";
   comm.category = ConnectionCategory::kCommunication;
   comm.default_layer = SpanLayer::kCommunication;
-  comm.count_rule = BundleCountRuleKind::kRange;
-  comm.fixed_count = 0;
+  comm.is_electric = false;
+  comm.preserve_conductor_identity = false;
+  comm.count_rule = BundleCountRuleKind::kFixed;
+  comm.fixed_count = 1;
   comm.min_count = 1;
-  comm.max_count = 8;
+  comm.max_count = 1;
   comm.default_count = 1;
   comm.default_spacing_m = 0.20;
   comm.allow_mirror = true;
@@ -1529,6 +1741,8 @@ void CoreState::register_default_bundle_templates() {
   optical.name = "OPTICAL_FIXED";
   optical.category = ConnectionCategory::kOptical;
   optical.default_layer = SpanLayer::kOptical;
+  optical.is_electric = false;
+  optical.preserve_conductor_identity = false;
   optical.count_rule = BundleCountRuleKind::kFixed;
   optical.fixed_count = 1;
   optical.min_count = 1;
@@ -1757,6 +1971,7 @@ EditResult<ObjectId> CoreState::ensure_pole_slot_port(const SlotSelectionRequest
           applied_scale = std::abs(adjusted_local.y / best_slot->local_position.y);
         }
       }
+      adjusted_local = apply_pole_clearance_to_local(*pole, adjusted_local, best_slot->side);
       const Vec3d world_position =
           local_to_world_on_pole(pole->world_transform, effective_pole_yaw_for_layout(*pole), adjusted_local);
       EditResult<ObjectId> add_port_result =
@@ -1818,11 +2033,10 @@ EditResult<ObjectId> CoreState::ensure_pole_slot_port(const SlotSelectionRequest
   }
 
   if (request.allow_generate_port) {
-    const Vec3d world_position{
-        pole->world_transform.position.x,
-        pole->world_transform.position.y,
-        pole->world_transform.position.z + std::max(1.0, pole->height_m * 0.7),
-    };
+    const Vec3d local = apply_pole_clearance_to_local(
+        *pole, Vec3d{0.0, 0.0, std::max(1.0, pole->height_m * 0.7)}, SlotSide::kCenter);
+    const Vec3d world_position =
+        local_to_world_on_pole(pole->world_transform, effective_pole_yaw_for_layout(*pole), local);
     EditResult<ObjectId> add_port_result =
         AddPort(request.pole_id, world_position, category_to_port_kind(request.category),
                 category_to_port_layer(request.category));
@@ -1858,12 +2072,16 @@ EditResult<ObjectId> CoreState::ensure_pole_slot_port(const SlotSelectionRequest
   return result;
 }
 
-EditResult<ObjectId> CoreState::ensure_bundle_for_category(ConnectionCategory category,
-                                                           const AddConnectionByPoleOptions& options) {
+EditResult<ObjectId> CoreState::ensure_bundle_for_template(const AddConnectionByPoleOptions& options) {
   EditResult<ObjectId> result;
   if (options.bundle_id != kInvalidObjectId) {
-    if (edit_state_.bundles.find(options.bundle_id) == nullptr) {
+    const Bundle* existing_bundle = edit_state_.bundles.find(options.bundle_id);
+    if (existing_bundle == nullptr) {
       result.error = "bundle does not exist";
+      return result;
+    }
+    if (options.use_bundle_template && existing_bundle->kind != options.bundle_template_id) {
+      result.error = "bundle_id kind and bundle_template_id mismatch";
       return result;
     }
     result.ok = true;
@@ -1872,14 +2090,32 @@ EditResult<ObjectId> CoreState::ensure_bundle_for_category(ConnectionCategory ca
   }
 
   if (!options.auto_create_bundle) {
+    if (options.use_bundle_template) {
+      result.error = "bundle_id is required when use_bundle_template=true and auto_create_bundle=false";
+      return result;
+    }
     result.ok = true;
     result.value = kInvalidObjectId;
     return result;
   }
 
-  const int conductor_count = (category == ConnectionCategory::kHighVoltage) ? 3 : 1;
-  const double spacing = (category == ConnectionCategory::kHighVoltage) ? 0.45 : 0.15;
-  return AddBundle(conductor_count, spacing, category_to_bundle_kind(category));
+  if (!options.use_bundle_template) {
+    result.error = "bundle_template_id is required when auto_create_bundle is enabled";
+    return result;
+  }
+  const BundleTemplate* bundle_template = find_bundle_template(options.bundle_template_id);
+  if (bundle_template == nullptr) {
+    result.error = "bundle template not found";
+    return result;
+  }
+  const int conductor_count = (bundle_template->count_rule == BundleCountRuleKind::kFixed)
+                                  ? bundle_template->fixed_count
+                                  : bundle_template->default_count;
+  if (conductor_count <= 0) {
+    result.error = "bundle template resolved invalid conductor count";
+    return result;
+  }
+  return AddBundle(conductor_count, std::max(0.01, bundle_template->default_spacing_m), bundle_template->id);
 }
 
 std::uint8_t CoreState::deterministic_tiebreak_0_255(ObjectId pole_id, int slot_id, ConnectionCategory category,
@@ -1917,7 +2153,9 @@ double CoreState::effective_pole_yaw_deg(const Pole& pole) { return effective_po
 
 Vec3d CoreState::to_local_on_pole(const Pole& pole, const Vec3d& world) {
   const Vec3d d = world - pole.world_transform.position;
-  return rotate_xy_by_yaw_deg(d, -effective_pole_yaw_for_layout(pole));
+  Vec3d euler = pole.world_transform.rotation_euler_deg;
+  euler.z = effective_pole_yaw_for_layout(pole);
+  return inverse_rotate_euler_xyz_deg(d, euler);
 }
 
 SlotSide CoreState::preferred_side_from_geometry(const Pole& pole, const Pole* peer, double eps) {
@@ -2098,6 +2336,43 @@ void CoreState::apply_port_position_mode(Port& port, PortPositionMode mode, Port
   }
 }
 
+double CoreState::pole_radius_at_height_m(const Pole& pole, double local_z_m) const {
+  double base_radius = 0.16;
+  switch (pole.kind) {
+  case PoleKind::kWood:
+    base_radius = 0.18;
+    break;
+  case PoleKind::kConcrete:
+    base_radius = 0.22;
+    break;
+  case PoleKind::kSteel:
+    base_radius = 0.14;
+    break;
+  default:
+    base_radius = 0.16;
+    break;
+  }
+  const double top_radius = std::max(0.06, base_radius * 0.55);
+  const double h = std::max(0.1, pole.height_m);
+  const double t = std::clamp(local_z_m / h, 0.0, 1.0);
+  return base_radius + (top_radius - base_radius) * t;
+}
+
+Vec3d CoreState::apply_pole_clearance_to_local(const Pole& pole, const Vec3d& local, SlotSide side) const {
+  Vec3d adjusted = local;
+  const double min_offset = pole_radius_at_height_m(pole, std::max(0.0, adjusted.z)) + cache_state_.geometry_settings.pole_clearance_m;
+  double sign = (adjusted.y >= 0.0) ? 1.0 : -1.0;
+  if (side == SlotSide::kLeft) {
+    sign = -1.0;
+  } else if (side == SlotSide::kRight) {
+    sign = 1.0;
+  }
+  if (std::abs(adjusted.y) < min_offset) {
+    adjusted.y = sign * min_offset;
+  }
+  return adjusted;
+}
+
 bool CoreState::has_zero_length(const Port& a, const Port& b) {
   const double dx = a.world_position.x - b.world_position.x;
   const double dy = a.world_position.y - b.world_position.y;
@@ -2254,18 +2529,39 @@ CoreState make_demo_state() {
   (void)state.ApplyPoleType(pole_b, kDistributionPoleType);
   (void)state.ApplyPoleType(pole_c, kCommunicationPoleType);
 
-  (void)state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kHighVoltage);
-  (void)state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kHighVoltage);
-  (void)state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kHighVoltage);
-  (void)state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kLowVoltage);
-  (void)state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kLowVoltage);
-  (void)state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kCommunication);
-  (void)state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kOptical);
+  auto connect_with_template = [&](ObjectId a_id, ObjectId b_id, ConnectionCategory category) {
+    CoreState::AddConnectionByPoleOptions options{};
+    options.use_bundle_template = true;
+    switch (category) {
+    case ConnectionCategory::kHighVoltage:
+      options.bundle_template_id = BundleKind::kHighVoltage;
+      break;
+    case ConnectionCategory::kCommunication:
+      options.bundle_template_id = BundleKind::kCommunication;
+      break;
+    case ConnectionCategory::kOptical:
+      options.bundle_template_id = BundleKind::kOptical;
+      break;
+    case ConnectionCategory::kLowVoltage:
+    case ConnectionCategory::kDrop:
+    default:
+      options.bundle_template_id = BundleKind::kLowVoltage;
+      break;
+    }
+    (void)state.AddConnectionByPole(a_id, b_id, category, options);
+  };
+  connect_with_template(pole_a, pole_b, ConnectionCategory::kHighVoltage);
+  connect_with_template(pole_a, pole_b, ConnectionCategory::kHighVoltage);
+  connect_with_template(pole_a, pole_b, ConnectionCategory::kHighVoltage);
+  connect_with_template(pole_a, pole_b, ConnectionCategory::kLowVoltage);
+  connect_with_template(pole_a, pole_b, ConnectionCategory::kLowVoltage);
+  connect_with_template(pole_a, pole_b, ConnectionCategory::kCommunication);
+  connect_with_template(pole_a, pole_b, ConnectionCategory::kOptical);
 
-  (void)state.AddConnectionByPole(pole_b, pole_c, ConnectionCategory::kLowVoltage);
-  (void)state.AddConnectionByPole(pole_b, pole_c, ConnectionCategory::kCommunication);
-  (void)state.AddConnectionByPole(pole_b, pole_c, ConnectionCategory::kCommunication);
-  (void)state.AddConnectionByPole(pole_b, pole_c, ConnectionCategory::kOptical);
+  connect_with_template(pole_b, pole_c, ConnectionCategory::kLowVoltage);
+  connect_with_template(pole_b, pole_c, ConnectionCategory::kCommunication);
+  connect_with_template(pole_b, pole_c, ConnectionCategory::kCommunication);
+  connect_with_template(pole_b, pole_c, ConnectionCategory::kOptical);
 
   (void)state.AddDropFromPole(pole_b, {13.0, 4.0, 3.0}, ConnectionCategory::kDrop);
   (void)state.AddDropFromPole(pole_b, {14.0, -4.0, 3.0}, ConnectionCategory::kDrop);

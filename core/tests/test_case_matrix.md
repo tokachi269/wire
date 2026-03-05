@@ -45,10 +45,11 @@
 | C35 | 内外補正差 | 左折/右折 | GeneratePolesAlongRoad | Invariant: 外側オフセット>内側 | turn_sign/slot座標 | 角圧縮の低減 |
 | C61 | 鋭角自動拡幅 | 鋭角/鈍角の同一テンプレート比較 | GenerateSimpleLineFromPoints | Invariant: 鋭角の左右レーン間隔が鈍角より広い（カテゴリ非依存） | corner poleのlocal Y差 | 鋭角での線間距離不足防止 |
 | C62 | 群レーンねじれ抑制 | U字Guide + HV3 lane | GenerateGroupedLine(allow_lane_mirror=true) | Invariant: 区間ごとのlane順逆転数が0 | lane assignment port local Y順 | 群配線のクロス抑制 |
-| C76 | 鋭角コーナーXY交差抑制 | 鋭角コーナーを含むGuide + COMM4 lane | GenerateGroupedLine(allow_lane_mirror=true) | Invariant: 区間内のlane線分XY交差数が0 | lane assignment/port world位置 | 鋭角時の見た目破綻防止 |
+| C76 | 鋭角コーナーXY交差抑制 | 鋭角コーナーを含むGuide + COMM4 lane | GenerateGroupedLine(allow_lane_mirror=true) | Invariant: 束全体ポリラインでlane間XY交差数が0 | lane assignment/port world位置 | 鋭角時の見た目破綻防止 |
+| C99 | HV3キャプチャ形状のグローバル交差回帰 | ねじれ再現点列（6点）+ HV3 | GenerateFromBackboneSpec(HV_3PH) | Invariant: 束全体ポリラインでlane間XY交差数が0 | last_lane_assignments / port world位置 | 実運用形状でのねじれ再発防止 |
 | C63 | mirror導入の非悪化（Y/Z/Layer） | 同一路線をmirror無効/有効で比較 | GenerateGroupedLine(allow_lane_mirror=false/true) | Invariant: 有効時の複合指標（Y逆転+Z逆転+layer jump）が無効時以下 | lane assignment/port座標/template layer | 生成品質調整で見た目悪化させない |
-| C64 | Guide頂点の強制Manual解除 | 3頂点Guide | GenerateFromGuide(既定設定) | Exact: 中間頂点/端点PoleともにAuto（既定） | pole placement_mode | DrawPath点=強制Pinの回避 |
-| C65 | pin_verticesオプション | 3頂点Guide | GenerateFromGuide(pin_vertices=true) | Exact: 中間頂点PoleもManual | pole placement_mode | ピン留め挙動の明示制御 |
+| C64 | Guide頂点の強制Manual解除 | 3頂点Guide | GenerateFromBackboneSpec(既定設定) | Exact: 中間頂点/端点PoleともにAuto（既定） | pole placement_mode | DrawPath点=強制Pinの回避 |
+| C65 | pin_verticesオプション | 3頂点Guide | GenerateFromBackboneSpec(pin_vertices=true) | Exact: 中間頂点PoleもManual | pole placement_mode | ピン留め挙動の明示制御 |
 | C66 | Pole Pin/Unpin切替 | 既存Pole | SetPolePlacementMode(Auto→Manual→Auto) | Exact: mode遷移とuser_edited整合 | pole fields | ユーザー明示ピン留め運用 |
 | C67 | セッション局所再生成でManual Pole保持 | 既存session生成 + 中間PoleをManual化 | RegenerateSessionAutoParts(session,newGuide) | Invariant: Manual Pole位置不変、Auto部分のみ更新 | pole位置/mode/span数 | 軽微変更で手直し消失防止 |
 | C68 | セッション局所再生成でManual Port保持 | 既存session生成 + PortをManual化 | RegenerateSessionAutoParts(session,newGuide) | Invariant: Manual Port位置不変 | port位置/mode | ポート手直し保護 |
@@ -58,6 +59,7 @@
 | C37 | 幾何based side選定 | 2Pole(左右) | AddConnectionByPole(Branch) | Invariant: 右手前でRight,左手前でLeft | selected slot side | 偶奇依存排除 |
 | C38 | 高圧3相群生成 | 有効Path | GenerateGroupedLine(HV,3) | Invariant: 3レーン×区間数生成, lane記録あり | span数/bundle/lane_assignments | 高圧ねじれ抑制 |
 | C39 | 方向強制モード | 有効Path | GenerateGroupedLine(Reverse) | Exact: Reverseが採用される | direction_debug/先頭Pole | 手動比較可能性 |
+| C97 | Grouped互換ケースのBackbone整合 | HV3固定・テンプレ互換条件 | GenerateGroupedLine と GenerateFromBackboneSpec を比較 | Invariant: 極数/本数/lane割当サイズが一致 | result counts / lane_assignments | 旧入口と正本入口の二重実装乖離防止 |
 | C40 | Pole flip_180 | 接続済Pole | SetPoleFlip180(true) | Invariant: 配下Port更新+接続Span dirty | port位置/runtime dirty | 局所向き修正性 |
 | C41 | debug記録クリアの無害性 | 生成/接続でdebug記録あり | clear_slot_selection_debug_records + clear_path_direction_debug_records | Exact: 記録だけ消え、Entity件数/ID/整合は不変 | counts/ID集合/Validate | デバッグ操作で本体破壊しない |
 | C42 | 再計算の非破壊性 | Spanを含む状態 | UpdateGeometrySettings→ProcessDirtyQueues | Invariant: cache/version更新のみでEntity件数/ID不変 | counts/ID集合/runtime/cache | キャッシュ再生成で正本が歪まない |
@@ -65,24 +67,31 @@
 | C44 | Bundle参照API整合 | Span1本+Bundle作成 | AddBundle + AddSpan + GetSpansByBundle | Invariant: Spanがbundle参照を保持し検索整合 | span fields/query API/Validate | 複数本配線の正本一貫性維持 |
 | C45 | 不正Bundle参照拒否 | Span1本 | AddSpan(bundle_id不正) | Exact: failし状態保全, 診断文言あり | error/span fields | 不正参照でデータ破壊しない |
 | C46 | 既存Span互換性 | Bundle未設定Span | ProcessDirtyQueues | Invariant: 従来再計算/Validate維持 | runtime/Validate/query API | 既存データ互換維持 |
-| C47 | DrawPath Bundle生成(HV標準) | 有効Path+PoleType | GenerateBundleFromPath(HV, lane=0) | Invariant: Bundle作成+標準3並列+全Spanにbundle_id | result IDs/span fields/Validate | 束単位生成の成立 |
-| C48 | DrawPath Bundle生成方向モード | 有効Path | GenerateBundleFromPath(Forward/Reverse/Auto) | Invariant: 全モードで生成成功 | result/generated spans | 束単位向き指定の入口 |
-| C49 | DrawPath Bundle生成の異常系 | 新規CoreState | polyline不足/interval<=0/未知category/未知PoleType | Exact: fail+状態不変+復帰成功 | error/counts/後続成功 | 入力不正耐性と運用安定 |
+| C47 | DrawPath Bundle生成(HV標準) | 有効Path+PoleType | GenerateFromBackboneSpec(HV, lane=0) | Invariant: Bundle作成+標準3並列+全Spanにbundle_id | result IDs/span fields/Validate | 束単位生成の成立 |
+| C48 | DrawPath Bundle生成方向モード | 有効Path | GenerateFromBackboneSpec(Forward/Reverse/Auto) | Invariant: 全モードで生成成功 | result/generated spans | 束単位向き指定の入口 |
+| C49 | DrawPath Bundle生成の異常系 | 新規CoreState | polyline不足/interval<=0/未知template/未知PoleType | Exact: fail+状態不変+復帰成功 | error/counts/後続成功 | 入力不正耐性と運用安定 |
+| C90 | Backbone bundles必須 | BackboneSpecでbundles空+legacy値のみ設定 | GenerateFromBackboneSpec | Exact: bundles[]必須エラー | error | legacy経路の逆流防止 |
+| C91 | 接続時テンプレ必須 | 2Pole + auto_create_bundle=true + template未指定 | AddConnectionByPole | Exact: bundle_template_id必須エラー | error | category依存自動生成の再混入防止 |
+| C92 | 接続時テンプレ優先 | 2Pole + template=HV + category引数をLVで呼ぶ | AddConnectionByPole | Invariant: Span/Port/BundleがHV規格で生成される | span layer / port category / bundle kind,count | category引数の隠れ分岐混入防止 |
+| C93 | 接続時bundle/template競合拒否 | 2Pole + 既存LV bundle + template=HV | AddConnectionByPole | Exact: mismatchエラー | error | 二重入力の矛盾混入防止 |
+| C94 | 接続時template指定+auto_create無効 | 2Pole + use_template=true + auto_create=false + bundle_id未指定 | AddConnectionByPole | Exact: bundle_id必須エラー | error | 暗黙no-opの混入防止 |
+| C95 | 接続時span_layer上書き競合拒否 | 2Pole + template=HV + span_layer=LV | AddConnectionByPole | Exact: span_layer conflictエラー | error | layer二重指定の矛盾混入防止 |
+| C96 | Dropはテンプレ既定利用 | PoleType適用済Pole | AddDropFromPole(kDrop) | Invariant: Bundle spacing/layerがテンプレ既定に一致 | span layer / bundle spacing | ハードコード設定の再混入防止 |
 | C73 | 固定テンプレcount上書き拒否 | BackboneSpec + HV_3PH | GenerateFromBackboneSpec(bundle=count指定) | Exact: fail（上書き不可） | error | 固定規格の強制 |
-| C74 | 通信可変テンプレ本数反映 | BackboneSpec + COMM_BUNDLE | GenerateFromBackboneSpec(count=1/3) | Invariant: countに応じてSpan本数が増減 | generated span数/bundle count | 可変束の運用性 |
-| C75 | 通信可変テンプレ範囲外拒否 | BackboneSpec + COMM_BUNDLE | GenerateFromBackboneSpec(count=max超過) | Exact: fail（丸めなし） | error | 入力異常の早期検出 |
+| C74 | 非HVテンプレ固定1本 | BackboneSpec + COMM既定テンプレ | GenerateFromBackboneSpec(bundle=count未指定) | Invariant: 区間ごとに1本生成 | generated span数/bundle count | 規格固定で入力削減 |
+| C75 | 非HV固定テンプレcount上書き拒否 | BackboneSpec + COMM既定テンプレ | GenerateFromBackboneSpec(bundle=count指定) | Exact: fail（上書き不可） | error | 固定規格の強制 |
 | C77 | 複数テンプレ同時生成 | BackboneSpec + LV/COMM複合指定 | GenerateFromBackboneSpec(bundles複数) | Invariant: bundleが複数生成され、Span数が合算本数に一致 | result.bundle_ids/generated spans | 複数束同時入力の成立 |
 | C50 | Port初期モード | 新規Port追加 | AddPort | Exact: position_mode=Auto | port fields | 既存互換維持 |
 | C51 | Port手修正/解除 | 接続済Port | SetPortWorldPositionManual→ResetPortPositionToAuto | Invariant: Manual化→Auto復帰, 関連SpanのみDirty | port/runtime | 手直し維持と復帰性 |
 | C52 | Manual保護 | 手修正Portあり | SetPoleFlip180 | Invariant: Manual Port位置が維持される | port position/mode | 軽微再生成で手修正消失防止 |
-| C53 | BackboneSpec境界手動点安定 | BackboneSpec初回生成済 | BackboneSpec延長して再GenerateFromGuide | Invariant: 既存Manual境界Poleの位置/Mode不変 | pole position/mode | 軽微変更で手直し消失防止 |
+| C53 | BackboneSpec境界手動点安定 | BackboneSpec初回生成済 | BackboneSpec延長して再GenerateFromBackboneSpec | Invariant: 既存Manual境界Poleの位置/Mode不変 | pole position/mode | 軽微変更で手直し消失防止 |
 | C54 | BackboneSpec局所更新 | BackboneSpec生成済 | 同一BackboneSpec再実行→延長再実行 | Invariant: 同一入力で重複増殖なし、延長で末端のみ追加 | span数/生成結果 | 全再生成回帰防止 |
 | C55 | Backbone経路 | Bundle付きSpan生成済 | BuildBackboneEdges/FindBackboneRoute | Invariant: bundle付きedge構築と経路取得 | backbone edge/route | ルート計算基盤維持 |
 | C56 | 鋭角閾値境界 | 非対称3点角（コーナー内角基準） | コーナー内角74度/75度/76度でGenerateSimpleLineFromPoints | Invariant: `内角<=75`で補正適用、`内角>75`で非適用 | middle pole context.sharp_orientation_applied | 閾値バグによる向き破綻防止 |
 | C60 | Guide再利用頂点の向き再評価 | 既存頂点Poleを再利用可能なGuide | 同一Guideを再生成（頂点PoleのYawを事前に崩す） | Invariant: override無しなら再利用頂点Poleのside軸が二等分線直交方向へ再評価される | vertex pole yaw/context(sharp_*) | 再生成で角向きが古いまま残る不具合防止 |
-| C57 | Guide重複点ロバスト | PoleTypeあり | 重複点含むGuideでGenerateFromGuide | Invariant: 成功しPole座標有限、path Z維持 | generated pole positions/Validate | 入力ノイズ耐性 |
-| C58 | Reverse対称性 | 同一Guide | Forward/ReverseでGenerateFromGuide | Invariant: 生成Pole位置集合が一致（順序非依存） | generated pole positions set | 方向モードで幾何が破綻しない |
-| C59 | Avoid制約尊重 | PoleTypeあり | avoid_points/avoid_radius指定GenerateFromGuide | Invariant: 生成Poleが禁止半径内に入らない | pole positions vs avoid radius | 回避制約の信頼性 |
+| C57 | Guide重複点ロバスト | PoleTypeあり | 重複点含むGuideでGenerateFromBackboneSpec | Invariant: 成功しPole座標有限、path Z維持 | generated pole positions/Validate | 入力ノイズ耐性 |
+| C58 | Reverse対称性 | 同一Guide | Forward/ReverseでGenerateFromBackboneSpec | Invariant: 生成Pole位置集合が一致（順序非依存） | generated pole positions set | 方向モードで幾何が破綻しない |
+| C59 | Avoid制約尊重 | PoleTypeあり | avoid_points/avoid_radius指定GenerateFromBackboneSpec | Invariant: 生成Poleが禁止半径内に入らない | pole positions vs avoid radius | 回避制約の信頼性 |
 
 ## LLM self-review
 - 実装依存か: private順序/内部関数呼び出し順には依存しない。

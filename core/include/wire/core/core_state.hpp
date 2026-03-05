@@ -32,6 +32,8 @@ struct GeometrySettings {
   int curve_samples = 8;
   bool sag_enabled = false;
   double sag_factor = 0.03;
+  // Pole skin clearance used to avoid center-line overlap with pole body.
+  double pole_clearance_m = 0.05;
 };
 
 struct CurveCacheEntry {
@@ -53,11 +55,44 @@ struct BoundsCache {
   std::unordered_map<ObjectId, BoundsCacheEntry> by_span{};
 };
 
+enum class VisualPartKind : std::uint8_t {
+  kSupportArm = 0,
+  kInsulator = 1,
+  kFitting = 2,
+};
+
+struct VisualPart {
+  VisualPartKind kind = VisualPartKind::kSupportArm;
+  Vec3d a{};
+  Vec3d b{};
+  double radius_m = 0.02;
+};
+
+struct SpanVisualCacheEntry {
+  std::vector<VisualPart> parts{};
+  std::uint64_t source_version = 0;
+};
+
+struct VisualCache {
+  std::unordered_map<ObjectId, SpanVisualCacheEntry> by_span{};
+};
+
+struct VisualSettings {
+  bool enable_support_structures = true;
+  bool enable_insulators = true;
+  double support_center_threshold_m = 0.03;
+  double support_arm_extra_m = 0.20;
+  double insulator_radius_m = 0.07;
+  double insulator_length_m = 0.16;
+};
+
 struct CacheState {
   // Derived cache layer. Not treated as authoritative topology state.
   GeometrySettings geometry_settings{};
   CurveCache curve_cache{};
   BoundsCache bounds_cache{};
+  VisualSettings visual_settings{};
+  VisualCache visual_cache{};
 };
 
 struct LayoutSettings {
@@ -191,8 +226,10 @@ public:
 
   struct AddConnectionByPoleOptions {
     SpanKind span_kind = SpanKind::kDistribution;
-    SpanLayer span_layer = SpanLayer::kLowVoltage;
+    SpanLayer span_layer = SpanLayer::kUnknown;
     ObjectId bundle_id = kInvalidObjectId;
+    BundleKind bundle_template_id = BundleKind::kLowVoltage;
+    bool use_bundle_template = false;
     bool auto_create_bundle = true;
     bool allow_generate_port = true;
     ConnectionContext connection_context = ConnectionContext::kTrunkContinue;
@@ -246,19 +283,6 @@ public:
     std::uint64_t generation_session_id = 0;
   };
 
-  struct GenerateBundleFromPathInput {
-    std::vector<Vec3d> polyline{};
-    double interval_m = 0.0;
-    PoleTypeId pole_type_id = kInvalidPoleTypeId;
-    BundleKind bundle_template_id = BundleKind::kLowVoltage;
-    SpanLayer layer = SpanLayer::kUnknown;
-    int count = 0;
-    // Legacy fallback input (prefer template/count/layer for new call sites).
-    ConnectionCategory category = ConnectionCategory::kLowVoltage;
-    PathDirectionMode direction_mode = PathDirectionMode::kAuto;
-    int requested_lane_count = 0;
-  };
-
   struct GenerateBundleFromPathResult {
     ObjectId bundle_id = kInvalidObjectId;
     std::vector<ObjectId> bundle_ids{};
@@ -289,6 +313,8 @@ public:
   EditResult<ObjectId> AddAttachment(ObjectId span_id, double t, AttachmentKind kind = AttachmentKind::kGeneric,
                                      double offset_m = 0.0);
   EditResult<ObjectId> MovePole(ObjectId pole_id, const Transformd& new_world_transform);
+  EditResult<ObjectId> SetPoleTilt(ObjectId pole_id, double tilt_x_deg, double tilt_y_deg);
+  EditResult<bool> SetAllPoleTilt(double tilt_x_deg, double tilt_y_deg);
   EditResult<ObjectId> MovePort(ObjectId port_id, const Vec3d& new_world_position);
   EditResult<ObjectId> SetPortWorldPositionManual(ObjectId port_id, const Vec3d& new_world_position);
   EditResult<ObjectId> ResetPortPositionToAuto(ObjectId port_id);
@@ -303,6 +329,8 @@ public:
   };
   EditResult<SplitSpanResult> SplitSpan(ObjectId span_id, double t);
   EditResult<ObjectId> ApplyPoleType(ObjectId pole_id, PoleTypeId pole_type_id);
+  // When template/bundle is supplied in options, connection behavior is derived from that template,
+  // and `category` is treated as a fallback label only.
   EditResult<AddConnectionByPoleResult> AddConnectionByPole(ObjectId pole_a_id, ObjectId pole_b_id,
                                                             ConnectionCategory category,
                                                             const AddConnectionByPoleOptions& options = {});
@@ -318,14 +346,13 @@ public:
                                                           PoleTypeId pole_type_id, ConnectionCategory category);
   EditResult<GenerateSimpleLineResult> GenerateSimpleLineFromPoints(const RoadSegment& road, PoleTypeId pole_type_id,
                                                                     ConnectionCategory category);
+  // Deprecated legacy API. Use GenerateFromBackboneSpec for new generation flows.
+  [[deprecated("Use GenerateFromBackboneSpec instead")]]
   EditResult<GenerateGroupedLineResult> GenerateGroupedLine(const GenerateGroupedLineOptions& options);
   // Canonical path-generation API.
   EditResult<GenerateBundleFromPathResult> GenerateFromBackboneSpec(const BackboneSpec& spec);
-  // Backward-compatible name kept for staged migration.
-  EditResult<GenerateBundleFromPathResult> GenerateFromGuide(const BackboneSpec& spec);
   EditResult<GenerateBundleFromPathResult> RegenerateSessionAutoParts(std::uint64_t generation_session_id,
                                                                       const BackboneSpec& spec);
-  EditResult<GenerateBundleFromPathResult> GenerateBundleFromPath(const GenerateBundleFromPathInput& input);
   EditResult<ObjectId> SetPolePlacementMode(ObjectId pole_id, PlacementMode mode);
   EditResult<ObjectId> SetPoleFlip180(ObjectId pole_id, bool flip_180);
   [[nodiscard]] PoleDetailInfo GetPoleDetail(ObjectId pole_id) const;
@@ -335,8 +362,13 @@ public:
   [[nodiscard]] std::vector<ObjectId> FindBackboneRoute(ObjectId start_node_id, ObjectId end_node_id) const;
   EditResult<bool> UpdateGeometrySettings(const GeometrySettings& settings, bool mark_all_spans_dirty = true);
   EditResult<bool> UpdateLayoutSettings(const LayoutSettings& settings);
+  EditResult<bool> UpdateVisualSettings(const VisualSettings& settings, bool mark_all_spans_dirty = true);
+  EditResult<bool> UpdateAllBundleVisualSettings(double sag_ratio, double wire_radius_m, bool use_reference_length,
+                                                 bool mark_all_spans_dirty = true);
+  EditResult<bool> ResetAllSpanReferenceLengths(bool mark_all_spans_dirty = true);
   [[nodiscard]] const CurveCacheEntry* find_curve_cache(ObjectId span_id) const;
   [[nodiscard]] const BoundsCacheEntry* find_bounds_cache(ObjectId span_id) const;
+  [[nodiscard]] const SpanVisualCacheEntry* find_span_visual_cache(ObjectId span_id) const;
   [[nodiscard]] ValidationResult ValidateFast() const;
 
   [[nodiscard]] CommitResult Commit(const CommitOptions& options = {});
@@ -361,6 +393,7 @@ private:
   void mark_connected_spans_dirty_from_anchor(ObjectId anchor_id, DirtyBits dirty_bits, ChangeSet* change_set);
   [[nodiscard]] bool rebuild_span_curve(ObjectId span_id, std::string* error_message);
   [[nodiscard]] bool rebuild_span_bounds(ObjectId span_id, std::string* error_message);
+  [[nodiscard]] bool rebuild_span_visual(ObjectId span_id, std::string* error_message);
   [[nodiscard]] std::vector<Vec3d> generate_span_points(const Span& span, std::string* error_message) const;
   [[nodiscard]] static AABBd build_aabb_from_points(const std::vector<Vec3d>& points);
   [[nodiscard]] static AABBd build_aabb_from_two_points(const Vec3d& a, const Vec3d& b);
@@ -386,8 +419,6 @@ private:
   [[nodiscard]] static SpanLayer category_to_span_layer(ConnectionCategory category);
   [[nodiscard]] static BundleKind category_to_bundle_kind(ConnectionCategory category);
   [[nodiscard]] static PortKind category_to_port_kind(ConnectionCategory category);
-  [[nodiscard]] static int default_lane_count_for_category(ConnectionCategory category);
-  [[nodiscard]] static bool is_supported_category(ConnectionCategory category);
   void register_default_pole_types();
   void register_default_bundle_templates();
   [[nodiscard]] const PoleTypeDefinition* find_pole_type(PoleTypeId pole_type_id) const;
@@ -429,14 +460,15 @@ private:
   [[nodiscard]] static double compute_corner_turn_sign_xy(const Vec3d& prev, const Vec3d& curr, const Vec3d& next);
   [[nodiscard]] PoleContextInfo classify_pole_context_from_path(const std::vector<Vec3d>& points, std::size_t index,
                                                                 std::size_t pending_degree) const;
-  EditResult<ObjectId> ensure_bundle_for_category(ConnectionCategory category,
-                                                  const AddConnectionByPoleOptions& options);
+  EditResult<ObjectId> ensure_bundle_for_template(const AddConnectionByPoleOptions& options);
   static void add_unique_id(std::vector<ObjectId>& ids, ObjectId id);
   static void index_add(std::unordered_map<ObjectId, std::vector<ObjectId>>& map, ObjectId key, ObjectId value);
   static void index_remove(std::unordered_map<ObjectId, std::vector<ObjectId>>& map, ObjectId key, ObjectId value);
   static std::string dirty_bits_to_string(DirtyBits bits);
   static void apply_pole_placement_mode(Pole& pole, PlacementMode mode);
   static void apply_port_position_mode(Port& port, PortPositionMode mode, PortPlacementSourceKind source_hint);
+  [[nodiscard]] double pole_radius_at_height_m(const Pole& pole, double local_z_m) const;
+  [[nodiscard]] Vec3d apply_pole_clearance_to_local(const Pole& pole, const Vec3d& local, SlotSide side) const;
   void finalize_pole_transform_update(ObjectId pole_id, const Pole& old_pole, ChangeSet* change_set);
   std::string next_display_id(std::string_view prefix);
   void refresh_owned_endpoints_from_pole(ObjectId pole_id, ChangeSet* change_set, const Pole* previous_pole = nullptr);
@@ -519,6 +551,7 @@ public:
   [[nodiscard]] const DirtyQueue& dirty_queue() const { return state_.dirty_queue_; }
   [[nodiscard]] const RecalcStats& last_recalc_stats() const { return state_.last_recalc_stats_; }
   [[nodiscard]] const GeometrySettings& geometry_settings() const { return state_.cache_state_.geometry_settings; }
+  [[nodiscard]] const VisualSettings& visual_settings() const { return state_.cache_state_.visual_settings; }
   [[nodiscard]] const LayoutSettings& layout_settings() const { return state_.layout_settings_; }
   [[nodiscard]] const PathDirectionCostWeights& path_direction_cost_weights() const {
     return state_.path_direction_cost_weights_;
@@ -547,6 +580,9 @@ public:
   }
   [[nodiscard]] const SpanRuntimeState* find_span_runtime_state(ObjectId span_id) const {
     return state_.find_span_runtime_state(span_id);
+  }
+  [[nodiscard]] const SpanVisualCacheEntry* find_span_visual_cache(ObjectId span_id) const {
+    return state_.find_span_visual_cache(span_id);
   }
 
 private:

@@ -46,6 +46,9 @@ struct BundleTemplate {
   std::string name{};
   ConnectionCategory category = ConnectionCategory::kLowVoltage;
   SpanLayer default_layer = SpanLayer::kLowVoltage;
+  bool is_electric = false;
+  // If true, conductor identity/order is treated as strict by higher-level workflow policy.
+  bool preserve_conductor_identity = false;
   BundleCountRuleKind count_rule = BundleCountRuleKind::kFixed;
   int fixed_count = 1;
   int min_count = 1;
@@ -67,22 +70,16 @@ struct BackboneSpec {
   double interval_m = 0.0;
   PoleTypeId pole_type_id = kInvalidPoleTypeId;
   std::vector<BackboneBundleSpec> bundles{};
-  // Legacy fallback input (prefer bundles[] for new call sites).
-  ConnectionCategory category = ConnectionCategory::kLowVoltage;
   BackboneGenerationConstraints constraints{};
   BackbonePolePlacementOptions pole_placement{};
   PathDirectionMode direction_mode = PathDirectionMode::kAuto;
-  // Legacy fallback input (prefer bundles[] for new call sites).
-  int requested_lane_count = 0;
 };
 
-// Compatibility aliases. Prefer Backbone* names for new code.
 using GuidePath = BackboneInputSpec;
 using GenerationConstraints = BackboneGenerationConstraints;
 using GuidePolePlacementOptions = BackbonePolePlacementOptions;
-using GenerationRequest = BackboneSpec;
 
-// Workflow-layer grouped generation input.
+// Legacy grouped-generation input. New call sites should use BackboneSpec.
 struct ConductorGroupSpec {
   ConnectionCategory category = ConnectionCategory::kHighVoltage;
   ConductorGroupKind group_kind = ConductorGroupKind::kSingle;
@@ -102,9 +99,24 @@ struct ConductorGroupState {
   std::vector<int> canonical_lane_order{};
 };
 
+struct JunctionIncident {
+  ObjectId neighbor_node_id = kInvalidObjectId;
+  int order = -1;
+  bool primary = false;
+  std::uint64_t source_session_id = 0;
+};
+
+struct JunctionInfo {
+  ObjectId node_id = kInvalidObjectId;
+  std::uint64_t prioritized_session_id = 0;
+  bool used_neighbor_continuity = false;
+  std::vector<JunctionIncident> incidents{};
+};
+
 // Derived backbone output (no generation-input policy mixed in this type).
 struct BackboneResult {
   std::vector<BackboneEdge> edges{};
+  std::vector<JunctionInfo> junctions{};
 };
 
 } // namespace wire::core

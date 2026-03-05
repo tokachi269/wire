@@ -261,6 +261,10 @@ struct Bundle {
   int conductor_count = 1;
   double phase_spacing_m = 0.3;
   BundleKind kind = BundleKind::kLowVoltage;
+  // Persisted visual policy (authoritative settings, not generated geometry).
+  double visual_sag_ratio = 0.03;
+  double visual_wire_radius_m = 0.015;
+  bool visual_use_reference_length = true;
 };
 
 // Entity-layer connection edge.
@@ -278,6 +282,8 @@ struct Span {
   bool generated_by_rule = false;
   bool placement_override_flag = false;
   bool orientation_override_flag = false;
+  // Reference length to keep visual tension stable when poles tilt/move.
+  double reference_length_m = 0.0;
   GenerationMeta generation{};
 };
 

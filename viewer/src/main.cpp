@@ -3,8 +3,11 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <ctime>
+#include <filesystem>
 #include <fstream>
 #include <functional>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -96,6 +99,20 @@ struct ViewerUiState {
   int geometry_samples = 8;
   bool geometry_sag_enabled = false;
   double geometry_sag_factor = 0.03;
+  double geometry_pole_clearance = 0.05;
+  bool visual_settings_loaded = false;
+  bool visual_enable_support_structures = true;
+  bool visual_enable_insulators = true;
+  double visual_support_center_threshold = 0.03;
+  double visual_support_arm_extra = 0.20;
+  double visual_insulator_radius = 0.07;
+  double visual_insulator_length = 0.16;
+  bool bundle_visual_loaded = false;
+  double bundle_sag_ratio = 0.03;
+  double bundle_wire_radius = 0.015;
+  bool bundle_use_reference_length = true;
+  double tilt_all_x_deg = 0.0;
+  double tilt_all_y_deg = 0.0;
   std::uint64_t road_id = 1;
   double road_start_x = -20.0;
   double road_start_y = 0.0;
@@ -122,6 +139,7 @@ struct ViewerUiState {
   double draw_plane_z = 0.0;
   bool draw_show_preview = true;
   bool draw_keep_path_after_generate = true;
+  bool draw_regenerate_last_session = true;
   bool draw_clicked_points_only = false;
   double draw_interval_m = 8.0;
   int draw_direction_mode = static_cast<int>(wire::core::PathDirectionMode::kAuto);
@@ -131,6 +149,9 @@ struct ViewerUiState {
   double layout_min_side_scale = 1.0;
   double layout_max_side_scale = 1.8;
   int selected_slot_debug_index = 0;
+  bool draw_capture_include_slot_debug = true;
+  int draw_capture_slot_debug_tail = 64;
+  std::string last_repro_capture_path{};
 
   std::string last_error;
   std::vector<std::string> logs;
@@ -395,6 +416,26 @@ const char* ModeLabel(EditMode mode) {
   }
 }
 
+const char* SelectedTypeLabel(SelectedType selected_type) {
+  switch (selected_type) {
+  case SelectedType::kPole:
+    return "Pole";
+  case SelectedType::kPort:
+    return "Port";
+  case SelectedType::kSpan:
+    return "Span";
+  case SelectedType::kAnchor:
+    return "Anchor";
+  case SelectedType::kBundle:
+    return "Bundle";
+  case SelectedType::kAttachment:
+    return "Attachment";
+  case SelectedType::kNone:
+  default:
+    return "None";
+  }
+}
+
 int FallbackParallelSpanCount(wire::core::ConnectionCategory category) {
   switch (category) {
   case wire::core::ConnectionCategory::kHighVoltage:
@@ -612,6 +653,178 @@ double PolylineLength(const std::vector<wire::core::Vec3d>& points) {
   return length;
 }
 
+double Orient2dXYViewer(const wire::core::Vec3d& a, const wire::core::Vec3d& b, const wire::core::Vec3d& c) {
+  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+}
+
+bool XyBBoxOverlapViewer(const wire::core::Vec3d& a, const wire::core::Vec3d& b, const wire::core::Vec3d& c,
+                         const wire::core::Vec3d& d) {
+  const double min_ax = std::min(a.x, b.x);
+  const double max_ax = std::max(a.x, b.x);
+  const double min_ay = std::min(a.y, b.y);
+  const double max_ay = std::max(a.y, b.y);
+  const double min_cx = std::min(c.x, d.x);
+  const double max_cx = std::max(c.x, d.x);
+  const double min_cy = std::min(c.y, d.y);
+  const double max_cy = std::max(c.y, d.y);
+  return !(max_ax < min_cx || max_cx < min_ax || max_ay < min_cy || max_cy < min_ay);
+}
+
+bool SegmentsIntersectXYStrictViewer(const wire::core::Vec3d& a, const wire::core::Vec3d& b,
+                                     const wire::core::Vec3d& c, const wire::core::Vec3d& d) {
+  if (!XyBBoxOverlapViewer(a, b, c, d)) {
+    return false;
+  }
+  constexpr double kEps = 1e-9;
+  const double o1 = Orient2dXYViewer(a, b, c);
+  const double o2 = Orient2dXYViewer(a, b, d);
+  const double o3 = Orient2dXYViewer(c, d, a);
+  const double o4 = Orient2dXYViewer(c, d, b);
+  const bool ab_straddle_cd = ((o1 > kEps && o2 < -kEps) || (o1 < -kEps && o2 > kEps));
+  const bool cd_straddle_ab = ((o3 > kEps && o4 < -kEps) || (o3 < -kEps && o4 > kEps));
+  return ab_straddle_cd && cd_straddle_ab;
+}
+
+struct BundleCrossSummary {
+  ObjectId bundle_id = wire::core::kInvalidObjectId;
+  int lane_count = 0;
+  int segment_crossings = 0;
+  int adjacent_crossings = 0;
+  int global_crossings = 0;
+};
+
+std::vector<BundleCrossSummary> BuildBundleCrossSummaries(const CoreState& state) {
+  const auto& assignments = state.view().last_lane_assignments();
+  std::unordered_map<ObjectId, std::vector<const wire::core::SegmentLaneAssignment*>> by_bundle{};
+  for (const auto& assignment : assignments) {
+    by_bundle[assignment.bundle_id].push_back(&assignment);
+  }
+
+  std::vector<BundleCrossSummary> summaries{};
+  summaries.reserve(by_bundle.size());
+  for (auto& [bundle_id, bundle_assignments] : by_bundle) {
+    if (bundle_assignments.empty()) {
+      continue;
+    }
+    std::sort(bundle_assignments.begin(), bundle_assignments.end(),
+              [](const wire::core::SegmentLaneAssignment* a, const wire::core::SegmentLaneAssignment* b) {
+                if (a->segment_index != b->segment_index) {
+                  return a->segment_index < b->segment_index;
+                }
+                if (a->pole_a_id != b->pole_a_id) {
+                  return a->pole_a_id < b->pole_a_id;
+                }
+                return a->pole_b_id < b->pole_b_id;
+              });
+
+    std::size_t lane_count = std::numeric_limits<std::size_t>::max();
+    for (const auto* assignment : bundle_assignments) {
+      lane_count = std::min(lane_count, std::min(assignment->port_ids_a.size(), assignment->port_ids_b.size()));
+    }
+    if (lane_count == std::numeric_limits<std::size_t>::max()) {
+      lane_count = 0;
+    }
+
+    BundleCrossSummary summary{};
+    summary.bundle_id = bundle_id;
+    summary.lane_count = static_cast<int>(lane_count);
+    if (lane_count < 2) {
+      summaries.push_back(summary);
+      continue;
+    }
+
+    std::vector<std::vector<std::pair<wire::core::Vec3d, wire::core::Vec3d>>> lane_segments(lane_count);
+    for (const auto* assignment : bundle_assignments) {
+      const std::size_t count = std::min(lane_count, std::min(assignment->port_ids_a.size(), assignment->port_ids_b.size()));
+      for (std::size_t lane = 0; lane < count; ++lane) {
+        const auto* pa = state.view().edit_state().ports.find(assignment->port_ids_a[lane]);
+        const auto* pb = state.view().edit_state().ports.find(assignment->port_ids_b[lane]);
+        if (pa == nullptr || pb == nullptr) {
+          continue;
+        }
+        lane_segments[lane].push_back({pa->world_position, pb->world_position});
+      }
+    }
+
+    for (const auto* assignment : bundle_assignments) {
+      const std::size_t count = std::min(lane_count, std::min(assignment->port_ids_a.size(), assignment->port_ids_b.size()));
+      for (std::size_t i = 0; i < count; ++i) {
+        const auto* a0 = state.view().edit_state().ports.find(assignment->port_ids_a[i]);
+        const auto* a1 = state.view().edit_state().ports.find(assignment->port_ids_b[i]);
+        if (a0 == nullptr || a1 == nullptr) {
+          continue;
+        }
+        for (std::size_t j = i + 1; j < count; ++j) {
+          const auto* b0 = state.view().edit_state().ports.find(assignment->port_ids_a[j]);
+          const auto* b1 = state.view().edit_state().ports.find(assignment->port_ids_b[j]);
+          if (b0 == nullptr || b1 == nullptr) {
+            continue;
+          }
+          if (SegmentsIntersectXYStrictViewer(a0->world_position, a1->world_position, b0->world_position,
+                                              b1->world_position)) {
+            ++summary.segment_crossings;
+          }
+        }
+      }
+    }
+
+    for (std::size_t i = 0; i < lane_count; ++i) {
+      for (std::size_t j = i + 1; j < lane_count; ++j) {
+        for (const auto& seg_i : lane_segments[i]) {
+          for (const auto& seg_j : lane_segments[j]) {
+            if (SegmentsIntersectXYStrictViewer(seg_i.first, seg_i.second, seg_j.first, seg_j.second)) {
+              ++summary.global_crossings;
+            }
+          }
+        }
+      }
+    }
+
+    for (std::size_t idx = 0; idx + 1 < bundle_assignments.size(); ++idx) {
+      const auto* left = bundle_assignments[idx];
+      const auto* right = bundle_assignments[idx + 1];
+      if (left->pole_b_id != right->pole_a_id) {
+        continue;
+      }
+      const std::size_t count = std::min(
+          lane_count,
+          std::min(std::min(left->port_ids_a.size(), left->port_ids_b.size()),
+                   std::min(right->port_ids_a.size(), right->port_ids_b.size())));
+      for (std::size_t i = 0; i < count; ++i) {
+        const auto* left_ai = state.view().edit_state().ports.find(left->port_ids_a[i]);
+        const auto* left_bi = state.view().edit_state().ports.find(left->port_ids_b[i]);
+        if (left_ai == nullptr || left_bi == nullptr) {
+          continue;
+        }
+        for (std::size_t j = i + 1; j < count; ++j) {
+          const auto* right_aj = state.view().edit_state().ports.find(right->port_ids_a[j]);
+          const auto* right_bj = state.view().edit_state().ports.find(right->port_ids_b[j]);
+          const auto* right_ai = state.view().edit_state().ports.find(right->port_ids_a[i]);
+          const auto* right_bi = state.view().edit_state().ports.find(right->port_ids_b[i]);
+          const auto* left_aj = state.view().edit_state().ports.find(left->port_ids_a[j]);
+          const auto* left_bj = state.view().edit_state().ports.find(left->port_ids_b[j]);
+          if (right_aj != nullptr && right_bj != nullptr &&
+              SegmentsIntersectXYStrictViewer(left_ai->world_position, left_bi->world_position, right_aj->world_position,
+                                             right_bj->world_position)) {
+            ++summary.adjacent_crossings;
+          }
+          if (left_aj != nullptr && left_bj != nullptr && right_ai != nullptr && right_bi != nullptr &&
+              SegmentsIntersectXYStrictViewer(left_aj->world_position, left_bj->world_position, right_ai->world_position,
+                                             right_bi->world_position)) {
+            ++summary.adjacent_crossings;
+          }
+        }
+      }
+    }
+
+    summaries.push_back(summary);
+  }
+
+  std::sort(summaries.begin(), summaries.end(),
+            [](const BundleCrossSummary& a, const BundleCrossSummary& b) { return a.bundle_id < b.bundle_id; });
+  return summaries;
+}
+
 wire::core::Vec3d FromRaylib(const Vector3& raylib_xyz) {
   return wire::core::Vec3d{
       static_cast<double>(raylib_xyz.x),
@@ -698,7 +911,9 @@ void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool
     request.bundles.push_back(bundle_request);
   }
 
-  const auto result = state.GenerateFromBackboneSpec(request);
+  const bool use_session_regen = ui_state.draw_regenerate_last_session && ui_state.last_generation_session != 0;
+  const auto result = use_session_regen ? state.RegenerateSessionAutoParts(ui_state.last_generation_session, request)
+                                        : state.GenerateFromBackboneSpec(request);
   if (!result.ok) {
     ui_state.last_error = result.error;
     PushLog(ui_state, from_enter_key ? "Generate path (Enter) failed" : "Generate path failed");
@@ -708,7 +923,21 @@ void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool
   ui_state.last_error.clear();
   ui_state.last_generated_poles = static_cast<int>(result.value.generated_pole_ids.size());
   ui_state.last_generated_spans = static_cast<int>(result.value.generated_span_ids.size());
-  ui_state.last_generation_session = 0;
+  std::uint64_t resolved_session_id = use_session_regen ? ui_state.last_generation_session : 0;
+  if (resolved_session_id == 0) {
+    if (!result.value.generated_span_ids.empty()) {
+      const auto* last_span = state.view().edit_state().spans.find(result.value.generated_span_ids.back());
+      if (last_span != nullptr) {
+        resolved_session_id = last_span->generation.generation_session_id;
+      }
+    } else if (!result.value.generated_pole_ids.empty()) {
+      const auto* last_pole = state.view().edit_state().poles.find(result.value.generated_pole_ids.back());
+      if (last_pole != nullptr) {
+        resolved_session_id = last_pole->generation.generation_session_id;
+      }
+    }
+  }
+  ui_state.last_generation_session = resolved_session_id;
   if (!result.value.generated_pole_ids.empty()) {
     ui_state.selected_type = SelectedType::kPole;
     ui_state.selected_id = result.value.generated_pole_ids.back();
@@ -720,9 +949,192 @@ void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool
   if (!ui_state.draw_keep_path_after_generate) {
     ui_state.draw_path_points.clear();
   }
-  PushLog(ui_state, "Generated path templates=" + BundleTemplateMultiPreview(state, ui_state) +
+  PushLog(ui_state, std::string(use_session_regen ? "Regenerated session path templates=" : "Generated path templates=") +
+                        BundleTemplateMultiPreview(state, ui_state) +
                         " poles=" + std::to_string(ui_state.last_generated_poles) +
                         " spans=" + std::to_string(ui_state.last_generated_spans));
+}
+
+bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_state, std::string* out_path,
+                              std::string* out_error) {
+  namespace fs = std::filesystem;
+
+  std::time_t now = std::time(nullptr);
+  std::tm tm_now{};
+#if defined(_WIN32)
+  localtime_s(&tm_now, &now);
+#else
+  localtime_r(&now, &tm_now);
+#endif
+  char stamp[32]{};
+  std::strftime(stamp, sizeof(stamp), "%Y%m%d_%H%M%S", &tm_now);
+
+  std::error_code ec;
+  const fs::path capture_dir = fs::path("captures");
+  fs::create_directories(capture_dir, ec);
+  if (ec) {
+    if (out_error != nullptr) {
+      *out_error = "failed to create captures directory";
+    }
+    return false;
+  }
+  const fs::path capture_path = capture_dir / fs::path(std::string("drawpath_repro_") + stamp + ".txt");
+  std::ofstream ofs(capture_path.string(), std::ios::trunc);
+  if (!ofs.is_open()) {
+    if (out_error != nullptr) {
+      *out_error = "failed to open capture file for writing";
+    }
+    return false;
+  }
+
+  const auto selected_templates = SelectedBundleTemplates(state, ui_state);
+  const auto& view = state.view();
+  const auto& dir_debug = view.last_path_direction_debug();
+  const auto& lane_assignments = view.last_lane_assignments();
+  const auto cross_summaries = BuildBundleCrossSummaries(state);
+  const auto& slot_debug_records = view.slot_selection_debug_records();
+
+  ofs << "capture.version=1\n";
+  ofs << "capture.timestamp_unix=" << static_cast<long long>(now) << "\n";
+  ofs << "capture.mode=" << ModeLabel(ui_state.mode) << "\n";
+  ofs << "capture.selected_type=" << SelectedTypeLabel(ui_state.selected_type) << "\n";
+  ofs << "capture.selected_id=" << static_cast<unsigned long long>(ui_state.selected_id) << "\n";
+  ofs << "capture.last_error=" << ui_state.last_error << "\n";
+  ofs << "capture.last_generation_session=" << static_cast<unsigned long long>(ui_state.last_generation_session) << "\n";
+  ofs << "capture.last_generated_poles=" << ui_state.last_generated_poles << "\n";
+  ofs << "capture.last_generated_spans=" << ui_state.last_generated_spans << "\n";
+
+  ofs << "draw.path_count=" << ui_state.draw_path_points.size() << "\n";
+  for (std::size_t i = 0; i < ui_state.draw_path_points.size(); ++i) {
+    const auto& p = ui_state.draw_path_points[i];
+    ofs << "draw.path[" << i << "]=" << p.x << "," << p.y << "," << p.z << "\n";
+  }
+  ofs << "draw.interval_m=" << ui_state.draw_interval_m << "\n";
+  ofs << "draw.clicked_points_only=" << (ui_state.draw_clicked_points_only ? 1 : 0) << "\n";
+  ofs << "draw.direction_mode="
+      << PathDirectionModeLabel(static_cast<wire::core::PathDirectionMode>(std::clamp(ui_state.draw_direction_mode, 0, 2)))
+      << "\n";
+  ofs << "draw.keep_path_after_generate=" << (ui_state.draw_keep_path_after_generate ? 1 : 0) << "\n";
+  ofs << "draw.regenerate_last_session=" << (ui_state.draw_regenerate_last_session ? 1 : 0) << "\n";
+  ofs << "draw.plane_z=" << ui_state.draw_plane_z << "\n";
+
+  const auto type_ids = SortedPoleTypeIds(state);
+  if (!type_ids.empty()) {
+    const std::size_t idx = ClampedTypeIndex(ui_state.road_pole_type_index, type_ids.size());
+    ofs << "draw.pole_type_id=" << static_cast<unsigned long long>(type_ids[idx]) << "\n";
+  } else {
+    ofs << "draw.pole_type_id=none\n";
+  }
+
+  ofs << "draw.bundle_template_count=" << selected_templates.size() << "\n";
+  for (std::size_t i = 0; i < selected_templates.size(); ++i) {
+    const wire::core::BundleKind kind = selected_templates[i];
+    const auto it = view.bundle_templates().find(kind);
+    ofs << "draw.bundle[" << i << "].kind=" << static_cast<int>(kind) << "\n";
+    if (it != view.bundle_templates().end()) {
+      const auto& tpl = it->second;
+      ofs << "draw.bundle[" << i << "].name=" << tpl.name << "\n";
+      ofs << "draw.bundle[" << i << "].category=" << CategoryLabel(tpl.category) << "\n";
+      ofs << "draw.bundle[" << i << "].default_layer=" << static_cast<int>(tpl.default_layer) << "\n";
+      ofs << "draw.bundle[" << i << "].count_rule=" << static_cast<int>(tpl.count_rule) << "\n";
+      if (tpl.count_rule == wire::core::BundleCountRuleKind::kFixed) {
+        ofs << "draw.bundle[" << i << "].count=" << tpl.fixed_count << "\n";
+      } else {
+        const int key = static_cast<int>(kind);
+        auto it_count = ui_state.draw_bundle_count_by_template.find(key);
+        int count = (it_count == ui_state.draw_bundle_count_by_template.end()) ? tpl.default_count : it_count->second;
+        count = std::clamp(count, tpl.min_count, tpl.max_count);
+        ofs << "draw.bundle[" << i << "].count=" << count << "\n";
+      }
+    }
+  }
+
+  ofs << "result.direction.requested_mode=" << PathDirectionModeLabel(dir_debug.requested_mode) << "\n";
+  ofs << "result.direction.chosen=" << PathDirectionChosenLabel(dir_debug.chosen) << "\n";
+  ofs << "result.direction.cost.forward.total=" << dir_debug.forward_cost.total << "\n";
+  ofs << "result.direction.cost.reverse.total=" << dir_debug.reverse_cost.total << "\n";
+  ofs << "result.direction.cost.forward.cross=" << dir_debug.forward_cost.estimated_cross_penalty << "\n";
+  ofs << "result.direction.cost.forward.side_flip=" << dir_debug.forward_cost.side_flip_penalty << "\n";
+  ofs << "result.direction.cost.forward.layer_jump=" << dir_debug.forward_cost.layer_jump_penalty << "\n";
+  ofs << "result.direction.cost.forward.corner=" << dir_debug.forward_cost.corner_compression_penalty << "\n";
+  ofs << "result.direction.cost.forward.branch=" << dir_debug.forward_cost.branch_conflict_penalty << "\n";
+
+  ofs << "result.lane_assignment_count=" << lane_assignments.size() << "\n";
+  for (std::size_t i = 0; i < lane_assignments.size(); ++i) {
+    const auto& a = lane_assignments[i];
+    ofs << "lane[" << i << "].segment_index=" << static_cast<int>(a.segment_index) << "\n";
+    ofs << "lane[" << i << "].bundle_id=" << static_cast<unsigned long long>(a.bundle_id) << "\n";
+    ofs << "lane[" << i << "].pole_a_id=" << static_cast<unsigned long long>(a.pole_a_id) << "\n";
+    ofs << "lane[" << i << "].pole_b_id=" << static_cast<unsigned long long>(a.pole_b_id) << "\n";
+    ofs << "lane[" << i << "].mirrored=" << (a.mirrored ? 1 : 0) << "\n";
+    ofs << "lane[" << i << "].count=" << a.port_ids_a.size() << "\n";
+    for (std::size_t lane = 0; lane < a.port_ids_a.size() && lane < a.port_ids_b.size(); ++lane) {
+      const ObjectId pa_id = a.port_ids_a[lane];
+      const ObjectId pb_id = a.port_ids_b[lane];
+      const auto* pa = view.edit_state().ports.find(pa_id);
+      const auto* pb = view.edit_state().ports.find(pb_id);
+      ofs << "lane[" << i << "].pair[" << lane << "].a.id=" << static_cast<unsigned long long>(pa_id) << "\n";
+      ofs << "lane[" << i << "].pair[" << lane << "].b.id=" << static_cast<unsigned long long>(pb_id) << "\n";
+      ofs << "lane[" << i << "].pair[" << lane << "].a.slot="
+          << ((lane < a.slot_ids_a.size()) ? a.slot_ids_a[lane] : -1) << "\n";
+      ofs << "lane[" << i << "].pair[" << lane << "].b.slot="
+          << ((lane < a.slot_ids_b.size()) ? a.slot_ids_b[lane] : -1) << "\n";
+      if (pa != nullptr) {
+        ofs << "lane[" << i << "].pair[" << lane << "].a.pos=" << pa->world_position.x << "," << pa->world_position.y
+            << "," << pa->world_position.z << "\n";
+      }
+      if (pb != nullptr) {
+        ofs << "lane[" << i << "].pair[" << lane << "].b.pos=" << pb->world_position.x << "," << pb->world_position.y
+            << "," << pb->world_position.z << "\n";
+      }
+    }
+  }
+  ofs << "result.cross_xy.bundle_count=" << cross_summaries.size() << "\n";
+  for (std::size_t i = 0; i < cross_summaries.size(); ++i) {
+    const auto& summary = cross_summaries[i];
+    ofs << "result.cross_xy.bundle[" << i << "].id=" << static_cast<unsigned long long>(summary.bundle_id) << "\n";
+    ofs << "result.cross_xy.bundle[" << i << "].lanes=" << summary.lane_count << "\n";
+    ofs << "result.cross_xy.bundle[" << i << "].segment=" << summary.segment_crossings << "\n";
+    ofs << "result.cross_xy.bundle[" << i << "].adjacent=" << summary.adjacent_crossings << "\n";
+    ofs << "result.cross_xy.bundle[" << i << "].global=" << summary.global_crossings << "\n";
+  }
+
+  if (ui_state.draw_capture_include_slot_debug) {
+    const int tail = std::max(0, ui_state.draw_capture_slot_debug_tail);
+    const int count = static_cast<int>(slot_debug_records.size());
+    const int begin = std::max(0, count - tail);
+    ofs << "result.slot_debug.total_count=" << count << "\n";
+    ofs << "result.slot_debug.dump_from=" << begin << "\n";
+    for (int i = begin; i < count; ++i) {
+      const auto& event = slot_debug_records[static_cast<std::size_t>(i)];
+      ofs << "slot_debug[" << i << "].pole_id=" << static_cast<unsigned long long>(event.pole_id) << "\n";
+      ofs << "slot_debug[" << i << "].peer_pole_id=" << static_cast<unsigned long long>(event.peer_pole_id) << "\n";
+      ofs << "slot_debug[" << i << "].category=" << CategoryLabel(event.category) << "\n";
+      ofs << "slot_debug[" << i << "].context=" << ContextLabel(event.connection_context) << "\n";
+      ofs << "slot_debug[" << i << "].selected_slot_id=" << event.selected_slot_id << "\n";
+      ofs << "slot_debug[" << i << "].result=" << event.result << "\n";
+    }
+  } else {
+    ofs << "result.slot_debug.included=0\n";
+  }
+
+  ofs << "state.poles=" << view.edit_state().poles.size() << "\n";
+  ofs << "state.ports=" << view.edit_state().ports.size() << "\n";
+  ofs << "state.bundles=" << view.edit_state().bundles.size() << "\n";
+  ofs << "state.spans=" << view.edit_state().spans.size() << "\n";
+
+  ofs.flush();
+  if (!ofs.good()) {
+    if (out_error != nullptr) {
+      *out_error = "failed to write capture file";
+    }
+    return false;
+  }
+
+  if (out_path != nullptr) {
+    *out_path = capture_path.string();
+  }
+  return true;
 }
 
 void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState& ui_state) {
@@ -753,6 +1165,7 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
     }
     if (IsKeyPressed(KEY_ESCAPE)) {
       ui_state.draw_path_points.clear();
+      ui_state.last_generation_session = 0;
     }
     if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER)) {
       ExecuteGenerateFromDrawPath(state, ui_state, true);
@@ -790,6 +1203,54 @@ wire::core::Vec3d Lerp(const wire::core::Vec3d& a, const wire::core::Vec3d& b, d
       a.y + (b.y - a.y) * t,
       a.z + (b.z - a.z) * t,
   };
+}
+
+wire::core::Vec3d RotateXDeg(const wire::core::Vec3d& v, double deg) {
+  constexpr double kPi = 3.14159265358979323846;
+  const double rad = deg * (kPi / 180.0);
+  const double c = std::cos(rad);
+  const double s = std::sin(rad);
+  return {v.x, v.y * c - v.z * s, v.y * s + v.z * c};
+}
+
+wire::core::Vec3d RotateYDeg(const wire::core::Vec3d& v, double deg) {
+  constexpr double kPi = 3.14159265358979323846;
+  const double rad = deg * (kPi / 180.0);
+  const double c = std::cos(rad);
+  const double s = std::sin(rad);
+  return {v.x * c + v.z * s, v.y, -v.x * s + v.z * c};
+}
+
+wire::core::Vec3d RotateZDeg(const wire::core::Vec3d& v, double deg) {
+  constexpr double kPi = 3.14159265358979323846;
+  const double rad = deg * (kPi / 180.0);
+  const double c = std::cos(rad);
+  const double s = std::sin(rad);
+  return {v.x * c - v.y * s, v.x * s + v.y * c, v.z};
+}
+
+wire::core::Vec3d RotateEulerXYZDeg(const wire::core::Vec3d& v, const wire::core::Vec3d& euler_deg) {
+  const wire::core::Vec3d rx = RotateXDeg(v, euler_deg.x);
+  const wire::core::Vec3d ry = RotateYDeg(rx, euler_deg.y);
+  return RotateZDeg(ry, euler_deg.z);
+}
+
+wire::core::Vec3d PoleTopPoint(const wire::core::Pole& pole) {
+  const wire::core::Vec3d local_up{0.0, 0.0, pole.height_m};
+  return pole.world_transform.position + RotateEulerXYZDeg(local_up, pole.world_transform.rotation_euler_deg);
+}
+
+Color VisualPartColor(wire::core::VisualPartKind kind) {
+  switch (kind) {
+  case wire::core::VisualPartKind::kSupportArm:
+    return BROWN;
+  case wire::core::VisualPartKind::kInsulator:
+    return SKYBLUE;
+  case wire::core::VisualPartKind::kFitting:
+    return LIGHTGRAY;
+  default:
+    return GRAY;
+  }
 }
 
 void OrbitCameraTurntable(Camera3D* camera, Vector2 mouse_delta, float orbit_speed) {
@@ -1060,18 +1521,13 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
   }
 
   for (const wire::core::Pole& pole : edit.poles.items()) {
-    // raylib DrawCylinderWires uses base-center as position.
-    const wire::core::Vec3d pole_base_ue{
-        pole.world_transform.position.x,
-        pole.world_transform.position.y,
-        pole.world_transform.position.z,
-    };
-
+    const wire::core::Vec3d pole_base_ue = pole.world_transform.position;
+    const wire::core::Vec3d pole_top_ue = PoleTopPoint(pole);
     Color color = DARKGRAY;
     if (ui_state.selected_type == SelectedType::kPole && ui_state.selected_id == pole.id) {
       color = GOLD;
     }
-    DrawCylinderWires(ToRaylib(pole_base_ue), 0.12f, 0.12f, static_cast<float>(pole.height_m), 10, color);
+    DrawCylinderWiresEx(ToRaylib(pole_base_ue), ToRaylib(pole_top_ue), 0.12f, 0.08f, 10, color);
   }
 
   for (const wire::core::Port& port : edit.ports.items()) {
@@ -1122,6 +1578,19 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
       if (ui_state.show_segment_aabb) {
         for (const wire::core::AABBd& segment : bounds->segments) {
           DrawBoundingBox(ToRaylibBounds(segment), Color{70, 130, 180, 180});
+        }
+      }
+    }
+
+    const wire::core::SpanVisualCacheEntry* visual = state.view().find_span_visual_cache(span.id);
+    if (visual != nullptr) {
+      for (const wire::core::VisualPart& part : visual->parts) {
+        const Color part_color = VisualPartColor(part.kind);
+        if (part.kind == wire::core::VisualPartKind::kInsulator) {
+          DrawCylinderEx(ToRaylib(part.a), ToRaylib(part.b), static_cast<float>(part.radius_m),
+                         static_cast<float>(part.radius_m), 8, part_color);
+        } else {
+          DrawLine3D(ToRaylib(part.a), ToRaylib(part.b), part_color);
         }
       }
     }
@@ -1614,10 +2083,28 @@ void DrawConnectionModePanel(CoreState& state, ViewerUiState& ui_state) {
   if (ImGui::Button("Connect Pole -> Pole")) {
     const int selected_context_index =
         std::clamp(ui_state.connect_context, 0, static_cast<int>(kAllConnectionContexts.size() - 1));
+    const wire::core::ConnectionCategory selected_category = kAllCategories[ui_state.connect_category];
     wire::core::CoreState::AddConnectionByPoleOptions options{};
     options.connection_context = kAllConnectionContexts[selected_context_index];
+    options.use_bundle_template = true;
+    switch (selected_category) {
+    case wire::core::ConnectionCategory::kHighVoltage:
+      options.bundle_template_id = wire::core::BundleKind::kHighVoltage;
+      break;
+    case wire::core::ConnectionCategory::kCommunication:
+      options.bundle_template_id = wire::core::BundleKind::kCommunication;
+      break;
+    case wire::core::ConnectionCategory::kOptical:
+      options.bundle_template_id = wire::core::BundleKind::kOptical;
+      break;
+    case wire::core::ConnectionCategory::kLowVoltage:
+    case wire::core::ConnectionCategory::kDrop:
+    default:
+      options.bundle_template_id = wire::core::BundleKind::kLowVoltage;
+      break;
+    }
     const auto result = state.AddConnectionByPole(ui_state.connect_pole_a_id, ui_state.connect_pole_b_id,
-                                                  kAllCategories[ui_state.connect_category], options);
+                                                   selected_category, options);
     if (!result.ok) {
       ui_state.last_error = result.error;
       PushLog(ui_state, "Connect Pole->Pole failed");
@@ -1645,6 +2132,7 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
   ImGui::Checkbox("Clicked Points Only (No Intermediate Pole)", &ui_state.draw_clicked_points_only);
   ImGui::Checkbox("Show Preview", &ui_state.draw_show_preview);
   ImGui::Checkbox("Keep Path After Generate", &ui_state.draw_keep_path_after_generate);
+  ImGui::Checkbox("Regenerate Last Session (Enter Extend)", &ui_state.draw_regenerate_last_session);
   ImGui::TextUnformatted("Template-driven bundle generation");
   ImGui::Text("Path points: %d", static_cast<int>(ui_state.draw_path_points.size()));
   if (ui_state.draw_hover_valid) {
@@ -1767,6 +2255,18 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
     ExecuteGenerateFromDrawPath(state, ui_state, false);
   }
   ImGui::SameLine();
+  if (ImGui::Button("Save Repro Capture")) {
+    std::string path{};
+    std::string error{};
+    if (SaveDrawPathReproCapture(state, ui_state, &path, &error)) {
+      ui_state.last_repro_capture_path = path;
+      PushLog(ui_state, "Saved repro capture: " + path);
+    } else {
+      ui_state.last_error = error;
+      PushLog(ui_state, "Save repro capture failed");
+    }
+  }
+  ImGui::SameLine();
   if (ImGui::Button("Undo Last Point")) {
     if (!ui_state.draw_path_points.empty()) {
       ui_state.draw_path_points.pop_back();
@@ -1775,11 +2275,26 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
   ImGui::SameLine();
   if (ImGui::Button("Clear Path")) {
     ui_state.draw_path_points.clear();
+    ui_state.last_generation_session = 0;
+  }
+  ImGui::Checkbox("Capture Slot Debug", &ui_state.draw_capture_include_slot_debug);
+  ImGui::InputInt("Capture Slot Debug Tail", &ui_state.draw_capture_slot_debug_tail);
+  ui_state.draw_capture_slot_debug_tail = std::clamp(ui_state.draw_capture_slot_debug_tail, 0, 5000);
+  if (!ui_state.last_repro_capture_path.empty()) {
+    ImGui::TextWrapped("Last capture: %s", ui_state.last_repro_capture_path.c_str());
   }
 
   const auto& lane_assignments = state.view().last_lane_assignments();
+  const auto cross_summaries = BuildBundleCrossSummaries(state);
   ImGui::Separator();
   ImGui::Text("Lane assignments: %d", static_cast<int>(lane_assignments.size()));
+  for (const auto& summary : cross_summaries) {
+    const bool ok = summary.global_crossings == 0 && summary.adjacent_crossings == 0;
+    const ImVec4 color = ok ? ImVec4(0.45f, 0.9f, 0.45f, 1.0f) : ImVec4(1.0f, 0.35f, 0.35f, 1.0f);
+    ImGui::TextColored(color, "bundle=%llu lanes=%d cross(seg/adj/global)=%d/%d/%d",
+                       static_cast<unsigned long long>(summary.bundle_id), summary.lane_count,
+                       summary.segment_crossings, summary.adjacent_crossings, summary.global_crossings);
+  }
   for (const auto& a : lane_assignments) {
     ImGui::Text("seg=%d A=%llu B=%llu lanes=%d mirrored=%s", static_cast<int>(a.segment_index),
                 static_cast<unsigned long long>(a.pole_a_id), static_cast<unsigned long long>(a.pole_b_id),
@@ -2210,6 +2725,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
     ui_state.geometry_samples = gs.curve_samples;
     ui_state.geometry_sag_enabled = gs.sag_enabled;
     ui_state.geometry_sag_factor = gs.sag_factor;
+    ui_state.geometry_pole_clearance = gs.pole_clearance_m;
     ui_state.geometry_settings_loaded = true;
   }
   if (!ui_state.layout_settings_loaded) {
@@ -2219,6 +2735,25 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
     ui_state.layout_min_side_scale = ls.min_side_scale;
     ui_state.layout_max_side_scale = ls.max_side_scale;
     ui_state.layout_settings_loaded = true;
+  }
+  if (!ui_state.visual_settings_loaded) {
+    const auto& vs = state.view().visual_settings();
+    ui_state.visual_enable_support_structures = vs.enable_support_structures;
+    ui_state.visual_enable_insulators = vs.enable_insulators;
+    ui_state.visual_support_center_threshold = vs.support_center_threshold_m;
+    ui_state.visual_support_arm_extra = vs.support_arm_extra_m;
+    ui_state.visual_insulator_radius = vs.insulator_radius_m;
+    ui_state.visual_insulator_length = vs.insulator_length_m;
+    ui_state.visual_settings_loaded = true;
+  }
+  if (!ui_state.bundle_visual_loaded) {
+    for (const auto& bundle : state.view().bundles().items()) {
+      ui_state.bundle_sag_ratio = bundle.visual_sag_ratio;
+      ui_state.bundle_wire_radius = bundle.visual_wire_radius_m;
+      ui_state.bundle_use_reference_length = bundle.visual_use_reference_length;
+      break;
+    }
+    ui_state.bundle_visual_loaded = true;
   }
 
   const auto& recalc = state.view().last_recalc_stats();
@@ -2263,11 +2798,13 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
     ImGui::SliderInt("Curve Samples", &ui_state.geometry_samples, 2, 64);
     ImGui::Checkbox("Sag Enabled", &ui_state.geometry_sag_enabled);
     ImGui::InputDouble("Sag Factor", &ui_state.geometry_sag_factor, 0.005, 0.01, "%.4f");
+    ImGui::InputDouble("Pole Clearance", &ui_state.geometry_pole_clearance, 0.005, 0.01, "%.3f");
     if (ImGui::Button("Apply Geometry")) {
       wire::core::GeometrySettings settings{};
       settings.curve_samples = ui_state.geometry_samples;
       settings.sag_enabled = ui_state.geometry_sag_enabled;
       settings.sag_factor = ui_state.geometry_sag_factor;
+      settings.pole_clearance_m = ui_state.geometry_pole_clearance;
       const auto result = state.UpdateGeometrySettings(settings, true);
       if (!result.ok) {
         ui_state.last_error = result.error;
@@ -2295,6 +2832,73 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
       } else {
         ui_state.last_error.clear();
         PushLog(ui_state, "Layout settings updated");
+      }
+    }
+  }
+
+  if (ImGui::CollapsingHeader("Pole Tilt / Wire Visual", ImGuiTreeNodeFlags_DefaultOpen)) {
+    ImGui::InputDouble("Tilt X (deg)", &ui_state.tilt_all_x_deg, 0.5, 1.0, "%.2f");
+    ImGui::InputDouble("Tilt Y (deg)", &ui_state.tilt_all_y_deg, 0.5, 1.0, "%.2f");
+    if (ImGui::Button("Apply Tilt To All Poles")) {
+      const auto tilt = state.SetAllPoleTilt(ui_state.tilt_all_x_deg, ui_state.tilt_all_y_deg);
+      if (!tilt.ok) {
+        ui_state.last_error = tilt.error;
+        PushLog(ui_state, "SetAllPoleTilt failed");
+      } else {
+        ui_state.last_error.clear();
+        PushLog(ui_state, "Applied tilt to all poles");
+      }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Reset All Span Reference Lengths")) {
+      const auto reset = state.ResetAllSpanReferenceLengths(true);
+      if (!reset.ok) {
+        ui_state.last_error = reset.error;
+        PushLog(ui_state, "ResetAllSpanReferenceLengths failed");
+      } else {
+        ui_state.last_error.clear();
+        PushLog(ui_state, "Span reference lengths reset from current geometry");
+      }
+    }
+
+    ImGui::Separator();
+    ImGui::InputDouble("Bundle Sag Ratio", &ui_state.bundle_sag_ratio, 0.005, 0.01, "%.4f");
+    ImGui::InputDouble("Bundle Wire Radius", &ui_state.bundle_wire_radius, 0.001, 0.005, "%.4f");
+    ImGui::Checkbox("Use Reference Length", &ui_state.bundle_use_reference_length);
+    if (ImGui::Button("Apply Visual To All Bundles")) {
+      const auto apply = state.UpdateAllBundleVisualSettings(ui_state.bundle_sag_ratio, ui_state.bundle_wire_radius,
+                                                              ui_state.bundle_use_reference_length, true);
+      if (!apply.ok) {
+        ui_state.last_error = apply.error;
+        PushLog(ui_state, "UpdateAllBundleVisualSettings failed");
+      } else {
+        ui_state.last_error.clear();
+        PushLog(ui_state, "Updated visual settings for all bundles");
+      }
+    }
+
+    ImGui::Separator();
+    ImGui::Checkbox("Enable Support Structures", &ui_state.visual_enable_support_structures);
+    ImGui::Checkbox("Enable Insulators", &ui_state.visual_enable_insulators);
+    ImGui::InputDouble("Support Center Threshold", &ui_state.visual_support_center_threshold, 0.005, 0.01, "%.3f");
+    ImGui::InputDouble("Support Arm Extra", &ui_state.visual_support_arm_extra, 0.01, 0.05, "%.3f");
+    ImGui::InputDouble("Insulator Radius", &ui_state.visual_insulator_radius, 0.005, 0.01, "%.3f");
+    ImGui::InputDouble("Insulator Length", &ui_state.visual_insulator_length, 0.005, 0.01, "%.3f");
+    if (ImGui::Button("Apply Visual Cache Settings")) {
+      wire::core::VisualSettings settings{};
+      settings.enable_support_structures = ui_state.visual_enable_support_structures;
+      settings.enable_insulators = ui_state.visual_enable_insulators;
+      settings.support_center_threshold_m = ui_state.visual_support_center_threshold;
+      settings.support_arm_extra_m = ui_state.visual_support_arm_extra;
+      settings.insulator_radius_m = ui_state.visual_insulator_radius;
+      settings.insulator_length_m = ui_state.visual_insulator_length;
+      const auto apply = state.UpdateVisualSettings(settings, true);
+      if (!apply.ok) {
+        ui_state.last_error = apply.error;
+        PushLog(ui_state, "UpdateVisualSettings failed");
+      } else {
+        ui_state.last_error.clear();
+        PushLog(ui_state, "Visual cache settings updated");
       }
     }
   }
@@ -2327,6 +2931,23 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
                   static_cast<unsigned long long>(event.peer_pole_id), ContextLabel(event.connection_context),
                   CategoryLabel(event.category));
       ImGui::Text("Selected templateSlot=%d result=%s", event.selected_slot_id, event.result.c_str());
+    }
+  }
+
+  if (ImGui::CollapsingHeader("Backbone Junction Debug")) {
+    const wire::core::BackboneResult backbone = state.BuildBackboneResult();
+    ImGui::Text("Edges: %d", static_cast<int>(backbone.edges.size()));
+    ImGui::Text("Junctions(deg>=3): %d", static_cast<int>(backbone.junctions.size()));
+    for (const auto& junction : backbone.junctions) {
+      ImGui::Separator();
+      ImGui::Text("Node=%llu session=%llu continuity=%s", static_cast<unsigned long long>(junction.node_id),
+                  static_cast<unsigned long long>(junction.prioritized_session_id),
+                  junction.used_neighbor_continuity ? "true" : "false");
+      for (const auto& inc : junction.incidents) {
+        ImGui::Text("  -> neighbor=%llu order=%d primary=%s srcSession=%llu",
+                    static_cast<unsigned long long>(inc.neighbor_node_id), inc.order,
+                    inc.primary ? "true" : "false", static_cast<unsigned long long>(inc.source_session_id));
+      }
     }
   }
 

@@ -28,6 +28,14 @@ const BoundsCacheEntry* CoreState::find_bounds_cache(ObjectId span_id) const {
   return &it->second;
 }
 
+const SpanVisualCacheEntry* CoreState::find_span_visual_cache(ObjectId span_id) const {
+  auto it = cache_state_.visual_cache.by_span.find(span_id);
+  if (it == cache_state_.visual_cache.by_span.end()) {
+    return nullptr;
+  }
+  return &it->second;
+}
+
 RecalcStats CoreState::ProcessDirtyQueues() {
   RecalcStats stats{};
 
@@ -94,6 +102,10 @@ RecalcStats CoreState::ProcessDirtyQueues() {
     }
     auto it = span_runtime_states_.find(span_id);
     if (it == span_runtime_states_.end() || !any(it->second.dirty_bits, DirtyBits::kRender)) {
+      continue;
+    }
+    std::string error_message;
+    if (!rebuild_span_visual(span_id, &error_message)) {
       continue;
     }
     it->second.render_version = it->second.data_version;
@@ -298,6 +310,84 @@ bool CoreState::rebuild_span_bounds(ObjectId span_id, std::string* error_message
   return true;
 }
 
+bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message) {
+  const Span* span = edit_state_.spans.find(span_id);
+  if (span == nullptr) {
+    if (error_message != nullptr) {
+      *error_message = "span not found";
+    }
+    return false;
+  }
+  const Port* a = edit_state_.ports.find(span->port_a_id);
+  const Port* b = edit_state_.ports.find(span->port_b_id);
+  if (a == nullptr || b == nullptr) {
+    if (error_message != nullptr) {
+      *error_message = "span endpoint port is missing";
+    }
+    return false;
+  }
+
+  const Bundle* bundle = edit_state_.bundles.find(span->bundle_id);
+  bool is_electric = (span->layer == SpanLayer::kHighVoltage || span->layer == SpanLayer::kLowVoltage);
+  if (bundle != nullptr) {
+    if (const BundleTemplate* tpl = find_bundle_template(bundle->kind); tpl != nullptr) {
+      is_electric = tpl->is_electric;
+    }
+  }
+
+  auto append_parts_for_port = [&](const Port& port) {
+    const Pole* pole = edit_state_.poles.find(port.owner_pole_id);
+    if (pole == nullptr) {
+      return;
+    }
+    const double dx = port.world_position.x - pole->world_transform.position.x;
+    const double dy = port.world_position.y - pole->world_transform.position.y;
+    const double planar = std::sqrt(dx * dx + dy * dy);
+    Vec3d radial{
+        (planar <= 1e-9) ? 1.0 : (dx / planar),
+        (planar <= 1e-9) ? 0.0 : (dy / planar),
+        0.0,
+    };
+
+    SpanVisualCacheEntry& entry = cache_state_.visual_cache.by_span[span_id];
+    if (cache_state_.visual_settings.enable_support_structures &&
+        port.template_side != SlotSide::kCenter &&
+        planar > cache_state_.visual_settings.support_center_threshold_m + 1e-9) {
+      VisualPart arm{};
+      arm.kind = VisualPartKind::kSupportArm;
+      arm.a = {pole->world_transform.position.x, pole->world_transform.position.y, port.world_position.z};
+      arm.b = {
+          port.world_position.x + radial.x * cache_state_.visual_settings.support_arm_extra_m,
+          port.world_position.y + radial.y * cache_state_.visual_settings.support_arm_extra_m,
+          port.world_position.z,
+      };
+      arm.radius_m = 0.03;
+      entry.parts.push_back(arm);
+    }
+
+    if (cache_state_.visual_settings.enable_insulators && is_electric) {
+      VisualPart ins{};
+      ins.kind = VisualPartKind::kInsulator;
+      ins.a = port.world_position;
+      ins.b = {
+          port.world_position.x + radial.x * cache_state_.visual_settings.insulator_length_m,
+          port.world_position.y + radial.y * cache_state_.visual_settings.insulator_length_m,
+          port.world_position.z,
+      };
+      ins.radius_m = cache_state_.visual_settings.insulator_radius_m;
+      entry.parts.push_back(ins);
+    }
+  };
+
+  SpanVisualCacheEntry entry{};
+  const SpanRuntimeState* runtime = find_span_runtime_state(span_id);
+  entry.source_version = (runtime == nullptr) ? 0 : runtime->data_version;
+  cache_state_.visual_cache.by_span[span_id] = std::move(entry);
+  append_parts_for_port(*a);
+  append_parts_for_port(*b);
+  return true;
+}
+
 std::vector<Vec3d> CoreState::generate_span_points(const Span& span, std::string* error_message) const {
   const Port* port_a = edit_state_.ports.find(span.port_a_id);
   const Port* port_b = edit_state_.ports.find(span.port_b_id);
@@ -318,8 +408,14 @@ std::vector<Vec3d> CoreState::generate_span_points(const Span& span, std::string
   const double dy = b.y - a.y;
   const double dz = b.z - a.z;
   const double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
-  const bool use_sag = cache_state_.geometry_settings.sag_enabled && distance > kZeroLengthEps;
-  const double sag_amount = cache_state_.geometry_settings.sag_factor * distance;
+  const Bundle* bundle = edit_state_.bundles.find(span.bundle_id);
+  const double sag_ratio =
+      (bundle == nullptr) ? cache_state_.geometry_settings.sag_factor : bundle->visual_sag_ratio;
+  const bool use_reference_length = (bundle == nullptr) ? true : bundle->visual_use_reference_length;
+  const double basis_length =
+      (use_reference_length && span.reference_length_m > kZeroLengthEps) ? span.reference_length_m : distance;
+  const bool use_sag = cache_state_.geometry_settings.sag_enabled && basis_length > kZeroLengthEps;
+  const double sag_amount = sag_ratio * basis_length;
 
   for (int i = 0; i < samples; ++i) {
     const double t = (samples <= 1) ? 0.0 : (static_cast<double>(i) / static_cast<double>(samples - 1));
@@ -373,6 +469,7 @@ AABBd CoreState::build_aabb_from_two_points(const Vec3d& a, const Vec3d& b) {
 void CoreState::remove_span_from_caches(ObjectId span_id) {
   cache_state_.curve_cache.by_span.erase(span_id);
   cache_state_.bounds_cache.by_span.erase(span_id);
+  cache_state_.visual_cache.by_span.erase(span_id);
 }
 
 } // namespace wire::core

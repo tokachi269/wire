@@ -94,3 +94,5 @@ build\viewer\Debug\wire_viewer.exe
 ---
 
 詳細は `docs/README.md` を入口に参照してください。
+
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/tokachi269/wire)

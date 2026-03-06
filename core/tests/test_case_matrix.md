@@ -82,8 +82,8 @@
 | C95 | 接続時span_layer上書き競合拒否 | 2Pole + template=HV + span_layer=LV | AddConnectionByPole | Exact: span_layer conflictエラー | error | layer二重指定の矛盾混入防止 |
 | C96 | Dropはテンプレ既定利用 | PoleType適用済Pole | AddDropFromPole(kDrop) | Invariant: Bundle spacing/layerがテンプレ既定に一致 | span layer / bundle spacing | ハードコード設定の再混入防止 |
 | C73 | 固定テンプレcount上書き拒否 | BackboneSpec + HV_3PH | GenerateFromBackboneSpec(bundle=count指定) | Exact: fail（上書き不可） | error | 固定規格の強制 |
-| C74 | 非HVテンプレ固定1本 | BackboneSpec + COMM既定テンプレ | GenerateFromBackboneSpec(bundle=count未指定) | Invariant: 区間ごとに1本生成 | generated span数/bundle count | 規格固定で入力削減 |
-| C75 | 非HV固定テンプレcount上書き拒否 | BackboneSpec + COMM既定テンプレ | GenerateFromBackboneSpec(bundle=count指定) | Exact: fail（上書き不可） | error | 固定規格の強制 |
+| C74 | 非HVテンプレ固定1本 | BackboneSpec + LV既定テンプレ | GenerateFromBackboneSpec(bundle=count未指定) | Invariant: 区間ごとに1本生成 | generated span数/bundle count | 規格固定で入力削減 |
+| C75 | 非HV固定テンプレcount上書き拒否 | BackboneSpec + LV既定テンプレ | GenerateFromBackboneSpec(bundle=count指定) | Exact: fail（上書き不可） | error | 固定規格の強制 |
 | C77 | 複数テンプレ同時生成 | BackboneSpec + LV/COMM複合指定 | GenerateFromBackboneSpec(bundles複数) | Invariant: bundleが複数生成され、Span数が合算本数に一致 | result.bundle_ids/generated spans | 複数束同時入力の成立 |
 | C50 | Port初期モード | 新規Port追加 | AddPort | Exact: position_mode=Auto | port fields | 既存互換維持 |
 | C51 | Port手修正/解除 | 接続済Port | SetPortWorldPositionManual→ResetPortPositionToAuto | Invariant: Manual化→Auto復帰, 関連SpanのみDirty | port/runtime | 手直し維持と復帰性 |

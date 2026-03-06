@@ -1726,15 +1726,15 @@ void CoreState::register_default_bundle_templates() {
 
   BundleTemplate comm{};
   comm.id = BundleKind::kCommunication;
-  comm.name = "DEFAULT_SINGLE_COMM";
+  comm.name = "COMM_BUNDLE";
   comm.category = ConnectionCategory::kCommunication;
   comm.default_layer = SpanLayer::kCommunication;
   comm.is_electric = false;
   comm.preserve_conductor_identity = false;
-  comm.count_rule = BundleCountRuleKind::kFixed;
-  comm.fixed_count = 1;
+  comm.count_rule = BundleCountRuleKind::kRange;
+  comm.fixed_count = 0;
   comm.min_count = 1;
-  comm.max_count = 1;
+  comm.max_count = 8;
   comm.default_count = 1;
   comm.default_spacing_m = 0.20;
   comm.allow_mirror = true;

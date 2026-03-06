@@ -1,7 +1,7 @@
 ﻿# Core Test Case Matrix (Phase4.8)
 
 ## Scope and policy
-- 観測根拠: 公開API戻り値、`view()`、`connection_index()`、`relation_index()`、`find_*cache()`、`slot_selection_debug_records()`、`last_path_direction_debug()`、`last_lane_assignments()`、`Validate()` のみ。
+- 観測根拠: 公開API戻り値、`view()`、`connection_index()`、`relation_index()`、`find_*cache()`、`slot_selection_debug_records()`、`last_path_direction_debug()`、`last_lane_assignments()`、`last_generation_backbone()`、`Validate()` のみ。
 - 期待値粒度: `Exact` は決定論のみ、`Invariant` は不変条件のみ。
 - モック方針: ドメインロジックのモック禁止（本スイートはモック未使用）。
 - 時間/並行: 実時間待ち・非決定並行を使わない。
@@ -45,8 +45,12 @@
 | C35 | 内外補正差 | 左折/右折 | GeneratePolesAlongRoad | Invariant: 外側オフセット>内側 | turn_sign/slot座標 | 角圧縮の低減 |
 | C61 | 鋭角自動拡幅 | 鋭角/鈍角の同一テンプレート比較 | GenerateSimpleLineFromPoints | Invariant: 鋭角の左右レーン間隔が鈍角より広い（カテゴリ非依存） | corner poleのlocal Y差 | 鋭角での線間距離不足防止 |
 | C62 | 群レーンねじれ抑制 | U字Guide + HV3 lane | GenerateGroupedLine(allow_lane_mirror=true) | Invariant: 区間ごとのlane順逆転数が0 | lane assignment port local Y順 | 群配線のクロス抑制 |
-| C76 | 鋭角コーナーXY交差抑制 | 鋭角コーナーを含むGuide + COMM4 lane | GenerateGroupedLine(allow_lane_mirror=true) | Invariant: 束全体ポリラインでlane間XY交差数が0 | lane assignment/port world位置 | 鋭角時の見た目破綻防止 |
-| C99 | HV3キャプチャ形状のグローバル交差回帰 | ねじれ再現点列（6点）+ HV3 | GenerateFromBackboneSpec(HV_3PH) | Invariant: 束全体ポリラインでlane間XY交差数が0 | last_lane_assignments / port world位置 | 実運用形状でのねじれ再発防止 |
+| C76 | 鋭角コーナーlane順反転抑制 | 鋭角コーナーを含むGuide + COMM4 lane | GenerateGroupedLine(allow_lane_mirror=true) | Invariant: 区間ごとのlane順逆転数が0 | lane assignmentのport local Y順 | 鋭角時の見た目破綻防止 |
+| C99 | HV3キャプチャ形状の反転回帰 | ねじれ再現点列（6点）+ HV3 | GenerateFromBackboneSpec(HV_3PH) | Invariant: 区間ごとのlane順逆転数が0 | last_lane_assignments / port local Y順 | 実運用形状でのねじれ再発防止 |
+| C100 | Midair SupportNode保持 | 3点Pathの中点をMidair指定 | GenerateFromBackboneSpec(LV) | Invariant: `last_generation_backbone.nodes` にMidairノードとtangent hintが残る | last_generation_backbone.nodes | Pole固定前提への逆戻り防止 |
+| C101 | HV空中分岐禁止 | Midair点 + HV bundle + node mode=Branch | GenerateFromBackboneSpec(HV_3PH) | Exact: fail（midair branch禁止） | error | 高圧規格逸脱の混入防止 |
+| C102 | Bundle別接続モード共存 | 同一Midair点 + HV/COMM複数bundle | GenerateFromBackboneSpec(HV+COMM) | Invariant: 同一SupportNodeでHV=PassThrough/COMM=Branchを同時保持 | last_generation_backbone.nodes[].bundle_modes | ノード単位固定分岐モデルの混入防止 |
+| C103 | 非Poleノード経由の詳細生成安定性 | 3点Pathの中点をBuilding指定 | GenerateFromBackboneSpec(LV) | Invariant: 生成が失敗/クラッシュせずSpan生成される | result.generated_span_ids | 非Pole入力での生成停止防止 |
 | C63 | mirror導入の非悪化（Y/Z/Layer） | 同一路線をmirror無効/有効で比較 | GenerateGroupedLine(allow_lane_mirror=false/true) | Invariant: 有効時の複合指標（Y逆転+Z逆転+layer jump）が無効時以下 | lane assignment/port座標/template layer | 生成品質調整で見た目悪化させない |
 | C64 | Guide頂点の強制Manual解除 | 3頂点Guide | GenerateFromBackboneSpec(既定設定) | Exact: 中間頂点/端点PoleともにAuto（既定） | pole placement_mode | DrawPath点=強制Pinの回避 |
 | C65 | pin_verticesオプション | 3頂点Guide | GenerateFromBackboneSpec(pin_vertices=true) | Exact: 中間頂点PoleもManual | pole placement_mode | ピン留め挙動の明示制御 |

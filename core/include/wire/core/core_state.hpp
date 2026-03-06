@@ -404,7 +404,9 @@ private:
   EditResult<std::vector<ObjectId>>
   generate_grouped_spans_between_poles(const std::vector<ObjectId>& poles, ObjectId bundle_id,
                                        const ConductorGroupSpec& group_spec,
-                                       std::vector<SegmentLaneAssignment>* out_lane_assignments);
+                                       std::vector<SegmentLaneAssignment>* out_lane_assignments,
+                                       std::vector<BackboneEdgeOrientation>* out_edge_orientations = nullptr,
+                                       BundleKind bundle_template_id = BundleKind::kLowVoltage);
   [[nodiscard]] PathDirectionCostBreakdown evaluate_path_direction_cost(const std::vector<Vec3d>& points,
                                                                         const ConductorGroupSpec& group_spec) const;
   [[nodiscard]] static std::uint64_t hash_path_points(const std::vector<Vec3d>& points);
@@ -530,6 +532,7 @@ private:
   // Session debug layer (non-authoritative, non-persist by policy).
   PathDirectionEvaluationDebug last_path_direction_debug_{};
   std::vector<PathDirectionEvaluationDebug> path_direction_debug_records_{};
+  BackboneResult last_generation_backbone_{};
   std::vector<SegmentLaneAssignment> last_lane_assignments_{};
   std::vector<SlotSelectionDebugRecord> slot_selection_debug_records_{};
 };
@@ -562,6 +565,7 @@ public:
   [[nodiscard]] const std::vector<PathDirectionEvaluationDebug>& path_direction_debug_records() const {
     return state_.path_direction_debug_records_;
   }
+  [[nodiscard]] const BackboneResult& last_generation_backbone() const { return state_.last_generation_backbone_; }
   [[nodiscard]] const std::vector<SegmentLaneAssignment>& last_lane_assignments() const {
     return state_.last_lane_assignments_;
   }

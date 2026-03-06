@@ -399,6 +399,45 @@ const char* PathDirectionChosenLabel(wire::core::PathDirectionChosen chosen) {
   }
 }
 
+const char* SupportKindLabel(wire::core::SupportKind kind) {
+  switch (kind) {
+  case wire::core::SupportKind::kPole:
+    return "Pole";
+  case wire::core::SupportKind::kMidair:
+    return "Midair";
+  case wire::core::SupportKind::kBuilding:
+    return "Building";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* BundleNodeModeLabel(wire::core::BundleNodeMode mode) {
+  switch (mode) {
+  case wire::core::BundleNodeMode::kNotPresent:
+    return "NotPresent";
+  case wire::core::BundleNodeMode::kPassThrough:
+    return "PassThrough";
+  case wire::core::BundleNodeMode::kBranch:
+    return "Branch";
+  case wire::core::BundleNodeMode::kTerminate:
+    return "Terminate";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* LaneFlipReasonLabel(wire::core::LaneFlipReason reason) {
+  switch (reason) {
+  case wire::core::LaneFlipReason::kNone:
+    return "None";
+  case wire::core::LaneFlipReason::kAcuteTurn:
+    return "AcuteTurn";
+  default:
+    return "Unknown";
+  }
+}
+
 const char* ModeLabel(EditMode mode) {
   switch (mode) {
   case EditMode::kPlacement:
@@ -1067,6 +1106,9 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
     ofs << "lane[" << i << "].pole_a_id=" << static_cast<unsigned long long>(a.pole_a_id) << "\n";
     ofs << "lane[" << i << "].pole_b_id=" << static_cast<unsigned long long>(a.pole_b_id) << "\n";
     ofs << "lane[" << i << "].mirrored=" << (a.mirrored ? 1 : 0) << "\n";
+    ofs << "lane[" << i << "].flipped_from_previous=" << (a.flipped_from_previous ? 1 : 0) << "\n";
+    ofs << "lane[" << i << "].flip_reason=" << LaneFlipReasonLabel(a.flip_reason) << "\n";
+    ofs << "lane[" << i << "].turn_angle_deg=" << a.turn_angle_deg << "\n";
     ofs << "lane[" << i << "].count=" << a.port_ids_a.size() << "\n";
     for (std::size_t lane = 0; lane < a.port_ids_a.size() && lane < a.port_ids_b.size(); ++lane) {
       const ObjectId pa_id = a.port_ids_a[lane];
@@ -1097,6 +1139,22 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
     ofs << "result.cross_xy.bundle[" << i << "].segment=" << summary.segment_crossings << "\n";
     ofs << "result.cross_xy.bundle[" << i << "].adjacent=" << summary.adjacent_crossings << "\n";
     ofs << "result.cross_xy.bundle[" << i << "].global=" << summary.global_crossings << "\n";
+  }
+
+  const auto& backbone = view.last_generation_backbone();
+  ofs << "result.backbone.edge_orientation_count=" << backbone.edge_orientations.size() << "\n";
+  for (std::size_t i = 0; i < backbone.edge_orientations.size(); ++i) {
+    const auto& e = backbone.edge_orientations[i];
+    ofs << "backbone.edge_orientation[" << i << "].node_a_id=" << static_cast<unsigned long long>(e.node_a_id) << "\n";
+    ofs << "backbone.edge_orientation[" << i << "].node_b_id=" << static_cast<unsigned long long>(e.node_b_id) << "\n";
+    ofs << "backbone.edge_orientation[" << i << "].bundle_template_id=" << static_cast<int>(e.bundle_template_id)
+        << "\n";
+    ofs << "backbone.edge_orientation[" << i << "].orientation="
+        << ((e.orientation == wire::core::LaneOrientation::kReversed) ? "Reversed" : "Normal") << "\n";
+    ofs << "backbone.edge_orientation[" << i << "].flipped_from_previous=" << (e.flipped_from_previous ? 1 : 0)
+        << "\n";
+    ofs << "backbone.edge_orientation[" << i << "].flip_reason=" << LaneFlipReasonLabel(e.flip_reason) << "\n";
+    ofs << "backbone.edge_orientation[" << i << "].turn_angle_deg=" << e.turn_angle_deg << "\n";
   }
 
   if (ui_state.draw_capture_include_slot_debug) {
@@ -1528,6 +1586,16 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
       color = GOLD;
     }
     DrawCylinderWiresEx(ToRaylib(pole_base_ue), ToRaylib(pole_top_ue), 0.12f, 0.08f, 10, color);
+  }
+
+  const wire::core::BackboneResult& generation_backbone = view.last_generation_backbone();
+  for (const wire::core::SupportNode& node : generation_backbone.nodes) {
+    if (node.support_kind == wire::core::SupportKind::kPole) {
+      continue;
+    }
+    const Color color =
+        (node.support_kind == wire::core::SupportKind::kMidair) ? Color{80, 220, 255, 230} : Color{140, 255, 120, 230};
+    DrawSphere(ToRaylib(node.position), 0.11f, color);
   }
 
   for (const wire::core::Port& port : edit.ports.items()) {
@@ -2296,9 +2364,10 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
                        summary.segment_crossings, summary.adjacent_crossings, summary.global_crossings);
   }
   for (const auto& a : lane_assignments) {
-    ImGui::Text("seg=%d A=%llu B=%llu lanes=%d mirrored=%s", static_cast<int>(a.segment_index),
+    ImGui::Text("seg=%d A=%llu B=%llu lanes=%d mirrored=%s flip=%s reason=%s angle=%.2f", static_cast<int>(a.segment_index),
                 static_cast<unsigned long long>(a.pole_a_id), static_cast<unsigned long long>(a.pole_b_id),
-                static_cast<int>(a.port_ids_a.size()), a.mirrored ? "true" : "false");
+                static_cast<int>(a.port_ids_a.size()), a.mirrored ? "true" : "false",
+                a.flipped_from_previous ? "true" : "false", LaneFlipReasonLabel(a.flip_reason), a.turn_angle_deg);
   }
 }
 
@@ -2935,9 +3004,23 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
   }
 
   if (ImGui::CollapsingHeader("Backbone Junction Debug")) {
-    const wire::core::BackboneResult backbone = state.BuildBackboneResult();
+    wire::core::BackboneResult backbone = state.view().last_generation_backbone();
+    if (backbone.edges.empty() && backbone.nodes.empty() && backbone.junctions.empty()) {
+      backbone = state.BuildBackboneResult();
+    }
+    ImGui::Text("SupportNodes: %d", static_cast<int>(backbone.nodes.size()));
     ImGui::Text("Edges: %d", static_cast<int>(backbone.edges.size()));
     ImGui::Text("Junctions(deg>=3): %d", static_cast<int>(backbone.junctions.size()));
+    for (const auto& node : backbone.nodes) {
+      ImGui::Text("Node=%llu kind=%s pole=%llu pos=(%.2f,%.2f,%.2f)", static_cast<unsigned long long>(node.node_id),
+                  SupportKindLabel(node.support_kind), static_cast<unsigned long long>(node.pole_id), node.position.x,
+                  node.position.y, node.position.z);
+      if (!node.bundle_modes.empty()) {
+        for (const auto& mode : node.bundle_modes) {
+          ImGui::Text("  bundle=%d mode=%s", static_cast<int>(mode.bundle_template_id), BundleNodeModeLabel(mode.mode));
+        }
+      }
+    }
     for (const auto& junction : backbone.junctions) {
       ImGui::Separator();
       ImGui::Text("Node=%llu session=%llu continuity=%s", static_cast<unsigned long long>(junction.node_id),

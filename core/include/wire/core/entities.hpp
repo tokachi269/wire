@@ -130,6 +130,12 @@ enum class BundleKind : std::uint8_t {
   kOptical = 3,
 };
 
+enum class SupportKind : std::uint8_t {
+  kPole = 0,
+  kMidair = 1,
+  kBuilding = 2,
+};
+
 enum class AttachmentKind : std::uint8_t {
   kGeneric = 0,
   kDamper = 1,
@@ -297,7 +303,7 @@ struct Attachment {
   double offset_m = 0.0;
 };
 
-// Backbone route edge (NodeId == PoleId for current phase).
+// Backbone route edge (NodeId refers to SupportNode id).
 struct BackboneEdge {
   ObjectId node_a = kInvalidObjectId;
   ObjectId node_b = kInvalidObjectId;

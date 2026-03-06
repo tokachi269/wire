@@ -45,6 +45,9 @@ struct SegmentLaneAssignment {
   std::vector<ObjectId> port_ids_a{};
   std::vector<ObjectId> port_ids_b{};
   bool mirrored = false;
+  bool flipped_from_previous = false;
+  LaneFlipReason flip_reason = LaneFlipReason::kNone;
+  double turn_angle_deg = 0.0;
 };
 
 struct SlotCandidateDebug {
@@ -82,4 +85,3 @@ struct SlotSelectionDebugRecord {
 };
 
 } // namespace wire::core
-

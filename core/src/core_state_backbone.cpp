@@ -89,8 +89,13 @@ BackboneResult CoreState::BuildBackboneResult() const {
   };
 
   std::unordered_map<ObjectId, std::unordered_map<ObjectId, IncidentAccum>> incident_map{};
+  std::unordered_map<ObjectId, std::unordered_map<BundleKind, int>> node_bundle_degree{};
   for (const Span& span : edit_state_.spans.items()) {
     if (span.bundle_id == kInvalidObjectId) {
+      continue;
+    }
+    const Bundle* bundle = edit_state_.bundles.find(span.bundle_id);
+    if (bundle == nullptr) {
       continue;
     }
     const Port* pa = edit_state_.ports.find(span.port_a_id);
@@ -103,6 +108,8 @@ BackboneResult CoreState::BuildBackboneResult() const {
                         span.generation.generation_order, incident_map);
     accumulate_incident(pb->owner_pole_id, pa->owner_pole_id, span.generation.generation_session_id,
                         span.generation.generation_order, incident_map);
+    node_bundle_degree[pa->owner_pole_id][bundle->kind] += 1;
+    node_bundle_degree[pb->owner_pole_id][bundle->kind] += 1;
   }
 
   std::vector<ObjectId> junction_nodes{};
@@ -267,6 +274,56 @@ BackboneResult CoreState::BuildBackboneResult() const {
 
   std::sort(out.junctions.begin(), out.junctions.end(),
             [](const JunctionInfo& a, const JunctionInfo& b) { return a.node_id < b.node_id; });
+
+  std::unordered_set<ObjectId> support_node_ids{};
+  for (const BackboneEdge& edge : out.edges) {
+    support_node_ids.insert(edge.node_a);
+    support_node_ids.insert(edge.node_b);
+  }
+  for (const auto& [node_id, _] : incident_map) {
+    support_node_ids.insert(node_id);
+  }
+
+  out.nodes.reserve(support_node_ids.size());
+  for (ObjectId node_id : support_node_ids) {
+    const Pole* pole = edit_state_.poles.find(node_id);
+    if (pole == nullptr) {
+      continue;
+    }
+    SupportNode node{};
+    node.node_id = node_id;
+    node.support_kind = SupportKind::kPole;
+    node.position = pole->world_transform.position;
+    node.pole_id = pole->id;
+    node.path_point_index = -1;
+
+    auto it_deg = node_bundle_degree.find(node_id);
+    if (it_deg != node_bundle_degree.end()) {
+      node.bundle_modes.reserve(it_deg->second.size());
+      for (const auto& [bundle_template_id, degree] : it_deg->second) {
+        SupportNodeBundleMode mode{};
+        mode.bundle_template_id = bundle_template_id;
+        if (degree <= 0) {
+          mode.mode = BundleNodeMode::kNotPresent;
+        } else if (degree == 1) {
+          mode.mode = BundleNodeMode::kTerminate;
+        } else if (degree == 2) {
+          mode.mode = BundleNodeMode::kPassThrough;
+        } else {
+          mode.mode = BundleNodeMode::kBranch;
+        }
+        node.bundle_modes.push_back(mode);
+      }
+      std::sort(node.bundle_modes.begin(), node.bundle_modes.end(),
+                [](const SupportNodeBundleMode& a, const SupportNodeBundleMode& b) {
+                  return static_cast<int>(a.bundle_template_id) < static_cast<int>(b.bundle_template_id);
+                });
+    }
+
+    out.nodes.push_back(std::move(node));
+  }
+  std::sort(out.nodes.begin(), out.nodes.end(),
+            [](const SupportNode& a, const SupportNode& b) { return a.node_id < b.node_id; });
   return out;
 }
 

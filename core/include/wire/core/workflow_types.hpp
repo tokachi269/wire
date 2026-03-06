@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -19,6 +20,14 @@ struct RoadSegment {
 // Workflow input path spec (DrawPath/road adapters share this shape).
 struct BackboneInputSpec {
   std::vector<Vec3d> polyline{};
+  // Optional per-path-point support-node metadata. Missing indices are treated as Pole.
+  struct NodeSpec {
+    std::size_t point_index = std::numeric_limits<std::size_t>::max();
+    SupportKind support_kind = SupportKind::kPole;
+    bool has_tangent_hint = false;
+    Vec3d tangent_hint{};
+  };
+  std::vector<NodeSpec> node_specs{};
 };
 
 struct BackboneGenerationConstraints {
@@ -56,6 +65,31 @@ struct BundleTemplate {
   int default_count = 1;
   double default_spacing_m = 0.2;
   bool allow_mirror = true;
+  bool allow_midair_node = true;
+  bool allow_midair_branch = true;
+};
+
+enum class BundleNodeMode : std::uint8_t {
+  kNotPresent = 0,
+  kPassThrough = 1,
+  kBranch = 2,
+  kTerminate = 3,
+};
+
+struct SupportNodeBundleMode {
+  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  BundleNodeMode mode = BundleNodeMode::kNotPresent;
+};
+
+struct SupportNode {
+  ObjectId node_id = kInvalidObjectId;
+  SupportKind support_kind = SupportKind::kPole;
+  Vec3d position{};
+  ObjectId pole_id = kInvalidObjectId;
+  int path_point_index = -1;
+  bool has_tangent_hint = false;
+  Vec3d tangent_hint{};
+  std::vector<SupportNodeBundleMode> bundle_modes{};
 };
 
 struct BackboneBundleSpec {
@@ -70,6 +104,13 @@ struct BackboneSpec {
   double interval_m = 0.0;
   PoleTypeId pole_type_id = kInvalidPoleTypeId;
   std::vector<BackboneBundleSpec> bundles{};
+  // Optional per-node per-bundle connection mode hints.
+  struct NodeBundleModeSpec {
+    std::size_t point_index = std::numeric_limits<std::size_t>::max();
+    BundleKind bundle_template_id = BundleKind::kLowVoltage;
+    BundleNodeMode mode = BundleNodeMode::kNotPresent;
+  };
+  std::vector<NodeBundleModeSpec> node_bundle_modes{};
   BackboneGenerationConstraints constraints{};
   BackbonePolePlacementOptions pole_placement{};
   PathDirectionMode direction_mode = PathDirectionMode::kAuto;
@@ -113,10 +154,32 @@ struct JunctionInfo {
   std::vector<JunctionIncident> incidents{};
 };
 
+enum class LaneOrientation : std::uint8_t {
+  kNormal = 0,
+  kReversed = 1,
+};
+
+enum class LaneFlipReason : std::uint8_t {
+  kNone = 0,
+  kAcuteTurn = 1,
+};
+
+struct BackboneEdgeOrientation {
+  ObjectId node_a_id = kInvalidObjectId;
+  ObjectId node_b_id = kInvalidObjectId;
+  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  LaneOrientation orientation = LaneOrientation::kNormal;
+  bool flipped_from_previous = false;
+  LaneFlipReason flip_reason = LaneFlipReason::kNone;
+  double turn_angle_deg = 0.0;
+};
+
 // Derived backbone output (no generation-input policy mixed in this type).
 struct BackboneResult {
+  std::vector<SupportNode> nodes{};
   std::vector<BackboneEdge> edges{};
   std::vector<JunctionInfo> junctions{};
+  std::vector<BackboneEdgeOrientation> edge_orientations{};
 };
 
 } // namespace wire::core

@@ -166,6 +166,13 @@ LaneOrderMetrics compute_lane_order_metrics(const CoreState& state,
     if (pole_a == nullptr || pole_b == nullptr) {
       continue;
     }
+    wire::core::Vec3d segment_dir = pole_b->world_transform.position - pole_a->world_transform.position;
+    segment_dir = normalize_xy_safe(segment_dir);
+    if (std::abs(segment_dir.x) <= 1e-12 && std::abs(segment_dir.y) <= 1e-12) {
+      segment_dir = {1.0, 0.0, 0.0};
+    }
+    const wire::core::Vec3d lateral_axis{-segment_dir.y, segment_dir.x, 0.0};
+
     const std::size_t lane_count = std::min(assignment.port_ids_a.size(), assignment.port_ids_b.size());
     if (lane_count < 2) {
       continue;
@@ -184,8 +191,10 @@ LaneOrderMetrics compute_lane_order_metrics(const CoreState& state,
       if (port_a == nullptr || port_b == nullptr) {
         continue;
       }
-      y_a[lane] = to_local_on_pole_test(*pole_a, port_a->world_position).y;
-      y_b[lane] = to_local_on_pole_test(*pole_b, port_b->world_position).y;
+      const wire::core::Vec3d da = port_a->world_position - pole_a->world_transform.position;
+      const wire::core::Vec3d db = port_b->world_position - pole_b->world_transform.position;
+      y_a[lane] = dot_xy(da, lateral_axis);
+      y_b[lane] = dot_xy(db, lateral_axis);
       z_a[lane] = port_a->world_position.z;
       z_b[lane] = port_b->world_position.z;
       layer_a[lane] = port_a->template_layer;
@@ -333,6 +342,83 @@ int count_bundle_lane_polyline_xy_intersections(const CoreState& state,
   return intersections;
 }
 
+int count_bundle_lane_adjacent_xy_intersections(const CoreState& state,
+                                                const std::vector<wire::core::SegmentLaneAssignment>& assignments) {
+  std::unordered_map<ObjectId, std::vector<const wire::core::SegmentLaneAssignment*>> by_bundle{};
+  for (const auto& assignment : assignments) {
+    by_bundle[assignment.bundle_id].push_back(&assignment);
+  }
+
+  int intersections = 0;
+  for (auto& [_, bundle_assignments] : by_bundle) {
+    if (bundle_assignments.empty()) {
+      continue;
+    }
+    std::sort(bundle_assignments.begin(), bundle_assignments.end(),
+              [](const wire::core::SegmentLaneAssignment* a, const wire::core::SegmentLaneAssignment* b) {
+                if (a->segment_index != b->segment_index) {
+                  return a->segment_index < b->segment_index;
+                }
+                if (a->pole_a_id != b->pole_a_id) {
+                  return a->pole_a_id < b->pole_a_id;
+                }
+                return a->pole_b_id < b->pole_b_id;
+              });
+
+    for (const auto* assignment : bundle_assignments) {
+      const std::size_t lane_count =
+          std::min(assignment->port_ids_a.size(), assignment->port_ids_b.size());
+      for (std::size_t i = 0; i < lane_count; ++i) {
+        const auto* a0 = state.view().edit_state().ports.find(assignment->port_ids_a[i]);
+        const auto* a1 = state.view().edit_state().ports.find(assignment->port_ids_b[i]);
+        if (a0 == nullptr || a1 == nullptr) {
+          continue;
+        }
+        for (std::size_t j = i + 1; j < lane_count; ++j) {
+          const auto* b0 = state.view().edit_state().ports.find(assignment->port_ids_a[j]);
+          const auto* b1 = state.view().edit_state().ports.find(assignment->port_ids_b[j]);
+          if (b0 == nullptr || b1 == nullptr) {
+            continue;
+          }
+          if (segments_intersect_xy_strict_test(a0->world_position, a1->world_position, b0->world_position,
+                                                b1->world_position)) {
+            ++intersections;
+          }
+        }
+      }
+    }
+
+    for (std::size_t idx = 1; idx < bundle_assignments.size(); ++idx) {
+      const auto* prev = bundle_assignments[idx - 1];
+      const auto* curr = bundle_assignments[idx];
+      const std::size_t lane_count =
+          std::min({prev->port_ids_a.size(), prev->port_ids_b.size(), curr->port_ids_a.size(), curr->port_ids_b.size()});
+      for (std::size_t i = 0; i < lane_count; ++i) {
+        const auto* c0 = state.view().edit_state().ports.find(curr->port_ids_a[i]);
+        const auto* c1 = state.view().edit_state().ports.find(curr->port_ids_b[i]);
+        if (c0 == nullptr || c1 == nullptr) {
+          continue;
+        }
+        for (std::size_t j = 0; j < lane_count; ++j) {
+          if (i == j) {
+            continue;
+          }
+          const auto* p0 = state.view().edit_state().ports.find(prev->port_ids_a[j]);
+          const auto* p1 = state.view().edit_state().ports.find(prev->port_ids_b[j]);
+          if (p0 == nullptr || p1 == nullptr) {
+            continue;
+          }
+          if (segments_intersect_xy_strict_test(c0->world_position, c1->world_position, p0->world_position,
+                                                p1->world_position)) {
+            ++intersections;
+          }
+        }
+      }
+    }
+  }
+  return intersections;
+}
+
 int count_mirrored_assignments(const std::vector<wire::core::SegmentLaneAssignment>& assignments) {
   int mirrored = 0;
   for (const auto& assignment : assignments) {
@@ -347,6 +433,16 @@ const wire::core::JunctionInfo* find_junction(const wire::core::BackboneResult& 
   for (const auto& junction : backbone.junctions) {
     if (junction.node_id == node_id) {
       return &junction;
+    }
+  }
+  return nullptr;
+}
+
+const wire::core::SupportNode* find_support_node_by_point_index(const wire::core::BackboneResult& backbone,
+                                                                 int point_index) {
+  for (const auto& node : backbone.nodes) {
+    if (node.path_point_index == point_index) {
+      return &node;
     }
   }
   return nullptr;
@@ -1993,8 +2089,8 @@ bool test_grouped_line_lane_order_no_inversion_on_u_path() {
   return metrics.y_inversions == 0;
 }
 
-// Intent: Group lane assignment on an acute corner path should avoid global XY crossings.
-bool test_grouped_line_acute_corner_no_xy_crossing() {
+// Intent: Group lane assignment on an acute corner path should avoid lane-order inversion.
+bool test_grouped_line_acute_corner_no_inversion() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
   if (type_ids.empty()) {
@@ -2023,12 +2119,12 @@ bool test_grouped_line_acute_corner_no_xy_crossing() {
   if (!generated.ok) {
     return false;
   }
-  const int intersections = count_bundle_lane_polyline_xy_intersections(state, generated.value.lane_assignments);
-  return intersections == 0;
+  const LaneOrderMetrics metrics = compute_lane_order_metrics(state, generated.value.lane_assignments);
+  return metrics.y_inversions == 0;
 }
 
-// Intent: Acute/zigzag path variants should avoid global XY crossings under mirror two-choice policy.
-bool test_grouped_line_acute_pattern_suite_no_xy_crossing() {
+// Intent: Acute/zigzag path variants should avoid lane-order inversion under mirror two-choice policy.
+bool test_grouped_line_acute_pattern_suite_no_inversion() {
   const std::vector<std::vector<wire::core::Vec3d>> paths = {
       {
           {-20.0, 0.0, 0.0},
@@ -2080,15 +2176,15 @@ bool test_grouped_line_acute_pattern_suite_no_xy_crossing() {
     if (!generated.ok) {
       return false;
     }
-    const int intersections = count_bundle_lane_polyline_xy_intersections(state, generated.value.lane_assignments);
-    if (intersections != 0) {
+    const LaneOrderMetrics metrics = compute_lane_order_metrics(state, generated.value.lane_assignments);
+    if (metrics.y_inversions != 0) {
       return false;
     }
   }
   return true;
 }
 
-// Intent: Acute high-voltage 3-phase path should also suppress XY twists like other bundle types.
+// Intent: Acute high-voltage 3-phase path should also suppress lane-order inversion like other bundle types.
 bool test_grouped_line_hv3_acute_no_phase_twist() {
   const std::vector<std::vector<wire::core::Vec3d>> paths = {
       {
@@ -2134,8 +2230,8 @@ bool test_grouped_line_hv3_acute_no_phase_twist() {
     if (!generated.ok) {
       return false;
     }
-    const int intersections = count_bundle_lane_polyline_xy_intersections(state, generated.value.lane_assignments);
-    if (intersections != 0) {
+    const LaneOrderMetrics metrics = compute_lane_order_metrics(state, generated.value.lane_assignments);
+    if (metrics.y_inversions != 0) {
       return false;
     }
     if (count_mirrored_assignments(generated.value.lane_assignments) <= 0) {
@@ -2182,15 +2278,15 @@ bool test_backbone_hv3_template_acute_no_phase_twist() {
   if (assignments.empty()) {
     return false;
   }
-  const int intersections = count_bundle_lane_polyline_xy_intersections(state, assignments);
-  if (intersections != 0) {
+  const LaneOrderMetrics metrics = compute_lane_order_metrics(state, assignments);
+  if (metrics.y_inversions != 0) {
     return false;
   }
   return true;
 }
 
-// Intent: Captured zigzag DrawPath shape should keep HV3 bundle globally non-crossing in XY.
-bool test_backbone_hv3_capture_shape_no_global_xy_crossing() {
+// Intent: Captured zigzag DrawPath shape should keep HV3 bundle free of lane-order inversion.
+bool test_backbone_hv3_capture_shape_no_inversion() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
   if (type_ids.empty()) {
@@ -2218,7 +2314,8 @@ bool test_backbone_hv3_capture_shape_no_global_xy_crossing() {
   if (assignments.empty()) {
     return false;
   }
-  return count_bundle_lane_polyline_xy_intersections(state, assignments) == 0;
+  const LaneOrderMetrics metrics = compute_lane_order_metrics(state, assignments);
+  return metrics.y_inversions == 0;
 }
 
 // Intent: ThreePhase group-kind should still permit mirror-two-choice when allow_lane_mirror=true.
@@ -2248,8 +2345,9 @@ bool test_grouped_line_threephase_policy_is_category_agnostic() {
   if (!generated.ok) {
     return false;
   }
-  return count_mirrored_assignments(generated.value.lane_assignments) > 0 &&
-         count_bundle_lane_polyline_xy_intersections(state, generated.value.lane_assignments) == 0;
+  const int mirrored = count_mirrored_assignments(generated.value.lane_assignments);
+  const LaneOrderMetrics metrics = compute_lane_order_metrics(state, generated.value.lane_assignments);
+  return mirrored > 0 && metrics.y_inversions == 0;
 }
 
 // Intent: Path extension should preserve lane order at boundary pole between existing and newly generated segment.
@@ -2510,6 +2608,133 @@ bool test_junction_first_session_priority_not_overwritten_by_later_paths() {
   const auto backbone = state.BuildBackboneResult();
   const auto* junction = find_junction(backbone, center_id);
   return junction != nullptr && junction->prioritized_session_id == first_session;
+}
+
+// Intent: Backbone generation should keep non-pole support nodes (midair/building) in intermediate result.
+bool test_backbone_generation_includes_midair_support_nodes() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  wire::core::BackboneSpec req{};
+  req.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec midair{};
+  midair.point_index = 1;
+  midair.support_kind = wire::core::SupportKind::kMidair;
+  midair.has_tangent_hint = true;
+  midair.tangent_hint = {1.0, 0.0, 0.0};
+  req.path.node_specs.push_back(midair);
+  req.interval_m = 1000.0;
+  req.pole_type_id = type_ids.front();
+  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
+
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  if (!generated.ok) {
+    return false;
+  }
+  const auto& backbone = state.view().last_generation_backbone();
+  const auto* node = find_support_node_by_point_index(backbone, 1);
+  return node != nullptr && node->support_kind == wire::core::SupportKind::kMidair && node->has_tangent_hint &&
+         node->bundle_modes.size() == 1 && node->bundle_modes.front().mode == wire::core::BundleNodeMode::kPassThrough;
+}
+
+// Intent: HV template must reject midair branch mode by template rule.
+bool test_backbone_hv_rejects_midair_branch_mode() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  wire::core::BackboneSpec req{};
+  req.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec midair{};
+  midair.point_index = 1;
+  midair.support_kind = wire::core::SupportKind::kMidair;
+  req.path.node_specs.push_back(midair);
+  wire::core::BackboneSpec::NodeBundleModeSpec hv_branch{};
+  hv_branch.point_index = 1;
+  hv_branch.bundle_template_id = wire::core::BundleKind::kHighVoltage;
+  hv_branch.mode = wire::core::BundleNodeMode::kBranch;
+  req.node_bundle_modes.push_back(hv_branch);
+  req.interval_m = 1000.0;
+  req.pole_type_id = type_ids.front();
+  add_backbone_bundle(req, wire::core::BundleKind::kHighVoltage);
+
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  return !generated.ok && regex_contains(generated.error, "midair branch");
+}
+
+// Intent: Bundle-specific modes can coexist at one support node (e.g., HV pass-through + COMM branch).
+bool test_backbone_support_node_allows_per_bundle_mode_mix() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  wire::core::BackboneSpec req{};
+  req.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec midair{};
+  midair.point_index = 1;
+  midair.support_kind = wire::core::SupportKind::kMidair;
+  req.path.node_specs.push_back(midair);
+  wire::core::BackboneSpec::NodeBundleModeSpec hv_pass{};
+  hv_pass.point_index = 1;
+  hv_pass.bundle_template_id = wire::core::BundleKind::kHighVoltage;
+  hv_pass.mode = wire::core::BundleNodeMode::kPassThrough;
+  req.node_bundle_modes.push_back(hv_pass);
+  wire::core::BackboneSpec::NodeBundleModeSpec comm_branch{};
+  comm_branch.point_index = 1;
+  comm_branch.bundle_template_id = wire::core::BundleKind::kCommunication;
+  comm_branch.mode = wire::core::BundleNodeMode::kBranch;
+  req.node_bundle_modes.push_back(comm_branch);
+  req.interval_m = 1000.0;
+  req.pole_type_id = type_ids.front();
+  add_backbone_bundle(req, wire::core::BundleKind::kHighVoltage);
+  add_backbone_bundle(req, wire::core::BundleKind::kCommunication);
+
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  if (!generated.ok) {
+    return false;
+  }
+  const auto* node = find_support_node_by_point_index(state.view().last_generation_backbone(), 1);
+  if (node == nullptr) {
+    return false;
+  }
+  bool hv_ok = false;
+  bool comm_ok = false;
+  for (const auto& mode : node->bundle_modes) {
+    if (mode.bundle_template_id == wire::core::BundleKind::kHighVoltage &&
+        mode.mode == wire::core::BundleNodeMode::kPassThrough) {
+      hv_ok = true;
+    }
+    if (mode.bundle_template_id == wire::core::BundleKind::kCommunication &&
+        mode.mode == wire::core::BundleNodeMode::kBranch) {
+      comm_ok = true;
+    }
+  }
+  return hv_ok && comm_ok;
+}
+
+// Intent: Detailed generation should not crash when path includes non-pole support nodes.
+bool test_backbone_detail_generation_handles_building_support_node() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  wire::core::BackboneSpec req{};
+  req.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}, {24.0, 0.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec building{};
+  building.point_index = 1;
+  building.support_kind = wire::core::SupportKind::kBuilding;
+  req.path.node_specs.push_back(building);
+  req.interval_m = 1000.0;
+  req.pole_type_id = type_ids.front();
+  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
+
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  return generated.ok && !generated.value.generated_span_ids.empty();
 }
 
 // Intent: Grouped mirror handling should keep lane ordering monotonic (identity/reverse only).
@@ -4479,21 +4704,23 @@ int main() {
       {"C62_Phase48d_GroupLane_NoInversionOnU",
        "Grouped lane assignment on U-path avoids per-segment lane-order inversions", "Invariant", false,
        test_grouped_line_lane_order_no_inversion_on_u_path},
-      {"C76_Phase49_GroupLane_AcuteNoXYCrossing",
-       "Grouped lane assignment on acute-corner path avoids per-segment XY crossings", "Invariant", false,
-       test_grouped_line_acute_corner_no_xy_crossing},
+      {"C76_Phase49_GroupLane_AcuteNoInversion",
+       "Grouped lane assignment on acute-corner path avoids per-segment lane-order inversion", "Invariant", false,
+       test_grouped_line_acute_corner_no_inversion},
       {"C86_Phase51_GroupLane_AcutePatternSuite",
-       "Acute/zigzag variants avoid XY crossings under two-choice mirror policy", "Invariant", false,
-       test_grouped_line_acute_pattern_suite_no_xy_crossing},
+       "Acute/zigzag variants avoid lane-order inversion under two-choice mirror policy", "Invariant", false,
+       test_grouped_line_acute_pattern_suite_no_inversion},
       {"C87_Phase51_HV3_Acute_NoPhaseTwist",
-       "Acute high-voltage 3-phase grouped generation suppresses XY twist with mirror two-choice", "Invariant", false,
+       "Acute high-voltage 3-phase grouped generation suppresses lane-order inversion with mirror two-choice",
+       "Invariant", false,
        test_grouped_line_hv3_acute_no_phase_twist},
       {"C88_Phase51_HV3_Template_Acute_NoPhaseTwist",
-       "Backbone HV template allows mirror two-choice on acute path and suppresses XY twist", "Invariant", false,
+       "Backbone HV template allows mirror two-choice on acute path and suppresses lane-order inversion",
+       "Invariant", false,
        test_backbone_hv3_template_acute_no_phase_twist},
-      {"C99_Phase53_Backbone_HV3_CaptureShape_NoGlobalXYCrossing",
-       "Backbone HV3 capture-shape regression keeps bundle globally non-crossing in XY", "Invariant", false,
-       test_backbone_hv3_capture_shape_no_global_xy_crossing},
+      {"C99_Phase53_Backbone_HV3_CaptureShape_NoInversion",
+       "Backbone HV3 capture-shape regression keeps bundle lane-order inversion-free", "Invariant", false,
+       test_backbone_hv3_capture_shape_no_inversion},
       {"C89_Phase51_ThreePhasePolicy_CategoryAgnostic",
        "ThreePhase grouped policy remains category-agnostic while allowing mirror two-choice", "Invariant", false,
        test_grouped_line_threephase_policy_is_category_agnostic},
@@ -4515,6 +4742,18 @@ int main() {
       {"C85_Phase51_Mirror_TwoChoiceOnly",
        "Grouped mirror handling keeps lane ordering monotonic (two-choice)", "Invariant", false,
        test_grouped_lane_mirror_is_two_choice_only},
+      {"C100_Phase54_Backbone_MidairSupportNode",
+       "Backbone generation keeps non-pole support nodes with tangent hint in last_generation_backbone", "Invariant",
+       false, test_backbone_generation_includes_midair_support_nodes},
+      {"C101_Phase54_Backbone_HVRejectMidairBranch",
+       "HV template rejects midair branch mode by template rule", "Exact", true,
+       test_backbone_hv_rejects_midair_branch_mode},
+      {"C102_Phase54_Backbone_PerBundleModeMix",
+       "One support node can hold different connection modes per bundle", "Invariant", false,
+       test_backbone_support_node_allows_per_bundle_mode_mix},
+      {"C103_Phase54_Backbone_BuildingNodeNoCrash",
+       "Detail generation remains stable when path includes building support node", "Invariant", false,
+       test_backbone_detail_generation_handles_building_support_node},
       {"C36_Phase47_DrawPath_ClickPointsExact", "DrawPath generation uses clicked points directly and sets pole yaw",
        "Exact", false, test_generate_simple_line_from_points_exact_poles_and_orientation},
       {"C37_Phase48_PreferredSide_Geometry", "Preferred side is decided by peer geometry", "Invariant", false,

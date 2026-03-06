@@ -1702,6 +1702,8 @@ void CoreState::register_default_bundle_templates() {
   hv.default_count = 3;
   hv.default_spacing_m = 0.45;
   hv.allow_mirror = true;
+  hv.allow_midair_node = true;
+  hv.allow_midair_branch = false;
   bundle_templates_[hv.id] = hv;
 
   BundleTemplate lv{};
@@ -1718,6 +1720,8 @@ void CoreState::register_default_bundle_templates() {
   lv.default_count = 1;
   lv.default_spacing_m = 0.20;
   lv.allow_mirror = true;
+  lv.allow_midair_node = true;
+  lv.allow_midair_branch = true;
   bundle_templates_[lv.id] = lv;
 
   BundleTemplate comm{};
@@ -1734,6 +1738,8 @@ void CoreState::register_default_bundle_templates() {
   comm.default_count = 1;
   comm.default_spacing_m = 0.20;
   comm.allow_mirror = true;
+  comm.allow_midair_node = true;
+  comm.allow_midair_branch = true;
   bundle_templates_[comm.id] = comm;
 
   BundleTemplate optical{};
@@ -1750,6 +1756,8 @@ void CoreState::register_default_bundle_templates() {
   optical.default_count = 1;
   optical.default_spacing_m = 0.20;
   optical.allow_mirror = true;
+  optical.allow_midair_node = true;
+  optical.allow_midair_branch = true;
   bundle_templates_[optical.id] = optical;
 }
 

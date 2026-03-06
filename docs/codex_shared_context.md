@@ -55,3 +55,65 @@
 3. `docs/core_model_architecture.md`
 4. `docs/core_model_inventory.md`
 5. `docs/chat_handoff_checklist.md`
+
+## 10. Current Snapshot（2026-03-06）
+- いま動くもの:
+  - BackboneSpec 経路での HV_3PH 鋭角パスにおける lane ねじれ抑制。
+  - `wire_core_tests` は 103/103 PASS。
+  - DrawPath 系ケース（C86/C88/C99 含む）の lane 順反転検査が通過。
+- いま壊れているもの:
+  - 現時点で再現固定の failing case なし（最新 `wire_core_tests` 基準）。
+- 既知リスク:
+  - ねじれ判定は「pole局所Yの順序反転」基準。厳密XY交差（扇状近傍を含む）は評価主軸にしない。
+  - `GenerateGroupedLine` 互換入口は内部で BackboneSpec に委譲しているが API 自体は残存。
+- 未着手/保留:
+  - 互換入口の完全廃止（公開 API 整理）。
+  - viewer 側の可視デバッグ（mirror 適用区間 / junction order 表示）の恒久UI化。
+
+## 11. Decision Log（直近）
+- 2026-03-06 / Accepted:
+  - 決定: ねじれ評価の主指標を区間法線ではなく「pole局所Y順序反転」に統一。
+  - 理由: 鋭角区間で軸が反転し、同一配線でも偽陽性が出るため。
+  - 影響: `generation_service.cpp` の mirror 評価軸、`core_tests.cpp` の inversion 観測軸。
+  - 覆す条件: 実運用キャプチャで局所Y基準でも連続的にねじれ見えが残る場合。
+- 2026-03-06 / Accepted:
+  - 決定: lane ねじれ対策は mirror 2択のみ（任意 permutation 不採用）を維持。
+  - 理由: 自由並び替えは挙動が不安定化しやすく、編集予測性を下げるため。
+  - 影響: 生成器の割当ロジック、テスト観点（C85/C86/C99）。
+  - 覆す条件: mirror 2択で要件ケースを満たせない失敗が複数パターンで確認された場合。
+- 2026-03-06 / Accepted:
+  - 決定: `ensure_ports` と `evaluate_increment` の side 軸は pole yaw を優先し、fallback のみヒント軸を使う。
+  - 理由: ポート生成軸と評価軸の不一致が mirror 誤判定を誘発していたため。
+  - 影響: 鋭角パスでの mirror 選択安定化、C76/C86/C87/C88/C99 の回帰抑制。
+  - 覆す条件: yaw 優先で既存の直線・鈍角ケースに退行が出る場合。
+
+## 12. 48h Task Board
+1. P1: 互換入口整理（GenerateGroupedLine の新規利用停止を明文化）
+   - Done: docs と public header で「BackboneSpec.bundles[] 必須」を明示し、viewer 呼び出しを新入口へ統一。
+   - 依存: viewer 呼び出し箇所の棚卸し。
+2. P2: ねじれ検証の運用固定（capture -> テスト化フロー）
+   - Done: capture 再現点列を追加し、最小1件を恒久回帰（既存 C99 を維持し追加候補を1件以上）。
+   - 依存: viewer からの capture 入力フォーマット確定。
+3. P3: 低優先の幾何交差指標の扱い整理
+   - Done: 「隣接扇状のXY厳密交差は品質参考値であり、合否主指標にしない」を docs に追記。
+   - 依存: テストポリシー文言更新。
+
+## 13. 次回開始パック（そのまま貼付可）
+- ゴール:
+  - Backbone 主導生成の一貫性維持（特に HV_3PH の鋭角・延長ケース）。
+  - 正本 API を BackboneSpec 中心へさらに集約。
+- 現在状態:
+  - 103/103 tests pass。C76/C86/C87/C88/C99 通過。
+  - ねじれ評価軸は pole局所Y順序で統一済み。
+- 直近決定:
+  - mirror 2択維持、任意並び替え禁止。
+  - side軸は pole yaw 優先（生成/評価で統一）。
+  - 厳密XY交差は主指標にしない。
+- 次の48h候補:
+  - 互換入口の利用禁止を docs+viewer 呼び出しで固定。
+  - capture 追加分の恒久テスト化。
+  - テストポリシー文言の明文化。
+- 制約:
+  - 正本直書き禁止、公開API経由のみ。
+  - `slot`(候補) / `Port`(実体) の用語混同禁止。
+  - Manual保持優先、全体再生成を既定にしない。

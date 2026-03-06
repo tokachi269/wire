@@ -8,6 +8,7 @@
 - [ ] `docs/wire.md` を確認
 - [ ] `docs/core_model_architecture.md` を確認
 - [ ] `docs/core_model_inventory.md` を確認
+- [ ] `docs/codex_shared_context.md` の「Current Snapshot / Decision Log / 48h Task Board」を確認
 - [ ] 直近の `git log --oneline -n 20` を確認
 - [ ] `git status` が想定通りか確認
 

@@ -24,6 +24,7 @@ struct BackboneInputSpec {
   struct NodeSpec {
     std::size_t point_index = std::numeric_limits<std::size_t>::max();
     SupportKind support_kind = SupportKind::kPole;
+    ObjectId node_id = kInvalidObjectId;
     bool has_tangent_hint = false;
     Vec3d tangent_hint{};
   };

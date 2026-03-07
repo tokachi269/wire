@@ -1,109 +1,110 @@
-﻿# 要求仕様書（整理版）
+# �v���d�l���i�����Łj
 
-電柱・電線ネットワーク基盤（ネイティブ C++ core + 軽量 viewer）
+�d���E�d���l�b�g���[�N��Ձi�l�C�e�B�u C++ core + �y�� viewer�j
 
-## 1. 目的
-- ゲームエンジン連携前提で、電柱・電線ネットワークをネイティブ C++ で生成・編集・検証できる基盤を維持する。
-- 見た目だけでなく、接続整合、局所再計算、デバッグ観測、将来拡張に耐える設計を保つ。
+## 1. �ړI
+- �Q�[���G���W���A�g�O��ŁA�d���E�d���l�b�g���[�N���l�C�e�B�u C++ �Ő����E�ҏW�E���؂ł����Ղ��ێ�����B
+- �����ڂ����łȂ��A�ڑ������A�Ǐ��Čv�Z�A�f�o�b�O�ϑ��A�����g���ɑς���݌v��ۂB
 
-## 2. 現在の対象
-- `core` ライブラリ
-- `viewer`（開発用）
-- 編集正本: `Pole / Port / Anchor / Bundle / Span / Attachment`
-- 生成入力: `BackboneSpec`（DrawPath はこの入力を作るツール）
-- 部分再計算: Dirty/Version
-- 骨格探索: Backbone（Pole 間）
+## 2. ���݂̑Ώ�
+- `core` ���C�u����
+- `viewer`�i�J���p�j
+- �ҏW���{: `Pole / Port / Anchor / Bundle / Span / Attachment`
+- ��������: `BackboneSpec`�iDrawPath �͂��̓��͂����c�[���j
+- �����Čv�Z: Dirty/Version
+- ���i�T��: Backbone�iPole �ԁj
 
-## 3. 非対象（現段階）
-- 高精度物理（厳密カテナリー、風揺れ）
-- 厳密電気計算
-- 保存読込フォーマットの固定
+## 3. ��Ώہi���i�K�j
+- �����x�����i�����J�e�i���[�A���h��j
+- �����d�C�v�Z
+- �ۑ��Ǎ��t�H�[�}�b�g�̌Œ�
 - Undo/Redo
-- 道路システム本統合
+- ���H�V�X�e���{����
 
-## 4. 固定方針
-### 4.1 座標と精度
-- 座標系: UE 準拠
-- 計算精度: `double`
+## 4. �Œ���j
+### 4.1 ���W�Ɛ��x
+- ���W�n: UE ����
+- �v�Z���x: `double`
 
 ### 4.2 ID
-- 64bit 永続 ID
-- 再利用しない
-- 表示 ID（`PL-000001` など）を持つ
+- 64bit �i�� ID
+- �ė��p���Ȃ�
+- �\�� ID�i`PL-000001` �Ȃǁj������
 
-### 4.3 正本と派生
-- 正本（PersistCore）: `Pole / Port / Anchor / Bundle / Span / Attachment`
-- 派生（DerivedCache）: `CurveCache / BoundsCache / DirtyQueue / SpanRuntimeState`
-- セッション情報（SessionDebug）: 選定ログ、評価ログ、統計
+### 4.3 ���{�Ɣh��
+- ���{�iPersistCore�j: `Pole / Port / Anchor / Bundle / Span / Attachment`
+- �h���iDerivedCache�j: `CurveCache / BoundsCache / DirtyQueue / SpanRuntimeState`
+- �Z�b�V�������iSessionDebug�j: �I�胍�O�A�]�����O�A���v
 
-## 5. 用語ルール
-- `slot`: テンプレート候補点（実体ではない）
-- `Port`: 実接続点（実体）
-- `Bundle`: 複数本配線の正本単位
-- `lane`: workflow/debug 用の内部概念（公開正本 API では扱わない）
-- `Guide`: 新規の中心用語としては使わない。`BackboneSpec` を使う。
+## 5. �p�ꃋ�[��
+- `slot`: �e���v���[�g���_�i���̂ł͂Ȃ��j
+- `Port`: ���ڑ��_�i���́j
+- `Bundle`: �����{�z���̐��{�P��
+- `lane`: workflow/debug �p�̓����T�O�i���J���{ API �ł͈���Ȃ��j
+- `Guide`: �V�K�̒��S�p��Ƃ��Ă͎g��Ȃ��B`BackboneSpec` ���g���B
 
-## 6. 生成と編集
-### 6.1 生成入力
-- DrawPath はツール入力。
-- 生成器は `BackboneSpec` を受け取る。
-- `BackboneSpec.bundles[]` で束テンプレを指定する（`bundle_template_id` 必須）。
-- 生成結果は `BackboneResult` で扱う（入力条件と分離）。
+## 6. �����ƕҏW
+### 6.1 ��������
+- DrawPath �̓c�[�����́B
+- ������� `BackboneSpec` ���󂯎��B
+- `BackboneSpec.bundles[]` �ő��e���v�����w�肷��i`bundle_template_id` �K�{�j�B
+- �������ʂ� `BackboneResult` �ň����i���͏����ƕ����j�B
 
-### 6.2 生成原則
-- DrawPath 点は既定で強制 Manual にしない。
-- Manual はユーザー操作（Pin/Unpin）で明示する。
-- 複数本は `Bundle + 複数 Span` で表現する。
-- 固定テンプレ（例: 高圧3本）は `count` 上書きを許可しない。
-- 可変テンプレ（例: 通信束）はテンプレ範囲内でのみ `count` を受け付ける。
+### 6.2 ��������
+- DrawPath �_�͊���ŋ��� Manual �ɂ��Ȃ��B
+- Manual �̓��[�U�[����iPin/Unpin�j�Ŗ�������B
+- �����{�� `Bundle + ���� Span` �ŕ\������B
+- �Œ�e���v���i��: ����3�{�j�� `count` �㏑���������Ȃ��B
+- �σe���v���i��: �ʐM���j�̓e���v���͈͓��ł̂� `count` ���󂯕t����B
 
-### 6.3 再生成原則
-- Manual Pole / Manual Port は保持する。
-- Auto 部分を優先更新する。
-- 影響範囲を局所化し、無関係要素を巻き込まない。
+### 6.3 �Đ�������
+- Manual Pole / Manual Port �͕ێ�����B
+- Auto ������D��X�V����B
+- �e���͈͂��Ǐ������A���֌W�v�f���������܂Ȃ��B
 
-## 7. 更新整合ルール
-- 変更は編集 API 経由のみ。
-- Pole transform 変更時は同一経路で次を実行する。
-1. Pole 更新
-2. 配下 Auto Port 再投影（Manual は保持）
-3. 関連 Span を Dirty 化
-4. 再計算で Version 追随
-- 参照整合は `ValidateFast()` / `Validate()` で検出する。
+## 7. �X�V�������[��
+- �ύX�͕ҏW API �o�R�̂݁B
+- Pole transform �ύX���͓���o�H�Ŏ������s����B
+1. Pole �X�V
+2. �z�� Auto Port �ē��e�iManual �͕ێ��j
+3. �֘A Span �� Dirty ��
+4. �Čv�Z�� Version �ǐ�
+- �Q�Ɛ����� `ValidateFast()` / `Validate()` �Ō��o����B
 
-## 8. Backbone の責務
-- Backbone は Pole 間接続の骨格表現を扱う。
-- Port/Span 詳細編集や見た目規則本体は詳細層の責務。
-- ルート探索は Backbone を優先し、必要時のみ詳細に降りる。
+## 8. Backbone �̐Ӗ�
+- Backbone �� Pole �Ԑڑ��̍��i�\���������B
+- Port/Span �ڍוҏW�〈���ڋK���{�̂͏ڍבw�̐Ӗ��B
+- ���[�g�T���� Backbone ��D�悵�A�K�v���̂ݏڍׂɍ~���B
 
-## 9. 鋭角コーナー補正（現行）
-- 鋭角判定は `corner interior angle < 75°`。
-- 鋭角時は Port 列の side 軸を角の二等分線に直交する向きへ補正する。
-- デバッグで `theta / bisector / side_dir` を観測できること。
+## 9. �s�p�R�[�i�[�␳�i���s�j
+- �s�p����� `corner interior angle < 75��`�B
+- �s�p���� Port ��� side �����p�̓񓙕����ɒ�����������֕␳����B
+- �f�o�b�O�� `theta / bisector / side_dir` ���ϑ��ł��邱�ƁB
 
-## 10. viewer 最低要件
-- Pole/Port/Span/Bundle の可視化
-- DrawPath 入力と生成実行
-- Pole の Pin/Unpin
-- Dirty/Version/再計算件数の観測
-- 主要デバッグ値の表示
+## 10. viewer �Œ�v��
+- Pole/Port/Span/Bundle �̉���
+- DrawPath ���͂Ɛ������s
+- Pole �� Pin/Unpin
+- Dirty/Version/�Čv�Z�����̊ϑ�
+- ��v�f�o�b�O�l�̕\��
 
-## 11. テスト方針
-- 公開 API の観測可能事実だけを根拠にする。
-- 正常系 + 異常系 + 復帰可能性を必ず含める。
-- 決定論は Exact、可変要素は Invariant で検証する。
-- ケース観点は `core/tests/test_case_matrix.md` に集約する。
+## 11. �e�X�g���j
+- ���J API �̊ϑ��\���������������ɂ���B
+- ����n + �ُ�n + ���A�\����K���܂߂�B
+- ����_�� Exact�A�ϗv�f�� Invariant �Ō��؂���B
+- �P�[�X�ϓ_�� `core/tests/spec_ledger.md` �ɏW�񂷂�B
 
-## 12. フェーズ位置づけ
-- Phase 0-4: 基盤、編集、Dirty/Version、幾何表示
-- Phase 4.x: 設計棚卸し（現在）
-- Phase 4.8 系: Bundle 正本化、BackboneSpec 生成、Manual 保持、局所再生成
-- Phase 5+: 保存読込、レイキャスト、カリング/LOD
+## 12. �t�F�[�Y�ʒu�Â�
+- Phase 0-4: ��ՁA�ҏW�ADirty/Version�A�􉽕\��
+- Phase 4.x: �݌v�I�����i���݁j
+- Phase 4.8 �n: Bundle ���{���ABackboneSpec �����AManual �ێ��A�Ǐ��Đ���
+- Phase 5+: �ۑ��Ǎ��A���C�L���X�g�A�J�����O/LOD
 
-## 13. 参照ドキュメント
+## 13. �Q�ƃh�L�������g
 - `README.md`
 - `docs/core_model_inventory.md`
 - `docs/core_model_architecture.md`
 - `docs/codex_shared_context.md`
 - `docs/chat_handoff_checklist.md`
 - `docs/operation_policy.md`
+

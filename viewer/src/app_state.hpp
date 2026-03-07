@@ -1,0 +1,198 @@
+#pragma once
+
+#include <cstdint>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+#include "raylib.h"
+#include "wire/core/core_state.hpp"
+
+using wire::core::CoreState;
+using wire::core::ObjectId;
+
+enum class SelectedType {
+  kNone = 0,
+  kPole = 1,
+  kPort = 2,
+  kSpan = 3,
+  kAnchor = 4,
+  kBundle = 5,
+  kAttachment = 6,
+};
+
+enum class CameraDragMode {
+  kNone = 0,
+  kOrbit = 1,
+  kPan = 2,
+  kDolly = 3,
+};
+
+enum class EditMode {
+  kPlacement = 0,
+  kConnection = 1,
+  kBranch = 2,
+  kDetail = 3,
+  kDrawPath = 4,
+};
+
+struct ViewerUiState {
+  EditMode mode = EditMode::kPlacement;
+  SelectedType selected_type = SelectedType::kNone;
+  ObjectId selected_id = wire::core::kInvalidObjectId;
+
+  double pole_x = 0.0;
+  double pole_y = 0.0;
+  double pole_z = 0.0;
+  double pole_height = 9.0;
+  int pole_kind = static_cast<int>(wire::core::PoleKind::kWood);
+
+  ObjectId port_owner_pole_id = wire::core::kInvalidObjectId;
+  double port_x = 0.0;
+  double port_y = 0.0;
+  double port_z = 7.0;
+  int port_kind = static_cast<int>(wire::core::PortKind::kPower);
+  int port_layer = static_cast<int>(wire::core::PortLayer::kLowVoltage);
+
+  ObjectId span_port_a_id = wire::core::kInvalidObjectId;
+  ObjectId span_port_b_id = wire::core::kInvalidObjectId;
+  ObjectId span_bundle_id = wire::core::kInvalidObjectId;
+  int span_kind = static_cast<int>(wire::core::SpanKind::kDistribution);
+  int span_layer = static_cast<int>(wire::core::SpanLayer::kLowVoltage);
+  double split_t = 0.5;
+
+  int placement_pole_type_index = 0;
+  ObjectId connect_pole_a_id = wire::core::kInvalidObjectId;
+  ObjectId connect_pole_b_id = wire::core::kInvalidObjectId;
+  int connect_category = static_cast<int>(wire::core::ConnectionCategory::kLowVoltage);
+  int connect_context = static_cast<int>(wire::core::ConnectionContext::kTrunkContinue);
+  ObjectId branch_source_span_id = wire::core::kInvalidObjectId;
+  double branch_t = 0.5;
+  double branch_target_x = 0.0;
+  double branch_target_y = 0.0;
+  double branch_target_z = 3.0;
+  bool branch_pick_enabled = true;
+  double branch_snap_radius_world = 0.75;
+  wire::core::PickResult branch_hover_pick{};
+  bool branch_hover_has_resolution = false;
+  wire::core::CoreState::ResolveBranchPickResult branch_hover_resolution{};
+  std::string branch_hover_status{};
+  wire::core::PickResult branch_last_pick{};
+  std::string branch_last_pick_summary{};
+  ObjectId drop_source_pole_id = wire::core::kInvalidObjectId;
+  double drop_target_x = 0.0;
+  double drop_target_y = 4.0;
+  double drop_target_z = 3.0;
+  int detail_pole_type_index = 0;
+  bool show_debug_labels = false;
+  bool show_whole_aabb = false;
+  bool show_segment_aabb = false;
+  bool show_selected_bundle_highlight = true;
+  bool geometry_settings_loaded = false;
+  int geometry_samples = 8;
+  bool geometry_sag_enabled = false;
+  double geometry_sag_factor = 0.03;
+  double geometry_pole_clearance = 0.05;
+  bool visual_settings_loaded = false;
+  bool visual_enable_support_structures = true;
+  bool visual_enable_insulators = true;
+  double visual_support_center_threshold = 0.03;
+  double visual_support_arm_extra = 0.20;
+  double visual_insulator_radius = 0.07;
+  double visual_insulator_length = 0.16;
+  bool bundle_visual_loaded = false;
+  double bundle_sag_ratio = 0.03;
+  double bundle_wire_radius = 0.015;
+  bool bundle_use_reference_length = true;
+  double tilt_all_x_deg = 0.0;
+  double tilt_all_y_deg = 0.0;
+  std::uint64_t road_id = 1;
+  double road_start_x = -20.0;
+  double road_start_y = 0.0;
+  double road_start_z = 0.0;
+  bool road_use_mid = false;
+  double road_mid_x = 0.0;
+  double road_mid_y = 0.0;
+  double road_mid_z = 0.0;
+  double road_end_x = 20.0;
+  double road_end_y = 0.0;
+  double road_end_z = 0.0;
+  double road_interval = 8.0;
+  int road_category_index = static_cast<int>(wire::core::ConnectionCategory::kLowVoltage);
+  std::uint32_t draw_category_mask = (1u << static_cast<int>(wire::core::ConnectionCategory::kLowVoltage));
+  std::uint32_t draw_bundle_template_mask = (1u << static_cast<int>(wire::core::BundleKind::kLowVoltage));
+  std::unordered_map<int, int> draw_bundle_count_by_template{};
+  int road_pole_type_index = 0;
+  int last_generated_poles = 0;
+  int last_generated_spans = 0;
+  std::uint64_t last_generation_session = 0;
+  std::vector<wire::core::Vec3d> draw_path_points{};
+  std::vector<wire::core::SupportKind> draw_path_point_support_kinds{};
+  std::vector<ObjectId> draw_path_point_node_ids{};
+  bool draw_pick_enabled = true;
+  double draw_snap_radius_world = 0.75;
+  bool draw_show_backbone_overlay = true;
+  wire::core::PickResult draw_hover_pick{};
+  bool draw_hover_has_resolution = false;
+  wire::core::CoreState::ResolveBranchPickResult draw_hover_resolution{};
+  std::string draw_hover_status{};
+  bool draw_hover_valid = false;
+  wire::core::Vec3d draw_hover_point{};
+  double draw_plane_z = 0.0;
+  bool draw_show_preview = true;
+  bool draw_keep_path_after_generate = true;
+  bool draw_regenerate_last_session = true;
+  bool draw_clicked_points_only = false;
+  double draw_interval_m = 8.0;
+  int draw_direction_mode = static_cast<int>(wire::core::PathDirectionMode::kAuto);
+  bool layout_settings_loaded = false;
+  bool layout_angle_correction_enabled = true;
+  double layout_corner_threshold_deg = 12.0;
+  double layout_min_side_scale = 1.0;
+  double layout_max_side_scale = 1.8;
+  int selected_slot_debug_index = 0;
+  bool draw_capture_include_slot_debug = true;
+  int draw_capture_slot_debug_tail = 64;
+  std::string last_repro_capture_path{};
+
+  std::string last_error;
+  std::vector<std::string> logs;
+  CameraDragMode camera_drag_mode = CameraDragMode::kNone;
+  bool auto_recalc = true;
+  double edit_x = 0.0;
+  double edit_y = 0.0;
+  double edit_z = 0.0;
+  bool camera_walk_mode = false;
+  float camera_walk_speed = 6.0f;
+  float camera_mouse_sensitivity = 0.003f;
+  float camera_fov_deg = 45.0f;
+  bool camera_consumed_escape = false;
+  bool ui_unified_workspace = true;
+  bool ui_show_workspace = true;
+  float ui_workspace_width = 0.0f;
+};
+
+struct ViewerPersistentSettings {
+  int window_width = 1280;
+  int window_height = 720;
+  bool ui_unified_workspace = true;
+  bool ui_show_workspace = true;
+  float ui_workspace_width = 420.0f;
+  float camera_fov_deg = 45.0f;
+  float camera_walk_speed = 6.0f;
+};
+
+void EnsureDrawPathPointKinds(ViewerUiState& ui_state);
+void DrawPathPushPoint(ViewerUiState& ui_state, const wire::core::Vec3d& point, wire::core::SupportKind support_kind,
+                       ObjectId node_id = wire::core::kInvalidObjectId);
+void DrawPathPopPoint(ViewerUiState& ui_state);
+void DrawPathClearPoints(ViewerUiState& ui_state);
+void DrawPathClearWithSessionReset(ViewerUiState& ui_state);
+void UpdateBranchPickInput(CoreState& state, const Camera3D& camera, ViewerUiState& ui_state);
+void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool from_enter_key);
+bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_state, std::string* out_path,
+                              std::string* out_error);
+void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState& ui_state);
+void DrawPathPreview(const ViewerUiState& ui_state);
+void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state);
+void DrawBranchModePanel(CoreState& state, ViewerUiState& ui_state);

@@ -1,0 +1,1140 @@
+#include "registry.hpp"
+#include "helpers.hpp"
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <limits>
+#include <regex>
+#include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+
+using namespace helpers;
+using wire::core::PortKind;
+using wire::core::PortLayer;
+using wire::core::SpanKind;
+using wire::core::SpanLayer;
+
+namespace {
+bool test_curve_cache_line_mode_is_deterministic() {
+  CoreState state;
+  wire::core::GeometrySettings settings{};
+  settings.curve_samples = 9;
+  settings.sag_enabled = false;
+  settings.sag_factor = 0.0;
+  (void)state.UpdateGeometrySettings(settings, false);
+
+  const ObjectId pole = state.AddPole({}, 10.0, "P").value;
+  const ObjectId a = state.AddPort(pole, {0.0, 0.0, 5.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId b = state.AddPort(pole, {10.0, 0.0, 5.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId span = state.AddSpan(a, b, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
+  (void)state.Commit().recalc_stats;
+
+  const auto* curve1 = state.find_curve_cache(span);
+  if (curve1 == nullptr || curve1->points.size() != 9) {
+    return false;
+  }
+
+  const auto move_result = state.MovePort(a, {0.0, 0.0, 5.0});
+  if (!move_result.ok) {
+    return false;
+  }
+  (void)state.Commit().recalc_stats;
+  const auto* curve2 = state.find_curve_cache(span);
+  if (curve2 == nullptr || curve2->points.size() != curve1->points.size()) {
+    return false;
+  }
+
+  if (!almost_equal(curve2->points.front(), {0.0, 0.0, 5.0}) ||
+      !almost_equal(curve2->points.back(), {10.0, 0.0, 5.0})) {
+    return false;
+  }
+  for (std::size_t i = 0; i < curve1->points.size(); ++i) {
+    if (!almost_equal(curve1->points[i], curve2->points[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool test_sag_mode_changes_midpoint_and_keeps_endpoints() {
+  CoreState state;
+  const ObjectId pole = state.AddPole({}, 10.0, "P").value;
+  const ObjectId a = state.AddPort(pole, {0.0, 0.0, 4.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId b = state.AddPort(pole, {12.0, 0.0, 4.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId span = state.AddSpan(a, b, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
+
+  wire::core::GeometrySettings line{};
+  line.curve_samples = 11;
+  line.sag_enabled = false;
+  line.sag_factor = 0.05;
+  (void)state.UpdateGeometrySettings(line, true);
+  (void)state.Commit().recalc_stats;
+  const auto* line_curve = state.find_curve_cache(span);
+  if (line_curve == nullptr || line_curve->points.size() != 11) {
+    return false;
+  }
+  const std::vector<wire::core::Vec3d> line_points = line_curve->points;
+
+  wire::core::GeometrySettings sag = line;
+  sag.sag_enabled = true;
+  sag.sag_factor = 0.10;
+  (void)state.UpdateGeometrySettings(sag, true);
+  (void)state.Commit().recalc_stats;
+  const auto* sag_curve = state.find_curve_cache(span);
+  if (sag_curve == nullptr || sag_curve->points.size() != 11) {
+    return false;
+  }
+
+  const std::size_t mid = sag_curve->points.size() / 2;
+  return almost_equal(sag_curve->points.front(), line_points.front()) &&
+         almost_equal(sag_curve->points.back(), line_points.back()) && sag_curve->points[mid].z < line_points[mid].z;
+}
+
+bool test_geometry_bounds_version_follow_and_locality() {
+  CoreState state;
+  wire::core::GeometrySettings settings{};
+  settings.curve_samples = 8;
+  settings.sag_enabled = false;
+  settings.sag_factor = 0.0;
+  (void)state.UpdateGeometrySettings(settings, false);
+
+  const ObjectId pole = state.AddPole({}, 10.0, "P").value;
+  const ObjectId p1 = state.AddPort(pole, {0.0, 0.0, 1.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId p2 = state.AddPort(pole, {5.0, 0.0, 1.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId p3 = state.AddPort(pole, {10.0, 0.0, 1.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId p4 = state.AddPort(pole, {15.0, 0.0, 1.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId span_a = state.AddSpan(p1, p2, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
+  const ObjectId span_b = state.AddSpan(p3, p4, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
+  (void)state.Commit().recalc_stats;
+
+  const auto* before_b = state.view().find_span_runtime_state(span_b);
+  if (before_b == nullptr) {
+    return false;
+  }
+  const std::uint64_t span_b_geometry_before = before_b->geometry_version;
+
+  const auto move_result = state.MovePort(p1, {0.0, 1.0, 1.0});
+  if (!move_result.ok) {
+    return false;
+  }
+  const auto* dirty_a = state.view().find_span_runtime_state(span_a);
+  const auto* dirty_b = state.view().find_span_runtime_state(span_b);
+  if (dirty_a == nullptr || dirty_b == nullptr) {
+    return false;
+  }
+  if (!has_dirty(dirty_a, DirtyBits::kGeometry) || has_dirty(dirty_b, DirtyBits::kGeometry)) {
+    return false;
+  }
+
+  (void)state.Commit().recalc_stats;
+  const auto* after_a = state.view().find_span_runtime_state(span_a);
+  const auto* after_b = state.view().find_span_runtime_state(span_b);
+  if (after_a == nullptr || after_b == nullptr) {
+    return false;
+  }
+
+  return after_a->geometry_version == after_a->data_version && after_a->bounds_version == after_a->data_version &&
+         after_a->render_version == after_a->data_version && after_b->geometry_version == span_b_geometry_before;
+}
+
+bool test_bounds_cache_generated_and_valid() {
+  CoreState state;
+  wire::core::GeometrySettings settings{};
+  settings.curve_samples = 7;
+  settings.sag_enabled = true;
+  settings.sag_factor = 0.08;
+  (void)state.UpdateGeometrySettings(settings, false);
+
+  const ObjectId pole = state.AddPole({}, 10.0, "P").value;
+  const ObjectId a = state.AddPort(pole, {0.0, 0.0, 5.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId b = state.AddPort(pole, {10.0, 2.0, 5.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId span = state.AddSpan(a, b, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
+  (void)state.Commit().recalc_stats;
+
+  const auto* curve = state.find_curve_cache(span);
+  const auto* bounds = state.find_bounds_cache(span);
+  if (curve == nullptr || bounds == nullptr) {
+    return false;
+  }
+  if (curve->points.size() < 2 || bounds->segments.size() != curve->points.size() - 1) {
+    return false;
+  }
+  if (!aabb_valid(bounds->whole)) {
+    return false;
+  }
+  for (const auto& segment : bounds->segments) {
+    if (!aabb_valid(segment)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool test_bounds_follow_geometry_change() {
+  CoreState state;
+  const ObjectId pole = state.AddPole({}, 10.0, "P").value;
+  const ObjectId a = state.AddPort(pole, {0.0, 0.0, 6.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId b = state.AddPort(pole, {12.0, 0.0, 6.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId span = state.AddSpan(a, b, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
+
+  wire::core::GeometrySettings line{};
+  line.curve_samples = 9;
+  line.sag_enabled = false;
+  line.sag_factor = 0.1;
+  (void)state.UpdateGeometrySettings(line, true);
+  (void)state.Commit().recalc_stats;
+  const auto* bounds_line = state.find_bounds_cache(span);
+  if (bounds_line == nullptr) {
+    return false;
+  }
+  const double line_min_z = bounds_line->whole.min.z;
+
+  wire::core::GeometrySettings sag = line;
+  sag.sag_enabled = true;
+  (void)state.UpdateGeometrySettings(sag, true);
+  (void)state.Commit().recalc_stats;
+  const auto* bounds_sag = state.find_bounds_cache(span);
+  if (bounds_sag == nullptr) {
+    return false;
+  }
+
+  return bounds_sag->whole.min.z < line_min_z;
+}
+
+bool test_generate_poles_along_road_basic() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::RoadSegment road{};
+  road.id = 10;
+  road.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
+  const auto result = state.GeneratePolesAlongRoad(road, 5.0, type_ids.front());
+  if (!result.ok) {
+    return false;
+  }
+  if (result.value.size() != 5) {
+    return false;
+  }
+
+  for (std::size_t i = 0; i < result.value.size(); ++i) {
+    const auto* pole = state.view().edit_state().poles.find(result.value[i]);
+    if (pole == nullptr) {
+      return false;
+    }
+    if (pole->pole_type_id != type_ids.front()) {
+      return false;
+    }
+    if (!pole->generation.generated || pole->generation.source != wire::core::GenerationSource::kRoadAuto) {
+      return false;
+    }
+    if (!almost_equal(pole->world_transform.position.y, 0.0) || !almost_equal(pole->world_transform.position.z, 0.0)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool test_pole_context_classification_basic() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::RoadSegment straight{};
+  straight.id = 901;
+  straight.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
+  const auto straight_result = state.GeneratePolesAlongRoad(straight, 5.0, type_ids.front());
+  if (!straight_result.ok || straight_result.value.size() < 3) {
+    return false;
+  }
+
+  const auto* first = state.view().edit_state().poles.find(straight_result.value.front());
+  const auto* middle = state.view().edit_state().poles.find(straight_result.value[1]);
+  const auto* last = state.view().edit_state().poles.find(straight_result.value.back());
+  if (first == nullptr || middle == nullptr || last == nullptr) {
+    return false;
+  }
+  if (first->context.kind != wire::core::PoleContextKind::kTerminal ||
+      last->context.kind != wire::core::PoleContextKind::kTerminal ||
+      middle->context.kind != wire::core::PoleContextKind::kStraight) {
+    return false;
+  }
+
+  CoreState corner_state;
+  const auto corner_type_ids = sorted_pole_type_ids(corner_state);
+  if (corner_type_ids.empty()) {
+    return false;
+  }
+  wire::core::RoadSegment corner{};
+  corner.id = 902;
+  corner.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {10.0, 10.0, 0.0}};
+  const auto corner_result = corner_state.GeneratePolesAlongRoad(corner, 5.0, corner_type_ids.front());
+  if (!corner_result.ok) {
+    return false;
+  }
+
+  bool found_corner = false;
+  for (ObjectId pole_id : corner_result.value) {
+    const auto* pole = corner_state.view().edit_state().poles.find(pole_id);
+    if (pole != nullptr && pole->context.kind == wire::core::PoleContextKind::kCorner) {
+      if (pole->context.corner_angle_deg <= 0.0 || pole->context.side_scale < 1.0) {
+        return false;
+      }
+      found_corner = true;
+      break;
+    }
+  }
+  return found_corner;
+}
+
+bool test_angle_correction_bounds_and_finite() {
+  CoreState state;
+  wire::core::LayoutSettings layout{};
+  layout.angle_correction_enabled = true;
+  layout.corner_threshold_deg = 5.0;
+  layout.min_side_scale = 1.0;
+  layout.max_side_scale = 1.6;
+  if (!state.UpdateLayoutSettings(layout).ok) {
+    return false;
+  }
+
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  wire::core::RoadSegment road{};
+  road.id = 903;
+  road.polyline = {{0.0, 0.0, 0.0}, {8.0, 0.0, 0.0}, {8.0, 8.0, 0.0}};
+  const auto result = state.GeneratePolesAlongRoad(road, 4.0, type_ids.front());
+  if (!result.ok) {
+    return false;
+  }
+
+  bool found_corrected_port = false;
+  for (ObjectId pole_id : result.value) {
+    const auto* pole = state.view().edit_state().poles.find(pole_id);
+    if (pole == nullptr || pole->context.kind != wire::core::PoleContextKind::kCorner) {
+      continue;
+    }
+    if (pole->context.side_scale < layout.min_side_scale || pole->context.side_scale > layout.max_side_scale) {
+      return false;
+    }
+    for (const auto& port : state.view().edit_state().ports.items()) {
+      if (port.owner_pole_id != pole_id) {
+        continue;
+      }
+      if (!std::isfinite(port.world_position.x) || !std::isfinite(port.world_position.y) ||
+          !std::isfinite(port.world_position.z) || !std::isfinite(port.side_scale_applied)) {
+        return false;
+      }
+      if (port.angle_correction_applied) {
+        found_corrected_port = true;
+      }
+    }
+  }
+  return found_corrected_port;
+}
+
+bool test_corner_turn_sign_biases_outer_side() {
+  auto check_turn = [](const std::vector<wire::core::Vec3d>& polyline, bool expect_left_turn_outer_right) -> bool {
+    CoreState state;
+    wire::core::LayoutSettings layout{};
+    layout.angle_correction_enabled = true;
+    layout.corner_threshold_deg = 5.0;
+    layout.min_side_scale = 1.0;
+    layout.max_side_scale = 1.8;
+    if (!state.UpdateLayoutSettings(layout).ok) {
+      return false;
+    }
+
+    const auto type_ids = sorted_pole_type_ids(state);
+    if (type_ids.empty()) {
+      return false;
+    }
+
+    wire::core::RoadSegment road{};
+    road.id = expect_left_turn_outer_right ? 905 : 906;
+    road.polyline = polyline;
+    const auto result = state.GeneratePolesAlongRoad(road, 4.0, type_ids.front());
+    if (!result.ok) {
+      return false;
+    }
+
+    const wire::core::Pole* corner_pole = nullptr;
+    for (ObjectId pole_id : result.value) {
+      const auto* pole = state.view().edit_state().poles.find(pole_id);
+      if (pole != nullptr && pole->context.kind == wire::core::PoleContextKind::kCorner) {
+        corner_pole = pole;
+        break;
+      }
+    }
+    if (corner_pole == nullptr) {
+      return false;
+    }
+
+    const wire::core::Port* left_slot_port = nullptr;
+    const wire::core::Port* right_slot_port = nullptr;
+    for (const auto& port : state.view().edit_state().ports.items()) {
+      if (port.owner_pole_id != corner_pole->id) {
+        continue;
+      }
+      if (port.source_slot_id == 200) {
+        left_slot_port = &port;
+      } else if (port.source_slot_id == 201) {
+        right_slot_port = &port;
+      }
+    }
+    if (left_slot_port == nullptr || right_slot_port == nullptr) {
+      return false;
+    }
+
+    const double left_offset = std::abs(left_slot_port->world_position.y - corner_pole->world_transform.position.y);
+    const double right_offset = std::abs(right_slot_port->world_position.y - corner_pole->world_transform.position.y);
+    if (expect_left_turn_outer_right) {
+      return corner_pole->context.corner_turn_sign > 0.0 && right_offset > left_offset &&
+             right_slot_port->side_scale_applied > left_slot_port->side_scale_applied;
+    }
+    return corner_pole->context.corner_turn_sign < 0.0 && left_offset > right_offset &&
+           left_slot_port->side_scale_applied > right_slot_port->side_scale_applied;
+  };
+
+  const bool left_ok = check_turn({{0.0, 0.0, 0.0}, {8.0, 0.0, 0.0}, {8.0, 8.0, 0.0}}, true);
+  const bool right_ok = check_turn({{0.0, 0.0, 0.0}, {8.0, 0.0, 0.0}, {8.0, -8.0, 0.0}}, false);
+  return left_ok && right_ok;
+}
+
+bool test_acute_corner_auto_widens_lane_spacing() {
+  auto lane_width_for_interior = [](double interior_deg) -> double {
+    CoreState state;
+    wire::core::LayoutSettings layout{};
+    layout.angle_correction_enabled = true;
+    layout.corner_threshold_deg = 5.0;
+    layout.min_side_scale = 1.0;
+    layout.max_side_scale = 1.8;
+    if (!state.UpdateLayoutSettings(layout).ok) {
+      return std::numeric_limits<double>::quiet_NaN();
+    }
+    const auto type_ids = sorted_pole_type_ids(state);
+    if (type_ids.empty()) {
+      return std::numeric_limits<double>::quiet_NaN();
+    }
+
+    constexpr double kPi = 3.14159265358979323846;
+    const double rad = interior_deg * (kPi / 180.0);
+    const double out_heading = kPi - rad;
+    wire::core::RoadSegment road{};
+    road.id = static_cast<std::uint64_t>(990 + static_cast<int>(interior_deg));
+    road.polyline = {
+        {0.0, 0.0, 0.0},
+        {10.0, 0.0, 0.0},
+        {10.0 + 10.0 * std::cos(out_heading), 10.0 * std::sin(out_heading), 0.0},
+    };
+    const auto gen =
+        state.GenerateSimpleLineFromPoints(road, type_ids.front(), wire::core::ConnectionCategory::kLowVoltage);
+    if (!gen.ok || gen.value.pole_ids.size() != 3) {
+      return std::numeric_limits<double>::quiet_NaN();
+    }
+
+    const auto* pole = state.view().edit_state().poles.find(gen.value.pole_ids[1]);
+    if (pole == nullptr) {
+      return std::numeric_limits<double>::quiet_NaN();
+    }
+    const wire::core::Port* p_left = nullptr;
+    const wire::core::Port* p_right = nullptr;
+    for (const auto& port : state.view().edit_state().ports.items()) {
+      if (port.owner_pole_id != pole->id) {
+        continue;
+      }
+      if (port.source_slot_id == 200) {
+        p_left = &port;
+      } else if (port.source_slot_id == 201) {
+        p_right = &port;
+      }
+    }
+    if (p_left == nullptr || p_right == nullptr) {
+      return std::numeric_limits<double>::quiet_NaN();
+    }
+    const wire::core::Vec3d local_left = to_local_on_pole_test(*pole, p_left->world_position);
+    const wire::core::Vec3d local_right = to_local_on_pole_test(*pole, p_right->world_position);
+    return std::abs(local_right.y - local_left.y);
+  };
+
+  const double width_acute = lane_width_for_interior(45.0);
+  const double width_obtuse = lane_width_for_interior(120.0);
+  if (!std::isfinite(width_acute) || !std::isfinite(width_obtuse)) {
+    return false;
+  }
+  // Base template width is 0.8m between slot 200(-0.4) and 201(+0.4).
+  return width_acute > width_obtuse && width_acute > 0.8 + 1e-6;
+}
+
+bool test_slot_selection_context_bias() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::Transformd a{};
+  a.position = {0.0, 0.0, 0.0};
+  wire::core::Transformd b{};
+  b.position = {10.0, 0.0, 0.0};
+  wire::core::Transformd c{};
+  c.position = {10.0, 8.0, 0.0};
+  const ObjectId pole_a = state.AddPole(a, 10.0, "A").value;
+  const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
+  const ObjectId pole_c = state.AddPole(c, 10.0, "C").value;
+  if (!state.ApplyPoleType(pole_a, type_ids.front()).ok || !state.ApplyPoleType(pole_b, type_ids.front()).ok ||
+      !state.ApplyPoleType(pole_c, type_ids.front()).ok) {
+    return false;
+  }
+
+  wire::core::CoreState::AddConnectionByPoleOptions trunk_options{};
+  trunk_options.connection_context = wire::core::ConnectionContext::kTrunkContinue;
+  const auto trunk =
+      add_connection_by_category(state, pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage, trunk_options);
+  if (!trunk.ok) {
+    return false;
+  }
+
+  wire::core::CoreState::AddConnectionByPoleOptions branch_options{};
+  branch_options.connection_context = wire::core::ConnectionContext::kBranchAdd;
+  const auto branch =
+      add_connection_by_category(state, pole_b, pole_c, wire::core::ConnectionCategory::kLowVoltage, branch_options);
+  if (!branch.ok) {
+    return false;
+  }
+  return branch.value.slot_a_id >= 0 && branch.value.slot_a_id != trunk.value.slot_b_id;
+}
+
+bool test_slot_selection_deterministic_and_debug_integrity() {
+  auto run_once = []() -> std::pair<int, wire::core::SlotSelectionDebugRecord> {
+    CoreState state;
+    const auto type_ids = sorted_pole_type_ids(state);
+    if (type_ids.empty()) {
+      return {-1, {}};
+    }
+    const ObjectId pole_a = state.AddPole({}, 10.0, "A").value;
+    wire::core::Transformd b{};
+    b.position = {12.0, 0.0, 0.0};
+    const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
+    (void)state.ApplyPoleType(pole_a, type_ids.front());
+    (void)state.ApplyPoleType(pole_b, type_ids.front());
+
+    wire::core::CoreState::AddConnectionByPoleOptions options{};
+    options.connection_context = wire::core::ConnectionContext::kCornerPass;
+    options.branch_index = 3;
+    const auto result = add_connection_by_category(state, pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage, options);
+    if (!result.ok || state.view().slot_selection_debug_records().empty()) {
+      return {-1, {}};
+    }
+    return {result.value.slot_a_id, state.view().slot_selection_debug_records().back()};
+  };
+
+  const auto first = run_once();
+  const auto second = run_once();
+  if (first.first < 0 || second.first < 0 || first.first != second.first) {
+    return false;
+  }
+  if (first.second.candidates.empty()) {
+    return false;
+  }
+  return has_selected_slot_in_candidates(first.second);
+}
+
+bool test_generate_simple_line_corner_context_integration() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::RoadSegment road{};
+  road.id = 904;
+  road.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}, {12.0, 12.0, 0.0}};
+  const auto result =
+      state.GenerateSimpleLine(road, 4.0, type_ids.front(), wire::core::ConnectionCategory::kLowVoltage);
+  if (!result.ok || result.value.span_ids.empty()) {
+    return false;
+  }
+
+  bool has_corner_context = false;
+  for (ObjectId span_id : result.value.span_ids) {
+    const auto* span = state.view().edit_state().spans.find(span_id);
+    if (span != nullptr && span->placement_context == wire::core::ConnectionContext::kCornerPass) {
+      has_corner_context = true;
+      break;
+    }
+  }
+  return has_corner_context && validate_now(state).ok();
+}
+
+bool test_generate_simple_line_from_points_exact_poles_and_orientation() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::RoadSegment road{};
+  road.id = 907;
+  road.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {10.0, 10.0, 0.0}};
+  const auto result =
+      state.GenerateSimpleLineFromPoints(road, type_ids.front(), wire::core::ConnectionCategory::kLowVoltage);
+  if (!result.ok) {
+    return false;
+  }
+  if (result.value.pole_ids.size() != road.polyline.size()) {
+    return false;
+  }
+  if (result.value.span_ids.size() != road.polyline.size() - 1) {
+    return false;
+  }
+
+  for (std::size_t i = 0; i < road.polyline.size(); ++i) {
+    const auto* pole = state.view().edit_state().poles.find(result.value.pole_ids[i]);
+    if (pole == nullptr) {
+      return false;
+    }
+    if (!almost_equal(pole->world_transform.position, road.polyline[i])) {
+      return false;
+    }
+  }
+
+  const auto* first = state.view().edit_state().poles.find(result.value.pole_ids[0]);
+  const auto* middle = state.view().edit_state().poles.find(result.value.pole_ids[1]);
+  const auto* last = state.view().edit_state().poles.find(result.value.pole_ids[2]);
+  if (first == nullptr || middle == nullptr || last == nullptr) {
+    return false;
+  }
+  if (!almost_equal(first->world_transform.rotation_euler_deg.z, 0.0, 1e-6)) {
+    return false;
+  }
+  if (!almost_equal(last->world_transform.rotation_euler_deg.z, 90.0, 1e-6)) {
+    return false;
+  }
+  return almost_equal(middle->world_transform.rotation_euler_deg.z, 45.0, 1e-6);
+}
+
+bool test_generate_simple_line_from_points_sharp_corner_perpendicular_orientation() {
+  CoreState state;
+  const auto pole_type_ids = sorted_pole_type_ids(state);
+  if (pole_type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::RoadSegment road{};
+  road.id = 931;
+  road.polyline = {
+      {0.0, 0.0, 0.0},
+      {10.0, 0.0, 0.0},
+      {5.0, 8.660254037844386, 0.0}, // interior ~= 60 deg at middle
+  };
+  const auto result = state.GenerateSimpleLineFromPoints(road, pole_type_ids.front(), ConnectionCategory::kLowVoltage);
+  if (!result.ok || result.value.pole_ids.size() != 3) {
+    return false;
+  }
+
+  const auto* middle = state.view().edit_state().poles.find(result.value.pole_ids[1]);
+  if (middle == nullptr) {
+    return false;
+  }
+  const wire::core::Vec3d u0 = normalize_xy_safe(road.polyline[0] - road.polyline[1]); // corner->prev
+  const wire::core::Vec3d u1 = normalize_xy_safe(road.polyline[2] - road.polyline[1]); // corner->next
+  const wire::core::Vec3d bisector = normalize_xy_safe({u0.x + u1.x, u0.y + u1.y, 0.0});
+  if (std::abs(bisector.x) < 1e-9 && std::abs(bisector.y) < 1e-9) {
+    return false;
+  }
+
+  const wire::core::Vec3d side_from_yaw = local_side_axis_from_yaw(middle->world_transform.rotation_euler_deg.z);
+  const wire::core::Vec3d side_debug = normalize_xy_safe(middle->context.sharp_side_dir);
+  const wire::core::Vec3d bisector_debug = normalize_xy_safe(middle->context.sharp_bisector_dir);
+
+  const wire::core::Vec3d t_in = normalize_xy_safe(road.polyline[1] - road.polyline[0]);
+  const wire::core::Vec3d t_out = normalize_xy_safe(road.polyline[2] - road.polyline[1]);
+  const double turn = t_in.x * t_out.y - t_in.y * t_out.x;
+  wire::core::Vec3d inward{};
+  if (turn > 1e-9) {
+    inward = normalize_xy_safe({-t_in.y, t_in.x, 0.0});
+  } else if (turn < -1e-9) {
+    inward = normalize_xy_safe({t_in.y, -t_in.x, 0.0});
+  }
+
+  const bool ok_sharp = middle->context.sharp_orientation_applied;
+  const bool ok_perp = std::abs(dot_xy(side_from_yaw, bisector)) <= 1e-6;
+  const bool ok_side = std::abs(dot_xy(side_debug, side_from_yaw) - 1.0) <= 1e-6;
+  const bool ok_b = std::abs(dot_xy(bisector_debug, bisector) - 1.0) <= 1e-6;
+  const bool ok_inward =
+      (std::abs(inward.x) < 1e-9 && std::abs(inward.y) < 1e-9) ? true : (dot_xy(side_from_yaw, inward) <= 1e-9);
+  return ok_sharp && ok_perp && ok_side && ok_b && ok_inward;
+}
+
+bool test_sharp_corner_threshold_boundary_orientation() {
+  auto generate_middle = [](double corner_interior_deg) -> std::pair<double, bool> {
+    CoreState state;
+    const auto pole_type_ids = sorted_pole_type_ids(state);
+    if (pole_type_ids.empty()) {
+      return {std::numeric_limits<double>::quiet_NaN(), false};
+    }
+    constexpr double kPi = 3.14159265358979323846;
+    const double interior_rad = corner_interior_deg * (kPi / 180.0);
+    const double out_heading_rad = kPi - interior_rad;
+    wire::core::RoadSegment road{};
+    road.id = static_cast<std::uint64_t>(950 + static_cast<int>(corner_interior_deg * 10.0));
+    // Unequal segment lengths so "bisector" and "chord(prev->next)" are different.
+    road.polyline = {
+        {-5.0, 0.0, 0.0},
+        {0.0, 0.0, 0.0},
+        {20.0 * std::cos(out_heading_rad), 20.0 * std::sin(out_heading_rad), 0.0},
+    };
+    const auto result =
+        state.GenerateSimpleLineFromPoints(road, pole_type_ids.front(), wire::core::ConnectionCategory::kLowVoltage);
+    if (!result.ok || result.value.pole_ids.size() != 3) {
+      return {std::numeric_limits<double>::quiet_NaN(), false};
+    }
+    const auto* middle = state.view().edit_state().poles.find(result.value.pole_ids[1]);
+    if (middle == nullptr) {
+      return {std::numeric_limits<double>::quiet_NaN(), false};
+    }
+    return {middle->world_transform.rotation_euler_deg.z, middle->context.sharp_orientation_applied};
+  };
+
+  const auto [yaw74, sharp74] = generate_middle(74.0);
+  const auto [yaw75, sharp75] = generate_middle(75.0);
+  const auto [yaw76, sharp76] = generate_middle(76.0);
+  if (!std::isfinite(yaw74) || !std::isfinite(yaw75) || !std::isfinite(yaw76)) {
+    return false;
+  }
+
+  return sharp74 && sharp75 && !sharp76 &&
+         angle_diff_abs_deg(yaw74, yaw76) > 1e-3 &&
+         angle_diff_abs_deg(yaw75, yaw76) > 1e-3;
+}
+
+bool test_generate_from_guide_reused_vertex_reorients_to_corner_rule() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec req_obtuse{};
+  req_obtuse.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {15.0, 8.660254037844386, 0.0}}; // interior ~=120
+  req_obtuse.interval_m = 100.0;                                                                     // only vertices
+  req_obtuse.pole_type_id = type_ids.front();
+  add_backbone_bundle(req_obtuse, wire::core::BundleKind::kLowVoltage);
+  const auto first = state.GenerateFromBackboneSpec(req_obtuse);
+  if (!first.ok) {
+    return false;
+  }
+
+  ObjectId vertex_id = wire::core::kInvalidObjectId;
+  for (const auto& pole : state.view().edit_state().poles.items()) {
+    if (almost_equal(pole.world_transform.position, req_obtuse.path.polyline[1], 1e-6)) {
+      vertex_id = pole.id;
+      break;
+    }
+  }
+  if (vertex_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec req_acute = req_obtuse;
+  req_acute.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {2.9289321881345245, 7.0710678118654755, 0.0}}; // ~45
+  const auto second = state.GenerateFromBackboneSpec(req_acute);
+  if (!second.ok) {
+    return false;
+  }
+  const auto* vertex = state.view().edit_state().poles.find(vertex_id);
+  if (vertex == nullptr) {
+    return false;
+  }
+
+  const wire::core::Vec3d u0 = normalize_xy_safe(req_acute.path.polyline[0] - req_acute.path.polyline[1]); // corner->prev
+  const wire::core::Vec3d u1 = normalize_xy_safe(req_acute.path.polyline[2] - req_acute.path.polyline[1]); // corner->next
+  const wire::core::Vec3d bisector = normalize_xy_safe({u0.x + u1.x, u0.y + u1.y, 0.0});
+  const wire::core::Vec3d side_from_yaw = local_side_axis_from_yaw(vertex->world_transform.rotation_euler_deg.z);
+  return vertex->context.sharp_orientation_applied && std::abs(dot_xy(side_from_yaw, bisector)) <= 1e-6;
+}
+
+bool test_sharp_corner_orientation_consistent_across_entry_paths() {
+  const std::vector<wire::core::Vec3d> polyline = {
+      {0.0, 0.0, 0.0},
+      {10.0, 0.0, 0.0},
+      {5.0, 8.660254037844386, 0.0},
+  };
+
+  CoreState simple_state;
+  const auto simple_type_ids = sorted_pole_type_ids(simple_state);
+  if (simple_type_ids.empty()) {
+    return false;
+  }
+  wire::core::RoadSegment road{};
+  road.id = 960;
+  road.polyline = polyline;
+  const auto simple = simple_state.GenerateSimpleLineFromPoints(road, simple_type_ids.front(),
+                                                                wire::core::ConnectionCategory::kLowVoltage);
+  if (!simple.ok) {
+    return false;
+  }
+  const ObjectId simple_middle_id = find_pole_id_by_position(simple_state, polyline[1]);
+  if (simple_middle_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  const auto* simple_middle = simple_state.view().edit_state().poles.find(simple_middle_id);
+  if (simple_middle == nullptr) {
+    return false;
+  }
+
+  CoreState backbone_state;
+  const auto backbone_type_ids = sorted_pole_type_ids(backbone_state);
+  if (backbone_type_ids.empty()) {
+    return false;
+  }
+  wire::core::BackboneSpec req{};
+  req.path.polyline = polyline;
+  req.interval_m = 1000.0;
+  req.pole_type_id = backbone_type_ids.front();
+  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
+  const auto backbone = backbone_state.GenerateFromBackboneSpec(req);
+  if (!backbone.ok) {
+    return false;
+  }
+  const ObjectId backbone_middle_id = find_pole_id_by_position(backbone_state, polyline[1]);
+  if (backbone_middle_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  const auto* backbone_middle = backbone_state.view().edit_state().poles.find(backbone_middle_id);
+  if (backbone_middle == nullptr) {
+    return false;
+  }
+
+  const wire::core::Vec3d simple_side = normalize_xy_safe(simple_middle->context.sharp_side_dir);
+  const wire::core::Vec3d backbone_side = normalize_xy_safe(backbone_middle->context.sharp_side_dir);
+  const wire::core::Vec3d simple_bisector = normalize_xy_safe(simple_middle->context.sharp_bisector_dir);
+  const wire::core::Vec3d backbone_bisector = normalize_xy_safe(backbone_middle->context.sharp_bisector_dir);
+
+  return simple_middle->context.sharp_orientation_applied &&
+         backbone_middle->context.sharp_orientation_applied &&
+         angle_diff_abs_deg(simple_middle->world_transform.rotation_euler_deg.z,
+                            backbone_middle->world_transform.rotation_euler_deg.z) <= 1e-6 &&
+         std::abs(dot_xy(simple_side, backbone_side) - 1.0) <= 1e-6 &&
+         std::abs(dot_xy(simple_bisector, backbone_bisector) - 1.0) <= 1e-6;
+}
+
+bool test_generate_from_guide_reused_pole_reprojects_owned_ports() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec req_obtuse{};
+  req_obtuse.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {15.0, 8.660254037844386, 0.0}}; // interior ~=120
+  req_obtuse.interval_m = 100.0; // vertices only
+  req_obtuse.pole_type_id = type_ids.front();
+  add_backbone_bundle(req_obtuse, wire::core::BundleKind::kLowVoltage);
+  const auto first = state.GenerateFromBackboneSpec(req_obtuse);
+  if (!first.ok) {
+    return false;
+  }
+
+  ObjectId vertex_id = wire::core::kInvalidObjectId;
+  for (const auto& pole : state.view().edit_state().poles.items()) {
+    if (almost_equal(pole.world_transform.position, req_obtuse.path.polyline[1], 1e-6)) {
+      vertex_id = pole.id;
+      break;
+    }
+  }
+  if (vertex_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  const wire::core::Pole* before_pole = state.view().edit_state().poles.find(vertex_id);
+  if (before_pole == nullptr) {
+    return false;
+  }
+  double yaw_before = before_pole->world_transform.rotation_euler_deg.z;
+
+  ObjectId slot200_id = wire::core::kInvalidObjectId;
+  ObjectId slot201_id = wire::core::kInvalidObjectId;
+  wire::core::Vec3d slot200_before{};
+  wire::core::Vec3d slot201_before{};
+  for (const auto& port : state.view().edit_state().ports.items()) {
+    if (port.owner_pole_id != vertex_id) {
+      continue;
+    }
+    if (port.source_slot_id == 200) {
+      slot200_id = port.id;
+      slot200_before = port.world_position;
+    } else if (port.source_slot_id == 201) {
+      slot201_id = port.id;
+      slot201_before = port.world_position;
+    }
+  }
+  if (slot200_id == wire::core::kInvalidObjectId || slot201_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec req_acute = req_obtuse;
+  req_acute.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {2.9289321881345245, 7.0710678118654755, 0.0}}; // ~45
+  const auto second = state.GenerateFromBackboneSpec(req_acute);
+  if (!second.ok) {
+    return false;
+  }
+
+  const wire::core::Pole* after_pole = state.view().edit_state().poles.find(vertex_id);
+  const wire::core::Port* slot200_after = state.view().edit_state().ports.find(slot200_id);
+  const wire::core::Port* slot201_after = state.view().edit_state().ports.find(slot201_id);
+  if (after_pole == nullptr || slot200_after == nullptr || slot201_after == nullptr) {
+    return false;
+  }
+
+  const double yaw_after = after_pole->world_transform.rotation_euler_deg.z;
+  const bool yaw_changed = angle_diff_abs_deg(yaw_before, yaw_after) > 1e-3;
+  const bool moved200 = !almost_equal(slot200_after->world_position, slot200_before, 1e-6);
+  const bool moved201 = !almost_equal(slot201_after->world_position, slot201_before, 1e-6);
+  return yaw_changed && (moved200 || moved201);
+}
+
+bool test_generate_from_guide_with_duplicate_points_is_robust() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  wire::core::BackboneSpec req{};
+  req.path.polyline = {
+      {0.0, 0.0, 0.0},
+      {0.0, 0.0, 0.0}, // duplicate
+      {20.0, 0.0, 0.0},
+      {20.0, 0.0, 0.0}, // duplicate
+      {40.0, 0.0, 0.0},
+  };
+  req.interval_m = 10.0;
+  req.pole_type_id = type_ids.front();
+  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
+  const auto result = state.GenerateFromBackboneSpec(req);
+  if (!result.ok || result.value.generated_pole_ids.size() < 2) {
+    return false;
+  }
+  for (ObjectId pole_id : result.value.generated_pole_ids) {
+    const auto* pole = state.view().edit_state().poles.find(pole_id);
+    if (pole == nullptr) {
+      return false;
+    }
+    const auto& p = pole->world_transform.position;
+    if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z)) {
+      return false;
+    }
+    if (!almost_equal(p.z, 0.0, 1e-9)) {
+      return false;
+    }
+  }
+  return validate_now(state).ok();
+}
+
+bool test_generate_from_guide_reverse_mode_position_symmetry() {
+  auto run_mode = [](wire::core::PathDirectionMode mode) {
+    CoreState state;
+    struct ModeResult {
+      bool ok = false;
+      std::vector<wire::core::Vec3d> poles{};
+      std::vector<wire::core::Vec3d> guide{};
+    };
+    ModeResult out{};
+    const auto type_ids = sorted_pole_type_ids(state);
+    if (type_ids.empty()) {
+      return out;
+    }
+    wire::core::BackboneSpec req{};
+    req.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}, {24.0, 6.0, 0.0}};
+    req.interval_m = 6.0;
+    req.pole_type_id = type_ids.front();
+  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
+    req.direction_mode = mode;
+    const auto result = state.GenerateFromBackboneSpec(req);
+    if (!result.ok) {
+      return out;
+    }
+    out.ok = true;
+    out.guide = req.path.polyline;
+    out.poles.reserve(result.value.generated_pole_ids.size());
+    for (ObjectId pole_id : result.value.generated_pole_ids) {
+      const auto* pole = state.view().edit_state().poles.find(pole_id);
+      if (pole == nullptr) {
+        out.ok = false;
+        return out;
+      }
+      const auto& p = pole->world_transform.position;
+      out.poles.push_back(p);
+    }
+    return out;
+  };
+
+  auto point_to_segment_distance = [](const wire::core::Vec3d& p, const wire::core::Vec3d& a,
+                                      const wire::core::Vec3d& b) -> double {
+    const wire::core::Vec3d ab = b - a;
+    const wire::core::Vec3d ap = p - a;
+    const double ab2 = ab.x * ab.x + ab.y * ab.y + ab.z * ab.z;
+    if (ab2 <= 1e-12) {
+      const wire::core::Vec3d d = p - a;
+      return std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+    }
+    const double t = std::clamp((ap.x * ab.x + ap.y * ab.y + ap.z * ab.z) / ab2, 0.0, 1.0);
+    const wire::core::Vec3d q{a.x + ab.x * t, a.y + ab.y * t, a.z + ab.z * t};
+    const wire::core::Vec3d d = p - q;
+    return std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+  };
+
+  auto is_on_polyline = [&](const wire::core::Vec3d& p, const std::vector<wire::core::Vec3d>& guide) -> bool {
+    double best = std::numeric_limits<double>::infinity();
+    for (std::size_t i = 0; i + 1 < guide.size(); ++i) {
+      best = std::min(best, point_to_segment_distance(p, guide[i], guide[i + 1]));
+    }
+    return best <= 1e-6;
+  };
+
+  const auto forward = run_mode(wire::core::PathDirectionMode::kForward);
+  const auto reverse = run_mode(wire::core::PathDirectionMode::kReverse);
+  if (!forward.ok || !reverse.ok) {
+    return false;
+  }
+  if (forward.poles.size() != reverse.poles.size() || forward.poles.size() < 2) {
+    return false;
+  }
+  for (const auto& p : forward.poles) {
+    if (!is_on_polyline(p, forward.guide)) {
+      return false;
+    }
+  }
+  for (const auto& p : reverse.poles) {
+    if (!is_on_polyline(p, reverse.guide)) {
+      return false;
+    }
+  }
+  const wire::core::Vec3d start = forward.guide.front();
+  const wire::core::Vec3d end = forward.guide.back();
+  bool has_start = false;
+  bool has_end = false;
+  for (const auto& p : forward.poles) {
+    has_start = has_start || almost_equal(p, start, 1e-6);
+    has_end = has_end || almost_equal(p, end, 1e-6);
+  }
+  return has_start && has_end;
+}
+
+bool test_generate_from_guide_respects_avoid_constraints() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  wire::core::BackboneSpec req{};
+  req.path.polyline = {{0.0, 0.0, 0.0}, {30.0, 0.0, 0.0}};
+  req.interval_m = 10.0;
+  req.pole_type_id = type_ids.front();
+  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
+  req.constraints.avoid_points = {{10.0, 0.0, 0.0}};
+  req.constraints.avoid_radius_m = 1.0;
+  const auto result = state.GenerateFromBackboneSpec(req);
+  if (!result.ok || result.value.generated_pole_ids.empty()) {
+    return false;
+  }
+  const wire::core::Vec3d avoid = req.constraints.avoid_points.front();
+  const double avoid_r2 = req.constraints.avoid_radius_m * req.constraints.avoid_radius_m;
+  for (ObjectId pole_id : result.value.generated_pole_ids) {
+    const auto* pole = state.view().edit_state().poles.find(pole_id);
+    if (pole == nullptr) {
+      return false;
+    }
+    const auto& p = pole->world_transform.position;
+    const wire::core::Vec3d d{p.x - avoid.x, p.y - avoid.y, p.z - avoid.z};
+    const double d2 = d.x * d.x + d.y * d.y + d.z * d.z;
+    if (d2 <= avoid_r2 + 1e-9) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool test_preferred_side_uses_geometry() {
+  auto pick_side = [](double peer_y) -> wire::core::SlotSide {
+    CoreState state;
+    const auto type_ids = sorted_pole_type_ids(state);
+    if (type_ids.empty()) {
+      return wire::core::SlotSide::kCenter;
+    }
+    const ObjectId pole_a = state.AddPole({}, 10.0, "A").value;
+    wire::core::Transformd b{};
+    b.position = {10.0, peer_y, 0.0};
+    const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
+    (void)state.ApplyPoleType(pole_a, type_ids.front());
+    (void)state.ApplyPoleType(pole_b, type_ids.front());
+    state.clear_slot_selection_debug_records();
+
+    wire::core::CoreState::AddConnectionByPoleOptions options{};
+    options.connection_context = wire::core::ConnectionContext::kBranchAdd;
+    options.branch_index = 7; // deliberately fixed; geometry should dominate.
+    const auto add = add_connection_by_category(state, pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage, options);
+    if (!add.ok) {
+      return wire::core::SlotSide::kCenter;
+    }
+    for (const auto& debug : state.view().slot_selection_debug_records()) {
+      if (debug.pole_id != pole_a || debug.selected_slot_id < 0) {
+        continue;
+      }
+      const auto detail = state.GetPoleDetail(pole_a);
+      if (detail.pole_type == nullptr) {
+        return wire::core::SlotSide::kCenter;
+      }
+      for (const auto& slot : detail.pole_type->port_slots) {
+        if (slot.slot_id == debug.selected_slot_id) {
+          return slot.side;
+        }
+      }
+    }
+    return wire::core::SlotSide::kCenter;
+  };
+
+  const wire::core::SlotSide right = pick_side(+8.0);
+  const wire::core::SlotSide left = pick_side(-8.0);
+  return right == wire::core::SlotSide::kRight && left == wire::core::SlotSide::kLeft;
+}
+
+void register_geometry_tests(test_registry::TestRegistry& tests) {
+  test_registry::AddTest(tests, "C13_Phase4_Curve_LineDeterministic", "Line mode curve cache is deterministic", "Exact", false, test_curve_cache_line_mode_is_deterministic);
+  test_registry::AddTest(tests, "C14_Phase4_Curve_SagBasic", "Sag mode changes midpoint and keeps endpoints", "Invariant", false, test_sag_mode_changes_midpoint_and_keeps_endpoints);
+  test_registry::AddTest(tests, "C15_Phase4_DirtyVersion_LocalGeometryBounds", "Geometry dirty propagates to bounds/render locally", "Exact", false, test_geometry_bounds_version_follow_and_locality);
+  test_registry::AddTest(tests, "C16_Phase4_Bounds_Generated", "Bounds cache is generated and valid", "Invariant", false, test_bounds_cache_generated_and_valid);
+  test_registry::AddTest(tests, "C17_Phase4_Bounds_FollowGeometry", "Bounds follows geometry setting change", "Invariant", false, test_bounds_follow_geometry_change);
+  test_registry::AddTest(tests, "C19_Phase45_GeneratePolesAlongRoad_Basic", "Road interval generates pole line with pole type", "Invariant", false, test_generate_poles_along_road_basic);
+  test_registry::AddTest(tests, "C30_Phase47_PoleContext_Classification", "Pole context classification marks terminal/straight/corner", "Invariant", false, test_pole_context_classification_basic);
+  test_registry::AddTest(tests, "C31_Phase47_AngleCorrection_Bounds", "Angle correction side scale stays finite and bounded", "Invariant", false, test_angle_correction_bounds_and_finite);
+  test_registry::AddTest(tests, "C35_Phase47_CornerTurnSign_OuterBias", "Corner turn sign expands outer side more than inner side", "Invariant", false, test_corner_turn_sign_biases_outer_side);
+  test_registry::AddTest(tests, "C61_Phase48h_AcuteCorner_AutoWidenSpacing", "Acute corners auto-widen lane spacing without category-specific branching", "Invariant", false, test_acute_corner_auto_widens_lane_spacing);
+  test_registry::AddTest(tests, "C32_Phase47_SlotSelection_ContextBias", "Branch context biases slot choice away from trunk-only", "Invariant", false, test_slot_selection_context_bias);
+  test_registry::AddTest(tests, "C33_Phase47_SlotSelection_DeterministicDebug", "Slot tie-break is deterministic and debug record is coherent", "Exact", false, test_slot_selection_deterministic_and_debug_integrity);
+  test_registry::AddTest(tests, "C34_Phase47_GenerateSimpleLine_CornerContext", "Corner path generation uses corner context on spans", "Invariant", false, test_generate_simple_line_corner_context_integration);
+  test_registry::AddTest(tests, "C36_Phase47_DrawPath_ClickPointsExact", "DrawPath generation uses clicked points directly and sets pole yaw", "Exact", false, test_generate_simple_line_from_points_exact_poles_and_orientation);
+  test_registry::AddTest(tests, "C43_Phase4x_SharpCorner_SideAxisPerpendicular", "Sharp-corner pole side axis is perpendicular to bisector and points away from inward side", "Invariant", false, test_generate_simple_line_from_points_sharp_corner_perpendicular_orientation);
+  test_registry::AddTest(tests, "C56_Phase48h_SharpCorner_ThresholdBoundary", "Sharp-corner orientation applies at <=75deg and disables above threshold", "Invariant", false, test_sharp_corner_threshold_boundary_orientation);
+  test_registry::AddTest(tests, "C60_Phase48h_Guide_ReusedVertexReorient", "Reused guide vertex pole is reoriented by sharp-corner rule when not manually overridden", "Invariant", false, test_generate_from_guide_reused_vertex_reorients_to_corner_rule);
+  test_registry::AddTest(tests, "C108_Phase56_SharpCorner_EntryConsistency", "Sharp-corner pole orientation stays identical between simple-line and backbone entry paths", "Invariant", false, test_sharp_corner_orientation_consistent_across_entry_paths);
+  test_registry::AddTest(tests, "C70_Phase48h_Guide_ReusedVertexPortReproject", "Reused guide vertex reprojections move template-owned ports when corner orientation changes", "Invariant", false, test_generate_from_guide_reused_pole_reprojects_owned_ports);
+  test_registry::AddTest(tests, "C57_Phase48h_Guide_DuplicatePointsRobust", "Guide generation with duplicate points stays finite and keeps path Z", "Invariant", false, test_generate_from_guide_with_duplicate_points_is_robust);
+  test_registry::AddTest(tests, "C58_Phase48h_Guide_ReverseSymmetry", "Guide reverse mode preserves generated pole position set", "Invariant", false, test_generate_from_guide_reverse_mode_position_symmetry);
+  test_registry::AddTest(tests, "C59_Phase48h_Guide_AvoidConstraint", "Guide generation avoids forbidden radius around avoid_points", "Invariant", false, test_generate_from_guide_respects_avoid_constraints);
+  test_registry::AddTest(tests, "C37_Phase48_PreferredSide_Geometry", "Preferred side is decided by peer geometry", "Invariant", false, test_preferred_side_uses_geometry);
+}
+
+WIRE_REGISTER_TEST_SUITE(register_geometry_tests);
+
+} // namespace

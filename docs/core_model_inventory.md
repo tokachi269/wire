@@ -116,7 +116,7 @@ Definition Layer
 - `CoreState` の debug/cache フィールドに session/derived 境界コメントを追加。
 - mutable 更新経路を封鎖（`edit_state/cache/id_generator` の mutable 公開を廃止、`ObjectStore` mutable 実体は `CoreState` 内に限定）。
 - viewer/tool 向けに read-only `CoreView` を導入。
-- validation 実装を `core_state.cpp` から `validation/validator.cpp` へ分離。
+- validation 実装を `state/state.cpp` から `validation/validator.cpp` へ分離。
 - 回帰テスト追加:
   - デバッグ記録クリアで entity 状態が変わらない
   - キャッシュ再計算で entity のID/件数が変わらない

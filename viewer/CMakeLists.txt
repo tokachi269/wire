@@ -62,6 +62,11 @@ target_link_libraries(
 add_executable(
   wire_viewer
   src/main.cpp
+  src/draw_path.cpp
+  src/panels.cpp
+  src/render_overlay.cpp
+  src/scene_query.cpp
+  src/ui_common.cpp
 )
 
 target_link_libraries(
@@ -72,3 +77,4 @@ target_link_libraries(
   imgui_static
   rlimgui_static
 )
+

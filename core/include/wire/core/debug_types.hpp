@@ -9,14 +9,6 @@
 
 namespace wire::core {
 
-struct PathDirectionCostWeights {
-  int estimated_cross_penalty = 100;
-  int side_flip_penalty = 30;
-  int layer_jump_penalty = 20;
-  int corner_compression_penalty = 25;
-  int branch_conflict_penalty = 15;
-};
-
 struct PathDirectionCostBreakdown {
   int estimated_cross_penalty = 0;
   int side_flip_penalty = 0;

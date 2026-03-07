@@ -72,8 +72,7 @@ struct BundleTemplate {
 enum class BundleNodeMode : std::uint8_t {
   kNotPresent = 0,
   kPassThrough = 1,
-  kBranch = 2,
-  kTerminate = 3,
+  // Branch/Terminate are intentionally deferred.
 };
 
 struct SupportNodeBundleMode {
@@ -90,6 +89,27 @@ struct SupportNode {
   bool has_tangent_hint = false;
   Vec3d tangent_hint{};
   std::vector<SupportNodeBundleMode> bundle_modes{};
+};
+
+enum class PickHitKind : std::uint8_t {
+  kEmpty = 0,
+  kNode = 1,
+  kSegment = 2,
+  kGround = 3,
+  kBuilding = 4,
+};
+
+// Viewer-side raycast output passed into core commands.
+// core interprets this payload but does not run scene queries.
+struct PickResult {
+  PickHitKind hit_kind = PickHitKind::kEmpty;
+  Vec3d hit_pos_world{};
+  ObjectId hit_id = kInvalidObjectId;
+  bool has_segment_endpoints = false;
+  ObjectId segment_node_a_id = kInvalidObjectId;
+  ObjectId segment_node_b_id = kInvalidObjectId;
+  Vec3d segment_endpoint_a_world{};
+  Vec3d segment_endpoint_b_world{};
 };
 
 struct BackboneBundleSpec {
@@ -114,30 +134,6 @@ struct BackboneSpec {
   BackboneGenerationConstraints constraints{};
   BackbonePolePlacementOptions pole_placement{};
   PathDirectionMode direction_mode = PathDirectionMode::kAuto;
-};
-
-using GuidePath = BackboneInputSpec;
-using GenerationConstraints = BackboneGenerationConstraints;
-using GuidePolePlacementOptions = BackbonePolePlacementOptions;
-
-// Legacy grouped-generation input. New call sites should use BackboneSpec.
-struct ConductorGroupSpec {
-  ConnectionCategory category = ConnectionCategory::kHighVoltage;
-  ConductorGroupKind group_kind = ConductorGroupKind::kSingle;
-  int conductor_count = 1;
-  double lane_spacing_m = 0.3;
-  bool maintain_lane_order = true;
-  bool allow_lane_mirror = true;
-};
-
-struct ConductorLaneId {
-  int lane_index = 0;
-};
-
-struct ConductorGroupState {
-  ObjectId bundle_id = kInvalidObjectId;
-  ConductorGroupSpec spec{};
-  std::vector<int> canonical_lane_order{};
 };
 
 struct JunctionIncident {

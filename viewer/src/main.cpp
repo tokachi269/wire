@@ -86,6 +86,14 @@ struct ViewerUiState {
   double branch_target_x = 0.0;
   double branch_target_y = 0.0;
   double branch_target_z = 3.0;
+  bool branch_pick_enabled = true;
+  double branch_snap_radius_world = 0.75;
+  wire::core::PickResult branch_hover_pick{};
+  bool branch_hover_has_resolution = false;
+  wire::core::CoreState::ResolveBranchPickResult branch_hover_resolution{};
+  std::string branch_hover_status{};
+  wire::core::PickResult branch_last_pick{};
+  std::string branch_last_pick_summary{};
   ObjectId drop_source_pole_id = wire::core::kInvalidObjectId;
   double drop_target_x = 0.0;
   double drop_target_y = 4.0;
@@ -134,6 +142,13 @@ struct ViewerUiState {
   int last_generated_spans = 0;
   std::uint64_t last_generation_session = 0;
   std::vector<wire::core::Vec3d> draw_path_points{};
+  std::vector<wire::core::SupportKind> draw_path_point_support_kinds{};
+  bool draw_pick_enabled = true;
+  double draw_snap_radius_world = 0.75;
+  wire::core::PickResult draw_hover_pick{};
+  bool draw_hover_has_resolution = false;
+  wire::core::CoreState::ResolveBranchPickResult draw_hover_resolution{};
+  std::string draw_hover_status{};
   bool draw_hover_valid = false;
   wire::core::Vec3d draw_hover_point{};
   double draw_plane_z = 0.0;
@@ -418,23 +433,24 @@ const char* BundleNodeModeLabel(wire::core::BundleNodeMode mode) {
     return "NotPresent";
   case wire::core::BundleNodeMode::kPassThrough:
     return "PassThrough";
-  case wire::core::BundleNodeMode::kBranch:
-    return "Branch";
-  case wire::core::BundleNodeMode::kTerminate:
-    return "Terminate";
   default:
     return "Unknown";
   }
 }
 
-const char* LaneFlipReasonLabel(wire::core::LaneFlipReason reason) {
-  switch (reason) {
-  case wire::core::LaneFlipReason::kNone:
-    return "None";
-  case wire::core::LaneFlipReason::kAcuteTurn:
-    return "AcuteTurn";
+const char* PickHitKindLabel(wire::core::PickHitKind kind) {
+  switch (kind) {
+  case wire::core::PickHitKind::kNode:
+    return "Node";
+  case wire::core::PickHitKind::kSegment:
+    return "Segment";
+  case wire::core::PickHitKind::kGround:
+    return "Ground";
+  case wire::core::PickHitKind::kBuilding:
+    return "Building";
+  case wire::core::PickHitKind::kEmpty:
   default:
-    return "Unknown";
+    return "Empty";
   }
 }
 
@@ -692,178 +708,6 @@ double PolylineLength(const std::vector<wire::core::Vec3d>& points) {
   return length;
 }
 
-double Orient2dXYViewer(const wire::core::Vec3d& a, const wire::core::Vec3d& b, const wire::core::Vec3d& c) {
-  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-}
-
-bool XyBBoxOverlapViewer(const wire::core::Vec3d& a, const wire::core::Vec3d& b, const wire::core::Vec3d& c,
-                         const wire::core::Vec3d& d) {
-  const double min_ax = std::min(a.x, b.x);
-  const double max_ax = std::max(a.x, b.x);
-  const double min_ay = std::min(a.y, b.y);
-  const double max_ay = std::max(a.y, b.y);
-  const double min_cx = std::min(c.x, d.x);
-  const double max_cx = std::max(c.x, d.x);
-  const double min_cy = std::min(c.y, d.y);
-  const double max_cy = std::max(c.y, d.y);
-  return !(max_ax < min_cx || max_cx < min_ax || max_ay < min_cy || max_cy < min_ay);
-}
-
-bool SegmentsIntersectXYStrictViewer(const wire::core::Vec3d& a, const wire::core::Vec3d& b,
-                                     const wire::core::Vec3d& c, const wire::core::Vec3d& d) {
-  if (!XyBBoxOverlapViewer(a, b, c, d)) {
-    return false;
-  }
-  constexpr double kEps = 1e-9;
-  const double o1 = Orient2dXYViewer(a, b, c);
-  const double o2 = Orient2dXYViewer(a, b, d);
-  const double o3 = Orient2dXYViewer(c, d, a);
-  const double o4 = Orient2dXYViewer(c, d, b);
-  const bool ab_straddle_cd = ((o1 > kEps && o2 < -kEps) || (o1 < -kEps && o2 > kEps));
-  const bool cd_straddle_ab = ((o3 > kEps && o4 < -kEps) || (o3 < -kEps && o4 > kEps));
-  return ab_straddle_cd && cd_straddle_ab;
-}
-
-struct BundleCrossSummary {
-  ObjectId bundle_id = wire::core::kInvalidObjectId;
-  int lane_count = 0;
-  int segment_crossings = 0;
-  int adjacent_crossings = 0;
-  int global_crossings = 0;
-};
-
-std::vector<BundleCrossSummary> BuildBundleCrossSummaries(const CoreState& state) {
-  const auto& assignments = state.view().last_lane_assignments();
-  std::unordered_map<ObjectId, std::vector<const wire::core::SegmentLaneAssignment*>> by_bundle{};
-  for (const auto& assignment : assignments) {
-    by_bundle[assignment.bundle_id].push_back(&assignment);
-  }
-
-  std::vector<BundleCrossSummary> summaries{};
-  summaries.reserve(by_bundle.size());
-  for (auto& [bundle_id, bundle_assignments] : by_bundle) {
-    if (bundle_assignments.empty()) {
-      continue;
-    }
-    std::sort(bundle_assignments.begin(), bundle_assignments.end(),
-              [](const wire::core::SegmentLaneAssignment* a, const wire::core::SegmentLaneAssignment* b) {
-                if (a->segment_index != b->segment_index) {
-                  return a->segment_index < b->segment_index;
-                }
-                if (a->pole_a_id != b->pole_a_id) {
-                  return a->pole_a_id < b->pole_a_id;
-                }
-                return a->pole_b_id < b->pole_b_id;
-              });
-
-    std::size_t lane_count = std::numeric_limits<std::size_t>::max();
-    for (const auto* assignment : bundle_assignments) {
-      lane_count = std::min(lane_count, std::min(assignment->port_ids_a.size(), assignment->port_ids_b.size()));
-    }
-    if (lane_count == std::numeric_limits<std::size_t>::max()) {
-      lane_count = 0;
-    }
-
-    BundleCrossSummary summary{};
-    summary.bundle_id = bundle_id;
-    summary.lane_count = static_cast<int>(lane_count);
-    if (lane_count < 2) {
-      summaries.push_back(summary);
-      continue;
-    }
-
-    std::vector<std::vector<std::pair<wire::core::Vec3d, wire::core::Vec3d>>> lane_segments(lane_count);
-    for (const auto* assignment : bundle_assignments) {
-      const std::size_t count = std::min(lane_count, std::min(assignment->port_ids_a.size(), assignment->port_ids_b.size()));
-      for (std::size_t lane = 0; lane < count; ++lane) {
-        const auto* pa = state.view().edit_state().ports.find(assignment->port_ids_a[lane]);
-        const auto* pb = state.view().edit_state().ports.find(assignment->port_ids_b[lane]);
-        if (pa == nullptr || pb == nullptr) {
-          continue;
-        }
-        lane_segments[lane].push_back({pa->world_position, pb->world_position});
-      }
-    }
-
-    for (const auto* assignment : bundle_assignments) {
-      const std::size_t count = std::min(lane_count, std::min(assignment->port_ids_a.size(), assignment->port_ids_b.size()));
-      for (std::size_t i = 0; i < count; ++i) {
-        const auto* a0 = state.view().edit_state().ports.find(assignment->port_ids_a[i]);
-        const auto* a1 = state.view().edit_state().ports.find(assignment->port_ids_b[i]);
-        if (a0 == nullptr || a1 == nullptr) {
-          continue;
-        }
-        for (std::size_t j = i + 1; j < count; ++j) {
-          const auto* b0 = state.view().edit_state().ports.find(assignment->port_ids_a[j]);
-          const auto* b1 = state.view().edit_state().ports.find(assignment->port_ids_b[j]);
-          if (b0 == nullptr || b1 == nullptr) {
-            continue;
-          }
-          if (SegmentsIntersectXYStrictViewer(a0->world_position, a1->world_position, b0->world_position,
-                                              b1->world_position)) {
-            ++summary.segment_crossings;
-          }
-        }
-      }
-    }
-
-    for (std::size_t i = 0; i < lane_count; ++i) {
-      for (std::size_t j = i + 1; j < lane_count; ++j) {
-        for (const auto& seg_i : lane_segments[i]) {
-          for (const auto& seg_j : lane_segments[j]) {
-            if (SegmentsIntersectXYStrictViewer(seg_i.first, seg_i.second, seg_j.first, seg_j.second)) {
-              ++summary.global_crossings;
-            }
-          }
-        }
-      }
-    }
-
-    for (std::size_t idx = 0; idx + 1 < bundle_assignments.size(); ++idx) {
-      const auto* left = bundle_assignments[idx];
-      const auto* right = bundle_assignments[idx + 1];
-      if (left->pole_b_id != right->pole_a_id) {
-        continue;
-      }
-      const std::size_t count = std::min(
-          lane_count,
-          std::min(std::min(left->port_ids_a.size(), left->port_ids_b.size()),
-                   std::min(right->port_ids_a.size(), right->port_ids_b.size())));
-      for (std::size_t i = 0; i < count; ++i) {
-        const auto* left_ai = state.view().edit_state().ports.find(left->port_ids_a[i]);
-        const auto* left_bi = state.view().edit_state().ports.find(left->port_ids_b[i]);
-        if (left_ai == nullptr || left_bi == nullptr) {
-          continue;
-        }
-        for (std::size_t j = i + 1; j < count; ++j) {
-          const auto* right_aj = state.view().edit_state().ports.find(right->port_ids_a[j]);
-          const auto* right_bj = state.view().edit_state().ports.find(right->port_ids_b[j]);
-          const auto* right_ai = state.view().edit_state().ports.find(right->port_ids_a[i]);
-          const auto* right_bi = state.view().edit_state().ports.find(right->port_ids_b[i]);
-          const auto* left_aj = state.view().edit_state().ports.find(left->port_ids_a[j]);
-          const auto* left_bj = state.view().edit_state().ports.find(left->port_ids_b[j]);
-          if (right_aj != nullptr && right_bj != nullptr &&
-              SegmentsIntersectXYStrictViewer(left_ai->world_position, left_bi->world_position, right_aj->world_position,
-                                             right_bj->world_position)) {
-            ++summary.adjacent_crossings;
-          }
-          if (left_aj != nullptr && left_bj != nullptr && right_ai != nullptr && right_bi != nullptr &&
-              SegmentsIntersectXYStrictViewer(left_aj->world_position, left_bj->world_position, right_ai->world_position,
-                                             right_bi->world_position)) {
-            ++summary.adjacent_crossings;
-          }
-        }
-      }
-    }
-
-    summaries.push_back(summary);
-  }
-
-  std::sort(summaries.begin(), summaries.end(),
-            [](const BundleCrossSummary& a, const BundleCrossSummary& b) { return a.bundle_id < b.bundle_id; });
-  return summaries;
-}
-
 wire::core::Vec3d FromRaylib(const Vector3& raylib_xyz) {
   return wire::core::Vec3d{
       static_cast<double>(raylib_xyz.x),
@@ -895,7 +739,272 @@ bool TryPickGroundPoint(const Camera3D& camera, double ue_plane_z, wire::core::V
   return true;
 }
 
+constexpr double kBranchPickNodeHitRadiusWorld = 0.75;
+constexpr double kBranchPickSegmentHitRadiusWorld = 1.25;
+
+double DistancePointToSegmentSquared(const wire::core::Vec3d& p, const wire::core::Vec3d& a, const wire::core::Vec3d& b,
+                                     double* out_t, wire::core::Vec3d* out_closest) {
+  const wire::core::Vec3d ab = b - a;
+  const double ab2 = ab.x * ab.x + ab.y * ab.y + ab.z * ab.z;
+  double t = 0.0;
+  if (ab2 > 1e-12) {
+    const wire::core::Vec3d ap = p - a;
+    t = (ap.x * ab.x + ap.y * ab.y + ap.z * ab.z) / ab2;
+    t = std::clamp(t, 0.0, 1.0);
+  }
+  const wire::core::Vec3d closest{a.x + ab.x * t, a.y + ab.y * t, a.z + ab.z * t};
+  if (out_t != nullptr) {
+    *out_t = t;
+  }
+  if (out_closest != nullptr) {
+    *out_closest = closest;
+  }
+  const wire::core::Vec3d d = p - closest;
+  return d.x * d.x + d.y * d.y + d.z * d.z;
+}
+
+class ISceneQuery {
+public:
+  virtual ~ISceneQuery() = default;
+  virtual wire::core::PickResult Raycast(const CoreState& state, const Camera3D& camera, double draw_plane_z) const = 0;
+};
+
+class ViewerSceneQuery final : public ISceneQuery {
+public:
+  wire::core::PickResult Raycast(const CoreState& state, const Camera3D& camera, double draw_plane_z) const override {
+    wire::core::PickResult pick{};
+    wire::core::Vec3d ground{};
+    if (!TryPickGroundPoint(camera, draw_plane_z, &ground)) {
+      pick.hit_kind = wire::core::PickHitKind::kEmpty;
+      return pick;
+    }
+    pick.hit_kind = wire::core::PickHitKind::kGround;
+    pick.hit_pos_world = ground;
+
+    struct NodeCandidate {
+      ObjectId node_id = wire::core::kInvalidObjectId;
+      wire::core::SupportKind support_kind = wire::core::SupportKind::kPole;
+      wire::core::Vec3d position{};
+      double d2 = std::numeric_limits<double>::max();
+    };
+    NodeCandidate best_node{};
+
+    const auto& view = state.view();
+    for (const wire::core::Pole& pole : view.edit_state().poles.items()) {
+      const wire::core::Vec3d d = pole.world_transform.position - ground;
+      const double d2 = d.x * d.x + d.y * d.y + d.z * d.z;
+      if (d2 < best_node.d2) {
+        best_node.node_id = pole.id;
+        best_node.support_kind = wire::core::SupportKind::kPole;
+        best_node.position = pole.world_transform.position;
+        best_node.d2 = d2;
+      }
+    }
+    for (const wire::core::SupportNode& node : view.last_generation_backbone().nodes) {
+      if (node.node_id == wire::core::kInvalidObjectId || node.support_kind == wire::core::SupportKind::kPole) {
+        continue;
+      }
+      const wire::core::Vec3d d = node.position - ground;
+      const double d2 = d.x * d.x + d.y * d.y + d.z * d.z;
+      if (d2 < best_node.d2) {
+        best_node.node_id = node.node_id;
+        best_node.support_kind = node.support_kind;
+        best_node.position = node.position;
+        best_node.d2 = d2;
+      }
+    }
+
+    struct SegmentCandidate {
+      ObjectId span_id = wire::core::kInvalidObjectId;
+      double d2 = std::numeric_limits<double>::max();
+      wire::core::Vec3d closest{};
+      ObjectId node_a_id = wire::core::kInvalidObjectId;
+      ObjectId node_b_id = wire::core::kInvalidObjectId;
+      wire::core::Vec3d endpoint_a{};
+      wire::core::Vec3d endpoint_b{};
+    };
+    SegmentCandidate best_segment{};
+    for (const wire::core::Span& span : view.edit_state().spans.items()) {
+      const wire::core::Port* pa = view.edit_state().ports.find(span.port_a_id);
+      const wire::core::Port* pb = view.edit_state().ports.find(span.port_b_id);
+      if (pa == nullptr || pb == nullptr) {
+        continue;
+      }
+      wire::core::Vec3d closest{};
+      const double d2 = DistancePointToSegmentSquared(ground, pa->world_position, pb->world_position, nullptr, &closest);
+      if (d2 >= best_segment.d2) {
+        continue;
+      }
+      best_segment.span_id = span.id;
+      best_segment.d2 = d2;
+      best_segment.closest = closest;
+      best_segment.node_a_id = pa->owner_pole_id;
+      best_segment.node_b_id = pb->owner_pole_id;
+      best_segment.endpoint_a = pa->world_position;
+      best_segment.endpoint_b = pb->world_position;
+      if (const wire::core::Pole* pole_a = view.edit_state().poles.find(pa->owner_pole_id); pole_a != nullptr) {
+        best_segment.endpoint_a = pole_a->world_transform.position;
+      }
+      if (const wire::core::Pole* pole_b = view.edit_state().poles.find(pb->owner_pole_id); pole_b != nullptr) {
+        best_segment.endpoint_b = pole_b->world_transform.position;
+      }
+    }
+
+    const bool node_hit = best_node.node_id != wire::core::kInvalidObjectId &&
+                          best_node.d2 <= (kBranchPickNodeHitRadiusWorld * kBranchPickNodeHitRadiusWorld);
+    const bool segment_hit = best_segment.span_id != wire::core::kInvalidObjectId &&
+                             best_segment.d2 <= (kBranchPickSegmentHitRadiusWorld * kBranchPickSegmentHitRadiusWorld);
+    if (node_hit && (!segment_hit || best_node.d2 <= best_segment.d2)) {
+      pick.hit_kind = (best_node.support_kind == wire::core::SupportKind::kBuilding) ? wire::core::PickHitKind::kBuilding
+                                                                                       : wire::core::PickHitKind::kNode;
+      pick.hit_id = best_node.node_id;
+      pick.hit_pos_world = best_node.position;
+      return pick;
+    }
+    if (segment_hit) {
+      pick.hit_kind = wire::core::PickHitKind::kSegment;
+      pick.hit_id = best_segment.span_id;
+      pick.hit_pos_world = best_segment.closest;
+      pick.has_segment_endpoints = true;
+      pick.segment_node_a_id = best_segment.node_a_id;
+      pick.segment_node_b_id = best_segment.node_b_id;
+      pick.segment_endpoint_a_world = best_segment.endpoint_a;
+      pick.segment_endpoint_b_world = best_segment.endpoint_b;
+      return pick;
+    }
+    return pick;
+  }
+};
+
+wire::core::BundleKind ResolveBundleTemplateForBranchPick(const CoreState& state, const ViewerUiState& ui_state,
+                                                          const wire::core::PickResult& pick) {
+  if (pick.hit_kind == wire::core::PickHitKind::kSegment) {
+    if (const wire::core::Span* span = state.view().edit_state().spans.find(pick.hit_id); span != nullptr) {
+      if (const wire::core::Bundle* bundle = state.view().edit_state().bundles.find(span->bundle_id); bundle != nullptr) {
+        return bundle->kind;
+      }
+    }
+  }
+  const auto selected_templates = SelectedBundleTemplates(state, ui_state);
+  if (!selected_templates.empty()) {
+    return selected_templates.front();
+  }
+  return wire::core::BundleKind::kLowVoltage;
+}
+
+void EnsureDrawPathPointKinds(ViewerUiState& ui_state) {
+  if (ui_state.draw_path_point_support_kinds.size() < ui_state.draw_path_points.size()) {
+    ui_state.draw_path_point_support_kinds.resize(ui_state.draw_path_points.size(), wire::core::SupportKind::kPole);
+  } else if (ui_state.draw_path_point_support_kinds.size() > ui_state.draw_path_points.size()) {
+    ui_state.draw_path_point_support_kinds.resize(ui_state.draw_path_points.size());
+  }
+}
+
+void DrawPathPushPoint(ViewerUiState& ui_state, const wire::core::Vec3d& point, wire::core::SupportKind support_kind) {
+  ui_state.draw_path_points.push_back(point);
+  ui_state.draw_path_point_support_kinds.push_back(support_kind);
+}
+
+void DrawPathPopPoint(ViewerUiState& ui_state) {
+  if (ui_state.draw_path_points.empty()) {
+    return;
+  }
+  ui_state.draw_path_points.pop_back();
+  if (!ui_state.draw_path_point_support_kinds.empty()) {
+    ui_state.draw_path_point_support_kinds.pop_back();
+  }
+}
+
+void DrawPathClearPoints(ViewerUiState& ui_state) {
+  ui_state.draw_path_points.clear();
+  ui_state.draw_path_point_support_kinds.clear();
+}
+
+void DrawPathClearWithSessionReset(ViewerUiState& ui_state) {
+  DrawPathClearPoints(ui_state);
+  ui_state.last_generation_session = 0;
+}
+
+void UpdateBranchPickInput(CoreState& state, const Camera3D& camera, ViewerUiState& ui_state) {
+  ui_state.branch_hover_pick = {};
+  ui_state.branch_hover_has_resolution = false;
+  ui_state.branch_hover_status.clear();
+  if (ui_state.mode != EditMode::kBranch || !ui_state.branch_pick_enabled) {
+    return;
+  }
+  ImGuiIO& io = ImGui::GetIO();
+  if (io.WantCaptureMouse || ui_state.camera_drag_mode != CameraDragMode::kNone || ui_state.camera_walk_mode) {
+    return;
+  }
+
+  ViewerSceneQuery scene_query{};
+  const wire::core::PickResult pick = scene_query.Raycast(state, camera, ui_state.draw_plane_z);
+  ui_state.branch_hover_pick = pick;
+  if (pick.hit_kind == wire::core::PickHitKind::kEmpty) {
+    ui_state.branch_hover_status = "hover: Empty";
+    return;
+  }
+  ui_state.branch_hover_status =
+      std::string("hover: ") + PickHitKindLabel(pick.hit_kind) + " id=" + std::to_string(static_cast<unsigned long long>(pick.hit_id));
+
+  wire::core::CoreState::ResolveBranchPickOptions options{};
+  options.bundle_template_id = ResolveBundleTemplateForBranchPick(state, ui_state, pick);
+  options.snap_radius_world = ui_state.branch_snap_radius_world;
+  options.create_midair_node = false;
+  const auto resolved = state.ResolveBranchPick(pick, options);
+  if (!resolved.ok) {
+    ui_state.branch_hover_status += " -> blocked: " + resolved.error;
+    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+      ui_state.last_error = resolved.error;
+      PushLog(ui_state, "ResolveBranchPick failed: " + resolved.error);
+    }
+    return;
+  }
+  ui_state.branch_hover_has_resolution = true;
+  ui_state.branch_hover_resolution = resolved.value;
+  ui_state.branch_hover_status +=
+      (resolved.value.resolution == wire::core::CoreState::PickBranchResolutionKind::kNode) ? " -> Node" : " -> Midair";
+  if (!IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+    return;
+  }
+
+  ui_state.branch_last_pick = pick;
+  ui_state.branch_last_pick_summary = ui_state.branch_hover_status;
+  ui_state.last_error.clear();
+  wire::core::CoreState::ResolveBranchPickOptions click_options = options;
+  click_options.create_midair_node = true;
+  const auto applied = state.ResolveBranchPick(pick, click_options);
+  if (!applied.ok) {
+    ui_state.last_error = applied.error;
+    PushLog(ui_state, "ResolveBranchPick(click) failed: " + applied.error);
+    return;
+  }
+  ui_state.branch_target_x = applied.value.position.x;
+  ui_state.branch_target_y = applied.value.position.y;
+  ui_state.branch_target_z = applied.value.position.z;
+  if (applied.value.resolution == wire::core::CoreState::PickBranchResolutionKind::kNode) {
+    if (applied.value.resolved_node_id != wire::core::kInvalidObjectId &&
+        state.view().edit_state().poles.find(applied.value.resolved_node_id) != nullptr) {
+      ui_state.selected_type = SelectedType::kPole;
+      ui_state.selected_id = applied.value.resolved_node_id;
+    }
+    if (pick.hit_kind == wire::core::PickHitKind::kSegment) {
+      if (applied.value.resolved_node_id == pick.segment_node_a_id) {
+        ui_state.branch_t = 0.0;
+      } else if (applied.value.resolved_node_id == pick.segment_node_b_id) {
+        ui_state.branch_t = 1.0;
+      }
+      ui_state.branch_source_span_id = pick.hit_id;
+    }
+    PushLog(ui_state, applied.value.snapped_from_segment_endpoint ? "Branch pick snapped to segment endpoint node"
+                                                                  : "Branch pick resolved to node");
+  } else {
+    PushLog(ui_state, "Branch pick resolved to Midair support node");
+  }
+}
+
 void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool from_enter_key) {
+  EnsureDrawPathPointKinds(ui_state);
   if (ui_state.draw_path_points.size() < 2) {
     ui_state.last_error = "path needs at least 2 points";
     return;
@@ -925,6 +1034,16 @@ void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool
 
   wire::core::BackboneSpec request{};
   request.path.polyline = road.polyline;
+  for (std::size_t i = 0; i < ui_state.draw_path_points.size(); ++i) {
+    const wire::core::SupportKind support_kind = ui_state.draw_path_point_support_kinds[i];
+    if (support_kind == wire::core::SupportKind::kPole) {
+      continue;
+    }
+    wire::core::BackboneInputSpec::NodeSpec node_spec{};
+    node_spec.point_index = i;
+    node_spec.support_kind = support_kind;
+    request.path.node_specs.push_back(node_spec);
+  }
   if (ui_state.draw_clicked_points_only) {
     // Disable intermediate poles by using an interval longer than the whole path.
     request.interval_m = std::max(0.001, PolylineLength(road.polyline) + 1.0);
@@ -986,7 +1105,7 @@ void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool
   }
 
   if (!ui_state.draw_keep_path_after_generate) {
-    ui_state.draw_path_points.clear();
+    DrawPathClearPoints(ui_state);
   }
   PushLog(ui_state, std::string(use_session_regen ? "Regenerated session path templates=" : "Generated path templates=") +
                         BundleTemplateMultiPreview(state, ui_state) +
@@ -1029,11 +1148,9 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
   const auto selected_templates = SelectedBundleTemplates(state, ui_state);
   const auto& view = state.view();
   const auto& dir_debug = view.last_path_direction_debug();
-  const auto& lane_assignments = view.last_lane_assignments();
-  const auto cross_summaries = BuildBundleCrossSummaries(state);
   const auto& slot_debug_records = view.slot_selection_debug_records();
 
-  ofs << "capture.version=1\n";
+  ofs << "capture.version=2\n";
   ofs << "capture.timestamp_unix=" << static_cast<long long>(now) << "\n";
   ofs << "capture.mode=" << ModeLabel(ui_state.mode) << "\n";
   ofs << "capture.selected_type=" << SelectedTypeLabel(ui_state.selected_type) << "\n";
@@ -1044,9 +1161,14 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
   ofs << "capture.last_generated_spans=" << ui_state.last_generated_spans << "\n";
 
   ofs << "draw.path_count=" << ui_state.draw_path_points.size() << "\n";
+  ofs << "draw.path_support_kind_count=" << ui_state.draw_path_point_support_kinds.size() << "\n";
   for (std::size_t i = 0; i < ui_state.draw_path_points.size(); ++i) {
     const auto& p = ui_state.draw_path_points[i];
     ofs << "draw.path[" << i << "]=" << p.x << "," << p.y << "," << p.z << "\n";
+    const wire::core::SupportKind support_kind =
+        (i < ui_state.draw_path_point_support_kinds.size()) ? ui_state.draw_path_point_support_kinds[i]
+                                                            : wire::core::SupportKind::kPole;
+    ofs << "draw.path[" << i << "].support_kind=" << SupportKindLabel(support_kind) << "\n";
   }
   ofs << "draw.interval_m=" << ui_state.draw_interval_m << "\n";
   ofs << "draw.clicked_points_only=" << (ui_state.draw_clicked_points_only ? 1 : 0) << "\n";
@@ -1098,65 +1220,6 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
   ofs << "result.direction.cost.forward.corner=" << dir_debug.forward_cost.corner_compression_penalty << "\n";
   ofs << "result.direction.cost.forward.branch=" << dir_debug.forward_cost.branch_conflict_penalty << "\n";
 
-  ofs << "result.lane_assignment_count=" << lane_assignments.size() << "\n";
-  for (std::size_t i = 0; i < lane_assignments.size(); ++i) {
-    const auto& a = lane_assignments[i];
-    ofs << "lane[" << i << "].segment_index=" << static_cast<int>(a.segment_index) << "\n";
-    ofs << "lane[" << i << "].bundle_id=" << static_cast<unsigned long long>(a.bundle_id) << "\n";
-    ofs << "lane[" << i << "].pole_a_id=" << static_cast<unsigned long long>(a.pole_a_id) << "\n";
-    ofs << "lane[" << i << "].pole_b_id=" << static_cast<unsigned long long>(a.pole_b_id) << "\n";
-    ofs << "lane[" << i << "].mirrored=" << (a.mirrored ? 1 : 0) << "\n";
-    ofs << "lane[" << i << "].flipped_from_previous=" << (a.flipped_from_previous ? 1 : 0) << "\n";
-    ofs << "lane[" << i << "].flip_reason=" << LaneFlipReasonLabel(a.flip_reason) << "\n";
-    ofs << "lane[" << i << "].turn_angle_deg=" << a.turn_angle_deg << "\n";
-    ofs << "lane[" << i << "].count=" << a.port_ids_a.size() << "\n";
-    for (std::size_t lane = 0; lane < a.port_ids_a.size() && lane < a.port_ids_b.size(); ++lane) {
-      const ObjectId pa_id = a.port_ids_a[lane];
-      const ObjectId pb_id = a.port_ids_b[lane];
-      const auto* pa = view.edit_state().ports.find(pa_id);
-      const auto* pb = view.edit_state().ports.find(pb_id);
-      ofs << "lane[" << i << "].pair[" << lane << "].a.id=" << static_cast<unsigned long long>(pa_id) << "\n";
-      ofs << "lane[" << i << "].pair[" << lane << "].b.id=" << static_cast<unsigned long long>(pb_id) << "\n";
-      ofs << "lane[" << i << "].pair[" << lane << "].a.slot="
-          << ((lane < a.slot_ids_a.size()) ? a.slot_ids_a[lane] : -1) << "\n";
-      ofs << "lane[" << i << "].pair[" << lane << "].b.slot="
-          << ((lane < a.slot_ids_b.size()) ? a.slot_ids_b[lane] : -1) << "\n";
-      if (pa != nullptr) {
-        ofs << "lane[" << i << "].pair[" << lane << "].a.pos=" << pa->world_position.x << "," << pa->world_position.y
-            << "," << pa->world_position.z << "\n";
-      }
-      if (pb != nullptr) {
-        ofs << "lane[" << i << "].pair[" << lane << "].b.pos=" << pb->world_position.x << "," << pb->world_position.y
-            << "," << pb->world_position.z << "\n";
-      }
-    }
-  }
-  ofs << "result.cross_xy.bundle_count=" << cross_summaries.size() << "\n";
-  for (std::size_t i = 0; i < cross_summaries.size(); ++i) {
-    const auto& summary = cross_summaries[i];
-    ofs << "result.cross_xy.bundle[" << i << "].id=" << static_cast<unsigned long long>(summary.bundle_id) << "\n";
-    ofs << "result.cross_xy.bundle[" << i << "].lanes=" << summary.lane_count << "\n";
-    ofs << "result.cross_xy.bundle[" << i << "].segment=" << summary.segment_crossings << "\n";
-    ofs << "result.cross_xy.bundle[" << i << "].adjacent=" << summary.adjacent_crossings << "\n";
-    ofs << "result.cross_xy.bundle[" << i << "].global=" << summary.global_crossings << "\n";
-  }
-
-  const auto& backbone = view.last_generation_backbone();
-  ofs << "result.backbone.edge_orientation_count=" << backbone.edge_orientations.size() << "\n";
-  for (std::size_t i = 0; i < backbone.edge_orientations.size(); ++i) {
-    const auto& e = backbone.edge_orientations[i];
-    ofs << "backbone.edge_orientation[" << i << "].node_a_id=" << static_cast<unsigned long long>(e.node_a_id) << "\n";
-    ofs << "backbone.edge_orientation[" << i << "].node_b_id=" << static_cast<unsigned long long>(e.node_b_id) << "\n";
-    ofs << "backbone.edge_orientation[" << i << "].bundle_template_id=" << static_cast<int>(e.bundle_template_id)
-        << "\n";
-    ofs << "backbone.edge_orientation[" << i << "].orientation="
-        << ((e.orientation == wire::core::LaneOrientation::kReversed) ? "Reversed" : "Normal") << "\n";
-    ofs << "backbone.edge_orientation[" << i << "].flipped_from_previous=" << (e.flipped_from_previous ? 1 : 0)
-        << "\n";
-    ofs << "backbone.edge_orientation[" << i << "].flip_reason=" << LaneFlipReasonLabel(e.flip_reason) << "\n";
-    ofs << "backbone.edge_orientation[" << i << "].turn_angle_deg=" << e.turn_angle_deg << "\n";
-  }
-
   if (ui_state.draw_capture_include_slot_debug) {
     const int tail = std::max(0, ui_state.draw_capture_slot_debug_tail);
     const int count = static_cast<int>(slot_debug_records.size());
@@ -1174,6 +1237,68 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
     }
   } else {
     ofs << "result.slot_debug.included=0\n";
+  }
+
+  const auto& backbone = view.last_generation_backbone();
+  ofs << "result.backbone.node_count=" << backbone.nodes.size() << "\n";
+  for (std::size_t i = 0; i < backbone.nodes.size(); ++i) {
+    const auto& node = backbone.nodes[i];
+    ofs << "result.backbone.node[" << i << "].id=" << static_cast<unsigned long long>(node.node_id) << "\n";
+    ofs << "result.backbone.node[" << i << "].support_kind=" << SupportKindLabel(node.support_kind) << "\n";
+    ofs << "result.backbone.node[" << i << "].position=" << node.position.x << "," << node.position.y << ","
+        << node.position.z << "\n";
+    ofs << "result.backbone.node[" << i << "].pole_id=" << static_cast<unsigned long long>(node.pole_id) << "\n";
+    ofs << "result.backbone.node[" << i << "].path_point_index=" << node.path_point_index << "\n";
+    ofs << "result.backbone.node[" << i << "].has_tangent_hint=" << (node.has_tangent_hint ? 1 : 0) << "\n";
+    if (node.has_tangent_hint) {
+      ofs << "result.backbone.node[" << i << "].tangent_hint=" << node.tangent_hint.x << "," << node.tangent_hint.y
+          << "," << node.tangent_hint.z << "\n";
+    }
+    ofs << "result.backbone.node[" << i << "].bundle_mode_count=" << node.bundle_modes.size() << "\n";
+    for (std::size_t j = 0; j < node.bundle_modes.size(); ++j) {
+      const auto& bundle_mode = node.bundle_modes[j];
+      ofs << "result.backbone.node[" << i << "].bundle_mode[" << j
+          << "].template_id=" << static_cast<int>(bundle_mode.bundle_template_id) << "\n";
+      ofs << "result.backbone.node[" << i << "].bundle_mode[" << j
+          << "].mode=" << static_cast<int>(bundle_mode.mode) << "\n";
+    }
+    if (node.pole_id != wire::core::kInvalidObjectId) {
+      if (const auto* pole = view.edit_state().poles.find(node.pole_id); pole != nullptr) {
+        ofs << "result.backbone.node[" << i << "].pole_yaw_deg=" << pole->world_transform.rotation_euler_deg.z
+            << "\n";
+        ofs << "result.backbone.node[" << i
+            << "].sharp_orientation_applied=" << (pole->context.sharp_orientation_applied ? 1 : 0) << "\n";
+        ofs << "result.backbone.node[" << i << "].sharp_theta_deg=" << pole->context.sharp_theta_deg << "\n";
+        ofs << "result.backbone.node[" << i << "].sharp_bisector_dir=" << pole->context.sharp_bisector_dir.x << ","
+            << pole->context.sharp_bisector_dir.y << "," << pole->context.sharp_bisector_dir.z << "\n";
+        ofs << "result.backbone.node[" << i << "].sharp_side_dir=" << pole->context.sharp_side_dir.x << ","
+            << pole->context.sharp_side_dir.y << "," << pole->context.sharp_side_dir.z << "\n";
+      }
+    }
+  }
+  ofs << "result.backbone.edge_count=" << backbone.edges.size() << "\n";
+  for (std::size_t i = 0; i < backbone.edges.size(); ++i) {
+    const auto& edge = backbone.edges[i];
+    ofs << "result.backbone.edge[" << i << "].node_a_id=" << static_cast<unsigned long long>(edge.node_a) << "\n";
+    ofs << "result.backbone.edge[" << i << "].node_b_id=" << static_cast<unsigned long long>(edge.node_b) << "\n";
+  }
+  ofs << "result.backbone.edge_orientation_count=" << backbone.edge_orientations.size() << "\n";
+  for (std::size_t i = 0; i < backbone.edge_orientations.size(); ++i) {
+    const auto& edge_orientation = backbone.edge_orientations[i];
+    ofs << "result.backbone.edge_orientation[" << i
+        << "].node_a_id=" << static_cast<unsigned long long>(edge_orientation.node_a_id) << "\n";
+    ofs << "result.backbone.edge_orientation[" << i
+        << "].node_b_id=" << static_cast<unsigned long long>(edge_orientation.node_b_id) << "\n";
+    ofs << "result.backbone.edge_orientation[" << i
+        << "].bundle_template_id=" << static_cast<int>(edge_orientation.bundle_template_id) << "\n";
+    ofs << "result.backbone.edge_orientation[" << i
+        << "].orientation=" << static_cast<int>(edge_orientation.orientation) << "\n";
+    ofs << "result.backbone.edge_orientation[" << i
+        << "].flipped_from_previous=" << (edge_orientation.flipped_from_previous ? 1 : 0) << "\n";
+    ofs << "result.backbone.edge_orientation[" << i
+        << "].flip_reason=" << static_cast<int>(edge_orientation.flip_reason) << "\n";
+    ofs << "result.backbone.edge_orientation[" << i << "].turn_angle_deg=" << edge_orientation.turn_angle_deg
+        << "\n";
   }
 
   ofs << "state.poles=" << view.edit_state().poles.size() << "\n";
@@ -1196,34 +1321,91 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
 }
 
 void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState& ui_state) {
+  ui_state.draw_hover_pick = {};
+  ui_state.draw_hover_has_resolution = false;
+  ui_state.draw_hover_status.clear();
   if (ui_state.mode != EditMode::kDrawPath) {
     ui_state.draw_hover_valid = false;
     return;
   }
+  EnsureDrawPathPointKinds(ui_state);
 
   ImGuiIO& io = ImGui::GetIO();
   wire::core::Vec3d hover{};
-  ui_state.draw_hover_valid = TryPickGroundPoint(camera, ui_state.draw_plane_z, &hover);
-  if (ui_state.draw_hover_valid) {
+  const bool has_ground_hit = TryPickGroundPoint(camera, ui_state.draw_plane_z, &hover);
+  ui_state.draw_hover_valid = has_ground_hit;
+  if (has_ground_hit) {
     ui_state.draw_hover_point = hover;
   }
+  const bool accept_mouse_input =
+      !io.WantCaptureMouse && ui_state.camera_drag_mode == CameraDragMode::kNone && !ui_state.camera_walk_mode;
 
-  if (!io.WantCaptureMouse && ui_state.camera_drag_mode == CameraDragMode::kNone && !ui_state.camera_walk_mode) {
-    if (ui_state.draw_hover_valid && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-      ui_state.draw_path_points.push_back(ui_state.draw_hover_point);
+  if (ui_state.draw_pick_enabled && accept_mouse_input) {
+    ViewerSceneQuery scene_query{};
+    const wire::core::PickResult pick = scene_query.Raycast(state, camera, ui_state.draw_plane_z);
+    ui_state.draw_hover_pick = pick;
+    bool blocked_pick_target = false;
+    if (pick.hit_kind == wire::core::PickHitKind::kEmpty) {
+      ui_state.draw_hover_status = "hover: Empty";
+    } else {
+      ui_state.draw_hover_status = std::string("hover: ") + PickHitKindLabel(pick.hit_kind) + " id=" +
+                                   std::to_string(static_cast<unsigned long long>(pick.hit_id));
+      if (pick.hit_kind == wire::core::PickHitKind::kNode || pick.hit_kind == wire::core::PickHitKind::kSegment ||
+          pick.hit_kind == wire::core::PickHitKind::kBuilding) {
+        wire::core::CoreState::ResolveBranchPickOptions options{};
+        options.bundle_template_id = ResolveBundleTemplateForBranchPick(state, ui_state, pick);
+        options.snap_radius_world = ui_state.draw_snap_radius_world;
+        options.create_midair_node = false;
+        const auto resolved = state.ResolveBranchPick(pick, options);
+        if (resolved.ok) {
+          ui_state.draw_hover_has_resolution = true;
+          ui_state.draw_hover_resolution = resolved.value;
+          ui_state.draw_hover_point = resolved.value.position;
+          ui_state.draw_hover_valid = true;
+          ui_state.draw_hover_status += (resolved.value.resolution == wire::core::CoreState::PickBranchResolutionKind::kNode)
+                                            ? " -> Node"
+                                            : " -> Midair";
+        } else {
+          ui_state.draw_hover_status += " -> blocked: " + resolved.error;
+          blocked_pick_target = true;
+        }
+      }
     }
-    if (IsMouseButtonPressed(MOUSE_RIGHT_BUTTON) && !ui_state.draw_path_points.empty()) {
-      ui_state.draw_path_points.pop_back();
+    if (blocked_pick_target) {
+      ui_state.draw_hover_valid = false;
+    }
+  }
+
+  if (accept_mouse_input) {
+    if (ui_state.draw_hover_valid && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+      if (ui_state.draw_hover_has_resolution) {
+        wire::core::CoreState::ResolveBranchPickOptions click_options{};
+        click_options.bundle_template_id = ResolveBundleTemplateForBranchPick(state, ui_state, ui_state.draw_hover_pick);
+        click_options.snap_radius_world = ui_state.draw_snap_radius_world;
+        click_options.create_midair_node = true;
+        const auto applied = state.ResolveBranchPick(ui_state.draw_hover_pick, click_options);
+        if (!applied.ok) {
+          ui_state.last_error = applied.error;
+          PushLog(ui_state, "DrawPath ResolveBranchPick(click) failed: " + applied.error);
+        } else {
+          ui_state.last_error.clear();
+          DrawPathPushPoint(ui_state, applied.value.position, applied.value.support_kind);
+        }
+      } else {
+        DrawPathPushPoint(ui_state, ui_state.draw_hover_point, wire::core::SupportKind::kPole);
+      }
+    }
+    if (IsMouseButtonPressed(MOUSE_RIGHT_BUTTON)) {
+      DrawPathPopPoint(ui_state);
     }
   }
 
   if (!io.WantCaptureKeyboard && !ui_state.camera_walk_mode && !ui_state.camera_consumed_escape) {
-    if (IsKeyPressed(KEY_BACKSPACE) && !ui_state.draw_path_points.empty()) {
-      ui_state.draw_path_points.pop_back();
+    if (IsKeyPressed(KEY_BACKSPACE)) {
+      DrawPathPopPoint(ui_state);
     }
     if (IsKeyPressed(KEY_ESCAPE)) {
-      ui_state.draw_path_points.clear();
-      ui_state.last_generation_session = 0;
+      DrawPathClearWithSessionReset(ui_state);
     }
     if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER)) {
       ExecuteGenerateFromDrawPath(state, ui_state, true);
@@ -1240,7 +1422,16 @@ void DrawPathPreview(const ViewerUiState& ui_state) {
   }
 
   for (std::size_t i = 0; i < ui_state.draw_path_points.size(); ++i) {
-    DrawSphere(ToRaylib(ui_state.draw_path_points[i]), 0.12f, Color{255, 200, 0, 255});
+    const wire::core::SupportKind support_kind =
+        (i < ui_state.draw_path_point_support_kinds.size()) ? ui_state.draw_path_point_support_kinds[i]
+                                                            : wire::core::SupportKind::kPole;
+    Color point_color = Color{255, 200, 0, 255};
+    if (support_kind == wire::core::SupportKind::kMidair) {
+      point_color = Color{80, 220, 255, 255};
+    } else if (support_kind == wire::core::SupportKind::kBuilding) {
+      point_color = Color{140, 255, 120, 255};
+    }
+    DrawSphere(ToRaylib(ui_state.draw_path_points[i]), 0.12f, point_color);
     if (i + 1 < ui_state.draw_path_points.size()) {
       DrawLine3D(ToRaylib(ui_state.draw_path_points[i]), ToRaylib(ui_state.draw_path_points[i + 1]),
                  Color{255, 220, 80, 255});
@@ -1567,6 +1758,48 @@ void DrawAxes() {
   DrawLine3D(ToRaylib({0.0, 0.0, 0.0}), ToRaylib({0.0, 0.0, kAxisLength}), BLUE);
 }
 
+void DrawPickHighlight(const CoreState& state, const wire::core::PickResult& pick, bool has_resolution,
+                       const wire::core::CoreState::ResolveBranchPickResult& resolution) {
+  if (pick.hit_kind == wire::core::PickHitKind::kEmpty) {
+    return;
+  }
+  const auto& edit = state.view().edit_state();
+  if (pick.hit_kind == wire::core::PickHitKind::kNode || pick.hit_kind == wire::core::PickHitKind::kBuilding) {
+    DrawSphere(ToRaylib(pick.hit_pos_world), 0.16f, Color{255, 238, 120, 210});
+    DrawSphereWires(ToRaylib(pick.hit_pos_world), 0.22f, 10, 14, Color{255, 255, 170, 255});
+  } else if (pick.hit_kind == wire::core::PickHitKind::kSegment) {
+    bool has_segment = false;
+    wire::core::Vec3d a{};
+    wire::core::Vec3d b{};
+    if (const wire::core::Span* span = edit.spans.find(pick.hit_id); span != nullptr) {
+      const wire::core::Port* pa = edit.ports.find(span->port_a_id);
+      const wire::core::Port* pb = edit.ports.find(span->port_b_id);
+      if (pa != nullptr && pb != nullptr) {
+        a = pa->world_position;
+        b = pb->world_position;
+        has_segment = true;
+      }
+    }
+    if (!has_segment && pick.has_segment_endpoints) {
+      a = pick.segment_endpoint_a_world;
+      b = pick.segment_endpoint_b_world;
+      has_segment = true;
+    }
+    if (has_segment) {
+      DrawLine3D(ToRaylib(a), ToRaylib(b), Color{80, 255, 180, 255});
+      DrawSphere(ToRaylib(a), 0.08f, Color{90, 255, 200, 220});
+      DrawSphere(ToRaylib(b), 0.08f, Color{90, 255, 200, 220});
+    }
+    DrawSphere(ToRaylib(pick.hit_pos_world), 0.09f, Color{80, 255, 180, 230});
+  }
+  if (has_resolution) {
+    const bool is_midair = (resolution.resolution == wire::core::CoreState::PickBranchResolutionKind::kMidair);
+    const Color resolved_color = is_midair ? Color{80, 220, 255, 235} : Color{255, 220, 90, 235};
+    DrawSphere(ToRaylib(resolution.position), 0.15f, resolved_color);
+    DrawSphereWires(ToRaylib(resolution.position), 0.20f, 10, 16, Color{255, 255, 255, 220});
+  }
+}
+
 void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
   const auto view = state.view();
   const auto& edit = view.edit_state();
@@ -1682,6 +1915,14 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
       color = GOLD;
     }
     DrawCubeV(ToRaylib(pos), Vector3{0.14f, 0.14f, 0.14f}, color);
+  }
+
+  if (ui_state.mode == EditMode::kBranch && ui_state.branch_pick_enabled) {
+    DrawPickHighlight(state, ui_state.branch_hover_pick, ui_state.branch_hover_has_resolution,
+                      ui_state.branch_hover_resolution);
+  }
+  if (ui_state.mode == EditMode::kDrawPath && ui_state.draw_pick_enabled) {
+    DrawPickHighlight(state, ui_state.draw_hover_pick, ui_state.draw_hover_has_resolution, ui_state.draw_hover_resolution);
   }
 }
 
@@ -2190,10 +2431,14 @@ void DrawConnectionModePanel(CoreState& state, ViewerUiState& ui_state) {
 }
 
 void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
+  EnsureDrawPathPointKinds(ui_state);
   ImGui::TextUnformatted("Draw Path");
-  ImGui::TextUnformatted("LMB: add point on draw plane");
+  ImGui::TextUnformatted("LMB: add point (Node/Segment raycast, with draw-plane fallback)");
   ImGui::TextUnformatted("RMB/Backspace: undo last");
   ImGui::TextUnformatted("Esc: clear path, Enter: generate");
+  ImGui::Checkbox("Enable DrawPath Pick (LMB)", &ui_state.draw_pick_enabled);
+  ImGui::InputDouble("Draw Snap Radius (world)", &ui_state.draw_snap_radius_world, 0.05, 0.2, "%.2f");
+  ui_state.draw_snap_radius_world = std::clamp(ui_state.draw_snap_radius_world, 0.05, 5.0);
   ImGui::InputDouble("Draw Plane Z", &ui_state.draw_plane_z, 0.1, 1.0, "%.2f");
   ImGui::InputDouble("Path Interval (m)", &ui_state.draw_interval_m, 0.5, 1.0, "%.2f");
   ui_state.draw_interval_m = std::max(0.0, ui_state.draw_interval_m);
@@ -2203,11 +2448,28 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
   ImGui::Checkbox("Regenerate Last Session (Enter Extend)", &ui_state.draw_regenerate_last_session);
   ImGui::TextUnformatted("Template-driven bundle generation");
   ImGui::Text("Path points: %d", static_cast<int>(ui_state.draw_path_points.size()));
+  const int midair_points = static_cast<int>(
+      std::count(ui_state.draw_path_point_support_kinds.begin(), ui_state.draw_path_point_support_kinds.end(),
+                 wire::core::SupportKind::kMidair));
+  const int building_points = static_cast<int>(
+      std::count(ui_state.draw_path_point_support_kinds.begin(), ui_state.draw_path_point_support_kinds.end(),
+                 wire::core::SupportKind::kBuilding));
+  ImGui::Text("Support kind points: Midair=%d Building=%d", midair_points, building_points);
   if (ui_state.draw_hover_valid) {
     ImGui::Text("Hover: %.2f %.2f %.2f", ui_state.draw_hover_point.x, ui_state.draw_hover_point.y,
                 ui_state.draw_hover_point.z);
   } else {
     ImGui::TextUnformatted("Hover: (no ground hit)");
+  }
+  if (!ui_state.draw_hover_status.empty()) {
+    ImGui::TextWrapped("%s", ui_state.draw_hover_status.c_str());
+  }
+  if (ui_state.draw_hover_has_resolution) {
+    ImGui::Text("Hover resolved: %s kind=%s",
+                (ui_state.draw_hover_resolution.resolution == wire::core::CoreState::PickBranchResolutionKind::kNode)
+                    ? "Node"
+                    : "Midair",
+                SupportKindLabel(ui_state.draw_hover_resolution.support_kind));
   }
 
   const auto type_ids = SortedPoleTypeIds(state);
@@ -2336,14 +2598,11 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
   }
   ImGui::SameLine();
   if (ImGui::Button("Undo Last Point")) {
-    if (!ui_state.draw_path_points.empty()) {
-      ui_state.draw_path_points.pop_back();
-    }
+    DrawPathPopPoint(ui_state);
   }
   ImGui::SameLine();
   if (ImGui::Button("Clear Path")) {
-    ui_state.draw_path_points.clear();
-    ui_state.last_generation_session = 0;
+    DrawPathClearWithSessionReset(ui_state);
   }
   ImGui::Checkbox("Capture Slot Debug", &ui_state.draw_capture_include_slot_debug);
   ImGui::InputInt("Capture Slot Debug Tail", &ui_state.draw_capture_slot_debug_tail);
@@ -2351,28 +2610,24 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
   if (!ui_state.last_repro_capture_path.empty()) {
     ImGui::TextWrapped("Last capture: %s", ui_state.last_repro_capture_path.c_str());
   }
-
-  const auto& lane_assignments = state.view().last_lane_assignments();
-  const auto cross_summaries = BuildBundleCrossSummaries(state);
-  ImGui::Separator();
-  ImGui::Text("Lane assignments: %d", static_cast<int>(lane_assignments.size()));
-  for (const auto& summary : cross_summaries) {
-    const bool ok = summary.global_crossings == 0 && summary.adjacent_crossings == 0;
-    const ImVec4 color = ok ? ImVec4(0.45f, 0.9f, 0.45f, 1.0f) : ImVec4(1.0f, 0.35f, 0.35f, 1.0f);
-    ImGui::TextColored(color, "bundle=%llu lanes=%d cross(seg/adj/global)=%d/%d/%d",
-                       static_cast<unsigned long long>(summary.bundle_id), summary.lane_count,
-                       summary.segment_crossings, summary.adjacent_crossings, summary.global_crossings);
-  }
-  for (const auto& a : lane_assignments) {
-    ImGui::Text("seg=%d A=%llu B=%llu lanes=%d mirrored=%s flip=%s reason=%s angle=%.2f", static_cast<int>(a.segment_index),
-                static_cast<unsigned long long>(a.pole_a_id), static_cast<unsigned long long>(a.pole_b_id),
-                static_cast<int>(a.port_ids_a.size()), a.mirrored ? "true" : "false",
-                a.flipped_from_previous ? "true" : "false", LaneFlipReasonLabel(a.flip_reason), a.turn_angle_deg);
-  }
 }
 
 void DrawBranchModePanel(CoreState& state, ViewerUiState& ui_state) {
   ImGui::TextUnformatted("Branch / Drop");
+  ImGui::Separator();
+  ImGui::TextUnformatted("Raycast Pick Routing");
+  ImGui::Checkbox("Enable Branch Pick (LMB)", &ui_state.branch_pick_enabled);
+  ImGui::InputDouble("Snap Radius (world)", &ui_state.branch_snap_radius_world, 0.05, 0.2, "%.2f");
+  ui_state.branch_snap_radius_world = std::clamp(ui_state.branch_snap_radius_world, 0.05, 5.0);
+  ImGui::TextUnformatted("Segment hit near endpoint -> snap to node");
+  ImGui::TextUnformatted("Segment hit away from endpoint -> Midair candidate");
+  if (!ui_state.branch_last_pick_summary.empty()) {
+    ImGui::TextWrapped("%s", ui_state.branch_last_pick_summary.c_str());
+    ImGui::Text("Last hit kind: %s", PickHitKindLabel(ui_state.branch_last_pick.hit_kind));
+  }
+
+  ImGui::Separator();
+  ImGui::TextUnformatted("Manual Drop Commands");
   ImGui::InputScalar("Branch Source SpanId", ImGuiDataType_U64, &ui_state.branch_source_span_id);
   ImGui::InputDouble("Branch t", &ui_state.branch_t);
   ImGui::InputDouble("Branch Target X", &ui_state.branch_target_x);
@@ -3173,6 +3428,7 @@ int main() {
     rlImGuiBegin();
     UpdateCameraForViewport(&camera, ui_state);
     UpdateDrawPathInput(state, camera, ui_state);
+    UpdateBranchPickInput(state, camera, ui_state);
     if (ui_state.auto_recalc) {
       wire::core::CommitOptions options{};
       options.run_recalc = true;

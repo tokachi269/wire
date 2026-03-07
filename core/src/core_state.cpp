@@ -20,7 +20,6 @@ constexpr double kZeroLengthEps = 1e-9;
 constexpr PoleTypeId kDistributionPoleType = 1;
 constexpr PoleTypeId kCommunicationPoleType = 2;
 constexpr double kPi = 3.14159265358979323846;
-constexpr double kSharpCornerInteriorAngleMaxDeg = 75.0;
 
 ConnectionCategory port_layer_to_category(PortLayer layer) {
   switch (layer) {
@@ -206,68 +205,6 @@ double normalize_yaw_deg(double yaw_deg) {
   return out;
 }
 
-double compute_corner_interior_angle_deg_at_point(const std::vector<Vec3d>& points, std::size_t index) {
-  if (points.size() < 3 || index == 0 || index + 1 >= points.size()) {
-    return 0.0;
-  }
-  const Vec3d a{points[index - 1].x - points[index].x, points[index - 1].y - points[index].y,
-                points[index - 1].z - points[index].z};
-  const Vec3d b{points[index + 1].x - points[index].x, points[index + 1].y - points[index].y,
-                points[index + 1].z - points[index].z};
-  const double la = std::sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
-  const double lb = std::sqrt(b.x * b.x + b.y * b.y + b.z * b.z);
-  if (la <= 1e-9 || lb <= 1e-9) {
-    return 0.0;
-  }
-  double dot = (a.x * b.x + a.y * b.y + a.z * b.z) / (la * lb);
-  dot = std::clamp(dot, -1.0, 1.0);
-  const double interior_deg = std::acos(dot) * (180.0 / kPi);
-  return std::clamp(interior_deg, 0.0, 180.0);
-}
-
-bool compute_corner_bisector_xy(const std::vector<Vec3d>& points, std::size_t index, Vec3d* out_bisector_xy) {
-  if (out_bisector_xy == nullptr) {
-    return false;
-  }
-  if (points.size() < 3 || index == 0 || index + 1 >= points.size()) {
-    return false;
-  }
-  // Interior-angle bisector uses rays from corner to prev/next.
-  Vec3d in_dir{
-      points[index - 1].x - points[index].x,
-      points[index - 1].y - points[index].y,
-      0.0,
-  };
-  Vec3d out_dir{
-      points[index + 1].x - points[index].x,
-      points[index + 1].y - points[index].y,
-      0.0,
-  };
-  const double in_len = std::sqrt(in_dir.x * in_dir.x + in_dir.y * in_dir.y);
-  const double out_len = std::sqrt(out_dir.x * out_dir.x + out_dir.y * out_dir.y);
-  if (in_len <= 1e-9 || out_len <= 1e-9) {
-    return false;
-  }
-  in_dir.x /= in_len;
-  in_dir.y /= in_len;
-  out_dir.x /= out_len;
-  out_dir.y /= out_len;
-
-  Vec3d bisector{
-      in_dir.x + out_dir.x,
-      in_dir.y + out_dir.y,
-      0.0,
-  };
-  const double b_len = std::sqrt(bisector.x * bisector.x + bisector.y * bisector.y);
-  if (b_len <= 1e-9) {
-    return false;
-  }
-  bisector.x /= b_len;
-  bisector.y /= b_len;
-  *out_bisector_xy = bisector;
-  return true;
-}
-
 double effective_pole_yaw_for_layout(const Pole& pole) {
   double yaw = pole.world_transform.rotation_euler_deg.z;
   if (pole.orientation_control.manual_yaw_override) {
@@ -277,41 +214,6 @@ double effective_pole_yaw_for_layout(const Pole& pole) {
     yaw += 180.0;
   }
   return yaw;
-}
-
-Transformd make_auto_pole_transform(const std::vector<Vec3d>& points, std::size_t index) {
-  Transformd tf{};
-  tf.position = points[index];
-
-  Vec3d tangent{};
-  if (points.size() >= 2) {
-    if (index == 0) {
-      tangent = points[1] - points[0];
-    } else if (index + 1 >= points.size()) {
-      tangent = points[index] - points[index - 1];
-    } else {
-      tangent = points[index + 1] - points[index - 1];
-    }
-  }
-
-  const double len2 = tangent.x * tangent.x + tangent.y * tangent.y + tangent.z * tangent.z;
-  if (len2 > 1e-12) {
-    double yaw_deg = std::atan2(tangent.y, tangent.x) * (180.0 / kPi);
-    // For sharp corners (corner interior angle < 75 deg), orient pole axis perpendicular to corner bisector.
-    const double corner_interior_deg = compute_corner_interior_angle_deg_at_point(points, index);
-    if (corner_interior_deg > 1e-6 && corner_interior_deg <= kSharpCornerInteriorAngleMaxDeg + 1e-6) {
-      Vec3d bisector_xy{};
-      if (compute_corner_bisector_xy(points, index, &bisector_xy)) {
-        // Keep slot spread axis (local Y) perpendicular to bisector to avoid lane compression at acute corners.
-        yaw_deg = std::atan2(bisector_xy.y, bisector_xy.x) * (180.0 / kPi);
-      } else {
-        // Fallback keeps legacy behavior when bisector is degenerate.
-        yaw_deg += 90.0;
-      }
-    }
-    tf.rotation_euler_deg.z = normalize_yaw_deg(yaw_deg);
-  }
-  return tf;
 }
 
 } // namespace

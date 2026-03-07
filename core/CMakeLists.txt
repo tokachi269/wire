@@ -2,6 +2,7 @@ add_library(
   wire_core
   STATIC
   src/core_state.cpp
+  src/pole_orientation_utils.cpp
   src/generation/generation_service.cpp
   src/core_state_backbone.cpp
   src/validation/validator.cpp

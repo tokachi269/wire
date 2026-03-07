@@ -266,23 +266,6 @@ public:
     std::uint64_t generation_session_id = 0;
   };
 
-  struct GenerateGroupedLineOptions {
-    RoadSegment road{};
-    double interval = 30.0;
-    PoleTypeId pole_type_id = kInvalidPoleTypeId;
-    ConductorGroupSpec group_spec{};
-    PathDirectionMode direction_mode = PathDirectionMode::kAuto;
-  };
-
-  struct GenerateGroupedLineResult {
-    std::vector<ObjectId> pole_ids{};
-    std::vector<ObjectId> span_ids{};
-    ObjectId bundle_id = kInvalidObjectId;
-    std::vector<SegmentLaneAssignment> lane_assignments{};
-    PathDirectionEvaluationDebug direction_debug{};
-    std::uint64_t generation_session_id = 0;
-  };
-
   struct GenerateBundleFromPathResult {
     ObjectId bundle_id = kInvalidObjectId;
     std::vector<ObjectId> bundle_ids{};
@@ -346,13 +329,29 @@ public:
                                                           PoleTypeId pole_type_id, ConnectionCategory category);
   EditResult<GenerateSimpleLineResult> GenerateSimpleLineFromPoints(const RoadSegment& road, PoleTypeId pole_type_id,
                                                                     ConnectionCategory category);
-  // Deprecated legacy API. Use GenerateFromBackboneSpec for new generation flows.
-  [[deprecated("Use GenerateFromBackboneSpec instead")]]
-  EditResult<GenerateGroupedLineResult> GenerateGroupedLine(const GenerateGroupedLineOptions& options);
   // Canonical path-generation API.
   EditResult<GenerateBundleFromPathResult> GenerateFromBackboneSpec(const BackboneSpec& spec);
   EditResult<GenerateBundleFromPathResult> RegenerateSessionAutoParts(std::uint64_t generation_session_id,
                                                                       const BackboneSpec& spec);
+  enum class PickBranchResolutionKind : std::uint8_t {
+    kNode = 0,
+    kMidair = 1,
+  };
+  struct ResolveBranchPickOptions {
+    BundleKind bundle_template_id = BundleKind::kLowVoltage;
+    double snap_radius_world = 0.6;
+    bool create_midair_node = true;
+  };
+  struct ResolveBranchPickResult {
+    PickBranchResolutionKind resolution = PickBranchResolutionKind::kNode;
+    ObjectId resolved_node_id = kInvalidObjectId;
+    SupportKind support_kind = SupportKind::kPole;
+    Vec3d position{};
+    bool snapped_from_segment_endpoint = false;
+  };
+  // Interprets a viewer-side pick payload and updates support-node session state when needed.
+  EditResult<ResolveBranchPickResult> ResolveBranchPick(const PickResult& pick,
+                                                        const ResolveBranchPickOptions& options = {});
   EditResult<ObjectId> SetPolePlacementMode(ObjectId pole_id, PlacementMode mode);
   EditResult<ObjectId> SetPoleFlip180(ObjectId pole_id, bool flip_180);
   [[nodiscard]] PoleDetailInfo GetPoleDetail(ObjectId pole_id) const;
@@ -403,16 +402,12 @@ private:
                                                                const std::vector<Vec3d>& points);
   EditResult<std::vector<ObjectId>>
   generate_grouped_spans_between_poles(const std::vector<ObjectId>& poles, ObjectId bundle_id,
-                                       const ConductorGroupSpec& group_spec,
+                                       ConnectionCategory category, int conductor_count, double spacing_m,
+                                       bool maintain_lane_order, bool allow_lane_mirror,
                                        std::vector<SegmentLaneAssignment>* out_lane_assignments,
                                        std::vector<BackboneEdgeOrientation>* out_edge_orientations = nullptr,
                                        BundleKind bundle_template_id = BundleKind::kLowVoltage);
-  [[nodiscard]] PathDirectionCostBreakdown evaluate_path_direction_cost(const std::vector<Vec3d>& points,
-                                                                        const ConductorGroupSpec& group_spec) const;
   [[nodiscard]] static std::uint64_t hash_path_points(const std::vector<Vec3d>& points);
-  [[nodiscard]] PathDirectionChosen choose_path_direction(const GenerateGroupedLineOptions& options,
-                                                          const std::vector<Vec3d>& sampled_points,
-                                                          PathDirectionEvaluationDebug* out_debug) const;
   [[nodiscard]] static double effective_pole_yaw_deg(const Pole& pole);
   [[nodiscard]] static Vec3d to_local_on_pole(const Pole& pole, const Vec3d& world);
   [[nodiscard]] static SlotSide preferred_side_from_geometry(const Pole& pole, const Pole* peer, double eps);
@@ -528,11 +523,11 @@ private:
   CacheState cache_state_{};
   // Persisted/authoritative generation policy layer.
   LayoutSettings layout_settings_{};
-  PathDirectionCostWeights path_direction_cost_weights_{};
   // Session debug layer (non-authoritative, non-persist by policy).
   PathDirectionEvaluationDebug last_path_direction_debug_{};
   std::vector<PathDirectionEvaluationDebug> path_direction_debug_records_{};
   BackboneResult last_generation_backbone_{};
+  ObjectId next_virtual_support_node_id_ = 0x9000000000000000ull;
   std::vector<SegmentLaneAssignment> last_lane_assignments_{};
   std::vector<SlotSelectionDebugRecord> slot_selection_debug_records_{};
 };
@@ -556,9 +551,6 @@ public:
   [[nodiscard]] const GeometrySettings& geometry_settings() const { return state_.cache_state_.geometry_settings; }
   [[nodiscard]] const VisualSettings& visual_settings() const { return state_.cache_state_.visual_settings; }
   [[nodiscard]] const LayoutSettings& layout_settings() const { return state_.layout_settings_; }
-  [[nodiscard]] const PathDirectionCostWeights& path_direction_cost_weights() const {
-    return state_.path_direction_cost_weights_;
-  }
   [[nodiscard]] const PathDirectionEvaluationDebug& last_path_direction_debug() const {
     return state_.last_path_direction_debug_;
   }
@@ -566,9 +558,6 @@ public:
     return state_.path_direction_debug_records_;
   }
   [[nodiscard]] const BackboneResult& last_generation_backbone() const { return state_.last_generation_backbone_; }
-  [[nodiscard]] const std::vector<SegmentLaneAssignment>& last_lane_assignments() const {
-    return state_.last_lane_assignments_;
-  }
   [[nodiscard]] const CacheState& cache_state() const { return state_.cache_state_; }
   [[nodiscard]] const std::unordered_map<PoleTypeId, PoleTypeDefinition>& pole_types() const {
     return state_.pole_types_;

@@ -1,4 +1,6 @@
 #include "backbone_prepare.hpp"
+
+#include "wire/core/coord_utils.hpp"
 #include "detail_utils.hpp"
 
 #include <algorithm>
@@ -128,7 +130,7 @@ bool build_backbone_candidates(const BackboneSpec& request, const std::vector<Ve
     dir.y /= seg_len;
     dir.z /= seg_len;
 
-    const Vec3d side_dir{-dir.y, dir.x, 0.0};
+    const Vec3d side_dir = ComputeLateralAxis(dir);
     const Vec3d lateral{
         side_dir.x * request.constraints.lateral_offset_m,
         side_dir.y * request.constraints.lateral_offset_m,

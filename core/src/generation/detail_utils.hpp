@@ -1,5 +1,6 @@
 #pragma once
 
+#include "wire/core/coord_utils.hpp"
 #include "wire/core/core_state.hpp"
 
 #include <algorithm>
@@ -27,63 +28,14 @@ inline void append_change_set(ChangeSet& dst, const ChangeSet& src) {
   append_unique(dst.dirty_span_ids, src.dirty_span_ids);
 }
 
-inline double normalize_yaw_deg(double yaw_deg) {
-  double out = std::fmod(yaw_deg, 360.0);
-  if (out <= -180.0) {
-    out += 360.0;
-  } else if (out > 180.0) {
-    out -= 360.0;
-  }
-  return out;
-}
+inline double normalize_yaw_deg(double yaw_deg) { return wire::core::NormalizeYawDeg(yaw_deg); }
 
-inline bool normalize_xy(Vec3d* v) {
-  if (v == nullptr) {
-    return false;
-  }
-  const double len = std::sqrt(v->x * v->x + v->y * v->y);
-  if (len <= 1e-9) {
-    return false;
-  }
-  v->x /= len;
-  v->y /= len;
-  v->z = 0.0;
-  return true;
-}
+inline bool normalize_xy(Vec3d* v) { return wire::core::NormalizeXY(v); }
 
 inline double dot_xy(const Vec3d& a, const Vec3d& b) { return a.x * b.x + a.y * b.y; }
 
-inline Vec3d rotate_xy_by_yaw_deg_local(const Vec3d& local, double yaw_deg) {
-  const double rad = yaw_deg * (kPi / 180.0);
-  const double c = std::cos(rad);
-  const double s = std::sin(rad);
-  return {local.x * c - local.y * s, local.x * s + local.y * c, local.z};
-}
-
-inline Vec3d rotate_x_deg_local(const Vec3d& v, double deg) {
-  const double rad = deg * (kPi / 180.0);
-  const double c = std::cos(rad);
-  const double s = std::sin(rad);
-  return {v.x, v.y * c - v.z * s, v.y * s + v.z * c};
-}
-
-inline Vec3d rotate_y_deg_local(const Vec3d& v, double deg) {
-  const double rad = deg * (kPi / 180.0);
-  const double c = std::cos(rad);
-  const double s = std::sin(rad);
-  return {v.x * c + v.z * s, v.y, -v.x * s + v.z * c};
-}
-
-inline Vec3d rotate_euler_xyz_deg_local(const Vec3d& local, const Vec3d& euler_deg) {
-  const Vec3d rx = rotate_x_deg_local(local, euler_deg.x);
-  const Vec3d ry = rotate_y_deg_local(rx, euler_deg.y);
-  return rotate_xy_by_yaw_deg_local(ry, euler_deg.z);
-}
-
 inline Vec3d local_to_world_on_pole_local(const Transformd& tf, double yaw_deg, const Vec3d& local) {
-  Vec3d euler = tf.rotation_euler_deg;
-  euler.z = yaw_deg;
-  return tf.position + rotate_euler_xyz_deg_local(local, euler);
+  return wire::core::LocalPointToWorld(wire::core::BuildPoleFrame(tf, yaw_deg), local);
 }
 
 inline double orient2d_xy_local(const Vec3d& a, const Vec3d& b, const Vec3d& c) {

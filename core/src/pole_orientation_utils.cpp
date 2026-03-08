@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include "wire/core/coord_utils.hpp"
+
 namespace wire::core {
 
 namespace {
@@ -10,33 +12,7 @@ namespace {
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kSharpCornerInteriorAngleMaxDeg = 75.0;
 
-double normalize_yaw_deg(double yaw_deg) {
-  double out = std::fmod(yaw_deg, 360.0);
-  if (out <= -180.0) {
-    out += 360.0;
-  } else if (out > 180.0) {
-    out -= 360.0;
-  }
-  return out;
-}
-
-bool normalize_xy(Vec3d* v) {
-  if (v == nullptr) {
-    return false;
-  }
-  const double len = std::sqrt(v->x * v->x + v->y * v->y);
-  if (len <= 1e-9) {
-    return false;
-  }
-  v->x /= len;
-  v->y /= len;
-  v->z = 0.0;
-  return true;
-}
-
 double dot_xy(const Vec3d& a, const Vec3d& b) { return a.x * b.x + a.y * b.y; }
-
-Vec3d left_perp_xy(const Vec3d& v) { return Vec3d{-v.y, v.x, 0.0}; }
 
 SharpCornerOrientationDebug compute_sharp_corner_orientation(const std::vector<Vec3d>& points, std::size_t index,
                                                              double sharp_threshold_deg,
@@ -56,7 +32,7 @@ SharpCornerOrientationDebug compute_sharp_corner_orientation(const std::vector<V
       points[index + 1].y - points[index].y,
       0.0,
   };
-  if (!normalize_xy(&u0) || !normalize_xy(&u1)) {
+  if (!NormalizeXY(&u0) || !NormalizeXY(&u1)) {
     return out;
   }
 
@@ -72,13 +48,13 @@ SharpCornerOrientationDebug compute_sharp_corner_orientation(const std::vector<V
       u0.y + u1.y,
       0.0,
   };
-  if (!normalize_xy(&bisector)) {
+  if (!NormalizeXY(&bisector)) {
     return out;
   }
   out.bisector_dir = bisector;
 
-  Vec3d side1 = left_perp_xy(bisector);
-  if (!normalize_xy(&side1)) {
+  Vec3d side1 = ComputeLateralAxis(bisector);
+  if (!NormalizeXY(&side1)) {
     return out;
   }
   Vec3d side2{-side1.x, -side1.y, 0.0};
@@ -96,13 +72,13 @@ SharpCornerOrientationDebug compute_sharp_corner_orientation(const std::vector<V
       points[index + 1].y - points[index].y,
       0.0,
   };
-  if (!normalize_xy(&t_in) || !normalize_xy(&t_out)) {
+  if (!NormalizeXY(&t_in) || !NormalizeXY(&t_out)) {
     return out;
   }
   const double turn = t_in.x * t_out.y - t_in.y * t_out.x;
   if (std::abs(turn) > 1e-9) {
-    inward = (turn > 0.0) ? left_perp_xy(t_in) : Vec3d{t_in.y, -t_in.x, 0.0};
-    if (normalize_xy(&inward)) {
+    inward = (turn > 0.0) ? ComputeLateralAxis(t_in) : Vec3d{-ComputeLateralAxis(t_in).x, -ComputeLateralAxis(t_in).y, 0.0};
+    if (NormalizeXY(&inward)) {
       has_inward = true;
       const double inward_proj_1 = dot_xy(side1, inward);
       const double inward_proj_2 = dot_xy(side2, inward);
@@ -112,7 +88,7 @@ SharpCornerOrientationDebug compute_sharp_corner_orientation(const std::vector<V
 
   if (preferred_side_dir_xy != nullptr) {
     Vec3d preferred = *preferred_side_dir_xy;
-    if (normalize_xy(&preferred)) {
+    if (NormalizeXY(&preferred)) {
       auto side_score = [&](const Vec3d& side) -> double {
         const double inward_penalty = has_inward ? std::max(0.0, dot_xy(side, inward)) : 0.0;
         const double continuity_penalty = 0.5 * (1.0 - dot_xy(side, preferred));
@@ -156,14 +132,13 @@ AutoPoleTransformResult compute_auto_pole_transform(const std::vector<Vec3d>& po
     if (out.sharp.applied) {
       yaw_deg = std::atan2(out.sharp.side_dir.y, out.sharp.side_dir.x) * (180.0 / kPi) - 90.0;
     }
-    out.transform.rotation_euler_deg.z = normalize_yaw_deg(yaw_deg);
+    out.transform.rotation_euler_deg.z = NormalizeYawDeg(yaw_deg);
   }
   return out;
 }
 
 Vec3d side_axis_from_yaw_deg(double yaw_deg) {
-  const double rad = (yaw_deg + 90.0) * (kPi / 180.0);
-  return {std::cos(rad), std::sin(rad), 0.0};
+  return ComputeLateralAxis(RotateAroundWorldUpDeg(WorldForward(), yaw_deg));
 }
 
 void apply_sharp_debug_to_context(PoleContextInfo* context, const SharpCornerOrientationDebug& sharp) {

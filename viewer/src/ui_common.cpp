@@ -5,6 +5,8 @@
 #include <cmath>
 #include <sstream>
 
+#include "host_coords.hpp"
+
 constexpr std::array<wire::core::ConnectionCategory, 5> kAllCategories = {
     wire::core::ConnectionCategory::kHighVoltage,   wire::core::ConnectionCategory::kLowVoltage,
     wire::core::ConnectionCategory::kCommunication, wire::core::ConnectionCategory::kOptical,
@@ -421,11 +423,7 @@ std::size_t ClampedTypeIndex(int current, std::size_t count) {
 }
 
 Vector3 ToRaylib(const wire::core::Vec3d& ue_xyz) {
-  return Vector3{
-      static_cast<float>(ue_xyz.x),
-      static_cast<float>(ue_xyz.z),
-      static_cast<float>(ue_xyz.y),
-  };
+  return InternalToHostWorld(ue_xyz);
 }
 
 BoundingBox ToRaylibBounds(const wire::core::AABBd& box_ue) {

@@ -1,4 +1,5 @@
 #include "wire/core/core_state.hpp"
+#include "wire/core/coord_utils.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -19,8 +20,10 @@ namespace {
 constexpr double kZeroLengthEps = 1e-9;
 constexpr PoleTypeId kDistributionPoleType = 1;
 constexpr PoleTypeId kCommunicationPoleType = 2;
-constexpr double kPi = 3.14159265358979323846;
-
+constexpr CableTemplateId kHighVoltageCableTemplate = 1;
+constexpr CableTemplateId kLowVoltageCableTemplate = 2;
+constexpr CableTemplateId kCommunicationCableTemplate = 3;
+constexpr CableTemplateId kOpticalCableTemplate = 4;
 ConnectionCategory port_layer_to_category(PortLayer layer) {
   switch (layer) {
   case PortLayer::kHighVoltage:
@@ -152,57 +155,12 @@ void append_change_set(ChangeSet& dst, const ChangeSet& src) {
   append_unique(dst.dirty_span_ids, src.dirty_span_ids);
 }
 
-Vec3d rotate_xy_by_yaw_deg(const Vec3d& local, double yaw_deg) {
-  const double rad = yaw_deg * (kPi / 180.0);
-  const double c = std::cos(rad);
-  const double s = std::sin(rad);
-  return {
-      local.x * c - local.y * s,
-      local.x * s + local.y * c,
-      local.z,
-  };
-}
-
-Vec3d rotate_x_deg(const Vec3d& v, double deg) {
-  const double rad = deg * (kPi / 180.0);
-  const double c = std::cos(rad);
-  const double s = std::sin(rad);
-  return {v.x, v.y * c - v.z * s, v.y * s + v.z * c};
-}
-
-Vec3d rotate_y_deg(const Vec3d& v, double deg) {
-  const double rad = deg * (kPi / 180.0);
-  const double c = std::cos(rad);
-  const double s = std::sin(rad);
-  return {v.x * c + v.z * s, v.y, -v.x * s + v.z * c};
-}
-
-Vec3d rotate_euler_xyz_deg(const Vec3d& local, const Vec3d& euler_deg) {
-  const Vec3d rx = rotate_x_deg(local, euler_deg.x);
-  const Vec3d ry = rotate_y_deg(rx, euler_deg.y);
-  return rotate_xy_by_yaw_deg(ry, euler_deg.z);
-}
-
-Vec3d inverse_rotate_euler_xyz_deg(const Vec3d& world_delta, const Vec3d& euler_deg) {
-  const Vec3d rz = rotate_xy_by_yaw_deg(world_delta, -euler_deg.z);
-  const Vec3d ry = rotate_y_deg(rz, -euler_deg.y);
-  return rotate_x_deg(ry, -euler_deg.x);
-}
-
 Vec3d local_to_world_on_pole(const Transformd& tf, double yaw_deg, const Vec3d& local) {
-  Vec3d euler = tf.rotation_euler_deg;
-  euler.z = yaw_deg;
-  return tf.position + rotate_euler_xyz_deg(local, euler);
+  return LocalPointToWorld(BuildPoleFrame(tf, yaw_deg), local);
 }
 
 double normalize_yaw_deg(double yaw_deg) {
-  double out = std::fmod(yaw_deg, 360.0);
-  if (out <= -180.0) {
-    out += 360.0;
-  } else if (out > 180.0) {
-    out -= 360.0;
-  }
-  return out;
+  return NormalizeYawDeg(yaw_deg);
 }
 
 double effective_pole_yaw_for_layout(const Pole& pole) {
@@ -473,8 +431,8 @@ void CoreState::register_default_bundle_templates() {
   hv.id = BundleKind::kHighVoltage;
   hv.name = "HV_3PH";
   hv.category = ConnectionCategory::kHighVoltage;
+  hv.cable_template_id = kHighVoltageCableTemplate;
   hv.default_layer = SpanLayer::kHighVoltage;
-  hv.is_electric = true;
   hv.preserve_conductor_identity = true;
   hv.count_rule = BundleCountRuleKind::kFixed;
   hv.fixed_count = 3;
@@ -491,8 +449,8 @@ void CoreState::register_default_bundle_templates() {
   lv.id = BundleKind::kLowVoltage;
   lv.name = "DEFAULT_SINGLE";
   lv.category = ConnectionCategory::kLowVoltage;
+  lv.cable_template_id = kLowVoltageCableTemplate;
   lv.default_layer = SpanLayer::kLowVoltage;
-  lv.is_electric = true;
   lv.preserve_conductor_identity = false;
   lv.count_rule = BundleCountRuleKind::kFixed;
   lv.fixed_count = 1;
@@ -509,8 +467,8 @@ void CoreState::register_default_bundle_templates() {
   comm.id = BundleKind::kCommunication;
   comm.name = "COMM_BUNDLE";
   comm.category = ConnectionCategory::kCommunication;
+  comm.cable_template_id = kCommunicationCableTemplate;
   comm.default_layer = SpanLayer::kCommunication;
-  comm.is_electric = false;
   comm.preserve_conductor_identity = false;
   comm.count_rule = BundleCountRuleKind::kRange;
   comm.fixed_count = 0;
@@ -527,8 +485,8 @@ void CoreState::register_default_bundle_templates() {
   optical.id = BundleKind::kOptical;
   optical.name = "OPTICAL_FIXED";
   optical.category = ConnectionCategory::kOptical;
+  optical.cable_template_id = kOpticalCableTemplate;
   optical.default_layer = SpanLayer::kOptical;
-  optical.is_electric = false;
   optical.preserve_conductor_identity = false;
   optical.count_rule = BundleCountRuleKind::kFixed;
   optical.fixed_count = 1;
@@ -869,7 +827,7 @@ EditResult<ObjectId> CoreState::ensure_bundle_for_template(const AddConnectionBy
       result.error = "bundle does not exist";
       return result;
     }
-    if (options.use_bundle_template && existing_bundle->kind != options.bundle_template_id) {
+    if (options.use_bundle_template && existing_bundle->bundle_template_id != options.bundle_template_id) {
       result.error = "bundle_id kind and bundle_template_id mismatch";
       return result;
     }
@@ -936,6 +894,72 @@ bool CoreState::is_valid_slot_side(SlotSide side) {
 bool CoreState::is_valid_slot_role(SlotRole role) {
   return role == SlotRole::kNeutral || role == SlotRole::kTrunkPreferred || role == SlotRole::kBranchPreferred ||
          role == SlotRole::kDropPreferred;
+}
+
+void CoreState::register_default_cable_templates() {
+  CableTemplate hv{};
+  hv.id = kHighVoltageCableTemplate;
+  hv.name = "HV_BARE";
+  hv.outer_diameter_m = 0.030;
+  hv.bend_stiffness = 1.4;
+  hv.min_bend_radius_m = 0.8;
+  hv.material_style = CableMaterialStyleKind::kBareConductor;
+  hv.color_rgba = 0xBFC7CFFFu;
+  hv.requires_insulator = true;
+  hv.sag_factor = 0.03;
+  hv.slack_factor = 0.0;
+  hv.continuity_policy = CableContinuityPolicyHint::kPreferG1;
+  cable_templates_[hv.id] = hv;
+
+  CableTemplate lv{};
+  lv.id = kLowVoltageCableTemplate;
+  lv.name = "LV_INSULATED";
+  lv.outer_diameter_m = 0.020;
+  lv.bend_stiffness = 0.9;
+  lv.min_bend_radius_m = 0.25;
+  lv.material_style = CableMaterialStyleKind::kInsulated;
+  lv.color_rgba = 0x2E2E2EFFu;
+  lv.requires_insulator = true;
+  lv.sag_factor = 0.03;
+  lv.slack_factor = 0.0;
+  lv.continuity_policy = CableContinuityPolicyHint::kAuto;
+  cable_templates_[lv.id] = lv;
+
+  CableTemplate comm{};
+  comm.id = kCommunicationCableTemplate;
+  comm.name = "COMM_MULTI";
+  comm.outer_diameter_m = 0.014;
+  comm.bend_stiffness = 0.6;
+  comm.min_bend_radius_m = 0.18;
+  comm.material_style = CableMaterialStyleKind::kInsulated;
+  comm.color_rgba = 0x5D5D5DFFu;
+  comm.requires_insulator = false;
+  comm.sag_factor = 0.025;
+  comm.slack_factor = 0.02;
+  comm.continuity_policy = CableContinuityPolicyHint::kPreferG2;
+  cable_templates_[comm.id] = comm;
+
+  CableTemplate optical{};
+  optical.id = kOpticalCableTemplate;
+  optical.name = "OPTICAL_FIBER";
+  optical.outer_diameter_m = 0.012;
+  optical.bend_stiffness = 0.5;
+  optical.min_bend_radius_m = 0.20;
+  optical.material_style = CableMaterialStyleKind::kOptical;
+  optical.color_rgba = 0x6EC9D8FFu;
+  optical.requires_insulator = false;
+  optical.sag_factor = 0.02;
+  optical.slack_factor = 0.03;
+  optical.continuity_policy = CableContinuityPolicyHint::kPreferG2;
+  cable_templates_[optical.id] = optical;
+}
+
+const CableTemplate* CoreState::find_cable_template(CableTemplateId cable_template_id) const {
+  auto it = cable_templates_.find(cable_template_id);
+  if (it == cable_templates_.end()) {
+    return nullptr;
+  }
+  return &it->second;
 }
 
 } // namespace wire::core

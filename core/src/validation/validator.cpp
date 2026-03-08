@@ -63,6 +63,13 @@ ValidationResult CoreState::ValidateFast() const {
     }
   }
 
+  for (const Bundle& bundle : edit_state.bundles.items()) {
+    if (!core.bundle_templates().contains(bundle.bundle_template_id)) {
+      result.issues.push_back(
+          {ValidationSeverity::kError, "BundleTemplateMissing", "Bundle references unknown BundleTemplate", bundle.id});
+    }
+  }
+
   return result;
 }
 
@@ -76,6 +83,8 @@ ValidationResult CoreState::Validate() const {
   const RelationIndex& relation_index = core.relation_index();
   const auto& span_runtime_states = core.span_runtime_states();
   const auto& pole_types = core.pole_types();
+  const auto& cable_templates = core.cable_templates();
+  const auto& bundle_templates = core.bundle_templates();
   const auto& slot_debug_records = core.slot_selection_debug_records();
 
   for (const Pole& pole : edit_state.poles.items()) {
@@ -209,6 +218,21 @@ ValidationResult CoreState::Validate() const {
     if (anchor.owner_pole_id != kInvalidObjectId && edit_state.poles.find(anchor.owner_pole_id) == nullptr) {
       result.issues.push_back(
           {ValidationSeverity::kError, "AnchorOwnerMissing", "Anchor owner pole is missing", anchor.id});
+    }
+  }
+
+  for (const auto& [bundle_template_id, bundle_template] : bundle_templates) {
+    (void)bundle_template_id;
+    if (cable_templates.find(bundle_template.cable_template_id) == cable_templates.end()) {
+      result.issues.push_back({ValidationSeverity::kError, "BundleTemplateCableMissing",
+                               "BundleTemplate references unknown CableTemplate", kInvalidObjectId});
+    }
+  }
+
+  for (const Bundle& bundle : edit_state.bundles.items()) {
+    if (bundle_templates.find(bundle.bundle_template_id) == bundle_templates.end()) {
+      result.issues.push_back(
+          {ValidationSeverity::kError, "BundleTemplateMissing", "Bundle references unknown BundleTemplate", bundle.id});
     }
   }
 

@@ -1,0 +1,158 @@
+#pragma once
+
+#include <cmath>
+
+#include "wire/core/types.hpp"
+
+namespace wire::core {
+
+struct PoleFrame {
+  Vec3d origin{};
+  Vec3d forward{1.0, 0.0, 0.0};
+  Vec3d lateral{0.0, 1.0, 0.0};
+  Vec3d up{0.0, 0.0, 1.0};
+  Vec3d euler_deg{};
+};
+
+inline Vec3d WorldUp() { return {0.0, 0.0, 1.0}; }
+
+inline Vec3d WorldForward() { return {1.0, 0.0, 0.0}; }
+
+inline Vec3d WorldLateral() { return {0.0, 1.0, 0.0}; }
+
+inline Vec3d ScaleVec(const Vec3d& v, double scale) { return {v.x * scale, v.y * scale, v.z * scale}; }
+
+inline double Dot(const Vec3d& a, const Vec3d& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+
+inline Vec3d Cross(const Vec3d& a, const Vec3d& b) {
+  return {
+      a.y * b.z - a.z * b.y,
+      a.z * b.x - a.x * b.z,
+      a.x * b.y - a.y * b.x,
+  };
+}
+
+inline double LengthSquared(const Vec3d& v) { return Dot(v, v); }
+
+inline bool Normalize(Vec3d* v) {
+  if (v == nullptr) {
+    return false;
+  }
+  const double len2 = LengthSquared(*v);
+  if (len2 <= 1e-12) {
+    return false;
+  }
+  const double inv_len = 1.0 / std::sqrt(len2);
+  v->x *= inv_len;
+  v->y *= inv_len;
+  v->z *= inv_len;
+  return true;
+}
+
+inline bool NormalizeXY(Vec3d* v) {
+  if (!Normalize(v)) {
+    return false;
+  }
+  v->z = 0.0;
+  return Normalize(v);
+}
+
+inline double NormalizeYawDeg(double yaw_deg) {
+  double out = std::fmod(yaw_deg, 360.0);
+  if (out <= -180.0) {
+    out += 360.0;
+  } else if (out > 180.0) {
+    out -= 360.0;
+  }
+  return out;
+}
+
+inline Vec3d ComputeLateralAxis(const Vec3d& forward) {
+  Vec3d lateral = Cross(WorldUp(), forward);
+  if (!Normalize(&lateral)) {
+    return {};
+  }
+  return lateral;
+}
+
+inline double HeightAlongWorldUp(const Vec3d& world) { return Dot(world, WorldUp()); }
+
+inline void SetHeightAlongWorldUp(Vec3d* world, double height) {
+  if (world == nullptr) {
+    return;
+  }
+  world->z = height;
+}
+
+inline void OffsetAlongWorldUp(Vec3d* world, double offset) {
+  if (world == nullptr) {
+    return;
+  }
+  world->z += offset;
+}
+
+inline Vec3d RotateAroundWorldUpDeg(const Vec3d& local, double yaw_deg) {
+  constexpr double kPi = 3.14159265358979323846;
+  const double rad = yaw_deg * (kPi / 180.0);
+  const double c = std::cos(rad);
+  const double s = std::sin(rad);
+  return {local.x * c - local.y * s, local.x * s + local.y * c, local.z};
+}
+
+inline Vec3d RotateXDeg(const Vec3d& v, double deg) {
+  constexpr double kPi = 3.14159265358979323846;
+  const double rad = deg * (kPi / 180.0);
+  const double c = std::cos(rad);
+  const double s = std::sin(rad);
+  return {v.x, v.y * c - v.z * s, v.y * s + v.z * c};
+}
+
+inline Vec3d RotateYDeg(const Vec3d& v, double deg) {
+  constexpr double kPi = 3.14159265358979323846;
+  const double rad = deg * (kPi / 180.0);
+  const double c = std::cos(rad);
+  const double s = std::sin(rad);
+  return {v.x * c + v.z * s, v.y, -v.x * s + v.z * c};
+}
+
+inline Vec3d RotateEulerXYZDeg(const Vec3d& local, const Vec3d& euler_deg) {
+  const Vec3d rx = RotateXDeg(local, euler_deg.x);
+  const Vec3d ry = RotateYDeg(rx, euler_deg.y);
+  return RotateAroundWorldUpDeg(ry, euler_deg.z);
+}
+
+inline Vec3d InverseRotateEulerXYZDeg(const Vec3d& world_delta, const Vec3d& euler_deg) {
+  const Vec3d rz = RotateAroundWorldUpDeg(world_delta, -euler_deg.z);
+  const Vec3d ry = RotateYDeg(rz, -euler_deg.y);
+  return RotateXDeg(ry, -euler_deg.x);
+}
+
+inline PoleFrame BuildPoleFrame(const Transformd& transform, double layout_yaw_deg) {
+  PoleFrame frame{};
+  frame.origin = transform.position;
+  frame.euler_deg = transform.rotation_euler_deg;
+  frame.euler_deg.z = layout_yaw_deg;
+  frame.forward = RotateEulerXYZDeg(WorldForward(), frame.euler_deg);
+  frame.lateral = RotateEulerXYZDeg(WorldLateral(), frame.euler_deg);
+  frame.up = RotateEulerXYZDeg(WorldUp(), frame.euler_deg);
+  Normalize(&frame.forward);
+  Normalize(&frame.lateral);
+  Normalize(&frame.up);
+  return frame;
+}
+
+inline Vec3d LocalPointToWorld(const PoleFrame& frame, const Vec3d& local) {
+  return frame.origin + ScaleVec(frame.forward, local.x) + ScaleVec(frame.lateral, local.y) +
+         ScaleVec(frame.up, local.z);
+}
+
+inline Vec3d WorldPointToLocal(const PoleFrame& frame, const Vec3d& world) {
+  const Vec3d delta = world - frame.origin;
+  return {
+      Dot(delta, frame.forward),
+      Dot(delta, frame.lateral),
+      Dot(delta, frame.up),
+  };
+}
+
+} // namespace wire::core

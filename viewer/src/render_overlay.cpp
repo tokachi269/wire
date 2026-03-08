@@ -5,44 +5,21 @@
 #include <cmath>
 #include <unordered_map>
 
+#include "host_coords.hpp"
 #include "ui_common.hpp"
+#include "wire/core/coord_utils.hpp"
+
+namespace {
 
 constexpr float kAxisLength = 2.0f;
 static wire::core::Vec3d Lerp(const wire::core::Vec3d& a, const wire::core::Vec3d& b, double t) {
   return wire::core::Vec3d{a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t};
 }
 
-static wire::core::Vec3d RotateXDeg(const wire::core::Vec3d& v, double deg) {
-  constexpr double kPi = 3.14159265358979323846;
-  const double rad = deg * (kPi / 180.0);
-  const double c = std::cos(rad);
-  const double s = std::sin(rad);
-  return {v.x, v.y * c - v.z * s, v.y * s + v.z * c};
-}
-
-static wire::core::Vec3d RotateYDeg(const wire::core::Vec3d& v, double deg) {
-  constexpr double kPi = 3.14159265358979323846;
-  const double rad = deg * (kPi / 180.0);
-  const double c = std::cos(rad);
-  const double s = std::sin(rad);
-  return {v.x * c + v.z * s, v.y, -v.x * s + v.z * c};
-}
-
-static wire::core::Vec3d RotateZDeg(const wire::core::Vec3d& v, double deg) {
-  constexpr double kPi = 3.14159265358979323846;
-  const double rad = deg * (kPi / 180.0);
-  const double c = std::cos(rad);
-  const double s = std::sin(rad);
-  return {v.x * c - v.y * s, v.x * s + v.y * c, v.z};
-}
-
-static wire::core::Vec3d RotateEulerXYZDeg(const wire::core::Vec3d& v, const wire::core::Vec3d& euler_deg) {
-  return RotateZDeg(RotateYDeg(RotateXDeg(v, euler_deg.x), euler_deg.y), euler_deg.z);
-}
-
 static wire::core::Vec3d PoleTopPoint(const wire::core::Pole& pole) {
-  const wire::core::Vec3d local_up{0.0, 0.0, pole.height_m};
-  return pole.world_transform.position + RotateEulerXYZDeg(local_up, pole.world_transform.rotation_euler_deg);
+  const wire::core::PoleFrame frame =
+      wire::core::BuildPoleFrame(pole.world_transform, pole.world_transform.rotation_euler_deg.z);
+  return wire::core::LocalPointToWorld(frame, wire::core::ScaleVec(wire::core::WorldUp(), pole.height_m));
 }
 
 static Color VisualPartColor(wire::core::VisualPartKind kind) {
@@ -56,6 +33,55 @@ static Color VisualPartColor(wire::core::VisualPartKind kind) {
   default:
     return GRAY;
   }
+}
+
+bool IsHostPointInFrontOfCamera(const Camera3D& camera, const Vector3& host_point) {
+  const Vector3 to_point{
+      host_point.x - camera.position.x,
+      host_point.y - camera.position.y,
+      host_point.z - camera.position.z,
+  };
+  const Vector3 forward{
+      camera.target.x - camera.position.x,
+      camera.target.y - camera.position.y,
+      camera.target.z - camera.position.z,
+  };
+  const float dot = to_point.x * forward.x + to_point.y * forward.y + to_point.z * forward.z;
+  return dot > 0.0f;
+}
+
+bool IsProjectedPointOnScreen(const Vector2& projected, float margin) {
+  return projected.x >= -margin && projected.y >= -margin &&
+         projected.x <= static_cast<float>(GetScreenWidth()) + margin &&
+         projected.y <= static_cast<float>(GetScreenHeight()) + margin;
+}
+
+std::vector<wire::core::Vec3d> AabbCorners(const wire::core::AABBd& box) {
+  return {
+      {box.min.x, box.min.y, box.min.z},
+      {box.min.x, box.min.y, box.max.z},
+      {box.min.x, box.max.y, box.min.z},
+      {box.min.x, box.max.y, box.max.z},
+      {box.max.x, box.min.y, box.min.z},
+      {box.max.x, box.min.y, box.max.z},
+      {box.max.x, box.max.y, box.min.z},
+      {box.max.x, box.max.y, box.max.z},
+  };
+}
+
+bool IsBoundsVisibleApprox(const Camera3D& camera, const wire::core::AABBd& bounds) {
+  constexpr float kScreenMarginPx = 64.0f;
+  for (const wire::core::Vec3d& corner : AabbCorners(bounds)) {
+    const Vector3 host_point = InternalToHostWorld(corner);
+    if (!IsHostPointInFrontOfCamera(camera, host_point)) {
+      continue;
+    }
+    const Vector2 projected = GetWorldToScreen(host_point, camera);
+    if (IsProjectedPointOnScreen(projected, kScreenMarginPx)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 Color DirtyColorForSpan(const wire::core::SpanRuntimeState* runtime_state) {
@@ -75,14 +101,14 @@ Color DirtyColorForSpan(const wire::core::SpanRuntimeState* runtime_state) {
   return SKYBLUE;
 }
 
-void DrawAxes() {
+void DrawAxesImpl() {
   DrawLine3D(ToRaylib({0.0, 0.0, 0.0}), ToRaylib({kAxisLength, 0.0, 0.0}), RED);
   DrawLine3D(ToRaylib({0.0, 0.0, 0.0}), ToRaylib({0.0, kAxisLength, 0.0}), GREEN);
   DrawLine3D(ToRaylib({0.0, 0.0, 0.0}), ToRaylib({0.0, 0.0, kAxisLength}), BLUE);
 }
 
-void DrawPickHighlight(const CoreState& state, const wire::core::PickResult& pick, bool has_resolution,
-                       const wire::core::CoreState::ResolveBranchPickResult& resolution) {
+void DrawPickHighlightImpl(const CoreState& state, const wire::core::PickResult& pick, bool has_resolution,
+                           const wire::core::CoreState::ResolveBranchPickResult& resolution) {
   if (pick.hit_kind == wire::core::PickHitKind::kEmpty) {
     return;
   }
@@ -123,7 +149,7 @@ void DrawPickHighlight(const CoreState& state, const wire::core::PickResult& pic
   }
 }
 
-void DrawBackboneOverlay(const wire::core::BackboneResult& backbone, const ViewerUiState& ui_state) {
+void DrawBackboneOverlayImpl(const wire::core::BackboneResult& backbone, const ViewerUiState& ui_state) {
   std::unordered_map<ObjectId, wire::core::Vec3d> node_position_by_id{};
   node_position_by_id.reserve(backbone.nodes.size());
   for (const wire::core::SupportNode& node : backbone.nodes) {
@@ -159,6 +185,42 @@ void DrawBackboneOverlay(const wire::core::BackboneResult& backbone, const Viewe
     DrawSphere(ToRaylib(display), radius, color);
     DrawSphereWires(ToRaylib(display), radius + 0.05f, 9, 14, Color{255, 255, 255, 180});
   }
+}
+
+static Color ColorFromRgba(std::uint32_t rgba) {
+  return Color{
+      static_cast<unsigned char>((rgba >> 24) & 0xFFu),
+      static_cast<unsigned char>((rgba >> 16) & 0xFFu),
+      static_cast<unsigned char>((rgba >> 8) & 0xFFu),
+      static_cast<unsigned char>(rgba & 0xFFu),
+  };
+}
+} // namespace
+
+void UpdatePreferredVisibleSpans(const CoreState& state, const Camera3D& camera, ViewerUiState& ui_state) {
+  ui_state.preferred_visible_span_ids.clear();
+  for (const wire::core::Span& span : state.view().edit_state().spans.items()) {
+    const wire::core::BoundsCacheEntry* bounds = state.find_bounds_cache(span.id);
+    if (bounds == nullptr) {
+      continue;
+    }
+    if (!IsBoundsVisibleApprox(camera, bounds->whole)) {
+      continue;
+    }
+    ui_state.preferred_visible_span_ids.push_back(span.id);
+  }
+  ui_state.preferred_visible_span_count = static_cast<int>(ui_state.preferred_visible_span_ids.size());
+}
+
+void DrawAxes() { DrawAxesImpl(); }
+
+void DrawPickHighlight(const CoreState& state, const wire::core::PickResult& pick, bool has_resolution,
+                       const wire::core::CoreState::ResolveBranchPickResult& resolution) {
+  DrawPickHighlightImpl(state, pick, has_resolution, resolution);
+}
+
+void DrawBackboneOverlay(const wire::core::BackboneResult& backbone, const ViewerUiState& ui_state) {
+  DrawBackboneOverlayImpl(backbone, ui_state);
 }
 
 void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
@@ -228,12 +290,18 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
     }
 
     const wire::core::CurveCacheEntry* curve = state.find_curve_cache(span.id);
+    const wire::core::SpanRenderCacheEntry* render = state.view().find_span_render_cache(span.id);
+    const float wire_radius =
+        static_cast<float>((render == nullptr) ? 0.01 : std::max(0.0005, render->wire_radius_m));
+    const Color wire_color = (render == nullptr) ? color : ColorFromRgba(render->color_rgba);
     if (curve != nullptr && curve->points.size() >= 2) {
       for (std::size_t i = 0; i + 1 < curve->points.size(); ++i) {
-        DrawLine3D(ToRaylib(curve->points[i]), ToRaylib(curve->points[i + 1]), color);
+        DrawCylinderEx(ToRaylib(curve->points[i]), ToRaylib(curve->points[i + 1]), wire_radius, wire_radius, 8,
+                       wire_color);
       }
     } else {
-      DrawLine3D(ToRaylib(start_port->world_position), ToRaylib(end_port->world_position), color);
+      DrawCylinderEx(ToRaylib(start_port->world_position), ToRaylib(end_port->world_position), wire_radius, wire_radius,
+                     8, wire_color);
     }
 
     const wire::core::BoundsCacheEntry* bounds = state.find_bounds_cache(span.id);
@@ -263,7 +331,7 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
   }
 
   if (show_backbone_overlay) {
-    DrawBackboneOverlay(backbone, ui_state);
+    DrawBackboneOverlayImpl(backbone, ui_state);
   }
 
   for (const wire::core::Attachment& attachment : edit.attachments.items()) {
@@ -277,7 +345,7 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
       continue;
     }
     wire::core::Vec3d pos = Lerp(port_a->world_position, port_b->world_position, attachment.t);
-    pos.z += attachment.offset_m;
+    wire::core::OffsetAlongWorldUp(&pos, attachment.offset_m);
 
     Color color = MAGENTA;
     if (ui_state.selected_type == SelectedType::kAttachment && ui_state.selected_id == attachment.id) {
@@ -287,13 +355,12 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
   }
 
   if (ui_state.mode == EditMode::kBranch && ui_state.branch_pick_enabled) {
-    DrawPickHighlight(state, ui_state.branch_hover_pick, ui_state.branch_hover_has_resolution,
-                      ui_state.branch_hover_resolution);
+    DrawPickHighlightImpl(state, ui_state.branch_hover_pick, ui_state.branch_hover_has_resolution,
+                          ui_state.branch_hover_resolution);
   }
   if (ui_state.mode == EditMode::kDrawPath && ui_state.draw_pick_enabled) {
-    DrawPickHighlight(state, ui_state.draw_hover_pick, ui_state.draw_hover_has_resolution, ui_state.draw_hover_resolution);
+    DrawPickHighlightImpl(state, ui_state.draw_hover_pick, ui_state.draw_hover_has_resolution,
+                          ui_state.draw_hover_resolution);
   }
 }
-
-
 

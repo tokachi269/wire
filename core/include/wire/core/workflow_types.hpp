@@ -51,12 +51,29 @@ enum class BundleCountRuleKind : std::uint8_t {
   kRange = 1,
 };
 
+struct CableTemplate {
+  // Single-cable appearance / physical hints. Topology policy is intentionally excluded.
+  CableTemplateId id = kInvalidCableTemplateId;
+  std::string name{};
+  double outer_diameter_m = 0.03;
+  double bend_stiffness = 1.0;
+  double min_bend_radius_m = 0.2;
+  CableMaterialStyleKind material_style = CableMaterialStyleKind::kGeneric;
+  std::uint32_t color_rgba = 0xFFFFFFFFu;
+  bool requires_insulator = false;
+  double sag_factor = 0.03;
+  double slack_factor = 0.0;
+  CableContinuityPolicyHint continuity_policy = CableContinuityPolicyHint::kAuto;
+  std::uint64_t version = 1;
+};
+
 struct BundleTemplate {
+  // Bundle/system rule set. Topology policy lives here, not on CableTemplate.
   BundleKind id = BundleKind::kLowVoltage;
   std::string name{};
   ConnectionCategory category = ConnectionCategory::kLowVoltage;
+  CableTemplateId cable_template_id = kInvalidCableTemplateId;
   SpanLayer default_layer = SpanLayer::kLowVoltage;
-  bool is_electric = false;
   // If true, conductor identity/order is treated as strict by higher-level workflow policy.
   bool preserve_conductor_identity = false;
   BundleCountRuleKind count_rule = BundleCountRuleKind::kFixed;
@@ -68,6 +85,10 @@ struct BundleTemplate {
   bool allow_mirror = true;
   bool allow_midair_node = true;
   bool allow_midair_branch = true;
+  BundleSupportStyleHint support_style = BundleSupportStyleHint::kAuto;
+  BundleBranchPolicyHint branch_policy = BundleBranchPolicyHint::kAuto;
+  CableContinuityPolicyHint continuity_policy = CableContinuityPolicyHint::kAuto;
+  std::uint64_t version = 1;
 };
 
 enum class BundleNodeMode : std::uint8_t {

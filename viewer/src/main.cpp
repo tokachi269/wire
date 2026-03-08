@@ -22,6 +22,7 @@
 #include "render_overlay.hpp"
 #include "panels.hpp"
 #include "ui_common.hpp"
+#include "wire/core/coord_utils.hpp"
 #include "wire/core/core_state.hpp"
 
 namespace {
@@ -103,39 +104,10 @@ wire::core::Vec3d Lerp(const wire::core::Vec3d& a, const wire::core::Vec3d& b, d
   };
 }
 
-wire::core::Vec3d RotateXDeg(const wire::core::Vec3d& v, double deg) {
-  constexpr double kPi = 3.14159265358979323846;
-  const double rad = deg * (kPi / 180.0);
-  const double c = std::cos(rad);
-  const double s = std::sin(rad);
-  return {v.x, v.y * c - v.z * s, v.y * s + v.z * c};
-}
-
-wire::core::Vec3d RotateYDeg(const wire::core::Vec3d& v, double deg) {
-  constexpr double kPi = 3.14159265358979323846;
-  const double rad = deg * (kPi / 180.0);
-  const double c = std::cos(rad);
-  const double s = std::sin(rad);
-  return {v.x * c + v.z * s, v.y, -v.x * s + v.z * c};
-}
-
-wire::core::Vec3d RotateZDeg(const wire::core::Vec3d& v, double deg) {
-  constexpr double kPi = 3.14159265358979323846;
-  const double rad = deg * (kPi / 180.0);
-  const double c = std::cos(rad);
-  const double s = std::sin(rad);
-  return {v.x * c - v.y * s, v.x * s + v.y * c, v.z};
-}
-
-wire::core::Vec3d RotateEulerXYZDeg(const wire::core::Vec3d& v, const wire::core::Vec3d& euler_deg) {
-  const wire::core::Vec3d rx = RotateXDeg(v, euler_deg.x);
-  const wire::core::Vec3d ry = RotateYDeg(rx, euler_deg.y);
-  return RotateZDeg(ry, euler_deg.z);
-}
-
 wire::core::Vec3d PoleTopPoint(const wire::core::Pole& pole) {
-  const wire::core::Vec3d local_up{0.0, 0.0, pole.height_m};
-  return pole.world_transform.position + RotateEulerXYZDeg(local_up, pole.world_transform.rotation_euler_deg);
+  const wire::core::PoleFrame frame =
+      wire::core::BuildPoleFrame(pole.world_transform, pole.world_transform.rotation_euler_deg.z);
+  return wire::core::LocalPointToWorld(frame, wire::core::ScaleVec(wire::core::WorldUp(), pole.height_m));
 }
 
 Color VisualPartColor(wire::core::VisualPartKind kind) {
@@ -414,6 +386,7 @@ int main() {
       options.run_validate = false;
       (void)state.Commit(options);
     }
+    UpdatePreferredVisibleSpans(state, camera, ui_state);
 
     BeginMode3D(camera);
     DrawGrid(40, 1.0f);

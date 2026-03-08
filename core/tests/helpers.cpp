@@ -1,5 +1,7 @@
 #include "helpers.hpp"
 
+#include "wire/core/coord_utils.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -90,7 +92,8 @@ wire::core::Vec3d to_local_on_pole_test(const wire::core::Pole& pole, const wire
 }
 
 bool aabb_valid(const wire::core::AABBd& aabb) {
-  return aabb.min.x <= aabb.max.x && aabb.min.y <= aabb.max.y && aabb.min.z <= aabb.max.z;
+  return aabb.min.x <= aabb.max.x && aabb.min.y <= aabb.max.y &&
+         wire::core::HeightAlongWorldUp(aabb.min) <= wire::core::HeightAlongWorldUp(aabb.max);
 }
 
 bool starts_with(const std::string& value, const std::string& prefix) { return value.rfind(prefix, 0) == 0; }
@@ -579,3 +582,4 @@ bool has_selected_slot_in_candidates(const wire::core::SlotSelectionDebugRecord&
 
 
 
+#include "wire/core/coord_utils.hpp"

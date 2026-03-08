@@ -1,5 +1,7 @@
 #include "scene_query.hpp"
 #include "backbone_plane.hpp"
+#include "host_coords.hpp"
+#include "wire/core/coord_utils.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -8,14 +10,6 @@
 
 namespace {
 
-wire::core::Vec3d FromRaylib(const Vector3& raylib_xyz) {
-  return wire::core::Vec3d{
-      static_cast<double>(raylib_xyz.x),
-      static_cast<double>(raylib_xyz.z),
-      static_cast<double>(raylib_xyz.y),
-  };
-}
-
 struct UeRay {
   wire::core::Vec3d origin{};
   wire::core::Vec3d direction{};
@@ -23,34 +17,16 @@ struct UeRay {
 
 constexpr double kBranchPickNodeHitRadiusWorld = 0.75;
 constexpr double kBranchPickSegmentHitRadiusWorld = 1.25;
-double Dot(const wire::core::Vec3d& a, const wire::core::Vec3d& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
-
-double LengthSquared(const wire::core::Vec3d& v) { return Dot(v, v); }
-
-bool Normalize(wire::core::Vec3d* v) {
-  if (v == nullptr) {
-    return false;
-  }
-  const double len2 = LengthSquared(*v);
-  if (len2 <= 1e-12) {
-    return false;
-  }
-  const double inv_len = 1.0 / std::sqrt(len2);
-  v->x *= inv_len;
-  v->y *= inv_len;
-  v->z *= inv_len;
-  return true;
-}
 
 double DistancePointToRaySquared(const wire::core::Vec3d& p, const UeRay& ray) {
   const wire::core::Vec3d to_point = p - ray.origin;
-  const double t = std::max(0.0, Dot(to_point, ray.direction));
+  const double t = std::max(0.0, wire::core::Dot(to_point, ray.direction));
   const wire::core::Vec3d closest = ray.origin + wire::core::Vec3d{
                                                      ray.direction.x * t,
                                                      ray.direction.y * t,
                                                      ray.direction.z * t,
                                                  };
-  return LengthSquared(p - closest);
+  return wire::core::LengthSquared(p - closest);
 }
 
 double DistanceRayToSegmentSquared(const UeRay& ray, const wire::core::Vec3d& a, const wire::core::Vec3d& b,
@@ -58,11 +34,11 @@ double DistanceRayToSegmentSquared(const UeRay& ray, const wire::core::Vec3d& a,
   const wire::core::Vec3d u = ray.direction;
   const wire::core::Vec3d v = b - a;
   const wire::core::Vec3d w0 = ray.origin - a;
-  const double a_dot = Dot(u, u);
-  const double b_dot = Dot(u, v);
-  const double c_dot = Dot(v, v);
-  const double d_dot = Dot(u, w0);
-  const double e_dot = Dot(v, w0);
+  const double a_dot = wire::core::Dot(u, u);
+  const double b_dot = wire::core::Dot(u, v);
+  const double c_dot = wire::core::Dot(v, v);
+  const double d_dot = wire::core::Dot(u, w0);
+  const double e_dot = wire::core::Dot(v, w0);
   const double denom = a_dot * c_dot - b_dot * b_dot;
 
   double s = 0.0;
@@ -90,7 +66,7 @@ double DistanceRayToSegmentSquared(const UeRay& ray, const wire::core::Vec3d& a,
   if (out_point_on_segment != nullptr) {
     *out_point_on_segment = point_seg;
   }
-  return LengthSquared(point_ray - point_seg);
+  return wire::core::LengthSquared(point_ray - point_seg);
 }
 
 } // namespace
@@ -114,7 +90,7 @@ bool TryPickGroundPoint(const Camera3D& camera, double ue_plane_z, wire::core::V
       ray.position.y + ray.direction.y * t,
       ray.position.z + ray.direction.z * t,
   };
-  *out_ue_point = FromRaylib(hit);
+  *out_ue_point = HostWorldToInternal(hit);
   return true;
 }
 
@@ -125,9 +101,9 @@ wire::core::PickResult ViewerSceneQuery::Raycast(const wire::core::CoreState& st
   const Vector2 mouse = GetMousePosition();
   const Ray raylib_ray = GetMouseRay(mouse, camera);
   UeRay ray{};
-  ray.origin = FromRaylib(raylib_ray.position);
-  ray.direction = FromRaylib(raylib_ray.direction);
-  if (!Normalize(&ray.direction)) {
+  ray.origin = HostWorldToInternal(raylib_ray.position);
+  ray.direction = HostWorldToInternal(raylib_ray.direction);
+  if (!wire::core::Normalize(&ray.direction)) {
     pick.hit_kind = wire::core::PickHitKind::kEmpty;
     return pick;
   }

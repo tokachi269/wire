@@ -1,4 +1,5 @@
 #include "wire/core/core_state.hpp"
+#include "wire/core/coord_utils.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -19,8 +20,6 @@ namespace {
 constexpr double kZeroLengthEps = 1e-9;
 constexpr PoleTypeId kDistributionPoleType = 1;
 constexpr PoleTypeId kCommunicationPoleType = 2;
-constexpr double kPi = 3.14159265358979323846;
-
 ConnectionCategory port_layer_to_category(PortLayer layer) {
   switch (layer) {
   case PortLayer::kHighVoltage:
@@ -152,57 +151,12 @@ void append_change_set(ChangeSet& dst, const ChangeSet& src) {
   append_unique(dst.dirty_span_ids, src.dirty_span_ids);
 }
 
-Vec3d rotate_xy_by_yaw_deg(const Vec3d& local, double yaw_deg) {
-  const double rad = yaw_deg * (kPi / 180.0);
-  const double c = std::cos(rad);
-  const double s = std::sin(rad);
-  return {
-      local.x * c - local.y * s,
-      local.x * s + local.y * c,
-      local.z,
-  };
-}
-
-Vec3d rotate_x_deg(const Vec3d& v, double deg) {
-  const double rad = deg * (kPi / 180.0);
-  const double c = std::cos(rad);
-  const double s = std::sin(rad);
-  return {v.x, v.y * c - v.z * s, v.y * s + v.z * c};
-}
-
-Vec3d rotate_y_deg(const Vec3d& v, double deg) {
-  const double rad = deg * (kPi / 180.0);
-  const double c = std::cos(rad);
-  const double s = std::sin(rad);
-  return {v.x * c + v.z * s, v.y, -v.x * s + v.z * c};
-}
-
-Vec3d rotate_euler_xyz_deg(const Vec3d& local, const Vec3d& euler_deg) {
-  const Vec3d rx = rotate_x_deg(local, euler_deg.x);
-  const Vec3d ry = rotate_y_deg(rx, euler_deg.y);
-  return rotate_xy_by_yaw_deg(ry, euler_deg.z);
-}
-
-Vec3d inverse_rotate_euler_xyz_deg(const Vec3d& world_delta, const Vec3d& euler_deg) {
-  const Vec3d rz = rotate_xy_by_yaw_deg(world_delta, -euler_deg.z);
-  const Vec3d ry = rotate_y_deg(rz, -euler_deg.y);
-  return rotate_x_deg(ry, -euler_deg.x);
-}
-
 Vec3d local_to_world_on_pole(const Transformd& tf, double yaw_deg, const Vec3d& local) {
-  Vec3d euler = tf.rotation_euler_deg;
-  euler.z = yaw_deg;
-  return tf.position + rotate_euler_xyz_deg(local, euler);
+  return LocalPointToWorld(BuildPoleFrame(tf, yaw_deg), local);
 }
 
 double normalize_yaw_deg(double yaw_deg) {
-  double out = std::fmod(yaw_deg, 360.0);
-  if (out <= -180.0) {
-    out += 360.0;
-  } else if (out > 180.0) {
-    out -= 360.0;
-  }
-  return out;
+  return NormalizeYawDeg(yaw_deg);
 }
 
 double effective_pole_yaw_for_layout(const Pole& pole) {
@@ -220,6 +174,7 @@ double effective_pole_yaw_for_layout(const Pole& pole) {
 
 CoreState::CoreState() {
   register_default_pole_types();
+  register_default_cable_templates();
   register_default_bundle_templates();
 }
 
@@ -332,10 +287,7 @@ EditResult<ObjectId> CoreState::AddBundle(int conductor_count, double phase_spac
   bundle.display_id = next_display_id("B");
   bundle.conductor_count = conductor_count;
   bundle.phase_spacing_m = phase_spacing_m;
-  bundle.kind = kind;
-  bundle.visual_sag_ratio = cache_state_.geometry_settings.sag_factor;
-  bundle.visual_wire_radius_m = 0.015;
-  bundle.visual_use_reference_length = true;
+  bundle.bundle_template_id = kind;
   edit_state_.bundles.insert(bundle);
 
   result.ok = true;
@@ -447,43 +399,48 @@ EditResult<ObjectId> CoreState::MovePole(ObjectId pole_id, const Transformd& new
   return result;
 }
 
+EditResult<bool> CoreState::ApplyPoleTilt(const std::vector<ObjectId>& pole_ids, double tilt_x_deg, double tilt_y_deg) {
+  EditResult<bool> result;
+  std::vector<ObjectId> targets = pole_ids;
+  if (targets.empty()) {
+    targets.reserve(edit_state_.poles.size());
+    for (const Pole& pole : edit_state_.poles.items()) {
+      targets.push_back(pole.id);
+    }
+  }
+  for (ObjectId pole_id : targets) {
+    Pole* pole = edit_state_.poles.find(pole_id);
+    if (pole == nullptr) {
+      result.error = "pole not found";
+      result.ok = false;
+      return result;
+    }
+    const Pole old_pole = *pole;
+    if (std::abs(pole->world_transform.rotation_euler_deg.x - tilt_x_deg) <= 1e-9 &&
+        std::abs(pole->world_transform.rotation_euler_deg.y - tilt_y_deg) <= 1e-9) {
+      continue;
+    }
+    pole->world_transform.rotation_euler_deg.x = tilt_x_deg;
+    pole->world_transform.rotation_euler_deg.y = tilt_y_deg;
+    finalize_pole_transform_update(pole->id, old_pole, &result.change_set);
+  }
+  result.ok = true;
+  result.value = true;
+  return result;
+}
+
 EditResult<ObjectId> CoreState::SetPoleTilt(ObjectId pole_id, double tilt_x_deg, double tilt_y_deg) {
   EditResult<ObjectId> result;
-  Pole* pole = edit_state_.poles.find(pole_id);
-  if (pole == nullptr) {
-    result.error = "pole not found";
-    return result;
-  }
-  if (std::abs(pole->world_transform.rotation_euler_deg.x - tilt_x_deg) <= 1e-9 &&
-      std::abs(pole->world_transform.rotation_euler_deg.y - tilt_y_deg) <= 1e-9) {
-    result.ok = true;
-    result.value = pole_id;
-    return result;
-  }
-  const Pole old_pole = *pole;
-  pole->world_transform.rotation_euler_deg.x = tilt_x_deg;
-  pole->world_transform.rotation_euler_deg.y = tilt_y_deg;
-  finalize_pole_transform_update(pole_id, old_pole, &result.change_set);
-  result.ok = true;
+  const auto apply = ApplyPoleTilt({pole_id}, tilt_x_deg, tilt_y_deg);
+  result.ok = apply.ok;
+  result.error = apply.error;
+  result.change_set = apply.change_set;
   result.value = pole_id;
   return result;
 }
 
 EditResult<bool> CoreState::SetAllPoleTilt(double tilt_x_deg, double tilt_y_deg) {
-  EditResult<bool> result;
-  for (Pole& pole : edit_state_.poles.items_mutable()) {
-    const Pole old_pole = pole;
-    if (std::abs(pole.world_transform.rotation_euler_deg.x - tilt_x_deg) <= 1e-9 &&
-        std::abs(pole.world_transform.rotation_euler_deg.y - tilt_y_deg) <= 1e-9) {
-      continue;
-    }
-    pole.world_transform.rotation_euler_deg.x = tilt_x_deg;
-    pole.world_transform.rotation_euler_deg.y = tilt_y_deg;
-    finalize_pole_transform_update(pole.id, old_pole, &result.change_set);
-  }
-  result.ok = true;
-  result.value = true;
-  return result;
+  return ApplyPoleTilt({}, tilt_x_deg, tilt_y_deg);
 }
 
 EditResult<ObjectId> CoreState::MovePort(ObjectId port_id, const Vec3d& new_world_position) {
@@ -949,7 +906,7 @@ CoreState::AddConnectionByPole(ObjectId pole_a_id, ObjectId pole_b_id, Connectio
   } else if (options.bundle_id != kInvalidObjectId) {
     const Bundle* existing_bundle = edit_state_.bundles.find(options.bundle_id);
     if (existing_bundle != nullptr) {
-      resolved_bundle_template = find_bundle_template(existing_bundle->kind);
+      resolved_bundle_template = find_bundle_template(existing_bundle->bundle_template_id);
     }
   }
   if (resolved_bundle_template != nullptr) {
@@ -1276,34 +1233,170 @@ EditResult<bool> CoreState::UpdateVisualSettings(const VisualSettings& settings,
   return result;
 }
 
-EditResult<bool> CoreState::UpdateAllBundleVisualSettings(double sag_ratio, double wire_radius_m,
-                                                          bool use_reference_length, bool mark_all_spans_dirty) {
+EditResult<bool> CoreState::UpdateCableTemplate(const CableTemplate& cable_template,
+                                                const std::vector<ObjectId>& preferred_visible_span_ids) {
   EditResult<bool> result;
-  sag_ratio = std::max(0.0, sag_ratio);
-  wire_radius_m = std::max(0.0, wire_radius_m);
-  bool changed = false;
-  for (Bundle& bundle : edit_state_.bundles.items_mutable()) {
-    const bool one_changed = std::abs(bundle.visual_sag_ratio - sag_ratio) > 1e-12 ||
-                             std::abs(bundle.visual_wire_radius_m - wire_radius_m) > 1e-12 ||
-                             bundle.visual_use_reference_length != use_reference_length;
-    if (!one_changed) {
+  auto it = cable_templates_.find(cable_template.id);
+  if (it == cable_templates_.end()) {
+    result.error = "cable template not found";
+    return result;
+  }
+
+  CableTemplate normalized = cable_template;
+  normalized.outer_diameter_m = std::max(0.0, normalized.outer_diameter_m);
+  normalized.bend_stiffness = std::max(0.0, normalized.bend_stiffness);
+  normalized.min_bend_radius_m = std::max(0.0, normalized.min_bend_radius_m);
+  normalized.sag_factor = std::max(0.0, normalized.sag_factor);
+  normalized.slack_factor = std::max(0.0, normalized.slack_factor);
+  normalized.version = it->second.version;
+
+  const bool changed =
+      normalized.name != it->second.name || std::abs(normalized.outer_diameter_m - it->second.outer_diameter_m) > 1e-12 ||
+      std::abs(normalized.bend_stiffness - it->second.bend_stiffness) > 1e-12 ||
+      std::abs(normalized.min_bend_radius_m - it->second.min_bend_radius_m) > 1e-12 ||
+      normalized.material_style != it->second.material_style || normalized.color_rgba != it->second.color_rgba ||
+      normalized.requires_insulator != it->second.requires_insulator ||
+      std::abs(normalized.sag_factor - it->second.sag_factor) > 1e-12 ||
+      std::abs(normalized.slack_factor - it->second.slack_factor) > 1e-12 ||
+      normalized.continuity_policy != it->second.continuity_policy;
+  if (!changed) {
+    result.ok = true;
+    result.value = false;
+    return result;
+  }
+
+  normalized.version += 1;
+  it->second = normalized;
+  result.ok = true;
+  result.value = true;
+
+  std::vector<ObjectId> ordered_target_span_ids{};
+  std::unordered_set<ObjectId> target_span_ids{};
+  ordered_target_span_ids.reserve(preferred_visible_span_ids.size() + relation_index_.spans_by_bundle.size());
+  for (ObjectId span_id : preferred_visible_span_ids) {
+    if (target_span_ids.insert(span_id).second) {
+      ordered_target_span_ids.push_back(span_id);
+    }
+  }
+  for (const auto& [bundle_id, span_ids] : relation_index_.spans_by_bundle) {
+    const Bundle* bundle = edit_state_.bundles.find(bundle_id);
+    if (bundle == nullptr) {
       continue;
     }
-    bundle.visual_sag_ratio = sag_ratio;
-    bundle.visual_wire_radius_m = wire_radius_m;
-    bundle.visual_use_reference_length = use_reference_length;
-    changed = true;
-    add_unique_id(result.change_set.updated_ids, bundle.id);
-  }
-  if (changed && mark_all_spans_dirty) {
-    for (const Span& span : edit_state_.spans.items()) {
-      mark_span_dirty(span.id, DirtyBits::kGeometry | DirtyBits::kRender, true);
-      add_unique_id(result.change_set.dirty_span_ids, span.id);
-      add_unique_id(result.change_set.updated_ids, span.id);
+    const BundleTemplate* bundle_template = find_bundle_template(bundle->bundle_template_id);
+    if (bundle_template == nullptr || bundle_template->cable_template_id != normalized.id) {
+      continue;
+    }
+    for (ObjectId span_id : span_ids) {
+      if (target_span_ids.insert(span_id).second) {
+        ordered_target_span_ids.push_back(span_id);
+      }
     }
   }
+  for (ObjectId span_id : ordered_target_span_ids) {
+    mark_span_dirty(span_id, DirtyBits::kGeometry | DirtyBits::kRender, true);
+    add_unique_id(result.change_set.dirty_span_ids, span_id);
+    add_unique_id(result.change_set.updated_ids, span_id);
+  }
+  return result;
+}
+
+EditResult<bool> CoreState::UpdateBundleTemplate(const BundleTemplate& bundle_template) {
+  EditResult<bool> result;
+  auto it = bundle_templates_.find(bundle_template.id);
+  if (it == bundle_templates_.end()) {
+    result.error = "bundle template not found";
+    return result;
+  }
+  if (find_cable_template(bundle_template.cable_template_id) == nullptr) {
+    result.error = "bundle template references unknown cable template";
+    return result;
+  }
+
+  BundleTemplate normalized = bundle_template;
+  normalized.version = it->second.version;
+  bool changed = false;
+  const bool visual_only_change =
+      normalized.cable_template_id != it->second.cable_template_id && normalized.category == it->second.category &&
+      normalized.default_layer == it->second.default_layer &&
+      normalized.preserve_conductor_identity == it->second.preserve_conductor_identity &&
+      normalized.count_rule == it->second.count_rule && normalized.fixed_count == it->second.fixed_count &&
+      normalized.min_count == it->second.min_count && normalized.max_count == it->second.max_count &&
+      normalized.default_count == it->second.default_count &&
+      std::abs(normalized.default_spacing_m - it->second.default_spacing_m) <= 1e-12 &&
+      normalized.allow_mirror == it->second.allow_mirror &&
+      normalized.allow_midair_node == it->second.allow_midair_node &&
+      normalized.allow_midair_branch == it->second.allow_midair_branch &&
+      normalized.support_style == it->second.support_style && normalized.branch_policy == it->second.branch_policy &&
+      normalized.continuity_policy == it->second.continuity_policy && normalized.name == it->second.name;
+
+  const bool topology_change =
+      normalized.category != it->second.category || normalized.default_layer != it->second.default_layer ||
+      normalized.preserve_conductor_identity != it->second.preserve_conductor_identity ||
+      normalized.count_rule != it->second.count_rule || normalized.fixed_count != it->second.fixed_count ||
+      normalized.min_count != it->second.min_count || normalized.max_count != it->second.max_count ||
+      normalized.default_count != it->second.default_count ||
+      std::abs(normalized.default_spacing_m - it->second.default_spacing_m) > 1e-12 ||
+      normalized.allow_mirror != it->second.allow_mirror ||
+      normalized.allow_midair_node != it->second.allow_midair_node ||
+      normalized.allow_midair_branch != it->second.allow_midair_branch ||
+      normalized.support_style != it->second.support_style || normalized.branch_policy != it->second.branch_policy ||
+      normalized.continuity_policy != it->second.continuity_policy;
+
+  changed = visual_only_change || topology_change || normalized.name != it->second.name;
+  if (!changed) {
+    result.ok = true;
+    result.value = false;
+    return result;
+  }
+
+  normalized.version += 1;
+  it->second = normalized;
   result.ok = true;
-  result.value = changed;
+  result.value = true;
+
+  template_dependency_state_.bundles_requiring_regeneration.clear();
+  template_dependency_state_.sessions_requiring_regeneration.clear();
+
+  for (Bundle& bundle : edit_state_.bundles.items_mutable()) {
+    if (bundle.bundle_template_id != normalized.id) {
+      continue;
+    }
+    add_unique_id(result.change_set.updated_ids, bundle.id);
+    if (visual_only_change) {
+      auto spans_it = relation_index_.spans_by_bundle.find(bundle.id);
+      if (spans_it == relation_index_.spans_by_bundle.end()) {
+        continue;
+      }
+      for (ObjectId span_id : spans_it->second) {
+        mark_span_dirty(span_id, DirtyBits::kGeometry | DirtyBits::kRender, true);
+        add_unique_id(result.change_set.dirty_span_ids, span_id);
+        add_unique_id(result.change_set.updated_ids, span_id);
+      }
+      continue;
+    }
+    if (topology_change) {
+      bundle.regeneration_required = true;
+      add_unique_id(template_dependency_state_.bundles_requiring_regeneration, bundle.id);
+      auto spans_it = relation_index_.spans_by_bundle.find(bundle.id);
+      if (spans_it == relation_index_.spans_by_bundle.end()) {
+        continue;
+      }
+      for (ObjectId span_id : spans_it->second) {
+        const Span* span = edit_state_.spans.find(span_id);
+        if (span == nullptr || span->generation.generation_session_id == 0) {
+          continue;
+        }
+        add_unique_id(template_dependency_state_.sessions_requiring_regeneration,
+                      span->generation.generation_session_id);
+      }
+    }
+  }
+  if (topology_change) {
+    for (ObjectId bundle_id : template_dependency_state_.bundles_requiring_regeneration) {
+      add_unique_id(result.change_set.updated_ids, bundle_id);
+    }
+  }
   return result;
 }
 
@@ -1341,10 +1434,7 @@ EditResult<bool> CoreState::ResetAllSpanReferenceLengths(bool mark_all_spans_dir
 double CoreState::effective_pole_yaw_deg(const Pole& pole) { return effective_pole_yaw_for_layout(pole); }
 
 Vec3d CoreState::to_local_on_pole(const Pole& pole, const Vec3d& world) {
-  const Vec3d d = world - pole.world_transform.position;
-  Vec3d euler = pole.world_transform.rotation_euler_deg;
-  euler.z = effective_pole_yaw_for_layout(pole);
-  return inverse_rotate_euler_xyz_deg(d, euler);
+  return WorldPointToLocal(BuildPoleFrame(pole.world_transform, effective_pole_yaw_for_layout(pole)), world);
 }
 
 SlotSide CoreState::preferred_side_from_geometry(const Pole& pole, const Pole* peer, double eps) {

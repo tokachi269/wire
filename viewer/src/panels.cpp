@@ -21,6 +21,118 @@ std::string DirtyBitsToText(wire::core::DirtyBits bits) {
   return out.empty() ? std::string("-") : out;
 }
 
+const char* SpanLayerLabel(wire::core::SpanLayer layer) {
+  switch (layer) {
+  case wire::core::SpanLayer::kHighVoltage:
+    return "HighVoltage";
+  case wire::core::SpanLayer::kLowVoltage:
+    return "LowVoltage";
+  case wire::core::SpanLayer::kCommunication:
+    return "Communication";
+  case wire::core::SpanLayer::kOptical:
+    return "Optical";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* CableMaterialStyleLabel(wire::core::CableMaterialStyleKind kind) {
+  switch (kind) {
+  case wire::core::CableMaterialStyleKind::kGeneric:
+    return "Generic";
+  case wire::core::CableMaterialStyleKind::kBareConductor:
+    return "BareConductor";
+  case wire::core::CableMaterialStyleKind::kInsulated:
+    return "Insulated";
+  case wire::core::CableMaterialStyleKind::kOptical:
+    return "Optical";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* ContinuityPolicyLabel(wire::core::CableContinuityPolicyHint policy) {
+  switch (policy) {
+  case wire::core::CableContinuityPolicyHint::kAuto:
+    return "Auto";
+  case wire::core::CableContinuityPolicyHint::kPreferG1:
+    return "PreferG1";
+  case wire::core::CableContinuityPolicyHint::kPreferG2:
+    return "PreferG2";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* BundleSupportStyleLabel(wire::core::BundleSupportStyleHint style) {
+  switch (style) {
+  case wire::core::BundleSupportStyleHint::kAuto:
+    return "Auto";
+  case wire::core::BundleSupportStyleHint::kCenterPreferred:
+    return "CenterPreferred";
+  case wire::core::BundleSupportStyleHint::kSideStructurePreferred:
+    return "SideStructurePreferred";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* BundleBranchPolicyLabel(wire::core::BundleBranchPolicyHint policy) {
+  switch (policy) {
+  case wire::core::BundleBranchPolicyHint::kAuto:
+    return "Auto";
+  case wire::core::BundleBranchPolicyHint::kPreferPassThrough:
+    return "PreferPassThrough";
+  case wire::core::BundleBranchPolicyHint::kPreferExplicitBranch:
+    return "PreferExplicitBranch";
+  default:
+    return "Unknown";
+  }
+}
+
+std::vector<wire::core::CableTemplateId> SortedCableTemplateIds(const CoreState& state) {
+  std::vector<wire::core::CableTemplateId> ids;
+  ids.reserve(state.view().cable_templates().size());
+  for (const auto& [id, _] : state.view().cable_templates()) {
+    ids.push_back(id);
+  }
+  std::sort(ids.begin(), ids.end());
+  return ids;
+}
+
+void LoadCableTemplateState(const CoreState& state, ViewerUiState& ui_state, wire::core::CableTemplateId id) {
+  const auto it = state.view().cable_templates().find(id);
+  if (it == state.view().cable_templates().end()) {
+    return;
+  }
+  ui_state.selected_cable_template_id = id;
+  ui_state.cable_template_name = it->second.name;
+  ui_state.cable_outer_diameter = it->second.outer_diameter_m;
+  ui_state.cable_bend_stiffness = it->second.bend_stiffness;
+  ui_state.cable_min_bend_radius = it->second.min_bend_radius_m;
+  ui_state.cable_material_style = static_cast<int>(it->second.material_style);
+  ui_state.cable_requires_insulator = it->second.requires_insulator;
+  ui_state.cable_sag_factor = it->second.sag_factor;
+  ui_state.cable_slack_factor = it->second.slack_factor;
+  ui_state.cable_continuity_policy = static_cast<int>(it->second.continuity_policy);
+}
+
+void LoadBundleTemplateState(const CoreState& state, ViewerUiState& ui_state, wire::core::BundleKind id) {
+  const auto it = state.view().bundle_templates().find(id);
+  if (it == state.view().bundle_templates().end()) {
+    return;
+  }
+  ui_state.selected_bundle_template_id = id;
+  ui_state.bundle_template_cable_template_id = it->second.cable_template_id;
+  ui_state.bundle_template_default_layer = static_cast<int>(it->second.default_layer);
+  ui_state.bundle_template_allow_mirror = it->second.allow_mirror;
+  ui_state.bundle_template_allow_midair_node = it->second.allow_midair_node;
+  ui_state.bundle_template_allow_midair_branch = it->second.allow_midair_branch;
+  ui_state.bundle_template_support_style = static_cast<int>(it->second.support_style);
+  ui_state.bundle_template_branch_policy = static_cast<int>(it->second.branch_policy);
+  ui_state.bundle_template_continuity_policy = static_cast<int>(it->second.continuity_policy);
+}
+
 void DrawObjectList(ViewerUiState& ui_state, const char* header, SelectedType type, const std::vector<ObjectId>& ids,
                     std::function<std::string(ObjectId)> make_label) {
   if (!ImGui::CollapsingHeader(header, ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -923,14 +1035,20 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
     ui_state.visual_insulator_length = vs.insulator_length_m;
     ui_state.visual_settings_loaded = true;
   }
-  if (!ui_state.bundle_visual_loaded) {
-    for (const auto& bundle : state.view().bundles().items()) {
-      ui_state.bundle_sag_ratio = bundle.visual_sag_ratio;
-      ui_state.bundle_wire_radius = bundle.visual_wire_radius_m;
-      ui_state.bundle_use_reference_length = bundle.visual_use_reference_length;
+  if (!ui_state.cable_template_loaded) {
+    for (const auto& [id, tpl] : state.view().cable_templates()) {
+      (void)tpl;
+      LoadCableTemplateState(state, ui_state, id);
       break;
     }
-    ui_state.bundle_visual_loaded = true;
+    ui_state.cable_template_loaded = true;
+  }
+  if (!ui_state.bundle_template_loaded) {
+    for (const auto& [id, _] : state.view().bundle_templates()) {
+      LoadBundleTemplateState(state, ui_state, id);
+      break;
+    }
+    ui_state.bundle_template_loaded = true;
   }
 
   const auto& recalc = state.view().last_recalc_stats();
@@ -1013,14 +1131,14 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
     }
   }
 
-  if (ImGui::CollapsingHeader("Pole Tilt / Wire Visual", ImGuiTreeNodeFlags_DefaultOpen)) {
+  if (ImGui::CollapsingHeader("Pole Tilt / Templates", ImGuiTreeNodeFlags_DefaultOpen)) {
     ImGui::InputDouble("Tilt X (deg)", &ui_state.tilt_all_x_deg, 0.5, 1.0, "%.2f");
     ImGui::InputDouble("Tilt Y (deg)", &ui_state.tilt_all_y_deg, 0.5, 1.0, "%.2f");
     if (ImGui::Button("Apply Tilt To All Poles")) {
-      const auto tilt = state.SetAllPoleTilt(ui_state.tilt_all_x_deg, ui_state.tilt_all_y_deg);
+      const auto tilt = state.ApplyPoleTilt({}, ui_state.tilt_all_x_deg, ui_state.tilt_all_y_deg);
       if (!tilt.ok) {
         ui_state.last_error = tilt.error;
-        PushLog(ui_state, "SetAllPoleTilt failed");
+        PushLog(ui_state, "ApplyPoleTilt failed");
       } else {
         ui_state.last_error.clear();
         PushLog(ui_state, "Applied tilt to all poles");
@@ -1039,20 +1157,243 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
     }
 
     ImGui::Separator();
-    ImGui::InputDouble("Bundle Sag Ratio", &ui_state.bundle_sag_ratio, 0.005, 0.01, "%.4f");
-    ImGui::InputDouble("Bundle Wire Radius", &ui_state.bundle_wire_radius, 0.001, 0.005, "%.4f");
-    ImGui::Checkbox("Use Reference Length", &ui_state.bundle_use_reference_length);
-    if (ImGui::Button("Apply Visual To All Bundles")) {
-      const auto apply = state.UpdateAllBundleVisualSettings(ui_state.bundle_sag_ratio, ui_state.bundle_wire_radius,
-                                                              ui_state.bundle_use_reference_length, true);
-      if (!apply.ok) {
-        ui_state.last_error = apply.error;
-        PushLog(ui_state, "UpdateAllBundleVisualSettings failed");
-      } else {
-        ui_state.last_error.clear();
-        PushLog(ui_state, "Updated visual settings for all bundles");
+    const auto cable_ids = SortedCableTemplateIds(state);
+    if (const auto it = state.view().cable_templates().find(ui_state.selected_cable_template_id);
+        it != state.view().cable_templates().end()) {
+      if (ImGui::BeginCombo("Cable Template", it->second.name.c_str())) {
+        for (wire::core::CableTemplateId id : cable_ids) {
+          const auto jt = state.view().cable_templates().find(id);
+          if (jt == state.view().cable_templates().end()) {
+            continue;
+          }
+          const bool selected = (id == ui_state.selected_cable_template_id);
+          if (ImGui::Selectable(jt->second.name.c_str(), selected)) {
+            LoadCableTemplateState(state, ui_state, id);
+          }
+          if (selected) {
+            ImGui::SetItemDefaultFocus();
+          }
+        }
+        ImGui::EndCombo();
       }
     }
+    ImGui::Text("Cable Name: %s", ui_state.cable_template_name.c_str());
+    ImGui::InputDouble("Cable Outer Diameter", &ui_state.cable_outer_diameter, 0.001, 0.005, "%.4f");
+    ImGui::InputDouble("Cable Bend Stiffness", &ui_state.cable_bend_stiffness, 0.1, 0.2, "%.3f");
+    ImGui::InputDouble("Cable Min Bend Radius", &ui_state.cable_min_bend_radius, 0.01, 0.05, "%.3f");
+    const auto selected_material = static_cast<wire::core::CableMaterialStyleKind>(ui_state.cable_material_style);
+    if (ImGui::BeginCombo("Cable Material", CableMaterialStyleLabel(selected_material))) {
+      for (int raw = static_cast<int>(wire::core::CableMaterialStyleKind::kGeneric);
+           raw <= static_cast<int>(wire::core::CableMaterialStyleKind::kOptical); ++raw) {
+        const auto material = static_cast<wire::core::CableMaterialStyleKind>(raw);
+        const bool selected = (raw == ui_state.cable_material_style);
+        if (ImGui::Selectable(CableMaterialStyleLabel(material), selected)) {
+          ui_state.cable_material_style = raw;
+        }
+        if (selected) {
+          ImGui::SetItemDefaultFocus();
+        }
+      }
+      ImGui::EndCombo();
+    }
+    ImGui::Checkbox("Cable Requires Insulator", &ui_state.cable_requires_insulator);
+    ImGui::InputDouble("Cable Sag Factor", &ui_state.cable_sag_factor, 0.005, 0.01, "%.4f");
+    ImGui::InputDouble("Cable Slack Factor", &ui_state.cable_slack_factor, 0.005, 0.01, "%.4f");
+    const auto selected_cable_continuity =
+        static_cast<wire::core::CableContinuityPolicyHint>(ui_state.cable_continuity_policy);
+    if (ImGui::BeginCombo("Cable Continuity", ContinuityPolicyLabel(selected_cable_continuity))) {
+      for (int raw = static_cast<int>(wire::core::CableContinuityPolicyHint::kAuto);
+           raw <= static_cast<int>(wire::core::CableContinuityPolicyHint::kPreferG2); ++raw) {
+        const auto policy = static_cast<wire::core::CableContinuityPolicyHint>(raw);
+        const bool selected = (raw == ui_state.cable_continuity_policy);
+        if (ImGui::Selectable(ContinuityPolicyLabel(policy), selected)) {
+          ui_state.cable_continuity_policy = raw;
+        }
+        if (selected) {
+          ImGui::SetItemDefaultFocus();
+        }
+      }
+      ImGui::EndCombo();
+    }
+    if (ImGui::Button("Apply Cable Template")) {
+      const auto it = state.view().cable_templates().find(ui_state.selected_cable_template_id);
+      if (it == state.view().cable_templates().end()) {
+        ui_state.last_error = "selected cable template missing";
+      } else {
+        wire::core::CableTemplate tpl = it->second;
+        tpl.outer_diameter_m = ui_state.cable_outer_diameter;
+        tpl.bend_stiffness = ui_state.cable_bend_stiffness;
+        tpl.min_bend_radius_m = ui_state.cable_min_bend_radius;
+        tpl.material_style = static_cast<wire::core::CableMaterialStyleKind>(ui_state.cable_material_style);
+        tpl.requires_insulator = ui_state.cable_requires_insulator;
+        tpl.sag_factor = ui_state.cable_sag_factor;
+        tpl.slack_factor = ui_state.cable_slack_factor;
+        tpl.continuity_policy =
+            static_cast<wire::core::CableContinuityPolicyHint>(ui_state.cable_continuity_policy);
+        const auto apply = state.UpdateCableTemplate(tpl, ui_state.preferred_visible_span_ids);
+        if (!apply.ok) {
+          ui_state.last_error = apply.error;
+          PushLog(ui_state, "UpdateCableTemplate failed");
+        } else {
+          ui_state.last_error.clear();
+          LoadCableTemplateState(state, ui_state, tpl.id);
+          PushLog(ui_state, "Cable template updated; visible-first=" +
+                                    std::to_string(ui_state.preferred_visible_span_count) + " dirty spans=" +
+                                    std::to_string(apply.change_set.dirty_span_ids.size()));
+        }
+      }
+    }
+    ImGui::Text("Preferred Visible Spans: %d", ui_state.preferred_visible_span_count);
+
+    ImGui::Separator();
+    const auto bundle_ids = SortedBundleTemplateKinds(state);
+    if (const auto it = state.view().bundle_templates().find(ui_state.selected_bundle_template_id);
+        it != state.view().bundle_templates().end()) {
+      if (ImGui::BeginCombo("Bundle Template", it->second.name.c_str())) {
+        for (wire::core::BundleKind id : bundle_ids) {
+          const auto jt = state.view().bundle_templates().find(id);
+          if (jt == state.view().bundle_templates().end()) {
+            continue;
+          }
+          const bool selected = (id == ui_state.selected_bundle_template_id);
+          if (ImGui::Selectable(jt->second.name.c_str(), selected)) {
+            LoadBundleTemplateState(state, ui_state, id);
+          }
+          if (selected) {
+            ImGui::SetItemDefaultFocus();
+          }
+        }
+        ImGui::EndCombo();
+      }
+      ImGui::Text("Category: %s", CategoryLabel(it->second.category));
+      ImGui::Text("Count Rule: %s", it->second.count_rule == wire::core::BundleCountRuleKind::kFixed ? "Fixed" : "Range");
+      if (it->second.count_rule == wire::core::BundleCountRuleKind::kFixed) {
+        ImGui::Text("Fixed Count: %d", it->second.fixed_count);
+      } else {
+        ImGui::Text("Count Range: %d..%d default=%d", it->second.min_count, it->second.max_count,
+                    it->second.default_count);
+      }
+      const auto selected_bundle_cable_it =
+          state.view().cable_templates().find(ui_state.bundle_template_cable_template_id);
+      const char* selected_bundle_cable_label =
+          selected_bundle_cable_it != state.view().cable_templates().end() ? selected_bundle_cable_it->second.name.c_str()
+                                                                           : "(missing)";
+      if (ImGui::BeginCombo("Bundle Cable Template", selected_bundle_cable_label)) {
+        for (wire::core::CableTemplateId id : cable_ids) {
+          const auto cable_it = state.view().cable_templates().find(id);
+          if (cable_it == state.view().cable_templates().end()) {
+            continue;
+          }
+          const bool selected = (id == ui_state.bundle_template_cable_template_id);
+          if (ImGui::Selectable(cable_it->second.name.c_str(), selected)) {
+            ui_state.bundle_template_cable_template_id = id;
+          }
+          if (selected) {
+            ImGui::SetItemDefaultFocus();
+          }
+        }
+        ImGui::EndCombo();
+      }
+      const auto selected_layer = static_cast<wire::core::SpanLayer>(ui_state.bundle_template_default_layer);
+      if (ImGui::BeginCombo("Bundle Default Layer", SpanLayerLabel(selected_layer))) {
+        constexpr wire::core::SpanLayer kLayers[] = {
+            wire::core::SpanLayer::kHighVoltage, wire::core::SpanLayer::kLowVoltage,
+            wire::core::SpanLayer::kCommunication, wire::core::SpanLayer::kOptical};
+        for (wire::core::SpanLayer layer : kLayers) {
+          const bool selected = (layer == selected_layer);
+          if (ImGui::Selectable(SpanLayerLabel(layer), selected)) {
+            ui_state.bundle_template_default_layer = static_cast<int>(layer);
+          }
+          if (selected) {
+            ImGui::SetItemDefaultFocus();
+          }
+        }
+        ImGui::EndCombo();
+      }
+      ImGui::Checkbox("Bundle Allow Mirror", &ui_state.bundle_template_allow_mirror);
+      ImGui::Checkbox("Bundle Allow Midair Node", &ui_state.bundle_template_allow_midair_node);
+      ImGui::Checkbox("Bundle Allow Midair Branch", &ui_state.bundle_template_allow_midair_branch);
+      const auto selected_support_style =
+          static_cast<wire::core::BundleSupportStyleHint>(ui_state.bundle_template_support_style);
+      if (ImGui::BeginCombo("Bundle Support Style", BundleSupportStyleLabel(selected_support_style))) {
+        for (int raw = static_cast<int>(wire::core::BundleSupportStyleHint::kAuto);
+             raw <= static_cast<int>(wire::core::BundleSupportStyleHint::kSideStructurePreferred); ++raw) {
+          const auto style = static_cast<wire::core::BundleSupportStyleHint>(raw);
+          const bool selected = (raw == ui_state.bundle_template_support_style);
+          if (ImGui::Selectable(BundleSupportStyleLabel(style), selected)) {
+            ui_state.bundle_template_support_style = raw;
+          }
+          if (selected) {
+            ImGui::SetItemDefaultFocus();
+          }
+        }
+        ImGui::EndCombo();
+      }
+      const auto selected_branch_policy =
+          static_cast<wire::core::BundleBranchPolicyHint>(ui_state.bundle_template_branch_policy);
+      if (ImGui::BeginCombo("Bundle Branch Policy", BundleBranchPolicyLabel(selected_branch_policy))) {
+        for (int raw = static_cast<int>(wire::core::BundleBranchPolicyHint::kAuto);
+             raw <= static_cast<int>(wire::core::BundleBranchPolicyHint::kPreferExplicitBranch); ++raw) {
+          const auto policy = static_cast<wire::core::BundleBranchPolicyHint>(raw);
+          const bool selected = (raw == ui_state.bundle_template_branch_policy);
+          if (ImGui::Selectable(BundleBranchPolicyLabel(policy), selected)) {
+            ui_state.bundle_template_branch_policy = raw;
+          }
+          if (selected) {
+            ImGui::SetItemDefaultFocus();
+          }
+        }
+        ImGui::EndCombo();
+      }
+      const auto selected_bundle_continuity =
+          static_cast<wire::core::CableContinuityPolicyHint>(ui_state.bundle_template_continuity_policy);
+      if (ImGui::BeginCombo("Bundle Continuity", ContinuityPolicyLabel(selected_bundle_continuity))) {
+        for (int raw = static_cast<int>(wire::core::CableContinuityPolicyHint::kAuto);
+             raw <= static_cast<int>(wire::core::CableContinuityPolicyHint::kPreferG2); ++raw) {
+          const auto policy = static_cast<wire::core::CableContinuityPolicyHint>(raw);
+          const bool selected = (raw == ui_state.bundle_template_continuity_policy);
+          if (ImGui::Selectable(ContinuityPolicyLabel(policy), selected)) {
+            ui_state.bundle_template_continuity_policy = raw;
+          }
+          if (selected) {
+            ImGui::SetItemDefaultFocus();
+          }
+        }
+        ImGui::EndCombo();
+      }
+      if (ImGui::Button("Apply Bundle Template")) {
+        wire::core::BundleTemplate tpl = it->second;
+        tpl.cable_template_id = ui_state.bundle_template_cable_template_id;
+        tpl.default_layer = static_cast<wire::core::SpanLayer>(ui_state.bundle_template_default_layer);
+        tpl.allow_mirror = ui_state.bundle_template_allow_mirror;
+        tpl.allow_midair_node = ui_state.bundle_template_allow_midair_node;
+        tpl.allow_midair_branch = ui_state.bundle_template_allow_midair_branch;
+        tpl.support_style = static_cast<wire::core::BundleSupportStyleHint>(ui_state.bundle_template_support_style);
+        tpl.branch_policy = static_cast<wire::core::BundleBranchPolicyHint>(ui_state.bundle_template_branch_policy);
+        tpl.continuity_policy =
+            static_cast<wire::core::CableContinuityPolicyHint>(ui_state.bundle_template_continuity_policy);
+        const auto apply = state.UpdateBundleTemplate(tpl);
+        if (!apply.ok) {
+          ui_state.last_error = apply.error;
+          PushLog(ui_state, "UpdateBundleTemplate failed");
+        } else {
+          ui_state.last_error.clear();
+          const auto& deps = state.view().template_dependency_state();
+          if (!deps.bundles_requiring_regeneration.empty() || !deps.sessions_requiring_regeneration.empty()) {
+            PushLog(ui_state, "Bundle template updated; regeneration required bundles=" +
+                                      std::to_string(deps.bundles_requiring_regeneration.size()) + " sessions=" +
+                                      std::to_string(deps.sessions_requiring_regeneration.size()));
+          } else {
+            PushLog(ui_state, "Bundle template updated; dirty spans=" +
+                                      std::to_string(apply.change_set.dirty_span_ids.size()));
+          }
+          LoadBundleTemplateState(state, ui_state, tpl.id);
+        }
+      }
+    }
+    const auto& template_deps = state.view().template_dependency_state();
+    ImGui::Text("Regen Required Bundles: %d", static_cast<int>(template_deps.bundles_requiring_regeneration.size()));
+    ImGui::Text("Regen Required Sessions: %d", static_cast<int>(template_deps.sessions_requiring_regeneration.size()));
 
     ImGui::Separator();
     ImGui::Checkbox("Enable Support Structures", &ui_state.visual_enable_support_structures);

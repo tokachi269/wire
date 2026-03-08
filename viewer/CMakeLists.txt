@@ -64,6 +64,7 @@ add_executable(
   src/main.cpp
   src/backbone_plane.cpp
   src/draw_path.cpp
+  src/host_coords.cpp
   src/panels.cpp
   src/path_pick_policy.cpp
   src/render_overlay.cpp
@@ -83,8 +84,10 @@ target_link_libraries(
 add_executable(
   wire_viewer_tests
   src/backbone_plane.cpp
+  src/host_coords.cpp
   src/path_pick_policy.cpp
   tests/backbone_plane.cpp
+  tests/host_coords.cpp
   tests/pick_policy.cpp
   tests/registry.cpp
   tests/runner.cpp
@@ -101,6 +104,7 @@ target_link_libraries(
   wire_viewer_tests
   PRIVATE
   wire_core
+  raylib
 )
 
 add_test(NAME wire_viewer_tests COMMAND wire_viewer_tests)

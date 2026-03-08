@@ -652,8 +652,8 @@ BackboneResult CoreState::BuildBackboneResult() const {
                         span.generation.generation_order, incident_map);
     accumulate_incident(node_b, node_a, span.generation.generation_session_id,
                         span.generation.generation_order, incident_map);
-    node_bundle_degree[node_a][bundle->kind] += 1;
-    node_bundle_degree[node_b][bundle->kind] += 1;
+    node_bundle_degree[node_a][bundle->bundle_template_id] += 1;
+    node_bundle_degree[node_b][bundle->bundle_template_id] += 1;
   }
 
   std::vector<ObjectId> junction_nodes{};

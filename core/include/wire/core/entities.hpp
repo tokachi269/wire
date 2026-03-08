@@ -11,6 +11,8 @@ namespace wire::core {
 
 using PoleTypeId = std::uint32_t;
 constexpr PoleTypeId kInvalidPoleTypeId = 0;
+using CableTemplateId = std::uint32_t;
+constexpr CableTemplateId kInvalidCableTemplateId = 0;
 enum class ConnectionCategory : std::uint8_t {
   kHighVoltage = 0,
   kLowVoltage = 1,
@@ -130,6 +132,31 @@ enum class BundleKind : std::uint8_t {
   kOptical = 3,
 };
 
+enum class CableMaterialStyleKind : std::uint8_t {
+  kGeneric = 0,
+  kBareConductor = 1,
+  kInsulated = 2,
+  kOptical = 3,
+};
+
+enum class CableContinuityPolicyHint : std::uint8_t {
+  kAuto = 0,
+  kPreferG1 = 1,
+  kPreferG2 = 2,
+};
+
+enum class BundleSupportStyleHint : std::uint8_t {
+  kAuto = 0,
+  kCenterPreferred = 1,
+  kSideStructurePreferred = 2,
+};
+
+enum class BundleBranchPolicyHint : std::uint8_t {
+  kAuto = 0,
+  kPreferPassThrough = 1,
+  kPreferExplicitBranch = 2,
+};
+
 enum class SupportKind : std::uint8_t {
   kPole = 0,
   kMidair = 1,
@@ -209,6 +236,7 @@ struct Pole {
   ObjectId id = kInvalidObjectId;
   std::string display_id{};
   std::string name{};
+  // Pole tilt lives on the instance transform and must not be overwritten by template edits.
   Transformd world_transform{};
   double height_m = 10.0;
   PoleKind kind = PoleKind::kGeneric;
@@ -266,11 +294,8 @@ struct Bundle {
   std::string display_id{};
   int conductor_count = 1;
   double phase_spacing_m = 0.3;
-  BundleKind kind = BundleKind::kLowVoltage;
-  // Persisted visual policy (authoritative settings, not generated geometry).
-  double visual_sag_ratio = 0.03;
-  double visual_wire_radius_m = 0.015;
-  bool visual_use_reference_length = true;
+  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  bool regeneration_required = false;
 };
 
 // Entity-layer connection edge.

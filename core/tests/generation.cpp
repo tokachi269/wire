@@ -498,7 +498,7 @@ bool test_backbone_midair_branch_generates_only_allowed_templates() {
     return false;
   }
   const wire::core::Bundle* bundle = state.view().edit_state().bundles.find(generated_second.value.bundle_ids.front());
-  if (bundle == nullptr || bundle->kind != wire::core::BundleKind::kLowVoltage) {
+  if (bundle == nullptr || bundle->bundle_template_id != wire::core::BundleKind::kLowVoltage) {
     return false;
   }
   for (const ObjectId span_id : generated_second.value.generated_span_ids) {
@@ -507,7 +507,7 @@ bool test_backbone_midair_branch_generates_only_allowed_templates() {
       return false;
     }
     const wire::core::Bundle* span_bundle = state.view().edit_state().bundles.find(span->bundle_id);
-    if (span_bundle == nullptr || span_bundle->kind != wire::core::BundleKind::kLowVoltage) {
+    if (span_bundle == nullptr || span_bundle->bundle_template_id != wire::core::BundleKind::kLowVoltage) {
       return false;
     }
   }

@@ -1,5 +1,6 @@
 #include "registry.hpp"
 #include "helpers.hpp"
+#include "wire/core/coord_utils.hpp"
 
 #include <algorithm>
 #include <array>
@@ -90,7 +91,8 @@ bool test_sag_mode_changes_midpoint_and_keeps_endpoints() {
 
   const std::size_t mid = sag_curve->points.size() / 2;
   return almost_equal(sag_curve->points.front(), line_points.front()) &&
-         almost_equal(sag_curve->points.back(), line_points.back()) && sag_curve->points[mid].z < line_points[mid].z;
+         almost_equal(sag_curve->points.back(), line_points.back()) &&
+         wire::core::HeightAlongWorldUp(sag_curve->points[mid]) < wire::core::HeightAlongWorldUp(line_points[mid]);
 }
 
 bool test_geometry_bounds_version_follow_and_locality() {
@@ -190,7 +192,7 @@ bool test_bounds_follow_geometry_change() {
   if (bounds_line == nullptr) {
     return false;
   }
-  const double line_min_z = bounds_line->whole.min.z;
+  const double line_min_height = wire::core::HeightAlongWorldUp(bounds_line->whole.min);
 
   wire::core::GeometrySettings sag = line;
   sag.sag_enabled = true;
@@ -201,7 +203,7 @@ bool test_bounds_follow_geometry_change() {
     return false;
   }
 
-  return bounds_sag->whole.min.z < line_min_z;
+  return wire::core::HeightAlongWorldUp(bounds_sag->whole.min) < line_min_height;
 }
 
 bool test_generate_poles_along_road_basic() {
@@ -1109,12 +1111,31 @@ bool test_preferred_side_uses_geometry() {
   return right == wire::core::SlotSide::kRight && left == wire::core::SlotSide::kLeft;
 }
 
+bool test_world_up_and_lateral_axis_are_consistent() {
+  const wire::core::Vec3d forward{1.0, 2.0, 0.0};
+  const wire::core::Vec3d lateral = wire::core::ComputeLateralAxis(forward);
+  return almost_equal(wire::core::Dot(lateral, wire::core::WorldUp()), 0.0, 1e-9) &&
+         almost_equal(wire::core::Dot(lateral, forward), 0.0, 1e-9) &&
+         wire::core::LengthSquared(lateral) > 0.99;
+}
+
+bool test_build_pole_frame_roundtrips_local_point_under_tilt() {
+  wire::core::Transformd tf{};
+  tf.position = {3.0, -4.0, 1.5};
+  tf.rotation_euler_deg = {7.0, -5.0, 15.0};
+  const wire::core::PoleFrame frame = wire::core::BuildPoleFrame(tf, 33.0);
+  const wire::core::Vec3d local{0.2, 0.8, 6.0};
+  const wire::core::Vec3d world = wire::core::LocalPointToWorld(frame, local);
+  const wire::core::Vec3d roundtrip = wire::core::WorldPointToLocal(frame, world);
+  return almost_equal(local, roundtrip, 1e-9);
+}
+
 void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C13_Phase4_Curve_LineDeterministic", "Line mode curve cache is deterministic", "Exact", false, test_curve_cache_line_mode_is_deterministic);
-  test_registry::AddTest(tests, "C14_Phase4_Curve_SagBasic", "Sag mode changes midpoint and keeps endpoints", "Invariant", false, test_sag_mode_changes_midpoint_and_keeps_endpoints);
+  test_registry::AddTest(tests, "C14_Phase4_Curve_SagBasic", "Sag mode lowers midpoint along world up and keeps endpoints", "Invariant", false, test_sag_mode_changes_midpoint_and_keeps_endpoints);
   test_registry::AddTest(tests, "C15_Phase4_DirtyVersion_LocalGeometryBounds", "Geometry dirty propagates to bounds/render locally", "Exact", false, test_geometry_bounds_version_follow_and_locality);
   test_registry::AddTest(tests, "C16_Phase4_Bounds_Generated", "Bounds cache is generated and valid", "Invariant", false, test_bounds_cache_generated_and_valid);
-  test_registry::AddTest(tests, "C17_Phase4_Bounds_FollowGeometry", "Bounds follows geometry setting change", "Invariant", false, test_bounds_follow_geometry_change);
+  test_registry::AddTest(tests, "C17_Phase4_Bounds_FollowGeometry", "Bounds follow geometry setting change along world up", "Invariant", false, test_bounds_follow_geometry_change);
   test_registry::AddTest(tests, "C19_Phase45_GeneratePolesAlongRoad_Basic", "Road interval generates pole line with pole type", "Invariant", false, test_generate_poles_along_road_basic);
   test_registry::AddTest(tests, "C30_Phase47_PoleContext_Classification", "Pole context classification marks terminal/straight/corner", "Invariant", false, test_pole_context_classification_basic);
   test_registry::AddTest(tests, "C31_Phase47_AngleCorrection_Bounds", "Angle correction side scale stays finite and bounded", "Invariant", false, test_angle_correction_bounds_and_finite);
@@ -1129,10 +1150,16 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C60_Phase48h_Guide_ReusedVertexReorient", "Reused guide vertex pole is reoriented by sharp-corner rule when not manually overridden", "Invariant", false, test_generate_from_guide_reused_vertex_reorients_to_corner_rule);
   test_registry::AddTest(tests, "C108_Phase56_SharpCorner_EntryConsistency", "Sharp-corner pole orientation stays identical between simple-line and backbone entry paths", "Invariant", false, test_sharp_corner_orientation_consistent_across_entry_paths);
   test_registry::AddTest(tests, "C70_Phase48h_Guide_ReusedVertexPortReproject", "Reused guide vertex reprojections move template-owned ports when corner orientation changes", "Invariant", false, test_generate_from_guide_reused_pole_reprojects_owned_ports);
-  test_registry::AddTest(tests, "C57_Phase48h_Guide_DuplicatePointsRobust", "Guide generation with duplicate points stays finite and keeps path Z", "Invariant", false, test_generate_from_guide_with_duplicate_points_is_robust);
+  test_registry::AddTest(tests, "C57_Phase48h_Guide_DuplicatePointsRobust", "Guide generation with duplicate points stays finite and keeps path height along world up", "Invariant", false, test_generate_from_guide_with_duplicate_points_is_robust);
   test_registry::AddTest(tests, "C58_Phase48h_Guide_ReverseSymmetry", "Guide reverse mode preserves generated pole position set", "Invariant", false, test_generate_from_guide_reverse_mode_position_symmetry);
   test_registry::AddTest(tests, "C59_Phase48h_Guide_AvoidConstraint", "Guide generation avoids forbidden radius around avoid_points", "Invariant", false, test_generate_from_guide_respects_avoid_constraints);
   test_registry::AddTest(tests, "C37_Phase48_PreferredSide_Geometry", "Preferred side is decided by peer geometry", "Invariant", false, test_preferred_side_uses_geometry);
+  test_registry::AddTest(tests, "C126_Coord_WorldUpLateralConsistency",
+                         "WorldUp and ComputeLateralAxis stay perpendicular and normalized by property",
+                         "Invariant", false, test_world_up_and_lateral_axis_are_consistent);
+  test_registry::AddTest(tests, "C127_Coord_PoleFrameRoundtrip",
+                         "BuildPoleFrame keeps local/world roundtrip stable under tilt",
+                         "Invariant", false, test_build_pole_frame_roundtrips_local_point_under_tilt);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_geometry_tests);

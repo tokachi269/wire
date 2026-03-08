@@ -33,7 +33,7 @@ wire::core::BundleKind ResolveBundleTemplateForPathPick(const wire::core::CoreSt
   if (pick.hit_kind == wire::core::PickHitKind::kSegment) {
     if (const wire::core::Span* span = state.view().edit_state().spans.find(pick.hit_id); span != nullptr) {
       if (const wire::core::Bundle* bundle = state.view().edit_state().bundles.find(span->bundle_id); bundle != nullptr) {
-        return bundle->kind;
+        return bundle->bundle_template_id;
       }
     }
   }

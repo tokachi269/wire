@@ -698,7 +698,7 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
         continue;
       }
       const Bundle* bundle = edit_state_access().bundles.find(span.bundle_id);
-      if (bundle == nullptr || bundle->kind != plan.template_id) {
+      if (bundle == nullptr || bundle->bundle_template_id != plan.template_id) {
         continue;
       }
       const Port* pa = edit_state_access().ports.find(span.port_a_id);

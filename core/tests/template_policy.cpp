@@ -90,6 +90,100 @@ bool test_backbone_support_node_allows_per_bundle_mode_mix() {
   return hv_ok && comm_ok;
 }
 
+bool test_bundle_template_topology_change_marks_regeneration_required() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  const ObjectId pole_a = state.AddPole({}, 10.0, "A").value;
+  wire::core::Transformd b{};
+  b.position = {10.0, 0.0, 0.0};
+  const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
+  (void)state.ApplyPoleType(pole_a, type_ids.front());
+  (void)state.ApplyPoleType(pole_b, type_ids.front());
+
+  wire::core::CoreState::AddConnectionByPoleOptions options{};
+  options.auto_create_bundle = true;
+  options.use_bundle_template = true;
+  options.bundle_template_id = wire::core::BundleKind::kLowVoltage;
+  const auto add = state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kLowVoltage, options);
+  if (!add.ok) {
+    return false;
+  }
+
+  const auto tpl_it = state.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  if (tpl_it == state.view().bundle_templates().end()) {
+    return false;
+  }
+  wire::core::BundleTemplate tpl = tpl_it->second;
+  tpl.default_layer = wire::core::SpanLayer::kCommunication;
+  const auto apply = state.UpdateBundleTemplate(tpl);
+  if (!apply.ok || !apply.value) {
+    return false;
+  }
+  const auto* span = state.view().edit_state().spans.find(add.value.span_id);
+  if (span == nullptr) {
+    return false;
+  }
+  const auto* bundle = state.view().edit_state().bundles.find(span->bundle_id);
+  if (bundle == nullptr || !bundle->regeneration_required) {
+    return false;
+  }
+  const auto& deps = state.view().template_dependency_state();
+  return std::find(deps.bundles_requiring_regeneration.begin(), deps.bundles_requiring_regeneration.end(), bundle->id) !=
+         deps.bundles_requiring_regeneration.end();
+}
+
+bool test_bundle_template_visual_change_updates_dirty_spans_without_regeneration() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  const ObjectId pole_a = state.AddPole({}, 10.0, "A").value;
+  wire::core::Transformd b{};
+  b.position = {10.0, 0.0, 0.0};
+  const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
+  (void)state.ApplyPoleType(pole_a, type_ids.front());
+  (void)state.ApplyPoleType(pole_b, type_ids.front());
+
+  wire::core::CoreState::AddConnectionByPoleOptions options{};
+  options.auto_create_bundle = true;
+  options.use_bundle_template = true;
+  options.bundle_template_id = wire::core::BundleKind::kLowVoltage;
+  const auto add = state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kLowVoltage, options);
+  if (!add.ok) {
+    return false;
+  }
+
+  const auto tpl_it = state.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  if (tpl_it == state.view().bundle_templates().end()) {
+    return false;
+  }
+  wire::core::BundleTemplate tpl = tpl_it->second;
+  tpl.cable_template_id = wire::core::CableTemplateId{3};
+  const auto apply = state.UpdateBundleTemplate(tpl);
+  if (!apply.ok || !apply.value) {
+    return false;
+  }
+  const auto* span = state.view().edit_state().spans.find(add.value.span_id);
+  if (span == nullptr) {
+    return false;
+  }
+  const auto* bundle = state.view().edit_state().bundles.find(span->bundle_id);
+  if (bundle == nullptr || bundle->regeneration_required) {
+    return false;
+  }
+  const auto* runtime = state.view().find_span_runtime_state(span->id);
+  if (!has_dirty(runtime, wire::core::DirtyBits::kGeometry | wire::core::DirtyBits::kRender)) {
+    return false;
+  }
+  const auto& deps = state.view().template_dependency_state();
+  return deps.bundles_requiring_regeneration.empty() && deps.sessions_requiring_regeneration.empty() &&
+         contains_id(apply.change_set.dirty_span_ids, span->id);
+}
+
 // Intent: Detailed generation should not crash when path includes non-pole support nodes.
 
 bool test_backbone_generation_requires_non_empty_bundles() {
@@ -159,7 +253,8 @@ bool test_add_connection_template_profile_overrides_category_fallback() {
     return false;
   }
   const auto* bundle = state.view().edit_state().bundles.find(span->bundle_id);
-  if (bundle == nullptr || bundle->kind != wire::core::BundleKind::kHighVoltage || bundle->conductor_count != 3) {
+  if (bundle == nullptr || bundle->bundle_template_id != wire::core::BundleKind::kHighVoltage ||
+      bundle->conductor_count != 3) {
     return false;
   }
   const auto* port_a = state.view().edit_state().ports.find(add.value.port_a_id);
@@ -265,7 +360,7 @@ bool test_drop_generation_uses_template_defaults() {
     return false;
   }
   const auto& tpl = tpl_it->second;
-  return span->layer == tpl.default_layer && bundle->kind == tpl.id &&
+  return span->layer == tpl.default_layer && bundle->bundle_template_id == tpl.id &&
          almost_equal(bundle->phase_spacing_m, tpl.default_spacing_m, 1e-9);
 }
 
@@ -376,9 +471,9 @@ bool test_backbone_bundle_template_multi_request_generates_multiple_bundles() {
     if (bundle == nullptr) {
       return false;
     }
-    if (bundle->kind == wire::core::BundleKind::kLowVoltage) {
+    if (bundle->bundle_template_id == wire::core::BundleKind::kLowVoltage) {
       ++low_voltage_bundle_count;
-    } else if (bundle->kind == wire::core::BundleKind::kCommunication) {
+    } else if (bundle->bundle_template_id == wire::core::BundleKind::kCommunication) {
       ++communication_bundle_count;
     }
   }
@@ -427,6 +522,12 @@ void register_template_policy_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C102_Backbone_PerBundleModeMix",
                          "One support node can hold different two-state modes per bundle", "Invariant", false,
                          test_backbone_support_node_allows_per_bundle_mode_mix);
+  test_registry::AddTest(tests, "C123_BundleTemplate_TopologyChangeMarksRegeneration",
+                         "Topology-affecting bundle template edits mark dependent bundles for regeneration",
+                         "Invariant", false, test_bundle_template_topology_change_marks_regeneration_required);
+  test_registry::AddTest(tests, "C124_BundleTemplate_VisualChangeMarksDirtyOnly",
+                         "Visual-only bundle template edits dirty dependent spans without forcing regeneration",
+                         "Invariant", false, test_bundle_template_visual_change_updates_dirty_spans_without_regeneration);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_template_policy_tests);

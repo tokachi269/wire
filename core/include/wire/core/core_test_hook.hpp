@@ -14,6 +14,9 @@ struct CoreStateTestHook {
   static std::unordered_map<BundleKind, BundleTemplate>& bundle_templates(CoreState& state) {
     return state.bundle_templates_;
   }
+  static std::unordered_map<CableTemplateId, CableTemplate>& cable_templates(CoreState& state) {
+    return state.cable_templates_;
+  }
   static std::vector<SegmentLaneAssignment>& last_lane_assignments(CoreState& state) {
     return state.last_lane_assignments_;
   }

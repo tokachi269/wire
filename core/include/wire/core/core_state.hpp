@@ -77,6 +77,18 @@ struct VisualCache {
   std::unordered_map<ObjectId, SpanVisualCacheEntry> by_span{};
 };
 
+struct SpanRenderCacheEntry {
+  // Render-only appearance data derived from templates + current span geometry.
+  double wire_radius_m = 0.015;
+  std::uint32_t color_rgba = 0xFFFFFFFFu;
+  CableMaterialStyleKind material_style = CableMaterialStyleKind::kGeneric;
+  std::uint64_t source_version = 0;
+};
+
+struct RenderCache {
+  std::unordered_map<ObjectId, SpanRenderCacheEntry> by_span{};
+};
+
 struct VisualSettings {
   bool enable_support_structures = true;
   bool enable_insulators = true;
@@ -93,6 +105,13 @@ struct CacheState {
   BoundsCache bounds_cache{};
   VisualSettings visual_settings{};
   VisualCache visual_cache{};
+  RenderCache render_cache{};
+};
+
+struct TemplateDependencyState {
+  // Topology-affecting template edits must not be applied as render-only cache updates.
+  std::vector<ObjectId> bundles_requiring_regeneration{};
+  std::vector<std::uint64_t> sessions_requiring_regeneration{};
 };
 
 struct LayoutSettings {
@@ -296,6 +315,8 @@ public:
   EditResult<ObjectId> AddAttachment(ObjectId span_id, double t, AttachmentKind kind = AttachmentKind::kGeneric,
                                      double offset_m = 0.0);
   EditResult<ObjectId> MovePole(ObjectId pole_id, const Transformd& new_world_transform);
+  // Pole tilt is instance-owned. This command updates explicit target poles without touching templates.
+  EditResult<bool> ApplyPoleTilt(const std::vector<ObjectId>& pole_ids, double tilt_x_deg, double tilt_y_deg);
   EditResult<ObjectId> SetPoleTilt(ObjectId pole_id, double tilt_x_deg, double tilt_y_deg);
   EditResult<bool> SetAllPoleTilt(double tilt_x_deg, double tilt_y_deg);
   EditResult<ObjectId> MovePort(ObjectId port_id, const Vec3d& new_world_position);
@@ -363,12 +384,14 @@ public:
   EditResult<bool> UpdateGeometrySettings(const GeometrySettings& settings, bool mark_all_spans_dirty = true);
   EditResult<bool> UpdateLayoutSettings(const LayoutSettings& settings);
   EditResult<bool> UpdateVisualSettings(const VisualSettings& settings, bool mark_all_spans_dirty = true);
-  EditResult<bool> UpdateAllBundleVisualSettings(double sag_ratio, double wire_radius_m, bool use_reference_length,
-                                                 bool mark_all_spans_dirty = true);
+  EditResult<bool> UpdateCableTemplate(const CableTemplate& cable_template,
+                                       const std::vector<ObjectId>& preferred_visible_span_ids = {});
+  EditResult<bool> UpdateBundleTemplate(const BundleTemplate& bundle_template);
   EditResult<bool> ResetAllSpanReferenceLengths(bool mark_all_spans_dirty = true);
   [[nodiscard]] const CurveCacheEntry* find_curve_cache(ObjectId span_id) const;
   [[nodiscard]] const BoundsCacheEntry* find_bounds_cache(ObjectId span_id) const;
   [[nodiscard]] const SpanVisualCacheEntry* find_span_visual_cache(ObjectId span_id) const;
+  [[nodiscard]] const SpanRenderCacheEntry* find_span_render_cache(ObjectId span_id) const;
   [[nodiscard]] ValidationResult ValidateFast() const;
 
   [[nodiscard]] CommitResult Commit(const CommitOptions& options = {});
@@ -419,8 +442,10 @@ private:
   [[nodiscard]] static BundleKind category_to_bundle_kind(ConnectionCategory category);
   [[nodiscard]] static PortKind category_to_port_kind(ConnectionCategory category);
   void register_default_pole_types();
+  void register_default_cable_templates();
   void register_default_bundle_templates();
   [[nodiscard]] const PoleTypeDefinition* find_pole_type(PoleTypeId pole_type_id) const;
+  [[nodiscard]] const CableTemplate* find_cable_template(CableTemplateId cable_template_id) const;
   [[nodiscard]] const BundleTemplate* find_bundle_template(BundleKind bundle_template_id) const;
   [[nodiscard]] std::vector<PortSlotTemplate> sorted_port_slots(const PoleTypeDefinition& pole_type,
                                                                 ConnectionCategory category) const;
@@ -517,7 +542,9 @@ private:
   ConnectionIndex connection_index_{};
   RelationIndex relation_index_{};
   std::unordered_map<PoleTypeId, PoleTypeDefinition> pole_types_{};
+  std::unordered_map<CableTemplateId, CableTemplate> cable_templates_{};
   std::unordered_map<BundleKind, BundleTemplate> bundle_templates_{};
+  TemplateDependencyState template_dependency_state_{};
   // Derived cache/runtime layer.
   std::unordered_map<ObjectId, SpanRuntimeState> span_runtime_states_{};
   DirtyQueue dirty_queue_{};
@@ -564,8 +591,14 @@ public:
   [[nodiscard]] const std::unordered_map<PoleTypeId, PoleTypeDefinition>& pole_types() const {
     return state_.pole_types_;
   }
+  [[nodiscard]] const std::unordered_map<CableTemplateId, CableTemplate>& cable_templates() const {
+    return state_.cable_templates_;
+  }
   [[nodiscard]] const std::unordered_map<BundleKind, BundleTemplate>& bundle_templates() const {
     return state_.bundle_templates_;
+  }
+  [[nodiscard]] const TemplateDependencyState& template_dependency_state() const {
+    return state_.template_dependency_state_;
   }
   [[nodiscard]] const std::vector<SlotSelectionDebugRecord>& slot_selection_debug_records() const {
     return state_.slot_selection_debug_records_;
@@ -578,6 +611,9 @@ public:
   }
   [[nodiscard]] const SpanVisualCacheEntry* find_span_visual_cache(ObjectId span_id) const {
     return state_.find_span_visual_cache(span_id);
+  }
+  [[nodiscard]] const SpanRenderCacheEntry* find_span_render_cache(ObjectId span_id) const {
+    return state_.find_span_render_cache(span_id);
   }
 
 private:

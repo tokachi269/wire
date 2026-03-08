@@ -1,4 +1,4 @@
-# Core Spec Ledger (Phase4.8)
+﻿# Core Spec Ledger (Phase4.8)
 
 ## Scope and policy
 - 観測根拠: 公開API戻り値、`view()`、`connection_index()`、`relation_index()`、`find_*cache()`、`slot_selection_debug_records()`、`last_path_direction_debug()`、`last_lane_assignments()`、`last_generation_backbone()`、`Validate()` のみ。
@@ -21,10 +21,10 @@
 | C11 | 柱起点引込 | PoleType適用済 | AddDropFromPole | Invariant: service span生成 | spans/ports | 引込崩壊防止 |
 | C12 | 線起点引込 | Span1本 | AddDropFromSpan | Invariant: split+drop整合 | spans/index | 分岐引込維持 |
 | C13 | 直線幾何決定性 | 同一状態 | 再生成 | Exact: 点列一致 | CurveCache | 再現性 |
-| C14 | サグ基本 | Span1本 | line→sag | Invariant: 端点一致+中点低下 | CurveCache | 接続維持 |
+| C14 | サグ基本 | Span1本 | line→sag | Invariant: 端点一致+中点がworld up方向に低下 | CurveCache | 接続維持 |
 | C15 | Version追随局所性 | 独立Span2本 | Port移動→再計算 | Exact: 対象のみ追随 | runtime | 局所更新維持 |
 | C16 | Bounds有効性 | Span1本 | 再計算 | Invariant: AABB有効 | BoundsCache | 前段データ健全 |
-| C17 | Bounds追随 | Span1本 | sag設定変更 | Invariant: AABB更新 | BoundsCache | 表示追随 |
+| C17 | Bounds追随 | Span1本 | sag設定変更 | Invariant: AABBがworld up方向の変化に追随して更新 | BoundsCache | 表示追随 |
 | C18 | デモ密度 | make_demo_state | なし | Invariant: 最低件数以上 | edit_state | 初期視認性 |
 | C19 | 道路Pole生成 | PoleTypeあり | GeneratePolesAlongRoad | Invariant: 本数/Type/RoadAuto | poles/generation | 自動配置信頼性 |
 | C20 | 短polyline拒否 | PoleTypeあり | GenerateSimpleLine(点1) | Exact: fail+状態不変 | error/count | 入力ミス耐性 |
@@ -51,12 +51,6 @@
 | C110 | 明示Pole node再利用 | 既存Poleを始点にした2本目Path | GenerateFromBackboneSpec(LV, node_specs.node_id) | Invariant: 明示node_idのPoleを再利用し、重複Poleを生成しない | generated pole ids / backbone route | DrawPathの既存node接続を座標一致頼みに戻さない |
 | C111 | 明示SupportNode再利用 | 既存Midairを始点にした2本目Path | GenerateFromBackboneSpec(LV, node_specs.node_id) | Invariant: 明示node_idのSupportNodeを次のbackboneでも再利用する | last_generation_backbone.nodes | DrawPathの空中分岐接続を新規node化しない |
 | C112 | Midair始点延長の詳細生成 | 既存Midairを始点にした短い2点Path | GenerateFromBackboneSpec(LV, node_specs.node_id) | Invariant: 新規 branch 側に pole/span が少なくとも1本ずつ生成される | generated_pole_ids / generated_span_ids | 中間レイキャスト始点で詳細生成が空振りしない |
-| C113 | Midair始点延長の最初の1区間保持 | 既存Midairを始点にした2点Path | GenerateFromBackboneSpec(LV, node_specs.node_id) | Invariant: Midair support node から最初の detail pole までの区間が route/span として欠落しない | generated_span_ids / FindBackboneRoute | 中間始点の延長で最初の1区間だけ抜ける回帰防止 |
-| C114 | Midair分岐の source span 高さ継承 | backbone 0m 上の中間 pick から branch 開始 | ResolveBranchPick + GenerateFromBackboneSpec(LV) | Invariant: backbone 上の Midair node 位置とは独立に、最初の detail span 端点高さは source span 高さを継承する | branch port z / source span midpoint z | 抽象 backbone 高さを detail 生成高さに誤用する回帰防止 |
-| C115 | Midair 1クリック延長の余計な橋渡しなし | 既存 Midair から終点 1 点だけで延長 | GenerateFromBackboneSpec(LV, node_specs.node_id) | Invariant: 新規 pole/span は各 1 本だけ | generated_pole_ids / generated_span_ids / route | 中間クリック延長で不要な自動中間 pole を増やさない |
-| C116 | Midair branch で禁止テンプレを静かに除外 | source-edge を持つ Midair を起点に HV 生成 | ResolveBranchPick + GenerateFromBackboneSpec(HV_3PH) | Invariant: request 自体は成功し、HV bundle / pole / span は追加されない | generated ids / counts | 操作入力は止めず、生成だけをテンプレ規則で制御する |
-| C117 | Path input 用の midair policy bypass | Segment中間クリック + HV template + enforce_midair_template_policy=false | ResolveBranchPick(PickResult, HV) | Invariant: Midair SupportNode を解決できる | ResolveBranchPick結果 / last_generation_backbone.nodes | DrawPath の中間クリックを template 規則で塞がない |
-| C118 | Midair branch の混在テンプレ部分生成 | source-edge Midair を起点に LV+HV 生成 | ResolveBranchPick + GenerateFromBackboneSpec(LV+HV) | Invariant: allow_midair_branch=true の bundle だけ生成される | bundle_ids / generated spans | 混在テンプレで disallow bundle だけを落とす |
 | C101 | HV空中分岐規格フラグ固定 | HV template | GenerateFromBackboneSpec(HV_3PH, legacy branch mode値を注入) | Exact: fail（unsupported mode）かつ `allow_midair_branch=false` | error / bundle_templates | 高圧規格逸脱の混入防止 |
 | C102 | Bundle別接続モード共存 | 同一Midair点 + HV/COMM複数bundle | GenerateFromBackboneSpec(HV+COMM) | Invariant: 同一SupportNodeでHV=PassThrough/COMM=NotPresentを同時保持 | last_generation_backbone.nodes[].bundle_modes | ノード単位固定分岐モデルの混入防止 |
 | C103 | 非Poleノード経由の詳細生成安定性 | 3点Pathの中点をBuilding指定 | GenerateFromBackboneSpec(LV) | Invariant: 生成が失敗/クラッシュせずSpan生成される | result.generated_span_ids | 非Pole入力での生成停止防止 |
@@ -70,8 +64,8 @@
 | C66 | Pole Pin/Unpin切替 | 既存Pole | SetPolePlacementMode(Auto→Manual→Auto) | Exact: mode遷移とuser_edited整合 | pole fields | ユーザー明示ピン留め運用 |
 | C67 | セッション局所再生成でManual Pole保持 | 既存session生成 + 中間PoleをManual化 | RegenerateSessionAutoParts(session,newGuide) | Invariant: Manual Pole位置不変、Auto部分のみ更新 | pole位置/mode/span数 | 軽微変更で手直し消失防止 |
 | C68 | セッション局所再生成でManual Port保持 | 既存session生成 + PortをManual化 | RegenerateSessionAutoParts(session,newGuide) | Invariant: Manual Port位置不変 | port位置/mode | ポート手直し保護 |
-| C70 | Guide?????Port??? | ????Pole???????Guide | ??Guide???????Pole?Yaw??????? | Invariant: ?????????????Port??????? | owned port?? / pole yaw | ??????Port??????????????? |
-| C71 | MovePole?Auto Port????Manual?? | ???Pole + Manual Port?? | MovePole | Invariant: Auto Port???????Manual Port?????? | port?? / runtime dirty | Pole??????????Auto???????? |
+| C70 | Guide再利用頂点Port再投影 | 既存Poleを再利用するGuide | 角向き変更を伴うGuide再生成 | Invariant: corner向き変更時にtemplate-owned Portが再投影される | owned port位置 / pole yaw | 再利用PoleでPort位置が古いまま残る不具合防止 |
+| C71 | MovePoleでAuto Port再投影とManual保護 | 既存Pole + Manual Portあり | MovePole | Invariant: Auto Portだけが再投影され、Manual Portは維持される | port位置 / runtime dirty | Pole移動で手修正Portが壊れない |
 | C72 | セッション局所再生成でAuto Pole配下Manual Port保持 | 既存session生成 + Auto Pole配下PortをManual化 | RegenerateSessionAutoParts(session,newGuide) | Invariant: owner PoleはAutoのまま、Manual Port位置不変 | pole mode/port位置 | Port手直しをPole Pin必須にしない |
 | C69 | 他セッション非干渉 | session1/session2を別生成 | RegenerateSessionAutoParts(session1,...) | Invariant: session2のPole/Span不変 | pole/span存在と位置 | 局所更新の安全性 |
 | C36 | DrawPath点直配置 | クリック点3 | GenerateSimpleLineFromPoints | Exact: Pole数=点数,位置一致,yaw一致 | pole position/yaw | DrawPath直感性 |
@@ -96,23 +90,23 @@
 | C94 | 接続時template指定+auto_create無効 | 2Pole + use_template=true + auto_create=false + bundle_id未指定 | AddConnectionByPole | Exact: bundle_id必須エラー | error | 暗黙no-opの混入防止 |
 | C95 | 接続時span_layer上書き競合拒否 | 2Pole + template=HV + span_layer=LV | AddConnectionByPole | Exact: span_layer conflictエラー | error | layer二重指定の矛盾混入防止 |
 | C96 | Dropはテンプレ既定利用 | PoleType適用済Pole | AddDropFromPole(kDrop) | Invariant: Bundle spacing/layerがテンプレ既定に一致 | span layer / bundle spacing | ハードコード設定の再混入防止 |
-| C98 | Backbone????????? | ??bundle path????? | GenerateFromBackboneSpec???? | Invariant: ???????????????????? | lane assignments / boundary ports | ??????????????????????? |
+| C98 | Backbone延長時の境界導体順保持 | 既存bundle pathを延長するBackbone | GenerateFromBackboneSpecで既存末端から延長 | Invariant: 延長境界で導体順が反転せず保持される | lane assignments / boundary ports | Backbone延長で境界の見た目が崩れない |
 | C73 | 固定テンプレcount上書き拒否 | BackboneSpec + HV_3PH | GenerateFromBackboneSpec(bundle=count指定) | Exact: fail（上書き不可） | error | 固定規格の強制 |
 | C74 | 非HVテンプレ固定1本 | BackboneSpec + LV既定テンプレ | GenerateFromBackboneSpec(bundle=count未指定) | Invariant: 区間ごとに1本生成 | generated span数/bundle count | 規格固定で入力削減 |
 | C75 | 非HV固定テンプレcount上書き拒否 | BackboneSpec + LV既定テンプレ | GenerateFromBackboneSpec(bundle=count指定) | Exact: fail（上書き不可） | error | 固定規格の強制 |
 | C77 | 複数テンプレ同時生成 | BackboneSpec + LV/COMM複合指定 | GenerateFromBackboneSpec(bundles複数) | Invariant: bundleが複数生成され、Span数が合算本数に一致 | result.bundle_ids/generated spans | 複数束同時入力の成立 |
-| C78 | Pole tilt?Auto Port?????? | ???Pole | SetPoleTilt???? | Invariant: Auto Port???????????????????? | port?? / visual cache | ????????????????????? |
-| C79 | ??????????? | ???Pole?Span | Pole tilt?????? | Invariant: ???????????????? | curve cache / reference_length | ?????????????? |
-| C80 | ??slot????????? | center slot???PoleType | PoleType???Port?? | Invariant: center slot?Pole???????+??????? | port local/world?? | ??Port?Pole???????? |
-| C81 | ???insulator?????? | ?????????? | ??? | Invariant: insulator???????????? | visual cache | ???????????????? |
-| C82 | T?junction??????? | 2??DrawPath??????? | GenerateFromBackboneSpec?2? | Invariant: ???session?junction?? order=0 ????? | BackboneResult.junctions | ??????????????????? |
-| C83 | Cross junction???????? | ????????? | BuildBackboneResult???? | Invariant: incident order??????????? | BackboneResult.junctions | ????????????????? |
-| C84 | ??path?junction????????? | ?????? + ??DrawPath?? | GenerateFromBackboneSpec????? | Invariant: prioritized_session_id ???session????? | BackboneResult.junctions | ????????????????????? |
-| C85 | mirror????? | grouped bundle path | GenerateFromBackboneSpec(HV/COMM) | Invariant: ????????/?????????????????? | lane assignments | ?????? permutation ???????? |
-| C86 | ???????????? | ??acute path???? | GenerateFromBackboneSpec(COMM,count=4) | Invariant: ??????????????????0 | lane assignments | ??????????????????? |
-| C87 | HV3??path???????? | acute path + HV_3PH | GenerateFromBackboneSpec(HV_3PH) | Invariant: 3???????????????? | lane assignments / local Y? | ??3?????????????? |
-| C88 | Backbone HV3??template???????? | acute backbone path + HV_3PH | GenerateFromBackboneSpec(HV_3PH) | Invariant: template????3??????????? | lane assignments / local Y? | ???????????????? |
-| C89 | 3??????????? | ????3?bundle | GenerateFromBackboneSpec(????????) | Invariant: 3????????????????????? | lane assignments | ?????????????????? |
+| C78 | Pole tiltでAuto Port再投影と見た目追随 | 既存Pole | SetPoleTilt | Invariant: Auto Port再投影とSpan visual cache更新が同じ経路で起きる | port位置 / visual cache | 傾き変更後に線の見た目が古いまま残らない |
+| C79 | 参照長によるサグ安定 | 既存Pole + Span | Pole tilt後に再計算 | Invariant: reference_lengthによりサグ深さが視覚的に安定する | curve cache / reference_length | 傾き変更でたるみが不自然に跳ねない |
+| C80 | center slotのPole非重なり | center slotを持つPoleType | PoleType適用でPort生成 | Invariant: center slotはPole中心線から半径+クリアランス分だけ離れる | port local/world位置 | center PortがPoleに埋まらない |
+| C81 | insulatorは電力系のみ表示 | 電力線と非電力線の両方がある | 再計算 | Invariant: insulator visualは電力系でのみ生成される | visual cache | 非電力線に碍子が誤表示されない |
+| C82 | T-junctionの一次session優先 | 2本のDrawPathがT字で接続 | GenerateFromBackboneSpecを2回実行 | Invariant: 最初のsessionがjunction primary order=0を維持する | BackboneResult.junctions | 後から足した経路で主系統順が壊れない |
+| C83 | Cross junction順序の安定 | 交差junctionを再構築できる状態 | BuildBackboneResultを繰り返し実行 | Invariant: incident orderが再構築後も安定する | BackboneResult.junctions | junction順序が再計算で揺れない |
+| C84 | 後続pathでjunction優先順を上書きしない | 既存path + 後から追加したDrawPath | GenerateFromBackboneSpecを追加実行 | Invariant: prioritized_session_idが初回sessionのまま維持される | BackboneResult.junctions | 後続pathで既存junctionの主従が壊れない |
+| C85 | mirror処理は2択に留まる | grouped bundle path | GenerateFromBackboneSpec(HV/COMM) | Invariant: mirror解決が反転あり/なしの2択だけで、任意並び替えを導入しない | lane assignments | permutation追加による複雑化を防ぐ |
+| C86 | acute pattern suiteの反転なし | 複数acute pathパターン | GenerateFromBackboneSpec(COMM,count=4) | Invariant: 全パターンでlane順逆転数が0 | lane assignments | 鋭角パターン群での見た目破綻防止 |
+| C87 | HV3 acute pathの相ねじれ防止 | acute path + HV_3PH | GenerateFromBackboneSpec(HV_3PH) | Invariant: 3相の導体順が区間をまたいでねじれない | lane assignments / local Y順 | 高圧3相の相順崩れ防止 |
+| C88 | Backbone HV3 acute pathのtemplate経路ねじれ防止 | acute backbone path + HV_3PH | GenerateFromBackboneSpec(HV_3PH) | Invariant: template生成経路でも3相の導体順がねじれない | lane assignments / local Y順 | Backbone入口でも高圧3相の相順が壊れない |
+| C89 | 3相ポリシーのカテゴリ非依存性 | 複数カテゴリの3相bundle | GenerateFromBackboneSpec(3相bundle群) | Invariant: 3相ポリシーがカテゴリ名に依存せず同じ規則で働く | lane assignments | カテゴリ分岐の混入防止 |
 | C50 | Port初期モード | 新規Port追加 | AddPort | Exact: position_mode=Auto | port fields | 新規Port生成規則の固定 |
 | C51 | Port手修正/解除 | 接続済Port | SetPortWorldPositionManual→ResetPortPositionToAuto | Invariant: Manual化→Auto復帰, 関連SpanのみDirty | port/runtime | 手直し維持と復帰性 |
 | C52 | Manual保護 | 手修正Portあり | SetPoleFlip180 | Invariant: Manual Port位置が維持される | port position/mode | 軽微再生成で手修正消失防止 |
@@ -121,7 +115,7 @@
 | C55 | Backbone経路 | Bundle付きSpan生成済 | BuildBackboneEdges/FindBackboneRoute | Invariant: bundle付きedge構築と経路取得 | backbone edge/route | ルート計算基盤維持 |
 | C56 | 鋭角閾値境界 | 非対称3点角（コーナー内角基準） | コーナー内角74度/75度/76度でGenerateSimpleLineFromPoints | Invariant: `内角<=75`で補正適用、`内角>75`で非適用 | middle pole context.sharp_orientation_applied | 閾値バグによる向き破綻防止 |
 | C60 | Guide再利用頂点の向き再評価 | 既存頂点Poleを再利用可能なGuide | 同一Guideを再生成（頂点PoleのYawを事前に崩す） | Invariant: override無しなら再利用頂点Poleのside軸が二等分線直交方向へ再評価される | vertex pole yaw/context(sharp_*) | 再生成で角向きが古いまま残る不具合防止 |
-| C57 | Guide重複点ロバスト | PoleTypeあり | 重複点含むGuideでGenerateFromBackboneSpec | Invariant: 成功しPole座標有限、path Z維持 | generated pole positions/Validate | 入力ノイズ耐性 |
+| C57 | Guide重複点ロバスト | PoleTypeあり | 重複点含むGuideでGenerateFromBackboneSpec | Invariant: 成功しPole座標有限、pathのworld up方向高さを維持 | generated pole positions/Validate | 入力ノイズ耐性 |
 | C58 | Reverse対称性 | 同一Guide | Forward/ReverseでGenerateFromBackboneSpec | Invariant: 生成Pole位置集合が一致（順序非依存） | generated pole positions set | 方向モードで幾何が破綻しない |
 | C59 | Avoid制約尊重 | PoleTypeあり | avoid_points/avoid_radius指定GenerateFromBackboneSpec | Invariant: 生成Poleが禁止半径内に入らない | pole positions vs avoid radius | 回避制約の信頼性 |
 

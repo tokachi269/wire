@@ -18,6 +18,14 @@ using wire::core::SpanKind;
 using wire::core::SpanLayer;
 
 namespace {
+template <typename T, typename = void> struct has_allow_midair_branch_member : std::false_type {};
+template <typename T>
+struct has_allow_midair_branch_member<T, std::void_t<decltype(std::declval<T>().allow_midair_branch)>> : std::true_type {};
+
+template <typename T, typename = void> struct has_bezier_control_points_member : std::false_type {};
+template <typename T>
+struct has_bezier_control_points_member<T, std::void_t<decltype(std::declval<T>().bezier_control_points)>> : std::true_type {};
+
 bool test_bundle_query_spans_by_bundle() {
   CoreState state;
   const ObjectId pole_a = state.AddPole({}, 10.0, "A").value;
@@ -258,6 +266,169 @@ bool test_visual_insulators_only_for_electric_lines() {
   return has_insulator(lv.value.span_id) && !has_insulator(comm.value.span_id);
 }
 
+bool test_cable_template_outer_diameter_updates_render_radius() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  wire::core::Transformd a_tf{};
+  wire::core::Transformd b_tf{};
+  b_tf.position = {10.0, 0.0, 0.0};
+  const ObjectId pole_a = state.AddPole(a_tf, 10.0, "A").value;
+  const ObjectId pole_b = state.AddPole(b_tf, 10.0, "B").value;
+  if (!state.ApplyPoleType(pole_a, type_ids.front()).ok || !state.ApplyPoleType(pole_b, type_ids.front()).ok) {
+    return false;
+  }
+  const auto add = add_connection_by_category(state, pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage);
+  if (!add.ok) {
+    return false;
+  }
+  wire::core::CommitOptions options{};
+  options.run_recalc = true;
+  options.run_validate = false;
+  (void)state.Commit(options);
+
+  const auto* before_render = state.view().find_span_render_cache(add.value.span_id);
+  const auto* span = state.view().edit_state().spans.find(add.value.span_id);
+  const auto* bundle = (span == nullptr) ? nullptr : state.view().edit_state().bundles.find(span->bundle_id);
+  if (before_render == nullptr || bundle == nullptr) {
+    return false;
+  }
+  const double before_radius = before_render->wire_radius_m;
+  const auto tpl_it = state.view().bundle_templates().find(bundle->bundle_template_id);
+  if (tpl_it == state.view().bundle_templates().end()) {
+    return false;
+  }
+  const auto cable_it = state.view().cable_templates().find(tpl_it->second.cable_template_id);
+  if (cable_it == state.view().cable_templates().end()) {
+    return false;
+  }
+  wire::core::CableTemplate cable = cable_it->second;
+  cable.outer_diameter_m *= 1.5;
+  if (!state.UpdateCableTemplate(cable).ok) {
+    return false;
+  }
+  (void)state.Commit(options);
+  const auto* after_render = state.view().find_span_render_cache(add.value.span_id);
+  return after_render != nullptr && after_render->wire_radius_m > before_radius;
+}
+
+bool test_cable_template_requires_insulator_toggles_visual_parts() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  wire::core::Transformd a_tf{};
+  wire::core::Transformd b_tf{};
+  b_tf.position = {10.0, 0.0, 0.0};
+  const ObjectId pole_a = state.AddPole(a_tf, 10.0, "A").value;
+  const ObjectId pole_b = state.AddPole(b_tf, 10.0, "B").value;
+  if (!state.ApplyPoleType(pole_a, type_ids.front()).ok || !state.ApplyPoleType(pole_b, type_ids.front()).ok) {
+    return false;
+  }
+  const auto add = add_connection_by_category(state, pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage);
+  if (!add.ok) {
+    return false;
+  }
+  wire::core::CommitOptions options{};
+  options.run_recalc = true;
+  options.run_validate = false;
+  (void)state.Commit(options);
+
+  const auto* span = state.view().edit_state().spans.find(add.value.span_id);
+  const auto* bundle = (span == nullptr) ? nullptr : state.view().edit_state().bundles.find(span->bundle_id);
+  if (bundle == nullptr) {
+    return false;
+  }
+  const auto tpl_it = state.view().bundle_templates().find(bundle->bundle_template_id);
+  if (tpl_it == state.view().bundle_templates().end()) {
+    return false;
+  }
+  const auto cable_it = state.view().cable_templates().find(tpl_it->second.cable_template_id);
+  if (cable_it == state.view().cable_templates().end()) {
+    return false;
+  }
+  auto has_insulator = [&](ObjectId span_id) -> bool {
+    const auto* visual = state.find_span_visual_cache(span_id);
+    if (visual == nullptr) {
+      return false;
+    }
+    for (const auto& part : visual->parts) {
+      if (part.kind == wire::core::VisualPartKind::kInsulator) {
+        return true;
+      }
+    }
+    return false;
+  };
+  if (!has_insulator(add.value.span_id)) {
+    return false;
+  }
+  wire::core::CableTemplate cable = cable_it->second;
+  cable.requires_insulator = false;
+  if (!state.UpdateCableTemplate(cable).ok) {
+    return false;
+  }
+  (void)state.Commit(options);
+  return !has_insulator(add.value.span_id);
+}
+
+bool test_template_type_ownership_is_separated() {
+  constexpr bool bundle_has_flag = has_allow_midair_branch_member<wire::core::BundleTemplate>::value;
+  constexpr bool cable_has_flag = has_allow_midair_branch_member<wire::core::CableTemplate>::value;
+  constexpr bool span_has_bezier = has_bezier_control_points_member<wire::core::Span>::value;
+  constexpr bool bundle_has_bezier = has_bezier_control_points_member<wire::core::Bundle>::value;
+  return bundle_has_flag && !cable_has_flag && !span_has_bezier && !bundle_has_bezier;
+}
+
+bool test_cable_template_edit_preserves_pole_tilt_instance_value() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  const ObjectId pole = state.AddPole({}, 10.0, "P").value;
+  if (!state.ApplyPoleType(pole, type_ids.front()).ok) {
+    return false;
+  }
+  if (!state.SetPoleTilt(pole, 7.0, 3.0).ok) {
+    return false;
+  }
+  const auto& cables = state.view().cable_templates();
+  if (cables.empty()) {
+    return false;
+  }
+  wire::core::CableTemplate cable = cables.begin()->second;
+  cable.outer_diameter_m += 0.005;
+  if (!state.UpdateCableTemplate(cable).ok) {
+    return false;
+  }
+  const auto* updated_pole = state.view().edit_state().poles.find(pole);
+  return updated_pole != nullptr &&
+         almost_equal(updated_pole->world_transform.rotation_euler_deg.x, 7.0, 1e-9) &&
+         almost_equal(updated_pole->world_transform.rotation_euler_deg.y, 3.0, 1e-9);
+}
+
+bool test_apply_pole_tilt_updates_explicit_selection_only() {
+  CoreState state;
+  const ObjectId pole_a = state.AddPole({}, 10.0, "A").value;
+  wire::core::Transformd moved{};
+  moved.position = {5.0, 0.0, 0.0};
+  const ObjectId pole_b = state.AddPole(moved, 10.0, "B").value;
+  const auto apply = state.ApplyPoleTilt({pole_a}, 9.0, 4.0);
+  if (!apply.ok) {
+    return false;
+  }
+  const auto* updated_a = state.view().edit_state().poles.find(pole_a);
+  const auto* updated_b = state.view().edit_state().poles.find(pole_b);
+  return updated_a != nullptr && updated_b != nullptr &&
+         almost_equal(updated_a->world_transform.rotation_euler_deg.x, 9.0, 1e-9) &&
+         almost_equal(updated_a->world_transform.rotation_euler_deg.y, 4.0, 1e-9) &&
+         almost_equal(updated_b->world_transform.rotation_euler_deg.x, 0.0, 1e-9) &&
+         almost_equal(updated_b->world_transform.rotation_euler_deg.y, 0.0, 1e-9);
+}
+
 void register_bundle_visual_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C44_Phase48a_Bundle_AssignQuery", "Bundle assignment and query API works on spans", "Invariant", false, test_bundle_query_spans_by_bundle);
   test_registry::AddTest(tests, "C45_Phase48a_Bundle_InvalidReject", "Invalid bundle references are rejected", "Exact", true, test_add_span_invalid_bundle_fails);
@@ -265,6 +436,21 @@ void register_bundle_visual_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C79_Phase50_ReferenceLength_StableSag", "Reference length keeps sag depth visually stable across tilt", "Invariant", false, test_span_reference_length_keeps_sag_depth_stable_across_tilt);
   test_registry::AddTest(tests, "C80_Phase50_CenterOffset_NoPoleOverlap", "Center slots are offset from pole centerline by radius+clearance", "Invariant", false, test_center_slot_ports_are_offset_from_pole_centerline);
   test_registry::AddTest(tests, "C81_Phase50_Insulator_ElectricOnly", "Visual insulators are generated only for electric lines", "Invariant", false, test_visual_insulators_only_for_electric_lines);
+  test_registry::AddTest(tests, "C119_CableTemplate_DiameterAffectsRender",
+                         "CableTemplate diameter changes update dependent wire render radius", "Invariant", false,
+                         test_cable_template_outer_diameter_updates_render_radius);
+  test_registry::AddTest(tests, "C120_CableTemplate_InsulatorToggle",
+                         "CableTemplate requires_insulator toggles dependent insulator visuals", "Invariant", false,
+                         test_cable_template_requires_insulator_toggles_visual_parts);
+  test_registry::AddTest(tests, "C121_Template_OwnershipSeparated",
+                         "BundleTemplate owns branch policy while CableTemplate and entities do not own bezier inputs",
+                         "Exact", true, test_template_type_ownership_is_separated);
+  test_registry::AddTest(tests, "C122_CableTemplate_EditPreservesPoleTilt",
+                         "Cable template edits do not overwrite pole tilt instance values", "Invariant", false,
+                         test_cable_template_edit_preserves_pole_tilt_instance_value);
+  test_registry::AddTest(tests, "C125_ApplyPoleTilt_SelectionOwned",
+                         "ApplyPoleTilt updates only explicit pole instances and keeps tilt instance-owned",
+                         "Invariant", false, test_apply_pole_tilt_updates_explicit_selection_only);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bundle_visual_tests);

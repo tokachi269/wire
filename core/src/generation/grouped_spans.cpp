@@ -112,7 +112,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
     if (pole != nullptr) {
       Vec3d dir_xy = support_position(peer_id) - pole->world_transform.position;
       if (normalize_xy(&dir_xy) && std::isfinite(dir_xy.x) && std::isfinite(dir_xy.y)) {
-        return Vec3d{-dir_xy.y, dir_xy.x, 0.0};
+        return ComputeLateralAxis(dir_xy);
       }
       Vec3d yaw_side_axis = side_axis_from_yaw_deg(pole->world_transform.rotation_euler_deg.z);
       if (std::isfinite(yaw_side_axis.x) && std::isfinite(yaw_side_axis.y)) {
@@ -162,7 +162,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
           continue;
         }
         const Bundle* bundle = edit_state_access().bundles.find(span.bundle_id);
-        if (bundle == nullptr || bundle->kind != bundle_template_id) {
+        if (bundle == nullptr || bundle->bundle_template_id != bundle_template_id) {
           continue;
         }
         const Port* pa = edit_state_access().ports.find(span.port_a_id);
@@ -198,7 +198,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
             continue;
           }
           const Bundle* bundle = edit_state_access().bundles.find(span.bundle_id);
-          if (bundle == nullptr || bundle->kind != bundle_template_id) {
+          if (bundle == nullptr || bundle->bundle_template_id != bundle_template_id) {
             continue;
           }
           const Port* pa = edit_state_access().ports.find(span.port_a_id);
@@ -386,7 +386,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
             const Vec3d lane_delta{lateral_axis.x * lane_sign * lane_offset, lateral_axis.y * lane_sign * lane_offset,
                                    0.0};
             world = p->world_transform.position + lane_delta;
-            world.z = p->world_transform.position.z + p->height_m * 0.8;
+            SetHeightAlongWorldUp(&world, HeightAlongWorldUp(p->world_transform.position) + p->height_m * 0.8);
           }
           EditResult<ObjectId> extra =
               AddPort(node_id, world,
@@ -407,7 +407,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
       std::vector<ObjectId> seeded_order{};
       for (const SegmentLaneAssignment& assignment : last_lane_assignments_access()) {
         const Bundle* assignment_bundle = edit_state_access().bundles.find(assignment.bundle_id);
-        if (assignment_bundle == nullptr || assignment_bundle->kind != bundle_template_id) {
+        if (assignment_bundle == nullptr || assignment_bundle->bundle_template_id != bundle_template_id) {
           continue;
         }
         const std::vector<ObjectId>* candidate_order = nullptr;
@@ -479,14 +479,16 @@ CoreState::generate_grouped_spans_between_support_nodes(
           const Vec3d local{0.0, target_y, pole->height_m * 0.8};
           return local_to_world_on_pole_local(pole->world_transform, effective_pole_yaw_deg(*pole), local);
         }
-        const Vec3d normal_in{-dir_in.y, dir_in.x, 0.0};
-        const Vec3d normal_out{-dir_out.y, dir_out.x, 0.0};
+        const Vec3d normal_in = ComputeLateralAxis(dir_in);
+        const Vec3d normal_out = ComputeLateralAxis(dir_out);
 
         Vec3d joined_xy{};
-        const Vec3d offset_in{base.x + normal_in.x * target_y, base.y + normal_in.y * target_y, base.z};
-        const Vec3d offset_out{base.x + normal_out.x * target_y, base.y + normal_out.y * target_y, base.z};
+        const Vec3d offset_in{base.x + normal_in.x * target_y, base.y + normal_in.y * target_y,
+                              HeightAlongWorldUp(base)};
+        const Vec3d offset_out{base.x + normal_out.x * target_y, base.y + normal_out.y * target_y,
+                               HeightAlongWorldUp(base)};
         if (line_intersection_xy_local(offset_in, dir_in, offset_out, dir_out, &joined_xy)) {
-          joined_xy.z = base.z + pole->height_m * 0.8;
+          SetHeightAlongWorldUp(&joined_xy, HeightAlongWorldUp(base) + pole->height_m * 0.8);
           const double dx = joined_xy.x - base.x;
           const double dy = joined_xy.y - base.y;
           const double dist = std::sqrt(dx * dx + dy * dy);
@@ -495,7 +497,8 @@ CoreState::generate_grouped_spans_between_support_nodes(
             return joined_xy;
           }
           const double scale = limit / dist;
-          return Vec3d{base.x + dx * scale, base.y + dy * scale, base.z + pole->height_m * 0.8};
+          return Vec3d{base.x + dx * scale, base.y + dy * scale,
+                       HeightAlongWorldUp(base) + pole->height_m * 0.8};
         }
 
         const Vec3d local{0.0, target_y, pole->height_m * 0.8};

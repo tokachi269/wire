@@ -1,4 +1,5 @@
 #include "wire/core/core_state.hpp"
+#include "wire/core/coord_utils.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -31,6 +32,14 @@ const BoundsCacheEntry* CoreState::find_bounds_cache(ObjectId span_id) const {
 const SpanVisualCacheEntry* CoreState::find_span_visual_cache(ObjectId span_id) const {
   auto it = cache_state_.visual_cache.by_span.find(span_id);
   if (it == cache_state_.visual_cache.by_span.end()) {
+    return nullptr;
+  }
+  return &it->second;
+}
+
+const SpanRenderCacheEntry* CoreState::find_span_render_cache(ObjectId span_id) const {
+  auto it = cache_state_.render_cache.by_span.find(span_id);
+  if (it == cache_state_.render_cache.by_span.end()) {
     return nullptr;
   }
   return &it->second;
@@ -328,12 +337,11 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
   }
 
   const Bundle* bundle = edit_state_.bundles.find(span->bundle_id);
-  bool is_electric = (span->layer == SpanLayer::kHighVoltage || span->layer == SpanLayer::kLowVoltage);
-  if (bundle != nullptr) {
-    if (const BundleTemplate* tpl = find_bundle_template(bundle->kind); tpl != nullptr) {
-      is_electric = tpl->is_electric;
-    }
-  }
+  const BundleTemplate* bundle_template =
+      (bundle == nullptr) ? nullptr : find_bundle_template(bundle->bundle_template_id);
+  const CableTemplate* cable_template =
+      (bundle_template == nullptr) ? nullptr : find_cable_template(bundle_template->cable_template_id);
+  const bool requires_insulator = (cable_template != nullptr) ? cable_template->requires_insulator : false;
 
   auto append_parts_for_port = [&](const Port& port) {
     const Pole* pole = edit_state_.poles.find(port.owner_pole_id);
@@ -365,7 +373,7 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
       entry.parts.push_back(arm);
     }
 
-    if (cache_state_.visual_settings.enable_insulators && is_electric) {
+    if (cache_state_.visual_settings.enable_insulators && requires_insulator) {
       VisualPart ins{};
       ins.kind = VisualPartKind::kInsulator;
       ins.a = port.world_position;
@@ -385,6 +393,15 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
   cache_state_.visual_cache.by_span[span_id] = std::move(entry);
   append_parts_for_port(*a);
   append_parts_for_port(*b);
+
+  SpanRenderCacheEntry render{};
+  render.source_version = (runtime == nullptr) ? 0 : runtime->data_version;
+  if (cable_template != nullptr) {
+    render.wire_radius_m = std::max(0.0005, cable_template->outer_diameter_m * 0.5);
+    render.color_rgba = cable_template->color_rgba;
+    render.material_style = cable_template->material_style;
+  }
+  cache_state_.render_cache.by_span[span_id] = render;
   return true;
 }
 
@@ -409,9 +426,13 @@ std::vector<Vec3d> CoreState::generate_span_points(const Span& span, std::string
   const double dz = b.z - a.z;
   const double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
   const Bundle* bundle = edit_state_.bundles.find(span.bundle_id);
-  const double sag_ratio =
-      (bundle == nullptr) ? cache_state_.geometry_settings.sag_factor : bundle->visual_sag_ratio;
-  const bool use_reference_length = (bundle == nullptr) ? true : bundle->visual_use_reference_length;
+  const BundleTemplate* bundle_template =
+      (bundle == nullptr) ? nullptr : find_bundle_template(bundle->bundle_template_id);
+  const CableTemplate* cable_template =
+      (bundle_template == nullptr) ? nullptr : find_cable_template(bundle_template->cable_template_id);
+  const double sag_ratio = (cable_template == nullptr) ? cache_state_.geometry_settings.sag_factor
+                                                       : (cable_template->sag_factor + cable_template->slack_factor);
+  const bool use_reference_length = true;
   const double basis_length =
       (use_reference_length && span.reference_length_m > kZeroLengthEps) ? span.reference_length_m : distance;
   const bool use_sag = cache_state_.geometry_settings.sag_enabled && basis_length > kZeroLengthEps;
@@ -426,7 +447,7 @@ std::vector<Vec3d> CoreState::generate_span_points(const Span& span, std::string
     };
     if (use_sag) {
       const double sag_shape = 4.0 * t * (1.0 - t);
-      p.z -= sag_amount * sag_shape;
+      OffsetAlongWorldUp(&p, -sag_amount * sag_shape);
     }
     points.push_back(p);
   }
@@ -440,14 +461,18 @@ AABBd CoreState::build_aabb_from_points(const std::vector<Vec3d>& points) {
   }
   box.min = points.front();
   box.max = points.front();
+  double min_height = HeightAlongWorldUp(points.front());
+  double max_height = min_height;
   for (const Vec3d& p : points) {
     box.min.x = std::min(box.min.x, p.x);
     box.min.y = std::min(box.min.y, p.y);
-    box.min.z = std::min(box.min.z, p.z);
     box.max.x = std::max(box.max.x, p.x);
     box.max.y = std::max(box.max.y, p.y);
-    box.max.z = std::max(box.max.z, p.z);
+    min_height = std::min(min_height, HeightAlongWorldUp(p));
+    max_height = std::max(max_height, HeightAlongWorldUp(p));
   }
+  SetHeightAlongWorldUp(&box.min, min_height);
+  SetHeightAlongWorldUp(&box.max, max_height);
   return box;
 }
 
@@ -461,8 +486,10 @@ AABBd CoreState::build_aabb_from_two_points(const Vec3d& a, const Vec3d& b) {
   box.max = {
       std::max(a.x, b.x),
       std::max(a.y, b.y),
-      std::max(a.z, b.z),
+      0.0,
   };
+  SetHeightAlongWorldUp(&box.min, std::min(HeightAlongWorldUp(a), HeightAlongWorldUp(b)));
+  SetHeightAlongWorldUp(&box.max, std::max(HeightAlongWorldUp(a), HeightAlongWorldUp(b)));
   return box;
 }
 
@@ -470,6 +497,7 @@ void CoreState::remove_span_from_caches(ObjectId span_id) {
   cache_state_.curve_cache.by_span.erase(span_id);
   cache_state_.bounds_cache.by_span.erase(span_id);
   cache_state_.visual_cache.by_span.erase(span_id);
+  cache_state_.render_cache.by_span.erase(span_id);
 }
 
 } // namespace wire::core

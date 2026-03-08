@@ -374,7 +374,7 @@ int main() {
   camera.fovy = persisted.camera_fov_deg;
   camera.projection = CAMERA_PERSPECTIVE;
 
-  CoreState state = wire::core::make_demo_state();
+  CoreState state{};
   ViewerUiState ui_state;
   ui_state.ui_unified_workspace = persisted.ui_unified_workspace;
   ui_state.ui_show_workspace = persisted.ui_show_workspace;
@@ -382,7 +382,7 @@ int main() {
   ui_state.camera_fov_deg = persisted.camera_fov_deg;
   ui_state.camera_walk_speed = persisted.camera_walk_speed;
   PushLog(ui_state, "[info] viewer started");
-  PushLog(ui_state, "[info] demo state loaded");
+  PushLog(ui_state, "[info] empty state loaded");
   PushLog(ui_state, "[mode] Placement/Connection/Branch/Detail/DrawPath");
   PushLog(ui_state, "[flow] Main path: Pole->Pole connection");
   PushLog(ui_state, "[hint] Blender style controls enabled");

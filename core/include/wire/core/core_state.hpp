@@ -341,6 +341,7 @@ public:
     BundleKind bundle_template_id = BundleKind::kLowVoltage;
     double snap_radius_world = 0.6;
     bool create_midair_node = true;
+    bool enforce_midair_template_policy = true;
   };
   struct ResolveBranchPickResult {
     PickBranchResolutionKind resolution = PickBranchResolutionKind::kNode;
@@ -401,12 +402,13 @@ private:
   EditResult<std::vector<ObjectId>> generate_poles_from_points(const RoadSegment& road, PoleTypeId pole_type_id,
                                                                const std::vector<Vec3d>& points);
   EditResult<std::vector<ObjectId>>
-  generate_grouped_spans_between_poles(const std::vector<ObjectId>& poles, ObjectId bundle_id,
-                                       ConnectionCategory category, int conductor_count, double spacing_m,
-                                       bool maintain_lane_order, bool allow_lane_mirror,
-                                       std::vector<SegmentLaneAssignment>* out_lane_assignments,
-                                       std::vector<BackboneEdgeOrientation>* out_edge_orientations = nullptr,
-                                       BundleKind bundle_template_id = BundleKind::kLowVoltage);
+  generate_grouped_spans_between_support_nodes(const std::vector<ObjectId>& node_ids,
+                                               const std::unordered_map<ObjectId, SupportNode>& support_node_by_id,
+                                               ObjectId bundle_id, ConnectionCategory category, int conductor_count,
+                                               double spacing_m, bool maintain_lane_order, bool allow_lane_mirror,
+                                               std::vector<SegmentLaneAssignment>* out_lane_assignments,
+                                               std::vector<BackboneEdgeOrientation>* out_edge_orientations = nullptr,
+                                               BundleKind bundle_template_id = BundleKind::kLowVoltage);
   [[nodiscard]] static std::uint64_t hash_path_points(const std::vector<Vec3d>& points);
   [[nodiscard]] static double effective_pole_yaw_deg(const Pole& pole);
   [[nodiscard]] static Vec3d to_local_on_pole(const Pole& pole, const Vec3d& world);

@@ -62,8 +62,10 @@ target_link_libraries(
 add_executable(
   wire_viewer
   src/main.cpp
+  src/backbone_plane.cpp
   src/draw_path.cpp
   src/panels.cpp
+  src/path_pick_policy.cpp
   src/render_overlay.cpp
   src/scene_query.cpp
   src/ui_common.cpp
@@ -77,4 +79,29 @@ target_link_libraries(
   imgui_static
   rlimgui_static
 )
+
+add_executable(
+  wire_viewer_tests
+  src/backbone_plane.cpp
+  src/path_pick_policy.cpp
+  tests/backbone_plane.cpp
+  tests/pick_policy.cpp
+  tests/registry.cpp
+  tests/runner.cpp
+)
+
+target_include_directories(
+  wire_viewer_tests
+  PRIVATE
+  src
+  tests
+)
+
+target_link_libraries(
+  wire_viewer_tests
+  PRIVATE
+  wire_core
+)
+
+add_test(NAME wire_viewer_tests COMMAND wire_viewer_tests)
 

@@ -77,6 +77,17 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
     const Vec3d d = a - b;
     return d.x * d.x + d.y * d.y + d.z * d.z;
   };
+  auto segment_t_xy = [](const Vec3d& p, const Vec3d& a, const Vec3d& b) {
+    const double abx = b.x - a.x;
+    const double aby = b.y - a.y;
+    const double ab2 = abx * abx + aby * aby;
+    if (ab2 <= 1e-12) {
+      return 0.0;
+    }
+    const double apx = p.x - a.x;
+    const double apy = p.y - a.y;
+    return std::clamp((apx * abx + apy * aby) / ab2, 0.0, 1.0);
+  };
 
   auto resolve_node_info = [&](ObjectId node_id, SupportKind* out_kind, Vec3d* out_position) {
     if (out_kind == nullptr || out_position == nullptr) {
@@ -114,17 +125,24 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
       const Port* pa = edit_state_.ports.find(span->port_a_id);
       const Port* pb = edit_state_.ports.find(span->port_b_id);
       if (pa != nullptr && pb != nullptr) {
+        auto resolve_endpoint = [&](bool is_a, const Port* port, ObjectId* out_node_id, Vec3d* out_pos) {
+          const ObjectId explicit_node_id = is_a ? span->endpoint_node_a_id : span->endpoint_node_b_id;
+          const ObjectId node_id = (explicit_node_id != kInvalidObjectId) ? explicit_node_id : port->owner_pole_id;
+          *out_node_id = node_id;
+          *out_pos = port->world_position;
+          SupportKind kind = SupportKind::kPole;
+          Vec3d node_pos{};
+          if (node_id != kInvalidObjectId && resolve_node_info(node_id, &kind, &node_pos)) {
+            *out_pos = node_pos;
+          } else if (port->owner_pole_id != kInvalidObjectId) {
+            if (const Pole* pole = edit_state_.poles.find(port->owner_pole_id); pole != nullptr) {
+              *out_pos = pole->world_transform.position;
+            }
+          }
+        };
         has_endpoints = true;
-        *out_pos_a = pa->world_position;
-        *out_pos_b = pb->world_position;
-        *out_node_a_id = pa->owner_pole_id;
-        *out_node_b_id = pb->owner_pole_id;
-        if (const Pole* pole_a = edit_state_.poles.find(pa->owner_pole_id); pole_a != nullptr) {
-          *out_pos_a = pole_a->world_transform.position;
-        }
-        if (const Pole* pole_b = edit_state_.poles.find(pb->owner_pole_id); pole_b != nullptr) {
-          *out_pos_b = pole_b->world_transform.position;
-        }
+        resolve_endpoint(true, pa, out_node_a_id, out_pos_a);
+        resolve_endpoint(false, pb, out_node_b_id, out_pos_b);
       }
     }
     return has_endpoints;
@@ -171,11 +189,11 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
     }
   }
 
-  if (!bundle_template->allow_midair_node) {
+  if (options.enforce_midair_template_policy && !bundle_template->allow_midair_node) {
     result.error = "bundle template does not allow midair support node";
     return result;
   }
-  if (!bundle_template->allow_midair_branch) {
+  if (options.enforce_midair_template_policy && !bundle_template->allow_midair_branch) {
     result.error = "bundle template does not allow midair branch";
     return result;
   }
@@ -187,6 +205,18 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
     }
     if (sqr_dist(node.position, pick.hit_pos_world) > kReuseEps2) {
       continue;
+    }
+    if (options.create_midair_node && has_endpoints) {
+      for (SupportNode& mutable_node : last_generation_backbone_.nodes) {
+        if (mutable_node.node_id != node.node_id) {
+          continue;
+        }
+        mutable_node.has_source_edge = true;
+        mutable_node.source_edge_node_a_id = node_a_id;
+        mutable_node.source_edge_node_b_id = node_b_id;
+        mutable_node.source_edge_t = segment_t_xy(pick.hit_pos_world, endpoint_a, endpoint_b);
+        break;
+      }
     }
     result.value.resolution = PickBranchResolutionKind::kMidair;
     result.value.resolved_node_id = node.node_id;
@@ -210,6 +240,12 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
   midair.support_kind = SupportKind::kMidair;
   midair.position = pick.hit_pos_world;
   midair.pole_id = kInvalidObjectId;
+  if (has_endpoints) {
+    midair.has_source_edge = true;
+    midair.source_edge_node_a_id = node_a_id;
+    midair.source_edge_node_b_id = node_b_id;
+    midair.source_edge_t = segment_t_xy(pick.hit_pos_world, endpoint_a, endpoint_b);
+  }
   midair.path_point_index = -1;
   midair.has_tangent_hint = false;
   SupportNodeBundleMode mode{};
@@ -230,6 +266,34 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
 
 BackboneResult CoreState::BuildBackboneResult() const {
   BackboneResult out{};
+  auto resolve_span_endpoint_node = [&](const Span& span, const Port* port, bool is_a) -> ObjectId {
+    const ObjectId explicit_node_id = is_a ? span.endpoint_node_a_id : span.endpoint_node_b_id;
+    if (explicit_node_id != kInvalidObjectId) {
+      return explicit_node_id;
+    }
+    return (port == nullptr) ? kInvalidObjectId : port->owner_pole_id;
+  };
+  auto resolve_span_endpoint_position = [&](ObjectId node_id, const Port* port) -> Vec3d {
+    for (const SupportNode& node : last_generation_backbone_.nodes) {
+      if (node.node_id == node_id) {
+        return node.position;
+      }
+    }
+    if (const Pole* pole = edit_state_.poles.find(node_id); pole != nullptr) {
+      return pole->world_transform.position;
+    }
+    for (const Span& span : edit_state_.spans.items()) {
+      const Port* pa = edit_state_.ports.find(span.port_a_id);
+      const Port* pb = edit_state_.ports.find(span.port_b_id);
+      if (span.endpoint_node_a_id == node_id && pa != nullptr) {
+        return pa->world_position;
+      }
+      if (span.endpoint_node_b_id == node_id && pb != nullptr) {
+        return pb->world_position;
+      }
+    }
+    return (port == nullptr) ? Vec3d{} : port->world_position;
+  };
   if (!last_generation_backbone_.nodes.empty() || !last_generation_backbone_.edges.empty()) {
     out = last_generation_backbone_;
     // Merge in span-derived pole edges so BuildBackboneResult observes full-network continuity across sessions.
@@ -300,11 +364,14 @@ BackboneResult CoreState::BuildBackboneResult() const {
       }
       SupportNode node{};
       node.node_id = node_id;
-      node.support_kind = SupportKind::kPole;
+      node.support_kind = SupportKind::kMidair;
       node.pole_id = kInvalidObjectId;
       if (const Pole* pole = edit_state_.poles.find(node_id); pole != nullptr) {
+        node.support_kind = SupportKind::kPole;
         node.position = pole->world_transform.position;
         node.pole_id = pole->id;
+      } else {
+        node.position = resolve_span_endpoint_position(node_id, nullptr);
       }
       node_by_id[node_id] = node;
     };
@@ -333,13 +400,14 @@ BackboneResult CoreState::BuildBackboneResult() const {
       }
       const Port* pa = edit_state_.ports.find(span.port_a_id);
       const Port* pb = edit_state_.ports.find(span.port_b_id);
-      if (pa == nullptr || pb == nullptr || pa->owner_pole_id == kInvalidObjectId || pb->owner_pole_id == kInvalidObjectId ||
-          pa->owner_pole_id == pb->owner_pole_id) {
+      const ObjectId node_a = resolve_span_endpoint_node(span, pa, true);
+      const ObjectId node_b = resolve_span_endpoint_node(span, pb, false);
+      if (pa == nullptr || pb == nullptr || node_a == kInvalidObjectId || node_b == kInvalidObjectId || node_a == node_b) {
         continue;
       }
-      accumulate_incident_meta(pa->owner_pole_id, pb->owner_pole_id, span.generation.generation_session_id,
+      accumulate_incident_meta(node_a, node_b, span.generation.generation_session_id,
                                span.generation.generation_order);
-      accumulate_incident_meta(pb->owner_pole_id, pa->owner_pole_id, span.generation.generation_session_id,
+      accumulate_incident_meta(node_b, node_a, span.generation.generation_session_id,
                                span.generation.generation_order);
     }
 
@@ -575,16 +643,17 @@ BackboneResult CoreState::BuildBackboneResult() const {
     }
     const Port* pa = edit_state_.ports.find(span.port_a_id);
     const Port* pb = edit_state_.ports.find(span.port_b_id);
-    if (pa == nullptr || pb == nullptr || pa->owner_pole_id == kInvalidObjectId || pb->owner_pole_id == kInvalidObjectId ||
-        pa->owner_pole_id == pb->owner_pole_id) {
+    const ObjectId node_a = resolve_span_endpoint_node(span, pa, true);
+    const ObjectId node_b = resolve_span_endpoint_node(span, pb, false);
+    if (pa == nullptr || pb == nullptr || node_a == kInvalidObjectId || node_b == kInvalidObjectId || node_a == node_b) {
       continue;
     }
-    accumulate_incident(pa->owner_pole_id, pb->owner_pole_id, span.generation.generation_session_id,
+    accumulate_incident(node_a, node_b, span.generation.generation_session_id,
                         span.generation.generation_order, incident_map);
-    accumulate_incident(pb->owner_pole_id, pa->owner_pole_id, span.generation.generation_session_id,
+    accumulate_incident(node_b, node_a, span.generation.generation_session_id,
                         span.generation.generation_order, incident_map);
-    node_bundle_degree[pa->owner_pole_id][bundle->kind] += 1;
-    node_bundle_degree[pb->owner_pole_id][bundle->kind] += 1;
+    node_bundle_degree[node_a][bundle->kind] += 1;
+    node_bundle_degree[node_b][bundle->kind] += 1;
   }
 
   std::vector<ObjectId> junction_nodes{};
@@ -628,23 +697,15 @@ BackboneResult CoreState::BuildBackboneResult() const {
     if (it_inc == incident_map.end()) {
       continue;
     }
-    const Pole* center = edit_state_.poles.find(node_id);
-    if (center == nullptr) {
-      continue;
-    }
-
     std::vector<IncidentCandidate> candidates{};
     candidates.reserve(it_inc->second.size());
     for (const auto& [neighbor_id, acc] : it_inc->second) {
-      const Pole* neighbor = edit_state_.poles.find(neighbor_id);
-      if (neighbor == nullptr) {
-        continue;
-      }
       IncidentCandidate c{};
       c.neighbor_id = neighbor_id;
       c.min_session_id = acc.min_session_id;
       c.min_generation_order = acc.min_generation_order;
-      c.dir = normalize_dir(neighbor->world_transform.position - center->world_transform.position);
+      c.dir = normalize_dir(resolve_span_endpoint_position(neighbor_id, nullptr) -
+                            resolve_span_endpoint_position(node_id, nullptr));
       candidates.push_back(c);
     }
     if (candidates.size() < 3) {
@@ -761,15 +822,16 @@ BackboneResult CoreState::BuildBackboneResult() const {
 
   out.nodes.reserve(support_node_ids.size());
   for (ObjectId node_id : support_node_ids) {
-    const Pole* pole = edit_state_.poles.find(node_id);
-    if (pole == nullptr) {
-      continue;
-    }
     SupportNode node{};
     node.node_id = node_id;
-    node.support_kind = SupportKind::kPole;
-    node.position = pole->world_transform.position;
-    node.pole_id = pole->id;
+    node.support_kind = SupportKind::kMidair;
+    node.position = resolve_span_endpoint_position(node_id, nullptr);
+    node.pole_id = kInvalidObjectId;
+    if (const Pole* pole = edit_state_.poles.find(node_id); pole != nullptr) {
+      node.support_kind = SupportKind::kPole;
+      node.position = pole->world_transform.position;
+      node.pole_id = pole->id;
+    }
     node.path_point_index = -1;
 
     auto it_deg = node_bundle_degree.find(node_id);
@@ -815,6 +877,13 @@ std::vector<BackboneEdge> CoreState::BuildBackboneEdges() const {
   };
 
   std::unordered_map<EdgeKey, EdgeAgg, EdgeKeyHash> edge_map{};
+  auto resolve_span_endpoint_node = [&](const Span& span, const Port* port, bool is_a) -> ObjectId {
+    const ObjectId explicit_node_id = is_a ? span.endpoint_node_a_id : span.endpoint_node_b_id;
+    if (explicit_node_id != kInvalidObjectId) {
+      return explicit_node_id;
+    }
+    return (port == nullptr) ? kInvalidObjectId : port->owner_pole_id;
+  };
 
   for (const Span& span : edit_state_.spans.items()) {
     if (span.bundle_id == kInvalidObjectId) {
@@ -825,15 +894,17 @@ std::vector<BackboneEdge> CoreState::BuildBackboneEdges() const {
     if (pa == nullptr || pb == nullptr) {
       continue;
     }
-    if (pa->owner_pole_id == kInvalidObjectId || pb->owner_pole_id == kInvalidObjectId) {
+    const ObjectId node_a_raw = resolve_span_endpoint_node(span, pa, true);
+    const ObjectId node_b_raw = resolve_span_endpoint_node(span, pb, false);
+    if (node_a_raw == kInvalidObjectId || node_b_raw == kInvalidObjectId) {
       continue;
     }
-    if (pa->owner_pole_id == pb->owner_pole_id) {
+    if (node_a_raw == node_b_raw) {
       continue;
     }
 
-    const ObjectId node_a = std::min(pa->owner_pole_id, pb->owner_pole_id);
-    const ObjectId node_b = std::max(pa->owner_pole_id, pb->owner_pole_id);
+    const ObjectId node_a = std::min(node_a_raw, node_b_raw);
+    const ObjectId node_b = std::max(node_a_raw, node_b_raw);
     const EdgeKey key{node_a, node_b};
     EdgeAgg& agg = edge_map[key];
     agg.a = node_a;

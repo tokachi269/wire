@@ -1,4 +1,5 @@
 #include "app_state.hpp"
+#include "path_pick_policy.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -233,22 +234,6 @@ double PolylineLengthLocal(const std::vector<wire::core::Vec3d>& points) {
   return length;
 }
 
-wire::core::BundleKind ResolveBundleTemplateForBranchPickLocal(const CoreState& state, const ViewerUiState& ui_state,
-                                                               const wire::core::PickResult& pick) {
-  if (pick.hit_kind == wire::core::PickHitKind::kSegment) {
-    if (const wire::core::Span* span = state.view().edit_state().spans.find(pick.hit_id); span != nullptr) {
-      if (const wire::core::Bundle* bundle = state.view().edit_state().bundles.find(span->bundle_id); bundle != nullptr) {
-        return bundle->kind;
-      }
-    }
-  }
-  const auto selected_templates = SelectedBundleTemplatesLocal(state, ui_state);
-  if (!selected_templates.empty()) {
-    return selected_templates.front();
-  }
-  return wire::core::BundleKind::kLowVoltage;
-}
-
 void PushLogLocal(ViewerUiState& ui_state, const std::string& line) {
   ui_state.logs.push_back(line);
   if (ui_state.logs.size() > 256) {
@@ -325,7 +310,7 @@ void UpdateBranchPickInput(CoreState& state, const Camera3D& camera, ViewerUiSta
       std::string("hover: ") + PickHitKindLabelLocal(pick.hit_kind) + " id=" + PickTargetLabel(pick);
 
   wire::core::CoreState::ResolveBranchPickOptions options{};
-  options.bundle_template_id = ResolveBundleTemplateForBranchPickLocal(state, ui_state, pick);
+  options.bundle_template_id = ResolveBundleTemplateForPathPick(state, ui_state.draw_bundle_template_mask, pick);
   options.snap_radius_world = ui_state.branch_snap_radius_world;
   options.create_midair_node = false;
   const auto resolved = state.ResolveBranchPick(pick, options);
@@ -334,6 +319,16 @@ void UpdateBranchPickInput(CoreState& state, const Camera3D& camera, ViewerUiSta
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
       ui_state.last_error = resolved.error;
       PushLogLocal(ui_state, "ResolveBranchPick failed: " + resolved.error);
+    }
+    return;
+  }
+  const std::string blocked_template =
+      FindMidairBranchBlockedTemplateName(state, ResolveTemplateKindsForPathPick(state, ui_state.draw_bundle_template_mask, pick));
+  if (resolved.value.resolution == wire::core::CoreState::PickBranchResolutionKind::kMidair && !blocked_template.empty()) {
+    ui_state.branch_hover_status += " -> blocked: midair branch disabled by template " + blocked_template;
+    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+      ui_state.last_error = "bundle template does not allow midair branch";
+      PushLogLocal(ui_state, "ResolveBranchPick failed: bundle template does not allow midair branch");
     }
     return;
   }
@@ -736,11 +731,18 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
       if (pick.hit_kind == wire::core::PickHitKind::kNode || pick.hit_kind == wire::core::PickHitKind::kSegment ||
           pick.hit_kind == wire::core::PickHitKind::kBuilding) {
         wire::core::CoreState::ResolveBranchPickOptions options{};
-        options.bundle_template_id = ResolveBundleTemplateForBranchPickLocal(state, ui_state, pick);
+        options.bundle_template_id = ResolveBundleTemplateForPathPick(state, ui_state.draw_bundle_template_mask, pick);
         options.snap_radius_world = ui_state.draw_snap_radius_world;
         options.create_midair_node = false;
+        options.enforce_midair_template_policy = false;
         const auto resolved = state.ResolveBranchPick(pick, options);
         if (resolved.ok) {
+          const std::string blocked_template = FindMidairBranchBlockedTemplateName(
+              state, ResolveTemplateKindsForPathPick(state, ui_state.draw_bundle_template_mask, pick));
+          if (resolved.value.resolution == wire::core::CoreState::PickBranchResolutionKind::kMidair &&
+              !blocked_template.empty()) {
+            ui_state.draw_hover_status += " -> warn: template " + blocked_template + " will not connect here";
+          }
           ui_state.draw_hover_has_resolution = true;
           ui_state.draw_hover_resolution = resolved.value;
           ui_state.draw_hover_point = resolved.value.position;
@@ -764,9 +766,10 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
       if (ui_state.draw_hover_has_resolution) {
         wire::core::CoreState::ResolveBranchPickOptions click_options{};
         click_options.bundle_template_id =
-            ResolveBundleTemplateForBranchPickLocal(state, ui_state, ui_state.draw_hover_pick);
+            ResolveBundleTemplateForPathPick(state, ui_state.draw_bundle_template_mask, ui_state.draw_hover_pick);
         click_options.snap_radius_world = ui_state.draw_snap_radius_world;
         click_options.create_midair_node = true;
+        click_options.enforce_midair_template_policy = false;
         const auto applied = state.ResolveBranchPick(ui_state.draw_hover_pick, click_options);
         if (!applied.ok) {
           ui_state.last_error = applied.error;

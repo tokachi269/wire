@@ -203,6 +203,52 @@ bool test_branch_pick_hv_template_blocks_midair_branch() {
   return !resolved.ok && regex_contains(resolved.error, "midair branch");
 }
 
+// Intent: Path input can resolve a Midair point even when the selected template later refuses connection.
+bool test_branch_pick_hv_template_allows_midair_when_policy_not_enforced() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::Transformd a_tf{};
+  a_tf.position = {0.0, 0.0, 0.0};
+  wire::core::Transformd b_tf{};
+  b_tf.position = {10.0, 0.0, 0.0};
+  const ObjectId pole_a = state.AddPole(a_tf, 10.0, "A").value;
+  const ObjectId pole_b = state.AddPole(b_tf, 10.0, "B").value;
+  if (!state.ApplyPoleType(pole_a, type_ids.front()).ok || !state.ApplyPoleType(pole_b, type_ids.front()).ok) {
+    return false;
+  }
+
+  wire::core::CoreState::AddConnectionByPoleOptions options{};
+  options.use_bundle_template = true;
+  options.bundle_template_id = wire::core::BundleKind::kHighVoltage;
+  const auto connection = state.AddConnectionByPole(pole_a, pole_b, wire::core::ConnectionCategory::kHighVoltage, options);
+  if (!connection.ok) {
+    return false;
+  }
+
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = connection.value.span_id;
+  pick.hit_pos_world = {5.0, 0.0, 0.0};
+  pick.has_segment_endpoints = true;
+  pick.segment_node_a_id = pole_a;
+  pick.segment_node_b_id = pole_b;
+  pick.segment_endpoint_a_world = a_tf.position;
+  pick.segment_endpoint_b_world = b_tf.position;
+
+  wire::core::CoreState::ResolveBranchPickOptions resolve{};
+  resolve.bundle_template_id = wire::core::BundleKind::kHighVoltage;
+  resolve.snap_radius_world = 0.5;
+  resolve.enforce_midair_template_policy = false;
+  const auto resolved = state.ResolveBranchPick(pick, resolve);
+  return resolved.ok && resolved.value.resolution == wire::core::CoreState::PickBranchResolutionKind::kMidair &&
+         resolved.value.support_kind == wire::core::SupportKind::kMidair &&
+         resolved.value.resolved_node_id != wire::core::kInvalidObjectId;
+}
+
 namespace {
 
 void register_pick_tests(test_registry::TestRegistry& tests) {
@@ -218,6 +264,9 @@ void register_pick_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C107_Pick_MidairDryRunNoMutation",
                          "Dry-run segment pick resolves Midair without mutating state", "Invariant", false,
                          test_branch_pick_segment_midpoint_dryrun_keeps_state_unchanged);
+  test_registry::AddTest(tests, "C117_Pick_MidairPolicyBypassForPathInput",
+                         "Path-input pick can resolve Midair without enforcing template branch policy", "Invariant", false,
+                         test_branch_pick_hv_template_allows_midair_when_policy_not_enforced);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_pick_tests);

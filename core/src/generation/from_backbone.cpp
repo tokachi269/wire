@@ -110,16 +110,48 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     return (it == node_spec_by_index.end()) ? nullptr : &it->second;
   };
 
+  auto request_point_reuses_source_edge_support = [&](std::size_t point_index) -> bool {
+    const BackboneInputSpec::NodeSpec* node_spec = node_spec_for_point(point_index);
+    if (node_spec == nullptr || node_spec->support_kind == SupportKind::kPole ||
+        node_spec->node_id == kInvalidObjectId) {
+      return false;
+    }
+    for (const SupportNode& node : last_generation_backbone_.nodes) {
+      if (node.node_id == node_spec->node_id) {
+        return node.has_source_edge;
+      }
+    }
+    return false;
+  };
+
+  bool request_has_non_pole_points = false;
+  bool request_has_source_edge_branch_points = false;
+  for (std::size_t point_index = 0; point_index < request.path.polyline.size(); ++point_index) {
+    if (support_kind_for_point(point_index) == SupportKind::kPole) {
+      continue;
+    }
+    request_has_non_pole_points = true;
+    if (request_point_reuses_source_edge_support(point_index)) {
+      request_has_source_edge_branch_points = true;
+    }
+  }
+
+  std::vector<BundlePlan> active_bundle_plans{};
+  active_bundle_plans.reserve(bundle_plans.size());
+  for (const BundlePlan& plan : bundle_plans) {
+    if (request_has_non_pole_points && !plan.allow_midair_node) {
+      continue;
+    }
+    if (request_has_source_edge_branch_points && !plan.allow_midair_branch) {
+      continue;
+    }
+    active_bundle_plans.push_back(plan);
+  }
+
   for (std::size_t point_index = 0; point_index < request.path.polyline.size(); ++point_index) {
     const SupportKind support_kind = support_kind_for_point(point_index);
     if (support_kind == SupportKind::kPole) {
       continue;
-    }
-    for (const BundlePlan& plan : bundle_plans) {
-      if (!plan.allow_midair_node) {
-        result.error = "bundle template does not allow midair support node";
-        return result;
-      }
     }
     const auto it_modes = node_bundle_mode_by_point.find(point_index);
     if (it_modes == node_bundle_mode_by_point.end()) {
@@ -131,10 +163,6 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
                        [&](const BundlePlan& p) { return p.template_id == bundle_template_id; });
       if (it_plan == bundle_plans.end()) {
         result.error = "node_bundle_modes references bundle template that is not selected";
-        return result;
-      }
-      if (mode != BundleNodeMode::kNotPresent && !it_plan->allow_midair_node) {
-        result.error = "bundle template does not allow midair support node";
         return result;
       }
       if (mode != BundleNodeMode::kNotPresent && mode != BundleNodeMode::kPassThrough) {
@@ -151,6 +179,11 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
   path_direction_debug_records_access().push_back(direction_debug);
   if (path_direction_debug_records_access().size() > 128) {
     path_direction_debug_records_access().erase(path_direction_debug_records_access().begin());
+  }
+
+  if (active_bundle_plans.empty()) {
+    result.ok = true;
+    return result;
   }
 
   std::vector<generation::detail::SupportNodeCandidate> candidates{};
@@ -247,6 +280,7 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
           result.error = "node_specs node_id support kind does not match path node kind";
           return result;
         }
+        support_node_by_id[support_node_id] = *existing_node;
       }
       ensure_support_node(support_node_id, candidate, kInvalidObjectId);
       ordered_support_node_ids.push_back(support_node_id);
@@ -359,9 +393,9 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     result.value.generated_pole_ids.push_back(add_pole.value);
   }
 
-  if (ordered_pole_ids.size() < 2) {
+  if (ordered_support_node_ids.size() < 2) {
     *this = snapshot;
-    result.error = "failed to create or resolve guide poles";
+    result.error = "failed to create or resolve guide support nodes";
     return result;
   }
   {
@@ -384,12 +418,11 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     }
     ordered_support_node_ids.swap(compact_support_ids);
   }
-  if (ordered_pole_ids.size() < 2) {
+  if (ordered_support_node_ids.size() < 2) {
     *this = snapshot;
-    result.error = "failed to build valid pole chain";
+    result.error = "failed to build valid support-node chain";
     return result;
   }
-
   struct ChainEdgeKey {
     ObjectId a = kInvalidObjectId;
     ObjectId b = kInvalidObjectId;
@@ -651,7 +684,14 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
   std::sort(generation_backbone.nodes.begin(), generation_backbone.nodes.end(),
             [](const SupportNode& a, const SupportNode& b) { return a.node_id < b.node_id; });
 
-  auto count_existing_segment_spans = [&](ObjectId pole_a, ObjectId pole_b, const BundlePlan& plan) -> int {
+  auto resolve_span_endpoint_node = [&](const Span& span, const Port* port, bool is_a) -> ObjectId {
+    const ObjectId explicit_node_id = is_a ? span.endpoint_node_a_id : span.endpoint_node_b_id;
+    if (explicit_node_id != kInvalidObjectId) {
+      return explicit_node_id;
+    }
+    return (port == nullptr) ? kInvalidObjectId : port->owner_pole_id;
+  };
+  auto count_existing_segment_spans = [&](ObjectId node_a, ObjectId node_b, const BundlePlan& plan) -> int {
     int count = 0;
     for (const Span& span : edit_state_access().spans.items()) {
       if (span.layer != plan.layer || span.bundle_id == kInvalidObjectId) {
@@ -666,8 +706,10 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       if (pa == nullptr || pb == nullptr) {
         continue;
       }
-      const bool direct = (pa->owner_pole_id == pole_a && pb->owner_pole_id == pole_b);
-      const bool reverse = (pa->owner_pole_id == pole_b && pb->owner_pole_id == pole_a);
+      const ObjectId span_node_a = resolve_span_endpoint_node(span, pa, true);
+      const ObjectId span_node_b = resolve_span_endpoint_node(span, pb, false);
+      const bool direct = (span_node_a == node_a && span_node_b == node_b);
+      const bool reverse = (span_node_a == node_b && span_node_b == node_a);
       if (direct || reverse) {
         ++count;
       }
@@ -676,14 +718,15 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
   };
 
   std::vector<SegmentLaneAssignment> all_lane_assignments{};
-  for (const BundlePlan& plan : bundle_plans) {
+  for (const BundlePlan& plan : active_bundle_plans) {
     int missing_total = 0;
-    std::size_t first_missing_segment = ordered_pole_ids.size();
-    for (std::size_t i = 0; i + 1 < ordered_pole_ids.size(); ++i) {
-      const int existing_count = count_existing_segment_spans(ordered_pole_ids[i], ordered_pole_ids[i + 1], plan);
+    std::size_t first_missing_segment = ordered_support_node_ids.size();
+    for (std::size_t i = 0; i + 1 < ordered_support_node_ids.size(); ++i) {
+      const int existing_count =
+          count_existing_segment_spans(ordered_support_node_ids[i], ordered_support_node_ids[i + 1], plan);
       const int missing = std::max(0, plan.count - existing_count);
       missing_total += missing;
-      if (missing > 0 && first_missing_segment == ordered_pole_ids.size()) {
+      if (missing > 0 && first_missing_segment == ordered_support_node_ids.size()) {
         first_missing_segment = i;
       }
     }
@@ -704,18 +747,19 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       result.value.bundle_id = bundle_id;
     }
 
-    if (first_missing_segment >= ordered_pole_ids.size() - 1) {
+    if (first_missing_segment >= ordered_support_node_ids.size() - 1) {
       continue;
     }
-    std::vector<ObjectId> local_poles{};
-    local_poles.insert(local_poles.end(), ordered_pole_ids.begin() + static_cast<std::ptrdiff_t>(first_missing_segment),
-                       ordered_pole_ids.end());
+    std::vector<ObjectId> local_support_nodes{};
+    local_support_nodes.insert(local_support_nodes.end(),
+                               ordered_support_node_ids.begin() + static_cast<std::ptrdiff_t>(first_missing_segment),
+                               ordered_support_node_ids.end());
 
     std::vector<SegmentLaneAssignment> lane_assignments{};
     std::vector<BackboneEdgeOrientation> edge_orientations{};
-    EditResult<std::vector<ObjectId>> spans_result = generate_grouped_spans_between_poles(
-        local_poles, bundle_id, plan.category, plan.count, plan.spacing_m, true, plan.allow_mirror, &lane_assignments,
-        &edge_orientations, plan.template_id);
+    EditResult<std::vector<ObjectId>> spans_result = generate_grouped_spans_between_support_nodes(
+        local_support_nodes, support_node_by_id, bundle_id, plan.category, plan.count, plan.spacing_m, true,
+        plan.allow_mirror, &lane_assignments, &edge_orientations, plan.template_id);
     if (!spans_result.ok) {
       *this = snapshot;
       result.error = spans_result.error;

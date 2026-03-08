@@ -149,25 +149,6 @@ bool build_backbone_candidates(const BackboneSpec& request, const std::vector<Ve
     }
     add_unique_candidate(out_candidates, start);
 
-    auto add_detail_bridge_candidate = [&](double t, std::size_t segment_index) {
-      if (t <= 1e-6 || t >= 1.0 - 1e-6) {
-        return;
-      }
-      SupportNodeCandidate bridge{};
-      bridge.world = {a.x + seg.x * t + lateral.x, a.y + seg.y * t + lateral.y, a.z + seg.z * t + lateral.z};
-      bridge.segment_index = segment_index;
-      bridge.vertex_index = -1;
-      bridge.t = t;
-      bridge.mode = PlacementMode::kAuto;
-      bridge.support_kind = SupportKind::kPole;
-      add_unique_candidate(out_candidates, bridge);
-    };
-
-    const double bridge_dist = std::min(seg_len * 0.5, std::max(0.5, request.interval_m * 0.5));
-    if (support_kind_for_point(i) != SupportKind::kPole) {
-      add_detail_bridge_candidate(std::clamp(bridge_dist / seg_len, 0.0, 1.0), i);
-    }
-
     if (request.interval_m > 0.0) {
       const double step_m =
           std::max(0.5, std::max(request.interval_m * 0.25, request.constraints.avoid_radius_m * 0.5));
@@ -206,9 +187,6 @@ bool build_backbone_candidates(const BackboneSpec& request, const std::vector<Ve
       }
     }
 
-    if (support_kind_for_point(i + 1) != SupportKind::kPole) {
-      add_detail_bridge_candidate(std::clamp((seg_len - bridge_dist) / seg_len, 0.0, 1.0), i);
-    }
   }
 
   SupportNodeCandidate end{};

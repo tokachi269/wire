@@ -1,4 +1,5 @@
 #include "render_overlay.hpp"
+#include "backbone_plane.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -7,7 +8,6 @@
 #include "ui_common.hpp"
 
 constexpr float kAxisLength = 2.0f;
-
 static wire::core::Vec3d Lerp(const wire::core::Vec3d& a, const wire::core::Vec3d& b, double t) {
   return wire::core::Vec3d{a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t};
 }
@@ -127,7 +127,7 @@ void DrawBackboneOverlay(const wire::core::BackboneResult& backbone, const Viewe
   std::unordered_map<ObjectId, wire::core::Vec3d> node_position_by_id{};
   node_position_by_id.reserve(backbone.nodes.size());
   for (const wire::core::SupportNode& node : backbone.nodes) {
-    node_position_by_id[node.node_id] = node.position;
+    node_position_by_id[node.node_id] = ProjectBackbonePointToDisplayPlane(node.position);
   }
 
   for (const wire::core::BackboneEdge& edge : backbone.edges) {
@@ -155,8 +155,9 @@ void DrawBackboneOverlay(const wire::core::BackboneResult& backbone, const Viewe
       color = Color{255, 250, 180, 235};
       radius += 0.03f;
     }
-    DrawSphere(ToRaylib(node.position), radius, color);
-    DrawSphereWires(ToRaylib(node.position), radius + 0.05f, 9, 14, Color{255, 255, 255, 180});
+    const wire::core::Vec3d display = ProjectBackbonePointToDisplayPlane(node.position);
+    DrawSphere(ToRaylib(display), radius, color);
+    DrawSphereWires(ToRaylib(display), radius + 0.05f, 9, 14, Color{255, 255, 255, 180});
   }
 }
 

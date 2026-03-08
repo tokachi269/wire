@@ -109,13 +109,14 @@ bool test_backbone_generation_reuses_explicit_support_node_id() {
   if (existing_midair == nullptr || existing_midair->node_id == wire::core::kInvalidObjectId) {
     return false;
   }
+  const ObjectId existing_midair_id = existing_midair->node_id;
 
   wire::core::BackboneSpec second{};
   second.path.polyline = {{10.0, 0.0, 0.0}, {10.0, 12.0, 0.0}, {20.0, 12.0, 0.0}};
   wire::core::BackboneInputSpec::NodeSpec reused_midair{};
   reused_midair.point_index = 0;
   reused_midair.support_kind = wire::core::SupportKind::kMidair;
-  reused_midair.node_id = existing_midair->node_id;
+  reused_midair.node_id = existing_midair_id;
   second.path.node_specs.push_back(reused_midair);
   second.interval_m = 1000.0;
   second.pole_type_id = type_ids.front();
@@ -125,7 +126,7 @@ bool test_backbone_generation_reuses_explicit_support_node_id() {
     return false;
   }
   const auto* reused = find_support_node_by_point_index(state.view().last_generation_backbone(), 0);
-  return reused != nullptr && reused->node_id == existing_midair->node_id &&
+  return reused != nullptr && reused->node_id == existing_midair_id &&
          reused->support_kind == wire::core::SupportKind::kMidair;
 }
 
@@ -154,9 +155,107 @@ bool test_backbone_midair_extension_generates_detail_chain() {
   if (existing_midair == nullptr || existing_midair->node_id == wire::core::kInvalidObjectId) {
     return false;
   }
+  const ObjectId existing_midair_id = existing_midair->node_id;
 
   wire::core::BackboneSpec second{};
   second.path.polyline = {{10.0, 0.0, 0.0}, {22.0, 12.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec reused_midair{};
+  reused_midair.point_index = 0;
+  reused_midair.support_kind = wire::core::SupportKind::kMidair;
+  reused_midair.node_id = existing_midair_id;
+  second.path.node_specs.push_back(reused_midair);
+  second.interval_m = 1000.0;
+  second.pole_type_id = type_ids.front();
+  add_backbone_bundle(second, wire::core::BundleKind::kLowVoltage);
+  const auto generated_second = state.GenerateFromBackboneSpec(second);
+  if (!generated_second.ok) {
+    return false;
+  }
+
+  return generated_second.value.generated_pole_ids.size() >= 1 && generated_second.value.generated_span_ids.size() >= 1;
+}
+
+// Intent: Midair-origin extension must include the first support-to-detail segment in the detailed chain.
+bool test_backbone_midair_extension_includes_first_support_segment() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec first{};
+  first.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec midair{};
+  midair.point_index = 1;
+  midair.support_kind = wire::core::SupportKind::kMidair;
+  first.path.node_specs.push_back(midair);
+  first.interval_m = 1000.0;
+  first.pole_type_id = type_ids.front();
+  add_backbone_bundle(first, wire::core::BundleKind::kLowVoltage);
+  const auto generated_first = state.GenerateFromBackboneSpec(first);
+  if (!generated_first.ok) {
+    return false;
+  }
+  const auto* existing_midair = find_support_node_by_point_index(state.view().last_generation_backbone(), 1);
+  if (existing_midair == nullptr || existing_midair->node_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  const ObjectId existing_midair_id = existing_midair->node_id;
+
+  wire::core::BackboneSpec second{};
+  second.path.polyline = {{10.0, 0.0, 0.0}, {34.0, 0.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec reused_midair{};
+  reused_midair.point_index = 0;
+  reused_midair.support_kind = wire::core::SupportKind::kMidair;
+  reused_midair.node_id = existing_midair_id;
+  second.path.node_specs.push_back(reused_midair);
+  second.interval_m = 6.0;
+  second.pole_type_id = type_ids.front();
+  add_backbone_bundle(second, wire::core::BundleKind::kLowVoltage);
+  const auto generated_second = state.GenerateFromBackboneSpec(second);
+  if (!generated_second.ok || generated_second.value.generated_pole_ids.empty()) {
+    return false;
+  }
+
+  const ObjectId terminal_pole_id = find_pole_id_by_position(state, {34.0, 0.0, 0.0});
+  if (terminal_pole_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  const std::vector<ObjectId> route = state.FindBackboneRoute(existing_midair_id, terminal_pole_id);
+  return !generated_second.value.generated_span_ids.empty() &&
+         generated_second.value.generated_span_ids.size() == generated_second.value.generated_pole_ids.size() &&
+         route.size() == generated_second.value.generated_pole_ids.size() + 1 &&
+         route.front() == existing_midair_id && route.back() == terminal_pole_id;
+}
+
+// Intent: Midair picked on backbone can stay at backbone height while detailed branch starts from source span height.
+bool test_backbone_midair_extension_single_click_stays_single_segment() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec first{};
+  first.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec midair{};
+  midair.point_index = 1;
+  midair.support_kind = wire::core::SupportKind::kMidair;
+  first.path.node_specs.push_back(midair);
+  first.interval_m = 1000.0;
+  first.pole_type_id = type_ids.front();
+  add_backbone_bundle(first, wire::core::BundleKind::kLowVoltage);
+  const auto generated_first = state.GenerateFromBackboneSpec(first);
+  if (!generated_first.ok) {
+    return false;
+  }
+  const auto* existing_midair = find_support_node_by_point_index(state.view().last_generation_backbone(), 1);
+  if (existing_midair == nullptr || existing_midair->node_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec second{};
+  second.path.polyline = {{10.0, 0.0, 0.0}, {18.0, 8.0, 0.0}};
   wire::core::BackboneInputSpec::NodeSpec reused_midair{};
   reused_midair.point_index = 0;
   reused_midair.support_kind = wire::core::SupportKind::kMidair;
@@ -169,8 +268,250 @@ bool test_backbone_midair_extension_generates_detail_chain() {
   if (!generated_second.ok) {
     return false;
   }
+  if (generated_second.value.generated_pole_ids.size() != 1 || generated_second.value.generated_span_ids.size() != 1) {
+    return false;
+  }
 
-  return generated_second.value.generated_pole_ids.size() >= 2 && generated_second.value.generated_span_ids.size() >= 1;
+  const ObjectId terminal_pole_id = find_pole_id_by_position(state, {18.0, 8.0, 0.0});
+  if (terminal_pole_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  const std::vector<ObjectId> route = state.FindBackboneRoute(existing_midair->node_id, terminal_pole_id);
+  return route.size() == 2 && route.front() == existing_midair->node_id && route.back() == terminal_pole_id;
+}
+
+bool test_backbone_midair_branch_reuses_source_span_height() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec first{};
+  first.path.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
+  first.interval_m = 1000.0;
+  first.pole_type_id = type_ids.front();
+  add_backbone_bundle(first, wire::core::BundleKind::kLowVoltage);
+  const auto generated_first = state.GenerateFromBackboneSpec(first);
+  if (!generated_first.ok || generated_first.value.generated_span_ids.size() != 1) {
+    return false;
+  }
+  const ObjectId source_span_id = generated_first.value.generated_span_ids.front();
+  const wire::core::Span* source_span = state.view().edit_state().spans.find(source_span_id);
+  if (source_span == nullptr) {
+    return false;
+  }
+  const wire::core::Port* source_port_a = state.view().edit_state().ports.find(source_span->port_a_id);
+  const wire::core::Port* source_port_b = state.view().edit_state().ports.find(source_span->port_b_id);
+  if (source_port_a == nullptr || source_port_b == nullptr) {
+    return false;
+  }
+  const double expected_z = 0.5 * (source_port_a->world_position.z + source_port_b->world_position.z);
+
+  const ObjectId start_pole_id = find_pole_id_by_position(state, {0.0, 0.0, 0.0});
+  const ObjectId end_pole_id = find_pole_id_by_position(state, {20.0, 0.0, 0.0});
+  if (start_pole_id == wire::core::kInvalidObjectId || end_pole_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = source_span_id;
+  pick.hit_pos_world = {10.0, 0.0, 0.0};
+  pick.has_segment_endpoints = true;
+  pick.segment_node_a_id = start_pole_id;
+  pick.segment_node_b_id = end_pole_id;
+  pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
+  pick.segment_endpoint_b_world = {20.0, 0.0, 0.0};
+
+  wire::core::CoreState::ResolveBranchPickOptions resolve{};
+  resolve.bundle_template_id = wire::core::BundleKind::kLowVoltage;
+  resolve.snap_radius_world = 0.75;
+  resolve.create_midair_node = true;
+  const auto picked_midair = state.ResolveBranchPick(pick, resolve);
+  if (!picked_midair.ok || picked_midair.value.resolved_node_id == wire::core::kInvalidObjectId ||
+      picked_midair.value.support_kind != wire::core::SupportKind::kMidair) {
+    return false;
+  }
+  const ObjectId midair_id = picked_midair.value.resolved_node_id;
+  wire::core::BackboneSpec second{};
+  second.path.polyline = {{10.0, 0.0, 0.0}, {20.0, 10.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec reused_midair{};
+  reused_midair.point_index = 0;
+  reused_midair.support_kind = wire::core::SupportKind::kMidair;
+  reused_midair.node_id = midair_id;
+  second.path.node_specs.push_back(reused_midair);
+  second.interval_m = 1000.0;
+  second.pole_type_id = type_ids.front();
+  add_backbone_bundle(second, wire::core::BundleKind::kLowVoltage);
+  const auto generated_second = state.GenerateFromBackboneSpec(second);
+  if (!generated_second.ok || generated_second.value.generated_span_ids.empty()) {
+    return false;
+  }
+
+  const wire::core::Span* branch_span = nullptr;
+  for (ObjectId span_id : generated_second.value.generated_span_ids) {
+    const wire::core::Span* candidate = state.view().edit_state().spans.find(span_id);
+    if (candidate == nullptr) {
+      continue;
+    }
+    if (candidate->endpoint_node_a_id == midair_id || candidate->endpoint_node_b_id == midair_id) {
+      branch_span = candidate;
+      break;
+    }
+  }
+  if (branch_span == nullptr) {
+    return false;
+  }
+  const bool midair_is_a = branch_span->endpoint_node_a_id == midair_id;
+  const bool midair_is_b = branch_span->endpoint_node_b_id == midair_id;
+  if (!midair_is_a && !midair_is_b) {
+    return false;
+  }
+  const ObjectId branch_port_id = midair_is_a ? branch_span->port_a_id : branch_span->port_b_id;
+  const wire::core::Port* branch_port = state.view().edit_state().ports.find(branch_port_id);
+  if (branch_port == nullptr) {
+    return false;
+  }
+  return std::abs(branch_port->world_position.z - expected_z) <= 1e-6;
+}
+
+// Intent: Disallowed templates should not connect through a source-edge Midair branch, but the request should still succeed.
+bool test_backbone_midair_branch_skips_disallowed_template_generation() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec first{};
+  first.path.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
+  first.interval_m = 1000.0;
+  first.pole_type_id = type_ids.front();
+  add_backbone_bundle(first, wire::core::BundleKind::kLowVoltage);
+  const auto generated_first = state.GenerateFromBackboneSpec(first);
+  if (!generated_first.ok || generated_first.value.generated_span_ids.size() != 1) {
+    return false;
+  }
+
+  const ObjectId source_span_id = generated_first.value.generated_span_ids.front();
+  const ObjectId start_pole_id = find_pole_id_by_position(state, {0.0, 0.0, 0.0});
+  const ObjectId end_pole_id = find_pole_id_by_position(state, {20.0, 0.0, 0.0});
+  if (start_pole_id == wire::core::kInvalidObjectId || end_pole_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = source_span_id;
+  pick.hit_pos_world = {10.0, 0.0, 0.0};
+  pick.has_segment_endpoints = true;
+  pick.segment_node_a_id = start_pole_id;
+  pick.segment_node_b_id = end_pole_id;
+  pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
+  pick.segment_endpoint_b_world = {20.0, 0.0, 0.0};
+
+  wire::core::CoreState::ResolveBranchPickOptions resolve{};
+  resolve.bundle_template_id = wire::core::BundleKind::kLowVoltage;
+  resolve.snap_radius_world = 0.75;
+  resolve.create_midair_node = true;
+  const auto picked_midair = state.ResolveBranchPick(pick, resolve);
+  if (!picked_midair.ok || picked_midair.value.resolved_node_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec second{};
+  second.path.polyline = {{10.0, 0.0, 0.0}, {20.0, 10.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec reused_midair{};
+  reused_midair.point_index = 0;
+  reused_midair.support_kind = wire::core::SupportKind::kMidair;
+  reused_midair.node_id = picked_midair.value.resolved_node_id;
+  second.path.node_specs.push_back(reused_midair);
+  second.interval_m = 1000.0;
+  second.pole_type_id = type_ids.front();
+  add_backbone_bundle(second, wire::core::BundleKind::kHighVoltage);
+  const CoreCounts before_second = snapshot_counts(state);
+  const auto generated_second = state.GenerateFromBackboneSpec(second);
+  return generated_second.ok && generated_second.value.generated_pole_ids.empty() &&
+         generated_second.value.generated_span_ids.empty() && generated_second.value.bundle_ids.empty() &&
+         same_counts(before_second, snapshot_counts(state));
+}
+
+// Intent: Mixed template generation from a Midair branch should generate only bundles whose template allows midair branch.
+bool test_backbone_midair_branch_generates_only_allowed_templates() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec first{};
+  first.path.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
+  first.interval_m = 1000.0;
+  first.pole_type_id = type_ids.front();
+  add_backbone_bundle(first, wire::core::BundleKind::kLowVoltage);
+  const auto generated_first = state.GenerateFromBackboneSpec(first);
+  if (!generated_first.ok || generated_first.value.generated_span_ids.size() != 1) {
+    return false;
+  }
+
+  const ObjectId source_span_id = generated_first.value.generated_span_ids.front();
+  const ObjectId start_pole_id = find_pole_id_by_position(state, {0.0, 0.0, 0.0});
+  const ObjectId end_pole_id = find_pole_id_by_position(state, {20.0, 0.0, 0.0});
+  if (start_pole_id == wire::core::kInvalidObjectId || end_pole_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = source_span_id;
+  pick.hit_pos_world = {10.0, 0.0, 0.0};
+  pick.has_segment_endpoints = true;
+  pick.segment_node_a_id = start_pole_id;
+  pick.segment_node_b_id = end_pole_id;
+  pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
+  pick.segment_endpoint_b_world = {20.0, 0.0, 0.0};
+
+  wire::core::CoreState::ResolveBranchPickOptions resolve{};
+  resolve.bundle_template_id = wire::core::BundleKind::kLowVoltage;
+  resolve.snap_radius_world = 0.75;
+  resolve.create_midair_node = true;
+  const auto picked_midair = state.ResolveBranchPick(pick, resolve);
+  if (!picked_midair.ok || picked_midair.value.resolved_node_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec second{};
+  second.path.polyline = {{10.0, 0.0, 0.0}, {20.0, 10.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec reused_midair{};
+  reused_midair.point_index = 0;
+  reused_midair.support_kind = wire::core::SupportKind::kMidair;
+  reused_midair.node_id = picked_midair.value.resolved_node_id;
+  second.path.node_specs.push_back(reused_midair);
+  second.interval_m = 1000.0;
+  second.pole_type_id = type_ids.front();
+  add_backbone_bundle(second, wire::core::BundleKind::kLowVoltage);
+  add_backbone_bundle(second, wire::core::BundleKind::kHighVoltage);
+
+  const auto generated_second = state.GenerateFromBackboneSpec(second);
+  if (!generated_second.ok || generated_second.value.generated_span_ids.empty() || generated_second.value.bundle_ids.size() != 1) {
+    return false;
+  }
+  const wire::core::Bundle* bundle = state.view().edit_state().bundles.find(generated_second.value.bundle_ids.front());
+  if (bundle == nullptr || bundle->kind != wire::core::BundleKind::kLowVoltage) {
+    return false;
+  }
+  for (const ObjectId span_id : generated_second.value.generated_span_ids) {
+    const wire::core::Span* span = state.view().edit_state().spans.find(span_id);
+    if (span == nullptr) {
+      return false;
+    }
+    const wire::core::Bundle* span_bundle = state.view().edit_state().bundles.find(span->bundle_id);
+    if (span_bundle == nullptr || span_bundle->kind != wire::core::BundleKind::kLowVoltage) {
+      return false;
+    }
+  }
+  return true;
 }
 
 // Intent: HV template keeps midair-branch policy disabled and rejects unsupported legacy mode values.
@@ -980,6 +1321,21 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C112_Backbone_MidairExtensionDetailChain",
                          "Midair extension still produces detail poles and spans", "Invariant", false,
                          test_backbone_midair_extension_generates_detail_chain);
+  test_registry::AddTest(tests, "C113_Backbone_MidairExtensionFirstSupportSegment",
+                         "Midair extension includes the first support-to-detail segment in the route",
+                         "Invariant", false, test_backbone_midair_extension_includes_first_support_segment);
+  test_registry::AddTest(tests, "C114_Backbone_MidairBranchUsesSourceSpanHeight",
+                         "Midair branch keeps backbone pick at abstract height while detail starts from source span height",
+                         "Invariant", false, test_backbone_midair_branch_reuses_source_span_height);
+  test_registry::AddTest(tests, "C115_Backbone_MidairSingleClickNoExtraBridge",
+                         "Midair extension from one clicked endpoint keeps a single direct segment", "Invariant", false,
+                         test_backbone_midair_extension_single_click_stays_single_segment);
+  test_registry::AddTest(tests, "C116_Backbone_TemplateSkipsMidairBranchGeneration",
+                         "Disallowed template skips source-edge midair branch generation without failing request",
+                         "Invariant", false, test_backbone_midair_branch_skips_disallowed_template_generation);
+  test_registry::AddTest(tests, "C118_Backbone_MidairBranchMixedTemplates",
+                         "Midair branch generation keeps only templates that allow midair branch", "Invariant", false,
+                         test_backbone_midair_branch_generates_only_allowed_templates);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_generation_tests);

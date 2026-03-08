@@ -279,6 +279,8 @@ struct Span {
   std::string display_id{};
   ObjectId port_a_id = kInvalidObjectId;
   ObjectId port_b_id = kInvalidObjectId;
+  ObjectId endpoint_node_a_id = kInvalidObjectId;
+  ObjectId endpoint_node_b_id = kInvalidObjectId;
   SpanKind kind = SpanKind::kGeneric;
   SpanLayer layer = SpanLayer::kUnknown;
   ObjectId bundle_id = kInvalidObjectId;

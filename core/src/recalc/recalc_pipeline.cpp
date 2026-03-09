@@ -32,13 +32,13 @@ CurveEndpointMode curve_endpoint_mode_for_template(const CableTemplate* cable_te
   case CableAttachmentStyleHint::kDirectThrough:
     return CurveEndpointMode::kDirectThrough;
   case CableAttachmentStyleHint::kViaAttachment:
-    return CurveEndpointMode::kViaAttachment;
+    return CurveEndpointMode::kOffsetEndpoint;
   case CableAttachmentStyleHint::kAuto:
   default:
     break;
   }
   if (bundle_template != nullptr && bundle_template->category == ConnectionCategory::kHighVoltage) {
-    return CurveEndpointMode::kViaAttachment;
+    return CurveEndpointMode::kOffsetEndpoint;
   }
   return CurveEndpointMode::kDirectThrough;
 }
@@ -56,6 +56,32 @@ Vec3d span_tangent_from_port(const Port& port, const Vec3d& chord_dir) {
     return chord_dir;
   }
   return blended;
+}
+
+CurveConstraint make_curve_constraint(const Port& port, const Pole* owner_pole, const Vec3d& chord_dir, double basis_length,
+                                      double endpoint_offset_m, double effective_sag_ratio,
+                                      double bend_stiffness_hint, double min_bend_radius_hint_m,
+                                      CableContinuityPolicyHint continuity_preference, CurvePassMode pass_mode,
+                                      ConnectionContext connection_context,
+                                      CurveEndpointMode endpoint_mode, bool reverse_endpoint_offset) {
+  CurveConstraint constraint{};
+  constraint.point = port.world_position;
+  constraint.tangent_dir = span_tangent_from_port(port, chord_dir);
+  constraint.tangent_length_hint_m = basis_length * 0.30;
+  constraint.bend_stiffness_hint = bend_stiffness_hint;
+  constraint.min_bend_radius_hint_m = min_bend_radius_hint_m;
+  const double signed_offset_m = reverse_endpoint_offset ? -endpoint_offset_m : endpoint_offset_m;
+  constraint.endpoint_offset = ScaleVec(constraint.tangent_dir, signed_offset_m);
+  constraint.sag_hint = effective_sag_ratio * 0.5;
+  constraint.slack_hint = 0.0;
+  constraint.continuity_preference = continuity_preference;
+  constraint.pass_mode = pass_mode;
+  constraint.endpoint_mode = endpoint_mode;
+  constraint.corner_pass =
+      (connection_context == ConnectionContext::kCornerPass) && owner_pole != nullptr &&
+      owner_pole->context.kind == PoleContextKind::kCorner && owner_pole->context.corner_angle_deg > 1e-6;
+  constraint.corner_angle_deg = (owner_pole == nullptr) ? 0.0 : owner_pole->context.corner_angle_deg;
+  return constraint;
 }
 }
 
@@ -432,6 +458,46 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
       ins.radius_m = cache_state_.visual_settings.insulator_radius_m;
       entry.parts.push_back(ins);
     }
+
+    if (port.placement_source == PortPlacementSourceKind::kBranchSupport) {
+      BranchSupportPlacement placement{};
+      placement.owner_pole_id = pole->id;
+      placement.peer_node_id =
+          (port.id == span->port_a_id) ? span->endpoint_node_b_id : span->endpoint_node_a_id;
+      placement.side = port.template_side;
+      placement.mount_world = {pole->world_transform.position.x, pole->world_transform.position.y, port.world_position.z};
+      placement.tip_world = {
+          port.world_position.x + radial.x * cache_state_.visual_settings.support_arm_extra_m,
+          port.world_position.y + radial.y * cache_state_.visual_settings.support_arm_extra_m,
+          port.world_position.z,
+      };
+      placement.attachment_world = port.world_position;
+      double main_support_base_z_m = pole->height_m * 0.8;
+      if (const PoleTypeDefinition* pole_type = find_pole_type(pole->pole_type_id); pole_type != nullptr) {
+        double best_slot_z = -std::numeric_limits<double>::infinity();
+        for (const PortSlotTemplate& slot : pole_type->port_slots) {
+          if (!slot.enabled || slot.category != port.category) {
+            continue;
+          }
+          best_slot_z = std::max(best_slot_z, slot.local_position.z);
+        }
+        if (std::isfinite(best_slot_z)) {
+          main_support_base_z_m = best_slot_z;
+        }
+      }
+      const Vec3d local = to_local_on_pole(*pole, port.world_position);
+      placement.down_offset_m = std::max(0.0, main_support_base_z_m - local.z);
+      entry.branch_supports.push_back(placement);
+
+      if (cache_state_.visual_settings.enable_support_structures) {
+        VisualPart hanger{};
+        hanger.kind = VisualPartKind::kFitting;
+        hanger.a = placement.tip_world;
+        hanger.b = placement.attachment_world;
+        hanger.radius_m = 0.02;
+        entry.parts.push_back(hanger);
+      }
+    }
   };
 
   SpanVisualCacheEntry entry{};
@@ -472,6 +538,8 @@ DetailCurve CoreState::generate_span_curve(const Span& span, std::string* error_
 
   const Vec3d a = port_a->world_position;
   const Vec3d b = port_b->world_position;
+  const Pole* pole_a = edit_state_.poles.find(port_a->owner_pole_id);
+  const Pole* pole_b = edit_state_.poles.find(port_b->owner_pole_id);
   const double dx = b.x - a.x;
   const double dy = b.y - a.y;
   const double dz = b.z - a.z;
@@ -495,25 +563,21 @@ DetailCurve CoreState::generate_span_curve(const Span& span, std::string* error_
   }
 
   const CurveEndpointMode endpoint_mode = curve_endpoint_mode_for_template(cable_template, bundle_template);
-  const double attach_offset_m = std::min(std::max(0.02, basis_length * 0.03), 0.35);
-
-  CurveConstraint start{};
-  start.point = a;
-  start.tangent_dir = span_tangent_from_port(*port_a, chord_dir);
-  start.tangent_length_hint_m = basis_length * 0.30;
-  start.attach_offset = ScaleVec(start.tangent_dir, attach_offset_m);
-  start.sag_hint = effective_sag_ratio * 0.5;
-  start.slack_hint = 0.0;
-  start.continuity_preference =
+  const double endpoint_offset_m = std::min(std::max(0.02, basis_length * 0.03), 0.35);
+  const CableContinuityPolicyHint continuity_preference =
       (cable_template == nullptr) ? CableContinuityPolicyHint::kAuto : cable_template->continuity_policy;
-  start.pass_mode = curve_pass_mode_from_context(span.placement_context);
-  start.endpoint_mode = endpoint_mode;
+  const CurvePassMode pass_mode = curve_pass_mode_from_context(span.placement_context);
+  const double bend_stiffness_hint = (cable_template == nullptr) ? 1.0 : cable_template->bend_stiffness;
+  const double min_bend_radius_hint_m = (cable_template == nullptr) ? 0.0 : cable_template->min_bend_radius_m;
 
-  CurveConstraint end = start;
-  end.point = b;
-  end.tangent_dir = span_tangent_from_port(*port_b, chord_dir);
-  end.attach_offset = ScaleVec(end.tangent_dir, -attach_offset_m);
-  end.sag_hint = effective_sag_ratio * 0.5;
+  const CurveConstraint start =
+      make_curve_constraint(*port_a, pole_a, chord_dir, basis_length, endpoint_offset_m, effective_sag_ratio,
+                            bend_stiffness_hint, min_bend_radius_hint_m,
+                            continuity_preference, pass_mode, span.placement_context, endpoint_mode, false);
+  const CurveConstraint end =
+      make_curve_constraint(*port_b, pole_b, chord_dir, basis_length, endpoint_offset_m, effective_sag_ratio,
+                            bend_stiffness_hint, min_bend_radius_hint_m,
+                            continuity_preference, pass_mode, span.placement_context, endpoint_mode, true);
 
   return BuildDetailCurve(start, end, samples);
 }

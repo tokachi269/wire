@@ -273,6 +273,10 @@ bool test_generate_simple_line_integration() {
   if (result.value.generation_session_id == 0) {
     return false;
   }
+  const auto& backbone = state.view().last_generation_backbone();
+  if (backbone.nodes.empty() || backbone.edges.empty()) {
+    return false;
+  }
 
   for (ObjectId pole_id : result.value.pole_ids) {
     const auto* pole = state.view().edit_state().poles.find(pole_id);

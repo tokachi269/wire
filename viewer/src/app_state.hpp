@@ -1,7 +1,9 @@
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <unordered_map>
 #include <vector>
 
@@ -19,6 +21,7 @@ enum class SelectedType {
   kAnchor = 4,
   kBundle = 5,
   kAttachment = 6,
+  kSupportNode = 7,
 };
 
 enum class CameraDragMode {
@@ -36,10 +39,26 @@ enum class EditMode {
   kDrawPath = 4,
 };
 
+struct SelectionItem {
+  SelectedType type = SelectedType::kNone;
+  ObjectId id = wire::core::kInvalidObjectId;
+};
+
+struct DragSelectionState {
+  bool active = false;
+  Vector2 start_screen{0.0f, 0.0f};
+  Vector2 end_screen{0.0f, 0.0f};
+};
+
 struct ViewerUiState {
   EditMode mode = EditMode::kPlacement;
   SelectedType selected_type = SelectedType::kNone;
   ObjectId selected_id = wire::core::kInvalidObjectId;
+  std::vector<SelectionItem> selection_items{};
+  bool selection_include_poles = true;
+  bool selection_include_midair_nodes = true;
+  bool selection_include_spans = true;
+  DragSelectionState drag_selection{};
 
   double pole_x = 0.0;
   double pole_y = 0.0;
@@ -191,6 +210,62 @@ struct ViewerUiState {
   float ui_workspace_width = 0.0f;
 };
 
+inline bool IsValidSelectionItem(const SelectionItem& item) {
+  return item.type != SelectedType::kNone && item.id != wire::core::kInvalidObjectId;
+}
+
+inline void NormalizeSelection(ViewerUiState& ui_state) {
+  ui_state.selection_items.erase(
+      std::remove_if(ui_state.selection_items.begin(), ui_state.selection_items.end(),
+                     [](const SelectionItem& item) { return !IsValidSelectionItem(item); }),
+      ui_state.selection_items.end());
+  std::sort(ui_state.selection_items.begin(), ui_state.selection_items.end(),
+            [](const SelectionItem& a, const SelectionItem& b) {
+              if (a.type != b.type) {
+                return static_cast<int>(a.type) < static_cast<int>(b.type);
+              }
+              return a.id < b.id;
+            });
+  ui_state.selection_items.erase(std::unique(ui_state.selection_items.begin(), ui_state.selection_items.end(),
+                                             [](const SelectionItem& a, const SelectionItem& b) {
+                                               return a.type == b.type && a.id == b.id;
+                                             }),
+                                 ui_state.selection_items.end());
+
+  if (ui_state.selection_items.empty()) {
+    ui_state.selected_type = SelectedType::kNone;
+    ui_state.selected_id = wire::core::kInvalidObjectId;
+    return;
+  }
+  ui_state.selected_type = ui_state.selection_items.front().type;
+  ui_state.selected_id = ui_state.selection_items.front().id;
+}
+
+inline void ReplaceSelection(ViewerUiState& ui_state, std::vector<SelectionItem> items) {
+  ui_state.selection_items = std::move(items);
+  NormalizeSelection(ui_state);
+}
+
+inline void ClearSelection(ViewerUiState& ui_state) {
+  ui_state.selection_items.clear();
+  NormalizeSelection(ui_state);
+}
+
+inline void SetPrimarySelection(ViewerUiState& ui_state, SelectedType type, ObjectId id) {
+  ReplaceSelection(ui_state, {{type, id}});
+}
+
+inline bool SelectionContains(const ViewerUiState& ui_state, SelectedType type, ObjectId id) {
+  return std::find_if(ui_state.selection_items.begin(), ui_state.selection_items.end(),
+                      [type, id](const SelectionItem& item) { return item.type == type && item.id == id; }) !=
+         ui_state.selection_items.end();
+}
+
+inline int SelectionCountByType(const ViewerUiState& ui_state, SelectedType type) {
+  return static_cast<int>(std::count_if(ui_state.selection_items.begin(), ui_state.selection_items.end(),
+                                        [type](const SelectionItem& item) { return item.type == type; }));
+}
+
 struct ViewerPersistentSettings {
   int window_width = 1280;
   int window_height = 720;
@@ -208,6 +283,9 @@ void DrawPathPopPoint(ViewerUiState& ui_state);
 void DrawPathClearPoints(ViewerUiState& ui_state);
 void DrawPathClearWithSessionReset(ViewerUiState& ui_state);
 void UpdateBranchPickInput(CoreState& state, const Camera3D& camera, ViewerUiState& ui_state);
+bool ExecuteBackboneRequest(CoreState& state, ViewerUiState& ui_state, const wire::core::BackboneSpec& request,
+                            bool allow_session_regen, bool clear_draw_path_on_success, const char* success_log,
+                            const char* failure_log);
 void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool from_enter_key);
 bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_state, std::string* out_path,
                               std::string* out_error);

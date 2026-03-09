@@ -95,6 +95,7 @@ enum class PortPlacementSourceKind : std::uint8_t {
   kGenerated = 2,
   kManualEdit = 3,
   kAerialBranch = 4,
+  kBranchSupport = 5,
 };
 
 enum class SpanKind : std::uint8_t {
@@ -141,7 +142,9 @@ enum class CableMaterialStyleKind : std::uint8_t {
 
 enum class CableContinuityPolicyHint : std::uint8_t {
   kAuto = 0,
+  // Prefer a direct G1-safe cubic. Do not attempt to preserve G2 context.
   kPreferG1 = 1,
+  // Prefer G2-like continuity when the span context is smooth, but allow explicit fallback to G1.
   kPreferG2 = 2,
 };
 
@@ -333,7 +336,7 @@ struct Attachment {
   ObjectId span_id = kInvalidObjectId;
   double t = 0.0;
   AttachmentKind kind = AttachmentKind::kGeneric;
-  double offset_m = 0.0;
+  double display_offset_m = 0.0;
 };
 
 // Backbone route edge (NodeId refers to SupportNode id).

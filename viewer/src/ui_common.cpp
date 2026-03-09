@@ -135,6 +135,8 @@ const char* PortPlacementSourceLabel(wire::core::PortPlacementSourceKind source)
     return "ManualEdit";
   case wire::core::PortPlacementSourceKind::kAerialBranch:
     return "AerialBranch";
+  case wire::core::PortPlacementSourceKind::kBranchSupport:
+    return "BranchSupport";
   case wire::core::PortPlacementSourceKind::kUnknown:
   default:
     return "Unknown";
@@ -236,6 +238,8 @@ const char* SelectedTypeLabel(SelectedType selected_type) {
     return "Bundle";
   case SelectedType::kAttachment:
     return "Attachment";
+  case SelectedType::kSupportNode:
+    return "SupportNode";
   case SelectedType::kNone:
   default:
     return "None";

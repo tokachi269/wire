@@ -1,6 +1,7 @@
 #include "wire/core/core_state.hpp"
 #include "../pole_orientation_utils.hpp"
 #include "detail_utils.hpp"
+#include "support_policy.hpp"
 
 #include <array>
 #include <algorithm>
@@ -18,11 +19,14 @@ namespace wire::core {
 
 using namespace generation::detail;
 
+namespace {} // namespace
+
 EditResult<std::vector<ObjectId>>
 CoreState::generate_grouped_spans_between_support_nodes(
     const std::vector<ObjectId>& node_ids, const std::unordered_map<ObjectId, SupportNode>& support_node_by_id,
     ObjectId bundle_id, ConnectionCategory category, int conductor_count, double spacing_m, bool maintain_lane_order,
-    bool allow_lane_mirror, std::vector<SegmentLaneAssignment>* out_lane_assignments,
+    bool allow_lane_mirror, BackboneFlowKind flow_kind, double branch_down_offset_m,
+    std::vector<SegmentLaneAssignment>* out_lane_assignments,
     std::vector<BackboneEdgeOrientation>* out_edge_orientations, BundleKind bundle_template_id) {
   EditResult<std::vector<ObjectId>> result;
   if (node_ids.size() < 2) {
@@ -31,6 +35,11 @@ CoreState::generate_grouped_spans_between_support_nodes(
   }
   const int lane_count = std::max(1, conductor_count);
   const PortLayer target_port_layer = category_to_port_layer(category);
+  const bool uses_branch_support = (flow_kind == BackboneFlowKind::kBranch);
+  const double effective_branch_down_offset_m =
+      uses_branch_support ? std::max(0.0, (branch_down_offset_m > 0.0) ? branch_down_offset_m
+                                                                        : generation::detail::BranchDownOffsetForCategory(category))
+                          : 0.0;
   std::unordered_map<ObjectId, std::vector<ObjectId>> node_lane_ports_cache{};
   std::unordered_map<ObjectId, Vec3d> node_side_axis_hints{};
   auto support_position = [&](ObjectId node_id) -> Vec3d {
@@ -60,6 +69,19 @@ CoreState::generate_grouped_spans_between_support_nodes(
       return it->second.support_kind;
     }
     return (edit_state_access().poles.find(node_id) != nullptr) ? SupportKind::kPole : SupportKind::kMidair;
+  };
+  auto span_context_for_segment = [&](ObjectId node_a, ObjectId node_b) -> ConnectionContext {
+    if (category == ConnectionCategory::kDrop) {
+      return ConnectionContext::kDropAdd;
+    }
+    if (uses_branch_support) {
+      return ConnectionContext::kBranchAdd;
+    }
+    const Pole* pole_a = support_pole(node_a);
+    const Pole* pole_b = support_pole(node_b);
+    const bool corner_pass = (pole_a != nullptr && pole_a->context.kind == PoleContextKind::kCorner) ||
+                             (pole_b != nullptr && pole_b->context.kind == PoleContextKind::kCorner);
+    return corner_pass ? ConnectionContext::kCornerPass : ConnectionContext::kTrunkContinue;
   };
   auto resolve_span_endpoint_node = [&](const Span& span, const Port* port, bool is_a) -> ObjectId {
     const ObjectId explicit_node_id = is_a ? span.endpoint_node_a_id : span.endpoint_node_b_id;
@@ -276,6 +298,84 @@ CoreState::generate_grouped_spans_between_support_nodes(
         ports_result.value.push_back(add_port.value);
       }
       sort_nonpole_ports(&ports_result.value);
+      node_lane_ports_cache[node_id] = ports_result.value;
+      ports_result.ok = true;
+      return ports_result;
+    }
+    if (uses_branch_support) {
+      const Vec3d peer_delta = support_position(peer_id) - pole->world_transform.position;
+      const Vec3d stable_side_axis = canonical_side_axis_for_order(node_id, peer_id);
+      double side_sign = (dot_xy(peer_delta, stable_side_axis) >= 0.0) ? 1.0 : -1.0;
+      if (std::abs(peer_delta.x) <= 1e-9 && std::abs(peer_delta.y) <= 1e-9) {
+        side_sign = 1.0;
+      }
+      const SlotSide branch_side = (side_sign >= 0.0) ? SlotSide::kRight : SlotSide::kLeft;
+
+      const bool use_scaffold_layout =
+          maintain_lane_order && bundle_template_id == BundleKind::kHighVoltage && lane_count > 1;
+      double main_support_base_z_m = pole->height_m * 0.8;
+      double branch_base_z_m = main_support_base_z_m;
+      if (const PoleTypeDefinition* pole_type = find_pole_type(pole->pole_type_id); pole_type != nullptr) {
+        double best_slot_z = -std::numeric_limits<double>::infinity();
+        for (const PortSlotTemplate& slot : pole_type->port_slots) {
+          if (!slot.enabled || slot.category != category) {
+            continue;
+          }
+          best_slot_z = std::max(best_slot_z, slot.local_position.z);
+        }
+        if (std::isfinite(best_slot_z)) {
+          main_support_base_z_m = use_scaffold_layout ? std::min(main_support_base_z_m, best_slot_z) : best_slot_z;
+          branch_base_z_m = main_support_base_z_m;
+        }
+      }
+      branch_base_z_m = std::max(0.5, main_support_base_z_m - effective_branch_down_offset_m);
+
+      const double lane_spacing = std::max(0.1, spacing_m);
+      const double center = (static_cast<double>(lane_count) - 1.0) * 0.5;
+      const double half_span = center * lane_spacing;
+      const double min_outboard =
+          pole_radius_at_height_m(*pole, branch_base_z_m) + cache_state_access().geometry_settings.pole_clearance_m +
+          half_span + 0.25;
+      const double branch_support_offset_m = std::max(0.65, min_outboard);
+      ports_result.value.reserve(static_cast<std::size_t>(lane_count));
+      for (int lane = 0; lane < lane_count; ++lane) {
+        const double lane_offset = (static_cast<double>(lane) - center) * lane_spacing;
+        Vec3d local{0.0, side_sign * branch_support_offset_m + lane_offset, branch_base_z_m};
+        local = apply_pole_clearance_to_local(*pole, local, branch_side);
+        const Vec3d world =
+            local_to_world_on_pole_local(pole->world_transform, effective_pole_yaw_deg(*pole), local);
+        EditResult<ObjectId> add_port =
+            AddPort(node_id, world, category_to_port_kind(category), category_to_port_layer(category));
+        if (!add_port.ok) {
+          ports_result.error = add_port.error;
+          return ports_result;
+        }
+        append_change_set(result.change_set, add_port.change_set);
+        Port* created_port = edit_state_access().ports.find(add_port.value);
+        if (created_port != nullptr) {
+          created_port->category = category;
+          created_port->source_slot_id = -1;
+          created_port->template_layer = generation::detail::TemplateLayerForCategory(category);
+          created_port->template_side = branch_side;
+          created_port->template_role = SlotRole::kBranchPreferred;
+          created_port->generated_from_template = false;
+          created_port->generated_by_rule = true;
+          created_port->placement_context = ConnectionContext::kBranchAdd;
+          apply_port_position_mode(*created_port, PortPositionMode::kAuto, PortPlacementSourceKind::kBranchSupport);
+          add_unique_id(result.change_set.updated_ids, created_port->id);
+        }
+        ports_result.value.push_back(add_port.value);
+      }
+      std::sort(ports_result.value.begin(), ports_result.value.end(), [&](ObjectId a, ObjectId b) {
+        const Port* pa = edit_state_access().ports.find(a);
+        const Port* pb = edit_state_access().ports.find(b);
+        const double ya = (pa == nullptr) ? 0.0 : to_local_on_pole(*pole, pa->world_position).y;
+        const double yb = (pb == nullptr) ? 0.0 : to_local_on_pole(*pole, pb->world_position).y;
+        if (std::abs(ya - yb) > 1e-9) {
+          return ya < yb;
+        }
+        return a < b;
+      });
       node_lane_ports_cache[node_id] = ports_result.value;
       ports_result.ok = true;
       return ports_result;
@@ -1018,14 +1118,18 @@ CoreState::generate_grouped_spans_between_support_nodes(
   for (std::size_t seg = 0; seg < segment_count; ++seg) {
     const ObjectId node_a = node_ids[seg];
     const ObjectId node_b = node_ids[seg + 1];
+    const ConnectionContext span_context = span_context_for_segment(node_a, node_b);
 
     SegmentLaneAssignment assignment{};
     assignment.segment_index = seg;
     assignment.pole_a_id = node_a;
     assignment.pole_b_id = node_b;
     assignment.bundle_id = bundle_id;
+    assignment.flow_kind = flow_kind;
     assignment.port_ids_a = order_for_parity(base_ports_by_node[seg], node_parity[seg] != 0);
     assignment.port_ids_b = order_for_parity(base_ports_by_node[seg + 1], node_parity[seg + 1] != 0);
+    assignment.uses_branch_support = uses_branch_support;
+    assignment.branch_down_offset_m = effective_branch_down_offset_m;
 
     const bool chosen_mirror = ((node_parity[seg] ^ node_parity[seg + 1]) != 0);
     const double turn_angle_deg = compute_turn_angle_deg(seg);
@@ -1070,7 +1174,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
       if (span != nullptr) {
         span->endpoint_node_a_id = node_a;
         span->endpoint_node_b_id = node_b;
-        span->placement_context = ConnectionContext::kTrunkContinue;
+        span->placement_context = span_context;
         span->generated_by_rule = true;
         span->generation.generated = true;
         add_unique_id(result.change_set.updated_ids, span->id);
@@ -1085,7 +1189,10 @@ CoreState::generate_grouped_spans_between_support_nodes(
       edge_orientation.node_a_id = assignment.pole_a_id;
       edge_orientation.node_b_id = assignment.pole_b_id;
       edge_orientation.bundle_template_id = bundle_template_id;
+      edge_orientation.flow_kind = flow_kind;
       edge_orientation.orientation = assignment.mirrored ? LaneOrientation::kReversed : LaneOrientation::kNormal;
+      edge_orientation.uses_branch_support = uses_branch_support;
+      edge_orientation.branch_down_offset_m = effective_branch_down_offset_m;
       edge_orientation.flipped_from_previous = assignment.flipped_from_previous;
       edge_orientation.flip_reason = assignment.flip_reason;
       edge_orientation.turn_angle_deg = assignment.turn_angle_deg;

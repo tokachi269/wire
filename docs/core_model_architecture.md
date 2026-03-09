@@ -73,3 +73,57 @@
 - `span`: port 間 runtime edge
 - `bundle`: span 群を束ねる正本単位
 - `lane`: workflow/debug 用の内部シーケンスラベル（公開 entity API には出さない）
+
+## 自動決定 / override / 派生の境界
+
+将来ユーザーが触り得る値でも、最初から全てを editable source にしない。
+まず「正本として保持すべきか」「明示 override の正本にすべきか」「再生成可能な導出か」を固定する。
+
+### 分類ルール
+
+1. 正本
+- ユーザーや workflow が意味として保存すべき入力/接続/所有関係。
+- 再生成で消えてはいけない。
+
+2. 明示override可能な正本
+- 既定では自動決定されるが、将来ユーザーが固定したい可能性がある値。
+- override フラグ/値は entity 側に置き、自動決定結果とは別に保持する。
+
+3. 自動決定される導出結果
+- Backbone / junction / template / topology から都度決め直せる結果。
+- debug や workflow result に残してよいが、重い独立正本概念にはしない。
+
+4. 詳細形状層の派生データ
+- 見た目曲線、距離属性、attachment 内部経路などの再計算可能な詳細。
+- 正本 entity や workflow spec に保存しない。
+
+### 現時点の固定分類
+
+- `Backbone / junction order / primary`: `3. 自動決定される導出結果`
+  - 置き場: `workflow_types.hpp` の `JunctionInfo`, `JunctionIncident`, `BackboneResult`
+- `Pole forward / yaw`: `2. 明示override可能な正本`
+  - 置き場: entity 正本は `Pole.orientation_control`
+  - 自動採用結果の置き場: `debug_types.hpp` の `PoleOrientationDebugRecord`
+- `main / branch classification`: `3. 自動決定される導出結果`
+  - 置き場: `BackboneFlowKind`, `BackboneEdgeOrientation`, `SegmentLaneAssignment`
+- `main support / branch support`: `3. 自動決定される導出結果`
+  - 置き場: support 配置ロジックと `PortPlacementSourceKind`
+- `branch down offset`: `3. 自動決定される導出結果`
+  - 置き場: support/attachment 配置計算の値。layer は書き換えない
+- `mirror decision`: `3. 自動決定される導出結果`
+  - 置き場: lane assignment / edge orientation debug
+- `attachment endpoint / socket相当`: `1. 正本` と `4. 詳細形状層の派生データ` に分離
+  - 正本: どの attachment/socket に接続しているかという接続関係
+  - 派生: attachment 内部の guide path / endpoint offset / 特殊曲線
+- `DetailCurve / arc-length table / distance attributes`: `4. 詳細形状層の派生データ`
+  - 置き場: `detail_curve.hpp`, `CurveCacheEntry.detail`, render cache
+
+### 将来 override 候補
+
+- Pole yaw / forward の明示固定
+- branch support style の明示選択
+- branch down offset の template/style 単位 override
+- attachment socket 選択
+
+まだ override UI や編集 API を持たない項目でも、値の置き場は先に分離しておく。
+「未実装だから導出と正本を同居させる」は禁止。

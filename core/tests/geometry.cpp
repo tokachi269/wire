@@ -563,19 +563,19 @@ bool test_generate_simple_line_corner_context_integration() {
   road.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}, {12.0, 12.0, 0.0}};
   const auto result =
       state.GenerateSimpleLine(road, 4.0, type_ids.front(), wire::core::ConnectionCategory::kLowVoltage);
-  if (!result.ok || result.value.span_ids.empty()) {
+  if (!result.ok || result.value.span_ids.empty() || result.value.pole_ids.empty()) {
     return false;
   }
 
-  bool has_corner_context = false;
-  for (ObjectId span_id : result.value.span_ids) {
-    const auto* span = state.view().edit_state().spans.find(span_id);
-    if (span != nullptr && span->placement_context == wire::core::ConnectionContext::kCornerPass) {
-      has_corner_context = true;
-      break;
-    }
+  const ObjectId corner_pole_id = find_pole_id_by_position(state, road.polyline[1]);
+  if (corner_pole_id == wire::core::kInvalidObjectId) {
+    return false;
   }
-  return has_corner_context && validate_now(state).ok();
+  const auto* corner_pole = state.view().edit_state().poles.find(corner_pole_id);
+  if (corner_pole == nullptr) {
+    return false;
+  }
+  return corner_pole->context.kind == wire::core::PoleContextKind::kCorner && validate_now(state).ok();
 }
 
 bool test_generate_simple_line_from_points_exact_poles_and_orientation() {
@@ -1186,24 +1186,125 @@ bool test_detail_curve_sag_preserves_endpoints_and_supports_length_queries() {
          almost_equal(sag.PositionAtLength(sag.Length()), sag.EvaluatePosition(1.0), 1e-9);
 }
 
-bool test_detail_curve_via_attachment_uses_offset_endpoints() {
+bool test_detail_curve_sag_uses_catenary_like_support_slope() {
+  wire::core::CurveConstraint start{};
+  start.point = {0.0, 0.0, 6.0};
+  start.tangent_dir = {1.0, 0.0, 0.0};
+  start.sag_hint = 0.04;
+
+  wire::core::CurveConstraint end{};
+  end.point = {18.0, 0.0, 6.0};
+  end.tangent_dir = {1.0, 0.0, 0.0};
+  end.sag_hint = 0.04;
+
+  const wire::core::DetailCurve curve = wire::core::BuildDetailCurve(start, end, 33);
+  const wire::core::Vec3d tangent0 = curve.EvaluateTangent(0.0);
+  const wire::core::Vec3d tangent1 = curve.EvaluateTangent(1.0);
+  return curve.sag_amplitude_m > 0.0 && tangent0.z < -0.01 && tangent1.z > 0.01;
+}
+
+bool test_detail_curve_near_straight_tangent_hints_do_not_wobble_sideways() {
+  wire::core::CurveConstraint start{};
+  start.point = {0.0, 0.0, 5.0};
+  start.tangent_dir = {1.0, 0.18, 0.0};
+  start.tangent_length_hint_m = 6.0;
+
+  wire::core::CurveConstraint end{};
+  end.point = {20.0, 0.0, 5.0};
+  end.tangent_dir = {1.0, -0.18, 0.0};
+  end.tangent_length_hint_m = 6.0;
+
+  const wire::core::DetailCurve curve = wire::core::BuildDetailCurve(start, end, 25);
+  double max_abs_y = 0.0;
+  for (const wire::core::Vec3d& sample : curve.sample_points) {
+    max_abs_y = std::max(max_abs_y, std::abs(sample.y));
+  }
+  return max_abs_y <= 0.03;
+}
+
+bool test_detail_curve_planar_lateral_bend_is_suppressed() {
+  wire::core::CurveConstraint base_start{};
+  base_start.point = {0.0, 0.0, 5.0};
+  base_start.tangent_dir = {0.55, 0.84, 0.0};
+  base_start.tangent_length_hint_m = 8.0;
+
+  wire::core::CurveConstraint base_end{};
+  base_end.point = {18.0, 0.0, 5.0};
+  base_end.tangent_dir = {0.55, -0.84, 0.0};
+  base_end.tangent_length_hint_m = 8.0;
+
+  const wire::core::DetailCurve plain = wire::core::BuildDetailCurve(base_start, base_end, 33);
+
+  wire::core::CurveConstraint corner_start = base_start;
+  wire::core::CurveConstraint corner_end = base_end;
+  corner_start.corner_pass = true;
+  corner_end.corner_pass = true;
+  corner_start.corner_angle_deg = 60.0;
+  corner_end.corner_angle_deg = 60.0;
+  const wire::core::DetailCurve corner = wire::core::BuildDetailCurve(corner_start, corner_end, 33);
+
+  double plain_max_abs_y = 0.0;
+  double corner_max_abs_y = 0.0;
+  for (const wire::core::Vec3d& sample : plain.sample_points) {
+    plain_max_abs_y = std::max(plain_max_abs_y, std::abs(sample.y));
+  }
+  for (const wire::core::Vec3d& sample : corner.sample_points) {
+    corner_max_abs_y = std::max(corner_max_abs_y, std::abs(sample.y));
+  }
+  return plain_max_abs_y <= 0.03 && corner_max_abs_y <= 0.03;
+}
+
+bool test_detail_curve_offset_endpoint_uses_offset_endpoints() {
   wire::core::CurveConstraint start{};
   start.point = {0.0, 0.0, 4.0};
   start.tangent_dir = {1.0, 0.0, 0.0};
-  start.attach_offset = {0.5, 0.0, 0.0};
-  start.endpoint_mode = wire::core::CurveEndpointMode::kViaAttachment;
+  start.endpoint_offset = {0.5, 0.0, 0.0};
+  start.endpoint_mode = wire::core::CurveEndpointMode::kOffsetEndpoint;
 
   wire::core::CurveConstraint end{};
   end.point = {10.0, 0.0, 4.0};
   end.tangent_dir = {1.0, 0.0, 0.0};
-  end.attach_offset = {-0.5, 0.0, 0.0};
-  end.endpoint_mode = wire::core::CurveEndpointMode::kViaAttachment;
+  end.endpoint_offset = {-0.5, 0.0, 0.0};
+  end.endpoint_mode = wire::core::CurveEndpointMode::kOffsetEndpoint;
 
   const wire::core::DetailCurve curve = wire::core::BuildDetailCurve(start, end, 17);
   return almost_equal(curve.EvaluatePosition(0.0), wire::core::Vec3d{0.5, 0.0, 4.0}, 1e-9) &&
          almost_equal(curve.EvaluatePosition(1.0), wire::core::Vec3d{9.5, 0.0, 4.0}, 1e-9) &&
          !almost_equal(curve.EvaluatePosition(0.0), start.point, 1e-9) &&
          !almost_equal(curve.EvaluatePosition(1.0), end.point, 1e-9);
+}
+
+bool test_attachment_display_offset_does_not_change_detail_curve_endpoints() {
+  CoreState state;
+  const ObjectId pole = state.AddPole({}, 10.0, "P").value;
+  const ObjectId a = state.AddPort(pole, {0.0, 0.0, 4.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId b = state.AddPort(pole, {12.0, 0.0, 4.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId span = state.AddSpan(a, b, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
+  (void)state.Commit().recalc_stats;
+
+  const auto* before = state.find_curve_cache(span);
+  if (before == nullptr) {
+    return false;
+  }
+  const wire::core::Vec3d start_before = before->detail.EvaluatePosition(0.0);
+  const wire::core::Vec3d end_before = before->detail.EvaluatePosition(1.0);
+
+  const auto add_attachment = state.AddAttachment(span, 0.5, wire::core::AttachmentKind::kGeneric, 1.25);
+  if (!add_attachment.ok) {
+    return false;
+  }
+  const auto* attachment = state.view().attachments().find(add_attachment.value);
+  if (attachment == nullptr || !almost_equal(attachment->display_offset_m, 1.25, 1e-9)) {
+    return false;
+  }
+
+  (void)state.Commit().recalc_stats;
+  const auto* after = state.find_curve_cache(span);
+  if (after == nullptr) {
+    return false;
+  }
+  return almost_equal(after->detail.EvaluatePosition(0.0), start_before, 1e-9) &&
+         almost_equal(after->detail.EvaluatePosition(1.0), end_before, 1e-9);
 }
 
 bool test_detail_curve_acute_case_applies_quality_fallback() {
@@ -1227,6 +1328,8 @@ bool test_detail_curve_acute_case_applies_quality_fallback() {
   }
   chord = wire::core::ScaleVec(chord, 1.0 / chord_length);
   double max_deviation = 0.0;
+  const wire::core::Vec3d expected_start = start.point;
+  const wire::core::Vec3d expected_end = end.point;
   for (const wire::core::Vec3d& sample : curve.sample_points) {
     if (!std::isfinite(sample.x) || !std::isfinite(sample.y) || !std::isfinite(sample.z)) {
       return false;
@@ -1236,8 +1339,111 @@ bool test_detail_curve_acute_case_applies_quality_fallback() {
     const wire::core::Vec3d along = wire::core::ScaleVec(chord, progress);
     max_deviation = std::max(max_deviation, std::sqrt(std::max(0.0, wire::core::LengthSquared(delta - along))));
   }
-  return (curve.quality.degraded_to_g1 || curve.quality.tangent_scale < 0.999) &&
+  return curve.quality.adopted_continuity == wire::core::DetailCurveContinuityMode::kG1 &&
+         curve.quality.continuity_reason == wire::core::DetailCurveContinuityReason::kConflictingTangents &&
+         curve.quality.degraded_to_g1 &&
+         almost_equal(curve.EvaluatePosition(0.0), expected_start, 1e-9) &&
+         almost_equal(curve.EvaluatePosition(1.0), expected_end, 1e-9) &&
          max_deviation <= chord_length * 0.80 + 1e-6;
+}
+
+bool test_detail_curve_long_pass_through_prefers_g2() {
+  wire::core::CurveConstraint start{};
+  start.point = {0.0, 0.0, 6.0};
+  start.tangent_dir = {1.0, 0.0, 0.0};
+  start.tangent_length_hint_m = 6.0;
+  start.continuity_preference = wire::core::CableContinuityPolicyHint::kPreferG2;
+
+  wire::core::CurveConstraint end{};
+  end.point = {20.0, 0.0, 6.0};
+  end.tangent_dir = {1.0, 0.0, 0.0};
+  end.tangent_length_hint_m = 6.0;
+  end.continuity_preference = wire::core::CableContinuityPolicyHint::kPreferG2;
+
+  const wire::core::DetailCurve curve = wire::core::BuildDetailCurve(start, end, 33);
+  return curve.quality.requested_policy == wire::core::CableContinuityPolicyHint::kPreferG2 &&
+         curve.quality.adopted_continuity == wire::core::DetailCurveContinuityMode::kG2 &&
+         curve.quality.continuity_reason == wire::core::DetailCurveContinuityReason::kSmoothPassThrough &&
+         curve.quality.attempted_g2 && !curve.quality.degraded_to_g1 &&
+         curve.quality.handle_length_start_m > 0.0 && curve.quality.handle_length_end_m > 0.0;
+}
+
+bool test_detail_curve_short_span_falls_back_to_g1() {
+  wire::core::CurveConstraint start{};
+  start.point = {0.0, 0.0, 5.0};
+  start.tangent_dir = {1.0, 0.0, 0.0};
+  start.tangent_length_hint_m = 1.5;
+  start.continuity_preference = wire::core::CableContinuityPolicyHint::kPreferG2;
+
+  wire::core::CurveConstraint end{};
+  end.point = {2.0, 0.0, 5.0};
+  end.tangent_dir = {1.0, 0.0, 0.0};
+  end.tangent_length_hint_m = 1.5;
+  end.continuity_preference = wire::core::CableContinuityPolicyHint::kPreferG2;
+
+  const wire::core::DetailCurve curve = wire::core::BuildDetailCurve(start, end, 17);
+  return curve.quality.adopted_continuity == wire::core::DetailCurveContinuityMode::kG1 &&
+         curve.quality.continuity_reason == wire::core::DetailCurveContinuityReason::kShortSpan &&
+         curve.quality.degraded_to_g1 &&
+         almost_equal(curve.EvaluatePosition(0.0), start.point, 1e-9) &&
+         almost_equal(curve.EvaluatePosition(1.0), end.point, 1e-9);
+}
+
+bool test_detail_curve_branch_pass_uses_g1_and_preserves_endpoint_constraints() {
+  wire::core::CurveConstraint start{};
+  start.point = {0.0, 0.0, 5.0};
+  start.tangent_dir = {1.0, 0.0, 0.0};
+  start.tangent_length_hint_m = 4.0;
+  start.endpoint_mode = wire::core::CurveEndpointMode::kOffsetEndpoint;
+  start.endpoint_offset = {0.4, 0.0, 0.0};
+  start.continuity_preference = wire::core::CableContinuityPolicyHint::kPreferG2;
+  start.pass_mode = wire::core::CurvePassMode::kBranch;
+
+  wire::core::CurveConstraint end{};
+  end.point = {12.0, 2.0, 5.0};
+  const wire::core::Vec3d expected_end_tangent{0.6, 0.8, 0.0};
+  end.tangent_dir = expected_end_tangent;
+  end.tangent_length_hint_m = 4.0;
+  end.endpoint_mode = wire::core::CurveEndpointMode::kOffsetEndpoint;
+  end.endpoint_offset = {0.0, 0.35, 0.0};
+  end.continuity_preference = wire::core::CableContinuityPolicyHint::kPreferG2;
+  end.pass_mode = wire::core::CurvePassMode::kBranch;
+
+  const wire::core::DetailCurve curve = wire::core::BuildDetailCurve(start, end, 25);
+  const wire::core::Vec3d tangent0 = curve.EvaluateTangent(0.0);
+  const wire::core::Vec3d tangent1 = curve.EvaluateTangent(1.0);
+  return curve.quality.adopted_continuity == wire::core::DetailCurveContinuityMode::kG1 &&
+         curve.quality.continuity_reason == wire::core::DetailCurveContinuityReason::kBranchPass &&
+         curve.quality.degraded_to_g1 &&
+         almost_equal(curve.EvaluatePosition(0.0), start.point + start.endpoint_offset, 1e-9) &&
+         almost_equal(curve.EvaluatePosition(1.0), end.point + end.endpoint_offset, 1e-9) &&
+         wire::core::Dot(tangent0, wire::core::Vec3d{1.0, 0.0, 0.0}) > 0.92 &&
+         wire::core::Dot(tangent1, expected_end_tangent) > 0.74;
+}
+
+bool test_detail_curve_prefer_g1_policy_is_explicit_not_degraded() {
+  wire::core::CurveConstraint start{};
+  start.point = {0.0, 0.0, 5.0};
+  start.tangent_dir = {1.0, 0.0, 0.0};
+  start.tangent_length_hint_m = 5.0;
+  start.sag_hint = 0.03;
+  start.continuity_preference = wire::core::CableContinuityPolicyHint::kPreferG1;
+
+  wire::core::CurveConstraint end{};
+  end.point = {16.0, 0.0, 5.0};
+  end.tangent_dir = {1.0, 0.0, 0.0};
+  end.tangent_length_hint_m = 5.0;
+  end.sag_hint = 0.03;
+  end.continuity_preference = wire::core::CableContinuityPolicyHint::kPreferG1;
+
+  const wire::core::DetailCurve curve = wire::core::BuildDetailCurve(start, end, 33);
+  return curve.quality.requested_policy == wire::core::CableContinuityPolicyHint::kPreferG1 &&
+         curve.quality.adopted_continuity == wire::core::DetailCurveContinuityMode::kG1 &&
+         curve.quality.continuity_reason == wire::core::DetailCurveContinuityReason::kPolicyPreferG1 &&
+         !curve.quality.attempted_g2 && !curve.quality.degraded_to_g1 && curve.sag_amplitude_m > 0.0 &&
+         almost_equal(curve.EvaluatePosition(0.0), start.point, 1e-9) &&
+         almost_equal(curve.EvaluatePosition(1.0), end.point, 1e-9) &&
+         curve.Length() > 0.0 && !curve.arc_length_table.empty();
 }
 
 bool test_render_cache_bakes_arc_length_attributes() {
@@ -1279,7 +1485,7 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C61_Phase48h_AcuteCorner_AutoWidenSpacing", "Acute corners auto-widen lane spacing without category-specific branching", "Invariant", false, test_acute_corner_auto_widens_lane_spacing);
   test_registry::AddTest(tests, "C32_Phase47_SlotSelection_ContextBias", "Branch context biases slot choice away from trunk-only", "Invariant", false, test_slot_selection_context_bias);
   test_registry::AddTest(tests, "C33_Phase47_SlotSelection_DeterministicDebug", "Slot tie-break is deterministic and debug record is coherent", "Exact", false, test_slot_selection_deterministic_and_debug_integrity);
-  test_registry::AddTest(tests, "C34_Phase47_GenerateSimpleLine_CornerContext", "Corner path generation uses corner context on spans", "Invariant", false, test_generate_simple_line_corner_context_integration);
+  test_registry::AddTest(tests, "C34_Phase47_GenerateSimpleLine_CornerContext", "Corner path generation keeps the guide vertex pole classified as corner under canonical path generation", "Invariant", false, test_generate_simple_line_corner_context_integration);
   test_registry::AddTest(tests, "C36_Phase47_DrawPath_ClickPointsExact", "DrawPath generation uses clicked points directly and sets pole yaw", "Exact", false, test_generate_simple_line_from_points_exact_poles_and_orientation);
   test_registry::AddTest(tests, "C43_Phase4x_SharpCorner_SideAxisPerpendicular", "Sharp-corner pole side axis is perpendicular to bisector and points away from inward side", "Invariant", false, test_generate_simple_line_from_points_sharp_corner_perpendicular_orientation);
   test_registry::AddTest(tests, "C56_Phase48h_SharpCorner_ThresholdBoundary", "Sharp-corner orientation applies at <=75deg and disables above threshold", "Invariant", false, test_sharp_corner_threshold_boundary_orientation);
@@ -1302,15 +1508,40 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C129_DetailCurve_SApi_SagAndLengthPlacement",
                          "DetailCurve sag preserves endpoints and supports length-based placement via arc table",
                          "Invariant", false, test_detail_curve_sag_preserves_endpoints_and_supports_length_queries);
-  test_registry::AddTest(tests, "C130_DetailCurve_ViaAttachment_OffsetEndpoints",
-                         "ViaAttachment uses attachment endpoints instead of support points directly",
-                         "Invariant", false, test_detail_curve_via_attachment_uses_offset_endpoints);
+  test_registry::AddTest(
+      tests, "C141_DetailCurve_CatenarySupportSlope",
+      "DetailCurve sag uses a catenary-like support slope instead of staying flat at the endpoints", "Invariant",
+      false, test_detail_curve_sag_uses_catenary_like_support_slope);
+  test_registry::AddTest(tests, "C142_DetailCurve_NearStraightNoSideWobble",
+                         "Near-straight endpoint tangents do not introduce visible sideways wobble",
+                         "Invariant", false, test_detail_curve_near_straight_tangent_hints_do_not_wobble_sideways);
+  test_registry::AddTest(tests, "C143_DetailCurve_PlanarLateralBendSuppressed",
+                         "DetailCurve suppresses sideways planar Bezier bend even when endpoint tangents suggest lateral bulge",
+                         "Invariant", false, test_detail_curve_planar_lateral_bend_is_suppressed);
+  test_registry::AddTest(tests, "C130_DetailCurve_OffsetEndpoint_UsesOffsetEndpoints",
+                         "Derived endpoint-offset mode moves detail-curve endpoints without changing source support points",
+                         "Invariant", false, test_detail_curve_offset_endpoint_uses_offset_endpoints);
   test_registry::AddTest(tests, "C131_DetailCurve_QualityFallback_AcuteCase",
                          "Acute/conflicting tangents trigger tangent fallback instead of excessive bulge",
                          "Invariant", false, test_detail_curve_acute_case_applies_quality_fallback);
+  test_registry::AddTest(tests, "C144_DetailCurve_LongPassThrough_PreferG2",
+                         "Long pass-through spans with smooth endpoint tangents adopt G2-preferred control-point strategy",
+                         "Invariant", false, test_detail_curve_long_pass_through_prefers_g2);
+  test_registry::AddTest(tests, "C145_DetailCurve_ShortSpan_FallsBackToG1",
+                         "Short spans degrade to G1 instead of forcing a G2-style control-point layout",
+                         "Invariant", false, test_detail_curve_short_span_falls_back_to_g1);
+  test_registry::AddTest(tests, "C146_DetailCurve_BranchPass_PreservesEndpointConstraints",
+                         "Branch-pass spans prefer G1 and keep offset endpoints plus endpoint tangents intact",
+                         "Invariant", false, test_detail_curve_branch_pass_uses_g1_and_preserves_endpoint_constraints);
+  test_registry::AddTest(tests, "C147_DetailCurve_PreferG1_IsExplicit",
+                         "PreferG1 policy is an explicit continuity choice, not a failed G2 attempt, and sag still applies",
+                         "Invariant", false, test_detail_curve_prefer_g1_policy_is_explicit_not_degraded);
   test_registry::AddTest(tests, "C132_RenderCurve_DistanceAttributesBaked",
                          "Render cache bakes arc-length attributes for GPU-side length-driven effects",
                          "Invariant", false, test_render_cache_bakes_arc_length_attributes);
+  test_registry::AddTest(tests, "C137_Attachment_DisplayOffset_IsEntityOnly",
+                         "Attachment display offset stays in entity/display state and does not perturb detail-curve endpoints",
+                         "Invariant", false, test_attachment_display_offset_does_not_change_detail_curve_endpoints);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_geometry_tests);

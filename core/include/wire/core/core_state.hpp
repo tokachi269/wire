@@ -70,8 +70,19 @@ struct VisualPart {
   double radius_m = 0.02;
 };
 
+struct BranchSupportPlacement {
+  ObjectId owner_pole_id = kInvalidObjectId;
+  ObjectId peer_node_id = kInvalidObjectId;
+  SlotSide side = SlotSide::kCenter;
+  double down_offset_m = 0.0;
+  Vec3d mount_world{};
+  Vec3d tip_world{};
+  Vec3d attachment_world{};
+};
+
 struct SpanVisualCacheEntry {
   std::vector<VisualPart> parts{};
+  std::vector<BranchSupportPlacement> branch_supports{};
   std::uint64_t source_version = 0;
 };
 
@@ -318,7 +329,7 @@ public:
                                SpanLayer layer = SpanLayer::kUnknown, ObjectId bundle_id = kInvalidObjectId,
                                ObjectId anchor_a_id = kInvalidObjectId, ObjectId anchor_b_id = kInvalidObjectId);
   EditResult<ObjectId> AddAttachment(ObjectId span_id, double t, AttachmentKind kind = AttachmentKind::kGeneric,
-                                     double offset_m = 0.0);
+                                     double display_offset_m = 0.0);
   EditResult<ObjectId> MovePole(ObjectId pole_id, const Transformd& new_world_transform);
   // Pole tilt is instance-owned. This command updates explicit target poles without touching templates.
   EditResult<bool> ApplyPoleTilt(const std::vector<ObjectId>& pole_ids, double tilt_x_deg, double tilt_y_deg);
@@ -434,6 +445,7 @@ private:
                                                const std::unordered_map<ObjectId, SupportNode>& support_node_by_id,
                                                ObjectId bundle_id, ConnectionCategory category, int conductor_count,
                                                double spacing_m, bool maintain_lane_order, bool allow_lane_mirror,
+                                               BackboneFlowKind flow_kind, double branch_down_offset_m,
                                                std::vector<SegmentLaneAssignment>* out_lane_assignments,
                                                std::vector<BackboneEdgeOrientation>* out_edge_orientations = nullptr,
                                                BundleKind bundle_template_id = BundleKind::kLowVoltage);
@@ -560,6 +572,7 @@ private:
   // Session debug layer (non-authoritative, non-persist by policy).
   PathDirectionEvaluationDebug last_path_direction_debug_{};
   std::vector<PathDirectionEvaluationDebug> path_direction_debug_records_{};
+  std::unordered_map<ObjectId, PoleOrientationDebugRecord> pole_orientation_debug_records_{};
   BackboneResult last_generation_backbone_{};
   ObjectId next_virtual_support_node_id_ = 0x9000000000000000ull;
   std::vector<SegmentLaneAssignment> last_lane_assignments_{};
@@ -591,6 +604,9 @@ public:
   [[nodiscard]] const std::vector<PathDirectionEvaluationDebug>& path_direction_debug_records() const {
     return state_.path_direction_debug_records_;
   }
+  [[nodiscard]] const std::unordered_map<ObjectId, PoleOrientationDebugRecord>& pole_orientation_debug_records() const {
+    return state_.pole_orientation_debug_records_;
+  }
   [[nodiscard]] const BackboneResult& last_generation_backbone() const { return state_.last_generation_backbone_; }
   [[nodiscard]] const CacheState& cache_state() const { return state_.cache_state_; }
   [[nodiscard]] const std::unordered_map<PoleTypeId, PoleTypeDefinition>& pole_types() const {
@@ -607,6 +623,9 @@ public:
   }
   [[nodiscard]] const std::vector<SlotSelectionDebugRecord>& slot_selection_debug_records() const {
     return state_.slot_selection_debug_records_;
+  }
+  [[nodiscard]] const std::vector<SegmentLaneAssignment>& last_lane_assignments() const {
+    return state_.last_lane_assignments_;
   }
   [[nodiscard]] const std::unordered_map<ObjectId, SpanRuntimeState>& span_runtime_states() const {
     return state_.span_runtime_states_;

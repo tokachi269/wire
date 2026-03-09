@@ -34,14 +34,14 @@
 | C24 | 隣接Pole自動接続 | Pole列 | GenerateSpansBetweenPoles | Exact: n-1生成 | result/index | 欠線防止 |
 | C25 | 複数パス増加 | Pole列 | GenerateSpansBetweenPoles×6 | Exact: 毎回n-1増加 | span総数 | 頭打ち回帰防止 |
 | C26 | 第3slot利用 | PoleType適用列 | 低圧自動接続×3 | Invariant: 3slot以上利用 | source_slot集合 | 2本固定回帰防止 |
-| C27 | SimpleLine統合 | 有効折れ線 | GenerateSimpleLine→再計算 | Invariant: 生成+Version追随 | result/runtime/cache | 一発生成成立 |
+| C27 | SimpleLine統合 | 有効折れ線 | GenerateSimpleLine→GenerateFromBackboneSpec→再計算 | Invariant: 生成+Version追随+last_generation_backbone更新 | result/runtime/cache/backbone | 一発生成成立 |
 | C28 | through連続性 | 直線入力 | GenerateSimpleLine | Invariant: 中間Pole同Port再利用 | span端点Port | 幹線連続維持 |
 | C29 | 表示ID採番 | 新規CoreState | Pole/Port/Span追加 | Exact: prefix別連番 | display_id | UI追跡性 |
 | C30 | Pole文脈分類 | 直線+折れ線 | GeneratePolesAlongRoad | Invariant: Terminal/Straight/Corner | pole.context | 文脈基盤維持 |
 | C31 | 角補正有界 | 補正ON | 折れ線生成 | Invariant: sideScale有界+有限 | pole/port | 補正暴走防止 |
 | C32 | 文脈別選定 | 3Pole | Trunk接続+Branch接続 | Invariant: 選定傾向差 | slot_id | 分岐競合低減 |
 | C33 | 決定的タイブレーク | 同一入力2回 | AddConnectionByPole | Exact: 同slot+debug整合 | debug records | 再現性 |
-| C34 | Corner文脈統合 | 折れ線 | GenerateSimpleLine | Invariant: CornerPass含有 | span.context | 角付き路線維持 |
+| C34 | Corner文脈統合 | 折れ線 | GenerateSimpleLine | Invariant: ガイド頂点PoleがCorner文脈のまま生成される | pole.context | 角付き路線維持 |
 | C35 | 内外補正差 | 左折/右折 | GeneratePolesAlongRoad | Invariant: 外側オフセット>内側 | turn_sign/slot座標 | 角圧縮の低減 |
 | C61 | 鋭角自動拡幅 | 鋭角/鈍角の同一テンプレート比較 | GenerateSimpleLineFromPoints | Invariant: 鋭角の左右レーン間隔が鈍角より広い（カテゴリ非依存） | corner poleのlocal Y差 | 鋭角での線間距離不足防止 |
 | C62 | 群レーンねじれ抑制 | U字Guide + HV3 lane | GenerateFromBackboneSpec(HV_3PH) | Invariant: 区間ごとのlane順逆転数が0 | lane assignment port local Y順 | 群配線のクロス抑制 |
@@ -135,9 +135,24 @@
 | C127 | PoleFrame の local/world roundtrip | tilt付き transform + local point | BuildPoleFrame + LocalPointToWorld + WorldPointToLocal | Invariant: tilt 下でも local/world roundtrip が安定する | pole frame math | Pole傾き適用の回転順序ずれ防止 |
 | C128 | uベース曲線APIの端点拘束 | 端点位置と端点接線が既知 | BuildDetailCurve + EvaluatePosition/EvaluateTangent | Invariant: u=0/1 で端点位置を満たし、端点接線が意図方向へ揃う | DetailCurve | 曲線生成を u ベースに固定する |
 | C129 | sベース配置APIと sag 合成 | 端点固定 + sag 付き曲線 | BuildDetailCurve + PositionAtLength | Invariant: sag 後も端点位置は不変で、長さ基準の中点配置が使える | DetailCurve.arc_length_table | 正確な配置を s ベースで扱える |
-| C130 | ViaAttachment 端点 | 支点と attachment offset が既知 | BuildDetailCurve(ViaAttachment) | Invariant: 曲線端点は支点そのものではなく attachment point になる | DetailCurve | 支点近傍で急に折れない離脱表現の土台 |
+| C141 | 懸垂寄り support slope | 端点同高 + sag 付き曲線 | BuildDetailCurve | Invariant: sag 付き曲線は支点で完全水平に寝ず、両端で上下向きの傾きが出る | DetailCurve.EvaluateTangent | quartic 的な平坦 sag に戻る回帰防止 |
+| C142 | 近直線での横揺れ抑止強化 | 同高ほぼ直線 + 軽い逆向き横tangent | BuildDetailCurve | Invariant: 近直線 span は lateral tangent 差があっても平面内でほぼ真っ直ぐに保たれる | DetailCurve.sample_points | 微小な横成分で左右にぐにゃる回帰防止 |
+| C143 | 平面横曲げの一時抑止 | lateral bulge を誘う端点tangent + corner-pass 有無 | BuildDetailCurve | Invariant: plain/corner ともに平面内の sideways bulge をほぼ出さない | DetailCurve.sample_points | 横方向ベジェの違和感を一旦無効化する |
+| C130 | OffsetEndpoint 端点 | 支点と派生 endpoint offset が既知 | BuildDetailCurve(OffsetEndpoint) | Invariant: 曲線端点は支点そのものではなく派生 offset 位置になる | DetailCurve | 支点近傍で急に折れない離脱表現の土台 |
+| C137 | Attachment表示offset非干渉 | Span + Attachment(display offset) | AddAttachment→Commit | Invariant: 正本 attachment の表示offsetは detail curve 端点を変えない | Attachment / DetailCurve | 接続情報と表示補正の責務混線防止 |
 | C131 | 鋭角/競合接線での品質劣化安全策 | 反対向きに近い接線ヒント | BuildDetailCurve | Invariant: tangent fallback が働き、過度な膨張や逆行を抑える | DetailCurve.quality / sample_points | 高度最適化なしで見た目破綻を抑える |
+| C144 | 長尺継続 span の G2優先採用 | 長い pass-through span + 素直な端点接線 | BuildDetailCurve(PreferG2) | Invariant: continuity は G2 になり、smooth pass-through 理由が debug で追える | DetailCurve.quality | G2優先方針が単なる係数でなく判定として残ることを固定 |
+| C145 | 短スパンの G1劣化 | 短い span + PreferG2 | BuildDetailCurve | Invariant: 短スパンでは無理に G2 を維持せず G1 と ShortSpan 理由へ落ちる | DetailCurve.quality | 短スパンで過拘束 cubic を押し込む回帰防止 |
+| C146 | branch pass の G1優先と端点拘束保持 | branch pass + offset endpoint | BuildDetailCurve | Invariant: branch pass は G1 を採用しつつ offset endpoint と端点接線を保つ | DetailCurve.quality / EvaluatePosition / EvaluateTangent | branch で G2 に固執して support 離脱が崩れる回帰防止 |
+| C147 | PreferG1 は明示選択 | 長尺 span + PreferG1 + sag | BuildDetailCurve | Invariant: PreferG1 は failed G2 ではなく explicit G1 として扱われ、sag と arc-length はそのまま動く | DetailCurve.quality / arc_length_table | continuity 設定と実挙動の意味ずれ防止 |
 | C132 | GPU用距離属性の焼き込み | span再計算済み | Commit + find_span_render_cache | Invariant: 累積長と正規化距離が render cache に入り、毎フレーム CPU 逆引きを不要にする | span render cache | 長さ依存エフェクトの受け皿を持つ |
+| C133 | 本線優先Pole向き | 既存main + 後からbranch | GenerateFromBackboneSpec(HV) を2回 | Invariant: 共有junction Pole の yaw が branch ではなく既存 main chain に従う | pole yaw / pole orientation debug | junction primary が Pole向きへ反映されない回帰防止 |
+| C134 | Branch support port 生成 | 既存main + HV branch | GenerateFromBackboneSpec(HV) | Invariant: branch bundle が `flow=Branch` になり branch-support port を使う | last_lane_assignments / port placement_source | branch を main support と同列 mirror に戻す回帰防止 |
+| C135 | Branch down offset は layer 非改変 | 既存main + HV branch | GenerateFromBackboneSpec(HV) | Invariant: branch port の高さは main より低いが template layer は維持される | branch/main port z / template_layer | support offset ではなく layer 書換えで解く実装の混入防止 |
+| C136 | HV3 main port 安定性 | 既存HV main + HV branch | GenerateFromBackboneSpec(HV) を2回 | Invariant: branch 追加後も既存 main bundle の中心 port 集合が変わらない | main bundle center port ids | branch 追加で既存 HV_3PH の左右順が壊れる回帰防止 |
+| C138 | Mixed route の edge 単位 flow | 既存main + main→branch 混在 path | GenerateFromBackboneSpec(LV) | Invariant: 先頭 edge は Main、分岐 edge は Branch として別処理される | last_lane_assignments.flow_kind / flow_decision_rule | route 1値の branch 判定が main 区間まで侵食する回帰防止 |
+| C139 | Branch support の派生配置 | 既存main + HV branch + recalc | GenerateFromBackboneSpec→Commit | Invariant: branch support placement が visual cache に派生生成される | span visual cache.branch_supports | branch support が port 配置だけで終わる回帰防止 |
+| C140 | Near-straight branch でも topology 優先 | 既存main + ほぼ直進角の branch | GenerateFromBackboneSpec(LV) | Invariant: 幾何角度に引っ張られず Branch 判定を維持する | last_lane_assignments.flow_kind / flow_decision_rule | order/topology ではなく角度しきい値で branch 判定が揺れる回帰防止 |
 
 ## LLM self-review
 - 実装依存か: private順序/内部関数呼び出し順には依存しない。

@@ -9,9 +9,36 @@ namespace wire::core {
 namespace {
 
 constexpr double kZeroLengthEps = 1e-9;
+constexpr double kNormalizedCatenarySteepness = 2.6;
+constexpr double kG2MinChordLengthM = 4.0;
+constexpr double kG2EndpointOffsetRatioLimit = 0.08;
+constexpr double kG2EndpointOffsetMetersLimit = 0.45;
+constexpr double kFallbackTangentScale = 0.65;
+
+struct ContinuityDecision {
+  DetailCurveContinuityMode mode = DetailCurveContinuityMode::kG1;
+  DetailCurveContinuityReason reason = DetailCurveContinuityReason::kAutoBalanced;
+  bool attempted_g2 = false;
+  double handle_scale = 0.78;
+};
 
 double Clamp01(double v) {
   return std::max(0.0, std::min(1.0, v));
+}
+
+double SmoothStep(double edge0, double edge1, double x) {
+  if (edge1 <= edge0) {
+    return (x >= edge1) ? 1.0 : 0.0;
+  }
+  const double t = Clamp01((x - edge0) / (edge1 - edge0));
+  return t * t * (3.0 - 2.0 * t);
+}
+
+double CornerStrengthForAngle(double angle_deg) {
+  if (angle_deg <= 1e-6) {
+    return 0.0;
+  }
+  return 1.0 - Clamp01((angle_deg - 35.0) / 120.0);
 }
 
 Vec3d ClampToChordDirection(const Vec3d& chord_dir, const Vec3d& hint_dir) {
@@ -29,22 +56,88 @@ Vec3d ClampToChordDirection(const Vec3d& chord_dir, const Vec3d& hint_dir) {
   return blended;
 }
 
+Vec3d BlendTowardChord(const Vec3d& chord_dir, const Vec3d& tangent, double weight) {
+  Vec3d blended = ScaleVec(tangent, 1.0 - weight) + ScaleVec(chord_dir, weight);
+  if (!Normalize(&blended)) {
+    return chord_dir;
+  }
+  return blended;
+}
+
+Vec3d SuppressPlanarLateralComponent(const Vec3d& chord_dir, const Vec3d& tangent) {
+  const Vec3d lateral_axis = ComputeLateralAxis(chord_dir);
+  Vec3d adjusted = tangent - ScaleVec(lateral_axis, Dot(tangent, lateral_axis));
+  if (!Normalize(&adjusted)) {
+    return chord_dir;
+  }
+  if (Dot(adjusted, chord_dir) < 0.0) {
+    adjusted = ScaleVec(adjusted, -1.0);
+  }
+  return adjusted;
+}
+
+double SignedLateralComponent(const Vec3d& chord_dir, const Vec3d& tangent) {
+  const Vec3d lateral_axis = ComputeLateralAxis(chord_dir);
+  return Dot(tangent, lateral_axis);
+}
+
+void DampNearStraightTangents(const Vec3d& chord_dir, Vec3d* start_tangent, Vec3d* end_tangent) {
+  if (start_tangent == nullptr || end_tangent == nullptr) {
+    return;
+  }
+  const double start_alignment = std::clamp(Dot(*start_tangent, chord_dir), -1.0, 1.0);
+  const double end_alignment = std::clamp(Dot(*end_tangent, chord_dir), -1.0, 1.0);
+  double weight = SmoothStep(0.94, 0.995, std::min(start_alignment, end_alignment));
+  const double start_lateral = SignedLateralComponent(chord_dir, *start_tangent);
+  const double end_lateral = SignedLateralComponent(chord_dir, *end_tangent);
+  if (start_lateral * end_lateral < -1e-6) {
+    weight = std::max(weight, 0.82);
+  }
+  if (weight <= 1e-6) {
+    return;
+  }
+  *start_tangent = BlendTowardChord(chord_dir, *start_tangent, weight);
+  *end_tangent = BlendTowardChord(chord_dir, *end_tangent, weight);
+}
+
+void ApplyCornerPassTangentPolicy(const Vec3d& chord_dir, const CurveConstraint& constraint, Vec3d* tangent) {
+  if (tangent == nullptr || !constraint.corner_pass) {
+    return;
+  }
+  const double corner_strength = CornerStrengthForAngle(constraint.corner_angle_deg);
+  if (corner_strength <= 1e-6) {
+    return;
+  }
+  *tangent = chord_dir;
+}
+
+double CornerPassTangentLengthScale(const CurveConstraint& constraint) {
+  if (!constraint.corner_pass) {
+    return 1.0;
+  }
+  const double corner_strength = CornerStrengthForAngle(constraint.corner_angle_deg);
+  return 1.0 - 0.65 * corner_strength;
+}
+
 Vec3d ResolveEndpointPoint(const CurveConstraint& constraint) {
-  if (constraint.endpoint_mode == CurveEndpointMode::kViaAttachment) {
-    return constraint.point + constraint.attach_offset;
+  if (constraint.endpoint_mode == CurveEndpointMode::kOffsetEndpoint) {
+    return constraint.point + constraint.endpoint_offset;
   }
   return constraint.point;
 }
 
 double SagShape(double u) {
-  const double x = Clamp01(u);
-  const double one_minus = 1.0 - x;
-  return 16.0 * x * x * one_minus * one_minus;
+  const double x = Clamp01(u) - 0.5;
+  const double edge = std::cosh(kNormalizedCatenarySteepness * 0.5);
+  const double denom = std::max(kZeroLengthEps, edge - 1.0);
+  return std::max(0.0, (edge - std::cosh(kNormalizedCatenarySteepness * x)) / denom);
 }
 
 double SagShapeDerivative(double u) {
-  const double x = Clamp01(u);
-  return 32.0 * x * (1.0 - x) * (1.0 - 2.0 * x);
+  const double x = Clamp01(u) - 0.5;
+  const double edge = std::cosh(kNormalizedCatenarySteepness * 0.5);
+  const double denom = std::max(kZeroLengthEps, edge - 1.0);
+  return (-kNormalizedCatenarySteepness * std::sinh(kNormalizedCatenarySteepness * x)) / denom;
 }
 
 Vec3d EvaluateBezier(const std::array<Vec3d, 4>& cp, double u) {
@@ -80,31 +173,24 @@ double MaxPerpendicularDeviation(const Vec3d& start, const Vec3d& chord_dir, con
   return std::sqrt(std::max(0.0, LengthSquared(delta - along)));
 }
 
-double ContinuityScale(CableContinuityPolicyHint hint) {
-  switch (hint) {
-  case CableContinuityPolicyHint::kPreferG2:
-    return 1.0;
-  case CableContinuityPolicyHint::kPreferG1:
-    return 0.75;
-  default:
-    return 0.9;
-  }
+bool HasValidTangentHint(const CurveConstraint& constraint) {
+  Vec3d tangent = constraint.tangent_dir;
+  return Normalize(&tangent);
 }
 
-double PassModeScale(CurvePassMode mode) {
-  switch (mode) {
-  case CurvePassMode::kPassThrough:
-    return 1.0;
-  case CurvePassMode::kBranch:
-    return 0.8;
-  case CurvePassMode::kTerminate:
-    return 0.65;
-  default:
-    return 1.0;
+double EndpointOffsetMagnitude(const CurveConstraint& constraint) {
+  if (constraint.endpoint_mode != CurveEndpointMode::kOffsetEndpoint) {
+    return 0.0;
   }
+  return std::sqrt(LengthSquared(constraint.endpoint_offset));
 }
 
-double ComputeTangentLength(double chord_length, const Vec3d& chord_dir, const CurveConstraint& constraint) {
+double RigidityScale(const CurveConstraint& constraint) {
+  const double stiffness = std::clamp(constraint.bend_stiffness_hint, 0.25, 3.0);
+  return std::clamp(0.85 + 0.15 * stiffness, 0.75, 1.30);
+}
+
+double ComputeBaseTangentLength(double chord_length, const Vec3d& chord_dir, const CurveConstraint& constraint) {
   if (chord_length <= kZeroLengthEps) {
     return 0.0;
   }
@@ -115,9 +201,9 @@ double ComputeTangentLength(double chord_length, const Vec3d& chord_dir, const C
   }
   const double alignment = std::max(-1.0, std::min(1.0, Dot(tangent, chord_dir)));
   const double angle_scale = std::max(0.25, 1.0 - (std::acos(alignment) / 3.14159265358979323846) * 0.7);
-  const double continuity_scale = ContinuityScale(constraint.continuity_preference);
-  const double pass_scale = PassModeScale(constraint.pass_mode);
-  const double capped = std::min(chord_length * 0.45, hinted * angle_scale * continuity_scale * pass_scale);
+  const double min_from_radius = std::max(0.0, constraint.min_bend_radius_hint_m * 0.6);
+  const double target = std::max(min_from_radius, hinted * angle_scale * RigidityScale(constraint));
+  const double capped = std::min(chord_length * 0.45, target);
   return std::max(chord_length * 0.06, capped);
 }
 
@@ -153,6 +239,67 @@ bool CurveHasPoorQuality(const std::array<Vec3d, 4>& cp, double sag_amplitude_m)
     max_deviation = std::max(max_deviation, MaxPerpendicularDeviation(start, chord_dir, p));
   }
   return regressions > 0 || max_deviation > chord_length * 0.60;
+}
+
+ContinuityDecision DecideContinuity(const CurveConstraint& start_constraint, const CurveConstraint& end_constraint,
+                                    double chord_length, const Vec3d& chord_dir) {
+  ContinuityDecision decision{};
+  decision.handle_scale = 0.82;
+
+  const CableContinuityPolicyHint policy = start_constraint.continuity_preference;
+  if (policy == CableContinuityPolicyHint::kPreferG1) {
+    decision.reason = DetailCurveContinuityReason::kPolicyPreferG1;
+    return decision;
+  }
+
+  if (chord_length <= kZeroLengthEps) {
+    decision.reason = DetailCurveContinuityReason::kContextInsufficient;
+    return decision;
+  }
+
+  if (!HasValidTangentHint(start_constraint) || !HasValidTangentHint(end_constraint)) {
+    decision.reason = DetailCurveContinuityReason::kContextInsufficient;
+    return decision;
+  }
+
+  if (start_constraint.pass_mode == CurvePassMode::kBranch || end_constraint.pass_mode == CurvePassMode::kBranch) {
+    decision.reason = DetailCurveContinuityReason::kBranchPass;
+    return decision;
+  }
+
+  if (start_constraint.corner_pass || end_constraint.corner_pass ||
+      start_constraint.pass_mode == CurvePassMode::kTerminate || end_constraint.pass_mode == CurvePassMode::kTerminate) {
+    decision.reason = DetailCurveContinuityReason::kCornerPass;
+    return decision;
+  }
+
+  const double max_endpoint_offset_m =
+      std::max(EndpointOffsetMagnitude(start_constraint), EndpointOffsetMagnitude(end_constraint));
+  if (max_endpoint_offset_m > kG2EndpointOffsetMetersLimit ||
+      max_endpoint_offset_m > chord_length * kG2EndpointOffsetRatioLimit) {
+    decision.reason = DetailCurveContinuityReason::kEndpointConstraintPriority;
+    return decision;
+  }
+
+  if (HasConflictingTangentHint(chord_dir, start_constraint) || HasConflictingTangentHint(chord_dir, end_constraint)) {
+    decision.reason = DetailCurveContinuityReason::kConflictingTangents;
+    return decision;
+  }
+
+  const double min_g2_chord_m =
+      std::max(kG2MinChordLengthM,
+               6.0 * std::max(start_constraint.min_bend_radius_hint_m, end_constraint.min_bend_radius_hint_m));
+  if (chord_length < min_g2_chord_m) {
+    decision.reason = DetailCurveContinuityReason::kShortSpan;
+    return decision;
+  }
+
+  decision.mode = DetailCurveContinuityMode::kG2;
+  decision.attempted_g2 = true;
+  decision.handle_scale = (policy == CableContinuityPolicyHint::kPreferG2) ? 1.0 : 0.92;
+  decision.reason = (policy == CableContinuityPolicyHint::kPreferG2) ? DetailCurveContinuityReason::kSmoothPassThrough
+                                                                     : DetailCurveContinuityReason::kAutoBalanced;
+  return decision;
 }
 
 void PopulateLengthData(DetailCurve* curve) {
@@ -254,21 +401,30 @@ DetailCurve BuildDetailCurve(const CurveConstraint& start_constraint, const Curv
 
   Vec3d start_tangent = ClampToChordDirection(chord_dir, start_constraint.tangent_dir);
   Vec3d end_tangent = ClampToChordDirection(chord_dir, end_constraint.tangent_dir);
+  ApplyCornerPassTangentPolicy(chord_dir, start_constraint, &start_tangent);
+  ApplyCornerPassTangentPolicy(chord_dir, end_constraint, &end_tangent);
+  start_tangent = SuppressPlanarLateralComponent(chord_dir, start_tangent);
+  end_tangent = SuppressPlanarLateralComponent(chord_dir, end_tangent);
+  DampNearStraightTangents(chord_dir, &start_tangent, &end_tangent);
+
+  ContinuityDecision continuity = DecideContinuity(start_constraint, end_constraint, chord_length, chord_dir);
+  const bool prefer_g1_policy = start_constraint.continuity_preference == CableContinuityPolicyHint::kPreferG1;
+  const bool started_as_g2 = continuity.mode == DetailCurveContinuityMode::kG2;
 
   const double base_sag = std::max(0.0, start_constraint.sag_hint + end_constraint.sag_hint +
                                             start_constraint.slack_hint + end_constraint.slack_hint);
 
-  double tangent_scale = 1.0;
+  double tangent_scale = continuity.handle_scale;
   std::array<Vec3d, 4> cp{};
   int fallback_iterations = 0;
-  bool degraded = false;
-  if (HasConflictingTangentHint(chord_dir, start_constraint) || HasConflictingTangentHint(chord_dir, end_constraint)) {
-    tangent_scale *= 0.65;
-    degraded = true;
-  }
+  bool degraded = (continuity.mode == DetailCurveContinuityMode::kG1) && !prefer_g1_policy;
+  double h0 = 0.0;
+  double h1 = 0.0;
   for (; fallback_iterations < 3; ++fallback_iterations) {
-    const double h0 = ComputeTangentLength(chord_length, chord_dir, start_constraint) * tangent_scale;
-    const double h1 = ComputeTangentLength(chord_length, chord_dir, end_constraint) * tangent_scale;
+    h0 = ComputeBaseTangentLength(chord_length, chord_dir, start_constraint) * tangent_scale *
+         CornerPassTangentLengthScale(start_constraint);
+    h1 = ComputeBaseTangentLength(chord_length, chord_dir, end_constraint) * tangent_scale *
+         CornerPassTangentLengthScale(end_constraint);
     cp[0] = start_point;
     cp[1] = start_point + ScaleVec(start_tangent, h0);
     cp[2] = end_point - ScaleVec(end_tangent, h1);
@@ -276,14 +432,24 @@ DetailCurve BuildDetailCurve(const CurveConstraint& start_constraint, const Curv
     if (!CurveHasPoorQuality(cp, chord_length * base_sag)) {
       break;
     }
-    tangent_scale *= 0.65;
+    tangent_scale *= kFallbackTangentScale;
     degraded = true;
+    continuity.mode = DetailCurveContinuityMode::kG1;
+    if (started_as_g2) {
+      continuity.reason = DetailCurveContinuityReason::kPoorQualityFallback;
+    }
   }
 
   curve.control_points = cp;
   curve.sag_amplitude_m = chord_length * base_sag;
+  curve.quality.requested_policy = start_constraint.continuity_preference;
+  curve.quality.adopted_continuity = continuity.mode;
+  curve.quality.continuity_reason = continuity.reason;
   curve.quality.tangent_scale = tangent_scale;
   curve.quality.fallback_iterations = fallback_iterations;
+  curve.quality.handle_length_start_m = h0;
+  curve.quality.handle_length_end_m = h1;
+  curve.quality.attempted_g2 = continuity.attempted_g2;
   curve.quality.degraded_to_g1 = degraded;
 
   const int samples = std::max(2, sample_count);

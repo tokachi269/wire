@@ -12,6 +12,23 @@
 namespace {
 
 constexpr float kAxisLength = 2.0f;
+
+Color BlendColor(Color a, Color b, float t) {
+  const float clamped = std::clamp(t, 0.0f, 1.0f);
+  auto blend = [&](unsigned char lhs, unsigned char rhs) -> unsigned char {
+    return static_cast<unsigned char>(std::lround(static_cast<float>(lhs) +
+                                                  (static_cast<float>(rhs) - static_cast<float>(lhs)) * clamped));
+  };
+  return Color{blend(a.r, b.r), blend(a.g, b.g), blend(a.b, b.b), blend(a.a, b.a)};
+}
+
+Color ViewerWireColor(Color color) {
+  const Color charcoal{42, 46, 52, 255};
+  Color out = BlendColor(charcoal, color, 0.22f);
+  out.a = static_cast<unsigned char>(std::max(210, static_cast<int>(color.a)));
+  return out;
+}
+
 static wire::core::Vec3d PoleTopPoint(const wire::core::Pole& pole) {
   const wire::core::PoleFrame frame =
       wire::core::BuildPoleFrame(pole.world_transform, pole.world_transform.rotation_euler_deg.z);
@@ -21,13 +38,13 @@ static wire::core::Vec3d PoleTopPoint(const wire::core::Pole& pole) {
 static Color VisualPartColor(wire::core::VisualPartKind kind) {
   switch (kind) {
   case wire::core::VisualPartKind::kSupportArm:
-    return BROWN;
+    return Color{122, 98, 73, 255};
   case wire::core::VisualPartKind::kInsulator:
-    return SKYBLUE;
+    return Color{109, 141, 173, 255};
   case wire::core::VisualPartKind::kFitting:
-    return LIGHTGRAY;
+    return Color{128, 132, 138, 255};
   default:
-    return GRAY;
+    return Color{94, 98, 104, 255};
   }
 }
 
@@ -82,19 +99,19 @@ bool IsBoundsVisibleApprox(const Camera3D& camera, const wire::core::AABBd& boun
 
 Color DirtyColorForSpan(const wire::core::SpanRuntimeState* runtime_state) {
   if (runtime_state == nullptr) {
-    return GRAY;
+    return Color{92, 96, 102, 255};
   }
   if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kTopology))
-    return PURPLE;
+    return Color{126, 102, 145, 255};
   if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kGeometry))
-    return YELLOW;
+    return Color{164, 140, 62, 255};
   if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kBounds))
-    return BLUE;
+    return Color{83, 112, 154, 255};
   if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kRender))
-    return RED;
+    return Color{146, 86, 79, 255};
   if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kRaycast))
-    return GREEN;
-  return SKYBLUE;
+    return Color{88, 132, 88, 255};
+  return Color{96, 112, 128, 255};
 }
 
 void DrawAxesImpl() {
@@ -110,8 +127,8 @@ void DrawPickHighlightImpl(const CoreState& state, const wire::core::PickResult&
   }
   const auto& edit = state.view().edit_state();
   if (pick.hit_kind == wire::core::PickHitKind::kNode || pick.hit_kind == wire::core::PickHitKind::kBuilding) {
-    DrawSphere(ToRaylib(pick.hit_pos_world), 0.16f, Color{255, 238, 120, 210});
-    DrawSphereWires(ToRaylib(pick.hit_pos_world), 0.22f, 10, 14, Color{255, 255, 170, 255});
+    DrawSphere(ToRaylib(pick.hit_pos_world), 0.16f, Color{214, 180, 92, 215});
+    DrawSphereWires(ToRaylib(pick.hit_pos_world), 0.22f, 10, 14, Color{132, 118, 88, 220});
   } else if (pick.hit_kind == wire::core::PickHitKind::kSegment) {
     bool has_segment = false;
     wire::core::Vec3d a{};
@@ -131,17 +148,17 @@ void DrawPickHighlightImpl(const CoreState& state, const wire::core::PickResult&
       has_segment = true;
     }
     if (has_segment) {
-      DrawLine3D(ToRaylib(a), ToRaylib(b), Color{80, 255, 180, 255});
-      DrawSphere(ToRaylib(a), 0.08f, Color{90, 255, 200, 220});
-      DrawSphere(ToRaylib(b), 0.08f, Color{90, 255, 200, 220});
+      DrawLine3D(ToRaylib(a), ToRaylib(b), Color{86, 148, 126, 235});
+      DrawSphere(ToRaylib(a), 0.08f, Color{92, 156, 136, 220});
+      DrawSphere(ToRaylib(b), 0.08f, Color{92, 156, 136, 220});
     }
-    DrawSphere(ToRaylib(pick.hit_pos_world), 0.09f, Color{80, 255, 180, 230});
+    DrawSphere(ToRaylib(pick.hit_pos_world), 0.09f, Color{86, 148, 126, 230});
   }
   if (has_resolution) {
     const bool is_midair = (resolution.resolution == wire::core::CoreState::PickBranchResolutionKind::kMidair);
-    const Color resolved_color = is_midair ? Color{80, 220, 255, 235} : Color{255, 220, 90, 235};
+    const Color resolved_color = is_midair ? Color{90, 154, 176, 235} : Color{214, 180, 92, 235};
     DrawSphere(ToRaylib(resolution.position), 0.15f, resolved_color);
-    DrawSphereWires(ToRaylib(resolution.position), 0.20f, 10, 16, Color{255, 255, 255, 220});
+    DrawSphereWires(ToRaylib(resolution.position), 0.20f, 10, 16, Color{122, 124, 128, 210});
   }
 }
 
@@ -158,28 +175,32 @@ void DrawBackboneOverlayImpl(const wire::core::BackboneResult& backbone, const V
     if (it_a == node_position_by_id.end() || it_b == node_position_by_id.end()) {
       continue;
     }
-    DrawLine3D(ToRaylib(it_a->second), ToRaylib(it_b->second), Color{255, 216, 110, 185});
+    DrawLine3D(ToRaylib(it_a->second), ToRaylib(it_b->second), Color{176, 150, 92, 170});
   }
 
   for (const wire::core::SupportNode& node : backbone.nodes) {
     const bool in_draw_path = std::find(ui_state.draw_path_point_node_ids.begin(), ui_state.draw_path_point_node_ids.end(),
                                         node.node_id) != ui_state.draw_path_point_node_ids.end();
-    Color color = Color{255, 212, 92, 210};
+    Color color = Color{196, 164, 88, 210};
     float radius = 0.12f;
     if (node.support_kind == wire::core::SupportKind::kMidair) {
-      color = Color{80, 220, 255, 220};
+      color = Color{90, 154, 176, 220};
       radius = 0.14f;
     } else if (node.support_kind == wire::core::SupportKind::kBuilding) {
-      color = Color{140, 255, 120, 220};
+      color = Color{110, 154, 100, 220};
       radius = 0.14f;
     }
+    if (SelectionContains(ui_state, SelectedType::kSupportNode, node.node_id)) {
+      color = GOLD;
+      radius += 0.03f;
+    }
     if (in_draw_path) {
-      color = Color{255, 250, 180, 235};
+      color = Color{220, 204, 152, 235};
       radius += 0.03f;
     }
     const wire::core::Vec3d display = ProjectBackbonePointToDisplayPlane(node.position);
     DrawSphere(ToRaylib(display), radius, color);
-    DrawSphereWires(ToRaylib(display), radius + 0.05f, 9, 14, Color{255, 255, 255, 180});
+    DrawSphereWires(ToRaylib(display), radius + 0.05f, 9, 14, Color{126, 128, 132, 170});
   }
 }
 
@@ -224,10 +245,13 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
   const auto& edit = view.edit_state();
   const wire::core::BackboneResult backbone = state.BuildBackboneResult();
   ObjectId selected_bundle_id = wire::core::kInvalidObjectId;
-  if (ui_state.selected_type == SelectedType::kSpan && ui_state.selected_id != wire::core::kInvalidObjectId) {
-    const wire::core::Span* selected_span = edit.spans.find(ui_state.selected_id);
-    if (selected_span != nullptr) {
-      selected_bundle_id = selected_span->bundle_id;
+  for (const SelectionItem& item : ui_state.selection_items) {
+    if (item.type == SelectedType::kSpan && item.id != wire::core::kInvalidObjectId) {
+      const wire::core::Span* selected_span = edit.spans.find(item.id);
+      if (selected_span != nullptr) {
+        selected_bundle_id = selected_span->bundle_id;
+        break;
+      }
     }
   }
 
@@ -235,7 +259,7 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
     const wire::core::Vec3d pole_base_ue = pole.world_transform.position;
     const wire::core::Vec3d pole_top_ue = PoleTopPoint(pole);
     Color color = DARKGRAY;
-    if (ui_state.selected_type == SelectedType::kPole && ui_state.selected_id == pole.id) {
+    if (SelectionContains(ui_state, SelectedType::kPole, pole.id)) {
       color = GOLD;
     }
     DrawCylinderWiresEx(ToRaylib(pole_base_ue), ToRaylib(pole_top_ue), 0.12f, 0.08f, 10, color);
@@ -248,15 +272,18 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
       if (node.support_kind == wire::core::SupportKind::kPole) {
         continue;
       }
-      const Color color = (node.support_kind == wire::core::SupportKind::kMidair) ? Color{80, 220, 255, 230}
-                                                                                   : Color{140, 255, 120, 230};
+      Color color = (node.support_kind == wire::core::SupportKind::kMidair) ? Color{90, 154, 176, 230}
+                                                                             : Color{110, 154, 100, 230};
+      if (SelectionContains(ui_state, SelectedType::kSupportNode, node.node_id)) {
+        color = GOLD;
+      }
       DrawSphere(ToRaylib(node.position), 0.11f, color);
     }
   }
 
   for (const wire::core::Port& port : edit.ports.items()) {
     Color color = (port.position_mode == wire::core::PortPositionMode::kManual) ? MAGENTA : ORANGE;
-    if (ui_state.selected_type == SelectedType::kPort && ui_state.selected_id == port.id) {
+    if (SelectionContains(ui_state, SelectedType::kPort, port.id)) {
       color = GOLD;
     }
     DrawSphere(ToRaylib(port.world_position), 0.09f, color);
@@ -264,7 +291,7 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
 
   for (const wire::core::Anchor& anchor : edit.anchors.items()) {
     Color color = PURPLE;
-    if (ui_state.selected_type == SelectedType::kAnchor && ui_state.selected_id == anchor.id) {
+    if (SelectionContains(ui_state, SelectedType::kAnchor, anchor.id)) {
       color = GOLD;
     }
     DrawSphere(ToRaylib(anchor.world_position), 0.08f, color);
@@ -278,7 +305,7 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
     }
     const wire::core::SpanRuntimeState* runtime_state = state.view().find_span_runtime_state(span.id);
     Color color = DirtyColorForSpan(runtime_state);
-    if (ui_state.selected_type == SelectedType::kSpan && ui_state.selected_id == span.id) {
+    if (SelectionContains(ui_state, SelectedType::kSpan, span.id)) {
       color = GOLD;
     } else if (ui_state.show_selected_bundle_highlight && selected_bundle_id != wire::core::kInvalidObjectId &&
                span.bundle_id == selected_bundle_id) {
@@ -289,7 +316,13 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
     const wire::core::SpanRenderCacheEntry* render = state.view().find_span_render_cache(span.id);
     const float wire_radius =
         static_cast<float>((render == nullptr) ? 0.01 : std::max(0.0005, render->wire_radius_m));
-    const Color wire_color = (render == nullptr) ? color : ColorFromRgba(render->color_rgba);
+    Color wire_color = (render == nullptr) ? ViewerWireColor(color) : ViewerWireColor(ColorFromRgba(render->color_rgba));
+    if (SelectionContains(ui_state, SelectedType::kSpan, span.id)) {
+      wire_color = Color{182, 142, 48, 255};
+    } else if (ui_state.show_selected_bundle_highlight && selected_bundle_id != wire::core::kInvalidObjectId &&
+               span.bundle_id == selected_bundle_id) {
+      wire_color = Color{154, 112, 56, 255};
+    }
     if (curve != nullptr && curve->points.size() >= 2) {
       for (std::size_t i = 0; i + 1 < curve->points.size(); ++i) {
         DrawCylinderEx(ToRaylib(curve->points[i]), ToRaylib(curve->points[i + 1]), wire_radius, wire_radius, 8,
@@ -307,7 +340,7 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
       }
       if (ui_state.show_segment_aabb) {
         for (const wire::core::AABBd& segment : bounds->segments) {
-          DrawBoundingBox(ToRaylibBounds(segment), Color{70, 130, 180, 180});
+          DrawBoundingBox(ToRaylibBounds(segment), Color{108, 124, 144, 130});
         }
       }
     }
@@ -340,10 +373,10 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
       continue;
     }
     wire::core::Vec3d pos = curve->detail.PositionAtLength(curve->detail.Length() * attachment.t);
-    wire::core::OffsetAlongWorldUp(&pos, attachment.offset_m);
+    wire::core::OffsetAlongWorldUp(&pos, attachment.display_offset_m);
 
     Color color = MAGENTA;
-    if (ui_state.selected_type == SelectedType::kAttachment && ui_state.selected_id == attachment.id) {
+    if (SelectionContains(ui_state, SelectedType::kAttachment, attachment.id)) {
       color = GOLD;
     }
     DrawCubeV(ToRaylib(pos), Vector3{0.14f, 0.14f, 0.14f}, color);

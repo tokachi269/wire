@@ -17,6 +17,65 @@ namespace wire::core {
 
 using namespace generation::detail;
 
+namespace {
+
+BundleKind bundle_template_for_category(ConnectionCategory category) {
+  switch (category) {
+  case ConnectionCategory::kHighVoltage:
+    return BundleKind::kHighVoltage;
+  case ConnectionCategory::kCommunication:
+    return BundleKind::kCommunication;
+  case ConnectionCategory::kOptical:
+    return BundleKind::kOptical;
+  case ConnectionCategory::kLowVoltage:
+  case ConnectionCategory::kDrop:
+  default:
+    return BundleKind::kLowVoltage;
+  }
+}
+
+double polyline_length_local(const std::vector<Vec3d>& polyline) {
+  double total = 0.0;
+  for (std::size_t i = 0; i + 1 < polyline.size(); ++i) {
+    const Vec3d delta = polyline[i + 1] - polyline[i];
+    total += std::sqrt(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
+  }
+  return total;
+}
+
+BackboneSpec make_backbone_request_from_road(const RoadSegment& road, double interval, PoleTypeId pole_type_id,
+                                             ConnectionCategory category, bool clicked_points_only) {
+  BackboneSpec request{};
+  request.path.polyline = road.polyline;
+  request.pole_type_id = pole_type_id;
+  request.interval_m = clicked_points_only ? std::max(1.0, polyline_length_local(road.polyline) + 1.0) : interval;
+  BackboneBundleSpec bundle{};
+  bundle.bundle_template_id = bundle_template_for_category(category);
+  request.bundles.push_back(bundle);
+  return request;
+}
+
+CoreState::GenerateSimpleLineResult make_simple_line_result_from_backbone(const CoreState& state,
+                                                                          const CoreState::GenerateBundleFromPathResult& generated) {
+  CoreState::GenerateSimpleLineResult out{};
+  out.pole_ids = generated.generated_pole_ids;
+  out.span_ids = generated.generated_span_ids;
+  if (!generated.generated_span_ids.empty()) {
+    const Span* span = state.view().edit_state().spans.find(generated.generated_span_ids.back());
+    if (span != nullptr) {
+      out.generation_session_id = span->generation.generation_session_id;
+    }
+  } else if (!generated.generated_pole_ids.empty()) {
+    const Pole* pole = state.view().edit_state().poles.find(generated.generated_pole_ids.back());
+    if (pole != nullptr) {
+      out.generation_session_id = pole->generation.generation_session_id;
+    }
+  }
+  return out;
+}
+
+} // namespace
+
 
 EditResult<std::vector<ObjectId>> CoreState::GeneratePolesAlongRoad(const RoadSegment& road, double interval,
                                                                     PoleTypeId pole_type_id) {
@@ -175,92 +234,54 @@ EditResult<CoreState::GenerateSimpleLineResult> CoreState::GenerateSimpleLine(co
                                                                               PoleTypeId pole_type_id,
                                                                               ConnectionCategory category) {
   EditResult<GenerateSimpleLineResult> result;
-  const std::uint64_t session_id = next_generation_session_id_access()++;
-
-  EditResult<std::vector<ObjectId>> poles_result = GeneratePolesAlongRoad(road, interval, pole_type_id);
-  if (!poles_result.ok) {
-    result.error = poles_result.error;
+  if (road.polyline.size() < 2) {
+    result.error = "road polyline must contain at least 2 points";
+    return result;
+  }
+  if (interval <= 0.0) {
+    result.error = "interval must be > 0";
+    return result;
+  }
+  if (find_pole_type(pole_type_id) == nullptr) {
+    result.error = "pole type not found";
     return result;
   }
 
-  for (std::size_t i = 0; i < poles_result.value.size(); ++i) {
-    Pole* pole = edit_state_access().poles.find(poles_result.value[i]);
-    if (pole != nullptr) {
-      pole->generation.generated = true;
-      pole->generation.source = GenerationSource::kRoadAuto;
-      pole->generation.generation_session_id = session_id;
-      pole->generation.generation_order = static_cast<std::uint32_t>(i);
-    }
-  }
-
-  EditResult<std::vector<ObjectId>> spans_result = GenerateSpansBetweenPoles(poles_result.value, category);
-  if (!spans_result.ok) {
-    result.error = spans_result.error;
+  const BackboneSpec request = make_backbone_request_from_road(road, interval, pole_type_id, category, false);
+  const EditResult<GenerateBundleFromPathResult> generated = GenerateFromBackboneSpec(request);
+  if (!generated.ok) {
+    result.error = generated.error;
     return result;
-  }
-  for (std::size_t i = 0; i < spans_result.value.size(); ++i) {
-    Span* span = edit_state_access().spans.find(spans_result.value[i]);
-    if (span != nullptr) {
-      span->generation.generated = true;
-      span->generation.source = GenerationSource::kRoadAuto;
-      span->generation.generation_session_id = session_id;
-      span->generation.generation_order = static_cast<std::uint32_t>(i);
-      span->generated_by_rule = true;
-    }
   }
 
   result.ok = true;
-  result.value.pole_ids = poles_result.value;
-  result.value.span_ids = spans_result.value;
-  result.value.generation_session_id = session_id;
-  append_change_set(result.change_set, poles_result.change_set);
-  append_change_set(result.change_set, spans_result.change_set);
+  result.value = make_simple_line_result_from_backbone(*this, generated.value);
+  result.change_set = generated.change_set;
   return result;
 }
 
 EditResult<CoreState::GenerateSimpleLineResult>
 CoreState::GenerateSimpleLineFromPoints(const RoadSegment& road, PoleTypeId pole_type_id, ConnectionCategory category) {
   EditResult<GenerateSimpleLineResult> result;
-  const std::uint64_t session_id = next_generation_session_id_access()++;
-
-  EditResult<std::vector<ObjectId>> poles_result = generate_poles_from_points(road, pole_type_id, road.polyline);
-  if (!poles_result.ok) {
-    result.error = poles_result.error;
+  if (road.polyline.size() < 2) {
+    result.error = "road polyline must contain at least 2 points";
+    return result;
+  }
+  if (find_pole_type(pole_type_id) == nullptr) {
+    result.error = "pole type not found";
     return result;
   }
 
-  for (std::size_t i = 0; i < poles_result.value.size(); ++i) {
-    Pole* pole = edit_state_access().poles.find(poles_result.value[i]);
-    if (pole != nullptr) {
-      pole->generation.generated = true;
-      pole->generation.source = GenerationSource::kRoadAuto;
-      pole->generation.generation_session_id = session_id;
-      pole->generation.generation_order = static_cast<std::uint32_t>(i);
-    }
-  }
-
-  EditResult<std::vector<ObjectId>> spans_result = GenerateSpansBetweenPoles(poles_result.value, category);
-  if (!spans_result.ok) {
-    result.error = spans_result.error;
+  const BackboneSpec request = make_backbone_request_from_road(road, 0.0, pole_type_id, category, true);
+  const EditResult<GenerateBundleFromPathResult> generated = GenerateFromBackboneSpec(request);
+  if (!generated.ok) {
+    result.error = generated.error;
     return result;
-  }
-  for (std::size_t i = 0; i < spans_result.value.size(); ++i) {
-    Span* span = edit_state_access().spans.find(spans_result.value[i]);
-    if (span != nullptr) {
-      span->generation.generated = true;
-      span->generation.source = GenerationSource::kRoadAuto;
-      span->generation.generation_session_id = session_id;
-      span->generation.generation_order = static_cast<std::uint32_t>(i);
-      span->generated_by_rule = true;
-    }
   }
 
   result.ok = true;
-  result.value.pole_ids = poles_result.value;
-  result.value.span_ids = spans_result.value;
-  result.value.generation_session_id = session_id;
-  append_change_set(result.change_set, poles_result.change_set);
-  append_change_set(result.change_set, spans_result.change_set);
+  result.value = make_simple_line_result_from_backbone(*this, generated.value);
+  result.change_set = generated.change_set;
   return result;
 }
 

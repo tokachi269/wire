@@ -27,15 +27,34 @@ struct PathDirectionEvaluationDebug {
   std::string reason{};
 };
 
+enum class PoleForwardRule : std::uint8_t {
+  kFallback = 0,
+  kPrimaryIncident = 1,
+  kMainChainSingle = 2,
+  kMainChainBisector = 3,
+};
+
+struct PoleOrientationDebugRecord {
+  ObjectId pole_id = kInvalidObjectId;
+  PoleForwardRule rule = PoleForwardRule::kFallback;
+  ObjectId primary_neighbor_id = kInvalidObjectId;
+  ObjectId secondary_neighbor_id = kInvalidObjectId;
+  Vec3d adopted_forward{};
+};
+
 struct SegmentLaneAssignment {
   std::size_t segment_index = 0;
   ObjectId pole_a_id = kInvalidObjectId;
   ObjectId pole_b_id = kInvalidObjectId;
   ObjectId bundle_id = kInvalidObjectId;
+  BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
+  BackboneFlowDecisionRule flow_decision_rule = BackboneFlowDecisionRule::kDefaultMain;
   std::vector<int> slot_ids_a{};
   std::vector<int> slot_ids_b{};
   std::vector<ObjectId> port_ids_a{};
   std::vector<ObjectId> port_ids_b{};
+  bool uses_branch_support = false;
+  double branch_down_offset_m = 0.0;
   bool mirrored = false;
   bool flipped_from_previous = false;
   LaneFlipReason flip_reason = LaneFlipReason::kNone;

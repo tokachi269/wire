@@ -86,6 +86,7 @@ add_executable(
   src/backbone_plane.cpp
   src/host_coords.cpp
   src/path_pick_policy.cpp
+  tests/app_state.cpp
   tests/backbone_plane.cpp
   tests/host_coords.cpp
   tests/pick_policy.cpp

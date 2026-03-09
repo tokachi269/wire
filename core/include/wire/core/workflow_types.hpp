@@ -177,6 +177,19 @@ struct JunctionInfo {
   std::vector<JunctionIncident> incidents{};
 };
 
+enum class BackboneFlowKind : std::uint8_t {
+  kMain = 0,
+  kBranch = 1,
+};
+
+enum class BackboneFlowDecisionRule : std::uint8_t {
+  kDefaultMain = 0,
+  kJunctionOrderMain = 1,
+  kJunctionOrderBranch = 2,
+  kExistingChainMain = 3,
+  kExistingChainBranch = 4,
+};
+
 enum class LaneOrientation : std::uint8_t {
   kNormal = 0,
   kReversed = 1,
@@ -191,7 +204,11 @@ struct BackboneEdgeOrientation {
   ObjectId node_a_id = kInvalidObjectId;
   ObjectId node_b_id = kInvalidObjectId;
   BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
+  BackboneFlowDecisionRule flow_decision_rule = BackboneFlowDecisionRule::kDefaultMain;
   LaneOrientation orientation = LaneOrientation::kNormal;
+  bool uses_branch_support = false;
+  double branch_down_offset_m = 0.0;
   bool flipped_from_previous = false;
   LaneFlipReason flip_reason = LaneFlipReason::kNone;
   double turn_angle_deg = 0.0;

@@ -38,6 +38,45 @@
 - Port/Span 詳細編集や見た目ルール本体は詳細層の責務。
 - 入力条件（Spec）と生成結果（Result）は型で分離する。
 
+## 6.5. 自動決定 / 正本 / override / 導出結果 の境界（2026-03-09 固定）
+- 目的:
+  - Pole向き / branch support / down offset / attachment / DetailCurve で値責務を混ぜない。
+  - 将来 override を足しても、正本と導出の境界を壊さない。
+- 分類ルール:
+  - `正本`: 接続・所有・入力意味として保持する値。再生成で消えない。
+  - `明示override可能な正本`: 既定は自動決定だが、将来ユーザーが固定しうる値。override は entity 側に保持する。
+  - `自動決定される導出結果`: topology / template / junction から再計算できる結果。重い正本概念にしない。
+  - `詳細形状層の派生データ`: 見た目曲線・距離属性・attachment内部経路など。cache/recalc/render に閉じる。
+- 項目別の固定:
+  - `Backbone / junction order / primary`: 自動決定される導出結果
+    - 置き場: `BackboneResult`, `JunctionInfo`, `JunctionIncident`
+  - `Pole forward / yaw`: 明示override可能な正本
+    - 置き場: 正本は `Pole.orientation_control`
+    - 自動採用結果は `PoleOrientationDebugRecord` に留める
+  - `main / branch classification`: 自動決定される導出結果
+    - 置き場: `BackboneFlowKind`, `BackboneEdgeOrientation`, `SegmentLaneAssignment`
+  - `main support / branch support`: 自動決定される導出結果
+    - 置き場: support 配置ロジック、`PortPlacementSourceKind`
+  - `branch down offset`: 自動決定される導出結果
+    - 置き場: support/attachment 側の配置値
+    - 禁止: layer 書き換え
+  - `mirror decision`: 自動決定される導出結果
+    - 置き場: lane assignment / edge orientation debug
+  - `attachment endpoint / socket相当`: 正本と詳細形状派生に分離
+    - 正本: どの socket/attachment に接続しているか
+    - 派生: attachment内部 guide path / endpoint offset / 特殊曲線
+  - `DetailCurve / arc-length table / distance attributes`: 詳細形状層の派生データ
+    - 置き場: `CurveCacheEntry.detail`, render cache
+- 将来 override 候補:
+  - Pole yaw / forward 固定
+  - branch support style 選択
+  - branch down offset の template/style override
+  - attachment socket 選択
+- 禁止:
+  - 導出結果を独立した重い正本概念へ昇格させること
+  - 未実装 override の受け皿がないからといって、導出値を entity 正本へ直書きすること
+  - attachment 内部経路や DetailCurve 制御点を正本へ保存すること
+
 ## 7. 既知の注意点
 - 正本と派生を混在させると破綻しやすい。
 - 生成都合の一時情報を Entity に埋め込みすぎない。
@@ -65,10 +104,11 @@
   - `DetailCurve` 派生層による拘束付き見た目曲線の基盤。
   - `u` ベース曲線評価と `s` ベース配置 API の分離。
   - render cache への arc-length 距離属性焼き込み。
-  - `wire_core_tests` は 130/130 PASS。
-  - `wire_viewer_tests` は 6/6 PASS。
+  - viewer で pole / midair support / span の個別選択と矩形選択、選択 pole tilt が可能。
+  - `wire_core_tests` は 135/135 PASS。
+  - `wire_viewer_tests` は 8/8 PASS。
 - いま壊れているもの:
-  - `wire_viewer.exe` が起動中だと viewer 本体の再リンクが `LNK1168` で止まる。実装自体の compile/test は通過。
+  - `wire_viewer.exe` が起動中だと viewer 本体の再リンクが `LNK1168` で止まる。
 - 既知リスク:
   - ねじれ判定は「pole局所Yの順序反転」基準。厳密XY交差（扇状近傍を含む）は評価主軸にしない。
   - `DetailCurve` は見た目曲線の近似基盤であり、厳密懸垂/弾性線/張力釣り合いは未導入。
@@ -111,15 +151,15 @@
   - 覆す条件: yaw 優先で既存の直線・鈍角ケースに退行が出る場合。
 
 ## 12. 48h Task Board
-1. P1: viewer 本体の再リンク確認と手動確認
-   - Done: `wire_viewer.exe` を閉じた状態で build を通し、attachment 表示と新しい DetailCurve 形状を viewer で確認する。
-   - 依存: viewer 実行中プロセスの解放。
-2. P2: GPU 距離属性の最初の実利用
-   - Done: shader または描画経路で `arc_length_normalized` を使う最小の長さ依存エフェクトを 1 本入れる。
-   - 依存: viewer 表示パスの追加方針確定。
-3. P3: attachment / visible-hidden interval の実利用開始
-   - Done: 1 件でも `s` 基準の visible / hidden / replacement interval を detail curve から使う経路を作る。
-   - 依存: attachment 表現か特殊区間置換の優先順位決定。
+1. P1: 自動決定 / override / 導出の境界をコードへ反映
+   - Done: Pole向き、support分離、branch down offset、mirror の各値で「正本に持つ値」と「derived/debug に置く値」を明文化し、必要な型の置き場を固定する。
+   - 依存: `Pole.orientation_control` と support/detail/recalc の責務維持。
+2. P2: Pole向き / main-branch / branch support の実装精度向上
+   - Done: main continuation と `order/primary` を優先にした pole forward、edge/junction 単位の main/branch 分類、branch support 実体の強化。
+   - 依存: 6.5 の境界固定。
+3. P3: attachment/socket 境界の次段整理
+   - Done: 正本接続情報と detail curve 側 endpoint escape をさらに分離し、socket 導入の受け皿を作る。
+   - 依存: attachment 正本モデルの最小単位決定。
 
 ## 13. 次回開始パック（そのまま貼付可）
 - ゴール:
@@ -142,4 +182,3 @@
   - `slot`(候補) / `Port`(実体) の用語混同禁止。
   - Manual保持優先、全体再生成を既定にしない。
   - arc-length table / 制御点 / detail curve を正本へ保存しない。
-

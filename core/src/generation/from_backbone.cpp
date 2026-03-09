@@ -2,6 +2,7 @@
 #include "../pole_orientation_utils.hpp"
 #include "backbone_prepare.hpp"
 #include "detail_utils.hpp"
+#include "support_policy.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -14,6 +15,30 @@
 namespace wire::core {
 
 using namespace generation::detail;
+
+namespace {
+
+Vec3d normalize_forward_xy(const Vec3d& value) {
+  Vec3d out{value.x, value.y, 0.0};
+  if (!Normalize(&out)) {
+    return {};
+  }
+  return out;
+}
+
+Vec3d choose_continuous_axis(const Vec3d& axis, const Vec3d& previous_forward) {
+  Vec3d out = axis;
+  if (!Normalize(&out)) {
+    return {};
+  }
+  Vec3d prev = normalize_forward_xy(previous_forward);
+  if (Dot(out, prev) < 0.0) {
+    out = ScaleVec(out, -1.0);
+  }
+  return out;
+}
+
+} // namespace
 
 EditResult<CoreState::GenerateBundleFromPathResult>
 CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
@@ -185,6 +210,8 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     result.ok = true;
     return result;
   }
+
+  const BackboneResult existing_network_backbone = BuildBackboneResult();
 
   std::vector<generation::detail::SupportNodeCandidate> candidates{};
   if (!generation::detail::build_backbone_candidates(request, guide_points, node_spec_by_index,
@@ -494,7 +521,7 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
   };
   auto dot = [](const Vec3d& a, const Vec3d& b) -> double { return a.x * b.x + a.y * b.y + a.z * b.z; };
 
-  const BackboneResult& existing_backbone = last_generation_backbone_;
+  const BackboneResult& existing_backbone = existing_network_backbone;
   std::unordered_map<ObjectId, ObjectId> existing_primary_neighbor_by_node{};
   std::unordered_map<ObjectId, std::uint64_t> existing_prioritized_session_by_node{};
   std::unordered_map<ObjectId, std::unordered_map<ObjectId, std::uint64_t>> existing_incident_session_by_node{};
@@ -684,6 +711,268 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
   std::sort(generation_backbone.nodes.begin(), generation_backbone.nodes.end(),
             [](const SupportNode& a, const SupportNode& b) { return a.node_id < b.node_id; });
 
+  std::unordered_map<ObjectId, Vec3d> existing_node_position_by_id{};
+  existing_node_position_by_id.reserve(existing_network_backbone.nodes.size() + edit_state_access().poles.size());
+  for (const SupportNode& node : existing_network_backbone.nodes) {
+    existing_node_position_by_id[node.node_id] = node.position;
+  }
+  for (const Pole& pole : edit_state_access().poles.items()) {
+    existing_node_position_by_id.try_emplace(pole.id, pole.world_transform.position);
+  }
+
+  std::unordered_map<ObjectId, std::vector<ObjectId>> existing_adjacency{};
+  for (const BackboneEdge& edge : existing_network_backbone.edges) {
+    if (edge.node_a == kInvalidObjectId || edge.node_b == kInvalidObjectId || edge.node_a == edge.node_b) {
+      continue;
+    }
+    existing_adjacency[edge.node_a].push_back(edge.node_b);
+    existing_adjacency[edge.node_b].push_back(edge.node_a);
+  }
+  for (auto& [_, neighbors] : existing_adjacency) {
+    std::sort(neighbors.begin(), neighbors.end());
+    neighbors.erase(std::unique(neighbors.begin(), neighbors.end()), neighbors.end());
+  }
+
+  std::unordered_map<ObjectId, const JunctionInfo*> existing_junction_by_node{};
+  existing_junction_by_node.reserve(existing_network_backbone.junctions.size());
+  for (const JunctionInfo& junction : existing_network_backbone.junctions) {
+    existing_junction_by_node[junction.node_id] = &junction;
+  }
+
+  std::unordered_map<ObjectId, std::vector<ObjectId>> route_neighbors_by_node{};
+  for (std::size_t i = 0; i < ordered_support_node_ids.size(); ++i) {
+    const ObjectId node_id = ordered_support_node_ids[i];
+    std::vector<ObjectId>& neighbors = route_neighbors_by_node[node_id];
+    if (i > 0) {
+      const ObjectId prev = ordered_support_node_ids[i - 1];
+      if (prev != node_id && std::find(neighbors.begin(), neighbors.end(), prev) == neighbors.end()) {
+        neighbors.push_back(prev);
+      }
+    }
+    if (i + 1 < ordered_support_node_ids.size()) {
+      const ObjectId next = ordered_support_node_ids[i + 1];
+      if (next != node_id && std::find(neighbors.begin(), neighbors.end(), next) == neighbors.end()) {
+        neighbors.push_back(next);
+      }
+    }
+  }
+
+  auto current_support_position = [&](ObjectId node_id) -> Vec3d {
+    if (const auto it = support_node_by_id.find(node_id); it != support_node_by_id.end()) {
+      return it->second.position;
+    }
+    if (const Pole* pole = edit_state_access().poles.find(node_id); pole != nullptr) {
+      return pole->world_transform.position;
+    }
+    if (const auto it = existing_node_position_by_id.find(node_id); it != existing_node_position_by_id.end()) {
+      return it->second;
+    }
+    return {};
+  };
+
+  auto continuation_neighbors_for_orientation = [&](ObjectId node_id) {
+    std::vector<ObjectId> neighbors{};
+    if (const auto it = existing_junction_by_node.find(node_id); it != existing_junction_by_node.end()) {
+      const JunctionInfo* junction = it->second;
+      if (junction != nullptr && junction->incidents.size() >= 2) {
+        neighbors.push_back(junction->incidents[0].neighbor_node_id);
+        neighbors.push_back(junction->incidents[1].neighbor_node_id);
+        return neighbors;
+      }
+    }
+    const auto it_route = route_neighbors_by_node.find(node_id);
+    const std::size_t route_degree = (it_route == route_neighbors_by_node.end()) ? 0 : it_route->second.size();
+    if (route_degree == 1) {
+      if (const auto it = existing_adjacency.find(node_id); it != existing_adjacency.end() && it->second.size() == 2) {
+        return it->second;
+      }
+    }
+    if (route_degree == 0) {
+      if (const auto it = existing_adjacency.find(node_id); it != existing_adjacency.end() && it->second.size() == 2) {
+        return it->second;
+      }
+    }
+    return neighbors;
+  };
+  auto primary_neighbor_for_orientation = [&](ObjectId node_id) -> ObjectId {
+    if (const auto it = existing_junction_by_node.find(node_id); it != existing_junction_by_node.end()) {
+      const JunctionInfo* junction = it->second;
+      if (junction != nullptr) {
+        for (const JunctionIncident& incident : junction->incidents) {
+          if (incident.primary || incident.order == 0) {
+            return incident.neighbor_node_id;
+          }
+        }
+      }
+    }
+    const auto it_route = route_neighbors_by_node.find(node_id);
+    const std::size_t route_degree = (it_route == route_neighbors_by_node.end()) ? 0 : it_route->second.size();
+    if (route_degree == 1) {
+      if (const auto it = existing_adjacency.find(node_id); it != existing_adjacency.end() && it->second.size() == 1) {
+        return it->second.front();
+      }
+    }
+    if (route_degree == 0) {
+      if (const auto it = existing_adjacency.find(node_id); it != existing_adjacency.end() && it->second.size() == 1) {
+        return it->second.front();
+      }
+    }
+    return kInvalidObjectId;
+  };
+  auto has_existing_main_flow_context = [&](ObjectId node_id) -> bool {
+    if (existing_junction_by_node.contains(node_id)) {
+      return true;
+    }
+    const auto it_route = route_neighbors_by_node.find(node_id);
+    const std::size_t route_degree = (it_route == route_neighbors_by_node.end()) ? 0 : it_route->second.size();
+    if (route_degree > 1) {
+      return false;
+    }
+    if (const auto it = existing_adjacency.find(node_id); it != existing_adjacency.end()) {
+      return !it->second.empty();
+    }
+    return false;
+  };
+
+  pole_orientation_debug_records_.clear();
+  std::unordered_set<ObjectId> oriented_poles{};
+  for (ObjectId node_id : ordered_support_node_ids) {
+    if (!oriented_poles.insert(node_id).second) {
+      continue;
+    }
+    Pole* pole = edit_state_access().poles.find(node_id);
+    if (pole == nullptr) {
+      continue;
+    }
+
+    PoleOrientationDebugRecord debug{};
+    debug.pole_id = pole->id;
+    const Vec3d center = current_support_position(node_id);
+    const Vec3d previous_forward = RotateAroundWorldUpDeg(WorldForward(), effective_pole_yaw_deg(*pole));
+    Vec3d chosen_forward = normalize_forward_xy(previous_forward);
+    bool has_chosen_forward = Normalize(&chosen_forward);
+    const bool apply_main_flow_orientation = has_existing_main_flow_context(node_id);
+
+    if (apply_main_flow_orientation) {
+      const std::vector<ObjectId> continuation_neighbors = continuation_neighbors_for_orientation(node_id);
+      if (continuation_neighbors.size() >= 2) {
+        const Vec3d dir_a = normalize_forward_xy(current_support_position(continuation_neighbors[0]) - center);
+        const Vec3d dir_b = normalize_forward_xy(current_support_position(continuation_neighbors[1]) - center);
+        Vec3d axis = normalize_forward_xy(dir_a + dir_b);
+        if (Normalize(&axis)) {
+          chosen_forward = choose_continuous_axis(axis, previous_forward);
+          has_chosen_forward = Normalize(&chosen_forward);
+          debug.rule = PoleForwardRule::kMainChainBisector;
+          debug.primary_neighbor_id = continuation_neighbors[0];
+          debug.secondary_neighbor_id = continuation_neighbors[1];
+        } else {
+          axis = normalize_forward_xy(dir_a - dir_b);
+          if (Normalize(&axis)) {
+            chosen_forward = choose_continuous_axis(axis, previous_forward);
+            has_chosen_forward = Normalize(&chosen_forward);
+            debug.rule = PoleForwardRule::kMainChainBisector;
+            debug.primary_neighbor_id = continuation_neighbors[0];
+            debug.secondary_neighbor_id = continuation_neighbors[1];
+          }
+        }
+      } else {
+        const ObjectId primary_neighbor_id = primary_neighbor_for_orientation(node_id);
+        if (primary_neighbor_id != kInvalidObjectId) {
+          Vec3d axis = normalize_forward_xy(current_support_position(primary_neighbor_id) - center);
+          if (Normalize(&axis)) {
+            chosen_forward = choose_continuous_axis(axis, previous_forward);
+            has_chosen_forward = true;
+            debug.rule = existing_junction_by_node.contains(node_id) ? PoleForwardRule::kPrimaryIncident
+                                                                     : PoleForwardRule::kMainChainSingle;
+            debug.primary_neighbor_id = primary_neighbor_id;
+          }
+        } else {
+          debug.rule = PoleForwardRule::kFallback;
+        }
+      }
+    }
+
+    if (!has_chosen_forward) {
+      chosen_forward = normalize_forward_xy(previous_forward);
+      debug.rule = PoleForwardRule::kFallback;
+    }
+    debug.adopted_forward = chosen_forward;
+    pole_orientation_debug_records_[pole->id] = debug;
+
+    if (!has_chosen_forward || pole->orientation_override_flag || pole->orientation_control.manual_yaw_override) {
+      continue;
+    }
+
+    const double desired_yaw = normalize_yaw_deg(std::atan2(chosen_forward.y, chosen_forward.x) * (180.0 / kPi));
+    double yaw_delta = desired_yaw - pole->world_transform.rotation_euler_deg.z;
+    yaw_delta = std::fmod(yaw_delta + 540.0, 360.0) - 180.0;
+    if (std::abs(yaw_delta) <= 1e-6) {
+      continue;
+    }
+
+    const Pole old_pole = *pole;
+    pole->world_transform.rotation_euler_deg.z = desired_yaw;
+    finalize_pole_transform_update(pole->id, old_pole, &result.change_set);
+  }
+
+  struct EdgeFlowInfo {
+    BackboneFlowKind kind = BackboneFlowKind::kMain;
+    BackboneFlowDecisionRule rule = BackboneFlowDecisionRule::kDefaultMain;
+  };
+  auto classify_edge_flow_at_node = [&](ObjectId node_id, ObjectId peer_id) {
+    EdgeFlowInfo info{};
+    if (const auto it = existing_junction_by_node.find(node_id); it != existing_junction_by_node.end()) {
+      const JunctionInfo* junction = it->second;
+      if (junction != nullptr && !junction->incidents.empty()) {
+        for (const JunctionIncident& incident : junction->incidents) {
+          if (incident.neighbor_node_id != peer_id) {
+            continue;
+          }
+          info.kind = (incident.order >= 2) ? BackboneFlowKind::kBranch : BackboneFlowKind::kMain;
+          info.rule = (incident.order >= 2) ? BackboneFlowDecisionRule::kJunctionOrderBranch
+                                            : BackboneFlowDecisionRule::kJunctionOrderMain;
+          return info;
+        }
+        if (junction->incidents.size() >= 2) {
+          info.kind = BackboneFlowKind::kBranch;
+          info.rule = BackboneFlowDecisionRule::kJunctionOrderBranch;
+          return info;
+        }
+      }
+    }
+    if (const auto it = existing_adjacency.find(node_id); it != existing_adjacency.end() && it->second.size() == 2) {
+      const bool in_pair = std::find(it->second.begin(), it->second.end(), peer_id) != it->second.end();
+      info.kind = in_pair ? BackboneFlowKind::kMain : BackboneFlowKind::kBranch;
+      info.rule = in_pair ? BackboneFlowDecisionRule::kExistingChainMain
+                          : BackboneFlowDecisionRule::kExistingChainBranch;
+      return info;
+    }
+    return info;
+  };
+  auto classify_edge_flow = [&](ObjectId node_a, ObjectId node_b) {
+    const EdgeFlowInfo flow_a = classify_edge_flow_at_node(node_a, node_b);
+    const EdgeFlowInfo flow_b = classify_edge_flow_at_node(node_b, node_a);
+    if (flow_a.kind == BackboneFlowKind::kBranch) {
+      return flow_a;
+    }
+    if (flow_b.kind == BackboneFlowKind::kBranch) {
+      return flow_b;
+    }
+    if (flow_a.rule != BackboneFlowDecisionRule::kDefaultMain) {
+      return flow_a;
+    }
+    if (flow_b.rule != BackboneFlowDecisionRule::kDefaultMain) {
+      return flow_b;
+    }
+    return flow_a;
+  };
+
+  std::vector<EdgeFlowInfo> edge_flow_by_segment{};
+  edge_flow_by_segment.reserve((ordered_support_node_ids.size() > 1) ? (ordered_support_node_ids.size() - 1) : 0);
+  for (std::size_t i = 0; i + 1 < ordered_support_node_ids.size(); ++i) {
+    edge_flow_by_segment.push_back(classify_edge_flow(ordered_support_node_ids[i], ordered_support_node_ids[i + 1]));
+  }
+
   auto resolve_span_endpoint_node = [&](const Span& span, const Port* port, bool is_a) -> ObjectId {
     const ObjectId explicit_node_id = is_a ? span.endpoint_node_a_id : span.endpoint_node_b_id;
     if (explicit_node_id != kInvalidObjectId) {
@@ -750,39 +1039,61 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     if (first_missing_segment >= ordered_support_node_ids.size() - 1) {
       continue;
     }
-    std::vector<ObjectId> local_support_nodes{};
-    local_support_nodes.insert(local_support_nodes.end(),
-                               ordered_support_node_ids.begin() + static_cast<std::ptrdiff_t>(first_missing_segment),
-                               ordered_support_node_ids.end());
-
-    std::vector<SegmentLaneAssignment> lane_assignments{};
-    std::vector<BackboneEdgeOrientation> edge_orientations{};
-    EditResult<std::vector<ObjectId>> spans_result = generate_grouped_spans_between_support_nodes(
-        local_support_nodes, support_node_by_id, bundle_id, plan.category, plan.count, plan.spacing_m, true,
-        plan.allow_mirror, &lane_assignments, &edge_orientations, plan.template_id);
-    if (!spans_result.ok) {
-      *this = snapshot;
-      result.error = spans_result.error;
-      return result;
-    }
-    append_change_set(result.change_set, spans_result.change_set);
-    all_lane_assignments.insert(all_lane_assignments.end(), lane_assignments.begin(), lane_assignments.end());
-    generation_backbone.edge_orientations.insert(generation_backbone.edge_orientations.end(), edge_orientations.begin(),
-                                                 edge_orientations.end());
-
-    for (std::size_t i = 0; i < spans_result.value.size(); ++i) {
-      const ObjectId span_id = spans_result.value[i];
-      Span* span = edit_state_access().spans.find(span_id);
-      if (span != nullptr) {
-        span->layer = plan.layer;
-        span->generation.generated = true;
-        span->generation.source = GenerationSource::kRoadAuto;
-        span->generation.generation_session_id = session_id;
-        span->generation.generation_order = static_cast<std::uint32_t>(result.value.generated_span_ids.size());
-        span->generated_by_rule = true;
-        add_unique_id(result.change_set.updated_ids, span->id);
+    for (std::size_t run_start = first_missing_segment; run_start + 1 < ordered_support_node_ids.size();) {
+      const EdgeFlowInfo flow_info = edge_flow_by_segment[run_start];
+      std::size_t run_end = run_start;
+      while (run_end + 1 < ordered_support_node_ids.size() - 1 &&
+             edge_flow_by_segment[run_end + 1].kind == flow_info.kind) {
+        ++run_end;
       }
-      result.value.generated_span_ids.push_back(span_id);
+
+      std::vector<ObjectId> local_support_nodes{};
+      local_support_nodes.insert(local_support_nodes.end(),
+                                 ordered_support_node_ids.begin() + static_cast<std::ptrdiff_t>(run_start),
+                                 ordered_support_node_ids.begin() + static_cast<std::ptrdiff_t>(run_end + 2));
+
+      std::vector<SegmentLaneAssignment> lane_assignments{};
+      std::vector<BackboneEdgeOrientation> edge_orientations{};
+      const double branch_down_offset_m =
+          (flow_info.kind == BackboneFlowKind::kBranch) ? generation::detail::BranchDownOffsetForCategory(plan.category)
+                                                        : 0.0;
+      EditResult<std::vector<ObjectId>> spans_result = generate_grouped_spans_between_support_nodes(
+          local_support_nodes, support_node_by_id, bundle_id, plan.category, plan.count, plan.spacing_m, true,
+          plan.allow_mirror, flow_info.kind, branch_down_offset_m, &lane_assignments, &edge_orientations,
+          plan.template_id);
+      if (!spans_result.ok) {
+        *this = snapshot;
+        result.error = spans_result.error;
+        return result;
+      }
+      append_change_set(result.change_set, spans_result.change_set);
+      for (std::size_t i = 0; i < lane_assignments.size(); ++i) {
+        lane_assignments[i].segment_index += run_start;
+        lane_assignments[i].flow_decision_rule = edge_flow_by_segment[run_start + i].rule;
+      }
+      for (std::size_t i = 0; i < edge_orientations.size(); ++i) {
+        edge_orientations[i].flow_decision_rule = edge_flow_by_segment[run_start + i].rule;
+      }
+      all_lane_assignments.insert(all_lane_assignments.end(), lane_assignments.begin(), lane_assignments.end());
+      generation_backbone.edge_orientations.insert(generation_backbone.edge_orientations.end(), edge_orientations.begin(),
+                                                   edge_orientations.end());
+
+      for (std::size_t i = 0; i < spans_result.value.size(); ++i) {
+        const ObjectId span_id = spans_result.value[i];
+        Span* span = edit_state_access().spans.find(span_id);
+        if (span != nullptr) {
+          span->layer = plan.layer;
+          span->generation.generated = true;
+          span->generation.source = GenerationSource::kRoadAuto;
+          span->generation.generation_session_id = session_id;
+          span->generation.generation_order = static_cast<std::uint32_t>(result.value.generated_span_ids.size());
+          span->generated_by_rule = true;
+          add_unique_id(result.change_set.updated_ids, span->id);
+        }
+        result.value.generated_span_ids.push_back(span_id);
+      }
+
+      run_start = run_end + 1;
     }
   }
 

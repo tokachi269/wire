@@ -64,6 +64,44 @@ const char* ContinuityPolicyLabel(wire::core::CableContinuityPolicyHint policy) 
   }
 }
 
+const char* DetailCurveContinuityModeLabel(wire::core::DetailCurveContinuityMode mode) {
+  switch (mode) {
+  case wire::core::DetailCurveContinuityMode::kG1:
+    return "G1";
+  case wire::core::DetailCurveContinuityMode::kG2:
+    return "G2";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* DetailCurveContinuityReasonLabel(wire::core::DetailCurveContinuityReason reason) {
+  switch (reason) {
+  case wire::core::DetailCurveContinuityReason::kAutoBalanced:
+    return "AutoBalanced";
+  case wire::core::DetailCurveContinuityReason::kSmoothPassThrough:
+    return "SmoothPassThrough";
+  case wire::core::DetailCurveContinuityReason::kPolicyPreferG1:
+    return "PolicyPreferG1";
+  case wire::core::DetailCurveContinuityReason::kShortSpan:
+    return "ShortSpan";
+  case wire::core::DetailCurveContinuityReason::kBranchPass:
+    return "BranchPass";
+  case wire::core::DetailCurveContinuityReason::kCornerPass:
+    return "CornerPass";
+  case wire::core::DetailCurveContinuityReason::kEndpointConstraintPriority:
+    return "EndpointConstraintPriority";
+  case wire::core::DetailCurveContinuityReason::kConflictingTangents:
+    return "ConflictingTangents";
+  case wire::core::DetailCurveContinuityReason::kContextInsufficient:
+    return "ContextInsufficient";
+  case wire::core::DetailCurveContinuityReason::kPoorQualityFallback:
+    return "PoorQualityFallback";
+  default:
+    return "Unknown";
+  }
+}
+
 const char* BundleSupportStyleLabel(wire::core::BundleSupportStyleHint style) {
   switch (style) {
   case wire::core::BundleSupportStyleHint::kAuto:
@@ -85,6 +123,64 @@ const char* BundleBranchPolicyLabel(wire::core::BundleBranchPolicyHint policy) {
     return "PreferPassThrough";
   case wire::core::BundleBranchPolicyHint::kPreferExplicitBranch:
     return "PreferExplicitBranch";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* BackboneFlowKindLabel(wire::core::BackboneFlowKind kind) {
+  switch (kind) {
+  case wire::core::BackboneFlowKind::kMain:
+    return "Main";
+  case wire::core::BackboneFlowKind::kBranch:
+    return "Branch";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* BackboneFlowDecisionRuleLabel(wire::core::BackboneFlowDecisionRule rule) {
+  switch (rule) {
+  case wire::core::BackboneFlowDecisionRule::kDefaultMain:
+    return "DefaultMain";
+  case wire::core::BackboneFlowDecisionRule::kJunctionOrderMain:
+    return "JunctionOrderMain";
+  case wire::core::BackboneFlowDecisionRule::kJunctionOrderBranch:
+    return "JunctionOrderBranch";
+  case wire::core::BackboneFlowDecisionRule::kExistingChainMain:
+    return "ExistingChainMain";
+  case wire::core::BackboneFlowDecisionRule::kExistingChainBranch:
+    return "ExistingChainBranch";
+  default:
+    return "Unknown";
+  }
+}
+
+wire::core::BundleKind BundleTemplateForCategory(wire::core::ConnectionCategory category) {
+  switch (category) {
+  case wire::core::ConnectionCategory::kHighVoltage:
+    return wire::core::BundleKind::kHighVoltage;
+  case wire::core::ConnectionCategory::kCommunication:
+    return wire::core::BundleKind::kCommunication;
+  case wire::core::ConnectionCategory::kOptical:
+    return wire::core::BundleKind::kOptical;
+  case wire::core::ConnectionCategory::kLowVoltage:
+  case wire::core::ConnectionCategory::kDrop:
+  default:
+    return wire::core::BundleKind::kLowVoltage;
+  }
+}
+
+const char* PoleForwardRuleLabel(wire::core::PoleForwardRule rule) {
+  switch (rule) {
+  case wire::core::PoleForwardRule::kFallback:
+    return "Fallback";
+  case wire::core::PoleForwardRule::kPrimaryIncident:
+    return "PrimaryIncident";
+  case wire::core::PoleForwardRule::kMainChainSingle:
+    return "MainChainSingle";
+  case wire::core::PoleForwardRule::kMainChainBisector:
+    return "MainChainBisector";
   default:
     return "Unknown";
   }
@@ -141,10 +237,9 @@ void DrawObjectList(ViewerUiState& ui_state, const char* header, SelectedType ty
 
   for (ObjectId id : ids) {
     const std::string label = make_label(id);
-    const bool is_selected = (ui_state.selected_type == type && ui_state.selected_id == id);
+    const bool is_selected = SelectionContains(ui_state, type, id);
     if (ImGui::Selectable(label.c_str(), is_selected)) {
-      ui_state.selected_type = type;
-      ui_state.selected_id = id;
+      SetPrimarySelection(ui_state, type, id);
     }
   }
 }
@@ -189,6 +284,16 @@ void DrawSelectedInfo(const CoreState& state, const ViewerUiState& ui_state) {
                 pole->context.sharp_side_dir.z);
     ImGui::Text("flip180: %s", pole->orientation_control.flip_180 ? "true" : "false");
     ImGui::Text("manualYawOverride: %s", pole->orientation_control.manual_yaw_override ? "true" : "false");
+    if (const auto it = view.pole_orientation_debug_records().find(pole->id);
+        it != view.pole_orientation_debug_records().end()) {
+      const auto& orientation = it->second;
+      ImGui::Text("forwardRule: %s", PoleForwardRuleLabel(orientation.rule));
+      ImGui::Text("forwardDir: %.3f %.3f %.3f", orientation.adopted_forward.x, orientation.adopted_forward.y,
+                  orientation.adopted_forward.z);
+      ImGui::Text("mainNeighbors: %llu / %llu",
+                  static_cast<unsigned long long>(orientation.primary_neighbor_id),
+                  static_cast<unsigned long long>(orientation.secondary_neighbor_id));
+    }
     ImGui::Text("placementOverride: %s", pole->placement_override_flag ? "true" : "false");
     ImGui::Text("orientationOverride: %s", pole->orientation_override_flag ? "true" : "false");
     return;
@@ -240,6 +345,14 @@ void DrawSelectedInfo(const CoreState& state, const ViewerUiState& ui_state) {
       ImGui::Text("curveSamples: %d", static_cast<int>(curve->points.size()));
       ImGui::Text("curveLength: %.2f", curve->detail.Length());
       ImGui::Text("arcSamples: %d", static_cast<int>(curve->detail.arc_length_table.size()));
+      ImGui::Text("continuity: %s (%s)", DetailCurveContinuityModeLabel(curve->detail.quality.adopted_continuity),
+                  DetailCurveContinuityReasonLabel(curve->detail.quality.continuity_reason));
+      ImGui::Text("continuityPolicy: %s attemptedG2=%s degraded=%s",
+                  ContinuityPolicyLabel(curve->detail.quality.requested_policy),
+                  curve->detail.quality.attempted_g2 ? "true" : "false",
+                  curve->detail.quality.degraded_to_g1 ? "true" : "false");
+      ImGui::Text("handles: %.2f / %.2f scale=%.2f", curve->detail.quality.handle_length_start_m,
+                  curve->detail.quality.handle_length_end_m, curve->detail.quality.tangent_scale);
     } else {
       ImGui::TextUnformatted("curveSamples: (none)");
     }
@@ -259,6 +372,26 @@ void DrawSelectedInfo(const CoreState& state, const ViewerUiState& ui_state) {
       ImGui::Text("boundsVersion: %llu", static_cast<unsigned long long>(runtime_state->bounds_version));
       ImGui::Text("renderVersion: %llu", static_cast<unsigned long long>(runtime_state->render_version));
       ImGui::Text("dirtyBits: %s", DirtyBitsToText(runtime_state->dirty_bits).c_str());
+    }
+    for (const auto& assignment : view.last_lane_assignments()) {
+      const bool same_forward = assignment.bundle_id == span->bundle_id && assignment.pole_a_id == span->endpoint_node_a_id &&
+                                assignment.pole_b_id == span->endpoint_node_b_id;
+      const bool same_reverse = assignment.bundle_id == span->bundle_id && assignment.pole_a_id == span->endpoint_node_b_id &&
+                                assignment.pole_b_id == span->endpoint_node_a_id;
+      if (!same_forward && !same_reverse) {
+        continue;
+      }
+      ImGui::Separator();
+      ImGui::Text("flowKind: %s", BackboneFlowKindLabel(assignment.flow_kind));
+      ImGui::Text("flowRule: %s", BackboneFlowDecisionRuleLabel(assignment.flow_decision_rule));
+      ImGui::Text("branchSupport: %s downOffset=%.2f", assignment.uses_branch_support ? "true" : "false",
+                  assignment.branch_down_offset_m);
+      ImGui::Text("mirror: %s flippedPrev=%s turn=%.2f", assignment.mirrored ? "true" : "false",
+                  assignment.flipped_from_previous ? "true" : "false", assignment.turn_angle_deg);
+      break;
+    }
+    if (const auto* visual = state.view().find_span_visual_cache(span->id); visual != nullptr) {
+      ImGui::Text("branchSupportPlacements: %d", static_cast<int>(visual->branch_supports.size()));
     }
     return;
   }
@@ -296,6 +429,31 @@ void DrawSelectedInfo(const CoreState& state, const ViewerUiState& ui_state) {
     ImGui::Text("ID: %s", attachment->display_id.c_str());
     ImGui::Text("Span: %llu", static_cast<unsigned long long>(attachment->span_id));
     ImGui::Text("t: %.3f", attachment->t);
+    ImGui::Text("displayOffset: %.3f", attachment->display_offset_m);
+    return;
+  }
+  case SelectedType::kSupportNode: {
+    const wire::core::BackboneResult backbone = state.BuildBackboneResult();
+    const auto it =
+        std::find_if(backbone.nodes.begin(), backbone.nodes.end(),
+                     [&](const wire::core::SupportNode& node) { return node.node_id == ui_state.selected_id; });
+    if (it == backbone.nodes.end()) {
+      ImGui::TextUnformatted("Selected support node is missing");
+      return;
+    }
+    ImGui::Text("Type: SupportNode");
+    ImGui::Text("ID: %llu", static_cast<unsigned long long>(it->node_id));
+    ImGui::Text("SupportKind: %s", SupportKindLabel(it->support_kind));
+    ImGui::Text("PoleId: %llu", static_cast<unsigned long long>(it->pole_id));
+    ImGui::Text("Pos: %.2f %.2f %.2f", it->position.x, it->position.y, it->position.z);
+    ImGui::Text("pathPointIndex: %d", it->path_point_index);
+    ImGui::Text("sourceEdge: %s (%llu -> %llu @ %.3f)", it->has_source_edge ? "true" : "false",
+                static_cast<unsigned long long>(it->source_edge_node_a_id),
+                static_cast<unsigned long long>(it->source_edge_node_b_id), it->source_edge_t);
+    ImGui::Text("hasTangentHint: %s", it->has_tangent_hint ? "true" : "false");
+    if (it->has_tangent_hint) {
+      ImGui::Text("tangentHint: %.3f %.3f %.3f", it->tangent_hint.x, it->tangent_hint.y, it->tangent_hint.z);
+    }
     return;
   }
   default:
@@ -400,8 +558,7 @@ void DrawEditSelectedPanel(CoreState& state, ViewerUiState& ui_state) {
       } else {
         ui_state.last_error.clear();
         PushLog(ui_state, "Split Span id=" + std::to_string(ui_state.selected_id));
-        ui_state.selected_type = SelectedType::kPort;
-        ui_state.selected_id = result.value.new_port_id;
+        SetPrimarySelection(ui_state, SelectedType::kPort, result.value.new_port_id);
       }
     }
     ImGui::SameLine();
@@ -412,8 +569,7 @@ void DrawEditSelectedPanel(CoreState& state, ViewerUiState& ui_state) {
       } else {
         ui_state.last_error.clear();
         PushLog(ui_state, "Deleted Span id=" + std::to_string(ui_state.selected_id));
-        ui_state.selected_type = SelectedType::kNone;
-        ui_state.selected_id = wire::core::kInvalidObjectId;
+        ClearSelection(ui_state);
       }
     }
   } else {
@@ -472,8 +628,7 @@ void DrawPlacementModePanel(CoreState& state, ViewerUiState& ui_state) {
       return;
     }
     ui_state.last_error.clear();
-    ui_state.selected_type = SelectedType::kPole;
-    ui_state.selected_id = add_pole_result.value;
+    SetPrimarySelection(ui_state, SelectedType::kPole, add_pole_result.value);
     PushLog(ui_state, "Placed Pole id=" + std::to_string(add_pole_result.value));
   }
 
@@ -539,23 +694,15 @@ void DrawPlacementModePanel(CoreState& state, ViewerUiState& ui_state) {
       road.polyline.push_back({ui_state.road_mid_x, ui_state.road_mid_y, ui_state.road_mid_z});
     }
     road.polyline.push_back({ui_state.road_end_x, ui_state.road_end_y, ui_state.road_end_z});
-
-    const auto result = state.GenerateSimpleLine(road, ui_state.road_interval, type_ids[ui_state.road_pole_type_index],
-                                                 all_categories[ui_state.road_category_index]);
-    if (!result.ok) {
-      ui_state.last_error = result.error;
-      PushLog(ui_state, "GenerateSimpleLine failed");
-    } else {
-      ui_state.last_error.clear();
-      ui_state.last_generated_poles = static_cast<int>(result.value.pole_ids.size());
-      ui_state.last_generated_spans = static_cast<int>(result.value.span_ids.size());
-      ui_state.last_generation_session = result.value.generation_session_id;
-      if (!result.value.pole_ids.empty()) {
-        ui_state.selected_type = SelectedType::kPole;
-        ui_state.selected_id = result.value.pole_ids.back();
-      }
-      PushLog(ui_state, "Generated road poles=" + std::to_string(ui_state.last_generated_poles) +
-                            " spans=" + std::to_string(ui_state.last_generated_spans));
+    wire::core::BackboneSpec request{};
+    request.path.polyline = road.polyline;
+    request.interval_m = ui_state.road_interval;
+    request.pole_type_id = type_ids[ui_state.road_pole_type_index];
+    wire::core::BackboneBundleSpec bundle{};
+    bundle.bundle_template_id = BundleTemplateForCategory(all_categories[ui_state.road_category_index]);
+    request.bundles.push_back(bundle);
+    if (ExecuteBackboneRequest(state, ui_state, request, false, false, "Generated road", "Generate road line failed")) {
+      ui_state.road_id += 1;
     }
   }
   ImGui::Text("Last generated poles: %d", ui_state.last_generated_poles);
@@ -628,8 +775,7 @@ void DrawConnectionModePanel(CoreState& state, ViewerUiState& ui_state) {
       PushLog(ui_state, "Connect Pole->Pole failed");
     } else {
       ui_state.last_error.clear();
-      ui_state.selected_type = SelectedType::kSpan;
-      ui_state.selected_id = result.value.span_id;
+      SetPrimarySelection(ui_state, SelectedType::kSpan, result.value.span_id);
       PushLog(ui_state, "Connected span=" + std::to_string(result.value.span_id) +
                             " portA=" + std::to_string(result.value.port_a_id) +
                             " slotA=" + std::to_string(result.value.slot_a_id) +
@@ -778,8 +924,7 @@ void DrawDebugDirectPanel(CoreState& state, ViewerUiState& ui_state) {
       ui_state.last_error = result.error;
     } else {
       ui_state.last_error.clear();
-      ui_state.selected_type = SelectedType::kPort;
-      ui_state.selected_id = result.value;
+      SetPrimarySelection(ui_state, SelectedType::kPort, result.value);
       PushLog(ui_state, "Debug Add Port id=" + std::to_string(result.value));
     }
   }
@@ -796,8 +941,7 @@ void DrawDebugDirectPanel(CoreState& state, ViewerUiState& ui_state) {
       PushLog(ui_state, "Debug Add Span failed");
     } else {
       ui_state.last_error.clear();
-      ui_state.selected_type = SelectedType::kSpan;
-      ui_state.selected_id = result.value;
+      SetPrimarySelection(ui_state, SelectedType::kSpan, result.value);
       PushLog(ui_state, "Debug Add Span id=" + std::to_string(result.value));
     }
   }
@@ -925,6 +1069,15 @@ void DrawInspectorContent(CoreState& state, ViewerUiState& ui_state) {
 
   DrawSelectedInfo(state, ui_state);
   DrawEditSelectedPanel(state, ui_state);
+
+  ImGui::Separator();
+  ImGui::Text("Selection Count: %d", static_cast<int>(ui_state.selection_items.size()));
+  ImGui::Text("Poles=%d Midair=%d Spans=%d", SelectionCountByType(ui_state, SelectedType::kPole),
+              SelectionCountByType(ui_state, SelectedType::kSupportNode),
+              SelectionCountByType(ui_state, SelectedType::kSpan));
+  if (ImGui::Button("Clear Selection")) {
+    ClearSelection(ui_state);
+  }
 }
 
 void DrawInspectorWindow(CoreState& state, ViewerUiState& ui_state) {
@@ -942,6 +1095,7 @@ void DrawInspectorWindow(CoreState& state, ViewerUiState& ui_state) {
 
 void DrawOutlinerContent(CoreState& state, ViewerUiState& ui_state) {
   const auto view = state.view();
+  const wire::core::BackboneResult backbone = state.BuildBackboneResult();
   DrawObjectList(
       ui_state, "Poles", SelectedType::kPole,
       [&]() {
@@ -994,6 +1148,26 @@ void DrawOutlinerContent(CoreState& state, ViewerUiState& ui_state) {
           return std::to_string(id);
         }
         return span->display_id;
+      });
+
+  DrawObjectList(
+      ui_state, "Midair SupportNodes", SelectedType::kSupportNode,
+      [&]() {
+        std::vector<ObjectId> ids;
+        for (const wire::core::SupportNode& node : backbone.nodes) {
+          if (node.support_kind == wire::core::SupportKind::kMidair) {
+            ids.push_back(node.node_id);
+          }
+        }
+        return ids;
+      }(),
+      [&](ObjectId id) {
+        const auto it = std::find_if(backbone.nodes.begin(), backbone.nodes.end(),
+                                     [id](const wire::core::SupportNode& node) { return node.node_id == id; });
+        if (it == backbone.nodes.end()) {
+          return std::to_string(id);
+        }
+        return std::string("midair ") + std::to_string(static_cast<unsigned long long>(it->node_id));
       });
 }
 
@@ -1135,6 +1309,38 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
   if (ImGui::CollapsingHeader("Pole Tilt / Templates", ImGuiTreeNodeFlags_DefaultOpen)) {
     ImGui::InputDouble("Tilt X (deg)", &ui_state.tilt_all_x_deg, 0.5, 1.0, "%.2f");
     ImGui::InputDouble("Tilt Y (deg)", &ui_state.tilt_all_y_deg, 0.5, 1.0, "%.2f");
+    {
+      std::vector<ObjectId> selected_pole_ids{};
+      selected_pole_ids.reserve(ui_state.selection_items.size());
+      for (const SelectionItem& item : ui_state.selection_items) {
+        if (item.type == SelectedType::kPole) {
+          selected_pole_ids.push_back(item.id);
+        }
+      }
+      if (ImGui::Button("Apply Tilt To Selected Poles")) {
+        if (selected_pole_ids.empty()) {
+          PushLog(ui_state, "No poles selected");
+        } else {
+          const auto tilt = state.ApplyPoleTilt(selected_pole_ids, ui_state.tilt_all_x_deg, ui_state.tilt_all_y_deg);
+          if (!tilt.ok) {
+            ui_state.last_error = tilt.error;
+            PushLog(ui_state, "ApplyPoleTilt(selected) failed");
+          } else {
+            ui_state.last_error.clear();
+            PushLog(ui_state, "Applied tilt to selected poles count=" +
+                                  std::to_string(static_cast<unsigned long long>(selected_pole_ids.size())));
+          }
+        }
+      }
+      ImGui::SameLine();
+      ImGui::Text("selected=%d", static_cast<int>(selected_pole_ids.size()));
+    }
+    ImGui::Checkbox("Select Poles", &ui_state.selection_include_poles);
+    ImGui::SameLine();
+    ImGui::Checkbox("Select Midair", &ui_state.selection_include_midair_nodes);
+    ImGui::SameLine();
+    ImGui::Checkbox("Select Spans", &ui_state.selection_include_spans);
+    ImGui::TextUnformatted("Viewport: LMB click select, Shift+LMB drag box select");
     if (ImGui::Button("Apply Tilt To All Poles")) {
       const auto tilt = state.ApplyPoleTilt({}, ui_state.tilt_all_x_deg, ui_state.tilt_all_y_deg);
       if (!tilt.ok) {
@@ -1480,6 +1686,20 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
         ImGui::Text("  -> neighbor=%llu order=%d primary=%s srcSession=%llu",
                     static_cast<unsigned long long>(inc.neighbor_node_id), inc.order,
                     inc.primary ? "true" : "false", static_cast<unsigned long long>(inc.source_session_id));
+      }
+    }
+    if (!backbone.edge_orientations.empty()) {
+      ImGui::Separator();
+      ImGui::TextUnformatted("Edge Orientations");
+      for (const auto& orientation : backbone.edge_orientations) {
+        ImGui::Text("  %llu -> %llu bundle=%d flow=%s mirror=%s branchSupport=%s down=%.2f flipPrev=%s",
+                    static_cast<unsigned long long>(orientation.node_a_id),
+                    static_cast<unsigned long long>(orientation.node_b_id),
+                    static_cast<int>(orientation.bundle_template_id), BackboneFlowKindLabel(orientation.flow_kind),
+                    orientation.orientation == wire::core::LaneOrientation::kReversed ? "true" : "false",
+                    orientation.uses_branch_support ? "true" : "false", orientation.branch_down_offset_m,
+                    orientation.flipped_from_previous ? "true" : "false");
+        ImGui::Text("    flowRule=%s", BackboneFlowDecisionRuleLabel(orientation.flow_decision_rule));
       }
     }
   }

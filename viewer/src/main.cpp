@@ -28,6 +28,12 @@
 namespace {
 
 constexpr float kAxisLength = 2.0f;
+constexpr float kSelectionClickRadiusPx = 14.0f;
+constexpr float kSelectionDragThresholdPx = 6.0f;
+constexpr int kGroundGridHalfExtent = 20;
+constexpr float kGroundGridSpacing = 1.0f;
+constexpr Color kSkyTopColor = Color{142, 182, 220, 255};
+constexpr Color kSkyBottomColor = Color{200, 214, 228, 255};
 
 constexpr const char* kViewerSettingsFile = "viewer_state.ini";
 
@@ -110,6 +116,42 @@ wire::core::Vec3d PoleTopPoint(const wire::core::Pole& pole) {
   return wire::core::LocalPointToWorld(frame, wire::core::ScaleVec(wire::core::WorldUp(), pole.height_m));
 }
 
+void DrawGroundGrid() {
+  const Color minor = Color{114, 136, 154, 78};
+  const Color major = Color{88, 114, 136, 128};
+  for (int i = -kGroundGridHalfExtent; i <= kGroundGridHalfExtent; ++i) {
+    const double coord = static_cast<double>(i) * kGroundGridSpacing;
+    const Color color = (i == 0) ? major : minor;
+    DrawLine3D(ToRaylib({coord, -kGroundGridHalfExtent * kGroundGridSpacing, 0.0}),
+               ToRaylib({coord, +kGroundGridHalfExtent * kGroundGridSpacing, 0.0}), color);
+    DrawLine3D(ToRaylib({-kGroundGridHalfExtent * kGroundGridSpacing, coord, 0.0}),
+               ToRaylib({+kGroundGridHalfExtent * kGroundGridSpacing, coord, 0.0}), color);
+  }
+}
+
+void DrawSceneBackdrop() {
+  const int width = GetScreenWidth();
+  const int height = GetScreenHeight();
+  DrawRectangleGradientV(0, 0, width, height, kSkyTopColor, kSkyBottomColor);
+}
+
+bool IsSelectionViewportMode(const ViewerUiState& ui_state) {
+  return ui_state.mode != EditMode::kBranch && ui_state.mode != EditMode::kDrawPath;
+}
+
+Rectangle SelectionRectangle(const DragSelectionState& drag_selection) {
+  const float x = std::min(drag_selection.start_screen.x, drag_selection.end_screen.x);
+  const float y = std::min(drag_selection.start_screen.y, drag_selection.end_screen.y);
+  const float width = std::fabs(drag_selection.end_screen.x - drag_selection.start_screen.x);
+  const float height = std::fabs(drag_selection.end_screen.y - drag_selection.start_screen.y);
+  return Rectangle{x, y, width, height};
+}
+
+bool HasMeaningfulDragSelection(const DragSelectionState& drag_selection) {
+  return std::fabs(drag_selection.end_screen.x - drag_selection.start_screen.x) >= kSelectionDragThresholdPx ||
+         std::fabs(drag_selection.end_screen.y - drag_selection.start_screen.y) >= kSelectionDragThresholdPx;
+}
+
 Color VisualPartColor(wire::core::VisualPartKind kind) {
   switch (kind) {
   case wire::core::VisualPartKind::kSupportArm:
@@ -156,6 +198,310 @@ Vector3 CameraForward(const Camera3D& camera) {
 Vector3 CameraRight(const Camera3D& camera) {
   const Vector3 fwd = CameraForward(camera);
   return Vector3Normalize(Vector3CrossProduct(fwd, camera.up));
+}
+
+bool IsHostPointInFrontOfCamera(const Camera3D& camera, const Vector3& host_point) {
+  const Vector3 to_point{
+      host_point.x - camera.position.x,
+      host_point.y - camera.position.y,
+      host_point.z - camera.position.z,
+  };
+  const Vector3 forward{
+      camera.target.x - camera.position.x,
+      camera.target.y - camera.position.y,
+      camera.target.z - camera.position.z,
+  };
+  const float dot = to_point.x * forward.x + to_point.y * forward.y + to_point.z * forward.z;
+  return dot > 0.0f;
+}
+
+bool TryProjectWorldPoint(const Camera3D& camera, const wire::core::Vec3d& world, Vector2* out_screen) {
+  if (out_screen == nullptr) {
+    return false;
+  }
+  const Vector3 host = ToRaylib(world);
+  if (!IsHostPointInFrontOfCamera(camera, host)) {
+    return false;
+  }
+  *out_screen = GetWorldToScreen(host, camera);
+  return true;
+}
+
+float DistancePointToSegmentSquared(const Vector2& point, const Vector2& a, const Vector2& b) {
+  const float ab_x = b.x - a.x;
+  const float ab_y = b.y - a.y;
+  const float ap_x = point.x - a.x;
+  const float ap_y = point.y - a.y;
+  const float ab_len_sq = ab_x * ab_x + ab_y * ab_y;
+  if (ab_len_sq <= 1e-6f) {
+    return ap_x * ap_x + ap_y * ap_y;
+  }
+  const float t = std::clamp((ap_x * ab_x + ap_y * ab_y) / ab_len_sq, 0.0f, 1.0f);
+  const float closest_x = a.x + ab_x * t;
+  const float closest_y = a.y + ab_y * t;
+  const float dx = point.x - closest_x;
+  const float dy = point.y - closest_y;
+  return dx * dx + dy * dy;
+}
+
+float Cross2d(const Vector2& a, const Vector2& b, const Vector2& c) {
+  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+}
+
+bool OnSegment2d(const Vector2& a, const Vector2& b, const Vector2& p) {
+  const float min_x = std::min(a.x, b.x) - 1e-3f;
+  const float max_x = std::max(a.x, b.x) + 1e-3f;
+  const float min_y = std::min(a.y, b.y) - 1e-3f;
+  const float max_y = std::max(a.y, b.y) + 1e-3f;
+  return p.x >= min_x && p.x <= max_x && p.y >= min_y && p.y <= max_y;
+}
+
+bool SegmentsIntersect2d(const Vector2& a, const Vector2& b, const Vector2& c, const Vector2& d) {
+  const float ab_c = Cross2d(a, b, c);
+  const float ab_d = Cross2d(a, b, d);
+  const float cd_a = Cross2d(c, d, a);
+  const float cd_b = Cross2d(c, d, b);
+  if (((ab_c > 0.0f && ab_d < 0.0f) || (ab_c < 0.0f && ab_d > 0.0f)) &&
+      ((cd_a > 0.0f && cd_b < 0.0f) || (cd_a < 0.0f && cd_b > 0.0f))) {
+    return true;
+  }
+  if (std::fabs(ab_c) <= 1e-3f && OnSegment2d(a, b, c)) return true;
+  if (std::fabs(ab_d) <= 1e-3f && OnSegment2d(a, b, d)) return true;
+  if (std::fabs(cd_a) <= 1e-3f && OnSegment2d(c, d, a)) return true;
+  if (std::fabs(cd_b) <= 1e-3f && OnSegment2d(c, d, b)) return true;
+  return false;
+}
+
+bool RectangleContainsPoint(const Rectangle& rect, const Vector2& point) {
+  return CheckCollisionPointRec(point, rect);
+}
+
+bool RectangleIntersectsSegment(const Rectangle& rect, const Vector2& a, const Vector2& b) {
+  if (RectangleContainsPoint(rect, a) || RectangleContainsPoint(rect, b)) {
+    return true;
+  }
+  const Vector2 tl{rect.x, rect.y};
+  const Vector2 tr{rect.x + rect.width, rect.y};
+  const Vector2 br{rect.x + rect.width, rect.y + rect.height};
+  const Vector2 bl{rect.x, rect.y + rect.height};
+  return SegmentsIntersect2d(a, b, tl, tr) || SegmentsIntersect2d(a, b, tr, br) ||
+         SegmentsIntersect2d(a, b, br, bl) || SegmentsIntersect2d(a, b, bl, tl);
+}
+
+std::vector<Vector2> ProjectSpanPolyline(const CoreState& state, const wire::core::EditState& edit, const Camera3D& camera,
+                                         const wire::core::Span& span) {
+  std::vector<Vector2> projected{};
+  if (const wire::core::CurveCacheEntry* curve = state.find_curve_cache(span.id);
+      curve != nullptr && curve->points.size() >= 2) {
+    projected.reserve(curve->points.size());
+    for (const wire::core::Vec3d& point : curve->points) {
+      Vector2 screen{};
+      if (TryProjectWorldPoint(camera, point, &screen)) {
+        projected.push_back(screen);
+      }
+    }
+    if (projected.size() >= 2) {
+      return projected;
+    }
+  }
+  const wire::core::Port* port_a = edit.ports.find(span.port_a_id);
+  const wire::core::Port* port_b = edit.ports.find(span.port_b_id);
+  if (port_a == nullptr || port_b == nullptr) {
+    return projected;
+  }
+  Vector2 a{};
+  Vector2 b{};
+  if (!TryProjectWorldPoint(camera, port_a->world_position, &a) || !TryProjectWorldPoint(camera, port_b->world_position, &b)) {
+    return {};
+  }
+  return {a, b};
+}
+
+float DistanceToProjectedPolylineSquared(const std::vector<Vector2>& polyline, const Vector2& point) {
+  if (polyline.size() < 2) {
+    return std::numeric_limits<float>::max();
+  }
+  float best = std::numeric_limits<float>::max();
+  for (std::size_t i = 0; i + 1 < polyline.size(); ++i) {
+    best = std::min(best, DistancePointToSegmentSquared(point, polyline[i], polyline[i + 1]));
+  }
+  return best;
+}
+
+bool PolylineIntersectsRectangle(const std::vector<Vector2>& polyline, const Rectangle& rect) {
+  if (polyline.size() < 2) {
+    return false;
+  }
+  for (std::size_t i = 0; i + 1 < polyline.size(); ++i) {
+    if (RectangleIntersectsSegment(rect, polyline[i], polyline[i + 1])) {
+      return true;
+    }
+  }
+  return false;
+}
+
+SelectionItem PickViewportSelection(const CoreState& state, const Camera3D& camera, const ViewerUiState& ui_state,
+                                    const Vector2& mouse_screen) {
+  const auto view = state.view();
+  const auto& edit = view.edit_state();
+  const wire::core::BackboneResult backbone = state.BuildBackboneResult();
+  SelectionItem best{};
+  float best_distance_sq = kSelectionClickRadiusPx * kSelectionClickRadiusPx;
+
+  if (ui_state.selection_include_poles) {
+    for (const wire::core::Pole& pole : edit.poles.items()) {
+      Vector2 base{};
+      Vector2 top{};
+      if (!TryProjectWorldPoint(camera, pole.world_transform.position, &base) ||
+          !TryProjectWorldPoint(camera, PoleTopPoint(pole), &top)) {
+        continue;
+      }
+      const float d2 = DistancePointToSegmentSquared(mouse_screen, base, top);
+      if (d2 < best_distance_sq) {
+        best = {SelectedType::kPole, pole.id};
+        best_distance_sq = d2;
+      }
+    }
+  }
+
+  if (ui_state.selection_include_midair_nodes) {
+    for (const wire::core::SupportNode& node : backbone.nodes) {
+      if (node.support_kind != wire::core::SupportKind::kMidair) {
+        continue;
+      }
+      Vector2 screen{};
+      if (!TryProjectWorldPoint(camera, node.position, &screen)) {
+        continue;
+      }
+      const float dx = mouse_screen.x - screen.x;
+      const float dy = mouse_screen.y - screen.y;
+      const float d2 = dx * dx + dy * dy;
+      if (d2 < best_distance_sq) {
+        best = {SelectedType::kSupportNode, node.node_id};
+        best_distance_sq = d2;
+      }
+    }
+  }
+
+  if (ui_state.selection_include_spans) {
+    for (const wire::core::Span& span : edit.spans.items()) {
+      const std::vector<Vector2> polyline = ProjectSpanPolyline(state, edit, camera, span);
+      const float d2 = DistanceToProjectedPolylineSquared(polyline, mouse_screen);
+      if (d2 < best_distance_sq) {
+        best = {SelectedType::kSpan, span.id};
+        best_distance_sq = d2;
+      }
+    }
+  }
+
+  return best;
+}
+
+std::vector<SelectionItem> CollectViewportSelection(const CoreState& state, const Camera3D& camera,
+                                                    const ViewerUiState& ui_state, const Rectangle& rect) {
+  const auto view = state.view();
+  const auto& edit = view.edit_state();
+  const wire::core::BackboneResult backbone = state.BuildBackboneResult();
+  std::vector<SelectionItem> items{};
+
+  if (ui_state.selection_include_poles) {
+    for (const wire::core::Pole& pole : edit.poles.items()) {
+      Vector2 base{};
+      Vector2 top{};
+      if (!TryProjectWorldPoint(camera, pole.world_transform.position, &base) ||
+          !TryProjectWorldPoint(camera, PoleTopPoint(pole), &top)) {
+        continue;
+      }
+      if (RectangleIntersectsSegment(rect, base, top)) {
+        items.push_back({SelectedType::kPole, pole.id});
+      }
+    }
+  }
+
+  if (ui_state.selection_include_midair_nodes) {
+    for (const wire::core::SupportNode& node : backbone.nodes) {
+      if (node.support_kind != wire::core::SupportKind::kMidair) {
+        continue;
+      }
+      Vector2 screen{};
+      if (TryProjectWorldPoint(camera, node.position, &screen) && RectangleContainsPoint(rect, screen)) {
+        items.push_back({SelectedType::kSupportNode, node.node_id});
+      }
+    }
+  }
+
+  if (ui_state.selection_include_spans) {
+    for (const wire::core::Span& span : edit.spans.items()) {
+      const std::vector<Vector2> polyline = ProjectSpanPolyline(state, edit, camera, span);
+      if (PolylineIntersectsRectangle(polyline, rect)) {
+        items.push_back({SelectedType::kSpan, span.id});
+      }
+    }
+  }
+
+  return items;
+}
+
+void DrawDragSelectionOverlay(const ViewerUiState& ui_state) {
+  if (!ui_state.drag_selection.active) {
+    return;
+  }
+  const Rectangle rect = SelectionRectangle(ui_state.drag_selection);
+  DrawRectangleRec(rect, Color{255, 215, 90, 36});
+  DrawRectangleLinesEx(rect, 1.5f, Color{255, 225, 120, 220});
+}
+
+void UpdateViewportSelectionInput(const CoreState& state, const Camera3D& camera, ViewerUiState& ui_state) {
+  ImGuiIO& io = ImGui::GetIO();
+  if (!IsSelectionViewportMode(ui_state) || io.WantCaptureMouse || ui_state.camera_walk_mode ||
+      ui_state.camera_drag_mode != CameraDragMode::kNone) {
+    ui_state.drag_selection.active = false;
+    return;
+  }
+
+  const bool shift = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
+  const bool alt = IsKeyDown(KEY_LEFT_ALT) || IsKeyDown(KEY_RIGHT_ALT);
+  if (alt) {
+    return;
+  }
+
+  const Vector2 mouse_screen = GetMousePosition();
+  if (!ui_state.drag_selection.active && shift && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+    ui_state.drag_selection.active = true;
+    ui_state.drag_selection.start_screen = mouse_screen;
+    ui_state.drag_selection.end_screen = mouse_screen;
+    return;
+  }
+
+  if (ui_state.drag_selection.active) {
+    ui_state.drag_selection.end_screen = mouse_screen;
+    if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
+      const bool used_box = HasMeaningfulDragSelection(ui_state.drag_selection);
+      const Rectangle rect = SelectionRectangle(ui_state.drag_selection);
+      ui_state.drag_selection.active = false;
+      if (used_box) {
+        ReplaceSelection(ui_state, CollectViewportSelection(state, camera, ui_state, rect));
+        PushLog(ui_state, "Box select count=" + std::to_string(static_cast<unsigned long long>(ui_state.selection_items.size())));
+      } else {
+        const SelectionItem picked = PickViewportSelection(state, camera, ui_state, mouse_screen);
+        if (IsValidSelectionItem(picked)) {
+          SetPrimarySelection(ui_state, picked.type, picked.id);
+        } else {
+          ClearSelection(ui_state);
+        }
+      }
+    }
+    return;
+  }
+
+  if (!shift && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+    const SelectionItem picked = PickViewportSelection(state, camera, ui_state, mouse_screen);
+    if (IsValidSelectionItem(picked)) {
+      SetPrimarySelection(ui_state, picked.type, picked.id);
+    } else {
+      ClearSelection(ui_state);
+    }
+  }
 }
 
 void UpdateWalkCamera(Camera3D* camera, ViewerUiState& ui_state) {
@@ -374,10 +720,12 @@ int main() {
   }
   while (!WindowShouldClose()) {
     BeginDrawing();
-    ClearBackground(Color{26, 32, 39, 255});
+    ClearBackground(kSkyBottomColor);
+    DrawSceneBackdrop();
 
     rlImGuiBegin();
     UpdateCameraForViewport(&camera, ui_state);
+    UpdateViewportSelectionInput(state, camera, ui_state);
     UpdateDrawPathInput(state, camera, ui_state);
     UpdateBranchPickInput(state, camera, ui_state);
     if (ui_state.auto_recalc) {
@@ -389,7 +737,7 @@ int main() {
     UpdatePreferredVisibleSpans(state, camera, ui_state);
 
     BeginMode3D(camera);
-    DrawGrid(40, 1.0f);
+    DrawGroundGrid();
     DrawAxes();
     DrawCore(state, ui_state);
     DrawPathPreview(ui_state);
@@ -397,6 +745,7 @@ int main() {
 
     DrawStatsPanel(state, ui_state);
     rlImGuiEnd();
+    DrawDragSelectionOverlay(ui_state);
 
     DrawFPS(10, 10);
     EndDrawing();

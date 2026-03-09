@@ -1,5 +1,6 @@
 #include "wire/core/core_state.hpp"
 #include "wire/core/coord_utils.hpp"
+#include "../generation/support_policy.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -62,23 +63,6 @@ ConnectionCategory span_layer_to_category(SpanLayer layer) {
     return ConnectionCategory::kOptical;
   default:
     return ConnectionCategory::kLowVoltage;
-  }
-}
-
-int target_template_layer_for_category(ConnectionCategory category) {
-  switch (category) {
-  case ConnectionCategory::kHighVoltage:
-    return 2;
-  case ConnectionCategory::kLowVoltage:
-    return 1;
-  case ConnectionCategory::kCommunication:
-    return 1;
-  case ConnectionCategory::kOptical:
-    return 1;
-  case ConnectionCategory::kDrop:
-    return 0;
-  default:
-    return 1;
   }
 }
 
@@ -221,7 +205,7 @@ EditResult<ObjectId> CoreState::AddPort(ObjectId owner_pole_id, const Vec3d& wor
   port.direction = direction;
   port.category = port_layer_to_category(layer);
   port.source_slot_id = -1;
-  port.template_layer = target_template_layer_for_category(port.category);
+  port.template_layer = generation::detail::TemplateLayerForCategory(port.category);
   port.template_side = SlotSide::kCenter;
   port.template_role = SlotRole::kNeutral;
   port.generated_from_template = false;
@@ -354,7 +338,7 @@ EditResult<ObjectId> CoreState::AddSpan(ObjectId port_a_id, ObjectId port_b_id, 
   return result;
 }
 
-EditResult<ObjectId> CoreState::AddAttachment(ObjectId span_id, double t, AttachmentKind kind, double offset_m) {
+EditResult<ObjectId> CoreState::AddAttachment(ObjectId span_id, double t, AttachmentKind kind, double display_offset_m) {
   EditResult<ObjectId> result;
   if (edit_state_.spans.find(span_id) == nullptr) {
     result.error = "span does not exist";
@@ -371,7 +355,7 @@ EditResult<ObjectId> CoreState::AddAttachment(ObjectId span_id, double t, Attach
   attachment.span_id = span_id;
   attachment.t = t;
   attachment.kind = kind;
-  attachment.offset_m = offset_m;
+  attachment.display_offset_m = display_offset_m;
   edit_state_.attachments.insert(attachment);
 
   result.ok = true;

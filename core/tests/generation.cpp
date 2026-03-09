@@ -1256,6 +1256,429 @@ bool test_generate_from_backbone_spec_invalid_inputs_fail() {
   return state.GenerateFromBackboneSpec(recover).ok;
 }
 
+bool test_backbone_reused_junction_pole_keeps_main_chain_forward() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec main_req{};
+  main_req.path.polyline = {{-12.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}};
+  main_req.interval_m = 1000.0;
+  main_req.pole_type_id = type_ids.front();
+  add_backbone_bundle(main_req, wire::core::BundleKind::kHighVoltage);
+  const auto main_generated = state.GenerateFromBackboneSpec(main_req);
+  if (!main_generated.ok) {
+    return false;
+  }
+
+  wire::core::BackboneSpec branch_req{};
+  branch_req.path.polyline = {{0.0, 0.0, 0.0}, {0.0, 12.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec shared{};
+  shared.point_index = 0;
+  shared.support_kind = wire::core::SupportKind::kPole;
+  shared.node_id = find_pole_id_by_position(state, {0.0, 0.0, 0.0});
+  if (shared.node_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  branch_req.path.node_specs.push_back(shared);
+  branch_req.interval_m = 1000.0;
+  branch_req.pole_type_id = type_ids.front();
+  add_backbone_bundle(branch_req, wire::core::BundleKind::kHighVoltage);
+  const auto branch_generated = state.GenerateFromBackboneSpec(branch_req);
+  if (!branch_generated.ok) {
+    return false;
+  }
+
+  const auto* center = state.view().edit_state().poles.find(shared.node_id);
+  if (center == nullptr) {
+    return false;
+  }
+  const double yaw = effective_pole_yaw_deg_test(*center);
+  const bool horizontal =
+      std::min(angle_diff_abs_deg(yaw, 0.0), angle_diff_abs_deg(yaw, 180.0)) <= 1e-6;
+  const auto it_debug = state.view().pole_orientation_debug_records().find(shared.node_id);
+  return horizontal && it_debug != state.view().pole_orientation_debug_records().end() &&
+         it_debug->second.rule == wire::core::PoleForwardRule::kMainChainBisector;
+}
+
+bool test_backbone_branch_bundle_uses_branch_support_ports() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec main_req{};
+  main_req.path.polyline = {{-12.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}};
+  main_req.interval_m = 1000.0;
+  main_req.pole_type_id = type_ids.front();
+  add_backbone_bundle(main_req, wire::core::BundleKind::kHighVoltage);
+  const auto main_generated = state.GenerateFromBackboneSpec(main_req);
+  if (!main_generated.ok) {
+    return false;
+  }
+
+  const ObjectId center_id = find_pole_id_by_position(state, {0.0, 0.0, 0.0});
+  if (center_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec branch_req{};
+  branch_req.path.polyline = {{0.0, 0.0, 0.0}, {0.0, 12.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec shared{};
+  shared.point_index = 0;
+  shared.support_kind = wire::core::SupportKind::kPole;
+  shared.node_id = center_id;
+  branch_req.path.node_specs.push_back(shared);
+  branch_req.interval_m = 1000.0;
+  branch_req.pole_type_id = type_ids.front();
+  add_backbone_bundle(branch_req, wire::core::BundleKind::kHighVoltage);
+  const auto branch_generated = state.GenerateFromBackboneSpec(branch_req);
+  if (!branch_generated.ok || branch_generated.value.generated_span_ids.empty()) {
+    return false;
+  }
+
+  bool has_branch_support_port = false;
+  for (ObjectId span_id : branch_generated.value.generated_span_ids) {
+    const auto* span = state.view().edit_state().spans.find(span_id);
+    if (span == nullptr) {
+      return false;
+    }
+    const bool center_is_a = span->endpoint_node_a_id == center_id;
+    const bool center_is_b = span->endpoint_node_b_id == center_id;
+    if (!center_is_a && !center_is_b) {
+      continue;
+    }
+    const ObjectId port_id = center_is_a ? span->port_a_id : span->port_b_id;
+    const auto* port = state.view().edit_state().ports.find(port_id);
+    if (port == nullptr) {
+      return false;
+    }
+    if (port->placement_source == wire::core::PortPlacementSourceKind::kBranchSupport) {
+      has_branch_support_port = true;
+    }
+  }
+  if (!has_branch_support_port) {
+    return false;
+  }
+  const auto& assignments = state.view().last_lane_assignments();
+  return !assignments.empty() &&
+         std::all_of(assignments.begin(), assignments.end(), [](const wire::core::SegmentLaneAssignment& assignment) {
+           return assignment.flow_kind == wire::core::BackboneFlowKind::kBranch &&
+                  assignment.uses_branch_support && assignment.branch_down_offset_m > 0.0;
+         });
+}
+
+bool test_backbone_branch_support_offsets_height_without_changing_layer() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec main_req{};
+  main_req.path.polyline = {{-12.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}};
+  main_req.interval_m = 1000.0;
+  main_req.pole_type_id = type_ids.front();
+  add_backbone_bundle(main_req, wire::core::BundleKind::kHighVoltage);
+  const auto main_generated = state.GenerateFromBackboneSpec(main_req);
+  if (!main_generated.ok) {
+    return false;
+  }
+
+  const ObjectId center_id = find_pole_id_by_position(state, {0.0, 0.0, 0.0});
+  if (center_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  std::vector<const wire::core::Port*> main_ports{};
+  for (ObjectId span_id : main_generated.value.generated_span_ids) {
+    const auto* span = state.view().edit_state().spans.find(span_id);
+    if (span == nullptr) {
+      return false;
+    }
+    if (span->endpoint_node_a_id == center_id) {
+      if (const auto* port = state.view().edit_state().ports.find(span->port_a_id); port != nullptr) {
+        main_ports.push_back(port);
+      }
+    }
+    if (span->endpoint_node_b_id == center_id) {
+      if (const auto* port = state.view().edit_state().ports.find(span->port_b_id); port != nullptr) {
+        main_ports.push_back(port);
+      }
+    }
+  }
+  if (main_ports.empty()) {
+    return false;
+  }
+  double main_min_z = std::numeric_limits<double>::infinity();
+  int main_layer = -1;
+  for (const auto* port : main_ports) {
+    main_min_z = std::min(main_min_z, port->world_position.z);
+    if (main_layer < 0) {
+      main_layer = port->template_layer;
+    }
+  }
+
+  wire::core::BackboneSpec branch_req{};
+  branch_req.path.polyline = {{0.0, 0.0, 0.0}, {0.0, 12.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec shared{};
+  shared.point_index = 0;
+  shared.support_kind = wire::core::SupportKind::kPole;
+  shared.node_id = center_id;
+  branch_req.path.node_specs.push_back(shared);
+  branch_req.interval_m = 1000.0;
+  branch_req.pole_type_id = type_ids.front();
+  add_backbone_bundle(branch_req, wire::core::BundleKind::kHighVoltage);
+  const auto branch_generated = state.GenerateFromBackboneSpec(branch_req);
+  if (!branch_generated.ok || branch_generated.value.generated_span_ids.empty()) {
+    return false;
+  }
+
+  const wire::core::Port* branch_port = nullptr;
+  for (ObjectId span_id : branch_generated.value.generated_span_ids) {
+    const auto* span = state.view().edit_state().spans.find(span_id);
+    if (span == nullptr) {
+      return false;
+    }
+    if (span->endpoint_node_a_id == center_id) {
+      branch_port = state.view().edit_state().ports.find(span->port_a_id);
+      break;
+    }
+    if (span->endpoint_node_b_id == center_id) {
+      branch_port = state.view().edit_state().ports.find(span->port_b_id);
+      break;
+    }
+  }
+  return branch_port != nullptr && branch_port->placement_source == wire::core::PortPlacementSourceKind::kBranchSupport &&
+         branch_port->world_position.z + 1e-6 < main_min_z && branch_port->template_layer == main_layer;
+}
+
+bool test_backbone_branch_generation_preserves_existing_hv3_main_ports() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec main_req{};
+  main_req.path.polyline = {{-12.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}};
+  main_req.interval_m = 1000.0;
+  main_req.pole_type_id = type_ids.front();
+  add_backbone_bundle(main_req, wire::core::BundleKind::kHighVoltage);
+  const auto main_generated = state.GenerateFromBackboneSpec(main_req);
+  if (!main_generated.ok) {
+    return false;
+  }
+
+  const ObjectId center_id = find_pole_id_by_position(state, {0.0, 0.0, 0.0});
+  if (center_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  std::vector<ObjectId> before_center_ports{};
+  for (ObjectId span_id : main_generated.value.generated_span_ids) {
+    const auto* span = state.view().edit_state().spans.find(span_id);
+    if (span == nullptr) {
+      return false;
+    }
+    if (span->endpoint_node_a_id == center_id) {
+      before_center_ports.push_back(span->port_a_id);
+    }
+    if (span->endpoint_node_b_id == center_id) {
+      before_center_ports.push_back(span->port_b_id);
+    }
+  }
+  std::sort(before_center_ports.begin(), before_center_ports.end());
+  before_center_ports.erase(std::unique(before_center_ports.begin(), before_center_ports.end()), before_center_ports.end());
+  if (before_center_ports.size() != 3) {
+    return false;
+  }
+
+  wire::core::BackboneSpec branch_req{};
+  branch_req.path.polyline = {{0.0, 0.0, 0.0}, {0.0, 12.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec shared{};
+  shared.point_index = 0;
+  shared.support_kind = wire::core::SupportKind::kPole;
+  shared.node_id = center_id;
+  branch_req.path.node_specs.push_back(shared);
+  branch_req.interval_m = 1000.0;
+  branch_req.pole_type_id = type_ids.front();
+  add_backbone_bundle(branch_req, wire::core::BundleKind::kHighVoltage);
+  const auto branch_generated = state.GenerateFromBackboneSpec(branch_req);
+  if (!branch_generated.ok) {
+    return false;
+  }
+
+  std::vector<ObjectId> after_center_ports{};
+  for (ObjectId span_id : main_generated.value.generated_span_ids) {
+    const auto* span = state.view().edit_state().spans.find(span_id);
+    if (span == nullptr) {
+      return false;
+    }
+    if (span->endpoint_node_a_id == center_id) {
+      after_center_ports.push_back(span->port_a_id);
+    }
+    if (span->endpoint_node_b_id == center_id) {
+      after_center_ports.push_back(span->port_b_id);
+    }
+  }
+  std::sort(after_center_ports.begin(), after_center_ports.end());
+  after_center_ports.erase(std::unique(after_center_ports.begin(), after_center_ports.end()), after_center_ports.end());
+  return before_center_ports == after_center_ports;
+}
+
+bool test_backbone_mixed_route_uses_edge_level_flow_classification() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec main_req{};
+  main_req.path.polyline = {{-12.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}};
+  main_req.interval_m = 1000.0;
+  main_req.pole_type_id = type_ids.front();
+  add_backbone_bundle(main_req, wire::core::BundleKind::kHighVoltage);
+  if (!state.GenerateFromBackboneSpec(main_req).ok) {
+    return false;
+  }
+
+  const ObjectId left_id = find_pole_id_by_position(state, {-12.0, 0.0, 0.0});
+  const ObjectId center_id = find_pole_id_by_position(state, {0.0, 0.0, 0.0});
+  if (left_id == wire::core::kInvalidObjectId || center_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec mixed_req{};
+  mixed_req.path.polyline = {{-12.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 12.0, 0.0}};
+  mixed_req.interval_m = 1000.0;
+  mixed_req.pole_type_id = type_ids.front();
+  wire::core::BackboneInputSpec::NodeSpec left_spec{};
+  left_spec.point_index = 0;
+  left_spec.support_kind = wire::core::SupportKind::kPole;
+  left_spec.node_id = left_id;
+  mixed_req.path.node_specs.push_back(left_spec);
+  wire::core::BackboneInputSpec::NodeSpec center_spec{};
+  center_spec.point_index = 1;
+  center_spec.support_kind = wire::core::SupportKind::kPole;
+  center_spec.node_id = center_id;
+  mixed_req.path.node_specs.push_back(center_spec);
+  add_backbone_bundle(mixed_req, wire::core::BundleKind::kLowVoltage);
+  const auto mixed_generated = state.GenerateFromBackboneSpec(mixed_req);
+  if (!mixed_generated.ok) {
+    return false;
+  }
+
+  const auto& assignments = state.view().last_lane_assignments();
+  if (assignments.size() != 2) {
+    return false;
+  }
+  return assignments[0].flow_kind == wire::core::BackboneFlowKind::kMain &&
+         assignments[0].flow_decision_rule == wire::core::BackboneFlowDecisionRule::kExistingChainMain &&
+         !assignments[0].uses_branch_support &&
+         assignments[1].flow_kind == wire::core::BackboneFlowKind::kBranch &&
+         assignments[1].flow_decision_rule == wire::core::BackboneFlowDecisionRule::kExistingChainBranch &&
+         assignments[1].uses_branch_support;
+}
+
+bool test_backbone_branch_support_visual_cache_contains_support_placement() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec main_req{};
+  main_req.path.polyline = {{-12.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}};
+  main_req.interval_m = 1000.0;
+  main_req.pole_type_id = type_ids.front();
+  add_backbone_bundle(main_req, wire::core::BundleKind::kHighVoltage);
+  if (!state.GenerateFromBackboneSpec(main_req).ok) {
+    return false;
+  }
+
+  const ObjectId center_id = find_pole_id_by_position(state, {0.0, 0.0, 0.0});
+  if (center_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec branch_req{};
+  branch_req.path.polyline = {{0.0, 0.0, 0.0}, {0.0, 12.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec shared{};
+  shared.point_index = 0;
+  shared.support_kind = wire::core::SupportKind::kPole;
+  shared.node_id = center_id;
+  branch_req.path.node_specs.push_back(shared);
+  branch_req.interval_m = 1000.0;
+  branch_req.pole_type_id = type_ids.front();
+  add_backbone_bundle(branch_req, wire::core::BundleKind::kHighVoltage);
+  const auto branch_generated = state.GenerateFromBackboneSpec(branch_req);
+  if (!branch_generated.ok || branch_generated.value.generated_span_ids.empty()) {
+    return false;
+  }
+
+  wire::core::CommitOptions options{};
+  options.run_recalc = true;
+  (void)state.Commit(options);
+
+  for (ObjectId span_id : branch_generated.value.generated_span_ids) {
+    const auto* visual = state.view().find_span_visual_cache(span_id);
+    if (visual == nullptr || visual->branch_supports.empty()) {
+      continue;
+    }
+    return std::any_of(visual->branch_supports.begin(), visual->branch_supports.end(),
+                       [center_id](const wire::core::BranchSupportPlacement& placement) {
+                         return placement.owner_pole_id == center_id && placement.down_offset_m > 0.0 &&
+                                placement.side != wire::core::SlotSide::kCenter;
+                       });
+  }
+  return false;
+}
+
+bool test_backbone_near_straight_branch_still_classifies_as_branch() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec main_req{};
+  main_req.path.polyline = {{-12.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}};
+  main_req.interval_m = 1000.0;
+  main_req.pole_type_id = type_ids.front();
+  add_backbone_bundle(main_req, wire::core::BundleKind::kHighVoltage);
+  if (!state.GenerateFromBackboneSpec(main_req).ok) {
+    return false;
+  }
+
+  const ObjectId center_id = find_pole_id_by_position(state, {0.0, 0.0, 0.0});
+  if (center_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec branch_req{};
+  branch_req.path.polyline = {{0.0, 0.0, 0.0}, {11.5, 0.8, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec shared{};
+  shared.point_index = 0;
+  shared.support_kind = wire::core::SupportKind::kPole;
+  shared.node_id = center_id;
+  branch_req.path.node_specs.push_back(shared);
+  branch_req.interval_m = 1000.0;
+  branch_req.pole_type_id = type_ids.front();
+  add_backbone_bundle(branch_req, wire::core::BundleKind::kLowVoltage);
+  const auto branch_generated = state.GenerateFromBackboneSpec(branch_req);
+  if (!branch_generated.ok) {
+    return false;
+  }
+
+  const auto& assignments = state.view().last_lane_assignments();
+  return assignments.size() == 1 && assignments.front().flow_kind == wire::core::BackboneFlowKind::kBranch &&
+         assignments.front().flow_decision_rule == wire::core::BackboneFlowDecisionRule::kExistingChainBranch;
+}
+
 // Intent: Backbone generation must require bundles[] and reject legacy-only fields.
 namespace {
 
@@ -1336,6 +1759,27 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C118_Backbone_MidairBranchMixedTemplates",
                          "Midair branch generation keeps only templates that allow midair branch", "Invariant", false,
                          test_backbone_midair_branch_generates_only_allowed_templates);
+  test_registry::AddTest(tests, "C133_Backbone_MainChainPoleForward",
+                         "Reused junction pole keeps forward aligned to the existing main chain", "Invariant", false,
+                         test_backbone_reused_junction_pole_keeps_main_chain_forward);
+  test_registry::AddTest(tests, "C134_Backbone_BranchSupportPorts",
+                         "Branch bundle uses dedicated branch-support ports and debug classification", "Invariant",
+                         false, test_backbone_branch_bundle_uses_branch_support_ports);
+  test_registry::AddTest(tests, "C135_Backbone_BranchSupportDownOffset",
+                         "Branch support lowers attachment height without rewriting layer semantics", "Invariant",
+                         false, test_backbone_branch_support_offsets_height_without_changing_layer);
+  test_registry::AddTest(tests, "C136_Backbone_HV3MainPortsStableAfterBranch",
+                         "Adding an HV3 branch keeps existing main-chain ports stable", "Invariant", false,
+                         test_backbone_branch_generation_preserves_existing_hv3_main_ports);
+  test_registry::AddTest(tests, "C138_Backbone_MixedRouteEdgeFlow",
+                         "Mixed route classifies main and branch per edge instead of one route-level flow",
+                         "Invariant", false, test_backbone_mixed_route_uses_edge_level_flow_classification);
+  test_registry::AddTest(tests, "C139_Backbone_BranchSupportVisualPlacement",
+                         "Branch support placement is derived into visual cache for minimal support structure",
+                         "Invariant", false, test_backbone_branch_support_visual_cache_contains_support_placement);
+  test_registry::AddTest(tests, "C140_Backbone_BranchClassificationIgnoresNearStraightAngle",
+                         "Existing-chain branch stays branch even when geometry is nearly straight", "Invariant",
+                         false, test_backbone_near_straight_branch_still_classifies_as_branch);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_generation_tests);

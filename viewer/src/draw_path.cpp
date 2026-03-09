@@ -130,6 +130,8 @@ const char* SelectedTypeLabelLocal(SelectedType selected_type) {
     return "Bundle";
   case SelectedType::kAttachment:
     return "Attachment";
+  case SelectedType::kSupportNode:
+    return "SupportNode";
   default:
     return "Unknown";
   }
@@ -357,8 +359,7 @@ void UpdateBranchPickInput(CoreState& state, const Camera3D& camera, ViewerUiSta
   if (applied.value.resolution == wire::core::CoreState::PickBranchResolutionKind::kNode) {
     if (applied.value.resolved_node_id != wire::core::kInvalidObjectId &&
         state.view().edit_state().poles.find(applied.value.resolved_node_id) != nullptr) {
-      ui_state.selected_type = SelectedType::kPole;
-      ui_state.selected_id = applied.value.resolved_node_id;
+      SetPrimarySelection(ui_state, SelectedType::kPole, applied.value.resolved_node_id);
     }
     if (pick.hit_kind == wire::core::PickHitKind::kSegment) {
       if (applied.value.resolved_node_id == pick.segment_node_a_id) {
@@ -374,6 +375,51 @@ void UpdateBranchPickInput(CoreState& state, const Camera3D& camera, ViewerUiSta
     PushLogLocal(ui_state, "Branch pick resolved to Midair support node");
   }
 }
+bool ExecuteBackboneRequest(CoreState& state, ViewerUiState& ui_state, const wire::core::BackboneSpec& request,
+                            bool allow_session_regen, bool clear_draw_path_on_success, const char* success_log,
+                            const char* failure_log) {
+  const bool use_session_regen = ui_state.draw_regenerate_last_session && ui_state.last_generation_session != 0;
+  const bool run_regen = allow_session_regen && use_session_regen;
+  const auto result = run_regen ? state.RegenerateSessionAutoParts(ui_state.last_generation_session, request)
+                                : state.GenerateFromBackboneSpec(request);
+  if (!result.ok) {
+    ui_state.last_error = result.error;
+    PushLogLocal(ui_state, failure_log);
+    return false;
+  }
+
+  ui_state.last_error.clear();
+  ui_state.last_generated_poles = static_cast<int>(result.value.generated_pole_ids.size());
+  ui_state.last_generated_spans = static_cast<int>(result.value.generated_span_ids.size());
+  std::uint64_t resolved_session_id = run_regen ? ui_state.last_generation_session : 0;
+  if (resolved_session_id == 0) {
+    if (!result.value.generated_span_ids.empty()) {
+      const auto* last_span = state.view().edit_state().spans.find(result.value.generated_span_ids.back());
+      if (last_span != nullptr) {
+        resolved_session_id = last_span->generation.generation_session_id;
+      }
+    } else if (!result.value.generated_pole_ids.empty()) {
+      const auto* last_pole = state.view().edit_state().poles.find(result.value.generated_pole_ids.back());
+      if (last_pole != nullptr) {
+        resolved_session_id = last_pole->generation.generation_session_id;
+      }
+    }
+  }
+  ui_state.last_generation_session = resolved_session_id;
+  if (!result.value.generated_pole_ids.empty()) {
+    SetPrimarySelection(ui_state, SelectedType::kPole, result.value.generated_pole_ids.back());
+  } else if (!result.value.generated_span_ids.empty()) {
+    SetPrimarySelection(ui_state, SelectedType::kSpan, result.value.generated_span_ids.back());
+  }
+
+  if (clear_draw_path_on_success) {
+    DrawPathClearPoints(ui_state);
+  }
+  PushLogLocal(ui_state, std::string(success_log) + " poles=" + std::to_string(ui_state.last_generated_poles) +
+                             " spans=" + std::to_string(ui_state.last_generated_spans));
+  return true;
+}
+
 void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool from_enter_key) {
   EnsureDrawPathPointKinds(ui_state);
   if (ui_state.draw_path_points.size() < 2) {
@@ -442,49 +488,12 @@ void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool
     request.bundles.push_back(bundle_request);
   }
 
-  const bool use_session_regen = ui_state.draw_regenerate_last_session && ui_state.last_generation_session != 0;
-  const auto result = use_session_regen ? state.RegenerateSessionAutoParts(ui_state.last_generation_session, request)
-                                        : state.GenerateFromBackboneSpec(request);
-  if (!result.ok) {
-    ui_state.last_error = result.error;
-    PushLogLocal(ui_state, from_enter_key ? "Generate path (Enter) failed" : "Generate path failed");
-    return;
-  }
-
-  ui_state.last_error.clear();
-  ui_state.last_generated_poles = static_cast<int>(result.value.generated_pole_ids.size());
-  ui_state.last_generated_spans = static_cast<int>(result.value.generated_span_ids.size());
-  std::uint64_t resolved_session_id = use_session_regen ? ui_state.last_generation_session : 0;
-  if (resolved_session_id == 0) {
-    if (!result.value.generated_span_ids.empty()) {
-      const auto* last_span = state.view().edit_state().spans.find(result.value.generated_span_ids.back());
-      if (last_span != nullptr) {
-        resolved_session_id = last_span->generation.generation_session_id;
-      }
-    } else if (!result.value.generated_pole_ids.empty()) {
-      const auto* last_pole = state.view().edit_state().poles.find(result.value.generated_pole_ids.back());
-      if (last_pole != nullptr) {
-        resolved_session_id = last_pole->generation.generation_session_id;
-      }
-    }
-  }
-  ui_state.last_generation_session = resolved_session_id;
-  if (!result.value.generated_pole_ids.empty()) {
-    ui_state.selected_type = SelectedType::kPole;
-    ui_state.selected_id = result.value.generated_pole_ids.back();
-  } else if (!result.value.generated_span_ids.empty()) {
-    ui_state.selected_type = SelectedType::kSpan;
-    ui_state.selected_id = result.value.generated_span_ids.back();
-  }
-
-  if (!ui_state.draw_keep_path_after_generate) {
-    DrawPathClearPoints(ui_state);
-  }
-  PushLogLocal(ui_state,
-               std::string(use_session_regen ? "Regenerated session path templates=" : "Generated path templates=") +
-                   BundleTemplateMultiPreviewLocal(state, ui_state) + " poles=" +
-                   std::to_string(ui_state.last_generated_poles) + " spans=" +
-                   std::to_string(ui_state.last_generated_spans));
+  const std::string success_log =
+      std::string(from_enter_key ? "Generated path (Enter)" : "Generated path") + " templates=" +
+      BundleTemplateMultiPreviewLocal(state, ui_state);
+  const char* failure_log = from_enter_key ? "Generate path (Enter) failed" : "Generate path failed";
+  (void)ExecuteBackboneRequest(state, ui_state, request, true, !ui_state.draw_keep_path_after_generate,
+                               success_log.c_str(), failure_log);
 }
 
 bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_state, std::string* out_path,
@@ -815,26 +824,26 @@ void DrawPathPreview(const ViewerUiState& ui_state) {
                                                             : wire::core::SupportKind::kPole;
     const ObjectId node_id =
         (i < ui_state.draw_path_point_node_ids.size()) ? ui_state.draw_path_point_node_ids[i] : wire::core::kInvalidObjectId;
-    Color point_color = Color{255, 200, 0, 255};
+    Color point_color = Color{196, 156, 68, 255};
     if (support_kind == wire::core::SupportKind::kMidair) {
-      point_color = Color{80, 220, 255, 255};
+      point_color = Color{90, 154, 176, 255};
     } else if (support_kind == wire::core::SupportKind::kBuilding) {
-      point_color = Color{140, 255, 120, 255};
+      point_color = Color{110, 154, 100, 255};
     }
     DrawSphere(ToRaylibLocal(ui_state.draw_path_points[i]), 0.12f, point_color);
     if (node_id != wire::core::kInvalidObjectId) {
-      DrawSphereWires(ToRaylibLocal(ui_state.draw_path_points[i]), 0.18f, 10, 16, Color{255, 255, 210, 220});
+      DrawSphereWires(ToRaylibLocal(ui_state.draw_path_points[i]), 0.18f, 10, 16, Color{128, 126, 120, 200});
     }
     if (i + 1 < ui_state.draw_path_points.size()) {
       DrawLine3D(ToRaylibLocal(ui_state.draw_path_points[i]), ToRaylibLocal(ui_state.draw_path_points[i + 1]),
-                 Color{255, 220, 80, 255});
+                 Color{152, 126, 72, 255});
     }
   }
   if (ui_state.draw_hover_valid) {
-    DrawSphere(ToRaylibLocal(ui_state.draw_hover_point), 0.08f, Color{120, 255, 180, 200});
+    DrawSphere(ToRaylibLocal(ui_state.draw_hover_point), 0.08f, Color{96, 152, 132, 200});
     if (!ui_state.draw_path_points.empty()) {
       DrawLine3D(ToRaylibLocal(ui_state.draw_path_points.back()), ToRaylibLocal(ui_state.draw_hover_point),
-                 Color{120, 255, 180, 180});
+                 Color{96, 152, 132, 180});
     }
   }
 }
@@ -1053,8 +1062,7 @@ void DrawBranchModePanel(CoreState& state, ViewerUiState& ui_state) {
       PushLogLocal(ui_state, "AddDropFromSpan failed");
     } else {
       ui_state.last_error.clear();
-      ui_state.selected_type = SelectedType::kSpan;
-      ui_state.selected_id = result.value.span_id;
+      SetPrimarySelection(ui_state, SelectedType::kSpan, result.value.span_id);
       PushLogLocal(ui_state, "DropFromSpan span=" + std::to_string(result.value.span_id) +
                                 " splitPort=" + std::to_string(result.value.split_port_id));
     }
@@ -1075,8 +1083,7 @@ void DrawBranchModePanel(CoreState& state, ViewerUiState& ui_state) {
       PushLogLocal(ui_state, "AddDropFromPole failed");
     } else {
       ui_state.last_error.clear();
-      ui_state.selected_type = SelectedType::kSpan;
-      ui_state.selected_id = result.value.span_id;
+      SetPrimarySelection(ui_state, SelectedType::kSpan, result.value.span_id);
       PushLogLocal(ui_state, "DropFromPole span=" + std::to_string(result.value.span_id) +
                                 " sourcePort=" + std::to_string(result.value.source_port_id));
     }

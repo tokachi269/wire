@@ -1130,6 +1130,142 @@ bool test_build_pole_frame_roundtrips_local_point_under_tilt() {
   return almost_equal(local, roundtrip, 1e-9);
 }
 
+bool test_detail_curve_builds_with_endpoint_position_and_tangent_constraints() {
+  wire::core::CurveConstraint start{};
+  start.point = {0.0, 0.0, 5.0};
+  start.tangent_dir = {1.0, 0.0, 0.0};
+  start.tangent_length_hint_m = 3.0;
+
+  wire::core::CurveConstraint end{};
+  end.point = {12.0, 0.0, 5.0};
+  end.tangent_dir = {1.0, 0.0, 0.0};
+  end.tangent_length_hint_m = 3.0;
+
+  const wire::core::DetailCurve curve = wire::core::BuildDetailCurve(start, end, 17);
+  const wire::core::Vec3d tangent0 = curve.EvaluateTangent(0.0);
+  const wire::core::Vec3d tangent1 = curve.EvaluateTangent(1.0);
+  return almost_equal(curve.EvaluatePosition(0.0), start.point, 1e-9) &&
+         almost_equal(curve.EvaluatePosition(1.0), end.point, 1e-9) &&
+         wire::core::Dot(tangent0, wire::core::Vec3d{1.0, 0.0, 0.0}) > 0.98 &&
+         wire::core::Dot(tangent1, wire::core::Vec3d{1.0, 0.0, 0.0}) > 0.98;
+}
+
+bool test_detail_curve_sag_preserves_endpoints_and_supports_length_queries() {
+  wire::core::CurveConstraint line_start{};
+  line_start.point = {0.0, 0.0, 6.0};
+  line_start.tangent_dir = {1.0, 0.0, 0.0};
+  wire::core::CurveConstraint line_end{};
+  line_end.point = {16.0, 0.0, 6.0};
+  line_end.tangent_dir = {1.0, 0.0, 0.0};
+  const wire::core::DetailCurve line = wire::core::BuildDetailCurve(line_start, line_end, 33);
+
+  wire::core::CurveConstraint sag_start = line_start;
+  wire::core::CurveConstraint sag_end = line_end;
+  sag_start.sag_hint = 0.03;
+  sag_end.sag_hint = 0.03;
+  const wire::core::DetailCurve sag = wire::core::BuildDetailCurve(sag_start, sag_end, 33);
+  if (!almost_equal(sag.EvaluatePosition(0.0), line.EvaluatePosition(0.0), 1e-9) ||
+      !almost_equal(sag.EvaluatePosition(1.0), line.EvaluatePosition(1.0), 1e-9)) {
+    return false;
+  }
+  if (!is_monotonic([&]() {
+        std::vector<double> lengths{};
+        lengths.reserve(sag.arc_length_table.size());
+        for (const auto& sample : sag.arc_length_table) {
+          lengths.push_back(sample.arc_length_m);
+        }
+        return lengths;
+      }())) {
+    return false;
+  }
+  const wire::core::Vec3d line_mid = line.PositionAtLength(line.Length() * 0.5);
+  const wire::core::Vec3d sag_mid = sag.PositionAtLength(sag.Length() * 0.5);
+  return sag.Length() > 0.0 &&
+         wire::core::HeightAlongWorldUp(sag_mid) < wire::core::HeightAlongWorldUp(line_mid) &&
+         almost_equal(sag.PositionAtLength(0.0), sag.EvaluatePosition(0.0), 1e-9) &&
+         almost_equal(sag.PositionAtLength(sag.Length()), sag.EvaluatePosition(1.0), 1e-9);
+}
+
+bool test_detail_curve_via_attachment_uses_offset_endpoints() {
+  wire::core::CurveConstraint start{};
+  start.point = {0.0, 0.0, 4.0};
+  start.tangent_dir = {1.0, 0.0, 0.0};
+  start.attach_offset = {0.5, 0.0, 0.0};
+  start.endpoint_mode = wire::core::CurveEndpointMode::kViaAttachment;
+
+  wire::core::CurveConstraint end{};
+  end.point = {10.0, 0.0, 4.0};
+  end.tangent_dir = {1.0, 0.0, 0.0};
+  end.attach_offset = {-0.5, 0.0, 0.0};
+  end.endpoint_mode = wire::core::CurveEndpointMode::kViaAttachment;
+
+  const wire::core::DetailCurve curve = wire::core::BuildDetailCurve(start, end, 17);
+  return almost_equal(curve.EvaluatePosition(0.0), wire::core::Vec3d{0.5, 0.0, 4.0}, 1e-9) &&
+         almost_equal(curve.EvaluatePosition(1.0), wire::core::Vec3d{9.5, 0.0, 4.0}, 1e-9) &&
+         !almost_equal(curve.EvaluatePosition(0.0), start.point, 1e-9) &&
+         !almost_equal(curve.EvaluatePosition(1.0), end.point, 1e-9);
+}
+
+bool test_detail_curve_acute_case_applies_quality_fallback() {
+  wire::core::CurveConstraint start{};
+  start.point = {0.0, 0.0, 5.0};
+  start.tangent_dir = {-1.0, 0.0, 0.0};
+  start.tangent_length_hint_m = 9.0;
+  start.continuity_preference = wire::core::CableContinuityPolicyHint::kPreferG2;
+
+  wire::core::CurveConstraint end{};
+  end.point = {8.0, 1.0, 5.0};
+  end.tangent_dir = {0.0, -1.0, 0.0};
+  end.tangent_length_hint_m = 9.0;
+  end.continuity_preference = wire::core::CableContinuityPolicyHint::kPreferG2;
+
+  const wire::core::DetailCurve curve = wire::core::BuildDetailCurve(start, end, 21);
+  wire::core::Vec3d chord = end.point - start.point;
+  const double chord_length = std::sqrt(wire::core::LengthSquared(chord));
+  if (chord_length <= 1e-9) {
+    return false;
+  }
+  chord = wire::core::ScaleVec(chord, 1.0 / chord_length);
+  double max_deviation = 0.0;
+  for (const wire::core::Vec3d& sample : curve.sample_points) {
+    if (!std::isfinite(sample.x) || !std::isfinite(sample.y) || !std::isfinite(sample.z)) {
+      return false;
+    }
+    const wire::core::Vec3d delta = sample - start.point;
+    const double progress = wire::core::Dot(delta, chord);
+    const wire::core::Vec3d along = wire::core::ScaleVec(chord, progress);
+    max_deviation = std::max(max_deviation, std::sqrt(std::max(0.0, wire::core::LengthSquared(delta - along))));
+  }
+  return (curve.quality.degraded_to_g1 || curve.quality.tangent_scale < 0.999) &&
+         max_deviation <= chord_length * 0.80 + 1e-6;
+}
+
+bool test_render_cache_bakes_arc_length_attributes() {
+  CoreState state;
+  const ObjectId pole = state.AddPole({}, 10.0, "P").value;
+  const ObjectId a = state.AddPort(pole, {0.0, 0.0, 4.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId b = state.AddPort(pole, {14.0, 0.0, 4.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId span = state.AddSpan(a, b, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
+
+  wire::core::GeometrySettings settings{};
+  settings.curve_samples = 19;
+  settings.sag_enabled = true;
+  settings.sag_factor = 0.05;
+  (void)state.UpdateGeometrySettings(settings, true);
+  (void)state.Commit().recalc_stats;
+
+  const auto* curve = state.find_curve_cache(span);
+  const auto* render = state.view().find_span_render_cache(span);
+  return curve != nullptr && render != nullptr &&
+         render->arc_length_m_by_point.size() == curve->points.size() &&
+         render->arc_length_normalized_by_point.size() == curve->points.size() &&
+         render->segment_length_m.size() + 1 == curve->points.size() &&
+         !render->arc_length_m_by_point.empty() &&
+         almost_equal(render->arc_length_m_by_point.front(), 0.0, 1e-9) &&
+         almost_equal(render->arc_length_normalized_by_point.front(), 0.0, 1e-9) &&
+         almost_equal(render->arc_length_normalized_by_point.back(), 1.0, 1e-6);
+}
+
 void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C13_Phase4_Curve_LineDeterministic", "Line mode curve cache is deterministic", "Exact", false, test_curve_cache_line_mode_is_deterministic);
   test_registry::AddTest(tests, "C14_Phase4_Curve_SagBasic", "Sag mode lowers midpoint along world up and keeps endpoints", "Invariant", false, test_sag_mode_changes_midpoint_and_keeps_endpoints);
@@ -1160,6 +1296,21 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C127_Coord_PoleFrameRoundtrip",
                          "BuildPoleFrame keeps local/world roundtrip stable under tilt",
                          "Invariant", false, test_build_pole_frame_roundtrips_local_point_under_tilt);
+  test_registry::AddTest(tests, "C128_DetailCurve_UApi_EndpointConstraints",
+                         "DetailCurve builds from endpoint position and tangent constraints with u-based evaluation",
+                         "Invariant", false, test_detail_curve_builds_with_endpoint_position_and_tangent_constraints);
+  test_registry::AddTest(tests, "C129_DetailCurve_SApi_SagAndLengthPlacement",
+                         "DetailCurve sag preserves endpoints and supports length-based placement via arc table",
+                         "Invariant", false, test_detail_curve_sag_preserves_endpoints_and_supports_length_queries);
+  test_registry::AddTest(tests, "C130_DetailCurve_ViaAttachment_OffsetEndpoints",
+                         "ViaAttachment uses attachment endpoints instead of support points directly",
+                         "Invariant", false, test_detail_curve_via_attachment_uses_offset_endpoints);
+  test_registry::AddTest(tests, "C131_DetailCurve_QualityFallback_AcuteCase",
+                         "Acute/conflicting tangents trigger tangent fallback instead of excessive bulge",
+                         "Invariant", false, test_detail_curve_acute_case_applies_quality_fallback);
+  test_registry::AddTest(tests, "C132_RenderCurve_DistanceAttributesBaked",
+                         "Render cache bakes arc-length attributes for GPU-side length-driven effects",
+                         "Invariant", false, test_render_cache_bakes_arc_length_attributes);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_geometry_tests);

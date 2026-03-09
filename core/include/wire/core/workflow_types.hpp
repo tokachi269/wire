@@ -64,6 +64,7 @@ struct CableTemplate {
   double sag_factor = 0.03;
   double slack_factor = 0.0;
   CableContinuityPolicyHint continuity_policy = CableContinuityPolicyHint::kAuto;
+  CableAttachmentStyleHint attachment_style = CableAttachmentStyleHint::kAuto;
   std::uint64_t version = 1;
 };
 

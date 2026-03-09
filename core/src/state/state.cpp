@@ -1258,7 +1258,8 @@ EditResult<bool> CoreState::UpdateCableTemplate(const CableTemplate& cable_templ
       normalized.requires_insulator != it->second.requires_insulator ||
       std::abs(normalized.sag_factor - it->second.sag_factor) > 1e-12 ||
       std::abs(normalized.slack_factor - it->second.slack_factor) > 1e-12 ||
-      normalized.continuity_policy != it->second.continuity_policy;
+      normalized.continuity_policy != it->second.continuity_policy ||
+      normalized.attachment_style != it->second.attachment_style;
   if (!changed) {
     result.ok = true;
     result.value = false;

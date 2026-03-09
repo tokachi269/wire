@@ -238,7 +238,8 @@ void DrawSelectedInfo(const CoreState& state, const ViewerUiState& ui_state) {
     const auto* curve = state.find_curve_cache(span->id);
     if (curve != nullptr) {
       ImGui::Text("curveSamples: %d", static_cast<int>(curve->points.size()));
-      ImGui::Text("curveLength: %.2f", PolylineLength(curve->points));
+      ImGui::Text("curveLength: %.2f", curve->detail.Length());
+      ImGui::Text("arcSamples: %d", static_cast<int>(curve->detail.arc_length_table.size()));
     } else {
       ImGui::TextUnformatted("curveSamples: (none)");
     }

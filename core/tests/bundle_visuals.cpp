@@ -26,6 +26,10 @@ template <typename T, typename = void> struct has_bezier_control_points_member :
 template <typename T>
 struct has_bezier_control_points_member<T, std::void_t<decltype(std::declval<T>().bezier_control_points)>> : std::true_type {};
 
+template <typename T, typename = void> struct has_arc_length_table_member : std::false_type {};
+template <typename T>
+struct has_arc_length_table_member<T, std::void_t<decltype(std::declval<T>().arc_length_table)>> : std::true_type {};
+
 bool test_bundle_query_spans_by_bundle() {
   CoreState state;
   const ObjectId pole_a = state.AddPole({}, 10.0, "A").value;
@@ -379,7 +383,10 @@ bool test_template_type_ownership_is_separated() {
   constexpr bool cable_has_flag = has_allow_midair_branch_member<wire::core::CableTemplate>::value;
   constexpr bool span_has_bezier = has_bezier_control_points_member<wire::core::Span>::value;
   constexpr bool bundle_has_bezier = has_bezier_control_points_member<wire::core::Bundle>::value;
-  return bundle_has_flag && !cable_has_flag && !span_has_bezier && !bundle_has_bezier;
+  constexpr bool span_has_arc_length = has_arc_length_table_member<wire::core::Span>::value;
+  constexpr bool bundle_has_arc_length = has_arc_length_table_member<wire::core::Bundle>::value;
+  return bundle_has_flag && !cable_has_flag && !span_has_bezier && !bundle_has_bezier &&
+         !span_has_arc_length && !bundle_has_arc_length;
 }
 
 bool test_cable_template_edit_preserves_pole_tilt_instance_value() {

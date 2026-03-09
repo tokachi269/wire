@@ -118,6 +118,26 @@
 | C57 | Guide重複点ロバスト | PoleTypeあり | 重複点含むGuideでGenerateFromBackboneSpec | Invariant: 成功しPole座標有限、pathのworld up方向高さを維持 | generated pole positions/Validate | 入力ノイズ耐性 |
 | C58 | Reverse対称性 | 同一Guide | Forward/ReverseでGenerateFromBackboneSpec | Invariant: 生成Pole位置集合が一致（順序非依存） | generated pole positions set | 方向モードで幾何が破綻しない |
 | C59 | Avoid制約尊重 | PoleTypeあり | avoid_points/avoid_radius指定GenerateFromBackboneSpec | Invariant: 生成Poleが禁止半径内に入らない | pole positions vs avoid radius | 回避制約の信頼性 |
+| C113 | Midair始点延長の先頭 support-detail 区間保持 | 既存Midairを始点にした2点Path | GenerateFromBackboneSpec(LV, node_specs.node_id) | Invariant: 最初の support-to-detail 区間が route に含まれる | FindBackboneRoute / generated spans | Midair始点で先頭1区間だけ抜ける回帰防止 |
+| C114 | Midair branch の source span 高さ再利用 | source span の中間から branch | ResolveBranchPick + GenerateFromBackboneSpec(LV) | Invariant: backbone pick は抽象高さでも detail は source span 高さから始まる | branch port位置 / source span位置 | 中間分岐が 0m から出る見た目破綻防止 |
+| C115 | Midair 1クリック延長で余計な bridge を増やさない | 既存Midairから終点1点へ延長 | GenerateFromBackboneSpec(LV, node_specs.node_id) | Invariant: 直結1区間で構成され、追加 bridge が出ない | generated_pole_ids / generated_span_ids / route | 1クリック延長で余計な中間生成をしない |
+| C116 | midair branch 禁止 template は生成だけを skip する | source-edge midair branch + 禁止template | GenerateFromBackboneSpec(HV_3PH) | Invariant: request 全体は失敗せず、禁止templateの bundle/span だけ生成されない | generated ids / counts | 規格違反 bundle だけを除外し他 bundle を巻き込まない |
+| C117 | Path input では midair policy を入力段階で強制しない | midair pick + HV template + enforce=false | ResolveBranchPick(PickResult, HV) | Invariant: template branch policy を強制せず Midair 解決できる | ResolveBranchPick結果 / last_generation_backbone.nodes | DrawPath の入力段階で不要に操作を止めない |
+| C118 | mixed template の midair branch は許可 bundle だけ生成 | source-edge midair branch + LV/HV 混在 | ResolveBranchPick + GenerateFromBackboneSpec(LV+HV) | Invariant: allow_midair_branch=true の bundle だけが生成される | bundle_ids / generated spans | 混在生成で disallow bundle を巻き込まない |
+| C119 | CableTemplate太さ変更の見た目反映 | 既存線 + CableTemplate.outer_diameter変更 | UpdateCableTemplate | Invariant: 依存 span の wire render radius が更新される | span render cache | CableTemplateの太さ変更が既存線へ反映される |
+| C120 | CableTemplate碍子要否の見た目切替 | 既存電力線 + requires_insulator変更 | UpdateCableTemplate | Invariant: 依存 span の insulator visual が切り替わる | span visual cache | CableTemplateの碍子設定が既存線へ反映される |
+| C121 | Template責務の分離 | 型定義 | compile-time traits | Exact: allow_midair_branch は BundleTemplate 側のみで、CableTemplate と entity は bezier入力や arc-length table を持たない | type traits | 正本とテンプレ責務の混線防止 |
+| C122 | CableTemplate編集で Pole tilt を上書きしない | Pole tilt 設定済み + CableTemplate編集 | SetPoleTilt + UpdateCableTemplate | Invariant: pole rotation X/Y は不変 | pole world_transform | Pole傾きをテンプレ変更が壊さない |
+| C123 | BundleTemplate の topology 変更は regeneration_required を立てる | 既存bundle + topology変更 | UpdateBundleTemplate | Invariant: 依存 bundle が regeneration_required になり dependency state に載る | bundles / template_dependency_state | topology変更を visible更新だけで済ませない |
+| C124 | BundleTemplate の visual-only 変更は dirty のみに留める | 既存bundle + cable_template_id変更 | UpdateBundleTemplate | Invariant: 依存 span は dirty になるが regeneration_required は立たない | span runtime / template_dependency_state | 見た目変更を topology再生成に混ぜない |
+| C125 | ApplyPoleTilt は選択された Pole 実体だけを更新する | 2本のPoleの片方だけ選択 | ApplyPoleTilt(selection, value) | Invariant: 指定Poleだけ rotation X/Y が変わる | pole world_transform | Pole tilt を実体値として局所更新できる |
+| C126 | WorldUp と lateral 軸の整合 | 代表的な forward vector | WorldUp + ComputeLateralAxis | Invariant: lateral が forward/up と直交し正規化される | coord utils | 軸依存の手書き計算を1定義に寄せる |
+| C127 | PoleFrame の local/world roundtrip | tilt付き transform + local point | BuildPoleFrame + LocalPointToWorld + WorldPointToLocal | Invariant: tilt 下でも local/world roundtrip が安定する | pole frame math | Pole傾き適用の回転順序ずれ防止 |
+| C128 | uベース曲線APIの端点拘束 | 端点位置と端点接線が既知 | BuildDetailCurve + EvaluatePosition/EvaluateTangent | Invariant: u=0/1 で端点位置を満たし、端点接線が意図方向へ揃う | DetailCurve | 曲線生成を u ベースに固定する |
+| C129 | sベース配置APIと sag 合成 | 端点固定 + sag 付き曲線 | BuildDetailCurve + PositionAtLength | Invariant: sag 後も端点位置は不変で、長さ基準の中点配置が使える | DetailCurve.arc_length_table | 正確な配置を s ベースで扱える |
+| C130 | ViaAttachment 端点 | 支点と attachment offset が既知 | BuildDetailCurve(ViaAttachment) | Invariant: 曲線端点は支点そのものではなく attachment point になる | DetailCurve | 支点近傍で急に折れない離脱表現の土台 |
+| C131 | 鋭角/競合接線での品質劣化安全策 | 反対向きに近い接線ヒント | BuildDetailCurve | Invariant: tangent fallback が働き、過度な膨張や逆行を抑える | DetailCurve.quality / sample_points | 高度最適化なしで見た目破綻を抑える |
+| C132 | GPU用距離属性の焼き込み | span再計算済み | Commit + find_span_render_cache | Invariant: 累積長と正規化距離が render cache に入り、毎フレーム CPU 逆引きを不要にする | span render cache | 長さ依存エフェクトの受け皿を持つ |
 
 ## LLM self-review
 - 実装依存か: private順序/内部関数呼び出し順には依存しない。
@@ -125,4 +145,3 @@
 - モック過多か: モック未使用。
 - 異常系が入っているか: C10/C20/C21/C22/C23/C49で失敗診断・状態保全・復帰を検証。
 - フレーク要因がないか: 実時間待ち/非決定乱数なし。
-

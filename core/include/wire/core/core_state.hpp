@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "wire/core/debug_types.hpp"
+#include "wire/core/detail_curve.hpp"
 #include "wire/core/entities.hpp"
 #include "wire/core/id.hpp"
 #include "wire/core/object_store.hpp"
@@ -37,6 +38,7 @@ struct GeometrySettings {
 };
 
 struct CurveCacheEntry {
+  DetailCurve detail{};
   std::vector<Vec3d> points{};
   std::uint64_t source_version = 0;
 };
@@ -82,6 +84,9 @@ struct SpanRenderCacheEntry {
   double wire_radius_m = 0.015;
   std::uint32_t color_rgba = 0xFFFFFFFFu;
   CableMaterialStyleKind material_style = CableMaterialStyleKind::kGeneric;
+  std::vector<float> arc_length_m_by_point{};
+  std::vector<float> arc_length_normalized_by_point{};
+  std::vector<float> segment_length_m{};
   std::uint64_t source_version = 0;
 };
 
@@ -417,7 +422,7 @@ private:
   [[nodiscard]] bool rebuild_span_curve(ObjectId span_id, std::string* error_message);
   [[nodiscard]] bool rebuild_span_bounds(ObjectId span_id, std::string* error_message);
   [[nodiscard]] bool rebuild_span_visual(ObjectId span_id, std::string* error_message);
-  [[nodiscard]] std::vector<Vec3d> generate_span_points(const Span& span, std::string* error_message) const;
+  [[nodiscard]] DetailCurve generate_span_curve(const Span& span, std::string* error_message) const;
   [[nodiscard]] static AABBd build_aabb_from_points(const std::vector<Vec3d>& points);
   [[nodiscard]] static AABBd build_aabb_from_two_points(const Vec3d& a, const Vec3d& b);
   void remove_span_from_caches(ObjectId span_id);

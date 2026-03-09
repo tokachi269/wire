@@ -12,10 +12,6 @@
 namespace {
 
 constexpr float kAxisLength = 2.0f;
-static wire::core::Vec3d Lerp(const wire::core::Vec3d& a, const wire::core::Vec3d& b, double t) {
-  return wire::core::Vec3d{a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t};
-}
-
 static wire::core::Vec3d PoleTopPoint(const wire::core::Pole& pole) {
   const wire::core::PoleFrame frame =
       wire::core::BuildPoleFrame(pole.world_transform, pole.world_transform.rotation_euler_deg.z);
@@ -339,12 +335,11 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
     if (span == nullptr) {
       continue;
     }
-    const wire::core::Port* port_a = edit.ports.find(span->port_a_id);
-    const wire::core::Port* port_b = edit.ports.find(span->port_b_id);
-    if (port_a == nullptr || port_b == nullptr) {
+    const wire::core::CurveCacheEntry* curve = state.find_curve_cache(span->id);
+    if (curve == nullptr) {
       continue;
     }
-    wire::core::Vec3d pos = Lerp(port_a->world_position, port_b->world_position, attachment.t);
+    wire::core::Vec3d pos = curve->detail.PositionAtLength(curve->detail.Length() * attachment.t);
     wire::core::OffsetAlongWorldUp(&pos, attachment.offset_m);
 
     Color color = MAGENTA;

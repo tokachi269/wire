@@ -909,6 +909,7 @@ void CoreState::register_default_cable_templates() {
   hv.sag_factor = 0.03;
   hv.slack_factor = 0.0;
   hv.continuity_policy = CableContinuityPolicyHint::kPreferG1;
+  hv.attachment_style = CableAttachmentStyleHint::kViaAttachment;
   cable_templates_[hv.id] = hv;
 
   CableTemplate lv{};
@@ -923,6 +924,7 @@ void CoreState::register_default_cable_templates() {
   lv.sag_factor = 0.03;
   lv.slack_factor = 0.0;
   lv.continuity_policy = CableContinuityPolicyHint::kAuto;
+  lv.attachment_style = CableAttachmentStyleHint::kDirectThrough;
   cable_templates_[lv.id] = lv;
 
   CableTemplate comm{};
@@ -937,6 +939,7 @@ void CoreState::register_default_cable_templates() {
   comm.sag_factor = 0.025;
   comm.slack_factor = 0.02;
   comm.continuity_policy = CableContinuityPolicyHint::kPreferG2;
+  comm.attachment_style = CableAttachmentStyleHint::kDirectThrough;
   cable_templates_[comm.id] = comm;
 
   CableTemplate optical{};
@@ -951,6 +954,7 @@ void CoreState::register_default_cable_templates() {
   optical.sag_factor = 0.02;
   optical.slack_factor = 0.03;
   optical.continuity_policy = CableContinuityPolicyHint::kPreferG2;
+  optical.attachment_style = CableAttachmentStyleHint::kDirectThrough;
   cable_templates_[optical.id] = optical;
 }
 

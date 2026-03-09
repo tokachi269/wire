@@ -11,6 +11,52 @@ namespace wire::core {
 
 namespace {
 constexpr double kZeroLengthEps = 1e-9;
+
+CurvePassMode curve_pass_mode_from_context(ConnectionContext context) {
+  switch (context) {
+  case ConnectionContext::kBranchAdd:
+    return CurvePassMode::kBranch;
+  case ConnectionContext::kDropAdd:
+    return CurvePassMode::kTerminate;
+  default:
+    return CurvePassMode::kPassThrough;
+  }
+}
+
+CurveEndpointMode curve_endpoint_mode_for_template(const CableTemplate* cable_template,
+                                                   const BundleTemplate* bundle_template) {
+  if (cable_template == nullptr) {
+    return CurveEndpointMode::kDirectThrough;
+  }
+  switch (cable_template->attachment_style) {
+  case CableAttachmentStyleHint::kDirectThrough:
+    return CurveEndpointMode::kDirectThrough;
+  case CableAttachmentStyleHint::kViaAttachment:
+    return CurveEndpointMode::kViaAttachment;
+  case CableAttachmentStyleHint::kAuto:
+  default:
+    break;
+  }
+  if (bundle_template != nullptr && bundle_template->category == ConnectionCategory::kHighVoltage) {
+    return CurveEndpointMode::kViaAttachment;
+  }
+  return CurveEndpointMode::kDirectThrough;
+}
+
+Vec3d span_tangent_from_port(const Port& port, const Vec3d& chord_dir) {
+  Vec3d tangent = port.direction.forward;
+  if (!Normalize(&tangent)) {
+    return chord_dir;
+  }
+  if (Dot(tangent, chord_dir) < 0.0) {
+    tangent = ScaleVec(tangent, -1.0);
+  }
+  Vec3d blended = tangent + chord_dir;
+  if (!Normalize(&blended)) {
+    return chord_dir;
+  }
+  return blended;
+}
 }
 
 const CurveCacheEntry* CoreState::find_curve_cache(ObjectId span_id) const {
@@ -268,8 +314,8 @@ bool CoreState::rebuild_span_curve(ObjectId span_id, std::string* error_message)
     return false;
   }
 
-  std::vector<Vec3d> points = generate_span_points(*span, error_message);
-  if (points.size() < 2) {
+  DetailCurve detail = generate_span_curve(*span, error_message);
+  if (detail.sample_points.size() < 2) {
     if (error_message != nullptr && error_message->empty()) {
       *error_message = "generated points are invalid";
     }
@@ -277,7 +323,8 @@ bool CoreState::rebuild_span_curve(ObjectId span_id, std::string* error_message)
   }
 
   CurveCacheEntry entry{};
-  entry.points = std::move(points);
+  entry.detail = std::move(detail);
+  entry.points = entry.detail.sample_points;
   const SpanRuntimeState* runtime = find_span_runtime_state(span_id);
   entry.source_version = (runtime == nullptr) ? 0 : runtime->data_version;
   cache_state_.curve_cache.by_span[span_id] = std::move(entry);
@@ -401,11 +448,17 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
     render.color_rgba = cable_template->color_rgba;
     render.material_style = cable_template->material_style;
   }
+  const auto curve_it = cache_state_.curve_cache.by_span.find(span_id);
+  if (curve_it != cache_state_.curve_cache.by_span.end()) {
+    render.arc_length_m_by_point = curve_it->second.detail.distance_attributes.arc_length_m;
+    render.arc_length_normalized_by_point = curve_it->second.detail.distance_attributes.arc_length_normalized;
+    render.segment_length_m = curve_it->second.detail.distance_attributes.segment_length_m;
+  }
   cache_state_.render_cache.by_span[span_id] = render;
   return true;
 }
 
-std::vector<Vec3d> CoreState::generate_span_points(const Span& span, std::string* error_message) const {
+DetailCurve CoreState::generate_span_curve(const Span& span, std::string* error_message) const {
   const Port* port_a = edit_state_.ports.find(span.port_a_id);
   const Port* port_b = edit_state_.ports.find(span.port_b_id);
   if (port_a == nullptr || port_b == nullptr) {
@@ -416,8 +469,6 @@ std::vector<Vec3d> CoreState::generate_span_points(const Span& span, std::string
   }
 
   const int samples = std::max(2, cache_state_.geometry_settings.curve_samples);
-  std::vector<Vec3d> points;
-  points.reserve(static_cast<std::size_t>(samples));
 
   const Vec3d a = port_a->world_position;
   const Vec3d b = port_b->world_position;
@@ -435,23 +486,36 @@ std::vector<Vec3d> CoreState::generate_span_points(const Span& span, std::string
   const bool use_reference_length = true;
   const double basis_length =
       (use_reference_length && span.reference_length_m > kZeroLengthEps) ? span.reference_length_m : distance;
-  const bool use_sag = cache_state_.geometry_settings.sag_enabled && basis_length > kZeroLengthEps;
-  const double sag_amount = sag_ratio * basis_length;
+  const double effective_sag_ratio =
+      (cache_state_.geometry_settings.sag_enabled && basis_length > kZeroLengthEps) ? sag_ratio : 0.0;
 
-  for (int i = 0; i < samples; ++i) {
-    const double t = (samples <= 1) ? 0.0 : (static_cast<double>(i) / static_cast<double>(samples - 1));
-    Vec3d p{
-        a.x + (b.x - a.x) * t,
-        a.y + (b.y - a.y) * t,
-        a.z + (b.z - a.z) * t,
-    };
-    if (use_sag) {
-      const double sag_shape = 4.0 * t * (1.0 - t);
-      OffsetAlongWorldUp(&p, -sag_amount * sag_shape);
-    }
-    points.push_back(p);
+  Vec3d chord_dir = b - a;
+  if (!Normalize(&chord_dir)) {
+    chord_dir = WorldForward();
   }
-  return points;
+
+  const CurveEndpointMode endpoint_mode = curve_endpoint_mode_for_template(cable_template, bundle_template);
+  const double attach_offset_m = std::min(std::max(0.02, basis_length * 0.03), 0.35);
+
+  CurveConstraint start{};
+  start.point = a;
+  start.tangent_dir = span_tangent_from_port(*port_a, chord_dir);
+  start.tangent_length_hint_m = basis_length * 0.30;
+  start.attach_offset = ScaleVec(start.tangent_dir, attach_offset_m);
+  start.sag_hint = effective_sag_ratio * 0.5;
+  start.slack_hint = 0.0;
+  start.continuity_preference =
+      (cable_template == nullptr) ? CableContinuityPolicyHint::kAuto : cable_template->continuity_policy;
+  start.pass_mode = curve_pass_mode_from_context(span.placement_context);
+  start.endpoint_mode = endpoint_mode;
+
+  CurveConstraint end = start;
+  end.point = b;
+  end.tangent_dir = span_tangent_from_port(*port_b, chord_dir);
+  end.attach_offset = ScaleVec(end.tangent_dir, -attach_offset_m);
+  end.sag_hint = effective_sag_ratio * 0.5;
+
+  return BuildDetailCurve(start, end, samples);
 }
 
 AABBd CoreState::build_aabb_from_points(const std::vector<Vec3d>& points) {

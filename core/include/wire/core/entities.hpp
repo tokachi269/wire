@@ -145,6 +145,12 @@ enum class CableContinuityPolicyHint : std::uint8_t {
   kPreferG2 = 2,
 };
 
+enum class CableAttachmentStyleHint : std::uint8_t {
+  kAuto = 0,
+  kDirectThrough = 1,
+  kViaAttachment = 2,
+};
+
 enum class BundleSupportStyleHint : std::uint8_t {
   kAuto = 0,
   kCenterPreferred = 1,

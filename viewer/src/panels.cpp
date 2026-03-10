@@ -102,6 +102,25 @@ const char* DetailCurveContinuityReasonLabel(wire::core::DetailCurveContinuityRe
   }
 }
 
+const char* CurveShapePolicyLabel(wire::core::CurveShapePolicyKind kind) {
+  switch (kind) {
+  case wire::core::CurveShapePolicyKind::kNearStraight:
+    return "NearStraight";
+  case wire::core::CurveShapePolicyKind::kSmoothPass:
+    return "SmoothPass";
+  case wire::core::CurveShapePolicyKind::kSharpCorner:
+    return "SharpCorner";
+  case wire::core::CurveShapePolicyKind::kBranchPass:
+    return "BranchPass";
+  case wire::core::CurveShapePolicyKind::kTerminate:
+    return "Terminate";
+  case wire::core::CurveShapePolicyKind::kViaAttachment:
+    return "ViaAttachment";
+  default:
+    return "Unknown";
+  }
+}
+
 const char* BundleSupportStyleLabel(wire::core::BundleSupportStyleHint style) {
   switch (style) {
   case wire::core::BundleSupportStyleHint::kAuto:
@@ -347,12 +366,21 @@ void DrawSelectedInfo(const CoreState& state, const ViewerUiState& ui_state) {
       ImGui::Text("arcSamples: %d", static_cast<int>(curve->detail.arc_length_table.size()));
       ImGui::Text("continuity: %s (%s)", DetailCurveContinuityModeLabel(curve->detail.quality.adopted_continuity),
                   DetailCurveContinuityReasonLabel(curve->detail.quality.continuity_reason));
+      ImGui::Text("shapePolicy: %s", CurveShapePolicyLabel(curve->detail.quality.shape_policy));
       ImGui::Text("continuityPolicy: %s attemptedG2=%s degraded=%s",
                   ContinuityPolicyLabel(curve->detail.quality.requested_policy),
                   curve->detail.quality.attempted_g2 ? "true" : "false",
                   curve->detail.quality.degraded_to_g1 ? "true" : "false");
       ImGui::Text("handles: %.2f / %.2f scale=%.2f", curve->detail.quality.handle_length_start_m,
                   curve->detail.quality.handle_length_end_m, curve->detail.quality.tangent_scale);
+      ImGui::Text("handleScales: base=%.2f policy=%.2f angle=%.2f/%.2f", curve->detail.quality.base_handle_scale,
+                  curve->detail.quality.policy_handle_scale, curve->detail.quality.start_angle_scale,
+                  curve->detail.quality.end_angle_scale);
+      const auto& variation = curve->detail.quality.sag_variation;
+      ImGui::Text("sagVariation: flow=%llu final=%.3f", static_cast<unsigned long long>(variation.flow_key),
+                  variation.final_value);
+      ImGui::Text("variationLayers: world=%.3f flow=%.3f pole=%.3f local=%.3f", variation.world_bias,
+                  variation.flow_bias, variation.pole_delta, variation.local_jitter);
     } else {
       ImGui::TextUnformatted("curveSamples: (none)");
     }
@@ -392,6 +420,14 @@ void DrawSelectedInfo(const CoreState& state, const ViewerUiState& ui_state) {
     }
     if (const auto* visual = state.view().find_span_visual_cache(span->id); visual != nullptr) {
       ImGui::Text("branchSupportPlacements: %d", static_cast<int>(visual->branch_supports.size()));
+      if (!visual->branch_supports.empty()) {
+        const auto& placement = visual->branch_supports.front();
+        ImGui::Text("branchVariation: final=%.3f down=%.3f", placement.down_offset_variation.final_value,
+                    placement.down_offset_m);
+        ImGui::Text("branchLayers: world=%.3f flow=%.3f pole=%.3f local=%.3f",
+                    placement.down_offset_variation.world_bias, placement.down_offset_variation.flow_bias,
+                    placement.down_offset_variation.pole_delta, placement.down_offset_variation.local_jitter);
+      }
     }
     return;
   }

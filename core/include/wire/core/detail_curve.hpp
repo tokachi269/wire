@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "wire/core/entities.hpp"
+#include "wire/core/variation.hpp"
 
 namespace wire::core {
 
@@ -17,6 +18,15 @@ enum class CurvePassMode : std::uint8_t {
   kPassThrough = 0,
   kBranch = 1,
   kTerminate = 2,
+};
+
+enum class CurveShapePolicyKind : std::uint8_t {
+  kNearStraight = 0,
+  kSmoothPass = 1,
+  kSharpCorner = 2,
+  kBranchPass = 3,
+  kTerminate = 4,
+  kViaAttachment = 5,
 };
 
 enum class DetailCurveContinuityMode : std::uint8_t {
@@ -40,6 +50,7 @@ enum class DetailCurveContinuityReason : std::uint8_t {
 struct CurveConstraint {
   Vec3d point{};
   Vec3d tangent_dir{};
+  double tangent_strength = 1.0;
   double tangent_length_hint_m = 0.0;
   double bend_stiffness_hint = 1.0;
   double min_bend_radius_hint_m = 0.0;
@@ -71,14 +82,20 @@ struct CurveDistanceAttributes {
 
 struct DetailCurveQualityInfo {
   CableContinuityPolicyHint requested_policy = CableContinuityPolicyHint::kAuto;
+  CurveShapePolicyKind shape_policy = CurveShapePolicyKind::kNearStraight;
   DetailCurveContinuityMode adopted_continuity = DetailCurveContinuityMode::kG1;
   DetailCurveContinuityReason continuity_reason = DetailCurveContinuityReason::kAutoBalanced;
   double tangent_scale = 1.0;
   int fallback_iterations = 0;
+  double base_handle_scale = 1.0;
+  double policy_handle_scale = 1.0;
+  double start_angle_scale = 1.0;
+  double end_angle_scale = 1.0;
   double handle_length_start_m = 0.0;
   double handle_length_end_m = 0.0;
   bool attempted_g2 = false;
   bool degraded_to_g1 = false;
+  HierarchicalVariationSample sag_variation{};
 };
 
 struct DetailCurve {

@@ -137,14 +137,16 @@
 | C129 | sベース配置APIと sag 合成 | 端点固定 + sag 付き曲線 | BuildDetailCurve + PositionAtLength | Invariant: sag 後も端点位置は不変で、長さ基準の中点配置が使える | DetailCurve.arc_length_table | 正確な配置を s ベースで扱える |
 | C141 | 懸垂寄り support slope | 端点同高 + sag 付き曲線 | BuildDetailCurve | Invariant: sag 付き曲線は支点で完全水平に寝ず、両端で上下向きの傾きが出る | DetailCurve.EvaluateTangent | quartic 的な平坦 sag に戻る回帰防止 |
 | C142 | 近直線での横揺れ抑止強化 | 同高ほぼ直線 + 軽い逆向き横tangent | BuildDetailCurve | Invariant: 近直線 span は lateral tangent 差があっても平面内でほぼ真っ直ぐに保たれる | DetailCurve.sample_points | 微小な横成分で左右にぐにゃる回帰防止 |
-| C143 | 平面横曲げの一時抑止 | lateral bulge を誘う端点tangent + corner-pass 有無 | BuildDetailCurve | Invariant: plain/corner ともに平面内の sideways bulge をほぼ出さない | DetailCurve.sample_points | 横方向ベジェの違和感を一旦無効化する |
+| C143 | SmoothPass の制御付き横曲げ | 同方向へ緩く曲がる長尺 span | BuildDetailCurve | Invariant: SmoothPass は全 lateral 成分を潰さず、制御された平面曲がりを保つ | DetailCurve.quality / sample_points | NearStraight 向け横抑制が緩い継続カーブまで潰す回帰防止 |
 | C130 | OffsetEndpoint 端点 | 支点と派生 endpoint offset が既知 | BuildDetailCurve(OffsetEndpoint) | Invariant: 曲線端点は支点そのものではなく派生 offset 位置になる | DetailCurve | 支点近傍で急に折れない離脱表現の土台 |
 | C137 | Attachment表示offset非干渉 | Span + Attachment(display offset) | AddAttachment→Commit | Invariant: 正本 attachment の表示offsetは detail curve 端点を変えない | Attachment / DetailCurve | 接続情報と表示補正の責務混線防止 |
 | C131 | 鋭角/競合接線での品質劣化安全策 | 反対向きに近い接線ヒント | BuildDetailCurve | Invariant: tangent fallback が働き、過度な膨張や逆行を抑える | DetailCurve.quality / sample_points | 高度最適化なしで見た目破綻を抑える |
+| C148 | SharpCorner の compact 化 | 鋭角 corner-pass + 強い横tangent | BuildDetailCurve | Invariant: SharpCorner は handle を縮めて G1 に落ち、横ピークを抑える | DetailCurve.quality / sample_points | 鋭角部まで SmoothPass 的に膨らむ回帰防止 |
 | C144 | 長尺継続 span の G2優先採用 | 長い pass-through span + 素直な端点接線 | BuildDetailCurve(PreferG2) | Invariant: continuity は G2 になり、smooth pass-through 理由が debug で追える | DetailCurve.quality | G2優先方針が単なる係数でなく判定として残ることを固定 |
 | C145 | 短スパンの G1劣化 | 短い span + PreferG2 | BuildDetailCurve | Invariant: 短スパンでは無理に G2 を維持せず G1 と ShortSpan 理由へ落ちる | DetailCurve.quality | 短スパンで過拘束 cubic を押し込む回帰防止 |
 | C146 | branch pass の G1優先と端点拘束保持 | branch pass + offset endpoint | BuildDetailCurve | Invariant: branch pass は G1 を採用しつつ offset endpoint と端点接線を保つ | DetailCurve.quality / EvaluatePosition / EvaluateTangent | branch で G2 に固執して support 離脱が崩れる回帰防止 |
 | C147 | PreferG1 は明示選択 | 長尺 span + PreferG1 + sag | BuildDetailCurve | Invariant: PreferG1 は failed G2 ではなく explicit G1 として扱われ、sag と arc-length はそのまま動く | DetailCurve.quality / arc_length_table | continuity 設定と実挙動の意味ずれ防止 |
+| C149 | ViaAttachment の endpoint 優先 | offset endpoint を使う attachment 離脱 | BuildDetailCurve(OffsetEndpoint) | Invariant: ViaAttachment は attachment endpoint を端点に使い、smooth pass を強制せず endpoint-priority G1 へ落ちる | DetailCurve.quality / EvaluatePosition | attachment 接続を支点中心通過へ戻す回帰防止 |
 | C132 | GPU用距離属性の焼き込み | span再計算済み | Commit + find_span_render_cache | Invariant: 累積長と正規化距離が render cache に入り、毎フレーム CPU 逆引きを不要にする | span render cache | 長さ依存エフェクトの受け皿を持つ |
 | C133 | 本線優先Pole向き | 既存main + 後からbranch | GenerateFromBackboneSpec(HV) を2回 | Invariant: 共有junction Pole の yaw が branch ではなく既存 main chain に従う | pole yaw / pole orientation debug | junction primary が Pole向きへ反映されない回帰防止 |
 | C134 | Branch support port 生成 | 既存main + HV branch | GenerateFromBackboneSpec(HV) | Invariant: branch bundle が `flow=Branch` になり branch-support port を使う | last_lane_assignments / port placement_source | branch を main support と同列 mirror に戻す回帰防止 |
@@ -153,6 +155,12 @@
 | C138 | Mixed route の edge 単位 flow | 既存main + main→branch 混在 path | GenerateFromBackboneSpec(LV) | Invariant: 先頭 edge は Main、分岐 edge は Branch として別処理される | last_lane_assignments.flow_kind / flow_decision_rule | route 1値の branch 判定が main 区間まで侵食する回帰防止 |
 | C139 | Branch support の派生配置 | 既存main + HV branch + recalc | GenerateFromBackboneSpec→Commit | Invariant: branch support placement が visual cache に派生生成される | span visual cache.branch_supports | branch support が port 配置だけで終わる回帰防止 |
 | C140 | Near-straight branch でも topology 優先 | 既存main + ほぼ直進角の branch | GenerateFromBackboneSpec(LV) | Invariant: 幾何角度に引っ張られず Branch 判定を維持する | last_lane_assignments.flow_kind / flow_decision_rule | order/topology ではなく角度しきい値で branch 判定が揺れる回帰防止 |
+| C150 | 新規chainは orientation fallback | 既存main文脈なしの新規3点chain | GenerateFromBackboneSpec(LV) | Invariant: 中央Poleは main chain / primary 根拠が無いので fallback rule のまま | pole_orientation_debug_records | main文脈が無い新規Poleまで本線向きへ決め打ちする回帰防止 |
+| C151 | worldspace variation の連続性 | 近接/遠方の world position | EvaluateHierarchicalVariation | Invariant: 近い位置の bias 差は小さく、遠い位置では差が広がる | HierarchicalVariationSample.world_bias | ID乱数で worldspace を離散化する回帰防止 |
+| C152 | same flow の共有 bias と pole/local 差 | 同一chainの複数 span + variation 有効 | GenerateFromBackboneSpec→Commit | Invariant: 同一 flow_key の span は同じ flow_bias を持つが final 値は完全一致しない | DetailCurve.quality.sag_variation | 隣接 span が完全独立/完全一致の両極へ崩れる回帰防止 |
+| C153 | global seed 再現性 | 同一seed + 同一入力を2回 | GenerateFromBackboneSpec→Commit | Invariant: derived variation の final 値が一致する | DetailCurve.quality.sag_variation | 再生成で揺らぎが毎回変わる回帰防止 |
+| C154 | seed 変更で derived output が変わる | seed だけ変更した同一入力 | GenerateFromBackboneSpec→Commit | Invariant: variation final 値が変化する | DetailCurve.quality.sag_variation | seed を変えても見た目揺らぎが固定化する不具合防止 |
+| C155 | variation は topology と mirror を変えない | seed違いの同一 trunk+branch 入力 | GenerateFromBackboneSpec | Invariant: flow_kind / flow_rule / mirror 系は seed に依存しない | last_lane_assignments | topology 規則へランダムが混入する回帰防止 |
 
 ## LLM self-review
 - 実装依存か: private順序/内部関数呼び出し順には依存しない。

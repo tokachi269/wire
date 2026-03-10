@@ -1679,6 +1679,94 @@ bool test_backbone_near_straight_branch_still_classifies_as_branch() {
          assignments.front().flow_decision_rule == wire::core::BackboneFlowDecisionRule::kExistingChainBranch;
 }
 
+bool test_backbone_new_chain_uses_fallback_orientation_without_existing_main_context() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec req{};
+  req.path.polyline = {{-12.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}};
+  req.interval_m = 1000.0;
+  req.pole_type_id = type_ids.front();
+  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  if (!generated.ok) {
+    return false;
+  }
+
+  const ObjectId center_id = find_pole_id_by_position(state, {0.0, 0.0, 0.0});
+  if (center_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  const auto it_debug = state.view().pole_orientation_debug_records().find(center_id);
+  return it_debug != state.view().pole_orientation_debug_records().end() &&
+         it_debug->second.rule == wire::core::PoleForwardRule::kFallback;
+}
+
+bool test_variation_settings_do_not_change_topology_flow_or_mirror() {
+  auto generate_assignments = [](std::uint64_t seed) {
+    CoreState state;
+    wire::core::VariationSettings variation = state.view().variation_settings();
+    variation.enabled = true;
+    variation.global_seed = seed;
+    variation.sag_variation_scale = 0.35;
+    variation.branch_down_offset_variation_scale = 0.10;
+    if (!state.UpdateVariationSettings(variation, true).ok) {
+      return std::vector<wire::core::SegmentLaneAssignment>{};
+    }
+
+    const auto type_ids = sorted_pole_type_ids(state);
+    if (type_ids.empty()) {
+      return std::vector<wire::core::SegmentLaneAssignment>{};
+    }
+
+    wire::core::BackboneSpec trunk{};
+    trunk.path.polyline = {{-12.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}};
+    trunk.interval_m = 1000.0;
+    trunk.pole_type_id = type_ids.front();
+    add_backbone_bundle(trunk, wire::core::BundleKind::kLowVoltage);
+    if (!state.GenerateFromBackboneSpec(trunk).ok) {
+      return std::vector<wire::core::SegmentLaneAssignment>{};
+    }
+
+    const ObjectId center_id = find_pole_id_by_position(state, {0.0, 0.0, 0.0});
+    if (center_id == wire::core::kInvalidObjectId) {
+      return std::vector<wire::core::SegmentLaneAssignment>{};
+    }
+
+    wire::core::BackboneSpec branch{};
+    branch.path.polyline = {{0.0, 0.0, 0.0}, {9.0, 6.0, 0.0}};
+    wire::core::BackboneInputSpec::NodeSpec shared{};
+    shared.point_index = 0;
+    shared.support_kind = wire::core::SupportKind::kPole;
+    shared.node_id = center_id;
+    branch.path.node_specs.push_back(shared);
+    branch.interval_m = 1000.0;
+    branch.pole_type_id = type_ids.front();
+    add_backbone_bundle(branch, wire::core::BundleKind::kLowVoltage);
+    if (!state.GenerateFromBackboneSpec(branch).ok) {
+      return std::vector<wire::core::SegmentLaneAssignment>{};
+    }
+    return state.view().last_lane_assignments();
+  };
+
+  const auto a = generate_assignments(1001);
+  const auto b = generate_assignments(2002);
+  if (a.empty() || a.size() != b.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < a.size(); ++i) {
+    if (a[i].flow_kind != b[i].flow_kind || a[i].flow_decision_rule != b[i].flow_decision_rule ||
+        a[i].mirrored != b[i].mirrored || a[i].flipped_from_previous != b[i].flipped_from_previous ||
+        a[i].variation_flow_key != b[i].variation_flow_key) {
+      return false;
+    }
+  }
+  return true;
+}
+
 // Intent: Backbone generation must require bundles[] and reject legacy-only fields.
 namespace {
 
@@ -1780,6 +1868,12 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C140_Backbone_BranchClassificationIgnoresNearStraightAngle",
                          "Existing-chain branch stays branch even when geometry is nearly straight", "Invariant",
                          false, test_backbone_near_straight_branch_still_classifies_as_branch);
+  test_registry::AddTest(tests, "C150_Backbone_NewChainOrientationFallback",
+                         "Poles without existing chain or primary context use the explicit fallback orientation rule",
+                         "Invariant", false, test_backbone_new_chain_uses_fallback_orientation_without_existing_main_context);
+  test_registry::AddTest(tests, "C155_Variation_DoesNotAffectTopologyOrMirror",
+                         "Variation settings do not change deterministic flow classification or mirror decisions",
+                         "Invariant", false, test_variation_settings_do_not_change_topology_flow_or_mirror);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_generation_tests);

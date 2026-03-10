@@ -204,6 +204,7 @@ struct BackboneEdgeOrientation {
   ObjectId node_a_id = kInvalidObjectId;
   ObjectId node_b_id = kInvalidObjectId;
   BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  std::uint64_t variation_flow_key = 0;
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
   BackboneFlowDecisionRule flow_decision_rule = BackboneFlowDecisionRule::kDefaultMain;
   LaneOrientation orientation = LaneOrientation::kNormal;

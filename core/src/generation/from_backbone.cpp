@@ -38,6 +38,27 @@ Vec3d choose_continuous_axis(const Vec3d& axis, const Vec3d& previous_forward) {
   return out;
 }
 
+std::uint64_t splitmix64(std::uint64_t x) {
+  x += 0x9E3779B97F4A7C15ull;
+  x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ull;
+  x = (x ^ (x >> 27)) * 0x94D049BB133111EBull;
+  return x ^ (x >> 31);
+}
+
+std::uint64_t hash_combine(std::uint64_t seed, std::uint64_t value) {
+  return splitmix64(seed ^ (value + 0x9E3779B97F4A7C15ull + (seed << 6) + (seed >> 2)));
+}
+
+std::uint64_t make_flow_variation_key(std::uint64_t generation_session_id, BundleKind bundle_template_id,
+                                      BackboneFlowKind flow_kind, ObjectId run_start_node_id,
+                                      ObjectId run_end_node_id) {
+  std::uint64_t key = hash_combine(generation_session_id, static_cast<std::uint64_t>(bundle_template_id));
+  key = hash_combine(key, static_cast<std::uint64_t>(flow_kind));
+  key = hash_combine(key, static_cast<std::uint64_t>(run_start_node_id));
+  key = hash_combine(key, static_cast<std::uint64_t>(run_end_node_id));
+  return key;
+}
+
 } // namespace
 
 EditResult<CoreState::GenerateBundleFromPathResult>
@@ -775,9 +796,29 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     if (const auto it = existing_junction_by_node.find(node_id); it != existing_junction_by_node.end()) {
       const JunctionInfo* junction = it->second;
       if (junction != nullptr && junction->incidents.size() >= 2) {
-        neighbors.push_back(junction->incidents[0].neighbor_node_id);
-        neighbors.push_back(junction->incidents[1].neighbor_node_id);
-        return neighbors;
+        const JunctionIncident* primary_incident = nullptr;
+        const JunctionIncident* continuation_incident = nullptr;
+        for (const JunctionIncident& incident : junction->incidents) {
+          if ((incident.primary || incident.order == 0) &&
+              (primary_incident == nullptr ||
+               (incident.primary && !primary_incident->primary) ||
+               (incident.order >= 0 && (primary_incident->order < 0 || incident.order < primary_incident->order)))) {
+            primary_incident = &incident;
+          }
+          if (incident.order == 1 &&
+              (continuation_incident == nullptr || incident.neighbor_node_id < continuation_incident->neighbor_node_id)) {
+            continuation_incident = &incident;
+          }
+        }
+        const bool has_continuation_pair =
+            primary_incident != nullptr && continuation_incident != nullptr &&
+            primary_incident->neighbor_node_id != continuation_incident->neighbor_node_id &&
+            (junction->used_neighbor_continuity || junction->incidents.size() == 2);
+        if (has_continuation_pair) {
+          neighbors.push_back(primary_incident->neighbor_node_id);
+          neighbors.push_back(continuation_incident->neighbor_node_id);
+          return neighbors;
+        }
       }
     }
     const auto it_route = route_neighbors_by_node.find(node_id);
@@ -1051,6 +1092,9 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       local_support_nodes.insert(local_support_nodes.end(),
                                  ordered_support_node_ids.begin() + static_cast<std::ptrdiff_t>(run_start),
                                  ordered_support_node_ids.begin() + static_cast<std::ptrdiff_t>(run_end + 2));
+      const std::uint64_t variation_flow_key =
+          make_flow_variation_key(session_id, plan.template_id, flow_info.kind, local_support_nodes.front(),
+                                  local_support_nodes.back());
 
       std::vector<SegmentLaneAssignment> lane_assignments{};
       std::vector<BackboneEdgeOrientation> edge_orientations{};
@@ -1069,9 +1113,11 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       append_change_set(result.change_set, spans_result.change_set);
       for (std::size_t i = 0; i < lane_assignments.size(); ++i) {
         lane_assignments[i].segment_index += run_start;
+        lane_assignments[i].variation_flow_key = variation_flow_key;
         lane_assignments[i].flow_decision_rule = edge_flow_by_segment[run_start + i].rule;
       }
       for (std::size_t i = 0; i < edge_orientations.size(); ++i) {
+        edge_orientations[i].variation_flow_key = variation_flow_key;
         edge_orientations[i].flow_decision_rule = edge_flow_by_segment[run_start + i].rule;
       }
       all_lane_assignments.insert(all_lane_assignments.end(), lane_assignments.begin(), lane_assignments.end());
@@ -1089,6 +1135,10 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
           span->generation.generation_order = static_cast<std::uint32_t>(result.value.generated_span_ids.size());
           span->generated_by_rule = true;
           add_unique_id(result.change_set.updated_ids, span->id);
+        }
+        auto runtime_it = span_runtime_states_access().find(span_id);
+        if (runtime_it != span_runtime_states_access().end()) {
+          runtime_it->second.variation_flow_key = variation_flow_key;
         }
         result.value.generated_span_ids.push_back(span_id);
       }

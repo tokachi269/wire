@@ -1219,39 +1219,58 @@ bool test_detail_curve_near_straight_tangent_hints_do_not_wobble_sideways() {
   for (const wire::core::Vec3d& sample : curve.sample_points) {
     max_abs_y = std::max(max_abs_y, std::abs(sample.y));
   }
-  return max_abs_y <= 0.03;
+  return curve.quality.shape_policy == wire::core::CurveShapePolicyKind::kNearStraight && max_abs_y <= 0.03;
 }
 
-bool test_detail_curve_planar_lateral_bend_is_suppressed() {
-  wire::core::CurveConstraint base_start{};
-  base_start.point = {0.0, 0.0, 5.0};
-  base_start.tangent_dir = {0.55, 0.84, 0.0};
-  base_start.tangent_length_hint_m = 8.0;
+bool test_detail_curve_smooth_pass_allows_controlled_lateral_bend() {
+  wire::core::CurveConstraint start{};
+  start.point = {0.0, 0.0, 5.0};
+  start.tangent_dir = {0.90, 0.43, 0.0};
+  start.tangent_length_hint_m = 8.0;
+  start.continuity_preference = wire::core::CableContinuityPolicyHint::kPreferG2;
 
-  wire::core::CurveConstraint base_end{};
-  base_end.point = {18.0, 0.0, 5.0};
-  base_end.tangent_dir = {0.55, -0.84, 0.0};
-  base_end.tangent_length_hint_m = 8.0;
+  wire::core::CurveConstraint end{};
+  end.point = {18.0, 0.0, 5.0};
+  end.tangent_dir = {0.90, 0.43, 0.0};
+  end.tangent_length_hint_m = 8.0;
+  end.continuity_preference = wire::core::CableContinuityPolicyHint::kPreferG2;
 
-  const wire::core::DetailCurve plain = wire::core::BuildDetailCurve(base_start, base_end, 33);
-
-  wire::core::CurveConstraint corner_start = base_start;
-  wire::core::CurveConstraint corner_end = base_end;
-  corner_start.corner_pass = true;
-  corner_end.corner_pass = true;
-  corner_start.corner_angle_deg = 60.0;
-  corner_end.corner_angle_deg = 60.0;
-  const wire::core::DetailCurve corner = wire::core::BuildDetailCurve(corner_start, corner_end, 33);
-
-  double plain_max_abs_y = 0.0;
-  double corner_max_abs_y = 0.0;
-  for (const wire::core::Vec3d& sample : plain.sample_points) {
-    plain_max_abs_y = std::max(plain_max_abs_y, std::abs(sample.y));
+  const wire::core::DetailCurve curve = wire::core::BuildDetailCurve(start, end, 33);
+  double max_y = 0.0;
+  for (const wire::core::Vec3d& sample : curve.sample_points) {
+    max_y = std::max(max_y, sample.y);
   }
-  for (const wire::core::Vec3d& sample : corner.sample_points) {
-    corner_max_abs_y = std::max(corner_max_abs_y, std::abs(sample.y));
+  return curve.quality.shape_policy == wire::core::CurveShapePolicyKind::kSmoothPass &&
+         curve.quality.adopted_continuity == wire::core::DetailCurveContinuityMode::kG2 &&
+         max_y >= 0.20;
+}
+
+bool test_detail_curve_sharp_corner_stays_compact() {
+  wire::core::CurveConstraint start{};
+  start.point = {0.0, 0.0, 5.0};
+  start.tangent_dir = {0.55, 0.84, 0.0};
+  start.tangent_length_hint_m = 8.0;
+  start.corner_pass = true;
+  start.corner_angle_deg = 60.0;
+  start.continuity_preference = wire::core::CableContinuityPolicyHint::kPreferG2;
+
+  wire::core::CurveConstraint end{};
+  end.point = {18.0, 0.0, 5.0};
+  end.tangent_dir = {0.55, -0.84, 0.0};
+  end.tangent_length_hint_m = 8.0;
+  end.corner_pass = true;
+  end.corner_angle_deg = 60.0;
+  end.continuity_preference = wire::core::CableContinuityPolicyHint::kPreferG2;
+
+  const wire::core::DetailCurve curve = wire::core::BuildDetailCurve(start, end, 33);
+  double max_abs_y = 0.0;
+  for (const wire::core::Vec3d& sample : curve.sample_points) {
+    max_abs_y = std::max(max_abs_y, std::abs(sample.y));
   }
-  return plain_max_abs_y <= 0.03 && corner_max_abs_y <= 0.03;
+  return curve.quality.shape_policy == wire::core::CurveShapePolicyKind::kSharpCorner &&
+         curve.quality.adopted_continuity == wire::core::DetailCurveContinuityMode::kG1 &&
+         curve.quality.continuity_reason == wire::core::DetailCurveContinuityReason::kCornerPass &&
+         max_abs_y <= 0.08;
 }
 
 bool test_detail_curve_offset_endpoint_uses_offset_endpoints() {
@@ -1412,7 +1431,8 @@ bool test_detail_curve_branch_pass_uses_g1_and_preserves_endpoint_constraints() 
   const wire::core::DetailCurve curve = wire::core::BuildDetailCurve(start, end, 25);
   const wire::core::Vec3d tangent0 = curve.EvaluateTangent(0.0);
   const wire::core::Vec3d tangent1 = curve.EvaluateTangent(1.0);
-  return curve.quality.adopted_continuity == wire::core::DetailCurveContinuityMode::kG1 &&
+  return curve.quality.shape_policy == wire::core::CurveShapePolicyKind::kBranchPass &&
+         curve.quality.adopted_continuity == wire::core::DetailCurveContinuityMode::kG1 &&
          curve.quality.continuity_reason == wire::core::DetailCurveContinuityReason::kBranchPass &&
          curve.quality.degraded_to_g1 &&
          almost_equal(curve.EvaluatePosition(0.0), start.point + start.endpoint_offset, 1e-9) &&
@@ -1446,6 +1466,31 @@ bool test_detail_curve_prefer_g1_policy_is_explicit_not_degraded() {
          curve.Length() > 0.0 && !curve.arc_length_table.empty();
 }
 
+bool test_detail_curve_via_attachment_policy_uses_offset_endpoint_and_g1() {
+  wire::core::CurveConstraint start{};
+  start.point = {0.0, 0.0, 4.5};
+  start.tangent_dir = {0.96, 0.24, 0.0};
+  start.tangent_length_hint_m = 4.0;
+  start.endpoint_mode = wire::core::CurveEndpointMode::kOffsetEndpoint;
+  start.endpoint_offset = {0.45, 0.20, 0.0};
+  start.continuity_preference = wire::core::CableContinuityPolicyHint::kPreferG2;
+
+  wire::core::CurveConstraint end{};
+  end.point = {12.0, 0.0, 4.5};
+  end.tangent_dir = {0.96, -0.20, 0.0};
+  end.tangent_length_hint_m = 4.0;
+  end.endpoint_mode = wire::core::CurveEndpointMode::kOffsetEndpoint;
+  end.endpoint_offset = {-0.45, 0.15, 0.0};
+  end.continuity_preference = wire::core::CableContinuityPolicyHint::kPreferG2;
+
+  const wire::core::DetailCurve curve = wire::core::BuildDetailCurve(start, end, 25);
+  return curve.quality.shape_policy == wire::core::CurveShapePolicyKind::kViaAttachment &&
+         curve.quality.adopted_continuity == wire::core::DetailCurveContinuityMode::kG1 &&
+         curve.quality.continuity_reason == wire::core::DetailCurveContinuityReason::kEndpointConstraintPriority &&
+         almost_equal(curve.EvaluatePosition(0.0), start.point + start.endpoint_offset, 1e-9) &&
+         almost_equal(curve.EvaluatePosition(1.0), end.point + end.endpoint_offset, 1e-9);
+}
+
 bool test_render_cache_bakes_arc_length_attributes() {
   CoreState state;
   const ObjectId pole = state.AddPole({}, 10.0, "P").value;
@@ -1470,6 +1515,154 @@ bool test_render_cache_bakes_arc_length_attributes() {
          almost_equal(render->arc_length_m_by_point.front(), 0.0, 1e-9) &&
          almost_equal(render->arc_length_normalized_by_point.front(), 0.0, 1e-9) &&
          almost_equal(render->arc_length_normalized_by_point.back(), 1.0, 1e-6);
+}
+
+bool test_hierarchical_variation_worldspace_is_continuous() {
+  wire::core::VariationSettings settings{};
+  settings.enabled = true;
+  settings.global_seed = 77;
+  settings.world_cell_size_m = 30.0;
+  settings.world_bias_scale = 1.0;
+  settings.flow_bias_scale = 0.0;
+  settings.pole_delta_scale = 0.0;
+  settings.local_jitter_scale = 0.0;
+
+  wire::core::VariationContext near_a{};
+  near_a.world_position = {10.0, 10.0, 0.0};
+  wire::core::VariationContext near_b = near_a;
+  near_b.world_position = {11.5, 10.5, 0.0};
+  wire::core::VariationContext far = near_a;
+  far.world_position = {75.0, -40.0, 0.0};
+
+  const auto sample_a = wire::core::EvaluateHierarchicalVariation(settings, near_a);
+  const auto sample_b = wire::core::EvaluateHierarchicalVariation(settings, near_b);
+  const auto sample_far = wire::core::EvaluateHierarchicalVariation(settings, far);
+  const double near_diff = std::abs(sample_a.world_bias - sample_b.world_bias);
+  const double far_diff = std::abs(sample_a.world_bias - sample_far.world_bias);
+  return near_diff < 0.10 && far_diff > near_diff;
+}
+
+bool test_hierarchical_variation_same_flow_keeps_shared_bias_but_not_identical() {
+  CoreState state;
+  wire::core::GeometrySettings geometry = state.view().geometry_settings();
+  geometry.sag_enabled = true;
+  geometry.sag_factor = 0.06;
+  (void)state.UpdateGeometrySettings(geometry, true);
+
+  wire::core::VariationSettings variation = state.view().variation_settings();
+  variation.enabled = true;
+  variation.global_seed = 42;
+  variation.sag_variation_scale = 0.35;
+  variation.branch_down_offset_variation_scale = 0.08;
+  const auto update = state.UpdateVariationSettings(variation, true);
+  if (!update.ok) {
+    return false;
+  }
+
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  BackbonePathGenerateOptions options{};
+  options.road.polyline = {{0.0, 0.0, 0.0}, {14.0, 0.5, 0.0}, {28.0, 0.8, 0.0}, {42.0, 1.2, 0.0}};
+  options.interval = 1000.0;
+  options.pole_type_id = type_ids.front();
+  options.bundle_template_id = wire::core::BundleKind::kLowVoltage;
+  const auto generated = generate_from_backbone_options(state, options);
+  if (!generated.ok || generated.value.span_ids.size() < 2) {
+    return false;
+  }
+  (void)state.Commit();
+
+  const auto* first_curve = state.find_curve_cache(generated.value.span_ids[0]);
+  const auto* second_curve = state.find_curve_cache(generated.value.span_ids[1]);
+  if (first_curve == nullptr || second_curve == nullptr) {
+    return false;
+  }
+  const auto& first = first_curve->detail.quality.sag_variation;
+  const auto& second = second_curve->detail.quality.sag_variation;
+  return first.flow_key != 0 && first.flow_key == second.flow_key && almost_equal(first.flow_bias, second.flow_bias, 1e-12) &&
+         std::abs(first.final_value - second.final_value) > 1e-6;
+}
+
+bool test_hierarchical_variation_fixed_seed_is_reproducible() {
+  auto build_state = []() {
+    CoreState state;
+    wire::core::GeometrySettings geometry = state.view().geometry_settings();
+    geometry.sag_enabled = true;
+    geometry.sag_factor = 0.05;
+    (void)state.UpdateGeometrySettings(geometry, true);
+    wire::core::VariationSettings variation = state.view().variation_settings();
+    variation.enabled = true;
+    variation.global_seed = 99;
+    variation.sag_variation_scale = 0.28;
+    (void)state.UpdateVariationSettings(variation, true);
+    return state;
+  };
+
+  auto sample_value = [&](CoreState& state) -> double {
+    const auto type_ids = sorted_pole_type_ids(state);
+    if (type_ids.empty()) {
+      return std::numeric_limits<double>::quiet_NaN();
+    }
+    BackbonePathGenerateOptions options{};
+    options.road.polyline = {{0.0, 0.0, 0.0}, {16.0, 0.0, 0.0}, {32.0, 0.0, 0.0}};
+    options.interval = 1000.0;
+    options.pole_type_id = type_ids.front();
+    const auto generated = generate_from_backbone_options(state, options);
+    if (!generated.ok || generated.value.span_ids.empty()) {
+      return std::numeric_limits<double>::quiet_NaN();
+    }
+    (void)state.Commit();
+    const auto* curve = state.find_curve_cache(generated.value.span_ids.front());
+    return (curve == nullptr) ? std::numeric_limits<double>::quiet_NaN() : curve->detail.quality.sag_variation.final_value;
+  };
+
+  CoreState state_a = build_state();
+  CoreState state_b = build_state();
+  const double a = sample_value(state_a);
+  const double b = sample_value(state_b);
+  return std::isfinite(a) && std::isfinite(b) && almost_equal(a, b, 1e-12);
+}
+
+bool test_hierarchical_variation_changes_with_seed() {
+  auto build_state = [](std::uint64_t seed) {
+    CoreState state;
+    wire::core::GeometrySettings geometry = state.view().geometry_settings();
+    geometry.sag_enabled = true;
+    geometry.sag_factor = 0.05;
+    (void)state.UpdateGeometrySettings(geometry, true);
+    wire::core::VariationSettings variation = state.view().variation_settings();
+    variation.enabled = true;
+    variation.global_seed = seed;
+    variation.sag_variation_scale = 0.28;
+    (void)state.UpdateVariationSettings(variation, true);
+    return state;
+  };
+
+  auto sample_value = [&](CoreState& state) -> double {
+    const auto type_ids = sorted_pole_type_ids(state);
+    if (type_ids.empty()) {
+      return std::numeric_limits<double>::quiet_NaN();
+    }
+    BackbonePathGenerateOptions options{};
+    options.road.polyline = {{0.0, 0.0, 0.0}, {16.0, 0.0, 0.0}, {32.0, 0.0, 0.0}};
+    options.interval = 1000.0;
+    options.pole_type_id = type_ids.front();
+    const auto generated = generate_from_backbone_options(state, options);
+    if (!generated.ok || generated.value.span_ids.empty()) {
+      return std::numeric_limits<double>::quiet_NaN();
+    }
+    (void)state.Commit();
+    const auto* curve = state.find_curve_cache(generated.value.span_ids.front());
+    return (curve == nullptr) ? std::numeric_limits<double>::quiet_NaN() : curve->detail.quality.sag_variation.final_value;
+  };
+
+  CoreState state_a = build_state(11);
+  CoreState state_b = build_state(12);
+  const double a = sample_value(state_a);
+  const double b = sample_value(state_b);
+  return std::isfinite(a) && std::isfinite(b) && std::abs(a - b) > 1e-6;
 }
 
 void register_geometry_tests(test_registry::TestRegistry& tests) {
@@ -1515,15 +1708,18 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C142_DetailCurve_NearStraightNoSideWobble",
                          "Near-straight endpoint tangents do not introduce visible sideways wobble",
                          "Invariant", false, test_detail_curve_near_straight_tangent_hints_do_not_wobble_sideways);
-  test_registry::AddTest(tests, "C143_DetailCurve_PlanarLateralBendSuppressed",
-                         "DetailCurve suppresses sideways planar Bezier bend even when endpoint tangents suggest lateral bulge",
-                         "Invariant", false, test_detail_curve_planar_lateral_bend_is_suppressed);
+  test_registry::AddTest(tests, "C143_DetailCurve_SmoothPass_AllowsControlledLateralBend",
+                         "Smooth-pass policy preserves a controlled planar curve instead of flattening every lateral hint",
+                         "Invariant", false, test_detail_curve_smooth_pass_allows_controlled_lateral_bend);
   test_registry::AddTest(tests, "C130_DetailCurve_OffsetEndpoint_UsesOffsetEndpoints",
                          "Derived endpoint-offset mode moves detail-curve endpoints without changing source support points",
                          "Invariant", false, test_detail_curve_offset_endpoint_uses_offset_endpoints);
   test_registry::AddTest(tests, "C131_DetailCurve_QualityFallback_AcuteCase",
                          "Acute/conflicting tangents trigger tangent fallback instead of excessive bulge",
                          "Invariant", false, test_detail_curve_acute_case_applies_quality_fallback);
+  test_registry::AddTest(tests, "C148_DetailCurve_SharpCorner_StaysCompact",
+                         "Sharp-corner policy shortens handles and degrades to G1 instead of producing a wide lateral peak",
+                         "Invariant", false, test_detail_curve_sharp_corner_stays_compact);
   test_registry::AddTest(tests, "C144_DetailCurve_LongPassThrough_PreferG2",
                          "Long pass-through spans with smooth endpoint tangents adopt G2-preferred control-point strategy",
                          "Invariant", false, test_detail_curve_long_pass_through_prefers_g2);
@@ -1536,9 +1732,24 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C147_DetailCurve_PreferG1_IsExplicit",
                          "PreferG1 policy is an explicit continuity choice, not a failed G2 attempt, and sag still applies",
                          "Invariant", false, test_detail_curve_prefer_g1_policy_is_explicit_not_degraded);
+  test_registry::AddTest(tests, "C149_DetailCurve_ViaAttachment_UsesAttachmentPolicy",
+                         "ViaAttachment policy uses offset endpoints and falls back to endpoint-priority G1 instead of forcing smooth pass",
+                         "Invariant", false, test_detail_curve_via_attachment_policy_uses_offset_endpoint_and_g1);
   test_registry::AddTest(tests, "C132_RenderCurve_DistanceAttributesBaked",
                          "Render cache bakes arc-length attributes for GPU-side length-driven effects",
                          "Invariant", false, test_render_cache_bakes_arc_length_attributes);
+  test_registry::AddTest(tests, "C151_Variation_WorldspaceContinuous",
+                         "Worldspace variation changes continuously across nearby positions",
+                         "Invariant", false, test_hierarchical_variation_worldspace_is_continuous);
+  test_registry::AddTest(tests, "C152_Variation_SameFlowSharedBiasWithLocalDifference",
+                         "Same flow shares a common bias while adjacent spans keep pole/local differences",
+                         "Invariant", false, test_hierarchical_variation_same_flow_keeps_shared_bias_but_not_identical);
+  test_registry::AddTest(tests, "C153_Variation_GlobalSeedReproducible",
+                         "Fixed global seed reproduces the same derived variation values",
+                         "Invariant", false, test_hierarchical_variation_fixed_seed_is_reproducible);
+  test_registry::AddTest(tests, "C154_Variation_SeedChangesOutput",
+                         "Changing the global seed changes derived variation output without changing rules",
+                         "Invariant", false, test_hierarchical_variation_changes_with_seed);
   test_registry::AddTest(tests, "C137_Attachment_DisplayOffset_IsEntityOnly",
                          "Attachment display offset stays in entity/display state and does not perturb detail-curve endpoints",
                          "Invariant", false, test_attachment_display_offset_does_not_change_detail_curve_endpoints);

@@ -1217,6 +1217,42 @@ EditResult<bool> CoreState::UpdateVisualSettings(const VisualSettings& settings,
   return result;
 }
 
+EditResult<bool> CoreState::UpdateVariationSettings(const VariationSettings& settings, bool mark_all_spans_dirty) {
+  EditResult<bool> result;
+  VariationSettings normalized = settings;
+  normalized.global_seed = (normalized.global_seed == 0) ? 1 : normalized.global_seed;
+  normalized.world_cell_size_m = std::max(1.0, normalized.world_cell_size_m);
+  normalized.world_bias_scale = std::max(0.0, normalized.world_bias_scale);
+  normalized.flow_bias_scale = std::max(0.0, normalized.flow_bias_scale);
+  normalized.pole_delta_scale = std::max(0.0, normalized.pole_delta_scale);
+  normalized.local_jitter_scale = std::max(0.0, normalized.local_jitter_scale);
+  normalized.sag_variation_scale = std::max(0.0, normalized.sag_variation_scale);
+  normalized.branch_down_offset_variation_scale = std::max(0.0, normalized.branch_down_offset_variation_scale);
+
+  const VariationSettings& current = cache_state_.variation_settings;
+  const bool changed =
+      normalized.enabled != current.enabled || normalized.global_seed != current.global_seed ||
+      std::abs(normalized.world_cell_size_m - current.world_cell_size_m) > 1e-12 ||
+      std::abs(normalized.world_bias_scale - current.world_bias_scale) > 1e-12 ||
+      std::abs(normalized.flow_bias_scale - current.flow_bias_scale) > 1e-12 ||
+      std::abs(normalized.pole_delta_scale - current.pole_delta_scale) > 1e-12 ||
+      std::abs(normalized.local_jitter_scale - current.local_jitter_scale) > 1e-12 ||
+      std::abs(normalized.sag_variation_scale - current.sag_variation_scale) > 1e-12 ||
+      std::abs(normalized.branch_down_offset_variation_scale - current.branch_down_offset_variation_scale) > 1e-12;
+
+  cache_state_.variation_settings = normalized;
+  result.ok = true;
+  result.value = changed;
+  if (changed && mark_all_spans_dirty) {
+    for (const Span& span : edit_state_.spans.items()) {
+      mark_span_dirty(span.id, DirtyBits::kGeometry | DirtyBits::kRender, true);
+      add_unique_id(result.change_set.dirty_span_ids, span.id);
+      add_unique_id(result.change_set.updated_ids, span.id);
+    }
+  }
+  return result;
+}
+
 EditResult<bool> CoreState::UpdateCableTemplate(const CableTemplate& cable_template,
                                                 const std::vector<ObjectId>& preferred_visible_span_ids) {
   EditResult<bool> result;

@@ -12,6 +12,7 @@
 #include "wire/core/id.hpp"
 #include "wire/core/object_store.hpp"
 #include "wire/core/types.hpp"
+#include "wire/core/variation.hpp"
 #include "wire/core/workflow_types.hpp"
 
 namespace wire::core {
@@ -78,6 +79,7 @@ struct BranchSupportPlacement {
   Vec3d mount_world{};
   Vec3d tip_world{};
   Vec3d attachment_world{};
+  HierarchicalVariationSample down_offset_variation{};
 };
 
 struct SpanVisualCacheEntry {
@@ -120,6 +122,7 @@ struct CacheState {
   CurveCache curve_cache{};
   BoundsCache bounds_cache{};
   VisualSettings visual_settings{};
+  VariationSettings variation_settings{};
   VisualCache visual_cache{};
   RenderCache render_cache{};
 };
@@ -187,6 +190,7 @@ struct SpanRuntimeState {
   std::uint64_t bounds_version = 0;
   std::uint64_t render_version = 0;
   std::uint64_t raycast_version = 0;
+  std::uint64_t variation_flow_key = 0;
   DirtyBits dirty_bits = DirtyBits::kNone;
 };
 
@@ -400,6 +404,7 @@ public:
   EditResult<bool> UpdateGeometrySettings(const GeometrySettings& settings, bool mark_all_spans_dirty = true);
   EditResult<bool> UpdateLayoutSettings(const LayoutSettings& settings);
   EditResult<bool> UpdateVisualSettings(const VisualSettings& settings, bool mark_all_spans_dirty = true);
+  EditResult<bool> UpdateVariationSettings(const VariationSettings& settings, bool mark_all_spans_dirty = true);
   EditResult<bool> UpdateCableTemplate(const CableTemplate& cable_template,
                                        const std::vector<ObjectId>& preferred_visible_span_ids = {});
   EditResult<bool> UpdateBundleTemplate(const BundleTemplate& bundle_template);
@@ -597,6 +602,7 @@ public:
   [[nodiscard]] const RecalcStats& last_recalc_stats() const { return state_.last_recalc_stats_; }
   [[nodiscard]] const GeometrySettings& geometry_settings() const { return state_.cache_state_.geometry_settings; }
   [[nodiscard]] const VisualSettings& visual_settings() const { return state_.cache_state_.visual_settings; }
+  [[nodiscard]] const VariationSettings& variation_settings() const { return state_.cache_state_.variation_settings; }
   [[nodiscard]] const LayoutSettings& layout_settings() const { return state_.layout_settings_; }
   [[nodiscard]] const PathDirectionEvaluationDebug& last_path_direction_debug() const {
     return state_.last_path_direction_debug_;

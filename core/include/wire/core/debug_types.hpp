@@ -47,6 +47,7 @@ struct SegmentLaneAssignment {
   ObjectId pole_a_id = kInvalidObjectId;
   ObjectId pole_b_id = kInvalidObjectId;
   ObjectId bundle_id = kInvalidObjectId;
+  std::uint64_t variation_flow_key = 0;
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
   BackboneFlowDecisionRule flow_decision_rule = BackboneFlowDecisionRule::kDefaultMain;
   std::vector<int> slot_ids_a{};

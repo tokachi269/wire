@@ -22,6 +22,41 @@ struct ContinuityDecision {
   double handle_scale = 0.78;
 };
 
+struct CurveShapePolicyDecision {
+  CurveShapePolicyKind kind = CurveShapePolicyKind::kNearStraight;
+  double lateral_suppression = 1.0;
+  double handle_scale = 0.82;
+  double quality_lateral_limit_ratio = 0.06;
+};
+
+struct TopViewMetrics {
+  double max_lateral_overshoot_m = 0.0;
+  int lateral_sign_changes = 0;
+};
+
+struct SideViewMetrics {
+  double max_drop_m = 0.0;
+  double endpoint_slope_delta = 0.0;
+};
+
+struct PerspectiveMetrics {
+  int progress_regressions = 0;
+  double max_spatial_deviation_m = 0.0;
+};
+
+struct CurveQualityMetrics {
+  TopViewMetrics top{};
+  SideViewMetrics side{};
+  PerspectiveMetrics perspective{};
+};
+
+struct HandleLengthComponents {
+  double base_scale = 1.0;
+  double angle_scale = 1.0;
+  double policy_scale = 1.0;
+  double length_m = 0.0;
+};
+
 double Clamp01(double v) {
   return std::max(0.0, std::min(1.0, v));
 }
@@ -64,6 +99,14 @@ Vec3d BlendTowardChord(const Vec3d& chord_dir, const Vec3d& tangent, double weig
   return blended;
 }
 
+Vec3d BlendDirections(const Vec3d& a, const Vec3d& b, double weight, const Vec3d& fallback) {
+  Vec3d blended = ScaleVec(a, 1.0 - weight) + ScaleVec(b, weight);
+  if (!Normalize(&blended)) {
+    return fallback;
+  }
+  return blended;
+}
+
 Vec3d SuppressPlanarLateralComponent(const Vec3d& chord_dir, const Vec3d& tangent) {
   const Vec3d lateral_axis = ComputeLateralAxis(chord_dir);
   Vec3d adjusted = tangent - ScaleVec(lateral_axis, Dot(tangent, lateral_axis));
@@ -74,6 +117,14 @@ Vec3d SuppressPlanarLateralComponent(const Vec3d& chord_dir, const Vec3d& tangen
     adjusted = ScaleVec(adjusted, -1.0);
   }
   return adjusted;
+}
+
+Vec3d ApplyLateralSuppressionPolicy(const Vec3d& chord_dir, const Vec3d& tangent, double suppression) {
+  if (suppression <= 1e-6) {
+    return tangent;
+  }
+  const Vec3d suppressed = SuppressPlanarLateralComponent(chord_dir, tangent);
+  return BlendDirections(tangent, suppressed, suppression, chord_dir);
 }
 
 double SignedLateralComponent(const Vec3d& chord_dir, const Vec3d& tangent) {
@@ -173,9 +224,27 @@ double MaxPerpendicularDeviation(const Vec3d& start, const Vec3d& chord_dir, con
   return std::sqrt(std::max(0.0, LengthSquared(delta - along)));
 }
 
+double AngleDegreesBetween(const Vec3d& a, const Vec3d& b) {
+  Vec3d na = a;
+  Vec3d nb = b;
+  if (!Normalize(&na) || !Normalize(&nb)) {
+    return 0.0;
+  }
+  const double dot = std::clamp(Dot(na, nb), -1.0, 1.0);
+  return std::acos(dot) * (180.0 / 3.14159265358979323846);
+}
+
 bool HasValidTangentHint(const CurveConstraint& constraint) {
   Vec3d tangent = constraint.tangent_dir;
   return Normalize(&tangent);
+}
+
+double AlignmentToChord(const CurveConstraint& constraint, const Vec3d& chord_dir) {
+  Vec3d tangent = constraint.tangent_dir;
+  if (!Normalize(&tangent)) {
+    return 1.0;
+  }
+  return std::clamp(Dot(tangent, chord_dir), -1.0, 1.0);
 }
 
 double EndpointOffsetMagnitude(const CurveConstraint& constraint) {
@@ -185,26 +254,122 @@ double EndpointOffsetMagnitude(const CurveConstraint& constraint) {
   return std::sqrt(LengthSquared(constraint.endpoint_offset));
 }
 
+CurveShapePolicyDecision ChooseShapePolicy(const CurveConstraint& start_constraint, const CurveConstraint& end_constraint,
+                                           double chord_length, const Vec3d& chord_dir) {
+  CurveShapePolicyDecision decision{};
+  const double max_endpoint_offset_m =
+      std::max(EndpointOffsetMagnitude(start_constraint), EndpointOffsetMagnitude(end_constraint));
+  const double min_alignment =
+      std::min(AlignmentToChord(start_constraint, chord_dir), AlignmentToChord(end_constraint, chord_dir));
+  const double tangent_turn_deg = AngleDegreesBetween(start_constraint.tangent_dir, end_constraint.tangent_dir);
+
+  if (start_constraint.pass_mode == CurvePassMode::kTerminate || end_constraint.pass_mode == CurvePassMode::kTerminate) {
+    decision.kind = CurveShapePolicyKind::kTerminate;
+    decision.lateral_suppression = 0.95;
+    decision.handle_scale = 0.58;
+    decision.quality_lateral_limit_ratio = 0.04;
+    return decision;
+  }
+
+  if (start_constraint.pass_mode == CurvePassMode::kBranch || end_constraint.pass_mode == CurvePassMode::kBranch) {
+    decision.kind = CurveShapePolicyKind::kBranchPass;
+    decision.lateral_suppression = 0.65;
+    decision.handle_scale = 0.72;
+    decision.quality_lateral_limit_ratio = 0.08;
+    return decision;
+  }
+
+  if ((start_constraint.endpoint_mode == CurveEndpointMode::kOffsetEndpoint ||
+       end_constraint.endpoint_mode == CurveEndpointMode::kOffsetEndpoint) &&
+      max_endpoint_offset_m > 0.02) {
+    decision.kind = CurveShapePolicyKind::kViaAttachment;
+    decision.lateral_suppression = 0.68;
+    decision.handle_scale = 0.76;
+    decision.quality_lateral_limit_ratio = 0.08;
+    return decision;
+  }
+
+  if (start_constraint.corner_pass || end_constraint.corner_pass || tangent_turn_deg >= 55.0 || min_alignment <= 0.65) {
+    decision.kind = CurveShapePolicyKind::kSharpCorner;
+    decision.lateral_suppression = 0.82;
+    decision.handle_scale = 0.50;
+    decision.quality_lateral_limit_ratio = 0.08;
+    return decision;
+  }
+
+  const bool near_straight = chord_length <= 8.0 || (min_alignment >= 0.965 && tangent_turn_deg <= 24.0);
+  if (near_straight) {
+    decision.kind = CurveShapePolicyKind::kNearStraight;
+    decision.lateral_suppression = 1.0;
+    decision.handle_scale = 0.72;
+    decision.quality_lateral_limit_ratio = 0.03;
+    return decision;
+  }
+
+  decision.kind = CurveShapePolicyKind::kSmoothPass;
+  decision.lateral_suppression = 0.20;
+  decision.handle_scale = 1.02;
+  decision.quality_lateral_limit_ratio = 0.22;
+  return decision;
+}
+
 double RigidityScale(const CurveConstraint& constraint) {
   const double stiffness = std::clamp(constraint.bend_stiffness_hint, 0.25, 3.0);
   return std::clamp(0.85 + 0.15 * stiffness, 0.75, 1.30);
 }
 
-double ComputeBaseTangentLength(double chord_length, const Vec3d& chord_dir, const CurveConstraint& constraint) {
+HandleLengthComponents ComputeHandleLength(double chord_length, const Vec3d& chord_dir, const CurveConstraint& constraint,
+                                           const CurveShapePolicyDecision& policy, double continuity_scale) {
+  HandleLengthComponents out{};
   if (chord_length <= kZeroLengthEps) {
-    return 0.0;
+    return out;
   }
-  const double hinted = (constraint.tangent_length_hint_m > 0.0) ? constraint.tangent_length_hint_m : chord_length * 0.32;
+  switch (policy.kind) {
+  case CurveShapePolicyKind::kNearStraight:
+    out.base_scale = 0.24;
+    break;
+  case CurveShapePolicyKind::kSmoothPass:
+    out.base_scale = 0.34;
+    break;
+  case CurveShapePolicyKind::kSharpCorner:
+    out.base_scale = 0.18;
+    break;
+  case CurveShapePolicyKind::kBranchPass:
+    out.base_scale = 0.20;
+    break;
+  case CurveShapePolicyKind::kTerminate:
+    out.base_scale = 0.16;
+    break;
+  case CurveShapePolicyKind::kViaAttachment:
+    out.base_scale = 0.22;
+    break;
+  default:
+    out.base_scale = 0.24;
+    break;
+  }
+  const double hinted = (constraint.tangent_length_hint_m > 0.0) ? constraint.tangent_length_hint_m
+                                                                 : chord_length * out.base_scale;
   Vec3d tangent = constraint.tangent_dir;
   if (!Normalize(&tangent)) {
     tangent = chord_dir;
   }
   const double alignment = std::max(-1.0, std::min(1.0, Dot(tangent, chord_dir)));
-  const double angle_scale = std::max(0.25, 1.0 - (std::acos(alignment) / 3.14159265358979323846) * 0.7);
+  out.angle_scale = std::max(0.22, 1.0 - (std::acos(alignment) / 3.14159265358979323846) * 0.7);
   const double min_from_radius = std::max(0.0, constraint.min_bend_radius_hint_m * 0.6);
-  const double target = std::max(min_from_radius, hinted * angle_scale * RigidityScale(constraint));
+  out.policy_scale = std::max(0.1, policy.handle_scale * constraint.tangent_strength);
+  const double target =
+      std::max(min_from_radius, hinted * out.angle_scale * out.policy_scale * RigidityScale(constraint) * continuity_scale);
   const double capped = std::min(chord_length * 0.45, target);
-  return std::max(chord_length * 0.06, capped);
+  out.length_m = std::max(chord_length * 0.06, capped);
+  return out;
+}
+
+CableContinuityPolicyHint ResolveContinuityPreference(const CurveConstraint& start_constraint,
+                                                      const CurveConstraint& end_constraint) {
+  if (start_constraint.continuity_preference != CableContinuityPolicyHint::kAuto) {
+    return start_constraint.continuity_preference;
+  }
+  return end_constraint.continuity_preference;
 }
 
 bool HasConflictingTangentHint(const Vec3d& chord_dir, const CurveConstraint& constraint) {
@@ -215,36 +380,68 @@ bool HasConflictingTangentHint(const Vec3d& chord_dir, const CurveConstraint& co
   return Dot(tangent, chord_dir) < 0.25;
 }
 
-bool CurveHasPoorQuality(const std::array<Vec3d, 4>& cp, double sag_amplitude_m) {
+CurveQualityMetrics EvaluateCurveQuality(const std::array<Vec3d, 4>& cp, double sag_amplitude_m) {
+  CurveQualityMetrics metrics{};
   const Vec3d start = cp[0];
   Vec3d chord_dir = cp[3] - cp[0];
   const double chord_length = std::sqrt(LengthSquared(chord_dir));
   if (chord_length <= kZeroLengthEps) {
-    return false;
+    return metrics;
   }
   chord_dir = ScaleVec(chord_dir, 1.0 / chord_length);
+  const Vec3d lateral_axis = ComputeLateralAxis(chord_dir);
+  double last_lateral = 0.0;
+  bool has_last_lateral = false;
 
   double last_progress = 0.0;
-  int regressions = 0;
-  double max_deviation = 0.0;
   for (int i = 0; i <= 12; ++i) {
     const double u = static_cast<double>(i) / 12.0;
     Vec3d p = EvaluateBezier(cp, u);
     OffsetAlongWorldUp(&p, -sag_amplitude_m * SagShape(u));
     const double progress = ChordProjectionProgress(start, chord_dir, p);
     if (i > 0 && progress + 1e-6 < last_progress) {
-      ++regressions;
+      ++metrics.perspective.progress_regressions;
     }
     last_progress = progress;
-    max_deviation = std::max(max_deviation, MaxPerpendicularDeviation(start, chord_dir, p));
+    metrics.perspective.max_spatial_deviation_m =
+        std::max(metrics.perspective.max_spatial_deviation_m, MaxPerpendicularDeviation(start, chord_dir, p));
+    const double lateral = Dot(p - start, lateral_axis);
+    metrics.top.max_lateral_overshoot_m = std::max(metrics.top.max_lateral_overshoot_m, std::abs(lateral));
+    if (has_last_lateral && std::abs(lateral) > 1e-6 && std::abs(last_lateral) > 1e-6 &&
+        ((lateral > 0.0) != (last_lateral > 0.0))) {
+      ++metrics.top.lateral_sign_changes;
+    }
+    has_last_lateral = true;
+    last_lateral = lateral;
+    metrics.side.max_drop_m = std::max(metrics.side.max_drop_m, HeightAlongWorldUp(start) - HeightAlongWorldUp(p));
   }
-  return regressions > 0 || max_deviation > chord_length * 0.60;
+  const Vec3d tangent0 = EvaluateBezierDerivative(cp, 0.0) + ScaleVec(WorldUp(), -sag_amplitude_m * SagShapeDerivative(0.0));
+  const Vec3d tangent1 = EvaluateBezierDerivative(cp, 1.0) + ScaleVec(WorldUp(), -sag_amplitude_m * SagShapeDerivative(1.0));
+  metrics.side.endpoint_slope_delta = AngleDegreesBetween(tangent0, tangent1);
+  return metrics;
+}
+
+bool CurveHasPoorQuality(const CurveQualityMetrics& metrics, const CurveShapePolicyDecision& policy, double chord_length) {
+  if (metrics.perspective.progress_regressions > 0) {
+    return true;
+  }
+  if (metrics.perspective.max_spatial_deviation_m > chord_length * 0.60) {
+    return true;
+  }
+  if (metrics.top.max_lateral_overshoot_m > chord_length * policy.quality_lateral_limit_ratio) {
+    return true;
+  }
+  if (policy.kind != CurveShapePolicyKind::kSmoothPass && metrics.top.lateral_sign_changes > 0) {
+    return true;
+  }
+  return false;
 }
 
 ContinuityDecision DecideContinuity(const CurveConstraint& start_constraint, const CurveConstraint& end_constraint,
-                                    double chord_length, const Vec3d& chord_dir) {
+                                    const CurveShapePolicyDecision& shape_policy, double chord_length,
+                                    const Vec3d& chord_dir) {
   ContinuityDecision decision{};
-  decision.handle_scale = 0.82;
+  decision.handle_scale = shape_policy.handle_scale;
 
   const CableContinuityPolicyHint policy = start_constraint.continuity_preference;
   if (policy == CableContinuityPolicyHint::kPreferG1) {
@@ -262,27 +459,27 @@ ContinuityDecision DecideContinuity(const CurveConstraint& start_constraint, con
     return decision;
   }
 
-  if (start_constraint.pass_mode == CurvePassMode::kBranch || end_constraint.pass_mode == CurvePassMode::kBranch) {
+  if (shape_policy.kind == CurveShapePolicyKind::kBranchPass) {
     decision.reason = DetailCurveContinuityReason::kBranchPass;
     return decision;
   }
 
-  if (start_constraint.corner_pass || end_constraint.corner_pass ||
-      start_constraint.pass_mode == CurvePassMode::kTerminate || end_constraint.pass_mode == CurvePassMode::kTerminate) {
+  if (HasConflictingTangentHint(chord_dir, start_constraint) || HasConflictingTangentHint(chord_dir, end_constraint)) {
+    decision.reason = DetailCurveContinuityReason::kConflictingTangents;
+    return decision;
+  }
+
+  if (shape_policy.kind == CurveShapePolicyKind::kSharpCorner || shape_policy.kind == CurveShapePolicyKind::kTerminate) {
     decision.reason = DetailCurveContinuityReason::kCornerPass;
     return decision;
   }
 
   const double max_endpoint_offset_m =
       std::max(EndpointOffsetMagnitude(start_constraint), EndpointOffsetMagnitude(end_constraint));
-  if (max_endpoint_offset_m > kG2EndpointOffsetMetersLimit ||
+  if (shape_policy.kind == CurveShapePolicyKind::kViaAttachment ||
+      max_endpoint_offset_m > kG2EndpointOffsetMetersLimit ||
       max_endpoint_offset_m > chord_length * kG2EndpointOffsetRatioLimit) {
     decision.reason = DetailCurveContinuityReason::kEndpointConstraintPriority;
-    return decision;
-  }
-
-  if (HasConflictingTangentHint(chord_dir, start_constraint) || HasConflictingTangentHint(chord_dir, end_constraint)) {
-    decision.reason = DetailCurveContinuityReason::kConflictingTangents;
     return decision;
   }
 
@@ -398,17 +595,26 @@ DetailCurve BuildDetailCurve(const CurveConstraint& start_constraint, const Curv
   if (!Normalize(&chord_dir)) {
     chord_dir = WorldForward();
   }
+  const CurveShapePolicyDecision shape_policy = ChooseShapePolicy(start_constraint, end_constraint, chord_length, chord_dir);
+  const CableContinuityPolicyHint requested_policy = ResolveContinuityPreference(start_constraint, end_constraint);
 
   Vec3d start_tangent = ClampToChordDirection(chord_dir, start_constraint.tangent_dir);
   Vec3d end_tangent = ClampToChordDirection(chord_dir, end_constraint.tangent_dir);
   ApplyCornerPassTangentPolicy(chord_dir, start_constraint, &start_tangent);
   ApplyCornerPassTangentPolicy(chord_dir, end_constraint, &end_tangent);
-  start_tangent = SuppressPlanarLateralComponent(chord_dir, start_tangent);
-  end_tangent = SuppressPlanarLateralComponent(chord_dir, end_tangent);
-  DampNearStraightTangents(chord_dir, &start_tangent, &end_tangent);
+  start_tangent = ApplyLateralSuppressionPolicy(chord_dir, start_tangent, shape_policy.lateral_suppression);
+  end_tangent = ApplyLateralSuppressionPolicy(chord_dir, end_tangent, shape_policy.lateral_suppression);
+  if (shape_policy.kind == CurveShapePolicyKind::kNearStraight) {
+    DampNearStraightTangents(chord_dir, &start_tangent, &end_tangent);
+  }
 
-  ContinuityDecision continuity = DecideContinuity(start_constraint, end_constraint, chord_length, chord_dir);
-  const bool prefer_g1_policy = start_constraint.continuity_preference == CableContinuityPolicyHint::kPreferG1;
+  CurveConstraint normalized_start = start_constraint;
+  CurveConstraint normalized_end = end_constraint;
+  normalized_start.continuity_preference = requested_policy;
+  normalized_end.continuity_preference = requested_policy;
+  ContinuityDecision continuity =
+      DecideContinuity(normalized_start, normalized_end, shape_policy, chord_length, chord_dir);
+  const bool prefer_g1_policy = requested_policy == CableContinuityPolicyHint::kPreferG1;
   const bool started_as_g2 = continuity.mode == DetailCurveContinuityMode::kG2;
 
   const double base_sag = std::max(0.0, start_constraint.sag_hint + end_constraint.sag_hint +
@@ -420,33 +626,52 @@ DetailCurve BuildDetailCurve(const CurveConstraint& start_constraint, const Curv
   bool degraded = (continuity.mode == DetailCurveContinuityMode::kG1) && !prefer_g1_policy;
   double h0 = 0.0;
   double h1 = 0.0;
+  HandleLengthComponents start_handle{};
+  HandleLengthComponents end_handle{};
   for (; fallback_iterations < 3; ++fallback_iterations) {
-    h0 = ComputeBaseTangentLength(chord_length, chord_dir, start_constraint) * tangent_scale *
-         CornerPassTangentLengthScale(start_constraint);
-    h1 = ComputeBaseTangentLength(chord_length, chord_dir, end_constraint) * tangent_scale *
-         CornerPassTangentLengthScale(end_constraint);
+    start_handle = ComputeHandleLength(chord_length, chord_dir, start_constraint, shape_policy, tangent_scale);
+    end_handle = ComputeHandleLength(chord_length, chord_dir, end_constraint, shape_policy, tangent_scale);
+    h0 = start_handle.length_m * CornerPassTangentLengthScale(start_constraint);
+    h1 = end_handle.length_m * CornerPassTangentLengthScale(end_constraint);
     cp[0] = start_point;
     cp[1] = start_point + ScaleVec(start_tangent, h0);
     cp[2] = end_point - ScaleVec(end_tangent, h1);
     cp[3] = end_point;
-    if (!CurveHasPoorQuality(cp, chord_length * base_sag)) {
+    const CurveQualityMetrics quality = EvaluateCurveQuality(cp, chord_length * base_sag);
+    if (!CurveHasPoorQuality(quality, shape_policy, chord_length)) {
       break;
+    }
+    if (fallback_iterations == 0) {
+      tangent_scale *= 0.78;
+      continue;
+    }
+    if (fallback_iterations == 1 && continuity.mode == DetailCurveContinuityMode::kG2) {
+      continuity.mode = DetailCurveContinuityMode::kG1;
+      continuity.reason = DetailCurveContinuityReason::kPoorQualityFallback;
+      degraded = true;
+      tangent_scale *= 0.88;
+      continue;
     }
     tangent_scale *= kFallbackTangentScale;
     degraded = true;
-    continuity.mode = DetailCurveContinuityMode::kG1;
     if (started_as_g2) {
+      continuity.mode = DetailCurveContinuityMode::kG1;
       continuity.reason = DetailCurveContinuityReason::kPoorQualityFallback;
     }
   }
 
   curve.control_points = cp;
   curve.sag_amplitude_m = chord_length * base_sag;
-  curve.quality.requested_policy = start_constraint.continuity_preference;
+  curve.quality.requested_policy = requested_policy;
+  curve.quality.shape_policy = shape_policy.kind;
   curve.quality.adopted_continuity = continuity.mode;
   curve.quality.continuity_reason = continuity.reason;
   curve.quality.tangent_scale = tangent_scale;
   curve.quality.fallback_iterations = fallback_iterations;
+  curve.quality.base_handle_scale = 0.5 * (start_handle.base_scale + end_handle.base_scale);
+  curve.quality.policy_handle_scale = 0.5 * (start_handle.policy_scale + end_handle.policy_scale);
+  curve.quality.start_angle_scale = start_handle.angle_scale;
+  curve.quality.end_angle_scale = end_handle.angle_scale;
   curve.quality.handle_length_start_m = h0;
   curve.quality.handle_length_end_m = h1;
   curve.quality.attempted_g2 = continuity.attempted_g2;

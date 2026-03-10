@@ -12,6 +12,17 @@ namespace wire::core {
 namespace {
 constexpr double kZeroLengthEps = 1e-9;
 
+std::uint64_t splitmix64(std::uint64_t x) {
+  x += 0x9E3779B97F4A7C15ull;
+  x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ull;
+  x = (x ^ (x >> 27)) * 0x94D049BB133111EBull;
+  return x ^ (x >> 31);
+}
+
+std::uint64_t hash_combine(std::uint64_t seed, std::uint64_t value) {
+  return splitmix64(seed ^ (value + 0x9E3779B97F4A7C15ull + (seed << 6) + (seed >> 2)));
+}
+
 CurvePassMode curve_pass_mode_from_context(ConnectionContext context) {
   switch (context) {
   case ConnectionContext::kBranchAdd:
@@ -67,6 +78,7 @@ CurveConstraint make_curve_constraint(const Port& port, const Pole* owner_pole, 
   CurveConstraint constraint{};
   constraint.point = port.world_position;
   constraint.tangent_dir = span_tangent_from_port(port, chord_dir);
+  constraint.tangent_strength = 1.0;
   constraint.tangent_length_hint_m = basis_length * 0.30;
   constraint.bend_stiffness_hint = bend_stiffness_hint;
   constraint.min_bend_radius_hint_m = min_bend_radius_hint_m;
@@ -82,6 +94,21 @@ CurveConstraint make_curve_constraint(const Port& port, const Pole* owner_pole, 
       owner_pole->context.kind == PoleContextKind::kCorner && owner_pole->context.corner_angle_deg > 1e-6;
   constraint.corner_angle_deg = (owner_pole == nullptr) ? 0.0 : owner_pole->context.corner_angle_deg;
   return constraint;
+}
+
+std::uint64_t fallback_variation_flow_key_for_span(const Span& span) {
+  std::uint64_t key = hash_combine(span.generation.generation_session_id, static_cast<std::uint64_t>(span.bundle_id));
+  key = hash_combine(key, static_cast<std::uint64_t>(span.endpoint_node_a_id));
+  key = hash_combine(key, static_cast<std::uint64_t>(span.endpoint_node_b_id));
+  key = hash_combine(key, static_cast<std::uint64_t>(span.placement_context));
+  return key;
+}
+
+std::uint64_t variation_flow_key_for_span(const SpanRuntimeState* runtime, const Span& span) {
+  if (runtime != nullptr && runtime->variation_flow_key != 0) {
+    return runtime->variation_flow_key;
+  }
+  return fallback_variation_flow_key_for_span(span);
 }
 }
 
@@ -270,6 +297,7 @@ void CoreState::initialize_span_runtime_state(ObjectId span_id) {
   runtime.bounds_version = 0;
   runtime.render_version = 0;
   runtime.raycast_version = 0;
+  runtime.variation_flow_key = 0;
   runtime.dirty_bits = DirtyBits::kNone;
   span_runtime_states_[span_id] = runtime;
 }
@@ -415,6 +443,8 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
   const CableTemplate* cable_template =
       (bundle_template == nullptr) ? nullptr : find_cable_template(bundle_template->cable_template_id);
   const bool requires_insulator = (cable_template != nullptr) ? cable_template->requires_insulator : false;
+  const SpanRuntimeState* runtime = find_span_runtime_state(span_id);
+  const std::uint64_t flow_key = variation_flow_key_for_span(runtime, *span);
 
   auto append_parts_for_port = [&](const Port& port) {
     const Pole* pole = edit_state_.poles.find(port.owner_pole_id);
@@ -486,7 +516,24 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
         }
       }
       const Vec3d local = to_local_on_pole(*pole, port.world_position);
-      placement.down_offset_m = std::max(0.0, main_support_base_z_m - local.z);
+      VariationContext down_offset_context{};
+      down_offset_context.world_position = port.world_position;
+      down_offset_context.flow_key = flow_key;
+      down_offset_context.pole_id = pole->id;
+      down_offset_context.secondary_pole_id = kInvalidObjectId;
+      down_offset_context.local_key = static_cast<std::uint64_t>(port.id);
+      placement.down_offset_variation =
+          EvaluateHierarchicalVariation(cache_state_.variation_settings, down_offset_context);
+      const double varied_delta =
+          placement.down_offset_variation.final_value * cache_state_.variation_settings.branch_down_offset_variation_scale;
+      placement.down_offset_m = std::max(0.0, main_support_base_z_m - local.z + varied_delta);
+      placement.mount_world = {pole->world_transform.position.x, pole->world_transform.position.y,
+                               port.world_position.z + placement.down_offset_m};
+      placement.tip_world = {
+          port.world_position.x + radial.x * cache_state_.visual_settings.support_arm_extra_m,
+          port.world_position.y + radial.y * cache_state_.visual_settings.support_arm_extra_m,
+          port.world_position.z + placement.down_offset_m,
+      };
       entry.branch_supports.push_back(placement);
 
       if (cache_state_.visual_settings.enable_support_structures) {
@@ -501,7 +548,6 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
   };
 
   SpanVisualCacheEntry entry{};
-  const SpanRuntimeState* runtime = find_span_runtime_state(span_id);
   entry.source_version = (runtime == nullptr) ? 0 : runtime->data_version;
   cache_state_.visual_cache.by_span[span_id] = std::move(entry);
   append_parts_for_port(*a);
@@ -554,13 +600,25 @@ DetailCurve CoreState::generate_span_curve(const Span& span, std::string* error_
   const bool use_reference_length = true;
   const double basis_length =
       (use_reference_length && span.reference_length_m > kZeroLengthEps) ? span.reference_length_m : distance;
-  const double effective_sag_ratio =
-      (cache_state_.geometry_settings.sag_enabled && basis_length > kZeroLengthEps) ? sag_ratio : 0.0;
 
   Vec3d chord_dir = b - a;
   if (!Normalize(&chord_dir)) {
     chord_dir = WorldForward();
   }
+
+  const SpanRuntimeState* runtime = find_span_runtime_state(span.id);
+  VariationContext sag_variation_context{};
+  sag_variation_context.world_position = {(a.x + b.x) * 0.5, (a.y + b.y) * 0.5, (a.z + b.z) * 0.5};
+  sag_variation_context.flow_key = variation_flow_key_for_span(runtime, span);
+  sag_variation_context.pole_id = (pole_a == nullptr) ? kInvalidObjectId : pole_a->id;
+  sag_variation_context.secondary_pole_id = (pole_b == nullptr) ? kInvalidObjectId : pole_b->id;
+  sag_variation_context.local_key = static_cast<std::uint64_t>(span.id);
+  const HierarchicalVariationSample sag_variation =
+      EvaluateHierarchicalVariation(cache_state_.variation_settings, sag_variation_context);
+  const double sag_multiplier =
+      std::max(0.0, 1.0 + sag_variation.final_value * cache_state_.variation_settings.sag_variation_scale);
+  const double effective_sag_ratio =
+      (cache_state_.geometry_settings.sag_enabled && basis_length > kZeroLengthEps) ? (sag_ratio * sag_multiplier) : 0.0;
 
   const CurveEndpointMode endpoint_mode = curve_endpoint_mode_for_template(cable_template, bundle_template);
   const double endpoint_offset_m = std::min(std::max(0.02, basis_length * 0.03), 0.35);
@@ -578,8 +636,9 @@ DetailCurve CoreState::generate_span_curve(const Span& span, std::string* error_
       make_curve_constraint(*port_b, pole_b, chord_dir, basis_length, endpoint_offset_m, effective_sag_ratio,
                             bend_stiffness_hint, min_bend_radius_hint_m,
                             continuity_preference, pass_mode, span.placement_context, endpoint_mode, true);
-
-  return BuildDetailCurve(start, end, samples);
+  DetailCurve curve = BuildDetailCurve(start, end, samples);
+  curve.quality.sag_variation = sag_variation;
+  return curve;
 }
 
 AABBd CoreState::build_aabb_from_points(const std::vector<Vec3d>& points) {

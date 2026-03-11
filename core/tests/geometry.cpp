@@ -493,8 +493,13 @@ bool test_acute_corner_auto_widens_lane_spacing() {
     if (p_left == nullptr || p_right == nullptr) {
       return std::numeric_limits<double>::quiet_NaN();
     }
-    const wire::core::Vec3d local_left = to_local_on_pole_test(*pole, p_left->world_position);
-    const wire::core::Vec3d local_right = to_local_on_pole_test(*pole, p_right->world_position);
+    double layout_yaw_deg = effective_pole_yaw_deg_test(*pole);
+    if (const auto pole_view = state.view().inspect_pole(pole->id); pole_view.has_value() && pole_view->has_layout_yaw) {
+      layout_yaw_deg = pole_view->layout_yaw_deg;
+    }
+    const wire::core::PoleFrame frame = wire::core::BuildPoleFrame(pole->world_transform, layout_yaw_deg);
+    const wire::core::Vec3d local_left = wire::core::WorldPointToLocal(frame, p_left->world_position);
+    const wire::core::Vec3d local_right = wire::core::WorldPointToLocal(frame, p_right->world_position);
     return std::abs(local_right.y - local_left.y);
   };
 
@@ -1557,13 +1562,20 @@ bool test_support_layout_attachment_socket_endpoint_matches_curve_input() {
   (void)state.Commit().recalc_stats;
   const auto* support_layout = state.view().find_span_support_layout(span);
   const auto* curve = state.find_curve_cache(span);
-  if (support_layout == nullptr || curve == nullptr) {
+  const auto layout_view = state.view().inspect_support_layout(span);
+  const auto curve_view = state.view().inspect_detail_curve(span);
+  if (support_layout == nullptr || curve == nullptr || !layout_view.has_value() || !curve_view.has_value()) {
     return false;
   }
   return support_layout->start.attachment_id == add_attachment.value && support_layout->start.socket_id == 1 &&
+         support_layout->start.endpoint_source ==
+             wire::core::SupportLayoutEndpointSourceKind::kAttachmentSocketOverride &&
          support_layout->start.endpoint_mode == wire::core::CurveEndpointMode::kDirectThrough &&
          almost_equal(support_layout->start.endpoint_world, wire::core::Vec3d{0.12, 0.0, 4.2}, 1e-6) &&
-         almost_equal(curve->detail.start_constraint.point, support_layout->start.endpoint_world, 1e-9);
+         almost_equal(curve->detail.start_constraint.point, support_layout->start.endpoint_world, 1e-9) &&
+         layout_view->start_endpoint.endpoint_source == "AttachmentSocketOverride" &&
+         curve_view->start_endpoint_source == layout_view->start_endpoint.endpoint_source &&
+         curve_view->start_attachment_input_present && curve_view->start_socket_id == 1;
 }
 
 bool test_inspection_span_support_layout_detail_curve_surface_is_coherent() {
@@ -1622,6 +1634,72 @@ bool test_inspection_span_support_layout_detail_curve_surface_is_coherent() {
   }
   const auto trace = view.collect_decision_trace({wire::core::EntityKind::kSpan, span});
   return !trace.empty();
+}
+
+bool test_support_layout_and_detail_curve_share_resolved_policy_inputs() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec trunk{};
+  trunk.path.polyline = {{-12.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}};
+  trunk.interval_m = 1000.0;
+  trunk.pole_type_id = type_ids.front();
+  add_backbone_bundle(trunk, wire::core::BundleKind::kHighVoltage);
+  if (!state.GenerateFromBackboneSpec(trunk).ok) {
+    return false;
+  }
+
+  const ObjectId center_id = find_pole_id_by_position(state, {0.0, 0.0, 0.0});
+  if (center_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec branch{};
+  branch.path.polyline = {{0.0, 0.0, 0.0}, {9.0, 6.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec shared{};
+  shared.point_index = 0;
+  shared.support_kind = wire::core::SupportKind::kPole;
+  shared.node_id = center_id;
+  branch.path.node_specs.push_back(shared);
+  branch.interval_m = 1000.0;
+  branch.pole_type_id = type_ids.front();
+  add_backbone_bundle(branch, wire::core::BundleKind::kHighVoltage);
+  const auto generated = state.GenerateFromBackboneSpec(branch);
+  if (!generated.ok || generated.value.generated_span_ids.empty()) {
+    return false;
+  }
+
+  wire::core::CommitOptions options{};
+  options.run_recalc = true;
+  (void)state.Commit(options);
+
+  const ObjectId span_id = generated.value.generated_span_ids.front();
+  const auto view = state.view();
+  const auto span_view = view.inspect_span(span_id);
+  const auto layout_view = view.inspect_support_layout(span_id);
+  const auto curve_view = view.inspect_detail_curve(span_id);
+  if (!span_view.has_value() || !layout_view.has_value() || !curve_view.has_value()) {
+    return false;
+  }
+  if (span_view->flow_kind != layout_view->flow_kind ||
+      layout_view->variation_flow_key != curve_view->sag_variation.flow_key ||
+      span_view->requested_continuity != curve_view->requested_continuity) {
+    return false;
+  }
+
+  const auto trace = view.collect_decision_trace({wire::core::EntityKind::kSpan, span_id});
+  auto has_topic = [&](wire::core::DecisionTraceTopic topic) {
+    return std::any_of(trace.begin(), trace.end(), [topic](const wire::core::DecisionTraceEntry& entry) {
+      return entry.topic == topic;
+    });
+  };
+  return has_topic(wire::core::DecisionTraceTopic::kSupportLayoutSelection) &&
+         has_topic(wire::core::DecisionTraceTopic::kTangentGeneration) &&
+         has_topic(wire::core::DecisionTraceTopic::kContinuitySelection) &&
+         has_topic(wire::core::DecisionTraceTopic::kSagProfile);
 }
 
 bool test_inspection_pole_template_override_and_junction_surfaces_are_visible() {
@@ -2372,6 +2450,9 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C166_Inspection_SpanSupportDetailCurve_Surface",
                          "Inspection surface exposes span/support-layout/detail-curve views and decision trace without leaking internals",
                          "Invariant", false, test_inspection_span_support_layout_detail_curve_surface_is_coherent);
+  test_registry::AddTest(tests, "C172_SupportLayout_CurvePolicyInputs_Shared",
+                         "Support layout and detail curve share the same resolved span policy inputs and expose separate trace topics",
+                         "Invariant", false, test_support_layout_and_detail_curve_share_resolved_policy_inputs);
   test_registry::AddTest(tests, "C167_Inspection_PoleTemplateOverrideJunction_Surface",
                          "Inspection surface exposes pole/template/override/junction views through concept-level readonly access",
                          "Invariant", false, test_inspection_pole_template_override_and_junction_surfaces_are_visible);

@@ -70,6 +70,20 @@ CoreState::generate_grouped_spans_between_support_nodes(
     }
     return (edit_state_access().poles.find(node_id) != nullptr) ? SupportKind::kPole : SupportKind::kMidair;
   };
+  auto support_axis_for_pole = [&](const Pole& pole) -> Vec3d {
+    if (const auto it = pole_orientation_debug_records_.find(pole.id); it != pole_orientation_debug_records_.end()) {
+      Vec3d axis = it->second.adopted_support_axis;
+      if (normalize_xy(&axis) && std::isfinite(axis.x) && std::isfinite(axis.y)) {
+        return axis;
+      }
+    }
+    Vec3d axis = side_axis_from_yaw_deg(effective_pole_layout_yaw_deg(pole));
+    if (normalize_xy(&axis) && std::isfinite(axis.x) && std::isfinite(axis.y)) {
+      return axis;
+    }
+    return Vec3d{0.0, 1.0, 0.0};
+  };
+  auto layout_yaw_for_pole = [&](const Pole& pole) { return effective_pole_layout_yaw_deg(pole); };
   auto span_context_for_segment = [&](ObjectId node_a, ObjectId node_b) -> ConnectionContext {
     if (category == ConnectionCategory::kDrop) {
       return ConnectionContext::kDropAdd;
@@ -92,6 +106,10 @@ CoreState::generate_grouped_spans_between_support_nodes(
   };
   std::vector<Vec3d> side_axis_by_index(node_ids.size(), Vec3d{0.0, 1.0, 0.0});
   for (std::size_t i = 0; i < node_ids.size(); ++i) {
+    if (const Pole* pole = support_pole(node_ids[i]); pole != nullptr) {
+      side_axis_by_index[i] = support_axis_for_pole(*pole);
+      continue;
+    }
     const Vec3d center = support_position(node_ids[i]);
     Vec3d tangent{1.0, 0.0, 0.0};
     if (i == 0 && i + 1 < node_ids.size()) {
@@ -136,7 +154,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
       if (normalize_xy(&dir_xy) && std::isfinite(dir_xy.x) && std::isfinite(dir_xy.y)) {
         return ComputeLateralAxis(dir_xy);
       }
-      Vec3d yaw_side_axis = side_axis_from_yaw_deg(pole->world_transform.rotation_euler_deg.z);
+      Vec3d yaw_side_axis = support_axis_for_pole(*pole);
       if (std::isfinite(yaw_side_axis.x) && std::isfinite(yaw_side_axis.y)) {
         return yaw_side_axis;
       }
@@ -343,7 +361,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
         Vec3d local{0.0, side_sign * branch_support_offset_m + lane_offset, branch_base_z_m};
         local = apply_pole_clearance_to_local(*pole, local, branch_side);
         const Vec3d world =
-            local_to_world_on_pole_local(pole->world_transform, effective_pole_yaw_deg(*pole), local);
+            local_to_world_on_pole_local(pole->world_transform, layout_yaw_for_pole(*pole), local);
         EditResult<ObjectId> add_port =
             AddPort(node_id, world, category_to_port_kind(category), category_to_port_layer(category));
         if (!add_port.ok) {
@@ -369,8 +387,16 @@ CoreState::generate_grouped_spans_between_support_nodes(
       std::sort(ports_result.value.begin(), ports_result.value.end(), [&](ObjectId a, ObjectId b) {
         const Port* pa = edit_state_access().ports.find(a);
         const Port* pb = edit_state_access().ports.find(b);
-        const double ya = (pa == nullptr) ? 0.0 : to_local_on_pole(*pole, pa->world_position).y;
-        const double yb = (pb == nullptr) ? 0.0 : to_local_on_pole(*pole, pb->world_position).y;
+        const double ya = (pa == nullptr)
+                              ? 0.0
+                              : WorldPointToLocal(BuildPoleFrame(pole->world_transform, layout_yaw_for_pole(*pole)),
+                                                  pa->world_position)
+                                    .y;
+        const double yb = (pb == nullptr)
+                              ? 0.0
+                              : WorldPointToLocal(BuildPoleFrame(pole->world_transform, layout_yaw_for_pole(*pole)),
+                                                  pb->world_position)
+                                    .y;
         if (std::abs(ya - yb) > 1e-9) {
           return ya < yb;
         }
@@ -480,7 +506,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
           Vec3d world{};
           if (use_hv_scaffold_geometry) {
             const Vec3d local{0.0, lane_sign * lane_offset, p->height_m * 0.8};
-            world = local_to_world_on_pole_local(p->world_transform, effective_pole_yaw_deg(*p), local);
+            world = local_to_world_on_pole_local(p->world_transform, layout_yaw_for_pole(*p), local);
           } else {
             const Vec3d lateral_axis = canonical_side_axis_for_order(node_id, peer_id);
             const Vec3d lane_delta{lateral_axis.x * lane_sign * lane_offset, lateral_axis.y * lane_sign * lane_offset,
@@ -558,29 +584,43 @@ CoreState::generate_grouped_spans_between_support_nodes(
       const auto it_index = node_index_by_id.find(node_id);
       const std::size_t node_index = (it_index == node_index_by_id.end()) ? node_ids.size() : it_index->second;
       auto desired_world_for_target = [&](double target_y) {
-        const Vec3d base = pole->world_transform.position;
-        if (!use_hv_scaffold_geometry || node_index == node_ids.size() || node_index == 0 ||
-            node_index + 1 >= node_ids.size()) {
-          const Vec3d local{0.0, target_y, pole->height_m * 0.8};
-          return local_to_world_on_pole_local(pole->world_transform, effective_pole_yaw_deg(*pole), local);
-        }
+          const Vec3d base = pole->world_transform.position;
+          if (!use_hv_scaffold_geometry || node_index == node_ids.size() || node_index == 0 ||
+              node_index + 1 >= node_ids.size()) {
+            const Vec3d local{0.0, target_y, pole->height_m * 0.8};
+            return local_to_world_on_pole_local(pole->world_transform, layout_yaw_for_pole(*pole), local);
+          }
 
         const Vec3d prev = support_position(node_ids[node_index - 1]);
         const Vec3d next = support_position(node_ids[node_index + 1]);
-        if ((prev - base).x * (prev - base).x + (prev - base).y * (prev - base).y <= 1e-12 ||
-            (next - base).x * (next - base).x + (next - base).y * (next - base).y <= 1e-12) {
-          const Vec3d local{0.0, target_y, pole->height_m * 0.8};
-          return local_to_world_on_pole_local(pole->world_transform, effective_pole_yaw_deg(*pole), local);
-        }
+          if ((prev - base).x * (prev - base).x + (prev - base).y * (prev - base).y <= 1e-12 ||
+              (next - base).x * (next - base).x + (next - base).y * (next - base).y <= 1e-12) {
+            const Vec3d local{0.0, target_y, pole->height_m * 0.8};
+            return local_to_world_on_pole_local(pole->world_transform, layout_yaw_for_pole(*pole), local);
+          }
 
         Vec3d dir_in = base - prev;
         Vec3d dir_out = next - base;
         if (!normalize_xy(&dir_in) || !normalize_xy(&dir_out)) {
           const Vec3d local{0.0, target_y, pole->height_m * 0.8};
-          return local_to_world_on_pole_local(pole->world_transform, effective_pole_yaw_deg(*pole), local);
+          return local_to_world_on_pole_local(pole->world_transform, layout_yaw_for_pole(*pole), local);
         }
-        const Vec3d normal_in = ComputeLateralAxis(dir_in);
-        const Vec3d normal_out = ComputeLateralAxis(dir_out);
+        Vec3d normal_in = ComputeLateralAxis(dir_in);
+        Vec3d normal_out = ComputeLateralAxis(dir_out);
+        if (!normalize_xy(&normal_in)) {
+          normal_in = stable_side_axis;
+        }
+        if (!normalize_xy(&normal_out)) {
+          normal_out = stable_side_axis;
+        }
+        if (dot_xy(normal_in, stable_side_axis) < 0.0) {
+          normal_in.x = -normal_in.x;
+          normal_in.y = -normal_in.y;
+        }
+        if (dot_xy(normal_out, stable_side_axis) < 0.0) {
+          normal_out.x = -normal_out.x;
+          normal_out.y = -normal_out.y;
+        }
 
         Vec3d joined_xy{};
         const Vec3d offset_in{base.x + normal_in.x * target_y, base.y + normal_in.y * target_y,
@@ -602,7 +642,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
         }
 
         const Vec3d local{0.0, target_y, pole->height_m * 0.8};
-        return local_to_world_on_pole_local(pole->world_transform, effective_pole_yaw_deg(*pole), local);
+        return local_to_world_on_pole_local(pole->world_transform, layout_yaw_for_pole(*pole), local);
       };
 
       std::vector<ObjectId> ordered_ports(static_cast<std::size_t>(lane_count), kInvalidObjectId);
@@ -618,9 +658,6 @@ CoreState::generate_grouped_spans_between_support_nodes(
           }
           const Port* candidate = edit_state_access().ports.find(candidate_id);
           if (candidate == nullptr || candidate->owner_pole_id != node_id || candidate->layer != target_port_layer) {
-            continue;
-          }
-          if (use_hv_scaffold_geometry && candidate->source_slot_id >= 0) {
             continue;
           }
           const double dist = use_hv_scaffold_geometry
@@ -649,7 +686,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
         }
         if (use_hv_scaffold_geometry) {
           Port* selected = edit_state_access().ports.find(best_id);
-          if (selected != nullptr && selected->owner_pole_id == node_id && selected->source_slot_id < 0) {
+          if (selected != nullptr && selected->owner_pole_id == node_id) {
             selected->world_position = desired_world;
             add_unique_id(result.change_set.updated_ids, selected->id);
           }
@@ -681,7 +718,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
       if (p == nullptr || pole == nullptr) {
         return 0.0;
       }
-      return to_local_on_pole(*pole, p->world_position).y;
+      return WorldPointToLocal(BuildPoleFrame(pole->world_transform, layout_yaw_for_pole(*pole)), p->world_position).y;
     };
     auto order_key = [&](const Port* p) -> std::tuple<double, int, int, int, int, ObjectId> {
       if (p == nullptr) {
@@ -804,9 +841,9 @@ CoreState::generate_grouped_spans_between_support_nodes(
     const Vec3d lateral_axis{-segment_dir.y, segment_dir.x, 0.0};
     auto axis_for_node = [&](ObjectId node_id) -> Vec3d {
       if (const Pole* pole = support_pole(node_id); pole != nullptr) {
-        Vec3d yaw_side = side_axis_from_yaw_deg(pole->world_transform.rotation_euler_deg.z);
-        if (std::isfinite(yaw_side.x) && std::isfinite(yaw_side.y)) {
-          return yaw_side;
+        Vec3d support_axis = support_axis_for_pole(*pole);
+        if (std::isfinite(support_axis.x) && std::isfinite(support_axis.y)) {
+          return support_axis;
         }
       }
       const auto it = node_side_axis_hints.find(node_id);
@@ -817,6 +854,10 @@ CoreState::generate_grouped_spans_between_support_nodes(
     };
     const Vec3d axis_a = axis_for_node(node_a);
     const Vec3d axis_b = axis_for_node(node_b);
+    double y_sign_b = 1.0;
+    if (dot_xy(axis_a, axis_b) < 0.0) {
+      y_sign_b = -1.0;
+    }
     const bool use_local_y_metric = (bundle_template_id == BundleKind::kHighVoltage);
 
     std::vector<double> y_a(static_cast<std::size_t>(lane_count), 0.0);
@@ -835,16 +876,22 @@ CoreState::generate_grouped_spans_between_support_nodes(
       }
       if (use_local_y_metric) {
         const Vec3d local_a =
-            (pa == nullptr) ? port_a->world_position : to_local_on_pole(*pa, port_a->world_position);
+            (pa == nullptr)
+                ? port_a->world_position
+                : WorldPointToLocal(BuildPoleFrame(pa->world_transform, layout_yaw_for_pole(*pa)),
+                                    port_a->world_position);
         const Vec3d local_b =
-            (pb == nullptr) ? port_b->world_position : to_local_on_pole(*pb, port_b->world_position);
+            (pb == nullptr)
+                ? port_b->world_position
+                : WorldPointToLocal(BuildPoleFrame(pb->world_transform, layout_yaw_for_pole(*pb)),
+                                    port_b->world_position);
         y_a[idx] = local_a.y;
-        y_b[idx] = local_b.y;
+        y_b[idx] = local_b.y * y_sign_b;
       } else {
         const Vec3d da = port_a->world_position - pos_a;
         const Vec3d db = port_b->world_position - pos_b;
         y_a[idx] = dot_xy(da, axis_a);
-        y_b[idx] = dot_xy(db, axis_b);
+        y_b[idx] = dot_xy(db, axis_b) * y_sign_b;
       }
       z_a[idx] = port_a->world_position.z;
       z_b[idx] = port_b->world_position.z;
@@ -904,6 +951,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
 
   const bool allow_mirror = allow_lane_mirror && lane_count > 1;
   constexpr double kAngleEps = 1e-6;
+  constexpr double kReverseStraightAngleDeg = 179.999;
 
   const std::size_t segment_count = node_ids.size() - 1;
   std::vector<std::vector<ObjectId>> prepared_ports_b(segment_count);
@@ -1065,11 +1113,14 @@ CoreState::generate_grouped_spans_between_support_nodes(
             }
             const int curr_orientation = parity_prev ^ parity_curr;
             if (curr_orientation != prev_orientation) {
-              ++candidate.orientation_flips;
-              const bool is_acute_turn =
-                  (turn_angle_by_segment[step] + kAngleEps < layout_settings_.corner_threshold_deg);
-              if (is_acute_turn) {
-                ++candidate.acute_orientation_flips;
+              const bool counts_as_flip = (turn_angle_by_segment[step] + kAngleEps < kReverseStraightAngleDeg);
+              if (counts_as_flip) {
+                ++candidate.orientation_flips;
+                const bool is_acute_turn =
+                    (turn_angle_by_segment[step] + kAngleEps < layout_settings_.corner_threshold_deg);
+                if (is_acute_turn) {
+                  ++candidate.acute_orientation_flips;
+                }
               }
             }
 
@@ -1137,7 +1188,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
     LaneFlipReason flip_reason = LaneFlipReason::kNone;
     bool flipped_from_previous = false;
     const bool previous_mirror = (seg > 0) ? ((node_parity[seg - 1] ^ node_parity[seg]) != 0) : false;
-    if (seg > 0 && chosen_mirror != previous_mirror) {
+    if (seg > 0 && chosen_mirror != previous_mirror && (turn_angle_deg + kAngleEps < kReverseStraightAngleDeg)) {
       flipped_from_previous = true;
       if (is_acute_turn) {
         flip_reason = LaneFlipReason::kAcuteTurn;

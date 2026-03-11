@@ -44,7 +44,7 @@
   - 将来 override を足しても、正本と導出の境界を壊さない。
 - 分類ルール:
   - `正本`: 接続・所有・入力意味として保持する値。再生成で消えない。
-  - `明示override可能な正本`: 既定は自動決定だが、将来ユーザーが固定しうる値。override は entity 側に保持する。
+  - `明示override可能な正本`: 既定は自動決定だが、将来ユーザーが固定しうる値。override は formal override 層を正とし、entity 側に mirror が残る場合でも互換目的に限定する。
   - `自動決定される導出結果`: topology / template / junction から再計算できる結果。重い正本概念にしない。
   - `詳細形状層の派生データ`: 見た目曲線・距離属性・attachment内部経路など。cache/recalc/render に閉じる。
 - 項目別の固定:
@@ -140,6 +140,27 @@
   - viewer 側の可視デバッグ（mirror 適用区間 / junction order 表示）の恒久UI化。
 
 ## 11. Decision Log（直近）
+- 2026-03-11 / Accepted:
+  - 決定: `SupportLayout` を detail curve 前段の派生中間構造として明示し、curve 生成は port のその場計算ではなく support layout 集約結果を入力に受ける。
+  - 理由: main support / branch support / endpoint / departure / down offset の責務を port 生成や grouped span の局所ロジックから切り出し、branch 曲線や attachment/socket 導入時の原因切り分けをしやすくするため。
+  - 影響: `SupportLayout`, `SpanSupportLayoutEntry`, support layout inspector, curve constraint 再構成。
+  - 覆す条件: support layout より前の層で拘束確定を共有した方が整合・性能・可視化の全てで有利だと確認された場合。
+- 2026-03-11 / Accepted:
+  - 決定: `Pole / Span / SupportLayout / DetailCurve / Junction / Template / Override` を concept-level inspection surface で readonly 参照し、内部 SoA や途中変数は直接 inspector に出さない。
+  - 理由: 「値はあるが意味が追えない」状態を避け、作った人以外でも決定理由と関連先を追えるようにするため。
+  - 影響: `EntityRef`, `EntityMeta`, inspection views, `DecisionTrace`, viewer inspector。
+  - 覆す条件: readonly view では運用上不足し、正式な external API / mod API を別面として分離する必要が明確になった場合。
+- 2026-03-11 / Accepted:
+  - 決定: override を formal layer として導入し、少なくとも `Pole yaw/forward`, `endpoint socket`, `branch down offset` は「自動値」と別に保持して解決する。
+  - 理由: 派生結果の direct edit を避けつつ、明示介入と自動復帰を両立するため。
+  - 影響: `OverrideState`, inspection override surface, decision trace の override resolution, dirty/recalc 解決経路。
+  - 覆す条件: formal override 層では対象ごとの dirty/recalc 粒度や UI 要件に耐えず、より細かい override 単位への再分解が必要になった場合。
+  - 例外: entity 側に互換 mirror が一部残る。これは authoritative source ではなく compat のためで、将来削減対象。
+- 2026-03-11 / Accepted:
+  - 決定: 公開概念とアクセス境界を固定し、`SupportLayout` と `DetailCurve` を readonly derived、`Override` を source、内部 SoA や recalc 途中値は非公開とする。
+  - 理由: inspector / debug / 将来の mod API が正本と派生を混ぜずに成り立つようにするため。
+  - 影響: `docs/core_model_architecture.md` のアクセス境界表、inspection surface、public API tightening 方針。
+  - 覆す条件: 外部公開要件の拡大により、現在の readonly surface では不足し、public contract を別パッケージとして再構成する必要が出た場合。
 - 2026-03-09 / Accepted:
   - 決定: 曲線生成は `u`、正確な配置は `s`、毎フレーム表示変形は GPU 距離属性を使う。
   - 理由: attachment / 等間隔配置 / visible 区間制御に実長ベースが必要だが、毎フレーム CPU 逆引きは避けたいため。

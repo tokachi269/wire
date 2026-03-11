@@ -19,6 +19,19 @@ struct AttachmentSocketWorld {
   double local_forward_x = 0.0;
 };
 
+struct ResolvedSpanCurveInputs {
+  double basis_length = 0.0;
+  BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
+  std::uint64_t variation_flow_key = 0;
+  HierarchicalVariationSample sag_variation{};
+  double effective_sag_ratio = 0.0;
+  CurvePassMode pass_mode = CurvePassMode::kPassThrough;
+  CurveEndpointMode endpoint_mode = CurveEndpointMode::kDirectThrough;
+  CableContinuityPolicyHint continuity_preference = CableContinuityPolicyHint::kAuto;
+  double bend_stiffness_hint = 1.0;
+  double min_bend_radius_hint_m = 0.0;
+};
+
 bool build_attachment_frame(const Vec3d& tangent, Vec3d* forward, Vec3d* lateral, Vec3d* up) {
   if (forward == nullptr || lateral == nullptr || up == nullptr) {
     return false;
@@ -376,6 +389,9 @@ SupportLayoutEndpoint build_support_layout_endpoint(const CoreState& state, cons
   endpoint.socket_id = resolved_socket_id;
   endpoint.flow_kind = flow_kind;
   endpoint.origin = support_layout_origin_from_port(port);
+  endpoint.attachment_input_present = endpoint.attachment_id != kInvalidObjectId;
+  endpoint.socket_override_active =
+      is_start_endpoint ? (span.endpoint_socket_a_id >= 0) : (span.endpoint_socket_b_id >= 0);
   endpoint.port_source = port.placement_source;
   endpoint.side = port.template_side;
   endpoint.support_world = port.world_position;
@@ -387,7 +403,17 @@ SupportLayoutEndpoint build_support_layout_endpoint(const CoreState& state, cons
       port, owner_pole, chord_dir, basis_length, endpoint_offset_m, effective_sag_ratio, bend_stiffness_hint,
       min_bend_radius_hint_m, continuity_preference, pass_mode, span.placement_context, endpoint_mode,
       !is_start_endpoint);
-  (void)apply_endpoint_attachment_socket(state, endpoint.attachment_id, endpoint.socket_id, &constraint);
+  const bool applied_attachment_socket =
+      apply_endpoint_attachment_socket(state, endpoint.attachment_id, endpoint.socket_id, &constraint);
+  if (applied_attachment_socket) {
+    endpoint.endpoint_source = endpoint.socket_override_active
+                                   ? SupportLayoutEndpointSourceKind::kAttachmentSocketOverride
+                                   : SupportLayoutEndpointSourceKind::kAttachmentSocket;
+  } else if (endpoint.attachment_input_present || endpoint.socket_id >= 0) {
+    endpoint.endpoint_source = SupportLayoutEndpointSourceKind::kFallback;
+  } else {
+    endpoint.endpoint_source = SupportLayoutEndpointSourceKind::kPlainSupport;
+  }
 
   endpoint.endpoint_mode = constraint.endpoint_mode;
   endpoint.endpoint_world = constraint.point;
@@ -437,6 +463,60 @@ std::uint64_t variation_flow_key_for_span(const SpanRuntimeState* runtime, const
     return runtime->variation_flow_key;
   }
   return fallback_variation_flow_key_for_span(span);
+}
+
+// Support layout is the authoritative aggregation point for span endpoint constraints.
+// Detail-curve generation must consume the same resolved span-level policy inputs so
+// branch/main/attachment behavior is not reinterpreted through a parallel code path.
+ResolvedSpanCurveInputs resolve_span_curve_inputs(const CoreState& state, const Span& span, const Port& port_a,
+                                                  const Port& port_b, const Pole* pole_a, const Pole* pole_b,
+                                                  const Vec3d& a, const Vec3d& b, double distance) {
+  const CoreView view = state.view();
+  const Bundle* bundle = view.bundles().find(span.bundle_id);
+  const BundleTemplate* bundle_template = nullptr;
+  if (bundle != nullptr) {
+    const auto it_bundle_template = view.bundle_templates().find(bundle->bundle_template_id);
+    if (it_bundle_template != view.bundle_templates().end()) {
+      bundle_template = &it_bundle_template->second;
+    }
+  }
+  const CableTemplate* cable_template = nullptr;
+  if (bundle_template != nullptr) {
+    const auto it_cable = view.cable_templates().find(bundle_template->cable_template_id);
+    if (it_cable != view.cable_templates().end()) {
+      cable_template = &it_cable->second;
+    }
+  }
+
+  const double sag_ratio = (cable_template == nullptr) ? view.geometry_settings().sag_factor
+                                                       : (cable_template->sag_factor + cable_template->slack_factor);
+  const bool use_reference_length = true;
+
+  ResolvedSpanCurveInputs inputs{};
+  inputs.basis_length =
+      (use_reference_length && span.reference_length_m > kZeroLengthEps) ? span.reference_length_m : distance;
+  inputs.flow_kind = support_layout_flow_kind_for_span(span, port_a, port_b);
+  inputs.pass_mode = curve_pass_mode_from_context(span.placement_context);
+  inputs.endpoint_mode = curve_endpoint_mode_for_template(cable_template, bundle_template);
+  inputs.continuity_preference =
+      (cable_template == nullptr) ? CableContinuityPolicyHint::kAuto : cable_template->continuity_policy;
+  inputs.bend_stiffness_hint = (cable_template == nullptr) ? 1.0 : cable_template->bend_stiffness;
+  inputs.min_bend_radius_hint_m = (cable_template == nullptr) ? 0.0 : cable_template->min_bend_radius_m;
+
+  const SpanRuntimeState* runtime = view.find_span_runtime_state(span.id);
+  inputs.variation_flow_key = variation_flow_key_for_span(runtime, span);
+  VariationContext sag_variation_context{};
+  sag_variation_context.world_position = {(a.x + b.x) * 0.5, (a.y + b.y) * 0.5, (a.z + b.z) * 0.5};
+  sag_variation_context.flow_key = inputs.variation_flow_key;
+  sag_variation_context.pole_id = (pole_a == nullptr) ? kInvalidObjectId : pole_a->id;
+  sag_variation_context.secondary_pole_id = (pole_b == nullptr) ? kInvalidObjectId : pole_b->id;
+  sag_variation_context.local_key = static_cast<std::uint64_t>(span.id);
+  inputs.sag_variation = EvaluateHierarchicalVariation(view.variation_settings(), sag_variation_context);
+  const double sag_multiplier =
+      std::max(0.0, 1.0 + inputs.sag_variation.final_value * view.variation_settings().sag_variation_scale);
+  inputs.effective_sag_ratio =
+      (view.geometry_settings().sag_enabled && inputs.basis_length > kZeroLengthEps) ? (sag_ratio * sag_multiplier) : 0.0;
+  return inputs;
 }
 }
 
@@ -998,71 +1078,40 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
   const double dy = b.y - a.y;
   const double dz = b.z - a.z;
   const double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
-  const Bundle* bundle = edit_state_.bundles.find(span.bundle_id);
-  const BundleTemplate* bundle_template =
-      (bundle == nullptr) ? nullptr : find_bundle_template(bundle->bundle_template_id);
-  const CableTemplate* cable_template =
-      (bundle_template == nullptr) ? nullptr : find_cable_template(bundle_template->cable_template_id);
-  const double sag_ratio = (cable_template == nullptr) ? cache_state_.geometry_settings.sag_factor
-                                                       : (cable_template->sag_factor + cable_template->slack_factor);
-  const bool use_reference_length = true;
-  const double basis_length =
-      (use_reference_length && span.reference_length_m > kZeroLengthEps) ? span.reference_length_m : distance;
+  const ResolvedSpanCurveInputs inputs =
+      resolve_span_curve_inputs(*this, span, *port_a, *port_b, pole_a, pole_b, a, b, distance);
 
   Vec3d chord_dir = b - a;
   if (!Normalize(&chord_dir)) {
     chord_dir = WorldForward();
   }
-
-  const SpanRuntimeState* runtime = find_span_runtime_state(span.id);
-  const std::uint64_t flow_key = variation_flow_key_for_span(runtime, span);
-  const BackboneFlowKind flow_kind = support_layout_flow_kind_for_span(span, *port_a, *port_b);
-  VariationContext sag_variation_context{};
-  sag_variation_context.world_position = {(a.x + b.x) * 0.5, (a.y + b.y) * 0.5, (a.z + b.z) * 0.5};
-  sag_variation_context.flow_key = flow_key;
-  sag_variation_context.pole_id = (pole_a == nullptr) ? kInvalidObjectId : pole_a->id;
-  sag_variation_context.secondary_pole_id = (pole_b == nullptr) ? kInvalidObjectId : pole_b->id;
-  sag_variation_context.local_key = static_cast<std::uint64_t>(span.id);
-  const HierarchicalVariationSample sag_variation =
-      EvaluateHierarchicalVariation(cache_state_.variation_settings, sag_variation_context);
-  const double sag_multiplier =
-      std::max(0.0, 1.0 + sag_variation.final_value * cache_state_.variation_settings.sag_variation_scale);
-  const double effective_sag_ratio =
-      (cache_state_.geometry_settings.sag_enabled && basis_length > kZeroLengthEps) ? (sag_ratio * sag_multiplier) : 0.0;
-
-  const CurveEndpointMode endpoint_mode = curve_endpoint_mode_for_template(cable_template, bundle_template);
-  const double endpoint_offset_m = std::min(std::max(0.02, basis_length * 0.03), 0.35);
-  const CableContinuityPolicyHint continuity_preference =
-      (cable_template == nullptr) ? CableContinuityPolicyHint::kAuto : cable_template->continuity_policy;
-  const CurvePassMode pass_mode = curve_pass_mode_from_context(span.placement_context);
-  const double bend_stiffness_hint = (cable_template == nullptr) ? 1.0 : cable_template->bend_stiffness;
-  const double min_bend_radius_hint_m = (cable_template == nullptr) ? 0.0 : cable_template->min_bend_radius_m;
+  const double endpoint_offset_m = std::min(std::max(0.02, inputs.basis_length * 0.03), 0.35);
 
   SpanSupportLayoutEntry layout{};
   layout.span_id = span.id;
-  layout.flow_kind = flow_kind;
-  layout.pass_mode = pass_mode;
-  layout.variation_flow_key = flow_key;
+  layout.flow_kind = inputs.flow_kind;
+  layout.pass_mode = inputs.pass_mode;
+  layout.variation_flow_key = inputs.variation_flow_key;
   const int resolved_socket_a = resolve_span_endpoint_socket_id(span, true);
   const int resolved_socket_b = resolve_span_endpoint_socket_id(span, false);
   HierarchicalVariationSample down_offset_variation_a{};
   HierarchicalVariationSample down_offset_variation_b{};
   const double automatic_branch_down_offset_a =
-      branch_down_offset_for_port(*this, *port_a, flow_key, &down_offset_variation_a);
+      branch_down_offset_for_port(*this, *port_a, inputs.variation_flow_key, &down_offset_variation_a);
   const double automatic_branch_down_offset_b =
-      branch_down_offset_for_port(*this, *port_b, flow_key, &down_offset_variation_b);
+      branch_down_offset_for_port(*this, *port_b, inputs.variation_flow_key, &down_offset_variation_b);
   const double resolved_branch_down_offset_a = resolve_span_branch_down_offset_m(span, automatic_branch_down_offset_a);
   const double resolved_branch_down_offset_b = resolve_span_branch_down_offset_m(span, automatic_branch_down_offset_b);
-  layout.start = build_support_layout_endpoint(*this, span, *port_a, pole_a, chord_dir, basis_length, endpoint_offset_m,
-                                               effective_sag_ratio, bend_stiffness_hint, min_bend_radius_hint_m,
-                                               continuity_preference, pass_mode, endpoint_mode, flow_key, flow_kind,
-                                               resolved_socket_a, automatic_branch_down_offset_a,
-                                               down_offset_variation_a, resolved_branch_down_offset_a, true);
-  layout.end = build_support_layout_endpoint(*this, span, *port_b, pole_b, chord_dir, basis_length, endpoint_offset_m,
-                                             effective_sag_ratio, bend_stiffness_hint, min_bend_radius_hint_m,
-                                             continuity_preference, pass_mode, endpoint_mode, flow_key, flow_kind,
-                                             resolved_socket_b, automatic_branch_down_offset_b,
-                                             down_offset_variation_b, resolved_branch_down_offset_b, false);
+  layout.start = build_support_layout_endpoint(
+      *this, span, *port_a, pole_a, chord_dir, inputs.basis_length, endpoint_offset_m, inputs.effective_sag_ratio,
+      inputs.bend_stiffness_hint, inputs.min_bend_radius_hint_m, inputs.continuity_preference, inputs.pass_mode,
+      inputs.endpoint_mode, inputs.variation_flow_key, inputs.flow_kind, resolved_socket_a,
+      automatic_branch_down_offset_a, down_offset_variation_a, resolved_branch_down_offset_a, true);
+  layout.end = build_support_layout_endpoint(
+      *this, span, *port_b, pole_b, chord_dir, inputs.basis_length, endpoint_offset_m, inputs.effective_sag_ratio,
+      inputs.bend_stiffness_hint, inputs.min_bend_radius_hint_m, inputs.continuity_preference, inputs.pass_mode,
+      inputs.endpoint_mode, inputs.variation_flow_key, inputs.flow_kind, resolved_socket_b,
+      automatic_branch_down_offset_b, down_offset_variation_b, resolved_branch_down_offset_b, false);
   return layout;
 }
 
@@ -1087,44 +1136,17 @@ DetailCurve CoreState::generate_span_curve(const Span& span, const SpanSupportLa
   const double dy = b.y - a.y;
   const double dz = b.z - a.z;
   const double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
-  const Bundle* bundle = edit_state_.bundles.find(span.bundle_id);
-  const BundleTemplate* bundle_template =
-      (bundle == nullptr) ? nullptr : find_bundle_template(bundle->bundle_template_id);
-  const CableTemplate* cable_template =
-      (bundle_template == nullptr) ? nullptr : find_cable_template(bundle_template->cable_template_id);
-  const double sag_ratio = (cable_template == nullptr) ? cache_state_.geometry_settings.sag_factor
-                                                       : (cable_template->sag_factor + cable_template->slack_factor);
-  const bool use_reference_length = true;
-  const double basis_length =
-      (use_reference_length && span.reference_length_m > kZeroLengthEps) ? span.reference_length_m : distance;
-
-  const SpanRuntimeState* runtime = find_span_runtime_state(span.id);
-  VariationContext sag_variation_context{};
-  sag_variation_context.world_position = {(a.x + b.x) * 0.5, (a.y + b.y) * 0.5, (a.z + b.z) * 0.5};
-  sag_variation_context.flow_key = variation_flow_key_for_span(runtime, span);
-  sag_variation_context.pole_id = (pole_a == nullptr) ? kInvalidObjectId : pole_a->id;
-  sag_variation_context.secondary_pole_id = (pole_b == nullptr) ? kInvalidObjectId : pole_b->id;
-  sag_variation_context.local_key = static_cast<std::uint64_t>(span.id);
-  const HierarchicalVariationSample sag_variation =
-      EvaluateHierarchicalVariation(cache_state_.variation_settings, sag_variation_context);
-  const double sag_multiplier =
-      std::max(0.0, 1.0 + sag_variation.final_value * cache_state_.variation_settings.sag_variation_scale);
-  const double effective_sag_ratio =
-      (cache_state_.geometry_settings.sag_enabled && basis_length > kZeroLengthEps) ? (sag_ratio * sag_multiplier) : 0.0;
-
-  const CableContinuityPolicyHint continuity_preference =
-      (cable_template == nullptr) ? CableContinuityPolicyHint::kAuto : cable_template->continuity_policy;
-  const double bend_stiffness_hint = (cable_template == nullptr) ? 1.0 : cable_template->bend_stiffness;
-  const double min_bend_radius_hint_m = (cable_template == nullptr) ? 0.0 : cable_template->min_bend_radius_m;
+  const ResolvedSpanCurveInputs inputs =
+      resolve_span_curve_inputs(*this, span, *port_a, *port_b, pole_a, pole_b, a, b, distance);
 
   CurveConstraint start = make_curve_constraint_from_support_layout(
-      support_layout.start, pole_a, basis_length, effective_sag_ratio, bend_stiffness_hint, min_bend_radius_hint_m,
-      continuity_preference, support_layout.pass_mode, span.placement_context);
+      support_layout.start, pole_a, inputs.basis_length, inputs.effective_sag_ratio, inputs.bend_stiffness_hint,
+      inputs.min_bend_radius_hint_m, inputs.continuity_preference, support_layout.pass_mode, span.placement_context);
   CurveConstraint end = make_curve_constraint_from_support_layout(
-      support_layout.end, pole_b, basis_length, effective_sag_ratio, bend_stiffness_hint, min_bend_radius_hint_m,
-      continuity_preference, support_layout.pass_mode, span.placement_context);
+      support_layout.end, pole_b, inputs.basis_length, inputs.effective_sag_ratio, inputs.bend_stiffness_hint,
+      inputs.min_bend_radius_hint_m, inputs.continuity_preference, support_layout.pass_mode, span.placement_context);
   DetailCurve curve = BuildDetailCurve(start, end, samples);
-  curve.quality.sag_variation = sag_variation;
+  curve.quality.sag_variation = inputs.sag_variation;
   apply_attachment_line_effects_to_curve(*this, span.id, &curve);
   return curve;
 }

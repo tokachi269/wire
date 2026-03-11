@@ -196,6 +196,40 @@ std::string BundleTemplateMultiPreviewLocal(const CoreState& state, const Viewer
   return oss.str();
 }
 
+std::string GeneratedEndpointSourceSummaryLocal(const CoreState& state, const std::vector<ObjectId>& span_ids) {
+  int plain = 0;
+  int socket = 0;
+  int socket_override = 0;
+  int fallback = 0;
+  int attachment_inputs = 0;
+  for (ObjectId span_id : span_ids) {
+    const auto layout_view = state.view().inspect_support_layout(span_id);
+    if (!layout_view.has_value()) {
+      continue;
+    }
+    const auto accumulate = [&](const wire::core::SupportLayoutEndpointView& endpoint) {
+      if (endpoint.attachment_input_present) {
+        ++attachment_inputs;
+      }
+      if (endpoint.endpoint_source == "PlainSupport") {
+        ++plain;
+      } else if (endpoint.endpoint_source == "AttachmentSocket") {
+        ++socket;
+      } else if (endpoint.endpoint_source == "AttachmentSocketOverride") {
+        ++socket_override;
+      } else {
+        ++fallback;
+      }
+    };
+    accumulate(layout_view->start_endpoint);
+    accumulate(layout_view->end_endpoint);
+  }
+  std::ostringstream oss;
+  oss << "endpointSources plain=" << plain << " socket=" << socket << " override=" << socket_override
+      << " fallback=" << fallback << " attachmentInput=" << attachment_inputs;
+  return oss.str();
+}
+
 int ResolveBundleTemplateCountLocal(ViewerUiState& ui_state, const wire::core::BundleTemplate& bundle_template,
                                     wire::core::BundleKind kind) {
   const int key = static_cast<int>(kind);
@@ -417,6 +451,8 @@ bool ExecuteBackboneRequest(CoreState& state, ViewerUiState& ui_state, const wir
   }
   PushLogLocal(ui_state, std::string(success_log) + " poles=" + std::to_string(ui_state.last_generated_poles) +
                              " spans=" + std::to_string(ui_state.last_generated_spans));
+  PushLogLocal(ui_state, "DrawPath attachment/socket request input: unsupported in BackboneSpec node/path request");
+  PushLogLocal(ui_state, GeneratedEndpointSourceSummaryLocal(state, result.value.generated_span_ids));
   return true;
 }
 
@@ -534,6 +570,8 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
   const auto& slot_debug_records = view.slot_selection_debug_records();
 
   ofs << "capture.version=2\n";
+  ofs << "draw.endpoint_attachment_input_supported=0\n";
+  ofs << "draw.endpoint_socket_input_supported=0\n";
   ofs << "capture.timestamp_unix=" << static_cast<long long>(now) << "\n";
   ofs << "capture.mode=" << ModeLabelLocal(ui_state.mode) << "\n";
   ofs << "capture.selected_type=" << SelectedTypeLabelLocal(ui_state.selected_type) << "\n";
@@ -654,6 +692,13 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
       if (const auto* pole = view.edit_state().poles.find(node.pole_id); pole != nullptr) {
         ofs << "result.backbone.node[" << i << "].pole_yaw_deg=" << pole->world_transform.rotation_euler_deg.z
             << "\n";
+        if (const auto pole_view = view.inspect_pole(node.pole_id); pole_view.has_value()) {
+          ofs << "result.backbone.node[" << i << "].pole_layout_yaw_deg=" << pole_view->layout_yaw_deg << "\n";
+          ofs << "result.backbone.node[" << i
+              << "].support_axis_rule=" << static_cast<int>(pole_view->support_axis_rule) << "\n";
+          ofs << "result.backbone.node[" << i << "].support_axis=" << pole_view->support_axis_dir.x << ","
+              << pole_view->support_axis_dir.y << "," << pole_view->support_axis_dir.z << "\n";
+        }
         ofs << "result.backbone.node[" << i
             << "].sharp_orientation_applied=" << (pole->context.sharp_orientation_applied ? 1 : 0) << "\n";
         ofs << "result.backbone.node[" << i << "].sharp_theta_deg=" << pole->context.sharp_theta_deg << "\n";

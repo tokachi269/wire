@@ -100,6 +100,13 @@ enum class SupportLayoutOriginKind : std::uint8_t {
   kFallback = 3,
 };
 
+enum class SupportLayoutEndpointSourceKind : std::uint8_t {
+  kPlainSupport = 0,
+  kAttachmentSocket = 1,
+  kAttachmentSocketOverride = 2,
+  kFallback = 3,
+};
+
 struct SupportLayoutEndpoint {
   ObjectId endpoint_node_id = kInvalidObjectId;
   ObjectId owner_pole_id = kInvalidObjectId;
@@ -108,6 +115,9 @@ struct SupportLayoutEndpoint {
   int socket_id = -1;
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
   SupportLayoutOriginKind origin = SupportLayoutOriginKind::kFallback;
+  SupportLayoutEndpointSourceKind endpoint_source = SupportLayoutEndpointSourceKind::kFallback;
+  bool attachment_input_present = false;
+  bool socket_override_active = false;
   PortPlacementSourceKind port_source = PortPlacementSourceKind::kUnknown;
   SlotSide side = SlotSide::kCenter;
   CurveEndpointMode endpoint_mode = CurveEndpointMode::kDirectThrough;
@@ -547,6 +557,7 @@ private:
                                                BundleKind bundle_template_id = BundleKind::kLowVoltage);
   [[nodiscard]] static std::uint64_t hash_path_points(const std::vector<Vec3d>& points);
   [[nodiscard]] double effective_pole_yaw_deg(const Pole& pole) const;
+  [[nodiscard]] double effective_pole_layout_yaw_deg(const Pole& pole) const;
   [[nodiscard]] Vec3d to_local_on_pole(const Pole& pole, const Vec3d& world) const;
   [[nodiscard]] SlotSide preferred_side_from_geometry(const Pole& pole, const Pole* peer, double eps) const;
   [[nodiscard]] static double polyline_length(const std::vector<Vec3d>& polyline);
@@ -616,7 +627,8 @@ private:
   [[nodiscard]] Vec3d apply_pole_clearance_to_local(const Pole& pole, const Vec3d& local, SlotSide side) const;
   void finalize_pole_transform_update(ObjectId pole_id, const Pole& old_pole, ChangeSet* change_set);
   std::string next_display_id(std::string_view prefix);
-  void refresh_owned_endpoints_from_pole(ObjectId pole_id, ChangeSet* change_set, const Pole* previous_pole = nullptr);
+  void refresh_owned_endpoints_from_pole(ObjectId pole_id, ChangeSet* change_set, const Pole* previous_pole = nullptr,
+                                         const double* previous_layout_yaw_override = nullptr);
   [[nodiscard]] EditState& edit_state_access() { return edit_state_; }
   [[nodiscard]] const EditState& edit_state_access() const { return edit_state_; }
   [[nodiscard]] ConnectionIndex& connection_index_access() { return connection_index_; }

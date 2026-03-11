@@ -34,12 +34,21 @@ enum class PoleForwardRule : std::uint8_t {
   kMainChainBisector = 3,
 };
 
+enum class PoleSupportAxisRule : std::uint8_t {
+  kFallback = 0,
+  kPrimaryIncident = 1,
+  kMainChainSingle = 2,
+  kMainChainPair = 3,
+};
+
 struct PoleOrientationDebugRecord {
   ObjectId pole_id = kInvalidObjectId;
   PoleForwardRule rule = PoleForwardRule::kFallback;
+  PoleSupportAxisRule support_axis_rule = PoleSupportAxisRule::kFallback;
   ObjectId primary_neighbor_id = kInvalidObjectId;
   ObjectId secondary_neighbor_id = kInvalidObjectId;
   Vec3d adopted_forward{};
+  Vec3d adopted_support_axis{};
 };
 
 struct SegmentLaneAssignment {

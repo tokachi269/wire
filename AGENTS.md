@@ -148,7 +148,7 @@
 - リスク: まだズレ得る箇所
 
 ### C) ズレ兆候スキャン（rg）
-以下を検索し、ヒット箇所を列挙して「残す理由/削除予定」を書く。
+以下を検索し、ヒット箇所を列挙して「残す理由/削除予定」を書く。ただしただこれだけを盲目的に調べればいい訳では無い。
 - `legacy|deprecated|compat|TODO|workaround`
 - `mutable|friend|TestHook|bypass`
 - `regenerate|commit|reproject|dirty|validate`

@@ -79,6 +79,7 @@ struct EntityRef {
 };
 
 struct VariationBreakdownView {
+  std::uint64_t flow_key = 0;
   double world_bias = 0.0;
   double flow_bias = 0.0;
   double pole_delta = 0.0;
@@ -138,6 +139,14 @@ struct PoleInspectionView {
   double final_yaw_deg = 0.0;
   bool placement_override = false;
   bool orientation_override = false;
+  PoleForwardRule forward_rule = PoleForwardRule::kFallback;
+  PoleSupportAxisRule support_axis_rule = PoleSupportAxisRule::kFallback;
+  ObjectId primary_neighbor_id = kInvalidObjectId;
+  ObjectId secondary_neighbor_id = kInvalidObjectId;
+  Vec3d support_axis_dir{};
+  bool has_support_axis = false;
+  double layout_yaw_deg = 0.0;
+  bool has_layout_yaw = false;
   std::vector<RelatedEntityLink> links{};
 };
 
@@ -161,6 +170,9 @@ struct SpanInspectionView {
   double curve_length_m = 0.0;
   bool uses_branch_support = false;
   double branch_down_offset_m = 0.0;
+  bool mirrored = false;
+  bool flipped_from_previous = false;
+  double turn_angle_deg = 0.0;
   std::vector<RelatedEntityLink> links{};
 };
 
@@ -173,6 +185,9 @@ struct SupportLayoutEndpointView {
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
   SlotSide side = SlotSide::kCenter;
   std::string origin{};
+  std::string endpoint_source{};
+  bool attachment_input_present = false;
+  bool socket_override_active = false;
   std::string port_source{};
   std::string endpoint_mode{};
   Vec3d support_world{};
@@ -200,11 +215,20 @@ struct DetailCurveInspectionView {
   EntityMeta meta{};
   EntityRef source_span{};
   CableContinuityPolicyHint requested_continuity = CableContinuityPolicyHint::kAuto;
+  CurveShapePolicyKind shape_policy = CurveShapePolicyKind::kNearStraight;
   DetailCurveContinuityMode adopted_continuity = DetailCurveContinuityMode::kG1;
   DetailCurveContinuityReason continuity_reason = DetailCurveContinuityReason::kAutoBalanced;
+  bool attempted_g2 = false;
   bool degraded_to_g1 = false;
   double sag_amplitude_m = 0.0;
   double curve_length_m = 0.0;
+  double tangent_scale = 1.0;
+  double base_handle_scale = 1.0;
+  double policy_handle_scale = 1.0;
+  double start_angle_scale = 1.0;
+  double end_angle_scale = 1.0;
+  double handle_length_start_m = 0.0;
+  double handle_length_end_m = 0.0;
   std::array<Vec3d, 4> control_points{};
   std::size_t arc_length_sample_count = 0;
   std::size_t visible_interval_count = 0;
@@ -212,6 +236,25 @@ struct DetailCurveInspectionView {
   std::size_t replacement_path_count = 0;
   DetailCurveEndpointTangentRule start_tangent_rule = DetailCurveEndpointTangentRule::kFallbackChord;
   DetailCurveEndpointTangentRule end_tangent_rule = DetailCurveEndpointTangentRule::kFallbackChord;
+  double start_support_weight = 0.0;
+  double end_support_weight = 0.0;
+  double start_chord_weight = 1.0;
+  double end_chord_weight = 1.0;
+  double start_departure_length_m = 0.0;
+  double end_departure_length_m = 0.0;
+  double start_lateral_ratio_limit = 0.0;
+  double end_lateral_ratio_limit = 0.0;
+  std::string start_endpoint_source{};
+  std::string end_endpoint_source{};
+  bool start_attachment_input_present = false;
+  bool end_attachment_input_present = false;
+  int start_socket_id = -1;
+  int end_socket_id = -1;
+  double sag_base_ratio = 0.0;
+  double sag_length_scale = 1.0;
+  double sag_pass_scale = 1.0;
+  double sag_rigidity_scale = 1.0;
+  VariationBreakdownView sag_variation{};
   std::vector<RelatedEntityLink> links{};
 };
 

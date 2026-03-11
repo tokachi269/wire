@@ -331,6 +331,21 @@ const char* PoleForwardRuleLabel(wire::core::PoleForwardRule rule) {
   }
 }
 
+const char* PoleSupportAxisRuleLabel(wire::core::PoleSupportAxisRule rule) {
+  switch (rule) {
+  case wire::core::PoleSupportAxisRule::kFallback:
+    return "Fallback";
+  case wire::core::PoleSupportAxisRule::kPrimaryIncident:
+    return "PrimaryIncident";
+  case wire::core::PoleSupportAxisRule::kMainChainSingle:
+    return "MainChainSingle";
+  case wire::core::PoleSupportAxisRule::kMainChainPair:
+    return "MainChainPair";
+  default:
+    return "Unknown";
+  }
+}
+
 std::vector<wire::core::CableTemplateId> SortedCableTemplateIds(const CoreState& state) {
   std::vector<wire::core::CableTemplateId> ids;
   ids.reserve(state.view().cable_templates().size());
@@ -850,22 +865,26 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
                 pole->context.sharp_bisector_dir.z);
     ImGui::Text("sharpSideDir: %.3f %.3f %.3f", pole->context.sharp_side_dir.x, pole->context.sharp_side_dir.y,
                 pole->context.sharp_side_dir.z);
-    if (const auto it = view.pole_orientation_debug_records().find(pole->id);
-        it != view.pole_orientation_debug_records().end()) {
-      const auto& orientation = it->second;
-      ImGui::Text("forwardRule: %s", PoleForwardRuleLabel(orientation.rule));
-      ImGui::Text("forwardDir: %.3f %.3f %.3f", orientation.adopted_forward.x, orientation.adopted_forward.y,
-                  orientation.adopted_forward.z);
-    ImGui::Text("mainNeighbors: %llu / %llu",
-                static_cast<unsigned long long>(orientation.primary_neighbor_id),
-                static_cast<unsigned long long>(orientation.secondary_neighbor_id));
-    }
     ImGui::Text("placementOverride: %s", pole->placement_override_flag ? "true" : "false");
     if (const auto pole_view = view.inspect_pole(pole->id); pole_view.has_value()) {
       const auto override_view = view.inspect_overrides({wire::core::EntityKind::kPole, pole->id});
+      ImGui::Text("forwardRule: %s", PoleForwardRuleLabel(pole_view->forward_rule));
+      if (pole_view->has_forward) {
+        ImGui::Text("forwardDir: %.3f %.3f %.3f", pole_view->forward_dir.x, pole_view->forward_dir.y,
+                    pole_view->forward_dir.z);
+      }
+      ImGui::Text("supportAxisRule: %s", PoleSupportAxisRuleLabel(pole_view->support_axis_rule));
+      if (pole_view->has_support_axis) {
+        ImGui::Text("supportAxis: %.3f %.3f %.3f", pole_view->support_axis_dir.x, pole_view->support_axis_dir.y,
+                    pole_view->support_axis_dir.z);
+      }
+      ImGui::Text("mainNeighbors: %llu / %llu",
+                  static_cast<unsigned long long>(pole_view->primary_neighbor_id),
+                  static_cast<unsigned long long>(pole_view->secondary_neighbor_id));
       ImGui::Text("orientationOverride: %s", pole_view->orientation_override ? "true" : "false");
       ImGui::Text("autoYaw: %.2f", pole_view->automatic_yaw_deg);
       ImGui::Text("finalYaw: %.2f", pole_view->final_yaw_deg);
+      ImGui::Text("layoutYaw: %.2f", pole_view->layout_yaw_deg);
       DrawRelatedLinks(ui_state, pole_view->links);
       DrawOverrideViewBlock(override_view);
       if (pole_view->orientation_override && ImGui::Button("Clear Pole Orientation Override")) {
@@ -918,46 +937,6 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
     ImGui::Text("GeneratedByRule: %s", span->generated_by_rule ? "true" : "false");
     ImGui::Text("PlacementContext: %s", ContextLabel(span->placement_context));
     ImGui::Text("placementOverride: %s", span->placement_override_flag ? "true" : "false");
-    const auto* curve = state.find_curve_cache(span->id);
-    if (curve != nullptr) {
-      ImGui::Text("curveSamples: %d", static_cast<int>(curve->points.size()));
-      ImGui::Text("curveLength: %.2f", curve->detail.Length());
-      ImGui::Text("arcSamples: %d", static_cast<int>(curve->detail.arc_length_table.size()));
-      ImGui::Text("visible/hidden/replaced: %d / %d / %d", static_cast<int>(curve->detail.visible_intervals.size()),
-                  static_cast<int>(curve->detail.hidden_intervals.size()),
-                  static_cast<int>(curve->detail.replacement_paths.size()));
-      ImGui::Text("continuity: %s (%s)", DetailCurveContinuityModeLabel(curve->detail.quality.adopted_continuity),
-                  DetailCurveContinuityReasonLabel(curve->detail.quality.continuity_reason));
-      ImGui::Text("shapePolicy: %s", CurveShapePolicyLabel(curve->detail.quality.shape_policy));
-      ImGui::Text("continuityPolicy: %s attemptedG2=%s degraded=%s",
-                  ContinuityPolicyLabel(curve->detail.quality.requested_policy),
-                  curve->detail.quality.attempted_g2 ? "true" : "false",
-                  curve->detail.quality.degraded_to_g1 ? "true" : "false");
-      ImGui::Text("handles: %.2f / %.2f scale=%.2f", curve->detail.quality.handle_length_start_m,
-                  curve->detail.quality.handle_length_end_m, curve->detail.quality.tangent_scale);
-      ImGui::Text("handleScales: base=%.2f policy=%.2f angle=%.2f/%.2f", curve->detail.quality.base_handle_scale,
-                  curve->detail.quality.policy_handle_scale, curve->detail.quality.start_angle_scale,
-                  curve->detail.quality.end_angle_scale);
-      ImGui::Text("tangentRule: %s / %s",
-                  DetailCurveEndpointTangentRuleLabel(curve->detail.quality.start_tangent_rule),
-                  DetailCurveEndpointTangentRuleLabel(curve->detail.quality.end_tangent_rule));
-      ImGui::Text("tangentMix start: support=%.2f chord=%.2f dep=%.2f lat=%.2f",
-                  curve->detail.quality.start_support_weight, curve->detail.quality.start_chord_weight,
-                  curve->detail.quality.start_departure_length_m, curve->detail.quality.start_lateral_ratio_limit);
-      ImGui::Text("tangentMix end: support=%.2f chord=%.2f dep=%.2f lat=%.2f",
-                  curve->detail.quality.end_support_weight, curve->detail.quality.end_chord_weight,
-                  curve->detail.quality.end_departure_length_m, curve->detail.quality.end_lateral_ratio_limit);
-      ImGui::Text("sag: amp=%.3f base=%.3f len=%.2f pass=%.2f rigid=%.2f", curve->detail.sag_amplitude_m,
-                  curve->detail.quality.sag_base_ratio, curve->detail.quality.sag_length_scale,
-                  curve->detail.quality.sag_pass_scale, curve->detail.quality.sag_rigidity_scale);
-      const auto& variation = curve->detail.quality.sag_variation;
-      ImGui::Text("sagVariation: flow=%llu final=%.3f", static_cast<unsigned long long>(variation.flow_key),
-                  variation.final_value);
-      ImGui::Text("variationLayers: world=%.3f flow=%.3f pole=%.3f local=%.3f", variation.world_bias,
-                  variation.flow_bias, variation.pole_delta, variation.local_jitter);
-    } else {
-      ImGui::TextUnformatted("curveSamples: (none)");
-    }
     const auto* bounds = state.find_bounds_cache(span->id);
     if (bounds != nullptr) {
       const double sx = bounds->whole.max.x - bounds->whole.min.x;
@@ -975,59 +954,86 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
       ImGui::Text("renderVersion: %llu", static_cast<unsigned long long>(runtime_state->render_version));
       ImGui::Text("dirtyBits: %s", DirtyBitsToText(runtime_state->dirty_bits).c_str());
     }
-    for (const auto& assignment : view.last_lane_assignments()) {
-      const bool same_forward = assignment.bundle_id == span->bundle_id && assignment.pole_a_id == span->endpoint_node_a_id &&
-                                assignment.pole_b_id == span->endpoint_node_b_id;
-      const bool same_reverse = assignment.bundle_id == span->bundle_id && assignment.pole_a_id == span->endpoint_node_b_id &&
-                                assignment.pole_b_id == span->endpoint_node_a_id;
-      if (!same_forward && !same_reverse) {
-        continue;
-      }
-      ImGui::Separator();
-      ImGui::Text("flowKind: %s", BackboneFlowKindLabel(assignment.flow_kind));
-      ImGui::Text("flowRule: %s", BackboneFlowDecisionRuleLabel(assignment.flow_decision_rule));
-      ImGui::Text("branchSupport: %s downOffset=%.2f", assignment.uses_branch_support ? "true" : "false",
-                  assignment.branch_down_offset_m);
-      ImGui::Text("mirror: %s flippedPrev=%s turn=%.2f", assignment.mirrored ? "true" : "false",
-                  assignment.flipped_from_previous ? "true" : "false", assignment.turn_angle_deg);
-      break;
-    }
-    if (const auto* support_layout = state.view().find_span_support_layout(span->id); support_layout != nullptr) {
-      auto draw_support_endpoint = [&](const char* label, const wire::core::SupportLayoutEndpoint& endpoint) {
-        ImGui::Text("%s: %s flow=%s port=%s mode=%s", label, SupportLayoutOriginLabel(endpoint.origin),
-                    BackboneFlowKindLabel(endpoint.flow_kind), PortPlacementSourceLabel(endpoint.port_source),
-                    CurveEndpointModeLabel(endpoint.endpoint_mode));
-        ImGui::Text("  endpoint=%.2f %.2f %.2f departure=%.2f %.2f %.2f", endpoint.endpoint_world.x,
-                    endpoint.endpoint_world.y, endpoint.endpoint_world.z, endpoint.departure_dir.x,
-                    endpoint.departure_dir.y, endpoint.departure_dir.z);
-        ImGui::Text("  support=%.2f %.2f %.2f dep=%.2f down=%.2f autoDown=%.2f attach=%llu socket=%d",
-                    endpoint.support_world.x, endpoint.support_world.y, endpoint.support_world.z,
-                    endpoint.local_departure_length_m, endpoint.branch_down_offset_m,
-                    endpoint.automatic_branch_down_offset_m, static_cast<unsigned long long>(endpoint.attachment_id),
-                    endpoint.socket_id);
-      };
-      ImGui::Separator();
-      ImGui::Text("supportLayout: flow=%s pass=%d flowKey=%llu", BackboneFlowKindLabel(support_layout->flow_kind),
-                  static_cast<int>(support_layout->pass_mode),
-                  static_cast<unsigned long long>(support_layout->variation_flow_key));
-      draw_support_endpoint("endpointA", support_layout->start);
-      draw_support_endpoint("endpointB", support_layout->end);
-    } else {
-      ImGui::TextUnformatted("supportLayout: (none)");
-    }
-    if (const auto* visual = state.view().find_span_visual_cache(span->id); visual != nullptr) {
-      ImGui::Text("branchSupportPlacements: %d", static_cast<int>(visual->branch_supports.size()));
-      if (!visual->branch_supports.empty()) {
-        const auto& placement = visual->branch_supports.front();
-        ImGui::Text("branchVariation: final=%.3f down=%.3f", placement.down_offset_variation.final_value,
-                    placement.down_offset_m);
-        ImGui::Text("branchLayers: world=%.3f flow=%.3f pole=%.3f local=%.3f",
-                    placement.down_offset_variation.world_bias, placement.down_offset_variation.flow_bias,
-                    placement.down_offset_variation.pole_delta, placement.down_offset_variation.local_jitter);
-      }
-    }
     if (const auto span_view = view.inspect_span(span->id); span_view.has_value()) {
+      const auto layout_view = view.inspect_support_layout(span->id);
+      const auto curve_view = view.inspect_detail_curve(span->id);
       const auto override_view = view.inspect_overrides({wire::core::EntityKind::kSpan, span->id});
+      if (curve_view.has_value()) {
+        ImGui::Text("curveLength: %.2f", curve_view->curve_length_m);
+        ImGui::Text("arcSamples: %d", static_cast<int>(curve_view->arc_length_sample_count));
+        ImGui::Text("visible/hidden/replaced: %d / %d / %d", static_cast<int>(curve_view->visible_interval_count),
+                    static_cast<int>(curve_view->hidden_interval_count),
+                    static_cast<int>(curve_view->replacement_path_count));
+        ImGui::Text("continuity: %s (%s)", DetailCurveContinuityModeLabel(curve_view->adopted_continuity),
+                    DetailCurveContinuityReasonLabel(curve_view->continuity_reason));
+        ImGui::Text("shapePolicy: %s", CurveShapePolicyLabel(curve_view->shape_policy));
+        ImGui::Text("continuityPolicy: %s attemptedG2=%s degraded=%s",
+                    ContinuityPolicyLabel(curve_view->requested_continuity),
+                    curve_view->attempted_g2 ? "true" : "false",
+                    curve_view->degraded_to_g1 ? "true" : "false");
+        ImGui::Text("handles: %.2f / %.2f scale=%.2f", curve_view->handle_length_start_m,
+                    curve_view->handle_length_end_m, curve_view->tangent_scale);
+        ImGui::Text("handleScales: base=%.2f policy=%.2f angle=%.2f/%.2f", curve_view->base_handle_scale,
+                    curve_view->policy_handle_scale, curve_view->start_angle_scale, curve_view->end_angle_scale);
+        ImGui::Text("tangentRule: %s / %s",
+                    DetailCurveEndpointTangentRuleLabel(curve_view->start_tangent_rule),
+                    DetailCurveEndpointTangentRuleLabel(curve_view->end_tangent_rule));
+        ImGui::Text("tangentMix start: support=%.2f chord=%.2f dep=%.2f lat=%.2f",
+                    curve_view->start_support_weight, curve_view->start_chord_weight,
+                    curve_view->start_departure_length_m, curve_view->start_lateral_ratio_limit);
+        ImGui::Text("tangentMix end: support=%.2f chord=%.2f dep=%.2f lat=%.2f",
+                    curve_view->end_support_weight, curve_view->end_chord_weight,
+                    curve_view->end_departure_length_m, curve_view->end_lateral_ratio_limit);
+        ImGui::Text("sag: amp=%.3f base=%.3f len=%.2f pass=%.2f rigid=%.2f", curve_view->sag_amplitude_m,
+                    curve_view->sag_base_ratio, curve_view->sag_length_scale, curve_view->sag_pass_scale,
+                    curve_view->sag_rigidity_scale);
+        ImGui::Text("sagVariation: flow=%llu final=%.3f",
+                    static_cast<unsigned long long>(curve_view->sag_variation.flow_key),
+                    curve_view->sag_variation.final_value);
+        ImGui::Text("variationLayers: world=%.3f flow=%.3f pole=%.3f local=%.3f",
+                    curve_view->sag_variation.world_bias, curve_view->sag_variation.flow_bias,
+                    curve_view->sag_variation.pole_delta, curve_view->sag_variation.local_jitter);
+      } else {
+        ImGui::TextUnformatted("curve: (none)");
+      }
+      ImGui::Separator();
+      ImGui::Text("flowKind: %s", BackboneFlowKindLabel(span_view->flow_kind));
+      ImGui::Text("flowRule: %s", BackboneFlowDecisionRuleLabel(span_view->flow_rule));
+      ImGui::Text("branchSupport: %s downOffset=%.2f", span_view->uses_branch_support ? "true" : "false",
+                  span_view->branch_down_offset_m);
+      ImGui::Text("mirror: %s flippedPrev=%s turn=%.2f", span_view->mirrored ? "true" : "false",
+                  span_view->flipped_from_previous ? "true" : "false", span_view->turn_angle_deg);
+      if (layout_view.has_value()) {
+        auto draw_support_endpoint = [&](const char* label, const wire::core::SupportLayoutEndpointView& endpoint) {
+          ImGui::Text("%s: %s src=%s flow=%s port=%s mode=%s", label, endpoint.origin.c_str(),
+                      endpoint.endpoint_source.c_str(),
+                      BackboneFlowKindLabel(endpoint.flow_kind), endpoint.port_source.c_str(),
+                      endpoint.endpoint_mode.c_str());
+          ImGui::Text("  endpoint=%.2f %.2f %.2f departure=%.2f %.2f %.2f", endpoint.endpoint_world.x,
+                      endpoint.endpoint_world.y, endpoint.endpoint_world.z, endpoint.departure_dir.x,
+                      endpoint.departure_dir.y, endpoint.departure_dir.z);
+          ImGui::Text("  support=%.2f %.2f %.2f dep=%.2f down=%.2f autoDown=%.2f attach=%llu socket=%d",
+                      endpoint.support_world.x, endpoint.support_world.y, endpoint.support_world.z,
+                      endpoint.local_departure_length_m, endpoint.branch_down_offset_m,
+                      endpoint.automatic_branch_down_offset_m, static_cast<unsigned long long>(endpoint.attachment_id),
+                      endpoint.socket_id);
+          ImGui::Text("  input=%s socketOverride=%s", endpoint.attachment_input_present ? "attachment" : "none",
+                      endpoint.socket_override_active ? "true" : "false");
+          ImGui::Text("  variation: flow=%llu final=%.3f world=%.3f flow=%.3f pole=%.3f local=%.3f",
+                      static_cast<unsigned long long>(endpoint.down_offset_variation.flow_key),
+                      endpoint.down_offset_variation.final_value, endpoint.down_offset_variation.world_bias,
+                      endpoint.down_offset_variation.flow_bias, endpoint.down_offset_variation.pole_delta,
+                      endpoint.down_offset_variation.local_jitter);
+        };
+        ImGui::Separator();
+        ImGui::Text("supportLayout: flow=%s pass=%d flowKey=%llu", BackboneFlowKindLabel(layout_view->flow_kind),
+                    static_cast<int>(layout_view->pass_mode),
+                    static_cast<unsigned long long>(layout_view->variation_flow_key));
+        draw_support_endpoint("endpointA", layout_view->start_endpoint);
+        draw_support_endpoint("endpointB", layout_view->end_endpoint);
+      } else {
+        ImGui::TextUnformatted("supportLayout: (none)");
+      }
       bool has_socket_override = false;
       bool has_branch_down_override = false;
       if (override_view.has_value()) {
@@ -1152,13 +1158,16 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
                 static_cast<int>(layout_view->pass_mode),
                 static_cast<unsigned long long>(layout_view->variation_flow_key));
     auto draw_endpoint = [&](const char* label, const wire::core::SupportLayoutEndpointView& endpoint) {
-      ImGui::Text("%s origin=%s flow=%s port=%s", label, endpoint.origin.c_str(),
+      ImGui::Text("%s origin=%s source=%s flow=%s port=%s", label, endpoint.origin.c_str(),
+                  endpoint.endpoint_source.c_str(),
                   BackboneFlowKindLabel(endpoint.flow_kind), endpoint.port_source.c_str());
       ImGui::Text("  endpoint=%.2f %.2f %.2f", endpoint.endpoint_world.x, endpoint.endpoint_world.y, endpoint.endpoint_world.z);
       ImGui::Text("  departure=%.2f %.2f %.2f localDep=%.2f", endpoint.departure_dir.x, endpoint.departure_dir.y,
                   endpoint.departure_dir.z, endpoint.local_departure_length_m);
-      ImGui::Text("  downOffset=%.2f attach=%llu socket=%d", endpoint.branch_down_offset_m,
-                  static_cast<unsigned long long>(endpoint.attachment_id), endpoint.socket_id);
+      ImGui::Text("  downOffset=%.2f attach=%llu socket=%d input=%s override=%s", endpoint.branch_down_offset_m,
+                  static_cast<unsigned long long>(endpoint.attachment_id), endpoint.socket_id,
+                  endpoint.attachment_input_present ? "attachment" : "none",
+                  endpoint.socket_override_active ? "true" : "false");
     };
     draw_endpoint("start", layout_view->start_endpoint);
     draw_endpoint("end", layout_view->end_endpoint);
@@ -1188,6 +1197,11 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
                 static_cast<int>(curve_view->replacement_path_count));
     ImGui::Text("tangentRule: %s / %s", DetailCurveEndpointTangentRuleLabel(curve_view->start_tangent_rule),
                 DetailCurveEndpointTangentRuleLabel(curve_view->end_tangent_rule));
+    ImGui::Text("endpointSource: %s / %s", curve_view->start_endpoint_source.c_str(),
+                curve_view->end_endpoint_source.c_str());
+    ImGui::Text("endpointInput: %s[%d] / %s[%d]",
+                curve_view->start_attachment_input_present ? "attachment" : "none", curve_view->start_socket_id,
+                curve_view->end_attachment_input_present ? "attachment" : "none", curve_view->end_socket_id);
     DrawRelatedLinks(ui_state, curve_view->links);
     return;
   }

@@ -33,6 +33,21 @@ const char* PoleForwardRuleText(PoleForwardRule rule) {
   }
 }
 
+const char* PoleSupportAxisRuleText(PoleSupportAxisRule rule) {
+  switch (rule) {
+  case PoleSupportAxisRule::kFallback:
+    return "Fallback";
+  case PoleSupportAxisRule::kPrimaryIncident:
+    return "PrimaryIncident";
+  case PoleSupportAxisRule::kMainChainSingle:
+    return "MainChainSingle";
+  case PoleSupportAxisRule::kMainChainPair:
+    return "MainChainPair";
+  default:
+    return "Unknown";
+  }
+}
+
 const char* FlowKindText(BackboneFlowKind kind) {
   switch (kind) {
   case BackboneFlowKind::kMain:
@@ -70,6 +85,20 @@ const char* SupportLayoutOriginText(SupportLayoutOriginKind origin) {
   case SupportLayoutOriginKind::kAerialBranch:
     return "AerialBranch";
   case SupportLayoutOriginKind::kFallback:
+  default:
+    return "Fallback";
+  }
+}
+
+const char* SupportLayoutEndpointSourceText(SupportLayoutEndpointSourceKind source) {
+  switch (source) {
+  case SupportLayoutEndpointSourceKind::kPlainSupport:
+    return "PlainSupport";
+  case SupportLayoutEndpointSourceKind::kAttachmentSocket:
+    return "AttachmentSocket";
+  case SupportLayoutEndpointSourceKind::kAttachmentSocketOverride:
+    return "AttachmentSocketOverride";
+  case SupportLayoutEndpointSourceKind::kFallback:
   default:
     return "Fallback";
   }
@@ -248,6 +277,7 @@ EntityMeta MakeMeta(EntityKind kind, std::uint64_t stable_id, std::string displa
 
 VariationBreakdownView MakeVariationBreakdownView(const HierarchicalVariationSample& sample) {
   VariationBreakdownView view{};
+  view.flow_key = sample.flow_key;
   view.world_bias = sample.world_bias;
   view.flow_bias = sample.flow_bias;
   view.pole_delta = sample.pole_delta;
@@ -266,6 +296,9 @@ SupportLayoutEndpointView MakeSupportLayoutEndpointView(const SupportLayoutEndpo
   view.flow_kind = endpoint.flow_kind;
   view.side = endpoint.side;
   view.origin = SupportLayoutOriginText(endpoint.origin);
+  view.endpoint_source = SupportLayoutEndpointSourceText(endpoint.endpoint_source);
+  view.attachment_input_present = endpoint.attachment_input_present;
+  view.socket_override_active = endpoint.socket_override_active;
   view.port_source = PortPlacementSourceText(endpoint.port_source);
   view.endpoint_mode = CurveEndpointModeText(endpoint.endpoint_mode);
   view.support_world = endpoint.support_world;
@@ -367,9 +400,20 @@ std::optional<PoleInspectionView> CoreView::inspect_pole(ObjectId pole_id) const
   result.orientation_override = state_.has_pole_orientation_override(pole_id);
   result.final_yaw_deg = state_.effective_pole_yaw_deg(*pole);
   result.has_final_yaw = true;
+  result.layout_yaw_deg = state_.effective_pole_layout_yaw_deg(*pole);
+  result.has_layout_yaw = true;
   if (const auto it = pole_orientation_debug_records().find(pole_id); it != pole_orientation_debug_records().end()) {
+    result.forward_rule = it->second.rule;
+    result.support_axis_rule = it->second.support_axis_rule;
+    result.primary_neighbor_id = it->second.primary_neighbor_id;
+    result.secondary_neighbor_id = it->second.secondary_neighbor_id;
     result.forward_dir = it->second.adopted_forward;
     result.has_forward = true;
+    result.support_axis_dir = it->second.adopted_support_axis;
+    const double support_axis_len2 = result.support_axis_dir.x * result.support_axis_dir.x +
+                                     result.support_axis_dir.y * result.support_axis_dir.y +
+                                     result.support_axis_dir.z * result.support_axis_dir.z;
+    result.has_support_axis = support_axis_len2 > 1e-12;
     result.automatic_yaw_deg =
         std::atan2(it->second.adopted_forward.y, it->second.adopted_forward.x) * (180.0 / 3.14159265358979323846);
   }
@@ -440,6 +484,9 @@ std::optional<SpanInspectionView> CoreView::inspect_span(ObjectId span_id) const
     result.flow_rule = assignment->flow_decision_rule;
     result.uses_branch_support = assignment->uses_branch_support;
     result.branch_down_offset_m = assignment->branch_down_offset_m;
+    result.mirrored = assignment->mirrored;
+    result.flipped_from_previous = assignment->flipped_from_previous;
+    result.turn_angle_deg = assignment->turn_angle_deg;
   }
 
   std::unordered_set<std::uint64_t> seen{};
@@ -500,11 +547,20 @@ std::optional<DetailCurveInspectionView> CoreView::inspect_detail_curve(ObjectId
   result.meta = *describe_entity({EntityKind::kDetailCurve, span_id});
   result.source_span = {EntityKind::kSpan, span_id};
   result.requested_continuity = curve->detail.quality.requested_policy;
+  result.shape_policy = curve->detail.quality.shape_policy;
   result.adopted_continuity = curve->detail.quality.adopted_continuity;
   result.continuity_reason = curve->detail.quality.continuity_reason;
+  result.attempted_g2 = curve->detail.quality.attempted_g2;
   result.degraded_to_g1 = curve->detail.quality.degraded_to_g1;
   result.sag_amplitude_m = curve->detail.sag_amplitude_m;
   result.curve_length_m = curve->detail.Length();
+  result.tangent_scale = curve->detail.quality.tangent_scale;
+  result.base_handle_scale = curve->detail.quality.base_handle_scale;
+  result.policy_handle_scale = curve->detail.quality.policy_handle_scale;
+  result.start_angle_scale = curve->detail.quality.start_angle_scale;
+  result.end_angle_scale = curve->detail.quality.end_angle_scale;
+  result.handle_length_start_m = curve->detail.quality.handle_length_start_m;
+  result.handle_length_end_m = curve->detail.quality.handle_length_end_m;
   result.control_points = curve->detail.control_points;
   result.arc_length_sample_count = curve->detail.arc_length_table.size();
   result.visible_interval_count = curve->detail.visible_intervals.size();
@@ -512,6 +568,27 @@ std::optional<DetailCurveInspectionView> CoreView::inspect_detail_curve(ObjectId
   result.replacement_path_count = curve->detail.replacement_paths.size();
   result.start_tangent_rule = curve->detail.quality.start_tangent_rule;
   result.end_tangent_rule = curve->detail.quality.end_tangent_rule;
+  result.start_support_weight = curve->detail.quality.start_support_weight;
+  result.end_support_weight = curve->detail.quality.end_support_weight;
+  result.start_chord_weight = curve->detail.quality.start_chord_weight;
+  result.end_chord_weight = curve->detail.quality.end_chord_weight;
+  result.start_departure_length_m = curve->detail.quality.start_departure_length_m;
+  result.end_departure_length_m = curve->detail.quality.end_departure_length_m;
+  result.start_lateral_ratio_limit = curve->detail.quality.start_lateral_ratio_limit;
+  result.end_lateral_ratio_limit = curve->detail.quality.end_lateral_ratio_limit;
+  if (const SpanSupportLayoutEntry* layout = find_span_support_layout(span_id); layout != nullptr) {
+    result.start_endpoint_source = SupportLayoutEndpointSourceText(layout->start.endpoint_source);
+    result.end_endpoint_source = SupportLayoutEndpointSourceText(layout->end.endpoint_source);
+    result.start_attachment_input_present = layout->start.attachment_input_present;
+    result.end_attachment_input_present = layout->end.attachment_input_present;
+    result.start_socket_id = layout->start.socket_id;
+    result.end_socket_id = layout->end.socket_id;
+  }
+  result.sag_base_ratio = curve->detail.quality.sag_base_ratio;
+  result.sag_length_scale = curve->detail.quality.sag_length_scale;
+  result.sag_pass_scale = curve->detail.quality.sag_pass_scale;
+  result.sag_rigidity_scale = curve->detail.quality.sag_rigidity_scale;
+  result.sag_variation = MakeVariationBreakdownView(curve->detail.quality.sag_variation);
 
   std::unordered_set<std::uint64_t> seen{};
   AddLink(&result.links, &seen, "Source Span", EntityKind::kSpan, span_id);
@@ -735,9 +812,17 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
     if (const auto it = pole_orientation_debug_records().find(ref.stable_id); it != pole_orientation_debug_records().end()) {
       std::ostringstream summary;
       summary << "forward=" << it->second.adopted_forward.x << "," << it->second.adopted_forward.y << ","
-              << it->second.adopted_forward.z << " neighbors=" << it->second.primary_neighbor_id << "/"
-              << it->second.secondary_neighbor_id;
+              << it->second.adopted_forward.z << " supportAxis=" << it->second.adopted_support_axis.x << ","
+              << it->second.adopted_support_axis.y << "," << it->second.adopted_support_axis.z << " neighbors="
+              << it->second.primary_neighbor_id << "/" << it->second.secondary_neighbor_id;
       trace.push_back({DecisionTraceTopic::kPoleOrientation, PoleForwardRuleText(it->second.rule), summary.str()});
+      std::ostringstream support_summary;
+      support_summary << "axis=" << it->second.adopted_support_axis.x << "," << it->second.adopted_support_axis.y << ","
+                      << it->second.adopted_support_axis.z << " neighbors=" << it->second.primary_neighbor_id << "/"
+                      << it->second.secondary_neighbor_id;
+      trace.push_back(
+          {DecisionTraceTopic::kSupportLayoutSelection, PoleSupportAxisRuleText(it->second.support_axis_rule),
+           support_summary.str()});
     }
     if (const Pole* pole = poles().find(ref.stable_id); pole != nullptr && state_.has_pole_orientation_override(pole->id)) {
       std::ostringstream summary;
@@ -793,6 +878,17 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
               << " end=" << SupportLayoutOriginText(layout->end.origin) << " dep=" << layout->end.local_departure_length_m
               << " down=" << std::max(layout->start.branch_down_offset_m, layout->end.branch_down_offset_m);
       trace.push_back({DecisionTraceTopic::kSupportLayoutSelection, FlowKindText(layout->flow_kind), summary.str()});
+      std::ostringstream endpoint_summary;
+      endpoint_summary << "start=" << SupportLayoutEndpointSourceText(layout->start.endpoint_source)
+                       << " input=" << (layout->start.attachment_input_present ? "attachment" : "none")
+                       << " socket=" << layout->start.socket_id
+                       << " override=" << BoolText(layout->start.socket_override_active)
+                       << " end=" << SupportLayoutEndpointSourceText(layout->end.endpoint_source)
+                       << " input=" << (layout->end.attachment_input_present ? "attachment" : "none")
+                       << " socket=" << layout->end.socket_id
+                       << " override=" << BoolText(layout->end.socket_override_active);
+      trace.push_back(
+          {DecisionTraceTopic::kSupportLayoutSelection, "AttachmentEndpointSelection", endpoint_summary.str()});
       if (state_.has_span_branch_down_offset_override(span_id)) {
         std::ostringstream override_summary;
         override_summary << "autoDown="

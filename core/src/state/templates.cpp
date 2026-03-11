@@ -712,7 +712,7 @@ EditResult<ObjectId> CoreState::ensure_pole_slot_port(const SlotSelectionRequest
       }
       adjusted_local = apply_pole_clearance_to_local(*pole, adjusted_local, best_slot->side);
       const Vec3d world_position =
-          local_to_world_on_pole(pole->world_transform, effective_pole_yaw_deg(*pole), adjusted_local);
+          local_to_world_on_pole(pole->world_transform, effective_pole_layout_yaw_deg(*pole), adjusted_local);
       EditResult<ObjectId> add_port_result =
           AddPort(request.pole_id, world_position, category_to_port_kind(request.category),
                   category_to_port_layer(request.category), best_slot->local_direction);
@@ -775,7 +775,7 @@ EditResult<ObjectId> CoreState::ensure_pole_slot_port(const SlotSelectionRequest
     const Vec3d local = apply_pole_clearance_to_local(
         *pole, Vec3d{0.0, 0.0, std::max(1.0, pole->height_m * 0.7)}, SlotSide::kCenter);
     const Vec3d world_position =
-        local_to_world_on_pole(pole->world_transform, effective_pole_yaw_deg(*pole), local);
+        local_to_world_on_pole(pole->world_transform, effective_pole_layout_yaw_deg(*pole), local);
     EditResult<ObjectId> add_port_result =
         AddPort(request.pole_id, world_position, category_to_port_kind(request.category),
                 category_to_port_layer(request.category));

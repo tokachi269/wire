@@ -22,7 +22,7 @@ bool test_branch_pick_segment_near_endpoint_snaps_to_node() {
     return false;
   }
 
-  wire::core::CoreState::AddConnectionByPoleOptions options{};
+  wire::core::AddConnectionByPoleOptions options{};
   options.use_bundle_template = true;
   options.bundle_template_id = wire::core::BundleKind::kLowVoltage;
   const auto connection = state.AddConnectionByPole(pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage, options);
@@ -40,7 +40,7 @@ bool test_branch_pick_segment_near_endpoint_snaps_to_node() {
   pick.segment_endpoint_a_world = a_tf.position;
   pick.segment_endpoint_b_world = b_tf.position;
 
-  wire::core::CoreState::ResolveBranchPickOptions resolve{};
+  wire::core::ResolveBranchPickOptions resolve{};
   resolve.bundle_template_id = wire::core::BundleKind::kLowVoltage;
   resolve.snap_radius_world = 0.5;
   const auto resolved = state.ResolveBranchPick(pick, resolve);
@@ -70,7 +70,7 @@ bool test_branch_pick_segment_midpoint_creates_midair_node() {
     return false;
   }
 
-  wire::core::CoreState::AddConnectionByPoleOptions options{};
+  wire::core::AddConnectionByPoleOptions options{};
   options.use_bundle_template = true;
   options.bundle_template_id = wire::core::BundleKind::kLowVoltage;
   const auto connection = state.AddConnectionByPole(pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage, options);
@@ -88,7 +88,7 @@ bool test_branch_pick_segment_midpoint_creates_midair_node() {
   pick.segment_endpoint_a_world = a_tf.position;
   pick.segment_endpoint_b_world = b_tf.position;
 
-  wire::core::CoreState::ResolveBranchPickOptions resolve{};
+  wire::core::ResolveBranchPickOptions resolve{};
   resolve.bundle_template_id = wire::core::BundleKind::kLowVoltage;
   resolve.snap_radius_world = 0.5;
   const auto resolved = state.ResolveBranchPick(pick, resolve);
@@ -126,7 +126,7 @@ bool test_branch_pick_segment_midpoint_dryrun_keeps_state_unchanged() {
     return false;
   }
 
-  wire::core::CoreState::AddConnectionByPoleOptions options{};
+  wire::core::AddConnectionByPoleOptions options{};
   options.use_bundle_template = true;
   options.bundle_template_id = wire::core::BundleKind::kLowVoltage;
   const auto connection = state.AddConnectionByPole(pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage, options);
@@ -144,7 +144,7 @@ bool test_branch_pick_segment_midpoint_dryrun_keeps_state_unchanged() {
   pick.segment_endpoint_a_world = a_tf.position;
   pick.segment_endpoint_b_world = b_tf.position;
 
-  wire::core::CoreState::ResolveBranchPickOptions resolve{};
+  wire::core::ResolveBranchPickOptions resolve{};
   resolve.bundle_template_id = wire::core::BundleKind::kLowVoltage;
   resolve.snap_radius_world = 0.5;
   resolve.create_midair_node = false;
@@ -178,7 +178,7 @@ bool test_branch_pick_hv_template_blocks_midair_branch() {
     return false;
   }
 
-  wire::core::CoreState::AddConnectionByPoleOptions options{};
+  wire::core::AddConnectionByPoleOptions options{};
   options.use_bundle_template = true;
   options.bundle_template_id = wire::core::BundleKind::kHighVoltage;
   const auto connection = state.AddConnectionByPole(pole_a, pole_b, wire::core::ConnectionCategory::kHighVoltage, options);
@@ -196,7 +196,7 @@ bool test_branch_pick_hv_template_blocks_midair_branch() {
   pick.segment_endpoint_a_world = a_tf.position;
   pick.segment_endpoint_b_world = b_tf.position;
 
-  wire::core::CoreState::ResolveBranchPickOptions resolve{};
+  wire::core::ResolveBranchPickOptions resolve{};
   resolve.bundle_template_id = wire::core::BundleKind::kHighVoltage;
   resolve.snap_radius_world = 0.5;
   const auto resolved = state.ResolveBranchPick(pick, resolve);
@@ -221,7 +221,7 @@ bool test_branch_pick_hv_template_allows_midair_when_policy_not_enforced() {
     return false;
   }
 
-  wire::core::CoreState::AddConnectionByPoleOptions options{};
+  wire::core::AddConnectionByPoleOptions options{};
   options.use_bundle_template = true;
   options.bundle_template_id = wire::core::BundleKind::kHighVoltage;
   const auto connection = state.AddConnectionByPole(pole_a, pole_b, wire::core::ConnectionCategory::kHighVoltage, options);
@@ -239,7 +239,7 @@ bool test_branch_pick_hv_template_allows_midair_when_policy_not_enforced() {
   pick.segment_endpoint_a_world = a_tf.position;
   pick.segment_endpoint_b_world = b_tf.position;
 
-  wire::core::CoreState::ResolveBranchPickOptions resolve{};
+  wire::core::ResolveBranchPickOptions resolve{};
   resolve.bundle_template_id = wire::core::BundleKind::kHighVoltage;
   resolve.snap_radius_world = 0.5;
   resolve.enforce_midair_template_policy = false;

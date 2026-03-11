@@ -345,7 +345,7 @@ void UpdateBranchPickInput(CoreState& state, const Camera3D& camera, ViewerUiSta
   ui_state.branch_hover_status =
       std::string("hover: ") + PickHitKindLabelLocal(pick.hit_kind) + " id=" + PickTargetLabel(pick);
 
-  wire::core::CoreState::ResolveBranchPickOptions options{};
+  wire::core::ResolveBranchPickOptions options{};
   options.bundle_template_id = ResolveBundleTemplateForPathPick(state, ui_state.draw_bundle_template_mask, pick);
   options.snap_radius_world = ui_state.branch_snap_radius_world;
   options.create_midair_node = false;
@@ -379,7 +379,7 @@ void UpdateBranchPickInput(CoreState& state, const Camera3D& camera, ViewerUiSta
   ui_state.branch_last_pick = pick;
   ui_state.branch_last_pick_summary = ui_state.branch_hover_status;
   ui_state.last_error.clear();
-  wire::core::CoreState::ResolveBranchPickOptions click_options = options;
+  wire::core::ResolveBranchPickOptions click_options = options;
   click_options.create_midair_node = true;
   const auto applied = state.ResolveBranchPick(pick, click_options);
   if (!applied.ok) {
@@ -784,7 +784,7 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
           std::string("hover: ") + PickHitKindLabelLocal(pick.hit_kind) + " id=" + PickTargetLabel(pick);
       if (pick.hit_kind == wire::core::PickHitKind::kNode || pick.hit_kind == wire::core::PickHitKind::kSegment ||
           pick.hit_kind == wire::core::PickHitKind::kBuilding) {
-        wire::core::CoreState::ResolveBranchPickOptions options{};
+        wire::core::ResolveBranchPickOptions options{};
         options.bundle_template_id = ResolveBundleTemplateForPathPick(state, ui_state.draw_bundle_template_mask, pick);
         options.snap_radius_world = ui_state.draw_snap_radius_world;
         options.create_midair_node = false;
@@ -818,7 +818,7 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
   if (accept_mouse_input) {
     if (ui_state.draw_hover_valid && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
       if (ui_state.draw_hover_has_resolution) {
-        wire::core::CoreState::ResolveBranchPickOptions click_options{};
+        wire::core::ResolveBranchPickOptions click_options{};
         click_options.bundle_template_id =
             ResolveBundleTemplateForPathPick(state, ui_state.draw_bundle_template_mask, ui_state.draw_hover_pick);
         click_options.snap_radius_world = ui_state.draw_snap_radius_world;

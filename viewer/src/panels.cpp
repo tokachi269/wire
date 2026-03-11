@@ -1515,7 +1515,7 @@ void DrawConnectionModePanel(CoreState& state, ViewerUiState& ui_state) {
   if (ImGui::Button("Connect Pole -> Pole")) {
     const int selected_context_index = std::clamp(ui_state.connect_context, 0, static_cast<int>(all_contexts.size() - 1));
     const wire::core::ConnectionCategory selected_category = all_categories[ui_state.connect_category];
-    wire::core::CoreState::AddConnectionByPoleOptions options{};
+    wire::core::AddConnectionByPoleOptions options{};
     options.connection_context = all_contexts[selected_context_index];
     options.use_bundle_template = true;
     switch (selected_category) {

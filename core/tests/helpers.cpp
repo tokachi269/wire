@@ -594,7 +594,7 @@ wire::core::BundleKind bundle_template_for_category_test(wire::core::ConnectionC
 wire::core::EditResult<wire::core::CoreState::AddConnectionByPoleResult>
 add_connection_by_category(wire::core::CoreState& state, wire::core::ObjectId pole_a_id, wire::core::ObjectId pole_b_id,
                            wire::core::ConnectionCategory category,
-                           wire::core::CoreState::AddConnectionByPoleOptions options) {
+                           wire::core::AddConnectionByPoleOptions options) {
   if (!options.use_bundle_template) {
     options.bundle_template_id = bundle_template_for_category_test(category);
     options.use_bundle_template = true;

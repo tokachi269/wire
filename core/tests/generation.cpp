@@ -326,7 +326,7 @@ bool test_backbone_midair_branch_reuses_source_span_height() {
   pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
   pick.segment_endpoint_b_world = {20.0, 0.0, 0.0};
 
-  wire::core::CoreState::ResolveBranchPickOptions resolve{};
+  wire::core::ResolveBranchPickOptions resolve{};
   resolve.bundle_template_id = wire::core::BundleKind::kLowVoltage;
   resolve.snap_radius_world = 0.75;
   resolve.create_midair_node = true;
@@ -413,7 +413,7 @@ bool test_backbone_midair_branch_skips_disallowed_template_generation() {
   pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
   pick.segment_endpoint_b_world = {20.0, 0.0, 0.0};
 
-  wire::core::CoreState::ResolveBranchPickOptions resolve{};
+  wire::core::ResolveBranchPickOptions resolve{};
   resolve.bundle_template_id = wire::core::BundleKind::kLowVoltage;
   resolve.snap_radius_world = 0.75;
   resolve.create_midair_node = true;
@@ -474,7 +474,7 @@ bool test_backbone_midair_branch_generates_only_allowed_templates() {
   pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
   pick.segment_endpoint_b_world = {20.0, 0.0, 0.0};
 
-  wire::core::CoreState::ResolveBranchPickOptions resolve{};
+  wire::core::ResolveBranchPickOptions resolve{};
   resolve.bundle_template_id = wire::core::BundleKind::kLowVoltage;
   resolve.snap_radius_world = 0.75;
   resolve.create_midair_node = true;

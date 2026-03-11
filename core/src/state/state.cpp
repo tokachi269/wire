@@ -2224,7 +2224,7 @@ CoreState make_demo_state() {
   (void)state.ApplyPoleType(pole_c, kCommunicationPoleType);
 
   auto connect_with_template = [&](ObjectId a_id, ObjectId b_id, ConnectionCategory category) {
-    CoreState::AddConnectionByPoleOptions options{};
+    AddConnectionByPoleOptions options{};
     options.use_bundle_template = true;
     switch (category) {
     case ConnectionCategory::kHighVoltage:

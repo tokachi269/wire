@@ -47,11 +47,20 @@ enum class DetailCurveContinuityReason : std::uint8_t {
   kPoorQualityFallback = 9,
 };
 
+enum class DetailCurveEndpointTangentRule : std::uint8_t {
+  kFallbackChord = 0,
+  kMainFlowBlend = 1,
+  kBranchChordPriority = 2,
+  kTerminateEndpointPriority = 3,
+  kAttachmentEndpointPriority = 4,
+};
+
 struct CurveConstraint {
   Vec3d point{};
   Vec3d tangent_dir{};
   double tangent_strength = 1.0;
   double tangent_length_hint_m = 0.0;
+  double support_departure_length_m = 0.0;
   double bend_stiffness_hint = 1.0;
   double min_bend_radius_hint_m = 0.0;
   Vec3d endpoint_offset{};
@@ -74,6 +83,14 @@ struct CurveLengthInterval {
   double end_m = 0.0;
 };
 
+struct DetailReplacementPath {
+  ObjectId attachment_id = kInvalidObjectId;
+  AttachmentTemplateId attachment_template_id = kInvalidAttachmentTemplateId;
+  AttachmentLineInteractionMode interaction_mode = AttachmentLineInteractionMode::kPassThrough;
+  CurveLengthInterval replaced_interval{};
+  std::vector<Vec3d> points{};
+};
+
 struct CurveDistanceAttributes {
   std::vector<float> arc_length_m{};
   std::vector<float> arc_length_normalized{};
@@ -93,6 +110,20 @@ struct DetailCurveQualityInfo {
   double end_angle_scale = 1.0;
   double handle_length_start_m = 0.0;
   double handle_length_end_m = 0.0;
+  DetailCurveEndpointTangentRule start_tangent_rule = DetailCurveEndpointTangentRule::kFallbackChord;
+  DetailCurveEndpointTangentRule end_tangent_rule = DetailCurveEndpointTangentRule::kFallbackChord;
+  double start_support_weight = 0.0;
+  double end_support_weight = 0.0;
+  double start_chord_weight = 1.0;
+  double end_chord_weight = 1.0;
+  double start_departure_length_m = 0.0;
+  double end_departure_length_m = 0.0;
+  double start_lateral_ratio_limit = 0.0;
+  double end_lateral_ratio_limit = 0.0;
+  double sag_base_ratio = 0.0;
+  double sag_length_scale = 1.0;
+  double sag_pass_scale = 1.0;
+  double sag_rigidity_scale = 1.0;
   bool attempted_g2 = false;
   bool degraded_to_g1 = false;
   HierarchicalVariationSample sag_variation{};
@@ -108,6 +139,7 @@ struct DetailCurve {
   std::vector<CurveLengthInterval> visible_intervals{};
   std::vector<CurveLengthInterval> hidden_intervals{};
   std::vector<CurveLengthInterval> replacement_intervals{};
+  std::vector<DetailReplacementPath> replacement_paths{};
   CurveDistanceAttributes distance_attributes{};
   DetailCurveQualityInfo quality{};
   double total_length_m = 0.0;

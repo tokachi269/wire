@@ -359,14 +359,14 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
           apply_sharp_debug_to_context(&pole->context, auto_tf.sharp);
           updated = true;
           // Reused poles must follow current corner-orientation rule unless explicitly overridden.
-          if (!pole->orientation_override_flag && !pole->orientation_control.manual_yaw_override) {
+          if (!has_pole_orientation_override(pole->id)) {
             pole->world_transform.rotation_euler_deg.z = auto_tf.transform.rotation_euler_deg.z;
             updated = true;
           }
         } else {
           pole->context.kind = PoleContextKind::kStraight;
           apply_sharp_debug_to_context(&pole->context, SharpCornerOrientationDebug{});
-          if (!pole->orientation_override_flag && !pole->orientation_control.manual_yaw_override) {
+          if (!has_pole_orientation_override(pole->id)) {
             const Vec3d dir = guide_points[candidate.segment_index + 1] - guide_points[candidate.segment_index];
             if ((dir.x * dir.x + dir.y * dir.y + dir.z * dir.z) > 1e-12) {
               pole->world_transform.rotation_euler_deg.z = normalize_yaw_deg(std::atan2(dir.y, dir.x) * (180.0 / kPi));
@@ -940,7 +940,7 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     debug.adopted_forward = chosen_forward;
     pole_orientation_debug_records_[pole->id] = debug;
 
-    if (!has_chosen_forward || pole->orientation_override_flag || pole->orientation_control.manual_yaw_override) {
+    if (!has_chosen_forward || has_pole_orientation_override(pole->id)) {
       continue;
     }
 

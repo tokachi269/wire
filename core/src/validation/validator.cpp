@@ -70,6 +70,38 @@ ValidationResult CoreState::ValidateFast() const {
     }
   }
 
+  for (const auto& [pole_id, override_value] : override_state_.pole_orientation_by_pole) {
+    if (edit_state.poles.find(pole_id) == nullptr) {
+      result.issues.push_back(
+          {ValidationSeverity::kError, "PoleOverrideTargetMissing", "Pole orientation override target is missing", pole_id});
+    } else if (override_value.manual_yaw_deg.has_value() && !std::isfinite(*override_value.manual_yaw_deg)) {
+      result.issues.push_back(
+          {ValidationSeverity::kError, "PoleOverrideInvalid", "Pole orientation override has non-finite yaw", pole_id});
+    }
+  }
+
+  for (const auto& [span_id, override_value] : override_state_.span_endpoint_by_span) {
+    if (edit_state.spans.find(span_id) == nullptr) {
+      result.issues.push_back({ValidationSeverity::kError, "SpanEndpointOverrideTargetMissing",
+                               "Span endpoint override target is missing", span_id});
+    } else if ((override_value.socket_a_id.has_value() && *override_value.socket_a_id < -1) ||
+               (override_value.socket_b_id.has_value() && *override_value.socket_b_id < -1)) {
+      result.issues.push_back({ValidationSeverity::kError, "SpanEndpointOverrideInvalid",
+                               "Span endpoint socket override must be -1 or a valid socket id", span_id});
+    }
+  }
+
+  for (const auto& [span_id, override_value] : override_state_.span_support_by_span) {
+    if (edit_state.spans.find(span_id) == nullptr) {
+      result.issues.push_back({ValidationSeverity::kError, "SpanSupportOverrideTargetMissing",
+                               "Span support override target is missing", span_id});
+    } else if (override_value.branch_down_offset_m.has_value() &&
+               (!std::isfinite(*override_value.branch_down_offset_m) || *override_value.branch_down_offset_m < 0.0)) {
+      result.issues.push_back({ValidationSeverity::kError, "SpanSupportOverrideInvalid",
+                               "Span support override branch down offset must be finite and >= 0", span_id});
+    }
+  }
+
   return result;
 }
 
@@ -85,6 +117,7 @@ ValidationResult CoreState::Validate() const {
   const auto& pole_types = core.pole_types();
   const auto& cable_templates = core.cable_templates();
   const auto& bundle_templates = core.bundle_templates();
+  const auto& attachment_templates = core.attachment_templates();
   const auto& slot_debug_records = core.slot_selection_debug_records();
 
   for (const Pole& pole : edit_state.poles.items()) {
@@ -124,6 +157,18 @@ ValidationResult CoreState::Validate() const {
           "Manual pole should have user_edited=true",
           pole.id,
       });
+    }
+  }
+
+  for (const auto& [pole_id, override_value] : override_state_.pole_orientation_by_pole) {
+    if (edit_state.poles.find(pole_id) == nullptr) {
+      result.issues.push_back(
+          {ValidationSeverity::kError, "PoleOverrideTargetMissing", "Pole orientation override target is missing", pole_id});
+      continue;
+    }
+    if (override_value.manual_yaw_deg.has_value() && !std::isfinite(*override_value.manual_yaw_deg)) {
+      result.issues.push_back(
+          {ValidationSeverity::kError, "PoleOverrideInvalid", "Pole orientation override has non-finite yaw", pole_id});
     }
   }
 
@@ -236,6 +281,34 @@ ValidationResult CoreState::Validate() const {
     }
   }
 
+  for (const auto& [attachment_template_id, attachment_template] : attachment_templates) {
+    (void)attachment_template_id;
+    std::unordered_set<int> socket_ids{};
+    for (const AttachmentSocketTemplate& socket : attachment_template.sockets) {
+      if (!socket_ids.insert(socket.id).second) {
+        result.issues.push_back({ValidationSeverity::kError, "AttachmentTemplateDuplicateSocket",
+                                 "AttachmentTemplate contains duplicate socket ids", kInvalidObjectId});
+      }
+    }
+    for (const AttachmentInternalPathTemplate& path : attachment_template.internal_paths) {
+      if (!socket_ids.contains(path.start_socket_id) || !socket_ids.contains(path.end_socket_id)) {
+        result.issues.push_back({ValidationSeverity::kError, "AttachmentTemplatePathSocketMissing",
+                                 "AttachmentTemplate internal path references missing socket", kInvalidObjectId});
+      }
+    }
+  }
+
+  for (const Attachment& attachment : edit_state.attachments.items()) {
+    if (edit_state.spans.find(attachment.span_id) == nullptr) {
+      result.issues.push_back(
+          {ValidationSeverity::kError, "AttachmentSpanMissing", "Attachment references missing span", attachment.id});
+    }
+    if (attachment_templates.find(attachment.template_id) == attachment_templates.end()) {
+      result.issues.push_back({ValidationSeverity::kError, "AttachmentTemplateMissing",
+                               "Attachment references unknown AttachmentTemplate", attachment.id});
+    }
+  }
+
   for (const Span& span : edit_state.spans.items()) {
     const Port* port_a = edit_state.ports.find(span.port_a_id);
     const Port* port_b = edit_state.ports.find(span.port_b_id);
@@ -258,6 +331,42 @@ ValidationResult CoreState::Validate() const {
     if (span.anchor_b_id != kInvalidObjectId && edit_state.anchors.find(span.anchor_b_id) == nullptr) {
       result.issues.push_back({ValidationSeverity::kError, "SpanAnchorMissing", "Span anchorB is missing", span.id});
     }
+    if (span.endpoint_attachment_a_id != kInvalidObjectId &&
+        edit_state.attachments.find(span.endpoint_attachment_a_id) == nullptr) {
+      result.issues.push_back(
+          {ValidationSeverity::kError, "SpanEndpointAttachmentMissing", "Span endpoint A attachment is missing", span.id});
+    }
+    if (span.endpoint_attachment_b_id != kInvalidObjectId &&
+        edit_state.attachments.find(span.endpoint_attachment_b_id) == nullptr) {
+      result.issues.push_back(
+          {ValidationSeverity::kError, "SpanEndpointAttachmentMissing", "Span endpoint B attachment is missing", span.id});
+    }
+  }
+
+  for (const auto& [span_id, override_value] : override_state_.span_endpoint_by_span) {
+    if (edit_state.spans.find(span_id) == nullptr) {
+      result.issues.push_back({ValidationSeverity::kError, "SpanEndpointOverrideTargetMissing",
+                               "Span endpoint override target is missing", span_id});
+      continue;
+    }
+    if ((override_value.socket_a_id.has_value() && *override_value.socket_a_id < -1) ||
+        (override_value.socket_b_id.has_value() && *override_value.socket_b_id < -1)) {
+      result.issues.push_back({ValidationSeverity::kError, "SpanEndpointOverrideInvalid",
+                               "Span endpoint socket override must be -1 or a valid socket id", span_id});
+    }
+  }
+
+  for (const auto& [span_id, override_value] : override_state_.span_support_by_span) {
+    if (edit_state.spans.find(span_id) == nullptr) {
+      result.issues.push_back({ValidationSeverity::kError, "SpanSupportOverrideTargetMissing",
+                               "Span support override target is missing", span_id});
+      continue;
+    }
+    if (override_value.branch_down_offset_m.has_value() &&
+        (!std::isfinite(*override_value.branch_down_offset_m) || *override_value.branch_down_offset_m < 0.0)) {
+      result.issues.push_back({ValidationSeverity::kError, "SpanSupportOverrideInvalid",
+                               "Span support override branch down offset must be finite and >= 0", span_id});
+    }
   }
 
   const auto expected_port_index = canonical_index_map(make_expected_port_index(edit_state));
@@ -265,11 +374,13 @@ ValidationResult CoreState::Validate() const {
   const auto expected_pole_port_index = canonical_index_map(make_expected_pole_port_index(edit_state));
   const auto expected_pole_anchor_index = canonical_index_map(make_expected_pole_anchor_index(edit_state));
   const auto expected_bundle_span_index = canonical_index_map(make_expected_bundle_span_index(edit_state));
+  const auto expected_span_attachment_index = canonical_index_map(make_expected_span_attachment_index(edit_state));
   const auto actual_port_index = canonical_index_map(connection_index.spans_by_port);
   const auto actual_anchor_index = canonical_index_map(connection_index.spans_by_anchor);
   const auto actual_pole_port_index = canonical_index_map(relation_index.ports_by_pole);
   const auto actual_pole_anchor_index = canonical_index_map(relation_index.anchors_by_pole);
   const auto actual_bundle_span_index = canonical_index_map(relation_index.spans_by_bundle);
+  const auto actual_span_attachment_index = canonical_index_map(relation_index.attachments_by_span);
 
   if (expected_port_index != actual_port_index) {
     result.issues.push_back(
@@ -290,6 +401,10 @@ ValidationResult CoreState::Validate() const {
   if (expected_bundle_span_index != actual_bundle_span_index) {
     result.issues.push_back(
         {ValidationSeverity::kError, "BundleSpanIndexMismatch", "Bundle->Span index mismatch", kInvalidObjectId});
+  }
+  if (expected_span_attachment_index != actual_span_attachment_index) {
+    result.issues.push_back({ValidationSeverity::kError, "SpanAttachmentIndexMismatch",
+                             "Span->Attachment index mismatch", kInvalidObjectId});
   }
   for (const auto& [port_id, span_ids] : connection_index.spans_by_port) {
     if (has_duplicate_ids(span_ids)) {
@@ -339,6 +454,12 @@ ValidationResult CoreState::Validate() const {
           "Bundle->Span index contains duplicate span ids",
           bundle_id,
       });
+    }
+  }
+  for (const auto& [span_id, attachment_ids] : relation_index.attachments_by_span) {
+    if (has_duplicate_ids(attachment_ids)) {
+      result.issues.push_back({ValidationSeverity::kError, "SpanAttachmentIndexDuplicateEntries",
+                               "Span->Attachment index contains duplicate attachment ids", span_id});
     }
   }
   for (const auto& [port_id, span_ids] : connection_index.spans_by_port) {
@@ -450,6 +571,21 @@ ValidationResult CoreState::Validate() const {
             "Bundle->Span index references removed or mismatched span",
             bundle_id,
         });
+        break;
+      }
+    }
+  }
+  for (const auto& [span_id, attachment_ids] : relation_index.attachments_by_span) {
+    if (edit_state.spans.find(span_id) == nullptr) {
+      result.issues.push_back({ValidationSeverity::kError, "SpanAttachmentIndexDanglingSpan",
+                               "Span->Attachment index references removed span", span_id});
+      continue;
+    }
+    for (ObjectId attachment_id : attachment_ids) {
+      const Attachment* attachment = edit_state.attachments.find(attachment_id);
+      if (attachment == nullptr || attachment->span_id != span_id) {
+        result.issues.push_back({ValidationSeverity::kError, "SpanAttachmentIndexDanglingAttachment",
+                                 "Span->Attachment index references removed or mismatched attachment", span_id});
         break;
       }
     }

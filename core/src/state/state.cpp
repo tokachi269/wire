@@ -143,7 +143,7 @@ double normalize_yaw_deg(double yaw_deg) {
   return NormalizeYawDeg(yaw_deg);
 }
 
-double effective_pole_yaw_for_layout(const Pole& pole) {
+double legacy_effective_pole_yaw_for_layout(const Pole& pole) {
   double yaw = pole.world_transform.rotation_euler_deg.z;
   if (pole.orientation_control.manual_yaw_override) {
     yaw = pole.orientation_control.manual_yaw_deg;
@@ -154,12 +154,55 @@ double effective_pole_yaw_for_layout(const Pole& pole) {
   return yaw;
 }
 
+bool attachment_socket_equals(const AttachmentSocketTemplate& a, const AttachmentSocketTemplate& b) {
+  const auto same_vec = [](const Vec3d& lhs, const Vec3d& rhs) {
+    return std::abs(lhs.x - rhs.x) <= 1e-12 && std::abs(lhs.y - rhs.y) <= 1e-12 && std::abs(lhs.z - rhs.z) <= 1e-12;
+  };
+  return a.id == b.id && same_vec(a.local_position, b.local_position) && same_vec(a.tangent_dir, b.tangent_dir) &&
+         a.has_normal == b.has_normal && same_vec(a.normal_dir, b.normal_dir) &&
+         a.has_binormal == b.has_binormal && same_vec(a.binormal_dir, b.binormal_dir) && a.kind == b.kind;
+}
+
+bool attachment_internal_path_equals(const AttachmentInternalPathTemplate& a, const AttachmentInternalPathTemplate& b) {
+  if (a.start_socket_id != b.start_socket_id || a.end_socket_id != b.end_socket_id ||
+      a.local_points.size() != b.local_points.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < a.local_points.size(); ++i) {
+    const Vec3d& lhs = a.local_points[i];
+    const Vec3d& rhs = b.local_points[i];
+    if (std::abs(lhs.x - rhs.x) > 1e-12 || std::abs(lhs.y - rhs.y) > 1e-12 || std::abs(lhs.z - rhs.z) > 1e-12) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool attachment_template_equals(const AttachmentTemplate& a, const AttachmentTemplate& b) {
+  if (a.id != b.id || a.name != b.name || a.kind != b.kind || a.line_interaction_mode != b.line_interaction_mode ||
+      a.sockets.size() != b.sockets.size() || a.internal_paths.size() != b.internal_paths.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < a.sockets.size(); ++i) {
+    if (!attachment_socket_equals(a.sockets[i], b.sockets[i])) {
+      return false;
+    }
+  }
+  for (std::size_t i = 0; i < a.internal_paths.size(); ++i) {
+    if (!attachment_internal_path_equals(a.internal_paths[i], b.internal_paths[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 } // namespace
 
 CoreState::CoreState() {
   register_default_pole_types();
   register_default_cable_templates();
   register_default_bundle_templates();
+  register_default_attachment_templates();
 }
 
 EditResult<ObjectId> CoreState::AddPole(const Transformd& world_transform, double height_m, std::string_view name,
@@ -338,7 +381,8 @@ EditResult<ObjectId> CoreState::AddSpan(ObjectId port_a_id, ObjectId port_b_id, 
   return result;
 }
 
-EditResult<ObjectId> CoreState::AddAttachment(ObjectId span_id, double t, AttachmentKind kind, double display_offset_m) {
+EditResult<ObjectId> CoreState::AddAttachment(ObjectId span_id, double t, AttachmentKind kind, double display_offset_m,
+                                              AttachmentTemplateId template_id) {
   EditResult<ObjectId> result;
   if (edit_state_.spans.find(span_id) == nullptr) {
     result.error = "span does not exist";
@@ -348,19 +392,36 @@ EditResult<ObjectId> CoreState::AddAttachment(ObjectId span_id, double t, Attach
     result.error = "attachment t must be in [0, 1]";
     return result;
   }
+  if (template_id == kInvalidAttachmentTemplateId) {
+    for (const auto& [candidate_id, attachment_template] : attachment_templates_) {
+      if (attachment_template.kind == kind) {
+        template_id = candidate_id;
+        break;
+      }
+    }
+  }
+  if (find_attachment_template(template_id) == nullptr) {
+    result.error = "attachment template not found";
+    return result;
+  }
 
   Attachment attachment{};
   attachment.id = id_generator_.next();
   attachment.display_id = next_display_id("AT");
   attachment.span_id = span_id;
+  attachment.template_id = template_id;
   attachment.t = t;
   attachment.kind = kind;
   attachment.display_offset_m = display_offset_m;
   edit_state_.attachments.insert(attachment);
+  index_add(relation_index_.attachments_by_span, span_id, attachment.id);
+  mark_span_dirty(span_id, DirtyBits::kGeometry | DirtyBits::kRender, true);
 
   result.ok = true;
   result.value = attachment.id;
   result.change_set.created_ids.push_back(attachment.id);
+  result.change_set.updated_ids.push_back(span_id);
+  result.change_set.dirty_span_ids.push_back(span_id);
   return result;
 }
 
@@ -485,7 +546,7 @@ EditResult<ObjectId> CoreState::ResetPortPositionToAuto(ObjectId port_id) {
           }
           adjusted_local = apply_pole_clearance_to_local(*pole, adjusted_local, slot_ptr->side);
           port->world_position =
-              local_to_world_on_pole(pole->world_transform, effective_pole_yaw_for_layout(*pole), adjusted_local);
+              local_to_world_on_pole(pole->world_transform, effective_pole_yaw_deg(*pole), adjusted_local);
           port->angle_correction_applied = apply_angle_correction;
           port->side_scale_applied = apply_angle_correction ? applied_scale : 1.0;
           apply_port_position_mode(*port, PortPositionMode::kAuto, PortPlacementSourceKind::kTemplateSlot);
@@ -527,18 +588,206 @@ EditResult<ObjectId> CoreState::SetPoleFlip180(ObjectId pole_id, bool flip_180) 
     result.error = "pole not found";
     return result;
   }
-  if (pole->orientation_control.flip_180 == flip_180) {
+  PoleOrientationOverride next = override_state_.pole_orientation_by_pole[pole_id];
+  if (next.flip_180.has_value() && *next.flip_180 == flip_180) {
     result.ok = true;
     result.value = pole_id;
     return result;
   }
 
   const Pole old_pole = *pole;
+  next.flip_180 = flip_180;
+  override_state_.pole_orientation_by_pole[pole_id] = next;
   pole->orientation_control.flip_180 = flip_180;
+  pole->orientation_override_flag = true;
   finalize_pole_transform_update(pole_id, old_pole, &result.change_set);
 
   result.ok = true;
   result.value = pole_id;
+  return result;
+}
+
+EditResult<ObjectId> CoreState::SetPoleManualYawOverride(ObjectId pole_id, double manual_yaw_deg) {
+  EditResult<ObjectId> result;
+  Pole* pole = edit_state_.poles.find(pole_id);
+  if (pole == nullptr) {
+    result.error = "pole not found";
+    return result;
+  }
+  if (!std::isfinite(manual_yaw_deg)) {
+    result.error = "manual yaw must be finite";
+    return result;
+  }
+
+  PoleOrientationOverride next = override_state_.pole_orientation_by_pole[pole_id];
+  if (next.manual_yaw_deg.has_value() && std::abs(*next.manual_yaw_deg - manual_yaw_deg) <= 1e-9) {
+    result.ok = true;
+    result.value = pole_id;
+    return result;
+  }
+
+  const Pole old_pole = *pole;
+  next.manual_yaw_deg = normalize_yaw_deg(manual_yaw_deg);
+  override_state_.pole_orientation_by_pole[pole_id] = next;
+  pole->orientation_control.manual_yaw_override = true;
+  pole->orientation_control.manual_yaw_deg = *next.manual_yaw_deg;
+  pole->orientation_override_flag = true;
+  pole->world_transform.rotation_euler_deg.z = *next.manual_yaw_deg;
+  finalize_pole_transform_update(pole_id, old_pole, &result.change_set);
+
+  result.ok = true;
+  result.value = pole_id;
+  return result;
+}
+
+EditResult<ObjectId> CoreState::ClearPoleOrientationOverride(ObjectId pole_id) {
+  EditResult<ObjectId> result;
+  Pole* pole = edit_state_.poles.find(pole_id);
+  if (pole == nullptr) {
+    result.error = "pole not found";
+    return result;
+  }
+
+  const bool had_override = override_state_.pole_orientation_by_pole.erase(pole_id) > 0 ||
+                            pole->orientation_control.manual_yaw_override || pole->orientation_control.flip_180 ||
+                            pole->orientation_override_flag;
+  if (!had_override) {
+    result.ok = true;
+    result.value = pole_id;
+    return result;
+  }
+
+  const Pole old_pole = *pole;
+  pole->orientation_control.manual_yaw_override = false;
+  pole->orientation_control.manual_yaw_deg = 0.0;
+  pole->orientation_control.flip_180 = false;
+  pole->orientation_override_flag = false;
+  if (const auto it = pole_orientation_debug_records_.find(pole_id); it != pole_orientation_debug_records_.end()) {
+    const Vec3d forward = it->second.adopted_forward;
+    if ((forward.x * forward.x + forward.y * forward.y + forward.z * forward.z) > 1e-12) {
+      pole->world_transform.rotation_euler_deg.z =
+          normalize_yaw_deg(std::atan2(forward.y, forward.x) * (180.0 / 3.14159265358979323846));
+    }
+  }
+  finalize_pole_transform_update(pole_id, old_pole, &result.change_set);
+
+  result.ok = true;
+  result.value = pole_id;
+  return result;
+}
+
+EditResult<ObjectId> CoreState::SetSpanEndpointSocketOverride(ObjectId span_id, bool is_start_endpoint, int socket_id) {
+  EditResult<ObjectId> result;
+  Span* span = edit_state_.spans.find(span_id);
+  if (span == nullptr) {
+    result.error = "span not found";
+    return result;
+  }
+  SpanEndpointOverride next = override_state_.span_endpoint_by_span[span_id];
+  std::optional<int>& slot = is_start_endpoint ? next.socket_a_id : next.socket_b_id;
+  if (slot.has_value() && *slot == socket_id) {
+    result.ok = true;
+    result.value = span_id;
+    return result;
+  }
+  slot = socket_id;
+  override_state_.span_endpoint_by_span[span_id] = next;
+  if (is_start_endpoint) {
+    span->endpoint_socket_a_id = socket_id;
+  } else {
+    span->endpoint_socket_b_id = socket_id;
+  }
+  span->orientation_override_flag = true;
+  mark_span_dirty(span_id, DirtyBits::kGeometry, true);
+  add_unique_id(result.change_set.updated_ids, span_id);
+  add_unique_id(result.change_set.dirty_span_ids, span_id);
+  result.ok = true;
+  result.value = span_id;
+  return result;
+}
+
+EditResult<ObjectId> CoreState::ClearSpanEndpointSocketOverride(ObjectId span_id, bool is_start_endpoint) {
+  EditResult<ObjectId> result;
+  Span* span = edit_state_.spans.find(span_id);
+  if (span == nullptr) {
+    result.error = "span not found";
+    return result;
+  }
+  auto it = override_state_.span_endpoint_by_span.find(span_id);
+  bool changed = false;
+  if (it != override_state_.span_endpoint_by_span.end()) {
+    std::optional<int>& slot = is_start_endpoint ? it->second.socket_a_id : it->second.socket_b_id;
+    changed = slot.has_value();
+    slot.reset();
+    if (!it->second.socket_a_id.has_value() && !it->second.socket_b_id.has_value()) {
+      override_state_.span_endpoint_by_span.erase(it);
+    }
+  }
+  if (is_start_endpoint) {
+    changed = changed || span->endpoint_socket_a_id >= 0;
+    span->endpoint_socket_a_id = -1;
+  } else {
+    changed = changed || span->endpoint_socket_b_id >= 0;
+    span->endpoint_socket_b_id = -1;
+  }
+  if (!changed) {
+    result.ok = true;
+    result.value = span_id;
+    return result;
+  }
+  mark_span_dirty(span_id, DirtyBits::kGeometry, true);
+  add_unique_id(result.change_set.updated_ids, span_id);
+  add_unique_id(result.change_set.dirty_span_ids, span_id);
+  result.ok = true;
+  result.value = span_id;
+  return result;
+}
+
+EditResult<ObjectId> CoreState::SetSpanBranchDownOffsetOverride(ObjectId span_id, double branch_down_offset_m) {
+  EditResult<ObjectId> result;
+  Span* span = edit_state_.spans.find(span_id);
+  if (span == nullptr) {
+    result.error = "span not found";
+    return result;
+  }
+  if (!std::isfinite(branch_down_offset_m) || branch_down_offset_m < 0.0) {
+    result.error = "branch down offset override must be finite and >= 0";
+    return result;
+  }
+  SpanSupportOverride next = override_state_.span_support_by_span[span_id];
+  if (next.branch_down_offset_m.has_value() && std::abs(*next.branch_down_offset_m - branch_down_offset_m) <= 1e-9) {
+    result.ok = true;
+    result.value = span_id;
+    return result;
+  }
+  next.branch_down_offset_m = branch_down_offset_m;
+  override_state_.span_support_by_span[span_id] = next;
+  span->orientation_override_flag = true;
+  mark_span_dirty(span_id, DirtyBits::kGeometry | DirtyBits::kRender, true);
+  add_unique_id(result.change_set.updated_ids, span_id);
+  add_unique_id(result.change_set.dirty_span_ids, span_id);
+  result.ok = true;
+  result.value = span_id;
+  return result;
+}
+
+EditResult<ObjectId> CoreState::ClearSpanBranchDownOffsetOverride(ObjectId span_id) {
+  EditResult<ObjectId> result;
+  Span* span = edit_state_.spans.find(span_id);
+  if (span == nullptr) {
+    result.error = "span not found";
+    return result;
+  }
+  if (override_state_.span_support_by_span.erase(span_id) == 0) {
+    result.ok = true;
+    result.value = span_id;
+    return result;
+  }
+  mark_span_dirty(span_id, DirtyBits::kGeometry | DirtyBits::kRender, true);
+  add_unique_id(result.change_set.updated_ids, span_id);
+  add_unique_id(result.change_set.dirty_span_ids, span_id);
+  result.ok = true;
+  result.value = span_id;
   return result;
 }
 
@@ -598,7 +847,7 @@ void CoreState::refresh_owned_endpoints_from_pole(ObjectId pole_id, ChangeSet* c
     return nullptr;
   };
 
-  const double effective_yaw = effective_pole_yaw_for_layout(*pole);
+  const double effective_yaw = effective_pole_yaw_deg(*pole);
 
   for (Port& port : edit_state_.ports.items_mutable()) {
     if (port.owner_pole_id != pole_id || port.position_mode == PortPositionMode::kManual) {
@@ -686,16 +935,15 @@ EditResult<ObjectId> CoreState::DeleteSpan(ObjectId span_id) {
   span_runtime_states_.erase(span_id);
   remove_span_from_caches(span_id);
 
-  std::vector<ObjectId> remove_attachments;
-  for (const Attachment& attachment : edit_state_.attachments.items()) {
-    if (attachment.span_id == span_id) {
-      remove_attachments.push_back(attachment.id);
-    }
+  std::vector<ObjectId> remove_attachments{};
+  if (const auto it = relation_index_.attachments_by_span.find(span_id); it != relation_index_.attachments_by_span.end()) {
+    remove_attachments = it->second;
   }
   for (ObjectId attachment_id : remove_attachments) {
     edit_state_.attachments.remove(attachment_id);
     add_unique_id(result.change_set.deleted_ids, attachment_id);
   }
+  relation_index_.attachments_by_span.erase(span_id);
 
   result.ok = true;
   result.value = span_id;
@@ -809,7 +1057,7 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
     }
     adjusted_local = apply_pole_clearance_to_local(*pole, adjusted_local, slot.side);
     const Vec3d world_position =
-        local_to_world_on_pole(pole->world_transform, effective_pole_yaw_for_layout(*pole), adjusted_local);
+        local_to_world_on_pole(pole->world_transform, effective_pole_yaw_deg(*pole), adjusted_local);
     EditResult<ObjectId> add_port_result = AddPort(pole_id, world_position, category_to_port_kind(slot.category),
                                                    category_to_port_layer(slot.category), slot.local_direction);
     if (!add_port_result.ok) {
@@ -849,7 +1097,7 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
     }
 
     const Vec3d world_position =
-        local_to_world_on_pole(pole->world_transform, effective_pole_yaw_for_layout(*pole), slot.local_position);
+        local_to_world_on_pole(pole->world_transform, effective_pole_yaw_deg(*pole), slot.local_position);
     EditResult<ObjectId> add_anchor_result = AddAnchor(pole_id, world_position, slot.usage, 1.0);
     if (!add_anchor_result.ok) {
       result.error = add_anchor_result.error;
@@ -1421,6 +1669,43 @@ EditResult<bool> CoreState::UpdateBundleTemplate(const BundleTemplate& bundle_te
   return result;
 }
 
+EditResult<bool> CoreState::UpdateAttachmentTemplate(const AttachmentTemplate& attachment_template,
+                                                     bool mark_dependent_spans_dirty) {
+  EditResult<bool> result;
+  auto it = attachment_templates_.find(attachment_template.id);
+  if (it == attachment_templates_.end()) {
+    result.error = "attachment template not found";
+    return result;
+  }
+
+  AttachmentTemplate normalized = attachment_template;
+  normalized.version = it->second.version;
+  const bool changed = !attachment_template_equals(normalized, it->second);
+  if (!changed) {
+    result.ok = true;
+    result.value = false;
+    return result;
+  }
+
+  normalized.version += 1;
+  it->second = normalized;
+  result.ok = true;
+  result.value = true;
+
+  if (!mark_dependent_spans_dirty) {
+    return result;
+  }
+  for (const Attachment& attachment : edit_state_.attachments.items()) {
+    if (attachment.template_id != normalized.id) {
+      continue;
+    }
+    mark_span_dirty(attachment.span_id, DirtyBits::kGeometry | DirtyBits::kRender, true);
+    add_unique_id(result.change_set.dirty_span_ids, attachment.span_id);
+    add_unique_id(result.change_set.updated_ids, attachment.span_id);
+  }
+  return result;
+}
+
 EditResult<bool> CoreState::ResetAllSpanReferenceLengths(bool mark_all_spans_dirty) {
   EditResult<bool> result;
   bool changed = false;
@@ -1452,13 +1737,91 @@ EditResult<bool> CoreState::ResetAllSpanReferenceLengths(bool mark_all_spans_dir
   result.value = changed;
   return result;
 }
-double CoreState::effective_pole_yaw_deg(const Pole& pole) { return effective_pole_yaw_for_layout(pole); }
-
-Vec3d CoreState::to_local_on_pole(const Pole& pole, const Vec3d& world) {
-  return WorldPointToLocal(BuildPoleFrame(pole.world_transform, effective_pole_yaw_for_layout(pole)), world);
+bool CoreState::has_pole_orientation_override(ObjectId pole_id) const {
+  if (override_state_.pole_orientation_by_pole.contains(pole_id)) {
+    return true;
+  }
+  const Pole* pole = edit_state_.poles.find(pole_id);
+  return pole != nullptr &&
+         (pole->orientation_control.manual_yaw_override || pole->orientation_control.flip_180 ||
+          pole->orientation_override_flag);
 }
 
-SlotSide CoreState::preferred_side_from_geometry(const Pole& pole, const Pole* peer, double eps) {
+bool CoreState::has_span_endpoint_socket_override(ObjectId span_id, bool is_start_endpoint) const {
+  if (const auto it = override_state_.span_endpoint_by_span.find(span_id); it != override_state_.span_endpoint_by_span.end()) {
+    const std::optional<int>& slot = is_start_endpoint ? it->second.socket_a_id : it->second.socket_b_id;
+    if (slot.has_value()) {
+      return true;
+    }
+  }
+  const Span* span = edit_state_.spans.find(span_id);
+  if (span == nullptr) {
+    return false;
+  }
+  return is_start_endpoint ? (span->endpoint_socket_a_id >= 0) : (span->endpoint_socket_b_id >= 0);
+}
+
+bool CoreState::has_span_branch_down_offset_override(ObjectId span_id) const {
+  const auto it = override_state_.span_support_by_span.find(span_id);
+  return it != override_state_.span_support_by_span.end() && it->second.branch_down_offset_m.has_value();
+}
+
+std::optional<double> CoreState::resolve_pole_manual_yaw_override(const Pole& pole) const {
+  if (const auto it = override_state_.pole_orientation_by_pole.find(pole.id); it != override_state_.pole_orientation_by_pole.end() &&
+      it->second.manual_yaw_deg.has_value()) {
+    return it->second.manual_yaw_deg;
+  }
+  if (pole.orientation_control.manual_yaw_override) {
+    return pole.orientation_control.manual_yaw_deg;
+  }
+  return std::nullopt;
+}
+
+std::optional<bool> CoreState::resolve_pole_flip_180_override(const Pole& pole) const {
+  if (const auto it = override_state_.pole_orientation_by_pole.find(pole.id); it != override_state_.pole_orientation_by_pole.end() &&
+      it->second.flip_180.has_value()) {
+    return it->second.flip_180;
+  }
+  if (pole.orientation_control.flip_180) {
+    return true;
+  }
+  return std::nullopt;
+}
+
+int CoreState::resolve_span_endpoint_socket_id(const Span& span, bool is_start_endpoint) const {
+  if (const auto it = override_state_.span_endpoint_by_span.find(span.id); it != override_state_.span_endpoint_by_span.end()) {
+    const std::optional<int>& slot = is_start_endpoint ? it->second.socket_a_id : it->second.socket_b_id;
+    if (slot.has_value()) {
+      return *slot;
+    }
+  }
+  return is_start_endpoint ? span.endpoint_socket_a_id : span.endpoint_socket_b_id;
+}
+
+double CoreState::resolve_span_branch_down_offset_m(const Span& span, double automatic_value) const {
+  if (const auto it = override_state_.span_support_by_span.find(span.id); it != override_state_.span_support_by_span.end() &&
+      it->second.branch_down_offset_m.has_value()) {
+    return std::max(0.0, *it->second.branch_down_offset_m);
+  }
+  return automatic_value;
+}
+
+double CoreState::effective_pole_yaw_deg(const Pole& pole) const {
+  double yaw = pole.world_transform.rotation_euler_deg.z;
+  if (const std::optional<double> manual_yaw = resolve_pole_manual_yaw_override(pole); manual_yaw.has_value()) {
+    yaw = *manual_yaw;
+  }
+  if (const std::optional<bool> flip_180 = resolve_pole_flip_180_override(pole); flip_180.value_or(false)) {
+    yaw += 180.0;
+  }
+  return yaw;
+}
+
+Vec3d CoreState::to_local_on_pole(const Pole& pole, const Vec3d& world) const {
+  return WorldPointToLocal(BuildPoleFrame(pole.world_transform, effective_pole_yaw_deg(pole)), world);
+}
+
+SlotSide CoreState::preferred_side_from_geometry(const Pole& pole, const Pole* peer, double eps) const {
   if (peer == nullptr) {
     return SlotSide::kCenter;
   }
@@ -1728,6 +2091,17 @@ std::unordered_map<ObjectId, std::vector<ObjectId>> CoreState::make_expected_bun
   for (const Span& span : edit_state.spans.items()) {
     if (span.bundle_id != kInvalidObjectId) {
       out[span.bundle_id].push_back(span.id);
+    }
+  }
+  return out;
+}
+
+std::unordered_map<ObjectId, std::vector<ObjectId>> CoreState::make_expected_span_attachment_index(
+    const EditState& edit_state) {
+  std::unordered_map<ObjectId, std::vector<ObjectId>> out;
+  for (const Attachment& attachment : edit_state.attachments.items()) {
+    if (attachment.span_id != kInvalidObjectId) {
+      out[attachment.span_id].push_back(attachment.id);
     }
   }
   return out;

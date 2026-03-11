@@ -1,5 +1,6 @@
 #include "registry.hpp"
 #include "helpers.hpp"
+#include "wire/core/core_test_hook.hpp"
 #include "wire/core/coord_utils.hpp"
 
 #include <algorithm>
@@ -19,6 +20,35 @@ using wire::core::SpanKind;
 using wire::core::SpanLayer;
 
 namespace {
+wire::core::AttachmentTemplateId find_attachment_template_by_mode(
+    const CoreState& state, wire::core::AttachmentLineInteractionMode mode) {
+  for (const auto& [id, attachment_template] : state.view().attachment_templates()) {
+    if (attachment_template.line_interaction_mode == mode) {
+      return id;
+    }
+  }
+  return wire::core::kInvalidAttachmentTemplateId;
+}
+
+bool build_attachment_test_span(CoreState& state, ObjectId* out_span) {
+  if (out_span == nullptr) {
+    return false;
+  }
+  const ObjectId pole = state.AddPole({}, 10.0, "P").value;
+  const ObjectId a = state.AddPort(pole, {0.0, 0.0, 4.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId b = state.AddPort(pole, {12.0, 0.0, 4.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId span = state.AddSpan(a, b, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
+  *out_span = span;
+  return state.Commit().validation.ok();
+}
+
+bool has_entity_link(const std::vector<wire::core::RelatedEntityLink>& links, wire::core::EntityKind kind,
+                     std::uint64_t stable_id) {
+  return std::any_of(links.begin(), links.end(), [kind, stable_id](const wire::core::RelatedEntityLink& link) {
+    return link.ref.kind == kind && link.ref.stable_id == stable_id;
+  });
+}
+
 bool test_curve_cache_line_mode_is_deterministic() {
   CoreState state;
   wire::core::GeometrySettings settings{};
@@ -1326,6 +1356,486 @@ bool test_attachment_display_offset_does_not_change_detail_curve_endpoints() {
          almost_equal(after->detail.EvaluatePosition(1.0), end_before, 1e-9);
 }
 
+bool test_attachment_pass_through_keeps_outer_curve_visible() {
+  CoreState state;
+  ObjectId span = wire::core::kInvalidObjectId;
+  if (!build_attachment_test_span(state, &span)) {
+    return false;
+  }
+  const auto template_id =
+      find_attachment_template_by_mode(state, wire::core::AttachmentLineInteractionMode::kPassThrough);
+  if (template_id == wire::core::kInvalidAttachmentTemplateId) {
+    return false;
+  }
+  if (!state.AddAttachment(span, 0.5, wire::core::AttachmentKind::kGeneric, 0.0, template_id).ok) {
+    return false;
+  }
+  (void)state.Commit().recalc_stats;
+  const auto* curve = state.find_curve_cache(span);
+  return curve != nullptr && curve->detail.hidden_intervals.empty() && curve->detail.replacement_paths.empty() &&
+         curve->detail.visible_intervals.size() == 1 &&
+         almost_equal(curve->detail.visible_intervals.front().start_m, 0.0, 1e-9) &&
+         almost_equal(curve->detail.visible_intervals.front().end_m, curve->detail.Length(), 1e-9);
+}
+
+bool test_attachment_hide_segment_masks_curve_interval() {
+  CoreState state;
+  ObjectId span = wire::core::kInvalidObjectId;
+  if (!build_attachment_test_span(state, &span)) {
+    return false;
+  }
+  const auto template_id =
+      find_attachment_template_by_mode(state, wire::core::AttachmentLineInteractionMode::kHideSegment);
+  if (template_id == wire::core::kInvalidAttachmentTemplateId) {
+    return false;
+  }
+  if (!state.AddAttachment(span, 0.5, wire::core::AttachmentKind::kMarker, 0.0, template_id).ok) {
+    return false;
+  }
+  (void)state.Commit().recalc_stats;
+  const auto* curve = state.find_curve_cache(span);
+  return curve != nullptr && !curve->detail.hidden_intervals.empty() && curve->detail.replacement_paths.empty() &&
+         curve->detail.visible_intervals.size() == 2;
+}
+
+bool test_attachment_replace_with_internal_path_replaces_interval() {
+  CoreState state;
+  ObjectId span = wire::core::kInvalidObjectId;
+  if (!build_attachment_test_span(state, &span)) {
+    return false;
+  }
+  const auto template_id =
+      find_attachment_template_by_mode(state, wire::core::AttachmentLineInteractionMode::kReplaceWithInternalPath);
+  if (template_id == wire::core::kInvalidAttachmentTemplateId) {
+    return false;
+  }
+  if (!state.AddAttachment(span, 0.5, wire::core::AttachmentKind::kSpacer, 0.0, template_id).ok) {
+    return false;
+  }
+  (void)state.Commit().recalc_stats;
+  const auto* curve = state.find_curve_cache(span);
+  return curve != nullptr && !curve->detail.hidden_intervals.empty() && !curve->detail.replacement_paths.empty() &&
+         curve->detail.replacement_paths.front().points.size() >= 2;
+}
+
+bool test_attachment_socket_endpoint_can_override_curve_endpoint() {
+  CoreState state;
+  ObjectId span = wire::core::kInvalidObjectId;
+  if (!build_attachment_test_span(state, &span)) {
+    return false;
+  }
+  const auto template_id =
+      find_attachment_template_by_mode(state, wire::core::AttachmentLineInteractionMode::kPassThrough);
+  if (template_id == wire::core::kInvalidAttachmentTemplateId) {
+    return false;
+  }
+  const auto add_attachment = state.AddAttachment(span, 0.0, wire::core::AttachmentKind::kGeneric, 0.2, template_id);
+  if (!add_attachment.ok) {
+    return false;
+  }
+  wire::core::Span* span_edit = wire::core::CoreStateTestHook::edit_state(state).spans.find(span);
+  if (span_edit == nullptr) {
+    return false;
+  }
+  span_edit->endpoint_attachment_a_id = add_attachment.value;
+  if (!state.SetSpanEndpointSocketOverride(span, true, 1).ok) {
+    return false;
+  }
+  (void)state.Commit().recalc_stats;
+  const auto* curve = state.find_curve_cache(span);
+  if (curve == nullptr) {
+    return false;
+  }
+  return almost_equal(curve->detail.EvaluatePosition(0.0), wire::core::Vec3d{0.12, 0.0, 4.2}, 1e-6);
+}
+
+bool test_attachment_behavior_is_not_name_driven() {
+  CoreState state;
+  const auto template_id =
+      find_attachment_template_by_mode(state, wire::core::AttachmentLineInteractionMode::kHideSegment);
+  if (template_id == wire::core::kInvalidAttachmentTemplateId) {
+    return false;
+  }
+  const auto it = state.view().attachment_templates().find(template_id);
+  if (it == state.view().attachment_templates().end()) {
+    return false;
+  }
+  wire::core::AttachmentTemplate attachment_template = it->second;
+  attachment_template.name = "totally_unrelated_object_name";
+  if (!state.UpdateAttachmentTemplate(attachment_template, false).ok) {
+    return false;
+  }
+
+  ObjectId span = wire::core::kInvalidObjectId;
+  if (!build_attachment_test_span(state, &span)) {
+    return false;
+  }
+  if (!state.AddAttachment(span, 0.5, wire::core::AttachmentKind::kMarker, 0.0, template_id).ok) {
+    return false;
+  }
+  (void)state.Commit().recalc_stats;
+  const auto* curve = state.find_curve_cache(span);
+  return curve != nullptr && !curve->detail.hidden_intervals.empty();
+}
+
+bool test_support_layout_branch_support_is_explicit_and_shared_with_curve_and_visual() {
+  CoreState state;
+  const ObjectId pole_a =
+      state.AddPole(wire::core::Transformd{{0.0, 0.0, 0.0}}, 10.0, "A").value;
+  const ObjectId pole_b =
+      state.AddPole(wire::core::Transformd{{12.0, 0.0, 0.0}}, 10.0, "B").value;
+  const ObjectId port_a = state.AddPort(pole_a, {0.0, 0.85, 4.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId port_b = state.AddPort(pole_b, {12.0, 0.0, 4.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId span = state.AddSpan(port_a, port_b, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
+
+  wire::core::Port* edit_port_a = wire::core::CoreStateTestHook::edit_state(state).ports.find(port_a);
+  wire::core::Port* edit_port_b = wire::core::CoreStateTestHook::edit_state(state).ports.find(port_b);
+  wire::core::Span* edit_span = wire::core::CoreStateTestHook::edit_state(state).spans.find(span);
+  if (edit_port_a == nullptr || edit_port_b == nullptr || edit_span == nullptr) {
+    return false;
+  }
+  edit_port_a->category = wire::core::ConnectionCategory::kCommunication;
+  edit_port_a->generated_by_rule = true;
+  edit_port_a->placement_source = wire::core::PortPlacementSourceKind::kBranchSupport;
+  edit_port_a->template_side = wire::core::SlotSide::kRight;
+  edit_port_a->placement_context = wire::core::ConnectionContext::kBranchAdd;
+  edit_port_b->category = wire::core::ConnectionCategory::kCommunication;
+  edit_port_b->generated_by_rule = true;
+  edit_port_b->placement_source = wire::core::PortPlacementSourceKind::kGenerated;
+  edit_span->placement_context = wire::core::ConnectionContext::kBranchAdd;
+
+  (void)state.Commit().recalc_stats;
+  const auto* support_layout = state.view().find_span_support_layout(span);
+  const auto* curve = state.find_curve_cache(span);
+  const auto* visual = state.find_span_visual_cache(span);
+  if (support_layout == nullptr || curve == nullptr || visual == nullptr) {
+    return false;
+  }
+  if (support_layout->flow_kind != wire::core::BackboneFlowKind::kBranch ||
+      support_layout->start.origin != wire::core::SupportLayoutOriginKind::kBranchSupport ||
+      support_layout->end.origin != wire::core::SupportLayoutOriginKind::kMainSupport ||
+      support_layout->start.branch_down_offset_m <= 0.0 ||
+      support_layout->start.local_departure_length_m <= 0.0) {
+    return false;
+  }
+  if (!almost_equal(curve->detail.start_constraint.point, support_layout->start.endpoint_world, 1e-9) ||
+      !almost_equal(curve->detail.start_constraint.tangent_dir, support_layout->start.departure_dir, 1e-9) ||
+      !almost_equal(curve->detail.start_constraint.support_departure_length_m,
+                    support_layout->start.local_departure_length_m, 1e-9)) {
+    return false;
+  }
+  if (visual->branch_supports.empty()) {
+    return false;
+  }
+  return almost_equal(visual->branch_supports.front().down_offset_m, support_layout->start.branch_down_offset_m, 1e-9);
+}
+
+bool test_support_layout_attachment_socket_endpoint_matches_curve_input() {
+  CoreState state;
+  ObjectId span = wire::core::kInvalidObjectId;
+  if (!build_attachment_test_span(state, &span)) {
+    return false;
+  }
+  const auto template_id =
+      find_attachment_template_by_mode(state, wire::core::AttachmentLineInteractionMode::kPassThrough);
+  if (template_id == wire::core::kInvalidAttachmentTemplateId) {
+    return false;
+  }
+  const auto add_attachment = state.AddAttachment(span, 0.0, wire::core::AttachmentKind::kGeneric, 0.2, template_id);
+  if (!add_attachment.ok) {
+    return false;
+  }
+  wire::core::Span* span_edit = wire::core::CoreStateTestHook::edit_state(state).spans.find(span);
+  if (span_edit == nullptr) {
+    return false;
+  }
+  span_edit->endpoint_attachment_a_id = add_attachment.value;
+  if (!state.SetSpanEndpointSocketOverride(span, true, 1).ok) {
+    return false;
+  }
+
+  (void)state.Commit().recalc_stats;
+  const auto* support_layout = state.view().find_span_support_layout(span);
+  const auto* curve = state.find_curve_cache(span);
+  if (support_layout == nullptr || curve == nullptr) {
+    return false;
+  }
+  return support_layout->start.attachment_id == add_attachment.value && support_layout->start.socket_id == 1 &&
+         support_layout->start.endpoint_mode == wire::core::CurveEndpointMode::kDirectThrough &&
+         almost_equal(support_layout->start.endpoint_world, wire::core::Vec3d{0.12, 0.0, 4.2}, 1e-6) &&
+         almost_equal(curve->detail.start_constraint.point, support_layout->start.endpoint_world, 1e-9);
+}
+
+bool test_inspection_span_support_layout_detail_curve_surface_is_coherent() {
+  CoreState state;
+  const ObjectId pole_a =
+      state.AddPole(wire::core::Transformd{{0.0, 0.0, 0.0}}, 10.0, "A").value;
+  const ObjectId pole_b =
+      state.AddPole(wire::core::Transformd{{12.0, 0.0, 0.0}}, 10.0, "B").value;
+  const ObjectId port_a = state.AddPort(pole_a, {0.0, 1.2, 4.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId port_b = state.AddPort(pole_b, {12.0, 0.0, 4.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId span = state.AddSpan(port_a, port_b, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
+
+  wire::core::Port* edit_port_a = wire::core::CoreStateTestHook::edit_state(state).ports.find(port_a);
+  wire::core::Port* edit_port_b = wire::core::CoreStateTestHook::edit_state(state).ports.find(port_b);
+  wire::core::Span* edit_span = wire::core::CoreStateTestHook::edit_state(state).spans.find(span);
+  if (edit_port_a == nullptr || edit_port_b == nullptr || edit_span == nullptr) {
+    return false;
+  }
+  edit_port_a->category = wire::core::ConnectionCategory::kCommunication;
+  edit_port_a->generated_by_rule = true;
+  edit_port_a->placement_source = wire::core::PortPlacementSourceKind::kBranchSupport;
+  edit_port_a->placement_context = wire::core::ConnectionContext::kBranchAdd;
+  edit_port_b->category = wire::core::ConnectionCategory::kCommunication;
+  edit_port_b->generated_by_rule = true;
+  edit_port_b->placement_source = wire::core::PortPlacementSourceKind::kGenerated;
+  edit_span->placement_context = wire::core::ConnectionContext::kBranchAdd;
+
+  (void)state.Commit().recalc_stats;
+  const auto view = state.view();
+  const auto span_view = view.inspect_span(span);
+  const auto layout_view = view.inspect_support_layout(span);
+  const auto curve_view = view.inspect_detail_curve(span);
+  if (!span_view.has_value() || !layout_view.has_value() || !curve_view.has_value()) {
+    return false;
+  }
+  if (span_view->meta.role != wire::core::EntityRoleKind::kAuthoritative ||
+      layout_view->meta.role != wire::core::EntityRoleKind::kDerived ||
+      curve_view->meta.role != wire::core::EntityRoleKind::kDetailDerived) {
+    return false;
+  }
+  if (!span_view->support_layout_ref.valid() || !span_view->detail_curve_ref.valid()) {
+    return false;
+  }
+  if (layout_view->start_endpoint.origin.empty() || layout_view->end_endpoint.origin.empty()) {
+    return false;
+  }
+  if (curve_view->source_span.kind != wire::core::EntityKind::kSpan || curve_view->source_span.stable_id != span ||
+      curve_view->curve_length_m <= 0.0 || curve_view->arc_length_sample_count == 0) {
+    return false;
+  }
+  if (!has_entity_link(span_view->links, wire::core::EntityKind::kSupportLayout, span) ||
+      !has_entity_link(span_view->links, wire::core::EntityKind::kDetailCurve, span) ||
+      !has_entity_link(span_view->links, wire::core::EntityKind::kPole, pole_a) ||
+      !has_entity_link(span_view->links, wire::core::EntityKind::kPole, pole_b)) {
+    return false;
+  }
+  const auto trace = view.collect_decision_trace({wire::core::EntityKind::kSpan, span});
+  return !trace.empty();
+}
+
+bool test_inspection_pole_template_override_and_junction_surfaces_are_visible() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  wire::core::BackboneSpec req_a{};
+  req_a.path.polyline = {{-12.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}};
+  req_a.interval_m = 8.0;
+  req_a.pole_type_id = type_ids.front();
+  helpers::add_backbone_bundle(req_a, wire::core::BundleKind::kLowVoltage);
+  if (!state.GenerateFromBackboneSpec(req_a).ok) {
+    return false;
+  }
+  wire::core::BackboneSpec req_b{};
+  req_b.path.polyline = {{0.0, -12.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 12.0, 0.0}};
+  req_b.interval_m = 8.0;
+  req_b.pole_type_id = type_ids.front();
+  helpers::add_backbone_bundle(req_b, wire::core::BundleKind::kLowVoltage);
+  if (!state.GenerateFromBackboneSpec(req_b).ok) {
+    return false;
+  }
+  const ObjectId center = find_pole_id_by_position(state, {0.0, 0.0, 0.0});
+  if (center == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  wire::core::Pole* center_edit = wire::core::CoreStateTestHook::edit_state(state).poles.find(center);
+  if (center_edit == nullptr) {
+    return false;
+  }
+  const wire::core::PoleTypeId pole_type_id = type_ids.front();
+  center_edit->pole_type_id = pole_type_id;
+  if (!state.SetPoleManualYawOverride(center, 17.5).ok || !state.SetPoleFlip180(center, true).ok) {
+    return false;
+  }
+
+  (void)state.Commit().recalc_stats;
+  const auto view = state.view();
+  const auto pole_view = view.inspect_pole(center);
+  const auto template_view = view.inspect_pole_template(pole_type_id);
+  const auto override_view = view.inspect_overrides({wire::core::EntityKind::kPole, center});
+  const auto backbone = state.BuildBackboneResult();
+  if (!pole_view.has_value() || !template_view.has_value() || !override_view.has_value() || backbone.junctions.empty()) {
+    return false;
+  }
+  if (!pole_view->meta.editable || !pole_view->meta.overrideable || !pole_view->manual_yaw_override ||
+      !pole_view->orientation_override) {
+    return false;
+  }
+  if (template_view->template_kind != wire::core::TemplateKind::kPoleType || template_view->properties.empty()) {
+    return false;
+  }
+  bool has_manual_yaw = false;
+  bool has_flip = false;
+  for (const auto& entry : override_view->entries) {
+    has_manual_yaw = has_manual_yaw || (entry.name == "manualYaw" && entry.active);
+    has_flip = has_flip || (entry.name == "flip180" && entry.active);
+  }
+  if (!has_manual_yaw || !has_flip) {
+    return false;
+  }
+  const auto junction_view = view.inspect_junction(backbone.junctions.front().node_id);
+  if (!junction_view.has_value() || junction_view->meta.role != wire::core::EntityRoleKind::kDerived ||
+      junction_view->incidents.size() < 3) {
+    return false;
+  }
+  return has_entity_link(pole_view->links, wire::core::EntityKind::kTemplate, pole_type_id) &&
+         has_entity_link(pole_view->links, wire::core::EntityKind::kOverride, center);
+}
+
+bool test_pole_orientation_override_roundtrip_returns_to_auto() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  wire::core::BackboneSpec req{};
+  req.path.polyline = {{0.0, 0.0, 0.0}, {8.0, 0.0, 0.0}, {16.0, 0.0, 0.0}};
+  req.interval_m = 8.0;
+  req.pole_type_id = type_ids.front();
+  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
+  const auto gen = state.GenerateFromBackboneSpec(req);
+  if (!gen.ok || gen.value.generated_pole_ids.size() < 2) {
+    return false;
+  }
+  const ObjectId pole_id = gen.value.generated_pole_ids[1];
+  const auto before = state.view().inspect_pole(pole_id);
+  if (!before.has_value() || !before->has_final_yaw) {
+    return false;
+  }
+  const double auto_yaw_deg = before->automatic_yaw_deg;
+  if (!state.SetPoleManualYawOverride(pole_id, 23.0).ok || !state.SetPoleFlip180(pole_id, true).ok) {
+    return false;
+  }
+  (void)state.Commit().recalc_stats;
+  const auto during = state.view().inspect_pole(pole_id);
+  const auto override_view = state.view().inspect_overrides({wire::core::EntityKind::kPole, pole_id});
+  const auto during_trace = state.view().collect_decision_trace({wire::core::EntityKind::kPole, pole_id});
+  if (!during.has_value() || !override_view.has_value() || !during->orientation_override || !during->manual_yaw_override ||
+      !during->flip_180_override) {
+    return false;
+  }
+  bool has_override_trace = false;
+  for (const auto& entry : during_trace) {
+    has_override_trace =
+        has_override_trace || (entry.topic == wire::core::DecisionTraceTopic::kOverrideResolution);
+  }
+  if (!state.ClearPoleOrientationOverride(pole_id).ok) {
+    return false;
+  }
+  (void)state.Commit().recalc_stats;
+  const auto after = state.view().inspect_pole(pole_id);
+  return after.has_value() && !after->orientation_override && !after->manual_yaw_override && !after->flip_180_override &&
+         almost_equal(after->final_yaw_deg, auto_yaw_deg, 1e-6) && has_override_trace;
+}
+
+bool test_span_socket_override_roundtrip_returns_to_auto() {
+  CoreState state;
+  ObjectId span = wire::core::kInvalidObjectId;
+  if (!build_attachment_test_span(state, &span)) {
+    return false;
+  }
+  const auto template_id =
+      find_attachment_template_by_mode(state, wire::core::AttachmentLineInteractionMode::kPassThrough);
+  if (template_id == wire::core::kInvalidAttachmentTemplateId) {
+    return false;
+  }
+  const auto add_attachment = state.AddAttachment(span, 0.0, wire::core::AttachmentKind::kGeneric, 0.2, template_id);
+  if (!add_attachment.ok) {
+    return false;
+  }
+  wire::core::Span* span_edit = wire::core::CoreStateTestHook::edit_state(state).spans.find(span);
+  if (span_edit == nullptr) {
+    return false;
+  }
+  span_edit->endpoint_attachment_a_id = add_attachment.value;
+  (void)state.Commit().recalc_stats;
+  const auto* auto_layout = state.view().find_span_support_layout(span);
+  if (auto_layout == nullptr) {
+    return false;
+  }
+  const wire::core::Vec3d auto_endpoint = auto_layout->start.endpoint_world;
+  if (!state.SetSpanEndpointSocketOverride(span, true, 1).ok) {
+    return false;
+  }
+  (void)state.Commit().recalc_stats;
+  const auto* overridden_layout = state.view().find_span_support_layout(span);
+  if (overridden_layout == nullptr || overridden_layout->start.socket_id != 1 ||
+      almost_equal(overridden_layout->start.endpoint_world, auto_endpoint, 1e-6)) {
+    return false;
+  }
+  if (!state.ClearSpanEndpointSocketOverride(span, true).ok) {
+    return false;
+  }
+  (void)state.Commit().recalc_stats;
+  const auto* restored_layout = state.view().find_span_support_layout(span);
+  return restored_layout != nullptr && restored_layout->start.socket_id < 0 &&
+         almost_equal(restored_layout->start.endpoint_world, auto_endpoint, 1e-6);
+}
+
+bool test_branch_down_offset_override_roundtrip_returns_to_policy_value() {
+  CoreState state;
+  const ObjectId pole_a =
+      state.AddPole(wire::core::Transformd{{0.0, 0.0, 0.0}}, 10.0, "A").value;
+  const ObjectId pole_b =
+      state.AddPole(wire::core::Transformd{{12.0, 0.0, 0.0}}, 10.0, "B").value;
+  const ObjectId port_a = state.AddPort(pole_a, {0.0, 0.85, 4.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId port_b = state.AddPort(pole_b, {12.0, 0.0, 4.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId span = state.AddSpan(port_a, port_b, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
+
+  wire::core::Port* edit_port_a = wire::core::CoreStateTestHook::edit_state(state).ports.find(port_a);
+  wire::core::Port* edit_port_b = wire::core::CoreStateTestHook::edit_state(state).ports.find(port_b);
+  wire::core::Span* edit_span = wire::core::CoreStateTestHook::edit_state(state).spans.find(span);
+  if (edit_port_a == nullptr || edit_port_b == nullptr || edit_span == nullptr) {
+    return false;
+  }
+  edit_port_a->category = wire::core::ConnectionCategory::kCommunication;
+  edit_port_a->generated_by_rule = true;
+  edit_port_a->placement_source = wire::core::PortPlacementSourceKind::kBranchSupport;
+  edit_port_a->template_side = wire::core::SlotSide::kRight;
+  edit_port_a->placement_context = wire::core::ConnectionContext::kBranchAdd;
+  edit_port_b->category = wire::core::ConnectionCategory::kCommunication;
+  edit_port_b->generated_by_rule = true;
+  edit_port_b->placement_source = wire::core::PortPlacementSourceKind::kGenerated;
+  edit_span->placement_context = wire::core::ConnectionContext::kBranchAdd;
+
+  (void)state.Commit().recalc_stats;
+  const auto* auto_layout = state.view().find_span_support_layout(span);
+  if (auto_layout == nullptr || auto_layout->start.branch_down_offset_m <= 0.0) {
+    return false;
+  }
+  const double auto_down = auto_layout->start.branch_down_offset_m;
+  if (!state.SetSpanBranchDownOffsetOverride(span, auto_down + 0.75).ok) {
+    return false;
+  }
+  (void)state.Commit().recalc_stats;
+  const auto* overridden_layout = state.view().find_span_support_layout(span);
+  const auto override_view = state.view().inspect_overrides({wire::core::EntityKind::kSpan, span});
+  if (overridden_layout == nullptr || !override_view.has_value() ||
+      !almost_equal(overridden_layout->start.branch_down_offset_m, auto_down + 0.75, 1e-9) ||
+      !almost_equal(overridden_layout->start.automatic_branch_down_offset_m, auto_down, 1e-9)) {
+    return false;
+  }
+  if (!state.ClearSpanBranchDownOffsetOverride(span).ok) {
+    return false;
+  }
+  (void)state.Commit().recalc_stats;
+  const auto* restored_layout = state.view().find_span_support_layout(span);
+  return restored_layout != nullptr &&
+         almost_equal(restored_layout->start.branch_down_offset_m, auto_down, 1e-9);
+}
+
 bool test_detail_curve_acute_case_applies_quality_fallback() {
   wire::core::CurveConstraint start{};
   start.point = {0.0, 0.0, 5.0};
@@ -1439,6 +1949,91 @@ bool test_detail_curve_branch_pass_uses_g1_and_preserves_endpoint_constraints() 
          almost_equal(curve.EvaluatePosition(1.0), end.point + end.endpoint_offset, 1e-9) &&
          wire::core::Dot(tangent0, wire::core::Vec3d{1.0, 0.0, 0.0}) > 0.92 &&
          wire::core::Dot(tangent1, expected_end_tangent) > 0.74;
+}
+
+bool test_detail_curve_branch_long_span_suppresses_sideways_runout() {
+  wire::core::CurveConstraint start{};
+  start.point = {0.0, 0.0, 5.5};
+  start.tangent_dir = {0.20, 0.98, 0.0};
+  start.tangent_length_hint_m = 8.0;
+  start.continuity_preference = wire::core::CableContinuityPolicyHint::kPreferG2;
+  start.pass_mode = wire::core::CurvePassMode::kBranch;
+
+  wire::core::CurveConstraint end{};
+  end.point = {24.0, 0.0, 5.5};
+  end.tangent_dir = {1.0, 0.0, 0.0};
+  end.tangent_length_hint_m = 8.0;
+  end.continuity_preference = wire::core::CableContinuityPolicyHint::kPreferG2;
+  end.pass_mode = wire::core::CurvePassMode::kBranch;
+
+  const wire::core::DetailCurve curve = wire::core::BuildDetailCurve(start, end, 41);
+  double max_abs_y = 0.0;
+  std::size_t peak_index = 0;
+  for (std::size_t i = 0; i < curve.sample_points.size(); ++i) {
+    const double abs_y = std::abs(curve.sample_points[i].y);
+    if (abs_y > max_abs_y) {
+      max_abs_y = abs_y;
+      peak_index = i;
+    }
+  }
+  return curve.quality.shape_policy == wire::core::CurveShapePolicyKind::kBranchPass &&
+         curve.quality.start_tangent_rule == wire::core::DetailCurveEndpointTangentRule::kBranchChordPriority &&
+         curve.quality.handle_length_start_m <= curve.quality.start_departure_length_m + 1e-6 &&
+         curve.quality.start_support_weight < curve.quality.start_chord_weight && max_abs_y <= 0.40 &&
+         peak_index < curve.sample_points.size() / 2;
+}
+
+bool test_detail_curve_branch_short_span_keeps_more_local_departure_than_long_span() {
+  auto build_branch_curve = [](double length_m) {
+    wire::core::CurveConstraint start{};
+    start.point = {0.0, 0.0, 5.5};
+    start.tangent_dir = {0.20, 0.98, 0.0};
+    start.tangent_length_hint_m = 6.0;
+    start.continuity_preference = wire::core::CableContinuityPolicyHint::kPreferG2;
+    start.pass_mode = wire::core::CurvePassMode::kBranch;
+
+    wire::core::CurveConstraint end{};
+    end.point = {length_m, 0.0, 5.5};
+    end.tangent_dir = {1.0, 0.0, 0.0};
+    end.tangent_length_hint_m = 6.0;
+    end.continuity_preference = wire::core::CableContinuityPolicyHint::kPreferG2;
+    end.pass_mode = wire::core::CurvePassMode::kBranch;
+    return wire::core::BuildDetailCurve(start, end, 33);
+  };
+
+  const wire::core::DetailCurve short_curve = build_branch_curve(6.0);
+  const wire::core::DetailCurve long_curve = build_branch_curve(24.0);
+  return short_curve.quality.start_support_weight > long_curve.quality.start_support_weight &&
+         short_curve.quality.start_lateral_ratio_limit > long_curve.quality.start_lateral_ratio_limit &&
+         short_curve.quality.start_tangent_rule == wire::core::DetailCurveEndpointTangentRule::kBranchChordPriority &&
+         long_curve.quality.start_tangent_rule == wire::core::DetailCurveEndpointTangentRule::kBranchChordPriority;
+}
+
+bool test_detail_curve_main_sag_reads_stronger_than_branch() {
+  auto midpoint_drop = [](wire::core::CurvePassMode pass_mode) {
+    wire::core::CurveConstraint start{};
+    start.point = {0.0, 0.0, 6.0};
+    start.tangent_dir = {1.0, 0.0, 0.0};
+    start.tangent_length_hint_m = 6.0;
+    start.sag_hint = 0.03;
+    start.pass_mode = pass_mode;
+
+    wire::core::CurveConstraint end{};
+    end.point = {20.0, 0.0, 6.0};
+    end.tangent_dir = {1.0, 0.0, 0.0};
+    end.tangent_length_hint_m = 6.0;
+    end.sag_hint = 0.03;
+    end.pass_mode = pass_mode;
+
+    const wire::core::DetailCurve curve = wire::core::BuildDetailCurve(start, end, 33);
+    const double midpoint_z = wire::core::HeightAlongWorldUp(curve.EvaluatePosition(0.5));
+    return std::pair<double, wire::core::DetailCurve>{6.0 - midpoint_z, curve};
+  };
+
+  const auto main_result = midpoint_drop(wire::core::CurvePassMode::kPassThrough);
+  const auto branch_result = midpoint_drop(wire::core::CurvePassMode::kBranch);
+  return main_result.second.quality.sag_pass_scale > branch_result.second.quality.sag_pass_scale &&
+         main_result.first > branch_result.first + 0.08 && branch_result.first > 0.0;
 }
 
 bool test_detail_curve_prefer_g1_policy_is_explicit_not_degraded() {
@@ -1753,6 +2348,51 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C137_Attachment_DisplayOffset_IsEntityOnly",
                          "Attachment display offset stays in entity/display state and does not perturb detail-curve endpoints",
                          "Invariant", false, test_attachment_display_offset_does_not_change_detail_curve_endpoints);
+  test_registry::AddTest(tests, "C156_Attachment_PassThrough_KeepsOuterCurve",
+                         "PassThrough attachment keeps the outer curve visible and does not inject replacement geometry",
+                         "Invariant", false, test_attachment_pass_through_keeps_outer_curve_visible);
+  test_registry::AddTest(tests, "C157_Attachment_HideSegment_MasksOuterCurve",
+                         "HideSegment attachment masks the covered outer-curve interval without replacement geometry",
+                         "Invariant", false, test_attachment_hide_segment_masks_curve_interval);
+  test_registry::AddTest(tests, "C158_Attachment_ReplaceWithInternalPath_ReplacesInterval",
+                         "ReplaceWithInternalPath hides the covered outer interval and emits replacement path geometry",
+                         "Invariant", false, test_attachment_replace_with_internal_path_replaces_interval);
+  test_registry::AddTest(tests, "C159_Attachment_SocketEndpoint_OverridesCurveEndpoint",
+                         "Attachment socket endpoint can replace a span endpoint so the curve meets the socket without a gap",
+                         "Invariant", false, test_attachment_socket_endpoint_can_override_curve_endpoint);
+  test_registry::AddTest(tests, "C160_Attachment_Runtime_IgnoresNames",
+                         "Attachment runtime behavior is driven by explicit template mode, not template/object naming",
+                         "Invariant", false, test_attachment_behavior_is_not_name_driven);
+  test_registry::AddTest(tests, "C164_SupportLayout_BranchSupport_AggregatesCurveInputs",
+                         "Branch support layout aggregates endpoint/departure/down-offset and feeds both curve and visual caches",
+                         "Invariant", false, test_support_layout_branch_support_is_explicit_and_shared_with_curve_and_visual);
+  test_registry::AddTest(tests, "C165_SupportLayout_AttachmentSocket_CapturesEndpoint",
+                         "Support layout captures attachment socket endpoint input before detail-curve generation",
+                         "Invariant", false, test_support_layout_attachment_socket_endpoint_matches_curve_input);
+  test_registry::AddTest(tests, "C166_Inspection_SpanSupportDetailCurve_Surface",
+                         "Inspection surface exposes span/support-layout/detail-curve views and decision trace without leaking internals",
+                         "Invariant", false, test_inspection_span_support_layout_detail_curve_surface_is_coherent);
+  test_registry::AddTest(tests, "C167_Inspection_PoleTemplateOverrideJunction_Surface",
+                         "Inspection surface exposes pole/template/override/junction views through concept-level readonly access",
+                         "Invariant", false, test_inspection_pole_template_override_and_junction_surfaces_are_visible);
+  test_registry::AddTest(tests, "C168_Override_PoleOrientation_Roundtrip",
+                         "Pole orientation override can be applied and cleared back to automatic resolution",
+                         "Invariant", false, test_pole_orientation_override_roundtrip_returns_to_auto);
+  test_registry::AddTest(tests, "C169_Override_SpanSocket_Roundtrip",
+                         "Span endpoint socket override can be applied and cleared back to automatic support-layout endpoint selection",
+                         "Invariant", false, test_span_socket_override_roundtrip_returns_to_auto);
+  test_registry::AddTest(tests, "C170_Override_BranchDownOffset_Roundtrip",
+                         "Branch down offset override can be applied and cleared back to policy-derived support layout",
+                         "Invariant", false, test_branch_down_offset_override_roundtrip_returns_to_policy_value);
+  test_registry::AddTest(tests, "C161_DetailCurve_BranchLongSpan_SuppressesSidewaysRunout",
+                         "Long branch spans keep support departure local and suppress large sideways runout",
+                         "Invariant", false, test_detail_curve_branch_long_span_suppresses_sideways_runout);
+  test_registry::AddTest(tests, "C162_DetailCurve_BranchShortVsLong_LocalDepartureScaling",
+                         "Branch local departure stays stronger on short spans and decays on long spans",
+                         "Invariant", false, test_detail_curve_branch_short_span_keeps_more_local_departure_than_long_span);
+  test_registry::AddTest(tests, "C163_DetailCurve_MainSag_StrongerThanBranch",
+                         "Main spans keep a stronger sag read than branch spans without breaking endpoint constraints",
+                         "Invariant", false, test_detail_curve_main_sag_reads_stronger_than_branch);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_geometry_tests);

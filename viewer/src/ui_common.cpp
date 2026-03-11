@@ -240,6 +240,12 @@ const char* SelectedTypeLabel(SelectedType selected_type) {
     return "Attachment";
   case SelectedType::kSupportNode:
     return "SupportNode";
+  case SelectedType::kSupportLayout:
+    return "SupportLayout";
+  case SelectedType::kDetailCurve:
+    return "DetailCurve";
+  case SelectedType::kJunction:
+    return "Junction";
   case SelectedType::kNone:
   default:
     return "None";

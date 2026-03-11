@@ -3,6 +3,7 @@ add_library(
   STATIC
   src/state/state.cpp
   src/state/templates.cpp
+  src/state/inspection.cpp
   src/pole_orientation_utils.cpp
   src/generation/service.cpp
   src/generation/grouped_spans.cpp
@@ -37,6 +38,7 @@ if(BUILD_TESTING)
     tests/template_policy.cpp
     tests/pick.cpp
     tests/workflow.cpp
+    tests/api_surface.cpp
   )
 
   target_link_libraries(

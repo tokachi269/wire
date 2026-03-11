@@ -12,6 +12,186 @@ namespace wire::core {
 namespace {
 constexpr double kZeroLengthEps = 1e-9;
 
+struct AttachmentSocketWorld {
+  int socket_id = -1;
+  Vec3d world_position{};
+  Vec3d world_tangent{};
+  double local_forward_x = 0.0;
+};
+
+bool build_attachment_frame(const Vec3d& tangent, Vec3d* forward, Vec3d* lateral, Vec3d* up) {
+  if (forward == nullptr || lateral == nullptr || up == nullptr) {
+    return false;
+  }
+  *forward = tangent;
+  if (!Normalize(forward)) {
+    *forward = WorldForward();
+  }
+  *lateral = ComputeLateralAxis(*forward);
+  if (!Normalize(lateral)) {
+    *lateral = {1.0, 0.0, 0.0};
+  }
+  *up = Cross(*forward, *lateral);
+  if (!Normalize(up)) {
+    *up = WorldUp();
+  }
+  return true;
+}
+
+Vec3d attachment_local_to_world(const Vec3d& origin, const Vec3d& forward, const Vec3d& lateral, const Vec3d& up,
+                                const Vec3d& local) {
+  return origin + ScaleVec(forward, local.x) + ScaleVec(lateral, local.y) + ScaleVec(up, local.z);
+}
+
+Vec3d attachment_direction_to_world(const Vec3d& forward, const Vec3d& lateral, const Vec3d& up, const Vec3d& local_dir,
+                                    const Vec3d& fallback) {
+  Vec3d world =
+      ScaleVec(forward, local_dir.x) + ScaleVec(lateral, local_dir.y) + ScaleVec(up, local_dir.z);
+  if (!Normalize(&world)) {
+    return fallback;
+  }
+  return world;
+}
+
+const AttachmentSocketTemplate* find_attachment_socket(const AttachmentTemplate& attachment_template, int socket_id) {
+  for (const AttachmentSocketTemplate& socket : attachment_template.sockets) {
+    if (socket.id == socket_id) {
+      return &socket;
+    }
+  }
+  return nullptr;
+}
+
+bool apply_endpoint_attachment_socket(const CoreState& state, ObjectId attachment_id, int socket_id,
+                                      CurveConstraint* constraint) {
+  if (constraint == nullptr) {
+    return false;
+  }
+  if (attachment_id == kInvalidObjectId || socket_id < 0) {
+    return false;
+  }
+  const Attachment* attachment = state.view().attachments().find(attachment_id);
+  if (attachment == nullptr) {
+    return false;
+  }
+  const AttachmentTemplate* attachment_template = state.find_attachment_template(attachment->template_id);
+  if (attachment_template == nullptr) {
+    return false;
+  }
+  const AttachmentSocketTemplate* socket = find_attachment_socket(*attachment_template, socket_id);
+  if (socket == nullptr) {
+    return false;
+  }
+
+  Vec3d forward{};
+  Vec3d lateral{};
+  Vec3d up{};
+  if (!build_attachment_frame(constraint->tangent_dir, &forward, &lateral, &up)) {
+    return false;
+  }
+  Vec3d origin = constraint->point;
+  OffsetAlongWorldUp(&origin, attachment->display_offset_m);
+  constraint->point = attachment_local_to_world(origin, forward, lateral, up, socket->local_position);
+  constraint->tangent_dir =
+      attachment_direction_to_world(forward, lateral, up, socket->tangent_dir, constraint->tangent_dir);
+  constraint->endpoint_mode = CurveEndpointMode::kDirectThrough;
+  constraint->endpoint_offset = {};
+  return true;
+}
+
+bool resolve_attachment_socket_pair(const AttachmentTemplate& attachment_template,
+                                    const AttachmentSocketTemplate** out_a,
+                                    const AttachmentSocketTemplate** out_b,
+                                    const AttachmentInternalPathTemplate** out_internal_path) {
+  if (out_a == nullptr || out_b == nullptr || out_internal_path == nullptr) {
+    return false;
+  }
+  *out_a = nullptr;
+  *out_b = nullptr;
+  *out_internal_path = nullptr;
+  if (!attachment_template.internal_paths.empty()) {
+    const AttachmentInternalPathTemplate& path = attachment_template.internal_paths.front();
+    const AttachmentSocketTemplate* start = find_attachment_socket(attachment_template, path.start_socket_id);
+    const AttachmentSocketTemplate* end = find_attachment_socket(attachment_template, path.end_socket_id);
+    if (start != nullptr && end != nullptr) {
+      *out_a = start;
+      *out_b = end;
+      *out_internal_path = &path;
+      return true;
+    }
+  }
+  if (attachment_template.sockets.size() >= 2) {
+    *out_a = &attachment_template.sockets[0];
+    *out_b = &attachment_template.sockets[1];
+    return true;
+  }
+  return false;
+}
+
+std::vector<CurveLengthInterval> merged_intervals(std::vector<CurveLengthInterval> intervals, double total_length_m) {
+  std::vector<CurveLengthInterval> merged{};
+  if (intervals.empty() || total_length_m <= kZeroLengthEps) {
+    return merged;
+  }
+  for (CurveLengthInterval& interval : intervals) {
+    interval.start_m = std::clamp(interval.start_m, 0.0, total_length_m);
+    interval.end_m = std::clamp(interval.end_m, 0.0, total_length_m);
+    if (interval.end_m < interval.start_m) {
+      std::swap(interval.start_m, interval.end_m);
+    }
+  }
+  std::sort(intervals.begin(), intervals.end(),
+            [](const CurveLengthInterval& a, const CurveLengthInterval& b) { return a.start_m < b.start_m; });
+  for (const CurveLengthInterval& interval : intervals) {
+    if (interval.end_m - interval.start_m <= kZeroLengthEps) {
+      continue;
+    }
+    if (merged.empty() || interval.start_m > merged.back().end_m + 1e-6) {
+      merged.push_back(interval);
+    } else {
+      merged.back().end_m = std::max(merged.back().end_m, interval.end_m);
+    }
+  }
+  return merged;
+}
+
+std::vector<CurveLengthInterval> visible_intervals_from_hidden(const std::vector<CurveLengthInterval>& hidden_intervals,
+                                                               double total_length_m) {
+  std::vector<CurveLengthInterval> visible{};
+  double cursor = 0.0;
+  for (const CurveLengthInterval& interval : hidden_intervals) {
+    if (interval.start_m > cursor + kZeroLengthEps) {
+      visible.push_back({cursor, interval.start_m});
+    }
+    cursor = std::max(cursor, interval.end_m);
+  }
+  if (cursor < total_length_m - kZeroLengthEps) {
+    visible.push_back({cursor, total_length_m});
+  }
+  if (visible.empty() && total_length_m > kZeroLengthEps && hidden_intervals.empty()) {
+    visible.push_back({0.0, total_length_m});
+  }
+  return visible;
+}
+
+std::vector<Vec3d> sample_curve_interval_points(const DetailCurve& curve, double start_s, double end_s, int samples) {
+  std::vector<Vec3d> points{};
+  if (curve.Length() <= kZeroLengthEps || samples < 2) {
+    return points;
+  }
+  const double clamped_start = std::clamp(start_s, 0.0, curve.Length());
+  const double clamped_end = std::clamp(end_s, 0.0, curve.Length());
+  if (clamped_end - clamped_start <= kZeroLengthEps) {
+    return points;
+  }
+  points.reserve(static_cast<std::size_t>(samples));
+  for (int i = 0; i < samples; ++i) {
+    const double t = (samples == 1) ? 0.0 : static_cast<double>(i) / static_cast<double>(samples - 1);
+    points.push_back(curve.PositionAtLength(clamped_start + (clamped_end - clamped_start) * t));
+  }
+  return points;
+}
+
 std::uint64_t splitmix64(std::uint64_t x) {
   x += 0x9E3779B97F4A7C15ull;
   x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ull;
@@ -62,24 +242,31 @@ Vec3d span_tangent_from_port(const Port& port, const Vec3d& chord_dir) {
   if (Dot(tangent, chord_dir) < 0.0) {
     tangent = ScaleVec(tangent, -1.0);
   }
-  Vec3d blended = tangent + chord_dir;
-  if (!Normalize(&blended)) {
-    return chord_dir;
-  }
-  return blended;
+  return tangent;
 }
 
-CurveConstraint make_curve_constraint(const Port& port, const Pole* owner_pole, const Vec3d& chord_dir, double basis_length,
-                                      double endpoint_offset_m, double effective_sag_ratio,
-                                      double bend_stiffness_hint, double min_bend_radius_hint_m,
-                                      CableContinuityPolicyHint continuity_preference, CurvePassMode pass_mode,
-                                      ConnectionContext connection_context,
-                                      CurveEndpointMode endpoint_mode, bool reverse_endpoint_offset) {
+CurveConstraint make_curve_constraint_from_port(const Port& port, const Pole* owner_pole, const Vec3d& chord_dir,
+                                                double basis_length, double endpoint_offset_m,
+                                                double effective_sag_ratio, double bend_stiffness_hint,
+                                                double min_bend_radius_hint_m,
+                                                CableContinuityPolicyHint continuity_preference,
+                                                CurvePassMode pass_mode, ConnectionContext connection_context,
+                                                CurveEndpointMode endpoint_mode, bool reverse_endpoint_offset) {
   CurveConstraint constraint{};
   constraint.point = port.world_position;
   constraint.tangent_dir = span_tangent_from_port(port, chord_dir);
   constraint.tangent_strength = 1.0;
   constraint.tangent_length_hint_m = basis_length * 0.30;
+  if (pass_mode == CurvePassMode::kBranch) {
+    constraint.support_departure_length_m =
+        std::clamp(std::max(endpoint_offset_m * 2.5, basis_length * 0.10), 0.18, std::max(0.18, basis_length * 0.22));
+  } else if (pass_mode == CurvePassMode::kTerminate) {
+    constraint.support_departure_length_m =
+        std::clamp(std::max(endpoint_offset_m * 2.2, basis_length * 0.09), 0.16, std::max(0.16, basis_length * 0.18));
+  } else {
+    constraint.support_departure_length_m =
+        std::clamp(std::max(endpoint_offset_m * 2.0, basis_length * 0.16), 0.22, std::max(0.22, basis_length * 0.30));
+  }
   constraint.bend_stiffness_hint = bend_stiffness_hint;
   constraint.min_bend_radius_hint_m = min_bend_radius_hint_m;
   const double signed_offset_m = reverse_endpoint_offset ? -endpoint_offset_m : endpoint_offset_m;
@@ -89,6 +276,147 @@ CurveConstraint make_curve_constraint(const Port& port, const Pole* owner_pole, 
   constraint.continuity_preference = continuity_preference;
   constraint.pass_mode = pass_mode;
   constraint.endpoint_mode = endpoint_mode;
+  constraint.corner_pass =
+      (connection_context == ConnectionContext::kCornerPass) && owner_pole != nullptr &&
+      owner_pole->context.kind == PoleContextKind::kCorner && owner_pole->context.corner_angle_deg > 1e-6;
+  constraint.corner_angle_deg = (owner_pole == nullptr) ? 0.0 : owner_pole->context.corner_angle_deg;
+  return constraint;
+}
+
+SupportLayoutOriginKind support_layout_origin_from_port(const Port& port) {
+  switch (port.placement_source) {
+  case PortPlacementSourceKind::kBranchSupport:
+    return SupportLayoutOriginKind::kBranchSupport;
+  case PortPlacementSourceKind::kAerialBranch:
+    return SupportLayoutOriginKind::kAerialBranch;
+  case PortPlacementSourceKind::kTemplateSlot:
+  case PortPlacementSourceKind::kGenerated:
+  case PortPlacementSourceKind::kManualEdit:
+    return SupportLayoutOriginKind::kMainSupport;
+  case PortPlacementSourceKind::kUnknown:
+  default:
+    return SupportLayoutOriginKind::kFallback;
+  }
+}
+
+BackboneFlowKind support_layout_flow_kind_for_span(const Span& span, const Port& port_a, const Port& port_b) {
+  if (span.placement_context == ConnectionContext::kBranchAdd ||
+      port_a.placement_source == PortPlacementSourceKind::kBranchSupport ||
+      port_b.placement_source == PortPlacementSourceKind::kBranchSupport ||
+      port_a.placement_source == PortPlacementSourceKind::kAerialBranch ||
+      port_b.placement_source == PortPlacementSourceKind::kAerialBranch) {
+    return BackboneFlowKind::kBranch;
+  }
+  return BackboneFlowKind::kMain;
+}
+
+double branch_down_offset_for_port(const CoreState& state, const Port& port, std::uint64_t flow_key,
+                                   HierarchicalVariationSample* out_variation) {
+  if (out_variation != nullptr) {
+    *out_variation = {};
+  }
+  if (port.placement_source != PortPlacementSourceKind::kBranchSupport) {
+    return 0.0;
+  }
+  const Pole* pole = state.view().poles().find(port.owner_pole_id);
+  if (pole == nullptr) {
+    return 0.0;
+  }
+  double main_support_base_z_m = pole->height_m * 0.8;
+  const auto pole_type_it = state.view().pole_types().find(pole->pole_type_id);
+  if (pole_type_it != state.view().pole_types().end()) {
+    const PoleTypeDefinition& pole_type = pole_type_it->second;
+    double best_slot_z = -std::numeric_limits<double>::infinity();
+    for (const PortSlotTemplate& slot : pole_type.port_slots) {
+      if (!slot.enabled || slot.category != port.category) {
+        continue;
+      }
+      best_slot_z = std::max(best_slot_z, slot.local_position.z);
+    }
+    if (std::isfinite(best_slot_z)) {
+      main_support_base_z_m = best_slot_z;
+    }
+  }
+
+  VariationContext down_offset_context{};
+  down_offset_context.world_position = port.world_position;
+  down_offset_context.flow_key = flow_key;
+  down_offset_context.pole_id = pole->id;
+  down_offset_context.secondary_pole_id = kInvalidObjectId;
+  down_offset_context.local_key = static_cast<std::uint64_t>(port.id);
+  const HierarchicalVariationSample variation =
+      EvaluateHierarchicalVariation(state.view().variation_settings(), down_offset_context);
+  if (out_variation != nullptr) {
+    *out_variation = variation;
+  }
+
+  const double local_z_m = HeightAlongWorldUp(port.world_position) - HeightAlongWorldUp(pole->world_transform.position);
+  const double varied_delta =
+      variation.final_value * state.view().variation_settings().branch_down_offset_variation_scale;
+  return std::max(0.0, main_support_base_z_m - local_z_m + varied_delta);
+}
+
+SupportLayoutEndpoint build_support_layout_endpoint(const CoreState& state, const Span& span, const Port& port,
+                                                    const Pole* owner_pole, const Vec3d& chord_dir,
+                                                    double basis_length, double endpoint_offset_m,
+                                                    double effective_sag_ratio, double bend_stiffness_hint,
+                                                    double min_bend_radius_hint_m,
+                                                    CableContinuityPolicyHint continuity_preference,
+                                                    CurvePassMode pass_mode, CurveEndpointMode endpoint_mode,
+                                                    std::uint64_t flow_key, BackboneFlowKind flow_kind,
+                                                    int resolved_socket_id, double automatic_branch_down_offset_m,
+                                                    const HierarchicalVariationSample& down_offset_variation,
+                                                    double resolved_branch_down_offset_m,
+                                                    bool is_start_endpoint) {
+  SupportLayoutEndpoint endpoint{};
+  endpoint.endpoint_node_id = is_start_endpoint ? span.endpoint_node_a_id : span.endpoint_node_b_id;
+  endpoint.owner_pole_id = port.owner_pole_id;
+  endpoint.port_id = port.id;
+  endpoint.attachment_id = is_start_endpoint ? span.endpoint_attachment_a_id : span.endpoint_attachment_b_id;
+  endpoint.socket_id = resolved_socket_id;
+  endpoint.flow_kind = flow_kind;
+  endpoint.origin = support_layout_origin_from_port(port);
+  endpoint.port_source = port.placement_source;
+  endpoint.side = port.template_side;
+  endpoint.support_world = port.world_position;
+  endpoint.automatic_branch_down_offset_m = automatic_branch_down_offset_m;
+  endpoint.down_offset_variation = down_offset_variation;
+  endpoint.branch_down_offset_m = resolved_branch_down_offset_m;
+
+  CurveConstraint constraint = make_curve_constraint_from_port(
+      port, owner_pole, chord_dir, basis_length, endpoint_offset_m, effective_sag_ratio, bend_stiffness_hint,
+      min_bend_radius_hint_m, continuity_preference, pass_mode, span.placement_context, endpoint_mode,
+      !is_start_endpoint);
+  (void)apply_endpoint_attachment_socket(state, endpoint.attachment_id, endpoint.socket_id, &constraint);
+
+  endpoint.endpoint_mode = constraint.endpoint_mode;
+  endpoint.endpoint_world = constraint.point;
+  endpoint.departure_dir = constraint.tangent_dir;
+  endpoint.endpoint_offset = constraint.endpoint_offset;
+  endpoint.local_departure_length_m = constraint.support_departure_length_m;
+  return endpoint;
+}
+
+CurveConstraint make_curve_constraint_from_support_layout(const SupportLayoutEndpoint& endpoint, const Pole* owner_pole,
+                                                          double basis_length, double effective_sag_ratio,
+                                                          double bend_stiffness_hint, double min_bend_radius_hint_m,
+                                                          CableContinuityPolicyHint continuity_preference,
+                                                          CurvePassMode pass_mode,
+                                                          ConnectionContext connection_context) {
+  CurveConstraint constraint{};
+  constraint.point = endpoint.endpoint_world;
+  constraint.tangent_dir = endpoint.departure_dir;
+  constraint.tangent_strength = 1.0;
+  constraint.tangent_length_hint_m = basis_length * 0.30;
+  constraint.support_departure_length_m = endpoint.local_departure_length_m;
+  constraint.bend_stiffness_hint = bend_stiffness_hint;
+  constraint.min_bend_radius_hint_m = min_bend_radius_hint_m;
+  constraint.endpoint_offset = endpoint.endpoint_offset;
+  constraint.sag_hint = effective_sag_ratio * 0.5;
+  constraint.slack_hint = 0.0;
+  constraint.continuity_preference = continuity_preference;
+  constraint.pass_mode = pass_mode;
+  constraint.endpoint_mode = endpoint.endpoint_mode;
   constraint.corner_pass =
       (connection_context == ConnectionContext::kCornerPass) && owner_pole != nullptr &&
       owner_pole->context.kind == PoleContextKind::kCorner && owner_pole->context.corner_angle_deg > 1e-6;
@@ -123,6 +451,14 @@ const CurveCacheEntry* CoreState::find_curve_cache(ObjectId span_id) const {
 const BoundsCacheEntry* CoreState::find_bounds_cache(ObjectId span_id) const {
   auto it = cache_state_.bounds_cache.by_span.find(span_id);
   if (it == cache_state_.bounds_cache.by_span.end()) {
+    return nullptr;
+  }
+  return &it->second;
+}
+
+const SpanSupportLayoutEntry* CoreState::find_span_support_layout(ObjectId span_id) const {
+  auto it = cache_state_.support_layout_cache.by_span.find(span_id);
+  if (it == cache_state_.support_layout_cache.by_span.end()) {
     return nullptr;
   }
   return &it->second;
@@ -368,7 +704,12 @@ bool CoreState::rebuild_span_curve(ObjectId span_id, std::string* error_message)
     return false;
   }
 
-  DetailCurve detail = generate_span_curve(*span, error_message);
+  SpanSupportLayoutEntry support_layout = generate_span_support_layout(*span, error_message);
+  if (support_layout.span_id == kInvalidObjectId) {
+    return false;
+  }
+
+  DetailCurve detail = generate_span_curve(*span, support_layout, error_message);
   if (detail.sample_points.size() < 2) {
     if (error_message != nullptr && error_message->empty()) {
       *error_message = "generated points are invalid";
@@ -381,6 +722,8 @@ bool CoreState::rebuild_span_curve(ObjectId span_id, std::string* error_message)
   entry.points = entry.detail.sample_points;
   const SpanRuntimeState* runtime = find_span_runtime_state(span_id);
   entry.source_version = (runtime == nullptr) ? 0 : runtime->data_version;
+  support_layout.source_version = entry.source_version;
+  cache_state_.support_layout_cache.by_span[span_id] = support_layout;
   cache_state_.curve_cache.by_span[span_id] = std::move(entry);
   return true;
 }
@@ -445,8 +788,9 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
   const bool requires_insulator = (cable_template != nullptr) ? cable_template->requires_insulator : false;
   const SpanRuntimeState* runtime = find_span_runtime_state(span_id);
   const std::uint64_t flow_key = variation_flow_key_for_span(runtime, *span);
+  const SpanSupportLayoutEntry* support_layout = find_span_support_layout(span_id);
 
-  auto append_parts_for_port = [&](const Port& port) {
+  auto append_parts_for_port = [&](const Port& port, const SupportLayoutEndpoint* layout_endpoint) {
     const Pole* pole = edit_state_.poles.find(port.owner_pole_id);
     if (pole == nullptr) {
       return;
@@ -489,12 +833,14 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
       entry.parts.push_back(ins);
     }
 
-    if (port.placement_source == PortPlacementSourceKind::kBranchSupport) {
+    const bool uses_branch_support = layout_endpoint != nullptr &&
+                                     layout_endpoint->origin == SupportLayoutOriginKind::kBranchSupport;
+    if (uses_branch_support) {
       BranchSupportPlacement placement{};
       placement.owner_pole_id = pole->id;
       placement.peer_node_id =
           (port.id == span->port_a_id) ? span->endpoint_node_b_id : span->endpoint_node_a_id;
-      placement.side = port.template_side;
+      placement.side = layout_endpoint->side;
       placement.mount_world = {pole->world_transform.position.x, pole->world_transform.position.y, port.world_position.z};
       placement.tip_world = {
           port.world_position.x + radial.x * cache_state_.visual_settings.support_arm_extra_m,
@@ -502,31 +848,8 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
           port.world_position.z,
       };
       placement.attachment_world = port.world_position;
-      double main_support_base_z_m = pole->height_m * 0.8;
-      if (const PoleTypeDefinition* pole_type = find_pole_type(pole->pole_type_id); pole_type != nullptr) {
-        double best_slot_z = -std::numeric_limits<double>::infinity();
-        for (const PortSlotTemplate& slot : pole_type->port_slots) {
-          if (!slot.enabled || slot.category != port.category) {
-            continue;
-          }
-          best_slot_z = std::max(best_slot_z, slot.local_position.z);
-        }
-        if (std::isfinite(best_slot_z)) {
-          main_support_base_z_m = best_slot_z;
-        }
-      }
-      const Vec3d local = to_local_on_pole(*pole, port.world_position);
-      VariationContext down_offset_context{};
-      down_offset_context.world_position = port.world_position;
-      down_offset_context.flow_key = flow_key;
-      down_offset_context.pole_id = pole->id;
-      down_offset_context.secondary_pole_id = kInvalidObjectId;
-      down_offset_context.local_key = static_cast<std::uint64_t>(port.id);
-      placement.down_offset_variation =
-          EvaluateHierarchicalVariation(cache_state_.variation_settings, down_offset_context);
-      const double varied_delta =
-          placement.down_offset_variation.final_value * cache_state_.variation_settings.branch_down_offset_variation_scale;
-      placement.down_offset_m = std::max(0.0, main_support_base_z_m - local.z + varied_delta);
+      placement.down_offset_variation = layout_endpoint->down_offset_variation;
+      placement.down_offset_m = layout_endpoint->branch_down_offset_m;
       placement.mount_world = {pole->world_transform.position.x, pole->world_transform.position.y,
                                port.world_position.z + placement.down_offset_m};
       placement.tip_world = {
@@ -550,8 +873,12 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
   SpanVisualCacheEntry entry{};
   entry.source_version = (runtime == nullptr) ? 0 : runtime->data_version;
   cache_state_.visual_cache.by_span[span_id] = std::move(entry);
-  append_parts_for_port(*a);
-  append_parts_for_port(*b);
+  const SupportLayoutEndpoint* start_layout =
+      (support_layout != nullptr && support_layout->start.port_id == a->id) ? &support_layout->start : nullptr;
+  const SupportLayoutEndpoint* end_layout =
+      (support_layout != nullptr && support_layout->end.port_id == b->id) ? &support_layout->end : nullptr;
+  append_parts_for_port(*a, start_layout);
+  append_parts_for_port(*b, end_layout);
 
   SpanRenderCacheEntry render{};
   render.source_version = (runtime == nullptr) ? 0 : runtime->data_version;
@@ -570,7 +897,177 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
   return true;
 }
 
-DetailCurve CoreState::generate_span_curve(const Span& span, std::string* error_message) const {
+void apply_attachment_line_effects_to_curve(const CoreState& state, ObjectId span_id, DetailCurve* curve) {
+  if (curve == nullptr || curve->Length() <= kZeroLengthEps) {
+    return;
+  }
+  const auto attachments_it = state.view().relation_index().attachments_by_span.find(span_id);
+  if (attachments_it == state.view().relation_index().attachments_by_span.end()) {
+    return;
+  }
+
+  std::vector<CurveLengthInterval> hidden{};
+  std::vector<CurveLengthInterval> replaced{};
+  std::vector<DetailReplacementPath> replacement_paths{};
+
+  for (ObjectId attachment_id : attachments_it->second) {
+    const Attachment* attachment = state.view().attachments().find(attachment_id);
+    if (attachment == nullptr) {
+      continue;
+    }
+    const AttachmentTemplate* attachment_template = state.find_attachment_template(attachment->template_id);
+    if (attachment_template == nullptr ||
+        attachment_template->line_interaction_mode == AttachmentLineInteractionMode::kPassThrough) {
+      continue;
+    }
+
+    const double center_s = std::clamp(curve->Length() * attachment->t, 0.0, curve->Length());
+    Vec3d origin = curve->PositionAtLength(center_s);
+    OffsetAlongWorldUp(&origin, attachment->display_offset_m);
+    const Vec3d tangent = curve->EvaluateTangent(curve->LengthToU(center_s));
+    Vec3d forward{};
+    Vec3d lateral{};
+    Vec3d up{};
+    if (!build_attachment_frame(tangent, &forward, &lateral, &up)) {
+      continue;
+    }
+
+    const AttachmentSocketTemplate* socket_a = nullptr;
+    const AttachmentSocketTemplate* socket_b = nullptr;
+    const AttachmentInternalPathTemplate* internal_path = nullptr;
+    if (!resolve_attachment_socket_pair(*attachment_template, &socket_a, &socket_b, &internal_path) ||
+        socket_a == nullptr || socket_b == nullptr) {
+      continue;
+    }
+
+    const double start_s = std::clamp(center_s + std::min(socket_a->local_position.x, socket_b->local_position.x), 0.0,
+                                      curve->Length());
+    const double end_s = std::clamp(center_s + std::max(socket_a->local_position.x, socket_b->local_position.x), 0.0,
+                                    curve->Length());
+    if (end_s - start_s <= kZeroLengthEps) {
+      continue;
+    }
+
+    hidden.push_back({start_s, end_s});
+
+    if (attachment_template->line_interaction_mode != AttachmentLineInteractionMode::kReplaceWithInternalPath ||
+        internal_path == nullptr) {
+      continue;
+    }
+
+    DetailReplacementPath replacement{};
+    replacement.attachment_id = attachment->id;
+    replacement.attachment_template_id = attachment_template->id;
+    replacement.interaction_mode = attachment_template->line_interaction_mode;
+    replacement.replaced_interval = {start_s, end_s};
+    replacement.points.push_back(attachment_local_to_world(origin, forward, lateral, up, socket_a->local_position));
+    for (const Vec3d& local_point : internal_path->local_points) {
+      replacement.points.push_back(attachment_local_to_world(origin, forward, lateral, up, local_point));
+    }
+    replacement.points.push_back(attachment_local_to_world(origin, forward, lateral, up, socket_b->local_position));
+    if (replacement.points.size() >= 2) {
+      replaced.push_back(replacement.replaced_interval);
+      replacement_paths.push_back(std::move(replacement));
+    }
+  }
+
+  curve->hidden_intervals = merged_intervals(std::move(hidden), curve->Length());
+  curve->replacement_intervals = merged_intervals(std::move(replaced), curve->Length());
+  curve->visible_intervals = visible_intervals_from_hidden(curve->hidden_intervals, curve->Length());
+  if (curve->visible_intervals.empty() && curve->Length() > kZeroLengthEps) {
+    curve->visible_intervals.push_back({0.0, curve->Length()});
+  }
+  curve->replacement_paths = std::move(replacement_paths);
+}
+
+SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span, std::string* error_message) const {
+  const Port* port_a = edit_state_.ports.find(span.port_a_id);
+  const Port* port_b = edit_state_.ports.find(span.port_b_id);
+  if (port_a == nullptr || port_b == nullptr) {
+    if (error_message != nullptr) {
+      *error_message = "span endpoint port is missing";
+    }
+    return {};
+  }
+
+  const Vec3d a = port_a->world_position;
+  const Vec3d b = port_b->world_position;
+  const Pole* pole_a = edit_state_.poles.find(port_a->owner_pole_id);
+  const Pole* pole_b = edit_state_.poles.find(port_b->owner_pole_id);
+  const double dx = b.x - a.x;
+  const double dy = b.y - a.y;
+  const double dz = b.z - a.z;
+  const double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+  const Bundle* bundle = edit_state_.bundles.find(span.bundle_id);
+  const BundleTemplate* bundle_template =
+      (bundle == nullptr) ? nullptr : find_bundle_template(bundle->bundle_template_id);
+  const CableTemplate* cable_template =
+      (bundle_template == nullptr) ? nullptr : find_cable_template(bundle_template->cable_template_id);
+  const double sag_ratio = (cable_template == nullptr) ? cache_state_.geometry_settings.sag_factor
+                                                       : (cable_template->sag_factor + cable_template->slack_factor);
+  const bool use_reference_length = true;
+  const double basis_length =
+      (use_reference_length && span.reference_length_m > kZeroLengthEps) ? span.reference_length_m : distance;
+
+  Vec3d chord_dir = b - a;
+  if (!Normalize(&chord_dir)) {
+    chord_dir = WorldForward();
+  }
+
+  const SpanRuntimeState* runtime = find_span_runtime_state(span.id);
+  const std::uint64_t flow_key = variation_flow_key_for_span(runtime, span);
+  const BackboneFlowKind flow_kind = support_layout_flow_kind_for_span(span, *port_a, *port_b);
+  VariationContext sag_variation_context{};
+  sag_variation_context.world_position = {(a.x + b.x) * 0.5, (a.y + b.y) * 0.5, (a.z + b.z) * 0.5};
+  sag_variation_context.flow_key = flow_key;
+  sag_variation_context.pole_id = (pole_a == nullptr) ? kInvalidObjectId : pole_a->id;
+  sag_variation_context.secondary_pole_id = (pole_b == nullptr) ? kInvalidObjectId : pole_b->id;
+  sag_variation_context.local_key = static_cast<std::uint64_t>(span.id);
+  const HierarchicalVariationSample sag_variation =
+      EvaluateHierarchicalVariation(cache_state_.variation_settings, sag_variation_context);
+  const double sag_multiplier =
+      std::max(0.0, 1.0 + sag_variation.final_value * cache_state_.variation_settings.sag_variation_scale);
+  const double effective_sag_ratio =
+      (cache_state_.geometry_settings.sag_enabled && basis_length > kZeroLengthEps) ? (sag_ratio * sag_multiplier) : 0.0;
+
+  const CurveEndpointMode endpoint_mode = curve_endpoint_mode_for_template(cable_template, bundle_template);
+  const double endpoint_offset_m = std::min(std::max(0.02, basis_length * 0.03), 0.35);
+  const CableContinuityPolicyHint continuity_preference =
+      (cable_template == nullptr) ? CableContinuityPolicyHint::kAuto : cable_template->continuity_policy;
+  const CurvePassMode pass_mode = curve_pass_mode_from_context(span.placement_context);
+  const double bend_stiffness_hint = (cable_template == nullptr) ? 1.0 : cable_template->bend_stiffness;
+  const double min_bend_radius_hint_m = (cable_template == nullptr) ? 0.0 : cable_template->min_bend_radius_m;
+
+  SpanSupportLayoutEntry layout{};
+  layout.span_id = span.id;
+  layout.flow_kind = flow_kind;
+  layout.pass_mode = pass_mode;
+  layout.variation_flow_key = flow_key;
+  const int resolved_socket_a = resolve_span_endpoint_socket_id(span, true);
+  const int resolved_socket_b = resolve_span_endpoint_socket_id(span, false);
+  HierarchicalVariationSample down_offset_variation_a{};
+  HierarchicalVariationSample down_offset_variation_b{};
+  const double automatic_branch_down_offset_a =
+      branch_down_offset_for_port(*this, *port_a, flow_key, &down_offset_variation_a);
+  const double automatic_branch_down_offset_b =
+      branch_down_offset_for_port(*this, *port_b, flow_key, &down_offset_variation_b);
+  const double resolved_branch_down_offset_a = resolve_span_branch_down_offset_m(span, automatic_branch_down_offset_a);
+  const double resolved_branch_down_offset_b = resolve_span_branch_down_offset_m(span, automatic_branch_down_offset_b);
+  layout.start = build_support_layout_endpoint(*this, span, *port_a, pole_a, chord_dir, basis_length, endpoint_offset_m,
+                                               effective_sag_ratio, bend_stiffness_hint, min_bend_radius_hint_m,
+                                               continuity_preference, pass_mode, endpoint_mode, flow_key, flow_kind,
+                                               resolved_socket_a, automatic_branch_down_offset_a,
+                                               down_offset_variation_a, resolved_branch_down_offset_a, true);
+  layout.end = build_support_layout_endpoint(*this, span, *port_b, pole_b, chord_dir, basis_length, endpoint_offset_m,
+                                             effective_sag_ratio, bend_stiffness_hint, min_bend_radius_hint_m,
+                                             continuity_preference, pass_mode, endpoint_mode, flow_key, flow_kind,
+                                             resolved_socket_b, automatic_branch_down_offset_b,
+                                             down_offset_variation_b, resolved_branch_down_offset_b, false);
+  return layout;
+}
+
+DetailCurve CoreState::generate_span_curve(const Span& span, const SpanSupportLayoutEntry& support_layout,
+                                           std::string* error_message) const {
   const Port* port_a = edit_state_.ports.find(span.port_a_id);
   const Port* port_b = edit_state_.ports.find(span.port_b_id);
   if (port_a == nullptr || port_b == nullptr) {
@@ -601,11 +1098,6 @@ DetailCurve CoreState::generate_span_curve(const Span& span, std::string* error_
   const double basis_length =
       (use_reference_length && span.reference_length_m > kZeroLengthEps) ? span.reference_length_m : distance;
 
-  Vec3d chord_dir = b - a;
-  if (!Normalize(&chord_dir)) {
-    chord_dir = WorldForward();
-  }
-
   const SpanRuntimeState* runtime = find_span_runtime_state(span.id);
   VariationContext sag_variation_context{};
   sag_variation_context.world_position = {(a.x + b.x) * 0.5, (a.y + b.y) * 0.5, (a.z + b.z) * 0.5};
@@ -620,24 +1112,20 @@ DetailCurve CoreState::generate_span_curve(const Span& span, std::string* error_
   const double effective_sag_ratio =
       (cache_state_.geometry_settings.sag_enabled && basis_length > kZeroLengthEps) ? (sag_ratio * sag_multiplier) : 0.0;
 
-  const CurveEndpointMode endpoint_mode = curve_endpoint_mode_for_template(cable_template, bundle_template);
-  const double endpoint_offset_m = std::min(std::max(0.02, basis_length * 0.03), 0.35);
   const CableContinuityPolicyHint continuity_preference =
       (cable_template == nullptr) ? CableContinuityPolicyHint::kAuto : cable_template->continuity_policy;
-  const CurvePassMode pass_mode = curve_pass_mode_from_context(span.placement_context);
   const double bend_stiffness_hint = (cable_template == nullptr) ? 1.0 : cable_template->bend_stiffness;
   const double min_bend_radius_hint_m = (cable_template == nullptr) ? 0.0 : cable_template->min_bend_radius_m;
 
-  const CurveConstraint start =
-      make_curve_constraint(*port_a, pole_a, chord_dir, basis_length, endpoint_offset_m, effective_sag_ratio,
-                            bend_stiffness_hint, min_bend_radius_hint_m,
-                            continuity_preference, pass_mode, span.placement_context, endpoint_mode, false);
-  const CurveConstraint end =
-      make_curve_constraint(*port_b, pole_b, chord_dir, basis_length, endpoint_offset_m, effective_sag_ratio,
-                            bend_stiffness_hint, min_bend_radius_hint_m,
-                            continuity_preference, pass_mode, span.placement_context, endpoint_mode, true);
+  CurveConstraint start = make_curve_constraint_from_support_layout(
+      support_layout.start, pole_a, basis_length, effective_sag_ratio, bend_stiffness_hint, min_bend_radius_hint_m,
+      continuity_preference, support_layout.pass_mode, span.placement_context);
+  CurveConstraint end = make_curve_constraint_from_support_layout(
+      support_layout.end, pole_b, basis_length, effective_sag_ratio, bend_stiffness_hint, min_bend_radius_hint_m,
+      continuity_preference, support_layout.pass_mode, span.placement_context);
   DetailCurve curve = BuildDetailCurve(start, end, samples);
   curve.quality.sag_variation = sag_variation;
+  apply_attachment_line_effects_to_curve(*this, span.id, &curve);
   return curve;
 }
 
@@ -683,6 +1171,7 @@ AABBd CoreState::build_aabb_from_two_points(const Vec3d& a, const Vec3d& b) {
 void CoreState::remove_span_from_caches(ObjectId span_id) {
   cache_state_.curve_cache.by_span.erase(span_id);
   cache_state_.bounds_cache.by_span.erase(span_id);
+  cache_state_.support_layout_cache.by_span.erase(span_id);
   cache_state_.visual_cache.by_span.erase(span_id);
   cache_state_.render_cache.by_span.erase(span_id);
 }

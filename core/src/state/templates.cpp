@@ -24,6 +24,9 @@ constexpr CableTemplateId kHighVoltageCableTemplate = 1;
 constexpr CableTemplateId kLowVoltageCableTemplate = 2;
 constexpr CableTemplateId kCommunicationCableTemplate = 3;
 constexpr CableTemplateId kOpticalCableTemplate = 4;
+constexpr AttachmentTemplateId kGenericAttachmentTemplate = 1;
+constexpr AttachmentTemplateId kHiddenAttachmentTemplate = 2;
+constexpr AttachmentTemplateId kInternalPathAttachmentTemplate = 3;
 ConnectionCategory port_layer_to_category(PortLayer layer) {
   switch (layer) {
   case PortLayer::kHighVoltage:
@@ -161,17 +164,6 @@ Vec3d local_to_world_on_pole(const Transformd& tf, double yaw_deg, const Vec3d& 
 
 double normalize_yaw_deg(double yaw_deg) {
   return NormalizeYawDeg(yaw_deg);
-}
-
-double effective_pole_yaw_for_layout(const Pole& pole) {
-  double yaw = pole.world_transform.rotation_euler_deg.z;
-  if (pole.orientation_control.manual_yaw_override) {
-    yaw = pole.orientation_control.manual_yaw_deg;
-  }
-  if (pole.orientation_control.flip_180) {
-    yaw += 180.0;
-  }
-  return yaw;
 }
 
 } // namespace
@@ -720,7 +712,7 @@ EditResult<ObjectId> CoreState::ensure_pole_slot_port(const SlotSelectionRequest
       }
       adjusted_local = apply_pole_clearance_to_local(*pole, adjusted_local, best_slot->side);
       const Vec3d world_position =
-          local_to_world_on_pole(pole->world_transform, effective_pole_yaw_for_layout(*pole), adjusted_local);
+          local_to_world_on_pole(pole->world_transform, effective_pole_yaw_deg(*pole), adjusted_local);
       EditResult<ObjectId> add_port_result =
           AddPort(request.pole_id, world_position, category_to_port_kind(request.category),
                   category_to_port_layer(request.category), best_slot->local_direction);
@@ -783,7 +775,7 @@ EditResult<ObjectId> CoreState::ensure_pole_slot_port(const SlotSelectionRequest
     const Vec3d local = apply_pole_clearance_to_local(
         *pole, Vec3d{0.0, 0.0, std::max(1.0, pole->height_m * 0.7)}, SlotSide::kCenter);
     const Vec3d world_position =
-        local_to_world_on_pole(pole->world_transform, effective_pole_yaw_for_layout(*pole), local);
+        local_to_world_on_pole(pole->world_transform, effective_pole_yaw_deg(*pole), local);
     EditResult<ObjectId> add_port_result =
         AddPort(request.pole_id, world_position, category_to_port_kind(request.category),
                 category_to_port_layer(request.category));
@@ -958,9 +950,57 @@ void CoreState::register_default_cable_templates() {
   cable_templates_[optical.id] = optical;
 }
 
+void CoreState::register_default_attachment_templates() {
+  AttachmentTemplate generic{};
+  generic.id = kGenericAttachmentTemplate;
+  generic.name = "GENERIC_PASS_THROUGH";
+  generic.kind = AttachmentKind::kGeneric;
+  generic.line_interaction_mode = AttachmentLineInteractionMode::kPassThrough;
+  generic.sockets = {
+      AttachmentSocketTemplate{0, {-0.12, 0.0, 0.0}, {-1.0, 0.0, 0.0}},
+      AttachmentSocketTemplate{1, {0.12, 0.0, 0.0}, {1.0, 0.0, 0.0}},
+  };
+  attachment_templates_[generic.id] = generic;
+
+  AttachmentTemplate hidden{};
+  hidden.id = kHiddenAttachmentTemplate;
+  hidden.name = "INLINE_HIDE_SEGMENT";
+  hidden.kind = AttachmentKind::kMarker;
+  hidden.line_interaction_mode = AttachmentLineInteractionMode::kHideSegment;
+  hidden.sockets = {
+      AttachmentSocketTemplate{0, {-0.10, 0.0, 0.0}, {-1.0, 0.0, 0.0}},
+      AttachmentSocketTemplate{1, {0.10, 0.0, 0.0}, {1.0, 0.0, 0.0}},
+  };
+  attachment_templates_[hidden.id] = hidden;
+
+  AttachmentTemplate internal{};
+  internal.id = kInternalPathAttachmentTemplate;
+  internal.name = "INLINE_INTERNAL_PATH";
+  internal.kind = AttachmentKind::kSpacer;
+  internal.line_interaction_mode = AttachmentLineInteractionMode::kReplaceWithInternalPath;
+  internal.sockets = {
+      AttachmentSocketTemplate{0, {-0.14, 0.0, 0.0}, {-1.0, 0.0, 0.0}},
+      AttachmentSocketTemplate{1, {0.14, 0.0, 0.0}, {1.0, 0.0, 0.0}},
+  };
+  AttachmentInternalPathTemplate path{};
+  path.start_socket_id = 0;
+  path.end_socket_id = 1;
+  path.local_points = {{-0.05, 0.0, 0.10}, {0.05, 0.0, 0.10}};
+  internal.internal_paths.push_back(path);
+  attachment_templates_[internal.id] = internal;
+}
+
 const CableTemplate* CoreState::find_cable_template(CableTemplateId cable_template_id) const {
   auto it = cable_templates_.find(cable_template_id);
   if (it == cable_templates_.end()) {
+    return nullptr;
+  }
+  return &it->second;
+}
+
+const AttachmentTemplate* CoreState::find_attachment_template(AttachmentTemplateId attachment_template_id) const {
+  auto it = attachment_templates_.find(attachment_template_id);
+  if (it == attachment_templates_.end()) {
     return nullptr;
   }
   return &it->second;

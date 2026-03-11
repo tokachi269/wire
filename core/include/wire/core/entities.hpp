@@ -13,6 +13,8 @@ using PoleTypeId = std::uint32_t;
 constexpr PoleTypeId kInvalidPoleTypeId = 0;
 using CableTemplateId = std::uint32_t;
 constexpr CableTemplateId kInvalidCableTemplateId = 0;
+using AttachmentTemplateId = std::uint32_t;
+constexpr AttachmentTemplateId kInvalidAttachmentTemplateId = 0;
 enum class ConnectionCategory : std::uint8_t {
   kHighVoltage = 0,
   kLowVoltage = 1,
@@ -179,6 +181,18 @@ enum class AttachmentKind : std::uint8_t {
   kMarker = 3,
 };
 
+enum class AttachmentSocketKind : std::uint8_t {
+  kGeneric = 0,
+  kInput = 1,
+  kOutput = 2,
+};
+
+enum class AttachmentLineInteractionMode : std::uint8_t {
+  kPassThrough = 0,
+  kReplaceWithInternalPath = 1,
+  kHideSegment = 2,
+};
+
 enum class GenerationSource : std::uint8_t {
   kManual = 0,
   kRoadAuto = 1,
@@ -320,6 +334,10 @@ struct Span {
   ObjectId bundle_id = kInvalidObjectId;
   ObjectId anchor_a_id = kInvalidObjectId;
   ObjectId anchor_b_id = kInvalidObjectId;
+  ObjectId endpoint_attachment_a_id = kInvalidObjectId;
+  ObjectId endpoint_attachment_b_id = kInvalidObjectId;
+  int endpoint_socket_a_id = -1;
+  int endpoint_socket_b_id = -1;
   ConnectionContext placement_context = ConnectionContext::kTrunkContinue;
   bool generated_by_rule = false;
   bool placement_override_flag = false;
@@ -334,6 +352,7 @@ struct Attachment {
   ObjectId id = kInvalidObjectId;
   std::string display_id{};
   ObjectId span_id = kInvalidObjectId;
+  AttachmentTemplateId template_id = kInvalidAttachmentTemplateId;
   double t = 0.0;
   AttachmentKind kind = AttachmentKind::kGeneric;
   double display_offset_m = 0.0;

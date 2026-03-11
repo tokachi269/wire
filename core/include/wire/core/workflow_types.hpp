@@ -46,6 +46,33 @@ struct BackbonePolePlacementOptions {
   std::uint64_t reuse_session_id = 0;
 };
 
+struct AttachmentSocketTemplate {
+  int id = -1;
+  Vec3d local_position{};
+  Vec3d tangent_dir{};
+  bool has_normal = false;
+  Vec3d normal_dir{};
+  bool has_binormal = false;
+  Vec3d binormal_dir{};
+  AttachmentSocketKind kind = AttachmentSocketKind::kGeneric;
+};
+
+struct AttachmentInternalPathTemplate {
+  int start_socket_id = -1;
+  int end_socket_id = -1;
+  std::vector<Vec3d> local_points{};
+};
+
+struct AttachmentTemplate {
+  AttachmentTemplateId id = kInvalidAttachmentTemplateId;
+  std::string name{};
+  AttachmentKind kind = AttachmentKind::kGeneric;
+  AttachmentLineInteractionMode line_interaction_mode = AttachmentLineInteractionMode::kPassThrough;
+  std::vector<AttachmentSocketTemplate> sockets{};
+  std::vector<AttachmentInternalPathTemplate> internal_paths{};
+  std::uint64_t version = 1;
+};
+
 enum class BundleCountRuleKind : std::uint8_t {
   kFixed = 0,
   kRange = 1,

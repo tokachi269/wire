@@ -97,6 +97,30 @@ bool IsBoundsVisibleApprox(const Camera3D& camera, const wire::core::AABBd& boun
   return false;
 }
 
+std::vector<wire::core::Vec3d> SampleCurveInterval(const wire::core::DetailCurve& curve, double start_s, double end_s) {
+  std::vector<wire::core::Vec3d> points{};
+  const double span = std::max(0.0, end_s - start_s);
+  if (curve.Length() <= 1e-9 || span <= 1e-9) {
+    return points;
+  }
+  const int samples = std::max(2, static_cast<int>(std::ceil(span / std::max(0.25, span / 8.0))) + 1);
+  points.reserve(static_cast<std::size_t>(samples));
+  for (int i = 0; i < samples; ++i) {
+    const double t = (samples == 1) ? 0.0 : static_cast<double>(i) / static_cast<double>(samples - 1);
+    points.push_back(curve.PositionAtLength(start_s + span * t));
+  }
+  return points;
+}
+
+void DrawWirePolyline(const std::vector<wire::core::Vec3d>& points, float wire_radius, Color wire_color) {
+  if (points.size() < 2) {
+    return;
+  }
+  for (std::size_t i = 0; i + 1 < points.size(); ++i) {
+    DrawCylinderEx(ToRaylib(points[i]), ToRaylib(points[i + 1]), wire_radius, wire_radius, 8, wire_color);
+  }
+}
+
 Color DirtyColorForSpan(const wire::core::SpanRuntimeState* runtime_state) {
   if (runtime_state == nullptr) {
     return Color{92, 96, 102, 255};
@@ -324,9 +348,15 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
       wire_color = Color{154, 112, 56, 255};
     }
     if (curve != nullptr && curve->points.size() >= 2) {
-      for (std::size_t i = 0; i + 1 < curve->points.size(); ++i) {
-        DrawCylinderEx(ToRaylib(curve->points[i]), ToRaylib(curve->points[i + 1]), wire_radius, wire_radius, 8,
-                       wire_color);
+      if (!curve->detail.visible_intervals.empty()) {
+        for (const wire::core::CurveLengthInterval& interval : curve->detail.visible_intervals) {
+          DrawWirePolyline(SampleCurveInterval(curve->detail, interval.start_m, interval.end_m), wire_radius, wire_color);
+        }
+      } else {
+        DrawWirePolyline(curve->points, wire_radius, wire_color);
+      }
+      for (const wire::core::DetailReplacementPath& replacement : curve->detail.replacement_paths) {
+        DrawWirePolyline(replacement.points, wire_radius, wire_color);
       }
     } else {
       DrawCylinderEx(ToRaylib(start_port->world_position), ToRaylib(end_port->world_position), wire_radius, wire_radius,

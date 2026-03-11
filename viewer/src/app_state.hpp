@@ -22,6 +22,9 @@ enum class SelectedType {
   kBundle = 5,
   kAttachment = 6,
   kSupportNode = 7,
+  kSupportLayout = 8,
+  kDetailCurve = 9,
+  kJunction = 10,
 };
 
 enum class CameraDragMode {
@@ -208,6 +211,9 @@ struct ViewerUiState {
   bool ui_unified_workspace = true;
   bool ui_show_workspace = true;
   float ui_workspace_width = 0.0f;
+  bool pole_height_view_show_ports = true;
+  bool pole_height_view_show_supports = true;
+  bool pole_height_view_show_bundles = true;
 };
 
 inline bool IsValidSelectionItem(const SelectionItem& item) {

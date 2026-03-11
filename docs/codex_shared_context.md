@@ -77,6 +77,18 @@
   - 未実装 override の受け皿がないからといって、導出値を entity 正本へ直書きすること
   - attachment 内部経路や DetailCurve 制御点を正本へ保存すること
 
+## 6.6. 公開概念とアクセス境界（2026-03-11 固定）
+- 目的:
+  - inspector / debug / mod API で派生値の直編集や内部途中構造の露出を防ぐ。
+  - `Pole`, `Span`, `SupportLayout`, `DetailCurve` などを、同じ作法で「参照可能だがどこまで触れるか」が分かる形にする。
+- 固定方針:
+  - source は `Pole`, `Span`, `Bundle`, `Template`, 将来の `Override`
+  - readonly derived は `Junction`, `BackboneEdge`, `SupportNode`, `SupportLayout`, `DetailCurve`
+  - 自動決定結果を変えたい場合は direct edit ではなく override を通す
+  - `ObjectStore` mutable 実体、recalc の途中変数、grouped span の局所補助配列は外に出さない
+- 参照先:
+  - 詳細な分類表は `docs/core_model_architecture.md` の「公開概念とアクセス境界」を正本とする
+
 ## 7. 既知の注意点
 - 正本と派生を混在させると破綻しやすい。
 - 生成都合の一時情報を Entity に埋め込みすぎない。

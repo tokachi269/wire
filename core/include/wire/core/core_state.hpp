@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -10,6 +11,7 @@
 #include "wire/core/detail_curve.hpp"
 #include "wire/core/entities.hpp"
 #include "wire/core/id.hpp"
+#include "wire/core/inspection.hpp"
 #include "wire/core/object_store.hpp"
 #include "wire/core/types.hpp"
 #include "wire/core/variation.hpp"
@@ -27,6 +29,15 @@ struct EditState {
   ObjectStore<Bundle> bundles;
   ObjectStore<Span> spans;
   ObjectStore<Attachment> attachments;
+};
+
+struct AttachmentDebugLineEffect {
+  ObjectId attachment_id = kInvalidObjectId;
+  AttachmentTemplateId template_id = kInvalidAttachmentTemplateId;
+  AttachmentLineInteractionMode interaction_mode = AttachmentLineInteractionMode::kPassThrough;
+  double center_length_m = 0.0;
+  CurveLengthInterval affected_interval{};
+  bool uses_internal_path = false;
 };
 
 struct GeometrySettings {
@@ -82,6 +93,71 @@ struct BranchSupportPlacement {
   HierarchicalVariationSample down_offset_variation{};
 };
 
+enum class SupportLayoutOriginKind : std::uint8_t {
+  kMainSupport = 0,
+  kBranchSupport = 1,
+  kAerialBranch = 2,
+  kFallback = 3,
+};
+
+struct SupportLayoutEndpoint {
+  ObjectId endpoint_node_id = kInvalidObjectId;
+  ObjectId owner_pole_id = kInvalidObjectId;
+  ObjectId port_id = kInvalidObjectId;
+  ObjectId attachment_id = kInvalidObjectId;
+  int socket_id = -1;
+  BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
+  SupportLayoutOriginKind origin = SupportLayoutOriginKind::kFallback;
+  PortPlacementSourceKind port_source = PortPlacementSourceKind::kUnknown;
+  SlotSide side = SlotSide::kCenter;
+  CurveEndpointMode endpoint_mode = CurveEndpointMode::kDirectThrough;
+  Vec3d support_world{};
+  Vec3d endpoint_world{};
+  Vec3d departure_dir{};
+  Vec3d endpoint_offset{};
+  double local_departure_length_m = 0.0;
+  double automatic_branch_down_offset_m = 0.0;
+  double branch_down_offset_m = 0.0;
+  HierarchicalVariationSample down_offset_variation{};
+};
+
+struct SpanSupportLayoutEntry {
+  ObjectId span_id = kInvalidObjectId;
+  BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
+  CurvePassMode pass_mode = CurvePassMode::kPassThrough;
+  std::uint64_t variation_flow_key = 0;
+  SupportLayoutEndpoint start{};
+  SupportLayoutEndpoint end{};
+  std::uint64_t source_version = 0;
+};
+
+struct SupportLayoutCache {
+  std::unordered_map<ObjectId, SpanSupportLayoutEntry> by_span{};
+};
+
+struct PoleOrientationOverride {
+  std::optional<double> manual_yaw_deg{};
+  std::optional<bool> flip_180{};
+  std::uint64_t version = 1;
+};
+
+struct SpanEndpointOverride {
+  std::optional<int> socket_a_id{};
+  std::optional<int> socket_b_id{};
+  std::uint64_t version = 1;
+};
+
+struct SpanSupportOverride {
+  std::optional<double> branch_down_offset_m{};
+  std::uint64_t version = 1;
+};
+
+struct OverrideState {
+  std::unordered_map<ObjectId, PoleOrientationOverride> pole_orientation_by_pole{};
+  std::unordered_map<ObjectId, SpanEndpointOverride> span_endpoint_by_span{};
+  std::unordered_map<ObjectId, SpanSupportOverride> span_support_by_span{};
+};
+
 struct SpanVisualCacheEntry {
   std::vector<VisualPart> parts{};
   std::vector<BranchSupportPlacement> branch_supports{};
@@ -123,6 +199,7 @@ struct CacheState {
   BoundsCache bounds_cache{};
   VisualSettings visual_settings{};
   VariationSettings variation_settings{};
+  SupportLayoutCache support_layout_cache{};
   VisualCache visual_cache{};
   RenderCache render_cache{};
 };
@@ -149,6 +226,7 @@ struct RelationIndex {
   std::unordered_map<ObjectId, std::vector<ObjectId>> ports_by_pole;
   std::unordered_map<ObjectId, std::vector<ObjectId>> anchors_by_pole;
   std::unordered_map<ObjectId, std::vector<ObjectId>> spans_by_bundle;
+  std::unordered_map<ObjectId, std::vector<ObjectId>> attachments_by_span;
 };
 
 enum class DirtyBits : std::uint32_t {
@@ -333,7 +411,8 @@ public:
                                SpanLayer layer = SpanLayer::kUnknown, ObjectId bundle_id = kInvalidObjectId,
                                ObjectId anchor_a_id = kInvalidObjectId, ObjectId anchor_b_id = kInvalidObjectId);
   EditResult<ObjectId> AddAttachment(ObjectId span_id, double t, AttachmentKind kind = AttachmentKind::kGeneric,
-                                     double display_offset_m = 0.0);
+                                     double display_offset_m = 0.0,
+                                     AttachmentTemplateId template_id = kInvalidAttachmentTemplateId);
   EditResult<ObjectId> MovePole(ObjectId pole_id, const Transformd& new_world_transform);
   // Pole tilt is instance-owned. This command updates explicit target poles without touching templates.
   EditResult<bool> ApplyPoleTilt(const std::vector<ObjectId>& pole_ids, double tilt_x_deg, double tilt_y_deg);
@@ -396,6 +475,12 @@ public:
                                                         const ResolveBranchPickOptions& options = {});
   EditResult<ObjectId> SetPolePlacementMode(ObjectId pole_id, PlacementMode mode);
   EditResult<ObjectId> SetPoleFlip180(ObjectId pole_id, bool flip_180);
+  EditResult<ObjectId> SetPoleManualYawOverride(ObjectId pole_id, double manual_yaw_deg);
+  EditResult<ObjectId> ClearPoleOrientationOverride(ObjectId pole_id);
+  EditResult<ObjectId> SetSpanEndpointSocketOverride(ObjectId span_id, bool is_start_endpoint, int socket_id);
+  EditResult<ObjectId> ClearSpanEndpointSocketOverride(ObjectId span_id, bool is_start_endpoint);
+  EditResult<ObjectId> SetSpanBranchDownOffsetOverride(ObjectId span_id, double branch_down_offset_m);
+  EditResult<ObjectId> ClearSpanBranchDownOffsetOverride(ObjectId span_id);
   [[nodiscard]] PoleDetailInfo GetPoleDetail(ObjectId pole_id) const;
   [[nodiscard]] std::vector<ObjectId> GetSpansByBundle(ObjectId bundle_id) const;
   [[nodiscard]] BackboneResult BuildBackboneResult() const;
@@ -408,11 +493,15 @@ public:
   EditResult<bool> UpdateCableTemplate(const CableTemplate& cable_template,
                                        const std::vector<ObjectId>& preferred_visible_span_ids = {});
   EditResult<bool> UpdateBundleTemplate(const BundleTemplate& bundle_template);
+  EditResult<bool> UpdateAttachmentTemplate(const AttachmentTemplate& attachment_template,
+                                            bool mark_dependent_spans_dirty = true);
   EditResult<bool> ResetAllSpanReferenceLengths(bool mark_all_spans_dirty = true);
   [[nodiscard]] const CurveCacheEntry* find_curve_cache(ObjectId span_id) const;
   [[nodiscard]] const BoundsCacheEntry* find_bounds_cache(ObjectId span_id) const;
+  [[nodiscard]] const SpanSupportLayoutEntry* find_span_support_layout(ObjectId span_id) const;
   [[nodiscard]] const SpanVisualCacheEntry* find_span_visual_cache(ObjectId span_id) const;
   [[nodiscard]] const SpanRenderCacheEntry* find_span_render_cache(ObjectId span_id) const;
+  [[nodiscard]] const AttachmentTemplate* find_attachment_template(AttachmentTemplateId attachment_template_id) const;
   [[nodiscard]] ValidationResult ValidateFast() const;
 
   [[nodiscard]] CommitResult Commit(const CommitOptions& options = {});
@@ -438,7 +527,9 @@ private:
   [[nodiscard]] bool rebuild_span_curve(ObjectId span_id, std::string* error_message);
   [[nodiscard]] bool rebuild_span_bounds(ObjectId span_id, std::string* error_message);
   [[nodiscard]] bool rebuild_span_visual(ObjectId span_id, std::string* error_message);
-  [[nodiscard]] DetailCurve generate_span_curve(const Span& span, std::string* error_message) const;
+  [[nodiscard]] SpanSupportLayoutEntry generate_span_support_layout(const Span& span, std::string* error_message) const;
+  [[nodiscard]] DetailCurve generate_span_curve(const Span& span, const SpanSupportLayoutEntry& support_layout,
+                                                std::string* error_message) const;
   [[nodiscard]] static AABBd build_aabb_from_points(const std::vector<Vec3d>& points);
   [[nodiscard]] static AABBd build_aabb_from_two_points(const Vec3d& a, const Vec3d& b);
   void remove_span_from_caches(ObjectId span_id);
@@ -455,17 +546,25 @@ private:
                                                std::vector<BackboneEdgeOrientation>* out_edge_orientations = nullptr,
                                                BundleKind bundle_template_id = BundleKind::kLowVoltage);
   [[nodiscard]] static std::uint64_t hash_path_points(const std::vector<Vec3d>& points);
-  [[nodiscard]] static double effective_pole_yaw_deg(const Pole& pole);
-  [[nodiscard]] static Vec3d to_local_on_pole(const Pole& pole, const Vec3d& world);
-  [[nodiscard]] static SlotSide preferred_side_from_geometry(const Pole& pole, const Pole* peer, double eps);
+  [[nodiscard]] double effective_pole_yaw_deg(const Pole& pole) const;
+  [[nodiscard]] Vec3d to_local_on_pole(const Pole& pole, const Vec3d& world) const;
+  [[nodiscard]] SlotSide preferred_side_from_geometry(const Pole& pole, const Pole* peer, double eps) const;
   [[nodiscard]] static double polyline_length(const std::vector<Vec3d>& polyline);
   [[nodiscard]] static PortLayer category_to_port_layer(ConnectionCategory category);
   [[nodiscard]] static SpanLayer category_to_span_layer(ConnectionCategory category);
   [[nodiscard]] static BundleKind category_to_bundle_kind(ConnectionCategory category);
   [[nodiscard]] static PortKind category_to_port_kind(ConnectionCategory category);
+  [[nodiscard]] bool has_pole_orientation_override(ObjectId pole_id) const;
+  [[nodiscard]] bool has_span_endpoint_socket_override(ObjectId span_id, bool is_start_endpoint) const;
+  [[nodiscard]] bool has_span_branch_down_offset_override(ObjectId span_id) const;
+  [[nodiscard]] std::optional<double> resolve_pole_manual_yaw_override(const Pole& pole) const;
+  [[nodiscard]] std::optional<bool> resolve_pole_flip_180_override(const Pole& pole) const;
+  [[nodiscard]] int resolve_span_endpoint_socket_id(const Span& span, bool is_start_endpoint) const;
+  [[nodiscard]] double resolve_span_branch_down_offset_m(const Span& span, double automatic_value) const;
   void register_default_pole_types();
   void register_default_cable_templates();
   void register_default_bundle_templates();
+  void register_default_attachment_templates();
   [[nodiscard]] const PoleTypeDefinition* find_pole_type(PoleTypeId pole_type_id) const;
   [[nodiscard]] const CableTemplate* find_cable_template(CableTemplateId cable_template_id) const;
   [[nodiscard]] const BundleTemplate* find_bundle_template(BundleKind bundle_template_id) const;
@@ -554,6 +653,8 @@ private:
   make_expected_pole_anchor_index(const EditState& edit_state);
   [[nodiscard]] static std::unordered_map<ObjectId, std::vector<ObjectId>>
   make_expected_bundle_span_index(const EditState& edit_state);
+  [[nodiscard]] static std::unordered_map<ObjectId, std::vector<ObjectId>>
+  make_expected_span_attachment_index(const EditState& edit_state);
 
   IdGenerator id_generator_{};
   std::uint64_t next_data_version_ = 1;
@@ -566,7 +667,9 @@ private:
   std::unordered_map<PoleTypeId, PoleTypeDefinition> pole_types_{};
   std::unordered_map<CableTemplateId, CableTemplate> cable_templates_{};
   std::unordered_map<BundleKind, BundleTemplate> bundle_templates_{};
+  std::unordered_map<AttachmentTemplateId, AttachmentTemplate> attachment_templates_{};
   TemplateDependencyState template_dependency_state_{};
+  OverrideState override_state_{};
   // Derived cache/runtime layer.
   std::unordered_map<ObjectId, SpanRuntimeState> span_runtime_states_{};
   DirtyQueue dirty_queue_{};
@@ -624,6 +727,9 @@ public:
   [[nodiscard]] const std::unordered_map<BundleKind, BundleTemplate>& bundle_templates() const {
     return state_.bundle_templates_;
   }
+  [[nodiscard]] const std::unordered_map<AttachmentTemplateId, AttachmentTemplate>& attachment_templates() const {
+    return state_.attachment_templates_;
+  }
   [[nodiscard]] const TemplateDependencyState& template_dependency_state() const {
     return state_.template_dependency_state_;
   }
@@ -639,12 +745,34 @@ public:
   [[nodiscard]] const SpanRuntimeState* find_span_runtime_state(ObjectId span_id) const {
     return state_.find_span_runtime_state(span_id);
   }
+  [[nodiscard]] const SpanSupportLayoutEntry* find_span_support_layout(ObjectId span_id) const {
+    return state_.find_span_support_layout(span_id);
+  }
   [[nodiscard]] const SpanVisualCacheEntry* find_span_visual_cache(ObjectId span_id) const {
     return state_.find_span_visual_cache(span_id);
   }
   [[nodiscard]] const SpanRenderCacheEntry* find_span_render_cache(ObjectId span_id) const {
     return state_.find_span_render_cache(span_id);
   }
+  [[nodiscard]] const AttachmentTemplate* find_attachment_template(AttachmentTemplateId attachment_template_id) const {
+    return state_.find_attachment_template(attachment_template_id);
+  }
+  [[nodiscard]] double pole_radius_at_height_m(const Pole& pole, double local_z_m) const {
+    return state_.pole_radius_at_height_m(pole, local_z_m);
+  }
+  [[nodiscard]] std::optional<EntityMeta> describe_entity(EntityRef ref) const;
+  [[nodiscard]] std::vector<DecisionTraceEntry> collect_decision_trace(EntityRef ref) const;
+  [[nodiscard]] std::optional<PoleInspectionView> inspect_pole(ObjectId pole_id) const;
+  [[nodiscard]] std::optional<SpanInspectionView> inspect_span(ObjectId span_id) const;
+  [[nodiscard]] std::optional<SupportLayoutInspectionView> inspect_support_layout(ObjectId span_id) const;
+  [[nodiscard]] std::optional<DetailCurveInspectionView> inspect_detail_curve(ObjectId span_id) const;
+  [[nodiscard]] std::optional<JunctionInspectionView> inspect_junction(ObjectId node_id) const;
+  [[nodiscard]] std::optional<TemplateInspectionView> inspect_pole_template(PoleTypeId pole_type_id) const;
+  [[nodiscard]] std::optional<TemplateInspectionView> inspect_cable_template(CableTemplateId cable_template_id) const;
+  [[nodiscard]] std::optional<TemplateInspectionView> inspect_bundle_template(BundleKind bundle_template_id) const;
+  [[nodiscard]] std::optional<TemplateInspectionView>
+  inspect_attachment_template(AttachmentTemplateId attachment_template_id) const;
+  [[nodiscard]] std::optional<OverrideInspectionView> inspect_overrides(EntityRef target) const;
 
 private:
   const CoreState& state_;

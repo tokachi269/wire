@@ -151,7 +151,6 @@
 以下を検索し、ヒット箇所を列挙して「残す理由/削除予定」を書く。
 - `legacy|deprecated|compat|TODO|workaround`
 - `mutable|friend|TestHook|bypass`
-- `guide|lane|group|request|spec|backbone`
 - `regenerate|commit|reproject|dirty|validate`
 - `permute|permutation|reorder|swap|shuffle|mirror`
 

@@ -1,7 +1,11 @@
 #include "panels.hpp"
 
 #include <algorithm>
+#include <cmath>
+#include <cstdio>
 #include <functional>
+#include <optional>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -121,6 +125,115 @@ const char* CurveShapePolicyLabel(wire::core::CurveShapePolicyKind kind) {
   }
 }
 
+const char* DetailCurveEndpointTangentRuleLabel(wire::core::DetailCurveEndpointTangentRule rule) {
+  switch (rule) {
+  case wire::core::DetailCurveEndpointTangentRule::kFallbackChord:
+    return "FallbackChord";
+  case wire::core::DetailCurveEndpointTangentRule::kMainFlowBlend:
+    return "MainFlowBlend";
+  case wire::core::DetailCurveEndpointTangentRule::kBranchChordPriority:
+    return "BranchChordPriority";
+  case wire::core::DetailCurveEndpointTangentRule::kTerminateEndpointPriority:
+    return "TerminateEndpointPriority";
+  case wire::core::DetailCurveEndpointTangentRule::kAttachmentEndpointPriority:
+    return "AttachmentEndpointPriority";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* SupportLayoutOriginLabel(wire::core::SupportLayoutOriginKind origin) {
+  switch (origin) {
+  case wire::core::SupportLayoutOriginKind::kMainSupport:
+    return "MainSupport";
+  case wire::core::SupportLayoutOriginKind::kBranchSupport:
+    return "BranchSupport";
+  case wire::core::SupportLayoutOriginKind::kAerialBranch:
+    return "AerialBranch";
+  case wire::core::SupportLayoutOriginKind::kFallback:
+  default:
+    return "Fallback";
+  }
+}
+
+const char* CurveEndpointModeLabel(wire::core::CurveEndpointMode mode) {
+  switch (mode) {
+  case wire::core::CurveEndpointMode::kDirectThrough:
+    return "DirectThrough";
+  case wire::core::CurveEndpointMode::kOffsetEndpoint:
+    return "OffsetEndpoint";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* EntityKindLabel(wire::core::EntityKind kind) {
+  switch (kind) {
+  case wire::core::EntityKind::kPole:
+    return "Pole";
+  case wire::core::EntityKind::kJunction:
+    return "Junction";
+  case wire::core::EntityKind::kBackboneEdge:
+    return "BackboneEdge";
+  case wire::core::EntityKind::kSupportNode:
+    return "SupportNode";
+  case wire::core::EntityKind::kSupportLayout:
+    return "SupportLayout";
+  case wire::core::EntityKind::kSpan:
+    return "Span";
+  case wire::core::EntityKind::kBundle:
+    return "Bundle";
+  case wire::core::EntityKind::kDetailCurve:
+    return "DetailCurve";
+  case wire::core::EntityKind::kAttachmentEndpoint:
+    return "AttachmentEndpoint";
+  case wire::core::EntityKind::kTemplate:
+    return "Template";
+  case wire::core::EntityKind::kOverride:
+    return "Override";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* EntityRoleKindLabel(wire::core::EntityRoleKind role) {
+  switch (role) {
+  case wire::core::EntityRoleKind::kAuthoritative:
+    return "authoritative";
+  case wire::core::EntityRoleKind::kOverride:
+    return "override";
+  case wire::core::EntityRoleKind::kDerived:
+    return "derived";
+  case wire::core::EntityRoleKind::kDetailDerived:
+    return "detail derived";
+  default:
+    return "unknown";
+  }
+}
+
+const char* DecisionTraceTopicLabel(wire::core::DecisionTraceTopic topic) {
+  switch (topic) {
+  case wire::core::DecisionTraceTopic::kPoleOrientation:
+    return "pole orientation";
+  case wire::core::DecisionTraceTopic::kFlowClassification:
+    return "flow classification";
+  case wire::core::DecisionTraceTopic::kSupportLayoutSelection:
+    return "support layout";
+  case wire::core::DecisionTraceTopic::kTangentGeneration:
+    return "tangent generation";
+  case wire::core::DecisionTraceTopic::kContinuitySelection:
+    return "continuity";
+  case wire::core::DecisionTraceTopic::kContinuityDegrade:
+    return "G2/G1 degrade";
+  case wire::core::DecisionTraceTopic::kSagProfile:
+    return "sag profile";
+  case wire::core::DecisionTraceTopic::kOverrideResolution:
+    return "override resolution";
+  default:
+    return "unknown";
+  }
+}
+
 const char* BundleSupportStyleLabel(wire::core::BundleSupportStyleHint style) {
   switch (style) {
   case wire::core::BundleSupportStyleHint::kAuto:
@@ -142,6 +255,19 @@ const char* BundleBranchPolicyLabel(wire::core::BundleBranchPolicyHint policy) {
     return "PreferPassThrough";
   case wire::core::BundleBranchPolicyHint::kPreferExplicitBranch:
     return "PreferExplicitBranch";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* AttachmentLineInteractionModeLabel(wire::core::AttachmentLineInteractionMode mode) {
+  switch (mode) {
+  case wire::core::AttachmentLineInteractionMode::kPassThrough:
+    return "PassThrough";
+  case wire::core::AttachmentLineInteractionMode::kReplaceWithInternalPath:
+    return "ReplaceWithInternalPath";
+  case wire::core::AttachmentLineInteractionMode::kHideSegment:
+    return "HideSegment";
   default:
     return "Unknown";
   }
@@ -263,7 +389,424 @@ void DrawObjectList(ViewerUiState& ui_state, const char* header, SelectedType ty
   }
 }
 
-void DrawSelectedInfo(const CoreState& state, const ViewerUiState& ui_state) {
+enum class PoleHeightMarkerKind : std::uint8_t {
+  kPort = 0,
+  kSupport = 1,
+  kBundle = 2,
+};
+
+struct PoleHeightMarker {
+  PoleHeightMarkerKind kind = PoleHeightMarkerKind::kPort;
+  std::string label{};
+  double height_m = 0.0;
+  double x_escape_m = 0.0;
+  std::vector<ObjectId> port_ids{};
+  bool editable = false;
+  bool warning = false;
+};
+
+double MarkerBaseOffsetForKind(PoleHeightMarkerKind kind) {
+  switch (kind) {
+  case PoleHeightMarkerKind::kPort:
+    return 0.08;
+  case PoleHeightMarkerKind::kSupport:
+    return 0.22;
+  case PoleHeightMarkerKind::kBundle:
+    return 0.40;
+  default:
+    return 0.08;
+  }
+}
+
+ImU32 MarkerColorForKind(PoleHeightMarkerKind kind, bool warning) {
+  if (warning) {
+    return IM_COL32(214, 92, 72, 255);
+  }
+  switch (kind) {
+  case PoleHeightMarkerKind::kPort:
+    return IM_COL32(212, 148, 78, 255);
+  case PoleHeightMarkerKind::kSupport:
+    return IM_COL32(92, 148, 188, 255);
+  case PoleHeightMarkerKind::kBundle:
+    return IM_COL32(92, 176, 124, 255);
+  default:
+    return IM_COL32(180, 180, 180, 255);
+  }
+}
+
+double AveragePortHeight(const std::vector<const wire::core::Port*>& ports) {
+  if (ports.empty()) {
+    return 0.0;
+  }
+  double sum = 0.0;
+  for (const wire::core::Port* port : ports) {
+    sum += port->world_position.z;
+  }
+  return sum / static_cast<double>(ports.size());
+}
+
+bool NearlySameWorld(const wire::core::Vec3d& a, const wire::core::Vec3d& b, double eps) {
+  return std::abs(a.x - b.x) <= eps && std::abs(a.y - b.y) <= eps && std::abs(a.z - b.z) <= eps;
+}
+
+std::vector<PoleHeightMarker> BuildPoleHeightMarkers(const CoreState& state, const wire::core::Pole& pole,
+                                                     const ViewerUiState& ui_state) {
+  std::vector<PoleHeightMarker> markers{};
+  const auto view = state.view();
+  const auto detail = state.GetPoleDetail(pole.id);
+  std::vector<const wire::core::Port*> owned_ports = detail.owned_ports;
+  std::sort(owned_ports.begin(), owned_ports.end(),
+            [](const wire::core::Port* a, const wire::core::Port* b) { return a->world_position.z > b->world_position.z; });
+
+  if (ui_state.pole_height_view_show_ports) {
+    for (std::size_t i = 0; i < owned_ports.size(); ++i) {
+      const wire::core::Port* port = owned_ports[i];
+      if (port == nullptr) {
+        continue;
+      }
+      PoleHeightMarker marker{};
+      marker.kind = PoleHeightMarkerKind::kPort;
+      marker.label = "Port " + port->display_id;
+      marker.height_m = port->world_position.z;
+      marker.x_escape_m =
+          view.pole_radius_at_height_m(pole, std::max(0.0, marker.height_m - pole.world_transform.position.z)) +
+          view.geometry_settings().pole_clearance_m + MarkerBaseOffsetForKind(marker.kind) + static_cast<double>(i) * 0.05;
+      marker.port_ids.push_back(port->id);
+      marker.editable = true;
+      markers.push_back(std::move(marker));
+    }
+  }
+
+  if (ui_state.pole_height_view_show_supports) {
+    std::size_t support_index = 0;
+    for (const wire::core::Port* port : owned_ports) {
+      if (port == nullptr) {
+        continue;
+      }
+      PoleHeightMarker marker{};
+      marker.kind = PoleHeightMarkerKind::kSupport;
+      marker.label = "Support " + port->display_id;
+      marker.height_m = port->world_position.z;
+      marker.x_escape_m =
+          view.pole_radius_at_height_m(pole, std::max(0.0, marker.height_m - pole.world_transform.position.z)) +
+          view.geometry_settings().pole_clearance_m + MarkerBaseOffsetForKind(marker.kind) +
+          static_cast<double>(support_index++) * 0.05;
+      marker.port_ids.push_back(port->id);
+      marker.editable = true;
+      markers.push_back(std::move(marker));
+    }
+
+    for (const wire::core::Span& span : view.spans().items()) {
+      const wire::core::SpanVisualCacheEntry* visual = state.find_span_visual_cache(span.id);
+      if (visual == nullptr) {
+        continue;
+      }
+      for (const wire::core::BranchSupportPlacement& placement : visual->branch_supports) {
+        if (placement.owner_pole_id != pole.id) {
+          continue;
+        }
+        PoleHeightMarker marker{};
+        marker.kind = PoleHeightMarkerKind::kSupport;
+        marker.label = "BranchSupport";
+        marker.height_m = placement.mount_world.z;
+        marker.x_escape_m =
+            view.pole_radius_at_height_m(pole, std::max(0.0, marker.height_m - pole.world_transform.position.z)) +
+            view.geometry_settings().pole_clearance_m + MarkerBaseOffsetForKind(marker.kind) +
+            static_cast<double>(support_index++) * 0.05;
+        for (const wire::core::Port* port : owned_ports) {
+          if (port != nullptr && NearlySameWorld(port->world_position, placement.attachment_world, 1e-6)) {
+            marker.port_ids.push_back(port->id);
+            marker.editable = true;
+            break;
+          }
+        }
+        markers.push_back(std::move(marker));
+      }
+    }
+  }
+
+  if (ui_state.pole_height_view_show_bundles) {
+    std::vector<ObjectId> bundle_ids{};
+    std::vector<std::vector<const wire::core::Port*>> bundle_ports{};
+    for (const wire::core::Port* port : owned_ports) {
+      if (port == nullptr) {
+        continue;
+      }
+      const auto spans_it = view.connection_index().spans_by_port.find(port->id);
+      if (spans_it == view.connection_index().spans_by_port.end()) {
+        continue;
+      }
+      for (ObjectId span_id : spans_it->second) {
+        const wire::core::Span* span = view.spans().find(span_id);
+        if (span == nullptr || span->bundle_id == wire::core::kInvalidObjectId) {
+          continue;
+        }
+        auto existing = std::find(bundle_ids.begin(), bundle_ids.end(), span->bundle_id);
+        if (existing == bundle_ids.end()) {
+          bundle_ids.push_back(span->bundle_id);
+          bundle_ports.push_back({});
+          existing = std::prev(bundle_ids.end());
+        }
+        const std::size_t index = static_cast<std::size_t>(std::distance(bundle_ids.begin(), existing));
+        if (std::find(bundle_ports[index].begin(), bundle_ports[index].end(), port) == bundle_ports[index].end()) {
+          bundle_ports[index].push_back(port);
+        }
+      }
+    }
+    for (std::size_t i = 0; i < bundle_ids.size(); ++i) {
+      const wire::core::Bundle* bundle = view.bundles().find(bundle_ids[i]);
+      if (bundle == nullptr || bundle_ports[i].empty()) {
+        continue;
+      }
+      PoleHeightMarker marker{};
+      marker.kind = PoleHeightMarkerKind::kBundle;
+      marker.label = "Bundle " + bundle->display_id;
+      marker.height_m = AveragePortHeight(bundle_ports[i]);
+      marker.x_escape_m =
+          view.pole_radius_at_height_m(pole, std::max(0.0, marker.height_m - pole.world_transform.position.z)) +
+          view.geometry_settings().pole_clearance_m + MarkerBaseOffsetForKind(marker.kind) + static_cast<double>(i) * 0.05;
+      for (const wire::core::Port* port : bundle_ports[i]) {
+        marker.port_ids.push_back(port->id);
+      }
+      marker.editable = !marker.port_ids.empty();
+      markers.push_back(std::move(marker));
+    }
+  }
+
+  constexpr double kWarningGapM = 0.25;
+  for (std::size_t i = 0; i < markers.size(); ++i) {
+    for (std::size_t j = i + 1; j < markers.size(); ++j) {
+      if (std::abs(markers[i].height_m - markers[j].height_m) < kWarningGapM) {
+        markers[i].warning = true;
+        markers[j].warning = true;
+      }
+    }
+  }
+  return markers;
+}
+
+void ApplyPoleHeightMarkerDelta(CoreState& state, const PoleHeightMarker& marker, double new_height_m) {
+  if (!marker.editable || marker.port_ids.empty()) {
+    return;
+  }
+  const auto view = state.view();
+  std::vector<const wire::core::Port*> ports{};
+  for (ObjectId port_id : marker.port_ids) {
+    if (const wire::core::Port* port = view.ports().find(port_id); port != nullptr) {
+      ports.push_back(port);
+    }
+  }
+  if (ports.empty()) {
+    return;
+  }
+  const double current_height = (marker.kind == PoleHeightMarkerKind::kBundle) ? AveragePortHeight(ports) : ports.front()->world_position.z;
+  const double delta = new_height_m - current_height;
+  if (std::abs(delta) <= 1e-6) {
+    return;
+  }
+  for (const wire::core::Port* port : ports) {
+    wire::core::Vec3d world = port->world_position;
+    world.z += delta;
+    (void)state.SetPortWorldPositionManual(port->id, world);
+  }
+}
+
+void DrawPoleHeightDebugView(CoreState& state, ViewerUiState& ui_state, const wire::core::Pole& pole) {
+  if (!ImGui::CollapsingHeader("Pole Height Debug", ImGuiTreeNodeFlags_DefaultOpen)) {
+    return;
+  }
+
+  ImGui::Checkbox("Show Ports", &ui_state.pole_height_view_show_ports);
+  ImGui::SameLine();
+  ImGui::Checkbox("Show Supports", &ui_state.pole_height_view_show_supports);
+  ImGui::SameLine();
+  ImGui::Checkbox("Show Bundles", &ui_state.pole_height_view_show_bundles);
+  ImGui::TextUnformatted("Height only. X is auto-resolved from pole radius + clearance.");
+
+  const std::vector<PoleHeightMarker> markers = BuildPoleHeightMarkers(state, pole, ui_state);
+  const float canvas_width = std::max(280.0f, ImGui::GetContentRegionAvail().x);
+  const float canvas_height = 260.0f;
+  const ImVec2 canvas_pos = ImGui::GetCursorScreenPos();
+  ImGui::InvisibleButton("##pole_height_canvas", ImVec2(canvas_width, canvas_height));
+  ImDrawList* draw_list = ImGui::GetWindowDrawList();
+  const ImVec2 canvas_min = canvas_pos;
+  const ImVec2 canvas_max = ImVec2(canvas_pos.x + canvas_width, canvas_pos.y + canvas_height);
+  draw_list->AddRectFilled(canvas_min, canvas_max, IM_COL32(20, 22, 25, 255), 4.0f);
+  draw_list->AddRect(canvas_min, canvas_max, IM_COL32(74, 78, 84, 255), 4.0f);
+
+  double min_height = pole.world_transform.position.z;
+  double max_height = pole.world_transform.position.z + pole.height_m;
+  for (const PoleHeightMarker& marker : markers) {
+    min_height = std::min(min_height, marker.height_m);
+    max_height = std::max(max_height, marker.height_m);
+  }
+  min_height -= 0.4;
+  max_height += 0.4;
+  const double height_span = std::max(1.0, max_height - min_height);
+  const float line_x = canvas_min.x + 56.0f;
+  draw_list->AddLine(ImVec2(line_x, canvas_min.y + 14.0f), ImVec2(line_x, canvas_max.y - 14.0f), IM_COL32(180, 184, 190, 255),
+                     1.5f);
+
+  auto height_to_y = [&](double height) -> float {
+    const double t = (height - min_height) / height_span;
+    return canvas_max.y - 16.0f - static_cast<float>(t) * (canvas_height - 32.0f);
+  };
+
+  for (int i = 0; i <= 4; ++i) {
+    const double tick_height = min_height + height_span * (static_cast<double>(i) / 4.0);
+    const float y = height_to_y(tick_height);
+    draw_list->AddLine(ImVec2(canvas_min.x + 8.0f, y), ImVec2(canvas_max.x - 8.0f, y), IM_COL32(48, 52, 58, 255), 1.0f);
+    char text[32];
+    std::snprintf(text, sizeof(text), "%.2f", tick_height);
+    draw_list->AddText(ImVec2(canvas_min.x + 10.0f, y - 8.0f), IM_COL32(188, 192, 198, 255), text);
+  }
+
+  for (std::size_t i = 0; i < markers.size(); ++i) {
+    const PoleHeightMarker& marker = markers[i];
+    const float y = height_to_y(marker.height_m);
+    const float x = line_x + static_cast<float>(marker.x_escape_m * 90.0);
+    const ImU32 color = MarkerColorForKind(marker.kind, marker.warning);
+    draw_list->AddLine(ImVec2(line_x, y), ImVec2(x, y), IM_COL32(110, 118, 128, 180), 1.0f);
+    draw_list->AddCircleFilled(ImVec2(x, y), 5.0f, color);
+    std::ostringstream label;
+    label.setf(std::ios::fixed);
+    label.precision(2);
+    label << marker.label << " " << marker.height_m;
+    if (marker.warning) {
+      label << " !";
+    }
+    draw_list->AddText(ImVec2(x + 8.0f, y - 8.0f), color, label.str().c_str());
+
+    ImGui::SetCursorScreenPos(ImVec2(x - 8.0f, y - 8.0f));
+    ImGui::PushID(static_cast<int>(i));
+    ImGui::InvisibleButton("##pole_height_marker", ImVec2(16.0f, 16.0f));
+    if (marker.editable && ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+      const float mouse_y = ImGui::GetIO().MousePos.y;
+      const double t = std::clamp(static_cast<double>(canvas_max.y - 16.0f - mouse_y) / static_cast<double>(canvas_height - 32.0),
+                                  0.0, 1.0);
+      const double new_height = min_height + t * height_span;
+      ApplyPoleHeightMarkerDelta(state, marker, new_height);
+    }
+    ImGui::PopID();
+  }
+
+  ImGui::Text("Markers: %d", static_cast<int>(markers.size()));
+  ImGui::TextUnformatted("Red markers mean heights are closer than the debug clearance threshold.");
+}
+
+std::optional<wire::core::EntityRef> SelectedEntityRef(const ViewerUiState& ui_state) {
+  using wire::core::EntityKind;
+  switch (ui_state.selected_type) {
+  case SelectedType::kPole:
+    return wire::core::EntityRef{EntityKind::kPole, ui_state.selected_id};
+  case SelectedType::kSpan:
+    return wire::core::EntityRef{EntityKind::kSpan, ui_state.selected_id};
+  case SelectedType::kSupportNode:
+    return wire::core::EntityRef{EntityKind::kSupportNode, ui_state.selected_id};
+  case SelectedType::kSupportLayout:
+    return wire::core::EntityRef{EntityKind::kSupportLayout, ui_state.selected_id};
+  case SelectedType::kDetailCurve:
+    return wire::core::EntityRef{EntityKind::kDetailCurve, ui_state.selected_id};
+  case SelectedType::kJunction:
+    return wire::core::EntityRef{EntityKind::kJunction, ui_state.selected_id};
+  default:
+    return std::nullopt;
+  }
+}
+
+void SelectFromEntityRef(ViewerUiState& ui_state, const wire::core::EntityRef& ref) {
+  switch (ref.kind) {
+  case wire::core::EntityKind::kPole:
+    SetPrimarySelection(ui_state, SelectedType::kPole, static_cast<ObjectId>(ref.stable_id));
+    break;
+  case wire::core::EntityKind::kSpan:
+    SetPrimarySelection(ui_state, SelectedType::kSpan, static_cast<ObjectId>(ref.stable_id));
+    break;
+  case wire::core::EntityKind::kSupportNode:
+    SetPrimarySelection(ui_state, SelectedType::kSupportNode, static_cast<ObjectId>(ref.stable_id));
+    break;
+  case wire::core::EntityKind::kSupportLayout:
+    SetPrimarySelection(ui_state, SelectedType::kSupportLayout, static_cast<ObjectId>(ref.stable_id));
+    break;
+  case wire::core::EntityKind::kDetailCurve:
+    SetPrimarySelection(ui_state, SelectedType::kDetailCurve, static_cast<ObjectId>(ref.stable_id));
+    break;
+  case wire::core::EntityKind::kJunction:
+    SetPrimarySelection(ui_state, SelectedType::kJunction, static_cast<ObjectId>(ref.stable_id));
+    break;
+  default:
+    break;
+  }
+}
+
+void DrawEntityMetaBlock(const wire::core::EntityMeta& meta) {
+  ImGui::Separator();
+  ImGui::TextUnformatted("Entity");
+  ImGui::Text("kind: %s", EntityKindLabel(meta.ref.kind));
+  ImGui::Text("stableId: %llu", static_cast<unsigned long long>(meta.ref.stable_id));
+  ImGui::Text("display: %s", meta.display_name.c_str());
+  ImGui::Text("role: %s", EntityRoleKindLabel(meta.role));
+  ImGui::Text("editable: %s", meta.editable ? "true" : "false");
+  ImGui::Text("overrideable: %s", meta.overrideable ? "true" : "false");
+  ImGui::Text("provenance: %s", meta.provenance.c_str());
+}
+
+void DrawDecisionTraceBlock(const wire::core::CoreView& view, const wire::core::EntityRef& ref) {
+  const auto trace = view.collect_decision_trace(ref);
+  ImGui::Separator();
+  ImGui::TextUnformatted("DecisionTrace");
+  if (trace.empty()) {
+    ImGui::TextUnformatted("(none)");
+    return;
+  }
+  for (const auto& entry : trace) {
+    ImGui::Text("[%s] %s", DecisionTraceTopicLabel(entry.topic), entry.rule.c_str());
+    ImGui::TextWrapped("%s", entry.summary.c_str());
+  }
+}
+
+void DrawRelatedLinks(ViewerUiState& ui_state, const std::vector<wire::core::RelatedEntityLink>& links) {
+  ImGui::Separator();
+  ImGui::TextUnformatted("Links");
+  if (links.empty()) {
+    ImGui::TextUnformatted("(none)");
+    return;
+  }
+  for (const auto& link : links) {
+    if (ImGui::SmallButton(link.label.c_str())) {
+      SelectFromEntityRef(ui_state, link.ref);
+    }
+  }
+}
+
+void DrawTemplateViewBlock(const char* title, const std::optional<wire::core::TemplateInspectionView>& view_opt) {
+  if (!view_opt.has_value()) {
+    return;
+  }
+  ImGui::Separator();
+  ImGui::TextUnformatted(title);
+  ImGui::Text("name: %s", view_opt->meta.display_name.c_str());
+  ImGui::Text("role: %s", EntityRoleKindLabel(view_opt->meta.role));
+  for (const auto& property : view_opt->properties) {
+    ImGui::Text("%s: %s", property.name.c_str(), property.value.c_str());
+  }
+}
+
+void DrawOverrideViewBlock(const std::optional<wire::core::OverrideInspectionView>& view_opt) {
+  if (!view_opt.has_value()) {
+    return;
+  }
+  ImGui::Separator();
+  ImGui::TextUnformatted("Override");
+  for (const auto& entry : view_opt->entries) {
+    ImGui::Text("%s: active=%s", entry.name.c_str(), entry.active ? "true" : "false");
+    ImGui::Text("  auto=%s", entry.automatic_value.c_str());
+    ImGui::Text("  override=%s", entry.override_value.c_str());
+    ImGui::Text("  final=%s", entry.resolved_value.c_str());
+  }
+}
+
+void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
   ImGui::TextUnformatted("Selected");
   ImGui::Separator();
   if (ui_state.selected_type == SelectedType::kNone || ui_state.selected_id == wire::core::kInvalidObjectId) {
@@ -273,6 +816,12 @@ void DrawSelectedInfo(const CoreState& state, const ViewerUiState& ui_state) {
 
   const auto view = state.view();
   const auto& edit = view.edit_state();
+  if (const auto ref = SelectedEntityRef(ui_state); ref.has_value()) {
+    if (const auto meta = view.describe_entity(*ref); meta.has_value()) {
+      DrawEntityMetaBlock(*meta);
+    }
+    DrawDecisionTraceBlock(view, *ref);
+  }
   switch (ui_state.selected_type) {
   case SelectedType::kPole: {
     const auto* pole = edit.poles.find(ui_state.selected_id);
@@ -301,20 +850,31 @@ void DrawSelectedInfo(const CoreState& state, const ViewerUiState& ui_state) {
                 pole->context.sharp_bisector_dir.z);
     ImGui::Text("sharpSideDir: %.3f %.3f %.3f", pole->context.sharp_side_dir.x, pole->context.sharp_side_dir.y,
                 pole->context.sharp_side_dir.z);
-    ImGui::Text("flip180: %s", pole->orientation_control.flip_180 ? "true" : "false");
-    ImGui::Text("manualYawOverride: %s", pole->orientation_control.manual_yaw_override ? "true" : "false");
     if (const auto it = view.pole_orientation_debug_records().find(pole->id);
         it != view.pole_orientation_debug_records().end()) {
       const auto& orientation = it->second;
       ImGui::Text("forwardRule: %s", PoleForwardRuleLabel(orientation.rule));
       ImGui::Text("forwardDir: %.3f %.3f %.3f", orientation.adopted_forward.x, orientation.adopted_forward.y,
                   orientation.adopted_forward.z);
-      ImGui::Text("mainNeighbors: %llu / %llu",
-                  static_cast<unsigned long long>(orientation.primary_neighbor_id),
-                  static_cast<unsigned long long>(orientation.secondary_neighbor_id));
+    ImGui::Text("mainNeighbors: %llu / %llu",
+                static_cast<unsigned long long>(orientation.primary_neighbor_id),
+                static_cast<unsigned long long>(orientation.secondary_neighbor_id));
     }
     ImGui::Text("placementOverride: %s", pole->placement_override_flag ? "true" : "false");
-    ImGui::Text("orientationOverride: %s", pole->orientation_override_flag ? "true" : "false");
+    if (const auto pole_view = view.inspect_pole(pole->id); pole_view.has_value()) {
+      const auto override_view = view.inspect_overrides({wire::core::EntityKind::kPole, pole->id});
+      ImGui::Text("orientationOverride: %s", pole_view->orientation_override ? "true" : "false");
+      ImGui::Text("autoYaw: %.2f", pole_view->automatic_yaw_deg);
+      ImGui::Text("finalYaw: %.2f", pole_view->final_yaw_deg);
+      DrawRelatedLinks(ui_state, pole_view->links);
+      DrawOverrideViewBlock(override_view);
+      if (pole_view->orientation_override && ImGui::Button("Clear Pole Orientation Override")) {
+        const auto clear = state.ClearPoleOrientationOverride(pole->id);
+        PushLog(ui_state, clear.ok ? "ClearPoleOrientationOverride updated" : "ClearPoleOrientationOverride failed");
+      }
+      DrawTemplateViewBlock("Template", view.inspect_pole_template(pole->pole_type_id));
+    }
+    DrawPoleHeightDebugView(state, ui_state, *pole);
     return;
   }
   case SelectedType::kPort: {
@@ -358,12 +918,14 @@ void DrawSelectedInfo(const CoreState& state, const ViewerUiState& ui_state) {
     ImGui::Text("GeneratedByRule: %s", span->generated_by_rule ? "true" : "false");
     ImGui::Text("PlacementContext: %s", ContextLabel(span->placement_context));
     ImGui::Text("placementOverride: %s", span->placement_override_flag ? "true" : "false");
-    ImGui::Text("orientationOverride: %s", span->orientation_override_flag ? "true" : "false");
     const auto* curve = state.find_curve_cache(span->id);
     if (curve != nullptr) {
       ImGui::Text("curveSamples: %d", static_cast<int>(curve->points.size()));
       ImGui::Text("curveLength: %.2f", curve->detail.Length());
       ImGui::Text("arcSamples: %d", static_cast<int>(curve->detail.arc_length_table.size()));
+      ImGui::Text("visible/hidden/replaced: %d / %d / %d", static_cast<int>(curve->detail.visible_intervals.size()),
+                  static_cast<int>(curve->detail.hidden_intervals.size()),
+                  static_cast<int>(curve->detail.replacement_paths.size()));
       ImGui::Text("continuity: %s (%s)", DetailCurveContinuityModeLabel(curve->detail.quality.adopted_continuity),
                   DetailCurveContinuityReasonLabel(curve->detail.quality.continuity_reason));
       ImGui::Text("shapePolicy: %s", CurveShapePolicyLabel(curve->detail.quality.shape_policy));
@@ -376,6 +938,18 @@ void DrawSelectedInfo(const CoreState& state, const ViewerUiState& ui_state) {
       ImGui::Text("handleScales: base=%.2f policy=%.2f angle=%.2f/%.2f", curve->detail.quality.base_handle_scale,
                   curve->detail.quality.policy_handle_scale, curve->detail.quality.start_angle_scale,
                   curve->detail.quality.end_angle_scale);
+      ImGui::Text("tangentRule: %s / %s",
+                  DetailCurveEndpointTangentRuleLabel(curve->detail.quality.start_tangent_rule),
+                  DetailCurveEndpointTangentRuleLabel(curve->detail.quality.end_tangent_rule));
+      ImGui::Text("tangentMix start: support=%.2f chord=%.2f dep=%.2f lat=%.2f",
+                  curve->detail.quality.start_support_weight, curve->detail.quality.start_chord_weight,
+                  curve->detail.quality.start_departure_length_m, curve->detail.quality.start_lateral_ratio_limit);
+      ImGui::Text("tangentMix end: support=%.2f chord=%.2f dep=%.2f lat=%.2f",
+                  curve->detail.quality.end_support_weight, curve->detail.quality.end_chord_weight,
+                  curve->detail.quality.end_departure_length_m, curve->detail.quality.end_lateral_ratio_limit);
+      ImGui::Text("sag: amp=%.3f base=%.3f len=%.2f pass=%.2f rigid=%.2f", curve->detail.sag_amplitude_m,
+                  curve->detail.quality.sag_base_ratio, curve->detail.quality.sag_length_scale,
+                  curve->detail.quality.sag_pass_scale, curve->detail.quality.sag_rigidity_scale);
       const auto& variation = curve->detail.quality.sag_variation;
       ImGui::Text("sagVariation: flow=%llu final=%.3f", static_cast<unsigned long long>(variation.flow_key),
                   variation.final_value);
@@ -418,6 +992,29 @@ void DrawSelectedInfo(const CoreState& state, const ViewerUiState& ui_state) {
                   assignment.flipped_from_previous ? "true" : "false", assignment.turn_angle_deg);
       break;
     }
+    if (const auto* support_layout = state.view().find_span_support_layout(span->id); support_layout != nullptr) {
+      auto draw_support_endpoint = [&](const char* label, const wire::core::SupportLayoutEndpoint& endpoint) {
+        ImGui::Text("%s: %s flow=%s port=%s mode=%s", label, SupportLayoutOriginLabel(endpoint.origin),
+                    BackboneFlowKindLabel(endpoint.flow_kind), PortPlacementSourceLabel(endpoint.port_source),
+                    CurveEndpointModeLabel(endpoint.endpoint_mode));
+        ImGui::Text("  endpoint=%.2f %.2f %.2f departure=%.2f %.2f %.2f", endpoint.endpoint_world.x,
+                    endpoint.endpoint_world.y, endpoint.endpoint_world.z, endpoint.departure_dir.x,
+                    endpoint.departure_dir.y, endpoint.departure_dir.z);
+        ImGui::Text("  support=%.2f %.2f %.2f dep=%.2f down=%.2f autoDown=%.2f attach=%llu socket=%d",
+                    endpoint.support_world.x, endpoint.support_world.y, endpoint.support_world.z,
+                    endpoint.local_departure_length_m, endpoint.branch_down_offset_m,
+                    endpoint.automatic_branch_down_offset_m, static_cast<unsigned long long>(endpoint.attachment_id),
+                    endpoint.socket_id);
+      };
+      ImGui::Separator();
+      ImGui::Text("supportLayout: flow=%s pass=%d flowKey=%llu", BackboneFlowKindLabel(support_layout->flow_kind),
+                  static_cast<int>(support_layout->pass_mode),
+                  static_cast<unsigned long long>(support_layout->variation_flow_key));
+      draw_support_endpoint("endpointA", support_layout->start);
+      draw_support_endpoint("endpointB", support_layout->end);
+    } else {
+      ImGui::TextUnformatted("supportLayout: (none)");
+    }
     if (const auto* visual = state.view().find_span_visual_cache(span->id); visual != nullptr) {
       ImGui::Text("branchSupportPlacements: %d", static_cast<int>(visual->branch_supports.size()));
       if (!visual->branch_supports.empty()) {
@@ -427,6 +1024,51 @@ void DrawSelectedInfo(const CoreState& state, const ViewerUiState& ui_state) {
         ImGui::Text("branchLayers: world=%.3f flow=%.3f pole=%.3f local=%.3f",
                     placement.down_offset_variation.world_bias, placement.down_offset_variation.flow_bias,
                     placement.down_offset_variation.pole_delta, placement.down_offset_variation.local_jitter);
+      }
+    }
+    if (const auto span_view = view.inspect_span(span->id); span_view.has_value()) {
+      const auto override_view = view.inspect_overrides({wire::core::EntityKind::kSpan, span->id});
+      bool has_socket_override = false;
+      bool has_branch_down_override = false;
+      if (override_view.has_value()) {
+        for (const auto& entry : override_view->entries) {
+          has_socket_override =
+              has_socket_override || ((entry.name == "endpointSocketA" || entry.name == "endpointSocketB") && entry.active);
+          has_branch_down_override =
+              has_branch_down_override || (entry.name == "branchDownOffset" && entry.active);
+        }
+      }
+      ImGui::Text("orientationOverride: %s", (has_socket_override || has_branch_down_override) ? "true" : "false");
+      DrawRelatedLinks(ui_state, span_view->links);
+      DrawOverrideViewBlock(override_view);
+      if (has_socket_override) {
+        if (ImGui::Button("Clear Span Socket Override A")) {
+          const auto clear = state.ClearSpanEndpointSocketOverride(span->id, true);
+          PushLog(ui_state, clear.ok ? "ClearSpanEndpointSocketOverride A updated"
+                                     : "ClearSpanEndpointSocketOverride A failed");
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Clear Span Socket Override B")) {
+          const auto clear = state.ClearSpanEndpointSocketOverride(span->id, false);
+          PushLog(ui_state, clear.ok ? "ClearSpanEndpointSocketOverride B updated"
+                                     : "ClearSpanEndpointSocketOverride B failed");
+        }
+      }
+      if (has_branch_down_override && ImGui::Button("Clear Branch Down Offset Override")) {
+        const auto clear = state.ClearSpanBranchDownOffsetOverride(span->id);
+        PushLog(ui_state, clear.ok ? "ClearSpanBranchDownOffsetOverride updated"
+                                   : "ClearSpanBranchDownOffsetOverride failed");
+      }
+      if (const auto* bundle = edit.bundles.find(span->bundle_id); bundle != nullptr) {
+        DrawTemplateViewBlock("Bundle Template", view.inspect_bundle_template(bundle->bundle_template_id));
+        if (const auto bundle_template = view.inspect_bundle_template(bundle->bundle_template_id); bundle_template.has_value()) {
+          for (const auto& link : bundle_template->links) {
+            if (link.ref.kind == wire::core::EntityKind::kTemplate) {
+              DrawTemplateViewBlock("Cable Template", view.inspect_cable_template(static_cast<wire::core::CableTemplateId>(link.ref.stable_id)));
+              break;
+            }
+          }
+        }
       }
     }
     return;
@@ -464,8 +1106,15 @@ void DrawSelectedInfo(const CoreState& state, const ViewerUiState& ui_state) {
     ImGui::Text("Type: Attachment");
     ImGui::Text("ID: %s", attachment->display_id.c_str());
     ImGui::Text("Span: %llu", static_cast<unsigned long long>(attachment->span_id));
+    ImGui::Text("Template: %u", static_cast<unsigned int>(attachment->template_id));
     ImGui::Text("t: %.3f", attachment->t);
     ImGui::Text("displayOffset: %.3f", attachment->display_offset_m);
+    if (const auto* attachment_template = view.find_attachment_template(attachment->template_id); attachment_template != nullptr) {
+      ImGui::Text("interaction: %s", AttachmentLineInteractionModeLabel(attachment_template->line_interaction_mode));
+      ImGui::Text("sockets: %d internalPaths: %d", static_cast<int>(attachment_template->sockets.size()),
+                  static_cast<int>(attachment_template->internal_paths.size()));
+    }
+    DrawTemplateViewBlock("Attachment Template", view.inspect_attachment_template(attachment->template_id));
     return;
   }
   case SelectedType::kSupportNode: {
@@ -490,6 +1139,73 @@ void DrawSelectedInfo(const CoreState& state, const ViewerUiState& ui_state) {
     if (it->has_tangent_hint) {
       ImGui::Text("tangentHint: %.3f %.3f %.3f", it->tangent_hint.x, it->tangent_hint.y, it->tangent_hint.z);
     }
+    return;
+  }
+  case SelectedType::kSupportLayout: {
+    const auto layout_view = view.inspect_support_layout(ui_state.selected_id);
+    if (!layout_view.has_value()) {
+      ImGui::TextUnformatted("Selected support layout is missing");
+      return;
+    }
+    ImGui::Text("Type: SupportLayout");
+    ImGui::Text("flow: %s pass=%d flowKey=%llu", BackboneFlowKindLabel(layout_view->flow_kind),
+                static_cast<int>(layout_view->pass_mode),
+                static_cast<unsigned long long>(layout_view->variation_flow_key));
+    auto draw_endpoint = [&](const char* label, const wire::core::SupportLayoutEndpointView& endpoint) {
+      ImGui::Text("%s origin=%s flow=%s port=%s", label, endpoint.origin.c_str(),
+                  BackboneFlowKindLabel(endpoint.flow_kind), endpoint.port_source.c_str());
+      ImGui::Text("  endpoint=%.2f %.2f %.2f", endpoint.endpoint_world.x, endpoint.endpoint_world.y, endpoint.endpoint_world.z);
+      ImGui::Text("  departure=%.2f %.2f %.2f localDep=%.2f", endpoint.departure_dir.x, endpoint.departure_dir.y,
+                  endpoint.departure_dir.z, endpoint.local_departure_length_m);
+      ImGui::Text("  downOffset=%.2f attach=%llu socket=%d", endpoint.branch_down_offset_m,
+                  static_cast<unsigned long long>(endpoint.attachment_id), endpoint.socket_id);
+    };
+    draw_endpoint("start", layout_view->start_endpoint);
+    draw_endpoint("end", layout_view->end_endpoint);
+    DrawRelatedLinks(ui_state, layout_view->links);
+    return;
+  }
+  case SelectedType::kDetailCurve: {
+    const auto curve_view = view.inspect_detail_curve(ui_state.selected_id);
+    if (!curve_view.has_value()) {
+      ImGui::TextUnformatted("Selected detail curve is missing");
+      return;
+    }
+    ImGui::Text("Type: DetailCurve");
+    ImGui::Text("sourceSpan: %llu", static_cast<unsigned long long>(curve_view->source_span.stable_id));
+    ImGui::Text("continuity: %s (%s)", DetailCurveContinuityModeLabel(curve_view->adopted_continuity),
+                DetailCurveContinuityReasonLabel(curve_view->continuity_reason));
+    ImGui::Text("requested: %s degraded=%s", ContinuityPolicyLabel(curve_view->requested_continuity),
+                curve_view->degraded_to_g1 ? "true" : "false");
+    ImGui::Text("sagAmplitude: %.3f", curve_view->sag_amplitude_m);
+    ImGui::Text("curveLength: %.3f", curve_view->curve_length_m);
+    ImGui::Text("controlP1: %.2f %.2f %.2f", curve_view->control_points[1].x, curve_view->control_points[1].y,
+                curve_view->control_points[1].z);
+    ImGui::Text("controlP2: %.2f %.2f %.2f", curve_view->control_points[2].x, curve_view->control_points[2].y,
+                curve_view->control_points[2].z);
+    ImGui::Text("arcSamples=%d visible=%d hidden=%d replaced=%d", static_cast<int>(curve_view->arc_length_sample_count),
+                static_cast<int>(curve_view->visible_interval_count), static_cast<int>(curve_view->hidden_interval_count),
+                static_cast<int>(curve_view->replacement_path_count));
+    ImGui::Text("tangentRule: %s / %s", DetailCurveEndpointTangentRuleLabel(curve_view->start_tangent_rule),
+                DetailCurveEndpointTangentRuleLabel(curve_view->end_tangent_rule));
+    DrawRelatedLinks(ui_state, curve_view->links);
+    return;
+  }
+  case SelectedType::kJunction: {
+    const auto junction_view = view.inspect_junction(ui_state.selected_id);
+    if (!junction_view.has_value()) {
+      ImGui::TextUnformatted("Selected junction is missing");
+      return;
+    }
+    ImGui::Text("Type: Junction");
+    ImGui::Text("nodeId: %llu", static_cast<unsigned long long>(junction_view->node_id));
+    ImGui::Text("hasPrimary: %s incidents=%d", junction_view->has_primary ? "true" : "false",
+                static_cast<int>(junction_view->incidents.size()));
+    for (const auto& incident : junction_view->incidents) {
+      ImGui::Text("neighbor=%llu order=%d primary=%s", static_cast<unsigned long long>(incident.neighbor_node_id),
+                  incident.order, incident.primary ? "true" : "false");
+    }
+    DrawRelatedLinks(ui_state, junction_view->links);
     return;
   }
   default:

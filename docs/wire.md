@@ -96,7 +96,8 @@
 
 ## 12. フェーズ位置づけ
 - Phase 0-4: 基盤、編集、Dirty/Version、幾何表示
-- Phase 4.x: 設計棚卸し（現在）
+- Phase 4.x: 設計棚卸し
+- Phase 4.9: 公開面整理（inspection / override / support layout / DetailCurve 方針の固定）（現在）
 - Phase 4.8 系: Bundle 正本化、BackboneSpec 生成、Manual 保持、局所再生成
 - Phase 5+: 保存読込、レイキャスト、カリング/LOD
 
@@ -107,4 +108,3 @@
 - `docs/codex_shared_context.md`
 - `docs/chat_handoff_checklist.md`
 - `docs/operation_policy.md`
-

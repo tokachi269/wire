@@ -85,7 +85,8 @@ build\viewer\Debug\wire_viewer.exe
 | Phase 2 | 編集状態モデル + Add系編集API |
 | Phase 3 | Dirty/Version/DirtyQueue + Move/Delete/Split |
 | Phase 4 | 最小幾何生成（Curve/Bounds） |
-| Phase 4.x | **設計棚卸し**（型一覧・責務・4層分類・命名整理） ← 現在 |
+| Phase 4.x | **設計棚卸し**（型一覧・責務・4層分類・命名整理） |
+| Phase 4.9 | 公開面整理（inspection / override / support layout / DetailCurve 方針の固定） ← 現在 |
 | Phase 5 | 保存読込（編集状態のみ） |
 | Phase 6 | レイキャスト基礎・選択機能 |
 | Phase 7 | カリング/LOD調整 |

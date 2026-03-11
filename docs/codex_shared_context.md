@@ -67,11 +67,15 @@
     - 派生: attachment内部 guide path / endpoint offset / 特殊曲線
   - `DetailCurve / arc-length table / distance attributes`: 詳細形状層の派生データ
     - 置き場: `CurveCacheEntry.detail`, render cache
-- 将来 override 候補:
+- 既に formal override 層へ導入済み:
   - Pole yaw / forward 固定
+  - branch down offset の span 単位 override
+  - attachment socket 選択
+- 将来 override 候補:
   - branch support style 選択
   - branch down offset の template/style override
-  - attachment socket 選択
+  - mirror 選択
+  - flow classification の例外指定
 - 禁止:
   - 導出結果を独立した重い正本概念へ昇格させること
   - 未実装 override の受け皿がないからといって、導出値を entity 正本へ直書きすること
@@ -82,7 +86,7 @@
   - inspector / debug / mod API で派生値の直編集や内部途中構造の露出を防ぐ。
   - `Pole`, `Span`, `SupportLayout`, `DetailCurve` などを、同じ作法で「参照可能だがどこまで触れるか」が分かる形にする。
 - 固定方針:
-  - source は `Pole`, `Span`, `Bundle`, `Template`, 将来の `Override`
+  - source は `Pole`, `Span`, `Bundle`, `Template`, `Override`
   - readonly derived は `Junction`, `BackboneEdge`, `SupportNode`, `SupportLayout`, `DetailCurve`
   - 自動決定結果を変えたい場合は direct edit ではなく override を通す
   - `ObjectStore` mutable 実体、recalc の途中変数、grouped span の局所補助配列は外に出さない
@@ -99,6 +103,7 @@
 - Backbone と詳細層の責務分離維持
 - template 編集が既存見た目へ反映される基盤の維持
 - DetailCurve による拘束付き見た目曲線と `u`/`s` 分離の土台整備
+- support layout / attachment interaction / override / inspection の公開面整理
 - viewer 側の検証用テストと visible-first 更新の維持
 
 ## 9. 参照順序（新規チャット時）
@@ -108,7 +113,7 @@
 4. `docs/core_model_inventory.md`
 5. `docs/chat_handoff_checklist.md`
 
-## 10. Current Snapshot（2026-03-09）
+## 10. Current Snapshot（2026-03-11）
 - いま動くもの:
   - BackboneSpec 経路での HV_3PH 鋭角パスにおける lane ねじれ抑制。
   - `CableTemplate` / `BundleTemplate` / Pole 実体値の責務分離。
@@ -116,8 +121,12 @@
   - `DetailCurve` 派生層による拘束付き見た目曲線の基盤。
   - `u` ベース曲線評価と `s` ベース配置 API の分離。
   - render cache への arc-length 距離属性焼き込み。
+  - `SupportLayout` を detail curve 前段の派生中間構造として明示化。
+  - attachment line interaction (`PassThrough / HideSegment / ReplaceWithInternalPath`) と optional internal path。
+  - concept-level inspection surface（`Pole / Span / SupportLayout / DetailCurve / Junction / Template / Override`）。
+  - formal override 層（Pole yaw、endpoint socket、branch down offset）。
   - viewer で pole / midair support / span の個別選択と矩形選択、選択 pole tilt が可能。
-  - `wire_core_tests` は 135/135 PASS。
+  - `wire_core_tests` は 169/169 PASS。
   - `wire_viewer_tests` は 8/8 PASS。
 - いま壊れているもの:
   - `wire_viewer.exe` が起動中だと viewer 本体の再リンクが `LNK1168` で止まる。
@@ -127,7 +136,7 @@
   - `GenerateGroupedLine` 互換入口は削除済みだが、docs の古い記述が残っていないかは継続確認が必要。
 - 未着手/保留:
   - shader 側での arc-length 正規化距離属性の実利用。
-  - attachment / visible-hidden-replacement interval を使う特殊形状の本実装。
+  - support style / mirror / flow classification の formal override。
   - viewer 側の可視デバッグ（mirror 適用区間 / junction order 表示）の恒久UI化。
 
 ## 11. Decision Log（直近）
@@ -175,20 +184,20 @@
 
 ## 13. 次回開始パック（そのまま貼付可）
 - ゴール:
-  - `DetailCurve` 基盤を使って attachment / 長さ基準配置 / GPU 距離属性利用を前へ進める。
-  - Backbone と詳細層の責務分離を維持したまま viewer 手確認まで閉じる。
+  - formal override の対象拡張（support style / mirror / flow classification）か、public readonly 面の tightening を進める。
+  - Backbone と詳細層の責務分離を維持したまま viewer/debug 手確認まで閉じる。
 - 現在状態:
-  - `wire_core_tests` は 130/130 PASS、`wire_viewer_tests` は 6/6 PASS。
-  - `DetailCurve` に `u`/`s` 分離、arc-length table、GPU 距離属性焼き込みを追加済み。
+  - `wire_core_tests` は 169/169 PASS、`wire_viewer_tests` は 8/8 PASS。
+  - `SupportLayout`、inspection、override、attachment interaction は概念面まで実装済み。
   - viewer 本体は実行中プロセスがあると `LNK1168` で再リンク不能。
 - 直近決定:
   - 曲線生成は `u`、正確な配置は `s`、毎フレーム表示変形は GPU 距離属性。
   - 見た目曲線は「cubic 基準曲線 + 後段 sag 合成」。
   - arc-length table と制御点は正本ではなく派生 cache。
 - 次の48h候補:
-  - viewer 本体の再リンクと手動確認。
+  - viewer 本体の再リンクと inspection / override UI の手動確認。
   - GPU 距離属性の最初の実利用。
-  - attachment / visible-hidden interval の実利用開始。
+  - support style / mirror / flow classification override の formal 導入。
 - 制約:
   - 正本直書き禁止、公開API経由のみ。
   - `slot`(候補) / `Port`(実体) の用語混同禁止。

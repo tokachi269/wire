@@ -86,8 +86,8 @@
 - 再生成で消えてはいけない。
 
 2. 明示override可能な正本
-- 既定では自動決定されるが、将来ユーザーが固定したい可能性がある値。
-- override フラグ/値は entity 側に置き、自動決定結果とは別に保持する。
+- 既定では自動決定されるが、ユーザーやツールが固定したい可能性がある値。
+- override フラグ/値は `Override` 正式層、または互換維持が必要な場合のみ entity 側の受け皿に置き、自動決定結果とは別に保持する。
 
 3. 自動決定される導出結果
 - Backbone / junction / template / topology から都度決め直せる結果。
@@ -118,12 +118,20 @@
 - `DetailCurve / arc-length table / distance attributes`: `4. 詳細形状層の派生データ`
   - 置き場: `detail_curve.hpp`, `CurveCacheEntry.detail`, render cache
 
-### 将来 override 候補
+### override 候補の整理
 
-- Pole yaw / forward の明示固定
+#### 既に formal override 層へ導入済み
+
+- Pole yaw / forward 固定
+- branch down offset の span 単位 override
+- attachment socket 選択
+
+#### 将来 override 候補
+
 - branch support style の明示選択
 - branch down offset の template/style 単位 override
-- attachment socket 選択
+- mirror 選択
+- flow classification の例外指定
 
 まだ override UI や編集 API を持たない項目でも、値の置き場は先に分離しておく。
 「未実装だから導出と正本を同居させる」は禁止。
@@ -150,7 +158,7 @@
 
 | 概念 | 層 | 外から参照 | 基本アクセス | 直接編集/override の考え方 | 外に出さないもの |
 |---|---|---|---|---|---|
-| `Pole` | 正本 | 可 | `readonly + 一部直接編集可能` | 位置、tilt、pole type、placement mode は直接編集。forward/yaw は将来 `overrideのみ可能` | 再計算都合の局所補助値、内部インデックス更新手順 |
+| `Pole` | 正本 | 可 | `readonly + 一部直接編集可能` | 位置、tilt、pole type、placement mode は直接編集。forward/yaw は `overrideのみ可能` | 再計算都合の局所補助値、内部インデックス更新手順 |
 | `Junction` | 導出 | 可 | `readonly` | 編集不可。変えたい場合は backbone input / override policy 側で解く | route 探索途中の候補列、スコア途中値 |
 | `BackboneEdge` | 導出 | 可 | `readonly` | 編集不可。入力 path / bundle spec / override を通して結果が変わる | 探索局所状態、順序評価の途中変数 |
 | `SupportNode` | workflow/導出 | 可 | `readonly` | 直接編集しない。入力 spec または正本 pole/anchor 編集で変わる | session 限定の pick 補助や中間判定 |
@@ -160,7 +168,7 @@
 | `DetailCurve` | 詳細形状派生 | 可 | `readonly` | 編集不可。continuity / sag / tangent rule override が必要なら正本 override 経由 | 制御点を source として永続化しない |
 | `AttachmentEndpoint` | 正本接続 + 派生 endpoint | 可 | `readonly + 一部overrideのみ可能` | どの attachment/socket に接続するかは source/override 候補。内部 path や hidden interval は派生 readonly | internal replacement path、描画用サンプル列 |
 | `Template` | 定義 | 可 | `readonly + 直接編集可能` | `PoleTypeDefinition`, `CableTemplate`, `BundleTemplate`, `AttachmentTemplate` は正式編集対象 | template 適用時の一時解決結果 |
-| `Override` | 正本（将来） | 可 | `直接編集可能` | 自動決定結果を変える正式な入口。派生値の直編集を禁止するための器 | override 評価の途中 trace 断片 |
+| `Override` | 正本 | 可 | `直接編集可能` | 自動決定結果を変える正式な入口。派生値の直編集を禁止するための器 | override 評価の途中 trace 断片 |
 
 ### 主要プロパティの分類
 
@@ -174,7 +182,7 @@
   - `orientation_control.flip_180`
 - `overrideable`
   - `orientation_control.manual_yaw_override`
-  - 将来の `forward/yaw fixed override`
+  - `forward/yaw fixed override`
 - `readonly`
   - `context`
   - 自動採用された向き
@@ -226,8 +234,8 @@
   - `socket_id`
 - `overrideable`
   - 将来の `support style override`
-  - 将来の `branch down offset override`
-  - 将来の `attachment socket selection override`
+  - `branch down offset override`
+  - `attachment socket selection override`
 - `hidden`
   - support layout 生成途中の候補比較
   - grouped span の局所補助配列
@@ -309,7 +317,7 @@
 ### mod API に公開しやすい項目
 
 - 安定 ID で参照できる source 概念
-  - `Pole`, `Span`, `Bundle`, `Template`, 将来の `Override`
+  - `Pole`, `Span`, `Bundle`, `Template`, `Override`
 - readonly derived 概念
   - `Junction`, `BackboneEdge`, `SupportLayout`, `DetailCurve`
 - 決定理由を追う trace 面

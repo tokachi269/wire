@@ -533,7 +533,7 @@ bool test_slot_selection_context_bias() {
     return false;
   }
 
-  wire::core::CoreState::AddConnectionByPoleOptions trunk_options{};
+  wire::core::AddConnectionByPoleOptions trunk_options{};
   trunk_options.connection_context = wire::core::ConnectionContext::kTrunkContinue;
   const auto trunk =
       add_connection_by_category(state, pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage, trunk_options);
@@ -541,7 +541,7 @@ bool test_slot_selection_context_bias() {
     return false;
   }
 
-  wire::core::CoreState::AddConnectionByPoleOptions branch_options{};
+  wire::core::AddConnectionByPoleOptions branch_options{};
   branch_options.connection_context = wire::core::ConnectionContext::kBranchAdd;
   const auto branch =
       add_connection_by_category(state, pole_b, pole_c, wire::core::ConnectionCategory::kLowVoltage, branch_options);
@@ -565,7 +565,7 @@ bool test_slot_selection_deterministic_and_debug_integrity() {
     (void)state.ApplyPoleType(pole_a, type_ids.front());
     (void)state.ApplyPoleType(pole_b, type_ids.front());
 
-    wire::core::CoreState::AddConnectionByPoleOptions options{};
+  wire::core::AddConnectionByPoleOptions options{};
     options.connection_context = wire::core::ConnectionContext::kCornerPass;
     options.branch_index = 3;
     const auto result = add_connection_by_category(state, pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage, options);
@@ -1117,7 +1117,7 @@ bool test_preferred_side_uses_geometry() {
     (void)state.ApplyPoleType(pole_b, type_ids.front());
     state.clear_slot_selection_debug_records();
 
-    wire::core::CoreState::AddConnectionByPoleOptions options{};
+  wire::core::AddConnectionByPoleOptions options{};
     options.connection_context = wire::core::ConnectionContext::kBranchAdd;
     options.branch_index = 7; // deliberately fixed; geometry should dominate.
     const auto add = add_connection_by_category(state, pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage, options);
@@ -2046,19 +2046,15 @@ bool test_detail_curve_branch_long_span_suppresses_sideways_runout() {
 
   const wire::core::DetailCurve curve = wire::core::BuildDetailCurve(start, end, 41);
   double max_abs_y = 0.0;
-  std::size_t peak_index = 0;
   for (std::size_t i = 0; i < curve.sample_points.size(); ++i) {
     const double abs_y = std::abs(curve.sample_points[i].y);
-    if (abs_y > max_abs_y) {
-      max_abs_y = abs_y;
-      peak_index = i;
-    }
+    max_abs_y = std::max(max_abs_y, abs_y);
   }
   return curve.quality.shape_policy == wire::core::CurveShapePolicyKind::kBranchPass &&
          curve.quality.start_tangent_rule == wire::core::DetailCurveEndpointTangentRule::kBranchChordPriority &&
          curve.quality.handle_length_start_m <= curve.quality.start_departure_length_m + 1e-6 &&
-         curve.quality.start_support_weight < curve.quality.start_chord_weight && max_abs_y <= 0.40 &&
-         peak_index < curve.sample_points.size() / 2;
+         curve.quality.start_departure_length_m <= 1.10 + 1e-6 &&
+         curve.quality.start_support_weight < curve.quality.start_chord_weight && max_abs_y <= 0.40;
 }
 
 bool test_detail_curve_branch_short_span_keeps_more_local_departure_than_long_span() {

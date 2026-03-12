@@ -984,6 +984,7 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
         ImGui::Text("tangentMix end: support=%.2f chord=%.2f dep=%.2f lat=%.2f",
                     curve_view->end_support_weight, curve_view->end_chord_weight,
                     curve_view->end_departure_length_m, curve_view->end_lateral_ratio_limit);
+        ImGui::Text("lateralSuppression: %.2f", curve_view->lateral_suppression);
         ImGui::Text("sag: amp=%.3f base=%.3f len=%.2f pass=%.2f rigid=%.2f", curve_view->sag_amplitude_m,
                     curve_view->sag_base_ratio, curve_view->sag_length_scale, curve_view->sag_pass_scale,
                     curve_view->sag_rigidity_scale);
@@ -1197,6 +1198,7 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
                 static_cast<int>(curve_view->replacement_path_count));
     ImGui::Text("tangentRule: %s / %s", DetailCurveEndpointTangentRuleLabel(curve_view->start_tangent_rule),
                 DetailCurveEndpointTangentRuleLabel(curve_view->end_tangent_rule));
+    ImGui::Text("lateralSuppression: %.2f", curve_view->lateral_suppression);
     ImGui::Text("endpointSource: %s / %s", curve_view->start_endpoint_source.c_str(),
                 curve_view->end_endpoint_source.c_str());
     ImGui::Text("endpointInput: %s[%d] / %s[%d]",
@@ -1515,7 +1517,7 @@ void DrawConnectionModePanel(CoreState& state, ViewerUiState& ui_state) {
   if (ImGui::Button("Connect Pole -> Pole")) {
     const int selected_context_index = std::clamp(ui_state.connect_context, 0, static_cast<int>(all_contexts.size() - 1));
     const wire::core::ConnectionCategory selected_category = all_categories[ui_state.connect_category];
-    wire::core::CoreState::AddConnectionByPoleOptions options{};
+    wire::core::AddConnectionByPoleOptions options{};
     options.connection_context = all_contexts[selected_context_index];
     options.use_bundle_template = true;
     switch (selected_category) {

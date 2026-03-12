@@ -20,6 +20,10 @@
 namespace wire::core {
 
 class CoreView;
+namespace state_internal {
+struct OverrideResolutionService;
+struct EndpointRefreshService;
+}
 
 struct EditState {
   // Entity-layer authoritative stores.
@@ -347,30 +351,37 @@ struct CommitResult {
   ValidationResult validation{};
 };
 
+struct AddConnectionByPoleOptions {
+  SpanKind span_kind = SpanKind::kDistribution;
+  SpanLayer span_layer = SpanLayer::kUnknown;
+  ObjectId bundle_id = kInvalidObjectId;
+  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  bool use_bundle_template = false;
+  bool auto_create_bundle = true;
+  bool allow_generate_port = true;
+  ConnectionContext connection_context = ConnectionContext::kTrunkContinue;
+  PoleContextKind pole_context_a = PoleContextKind::kStraight;
+  PoleContextKind pole_context_b = PoleContextKind::kStraight;
+  double corner_angle_deg_a = 0.0;
+  double corner_angle_deg_b = 0.0;
+  double corner_turn_sign_a = 0.0;
+  double corner_turn_sign_b = 0.0;
+  ObjectId reference_span_id = kInvalidObjectId;
+  std::uint32_t branch_index = 0;
+  ObjectId preferred_port_a_id = kInvalidObjectId;
+  ObjectId preferred_port_b_id = kInvalidObjectId;
+};
+
+struct ResolveBranchPickOptions {
+  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  double snap_radius_world = 0.6;
+  bool create_midair_node = true;
+  bool enforce_midair_template_policy = true;
+};
+
 class CoreState {
 public:
   CoreState();
-
-  struct AddConnectionByPoleOptions {
-    SpanKind span_kind = SpanKind::kDistribution;
-    SpanLayer span_layer = SpanLayer::kUnknown;
-    ObjectId bundle_id = kInvalidObjectId;
-    BundleKind bundle_template_id = BundleKind::kLowVoltage;
-    bool use_bundle_template = false;
-    bool auto_create_bundle = true;
-    bool allow_generate_port = true;
-    ConnectionContext connection_context = ConnectionContext::kTrunkContinue;
-    PoleContextKind pole_context_a = PoleContextKind::kStraight;
-    PoleContextKind pole_context_b = PoleContextKind::kStraight;
-    double corner_angle_deg_a = 0.0;
-    double corner_angle_deg_b = 0.0;
-    double corner_turn_sign_a = 0.0;
-    double corner_turn_sign_b = 0.0;
-    ObjectId reference_span_id = kInvalidObjectId;
-    std::uint32_t branch_index = 0;
-    ObjectId preferred_port_a_id = kInvalidObjectId;
-    ObjectId preferred_port_b_id = kInvalidObjectId;
-  };
 
   struct AddConnectionByPoleResult {
     ObjectId span_id = kInvalidObjectId;
@@ -467,12 +478,6 @@ public:
     kNode = 0,
     kMidair = 1,
   };
-  struct ResolveBranchPickOptions {
-    BundleKind bundle_template_id = BundleKind::kLowVoltage;
-    double snap_radius_world = 0.6;
-    bool create_midair_node = true;
-    bool enforce_midair_template_policy = true;
-  };
   struct ResolveBranchPickResult {
     PickBranchResolutionKind resolution = PickBranchResolutionKind::kNode;
     ObjectId resolved_node_id = kInvalidObjectId;
@@ -527,6 +532,8 @@ private:
   friend struct CoreStateTestHook;
 #endif
   friend class CoreView;
+  friend struct state_internal::OverrideResolutionService;
+  friend struct state_internal::EndpointRefreshService;
   void remove_span_from_indexes(const Span& span);
   void add_span_to_index(const Span& span);
   void initialize_span_runtime_state(ObjectId span_id);

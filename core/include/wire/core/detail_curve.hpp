@@ -120,6 +120,7 @@ struct DetailCurveQualityInfo {
   double end_departure_length_m = 0.0;
   double start_lateral_ratio_limit = 0.0;
   double end_lateral_ratio_limit = 0.0;
+  double lateral_suppression = 0.0;
   double sag_base_ratio = 0.0;
   double sag_length_scale = 1.0;
   double sag_pass_scale = 1.0;

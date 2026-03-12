@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "wire/core/debug_types.hpp"
 #include "wire/core/detail_curve.hpp"
 #include "wire/core/entities.hpp"
 #include "wire/core/id.hpp"
@@ -244,6 +245,7 @@ struct DetailCurveInspectionView {
   double end_departure_length_m = 0.0;
   double start_lateral_ratio_limit = 0.0;
   double end_lateral_ratio_limit = 0.0;
+  double lateral_suppression = 0.0;
   std::string start_endpoint_source{};
   std::string end_endpoint_source{};
   bool start_attachment_input_present = false;

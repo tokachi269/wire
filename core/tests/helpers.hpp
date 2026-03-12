@@ -96,7 +96,7 @@ wire::core::BundleKind bundle_template_for_category_test(wire::core::ConnectionC
 wire::core::EditResult<wire::core::CoreState::AddConnectionByPoleResult>
 add_connection_by_category(wire::core::CoreState& state, wire::core::ObjectId pole_a_id, wire::core::ObjectId pole_b_id,
                            wire::core::ConnectionCategory category,
-                           wire::core::CoreState::AddConnectionByPoleOptions options = {});
+                           wire::core::AddConnectionByPoleOptions options = {});
 bool has_selected_slot_in_candidates(const wire::core::SlotSelectionDebugRecord& record);
 
 template <typename T> std::vector<ObjectId> collect_sorted_ids(const std::vector<T>& items) {

@@ -9,7 +9,12 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 include(CTest)
 
 option(WIRE_BUILD_VIEWER "Build lightweight viewer app" ON)
+option(WIRE_VIEWER_FETCH_DEPS "Allow viewer to fetch third-party dependencies when local sources are not provided" ON)
 option(WIRE_ENABLE_FORMAT_TARGETS "Enable clang-format helper targets" ON)
+
+set(WIRE_RAYLIB_SOURCE_DIR "" CACHE PATH "Optional local raylib source directory for offline viewer builds")
+set(WIRE_IMGUI_SOURCE_DIR "" CACHE PATH "Optional local Dear ImGui source directory for offline viewer builds")
+set(WIRE_RLIMGUI_SOURCE_DIR "" CACHE PATH "Optional local rlImGui source directory for offline viewer builds")
 
 add_subdirectory(core)
 

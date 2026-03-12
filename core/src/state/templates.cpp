@@ -166,6 +166,13 @@ double normalize_yaw_deg(double yaw_deg) {
   return NormalizeYawDeg(yaw_deg);
 }
 
+const std::vector<ObjectId>& relation_ids_or_empty(const std::unordered_map<ObjectId, std::vector<ObjectId>>& index,
+                                                   ObjectId owner_id) {
+  static const std::vector<ObjectId> kEmpty;
+  const auto it = index.find(owner_id);
+  return (it == index.end()) ? kEmpty : it->second;
+}
+
 } // namespace
 
 PortLayer CoreState::category_to_port_layer(ConnectionCategory category) {
@@ -518,8 +525,9 @@ std::vector<PortSlotTemplate> CoreState::sorted_port_slots(const PoleTypeDefinit
 }
 
 bool CoreState::is_port_slot_used(ObjectId pole_id, int slot_id) const {
-  for (const Port& port : edit_state_.ports.items()) {
-    if (port.owner_pole_id == pole_id && port.source_slot_id == slot_id) {
+  for (ObjectId port_id : relation_ids_or_empty(relation_index_.ports_by_pole, pole_id)) {
+    const Port* port = edit_state_.ports.find(port_id);
+    if (port != nullptr && port->source_slot_id == slot_id) {
       return true;
     }
   }
@@ -564,16 +572,27 @@ EditResult<ObjectId> CoreState::ensure_pole_slot_port(const SlotSelectionRequest
     return it->second.size();
   };
 
+  std::vector<Port*> owned_ports;
+  owned_ports.reserve(relation_ids_or_empty(relation_index_.ports_by_pole, request.pole_id).size());
+  std::unordered_map<int, Port*> ports_by_slot_id;
+  for (ObjectId port_id : relation_ids_or_empty(relation_index_.ports_by_pole, request.pole_id)) {
+    Port* port = edit_state_.ports.find(port_id);
+    if (port == nullptr) {
+      continue;
+    }
+    owned_ports.push_back(port);
+    if (port->source_slot_id >= 0) {
+      ports_by_slot_id[port->source_slot_id] = port;
+    }
+  }
+
   auto same_side_layer_usage = [&](SlotSide side, int layer) -> std::size_t {
     std::size_t count = 0;
-    for (const Port& port : edit_state_.ports.items()) {
-      if (port.owner_pole_id != request.pole_id) {
+    for (const Port* port : owned_ports) {
+      if (port->template_side != side || port->template_layer != layer) {
         continue;
       }
-      if (port.template_side != side || port.template_layer != layer) {
-        continue;
-      }
-      if (connection_count(port.id) > 0) {
+      if (connection_count(port->id) > 0) {
         ++count;
       }
     }
@@ -642,11 +661,9 @@ EditResult<ObjectId> CoreState::ensure_pole_slot_port(const SlotSelectionRequest
       candidate.priority_score = slot.priority;
 
       Port* slot_port = nullptr;
-      for (Port& port : edit_state_.ports.items_mutable()) {
-        if (port.owner_pole_id == request.pole_id && port.source_slot_id == slot.slot_id) {
-          slot_port = &port;
-          break;
-        }
+      const auto slot_port_it = ports_by_slot_id.find(slot.slot_id);
+      if (slot_port_it != ports_by_slot_id.end()) {
+        slot_port = slot_port_it->second;
       }
 
       candidate.usage_count = (slot_port == nullptr) ? 0 : connection_count(slot_port->id);
@@ -748,13 +765,13 @@ EditResult<ObjectId> CoreState::ensure_pole_slot_port(const SlotSelectionRequest
 
   ObjectId fallback = kInvalidObjectId;
   std::size_t fallback_usage = std::numeric_limits<std::size_t>::max();
-  for (const Port& port : edit_state_.ports.items()) {
-    if (port.owner_pole_id != request.pole_id || port.category != request.category) {
+  for (const Port* port : owned_ports) {
+    if (port->category != request.category) {
       continue;
     }
-    const std::size_t usage = connection_count(port.id);
+    const std::size_t usage = connection_count(port->id);
     if (usage < fallback_usage) {
-      fallback = port.id;
+      fallback = port->id;
       fallback_usage = usage;
     }
   }

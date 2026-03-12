@@ -14,6 +14,8 @@ bool test_public_headers_offer_stable_smoke_surface() {
 
   static_assert(std::is_trivially_copyable_v<EntityRef>);
   static_assert(noexcept(EntityRef{}.valid()));
+  static_assert(std::is_default_constructible_v<AddConnectionByPoleOptions>);
+  static_assert(std::is_default_constructible_v<ResolveBranchPickOptions>);
   static_assert(std::is_default_constructible_v<VariationSettings>);
   static_assert(std::is_copy_constructible_v<SupportLayoutEndpointView>);
 
@@ -45,6 +47,10 @@ bool test_public_headers_offer_stable_smoke_surface() {
     return false;
   }
   if (view.inspect_span(1).has_value()) {
+    return false;
+  }
+  PickResult pick{};
+  if (state.ResolveBranchPick(pick).ok) {
     return false;
   }
 

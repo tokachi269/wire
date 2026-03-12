@@ -60,6 +60,28 @@ cmake --build build --config Debug --target wire_core_tests
 cmake --build build --config Debug --target wire_viewer
 ```
 
+### core のみを clean build する
+```powershell
+cmake -S . -B build-core -DWIRE_BUILD_VIEWER=OFF
+cmake --build build-core --config Debug --target wire_core_tests
+```
+
+### viewer をオフラインでビルドする
+
+ネットワーク取得を使わずに viewer をビルドしたい場合は、依存ソースをローカルに用意して次を指定します。
+
+```powershell
+cmake -S . -B build-offline `
+  -DWIRE_BUILD_VIEWER=ON `
+  -DWIRE_VIEWER_FETCH_DEPS=OFF `
+  -DWIRE_RAYLIB_SOURCE_DIR=C:\deps\raylib `
+  -DWIRE_IMGUI_SOURCE_DIR=C:\deps\imgui `
+  -DWIRE_RLIMGUI_SOURCE_DIR=C:\deps\rlImGui
+cmake --build build-offline --config Debug --target wire_viewer
+```
+
+ローカル依存ディレクトリを指定せずに `WIRE_VIEWER_FETCH_DEPS=OFF` を使った場合は、configure 時点で明示的に停止します。
+
 ## テスト
 ```powershell
 build\core\Debug\wire_core_tests.exe

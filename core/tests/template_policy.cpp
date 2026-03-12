@@ -1,4 +1,4 @@
-#include <vector>
+﻿#include <vector>
 
 #include "registry.hpp"
 #include "helpers.hpp"
@@ -103,7 +103,7 @@ bool test_bundle_template_topology_change_marks_regeneration_required() {
   (void)state.ApplyPoleType(pole_a, type_ids.front());
   (void)state.ApplyPoleType(pole_b, type_ids.front());
 
-  wire::core::CoreState::AddConnectionByPoleOptions options{};
+  wire::core::AddConnectionByPoleOptions options{};
   options.auto_create_bundle = true;
   options.use_bundle_template = true;
   options.bundle_template_id = wire::core::BundleKind::kLowVoltage;
@@ -148,7 +148,7 @@ bool test_bundle_template_visual_change_updates_dirty_spans_without_regeneration
   (void)state.ApplyPoleType(pole_a, type_ids.front());
   (void)state.ApplyPoleType(pole_b, type_ids.front());
 
-  wire::core::CoreState::AddConnectionByPoleOptions options{};
+  wire::core::AddConnectionByPoleOptions options{};
   options.auto_create_bundle = true;
   options.use_bundle_template = true;
   options.bundle_template_id = wire::core::BundleKind::kLowVoltage;
@@ -214,7 +214,7 @@ bool test_add_connection_requires_bundle_template_when_auto_create_enabled() {
   (void)state.ApplyPoleType(pole_a, type_ids.front());
   (void)state.ApplyPoleType(pole_b, type_ids.front());
 
-  wire::core::CoreState::AddConnectionByPoleOptions options{};
+  wire::core::AddConnectionByPoleOptions options{};
   options.auto_create_bundle = true;
   options.use_bundle_template = false;
   options.bundle_id = wire::core::kInvalidObjectId;
@@ -236,7 +236,7 @@ bool test_add_connection_template_profile_overrides_category_fallback() {
   (void)state.ApplyPoleType(pole_a, type_ids.front());
   (void)state.ApplyPoleType(pole_b, type_ids.front());
 
-  wire::core::CoreState::AddConnectionByPoleOptions options{};
+  wire::core::AddConnectionByPoleOptions options{};
   options.auto_create_bundle = true;
   options.use_bundle_template = true;
   options.bundle_template_id = wire::core::BundleKind::kHighVoltage;
@@ -283,7 +283,7 @@ bool test_add_connection_rejects_bundle_id_template_mismatch() {
     return false;
   }
 
-  wire::core::CoreState::AddConnectionByPoleOptions options{};
+  wire::core::AddConnectionByPoleOptions options{};
   options.bundle_id = bundle.value;
   options.use_bundle_template = true;
   options.bundle_template_id = wire::core::BundleKind::kHighVoltage;
@@ -306,7 +306,7 @@ bool test_add_connection_template_requires_bundle_id_when_auto_create_disabled()
   (void)state.ApplyPoleType(pole_a, type_ids.front());
   (void)state.ApplyPoleType(pole_b, type_ids.front());
 
-  wire::core::CoreState::AddConnectionByPoleOptions options{};
+  wire::core::AddConnectionByPoleOptions options{};
   options.auto_create_bundle = false;
   options.use_bundle_template = true;
   options.bundle_template_id = wire::core::BundleKind::kHighVoltage;
@@ -328,7 +328,7 @@ bool test_add_connection_rejects_span_layer_override_conflict() {
   (void)state.ApplyPoleType(pole_a, type_ids.front());
   (void)state.ApplyPoleType(pole_b, type_ids.front());
 
-  wire::core::CoreState::AddConnectionByPoleOptions options{};
+  wire::core::AddConnectionByPoleOptions options{};
   options.auto_create_bundle = true;
   options.use_bundle_template = true;
   options.bundle_template_id = wire::core::BundleKind::kHighVoltage;
@@ -533,6 +533,7 @@ void register_template_policy_tests(test_registry::TestRegistry& tests) {
 WIRE_REGISTER_TEST_SUITE(register_template_policy_tests);
 
 } // namespace
+
 
 
 

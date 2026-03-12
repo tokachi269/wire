@@ -29,6 +29,20 @@ Color ViewerWireColor(Color color) {
   return out;
 }
 
+Color FlowTintedWireColor(Color base, wire::core::BackboneFlowKind flow_kind, bool uses_branch_support) {
+  if (flow_kind == wire::core::BackboneFlowKind::kBranch) {
+    Color out = BlendColor(base, Color{82, 136, 154, 255}, uses_branch_support ? 0.46f : 0.34f);
+    out.a = base.a;
+    return out;
+  }
+  if (uses_branch_support) {
+    Color out = BlendColor(base, Color{130, 126, 92, 255}, 0.12f);
+    out.a = base.a;
+    return out;
+  }
+  return base;
+}
+
 static wire::core::Vec3d PoleTopPoint(const wire::core::Pole& pole) {
   const wire::core::PoleFrame frame =
       wire::core::BuildPoleFrame(pole.world_transform, pole.world_transform.rotation_euler_deg.z);
@@ -338,9 +352,15 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
 
     const wire::core::CurveCacheEntry* curve = state.find_curve_cache(span.id);
     const wire::core::SpanRenderCacheEntry* render = state.view().find_span_render_cache(span.id);
+    const wire::core::SpanSupportLayoutEntry* support_layout = state.find_span_support_layout(span.id);
+    const wire::core::SpanVisualCacheEntry* visual = state.view().find_span_visual_cache(span.id);
+    const wire::core::BackboneFlowKind flow_kind =
+        (support_layout == nullptr) ? wire::core::BackboneFlowKind::kMain : support_layout->flow_kind;
+    const bool uses_branch_support = visual != nullptr && !visual->branch_supports.empty();
     const float wire_radius =
         static_cast<float>((render == nullptr) ? 0.01 : std::max(0.0005, render->wire_radius_m));
     Color wire_color = (render == nullptr) ? ViewerWireColor(color) : ViewerWireColor(ColorFromRgba(render->color_rgba));
+    wire_color = FlowTintedWireColor(wire_color, flow_kind, uses_branch_support);
     if (SelectionContains(ui_state, SelectedType::kSpan, span.id)) {
       wire_color = Color{182, 142, 48, 255};
     } else if (ui_state.show_selected_bundle_highlight && selected_bundle_id != wire::core::kInvalidObjectId &&
@@ -375,7 +395,6 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
       }
     }
 
-    const wire::core::SpanVisualCacheEntry* visual = state.view().find_span_visual_cache(span.id);
     if (visual != nullptr) {
       for (const wire::core::VisualPart& part : visual->parts) {
         const Color part_color = VisualPartColor(part.kind);
@@ -385,6 +404,12 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
         } else {
           DrawLine3D(ToRaylib(part.a), ToRaylib(part.b), part_color);
         }
+      }
+      for (const wire::core::BranchSupportPlacement& placement : visual->branch_supports) {
+        const Color support_color = Color{96, 118, 126, 220};
+        DrawLine3D(ToRaylib(placement.mount_world), ToRaylib(placement.tip_world), support_color);
+        DrawSphere(ToRaylib(placement.mount_world), 0.05f, Color{104, 116, 122, 220});
+        DrawSphere(ToRaylib(placement.tip_world), 0.05f, Color{112, 136, 144, 220});
       }
     }
   }

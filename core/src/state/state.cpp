@@ -1,5 +1,6 @@
 #include "wire/core/core_state.hpp"
 #include "wire/core/coord_utils.hpp"
+#include "internal_services.hpp"
 #include "../generation/support_policy.hpp"
 
 #include <algorithm>
@@ -819,113 +820,8 @@ void CoreState::finalize_pole_transform_update(ObjectId pole_id, const Pole& old
 
 void CoreState::refresh_owned_endpoints_from_pole(ObjectId pole_id, ChangeSet* change_set, const Pole* previous_pole,
                                                   const double* previous_layout_yaw_override) {
-  Pole* pole = edit_state_.poles.find(pole_id);
-  if (pole == nullptr) {
-    return;
-  }
-
-  const PoleTypeDefinition* pole_type = find_pole_type(pole->pole_type_id);
-  auto find_port_slot = [&](int slot_id) -> const PortSlotTemplate* {
-    if (pole_type == nullptr) {
-      return nullptr;
-    }
-    for (const PortSlotTemplate& slot : pole_type->port_slots) {
-      if (slot.slot_id == slot_id) {
-        return &slot;
-      }
-    }
-    return nullptr;
-  };
-  auto find_anchor_slot = [&](int slot_id) -> const AnchorSlotTemplate* {
-    if (pole_type == nullptr) {
-      return nullptr;
-    }
-    for (const AnchorSlotTemplate& slot : pole_type->anchor_slots) {
-      if (slot.slot_id == slot_id) {
-        return &slot;
-      }
-    }
-    return nullptr;
-  };
-
-  const double effective_yaw = effective_pole_yaw_deg(*pole);
-  const double layout_yaw = effective_pole_layout_yaw_deg(*pole);
-  const double previous_layout_yaw =
-      (previous_layout_yaw_override != nullptr)
-          ? *previous_layout_yaw_override
-          : ((previous_pole == nullptr) ? effective_yaw : effective_pole_layout_yaw_deg(*previous_pole));
-
-  for (Port& port : edit_state_.ports.items_mutable()) {
-    if (port.owner_pole_id != pole_id || port.position_mode == PortPositionMode::kManual) {
-      continue;
-    }
-    const PortSlotTemplate* slot = find_port_slot(port.source_slot_id);
-    Vec3d new_world = port.world_position;
-    bool apply_angle_correction = false;
-    double applied_scale = 1.0;
-    if (slot != nullptr) {
-      Vec3d adjusted_local = slot->local_position;
-      apply_angle_correction = layout_settings_.angle_correction_enabled &&
-                               pole->context.kind == PoleContextKind::kCorner &&
-                               slot->side != SlotSide::kCenter;
-      if (apply_angle_correction) {
-        adjusted_local.y = apply_corner_side_scale(adjusted_local.y, slot->side, pole->context.corner_turn_sign,
-                                                   pole->context.side_scale);
-        if (std::abs(slot->local_position.y) > 1e-9) {
-          applied_scale = std::abs(adjusted_local.y / slot->local_position.y);
-        }
-      }
-      adjusted_local = apply_pole_clearance_to_local(*pole, adjusted_local, slot->side);
-      new_world = local_to_world_on_pole(pole->world_transform, layout_yaw, adjusted_local);
-    } else if (previous_pole != nullptr) {
-      const Vec3d old_local = WorldPointToLocal(BuildPoleFrame(previous_pole->world_transform, previous_layout_yaw),
-                                                port.world_position);
-      new_world = local_to_world_on_pole(pole->world_transform, layout_yaw, old_local);
-    }
-    const bool moved = std::abs(new_world.x - port.world_position.x) > 1e-9 ||
-                       std::abs(new_world.y - port.world_position.y) > 1e-9 ||
-                       std::abs(new_world.z - port.world_position.z) > 1e-9;
-    const bool changed_scale = std::abs(port.side_scale_applied - (apply_angle_correction ? applied_scale : 1.0)) > 1e-9;
-    const bool changed_angle_flag = port.angle_correction_applied != apply_angle_correction;
-    if (!moved && !changed_scale && !changed_angle_flag) {
-      continue;
-    }
-
-    port.world_position = new_world;
-    port.angle_correction_applied = apply_angle_correction;
-    port.side_scale_applied = apply_angle_correction ? applied_scale : 1.0;
-    apply_port_position_mode(port, PortPositionMode::kAuto, PortPlacementSourceKind::kTemplateSlot);
-    if (change_set != nullptr) {
-      add_unique_id(change_set->updated_ids, port.id);
-      mark_connected_spans_dirty_from_port(port.id, DirtyBits::kGeometry, change_set);
-    }
-  }
-
-  for (Anchor& anchor : edit_state_.anchors.items_mutable()) {
-    if (anchor.owner_pole_id != pole_id) {
-      continue;
-    }
-    const AnchorSlotTemplate* slot = find_anchor_slot(anchor.source_slot_id);
-    Vec3d new_world = anchor.world_position;
-    if (slot != nullptr) {
-      new_world = local_to_world_on_pole(pole->world_transform, effective_yaw, slot->local_position);
-    } else if (previous_pole != nullptr) {
-      const Vec3d old_local = to_local_on_pole(*previous_pole, anchor.world_position);
-      new_world = local_to_world_on_pole(pole->world_transform, effective_yaw, old_local);
-    }
-    const bool moved = std::abs(new_world.x - anchor.world_position.x) > 1e-9 ||
-                       std::abs(new_world.y - anchor.world_position.y) > 1e-9 ||
-                       std::abs(new_world.z - anchor.world_position.z) > 1e-9;
-    if (!moved) {
-      continue;
-    }
-
-    anchor.world_position = new_world;
-    if (change_set != nullptr) {
-      add_unique_id(change_set->updated_ids, anchor.id);
-      mark_connected_spans_dirty_from_anchor(anchor.id, DirtyBits::kGeometry, change_set);
-    }
-  }
+  state_internal::EndpointRefreshService::RefreshOwnedEndpointsFromPole(*this, pole_id, change_set, previous_pole,
+                                                                        previous_layout_yaw_override);
 }
 
 EditResult<ObjectId> CoreState::DeleteSpan(ObjectId span_id) {
@@ -1046,6 +942,17 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
   pole->pole_type_id = pole_type_id;
   result.change_set.updated_ids.push_back(pole_id);
 
+  std::unordered_set<int> anchor_slots_on_pole;
+  const auto anchor_ids_it = relation_index_.anchors_by_pole.find(pole_id);
+  if (anchor_ids_it != relation_index_.anchors_by_pole.end()) {
+    for (ObjectId anchor_id : anchor_ids_it->second) {
+      const Anchor* anchor = edit_state_.anchors.find(anchor_id);
+      if (anchor != nullptr) {
+        anchor_slots_on_pole.insert(anchor->source_slot_id);
+      }
+    }
+  }
+
   for (const PortSlotTemplate& slot : pole_type->port_slots) {
     if (!slot.enabled || is_port_slot_used(pole_id, slot.slot_id)) {
       continue;
@@ -1092,14 +999,7 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
     if (!slot.enabled) {
       continue;
     }
-    bool exists = false;
-    for (const Anchor& anchor : edit_state_.anchors.items()) {
-      if (anchor.owner_pole_id == pole_id && anchor.source_slot_id == slot.slot_id) {
-        exists = true;
-        break;
-      }
-    }
-    if (exists) {
+    if (anchor_slots_on_pole.contains(slot.slot_id)) {
       continue;
     }
 
@@ -1115,6 +1015,7 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
       created->source_slot_id = slot.slot_id;
       created->generated_from_template = true;
       add_unique_id(result.change_set.updated_ids, created->id);
+      anchor_slots_on_pole.insert(slot.slot_id);
     }
     append_change_set(result.change_set, add_anchor_result.change_set);
   }
@@ -1745,72 +1646,31 @@ EditResult<bool> CoreState::ResetAllSpanReferenceLengths(bool mark_all_spans_dir
   return result;
 }
 bool CoreState::has_pole_orientation_override(ObjectId pole_id) const {
-  if (override_state_.pole_orientation_by_pole.contains(pole_id)) {
-    return true;
-  }
-  const Pole* pole = edit_state_.poles.find(pole_id);
-  return pole != nullptr &&
-         (pole->orientation_control.manual_yaw_override || pole->orientation_control.flip_180 ||
-          pole->orientation_override_flag);
+  return state_internal::OverrideResolutionService::HasPoleOrientationOverride(*this, pole_id);
 }
 
 bool CoreState::has_span_endpoint_socket_override(ObjectId span_id, bool is_start_endpoint) const {
-  if (const auto it = override_state_.span_endpoint_by_span.find(span_id); it != override_state_.span_endpoint_by_span.end()) {
-    const std::optional<int>& slot = is_start_endpoint ? it->second.socket_a_id : it->second.socket_b_id;
-    if (slot.has_value()) {
-      return true;
-    }
-  }
-  const Span* span = edit_state_.spans.find(span_id);
-  if (span == nullptr) {
-    return false;
-  }
-  return is_start_endpoint ? (span->endpoint_socket_a_id >= 0) : (span->endpoint_socket_b_id >= 0);
+  return state_internal::OverrideResolutionService::HasSpanEndpointSocketOverride(*this, span_id, is_start_endpoint);
 }
 
 bool CoreState::has_span_branch_down_offset_override(ObjectId span_id) const {
-  const auto it = override_state_.span_support_by_span.find(span_id);
-  return it != override_state_.span_support_by_span.end() && it->second.branch_down_offset_m.has_value();
+  return state_internal::OverrideResolutionService::HasSpanBranchDownOffsetOverride(*this, span_id);
 }
 
 std::optional<double> CoreState::resolve_pole_manual_yaw_override(const Pole& pole) const {
-  if (const auto it = override_state_.pole_orientation_by_pole.find(pole.id); it != override_state_.pole_orientation_by_pole.end() &&
-      it->second.manual_yaw_deg.has_value()) {
-    return it->second.manual_yaw_deg;
-  }
-  if (pole.orientation_control.manual_yaw_override) {
-    return pole.orientation_control.manual_yaw_deg;
-  }
-  return std::nullopt;
+  return state_internal::OverrideResolutionService::ResolvePoleManualYawOverride(*this, pole);
 }
 
 std::optional<bool> CoreState::resolve_pole_flip_180_override(const Pole& pole) const {
-  if (const auto it = override_state_.pole_orientation_by_pole.find(pole.id); it != override_state_.pole_orientation_by_pole.end() &&
-      it->second.flip_180.has_value()) {
-    return it->second.flip_180;
-  }
-  if (pole.orientation_control.flip_180) {
-    return true;
-  }
-  return std::nullopt;
+  return state_internal::OverrideResolutionService::ResolvePoleFlip180Override(*this, pole);
 }
 
 int CoreState::resolve_span_endpoint_socket_id(const Span& span, bool is_start_endpoint) const {
-  if (const auto it = override_state_.span_endpoint_by_span.find(span.id); it != override_state_.span_endpoint_by_span.end()) {
-    const std::optional<int>& slot = is_start_endpoint ? it->second.socket_a_id : it->second.socket_b_id;
-    if (slot.has_value()) {
-      return *slot;
-    }
-  }
-  return is_start_endpoint ? span.endpoint_socket_a_id : span.endpoint_socket_b_id;
+  return state_internal::OverrideResolutionService::ResolveSpanEndpointSocketId(*this, span, is_start_endpoint);
 }
 
 double CoreState::resolve_span_branch_down_offset_m(const Span& span, double automatic_value) const {
-  if (const auto it = override_state_.span_support_by_span.find(span.id); it != override_state_.span_support_by_span.end() &&
-      it->second.branch_down_offset_m.has_value()) {
-    return std::max(0.0, *it->second.branch_down_offset_m);
-  }
-  return automatic_value;
+  return state_internal::OverrideResolutionService::ResolveSpanBranchDownOffsetM(*this, span, automatic_value);
 }
 
 double CoreState::effective_pole_yaw_deg(const Pole& pole) const {
@@ -2224,7 +2084,7 @@ CoreState make_demo_state() {
   (void)state.ApplyPoleType(pole_c, kCommunicationPoleType);
 
   auto connect_with_template = [&](ObjectId a_id, ObjectId b_id, ConnectionCategory category) {
-    CoreState::AddConnectionByPoleOptions options{};
+    AddConnectionByPoleOptions options{};
     options.use_bundle_template = true;
     switch (category) {
     case ConnectionCategory::kHighVoltage:

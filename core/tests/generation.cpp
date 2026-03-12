@@ -1,4 +1,5 @@
 #include <array>
+#include <cmath>
 #include <iostream>
 #include <sstream>
 #include <unordered_set>
@@ -326,7 +327,7 @@ bool test_backbone_midair_branch_reuses_source_span_height() {
   pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
   pick.segment_endpoint_b_world = {20.0, 0.0, 0.0};
 
-  wire::core::CoreState::ResolveBranchPickOptions resolve{};
+  wire::core::ResolveBranchPickOptions resolve{};
   resolve.bundle_template_id = wire::core::BundleKind::kLowVoltage;
   resolve.snap_radius_world = 0.75;
   resolve.create_midair_node = true;
@@ -413,7 +414,7 @@ bool test_backbone_midair_branch_skips_disallowed_template_generation() {
   pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
   pick.segment_endpoint_b_world = {20.0, 0.0, 0.0};
 
-  wire::core::CoreState::ResolveBranchPickOptions resolve{};
+  wire::core::ResolveBranchPickOptions resolve{};
   resolve.bundle_template_id = wire::core::BundleKind::kLowVoltage;
   resolve.snap_radius_world = 0.75;
   resolve.create_midair_node = true;
@@ -474,7 +475,7 @@ bool test_backbone_midair_branch_generates_only_allowed_templates() {
   pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
   pick.segment_endpoint_b_world = {20.0, 0.0, 0.0};
 
-  wire::core::CoreState::ResolveBranchPickOptions resolve{};
+  wire::core::ResolveBranchPickOptions resolve{};
   resolve.bundle_template_id = wire::core::BundleKind::kLowVoltage;
   resolve.snap_radius_world = 0.75;
   resolve.create_midair_node = true;
@@ -1789,6 +1790,45 @@ bool unique_pole_ports_spread_along_axis(const CoreState& state, ObjectId pole_i
   return (max_along - min_along) > (max_perp - min_perp) * 2.0;
 }
 
+double max_curve_lateral_overshoot_xy(const wire::core::DetailCurve& curve, std::size_t* out_peak_index = nullptr) {
+  const wire::core::Vec3d start = curve.EvaluatePosition(0.0);
+  const wire::core::Vec3d end = curve.EvaluatePosition(1.0);
+  const wire::core::Vec3d chord_dir = normalize_xy_safe(end - start);
+  if (std::abs(chord_dir.x) <= 1e-6 && std::abs(chord_dir.y) <= 1e-6) {
+    return 0.0;
+  }
+  const wire::core::Vec3d lateral_axis{-chord_dir.y, chord_dir.x, 0.0};
+  double max_abs_lateral = 0.0;
+  std::size_t peak_index = 0;
+  for (std::size_t i = 0; i < curve.sample_points.size(); ++i) {
+    const double abs_lateral = std::abs(dot_xy(curve.sample_points[i] - start, lateral_axis));
+    if (abs_lateral > max_abs_lateral) {
+      max_abs_lateral = abs_lateral;
+      peak_index = i;
+    }
+  }
+  if (out_peak_index != nullptr) {
+    *out_peak_index = peak_index;
+  }
+  return max_abs_lateral;
+}
+
+bool trace_contains_summary(const std::vector<wire::core::DecisionTraceEntry>& trace, wire::core::DecisionTraceTopic topic,
+                            const std::string& rule, const std::string& token) {
+  for (const auto& entry : trace) {
+    if (entry.topic != topic) {
+      continue;
+    }
+    if (!rule.empty() && entry.rule != rule) {
+      continue;
+    }
+    if (entry.summary.find(token) != std::string::npos) {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool test_backbone_straight_chain_support_axis_aligns_route() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
@@ -2035,6 +2075,192 @@ bool test_backbone_drawpath_attachment_trace_reports_unconnected_input() {
   return false;
 }
 
+bool test_backbone_drawpath_branch_curve_stays_local_to_support_departure() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec trunk{};
+  trunk.path.polyline = {{-12.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}};
+  trunk.interval_m = 1000.0;
+  trunk.pole_type_id = type_ids.front();
+  add_backbone_bundle(trunk, wire::core::BundleKind::kLowVoltage);
+  if (!state.GenerateFromBackboneSpec(trunk).ok) {
+    std::cerr << "[DBG] C179 trunk_generate_failed\n";
+    return false;
+  }
+
+  const ObjectId center_id = find_pole_id_by_position(state, {0.0, 0.0, 0.0});
+  if (center_id == wire::core::kInvalidObjectId) {
+    std::cerr << "[DBG] C179 center_missing_after_trunk\n";
+    return false;
+  }
+
+  wire::core::BackboneSpec branch{};
+  branch.path.polyline = {{0.0, 0.0, 0.0}, {0.0, 18.0, 0.0}};
+  branch.interval_m = 1000.0;
+  branch.pole_type_id = type_ids.front();
+  wire::core::BackboneInputSpec::NodeSpec shared{};
+  shared.point_index = 0;
+  shared.support_kind = wire::core::SupportKind::kPole;
+  shared.node_id = center_id;
+  branch.path.node_specs.push_back(shared);
+  add_backbone_bundle(branch, wire::core::BundleKind::kLowVoltage);
+  const auto branch_generated = state.GenerateFromBackboneSpec(branch);
+  if (!branch_generated.ok || branch_generated.value.generated_span_ids.size() != 1) {
+    std::cerr << "[DBG] C179 branch_generate_failed error=" << branch_generated.error << "\n";
+    return false;
+  }
+
+  wire::core::CommitOptions options{};
+  options.run_recalc = true;
+  (void)state.Commit(options);
+
+  const ObjectId span_id = branch_generated.value.generated_span_ids.front();
+  const wire::core::Span* span = state.view().edit_state().spans.find(span_id);
+  const auto span_view = state.view().inspect_span(span_id);
+  const auto curve_view = state.view().inspect_detail_curve(span_id);
+  const auto* curve = state.find_curve_cache(span_id);
+  if (span == nullptr || !span_view.has_value() || !curve_view.has_value() || curve == nullptr) {
+    return false;
+  }
+
+  const bool center_is_start = span->endpoint_node_a_id == center_id;
+  const auto tangent_rule = center_is_start ? curve_view->start_tangent_rule : curve_view->end_tangent_rule;
+  const double support_weight = center_is_start ? curve_view->start_support_weight : curve_view->end_support_weight;
+  const double chord_weight = center_is_start ? curve_view->start_chord_weight : curve_view->end_chord_weight;
+  const double departure_length_m =
+      center_is_start ? curve_view->start_departure_length_m : curve_view->end_departure_length_m;
+  const double lateral_ratio_limit =
+      center_is_start ? curve_view->start_lateral_ratio_limit : curve_view->end_lateral_ratio_limit;
+  const auto branch_trace =
+      state.view().collect_decision_trace({wire::core::EntityKind::kSpan, static_cast<std::uint64_t>(span_id)});
+  const bool branch_trace_has_tangent_policy =
+      trace_contains_summary(branch_trace, wire::core::DecisionTraceTopic::kTangentGeneration, "BranchTangentRule",
+                             "suppress=");
+  std::size_t peak_index = 0;
+  const double max_abs_lateral = max_curve_lateral_overshoot_xy(curve->detail, &peak_index);
+  const bool peaks_locally =
+      max_abs_lateral <= 0.05 || peak_index < (curve->detail.sample_points.size() / 2);
+  if (!(span_view->flow_kind == wire::core::BackboneFlowKind::kBranch && span_view->uses_branch_support &&
+          curve_view->shape_policy == wire::core::CurveShapePolicyKind::kBranchPass &&
+          tangent_rule == wire::core::DetailCurveEndpointTangentRule::kBranchChordPriority &&
+          support_weight < chord_weight && departure_length_m <= 1.10 + 1e-6 &&
+          lateral_ratio_limit <= 0.05 + 1e-6 && curve_view->lateral_suppression >= 0.80 &&
+          max_abs_lateral <= departure_length_m + 0.05 && peaks_locally && branch_trace_has_tangent_policy)) {
+    std::cerr << "[DBG] C179 span=" << span_id << " flow=" << static_cast<int>(span_view->flow_kind)
+              << " branchSupport=" << (span_view->uses_branch_support ? 1 : 0)
+              << " shape=" << static_cast<int>(curve_view->shape_policy)
+              << " tangentRule=" << static_cast<int>(tangent_rule) << " supportWeight=" << support_weight
+              << " chordWeight=" << chord_weight << " dep=" << departure_length_m
+              << " latLimit=" << lateral_ratio_limit << " suppress=" << curve_view->lateral_suppression
+              << " maxLat=" << max_abs_lateral << " peakIndex=" << peak_index
+              << " samples=" << curve->detail.sample_points.size()
+              << " branchTraceHasPolicy=" << (branch_trace_has_tangent_policy ? 1 : 0) << "\n";
+  }
+  return span_view->flow_kind == wire::core::BackboneFlowKind::kBranch && span_view->uses_branch_support &&
+         curve_view->shape_policy == wire::core::CurveShapePolicyKind::kBranchPass &&
+         tangent_rule == wire::core::DetailCurveEndpointTangentRule::kBranchChordPriority &&
+         support_weight < chord_weight && departure_length_m <= 1.10 + 1e-6 &&
+         lateral_ratio_limit <= 0.05 + 1e-6 && curve_view->lateral_suppression >= 0.80 &&
+         max_abs_lateral <= departure_length_m + 0.05 && peaks_locally && branch_trace_has_tangent_policy;
+}
+
+bool test_backbone_drawpath_main_and_branch_are_distinct_in_trace_and_inspection() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec trunk{};
+  trunk.path.polyline = {{-12.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}};
+  trunk.interval_m = 1000.0;
+  trunk.pole_type_id = type_ids.front();
+  add_backbone_bundle(trunk, wire::core::BundleKind::kLowVoltage);
+  const auto trunk_generated = state.GenerateFromBackboneSpec(trunk);
+  if (!trunk_generated.ok || trunk_generated.value.generated_span_ids.empty()) {
+    std::cerr << "[DBG] C180 trunk_generate_failed error=" << trunk_generated.error << "\n";
+    return false;
+  }
+
+  const ObjectId center_id = find_pole_id_by_position(state, {0.0, 0.0, 0.0});
+  if (center_id == wire::core::kInvalidObjectId) {
+    std::cerr << "[DBG] C180 center_missing_after_trunk\n";
+    return false;
+  }
+
+  wire::core::BackboneSpec branch{};
+  branch.path.polyline = {{0.0, 0.0, 0.0}, {0.0, 12.0, 0.0}};
+  branch.interval_m = 1000.0;
+  branch.pole_type_id = type_ids.front();
+  wire::core::BackboneInputSpec::NodeSpec shared{};
+  shared.point_index = 0;
+  shared.support_kind = wire::core::SupportKind::kPole;
+  shared.node_id = center_id;
+  branch.path.node_specs.push_back(shared);
+  add_backbone_bundle(branch, wire::core::BundleKind::kLowVoltage);
+  const auto branch_generated = state.GenerateFromBackboneSpec(branch);
+  if (!branch_generated.ok || branch_generated.value.generated_span_ids.empty()) {
+    std::cerr << "[DBG] C180 branch_generate_failed error=" << branch_generated.error << "\n";
+    return false;
+  }
+
+  wire::core::CommitOptions options{};
+  options.run_recalc = true;
+  (void)state.Commit(options);
+
+  const ObjectId main_span_id = trunk_generated.value.generated_span_ids.front();
+  const ObjectId branch_span_id = branch_generated.value.generated_span_ids.front();
+  const auto main_view = state.view().inspect_span(main_span_id);
+  const auto branch_view = state.view().inspect_span(branch_span_id);
+  const auto branch_curve_view = state.view().inspect_detail_curve(branch_span_id);
+  if (!main_view.has_value() || !branch_view.has_value() || !branch_curve_view.has_value()) {
+    return false;
+  }
+
+  const auto main_trace =
+      state.view().collect_decision_trace({wire::core::EntityKind::kSpan, static_cast<std::uint64_t>(main_span_id)});
+  const auto branch_trace =
+      state.view().collect_decision_trace({wire::core::EntityKind::kSpan, static_cast<std::uint64_t>(branch_span_id)});
+  const bool branch_has_branch_tangent =
+      trace_contains_summary(branch_trace, wire::core::DecisionTraceTopic::kTangentGeneration, "BranchTangentRule",
+                               "support/chord=");
+  const bool branch_has_branch_flow =
+      trace_contains_summary(branch_trace, wire::core::DecisionTraceTopic::kFlowClassification, "", "flow=Branch");
+  const bool main_has_main_flow = trace_contains_summary(main_trace, wire::core::DecisionTraceTopic::kFlowClassification,
+                                                         "", "flow=Main");
+  const bool main_has_main_tangent = trace_contains_summary(main_trace, wire::core::DecisionTraceTopic::kTangentGeneration,
+                                                            "MainTangentRule", "support/chord=");
+  const bool branch_has_lateral_policy =
+      trace_contains_summary(branch_trace, wire::core::DecisionTraceTopic::kTangentGeneration, "BranchTangentRule",
+                             "suppress=");
+  if (!(main_view->flow_kind == wire::core::BackboneFlowKind::kMain && !main_view->uses_branch_support &&
+          branch_view->flow_kind == wire::core::BackboneFlowKind::kBranch && branch_view->uses_branch_support &&
+          branch_curve_view->shape_policy == wire::core::CurveShapePolicyKind::kBranchPass && main_has_main_flow &&
+          main_has_main_tangent && branch_has_branch_flow && branch_has_branch_tangent &&
+          branch_curve_view->lateral_suppression >= 0.80 && branch_has_lateral_policy)) {
+    std::cerr << "[DBG] C180 mainSpan=" << main_span_id << " mainFlow=" << static_cast<int>(main_view->flow_kind)
+              << " mainBranchSupport=" << (main_view->uses_branch_support ? 1 : 0) << " branchSpan=" << branch_span_id
+              << " branchFlow=" << static_cast<int>(branch_view->flow_kind)
+              << " branchSupport=" << (branch_view->uses_branch_support ? 1 : 0)
+              << " branchShape=" << static_cast<int>(branch_curve_view->shape_policy)
+              << " branchSuppress=" << branch_curve_view->lateral_suppression
+              << " mainHasFlow=" << (main_has_main_flow ? 1 : 0)
+              << " mainHasTangent=" << (main_has_main_tangent ? 1 : 0)
+              << " branchHasFlow=" << (branch_has_branch_flow ? 1 : 0)
+              << " branchHasTangent=" << (branch_has_branch_tangent ? 1 : 0)
+              << " branchHasLateralPolicy=" << (branch_has_lateral_policy ? 1 : 0) << "\n";
+  }
+  return main_view->flow_kind == wire::core::BackboneFlowKind::kMain && !main_view->uses_branch_support &&
+         branch_view->flow_kind == wire::core::BackboneFlowKind::kBranch && branch_view->uses_branch_support &&
+         branch_curve_view->shape_policy == wire::core::CurveShapePolicyKind::kBranchPass && main_has_main_flow &&
+         main_has_main_tangent && branch_has_branch_flow && branch_has_branch_tangent &&
+         branch_curve_view->lateral_suppression >= 0.80 && branch_has_lateral_policy;
+}
+
 bool test_variation_settings_do_not_change_topology_flow_or_mirror() {
   auto generate_assignments = [](std::uint64_t seed) {
     CoreState state;
@@ -2219,6 +2445,12 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C178_Backbone_DrawPathAttachmentTraceReportsNoInput",
                          "DrawPath backbone trace reports plain support endpoint selection when attachment input is absent",
                          "Invariant", false, test_backbone_drawpath_attachment_trace_reports_unconnected_input);
+  test_registry::AddTest(tests, "C179_Backbone_DrawPathBranchCurveStaysLocal",
+                         "DrawPath branch curve keeps support departure local and converges back toward chord",
+                         "Invariant", false, test_backbone_drawpath_branch_curve_stays_local_to_support_departure);
+  test_registry::AddTest(tests, "C180_Backbone_DrawPathMainBranchTraceReadable",
+                         "DrawPath span inspection and trace make main/branch differences explicit",
+                         "Invariant", false, test_backbone_drawpath_main_and_branch_are_distinct_in_trace_and_inspection);
   test_registry::AddTest(tests, "C155_Variation_DoesNotAffectTopologyOrMirror",
                          "Variation settings do not change deterministic flow classification or mirror decisions",
                          "Invariant", false, test_variation_settings_do_not_change_topology_flow_or_mirror);

@@ -285,18 +285,19 @@ double EndpointOffsetMagnitude(const CurveConstraint& constraint) {
 }
 
 double BranchSupportWeightForChordLength(double chord_length) {
-  return std::clamp(0.42 - 0.30 * SmoothStep(3.0, 22.0, chord_length), 0.10, 0.42);
+  return std::clamp(0.34 - 0.26 * SmoothStep(3.0, 18.0, chord_length), 0.08, 0.34);
 }
 
 double BranchLateralRatioLimitForChordLength(double chord_length) {
-  return std::clamp(0.24 - 0.18 * SmoothStep(3.0, 24.0, chord_length), 0.04, 0.24);
+  return std::clamp(0.16 - 0.12 * SmoothStep(3.0, 18.0, chord_length), 0.025, 0.16);
 }
 
 double BranchDepartureLengthForConstraint(const CurveConstraint& constraint, double chord_length) {
   const double hinted = (constraint.support_departure_length_m > 0.0)
                             ? constraint.support_departure_length_m
                             : std::max(0.18, chord_length * 0.10);
-  return std::clamp(hinted, 0.18, std::max(0.18, chord_length * 0.22));
+  const double local_budget = std::clamp(chord_length * 0.06, 0.18, 0.95);
+  return std::clamp(hinted, 0.18, local_budget);
 }
 
 double MainDepartureLengthForConstraint(const CurveConstraint& constraint, double chord_length) {
@@ -396,9 +397,9 @@ CurveShapePolicyDecision ChooseShapePolicy(const CurveConstraint& start_constrai
 
   if (start_constraint.pass_mode == CurvePassMode::kBranch || end_constraint.pass_mode == CurvePassMode::kBranch) {
     decision.kind = CurveShapePolicyKind::kBranchPass;
-    decision.lateral_suppression = 0.65;
-    decision.handle_scale = 0.72;
-    decision.quality_lateral_limit_ratio = 0.08;
+    decision.lateral_suppression = 0.82;
+    decision.handle_scale = 0.58;
+    decision.quality_lateral_limit_ratio = 0.05;
     return decision;
   }
 
@@ -829,8 +830,14 @@ DetailCurve BuildDetailCurve(const CurveConstraint& start_constraint, const Curv
     end_handle = ComputeHandleLength(chord_length, chord_dir, end_constraint, shape_policy, tangent_scale);
     h0 = start_handle.length_m * CornerPassTangentLengthScale(start_constraint);
     h1 = end_handle.length_m * CornerPassTangentLengthScale(end_constraint);
-    h0 = std::min(h0, std::max(chord_length * 0.06, start_tangent_decision.departure_length_m));
-    h1 = std::min(h1, std::max(chord_length * 0.06, end_tangent_decision.departure_length_m));
+    const double branch_handle_floor = chord_length * 0.03;
+    const double default_handle_floor = chord_length * 0.06;
+    const double start_handle_floor =
+        (shape_policy.kind == CurveShapePolicyKind::kBranchPass) ? branch_handle_floor : default_handle_floor;
+    const double end_handle_floor =
+        (shape_policy.kind == CurveShapePolicyKind::kBranchPass) ? branch_handle_floor : default_handle_floor;
+    h0 = std::min(h0, std::max(start_handle_floor, start_tangent_decision.departure_length_m));
+    h1 = std::min(h1, std::max(end_handle_floor, end_tangent_decision.departure_length_m));
     cp[0] = start_point;
     cp[1] = start_point + ScaleVec(start_tangent, h0);
     cp[2] = end_point - ScaleVec(end_tangent, h1);
@@ -882,6 +889,7 @@ DetailCurve BuildDetailCurve(const CurveConstraint& start_constraint, const Curv
   curve.quality.end_departure_length_m = end_tangent_decision.departure_length_m;
   curve.quality.start_lateral_ratio_limit = start_tangent_decision.lateral_ratio_limit;
   curve.quality.end_lateral_ratio_limit = end_tangent_decision.lateral_ratio_limit;
+  curve.quality.lateral_suppression = shape_policy.lateral_suppression;
   curve.quality.sag_base_ratio = sag_base_ratio;
   curve.quality.sag_length_scale = sag_length_scale;
   curve.quality.sag_pass_scale = sag_pass_scale;

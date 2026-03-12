@@ -38,7 +38,7 @@ wire::core::ObjectId CreateTemplateSpan(wire::core::CoreState& state, wire::core
   if (pole_a == wire::core::kInvalidObjectId || pole_b == wire::core::kInvalidObjectId) {
     return wire::core::kInvalidObjectId;
   }
-  wire::core::CoreState::AddConnectionByPoleOptions options{};
+  wire::core::AddConnectionByPoleOptions options{};
   options.use_bundle_template = true;
   options.bundle_template_id = kind;
   const auto result =

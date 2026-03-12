@@ -576,6 +576,7 @@ std::optional<DetailCurveInspectionView> CoreView::inspect_detail_curve(ObjectId
   result.end_departure_length_m = curve->detail.quality.end_departure_length_m;
   result.start_lateral_ratio_limit = curve->detail.quality.start_lateral_ratio_limit;
   result.end_lateral_ratio_limit = curve->detail.quality.end_lateral_ratio_limit;
+  result.lateral_suppression = curve->detail.quality.lateral_suppression;
   if (const SpanSupportLayoutEntry* layout = find_span_support_layout(span_id); layout != nullptr) {
     result.start_endpoint_source = SupportLayoutEndpointSourceText(layout->start.endpoint_source);
     result.end_endpoint_source = SupportLayoutEndpointSourceText(layout->end.endpoint_source);
@@ -902,7 +903,11 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
       tangent << "start=" << TangentRuleText(curve->detail.quality.start_tangent_rule) << " support/chord="
               << curve->detail.quality.start_support_weight << "/" << curve->detail.quality.start_chord_weight << " end="
               << TangentRuleText(curve->detail.quality.end_tangent_rule) << " support/chord="
-              << curve->detail.quality.end_support_weight << "/" << curve->detail.quality.end_chord_weight;
+              << curve->detail.quality.end_support_weight << "/" << curve->detail.quality.end_chord_weight
+              << " dep=" << curve->detail.quality.start_departure_length_m << "/" << curve->detail.quality.end_departure_length_m
+              << " lat=" << curve->detail.quality.start_lateral_ratio_limit << "/"
+              << curve->detail.quality.end_lateral_ratio_limit
+              << " suppress=" << curve->detail.quality.lateral_suppression;
       trace.push_back({DecisionTraceTopic::kTangentGeneration,
                        (curve->detail.start_constraint.pass_mode == CurvePassMode::kBranch) ? "BranchTangentRule"
                                                                                            : "MainTangentRule",

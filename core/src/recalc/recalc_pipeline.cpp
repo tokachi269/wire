@@ -112,6 +112,29 @@ bool apply_endpoint_attachment_socket(const CoreState& state, ObjectId attachmen
   return true;
 }
 
+EndpointAttachmentRequest make_endpoint_attachment_request(ObjectId attachment_id, int resolved_socket_id,
+                                                           bool socket_override_active) {
+  EndpointAttachmentRequest request{};
+  if (attachment_id != kInvalidObjectId) {
+    request.attachment_id = attachment_id;
+    if (resolved_socket_id >= 0) {
+      request.kind = EndpointAttachmentRequestKind::kAttachmentSocket;
+      request.requested_socket_id = resolved_socket_id;
+    } else {
+      request.kind = EndpointAttachmentRequestKind::kAttachmentAuto;
+    }
+    return request;
+  }
+
+  if (resolved_socket_id >= 0 || socket_override_active) {
+    request.kind = EndpointAttachmentRequestKind::kDanglingSocket;
+    if (resolved_socket_id >= 0) {
+      request.requested_socket_id = resolved_socket_id;
+    }
+  }
+  return request;
+}
+
 bool resolve_attachment_socket_pair(const AttachmentTemplate& attachment_template,
                                     const AttachmentSocketTemplate** out_a,
                                     const AttachmentSocketTemplate** out_b,
@@ -377,7 +400,8 @@ SupportLayoutEndpoint build_support_layout_endpoint(const CoreState& state, cons
                                                     CableContinuityPolicyHint continuity_preference,
                                                     CurvePassMode pass_mode, CurveEndpointMode endpoint_mode,
                                                     std::uint64_t flow_key, BackboneFlowKind flow_kind,
-                                                    int resolved_socket_id, double automatic_branch_down_offset_m,
+                                                    int resolved_socket_id, bool socket_override_active,
+                                                    double automatic_branch_down_offset_m,
                                                     const HierarchicalVariationSample& down_offset_variation,
                                                     double resolved_branch_down_offset_m,
                                                     bool is_start_endpoint) {
@@ -385,13 +409,13 @@ SupportLayoutEndpoint build_support_layout_endpoint(const CoreState& state, cons
   endpoint.endpoint_node_id = is_start_endpoint ? span.endpoint_node_a_id : span.endpoint_node_b_id;
   endpoint.owner_pole_id = port.owner_pole_id;
   endpoint.port_id = port.id;
-  endpoint.attachment_id = is_start_endpoint ? span.endpoint_attachment_a_id : span.endpoint_attachment_b_id;
-  endpoint.socket_id = resolved_socket_id;
+  const ObjectId attachment_id = is_start_endpoint ? span.endpoint_attachment_a_id : span.endpoint_attachment_b_id;
   endpoint.flow_kind = flow_kind;
   endpoint.origin = support_layout_origin_from_port(port);
-  endpoint.attachment_input_present = endpoint.attachment_id != kInvalidObjectId;
-  endpoint.socket_override_active =
-      is_start_endpoint ? (span.endpoint_socket_a_id >= 0) : (span.endpoint_socket_b_id >= 0);
+  endpoint.attachment_request = make_endpoint_attachment_request(attachment_id, resolved_socket_id, socket_override_active);
+  if (resolved_socket_id >= 0) {
+    endpoint.resolved_socket_id = resolved_socket_id;
+  }
   endpoint.port_source = port.placement_source;
   endpoint.side = port.template_side;
   endpoint.support_world = port.world_position;
@@ -404,12 +428,14 @@ SupportLayoutEndpoint build_support_layout_endpoint(const CoreState& state, cons
       min_bend_radius_hint_m, continuity_preference, pass_mode, span.placement_context, endpoint_mode,
       !is_start_endpoint);
   const bool applied_attachment_socket =
-      apply_endpoint_attachment_socket(state, endpoint.attachment_id, endpoint.socket_id, &constraint);
+      endpoint.attachment_request.attachment_id.has_value() && endpoint.resolved_socket_id.has_value() &&
+      apply_endpoint_attachment_socket(state, *endpoint.attachment_request.attachment_id, *endpoint.resolved_socket_id,
+                                       &constraint);
   if (applied_attachment_socket) {
-    endpoint.endpoint_source = endpoint.socket_override_active
+    endpoint.endpoint_source = socket_override_active
                                    ? SupportLayoutEndpointSourceKind::kAttachmentSocketOverride
                                    : SupportLayoutEndpointSourceKind::kAttachmentSocket;
-  } else if (endpoint.attachment_input_present || endpoint.socket_id >= 0) {
+  } else if (endpoint.attachment_request.kind != EndpointAttachmentRequestKind::kNone) {
     endpoint.endpoint_source = SupportLayoutEndpointSourceKind::kFallback;
   } else {
     endpoint.endpoint_source = SupportLayoutEndpointSourceKind::kPlainSupport;
@@ -1094,6 +1120,8 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
   layout.variation_flow_key = inputs.variation_flow_key;
   const int resolved_socket_a = resolve_span_endpoint_socket_id(span, true);
   const int resolved_socket_b = resolve_span_endpoint_socket_id(span, false);
+  const bool socket_override_a = has_span_endpoint_socket_override(span.id, true);
+  const bool socket_override_b = has_span_endpoint_socket_override(span.id, false);
   HierarchicalVariationSample down_offset_variation_a{};
   HierarchicalVariationSample down_offset_variation_b{};
   const double automatic_branch_down_offset_a =
@@ -1105,12 +1133,12 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
   layout.start = build_support_layout_endpoint(
       *this, span, *port_a, pole_a, chord_dir, inputs.basis_length, endpoint_offset_m, inputs.effective_sag_ratio,
       inputs.bend_stiffness_hint, inputs.min_bend_radius_hint_m, inputs.continuity_preference, inputs.pass_mode,
-      inputs.endpoint_mode, inputs.variation_flow_key, inputs.flow_kind, resolved_socket_a,
+      inputs.endpoint_mode, inputs.variation_flow_key, inputs.flow_kind, resolved_socket_a, socket_override_a,
       automatic_branch_down_offset_a, down_offset_variation_a, resolved_branch_down_offset_a, true);
   layout.end = build_support_layout_endpoint(
       *this, span, *port_b, pole_b, chord_dir, inputs.basis_length, endpoint_offset_m, inputs.effective_sag_ratio,
       inputs.bend_stiffness_hint, inputs.min_bend_radius_hint_m, inputs.continuity_preference, inputs.pass_mode,
-      inputs.endpoint_mode, inputs.variation_flow_key, inputs.flow_kind, resolved_socket_b,
+      inputs.endpoint_mode, inputs.variation_flow_key, inputs.flow_kind, resolved_socket_b, socket_override_b,
       automatic_branch_down_offset_b, down_offset_variation_b, resolved_branch_down_offset_b, false);
   return layout;
 }

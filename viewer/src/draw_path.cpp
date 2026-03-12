@@ -208,14 +208,14 @@ std::string GeneratedEndpointSourceSummaryLocal(const CoreState& state, const st
       continue;
     }
     const auto accumulate = [&](const wire::core::SupportLayoutEndpointView& endpoint) {
-      if (endpoint.attachment_input_present) {
+      if (endpoint.attachment_request.kind != wire::core::EndpointAttachmentRequestKind::kNone) {
         ++attachment_inputs;
       }
-      if (endpoint.endpoint_source == "PlainSupport") {
+      if (endpoint.endpoint_source == wire::core::SupportLayoutEndpointSourceKind::kPlainSupport) {
         ++plain;
-      } else if (endpoint.endpoint_source == "AttachmentSocket") {
+      } else if (endpoint.endpoint_source == wire::core::SupportLayoutEndpointSourceKind::kAttachmentSocket) {
         ++socket;
-      } else if (endpoint.endpoint_source == "AttachmentSocketOverride") {
+      } else if (endpoint.endpoint_source == wire::core::SupportLayoutEndpointSourceKind::kAttachmentSocketOverride) {
         ++socket_override;
       } else {
         ++fallback;

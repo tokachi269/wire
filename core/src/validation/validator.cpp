@@ -146,10 +146,6 @@ ValidationResult CoreState::Validate() const {
       result.issues.push_back({ValidationSeverity::kWarning, "PoleSideScaleOutOfRange",
                                "Pole side_scale is out of configured range", pole.id});
     }
-    if (!std::isfinite(pole.orientation_control.manual_yaw_deg)) {
-      result.issues.push_back(
-          {ValidationSeverity::kError, "PoleOrientationInvalid", "Pole manual yaw is non-finite", pole.id});
-    }
     if (pole.placement_mode == PlacementMode::kManual && !pole.user_edited) {
       result.issues.push_back({
           ValidationSeverity::kWarning,

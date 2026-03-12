@@ -1567,6 +1567,113 @@ bool test_backbone_branch_generation_preserves_existing_hv3_main_ports() {
   return before_center_ports == after_center_ports;
 }
 
+bool test_backbone_hv3_terminal_poles_use_distinct_template_slots() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec req{};
+  req.path.polyline = {{-12.0, 0.0, 0.0}, {12.0, 0.0, 0.0}};
+  req.interval_m = 1000.0;
+  req.pole_type_id = type_ids.front();
+  add_backbone_bundle(req, wire::core::BundleKind::kHighVoltage);
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  if (!generated.ok || generated.value.generated_span_ids.empty()) {
+    return false;
+  }
+
+  const ObjectId start_id = find_pole_id_by_position(state, {-12.0, 0.0, 0.0});
+  const ObjectId end_id = find_pole_id_by_position(state, {12.0, 0.0, 0.0});
+  if (start_id == wire::core::kInvalidObjectId || end_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  auto pole_uses_template_slots = [&](ObjectId pole_id) {
+    int total_hv_ports = 0;
+    for (const wire::core::Port& port : state.view().edit_state().ports.items()) {
+      if (port.owner_pole_id == pole_id && port.layer == wire::core::PortLayer::kHighVoltage) {
+        ++total_hv_ports;
+      }
+    }
+    if (total_hv_ports != 3) {
+      return false;
+    }
+
+    const wire::core::SegmentLaneAssignment* assignment_for_pole = nullptr;
+    for (const auto& assignment : state.view().last_lane_assignments()) {
+      if (assignment.pole_a_id == pole_id || assignment.pole_b_id == pole_id) {
+        assignment_for_pole = &assignment;
+        break;
+      }
+    }
+    if (assignment_for_pole == nullptr) {
+      return false;
+    }
+
+    const std::vector<ObjectId>& used_port_ids =
+        (assignment_for_pole->pole_a_id == pole_id) ? assignment_for_pole->port_ids_a : assignment_for_pole->port_ids_b;
+    if (used_port_ids.size() != 3) {
+      return false;
+    }
+
+    std::vector<const wire::core::Port*> hv_ports{};
+    hv_ports.reserve(used_port_ids.size());
+    std::unordered_set<int> slot_ids{};
+    for (ObjectId port_id : used_port_ids) {
+      const wire::core::Port* port = state.view().edit_state().ports.find(port_id);
+      if (port == nullptr || port->source_slot_id < 0 || !port->generated_from_template) {
+        return false;
+      }
+      hv_ports.push_back(port);
+      slot_ids.insert(port->source_slot_id);
+    }
+    if (slot_ids.size() != 3) {
+      return false;
+    }
+
+    const auto* pole = state.view().edit_state().poles.find(pole_id);
+    if (pole == nullptr) {
+      return false;
+    }
+    const wire::core::Vec3d axis{1.0, 0.0, 0.0};
+    const wire::core::Vec3d n = normalize_xy_safe(axis);
+    const wire::core::Vec3d p{-n.y, n.x, 0.0};
+    double min_along = std::numeric_limits<double>::infinity();
+    double max_along = -std::numeric_limits<double>::infinity();
+    double min_perp = std::numeric_limits<double>::infinity();
+    double max_perp = -std::numeric_limits<double>::infinity();
+    for (const wire::core::Port* port : hv_ports) {
+      const wire::core::Vec3d delta = port->world_position - pole->world_transform.position;
+      const double along = dot_xy(delta, n);
+      const double perp = dot_xy(delta, p);
+      min_along = std::min(min_along, along);
+      max_along = std::max(max_along, along);
+      min_perp = std::min(min_perp, perp);
+      max_perp = std::max(max_perp, perp);
+    }
+    const double along_span = max_along - min_along;
+    const double perp_span = max_perp - min_perp;
+    if (along_span <= 0.2 || along_span <= perp_span * 2.0) {
+      return false;
+    }
+
+    for (const auto& record : state.view().slot_selection_debug_records()) {
+      if (record.pole_id != pole_id || record.category != wire::core::ConnectionCategory::kHighVoltage) {
+        continue;
+      }
+      if (record.selected_slot_id < 0 || record.result.find("fallback") != std::string::npos ||
+          !has_selected_slot_in_candidates(record)) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  return pole_uses_template_slots(start_id) && pole_uses_template_slots(end_id);
+}
+
 bool test_backbone_mixed_route_uses_edge_level_flow_classification() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
@@ -2032,9 +2139,10 @@ bool test_backbone_drawpath_plain_endpoint_fallback_without_attachment_input() {
       return false;
     }
     const auto check_endpoint = [](const wire::core::SupportLayoutEndpointView& endpoint) {
-      return endpoint.endpoint_source == "PlainSupport" && !endpoint.attachment_input_present &&
-             !endpoint.socket_override_active && endpoint.attachment_id == wire::core::kInvalidObjectId &&
-             endpoint.socket_id < 0;
+      return endpoint.endpoint_source == wire::core::SupportLayoutEndpointSourceKind::kPlainSupport &&
+             endpoint.attachment_request.kind == wire::core::EndpointAttachmentRequestKind::kNone &&
+             !endpoint.attachment_request.attachment_id.has_value() &&
+             !endpoint.attachment_request.requested_socket_id.has_value() && !endpoint.resolved_socket_id.has_value();
     };
     if (!check_endpoint(layout_view->start_endpoint) || !check_endpoint(layout_view->end_endpoint)) {
       return false;
@@ -2070,7 +2178,7 @@ bool test_backbone_drawpath_attachment_trace_reports_unconnected_input() {
     }
     return entry.summary.find("start=PlainSupport") != std::string::npos &&
            entry.summary.find("end=PlainSupport") != std::string::npos &&
-           entry.summary.find("input=none") != std::string::npos;
+           entry.summary.find("request=None") != std::string::npos;
   }
   return false;
 }
@@ -2415,6 +2523,9 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C136_Backbone_HV3MainPortsStableAfterBranch",
                          "Adding an HV3 branch keeps existing main-chain ports stable", "Invariant", false,
                          test_backbone_branch_generation_preserves_existing_hv3_main_ports);
+  test_registry::AddTest(tests, "C185_Backbone_HV3TerminalSlotsDistinct",
+                         "HV3 DrawPath terminals realize distinct template slots instead of fallback category ports",
+                         "Invariant", false, test_backbone_hv3_terminal_poles_use_distinct_template_slots);
   test_registry::AddTest(tests, "C138_Backbone_MixedRouteEdgeFlow",
                          "Mixed route classifies main and branch per edge instead of one route-level flow",
                          "Invariant", false, test_backbone_mixed_route_uses_edge_level_flow_classification);

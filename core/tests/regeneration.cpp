@@ -684,8 +684,8 @@ bool test_set_pole_flip180_updates_ports_and_dirty() {
   if (!has_dirty(runtime, DirtyBits::kGeometry)) {
     return false;
   }
-  const auto* pole = state.view().edit_state().poles.find(pole_a);
-  return pole != nullptr && pole->orientation_control.flip_180;
+  const auto pole_view = state.view().inspect_pole(pole_a);
+  return pole_view.has_value() && pole_view->flip_180_override.value_or(false);
 }
 
 void register_regeneration_tests(test_registry::TestRegistry& tests) {

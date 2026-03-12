@@ -2,14 +2,10 @@
 
 namespace wire::core::state_internal {
 
+// Runtime override resolution reads only the formal override store.
+
 bool OverrideResolutionService::HasPoleOrientationOverride(const CoreState& state, ObjectId pole_id) {
-  if (state.override_state_.pole_orientation_by_pole.contains(pole_id)) {
-    return true;
-  }
-  const Pole* pole = state.edit_state_.poles.find(pole_id);
-  return pole != nullptr &&
-         (pole->orientation_control.manual_yaw_override || pole->orientation_control.flip_180 ||
-          pole->orientation_override_flag);
+  return state.override_state_.pole_orientation_by_pole.contains(pole_id);
 }
 
 bool OverrideResolutionService::HasSpanEndpointSocketOverride(const CoreState& state, ObjectId span_id,
@@ -21,11 +17,7 @@ bool OverrideResolutionService::HasSpanEndpointSocketOverride(const CoreState& s
       return true;
     }
   }
-  const Span* span = state.edit_state_.spans.find(span_id);
-  if (span == nullptr) {
-    return false;
-  }
-  return is_start_endpoint ? (span->endpoint_socket_a_id >= 0) : (span->endpoint_socket_b_id >= 0);
+  return false;
 }
 
 bool OverrideResolutionService::HasSpanBranchDownOffsetOverride(const CoreState& state, ObjectId span_id) {
@@ -38,9 +30,6 @@ std::optional<double> OverrideResolutionService::ResolvePoleManualYawOverride(co
       it != state.override_state_.pole_orientation_by_pole.end() && it->second.manual_yaw_deg.has_value()) {
     return it->second.manual_yaw_deg;
   }
-  if (pole.orientation_control.manual_yaw_override) {
-    return pole.orientation_control.manual_yaw_deg;
-  }
   return std::nullopt;
 }
 
@@ -48,9 +37,6 @@ std::optional<bool> OverrideResolutionService::ResolvePoleFlip180Override(const 
   if (const auto it = state.override_state_.pole_orientation_by_pole.find(pole.id);
       it != state.override_state_.pole_orientation_by_pole.end() && it->second.flip_180.has_value()) {
     return it->second.flip_180;
-  }
-  if (pole.orientation_control.flip_180) {
-    return true;
   }
   return std::nullopt;
 }
@@ -64,7 +50,7 @@ int OverrideResolutionService::ResolveSpanEndpointSocketId(const CoreState& stat
       return *socket;
     }
   }
-  return is_start_endpoint ? span.endpoint_socket_a_id : span.endpoint_socket_b_id;
+  return -1;
 }
 
 double OverrideResolutionService::ResolveSpanBranchDownOffsetM(const CoreState& state, const Span& span,

@@ -68,6 +68,35 @@ const char* ContinuityPolicyLabel(wire::core::CableContinuityPolicyHint policy) 
   }
 }
 
+const char* SupportLayoutEndpointSourceLabel(wire::core::SupportLayoutEndpointSourceKind source) {
+  switch (source) {
+  case wire::core::SupportLayoutEndpointSourceKind::kPlainSupport:
+    return "PlainSupport";
+  case wire::core::SupportLayoutEndpointSourceKind::kAttachmentSocket:
+    return "AttachmentSocket";
+  case wire::core::SupportLayoutEndpointSourceKind::kAttachmentSocketOverride:
+    return "AttachmentSocketOverride";
+  case wire::core::SupportLayoutEndpointSourceKind::kFallback:
+  default:
+    return "Fallback";
+  }
+}
+
+const char* EndpointAttachmentRequestKindLabel(wire::core::EndpointAttachmentRequestKind kind) {
+  switch (kind) {
+  case wire::core::EndpointAttachmentRequestKind::kNone:
+    return "None";
+  case wire::core::EndpointAttachmentRequestKind::kAttachmentAuto:
+    return "AttachmentAuto";
+  case wire::core::EndpointAttachmentRequestKind::kAttachmentSocket:
+    return "AttachmentSocket";
+  case wire::core::EndpointAttachmentRequestKind::kDanglingSocket:
+    return "DanglingSocket";
+  default:
+    return "Unknown";
+  }
+}
+
 const char* DetailCurveContinuityModeLabel(wire::core::DetailCurveContinuityMode mode) {
   switch (mode) {
   case wire::core::DetailCurveContinuityMode::kG1:
@@ -882,6 +911,13 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
                   static_cast<unsigned long long>(pole_view->primary_neighbor_id),
                   static_cast<unsigned long long>(pole_view->secondary_neighbor_id));
       ImGui::Text("orientationOverride: %s", pole_view->orientation_override ? "true" : "false");
+      ImGui::Text("manualYawOverride: %s",
+                  pole_view->manual_yaw_override_deg.has_value() ? std::to_string(*pole_view->manual_yaw_override_deg).c_str()
+                                                                 : "auto");
+      ImGui::Text("flip180Override: %s",
+                  pole_view->flip_180_override.has_value()
+                      ? (*pole_view->flip_180_override ? "true" : "false")
+                      : "auto");
       ImGui::Text("autoYaw: %.2f", pole_view->automatic_yaw_deg);
       ImGui::Text("finalYaw: %.2f", pole_view->final_yaw_deg);
       ImGui::Text("layoutYaw: %.2f", pole_view->layout_yaw_deg);
@@ -1007,19 +1043,27 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
       if (layout_view.has_value()) {
         auto draw_support_endpoint = [&](const char* label, const wire::core::SupportLayoutEndpointView& endpoint) {
           ImGui::Text("%s: %s src=%s flow=%s port=%s mode=%s", label, endpoint.origin.c_str(),
-                      endpoint.endpoint_source.c_str(),
+                      SupportLayoutEndpointSourceLabel(endpoint.endpoint_source),
                       BackboneFlowKindLabel(endpoint.flow_kind), endpoint.port_source.c_str(),
                       endpoint.endpoint_mode.c_str());
           ImGui::Text("  endpoint=%.2f %.2f %.2f departure=%.2f %.2f %.2f", endpoint.endpoint_world.x,
                       endpoint.endpoint_world.y, endpoint.endpoint_world.z, endpoint.departure_dir.x,
                       endpoint.departure_dir.y, endpoint.departure_dir.z);
-          ImGui::Text("  support=%.2f %.2f %.2f dep=%.2f down=%.2f autoDown=%.2f attach=%llu socket=%d",
+          ImGui::Text("  support=%.2f %.2f %.2f dep=%.2f down=%.2f autoDown=%.2f",
                       endpoint.support_world.x, endpoint.support_world.y, endpoint.support_world.z,
                       endpoint.local_departure_length_m, endpoint.branch_down_offset_m,
-                      endpoint.automatic_branch_down_offset_m, static_cast<unsigned long long>(endpoint.attachment_id),
-                      endpoint.socket_id);
-          ImGui::Text("  input=%s socketOverride=%s", endpoint.attachment_input_present ? "attachment" : "none",
-                      endpoint.socket_override_active ? "true" : "false");
+                      endpoint.automatic_branch_down_offset_m);
+          ImGui::Text("  request=%s attach=%s requestedSocket=%s resolvedSocket=%s",
+                      EndpointAttachmentRequestKindLabel(endpoint.attachment_request.kind),
+                      endpoint.attachment_request.attachment_id.has_value()
+                          ? std::to_string(static_cast<unsigned long long>(*endpoint.attachment_request.attachment_id)).c_str()
+                          : "none",
+                      endpoint.attachment_request.requested_socket_id.has_value()
+                          ? std::to_string(*endpoint.attachment_request.requested_socket_id).c_str()
+                          : "none",
+                      endpoint.resolved_socket_id.has_value()
+                          ? std::to_string(*endpoint.resolved_socket_id).c_str()
+                          : "none");
           ImGui::Text("  variation: flow=%llu final=%.3f world=%.3f flow=%.3f pole=%.3f local=%.3f",
                       static_cast<unsigned long long>(endpoint.down_offset_variation.flow_key),
                       endpoint.down_offset_variation.final_value, endpoint.down_offset_variation.world_bias,
@@ -1160,15 +1204,21 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
                 static_cast<unsigned long long>(layout_view->variation_flow_key));
     auto draw_endpoint = [&](const char* label, const wire::core::SupportLayoutEndpointView& endpoint) {
       ImGui::Text("%s origin=%s source=%s flow=%s port=%s", label, endpoint.origin.c_str(),
-                  endpoint.endpoint_source.c_str(),
+                  SupportLayoutEndpointSourceLabel(endpoint.endpoint_source),
                   BackboneFlowKindLabel(endpoint.flow_kind), endpoint.port_source.c_str());
       ImGui::Text("  endpoint=%.2f %.2f %.2f", endpoint.endpoint_world.x, endpoint.endpoint_world.y, endpoint.endpoint_world.z);
       ImGui::Text("  departure=%.2f %.2f %.2f localDep=%.2f", endpoint.departure_dir.x, endpoint.departure_dir.y,
                   endpoint.departure_dir.z, endpoint.local_departure_length_m);
-      ImGui::Text("  downOffset=%.2f attach=%llu socket=%d input=%s override=%s", endpoint.branch_down_offset_m,
-                  static_cast<unsigned long long>(endpoint.attachment_id), endpoint.socket_id,
-                  endpoint.attachment_input_present ? "attachment" : "none",
-                  endpoint.socket_override_active ? "true" : "false");
+      ImGui::Text("  downOffset=%.2f request=%s attach=%s requestedSocket=%s resolvedSocket=%s",
+                  endpoint.branch_down_offset_m, EndpointAttachmentRequestKindLabel(endpoint.attachment_request.kind),
+                  endpoint.attachment_request.attachment_id.has_value()
+                      ? std::to_string(static_cast<unsigned long long>(*endpoint.attachment_request.attachment_id)).c_str()
+                      : "none",
+                  endpoint.attachment_request.requested_socket_id.has_value()
+                      ? std::to_string(*endpoint.attachment_request.requested_socket_id).c_str()
+                      : "none",
+                  endpoint.resolved_socket_id.has_value() ? std::to_string(*endpoint.resolved_socket_id).c_str()
+                                                          : "none");
     };
     draw_endpoint("start", layout_view->start_endpoint);
     draw_endpoint("end", layout_view->end_endpoint);
@@ -1199,11 +1249,23 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
     ImGui::Text("tangentRule: %s / %s", DetailCurveEndpointTangentRuleLabel(curve_view->start_tangent_rule),
                 DetailCurveEndpointTangentRuleLabel(curve_view->end_tangent_rule));
     ImGui::Text("lateralSuppression: %.2f", curve_view->lateral_suppression);
-    ImGui::Text("endpointSource: %s / %s", curve_view->start_endpoint_source.c_str(),
-                curve_view->end_endpoint_source.c_str());
-    ImGui::Text("endpointInput: %s[%d] / %s[%d]",
-                curve_view->start_attachment_input_present ? "attachment" : "none", curve_view->start_socket_id,
-                curve_view->end_attachment_input_present ? "attachment" : "none", curve_view->end_socket_id);
+    ImGui::Text("endpointSource: %s / %s", SupportLayoutEndpointSourceLabel(curve_view->start_endpoint_source),
+                SupportLayoutEndpointSourceLabel(curve_view->end_endpoint_source));
+    ImGui::Text("endpointRequest: %s[%s -> %s] / %s[%s -> %s]",
+                EndpointAttachmentRequestKindLabel(curve_view->start_attachment_request.kind),
+                curve_view->start_attachment_request.requested_socket_id.has_value()
+                    ? std::to_string(*curve_view->start_attachment_request.requested_socket_id).c_str()
+                    : "none",
+                curve_view->start_resolved_socket_id.has_value()
+                    ? std::to_string(*curve_view->start_resolved_socket_id).c_str()
+                    : "none",
+                EndpointAttachmentRequestKindLabel(curve_view->end_attachment_request.kind),
+                curve_view->end_attachment_request.requested_socket_id.has_value()
+                    ? std::to_string(*curve_view->end_attachment_request.requested_socket_id).c_str()
+                    : "none",
+                curve_view->end_resolved_socket_id.has_value()
+                    ? std::to_string(*curve_view->end_resolved_socket_id).c_str()
+                    : "none");
     DrawRelatedLinks(ui_state, curve_view->links);
     return;
   }
@@ -1593,7 +1655,7 @@ void DrawDetailModePanel(CoreState& state, ViewerUiState& ui_state) {
     ImGui::EndCombo();
   }
   ImGui::Text("UserEditedPole: %s", detail.pole->user_edited ? "true" : "false");
-  bool flip_180 = detail.pole->orientation_control.flip_180;
+  bool flip_180 = state.resolve_pole_flip_180_override(*detail.pole).value_or(false);
   if (ImGui::Checkbox("Flip 180", &flip_180)) {
     const auto flip_result = state.SetPoleFlip180(ui_state.selected_id, flip_180);
     if (!flip_result.ok) {

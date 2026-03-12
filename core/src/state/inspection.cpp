@@ -104,6 +104,21 @@ const char* SupportLayoutEndpointSourceText(SupportLayoutEndpointSourceKind sour
   }
 }
 
+const char* EndpointAttachmentRequestKindText(EndpointAttachmentRequestKind kind) {
+  switch (kind) {
+  case EndpointAttachmentRequestKind::kNone:
+    return "None";
+  case EndpointAttachmentRequestKind::kAttachmentAuto:
+    return "AttachmentAuto";
+  case EndpointAttachmentRequestKind::kAttachmentSocket:
+    return "AttachmentSocket";
+  case EndpointAttachmentRequestKind::kDanglingSocket:
+    return "DanglingSocket";
+  default:
+    return "Unknown";
+  }
+}
+
 const char* PortPlacementSourceText(PortPlacementSourceKind source) {
   switch (source) {
   case PortPlacementSourceKind::kUnknown:
@@ -291,14 +306,12 @@ SupportLayoutEndpointView MakeSupportLayoutEndpointView(const SupportLayoutEndpo
   view.endpoint_node_id = endpoint.endpoint_node_id;
   view.owner_pole_id = endpoint.owner_pole_id;
   view.port_id = endpoint.port_id;
-  view.attachment_id = endpoint.attachment_id;
-  view.socket_id = endpoint.socket_id;
+  view.attachment_request = endpoint.attachment_request;
+  view.resolved_socket_id = endpoint.resolved_socket_id;
   view.flow_kind = endpoint.flow_kind;
   view.side = endpoint.side;
   view.origin = SupportLayoutOriginText(endpoint.origin);
-  view.endpoint_source = SupportLayoutEndpointSourceText(endpoint.endpoint_source);
-  view.attachment_input_present = endpoint.attachment_input_present;
-  view.socket_override_active = endpoint.socket_override_active;
+  view.endpoint_source = endpoint.endpoint_source;
   view.port_source = PortPlacementSourceText(endpoint.port_source);
   view.endpoint_mode = CurveEndpointModeText(endpoint.endpoint_mode);
   view.support_world = endpoint.support_world;
@@ -393,9 +406,8 @@ std::optional<PoleInspectionView> CoreView::inspect_pole(ObjectId pole_id) const
   result.height_m = pole->height_m;
   result.tilt_deg = {pole->world_transform.rotation_euler_deg.x, pole->world_transform.rotation_euler_deg.y,
                      pole->world_transform.rotation_euler_deg.z};
-  result.manual_yaw_override = state_.resolve_pole_manual_yaw_override(*pole).has_value();
-  result.manual_yaw_deg = state_.resolve_pole_manual_yaw_override(*pole).value_or(0.0);
-  result.flip_180_override = state_.resolve_pole_flip_180_override(*pole).value_or(false);
+  result.manual_yaw_override_deg = state_.resolve_pole_manual_yaw_override(*pole);
+  result.flip_180_override = state_.resolve_pole_flip_180_override(*pole);
   result.placement_override = pole->placement_override_flag;
   result.orientation_override = state_.has_pole_orientation_override(pole_id);
   result.final_yaw_deg = state_.effective_pole_yaw_deg(*pole);
@@ -578,12 +590,12 @@ std::optional<DetailCurveInspectionView> CoreView::inspect_detail_curve(ObjectId
   result.end_lateral_ratio_limit = curve->detail.quality.end_lateral_ratio_limit;
   result.lateral_suppression = curve->detail.quality.lateral_suppression;
   if (const SpanSupportLayoutEntry* layout = find_span_support_layout(span_id); layout != nullptr) {
-    result.start_endpoint_source = SupportLayoutEndpointSourceText(layout->start.endpoint_source);
-    result.end_endpoint_source = SupportLayoutEndpointSourceText(layout->end.endpoint_source);
-    result.start_attachment_input_present = layout->start.attachment_input_present;
-    result.end_attachment_input_present = layout->end.attachment_input_present;
-    result.start_socket_id = layout->start.socket_id;
-    result.end_socket_id = layout->end.socket_id;
+    result.start_endpoint_source = layout->start.endpoint_source;
+    result.end_endpoint_source = layout->end.endpoint_source;
+    result.start_attachment_request = layout->start.attachment_request;
+    result.end_attachment_request = layout->end.attachment_request;
+    result.start_resolved_socket_id = layout->start.resolved_socket_id;
+    result.end_resolved_socket_id = layout->end.resolved_socket_id;
   }
   result.sag_base_ratio = curve->detail.quality.sag_base_ratio;
   result.sag_length_scale = curve->detail.quality.sag_length_scale;
@@ -881,13 +893,15 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
       trace.push_back({DecisionTraceTopic::kSupportLayoutSelection, FlowKindText(layout->flow_kind), summary.str()});
       std::ostringstream endpoint_summary;
       endpoint_summary << "start=" << SupportLayoutEndpointSourceText(layout->start.endpoint_source)
-                       << " input=" << (layout->start.attachment_input_present ? "attachment" : "none")
-                       << " socket=" << layout->start.socket_id
-                       << " override=" << BoolText(layout->start.socket_override_active)
+                       << " request=" << EndpointAttachmentRequestKindText(layout->start.attachment_request.kind)
+                       << " socket="
+                       << (layout->start.resolved_socket_id.has_value() ? std::to_string(*layout->start.resolved_socket_id)
+                                                                        : "none")
                        << " end=" << SupportLayoutEndpointSourceText(layout->end.endpoint_source)
-                       << " input=" << (layout->end.attachment_input_present ? "attachment" : "none")
-                       << " socket=" << layout->end.socket_id
-                       << " override=" << BoolText(layout->end.socket_override_active);
+                       << " request=" << EndpointAttachmentRequestKindText(layout->end.attachment_request.kind)
+                       << " socket="
+                       << (layout->end.resolved_socket_id.has_value() ? std::to_string(*layout->end.resolved_socket_id)
+                                                                      : "none");
       trace.push_back(
           {DecisionTraceTopic::kSupportLayoutSelection, "AttachmentEndpointSelection", endpoint_summary.str()});
       if (state_.has_span_branch_down_offset_override(span_id)) {

@@ -61,6 +61,11 @@ std::vector<ObjectId> CoreState::GetSpansByBundle(ObjectId bundle_id) const {
 }
 
 EditResult<CoreState::ResolveBranchPickResult>
+CoreState::ResolveBranchPick(const PickResult& pick) {
+  return ResolveBranchPick(pick, ResolveBranchPickOptions{});
+}
+
+EditResult<CoreState::ResolveBranchPickResult>
 CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOptions& options) {
   EditResult<ResolveBranchPickResult> result{};
   if (options.snap_radius_world < 0.0) {

@@ -8,6 +8,7 @@
 
 #include "wire/core/debug_types.hpp"
 #include "wire/core/detail_curve.hpp"
+#include "wire/core/endpoint_resolution.hpp"
 #include "wire/core/entities.hpp"
 #include "wire/core/id.hpp"
 #include "wire/core/types.hpp"
@@ -132,9 +133,8 @@ struct PoleInspectionView {
   Vec3d forward_dir{};
   bool has_forward = false;
   Vec3d tilt_deg{};
-  bool manual_yaw_override = false;
-  double manual_yaw_deg = 0.0;
-  bool flip_180_override = false;
+  std::optional<double> manual_yaw_override_deg{};
+  std::optional<bool> flip_180_override{};
   bool has_final_yaw = false;
   double automatic_yaw_deg = 0.0;
   double final_yaw_deg = 0.0;
@@ -181,14 +181,12 @@ struct SupportLayoutEndpointView {
   ObjectId endpoint_node_id = kInvalidObjectId;
   ObjectId owner_pole_id = kInvalidObjectId;
   ObjectId port_id = kInvalidObjectId;
-  ObjectId attachment_id = kInvalidObjectId;
-  int socket_id = -1;
+  EndpointAttachmentRequest attachment_request{};
+  std::optional<int> resolved_socket_id{};
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
   SlotSide side = SlotSide::kCenter;
   std::string origin{};
-  std::string endpoint_source{};
-  bool attachment_input_present = false;
-  bool socket_override_active = false;
+  SupportLayoutEndpointSourceKind endpoint_source = SupportLayoutEndpointSourceKind::kFallback;
   std::string port_source{};
   std::string endpoint_mode{};
   Vec3d support_world{};
@@ -246,12 +244,12 @@ struct DetailCurveInspectionView {
   double start_lateral_ratio_limit = 0.0;
   double end_lateral_ratio_limit = 0.0;
   double lateral_suppression = 0.0;
-  std::string start_endpoint_source{};
-  std::string end_endpoint_source{};
-  bool start_attachment_input_present = false;
-  bool end_attachment_input_present = false;
-  int start_socket_id = -1;
-  int end_socket_id = -1;
+  SupportLayoutEndpointSourceKind start_endpoint_source = SupportLayoutEndpointSourceKind::kFallback;
+  SupportLayoutEndpointSourceKind end_endpoint_source = SupportLayoutEndpointSourceKind::kFallback;
+  EndpointAttachmentRequest start_attachment_request{};
+  EndpointAttachmentRequest end_attachment_request{};
+  std::optional<int> start_resolved_socket_id{};
+  std::optional<int> end_resolved_socket_id{};
   double sag_base_ratio = 0.0;
   double sag_length_scale = 1.0;
   double sag_pass_scale = 1.0;

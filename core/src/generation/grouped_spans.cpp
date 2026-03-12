@@ -481,6 +481,10 @@ CoreState::generate_grouped_spans_between_support_nodes(
       request.category = category;
       request.connection_context = ConnectionContext::kTrunkContinue;
       request.branch_index = static_cast<std::uint32_t>(segment_index);
+      // Grouped lane generation must be able to realize template slot ports on first use.
+      // Otherwise HV/LV multi-lane endpoints fall back to a single generated/existing category port
+      // and collapse distinct lanes at route terminals.
+      request.allow_generate_port = true;
       if (const Pole* p = pole; p != nullptr) {
         request.pole_context = p->context.kind;
         request.corner_angle_deg = p->context.corner_angle_deg;
@@ -570,6 +574,33 @@ CoreState::generate_grouped_spans_between_support_nodes(
       }
     }
 
+    auto side_rank = [](SlotSide side) -> int {
+      switch (side) {
+      case SlotSide::kLeft:
+        return 0;
+      case SlotSide::kCenter:
+        return 1;
+      case SlotSide::kRight:
+        return 2;
+      default:
+        return 3;
+      }
+    };
+    auto local_y_of = [&](const Port* p) -> double {
+      if (p == nullptr || pole == nullptr) {
+        return 0.0;
+      }
+      return WorldPointToLocal(BuildPoleFrame(pole->world_transform, layout_yaw_for_pole(*pole)), p->world_position).y;
+    };
+    auto order_key = [&](const Port* p) -> std::tuple<double, int, int, int, int, ObjectId> {
+      if (p == nullptr) {
+        return {0.0, 1, 999, 999999, 999999, kInvalidObjectId};
+      }
+      const bool has_template_slot = p->source_slot_id >= 0;
+      return {local_y_of(p), has_template_slot ? 0 : 1, p->template_layer, side_rank(p->template_side),
+              has_template_slot ? p->source_slot_id : 999999, p->id};
+    };
+
     const bool use_scaffold_layout =
         maintain_lane_order && bundle_template_id == BundleKind::kHighVoltage && lane_count > 1;
     if (use_scaffold_layout && pole != nullptr) {
@@ -583,21 +614,43 @@ CoreState::generate_grouped_spans_between_support_nodes(
       const Vec3d stable_side_axis = canonical_side_axis_for_order(node_id, peer_id);
       const auto it_index = node_index_by_id.find(node_id);
       const std::size_t node_index = (it_index == node_index_by_id.end()) ? node_ids.size() : it_index->second;
-      auto desired_world_for_target = [&](double target_y) {
-          const Vec3d base = pole->world_transform.position;
-          if (!use_hv_scaffold_geometry || node_index == node_ids.size() || node_index == 0 ||
-              node_index + 1 >= node_ids.size()) {
-            const Vec3d local{0.0, target_y, pole->height_m * 0.8};
-            return local_to_world_on_pole_local(pole->world_transform, layout_yaw_for_pole(*pole), local);
+      const bool is_terminal_node = (node_index == 0 || node_index + 1 >= node_ids.size());
+      if (is_terminal_node) {
+        auto terminal_order_key = [&](const Port* p) -> std::tuple<int, int, int, double, ObjectId> {
+          if (p == nullptr) {
+            return {1, 999999, 999, 0.0, kInvalidObjectId};
           }
+          const bool has_template_slot = p->source_slot_id >= 0;
+          return {has_template_slot ? 0 : 1, has_template_slot ? p->source_slot_id : 999999, p->template_layer,
+                  local_y_of(p), p->id};
+        };
+        std::sort(ports_result.value.begin(), ports_result.value.end(), [&](ObjectId a, ObjectId b) {
+          const Port* pa = edit_state_access().ports.find(a);
+          const Port* pb = edit_state_access().ports.find(b);
+          return terminal_order_key(pa) < terminal_order_key(pb);
+        });
+        if (static_cast<int>(ports_result.value.size()) > lane_count) {
+          ports_result.value.resize(static_cast<std::size_t>(lane_count));
+        }
+        node_lane_ports_cache[node_id] = ports_result.value;
+        ports_result.ok = true;
+        return ports_result;
+      }
+
+      auto desired_world_for_target = [&](double target_y) {
+        const Vec3d base = pole->world_transform.position;
+        if (!use_hv_scaffold_geometry || node_index == node_ids.size()) {
+          const Vec3d local{0.0, target_y, pole->height_m * 0.8};
+          return local_to_world_on_pole_local(pole->world_transform, layout_yaw_for_pole(*pole), local);
+        }
 
         const Vec3d prev = support_position(node_ids[node_index - 1]);
         const Vec3d next = support_position(node_ids[node_index + 1]);
-          if ((prev - base).x * (prev - base).x + (prev - base).y * (prev - base).y <= 1e-12 ||
-              (next - base).x * (next - base).x + (next - base).y * (next - base).y <= 1e-12) {
-            const Vec3d local{0.0, target_y, pole->height_m * 0.8};
-            return local_to_world_on_pole_local(pole->world_transform, layout_yaw_for_pole(*pole), local);
-          }
+        if ((prev - base).x * (prev - base).x + (prev - base).y * (prev - base).y <= 1e-12 ||
+            (next - base).x * (next - base).x + (next - base).y * (next - base).y <= 1e-12) {
+          const Vec3d local{0.0, target_y, pole->height_m * 0.8};
+          return local_to_world_on_pole_local(pole->world_transform, layout_yaw_for_pole(*pole), local);
+        }
 
         Vec3d dir_in = base - prev;
         Vec3d dir_out = next - base;
@@ -701,33 +754,6 @@ CoreState::generate_grouped_spans_between_support_nodes(
       ports_result.ok = true;
       return ports_result;
     }
-
-    auto side_rank = [](SlotSide side) -> int {
-      switch (side) {
-      case SlotSide::kLeft:
-        return 0;
-      case SlotSide::kCenter:
-        return 1;
-      case SlotSide::kRight:
-        return 2;
-      default:
-        return 3;
-      }
-    };
-    auto local_y_of = [&](const Port* p) -> double {
-      if (p == nullptr || pole == nullptr) {
-        return 0.0;
-      }
-      return WorldPointToLocal(BuildPoleFrame(pole->world_transform, layout_yaw_for_pole(*pole)), p->world_position).y;
-    };
-    auto order_key = [&](const Port* p) -> std::tuple<double, int, int, int, int, ObjectId> {
-      if (p == nullptr) {
-        return {0.0, 1, 999, 999999, 999999, kInvalidObjectId};
-      }
-      const bool has_template_slot = p->source_slot_id >= 0;
-      return {local_y_of(p), has_template_slot ? 0 : 1, p->template_layer, side_rank(p->template_side),
-              has_template_slot ? p->source_slot_id : 999999, p->id};
-    };
     std::sort(ports_result.value.begin(), ports_result.value.end(), [&](ObjectId a, ObjectId b) {
       const Port* pa = edit_state_access().ports.find(a);
       const Port* pb = edit_state_access().ports.find(b);

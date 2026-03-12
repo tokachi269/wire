@@ -112,6 +112,16 @@ target_link_libraries(
   rlimgui_static
 )
 
+if(MSVC)
+  # Avoid the noisy pwsh.exe probe in vcpkg's MSBuild applocal path while
+  # keeping DLL deployment enabled via vcpkg's built-in helper.
+  set_target_properties(
+    wire_viewer
+    PROPERTIES
+    VS_GLOBAL_VcpkgXUseBuiltInApplocalDeps "true"
+  )
+endif()
+
 add_executable(
   wire_viewer_tests
   src/backbone_plane.cpp
@@ -138,5 +148,13 @@ target_link_libraries(
   wire_core
   raylib
 )
+
+if(MSVC)
+  set_target_properties(
+    wire_viewer_tests
+    PROPERTIES
+    VS_GLOBAL_VcpkgXUseBuiltInApplocalDeps "true"
+  )
+endif()
 
 add_test(NAME wire_viewer_tests COMMAND wire_viewer_tests)

@@ -144,59 +144,6 @@ double normalize_yaw_deg(double yaw_deg) {
   return NormalizeYawDeg(yaw_deg);
 }
 
-double legacy_effective_pole_yaw_for_layout(const Pole& pole) {
-  double yaw = pole.world_transform.rotation_euler_deg.z;
-  if (pole.orientation_control.manual_yaw_override) {
-    yaw = pole.orientation_control.manual_yaw_deg;
-  }
-  if (pole.orientation_control.flip_180) {
-    yaw += 180.0;
-  }
-  return yaw;
-}
-
-bool attachment_socket_equals(const AttachmentSocketTemplate& a, const AttachmentSocketTemplate& b) {
-  const auto same_vec = [](const Vec3d& lhs, const Vec3d& rhs) {
-    return std::abs(lhs.x - rhs.x) <= 1e-12 && std::abs(lhs.y - rhs.y) <= 1e-12 && std::abs(lhs.z - rhs.z) <= 1e-12;
-  };
-  return a.id == b.id && same_vec(a.local_position, b.local_position) && same_vec(a.tangent_dir, b.tangent_dir) &&
-         a.has_normal == b.has_normal && same_vec(a.normal_dir, b.normal_dir) &&
-         a.has_binormal == b.has_binormal && same_vec(a.binormal_dir, b.binormal_dir) && a.kind == b.kind;
-}
-
-bool attachment_internal_path_equals(const AttachmentInternalPathTemplate& a, const AttachmentInternalPathTemplate& b) {
-  if (a.start_socket_id != b.start_socket_id || a.end_socket_id != b.end_socket_id ||
-      a.local_points.size() != b.local_points.size()) {
-    return false;
-  }
-  for (std::size_t i = 0; i < a.local_points.size(); ++i) {
-    const Vec3d& lhs = a.local_points[i];
-    const Vec3d& rhs = b.local_points[i];
-    if (std::abs(lhs.x - rhs.x) > 1e-12 || std::abs(lhs.y - rhs.y) > 1e-12 || std::abs(lhs.z - rhs.z) > 1e-12) {
-      return false;
-    }
-  }
-  return true;
-}
-
-bool attachment_template_equals(const AttachmentTemplate& a, const AttachmentTemplate& b) {
-  if (a.id != b.id || a.name != b.name || a.kind != b.kind || a.line_interaction_mode != b.line_interaction_mode ||
-      a.sockets.size() != b.sockets.size() || a.internal_paths.size() != b.internal_paths.size()) {
-    return false;
-  }
-  for (std::size_t i = 0; i < a.sockets.size(); ++i) {
-    if (!attachment_socket_equals(a.sockets[i], b.sockets[i])) {
-      return false;
-    }
-  }
-  for (std::size_t i = 0; i < a.internal_paths.size(); ++i) {
-    if (!attachment_internal_path_equals(a.internal_paths[i], b.internal_paths[i])) {
-      return false;
-    }
-  }
-  return true;
-}
-
 } // namespace
 
 CoreState::CoreState() {
@@ -599,8 +546,6 @@ EditResult<ObjectId> CoreState::SetPoleFlip180(ObjectId pole_id, bool flip_180) 
   const Pole old_pole = *pole;
   next.flip_180 = flip_180;
   override_state_.pole_orientation_by_pole[pole_id] = next;
-  pole->orientation_control.flip_180 = flip_180;
-  pole->orientation_override_flag = true;
   finalize_pole_transform_update(pole_id, old_pole, &result.change_set);
 
   result.ok = true;
@@ -630,9 +575,6 @@ EditResult<ObjectId> CoreState::SetPoleManualYawOverride(ObjectId pole_id, doubl
   const Pole old_pole = *pole;
   next.manual_yaw_deg = normalize_yaw_deg(manual_yaw_deg);
   override_state_.pole_orientation_by_pole[pole_id] = next;
-  pole->orientation_control.manual_yaw_override = true;
-  pole->orientation_control.manual_yaw_deg = *next.manual_yaw_deg;
-  pole->orientation_override_flag = true;
   pole->world_transform.rotation_euler_deg.z = *next.manual_yaw_deg;
   finalize_pole_transform_update(pole_id, old_pole, &result.change_set);
 
@@ -649,9 +591,7 @@ EditResult<ObjectId> CoreState::ClearPoleOrientationOverride(ObjectId pole_id) {
     return result;
   }
 
-  const bool had_override = override_state_.pole_orientation_by_pole.erase(pole_id) > 0 ||
-                            pole->orientation_control.manual_yaw_override || pole->orientation_control.flip_180 ||
-                            pole->orientation_override_flag;
+  const bool had_override = override_state_.pole_orientation_by_pole.erase(pole_id) > 0;
   if (!had_override) {
     result.ok = true;
     result.value = pole_id;
@@ -659,10 +599,6 @@ EditResult<ObjectId> CoreState::ClearPoleOrientationOverride(ObjectId pole_id) {
   }
 
   const Pole old_pole = *pole;
-  pole->orientation_control.manual_yaw_override = false;
-  pole->orientation_control.manual_yaw_deg = 0.0;
-  pole->orientation_control.flip_180 = false;
-  pole->orientation_override_flag = false;
   if (const auto it = pole_orientation_debug_records_.find(pole_id); it != pole_orientation_debug_records_.end()) {
     const Vec3d forward = it->second.adopted_forward;
     if ((forward.x * forward.x + forward.y * forward.y + forward.z * forward.z) > 1e-12) {
@@ -693,12 +629,6 @@ EditResult<ObjectId> CoreState::SetSpanEndpointSocketOverride(ObjectId span_id, 
   }
   slot = socket_id;
   override_state_.span_endpoint_by_span[span_id] = next;
-  if (is_start_endpoint) {
-    span->endpoint_socket_a_id = socket_id;
-  } else {
-    span->endpoint_socket_b_id = socket_id;
-  }
-  span->orientation_override_flag = true;
   mark_span_dirty(span_id, DirtyBits::kGeometry, true);
   add_unique_id(result.change_set.updated_ids, span_id);
   add_unique_id(result.change_set.dirty_span_ids, span_id);
@@ -723,13 +653,6 @@ EditResult<ObjectId> CoreState::ClearSpanEndpointSocketOverride(ObjectId span_id
     if (!it->second.socket_a_id.has_value() && !it->second.socket_b_id.has_value()) {
       override_state_.span_endpoint_by_span.erase(it);
     }
-  }
-  if (is_start_endpoint) {
-    changed = changed || span->endpoint_socket_a_id >= 0;
-    span->endpoint_socket_a_id = -1;
-  } else {
-    changed = changed || span->endpoint_socket_b_id >= 0;
-    span->endpoint_socket_b_id = -1;
   }
   if (!changed) {
     result.ok = true;
@@ -763,7 +686,6 @@ EditResult<ObjectId> CoreState::SetSpanBranchDownOffsetOverride(ObjectId span_id
   }
   next.branch_down_offset_m = branch_down_offset_m;
   override_state_.span_support_by_span[span_id] = next;
-  span->orientation_override_flag = true;
   mark_span_dirty(span_id, DirtyBits::kGeometry | DirtyBits::kRender, true);
   add_unique_id(result.change_set.updated_ids, span_id);
   add_unique_id(result.change_set.dirty_span_ids, span_id);
@@ -1023,6 +945,11 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
   result.ok = true;
   result.value = pole_id;
   return result;
+}
+
+EditResult<CoreState::AddConnectionByPoleResult>
+CoreState::AddConnectionByPole(ObjectId pole_a_id, ObjectId pole_b_id, ConnectionCategory category) {
+  return AddConnectionByPole(pole_a_id, pole_b_id, category, AddConnectionByPoleOptions{});
 }
 
 EditResult<CoreState::AddConnectionByPoleResult>
@@ -1411,239 +1338,21 @@ EditResult<bool> CoreState::UpdateVariationSettings(const VariationSettings& set
 
 EditResult<bool> CoreState::UpdateCableTemplate(const CableTemplate& cable_template,
                                                 const std::vector<ObjectId>& preferred_visible_span_ids) {
-  EditResult<bool> result;
-  auto it = cable_templates_.find(cable_template.id);
-  if (it == cable_templates_.end()) {
-    result.error = "cable template not found";
-    return result;
-  }
-
-  CableTemplate normalized = cable_template;
-  normalized.outer_diameter_m = std::max(0.0, normalized.outer_diameter_m);
-  normalized.bend_stiffness = std::max(0.0, normalized.bend_stiffness);
-  normalized.min_bend_radius_m = std::max(0.0, normalized.min_bend_radius_m);
-  normalized.sag_factor = std::max(0.0, normalized.sag_factor);
-  normalized.slack_factor = std::max(0.0, normalized.slack_factor);
-  normalized.version = it->second.version;
-
-  const bool changed =
-      normalized.name != it->second.name || std::abs(normalized.outer_diameter_m - it->second.outer_diameter_m) > 1e-12 ||
-      std::abs(normalized.bend_stiffness - it->second.bend_stiffness) > 1e-12 ||
-      std::abs(normalized.min_bend_radius_m - it->second.min_bend_radius_m) > 1e-12 ||
-      normalized.material_style != it->second.material_style || normalized.color_rgba != it->second.color_rgba ||
-      normalized.requires_insulator != it->second.requires_insulator ||
-      std::abs(normalized.sag_factor - it->second.sag_factor) > 1e-12 ||
-      std::abs(normalized.slack_factor - it->second.slack_factor) > 1e-12 ||
-      normalized.continuity_policy != it->second.continuity_policy ||
-      normalized.attachment_style != it->second.attachment_style;
-  if (!changed) {
-    result.ok = true;
-    result.value = false;
-    return result;
-  }
-
-  normalized.version += 1;
-  it->second = normalized;
-  result.ok = true;
-  result.value = true;
-
-  std::vector<ObjectId> ordered_target_span_ids{};
-  std::unordered_set<ObjectId> target_span_ids{};
-  ordered_target_span_ids.reserve(preferred_visible_span_ids.size() + relation_index_.spans_by_bundle.size());
-  for (ObjectId span_id : preferred_visible_span_ids) {
-    if (target_span_ids.insert(span_id).second) {
-      ordered_target_span_ids.push_back(span_id);
-    }
-  }
-  for (const auto& [bundle_id, span_ids] : relation_index_.spans_by_bundle) {
-    const Bundle* bundle = edit_state_.bundles.find(bundle_id);
-    if (bundle == nullptr) {
-      continue;
-    }
-    const BundleTemplate* bundle_template = find_bundle_template(bundle->bundle_template_id);
-    if (bundle_template == nullptr || bundle_template->cable_template_id != normalized.id) {
-      continue;
-    }
-    for (ObjectId span_id : span_ids) {
-      if (target_span_ids.insert(span_id).second) {
-        ordered_target_span_ids.push_back(span_id);
-      }
-    }
-  }
-  for (ObjectId span_id : ordered_target_span_ids) {
-    mark_span_dirty(span_id, DirtyBits::kGeometry | DirtyBits::kRender, true);
-    add_unique_id(result.change_set.dirty_span_ids, span_id);
-    add_unique_id(result.change_set.updated_ids, span_id);
-  }
-  return result;
+  return state_internal::TemplateMutationService::UpdateCableTemplate(*this, cable_template, preferred_visible_span_ids);
 }
 
 EditResult<bool> CoreState::UpdateBundleTemplate(const BundleTemplate& bundle_template) {
-  EditResult<bool> result;
-  auto it = bundle_templates_.find(bundle_template.id);
-  if (it == bundle_templates_.end()) {
-    result.error = "bundle template not found";
-    return result;
-  }
-  if (find_cable_template(bundle_template.cable_template_id) == nullptr) {
-    result.error = "bundle template references unknown cable template";
-    return result;
-  }
-
-  BundleTemplate normalized = bundle_template;
-  normalized.version = it->second.version;
-  bool changed = false;
-  const bool visual_only_change =
-      normalized.cable_template_id != it->second.cable_template_id && normalized.category == it->second.category &&
-      normalized.default_layer == it->second.default_layer &&
-      normalized.preserve_conductor_identity == it->second.preserve_conductor_identity &&
-      normalized.count_rule == it->second.count_rule && normalized.fixed_count == it->second.fixed_count &&
-      normalized.min_count == it->second.min_count && normalized.max_count == it->second.max_count &&
-      normalized.default_count == it->second.default_count &&
-      std::abs(normalized.default_spacing_m - it->second.default_spacing_m) <= 1e-12 &&
-      normalized.allow_mirror == it->second.allow_mirror &&
-      normalized.allow_midair_node == it->second.allow_midair_node &&
-      normalized.allow_midair_branch == it->second.allow_midair_branch &&
-      normalized.support_style == it->second.support_style && normalized.branch_policy == it->second.branch_policy &&
-      normalized.continuity_policy == it->second.continuity_policy && normalized.name == it->second.name;
-
-  const bool topology_change =
-      normalized.category != it->second.category || normalized.default_layer != it->second.default_layer ||
-      normalized.preserve_conductor_identity != it->second.preserve_conductor_identity ||
-      normalized.count_rule != it->second.count_rule || normalized.fixed_count != it->second.fixed_count ||
-      normalized.min_count != it->second.min_count || normalized.max_count != it->second.max_count ||
-      normalized.default_count != it->second.default_count ||
-      std::abs(normalized.default_spacing_m - it->second.default_spacing_m) > 1e-12 ||
-      normalized.allow_mirror != it->second.allow_mirror ||
-      normalized.allow_midair_node != it->second.allow_midair_node ||
-      normalized.allow_midair_branch != it->second.allow_midair_branch ||
-      normalized.support_style != it->second.support_style || normalized.branch_policy != it->second.branch_policy ||
-      normalized.continuity_policy != it->second.continuity_policy;
-
-  changed = visual_only_change || topology_change || normalized.name != it->second.name;
-  if (!changed) {
-    result.ok = true;
-    result.value = false;
-    return result;
-  }
-
-  normalized.version += 1;
-  it->second = normalized;
-  result.ok = true;
-  result.value = true;
-
-  template_dependency_state_.bundles_requiring_regeneration.clear();
-  template_dependency_state_.sessions_requiring_regeneration.clear();
-
-  for (Bundle& bundle : edit_state_.bundles.items_mutable()) {
-    if (bundle.bundle_template_id != normalized.id) {
-      continue;
-    }
-    add_unique_id(result.change_set.updated_ids, bundle.id);
-    if (visual_only_change) {
-      auto spans_it = relation_index_.spans_by_bundle.find(bundle.id);
-      if (spans_it == relation_index_.spans_by_bundle.end()) {
-        continue;
-      }
-      for (ObjectId span_id : spans_it->second) {
-        mark_span_dirty(span_id, DirtyBits::kGeometry | DirtyBits::kRender, true);
-        add_unique_id(result.change_set.dirty_span_ids, span_id);
-        add_unique_id(result.change_set.updated_ids, span_id);
-      }
-      continue;
-    }
-    if (topology_change) {
-      bundle.regeneration_required = true;
-      add_unique_id(template_dependency_state_.bundles_requiring_regeneration, bundle.id);
-      auto spans_it = relation_index_.spans_by_bundle.find(bundle.id);
-      if (spans_it == relation_index_.spans_by_bundle.end()) {
-        continue;
-      }
-      for (ObjectId span_id : spans_it->second) {
-        const Span* span = edit_state_.spans.find(span_id);
-        if (span == nullptr || span->generation.generation_session_id == 0) {
-          continue;
-        }
-        add_unique_id(template_dependency_state_.sessions_requiring_regeneration,
-                      span->generation.generation_session_id);
-      }
-    }
-  }
-  if (topology_change) {
-    for (ObjectId bundle_id : template_dependency_state_.bundles_requiring_regeneration) {
-      add_unique_id(result.change_set.updated_ids, bundle_id);
-    }
-  }
-  return result;
+  return state_internal::TemplateMutationService::UpdateBundleTemplate(*this, bundle_template);
 }
 
 EditResult<bool> CoreState::UpdateAttachmentTemplate(const AttachmentTemplate& attachment_template,
                                                      bool mark_dependent_spans_dirty) {
-  EditResult<bool> result;
-  auto it = attachment_templates_.find(attachment_template.id);
-  if (it == attachment_templates_.end()) {
-    result.error = "attachment template not found";
-    return result;
-  }
-
-  AttachmentTemplate normalized = attachment_template;
-  normalized.version = it->second.version;
-  const bool changed = !attachment_template_equals(normalized, it->second);
-  if (!changed) {
-    result.ok = true;
-    result.value = false;
-    return result;
-  }
-
-  normalized.version += 1;
-  it->second = normalized;
-  result.ok = true;
-  result.value = true;
-
-  if (!mark_dependent_spans_dirty) {
-    return result;
-  }
-  for (const Attachment& attachment : edit_state_.attachments.items()) {
-    if (attachment.template_id != normalized.id) {
-      continue;
-    }
-    mark_span_dirty(attachment.span_id, DirtyBits::kGeometry | DirtyBits::kRender, true);
-    add_unique_id(result.change_set.dirty_span_ids, attachment.span_id);
-    add_unique_id(result.change_set.updated_ids, attachment.span_id);
-  }
-  return result;
+  return state_internal::TemplateMutationService::UpdateAttachmentTemplate(*this, attachment_template,
+                                                                          mark_dependent_spans_dirty);
 }
 
 EditResult<bool> CoreState::ResetAllSpanReferenceLengths(bool mark_all_spans_dirty) {
-  EditResult<bool> result;
-  bool changed = false;
-  for (Span& span : edit_state_.spans.items_mutable()) {
-    const Port* a = edit_state_.ports.find(span.port_a_id);
-    const Port* b = edit_state_.ports.find(span.port_b_id);
-    if (a == nullptr || b == nullptr) {
-      continue;
-    }
-    const double dx = b->world_position.x - a->world_position.x;
-    const double dy = b->world_position.y - a->world_position.y;
-    const double dz = b->world_position.z - a->world_position.z;
-    const double length = std::sqrt(dx * dx + dy * dy + dz * dz);
-    if (std::abs(span.reference_length_m - length) <= 1e-9) {
-      continue;
-    }
-    span.reference_length_m = length;
-    changed = true;
-    add_unique_id(result.change_set.updated_ids, span.id);
-  }
-  if (changed && mark_all_spans_dirty) {
-    for (const Span& span : edit_state_.spans.items()) {
-      mark_span_dirty(span.id, DirtyBits::kGeometry | DirtyBits::kRender, true);
-      add_unique_id(result.change_set.dirty_span_ids, span.id);
-      add_unique_id(result.change_set.updated_ids, span.id);
-    }
-  }
-  result.ok = true;
-  result.value = changed;
-  return result;
+  return state_internal::TemplateMutationService::ResetAllSpanReferenceLengths(*this, mark_all_spans_dirty);
 }
 bool CoreState::has_pole_orientation_override(ObjectId pole_id) const {
   return state_internal::OverrideResolutionService::HasPoleOrientationOverride(*this, pole_id);

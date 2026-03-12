@@ -1567,15 +1567,20 @@ bool test_support_layout_attachment_socket_endpoint_matches_curve_input() {
   if (support_layout == nullptr || curve == nullptr || !layout_view.has_value() || !curve_view.has_value()) {
     return false;
   }
-  return support_layout->start.attachment_id == add_attachment.value && support_layout->start.socket_id == 1 &&
+  return support_layout->start.attachment_request.attachment_id == add_attachment.value &&
+         support_layout->start.attachment_request.requested_socket_id == 1 &&
+         support_layout->start.resolved_socket_id == 1 &&
          support_layout->start.endpoint_source ==
              wire::core::SupportLayoutEndpointSourceKind::kAttachmentSocketOverride &&
          support_layout->start.endpoint_mode == wire::core::CurveEndpointMode::kDirectThrough &&
          almost_equal(support_layout->start.endpoint_world, wire::core::Vec3d{0.12, 0.0, 4.2}, 1e-6) &&
          almost_equal(curve->detail.start_constraint.point, support_layout->start.endpoint_world, 1e-9) &&
-         layout_view->start_endpoint.endpoint_source == "AttachmentSocketOverride" &&
+         layout_view->start_endpoint.endpoint_source ==
+             wire::core::SupportLayoutEndpointSourceKind::kAttachmentSocketOverride &&
          curve_view->start_endpoint_source == layout_view->start_endpoint.endpoint_source &&
-         curve_view->start_attachment_input_present && curve_view->start_socket_id == 1;
+         curve_view->start_attachment_request.kind == wire::core::EndpointAttachmentRequestKind::kAttachmentSocket &&
+         curve_view->start_attachment_request.attachment_id == add_attachment.value &&
+         curve_view->start_resolved_socket_id == 1;
 }
 
 bool test_inspection_span_support_layout_detail_curve_surface_is_coherent() {
@@ -1747,7 +1752,7 @@ bool test_inspection_pole_template_override_and_junction_surfaces_are_visible() 
   if (!pole_view.has_value() || !template_view.has_value() || !override_view.has_value() || backbone.junctions.empty()) {
     return false;
   }
-  if (!pole_view->meta.editable || !pole_view->meta.overrideable || !pole_view->manual_yaw_override ||
+  if (!pole_view->meta.editable || !pole_view->meta.overrideable || !pole_view->manual_yaw_override_deg.has_value() ||
       !pole_view->orientation_override) {
     return false;
   }
@@ -1800,8 +1805,8 @@ bool test_pole_orientation_override_roundtrip_returns_to_auto() {
   const auto during = state.view().inspect_pole(pole_id);
   const auto override_view = state.view().inspect_overrides({wire::core::EntityKind::kPole, pole_id});
   const auto during_trace = state.view().collect_decision_trace({wire::core::EntityKind::kPole, pole_id});
-  if (!during.has_value() || !override_view.has_value() || !during->orientation_override || !during->manual_yaw_override ||
-      !during->flip_180_override) {
+  if (!during.has_value() || !override_view.has_value() || !during->orientation_override ||
+      !during->manual_yaw_override_deg.has_value() || !during->flip_180_override.value_or(false)) {
     return false;
   }
   bool has_override_trace = false;
@@ -1814,7 +1819,8 @@ bool test_pole_orientation_override_roundtrip_returns_to_auto() {
   }
   (void)state.Commit().recalc_stats;
   const auto after = state.view().inspect_pole(pole_id);
-  return after.has_value() && !after->orientation_override && !after->manual_yaw_override && !after->flip_180_override &&
+  return after.has_value() && !after->orientation_override && !after->manual_yaw_override_deg.has_value() &&
+         !after->flip_180_override.has_value() &&
          almost_equal(after->final_yaw_deg, auto_yaw_deg, 1e-6) && has_override_trace;
 }
 
@@ -1849,7 +1855,7 @@ bool test_span_socket_override_roundtrip_returns_to_auto() {
   }
   (void)state.Commit().recalc_stats;
   const auto* overridden_layout = state.view().find_span_support_layout(span);
-  if (overridden_layout == nullptr || overridden_layout->start.socket_id != 1 ||
+  if (overridden_layout == nullptr || overridden_layout->start.resolved_socket_id != 1 ||
       almost_equal(overridden_layout->start.endpoint_world, auto_endpoint, 1e-6)) {
     return false;
   }
@@ -1858,7 +1864,7 @@ bool test_span_socket_override_roundtrip_returns_to_auto() {
   }
   (void)state.Commit().recalc_stats;
   const auto* restored_layout = state.view().find_span_support_layout(span);
-  return restored_layout != nullptr && restored_layout->start.socket_id < 0 &&
+  return restored_layout != nullptr && !restored_layout->start.resolved_socket_id.has_value() &&
          almost_equal(restored_layout->start.endpoint_world, auto_endpoint, 1e-6);
 }
 

@@ -248,12 +248,6 @@ struct PoleContextInfo {
   Vec3d sharp_side_dir{};
 };
 
-struct PoleOrientationControl {
-  bool flip_180 = false;
-  bool manual_yaw_override = false;
-  double manual_yaw_deg = 0.0;
-};
-
 // Entity-layer support object.
 struct Pole {
   ObjectId id = kInvalidObjectId;
@@ -265,11 +259,9 @@ struct Pole {
   PoleKind kind = PoleKind::kGeneric;
   PoleTypeId pole_type_id = kInvalidPoleTypeId;
   PoleContextInfo context{};
-  PoleOrientationControl orientation_control{};
   PlacementMode placement_mode = PlacementMode::kAuto;
   bool user_edited = false;
   bool placement_override_flag = false;
-  bool orientation_override_flag = false;
   GenerationMeta generation{};
 };
 
@@ -336,12 +328,9 @@ struct Span {
   ObjectId anchor_b_id = kInvalidObjectId;
   ObjectId endpoint_attachment_a_id = kInvalidObjectId;
   ObjectId endpoint_attachment_b_id = kInvalidObjectId;
-  int endpoint_socket_a_id = -1;
-  int endpoint_socket_b_id = -1;
   ConnectionContext placement_context = ConnectionContext::kTrunkContinue;
   bool generated_by_rule = false;
   bool placement_override_flag = false;
-  bool orientation_override_flag = false;
   // Reference length to keep visual tension stable when poles tilt/move.
   double reference_length_m = 0.0;
   GenerationMeta generation{};

@@ -75,16 +75,7 @@ wire::core::Vec3d rotate_xy_by_yaw_test(const wire::core::Vec3d& local, double y
   return {local.x * c - local.y * s, local.x * s + local.y * c, local.z};
 }
 
-double effective_pole_yaw_deg_test(const wire::core::Pole& pole) {
-  double yaw = pole.world_transform.rotation_euler_deg.z;
-  if (pole.orientation_control.manual_yaw_override) {
-    yaw = pole.orientation_control.manual_yaw_deg;
-  }
-  if (pole.orientation_control.flip_180) {
-    yaw += 180.0;
-  }
-  return yaw;
-}
+double effective_pole_yaw_deg_test(const wire::core::Pole& pole) { return pole.world_transform.rotation_euler_deg.z; }
 
 wire::core::Vec3d to_local_on_pole_test(const wire::core::Pole& pole, const wire::core::Vec3d& world) {
   const wire::core::Vec3d delta = world - pole.world_transform.position;

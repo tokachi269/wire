@@ -9,6 +9,7 @@
 
 #include "wire/core/debug_types.hpp"
 #include "wire/core/detail_curve.hpp"
+#include "wire/core/endpoint_resolution.hpp"
 #include "wire/core/entities.hpp"
 #include "wire/core/id.hpp"
 #include "wire/core/inspection.hpp"
@@ -23,6 +24,7 @@ class CoreView;
 namespace state_internal {
 struct OverrideResolutionService;
 struct EndpointRefreshService;
+struct TemplateMutationService;
 }
 
 struct EditState {
@@ -104,24 +106,15 @@ enum class SupportLayoutOriginKind : std::uint8_t {
   kFallback = 3,
 };
 
-enum class SupportLayoutEndpointSourceKind : std::uint8_t {
-  kPlainSupport = 0,
-  kAttachmentSocket = 1,
-  kAttachmentSocketOverride = 2,
-  kFallback = 3,
-};
-
 struct SupportLayoutEndpoint {
   ObjectId endpoint_node_id = kInvalidObjectId;
   ObjectId owner_pole_id = kInvalidObjectId;
   ObjectId port_id = kInvalidObjectId;
-  ObjectId attachment_id = kInvalidObjectId;
-  int socket_id = -1;
+  EndpointAttachmentRequest attachment_request{};
+  std::optional<int> resolved_socket_id{};
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
   SupportLayoutOriginKind origin = SupportLayoutOriginKind::kFallback;
   SupportLayoutEndpointSourceKind endpoint_source = SupportLayoutEndpointSourceKind::kFallback;
-  bool attachment_input_present = false;
-  bool socket_override_active = false;
   PortPlacementSourceKind port_source = PortPlacementSourceKind::kUnknown;
   SlotSide side = SlotSide::kCenter;
   CurveEndpointMode endpoint_mode = CurveEndpointMode::kDirectThrough;
@@ -456,8 +449,10 @@ public:
   // When template/bundle is supplied in options, connection behavior is derived from that template,
   // and `category` is treated as a fallback label only.
   EditResult<AddConnectionByPoleResult> AddConnectionByPole(ObjectId pole_a_id, ObjectId pole_b_id,
+                                                            ConnectionCategory category);
+  EditResult<AddConnectionByPoleResult> AddConnectionByPole(ObjectId pole_a_id, ObjectId pole_b_id,
                                                             ConnectionCategory category,
-                                                            const AddConnectionByPoleOptions& options = {});
+                                                            const AddConnectionByPoleOptions& options);
   EditResult<AddDropResult> AddDropFromPole(ObjectId source_pole_id, const Vec3d& target_world_position,
                                             ConnectionCategory category = ConnectionCategory::kDrop);
   EditResult<AddDropResult> AddDropFromSpan(ObjectId source_span_id, double t, const Vec3d& target_world_position,
@@ -486,8 +481,9 @@ public:
     bool snapped_from_segment_endpoint = false;
   };
   // Interprets a viewer-side pick payload and updates support-node session state when needed.
+  EditResult<ResolveBranchPickResult> ResolveBranchPick(const PickResult& pick);
   EditResult<ResolveBranchPickResult> ResolveBranchPick(const PickResult& pick,
-                                                        const ResolveBranchPickOptions& options = {});
+                                                        const ResolveBranchPickOptions& options);
   EditResult<ObjectId> SetPolePlacementMode(ObjectId pole_id, PlacementMode mode);
   EditResult<ObjectId> SetPoleFlip180(ObjectId pole_id, bool flip_180);
   EditResult<ObjectId> SetPoleManualYawOverride(ObjectId pole_id, double manual_yaw_deg);
@@ -534,6 +530,7 @@ private:
   friend class CoreView;
   friend struct state_internal::OverrideResolutionService;
   friend struct state_internal::EndpointRefreshService;
+  friend struct state_internal::TemplateMutationService;
   void remove_span_from_indexes(const Span& span);
   void add_span_to_index(const Span& span);
   void initialize_span_runtime_state(ObjectId span_id);

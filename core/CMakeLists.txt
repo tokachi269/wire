@@ -6,6 +6,7 @@ add_library(
   src/state/inspection.cpp
   src/state/endpoint_refresh_service.cpp
   src/state/override_resolution.cpp
+  src/state/template_mutation_service.cpp
   src/pole_orientation_utils.cpp
   src/generation/service.cpp
   src/generation/grouped_spans.cpp
@@ -61,10 +62,21 @@ target_compile_features(
   cxx_std_20
 )
 
+function(wire_enable_builtin_vcpkg_applocal target_name)
+  if(MSVC)
+    # Avoid the noisy pwsh.exe probe in vcpkg's MSBuild applocal path while
+    # keeping DLL deployment enabled via vcpkg's built-in helper.
+    set_target_properties(
+      ${target_name}
+      PROPERTIES
+      VS_GLOBAL_VcpkgXUseBuiltInApplocalDeps "true"
+    )
+  endif()
+endfunction()
+
 if(BUILD_TESTING)
   add_executable(
     wire_core_tests
-    EXCLUDE_FROM_ALL
     tests/registry.cpp
     tests/runner.cpp
     tests/helpers.cpp
@@ -80,6 +92,15 @@ if(BUILD_TESTING)
     tests/workflow.cpp
     tests/api_surface.cpp
   )
+
+  if(WIRE_ENABLE_UNITY_BUILD)
+    # Measured useful mainly for test-heavy iteration, not for the default clean-core build.
+    set_target_properties(
+      wire_core_tests
+      PROPERTIES
+      UNITY_BUILD ON
+    )
+  endif()
 
   target_link_libraries(
     wire_core_tests
@@ -109,6 +130,8 @@ if(BUILD_TESTING)
     WIRE_INTERNAL=1
     WIRE_TEST_SPEC_LEDGER_PATH="${CMAKE_CURRENT_SOURCE_DIR}/tests/spec_ledger.md"
   )
+
+  wire_enable_builtin_vcpkg_applocal(wire_core_tests)
 
   add_test(NAME wire_core_tests COMMAND wire_core_tests)
 endif()

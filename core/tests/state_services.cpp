@@ -8,6 +8,7 @@ namespace {
 using helpers::contains_id;
 using helpers::sorted_pole_type_ids;
 using wire::core::AddConnectionByPoleOptions;
+using wire::core::AttachmentLineInteractionMode;
 using wire::core::BundleKind;
 using wire::core::ChangeSet;
 using wire::core::ConnectionCategory;
@@ -208,6 +209,133 @@ bool test_apply_pole_type_reuses_only_relation_index_owned_endpoints() {
          state.view().anchors().items().size() == anchor_count_before && state.ValidateFast().ok();
 }
 
+bool test_template_mutation_service_marks_only_matching_bundle_regeneration() {
+  CoreState state;
+  const auto pole_type_ids = sorted_pole_type_ids(state);
+  if (pole_type_ids.empty()) {
+    return false;
+  }
+
+  Transformd a_tf{};
+  a_tf.position = {0.0, 0.0, 0.0};
+  Transformd b_tf{};
+  b_tf.position = {8.0, 0.0, 0.0};
+  Transformd c_tf{};
+  c_tf.position = {16.0, 0.0, 0.0};
+
+  const ObjectId pole_a = state.AddPole(a_tf, 10.0, "A", PoleKind::kGeneric, PlacementMode::kAuto).value;
+  const ObjectId pole_b = state.AddPole(b_tf, 10.0, "B", PoleKind::kGeneric, PlacementMode::kAuto).value;
+  const ObjectId pole_c = state.AddPole(c_tf, 10.0, "C", PoleKind::kGeneric, PlacementMode::kAuto).value;
+  (void)state.ApplyPoleType(pole_a, pole_type_ids.front());
+  (void)state.ApplyPoleType(pole_b, pole_type_ids.front());
+  (void)state.ApplyPoleType(pole_c, pole_type_ids.front());
+
+  AddConnectionByPoleOptions lv_options{};
+  lv_options.use_bundle_template = true;
+  lv_options.bundle_template_id = BundleKind::kLowVoltage;
+  const auto lv_connect = state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kLowVoltage, lv_options);
+  if (!lv_connect.ok) {
+    return false;
+  }
+
+  AddConnectionByPoleOptions comm_options{};
+  comm_options.use_bundle_template = true;
+  comm_options.bundle_template_id = BundleKind::kCommunication;
+  const auto comm_connect = state.AddConnectionByPole(pole_b, pole_c, ConnectionCategory::kCommunication, comm_options);
+  if (!comm_connect.ok) {
+    return false;
+  }
+
+  const wire::core::Span* lv_span = state.view().spans().find(lv_connect.value.span_id);
+  const wire::core::Span* comm_span = state.view().spans().find(comm_connect.value.span_id);
+  if (lv_span == nullptr || comm_span == nullptr) {
+    return false;
+  }
+  const wire::core::Bundle* lv_bundle = state.view().bundles().find(lv_span->bundle_id);
+  const wire::core::Bundle* comm_bundle = state.view().bundles().find(comm_span->bundle_id);
+  const wire::core::BundleTemplate* lv_template = state.view().bundle_templates().contains(BundleKind::kLowVoltage)
+                                                      ? &state.view().bundle_templates().at(BundleKind::kLowVoltage)
+                                                      : nullptr;
+  if (lv_bundle == nullptr || comm_bundle == nullptr || lv_template == nullptr) {
+    return false;
+  }
+
+  wire::core::BundleTemplate edited = *lv_template;
+  edited.default_spacing_m += 0.1;
+  const auto update = wire::core::state_internal::TemplateMutationService::UpdateBundleTemplate(state, edited);
+  if (!update.ok || !update.value) {
+    return false;
+  }
+
+  const wire::core::Bundle* lv_bundle_after = state.view().bundles().find(lv_bundle->id);
+  const wire::core::Bundle* comm_bundle_after = state.view().bundles().find(comm_bundle->id);
+  if (lv_bundle_after == nullptr || comm_bundle_after == nullptr) {
+    return false;
+  }
+
+  return lv_bundle_after->regeneration_required && !comm_bundle_after->regeneration_required &&
+         contains_id(update.change_set.updated_ids, lv_bundle_after->id) &&
+         !contains_id(update.change_set.updated_ids, comm_bundle_after->id) &&
+         contains_id(state.view().template_dependency_state().bundles_requiring_regeneration, lv_bundle_after->id) &&
+         !contains_id(state.view().template_dependency_state().bundles_requiring_regeneration, comm_bundle_after->id);
+}
+
+bool test_template_mutation_service_marks_only_attached_span_dirty() {
+  CoreState state;
+  const auto pole_type_ids = sorted_pole_type_ids(state);
+  if (pole_type_ids.empty() || state.view().attachment_templates().empty()) {
+    return false;
+  }
+
+  Transformd a_tf{};
+  a_tf.position = {0.0, 0.0, 0.0};
+  Transformd b_tf{};
+  b_tf.position = {8.0, 0.0, 0.0};
+  Transformd c_tf{};
+  c_tf.position = {16.0, 0.0, 0.0};
+  const ObjectId pole_a = state.AddPole(a_tf, 10.0, "A", PoleKind::kGeneric, PlacementMode::kAuto).value;
+  const ObjectId pole_b = state.AddPole(b_tf, 10.0, "B", PoleKind::kGeneric, PlacementMode::kAuto).value;
+  const ObjectId pole_c = state.AddPole(c_tf, 10.0, "C", PoleKind::kGeneric, PlacementMode::kAuto).value;
+  (void)state.ApplyPoleType(pole_a, pole_type_ids.front());
+  (void)state.ApplyPoleType(pole_b, pole_type_ids.front());
+  (void)state.ApplyPoleType(pole_c, pole_type_ids.front());
+
+  AddConnectionByPoleOptions options{};
+  options.use_bundle_template = true;
+  options.bundle_template_id = BundleKind::kLowVoltage;
+  const auto span_ab = state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kLowVoltage, options);
+  const auto span_bc = state.AddConnectionByPole(pole_b, pole_c, ConnectionCategory::kLowVoltage, options);
+  if (!span_ab.ok || !span_bc.ok) {
+    return false;
+  }
+
+  const wire::core::AttachmentTemplateId attachment_template_id = state.view().attachment_templates().begin()->first;
+  const auto attach = state.AddAttachment(span_ab.value.span_id, 0.5, wire::core::AttachmentKind::kGeneric, 0.0,
+                                          attachment_template_id);
+  if (!attach.ok) {
+    return false;
+  }
+
+  const wire::core::AttachmentTemplate* original = state.view().find_attachment_template(attachment_template_id);
+  if (original == nullptr) {
+    return false;
+  }
+  wire::core::AttachmentTemplate edited = *original;
+  edited.line_interaction_mode = (edited.line_interaction_mode == AttachmentLineInteractionMode::kPassThrough)
+                                     ? AttachmentLineInteractionMode::kHideSegment
+                                     : AttachmentLineInteractionMode::kPassThrough;
+  const auto update =
+      wire::core::state_internal::TemplateMutationService::UpdateAttachmentTemplate(state, edited, true);
+  if (!update.ok || !update.value) {
+    return false;
+  }
+
+  return contains_id(update.change_set.dirty_span_ids, span_ab.value.span_id) &&
+         !contains_id(update.change_set.dirty_span_ids, span_bc.value.span_id) &&
+         contains_id(update.change_set.updated_ids, span_ab.value.span_id) &&
+         !contains_id(update.change_set.updated_ids, span_bc.value.span_id);
+}
+
 void RegisterStateServiceTests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C181_CoreStateService_CollectOwnedEndpoints",
                          "endpoint refresh service targets owned endpoints via relation index",
@@ -221,6 +349,12 @@ void RegisterStateServiceTests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C184_CoreStateService_ApplyPoleType_ReusesOwnedEndpoints",
                          "template application reuses relation-index-owned ports and anchors without touching other poles",
                          "Invariant", false, &test_apply_pole_type_reuses_only_relation_index_owned_endpoints);
+  test_registry::AddTest(tests, "C186_CoreStateService_TemplateMutation_LocalizesBundleImpact",
+                         "template mutation service marks only bundles matching the edited template for regeneration",
+                         "Invariant", false, &test_template_mutation_service_marks_only_matching_bundle_regeneration);
+  test_registry::AddTest(tests, "C187_CoreStateService_TemplateMutation_LocalizesAttachmentImpact",
+                         "template mutation service dirties only spans that actually use the edited attachment template",
+                         "Invariant", false, &test_template_mutation_service_marks_only_attached_span_dirty);
 }
 
 WIRE_REGISTER_TEST_SUITE(RegisterStateServiceTests);

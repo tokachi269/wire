@@ -7,9 +7,107 @@
 #include <iostream>
 #include <limits>
 #include <regex>
+#include <sstream>
 #include <unordered_map>
 
 namespace helpers {
+namespace {
+
+constexpr double kPi = 3.14159265358979323846;
+
+double length_xy(const wire::core::Vec3d& v) { return std::sqrt(v.x * v.x + v.y * v.y); }
+
+double distance3d(const wire::core::Vec3d& a, const wire::core::Vec3d& b) {
+  const wire::core::Vec3d d = a - b;
+  return std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+}
+
+double distance_xy(const wire::core::Vec3d& a, const wire::core::Vec3d& b) {
+  const wire::core::Vec3d d = a - b;
+  return std::sqrt(d.x * d.x + d.y * d.y);
+}
+
+double axis_angle_deg(const wire::core::Vec3d& a, const wire::core::Vec3d& b) {
+  const wire::core::Vec3d na = normalize_xy_safe(a);
+  const wire::core::Vec3d nb = normalize_xy_safe(b);
+  const double la = length_xy(na);
+  const double lb = length_xy(nb);
+  if (la <= 1e-9 || lb <= 1e-9) {
+    return 0.0;
+  }
+  const double c = std::clamp(std::abs(dot_xy(na, nb)), 0.0, 1.0);
+  return std::acos(c) * (180.0 / kPi);
+}
+
+wire::core::Vec3d farthest_pair_axis_xy(const std::vector<wire::core::Vec3d>& points) {
+  wire::core::Vec3d best{0.0, 0.0, 0.0};
+  double best_len2 = 0.0;
+  for (std::size_t i = 0; i < points.size(); ++i) {
+    for (std::size_t j = i + 1; j < points.size(); ++j) {
+      const wire::core::Vec3d d = points[j] - points[i];
+      const double len2 = d.x * d.x + d.y * d.y;
+      if (len2 > best_len2) {
+        best = d;
+        best_len2 = len2;
+      }
+    }
+  }
+  return normalize_xy_safe(best);
+}
+
+double min_pairwise_distance3d(const std::vector<wire::core::Vec3d>& points) {
+  if (points.size() < 2) {
+    return 0.0;
+  }
+  double min_distance = std::numeric_limits<double>::infinity();
+  for (std::size_t i = 0; i < points.size(); ++i) {
+    for (std::size_t j = i + 1; j < points.size(); ++j) {
+      min_distance = std::min(min_distance, distance3d(points[i], points[j]));
+    }
+  }
+  return std::isfinite(min_distance) ? min_distance : 0.0;
+}
+
+double min_pairwise_distance_xy(const std::vector<wire::core::Vec3d>& points) {
+  if (points.size() < 2) {
+    return 0.0;
+  }
+  double min_distance = std::numeric_limits<double>::infinity();
+  for (std::size_t i = 0; i < points.size(); ++i) {
+    for (std::size_t j = i + 1; j < points.size(); ++j) {
+      min_distance = std::min(min_distance, distance_xy(points[i], points[j]));
+    }
+  }
+  return std::isfinite(min_distance) ? min_distance : 0.0;
+}
+
+double mean_pairwise_distance_xy(const std::vector<wire::core::Vec3d>& points) {
+  if (points.size() < 2) {
+    return 0.0;
+  }
+  double sum = 0.0;
+  int count = 0;
+  for (std::size_t i = 0; i < points.size(); ++i) {
+    for (std::size_t j = i + 1; j < points.size(); ++j) {
+      sum += distance_xy(points[i], points[j]);
+      ++count;
+    }
+  }
+  return (count > 0) ? (sum / static_cast<double>(count)) : 0.0;
+}
+
+const wire::core::Span* find_span_by_ports(const CoreState& state, ObjectId port_a_id, ObjectId port_b_id) {
+  for (const wire::core::Span& span : state.view().edit_state().spans.items()) {
+    const bool same_forward = span.port_a_id == port_a_id && span.port_b_id == port_b_id;
+    const bool same_reverse = span.port_a_id == port_b_id && span.port_b_id == port_a_id;
+    if (same_forward || same_reverse) {
+      return &span;
+    }
+  }
+  return nullptr;
+}
+
+} // namespace
 
 CoreCounts snapshot_counts(const CoreState& state) {
   return {
@@ -425,14 +523,14 @@ int count_bundle_lane_polyline_xy_intersections(const CoreState& state,
   return intersections;
 }
 
-int count_bundle_lane_adjacent_xy_intersections(const CoreState& state,
-                                                const std::vector<wire::core::SegmentLaneAssignment>& assignments) {
+int count_bundle_lane_adjacent_order_discontinuities(const CoreState& state,
+                                                     const std::vector<wire::core::SegmentLaneAssignment>& assignments) {
   std::unordered_map<ObjectId, std::vector<const wire::core::SegmentLaneAssignment*>> by_bundle{};
   for (const auto& assignment : assignments) {
     by_bundle[assignment.bundle_id].push_back(&assignment);
   }
 
-  int intersections = 0;
+  int discontinuities = 0;
   for (auto& [_, bundle_assignments] : by_bundle) {
     if (bundle_assignments.empty()) {
       continue;
@@ -448,57 +546,63 @@ int count_bundle_lane_adjacent_xy_intersections(const CoreState& state,
                 return a->pole_b_id < b->pole_b_id;
               });
 
+    std::size_t min_segment_index = std::numeric_limits<std::size_t>::max();
+    std::size_t max_segment_index = 0;
     for (const auto* assignment : bundle_assignments) {
-      const std::size_t lane_count = std::min(assignment->port_ids_a.size(), assignment->port_ids_b.size());
-      for (std::size_t i = 0; i < lane_count; ++i) {
-        const auto* a0 = state.view().edit_state().ports.find(assignment->port_ids_a[i]);
-        const auto* a1 = state.view().edit_state().ports.find(assignment->port_ids_b[i]);
-        if (a0 == nullptr || a1 == nullptr) {
-          continue;
-        }
-        for (std::size_t j = i + 1; j < lane_count; ++j) {
-          const auto* b0 = state.view().edit_state().ports.find(assignment->port_ids_a[j]);
-          const auto* b1 = state.view().edit_state().ports.find(assignment->port_ids_b[j]);
-          if (b0 == nullptr || b1 == nullptr) {
-            continue;
-          }
-          if (segments_intersect_xy_strict_test(a0->world_position, a1->world_position, b0->world_position,
-                                                b1->world_position)) {
-            ++intersections;
-          }
-        }
-      }
+      min_segment_index = std::min(min_segment_index, assignment->segment_index);
+      max_segment_index = std::max(max_segment_index, assignment->segment_index);
     }
+
+    auto to_layout_local = [&](const wire::core::Pole& pole, const wire::core::Vec3d& world) {
+      double layout_yaw_deg = effective_pole_yaw_deg_test(pole);
+      if (const auto pole_view = state.view().inspect_pole(pole.id); pole_view.has_value() && pole_view->has_layout_yaw) {
+        layout_yaw_deg = pole_view->layout_yaw_deg;
+      }
+      return wire::core::WorldPointToLocal(wire::core::BuildPoleFrame(pole.world_transform, layout_yaw_deg), world);
+    };
 
     for (std::size_t idx = 1; idx < bundle_assignments.size(); ++idx) {
       const auto* prev = bundle_assignments[idx - 1];
       const auto* curr = bundle_assignments[idx];
-      const std::size_t lane_count =
-          std::min({prev->port_ids_a.size(), prev->port_ids_b.size(), curr->port_ids_a.size(), curr->port_ids_b.size()});
+      if (prev->segment_index == min_segment_index || curr->segment_index == max_segment_index) {
+        // Terminal fan-out is covered by C185. Here we focus on interior shared-pole order continuity.
+        continue;
+      }
+      if (prev->segment_index + 1 != curr->segment_index || prev->pole_b_id != curr->pole_a_id) {
+        continue;
+      }
+
+      const auto* shared_pole = state.view().edit_state().poles.find(curr->pole_a_id);
+      if (shared_pole == nullptr) {
+        continue;
+      }
+
+      const std::size_t lane_count = std::min(prev->port_ids_b.size(), curr->port_ids_a.size());
+      std::vector<double> prev_y(lane_count, 0.0);
+      std::vector<double> curr_y(lane_count, 0.0);
       for (std::size_t i = 0; i < lane_count; ++i) {
-        const auto* c0 = state.view().edit_state().ports.find(curr->port_ids_a[i]);
-        const auto* c1 = state.view().edit_state().ports.find(curr->port_ids_b[i]);
-        if (c0 == nullptr || c1 == nullptr) {
+        const auto* prev_port = state.view().edit_state().ports.find(prev->port_ids_b[i]);
+        const auto* curr_port = state.view().edit_state().ports.find(curr->port_ids_a[i]);
+        if (prev_port == nullptr || curr_port == nullptr) {
           continue;
         }
-        for (std::size_t j = 0; j < lane_count; ++j) {
-          if (i == j) {
-            continue;
-          }
-          const auto* p0 = state.view().edit_state().ports.find(prev->port_ids_a[j]);
-          const auto* p1 = state.view().edit_state().ports.find(prev->port_ids_b[j]);
-          if (p0 == nullptr || p1 == nullptr) {
-            continue;
-          }
-          if (segments_intersect_xy_strict_test(c0->world_position, c1->world_position, p0->world_position,
-                                                p1->world_position)) {
-            ++intersections;
+        prev_y[i] = to_layout_local(*shared_pole, prev_port->world_position).y;
+        curr_y[i] = to_layout_local(*shared_pole, curr_port->world_position).y;
+      }
+
+      constexpr double kOrderEps = 1e-4;
+      for (std::size_t i = 0; i < lane_count; ++i) {
+        for (std::size_t j = i + 1; j < lane_count; ++j) {
+          const double dy_prev = prev_y[i] - prev_y[j];
+          const double dy_curr = curr_y[i] - curr_y[j];
+          if ((dy_prev > kOrderEps && dy_curr < -kOrderEps) || (dy_prev < -kOrderEps && dy_curr > kOrderEps)) {
+            ++discontinuities;
           }
         }
       }
     }
   }
-  return intersections;
+  return discontinuities;
 }
 
 int count_mirrored_assignments(const std::vector<wire::core::SegmentLaneAssignment>& assignments) {
@@ -580,6 +684,202 @@ wire::core::BundleKind bundle_template_for_category_test(wire::core::ConnectionC
   default:
     return wire::core::BundleKind::kLowVoltage;
   }
+}
+
+AxisRelationMetrics measure_pole_axis_relation_metrics(const CoreState& state, ObjectId pole_id, wire::core::PortLayer layer,
+                                                       const wire::core::Vec3d& span_axis) {
+  AxisRelationMetrics metrics{};
+  metrics.span_chord_axis = normalize_xy_safe(span_axis);
+  const auto pole_view = state.view().inspect_pole(pole_id);
+  if (!pole_view.has_value()) {
+    return metrics;
+  }
+
+  std::vector<wire::core::Vec3d> port_points{};
+  for (const wire::core::Port& port : state.view().edit_state().ports.items()) {
+    if (port.owner_pole_id == pole_id && port.layer == layer) {
+      port_points.push_back(port.world_position);
+    }
+  }
+  metrics.row_axis = farthest_pair_axis_xy(port_points);
+  if (length_xy(metrics.row_axis) <= 1e-9 && pole_view->has_support_axis) {
+    metrics.row_axis = normalize_xy_safe(pole_view->support_axis_dir);
+  }
+
+  if (pole_view->has_forward) {
+    metrics.support_forward_axis = normalize_xy_safe(pole_view->forward_dir);
+  }
+  if (length_xy(metrics.support_forward_axis) <= 1e-9 && length_xy(metrics.row_axis) > 1e-9) {
+    metrics.support_forward_axis = normalize_xy_safe({metrics.row_axis.y, -metrics.row_axis.x, 0.0});
+  }
+
+  metrics.angle_row_vs_span_deg = axis_angle_deg(metrics.row_axis, metrics.span_chord_axis);
+  metrics.angle_forward_vs_span_deg = axis_angle_deg(metrics.support_forward_axis, metrics.span_chord_axis);
+  metrics.valid = length_xy(metrics.row_axis) > 1e-9 && length_xy(metrics.span_chord_axis) > 1e-9;
+  return metrics;
+}
+
+VisualSeparationMetrics measure_lane_visual_separation_metrics(const CoreState& state,
+                                                               const wire::core::SegmentLaneAssignment& assignment,
+                                                               double sample_length_m) {
+  VisualSeparationMetrics metrics{};
+  const std::size_t lane_count = std::min(assignment.port_ids_a.size(), assignment.port_ids_b.size());
+  metrics.port_count = static_cast<int>(lane_count);
+  if (lane_count < 2) {
+    return metrics;
+  }
+
+  std::vector<wire::core::Vec3d> start_ports{};
+  std::vector<wire::core::Vec3d> end_ports{};
+  std::vector<wire::core::Vec3d> start_endpoints{};
+  std::vector<wire::core::Vec3d> end_endpoints{};
+  std::vector<wire::core::Vec3d> near_start_points{};
+  std::vector<wire::core::Vec3d> near_end_points{};
+  std::unordered_set<ObjectId> unique_start_ports{};
+  std::unordered_set<ObjectId> unique_end_ports{};
+
+  for (std::size_t lane = 0; lane < lane_count; ++lane) {
+    const ObjectId port_a_id = assignment.port_ids_a[lane];
+    const ObjectId port_b_id = assignment.port_ids_b[lane];
+    unique_start_ports.insert(port_a_id);
+    unique_end_ports.insert(port_b_id);
+
+    const wire::core::Port* port_a = state.view().edit_state().ports.find(port_a_id);
+    const wire::core::Port* port_b = state.view().edit_state().ports.find(port_b_id);
+    if (port_a == nullptr || port_b == nullptr) {
+      continue;
+    }
+    start_ports.push_back(port_a->world_position);
+    end_ports.push_back(port_b->world_position);
+
+    const wire::core::Span* span = find_span_by_ports(state, port_a_id, port_b_id);
+    if (span == nullptr) {
+      continue;
+    }
+    const bool forward_matches_assignment = (span->port_a_id == port_a_id && span->port_b_id == port_b_id);
+    const wire::core::SpanSupportLayoutEntry* layout = state.find_span_support_layout(span->id);
+    if (layout != nullptr) {
+      start_endpoints.push_back(forward_matches_assignment ? layout->start.endpoint_world : layout->end.endpoint_world);
+      end_endpoints.push_back(forward_matches_assignment ? layout->end.endpoint_world : layout->start.endpoint_world);
+    }
+    const wire::core::CurveCacheEntry* curve = state.find_curve_cache(span->id);
+    if (curve != nullptr) {
+      const double total = std::max(0.0, curve->detail.Length());
+      const double s = std::min(std::max(0.05, sample_length_m), std::max(0.05, total * 0.25));
+      if (forward_matches_assignment) {
+        near_start_points.push_back(curve->detail.PositionAtLength(std::min(s, total)));
+        near_end_points.push_back(curve->detail.PositionAtLength(std::max(0.0, total - s)));
+      } else {
+        near_start_points.push_back(curve->detail.PositionAtLength(std::max(0.0, total - s)));
+        near_end_points.push_back(curve->detail.PositionAtLength(std::min(s, total)));
+      }
+    } else {
+      near_start_points.push_back(port_a->world_position);
+      near_end_points.push_back(port_b->world_position);
+    }
+  }
+
+  const double start_port_spacing = min_pairwise_distance3d(start_ports);
+  const double end_port_spacing = min_pairwise_distance3d(end_ports);
+  metrics.min_port_spacing_m = std::min(start_port_spacing, end_port_spacing);
+  const double start_endpoint_spacing = min_pairwise_distance3d(start_endpoints);
+  const double end_endpoint_spacing = min_pairwise_distance3d(end_endpoints);
+  if (!start_endpoints.empty() && !end_endpoints.empty()) {
+    metrics.min_endpoint_spacing_m = std::min(start_endpoint_spacing, end_endpoint_spacing);
+  } else {
+    metrics.min_endpoint_spacing_m = std::max(start_endpoint_spacing, end_endpoint_spacing);
+  }
+  metrics.min_wire_spacing_near_start_m = min_pairwise_distance3d(near_start_points);
+  metrics.min_wire_spacing_near_end_m = min_pairwise_distance3d(near_end_points);
+  const double proj_start_min = min_pairwise_distance_xy(near_start_points);
+  const double proj_end_min = min_pairwise_distance_xy(near_end_points);
+  const double proj_start_mean = mean_pairwise_distance_xy(near_start_points);
+  const double proj_end_mean = mean_pairwise_distance_xy(near_end_points);
+  metrics.projected_min_spacing_topview_m = std::min(proj_start_min, proj_end_min);
+  metrics.projected_mean_spacing_topview_m = 0.5 * (proj_start_mean + proj_end_mean);
+  metrics.topology_distinct = unique_start_ports.size() == lane_count && unique_end_ports.size() == lane_count;
+
+  const double spacing_floor = std::min(
+      {metrics.projected_min_spacing_topview_m, metrics.min_wire_spacing_near_start_m, metrics.min_wire_spacing_near_end_m});
+  metrics.visual_separation_score = std::clamp(spacing_floor / 0.12, 0.0, 1.0);
+  metrics.visual_distinct = metrics.topology_distinct && metrics.projected_min_spacing_topview_m >= 0.10 &&
+                            metrics.min_wire_spacing_near_start_m >= 0.10 && metrics.min_wire_spacing_near_end_m >= 0.10;
+  return metrics;
+}
+
+BranchRunoutMetrics measure_branch_runout_metrics(const CoreState& state, ObjectId span_id) {
+  BranchRunoutMetrics metrics{};
+  const wire::core::SpanSupportLayoutEntry* layout = state.find_span_support_layout(span_id);
+  const wire::core::CurveCacheEntry* curve = state.find_curve_cache(span_id);
+  if (layout == nullptr || curve == nullptr) {
+    return metrics;
+  }
+
+  const bool branch_at_start = layout->start.origin == wire::core::SupportLayoutOriginKind::kBranchSupport ||
+                               layout->start.flow_kind == wire::core::BackboneFlowKind::kBranch ||
+                               layout->start.local_departure_length_m >= layout->end.local_departure_length_m;
+  const wire::core::Vec3d root = branch_at_start ? curve->detail.EvaluatePosition(0.0) : curve->detail.EvaluatePosition(1.0);
+  const wire::core::Vec3d other =
+      branch_at_start ? curve->detail.EvaluatePosition(1.0) : curve->detail.EvaluatePosition(0.0);
+  const wire::core::Vec3d chord_axis = normalize_xy_safe(other - root);
+  if (length_xy(chord_axis) <= 1e-9) {
+    return metrics;
+  }
+  const wire::core::Vec3d lateral_axis{-chord_axis.y, chord_axis.x, 0.0};
+  const double total = curve->detail.Length();
+  metrics.chord_length_m = std::sqrt((other.x - root.x) * (other.x - root.x) + (other.y - root.y) * (other.y - root.y));
+  metrics.support_departure_length_m =
+      branch_at_start ? layout->start.local_departure_length_m : layout->end.local_departure_length_m;
+
+  for (const wire::core::Vec3d& point : curve->detail.sample_points) {
+    const double lateral = std::abs(dot_xy(point - root, lateral_axis));
+    metrics.max_lateral_runout_m = std::max(metrics.max_lateral_runout_m, lateral);
+  }
+
+  const double departure_s = std::min(std::max(0.05, metrics.support_departure_length_m), std::max(0.05, total));
+  const double mid_s = std::clamp(total * 0.5, 0.0, std::max(0.0, total));
+  const wire::core::Vec3d departure_point =
+      branch_at_start ? curve->detail.PositionAtLength(departure_s) : curve->detail.PositionAtLength(std::max(0.0, total - departure_s));
+  const wire::core::Vec3d mid_point = curve->detail.PositionAtLength(mid_s);
+  metrics.departure_lateral_offset_m = std::abs(dot_xy(departure_point - root, lateral_axis));
+  metrics.midspan_lateral_offset_m = std::abs(dot_xy(mid_point - root, lateral_axis));
+  metrics.lateral_runout_ratio =
+      (metrics.chord_length_m > 1e-9) ? (metrics.max_lateral_runout_m / metrics.chord_length_m) : 0.0;
+  metrics.local_departure_dominates =
+      metrics.midspan_lateral_offset_m <= metrics.departure_lateral_offset_m + 0.05 &&
+      metrics.max_lateral_runout_m <= std::max(metrics.support_departure_length_m + 0.05,
+                                               metrics.departure_lateral_offset_m + 0.08);
+  return metrics;
+}
+
+std::string describe_axis_relation_metrics(const AxisRelationMetrics& metrics) {
+  std::ostringstream oss;
+  oss << "rowAxis=" << metrics.row_axis.x << "," << metrics.row_axis.y << " forwardAxis="
+      << metrics.support_forward_axis.x << "," << metrics.support_forward_axis.y << " spanAxis="
+      << metrics.span_chord_axis.x << "," << metrics.span_chord_axis.y << " angleRowVsSpan="
+      << metrics.angle_row_vs_span_deg << " angleForwardVsSpan=" << metrics.angle_forward_vs_span_deg
+      << " valid=" << (metrics.valid ? 1 : 0);
+  return oss.str();
+}
+
+std::string describe_visual_separation_metrics(const VisualSeparationMetrics& metrics) {
+  std::ostringstream oss;
+  oss << "ports=" << metrics.port_count << " minPort=" << metrics.min_port_spacing_m
+      << " minEndpoint=" << metrics.min_endpoint_spacing_m << " nearStart=" << metrics.min_wire_spacing_near_start_m
+      << " nearEnd=" << metrics.min_wire_spacing_near_end_m << " topMin=" << metrics.projected_min_spacing_topview_m
+      << " topMean=" << metrics.projected_mean_spacing_topview_m << " score=" << metrics.visual_separation_score
+      << " topologyDistinct=" << (metrics.topology_distinct ? 1 : 0)
+      << " visualDistinct=" << (metrics.visual_distinct ? 1 : 0);
+  return oss.str();
+}
+
+std::string describe_branch_runout_metrics(const BranchRunoutMetrics& metrics) {
+  std::ostringstream oss;
+  oss << "maxLat=" << metrics.max_lateral_runout_m << " ratio=" << metrics.lateral_runout_ratio
+      << " depLat=" << metrics.departure_lateral_offset_m << " midLat=" << metrics.midspan_lateral_offset_m
+      << " depLen=" << metrics.support_departure_length_m << " chord=" << metrics.chord_length_m
+      << " local=" << (metrics.local_departure_dominates ? 1 : 0);
+  return oss.str();
 }
 
 wire::core::EditResult<wire::core::CoreState::AddConnectionByPoleResult>

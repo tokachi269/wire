@@ -943,7 +943,6 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
     ImGui::Text("Owner Pole: %llu", static_cast<unsigned long long>(port->owner_pole_id));
     ImGui::Text("Pos: %.2f %.2f %.2f", port->world_position.x, port->world_position.y, port->world_position.z);
     ImGui::Text("Category: %s", CategoryLabel(port->category));
-    ImGui::Text("SlotId: %d", port->source_slot_id);
     ImGui::Text("Layer: %d Side: %s Role: %s", port->template_layer, SlotSideLabel(port->template_side),
                 SlotRoleLabel(port->template_role));
     ImGui::Text("PositionMode: %s", PortPositionModeLabel(port->position_mode));
@@ -1651,11 +1650,12 @@ void DrawDetailModePanel(CoreState& state, ViewerUiState& ui_state) {
       if (selected) {
         ImGui::SetItemDefaultFocus();
       }
-    }
-    ImGui::EndCombo();
+  }
+  ImGui::EndCombo();
   }
   ImGui::Text("UserEditedPole: %s", detail.pole->user_edited ? "true" : "false");
-  bool flip_180 = state.resolve_pole_flip_180_override(*detail.pole).value_or(false);
+  const auto pole_view = state.view().inspect_pole(ui_state.selected_id);
+  bool flip_180 = pole_view.has_value() ? pole_view->flip_180_override.value_or(false) : false;
   if (ImGui::Checkbox("Flip 180", &flip_180)) {
     const auto flip_result = state.SetPoleFlip180(ui_state.selected_id, flip_180);
     if (!flip_result.ok) {
@@ -1700,40 +1700,17 @@ void DrawDetailModePanel(CoreState& state, ViewerUiState& ui_state) {
 
   ImGui::Separator();
   ImGui::Text("Ports: %d", static_cast<int>(detail.owned_ports.size()));
-  std::unordered_map<int, const wire::core::Port*> by_slot;
   for (const auto* port : detail.owned_ports) {
-    by_slot[port->source_slot_id] = port;
-  }
-
-  if (detail.pole_type != nullptr) {
-    ImGui::TextUnformatted("Slot usage");
-    for (const auto& slot : detail.pole_type->port_slots) {
-      const auto it = by_slot.find(slot.slot_id);
-      if (it == by_slot.end()) {
-        ImGui::Text("templateSlot=%d cat=%s layer=%d side=%s role=%s used=0 [empty]", slot.slot_id,
-                    CategoryLabel(slot.category), slot.layer, SlotSideLabel(slot.side), SlotRoleLabel(slot.role));
-        continue;
-      }
-      const auto* port = it->second;
-      const auto usage_it = state.view().connection_index().spans_by_port.find(port->id);
-      const int usage =
-          (usage_it == state.view().connection_index().spans_by_port.end()) ? 0 : static_cast<int>(usage_it->second.size());
-      ImGui::Text("templateSlot=%d cat=%s layer=%d side=%s role=%s used=%d -> %s", slot.slot_id, CategoryLabel(slot.category),
-                  slot.layer, SlotSideLabel(slot.side), SlotRoleLabel(slot.role), usage, port->display_id.c_str());
-    }
-  } else {
-    for (const auto* port : detail.owned_ports) {
-      const auto it = state.view().connection_index().spans_by_port.find(port->id);
-      const int usage = (it == state.view().connection_index().spans_by_port.end()) ? 0 : static_cast<int>(it->second.size());
-      ImGui::Text("%s cat=%s templateSlot=%d used=%d", port->display_id.c_str(), CategoryLabel(port->category),
-                  port->source_slot_id, usage);
-    }
+    const auto it = state.view().connection_index().spans_by_port.find(port->id);
+    const int usage = (it == state.view().connection_index().spans_by_port.end()) ? 0 : static_cast<int>(it->second.size());
+    ImGui::Text("%s cat=%s layer=%d side=%s role=%s used=%d", port->display_id.c_str(), CategoryLabel(port->category),
+                port->template_layer, SlotSideLabel(port->template_side), SlotRoleLabel(port->template_role), usage);
   }
 
   ImGui::Separator();
   ImGui::Text("Anchors: %d", static_cast<int>(detail.owned_anchors.size()));
   for (const auto* anchor : detail.owned_anchors) {
-    ImGui::Text("%s templateSlot=%d", anchor->display_id.c_str(), anchor->source_slot_id);
+    ImGui::Text("%s", anchor->display_id.c_str());
   }
 }
 
@@ -2467,26 +2444,6 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
     options.run_validate = true;
     const wire::core::ValidationResult validation = state.Commit(options).validation;
     ImGui::Text("Validation: %s", validation.ok() ? "OK" : "ERROR");
-  }
-
-  if (ImGui::CollapsingHeader("Slot Selection Debug")) {
-    if (ImGui::Button("Clear Slot Debug Log")) {
-      state.clear_slot_selection_debug_records();
-      ui_state.selected_slot_debug_index = 0;
-    }
-    const auto& debug_records = state.view().slot_selection_debug_records();
-    ImGui::Text("Events: %d", static_cast<int>(debug_records.size()));
-    if (!debug_records.empty()) {
-      ui_state.selected_slot_debug_index =
-          std::clamp(ui_state.selected_slot_debug_index, 0, static_cast<int>(debug_records.size() - 1));
-      ImGui::SliderInt("Event Index", &ui_state.selected_slot_debug_index, 0,
-                       static_cast<int>(debug_records.size() - 1));
-      const auto& event = debug_records[static_cast<std::size_t>(ui_state.selected_slot_debug_index)];
-      ImGui::Text("Pole=%llu Peer=%llu Ctx=%s Cat=%s", static_cast<unsigned long long>(event.pole_id),
-                  static_cast<unsigned long long>(event.peer_pole_id), ContextLabel(event.connection_context),
-                  CategoryLabel(event.category));
-      ImGui::Text("Selected templateSlot=%d result=%s", event.selected_slot_id, event.result.c_str());
-    }
   }
 
   if (ImGui::CollapsingHeader("Backbone Junction Debug")) {

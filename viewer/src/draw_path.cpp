@@ -567,8 +567,6 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
   const auto selected_templates = SelectedBundleTemplatesLocal(state, ui_state);
   const auto& view = state.view();
   const auto& dir_debug = view.last_path_direction_debug();
-  const auto& slot_debug_records = view.slot_selection_debug_records();
-
   ofs << "capture.version=2\n";
   ofs << "draw.endpoint_attachment_input_supported=0\n";
   ofs << "draw.endpoint_socket_input_supported=0\n";
@@ -645,25 +643,6 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
   ofs << "result.direction.cost.forward.layer_jump=" << dir_debug.forward_cost.layer_jump_penalty << "\n";
   ofs << "result.direction.cost.forward.corner=" << dir_debug.forward_cost.corner_compression_penalty << "\n";
   ofs << "result.direction.cost.forward.branch=" << dir_debug.forward_cost.branch_conflict_penalty << "\n";
-
-  if (ui_state.draw_capture_include_slot_debug) {
-    const int tail = std::max(0, ui_state.draw_capture_slot_debug_tail);
-    const int count = static_cast<int>(slot_debug_records.size());
-    const int begin = std::max(0, count - tail);
-    ofs << "result.slot_debug.total_count=" << count << "\n";
-    ofs << "result.slot_debug.dump_from=" << begin << "\n";
-    for (int i = begin; i < count; ++i) {
-      const auto& event = slot_debug_records[static_cast<std::size_t>(i)];
-      ofs << "slot_debug[" << i << "].pole_id=" << static_cast<unsigned long long>(event.pole_id) << "\n";
-      ofs << "slot_debug[" << i << "].peer_pole_id=" << static_cast<unsigned long long>(event.peer_pole_id) << "\n";
-      ofs << "slot_debug[" << i << "].category=" << CategoryLabelLocal(event.category) << "\n";
-      ofs << "slot_debug[" << i << "].context=" << ContextLabelLocal(event.connection_context) << "\n";
-      ofs << "slot_debug[" << i << "].selected_slot_id=" << event.selected_slot_id << "\n";
-      ofs << "slot_debug[" << i << "].result=" << event.result << "\n";
-    }
-  } else {
-    ofs << "result.slot_debug.included=0\n";
-  }
 
   const auto& backbone = view.last_generation_backbone();
   ofs << "result.backbone.node_count=" << backbone.nodes.size() << "\n";
@@ -1068,9 +1047,6 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
   if (ImGui::Button("Clear Path")) {
     DrawPathClearWithSessionReset(ui_state);
   }
-  ImGui::Checkbox("Capture Slot Debug", &ui_state.draw_capture_include_slot_debug);
-  ImGui::InputInt("Capture Slot Debug Tail", &ui_state.draw_capture_slot_debug_tail);
-  ui_state.draw_capture_slot_debug_tail = std::clamp(ui_state.draw_capture_slot_debug_tail, 0, 5000);
   if (!ui_state.last_repro_capture_path.empty()) {
     ImGui::TextWrapped("Last capture: %s", ui_state.last_repro_capture_path.c_str());
   }

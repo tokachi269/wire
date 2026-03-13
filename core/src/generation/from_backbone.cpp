@@ -903,7 +903,11 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       if (!Normalize(&normalized_axis)) {
         return false;
       }
-      chosen_axis = choose_continuous_axis(normalized_axis, previous_support_axis);
+      Vec3d row_axis = ComputeLateralAxis(normalized_axis);
+      if (!Normalize(&row_axis)) {
+        return false;
+      }
+      chosen_axis = choose_continuous_axis(row_axis, previous_support_axis);
       has_axis = Normalize(&chosen_axis);
       if (has_axis && debug != nullptr) {
         debug->support_axis_rule = rule;

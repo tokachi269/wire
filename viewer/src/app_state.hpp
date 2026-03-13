@@ -189,9 +189,6 @@ struct ViewerUiState {
   double layout_corner_threshold_deg = 12.0;
   double layout_min_side_scale = 1.0;
   double layout_max_side_scale = 1.8;
-  int selected_slot_debug_index = 0;
-  bool draw_capture_include_slot_debug = true;
-  int draw_capture_slot_debug_tail = 64;
   std::string last_repro_capture_path{};
   std::vector<ObjectId> preferred_visible_span_ids{};
   int preferred_visible_span_count = 0;

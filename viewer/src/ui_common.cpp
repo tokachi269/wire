@@ -128,7 +128,7 @@ const char* PortPositionModeLabel(wire::core::PortPositionMode mode) {
 const char* PortPlacementSourceLabel(wire::core::PortPlacementSourceKind source) {
   switch (source) {
   case wire::core::PortPlacementSourceKind::kTemplateSlot:
-    return "TemplateSlot";
+    return "Template";
   case wire::core::PortPlacementSourceKind::kGenerated:
     return "Generated";
   case wire::core::PortPlacementSourceKind::kManualEdit:

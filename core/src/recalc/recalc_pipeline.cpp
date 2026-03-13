@@ -1,5 +1,6 @@
 #include "wire/core/core_state.hpp"
 #include "wire/core/coord_utils.hpp"
+#include "../generation/support_policy.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -250,8 +251,26 @@ CurvePassMode curve_pass_mode_from_context(ConnectionContext context) {
   }
 }
 
-CurveEndpointMode curve_endpoint_mode_for_template(const CableTemplate* cable_template,
+bool bundle_prefers_offset_endpoint_mode(const Bundle* bundle, const BundleTemplate* bundle_template) {
+  if (bundle_template == nullptr || !bundle_template->preserve_conductor_identity) {
+    return false;
+  }
+  int conductor_count = 1;
+  if (bundle != nullptr && bundle->conductor_count > 0) {
+    conductor_count = bundle->conductor_count;
+  } else if (bundle_template->count_rule == BundleCountRuleKind::kFixed) {
+    conductor_count = bundle_template->fixed_count;
+  } else {
+    conductor_count = bundle_template->default_count;
+  }
+  return conductor_count > 1;
+}
+
+CurveEndpointMode curve_endpoint_mode_for_template(const CableTemplate* cable_template, const Bundle* bundle,
                                                    const BundleTemplate* bundle_template) {
+  if (bundle_prefers_offset_endpoint_mode(bundle, bundle_template)) {
+    return CurveEndpointMode::kOffsetEndpoint;
+  }
   if (cable_template == nullptr) {
     return CurveEndpointMode::kDirectThrough;
   }
@@ -263,9 +282,6 @@ CurveEndpointMode curve_endpoint_mode_for_template(const CableTemplate* cable_te
   case CableAttachmentStyleHint::kAuto:
   default:
     break;
-  }
-  if (bundle_template != nullptr && bundle_template->category == ConnectionCategory::kHighVoltage) {
-    return CurveEndpointMode::kOffsetEndpoint;
   }
   return CurveEndpointMode::kDirectThrough;
 }
@@ -358,16 +374,23 @@ double branch_down_offset_for_port(const CoreState& state, const Port& port, std
   if (pole == nullptr) {
     return 0.0;
   }
-  double main_support_base_z_m = pole->height_m * 0.8;
+  double main_support_base_z_m = std::max(0.5, pole->height_m * 0.8);
   const auto pole_type_it = state.view().pole_types().find(pole->pole_type_id);
   if (pole_type_it != state.view().pole_types().end()) {
     const PoleTypeDefinition& pole_type = pole_type_it->second;
     double best_slot_z = -std::numeric_limits<double>::infinity();
+    const int target_layer = generation::detail::TemplateLayerForCategory(port.category);
     for (const PortSlotTemplate& slot : pole_type.port_slots) {
-      if (!slot.enabled || slot.category != port.category) {
-        continue;
+      if (slot.enabled && slot.layer == target_layer) {
+        best_slot_z = std::max(best_slot_z, slot.local_position.z);
       }
-      best_slot_z = std::max(best_slot_z, slot.local_position.z);
+    }
+    if (!std::isfinite(best_slot_z)) {
+      for (const PortSlotTemplate& slot : pole_type.port_slots) {
+        if (slot.enabled && slot.category == port.category) {
+          best_slot_z = std::max(best_slot_z, slot.local_position.z);
+        }
+      }
     }
     if (std::isfinite(best_slot_z)) {
       main_support_base_z_m = best_slot_z;
@@ -523,7 +546,7 @@ ResolvedSpanCurveInputs resolve_span_curve_inputs(const CoreState& state, const 
       (use_reference_length && span.reference_length_m > kZeroLengthEps) ? span.reference_length_m : distance;
   inputs.flow_kind = support_layout_flow_kind_for_span(span, port_a, port_b);
   inputs.pass_mode = curve_pass_mode_from_context(span.placement_context);
-  inputs.endpoint_mode = curve_endpoint_mode_for_template(cable_template, bundle_template);
+  inputs.endpoint_mode = curve_endpoint_mode_for_template(cable_template, bundle, bundle_template);
   inputs.continuity_preference =
       (cable_template == nullptr) ? CableContinuityPolicyHint::kAuto : cable_template->continuity_policy;
   inputs.bend_stiffness_hint = (cable_template == nullptr) ? 1.0 : cable_template->bend_stiffness;
@@ -679,6 +702,10 @@ RecalcStats CoreState::ProcessDirtyQueues() {
   dirty_queue_ = DirtyQueue{};
   last_recalc_stats_ = stats;
   return stats;
+}
+
+CommitResult CoreState::Commit() {
+  return Commit(CommitOptions{});
 }
 
 CommitResult CoreState::Commit(const CommitOptions& options) {

@@ -35,6 +35,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
   }
   const int lane_count = std::max(1, conductor_count);
   const PortLayer target_port_layer = category_to_port_layer(category);
+  const bool use_lane_row_geometry = maintain_lane_order && lane_count > 1;
   const bool uses_branch_support = (flow_kind == BackboneFlowKind::kBranch);
   const double effective_branch_down_offset_m =
       uses_branch_support ? std::max(0.0, (branch_down_offset_m > 0.0) ? branch_down_offset_m
@@ -84,6 +85,31 @@ CoreState::generate_grouped_spans_between_support_nodes(
     return Vec3d{0.0, 1.0, 0.0};
   };
   auto layout_yaw_for_pole = [&](const Pole& pole) { return effective_pole_layout_yaw_deg(pole); };
+  auto lane_row_base_z_for_pole = [&](const Pole& pole) {
+    double best_z = -std::numeric_limits<double>::infinity();
+    const int target_layer = generation::detail::TemplateLayerForCategory(category);
+    if (const PoleTypeDefinition* pole_type = find_pole_type(pole.pole_type_id); pole_type != nullptr) {
+      for (const PortSlotTemplate& slot : pole_type->port_slots) {
+        if (!slot.enabled) {
+          continue;
+        }
+        if (slot.layer == target_layer) {
+          best_z = std::max(best_z, slot.local_position.z);
+        }
+      }
+      if (!std::isfinite(best_z)) {
+        for (const PortSlotTemplate& slot : pole_type->port_slots) {
+          if (slot.enabled && slot.category == category) {
+            best_z = std::max(best_z, slot.local_position.z);
+          }
+        }
+      }
+    }
+    if (std::isfinite(best_z)) {
+      return best_z;
+    }
+    return std::max(0.5, pole.height_m * 0.8);
+  };
   auto span_context_for_segment = [&](ObjectId node_a, ObjectId node_b) -> ConnectionContext {
     if (category == ConnectionCategory::kDrop) {
       return ConnectionContext::kDropAdd;
@@ -329,22 +355,12 @@ CoreState::generate_grouped_spans_between_support_nodes(
       }
       const SlotSide branch_side = (side_sign >= 0.0) ? SlotSide::kRight : SlotSide::kLeft;
 
-      const bool use_scaffold_layout =
-          maintain_lane_order && bundle_template_id == BundleKind::kHighVoltage && lane_count > 1;
-      double main_support_base_z_m = pole->height_m * 0.8;
+      const bool use_scaffold_layout = use_lane_row_geometry;
+      double main_support_base_z_m = lane_row_base_z_for_pole(*pole);
       double branch_base_z_m = main_support_base_z_m;
-      if (const PoleTypeDefinition* pole_type = find_pole_type(pole->pole_type_id); pole_type != nullptr) {
-        double best_slot_z = -std::numeric_limits<double>::infinity();
-        for (const PortSlotTemplate& slot : pole_type->port_slots) {
-          if (!slot.enabled || slot.category != category) {
-            continue;
-          }
-          best_slot_z = std::max(best_slot_z, slot.local_position.z);
-        }
-        if (std::isfinite(best_slot_z)) {
-          main_support_base_z_m = use_scaffold_layout ? std::min(main_support_base_z_m, best_slot_z) : best_slot_z;
-          branch_base_z_m = main_support_base_z_m;
-        }
+      if (use_scaffold_layout) {
+        main_support_base_z_m = std::min(main_support_base_z_m, pole->height_m * 0.8);
+        branch_base_z_m = main_support_base_z_m;
       }
       branch_base_z_m = std::max(0.5, main_support_base_z_m - effective_branch_down_offset_m);
 
@@ -406,9 +422,90 @@ CoreState::generate_grouped_spans_between_support_nodes(
       ports_result.ok = true;
       return ports_result;
     }
-    for (const Port& port : edit_state_access().ports.items()) {
-      if (port.owner_pole_id == node_id && port.layer == target_port_layer) {
-        ports_result.value.push_back(port.id);
+    auto port_connection_count = [&](ObjectId port_id) -> std::size_t {
+      const auto it = connection_index_access().spans_by_port.find(port_id);
+      return (it == connection_index_access().spans_by_port.end()) ? 0 : it->second.size();
+    };
+
+    if (use_lane_row_geometry && pole != nullptr) {
+      std::unordered_set<ObjectId> unique{};
+      std::vector<ObjectId> reusable_generated_ports{};
+
+      if (const auto it_ports = relation_index_access().ports_by_pole.find(node_id);
+          it_ports != relation_index_access().ports_by_pole.end()) {
+        for (ObjectId port_id : it_ports->second) {
+          const Port* port = edit_state_access().ports.find(port_id);
+          if (port == nullptr || port->layer != target_port_layer || port->category != category) {
+            continue;
+          }
+          if (port->generated_by_rule && port_connection_count(port_id) == 0) {
+            reusable_generated_ports.push_back(port_id);
+          }
+        }
+      }
+
+      const double target_z_m = lane_row_base_z_for_pole(*pole);
+      const double spacing = std::max(0.1, spacing_m);
+      const double center = (static_cast<double>(lane_count) - 1.0) * 0.5;
+      for (int lane = 0; lane < lane_count; ++lane) {
+        const double target_y = (static_cast<double>(lane) - center) * spacing;
+        const Vec3d local{0.0, target_y, target_z_m};
+        const Vec3d world = local_to_world_on_pole_local(pole->world_transform, layout_yaw_for_pole(*pole), local);
+
+        ObjectId port_id = kInvalidObjectId;
+        while (!reusable_generated_ports.empty() && port_id == kInvalidObjectId) {
+          const ObjectId candidate_id = reusable_generated_ports.back();
+          reusable_generated_ports.pop_back();
+          if (unique.find(candidate_id) == unique.end()) {
+            port_id = candidate_id;
+          }
+        }
+
+        if (port_id != kInvalidObjectId) {
+          Port* reused_port = edit_state_access().ports.find(port_id);
+          if (reused_port == nullptr) {
+            continue;
+          }
+          reused_port->world_position = world;
+          reused_port->category = category;
+          reused_port->generated_by_rule = true;
+          reused_port->placement_context = ConnectionContext::kTrunkContinue;
+          reused_port->template_layer = generation::detail::TemplateLayerForCategory(category);
+          reused_port->template_side = (target_y < -1e-9) ? SlotSide::kLeft
+                                                           : ((target_y > 1e-9) ? SlotSide::kRight : SlotSide::kCenter);
+          apply_port_position_mode(*reused_port, PortPositionMode::kAuto, PortPlacementSourceKind::kGenerated);
+          add_unique_id(result.change_set.updated_ids, reused_port->id);
+          unique.insert(port_id);
+          ports_result.value.push_back(port_id);
+          continue;
+        }
+
+        EditResult<ObjectId> add_port =
+            AddPort(node_id, world, category_to_port_kind(category), category_to_port_layer(category));
+        if (!add_port.ok) {
+          ports_result.error = add_port.error;
+          return ports_result;
+        }
+        append_change_set(result.change_set, add_port.change_set);
+        Port* created_port = edit_state_access().ports.find(add_port.value);
+        if (created_port != nullptr) {
+          created_port->category = category;
+          created_port->generated_by_rule = true;
+          created_port->placement_context = ConnectionContext::kTrunkContinue;
+          created_port->template_layer = generation::detail::TemplateLayerForCategory(category);
+          created_port->template_side = (target_y < -1e-9) ? SlotSide::kLeft
+                                                           : ((target_y > 1e-9) ? SlotSide::kRight : SlotSide::kCenter);
+          apply_port_position_mode(*created_port, PortPositionMode::kAuto, PortPlacementSourceKind::kGenerated);
+          add_unique_id(result.change_set.updated_ids, created_port->id);
+        }
+        unique.insert(add_port.value);
+        ports_result.value.push_back(add_port.value);
+      }
+    } else {
+      for (const Port& port : edit_state_access().ports.items()) {
+        if (port.owner_pole_id == node_id && port.layer == target_port_layer) {
+          ports_result.value.push_back(port.id);
+        }
       }
     }
 
@@ -465,66 +562,6 @@ CoreState::generate_grouped_spans_between_support_nodes(
         if (count > best_count || (count == best_count && count > 0 && neighbor_id < continuity_neighbor_id)) {
           best_count = count;
           continuity_neighbor_id = neighbor_id;
-        }
-      }
-    }
-    const bool use_hv_scaffold_geometry = (bundle_template_id == BundleKind::kHighVoltage);
-    std::unordered_set<ObjectId> unique(ports_result.value.begin(), ports_result.value.end());
-    int attempts = 0;
-    int fallback_created = 0;
-    while (static_cast<int>(ports_result.value.size()) < lane_count && attempts < lane_count * 16) {
-      ++attempts;
-      int slot_id = -1;
-      SlotSelectionRequest request{};
-      request.pole_id = node_id;
-      request.peer_pole_id = peer_id;
-      request.category = category;
-      request.connection_context = ConnectionContext::kTrunkContinue;
-      request.branch_index = static_cast<std::uint32_t>(segment_index);
-      // Grouped lane generation must be able to realize template slot ports on first use.
-      // Otherwise HV/LV multi-lane endpoints fall back to a single generated/existing category port
-      // and collapse distinct lanes at route terminals.
-      request.allow_generate_port = true;
-      if (const Pole* p = pole; p != nullptr) {
-        request.pole_context = p->context.kind;
-        request.corner_angle_deg = p->context.corner_angle_deg;
-        request.corner_turn_sign = p->context.corner_turn_sign;
-      }
-      EditResult<ObjectId> one = ensure_pole_slot_port(request, &slot_id);
-      if (!one.ok) {
-        ports_result.error = one.error;
-        return ports_result;
-      }
-      append_change_set(result.change_set, one.change_set);
-      if (unique.insert(one.value).second) {
-        ports_result.value.push_back(one.value);
-      } else {
-        // If slot allocator repeated same port, force-create a deterministic fallback port.
-        const Pole* p = pole;
-        if (p != nullptr) {
-          const int fallback_index = fallback_created++;
-          const double lane_sign = (fallback_index % 2 == 0) ? 1.0 : -1.0;
-          const int fallback_ring = (fallback_index / 2) + 1;
-          const double fallback_spacing = std::max(0.1, spacing_m);
-          const double lane_offset = fallback_spacing * static_cast<double>(fallback_ring);
-          Vec3d world{};
-          if (use_hv_scaffold_geometry) {
-            const Vec3d local{0.0, lane_sign * lane_offset, p->height_m * 0.8};
-            world = local_to_world_on_pole_local(p->world_transform, layout_yaw_for_pole(*p), local);
-          } else {
-            const Vec3d lateral_axis = canonical_side_axis_for_order(node_id, peer_id);
-            const Vec3d lane_delta{lateral_axis.x * lane_sign * lane_offset, lateral_axis.y * lane_sign * lane_offset,
-                                   0.0};
-            world = p->world_transform.position + lane_delta;
-            SetHeightAlongWorldUp(&world, HeightAlongWorldUp(p->world_transform.position) + p->height_m * 0.8);
-          }
-          EditResult<ObjectId> extra =
-              AddPort(node_id, world,
-                      category_to_port_kind(category), category_to_port_layer(category));
-          if (extra.ok && unique.insert(extra.value).second) {
-            ports_result.value.push_back(extra.value);
-            append_change_set(result.change_set, extra.change_set);
-          }
         }
       }
     }
@@ -596,13 +633,11 @@ CoreState::generate_grouped_spans_between_support_nodes(
       if (p == nullptr) {
         return {0.0, 1, 999, 999999, 999999, kInvalidObjectId};
       }
-      const bool has_template_slot = p->source_slot_id >= 0;
-      return {local_y_of(p), has_template_slot ? 0 : 1, p->template_layer, side_rank(p->template_side),
-              has_template_slot ? p->source_slot_id : 999999, p->id};
+      return {local_y_of(p), 0, p->template_layer, side_rank(p->template_side),
+              static_cast<int>(std::llround(HeightAlongWorldUp(p->world_position) * 1000.0)), p->id};
     };
 
-    const bool use_scaffold_layout =
-        maintain_lane_order && bundle_template_id == BundleKind::kHighVoltage && lane_count > 1;
+    const bool use_scaffold_layout = use_lane_row_geometry;
     if (use_scaffold_layout && pole != nullptr) {
       const double spacing = std::max(0.1, spacing_m);
       const double center = (static_cast<double>(lane_count) - 1.0) * 0.5;
@@ -616,31 +651,106 @@ CoreState::generate_grouped_spans_between_support_nodes(
       const std::size_t node_index = (it_index == node_index_by_id.end()) ? node_ids.size() : it_index->second;
       const bool is_terminal_node = (node_index == 0 || node_index + 1 >= node_ids.size());
       if (is_terminal_node) {
-        auto terminal_order_key = [&](const Port* p) -> std::tuple<int, int, int, double, ObjectId> {
+        auto port_connection_count = [&](ObjectId port_id) -> std::size_t {
+          const auto it = connection_index_access().spans_by_port.find(port_id);
+          return (it == connection_index_access().spans_by_port.end()) ? 0 : it->second.size();
+        };
+        auto terminal_order_key = [&](const Port* p) -> std::tuple<int, int, double, ObjectId> {
           if (p == nullptr) {
-            return {1, 999999, 999, 0.0, kInvalidObjectId};
+            return {999, 999, 0.0, kInvalidObjectId};
           }
-          const bool has_template_slot = p->source_slot_id >= 0;
-          return {has_template_slot ? 0 : 1, has_template_slot ? p->source_slot_id : 999999, p->template_layer,
-                  local_y_of(p), p->id};
+          return {p->template_layer, side_rank(p->template_side), local_y_of(p), p->id};
         };
         std::sort(ports_result.value.begin(), ports_result.value.end(), [&](ObjectId a, ObjectId b) {
           const Port* pa = edit_state_access().ports.find(a);
           const Port* pb = edit_state_access().ports.find(b);
           return terminal_order_key(pa) < terminal_order_key(pb);
         });
-        if (static_cast<int>(ports_result.value.size()) > lane_count) {
-          ports_result.value.resize(static_cast<std::size_t>(lane_count));
+
+        std::vector<ObjectId> normalized_ports{};
+        normalized_ports.reserve(static_cast<std::size_t>(lane_count));
+        std::vector<ObjectId> reusable_fallback_ports{};
+        reusable_fallback_ports.reserve(ports_result.value.size());
+        for (ObjectId port_id : ports_result.value) {
+          const Port* port = edit_state_access().ports.find(port_id);
+          if (port == nullptr) {
+            continue;
+          }
+          if (port_connection_count(port_id) == 0) {
+            reusable_fallback_ports.push_back(port_id);
+          }
         }
+
+        const double target_z_m = lane_row_base_z_for_pole(*pole);
+
+        auto realize_terminal_world = [&](double target_y) {
+          const Vec3d local{0.0, target_y, target_z_m};
+          return local_to_world_on_pole_local(pole->world_transform, layout_yaw_for_pole(*pole), local);
+        };
+
+        for (int lane = static_cast<int>(normalized_ports.size()); lane < lane_count; ++lane) {
+          const double target_y = target_local_y[static_cast<std::size_t>(lane)];
+          const Vec3d world = realize_terminal_world(target_y);
+          if (!reusable_fallback_ports.empty()) {
+            const ObjectId port_id = reusable_fallback_ports.front();
+            reusable_fallback_ports.erase(reusable_fallback_ports.begin());
+            Port* port = edit_state_access().ports.find(port_id);
+            if (port != nullptr) {
+              port->world_position = world;
+              port->category = category;
+              port->generated_by_rule = true;
+              port->template_layer = generation::detail::TemplateLayerForCategory(category);
+              port->template_side =
+                  (target_y < -1e-9) ? SlotSide::kLeft : ((target_y > 1e-9) ? SlotSide::kRight : SlotSide::kCenter);
+              apply_port_position_mode(*port, PortPositionMode::kAuto, PortPlacementSourceKind::kGenerated);
+              add_unique_id(result.change_set.updated_ids, port->id);
+              normalized_ports.push_back(port_id);
+              continue;
+            }
+          }
+
+          EditResult<ObjectId> add_port =
+              AddPort(node_id, world, category_to_port_kind(category), category_to_port_layer(category));
+          if (!add_port.ok) {
+            ports_result.error = add_port.error;
+            return ports_result;
+          }
+          append_change_set(result.change_set, add_port.change_set);
+          Port* created_port = edit_state_access().ports.find(add_port.value);
+          if (created_port != nullptr) {
+            created_port->category = category;
+            created_port->generated_by_rule = true;
+            created_port->placement_context = ConnectionContext::kTrunkContinue;
+            created_port->template_layer = generation::detail::TemplateLayerForCategory(category);
+            created_port->template_side =
+                (target_y < -1e-9) ? SlotSide::kLeft : ((target_y > 1e-9) ? SlotSide::kRight : SlotSide::kCenter);
+            apply_port_position_mode(*created_port, PortPositionMode::kAuto, PortPlacementSourceKind::kGenerated);
+            add_unique_id(result.change_set.updated_ids, created_port->id);
+          }
+          normalized_ports.push_back(add_port.value);
+        }
+
+        std::sort(normalized_ports.begin(), normalized_ports.end(), [&](ObjectId a, ObjectId b) {
+          const Port* pa = edit_state_access().ports.find(a);
+          const Port* pb = edit_state_access().ports.find(b);
+          return local_y_of(pa) < local_y_of(pb);
+        });
+        if (static_cast<int>(normalized_ports.size()) > lane_count) {
+          normalized_ports.resize(static_cast<std::size_t>(lane_count));
+        }
+
+        ports_result.value = std::move(normalized_ports);
         node_lane_ports_cache[node_id] = ports_result.value;
         ports_result.ok = true;
         return ports_result;
       }
 
+      const bool use_scaffold_geometry = use_lane_row_geometry;
       auto desired_world_for_target = [&](double target_y) {
         const Vec3d base = pole->world_transform.position;
-        if (!use_hv_scaffold_geometry || node_index == node_ids.size()) {
-          const Vec3d local{0.0, target_y, pole->height_m * 0.8};
+        const double base_z_m = lane_row_base_z_for_pole(*pole);
+        if (!use_scaffold_geometry || node_index == node_ids.size()) {
+          const Vec3d local{0.0, target_y, base_z_m};
           return local_to_world_on_pole_local(pole->world_transform, layout_yaw_for_pole(*pole), local);
         }
 
@@ -648,14 +758,14 @@ CoreState::generate_grouped_spans_between_support_nodes(
         const Vec3d next = support_position(node_ids[node_index + 1]);
         if ((prev - base).x * (prev - base).x + (prev - base).y * (prev - base).y <= 1e-12 ||
             (next - base).x * (next - base).x + (next - base).y * (next - base).y <= 1e-12) {
-          const Vec3d local{0.0, target_y, pole->height_m * 0.8};
+          const Vec3d local{0.0, target_y, base_z_m};
           return local_to_world_on_pole_local(pole->world_transform, layout_yaw_for_pole(*pole), local);
         }
 
         Vec3d dir_in = base - prev;
         Vec3d dir_out = next - base;
         if (!normalize_xy(&dir_in) || !normalize_xy(&dir_out)) {
-          const Vec3d local{0.0, target_y, pole->height_m * 0.8};
+          const Vec3d local{0.0, target_y, base_z_m};
           return local_to_world_on_pole_local(pole->world_transform, layout_yaw_for_pole(*pole), local);
         }
         Vec3d normal_in = ComputeLateralAxis(dir_in);
@@ -681,7 +791,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
         const Vec3d offset_out{base.x + normal_out.x * target_y, base.y + normal_out.y * target_y,
                                HeightAlongWorldUp(base)};
         if (line_intersection_xy_local(offset_in, dir_in, offset_out, dir_out, &joined_xy)) {
-          SetHeightAlongWorldUp(&joined_xy, HeightAlongWorldUp(base) + pole->height_m * 0.8);
+          SetHeightAlongWorldUp(&joined_xy, HeightAlongWorldUp(base) + base_z_m);
           const double dx = joined_xy.x - base.x;
           const double dy = joined_xy.y - base.y;
           const double dist = std::sqrt(dx * dx + dy * dy);
@@ -690,11 +800,10 @@ CoreState::generate_grouped_spans_between_support_nodes(
             return joined_xy;
           }
           const double scale = limit / dist;
-          return Vec3d{base.x + dx * scale, base.y + dy * scale,
-                       HeightAlongWorldUp(base) + pole->height_m * 0.8};
+          return Vec3d{base.x + dx * scale, base.y + dy * scale, HeightAlongWorldUp(base) + base_z_m};
         }
 
-        const Vec3d local{0.0, target_y, pole->height_m * 0.8};
+        const Vec3d local{0.0, target_y, base_z_m};
         return local_to_world_on_pole_local(pole->world_transform, layout_yaw_for_pole(*pole), local);
       };
 
@@ -713,7 +822,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
           if (candidate == nullptr || candidate->owner_pole_id != node_id || candidate->layer != target_port_layer) {
             continue;
           }
-          const double dist = use_hv_scaffold_geometry
+          const double dist = use_scaffold_geometry
                                   ? std::sqrt(std::pow(candidate->world_position.x - desired_world.x, 2.0) +
                                               std::pow(candidate->world_position.y - desired_world.y, 2.0))
                                   : std::abs(dot_xy(candidate->world_position - pole->world_transform.position,
@@ -726,7 +835,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
         }
 
         const double kTargetMatchTolerance =
-            use_hv_scaffold_geometry ? std::max(0.05, spacing * 0.35) : std::max(0.02, spacing * 0.1);
+            use_scaffold_geometry ? std::max(0.05, spacing * 0.35) : std::max(0.02, spacing * 0.1);
         if (best_id == kInvalidObjectId || best_dist > kTargetMatchTolerance) {
           EditResult<ObjectId> extra =
               AddPort(node_id, desired_world, category_to_port_kind(category), category_to_port_layer(category));
@@ -737,7 +846,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
           append_change_set(result.change_set, extra.change_set);
           best_id = extra.value;
         }
-        if (use_hv_scaffold_geometry) {
+        if (use_scaffold_geometry) {
           Port* selected = edit_state_access().ports.find(best_id);
           if (selected != nullptr && selected->owner_pole_id == node_id) {
             selected->world_position = desired_world;
@@ -884,7 +993,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
     if (dot_xy(axis_a, axis_b) < 0.0) {
       y_sign_b = -1.0;
     }
-    const bool use_local_y_metric = (bundle_template_id == BundleKind::kHighVoltage);
+    const bool use_local_y_metric = use_lane_row_geometry;
 
     std::vector<double> y_a(static_cast<std::size_t>(lane_count), 0.0);
     std::vector<double> y_b(static_cast<std::size_t>(lane_count), 0.0);
@@ -1049,7 +1158,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
     dst->span_z_delta += src.span_z_delta;
   };
   auto orientation_plan_less = [&](const OrientationPlanScore& a, const OrientationPlanScore& b) {
-    if (bundle_template_id == BundleKind::kHighVoltage && a.adjacent_xy_intersections != b.adjacent_xy_intersections) {
+    if (use_lane_row_geometry && a.adjacent_xy_intersections != b.adjacent_xy_intersections) {
       return a.adjacent_xy_intersections < b.adjacent_xy_intersections;
     }
     if (a.mirror.cross_y != b.mirror.cross_y) {
@@ -1131,7 +1240,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
             OrientationPlanScore candidate = cell.score;
             add_mirror_score(&candidate.mirror,
                              evaluate_increment(node_ids[step], node_ids[step + 1], ports_prev, ports_curr));
-            if (bundle_template_id == BundleKind::kHighVoltage) {
+            if (use_lane_row_geometry) {
               const std::vector<ObjectId> ports_prev_prev =
                   order_for_parity(base_ports_by_node[step - 1], parity_prev_prev != 0);
               candidate.adjacent_xy_intersections +=

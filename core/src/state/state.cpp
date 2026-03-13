@@ -179,6 +179,11 @@ EditResult<ObjectId> CoreState::AddPole(const Transformd& world_transform, doubl
 }
 
 EditResult<ObjectId> CoreState::AddPort(ObjectId owner_pole_id, const Vec3d& world_position, PortKind kind,
+                                        PortLayer layer) {
+  return AddPort(owner_pole_id, world_position, kind, layer, Frame3d{});
+}
+
+EditResult<ObjectId> CoreState::AddPort(ObjectId owner_pole_id, const Vec3d& world_position, PortKind kind,
                                         PortLayer layer, const Frame3d& direction) {
   EditResult<ObjectId> result;
   if (owner_pole_id != kInvalidObjectId && edit_state_.poles.find(owner_pole_id) == nullptr) {
@@ -1334,6 +1339,11 @@ EditResult<bool> CoreState::UpdateVariationSettings(const VariationSettings& set
     }
   }
   return result;
+}
+
+EditResult<bool> CoreState::UpdateCableTemplate(const CableTemplate& cable_template) {
+  static const std::vector<ObjectId> kNoPreferredVisibleSpans{};
+  return UpdateCableTemplate(cable_template, kNoPreferredVisibleSpans);
 }
 
 EditResult<bool> CoreState::UpdateCableTemplate(const CableTemplate& cable_template,

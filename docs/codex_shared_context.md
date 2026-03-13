@@ -113,31 +113,34 @@
 4. `docs/core_model_inventory.md`
 5. `docs/chat_handoff_checklist.md`
 
-## 10. Current Snapshot（2026-03-11）
+## 10. Current Snapshot（2026-03-13）
 - いま動くもの:
-  - BackboneSpec 経路での HV_3PH 鋭角パスにおける lane ねじれ抑制。
-  - `CableTemplate` / `BundleTemplate` / Pole 実体値の責務分離。
-  - template 編集時の visible-first dirty 更新。
-  - `DetailCurve` 派生層による拘束付き見た目曲線の基盤。
-  - `u` ベース曲線評価と `s` ベース配置 API の分離。
-  - render cache への arc-length 距離属性焼き込み。
-  - `SupportLayout` を detail curve 前段の派生中間構造として明示化。
-  - attachment line interaction (`PassThrough / HideSegment / ReplaceWithInternalPath`) と optional internal path。
+  - `SupportLayout` を detail curve 前段の派生中間構造として使い、curve 生成は support layout 集約結果を入力に受ける。
   - concept-level inspection surface（`Pole / Span / SupportLayout / DetailCurve / Junction / Template / Override`）。
-  - formal override 層（Pole yaw、endpoint socket、branch down offset）。
-  - viewer で pole / midair support / span の個別選択と矩形選択、選択 pole tilt が可能。
-  - `wire_core_tests` は 169/169 PASS。
+  - formal override 層（Pole yaw、endpoint socket、branch down offset）。runtime read は `OverrideResolutionService` 側へ寄せている。
+  - DrawPath 通常経路で attachment / socket が未接続であることを trace / inspection / docs で明示。
+  - main / branch / support 軸 / branch runout 向けの geometry metric tests。
+  - build まわりの改善:
+    - `wire_core_public_headers_smoke`
+    - `ctest` が build 後そのまま回る
+    - `WIRE_ENABLE_UNITY_BUILD` は主に `wire_core_tests` 反復用
+    - `pwsh.exe` ノイズは vcpkg applocal の built-in 側へ切替済み
+  - `docs` 配下の `slot` 用語は除去済み。
+  - `wire_core_tests` は 190/190 PASS。
   - `wire_viewer_tests` は 8/8 PASS。
 - いま壊れているもの:
+  - viewer 実画面では、開始/終了 pole で三相が潰れて見える repro がまだ閉じていない。
+  - `clicked point only + CommunicationPole + template 全選択` 系の見え方について、core テストは通るが viewer acceptance が未完。
   - `wire_viewer.exe` が起動中だと viewer 本体の再リンクが `LNK1168` で止まる。
 - 既知リスク:
-  - ねじれ判定は「pole局所Yの順序反転」基準。厳密XY交差（扇状近傍を含む）は評価主軸にしない。
+  - geometry metric と core テストでは分離できていても、viewer render / cache / 可視化層で still wrong の可能性がある。
   - `DetailCurve` は見た目曲線の近似基盤であり、厳密懸垂/弾性線/張力釣り合いは未導入。
-  - `GenerateGroupedLine` 互換入口は削除済みだが、docs の古い記述が残っていないかは継続確認が必要。
+  - 実装コードには `PortSlotTemplate` / `source_slot_id` / `ensure_pole_slot_port` など `slot` 概念がまだ残る。docs だけ先に片付けた段階。
 - 未着手/保留:
   - shader 側での arc-length 正規化距離属性の実利用。
   - support style / mirror / flow classification の formal override。
-  - viewer 側の可視デバッグ（mirror 適用区間 / junction order 表示）の恒久UI化。
+  - `slot` 概念の code-side 削除（`entities.hpp`, `templates.cpp`, validator, viewer/debug）。
+  - viewer 側の current build capture と render/state 切り分け。
 
 ## 11. Decision Log（直近）
 - 2026-03-11 / Accepted:
@@ -205,22 +208,24 @@
 
 ## 13. 次回開始パック（そのまま貼付可）
 - ゴール:
-  - formal override の対象拡張（support style / mirror / flow classification）か、public readonly 面の tightening を進める。
-  - Backbone と詳細層の責務分離を維持したまま viewer/debug 手確認まで閉じる。
+  - viewer で残っている「開始/終了 pole の三相が潰れて見える」問題を、core 幾何なのか viewer render/state/capture なのか切り分けて閉じる。
+  - `slot` 概念を code-side でも削り、template 配置ヒントと runtime `Port` の境界を単純化する。
 - 現在状態:
-  - `wire_core_tests` は 169/169 PASS、`wire_viewer_tests` は 8/8 PASS。
-  - `SupportLayout`、inspection、override、attachment interaction は概念面まで実装済み。
+  - `wire_core_tests` は 190/190 PASS、`wire_viewer_tests` は 8/8 PASS。
+  - geometry metric / trace / inspection では terminal 分離、row 軸、branch runout を観測できる。
+  - docs 配下の `slot` 用語は削除済みだが、コードには `slot` 型と debug が残る。
   - viewer 本体は実行中プロセスがあると `LNK1168` で再リンク不能。
 - 直近決定:
   - 曲線生成は `u`、正確な配置は `s`、毎フレーム表示変形は GPU 距離属性。
   - 見た目曲線は「cubic 基準曲線 + 後段 sag 合成」。
-  - arc-length table と制御点は正本ではなく派生 cache。
+  - attachment / socket は DrawPath 通常経路では未接続として扱う。
+  - `WIRE_ENABLE_UNITY_BUILD` は tests build 用オプションとして扱う。
 - 次の48h候補:
-  - viewer 本体の再リンクと inspection / override UI の手動確認。
-  - GPU 距離属性の最初の実利用。
+  - current build の viewer repro capture を取り、core 幾何と render/state のどちらで潰れているかを切る。
+  - `PortSlotTemplate` / `source_slot_id` / `ensure_pole_slot_port` を削る。
   - support style / mirror / flow classification override の formal 導入。
 - 制約:
   - 正本直書き禁止、公開API経由のみ。
-- テンプレ配置ヒント(候補) / `Port`(実体) の用語混同禁止。
+  - テンプレ配置ヒント（候補） / `Port`（実体）の用語混同禁止。
   - Manual保持優先、全体再生成を既定にしない。
   - arc-length table / 制御点 / detail curve を正本へ保存しない。

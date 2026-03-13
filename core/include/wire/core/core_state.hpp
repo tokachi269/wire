@@ -415,7 +415,9 @@ public:
                                PoleKind kind = PoleKind::kGeneric,
                                PlacementMode placement_mode = PlacementMode::kAuto);
   EditResult<ObjectId> AddPort(ObjectId owner_pole_id, const Vec3d& world_position, PortKind kind = PortKind::kGeneric,
-                               PortLayer layer = PortLayer::kUnknown, const Frame3d& direction = {});
+                               PortLayer layer = PortLayer::kUnknown);
+  EditResult<ObjectId> AddPort(ObjectId owner_pole_id, const Vec3d& world_position, PortKind kind,
+                               PortLayer layer, const Frame3d& direction);
   EditResult<ObjectId> AddAnchor(ObjectId owner_pole_id, const Vec3d& world_position,
                                  AnchorSupportKind support_kind = AnchorSupportKind::kGeneric,
                                  double support_strength = 1.0);
@@ -501,8 +503,9 @@ public:
   EditResult<bool> UpdateLayoutSettings(const LayoutSettings& settings);
   EditResult<bool> UpdateVisualSettings(const VisualSettings& settings, bool mark_all_spans_dirty = true);
   EditResult<bool> UpdateVariationSettings(const VariationSettings& settings, bool mark_all_spans_dirty = true);
+  EditResult<bool> UpdateCableTemplate(const CableTemplate& cable_template);
   EditResult<bool> UpdateCableTemplate(const CableTemplate& cable_template,
-                                       const std::vector<ObjectId>& preferred_visible_span_ids = {});
+                                       const std::vector<ObjectId>& preferred_visible_span_ids);
   EditResult<bool> UpdateBundleTemplate(const BundleTemplate& bundle_template);
   EditResult<bool> UpdateAttachmentTemplate(const AttachmentTemplate& attachment_template,
                                             bool mark_dependent_spans_dirty = true);
@@ -515,7 +518,8 @@ public:
   [[nodiscard]] const AttachmentTemplate* find_attachment_template(AttachmentTemplateId attachment_template_id) const;
   [[nodiscard]] ValidationResult ValidateFast() const;
 
-  [[nodiscard]] CommitResult Commit(const CommitOptions& options = {});
+  [[nodiscard]] CommitResult Commit();
+  [[nodiscard]] CommitResult Commit(const CommitOptions& options);
 
   [[nodiscard]] ObjectId next_id() const { return id_generator_.peek(); }
   void clear_path_direction_debug_records() { path_direction_debug_records_.clear(); }

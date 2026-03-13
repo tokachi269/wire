@@ -18,10 +18,12 @@ namespace {
 using wire::core::AddConnectionByPoleOptions;
 using wire::core::ConnectionCategory;
 using wire::core::CoreState;
+using wire::core::Frame3d;
 using wire::core::EntityRef;
 using wire::core::PickResult;
 using wire::core::ResolveBranchPickOptions;
 using wire::core::VariationSettings;
+using wire::core::CableTemplate;
 
 static_assert(std::is_default_constructible_v<AddConnectionByPoleOptions>);
 static_assert(std::is_default_constructible_v<ResolveBranchPickOptions>);
@@ -37,6 +39,14 @@ void smoke_public_headers(CoreState& state, const PickResult& pick) {
                                 ConnectionCategory::kLowVoltage, AddConnectionByPoleOptions{});
   [[maybe_unused]] const auto resolve_default = state.ResolveBranchPick(pick);
   [[maybe_unused]] const auto resolve_with_options = state.ResolveBranchPick(pick, ResolveBranchPickOptions{});
+  [[maybe_unused]] const auto add_port_default =
+      state.AddPort(wire::core::kInvalidObjectId, wire::core::Vec3d{}, wire::core::PortKind::kGeneric,
+                    wire::core::PortLayer::kUnknown);
+  [[maybe_unused]] const auto add_port_with_direction =
+      state.AddPort(wire::core::kInvalidObjectId, wire::core::Vec3d{}, wire::core::PortKind::kGeneric,
+                    wire::core::PortLayer::kUnknown, Frame3d{});
+  [[maybe_unused]] const auto commit_default = state.Commit();
+  [[maybe_unused]] const auto update_template_default = state.UpdateCableTemplate(CableTemplate{});
 }
 
 } // namespace

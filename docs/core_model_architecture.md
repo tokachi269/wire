@@ -7,7 +7,7 @@
 
 1. `Definition`
 - テンプレート/静的定義。
-- 例: `PoleTypeDefinition`, `PortSlotTemplate`, `AnchorSlotTemplate`。
+- 例: `PoleTypeDefinition` と、その内部で持つ配置ヒント/支持ヒント。
 
 2. `Entity`（永続正本）
 - 実行時の正本ネットワーク実体。
@@ -19,7 +19,7 @@
 
 4. `Cache/Debug`（派生/セッション）
 - 再構築可能なキャッシュと診断情報。
-- 例: `CurveCache`, `BoundsCache`, `DirtyQueue`, `SpanRuntimeState`, path/slot デバッグ記録。
+- 例: `CurveCache`, `BoundsCache`, `DirtyQueue`, `SpanRuntimeState`, path/配置候補 デバッグ記録。
 
 ## 依存ルール（固定）
 
@@ -68,7 +68,7 @@
 
 ## 命名ルール
 
-- `slot`: テンプレート候補点（runtime endpoint ではない）
+- テンプレ配置ヒント: 実接続点ではない定義側の配置情報
 - `port`: runtime 接続点
 - `span`: port 間 runtime edge
 - `bundle`: span 群を束ねる正本単位
@@ -102,7 +102,7 @@
 - `Backbone / junction order / primary`: `3. 自動決定される導出結果`
   - 置き場: `workflow_types.hpp` の `JunctionInfo`, `JunctionIncident`, `BackboneResult`
 - `Pole forward / yaw`: `2. 明示override可能な正本`
-  - 置き場: entity 正本は `Pole.orientation_control`
+  - 置き場: entity 正本は formal override 層
   - 自動採用結果の置き場: `debug_types.hpp` の `PoleOrientationDebugRecord`
 - `main / branch classification`: `3. 自動決定される導出結果`
   - 置き場: `BackboneFlowKind`, `BackboneEdgeOrientation`, `SegmentLaneAssignment`

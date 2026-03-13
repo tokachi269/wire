@@ -25,7 +25,7 @@
 - DrawPath は入力ツール。正本ではない。
 - 生成器の中心入力は `BackboneSpec`。
 - `BackboneSpec.bundles[]` で束テンプレを指定する。
-- `slot` はテンプレ候補、`Port` は実接続点（混同しない）。
+- テンプレ配置ヒントと `Port`（実接続点）を混同しない。
 - 更新は編集 API 経由のみ。外部から mutable 参照で正本を直接触らない。
 
 ## 5. Manual/Auto ルール
@@ -96,7 +96,7 @@
 ## 7. 既知の注意点
 - 正本と派生を混在させると破綻しやすい。
 - 生成都合の一時情報を Entity に埋め込みすぎない。
-- 文字列用語（Guide/slot/lane）が混ざると実装者解釈が割れるため、用語は docs/wire.md に合わせる。
+- 文字列用語（Guide/テンプレ配置ヒント/lane）が混ざると実装者解釈が割れるため、用語は docs/wire.md に合わせる。
 
 ## 8. 現在の実装フォーカス
 - 正本安定化（更新経路の集約）
@@ -221,6 +221,6 @@
   - support style / mirror / flow classification override の formal 導入。
 - 制約:
   - 正本直書き禁止、公開API経由のみ。
-  - `slot`(候補) / `Port`(実体) の用語混同禁止。
+- テンプレ配置ヒント(候補) / `Port`(実体) の用語混同禁止。
   - Manual保持優先、全体再生成を既定にしない。
   - arc-length table / 制御点 / detail curve を正本へ保存しない。

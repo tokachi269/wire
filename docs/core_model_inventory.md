@@ -28,12 +28,10 @@ Definition Layer
 ### 4.1 Definition Layer
 | 型 | ファイル | 責務（1行） | 主依存 | 保存分類 |
 |---|---|---|---|---|
-| `PortSlotTemplate` | `core/include/wire/core/entities.hpp` | `Port` 生成候補となるテンプレート接続点を定義する。 | `ConnectionCategory`, `Vec3d`, `Frame3d` | `PersistCore` |
-| `AnchorSlotTemplate` | `core/include/wire/core/entities.hpp` | `Anchor` 生成候補となるテンプレート支持点を定義する。 | `AnchorSupportKind`, `Vec3d` | `PersistCore` |
-| `PoleTypeDefinition` | `core/include/wire/core/entities.hpp` | 再利用可能な電柱テンプレート（slot 群とメタ）を定義する。 | `PoleTypeId`, slot templates | `PersistCore` |
+| `PoleTypeDefinition` | `core/include/wire/core/entities.hpp` | 再利用可能な電柱テンプレートと、その内部配置ヒントを定義する。 | `PoleTypeId`, placement metadata | `PersistCore` |
 | `LayoutSettings` | `core/include/wire/core/core_state.hpp` | 配置補正ポリシーのパラメータを定義する。 | scalar params | `PersistCore`（設定） |
 | `PathDirectionCostWeights` | `core/include/wire/core/debug_types.hpp` | 経路方向評価の重みを定義する。 | scalar params | `PersistCore`（設定） |
-| 基本 enum 群（`ConnectionCategory`, `SlotSide`, `SlotRole` など） | `core/include/wire/core/entities.hpp` | テンプレート/実体/編集で使う分類語彙を定義する。 | none | `PersistCore` |
+| 基本 enum 群（`ConnectionCategory` など） | `core/include/wire/core/entities.hpp` | テンプレート/実体/編集で使う分類語彙を定義する。 | none | `PersistCore` |
 
 ### 4.2 Entity Layer
 | 型 | ファイル | 責務（1行） | 主依存 | 保存分類 |
@@ -63,8 +61,8 @@ Definition Layer
 | `GenerateSimpleLine*`, `GenerateGroupedLine*` 入出力 | `core/include/wire/core/core_state.hpp` | 生成コマンド I/O を定義する。 | entity IDs + workflow params | `SessionDebug` |
 | `GenerateBundleFromPathResult`（`GenerateFromBackboneSpec` / `RegenerateSessionAutoParts` の戻り） | `core/include/wire/core/core_state.hpp` | backbone 生成系の共通結果（生成ID群）を定義する。 | generated bundle/span/pole IDs | `SessionDebug` |
 | `PathDirectionCostBreakdown`, `PathDirectionEvaluationDebug` | `core/include/wire/core/debug_types.hpp` | 経路方向評価の診断内訳を保持する。 | scoring values | `SessionDebug` |
-| `SegmentLaneAssignment` | `core/include/wire/core/debug_types.hpp` | 区間ごとの lane 対応診断を保持する。 | poles/ports/slot IDs | `SessionDebug` |
-| `SlotCandidateDebug`, `SlotSelectionDebugRecord` | `core/include/wire/core/debug_types.hpp` | slot 選定診断とスコア内訳を保持する。 | score fields + IDs | `SessionDebug` |
+| `SegmentLaneAssignment` | `core/include/wire/core/debug_types.hpp` | 区間ごとの lane 対応診断を保持する。 | poles/ports/placement candidate IDs | `SessionDebug` |
+| 配置候補診断レコード群 | `core/include/wire/core/debug_types.hpp` | 配置候補の選定診断とスコア内訳を保持する。 | score fields + IDs | `SessionDebug` |
 | `ValidationIssue`, `ValidationResult` | `core/include/wire/core/core_state.hpp` | 構造妥当性と診断を返す。 | code/message/object_id | `SessionDebug` |
 
 ### 4.4 Cache/Derived Layer
@@ -82,37 +80,37 @@ Definition Layer
 | 現状型/フィールド | 混在理由 | 分離方向 |
 |---|---|---|
 | `Pole::context` (`PoleContextInfo`) | 経路解析ヒント（workflow）を entity に持っている。 | `pole_id` キーの workflow テーブルへ移動。必要最小限だけ永続化。 |
-| `Port` の `source_slot_id`, `template_layer/side/role`, 補正フラグ | テンプレ由来情報/生成診断と実接続点が同居。 | `PortPlacementMeta`（永続）と `PortPlacementDebug`（セッション）へ分割。 |
+| `Port` の `template_layer/side/role` と補正フラグ | テンプレ由来情報/生成診断と実接続点が同居。 | `PortPlacementMeta`（永続）と `PortPlacementDebug`（セッション）へ分割。 |
 | `Pole`/`Span` 内 `GenerationMeta` | セッション順序/由来と永続トポロジが同居。 | `generated/source` は必要時のみ残し、順序情報は workflow 側へ移す。 |
 | `CacheState` が設定と派生を同居 | 設定寿命とキャッシュ寿命が異なる。 | `GenerationSettingsState` と `DerivedCacheState` 分割。 |
 | `ConnectionIndex` / `RelationIndex` の分類 | 再構築可能だが高速参照のため正本近傍にある。 | 当面は維持し、Phase5 serializer で再構築可能扱いを明示。 |
 
 ## 6. 命名整理（固定語彙）
-- `slot`: テンプレ候補点（`PortSlotTemplate`, `AnchorSlotTemplate`）
+- テンプレ配置ヒント: 定義側の候補情報
 - `port`: runtime 接続点（`Port`）
 - `span`: runtime 接続エッジ
 - `bundle`: span 群を束ねる正本単位
 - `lane`: workflow/debug 専用シーケンス概念（entity ID ではない）
 - `road/path`: workflow 入力（UI は DrawPath 表示可）
-- `debug record`: セッション診断（`SlotSelectionDebugRecord`, `PathDirectionEvaluationDebug`, `SegmentLaneAssignment`）
+- `debug record`: セッション診断（配置候補診断、`PathDirectionEvaluationDebug`, `SegmentLaneAssignment`）
 
 ## 7. Persist/Derived/Session 方針（Phase5準備）
 
 ### 7.1 基本分類
 - `PersistCore`: entity ストア（`poles`, `ports`, `spans`, `anchors`, `bundles`, `attachments`）、テンプレ定義（`pole_types`）、設定（`layout`, `geometry`）、ID 状態（`next_id`, display counters）
 - `DerivedCache`: curve/bounds cache、dirty queue、span runtime version、recalc stats
-- `SessionDebug`: slot/path/lane 診断、直近デバッグスナップショット、操作一時入出力
+- `SessionDebug`: 配置候補/path/lane 診断、直近デバッグスナップショット、操作一時入出力
 
 ### 7.2 保存しない対象（固定）
 - `CurveCache` / `BoundsCache`
 - `DirtyQueue` / `RecalcStats` / `SpanRuntimeState`
-- `slot_selection_debug_records_`
+- 配置候補選定の debug records
 - `path_direction_debug_records_`
 - `last_path_direction_debug_`
 - `last_lane_assignments_`
 
 ## 8. このフェーズで適用済みの最小リファクタ
-- ヘッダにレイヤ境界コメントを追加し、`slot` と `port` の混同を防止。
+- ヘッダにレイヤ境界コメントを追加し、テンプレ配置ヒントと `Port` の混同を防止。
 - `CoreState` の debug/cache フィールドに session/derived 境界コメントを追加。
 - mutable 更新経路を封鎖（`edit_state/cache/id_generator` の mutable 公開を廃止、`ObjectStore` mutable 実体は `CoreState` 内に限定）。
 - viewer/tool 向けに read-only `CoreView` を導入。
@@ -122,7 +120,7 @@ Definition Layer
   - キャッシュ再計算で entity のID/件数が変わらない
 
 ## 9. 継続着手チェック
-- チーム内で `slot`（テンプレ）と `port`（実体）の読み分けが安定している。
+- チーム内でテンプレ配置ヒント（定義）と `Port`（実体）の読み分けが安定している。
 - debug/session データを非正本として扱えている。
 - Phase5 serializer で `DerivedCache`/`SessionDebug` を捨ててもトポロジ損失がない。
 - 外部向け grouped-authoring 概念は `Bundle` で統一、lane は内部 workflow/debug 限定。

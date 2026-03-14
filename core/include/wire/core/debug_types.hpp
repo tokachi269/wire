@@ -39,6 +39,7 @@ enum class PoleSupportAxisRule : std::uint8_t {
   kPrimaryIncident = 1,
   kMainChainSingle = 2,
   kMainChainPair = 3,
+  kConnectedDirectionFit = 4,
 };
 
 struct PoleOrientationDebugRecord {
@@ -59,11 +60,10 @@ struct SegmentLaneAssignment {
   std::uint64_t variation_flow_key = 0;
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
   BackboneFlowDecisionRule flow_decision_rule = BackboneFlowDecisionRule::kDefaultMain;
-  std::vector<int> slot_ids_a{};
-  std::vector<int> slot_ids_b{};
   std::vector<ObjectId> port_ids_a{};
   std::vector<ObjectId> port_ids_b{};
   bool uses_branch_support = false;
+  BackboneLoweringKind lowering_kind = BackboneLoweringKind::kNone;
   double branch_down_offset_m = 0.0;
   bool mirrored = false;
   bool flipped_from_previous = false;
@@ -71,8 +71,21 @@ struct SegmentLaneAssignment {
   double turn_angle_deg = 0.0;
 };
 
-struct SlotCandidateDebug {
-  int slot_id = -1;
+struct PlacementCandidateDebug {
+  int candidate_rank = -1;
+  int band_id = -1;
+  int band_layer = 0;
+  SlotSide band_side = SlotSide::kCenter;
+  SlotRole band_role = SlotRole::kNeutral;
+  double band_lateral_min_m = 0.0;
+  double band_lateral_max_m = 0.0;
+  double band_height_min_m = 0.0;
+  double band_height_max_m = 0.0;
+  ObjectId resolved_port_id = kInvalidObjectId;
+  double resolved_lateral_m = 0.0;
+  double resolved_height_m = 0.0;
+  bool min_spacing_satisfied = false;
+  bool overflow_used = false;
   bool eligible = false;
   int total_score = 0;
   int category_score = 0;
@@ -89,8 +102,8 @@ struct SlotCandidateDebug {
   std::string reason{};
 };
 
-struct SlotSelectionDebugRecord {
-  // Session diagnostics for slot selection; not part of entity model.
+struct PortResolutionDebugRecord {
+  // Session diagnostics for placement-band evaluation and port resolution.
   ObjectId pole_id = kInvalidObjectId;
   ObjectId peer_pole_id = kInvalidObjectId;
   ObjectId reference_span_id = kInvalidObjectId;
@@ -100,9 +113,11 @@ struct SlotSelectionDebugRecord {
   double corner_angle_deg = 0.0;
   double corner_turn_sign = 0.0;
   double side_scale = 1.0;
-  int selected_slot_id = -1;
+  ObjectId selected_port_id = kInvalidObjectId;
+  bool created_new_port = false;
+  bool overflow_triggered = false;
   std::string result{};
-  std::vector<SlotCandidateDebug> candidates{};
+  std::vector<PlacementCandidateDebug> candidates{};
 };
 
 } // namespace wire::core

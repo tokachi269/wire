@@ -9,7 +9,7 @@ namespace wire::core {
 namespace {
 
 constexpr double kZeroLengthEps = 1e-9;
-constexpr double kNormalizedCatenarySteepness = 2.6;
+constexpr double kNormalizedCatenarySteepness = 3.4;
 constexpr double kG2MinChordLengthM = 4.0;
 constexpr double kG2EndpointOffsetRatioLimit = 0.08;
 constexpr double kG2EndpointOffsetMetersLimit = 0.45;

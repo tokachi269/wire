@@ -43,9 +43,9 @@ Color FlowTintedWireColor(Color base, wire::core::BackboneFlowKind flow_kind, bo
   return base;
 }
 
-static wire::core::Vec3d PoleTopPoint(const wire::core::Pole& pole) {
+static wire::core::Vec3d PoleTopPoint(const wire::core::Pole& pole, double layout_yaw_deg) {
   const wire::core::PoleFrame frame =
-      wire::core::BuildPoleFrame(pole.world_transform, pole.world_transform.rotation_euler_deg.z);
+      wire::core::BuildPoleFrame(pole.world_transform, layout_yaw_deg);
   return wire::core::LocalPointToWorld(frame, wire::core::ScaleVec(wire::core::WorldUp(), pole.height_m));
 }
 
@@ -281,12 +281,16 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
 
   for (const wire::core::Pole& pole : edit.poles.items()) {
     const wire::core::Vec3d pole_base_ue = pole.world_transform.position;
-    const wire::core::Vec3d pole_top_ue = PoleTopPoint(pole);
+    double layout_yaw_deg = pole.world_transform.rotation_euler_deg.z;
+    if (const auto pole_view = view.inspect_pole(pole.id); pole_view.has_value() && pole_view->has_layout_yaw) {
+      layout_yaw_deg = pole_view->layout_yaw_deg;
+    }
+    const wire::core::Vec3d pole_top_ue = PoleTopPoint(pole, layout_yaw_deg);
     Color color = DARKGRAY;
     if (SelectionContains(ui_state, SelectedType::kPole, pole.id)) {
       color = GOLD;
     }
-    DrawCylinderWiresEx(ToRaylib(pole_base_ue), ToRaylib(pole_top_ue), 0.12f, 0.08f, 10, color);
+    DrawCylinderEx(ToRaylib(pole_base_ue), ToRaylib(pole_top_ue), 0.12f, 0.08f, 10, color);
   }
 
   const bool show_backbone_overlay = ui_state.draw_show_backbone_overlay;
@@ -432,4 +436,3 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
                           ui_state.draw_hover_resolution);
   }
 }
-

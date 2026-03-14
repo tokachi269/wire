@@ -341,7 +341,7 @@ SupportLayoutOriginKind support_layout_origin_from_port(const Port& port) {
     return SupportLayoutOriginKind::kBranchSupport;
   case PortPlacementSourceKind::kAerialBranch:
     return SupportLayoutOriginKind::kAerialBranch;
-  case PortPlacementSourceKind::kTemplateSlot:
+  case PortPlacementSourceKind::kPlacementBand:
   case PortPlacementSourceKind::kGenerated:
   case PortPlacementSourceKind::kManualEdit:
     return SupportLayoutOriginKind::kMainSupport;
@@ -378,22 +378,22 @@ double branch_down_offset_for_port(const CoreState& state, const Port& port, std
   const auto pole_type_it = state.view().pole_types().find(pole->pole_type_id);
   if (pole_type_it != state.view().pole_types().end()) {
     const PoleTypeDefinition& pole_type = pole_type_it->second;
-    double best_slot_z = -std::numeric_limits<double>::infinity();
+    double best_band_z = -std::numeric_limits<double>::infinity();
     const int target_layer = generation::detail::TemplateLayerForCategory(port.category);
-    for (const PortSlotTemplate& slot : pole_type.port_slots) {
-      if (slot.enabled && slot.layer == target_layer) {
-        best_slot_z = std::max(best_slot_z, slot.local_position.z);
+    for (const PortPlacementBand& band : pole_type.port_bands) {
+      if (band.enabled && band.layer == target_layer) {
+        best_band_z = std::max(best_band_z, band.height_max_m);
       }
     }
-    if (!std::isfinite(best_slot_z)) {
-      for (const PortSlotTemplate& slot : pole_type.port_slots) {
-        if (slot.enabled && slot.category == port.category) {
-          best_slot_z = std::max(best_slot_z, slot.local_position.z);
+    if (!std::isfinite(best_band_z)) {
+      for (const PortPlacementBand& band : pole_type.port_bands) {
+        if (band.enabled && band.category == port.category) {
+          best_band_z = std::max(best_band_z, band.height_max_m);
         }
       }
     }
-    if (std::isfinite(best_slot_z)) {
-      main_support_base_z_m = best_slot_z;
+    if (std::isfinite(best_band_z)) {
+      main_support_base_z_m = best_band_z;
     }
   }
 

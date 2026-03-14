@@ -23,11 +23,14 @@ CoreState::RegenerateSessionAutoParts(std::uint64_t generation_session_id, const
   std::vector<ObjectId> target_span_ids{};
   target_span_ids.reserve(edit_state_access().spans.size());
   std::unordered_set<ObjectId> candidate_bundle_ids{};
+  std::unordered_set<ObjectId> candidate_generated_port_ids{};
   for (const Span& span : edit_state_access().spans.items()) {
     if (span.generation.generation_session_id != generation_session_id) {
       continue;
     }
     target_span_ids.push_back(span.id);
+    candidate_generated_port_ids.insert(span.port_a_id);
+    candidate_generated_port_ids.insert(span.port_b_id);
     if (span.bundle_id != kInvalidObjectId) {
       candidate_bundle_ids.insert(span.bundle_id);
     }
@@ -70,6 +73,28 @@ CoreState::RegenerateSessionAutoParts(std::uint64_t generation_session_id, const
   erase_removed_spans_from_queue(dirty_queue_access().bounds_dirty_span_ids);
   erase_removed_spans_from_queue(dirty_queue_access().render_dirty_span_ids);
   erase_removed_spans_from_queue(dirty_queue_access().raycast_dirty_span_ids);
+
+  for (ObjectId port_id : candidate_generated_port_ids) {
+    const Port* port_ptr = edit_state_access().ports.find(port_id);
+    if (port_ptr == nullptr) {
+      continue;
+    }
+    const Port port = *port_ptr;
+    if (port.position_mode == PortPositionMode::kManual || !port.generated_by_rule || port.generated_from_template) {
+      continue;
+    }
+    const auto it_live_spans = connection_index_access().spans_by_port.find(port_id);
+    if (it_live_spans != connection_index_access().spans_by_port.end() && !it_live_spans->second.empty()) {
+      continue;
+    }
+    connection_index_access().spans_by_port.erase(port_id);
+    if (edit_state_access().ports.remove(port_id)) {
+      if (port.owner_pole_id != kInvalidObjectId) {
+        index_remove(relation_index_access().ports_by_pole, port.owner_pole_id, port_id);
+      }
+      add_unique_id(cleanup_changes.deleted_ids, port_id);
+    }
+  }
 
   std::vector<ObjectId> target_auto_pole_ids{};
   target_auto_pole_ids.reserve(edit_state_access().poles.size());

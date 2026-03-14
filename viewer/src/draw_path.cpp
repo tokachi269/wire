@@ -112,6 +112,21 @@ const char* PickHitKindLabelLocal(wire::core::PickHitKind kind) {
   }
 }
 
+const char* LoweringKindLabelLocal(wire::core::BackboneLoweringKind kind) {
+  switch (kind) {
+  case wire::core::BackboneLoweringKind::kNone:
+    return "None";
+  case wire::core::BackboneLoweringKind::kBranchSupport:
+    return "BranchSupport";
+  case wire::core::BackboneLoweringKind::kCrossUnderpass:
+    return "CrossUnderpass";
+  case wire::core::BackboneLoweringKind::kAcuteCorner:
+    return "AcuteCorner";
+  default:
+    return "Unknown";
+  }
+}
+
 const char* ModeLabelLocal(EditMode mode) {
   switch (mode) {
   case EditMode::kDrawPath:
@@ -631,6 +646,8 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
     ofs << "result.backbone.edge_orientation[" << i
         << "].orientation=" << static_cast<int>(edge_orientation.orientation) << "\n";
     ofs << "result.backbone.edge_orientation[" << i
+        << "].lowering_kind=" << static_cast<int>(edge_orientation.lowering_kind) << "\n";
+    ofs << "result.backbone.edge_orientation[" << i
         << "].flipped_from_previous=" << (edge_orientation.flipped_from_previous ? 1 : 0) << "\n";
     ofs << "result.backbone.edge_orientation[" << i
         << "].flip_reason=" << static_cast<int>(edge_orientation.flip_reason) << "\n";
@@ -672,6 +689,7 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
     ofs << "result.lane_assignment[" << i << "].flow_rule=" << static_cast<int>(assignment.flow_decision_rule) << "\n";
     ofs << "result.lane_assignment[" << i
         << "].uses_branch_support=" << (assignment.uses_branch_support ? 1 : 0) << "\n";
+    ofs << "result.lane_assignment[" << i << "].lowering_kind=" << static_cast<int>(assignment.lowering_kind) << "\n";
     ofs << "result.lane_assignment[" << i << "].branch_down_offset_m=" << assignment.branch_down_offset_m << "\n";
     ofs << "result.lane_assignment[" << i << "].lane_count=" << assignment.port_ids_a.size() << "\n";
     for (std::size_t lane = 0; lane < assignment.port_ids_a.size() && lane < assignment.port_ids_b.size(); ++lane) {
@@ -703,6 +721,8 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
         if (const auto span_view = view.inspect_span(span->id); span_view.has_value()) {
           ofs << "result.lane_assignment[" << i << "].lane[" << lane
               << "].span_flow_kind=" << static_cast<int>(span_view->flow_kind) << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].span_lowering_kind=" << static_cast<int>(span_view->lowering_kind) << "\n";
           ofs << "result.lane_assignment[" << i << "].lane[" << lane
               << "].span_branch_down_offset_m=" << span_view->branch_down_offset_m << "\n";
         }
@@ -776,19 +796,20 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
     if (pick.hit_kind == wire::core::PickHitKind::kEmpty) {
       ui_state.draw_hover_status = "target: Empty";
     } else {
+      const std::vector<wire::core::BundleKind> pick_template_ids =
+          ResolveTemplateKindsForPathPick(state, ui_state.draw_bundle_template_mask, pick);
       ui_state.draw_hover_status =
           std::string("target: ") + PickHitKindLabelLocal(pick.hit_kind) + " " + PickTargetLabel(pick);
       if (pick.hit_kind == wire::core::PickHitKind::kNode || pick.hit_kind == wire::core::PickHitKind::kSegment ||
           pick.hit_kind == wire::core::PickHitKind::kBuilding) {
         wire::core::ResolveBranchPickOptions options{};
-        options.bundle_template_id = ResolveBundleTemplateForPathPick(state, ui_state.draw_bundle_template_mask, pick);
+        options.selected_bundle_template_ids = pick_template_ids;
         options.snap_radius_world = ui_state.draw_snap_radius_world;
         options.create_midair_node = false;
         options.enforce_midair_template_policy = false;
         const auto resolved = state.ResolveBranchPick(pick, options);
         if (resolved.ok) {
-          const std::string blocked_template = FindMidairBranchBlockedTemplateName(
-              state, ResolveTemplateKindsForPathPick(state, ui_state.draw_bundle_template_mask, pick));
+          const std::string blocked_template = FindMidairBranchBlockedTemplateName(state, pick_template_ids);
           if (resolved.value.resolution == wire::core::CoreState::PickBranchResolutionKind::kMidair &&
               !blocked_template.empty()) {
             ui_state.draw_hover_status += " -> warn: template " + blocked_template + " will not connect here";
@@ -819,9 +840,10 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
   if (accept_mouse_input) {
     if (ui_state.draw_hover_valid && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
       if (ui_state.draw_hover_has_resolution) {
+        const std::vector<wire::core::BundleKind> click_template_ids =
+            ResolveTemplateKindsForPathPick(state, ui_state.draw_bundle_template_mask, ui_state.draw_hover_pick);
         wire::core::ResolveBranchPickOptions click_options{};
-        click_options.bundle_template_id =
-            ResolveBundleTemplateForPathPick(state, ui_state.draw_bundle_template_mask, ui_state.draw_hover_pick);
+        click_options.selected_bundle_template_ids = click_template_ids;
         click_options.snap_radius_world = ui_state.draw_snap_radius_world;
         click_options.create_midair_node = true;
         click_options.enforce_midair_template_policy = false;
@@ -1073,5 +1095,3 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
     ImGui::TextWrapped("Last capture: %s", ui_state.last_repro_capture_path.c_str());
   }
 }
-
-

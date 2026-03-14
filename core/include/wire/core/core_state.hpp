@@ -217,9 +217,11 @@ struct TemplateDependencyState {
   std::vector<std::uint64_t> sessions_requiring_regeneration{};
 };
 
+inline constexpr double kDefaultCornerThresholdDeg = 70.0;
+
 struct LayoutSettings {
   bool angle_correction_enabled = true;
-  double corner_threshold_deg = 12.0;
+  double corner_threshold_deg = kDefaultCornerThresholdDeg;
   double min_side_scale = 1.0;
   double max_side_scale = 1.8;
 };
@@ -366,7 +368,7 @@ struct AddConnectionByPoleOptions {
 };
 
 struct ResolveBranchPickOptions {
-  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  std::vector<BundleKind> selected_bundle_template_ids{};
   double snap_radius_world = 0.6;
   bool create_midair_node = true;
   bool enforce_midair_template_policy = true;
@@ -380,8 +382,6 @@ public:
     ObjectId span_id = kInvalidObjectId;
     ObjectId port_a_id = kInvalidObjectId;
     ObjectId port_b_id = kInvalidObjectId;
-    int slot_a_id = -1;
-    int slot_b_id = -1;
   };
 
   struct AddDropResult {
@@ -431,9 +431,9 @@ public:
                                      AttachmentTemplateId template_id = kInvalidAttachmentTemplateId);
   EditResult<ObjectId> MovePole(ObjectId pole_id, const Transformd& new_world_transform);
   // Pole tilt is instance-owned. This command updates explicit target poles without touching templates.
-  EditResult<bool> ApplyPoleTilt(const std::vector<ObjectId>& pole_ids, double tilt_x_deg, double tilt_y_deg);
-  EditResult<ObjectId> SetPoleTilt(ObjectId pole_id, double tilt_x_deg, double tilt_y_deg);
-  EditResult<bool> SetAllPoleTilt(double tilt_x_deg, double tilt_y_deg);
+  EditResult<bool> ApplyPoleTilt(const std::vector<ObjectId>& pole_ids, double max_tilt_deg);
+  EditResult<ObjectId> SetPoleTilt(ObjectId pole_id, double max_tilt_deg);
+  EditResult<bool> SetAllPoleTilt(double max_tilt_deg);
   EditResult<ObjectId> MovePort(ObjectId port_id, const Vec3d& new_world_position);
   EditResult<ObjectId> SetPortWorldPositionManual(ObjectId port_id, const Vec3d& new_world_position);
   EditResult<ObjectId> ResetPortPositionToAuto(ObjectId port_id);
@@ -523,7 +523,7 @@ public:
 
   [[nodiscard]] ObjectId next_id() const { return id_generator_.peek(); }
   void clear_path_direction_debug_records() { path_direction_debug_records_.clear(); }
-  void clear_slot_selection_debug_records() { slot_selection_debug_records_.clear(); }
+  void clear_port_resolution_debug_records() { port_resolution_debug_records_.clear(); }
 
   [[nodiscard]] CoreView view() const;
 
@@ -559,7 +559,7 @@ private:
                                                const std::unordered_map<ObjectId, SupportNode>& support_node_by_id,
                                                ObjectId bundle_id, ConnectionCategory category, int conductor_count,
                                                double spacing_m, bool maintain_lane_order, bool allow_lane_mirror,
-                                               BackboneFlowKind flow_kind, double branch_down_offset_m,
+                                               BackboneFlowKind flow_kind, const BackboneLoweringPolicy& lowering_policy,
                                                std::vector<SegmentLaneAssignment>* out_lane_assignments,
                                                std::vector<BackboneEdgeOrientation>* out_edge_orientations = nullptr,
                                                BundleKind bundle_template_id = BundleKind::kLowVoltage);
@@ -587,11 +587,11 @@ private:
   [[nodiscard]] const PoleTypeDefinition* find_pole_type(PoleTypeId pole_type_id) const;
   [[nodiscard]] const CableTemplate* find_cable_template(CableTemplateId cable_template_id) const;
   [[nodiscard]] const BundleTemplate* find_bundle_template(BundleKind bundle_template_id) const;
-  [[nodiscard]] std::vector<PortSlotTemplate> sorted_port_slots(const PoleTypeDefinition& pole_type,
-                                                                ConnectionCategory category) const;
-  [[nodiscard]] bool is_port_slot_used(ObjectId pole_id, int slot_id) const;
+  [[nodiscard]] std::vector<PortPlacementBand> sorted_port_bands(const PoleTypeDefinition& pole_type,
+                                                                 ConnectionCategory category) const;
+  [[nodiscard]] bool is_port_band_used(ObjectId pole_id, const PortPlacementBand& band) const;
 
-  struct SlotSelectionRequest {
+  struct PortResolutionRequest {
     ObjectId pole_id = kInvalidObjectId;
     ObjectId peer_pole_id = kInvalidObjectId;
     ObjectId reference_span_id = kInvalidObjectId;
@@ -601,18 +601,15 @@ private:
     double corner_angle_deg = 0.0;
     double corner_turn_sign = 0.0;
     bool allow_generate_port = true;
-    int preferred_slot_id = -1;
+    bool prefer_template_match = false;
+    int preferred_template_layer = 1;
+    SlotSide preferred_template_side = SlotSide::kCenter;
+    SlotRole preferred_template_role = SlotRole::kNeutral;
     std::uint32_t branch_index = 0;
   };
 
-  struct SlotSelectionResolved {
-    ObjectId port_id = kInvalidObjectId;
-    int slot_id = -1;
-    ChangeSet change_set{};
-  };
-
-  EditResult<ObjectId> ensure_pole_slot_port(const SlotSelectionRequest& request, int* out_slot_id);
-  [[nodiscard]] static std::uint8_t deterministic_tiebreak_0_255(ObjectId pole_id, int slot_id,
+  EditResult<ObjectId> ensure_pole_connection_port(const PortResolutionRequest& request);
+  [[nodiscard]] static std::uint8_t deterministic_tiebreak_0_255(ObjectId pole_id, int tiebreak_key,
                                                                  ConnectionCategory category, ConnectionContext context,
                                                                  ObjectId peer_pole_id, ObjectId reference_span_id,
                                                                  std::uint32_t branch_index);
@@ -704,7 +701,7 @@ private:
   BackboneResult last_generation_backbone_{};
   ObjectId next_virtual_support_node_id_ = 0x9000000000000000ull;
   std::vector<SegmentLaneAssignment> last_lane_assignments_{};
-  std::vector<SlotSelectionDebugRecord> slot_selection_debug_records_{};
+  std::vector<PortResolutionDebugRecord> port_resolution_debug_records_{};
 };
 
 class CoreView {
@@ -741,6 +738,19 @@ public:
   [[nodiscard]] const std::unordered_map<PoleTypeId, PoleTypeDefinition>& pole_types() const {
     return state_.pole_types_;
   }
+  [[nodiscard]] int count_port_bands(PoleTypeId pole_type_id, ConnectionCategory category) const {
+    const auto it = state_.pole_types_.find(pole_type_id);
+    if (it == state_.pole_types_.end()) {
+      return 0;
+    }
+    int count = 0;
+    for (const PortPlacementBand& band : it->second.port_bands) {
+      if (band.enabled && band.category == category) {
+        ++count;
+      }
+    }
+    return count;
+  }
   [[nodiscard]] const std::unordered_map<CableTemplateId, CableTemplate>& cable_templates() const {
     return state_.cable_templates_;
   }
@@ -753,8 +763,8 @@ public:
   [[nodiscard]] const TemplateDependencyState& template_dependency_state() const {
     return state_.template_dependency_state_;
   }
-  [[nodiscard]] const std::vector<SlotSelectionDebugRecord>& slot_selection_debug_records() const {
-    return state_.slot_selection_debug_records_;
+  [[nodiscard]] const std::vector<PortResolutionDebugRecord>& port_resolution_debug_records() const {
+    return state_.port_resolution_debug_records_;
   }
   [[nodiscard]] const std::vector<SegmentLaneAssignment>& last_lane_assignments() const {
     return state_.last_lane_assignments_;

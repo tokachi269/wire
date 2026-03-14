@@ -228,6 +228,20 @@ enum class LaneFlipReason : std::uint8_t {
   kAcuteTurn = 1,
 };
 
+enum class BackboneLoweringKind : std::uint8_t {
+  kNone = 0,
+  kBranchSupport = 1,
+  kCrossUnderpass = 2,
+  kAcuteCorner = 3,
+};
+
+struct BackboneLoweringPolicy {
+  double offset_m = 0.0;
+  bool enable_branch_support = false;
+  bool enable_cross_underpass = false;
+  bool enable_acute_corner = false;
+};
+
 struct BackboneEdgeOrientation {
   ObjectId node_a_id = kInvalidObjectId;
   ObjectId node_b_id = kInvalidObjectId;
@@ -237,6 +251,7 @@ struct BackboneEdgeOrientation {
   BackboneFlowDecisionRule flow_decision_rule = BackboneFlowDecisionRule::kDefaultMain;
   LaneOrientation orientation = LaneOrientation::kNormal;
   bool uses_branch_support = false;
+  BackboneLoweringKind lowering_kind = BackboneLoweringKind::kNone;
   double branch_down_offset_m = 0.0;
   bool flipped_from_previous = false;
   LaneFlipReason flip_reason = LaneFlipReason::kNone;

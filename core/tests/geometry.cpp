@@ -411,30 +411,30 @@ bool test_corner_turn_sign_biases_outer_side() {
       return false;
     }
 
-    const wire::core::Port* left_slot_port = nullptr;
-    const wire::core::Port* right_slot_port = nullptr;
+    const wire::core::Port* left_band_port = nullptr;
+    const wire::core::Port* right_band_port = nullptr;
     for (const auto& port : state.view().edit_state().ports.items()) {
       if (port.owner_pole_id != corner_pole->id) {
         continue;
       }
-      if (port.source_slot_id == 200) {
-        left_slot_port = &port;
-      } else if (port.source_slot_id == 201) {
-        right_slot_port = &port;
+      if (port.template_side == wire::core::SlotSide::kLeft) {
+        left_band_port = &port;
+      } else if (port.template_side == wire::core::SlotSide::kRight) {
+        right_band_port = &port;
       }
     }
-    if (left_slot_port == nullptr || right_slot_port == nullptr) {
+    if (left_band_port == nullptr || right_band_port == nullptr) {
       return false;
     }
 
-    const double left_offset = std::abs(left_slot_port->world_position.y - corner_pole->world_transform.position.y);
-    const double right_offset = std::abs(right_slot_port->world_position.y - corner_pole->world_transform.position.y);
+    const double left_offset = std::abs(left_band_port->world_position.y - corner_pole->world_transform.position.y);
+    const double right_offset = std::abs(right_band_port->world_position.y - corner_pole->world_transform.position.y);
     if (expect_left_turn_outer_right) {
       return corner_pole->context.corner_turn_sign > 0.0 && right_offset > left_offset &&
-             right_slot_port->side_scale_applied > left_slot_port->side_scale_applied;
+             right_band_port->side_scale_applied > left_band_port->side_scale_applied;
     }
     return corner_pole->context.corner_turn_sign < 0.0 && left_offset > right_offset &&
-           left_slot_port->side_scale_applied > right_slot_port->side_scale_applied;
+           left_band_port->side_scale_applied > right_band_port->side_scale_applied;
   };
 
   const bool left_ok = check_turn({{0.0, 0.0, 0.0}, {8.0, 0.0, 0.0}, {8.0, 8.0, 0.0}}, true);
@@ -484,9 +484,9 @@ bool test_acute_corner_auto_widens_lane_spacing() {
       if (port.owner_pole_id != pole->id) {
         continue;
       }
-      if (port.source_slot_id == 200) {
+      if (port.template_side == wire::core::SlotSide::kLeft) {
         p_left = &port;
-      } else if (port.source_slot_id == 201) {
+      } else if (port.template_side == wire::core::SlotSide::kRight) {
         p_right = &port;
       }
     }
@@ -508,11 +508,11 @@ bool test_acute_corner_auto_widens_lane_spacing() {
   if (!std::isfinite(width_acute) || !std::isfinite(width_obtuse)) {
     return false;
   }
-  // Base template width is 0.8m between slot 200(-0.4) and 201(+0.4).
+  // Base template width is 0.8m between band centers -0.4 and +0.4.
   return width_acute > width_obtuse && width_acute > 0.8 + 1e-6;
 }
 
-bool test_slot_selection_context_bias() {
+bool test_band_selection_context_bias() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
   if (type_ids.empty()) {
@@ -548,15 +548,15 @@ bool test_slot_selection_context_bias() {
   if (!branch.ok) {
     return false;
   }
-  return branch.value.slot_a_id >= 0 && branch.value.slot_a_id != trunk.value.slot_b_id;
+  return branch.value.port_a_id != trunk.value.port_b_id;
 }
 
-bool test_slot_selection_deterministic_and_debug_integrity() {
-  auto run_once = []() -> std::pair<int, wire::core::SlotSelectionDebugRecord> {
+bool test_band_selection_deterministic_and_debug_integrity() {
+  auto run_once = []() -> std::pair<ObjectId, wire::core::PortResolutionDebugRecord> {
     CoreState state;
     const auto type_ids = sorted_pole_type_ids(state);
     if (type_ids.empty()) {
-      return {-1, {}};
+      return {wire::core::kInvalidObjectId, {}};
     }
     const ObjectId pole_a = state.AddPole({}, 10.0, "A").value;
     wire::core::Transformd b{};
@@ -569,21 +569,22 @@ bool test_slot_selection_deterministic_and_debug_integrity() {
     options.connection_context = wire::core::ConnectionContext::kCornerPass;
     options.branch_index = 3;
     const auto result = add_connection_by_category(state, pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage, options);
-    if (!result.ok || state.view().slot_selection_debug_records().empty()) {
-      return {-1, {}};
+    if (!result.ok || state.view().port_resolution_debug_records().empty()) {
+      return {wire::core::kInvalidObjectId, {}};
     }
-    return {result.value.slot_a_id, state.view().slot_selection_debug_records().back()};
+    return {result.value.port_a_id, state.view().port_resolution_debug_records().back()};
   };
 
   const auto first = run_once();
   const auto second = run_once();
-  if (first.first < 0 || second.first < 0 || first.first != second.first) {
+  if (first.first == wire::core::kInvalidObjectId || second.first == wire::core::kInvalidObjectId ||
+      first.first != second.first) {
     return false;
   }
   if (first.second.candidates.empty()) {
     return false;
   }
-  return has_selected_slot_in_candidates(first.second);
+  return has_selected_port_in_candidates(first.second);
 }
 
 bool test_generate_simple_line_corner_context_integration() {
@@ -900,23 +901,23 @@ bool test_generate_from_guide_reused_pole_reprojects_owned_ports() {
   }
   double yaw_before = before_pole->world_transform.rotation_euler_deg.z;
 
-  ObjectId slot200_id = wire::core::kInvalidObjectId;
-  ObjectId slot201_id = wire::core::kInvalidObjectId;
-  wire::core::Vec3d slot200_before{};
-  wire::core::Vec3d slot201_before{};
+  ObjectId left_port_id = wire::core::kInvalidObjectId;
+  ObjectId right_port_id = wire::core::kInvalidObjectId;
+  wire::core::Vec3d left_port_before{};
+  wire::core::Vec3d right_port_before{};
   for (const auto& port : state.view().edit_state().ports.items()) {
     if (port.owner_pole_id != vertex_id) {
       continue;
     }
-    if (port.source_slot_id == 200) {
-      slot200_id = port.id;
-      slot200_before = port.world_position;
-    } else if (port.source_slot_id == 201) {
-      slot201_id = port.id;
-      slot201_before = port.world_position;
+    if (port.template_side == wire::core::SlotSide::kLeft) {
+      left_port_id = port.id;
+      left_port_before = port.world_position;
+    } else if (port.template_side == wire::core::SlotSide::kRight) {
+      right_port_id = port.id;
+      right_port_before = port.world_position;
     }
   }
-  if (slot200_id == wire::core::kInvalidObjectId || slot201_id == wire::core::kInvalidObjectId) {
+  if (left_port_id == wire::core::kInvalidObjectId || right_port_id == wire::core::kInvalidObjectId) {
     return false;
   }
 
@@ -928,17 +929,17 @@ bool test_generate_from_guide_reused_pole_reprojects_owned_ports() {
   }
 
   const wire::core::Pole* after_pole = state.view().edit_state().poles.find(vertex_id);
-  const wire::core::Port* slot200_after = state.view().edit_state().ports.find(slot200_id);
-  const wire::core::Port* slot201_after = state.view().edit_state().ports.find(slot201_id);
-  if (after_pole == nullptr || slot200_after == nullptr || slot201_after == nullptr) {
+  const wire::core::Port* left_port_after = state.view().edit_state().ports.find(left_port_id);
+  const wire::core::Port* right_port_after = state.view().edit_state().ports.find(right_port_id);
+  if (after_pole == nullptr || left_port_after == nullptr || right_port_after == nullptr) {
     return false;
   }
 
   const double yaw_after = after_pole->world_transform.rotation_euler_deg.z;
   const bool yaw_changed = angle_diff_abs_deg(yaw_before, yaw_after) > 1e-3;
-  const bool moved200 = !almost_equal(slot200_after->world_position, slot200_before, 1e-6);
-  const bool moved201 = !almost_equal(slot201_after->world_position, slot201_before, 1e-6);
-  return yaw_changed && (moved200 || moved201);
+  const bool moved_left = !almost_equal(left_port_after->world_position, left_port_before, 1e-6);
+  const bool moved_right = !almost_equal(right_port_after->world_position, right_port_before, 1e-6);
+  return yaw_changed && (moved_left || moved_right);
 }
 
 bool test_generate_from_guide_with_duplicate_points_is_robust() {
@@ -1115,7 +1116,7 @@ bool test_preferred_side_uses_geometry() {
     const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
     (void)state.ApplyPoleType(pole_a, type_ids.front());
     (void)state.ApplyPoleType(pole_b, type_ids.front());
-    state.clear_slot_selection_debug_records();
+    state.clear_port_resolution_debug_records();
 
   wire::core::AddConnectionByPoleOptions options{};
     options.connection_context = wire::core::ConnectionContext::kBranchAdd;
@@ -1124,19 +1125,15 @@ bool test_preferred_side_uses_geometry() {
     if (!add.ok) {
       return wire::core::SlotSide::kCenter;
     }
-    for (const auto& debug : state.view().slot_selection_debug_records()) {
-      if (debug.pole_id != pole_a || debug.selected_slot_id < 0) {
+    for (const auto& debug : state.view().port_resolution_debug_records()) {
+      if (debug.pole_id != pole_a || debug.selected_port_id == wire::core::kInvalidObjectId) {
         continue;
       }
-      const auto detail = state.GetPoleDetail(pole_a);
-      if (detail.pole_type == nullptr) {
+      const auto* selected_port = state.view().edit_state().ports.find(debug.selected_port_id);
+      if (selected_port == nullptr) {
         return wire::core::SlotSide::kCenter;
       }
-      for (const auto& slot : detail.pole_type->port_slots) {
-        if (slot.slot_id == debug.selected_slot_id) {
-          return slot.side;
-        }
-      }
+      return selected_port->template_side;
     }
     return wire::core::SlotSide::kCenter;
   };
@@ -1235,7 +1232,7 @@ bool test_detail_curve_sag_uses_catenary_like_support_slope() {
   const wire::core::DetailCurve curve = wire::core::BuildDetailCurve(start, end, 33);
   const wire::core::Vec3d tangent0 = curve.EvaluateTangent(0.0);
   const wire::core::Vec3d tangent1 = curve.EvaluateTangent(1.0);
-  return curve.sag_amplitude_m > 0.0 && tangent0.z < -0.01 && tangent1.z > 0.01;
+  return curve.sag_amplitude_m > 0.0 && tangent0.z < -0.02 && tangent1.z > 0.02;
 }
 
 bool test_detail_curve_near_straight_tangent_hints_do_not_wobble_sideways() {
@@ -2351,8 +2348,8 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C31_Phase47_AngleCorrection_Bounds", "Angle correction side scale stays finite and bounded", "Invariant", false, test_angle_correction_bounds_and_finite);
   test_registry::AddTest(tests, "C35_Phase47_CornerTurnSign_OuterBias", "Corner turn sign expands outer side more than inner side", "Invariant", false, test_corner_turn_sign_biases_outer_side);
   test_registry::AddTest(tests, "C61_Phase48h_AcuteCorner_AutoWidenSpacing", "Acute corners auto-widen lane spacing without category-specific branching", "Invariant", false, test_acute_corner_auto_widens_lane_spacing);
-  test_registry::AddTest(tests, "C32_Phase47_SlotSelection_ContextBias", "Branch context biases slot choice away from trunk-only", "Invariant", false, test_slot_selection_context_bias);
-  test_registry::AddTest(tests, "C33_Phase47_SlotSelection_DeterministicDebug", "Slot tie-break is deterministic and debug record is coherent", "Exact", false, test_slot_selection_deterministic_and_debug_integrity);
+  test_registry::AddTest(tests, "C32_Phase47_SlotSelection_ContextBias", "Branch context biases band choice away from trunk-only", "Invariant", false, test_band_selection_context_bias);
+  test_registry::AddTest(tests, "C33_Phase47_SlotSelection_DeterministicDebug", "Band tie-break is deterministic and debug record is coherent", "Exact", false, test_band_selection_deterministic_and_debug_integrity);
   test_registry::AddTest(tests, "C34_Phase47_GenerateSimpleLine_CornerContext", "Corner path generation keeps the guide vertex pole classified as corner under canonical path generation", "Invariant", false, test_generate_simple_line_corner_context_integration);
   test_registry::AddTest(tests, "C36_Phase47_DrawPath_ClickPointsExact", "DrawPath generation uses clicked points directly and sets pole yaw", "Exact", false, test_generate_simple_line_from_points_exact_poles_and_orientation);
   test_registry::AddTest(tests, "C43_Phase4x_SharpCorner_SideAxisPerpendicular", "Sharp-corner pole side axis is perpendicular to bisector and points away from inward side", "Invariant", false, test_generate_simple_line_from_points_sharp_corner_perpendicular_orientation);

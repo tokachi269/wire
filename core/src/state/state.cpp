@@ -22,6 +22,50 @@ namespace {
 constexpr double kZeroLengthEps = 1e-9;
 constexpr PoleTypeId kDistributionPoleType = 1;
 constexpr PoleTypeId kCommunicationPoleType = 2;
+
+std::uint64_t mix_u64(std::uint64_t x) {
+  x += 0x9E3779B97F4A7C15ull;
+  x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ull;
+  x = (x ^ (x >> 27)) * 0x94D049BB133111EBull;
+  return x ^ (x >> 31);
+}
+
+double unit_random_from_u64(std::uint64_t x) {
+  constexpr double kInv = 1.0 / static_cast<double>(1ull << 53);
+  return static_cast<double>((x >> 11) & ((1ull << 53) - 1)) * kInv;
+}
+
+double deterministic_pole_tilt_factor(ObjectId pole_id) {
+  return unit_random_from_u64(mix_u64(static_cast<std::uint64_t>(pole_id) ^ 0x54D3C92F7A6B1E29ull));
+}
+
+double deterministic_pole_tilt_azimuth_deg(ObjectId pole_id) {
+  return unit_random_from_u64(mix_u64(static_cast<std::uint64_t>(pole_id) ^ 0xA1937465C4FB2D81ull)) * 360.0;
+}
+
+Vec3d unit_xy_from_azimuth_deg(double azimuth_deg) {
+  constexpr double kPi = 3.14159265358979323846;
+  const double azimuth_rad = azimuth_deg * (kPi / 180.0);
+  return {std::cos(azimuth_rad), std::sin(azimuth_rad), 0.0};
+}
+
+double azimuth_deg_from_xy(const Vec3d& dir) {
+  constexpr double kPi = 3.14159265358979323846;
+  return std::atan2(dir.y, dir.x) * (180.0 / kPi);
+}
+
+Vec3d tilt_euler_xy_from_local_polar_deg(double tilt_deg, double local_azimuth_deg) {
+  constexpr double kPi = 3.14159265358979323846;
+  const double tilt_rad = std::clamp(tilt_deg, 0.0, 89.0) * (kPi / 180.0);
+  const double azimuth_rad = local_azimuth_deg * (kPi / 180.0);
+  const double hx = std::sin(tilt_rad) * std::cos(azimuth_rad);
+  const double hy = std::sin(tilt_rad) * std::sin(azimuth_rad);
+  const double tilt_x_rad = -std::asin(std::clamp(hy, -1.0, 1.0));
+  const double cos_x = std::max(1e-9, std::cos(tilt_x_rad));
+  const double tilt_y_rad = std::asin(std::clamp(hx / cos_x, -1.0, 1.0));
+  return {tilt_x_rad * (180.0 / kPi), tilt_y_rad * (180.0 / kPi), 0.0};
+}
+
 ConnectionCategory port_layer_to_category(PortLayer layer) {
   switch (layer) {
   case PortLayer::kHighVoltage:
@@ -200,7 +244,6 @@ EditResult<ObjectId> CoreState::AddPort(ObjectId owner_pole_id, const Vec3d& wor
   port.layer = layer;
   port.direction = direction;
   port.category = port_layer_to_category(layer);
-  port.source_slot_id = -1;
   port.template_layer = generation::detail::TemplateLayerForCategory(port.category);
   port.template_side = SlotSide::kCenter;
   port.template_role = SlotRole::kNeutral;
@@ -397,7 +440,7 @@ EditResult<ObjectId> CoreState::MovePole(ObjectId pole_id, const Transformd& new
   return result;
 }
 
-EditResult<bool> CoreState::ApplyPoleTilt(const std::vector<ObjectId>& pole_ids, double tilt_x_deg, double tilt_y_deg) {
+EditResult<bool> CoreState::ApplyPoleTilt(const std::vector<ObjectId>& pole_ids, double max_tilt_deg) {
   EditResult<bool> result;
   std::vector<ObjectId> targets = pole_ids;
   if (targets.empty()) {
@@ -406,6 +449,8 @@ EditResult<bool> CoreState::ApplyPoleTilt(const std::vector<ObjectId>& pole_ids,
       targets.push_back(pole.id);
     }
   }
+  const double clamped_max_tilt_deg = std::clamp(max_tilt_deg, 0.0, 45.0);
+  bool changed = false;
   for (ObjectId pole_id : targets) {
     Pole* pole = edit_state_.poles.find(pole_id);
     if (pole == nullptr) {
@@ -414,22 +459,82 @@ EditResult<bool> CoreState::ApplyPoleTilt(const std::vector<ObjectId>& pole_ids,
       return result;
     }
     const Pole old_pole = *pole;
-    if (std::abs(pole->world_transform.rotation_euler_deg.x - tilt_x_deg) <= 1e-9 &&
-        std::abs(pole->world_transform.rotation_euler_deg.y - tilt_y_deg) <= 1e-9) {
+    const double random_tilt_factor = deterministic_pole_tilt_factor(pole_id);
+    const Vec3d random_world_dir = unit_xy_from_azimuth_deg(deterministic_pole_tilt_azimuth_deg(pole_id));
+    Vec3d pull_world_dir{};
+    std::unordered_set<ObjectId> seen_spans{};
+    std::size_t incident_span_count = 0;
+    if (const auto ports_it = relation_index_.ports_by_pole.find(pole_id); ports_it != relation_index_.ports_by_pole.end()) {
+      for (ObjectId port_id : ports_it->second) {
+        const auto spans_it = connection_index_.spans_by_port.find(port_id);
+        if (spans_it == connection_index_.spans_by_port.end()) {
+          continue;
+        }
+        for (ObjectId span_id : spans_it->second) {
+          if (!seen_spans.insert(span_id).second) {
+            continue;
+          }
+          const Span* span = edit_state_.spans.find(span_id);
+          if (span == nullptr) {
+            continue;
+          }
+          const ObjectId other_port_id =
+              (span->port_a_id == port_id) ? span->port_b_id : (span->port_b_id == port_id ? span->port_a_id : kInvalidObjectId);
+          if (other_port_id == kInvalidObjectId) {
+            continue;
+          }
+          const Port* other_port = edit_state_.ports.find(other_port_id);
+          if (other_port == nullptr) {
+            continue;
+          }
+          Vec3d span_dir = other_port->world_position - pole->world_transform.position;
+          span_dir.z = 0.0;
+          if (!NormalizeXY(&span_dir)) {
+            continue;
+          }
+          pull_world_dir = pull_world_dir + span_dir;
+          ++incident_span_count;
+        }
+      }
+    }
+    Vec3d tilt_world_dir = random_world_dir;
+    double pull_strength = 0.0;
+    if (incident_span_count > 0) {
+      pull_strength = std::clamp(std::sqrt(LengthSquared(pull_world_dir)) / static_cast<double>(incident_span_count), 0.0, 1.0);
+    }
+    if (NormalizeXY(&pull_world_dir)) {
+      const double pull_bias = 0.60 + 0.25 * pull_strength;
+      tilt_world_dir =
+          ScaleVec(pull_world_dir, pull_bias) + ScaleVec(random_world_dir, 1.0 - pull_bias);
+      if (!NormalizeXY(&tilt_world_dir)) {
+        tilt_world_dir = pull_world_dir;
+      }
+    }
+    const double applied_tilt_scale =
+        (incident_span_count > 0) ? (0.20 + 0.80 * pull_strength) : 1.0;
+    const double applied_tilt_deg = clamped_max_tilt_deg * random_tilt_factor * applied_tilt_scale;
+    const double layout_yaw_deg = effective_pole_layout_yaw_deg(*pole);
+    const double local_azimuth_deg = NormalizeYawDeg(azimuth_deg_from_xy(tilt_world_dir) - layout_yaw_deg);
+    const Vec3d tilt_euler_deg = tilt_euler_xy_from_local_polar_deg(applied_tilt_deg, local_azimuth_deg);
+    if (std::abs(pole->tilt_magnitude_deg - applied_tilt_deg) <= 1e-9 &&
+        std::abs(pole->world_transform.rotation_euler_deg.x - tilt_euler_deg.x) <= 1e-9 &&
+        std::abs(pole->world_transform.rotation_euler_deg.y - tilt_euler_deg.y) <= 1e-9) {
       continue;
     }
-    pole->world_transform.rotation_euler_deg.x = tilt_x_deg;
-    pole->world_transform.rotation_euler_deg.y = tilt_y_deg;
+    pole->tilt_magnitude_deg = applied_tilt_deg;
+    pole->world_transform.rotation_euler_deg.x = tilt_euler_deg.x;
+    pole->world_transform.rotation_euler_deg.y = tilt_euler_deg.y;
     finalize_pole_transform_update(pole->id, old_pole, &result.change_set);
+    changed = true;
   }
   result.ok = true;
-  result.value = true;
+  result.value = changed;
   return result;
 }
 
-EditResult<ObjectId> CoreState::SetPoleTilt(ObjectId pole_id, double tilt_x_deg, double tilt_y_deg) {
+EditResult<ObjectId> CoreState::SetPoleTilt(ObjectId pole_id, double max_tilt_deg) {
   EditResult<ObjectId> result;
-  const auto apply = ApplyPoleTilt({pole_id}, tilt_x_deg, tilt_y_deg);
+  const auto apply = ApplyPoleTilt({pole_id}, max_tilt_deg);
   result.ok = apply.ok;
   result.error = apply.error;
   result.change_set = apply.change_set;
@@ -437,8 +542,8 @@ EditResult<ObjectId> CoreState::SetPoleTilt(ObjectId pole_id, double tilt_x_deg,
   return result;
 }
 
-EditResult<bool> CoreState::SetAllPoleTilt(double tilt_x_deg, double tilt_y_deg) {
-  return ApplyPoleTilt({}, tilt_x_deg, tilt_y_deg);
+EditResult<bool> CoreState::SetAllPoleTilt(double max_tilt_deg) {
+  return ApplyPoleTilt({}, max_tilt_deg);
 }
 
 EditResult<ObjectId> CoreState::MovePort(ObjectId port_id, const Vec3d& new_world_position) {
@@ -472,37 +577,47 @@ EditResult<ObjectId> CoreState::ResetPortPositionToAuto(ObjectId port_id) {
   apply_port_position_mode(*port, PortPositionMode::kAuto, port->placement_source);
 
   bool recomputed = false;
-  if (port->owner_pole_id != kInvalidObjectId && port->source_slot_id >= 0) {
+  if (port->owner_pole_id != kInvalidObjectId && port->generated_from_template) {
     const Pole* pole = edit_state_.poles.find(port->owner_pole_id);
     if (pole != nullptr) {
       const PoleTypeDefinition* pole_type = find_pole_type(pole->pole_type_id);
       if (pole_type != nullptr) {
-        const PortSlotTemplate* slot_ptr = nullptr;
-        for (const PortSlotTemplate& slot : pole_type->port_slots) {
-          if (slot.slot_id == port->source_slot_id) {
-            slot_ptr = &slot;
-            break;
+        const PortPlacementBand* band_ptr = nullptr;
+        for (const PortPlacementBand& band : pole_type->port_bands) {
+          if (!band.enabled || band.category != port->category || band.layer != port->template_layer ||
+              band.side != port->template_side || band.role != port->template_role) {
+            continue;
+          }
+          if (band_ptr == nullptr || band.priority > band_ptr->priority ||
+              (band.priority == band_ptr->priority && band.band_id < band_ptr->band_id)) {
+            band_ptr = &band;
           }
         }
-        if (slot_ptr != nullptr) {
-          Vec3d adjusted_local = slot_ptr->local_position;
+        if (band_ptr != nullptr) {
+          const PoleFrame frame = BuildPoleFrame(pole->world_transform, effective_pole_layout_yaw_deg(*pole));
+          const Vec3d current_local = WorldPointToLocal(frame, port->world_position);
+          Vec3d adjusted_local{
+              0.0,
+              std::clamp(current_local.y, band_ptr->lateral_min_m, band_ptr->lateral_max_m),
+              std::clamp(current_local.z, band_ptr->height_min_m, band_ptr->height_max_m),
+          };
           const bool apply_angle_correction = layout_settings_.angle_correction_enabled &&
                                               pole->context.kind == PoleContextKind::kCorner &&
-                                              slot_ptr->side != SlotSide::kCenter;
+                                              band_ptr->side != SlotSide::kCenter;
           double applied_scale = 1.0;
           if (apply_angle_correction) {
-            adjusted_local.y = apply_corner_side_scale(adjusted_local.y, slot_ptr->side, pole->context.corner_turn_sign,
+            adjusted_local.y = apply_corner_side_scale(adjusted_local.y, band_ptr->side, pole->context.corner_turn_sign,
                                                        pole->context.side_scale);
-            if (std::abs(slot_ptr->local_position.y) > 1e-9) {
-              applied_scale = std::abs(adjusted_local.y / slot_ptr->local_position.y);
+            if (std::abs(current_local.y) > 1e-9) {
+              applied_scale = std::abs(adjusted_local.y / current_local.y);
             }
           }
-          adjusted_local = apply_pole_clearance_to_local(*pole, adjusted_local, slot_ptr->side);
+          adjusted_local = apply_pole_clearance_to_local(*pole, adjusted_local, band_ptr->side);
           port->world_position =
               local_to_world_on_pole(pole->world_transform, effective_pole_layout_yaw_deg(*pole), adjusted_local);
           port->angle_correction_applied = apply_angle_correction;
           port->side_scale_applied = apply_angle_correction ? applied_scale : 1.0;
-          apply_port_position_mode(*port, PortPositionMode::kAuto, PortPlacementSourceKind::kTemplateSlot);
+          apply_port_position_mode(*port, PortPositionMode::kAuto, PortPlacementSourceKind::kPlacementBand);
           recomputed = true;
         }
       }
@@ -869,64 +984,82 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
   pole->pole_type_id = pole_type_id;
   result.change_set.updated_ids.push_back(pole_id);
 
-  std::unordered_set<int> anchor_slots_on_pole;
+  const double anchor_yaw = effective_pole_yaw_deg(*pole);
+  std::vector<const Anchor*> anchors_on_pole;
   const auto anchor_ids_it = relation_index_.anchors_by_pole.find(pole_id);
   if (anchor_ids_it != relation_index_.anchors_by_pole.end()) {
     for (ObjectId anchor_id : anchor_ids_it->second) {
       const Anchor* anchor = edit_state_.anchors.find(anchor_id);
       if (anchor != nullptr) {
-        anchor_slots_on_pole.insert(anchor->source_slot_id);
+        anchors_on_pole.push_back(anchor);
       }
     }
   }
 
-  for (const PortSlotTemplate& slot : pole_type->port_slots) {
-    if (!slot.enabled || is_port_slot_used(pole_id, slot.slot_id)) {
+  for (const PortPlacementBand& band : pole_type->port_bands) {
+    if (!band.enabled || is_port_band_used(pole_id, band)) {
       continue;
     }
-    Vec3d adjusted_local = slot.local_position;
+    Vec3d adjusted_local{0.0, band.lateral_center_m, band.height_center_m};
     const bool apply_angle_correction = layout_settings_.angle_correction_enabled &&
                                         pole->context.kind == PoleContextKind::kCorner &&
-                                        slot.side != SlotSide::kCenter;
+                                        band.side != SlotSide::kCenter;
     double applied_scale = 1.0;
     if (apply_angle_correction) {
-      adjusted_local.y = apply_corner_side_scale(adjusted_local.y, slot.side, pole->context.corner_turn_sign,
+      adjusted_local.y = apply_corner_side_scale(adjusted_local.y, band.side, pole->context.corner_turn_sign,
                                                  pole->context.side_scale);
-      if (std::abs(slot.local_position.y) > 1e-9) {
-        applied_scale = std::abs(adjusted_local.y / slot.local_position.y);
+      if (std::abs(band.lateral_center_m) > 1e-9) {
+        applied_scale = std::abs(adjusted_local.y / band.lateral_center_m);
       }
     }
-    adjusted_local = apply_pole_clearance_to_local(*pole, adjusted_local, slot.side);
+    adjusted_local.y = std::clamp(adjusted_local.y, band.lateral_min_m, band.lateral_max_m);
+    adjusted_local.z = std::clamp(adjusted_local.z, band.height_min_m, band.height_max_m);
+    adjusted_local = apply_pole_clearance_to_local(*pole, adjusted_local, band.side);
     const Vec3d world_position =
         local_to_world_on_pole(pole->world_transform, effective_pole_layout_yaw_deg(*pole), adjusted_local);
-    EditResult<ObjectId> add_port_result = AddPort(pole_id, world_position, category_to_port_kind(slot.category),
-                                                   category_to_port_layer(slot.category), slot.local_direction);
+    EditResult<ObjectId> add_port_result = AddPort(pole_id, world_position, category_to_port_kind(band.category),
+                                                   category_to_port_layer(band.category), band.local_direction);
     if (!add_port_result.ok) {
       result.error = add_port_result.error;
       return result;
     }
     Port* created = edit_state_.ports.find(add_port_result.value);
     if (created != nullptr) {
-      created->category = slot.category;
-      created->source_slot_id = slot.slot_id;
-      created->template_layer = slot.layer;
-      created->template_side = slot.side;
-      created->template_role = slot.role;
+      created->category = band.category;
+      created->template_layer = band.layer;
+      created->template_side = band.side;
+      created->template_role = band.role;
       created->generated_from_template = true;
       created->generated_by_rule = true;
       created->angle_correction_applied = apply_angle_correction;
       created->side_scale_applied = apply_angle_correction ? applied_scale : 1.0;
-      apply_port_position_mode(*created, PortPositionMode::kAuto, PortPlacementSourceKind::kTemplateSlot);
+      apply_port_position_mode(*created, PortPositionMode::kAuto, PortPlacementSourceKind::kPlacementBand);
       add_unique_id(result.change_set.updated_ids, created->id);
     }
     append_change_set(result.change_set, add_port_result.change_set);
   }
 
+  auto has_matching_anchor_hint = [&](const AnchorSlotTemplate& hint) -> bool {
+    const PoleFrame frame = BuildPoleFrame(pole->world_transform, anchor_yaw);
+    for (const Anchor* anchor : anchors_on_pole) {
+      if (anchor == nullptr || anchor->support_kind != hint.usage) {
+        continue;
+      }
+      const Vec3d local = WorldPointToLocal(frame, anchor->world_position);
+      const Vec3d diff = local - hint.local_position;
+      const double dist2 = Dot(diff, diff);
+      if (dist2 <= 1e-6) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   for (const AnchorSlotTemplate& slot : pole_type->anchor_slots) {
     if (!slot.enabled) {
       continue;
     }
-    if (anchor_slots_on_pole.contains(slot.slot_id)) {
+    if (has_matching_anchor_hint(slot)) {
       continue;
     }
 
@@ -939,10 +1072,9 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
     }
     Anchor* created = edit_state_.anchors.find(add_anchor_result.value);
     if (created != nullptr) {
-      created->source_slot_id = slot.slot_id;
       created->generated_from_template = true;
       add_unique_id(result.change_set.updated_ids, created->id);
-      anchor_slots_on_pole.insert(slot.slot_id);
+      anchors_on_pole.push_back(created);
     }
     append_change_set(result.change_set, add_anchor_result.change_set);
   }
@@ -993,9 +1125,6 @@ CoreState::AddConnectionByPole(ObjectId pole_a_id, ObjectId pole_b_id, Connectio
     resolved_span_layer = options.span_layer;
   }
 
-  int slot_a_id = -1;
-  int slot_b_id = -1;
-
   const Pole* pole_a = edit_state_.poles.find(pole_a_id);
   const Pole* pole_b = edit_state_.poles.find(pole_b_id);
   const PoleContextKind pole_context_a = (options.pole_context_a != PoleContextKind::kStraight || (pole_a == nullptr))
@@ -1017,8 +1146,8 @@ CoreState::AddConnectionByPole(ObjectId pole_a_id, ObjectId pole_b_id, Connectio
                                         ? options.corner_turn_sign_b
                                         : pole_b->context.corner_turn_sign;
 
-  auto resolve_port = [&](ObjectId pole_id, ObjectId preferred_port_id, int* out_slot_id,
-                          int preferred_slot_id) -> EditResult<ObjectId> {
+  auto resolve_port = [&](ObjectId pole_id, ObjectId preferred_port_id,
+                          const Port* preferred_template_port) -> EditResult<ObjectId> {
     if (preferred_port_id != kInvalidObjectId) {
       const Port* preferred_port = edit_state_.ports.find(preferred_port_id);
       if (preferred_port != nullptr && preferred_port->owner_pole_id == pole_id &&
@@ -1027,13 +1156,10 @@ CoreState::AddConnectionByPole(ObjectId pole_a_id, ObjectId pole_b_id, Connectio
         EditResult<ObjectId> preferred_result;
         preferred_result.ok = true;
         preferred_result.value = preferred_port_id;
-        if (out_slot_id != nullptr) {
-          *out_slot_id = preferred_port->source_slot_id;
-        }
         return preferred_result;
       }
     }
-    SlotSelectionRequest request{};
+    PortResolutionRequest request{};
     request.pole_id = pole_id;
     request.peer_pole_id = (pole_id == pole_a_id) ? pole_b_id : pole_a_id;
     request.reference_span_id = options.reference_span_id;
@@ -1043,17 +1169,23 @@ CoreState::AddConnectionByPole(ObjectId pole_a_id, ObjectId pole_b_id, Connectio
     request.corner_angle_deg = (pole_id == pole_a_id) ? corner_angle_a : corner_angle_b;
     request.corner_turn_sign = (pole_id == pole_a_id) ? corner_turn_sign_a : corner_turn_sign_b;
     request.allow_generate_port = options.allow_generate_port;
-    request.preferred_slot_id = preferred_slot_id;
+    if (preferred_template_port != nullptr) {
+      request.prefer_template_match = true;
+      request.preferred_template_layer = preferred_template_port->template_layer;
+      request.preferred_template_side = preferred_template_port->template_side;
+      request.preferred_template_role = preferred_template_port->template_role;
+    }
     request.branch_index = options.branch_index;
-    return ensure_pole_slot_port(request, out_slot_id);
+    return ensure_pole_connection_port(request);
   };
 
-  EditResult<ObjectId> port_a_result = resolve_port(pole_a_id, options.preferred_port_a_id, &slot_a_id, -1);
+  EditResult<ObjectId> port_a_result = resolve_port(pole_a_id, options.preferred_port_a_id, nullptr);
   if (!port_a_result.ok) {
     result.error = port_a_result.error;
     return result;
   }
-  EditResult<ObjectId> port_b_result = resolve_port(pole_b_id, options.preferred_port_b_id, &slot_b_id, slot_a_id);
+  const Port* preferred_template_port = edit_state_.ports.find(port_a_result.value);
+  EditResult<ObjectId> port_b_result = resolve_port(pole_b_id, options.preferred_port_b_id, preferred_template_port);
   if (!port_b_result.ok) {
     result.error = port_b_result.error;
     return result;
@@ -1084,8 +1216,6 @@ CoreState::AddConnectionByPole(ObjectId pole_a_id, ObjectId pole_b_id, Connectio
   result.value.span_id = span_result.value;
   result.value.port_a_id = port_a_result.value;
   result.value.port_b_id = port_b_result.value;
-  result.value.slot_a_id = slot_a_id;
-  result.value.slot_b_id = slot_b_id;
   append_change_set(result.change_set, port_a_result.change_set);
   append_change_set(result.change_set, port_b_result.change_set);
   append_change_set(result.change_set, bundle_result.change_set);
@@ -1116,8 +1246,7 @@ CoreState::AddDropFromPole(ObjectId source_pole_id, const Vec3d& target_world_po
     return result;
   }
 
-  int slot_id = -1;
-  SlotSelectionRequest request{};
+  PortResolutionRequest request{};
   request.pole_id = source_pole_id;
   request.category = resolved_category;
   request.connection_context = ConnectionContext::kDropAdd;
@@ -1126,8 +1255,7 @@ CoreState::AddDropFromPole(ObjectId source_pole_id, const Vec3d& target_world_po
   request.corner_angle_deg = (source_pole == nullptr) ? 0.0 : source_pole->context.corner_angle_deg;
   request.corner_turn_sign = (source_pole == nullptr) ? 0.0 : source_pole->context.corner_turn_sign;
   request.allow_generate_port = true;
-  request.preferred_slot_id = -1;
-  EditResult<ObjectId> source_port_result = ensure_pole_slot_port(request, &slot_id);
+  EditResult<ObjectId> source_port_result = ensure_pole_connection_port(request);
   if (!source_port_result.ok) {
     result.error = source_port_result.error;
     return result;
@@ -1844,4 +1972,3 @@ CoreState make_demo_state() {
 }
 
 } // namespace wire::core
-

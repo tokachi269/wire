@@ -170,6 +170,7 @@ struct SpanInspectionView {
   double sag_amplitude_m = 0.0;
   double curve_length_m = 0.0;
   bool uses_branch_support = false;
+  BackboneLoweringKind lowering_kind = BackboneLoweringKind::kNone;
   double branch_down_offset_m = 0.0;
   bool mirrored = false;
   bool flipped_from_previous = false;

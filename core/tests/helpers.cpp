@@ -894,12 +894,15 @@ add_connection_by_category(wire::core::CoreState& state, wire::core::ObjectId po
   return state.AddConnectionByPole(pole_a_id, pole_b_id, category, options);
 }
 
-bool has_selected_slot_in_candidates(const wire::core::SlotSelectionDebugRecord& record) {
-  if (record.selected_slot_id < 0) {
+bool has_selected_port_in_candidates(const wire::core::PortResolutionDebugRecord& record) {
+  if (record.selected_port_id == wire::core::kInvalidObjectId) {
+    return true;
+  }
+  if (record.created_new_port) {
     return true;
   }
   for (const auto& candidate : record.candidates) {
-    if (candidate.slot_id == record.selected_slot_id) {
+    if (candidate.resolved_port_id == record.selected_port_id) {
       return true;
     }
   }

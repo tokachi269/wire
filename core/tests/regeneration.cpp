@@ -141,10 +141,10 @@ bool test_move_pole_reprojects_auto_ports_and_preserves_manual_ports() {
     if (port.owner_pole_id != pole_id) {
       continue;
     }
-    if (port.source_slot_id == 200) {
+    if (port.template_side == wire::core::SlotSide::kLeft) {
       auto_port_id = port.id;
       auto_before = port.world_position;
-    } else if (port.source_slot_id == 201) {
+    } else if (port.template_side == wire::core::SlotSide::kRight) {
       manual_port_id = port.id;
       manual_before = port.world_position;
     }
@@ -604,6 +604,190 @@ bool test_regenerate_session_auto_parts_isolation_across_sessions() {
   return true;
 }
 
+bool test_regenerate_session_acute_corner_keeps_lowering_without_stale_generated_ports() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec req{};
+  req.path.polyline = {{-12.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {-10.0, 2.0, 0.0}};
+  req.interval_m = 1000.0;
+  req.pole_type_id = type_ids.front();
+  add_backbone_bundle(req, wire::core::BundleKind::kHighVoltage);
+
+  const auto first = state.GenerateFromBackboneSpec(req);
+  if (!first.ok || first.value.generated_pole_ids.empty()) {
+    return false;
+  }
+
+  const auto* any_generated = state.view().edit_state().poles.find(first.value.generated_pole_ids.front());
+  if (any_generated == nullptr || any_generated->generation.generation_session_id == 0) {
+    return false;
+  }
+  const std::uint64_t session_id = any_generated->generation.generation_session_id;
+
+  const auto regen = state.RegenerateSessionAutoParts(session_id, req);
+  if (!regen.ok) {
+    return false;
+  }
+
+  const ObjectId prev_id = find_pole_id_by_position(state, {-12.0, 0.0, 0.0});
+  const ObjectId center_id = find_pole_id_by_position(state, {0.0, 0.0, 0.0});
+  const ObjectId next_id = find_pole_id_by_position(state, {-10.0, 2.0, 0.0});
+  if (prev_id == wire::core::kInvalidObjectId || center_id == wire::core::kInvalidObjectId ||
+      next_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  std::unordered_set<ObjectId> regenerated_port_ids{};
+  for (ObjectId span_id : regen.value.generated_span_ids) {
+    const auto* span = state.view().edit_state().spans.find(span_id);
+    if (span == nullptr) {
+      continue;
+    }
+    regenerated_port_ids.insert(span->port_a_id);
+    regenerated_port_ids.insert(span->port_b_id);
+  }
+
+  auto collect_regenerated_hv_ports = [&](ObjectId pole_id) {
+    std::vector<const wire::core::Port*> ports{};
+    for (const wire::core::Port& port : state.view().edit_state().ports.items()) {
+      if (port.owner_pole_id != pole_id || port.layer != wire::core::PortLayer::kHighVoltage ||
+          !regenerated_port_ids.contains(port.id)) {
+        continue;
+      }
+      ports.push_back(&port);
+    }
+    return ports;
+  };
+  const auto prev_ports = collect_regenerated_hv_ports(prev_id);
+  const auto center_ports = collect_regenerated_hv_ports(center_id);
+  const auto next_ports = collect_regenerated_hv_ports(next_id);
+  if (prev_ports.size() != 3 || center_ports.size() != 3 || next_ports.size() != 3) {
+    return false;
+  }
+
+  auto min_z = [](const std::vector<const wire::core::Port*>& ports) {
+    double z = std::numeric_limits<double>::infinity();
+    for (const auto* port : ports) {
+      z = std::min(z, port->world_position.z);
+    }
+    return z;
+  };
+  auto max_z = [](const std::vector<const wire::core::Port*>& ports) {
+    double z = -std::numeric_limits<double>::infinity();
+    for (const auto* port : ports) {
+      z = std::max(z, port->world_position.z);
+    }
+    return z;
+  };
+
+  const double prev_min_z = min_z(prev_ports);
+  const double center_min_z = min_z(center_ports);
+  const double center_max_z = max_z(center_ports);
+  const double next_min_z = min_z(next_ports);
+  const bool center_uniform_height = (center_max_z - center_min_z) <= 1e-6;
+  const bool center_lowered = center_max_z + 1e-6 < std::min(prev_min_z, next_min_z);
+
+  int stale_generated_ports = 0;
+  for (const wire::core::Port& port : state.view().edit_state().ports.items()) {
+    if ((port.owner_pole_id != prev_id && port.owner_pole_id != center_id && port.owner_pole_id != next_id) ||
+        port.layer != wire::core::PortLayer::kHighVoltage || !port.generated_by_rule || port.generated_from_template ||
+        port.position_mode == wire::core::PortPositionMode::kManual) {
+      continue;
+    }
+    const auto it_spans = state.view().connection_index().spans_by_port.find(port.id);
+    if (it_spans == state.view().connection_index().spans_by_port.end() || it_spans->second.empty()) {
+      ++stale_generated_ports;
+    }
+  }
+
+  return center_uniform_height && center_lowered && stale_generated_ports == 0;
+}
+
+bool test_regenerate_session_interval_extension_preserves_hv_lane_order() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  auto make_request = [&](const std::vector<wire::core::Vec3d>& path) {
+    wire::core::BackboneSpec req{};
+    req.path.polyline = path;
+    req.interval_m = 8.0;
+    req.pole_type_id = type_ids.front();
+    add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
+    add_backbone_bundle(req, wire::core::BundleKind::kHighVoltage);
+    add_backbone_bundle(req, wire::core::BundleKind::kOptical);
+    return req;
+  };
+
+  const std::vector<wire::core::Vec3d> base_path = {
+      {19.6087, -16.6408, 0.0},
+      {8.22759, -11.9276, 0.0},
+      {16.8051, -20.9148, 0.0},
+      {8.62249, -16.7209, 0.0},
+      {12.2073, -24.74, 0.0},
+  };
+  const std::vector<wire::core::Vec3d> extended_path = {
+      {19.6087, -16.6408, 0.0},
+      {8.22759, -11.9276, 0.0},
+      {16.8051, -20.9148, 0.0},
+      {8.62249, -16.7209, 0.0},
+      {12.2073, -24.74, 0.0},
+      {4.69953, -21.4095, 0.0},
+  };
+
+  const auto first = state.GenerateFromBackboneSpec(make_request(base_path));
+  if (!first.ok || first.value.generated_span_ids.empty()) {
+    return false;
+  }
+
+  const auto* any_generated_span = state.view().edit_state().spans.find(first.value.generated_span_ids.front());
+  if (any_generated_span == nullptr || any_generated_span->generation.generation_session_id == 0) {
+    return false;
+  }
+  const std::uint64_t session_id = any_generated_span->generation.generation_session_id;
+
+  const auto regen = state.RegenerateSessionAutoParts(session_id, make_request(extended_path));
+  if (!regen.ok) {
+    return false;
+  }
+
+  std::vector<wire::core::SegmentLaneAssignment> hv_assignments{};
+  for (const auto& assignment : wire::core::CoreStateTestHook::last_lane_assignments(state)) {
+    const auto* bundle = state.view().edit_state().bundles.find(assignment.bundle_id);
+    if (bundle == nullptr || bundle->bundle_template_id != wire::core::BundleKind::kHighVoltage) {
+      continue;
+    }
+    hv_assignments.push_back(assignment);
+  }
+  if (hv_assignments.empty()) {
+    return false;
+  }
+
+  const LaneOrderMetrics metrics = compute_lane_order_metrics(state, hv_assignments);
+  const int adjacent_discontinuities = count_bundle_lane_adjacent_order_discontinuities(state, hv_assignments);
+  if (metrics.y_inversions != 0 || adjacent_discontinuities != 0) {
+    dump_lane_assignment_debug(state, hv_assignments, "C207_regen_interval_extension");
+    return false;
+  }
+
+  const auto& orientations = state.view().last_generation_backbone().edge_orientations;
+  for (const auto& orientation : orientations) {
+    if (orientation.bundle_template_id != wire::core::BundleKind::kHighVoltage) {
+      continue;
+    }
+    if (orientation.flipped_from_previous) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool test_backbone_edges_and_route_search() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
@@ -702,6 +886,8 @@ void register_regeneration_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C68_Phase48i_Regenerate_KeepManualPort", "Session-local regeneration preserves manual port position edits", "Invariant", false, test_regenerate_session_auto_parts_keeps_manual_port);
   test_registry::AddTest(tests, "C72_Phase48i_Regenerate_KeepManualPortOnAutoPole", "Session-local regeneration preserves manual port edits even when owner pole remains Auto", "Invariant", false, test_regenerate_session_auto_parts_keeps_manual_port_on_auto_pole);
   test_registry::AddTest(tests, "C69_Phase48i_Regenerate_SessionIsolation", "Session-local regeneration does not mutate other generation sessions", "Invariant", false, test_regenerate_session_auto_parts_isolation_across_sessions);
+  test_registry::AddTest(tests, "C206_Phase48i_Regenerate_AcuteLoweringNoStaleGeneratedPorts", "Session regeneration keeps acute-corner lowering and does not accumulate stale generated ports on reused poles", "Invariant", false, test_regenerate_session_acute_corner_keeps_lowering_without_stale_generated_ports);
+  test_registry::AddTest(tests, "C207_Phase48i_Regenerate_IntervalExtensionPreservesHvLaneOrder", "Session-local regeneration keeps HV lane order continuous when extending an interval-driven DrawPath route", "Invariant", false, test_regenerate_session_interval_extension_preserves_hv_lane_order);
   test_registry::AddTest(tests, "C55_Phase48h_Backbone_Route", "Backbone edges are built from grouped spans and route search works", "Invariant", false, test_backbone_edges_and_route_search);
   test_registry::AddTest(tests, "C40_Phase48_PoleFlip180_Dirty", "Pole flip180 updates owned ports and dirties connected spans", "Invariant", false, test_set_pole_flip180_updates_ports_and_dirty);
 }

@@ -72,10 +72,34 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
     result.error = "snap_radius_world must be >= 0";
     return result;
   }
-  const BundleTemplate* bundle_template = find_bundle_template(options.bundle_template_id);
-  if (bundle_template == nullptr) {
-    result.error = "bundle template not found";
-    return result;
+
+  std::vector<BundleKind> selected_template_ids = options.selected_bundle_template_ids;
+  if (selected_template_ids.empty()) {
+    selected_template_ids.push_back(BundleKind::kLowVoltage);
+  }
+  std::sort(selected_template_ids.begin(), selected_template_ids.end(),
+            [](BundleKind a, BundleKind b) { return static_cast<int>(a) < static_cast<int>(b); });
+  selected_template_ids.erase(std::unique(selected_template_ids.begin(), selected_template_ids.end()),
+                              selected_template_ids.end());
+
+  struct SelectedTemplatePolicy {
+    BundleKind id = BundleKind::kLowVoltage;
+    const BundleTemplate* bundle_template = nullptr;
+    bool allow_midair_path = true;
+  };
+  std::vector<SelectedTemplatePolicy> selected_templates{};
+  selected_templates.reserve(selected_template_ids.size());
+  for (BundleKind bundle_template_id : selected_template_ids) {
+    const BundleTemplate* bundle_template = find_bundle_template(bundle_template_id);
+    if (bundle_template == nullptr) {
+      result.error = "bundle template not found";
+      return result;
+    }
+    SelectedTemplatePolicy selected{};
+    selected.id = bundle_template_id;
+    selected.bundle_template = bundle_template;
+    selected.allow_midair_path = bundle_template->allow_midair_node && bundle_template->allow_midair_branch;
+    selected_templates.push_back(selected);
   }
 
   auto sqr_dist = [](const Vec3d& a, const Vec3d& b) {
@@ -194,13 +218,15 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
     }
   }
 
-  if (options.enforce_midair_template_policy && !bundle_template->allow_midair_node) {
-    result.error = "bundle template does not allow midair support node";
-    return result;
-  }
-  if (options.enforce_midair_template_policy && !bundle_template->allow_midair_branch) {
-    result.error = "bundle template does not allow midair branch";
-    return result;
+  if (options.enforce_midair_template_policy) {
+    const bool any_allow_midair = std::any_of(selected_templates.begin(), selected_templates.end(),
+                                              [](const SelectedTemplatePolicy& selected) {
+                                                return selected.allow_midair_path;
+                                              });
+    if (!any_allow_midair) {
+      result.error = "no selected bundle template allows midair branch";
+      return result;
+    }
   }
 
   constexpr double kReuseEps2 = 1e-10;
@@ -220,6 +246,26 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
         mutable_node.source_edge_node_a_id = node_a_id;
         mutable_node.source_edge_node_b_id = node_b_id;
         mutable_node.source_edge_t = segment_t_xy(pick.hit_pos_world, endpoint_a, endpoint_b);
+        for (const SelectedTemplatePolicy& selected : selected_templates) {
+          const auto it_mode =
+              std::find_if(mutable_node.bundle_modes.begin(), mutable_node.bundle_modes.end(),
+                           [&](const SupportNodeBundleMode& mode) { return mode.bundle_template_id == selected.id; });
+          const BundleNodeMode next_mode =
+              (!options.enforce_midair_template_policy || selected.allow_midair_path) ? BundleNodeMode::kPassThrough
+                                                                                       : BundleNodeMode::kNotPresent;
+          if (it_mode == mutable_node.bundle_modes.end()) {
+            SupportNodeBundleMode mode{};
+            mode.bundle_template_id = selected.id;
+            mode.mode = next_mode;
+            mutable_node.bundle_modes.push_back(mode);
+          } else {
+            it_mode->mode = next_mode;
+          }
+        }
+        std::sort(mutable_node.bundle_modes.begin(), mutable_node.bundle_modes.end(),
+                  [](const SupportNodeBundleMode& a, const SupportNodeBundleMode& b) {
+                    return static_cast<int>(a.bundle_template_id) < static_cast<int>(b.bundle_template_id);
+                  });
         break;
       }
     }
@@ -253,10 +299,13 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
   }
   midair.path_point_index = -1;
   midair.has_tangent_hint = false;
-  SupportNodeBundleMode mode{};
-  mode.bundle_template_id = options.bundle_template_id;
-  mode.mode = BundleNodeMode::kPassThrough;
-  midair.bundle_modes.push_back(mode);
+  for (const SelectedTemplatePolicy& selected : selected_templates) {
+    SupportNodeBundleMode mode{};
+    mode.bundle_template_id = selected.id;
+    mode.mode = (!options.enforce_midair_template_policy || selected.allow_midair_path) ? BundleNodeMode::kPassThrough
+                                                                                         : BundleNodeMode::kNotPresent;
+    midair.bundle_modes.push_back(mode);
+  }
   last_generation_backbone_.nodes.push_back(midair);
   std::sort(last_generation_backbone_.nodes.begin(), last_generation_backbone_.nodes.end(),
             [](const SupportNode& a, const SupportNode& b) { return a.node_id < b.node_id; });

@@ -50,7 +50,7 @@ std::uint32_t TemplateMask(wire::core::BundleKind kind) {
   return (1u << static_cast<unsigned>(kind));
 }
 
-bool test_selected_template_wins_over_hit_span_template() {
+bool test_selected_templates_are_not_collapsed_to_first_selected_kind() {
   wire::core::CoreState state;
   const wire::core::PoleTypeId type_id = FirstPoleTypeId(state);
   if (type_id == wire::core::kInvalidPoleTypeId) {
@@ -64,9 +64,12 @@ bool test_selected_template_wins_over_hit_span_template() {
   wire::core::PickResult pick{};
   pick.hit_kind = wire::core::PickHitKind::kSegment;
   pick.hit_id = span_id;
-  const wire::core::BundleKind resolved =
-      ResolveBundleTemplateForPathPick(state, TemplateMask(wire::core::BundleKind::kLowVoltage), pick);
-  return resolved == wire::core::BundleKind::kLowVoltage;
+  const std::uint32_t mask =
+      TemplateMask(wire::core::BundleKind::kLowVoltage) | TemplateMask(wire::core::BundleKind::kHighVoltage);
+  const std::vector<wire::core::BundleKind> resolved = ResolveTemplateKindsForPathPick(state, mask, pick);
+  return resolved.size() == 2 &&
+         std::find(resolved.begin(), resolved.end(), wire::core::BundleKind::kLowVoltage) != resolved.end() &&
+         std::find(resolved.begin(), resolved.end(), wire::core::BundleKind::kHighVoltage) != resolved.end();
 }
 
 bool test_hit_span_template_is_used_when_nothing_selected() {
@@ -83,8 +86,8 @@ bool test_hit_span_template_is_used_when_nothing_selected() {
   wire::core::PickResult pick{};
   pick.hit_kind = wire::core::PickHitKind::kSegment;
   pick.hit_id = span_id;
-  const wire::core::BundleKind resolved = ResolveBundleTemplateForPathPick(state, 0u, pick);
-  return resolved == wire::core::BundleKind::kHighVoltage;
+  const std::vector<wire::core::BundleKind> resolved = ResolveTemplateKindsForPathPick(state, 0u, pick);
+  return resolved.size() == 1 && resolved.front() == wire::core::BundleKind::kHighVoltage;
 }
 
 bool test_midair_branch_block_checks_selected_templates() {
@@ -152,8 +155,8 @@ bool test_draw_path_segment_pick_midspan_does_not_snap_to_endpoint_position() {
 }
 
 void register_pick_policy_tests(viewer_test_registry::TestRegistry& tests) {
-  viewer_test_registry::AddTest(tests, "V01", "Selected DrawPath template wins over hit span template",
-                                test_selected_template_wins_over_hit_span_template);
+  viewer_test_registry::AddTest(tests, "V01", "Selected DrawPath templates are preserved instead of collapsing to the first kind",
+                                test_selected_templates_are_not_collapsed_to_first_selected_kind);
   viewer_test_registry::AddTest(tests, "V02", "Hit span template is used when no DrawPath template is selected",
                                 test_hit_span_template_is_used_when_nothing_selected);
   viewer_test_registry::AddTest(tests, "V03", "Midair branch block uses selected templates, not hit span fallback",

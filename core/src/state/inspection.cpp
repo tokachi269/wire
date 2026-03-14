@@ -43,6 +43,8 @@ const char* PoleSupportAxisRuleText(PoleSupportAxisRule rule) {
     return "MainChainSingle";
   case PoleSupportAxisRule::kMainChainPair:
     return "MainChainPair";
+  case PoleSupportAxisRule::kConnectedDirectionFit:
+    return "ConnectedDirectionFit";
   default:
     return "Unknown";
   }
@@ -123,8 +125,8 @@ const char* PortPlacementSourceText(PortPlacementSourceKind source) {
   switch (source) {
   case PortPlacementSourceKind::kUnknown:
     return "Unknown";
-  case PortPlacementSourceKind::kTemplateSlot:
-    return "TemplateSlot";
+  case PortPlacementSourceKind::kPlacementBand:
+    return "PlacementBand";
   case PortPlacementSourceKind::kGenerated:
     return "Generated";
   case PortPlacementSourceKind::kManualEdit:
@@ -480,6 +482,8 @@ std::optional<SpanInspectionView> CoreView::inspect_span(ObjectId span_id) const
     result.flow_kind = layout->flow_kind;
     result.uses_branch_support = layout->start.origin == SupportLayoutOriginKind::kBranchSupport ||
                                  layout->end.origin == SupportLayoutOriginKind::kBranchSupport;
+    result.lowering_kind =
+        result.uses_branch_support ? BackboneLoweringKind::kBranchSupport : BackboneLoweringKind::kNone;
     result.branch_down_offset_m = std::max(layout->start.branch_down_offset_m, layout->end.branch_down_offset_m);
   }
   if (const CurveCacheEntry* curve = state_.find_curve_cache(span_id); curve != nullptr) {
@@ -495,6 +499,7 @@ std::optional<SpanInspectionView> CoreView::inspect_span(ObjectId span_id) const
     result.flow_kind = assignment->flow_kind;
     result.flow_rule = assignment->flow_decision_rule;
     result.uses_branch_support = assignment->uses_branch_support;
+    result.lowering_kind = assignment->lowering_kind;
     result.branch_down_offset_m = assignment->branch_down_offset_m;
     result.mirrored = assignment->mirrored;
     result.flipped_from_previous = assignment->flipped_from_previous;
@@ -652,7 +657,7 @@ std::optional<TemplateInspectionView> CoreView::inspect_pole_template(PoleTypeId
                          DisplayOrFallback("PoleTemplate", it->second.name, pole_type_id),
                          EntityRoleKind::kAuthoritative, true, false, "definition.pole_type");
   result.template_kind = TemplateKind::kPoleType;
-  result.properties.push_back({"port_slots", std::to_string(static_cast<unsigned long long>(it->second.port_slots.size())),
+  result.properties.push_back({"port_bands", std::to_string(static_cast<unsigned long long>(it->second.port_bands.size())),
                                PropertyAccessKind::kEditable});
   result.properties.push_back(
       {"anchor_slots", std::to_string(static_cast<unsigned long long>(it->second.anchor_slots.size())),

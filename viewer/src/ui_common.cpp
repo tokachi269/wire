@@ -127,8 +127,8 @@ const char* PortPositionModeLabel(wire::core::PortPositionMode mode) {
 
 const char* PortPlacementSourceLabel(wire::core::PortPlacementSourceKind source) {
   switch (source) {
-  case wire::core::PortPlacementSourceKind::kTemplateSlot:
-    return "Template";
+  case wire::core::PortPlacementSourceKind::kPlacementBand:
+    return "Band";
   case wire::core::PortPlacementSourceKind::kGenerated:
     return "Generated";
   case wire::core::PortPlacementSourceKind::kManualEdit:
@@ -263,17 +263,11 @@ int FallbackParallelSpanCount(wire::core::ConnectionCategory category) {
 
 int AutoParallelSpanCountFromPoleType(const CoreState& state, wire::core::PoleTypeId pole_type_id,
                                       wire::core::ConnectionCategory category) {
-  const auto it = state.view().pole_types().find(pole_type_id);
-  if (it == state.view().pole_types().end()) {
+  const int count = state.view().count_port_bands(pole_type_id, category);
+  if (count <= 0) {
     return FallbackParallelSpanCount(category);
   }
-  int count = 0;
-  for (const auto& slot : it->second.port_slots) {
-    if (slot.enabled && slot.category == category) {
-      ++count;
-    }
-  }
-  return (count > 0) ? count : FallbackParallelSpanCount(category);
+  return count;
 }
 
 bool IsDrawCategorySelected(const ViewerUiState& ui_state, int category_index) {
@@ -463,7 +457,5 @@ void PushLog(ViewerUiState& ui_state, const std::string& line) {
     ui_state.logs.erase(ui_state.logs.begin());
   }
 }
-
-
 
 

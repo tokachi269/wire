@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace wire::core::state_internal {
 
@@ -32,28 +33,45 @@ double apply_corner_side_scale(double local_y, SlotSide slot_side, double turn_s
   return local_y * side_scale;
 }
 
-const PortSlotTemplate* find_port_slot(const PoleTypeDefinition* pole_type, int slot_id) {
+const PortPlacementBand* find_port_band(const PoleTypeDefinition* pole_type, const Port& port) {
   if (pole_type == nullptr) {
     return nullptr;
   }
-  for (const PortSlotTemplate& slot : pole_type->port_slots) {
-    if (slot.slot_id == slot_id) {
-      return &slot;
+  const PortPlacementBand* best = nullptr;
+  for (const PortPlacementBand& band : pole_type->port_bands) {
+    if (!band.enabled || band.category != port.category || band.layer != port.template_layer ||
+        band.side != port.template_side || band.role != port.template_role) {
+      continue;
+    }
+    if (best == nullptr || band.priority > best->priority ||
+        (band.priority == best->priority && band.band_id < best->band_id)) {
+      best = &band;
     }
   }
-  return nullptr;
+  return best;
 }
 
-const AnchorSlotTemplate* find_anchor_slot(const PoleTypeDefinition* pole_type, int slot_id) {
+const AnchorSlotTemplate* find_anchor_hint(const PoleTypeDefinition* pole_type, const Anchor& anchor,
+                                           const Pole& pole, double pole_yaw_deg) {
   if (pole_type == nullptr) {
     return nullptr;
   }
-  for (const AnchorSlotTemplate& slot : pole_type->anchor_slots) {
-    if (slot.slot_id == slot_id) {
-      return &slot;
+  const PoleFrame frame = BuildPoleFrame(pole.world_transform, pole_yaw_deg);
+  const Vec3d local = WorldPointToLocal(frame, anchor.world_position);
+  const AnchorSlotTemplate* best = nullptr;
+  double best_dist2 = std::numeric_limits<double>::infinity();
+  for (const AnchorSlotTemplate& hint : pole_type->anchor_slots) {
+    if (!hint.enabled || hint.usage != anchor.support_kind) {
+      continue;
+    }
+    const Vec3d delta = local - hint.local_position;
+    const double dist2 = Dot(delta, delta);
+    if (dist2 < best_dist2) {
+      best = &hint;
+      best_dist2 = dist2;
     }
   }
-  return nullptr;
+  return best;
 }
 
 } // namespace
@@ -105,23 +123,38 @@ void EndpointRefreshService::RefreshOwnedEndpointsFromPole(CoreState& state, Obj
     if (port == nullptr || port->position_mode == PortPositionMode::kManual) {
       continue;
     }
-    const PortSlotTemplate* slot = find_port_slot(pole_type, port->source_slot_id);
     Vec3d new_world = port->world_position;
     bool apply_angle_correction = false;
     double applied_scale = 1.0;
-    if (slot != nullptr) {
-      Vec3d adjusted_local = slot->local_position;
-      apply_angle_correction = state.layout_settings_.angle_correction_enabled &&
-                               pole->context.kind == PoleContextKind::kCorner && slot->side != SlotSide::kCenter;
-      if (apply_angle_correction) {
-        adjusted_local.y =
-            apply_corner_side_scale(adjusted_local.y, slot->side, pole->context.corner_turn_sign, pole->context.side_scale);
-        if (std::abs(slot->local_position.y) > 1e-9) {
-          applied_scale = std::abs(adjusted_local.y / slot->local_position.y);
+    PortPlacementSourceKind refresh_source = port->placement_source;
+    if (port->placement_source == PortPlacementSourceKind::kPlacementBand) {
+      const PortPlacementBand* band = find_port_band(pole_type, *port);
+      if (band != nullptr) {
+        const Vec3d reference_local =
+            (previous_pole != nullptr)
+                ? WorldPointToLocal(BuildPoleFrame(previous_pole->world_transform, previous_layout_yaw), port->world_position)
+                : WorldPointToLocal(BuildPoleFrame(pole->world_transform, layout_yaw), port->world_position);
+        Vec3d adjusted_local{
+            0.0,
+            std::clamp(reference_local.y, band->lateral_min_m, band->lateral_max_m),
+            std::clamp(reference_local.z, band->height_min_m, band->height_max_m),
+        };
+        apply_angle_correction = state.layout_settings_.angle_correction_enabled &&
+                                 pole->context.kind == PoleContextKind::kCorner && band->side != SlotSide::kCenter;
+        if (apply_angle_correction) {
+          adjusted_local.y =
+              apply_corner_side_scale(adjusted_local.y, band->side, pole->context.corner_turn_sign, pole->context.side_scale);
+          if (std::abs(reference_local.y) > 1e-9) {
+            applied_scale = std::abs(adjusted_local.y / reference_local.y);
+          }
         }
+        adjusted_local = state.apply_pole_clearance_to_local(*pole, adjusted_local, band->side);
+        new_world = local_to_world_on_pole(pole->world_transform, layout_yaw, adjusted_local);
+      } else if (previous_pole != nullptr) {
+        const Vec3d old_local =
+            WorldPointToLocal(BuildPoleFrame(previous_pole->world_transform, previous_layout_yaw), port->world_position);
+        new_world = local_to_world_on_pole(pole->world_transform, layout_yaw, old_local);
       }
-      adjusted_local = state.apply_pole_clearance_to_local(*pole, adjusted_local, slot->side);
-      new_world = local_to_world_on_pole(pole->world_transform, layout_yaw, adjusted_local);
     } else if (previous_pole != nullptr) {
       const Vec3d old_local =
           WorldPointToLocal(BuildPoleFrame(previous_pole->world_transform, previous_layout_yaw), port->world_position);
@@ -141,7 +174,7 @@ void EndpointRefreshService::RefreshOwnedEndpointsFromPole(CoreState& state, Obj
     port->world_position = new_world;
     port->angle_correction_applied = apply_angle_correction;
     port->side_scale_applied = apply_angle_correction ? applied_scale : 1.0;
-    state.apply_port_position_mode(*port, PortPositionMode::kAuto, PortPlacementSourceKind::kTemplateSlot);
+    state.apply_port_position_mode(*port, PortPositionMode::kAuto, refresh_source);
     if (change_set != nullptr) {
       state.add_unique_id(change_set->updated_ids, port->id);
       state.mark_connected_spans_dirty_from_port(port->id, DirtyBits::kGeometry, change_set);
@@ -153,7 +186,7 @@ void EndpointRefreshService::RefreshOwnedEndpointsFromPole(CoreState& state, Obj
     if (anchor == nullptr) {
       continue;
     }
-    const AnchorSlotTemplate* slot = find_anchor_slot(pole_type, anchor->source_slot_id);
+    const AnchorSlotTemplate* slot = find_anchor_hint(pole_type, *anchor, *pole, effective_yaw);
     Vec3d new_world = anchor->world_position;
     if (slot != nullptr) {
       new_world = local_to_world_on_pole(pole->world_transform, effective_yaw, slot->local_position);

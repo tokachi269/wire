@@ -149,7 +149,7 @@ bool test_apply_pole_type_generates_template_ports() {
   return true;
 }
 
-bool test_different_pole_types_produce_different_port_layouts() {
+bool test_different_pole_types_produce_different_port_hints() {
   CoreState state;
   const auto pole_type_ids = sorted_pole_type_ids(state);
   if (pole_type_ids.size() < 2) {
@@ -174,18 +174,22 @@ bool test_different_pole_types_produce_different_port_layouts() {
     return true;
   }
 
-  std::vector<int> slots_a;
-  std::vector<int> slots_b;
+  std::vector<long long> hints_a;
+  std::vector<long long> hints_b;
   for (const auto* port : detail_a.owned_ports)
-    slots_a.push_back(port->source_slot_id);
+    hints_a.push_back((static_cast<long long>(port->template_layer) << 32) |
+                      (static_cast<long long>(static_cast<int>(port->template_side)) << 16) |
+                      static_cast<long long>(static_cast<int>(port->template_role)));
   for (const auto* port : detail_b.owned_ports)
-    slots_b.push_back(port->source_slot_id);
-  std::sort(slots_a.begin(), slots_a.end());
-  std::sort(slots_b.begin(), slots_b.end());
-  return slots_a != slots_b;
+    hints_b.push_back((static_cast<long long>(port->template_layer) << 32) |
+                      (static_cast<long long>(static_cast<int>(port->template_side)) << 16) |
+                      static_cast<long long>(static_cast<int>(port->template_role)));
+  std::sort(hints_a.begin(), hints_a.end());
+  std::sort(hints_b.begin(), hints_b.end());
+  return hints_a != hints_b;
 }
 
-bool test_auto_port_allocation_prefers_unused_slots() {
+bool test_auto_port_allocation_prefers_unused_ports() {
   CoreState state;
   const auto pole_type_ids = sorted_pole_type_ids(state);
   if (pole_type_ids.empty()) {
@@ -207,7 +211,7 @@ bool test_auto_port_allocation_prefers_unused_slots() {
   if (!first.ok || !second.ok) {
     return false;
   }
-  return first.value.slot_a_id >= 0 && second.value.slot_a_id >= 0 && first.value.slot_a_id != second.value.slot_a_id;
+  return first.value.port_a_id != second.value.port_a_id;
 }
 
 bool test_add_connection_by_pole_updates_dirty_version_and_indices() {
@@ -325,8 +329,8 @@ void register_editing_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C04_Phase3_MovePole_LocalDirty", "MovePole dirties only related span", "Invariant", false, test_move_pole_dirties_only_related_span);
   test_registry::AddTest(tests, "C05_Phase3_SplitSpan_Basic", "SplitSpan replaces structure and keeps integrity", "Invariant", false, test_split_span_creates_two_spans_and_port);
   test_registry::AddTest(tests, "C06_Phase35_ApplyPoleType_GeneratesPorts", "ApplyPoleType generates owned template ports", "Invariant", false, test_apply_pole_type_generates_template_ports);
-  test_registry::AddTest(tests, "C07_Phase35_PoleType_DifferentLayouts", "Different pole types produce different slot layout", "Invariant", false, test_different_pole_types_produce_different_port_layouts);
-  test_registry::AddTest(tests, "C08_Phase35_AutoAlloc_UnusedPriority", "Auto allocation prefers unused slots", "Invariant", false, test_auto_port_allocation_prefers_unused_slots);
+  test_registry::AddTest(tests, "C07_Phase35_PoleType_DifferentLayouts", "Different pole types produce different port hint layout", "Invariant", false, test_different_pole_types_produce_different_port_hints);
+  test_registry::AddTest(tests, "C08_Phase35_AutoAlloc_UnusedPriority", "Auto allocation prefers unused ports", "Invariant", false, test_auto_port_allocation_prefers_unused_ports);
   test_registry::AddTest(tests, "C09_Phase35_AddConnectionByPole_Basic", "Pole->Pole connection updates dirty/index/changeset", "Invariant", false, test_add_connection_by_pole_updates_dirty_version_and_indices);
   test_registry::AddTest(tests, "C11_Phase35_AddDropFromPole_Basic", "Drop from pole creates service span", "Invariant", false, test_add_drop_from_pole_creates_service_connection);
   test_registry::AddTest(tests, "C12_Phase35_AddDropFromSpan_Basic", "Drop from span splits and connects", "Invariant", false, test_add_drop_from_span_splits_and_connects_drop);

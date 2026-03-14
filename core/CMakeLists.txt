@@ -33,6 +33,12 @@ if(MSVC)
     wire_core
     PRIVATE
     /MP
+    /FS
+  )
+  set_property(
+    TARGET wire_core
+    PROPERTY MSVC_DEBUG_INFORMATION_FORMAT
+             "$<$<CONFIG:Debug,RelWithDebInfo>:Embedded>"
   )
 endif()
 
@@ -113,6 +119,12 @@ if(BUILD_TESTING)
       wire_core_tests
       PRIVATE
       /MP
+      /FS
+    )
+    set_property(
+      TARGET wire_core_tests
+      PROPERTY MSVC_DEBUG_INFORMATION_FORMAT
+               "$<$<CONFIG:Debug,RelWithDebInfo>:Embedded>"
     )
   endif()
 
@@ -135,5 +147,3 @@ if(BUILD_TESTING)
 
   add_test(NAME wire_core_tests COMMAND wire_core_tests)
 endif()
-
-

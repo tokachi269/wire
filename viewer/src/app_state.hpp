@@ -96,8 +96,7 @@ struct ViewerUiState {
   int bundle_template_support_style = static_cast<int>(wire::core::BundleSupportStyleHint::kAuto);
   int bundle_template_branch_policy = static_cast<int>(wire::core::BundleBranchPolicyHint::kAuto);
   int bundle_template_continuity_policy = static_cast<int>(wire::core::CableContinuityPolicyHint::kAuto);
-  double tilt_all_x_deg = 0.0;
-  double tilt_all_y_deg = 0.0;
+  double tilt_all_max_deg = 0.0;
   std::uint64_t road_id = 1;
   std::uint32_t draw_category_mask = (1u << static_cast<int>(wire::core::ConnectionCategory::kLowVoltage));
   std::uint32_t draw_bundle_template_mask = (1u << static_cast<int>(wire::core::BundleKind::kLowVoltage));
@@ -127,7 +126,7 @@ struct ViewerUiState {
   int draw_direction_mode = static_cast<int>(wire::core::PathDirectionMode::kAuto);
   bool layout_settings_loaded = false;
   bool layout_angle_correction_enabled = true;
-  double layout_corner_threshold_deg = 12.0;
+  double layout_corner_threshold_deg = wire::core::kDefaultCornerThresholdDeg;
   double layout_min_side_scale = 1.0;
   double layout_max_side_scale = 1.8;
   std::string last_repro_capture_path{};

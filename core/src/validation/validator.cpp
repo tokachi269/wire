@@ -1,4 +1,5 @@
 #include "wire/core/core_state.hpp"
+#include "wire/core/coord_utils.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -118,7 +119,7 @@ ValidationResult CoreState::Validate() const {
   const auto& cable_templates = core.cable_templates();
   const auto& bundle_templates = core.bundle_templates();
   const auto& attachment_templates = core.attachment_templates();
-  const auto& slot_debug_records = core.slot_selection_debug_records();
+  const auto& port_resolution_debug_records = core.port_resolution_debug_records();
 
   for (const Pole& pole : edit_state.poles.items()) {
     if (pole.pole_type_id != kInvalidPoleTypeId && !pole_types.contains(pole.pole_type_id)) {
@@ -172,48 +173,49 @@ ValidationResult CoreState::Validate() const {
     if (port.owner_pole_id != kInvalidObjectId && edit_state.poles.find(port.owner_pole_id) == nullptr) {
       result.issues.push_back({ValidationSeverity::kError, "PortOwnerMissing", "Port owner pole is missing", port.id});
     }
-    if (port.source_slot_id >= 0 && port.owner_pole_id != kInvalidObjectId) {
-      const Pole* owner = edit_state.poles.find(port.owner_pole_id);
-      const PoleTypeDefinition* pole_type = nullptr;
-      if (owner != nullptr) {
-        auto it = pole_types.find(owner->pole_type_id);
-        if (it != pole_types.end()) {
-          pole_type = &it->second;
-        }
-      }
-      bool slot_found = false;
-      if (pole_type != nullptr) {
-        for (const PortSlotTemplate& slot : pole_type->port_slots) {
-          if (slot.slot_id != port.source_slot_id) {
-            continue;
+    if (!is_valid_slot_side(port.template_side) || !is_valid_slot_role(port.template_role)) {
+      result.issues.push_back({
+          ValidationSeverity::kError,
+          "PortTemplateAttributeInvalid",
+          "Port template side/role contains invalid value",
+          port.id,
+      });
+    }
+    if (port.generated_from_template && port.owner_pole_id != kInvalidObjectId) {
+      const Pole* owner_pole = edit_state.poles.find(port.owner_pole_id);
+      if (owner_pole != nullptr) {
+        const auto pole_type_it = pole_types.find(owner_pole->pole_type_id);
+        if (pole_type_it != pole_types.end()) {
+          bool matched_hint = false;
+          const PoleFrame frame =
+              BuildPoleFrame(owner_pole->world_transform, effective_pole_layout_yaw_deg(*owner_pole));
+          const Vec3d local = WorldPointToLocal(frame, port.world_position);
+          for (const PortPlacementBand& band : pole_type_it->second.port_bands) {
+            if (!band.enabled) {
+              continue;
+            }
+            const bool same_template_band = band.category == port.category && band.layer == port.template_layer &&
+                                            band.side == port.template_side && band.role == port.template_role;
+            const bool inside_band_range = local.y >= band.lateral_min_m - 1e-6 && local.y <= band.lateral_max_m + 1e-6 &&
+                                           local.z >= band.height_min_m - 1e-6 && local.z <= band.height_max_m + 1e-6;
+            const bool constrained_overflow_match =
+                band.overflow_policy == BandOverflowPolicy::kConstrainedFallback &&
+                local.y >= band.lateral_min_m - 1e-6 && local.y <= band.lateral_max_m + 1e-6 &&
+                local.z >= band.height_max_m - 1e-6;
+            if (same_template_band && (inside_band_range || constrained_overflow_match)) {
+              matched_hint = true;
+              break;
+            }
           }
-          slot_found = true;
-          if (slot.category != port.category) {
+          if (!matched_hint) {
             result.issues.push_back({
-                ValidationSeverity::kError,
-                "PortSlotCategoryMismatch",
-                "Port category differs from slot category",
+                ValidationSeverity::kWarning,
+                "PortTemplateHintMissing",
+                "Template-owned port does not match any enabled placement hint on owner pole type",
                 port.id,
             });
           }
-          if (!is_valid_slot_side(slot.side) || !is_valid_slot_role(slot.role)) {
-            result.issues.push_back({
-                ValidationSeverity::kError,
-                "PortSlotAttributeInvalid",
-                "Slot side/role contains invalid value",
-                port.id,
-            });
-          }
-          break;
         }
-      }
-      if (!slot_found) {
-        result.issues.push_back({
-            ValidationSeverity::kWarning,
-            "PortSlotMissing",
-            "Port source slot id is not defined on owner PoleType",
-            port.id,
-        });
       }
     }
     if (!std::isfinite(port.world_position.x) || !std::isfinite(port.world_position.y) ||
@@ -667,26 +669,29 @@ ValidationResult CoreState::Validate() const {
     }
   }
 
-  for (const SlotSelectionDebugRecord& debug : slot_debug_records) {
+  for (const PortResolutionDebugRecord& debug : port_resolution_debug_records) {
     if (!std::isfinite(debug.corner_turn_sign)) {
       result.issues.push_back({
           ValidationSeverity::kError,
-          "SlotSelectionDebugInvalid",
-          "Slot selection debug corner_turn_sign is non-finite",
+          "PortResolutionDebugInvalid",
+          "Port resolution debug corner_turn_sign is non-finite",
           debug.pole_id,
       });
     }
-    if (debug.selected_slot_id >= 0) {
+    if (debug.selected_port_id != kInvalidObjectId) {
+      if (debug.created_new_port) {
+        continue;
+      }
       bool found = false;
-      for (const SlotCandidateDebug& c : debug.candidates) {
-        if (c.slot_id == debug.selected_slot_id) {
+      for (const PlacementCandidateDebug& c : debug.candidates) {
+        if (c.resolved_port_id == debug.selected_port_id) {
           found = true;
           if (c.total_score != c.category_score + c.context_score + c.layer_score + c.side_score + c.role_score +
-                                   c.priority_score + c.usage_score + c.congestion_score + c.tie_breaker) {
+                                    c.priority_score + c.usage_score + c.congestion_score + (c.tie_breaker / 16)) {
             result.issues.push_back({
                 ValidationSeverity::kWarning,
-                "SlotSelectionScoreInconsistent",
-                "Slot candidate score breakdown does not match total_score",
+                "PortResolutionScoreInconsistent",
+                "Placement candidate score breakdown does not match total_score",
                 debug.pole_id,
             });
           }
@@ -696,8 +701,8 @@ ValidationResult CoreState::Validate() const {
       if (!found) {
         result.issues.push_back({
             ValidationSeverity::kError,
-            "SlotSelectionDebugMismatch",
-            "Selected slot id does not exist in candidate list",
+            "PortResolutionDebugMismatch",
+            "Selected port id does not exist in candidate list",
             debug.pole_id,
         });
       }

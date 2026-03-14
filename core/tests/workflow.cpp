@@ -7,6 +7,7 @@
 #include <limits>
 #include <regex>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -207,7 +208,7 @@ bool test_generate_spans_between_poles_multiple_passes() {
   return validate_now(state).ok();
 }
 
-bool test_generate_spans_between_poles_uses_third_slot_before_reuse() {
+bool test_generate_spans_between_poles_uses_third_candidate_before_reuse() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
   if (type_ids.empty()) {
@@ -225,7 +226,7 @@ bool test_generate_spans_between_poles_uses_third_slot_before_reuse() {
     poles.push_back(pole_id);
   }
 
-  std::vector<int> slot_ids;
+  std::vector<std::tuple<int, int, int>> template_keys;
   for (int pass = 0; pass < 3; ++pass) {
     const auto result = state.GenerateSpansBetweenPoles(poles, ConnectionCategory::kLowVoltage);
     if (!result.ok || result.value.empty()) {
@@ -239,15 +240,13 @@ bool test_generate_spans_between_poles_uses_third_slot_before_reuse() {
     if (first_port == nullptr || first_port->owner_pole_id != poles.front()) {
       return false;
     }
-    if (first_port->source_slot_id < 0) {
-      return false;
-    }
-    slot_ids.push_back(first_port->source_slot_id);
+    template_keys.emplace_back(first_port->template_layer, static_cast<int>(first_port->template_side),
+                               static_cast<int>(first_port->template_role));
   }
 
-  std::sort(slot_ids.begin(), slot_ids.end());
-  slot_ids.erase(std::unique(slot_ids.begin(), slot_ids.end()), slot_ids.end());
-  return slot_ids.size() >= 3;
+  std::sort(template_keys.begin(), template_keys.end());
+  template_keys.erase(std::unique(template_keys.begin(), template_keys.end()), template_keys.end());
+  return template_keys.size() >= 3;
 }
 
 bool test_generate_simple_line_integration() {
@@ -422,7 +421,7 @@ bool test_clear_debug_records_is_entity_noop() {
     return false;
   }
 
-  const std::size_t slot_debug_before = state.view().slot_selection_debug_records().size();
+  const std::size_t port_debug_before = state.view().port_resolution_debug_records().size();
   const std::size_t path_debug_before = state.view().path_direction_debug_records().size();
 
   const CoreCounts before = snapshot_counts(state);
@@ -431,7 +430,7 @@ bool test_clear_debug_records_is_entity_noop() {
   const auto spans_before = collect_sorted_ids(state.view().edit_state().spans.items());
   const bool validate_before = validate_now(state).ok();
 
-  state.clear_slot_selection_debug_records();
+  state.clear_port_resolution_debug_records();
   state.clear_path_direction_debug_records();
 
   const CoreCounts after = snapshot_counts(state);
@@ -439,9 +438,9 @@ bool test_clear_debug_records_is_entity_noop() {
   const auto ports_after = collect_sorted_ids(state.view().edit_state().ports.items());
   const auto spans_after = collect_sorted_ids(state.view().edit_state().spans.items());
 
-  return slot_debug_before >= state.view().slot_selection_debug_records().size() &&
+  return port_debug_before >= state.view().port_resolution_debug_records().size() &&
          path_debug_before >= state.view().path_direction_debug_records().size() &&
-         state.view().slot_selection_debug_records().empty() && state.view().path_direction_debug_records().empty() &&
+         state.view().port_resolution_debug_records().empty() && state.view().path_direction_debug_records().empty() &&
          same_counts(before, after) && poles_before == poles_after && ports_before == ports_after &&
          spans_before == spans_after && validate_now(state).ok() == validate_before;
 }
@@ -483,7 +482,7 @@ void register_workflow_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C23_SplitSpan_FailInvalidT", "SplitSpan invalid t failure leaves state recoverable", "Exact", true, test_split_span_invalid_t_fails_and_recovers);
   test_registry::AddTest(tests, "C24_Phase45_GenerateSpansBetweenPoles_Basic", "Adjacent poles are auto connected", "Exact", false, test_generate_spans_between_poles_basic);
   test_registry::AddTest(tests, "C25_Phase45_GenerateSpansBetweenPoles_MultiPass", "Repeated auto-connect adds more spans", "Exact", false, test_generate_spans_between_poles_multiple_passes);
-  test_registry::AddTest(tests, "C26_Phase47_AutoConnect_UsesThirdSlot", "Auto-connect uses at least third low-voltage slot before reuse", "Invariant", false, test_generate_spans_between_poles_uses_third_slot_before_reuse);
+  test_registry::AddTest(tests, "C26_Phase47_AutoConnect_UsesThirdSlot", "Auto-connect uses at least third low-voltage candidate before reuse", "Invariant", false, test_generate_spans_between_poles_uses_third_candidate_before_reuse);
   test_registry::AddTest(tests, "C27_Phase45_GenerateSimpleLine_Integration", "Simple line generation integrates dirty/recalc/caches", "Invariant", false, test_generate_simple_line_integration);
   test_registry::AddTest(tests, "C28_Phase45_GenerateSimpleLine_Continuity", "Intermediate poles reuse same through-port", "Invariant", false, test_generate_simple_line_reuses_intermediate_ports);
   test_registry::AddTest(tests, "C29_Phase45_DisplayId_PerPrefix", "Display IDs increment per prefix", "Exact", false, test_display_id_is_per_prefix_sequence);

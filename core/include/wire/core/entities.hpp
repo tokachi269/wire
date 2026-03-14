@@ -93,7 +93,7 @@ enum class PortPositionMode : std::uint8_t {
 
 enum class PortPlacementSourceKind : std::uint8_t {
   kUnknown = 0,
-  kTemplateSlot = 1,
+  kPlacementBand = 1,
   kGenerated = 2,
   kManualEdit = 3,
   kAerialBranch = 4,
@@ -205,17 +205,32 @@ struct GenerationMeta {
   std::uint32_t generation_order = 0;
 };
 
-// Definition-layer slot candidate. This is not a runtime connection endpoint.
-struct PortSlotTemplate {
-  int slot_id = 0;
+enum class BandOverflowPolicy : std::uint8_t {
+  kTrySiblingBand = 0,
+  kRaiseHeight = 1,
+  kConstrainedFallback = 2,
+};
+
+// Definition-layer placement band. This is not a runtime connection endpoint.
+struct PortPlacementBand {
+  int band_id = 0;
   ConnectionCategory category = ConnectionCategory::kLowVoltage;
-  Vec3d local_position{};
   Frame3d local_direction{};
   int layer = 1;
   SlotSide side = SlotSide::kCenter;
   SlotRole role = SlotRole::kNeutral;
+  // Allowed placement range in the pole-local lateral axis.
+  double lateral_center_m = 0.0;
+  double lateral_min_m = -0.1;
+  double lateral_max_m = 0.1;
+  // Allowed placement range in the pole-local height axis.
+  double height_center_m = 6.0;
+  double height_min_m = 5.8;
+  double height_max_m = 6.2;
   int priority = 0;
+  double min_spacing_m = 0.25;
   bool allow_multiple = false;
+  BandOverflowPolicy overflow_policy = BandOverflowPolicy::kTrySiblingBand;
   bool enabled = true;
 };
 
@@ -231,7 +246,7 @@ struct PoleTypeDefinition {
   PoleTypeId id = kInvalidPoleTypeId;
   std::string name{};
   std::string description{};
-  std::vector<PortSlotTemplate> port_slots{};
+  std::vector<PortPlacementBand> port_bands{};
   std::vector<AnchorSlotTemplate> anchor_slots{};
 };
 
@@ -255,6 +270,7 @@ struct Pole {
   std::string name{};
   // Pole tilt lives on the instance transform and must not be overwritten by template edits.
   Transformd world_transform{};
+  double tilt_magnitude_deg = 0.0;
   double height_m = 10.0;
   PoleKind kind = PoleKind::kGeneric;
   PoleTypeId pole_type_id = kInvalidPoleTypeId;
@@ -265,7 +281,7 @@ struct Pole {
   GenerationMeta generation{};
 };
 
-// Entity-layer endpoint used by spans. Ports may originate from template slots.
+// Entity-layer endpoint used by spans.
 struct Port {
   ObjectId id = kInvalidObjectId;
   std::string display_id{};
@@ -275,7 +291,6 @@ struct Port {
   PortLayer layer = PortLayer::kUnknown;
   Frame3d direction{};
   ConnectionCategory category = ConnectionCategory::kLowVoltage;
-  int source_slot_id = -1;
   int template_layer = 1;
   SlotSide template_side = SlotSide::kCenter;
   SlotRole template_role = SlotRole::kNeutral;
@@ -299,7 +314,6 @@ struct Anchor {
   Vec3d world_position{};
   AnchorSupportKind support_kind = AnchorSupportKind::kGeneric;
   double support_strength = 1.0;
-  int source_slot_id = -1;
   bool generated_from_template = false;
 };
 

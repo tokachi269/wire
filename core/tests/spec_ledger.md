@@ -1,7 +1,7 @@
 ﻿# Core Spec Ledger (Phase4.8)
 
 ## Scope and policy
-- 観測根拠: 公開API戻り値、`view()`、`connection_index()`、`relation_index()`、`find_*cache()`、`slot_selection_debug_records()`、`last_path_direction_debug()`、`last_lane_assignments()`、`last_generation_backbone()`、`Validate()` のみ。
+- 観測根拠: 公開API戻り値、`view()`、`connection_index()`、`relation_index()`、`find_*cache()`、`port_resolution_debug_records()`、`last_path_direction_debug()`、`last_lane_assignments()`、`last_generation_backbone()`、`Validate()` のみ。
 - 期待値粒度: `Exact` は決定論のみ、`Invariant` は不変条件のみ。
 - モック方針: ドメインロジックのモック禁止（本スイートはモック未使用）。
 - 時間/並行: 実時間待ち・非決定並行を使わない。
@@ -14,8 +14,8 @@
 | C04 | MovePole局所Dirty | 独立Span2本 | MovePole | Invariant: 関連Spanのみdirty | runtime | 無関係再計算抑制 |
 | C05 | SplitSpan整合 | Span1本 | SplitSpan | Invariant: 旧削除+新2本+新Port | stores/index/Validate | 分岐崩壊防止 |
 | C06 | PoleType適用 | PoleTypeあり | ApplyPoleType | Invariant: owner整合でPort生成 | PoleDetail | テンプレ適用維持 |
-| C07 | PoleType差分 | PoleType2種 | 各Type適用 | Invariant: slot構成差 | source_slot | 型差分維持 |
-| C08 | 未使用slot優先 | PoleType適用2Pole | AddConnectionByPole×2 | Invariant: 別slot選択 | result.slot | 線重なり低減 |
+| C07 | PoleType差分 | PoleType2種 | 各Type適用 | Invariant: port placement hint構成差 | template_side/template_layer | 型差分維持 |
+| C08 | 未使用候補優先 | PoleType適用2Pole | AddConnectionByPole×2 | Invariant: 別Port選択 | result.port_a_id | 線重なり低減 |
 | C09 | Pole接続整合 | PoleType適用2Pole | AddConnectionByPole | Invariant: Span/index/dirty整合 | spans/index/runtime | 主導線成立 |
 | C10 | 同一Pole接続拒否 | Pole1本 | 同一Pole接続後に正常操作 | Exact: fail+復帰可 | error/後続成功 | 誤操作耐性 |
 | C11 | 柱起点引込 | PoleType適用済 | AddDropFromPole | Invariant: service span生成 | spans/ports | 引込崩壊防止 |
@@ -33,16 +33,16 @@
 | C23 | Split t不正拒否 | Span1本 | SplitSpan(t=0) | Exact: fail+復帰可 | error/spans | 失敗後復帰 |
 | C24 | 隣接Pole自動接続 | Pole列 | GenerateSpansBetweenPoles | Exact: n-1生成 | result/index | 欠線防止 |
 | C25 | 複数パス増加 | Pole列 | GenerateSpansBetweenPoles×6 | Exact: 毎回n-1増加 | span総数 | 頭打ち回帰防止 |
-| C26 | 第3slot利用 | PoleType適用列 | 低圧自動接続×3 | Invariant: 3slot以上利用 | source_slot集合 | 2本固定回帰防止 |
+| C26 | 第3候補利用 | PoleType適用列 | 低圧自動接続×3 | Invariant: 3種類以上のtemplateキー利用 | template(layer/side/role)集合 | 2本固定回帰防止 |
 | C27 | SimpleLine統合 | 有効折れ線 | GenerateSimpleLine→GenerateFromBackboneSpec→再計算 | Invariant: 生成+Version追随+last_generation_backbone更新 | result/runtime/cache/backbone | 一発生成成立 |
 | C28 | through連続性 | 直線入力 | GenerateSimpleLine | Invariant: 中間Pole同Port再利用 | span端点Port | 幹線連続維持 |
 | C29 | 表示ID採番 | 新規CoreState | Pole/Port/Span追加 | Exact: prefix別連番 | display_id | UI追跡性 |
 | C30 | Pole文脈分類 | 直線+折れ線 | GeneratePolesAlongRoad | Invariant: Terminal/Straight/Corner | pole.context | 文脈基盤維持 |
 | C31 | 角補正有界 | 補正ON | 折れ線生成 | Invariant: sideScale有界+有限 | pole/port | 補正暴走防止 |
-| C32 | 文脈別選定 | 3Pole | Trunk接続+Branch接続 | Invariant: 選定傾向差 | slot_id | 分岐競合低減 |
-| C33 | 決定的タイブレーク | 同一入力2回 | AddConnectionByPole | Exact: 同slot+debug整合 | debug records | 再現性 |
+| C32 | 文脈別選定 | 3Pole | Trunk接続+Branch接続 | Invariant: 選定傾向差 | selected_port_id/template_side | 分岐競合低減 |
+| C33 | 決定的タイブレーク | 同一入力2回 | AddConnectionByPole | Exact: 同一Port解決+debug整合 | port_resolution_debug_records | 再現性 |
 | C34 | Corner文脈統合 | 折れ線 | GenerateSimpleLine | Invariant: ガイド頂点PoleがCorner文脈のまま生成される | pole.context | 角付き路線維持 |
-| C35 | 内外補正差 | 左折/右折 | GeneratePolesAlongRoad | Invariant: 外側オフセット>内側 | turn_sign/slot座標 | 角圧縮の低減 |
+| C35 | 内外補正差 | 左折/右折 | GeneratePolesAlongRoad | Invariant: 外側オフセット>内側 | turn_sign/port local座標 | 角圧縮の低減 |
 | C61 | 鋭角自動拡幅 | 鋭角/鈍角の同一テンプレート比較 | GenerateSimpleLineFromPoints | Invariant: 鋭角の左右レーン間隔が鈍角より広い（カテゴリ非依存） | corner poleのlocal Y差 | 鋭角での線間距離不足防止 |
 | C62 | 群レーンねじれ抑制 | U字Guide + HV3 lane | GenerateFromBackboneSpec(HV_3PH) | Invariant: 区間ごとのlane順逆転数が0 | lane assignment port local Y順 | 群配線のクロス抑制 |
 | C76 | 鋭角コーナーlane順反転抑制 | 鋭角コーナーを含むGuide + COMM4 lane | GenerateFromBackboneSpec(COMM,count=4) | Invariant: 区間ごとのlane順逆転数が0 | lane assignmentのport local Y順 | 鋭角時の見た目破綻防止 |
@@ -68,12 +68,16 @@
 | C71 | MovePoleでAuto Port再投影とManual保護 | 既存Pole + Manual Portあり | MovePole | Invariant: Auto Portだけが再投影され、Manual Portは維持される | port位置 / runtime dirty | Pole移動で手修正Portが壊れない |
 | C72 | セッション局所再生成でAuto Pole配下Manual Port保持 | 既存session生成 + Auto Pole配下PortをManual化 | RegenerateSessionAutoParts(session,newGuide) | Invariant: owner PoleはAutoのまま、Manual Port位置不変 | pole mode/port位置 | Port手直しをPole Pin必須にしない |
 | C69 | 他セッション非干渉 | session1/session2を別生成 | RegenerateSessionAutoParts(session1,...) | Invariant: session2のPole/Span不変 | pole/span存在と位置 | 局所更新の安全性 |
+| C206 | セッション再生成でacute低下とgenerated port cleanupを維持 | acute HV3 session を同一requestで再生成 | RegenerateSessionAutoParts(session,req) | Invariant: middle pole の HV3 は再生成後も一様に低く、reused pole 上の非template generated port は stale に増えない | generated port count / port z | Regenerate Last Session が古い generated port を残して高さ解決を壊す回帰防止 |
+| C207 | セッション再生成の経路延長でもHV lane orderを維持 | interval=8 の zigzag path を生成後、同sessionで1点延長して再生成 | RegenerateSessionAutoParts(session,extended req) | Invariant: HV assignment は y inversion も adjacent discontinuity も出さず、edge orientation も flipped_from_previous を立てない | last_lane_assignments / edge_orientations | Regenerate Last Session だけ別経路でねじれが再発する回帰防止 |
+| C208 | interval 挿入ありの経路延長でも境界 lane order を維持 | interval=8 の zigzag path を GenerateFromBackboneSpec で段階生成 | GenerateFromBackboneSpec(base) -> GenerateFromBackboneSpec(extended) | Invariant: 拡張後も y inversion と adjacent discontinuity が 0 | last_lane_assignments | clicked-points-only では治っていても interval 挿入経路でねじれが残る回帰防止 |
+| C209 | moderate acute でも既定閾値で高さ低下が入る | HV3 path `(-12,0)->(0,0)->(-8,6)` | GenerateFromBackboneSpec | Invariant: center pole の HV3 3本は一様高さで近傍 pole より低い | generated HV port z | acute 低下が 12deg 近辺の極端な折れにしか効かず viewer 体験で出ない回帰防止 |
 | C36 | DrawPath点直配置 | クリック点3 | GenerateSimpleLineFromPoints | Exact: Pole数=点数,位置一致,yaw一致 | pole position/yaw | DrawPath直感性 |
-| C37 | 幾何based side選定 | 2Pole(左右) | AddConnectionByPole(Branch) | Invariant: 右手前でRight,左手前でLeft | selected slot side | 偶奇依存排除 |
+| C37 | 幾何based side選定 | 2Pole(左右) | AddConnectionByPole(Branch) | Invariant: 右手前でRight,左手前でLeft | selected port template_side | 偶奇依存排除 |
 | C38 | 高圧3相群生成 | 有効Path | GenerateFromBackboneSpec(HV_3PH) | Invariant: 3レーン×区間数生成, lane記録あり | span数/bundle/lane_assignments | 高圧ねじれ抑制 |
 | C39 | 方向強制モード | 有効Path | GenerateFromBackboneSpec(direction=Reverse) | Exact: Reverseが採用される | direction_debug/先頭Pole | 手動比較可能性 |
 | C40 | Pole flip_180 | 接続済Pole | SetPoleFlip180(true) | Invariant: 配下Port更新+接続Span dirty | port位置/runtime dirty | 局所向き修正性 |
-| C41 | debug記録クリアの無害性 | 生成/接続でdebug記録あり | clear_slot_selection_debug_records + clear_path_direction_debug_records | Exact: 記録だけ消え、Entity件数/ID/整合は不変 | counts/ID集合/Validate | デバッグ操作で本体破壊しない |
+| C41 | debug記録クリアの無害性 | 生成/接続でdebug記録あり | clear_port_resolution_debug_records + clear_path_direction_debug_records | Exact: 記録だけ消え、Entity件数/ID/整合は不変 | counts/ID集合/Validate | デバッグ操作で本体破壊しない |
 | C42 | 再計算の非破壊性 | Spanを含む状態 | UpdateGeometrySettings→ProcessDirtyQueues | Invariant: cache/version更新のみでEntity件数/ID不変 | counts/ID集合/runtime/cache | キャッシュ再生成で正本が歪まない |
 | C43 | 鋭角時Port展開軸補正 | クリック点3(コーナー内角<75°) | GenerateSimpleLineFromPoints | Invariant: 中間Poleのside軸が内角二等分線に直交し、内側へ向かない | pole yaw/context(sharp_theta,b,side_dir) | 鋭角での線間距離潰れ抑制 |
 | C108 | 鋭角向きの入口間一致 | 同一acute pathをSimple/Backboneで生成 | GenerateSimpleLineFromPoints / GenerateFromBackboneSpec | Invariant: 中間Poleのyawとsharp debugが一致 | pole yaw/context(sharp_side_dir,sharp_bisector_dir) | 入口ごとの別向き決定の再混入防止 |
@@ -95,9 +99,9 @@
 | C74 | 非HVテンプレ固定1本 | BackboneSpec + LV既定テンプレ | GenerateFromBackboneSpec(bundle=count未指定) | Invariant: 区間ごとに1本生成 | generated span数/bundle count | 規格固定で入力削減 |
 | C75 | 非HV固定テンプレcount上書き拒否 | BackboneSpec + LV既定テンプレ | GenerateFromBackboneSpec(bundle=count指定) | Exact: fail（上書き不可） | error | 固定規格の強制 |
 | C77 | 複数テンプレ同時生成 | BackboneSpec + LV/COMM複合指定 | GenerateFromBackboneSpec(bundles複数) | Invariant: bundleが複数生成され、Span数が合算本数に一致 | result.bundle_ids/generated spans | 複数束同時入力の成立 |
-| C78 | Pole tiltでAuto Port再投影と見た目追随 | 既存Pole | SetPoleTilt | Invariant: Auto Port再投影とSpan visual cache更新が同じ経路で起きる | port位置 / visual cache | 傾き変更後に線の見た目が古いまま残らない |
+| C78 | Pole tiltでAuto Port再投影と見た目追随 | 既存Pole | SetPoleTilt(max) | Invariant: Auto Port再投影とSpan visual cache更新が同じ経路で起き、Port の pole-local Y/Z は tilt 後も整合する | port位置 / pole-local位置 / visual cache | 傾き変更後に線の見た目が古いまま残ったり Port が傾きと逆へ逃げる回帰防止 |
 | C79 | 参照長によるサグ安定 | 既存Pole + Span | Pole tilt後に再計算 | Invariant: reference_lengthによりサグ深さが視覚的に安定する | curve cache / reference_length | 傾き変更でたるみが不自然に跳ねない |
-| C80 | center slotのPole非重なり | center slotを持つPoleType | PoleType適用でPort生成 | Invariant: center slotはPole中心線から半径+クリアランス分だけ離れる | port local/world位置 | center PortがPoleに埋まらない |
+| C80 | center hintのPole非重なり | center hintを持つPoleType | PoleType適用でPort生成 | Invariant: center候補由来PortはPole中心線から半径+クリアランス分だけ離れる | port local/world位置 | center PortがPoleに埋まらない |
 | C81 | insulatorは電力系のみ表示 | 電力線と非電力線の両方がある | 再計算 | Invariant: insulator visualは電力系でのみ生成される | visual cache | 非電力線に碍子が誤表示されない |
 | C82 | T-junctionの一次session優先 | 2本のDrawPathがT字で接続 | GenerateFromBackboneSpecを2回実行 | Invariant: 最初のsessionがjunction primary order=0を維持する | BackboneResult.junctions | 後から足した経路で主系統順が壊れない |
 | C83 | Cross junction順序の安定 | 交差junctionを再構築できる状態 | BuildBackboneResultを繰り返し実行 | Invariant: incident orderが再構築後も安定する | BackboneResult.junctions | junction順序が再計算で揺れない |
@@ -127,10 +131,12 @@
 | C119 | CableTemplate太さ変更の見た目反映 | 既存線 + CableTemplate.outer_diameter変更 | UpdateCableTemplate | Invariant: 依存 span の wire render radius が更新される | span render cache | CableTemplateの太さ変更が既存線へ反映される |
 | C120 | CableTemplate碍子要否の見た目切替 | 既存電力線 + requires_insulator変更 | UpdateCableTemplate | Invariant: 依存 span の insulator visual が切り替わる | span visual cache | CableTemplateの碍子設定が既存線へ反映される |
 | C121 | Template責務の分離 | 型定義 | compile-time traits | Exact: allow_midair_branch は BundleTemplate 側のみで、CableTemplate と entity は bezier入力や arc-length table を持たない | type traits | 正本とテンプレ責務の混線防止 |
-| C122 | CableTemplate編集で Pole tilt を上書きしない | Pole tilt 設定済み + CableTemplate編集 | SetPoleTilt + UpdateCableTemplate | Invariant: pole rotation X/Y は不変 | pole world_transform | Pole傾きをテンプレ変更が壊さない |
+| C122 | CableTemplate編集で Pole tilt を上書きしない | Pole tilt 設定済み + CableTemplate編集 | SetPoleTilt(max) + UpdateCableTemplate | Invariant: pole の tilt magnitude と実際の rotation X/Y は不変 | pole tilt_magnitude_deg / pole world_transform | Pole傾きをテンプレ変更が壊さない |
 | C123 | BundleTemplate の topology 変更は regeneration_required を立てる | 既存bundle + topology変更 | UpdateBundleTemplate | Invariant: 依存 bundle が regeneration_required になり dependency state に載る | bundles / template_dependency_state | topology変更を visible更新だけで済ませない |
 | C124 | BundleTemplate の visual-only 変更は dirty のみに留める | 既存bundle + cable_template_id変更 | UpdateBundleTemplate | Invariant: 依存 span は dirty になるが regeneration_required は立たない | span runtime / template_dependency_state | 見た目変更を topology再生成に混ぜない |
-| C125 | ApplyPoleTilt は選択された Pole 実体だけを更新する | 2本のPoleの片方だけ選択 | ApplyPoleTilt(selection, value) | Invariant: 指定Poleだけ rotation X/Y が変わる | pole world_transform | Pole tilt を実体値として局所更新できる |
+| C125 | ApplyPoleTilt は選択された Pole 実体だけを更新する | 2本のPoleの片方だけ選択 | ApplyPoleTilt(selection, max) | Invariant: 指定Poleだけ tilt magnitude と rotation X/Y が変わる | pole tilt_magnitude_deg / pole world_transform | Pole tilt を実体値として局所更新できる |
+| C202 | Pole tilt は incident span 方向へ寄る | 1本の接続 span を持つ Pole | SetPoleTilt(max) | Invariant: 傾き方向は完全ランダムではなく incident span の水平合成方向へバイアスする | pole top delta / remote port direction | Pole tilt が接続方向と無関係に倒れて見える回帰防止 |
+| C203 | Pole tilt 量は pull imbalance に従う | 直線貫通Pole と 角度付きPole | SetPoleTilt(max) | Invariant: 水平 pull が釣り合う Pole より、pull が偏る Pole のほうが tilt magnitude が大きい | pole tilt_magnitude_deg | 懸垂の効きが弱く、直線と角度付きで同じ傾き量になる回帰防止 |
 | C126 | WorldUp と lateral 軸の整合 | 代表的な forward vector | WorldUp + ComputeLateralAxis | Invariant: lateral が forward/up と直交し正規化される | coord utils | 軸依存の手書き計算を1定義に寄せる |
 | C127 | PoleFrame の local/world roundtrip | tilt付き transform + local point | BuildPoleFrame + LocalPointToWorld + WorldPointToLocal | Invariant: tilt 下でも local/world roundtrip が安定する | pole frame math | Pole傾き適用の回転順序ずれ防止 |
 | C128 | uベース曲線APIの端点拘束 | 端点位置と端点接線が既知 | BuildDetailCurve + EvaluatePosition/EvaluateTangent | Invariant: u=0/1 で端点位置を満たし、端点接線が意図方向へ揃う | DetailCurve | 曲線生成を u ベースに固定する |
@@ -158,6 +164,10 @@
 | C198 | Communication multi-bundle branch は自動高さ変更しない | 既存main + COMM_BUNDLE(count=3) branch | GenerateFromBackboneSpec(COMM count=3) + Commit(recalc) | Invariant: 複数条でも HV_3PH 以外は branch flow のまま flat を維持し、branch support/down-offset は自動では入らない | last_lane_assignments / SpanInspectionView.uses_branch_support | 複数条 bundle 全般に自動高さ変更が掛かって通信 bundle まで一段下がる回帰防止 |
 | C199 | HV3 branch support は両方の標準 pole type で有効 | 既存main + diagonal HV branch on DistributionPole / CommunicationPole | GenerateFromBackboneSpec(HV) + Commit(recalc) | Invariant: HV3 branch support は pole type 名に依存せず有効で、bundle 内は同一 lowered height、visual support は branch chord に直交する | last_lane_assignments / branch root port z / SpanVisualCacheEntry.branch_supports | 片方の pole type だけ flat になったり branch support visual が lane offset に引かれて斜めになる回帰防止 |
 | C194 | junction main pair は first-drawn より straightest を優先する | 先にL字 trunk、後から opposite edge を追加 | GenerateFromBackboneSpec(HV) を2回 | Invariant: 共有 junction の main pair / pole yaw はより直線に近い opposite pair を優先する | PoleInspectionView.final_yaw_deg / forward_rule / support_axis_rule | 最初に引いた path を main とみなし続けて直線継続が branch 扱いに見える回帰防止 |
+| C201 | 十字交差の非本線は下側を通す | 水平主線を作成後に中心poleを共有して縦線を追加 | GenerateFromBackboneSpec(LV) を2回 | Invariant: 十字交差では対向 pair を本線に保ち、非本線 pair は branch support/down offset 付きで中心 port が本線より低い | last_lane_assignments.flow_decision_rule / last_lane_assignments.branch_down_offset_m / center port z | 十字交差で非本線が本線と同じ高さに残って見分けがつかない回帰防止 |
+| C210 | 全 template 選択の branch でも communication pole 上の HV は下げを維持する | CommunicationPole 上の trunk を LV/HV/COMM/OPT で生成後、共有中心poleから LV/HV/COMM/OPT branch を追加 | GenerateFromBackboneSpec を2回 | Invariant: mixed template request でも HV bundle は Branch と判定され、branch support/down offset が入る | last_lane_assignments.bundle_id / flow_kind / uses_branch_support / branch_down_offset_m | 単一 template テストだけ通り、viewer の all-template DrawPath branch で HV 下げが消える回帰防止 |
+| C211 | 全 template 選択の cross でも communication pole 上の underpass を維持する | CommunicationPole 上の trunk を LV/HV/COMM/OPT で生成後、共有中心poleを通る縦線を LV/HV/COMM/OPT で追加 | GenerateFromBackboneSpec を2回 | Invariant: mixed template request でも cross の非本線側に branch/down offset が残る | last_lane_assignments.flow_kind / branch_down_offset_m | 単一 bundle の cross だけ通り、viewer の all-template DrawPath cross で高さ差が消える回帰防止 |
+| C212 | 共有 trunk 付き capture 相当の 4点 path で HV は branch lowering と acute lowering を両立する | CommunicationPole trunk を LV/HV/COMM/OPT で生成後、共有 root `(-6.59678,11.0534)` から `(-4.93216,6.7054)->(-13.6709,-1.24875)->(-8.49996,-0.441201)` を LV/HV/COMM/OPT で追加 | GenerateFromBackboneSpec を2回 | Invariant: 先頭 HV segment は branch support lowering、後続2 segment は acute lowering、かつ branch root と acute center の HV 高さがそれぞれ trunk / 両隣より低い | last_lane_assignments.lowering_kind / branch_down_offset_m / generated HV port z | capture で見えた「既存 trunk があると branch が Main 扱いに落ち、後続 acute も消える」再発防止 |
 | C136 | HV3 main port 安定性 | 既存HV main + HV branch | GenerateFromBackboneSpec(HV) を2回 | Invariant: branch 追加後も既存 main bundle の中心 port 集合が変わらない | main bundle center port ids | branch 追加で既存 HV_3PH の左右順が壊れる回帰防止 |
 | C138 | Mixed route の edge 単位 flow | 既存main + main→branch 混在 path | GenerateFromBackboneSpec(LV) | Invariant: 先頭 edge は Main、分岐 edge は Branch として別処理される | last_lane_assignments.flow_kind / flow_decision_rule | route 1値の branch 判定が main 区間まで侵食する回帰防止 |
 | C139 | Branch support の派生配置 | 既存main + HV branch + recalc | GenerateFromBackboneSpec→Commit | Invariant: branch support placement が visual cache に派生生成される | span visual cache.branch_supports | branch support が port 配置だけで終わる回帰防止 |
@@ -193,12 +203,14 @@
 | C181 | endpoint refresh service は relation index から owned endpoint を集める | pole A/B と owned port/anchor | service を直接呼ぶ | Invariant: service は pole A の relation index に載る port/anchor だけを返し、他 pole の endpoint を混ぜない | state_internal::EndpointRefreshService / RelationIndex | pole 更新時に全走査前提の責務が残り、対象 endpoint を局所化できない回帰防止 |
 | C182 | endpoint refresh service は対象 pole の owned endpoint だけ更新する | pole A/B と owned port/anchor、Aだけ移動 | service を直接呼ぶ | Invariant: pole A の owned auto endpoint だけ再投影され、pole B 側は不変のまま | state_internal::EndpointRefreshService / ChangeSet | endpoint refresh が他 pole まで巻き込む回帰防止 |
 | C183 | override resolution service は formal override を優先解決する | pole override + span socket/down offset override | public API で override 設定→service を直接呼ぶ | Invariant: manual yaw / flip / socket / branch down offset は service から同じ最終採用値として読める | state_internal::OverrideResolutionService | override 解決規則が CoreState 各所へ散って precedence がずれる回帰防止 |
-| C184 | ApplyPoleType は relation-index-owned endpoint を再利用する | pole A/B に同じ pole type を適用後、Aへ再適用 | ApplyPoleType を再実行 | Invariant: pole A は既存 slot port / anchor を relation index から再利用し、全体 count と pole B の owned endpoint は増えない | CoreState::ApplyPoleType / RelationIndex | pole type 再適用が全 port/anchor 走査に依存し、無関係 pole まで巻き込む回帰防止 |
+| C184 | ApplyPoleType は relation-index-owned endpoint を再利用する | pole A/B に同じ pole type を適用後、Aへ再適用 | ApplyPoleType を再実行 | Invariant: pole A は既存 template-owned port / anchor を relation index から再利用し、全体 count と pole B の owned endpoint は増えない | CoreState::ApplyPoleType / RelationIndex | pole type 再適用が全 port/anchor 走査に依存し、無関係 pole まで巻き込む回帰防止 |
 | C186 | template mutation service は編集対象 template にぶら下がる bundle だけ再生成要求する | LV bundle と COMM bundle を並存させ、LV template だけ変更 | service を直接呼ぶ | Invariant: edited template に一致する bundle だけ `regeneration_required` と dependency queue に入る | state_internal::TemplateMutationService / TemplateDependencyState | template 更新責務が CoreState 内で散り、無関係 bundle まで巻き込む回帰防止 |
 | C187 | attachment template 更新は実際にその template を使う span だけ dirty にする | attachment を持つ span と持たない span | service を直接呼ぶ | Invariant: edited attachment template を参照する span だけ geometry/render dirty になる | state_internal::TemplateMutationService / ChangeSet | attachment template 更新が全 attachment / 全 span を無差別に汚す回帰防止 |
 | C200 | bundle の branch down offset policy 変更は topology change | HV bundle 1本 | TemplateMutationService::UpdateBundleTemplate | Invariant: `enable_branch_down_offset` だけの変更でも update が成立し、対象 bundle は `regeneration_required` と `bundles_requiring_regeneration` に入る。visual-only 扱いにはならない | state_internal::TemplateMutationService / TemplateDependencyState / ChangeSet | branch-down policy 変更が no-op 扱いされたり visual-only と誤分類される回帰防止 |
+| C204 | HV3 acute corner は middle pole の bundle 高さを落とす | 3点 acute path + HV_3PH bundle | GenerateFromBackboneSpec | Invariant: acute corner の middle pole は branch support 化せずに bundle 全体を一様に下げ、両隣 pole より低い高さになる | SegmentLaneAssignment / port world positions | acute 判定では高さ変更が効かず、viewer では branch と同系の干渉回避が失われる回帰防止 |
+| C205 | acute lowered port は pole refresh で band 高さへ戻らない | 3点 acute path + HV_3PH bundle + SetPoleManualYawOverride | GenerateFromBackboneSpec→SetPoleManualYawOverride | Invariant: acute corner の lowered generated port は pole refresh 後も lowered のままで、placement source が `PlacementBand` に書き戻されない | EndpointRefreshService / PortPlacementSourceKind / port world positions | endpoint refresh が generated/branch support port を template band に再投影して高さ変更機能を潰す回帰防止 |
 | C185 | HV3 DrawPath terminal は route 直交に開く | 2点直線 + HV_3PH bundle | GenerateFromBackboneSpec | Invariant: 開始/終了 pole の HV row は topology distinct と visual distinct を満たし、viewer 上で route 直交方向へ分離する | SegmentLaneAssignment / VisualSeparationMetrics / AxisRelationMetrics / port world positions | endpoint pole で grouped lane が route 平行に寝て三相が一点へ寄って見える回帰防止 |
-| C188 | HV slot が無い terminal でも generated row は route 直交に開く | 2点直線 + HV_3PH bundle + HV slot 無し pole type | GenerateFromBackboneSpec | Invariant: 開始/終了 pole は generated row で 3 相を route 直交方向へ分離する | SegmentLaneAssignment / VisualSeparationMetrics / AxisRelationMetrics / port world positions | template 依存の生成が無い pole で三相が一点へ寄せる回帰防止 |
+| C188 | HV hint が無い terminal でも generated row は route 直交に開く | 2点直線 + HV_3PH bundle + HV hint 無し pole type | GenerateFromBackboneSpec | Invariant: 開始/終了 pole は generated row で 3 相を route 直交方向へ分離する | SegmentLaneAssignment / VisualSeparationMetrics / AxisRelationMetrics / port world positions | template 依存の生成が無い pole で三相が一点へ寄せる回帰防止 |
 | C189 | communication pole + 全 template 選択でも HV3 terminal row は route 直交を保つ | 2点直線 + CommunicationPole + LV/HV/COMM/OPT bundle | GenerateFromBackboneSpec | Invariant: communication pole 上でも HV3 terminal は visual distinct を維持し、row axis は route 直交から崩れない | SegmentLaneAssignment / VisualSeparationMetrics / AxisRelationMetrics | pole type や mixed templates の組み合わせで HV3 terminal row が再び route 平行に寝る回帰防止 |
 | C190 | communication 多条 terminal row は route 直交を保つ | 2点直線 + CommunicationPole + COMM_BUNDLE count=3 | GenerateFromBackboneSpec | Invariant: communication 多条 terminal でも topology distinct と visual distinct を両立し、row axis は route 直交を保つ | SegmentLaneAssignment / VisualSeparationMetrics / AxisRelationMetrics | 通信 bundle では terminal row 修正が効かず viewer 上で線が一点へ寄る回帰防止 |
 | C191 | preserved multi-lane template は HV 名に依存せず offset endpoint を使う | Communication bundle template を preserve_conductor_identity=true, count=3 に変更 | UpdateBundleTemplate→GenerateFromBackboneSpec | Invariant: category が Communication でも preserved multi-lane policy なら support layout/detail curve の endpoint mode は OffsetEndpoint になる | BundleTemplate.preserve_conductor_identity / SpanSupportLayoutEntry / DetailCurveInspectionView | endpoint mode が HV category の直書きに依存し、活用例以外の multi-lane template で geometry 規則が効かない回帰防止 |

@@ -313,6 +313,21 @@ const char* BackboneFlowKindLabel(wire::core::BackboneFlowKind kind) {
   }
 }
 
+const char* BackboneLoweringKindLabel(wire::core::BackboneLoweringKind kind) {
+  switch (kind) {
+  case wire::core::BackboneLoweringKind::kNone:
+    return "None";
+  case wire::core::BackboneLoweringKind::kBranchSupport:
+    return "BranchSupport";
+  case wire::core::BackboneLoweringKind::kCrossUnderpass:
+    return "CrossUnderpass";
+  case wire::core::BackboneLoweringKind::kAcuteCorner:
+    return "AcuteCorner";
+  default:
+    return "Unknown";
+  }
+}
+
 const char* BackboneFlowDecisionRuleLabel(wire::core::BackboneFlowDecisionRule rule) {
   switch (rule) {
   case wire::core::BackboneFlowDecisionRule::kDefaultMain:
@@ -1035,8 +1050,8 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
       ImGui::Separator();
       ImGui::Text("flowKind: %s", BackboneFlowKindLabel(span_view->flow_kind));
       ImGui::Text("flowRule: %s", BackboneFlowDecisionRuleLabel(span_view->flow_rule));
-      ImGui::Text("branchSupport: %s downOffset=%.2f", span_view->uses_branch_support ? "true" : "false",
-                  span_view->branch_down_offset_m);
+      ImGui::Text("lowering: %s branchSupport=%s downOffset=%.2f", BackboneLoweringKindLabel(span_view->lowering_kind),
+                  span_view->uses_branch_support ? "true" : "false", span_view->branch_down_offset_m);
       ImGui::Text("mirror: %s flippedPrev=%s turn=%.2f", span_view->mirrored ? "true" : "false",
                   span_view->flipped_from_previous ? "true" : "false", span_view->turn_angle_deg);
       if (layout_view.has_value()) {
@@ -1602,8 +1617,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
   }
 
   if (ImGui::CollapsingHeader("Pole Tilt / Templates", ImGuiTreeNodeFlags_DefaultOpen)) {
-    ImGui::InputDouble("Tilt X (deg)", &ui_state.tilt_all_x_deg, 0.5, 1.0, "%.2f");
-    ImGui::InputDouble("Tilt Y (deg)", &ui_state.tilt_all_y_deg, 0.5, 1.0, "%.2f");
+    ImGui::InputDouble("Max Tilt (deg)", &ui_state.tilt_all_max_deg, 0.5, 1.0, "%.2f");
     {
       std::vector<ObjectId> selected_pole_ids{};
       selected_pole_ids.reserve(ui_state.selection_items.size());
@@ -1616,7 +1630,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
         if (selected_pole_ids.empty()) {
           PushLog(ui_state, "No poles selected");
         } else {
-          const auto tilt = state.ApplyPoleTilt(selected_pole_ids, ui_state.tilt_all_x_deg, ui_state.tilt_all_y_deg);
+          const auto tilt = state.ApplyPoleTilt(selected_pole_ids, ui_state.tilt_all_max_deg);
           if (!tilt.ok) {
             ui_state.last_error = tilt.error;
             PushLog(ui_state, "ApplyPoleTilt(selected) failed");
@@ -1637,7 +1651,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
     ImGui::Checkbox("Select Spans", &ui_state.selection_include_spans);
     ImGui::TextUnformatted("Viewport: LMB click select, Shift+LMB drag box select");
     if (ImGui::Button("Apply Tilt To All Poles")) {
-      const auto tilt = state.ApplyPoleTilt({}, ui_state.tilt_all_x_deg, ui_state.tilt_all_y_deg);
+      const auto tilt = state.ApplyPoleTilt({}, ui_state.tilt_all_max_deg);
       if (!tilt.ok) {
         ui_state.last_error = tilt.error;
         PushLog(ui_state, "ApplyPoleTilt failed");
@@ -1967,10 +1981,11 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
       ImGui::Separator();
       ImGui::TextUnformatted("Edge Orientations");
       for (const auto& orientation : backbone.edge_orientations) {
-        ImGui::Text("  %llu -> %llu bundle=%d flow=%s mirror=%s branchSupport=%s down=%.2f flipPrev=%s",
+        ImGui::Text("  %llu -> %llu bundle=%d flow=%s lowering=%s mirror=%s branchSupport=%s down=%.2f flipPrev=%s",
                     static_cast<unsigned long long>(orientation.node_a_id),
                     static_cast<unsigned long long>(orientation.node_b_id),
                     static_cast<int>(orientation.bundle_template_id), BackboneFlowKindLabel(orientation.flow_kind),
+                    BackboneLoweringKindLabel(orientation.lowering_kind),
                     orientation.orientation == wire::core::LaneOrientation::kReversed ? "true" : "false",
                     orientation.uses_branch_support ? "true" : "false", orientation.branch_down_offset_m,
                     orientation.flipped_from_previous ? "true" : "false");
@@ -2068,7 +2083,4 @@ void DrawStatsPanel(CoreState& state, ViewerUiState& ui_state) {
     DrawDiagnosticsWindow(state, ui_state);
   }
 }
-
-
-
 

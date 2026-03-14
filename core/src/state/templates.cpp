@@ -234,101 +234,52 @@ PortKind CoreState::category_to_port_kind(ConnectionCategory category) {
 }
 
 void CoreState::register_default_pole_types() {
+  auto make_band = [](int band_id, ConnectionCategory category, double lateral_center_m, double height_center_m,
+                      int layer, SlotSide side, SlotRole role, int priority, double min_spacing_m, bool allow_multiple,
+                      double lateral_half_range, double height_half_range, BandOverflowPolicy overflow_policy) {
+    PortPlacementBand band{};
+    band.band_id = band_id;
+    band.category = category;
+    band.layer = layer;
+    band.side = side;
+    band.role = role;
+    band.lateral_center_m = lateral_center_m;
+    band.lateral_min_m = lateral_center_m - lateral_half_range;
+    band.lateral_max_m = lateral_center_m + lateral_half_range;
+    band.height_center_m = height_center_m;
+    band.height_min_m = height_center_m - height_half_range;
+    band.height_max_m = height_center_m + height_half_range;
+    band.priority = priority;
+    band.min_spacing_m = min_spacing_m;
+    band.allow_multiple = allow_multiple;
+    band.overflow_policy = overflow_policy;
+    band.enabled = true;
+    return band;
+  };
+
   PoleTypeDefinition dist{};
   dist.id = kDistributionPoleType;
   dist.name = "DistributionPole";
   dist.description = "Default distribution pole";
-  dist.port_slots = {
-      {100,
-       ConnectionCategory::kHighVoltage,
-       {0.0, -0.6, 9.2},
-       {},
-       2,
-       SlotSide::kLeft,
-       SlotRole::kTrunkPreferred,
-       30,
-       false,
-       true},
-      {101,
-       ConnectionCategory::kHighVoltage,
-       {0.0, 0.0, 9.3},
-       {},
-       2,
-       SlotSide::kCenter,
-       SlotRole::kTrunkPreferred,
-       29,
-       false,
-       true},
-      {102,
-       ConnectionCategory::kHighVoltage,
-       {0.0, 0.6, 9.2},
-       {},
-       2,
-       SlotSide::kRight,
-       SlotRole::kTrunkPreferred,
-       28,
-       false,
-       true},
-      {200,
-       ConnectionCategory::kLowVoltage,
-       {0.0, -0.4, 6.8},
-       {},
-       1,
-       SlotSide::kLeft,
-       SlotRole::kTrunkPreferred,
-       20,
-       false,
-       true},
-      {201,
-       ConnectionCategory::kLowVoltage,
-       {0.0, 0.4, 6.8},
-       {},
-       1,
-       SlotSide::kRight,
-       SlotRole::kTrunkPreferred,
-       19,
-       false,
-       true},
-      {202,
-       ConnectionCategory::kLowVoltage,
-       {0.0, 0.0, 6.6},
-       {},
-       1,
-       SlotSide::kCenter,
-       SlotRole::kBranchPreferred,
-       18,
-       false,
-       true},
-      {300,
-       ConnectionCategory::kCommunication,
-       {0.0, -0.8, 7.8},
-       {},
-       1,
-       SlotSide::kLeft,
-       SlotRole::kTrunkPreferred,
-       15,
-       false,
-       true},
-      {301,
-       ConnectionCategory::kOptical,
-       {0.0, 0.8, 7.8},
-       {},
-       1,
-       SlotSide::kRight,
-       SlotRole::kTrunkPreferred,
-       14,
-       false,
-       true},
-      {400,
-       ConnectionCategory::kDrop,
-       {0.0, 0.0, 4.2},
-       {},
-       0,
-       SlotSide::kCenter,
-       SlotRole::kDropPreferred,
-       10,
-       true,
-       true},
+  dist.port_bands = {
+      make_band(100, ConnectionCategory::kHighVoltage, -0.6, 9.2, 2, SlotSide::kLeft, SlotRole::kTrunkPreferred, 30,
+                0.40, false, 0.22, 0.12, BandOverflowPolicy::kTrySiblingBand),
+      make_band(101, ConnectionCategory::kHighVoltage, 0.0, 9.3, 2, SlotSide::kCenter, SlotRole::kTrunkPreferred, 29,
+                0.40, false, 0.18, 0.12, BandOverflowPolicy::kTrySiblingBand),
+      make_band(102, ConnectionCategory::kHighVoltage, 0.6, 9.2, 2, SlotSide::kRight, SlotRole::kTrunkPreferred, 28,
+                0.40, false, 0.22, 0.12, BandOverflowPolicy::kTrySiblingBand),
+      make_band(200, ConnectionCategory::kLowVoltage, -0.4, 6.8, 1, SlotSide::kLeft, SlotRole::kTrunkPreferred, 20,
+                0.28, true, 0.35, 0.10, BandOverflowPolicy::kConstrainedFallback),
+      make_band(201, ConnectionCategory::kLowVoltage, 0.4, 6.8, 1, SlotSide::kRight, SlotRole::kTrunkPreferred, 19, 0.28,
+                true, 0.35, 0.10, BandOverflowPolicy::kConstrainedFallback),
+      make_band(202, ConnectionCategory::kLowVoltage, 0.0, 6.6, 1, SlotSide::kCenter, SlotRole::kBranchPreferred, 18,
+                0.25, true, 0.18, 0.12, BandOverflowPolicy::kConstrainedFallback),
+      make_band(300, ConnectionCategory::kCommunication, -0.8, 7.8, 1, SlotSide::kLeft, SlotRole::kTrunkPreferred, 15,
+                0.25, true, 0.20, 0.12, BandOverflowPolicy::kConstrainedFallback),
+      make_band(301, ConnectionCategory::kOptical, 0.8, 7.8, 1, SlotSide::kRight, SlotRole::kTrunkPreferred, 14, 0.25,
+                true, 0.20, 0.12, BandOverflowPolicy::kConstrainedFallback),
+      make_band(400, ConnectionCategory::kDrop, 0.0, 4.2, 0, SlotSide::kCenter, SlotRole::kDropPreferred, 10, 0.18, true,
+                0.15, 0.10, BandOverflowPolicy::kConstrainedFallback),
   };
   dist.anchor_slots = {
       {500, AnchorSupportKind::kGround, {0.0, 0.0, 0.5}, 10, true},
@@ -339,77 +290,21 @@ void CoreState::register_default_pole_types() {
   comm.id = kCommunicationPoleType;
   comm.name = "CommunicationPole";
   comm.description = "Communication-first pole";
-  comm.port_slots = {
-      {600,
-       ConnectionCategory::kCommunication,
-       {0.0, -0.7, 8.6},
-       {},
-       2,
-       SlotSide::kLeft,
-       SlotRole::kTrunkPreferred,
-       30,
-       false,
-       true},
-      {601,
-       ConnectionCategory::kCommunication,
-       {0.0, 0.0, 8.7},
-       {},
-       2,
-       SlotSide::kCenter,
-       SlotRole::kTrunkPreferred,
-       29,
-       false,
-       true},
-      {602,
-       ConnectionCategory::kCommunication,
-       {0.0, 0.7, 8.6},
-       {},
-       2,
-       SlotSide::kRight,
-       SlotRole::kTrunkPreferred,
-       28,
-       false,
-       true},
-      {700,
-       ConnectionCategory::kOptical,
-       {0.0, -0.4, 7.6},
-       {},
-       1,
-       SlotSide::kLeft,
-       SlotRole::kTrunkPreferred,
-       25,
-       false,
-       true},
-      {701,
-       ConnectionCategory::kOptical,
-       {0.0, 0.4, 7.6},
-       {},
-       1,
-       SlotSide::kRight,
-       SlotRole::kTrunkPreferred,
-       24,
-       false,
-       true},
-      {800,
-       ConnectionCategory::kLowVoltage,
-       {0.0, 0.0, 5.8},
-       {},
-       1,
-       SlotSide::kCenter,
-       SlotRole::kBranchPreferred,
-       10,
-       false,
-       true},
-      {801,
-       ConnectionCategory::kDrop,
-       {0.0, 0.0, 4.0},
-       {},
-       0,
-       SlotSide::kCenter,
-       SlotRole::kDropPreferred,
-       9,
-       true,
-       true},
+  comm.port_bands = {
+      make_band(600, ConnectionCategory::kCommunication, -0.7, 8.6, 2, SlotSide::kLeft, SlotRole::kTrunkPreferred, 30,
+                0.26, true, 0.20, 0.12, BandOverflowPolicy::kConstrainedFallback),
+      make_band(601, ConnectionCategory::kCommunication, 0.0, 8.7, 2, SlotSide::kCenter, SlotRole::kTrunkPreferred, 29,
+                0.26, true, 0.18, 0.12, BandOverflowPolicy::kConstrainedFallback),
+      make_band(602, ConnectionCategory::kCommunication, 0.7, 8.6, 2, SlotSide::kRight, SlotRole::kTrunkPreferred, 28,
+                0.26, true, 0.20, 0.12, BandOverflowPolicy::kConstrainedFallback),
+      make_band(700, ConnectionCategory::kOptical, -0.4, 7.6, 1, SlotSide::kLeft, SlotRole::kTrunkPreferred, 25, 0.24,
+                true, 0.18, 0.12, BandOverflowPolicy::kConstrainedFallback),
+      make_band(701, ConnectionCategory::kOptical, 0.4, 7.6, 1, SlotSide::kRight, SlotRole::kTrunkPreferred, 24, 0.24,
+                true, 0.18, 0.12, BandOverflowPolicy::kConstrainedFallback),
+      make_band(800, ConnectionCategory::kLowVoltage, 0.0, 5.8, 1, SlotSide::kCenter, SlotRole::kBranchPreferred, 10,
+                0.22, true, 0.16, 0.12, BandOverflowPolicy::kConstrainedFallback),
+      make_band(801, ConnectionCategory::kDrop, 0.0, 4.0, 0, SlotSide::kCenter, SlotRole::kDropPreferred, 9, 0.18, true,
+                0.15, 0.10, BandOverflowPolicy::kConstrainedFallback),
   };
   comm.anchor_slots = {
       {900, AnchorSupportKind::kGround, {0.0, 0.0, 0.5}, 10, true},
@@ -511,38 +406,42 @@ const BundleTemplate* CoreState::find_bundle_template(BundleKind bundle_template
   return &it->second;
 }
 
-std::vector<PortSlotTemplate> CoreState::sorted_port_slots(const PoleTypeDefinition& pole_type,
-                                                           ConnectionCategory category) const {
-  std::vector<PortSlotTemplate> out;
-  for (const PortSlotTemplate& slot : pole_type.port_slots) {
-    if (slot.enabled && slot.category == category) {
-      out.push_back(slot);
+std::vector<PortPlacementBand> CoreState::sorted_port_bands(const PoleTypeDefinition& pole_type,
+                                                            ConnectionCategory category) const {
+  std::vector<PortPlacementBand> out;
+  for (const PortPlacementBand& band : pole_type.port_bands) {
+    if (band.enabled && band.category == category) {
+      out.push_back(band);
     }
   }
-  std::sort(out.begin(), out.end(), [](const PortSlotTemplate& a, const PortSlotTemplate& b) {
+  std::sort(out.begin(), out.end(), [](const PortPlacementBand& a, const PortPlacementBand& b) {
     if (a.priority != b.priority) {
       return a.priority > b.priority;
     }
-    return a.slot_id < b.slot_id;
+    return a.band_id < b.band_id;
   });
   return out;
 }
 
-bool CoreState::is_port_slot_used(ObjectId pole_id, int slot_id) const {
+bool CoreState::is_port_band_used(ObjectId pole_id, const PortPlacementBand& band) const {
   for (ObjectId port_id : relation_ids_or_empty(relation_index_.ports_by_pole, pole_id)) {
     const Port* port = edit_state_.ports.find(port_id);
-    if (port != nullptr && port->source_slot_id == slot_id) {
+    if (port == nullptr) {
+      continue;
+    }
+    if (port->generated_from_template && port->category == band.category && port->template_layer == band.layer &&
+        port->template_side == band.side && port->template_role == band.role) {
       return true;
     }
   }
   return false;
 }
 
-EditResult<ObjectId> CoreState::ensure_pole_slot_port(const SlotSelectionRequest& request, int* out_slot_id) {
+EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolutionRequest& request) {
   EditResult<ObjectId> result;
   const Pole* pole = edit_state_.poles.find(request.pole_id);
 
-  SlotSelectionDebugRecord debug{};
+  PortResolutionDebugRecord debug{};
   debug.pole_id = request.pole_id;
   debug.peer_pole_id = request.peer_pole_id;
   debug.reference_span_id = request.reference_span_id;
@@ -554,10 +453,10 @@ EditResult<ObjectId> CoreState::ensure_pole_slot_port(const SlotSelectionRequest
   debug.side_scale = compute_side_scale(request.pole_context, request.corner_angle_deg);
 
   auto push_debug = [&]() {
-    slot_selection_debug_records_.push_back(debug);
+    port_resolution_debug_records_.push_back(debug);
     constexpr std::size_t kMaxDebugRecords = 256;
-    if (slot_selection_debug_records_.size() > kMaxDebugRecords) {
-      slot_selection_debug_records_.erase(slot_selection_debug_records_.begin());
+    if (port_resolution_debug_records_.size() > kMaxDebugRecords) {
+      port_resolution_debug_records_.erase(port_resolution_debug_records_.begin());
     }
   };
 
@@ -578,16 +477,12 @@ EditResult<ObjectId> CoreState::ensure_pole_slot_port(const SlotSelectionRequest
 
   std::vector<Port*> owned_ports;
   owned_ports.reserve(relation_ids_or_empty(relation_index_.ports_by_pole, request.pole_id).size());
-  std::unordered_map<int, Port*> ports_by_slot_id;
   for (ObjectId port_id : relation_ids_or_empty(relation_index_.ports_by_pole, request.pole_id)) {
     Port* port = edit_state_.ports.find(port_id);
     if (port == nullptr) {
       continue;
     }
     owned_ports.push_back(port);
-    if (port->source_slot_id >= 0) {
-      ports_by_slot_id[port->source_slot_id] = port;
-    }
   }
 
   auto same_side_layer_usage = [&](SlotSide side, int layer) -> std::size_t {
@@ -605,31 +500,160 @@ EditResult<ObjectId> CoreState::ensure_pole_slot_port(const SlotSelectionRequest
 
   const PoleTypeDefinition* pole_type = find_pole_type(pole->pole_type_id);
   if (pole_type != nullptr) {
-    auto slots = sorted_port_slots(*pole_type, request.category);
-    if (request.preferred_slot_id >= 0) {
-      auto it = std::find_if(slots.begin(), slots.end(),
-                             [&](const PortSlotTemplate& slot) { return slot.slot_id == request.preferred_slot_id; });
-      if (it != slots.end() && it != slots.begin()) {
-        PortSlotTemplate preferred = *it;
-        slots.erase(it);
-        slots.insert(slots.begin(), preferred);
-      }
-    }
+    auto bands = sorted_port_bands(*pole_type, request.category);
+    const double layout_yaw = effective_pole_layout_yaw_deg(*pole);
+    const PoleFrame pole_frame = BuildPoleFrame(pole->world_transform, layout_yaw);
+
+    struct BandSolveResult {
+      double lateral_m = 0.0;
+      double height_m = 0.0;
+      bool min_spacing_satisfied = false;
+      bool overflow_used = false;
+      std::size_t conflict_count = 0;
+      double nearest_distance_m = 0.0;
+    };
 
     const int target_layer = target_template_layer_for_category(request.category);
     const Pole* peer_pole = edit_state_.poles.find(request.peer_pole_id);
     const SlotSide preferred_side = preferred_side_from_geometry(*pole, peer_pole, 0.10);
     const bool prefer_non_center = (preferred_side != SlotSide::kCenter);
+    std::vector<std::pair<ObjectId, Vec3d>> occupied_locals{};
+    occupied_locals.reserve(owned_ports.size());
+    for (const Port* port : owned_ports) {
+      if (port == nullptr) {
+        continue;
+      }
+      occupied_locals.emplace_back(port->id, WorldPointToLocal(pole_frame, port->world_position));
+    }
+
+    auto evaluate_band_position = [&](const PortPlacementBand& band, ObjectId ignored_port_id, double lateral_m,
+                                      double height_m) {
+      std::size_t conflict_count = 0;
+      double nearest_distance = std::numeric_limits<double>::infinity();
+      for (const auto& occupied : occupied_locals) {
+        if (occupied.first == ignored_port_id) {
+          continue;
+        }
+        const Vec3d& local = occupied.second;
+        const double distance = std::hypot(local.y - lateral_m, local.z - height_m);
+        nearest_distance = std::min(nearest_distance, distance);
+        if (distance + 1e-9 < band.min_spacing_m) {
+          ++conflict_count;
+        }
+      }
+      return std::pair<std::size_t, double>{conflict_count,
+                                            std::isfinite(nearest_distance) ? nearest_distance : band.min_spacing_m};
+    };
+
+    auto solve_in_band = [&](const PortPlacementBand& band, ObjectId ignored_port_id, double target_lateral,
+                             double target_height) -> BandSolveResult {
+      BandSolveResult solve{};
+      solve.lateral_m = std::clamp(target_lateral, band.lateral_min_m, band.lateral_max_m);
+      solve.height_m = std::clamp(target_height, band.height_min_m, band.height_max_m);
+
+      auto [base_conflicts, base_nearest] =
+          evaluate_band_position(band, ignored_port_id, solve.lateral_m, solve.height_m);
+      solve.conflict_count = base_conflicts;
+      solve.nearest_distance_m = base_nearest;
+      solve.min_spacing_satisfied = (base_conflicts == 0);
+      if (solve.min_spacing_satisfied) {
+        return solve;
+      }
+
+      const double lateral_step = std::max(0.04, band.min_spacing_m * 0.5);
+      const double height_step = std::max(0.04, band.min_spacing_m * 0.45);
+      std::size_t best_conflicts = base_conflicts;
+      double best_nearest = base_nearest;
+      double best_lateral = solve.lateral_m;
+      double best_height = solve.height_m;
+
+      for (int li = -8; li <= 8; ++li) {
+        const double candidate_lateral =
+            std::clamp(target_lateral + static_cast<double>(li) * lateral_step, band.lateral_min_m, band.lateral_max_m);
+        const int max_hi = (band.overflow_policy == BandOverflowPolicy::kRaiseHeight ||
+                            band.overflow_policy == BandOverflowPolicy::kConstrainedFallback)
+                               ? 8
+                               : 2;
+        for (int hi = -max_hi; hi <= max_hi; ++hi) {
+          const double candidate_height = std::clamp(target_height + static_cast<double>(hi) * height_step, band.height_min_m,
+                                                     band.height_max_m);
+          const auto [conflicts, nearest] =
+              evaluate_band_position(band, ignored_port_id, candidate_lateral, candidate_height);
+          const bool better = (conflicts < best_conflicts) || (conflicts == best_conflicts && nearest > best_nearest);
+          if (!better) {
+            continue;
+          }
+          best_conflicts = conflicts;
+          best_nearest = nearest;
+          best_lateral = candidate_lateral;
+          best_height = candidate_height;
+        }
+      }
+
+      solve.lateral_m = best_lateral;
+      solve.height_m = best_height;
+      solve.conflict_count = best_conflicts;
+      solve.nearest_distance_m = best_nearest;
+      solve.min_spacing_satisfied = (best_conflicts == 0);
+      solve.overflow_used = !solve.min_spacing_satisfied;
+      return solve;
+    };
+
+    auto solve_constrained_fallback = [&](const PortPlacementBand& band, double preferred_lateral) -> BandSolveResult {
+      BandSolveResult solve{};
+      double max_local_z = band.height_max_m;
+      for (const auto& occupied : occupied_locals) {
+        max_local_z = std::max(max_local_z, occupied.second.z);
+      }
+      solve.lateral_m = std::clamp(preferred_lateral, band.lateral_min_m, band.lateral_max_m);
+      solve.height_m = max_local_z + std::max(0.05, band.min_spacing_m);
+      auto [conflicts, nearest] = evaluate_band_position(band, kInvalidObjectId, solve.lateral_m, solve.height_m);
+      solve.conflict_count = conflicts;
+      solve.nearest_distance_m = nearest;
+      solve.min_spacing_satisfied = (conflicts == 0);
+      solve.overflow_used = true;
+      return solve;
+    };
+
+    auto find_band_port = [&](const PortPlacementBand& band) -> std::pair<Port*, std::size_t> {
+      Port* band_port = nullptr;
+      std::size_t band_port_usage = std::numeric_limits<std::size_t>::max();
+      for (Port* owned : owned_ports) {
+        if (owned == nullptr) {
+          continue;
+        }
+        if (!owned->generated_from_template || owned->category != band.category || owned->template_layer != band.layer ||
+            owned->template_side != band.side || owned->template_role != band.role) {
+          continue;
+        }
+        const std::size_t usage = connection_count(owned->id);
+        if (band_port == nullptr || usage < band_port_usage || (usage == band_port_usage && owned->id < band_port->id)) {
+          band_port = owned;
+          band_port_usage = usage;
+        }
+      }
+      return {band_port, (band_port == nullptr) ? 0u : band_port_usage};
+    };
 
     int best_total = std::numeric_limits<int>::min();
     int best_tie = -1;
-    const PortSlotTemplate* best_slot = nullptr;
+    const PortPlacementBand* best_band = nullptr;
     Port* best_port = nullptr;
+    BandSolveResult best_solve{};
 
-    for (const PortSlotTemplate& slot : slots) {
-      SlotCandidateDebug candidate{};
-      candidate.slot_id = slot.slot_id;
-      candidate.category_score = (slot.category == request.category) ? 500 : -100000;
+    int candidate_rank = 0;
+    for (const PortPlacementBand& band : bands) {
+      PlacementCandidateDebug candidate{};
+      candidate.candidate_rank = candidate_rank++;
+      candidate.band_id = band.band_id;
+      candidate.band_layer = band.layer;
+      candidate.band_side = band.side;
+      candidate.band_role = band.role;
+      candidate.band_lateral_min_m = band.lateral_min_m;
+      candidate.band_lateral_max_m = band.lateral_max_m;
+      candidate.band_height_min_m = band.height_min_m;
+      candidate.band_height_max_m = band.height_max_m;
+      candidate.category_score = (band.category == request.category) ? 500 : -100000;
       if (candidate.category_score < 0) {
         candidate.eligible = false;
         candidate.reason = "category mismatch";
@@ -637,61 +661,118 @@ EditResult<ObjectId> CoreState::ensure_pole_slot_port(const SlotSelectionRequest
         continue;
       }
 
-      candidate.role_score = role_score_for_context(slot.role, request.connection_context);
+      candidate.role_score = role_score_for_context(band.role, request.connection_context);
       candidate.context_score = 0;
       if (request.connection_context == ConnectionContext::kCornerPass) {
-        candidate.context_score += (slot.side == SlotSide::kCenter) ? 10 : 30;
+        candidate.context_score += (band.side == SlotSide::kCenter) ? 10 : 30;
       } else if (request.connection_context == ConnectionContext::kBranchAdd) {
-        candidate.context_score += (slot.side == SlotSide::kCenter) ? 0 : 20;
+        candidate.context_score += (band.side == SlotSide::kCenter) ? 0 : 20;
       } else if (request.connection_context == ConnectionContext::kDropAdd) {
-        candidate.context_score += (slot.side == SlotSide::kCenter) ? 25 : 0;
+        candidate.context_score += (band.side == SlotSide::kCenter) ? 25 : 0;
       }
 
-      candidate.layer_score = 60 - (20 * std::abs(slot.layer - target_layer));
+      candidate.layer_score = 60 - (20 * std::abs(band.layer - target_layer));
       candidate.side_score = 0;
       if (prefer_non_center) {
-        if (slot.side == preferred_side) {
+        if (band.side == preferred_side) {
           candidate.side_score += 220;
-        } else if (slot.side == SlotSide::kCenter) {
+        } else if (band.side == SlotSide::kCenter) {
           candidate.side_score -= 15;
         }
       } else {
         // Geometry cannot decide left/right near center; only apply tiny deterministic fallback.
-        if (((request.branch_index & 1u) == 0u && slot.side == SlotSide::kLeft) ||
-            ((request.branch_index & 1u) == 1u && slot.side == SlotSide::kRight)) {
+        if (((request.branch_index & 1u) == 0u && band.side == SlotSide::kLeft) ||
+            ((request.branch_index & 1u) == 1u && band.side == SlotSide::kRight)) {
           candidate.side_score += 2;
         }
       }
-      candidate.priority_score = slot.priority;
-
-      Port* slot_port = nullptr;
-      const auto slot_port_it = ports_by_slot_id.find(slot.slot_id);
-      if (slot_port_it != ports_by_slot_id.end()) {
-        slot_port = slot_port_it->second;
+      if (request.prefer_template_match) {
+        if (band.layer == request.preferred_template_layer) {
+          candidate.side_score += 25;
+        }
+        if (band.side == request.preferred_template_side) {
+          candidate.side_score += 90;
+        }
+        if (band.role == request.preferred_template_role) {
+          candidate.role_score += 30;
+        }
       }
+      candidate.priority_score = band.priority;
 
-      candidate.usage_count = (slot_port == nullptr) ? 0 : connection_count(slot_port->id);
-      if (slot_port == nullptr) {
-        candidate.usage_score = request.allow_generate_port ? 75 : -100000;
-      } else if (candidate.usage_count == 0) {
+      auto [band_port, band_port_usage] = find_band_port(band);
+
+      candidate.usage_count = (band_port == nullptr) ? 0 : connection_count(band_port->id);
+      const bool can_reuse_existing_port = (band_port != nullptr && candidate.usage_count == 0);
+      const bool has_unused_sibling_band =
+          std::any_of(bands.begin(), bands.end(), [&](const PortPlacementBand& sibling) {
+            if (sibling.band_id == band.band_id) {
+              return false;
+            }
+            const auto [sibling_port, sibling_usage] = find_band_port(sibling);
+            return sibling_port == nullptr || sibling_usage == 0;
+          });
+      const bool defer_reuse_until_unused_siblings_consumed =
+          band.allow_multiple && candidate.usage_count > 0 && has_unused_sibling_band;
+      const bool can_create_new_port = request.allow_generate_port && !defer_reuse_until_unused_siblings_consumed &&
+                                       (band_port == nullptr || (band.allow_multiple && candidate.usage_count > 0));
+      candidate.resolved_port_id = can_reuse_existing_port ? band_port->id : kInvalidObjectId;
+      if (can_reuse_existing_port) {
         candidate.usage_score = 80;
-      } else if (slot.allow_multiple) {
-        candidate.usage_score = -25 * static_cast<int>(candidate.usage_count);
+      } else if (can_create_new_port) {
+        candidate.usage_score = 75 - (band.allow_multiple ? (25 * static_cast<int>(candidate.usage_count)) : 0);
       } else {
         candidate.usage_score = -100000;
       }
-
-      candidate.congestion_count = same_side_layer_usage(slot.side, slot.layer);
+      candidate.congestion_count = same_side_layer_usage(band.side, band.layer);
       candidate.congestion_score = -15 * static_cast<int>(candidate.congestion_count);
+
+      const double preferred_lateral =
+          (prefer_non_center && band.side == preferred_side)
+              ? std::clamp(band.lateral_center_m + ((preferred_side == SlotSide::kLeft) ? -0.05 : 0.05),
+                           band.lateral_min_m, band.lateral_max_m)
+              : std::clamp(band.lateral_center_m, band.lateral_min_m, band.lateral_max_m);
+      const double preferred_height =
+          request.prefer_template_match && band.layer == request.preferred_template_layer
+              ? std::clamp(band.height_center_m + 0.05, band.height_min_m, band.height_max_m)
+              : std::clamp(band.height_center_m, band.height_min_m, band.height_max_m);
+      BandSolveResult solve{};
+      if (can_create_new_port) {
+        solve = solve_in_band(band, kInvalidObjectId, preferred_lateral, preferred_height);
+        if (!solve.min_spacing_satisfied && band.overflow_policy == BandOverflowPolicy::kConstrainedFallback) {
+          solve = solve_constrained_fallback(band, preferred_lateral);
+        }
+      } else {
+        solve.lateral_m = preferred_lateral;
+        solve.height_m = preferred_height;
+        solve.min_spacing_satisfied = true;
+      }
+      candidate.resolved_lateral_m = solve.lateral_m;
+      candidate.resolved_height_m = solve.height_m;
+      candidate.min_spacing_satisfied = solve.min_spacing_satisfied;
+      candidate.overflow_used = solve.overflow_used;
+      if (can_create_new_port && !solve.min_spacing_satisfied) {
+        candidate.usage_score -= 35 + static_cast<int>(solve.conflict_count) * 8;
+      }
+
       candidate.tie_breaker = static_cast<int>(
-          deterministic_tiebreak_0_255(request.pole_id, slot.slot_id, request.category, request.connection_context,
+          deterministic_tiebreak_0_255(request.pole_id, band.band_id, request.category, request.connection_context,
                                        request.peer_pole_id, request.reference_span_id, request.branch_index));
       candidate.total_score = candidate.category_score + candidate.context_score + candidate.layer_score +
                               candidate.side_score + candidate.role_score + candidate.priority_score +
                               candidate.usage_score + candidate.congestion_score + (candidate.tie_breaker / 16);
 
-      candidate.eligible = candidate.usage_score > -100000;
-      candidate.reason = candidate.eligible ? "ok" : "slot unavailable";
+      candidate.eligible = candidate.usage_score > -100000 &&
+                           (can_reuse_existing_port || !can_create_new_port || solve.min_spacing_satisfied);
+      if (!candidate.eligible) {
+        if (defer_reuse_until_unused_siblings_consumed) {
+          candidate.reason = "unused sibling preferred";
+        } else
+        candidate.reason = can_create_new_port ? "band conflict unresolved" : "band unavailable";
+      } else if (candidate.overflow_used) {
+        candidate.reason = "constrained fallback";
+      } else {
+        candidate.reason = "ok";
+      }
       debug.candidates.push_back(candidate);
 
       if (!candidate.eligible) {
@@ -701,131 +782,71 @@ EditResult<ObjectId> CoreState::ensure_pole_slot_port(const SlotSelectionRequest
           (candidate.total_score == best_total && candidate.tie_breaker > best_tie)) {
         best_total = candidate.total_score;
         best_tie = candidate.tie_breaker;
-        best_slot = &slot;
-        best_port = slot_port;
+        best_band = &band;
+        best_port = can_reuse_existing_port ? band_port : nullptr;
+        best_solve = solve;
       }
     }
 
-    if (best_slot != nullptr) {
+    if (best_band != nullptr) {
       if (best_port != nullptr) {
         result.ok = true;
         result.value = best_port->id;
-        if (out_slot_id != nullptr) {
-          *out_slot_id = best_slot->slot_id;
-        }
-        debug.selected_slot_id = best_slot->slot_id;
-        debug.result = "selected existing slot port";
+        debug.selected_port_id = best_port->id;
+        debug.overflow_triggered = false;
+        debug.result = "selected existing template-owned port";
         push_debug();
         return result;
       }
 
-      Vec3d adjusted_local = best_slot->local_position;
+      Vec3d adjusted_local{0.0, best_solve.lateral_m, best_solve.height_m};
       const bool apply_angle_correction = layout_settings_.angle_correction_enabled &&
                                           request.pole_context == PoleContextKind::kCorner &&
-                                          best_slot->side != SlotSide::kCenter;
+                                          best_band->side != SlotSide::kCenter;
       double applied_scale = 1.0;
       if (apply_angle_correction) {
         adjusted_local.y =
-            apply_corner_side_scale(adjusted_local.y, best_slot->side, request.corner_turn_sign, debug.side_scale);
-        if (std::abs(best_slot->local_position.y) > 1e-9) {
-          applied_scale = std::abs(adjusted_local.y / best_slot->local_position.y);
+            apply_corner_side_scale(adjusted_local.y, best_band->side, request.corner_turn_sign, debug.side_scale);
+        if (std::abs(best_solve.lateral_m) > 1e-9) {
+          applied_scale = std::abs(adjusted_local.y / best_solve.lateral_m);
         }
       }
-      adjusted_local = apply_pole_clearance_to_local(*pole, adjusted_local, best_slot->side);
+      adjusted_local = apply_pole_clearance_to_local(*pole, adjusted_local, best_band->side);
       const Vec3d world_position =
-          local_to_world_on_pole(pole->world_transform, effective_pole_layout_yaw_deg(*pole), adjusted_local);
+          local_to_world_on_pole(pole->world_transform, layout_yaw, adjusted_local);
       EditResult<ObjectId> add_port_result =
           AddPort(request.pole_id, world_position, category_to_port_kind(request.category),
-                  category_to_port_layer(request.category), best_slot->local_direction);
+                  category_to_port_layer(request.category), best_band->local_direction);
       if (!add_port_result.ok) {
-        debug.result = "failed to create slot port: " + add_port_result.error;
+        debug.result = "failed to create template-owned port: " + add_port_result.error;
         push_debug();
         return add_port_result;
       }
       Port* created = edit_state_.ports.find(add_port_result.value);
       if (created != nullptr) {
         created->category = request.category;
-        created->source_slot_id = best_slot->slot_id;
-        created->template_layer = best_slot->layer;
-        created->template_side = best_slot->side;
-        created->template_role = best_slot->role;
+        created->template_layer = best_band->layer;
+        created->template_side = best_band->side;
+        created->template_role = best_band->role;
         created->generated_from_template = true;
         created->generated_by_rule = true;
         created->placement_context = request.connection_context;
         created->angle_correction_applied = apply_angle_correction;
         created->side_scale_applied = apply_angle_correction ? applied_scale : 1.0;
-        apply_port_position_mode(*created, PortPositionMode::kAuto, PortPlacementSourceKind::kTemplateSlot);
+        apply_port_position_mode(*created, PortPositionMode::kAuto, PortPlacementSourceKind::kPlacementBand);
         add_unique_id(add_port_result.change_set.updated_ids, created->id);
       }
-      if (out_slot_id != nullptr) {
-        *out_slot_id = best_slot->slot_id;
-      }
-      debug.selected_slot_id = best_slot->slot_id;
-      debug.result = "created slot port";
+      debug.selected_port_id = add_port_result.value;
+      debug.created_new_port = true;
+      debug.overflow_triggered = best_solve.overflow_used;
+      debug.result = best_solve.overflow_used ? "created constrained fallback port" : "created template-owned port";
       push_debug();
       return add_port_result;
     }
-  }
-
-  ObjectId fallback = kInvalidObjectId;
-  std::size_t fallback_usage = std::numeric_limits<std::size_t>::max();
-  for (const Port* port : owned_ports) {
-    if (port->category != request.category) {
-      continue;
-    }
-    const std::size_t usage = connection_count(port->id);
-    if (usage < fallback_usage) {
-      fallback = port->id;
-      fallback_usage = usage;
-    }
-  }
-  if (fallback != kInvalidObjectId) {
-    result.ok = true;
-    result.value = fallback;
-    if (out_slot_id != nullptr) {
-      const Port* port = edit_state_.ports.find(fallback);
-      *out_slot_id = (port == nullptr) ? -1 : port->source_slot_id;
-    }
-    debug.selected_slot_id = (out_slot_id == nullptr) ? -1 : *out_slot_id;
-    debug.result = "fallback existing category port";
-    push_debug();
-    return result;
-  }
-
-  if (request.allow_generate_port) {
-    const Vec3d local = apply_pole_clearance_to_local(
-        *pole, Vec3d{0.0, 0.0, std::max(1.0, pole->height_m * 0.7)}, SlotSide::kCenter);
-    const Vec3d world_position =
-        local_to_world_on_pole(pole->world_transform, effective_pole_layout_yaw_deg(*pole), local);
-    EditResult<ObjectId> add_port_result =
-        AddPort(request.pole_id, world_position, category_to_port_kind(request.category),
-                category_to_port_layer(request.category));
-    if (!add_port_result.ok) {
-      debug.result = "fallback generated port failed: " + add_port_result.error;
-      push_debug();
-      return add_port_result;
-    }
-    Port* created = edit_state_.ports.find(add_port_result.value);
-    if (created != nullptr) {
-      created->category = request.category;
-      created->generated_from_template = true;
-      created->generated_by_rule = true;
-      created->placement_context = request.connection_context;
-      created->source_slot_id = -1;
-      apply_port_position_mode(*created, PortPositionMode::kAuto, PortPlacementSourceKind::kGenerated);
-      add_unique_id(add_port_result.change_set.updated_ids, created->id);
-    }
-    if (out_slot_id != nullptr) {
-      *out_slot_id = -1;
-    }
-    debug.selected_slot_id = -1;
-    debug.result = "fallback generated category port";
-    push_debug();
-    return add_port_result;
   }
 
   std::ostringstream oss;
-  oss << "no port available for pole " << request.pole_id << " category " << static_cast<int>(request.category);
+  oss << "no placement band available for pole " << request.pole_id << " category " << static_cast<int>(request.category);
   result.error = oss.str();
   debug.result = result.error;
   push_debug();
@@ -878,9 +899,9 @@ EditResult<ObjectId> CoreState::ensure_bundle_for_template(const AddConnectionBy
   return AddBundle(conductor_count, std::max(0.01, bundle_template->default_spacing_m), bundle_template->id);
 }
 
-std::uint8_t CoreState::deterministic_tiebreak_0_255(ObjectId pole_id, int slot_id, ConnectionCategory category,
-                                                     ConnectionContext context, ObjectId peer_pole_id,
-                                                     ObjectId reference_span_id, std::uint32_t branch_index) {
+std::uint8_t CoreState::deterministic_tiebreak_0_255(ObjectId pole_id, int tiebreak_key, ConnectionCategory category,
+                                                      ConnectionContext context, ObjectId peer_pole_id,
+                                                      ObjectId reference_span_id, std::uint32_t branch_index) {
   auto mix = [](std::uint32_t h, std::uint64_t v) -> std::uint32_t {
     h ^= static_cast<std::uint32_t>(v & 0xFFFFFFFFu);
     h *= 16777619u;
@@ -891,7 +912,7 @@ std::uint8_t CoreState::deterministic_tiebreak_0_255(ObjectId pole_id, int slot_
 
   std::uint32_t h = 2166136261u;
   h = mix(h, pole_id);
-  h = mix(h, static_cast<std::uint64_t>(slot_id));
+  h = mix(h, static_cast<std::uint64_t>(tiebreak_key));
   h = mix(h, static_cast<std::uint64_t>(static_cast<std::uint8_t>(category)));
   h = mix(h, static_cast<std::uint64_t>(static_cast<std::uint8_t>(context)));
   h = mix(h, peer_pole_id);

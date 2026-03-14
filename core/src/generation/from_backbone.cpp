@@ -508,7 +508,6 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     }
     return {};
   };
-
   for (std::size_t i = 0; i + 1 < ordered_support_node_ids.size(); ++i) {
     const ObjectId a = ordered_support_node_ids[i];
     const ObjectId b = ordered_support_node_ids[i + 1];
@@ -818,6 +817,34 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     }
     return {};
   };
+  auto combined_neighbors_for_node = [&](ObjectId node_id) {
+    std::vector<ObjectId> neighbors{};
+    for (const Span& span : edit_state_access().spans.items()) {
+      const Port* port_a = edit_state_access().ports.find(span.port_a_id);
+      const Port* port_b = edit_state_access().ports.find(span.port_b_id);
+      if (port_a == nullptr || port_b == nullptr) {
+        continue;
+      }
+      if (port_a->owner_pole_id == node_id && port_b->owner_pole_id != kInvalidObjectId && port_b->owner_pole_id != node_id &&
+          std::find(neighbors.begin(), neighbors.end(), port_b->owner_pole_id) == neighbors.end()) {
+        neighbors.push_back(port_b->owner_pole_id);
+      }
+      if (port_b->owner_pole_id == node_id && port_a->owner_pole_id != kInvalidObjectId && port_a->owner_pole_id != node_id &&
+          std::find(neighbors.begin(), neighbors.end(), port_a->owner_pole_id) == neighbors.end()) {
+        neighbors.push_back(port_a->owner_pole_id);
+      }
+    }
+    if (const auto it_route = route_neighbors_by_node.find(node_id); it_route != route_neighbors_by_node.end()) {
+      for (ObjectId neighbor_id : it_route->second) {
+        if (std::find(neighbors.begin(), neighbors.end(), neighbor_id) == neighbors.end()) {
+          neighbors.push_back(neighbor_id);
+        }
+      }
+    }
+    std::sort(neighbors.begin(), neighbors.end());
+    neighbors.erase(std::unique(neighbors.begin(), neighbors.end()), neighbors.end());
+    return neighbors;
+  };
   auto connected_neighbors_for_support_axis = [&](ObjectId node_id) {
     std::vector<ObjectId> neighbors{};
     for (const Span& span : edit_state_access().spans.items()) {
@@ -914,19 +941,7 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       return {kInvalidObjectId, kInvalidObjectId};
     }
 
-    std::vector<ObjectId> combined_neighbors{};
-    if (const auto it = existing_adjacency.find(node_id); it != existing_adjacency.end()) {
-      combined_neighbors = it->second;
-    }
-    if (it_route != route_neighbors_by_node.end()) {
-      for (ObjectId neighbor_id : it_route->second) {
-        if (std::find(combined_neighbors.begin(), combined_neighbors.end(), neighbor_id) == combined_neighbors.end()) {
-          combined_neighbors.push_back(neighbor_id);
-        }
-      }
-    }
-    std::sort(combined_neighbors.begin(), combined_neighbors.end());
-    combined_neighbors.erase(std::unique(combined_neighbors.begin(), combined_neighbors.end()), combined_neighbors.end());
+    std::vector<ObjectId> combined_neighbors = combined_neighbors_for_node(node_id);
     if (combined_neighbors.size() < 2) {
       return {kInvalidObjectId, kInvalidObjectId};
     }
@@ -967,18 +982,57 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       return {kInvalidObjectId, kInvalidObjectId};
     }
 
-    std::vector<ObjectId> existing_pair = existing_continuation_neighbors_for_orientation(node_id);
-    if (existing_pair.size() < 2) {
-      if (const auto it = existing_adjacency.find(node_id); it != existing_adjacency.end() && it->second.size() == 2) {
-        existing_pair = it->second;
+    std::vector<ObjectId> stable_existing_pair{};
+    if (const auto it_existing_junction = existing_junction_by_node.find(node_id);
+        it_existing_junction != existing_junction_by_node.end()) {
+      const JunctionInfo* junction = it_existing_junction->second;
+      if (junction != nullptr && junction->incidents.size() >= 2) {
+        const JunctionIncident* primary_incident = nullptr;
+        const JunctionIncident* continuation_incident = nullptr;
+        for (const JunctionIncident& incident : junction->incidents) {
+          if ((incident.primary || incident.order == 0) &&
+              (primary_incident == nullptr ||
+               (incident.primary && !primary_incident->primary) ||
+               (incident.order >= 0 && (primary_incident->order < 0 || incident.order < primary_incident->order)))) {
+            primary_incident = &incident;
+          }
+          if (incident.order == 1 &&
+              (continuation_incident == nullptr || incident.neighbor_node_id < continuation_incident->neighbor_node_id)) {
+            continuation_incident = &incident;
+          }
+        }
+        if (primary_incident != nullptr && continuation_incident != nullptr &&
+            primary_incident->neighbor_node_id != continuation_incident->neighbor_node_id &&
+            (junction->used_neighbor_continuity || junction->incidents.size() == 2)) {
+          stable_existing_pair.push_back(primary_incident->neighbor_node_id);
+          stable_existing_pair.push_back(continuation_incident->neighbor_node_id);
+        }
       }
     }
-    if (existing_pair.size() >= 2) {
-      const Vec3d existing_a = normalize_forward_xy(current_support_position(existing_pair[0]) - center);
-      const Vec3d existing_b = normalize_forward_xy(current_support_position(existing_pair[1]) - center);
+    if (stable_existing_pair.size() < 2) {
+      if (const auto it = existing_adjacency.find(node_id); it != existing_adjacency.end() && it->second.size() == 2) {
+        stable_existing_pair = it->second;
+      }
+    }
+    if (stable_existing_pair.size() >= 2) {
+      const Vec3d existing_a = normalize_forward_xy(current_support_position(stable_existing_pair[0]) - center);
+      const Vec3d existing_b = normalize_forward_xy(current_support_position(stable_existing_pair[1]) - center);
       const double existing_score = dot(existing_a, Vec3d{-existing_b.x, -existing_b.y, -existing_b.z});
       if (!(best_score > existing_score + 1e-6)) {
-        return {kInvalidObjectId, kInvalidObjectId};
+        if (combined_neighbors.size() < 4) {
+          return {kInvalidObjectId, kInvalidObjectId};
+        }
+        ObjectId primary_neighbor_id = stable_existing_pair[0];
+        ObjectId secondary_neighbor_id = stable_existing_pair[1];
+        const auto it_existing_primary = existing_primary_neighbor_by_node.find(node_id);
+        const ObjectId existing_primary_neighbor_id =
+            (it_existing_primary == existing_primary_neighbor_by_node.end()) ? kInvalidObjectId : it_existing_primary->second;
+        if (existing_primary_neighbor_id == secondary_neighbor_id) {
+          std::swap(primary_neighbor_id, secondary_neighbor_id);
+        } else if (existing_primary_neighbor_id != primary_neighbor_id && secondary_neighbor_id < primary_neighbor_id) {
+          std::swap(primary_neighbor_id, secondary_neighbor_id);
+        }
+        return {primary_neighbor_id, secondary_neighbor_id};
       }
     }
 
@@ -1047,7 +1101,86 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       return has_axis;
     };
 
+    auto adopt_connected_direction_fit = [&](const std::vector<ObjectId>& neighbor_ids) {
+      struct DirectionCandidate {
+        ObjectId neighbor_id = kInvalidObjectId;
+        Vec3d dir{};
+      };
+      std::vector<DirectionCandidate> directions{};
+      directions.reserve(neighbor_ids.size());
+      for (ObjectId neighbor_id : neighbor_ids) {
+        Vec3d dir = normalize_forward_xy(current_support_position(neighbor_id) - center);
+        if (Normalize(&dir)) {
+          directions.push_back({neighbor_id, dir});
+        }
+      }
+      if (directions.empty()) {
+        return false;
+      }
+
+      struct BestCandidate {
+        Vec3d forward{};
+        ObjectId primary_neighbor_id = kInvalidObjectId;
+        ObjectId secondary_neighbor_id = kInvalidObjectId;
+        double score = -1.0;
+        double continuity = -1.0;
+      };
+      BestCandidate best{};
+
+      auto consider_forward = [&](Vec3d forward, ObjectId primary_neighbor_id, ObjectId secondary_neighbor_id) {
+        if (!Normalize(&forward)) {
+          return;
+        }
+        double score = 0.0;
+        for (const DirectionCandidate& candidate : directions) {
+          score += std::abs(Dot(forward, candidate.dir));
+        }
+        Vec3d row_axis = ComputeLateralAxis(forward);
+        if (!Normalize(&row_axis)) {
+          return;
+        }
+        const double continuity = std::abs(Dot(row_axis, normalize_forward_xy(previous_support_axis)));
+        const bool better_score = score > best.score + 1e-9;
+        const bool equal_score = std::abs(score - best.score) <= 1e-9;
+        const bool better_continuity = continuity > best.continuity + 1e-9;
+        const bool equal_continuity = std::abs(continuity - best.continuity) <= 1e-9;
+        const bool better_ids =
+            std::tie(primary_neighbor_id, secondary_neighbor_id) <
+            std::tie(best.primary_neighbor_id, best.secondary_neighbor_id);
+        if (better_score || (equal_score && (better_continuity || (equal_continuity && better_ids)))) {
+          best.forward = forward;
+          best.primary_neighbor_id = primary_neighbor_id;
+          best.secondary_neighbor_id = secondary_neighbor_id;
+          best.score = score;
+          best.continuity = continuity;
+        }
+      };
+
+      for (const DirectionCandidate& direction : directions) {
+        consider_forward(direction.dir, direction.neighbor_id, kInvalidObjectId);
+      }
+      for (std::size_t i = 0; i < directions.size(); ++i) {
+        for (std::size_t j = i + 1; j < directions.size(); ++j) {
+          consider_forward(directions[i].dir + directions[j].dir, directions[i].neighbor_id, directions[j].neighbor_id);
+        }
+      }
+
+      if (best.score < 0.0) {
+        return false;
+      }
+      return adopt_axis(best.forward, PoleSupportAxisRule::kConnectedDirectionFit, best.primary_neighbor_id,
+                        best.secondary_neighbor_id);
+    };
+
+    const std::vector<ObjectId> combined_neighbors = combined_neighbors_for_node(node_id);
+    if (adopt_connected_direction_fit(combined_neighbors)) {
+      return chosen_axis;
+    }
+
     const std::vector<ObjectId> connected_neighbors = connected_neighbors_for_support_axis(node_id);
+    if (adopt_connected_direction_fit(connected_neighbors)) {
+      return chosen_axis;
+    }
     if (connected_neighbors.size() == 2) {
       const ObjectId neighbor_a = connected_neighbors[0];
       const ObjectId neighbor_b = connected_neighbors[1];
@@ -1220,34 +1353,40 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
   struct EdgeFlowInfo {
     BackboneFlowKind kind = BackboneFlowKind::kMain;
     BackboneFlowDecisionRule rule = BackboneFlowDecisionRule::kDefaultMain;
+    bool underpass_at_cross = false;
   };
   auto classify_edge_flow_at_node = [&](ObjectId node_id, ObjectId peer_id) {
     EdgeFlowInfo info{};
+    const JunctionInfo* junction = nullptr;
+    if (const auto it = active_junction_by_node.find(node_id); it != active_junction_by_node.end()) {
+      junction = it->second;
+    }
+    const bool is_cross_like_node = combined_neighbors_for_node(node_id).size() >= 4;
     const auto preferred_pair = preferred_straight_main_pair_for_orientation(node_id);
     if (preferred_pair.first != kInvalidObjectId && preferred_pair.second != kInvalidObjectId) {
       const bool in_pair = (peer_id == preferred_pair.first || peer_id == preferred_pair.second);
       info.kind = in_pair ? BackboneFlowKind::kMain : BackboneFlowKind::kBranch;
       info.rule = in_pair ? BackboneFlowDecisionRule::kJunctionOrderMain
                           : BackboneFlowDecisionRule::kJunctionOrderBranch;
+      info.underpass_at_cross = !in_pair && is_cross_like_node;
       return info;
     }
-    if (const auto it = active_junction_by_node.find(node_id); it != active_junction_by_node.end()) {
-      const JunctionInfo* junction = it->second;
-      if (junction != nullptr && !junction->incidents.empty()) {
-        for (const JunctionIncident& incident : junction->incidents) {
+    if (junction != nullptr && !junction->incidents.empty()) {
+      for (const JunctionIncident& incident : junction->incidents) {
           if (incident.neighbor_node_id != peer_id) {
             continue;
           }
           info.kind = (incident.order >= 2) ? BackboneFlowKind::kBranch : BackboneFlowKind::kMain;
           info.rule = (incident.order >= 2) ? BackboneFlowDecisionRule::kJunctionOrderBranch
                                             : BackboneFlowDecisionRule::kJunctionOrderMain;
+          info.underpass_at_cross = info.kind == BackboneFlowKind::kBranch && is_cross_like_node;
           return info;
-        }
-        if (junction->incidents.size() >= 2) {
-          info.kind = BackboneFlowKind::kBranch;
-          info.rule = BackboneFlowDecisionRule::kJunctionOrderBranch;
-          return info;
-        }
+      }
+      if (junction->incidents.size() >= 2) {
+        info.kind = BackboneFlowKind::kBranch;
+        info.rule = BackboneFlowDecisionRule::kJunctionOrderBranch;
+        info.underpass_at_cross = is_cross_like_node;
+        return info;
       }
     }
     if (const auto it = existing_adjacency.find(node_id); it != existing_adjacency.end() && it->second.size() == 2) {
@@ -1367,14 +1506,24 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
 
       std::vector<SegmentLaneAssignment> lane_assignments{};
       std::vector<BackboneEdgeOrientation> edge_orientations{};
-      const double branch_down_offset_m =
-          (flow_info.kind == BackboneFlowKind::kBranch && plan.enable_branch_down_offset)
-              ? generation::detail::BranchDownOffsetForCategory(plan.category)
-              : 0.0;
+      BackboneLoweringPolicy lowering_policy{};
+      double branch_down_offset_m = 0.0;
+      if (flow_info.underpass_at_cross) {
+        lowering_policy.enable_cross_underpass = true;
+        branch_down_offset_m = generation::detail::BranchDownOffsetForCategory(plan.category);
+      }
+      if (flow_info.kind == BackboneFlowKind::kBranch && plan.enable_branch_down_offset) {
+        lowering_policy.enable_branch_support = true;
+        branch_down_offset_m = generation::detail::BranchDownOffsetForCategory(plan.category);
+      }
+      if (plan.enable_branch_down_offset) {
+        lowering_policy.enable_acute_corner = true;
+        branch_down_offset_m = generation::detail::BranchDownOffsetForCategory(plan.category);
+      }
+      lowering_policy.offset_m = branch_down_offset_m;
       EditResult<std::vector<ObjectId>> spans_result = generate_grouped_spans_between_support_nodes(
           local_support_nodes, support_node_by_id, bundle_id, plan.category, plan.count, plan.spacing_m, true,
-          plan.allow_mirror, flow_info.kind, branch_down_offset_m, &lane_assignments, &edge_orientations,
-          plan.template_id);
+          plan.allow_mirror, flow_info.kind, lowering_policy, &lane_assignments, &edge_orientations, plan.template_id);
       if (!spans_result.ok) {
         *this = snapshot;
         result.error = spans_result.error;
@@ -1425,4 +1574,3 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
 
 
 } // namespace wire::core
-

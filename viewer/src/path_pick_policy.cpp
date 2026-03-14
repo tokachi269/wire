@@ -41,13 +41,10 @@ std::vector<wire::core::BundleKind> SelectedBundleTemplateKinds(const wire::core
   return selected;
 }
 
-wire::core::BundleKind ResolveBundleTemplateForPathPick(const wire::core::CoreState& state,
-                                                        std::uint32_t selected_template_mask,
-                                                        const wire::core::PickResult& pick) {
-  const auto selected = SelectedBundleTemplateKinds(state, selected_template_mask);
-  if (!selected.empty()) {
-    return selected.front();
-  }
+namespace {
+
+wire::core::BundleKind ResolveHitSpanTemplateOrDefault(const wire::core::CoreState& state,
+                                                       const wire::core::PickResult& pick) {
   if (pick.hit_kind == wire::core::PickHitKind::kSegment) {
     if (const wire::core::Span* span = state.view().edit_state().spans.find(pick.hit_id); span != nullptr) {
       if (const wire::core::Bundle* bundle = state.view().edit_state().bundles.find(span->bundle_id); bundle != nullptr) {
@@ -58,6 +55,8 @@ wire::core::BundleKind ResolveBundleTemplateForPathPick(const wire::core::CoreSt
   return wire::core::BundleKind::kLowVoltage;
 }
 
+} // namespace
+
 std::vector<wire::core::BundleKind> ResolveTemplateKindsForPathPick(const wire::core::CoreState& state,
                                                                     std::uint32_t selected_template_mask,
                                                                     const wire::core::PickResult& pick) {
@@ -65,7 +64,7 @@ std::vector<wire::core::BundleKind> ResolveTemplateKindsForPathPick(const wire::
   if (!selected.empty()) {
     return selected;
   }
-  return {ResolveBundleTemplateForPathPick(state, selected_template_mask, pick)};
+  return {ResolveHitSpanTemplateOrDefault(state, pick)};
 }
 
 std::string FindMidairBranchBlockedTemplateName(const wire::core::CoreState& state,

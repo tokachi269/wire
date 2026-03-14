@@ -110,9 +110,9 @@ wire::core::Vec3d Lerp(const wire::core::Vec3d& a, const wire::core::Vec3d& b, d
   };
 }
 
-wire::core::Vec3d PoleTopPoint(const wire::core::Pole& pole) {
+wire::core::Vec3d PoleTopPoint(const wire::core::Pole& pole, double layout_yaw_deg) {
   const wire::core::PoleFrame frame =
-      wire::core::BuildPoleFrame(pole.world_transform, pole.world_transform.rotation_euler_deg.z);
+      wire::core::BuildPoleFrame(pole.world_transform, layout_yaw_deg);
   return wire::core::LocalPointToWorld(frame, wire::core::ScaleVec(wire::core::WorldUp(), pole.height_m));
 }
 
@@ -353,8 +353,12 @@ SelectionItem PickViewportSelection(const CoreState& state, const Camera3D& came
     for (const wire::core::Pole& pole : edit.poles.items()) {
       Vector2 base{};
       Vector2 top{};
+      double layout_yaw_deg = pole.world_transform.rotation_euler_deg.z;
+      if (const auto pole_view = view.inspect_pole(pole.id); pole_view.has_value() && pole_view->has_layout_yaw) {
+        layout_yaw_deg = pole_view->layout_yaw_deg;
+      }
       if (!TryProjectWorldPoint(camera, pole.world_transform.position, &base) ||
-          !TryProjectWorldPoint(camera, PoleTopPoint(pole), &top)) {
+          !TryProjectWorldPoint(camera, PoleTopPoint(pole, layout_yaw_deg), &top)) {
         continue;
       }
       const float d2 = DistancePointToSegmentSquared(mouse_screen, base, top);
@@ -409,8 +413,12 @@ std::vector<SelectionItem> CollectViewportSelection(const CoreState& state, cons
     for (const wire::core::Pole& pole : edit.poles.items()) {
       Vector2 base{};
       Vector2 top{};
+      double layout_yaw_deg = pole.world_transform.rotation_euler_deg.z;
+      if (const auto pole_view = view.inspect_pole(pole.id); pole_view.has_value() && pole_view->has_layout_yaw) {
+        layout_yaw_deg = pole_view->layout_yaw_deg;
+      }
       if (!TryProjectWorldPoint(camera, pole.world_transform.position, &base) ||
-          !TryProjectWorldPoint(camera, PoleTopPoint(pole), &top)) {
+          !TryProjectWorldPoint(camera, PoleTopPoint(pole, layout_yaw_deg), &top)) {
         continue;
       }
       if (RectangleIntersectsSegment(rect, base, top)) {
@@ -694,6 +702,11 @@ int main() {
   camera.projection = CAMERA_PERSPECTIVE;
 
   CoreState state{};
+  {
+    wire::core::GeometrySettings geometry = state.view().geometry_settings();
+    geometry.sag_enabled = true;
+    (void)state.UpdateGeometrySettings(geometry, false);
+  }
   ViewerUiState ui_state;
   ui_state.ui_unified_workspace = persisted.ui_unified_workspace;
   ui_state.ui_show_workspace = persisted.ui_show_workspace;
@@ -766,7 +779,3 @@ int main() {
   CloseWindow();
   return 0;
 }
-
-
-
-

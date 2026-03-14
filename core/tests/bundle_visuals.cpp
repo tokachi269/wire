@@ -1,5 +1,6 @@
 #include "registry.hpp"
 #include "helpers.hpp"
+#include "wire/core/coord_utils.hpp"
 
 #include <algorithm>
 #include <array>
@@ -101,8 +102,19 @@ bool test_pole_tilt_reprojects_auto_ports_and_updates_visual_cache() {
     return false;
   }
   const wire::core::Vec3d before_pos = before->world_position;
+  const auto pole_view_before = state.view().inspect_pole(pole_a);
+  if (!pole_view_before.has_value() || !pole_view_before->has_layout_yaw) {
+    return false;
+  }
+  const auto* pole_before = state.view().edit_state().poles.find(pole_a);
+  if (pole_before == nullptr) {
+    return false;
+  }
+  const wire::core::Pole before_pole_snapshot = *pole_before;
+  const wire::core::Vec3d before_local = wire::core::WorldPointToLocal(
+      wire::core::BuildPoleFrame(pole_before->world_transform, pole_view_before->layout_yaw_deg), before->world_position);
 
-  const auto tilt = state.SetPoleTilt(pole_a, 10.0, 0.0);
+  const auto tilt = state.SetPoleTilt(pole_a, 10.0);
   if (!tilt.ok) {
     return false;
   }
@@ -110,10 +122,31 @@ bool test_pole_tilt_reprojects_auto_ports_and_updates_visual_cache() {
   if (after == nullptr || after->position_mode != wire::core::PortPositionMode::kAuto) {
     return false;
   }
+  const auto* tilted_pole = state.view().edit_state().poles.find(pole_a);
+  const auto pole_view_after = state.view().inspect_pole(pole_a);
+  if (tilted_pole == nullptr || !pole_view_after.has_value() || !pole_view_after->has_layout_yaw) {
+    return false;
+  }
   const double moved = std::sqrt(std::pow(after->world_position.x - before_pos.x, 2.0) +
                                  std::pow(after->world_position.y - before_pos.y, 2.0) +
                                  std::pow(after->world_position.z - before_pos.z, 2.0));
-  if (moved <= 1e-5) {
+  const wire::core::Vec3d after_local = wire::core::WorldPointToLocal(
+      wire::core::BuildPoleFrame(tilted_pole->world_transform, pole_view_after->layout_yaw_deg), after->world_position);
+  const bool local_stable = almost_equal(before_local.y, after_local.y, 1e-6) &&
+                            almost_equal(before_local.z, after_local.z, 1e-6);
+  const wire::core::Vec3d top_before = wire::core::LocalPointToWorld(
+      wire::core::BuildPoleFrame(before_pole_snapshot.world_transform, pole_view_before->layout_yaw_deg),
+      {0.0, 0.0, before_pole_snapshot.height_m});
+  const wire::core::Vec3d top_after = wire::core::LocalPointToWorld(
+      wire::core::BuildPoleFrame(tilted_pole->world_transform, pole_view_after->layout_yaw_deg),
+      {0.0, 0.0, tilted_pole->height_m});
+  const wire::core::Vec3d top_delta_xy{top_after.x - top_before.x, top_after.y - top_before.y, 0.0};
+  const wire::core::Vec3d port_delta_xy{after->world_position.x - before_pos.x, after->world_position.y - before_pos.y, 0.0};
+  const bool same_lean_side =
+      (top_delta_xy.x * top_delta_xy.x + top_delta_xy.y * top_delta_xy.y) <= 1e-12 ||
+      (port_delta_xy.x * port_delta_xy.x + port_delta_xy.y * port_delta_xy.y) <= 1e-12 ||
+      dot_xy(normalize_xy_safe(top_delta_xy), normalize_xy_safe(port_delta_xy)) > 0.25;
+  if (moved <= 1e-5 || !local_stable || !same_lean_side) {
     return false;
   }
 
@@ -186,7 +219,7 @@ bool test_span_reference_length_keeps_sag_depth_stable_across_tilt() {
   if (!std::isfinite(depth_before)) {
     return false;
   }
-  if (!state.SetPoleTilt(pole_a, 14.0, 4.0).ok) {
+  if (!state.SetPoleTilt(pole_a, 14.0).ok) {
     return false;
   }
   (void)state.Commit(options);
@@ -197,7 +230,7 @@ bool test_span_reference_length_keeps_sag_depth_stable_across_tilt() {
   return std::abs(depth_before - depth_after) <= 0.15;
 }
 
-bool test_center_slot_ports_are_offset_from_pole_centerline() {
+bool test_center_band_ports_are_offset_from_pole_centerline() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
   if (type_ids.empty()) {
@@ -399,9 +432,16 @@ bool test_cable_template_edit_preserves_pole_tilt_instance_value() {
   if (!state.ApplyPoleType(pole, type_ids.front()).ok) {
     return false;
   }
-  if (!state.SetPoleTilt(pole, 7.0, 3.0).ok) {
+  if (!state.SetPoleTilt(pole, 7.0).ok) {
     return false;
   }
+  const auto* tilted_pole = state.view().edit_state().poles.find(pole);
+  if (tilted_pole == nullptr) {
+    return false;
+  }
+  const double tilt_before = tilted_pole->tilt_magnitude_deg;
+  const double rot_x_before = tilted_pole->world_transform.rotation_euler_deg.x;
+  const double rot_y_before = tilted_pole->world_transform.rotation_euler_deg.y;
   const auto& cables = state.view().cable_templates();
   if (cables.empty()) {
     return false;
@@ -413,8 +453,9 @@ bool test_cable_template_edit_preserves_pole_tilt_instance_value() {
   }
   const auto* updated_pole = state.view().edit_state().poles.find(pole);
   return updated_pole != nullptr &&
-         almost_equal(updated_pole->world_transform.rotation_euler_deg.x, 7.0, 1e-9) &&
-         almost_equal(updated_pole->world_transform.rotation_euler_deg.y, 3.0, 1e-9);
+         almost_equal(updated_pole->tilt_magnitude_deg, tilt_before, 1e-9) &&
+         almost_equal(updated_pole->world_transform.rotation_euler_deg.x, rot_x_before, 1e-9) &&
+         almost_equal(updated_pole->world_transform.rotation_euler_deg.y, rot_y_before, 1e-9);
 }
 
 bool test_apply_pole_tilt_updates_explicit_selection_only() {
@@ -423,17 +464,95 @@ bool test_apply_pole_tilt_updates_explicit_selection_only() {
   wire::core::Transformd moved{};
   moved.position = {5.0, 0.0, 0.0};
   const ObjectId pole_b = state.AddPole(moved, 10.0, "B").value;
-  const auto apply = state.ApplyPoleTilt({pole_a}, 9.0, 4.0);
+  const auto apply = state.ApplyPoleTilt({pole_a}, 9.0);
   if (!apply.ok) {
     return false;
   }
   const auto* updated_a = state.view().edit_state().poles.find(pole_a);
   const auto* updated_b = state.view().edit_state().poles.find(pole_b);
   return updated_a != nullptr && updated_b != nullptr &&
-         almost_equal(updated_a->world_transform.rotation_euler_deg.x, 9.0, 1e-9) &&
-         almost_equal(updated_a->world_transform.rotation_euler_deg.y, 4.0, 1e-9) &&
+         updated_a->tilt_magnitude_deg > 0.0 &&
+         almost_equal(updated_b->tilt_magnitude_deg, 0.0, 1e-9) &&
+         (std::abs(updated_a->world_transform.rotation_euler_deg.x) > 1e-9 ||
+          std::abs(updated_a->world_transform.rotation_euler_deg.y) > 1e-9) &&
          almost_equal(updated_b->world_transform.rotation_euler_deg.x, 0.0, 1e-9) &&
          almost_equal(updated_b->world_transform.rotation_euler_deg.y, 0.0, 1e-9);
+}
+
+bool test_pole_tilt_biases_toward_incident_span_direction() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  wire::core::Transformd a_tf{};
+  a_tf.position = {0.0, 0.0, 0.0};
+  wire::core::Transformd b_tf{};
+  b_tf.position = {12.0, 0.0, 0.0};
+  const ObjectId pole_a = state.AddPole(a_tf, 10.0, "A").value;
+  const ObjectId pole_b = state.AddPole(b_tf, 10.0, "B").value;
+  if (!state.ApplyPoleType(pole_a, type_ids.front()).ok || !state.ApplyPoleType(pole_b, type_ids.front()).ok) {
+    return false;
+  }
+  const auto add = add_connection_by_category(state, pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage);
+  if (!add.ok) {
+    return false;
+  }
+  if (!state.SetPoleTilt(pole_a, 12.0).ok) {
+    return false;
+  }
+  const auto* pole = state.view().edit_state().poles.find(pole_a);
+  const auto* remote_port = state.view().edit_state().ports.find(add.value.port_b_id);
+  const auto pole_view = state.view().inspect_pole(pole_a);
+  if (pole == nullptr || remote_port == nullptr || !pole_view.has_value() || !pole_view->has_layout_yaw) {
+    return false;
+  }
+  wire::core::Vec3d top_world = wire::core::LocalPointToWorld(
+      wire::core::BuildPoleFrame(pole->world_transform, pole_view->layout_yaw_deg), {0.0, 0.0, pole->height_m});
+  wire::core::Vec3d tilt_dir = top_world - pole->world_transform.position;
+  tilt_dir.z = 0.0;
+  wire::core::Vec3d span_dir = remote_port->world_position - pole->world_transform.position;
+  span_dir.z = 0.0;
+  if (!wire::core::NormalizeXY(&tilt_dir) || !wire::core::NormalizeXY(&span_dir)) {
+    return false;
+  }
+  return wire::core::Dot(tilt_dir, span_dir) > 0.5;
+}
+
+bool test_pole_tilt_magnitude_increases_with_pull_imbalance() {
+  auto measure_center_tilt = [](const wire::core::Vec3d& left, const wire::core::Vec3d& right) -> double {
+    CoreState state;
+    const auto type_ids = sorted_pole_type_ids(state);
+    if (type_ids.empty()) {
+      return -1.0;
+    }
+    wire::core::Transformd a_tf{};
+    a_tf.position = left;
+    wire::core::Transformd b_tf{};
+    b_tf.position = {0.0, 0.0, 0.0};
+    wire::core::Transformd c_tf{};
+    c_tf.position = right;
+    const ObjectId pole_a = state.AddPole(a_tf, 10.0, "A").value;
+    const ObjectId pole_b = state.AddPole(b_tf, 10.0, "B").value;
+    const ObjectId pole_c = state.AddPole(c_tf, 10.0, "C").value;
+    if (!state.ApplyPoleType(pole_a, type_ids.front()).ok || !state.ApplyPoleType(pole_b, type_ids.front()).ok ||
+        !state.ApplyPoleType(pole_c, type_ids.front()).ok) {
+      return -1.0;
+    }
+    if (!add_connection_by_category(state, pole_b, pole_a, wire::core::ConnectionCategory::kLowVoltage).ok ||
+        !add_connection_by_category(state, pole_b, pole_c, wire::core::ConnectionCategory::kLowVoltage).ok) {
+      return -1.0;
+    }
+    if (!state.SetPoleTilt(pole_b, 12.0).ok) {
+      return -1.0;
+    }
+    const auto* pole = state.view().edit_state().poles.find(pole_b);
+    return (pole == nullptr) ? -1.0 : pole->tilt_magnitude_deg;
+  };
+
+  const double straight_tilt = measure_center_tilt({-10.0, 0.0, 0.0}, {10.0, 0.0, 0.0});
+  const double corner_tilt = measure_center_tilt({-10.0, 0.0, 0.0}, {0.0, 10.0, 0.0});
+  return straight_tilt >= 0.0 && corner_tilt >= 0.0 && corner_tilt > straight_tilt + 1e-6;
 }
 
 void register_bundle_visual_tests(test_registry::TestRegistry& tests) {
@@ -441,7 +560,7 @@ void register_bundle_visual_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C45_Phase48a_Bundle_InvalidReject", "Invalid bundle references are rejected", "Exact", true, test_add_span_invalid_bundle_fails);
   test_registry::AddTest(tests, "C78_Phase50_Tilt_ReprojectAndVisualFollow", "Pole tilt reprojects Auto ports and updates span visual cache through one path", "Invariant", false, test_pole_tilt_reprojects_auto_ports_and_updates_visual_cache);
   test_registry::AddTest(tests, "C79_Phase50_ReferenceLength_StableSag", "Reference length keeps sag depth visually stable across tilt", "Invariant", false, test_span_reference_length_keeps_sag_depth_stable_across_tilt);
-  test_registry::AddTest(tests, "C80_Phase50_CenterOffset_NoPoleOverlap", "Center slots are offset from pole centerline by radius+clearance", "Invariant", false, test_center_slot_ports_are_offset_from_pole_centerline);
+  test_registry::AddTest(tests, "C80_Phase50_CenterOffset_NoPoleOverlap", "Center bands are offset from pole centerline by radius+clearance", "Invariant", false, test_center_band_ports_are_offset_from_pole_centerline);
   test_registry::AddTest(tests, "C81_Phase50_Insulator_ElectricOnly", "Visual insulators are generated only for electric lines", "Invariant", false, test_visual_insulators_only_for_electric_lines);
   test_registry::AddTest(tests, "C119_CableTemplate_DiameterAffectsRender",
                          "CableTemplate diameter changes update dependent wire render radius", "Invariant", false,
@@ -458,6 +577,12 @@ void register_bundle_visual_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C125_ApplyPoleTilt_SelectionOwned",
                          "ApplyPoleTilt updates only explicit pole instances and keeps tilt instance-owned",
                          "Invariant", false, test_apply_pole_tilt_updates_explicit_selection_only);
+  test_registry::AddTest(tests, "C202_Tilt_BiasesTowardIncidentSpanDirection",
+                         "Pole tilt direction is random but biased toward the incident span pull direction",
+                         "Invariant", false, test_pole_tilt_biases_toward_incident_span_direction);
+  test_registry::AddTest(tests, "C203_Tilt_MagnitudeFollowsPullImbalance",
+                         "Pole tilt magnitude is reduced for balanced spans and increases when pull is imbalanced",
+                         "Invariant", false, test_pole_tilt_magnitude_increases_with_pull_imbalance);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bundle_visual_tests);

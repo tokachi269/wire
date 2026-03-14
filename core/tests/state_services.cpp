@@ -336,6 +336,56 @@ bool test_template_mutation_service_marks_only_attached_span_dirty() {
          !contains_id(update.change_set.updated_ids, span_bc.value.span_id);
 }
 
+bool test_template_mutation_service_treats_branch_down_offset_policy_as_topology_change() {
+  CoreState state;
+  const auto pole_type_ids = sorted_pole_type_ids(state);
+  if (pole_type_ids.empty()) {
+    return false;
+  }
+
+  Transformd a_tf{};
+  a_tf.position = {0.0, 0.0, 0.0};
+  Transformd b_tf{};
+  b_tf.position = {8.0, 0.0, 0.0};
+  const ObjectId pole_a = state.AddPole(a_tf, 10.0, "A", PoleKind::kGeneric, PlacementMode::kAuto).value;
+  const ObjectId pole_b = state.AddPole(b_tf, 10.0, "B", PoleKind::kGeneric, PlacementMode::kAuto).value;
+  (void)state.ApplyPoleType(pole_a, pole_type_ids.front());
+  (void)state.ApplyPoleType(pole_b, pole_type_ids.front());
+
+  AddConnectionByPoleOptions hv_options{};
+  hv_options.use_bundle_template = true;
+  hv_options.bundle_template_id = BundleKind::kHighVoltage;
+  const auto hv_connect = state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kHighVoltage, hv_options);
+  if (!hv_connect.ok) {
+    return false;
+  }
+
+  const wire::core::Span* hv_span = state.view().spans().find(hv_connect.value.span_id);
+  if (hv_span == nullptr) {
+    return false;
+  }
+  const wire::core::Bundle* hv_bundle = state.view().bundles().find(hv_span->bundle_id);
+  const wire::core::BundleTemplate* hv_template = state.view().bundle_templates().contains(BundleKind::kHighVoltage)
+                                                      ? &state.view().bundle_templates().at(BundleKind::kHighVoltage)
+                                                      : nullptr;
+  if (hv_bundle == nullptr || hv_template == nullptr) {
+    return false;
+  }
+
+  wire::core::BundleTemplate edited = *hv_template;
+  edited.enable_branch_down_offset = !edited.enable_branch_down_offset;
+  const auto update = wire::core::state_internal::TemplateMutationService::UpdateBundleTemplate(state, edited);
+  if (!update.ok || !update.value) {
+    return false;
+  }
+
+  const wire::core::Bundle* hv_bundle_after = state.view().bundles().find(hv_bundle->id);
+  return hv_bundle_after != nullptr && hv_bundle_after->regeneration_required &&
+         contains_id(update.change_set.updated_ids, hv_bundle_after->id) &&
+         contains_id(state.view().template_dependency_state().bundles_requiring_regeneration, hv_bundle_after->id) &&
+         !contains_id(update.change_set.dirty_span_ids, hv_span->id);
+}
+
 void RegisterStateServiceTests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C181_CoreStateService_CollectOwnedEndpoints",
                          "endpoint refresh service targets owned endpoints via relation index",
@@ -355,6 +405,10 @@ void RegisterStateServiceTests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C187_CoreStateService_TemplateMutation_LocalizesAttachmentImpact",
                          "template mutation service dirties only spans that actually use the edited attachment template",
                          "Invariant", false, &test_template_mutation_service_marks_only_attached_span_dirty);
+  test_registry::AddTest(tests, "C200_CoreStateService_TemplateMutation_BranchDownOffsetPolicyIsTopology",
+                         "bundle template branch-down-offset policy changes force regeneration instead of being ignored or treated as visual-only",
+                         "Invariant", false,
+                         &test_template_mutation_service_treats_branch_down_offset_policy_as_topology_change);
 }
 
 WIRE_REGISTER_TEST_SUITE(RegisterStateServiceTests);

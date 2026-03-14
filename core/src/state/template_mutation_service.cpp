@@ -154,6 +154,7 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
       normalized.allow_mirror == it->second.allow_mirror &&
       normalized.allow_midair_node == it->second.allow_midair_node &&
       normalized.allow_midair_branch == it->second.allow_midair_branch &&
+      normalized.enable_branch_down_offset == it->second.enable_branch_down_offset &&
       normalized.support_style == it->second.support_style && normalized.branch_policy == it->second.branch_policy &&
       normalized.continuity_policy == it->second.continuity_policy && normalized.name == it->second.name;
 
@@ -167,6 +168,7 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
       normalized.allow_mirror != it->second.allow_mirror ||
       normalized.allow_midair_node != it->second.allow_midair_node ||
       normalized.allow_midair_branch != it->second.allow_midair_branch ||
+      normalized.enable_branch_down_offset != it->second.enable_branch_down_offset ||
       normalized.support_style != it->second.support_style || normalized.branch_policy != it->second.branch_policy ||
       normalized.continuity_policy != it->second.continuity_policy;
 

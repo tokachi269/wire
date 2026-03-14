@@ -1002,8 +1002,6 @@ CoreState::generate_grouped_spans_between_support_nodes(
     node_lane_ports_cache[node_id] = ports_result.value;
     ports_result.ok = true;
     return ports_result;
-    ports_result.error = "owner pole not found for grouped generation";
-    return ports_result;
   };
 
   bool first_seeded_from_previous = false;

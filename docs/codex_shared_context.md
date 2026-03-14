@@ -113,34 +113,37 @@
 4. `docs/core_model_inventory.md`
 5. `docs/chat_handoff_checklist.md`
 
-## 10. Current Snapshot（2026-03-13）
+## 10. Current Snapshot（2026-03-14）
 - いま動くもの:
   - `SupportLayout` を detail curve 前段の派生中間構造として使い、curve 生成は support layout 集約結果を入力に受ける。
   - concept-level inspection surface（`Pole / Span / SupportLayout / DetailCurve / Junction / Template / Override`）。
   - formal override 層（Pole yaw、endpoint socket、branch down offset）。runtime read は `OverrideResolutionService` 側へ寄せている。
   - DrawPath 通常経路で attachment / socket が未接続であることを trace / inspection / docs で明示。
   - main / branch / support 軸 / branch runout 向けの geometry metric tests。
+  - viewer の生成入口は DrawPath へ一本化済み。`Placement / Connection / Branch / Detail` mode は viewer から外した。
+  - DrawPath の near-pole line hit は pole hit へ正規化し、pole 直クリックと pole 近傍 line クリックで branch/main 判定が揺れにくい。
+  - DrawPath hover overlay は raw/resolved の二重描画をやめ、最終採用点を 1 マーカーで出す。
   - build まわりの改善:
     - `wire_core_public_headers_smoke`
     - `ctest` が build 後そのまま回る
     - `WIRE_ENABLE_UNITY_BUILD` は主に `wire_core_tests` 反復用
     - `pwsh.exe` ノイズは vcpkg applocal の built-in 側へ切替済み
   - `docs` 配下の `slot` 用語は除去済み。
-  - `wire_core_tests` は 190/190 PASS。
-  - `wire_viewer_tests` は 8/8 PASS。
+  - `wire_core_tests` は 197/197 PASS。
+  - `wire_viewer_tests` は 10/10 PASS。
 - いま壊れているもの:
-  - viewer 実画面では、開始/終了 pole で三相が潰れて見える repro がまだ閉じていない。
-  - `clicked point only + CommunicationPole + template 全選択` 系の見え方について、core テストは通るが viewer acceptance が未完。
+  - DrawPath の selection / hover はかなり単純化したが、実画面での最終 readability acceptance はまだ docs に閉じていない。
+  - `slot` 概念は docs では消したが、code-side には `PortSlotTemplate`, `source_slot_id`, `ensure_pole_slot_port` などが残る。
   - `wire_viewer.exe` が起動中だと viewer 本体の再リンクが `LNK1168` で止まる。
 - 既知リスク:
-  - geometry metric と core テストでは分離できていても、viewer render / cache / 可視化層で still wrong の可能性がある。
+  - geometry metric と tests で通っても、viewer 実画面の最終 readability は別に確認が要る。
   - `DetailCurve` は見た目曲線の近似基盤であり、厳密懸垂/弾性線/張力釣り合いは未導入。
   - 実装コードには `PortSlotTemplate` / `source_slot_id` / `ensure_pole_slot_port` など `slot` 概念がまだ残る。docs だけ先に片付けた段階。
 - 未着手/保留:
   - shader 側での arc-length 正規化距離属性の実利用。
   - support style / mirror / flow classification の formal override。
   - `slot` 概念の code-side 削除（`entities.hpp`, `templates.cpp`, validator, viewer/debug）。
-  - viewer 側の current build capture と render/state 切り分け。
+  - viewer を `DrawPath + readonly inspector + template editor` にさらに絞るかの整理。
 
 ## 11. Decision Log（直近）
 - 2026-03-11 / Accepted:
@@ -208,21 +211,22 @@
 
 ## 13. 次回開始パック（そのまま貼付可）
 - ゴール:
-  - viewer で残っている「開始/終了 pole の三相が潰れて見える」問題を、core 幾何なのか viewer render/state/capture なのか切り分けて閉じる。
+  - DrawPath-only 前提で viewer 体験の残件を閉じる。
   - `slot` 概念を code-side でも削り、template 配置ヒントと runtime `Port` の境界を単純化する。
 - 現在状態:
-  - `wire_core_tests` は 190/190 PASS、`wire_viewer_tests` は 8/8 PASS。
-  - geometry metric / trace / inspection では terminal 分離、row 軸、branch runout を観測できる。
+  - `wire_core_tests` は 197/197 PASS、`wire_viewer_tests` は 10/10 PASS。
+  - 開始/終了 pole 三相潰れ、row 向き 90 度ずれ、1本目だけ高さが合って次から低い問題は user 目視で解決済み共有あり。
+  - DrawPath near-pole selection は pole hit へ正規化済み。hover marker は 1 個に整理済み。
   - docs 配下の `slot` 用語は削除済みだが、コードには `slot` 型と debug が残る。
-  - viewer 本体は実行中プロセスがあると `LNK1168` で再リンク不能。
 - 直近決定:
   - 曲線生成は `u`、正確な配置は `s`、毎フレーム表示変形は GPU 距離属性。
   - 見た目曲線は「cubic 基準曲線 + 後段 sag 合成」。
   - attachment / socket は DrawPath 通常経路では未接続として扱う。
   - `WIRE_ENABLE_UNITY_BUILD` は tests build 用オプションとして扱う。
+  - viewer 入口は DrawPath を正規とし、旧 mode は viewer から外す。
 - 次の48h候補:
-  - current build の viewer repro capture を取り、core 幾何と render/state のどちらで潰れているかを切る。
   - `PortSlotTemplate` / `source_slot_id` / `ensure_pole_slot_port` を削る。
+  - DrawPath 周辺の残存 mutation/selection/debug をさらに整理し、viewer 体験を単純化する。
   - support style / mirror / flow classification override の formal 導入。
 - 制約:
   - 正本直書き禁止、公開API経由のみ。

@@ -9,6 +9,24 @@ bool IsTemplateSelected(std::uint32_t selected_template_mask, wire::core::Bundle
   return (selected_template_mask & bit) != 0;
 }
 
+double DistanceSquaredXY(const wire::core::Vec3d& a, const wire::core::Vec3d& b) {
+  const double dx = a.x - b.x;
+  const double dy = a.y - b.y;
+  return dx * dx + dy * dy;
+}
+
+double SegmentTxy(const wire::core::Vec3d& p, const wire::core::Vec3d& a, const wire::core::Vec3d& b) {
+  const double abx = b.x - a.x;
+  const double aby = b.y - a.y;
+  const double ab2 = abx * abx + aby * aby;
+  if (ab2 <= 1e-12) {
+    return 0.0;
+  }
+  const double apx = p.x - a.x;
+  const double apy = p.y - a.y;
+  return std::clamp((apx * abx + apy * aby) / ab2, 0.0, 1.0);
+}
+
 } // namespace
 
 std::vector<wire::core::BundleKind> SelectedBundleTemplateKinds(const wire::core::CoreState& state,
@@ -62,4 +80,53 @@ std::string FindMidairBranchBlockedTemplateName(const wire::core::CoreState& sta
     }
   }
   return {};
+}
+
+wire::core::PickResult NormalizeDrawPathPick(const wire::core::CoreState& state, const wire::core::PickResult& pick,
+                                             double endpoint_snap_radius_world) {
+  if (pick.hit_kind != wire::core::PickHitKind::kSegment || !pick.has_segment_endpoints || endpoint_snap_radius_world <= 0.0) {
+    return pick;
+  }
+
+  const double endpoint_snap_r2 = endpoint_snap_radius_world * endpoint_snap_radius_world;
+  const double t = SegmentTxy(pick.hit_pos_world, pick.segment_endpoint_a_world, pick.segment_endpoint_b_world);
+  const bool near_start = t <= 0.2;
+  const bool near_end = t >= 0.8;
+  if (!near_start && !near_end) {
+    return pick;
+  }
+
+  const double d2_a = DistanceSquaredXY(pick.hit_pos_world, pick.segment_endpoint_a_world);
+  const double d2_b = DistanceSquaredXY(pick.hit_pos_world, pick.segment_endpoint_b_world);
+  if (near_start && d2_a <= endpoint_snap_r2 && d2_a <= d2_b) {
+    wire::core::PickResult normalized = pick;
+    if (pick.segment_node_a_id != wire::core::kInvalidObjectId) {
+      if (const wire::core::Pole* pole = state.view().edit_state().poles.find(pick.segment_node_a_id); pole != nullptr) {
+        normalized.hit_kind = wire::core::PickHitKind::kNode;
+        normalized.hit_id = pick.segment_node_a_id;
+        normalized.hit_pos_world = pole->world_transform.position;
+      } else {
+        normalized.hit_pos_world = normalized.segment_endpoint_a_world;
+      }
+    } else {
+      normalized.hit_pos_world = normalized.segment_endpoint_a_world;
+    }
+    return normalized;
+  }
+  if (near_end && d2_b <= endpoint_snap_r2 && d2_b <= d2_a) {
+    wire::core::PickResult normalized = pick;
+    if (pick.segment_node_b_id != wire::core::kInvalidObjectId) {
+      if (const wire::core::Pole* pole = state.view().edit_state().poles.find(pick.segment_node_b_id); pole != nullptr) {
+        normalized.hit_kind = wire::core::PickHitKind::kNode;
+        normalized.hit_id = pick.segment_node_b_id;
+        normalized.hit_pos_world = pole->world_transform.position;
+      } else {
+        normalized.hit_pos_world = normalized.segment_endpoint_b_world;
+      }
+    } else {
+      normalized.hit_pos_world = normalized.segment_endpoint_b_world;
+    }
+    return normalized;
+  }
+  return pick;
 }

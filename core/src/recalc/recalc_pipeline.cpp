@@ -924,7 +924,11 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
   const SpanSupportLayoutEntry* support_layout = find_span_support_layout(span_id);
 
   auto append_parts_for_port = [&](const Port& port, const SupportLayoutEndpoint* layout_endpoint) {
-    const Pole* pole = edit_state_.poles.find(port.owner_pole_id);
+    ObjectId support_pole_id = port.owner_pole_id;
+    if (support_pole_id == kInvalidObjectId && layout_endpoint != nullptr) {
+      support_pole_id = layout_endpoint->owner_pole_id;
+    }
+    const Pole* pole = edit_state_.poles.find(support_pole_id);
     if (pole == nullptr) {
       return;
     }
@@ -936,9 +940,29 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
         (planar <= 1e-9) ? 0.0 : (dy / planar),
         0.0,
     };
+      const bool uses_branch_support = layout_endpoint != nullptr &&
+                                       layout_endpoint->origin == SupportLayoutOriginKind::kBranchSupport;
+      if (uses_branch_support) {
+        const Port& other_port = (port.id == span->port_a_id) ? *b : *a;
+        Vec3d branch_forward = other_port.world_position - pole->world_transform.position;
+        if (other_port.owner_pole_id != kInvalidObjectId) {
+          if (const Pole* other_pole = edit_state_.poles.find(other_port.owner_pole_id); other_pole != nullptr) {
+            branch_forward = other_pole->world_transform.position - pole->world_transform.position;
+          }
+        }
+        branch_forward.z = 0.0;
+        if (!Normalize(&branch_forward)) {
+          branch_forward = {1.0, 0.0, 0.0};
+        }
+      radial = ComputeLateralAxis(branch_forward);
+      if ((radial.x * dx + radial.y * dy) < 0.0) {
+        radial = ScaleVec(radial, -1.0);
+      }
+    }
 
     SpanVisualCacheEntry& entry = cache_state_.visual_cache.by_span[span_id];
     if (cache_state_.visual_settings.enable_support_structures &&
+        !uses_branch_support &&
         port.template_side != SlotSide::kCenter &&
         planar > cache_state_.visual_settings.support_center_threshold_m + 1e-9) {
       VisualPart arm{};
@@ -966,28 +990,19 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
       entry.parts.push_back(ins);
     }
 
-    const bool uses_branch_support = layout_endpoint != nullptr &&
-                                     layout_endpoint->origin == SupportLayoutOriginKind::kBranchSupport;
     if (uses_branch_support) {
       BranchSupportPlacement placement{};
       placement.owner_pole_id = pole->id;
       placement.peer_node_id =
           (port.id == span->port_a_id) ? span->endpoint_node_b_id : span->endpoint_node_a_id;
       placement.side = layout_endpoint->side;
-      placement.mount_world = {pole->world_transform.position.x, pole->world_transform.position.y, port.world_position.z};
-      placement.tip_world = {
-          port.world_position.x + radial.x * cache_state_.visual_settings.support_arm_extra_m,
-          port.world_position.y + radial.y * cache_state_.visual_settings.support_arm_extra_m,
-          port.world_position.z,
-      };
       placement.attachment_world = port.world_position;
       placement.down_offset_variation = layout_endpoint->down_offset_variation;
       placement.down_offset_m = layout_endpoint->branch_down_offset_m;
-      placement.mount_world = {pole->world_transform.position.x, pole->world_transform.position.y,
-                               port.world_position.z + placement.down_offset_m};
-      placement.tip_world = {
-          port.world_position.x + radial.x * cache_state_.visual_settings.support_arm_extra_m,
-          port.world_position.y + radial.y * cache_state_.visual_settings.support_arm_extra_m,
+      placement.tip_world = {port.world_position.x, port.world_position.y, port.world_position.z + placement.down_offset_m};
+      placement.mount_world = {
+          placement.tip_world.x - radial.x * cache_state_.visual_settings.support_arm_extra_m,
+          placement.tip_world.y - radial.y * cache_state_.visual_settings.support_arm_extra_m,
           port.world_position.z + placement.down_offset_m,
       };
       entry.branch_supports.push_back(placement);

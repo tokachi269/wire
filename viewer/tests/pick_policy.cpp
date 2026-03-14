@@ -105,6 +105,52 @@ bool test_midair_branch_block_finds_disallowed_template() {
          blocked == "HV_3PH";
 }
 
+bool test_draw_path_segment_pick_near_endpoint_snaps_to_endpoint_position() {
+  wire::core::CoreState state;
+  const wire::core::PoleTypeId type_id = FirstPoleTypeId(state);
+  if (type_id == wire::core::kInvalidPoleTypeId) {
+    return false;
+  }
+  const wire::core::ObjectId pole_a = CreatePole(state, {0.0, 0.0, 0.0}, type_id, "A");
+  const wire::core::ObjectId pole_b = CreatePole(state, {10.0, 0.0, 0.0}, type_id, "B");
+  if (pole_a == wire::core::kInvalidObjectId || pole_b == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.has_segment_endpoints = true;
+  pick.segment_node_a_id = pole_a;
+  pick.segment_node_b_id = pole_b;
+  pick.segment_endpoint_a_world = {0.6, 0.0, 8.7};
+  pick.segment_endpoint_b_world = {9.4, 0.0, 8.7};
+  pick.hit_pos_world = {0.6, 0.0, 0.0};
+
+  const wire::core::PickResult normalized = NormalizeDrawPathPick(state, pick, 1.25);
+  return normalized.hit_kind == wire::core::PickHitKind::kNode &&
+         normalized.hit_id == pole_a &&
+         normalized.hit_pos_world.x == 0.0 &&
+         normalized.hit_pos_world.y == 0.0 &&
+         normalized.hit_pos_world.z == 0.0;
+}
+
+bool test_draw_path_segment_pick_midspan_does_not_snap_to_endpoint_position() {
+  wire::core::CoreState state;
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.has_segment_endpoints = true;
+  pick.segment_node_a_id = 10;
+  pick.segment_node_b_id = 11;
+  pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
+  pick.segment_endpoint_b_world = {10.0, 0.0, 0.0};
+  pick.hit_pos_world = {5.0, 0.0, 0.0};
+
+  const wire::core::PickResult normalized = NormalizeDrawPathPick(state, pick, 1.25);
+  return normalized.hit_pos_world.x == 5.0 &&
+         normalized.hit_pos_world.y == 0.0 &&
+         normalized.hit_pos_world.z == 0.0;
+}
+
 void register_pick_policy_tests(viewer_test_registry::TestRegistry& tests) {
   viewer_test_registry::AddTest(tests, "V01", "Selected DrawPath template wins over hit span template",
                                 test_selected_template_wins_over_hit_span_template);
@@ -114,6 +160,10 @@ void register_pick_policy_tests(viewer_test_registry::TestRegistry& tests) {
                                 test_midair_branch_block_checks_selected_templates);
   viewer_test_registry::AddTest(tests, "V04", "Midair branch block finds any disallowed selected template",
                                 test_midair_branch_block_finds_disallowed_template);
+  viewer_test_registry::AddTest(tests, "V09", "DrawPath segment pick near endpoint snaps to endpoint position",
+                                test_draw_path_segment_pick_near_endpoint_snaps_to_endpoint_position);
+  viewer_test_registry::AddTest(tests, "V10", "DrawPath segment pick at midspan does not snap to endpoint position",
+                                test_draw_path_segment_pick_midspan_does_not_snap_to_endpoint_position);
 }
 
 WIRE_REGISTER_VIEWER_TEST_SUITE(register_pick_policy_tests);

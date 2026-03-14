@@ -136,7 +136,8 @@ void DrawSceneBackdrop() {
 }
 
 bool IsSelectionViewportMode(const ViewerUiState& ui_state) {
-  return ui_state.mode != EditMode::kBranch && ui_state.mode != EditMode::kDrawPath;
+  (void)ui_state;
+  return false;
 }
 
 Rectangle SelectionRectangle(const DragSelectionState& drag_selection) {
@@ -701,8 +702,8 @@ int main() {
   ui_state.camera_walk_speed = persisted.camera_walk_speed;
   PushLog(ui_state, "[info] viewer started");
   PushLog(ui_state, "[info] empty state loaded");
-  PushLog(ui_state, "[mode] Placement/Connection/Branch/Detail/DrawPath");
-  PushLog(ui_state, "[flow] Main path: Pole->Pole connection");
+  PushLog(ui_state, "[mode] DrawPath only");
+  PushLog(ui_state, "[flow] Main path: BackboneSpec generation from DrawPath");
   PushLog(ui_state, "[hint] Blender style controls enabled");
   PushLog(ui_state, "[hint] MMB orbit, Shift+MMB pan, Ctrl+MMB dolly");
   PushLog(ui_state, "[hint] Alt+LMB: set orbit pivot, [ / ]: FOV, Shift+F: Walk");
@@ -727,7 +728,6 @@ int main() {
     UpdateCameraForViewport(&camera, ui_state);
     UpdateViewportSelectionInput(state, camera, ui_state);
     UpdateDrawPathInput(state, camera, ui_state);
-    UpdateBranchPickInput(state, camera, ui_state);
     if (ui_state.auto_recalc) {
       wire::core::CommitOptions options{};
       options.run_recalc = true;

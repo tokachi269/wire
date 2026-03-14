@@ -160,43 +160,26 @@ void DrawAxesImpl() {
 
 void DrawPickHighlightImpl(const CoreState& state, const wire::core::PickResult& pick, bool has_resolution,
                            const wire::core::CoreState::ResolveBranchPickResult& resolution) {
+  if (has_resolution) {
+    const bool is_midair = (resolution.resolution == wire::core::CoreState::PickBranchResolutionKind::kMidair);
+    const Color resolved_color = is_midair ? Color{90, 154, 176, 235} : Color{214, 180, 92, 235};
+    DrawSphere(ToRaylib(resolution.position), 0.16f, resolved_color);
+    DrawSphereWires(ToRaylib(resolution.position), 0.21f, 10, 16, Color{122, 124, 128, 210});
+    return;
+  }
+
   if (pick.hit_kind == wire::core::PickHitKind::kEmpty) {
     return;
   }
-  const auto& edit = state.view().edit_state();
   if (pick.hit_kind == wire::core::PickHitKind::kNode || pick.hit_kind == wire::core::PickHitKind::kBuilding) {
     DrawSphere(ToRaylib(pick.hit_pos_world), 0.16f, Color{214, 180, 92, 215});
     DrawSphereWires(ToRaylib(pick.hit_pos_world), 0.22f, 10, 14, Color{132, 118, 88, 220});
   } else if (pick.hit_kind == wire::core::PickHitKind::kSegment) {
-    bool has_segment = false;
-    wire::core::Vec3d a{};
-    wire::core::Vec3d b{};
-    if (const wire::core::Span* span = edit.spans.find(pick.hit_id); span != nullptr) {
-      const wire::core::Port* pa = edit.ports.find(span->port_a_id);
-      const wire::core::Port* pb = edit.ports.find(span->port_b_id);
-      if (pa != nullptr && pb != nullptr) {
-        a = pa->world_position;
-        b = pb->world_position;
-        has_segment = true;
-      }
-    }
-    if (!has_segment && pick.has_segment_endpoints) {
-      a = pick.segment_endpoint_a_world;
-      b = pick.segment_endpoint_b_world;
-      has_segment = true;
-    }
-    if (has_segment) {
-      DrawLine3D(ToRaylib(a), ToRaylib(b), Color{86, 148, 126, 235});
-      DrawSphere(ToRaylib(a), 0.08f, Color{92, 156, 136, 220});
-      DrawSphere(ToRaylib(b), 0.08f, Color{92, 156, 136, 220});
+    if (pick.has_segment_endpoints) {
+      DrawLine3D(ToRaylib(pick.segment_endpoint_a_world), ToRaylib(pick.segment_endpoint_b_world),
+                 Color{86, 148, 126, 235});
     }
     DrawSphere(ToRaylib(pick.hit_pos_world), 0.09f, Color{86, 148, 126, 230});
-  }
-  if (has_resolution) {
-    const bool is_midair = (resolution.resolution == wire::core::CoreState::PickBranchResolutionKind::kMidair);
-    const Color resolved_color = is_midair ? Color{90, 154, 176, 235} : Color{214, 180, 92, 235};
-    DrawSphere(ToRaylib(resolution.position), 0.15f, resolved_color);
-    DrawSphereWires(ToRaylib(resolution.position), 0.20f, 10, 16, Color{122, 124, 128, 210});
   }
 }
 
@@ -219,6 +202,9 @@ void DrawBackboneOverlayImpl(const wire::core::BackboneResult& backbone, const V
   for (const wire::core::SupportNode& node : backbone.nodes) {
     const bool in_draw_path = std::find(ui_state.draw_path_point_node_ids.begin(), ui_state.draw_path_point_node_ids.end(),
                                         node.node_id) != ui_state.draw_path_point_node_ids.end();
+    if (node.support_kind == wire::core::SupportKind::kPole && !in_draw_path) {
+      continue;
+    }
     Color color = Color{196, 164, 88, 210};
     float radius = 0.12f;
     if (node.support_kind == wire::core::SupportKind::kMidair) {
@@ -303,8 +289,7 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
     DrawCylinderWiresEx(ToRaylib(pole_base_ue), ToRaylib(pole_top_ue), 0.12f, 0.08f, 10, color);
   }
 
-  const bool show_backbone_overlay =
-      ui_state.draw_show_backbone_overlay && (ui_state.mode == EditMode::kDrawPath || ui_state.mode == EditMode::kBranch);
+  const bool show_backbone_overlay = ui_state.draw_show_backbone_overlay;
   if (!show_backbone_overlay) {
     for (const wire::core::SupportNode& node : backbone.nodes) {
       if (node.support_kind == wire::core::SupportKind::kPole) {
@@ -319,20 +304,25 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
     }
   }
 
-  for (const wire::core::Port& port : edit.ports.items()) {
-    Color color = (port.position_mode == wire::core::PortPositionMode::kManual) ? MAGENTA : ORANGE;
-    if (SelectionContains(ui_state, SelectedType::kPort, port.id)) {
-      color = GOLD;
+  const bool draw_endpoint_markers =
+      ui_state.show_debug_labels || SelectionCountByType(ui_state, SelectedType::kPort) > 0 ||
+      SelectionCountByType(ui_state, SelectedType::kAnchor) > 0;
+  if (draw_endpoint_markers) {
+    for (const wire::core::Port& port : edit.ports.items()) {
+      Color color = (port.position_mode == wire::core::PortPositionMode::kManual) ? MAGENTA : ORANGE;
+      if (SelectionContains(ui_state, SelectedType::kPort, port.id)) {
+        color = GOLD;
+      }
+      DrawSphere(ToRaylib(port.world_position), 0.09f, color);
     }
-    DrawSphere(ToRaylib(port.world_position), 0.09f, color);
-  }
 
-  for (const wire::core::Anchor& anchor : edit.anchors.items()) {
-    Color color = PURPLE;
-    if (SelectionContains(ui_state, SelectedType::kAnchor, anchor.id)) {
-      color = GOLD;
+    for (const wire::core::Anchor& anchor : edit.anchors.items()) {
+      Color color = PURPLE;
+      if (SelectionContains(ui_state, SelectedType::kAnchor, anchor.id)) {
+        color = GOLD;
+      }
+      DrawSphere(ToRaylib(anchor.world_position), 0.08f, color);
     }
-    DrawSphere(ToRaylib(anchor.world_position), 0.08f, color);
   }
 
   for (const wire::core::Span& span : edit.spans.items()) {
@@ -437,10 +427,6 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
     DrawCubeV(ToRaylib(pos), Vector3{0.14f, 0.14f, 0.14f}, color);
   }
 
-  if (ui_state.mode == EditMode::kBranch && ui_state.branch_pick_enabled) {
-    DrawPickHighlightImpl(state, ui_state.branch_hover_pick, ui_state.branch_hover_has_resolution,
-                          ui_state.branch_hover_resolution);
-  }
   if (ui_state.mode == EditMode::kDrawPath && ui_state.draw_pick_enabled) {
     DrawPickHighlightImpl(state, ui_state.draw_hover_pick, ui_state.draw_hover_has_resolution,
                           ui_state.draw_hover_resolution);

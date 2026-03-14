@@ -113,6 +113,7 @@ struct BundleTemplate {
   bool allow_mirror = true;
   bool allow_midair_node = true;
   bool allow_midair_branch = true;
+  bool enable_branch_down_offset = false;
   BundleSupportStyleHint support_style = BundleSupportStyleHint::kAuto;
   BundleBranchPolicyHint branch_policy = BundleBranchPolicyHint::kAuto;
   CableContinuityPolicyHint continuity_policy = CableContinuityPolicyHint::kAuto;

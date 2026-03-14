@@ -19,3 +19,6 @@ std::vector<wire::core::BundleKind> ResolveTemplateKindsForPathPick(const wire::
 
 std::string FindMidairBranchBlockedTemplateName(const wire::core::CoreState& state,
                                                 const std::vector<wire::core::BundleKind>& template_ids);
+
+wire::core::PickResult NormalizeDrawPathPick(const wire::core::CoreState& state, const wire::core::PickResult& pick,
+                                             double endpoint_snap_radius_world);

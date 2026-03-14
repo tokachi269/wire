@@ -35,11 +35,7 @@ enum class CameraDragMode {
 };
 
 enum class EditMode {
-  kPlacement = 0,
-  kConnection = 1,
-  kBranch = 2,
-  kDetail = 3,
-  kDrawPath = 4,
+  kDrawPath = 0,
 };
 
 struct SelectionItem {
@@ -54,7 +50,7 @@ struct DragSelectionState {
 };
 
 struct ViewerUiState {
-  EditMode mode = EditMode::kPlacement;
+  EditMode mode = EditMode::kDrawPath;
   SelectedType selected_type = SelectedType::kNone;
   ObjectId selected_id = wire::core::kInvalidObjectId;
   std::vector<SelectionItem> selection_items{};
@@ -63,49 +59,6 @@ struct ViewerUiState {
   bool selection_include_spans = true;
   DragSelectionState drag_selection{};
 
-  double pole_x = 0.0;
-  double pole_y = 0.0;
-  double pole_z = 0.0;
-  double pole_height = 9.0;
-  int pole_kind = static_cast<int>(wire::core::PoleKind::kWood);
-
-  ObjectId port_owner_pole_id = wire::core::kInvalidObjectId;
-  double port_x = 0.0;
-  double port_y = 0.0;
-  double port_z = 7.0;
-  int port_kind = static_cast<int>(wire::core::PortKind::kPower);
-  int port_layer = static_cast<int>(wire::core::PortLayer::kLowVoltage);
-
-  ObjectId span_port_a_id = wire::core::kInvalidObjectId;
-  ObjectId span_port_b_id = wire::core::kInvalidObjectId;
-  ObjectId span_bundle_id = wire::core::kInvalidObjectId;
-  int span_kind = static_cast<int>(wire::core::SpanKind::kDistribution);
-  int span_layer = static_cast<int>(wire::core::SpanLayer::kLowVoltage);
-  double split_t = 0.5;
-
-  int placement_pole_type_index = 0;
-  ObjectId connect_pole_a_id = wire::core::kInvalidObjectId;
-  ObjectId connect_pole_b_id = wire::core::kInvalidObjectId;
-  int connect_category = static_cast<int>(wire::core::ConnectionCategory::kLowVoltage);
-  int connect_context = static_cast<int>(wire::core::ConnectionContext::kTrunkContinue);
-  ObjectId branch_source_span_id = wire::core::kInvalidObjectId;
-  double branch_t = 0.5;
-  double branch_target_x = 0.0;
-  double branch_target_y = 0.0;
-  double branch_target_z = 3.0;
-  bool branch_pick_enabled = true;
-  double branch_snap_radius_world = 0.75;
-  wire::core::PickResult branch_hover_pick{};
-  bool branch_hover_has_resolution = false;
-  wire::core::CoreState::ResolveBranchPickResult branch_hover_resolution{};
-  std::string branch_hover_status{};
-  wire::core::PickResult branch_last_pick{};
-  std::string branch_last_pick_summary{};
-  ObjectId drop_source_pole_id = wire::core::kInvalidObjectId;
-  double drop_target_x = 0.0;
-  double drop_target_y = 4.0;
-  double drop_target_z = 3.0;
-  int detail_pole_type_index = 0;
   bool show_debug_labels = false;
   bool show_whole_aabb = false;
   bool show_segment_aabb = false;
@@ -146,18 +99,6 @@ struct ViewerUiState {
   double tilt_all_x_deg = 0.0;
   double tilt_all_y_deg = 0.0;
   std::uint64_t road_id = 1;
-  double road_start_x = -20.0;
-  double road_start_y = 0.0;
-  double road_start_z = 0.0;
-  bool road_use_mid = false;
-  double road_mid_x = 0.0;
-  double road_mid_y = 0.0;
-  double road_mid_z = 0.0;
-  double road_end_x = 20.0;
-  double road_end_y = 0.0;
-  double road_end_z = 0.0;
-  double road_interval = 8.0;
-  int road_category_index = static_cast<int>(wire::core::ConnectionCategory::kLowVoltage);
   std::uint32_t draw_category_mask = (1u << static_cast<int>(wire::core::ConnectionCategory::kLowVoltage));
   std::uint32_t draw_bundle_template_mask = (1u << static_cast<int>(wire::core::BundleKind::kLowVoltage));
   std::unordered_map<int, int> draw_bundle_count_by_template{};
@@ -197,9 +138,6 @@ struct ViewerUiState {
   std::vector<std::string> logs;
   CameraDragMode camera_drag_mode = CameraDragMode::kNone;
   bool auto_recalc = true;
-  double edit_x = 0.0;
-  double edit_y = 0.0;
-  double edit_z = 0.0;
   bool camera_walk_mode = false;
   float camera_walk_speed = 6.0f;
   float camera_mouse_sensitivity = 0.003f;
@@ -285,7 +223,6 @@ void DrawPathPushPoint(ViewerUiState& ui_state, const wire::core::Vec3d& point, 
 void DrawPathPopPoint(ViewerUiState& ui_state);
 void DrawPathClearPoints(ViewerUiState& ui_state);
 void DrawPathClearWithSessionReset(ViewerUiState& ui_state);
-void UpdateBranchPickInput(CoreState& state, const Camera3D& camera, ViewerUiState& ui_state);
 bool ExecuteBackboneRequest(CoreState& state, ViewerUiState& ui_state, const wire::core::BackboneSpec& request,
                             bool allow_session_regen, bool clear_draw_path_on_success, const char* success_log,
                             const char* failure_log);
@@ -295,4 +232,3 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
 void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState& ui_state);
 void DrawPathPreview(const ViewerUiState& ui_state);
 void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state);
-void DrawBranchModePanel(CoreState& state, ViewerUiState& ui_state);

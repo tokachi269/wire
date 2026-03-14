@@ -30,6 +30,21 @@ const char* CategoryLabelLocal(wire::core::ConnectionCategory category) {
   }
 }
 
+double DefaultBranchDownOffsetForCategoryLocal(wire::core::ConnectionCategory category) {
+  switch (category) {
+  case wire::core::ConnectionCategory::kHighVoltage:
+    return 0.275;
+  case wire::core::ConnectionCategory::kCommunication:
+    return 0.30;
+  case wire::core::ConnectionCategory::kOptical:
+    return 0.24;
+  case wire::core::ConnectionCategory::kLowVoltage:
+  case wire::core::ConnectionCategory::kDrop:
+  default:
+    return 0.35;
+  }
+}
+
 const char* ContextLabelLocal(wire::core::ConnectionContext context) {
   switch (context) {
   case wire::core::ConnectionContext::kTrunkContinue:
@@ -99,14 +114,6 @@ const char* PickHitKindLabelLocal(wire::core::PickHitKind kind) {
 
 const char* ModeLabelLocal(EditMode mode) {
   switch (mode) {
-  case EditMode::kPlacement:
-    return "Placement";
-  case EditMode::kConnection:
-    return "Connection";
-  case EditMode::kBranch:
-    return "Branch";
-  case EditMode::kDetail:
-    return "Detail";
   case EditMode::kDrawPath:
     return "DrawPath";
   default:
@@ -323,92 +330,6 @@ void DrawPathClearWithSessionReset(ViewerUiState& ui_state) {
   ui_state.last_generation_session = 0;
 }
 
-void UpdateBranchPickInput(CoreState& state, const Camera3D& camera, ViewerUiState& ui_state) {
-  ui_state.branch_hover_pick = {};
-  ui_state.branch_hover_has_resolution = false;
-  ui_state.branch_hover_status.clear();
-  if (ui_state.mode != EditMode::kBranch || !ui_state.branch_pick_enabled) {
-    return;
-  }
-  ImGuiIO& io = ImGui::GetIO();
-  if (io.WantCaptureMouse || ui_state.camera_drag_mode != CameraDragMode::kNone || ui_state.camera_walk_mode) {
-    return;
-  }
-
-  ViewerSceneQuery scene_query{};
-  const wire::core::PickResult pick = scene_query.Raycast(state, camera, ui_state.draw_plane_z);
-  ui_state.branch_hover_pick = pick;
-  if (pick.hit_kind == wire::core::PickHitKind::kEmpty) {
-    ui_state.branch_hover_status = "hover: Empty";
-    return;
-  }
-  ui_state.branch_hover_status =
-      std::string("hover: ") + PickHitKindLabelLocal(pick.hit_kind) + " id=" + PickTargetLabel(pick);
-
-  wire::core::ResolveBranchPickOptions options{};
-  options.bundle_template_id = ResolveBundleTemplateForPathPick(state, ui_state.draw_bundle_template_mask, pick);
-  options.snap_radius_world = ui_state.branch_snap_radius_world;
-  options.create_midair_node = false;
-  const auto resolved = state.ResolveBranchPick(pick, options);
-  if (!resolved.ok) {
-    ui_state.branch_hover_status += " -> blocked: " + resolved.error;
-    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-      ui_state.last_error = resolved.error;
-      PushLogLocal(ui_state, "ResolveBranchPick failed: " + resolved.error);
-    }
-    return;
-  }
-  const std::string blocked_template =
-      FindMidairBranchBlockedTemplateName(state, ResolveTemplateKindsForPathPick(state, ui_state.draw_bundle_template_mask, pick));
-  if (resolved.value.resolution == wire::core::CoreState::PickBranchResolutionKind::kMidair && !blocked_template.empty()) {
-    ui_state.branch_hover_status += " -> blocked: midair branch disabled by template " + blocked_template;
-    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-      ui_state.last_error = "bundle template does not allow midair branch";
-      PushLogLocal(ui_state, "ResolveBranchPick failed: bundle template does not allow midair branch");
-    }
-    return;
-  }
-  ui_state.branch_hover_has_resolution = true;
-  ui_state.branch_hover_resolution = resolved.value;
-  ui_state.branch_hover_status +=
-      (resolved.value.resolution == wire::core::CoreState::PickBranchResolutionKind::kNode) ? " -> Node" : " -> Midair";
-  if (!IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-    return;
-  }
-
-  ui_state.branch_last_pick = pick;
-  ui_state.branch_last_pick_summary = ui_state.branch_hover_status;
-  ui_state.last_error.clear();
-  wire::core::ResolveBranchPickOptions click_options = options;
-  click_options.create_midair_node = true;
-  const auto applied = state.ResolveBranchPick(pick, click_options);
-  if (!applied.ok) {
-    ui_state.last_error = applied.error;
-    PushLogLocal(ui_state, "ResolveBranchPick(click) failed: " + applied.error);
-    return;
-  }
-  ui_state.branch_target_x = applied.value.position.x;
-  ui_state.branch_target_y = applied.value.position.y;
-  ui_state.branch_target_z = applied.value.position.z;
-  if (applied.value.resolution == wire::core::CoreState::PickBranchResolutionKind::kNode) {
-    if (applied.value.resolved_node_id != wire::core::kInvalidObjectId &&
-        state.view().edit_state().poles.find(applied.value.resolved_node_id) != nullptr) {
-      SetPrimarySelection(ui_state, SelectedType::kPole, applied.value.resolved_node_id);
-    }
-    if (pick.hit_kind == wire::core::PickHitKind::kSegment) {
-      if (applied.value.resolved_node_id == pick.segment_node_a_id) {
-        ui_state.branch_t = 0.0;
-      } else if (applied.value.resolved_node_id == pick.segment_node_b_id) {
-        ui_state.branch_t = 1.0;
-      }
-      ui_state.branch_source_span_id = pick.hit_id;
-    }
-    PushLogLocal(ui_state, applied.value.snapped_from_segment_endpoint ? "Branch pick snapped to segment endpoint node"
-                                                                       : "Branch pick resolved to node");
-  } else {
-    PushLogLocal(ui_state, "Branch pick resolved to Midair support node");
-  }
-}
 bool ExecuteBackboneRequest(CoreState& state, ViewerUiState& ui_state, const wire::core::BackboneSpec& request,
                             bool allow_session_regen, bool clear_draw_path_on_success, const char* success_log,
                             const char* failure_log) {
@@ -621,6 +542,10 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
       ofs << "draw.bundle[" << i << "].name=" << tpl.name << "\n";
       ofs << "draw.bundle[" << i << "].category=" << CategoryLabelLocal(tpl.category) << "\n";
       ofs << "draw.bundle[" << i << "].default_layer=" << static_cast<int>(tpl.default_layer) << "\n";
+      ofs << "draw.bundle[" << i << "].enable_branch_down_offset=" << (tpl.enable_branch_down_offset ? 1 : 0) << "\n";
+      ofs << "draw.bundle[" << i << "].auto_branch_down_offset_default="
+          << (tpl.enable_branch_down_offset ? DefaultBranchDownOffsetForCategoryLocal(tpl.category) : 0.0)
+          << "\n";
       ofs << "draw.bundle[" << i << "].count_rule=" << static_cast<int>(tpl.count_rule) << "\n";
       if (tpl.count_rule == wire::core::BundleCountRuleKind::kFixed) {
         ofs << "draw.bundle[" << i << "].count=" << tpl.fixed_count << "\n";
@@ -713,6 +638,96 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
         << "\n";
   }
 
+  const auto& assignments = view.last_lane_assignments();
+  ofs << "result.lane_assignment_count=" << assignments.size() << "\n";
+  auto find_span_by_assignment_lane = [&](const wire::core::SegmentLaneAssignment& assignment,
+                                          std::size_t lane_index) -> const wire::core::Span* {
+    if (lane_index >= assignment.port_ids_a.size() || lane_index >= assignment.port_ids_b.size()) {
+      return nullptr;
+    }
+    const wire::core::ObjectId port_a_id = assignment.port_ids_a[lane_index];
+    const wire::core::ObjectId port_b_id = assignment.port_ids_b[lane_index];
+    for (const auto& span : view.edit_state().spans.items()) {
+      if (span.bundle_id != assignment.bundle_id) {
+        continue;
+      }
+      const bool same_forward = span.port_a_id == port_a_id && span.port_b_id == port_b_id;
+      const bool same_reverse = span.port_a_id == port_b_id && span.port_b_id == port_a_id;
+      if (same_forward || same_reverse) {
+        return &span;
+      }
+    }
+    return nullptr;
+  };
+  for (std::size_t i = 0; i < assignments.size(); ++i) {
+    const auto& assignment = assignments[i];
+    ofs << "result.lane_assignment[" << i << "].segment_index=" << assignment.segment_index << "\n";
+    ofs << "result.lane_assignment[" << i << "].pole_a_id=" << static_cast<unsigned long long>(assignment.pole_a_id)
+        << "\n";
+    ofs << "result.lane_assignment[" << i << "].pole_b_id=" << static_cast<unsigned long long>(assignment.pole_b_id)
+        << "\n";
+    ofs << "result.lane_assignment[" << i << "].bundle_id=" << static_cast<unsigned long long>(assignment.bundle_id)
+        << "\n";
+    ofs << "result.lane_assignment[" << i << "].flow_kind=" << static_cast<int>(assignment.flow_kind) << "\n";
+    ofs << "result.lane_assignment[" << i << "].flow_rule=" << static_cast<int>(assignment.flow_decision_rule) << "\n";
+    ofs << "result.lane_assignment[" << i
+        << "].uses_branch_support=" << (assignment.uses_branch_support ? 1 : 0) << "\n";
+    ofs << "result.lane_assignment[" << i << "].branch_down_offset_m=" << assignment.branch_down_offset_m << "\n";
+    ofs << "result.lane_assignment[" << i << "].lane_count=" << assignment.port_ids_a.size() << "\n";
+    for (std::size_t lane = 0; lane < assignment.port_ids_a.size() && lane < assignment.port_ids_b.size(); ++lane) {
+      const wire::core::Port* port_a = view.edit_state().ports.find(assignment.port_ids_a[lane]);
+      const wire::core::Port* port_b = view.edit_state().ports.find(assignment.port_ids_b[lane]);
+      ofs << "result.lane_assignment[" << i << "].lane[" << lane
+          << "].port_a_id=" << static_cast<unsigned long long>(assignment.port_ids_a[lane]) << "\n";
+      ofs << "result.lane_assignment[" << i << "].lane[" << lane
+          << "].port_b_id=" << static_cast<unsigned long long>(assignment.port_ids_b[lane]) << "\n";
+      if (port_a != nullptr) {
+        ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].port_a_world="
+            << port_a->world_position.x << "," << port_a->world_position.y << "," << port_a->world_position.z << "\n";
+        ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].port_a_z="
+            << port_a->world_position.z << "\n";
+        ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].port_a_template_layer=" << port_a->template_layer << "\n";
+      }
+      if (port_b != nullptr) {
+        ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].port_b_world="
+            << port_b->world_position.x << "," << port_b->world_position.y << "," << port_b->world_position.z << "\n";
+        ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].port_b_z="
+            << port_b->world_position.z << "\n";
+        ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].port_b_template_layer=" << port_b->template_layer << "\n";
+      }
+      if (const wire::core::Span* span = find_span_by_assignment_lane(assignment, lane); span != nullptr) {
+        ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].span_id=" << static_cast<unsigned long long>(span->id) << "\n";
+        if (const auto span_view = view.inspect_span(span->id); span_view.has_value()) {
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].span_flow_kind=" << static_cast<int>(span_view->flow_kind) << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].span_branch_down_offset_m=" << span_view->branch_down_offset_m << "\n";
+        }
+        if (const auto layout_view = view.inspect_support_layout(span->id); layout_view.has_value()) {
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].layout_start_support=" << layout_view->start_endpoint.support_world.x << ","
+              << layout_view->start_endpoint.support_world.y << "," << layout_view->start_endpoint.support_world.z
+              << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].layout_end_support=" << layout_view->end_endpoint.support_world.x << ","
+              << layout_view->end_endpoint.support_world.y << "," << layout_view->end_endpoint.support_world.z
+              << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].layout_start_origin=" << layout_view->start_endpoint.origin << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].layout_end_origin=" << layout_view->end_endpoint.origin << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].layout_start_local_departure=" << layout_view->start_endpoint.local_departure_length_m << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].layout_end_local_departure=" << layout_view->end_endpoint.local_departure_length_m << "\n";
+        }
+      }
+    }
+  }
+
   ofs << "state.poles=" << view.edit_state().poles.size() << "\n";
   ofs << "state.ports=" << view.edit_state().ports.size() << "\n";
   ofs << "state.bundles=" << view.edit_state().bundles.size() << "\n";
@@ -753,14 +768,16 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
 
   if (ui_state.draw_pick_enabled && accept_mouse_input) {
     ViewerSceneQuery scene_query{};
-    const wire::core::PickResult pick = scene_query.Raycast(state, camera, ui_state.draw_plane_z);
+    const wire::core::PickResult raw_pick = scene_query.Raycast(state, camera, ui_state.draw_plane_z);
+    const wire::core::PickResult pick =
+        NormalizeDrawPathPick(state, raw_pick, std::max(ui_state.draw_snap_radius_world, 1.25));
     ui_state.draw_hover_pick = pick;
     bool blocked_pick_target = false;
     if (pick.hit_kind == wire::core::PickHitKind::kEmpty) {
-      ui_state.draw_hover_status = "hover: Empty";
+      ui_state.draw_hover_status = "target: Empty";
     } else {
       ui_state.draw_hover_status =
-          std::string("hover: ") + PickHitKindLabelLocal(pick.hit_kind) + " id=" + PickTargetLabel(pick);
+          std::string("target: ") + PickHitKindLabelLocal(pick.hit_kind) + " " + PickTargetLabel(pick);
       if (pick.hit_kind == wire::core::PickHitKind::kNode || pick.hit_kind == wire::core::PickHitKind::kSegment ||
           pick.hit_kind == wire::core::PickHitKind::kBuilding) {
         wire::core::ResolveBranchPickOptions options{};
@@ -780,11 +797,16 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
           ui_state.draw_hover_resolution = resolved.value;
           ui_state.draw_hover_point = resolved.value.position;
           ui_state.draw_hover_valid = true;
-          ui_state.draw_hover_status += (resolved.value.resolution == wire::core::CoreState::PickBranchResolutionKind::kNode)
-                                            ? " -> Node"
-                                            : " -> Midair";
+          ui_state.draw_hover_status +=
+              (resolved.value.resolution == wire::core::CoreState::PickBranchResolutionKind::kNode)
+                  ? " | resolved: Node"
+                  : " | resolved: Midair";
+          if (resolved.value.resolved_node_id != wire::core::kInvalidObjectId) {
+            ui_state.draw_hover_status +=
+                " " + std::to_string(static_cast<unsigned long long>(resolved.value.resolved_node_id));
+          }
         } else {
-          ui_state.draw_hover_status += " -> blocked: " + resolved.error;
+          ui_state.draw_hover_status += " | blocked: " + resolved.error;
           blocked_pick_target = true;
         }
       }
@@ -1049,65 +1071,6 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
   }
   if (!ui_state.last_repro_capture_path.empty()) {
     ImGui::TextWrapped("Last capture: %s", ui_state.last_repro_capture_path.c_str());
-  }
-}
-
-void DrawBranchModePanel(CoreState& state, ViewerUiState& ui_state) {
-  ImGui::TextUnformatted("Branch / Drop");
-  ImGui::Separator();
-  ImGui::TextUnformatted("Raycast Pick Routing");
-  ImGui::Checkbox("Enable Branch Pick (LMB)", &ui_state.branch_pick_enabled);
-  ImGui::InputDouble("Snap Radius (world)", &ui_state.branch_snap_radius_world, 0.05, 0.2, "%.2f");
-  ui_state.branch_snap_radius_world = std::clamp(ui_state.branch_snap_radius_world, 0.05, 5.0);
-  ImGui::TextUnformatted("Segment hit near endpoint -> snap to node");
-  ImGui::TextUnformatted("Segment hit away from endpoint -> Midair candidate");
-  if (!ui_state.branch_last_pick_summary.empty()) {
-    ImGui::TextWrapped("%s", ui_state.branch_last_pick_summary.c_str());
-    ImGui::Text("Last hit kind: %s", PickHitKindLabelLocal(ui_state.branch_last_pick.hit_kind));
-  }
-
-  ImGui::Separator();
-  ImGui::TextUnformatted("Manual Drop Commands");
-  ImGui::InputScalar("Branch Source SpanId", ImGuiDataType_U64, &ui_state.branch_source_span_id);
-  ImGui::InputDouble("Branch t", &ui_state.branch_t);
-  ImGui::InputDouble("Branch Target X", &ui_state.branch_target_x);
-  ImGui::InputDouble("Branch Target Y", &ui_state.branch_target_y);
-  ImGui::InputDouble("Branch Target Z", &ui_state.branch_target_z);
-  if (ImGui::Button("Add Drop From Span")) {
-    const auto result =
-        state.AddDropFromSpan(ui_state.branch_source_span_id, ui_state.branch_t,
-                              {ui_state.branch_target_x, ui_state.branch_target_y, ui_state.branch_target_z},
-                              wire::core::ConnectionCategory::kDrop);
-    if (!result.ok) {
-      ui_state.last_error = result.error;
-      PushLogLocal(ui_state, "AddDropFromSpan failed");
-    } else {
-      ui_state.last_error.clear();
-      SetPrimarySelection(ui_state, SelectedType::kSpan, result.value.span_id);
-      PushLogLocal(ui_state, "DropFromSpan span=" + std::to_string(result.value.span_id) +
-                                " splitPort=" + std::to_string(result.value.split_port_id));
-    }
-  }
-
-  ImGui::Separator();
-  ImGui::TextUnformatted("Drop From Pole");
-  ImGui::InputScalar("Drop Source PoleId", ImGuiDataType_U64, &ui_state.drop_source_pole_id);
-  ImGui::InputDouble("Drop Target X", &ui_state.drop_target_x);
-  ImGui::InputDouble("Drop Target Y", &ui_state.drop_target_y);
-  ImGui::InputDouble("Drop Target Z", &ui_state.drop_target_z);
-  if (ImGui::Button("Add Drop From Pole")) {
-    const auto result = state.AddDropFromPole(ui_state.drop_source_pole_id,
-                                              {ui_state.drop_target_x, ui_state.drop_target_y, ui_state.drop_target_z},
-                                              wire::core::ConnectionCategory::kDrop);
-    if (!result.ok) {
-      ui_state.last_error = result.error;
-      PushLogLocal(ui_state, "AddDropFromPole failed");
-    } else {
-      ui_state.last_error.clear();
-      SetPrimarySelection(ui_state, SelectedType::kSpan, result.value.span_id);
-      PushLogLocal(ui_state, "DropFromPole span=" + std::to_string(result.value.span_id) +
-                                " sourcePort=" + std::to_string(result.value.source_port_id));
-    }
   }
 }
 

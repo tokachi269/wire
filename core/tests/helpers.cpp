@@ -697,7 +697,8 @@ AxisRelationMetrics measure_pole_axis_relation_metrics(const CoreState& state, O
 
   std::vector<wire::core::Vec3d> port_points{};
   for (const wire::core::Port& port : state.view().edit_state().ports.items()) {
-    if (port.owner_pole_id == pole_id && port.layer == layer) {
+    if (port.owner_pole_id == pole_id && port.layer == layer &&
+        port.placement_source != wire::core::PortPlacementSourceKind::kBranchSupport) {
       port_points.push_back(port.world_position);
     }
   }

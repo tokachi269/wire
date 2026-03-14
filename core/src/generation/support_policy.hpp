@@ -7,7 +7,7 @@ namespace wire::core::generation::detail {
 inline double BranchDownOffsetForCategory(ConnectionCategory category) {
   switch (category) {
   case ConnectionCategory::kHighVoltage:
-    return 0.55;
+    return 0.275;
   case ConnectionCategory::kCommunication:
     return 0.30;
   case ConnectionCategory::kOptical:

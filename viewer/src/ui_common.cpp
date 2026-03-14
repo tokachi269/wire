@@ -209,14 +209,6 @@ const char* PickHitKindLabel(wire::core::PickHitKind kind) {
 
 const char* ModeLabel(EditMode mode) {
   switch (mode) {
-  case EditMode::kPlacement:
-    return "Placement";
-  case EditMode::kConnection:
-    return "Connection";
-  case EditMode::kBranch:
-    return "Branch";
-  case EditMode::kDetail:
-    return "Detail";
   case EditMode::kDrawPath:
     return "DrawPath";
   default:

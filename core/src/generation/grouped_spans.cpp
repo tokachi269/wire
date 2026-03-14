@@ -36,11 +36,9 @@ CoreState::generate_grouped_spans_between_support_nodes(
   const int lane_count = std::max(1, conductor_count);
   const PortLayer target_port_layer = category_to_port_layer(category);
   const bool use_lane_row_geometry = maintain_lane_order && lane_count > 1;
-  const bool uses_branch_support = (flow_kind == BackboneFlowKind::kBranch);
-  const double effective_branch_down_offset_m =
-      uses_branch_support ? std::max(0.0, (branch_down_offset_m > 0.0) ? branch_down_offset_m
-                                                                        : generation::detail::BranchDownOffsetForCategory(category))
-                          : 0.0;
+  const bool uses_branch_support =
+      (flow_kind == BackboneFlowKind::kBranch) && branch_down_offset_m > 1e-6;
+  const double effective_branch_down_offset_m = uses_branch_support ? std::max(0.0, branch_down_offset_m) : 0.0;
   std::unordered_map<ObjectId, std::vector<ObjectId>> node_lane_ports_cache{};
   std::unordered_map<ObjectId, Vec3d> node_side_axis_hints{};
   auto support_position = [&](ObjectId node_id) -> Vec3d {
@@ -85,7 +83,35 @@ CoreState::generate_grouped_spans_between_support_nodes(
     return Vec3d{0.0, 1.0, 0.0};
   };
   auto layout_yaw_for_pole = [&](const Pole& pole) { return effective_pole_layout_yaw_deg(pole); };
+  auto highest_owned_port_z_for_pole = [&](const Pole& pole) -> std::optional<double> {
+    const auto it_ports = relation_index_access().ports_by_pole.find(pole.id);
+    if (it_ports == relation_index_access().ports_by_pole.end()) {
+      return std::nullopt;
+    }
+    const PoleFrame frame = BuildPoleFrame(pole.world_transform, layout_yaw_for_pole(pole));
+    const int target_layer = generation::detail::TemplateLayerForCategory(category);
+    double best_z = -std::numeric_limits<double>::infinity();
+    for (ObjectId port_id : it_ports->second) {
+      const Port* port = edit_state_access().ports.find(port_id);
+      if (port == nullptr || port->owner_pole_id != pole.id) {
+        continue;
+      }
+      const bool layer_match = (port->layer == target_port_layer);
+      const bool template_layer_match = (port->template_layer == target_layer);
+      if (!layer_match && !template_layer_match) {
+        continue;
+      }
+      const double local_z = WorldPointToLocal(frame, port->world_position).z;
+      if (std::isfinite(local_z)) {
+        best_z = std::max(best_z, local_z);
+      }
+    }
+    return std::isfinite(best_z) ? std::optional<double>{best_z} : std::nullopt;
+  };
   auto lane_row_base_z_for_pole = [&](const Pole& pole) {
+    if (const auto port_z = highest_owned_port_z_for_pole(pole); port_z.has_value()) {
+      return *port_z;
+    }
     double best_z = -std::numeric_limits<double>::infinity();
     const int target_layer = generation::detail::TemplateLayerForCategory(category);
     if (const PoleTypeDefinition* pole_type = find_pole_type(pole.pole_type_id); pole_type != nullptr) {
@@ -129,6 +155,47 @@ CoreState::generate_grouped_spans_between_support_nodes(
       return explicit_node_id;
     }
     return (port == nullptr) ? kInvalidObjectId : port->owner_pole_id;
+  };
+  auto node_requires_branch_support = [&](ObjectId node_id, ObjectId peer_id) -> bool {
+    if (!uses_branch_support) {
+      return false;
+    }
+    const auto it_ports = relation_index_access().ports_by_pole.find(node_id);
+    if (it_ports == relation_index_access().ports_by_pole.end()) {
+      return false;
+    }
+    for (ObjectId port_id : it_ports->second) {
+      const Port* port = edit_state_access().ports.find(port_id);
+      if (port == nullptr || port->owner_pole_id != node_id || port->layer != target_port_layer) {
+        continue;
+      }
+      const auto it_spans = connection_index_access().spans_by_port.find(port_id);
+      if (it_spans == connection_index_access().spans_by_port.end()) {
+        continue;
+      }
+      for (ObjectId span_id : it_spans->second) {
+        const Span* span = edit_state_access().spans.find(span_id);
+        if (span == nullptr || span->bundle_id == kInvalidObjectId) {
+          continue;
+        }
+        const Bundle* bundle = edit_state_access().bundles.find(span->bundle_id);
+        if (bundle == nullptr || bundle->bundle_template_id != bundle_template_id) {
+          continue;
+        }
+        const Port* port_a = edit_state_access().ports.find(span->port_a_id);
+        const Port* port_b = edit_state_access().ports.find(span->port_b_id);
+        if (port_a == nullptr || port_b == nullptr) {
+          continue;
+        }
+        const ObjectId other_node_id =
+            (span->port_a_id == port_id) ? resolve_span_endpoint_node(*span, port_b, false)
+                                         : resolve_span_endpoint_node(*span, port_a, true);
+        if (other_node_id != kInvalidObjectId && other_node_id != node_id && other_node_id != peer_id) {
+          return true;
+        }
+      }
+    }
+    return false;
   };
   std::vector<Vec3d> side_axis_by_index(node_ids.size(), Vec3d{0.0, 1.0, 0.0});
   for (std::size_t i = 0; i < node_ids.size(); ++i) {
@@ -346,14 +413,22 @@ CoreState::generate_grouped_spans_between_support_nodes(
       ports_result.ok = true;
       return ports_result;
     }
-    if (uses_branch_support) {
+    const bool use_branch_support_here = node_requires_branch_support(node_id, peer_id);
+    if (use_branch_support_here) {
       const Vec3d peer_delta = support_position(peer_id) - pole->world_transform.position;
+      Vec3d branch_forward_axis = peer_delta;
+      if (!normalize_xy(&branch_forward_axis)) {
+        branch_forward_axis = {1.0, 0.0, 0.0};
+      }
+      const Vec3d branch_row_axis = ComputeLateralAxis(branch_forward_axis);
       const Vec3d stable_side_axis = canonical_side_axis_for_order(node_id, peer_id);
-      double side_sign = (dot_xy(peer_delta, stable_side_axis) >= 0.0) ? 1.0 : -1.0;
-      if (std::abs(peer_delta.x) <= 1e-9 && std::abs(peer_delta.y) <= 1e-9) {
+      double side_sign = (dot_xy(stable_side_axis, branch_row_axis) >= 0.0) ? 1.0 : -1.0;
+      if (std::abs(dot_xy(stable_side_axis, branch_row_axis)) <= 1e-9) {
         side_sign = 1.0;
       }
       const SlotSide branch_side = (side_sign >= 0.0) ? SlotSide::kRight : SlotSide::kLeft;
+      const double branch_support_yaw_deg =
+          std::atan2(branch_forward_axis.y, branch_forward_axis.x) * (180.0 / kPi);
 
       const bool use_scaffold_layout = use_lane_row_geometry;
       double main_support_base_z_m = lane_row_base_z_for_pole(*pole);
@@ -367,17 +442,18 @@ CoreState::generate_grouped_spans_between_support_nodes(
       const double lane_spacing = std::max(0.1, spacing_m);
       const double center = (static_cast<double>(lane_count) - 1.0) * 0.5;
       const double half_span = center * lane_spacing;
-      const double min_outboard =
-          pole_radius_at_height_m(*pole, branch_base_z_m) + cache_state_access().geometry_settings.pole_clearance_m +
-          half_span + 0.25;
-      const double branch_support_offset_m = std::max(0.65, min_outboard);
-      ports_result.value.reserve(static_cast<std::size_t>(lane_count));
-      for (int lane = 0; lane < lane_count; ++lane) {
-        const double lane_offset = (static_cast<double>(lane) - center) * lane_spacing;
-        Vec3d local{0.0, side_sign * branch_support_offset_m + lane_offset, branch_base_z_m};
+        const double min_outboard =
+            pole_radius_at_height_m(*pole, branch_base_z_m) + cache_state_access().geometry_settings.pole_clearance_m +
+            half_span + 0.25;
+        const double branch_support_offset_m = std::max(0.65, min_outboard);
+        ports_result.value.reserve(static_cast<std::size_t>(lane_count));
+        for (int lane = 0; lane < lane_count; ++lane) {
+          const double lane_offset = (static_cast<double>(lane) - center) * lane_spacing;
+          const double lane_z_m = branch_base_z_m;
+          Vec3d local{0.0, side_sign * branch_support_offset_m + lane_offset, lane_z_m};
         local = apply_pole_clearance_to_local(*pole, local, branch_side);
         const Vec3d world =
-            local_to_world_on_pole_local(pole->world_transform, layout_yaw_for_pole(*pole), local);
+            local_to_world_on_pole_local(pole->world_transform, branch_support_yaw_deg, local);
         EditResult<ObjectId> add_port =
             AddPort(node_id, world, category_to_port_kind(category), category_to_port_layer(category));
         if (!add_port.ok) {
@@ -405,12 +481,12 @@ CoreState::generate_grouped_spans_between_support_nodes(
         const Port* pb = edit_state_access().ports.find(b);
         const double ya = (pa == nullptr)
                               ? 0.0
-                              : WorldPointToLocal(BuildPoleFrame(pole->world_transform, layout_yaw_for_pole(*pole)),
+                              : WorldPointToLocal(BuildPoleFrame(pole->world_transform, branch_support_yaw_deg),
                                                   pa->world_position)
                                     .y;
         const double yb = (pb == nullptr)
                               ? 0.0
-                              : WorldPointToLocal(BuildPoleFrame(pole->world_transform, layout_yaw_for_pole(*pole)),
+                              : WorldPointToLocal(BuildPoleFrame(pole->world_transform, branch_support_yaw_deg),
                                                   pb->world_position)
                                     .y;
         if (std::abs(ya - yb) > 1e-9) {
@@ -1314,9 +1390,6 @@ CoreState::generate_grouped_spans_between_support_nodes(
     assignment.flow_kind = flow_kind;
     assignment.port_ids_a = order_for_parity(base_ports_by_node[seg], node_parity[seg] != 0);
     assignment.port_ids_b = order_for_parity(base_ports_by_node[seg + 1], node_parity[seg + 1] != 0);
-    assignment.uses_branch_support = uses_branch_support;
-    assignment.branch_down_offset_m = effective_branch_down_offset_m;
-
     const bool chosen_mirror = ((node_parity[seg] ^ node_parity[seg + 1]) != 0);
     const double turn_angle_deg = compute_turn_angle_deg(seg);
     const bool is_acute_turn = (seg > 0) && (turn_angle_deg + kAngleEps < layout_settings_.corner_threshold_deg);
@@ -1338,6 +1411,16 @@ CoreState::generate_grouped_spans_between_support_nodes(
       result.error = "failed to materialize lane assignment plan";
       return result;
     }
+
+    auto ports_use_branch_support = [&](const std::vector<ObjectId>& port_ids) {
+      return std::any_of(port_ids.begin(), port_ids.end(), [&](ObjectId port_id) {
+        const Port* port = edit_state_access().ports.find(port_id);
+        return port != nullptr && port->placement_source == PortPlacementSourceKind::kBranchSupport;
+      });
+    };
+    assignment.uses_branch_support =
+        ports_use_branch_support(assignment.port_ids_a) || ports_use_branch_support(assignment.port_ids_b);
+    assignment.branch_down_offset_m = assignment.uses_branch_support ? effective_branch_down_offset_m : 0.0;
 
     for (int lane = 0; lane < lane_count; ++lane) {
       const ObjectId port_a_id = assignment.port_ids_a[static_cast<std::size_t>(lane)];
@@ -1377,8 +1460,8 @@ CoreState::generate_grouped_spans_between_support_nodes(
       edge_orientation.bundle_template_id = bundle_template_id;
       edge_orientation.flow_kind = flow_kind;
       edge_orientation.orientation = assignment.mirrored ? LaneOrientation::kReversed : LaneOrientation::kNormal;
-      edge_orientation.uses_branch_support = uses_branch_support;
-      edge_orientation.branch_down_offset_m = effective_branch_down_offset_m;
+      edge_orientation.uses_branch_support = assignment.uses_branch_support;
+      edge_orientation.branch_down_offset_m = assignment.branch_down_offset_m;
       edge_orientation.flipped_from_previous = assignment.flipped_from_previous;
       edge_orientation.flip_reason = assignment.flip_reason;
       edge_orientation.turn_angle_deg = assignment.turn_angle_deg;

@@ -102,6 +102,9 @@ struct BranchSupportPlacement {
   EndpointContinuityDecision decision{};
   SlotSide side = SlotSide::kCenter;
   SupportLayoutOriginKind origin = SupportLayoutOriginKind::kFallback;
+  SupportGroupingRuleKind grouping_rule = SupportGroupingRuleKind::kPerPort;
+  int support_group_id = -1;
+  int grouped_port_count = 1;
   BundleOrderPolicyKind bundle_order_policy = BundleOrderPolicyKind::kFixedOrder;
   BundleOrderChoiceKind bundle_order_choice = BundleOrderChoiceKind::kNormal;
   BundleOrderChoiceReason bundle_order_choice_reason = BundleOrderChoiceReason::kFixedOrder;
@@ -129,6 +132,7 @@ struct SupportLayoutEndpoint {
   JunctionRelationKind relation_kind = JunctionRelationKind::kNone;
   ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
   bool default_lower_required = false;
+  bool lower_propagated_from_run = false;
   SupportLayoutOriginKind origin = SupportLayoutOriginKind::kFallback;
   SupportLayoutEndpointSourceKind endpoint_source = SupportLayoutEndpointSourceKind::kFallback;
   PortPlacementSourceKind port_source = PortPlacementSourceKind::kUnknown;
@@ -171,6 +175,7 @@ struct SpanSupportLayoutEntry {
   JunctionRelationKind relation_b = JunctionRelationKind::kNone;
   ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
   bool default_lower_required = false;
+  bool lower_propagated_from_run = false;
   bool same_level_feasible = true;
   SameLevelFeasibilityReason same_level_reason = SameLevelFeasibilityReason::kNone;
   double projected_spacing_topview_m = -1.0;

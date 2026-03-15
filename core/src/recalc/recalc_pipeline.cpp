@@ -487,6 +487,19 @@ SupportLayoutOriginKind support_layout_origin_from_port(const Port& port) {
   }
 }
 
+const SupportLayoutEndpoint* support_layout_endpoint_for_owner(const SpanSupportLayoutEntry* layout, ObjectId owner_pole_id) {
+  if (layout == nullptr || owner_pole_id == kInvalidObjectId) {
+    return nullptr;
+  }
+  if (layout->start.owner_pole_id == owner_pole_id) {
+    return &layout->start;
+  }
+  if (layout->end.owner_pole_id == owner_pole_id) {
+    return &layout->end;
+  }
+  return nullptr;
+}
+
 void apply_endpoint_decision_to_layout_endpoint(const EndpointContinuityDecision& decision,
                                                 SupportLayoutEndpoint* endpoint) {
   if (endpoint == nullptr) {
@@ -496,6 +509,7 @@ void apply_endpoint_decision_to_layout_endpoint(const EndpointContinuityDecision
   endpoint->relation_kind = decision.relation_kind;
   endpoint->continuity_class = decision.continuity_class;
   endpoint->default_lower_required = decision.default_lower_required;
+  endpoint->lower_propagated_from_run = decision.lower_propagated_from_run;
   endpoint->bundle_order_policy = decision.bundle_order_policy;
   endpoint->bundle_order_choice = decision.bundle_order_choice;
   endpoint->bundle_order_choice_reason = decision.bundle_order_choice_reason;
@@ -1086,6 +1100,74 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
   const SpanRuntimeState* runtime = find_span_runtime_state(span_id);
   const std::uint64_t flow_key = variation_flow_key_for_span(runtime, *span);
   const SpanSupportLayoutEntry* support_layout = find_span_support_layout(span_id);
+  const SegmentLaneAssignment* lane_assignment = FindLaneAssignmentForSpan(*this, *span);
+
+  auto support_group_matches = [&](const BranchSupportPlacement& lhs, const BranchSupportPlacement& rhs,
+                                   ObjectId lhs_bundle_id, ObjectId rhs_bundle_id) {
+    return lhs_bundle_id == rhs_bundle_id && lhs.owner_pole_id == rhs.owner_pole_id && lhs.origin == rhs.origin &&
+           lhs.decision.relation_kind == rhs.decision.relation_kind && lhs.decision.chosen_side == rhs.decision.chosen_side &&
+           lhs.decision.support_orientation_basis == rhs.decision.support_orientation_basis &&
+           lhs.decision.bundle_order_choice == rhs.decision.bundle_order_choice &&
+           lhs.decision.lower_propagated_from_run == rhs.decision.lower_propagated_from_run;
+  };
+
+  auto make_lowered_support_placement =
+      [&](const Span& source_span, const Port& source_port, const Port& other_port, const Pole& source_pole,
+          const SupportLayoutEndpoint* source_endpoint,
+          const SpanSupportLayoutEntry* source_layout) -> std::optional<BranchSupportPlacement> {
+    const EndpointContinuityDecision* endpoint_decision =
+        (source_endpoint == nullptr) ? nullptr : &source_endpoint->decision;
+    const BackboneLoweringKind source_lowering_kind =
+        (source_layout == nullptr) ? BackboneLoweringKind::kNone : source_layout->lowering_kind;
+    if (!endpoint_prefers_line_oriented_support(source_endpoint, source_lowering_kind)) {
+      return std::nullopt;
+    }
+
+    BranchSupportPlacement placement{};
+    placement.owner_pole_id = source_pole.id;
+    placement.peer_node_id =
+        (source_port.id == source_span.port_a_id) ? source_span.endpoint_node_b_id : source_span.endpoint_node_a_id;
+    placement.decision = (endpoint_decision == nullptr) ? EndpointContinuityDecision{} : *endpoint_decision;
+    placement.side = (source_endpoint == nullptr) ? SlotSide::kCenter : source_endpoint->side;
+    placement.origin =
+        (source_endpoint == nullptr) ? SupportLayoutOriginKind::kFallback : source_endpoint->origin;
+    placement.grouping_rule = SupportGroupingRuleKind::kPerPort;
+    placement.bundle_order_policy = (endpoint_decision == nullptr) ? BundleOrderPolicyKind::kFixedOrder
+                                                                   : endpoint_decision->bundle_order_policy;
+    placement.bundle_order_choice = (endpoint_decision == nullptr) ? BundleOrderChoiceKind::kNormal
+                                                                   : endpoint_decision->bundle_order_choice;
+    placement.bundle_order_choice_reason =
+        (endpoint_decision == nullptr) ? BundleOrderChoiceReason::kFixedOrder
+                                       : endpoint_decision->bundle_order_choice_reason;
+    placement.side_assignment_rule =
+        (endpoint_decision == nullptr) ? SideAssignmentRuleKind::kPoleLocal : endpoint_decision->side_assignment_rule;
+    placement.support_orientation_rule = (endpoint_decision == nullptr)
+                                             ? SupportOrientationRuleKind::kRadial
+                                             : endpoint_decision->support_orientation_rule;
+    placement.used_junction_pair_side_assignment =
+        (endpoint_decision != nullptr) && endpoint_decision->used_junction_pair_side_assignment;
+    placement.has_side_axis = (endpoint_decision != nullptr) && endpoint_decision->has_side_axis;
+    placement.side_axis = (endpoint_decision == nullptr) ? Vec3d{} : endpoint_decision->side_axis;
+    placement.chosen_side_sign = (endpoint_decision == nullptr) ? 0.0 : endpoint_decision->chosen_side_sign;
+    placement.attachment_world = source_port.world_position;
+    placement.down_offset_variation =
+        (source_endpoint == nullptr) ? HierarchicalVariationSample{} : source_endpoint->down_offset_variation;
+    placement.down_offset_m = (source_endpoint == nullptr) ? 0.0 : source_endpoint->branch_down_offset_m;
+
+    const Vec3d radial =
+        oriented_support_radial(source_port, source_span, other_port, source_pole, source_endpoint, edit_state_);
+    placement.tip_world = {
+        source_port.world_position.x,
+        source_port.world_position.y,
+        source_port.world_position.z + placement.down_offset_m,
+    };
+    placement.mount_world = {
+        placement.tip_world.x - radial.x * cache_state_.visual_settings.support_arm_extra_m,
+        placement.tip_world.y - radial.y * cache_state_.visual_settings.support_arm_extra_m,
+        source_port.world_position.z + placement.down_offset_m,
+    };
+    return placement;
+  };
 
   auto append_parts_for_port = [&](const Port& port, const SupportLayoutEndpoint* layout_endpoint) {
     const EndpointContinuityDecision* endpoint_decision =
@@ -1148,6 +1230,22 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
     }
 
     if (uses_lowered_support_visual) {
+      std::vector<ObjectId> grouped_port_ids{port.id};
+      if (lane_assignment != nullptr) {
+        auto contains_port = [&](const std::vector<ObjectId>& ids) {
+          return std::find(ids.begin(), ids.end(), port.id) != ids.end();
+        };
+        if (contains_port(lane_assignment->port_ids_a)) {
+          grouped_port_ids = lane_assignment->port_ids_a;
+        } else if (contains_port(lane_assignment->port_ids_b)) {
+          grouped_port_ids = lane_assignment->port_ids_b;
+        }
+      }
+      const ObjectId canonical_port_id =
+          grouped_port_ids.empty() ? port.id : *std::min_element(grouped_port_ids.begin(), grouped_port_ids.end());
+      if (canonical_port_id != port.id) {
+        return;
+      }
       BranchSupportPlacement placement{};
       placement.owner_pole_id = pole->id;
       placement.peer_node_id =
@@ -1156,6 +1254,11 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
       placement.side = (layout_endpoint == nullptr) ? SlotSide::kCenter : layout_endpoint->side;
       placement.origin =
           (layout_endpoint == nullptr) ? SupportLayoutOriginKind::kFallback : layout_endpoint->origin;
+      placement.grouping_rule =
+          (grouped_port_ids.size() > 1) ? SupportGroupingRuleKind::kDecisionGroup : SupportGroupingRuleKind::kPerPort;
+      placement.support_group_id =
+          grouped_port_ids.empty() ? -1 : static_cast<int>(canonical_port_id % 1000000000ull);
+      placement.grouped_port_count = static_cast<int>(std::max<std::size_t>(1, grouped_port_ids.size()));
       placement.bundle_order_policy = (endpoint_decision == nullptr) ? BundleOrderPolicyKind::kFixedOrder
                                                                      : endpoint_decision->bundle_order_policy;
       placement.bundle_order_choice = (endpoint_decision == nullptr) ? BundleOrderChoiceKind::kNormal
@@ -1184,12 +1287,13 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
           port.world_position.z + placement.down_offset_m,
       };
       entry.branch_supports.push_back(placement);
+      BranchSupportPlacement* grouped = &entry.branch_supports.back();
 
       if (cache_state_.visual_settings.enable_support_structures) {
         VisualPart hanger{};
         hanger.kind = VisualPartKind::kFitting;
-        hanger.a = placement.tip_world;
-        hanger.b = placement.attachment_world;
+        hanger.a = grouped->tip_world;
+        hanger.b = grouped->attachment_world;
         hanger.radius_m = 0.02;
         entry.parts.push_back(hanger);
       }
@@ -1367,6 +1471,7 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
     layout.relation_b = assignment->relation_b;
     layout.continuity_class = assignment->continuity_class;
     layout.default_lower_required = assignment->default_lower_required;
+    layout.lower_propagated_from_run = assignment->lower_propagated_from_run;
     layout.same_level_feasible = assignment->same_level_feasible;
     layout.same_level_reason = assignment->same_level_reason;
     layout.projected_spacing_topview_m = assignment->projected_spacing_topview_m;

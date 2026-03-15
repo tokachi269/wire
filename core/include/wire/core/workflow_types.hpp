@@ -243,12 +243,14 @@ enum class SideAssignmentRuleKind : std::uint8_t {
   kPoleLocal = 0,
   kChord = 1,
   kThroughPairNormal = 2,
+  kBisector = 3,
 };
 
 enum class SupportOrientationRuleKind : std::uint8_t {
   kRadial = 0,
   kChord = 1,
   kThroughPairNormal = 2,
+  kBisector = 3,
 };
 
 enum class BundleOrderPolicyKind : std::uint8_t {
@@ -279,6 +281,15 @@ enum class SupportOrientationBasisKind : std::uint8_t {
   kRadial = 0,
   kChordForward = 1,
   kChordReverse = 2,
+  kBisectorForward = 3,
+  kBisectorReverse = 4,
+  kPairNormalPositive = 5,
+  kPairNormalNegative = 6,
+};
+
+enum class SupportGroupingRuleKind : std::uint8_t {
+  kPerPort = 0,
+  kDecisionGroup = 1,
 };
 
 struct EndpointContinuityDecision {
@@ -287,6 +298,7 @@ struct EndpointContinuityDecision {
   bool in_through_pair = false;
   bool lower_required = false;
   bool default_lower_required = false;
+  bool lower_propagated_from_run = false;
   bool same_level_feasible = true;
   SameLevelFeasibilityReason same_level_reason = SameLevelFeasibilityReason::kNone;
   double projected_spacing_topview_m = -1.0;
@@ -323,6 +335,14 @@ struct EndpointContinuityDecision {
     SupportOrientationRuleKind rule, double chosen_side_sign) {
   if (rule == SupportOrientationRuleKind::kRadial) {
     return SupportOrientationBasisKind::kRadial;
+  }
+  if (rule == SupportOrientationRuleKind::kThroughPairNormal) {
+    return (chosen_side_sign < 0.0) ? SupportOrientationBasisKind::kPairNormalNegative
+                                    : SupportOrientationBasisKind::kPairNormalPositive;
+  }
+  if (rule == SupportOrientationRuleKind::kBisector) {
+    return (chosen_side_sign < 0.0) ? SupportOrientationBasisKind::kBisectorReverse
+                                    : SupportOrientationBasisKind::kBisectorForward;
   }
   return (chosen_side_sign < 0.0) ? SupportOrientationBasisKind::kChordReverse
                                   : SupportOrientationBasisKind::kChordForward;

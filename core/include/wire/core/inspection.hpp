@@ -170,6 +170,7 @@ struct SpanInspectionView {
   BundleOrderChoiceReason bundle_order_choice_reason_b = BundleOrderChoiceReason::kFixedOrder;
   ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
   bool default_lower_required = false;
+  bool lower_propagated_from_run = false;
   CableContinuityPolicyHint requested_continuity = CableContinuityPolicyHint::kAuto;
   DetailCurveContinuityMode adopted_continuity = DetailCurveContinuityMode::kG1;
   DetailCurveContinuityReason continuity_reason = DetailCurveContinuityReason::kAutoBalanced;
@@ -203,6 +204,7 @@ struct SupportLayoutEndpointView {
   JunctionRelationKind relation_kind = JunctionRelationKind::kNone;
   ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
   bool default_lower_required = false;
+  bool lower_propagated_from_run = false;
   BundleOrderPolicyKind bundle_order_policy = BundleOrderPolicyKind::kFixedOrder;
   BundleOrderChoiceKind bundle_order_choice = BundleOrderChoiceKind::kNormal;
   BundleOrderChoiceReason bundle_order_choice_reason = BundleOrderChoiceReason::kFixedOrder;
@@ -246,6 +248,7 @@ struct SupportLayoutInspectionView {
   JunctionRelationKind relation_b = JunctionRelationKind::kNone;
   ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
   bool default_lower_required = false;
+  bool lower_propagated_from_run = false;
   bool same_level_feasible = true;
   SameLevelFeasibilityReason same_level_reason = SameLevelFeasibilityReason::kNone;
   double projected_spacing_topview_m = -1.0;

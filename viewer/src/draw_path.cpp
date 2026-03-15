@@ -789,17 +789,30 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
   if (ui_state.draw_pick_enabled && accept_mouse_input) {
     ViewerSceneQuery scene_query{};
     const wire::core::PickResult raw_pick = scene_query.Raycast(state, camera, ui_state.draw_plane_z);
-    const wire::core::PickResult pick =
-        NormalizeDrawPathPick(state, raw_pick, std::max(ui_state.draw_snap_radius_world, 1.25));
+    const double hover_snap_radius_world = std::max(ui_state.draw_snap_radius_world, 1.25);
+    wire::core::PickResult pick = NormalizeDrawPathPick(state, raw_pick, hover_snap_radius_world);
+    if (pick.hit_kind == wire::core::PickHitKind::kEmpty && has_ground_hit) {
+      const wire::core::PickResult promoted_pick =
+          PromoteGroundHoverToNearbyPolePick(state, hover, hover_snap_radius_world);
+      if (promoted_pick.hit_kind != wire::core::PickHitKind::kEmpty) {
+        pick = promoted_pick;
+        ui_state.draw_hover_status = "target: Ground -> snapped: Node " +
+                                     std::to_string(static_cast<unsigned long long>(promoted_pick.hit_id));
+      }
+    }
     ui_state.draw_hover_pick = pick;
     bool blocked_pick_target = false;
     if (pick.hit_kind == wire::core::PickHitKind::kEmpty) {
-      ui_state.draw_hover_status = "target: Empty";
+      if (ui_state.draw_hover_status.empty()) {
+        ui_state.draw_hover_status = "target: Empty";
+      }
     } else {
       const std::vector<wire::core::BundleKind> pick_template_ids =
           ResolveTemplateKindsForPathPick(state, ui_state.draw_bundle_template_mask, pick);
-      ui_state.draw_hover_status =
-          std::string("target: ") + PickHitKindLabelLocal(pick.hit_kind) + " " + PickTargetLabel(pick);
+      if (ui_state.draw_hover_status.empty()) {
+        ui_state.draw_hover_status =
+            std::string("target: ") + PickHitKindLabelLocal(pick.hit_kind) + " " + PickTargetLabel(pick);
+      }
       if (pick.hit_kind == wire::core::PickHitKind::kNode || pick.hit_kind == wire::core::PickHitKind::kSegment ||
           pick.hit_kind == wire::core::PickHitKind::kBuilding) {
         wire::core::ResolveBranchPickOptions options{};

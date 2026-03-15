@@ -218,6 +218,50 @@ enum class BackboneFlowDecisionRule : std::uint8_t {
   kExistingChainBranch = 4,
 };
 
+enum class JunctionRelationKind : std::uint8_t {
+  kNone = 0,
+  kThroughMain = 1,
+  kSideBranch = 2,
+  kCornerContinuation = 3,
+  kCrossUnderpass = 4,
+};
+
+enum class SameLevelFeasibilityReason : std::uint8_t {
+  kNone = 0,
+  kEnvelopeOverlap = 1,
+  kNearNodeClearance = 2,
+  kCategoryPolicyDisabled = 3,
+};
+
+struct ThroughPair {
+  ObjectId neighbor_a_id = kInvalidObjectId;
+  ObjectId neighbor_b_id = kInvalidObjectId;
+  double straightness_score = -1.0;
+  bool accepted = false;
+  bool used_semantic_tiebreak = false;
+};
+
+struct JunctionIncidentRelation {
+  ObjectId neighbor_node_id = kInvalidObjectId;
+  JunctionRelationKind kind = JunctionRelationKind::kNone;
+  double straightness_score = -1.0;
+  bool in_route = false;
+  bool in_through_pair = false;
+  bool used_semantic_tiebreak = false;
+  bool same_level_feasible = true;
+  double projected_spacing_topview_m = -1.0;
+  double required_clearance_m = 0.0;
+  SameLevelFeasibilityReason infeasible_reason = SameLevelFeasibilityReason::kNone;
+};
+
+struct JunctionRelation {
+  ObjectId node_id = kInvalidObjectId;
+  int route_incident_count = 0;
+  bool is_cross_like = false;
+  ThroughPair through_pair{};
+  std::vector<JunctionIncidentRelation> incidents{};
+};
+
 enum class LaneOrientation : std::uint8_t {
   kNormal = 0,
   kReversed = 1,
@@ -249,6 +293,16 @@ struct BackboneEdgeOrientation {
   std::uint64_t variation_flow_key = 0;
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
   BackboneFlowDecisionRule flow_decision_rule = BackboneFlowDecisionRule::kDefaultMain;
+  JunctionRelationKind relation_a = JunctionRelationKind::kNone;
+  JunctionRelationKind relation_b = JunctionRelationKind::kNone;
+  bool same_level_feasible = true;
+  SameLevelFeasibilityReason same_level_reason = SameLevelFeasibilityReason::kNone;
+  double projected_spacing_topview_m = -1.0;
+  double required_clearance_m = 0.0;
+  bool lowering_blocked_by_policy = false;
+  bool unresolved_same_level_conflict = false;
+  bool solver_used_same_level_constraint = false;
+  bool used_special_case_ports = false;
   LaneOrientation orientation = LaneOrientation::kNormal;
   bool uses_branch_support = false;
   BackboneLoweringKind lowering_kind = BackboneLoweringKind::kNone;

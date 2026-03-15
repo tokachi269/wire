@@ -1355,48 +1355,343 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     BackboneFlowDecisionRule rule = BackboneFlowDecisionRule::kDefaultMain;
     bool underpass_at_cross = false;
   };
-  auto classify_edge_flow_at_node = [&](ObjectId node_id, ObjectId peer_id) {
-    EdgeFlowInfo info{};
+  constexpr double kThroughPairStraightnessThreshold = 0.3;
+  auto category_same_level_margin_m = [](ConnectionCategory category) {
+    switch (category) {
+    case ConnectionCategory::kHighVoltage:
+      return 0.30;
+    case ConnectionCategory::kCommunication:
+      return 0.18;
+    case ConnectionCategory::kOptical:
+      return 0.14;
+    case ConnectionCategory::kLowVoltage:
+      return 0.12;
+    case ConnectionCategory::kDrop:
+    default:
+      return 0.08;
+    }
+  };
+  auto classify_junction = [&](ObjectId node_id) {
+    JunctionRelation relation{};
+    relation.node_id = node_id;
+
     const JunctionInfo* junction = nullptr;
     if (const auto it = active_junction_by_node.find(node_id); it != active_junction_by_node.end()) {
       junction = it->second;
     }
-    const bool is_cross_like_node = combined_neighbors_for_node(node_id).size() >= 4;
-    const auto preferred_pair = preferred_straight_main_pair_for_orientation(node_id);
-    if (preferred_pair.first != kInvalidObjectId && preferred_pair.second != kInvalidObjectId) {
-      const bool in_pair = (peer_id == preferred_pair.first || peer_id == preferred_pair.second);
-      info.kind = in_pair ? BackboneFlowKind::kMain : BackboneFlowKind::kBranch;
-      info.rule = in_pair ? BackboneFlowDecisionRule::kJunctionOrderMain
-                          : BackboneFlowDecisionRule::kJunctionOrderBranch;
-      info.underpass_at_cross = !in_pair && is_cross_like_node;
-      return info;
+
+    const std::vector<ObjectId> route_neighbors =
+        (route_neighbors_by_node.contains(node_id) ? route_neighbors_by_node.at(node_id) : std::vector<ObjectId>{});
+    const std::vector<ObjectId> combined_neighbors = combined_neighbors_for_node(node_id);
+    relation.is_cross_like = combined_neighbors.size() >= 4;
+    if (combined_neighbors.empty()) {
+      return relation;
     }
-    if (junction != nullptr && !junction->incidents.empty()) {
-      for (const JunctionIncident& incident : junction->incidents) {
-          if (incident.neighbor_node_id != peer_id) {
-            continue;
+
+    struct Candidate {
+      ObjectId neighbor_id = kInvalidObjectId;
+      Vec3d dir{};
+      bool is_route_neighbor = false;
+      bool semantic_primary = false;
+      int order = std::numeric_limits<int>::max();
+    };
+
+    std::vector<Candidate> candidates{};
+    candidates.reserve(combined_neighbors.size());
+    const Vec3d center = current_support_position(node_id);
+    const ObjectId semantic_primary_neighbor = existing_primary_neighbor_for_orientation(node_id);
+    for (ObjectId neighbor_id : combined_neighbors) {
+      const Vec3d dir = normalize_forward_xy(current_support_position(neighbor_id) - center);
+      if (!std::isfinite(dir.x) || !std::isfinite(dir.y)) {
+        continue;
+      }
+      Candidate candidate{};
+      candidate.neighbor_id = neighbor_id;
+      candidate.dir = dir;
+      candidate.is_route_neighbor =
+          std::find(route_neighbors.begin(), route_neighbors.end(), neighbor_id) != route_neighbors.end();
+      candidate.semantic_primary = (neighbor_id == semantic_primary_neighbor);
+      if (junction != nullptr) {
+        for (const JunctionIncident& incident : junction->incidents) {
+          if (incident.neighbor_node_id == neighbor_id) {
+            candidate.order = (incident.order >= 0) ? incident.order : candidate.order;
+            candidate.semantic_primary = candidate.semantic_primary || incident.primary || incident.order == 0;
+            break;
           }
-          info.kind = (incident.order >= 2) ? BackboneFlowKind::kBranch : BackboneFlowKind::kMain;
-          info.rule = (incident.order >= 2) ? BackboneFlowDecisionRule::kJunctionOrderBranch
-                                            : BackboneFlowDecisionRule::kJunctionOrderMain;
-          info.underpass_at_cross = info.kind == BackboneFlowKind::kBranch && is_cross_like_node;
-          return info;
+        }
       }
-      if (junction->incidents.size() >= 2) {
-        info.kind = BackboneFlowKind::kBranch;
-        info.rule = BackboneFlowDecisionRule::kJunctionOrderBranch;
-        info.underpass_at_cross = is_cross_like_node;
-        return info;
+      candidates.push_back(candidate);
+    }
+    relation.route_incident_count = static_cast<int>(route_neighbors.size());
+    relation.incidents.reserve(candidates.size());
+    for (const Candidate& candidate : candidates) {
+      JunctionIncidentRelation incident{};
+      incident.neighbor_node_id = candidate.neighbor_id;
+      incident.kind = JunctionRelationKind::kNone;
+      incident.in_route = candidate.is_route_neighbor;
+      relation.incidents.push_back(incident);
+    }
+    if (candidates.size() == 1) {
+      for (JunctionIncidentRelation& incident : relation.incidents) {
+        if (incident.in_route) {
+          incident.kind = JunctionRelationKind::kThroughMain;
+        }
+      }
+      return relation;
+    }
+    if (candidates.size() < 2) {
+      if (route_neighbors.size() == 1) {
+        for (JunctionIncidentRelation& incident : relation.incidents) {
+          if (incident.in_route) {
+            incident.kind = JunctionRelationKind::kThroughMain;
+          }
+        }
+      }
+      return relation;
+    }
+
+    double best_score = -2.0;
+    int best_i = -1;
+    int best_j = -1;
+    bool best_used_semantic_tiebreak = false;
+    auto semantic_rank = [](const Candidate& candidate) {
+      return std::tuple<int, int, ObjectId>{candidate.semantic_primary ? 0 : 1, candidate.order, candidate.neighbor_id};
+    };
+    for (std::size_t i = 0; i < candidates.size(); ++i) {
+      for (std::size_t j = i + 1; j < candidates.size(); ++j) {
+        const double straight_score =
+            dot(candidates[i].dir, Vec3d{-candidates[j].dir.x, -candidates[j].dir.y, -candidates[j].dir.z});
+        const bool better_score = straight_score > best_score + 1e-9;
+        const bool equal_score = std::abs(straight_score - best_score) <= 1e-9;
+        const auto current_rank =
+            std::tuple{semantic_rank(candidates[i]), semantic_rank(candidates[j])};
+        const auto best_rank =
+            (best_i < 0 || best_j < 0)
+                ? std::tuple{semantic_rank(Candidate{}), semantic_rank(Candidate{})}
+                : std::tuple{semantic_rank(candidates[static_cast<std::size_t>(best_i)]),
+                             semantic_rank(candidates[static_cast<std::size_t>(best_j)])};
+        const bool better_semantic = equal_score && current_rank < best_rank;
+        if (!(better_score || better_semantic)) {
+          continue;
+        }
+        best_score = straight_score;
+        best_i = static_cast<int>(i);
+        best_j = static_cast<int>(j);
+        best_used_semantic_tiebreak = !better_score && better_semantic;
       }
     }
-    if (const auto it = existing_adjacency.find(node_id); it != existing_adjacency.end() && it->second.size() == 2) {
-      const bool in_pair = std::find(it->second.begin(), it->second.end(), peer_id) != it->second.end();
-      info.kind = in_pair ? BackboneFlowKind::kMain : BackboneFlowKind::kBranch;
-      info.rule = in_pair ? BackboneFlowDecisionRule::kExistingChainMain
-                          : BackboneFlowDecisionRule::kExistingChainBranch;
+
+    const auto preferred_pair = preferred_straight_main_pair_for_orientation(node_id);
+    if (preferred_pair.first != kInvalidObjectId && preferred_pair.second != kInvalidObjectId &&
+        preferred_pair.first != preferred_pair.second) {
+      auto candidate_index_for = [&](ObjectId neighbor_id) -> int {
+        for (std::size_t i = 0; i < candidates.size(); ++i) {
+          if (candidates[i].neighbor_id == neighbor_id) {
+            return static_cast<int>(i);
+          }
+        }
+        return -1;
+      };
+      const int preferred_i = candidate_index_for(preferred_pair.first);
+      const int preferred_j = candidate_index_for(preferred_pair.second);
+      if (preferred_i >= 0 && preferred_j >= 0 && preferred_i != preferred_j) {
+        const double preferred_score =
+            dot(candidates[static_cast<std::size_t>(preferred_i)].dir,
+                Vec3d{-candidates[static_cast<std::size_t>(preferred_j)].dir.x,
+                      -candidates[static_cast<std::size_t>(preferred_j)].dir.y,
+                      -candidates[static_cast<std::size_t>(preferred_j)].dir.z});
+        if (!(best_score > preferred_score + 1e-6)) {
+          best_score = preferred_score;
+          best_i = preferred_i;
+          best_j = preferred_j;
+          best_used_semantic_tiebreak = true;
+        }
+      }
+    }
+
+    relation.through_pair.straightness_score = best_score;
+    for (JunctionIncidentRelation& incident : relation.incidents) {
+      incident.straightness_score = best_score;
+    }
+    if (best_i < 0 || best_j < 0 || !(best_score + 1e-9 >= kThroughPairStraightnessThreshold)) {
+      const bool has_existing_straightish_continuity =
+          existing_continuation_neighbors_for_orientation(node_id).size() >= 2;
+      for (JunctionIncidentRelation& incident : relation.incidents) {
+        if (incident.in_route && route_neighbors.size() >= 2) {
+          incident.kind = has_existing_straightish_continuity
+                              ? JunctionRelationKind::kSideBranch
+                              : JunctionRelationKind::kCornerContinuation;
+        } else if (incident.in_route && combined_neighbors.size() == 1) {
+          incident.kind = JunctionRelationKind::kThroughMain;
+        } else if (incident.in_route && route_neighbors.size() == 1) {
+          incident.kind = JunctionRelationKind::kSideBranch;
+        }
+      }
+      return relation;
+    }
+
+    relation.through_pair.neighbor_a_id = candidates[static_cast<std::size_t>(best_i)].neighbor_id;
+    relation.through_pair.neighbor_b_id = candidates[static_cast<std::size_t>(best_j)].neighbor_id;
+    relation.through_pair.accepted = true;
+    relation.through_pair.used_semantic_tiebreak = best_used_semantic_tiebreak;
+
+    auto in_through_pair = [&](ObjectId neighbor_id) {
+      return neighbor_id == relation.through_pair.neighbor_a_id || neighbor_id == relation.through_pair.neighbor_b_id;
+    };
+    for (JunctionIncidentRelation& incident : relation.incidents) {
+      incident.in_through_pair = in_through_pair(incident.neighbor_node_id);
+      incident.used_semantic_tiebreak =
+          relation.through_pair.used_semantic_tiebreak && incident.in_through_pair;
+      if (in_through_pair(incident.neighbor_node_id)) {
+        incident.kind = JunctionRelationKind::kThroughMain;
+      } else if (relation.is_cross_like) {
+        incident.kind = JunctionRelationKind::kCrossUnderpass;
+      } else if (incident.in_route) {
+        incident.kind = JunctionRelationKind::kSideBranch;
+      }
+    }
+    return relation;
+  };
+  auto find_incident_relation_ptr = [&](JunctionRelation& relation, ObjectId peer_id) -> JunctionIncidentRelation* {
+    for (JunctionIncidentRelation& incident : relation.incidents) {
+      if (incident.neighbor_node_id == peer_id) {
+        return &incident;
+      }
+    }
+    return nullptr;
+  };
+  auto find_incident_relation = [&](const JunctionRelation& relation, ObjectId peer_id) -> JunctionRelationKind {
+    for (const JunctionIncidentRelation& incident : relation.incidents) {
+      if (incident.neighbor_node_id == peer_id) {
+        return incident.kind;
+      }
+    }
+    return JunctionRelationKind::kNone;
+  };
+  auto annotate_same_level_feasibility = [&](const BundlePlan& plan,
+                                             std::unordered_map<ObjectId, JunctionRelation>* relations_by_node) {
+    if (relations_by_node == nullptr) {
+      return;
+    }
+    const double envelope_width_m = std::max(0, plan.count - 1) * std::max(0.0, plan.spacing_m);
+    const double required_clearance_m = envelope_width_m + category_same_level_margin_m(plan.category);
+    const double probe_distance_m = std::clamp(0.18 + envelope_width_m * 0.35 + required_clearance_m * 0.15, 0.18, 0.42);
+    auto probe_point_for = [&](ObjectId node_id, ObjectId neighbor_id) {
+      const Vec3d center = current_support_position(node_id);
+      const Vec3d dir = normalize_forward_xy(current_support_position(neighbor_id) - center);
+      if (!std::isfinite(dir.x) || !std::isfinite(dir.y)) {
+        return center;
+      }
+      return center + ScaleVec(dir, probe_distance_m);
+    };
+    auto projected_spacing_for = [&](ObjectId node_id, ObjectId neighbor_a_id, ObjectId neighbor_b_id) {
+      const Vec3d probe_a = probe_point_for(node_id, neighbor_a_id);
+      const Vec3d probe_b = probe_point_for(node_id, neighbor_b_id);
+      return std::hypot(probe_a.x - probe_b.x, probe_a.y - probe_b.y);
+    };
+
+    for (auto& [node_id, relation] : *relations_by_node) {
+      for (JunctionIncidentRelation& incident : relation.incidents) {
+        incident.same_level_feasible = true;
+        incident.projected_spacing_topview_m = -1.0;
+        incident.required_clearance_m = required_clearance_m;
+        incident.infeasible_reason = SameLevelFeasibilityReason::kNone;
+      }
+      if (relation.incidents.size() < 2) {
+        continue;
+      }
+
+      for (const JunctionIncidentRelation& incident : relation.incidents) {
+        if (!incident.in_route || incident.kind == JunctionRelationKind::kThroughMain) {
+          continue;
+        }
+        std::vector<ObjectId> comparison_neighbors{};
+        if (relation.through_pair.accepted) {
+          if (relation.through_pair.neighbor_a_id != kInvalidObjectId &&
+              relation.through_pair.neighbor_a_id != incident.neighbor_node_id) {
+            comparison_neighbors.push_back(relation.through_pair.neighbor_a_id);
+          }
+          if (relation.through_pair.neighbor_b_id != kInvalidObjectId &&
+              relation.through_pair.neighbor_b_id != incident.neighbor_node_id) {
+            comparison_neighbors.push_back(relation.through_pair.neighbor_b_id);
+          }
+        }
+        if (comparison_neighbors.empty()) {
+          for (const JunctionIncidentRelation& other : relation.incidents) {
+            if (other.neighbor_node_id == incident.neighbor_node_id || !other.in_route) {
+              continue;
+            }
+            comparison_neighbors.push_back(other.neighbor_node_id);
+          }
+        }
+        if (comparison_neighbors.empty()) {
+          continue;
+        }
+
+        double min_projected_spacing_m = std::numeric_limits<double>::infinity();
+        for (ObjectId other_neighbor_id : comparison_neighbors) {
+          min_projected_spacing_m =
+              std::min(min_projected_spacing_m, projected_spacing_for(node_id, incident.neighbor_node_id, other_neighbor_id));
+        }
+        JunctionIncidentRelation* mutable_incident = find_incident_relation_ptr(relation, incident.neighbor_node_id);
+        if (mutable_incident == nullptr) {
+          continue;
+        }
+        mutable_incident->projected_spacing_topview_m = min_projected_spacing_m;
+        mutable_incident->required_clearance_m = required_clearance_m;
+        const bool forced_infeasible =
+            incident.kind == JunctionRelationKind::kCrossUnderpass ||
+            ((incident.kind == JunctionRelationKind::kSideBranch ||
+              incident.kind == JunctionRelationKind::kCornerContinuation) &&
+             plan.count > 1);
+        if (forced_infeasible ||
+            !(std::isfinite(min_projected_spacing_m) && min_projected_spacing_m + 1e-9 >= required_clearance_m)) {
+          mutable_incident->same_level_feasible = false;
+          mutable_incident->infeasible_reason =
+              (std::isfinite(min_projected_spacing_m) && min_projected_spacing_m + 1e-9 < envelope_width_m)
+                  ? SameLevelFeasibilityReason::kEnvelopeOverlap
+                  : SameLevelFeasibilityReason::kNearNodeClearance;
+        }
+      }
+    }
+  };
+  auto classify_edge_flow_at_node = [&](ObjectId node_id, ObjectId peer_id) {
+    EdgeFlowInfo info{};
+    const JunctionRelation relation = classify_junction(node_id);
+    const JunctionRelationKind relation_kind = find_incident_relation(relation, peer_id);
+    const bool relation_uses_existing_continuity =
+        relation.through_pair.accepted &&
+        std::any_of(relation.incidents.begin(), relation.incidents.end(),
+                    [](const JunctionIncidentRelation& incident) {
+                      return incident.in_through_pair && !incident.in_route;
+                    });
+    switch (relation_kind) {
+    case JunctionRelationKind::kCrossUnderpass:
+      info.kind = BackboneFlowKind::kBranch;
+      info.rule = BackboneFlowDecisionRule::kJunctionOrderBranch;
+      info.underpass_at_cross = true;
+      return info;
+    case JunctionRelationKind::kSideBranch:
+      info.kind = BackboneFlowKind::kBranch;
+      info.rule = relation_uses_existing_continuity
+                      ? BackboneFlowDecisionRule::kExistingChainBranch
+                      : BackboneFlowDecisionRule::kJunctionOrderBranch;
+      return info;
+    case JunctionRelationKind::kCornerContinuation:
+      info.kind = BackboneFlowKind::kMain;
+      info.rule = BackboneFlowDecisionRule::kDefaultMain;
+      return info;
+    case JunctionRelationKind::kThroughMain:
+      info.kind = BackboneFlowKind::kMain;
+      info.rule = relation_uses_existing_continuity
+                      ? BackboneFlowDecisionRule::kExistingChainMain
+                      : (relation.through_pair.accepted ? BackboneFlowDecisionRule::kJunctionOrderMain
+                                                        : BackboneFlowDecisionRule::kDefaultMain);
+      return info;
+    case JunctionRelationKind::kNone:
+    default:
       return info;
     }
-    return info;
   };
   auto classify_edge_flow = [&](ObjectId node_a, ObjectId node_b) {
     const EdgeFlowInfo flow_a = classify_edge_flow_at_node(node_a, node_b);
@@ -1421,6 +1716,58 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
   for (std::size_t i = 0; i + 1 < ordered_support_node_ids.size(); ++i) {
     edge_flow_by_segment.push_back(classify_edge_flow(ordered_support_node_ids[i], ordered_support_node_ids[i + 1]));
   }
+  std::vector<JunctionRelation> path_junction_relations{};
+  path_junction_relations.reserve(ordered_support_node_ids.size());
+  std::unordered_map<ObjectId, JunctionRelation> path_junction_relations_by_node{};
+  path_junction_relations_by_node.reserve(ordered_support_node_ids.size());
+  for (ObjectId node_id : ordered_support_node_ids) {
+    JunctionRelation relation = classify_junction(node_id);
+    path_junction_relations_by_node[node_id] = relation;
+    path_junction_relations.push_back(std::move(relation));
+  }
+  auto path_relation_kind_at = [&](std::size_t node_index) {
+    if (node_index >= ordered_support_node_ids.size()) {
+      return JunctionRelationKind::kNone;
+    }
+    const ObjectId node_id = ordered_support_node_ids[node_index];
+    const JunctionRelation& relation = path_junction_relations[node_index];
+    const ObjectId prev_node_id = (node_index > 0) ? ordered_support_node_ids[node_index - 1] : kInvalidObjectId;
+    const ObjectId next_node_id =
+        (node_index + 1 < ordered_support_node_ids.size()) ? ordered_support_node_ids[node_index + 1] : kInvalidObjectId;
+    JunctionRelationKind kind = JunctionRelationKind::kNone;
+    if (prev_node_id != kInvalidObjectId) {
+      kind = find_incident_relation(relation, prev_node_id);
+    }
+    if (next_node_id != kInvalidObjectId) {
+      const JunctionRelationKind next_kind = find_incident_relation(relation, next_node_id);
+      auto rank = [](JunctionRelationKind relation_kind) {
+        switch (relation_kind) {
+        case JunctionRelationKind::kCrossUnderpass:
+          return 4;
+        case JunctionRelationKind::kSideBranch:
+          return 3;
+        case JunctionRelationKind::kCornerContinuation:
+          return 2;
+        case JunctionRelationKind::kThroughMain:
+          return 1;
+        case JunctionRelationKind::kNone:
+        default:
+          return 0;
+        }
+      };
+      if (rank(next_kind) > rank(kind)) {
+        kind = next_kind;
+      }
+    }
+    if (kind == JunctionRelationKind::kNone && node_id != kInvalidObjectId) {
+      const auto it_route = route_neighbors_by_node.find(node_id);
+      if (it_route != route_neighbors_by_node.end() && !it_route->second.empty()) {
+        kind = (it_route->second.size() >= 2) ? JunctionRelationKind::kCornerContinuation
+                                              : JunctionRelationKind::kThroughMain;
+      }
+    }
+    return kind;
+  };
 
   auto resolve_span_endpoint_node = [&](const Span& span, const Port* port, bool is_a) -> ObjectId {
     const ObjectId explicit_node_id = is_a ? span.endpoint_node_a_id : span.endpoint_node_b_id;
@@ -1488,6 +1835,8 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     if (first_missing_segment >= ordered_support_node_ids.size() - 1) {
       continue;
     }
+    std::unordered_map<ObjectId, JunctionRelation> plan_junction_relations_by_node = path_junction_relations_by_node;
+    annotate_same_level_feasibility(plan, &plan_junction_relations_by_node);
     for (std::size_t run_start = first_missing_segment; run_start + 1 < ordered_support_node_ids.size();) {
       const EdgeFlowInfo flow_info = edge_flow_by_segment[run_start];
       std::size_t run_end = run_start;
@@ -1508,22 +1857,54 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       std::vector<BackboneEdgeOrientation> edge_orientations{};
       BackboneLoweringPolicy lowering_policy{};
       double branch_down_offset_m = 0.0;
-      if (flow_info.underpass_at_cross) {
+      bool relation_has_cross = false;
+      bool relation_has_branch = false;
+      bool relation_has_corner = false;
+      for (std::size_t node_offset = run_start; node_offset <= run_end + 1; ++node_offset) {
+        if (node_offset >= ordered_support_node_ids.size()) {
+          continue;
+        }
+        const ObjectId node_id = ordered_support_node_ids[node_offset];
+        const auto it_relation = plan_junction_relations_by_node.find(node_id);
+        if (it_relation == plan_junction_relations_by_node.end()) {
+          continue;
+        }
+        for (const JunctionIncidentRelation& incident : it_relation->second.incidents) {
+          if (!incident.in_route || incident.same_level_feasible) {
+            continue;
+          }
+          switch (incident.kind) {
+          case JunctionRelationKind::kCrossUnderpass:
+            relation_has_cross = true;
+            break;
+          case JunctionRelationKind::kSideBranch:
+            relation_has_branch = true;
+            break;
+          case JunctionRelationKind::kCornerContinuation:
+            relation_has_corner = true;
+            break;
+          default:
+            break;
+          }
+        }
+      }
+      if (relation_has_cross) {
         lowering_policy.enable_cross_underpass = true;
         branch_down_offset_m = generation::detail::BranchDownOffsetForCategory(plan.category);
       }
-      if (flow_info.kind == BackboneFlowKind::kBranch && plan.enable_branch_down_offset) {
+      if (relation_has_branch && plan.enable_branch_down_offset) {
         lowering_policy.enable_branch_support = true;
         branch_down_offset_m = generation::detail::BranchDownOffsetForCategory(plan.category);
       }
-      if (plan.enable_branch_down_offset) {
+      if (relation_has_corner && plan.enable_branch_down_offset) {
         lowering_policy.enable_acute_corner = true;
         branch_down_offset_m = generation::detail::BranchDownOffsetForCategory(plan.category);
       }
       lowering_policy.offset_m = branch_down_offset_m;
       EditResult<std::vector<ObjectId>> spans_result = generate_grouped_spans_between_support_nodes(
           local_support_nodes, support_node_by_id, bundle_id, plan.category, plan.count, plan.spacing_m, true,
-          plan.allow_mirror, flow_info.kind, lowering_policy, &lane_assignments, &edge_orientations, plan.template_id);
+          plan.allow_mirror, flow_info.kind, lowering_policy, &plan_junction_relations_by_node, &lane_assignments,
+          &edge_orientations, plan.template_id);
       if (!spans_result.ok) {
         *this = snapshot;
         result.error = spans_result.error;
@@ -1564,10 +1945,30 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
 
       run_start = run_end + 1;
     }
+    for (const auto& [node_id, relation] : plan_junction_relations_by_node) {
+      JunctionRelation& merged = path_junction_relations_by_node[node_id];
+      for (const JunctionIncidentRelation& incident : relation.incidents) {
+        JunctionIncidentRelation* target = find_incident_relation_ptr(merged, incident.neighbor_node_id);
+        if (target == nullptr) {
+          continue;
+        }
+        if (!incident.same_level_feasible &&
+            (target->same_level_feasible ||
+             (incident.projected_spacing_topview_m >= 0.0 &&
+              (target->projected_spacing_topview_m < 0.0 ||
+               incident.projected_spacing_topview_m < target->projected_spacing_topview_m)))) {
+          target->same_level_feasible = false;
+          target->projected_spacing_topview_m = incident.projected_spacing_topview_m;
+          target->required_clearance_m = incident.required_clearance_m;
+          target->infeasible_reason = incident.infeasible_reason;
+        }
+      }
+    }
   }
 
   last_lane_assignments_access() = all_lane_assignments;
   last_generation_backbone_ = generation_backbone;
+  last_generation_junction_relations_ = std::move(path_junction_relations_by_node);
   result.ok = true;
   return result;
 }

@@ -129,3 +129,35 @@ wire::core::PickResult NormalizeDrawPathPick(const wire::core::CoreState& state,
   }
   return pick;
 }
+
+wire::core::PickResult PromoteGroundHoverToNearbyPolePick(const wire::core::CoreState& state,
+                                                          const wire::core::Vec3d& ground_hover_world,
+                                                          double snap_radius_world) {
+  if (snap_radius_world <= 0.0) {
+    return {};
+  }
+
+  const double snap_radius_squared = snap_radius_world * snap_radius_world;
+  const wire::core::Pole* best_pole = nullptr;
+  double best_distance_squared = snap_radius_squared + 1.0;
+  for (const wire::core::Pole& pole : state.view().edit_state().poles.items()) {
+    const double distance_squared = DistanceSquaredXY(pole.world_transform.position, ground_hover_world);
+    if (distance_squared > snap_radius_squared) {
+      continue;
+    }
+    if (best_pole == nullptr || distance_squared < best_distance_squared) {
+      best_pole = &pole;
+      best_distance_squared = distance_squared;
+    }
+  }
+
+  if (best_pole == nullptr) {
+    return {};
+  }
+
+  wire::core::PickResult promoted{};
+  promoted.hit_kind = wire::core::PickHitKind::kNode;
+  promoted.hit_id = best_pole->id;
+  promoted.hit_pos_world = best_pole->world_transform.position;
+  return promoted;
+}

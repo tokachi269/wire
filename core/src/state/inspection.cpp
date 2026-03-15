@@ -78,6 +78,36 @@ const char* FlowDecisionRuleText(BackboneFlowDecisionRule rule) {
   }
 }
 
+const char* JunctionRelationKindText(JunctionRelationKind kind) {
+  switch (kind) {
+  case JunctionRelationKind::kThroughMain:
+    return "ThroughMain";
+  case JunctionRelationKind::kSideBranch:
+    return "SideBranch";
+  case JunctionRelationKind::kCornerContinuation:
+    return "CornerContinuation";
+  case JunctionRelationKind::kCrossUnderpass:
+    return "CrossUnderpass";
+  case JunctionRelationKind::kNone:
+  default:
+    return "None";
+  }
+}
+
+const char* SameLevelReasonText(SameLevelFeasibilityReason reason) {
+  switch (reason) {
+  case SameLevelFeasibilityReason::kEnvelopeOverlap:
+    return "EnvelopeOverlap";
+  case SameLevelFeasibilityReason::kNearNodeClearance:
+    return "NearNodeClearance";
+  case SameLevelFeasibilityReason::kCategoryPolicyDisabled:
+    return "CategoryPolicyDisabled";
+  case SameLevelFeasibilityReason::kNone:
+  default:
+    return "None";
+  }
+}
+
 const char* SupportLayoutOriginText(SupportLayoutOriginKind origin) {
   switch (origin) {
   case SupportLayoutOriginKind::kMainSupport:
@@ -86,6 +116,8 @@ const char* SupportLayoutOriginText(SupportLayoutOriginKind origin) {
     return "BranchSupport";
   case SupportLayoutOriginKind::kAerialBranch:
     return "AerialBranch";
+  case SupportLayoutOriginKind::kPlacementConstraint:
+    return "PlacementConstraint";
   case SupportLayoutOriginKind::kFallback:
   default:
     return "Fallback";
@@ -127,6 +159,8 @@ const char* PortPlacementSourceText(PortPlacementSourceKind source) {
     return "Unknown";
   case PortPlacementSourceKind::kPlacementBand:
     return "PlacementBand";
+  case PortPlacementSourceKind::kPlacementBandConstrained:
+    return "PlacementBandConstrained";
   case PortPlacementSourceKind::kGenerated:
     return "Generated";
   case PortPlacementSourceKind::kManualEdit:
@@ -311,6 +345,7 @@ SupportLayoutEndpointView MakeSupportLayoutEndpointView(const SupportLayoutEndpo
   view.attachment_request = endpoint.attachment_request;
   view.resolved_socket_id = endpoint.resolved_socket_id;
   view.flow_kind = endpoint.flow_kind;
+  view.relation_kind = endpoint.relation_kind;
   view.side = endpoint.side;
   view.origin = SupportLayoutOriginText(endpoint.origin);
   view.endpoint_source = endpoint.endpoint_source;
@@ -323,6 +358,14 @@ SupportLayoutEndpointView MakeSupportLayoutEndpointView(const SupportLayoutEndpo
   view.local_departure_length_m = endpoint.local_departure_length_m;
   view.automatic_branch_down_offset_m = endpoint.automatic_branch_down_offset_m;
   view.branch_down_offset_m = endpoint.branch_down_offset_m;
+  view.same_level_feasible = endpoint.same_level_feasible;
+  view.same_level_reason = endpoint.same_level_reason;
+  view.projected_spacing_topview_m = endpoint.projected_spacing_topview_m;
+  view.required_clearance_m = endpoint.required_clearance_m;
+  view.lowering_blocked_by_policy = endpoint.lowering_blocked_by_policy;
+  view.unresolved_same_level_conflict = endpoint.unresolved_same_level_conflict;
+  view.solver_used_same_level_constraint = endpoint.solver_used_same_level_constraint;
+  view.used_special_case_ports = endpoint.used_special_case_ports;
   view.down_offset_variation = MakeVariationBreakdownView(endpoint.down_offset_variation);
   return view;
 }
@@ -373,7 +416,8 @@ std::optional<EntityMeta> CoreView::describe_entity(EntityRef ref) const {
                     EntityRoleKind::kDetailDerived, false, false, "detail.curve_cache");
   }
   case EntityKind::kJunction: {
-    if (!FindJunctionByNode(state_, ref.stable_id).has_value()) {
+    if (!FindJunctionByNode(state_, ref.stable_id).has_value() &&
+        !state_.last_generation_junction_relations_.contains(ref.stable_id)) {
       return std::nullopt;
     }
     return MakeMeta(ref.kind, ref.stable_id, "Junction " + std::to_string(ref.stable_id), EntityRoleKind::kDerived,
@@ -482,9 +526,16 @@ std::optional<SpanInspectionView> CoreView::inspect_span(ObjectId span_id) const
     result.flow_kind = layout->flow_kind;
     result.uses_branch_support = layout->start.origin == SupportLayoutOriginKind::kBranchSupport ||
                                  layout->end.origin == SupportLayoutOriginKind::kBranchSupport;
-    result.lowering_kind =
-        result.uses_branch_support ? BackboneLoweringKind::kBranchSupport : BackboneLoweringKind::kNone;
+    result.lowering_kind = layout->lowering_kind;
     result.branch_down_offset_m = std::max(layout->start.branch_down_offset_m, layout->end.branch_down_offset_m);
+    result.same_level_feasible = layout->same_level_feasible;
+    result.same_level_reason = layout->same_level_reason;
+    result.projected_spacing_topview_m = layout->projected_spacing_topview_m;
+    result.required_clearance_m = layout->required_clearance_m;
+    result.lowering_blocked_by_policy = layout->lowering_blocked_by_policy;
+    result.unresolved_same_level_conflict = layout->unresolved_same_level_conflict;
+    result.solver_used_same_level_constraint = layout->solver_used_same_level_constraint;
+    result.used_special_case_ports = layout->used_special_case_ports;
   }
   if (const CurveCacheEntry* curve = state_.find_curve_cache(span_id); curve != nullptr) {
     result.detail_curve_ref = {EntityKind::kDetailCurve, span_id};
@@ -504,6 +555,11 @@ std::optional<SpanInspectionView> CoreView::inspect_span(ObjectId span_id) const
     result.mirrored = assignment->mirrored;
     result.flipped_from_previous = assignment->flipped_from_previous;
     result.turn_angle_deg = assignment->turn_angle_deg;
+    result.same_level_feasible = assignment->same_level_feasible;
+    result.same_level_reason = assignment->same_level_reason;
+    result.projected_spacing_topview_m = assignment->projected_spacing_topview_m;
+    result.required_clearance_m = assignment->required_clearance_m;
+    result.lowering_blocked_by_policy = assignment->lowering_blocked_by_policy;
   }
 
   std::unordered_set<std::uint64_t> seen{};
@@ -537,6 +593,17 @@ std::optional<SupportLayoutInspectionView> CoreView::inspect_support_layout(Obje
   result.flow_kind = layout->flow_kind;
   result.pass_mode = layout->pass_mode;
   result.variation_flow_key = layout->variation_flow_key;
+  result.relation_a = layout->relation_a;
+  result.relation_b = layout->relation_b;
+  result.same_level_feasible = layout->same_level_feasible;
+  result.same_level_reason = layout->same_level_reason;
+  result.projected_spacing_topview_m = layout->projected_spacing_topview_m;
+  result.required_clearance_m = layout->required_clearance_m;
+  result.lowering_blocked_by_policy = layout->lowering_blocked_by_policy;
+  result.unresolved_same_level_conflict = layout->unresolved_same_level_conflict;
+  result.solver_used_same_level_constraint = layout->solver_used_same_level_constraint;
+  result.used_special_case_ports = layout->used_special_case_ports;
+  result.lowering_kind = layout->lowering_kind;
   result.start_endpoint = MakeSupportLayoutEndpointView(layout->start);
   result.end_endpoint = MakeSupportLayoutEndpointView(layout->end);
 
@@ -624,22 +691,60 @@ std::optional<DetailCurveInspectionView> CoreView::inspect_detail_curve(ObjectId
 
 std::optional<JunctionInspectionView> CoreView::inspect_junction(ObjectId node_id) const {
   const auto junction = FindJunctionByNode(state_, node_id);
-  if (!junction.has_value()) {
+  const auto relation_it = state_.last_generation_junction_relations_.find(node_id);
+  if (!junction.has_value() && relation_it == state_.last_generation_junction_relations_.end()) {
     return std::nullopt;
   }
   JunctionInspectionView result{};
   result.meta = *describe_entity({EntityKind::kJunction, node_id});
   result.node_id = node_id;
-  result.incidents = junction->incidents;
-  result.has_primary = std::any_of(junction->incidents.begin(), junction->incidents.end(),
-                                   [](const JunctionIncident& incident) { return incident.primary; });
+  if (junction.has_value()) {
+    result.incidents = junction->incidents;
+    result.has_primary = std::any_of(junction->incidents.begin(), junction->incidents.end(),
+                                     [](const JunctionIncident& incident) { return incident.primary; });
+  }
+  if (relation_it != state_.last_generation_junction_relations_.end()) {
+    const JunctionRelation& relation = relation_it->second;
+    result.has_local_relation = true;
+    result.through_pair_accepted = relation.through_pair.accepted;
+    result.through_pair_used_semantic_tiebreak = relation.through_pair.used_semantic_tiebreak;
+    result.is_cross_like = relation.is_cross_like;
+    result.route_incident_count = relation.route_incident_count;
+    result.through_pair_neighbor_a_id = relation.through_pair.neighbor_a_id;
+    result.through_pair_neighbor_b_id = relation.through_pair.neighbor_b_id;
+    result.through_pair_straightness_score = relation.through_pair.straightness_score;
+    result.local_relations.reserve(relation.incidents.size());
+    for (const JunctionIncidentRelation& incident : relation.incidents) {
+      JunctionIncidentRelationView incident_view{};
+      incident_view.neighbor_node_id = incident.neighbor_node_id;
+      incident_view.kind = incident.kind;
+      incident_view.straightness_score = incident.straightness_score;
+      incident_view.in_route = incident.in_route;
+      incident_view.in_through_pair = incident.in_through_pair;
+      incident_view.used_semantic_tiebreak = incident.used_semantic_tiebreak;
+      incident_view.same_level_feasible = incident.same_level_feasible;
+      incident_view.infeasible_reason = incident.infeasible_reason;
+      incident_view.projected_spacing_topview_m = incident.projected_spacing_topview_m;
+      incident_view.required_clearance_m = incident.required_clearance_m;
+      result.local_relations.push_back(incident_view);
+    }
+  }
 
   std::unordered_set<std::uint64_t> seen{};
-  for (const JunctionIncident& incident : junction->incidents) {
-    AddLink(&result.links, &seen, "Neighbor " + std::to_string(incident.neighbor_node_id), EntityKind::kSupportNode,
-            incident.neighbor_node_id);
-    AddLink(&result.links, &seen, "Edge " + std::to_string(StableBackboneEdgeId(node_id, incident.neighbor_node_id)),
-            EntityKind::kBackboneEdge, StableBackboneEdgeId(node_id, incident.neighbor_node_id));
+  if (junction.has_value()) {
+    for (const JunctionIncident& incident : junction->incidents) {
+      AddLink(&result.links, &seen, "Neighbor " + std::to_string(incident.neighbor_node_id), EntityKind::kSupportNode,
+              incident.neighbor_node_id);
+      AddLink(&result.links, &seen, "Edge " + std::to_string(StableBackboneEdgeId(node_id, incident.neighbor_node_id)),
+              EntityKind::kBackboneEdge, StableBackboneEdgeId(node_id, incident.neighbor_node_id));
+    }
+  } else if (relation_it != state_.last_generation_junction_relations_.end()) {
+    for (const JunctionIncidentRelation& incident : relation_it->second.incidents) {
+      AddLink(&result.links, &seen, "Neighbor " + std::to_string(incident.neighbor_node_id), EntityKind::kSupportNode,
+              incident.neighbor_node_id);
+      AddLink(&result.links, &seen, "Edge " + std::to_string(StableBackboneEdgeId(node_id, incident.neighbor_node_id)),
+              EntityKind::kBackboneEdge, StableBackboneEdgeId(node_id, incident.neighbor_node_id));
+    }
   }
   if (const auto node = FindSupportNodeById(state_, node_id); node.has_value() && node->pole_id != kInvalidObjectId) {
     AddLink(&result.links, &seen, "Owner Pole", EntityKind::kPole, node->pole_id);
@@ -876,7 +981,13 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
         std::ostringstream summary;
         summary << "flow=" << FlowKindText(assignment->flow_kind)
                 << " branchSupport=" << BoolText(assignment->uses_branch_support)
-                << " mirrored=" << BoolText(assignment->mirrored);
+                << " mirrored=" << BoolText(assignment->mirrored)
+                << " sameLevel=" << BoolText(assignment->same_level_feasible)
+                << " reason=" << SameLevelReasonText(assignment->same_level_reason);
+        if (assignment->projected_spacing_topview_m >= 0.0) {
+          summary << " projected=" << assignment->projected_spacing_topview_m
+                  << " required=" << assignment->required_clearance_m;
+        }
         trace.push_back({DecisionTraceTopic::kFlowClassification, FlowDecisionRuleText(assignment->flow_decision_rule),
                          summary.str()});
         has_flow_trace = true;
@@ -894,7 +1005,16 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
       std::ostringstream summary;
       summary << "start=" << SupportLayoutOriginText(layout->start.origin) << " dep=" << layout->start.local_departure_length_m
               << " end=" << SupportLayoutOriginText(layout->end.origin) << " dep=" << layout->end.local_departure_length_m
-              << " down=" << std::max(layout->start.branch_down_offset_m, layout->end.branch_down_offset_m);
+              << " down=" << std::max(layout->start.branch_down_offset_m, layout->end.branch_down_offset_m)
+              << " sameLevel=" << BoolText(layout->same_level_feasible)
+              << " reason=" << SameLevelReasonText(layout->same_level_reason)
+              << " unresolved=" << BoolText(layout->unresolved_same_level_conflict)
+              << " solver=" << BoolText(layout->solver_used_same_level_constraint)
+              << " special=" << BoolText(layout->used_special_case_ports);
+      if (layout->projected_spacing_topview_m >= 0.0) {
+        summary << " projected=" << layout->projected_spacing_topview_m
+                << " required=" << layout->required_clearance_m;
+      }
       trace.push_back({DecisionTraceTopic::kSupportLayoutSelection, FlowKindText(layout->flow_kind), summary.str()});
       std::ostringstream endpoint_summary;
       endpoint_summary << "start=" << SupportLayoutEndpointSourceText(layout->start.endpoint_source)
@@ -974,6 +1094,35 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
                 << " primary=" << BoolText(incident.primary) << "]";
       }
       trace.push_back({DecisionTraceTopic::kFlowClassification, "JunctionPrimaryOrder", summary.str()});
+    }
+    if (const auto it = state_.last_generation_junction_relations_.find(static_cast<ObjectId>(ref.stable_id));
+        it != state_.last_generation_junction_relations_.end()) {
+      const JunctionRelation& relation = it->second;
+      std::ostringstream relation_summary;
+      relation_summary << "throughAccepted=" << BoolText(relation.through_pair.accepted)
+                       << " score=" << relation.through_pair.straightness_score
+                       << " semanticTiebreak=" << BoolText(relation.through_pair.used_semantic_tiebreak)
+                       << " routeIncidents=" << relation.route_incident_count
+                       << " crossLike=" << BoolText(relation.is_cross_like);
+      if (relation.through_pair.neighbor_a_id != kInvalidObjectId ||
+          relation.through_pair.neighbor_b_id != kInvalidObjectId) {
+        relation_summary << " pair=" << relation.through_pair.neighbor_a_id << "/"
+                         << relation.through_pair.neighbor_b_id;
+      }
+      for (const JunctionIncidentRelation& incident : relation.incidents) {
+        relation_summary << " [" << incident.neighbor_node_id << " kind=" << JunctionRelationKindText(incident.kind)
+                         << " inRoute=" << BoolText(incident.in_route)
+                         << " inPair=" << BoolText(incident.in_through_pair)
+                         << " sameLevel=" << BoolText(incident.same_level_feasible)
+                         << " reason=" << SameLevelReasonText(incident.infeasible_reason);
+        if (incident.projected_spacing_topview_m >= 0.0) {
+          relation_summary << " projected=" << incident.projected_spacing_topview_m
+                           << " required=" << incident.required_clearance_m;
+        }
+        relation_summary << "]";
+      }
+      trace.push_back(
+          {DecisionTraceTopic::kFlowClassification, "JunctionRelationClassification", relation_summary.str()});
     }
   }
   return trace;

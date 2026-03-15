@@ -18,3 +18,7 @@ std::string FindMidairBranchBlockedTemplateName(const wire::core::CoreState& sta
 
 wire::core::PickResult NormalizeDrawPathPick(const wire::core::CoreState& state, const wire::core::PickResult& pick,
                                              double endpoint_snap_radius_world);
+
+wire::core::PickResult PromoteGroundHoverToNearbyPolePick(const wire::core::CoreState& state,
+                                                          const wire::core::Vec3d& ground_hover_world,
+                                                          double snap_radius_world);

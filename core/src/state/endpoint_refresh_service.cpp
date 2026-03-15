@@ -127,7 +127,8 @@ void EndpointRefreshService::RefreshOwnedEndpointsFromPole(CoreState& state, Obj
     bool apply_angle_correction = false;
     double applied_scale = 1.0;
     PortPlacementSourceKind refresh_source = port->placement_source;
-    if (port->placement_source == PortPlacementSourceKind::kPlacementBand) {
+    if (port->placement_source == PortPlacementSourceKind::kPlacementBand ||
+        port->placement_source == PortPlacementSourceKind::kPlacementBandConstrained) {
       const PortPlacementBand* band = find_port_band(pole_type, *port);
       if (band != nullptr) {
         const Vec3d reference_local =
@@ -136,8 +137,12 @@ void EndpointRefreshService::RefreshOwnedEndpointsFromPole(CoreState& state, Obj
                 : WorldPointToLocal(BuildPoleFrame(pole->world_transform, layout_yaw), port->world_position);
         Vec3d adjusted_local{
             0.0,
-            std::clamp(reference_local.y, band->lateral_min_m, band->lateral_max_m),
-            std::clamp(reference_local.z, band->height_min_m, band->height_max_m),
+            (port->placement_source == PortPlacementSourceKind::kPlacementBandConstrained)
+                ? reference_local.y
+                : std::clamp(reference_local.y, band->lateral_min_m, band->lateral_max_m),
+            (port->placement_source == PortPlacementSourceKind::kPlacementBandConstrained)
+                ? reference_local.z
+                : std::clamp(reference_local.z, band->height_min_m, band->height_max_m),
         };
         apply_angle_correction = state.layout_settings_.angle_correction_enabled &&
                                  pole->context.kind == PoleContextKind::kCorner && band->side != SlotSide::kCenter;

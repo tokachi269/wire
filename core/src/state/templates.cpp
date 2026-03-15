@@ -451,6 +451,11 @@ EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolution
   debug.corner_angle_deg = request.corner_angle_deg;
   debug.corner_turn_sign = request.corner_turn_sign;
   debug.side_scale = compute_side_scale(request.pole_context, request.corner_angle_deg);
+  debug.same_level_feasible_hint = request.same_level_feasible_hint;
+  debug.same_level_reason_hint = request.same_level_reason_hint;
+  debug.projected_spacing_topview_hint_m = request.projected_spacing_topview_hint_m;
+  debug.required_clearance_hint_m = request.required_clearance_hint_m;
+  debug.relation_kind_hint = request.relation_kind_hint;
 
   auto push_debug = [&]() {
     port_resolution_debug_records_.push_back(debug);
@@ -622,6 +627,10 @@ EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolution
         if (owned == nullptr) {
           continue;
         }
+        if (std::find(request.excluded_port_ids.begin(), request.excluded_port_ids.end(), owned->id) !=
+            request.excluded_port_ids.end()) {
+          continue;
+        }
         if (!owned->generated_from_template || owned->category != band.category || owned->template_layer != band.layer ||
             owned->template_side != band.side || owned->template_role != band.role) {
           continue;
@@ -653,6 +662,11 @@ EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolution
       candidate.band_lateral_max_m = band.lateral_max_m;
       candidate.band_height_min_m = band.height_min_m;
       candidate.band_height_max_m = band.height_max_m;
+      candidate.same_level_feasible_hint = request.same_level_feasible_hint;
+      candidate.same_level_reason_hint = request.same_level_reason_hint;
+      candidate.projected_spacing_topview_hint_m = request.projected_spacing_topview_hint_m;
+      candidate.required_clearance_hint_m = request.required_clearance_hint_m;
+      candidate.relation_kind_hint = request.relation_kind_hint;
       candidate.category_score = (band.category == request.category) ? 500 : -100000;
       if (candidate.category_score < 0) {
         candidate.eligible = false;
@@ -697,6 +711,42 @@ EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolution
           candidate.role_score += 30;
         }
       }
+      const double preferred_lateral =
+          (prefer_non_center && band.side == preferred_side)
+              ? std::clamp(band.lateral_center_m + ((preferred_side == SlotSide::kLeft) ? -0.05 : 0.05),
+                           band.lateral_min_m, band.lateral_max_m)
+              : std::clamp(band.lateral_center_m, band.lateral_min_m, band.lateral_max_m);
+      const double preferred_height =
+          request.prefer_template_match && band.layer == request.preferred_template_layer
+              ? std::clamp(band.height_center_m + 0.05, band.height_min_m, band.height_max_m)
+              : std::clamp(band.height_center_m, band.height_min_m, band.height_max_m);
+
+      if (!request.same_level_feasible_hint) {
+        if (band.side != SlotSide::kCenter) {
+          candidate.side_score += 60;
+        } else {
+          candidate.side_score -= 35;
+        }
+        switch (request.relation_kind_hint) {
+        case JunctionRelationKind::kSideBranch:
+        case JunctionRelationKind::kCrossUnderpass:
+          if (band.role == SlotRole::kBranchPreferred) {
+            candidate.role_score += 140;
+          } else if (band.role == SlotRole::kTrunkPreferred) {
+            candidate.role_score -= 40;
+          }
+          break;
+        case JunctionRelationKind::kCornerContinuation:
+          if (band.side != SlotSide::kCenter) {
+            candidate.context_score += 50;
+          }
+          break;
+        default:
+          break;
+        }
+        const double lowered_height_bias = std::max(0.0, preferred_height - band.height_center_m);
+        candidate.context_score += static_cast<int>(std::round(lowered_height_bias * 180.0));
+      }
       candidate.priority_score = band.priority;
 
       auto [band_port, band_port_usage] = find_band_port(band);
@@ -713,8 +763,11 @@ EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolution
           });
       const bool defer_reuse_until_unused_siblings_consumed =
           band.allow_multiple && candidate.usage_count > 0 && has_unused_sibling_band;
+      const bool allow_constrained_extra_port =
+          !request.same_level_feasible_hint && band_port != nullptr && candidate.usage_count > 0;
       const bool can_create_new_port = request.allow_generate_port && !defer_reuse_until_unused_siblings_consumed &&
-                                       (band_port == nullptr || (band.allow_multiple && candidate.usage_count > 0));
+                                       (band_port == nullptr || (band.allow_multiple && candidate.usage_count > 0) ||
+                                        allow_constrained_extra_port);
       candidate.resolved_port_id = can_reuse_existing_port ? band_port->id : kInvalidObjectId;
       if (can_reuse_existing_port) {
         candidate.usage_score = 80;
@@ -726,19 +779,12 @@ EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolution
       candidate.congestion_count = same_side_layer_usage(band.side, band.layer);
       candidate.congestion_score = -15 * static_cast<int>(candidate.congestion_count);
 
-      const double preferred_lateral =
-          (prefer_non_center && band.side == preferred_side)
-              ? std::clamp(band.lateral_center_m + ((preferred_side == SlotSide::kLeft) ? -0.05 : 0.05),
-                           band.lateral_min_m, band.lateral_max_m)
-              : std::clamp(band.lateral_center_m, band.lateral_min_m, band.lateral_max_m);
-      const double preferred_height =
-          request.prefer_template_match && band.layer == request.preferred_template_layer
-              ? std::clamp(band.height_center_m + 0.05, band.height_min_m, band.height_max_m)
-              : std::clamp(band.height_center_m, band.height_min_m, band.height_max_m);
       BandSolveResult solve{};
-      if (can_create_new_port) {
-        solve = solve_in_band(band, kInvalidObjectId, preferred_lateral, preferred_height);
-        if (!solve.min_spacing_satisfied && band.overflow_policy == BandOverflowPolicy::kConstrainedFallback) {
+      if (can_reuse_existing_port || can_create_new_port) {
+        solve = solve_in_band(band, can_reuse_existing_port ? band_port->id : kInvalidObjectId, preferred_lateral,
+                              preferred_height);
+        if (!solve.min_spacing_satisfied &&
+            (band.overflow_policy == BandOverflowPolicy::kConstrainedFallback || !request.same_level_feasible_hint)) {
           solve = solve_constrained_fallback(band, preferred_lateral);
         }
       } else {
@@ -750,7 +796,7 @@ EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolution
       candidate.resolved_height_m = solve.height_m;
       candidate.min_spacing_satisfied = solve.min_spacing_satisfied;
       candidate.overflow_used = solve.overflow_used;
-      if (can_create_new_port && !solve.min_spacing_satisfied) {
+      if ((can_reuse_existing_port || can_create_new_port) && !solve.min_spacing_satisfied) {
         candidate.usage_score -= 35 + static_cast<int>(solve.conflict_count) * 8;
       }
 
@@ -762,7 +808,7 @@ EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolution
                               candidate.usage_score + candidate.congestion_score + (candidate.tie_breaker / 16);
 
       candidate.eligible = candidate.usage_score > -100000 &&
-                           (can_reuse_existing_port || !can_create_new_port || solve.min_spacing_satisfied);
+                           ((can_reuse_existing_port || can_create_new_port) ? solve.min_spacing_satisfied : true);
       if (!candidate.eligible) {
         if (defer_reuse_until_unused_siblings_consumed) {
           candidate.reason = "unused sibling preferred";
@@ -789,31 +835,54 @@ EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolution
     }
 
     if (best_band != nullptr) {
+      const bool use_constrained_source = !request.same_level_feasible_hint;
+      const PortPlacementSourceKind selected_source =
+          use_constrained_source ? PortPlacementSourceKind::kPlacementBandConstrained
+                                 : PortPlacementSourceKind::kPlacementBand;
+
+      auto realize_selected_world = [&]() {
+        Vec3d adjusted_local{0.0, best_solve.lateral_m, best_solve.height_m};
+        const bool apply_angle_correction = layout_settings_.angle_correction_enabled &&
+                                            request.pole_context == PoleContextKind::kCorner &&
+                                            best_band->side != SlotSide::kCenter;
+        double applied_scale = 1.0;
+        if (apply_angle_correction) {
+          adjusted_local.y =
+              apply_corner_side_scale(adjusted_local.y, best_band->side, request.corner_turn_sign, debug.side_scale);
+          if (std::abs(best_solve.lateral_m) > 1e-9) {
+            applied_scale = std::abs(adjusted_local.y / best_solve.lateral_m);
+          }
+        }
+        adjusted_local = apply_pole_clearance_to_local(*pole, adjusted_local, best_band->side);
+        return std::pair<Vec3d, double>{local_to_world_on_pole(pole->world_transform, layout_yaw, adjusted_local),
+                                        apply_angle_correction ? applied_scale : 1.0};
+      };
+
       if (best_port != nullptr) {
+        const auto [selected_world, applied_scale] = realize_selected_world();
+        const bool moved = std::abs(best_port->world_position.x - selected_world.x) > 1e-9 ||
+                           std::abs(best_port->world_position.y - selected_world.y) > 1e-9 ||
+                           std::abs(best_port->world_position.z - selected_world.z) > 1e-9;
+        if (moved) {
+          best_port->world_position = selected_world;
+          add_unique_id(result.change_set.updated_ids, best_port->id);
+        }
+        best_port->angle_correction_applied = layout_settings_.angle_correction_enabled &&
+                                              request.pole_context == PoleContextKind::kCorner &&
+                                              best_band->side != SlotSide::kCenter;
+        best_port->side_scale_applied = applied_scale;
+        apply_port_position_mode(*best_port, PortPositionMode::kAuto, selected_source);
         result.ok = true;
         result.value = best_port->id;
         debug.selected_port_id = best_port->id;
         debug.overflow_triggered = false;
+        debug.solver_used_same_level_constraint = use_constrained_source;
         debug.result = "selected existing template-owned port";
         push_debug();
         return result;
       }
 
-      Vec3d adjusted_local{0.0, best_solve.lateral_m, best_solve.height_m};
-      const bool apply_angle_correction = layout_settings_.angle_correction_enabled &&
-                                          request.pole_context == PoleContextKind::kCorner &&
-                                          best_band->side != SlotSide::kCenter;
-      double applied_scale = 1.0;
-      if (apply_angle_correction) {
-        adjusted_local.y =
-            apply_corner_side_scale(adjusted_local.y, best_band->side, request.corner_turn_sign, debug.side_scale);
-        if (std::abs(best_solve.lateral_m) > 1e-9) {
-          applied_scale = std::abs(adjusted_local.y / best_solve.lateral_m);
-        }
-      }
-      adjusted_local = apply_pole_clearance_to_local(*pole, adjusted_local, best_band->side);
-      const Vec3d world_position =
-          local_to_world_on_pole(pole->world_transform, layout_yaw, adjusted_local);
+      const auto [world_position, applied_scale] = realize_selected_world();
       EditResult<ObjectId> add_port_result =
           AddPort(request.pole_id, world_position, category_to_port_kind(request.category),
                   category_to_port_layer(request.category), best_band->local_direction);
@@ -831,14 +900,17 @@ EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolution
         created->generated_from_template = true;
         created->generated_by_rule = true;
         created->placement_context = request.connection_context;
-        created->angle_correction_applied = apply_angle_correction;
-        created->side_scale_applied = apply_angle_correction ? applied_scale : 1.0;
-        apply_port_position_mode(*created, PortPositionMode::kAuto, PortPlacementSourceKind::kPlacementBand);
+        created->angle_correction_applied = layout_settings_.angle_correction_enabled &&
+                                            request.pole_context == PoleContextKind::kCorner &&
+                                            best_band->side != SlotSide::kCenter;
+        created->side_scale_applied = applied_scale;
+        apply_port_position_mode(*created, PortPositionMode::kAuto, selected_source);
         add_unique_id(add_port_result.change_set.updated_ids, created->id);
       }
       debug.selected_port_id = add_port_result.value;
       debug.created_new_port = true;
       debug.overflow_triggered = best_solve.overflow_used;
+      debug.solver_used_same_level_constraint = use_constrained_source;
       debug.result = best_solve.overflow_used ? "created constrained fallback port" : "created template-owned port";
       push_debug();
       return add_port_result;

@@ -286,6 +286,19 @@ CurveEndpointMode curve_endpoint_mode_for_template(const CableTemplate* cable_te
   return CurveEndpointMode::kDirectThrough;
 }
 
+const SegmentLaneAssignment* FindLaneAssignmentForSpan(const CoreState& state, const Span& span) {
+  for (const auto& assignment : state.view().last_lane_assignments()) {
+    const bool same_forward = assignment.bundle_id == span.bundle_id && assignment.pole_a_id == span.endpoint_node_a_id &&
+                              assignment.pole_b_id == span.endpoint_node_b_id;
+    const bool same_reverse = assignment.bundle_id == span.bundle_id && assignment.pole_a_id == span.endpoint_node_b_id &&
+                              assignment.pole_b_id == span.endpoint_node_a_id;
+    if (same_forward || same_reverse) {
+      return &assignment;
+    }
+  }
+  return nullptr;
+}
+
 Vec3d span_tangent_from_port(const Port& port, const Vec3d& chord_dir) {
   Vec3d tangent = port.direction.forward;
   if (!Normalize(&tangent)) {
@@ -341,6 +354,8 @@ SupportLayoutOriginKind support_layout_origin_from_port(const Port& port) {
     return SupportLayoutOriginKind::kBranchSupport;
   case PortPlacementSourceKind::kAerialBranch:
     return SupportLayoutOriginKind::kAerialBranch;
+  case PortPlacementSourceKind::kPlacementBandConstrained:
+    return SupportLayoutOriginKind::kPlacementConstraint;
   case PortPlacementSourceKind::kPlacementBand:
   case PortPlacementSourceKind::kGenerated:
   case PortPlacementSourceKind::kManualEdit:
@@ -1182,6 +1197,40 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
       inputs.bend_stiffness_hint, inputs.min_bend_radius_hint_m, inputs.continuity_preference, inputs.pass_mode,
       inputs.endpoint_mode, inputs.variation_flow_key, inputs.flow_kind, resolved_socket_b, socket_override_b,
       automatic_branch_down_offset_b, down_offset_variation_b, resolved_branch_down_offset_b, false);
+  if (const SegmentLaneAssignment* assignment = FindLaneAssignmentForSpan(*this, span); assignment != nullptr) {
+    layout.flow_kind = assignment->flow_kind;
+    layout.relation_a = assignment->relation_a;
+    layout.relation_b = assignment->relation_b;
+    layout.same_level_feasible = assignment->same_level_feasible;
+    layout.same_level_reason = assignment->same_level_reason;
+    layout.projected_spacing_topview_m = assignment->projected_spacing_topview_m;
+    layout.required_clearance_m = assignment->required_clearance_m;
+    layout.lowering_blocked_by_policy = assignment->lowering_blocked_by_policy;
+    layout.unresolved_same_level_conflict = assignment->unresolved_same_level_conflict;
+    layout.solver_used_same_level_constraint = assignment->solver_used_same_level_constraint;
+    layout.used_special_case_ports = assignment->used_special_case_ports;
+    layout.lowering_kind = assignment->lowering_kind;
+
+    layout.start.relation_kind = assignment->relation_a;
+    layout.start.same_level_feasible = assignment->same_level_feasible;
+    layout.start.same_level_reason = assignment->same_level_reason;
+    layout.start.projected_spacing_topview_m = assignment->projected_spacing_topview_m;
+    layout.start.required_clearance_m = assignment->required_clearance_m;
+    layout.start.lowering_blocked_by_policy = assignment->lowering_blocked_by_policy;
+    layout.start.unresolved_same_level_conflict = assignment->unresolved_same_level_conflict;
+    layout.start.solver_used_same_level_constraint = assignment->solver_used_same_level_constraint;
+    layout.start.used_special_case_ports = assignment->used_special_case_ports;
+
+    layout.end.relation_kind = assignment->relation_b;
+    layout.end.same_level_feasible = assignment->same_level_feasible;
+    layout.end.same_level_reason = assignment->same_level_reason;
+    layout.end.projected_spacing_topview_m = assignment->projected_spacing_topview_m;
+    layout.end.required_clearance_m = assignment->required_clearance_m;
+    layout.end.lowering_blocked_by_policy = assignment->lowering_blocked_by_policy;
+    layout.end.unresolved_same_level_conflict = assignment->unresolved_same_level_conflict;
+    layout.end.solver_used_same_level_constraint = assignment->solver_used_same_level_constraint;
+    layout.end.used_special_case_ports = assignment->used_special_case_ports;
+  }
   return layout;
 }
 

@@ -103,7 +103,8 @@ enum class SupportLayoutOriginKind : std::uint8_t {
   kMainSupport = 0,
   kBranchSupport = 1,
   kAerialBranch = 2,
-  kFallback = 3,
+  kPlacementConstraint = 3,
+  kFallback = 4,
 };
 
 struct SupportLayoutEndpoint {
@@ -113,6 +114,7 @@ struct SupportLayoutEndpoint {
   EndpointAttachmentRequest attachment_request{};
   std::optional<int> resolved_socket_id{};
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
+  JunctionRelationKind relation_kind = JunctionRelationKind::kNone;
   SupportLayoutOriginKind origin = SupportLayoutOriginKind::kFallback;
   SupportLayoutEndpointSourceKind endpoint_source = SupportLayoutEndpointSourceKind::kFallback;
   PortPlacementSourceKind port_source = PortPlacementSourceKind::kUnknown;
@@ -125,6 +127,14 @@ struct SupportLayoutEndpoint {
   double local_departure_length_m = 0.0;
   double automatic_branch_down_offset_m = 0.0;
   double branch_down_offset_m = 0.0;
+  bool same_level_feasible = true;
+  SameLevelFeasibilityReason same_level_reason = SameLevelFeasibilityReason::kNone;
+  double projected_spacing_topview_m = -1.0;
+  double required_clearance_m = 0.0;
+  bool lowering_blocked_by_policy = false;
+  bool unresolved_same_level_conflict = false;
+  bool solver_used_same_level_constraint = false;
+  bool used_special_case_ports = false;
   HierarchicalVariationSample down_offset_variation{};
 };
 
@@ -133,6 +143,17 @@ struct SpanSupportLayoutEntry {
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
   CurvePassMode pass_mode = CurvePassMode::kPassThrough;
   std::uint64_t variation_flow_key = 0;
+  JunctionRelationKind relation_a = JunctionRelationKind::kNone;
+  JunctionRelationKind relation_b = JunctionRelationKind::kNone;
+  bool same_level_feasible = true;
+  SameLevelFeasibilityReason same_level_reason = SameLevelFeasibilityReason::kNone;
+  double projected_spacing_topview_m = -1.0;
+  double required_clearance_m = 0.0;
+  bool lowering_blocked_by_policy = false;
+  bool unresolved_same_level_conflict = false;
+  bool solver_used_same_level_constraint = false;
+  bool used_special_case_ports = false;
+  BackboneLoweringKind lowering_kind = BackboneLoweringKind::kNone;
   SupportLayoutEndpoint start{};
   SupportLayoutEndpoint end{};
   std::uint64_t source_version = 0;
@@ -560,6 +581,7 @@ private:
                                                ObjectId bundle_id, ConnectionCategory category, int conductor_count,
                                                double spacing_m, bool maintain_lane_order, bool allow_lane_mirror,
                                                BackboneFlowKind flow_kind, const BackboneLoweringPolicy& lowering_policy,
+                                               const std::unordered_map<ObjectId, JunctionRelation>* junction_relations_by_node,
                                                std::vector<SegmentLaneAssignment>* out_lane_assignments,
                                                std::vector<BackboneEdgeOrientation>* out_edge_orientations = nullptr,
                                                BundleKind bundle_template_id = BundleKind::kLowVoltage);
@@ -606,6 +628,12 @@ private:
     SlotSide preferred_template_side = SlotSide::kCenter;
     SlotRole preferred_template_role = SlotRole::kNeutral;
     std::uint32_t branch_index = 0;
+    bool same_level_feasible_hint = true;
+    SameLevelFeasibilityReason same_level_reason_hint = SameLevelFeasibilityReason::kNone;
+    double projected_spacing_topview_hint_m = -1.0;
+    double required_clearance_hint_m = 0.0;
+    JunctionRelationKind relation_kind_hint = JunctionRelationKind::kNone;
+    std::vector<ObjectId> excluded_port_ids{};
   };
 
   EditResult<ObjectId> ensure_pole_connection_port(const PortResolutionRequest& request);
@@ -699,6 +727,7 @@ private:
   std::vector<PathDirectionEvaluationDebug> path_direction_debug_records_{};
   std::unordered_map<ObjectId, PoleOrientationDebugRecord> pole_orientation_debug_records_{};
   BackboneResult last_generation_backbone_{};
+  std::unordered_map<ObjectId, JunctionRelation> last_generation_junction_relations_{};
   ObjectId next_virtual_support_node_id_ = 0x9000000000000000ull;
   std::vector<SegmentLaneAssignment> last_lane_assignments_{};
   std::vector<PortResolutionDebugRecord> port_resolution_debug_records_{};

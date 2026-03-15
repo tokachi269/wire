@@ -154,6 +154,42 @@ bool test_draw_path_segment_pick_midspan_does_not_snap_to_endpoint_position() {
          normalized.hit_pos_world.z == 0.0;
 }
 
+bool test_ground_hover_near_pole_promotes_to_node_pick() {
+  wire::core::CoreState state;
+  const wire::core::PoleTypeId type_id = FirstPoleTypeId(state);
+  if (type_id == wire::core::kInvalidPoleTypeId) {
+    return false;
+  }
+  const wire::core::ObjectId pole_id = CreatePole(state, {2.0, -1.0, 0.0}, type_id, "SnapPole");
+  if (pole_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  const wire::core::PickResult promoted =
+      PromoteGroundHoverToNearbyPolePick(state, {2.35, -0.8, 0.0}, 1.0);
+  return promoted.hit_kind == wire::core::PickHitKind::kNode &&
+         promoted.hit_id == pole_id &&
+         promoted.hit_pos_world.x == 2.0 &&
+         promoted.hit_pos_world.y == -1.0 &&
+         promoted.hit_pos_world.z == 0.0;
+}
+
+bool test_ground_hover_far_from_pole_stays_empty() {
+  wire::core::CoreState state;
+  const wire::core::PoleTypeId type_id = FirstPoleTypeId(state);
+  if (type_id == wire::core::kInvalidPoleTypeId) {
+    return false;
+  }
+  if (CreatePole(state, {0.0, 0.0, 0.0}, type_id, "FarPole") == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  const wire::core::PickResult promoted =
+      PromoteGroundHoverToNearbyPolePick(state, {4.0, 4.0, 0.0}, 0.75);
+  return promoted.hit_kind == wire::core::PickHitKind::kEmpty &&
+         promoted.hit_id == wire::core::kInvalidObjectId;
+}
+
 void register_pick_policy_tests(viewer_test_registry::TestRegistry& tests) {
   viewer_test_registry::AddTest(tests, "V01", "Selected DrawPath templates are preserved instead of collapsing to the first kind",
                                 test_selected_templates_are_not_collapsed_to_first_selected_kind);
@@ -167,6 +203,10 @@ void register_pick_policy_tests(viewer_test_registry::TestRegistry& tests) {
                                 test_draw_path_segment_pick_near_endpoint_snaps_to_endpoint_position);
   viewer_test_registry::AddTest(tests, "V10", "DrawPath segment pick at midspan does not snap to endpoint position",
                                 test_draw_path_segment_pick_midspan_does_not_snap_to_endpoint_position);
+  viewer_test_registry::AddTest(tests, "V11", "Ground hover near a pole promotes DrawPath pick to that pole",
+                                test_ground_hover_near_pole_promotes_to_node_pick);
+  viewer_test_registry::AddTest(tests, "V12", "Ground hover far from poles remains unresolved",
+                                test_ground_hover_far_from_pole_stays_empty);
 }
 
 WIRE_REGISTER_VIEWER_TEST_SUITE(register_pick_policy_tests);

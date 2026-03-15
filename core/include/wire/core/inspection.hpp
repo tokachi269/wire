@@ -172,6 +172,14 @@ struct SpanInspectionView {
   bool uses_branch_support = false;
   BackboneLoweringKind lowering_kind = BackboneLoweringKind::kNone;
   double branch_down_offset_m = 0.0;
+  bool same_level_feasible = true;
+  SameLevelFeasibilityReason same_level_reason = SameLevelFeasibilityReason::kNone;
+  double projected_spacing_topview_m = -1.0;
+  double required_clearance_m = 0.0;
+  bool lowering_blocked_by_policy = false;
+  bool unresolved_same_level_conflict = false;
+  bool solver_used_same_level_constraint = false;
+  bool used_special_case_ports = false;
   bool mirrored = false;
   bool flipped_from_previous = false;
   double turn_angle_deg = 0.0;
@@ -185,6 +193,7 @@ struct SupportLayoutEndpointView {
   EndpointAttachmentRequest attachment_request{};
   std::optional<int> resolved_socket_id{};
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
+  JunctionRelationKind relation_kind = JunctionRelationKind::kNone;
   SlotSide side = SlotSide::kCenter;
   std::string origin{};
   SupportLayoutEndpointSourceKind endpoint_source = SupportLayoutEndpointSourceKind::kFallback;
@@ -197,6 +206,14 @@ struct SupportLayoutEndpointView {
   double local_departure_length_m = 0.0;
   double automatic_branch_down_offset_m = 0.0;
   double branch_down_offset_m = 0.0;
+  bool same_level_feasible = true;
+  SameLevelFeasibilityReason same_level_reason = SameLevelFeasibilityReason::kNone;
+  double projected_spacing_topview_m = -1.0;
+  double required_clearance_m = 0.0;
+  bool lowering_blocked_by_policy = false;
+  bool unresolved_same_level_conflict = false;
+  bool solver_used_same_level_constraint = false;
+  bool used_special_case_ports = false;
   VariationBreakdownView down_offset_variation{};
 };
 
@@ -206,6 +223,17 @@ struct SupportLayoutInspectionView {
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
   CurvePassMode pass_mode = CurvePassMode::kPassThrough;
   std::uint64_t variation_flow_key = 0;
+  JunctionRelationKind relation_a = JunctionRelationKind::kNone;
+  JunctionRelationKind relation_b = JunctionRelationKind::kNone;
+  bool same_level_feasible = true;
+  SameLevelFeasibilityReason same_level_reason = SameLevelFeasibilityReason::kNone;
+  double projected_spacing_topview_m = -1.0;
+  double required_clearance_m = 0.0;
+  bool lowering_blocked_by_policy = false;
+  bool unresolved_same_level_conflict = false;
+  bool solver_used_same_level_constraint = false;
+  bool used_special_case_ports = false;
+  BackboneLoweringKind lowering_kind = BackboneLoweringKind::kNone;
   SupportLayoutEndpointView start_endpoint{};
   SupportLayoutEndpointView end_endpoint{};
   std::vector<RelatedEntityLink> links{};
@@ -259,11 +287,33 @@ struct DetailCurveInspectionView {
   std::vector<RelatedEntityLink> links{};
 };
 
+struct JunctionIncidentRelationView {
+  ObjectId neighbor_node_id = kInvalidObjectId;
+  JunctionRelationKind kind = JunctionRelationKind::kNone;
+  double straightness_score = -1.0;
+  bool in_route = false;
+  bool in_through_pair = false;
+  bool used_semantic_tiebreak = false;
+  bool same_level_feasible = true;
+  SameLevelFeasibilityReason infeasible_reason = SameLevelFeasibilityReason::kNone;
+  double projected_spacing_topview_m = -1.0;
+  double required_clearance_m = 0.0;
+};
+
 struct JunctionInspectionView {
   EntityMeta meta{};
   ObjectId node_id = kInvalidObjectId;
   bool has_primary = false;
+  bool has_local_relation = false;
+  bool through_pair_accepted = false;
+  bool through_pair_used_semantic_tiebreak = false;
+  bool is_cross_like = false;
+  int route_incident_count = 0;
+  ObjectId through_pair_neighbor_a_id = kInvalidObjectId;
+  ObjectId through_pair_neighbor_b_id = kInvalidObjectId;
+  double through_pair_straightness_score = -1.0;
   std::vector<JunctionIncident> incidents{};
+  std::vector<JunctionIncidentRelationView> local_relations{};
   std::vector<RelatedEntityLink> links{};
 };
 

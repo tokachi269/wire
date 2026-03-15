@@ -26,6 +26,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
     const std::vector<ObjectId>& node_ids, const std::unordered_map<ObjectId, SupportNode>& support_node_by_id,
     ObjectId bundle_id, ConnectionCategory category, int conductor_count, double spacing_m, bool maintain_lane_order,
     bool allow_lane_mirror, BackboneFlowKind flow_kind, const BackboneLoweringPolicy& lowering_policy,
+    const std::unordered_map<ObjectId, JunctionRelation>* junction_relations_by_node,
     std::vector<SegmentLaneAssignment>* out_lane_assignments,
     std::vector<BackboneEdgeOrientation>* out_edge_orientations, BundleKind bundle_template_id) {
   EditResult<std::vector<ObjectId>> result;
@@ -36,10 +37,112 @@ CoreState::generate_grouped_spans_between_support_nodes(
   const int lane_count = std::max(1, conductor_count);
   const PortLayer target_port_layer = category_to_port_layer(category);
   const bool use_lane_row_geometry = maintain_lane_order && lane_count > 1;
+  struct SegmentRelationFeasibility {
+    JunctionRelationKind kind = JunctionRelationKind::kNone;
+    bool same_level_feasible = true;
+    SameLevelFeasibilityReason reason = SameLevelFeasibilityReason::kNone;
+    double projected_spacing_topview_m = -1.0;
+    double required_clearance_m = 0.0;
+  };
+  auto incident_relation_for = [&](ObjectId node_id, ObjectId peer_id) -> const JunctionIncidentRelation* {
+    if (junction_relations_by_node == nullptr || node_id == kInvalidObjectId || peer_id == kInvalidObjectId) {
+      return nullptr;
+    }
+    const auto it = junction_relations_by_node->find(node_id);
+    if (it == junction_relations_by_node->end()) {
+      return nullptr;
+    }
+    for (const JunctionIncidentRelation& incident : it->second.incidents) {
+      if (incident.neighbor_node_id == peer_id) {
+        return &incident;
+      }
+    }
+    return nullptr;
+  };
+  auto incident_relation_kind_for = [&](ObjectId node_id, ObjectId peer_id) -> JunctionRelationKind {
+    const JunctionIncidentRelation* incident = incident_relation_for(node_id, peer_id);
+    return (incident == nullptr) ? JunctionRelationKind::kNone : incident->kind;
+  };
+  auto incident_same_level_feasible_for = [&](ObjectId node_id, ObjectId peer_id) {
+    const JunctionIncidentRelation* incident = incident_relation_for(node_id, peer_id);
+    return (incident == nullptr) ? true : incident->same_level_feasible;
+  };
+  auto segment_relation_feasibility_for = [&](ObjectId node_id, ObjectId peer_id) {
+    SegmentRelationFeasibility info{};
+    const JunctionIncidentRelation* incident = incident_relation_for(node_id, peer_id);
+    if (incident == nullptr) {
+      return info;
+    }
+    info.kind = incident->kind;
+    info.same_level_feasible = incident->same_level_feasible;
+    info.reason = incident->infeasible_reason;
+    info.projected_spacing_topview_m = incident->projected_spacing_topview_m;
+    info.required_clearance_m = incident->required_clearance_m;
+    return info;
+  };
+  auto node_relation_kind_at = [&](std::size_t node_index) -> JunctionRelationKind {
+    if (junction_relations_by_node != nullptr && node_index < node_ids.size()) {
+      const auto it = junction_relations_by_node->find(node_ids[node_index]);
+      if (it != junction_relations_by_node->end()) {
+        const JunctionRelation& relation = it->second;
+        auto rank = [](JunctionRelationKind kind) {
+          switch (kind) {
+          case JunctionRelationKind::kCrossUnderpass:
+            return 4;
+          case JunctionRelationKind::kSideBranch:
+            return 3;
+          case JunctionRelationKind::kCornerContinuation:
+            return 2;
+          case JunctionRelationKind::kThroughMain:
+            return 1;
+          case JunctionRelationKind::kNone:
+          default:
+            return 0;
+          }
+        };
+        JunctionRelationKind kind = JunctionRelationKind::kNone;
+        for (const JunctionIncidentRelation& incident : relation.incidents) {
+          if (!incident.in_route) {
+            continue;
+          }
+          if (rank(incident.kind) > rank(kind)) {
+            kind = incident.kind;
+          }
+        }
+        if (kind == JunctionRelationKind::kNone && relation.route_incident_count == 1) {
+          kind = JunctionRelationKind::kThroughMain;
+        }
+        return kind;
+      }
+    }
+    return JunctionRelationKind::kNone;
+  };
+  const bool has_relation_policy = junction_relations_by_node != nullptr;
+  bool relation_has_branch_support = false;
+  bool relation_has_acute_corner = false;
+  if (has_relation_policy) {
+    for (std::size_t node_index = 0; node_index < node_ids.size(); ++node_index) {
+      const JunctionRelationKind kind = node_relation_kind_at(node_index);
+      const ObjectId node_id = node_ids[node_index];
+      const ObjectId prev_node_id = (node_index > 0) ? node_ids[node_index - 1] : kInvalidObjectId;
+      const ObjectId next_node_id = (node_index + 1 < node_ids.size()) ? node_ids[node_index + 1] : kInvalidObjectId;
+      const bool prev_infeasible = (prev_node_id != kInvalidObjectId) && !incident_same_level_feasible_for(node_id, prev_node_id);
+      const bool next_infeasible = (next_node_id != kInvalidObjectId) && !incident_same_level_feasible_for(node_id, next_node_id);
+      relation_has_branch_support =
+          relation_has_branch_support ||
+          ((kind == JunctionRelationKind::kSideBranch || kind == JunctionRelationKind::kCrossUnderpass) &&
+           (prev_infeasible || next_infeasible));
+      relation_has_acute_corner =
+          relation_has_acute_corner || (kind == JunctionRelationKind::kCornerContinuation && (prev_infeasible || next_infeasible));
+    }
+  }
   const bool uses_branch_support =
-      (lowering_policy.enable_branch_support || lowering_policy.enable_cross_underpass) &&
-      lowering_policy.offset_m > 1e-6;
-  const bool uses_acute_corner_lowering = lowering_policy.enable_acute_corner && lowering_policy.offset_m > 1e-6;
+      lowering_policy.offset_m > 1e-6 &&
+      (has_relation_policy ? relation_has_branch_support
+                           : (lowering_policy.enable_branch_support || lowering_policy.enable_cross_underpass));
+  const bool uses_acute_corner_lowering =
+      lowering_policy.offset_m > 1e-6 &&
+      (has_relation_policy ? relation_has_acute_corner : lowering_policy.enable_acute_corner);
   const double effective_branch_down_offset_m = std::max(0.0, lowering_policy.offset_m);
   std::unordered_map<ObjectId, std::vector<ObjectId>> node_lane_ports_cache{};
   std::unordered_map<ObjectId, Vec3d> node_side_axis_hints{};
@@ -162,6 +265,25 @@ CoreState::generate_grouped_spans_between_support_nodes(
     if (!uses_branch_support) {
       return false;
     }
+    const JunctionRelationKind relation_kind = incident_relation_kind_for(node_id, peer_id);
+    const bool same_level_feasible = incident_same_level_feasible_for(node_id, peer_id);
+    if (!same_level_feasible &&
+        relation_kind == JunctionRelationKind::kCrossUnderpass) {
+      return lowering_policy.enable_cross_underpass && lowering_policy.offset_m > 1e-6;
+    }
+    if (!same_level_feasible &&
+        relation_kind == JunctionRelationKind::kSideBranch) {
+      return lowering_policy.enable_branch_support && lowering_policy.offset_m > 1e-6;
+    }
+    if (relation_kind == JunctionRelationKind::kCrossUnderpass) {
+      return false;
+    }
+    if (relation_kind == JunctionRelationKind::kSideBranch) {
+      return false;
+    }
+    if (junction_relations_by_node != nullptr) {
+      return false;
+    }
     const auto it_ports = relation_index_access().ports_by_pole.find(node_id);
     if (it_ports == relation_index_access().ports_by_pole.end()) {
       return false;
@@ -256,7 +378,18 @@ CoreState::generate_grouped_spans_between_support_nodes(
     node_index_by_id[node_ids[i]] = i;
   }
   std::vector<bool> node_uses_down_offset(node_ids.size(), false);
-  if (uses_acute_corner_lowering && node_ids.size() >= 3) {
+  if (uses_acute_corner_lowering && has_relation_policy) {
+    for (std::size_t i = 0; i < node_ids.size(); ++i) {
+      const ObjectId prev_node_id = (i > 0) ? node_ids[i - 1] : kInvalidObjectId;
+      const ObjectId next_node_id = (i + 1 < node_ids.size()) ? node_ids[i + 1] : kInvalidObjectId;
+      const bool prev_infeasible =
+          (prev_node_id != kInvalidObjectId) && !incident_same_level_feasible_for(node_ids[i], prev_node_id);
+      const bool next_infeasible =
+          (next_node_id != kInvalidObjectId) && !incident_same_level_feasible_for(node_ids[i], next_node_id);
+      node_uses_down_offset[i] =
+          (node_relation_kind_at(i) == JunctionRelationKind::kCornerContinuation) && (prev_infeasible || next_infeasible);
+    }
+  } else if (uses_acute_corner_lowering && node_ids.size() >= 3) {
     constexpr double kPi = 3.14159265358979323846;
     constexpr double kAngleEps = 1e-6;
     for (std::size_t i = 1; i + 1 < node_ids.size(); ++i) {
@@ -457,7 +590,142 @@ CoreState::generate_grouped_spans_between_support_nodes(
       return ports_result;
     }
     const bool use_branch_support_here = node_requires_branch_support(node_id, peer_id);
+    auto try_solver_ports_for_pole = [&](ConnectionContext solver_context, SlotRole preferred_role,
+                                         const SegmentRelationFeasibility& feasibility,
+                                         std::vector<ObjectId>* out_ports) -> bool {
+      if (pole == nullptr || out_ports == nullptr || feasibility.same_level_feasible) {
+        return false;
+      }
+      const Pole* peer_pole = support_pole(peer_id);
+      const double spacing = std::max(0.1, spacing_m);
+      const double center = (static_cast<double>(lane_count) - 1.0) * 0.5;
+      std::unordered_set<ObjectId> used_ports{};
+      std::vector<ObjectId> solved_ports{};
+      solved_ports.reserve(static_cast<std::size_t>(lane_count));
+      for (int lane = 0; lane < lane_count; ++lane) {
+        const double target_y = (static_cast<double>(lane) - center) * spacing;
+        PortResolutionRequest request{};
+        request.pole_id = node_id;
+        request.peer_pole_id = (peer_pole == nullptr) ? kInvalidObjectId : peer_pole->id;
+        request.category = category;
+        request.connection_context = solver_context;
+        request.pole_context = pole->context.kind;
+        request.corner_angle_deg = pole->context.corner_angle_deg;
+        request.corner_turn_sign = pole->context.corner_turn_sign;
+        request.allow_generate_port = true;
+        request.prefer_template_match = true;
+        request.preferred_template_layer = generation::detail::TemplateLayerForCategory(category);
+        request.preferred_template_side =
+            (target_y < -1e-9) ? SlotSide::kLeft : ((target_y > 1e-9) ? SlotSide::kRight : SlotSide::kCenter);
+        request.preferred_template_role = preferred_role;
+        request.branch_index = static_cast<std::uint32_t>(lane);
+        request.same_level_feasible_hint = false;
+        request.same_level_reason_hint = feasibility.reason;
+        request.projected_spacing_topview_hint_m = feasibility.projected_spacing_topview_m;
+        request.required_clearance_hint_m = feasibility.required_clearance_m;
+        request.relation_kind_hint = feasibility.kind;
+        request.excluded_port_ids.assign(solved_ports.begin(), solved_ports.end());
+        EditResult<ObjectId> port_result = ensure_pole_connection_port(request);
+        if (!port_result.ok) {
+          return false;
+        }
+        Port* selected_port = edit_state_access().ports.find(port_result.value);
+        if (selected_port == nullptr || selected_port->owner_pole_id != node_id ||
+            (selected_port->placement_source != PortPlacementSourceKind::kPlacementBand &&
+             selected_port->placement_source != PortPlacementSourceKind::kPlacementBandConstrained) ||
+            !used_ports.insert(selected_port->id).second) {
+          return false;
+        }
+        solved_ports.push_back(selected_port->id);
+      }
+      std::sort(solved_ports.begin(), solved_ports.end(), [&](ObjectId a, ObjectId b) {
+        const Port* pa = edit_state_access().ports.find(a);
+        const Port* pb = edit_state_access().ports.find(b);
+        const double ya = (pa == nullptr)
+                              ? 0.0
+                              : WorldPointToLocal(BuildPoleFrame(pole->world_transform, layout_yaw_for_pole(*pole)),
+                                                  pa->world_position)
+                                    .y;
+        const double yb = (pb == nullptr)
+                              ? 0.0
+                              : WorldPointToLocal(BuildPoleFrame(pole->world_transform, layout_yaw_for_pole(*pole)),
+                                                  pb->world_position)
+                                    .y;
+        if (std::abs(ya - yb) > 1e-9) {
+          return ya < yb;
+        }
+        return a < b;
+      });
+      if (static_cast<int>(solved_ports.size()) == lane_count && !solved_ports.empty()) {
+        const double layout_yaw = layout_yaw_for_pole(*pole);
+        const PoleFrame frame = BuildPoleFrame(pole->world_transform, layout_yaw);
+        double uniform_z = std::numeric_limits<double>::infinity();
+        double existing_bundle_port_min_z_m = std::numeric_limits<double>::infinity();
+        if (const auto it_ports = relation_index_access().ports_by_pole.find(node_id);
+            it_ports != relation_index_access().ports_by_pole.end()) {
+          for (ObjectId existing_port_id : it_ports->second) {
+            const Port* existing_port = edit_state_access().ports.find(existing_port_id);
+            if (existing_port == nullptr || existing_port->owner_pole_id != node_id || existing_port->category != category) {
+              continue;
+            }
+            if (used_ports.find(existing_port_id) != used_ports.end()) {
+              continue;
+            }
+            const auto it_spans = connection_index_access().spans_by_port.find(existing_port_id);
+            if (it_spans == connection_index_access().spans_by_port.end() || it_spans->second.empty()) {
+              continue;
+            }
+            existing_bundle_port_min_z_m = std::min(existing_bundle_port_min_z_m, existing_port->world_position.z);
+          }
+        }
+        for (ObjectId port_id : solved_ports) {
+          Port* selected_port = edit_state_access().ports.find(port_id);
+          if (selected_port == nullptr) {
+            continue;
+          }
+          const Vec3d local = WorldPointToLocal(frame, selected_port->world_position);
+          uniform_z = std::min(uniform_z, local.z);
+        }
+        if (std::isfinite(uniform_z)) {
+          double target_uniform_z = uniform_z;
+          if (std::isfinite(existing_bundle_port_min_z_m)) {
+            target_uniform_z = std::min(target_uniform_z, existing_bundle_port_min_z_m);
+          }
+          if (feasibility.kind == JunctionRelationKind::kSideBranch ||
+              feasibility.kind == JunctionRelationKind::kCrossUnderpass) {
+            target_uniform_z = std::max(0.5, uniform_z - effective_branch_down_offset_m);
+            if (std::isfinite(existing_bundle_port_min_z_m)) {
+              target_uniform_z =
+                  std::max(0.5, std::min(target_uniform_z, existing_bundle_port_min_z_m - effective_branch_down_offset_m));
+            }
+          }
+          for (ObjectId port_id : solved_ports) {
+            Port* selected_port = edit_state_access().ports.find(port_id);
+            if (selected_port == nullptr) {
+              continue;
+            }
+            Vec3d local = WorldPointToLocal(frame, selected_port->world_position);
+            if (std::abs(local.z - target_uniform_z) <= 1e-9) {
+              continue;
+            }
+            local.z = target_uniform_z;
+            selected_port->world_position = local_to_world_on_pole_local(pole->world_transform, layout_yaw, local);
+            add_unique_id(result.change_set.updated_ids, selected_port->id);
+          }
+        }
+      }
+      *out_ports = std::move(solved_ports);
+      return static_cast<int>(out_ports->size()) == lane_count;
+    };
     if (use_branch_support_here) {
+      const SegmentRelationFeasibility branch_feasibility = segment_relation_feasibility_for(node_id, peer_id);
+      if (branch_feasibility.kind == JunctionRelationKind::kCrossUnderpass &&
+          try_solver_ports_for_pole(ConnectionContext::kBranchAdd, SlotRole::kBranchPreferred, branch_feasibility,
+                                    &ports_result.value)) {
+        node_lane_ports_cache[node_id] = ports_result.value;
+        ports_result.ok = true;
+        return ports_result;
+      }
       const Vec3d peer_delta = support_position(peer_id) - pole->world_transform.position;
       Vec3d branch_forward_axis = peer_delta;
       if (!normalize_xy(&branch_forward_axis)) {
@@ -564,6 +832,26 @@ CoreState::generate_grouped_spans_between_support_nodes(
     };
 
     if (use_lane_row_geometry && pole != nullptr) {
+      const SegmentRelationFeasibility relation_feasibility = segment_relation_feasibility_for(node_id, peer_id);
+      if (!relation_feasibility.same_level_feasible) {
+        const ConnectionContext solver_context =
+            (relation_feasibility.kind == JunctionRelationKind::kCornerContinuation)
+                ? ConnectionContext::kCornerPass
+                : ((relation_feasibility.kind == JunctionRelationKind::kSideBranch ||
+                    relation_feasibility.kind == JunctionRelationKind::kCrossUnderpass)
+                       ? ConnectionContext::kBranchAdd
+                       : ConnectionContext::kTrunkContinue);
+        const SlotRole preferred_role =
+            (relation_feasibility.kind == JunctionRelationKind::kSideBranch ||
+             relation_feasibility.kind == JunctionRelationKind::kCrossUnderpass)
+                ? SlotRole::kBranchPreferred
+                : SlotRole::kNeutral;
+        if (try_solver_ports_for_pole(solver_context, preferred_role, relation_feasibility, &ports_result.value)) {
+          node_lane_ports_cache[node_id] = ports_result.value;
+          ports_result.ok = true;
+          return ports_result;
+        }
+      }
       std::unordered_set<ObjectId> unique{};
       std::vector<ObjectId> reusable_generated_ports{};
 
@@ -1457,6 +1745,10 @@ CoreState::generate_grouped_spans_between_support_nodes(
     assignment.flipped_from_previous = flipped_from_previous;
     assignment.flip_reason = flip_reason;
     assignment.turn_angle_deg = turn_angle_deg;
+    const SegmentRelationFeasibility relation_a = segment_relation_feasibility_for(node_a, node_b);
+    const SegmentRelationFeasibility relation_b = segment_relation_feasibility_for(node_b, node_a);
+    assignment.relation_a = node_relation_kind_at(seg);
+    assignment.relation_b = node_relation_kind_at(seg + 1);
     if (static_cast<int>(assignment.port_ids_a.size()) != lane_count ||
         static_cast<int>(assignment.port_ids_b.size()) != lane_count) {
       result.error = "failed to materialize lane assignment plan";
@@ -1469,19 +1761,86 @@ CoreState::generate_grouped_spans_between_support_nodes(
         return port != nullptr && port->placement_source == PortPlacementSourceKind::kBranchSupport;
       });
     };
+    auto ports_use_constrained_solver = [&](const std::vector<ObjectId>& port_ids) {
+      return std::any_of(port_ids.begin(), port_ids.end(), [&](ObjectId port_id) {
+        const Port* port = edit_state_access().ports.find(port_id);
+        return port != nullptr && port->placement_source == PortPlacementSourceKind::kPlacementBandConstrained;
+      });
+    };
+    auto ports_use_special_case_source = [&](const std::vector<ObjectId>& port_ids) {
+      return std::any_of(port_ids.begin(), port_ids.end(), [&](ObjectId port_id) {
+        const Port* port = edit_state_access().ports.find(port_id);
+        return port != nullptr &&
+               (port->placement_source == PortPlacementSourceKind::kGenerated ||
+                port->placement_source == PortPlacementSourceKind::kBranchSupport ||
+                port->placement_source == PortPlacementSourceKind::kAerialBranch);
+      });
+    };
     assignment.uses_branch_support =
         ports_use_branch_support(assignment.port_ids_a) || ports_use_branch_support(assignment.port_ids_b);
+    assignment.solver_used_same_level_constraint =
+        ports_use_constrained_solver(assignment.port_ids_a) || ports_use_constrained_solver(assignment.port_ids_b);
+    auto relation_rank = [](JunctionRelationKind kind) {
+      switch (kind) {
+      case JunctionRelationKind::kCrossUnderpass:
+        return 4;
+      case JunctionRelationKind::kSideBranch:
+        return 3;
+      case JunctionRelationKind::kCornerContinuation:
+        return 2;
+      case JunctionRelationKind::kThroughMain:
+        return 1;
+      case JunctionRelationKind::kNone:
+      default:
+        return 0;
+      }
+    };
+    const JunctionRelationKind segment_relation_kind =
+        (relation_rank(assignment.relation_a) >= relation_rank(assignment.relation_b)) ? assignment.relation_a
+                                                                                        : assignment.relation_b;
+    const SegmentRelationFeasibility segment_feasibility =
+        (relation_rank(relation_a.kind) >= relation_rank(relation_b.kind)) ? relation_a : relation_b;
+    assignment.same_level_feasible = relation_a.same_level_feasible && relation_b.same_level_feasible;
+    assignment.same_level_reason = assignment.same_level_feasible ? SameLevelFeasibilityReason::kNone
+                                                                  : segment_feasibility.reason;
+    assignment.projected_spacing_topview_m =
+        (!relation_a.same_level_feasible && !relation_b.same_level_feasible)
+            ? std::min(relation_a.projected_spacing_topview_m, relation_b.projected_spacing_topview_m)
+            : (!relation_a.same_level_feasible ? relation_a.projected_spacing_topview_m
+                                               : relation_b.projected_spacing_topview_m);
+    assignment.required_clearance_m = std::max(relation_a.required_clearance_m, relation_b.required_clearance_m);
+    assignment.used_special_case_ports =
+        !assignment.solver_used_same_level_constraint && !assignment.same_level_feasible &&
+        (ports_use_special_case_source(assignment.port_ids_a) || ports_use_special_case_source(assignment.port_ids_b));
+    assignment.lowering_blocked_by_policy = false;
     const bool touches_lowered_corner =
+        (segment_relation_kind == JunctionRelationKind::kCornerContinuation && !assignment.same_level_feasible) ||
         ((seg < node_uses_down_offset.size() && node_uses_down_offset[seg]) ||
          (seg + 1 < node_uses_down_offset.size() && node_uses_down_offset[seg + 1]));
-    if (assignment.uses_branch_support) {
-      assignment.lowering_kind = lowering_policy.enable_cross_underpass ? BackboneLoweringKind::kCrossUnderpass
-                                                                        : BackboneLoweringKind::kBranchSupport;
-    } else if (touches_lowered_corner) {
+    const bool should_cross_lower =
+        segment_relation_kind == JunctionRelationKind::kCrossUnderpass && !assignment.same_level_feasible;
+    const bool should_branch_lower =
+        (assignment.uses_branch_support || segment_relation_kind == JunctionRelationKind::kSideBranch) &&
+        !assignment.same_level_feasible;
+    const bool should_corner_lower = touches_lowered_corner && !assignment.same_level_feasible;
+    if (should_cross_lower && lowering_policy.enable_cross_underpass) {
+      assignment.lowering_kind = BackboneLoweringKind::kCrossUnderpass;
+    } else if (should_branch_lower && lowering_policy.enable_branch_support) {
+      assignment.lowering_kind = BackboneLoweringKind::kBranchSupport;
+    } else if (should_corner_lower && lowering_policy.enable_acute_corner) {
       assignment.lowering_kind = BackboneLoweringKind::kAcuteCorner;
     } else {
       assignment.lowering_kind = BackboneLoweringKind::kNone;
     }
+    assignment.lowering_blocked_by_policy =
+        assignment.lowering_kind == BackboneLoweringKind::kNone &&
+        ((should_branch_lower && !lowering_policy.enable_branch_support) ||
+         (should_corner_lower && !lowering_policy.enable_acute_corner));
+    if (assignment.lowering_blocked_by_policy) {
+      assignment.same_level_reason = SameLevelFeasibilityReason::kCategoryPolicyDisabled;
+    }
+    assignment.unresolved_same_level_conflict =
+        !assignment.same_level_feasible && assignment.lowering_blocked_by_policy;
     assignment.branch_down_offset_m =
         (assignment.lowering_kind != BackboneLoweringKind::kNone) ? effective_branch_down_offset_m : 0.0;
 
@@ -1522,6 +1881,16 @@ CoreState::generate_grouped_spans_between_support_nodes(
       edge_orientation.node_b_id = assignment.pole_b_id;
       edge_orientation.bundle_template_id = bundle_template_id;
       edge_orientation.flow_kind = flow_kind;
+      edge_orientation.relation_a = assignment.relation_a;
+      edge_orientation.relation_b = assignment.relation_b;
+      edge_orientation.same_level_feasible = assignment.same_level_feasible;
+    edge_orientation.same_level_reason = assignment.same_level_reason;
+    edge_orientation.projected_spacing_topview_m = assignment.projected_spacing_topview_m;
+    edge_orientation.required_clearance_m = assignment.required_clearance_m;
+    edge_orientation.lowering_blocked_by_policy = assignment.lowering_blocked_by_policy;
+    edge_orientation.unresolved_same_level_conflict = assignment.unresolved_same_level_conflict;
+    edge_orientation.solver_used_same_level_constraint = assignment.solver_used_same_level_constraint;
+    edge_orientation.used_special_case_ports = assignment.used_special_case_ports;
       edge_orientation.orientation = assignment.mirrored ? LaneOrientation::kReversed : LaneOrientation::kNormal;
       edge_orientation.uses_branch_support = assignment.uses_branch_support;
       edge_orientation.lowering_kind = assignment.lowering_kind;

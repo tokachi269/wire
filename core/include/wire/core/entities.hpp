@@ -98,6 +98,7 @@ enum class PortPlacementSourceKind : std::uint8_t {
   kManualEdit = 3,
   kAerialBranch = 4,
   kBranchSupport = 5,
+  kPlacementBandConstrained = 6,
 };
 
 enum class SpanKind : std::uint8_t {

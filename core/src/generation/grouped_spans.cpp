@@ -1731,12 +1731,15 @@ CoreState::generate_grouped_spans_between_support_nodes(
     base_ports_by_node[seg + 1] = prepared_ports_b[seg];
   }
 
-  auto order_for_parity = [&](const std::vector<ObjectId>& base_ports, bool reversed) {
+  auto order_for_choice = [&](const std::vector<ObjectId>& base_ports, BundleOrderChoiceKind choice) {
     std::vector<ObjectId> ordered = base_ports;
-    if (reversed) {
+    if (choice == BundleOrderChoiceKind::kReversed) {
       std::reverse(ordered.begin(), ordered.end());
     }
     return ordered;
+  };
+  auto choice_for_parity = [](int parity) {
+    return (parity != 0) ? BundleOrderChoiceKind::kReversed : BundleOrderChoiceKind::kNormal;
   };
   auto compute_turn_angle_deg = [&](std::size_t segment_index) -> double {
     if (segment_index == 0 || segment_index + 1 >= node_ids.size()) {
@@ -1808,12 +1811,12 @@ CoreState::generate_grouped_spans_between_support_nodes(
     OrientationPlanScore best_score{};
     bool has_best = false;
     for (int parity_a : first_candidates) {
-      const std::vector<ObjectId> ports_a = order_for_parity(base_ports_by_node[0], parity_a != 0);
+      const std::vector<ObjectId> ports_a = order_for_choice(base_ports_by_node[0], choice_for_parity(parity_a));
       for (int parity_b : {0, 1}) {
         if (!allow_bundle_order_reverse && parity_b != 0) {
           continue;
         }
-        const std::vector<ObjectId> ports_b = order_for_parity(base_ports_by_node[1], parity_b != 0);
+        const std::vector<ObjectId> ports_b = order_for_choice(base_ports_by_node[1], choice_for_parity(parity_b));
         OrientationPlanScore candidate{};
         candidate.order = evaluate_increment(node_ids[0], node_ids[1], ports_a, ports_b);
         if (!has_best || orientation_plan_less(candidate, best_score)) {
@@ -1835,12 +1838,12 @@ CoreState::generate_grouped_spans_between_support_nodes(
         (first_seeded_from_previous || !allow_bundle_order_reverse) ? std::vector<int>{0} : std::vector<int>{0, 1};
 
     for (int parity_0 : first_candidates) {
-      const std::vector<ObjectId> ports_0 = order_for_parity(base_ports_by_node[0], parity_0 != 0);
+      const std::vector<ObjectId> ports_0 = order_for_choice(base_ports_by_node[0], choice_for_parity(parity_0));
       for (int parity_1 : {0, 1}) {
         if (!allow_bundle_order_reverse && parity_1 != 0) {
           continue;
         }
-        const std::vector<ObjectId> ports_1 = order_for_parity(base_ports_by_node[1], parity_1 != 0);
+        const std::vector<ObjectId> ports_1 = order_for_choice(base_ports_by_node[1], choice_for_parity(parity_1));
         DpCell& cell = dp[1][parity_0][parity_1];
         cell.reachable = true;
         cell.prev_prev_parity = -1;
@@ -1860,14 +1863,16 @@ CoreState::generate_grouped_spans_between_support_nodes(
             if (!allow_bundle_order_reverse && parity_curr != 0) {
               continue;
             }
-            const std::vector<ObjectId> ports_prev = order_for_parity(base_ports_by_node[step], parity_prev != 0);
-            const std::vector<ObjectId> ports_curr = order_for_parity(base_ports_by_node[step + 1], parity_curr != 0);
+            const std::vector<ObjectId> ports_prev =
+                order_for_choice(base_ports_by_node[step], choice_for_parity(parity_prev));
+            const std::vector<ObjectId> ports_curr =
+                order_for_choice(base_ports_by_node[step + 1], choice_for_parity(parity_curr));
             OrientationPlanScore candidate = cell.score;
             add_order_score(&candidate.order,
                             evaluate_increment(node_ids[step], node_ids[step + 1], ports_prev, ports_curr));
             if (use_lane_row_geometry) {
               const std::vector<ObjectId> ports_prev_prev =
-                  order_for_parity(base_ports_by_node[step - 1], parity_prev_prev != 0);
+                  order_for_choice(base_ports_by_node[step - 1], choice_for_parity(parity_prev_prev));
               candidate.adjacent_xy_intersections +=
                   count_adjacent_segment_xy_intersections(ports_prev_prev, ports_prev, ports_prev, ports_curr);
             }
@@ -1929,12 +1934,13 @@ CoreState::generate_grouped_spans_between_support_nodes(
   auto build_local_order_score = [&](std::size_t seg, int parity_a, int parity_b, int prev_parity,
                                      bool has_prev_segment) {
     OrientationPlanScore score{};
-    const std::vector<ObjectId> ports_a = order_for_parity(base_ports_by_node[seg], parity_a != 0);
-    const std::vector<ObjectId> ports_b = order_for_parity(base_ports_by_node[seg + 1], parity_b != 0);
+    const std::vector<ObjectId> ports_a = order_for_choice(base_ports_by_node[seg], choice_for_parity(parity_a));
+    const std::vector<ObjectId> ports_b =
+        order_for_choice(base_ports_by_node[seg + 1], choice_for_parity(parity_b));
     score.order = evaluate_increment(node_ids[seg], node_ids[seg + 1], ports_a, ports_b);
     if (use_lane_row_geometry && has_prev_segment) {
       const std::vector<ObjectId> prev_ports =
-          order_for_parity(base_ports_by_node[seg - 1], prev_parity != 0);
+          order_for_choice(base_ports_by_node[seg - 1], choice_for_parity(prev_parity));
       score.adjacent_xy_intersections =
           count_adjacent_segment_xy_intersections(prev_ports, ports_a, ports_a, ports_b);
     }
@@ -1950,9 +1956,6 @@ CoreState::generate_grouped_spans_between_support_nodes(
       }
     }
     return score;
-  };
-  auto order_choice_for_parity = [](int parity) {
-    return (parity != 0) ? BundleOrderChoiceKind::kReversed : BundleOrderChoiceKind::kNormal;
   };
   auto order_choice_reason_from_scores = [&](const OrientationPlanScore& chosen, const OrientationPlanScore& alternate,
                                              BundleOrderPolicyKind policy) {
@@ -1976,6 +1979,11 @@ CoreState::generate_grouped_spans_between_support_nodes(
     return BundleOrderChoiceReason::kKeptDefault;
   };
 
+  std::vector<BundleOrderChoiceKind> node_order_choices(node_ids.size(), BundleOrderChoiceKind::kNormal);
+  for (std::size_t i = 0; i < node_ids.size(); ++i) {
+    node_order_choices[i] = choice_for_parity(node_parity[i]);
+  }
+
   for (std::size_t seg = 0; seg < segment_count; ++seg) {
     const ObjectId node_a = node_ids[seg];
     const ObjectId node_b = node_ids[seg + 1];
@@ -1988,23 +1996,25 @@ CoreState::generate_grouped_spans_between_support_nodes(
     assignment.bundle_id = bundle_id;
     assignment.flow_kind = flow_kind;
     assignment.bundle_order_policy = bundle_order_policy;
-    assignment.port_ids_a = order_for_parity(base_ports_by_node[seg], node_parity[seg] != 0);
-    assignment.port_ids_b = order_for_parity(base_ports_by_node[seg + 1], node_parity[seg + 1] != 0);
-    const bool chosen_mirror = ((node_parity[seg] ^ node_parity[seg + 1]) != 0);
+    assignment.bundle_order_choice_a = node_order_choices[seg];
+    assignment.bundle_order_choice_b = node_order_choices[seg + 1];
+    assignment.port_ids_a = order_for_choice(base_ports_by_node[seg], assignment.bundle_order_choice_a);
+    assignment.port_ids_b = order_for_choice(base_ports_by_node[seg + 1], assignment.bundle_order_choice_b);
+    const bool chosen_orientation_flip =
+        (assignment.bundle_order_choice_a != assignment.bundle_order_choice_b);
     const double turn_angle_deg = compute_turn_angle_deg(seg);
     const bool is_acute_turn = (seg > 0) && (turn_angle_deg + kAngleEps < layout_settings_.corner_threshold_deg);
     LaneFlipReason flip_reason = LaneFlipReason::kNone;
     bool flipped_from_previous = false;
-    const bool previous_mirror = (seg > 0) ? ((node_parity[seg - 1] ^ node_parity[seg]) != 0) : false;
-    if (seg > 0 && chosen_mirror != previous_mirror && (turn_angle_deg + kAngleEps < kReverseStraightAngleDeg)) {
+    const bool previous_orientation_flip =
+        (seg > 0) ? (node_order_choices[seg - 1] != node_order_choices[seg]) : false;
+    if (seg > 0 && chosen_orientation_flip != previous_orientation_flip &&
+        (turn_angle_deg + kAngleEps < kReverseStraightAngleDeg)) {
       flipped_from_previous = true;
       if (is_acute_turn) {
         flip_reason = LaneFlipReason::kAcuteTurn;
       }
     }
-    assignment.mirrored = chosen_mirror;
-    assignment.bundle_order_choice_a = order_choice_for_parity(node_parity[seg]);
-    assignment.bundle_order_choice_b = order_choice_for_parity(node_parity[seg + 1]);
     if (bundle_order_policy == BundleOrderPolicyKind::kPermutableHomogeneous) {
       const int prev_parity = (seg > 0) ? node_parity[seg - 1] : 0;
       const OrientationPlanScore chosen_score =
@@ -2255,7 +2265,9 @@ CoreState::generate_grouped_spans_between_support_nodes(
       edge_orientation.bundle_order_choice_b = assignment.bundle_order_choice_b;
       edge_orientation.bundle_order_choice_reason_a = assignment.bundle_order_choice_reason_a;
       edge_orientation.bundle_order_choice_reason_b = assignment.bundle_order_choice_reason_b;
-      edge_orientation.orientation = assignment.mirrored ? LaneOrientation::kReversed : LaneOrientation::kNormal;
+    edge_orientation.orientation =
+        (assignment.bundle_order_choice_a != assignment.bundle_order_choice_b) ? LaneOrientation::kReversed
+                                                                               : LaneOrientation::kNormal;
       edge_orientation.uses_branch_support = assignment.uses_branch_support;
       edge_orientation.lowering_kind = assignment.lowering_kind;
       edge_orientation.branch_down_offset_m = assignment.branch_down_offset_m;

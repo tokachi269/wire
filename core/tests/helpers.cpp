@@ -388,8 +388,9 @@ void dump_lane_assignment_debug(const CoreState& state,
         }
       }
     }
+    const bool orientation_reversed = assignment.bundle_order_choice_a != assignment.bundle_order_choice_b;
     std::cerr << "[DBG] " << tag << " seg=" << assignment.segment_index << " inv=" << inv
-              << " mirrored=" << (assignment.mirrored ? 1 : 0) << " yA=";
+              << " orientationReversed=" << (orientation_reversed ? 1 : 0) << " yA=";
     for (double v : y_a) {
       std::cerr << v << ",";
     }
@@ -608,7 +609,7 @@ int count_bundle_lane_adjacent_order_discontinuities(const CoreState& state,
 int count_mirrored_assignments(const std::vector<wire::core::SegmentLaneAssignment>& assignments) {
   int mirrored = 0;
   for (const auto& assignment : assignments) {
-    if (assignment.mirrored) {
+    if (assignment.bundle_order_choice_a != assignment.bundle_order_choice_b) {
       ++mirrored;
     }
   }

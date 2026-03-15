@@ -96,7 +96,6 @@ struct SegmentLaneAssignment {
   Vec3d side_axis_b{};
   double chosen_side_sign_a = 0.0;
   double chosen_side_sign_b = 0.0;
-  bool mirrored = false;
   bool flipped_from_previous = false;
   LaneFlipReason flip_reason = LaneFlipReason::kNone;
   double turn_angle_deg = 0.0;

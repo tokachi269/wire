@@ -674,7 +674,6 @@ std::optional<SpanInspectionView> CoreView::inspect_span(ObjectId span_id) const
     result.uses_branch_support = assignment->uses_branch_support;
     result.lowering_kind = assignment->lowering_kind;
     result.branch_down_offset_m = assignment->branch_down_offset_m;
-    result.mirrored = assignment->mirrored;
     result.flipped_from_previous = assignment->flipped_from_previous;
     result.turn_angle_deg = assignment->turn_angle_deg;
     result.same_level_feasible = assignment->same_level_feasible;
@@ -1188,7 +1187,6 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
                 << " class=" << ContinuityCategoryClassText(assignment->continuity_class)
                 << " defaultLower=" << BoolText(assignment->default_lower_required)
                 << " branchSupport=" << BoolText(assignment->uses_branch_support)
-                << " mirrored=" << BoolText(assignment->mirrored)
                 << " sameLevel=" << BoolText(assignment->same_level_feasible)
                 << " reason=" << SameLevelReasonText(assignment->same_level_reason);
         if (assignment->projected_spacing_topview_m >= 0.0) {

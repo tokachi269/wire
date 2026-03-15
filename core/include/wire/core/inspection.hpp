@@ -187,7 +187,6 @@ struct SpanInspectionView {
   bool unresolved_same_level_conflict = false;
   bool solver_used_same_level_constraint = false;
   bool used_special_case_ports = false;
-  bool mirrored = false;
   bool flipped_from_previous = false;
   double turn_angle_deg = 0.0;
   std::vector<RelatedEntityLink> links{};

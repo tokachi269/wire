@@ -254,6 +254,7 @@
 | C246 | cross lowered pair は authoritative side で左右対称を保つ | HV3 cross lowered pair | GenerateFromBackboneSpec | Invariant: opposite lowered pair は authoritative side choice が逆符号になり、pole ローカル都合で同じ側へ寄らない | EndpointContinuityDecision.chosen_side / chosen_side_sign | cross/diagonal lowered pair が同じ側へ寄る回帰防止 |
 | C247 | constrained placement は authoritative orientation basis を使う | constrained lowered support | GenerateFromBackboneSpec | Invariant: constrained placement 由来の lowered support visual は authoritative orientation basis を再利用し、radial 再判定へ戻らない | SupportOrientationBasisKind / SupportLayoutEndpoint.decision | constrained lowered support だけ向きが radial に戻る回帰防止 |
 | C248 | HV3 chosen bundle order は authoritative result として refresh 後も残る | HV3 lowered permutation case + refresh | GenerateFromBackboneSpec→SetPoleManualYawOverride | Invariant: HV3 の chosen normal/reversed order は authoritative result として保持され、refresh/recalc 後も inspection で同じ採用結果が読める | BundleOrderChoiceKind / EndpointContinuityDecision | permutation choice が downstream で再反転する回帰防止 |
+| C249 | edge orientation は chosen bundle order から導出される | HV3 multi-segment route | GenerateFromBackboneSpec | Invariant: edge orientation は endpoint ごとの chosen order 差分から決まり、legacy mirror state を正本にしない | BackboneEdgeOrientation.orientation / bundle_order_choice_a,b | parity/mirror の互換 surface が再び bundle order の主語になる回帰防止 |
 
 ## LLM self-review
 - 実装依存か: private順序/内部関数呼び出し順には依存しない。

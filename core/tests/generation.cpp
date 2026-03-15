@@ -5224,6 +5224,45 @@ bool test_backbone_hv3_authoritative_bundle_order_survives_refresh() {
          after->start_endpoint.decision.downstream_overridden == false;
 }
 
+bool test_backbone_edge_orientation_uses_chosen_bundle_order() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec req{};
+  req.path.polyline = {{-12.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {8.0, 6.0, 0.0}, {18.0, 6.0, 0.0}};
+  req.interval_m = 1000.0;
+  req.pole_type_id = type_ids.front();
+  add_backbone_bundle(req, wire::core::BundleKind::kHighVoltage);
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  if (!generated.ok) {
+    return false;
+  }
+
+  const auto& orientations = state.view().last_generation_backbone().edge_orientations;
+  bool saw_hv = false;
+  for (const auto& orientation : orientations) {
+    if (orientation.bundle_template_id != wire::core::BundleKind::kHighVoltage) {
+      continue;
+    }
+    saw_hv = true;
+    const auto expected = (orientation.bundle_order_choice_a != orientation.bundle_order_choice_b)
+                              ? wire::core::LaneOrientation::kReversed
+                              : wire::core::LaneOrientation::kNormal;
+    if (orientation.orientation != expected) {
+      std::cerr << "[DBG] C249 orientation mismatch edge=" << orientation.node_a_id << "->" << orientation.node_b_id
+                << " orderA=" << static_cast<int>(orientation.bundle_order_choice_a)
+                << " orderB=" << static_cast<int>(orientation.bundle_order_choice_b)
+                << " orientation=" << static_cast<int>(orientation.orientation)
+                << " expected=" << static_cast<int>(expected) << "\n";
+      return false;
+    }
+  }
+  return saw_hv;
+}
+
 bool test_backbone_branch_generation_preserves_existing_hv3_main_ports() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
@@ -6564,7 +6603,9 @@ bool test_variation_settings_do_not_change_topology_flow_or_mirror() {
   }
   for (std::size_t i = 0; i < a.size(); ++i) {
     if (a[i].flow_kind != b[i].flow_kind || a[i].flow_decision_rule != b[i].flow_decision_rule ||
-        a[i].mirrored != b[i].mirrored || a[i].flipped_from_previous != b[i].flipped_from_previous ||
+        a[i].bundle_order_choice_a != b[i].bundle_order_choice_a ||
+        a[i].bundle_order_choice_b != b[i].bundle_order_choice_b ||
+        a[i].flipped_from_previous != b[i].flipped_from_previous ||
         a[i].variation_flow_key != b[i].variation_flow_key) {
       return false;
     }
@@ -6817,6 +6858,9 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C248_Backbone_HV3AuthoritativeBundleOrderSurvivesRefresh",
                          "HV3 chosen bundle order survives refresh as an authoritative result without downstream override",
                          "Invariant", false, test_backbone_hv3_authoritative_bundle_order_survives_refresh);
+  test_registry::AddTest(tests, "C249_Backbone_EdgeOrientationUsesChosenBundleOrder",
+                         "Edge orientation is derived from chosen endpoint bundle order instead of legacy mirror state",
+                         "Invariant", false, test_backbone_edge_orientation_uses_chosen_bundle_order);
   test_registry::AddTest(tests, "C136_Backbone_HV3MainPortsStableAfterBranch",
                          "Adding an HV3 branch keeps existing main-chain ports stable", "Invariant", false,
                          test_backbone_branch_generation_preserves_existing_hv3_main_ports);

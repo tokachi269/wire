@@ -130,6 +130,32 @@ wire::core::PickResult NormalizeDrawPathPick(const wire::core::CoreState& state,
   return pick;
 }
 
+wire::core::PickResult CanonicalizeDrawPathPick(const wire::core::CoreState& state, const wire::core::PickResult& pick,
+                                                const wire::core::Vec3d& ground_hover_world, bool has_ground_hit,
+                                                double snap_radius_world) {
+  wire::core::PickResult normalized = NormalizeDrawPathPick(state, pick, snap_radius_world);
+  if (normalized.hit_kind == wire::core::PickHitKind::kNode) {
+    return normalized;
+  }
+
+  wire::core::Vec3d anchor_point = normalized.hit_pos_world;
+  bool has_anchor_point = (normalized.hit_kind != wire::core::PickHitKind::kEmpty);
+  if (!has_anchor_point && has_ground_hit) {
+    anchor_point = ground_hover_world;
+    has_anchor_point = true;
+  }
+  if (!has_anchor_point) {
+    return normalized;
+  }
+
+  const wire::core::PickResult promoted =
+      PromoteGroundHoverToNearbyPolePick(state, anchor_point, snap_radius_world);
+  if (promoted.hit_kind != wire::core::PickHitKind::kEmpty) {
+    return promoted;
+  }
+  return normalized;
+}
+
 wire::core::PickResult PromoteGroundHoverToNearbyPolePick(const wire::core::CoreState& state,
                                                           const wire::core::Vec3d& ground_hover_world,
                                                           double snap_radius_world) {

@@ -328,6 +328,34 @@ const char* BackboneLoweringKindLabel(wire::core::BackboneLoweringKind kind) {
   }
 }
 
+const char* BundleOrderChoiceLabel(wire::core::BundleOrderChoiceKind choice) {
+  switch (choice) {
+  case wire::core::BundleOrderChoiceKind::kNormal:
+    return "Normal";
+  case wire::core::BundleOrderChoiceKind::kReversed:
+    return "Reversed";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* BundleOrderChoiceReasonLabel(wire::core::BundleOrderChoiceReason reason) {
+  switch (reason) {
+  case wire::core::BundleOrderChoiceReason::kFixedOrder:
+    return "FixedOrder";
+  case wire::core::BundleOrderChoiceReason::kCrossingFewer:
+    return "CrossingFewer";
+  case wire::core::BundleOrderChoiceReason::kSpacingBetter:
+    return "SpacingBetter";
+  case wire::core::BundleOrderChoiceReason::kTwistSmaller:
+    return "TwistSmaller";
+  case wire::core::BundleOrderChoiceReason::kKeptDefault:
+    return "KeptDefault";
+  default:
+    return "Unknown";
+  }
+}
+
 const char* BackboneFlowDecisionRuleLabel(wire::core::BackboneFlowDecisionRule rule) {
   switch (rule) {
   case wire::core::BackboneFlowDecisionRule::kDefaultMain:
@@ -1052,7 +1080,11 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
       ImGui::Text("flowRule: %s", BackboneFlowDecisionRuleLabel(span_view->flow_rule));
       ImGui::Text("lowering: %s branchSupport=%s downOffset=%.2f", BackboneLoweringKindLabel(span_view->lowering_kind),
                   span_view->uses_branch_support ? "true" : "false", span_view->branch_down_offset_m);
-      ImGui::Text("mirror: %s flippedPrev=%s turn=%.2f", span_view->mirrored ? "true" : "false",
+      ImGui::Text("bundleOrder: A=%s(%s) B=%s(%s) flippedPrev=%s turn=%.2f",
+                  BundleOrderChoiceLabel(span_view->bundle_order_choice_a),
+                  BundleOrderChoiceReasonLabel(span_view->bundle_order_choice_reason_a),
+                  BundleOrderChoiceLabel(span_view->bundle_order_choice_b),
+                  BundleOrderChoiceReasonLabel(span_view->bundle_order_choice_reason_b),
                   span_view->flipped_from_previous ? "true" : "false", span_view->turn_angle_deg);
       if (layout_view.has_value()) {
         auto draw_support_endpoint = [&](const char* label, const wire::core::SupportLayoutEndpointView& endpoint) {
@@ -2083,4 +2115,3 @@ void DrawStatsPanel(CoreState& state, ViewerUiState& ui_state) {
     DrawDiagnosticsWindow(state, ui_state);
   }
 }
-

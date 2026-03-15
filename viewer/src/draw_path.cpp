@@ -345,10 +345,26 @@ void DrawPathClearWithSessionReset(ViewerUiState& ui_state) {
   ui_state.last_generation_session = 0;
 }
 
+bool DrawPathRequestHasExplicitAnchors(const wire::core::BackboneSpec& request) {
+  return !request.path.node_specs.empty();
+}
+
+wire::core::CoreState::ResolveBranchPickResult DirectResolvedDrawPathTarget(const wire::core::PickResult& pick) {
+  wire::core::CoreState::ResolveBranchPickResult resolved{};
+  resolved.resolution = wire::core::CoreState::PickBranchResolutionKind::kNode;
+  resolved.resolved_node_id = pick.hit_id;
+  resolved.position = pick.hit_pos_world;
+  resolved.support_kind = (pick.hit_kind == wire::core::PickHitKind::kBuilding) ? wire::core::SupportKind::kBuilding
+                                                                                 : wire::core::SupportKind::kPole;
+  resolved.snapped_from_segment_endpoint = false;
+  return resolved;
+}
+
 bool ExecuteBackboneRequest(CoreState& state, ViewerUiState& ui_state, const wire::core::BackboneSpec& request,
                             bool allow_session_regen, bool clear_draw_path_on_success, const char* success_log,
                             const char* failure_log) {
-  const bool use_session_regen = ui_state.draw_regenerate_last_session && ui_state.last_generation_session != 0;
+  const bool regen_requested = ui_state.draw_regenerate_last_session && ui_state.last_generation_session != 0;
+  const bool use_session_regen = regen_requested && !DrawPathRequestHasExplicitAnchors(request);
   const bool run_regen = allow_session_regen && use_session_regen;
   const auto result = run_regen ? state.RegenerateSessionAutoParts(ui_state.last_generation_session, request)
                                 : state.GenerateFromBackboneSpec(request);
@@ -387,6 +403,9 @@ bool ExecuteBackboneRequest(CoreState& state, ViewerUiState& ui_state, const wir
   }
   PushLogLocal(ui_state, std::string(success_log) + " poles=" + std::to_string(ui_state.last_generated_poles) +
                              " spans=" + std::to_string(ui_state.last_generated_spans));
+  if (allow_session_regen && regen_requested && !run_regen) {
+    PushLogLocal(ui_state, "DrawPath session regen bypassed: explicit anchored support nodes present");
+  }
   PushLogLocal(ui_state, "DrawPath attachment/socket request input: unsupported in BackboneSpec node/path request");
   PushLogLocal(ui_state, GeneratedEndpointSourceSummaryLocal(state, result.value.generated_span_ids));
   return true;
@@ -790,16 +809,8 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
     ViewerSceneQuery scene_query{};
     const wire::core::PickResult raw_pick = scene_query.Raycast(state, camera, ui_state.draw_plane_z);
     const double hover_snap_radius_world = std::max(ui_state.draw_snap_radius_world, 1.25);
-    wire::core::PickResult pick = NormalizeDrawPathPick(state, raw_pick, hover_snap_radius_world);
-    if (pick.hit_kind == wire::core::PickHitKind::kEmpty && has_ground_hit) {
-      const wire::core::PickResult promoted_pick =
-          PromoteGroundHoverToNearbyPolePick(state, hover, hover_snap_radius_world);
-      if (promoted_pick.hit_kind != wire::core::PickHitKind::kEmpty) {
-        pick = promoted_pick;
-        ui_state.draw_hover_status = "target: Ground -> snapped: Node " +
-                                     std::to_string(static_cast<unsigned long long>(promoted_pick.hit_id));
-      }
-    }
+    wire::core::PickResult pick =
+        CanonicalizeDrawPathPick(state, raw_pick, hover, has_ground_hit, hover_snap_radius_world);
     ui_state.draw_hover_pick = pick;
     bool blocked_pick_target = false;
     if (pick.hit_kind == wire::core::PickHitKind::kEmpty) {
@@ -807,6 +818,11 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
         ui_state.draw_hover_status = "target: Empty";
       }
     } else {
+      if (pick.hit_kind == wire::core::PickHitKind::kNode && raw_pick.hit_kind != wire::core::PickHitKind::kNode) {
+        ui_state.draw_hover_status = "target: " + std::string(PickHitKindLabelLocal(raw_pick.hit_kind)) +
+                                     " -> snapped: Node " +
+                                     std::to_string(static_cast<unsigned long long>(pick.hit_id));
+      }
       const std::vector<wire::core::BundleKind> pick_template_ids =
           ResolveTemplateKindsForPathPick(state, ui_state.draw_bundle_template_mask, pick);
       if (ui_state.draw_hover_status.empty()) {
@@ -815,12 +831,18 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
       }
       if (pick.hit_kind == wire::core::PickHitKind::kNode || pick.hit_kind == wire::core::PickHitKind::kSegment ||
           pick.hit_kind == wire::core::PickHitKind::kBuilding) {
-        wire::core::ResolveBranchPickOptions options{};
-        options.selected_bundle_template_ids = pick_template_ids;
-        options.snap_radius_world = ui_state.draw_snap_radius_world;
-        options.create_midair_node = false;
-        options.enforce_midair_template_policy = false;
-        const auto resolved = state.ResolveBranchPick(pick, options);
+        wire::core::EditResult<wire::core::CoreState::ResolveBranchPickResult> resolved{};
+        if (pick.hit_kind == wire::core::PickHitKind::kNode || pick.hit_kind == wire::core::PickHitKind::kBuilding) {
+          resolved.ok = true;
+          resolved.value = DirectResolvedDrawPathTarget(pick);
+        } else {
+          wire::core::ResolveBranchPickOptions options{};
+          options.selected_bundle_template_ids = pick_template_ids;
+          options.snap_radius_world = ui_state.draw_snap_radius_world;
+          options.create_midair_node = false;
+          options.enforce_midair_template_policy = false;
+          resolved = state.ResolveBranchPick(pick, options);
+        }
         if (resolved.ok) {
           const std::string blocked_template = FindMidairBranchBlockedTemplateName(state, pick_template_ids);
           if (resolved.value.resolution == wire::core::CoreState::PickBranchResolutionKind::kMidair &&
@@ -853,14 +875,22 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
   if (accept_mouse_input) {
     if (ui_state.draw_hover_valid && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
       if (ui_state.draw_hover_has_resolution) {
-        const std::vector<wire::core::BundleKind> click_template_ids =
-            ResolveTemplateKindsForPathPick(state, ui_state.draw_bundle_template_mask, ui_state.draw_hover_pick);
-        wire::core::ResolveBranchPickOptions click_options{};
-        click_options.selected_bundle_template_ids = click_template_ids;
-        click_options.snap_radius_world = ui_state.draw_snap_radius_world;
-        click_options.create_midair_node = true;
-        click_options.enforce_midair_template_policy = false;
-        const auto applied = state.ResolveBranchPick(ui_state.draw_hover_pick, click_options);
+        wire::core::EditResult<wire::core::CoreState::ResolveBranchPickResult> applied{};
+        if (ui_state.draw_hover_pick.hit_kind == wire::core::PickHitKind::kNode ||
+            ui_state.draw_hover_pick.hit_kind == wire::core::PickHitKind::kBuilding ||
+            ui_state.draw_hover_resolution.resolution == wire::core::CoreState::PickBranchResolutionKind::kNode) {
+          applied.ok = true;
+          applied.value = ui_state.draw_hover_resolution;
+        } else {
+          const std::vector<wire::core::BundleKind> click_template_ids =
+              ResolveTemplateKindsForPathPick(state, ui_state.draw_bundle_template_mask, ui_state.draw_hover_pick);
+          wire::core::ResolveBranchPickOptions click_options{};
+          click_options.selected_bundle_template_ids = click_template_ids;
+          click_options.snap_radius_world = ui_state.draw_snap_radius_world;
+          click_options.create_midair_node = true;
+          click_options.enforce_midair_template_policy = false;
+          applied = state.ResolveBranchPick(ui_state.draw_hover_pick, click_options);
+        }
         if (!applied.ok) {
           ui_state.last_error = applied.error;
           PushLogLocal(ui_state, "DrawPath ResolveBranchPick(click) failed: " + applied.error);

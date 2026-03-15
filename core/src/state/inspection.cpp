@@ -457,7 +457,6 @@ SupportLayoutEndpointView MakeSupportLayoutEndpointView(const SupportLayoutEndpo
   view.relation_kind = endpoint.relation_kind;
   view.continuity_class = endpoint.continuity_class;
   view.default_lower_required = endpoint.default_lower_required;
-  view.lower_propagated_from_run = endpoint.lower_propagated_from_run;
   view.bundle_order_policy = endpoint.bundle_order_policy;
   view.bundle_order_choice = endpoint.bundle_order_choice;
   view.bundle_order_choice_reason = endpoint.bundle_order_choice_reason;
@@ -652,7 +651,6 @@ std::optional<SpanInspectionView> CoreView::inspect_span(ObjectId span_id) const
     result.bundle_order_choice_reason_a = layout->start.bundle_order_choice_reason;
     result.bundle_order_choice_reason_b = layout->end.bundle_order_choice_reason;
     result.default_lower_required = layout->default_lower_required;
-    result.lower_propagated_from_run = layout->lower_propagated_from_run;
     result.uses_branch_support = layout->start.origin == SupportLayoutOriginKind::kBranchSupport ||
                                  layout->end.origin == SupportLayoutOriginKind::kBranchSupport;
     result.lowering_kind = layout->lowering_kind;
@@ -685,7 +683,6 @@ std::optional<SpanInspectionView> CoreView::inspect_span(ObjectId span_id) const
     result.bundle_order_choice_reason_b = assignment->bundle_order_choice_reason_b;
     result.continuity_class = assignment->continuity_class;
     result.default_lower_required = assignment->default_lower_required;
-    result.lower_propagated_from_run = assignment->lower_propagated_from_run;
     result.uses_branch_support = assignment->uses_branch_support;
     result.lowering_kind = assignment->lowering_kind;
     result.branch_down_offset_m = assignment->branch_down_offset_m;
@@ -732,7 +729,6 @@ std::optional<SupportLayoutInspectionView> CoreView::inspect_support_layout(Obje
     result.relation_b = layout->relation_b;
     result.continuity_class = layout->continuity_class;
     result.default_lower_required = layout->default_lower_required;
-    result.lower_propagated_from_run = layout->lower_propagated_from_run;
     result.same_level_feasible = layout->same_level_feasible;
     result.same_level_reason = layout->same_level_reason;
     result.projected_spacing_topview_m = layout->projected_spacing_topview_m;
@@ -761,7 +757,6 @@ std::optional<SupportLayoutInspectionView> CoreView::inspect_support_layout(Obje
     result.relation_b = assignment->relation_b;
     result.continuity_class = assignment->continuity_class;
     result.default_lower_required = assignment->default_lower_required;
-    result.lower_propagated_from_run = assignment->lower_propagated_from_run;
     result.same_level_feasible = assignment->same_level_feasible;
     result.same_level_reason = assignment->same_level_reason;
     result.projected_spacing_topview_m = assignment->projected_spacing_topview_m;
@@ -778,7 +773,6 @@ std::optional<SupportLayoutInspectionView> CoreView::inspect_support_layout(Obje
     result.start_endpoint.relation_kind = assignment->relation_a;
     result.start_endpoint.continuity_class = assignment->continuity_class;
     result.start_endpoint.default_lower_required = assignment->default_lower_required;
-    result.start_endpoint.lower_propagated_from_run = assignment->lower_propagated_from_run;
     result.start_endpoint.bundle_order_policy = assignment->bundle_order_policy;
     result.start_endpoint.bundle_order_choice = assignment->bundle_order_choice_a;
     result.start_endpoint.bundle_order_choice_reason = assignment->bundle_order_choice_reason_a;
@@ -803,7 +797,6 @@ std::optional<SupportLayoutInspectionView> CoreView::inspect_support_layout(Obje
     result.end_endpoint.relation_kind = assignment->relation_b;
     result.end_endpoint.continuity_class = assignment->continuity_class;
     result.end_endpoint.default_lower_required = assignment->default_lower_required;
-    result.end_endpoint.lower_propagated_from_run = assignment->lower_propagated_from_run;
     result.end_endpoint.bundle_order_policy = assignment->bundle_order_policy;
     result.end_endpoint.bundle_order_choice = assignment->bundle_order_choice_b;
     result.end_endpoint.bundle_order_choice_reason = assignment->bundle_order_choice_reason_b;
@@ -1205,7 +1198,6 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
                 << "/" << BundleOrderChoiceReasonText(assignment->bundle_order_choice_reason_b)
                 << " class=" << ContinuityCategoryClassText(assignment->continuity_class)
                 << " defaultLower=" << BoolText(assignment->default_lower_required)
-                << " propagatedLower=" << BoolText(assignment->lower_propagated_from_run)
                 << " branchSupport=" << BoolText(assignment->uses_branch_support)
                 << " sameLevel=" << BoolText(assignment->same_level_feasible)
                 << " reason=" << SameLevelReasonText(assignment->same_level_reason);
@@ -1237,7 +1229,6 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
               << "/" << BundleOrderChoiceReasonText(layout->end.bundle_order_choice_reason)
               << " class=" << ContinuityCategoryClassText(layout->continuity_class)
               << " defaultLower=" << BoolText(layout->default_lower_required)
-              << " propagatedLower=" << BoolText(layout->lower_propagated_from_run)
               << " down=" << std::max(layout->start.branch_down_offset_m, layout->end.branch_down_offset_m)
               << " sameLevel=" << BoolText(layout->same_level_feasible)
               << " reason=" << SameLevelReasonText(layout->same_level_reason)
@@ -1254,7 +1245,6 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
                        << " request=" << EndpointAttachmentRequestKindText(layout->start.attachment_request.kind)
                        << " bundleOrder=" << BundleOrderChoiceText(layout->start.bundle_order_choice)
                        << "/" << BundleOrderChoiceReasonText(layout->start.bundle_order_choice_reason)
-                       << " propagatedLower=" << BoolText(layout->start.lower_propagated_from_run)
                        << " chosenSide=" << LateralSideChoiceText(layout->start.decision.chosen_side)
                        << " sideRule=" << SideAssignmentRuleText(layout->start.side_assignment_rule)
                        << " orientRule=" << SupportOrientationRuleText(layout->start.support_orientation_rule)
@@ -1270,7 +1260,6 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
                        << " request=" << EndpointAttachmentRequestKindText(layout->end.attachment_request.kind)
                        << " bundleOrder=" << BundleOrderChoiceText(layout->end.bundle_order_choice)
                        << "/" << BundleOrderChoiceReasonText(layout->end.bundle_order_choice_reason)
-                       << " propagatedLower=" << BoolText(layout->end.lower_propagated_from_run)
                        << " chosenSide=" << LateralSideChoiceText(layout->end.decision.chosen_side)
                        << " sideRule=" << SideAssignmentRuleText(layout->end.side_assignment_rule)
                        << " orientRule=" << SupportOrientationRuleText(layout->end.support_orientation_rule)

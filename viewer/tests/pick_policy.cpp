@@ -174,6 +174,51 @@ bool test_ground_hover_near_pole_promotes_to_node_pick() {
          promoted.hit_pos_world.z == 0.0;
 }
 
+bool test_canonical_pick_ground_near_pole_promotes_to_node() {
+  wire::core::CoreState state;
+  const wire::core::PoleTypeId type_id = FirstPoleTypeId(state);
+  if (type_id == wire::core::kInvalidPoleTypeId) {
+    return false;
+  }
+  const wire::core::ObjectId pole_id = CreatePole(state, {2.0, -1.0, 0.0}, type_id, "GroundSnapPole");
+  if (pole_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kGround;
+  pick.hit_pos_world = {2.35, -0.8, 0.0};
+  const wire::core::PickResult canonical =
+      CanonicalizeDrawPathPick(state, pick, pick.hit_pos_world, true, 1.0);
+  return canonical.hit_kind == wire::core::PickHitKind::kNode &&
+         canonical.hit_id == pole_id &&
+         canonical.hit_pos_world.x == 2.0 &&
+         canonical.hit_pos_world.y == -1.0;
+}
+
+bool test_canonical_pick_unresolved_segment_near_pole_promotes_to_node() {
+  wire::core::CoreState state;
+  const wire::core::PoleTypeId type_id = FirstPoleTypeId(state);
+  if (type_id == wire::core::kInvalidPoleTypeId) {
+    return false;
+  }
+  const wire::core::ObjectId pole_id = CreatePole(state, {4.0, 3.0, 0.0}, type_id, "SegmentSnapPole");
+  if (pole_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_pos_world = {4.2, 3.1, 0.0};
+  pick.has_segment_endpoints = false;
+  const wire::core::PickResult canonical =
+      CanonicalizeDrawPathPick(state, pick, {0.0, 0.0, 0.0}, false, 0.5);
+  return canonical.hit_kind == wire::core::PickHitKind::kNode &&
+         canonical.hit_id == pole_id &&
+         canonical.hit_pos_world.x == 4.0 &&
+         canonical.hit_pos_world.y == 3.0;
+}
+
 bool test_ground_hover_far_from_pole_stays_empty() {
   wire::core::CoreState state;
   const wire::core::PoleTypeId type_id = FirstPoleTypeId(state);
@@ -188,6 +233,25 @@ bool test_ground_hover_far_from_pole_stays_empty() {
       PromoteGroundHoverToNearbyPolePick(state, {4.0, 4.0, 0.0}, 0.75);
   return promoted.hit_kind == wire::core::PickHitKind::kEmpty &&
          promoted.hit_id == wire::core::kInvalidObjectId;
+}
+
+bool test_canonical_pick_empty_ground_near_pole_promotes_to_node() {
+  wire::core::CoreState state;
+  const wire::core::PoleTypeId type_id = FirstPoleTypeId(state);
+  if (type_id == wire::core::kInvalidPoleTypeId) {
+    return false;
+  }
+  const wire::core::ObjectId pole_id = CreatePole(state, {1.0, 1.0, 0.0}, type_id, "FallbackPole");
+  if (pole_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::PickResult pick{};
+  const wire::core::Vec3d hover{1.2, 1.1, 0.0};
+  const wire::core::PickResult canonical =
+      CanonicalizeDrawPathPick(state, pick, hover, true, 0.5);
+  return canonical.hit_kind == wire::core::PickHitKind::kNode &&
+         canonical.hit_id == pole_id;
 }
 
 void register_pick_policy_tests(viewer_test_registry::TestRegistry& tests) {
@@ -207,6 +271,12 @@ void register_pick_policy_tests(viewer_test_registry::TestRegistry& tests) {
                                 test_ground_hover_near_pole_promotes_to_node_pick);
   viewer_test_registry::AddTest(tests, "V12", "Ground hover far from poles remains unresolved",
                                 test_ground_hover_far_from_pole_stays_empty);
+  viewer_test_registry::AddTest(tests, "V13", "Canonical DrawPath ground pick near a pole becomes a node pick",
+                                test_canonical_pick_ground_near_pole_promotes_to_node);
+  viewer_test_registry::AddTest(tests, "V14", "Canonical DrawPath unresolved segment near a pole becomes a node pick",
+                                test_canonical_pick_unresolved_segment_near_pole_promotes_to_node);
+  viewer_test_registry::AddTest(tests, "V15", "Canonical DrawPath empty pick with nearby ground pole avoids invalid-node fallback",
+                                test_canonical_pick_empty_ground_near_pole_promotes_to_node);
 }
 
 WIRE_REGISTER_VIEWER_TEST_SUITE(register_pick_policy_tests);

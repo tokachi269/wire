@@ -122,7 +122,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
     if (out_kind == nullptr || out_position == nullptr) {
       return false;
     }
-    for (const SupportNode& node : last_generation_backbone_.nodes) {
+    for (const SupportNode& node : last_generation_support_nodes_) {
       if (node.node_id != node_id) {
         continue;
       }
@@ -230,7 +230,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
   }
 
   constexpr double kReuseEps2 = 1e-10;
-  for (const SupportNode& node : last_generation_backbone_.nodes) {
+  for (const SupportNode& node : last_generation_support_nodes_) {
     if (node.support_kind != SupportKind::kMidair) {
       continue;
     }
@@ -238,7 +238,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
       continue;
     }
     if (options.create_midair_node && has_endpoints) {
-      for (SupportNode& mutable_node : last_generation_backbone_.nodes) {
+      for (SupportNode& mutable_node : last_generation_support_nodes_) {
         if (mutable_node.node_id != node.node_id) {
           continue;
         }
@@ -306,8 +306,8 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
                                                                                          : BundleNodeMode::kNotPresent;
     midair.bundle_modes.push_back(mode);
   }
-  last_generation_backbone_.nodes.push_back(midair);
-  std::sort(last_generation_backbone_.nodes.begin(), last_generation_backbone_.nodes.end(),
+  last_generation_support_nodes_.push_back(midair);
+  std::sort(last_generation_support_nodes_.begin(), last_generation_support_nodes_.end(),
             [](const SupportNode& a, const SupportNode& b) { return a.node_id < b.node_id; });
 
   result.value.resolution = PickBranchResolutionKind::kMidair;
@@ -328,7 +328,7 @@ BackboneResult CoreState::BuildBackboneResult() const {
     return (port == nullptr) ? kInvalidObjectId : port->owner_pole_id;
   };
   auto resolve_span_endpoint_position = [&](ObjectId node_id, const Port* port) -> Vec3d {
-    for (const SupportNode& node : last_generation_backbone_.nodes) {
+    for (const SupportNode& node : last_generation_support_nodes_) {
       if (node.node_id == node_id) {
         return node.position;
       }
@@ -348,8 +348,9 @@ BackboneResult CoreState::BuildBackboneResult() const {
     }
     return (port == nullptr) ? Vec3d{} : port->world_position;
   };
-  if (!last_generation_backbone_.nodes.empty() || !last_generation_backbone_.edges.empty()) {
-    out = last_generation_backbone_;
+  out.edge_orientations = last_generation_edge_orientations_;
+  if (!last_generation_support_nodes_.empty()) {
+    out.nodes = last_generation_support_nodes_;
     // Merge in span-derived pole edges so BuildBackboneResult observes full-network continuity across sessions.
     const std::vector<BackboneEdge> pole_edges = BuildBackboneEdges();
     out.edges.insert(out.edges.end(), pole_edges.begin(), pole_edges.end());

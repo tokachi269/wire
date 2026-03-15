@@ -6,6 +6,7 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <sstream>
 
 #include "imgui.h"
@@ -127,6 +128,216 @@ const char* LoweringKindLabelLocal(wire::core::BackboneLoweringKind kind) {
   }
 }
 
+const char* FlowKindLabelLocal(wire::core::BackboneFlowKind kind) {
+  switch (kind) {
+  case wire::core::BackboneFlowKind::kMain:
+    return "Main";
+  case wire::core::BackboneFlowKind::kBranch:
+    return "Branch";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* FlowRuleLabelLocal(wire::core::BackboneFlowDecisionRule rule) {
+  switch (rule) {
+  case wire::core::BackboneFlowDecisionRule::kDefaultMain:
+    return "DefaultMain";
+  case wire::core::BackboneFlowDecisionRule::kJunctionOrderMain:
+    return "JunctionOrderMain";
+  case wire::core::BackboneFlowDecisionRule::kJunctionOrderBranch:
+    return "JunctionOrderBranch";
+  case wire::core::BackboneFlowDecisionRule::kExistingChainMain:
+    return "ExistingChainMain";
+  case wire::core::BackboneFlowDecisionRule::kExistingChainBranch:
+    return "ExistingChainBranch";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* JunctionRelationLabelLocal(wire::core::JunctionRelationKind kind) {
+  switch (kind) {
+  case wire::core::JunctionRelationKind::kNone:
+    return "None";
+  case wire::core::JunctionRelationKind::kThroughMain:
+    return "ThroughMain";
+  case wire::core::JunctionRelationKind::kSideBranch:
+    return "SideBranch";
+  case wire::core::JunctionRelationKind::kCornerContinuation:
+    return "CornerContinuation";
+  case wire::core::JunctionRelationKind::kCrossUnderpass:
+    return "CrossUnderpass";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* ContinuityClassLabelLocal(wire::core::ContinuityCategoryClass continuity_class) {
+  switch (continuity_class) {
+  case wire::core::ContinuityCategoryClass::kPointLike:
+    return "PointLike";
+  case wire::core::ContinuityCategoryClass::kBundleLike:
+    return "BundleLike";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* SameLevelReasonLabelLocal(wire::core::SameLevelFeasibilityReason reason) {
+  switch (reason) {
+  case wire::core::SameLevelFeasibilityReason::kNone:
+    return "None";
+  case wire::core::SameLevelFeasibilityReason::kBundleRule:
+    return "BundleRule";
+  case wire::core::SameLevelFeasibilityReason::kEnvelopeOverlap:
+    return "EnvelopeOverlap";
+  case wire::core::SameLevelFeasibilityReason::kNearNodeClearance:
+    return "NearNodeClearance";
+  case wire::core::SameLevelFeasibilityReason::kCategoryPolicyDisabled:
+    return "CategoryPolicyDisabled";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* BundleOrderPolicyLabelLocal(wire::core::BundleOrderPolicyKind policy) {
+  switch (policy) {
+  case wire::core::BundleOrderPolicyKind::kFixedOrder:
+    return "FixedOrder";
+  case wire::core::BundleOrderPolicyKind::kPermutableHomogeneous:
+    return "PermutableHomogeneous";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* BundleOrderChoiceLabelLocal(wire::core::BundleOrderChoiceKind choice) {
+  switch (choice) {
+  case wire::core::BundleOrderChoiceKind::kNormal:
+    return "Normal";
+  case wire::core::BundleOrderChoiceKind::kReversed:
+    return "Reversed";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* BundleOrderChoiceReasonLabelLocal(wire::core::BundleOrderChoiceReason reason) {
+  switch (reason) {
+  case wire::core::BundleOrderChoiceReason::kFixedOrder:
+    return "FixedOrder";
+  case wire::core::BundleOrderChoiceReason::kCrossingFewer:
+    return "CrossingFewer";
+  case wire::core::BundleOrderChoiceReason::kSpacingBetter:
+    return "SpacingBetter";
+  case wire::core::BundleOrderChoiceReason::kTwistSmaller:
+    return "TwistSmaller";
+  case wire::core::BundleOrderChoiceReason::kKeptDefault:
+    return "KeptDefault";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* LateralSideChoiceLabelLocal(wire::core::LateralSideChoiceKind choice) {
+  switch (choice) {
+  case wire::core::LateralSideChoiceKind::kCenter:
+    return "Center";
+  case wire::core::LateralSideChoiceKind::kLeft:
+    return "Left";
+  case wire::core::LateralSideChoiceKind::kRight:
+    return "Right";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* SideAssignmentRuleLabelLocal(wire::core::SideAssignmentRuleKind rule) {
+  switch (rule) {
+  case wire::core::SideAssignmentRuleKind::kPoleLocal:
+    return "PoleLocal";
+  case wire::core::SideAssignmentRuleKind::kChord:
+    return "Chord";
+  case wire::core::SideAssignmentRuleKind::kThroughPairNormal:
+    return "ThroughPairNormal";
+  case wire::core::SideAssignmentRuleKind::kBisector:
+    return "Bisector";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* SupportOrientationRuleLabelLocal(wire::core::SupportOrientationRuleKind rule) {
+  switch (rule) {
+  case wire::core::SupportOrientationRuleKind::kRadial:
+    return "Radial";
+  case wire::core::SupportOrientationRuleKind::kChord:
+    return "Chord";
+  case wire::core::SupportOrientationRuleKind::kThroughPairNormal:
+    return "ThroughPairNormal";
+  case wire::core::SupportOrientationRuleKind::kBisector:
+    return "Bisector";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* SupportOrientationBasisLabelLocal(wire::core::SupportOrientationBasisKind basis) {
+  switch (basis) {
+  case wire::core::SupportOrientationBasisKind::kRadial:
+    return "Radial";
+  case wire::core::SupportOrientationBasisKind::kChordForward:
+    return "ChordForward";
+  case wire::core::SupportOrientationBasisKind::kChordReverse:
+    return "ChordReverse";
+  case wire::core::SupportOrientationBasisKind::kBisectorForward:
+    return "BisectorForward";
+  case wire::core::SupportOrientationBasisKind::kBisectorReverse:
+    return "BisectorReverse";
+  case wire::core::SupportOrientationBasisKind::kPairNormalPositive:
+    return "PairNormalPositive";
+  case wire::core::SupportOrientationBasisKind::kPairNormalNegative:
+    return "PairNormalNegative";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* SupportGroupingRuleLabelLocal(wire::core::SupportGroupingRuleKind rule) {
+  switch (rule) {
+  case wire::core::SupportGroupingRuleKind::kPerPort:
+    return "PerPort";
+  case wire::core::SupportGroupingRuleKind::kDecisionGroup:
+    return "DecisionGroup";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* DecisionTraceTopicLabelLocal(wire::core::DecisionTraceTopic topic) {
+  switch (topic) {
+  case wire::core::DecisionTraceTopic::kPoleOrientation:
+    return "PoleOrientation";
+  case wire::core::DecisionTraceTopic::kFlowClassification:
+    return "FlowClassification";
+  case wire::core::DecisionTraceTopic::kSupportLayoutSelection:
+    return "SupportLayoutSelection";
+  case wire::core::DecisionTraceTopic::kTangentGeneration:
+    return "TangentGeneration";
+  case wire::core::DecisionTraceTopic::kContinuitySelection:
+    return "ContinuitySelection";
+  case wire::core::DecisionTraceTopic::kContinuityDegrade:
+    return "ContinuityDegrade";
+  case wire::core::DecisionTraceTopic::kSagProfile:
+    return "SagProfile";
+  case wire::core::DecisionTraceTopic::kOverrideResolution:
+    return "OverrideResolution";
+  default:
+    return "Unknown";
+  }
+}
+
 const char* ModeLabelLocal(EditMode mode) {
   switch (mode) {
   case EditMode::kDrawPath:
@@ -156,6 +367,26 @@ const char* SelectedTypeLabelLocal(SelectedType selected_type) {
     return "SupportNode";
   default:
     return "Unknown";
+  }
+}
+
+std::optional<wire::core::EntityRef> SelectedEntityRefLocal(const ViewerUiState& ui_state) {
+  using wire::core::EntityKind;
+  switch (ui_state.selected_type) {
+  case SelectedType::kPole:
+    return wire::core::EntityRef{EntityKind::kPole, ui_state.selected_id};
+  case SelectedType::kSpan:
+    return wire::core::EntityRef{EntityKind::kSpan, ui_state.selected_id};
+  case SelectedType::kSupportNode:
+    return wire::core::EntityRef{EntityKind::kSupportNode, ui_state.selected_id};
+  case SelectedType::kSupportLayout:
+    return wire::core::EntityRef{EntityKind::kSupportLayout, ui_state.selected_id};
+  case SelectedType::kDetailCurve:
+    return wire::core::EntityRef{EntityKind::kDetailCurve, ui_state.selected_id};
+  case SelectedType::kJunction:
+    return wire::core::EntityRef{EntityKind::kJunction, ui_state.selected_id};
+  default:
+    return std::nullopt;
   }
 }
 
@@ -522,7 +753,17 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
   const auto selected_templates = SelectedBundleTemplatesLocal(state, ui_state);
   const auto& view = state.view();
   const auto& dir_debug = view.last_path_direction_debug();
-  ofs << "capture.version=2\n";
+  const auto write_decision_trace = [&](const std::string& prefix, const wire::core::EntityRef& ref) {
+    const auto trace = view.collect_decision_trace(ref);
+    ofs << prefix << ".decision_trace_count=" << trace.size() << "\n";
+    for (std::size_t index = 0; index < trace.size(); ++index) {
+      ofs << prefix << ".decision_trace[" << index << "].topic="
+          << DecisionTraceTopicLabelLocal(trace[index].topic) << "\n";
+      ofs << prefix << ".decision_trace[" << index << "].rule=" << trace[index].rule << "\n";
+      ofs << prefix << ".decision_trace[" << index << "].summary=" << trace[index].summary << "\n";
+    }
+  };
+  ofs << "capture.version=4\n";
   ofs << "draw.endpoint_attachment_input_supported=0\n";
   ofs << "draw.endpoint_socket_input_supported=0\n";
   ofs << "capture.timestamp_unix=" << static_cast<long long>(now) << "\n";
@@ -533,6 +774,16 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
   ofs << "capture.last_generation_session=" << static_cast<unsigned long long>(ui_state.last_generation_session) << "\n";
   ofs << "capture.last_generated_poles=" << ui_state.last_generated_poles << "\n";
   ofs << "capture.last_generated_spans=" << ui_state.last_generated_spans << "\n";
+  if (const auto selected_ref = SelectedEntityRefLocal(ui_state); selected_ref.has_value()) {
+    ofs << "capture.selected_entity.kind=" << static_cast<int>(selected_ref->kind) << "\n";
+    ofs << "capture.selected_entity.stable_id=" << selected_ref->stable_id << "\n";
+    if (const auto meta = view.describe_entity(*selected_ref); meta.has_value()) {
+      ofs << "capture.selected_entity.display_name=" << meta->display_name << "\n";
+      ofs << "capture.selected_entity.provenance=" << meta->provenance << "\n";
+      ofs << "capture.selected_entity.role=" << static_cast<int>(meta->role) << "\n";
+    }
+    write_decision_trace("capture.selected_entity", *selected_ref);
+  }
 
   ofs << "draw.path_count=" << ui_state.draw_path_points.size() << "\n";
   ofs << "draw.path_support_kind_count=" << ui_state.draw_path_point_support_kinds.size() << "\n";
@@ -603,10 +854,15 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
   ofs << "result.direction.cost.forward.corner=" << dir_debug.forward_cost.corner_compression_penalty << "\n";
   ofs << "result.direction.cost.forward.branch=" << dir_debug.forward_cost.branch_conflict_penalty << "\n";
 
-  const auto& backbone = view.last_generation_backbone();
-  ofs << "result.backbone.node_count=" << backbone.nodes.size() << "\n";
-  for (std::size_t i = 0; i < backbone.nodes.size(); ++i) {
-    const auto& node = backbone.nodes[i];
+  const wire::core::BackboneResult rebuilt_backbone = state.BuildBackboneResult();
+  const auto& edge_orientations = view.last_generation_edge_orientations();
+  ofs << "result.backbone.snapshot_node_count=" << rebuilt_backbone.nodes.size() << "\n";
+  ofs << "result.backbone.snapshot_edge_count=" << rebuilt_backbone.edges.size() << "\n";
+  ofs << "result.backbone.rebuilt_node_count=" << rebuilt_backbone.nodes.size() << "\n";
+  ofs << "result.backbone.rebuilt_edge_count=" << rebuilt_backbone.edges.size() << "\n";
+  ofs << "result.backbone.node_count=" << rebuilt_backbone.nodes.size() << "\n";
+  for (std::size_t i = 0; i < rebuilt_backbone.nodes.size(); ++i) {
+    const auto& node = rebuilt_backbone.nodes[i];
     ofs << "result.backbone.node[" << i << "].id=" << static_cast<unsigned long long>(node.node_id) << "\n";
     ofs << "result.backbone.node[" << i << "].support_kind=" << SupportKindLabelLocal(node.support_kind) << "\n";
     ofs << "result.backbone.node[" << i << "].position=" << node.position.x << "," << node.position.y << ","
@@ -647,15 +903,15 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
       }
     }
   }
-  ofs << "result.backbone.edge_count=" << backbone.edges.size() << "\n";
-  for (std::size_t i = 0; i < backbone.edges.size(); ++i) {
-    const auto& edge = backbone.edges[i];
+  ofs << "result.backbone.edge_count=" << rebuilt_backbone.edges.size() << "\n";
+  for (std::size_t i = 0; i < rebuilt_backbone.edges.size(); ++i) {
+    const auto& edge = rebuilt_backbone.edges[i];
     ofs << "result.backbone.edge[" << i << "].node_a_id=" << static_cast<unsigned long long>(edge.node_a) << "\n";
     ofs << "result.backbone.edge[" << i << "].node_b_id=" << static_cast<unsigned long long>(edge.node_b) << "\n";
   }
-  ofs << "result.backbone.edge_orientation_count=" << backbone.edge_orientations.size() << "\n";
-  for (std::size_t i = 0; i < backbone.edge_orientations.size(); ++i) {
-    const auto& edge_orientation = backbone.edge_orientations[i];
+  ofs << "result.backbone.edge_orientation_count=" << edge_orientations.size() << "\n";
+  for (std::size_t i = 0; i < edge_orientations.size(); ++i) {
+    const auto& edge_orientation = edge_orientations[i];
     ofs << "result.backbone.edge_orientation[" << i
         << "].node_a_id=" << static_cast<unsigned long long>(edge_orientation.node_a_id) << "\n";
     ofs << "result.backbone.edge_orientation[" << i
@@ -675,6 +931,7 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
   }
 
   const auto& assignments = view.last_lane_assignments();
+  ofs << "result.lane_assignment_snapshot_count=" << assignments.size() << "\n";
   ofs << "result.lane_assignment_count=" << assignments.size() << "\n";
   auto find_span_by_assignment_lane = [&](const wire::core::SegmentLaneAssignment& assignment,
                                           std::size_t lane_index) -> const wire::core::Span* {
@@ -741,11 +998,87 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
           ofs << "result.lane_assignment[" << i << "].lane[" << lane
               << "].span_flow_kind=" << static_cast<int>(span_view->flow_kind) << "\n";
           ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].span_flow_kind_label=" << FlowKindLabelLocal(span_view->flow_kind) << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].span_flow_rule=" << static_cast<int>(span_view->flow_rule) << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].span_flow_rule_label=" << FlowRuleLabelLocal(span_view->flow_rule) << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
               << "].span_lowering_kind=" << static_cast<int>(span_view->lowering_kind) << "\n";
           ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].span_lowering_kind_label=" << LoweringKindLabelLocal(span_view->lowering_kind) << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
               << "].span_branch_down_offset_m=" << span_view->branch_down_offset_m << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].span_continuity_class=" << ContinuityClassLabelLocal(span_view->continuity_class) << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].span_default_lower_required=" << (span_view->default_lower_required ? 1 : 0) << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].span_same_level_feasible=" << (span_view->same_level_feasible ? 1 : 0) << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].span_same_level_reason=" << SameLevelReasonLabelLocal(span_view->same_level_reason) << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].span_projected_spacing_topview_m=" << span_view->projected_spacing_topview_m << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].span_required_clearance_m=" << span_view->required_clearance_m << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].span_lowering_blocked_by_policy=" << (span_view->lowering_blocked_by_policy ? 1 : 0) << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].span_unresolved_same_level_conflict="
+            << (span_view->unresolved_same_level_conflict ? 1 : 0) << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].span_solver_used_same_level_constraint="
+            << (span_view->solver_used_same_level_constraint ? 1 : 0) << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].span_used_special_case_ports=" << (span_view->used_special_case_ports ? 1 : 0) << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].span_bundle_order_policy=" << BundleOrderPolicyLabelLocal(span_view->bundle_order_policy) << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].span_bundle_order_choice_a=" << BundleOrderChoiceLabelLocal(span_view->bundle_order_choice_a)
+            << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].span_bundle_order_reason_a="
+            << BundleOrderChoiceReasonLabelLocal(span_view->bundle_order_choice_reason_a) << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].span_bundle_order_choice_b=" << BundleOrderChoiceLabelLocal(span_view->bundle_order_choice_b)
+            << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].span_bundle_order_reason_b="
+            << BundleOrderChoiceReasonLabelLocal(span_view->bundle_order_choice_reason_b) << "\n";
         }
         if (const auto layout_view = view.inspect_support_layout(span->id); layout_view.has_value()) {
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].layout_flow_kind=" << FlowKindLabelLocal(layout_view->flow_kind) << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].layout_bundle_order_policy=" << BundleOrderPolicyLabelLocal(layout_view->bundle_order_policy)
+            << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].layout_relation_a=" << JunctionRelationLabelLocal(layout_view->relation_a) << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].layout_relation_b=" << JunctionRelationLabelLocal(layout_view->relation_b) << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].layout_continuity_class=" << ContinuityClassLabelLocal(layout_view->continuity_class) << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].layout_default_lower_required=" << (layout_view->default_lower_required ? 1 : 0) << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].layout_same_level_feasible=" << (layout_view->same_level_feasible ? 1 : 0) << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].layout_same_level_reason=" << SameLevelReasonLabelLocal(layout_view->same_level_reason) << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].layout_projected_spacing_topview_m=" << layout_view->projected_spacing_topview_m << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].layout_required_clearance_m=" << layout_view->required_clearance_m << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].layout_lowering_blocked_by_policy=" << (layout_view->lowering_blocked_by_policy ? 1 : 0)
+            << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].layout_unresolved_same_level_conflict="
+            << (layout_view->unresolved_same_level_conflict ? 1 : 0) << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].layout_solver_used_same_level_constraint="
+            << (layout_view->solver_used_same_level_constraint ? 1 : 0) << "\n";
+          ofs << "result.lane_assignment[" << i << "].lane[" << lane
+            << "].layout_used_special_case_ports=" << (layout_view->used_special_case_ports ? 1 : 0) << "\n";
           ofs << "result.lane_assignment[" << i << "].lane[" << lane
               << "].layout_start_support=" << layout_view->start_endpoint.support_world.x << ","
               << layout_view->start_endpoint.support_world.y << "," << layout_view->start_endpoint.support_world.z
@@ -762,10 +1095,182 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
               << "].layout_start_local_departure=" << layout_view->start_endpoint.local_departure_length_m << "\n";
           ofs << "result.lane_assignment[" << i << "].lane[" << lane
               << "].layout_end_local_departure=" << layout_view->end_endpoint.local_departure_length_m << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].layout_start_relation=" << JunctionRelationLabelLocal(layout_view->start_endpoint.relation_kind)
+              << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].layout_end_relation=" << JunctionRelationLabelLocal(layout_view->end_endpoint.relation_kind)
+              << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].layout_start_continuity_class="
+              << ContinuityClassLabelLocal(layout_view->start_endpoint.continuity_class) << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].layout_end_continuity_class="
+              << ContinuityClassLabelLocal(layout_view->end_endpoint.continuity_class) << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].layout_start_lower_required=" << (layout_view->start_endpoint.decision.lower_required ? 1 : 0)
+              << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].layout_end_lower_required=" << (layout_view->end_endpoint.decision.lower_required ? 1 : 0)
+              << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].layout_start_same_level_reason="
+              << SameLevelReasonLabelLocal(layout_view->start_endpoint.same_level_reason) << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].layout_end_same_level_reason="
+              << SameLevelReasonLabelLocal(layout_view->end_endpoint.same_level_reason) << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].layout_start_bundle_order_policy="
+              << BundleOrderPolicyLabelLocal(layout_view->start_endpoint.bundle_order_policy) << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].layout_end_bundle_order_policy="
+              << BundleOrderPolicyLabelLocal(layout_view->end_endpoint.bundle_order_policy) << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].layout_start_bundle_order_choice="
+              << BundleOrderChoiceLabelLocal(layout_view->start_endpoint.bundle_order_choice) << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].layout_end_bundle_order_choice="
+              << BundleOrderChoiceLabelLocal(layout_view->end_endpoint.bundle_order_choice) << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].layout_start_bundle_order_reason="
+              << BundleOrderChoiceReasonLabelLocal(layout_view->start_endpoint.bundle_order_choice_reason)
+              << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].layout_end_bundle_order_reason="
+              << BundleOrderChoiceReasonLabelLocal(layout_view->end_endpoint.bundle_order_choice_reason)
+              << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].layout_start_side=" << LateralSideChoiceLabelLocal(layout_view->start_endpoint.decision.chosen_side)
+              << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].layout_end_side=" << LateralSideChoiceLabelLocal(layout_view->end_endpoint.decision.chosen_side)
+              << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].layout_start_side_assignment_rule="
+              << SideAssignmentRuleLabelLocal(layout_view->start_endpoint.side_assignment_rule) << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].layout_end_side_assignment_rule="
+              << SideAssignmentRuleLabelLocal(layout_view->end_endpoint.side_assignment_rule) << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].layout_start_support_orientation_rule="
+              << SupportOrientationRuleLabelLocal(layout_view->start_endpoint.support_orientation_rule) << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].layout_end_support_orientation_rule="
+              << SupportOrientationRuleLabelLocal(layout_view->end_endpoint.support_orientation_rule) << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].layout_start_support_orientation_basis="
+              << SupportOrientationBasisLabelLocal(layout_view->start_endpoint.decision.support_orientation_basis)
+              << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].layout_end_support_orientation_basis="
+              << SupportOrientationBasisLabelLocal(layout_view->end_endpoint.decision.support_orientation_basis)
+              << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane
+              << "].layout_lowered_support_group_count=" << layout_view->lowered_support_groups.size() << "\n";
+            for (std::size_t group_index = 0; group_index < layout_view->lowered_support_groups.size(); ++group_index) {
+            const auto& group = layout_view->lowered_support_groups[group_index];
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
+              << "].owner_pole_id=" << static_cast<unsigned long long>(group.owner_pole_id) << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
+              << "].group_rule=" << SupportGroupingRuleLabelLocal(group.grouping_rule) << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
+              << "].support_group_id=" << group.support_group_id << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
+              << "].grouped_port_count=" << group.grouped_port_count << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
+              << "].relation=" << JunctionRelationLabelLocal(group.decision.relation_kind) << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
+              << "].continuity_class=" << ContinuityClassLabelLocal(group.decision.continuity_class) << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
+              << "].lower_required=" << (group.decision.lower_required ? 1 : 0) << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
+              << "].same_level_reason=" << SameLevelReasonLabelLocal(group.decision.same_level_reason) << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
+              << "].bundle_order_policy=" << BundleOrderPolicyLabelLocal(group.bundle_order_policy) << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
+              << "].bundle_order_choice=" << BundleOrderChoiceLabelLocal(group.bundle_order_choice) << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
+              << "].bundle_order_reason="
+              << BundleOrderChoiceReasonLabelLocal(group.bundle_order_choice_reason) << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
+              << "].side=" << LateralSideChoiceLabelLocal(group.decision.chosen_side) << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
+              << "].side_assignment_rule=" << SideAssignmentRuleLabelLocal(group.side_assignment_rule) << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
+              << "].support_orientation_rule="
+              << SupportOrientationRuleLabelLocal(group.support_orientation_rule) << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
+              << "].support_orientation_basis="
+              << SupportOrientationBasisLabelLocal(group.decision.support_orientation_basis) << "\n";
+            ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
+              << "].down_offset_m=" << group.down_offset_m << "\n";
+            }
+            write_decision_trace("result.lane_assignment[" + std::to_string(i) + "].lane[" + std::to_string(lane) + "]",
+                       wire::core::EntityRef{wire::core::EntityKind::kSpan, span->id});
         }
       }
     }
   }
+
+    ofs << "result.current_span_count=" << view.edit_state().spans.size() << "\n";
+    std::size_t current_span_index = 0;
+    for (const auto& span : view.edit_state().spans.items()) {
+    ofs << "result.current_span[" << current_span_index << "].span_id=" << static_cast<unsigned long long>(span.id)
+      << "\n";
+    ofs << "result.current_span[" << current_span_index << "].bundle_id="
+      << static_cast<unsigned long long>(span.bundle_id) << "\n";
+    ofs << "result.current_span[" << current_span_index << "].endpoint_node_a_id="
+      << static_cast<unsigned long long>(span.endpoint_node_a_id) << "\n";
+    ofs << "result.current_span[" << current_span_index << "].endpoint_node_b_id="
+      << static_cast<unsigned long long>(span.endpoint_node_b_id) << "\n";
+    ofs << "result.current_span[" << current_span_index << "].port_a_id="
+      << static_cast<unsigned long long>(span.port_a_id) << "\n";
+    ofs << "result.current_span[" << current_span_index << "].port_b_id="
+      << static_cast<unsigned long long>(span.port_b_id) << "\n";
+    if (const auto span_view = view.inspect_span(span.id); span_view.has_value()) {
+      ofs << "result.current_span[" << current_span_index << "].flow_kind="
+        << FlowKindLabelLocal(span_view->flow_kind) << "\n";
+      ofs << "result.current_span[" << current_span_index << "].flow_rule="
+        << FlowRuleLabelLocal(span_view->flow_rule) << "\n";
+      ofs << "result.current_span[" << current_span_index << "].lowering_kind="
+        << LoweringKindLabelLocal(span_view->lowering_kind) << "\n";
+      ofs << "result.current_span[" << current_span_index << "].continuity_class="
+        << ContinuityClassLabelLocal(span_view->continuity_class) << "\n";
+      ofs << "result.current_span[" << current_span_index << "].default_lower_required="
+        << (span_view->default_lower_required ? 1 : 0) << "\n";
+      ofs << "result.current_span[" << current_span_index << "].same_level_feasible="
+        << (span_view->same_level_feasible ? 1 : 0) << "\n";
+      ofs << "result.current_span[" << current_span_index << "].same_level_reason="
+        << SameLevelReasonLabelLocal(span_view->same_level_reason) << "\n";
+      ofs << "result.current_span[" << current_span_index << "].bundle_order_policy="
+        << BundleOrderPolicyLabelLocal(span_view->bundle_order_policy) << "\n";
+      ofs << "result.current_span[" << current_span_index << "].bundle_order_choice_a="
+        << BundleOrderChoiceLabelLocal(span_view->bundle_order_choice_a) << "\n";
+      ofs << "result.current_span[" << current_span_index << "].bundle_order_choice_b="
+        << BundleOrderChoiceLabelLocal(span_view->bundle_order_choice_b) << "\n";
+    }
+    if (const auto layout_view = view.inspect_support_layout(span.id); layout_view.has_value()) {
+      ofs << "result.current_span[" << current_span_index << "].layout_relation_a="
+        << JunctionRelationLabelLocal(layout_view->relation_a) << "\n";
+      ofs << "result.current_span[" << current_span_index << "].layout_relation_b="
+        << JunctionRelationLabelLocal(layout_view->relation_b) << "\n";
+      ofs << "result.current_span[" << current_span_index << "].layout_lowered_support_group_count="
+        << layout_view->lowered_support_groups.size() << "\n";
+      ofs << "result.current_span[" << current_span_index << "].layout_start_side="
+        << LateralSideChoiceLabelLocal(layout_view->start_endpoint.decision.chosen_side) << "\n";
+      ofs << "result.current_span[" << current_span_index << "].layout_end_side="
+        << LateralSideChoiceLabelLocal(layout_view->end_endpoint.decision.chosen_side) << "\n";
+      ofs << "result.current_span[" << current_span_index << "].layout_start_orientation_basis="
+        << SupportOrientationBasisLabelLocal(layout_view->start_endpoint.decision.support_orientation_basis)
+        << "\n";
+      ofs << "result.current_span[" << current_span_index << "].layout_end_orientation_basis="
+        << SupportOrientationBasisLabelLocal(layout_view->end_endpoint.decision.support_orientation_basis)
+        << "\n";
+    }
+    write_decision_trace("result.current_span[" + std::to_string(current_span_index) + "]",
+               wire::core::EntityRef{wire::core::EntityKind::kSpan, span.id});
+    ++current_span_index;
+    }
 
   ofs << "state.poles=" << view.edit_state().poles.size() << "\n";
   ofs << "state.ports=" << view.edit_state().ports.size() << "\n";

@@ -50,6 +50,10 @@ bool endpoint_prefers_line_oriented_support(const SupportLayoutEndpoint* endpoin
           endpoint->decision.solver_used_same_level_constraint);
 }
 
+bool endpoint_uses_grouped_lowered_support(const SupportLayoutEndpoint* endpoint, BackboneLoweringKind lowering_kind) {
+  return endpoint_prefers_line_oriented_support(endpoint, lowering_kind);
+}
+
 bool finite_xy(const Vec3d& v) {
   return std::isfinite(v.x) && std::isfinite(v.y);
 }
@@ -152,6 +156,14 @@ Vec3d oriented_support_radial(const Port& port, const Span& span, const Port& ot
     radial = ScaleVec(radial, -1.0);
   }
   return radial;
+}
+
+Vec3d canonical_shared_support_axis(Vec3d axis, const Vec3d& fallback) {
+  axis = safe_horizontal_normalized(axis, fallback);
+  if (axis.x < -1e-9 || (std::abs(axis.x) <= 1e-9 && axis.y < -1e-9)) {
+    axis = ScaleVec(axis, -1.0);
+  }
+  return axis;
 }
 
 std::pair<Vec3d, Vec3d> shared_support_anchor_points(const Pole& pole, const Vec3d& support_axis, double z_m,
@@ -426,19 +438,6 @@ CurveEndpointMode curve_endpoint_mode_for_template(const CableTemplate* cable_te
   return CurveEndpointMode::kDirectThrough;
 }
 
-const SegmentLaneAssignment* FindLaneAssignmentForSpan(const CoreState& state, const Span& span) {
-  for (const auto& assignment : state.view().last_lane_assignments()) {
-    const bool same_forward = assignment.bundle_id == span.bundle_id && assignment.pole_a_id == span.endpoint_node_a_id &&
-                              assignment.pole_b_id == span.endpoint_node_b_id;
-    const bool same_reverse = assignment.bundle_id == span.bundle_id && assignment.pole_a_id == span.endpoint_node_b_id &&
-                              assignment.pole_b_id == span.endpoint_node_a_id;
-    if (same_forward || same_reverse) {
-      return &assignment;
-    }
-  }
-  return nullptr;
-}
-
 Vec3d span_tangent_from_port(const Port& port, const Vec3d& chord_dir) {
   Vec3d tangent = port.direction.forward;
   if (!Normalize(&tangent)) {
@@ -611,6 +610,36 @@ double branch_down_offset_for_port(const CoreState& state, const Port& port, std
   return std::max(0.0, main_support_base_z_m - local_z_m + varied_delta);
 }
 
+double branch_down_offset_for_assignment(const CoreState& state, const Port& port, std::uint64_t flow_key,
+                                         double base_offset_m, HierarchicalVariationSample* out_variation) {
+  if (out_variation != nullptr) {
+    *out_variation = {};
+  }
+  if (base_offset_m <= 0.0) {
+    return 0.0;
+  }
+  const Pole* pole = state.view().poles().find(port.owner_pole_id);
+  if (pole == nullptr) {
+    return std::max(0.0, base_offset_m);
+  }
+
+  VariationContext down_offset_context{};
+  down_offset_context.world_position = port.world_position;
+  down_offset_context.flow_key = flow_key;
+  down_offset_context.pole_id = pole->id;
+  down_offset_context.secondary_pole_id = kInvalidObjectId;
+  down_offset_context.local_key = static_cast<std::uint64_t>(port.id);
+  const HierarchicalVariationSample variation =
+      EvaluateHierarchicalVariation(state.view().variation_settings(), down_offset_context);
+  if (out_variation != nullptr) {
+    *out_variation = variation;
+  }
+
+  const double varied_delta =
+      variation.final_value * state.view().variation_settings().branch_down_offset_variation_scale;
+  return std::max(0.0, base_offset_m + varied_delta);
+}
+
 SupportLayoutEndpoint build_support_layout_endpoint(const CoreState& state, const Span& span, const Port& port,
                                                     const Pole* owner_pole, const Vec3d& chord_dir,
                                                     double basis_length, double endpoint_offset_m,
@@ -635,9 +664,9 @@ SupportLayoutEndpoint build_support_layout_endpoint(const CoreState& state, cons
   if (resolved_socket_id >= 0) {
     endpoint.resolved_socket_id = resolved_socket_id;
   }
-  endpoint.port_source = port.placement_source;
-  endpoint.side = port.template_side;
-  endpoint.support_world = port.world_position;
+    endpoint.port_source = port.placement_source;
+    endpoint.side = port.template_side;
+    endpoint.support_world = port.world_position;
   endpoint.automatic_branch_down_offset_m = automatic_branch_down_offset_m;
   endpoint.down_offset_variation = down_offset_variation;
   endpoint.branch_down_offset_m = resolved_branch_down_offset_m;
@@ -660,13 +689,32 @@ SupportLayoutEndpoint build_support_layout_endpoint(const CoreState& state, cons
     endpoint.endpoint_source = SupportLayoutEndpointSourceKind::kPlainSupport;
   }
 
-  endpoint.endpoint_mode = constraint.endpoint_mode;
-  endpoint.endpoint_world = constraint.point;
-  endpoint.departure_dir = constraint.tangent_dir;
-  endpoint.endpoint_offset = constraint.endpoint_offset;
-  endpoint.local_departure_length_m = constraint.support_departure_length_m;
-  return endpoint;
-}
+    endpoint.endpoint_mode = constraint.endpoint_mode;
+    endpoint.endpoint_world = constraint.point;
+    endpoint.departure_dir = constraint.tangent_dir;
+    endpoint.endpoint_offset = constraint.endpoint_offset;
+    endpoint.local_departure_length_m = constraint.support_departure_length_m;
+    const BackboneLoweringKind endpoint_lowering_kind =
+        (endpoint.decision.lower_required && !endpoint.decision.lowering_blocked_by_policy)
+            ? ((endpoint.decision.relation_kind == JunctionRelationKind::kCrossUnderpass)
+                   ? BackboneLoweringKind::kCrossUnderpass
+                   : BackboneLoweringKind::kBranchSupport)
+            : BackboneLoweringKind::kNone;
+    if (owner_pole != nullptr && endpoint_uses_grouped_lowered_support(&endpoint, endpoint_lowering_kind)) {
+      const Port* other_port =
+          (port.id == span.port_a_id) ? state.view().ports().find(span.port_b_id) : state.view().ports().find(span.port_a_id);
+      if (other_port != nullptr) {
+        Vec3d support_axis =
+            oriented_support_radial(port, span, *other_port, *owner_pole, &endpoint, state.view().edit_state());
+        support_axis = canonical_shared_support_axis(support_axis, endpoint.has_side_axis ? endpoint.side_axis : support_axis);
+        const auto [mount_world, tip_world] = shared_support_anchor_points(
+            *owner_pole, support_axis, port.world_position.z + endpoint.branch_down_offset_m, state.view().cache_state());
+        (void)mount_world;
+        endpoint.support_world = tip_world;
+      }
+    }
+    return endpoint;
+  }
 
 CurveConstraint make_curve_constraint_from_support_layout(const SupportLayoutEndpoint& endpoint, const Pole* owner_pole,
                                                           double basis_length, double effective_sag_ratio,
@@ -737,10 +785,16 @@ ResolvedSpanCurveInputs resolve_span_curve_inputs(const CoreState& state, const 
                                                        : (cable_template->sag_factor + cable_template->slack_factor);
   const bool use_reference_length = true;
 
+  const SpanSupportLayoutEntry* existing_layout = state.find_span_support_layout(span.id);
+
   ResolvedSpanCurveInputs inputs{};
   inputs.basis_length =
       (use_reference_length && span.reference_length_m > kZeroLengthEps) ? span.reference_length_m : distance;
-  inputs.flow_kind = support_layout_flow_kind_for_span(span, port_a, port_b);
+  if (existing_layout != nullptr) {
+    inputs.flow_kind = existing_layout->flow_kind;
+  } else {
+    inputs.flow_kind = support_layout_flow_kind_for_span(span, port_a, port_b);
+  }
   inputs.pass_mode = curve_pass_mode_from_context(span.placement_context);
   inputs.endpoint_mode = curve_endpoint_mode_for_template(cable_template, bundle, bundle_template);
   inputs.continuity_preference =
@@ -1118,92 +1172,6 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
   const SpanRuntimeState* runtime = find_span_runtime_state(span_id);
   const std::uint64_t flow_key = variation_flow_key_for_span(runtime, *span);
   const SpanSupportLayoutEntry* support_layout = find_span_support_layout(span_id);
-  const SegmentLaneAssignment* lane_assignment = FindLaneAssignmentForSpan(*this, *span);
-
-  auto support_group_matches = [&](const BranchSupportPlacement& lhs, const BranchSupportPlacement& rhs,
-                                   ObjectId lhs_bundle_id, ObjectId rhs_bundle_id) {
-    return lhs_bundle_id == rhs_bundle_id && lhs.owner_pole_id == rhs.owner_pole_id && lhs.origin == rhs.origin &&
-           lhs.decision.relation_kind == rhs.decision.relation_kind && lhs.decision.chosen_side == rhs.decision.chosen_side &&
-           lhs.decision.support_orientation_basis == rhs.decision.support_orientation_basis &&
-           lhs.decision.bundle_order_choice == rhs.decision.bundle_order_choice;
-  };
-
-  auto make_lowered_support_placement =
-      [&](const Span& source_span, const Port& source_port, const Port& other_port, const Pole& source_pole,
-          const SupportLayoutEndpoint* source_endpoint,
-          const SpanSupportLayoutEntry* source_layout) -> std::optional<BranchSupportPlacement> {
-    const EndpointContinuityDecision* endpoint_decision =
-        (source_endpoint == nullptr) ? nullptr : &source_endpoint->decision;
-    const BackboneLoweringKind source_lowering_kind =
-        (source_layout == nullptr) ? BackboneLoweringKind::kNone : source_layout->lowering_kind;
-    if (!endpoint_prefers_line_oriented_support(source_endpoint, source_lowering_kind)) {
-      return std::nullopt;
-    }
-
-    BranchSupportPlacement placement{};
-    placement.owner_pole_id = source_pole.id;
-    placement.peer_node_id =
-        (source_port.id == source_span.port_a_id) ? source_span.endpoint_node_b_id : source_span.endpoint_node_a_id;
-    placement.decision = (endpoint_decision == nullptr) ? EndpointContinuityDecision{} : *endpoint_decision;
-    placement.side = (source_endpoint == nullptr) ? SlotSide::kCenter : source_endpoint->side;
-    placement.origin =
-        (source_endpoint == nullptr) ? SupportLayoutOriginKind::kFallback : source_endpoint->origin;
-    placement.grouping_rule = SupportGroupingRuleKind::kPerPort;
-    placement.bundle_order_policy = (endpoint_decision == nullptr) ? BundleOrderPolicyKind::kFixedOrder
-                                                                   : endpoint_decision->bundle_order_policy;
-    placement.bundle_order_choice = (endpoint_decision == nullptr) ? BundleOrderChoiceKind::kNormal
-                                                                   : endpoint_decision->bundle_order_choice;
-    placement.bundle_order_choice_reason =
-        (endpoint_decision == nullptr) ? BundleOrderChoiceReason::kFixedOrder
-                                       : endpoint_decision->bundle_order_choice_reason;
-    placement.side_assignment_rule =
-        (endpoint_decision == nullptr) ? SideAssignmentRuleKind::kPoleLocal : endpoint_decision->side_assignment_rule;
-    placement.support_orientation_rule = (endpoint_decision == nullptr)
-                                             ? SupportOrientationRuleKind::kRadial
-                                             : endpoint_decision->support_orientation_rule;
-    placement.used_junction_pair_side_assignment =
-        (endpoint_decision != nullptr) && endpoint_decision->used_junction_pair_side_assignment;
-    placement.has_side_axis = (endpoint_decision != nullptr) && endpoint_decision->has_side_axis;
-    placement.side_axis = (endpoint_decision == nullptr) ? Vec3d{} : endpoint_decision->side_axis;
-    placement.chosen_side_sign = (endpoint_decision == nullptr) ? 0.0 : endpoint_decision->chosen_side_sign;
-    placement.attachment_world = source_port.world_position;
-    placement.down_offset_variation =
-        (source_endpoint == nullptr) ? HierarchicalVariationSample{} : source_endpoint->down_offset_variation;
-    placement.down_offset_m = (source_endpoint == nullptr) ? 0.0 : source_endpoint->branch_down_offset_m;
-
-    const Vec3d radial =
-        oriented_support_radial(source_port, source_span, other_port, source_pole, source_endpoint, edit_state_);
-    if (source_endpoint != nullptr && source_endpoint->decision.used_junction_pair_side_assignment) {
-      const auto [mount_world, tip_world] = shared_support_anchor_points(
-          source_pole, radial, source_port.world_position.z + placement.down_offset_m, cache_state_);
-      placement.mount_world = mount_world;
-      placement.tip_world = tip_world;
-    } else {
-      placement.tip_world = {
-          source_port.world_position.x,
-          source_port.world_position.y,
-          source_port.world_position.z + placement.down_offset_m,
-      };
-      placement.mount_world = {
-          placement.tip_world.x - radial.x * cache_state_.visual_settings.support_arm_extra_m,
-          placement.tip_world.y - radial.y * cache_state_.visual_settings.support_arm_extra_m,
-          source_port.world_position.z + placement.down_offset_m,
-      };
-    }
-    return placement;
-  };
-
-  auto support_group_id_for_endpoint = [&](ObjectId owner_pole_id, const EndpointContinuityDecision* endpoint_decision) {
-    if (endpoint_decision == nullptr) {
-      return -1;
-    }
-    std::size_t seed = static_cast<std::size_t>(owner_pole_id);
-    seed ^= static_cast<std::size_t>(endpoint_decision->relation_kind) << 8;
-    seed ^= static_cast<std::size_t>(endpoint_decision->support_orientation_basis) << 16;
-    seed ^= static_cast<std::size_t>(endpoint_decision->bundle_order_choice) << 24;
-    seed ^= static_cast<std::size_t>(endpoint_decision->chosen_side) << 28;
-    return static_cast<int>(seed % 1000000000ull);
-  };
 
   auto append_parts_for_port = [&](const Port& port, const SupportLayoutEndpoint* layout_endpoint) {
     const EndpointContinuityDecision* endpoint_decision =
@@ -1224,8 +1192,6 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
         (planar <= 1e-9) ? 0.0 : (dy / planar),
         0.0,
     };
-    const bool uses_branch_support = layout_endpoint != nullptr &&
-                                     layout_endpoint->origin == SupportLayoutOriginKind::kBranchSupport;
     const BackboneLoweringKind layout_lowering_kind =
         (support_layout == nullptr) ? BackboneLoweringKind::kNone : support_layout->lowering_kind;
     const bool uses_lowered_support_visual =
@@ -1233,6 +1199,9 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
     const Port& other_port = (port.id == span->port_a_id) ? *b : *a;
     if (uses_lowered_support_visual) {
       radial = oriented_support_radial(port, *span, other_port, *pole, layout_endpoint, edit_state_);
+      if (layout_endpoint != nullptr && endpoint_uses_grouped_lowered_support(layout_endpoint, layout_lowering_kind)) {
+        radial = canonical_shared_support_axis(radial, layout_endpoint->has_side_axis ? layout_endpoint->side_axis : radial);
+      }
     }
 
     SpanVisualCacheEntry& entry = cache_state_.visual_cache.by_span[span_id];
@@ -1265,89 +1234,29 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
       entry.parts.push_back(ins);
     }
 
-    if (uses_lowered_support_visual) {
-      std::vector<ObjectId> grouped_port_ids{port.id};
-      if (lane_assignment != nullptr) {
-        auto contains_port = [&](const std::vector<ObjectId>& ids) {
-          return std::find(ids.begin(), ids.end(), port.id) != ids.end();
-        };
-        if (contains_port(lane_assignment->port_ids_a)) {
-          grouped_port_ids = lane_assignment->port_ids_a;
-        } else if (contains_port(lane_assignment->port_ids_b)) {
-          grouped_port_ids = lane_assignment->port_ids_b;
-        }
-      }
-      const ObjectId canonical_port_id =
-          grouped_port_ids.empty() ? port.id : *std::min_element(grouped_port_ids.begin(), grouped_port_ids.end());
-      if (canonical_port_id != port.id) {
-        return;
-      }
-      BranchSupportPlacement placement{};
-      placement.owner_pole_id = pole->id;
-      placement.peer_node_id =
-          (port.id == span->port_a_id) ? span->endpoint_node_b_id : span->endpoint_node_a_id;
-      placement.decision = (endpoint_decision == nullptr) ? EndpointContinuityDecision{} : *endpoint_decision;
-      placement.side = (layout_endpoint == nullptr) ? SlotSide::kCenter : layout_endpoint->side;
-      placement.origin =
-          (layout_endpoint == nullptr) ? SupportLayoutOriginKind::kFallback : layout_endpoint->origin;
-      placement.grouping_rule = uses_lowered_support_visual ? SupportGroupingRuleKind::kDecisionGroup
-                                                            : ((grouped_port_ids.size() > 1)
-                                                                   ? SupportGroupingRuleKind::kDecisionGroup
-                                                                   : SupportGroupingRuleKind::kPerPort);
-      placement.support_group_id = uses_lowered_support_visual
-                                       ? support_group_id_for_endpoint(pole->id, endpoint_decision)
-                                       : (grouped_port_ids.empty() ? -1
-                                                                   : static_cast<int>(canonical_port_id % 1000000000ull));
-      placement.grouped_port_count = static_cast<int>(std::max<std::size_t>(1, grouped_port_ids.size()));
-      placement.bundle_order_policy = (endpoint_decision == nullptr) ? BundleOrderPolicyKind::kFixedOrder
-                                                                     : endpoint_decision->bundle_order_policy;
-      placement.bundle_order_choice = (endpoint_decision == nullptr) ? BundleOrderChoiceKind::kNormal
-                                                                     : endpoint_decision->bundle_order_choice;
-      placement.bundle_order_choice_reason =
-          (endpoint_decision == nullptr) ? BundleOrderChoiceReason::kFixedOrder
-                                         : endpoint_decision->bundle_order_choice_reason;
-      placement.side_assignment_rule =
-          (endpoint_decision == nullptr) ? SideAssignmentRuleKind::kPoleLocal : endpoint_decision->side_assignment_rule;
-      placement.support_orientation_rule = (endpoint_decision == nullptr)
-                                               ? SupportOrientationRuleKind::kRadial
-                                               : endpoint_decision->support_orientation_rule;
-      placement.used_junction_pair_side_assignment =
-          (endpoint_decision != nullptr) && endpoint_decision->used_junction_pair_side_assignment;
-      placement.has_side_axis = (endpoint_decision != nullptr) && endpoint_decision->has_side_axis;
-      placement.side_axis = (endpoint_decision == nullptr) ? Vec3d{} : endpoint_decision->side_axis;
-      placement.chosen_side_sign = (endpoint_decision == nullptr) ? 0.0 : endpoint_decision->chosen_side_sign;
-      placement.attachment_world = port.world_position;
-      placement.down_offset_variation =
-          (layout_endpoint == nullptr) ? HierarchicalVariationSample{} : layout_endpoint->down_offset_variation;
-      placement.down_offset_m = (layout_endpoint == nullptr) ? 0.0 : layout_endpoint->branch_down_offset_m;
-      if (layout_endpoint != nullptr && layout_endpoint->decision.used_junction_pair_side_assignment) {
-        const auto [mount_world, tip_world] =
-            shared_support_anchor_points(*pole, radial, port.world_position.z + placement.down_offset_m, cache_state_);
-        placement.mount_world = mount_world;
-        placement.tip_world = tip_world;
-      } else {
-        placement.tip_world = {
-            port.world_position.x,
-            port.world_position.y,
-            port.world_position.z + placement.down_offset_m,
-        };
-        placement.mount_world = {
-            placement.tip_world.x - radial.x * cache_state_.visual_settings.support_arm_extra_m,
-            placement.tip_world.y - radial.y * cache_state_.visual_settings.support_arm_extra_m,
-            port.world_position.z + placement.down_offset_m,
-        };
-      }
-      entry.branch_supports.push_back(placement);
-      BranchSupportPlacement* grouped = &entry.branch_supports.back();
+    if (!uses_lowered_support_visual) {
+      return;
+    }
+    const double down_offset_m = (layout_endpoint == nullptr) ? 0.0 : layout_endpoint->branch_down_offset_m;
+    Vec3d tip_world{};
+    if (layout_endpoint != nullptr && endpoint_uses_grouped_lowered_support(layout_endpoint, layout_lowering_kind)) {
+      const auto anchors = shared_support_anchor_points(*pole, radial, port.world_position.z + down_offset_m, cache_state_);
+      tip_world = anchors.second;
+    } else {
+      tip_world = {
+          port.world_position.x,
+          port.world_position.y,
+          port.world_position.z + down_offset_m,
+      };
+    }
 
-      if (cache_state_.visual_settings.enable_support_structures) {
-        VisualPart hanger{};
-        hanger.kind = VisualPartKind::kFitting;
-        hanger.a = grouped->tip_world;
-        hanger.b = grouped->attachment_world;
-        hanger.radius_m = 0.02;
-        entry.parts.push_back(hanger);
-      }
+    if (cache_state_.visual_settings.enable_support_structures) {
+      VisualPart hanger{};
+      hanger.kind = VisualPartKind::kFitting;
+      hanger.a = tip_world;
+      hanger.b = port.world_position;
+      hanger.radius_m = 0.02;
+      entry.parts.push_back(hanger);
     }
   };
 
@@ -1493,16 +1402,29 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
   layout.flow_kind = inputs.flow_kind;
   layout.pass_mode = inputs.pass_mode;
   layout.variation_flow_key = inputs.variation_flow_key;
+  const SpanSupportLayoutEntry* existing_layout = find_span_support_layout(span.id);
+  const SpanSupportLayoutEntry* authoritative_layout = existing_layout;
   const int resolved_socket_a = resolve_span_endpoint_socket_id(span, true);
   const int resolved_socket_b = resolve_span_endpoint_socket_id(span, false);
   const bool socket_override_a = has_span_endpoint_socket_override(span.id, true);
   const bool socket_override_b = has_span_endpoint_socket_override(span.id, false);
   HierarchicalVariationSample down_offset_variation_a{};
   HierarchicalVariationSample down_offset_variation_b{};
+  const auto automatic_branch_down_offset_for_endpoint =
+      [&](const Port& port, bool is_start_endpoint, HierarchicalVariationSample* variation) {
+        if (authoritative_layout != nullptr) {
+          const SupportLayoutEndpoint& endpoint = is_start_endpoint ? authoritative_layout->start : authoritative_layout->end;
+          if (variation != nullptr) {
+            *variation = endpoint.down_offset_variation;
+          }
+          return endpoint.automatic_branch_down_offset_m;
+        }
+        return branch_down_offset_for_port(*this, port, inputs.variation_flow_key, variation);
+      };
   const double automatic_branch_down_offset_a =
-      branch_down_offset_for_port(*this, *port_a, inputs.variation_flow_key, &down_offset_variation_a);
+      automatic_branch_down_offset_for_endpoint(*port_a, true, &down_offset_variation_a);
   const double automatic_branch_down_offset_b =
-      branch_down_offset_for_port(*this, *port_b, inputs.variation_flow_key, &down_offset_variation_b);
+      automatic_branch_down_offset_for_endpoint(*port_b, false, &down_offset_variation_b);
   const double resolved_branch_down_offset_a = resolve_span_branch_down_offset_m(span, automatic_branch_down_offset_a);
   const double resolved_branch_down_offset_b = resolve_span_branch_down_offset_m(span, automatic_branch_down_offset_b);
   layout.start = build_support_layout_endpoint(
@@ -1515,24 +1437,40 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
       inputs.bend_stiffness_hint, inputs.min_bend_radius_hint_m, inputs.continuity_preference, inputs.pass_mode,
       inputs.endpoint_mode, inputs.variation_flow_key, inputs.flow_kind, resolved_socket_b, socket_override_b,
       automatic_branch_down_offset_b, down_offset_variation_b, resolved_branch_down_offset_b, false);
-  if (const SegmentLaneAssignment* assignment = FindLaneAssignmentForSpan(*this, span); assignment != nullptr) {
-    layout.flow_kind = assignment->flow_kind;
-    layout.bundle_order_policy = assignment->bundle_order_policy;
-    layout.relation_a = assignment->relation_a;
-    layout.relation_b = assignment->relation_b;
-    layout.continuity_class = assignment->continuity_class;
-    layout.default_lower_required = assignment->default_lower_required;
-    layout.same_level_feasible = assignment->same_level_feasible;
-    layout.same_level_reason = assignment->same_level_reason;
-    layout.projected_spacing_topview_m = assignment->projected_spacing_topview_m;
-    layout.required_clearance_m = assignment->required_clearance_m;
-    layout.lowering_blocked_by_policy = assignment->lowering_blocked_by_policy;
-    layout.unresolved_same_level_conflict = assignment->unresolved_same_level_conflict;
-    layout.solver_used_same_level_constraint = assignment->solver_used_same_level_constraint;
-    layout.used_special_case_ports = assignment->used_special_case_ports;
-    layout.lowering_kind = assignment->lowering_kind;
-    apply_endpoint_decision_to_layout_endpoint(assignment->decision_a, &layout.start);
-    apply_endpoint_decision_to_layout_endpoint(assignment->decision_b, &layout.end);
+  if (authoritative_layout != nullptr) {
+    layout.flow_kind = authoritative_layout->flow_kind;
+    layout.bundle_order_policy = authoritative_layout->bundle_order_policy;
+    layout.relation_a = authoritative_layout->relation_a;
+    layout.relation_b = authoritative_layout->relation_b;
+    layout.continuity_class = authoritative_layout->continuity_class;
+    layout.default_lower_required = authoritative_layout->default_lower_required;
+    layout.same_level_feasible = authoritative_layout->same_level_feasible;
+    layout.same_level_reason = authoritative_layout->same_level_reason;
+    layout.projected_spacing_topview_m = authoritative_layout->projected_spacing_topview_m;
+    layout.required_clearance_m = authoritative_layout->required_clearance_m;
+    layout.lowering_blocked_by_policy = authoritative_layout->lowering_blocked_by_policy;
+    layout.unresolved_same_level_conflict = authoritative_layout->unresolved_same_level_conflict;
+    layout.solver_used_same_level_constraint = authoritative_layout->solver_used_same_level_constraint;
+    layout.used_special_case_ports = authoritative_layout->used_special_case_ports;
+    layout.lowering_kind = authoritative_layout->lowering_kind;
+    apply_endpoint_decision_to_layout_endpoint(authoritative_layout->start.decision, &layout.start);
+    apply_endpoint_decision_to_layout_endpoint(authoritative_layout->end.decision, &layout.end);
+    layout.start.flow_kind = authoritative_layout->flow_kind;
+    layout.end.flow_kind = authoritative_layout->flow_kind;
+    layout.start.relation_kind = authoritative_layout->start.relation_kind;
+    layout.end.relation_kind = authoritative_layout->end.relation_kind;
+    layout.start.continuity_class = authoritative_layout->start.continuity_class;
+    layout.end.continuity_class = authoritative_layout->end.continuity_class;
+    layout.start.default_lower_required = authoritative_layout->start.default_lower_required;
+    layout.end.default_lower_required = authoritative_layout->end.default_lower_required;
+    layout.start.origin = authoritative_layout->start.origin;
+    layout.end.origin = authoritative_layout->end.origin;
+    layout.start.bundle_order_policy = authoritative_layout->start.bundle_order_policy;
+    layout.end.bundle_order_policy = authoritative_layout->end.bundle_order_policy;
+    layout.start.bundle_order_choice = authoritative_layout->start.bundle_order_choice;
+    layout.end.bundle_order_choice = authoritative_layout->end.bundle_order_choice;
+    layout.start.bundle_order_choice_reason = authoritative_layout->start.bundle_order_choice_reason;
+    layout.end.bundle_order_choice_reason = authoritative_layout->end.bundle_order_choice_reason;
   }
   return layout;
 }

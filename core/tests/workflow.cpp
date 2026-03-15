@@ -272,7 +272,7 @@ bool test_generate_simple_line_integration() {
   if (result.value.generation_session_id == 0) {
     return false;
   }
-  const auto& backbone = state.view().last_generation_backbone();
+  const auto backbone = state.BuildBackboneResult();
   if (backbone.nodes.empty() || backbone.edges.empty()) {
     return false;
   }

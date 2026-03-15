@@ -18,6 +18,7 @@ bool test_public_headers_offer_stable_smoke_surface() {
   static_assert(std::is_default_constructible_v<ResolveBranchPickOptions>);
   static_assert(std::is_default_constructible_v<VariationSettings>);
   static_assert(std::is_copy_constructible_v<SupportLayoutEndpointView>);
+  static_assert(std::is_copy_constructible_v<LoweredSupportGroupInspectionView>);
 
   VariationSettings settings{};
   VariationContext context{};

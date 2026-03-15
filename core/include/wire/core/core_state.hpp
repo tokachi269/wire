@@ -96,31 +96,6 @@ enum class SupportLayoutOriginKind : std::uint8_t {
   kFallback = 4,
 };
 
-struct BranchSupportPlacement {
-  ObjectId owner_pole_id = kInvalidObjectId;
-  ObjectId peer_node_id = kInvalidObjectId;
-  EndpointContinuityDecision decision{};
-  SlotSide side = SlotSide::kCenter;
-  SupportLayoutOriginKind origin = SupportLayoutOriginKind::kFallback;
-  SupportGroupingRuleKind grouping_rule = SupportGroupingRuleKind::kPerPort;
-  int support_group_id = -1;
-  int grouped_port_count = 1;
-  BundleOrderPolicyKind bundle_order_policy = BundleOrderPolicyKind::kFixedOrder;
-  BundleOrderChoiceKind bundle_order_choice = BundleOrderChoiceKind::kNormal;
-  BundleOrderChoiceReason bundle_order_choice_reason = BundleOrderChoiceReason::kFixedOrder;
-  SideAssignmentRuleKind side_assignment_rule = SideAssignmentRuleKind::kPoleLocal;
-  SupportOrientationRuleKind support_orientation_rule = SupportOrientationRuleKind::kRadial;
-  bool used_junction_pair_side_assignment = false;
-  bool has_side_axis = false;
-  Vec3d side_axis{};
-  double chosen_side_sign = 0.0;
-  double down_offset_m = 0.0;
-  Vec3d mount_world{};
-  Vec3d tip_world{};
-  Vec3d attachment_world{};
-  HierarchicalVariationSample down_offset_variation{};
-};
-
 struct SupportLayoutEndpoint {
   ObjectId endpoint_node_id = kInvalidObjectId;
   ObjectId owner_pole_id = kInvalidObjectId;
@@ -217,7 +192,6 @@ struct OverrideState {
 
 struct SpanVisualCacheEntry {
   std::vector<VisualPart> parts{};
-  std::vector<BranchSupportPlacement> branch_supports{};
   std::uint64_t source_version = 0;
 };
 
@@ -716,7 +690,6 @@ private:
   [[nodiscard]] std::vector<PathDirectionEvaluationDebug>& path_direction_debug_records_access() {
     return path_direction_debug_records_;
   }
-  [[nodiscard]] std::vector<SegmentLaneAssignment>& last_lane_assignments_access() { return last_lane_assignments_; }
 
   [[nodiscard]] static bool has_zero_length(const Port& a, const Port& b);
   RecalcStats ProcessDirtyQueues();
@@ -760,10 +733,11 @@ private:
   PathDirectionEvaluationDebug last_path_direction_debug_{};
   std::vector<PathDirectionEvaluationDebug> path_direction_debug_records_{};
   std::unordered_map<ObjectId, PoleOrientationDebugRecord> pole_orientation_debug_records_{};
-  BackboneResult last_generation_backbone_{};
+  std::vector<SupportNode> last_generation_support_nodes_{};
+  std::vector<BackboneEdgeOrientation> last_generation_edge_orientations_{};
   std::unordered_map<ObjectId, JunctionRelation> last_generation_junction_relations_{};
   ObjectId next_virtual_support_node_id_ = 0x9000000000000000ull;
-  std::vector<SegmentLaneAssignment> last_lane_assignments_{};
+  mutable std::vector<SegmentLaneAssignment> computed_lane_assignments_cache_{};
   std::vector<PortResolutionDebugRecord> port_resolution_debug_records_{};
 };
 
@@ -796,7 +770,9 @@ public:
   [[nodiscard]] const std::unordered_map<ObjectId, PoleOrientationDebugRecord>& pole_orientation_debug_records() const {
     return state_.pole_orientation_debug_records_;
   }
-  [[nodiscard]] const BackboneResult& last_generation_backbone() const { return state_.last_generation_backbone_; }
+  [[nodiscard]] const std::vector<BackboneEdgeOrientation>& last_generation_edge_orientations() const {
+    return state_.last_generation_edge_orientations_;
+  }
   [[nodiscard]] const CacheState& cache_state() const { return state_.cache_state_; }
   [[nodiscard]] const std::unordered_map<PoleTypeId, PoleTypeDefinition>& pole_types() const {
     return state_.pole_types_;
@@ -829,9 +805,7 @@ public:
   [[nodiscard]] const std::vector<PortResolutionDebugRecord>& port_resolution_debug_records() const {
     return state_.port_resolution_debug_records_;
   }
-  [[nodiscard]] const std::vector<SegmentLaneAssignment>& last_lane_assignments() const {
-    return state_.last_lane_assignments_;
-  }
+  [[nodiscard]] const std::vector<SegmentLaneAssignment>& last_lane_assignments() const;
   [[nodiscard]] const std::unordered_map<ObjectId, SpanRuntimeState>& span_runtime_states() const {
     return state_.span_runtime_states_;
   }
@@ -842,6 +816,7 @@ public:
     return state_.find_span_support_layout(span_id);
   }
   [[nodiscard]] const SpanVisualCacheEntry* find_span_visual_cache(ObjectId span_id) const {
+    // Internal render/debug cache accessor. Prefer inspect_support_layout() for semantic grouped support reads.
     return state_.find_span_visual_cache(span_id);
   }
   [[nodiscard]] const SpanRenderCacheEntry* find_span_render_cache(ObjectId span_id) const {

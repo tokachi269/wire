@@ -59,6 +59,111 @@ std::uint64_t make_flow_variation_key(std::uint64_t generation_session_id, Bundl
   return key;
 }
 
+SupportLayoutOriginKind support_layout_origin_from_port_source(PortPlacementSourceKind source) {
+  switch (source) {
+  case PortPlacementSourceKind::kBranchSupport:
+    return SupportLayoutOriginKind::kBranchSupport;
+  case PortPlacementSourceKind::kAerialBranch:
+    return SupportLayoutOriginKind::kAerialBranch;
+  case PortPlacementSourceKind::kPlacementBandConstrained:
+    return SupportLayoutOriginKind::kPlacementConstraint;
+  case PortPlacementSourceKind::kPlacementBand:
+  case PortPlacementSourceKind::kGenerated:
+  case PortPlacementSourceKind::kManualEdit:
+    return SupportLayoutOriginKind::kMainSupport;
+  case PortPlacementSourceKind::kUnknown:
+  default:
+    return SupportLayoutOriginKind::kFallback;
+  }
+}
+
+SupportLayoutEndpoint make_support_layout_seed_endpoint(const Span& span, const Port& port,
+                                                        const SegmentLaneAssignment& assignment,
+                                                        const EndpointContinuityDecision& decision,
+                                                        bool is_start_endpoint) {
+  SupportLayoutEndpoint endpoint{};
+  endpoint.endpoint_node_id = is_start_endpoint ? span.endpoint_node_a_id : span.endpoint_node_b_id;
+  endpoint.owner_pole_id = port.owner_pole_id;
+  endpoint.port_id = port.id;
+  endpoint.decision = decision;
+  endpoint.flow_kind = assignment.flow_kind;
+  endpoint.relation_kind = decision.relation_kind;
+  endpoint.continuity_class = decision.continuity_class;
+  endpoint.default_lower_required = decision.default_lower_required;
+  endpoint.origin = support_layout_origin_from_port_source(port.placement_source);
+  endpoint.endpoint_source = SupportLayoutEndpointSourceKind::kFallback;
+  endpoint.port_source = port.placement_source;
+  endpoint.bundle_order_policy = decision.bundle_order_policy;
+  endpoint.bundle_order_choice = decision.bundle_order_choice;
+  endpoint.bundle_order_choice_reason = decision.bundle_order_choice_reason;
+  endpoint.side = port.template_side;
+  endpoint.side_assignment_rule = decision.side_assignment_rule;
+  endpoint.support_orientation_rule = decision.support_orientation_rule;
+  endpoint.used_junction_pair_side_assignment = decision.used_junction_pair_side_assignment;
+  endpoint.has_side_axis = decision.has_side_axis;
+  endpoint.side_axis = decision.side_axis;
+  endpoint.chosen_side_sign = decision.chosen_side_sign;
+  endpoint.endpoint_mode = CurveEndpointMode::kDirectThrough;
+  endpoint.support_world = port.world_position;
+  endpoint.endpoint_world = port.world_position;
+  endpoint.same_level_feasible = decision.same_level_feasible;
+  endpoint.same_level_reason = decision.same_level_reason;
+  endpoint.projected_spacing_topview_m = decision.projected_spacing_topview_m;
+  endpoint.required_clearance_m = decision.required_clearance_m;
+  endpoint.lowering_blocked_by_policy = decision.lowering_blocked_by_policy;
+  endpoint.unresolved_same_level_conflict = decision.unresolved_same_level_conflict;
+  endpoint.solver_used_same_level_constraint = decision.solver_used_same_level_constraint;
+  endpoint.used_special_case_ports = decision.used_special_case_ports;
+  const bool uses_lowering = decision.lower_required && !decision.lowering_blocked_by_policy;
+  endpoint.automatic_branch_down_offset_m = uses_lowering ? assignment.branch_down_offset_m : 0.0;
+  endpoint.branch_down_offset_m = uses_lowering ? assignment.branch_down_offset_m : 0.0;
+  return endpoint;
+}
+
+void seed_generated_support_layouts(EditState& edit_state, CacheState& cache_state, const std::vector<ObjectId>& span_ids,
+                                    const std::vector<SegmentLaneAssignment>& lane_assignments,
+                                    std::uint64_t variation_flow_key) {
+  std::size_t span_index = 0;
+  for (const SegmentLaneAssignment& assignment : lane_assignments) {
+    const std::size_t lane_count = std::min(assignment.port_ids_a.size(), assignment.port_ids_b.size());
+    for (std::size_t lane = 0; lane < lane_count && span_index < span_ids.size(); ++lane, ++span_index) {
+      const ObjectId span_id = span_ids[span_index];
+      const Span* span = edit_state.spans.find(span_id);
+      const Port* port_a = edit_state.ports.find(assignment.port_ids_a[lane]);
+      const Port* port_b = edit_state.ports.find(assignment.port_ids_b[lane]);
+      if (span == nullptr || port_a == nullptr || port_b == nullptr) {
+        continue;
+      }
+      SpanSupportLayoutEntry layout{};
+      layout.span_id = span_id;
+      layout.flow_kind = assignment.flow_kind;
+      layout.pass_mode = (span->placement_context == ConnectionContext::kBranchAdd)
+                             ? CurvePassMode::kBranch
+                             : ((span->placement_context == ConnectionContext::kCornerPass)
+                                    ? CurvePassMode::kPassThrough
+                                    : CurvePassMode::kPassThrough);
+      layout.variation_flow_key = variation_flow_key;
+      layout.bundle_order_policy = assignment.bundle_order_policy;
+      layout.relation_a = assignment.relation_a;
+      layout.relation_b = assignment.relation_b;
+      layout.continuity_class = assignment.continuity_class;
+      layout.default_lower_required = assignment.default_lower_required;
+      layout.same_level_feasible = assignment.same_level_feasible;
+      layout.same_level_reason = assignment.same_level_reason;
+      layout.projected_spacing_topview_m = assignment.projected_spacing_topview_m;
+      layout.required_clearance_m = assignment.required_clearance_m;
+      layout.lowering_blocked_by_policy = assignment.lowering_blocked_by_policy;
+      layout.unresolved_same_level_conflict = assignment.unresolved_same_level_conflict;
+      layout.solver_used_same_level_constraint = assignment.solver_used_same_level_constraint;
+      layout.used_special_case_ports = assignment.used_special_case_ports;
+      layout.lowering_kind = assignment.lowering_kind;
+      layout.start = make_support_layout_seed_endpoint(*span, *port_a, assignment, assignment.decision_a, true);
+      layout.end = make_support_layout_seed_endpoint(*span, *port_b, assignment, assignment.decision_b, false);
+      cache_state.support_layout_cache.by_span[span_id] = layout;
+    }
+  }
+}
+
 } // namespace
 
 EditResult<CoreState::GenerateBundleFromPathResult>
@@ -174,7 +279,7 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
         node_spec->node_id == kInvalidObjectId) {
       return false;
     }
-    for (const SupportNode& node : last_generation_backbone_.nodes) {
+    for (const SupportNode& node : last_generation_support_nodes_) {
       if (node.node_id == node_spec->node_id) {
         return node.has_source_edge;
       }
@@ -326,7 +431,7 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
         support_node_id = next_virtual_support_id++;
       } else {
         const SupportNode* existing_node = nullptr;
-        for (const SupportNode& node : last_generation_backbone_.nodes) {
+        for (const SupportNode& node : last_generation_support_nodes_) {
           if (node.node_id == support_node_id) {
             existing_node = &node;
             break;
@@ -1815,7 +1920,6 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     return count;
   };
 
-  std::vector<SegmentLaneAssignment> all_lane_assignments{};
   for (const BundlePlan& plan : active_bundle_plans) {
     int missing_total = 0;
     std::size_t first_missing_segment = ordered_support_node_ids.size();
@@ -1934,9 +2038,10 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
         edge_orientations[i].variation_flow_key = variation_flow_key;
         edge_orientations[i].flow_decision_rule = edge_flow_by_segment[run_start + i].rule;
       }
-      all_lane_assignments.insert(all_lane_assignments.end(), lane_assignments.begin(), lane_assignments.end());
       generation_backbone.edge_orientations.insert(generation_backbone.edge_orientations.end(), edge_orientations.begin(),
                                                    edge_orientations.end());
+      seed_generated_support_layouts(edit_state_access(), cache_state_access(), spans_result.value, lane_assignments,
+                 variation_flow_key);
 
       for (std::size_t i = 0; i < spans_result.value.size(); ++i) {
         const ObjectId span_id = spans_result.value[i];
@@ -1982,8 +2087,14 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     }
   }
 
-  last_lane_assignments_access() = all_lane_assignments;
-  last_generation_backbone_ = generation_backbone;
+  last_generation_support_nodes_.clear();
+  last_generation_support_nodes_.reserve(generation_backbone.nodes.size());
+  for (const SupportNode& node : generation_backbone.nodes) {
+    if (node.support_kind != SupportKind::kPole) {
+      last_generation_support_nodes_.push_back(node);
+    }
+  }
+  last_generation_edge_orientations_ = std::move(generation_backbone.edge_orientations);
   last_generation_junction_relations_ = std::move(path_junction_relations_by_node);
   result.ok = true;
   return result;

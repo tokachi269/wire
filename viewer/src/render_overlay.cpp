@@ -2,8 +2,10 @@
 #include "backbone_plane.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <cmath>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "host_coords.hpp"
 #include "ui_common.hpp"
@@ -329,6 +331,7 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
     }
   }
 
+  std::unordered_set<std::uint64_t> drawn_support_groups{};
   for (const wire::core::Span& span : edit.spans.items()) {
     const wire::core::Port* start_port = edit.ports.find(span.port_a_id);
     const wire::core::Port* end_port = edit.ports.find(span.port_b_id);
@@ -347,10 +350,11 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
     const wire::core::CurveCacheEntry* curve = state.find_curve_cache(span.id);
     const wire::core::SpanRenderCacheEntry* render = state.view().find_span_render_cache(span.id);
     const wire::core::SpanSupportLayoutEntry* support_layout = state.find_span_support_layout(span.id);
+    const auto layout_view = state.view().inspect_support_layout(span.id);
     const wire::core::SpanVisualCacheEntry* visual = state.view().find_span_visual_cache(span.id);
     const wire::core::BackboneFlowKind flow_kind =
         (support_layout == nullptr) ? wire::core::BackboneFlowKind::kMain : support_layout->flow_kind;
-    const bool uses_branch_support = visual != nullptr && !visual->branch_supports.empty();
+    const bool uses_branch_support = layout_view.has_value() && !layout_view->lowered_support_groups.empty();
     const float wire_radius =
         static_cast<float>((render == nullptr) ? 0.01 : std::max(0.0005, render->wire_radius_m));
     Color wire_color = (render == nullptr) ? ViewerWireColor(color) : ViewerWireColor(ColorFromRgba(render->color_rgba));
@@ -399,11 +403,25 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
           DrawLine3D(ToRaylib(part.a), ToRaylib(part.b), part_color);
         }
       }
-      for (const wire::core::BranchSupportPlacement& placement : visual->branch_supports) {
+    }
+    if (layout_view.has_value()) {
+      const auto draw_lowered_support_group = [&](const auto& placement) {
+        const std::uint64_t support_key =
+            (static_cast<std::uint64_t>(static_cast<std::uint32_t>(placement.owner_pole_id)) << 32) ^
+            static_cast<std::uint32_t>(placement.support_group_id);
+        const bool grouped =
+            placement.grouping_rule == wire::core::SupportGroupingRuleKind::kDecisionGroup &&
+            placement.support_group_id >= 0;
+        if (grouped && !drawn_support_groups.insert(support_key).second) {
+          return;
+        }
         const Color support_color = Color{96, 118, 126, 220};
         DrawLine3D(ToRaylib(placement.mount_world), ToRaylib(placement.tip_world), support_color);
         DrawSphere(ToRaylib(placement.mount_world), 0.05f, Color{104, 116, 122, 220});
         DrawSphere(ToRaylib(placement.tip_world), 0.05f, Color{112, 136, 144, 220});
+      };
+      for (const auto& placement : layout_view->lowered_support_groups) {
+        draw_lowered_support_group(placement);
       }
     }
   }

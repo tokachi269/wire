@@ -72,7 +72,8 @@ bool test_backbone_support_node_allows_per_bundle_mode_mix() {
   if (!generated.ok) {
     return false;
   }
-  const auto* node = find_support_node_by_point_index(state.view().last_generation_backbone(), 1);
+  const auto backbone = state.BuildBackboneResult();
+  const auto* node = find_support_node_by_point_index(backbone, 1);
   if (node == nullptr) {
     return false;
   }

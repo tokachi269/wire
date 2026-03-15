@@ -1,12 +1,14 @@
 #include "panels.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <cmath>
 #include <cstdio>
 #include <functional>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "imgui.h"
@@ -373,6 +375,137 @@ const char* BackboneFlowDecisionRuleLabel(wire::core::BackboneFlowDecisionRule r
   }
 }
 
+const char* JunctionRelationKindLabel(wire::core::JunctionRelationKind kind) {
+  switch (kind) {
+  case wire::core::JunctionRelationKind::kNone:
+    return "None";
+  case wire::core::JunctionRelationKind::kThroughMain:
+    return "ThroughMain";
+  case wire::core::JunctionRelationKind::kSideBranch:
+    return "SideBranch";
+  case wire::core::JunctionRelationKind::kCornerContinuation:
+    return "CornerContinuation";
+  case wire::core::JunctionRelationKind::kCrossUnderpass:
+    return "CrossUnderpass";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* ContinuityCategoryClassLabel(wire::core::ContinuityCategoryClass continuity_class) {
+  switch (continuity_class) {
+  case wire::core::ContinuityCategoryClass::kPointLike:
+    return "PointLike";
+  case wire::core::ContinuityCategoryClass::kBundleLike:
+    return "BundleLike";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* SameLevelFeasibilityReasonLabel(wire::core::SameLevelFeasibilityReason reason) {
+  switch (reason) {
+  case wire::core::SameLevelFeasibilityReason::kNone:
+    return "None";
+  case wire::core::SameLevelFeasibilityReason::kBundleRule:
+    return "BundleRule";
+  case wire::core::SameLevelFeasibilityReason::kEnvelopeOverlap:
+    return "EnvelopeOverlap";
+  case wire::core::SameLevelFeasibilityReason::kNearNodeClearance:
+    return "NearNodeClearance";
+  case wire::core::SameLevelFeasibilityReason::kCategoryPolicyDisabled:
+    return "CategoryPolicyDisabled";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* BundleOrderPolicyLabel(wire::core::BundleOrderPolicyKind policy) {
+  switch (policy) {
+  case wire::core::BundleOrderPolicyKind::kFixedOrder:
+    return "FixedOrder";
+  case wire::core::BundleOrderPolicyKind::kPermutableHomogeneous:
+    return "PermutableHomogeneous";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* LateralSideChoiceLabel(wire::core::LateralSideChoiceKind choice) {
+  switch (choice) {
+  case wire::core::LateralSideChoiceKind::kCenter:
+    return "Center";
+  case wire::core::LateralSideChoiceKind::kLeft:
+    return "Left";
+  case wire::core::LateralSideChoiceKind::kRight:
+    return "Right";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* SideAssignmentRuleKindLabel(wire::core::SideAssignmentRuleKind rule) {
+  switch (rule) {
+  case wire::core::SideAssignmentRuleKind::kPoleLocal:
+    return "PoleLocal";
+  case wire::core::SideAssignmentRuleKind::kChord:
+    return "Chord";
+  case wire::core::SideAssignmentRuleKind::kThroughPairNormal:
+    return "ThroughPairNormal";
+  case wire::core::SideAssignmentRuleKind::kBisector:
+    return "Bisector";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* SupportOrientationRuleKindLabel(wire::core::SupportOrientationRuleKind rule) {
+  switch (rule) {
+  case wire::core::SupportOrientationRuleKind::kRadial:
+    return "Radial";
+  case wire::core::SupportOrientationRuleKind::kChord:
+    return "Chord";
+  case wire::core::SupportOrientationRuleKind::kThroughPairNormal:
+    return "ThroughPairNormal";
+  case wire::core::SupportOrientationRuleKind::kBisector:
+    return "Bisector";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* SupportOrientationBasisKindLabel(wire::core::SupportOrientationBasisKind basis) {
+  switch (basis) {
+  case wire::core::SupportOrientationBasisKind::kRadial:
+    return "Radial";
+  case wire::core::SupportOrientationBasisKind::kChordForward:
+    return "ChordForward";
+  case wire::core::SupportOrientationBasisKind::kChordReverse:
+    return "ChordReverse";
+  case wire::core::SupportOrientationBasisKind::kBisectorForward:
+    return "BisectorForward";
+  case wire::core::SupportOrientationBasisKind::kBisectorReverse:
+    return "BisectorReverse";
+  case wire::core::SupportOrientationBasisKind::kPairNormalPositive:
+    return "PairNormalPositive";
+  case wire::core::SupportOrientationBasisKind::kPairNormalNegative:
+    return "PairNormalNegative";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* SupportGroupingRuleKindLabel(wire::core::SupportGroupingRuleKind rule) {
+  switch (rule) {
+  case wire::core::SupportGroupingRuleKind::kPerPort:
+    return "PerPort";
+  case wire::core::SupportGroupingRuleKind::kDecisionGroup:
+    return "DecisionGroup";
+  default:
+    return "Unknown";
+  }
+}
+
 wire::core::BundleKind BundleTemplateForCategory(wire::core::ConnectionCategory category) {
   switch (category) {
   case wire::core::ConnectionCategory::kHighVoltage:
@@ -583,13 +716,23 @@ std::vector<PoleHeightMarker> BuildPoleHeightMarkers(const CoreState& state, con
       markers.push_back(std::move(marker));
     }
 
+    std::unordered_set<std::uint64_t> shown_support_groups{};
     for (const wire::core::Span& span : view.spans().items()) {
-      const wire::core::SpanVisualCacheEntry* visual = state.find_span_visual_cache(span.id);
-      if (visual == nullptr) {
+      const auto layout_view = view.inspect_support_layout(span.id);
+      if (!layout_view.has_value()) {
         continue;
       }
-      for (const wire::core::BranchSupportPlacement& placement : visual->branch_supports) {
+      for (const auto& placement : layout_view->lowered_support_groups) {
         if (placement.owner_pole_id != pole.id) {
+          continue;
+        }
+        const bool grouped =
+            placement.grouping_rule == wire::core::SupportGroupingRuleKind::kDecisionGroup &&
+            placement.support_group_id >= 0;
+        const std::uint64_t support_key =
+            (static_cast<std::uint64_t>(static_cast<std::uint32_t>(placement.owner_pole_id)) << 32) ^
+            static_cast<std::uint32_t>(placement.support_group_id);
+        if (grouped && !shown_support_groups.insert(support_key).second) {
           continue;
         }
         PoleHeightMarker marker{};
@@ -600,8 +743,10 @@ std::vector<PoleHeightMarker> BuildPoleHeightMarkers(const CoreState& state, con
             view.pole_radius_at_height_m(pole, std::max(0.0, marker.height_m - pole.world_transform.position.z)) +
             view.geometry_settings().pole_clearance_m + MarkerBaseOffsetForKind(marker.kind) +
             static_cast<double>(support_index++) * 0.05;
+        const wire::core::Vec3d attachment_world =
+            placement.attachment_worlds.empty() ? placement.tip_world : placement.attachment_worlds.front();
         for (const wire::core::Port* port : owned_ports) {
-          if (port != nullptr && NearlySameWorld(port->world_position, placement.attachment_world, 1e-6)) {
+          if (port != nullptr && NearlySameWorld(port->world_position, attachment_world, 1e-6)) {
             marker.port_ids.push_back(port->id);
             marker.editable = true;
             break;
@@ -893,6 +1038,66 @@ void DrawOverrideViewBlock(const std::optional<wire::core::OverrideInspectionVie
   }
 }
 
+void DrawEndpointDecisionSummary(const char* label, const wire::core::SupportLayoutEndpointView& endpoint) {
+  ImGui::Text("%s relation=%s class=%s lower=%s defaultLower=%s", label,
+              JunctionRelationKindLabel(endpoint.relation_kind),
+              ContinuityCategoryClassLabel(endpoint.continuity_class),
+              endpoint.decision.lower_required ? "true" : "false",
+              endpoint.default_lower_required ? "true" : "false");
+  ImGui::Text("  sameLevel=%s reason=%s blocked=%s unresolved=%s solver=%s specialPorts=%s",
+              endpoint.same_level_feasible ? "true" : "false",
+              SameLevelFeasibilityReasonLabel(endpoint.same_level_reason),
+              endpoint.lowering_blocked_by_policy ? "true" : "false",
+              endpoint.unresolved_same_level_conflict ? "true" : "false",
+              endpoint.solver_used_same_level_constraint ? "true" : "false",
+              endpoint.used_special_case_ports ? "true" : "false");
+  ImGui::Text("  order=%s choice=%s(%s) side=%s sign=%.2f sideRule=%s pairSide=%s",
+              BundleOrderPolicyLabel(endpoint.bundle_order_policy),
+              BundleOrderChoiceLabel(endpoint.bundle_order_choice),
+              BundleOrderChoiceReasonLabel(endpoint.bundle_order_choice_reason),
+              LateralSideChoiceLabel(endpoint.decision.chosen_side), endpoint.chosen_side_sign,
+              SideAssignmentRuleKindLabel(endpoint.side_assignment_rule),
+              endpoint.used_junction_pair_side_assignment ? "true" : "false");
+  ImGui::Text("  orientation=%s basis=%s downstreamOverride=%s", 
+              SupportOrientationRuleKindLabel(endpoint.support_orientation_rule),
+              SupportOrientationBasisKindLabel(endpoint.decision.support_orientation_basis),
+              endpoint.decision.downstream_overridden ? "true" : "false");
+  ImGui::Text("  spacing=%.2f clearance=%.2f throughPair=%s", endpoint.projected_spacing_topview_m,
+              endpoint.required_clearance_m, endpoint.decision.in_through_pair ? "true" : "false");
+}
+
+void DrawLoweredSupportGroupsBlock(const std::vector<wire::core::LoweredSupportGroupInspectionView>& groups) {
+  ImGui::Separator();
+  ImGui::Text("LoweredSupportGroups: %d", static_cast<int>(groups.size()));
+  if (groups.empty()) {
+    ImGui::TextUnformatted("(none)");
+    return;
+  }
+  for (std::size_t index = 0; index < groups.size(); ++index) {
+    const auto& group = groups[index];
+    ImGui::Text("[%d] pole=%llu groupId=%d groupedPorts=%d rule=%s origin=%s", static_cast<int>(index),
+                static_cast<unsigned long long>(group.owner_pole_id), group.support_group_id,
+                group.grouped_port_count, SupportGroupingRuleKindLabel(group.grouping_rule), group.origin.c_str());
+    ImGui::Text("  relation=%s class=%s lower=%s order=%s %s(%s)",
+                JunctionRelationKindLabel(group.decision.relation_kind),
+                ContinuityCategoryClassLabel(group.decision.continuity_class),
+                group.decision.lower_required ? "true" : "false",
+                BundleOrderPolicyLabel(group.bundle_order_policy), BundleOrderChoiceLabel(group.bundle_order_choice),
+                BundleOrderChoiceReasonLabel(group.bundle_order_choice_reason));
+    ImGui::Text("  side=%s sign=%.2f sideRule=%s orient=%s basis=%s pairSide=%s down=%.2f",
+                LateralSideChoiceLabel(group.decision.chosen_side), group.chosen_side_sign,
+                SideAssignmentRuleKindLabel(group.side_assignment_rule),
+                SupportOrientationRuleKindLabel(group.support_orientation_rule),
+                SupportOrientationBasisKindLabel(group.decision.support_orientation_basis),
+                group.used_junction_pair_side_assignment ? "true" : "false", group.down_offset_m);
+    ImGui::Text("  sameLevel=%s reason=%s blocked=%s unresolved=%s", 
+                group.decision.same_level_feasible ? "true" : "false",
+                SameLevelFeasibilityReasonLabel(group.decision.same_level_reason),
+                group.decision.lowering_blocked_by_policy ? "true" : "false",
+                group.decision.unresolved_same_level_conflict ? "true" : "false");
+  }
+}
+
 void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
   ImGui::TextUnformatted("Selected");
   ImGui::Separator();
@@ -1080,6 +1285,17 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
       ImGui::Text("flowRule: %s", BackboneFlowDecisionRuleLabel(span_view->flow_rule));
       ImGui::Text("lowering: %s branchSupport=%s downOffset=%.2f", BackboneLoweringKindLabel(span_view->lowering_kind),
                   span_view->uses_branch_support ? "true" : "false", span_view->branch_down_offset_m);
+      ImGui::Text("continuity: class=%s defaultLower=%s sameLevel=%s(%s)",
+          ContinuityCategoryClassLabel(span_view->continuity_class),
+          span_view->default_lower_required ? "true" : "false",
+          span_view->same_level_feasible ? "true" : "false",
+          SameLevelFeasibilityReasonLabel(span_view->same_level_reason));
+      ImGui::Text("clearance: topview=%.2f required=%.2f blocked=%s unresolved=%s solver=%s specialPorts=%s",
+          span_view->projected_spacing_topview_m, span_view->required_clearance_m,
+          span_view->lowering_blocked_by_policy ? "true" : "false",
+          span_view->unresolved_same_level_conflict ? "true" : "false",
+          span_view->solver_used_same_level_constraint ? "true" : "false",
+          span_view->used_special_case_ports ? "true" : "false");
       ImGui::Text("bundleOrder: A=%s(%s) B=%s(%s) flippedPrev=%s turn=%.2f",
                   BundleOrderChoiceLabel(span_view->bundle_order_choice_a),
                   BundleOrderChoiceReasonLabel(span_view->bundle_order_choice_reason_a),
@@ -1120,8 +1336,24 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
         ImGui::Text("supportLayout: flow=%s pass=%d flowKey=%llu", BackboneFlowKindLabel(layout_view->flow_kind),
                     static_cast<int>(layout_view->pass_mode),
                     static_cast<unsigned long long>(layout_view->variation_flow_key));
+        ImGui::Text("  relation: A=%s B=%s class=%s lower=%s", JunctionRelationKindLabel(layout_view->relation_a),
+                    JunctionRelationKindLabel(layout_view->relation_b),
+                    ContinuityCategoryClassLabel(layout_view->continuity_class),
+                    layout_view->default_lower_required ? "true" : "false");
+        ImGui::Text("  sameLevel=%s reason=%s blocked=%s unresolved=%s solver=%s specialPorts=%s",
+                    layout_view->same_level_feasible ? "true" : "false",
+                    SameLevelFeasibilityReasonLabel(layout_view->same_level_reason),
+                    layout_view->lowering_blocked_by_policy ? "true" : "false",
+                    layout_view->unresolved_same_level_conflict ? "true" : "false",
+                    layout_view->solver_used_same_level_constraint ? "true" : "false",
+                    layout_view->used_special_case_ports ? "true" : "false");
+        ImGui::Text("  orderPolicy=%s topview=%.2f required=%.2f", BundleOrderPolicyLabel(layout_view->bundle_order_policy),
+                    layout_view->projected_spacing_topview_m, layout_view->required_clearance_m);
         draw_support_endpoint("endpointA", layout_view->start_endpoint);
+        DrawEndpointDecisionSummary("endpointA decision", layout_view->start_endpoint);
         draw_support_endpoint("endpointB", layout_view->end_endpoint);
+        DrawEndpointDecisionSummary("endpointB decision", layout_view->end_endpoint);
+        DrawLoweredSupportGroupsBlock(layout_view->lowered_support_groups);
       } else {
         ImGui::TextUnformatted("supportLayout: (none)");
       }
@@ -1248,6 +1480,21 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
     ImGui::Text("flow: %s pass=%d flowKey=%llu", BackboneFlowKindLabel(layout_view->flow_kind),
                 static_cast<int>(layout_view->pass_mode),
                 static_cast<unsigned long long>(layout_view->variation_flow_key));
+    ImGui::Text("relation: A=%s B=%s class=%s lower=%s", JunctionRelationKindLabel(layout_view->relation_a),
+                JunctionRelationKindLabel(layout_view->relation_b),
+                ContinuityCategoryClassLabel(layout_view->continuity_class),
+                layout_view->default_lower_required ? "true" : "false");
+    ImGui::Text("sameLevel=%s reason=%s blocked=%s unresolved=%s solver=%s specialPorts=%s",
+                layout_view->same_level_feasible ? "true" : "false",
+                SameLevelFeasibilityReasonLabel(layout_view->same_level_reason),
+                layout_view->lowering_blocked_by_policy ? "true" : "false",
+                layout_view->unresolved_same_level_conflict ? "true" : "false",
+                layout_view->solver_used_same_level_constraint ? "true" : "false",
+                layout_view->used_special_case_ports ? "true" : "false");
+    ImGui::Text("orderPolicy=%s lowering=%s topview=%.2f required=%.2f",
+                BundleOrderPolicyLabel(layout_view->bundle_order_policy),
+                BackboneLoweringKindLabel(layout_view->lowering_kind),
+                layout_view->projected_spacing_topview_m, layout_view->required_clearance_m);
     auto draw_endpoint = [&](const char* label, const wire::core::SupportLayoutEndpointView& endpoint) {
       ImGui::Text("%s origin=%s source=%s flow=%s port=%s", label, endpoint.origin.c_str(),
                   SupportLayoutEndpointSourceLabel(endpoint.endpoint_source),
@@ -1265,9 +1512,11 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
                       : "none",
                   endpoint.resolved_socket_id.has_value() ? std::to_string(*endpoint.resolved_socket_id).c_str()
                                                           : "none");
+      DrawEndpointDecisionSummary("  decision", endpoint);
     };
     draw_endpoint("start", layout_view->start_endpoint);
     draw_endpoint("end", layout_view->end_endpoint);
+    DrawLoweredSupportGroupsBlock(layout_view->lowered_support_groups);
     DrawRelatedLinks(ui_state, layout_view->links);
     return;
   }
@@ -1981,10 +2230,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
   }
 
   if (ImGui::CollapsingHeader("Backbone Junction Debug")) {
-    wire::core::BackboneResult backbone = state.view().last_generation_backbone();
-    if (backbone.edges.empty() && backbone.nodes.empty() && backbone.junctions.empty()) {
-      backbone = state.BuildBackboneResult();
-    }
+    const wire::core::BackboneResult backbone = state.BuildBackboneResult();
     ImGui::Text("SupportNodes: %d", static_cast<int>(backbone.nodes.size()));
     ImGui::Text("Edges: %d", static_cast<int>(backbone.edges.size()));
     ImGui::Text("Junctions(deg>=3): %d", static_cast<int>(backbone.junctions.size()));

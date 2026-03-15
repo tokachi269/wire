@@ -235,6 +235,30 @@ struct SupportLayoutEndpointView {
   VariationBreakdownView down_offset_variation{};
 };
 
+struct LoweredSupportGroupInspectionView {
+  ObjectId owner_pole_id = kInvalidObjectId;
+  EndpointContinuityDecision decision{};
+  SlotSide side = SlotSide::kCenter;
+  std::string origin{};
+  SupportGroupingRuleKind grouping_rule = SupportGroupingRuleKind::kDecisionGroup;
+  int support_group_id = -1;
+  int grouped_port_count = 1;
+  BundleOrderPolicyKind bundle_order_policy = BundleOrderPolicyKind::kFixedOrder;
+  BundleOrderChoiceKind bundle_order_choice = BundleOrderChoiceKind::kNormal;
+  BundleOrderChoiceReason bundle_order_choice_reason = BundleOrderChoiceReason::kFixedOrder;
+  SideAssignmentRuleKind side_assignment_rule = SideAssignmentRuleKind::kPoleLocal;
+  SupportOrientationRuleKind support_orientation_rule = SupportOrientationRuleKind::kRadial;
+  bool used_junction_pair_side_assignment = false;
+  bool has_side_axis = false;
+  Vec3d side_axis{};
+  double chosen_side_sign = 0.0;
+  double down_offset_m = 0.0;
+  Vec3d mount_world{};
+  Vec3d tip_world{};
+  std::vector<Vec3d> attachment_worlds{};
+  VariationBreakdownView down_offset_variation{};
+};
+
 struct SupportLayoutInspectionView {
   EntityMeta meta{};
   EntityRef source_span{};
@@ -257,6 +281,7 @@ struct SupportLayoutInspectionView {
   BackboneLoweringKind lowering_kind = BackboneLoweringKind::kNone;
   SupportLayoutEndpointView start_endpoint{};
   SupportLayoutEndpointView end_endpoint{};
+  std::vector<LoweredSupportGroupInspectionView> lowered_support_groups{};
   std::vector<RelatedEntityLink> links{};
 };
 

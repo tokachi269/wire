@@ -758,7 +758,7 @@ bool test_regenerate_session_interval_extension_preserves_hv_lane_order() {
   }
 
   std::vector<wire::core::SegmentLaneAssignment> hv_assignments{};
-  for (const auto& assignment : wire::core::CoreStateTestHook::last_lane_assignments(state)) {
+  for (const auto& assignment : state.view().last_lane_assignments()) {
     const auto* bundle = state.view().edit_state().bundles.find(assignment.bundle_id);
     if (bundle == nullptr || bundle->bundle_template_id != wire::core::BundleKind::kHighVoltage) {
       continue;
@@ -776,7 +776,7 @@ bool test_regenerate_session_interval_extension_preserves_hv_lane_order() {
     return false;
   }
 
-  const auto& orientations = state.view().last_generation_backbone().edge_orientations;
+  const auto& orientations = state.view().last_generation_edge_orientations();
   for (const auto& orientation : orientations) {
     if (orientation.bundle_template_id != wire::core::BundleKind::kHighVoltage) {
       continue;

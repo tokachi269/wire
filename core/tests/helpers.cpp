@@ -249,7 +249,7 @@ wire::core::EditResult<BackbonePathGenerateResult> generate_from_backbone_option
   result.value.pole_ids = adapted.value.generated_pole_ids;
   result.value.span_ids = adapted.value.generated_span_ids;
   result.value.bundle_id = adapted.value.bundle_id;
-  result.value.lane_assignments = wire::core::CoreStateTestHook::last_lane_assignments(state);
+  result.value.lane_assignments = state.view().last_lane_assignments();
   result.value.direction_debug = state.view().last_path_direction_debug();
   if (!adapted.value.generated_span_ids.empty()) {
     const auto* span = state.view().edit_state().spans.find(adapted.value.generated_span_ids.front());

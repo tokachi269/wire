@@ -19,8 +19,14 @@ struct CoreStateTestHook {
   static std::unordered_map<CableTemplateId, CableTemplate>& cable_templates(CoreState& state) {
     return state.cable_templates_;
   }
-  static std::vector<SegmentLaneAssignment>& last_lane_assignments(CoreState& state) {
-    return state.last_lane_assignments_;
+  static std::vector<SupportNode>& last_generation_support_nodes(CoreState& state) {
+    return state.last_generation_support_nodes_;
+  }
+  static std::vector<BackboneEdgeOrientation>& last_generation_edge_orientations(CoreState& state) {
+    return state.last_generation_edge_orientations_;
+  }
+  static std::unordered_map<ObjectId, JunctionRelation>& last_generation_junction_relations(CoreState& state) {
+    return state.last_generation_junction_relations_;
   }
 };
 #endif

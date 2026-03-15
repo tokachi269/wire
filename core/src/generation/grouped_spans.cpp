@@ -617,37 +617,81 @@ CoreState::generate_grouped_spans_between_support_nodes(
       return std::nullopt;
     }
 
-    EndpointSideDecision decision{};
-    decision.has_side_axis = true;
-    decision.chosen_side_sign = 1.0;
+      EndpointSideDecision decision{};
+      decision.has_side_axis = true;
+      decision.chosen_side_sign = 1.0;
 
-    Vec3d axis{};
-    if (lowered_dirs.size() >= 2) {
-      Vec3d sum{0.0, 0.0, 0.0};
-      for (const Vec3d& dir : lowered_dirs) {
-        sum = sum + dir;
-      }
-      if (normalize_xy(&sum)) {
-        axis = sum;
-        decision.side_assignment_rule = SideAssignmentRuleKind::kBisector;
-        decision.support_orientation_rule = SupportOrientationRuleKind::kBisector;
+      Vec3d axis{};
+      if (lowered_dirs.size() >= 2) {
+        if (feasibility.kind == JunctionRelationKind::kCrossUnderpass) {
+          if (const auto through_pair_axis = through_pair_side_axis_for_node(node_id); through_pair_axis.has_value()) {
+            axis = *through_pair_axis;
+            decision.side_assignment_rule = SideAssignmentRuleKind::kThroughPairNormal;
+            decision.support_orientation_rule = SupportOrientationRuleKind::kThroughPairNormal;
+            decision.used_junction_pair_side_assignment = true;
+          }
+        }
+        if (!normalize_xy(&axis)) {
+          Vec3d sum{0.0, 0.0, 0.0};
+          for (const Vec3d& dir : lowered_dirs) {
+            sum = sum + dir;
+          }
+          if (normalize_xy(&sum)) {
+            axis = sum;
+            decision.side_assignment_rule = SideAssignmentRuleKind::kBisector;
+            decision.support_orientation_rule = SupportOrientationRuleKind::kBisector;
+          } else {
+            axis = lowered_dirs.front();
+            if (!normalize_xy(&axis)) {
+              axis = canonical_side_axis_for_order(node_id, peer_id);
+            }
+            if (feasibility.kind == JunctionRelationKind::kCrossUnderpass) {
+              decision.side_assignment_rule = SideAssignmentRuleKind::kThroughPairNormal;
+              decision.support_orientation_rule = SupportOrientationRuleKind::kThroughPairNormal;
+            } else {
+              decision.side_assignment_rule = SideAssignmentRuleKind::kBisector;
+              decision.support_orientation_rule = SupportOrientationRuleKind::kBisector;
+            }
+          }
+          decision.used_junction_pair_side_assignment = true;
+          const Vec3d canonical = canonical_side_axis_for_order(node_id, peer_id);
+          if (dot_xy(axis, canonical) < 0.0 &&
+              feasibility.kind != JunctionRelationKind::kCrossUnderpass) {
+            axis = ScaleVec(axis, -1.0);
+          }
+        }
+      } else {
+      if (feasibility.kind == JunctionRelationKind::kSideBranch) {
+        axis = lowered_dirs.front();
+        decision.side_assignment_rule = SideAssignmentRuleKind::kChord;
+        decision.support_orientation_rule = SupportOrientationRuleKind::kChord;
+      } else if (feasibility.kind == JunctionRelationKind::kCornerContinuation) {
+        if (const auto bisector_axis = bisector_axis_for_endpoint(node_id, peer_id); bisector_axis.has_value()) {
+          axis = *bisector_axis;
+          decision.side_assignment_rule = SideAssignmentRuleKind::kBisector;
+          decision.support_orientation_rule = SupportOrientationRuleKind::kBisector;
+          decision.used_junction_pair_side_assignment = true;
+        } else {
+          axis = lowered_dirs.front();
+          decision.side_assignment_rule = SideAssignmentRuleKind::kChord;
+          decision.support_orientation_rule = SupportOrientationRuleKind::kChord;
+        }
+      } else if (feasibility.kind == JunctionRelationKind::kCrossUnderpass) {
+        if (const auto through_pair_axis = through_pair_side_axis_for_node(node_id); through_pair_axis.has_value()) {
+          axis = *through_pair_axis;
+          decision.side_assignment_rule = SideAssignmentRuleKind::kThroughPairNormal;
+          decision.support_orientation_rule = SupportOrientationRuleKind::kThroughPairNormal;
+          decision.used_junction_pair_side_assignment = true;
+        } else {
+          axis = lowered_dirs.front();
+          decision.side_assignment_rule = SideAssignmentRuleKind::kChord;
+          decision.support_orientation_rule = SupportOrientationRuleKind::kChord;
+        }
       } else {
         axis = lowered_dirs.front();
-        if (!normalize_xy(&axis)) {
-          axis = canonical_side_axis_for_order(node_id, peer_id);
-        }
-        decision.side_assignment_rule = SideAssignmentRuleKind::kThroughPairNormal;
+        decision.side_assignment_rule = SideAssignmentRuleKind::kChord;
         decision.support_orientation_rule = SupportOrientationRuleKind::kChord;
       }
-      decision.used_junction_pair_side_assignment = true;
-      const Vec3d canonical = canonical_side_axis_for_order(node_id, peer_id);
-      if (dot_xy(axis, canonical) < 0.0) {
-        axis = ScaleVec(axis, -1.0);
-      }
-    } else {
-      axis = lowered_dirs.front();
-      decision.side_assignment_rule = SideAssignmentRuleKind::kChord;
-      decision.support_orientation_rule = SupportOrientationRuleKind::kChord;
     }
     decision.side_axis = axis;
     return decision;

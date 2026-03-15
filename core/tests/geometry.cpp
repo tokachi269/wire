@@ -1509,8 +1509,8 @@ bool test_support_layout_branch_support_is_explicit_and_shared_with_curve_and_vi
   (void)state.Commit().recalc_stats;
   const auto* support_layout = state.view().find_span_support_layout(span);
   const auto* curve = state.find_curve_cache(span);
-  const auto* visual = state.find_span_visual_cache(span);
-  if (support_layout == nullptr || curve == nullptr || visual == nullptr) {
+  const auto support_layout_view = state.view().inspect_support_layout(span);
+  if (support_layout == nullptr || curve == nullptr || !support_layout_view.has_value()) {
     return false;
   }
   if (support_layout->flow_kind != wire::core::BackboneFlowKind::kBranch ||
@@ -1526,10 +1526,11 @@ bool test_support_layout_branch_support_is_explicit_and_shared_with_curve_and_vi
                     support_layout->start.local_departure_length_m, 1e-9)) {
     return false;
   }
-  if (visual->branch_supports.empty()) {
+  if (support_layout_view->lowered_support_groups.empty()) {
     return false;
   }
-  return almost_equal(visual->branch_supports.front().down_offset_m, support_layout->start.branch_down_offset_m, 1e-9);
+  return almost_equal(support_layout_view->lowered_support_groups.front().down_offset_m,
+                      support_layout->start.branch_down_offset_m, 1e-9);
 }
 
 bool test_support_layout_attachment_socket_endpoint_matches_curve_input() {
@@ -1913,8 +1914,174 @@ bool test_branch_down_offset_override_roundtrip_returns_to_policy_value() {
   }
   (void)state.Commit().recalc_stats;
   const auto* restored_layout = state.view().find_span_support_layout(span);
-  return restored_layout != nullptr &&
-         almost_equal(restored_layout->start.branch_down_offset_m, auto_down, 1e-9);
+  if (restored_layout == nullptr || !almost_equal(restored_layout->start.branch_down_offset_m, auto_down, 1e-9)) {
+    return false;
+  }
+  return true;
+}
+
+bool test_inspection_support_layout_does_not_fallback_to_last_lane_assignments() {
+  CoreState state;
+  const ObjectId pole_a =
+      state.AddPole(wire::core::Transformd{{0.0, 0.0, 0.0}}, 10.0, "A").value;
+  const ObjectId pole_b =
+      state.AddPole(wire::core::Transformd{{12.0, 0.0, 0.0}}, 10.0, "B").value;
+  const ObjectId port_a = state.AddPort(pole_a, {0.0, 0.0, 4.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId port_b = state.AddPort(pole_b, {12.0, 0.0, 4.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId span = state.AddSpan(port_a, port_b, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
+
+  const wire::core::Span* edit_span = wire::core::CoreStateTestHook::edit_state(state).spans.find(span);
+  if (edit_span == nullptr) {
+    return false;
+  }
+
+  const auto layout_view = state.view().inspect_support_layout(span);
+  const auto span_view = state.view().inspect_span(span);
+  return !layout_view.has_value() && span_view.has_value() && !span_view->support_layout_ref.valid() &&
+         span_view->flow_kind == wire::core::BackboneFlowKind::kMain && !span_view->uses_branch_support;
+}
+
+bool test_inspection_backbone_uses_rebuilt_result_instead_of_last_snapshot() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec req_a{};
+  req_a.path.polyline = {{-8.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {8.0, 0.0, 0.0}};
+  req_a.interval_m = 8.0;
+  req_a.pole_type_id = type_ids.front();
+  helpers::add_backbone_bundle(req_a, wire::core::BundleKind::kLowVoltage);
+  if (!state.GenerateFromBackboneSpec(req_a).ok) {
+    return false;
+  }
+
+  wire::core::BackboneSpec req_b{};
+  req_b.path.polyline = {{0.0, -8.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 8.0, 0.0}};
+  req_b.interval_m = 8.0;
+  req_b.pole_type_id = type_ids.front();
+  helpers::add_backbone_bundle(req_b, wire::core::BundleKind::kLowVoltage);
+  if (!state.GenerateFromBackboneSpec(req_b).ok) {
+    return false;
+  }
+
+  const auto rebuilt = state.BuildBackboneResult();
+  if (rebuilt.junctions.empty() || rebuilt.nodes.empty()) {
+    return false;
+  }
+  const ObjectId junction_id = rebuilt.junctions.front().node_id;
+  const ObjectId support_node_id = rebuilt.nodes.front().node_id;
+
+  wire::core::CoreStateTestHook::last_generation_support_nodes(state).clear();
+  wire::core::CoreStateTestHook::last_generation_edge_orientations(state).clear();
+
+  const auto junction_view = state.view().inspect_junction(junction_id);
+  const auto support_node_view = state.view().describe_entity({wire::core::EntityKind::kSupportNode, support_node_id});
+  return junction_view.has_value() && junction_view->incidents.size() >= 3 && support_node_view.has_value();
+}
+
+bool test_inspection_junction_prefers_relation_surface_when_present() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec req_a{};
+  req_a.path.polyline = {{-8.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {8.0, 0.0, 0.0}};
+  req_a.interval_m = 8.0;
+  req_a.pole_type_id = type_ids.front();
+  helpers::add_backbone_bundle(req_a, wire::core::BundleKind::kLowVoltage);
+  if (!state.GenerateFromBackboneSpec(req_a).ok) {
+    return false;
+  }
+
+  wire::core::BackboneSpec req_b{};
+  req_b.path.polyline = {{0.0, -8.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 8.0, 0.0}};
+  req_b.interval_m = 8.0;
+  req_b.pole_type_id = type_ids.front();
+  helpers::add_backbone_bundle(req_b, wire::core::BundleKind::kLowVoltage);
+  if (!state.GenerateFromBackboneSpec(req_b).ok) {
+    return false;
+  }
+
+  const auto rebuilt = state.BuildBackboneResult();
+  if (rebuilt.junctions.empty()) {
+    return false;
+  }
+  const ObjectId junction_id = rebuilt.junctions.front().node_id;
+  auto& relations = wire::core::CoreStateTestHook::last_generation_junction_relations(state);
+  auto it = relations.find(junction_id);
+  if (it == relations.end() || it->second.incidents.size() < 3) {
+    return false;
+  }
+
+  it->second.through_pair.accepted = true;
+  it->second.through_pair.neighbor_a_id = it->second.incidents[0].neighbor_node_id;
+  it->second.through_pair.neighbor_b_id = it->second.incidents[1].neighbor_node_id;
+  it->second.incidents.resize(2);
+
+  const auto junction_view = state.view().inspect_junction(junction_id);
+  return junction_view.has_value() && junction_view->incidents.size() == 2 && junction_view->has_local_relation &&
+         junction_view->has_primary && junction_view->through_pair_accepted;
+}
+
+bool test_support_layout_prefers_assignment_over_stale_branch_support_ports() {
+  CoreState state;
+  const ObjectId pole_a =
+      state.AddPole(wire::core::Transformd{{0.0, 0.0, 0.0}}, 10.0, "A").value;
+  const ObjectId pole_b =
+      state.AddPole(wire::core::Transformd{{12.0, 0.0, 0.0}}, 10.0, "B").value;
+  const ObjectId port_a = state.AddPort(pole_a, {0.0, 0.85, 4.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId port_b = state.AddPort(pole_b, {12.0, 0.0, 4.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
+  const ObjectId span = state.AddSpan(port_a, port_b, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
+
+  wire::core::Port* edit_port_a = wire::core::CoreStateTestHook::edit_state(state).ports.find(port_a);
+  wire::core::Port* edit_port_b = wire::core::CoreStateTestHook::edit_state(state).ports.find(port_b);
+  wire::core::Span* edit_span = wire::core::CoreStateTestHook::edit_state(state).spans.find(span);
+  if (edit_port_a == nullptr || edit_port_b == nullptr || edit_span == nullptr) {
+    return false;
+  }
+  edit_port_a->category = wire::core::ConnectionCategory::kCommunication;
+  edit_port_a->generated_by_rule = true;
+  edit_port_a->placement_source = wire::core::PortPlacementSourceKind::kBranchSupport;
+  edit_port_a->template_side = wire::core::SlotSide::kRight;
+  edit_port_a->placement_context = wire::core::ConnectionContext::kBranchAdd;
+  edit_port_b->category = wire::core::ConnectionCategory::kCommunication;
+  edit_port_b->generated_by_rule = true;
+  edit_port_b->placement_source = wire::core::PortPlacementSourceKind::kGenerated;
+  edit_span->placement_context = wire::core::ConnectionContext::kBranchAdd;
+
+  wire::core::SpanSupportLayoutEntry stale_layout{};
+  stale_layout.span_id = span;
+  stale_layout.flow_kind = wire::core::BackboneFlowKind::kMain;
+  stale_layout.pass_mode = wire::core::CurvePassMode::kPassThrough;
+  stale_layout.continuity_class = wire::core::ContinuityCategoryClass::kPointLike;
+  stale_layout.lowering_kind = wire::core::BackboneLoweringKind::kNone;
+  stale_layout.start.endpoint_node_id = edit_span->endpoint_node_a_id;
+  stale_layout.start.owner_pole_id = pole_a;
+  stale_layout.start.port_id = port_a;
+  stale_layout.start.flow_kind = wire::core::BackboneFlowKind::kMain;
+  stale_layout.start.relation_kind = wire::core::JunctionRelationKind::kNone;
+  stale_layout.start.continuity_class = wire::core::ContinuityCategoryClass::kPointLike;
+  stale_layout.start.origin = wire::core::SupportLayoutOriginKind::kMainSupport;
+  stale_layout.end.endpoint_node_id = edit_span->endpoint_node_b_id;
+  stale_layout.end.owner_pole_id = pole_b;
+  stale_layout.end.port_id = port_b;
+  stale_layout.end.flow_kind = wire::core::BackboneFlowKind::kMain;
+  stale_layout.end.relation_kind = wire::core::JunctionRelationKind::kNone;
+  stale_layout.end.continuity_class = wire::core::ContinuityCategoryClass::kPointLike;
+  stale_layout.end.origin = wire::core::SupportLayoutOriginKind::kMainSupport;
+  wire::core::CoreStateTestHook::cache_state(state).support_layout_cache.by_span[span] = stale_layout;
+
+  (void)state.Commit().recalc_stats;
+  const auto* layout = state.view().find_span_support_layout(span);
+    return layout != nullptr && layout->flow_kind == wire::core::BackboneFlowKind::kMain &&
+      layout->start.flow_kind == wire::core::BackboneFlowKind::kMain &&
+      layout->end.flow_kind == wire::core::BackboneFlowKind::kMain &&
+      almost_equal(layout->start.automatic_branch_down_offset_m, 0.0, 1e-9) &&
+         almost_equal(layout->start.branch_down_offset_m, 0.0, 1e-9);
 }
 
 bool test_detail_curve_acute_case_applies_quality_fallback() {
@@ -2464,6 +2631,18 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C170_Override_BranchDownOffset_Roundtrip",
                          "Branch down offset override can be applied and cleared back to policy-derived support layout",
                          "Invariant", false, test_branch_down_offset_override_roundtrip_returns_to_policy_value);
+  test_registry::AddTest(tests, "C257_Inspection_SupportLayout_NoAssignmentFallback",
+                         "Inspection does not synthesize support layout semantics from last_lane_assignments when no support layout exists",
+                         "Invariant", false, test_inspection_support_layout_does_not_fallback_to_last_lane_assignments);
+  test_registry::AddTest(tests, "C258_Inspection_Backbone_UsesRebuiltResult",
+                         "Inspection resolves junction/support-node entities from rebuilt backbone instead of stale last_generation_backbone snapshot",
+                         "Invariant", false, test_inspection_backbone_uses_rebuilt_result_instead_of_last_snapshot);
+  test_registry::AddTest(tests, "C259_Inspection_Junction_PrefersRelationSurface",
+                         "Inspection prefers last_generation_junction_relations when relation data exists instead of mixing rebuilt junction incidents into the same surface",
+                         "Invariant", false, test_inspection_junction_prefers_relation_surface_when_present);
+  test_registry::AddTest(tests, "C254_SupportLayout_AssignmentBeatsStaleBranchPort",
+                         "Support layout prefers authoritative assignment over stale branch-support port state",
+                         "Invariant", false, test_support_layout_prefers_assignment_over_stale_branch_support_ports);
   test_registry::AddTest(tests, "C161_DetailCurve_BranchLongSpan_SuppressesSidewaysRunout",
                          "Long branch spans keep support departure local and suppress large sideways runout",
                          "Invariant", false, test_detail_curve_branch_long_span_suppresses_sideways_runout);

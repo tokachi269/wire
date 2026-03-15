@@ -2,6 +2,7 @@
 
 #include "registry.hpp"
 #include "helpers.hpp"
+#include "wire/core/core_test_hook.hpp"
 
 using namespace helpers;
 
@@ -49,7 +50,7 @@ bool test_branch_pick_segment_near_endpoint_snaps_to_node() {
   }
   return resolved.value.resolution == wire::core::CoreState::PickBranchResolutionKind::kNode &&
          resolved.value.resolved_node_id == pole_a && resolved.value.snapped_from_segment_endpoint &&
-         state.view().last_generation_backbone().nodes.empty();
+         wire::core::CoreStateTestHook::last_generation_support_nodes(state).empty();
 }
 
 // Intent: Segment pick far from endpoints creates a Midair support node.
@@ -100,7 +101,7 @@ bool test_branch_pick_segment_midpoint_creates_midair_node() {
       resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
     return false;
   }
-  const auto& nodes = state.view().last_generation_backbone().nodes;
+  const auto& nodes = wire::core::CoreStateTestHook::last_generation_support_nodes(state);
   if (nodes.size() != 1) {
     return false;
   }
@@ -157,7 +158,7 @@ bool test_branch_pick_segment_midpoint_dryrun_keeps_state_unchanged() {
       resolved.value.resolved_node_id != wire::core::kInvalidObjectId) {
     return false;
   }
-  return state.view().last_generation_backbone().nodes.empty();
+  return wire::core::CoreStateTestHook::last_generation_support_nodes(state).empty();
 }
 
 // Intent: HV template rule must reject midair branch picks in core.

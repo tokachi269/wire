@@ -33,6 +33,127 @@ struct ResolvedSpanCurveInputs {
   double min_bend_radius_hint_m = 0.0;
 };
 
+bool endpoint_prefers_line_oriented_support(const SupportLayoutEndpoint* endpoint, BackboneLoweringKind lowering_kind) {
+  if (endpoint == nullptr) {
+    return false;
+  }
+  if (endpoint->decision.support_orientation_basis != SupportOrientationBasisKind::kRadial) {
+    return true;
+  }
+  if (endpoint->origin == SupportLayoutOriginKind::kBranchSupport ||
+      endpoint->origin == SupportLayoutOriginKind::kPlacementConstraint) {
+    return true;
+  }
+  return endpoint->decision.continuity_class == ContinuityCategoryClass::kBundleLike &&
+         lowering_kind != BackboneLoweringKind::kNone &&
+         (endpoint->decision.default_lower_required || !endpoint->decision.same_level_feasible ||
+          endpoint->decision.solver_used_same_level_constraint);
+}
+
+bool finite_xy(const Vec3d& v) {
+  return std::isfinite(v.x) && std::isfinite(v.y);
+}
+
+Vec3d safe_horizontal_normalized(Vec3d v, const Vec3d& fallback) {
+  v.z = 0.0;
+  if (Normalize(&v) && finite_xy(v)) {
+    return v;
+  }
+  Vec3d alt = fallback;
+  alt.z = 0.0;
+  if (Normalize(&alt) && finite_xy(alt)) {
+    return alt;
+  }
+  return {1.0, 0.0, 0.0};
+}
+
+double dot_horizontal(const Vec3d& a, const Vec3d& b) {
+  return a.x * b.x + a.y * b.y;
+}
+
+Vec3d chord_forward_for_support(const Port& port, const Span& span, const Port& other_port, const Pole& pole,
+                                const SupportLayoutEndpoint* layout_endpoint, const EditState& edit_state) {
+  const ObjectId endpoint_node_id =
+      (port.id == span.port_a_id) ? span.endpoint_node_a_id : span.endpoint_node_b_id;
+  const ObjectId peer_node_id =
+      (port.id == span.port_a_id) ? span.endpoint_node_b_id : span.endpoint_node_a_id;
+  if (endpoint_node_id != kInvalidObjectId && peer_node_id != kInvalidObjectId) {
+    if (const Pole* endpoint_pole = edit_state.poles.find(endpoint_node_id); endpoint_pole != nullptr) {
+      if (const Pole* peer_pole = edit_state.poles.find(peer_node_id); peer_pole != nullptr) {
+        Vec3d forward = peer_pole->world_transform.position - endpoint_pole->world_transform.position;
+        forward.z = 0.0;
+        if (Normalize(&forward) && finite_xy(forward)) {
+          return forward;
+        }
+      }
+    }
+  }
+  Vec3d forward = (layout_endpoint != nullptr) ? layout_endpoint->departure_dir : Vec3d{};
+  forward.z = 0.0;
+  if (Normalize(&forward) && finite_xy(forward)) {
+    return forward;
+  }
+  forward = other_port.world_position - port.world_position;
+  forward.z = 0.0;
+  if (Normalize(&forward) && finite_xy(forward)) {
+    return forward;
+  }
+  if (other_port.owner_pole_id != kInvalidObjectId) {
+    if (const Pole* other_pole = edit_state.poles.find(other_port.owner_pole_id); other_pole != nullptr) {
+      forward = other_pole->world_transform.position - pole.world_transform.position;
+      forward.z = 0.0;
+      if (Normalize(&forward) && finite_xy(forward)) {
+        return forward;
+      }
+    }
+  }
+  forward = {(port.id == span.port_a_id) ? 1.0 : -1.0, 0.0, 0.0};
+  return safe_horizontal_normalized(forward, {1.0, 0.0, 0.0});
+}
+
+Vec3d oriented_support_radial(const Port& port, const Span& span, const Port& other_port, const Pole& pole,
+                              const SupportLayoutEndpoint* layout_endpoint, const EditState& edit_state) {
+  const double dx = port.world_position.x - pole.world_transform.position.x;
+  const double dy = port.world_position.y - pole.world_transform.position.y;
+  const double planar = std::sqrt(dx * dx + dy * dy);
+  Vec3d pole_radial{
+      (planar <= 1e-9) ? 1.0 : (dx / planar),
+      (planar <= 1e-9) ? 0.0 : (dy / planar),
+      0.0,
+  };
+  if (!Normalize(&pole_radial) || !finite_xy(pole_radial)) {
+    pole_radial = {1.0, 0.0, 0.0};
+  }
+
+  if (layout_endpoint != nullptr && layout_endpoint->has_side_axis &&
+      layout_endpoint->decision.support_orientation_basis != SupportOrientationBasisKind::kRadial &&
+      finite_xy(layout_endpoint->side_axis)) {
+    Vec3d radial = safe_horizontal_normalized(layout_endpoint->side_axis, pole_radial);
+    if (std::abs(layout_endpoint->decision.chosen_side_sign) > 1e-9) {
+      radial = ScaleVec(radial, (layout_endpoint->decision.chosen_side_sign >= 0.0) ? 1.0 : -1.0);
+    } else if (dot_horizontal(radial, pole_radial) < 0.0) {
+      radial = ScaleVec(radial, -1.0);
+    }
+    return radial;
+  }
+
+  Vec3d forward = chord_forward_for_support(port, span, other_port, pole, layout_endpoint, edit_state);
+  Vec3d radial = ComputeLateralAxis(forward);
+  radial = safe_horizontal_normalized(radial, pole_radial);
+
+  if (layout_endpoint != nullptr && layout_endpoint->has_side_axis &&
+      std::abs(layout_endpoint->decision.chosen_side_sign) > 1e-9 && finite_xy(layout_endpoint->side_axis)) {
+    Vec3d desired = safe_horizontal_normalized(layout_endpoint->side_axis, radial);
+    desired = ScaleVec(desired, (layout_endpoint->decision.chosen_side_sign >= 0.0) ? 1.0 : -1.0);
+    if (dot_horizontal(radial, desired) < 0.0) {
+      radial = ScaleVec(radial, -1.0);
+    }
+  } else if (dot_horizontal(radial, pole_radial) < 0.0) {
+    radial = ScaleVec(radial, -1.0);
+  }
+  return radial;
+}
+
 bool build_attachment_frame(const Vec3d& tangent, Vec3d* forward, Vec3d* lateral, Vec3d* up) {
   if (forward == nullptr || lateral == nullptr || up == nullptr) {
     return false;
@@ -364,6 +485,34 @@ SupportLayoutOriginKind support_layout_origin_from_port(const Port& port) {
   default:
     return SupportLayoutOriginKind::kFallback;
   }
+}
+
+void apply_endpoint_decision_to_layout_endpoint(const EndpointContinuityDecision& decision,
+                                                SupportLayoutEndpoint* endpoint) {
+  if (endpoint == nullptr) {
+    return;
+  }
+  endpoint->decision = decision;
+  endpoint->relation_kind = decision.relation_kind;
+  endpoint->continuity_class = decision.continuity_class;
+  endpoint->default_lower_required = decision.default_lower_required;
+  endpoint->bundle_order_policy = decision.bundle_order_policy;
+  endpoint->bundle_order_choice = decision.bundle_order_choice;
+  endpoint->bundle_order_choice_reason = decision.bundle_order_choice_reason;
+  endpoint->side_assignment_rule = decision.side_assignment_rule;
+  endpoint->support_orientation_rule = decision.support_orientation_rule;
+  endpoint->used_junction_pair_side_assignment = decision.used_junction_pair_side_assignment;
+  endpoint->has_side_axis = decision.has_side_axis;
+  endpoint->side_axis = decision.side_axis;
+  endpoint->chosen_side_sign = decision.chosen_side_sign;
+  endpoint->same_level_feasible = decision.same_level_feasible;
+  endpoint->same_level_reason = decision.same_level_reason;
+  endpoint->projected_spacing_topview_m = decision.projected_spacing_topview_m;
+  endpoint->required_clearance_m = decision.required_clearance_m;
+  endpoint->lowering_blocked_by_policy = decision.lowering_blocked_by_policy;
+  endpoint->unresolved_same_level_conflict = decision.unresolved_same_level_conflict;
+  endpoint->solver_used_same_level_constraint = decision.solver_used_same_level_constraint;
+  endpoint->used_special_case_ports = decision.used_special_case_ports;
 }
 
 BackboneFlowKind support_layout_flow_kind_for_span(const Span& span, const Port& port_a, const Port& port_b) {
@@ -939,6 +1088,8 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
   const SpanSupportLayoutEntry* support_layout = find_span_support_layout(span_id);
 
   auto append_parts_for_port = [&](const Port& port, const SupportLayoutEndpoint* layout_endpoint) {
+    const EndpointContinuityDecision* endpoint_decision =
+        (layout_endpoint == nullptr) ? nullptr : &layout_endpoint->decision;
     ObjectId support_pole_id = port.owner_pole_id;
     if (support_pole_id == kInvalidObjectId && layout_endpoint != nullptr) {
       support_pole_id = layout_endpoint->owner_pole_id;
@@ -955,29 +1106,20 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
         (planar <= 1e-9) ? 0.0 : (dy / planar),
         0.0,
     };
-      const bool uses_branch_support = layout_endpoint != nullptr &&
-                                       layout_endpoint->origin == SupportLayoutOriginKind::kBranchSupport;
-      if (uses_branch_support) {
-        const Port& other_port = (port.id == span->port_a_id) ? *b : *a;
-        Vec3d branch_forward = other_port.world_position - pole->world_transform.position;
-        if (other_port.owner_pole_id != kInvalidObjectId) {
-          if (const Pole* other_pole = edit_state_.poles.find(other_port.owner_pole_id); other_pole != nullptr) {
-            branch_forward = other_pole->world_transform.position - pole->world_transform.position;
-          }
-        }
-        branch_forward.z = 0.0;
-        if (!Normalize(&branch_forward)) {
-          branch_forward = {1.0, 0.0, 0.0};
-        }
-      radial = ComputeLateralAxis(branch_forward);
-      if ((radial.x * dx + radial.y * dy) < 0.0) {
-        radial = ScaleVec(radial, -1.0);
-      }
+    const bool uses_branch_support = layout_endpoint != nullptr &&
+                                     layout_endpoint->origin == SupportLayoutOriginKind::kBranchSupport;
+    const BackboneLoweringKind layout_lowering_kind =
+        (support_layout == nullptr) ? BackboneLoweringKind::kNone : support_layout->lowering_kind;
+    const bool uses_lowered_support_visual =
+        endpoint_prefers_line_oriented_support(layout_endpoint, layout_lowering_kind);
+    const Port& other_port = (port.id == span->port_a_id) ? *b : *a;
+    if (uses_lowered_support_visual) {
+      radial = oriented_support_radial(port, *span, other_port, *pole, layout_endpoint, edit_state_);
     }
 
     SpanVisualCacheEntry& entry = cache_state_.visual_cache.by_span[span_id];
     if (cache_state_.visual_settings.enable_support_structures &&
-        !uses_branch_support &&
+        !uses_lowered_support_visual &&
         port.template_side != SlotSide::kCenter &&
         planar > cache_state_.visual_settings.support_center_threshold_m + 1e-9) {
       VisualPart arm{};
@@ -1005,15 +1147,36 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
       entry.parts.push_back(ins);
     }
 
-    if (uses_branch_support) {
+    if (uses_lowered_support_visual) {
       BranchSupportPlacement placement{};
       placement.owner_pole_id = pole->id;
       placement.peer_node_id =
           (port.id == span->port_a_id) ? span->endpoint_node_b_id : span->endpoint_node_a_id;
-      placement.side = layout_endpoint->side;
+      placement.decision = (endpoint_decision == nullptr) ? EndpointContinuityDecision{} : *endpoint_decision;
+      placement.side = (layout_endpoint == nullptr) ? SlotSide::kCenter : layout_endpoint->side;
+      placement.origin =
+          (layout_endpoint == nullptr) ? SupportLayoutOriginKind::kFallback : layout_endpoint->origin;
+      placement.bundle_order_policy = (endpoint_decision == nullptr) ? BundleOrderPolicyKind::kFixedOrder
+                                                                     : endpoint_decision->bundle_order_policy;
+      placement.bundle_order_choice = (endpoint_decision == nullptr) ? BundleOrderChoiceKind::kNormal
+                                                                     : endpoint_decision->bundle_order_choice;
+      placement.bundle_order_choice_reason =
+          (endpoint_decision == nullptr) ? BundleOrderChoiceReason::kFixedOrder
+                                         : endpoint_decision->bundle_order_choice_reason;
+      placement.side_assignment_rule =
+          (endpoint_decision == nullptr) ? SideAssignmentRuleKind::kPoleLocal : endpoint_decision->side_assignment_rule;
+      placement.support_orientation_rule = (endpoint_decision == nullptr)
+                                               ? SupportOrientationRuleKind::kRadial
+                                               : endpoint_decision->support_orientation_rule;
+      placement.used_junction_pair_side_assignment =
+          (endpoint_decision != nullptr) && endpoint_decision->used_junction_pair_side_assignment;
+      placement.has_side_axis = (endpoint_decision != nullptr) && endpoint_decision->has_side_axis;
+      placement.side_axis = (endpoint_decision == nullptr) ? Vec3d{} : endpoint_decision->side_axis;
+      placement.chosen_side_sign = (endpoint_decision == nullptr) ? 0.0 : endpoint_decision->chosen_side_sign;
       placement.attachment_world = port.world_position;
-      placement.down_offset_variation = layout_endpoint->down_offset_variation;
-      placement.down_offset_m = layout_endpoint->branch_down_offset_m;
+      placement.down_offset_variation =
+          (layout_endpoint == nullptr) ? HierarchicalVariationSample{} : layout_endpoint->down_offset_variation;
+      placement.down_offset_m = (layout_endpoint == nullptr) ? 0.0 : layout_endpoint->branch_down_offset_m;
       placement.tip_world = {port.world_position.x, port.world_position.y, port.world_position.z + placement.down_offset_m};
       placement.mount_world = {
           placement.tip_world.x - radial.x * cache_state_.visual_settings.support_arm_extra_m,
@@ -1199,8 +1362,11 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
       automatic_branch_down_offset_b, down_offset_variation_b, resolved_branch_down_offset_b, false);
   if (const SegmentLaneAssignment* assignment = FindLaneAssignmentForSpan(*this, span); assignment != nullptr) {
     layout.flow_kind = assignment->flow_kind;
+    layout.bundle_order_policy = assignment->bundle_order_policy;
     layout.relation_a = assignment->relation_a;
     layout.relation_b = assignment->relation_b;
+    layout.continuity_class = assignment->continuity_class;
+    layout.default_lower_required = assignment->default_lower_required;
     layout.same_level_feasible = assignment->same_level_feasible;
     layout.same_level_reason = assignment->same_level_reason;
     layout.projected_spacing_topview_m = assignment->projected_spacing_topview_m;
@@ -1210,26 +1376,8 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
     layout.solver_used_same_level_constraint = assignment->solver_used_same_level_constraint;
     layout.used_special_case_ports = assignment->used_special_case_ports;
     layout.lowering_kind = assignment->lowering_kind;
-
-    layout.start.relation_kind = assignment->relation_a;
-    layout.start.same_level_feasible = assignment->same_level_feasible;
-    layout.start.same_level_reason = assignment->same_level_reason;
-    layout.start.projected_spacing_topview_m = assignment->projected_spacing_topview_m;
-    layout.start.required_clearance_m = assignment->required_clearance_m;
-    layout.start.lowering_blocked_by_policy = assignment->lowering_blocked_by_policy;
-    layout.start.unresolved_same_level_conflict = assignment->unresolved_same_level_conflict;
-    layout.start.solver_used_same_level_constraint = assignment->solver_used_same_level_constraint;
-    layout.start.used_special_case_ports = assignment->used_special_case_ports;
-
-    layout.end.relation_kind = assignment->relation_b;
-    layout.end.same_level_feasible = assignment->same_level_feasible;
-    layout.end.same_level_reason = assignment->same_level_reason;
-    layout.end.projected_spacing_topview_m = assignment->projected_spacing_topview_m;
-    layout.end.required_clearance_m = assignment->required_clearance_m;
-    layout.end.lowering_blocked_by_policy = assignment->lowering_blocked_by_policy;
-    layout.end.unresolved_same_level_conflict = assignment->unresolved_same_level_conflict;
-    layout.end.solver_used_same_level_constraint = assignment->solver_used_same_level_constraint;
-    layout.end.used_special_case_ports = assignment->used_special_case_ports;
+    apply_endpoint_decision_to_layout_endpoint(assignment->decision_a, &layout.start);
+    apply_endpoint_decision_to_layout_endpoint(assignment->decision_b, &layout.end);
   }
   return layout;
 }

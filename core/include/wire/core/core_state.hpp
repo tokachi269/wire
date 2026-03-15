@@ -88,17 +88,6 @@ struct VisualPart {
   double radius_m = 0.02;
 };
 
-struct BranchSupportPlacement {
-  ObjectId owner_pole_id = kInvalidObjectId;
-  ObjectId peer_node_id = kInvalidObjectId;
-  SlotSide side = SlotSide::kCenter;
-  double down_offset_m = 0.0;
-  Vec3d mount_world{};
-  Vec3d tip_world{};
-  Vec3d attachment_world{};
-  HierarchicalVariationSample down_offset_variation{};
-};
-
 enum class SupportLayoutOriginKind : std::uint8_t {
   kMainSupport = 0,
   kBranchSupport = 1,
@@ -107,18 +96,52 @@ enum class SupportLayoutOriginKind : std::uint8_t {
   kFallback = 4,
 };
 
+struct BranchSupportPlacement {
+  ObjectId owner_pole_id = kInvalidObjectId;
+  ObjectId peer_node_id = kInvalidObjectId;
+  EndpointContinuityDecision decision{};
+  SlotSide side = SlotSide::kCenter;
+  SupportLayoutOriginKind origin = SupportLayoutOriginKind::kFallback;
+  BundleOrderPolicyKind bundle_order_policy = BundleOrderPolicyKind::kFixedOrder;
+  BundleOrderChoiceKind bundle_order_choice = BundleOrderChoiceKind::kNormal;
+  BundleOrderChoiceReason bundle_order_choice_reason = BundleOrderChoiceReason::kFixedOrder;
+  SideAssignmentRuleKind side_assignment_rule = SideAssignmentRuleKind::kPoleLocal;
+  SupportOrientationRuleKind support_orientation_rule = SupportOrientationRuleKind::kRadial;
+  bool used_junction_pair_side_assignment = false;
+  bool has_side_axis = false;
+  Vec3d side_axis{};
+  double chosen_side_sign = 0.0;
+  double down_offset_m = 0.0;
+  Vec3d mount_world{};
+  Vec3d tip_world{};
+  Vec3d attachment_world{};
+  HierarchicalVariationSample down_offset_variation{};
+};
+
 struct SupportLayoutEndpoint {
   ObjectId endpoint_node_id = kInvalidObjectId;
   ObjectId owner_pole_id = kInvalidObjectId;
   ObjectId port_id = kInvalidObjectId;
+  EndpointContinuityDecision decision{};
   EndpointAttachmentRequest attachment_request{};
   std::optional<int> resolved_socket_id{};
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
   JunctionRelationKind relation_kind = JunctionRelationKind::kNone;
+  ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
+  bool default_lower_required = false;
   SupportLayoutOriginKind origin = SupportLayoutOriginKind::kFallback;
   SupportLayoutEndpointSourceKind endpoint_source = SupportLayoutEndpointSourceKind::kFallback;
   PortPlacementSourceKind port_source = PortPlacementSourceKind::kUnknown;
+  BundleOrderPolicyKind bundle_order_policy = BundleOrderPolicyKind::kFixedOrder;
+  BundleOrderChoiceKind bundle_order_choice = BundleOrderChoiceKind::kNormal;
+  BundleOrderChoiceReason bundle_order_choice_reason = BundleOrderChoiceReason::kFixedOrder;
   SlotSide side = SlotSide::kCenter;
+  SideAssignmentRuleKind side_assignment_rule = SideAssignmentRuleKind::kPoleLocal;
+  SupportOrientationRuleKind support_orientation_rule = SupportOrientationRuleKind::kRadial;
+  bool used_junction_pair_side_assignment = false;
+  bool has_side_axis = false;
+  Vec3d side_axis{};
+  double chosen_side_sign = 0.0;
   CurveEndpointMode endpoint_mode = CurveEndpointMode::kDirectThrough;
   Vec3d support_world{};
   Vec3d endpoint_world{};
@@ -143,8 +166,11 @@ struct SpanSupportLayoutEntry {
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
   CurvePassMode pass_mode = CurvePassMode::kPassThrough;
   std::uint64_t variation_flow_key = 0;
+  BundleOrderPolicyKind bundle_order_policy = BundleOrderPolicyKind::kFixedOrder;
   JunctionRelationKind relation_a = JunctionRelationKind::kNone;
   JunctionRelationKind relation_b = JunctionRelationKind::kNone;
+  ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
+  bool default_lower_required = false;
   bool same_level_feasible = true;
   SameLevelFeasibilityReason same_level_reason = SameLevelFeasibilityReason::kNone;
   double projected_spacing_topview_m = -1.0;
@@ -580,6 +606,7 @@ private:
                                                const std::unordered_map<ObjectId, SupportNode>& support_node_by_id,
                                                ObjectId bundle_id, ConnectionCategory category, int conductor_count,
                                                double spacing_m, bool maintain_lane_order, bool allow_lane_mirror,
+                                               BundleOrderPolicyKind bundle_order_policy,
                                                BackboneFlowKind flow_kind, const BackboneLoweringPolicy& lowering_policy,
                                                const std::unordered_map<ObjectId, JunctionRelation>* junction_relations_by_node,
                                                std::vector<SegmentLaneAssignment>* out_lane_assignments,
@@ -628,11 +655,15 @@ private:
     SlotSide preferred_template_side = SlotSide::kCenter;
     SlotRole preferred_template_role = SlotRole::kNeutral;
     std::uint32_t branch_index = 0;
+    ContinuityCategoryClass continuity_class_hint = ContinuityCategoryClass::kPointLike;
+    bool default_lower_required_hint = false;
     bool same_level_feasible_hint = true;
     SameLevelFeasibilityReason same_level_reason_hint = SameLevelFeasibilityReason::kNone;
     double projected_spacing_topview_hint_m = -1.0;
     double required_clearance_hint_m = 0.0;
     JunctionRelationKind relation_kind_hint = JunctionRelationKind::kNone;
+    bool has_endpoint_decision_hint = false;
+    EndpointContinuityDecision endpoint_decision_hint{};
     std::vector<ObjectId> excluded_port_ids{};
   };
 

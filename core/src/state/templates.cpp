@@ -327,7 +327,7 @@ void CoreState::register_default_bundle_templates() {
   hv.category = ConnectionCategory::kHighVoltage;
   hv.cable_template_id = kHighVoltageCableTemplate;
   hv.default_layer = SpanLayer::kHighVoltage;
-  hv.preserve_conductor_identity = true;
+  hv.preserve_conductor_identity = false;
   hv.count_rule = BundleCountRuleKind::kFixed;
   hv.fixed_count = 3;
   hv.min_count = 3;
@@ -440,6 +440,22 @@ bool CoreState::is_port_band_used(ObjectId pole_id, const PortPlacementBand& ban
 EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolutionRequest& request) {
   EditResult<ObjectId> result;
   const Pole* pole = edit_state_.poles.find(request.pole_id);
+  const EndpointContinuityDecision* decision_hint =
+      request.has_endpoint_decision_hint ? &request.endpoint_decision_hint : nullptr;
+  const ContinuityCategoryClass continuity_class_hint =
+      (decision_hint == nullptr) ? request.continuity_class_hint : decision_hint->continuity_class;
+  const bool default_lower_required_hint =
+      (decision_hint == nullptr) ? request.default_lower_required_hint : decision_hint->default_lower_required;
+  const bool same_level_feasible_hint =
+      (decision_hint == nullptr) ? request.same_level_feasible_hint : decision_hint->same_level_feasible;
+  const SameLevelFeasibilityReason same_level_reason_hint =
+      (decision_hint == nullptr) ? request.same_level_reason_hint : decision_hint->same_level_reason;
+  const double projected_spacing_topview_hint_m =
+      (decision_hint == nullptr) ? request.projected_spacing_topview_hint_m : decision_hint->projected_spacing_topview_m;
+  const double required_clearance_hint_m =
+      (decision_hint == nullptr) ? request.required_clearance_hint_m : decision_hint->required_clearance_m;
+  const JunctionRelationKind relation_kind_hint =
+      (decision_hint == nullptr) ? request.relation_kind_hint : decision_hint->relation_kind;
 
   PortResolutionDebugRecord debug{};
   debug.pole_id = request.pole_id;
@@ -451,11 +467,13 @@ EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolution
   debug.corner_angle_deg = request.corner_angle_deg;
   debug.corner_turn_sign = request.corner_turn_sign;
   debug.side_scale = compute_side_scale(request.pole_context, request.corner_angle_deg);
-  debug.same_level_feasible_hint = request.same_level_feasible_hint;
-  debug.same_level_reason_hint = request.same_level_reason_hint;
-  debug.projected_spacing_topview_hint_m = request.projected_spacing_topview_hint_m;
-  debug.required_clearance_hint_m = request.required_clearance_hint_m;
-  debug.relation_kind_hint = request.relation_kind_hint;
+  debug.continuity_class_hint = continuity_class_hint;
+  debug.default_lower_required_hint = default_lower_required_hint;
+  debug.same_level_feasible_hint = same_level_feasible_hint;
+  debug.same_level_reason_hint = same_level_reason_hint;
+  debug.projected_spacing_topview_hint_m = projected_spacing_topview_hint_m;
+  debug.required_clearance_hint_m = required_clearance_hint_m;
+  debug.relation_kind_hint = relation_kind_hint;
 
   auto push_debug = [&]() {
     port_resolution_debug_records_.push_back(debug);
@@ -662,11 +680,13 @@ EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolution
       candidate.band_lateral_max_m = band.lateral_max_m;
       candidate.band_height_min_m = band.height_min_m;
       candidate.band_height_max_m = band.height_max_m;
-      candidate.same_level_feasible_hint = request.same_level_feasible_hint;
-      candidate.same_level_reason_hint = request.same_level_reason_hint;
-      candidate.projected_spacing_topview_hint_m = request.projected_spacing_topview_hint_m;
-      candidate.required_clearance_hint_m = request.required_clearance_hint_m;
-      candidate.relation_kind_hint = request.relation_kind_hint;
+      candidate.continuity_class_hint = continuity_class_hint;
+      candidate.default_lower_required_hint = default_lower_required_hint;
+      candidate.same_level_feasible_hint = same_level_feasible_hint;
+      candidate.same_level_reason_hint = same_level_reason_hint;
+      candidate.projected_spacing_topview_hint_m = projected_spacing_topview_hint_m;
+      candidate.required_clearance_hint_m = required_clearance_hint_m;
+      candidate.relation_kind_hint = relation_kind_hint;
       candidate.category_score = (band.category == request.category) ? 500 : -100000;
       if (candidate.category_score < 0) {
         candidate.eligible = false;
@@ -721,13 +741,20 @@ EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolution
               ? std::clamp(band.height_center_m + 0.05, band.height_min_m, band.height_max_m)
               : std::clamp(band.height_center_m, band.height_min_m, band.height_max_m);
 
-      if (!request.same_level_feasible_hint) {
+      if (!same_level_feasible_hint) {
         if (band.side != SlotSide::kCenter) {
           candidate.side_score += 60;
         } else {
           candidate.side_score -= 35;
         }
-        switch (request.relation_kind_hint) {
+        if (default_lower_required_hint) {
+          if (band.side != SlotSide::kCenter) {
+            candidate.side_score += 55;
+          } else {
+            candidate.side_score -= 70;
+          }
+        }
+        switch (relation_kind_hint) {
         case JunctionRelationKind::kSideBranch:
         case JunctionRelationKind::kCrossUnderpass:
           if (band.role == SlotRole::kBranchPreferred) {
@@ -764,7 +791,7 @@ EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolution
       const bool defer_reuse_until_unused_siblings_consumed =
           band.allow_multiple && candidate.usage_count > 0 && has_unused_sibling_band;
       const bool allow_constrained_extra_port =
-          !request.same_level_feasible_hint && band_port != nullptr && candidate.usage_count > 0;
+          !same_level_feasible_hint && band_port != nullptr && candidate.usage_count > 0;
       const bool can_create_new_port = request.allow_generate_port && !defer_reuse_until_unused_siblings_consumed &&
                                        (band_port == nullptr || (band.allow_multiple && candidate.usage_count > 0) ||
                                         allow_constrained_extra_port);
@@ -784,7 +811,7 @@ EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolution
         solve = solve_in_band(band, can_reuse_existing_port ? band_port->id : kInvalidObjectId, preferred_lateral,
                               preferred_height);
         if (!solve.min_spacing_satisfied &&
-            (band.overflow_policy == BandOverflowPolicy::kConstrainedFallback || !request.same_level_feasible_hint)) {
+            (band.overflow_policy == BandOverflowPolicy::kConstrainedFallback || !same_level_feasible_hint)) {
           solve = solve_constrained_fallback(band, preferred_lateral);
         }
       } else {
@@ -835,7 +862,7 @@ EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolution
     }
 
     if (best_band != nullptr) {
-      const bool use_constrained_source = !request.same_level_feasible_hint;
+      const bool use_constrained_source = !same_level_feasible_hint;
       const PortPlacementSourceKind selected_source =
           use_constrained_source ? PortPlacementSourceKind::kPlacementBandConstrained
                                  : PortPlacementSourceKind::kPlacementBand;

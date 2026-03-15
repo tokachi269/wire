@@ -226,12 +226,107 @@ enum class JunctionRelationKind : std::uint8_t {
   kCrossUnderpass = 4,
 };
 
+enum class ContinuityCategoryClass : std::uint8_t {
+  kPointLike = 0,
+  kBundleLike = 1,
+};
+
 enum class SameLevelFeasibilityReason : std::uint8_t {
   kNone = 0,
-  kEnvelopeOverlap = 1,
-  kNearNodeClearance = 2,
-  kCategoryPolicyDisabled = 3,
+  kBundleRule = 1,
+  kEnvelopeOverlap = 2,
+  kNearNodeClearance = 3,
+  kCategoryPolicyDisabled = 4,
 };
+
+enum class SideAssignmentRuleKind : std::uint8_t {
+  kPoleLocal = 0,
+  kChord = 1,
+  kThroughPairNormal = 2,
+};
+
+enum class SupportOrientationRuleKind : std::uint8_t {
+  kRadial = 0,
+  kChord = 1,
+  kThroughPairNormal = 2,
+};
+
+enum class BundleOrderPolicyKind : std::uint8_t {
+  kFixedOrder = 0,
+  kPermutableHomogeneous = 1,
+};
+
+enum class BundleOrderChoiceKind : std::uint8_t {
+  kNormal = 0,
+  kReversed = 1,
+};
+
+enum class BundleOrderChoiceReason : std::uint8_t {
+  kFixedOrder = 0,
+  kCrossingFewer = 1,
+  kSpacingBetter = 2,
+  kTwistSmaller = 3,
+  kKeptDefault = 4,
+};
+
+enum class LateralSideChoiceKind : std::uint8_t {
+  kCenter = 0,
+  kLeft = 1,
+  kRight = 2,
+};
+
+enum class SupportOrientationBasisKind : std::uint8_t {
+  kRadial = 0,
+  kChordForward = 1,
+  kChordReverse = 2,
+};
+
+struct EndpointContinuityDecision {
+  JunctionRelationKind relation_kind = JunctionRelationKind::kNone;
+  ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
+  bool in_through_pair = false;
+  bool lower_required = false;
+  bool default_lower_required = false;
+  bool same_level_feasible = true;
+  SameLevelFeasibilityReason same_level_reason = SameLevelFeasibilityReason::kNone;
+  double projected_spacing_topview_m = -1.0;
+  double required_clearance_m = 0.0;
+  bool lowering_blocked_by_policy = false;
+  bool unresolved_same_level_conflict = false;
+  bool solver_used_same_level_constraint = false;
+  bool used_special_case_ports = false;
+  BundleOrderPolicyKind bundle_order_policy = BundleOrderPolicyKind::kFixedOrder;
+  BundleOrderChoiceKind bundle_order_choice = BundleOrderChoiceKind::kNormal;
+  BundleOrderChoiceReason bundle_order_choice_reason = BundleOrderChoiceReason::kFixedOrder;
+  LateralSideChoiceKind chosen_side = LateralSideChoiceKind::kCenter;
+  SideAssignmentRuleKind side_assignment_rule = SideAssignmentRuleKind::kPoleLocal;
+  SupportOrientationRuleKind support_orientation_rule = SupportOrientationRuleKind::kRadial;
+  SupportOrientationBasisKind support_orientation_basis = SupportOrientationBasisKind::kRadial;
+  bool used_junction_pair_side_assignment = false;
+  bool has_side_axis = false;
+  Vec3d side_axis{};
+  double chosen_side_sign = 0.0;
+  bool downstream_overridden = false;
+};
+
+[[nodiscard]] inline LateralSideChoiceKind LateralSideChoiceFromSign(double sign) {
+  if (sign > 1e-9) {
+    return LateralSideChoiceKind::kRight;
+  }
+  if (sign < -1e-9) {
+    return LateralSideChoiceKind::kLeft;
+  }
+  return LateralSideChoiceKind::kCenter;
+}
+
+[[nodiscard]] inline SupportOrientationBasisKind SupportOrientationBasisFromDecision(
+    SupportOrientationRuleKind rule, double chosen_side_sign) {
+  if (rule == SupportOrientationRuleKind::kRadial) {
+    return SupportOrientationBasisKind::kRadial;
+  }
+  return (chosen_side_sign < 0.0) ? SupportOrientationBasisKind::kChordReverse
+                                  : SupportOrientationBasisKind::kChordForward;
+}
 
 struct ThroughPair {
   ObjectId neighbor_a_id = kInvalidObjectId;
@@ -248,6 +343,8 @@ struct JunctionIncidentRelation {
   bool in_route = false;
   bool in_through_pair = false;
   bool used_semantic_tiebreak = false;
+  ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
+  bool default_lower_required = false;
   bool same_level_feasible = true;
   double projected_spacing_topview_m = -1.0;
   double required_clearance_m = 0.0;
@@ -295,6 +392,8 @@ struct BackboneEdgeOrientation {
   BackboneFlowDecisionRule flow_decision_rule = BackboneFlowDecisionRule::kDefaultMain;
   JunctionRelationKind relation_a = JunctionRelationKind::kNone;
   JunctionRelationKind relation_b = JunctionRelationKind::kNone;
+  ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
+  bool default_lower_required = false;
   bool same_level_feasible = true;
   SameLevelFeasibilityReason same_level_reason = SameLevelFeasibilityReason::kNone;
   double projected_spacing_topview_m = -1.0;
@@ -303,6 +402,11 @@ struct BackboneEdgeOrientation {
   bool unresolved_same_level_conflict = false;
   bool solver_used_same_level_constraint = false;
   bool used_special_case_ports = false;
+  BundleOrderPolicyKind bundle_order_policy = BundleOrderPolicyKind::kFixedOrder;
+  BundleOrderChoiceKind bundle_order_choice_a = BundleOrderChoiceKind::kNormal;
+  BundleOrderChoiceKind bundle_order_choice_b = BundleOrderChoiceKind::kNormal;
+  BundleOrderChoiceReason bundle_order_choice_reason_a = BundleOrderChoiceReason::kFixedOrder;
+  BundleOrderChoiceReason bundle_order_choice_reason_b = BundleOrderChoiceReason::kFixedOrder;
   LaneOrientation orientation = LaneOrientation::kNormal;
   bool uses_branch_support = false;
   BackboneLoweringKind lowering_kind = BackboneLoweringKind::kNone;

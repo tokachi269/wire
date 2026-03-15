@@ -91,6 +91,8 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     SpanLayer layer = SpanLayer::kUnknown;
     int count = 1;
     double spacing_m = 0.2;
+    ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
+    BundleOrderPolicyKind bundle_order_policy = BundleOrderPolicyKind::kFixedOrder;
     bool allow_mirror = true;
     bool preserve_conductor_identity = false;
     bool allow_midair_node = true;
@@ -117,6 +119,8 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     plan.category = bundle_template->category;
     plan.layer = (bundle_request.layer == SpanLayer::kUnknown) ? bundle_template->default_layer : bundle_request.layer;
     plan.spacing_m = bundle_template->default_spacing_m;
+    plan.continuity_class =
+        (plan.count > 1) ? ContinuityCategoryClass::kBundleLike : ContinuityCategoryClass::kPointLike;
     plan.allow_mirror = bundle_template->allow_mirror;
     plan.preserve_conductor_identity = bundle_template->preserve_conductor_identity;
     plan.allow_midair_node = bundle_template->allow_midair_node;
@@ -139,6 +143,12 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       result.error = "resolved bundle count must be > 0";
       return result;
     }
+    plan.continuity_class =
+        (plan.count > 1) ? ContinuityCategoryClass::kBundleLike : ContinuityCategoryClass::kPointLike;
+    plan.bundle_order_policy =
+        (!plan.preserve_conductor_identity && plan.category == ConnectionCategory::kHighVoltage && plan.count == 3)
+            ? BundleOrderPolicyKind::kPermutableHomogeneous
+            : BundleOrderPolicyKind::kFixedOrder;
     if (plan.layer == SpanLayer::kUnknown) {
       result.error = "bundle layer could not be resolved";
       return result;
@@ -1573,6 +1583,7 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     if (relations_by_node == nullptr) {
       return;
     }
+    const bool bundle_like = plan.continuity_class == ContinuityCategoryClass::kBundleLike;
     const double envelope_width_m = std::max(0, plan.count - 1) * std::max(0.0, plan.spacing_m);
     const double required_clearance_m = envelope_width_m + category_same_level_margin_m(plan.category);
     const double probe_distance_m = std::clamp(0.18 + envelope_width_m * 0.35 + required_clearance_m * 0.15, 0.18, 0.42);
@@ -1592,6 +1603,8 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
 
     for (auto& [node_id, relation] : *relations_by_node) {
       for (JunctionIncidentRelation& incident : relation.incidents) {
+        incident.continuity_class = plan.continuity_class;
+        incident.default_lower_required = false;
         incident.same_level_feasible = true;
         incident.projected_spacing_topview_m = -1.0;
         incident.required_clearance_m = required_clearance_m;
@@ -1639,13 +1652,13 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
         }
         mutable_incident->projected_spacing_topview_m = min_projected_spacing_m;
         mutable_incident->required_clearance_m = required_clearance_m;
-        const bool forced_infeasible =
-            incident.kind == JunctionRelationKind::kCrossUnderpass ||
-            ((incident.kind == JunctionRelationKind::kSideBranch ||
-              incident.kind == JunctionRelationKind::kCornerContinuation) &&
-             plan.count > 1);
-        if (forced_infeasible ||
-            !(std::isfinite(min_projected_spacing_m) && min_projected_spacing_m + 1e-9 >= required_clearance_m)) {
+        if (bundle_like) {
+          mutable_incident->default_lower_required = true;
+          mutable_incident->same_level_feasible = false;
+          mutable_incident->infeasible_reason = SameLevelFeasibilityReason::kBundleRule;
+          continue;
+        }
+        if (!(std::isfinite(min_projected_spacing_m) && min_projected_spacing_m + 1e-9 >= required_clearance_m)) {
           mutable_incident->same_level_feasible = false;
           mutable_incident->infeasible_reason =
               (std::isfinite(min_projected_spacing_m) && min_projected_spacing_m + 1e-9 < envelope_width_m)
@@ -1903,7 +1916,8 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       lowering_policy.offset_m = branch_down_offset_m;
       EditResult<std::vector<ObjectId>> spans_result = generate_grouped_spans_between_support_nodes(
           local_support_nodes, support_node_by_id, bundle_id, plan.category, plan.count, plan.spacing_m, true,
-          plan.allow_mirror, flow_info.kind, lowering_policy, &plan_junction_relations_by_node, &lane_assignments,
+          plan.allow_mirror, plan.bundle_order_policy, flow_info.kind, lowering_policy, &plan_junction_relations_by_node,
+          &lane_assignments,
           &edge_orientations, plan.template_id);
       if (!spans_result.ok) {
         *this = snapshot;
@@ -1952,6 +1966,8 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
         if (target == nullptr) {
           continue;
         }
+        target->continuity_class = incident.continuity_class;
+        target->default_lower_required = target->default_lower_required || incident.default_lower_required;
         if (!incident.same_level_feasible &&
             (target->same_level_feasible ||
              (incident.projected_spacing_topview_m >= 0.0 &&

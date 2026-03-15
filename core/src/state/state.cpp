@@ -697,6 +697,7 @@ EditResult<ObjectId> CoreState::SetPoleManualYawOverride(ObjectId pole_id, doubl
   override_state_.pole_orientation_by_pole[pole_id] = next;
   pole->world_transform.rotation_euler_deg.z = *next.manual_yaw_deg;
   finalize_pole_transform_update(pole_id, old_pole, &result.change_set);
+  last_recalc_stats_ = ProcessDirtyQueues();
 
   result.ok = true;
   result.value = pole_id;
@@ -727,6 +728,7 @@ EditResult<ObjectId> CoreState::ClearPoleOrientationOverride(ObjectId pole_id) {
     }
   }
   finalize_pole_transform_update(pole_id, old_pole, &result.change_set);
+  last_recalc_stats_ = ProcessDirtyQueues();
 
   result.ok = true;
   result.value = pole_id;

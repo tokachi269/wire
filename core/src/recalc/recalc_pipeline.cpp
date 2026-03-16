@@ -1,6 +1,7 @@
 #include "wire/core/core_state.hpp"
 #include "wire/core/coord_utils.hpp"
 #include "../generation/support_policy.hpp"
+#include "../support_orientation_utils.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -33,142 +34,13 @@ struct ResolvedSpanCurveInputs {
   double min_bend_radius_hint_m = 0.0;
 };
 
-bool endpoint_prefers_line_oriented_support(const SupportLayoutEndpoint* endpoint, BackboneLoweringKind lowering_kind) {
-  if (endpoint == nullptr) {
-    return false;
-  }
-  if (endpoint->decision.support_orientation_basis != SupportOrientationBasisKind::kRadial) {
-    return true;
-  }
-  if (endpoint->origin == SupportLayoutOriginKind::kBranchSupport ||
-      endpoint->origin == SupportLayoutOriginKind::kPlacementConstraint) {
-    return true;
-  }
-  return endpoint->decision.continuity_class == ContinuityCategoryClass::kBundleLike &&
-         lowering_kind != BackboneLoweringKind::kNone &&
-         (endpoint->decision.default_lower_required || !endpoint->decision.same_level_feasible ||
-          endpoint->decision.solver_used_same_level_constraint);
-}
-
 bool endpoint_uses_grouped_lowered_support(const SupportLayoutEndpoint* endpoint, BackboneLoweringKind lowering_kind) {
-  return endpoint_prefers_line_oriented_support(endpoint, lowering_kind);
-}
-
-bool finite_xy(const Vec3d& v) {
-  return std::isfinite(v.x) && std::isfinite(v.y);
-}
-
-Vec3d safe_horizontal_normalized(Vec3d v, const Vec3d& fallback) {
-  v.z = 0.0;
-  if (Normalize(&v) && finite_xy(v)) {
-    return v;
-  }
-  Vec3d alt = fallback;
-  alt.z = 0.0;
-  if (Normalize(&alt) && finite_xy(alt)) {
-    return alt;
-  }
-  return {1.0, 0.0, 0.0};
-}
-
-double dot_horizontal(const Vec3d& a, const Vec3d& b) {
-  return a.x * b.x + a.y * b.y;
-}
-
-Vec3d chord_forward_for_support(const Port& port, const Span& span, const Port& other_port, const Pole& pole,
-                                const SupportLayoutEndpoint* layout_endpoint, const EditState& edit_state) {
-  const ObjectId endpoint_node_id =
-      (port.id == span.port_a_id) ? span.endpoint_node_a_id : span.endpoint_node_b_id;
-  const ObjectId peer_node_id =
-      (port.id == span.port_a_id) ? span.endpoint_node_b_id : span.endpoint_node_a_id;
-  if (endpoint_node_id != kInvalidObjectId && peer_node_id != kInvalidObjectId) {
-    if (const Pole* endpoint_pole = edit_state.poles.find(endpoint_node_id); endpoint_pole != nullptr) {
-      if (const Pole* peer_pole = edit_state.poles.find(peer_node_id); peer_pole != nullptr) {
-        Vec3d forward = peer_pole->world_transform.position - endpoint_pole->world_transform.position;
-        forward.z = 0.0;
-        if (Normalize(&forward) && finite_xy(forward)) {
-          return forward;
-        }
-      }
-    }
-  }
-  Vec3d forward = (layout_endpoint != nullptr) ? layout_endpoint->departure_dir : Vec3d{};
-  forward.z = 0.0;
-  if (Normalize(&forward) && finite_xy(forward)) {
-    return forward;
-  }
-  forward = other_port.world_position - port.world_position;
-  forward.z = 0.0;
-  if (Normalize(&forward) && finite_xy(forward)) {
-    return forward;
-  }
-  if (other_port.owner_pole_id != kInvalidObjectId) {
-    if (const Pole* other_pole = edit_state.poles.find(other_port.owner_pole_id); other_pole != nullptr) {
-      forward = other_pole->world_transform.position - pole.world_transform.position;
-      forward.z = 0.0;
-      if (Normalize(&forward) && finite_xy(forward)) {
-        return forward;
-      }
-    }
-  }
-  forward = {(port.id == span.port_a_id) ? 1.0 : -1.0, 0.0, 0.0};
-  return safe_horizontal_normalized(forward, {1.0, 0.0, 0.0});
-}
-
-Vec3d oriented_support_radial(const Port& port, const Span& span, const Port& other_port, const Pole& pole,
-                              const SupportLayoutEndpoint* layout_endpoint, const EditState& edit_state) {
-  const double dx = port.world_position.x - pole.world_transform.position.x;
-  const double dy = port.world_position.y - pole.world_transform.position.y;
-  const double planar = std::sqrt(dx * dx + dy * dy);
-  Vec3d pole_radial{
-      (planar <= 1e-9) ? 1.0 : (dx / planar),
-      (planar <= 1e-9) ? 0.0 : (dy / planar),
-      0.0,
-  };
-  if (!Normalize(&pole_radial) || !finite_xy(pole_radial)) {
-    pole_radial = {1.0, 0.0, 0.0};
-  }
-
-  if (layout_endpoint != nullptr && layout_endpoint->has_side_axis &&
-      layout_endpoint->decision.support_orientation_basis != SupportOrientationBasisKind::kRadial &&
-      finite_xy(layout_endpoint->side_axis)) {
-    Vec3d radial = safe_horizontal_normalized(layout_endpoint->side_axis, pole_radial);
-    if (std::abs(layout_endpoint->decision.chosen_side_sign) > 1e-9) {
-      radial = ScaleVec(radial, (layout_endpoint->decision.chosen_side_sign >= 0.0) ? 1.0 : -1.0);
-    } else if (dot_horizontal(radial, pole_radial) < 0.0) {
-      radial = ScaleVec(radial, -1.0);
-    }
-    return radial;
-  }
-
-  Vec3d forward = chord_forward_for_support(port, span, other_port, pole, layout_endpoint, edit_state);
-  Vec3d radial = ComputeLateralAxis(forward);
-  radial = safe_horizontal_normalized(radial, pole_radial);
-
-  if (layout_endpoint != nullptr && layout_endpoint->has_side_axis &&
-      std::abs(layout_endpoint->decision.chosen_side_sign) > 1e-9 && finite_xy(layout_endpoint->side_axis)) {
-    Vec3d desired = safe_horizontal_normalized(layout_endpoint->side_axis, radial);
-    desired = ScaleVec(desired, (layout_endpoint->decision.chosen_side_sign >= 0.0) ? 1.0 : -1.0);
-    if (dot_horizontal(radial, desired) < 0.0) {
-      radial = ScaleVec(radial, -1.0);
-    }
-  } else if (dot_horizontal(radial, pole_radial) < 0.0) {
-    radial = ScaleVec(radial, -1.0);
-  }
-  return radial;
-}
-
-Vec3d canonical_shared_support_axis(Vec3d axis, const Vec3d& fallback) {
-  axis = safe_horizontal_normalized(axis, fallback);
-  if (axis.x < -1e-9 || (std::abs(axis.x) <= 1e-9 && axis.y < -1e-9)) {
-    axis = ScaleVec(axis, -1.0);
-  }
-  return axis;
+  return endpoint != nullptr && UsesGroupedLoweredSupport(*endpoint, lowering_kind);
 }
 
 std::pair<Vec3d, Vec3d> shared_support_anchor_points(const Pole& pole, const Vec3d& support_axis, double z_m,
                                                      const CacheState& cache_state) {
-  Vec3d axis = safe_horizontal_normalized(support_axis, {1.0, 0.0, 0.0});
+  Vec3d axis = SafeHorizontalNormalized(support_axis, {1.0, 0.0, 0.0});
   const double mount_radius =
       cache_state.visual_settings.support_center_threshold_m + cache_state.geometry_settings.pole_clearance_m;
   const double tip_radius = mount_radius + cache_state.visual_settings.support_arm_extra_m;
@@ -183,6 +55,71 @@ std::pair<Vec3d, Vec3d> shared_support_anchor_points(const Pole& pole, const Vec
       z_m,
   };
   return {mount, tip};
+}
+
+void append_lowered_support_group_placement(std::vector<LoweredSupportGroupPlacement>* groups, const EditState& edit_state,
+                                            const CacheState& cache_state, const SpanSupportLayoutEntry& layout,
+                                            const SupportLayoutEndpoint& endpoint) {
+  if (groups == nullptr || !endpoint_uses_grouped_lowered_support(&endpoint, layout.lowering_kind)) {
+    return;
+  }
+  const Pole* pole = edit_state.poles.find(endpoint.owner_pole_id);
+  if (pole == nullptr) {
+    return;
+  }
+  const Port* port = edit_state.ports.find(endpoint.port_id);
+  const Vec3d attachment_world = (port == nullptr) ? endpoint.endpoint_world : port->world_position;
+  const int support_group_id = ComputeSupportGroupId(endpoint.owner_pole_id, endpoint.decision);
+  auto existing = std::find_if(groups->begin(), groups->end(), [&](const LoweredSupportGroupPlacement& group) {
+    return group.owner_pole_id == endpoint.owner_pole_id && group.support_group_id == support_group_id;
+  });
+  Vec3d pole_to_tip = endpoint.support_world - pole->world_transform.position;
+  const Vec3d support_axis =
+      CanonicalSharedSupportAxis(endpoint.has_side_axis ? endpoint.side_axis : pole_to_tip, pole_to_tip);
+  const auto [mount_world, tip_world] =
+      shared_support_anchor_points(*pole, support_axis, endpoint.support_world.z, cache_state);
+  if (existing == groups->end()) {
+    LoweredSupportGroupPlacement group{};
+    group.owner_pole_id = endpoint.owner_pole_id;
+    group.decision = endpoint.decision;
+    group.side = endpoint.side;
+    group.origin = endpoint.origin;
+    group.grouping_rule = SupportGroupingRuleKind::kDecisionGroup;
+    group.support_group_id = support_group_id;
+    group.grouped_port_count = 1;
+    group.bundle_order_policy = endpoint.bundle_order_policy;
+    group.bundle_order_choice = endpoint.bundle_order_choice;
+    group.bundle_order_choice_reason = endpoint.bundle_order_choice_reason;
+    group.side_assignment_rule = endpoint.side_assignment_rule;
+    group.support_orientation_rule = endpoint.support_orientation_rule;
+    group.used_junction_pair_side_assignment = endpoint.used_junction_pair_side_assignment;
+    group.has_side_axis = endpoint.has_side_axis;
+    group.side_axis = endpoint.side_axis;
+    group.chosen_side_sign = endpoint.chosen_side_sign;
+    group.down_offset_m = endpoint.branch_down_offset_m;
+    group.mount_world = mount_world;
+    group.tip_world = tip_world;
+    group.attachment_worlds.push_back(attachment_world);
+    group.down_offset_variation = endpoint.down_offset_variation;
+    groups->push_back(std::move(group));
+    return;
+  }
+  existing->grouped_port_count += 1;
+  existing->attachment_worlds.push_back(attachment_world);
+}
+
+std::vector<LoweredSupportGroupPlacement>
+build_lowered_support_group_placements(const EditState& edit_state, const CacheState& cache_state,
+                                       const std::vector<const SpanSupportLayoutEntry*>& layouts) {
+  std::vector<LoweredSupportGroupPlacement> groups{};
+  for (const SpanSupportLayoutEntry* layout : layouts) {
+    if (layout == nullptr) {
+      continue;
+    }
+    append_lowered_support_group_placement(&groups, edit_state, cache_state, *layout, layout->start);
+    append_lowered_support_group_placement(&groups, edit_state, cache_state, *layout, layout->end);
+  }
+  return groups;
 }
 
 bool build_attachment_frame(const Vec3d& tangent, Vec3d* forward, Vec3d* lateral, Vec3d* up) {
@@ -705,8 +642,8 @@ SupportLayoutEndpoint build_support_layout_endpoint(const CoreState& state, cons
           (port.id == span.port_a_id) ? state.view().ports().find(span.port_b_id) : state.view().ports().find(span.port_a_id);
       if (other_port != nullptr) {
         Vec3d support_axis =
-            oriented_support_radial(port, span, *other_port, *owner_pole, &endpoint, state.view().edit_state());
-        support_axis = canonical_shared_support_axis(support_axis, endpoint.has_side_axis ? endpoint.side_axis : support_axis);
+          ResolveSupportAxisForEndpoint(port, span, *other_port, *owner_pole, &endpoint, state.view().edit_state());
+        support_axis = CanonicalSharedSupportAxis(support_axis, endpoint.has_side_axis ? endpoint.side_axis : support_axis);
         const auto [mount_world, tip_world] = shared_support_anchor_points(
             *owner_pole, support_axis, port.world_position.z + endpoint.branch_down_offset_m, state.view().cache_state());
         (void)mount_world;
@@ -1106,9 +1043,71 @@ bool CoreState::rebuild_span_curve(ObjectId span_id, std::string* error_message)
   const SpanRuntimeState* runtime = find_span_runtime_state(span_id);
   entry.source_version = (runtime == nullptr) ? 0 : runtime->data_version;
   support_layout.source_version = entry.source_version;
-  cache_state_.support_layout_cache.by_span[span_id] = support_layout;
+  cache_span_support_layout(std::move(support_layout));
   cache_state_.curve_cache.by_span[span_id] = std::move(entry);
   return true;
+}
+
+void CoreState::cache_span_support_layout(SpanSupportLayoutEntry layout) {
+  const ObjectId span_id = layout.span_id;
+  cache_state_.support_layout_cache.by_span[span_id] = std::move(layout);
+  rebuild_lowered_support_groups_for_span(span_id);
+}
+
+void CoreState::erase_cached_span_support_layout(ObjectId span_id) {
+  ObjectId bundle_id = kInvalidObjectId;
+  if (const Span* span = edit_state_.spans.find(span_id); span != nullptr) {
+    bundle_id = span->bundle_id;
+  }
+  cache_state_.support_layout_cache.by_span.erase(span_id);
+  if (bundle_id != kInvalidObjectId) {
+    rebuild_lowered_support_groups_for_bundle(bundle_id);
+  }
+}
+
+void CoreState::rebuild_lowered_support_groups_for_span(ObjectId span_id) {
+  const Span* span = edit_state_.spans.find(span_id);
+  if (span == nullptr) {
+    return;
+  }
+  if (span->bundle_id != kInvalidObjectId) {
+    rebuild_lowered_support_groups_for_bundle(span->bundle_id);
+    return;
+  }
+  auto it = cache_state_.support_layout_cache.by_span.find(span_id);
+  if (it == cache_state_.support_layout_cache.by_span.end()) {
+    return;
+  }
+  std::vector<const SpanSupportLayoutEntry*> layouts{&it->second};
+  it->second.lowered_support_groups = build_lowered_support_group_placements(edit_state_, cache_state_, layouts);
+}
+
+void CoreState::rebuild_lowered_support_groups_for_bundle(ObjectId bundle_id) {
+  const std::vector<ObjectId> span_ids = GetSpansByBundle(bundle_id);
+  if (span_ids.empty()) {
+    return;
+  }
+  std::vector<SpanSupportLayoutEntry*> layouts{};
+  layouts.reserve(span_ids.size());
+  for (ObjectId span_id : span_ids) {
+    auto it = cache_state_.support_layout_cache.by_span.find(span_id);
+    if (it != cache_state_.support_layout_cache.by_span.end()) {
+      layouts.push_back(&it->second);
+    }
+  }
+  if (layouts.empty()) {
+    return;
+  }
+  std::vector<const SpanSupportLayoutEntry*> readonly_layouts{};
+  readonly_layouts.reserve(layouts.size());
+  for (SpanSupportLayoutEntry* layout : layouts) {
+    readonly_layouts.push_back(layout);
+  }
+  const std::vector<LoweredSupportGroupPlacement> groups =
+      build_lowered_support_group_placements(edit_state_, cache_state_, readonly_layouts);
+  for (SpanSupportLayoutEntry* layout : layouts) {
+    layout->lowered_support_groups = groups;
+  }
 }
 
 bool CoreState::rebuild_span_bounds(ObjectId span_id, std::string* error_message) {
@@ -1195,12 +1194,12 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
     const BackboneLoweringKind layout_lowering_kind =
         (support_layout == nullptr) ? BackboneLoweringKind::kNone : support_layout->lowering_kind;
     const bool uses_lowered_support_visual =
-        endpoint_prefers_line_oriented_support(layout_endpoint, layout_lowering_kind);
+      layout_endpoint != nullptr && UsesGroupedLoweredSupport(*layout_endpoint, layout_lowering_kind);
     const Port& other_port = (port.id == span->port_a_id) ? *b : *a;
     if (uses_lowered_support_visual) {
-      radial = oriented_support_radial(port, *span, other_port, *pole, layout_endpoint, edit_state_);
+      radial = ResolveSupportAxisForEndpoint(port, *span, other_port, *pole, layout_endpoint, edit_state_);
       if (layout_endpoint != nullptr && endpoint_uses_grouped_lowered_support(layout_endpoint, layout_lowering_kind)) {
-        radial = canonical_shared_support_axis(radial, layout_endpoint->has_side_axis ? layout_endpoint->side_axis : radial);
+        radial = CanonicalSharedSupportAxis(radial, layout_endpoint->has_side_axis ? layout_endpoint->side_axis : radial);
       }
     }
 
@@ -1553,7 +1552,7 @@ AABBd CoreState::build_aabb_from_two_points(const Vec3d& a, const Vec3d& b) {
 void CoreState::remove_span_from_caches(ObjectId span_id) {
   cache_state_.curve_cache.by_span.erase(span_id);
   cache_state_.bounds_cache.by_span.erase(span_id);
-  cache_state_.support_layout_cache.by_span.erase(span_id);
+  erase_cached_span_support_layout(span_id);
   cache_state_.visual_cache.by_span.erase(span_id);
   cache_state_.render_cache.by_span.erase(span_id);
 }

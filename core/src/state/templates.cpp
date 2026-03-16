@@ -5,11 +5,9 @@
 #include <cmath>
 #include <cstddef>
 #include <limits>
-#include <queue>
 #include <sstream>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -440,22 +438,14 @@ bool CoreState::is_port_band_used(ObjectId pole_id, const PortPlacementBand& ban
 EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolutionRequest& request) {
   EditResult<ObjectId> result;
   const Pole* pole = edit_state_.poles.find(request.pole_id);
-  const EndpointContinuityDecision* decision_hint =
-      request.has_endpoint_decision_hint ? &request.endpoint_decision_hint : nullptr;
-  const ContinuityCategoryClass continuity_class_hint =
-      (decision_hint == nullptr) ? request.continuity_class_hint : decision_hint->continuity_class;
-  const bool default_lower_required_hint =
-      (decision_hint == nullptr) ? request.default_lower_required_hint : decision_hint->default_lower_required;
-  const bool same_level_feasible_hint =
-      (decision_hint == nullptr) ? request.same_level_feasible_hint : decision_hint->same_level_feasible;
-  const SameLevelFeasibilityReason same_level_reason_hint =
-      (decision_hint == nullptr) ? request.same_level_reason_hint : decision_hint->same_level_reason;
-  const double projected_spacing_topview_hint_m =
-      (decision_hint == nullptr) ? request.projected_spacing_topview_hint_m : decision_hint->projected_spacing_topview_m;
-  const double required_clearance_hint_m =
-      (decision_hint == nullptr) ? request.required_clearance_hint_m : decision_hint->required_clearance_m;
-  const JunctionRelationKind relation_kind_hint =
-      (decision_hint == nullptr) ? request.relation_kind_hint : decision_hint->relation_kind;
+  const EndpointContinuityDecision& endpoint_decision = request.endpoint_decision;
+  const ContinuityCategoryClass continuity_class_hint = endpoint_decision.continuity_class;
+  const bool default_lower_required_hint = endpoint_decision.default_lower_required;
+  const bool same_level_feasible_hint = endpoint_decision.same_level_feasible;
+  const SameLevelFeasibilityReason same_level_reason_hint = endpoint_decision.same_level_reason;
+  const double projected_spacing_topview_hint_m = endpoint_decision.projected_spacing_topview_m;
+  const double required_clearance_hint_m = endpoint_decision.required_clearance_m;
+  const JunctionRelationKind relation_kind_hint = endpoint_decision.relation_kind;
 
   PortResolutionDebugRecord debug{};
   debug.pole_id = request.pole_id;

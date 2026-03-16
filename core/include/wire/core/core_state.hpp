@@ -139,6 +139,30 @@ struct SupportLayoutEndpoint {
   HierarchicalVariationSample down_offset_variation{};
 };
 
+struct LoweredSupportGroupPlacement {
+  ObjectId owner_pole_id = kInvalidObjectId;
+  EndpointContinuityDecision decision{};
+  SlotSide side = SlotSide::kCenter;
+  SupportLayoutOriginKind origin = SupportLayoutOriginKind::kFallback;
+  SupportGroupingRuleKind grouping_rule = SupportGroupingRuleKind::kDecisionGroup;
+  int support_group_id = -1;
+  int grouped_port_count = 1;
+  BundleOrderPolicyKind bundle_order_policy = BundleOrderPolicyKind::kFixedOrder;
+  BundleOrderChoiceKind bundle_order_choice = BundleOrderChoiceKind::kNormal;
+  BundleOrderChoiceReason bundle_order_choice_reason = BundleOrderChoiceReason::kFixedOrder;
+  SideAssignmentRuleKind side_assignment_rule = SideAssignmentRuleKind::kPoleLocal;
+  SupportOrientationRuleKind support_orientation_rule = SupportOrientationRuleKind::kRadial;
+  bool used_junction_pair_side_assignment = false;
+  bool has_side_axis = false;
+  Vec3d side_axis{};
+  double chosen_side_sign = 0.0;
+  double down_offset_m = 0.0;
+  Vec3d mount_world{};
+  Vec3d tip_world{};
+  std::vector<Vec3d> attachment_worlds{};
+  HierarchicalVariationSample down_offset_variation{};
+};
+
 struct SpanSupportLayoutEntry {
   ObjectId span_id = kInvalidObjectId;
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
@@ -160,6 +184,7 @@ struct SpanSupportLayoutEntry {
   BackboneLoweringKind lowering_kind = BackboneLoweringKind::kNone;
   SupportLayoutEndpoint start{};
   SupportLayoutEndpoint end{};
+  std::vector<LoweredSupportGroupPlacement> lowered_support_groups{};
   std::uint64_t source_version = 0;
 };
 
@@ -574,7 +599,11 @@ private:
                                                 std::string* error_message) const;
   [[nodiscard]] static AABBd build_aabb_from_points(const std::vector<Vec3d>& points);
   [[nodiscard]] static AABBd build_aabb_from_two_points(const Vec3d& a, const Vec3d& b);
+  void cache_span_support_layout(SpanSupportLayoutEntry layout);
+  void erase_cached_span_support_layout(ObjectId span_id);
   void remove_span_from_caches(ObjectId span_id);
+  void rebuild_lowered_support_groups_for_span(ObjectId span_id);
+  void rebuild_lowered_support_groups_for_bundle(ObjectId bundle_id);
   [[nodiscard]] static std::vector<Vec3d> sample_polyline_points(const std::vector<Vec3d>& polyline, double interval);
   EditResult<std::vector<ObjectId>> generate_poles_from_points(const RoadSegment& road, PoleTypeId pole_type_id,
                                                                const std::vector<Vec3d>& points);
@@ -632,15 +661,9 @@ private:
     SlotSide preferred_template_side = SlotSide::kCenter;
     SlotRole preferred_template_role = SlotRole::kNeutral;
     std::uint32_t branch_index = 0;
-    ContinuityCategoryClass continuity_class_hint = ContinuityCategoryClass::kPointLike;
-    bool default_lower_required_hint = false;
-    bool same_level_feasible_hint = true;
-    SameLevelFeasibilityReason same_level_reason_hint = SameLevelFeasibilityReason::kNone;
-    double projected_spacing_topview_hint_m = -1.0;
-    double required_clearance_hint_m = 0.0;
-    JunctionRelationKind relation_kind_hint = JunctionRelationKind::kNone;
-    bool has_endpoint_decision_hint = false;
-    EndpointContinuityDecision endpoint_decision_hint{};
+    // Authoritative endpoint placement decision. Port resolution must not reinterpret
+    // continuity/lowering policy through a parallel hint path.
+    EndpointContinuityDecision endpoint_decision{};
     std::vector<ObjectId> excluded_port_ids{};
   };
 

@@ -674,137 +674,33 @@ VariationBreakdownView MakeVariationBreakdownView(const HierarchicalVariationSam
   return view;
 }
 
-bool endpoint_uses_grouped_lowered_support(const SupportLayoutEndpoint& endpoint, BackboneLoweringKind lowering_kind) {
-  if (endpoint.decision.support_orientation_basis != SupportOrientationBasisKind::kRadial) {
-    return true;
-  }
-  if (endpoint.origin == SupportLayoutOriginKind::kBranchSupport ||
-      endpoint.origin == SupportLayoutOriginKind::kPlacementConstraint) {
-    return true;
-  }
-  return endpoint.decision.continuity_class == ContinuityCategoryClass::kBundleLike &&
-         lowering_kind != BackboneLoweringKind::kNone &&
-         (endpoint.decision.default_lower_required || !endpoint.decision.same_level_feasible ||
-          endpoint.decision.solver_used_same_level_constraint);
-}
-
-Vec3d safe_horizontal_normalized(Vec3d v, const Vec3d& fallback) {
-  v.z = 0.0;
-  const double length_v = std::sqrt(v.x * v.x + v.y * v.y);
-  if (length_v > 1e-9 && std::isfinite(v.x) && std::isfinite(v.y)) {
-    return {v.x / length_v, v.y / length_v, 0.0};
-  }
-  Vec3d alt = fallback;
-  alt.z = 0.0;
-  const double length_alt = std::sqrt(alt.x * alt.x + alt.y * alt.y);
-  if (length_alt > 1e-9 && std::isfinite(alt.x) && std::isfinite(alt.y)) {
-    return {alt.x / length_alt, alt.y / length_alt, 0.0};
-  }
-  return {1.0, 0.0, 0.0};
-}
-
-Vec3d canonical_shared_support_axis(Vec3d axis, const Vec3d& fallback) {
-  axis = safe_horizontal_normalized(axis, fallback);
-  if (axis.x < -1e-9 || (std::abs(axis.x) <= 1e-9 && axis.y < -1e-9)) {
-    axis.x = -axis.x;
-    axis.y = -axis.y;
-  }
-  return axis;
-}
-
-int support_group_id_for_endpoint(ObjectId owner_pole_id, const EndpointContinuityDecision& decision) {
-  std::size_t seed = static_cast<std::size_t>(owner_pole_id);
-  seed ^= static_cast<std::size_t>(decision.relation_kind) << 8;
-  seed ^= static_cast<std::size_t>(decision.support_orientation_basis) << 16;
-  seed ^= static_cast<std::size_t>(decision.chosen_side) << 24;
-  return static_cast<int>(seed % 1000000000ull);
-}
-
-std::vector<LoweredSupportGroupInspectionView> BuildLoweredSupportGroupInspectionViews(const CoreState& state,
-                                                                                       const SpanSupportLayoutEntry& layout) {
+std::vector<LoweredSupportGroupInspectionView> BuildLoweredSupportGroupInspectionViews(const SpanSupportLayoutEntry& layout) {
   std::vector<LoweredSupportGroupInspectionView> result{};
-  const Span* source_span = state.view().spans().find(layout.span_id);
-  const ObjectId bundle_id = (source_span == nullptr) ? kInvalidObjectId : source_span->bundle_id;
-
-  auto append_group = [&](const SupportLayoutEndpoint& endpoint) {
-    if (!endpoint_uses_grouped_lowered_support(endpoint, layout.lowering_kind)) {
-      return;
-    }
-    const Pole* pole = state.view().poles().find(endpoint.owner_pole_id);
-    if (pole == nullptr) {
-      return;
-    }
-    const Port* port = state.view().ports().find(endpoint.port_id);
-    const Vec3d attachment_world = (port == nullptr) ? endpoint.endpoint_world : port->world_position;
-    const int support_group_id = support_group_id_for_endpoint(endpoint.owner_pole_id, endpoint.decision);
-
-    auto existing = std::find_if(result.begin(), result.end(), [&](const LoweredSupportGroupInspectionView& group) {
-      return group.owner_pole_id == endpoint.owner_pole_id && group.support_group_id == support_group_id;
-    });
-
-    Vec3d pole_to_tip = endpoint.support_world - pole->world_transform.position;
-    Vec3d support_axis = canonical_shared_support_axis(endpoint.has_side_axis ? endpoint.side_axis : pole_to_tip, pole_to_tip);
-    const double mount_radius =
-        state.view().visual_settings().support_center_threshold_m + state.view().geometry_settings().pole_clearance_m;
-    const double tip_radius = mount_radius + state.view().visual_settings().support_arm_extra_m;
-    const Vec3d mount_world{
-        pole->world_transform.position.x + support_axis.x * mount_radius,
-        pole->world_transform.position.y + support_axis.y * mount_radius,
-        endpoint.support_world.z,
-    };
-    const Vec3d tip_world{
-        pole->world_transform.position.x + support_axis.x * tip_radius,
-        pole->world_transform.position.y + support_axis.y * tip_radius,
-        endpoint.support_world.z,
-    };
-
-    if (existing == result.end()) {
-      LoweredSupportGroupInspectionView group{};
-      group.owner_pole_id = endpoint.owner_pole_id;
-      group.decision = endpoint.decision;
-      group.side = endpoint.side;
-      group.origin = SupportLayoutOriginText(endpoint.origin);
-      group.grouping_rule = SupportGroupingRuleKind::kDecisionGroup;
-      group.support_group_id = support_group_id;
-      group.grouped_port_count = 1;
-      group.bundle_order_policy = endpoint.bundle_order_policy;
-      group.bundle_order_choice = endpoint.bundle_order_choice;
-      group.bundle_order_choice_reason = endpoint.bundle_order_choice_reason;
-      group.side_assignment_rule = endpoint.side_assignment_rule;
-      group.support_orientation_rule = endpoint.support_orientation_rule;
-      group.used_junction_pair_side_assignment = endpoint.used_junction_pair_side_assignment;
-      group.has_side_axis = endpoint.has_side_axis;
-      group.side_axis = endpoint.side_axis;
-      group.chosen_side_sign = endpoint.chosen_side_sign;
-      group.down_offset_m = endpoint.branch_down_offset_m;
-      group.mount_world = mount_world;
-      group.tip_world = tip_world;
-      group.attachment_worlds.push_back(attachment_world);
-      group.down_offset_variation = MakeVariationBreakdownView(endpoint.down_offset_variation);
-      result.push_back(std::move(group));
-      return;
-    }
-
-    existing->grouped_port_count += 1;
-    existing->attachment_worlds.push_back(attachment_world);
-  };
-
-  if (bundle_id == kInvalidObjectId) {
-    append_group(layout.start);
-    append_group(layout.end);
-    return result;
-  }
-
-  for (const Span& span : state.view().spans().items()) {
-    if (span.bundle_id != bundle_id) {
-      continue;
-    }
-    const SpanSupportLayoutEntry* candidate_layout = state.view().find_span_support_layout(span.id);
-    if (candidate_layout == nullptr) {
-      continue;
-    }
-    append_group(candidate_layout->start);
-    append_group(candidate_layout->end);
+  result.reserve(layout.lowered_support_groups.size());
+  for (const LoweredSupportGroupPlacement& source : layout.lowered_support_groups) {
+    LoweredSupportGroupInspectionView group{};
+    group.owner_pole_id = source.owner_pole_id;
+    group.decision = source.decision;
+    group.side = source.side;
+    group.origin = SupportLayoutOriginText(source.origin);
+    group.grouping_rule = source.grouping_rule;
+    group.support_group_id = source.support_group_id;
+    group.grouped_port_count = source.grouped_port_count;
+    group.bundle_order_policy = source.bundle_order_policy;
+    group.bundle_order_choice = source.bundle_order_choice;
+    group.bundle_order_choice_reason = source.bundle_order_choice_reason;
+    group.side_assignment_rule = source.side_assignment_rule;
+    group.support_orientation_rule = source.support_orientation_rule;
+    group.used_junction_pair_side_assignment = source.used_junction_pair_side_assignment;
+    group.has_side_axis = source.has_side_axis;
+    group.side_axis = source.side_axis;
+    group.chosen_side_sign = source.chosen_side_sign;
+    group.down_offset_m = source.down_offset_m;
+    group.mount_world = source.mount_world;
+    group.tip_world = source.tip_world;
+    group.attachment_worlds = source.attachment_worlds;
+    group.down_offset_variation = MakeVariationBreakdownView(source.down_offset_variation);
+    result.push_back(std::move(group));
   }
   return result;
 }
@@ -1106,7 +1002,7 @@ std::optional<SupportLayoutInspectionView> CoreView::inspect_support_layout(Obje
   result.start_endpoint = MakeSupportLayoutEndpointView(layout->start);
   result.end_endpoint = MakeSupportLayoutEndpointView(layout->end);
 
-  result.lowered_support_groups = BuildLoweredSupportGroupInspectionViews(state_, *layout);
+  result.lowered_support_groups = BuildLoweredSupportGroupInspectionViews(*layout);
 
   std::unordered_set<std::uint64_t> seen{};
   AddLink(&result.links, &seen, "Source Span", EntityKind::kSpan, span_id);

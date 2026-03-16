@@ -120,9 +120,12 @@ SupportLayoutEndpoint make_support_layout_seed_endpoint(const Span& span, const 
   return endpoint;
 }
 
-void seed_generated_support_layouts(EditState& edit_state, CacheState& cache_state, const std::vector<ObjectId>& span_ids,
-                                    const std::vector<SegmentLaneAssignment>& lane_assignments,
-                                    std::uint64_t variation_flow_key) {
+std::vector<SpanSupportLayoutEntry>
+build_seed_generated_support_layouts(const EditState& edit_state, const std::vector<ObjectId>& span_ids,
+                                     const std::vector<SegmentLaneAssignment>& lane_assignments,
+                                     std::uint64_t variation_flow_key) {
+  std::vector<SpanSupportLayoutEntry> layouts{};
+  layouts.reserve(span_ids.size());
   std::size_t span_index = 0;
   for (const SegmentLaneAssignment& assignment : lane_assignments) {
     const std::size_t lane_count = std::min(assignment.port_ids_a.size(), assignment.port_ids_b.size());
@@ -159,9 +162,10 @@ void seed_generated_support_layouts(EditState& edit_state, CacheState& cache_sta
       layout.lowering_kind = assignment.lowering_kind;
       layout.start = make_support_layout_seed_endpoint(*span, *port_a, assignment, assignment.decision_a, true);
       layout.end = make_support_layout_seed_endpoint(*span, *port_b, assignment, assignment.decision_b, false);
-      cache_state.support_layout_cache.by_span[span_id] = layout;
+      layouts.push_back(std::move(layout));
     }
   }
+  return layouts;
 }
 
 } // namespace
@@ -2040,8 +2044,12 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       }
       generation_backbone.edge_orientations.insert(generation_backbone.edge_orientations.end(), edge_orientations.begin(),
                                                    edge_orientations.end());
-      seed_generated_support_layouts(edit_state_access(), cache_state_access(), spans_result.value, lane_assignments,
-                 variation_flow_key);
+      std::vector<SpanSupportLayoutEntry> seeded_support_layouts =
+          build_seed_generated_support_layouts(edit_state_access(), spans_result.value, lane_assignments,
+                                               variation_flow_key);
+      for (SpanSupportLayoutEntry& layout : seeded_support_layouts) {
+        cache_span_support_layout(std::move(layout));
+      }
 
       for (std::size_t i = 0; i < spans_result.value.size(); ++i) {
         const ObjectId span_id = spans_result.value[i];

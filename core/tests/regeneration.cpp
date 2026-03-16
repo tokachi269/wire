@@ -2,11 +2,7 @@
 #include "helpers.hpp"
 
 #include <algorithm>
-#include <array>
-#include <cmath>
 #include <limits>
-#include <regex>
-#include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -14,8 +10,6 @@
 using namespace helpers;
 using wire::core::PortKind;
 using wire::core::PortLayer;
-using wire::core::SpanKind;
-using wire::core::SpanLayer;
 
 namespace {
 bool test_port_position_mode_defaults_auto() {

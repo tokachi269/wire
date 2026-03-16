@@ -1068,25 +1068,17 @@ CoreState::generate_grouped_spans_between_support_nodes(
             (target_y < -1e-9) ? SlotSide::kLeft : ((target_y > 1e-9) ? SlotSide::kRight : SlotSide::kCenter);
         request.preferred_template_role = preferred_role;
         request.branch_index = static_cast<std::uint32_t>(lane);
-        request.continuity_class_hint = feasibility.continuity_class;
-        request.default_lower_required_hint = feasibility.default_lower_required;
-        request.same_level_feasible_hint = false;
-        request.same_level_reason_hint = feasibility.reason;
-        request.projected_spacing_topview_hint_m = feasibility.projected_spacing_topview_m;
-        request.required_clearance_hint_m = feasibility.required_clearance_m;
-        request.relation_kind_hint = feasibility.kind;
-        request.has_endpoint_decision_hint = true;
-        request.endpoint_decision_hint.relation_kind = feasibility.kind;
-        request.endpoint_decision_hint.continuity_class = feasibility.continuity_class;
-        request.endpoint_decision_hint.in_through_pair = feasibility.in_through_pair;
-        request.endpoint_decision_hint.lower_required =
+        request.endpoint_decision.relation_kind = feasibility.kind;
+        request.endpoint_decision.continuity_class = feasibility.continuity_class;
+        request.endpoint_decision.in_through_pair = feasibility.in_through_pair;
+        request.endpoint_decision.lower_required =
             feasibility.default_lower_required || !feasibility.same_level_feasible;
-        request.endpoint_decision_hint.default_lower_required = feasibility.default_lower_required;
-        request.endpoint_decision_hint.same_level_feasible = false;
-        request.endpoint_decision_hint.same_level_reason = feasibility.reason;
-        request.endpoint_decision_hint.projected_spacing_topview_m = feasibility.projected_spacing_topview_m;
-        request.endpoint_decision_hint.required_clearance_m = feasibility.required_clearance_m;
-        request.endpoint_decision_hint.bundle_order_policy = bundle_order_policy;
+        request.endpoint_decision.default_lower_required = feasibility.default_lower_required;
+        request.endpoint_decision.same_level_feasible = false;
+        request.endpoint_decision.same_level_reason = feasibility.reason;
+        request.endpoint_decision.projected_spacing_topview_m = feasibility.projected_spacing_topview_m;
+        request.endpoint_decision.required_clearance_m = feasibility.required_clearance_m;
+        request.endpoint_decision.bundle_order_policy = bundle_order_policy;
         request.excluded_port_ids.assign(solved_ports.begin(), solved_ports.end());
         EditResult<ObjectId> port_result = ensure_pole_connection_port(request);
         if (!port_result.ok) {

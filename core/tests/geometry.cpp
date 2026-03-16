@@ -7,7 +7,6 @@
 #include <array>
 #include <cmath>
 #include <limits>
-#include <regex>
 #include <string>
 #include <unordered_map>
 #include <utility>

@@ -20,6 +20,14 @@ using wire::core::PoleKind;
 using wire::core::Transformd;
 using wire::core::Vec3d;
 
+bool has_validation_issue(const wire::core::ValidationResult& validation, wire::core::ValidationSeverity severity,
+                         const char* code) {
+  return std::any_of(validation.issues.begin(), validation.issues.end(),
+                     [&](const wire::core::ValidationIssue& issue) {
+                       return issue.severity == severity && issue.code == code;
+                     });
+}
+
 bool test_endpoint_refresh_service_collects_owned_endpoints_from_relation_index() {
   CoreState state;
 
@@ -386,6 +394,175 @@ bool test_template_mutation_service_treats_branch_down_offset_policy_as_topology
          !contains_id(update.change_set.dirty_span_ids, hv_span->id);
 }
 
+bool test_validate_rejects_non_radial_support_without_authoritative_axis() {
+  CoreState state;
+  const ObjectId pole_a = state.AddPole(Transformd{{0.0, 0.0, 0.0}}, 10.0, "A", PoleKind::kGeneric, PlacementMode::kAuto).value;
+  const ObjectId pole_b = state.AddPole(Transformd{{10.0, 0.0, 0.0}}, 10.0, "B", PoleKind::kGeneric, PlacementMode::kAuto).value;
+  const ObjectId port_a = state.AddPort(pole_a, {0.0, 0.3, 5.0}).value;
+  const ObjectId port_b = state.AddPort(pole_b, {10.0, 0.3, 5.0}).value;
+  const ObjectId span = state.AddSpan(port_a, port_b).value;
+  (void)state.Commit();
+
+  auto& layouts = CoreStateTestHook::cache_state(state).support_layout_cache.by_span;
+  auto it = layouts.find(span);
+  if (it == layouts.end()) {
+    return false;
+  }
+  it->second.start.decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kChordForward;
+  it->second.start.has_side_axis = false;
+  it->second.start.side_axis = {};
+
+  const auto validation = helpers::validate_now(state);
+  return has_validation_issue(validation, wire::core::ValidationSeverity::kError, "SupportLayoutStartAxisMissing");
+}
+
+bool test_validate_rejects_grouped_lowered_support_with_radial_basis() {
+  CoreState state;
+  const ObjectId pole_a = state.AddPole(Transformd{{0.0, 0.0, 0.0}}, 10.0, "A", PoleKind::kGeneric, PlacementMode::kAuto).value;
+  const ObjectId pole_b = state.AddPole(Transformd{{10.0, 0.0, 0.0}}, 10.0, "B", PoleKind::kGeneric, PlacementMode::kAuto).value;
+  const ObjectId port_a = state.AddPort(pole_a, {0.0, 0.8, 5.0}, wire::core::PortKind::kPower,
+                                        wire::core::PortLayer::kHighVoltage).value;
+  const ObjectId port_b = state.AddPort(pole_b, {10.0, 0.8, 5.0}, wire::core::PortKind::kPower,
+                                        wire::core::PortLayer::kHighVoltage).value;
+  const ObjectId span = state.AddSpan(port_a, port_b, wire::core::SpanKind::kDistribution,
+                                      wire::core::SpanLayer::kHighVoltage).value;
+  (void)state.Commit();
+
+  auto& layouts = CoreStateTestHook::cache_state(state).support_layout_cache.by_span;
+  auto it = layouts.find(span);
+  if (it == layouts.end()) {
+    return false;
+  }
+  it->second.lowering_kind = wire::core::BackboneLoweringKind::kBranchSupport;
+  it->second.start.decision.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
+  it->second.start.decision.default_lower_required = true;
+  it->second.start.decision.same_level_feasible = false;
+  it->second.start.decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kRadial;
+  it->second.start.has_side_axis = true;
+  it->second.start.side_axis = {1.0, 0.0, 0.0};
+
+  const auto validation = helpers::validate_now(state);
+  return has_validation_issue(validation, wire::core::ValidationSeverity::kError, "LoweredBundleLikeRadialBasis");
+}
+
+bool test_validate_rejects_conflicting_grouped_support_identity() {
+  CoreState state;
+  const ObjectId pole_a = state.AddPole(Transformd{{0.0, 0.0, 0.0}}, 10.0, "A", PoleKind::kGeneric, PlacementMode::kAuto).value;
+  const ObjectId pole_b = state.AddPole(Transformd{{10.0, 0.0, 0.0}}, 10.0, "B", PoleKind::kGeneric, PlacementMode::kAuto).value;
+  const ObjectId pole_c = state.AddPole(Transformd{{0.0, 10.0, 0.0}}, 10.0, "C", PoleKind::kGeneric, PlacementMode::kAuto).value;
+  const ObjectId port_ab_a = state.AddPort(pole_a, {0.0, 0.8, 5.0}, wire::core::PortKind::kPower,
+                                           wire::core::PortLayer::kHighVoltage).value;
+  const ObjectId port_ab_b = state.AddPort(pole_b, {10.0, 0.8, 5.0}, wire::core::PortKind::kPower,
+                                           wire::core::PortLayer::kHighVoltage).value;
+  const ObjectId port_ac_a = state.AddPort(pole_a, {0.0, 1.1, 5.0}, wire::core::PortKind::kPower,
+                                           wire::core::PortLayer::kHighVoltage).value;
+  const ObjectId port_ac_c = state.AddPort(pole_c, {0.0, 10.8, 5.0}, wire::core::PortKind::kPower,
+                                           wire::core::PortLayer::kHighVoltage).value;
+  const ObjectId span_ab = state.AddSpan(port_ab_a, port_ab_b, wire::core::SpanKind::kDistribution,
+                                         wire::core::SpanLayer::kHighVoltage).value;
+  const ObjectId span_ac = state.AddSpan(port_ac_a, port_ac_c, wire::core::SpanKind::kDistribution,
+                                         wire::core::SpanLayer::kHighVoltage).value;
+  (void)state.Commit();
+
+  auto& layouts = CoreStateTestHook::cache_state(state).support_layout_cache.by_span;
+  auto it_ab = layouts.find(span_ab);
+  auto it_ac = layouts.find(span_ac);
+  if (it_ab == layouts.end() || it_ac == layouts.end()) {
+    return false;
+  }
+
+  auto make_grouped = [&](wire::core::LoweredSupportGroupPlacement* group, const wire::core::Vec3d& axis,
+                          double down_offset_m, const wire::core::Vec3d& mount_world,
+                          const wire::core::Vec3d& tip_world) {
+    group->owner_pole_id = pole_a;
+    group->decision.relation_kind = wire::core::JunctionRelationKind::kSideBranch;
+    group->decision.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
+    group->decision.default_lower_required = true;
+    group->decision.same_level_feasible = false;
+    group->decision.chosen_side = wire::core::LateralSideChoiceKind::kRight;
+    group->decision.chosen_side_sign = 1.0;
+    group->decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kChordForward;
+    group->grouping_rule = wire::core::SupportGroupingRuleKind::kDecisionGroup;
+    group->support_group_id = 1234;
+    group->grouped_port_count = 1;
+    group->has_side_axis = true;
+    group->side_axis = axis;
+    group->chosen_side_sign = 1.0;
+    group->down_offset_m = down_offset_m;
+    group->mount_world = mount_world;
+    group->tip_world = tip_world;
+  };
+
+  it_ab->second.lowered_support_groups.clear();
+  it_ac->second.lowered_support_groups.clear();
+  it_ab->second.lowered_support_groups.emplace_back();
+  it_ac->second.lowered_support_groups.emplace_back();
+  make_grouped(&it_ab->second.lowered_support_groups.front(), {1.0, 0.0, 0.0}, 1.0, {0.2, 0.0, 4.0}, {0.6, 0.0, 4.0});
+  make_grouped(&it_ac->second.lowered_support_groups.front(), {0.0, 1.0, 0.0}, 2.0, {0.0, 0.2, 3.0}, {0.0, 0.7, 3.0});
+
+  const auto validation = helpers::validate_now(state);
+  return has_validation_issue(validation, wire::core::ValidationSeverity::kError, "SupportGroupPlacementConflict");
+}
+
+bool test_inspection_uses_authoritative_lowered_support_groups() {
+  CoreState state;
+  const ObjectId pole_a = state.AddPole(Transformd{{0.0, 0.0, 0.0}}, 10.0, "A", PoleKind::kGeneric, PlacementMode::kAuto).value;
+  const ObjectId pole_b = state.AddPole(Transformd{{10.0, 0.0, 0.0}}, 10.0, "B", PoleKind::kGeneric, PlacementMode::kAuto).value;
+  const ObjectId port_a = state.AddPort(pole_a, {0.0, 0.3, 5.0}).value;
+  const ObjectId port_b = state.AddPort(pole_b, {10.0, 0.3, 5.0}).value;
+  const ObjectId span = state.AddSpan(port_a, port_b).value;
+  (void)state.Commit();
+
+  auto& layouts = CoreStateTestHook::cache_state(state).support_layout_cache.by_span;
+  auto it = layouts.find(span);
+  if (it == layouts.end()) {
+    return false;
+  }
+
+  it->second.lowering_kind = wire::core::BackboneLoweringKind::kNone;
+  it->second.start.decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kRadial;
+  it->second.start.decision.continuity_class = wire::core::ContinuityCategoryClass::kPointLike;
+  it->second.start.decision.default_lower_required = false;
+  it->second.start.decision.same_level_feasible = true;
+  it->second.start.has_side_axis = false;
+  it->second.start.side_axis = {};
+  it->second.lowered_support_groups.clear();
+  it->second.lowered_support_groups.emplace_back();
+  wire::core::LoweredSupportGroupPlacement& group = it->second.lowered_support_groups.front();
+  group.owner_pole_id = pole_a;
+  group.decision.relation_kind = wire::core::JunctionRelationKind::kSideBranch;
+  group.decision.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
+  group.decision.default_lower_required = true;
+  group.decision.same_level_feasible = false;
+  group.decision.chosen_side = wire::core::LateralSideChoiceKind::kLeft;
+  group.decision.chosen_side_sign = -1.0;
+  group.decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kChordForward;
+  group.grouping_rule = wire::core::SupportGroupingRuleKind::kDecisionGroup;
+  group.support_group_id = 777;
+  group.grouped_port_count = 1;
+  group.has_side_axis = true;
+  group.side_axis = {0.0, 1.0, 0.0};
+  group.chosen_side_sign = -1.0;
+  group.down_offset_m = 1.25;
+  group.mount_world = {0.0, 0.2, 4.0};
+  group.tip_world = {0.0, 0.8, 4.0};
+  group.attachment_worlds = {{0.0, 0.5, 5.0}};
+
+  const auto layout_view = state.view().inspect_support_layout(span);
+  if (!layout_view.has_value() || layout_view->lowered_support_groups.size() != 1) {
+    return false;
+  }
+  const auto& inspected = layout_view->lowered_support_groups.front();
+  return inspected.support_group_id == 777 &&
+         inspected.decision.support_orientation_basis == wire::core::SupportOrientationBasisKind::kChordForward &&
+         helpers::almost_equal(inspected.chosen_side_sign, -1.0) &&
+         helpers::almost_equal(inspected.down_offset_m, 1.25) &&
+         helpers::almost_equal(inspected.mount_world, Vec3d{0.0, 0.2, 4.0}) &&
+         helpers::almost_equal(inspected.tip_world, Vec3d{0.0, 0.8, 4.0}) &&
+         inspected.attachment_worlds.size() == 1 &&
+         helpers::almost_equal(inspected.attachment_worlds.front(), Vec3d{0.0, 0.5, 5.0});
+}
+
 void RegisterStateServiceTests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C181_CoreStateService_CollectOwnedEndpoints",
                          "endpoint refresh service targets owned endpoints via relation index",
@@ -409,6 +586,18 @@ void RegisterStateServiceTests(test_registry::TestRegistry& tests) {
                          "bundle template branch-down-offset policy changes force regeneration instead of being ignored or treated as visual-only",
                          "Invariant", false,
                          &test_template_mutation_service_treats_branch_down_offset_policy_as_topology_change);
+  test_registry::AddTest(tests, "C260_Validation_NonRadialBasisRequiresAxis",
+                         "validation rejects non-radial support orientation without authoritative side axis",
+                         "Invariant", false, &test_validate_rejects_non_radial_support_without_authoritative_axis);
+  test_registry::AddTest(tests, "C261_Validation_GroupedLoweredSupportNotRadial",
+                         "validation rejects grouped lowered support that still keeps radial orientation basis",
+                         "Invariant", false, &test_validate_rejects_grouped_lowered_support_with_radial_basis);
+  test_registry::AddTest(tests, "C262_Validation_GroupedSupportIdentityConflict",
+                         "validation rejects conflicting grouped support placements sharing the same support identity",
+                         "Invariant", false, &test_validate_rejects_conflicting_grouped_support_identity);
+  test_registry::AddTest(tests, "C263_Inspection_UsesAuthoritativeLoweredSupportGroups",
+                         "inspection maps authoritative lowered support placements instead of reconstructing from endpoints",
+                         "Invariant", false, &test_inspection_uses_authoritative_lowered_support_groups);
 }
 
 WIRE_REGISTER_TEST_SUITE(RegisterStateServiceTests);

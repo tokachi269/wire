@@ -2,14 +2,8 @@
 #include "helpers.hpp"
 
 #include <algorithm>
-#include <array>
-#include <cmath>
-#include <limits>
-#include <regex>
 #include <string>
 #include <tuple>
-#include <unordered_map>
-#include <utility>
 #include <vector>
 
 using namespace helpers;

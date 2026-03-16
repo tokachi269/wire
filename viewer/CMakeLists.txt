@@ -34,7 +34,15 @@ elseif(WIRE_VIEWER_FETCH_DEPS)
     GIT_REPOSITORY https://github.com/raysan5/raylib.git
     GIT_TAG 5.5
   )
+  set(_wire_prev_cmake_warn_deprecated ${CMAKE_WARN_DEPRECATED})
+  set(CMAKE_WARN_DEPRECATED OFF)
   FetchContent_MakeAvailable(raylib)
+  if(DEFINED _wire_prev_cmake_warn_deprecated)
+    set(CMAKE_WARN_DEPRECATED ${_wire_prev_cmake_warn_deprecated})
+  else()
+    unset(CMAKE_WARN_DEPRECATED)
+  endif()
+  unset(_wire_prev_cmake_warn_deprecated)
 
   FetchContent_Declare(
     imgui

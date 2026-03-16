@@ -8,16 +8,17 @@
 - [ ] `docs/wire.md` を確認
 - [ ] `docs/core_model_architecture.md` を確認
 - [ ] `docs/core_model_inventory.md` を確認
-- [ ] `docs/codex_shared_context.md` の「Current Snapshot / Decision Log / 48h Task Board」を確認
+- [ ] `docs/codex_shared_context.md` の固定方針と Decision Log を確認
 - [ ] 直近の `git log --oneline -n 20` を確認
 - [ ] `git status` が想定通りか確認
+- [ ] 作業対象ファイルの差分と未コミット変更を確認
 
 ## 2. 開始パック（新規チャット冒頭）
 以下を5行程度で貼る。
 - ゴール（1〜3行）
-- 現在状態（動くもの / 壊れているもの）
+- 現在状態（この会話で観測した事実だけ。固定件数や日付つき snapshot を貼り直さない）
 - 直近決定（最大5件）
-- 次の48h候補（優先順 + Done条件）
+- 次の作業候補（優先順 + Done条件）
 - 制約（重要なものだけ）
 
 ## 3. 実装中チェック
@@ -37,6 +38,7 @@
 - [ ] 何を変えたかを要約（ファイル単位）
 - [ ] 未解決事項と次アクションを明記
 - [ ] 必要なら docs 更新
+- [ ] 次回に持ち越す事実は会話サマリかコミット文脈へ残し、repo 共有 docs に日付つき snapshot を増やさない
 - [ ] `git status` を確認
 - [ ] コミットする場合は意図が読み取れるメッセージにする
 

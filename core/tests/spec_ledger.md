@@ -1,7 +1,7 @@
 ﻿# Core Spec Ledger (Phase4.8)
 
 ## Scope and policy
-- 観測根拠: 公開API戻り値、`view()`、`connection_index()`、`relation_index()`、`find_*cache()`、`port_resolution_debug_records()`、`last_path_direction_debug()`、`last_lane_assignments()`、`last_generation_edge_orientations()`、`BuildBackboneResult()`、`Validate()` のみ。
+- 観測根拠: 公開API戻り値、`view()`、`connection_index()`、`relation_index()`、`find_*cache()`、`port_resolution_debug_records()`、`last_path_direction_debug()`、`last_lane_assignments()`、`last_generation_edge_orientations()`、`BuildBackboneResult()`、`Validate()` のみ。`last_generation_backbone` 系は midair 入力まわりの一時 snapshot 観測としてのみ扱う。
 - 期待値粒度: `Exact` は決定論のみ、`Invariant` は不変条件のみ。
 - モック方針: ドメインロジックのモック禁止（本スイートはモック未使用）。
 - 時間/並行: 実時間待ち・非決定並行を使わない。
@@ -34,7 +34,7 @@
 | C24 | 隣接Pole自動接続 | Pole列 | GenerateSpansBetweenPoles | Exact: n-1生成 | result/index | 欠線防止 |
 | C25 | 複数パス増加 | Pole列 | GenerateSpansBetweenPoles×6 | Exact: 毎回n-1増加 | span総数 | 頭打ち回帰防止 |
 | C26 | 第3候補利用 | PoleType適用列 | 低圧自動接続×3 | Invariant: 3種類以上のtemplateキー利用 | template(layer/side/role)集合 | 2本固定回帰防止 |
-| C27 | SimpleLine統合 | 有効折れ線 | GenerateSimpleLine→GenerateFromBackboneSpec→再計算 | Invariant: 生成+Version追随+last_generation_backbone更新 | result/runtime/cache/backbone | 一発生成成立 |
+| C27 | SimpleLine統合 | 有効折れ線 | GenerateSimpleLine→GenerateFromBackboneSpec→再計算 | Invariant: 生成+Version追随+generation backbone snapshot更新 | result/runtime/cache/backbone | 一発生成成立 |
 | C28 | through連続性 | 直線入力 | GenerateSimpleLine | Invariant: 中間Pole同Port再利用 | span端点Port | 幹線連続維持 |
 | C29 | 表示ID採番 | 新規CoreState | Pole/Port/Span追加 | Exact: prefix別連番 | display_id | UI追跡性 |
 | C30 | Pole文脈分類 | 直線+折れ線 | GeneratePolesAlongRoad | Invariant: Terminal/Straight/Corner | pole.context | 文脈基盤維持 |
@@ -47,17 +47,17 @@
 | C62 | 群レーンねじれ抑制 | U字Guide + HV3 lane | GenerateFromBackboneSpec(HV_3PH) | Invariant: 区間ごとのlane順逆転数が0 | lane assignment port local Y順 | 群配線のクロス抑制 |
 | C76 | 鋭角コーナーlane順反転抑制 | 鋭角コーナーを含むGuide + COMM4 lane | GenerateFromBackboneSpec(COMM,count=4) | Invariant: 区間ごとのlane順逆転数が0 | lane assignmentのport local Y順 | 鋭角時の見た目破綻防止 |
 | C99 | HV3キャプチャ形状の反転回帰 | ねじれ再現点列（6点）+ HV3 | GenerateFromBackboneSpec(HV_3PH) | Invariant: 区間ごとのlane順逆転数が0 | last_lane_assignments / port local Y順 | 実運用形状でのねじれ再発防止 |
-| C100 | Midair SupportNode保持 | 3点Pathの中点をMidair指定 | GenerateFromBackboneSpec(LV) | Invariant: `last_generation_backbone.nodes` にMidairノードとtangent hintが残る | last_generation_backbone.nodes | Pole固定前提への逆戻り防止 |
+| C100 | Midair SupportNode保持 | 3点Pathの中点をMidair指定 | GenerateFromBackboneSpec(LV) | Invariant: generation backbone snapshot の `nodes` に Midair ノードと tangent hint が残る | generation backbone snapshot nodes (`last_generation_backbone.nodes`) | Pole固定前提への逆戻り防止 |
 | C110 | 明示Pole node再利用 | 既存Poleを始点にした2本目Path | GenerateFromBackboneSpec(LV, node_specs.node_id) | Invariant: 明示node_idのPoleを再利用し、重複Poleを生成しない | generated pole ids / backbone route | DrawPathの既存node接続を座標一致頼みに戻さない |
-| C111 | 明示SupportNode再利用 | 既存Midairを始点にした2本目Path | GenerateFromBackboneSpec(LV, node_specs.node_id) | Invariant: 明示node_idのSupportNodeを次のbackboneでも再利用する | last_generation_backbone.nodes | DrawPathの空中分岐接続を新規node化しない |
+| C111 | 明示SupportNode再利用 | 既存Midairを始点にした2本目Path | GenerateFromBackboneSpec(LV, node_specs.node_id) | Invariant: 明示node_idのSupportNodeを次の generation backbone snapshot でも再利用する | generation backbone snapshot nodes (`last_generation_backbone.nodes`) | DrawPathの空中分岐接続を新規node化しない |
 | C112 | Midair始点延長の詳細生成 | 既存Midairを始点にした短い2点Path | GenerateFromBackboneSpec(LV, node_specs.node_id) | Invariant: 新規 branch 側に pole/span が少なくとも1本ずつ生成される | generated_pole_ids / generated_span_ids | 中間レイキャスト始点で詳細生成が空振りしない |
 | C101 | HV空中分岐規格フラグ固定 | HV template | GenerateFromBackboneSpec(HV_3PH, legacy branch mode値を注入) | Exact: fail（unsupported mode）かつ `allow_midair_branch=false` | error / bundle_templates | 高圧規格逸脱の混入防止 |
-| C102 | Bundle別接続モード共存 | 同一Midair点 + HV/COMM複数bundle | GenerateFromBackboneSpec(HV+COMM) | Invariant: 同一SupportNodeでHV=PassThrough/COMM=NotPresentを同時保持 | last_generation_backbone.nodes[].bundle_modes | ノード単位固定分岐モデルの混入防止 |
+| C102 | Bundle別接続モード共存 | 同一Midair点 + HV/COMM複数bundle | GenerateFromBackboneSpec(HV+COMM) | Invariant: 同一SupportNodeでHV=PassThrough/COMM=NotPresentを同時保持 | generation backbone snapshot node bundle_modes (`last_generation_backbone.nodes[].bundle_modes`) | ノード単位固定分岐モデルの混入防止 |
 | C103 | 非Poleノード経由の詳細生成安定性 | 3点Pathの中点をBuilding指定 | GenerateFromBackboneSpec(LV) | Invariant: 生成が失敗/クラッシュせずSpan生成される | result.generated_span_ids | 非Pole入力での生成停止防止 |
-| C104 | Segment端点吸着 | Segmentクリック（端点近傍） | ResolveBranchPick(PickResult, snap_radius) | Invariant: 端点Nodeに吸着し、Midairノードを増やさない | ResolveBranchPick結果 / last_generation_backbone.nodes | 端点近傍で余計な空中ノードを作らない |
-| C105 | Segment中間でMidair生成 | Segmentクリック（端点から十分離れる） | ResolveBranchPick(PickResult, snap_radius) | Invariant: Midair SupportNodeが生成される | ResolveBranchPick結果 / last_generation_backbone.nodes | 空中分岐入力を安定して扱える |
+| C104 | Segment端点吸着 | Segmentクリック（端点近傍） | ResolveBranchPick(PickResult, snap_radius) | Invariant: 端点Nodeに吸着し、Midairノードを増やさない | ResolveBranchPick結果 / generation backbone snapshot nodes (`last_generation_backbone.nodes`) | 端点近傍で余計な空中ノードを作らない |
+| C105 | Segment中間でMidair生成 | Segmentクリック（端点から十分離れる） | ResolveBranchPick(PickResult, snap_radius) | Invariant: Midair SupportNodeが生成される | ResolveBranchPick結果 / generation backbone snapshot nodes (`last_generation_backbone.nodes`) | 空中分岐入力を安定して扱える |
 | C106 | Pick経由HV空中分岐禁止 | Segment中間クリック + HV template | ResolveBranchPick(PickResult, HV) | Exact: fail（midair branch禁止） | error | 高圧規格逸脱の混入防止 |
-| C107 | Midair Dry-run非破壊 | Segment中間クリック + create_midair_node=false | ResolveBranchPick(PickResult, LV) | Invariant: Midair解決しても`last_generation_backbone.nodes`が増えない | ResolveBranchPick結果 / last_generation_backbone.nodes | ホバー評価で状態が汚れる回帰防止 |
+| C107 | Midair Dry-run非破壊 | Segment中間クリック + create_midair_node=false | ResolveBranchPick(PickResult, LV) | Invariant: Midair解決しても generation backbone snapshot の `nodes` が増えない | ResolveBranchPick結果 / generation backbone snapshot nodes (`last_generation_backbone.nodes`) | ホバー評価で状態が汚れる回帰防止 |
 | C63 | mirror導入の非悪化（Y/Z/Layer） | 同一路線をmirror無効/有効で比較 | GenerateFromBackboneSpec + template.allow_mirror override | Invariant: 有効時の複合指標（Y逆転+Z逆転+layer jump）が無効時以下 | lane assignment/port座標/template layer | 生成品質調整で見た目悪化させない |
 | C64 | Guide頂点の強制Manual解除 | 3頂点Guide | GenerateFromBackboneSpec(既定設定) | Exact: 中間頂点/端点PoleともにAuto（既定） | pole placement_mode | DrawPath点=強制Pinの回避 |
 | C65 | pin_verticesオプション | 3頂点Guide | GenerateFromBackboneSpec(pin_vertices=true) | Exact: 中間頂点PoleもManual | pole placement_mode | ピン留め挙動の明示制御 |
@@ -157,7 +157,7 @@
 | C114 | Midair branch の source span 高さ再利用 | source span の中間から branch | ResolveBranchPick + GenerateFromBackboneSpec(LV) | Invariant: backbone pick は抽象高さでも detail は source span 高さから始まる | branch port位置 / source span位置 | 中間分岐が 0m から出る見た目破綻防止 |
 | C115 | Midair 1クリック延長で余計な bridge を増やさない | 既存Midairから終点1点へ延長 | GenerateFromBackboneSpec(LV, node_specs.node_id) | Invariant: 直結1区間で構成され、追加 bridge が出ない | generated_pole_ids / generated_span_ids / route | 1クリック延長で余計な中間生成をしない |
 | C116 | midair branch 禁止 template は生成だけを skip する | source-edge midair branch + 禁止template | GenerateFromBackboneSpec(HV_3PH) | Invariant: request 全体は失敗せず、禁止templateの bundle/span だけ生成されない | generated ids / counts | 規格違反 bundle だけを除外し他 bundle を巻き込まない |
-| C117 | Path input では midair policy を入力段階で強制しない | midair pick + HV template + enforce=false | ResolveBranchPick(PickResult, HV) | Invariant: template branch policy を強制せず Midair 解決できる | ResolveBranchPick結果 / last_generation_backbone.nodes | DrawPath の入力段階で不要に操作を止めない |
+| C117 | Path input では midair policy を入力段階で強制しない | midair pick + HV template + enforce=false | ResolveBranchPick(PickResult, HV) | Invariant: template branch policy を強制せず Midair 解決できる | ResolveBranchPick結果 / generation backbone snapshot nodes (`last_generation_backbone.nodes`) | DrawPath の入力段階で不要に操作を止めない |
 | C118 | mixed template の midair branch は許可 bundle だけ生成 | source-edge midair branch + LV/HV 混在 | ResolveBranchPick + GenerateFromBackboneSpec(LV+HV) | Invariant: allow_midair_branch=true の bundle だけが生成される | bundle_ids / generated spans | 混在生成で disallow bundle を巻き込まない |
 | C119 | CableTemplate太さ変更の見た目反映 | 既存線 + CableTemplate.outer_diameter変更 | UpdateCableTemplate | Invariant: 依存 span の wire render radius が更新される | span render cache | CableTemplateの太さ変更が既存線へ反映される |
 | C120 | CableTemplate碍子要否の見た目切替 | 既存電力線 + requires_insulator変更 | UpdateCableTemplate | Invariant: 依存 span の insulator visual が切り替わる | span visual cache | CableTemplateの碍子設定が既存線へ反映される |
@@ -226,7 +226,7 @@
 | C169 | Span socket override の往復 | endpoint attachment を持つ span | SetSpanEndpointSocketOverride / ClearSpanEndpointSocketOverride | Invariant: socket override 中は support layout endpoint が切り替わり、解除で自動 socket 選択へ戻る | SpanSupportLayoutEntry / OverrideInspectionView | endpoint socket を source に焼き込んで戻せなくなる回帰防止 |
 | C170 | Branch down offset override の往復 | branch support source を持つ span | SetSpanBranchDownOffsetOverride / ClearSpanBranchDownOffsetOverride | Invariant: override 中は support layout の down offset が変わり、解除で policy-derived 値へ戻る | SpanSupportLayoutEntry / OverrideInspectionView | branch down offset を layer 書換えや派生直編集で持ってしまう回帰防止 |
 | C257 | inspection support layout は assignment fallback をしない | span だけ作成し support layout 未生成のまま last_lane_assignments に擬似 assignment を注入 | inspect_support_layout / inspect_span | Invariant: inspect_support_layout は nullopt のままで、inspect_span も support layout semantics を assignment から捏造しない | SupportLayoutInspectionView / SpanInspectionView | stale session snapshot を inspection 正本として見せてしまう回帰防止 |
-| C258 | inspection backbone は rebuilt 結果を正とする | junction を含む backbone 生成後に last_generation_backbone の nodes/junctions を空に改変 | inspect_junction / describe_entity(SupportNode) | Invariant: inspection は stale last_generation_backbone に依存せず rebuilt backbone から junction/support node を解決できる | JunctionInspectionView / EntityMeta | inspection が snapshot/rebuilt 二重入口で古い backbone 側を拾う回帰防止 |
+| C258 | inspection backbone は rebuilt 結果を正とする | junction を含む backbone 生成後に generation backbone snapshot の nodes/junctions を空に改変 | inspect_junction / describe_entity(SupportNode) | Invariant: inspection は stale generation snapshot に依存せず rebuilt backbone から junction/support node を解決できる | JunctionInspectionView / EntityMeta | inspection が snapshot/rebuilt 二重入口で古い backbone 側を拾う回帰防止 |
 | C259 | junction relation 面は relation snapshot を正とする | junction 生成後に last_generation_junction_relations の incident 数と through pair を改変 | inspect_junction | Invariant: relation data があるとき inspection は incident/primary/through-pair を relation surface から組み立て、rebuilt junction incident と混在しない | JunctionInspectionView | junction relation 面が rebuilt junction incidents と relation snapshot を混ぜて説明不能になる回帰防止 |
 | C171 | public header smoke surface | 公開ヘッダのみを含む最小 consumer | include public headers + instantiate public types | Invariant: 公開ヘッダが self-sufficient で、concept-level view を内部 storage に触れずに使える | EntityRef / SupportLayoutEndpointView / CoreView inspection surface | 公開ヘッダの依存漏れや内部 storage 断面への依存が利用者ビルドへ漏れる回帰防止 |
 | C172 | support layout と detail curve は同じ resolved policy を使う | DrawPath trunk + branch span | GenerateFromBackboneSpec→inspect_* / collect_decision_trace | Invariant: flow/continuity/variation の resolved 入力が support layout と detail curve で一致し、trace では support/tangent/continuity/sag が分離表示される | SupportLayoutInspectionView / DetailCurveInspectionView / DecisionTraceEntry | span-level policy が前段/後段で別々に再解釈されて見た目不具合の主因が追えなくなる回帰防止 |

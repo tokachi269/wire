@@ -1,7 +1,8 @@
 ﻿# Codex共有コンテキスト（現行）
 
 この文書は、チャットをまたいで設計意図を維持するための共有メモです。
-仕様確定文書ではなく、現時点の意思決定と優先順位を明示します。
+仕様確定文書ではなく、恒久寄りの意思決定と責務境界だけを残します。
+日付つきの進捗、件数、直近48hの作業候補はここに固定しません。
 
 ## 1. 何を作っているか
 - 電柱・電線ネットワークの生成/編集/検証基盤。
@@ -113,39 +114,7 @@
 4. `docs/core_model_inventory.md`
 5. `docs/chat_handoff_checklist.md`
 
-## 10. Current Snapshot（2026-03-14）
-- いま動くもの:
-  - `SupportLayout` を detail curve 前段の派生中間構造として使い、curve 生成は support layout 集約結果を入力に受ける。
-  - concept-level inspection surface（`Pole / Span / SupportLayout / DetailCurve / Junction / Template / Override`）。
-  - formal override 層（Pole yaw、endpoint socket、branch down offset）。runtime read は `OverrideResolutionService` 側へ寄せている。
-  - DrawPath 通常経路で attachment / socket が未接続であることを trace / inspection / docs で明示。
-  - main / branch / support 軸 / branch runout 向けの geometry metric tests。
-  - viewer の生成入口は DrawPath へ一本化済み。`Placement / Connection / Branch / Detail` mode は viewer から外した。
-  - DrawPath の near-pole line hit は pole hit へ正規化し、pole 直クリックと pole 近傍 line クリックで branch/main 判定が揺れにくい。
-  - DrawPath hover overlay は raw/resolved の二重描画をやめ、最終採用点を 1 マーカーで出す。
-  - build まわりの改善:
-    - `wire_core_public_headers_smoke`
-    - `ctest` が build 後そのまま回る
-    - `WIRE_ENABLE_UNITY_BUILD` は主に `wire_core_tests` 反復用
-    - `pwsh.exe` ノイズは vcpkg applocal の built-in 側へ切替済み
-  - `docs` 配下の `slot` 用語は除去済み。
-  - `wire_core_tests` は 197/197 PASS。
-  - `wire_viewer_tests` は 10/10 PASS。
-- いま壊れているもの:
-  - DrawPath の selection / hover はかなり単純化したが、実画面での最終 readability acceptance はまだ docs に閉じていない。
-  - `slot` 概念は docs では消したが、code-side には `PortSlotTemplate`, `source_slot_id`, `ensure_pole_slot_port` などが残る。
-  - `wire_viewer.exe` が起動中だと viewer 本体の再リンクが `LNK1168` で止まる。
-- 既知リスク:
-  - geometry metric と tests で通っても、viewer 実画面の最終 readability は別に確認が要る。
-  - `DetailCurve` は見た目曲線の近似基盤であり、厳密懸垂/弾性線/張力釣り合いは未導入。
-  - 実装コードには `PortSlotTemplate` / `source_slot_id` / `ensure_pole_slot_port` など `slot` 概念がまだ残る。docs だけ先に片付けた段階。
-- 未着手/保留:
-  - shader 側での arc-length 正規化距離属性の実利用。
-  - support style / mirror / flow classification の formal override。
-  - `slot` 概念の code-side 削除（`entities.hpp`, `templates.cpp`, validator, viewer/debug）。
-  - viewer を `DrawPath + readonly inspector + template editor` にさらに絞るかの整理。
-
-## 11. Decision Log（直近）
+## 10. Decision Log（直近）
 - 2026-03-11 / Accepted:
   - 決定: `SupportLayout` を detail curve 前段の派生中間構造として明示し、curve 生成は port のその場計算ではなく support layout 集約結果を入力に受ける。
   - 理由: main support / branch support / endpoint / departure / down offset の責務を port 生成や grouped span の局所ロジックから切り出し、branch 曲線や attachment/socket 導入時の原因切り分けをしやすくするため。
@@ -198,26 +167,9 @@
   - 影響: 鋭角パスでの mirror 選択安定化、C76/C86/C87/C88/C99 の回帰抑制。
   - 覆す条件: yaw 優先で既存の直線・鈍角ケースに退行が出る場合。
 
-## 12. 48h Task Board
-1. P1: 自動決定 / override / 導出の境界をコードへ反映
-   - Done: Pole向き、support分離、branch down offset、mirror の各値で「正本に持つ値」と「derived/debug に置く値」を明文化し、必要な型の置き場を固定する。
-   - 依存: `Pole.orientation_control` と support/detail/recalc の責務維持。
-2. P2: Pole向き / main-branch / branch support の実装精度向上
-   - Done: main continuation と `order/primary` を優先にした pole forward、edge/junction 単位の main/branch 分類、branch support 実体の強化。
-   - 依存: 6.5 の境界固定。
-3. P3: attachment/socket 境界の次段整理
-   - Done: 正本接続情報と detail curve 側 endpoint escape をさらに分離し、socket 導入の受け皿を作る。
-   - 依存: attachment 正本モデルの最小単位決定。
-
-## 13. 次回開始パック（そのまま貼付可）
-- ゴール:
-  - DrawPath-only 前提で viewer 体験の残件を閉じる。
-  - `slot` 概念を code-side でも削り、template 配置ヒントと runtime `Port` の境界を単純化する。
-- 現在状態:
-  - `wire_core_tests` は 197/197 PASS、`wire_viewer_tests` は 10/10 PASS。
-  - 開始/終了 pole 三相潰れ、row 向き 90 度ずれ、1本目だけ高さが合って次から低い問題は user 目視で解決済み共有あり。
-  - DrawPath near-pole selection は pole hit へ正規化済み。hover marker は 1 個に整理済み。
-  - docs 配下の `slot` 用語は削除済みだが、コードには `slot` 型と debug が残る。
+## 11. 運用メモ
+- 日付つきの進捗、テスト件数、直近タスクは会話サマリや PR 説明で管理し、この文書には固定しない。
+- 新規チャットではこの文書の固定方針を読んだうえで、最新の差分は `git log` と作業中ファイルから取り直す。
 - 直近決定:
   - 曲線生成は `u`、正確な配置は `s`、毎フレーム表示変形は GPU 距離属性。
   - 見た目曲線は「cubic 基準曲線 + 後段 sag 合成」。

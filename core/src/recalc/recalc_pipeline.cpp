@@ -69,7 +69,7 @@ void append_lowered_support_group_placement(std::vector<LoweredSupportGroupPlace
   }
   const Port* port = edit_state.ports.find(endpoint.port_id);
   const Vec3d attachment_world = (port == nullptr) ? endpoint.endpoint_world : port->world_position;
-  const int support_group_id = ComputeSupportGroupId(endpoint.owner_pole_id, endpoint.decision);
+  const int support_group_id = SupportGroupIdForEndpoint(endpoint.owner_pole_id, endpoint.decision);
   auto existing = std::find_if(groups->begin(), groups->end(), [&](const LoweredSupportGroupPlacement& group) {
     return group.owner_pole_id == endpoint.owner_pole_id && group.support_group_id == support_group_id;
   });

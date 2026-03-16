@@ -2,7 +2,6 @@
 
 #include "wire/core/coord_utils.hpp"
 
-#include <cstddef>
 #include <cmath>
 
 namespace wire::core {
@@ -72,7 +71,7 @@ bool UsesGroupedLoweredSupport(const SupportLayoutEndpoint& endpoint, BackboneLo
           endpoint.decision.solver_used_same_level_constraint);
 }
 
-int ComputeSupportGroupId(ObjectId owner_pole_id, const EndpointContinuityDecision& decision) {
+int SupportGroupIdForEndpoint(ObjectId owner_pole_id, const EndpointContinuityDecision& decision) {
   std::size_t seed = static_cast<std::size_t>(owner_pole_id);
   seed ^= static_cast<std::size_t>(decision.relation_kind) << 8;
   seed ^= static_cast<std::size_t>(decision.support_orientation_basis) << 16;

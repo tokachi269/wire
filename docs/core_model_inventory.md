@@ -107,7 +107,7 @@ Definition Layer
 - 配置候補選定の debug records
 - `path_direction_debug_records_`
 - `last_path_direction_debug_`
-- `last_lane_assignments_`
+- `last_lane_assignments_`（session debug 用の観測面。正本や長寿命の意味ソースとして扱わない）
 
 ## 8. このフェーズで適用済みの最小リファクタ
 - ヘッダにレイヤ境界コメントを追加し、テンプレ配置ヒントと `Port` の混同を防止。

@@ -737,7 +737,10 @@ std::vector<PoleHeightMarker> BuildPoleHeightMarkers(const CoreState& state, con
         }
         PoleHeightMarker marker{};
         marker.kind = PoleHeightMarkerKind::kSupport;
-        marker.label = "BranchSupport";
+        const char* lowering_label = BackboneLoweringKindLabel(layout_view->lowering_kind);
+        marker.label = (layout_view->lowering_kind == wire::core::BackboneLoweringKind::kNone)
+                   ? "LoweredSupport"
+                   : lowering_label;
         marker.height_m = placement.mount_world.z;
         marker.x_escape_m =
             view.pole_radius_at_height_m(pole, std::max(0.0, marker.height_m - pole.world_transform.position.z)) +

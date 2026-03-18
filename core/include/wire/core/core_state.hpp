@@ -487,6 +487,7 @@ public:
   EditResult<ObjectId> SetPortWorldPositionManual(ObjectId port_id, const Vec3d& new_world_position);
   EditResult<ObjectId> ResetPortPositionToAuto(ObjectId port_id);
   EditResult<ObjectId> MoveAnchor(ObjectId anchor_id, const Vec3d& new_world_position);
+  EditResult<ObjectId> DeletePole(ObjectId pole_id);
   EditResult<ObjectId> DeleteSpan(ObjectId span_id);
 
   struct SplitSpanResult {
@@ -757,10 +758,10 @@ private:
   std::vector<PathDirectionEvaluationDebug> path_direction_debug_records_{};
   std::unordered_map<ObjectId, PoleOrientationDebugRecord> pole_orientation_debug_records_{};
   std::vector<SupportNode> last_generation_support_nodes_{};
+  std::vector<SegmentLaneAssignment> last_generation_lane_assignments_{};
   std::vector<BackboneEdgeOrientation> last_generation_edge_orientations_{};
   std::unordered_map<ObjectId, JunctionRelation> last_generation_junction_relations_{};
   ObjectId next_virtual_support_node_id_ = 0x9000000000000000ull;
-  mutable std::vector<SegmentLaneAssignment> computed_lane_assignments_cache_{};
   std::vector<PortResolutionDebugRecord> port_resolution_debug_records_{};
 };
 

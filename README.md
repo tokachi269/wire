@@ -54,16 +54,32 @@ wire.md    要求仕様書
 - 双方向依存を避けた一方向 Dirty 伝播
 
 ## ビルド
+
+実績あるコマンドだけをまとめたものは [docs/command_cheatsheet.md](docs/command_cheatsheet.md) を参照。
+
 ```powershell
-cmake -S . -B build -DWIRE_BUILD_VIEWER=ON
-cmake --build build --config Debug --target wire_core_tests
-cmake --build build --config Debug --target wire_viewer
+Import-Module "C:\Program Files\Microsoft Visual Studio\18\Community\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+Enter-VsDevShell -VsInstallPath "C:\Program Files\Microsoft Visual Studio\18\Community" -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DWIRE_BUILD_VIEWER=ON
+cmake --build build --target wire_core_tests
+cmake --build build --target wire_viewer
+```
+
+既存の `build/` が古い Visual Studio インスタンス情報を持っている場合は configure に失敗するため、新しい build ディレクトリを使います。
+
+```powershell
+Import-Module "C:\Program Files\Microsoft Visual Studio\18\Community\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+Enter-VsDevShell -VsInstallPath "C:\Program Files\Microsoft Visual Studio\18\Community" -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'
+cmake -S . -B build-viewer -G Ninja -DCMAKE_BUILD_TYPE=Debug -DWIRE_BUILD_VIEWER=ON
+cmake --build build-viewer --target wire_viewer
 ```
 
 ### core のみを clean build する
 ```powershell
-cmake -S . -B build-core -DWIRE_BUILD_VIEWER=OFF
-cmake --build build-core --config Debug --target wire_core_tests
+Import-Module "C:\Program Files\Microsoft Visual Studio\18\Community\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+Enter-VsDevShell -VsInstallPath "C:\Program Files\Microsoft Visual Studio\18\Community" -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'
+cmake -S . -B build-core -G Ninja -DCMAKE_BUILD_TYPE=Debug -DWIRE_BUILD_VIEWER=OFF
+cmake --build build-core --target wire_core_tests
 ```
 
 ### viewer をオフラインでビルドする
@@ -71,31 +87,36 @@ cmake --build build-core --config Debug --target wire_core_tests
 ネットワーク取得を使わずに viewer をビルドしたい場合は、依存ソースをローカルに用意して次を指定します。
 
 ```powershell
-cmake -S . -B build-offline `
+Import-Module "C:\Program Files\Microsoft Visual Studio\18\Community\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+Enter-VsDevShell -VsInstallPath "C:\Program Files\Microsoft Visual Studio\18\Community" -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'
+cmake -S . -B build-offline -G Ninja -DCMAKE_BUILD_TYPE=Debug `
   -DWIRE_BUILD_VIEWER=ON `
   -DWIRE_VIEWER_FETCH_DEPS=OFF `
   -DWIRE_RAYLIB_SOURCE_DIR=C:\deps\raylib `
   -DWIRE_IMGUI_SOURCE_DIR=C:\deps\imgui `
   -DWIRE_RLIMGUI_SOURCE_DIR=C:\deps\rlImGui
-cmake --build build-offline --config Debug --target wire_viewer
+cmake --build build-offline --target wire_viewer
 ```
 
 ローカル依存ディレクトリを指定せずに `WIRE_VIEWER_FETCH_DEPS=OFF` を使った場合は、configure 時点で明示的に停止します。
 
 ## テスト
 ```powershell
-build\core\Debug\wire_core_tests.exe
+.\build\core\wire_core_tests.exe
 ```
 
 ## フォーマット
 ```powershell
-cmake --build build --config Debug --target format-check
-cmake --build build --config Debug --target format
+cmake --build build --target format-check
+cmake --build build --target format
 ```
 
 ## viewer 実行
 ```powershell
-build\viewer\Debug\wire_viewer.exe
+.\build\viewer\wire_viewer.exe
+
+# 新しい build ディレクトリを使った場合
+.\build-viewer\viewer\wire_viewer.exe
 ```
 
 ## 実装フェーズ
@@ -116,6 +137,6 @@ build\viewer\Debug\wire_viewer.exe
 
 ---
 
-詳細は `docs/README.md` を入口に参照してください。
+詳細は [docs/README.md](docs/README.md) を入口に参照してください。
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/tokachi269/wire)

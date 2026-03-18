@@ -20,6 +20,9 @@
 6. `operation_policy.md`
 - チャット運用ポリシー（改訂版）。
 
+7. `command_cheatsheet.md`
+- Windows ローカルで実際に通った configure / build / run コマンド集。
+
 ## 位置づけ
 - 仕様の正本: `wire.md`
 - 設計ルールの正本: `core_model_architecture.md`

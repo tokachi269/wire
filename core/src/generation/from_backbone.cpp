@@ -1550,6 +1550,14 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       incident.in_route = candidate.is_route_neighbor;
       relation.incidents.push_back(incident);
     }
+    if (route_neighbors.size() == 1 && relation.is_cross_like) {
+      for (JunctionIncidentRelation& incident : relation.incidents) {
+        if (incident.in_route) {
+          incident.kind = JunctionRelationKind::kThroughMain;
+        }
+      }
+      return relation;
+    }
     if (candidates.size() == 1) {
       for (JunctionIncidentRelation& incident : relation.incidents) {
         if (incident.in_route) {
@@ -1924,6 +1932,8 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     return count;
   };
 
+  std::vector<SegmentLaneAssignment> latest_lane_assignments{};
+
   for (const BundlePlan& plan : active_bundle_plans) {
     int missing_total = 0;
     std::size_t first_missing_segment = ordered_support_node_ids.size();
@@ -2042,6 +2052,7 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
         edge_orientations[i].variation_flow_key = variation_flow_key;
         edge_orientations[i].flow_decision_rule = edge_flow_by_segment[run_start + i].rule;
       }
+      latest_lane_assignments.insert(latest_lane_assignments.end(), lane_assignments.begin(), lane_assignments.end());
       generation_backbone.edge_orientations.insert(generation_backbone.edge_orientations.end(), edge_orientations.begin(),
                                                    edge_orientations.end());
       std::vector<SpanSupportLayoutEntry> seeded_support_layouts =
@@ -2102,6 +2113,7 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       last_generation_support_nodes_.push_back(node);
     }
   }
+  last_generation_lane_assignments_ = std::move(latest_lane_assignments);
   last_generation_edge_orientations_ = std::move(generation_backbone.edge_orientations);
   last_generation_junction_relations_ = std::move(path_junction_relations_by_node);
   result.ok = true;

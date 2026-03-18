@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <limits>
 #include <sstream>
 #include <string_view>
 #include <unordered_map>
@@ -401,254 +400,21 @@ std::optional<SupportNode> FindSupportNodeById(const CoreState& state, ObjectId 
   return std::nullopt;
 }
 
-struct LaneAssignmentGroupKey {
-  ObjectId bundle_id = kInvalidObjectId;
-  ObjectId node_a = kInvalidObjectId;
-  ObjectId node_b = kInvalidObjectId;
-  std::uint64_t variation_flow_key = 0;
-
-  bool operator==(const LaneAssignmentGroupKey& other) const {
-    return bundle_id == other.bundle_id && node_a == other.node_a && node_b == other.node_b &&
-           variation_flow_key == other.variation_flow_key;
-  }
-};
-
-struct LaneAssignmentGroupKeyHash {
-  std::size_t operator()(const LaneAssignmentGroupKey& key) const {
-    std::size_t seed = std::hash<ObjectId>{}(key.bundle_id);
-    seed ^= std::hash<ObjectId>{}(key.node_a) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-    seed ^= std::hash<ObjectId>{}(key.node_b) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-    seed ^= std::hash<std::uint64_t>{}(key.variation_flow_key) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-    return seed;
-  }
-};
-
-struct EdgeOrientationKey {
-  ObjectId node_a = kInvalidObjectId;
-  ObjectId node_b = kInvalidObjectId;
-  BundleKind bundle_template_id = BundleKind::kLowVoltage;
-  std::uint64_t variation_flow_key = 0;
-
-  bool operator==(const EdgeOrientationKey& other) const {
-    return node_a == other.node_a && node_b == other.node_b && bundle_template_id == other.bundle_template_id &&
-           variation_flow_key == other.variation_flow_key;
-  }
-};
-
-struct EdgeOrientationKeyHash {
-  std::size_t operator()(const EdgeOrientationKey& key) const {
-    std::size_t seed = std::hash<ObjectId>{}(key.node_a);
-    seed ^= std::hash<ObjectId>{}(key.node_b) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-    seed ^= std::hash<int>{}(static_cast<int>(key.bundle_template_id)) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-    seed ^= std::hash<std::uint64_t>{}(key.variation_flow_key) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-    return seed;
-  }
-};
-
-struct SessionBundleKey {
-  std::uint64_t generation_session_id = 0;
-  ObjectId bundle_id = kInvalidObjectId;
-
-  bool operator==(const SessionBundleKey& other) const {
-    return generation_session_id == other.generation_session_id && bundle_id == other.bundle_id;
-  }
-};
-
-struct SessionBundleKeyHash {
-  std::size_t operator()(const SessionBundleKey& key) const {
-    std::size_t seed = std::hash<std::uint64_t>{}(key.generation_session_id);
-    seed ^= std::hash<ObjectId>{}(key.bundle_id) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-    return seed;
-  }
-};
-
-struct LaneAssignmentGroup {
-  LaneAssignmentGroupKey key{};
-  std::uint64_t generation_session_id = 0;
-  std::uint32_t min_generation_order = std::numeric_limits<std::uint32_t>::max();
-  BundleKind bundle_template_id = BundleKind::kLowVoltage;
-  const SpanSupportLayoutEntry* representative_layout = nullptr;
-  std::vector<const Span*> spans{};
-};
-
-std::vector<SegmentLaneAssignment> BuildCurrentLaneAssignments(const CoreView& view) {
-  std::uint64_t latest_generation_session_id = 0;
-  for (const Span& span : view.edit_state().spans.items()) {
-    if (!span.generation.generated || span.generation.source != GenerationSource::kRoadAuto) {
+const SegmentLaneAssignment* FindLaneAssignmentForSpan(const CoreView& view, const Span& span) {
+  for (const SegmentLaneAssignment& assignment : view.last_lane_assignments()) {
+    if (assignment.bundle_id != span.bundle_id) {
       continue;
     }
-    latest_generation_session_id = std::max(latest_generation_session_id, span.generation.generation_session_id);
-  }
-
-  std::unordered_map<LaneAssignmentGroupKey, LaneAssignmentGroup, LaneAssignmentGroupKeyHash> groups_by_key{};
-  for (const auto& [span_id, layout] : view.cache_state().support_layout_cache.by_span) {
-    const Span* span = view.edit_state().spans.find(span_id);
-    if (span == nullptr) {
-      continue;
-    }
-    if (!span->generation.generated || span->generation.source != GenerationSource::kRoadAuto ||
-        span->generation.generation_session_id != latest_generation_session_id) {
-      continue;
-    }
-    LaneAssignmentGroupKey key{};
-    key.bundle_id = span->bundle_id;
-    key.node_a = span->endpoint_node_a_id;
-    key.node_b = span->endpoint_node_b_id;
-    key.variation_flow_key = layout.variation_flow_key;
-    LaneAssignmentGroup& group = groups_by_key[key];
-    group.key = key;
-    group.generation_session_id = span->generation.generation_session_id;
-    group.min_generation_order = std::min(group.min_generation_order, span->generation.generation_order);
-    if (const Bundle* bundle = view.edit_state().bundles.find(span->bundle_id); bundle != nullptr) {
-      group.bundle_template_id = bundle->bundle_template_id;
-    }
-    if (group.representative_layout == nullptr) {
-      group.representative_layout = &layout;
-    }
-    group.spans.push_back(span);
-  }
-
-  std::unordered_map<EdgeOrientationKey, std::vector<const BackboneEdgeOrientation*>, EdgeOrientationKeyHash>
-      orientations_by_key{};
-  for (const BackboneEdgeOrientation& orientation : view.last_generation_edge_orientations()) {
-    EdgeOrientationKey key{};
-    key.node_a = orientation.node_a_id;
-    key.node_b = orientation.node_b_id;
-    key.bundle_template_id = orientation.bundle_template_id;
-    key.variation_flow_key = orientation.variation_flow_key;
-    orientations_by_key[key].push_back(&orientation);
-  }
-  std::unordered_map<EdgeOrientationKey, std::size_t, EdgeOrientationKeyHash> orientation_index_by_key{};
-
-  std::vector<LaneAssignmentGroup> groups{};
-  groups.reserve(groups_by_key.size());
-  for (auto& [_, group] : groups_by_key) {
-    groups.push_back(std::move(group));
-  }
-  std::sort(groups.begin(), groups.end(), [](const LaneAssignmentGroup& a, const LaneAssignmentGroup& b) {
-    if (a.generation_session_id != b.generation_session_id) {
-      return a.generation_session_id < b.generation_session_id;
-    }
-    if (a.key.bundle_id != b.key.bundle_id) {
-      return a.key.bundle_id < b.key.bundle_id;
-    }
-    if (a.min_generation_order != b.min_generation_order) {
-      return a.min_generation_order < b.min_generation_order;
-    }
-    if (a.key.node_a != b.key.node_a) {
-      return a.key.node_a < b.key.node_a;
-    }
-    return a.key.node_b < b.key.node_b;
-  });
-
-  std::unordered_map<SessionBundleKey, std::size_t, SessionBundleKeyHash> next_segment_index{};
-  std::vector<SegmentLaneAssignment> assignments{};
-  assignments.reserve(groups.size());
-  for (const LaneAssignmentGroup& group : groups) {
-    if (group.representative_layout == nullptr || group.spans.empty()) {
-      continue;
-    }
-    std::vector<const Span*> ordered_spans = group.spans;
-    std::sort(ordered_spans.begin(), ordered_spans.end(), [](const Span* a, const Span* b) {
-      if (a->generation.generation_order != b->generation.generation_order) {
-        return a->generation.generation_order < b->generation.generation_order;
-      }
-      return a->id < b->id;
-    });
-
-    EdgeOrientationKey edge_key{};
-    edge_key.node_a = group.key.node_a;
-    edge_key.node_b = group.key.node_b;
-    edge_key.bundle_template_id = group.bundle_template_id;
-    edge_key.variation_flow_key = group.key.variation_flow_key;
-    const BackboneEdgeOrientation* orientation = nullptr;
-    if (const auto it = orientations_by_key.find(edge_key); it != orientations_by_key.end()) {
-      std::size_t& next_index = orientation_index_by_key[edge_key];
-      if (next_index < it->second.size()) {
-        orientation = it->second[next_index++];
+    const std::size_t lane_count = std::min(assignment.port_ids_a.size(), assignment.port_ids_b.size());
+    for (std::size_t lane = 0; lane < lane_count; ++lane) {
+      const bool same_direction = assignment.port_ids_a[lane] == span.port_a_id && assignment.port_ids_b[lane] == span.port_b_id;
+      const bool reverse_direction = assignment.port_ids_a[lane] == span.port_b_id && assignment.port_ids_b[lane] == span.port_a_id;
+      if (same_direction || reverse_direction) {
+        return &assignment;
       }
     }
-
-    const SpanSupportLayoutEntry& layout = *group.representative_layout;
-    SegmentLaneAssignment assignment{};
-    assignment.bundle_id = group.key.bundle_id;
-    assignment.pole_a_id = group.key.node_a;
-    assignment.pole_b_id = group.key.node_b;
-    assignment.variation_flow_key = layout.variation_flow_key;
-    assignment.flow_kind = layout.flow_kind;
-    assignment.flow_decision_rule = BackboneFlowDecisionRule::kDefaultMain;
-    assignment.relation_a = layout.relation_a;
-    assignment.relation_b = layout.relation_b;
-    assignment.continuity_class = layout.continuity_class;
-    assignment.default_lower_required = layout.default_lower_required;
-    assignment.same_level_feasible = layout.same_level_feasible;
-    assignment.same_level_reason = layout.same_level_reason;
-    assignment.projected_spacing_topview_m = layout.projected_spacing_topview_m;
-    assignment.required_clearance_m = layout.required_clearance_m;
-    assignment.lowering_blocked_by_policy = layout.lowering_blocked_by_policy;
-    assignment.unresolved_same_level_conflict = layout.unresolved_same_level_conflict;
-    assignment.solver_used_same_level_constraint = layout.solver_used_same_level_constraint;
-    assignment.used_special_case_ports = layout.used_special_case_ports;
-    assignment.bundle_order_policy = layout.bundle_order_policy;
-    assignment.bundle_order_choice_a = layout.start.bundle_order_choice;
-    assignment.bundle_order_choice_b = layout.end.bundle_order_choice;
-    assignment.bundle_order_choice_reason_a = layout.start.bundle_order_choice_reason;
-    assignment.bundle_order_choice_reason_b = layout.end.bundle_order_choice_reason;
-    assignment.decision_a = layout.start.decision;
-    assignment.decision_b = layout.end.decision;
-    assignment.uses_branch_support =
-        (layout.start.origin == SupportLayoutOriginKind::kBranchSupport) ||
-        (layout.end.origin == SupportLayoutOriginKind::kBranchSupport);
-    assignment.lowering_kind = layout.lowering_kind;
-    assignment.branch_down_offset_m = std::max(layout.start.branch_down_offset_m, layout.end.branch_down_offset_m);
-    assignment.side_assignment_rule_a = layout.start.side_assignment_rule;
-    assignment.side_assignment_rule_b = layout.end.side_assignment_rule;
-    assignment.support_orientation_rule_a = layout.start.support_orientation_rule;
-    assignment.support_orientation_rule_b = layout.end.support_orientation_rule;
-    assignment.used_junction_pair_side_assignment_a = layout.start.used_junction_pair_side_assignment;
-    assignment.used_junction_pair_side_assignment_b = layout.end.used_junction_pair_side_assignment;
-    assignment.has_side_axis_a = layout.start.has_side_axis;
-    assignment.has_side_axis_b = layout.end.has_side_axis;
-    assignment.side_axis_a = layout.start.side_axis;
-    assignment.side_axis_b = layout.end.side_axis;
-    assignment.chosen_side_sign_a = layout.start.chosen_side_sign;
-    assignment.chosen_side_sign_b = layout.end.chosen_side_sign;
-    for (const Span* span : ordered_spans) {
-      assignment.port_ids_a.push_back(span->port_a_id);
-      assignment.port_ids_b.push_back(span->port_b_id);
-    }
-    SessionBundleKey session_bundle_key{group.generation_session_id, group.key.bundle_id};
-    assignment.segment_index = next_segment_index[session_bundle_key]++;
-    if (orientation != nullptr) {
-      assignment.flow_kind = orientation->flow_kind;
-      assignment.flow_decision_rule = orientation->flow_decision_rule;
-      assignment.relation_a = orientation->relation_a;
-      assignment.relation_b = orientation->relation_b;
-      assignment.continuity_class = orientation->continuity_class;
-      assignment.default_lower_required = orientation->default_lower_required;
-      assignment.same_level_feasible = orientation->same_level_feasible;
-      assignment.same_level_reason = orientation->same_level_reason;
-      assignment.projected_spacing_topview_m = orientation->projected_spacing_topview_m;
-      assignment.required_clearance_m = orientation->required_clearance_m;
-      assignment.lowering_blocked_by_policy = orientation->lowering_blocked_by_policy;
-      assignment.unresolved_same_level_conflict = orientation->unresolved_same_level_conflict;
-      assignment.solver_used_same_level_constraint = orientation->solver_used_same_level_constraint;
-      assignment.used_special_case_ports = orientation->used_special_case_ports;
-      assignment.bundle_order_policy = orientation->bundle_order_policy;
-      assignment.bundle_order_choice_a = orientation->bundle_order_choice_a;
-      assignment.bundle_order_choice_b = orientation->bundle_order_choice_b;
-      assignment.bundle_order_choice_reason_a = orientation->bundle_order_choice_reason_a;
-      assignment.bundle_order_choice_reason_b = orientation->bundle_order_choice_reason_b;
-      assignment.uses_branch_support = orientation->uses_branch_support;
-      assignment.lowering_kind = orientation->lowering_kind;
-      assignment.branch_down_offset_m = orientation->branch_down_offset_m;
-      assignment.flipped_from_previous = orientation->flipped_from_previous;
-      assignment.flip_reason = orientation->flip_reason;
-      assignment.turn_angle_deg = orientation->turn_angle_deg;
-    }
-    assignments.push_back(std::move(assignment));
   }
-  return assignments;
+  return nullptr;
 }
 
 EntityMeta MakeMeta(EntityKind kind, std::uint64_t stable_id, std::string display_name, EntityRoleKind role, bool editable,
@@ -769,8 +535,7 @@ SupportLayoutEndpointView MakeSupportLayoutEndpointView(const SupportLayoutEndpo
 } // namespace
 
 const std::vector<SegmentLaneAssignment>& CoreView::last_lane_assignments() const {
-  state_.computed_lane_assignments_cache_ = BuildCurrentLaneAssignments(*this);
-  return state_.computed_lane_assignments_cache_;
+  return state_.last_generation_lane_assignments_;
 }
 
 std::optional<EntityMeta> CoreView::describe_entity(EntityRef ref) const {
@@ -944,6 +709,12 @@ std::optional<SpanInspectionView> CoreView::inspect_span(ObjectId span_id) const
     result.unresolved_same_level_conflict = layout->unresolved_same_level_conflict;
     result.solver_used_same_level_constraint = layout->solver_used_same_level_constraint;
     result.used_special_case_ports = layout->used_special_case_ports;
+  }
+  if (const SegmentLaneAssignment* assignment = FindLaneAssignmentForSpan(*this, *span); assignment != nullptr) {
+    result.flow_kind = assignment->flow_kind;
+    result.flow_rule = assignment->flow_decision_rule;
+    result.flipped_from_previous = assignment->flipped_from_previous;
+    result.turn_angle_deg = assignment->turn_angle_deg;
   }
   if (const CurveCacheEntry* curve = state_.find_curve_cache(span_id); curve != nullptr) {
     result.detail_curve_ref = {EntityKind::kDetailCurve, span_id};

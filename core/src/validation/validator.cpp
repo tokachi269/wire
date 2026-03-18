@@ -34,6 +34,11 @@ bool has_duplicate_ids(const std::vector<ObjectId>& ids) {
   return false;
 }
 
+bool endpoint_uses_grouped_lowered_support_for_validation(const SupportLayoutEndpoint& endpoint,
+                                                          BackboneLoweringKind lowering_kind) {
+  return UsesGroupedLoweredSupport(endpoint, lowering_kind);
+}
+
 bool almost_equal_validation(double a, double b, double eps = 1e-9) { return std::abs(a - b) <= eps; }
 
 bool almost_equal_validation(const Vec3d& a, const Vec3d& b, double eps = 1e-9) {
@@ -382,7 +387,7 @@ ValidationResult CoreState::Validate() const {
         result.issues.push_back({ValidationSeverity::kError, code,
                                  "Non-radial support orientation must carry a finite authoritative side axis", span_id});
       }
-      if (UsesGroupedLoweredSupport(endpoint, layout.lowering_kind) &&
+      if (endpoint_uses_grouped_lowered_support_for_validation(endpoint, layout.lowering_kind) &&
           endpoint.decision.support_orientation_basis == SupportOrientationBasisKind::kRadial) {
         result.issues.push_back({ValidationSeverity::kError, "LoweredBundleLikeRadialBasis",
                                  "Grouped lowered support must not keep a radial orientation basis", span_id});

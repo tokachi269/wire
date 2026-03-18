@@ -58,6 +58,11 @@ bool IsFiniteXY(const Vec3d& v) {
 }
 
 bool UsesGroupedLoweredSupport(const SupportLayoutEndpoint& endpoint, BackboneLoweringKind lowering_kind) {
+  if (lowering_kind == BackboneLoweringKind::kNone) {
+    return endpoint.branch_down_offset_m > 1e-6 &&
+           (endpoint.origin == SupportLayoutOriginKind::kBranchSupport ||
+            endpoint.origin == SupportLayoutOriginKind::kPlacementConstraint);
+  }
   if (endpoint.decision.support_orientation_basis != SupportOrientationBasisKind::kRadial) {
     return true;
   }
@@ -69,14 +74,6 @@ bool UsesGroupedLoweredSupport(const SupportLayoutEndpoint& endpoint, BackboneLo
          lowering_kind != BackboneLoweringKind::kNone &&
          (endpoint.decision.default_lower_required || !endpoint.decision.same_level_feasible ||
           endpoint.decision.solver_used_same_level_constraint);
-}
-
-int SupportGroupIdForEndpoint(ObjectId owner_pole_id, const EndpointContinuityDecision& decision) {
-  std::size_t seed = static_cast<std::size_t>(owner_pole_id);
-  seed ^= static_cast<std::size_t>(decision.relation_kind) << 8;
-  seed ^= static_cast<std::size_t>(decision.support_orientation_basis) << 16;
-  seed ^= static_cast<std::size_t>(decision.chosen_side) << 24;
-  return static_cast<int>(seed % 1000000000ull);
 }
 
 Vec3d SafeHorizontalNormalized(Vec3d v, const Vec3d& fallback) {

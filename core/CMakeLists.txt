@@ -33,6 +33,7 @@ if(MSVC)
   target_compile_options(
     wire_core
     PRIVATE
+    /EHsc
     /MP
     /FS
   )
@@ -83,6 +84,42 @@ endfunction()
 
 if(BUILD_TESTING)
   add_executable(
+    wire_capture_replay
+    tools/capture_replay.cpp
+  )
+
+  target_link_libraries(
+    wire_capture_replay
+    PRIVATE
+    wire_core
+  )
+
+  if(MSVC)
+    target_compile_options(
+      wire_capture_replay
+      PRIVATE
+      /EHsc
+      /MP
+      /FS
+    )
+    set_property(
+      TARGET wire_capture_replay
+      PROPERTY MSVC_DEBUG_INFORMATION_FORMAT
+               "$<$<CONFIG:Debug,RelWithDebInfo>:Embedded>"
+    )
+  endif()
+
+  if(WIRE_ENABLE_PCH)
+    target_precompile_headers(
+      wire_capture_replay
+      PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/pch.hpp
+    )
+  endif()
+
+  wire_enable_builtin_vcpkg_applocal(wire_capture_replay)
+
+  add_executable(
     wire_core_tests
     tests/registry.cpp
     tests/runner.cpp
@@ -119,6 +156,7 @@ if(BUILD_TESTING)
     target_compile_options(
       wire_core_tests
       PRIVATE
+      /EHsc
       /MP
       /FS
     )

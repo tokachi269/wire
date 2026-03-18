@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <utility>
 #include <unordered_map>
@@ -104,7 +105,9 @@ struct ViewerUiState {
   int road_pole_type_index = 0;
   int last_generated_poles = 0;
   int last_generated_spans = 0;
-  std::uint64_t last_generation_session = 0;
+  std::vector<ObjectId> last_generated_pole_ids{};
+  std::vector<ObjectId> last_generated_span_ids{};
+  std::optional<wire::core::BackboneSpec> last_draw_path_request{};
   std::vector<wire::core::Vec3d> draw_path_points{};
   std::vector<wire::core::SupportKind> draw_path_point_support_kinds{};
   std::vector<ObjectId> draw_path_point_node_ids{};
@@ -120,7 +123,6 @@ struct ViewerUiState {
   double draw_plane_z = 0.0;
   bool draw_show_preview = true;
   bool draw_keep_path_after_generate = true;
-  bool draw_regenerate_last_session = true;
   bool draw_clicked_points_only = false;
   double draw_interval_m = 8.0;
   int draw_direction_mode = static_cast<int>(wire::core::PathDirectionMode::kAuto);
@@ -221,9 +223,8 @@ void DrawPathPushPoint(ViewerUiState& ui_state, const wire::core::Vec3d& point, 
                        ObjectId node_id = wire::core::kInvalidObjectId);
 void DrawPathPopPoint(ViewerUiState& ui_state);
 void DrawPathClearPoints(ViewerUiState& ui_state);
-void DrawPathClearWithSessionReset(ViewerUiState& ui_state);
 bool ExecuteBackboneRequest(CoreState& state, ViewerUiState& ui_state, const wire::core::BackboneSpec& request,
-                            bool allow_session_regen, bool clear_draw_path_on_success, const char* success_log,
+                            bool clear_draw_path_on_success, const char* success_log,
                             const char* failure_log);
 void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool from_enter_key);
 bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_state, std::string* out_path,

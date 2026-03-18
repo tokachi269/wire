@@ -38,6 +38,14 @@ bool endpoint_uses_grouped_lowered_support(const SupportLayoutEndpoint* endpoint
   return endpoint != nullptr && UsesGroupedLoweredSupport(*endpoint, lowering_kind);
 }
 
+int support_group_id_for_endpoint(ObjectId owner_pole_id, const EndpointContinuityDecision& decision) {
+  std::size_t seed = static_cast<std::size_t>(owner_pole_id);
+  seed ^= static_cast<std::size_t>(decision.relation_kind) << 8;
+  seed ^= static_cast<std::size_t>(decision.support_orientation_basis) << 16;
+  seed ^= static_cast<std::size_t>(decision.chosen_side) << 24;
+  return static_cast<int>(seed % 1000000000ull);
+}
+
 std::pair<Vec3d, Vec3d> shared_support_anchor_points(const Pole& pole, const Vec3d& support_axis, double z_m,
                                                      const CacheState& cache_state) {
   Vec3d axis = SafeHorizontalNormalized(support_axis, {1.0, 0.0, 0.0});
@@ -69,7 +77,7 @@ void append_lowered_support_group_placement(std::vector<LoweredSupportGroupPlace
   }
   const Port* port = edit_state.ports.find(endpoint.port_id);
   const Vec3d attachment_world = (port == nullptr) ? endpoint.endpoint_world : port->world_position;
-  const int support_group_id = SupportGroupIdForEndpoint(endpoint.owner_pole_id, endpoint.decision);
+  const int support_group_id = support_group_id_for_endpoint(endpoint.owner_pole_id, endpoint.decision);
   auto existing = std::find_if(groups->begin(), groups->end(), [&](const LoweredSupportGroupPlacement& group) {
     return group.owner_pole_id == endpoint.owner_pole_id && group.support_group_id == support_group_id;
   });
@@ -120,6 +128,12 @@ build_lowered_support_group_placements(const EditState& edit_state, const CacheS
     append_lowered_support_group_placement(&groups, edit_state, cache_state, *layout, layout->end);
   }
   return groups;
+}
+
+std::uint64_t lowered_support_layout_segment_key(const SpanSupportLayoutEntry& layout) {
+  const std::uint64_t a = std::min(layout.start.endpoint_node_id, layout.end.endpoint_node_id);
+  const std::uint64_t b = std::max(layout.start.endpoint_node_id, layout.end.endpoint_node_id);
+  return (a << 32) ^ b;
 }
 
 bool build_attachment_frame(const Vec3d& tangent, Vec3d* forward, Vec3d* lateral, Vec3d* up) {
@@ -1098,15 +1112,23 @@ void CoreState::rebuild_lowered_support_groups_for_bundle(ObjectId bundle_id) {
   if (layouts.empty()) {
     return;
   }
-  std::vector<const SpanSupportLayoutEntry*> readonly_layouts{};
-  readonly_layouts.reserve(layouts.size());
+  std::unordered_map<std::uint64_t, std::vector<SpanSupportLayoutEntry*>> layouts_by_segment{};
+  layouts_by_segment.reserve(layouts.size());
   for (SpanSupportLayoutEntry* layout : layouts) {
-    readonly_layouts.push_back(layout);
+    layouts_by_segment[lowered_support_layout_segment_key(*layout)].push_back(layout);
   }
-  const std::vector<LoweredSupportGroupPlacement> groups =
-      build_lowered_support_group_placements(edit_state_, cache_state_, readonly_layouts);
-  for (SpanSupportLayoutEntry* layout : layouts) {
-    layout->lowered_support_groups = groups;
+  for (auto& [segment_key, segment_layouts] : layouts_by_segment) {
+    (void)segment_key;
+    std::vector<const SpanSupportLayoutEntry*> readonly_layouts{};
+    readonly_layouts.reserve(segment_layouts.size());
+    for (SpanSupportLayoutEntry* layout : segment_layouts) {
+      readonly_layouts.push_back(layout);
+    }
+    const std::vector<LoweredSupportGroupPlacement> groups =
+        build_lowered_support_group_placements(edit_state_, cache_state_, readonly_layouts);
+    for (SpanSupportLayoutEntry* layout : segment_layouts) {
+      layout->lowered_support_groups = groups;
+    }
   }
 }
 

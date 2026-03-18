@@ -571,15 +571,6 @@ void DrawPathClearPoints(ViewerUiState& ui_state) {
   ui_state.draw_path_point_node_ids.clear();
 }
 
-void DrawPathClearWithSessionReset(ViewerUiState& ui_state) {
-  DrawPathClearPoints(ui_state);
-  ui_state.last_generation_session = 0;
-}
-
-bool DrawPathRequestHasExplicitAnchors(const wire::core::BackboneSpec& request) {
-  return !request.path.node_specs.empty();
-}
-
 wire::core::CoreState::ResolveBranchPickResult DirectResolvedDrawPathTarget(const wire::core::PickResult& pick) {
   wire::core::CoreState::ResolveBranchPickResult resolved{};
   resolved.resolution = wire::core::CoreState::PickBranchResolutionKind::kNode;
@@ -592,13 +583,10 @@ wire::core::CoreState::ResolveBranchPickResult DirectResolvedDrawPathTarget(cons
 }
 
 bool ExecuteBackboneRequest(CoreState& state, ViewerUiState& ui_state, const wire::core::BackboneSpec& request,
-                            bool allow_session_regen, bool clear_draw_path_on_success, const char* success_log,
+                            bool clear_draw_path_on_success, const char* success_log,
                             const char* failure_log) {
-  const bool regen_requested = ui_state.draw_regenerate_last_session && ui_state.last_generation_session != 0;
-  const bool use_session_regen = regen_requested && !DrawPathRequestHasExplicitAnchors(request);
-  const bool run_regen = allow_session_regen && use_session_regen;
-  const auto result = run_regen ? state.RegenerateSessionAutoParts(ui_state.last_generation_session, request)
-                                : state.GenerateFromBackboneSpec(request);
+  ui_state.last_draw_path_request = request;
+  const auto result = state.GenerateFromBackboneSpec(request);
   if (!result.ok) {
     ui_state.last_error = result.error;
     PushLogLocal(ui_state, failure_log);
@@ -608,21 +596,8 @@ bool ExecuteBackboneRequest(CoreState& state, ViewerUiState& ui_state, const wir
   ui_state.last_error.clear();
   ui_state.last_generated_poles = static_cast<int>(result.value.generated_pole_ids.size());
   ui_state.last_generated_spans = static_cast<int>(result.value.generated_span_ids.size());
-  std::uint64_t resolved_session_id = run_regen ? ui_state.last_generation_session : 0;
-  if (resolved_session_id == 0) {
-    if (!result.value.generated_span_ids.empty()) {
-      const auto* last_span = state.view().edit_state().spans.find(result.value.generated_span_ids.back());
-      if (last_span != nullptr) {
-        resolved_session_id = last_span->generation.generation_session_id;
-      }
-    } else if (!result.value.generated_pole_ids.empty()) {
-      const auto* last_pole = state.view().edit_state().poles.find(result.value.generated_pole_ids.back());
-      if (last_pole != nullptr) {
-        resolved_session_id = last_pole->generation.generation_session_id;
-      }
-    }
-  }
-  ui_state.last_generation_session = resolved_session_id;
+  ui_state.last_generated_pole_ids = result.value.generated_pole_ids;
+  ui_state.last_generated_span_ids = result.value.generated_span_ids;
   if (!result.value.generated_pole_ids.empty()) {
     SetPrimarySelection(ui_state, SelectedType::kPole, result.value.generated_pole_ids.back());
   } else if (!result.value.generated_span_ids.empty()) {
@@ -634,9 +609,6 @@ bool ExecuteBackboneRequest(CoreState& state, ViewerUiState& ui_state, const wir
   }
   PushLogLocal(ui_state, std::string(success_log) + " poles=" + std::to_string(ui_state.last_generated_poles) +
                              " spans=" + std::to_string(ui_state.last_generated_spans));
-  if (allow_session_regen && regen_requested && !run_regen) {
-    PushLogLocal(ui_state, "DrawPath session regen bypassed: explicit anchored support nodes present");
-  }
   PushLogLocal(ui_state, "DrawPath attachment/socket request input: unsupported in BackboneSpec node/path request");
   PushLogLocal(ui_state, GeneratedEndpointSourceSummaryLocal(state, result.value.generated_span_ids));
   return true;
@@ -714,8 +686,8 @@ void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool
       std::string(from_enter_key ? "Generated path (Enter)" : "Generated path") + " templates=" +
       BundleTemplateMultiPreviewLocal(state, ui_state);
   const char* failure_log = from_enter_key ? "Generate path (Enter) failed" : "Generate path failed";
-  (void)ExecuteBackboneRequest(state, ui_state, request, true, !ui_state.draw_keep_path_after_generate,
-                               success_log.c_str(), failure_log);
+  (void)ExecuteBackboneRequest(state, ui_state, request, !ui_state.draw_keep_path_after_generate, success_log.c_str(),
+                               failure_log);
 }
 
 bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_state, std::string* out_path,
@@ -763,7 +735,51 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
       ofs << prefix << ".decision_trace[" << index << "].summary=" << trace[index].summary << "\n";
     }
   };
-  ofs << "capture.version=4\n";
+      const auto write_endpoint_junction = [&](const std::string& prefix, wire::core::ObjectId node_id,
+                           wire::core::ObjectId peer_node_id) {
+      ofs << prefix << ".node_id=" << static_cast<unsigned long long>(node_id) << "\n";
+      if (const auto junction_view = view.inspect_junction(node_id); junction_view.has_value()) {
+        ofs << prefix << ".has_local_relation=" << (junction_view->has_local_relation ? 1 : 0) << "\n";
+        ofs << prefix << ".through_pair_accepted=" << (junction_view->through_pair_accepted ? 1 : 0) << "\n";
+        ofs << prefix << ".through_pair_used_semantic_tiebreak="
+          << (junction_view->through_pair_used_semantic_tiebreak ? 1 : 0) << "\n";
+        ofs << prefix << ".is_cross_like=" << (junction_view->is_cross_like ? 1 : 0) << "\n";
+        ofs << prefix << ".route_incident_count=" << junction_view->route_incident_count << "\n";
+        ofs << prefix << ".through_pair_neighbor_a_id="
+          << static_cast<unsigned long long>(junction_view->through_pair_neighbor_a_id) << "\n";
+        ofs << prefix << ".through_pair_neighbor_b_id="
+          << static_cast<unsigned long long>(junction_view->through_pair_neighbor_b_id) << "\n";
+        ofs << prefix << ".through_pair_straightness_score=" << junction_view->through_pair_straightness_score
+          << "\n";
+
+        const auto relation_it = std::find_if(
+          junction_view->local_relations.begin(), junction_view->local_relations.end(),
+          [peer_node_id](const wire::core::JunctionIncidentRelationView& relation) {
+          return relation.neighbor_node_id == peer_node_id;
+          });
+        ofs << prefix << ".peer_relation_found=" << (relation_it != junction_view->local_relations.end() ? 1 : 0)
+          << "\n";
+        if (relation_it != junction_view->local_relations.end()) {
+        ofs << prefix << ".peer_relation_kind=" << JunctionRelationLabelLocal(relation_it->kind) << "\n";
+        ofs << prefix << ".peer_straightness_score=" << relation_it->straightness_score << "\n";
+        ofs << prefix << ".peer_in_route=" << (relation_it->in_route ? 1 : 0) << "\n";
+        ofs << prefix << ".peer_in_through_pair=" << (relation_it->in_through_pair ? 1 : 0) << "\n";
+        ofs << prefix << ".peer_used_semantic_tiebreak=" << (relation_it->used_semantic_tiebreak ? 1 : 0)
+          << "\n";
+        ofs << prefix << ".peer_continuity_class=" << ContinuityClassLabelLocal(relation_it->continuity_class)
+          << "\n";
+        ofs << prefix << ".peer_default_lower_required=" << (relation_it->default_lower_required ? 1 : 0)
+          << "\n";
+        ofs << prefix << ".peer_same_level_feasible=" << (relation_it->same_level_feasible ? 1 : 0) << "\n";
+        ofs << prefix << ".peer_infeasible_reason=" << SameLevelReasonLabelLocal(relation_it->infeasible_reason)
+          << "\n";
+        ofs << prefix << ".peer_projected_spacing_topview_m=" << relation_it->projected_spacing_topview_m
+          << "\n";
+        ofs << prefix << ".peer_required_clearance_m=" << relation_it->required_clearance_m << "\n";
+        }
+      }
+      };
+      ofs << "capture.version=5\n";
   ofs << "draw.endpoint_attachment_input_supported=0\n";
   ofs << "draw.endpoint_socket_input_supported=0\n";
   ofs << "capture.timestamp_unix=" << static_cast<long long>(now) << "\n";
@@ -771,9 +787,18 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
   ofs << "capture.selected_type=" << SelectedTypeLabelLocal(ui_state.selected_type) << "\n";
   ofs << "capture.selected_id=" << static_cast<unsigned long long>(ui_state.selected_id) << "\n";
   ofs << "capture.last_error=" << ui_state.last_error << "\n";
-  ofs << "capture.last_generation_session=" << static_cast<unsigned long long>(ui_state.last_generation_session) << "\n";
   ofs << "capture.last_generated_poles=" << ui_state.last_generated_poles << "\n";
   ofs << "capture.last_generated_spans=" << ui_state.last_generated_spans << "\n";
+  ofs << "capture.last_generated_pole_id_count=" << ui_state.last_generated_pole_ids.size() << "\n";
+  for (std::size_t i = 0; i < ui_state.last_generated_pole_ids.size(); ++i) {
+    ofs << "capture.last_generated_pole_id[" << i << "]="
+        << static_cast<unsigned long long>(ui_state.last_generated_pole_ids[i]) << "\n";
+  }
+  ofs << "capture.last_generated_span_id_count=" << ui_state.last_generated_span_ids.size() << "\n";
+  for (std::size_t i = 0; i < ui_state.last_generated_span_ids.size(); ++i) {
+    ofs << "capture.last_generated_span_id[" << i << "]="
+        << static_cast<unsigned long long>(ui_state.last_generated_span_ids[i]) << "\n";
+  }
   if (const auto selected_ref = SelectedEntityRefLocal(ui_state); selected_ref.has_value()) {
     ofs << "capture.selected_entity.kind=" << static_cast<int>(selected_ref->kind) << "\n";
     ofs << "capture.selected_entity.stable_id=" << selected_ref->stable_id << "\n";
@@ -799,6 +824,39 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
         (i < ui_state.draw_path_point_node_ids.size()) ? ui_state.draw_path_point_node_ids[i] : wire::core::kInvalidObjectId;
     ofs << "draw.path[" << i << "].node_id=" << static_cast<unsigned long long>(node_id) << "\n";
   }
+  const wire::core::BackboneSpec* replay_request =
+      ui_state.last_draw_path_request.has_value() ? &*ui_state.last_draw_path_request : nullptr;
+  ofs << "request.available=" << ((replay_request != nullptr) ? 1 : 0) << "\n";
+  if (replay_request != nullptr) {
+    ofs << "request.path_count=" << replay_request->path.polyline.size() << "\n";
+    for (std::size_t i = 0; i < replay_request->path.polyline.size(); ++i) {
+      const auto& p = replay_request->path.polyline[i];
+      ofs << "request.path[" << i << "]=" << p.x << "," << p.y << "," << p.z << "\n";
+    }
+    ofs << "request.node_spec_count=" << replay_request->path.node_specs.size() << "\n";
+    for (std::size_t i = 0; i < replay_request->path.node_specs.size(); ++i) {
+      const auto& node = replay_request->path.node_specs[i];
+      ofs << "request.node_spec[" << i << "].point_index=" << node.point_index << "\n";
+      ofs << "request.node_spec[" << i << "].support_kind=" << SupportKindLabelLocal(node.support_kind) << "\n";
+      ofs << "request.node_spec[" << i << "].node_id=" << static_cast<unsigned long long>(node.node_id) << "\n";
+      ofs << "request.node_spec[" << i << "].has_tangent_hint=" << (node.has_tangent_hint ? 1 : 0) << "\n";
+      if (node.has_tangent_hint) {
+        ofs << "request.node_spec[" << i << "].tangent_hint=" << node.tangent_hint.x << "," << node.tangent_hint.y
+            << "," << node.tangent_hint.z << "\n";
+      }
+    }
+    ofs << "request.interval_m=" << replay_request->interval_m << "\n";
+    ofs << "request.pole_type_id=" << static_cast<unsigned long long>(replay_request->pole_type_id) << "\n";
+    ofs << "request.direction_mode="
+        << PathDirectionModeLabelLocal(replay_request->direction_mode) << "\n";
+    ofs << "request.bundle_count=" << replay_request->bundles.size() << "\n";
+    for (std::size_t i = 0; i < replay_request->bundles.size(); ++i) {
+      const auto& bundle = replay_request->bundles[i];
+      ofs << "request.bundle[" << i << "].kind=" << static_cast<int>(bundle.bundle_template_id) << "\n";
+      ofs << "request.bundle[" << i << "].layer=" << static_cast<int>(bundle.layer) << "\n";
+      ofs << "request.bundle[" << i << "].count=" << bundle.count << "\n";
+    }
+  }
   ofs << "draw.interval_m=" << ui_state.draw_interval_m << "\n";
   ofs << "draw.clicked_points_only=" << (ui_state.draw_clicked_points_only ? 1 : 0) << "\n";
   ofs << "draw.direction_mode="
@@ -806,7 +864,6 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
              static_cast<wire::core::PathDirectionMode>(std::clamp(ui_state.draw_direction_mode, 0, 2)))
       << "\n";
   ofs << "draw.keep_path_after_generate=" << (ui_state.draw_keep_path_after_generate ? 1 : 0) << "\n";
-  ofs << "draw.regenerate_last_session=" << (ui_state.draw_regenerate_last_session ? 1 : 0) << "\n";
   ofs << "draw.plane_z=" << ui_state.draw_plane_z << "\n";
 
   const auto type_ids = SortedPoleTypeIdsLocal(state);
@@ -1267,6 +1324,10 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
         << SupportOrientationBasisLabelLocal(layout_view->end_endpoint.decision.support_orientation_basis)
         << "\n";
     }
+    write_endpoint_junction("result.current_span[" + std::to_string(current_span_index) + "].endpoint_a_junction",
+                            span.endpoint_node_a_id, span.endpoint_node_b_id);
+    write_endpoint_junction("result.current_span[" + std::to_string(current_span_index) + "].endpoint_b_junction",
+                            span.endpoint_node_b_id, span.endpoint_node_a_id);
     write_decision_trace("result.current_span[" + std::to_string(current_span_index) + "]",
                wire::core::EntityRef{wire::core::EntityKind::kSpan, span.id});
     ++current_span_index;
@@ -1418,7 +1479,7 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
       DrawPathPopPoint(ui_state);
     }
     if (IsKeyPressed(KEY_ESCAPE)) {
-      DrawPathClearWithSessionReset(ui_state);
+      DrawPathClearPoints(ui_state);
     }
     if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER)) {
       ExecuteGenerateFromDrawPath(state, ui_state, true);
@@ -1479,7 +1540,6 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
   ImGui::Checkbox("Clicked Points Only (No Intermediate Pole)", &ui_state.draw_clicked_points_only);
   ImGui::Checkbox("Show Preview", &ui_state.draw_show_preview);
   ImGui::Checkbox("Keep Path After Generate", &ui_state.draw_keep_path_after_generate);
-  ImGui::Checkbox("Regenerate Last Session (Enter Extend)", &ui_state.draw_regenerate_last_session);
   ImGui::TextUnformatted("Template-driven bundle generation");
   ImGui::Text("Path points: %d", static_cast<int>(ui_state.draw_path_points.size()));
   const int midair_points = static_cast<int>(
@@ -1637,7 +1697,7 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
   }
   ImGui::SameLine();
   if (ImGui::Button("Clear Path")) {
-    DrawPathClearWithSessionReset(ui_state);
+    DrawPathClearPoints(ui_state);
   }
   if (!ui_state.last_repro_capture_path.empty()) {
     ImGui::TextWrapped("Last capture: %s", ui_state.last_repro_capture_path.c_str());

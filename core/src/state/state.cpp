@@ -868,6 +868,64 @@ void CoreState::refresh_owned_endpoints_from_pole(ObjectId pole_id, ChangeSet* c
                                                                         previous_layout_yaw_override);
 }
 
+EditResult<ObjectId> CoreState::DeletePole(ObjectId pole_id) {
+  EditResult<ObjectId> result;
+  const Pole* pole = edit_state_.poles.find(pole_id);
+  if (pole == nullptr) {
+    result.error = "pole not found";
+    return result;
+  }
+
+  std::vector<ObjectId> owned_ports{};
+  if (const auto it = relation_index_.ports_by_pole.find(pole_id); it != relation_index_.ports_by_pole.end()) {
+    owned_ports = it->second;
+  }
+  std::vector<ObjectId> owned_anchors{};
+  if (const auto it = relation_index_.anchors_by_pole.find(pole_id); it != relation_index_.anchors_by_pole.end()) {
+    owned_anchors = it->second;
+  }
+
+  for (ObjectId port_id : owned_ports) {
+    const auto spans_it = connection_index_.spans_by_port.find(port_id);
+    if (spans_it != connection_index_.spans_by_port.end() && !spans_it->second.empty()) {
+      result.error = "pole still has connected spans";
+      return result;
+    }
+  }
+  for (ObjectId anchor_id : owned_anchors) {
+    const auto spans_it = connection_index_.spans_by_anchor.find(anchor_id);
+    if (spans_it != connection_index_.spans_by_anchor.end() && !spans_it->second.empty()) {
+      result.error = "pole still has connected anchors";
+      return result;
+    }
+  }
+
+  for (ObjectId port_id : owned_ports) {
+    connection_index_.spans_by_port.erase(port_id);
+    if (edit_state_.ports.remove(port_id)) {
+      add_unique_id(result.change_set.deleted_ids, port_id);
+    }
+  }
+  relation_index_.ports_by_pole.erase(pole_id);
+
+  for (ObjectId anchor_id : owned_anchors) {
+    connection_index_.spans_by_anchor.erase(anchor_id);
+    if (edit_state_.anchors.remove(anchor_id)) {
+      add_unique_id(result.change_set.deleted_ids, anchor_id);
+    }
+  }
+  relation_index_.anchors_by_pole.erase(pole_id);
+
+  override_state_.pole_orientation_by_pole.erase(pole_id);
+  if (edit_state_.poles.remove(pole_id)) {
+    add_unique_id(result.change_set.deleted_ids, pole_id);
+  }
+
+  result.ok = true;
+  result.value = pole_id;
+  return result;
+}
+
 EditResult<ObjectId> CoreState::DeleteSpan(ObjectId span_id) {
   EditResult<ObjectId> result;
   const Span* span = edit_state_.spans.find(span_id);

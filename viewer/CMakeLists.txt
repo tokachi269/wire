@@ -121,6 +121,14 @@ target_link_libraries(
 )
 
 if(MSVC)
+  target_compile_options(
+    wire_viewer
+    PRIVATE
+    /EHsc
+  )
+endif()
+
+if(MSVC)
   # Avoid the noisy pwsh.exe probe in vcpkg's MSBuild applocal path while
   # keeping DLL deployment enabled via vcpkg's built-in helper.
   set_target_properties(
@@ -156,6 +164,14 @@ target_link_libraries(
   wire_core
   raylib
 )
+
+if(MSVC)
+  target_compile_options(
+    wire_viewer_tests
+    PRIVATE
+    /EHsc
+  )
+endif()
 
 if(MSVC)
   set_target_properties(

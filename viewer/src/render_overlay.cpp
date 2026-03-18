@@ -354,7 +354,8 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
     const wire::core::SpanVisualCacheEntry* visual = state.view().find_span_visual_cache(span.id);
     const wire::core::BackboneFlowKind flow_kind =
         (support_layout == nullptr) ? wire::core::BackboneFlowKind::kMain : support_layout->flow_kind;
-    const bool uses_branch_support = layout_view.has_value() && !layout_view->lowered_support_groups.empty();
+    const bool uses_branch_support =
+      layout_view.has_value() && layout_view->lowering_kind == wire::core::BackboneLoweringKind::kBranchSupport;
     const float wire_radius =
         static_cast<float>((render == nullptr) ? 0.01 : std::max(0.0005, render->wire_radius_m));
     Color wire_color = (render == nullptr) ? ViewerWireColor(color) : ViewerWireColor(ColorFromRgba(render->color_rgba));

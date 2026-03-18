@@ -395,6 +395,35 @@ ValidationResult CoreState::Validate() const {
     };
     validate_endpoint(layout.start, "SupportLayoutStartAxisMissing");
     validate_endpoint(layout.end, "SupportLayoutEndAxisMissing");
+
+    const auto validate_grouped_endpoint_alignment = [&](const SupportLayoutEndpoint& endpoint) {
+      if (!endpoint_uses_grouped_lowered_support_for_validation(endpoint, layout.lowering_kind)) {
+        return;
+      }
+      const int expected_group_id = SupportGroupIdForEndpoint(endpoint.owner_pole_id, endpoint.decision);
+      auto it = std::find_if(layout.lowered_support_groups.begin(), layout.lowered_support_groups.end(),
+                             [&](const LoweredSupportGroupPlacement& group) {
+                               return group.owner_pole_id == endpoint.owner_pole_id &&
+                                      group.support_group_id == expected_group_id;
+                             });
+      if (it == layout.lowered_support_groups.end()) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportGroupEndpointMissing",
+                                 "Grouped-lowered endpoint does not resolve to a support group placement", span_id});
+        return;
+      }
+      const LoweredSupportGroupPlacement& group = *it;
+      const bool decision_aligned =
+          endpoint.decision.support_orientation_basis == group.decision.support_orientation_basis &&
+          endpoint.decision.chosen_side == group.decision.chosen_side &&
+          endpoint.decision.support_orientation_rule == group.decision.support_orientation_rule;
+      if (!decision_aligned) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionMismatch",
+                                 "Grouped-lowered endpoint decision does not match grouped placement decision",
+                                 span_id});
+      }
+    };
+    validate_grouped_endpoint_alignment(layout.start);
+    validate_grouped_endpoint_alignment(layout.end);
   }
 
   struct SupportGroupPlacementSnapshot {

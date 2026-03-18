@@ -1506,17 +1506,41 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     relation.is_cross_like = combined_neighbors.size() >= 4;
 
     auto explicit_middle_route_corner_score = [&]() -> std::optional<double> {
-      const auto it_support_node = support_node_by_id.find(node_id);
-      if (it_support_node == support_node_by_id.end()) {
+      if (request.path.node_specs.size() != 1) {
         return std::nullopt;
       }
-      const int path_point_index = it_support_node->second.path_point_index;
-      const BackboneInputSpec::NodeSpec* explicit_node_spec =
-          (path_point_index >= 0) ? node_spec_for_point(static_cast<std::size_t>(path_point_index)) : nullptr;
+      if (route_neighbors.size() != 2) {
+        return std::nullopt;
+      }
+
+      const BackboneInputSpec::NodeSpec* explicit_node_spec = nullptr;
+      const Vec3d node_position = current_support_position(node_id);
+      for (const BackboneInputSpec::NodeSpec& node_spec : request.path.node_specs) {
+        if (node_spec.support_kind != SupportKind::kPole) {
+          continue;
+        }
+        if (node_spec.point_index <= 0 ||
+            node_spec.point_index >= static_cast<int>(request.path.polyline.size()) - 1) {
+          continue;
+        }
+        const Vec3d point = request.path.polyline[static_cast<std::size_t>(node_spec.point_index)];
+        const Vec3d delta = point - node_position;
+        const bool same_point = std::abs(delta.x) <= 1e-6 && std::abs(delta.y) <= 1e-6;
+        if (!same_point) {
+          continue;
+        }
+        if (explicit_node_spec != nullptr) {
+          return std::nullopt;
+        }
+        explicit_node_spec = &node_spec;
+      }
+      if (explicit_node_spec == nullptr) {
+        return std::nullopt;
+      }
+
+      const int path_point_index = explicit_node_spec->point_index;
       if (path_point_index <= 0 ||
-          path_point_index >= static_cast<int>(request.path.polyline.size()) - 1 ||
-          route_neighbors.size() != 2 || explicit_node_spec == nullptr || request.path.node_specs.size() != 1 ||
-          explicit_node_spec->node_id != node_id) {
+          path_point_index >= static_cast<int>(request.path.polyline.size()) - 1) {
         return std::nullopt;
       }
 

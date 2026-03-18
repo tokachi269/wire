@@ -3450,7 +3450,7 @@ bool test_backbone_explicit_middle_bent_route_stays_corner_main_against_existing
   bent.path.node_specs.push_back(shared);
   bent.interval_m = 1000.0;
   bent.pole_type_id = type_ids.front();
-  add_backbone_bundle(bent, wire::core::BundleKind::kHighVoltage, wire::core::SpanLayer::kUnknown, 3);
+  add_backbone_bundle(bent, wire::core::BundleKind::kHighVoltage);
   const auto generated = state.GenerateFromBackboneSpec(bent);
   if (!generated.ok || generated.value.generated_span_ids.empty()) {
     return false;
@@ -5035,6 +5035,7 @@ bool test_backbone_cross_underpass_supports_share_one_side_group() {
 
   std::vector<wire::core::LoweredSupportGroupInspectionView> placements{};
   std::vector<wire::core::Vec3d> support_worlds{};
+  std::vector<wire::core::EndpointContinuityDecision> lowered_endpoint_decisions{};
   for (const auto& span_entry : state.view().spans().items()) {
     const ObjectId span_id = span_entry.id;
     const auto support_layout = state.view().inspect_support_layout(span_id);
@@ -5052,6 +5053,7 @@ bool test_backbone_cross_underpass_supports_share_one_side_group() {
           endpoint.decision.relation_kind == wire::core::JunctionRelationKind::kCrossUnderpass &&
           endpoint.decision.lower_required) {
         support_worlds.push_back(endpoint.support_world);
+        lowered_endpoint_decisions.push_back(endpoint.decision);
       }
     };
     collect_endpoint(support_layout->start_endpoint);
@@ -5075,6 +5077,8 @@ bool test_backbone_cross_underpass_supports_share_one_side_group() {
   }
   const int group_id = placements.front().support_group_id;
   const double side_sign = placements.front().chosen_side_sign;
+  const auto group_basis = placements.front().decision.support_orientation_basis;
+  const auto group_side = placements.front().decision.chosen_side;
   for (const auto& placement : placements) {
     if (placement.grouping_rule != wire::core::SupportGroupingRuleKind::kDecisionGroup ||
         placement.support_group_id != group_id ||
@@ -5091,18 +5095,27 @@ bool test_backbone_cross_underpass_supports_share_one_side_group() {
         return false;
       }
     }
-    if (support_worlds.size() >= 2) {
-      const wire::core::Vec3d ref = support_worlds.front();
-      for (const wire::core::Vec3d& support_world : support_worlds) {
-        if (!almost_equal(support_world.x, ref.x, 1e-6) || !almost_equal(support_world.y, ref.y, 1e-6)) {
-          std::cerr << "[DBG] C251 support_world mismatch (" << support_world.x << "," << support_world.y
-                    << ") ref=(" << ref.x << "," << ref.y << ")\n";
-          return false;
-        }
+  for (const auto& decision : lowered_endpoint_decisions) {
+    if (decision.support_orientation_basis != group_basis || decision.chosen_side != group_side) {
+      std::cerr << "[DBG] C251 endpoint decision mismatch basis="
+                << static_cast<int>(decision.support_orientation_basis) << " groupBasis="
+                << static_cast<int>(group_basis) << " side=" << static_cast<int>(decision.chosen_side)
+                << " groupSide=" << static_cast<int>(group_side) << "\n";
+      return false;
+    }
+  }
+  if (support_worlds.size() >= 2) {
+    const wire::core::Vec3d ref = support_worlds.front();
+    for (const wire::core::Vec3d& support_world : support_worlds) {
+      if (!almost_equal(support_world.x, ref.x, 1e-6) || !almost_equal(support_world.y, ref.y, 1e-6)) {
+        std::cerr << "[DBG] C251 support_world mismatch (" << support_world.x << "," << support_world.y
+                  << ") ref=(" << ref.x << "," << ref.y << ")\n";
+        return false;
       }
     }
-    return true;
   }
+  return true;
+}
 
 bool test_backbone_refresh_keeps_local_lower_and_grouped_support() {
   CoreState state;
@@ -5184,18 +5197,18 @@ bool test_backbone_refresh_keeps_local_lower_and_grouped_support() {
     const auto after = state.view().inspect_support_layout(target_span_id);
     const int after_grouped = grouped_support_count_for_center(target_span_id);
     return after.has_value() &&
-           before->lowering_kind == after->lowering_kind &&
-           before->start_endpoint.decision.lower_required == after->start_endpoint.decision.lower_required &&
-           before->end_endpoint.decision.lower_required == after->end_endpoint.decision.lower_required &&
-           before_grouped == after_grouped && after_grouped > 0 &&
-           almost_equal(
-               (after->start_endpoint.owner_pole_id == center_id ? after->start_endpoint.support_world.x
-                                                                 : after->end_endpoint.support_world.x),
-               before_support_world.x, 1e-6) &&
-           almost_equal(
-               (after->start_endpoint.owner_pole_id == center_id ? after->start_endpoint.support_world.y
-                                                                 : after->end_endpoint.support_world.y),
-               before_support_world.y, 1e-6);
+         before->lowering_kind == after->lowering_kind &&
+         before->start_endpoint.decision.lower_required == after->start_endpoint.decision.lower_required &&
+         before->end_endpoint.decision.lower_required == after->end_endpoint.decision.lower_required &&
+         before_grouped == after_grouped && after_grouped > 0 &&
+         almost_equal(
+           (after->start_endpoint.owner_pole_id == center_id ? after->start_endpoint.support_world.x
+                                   : after->end_endpoint.support_world.x),
+           before_support_world.x, 1e-6) &&
+         almost_equal(
+           (after->start_endpoint.owner_pole_id == center_id ? after->start_endpoint.support_world.y
+                                   : after->end_endpoint.support_world.y),
+           before_support_world.y, 1e-6);
   }
 
 bool test_backbone_grouped_support_visual_cache_uses_single_group_placement() {

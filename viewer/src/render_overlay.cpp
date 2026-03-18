@@ -394,8 +394,21 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
       }
     }
 
+    const bool has_grouped_lowered_support =
+        layout_view.has_value() && std::any_of(layout_view->lowered_support_groups.begin(),
+                                               layout_view->lowered_support_groups.end(),
+                                               [](const auto& placement) {
+                                                 return placement.grouping_rule ==
+                                                            wire::core::SupportGroupingRuleKind::kDecisionGroup &&
+                                                        placement.support_group_id >= 0;
+                                               });
+
     if (visual != nullptr) {
       for (const wire::core::VisualPart& part : visual->parts) {
+        if (has_grouped_lowered_support &&
+            (part.kind == wire::core::VisualPartKind::kSupportArm || part.kind == wire::core::VisualPartKind::kFitting)) {
+          continue;
+        }
         const Color part_color = VisualPartColor(part.kind);
         if (part.kind == wire::core::VisualPartKind::kInsulator) {
           DrawCylinderEx(ToRaylib(part.a), ToRaylib(part.b), static_cast<float>(part.radius_m),
@@ -420,6 +433,9 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
         DrawLine3D(ToRaylib(placement.mount_world), ToRaylib(placement.tip_world), support_color);
         DrawSphere(ToRaylib(placement.mount_world), 0.05f, Color{104, 116, 122, 220});
         DrawSphere(ToRaylib(placement.tip_world), 0.05f, Color{112, 136, 144, 220});
+        for (const auto& attachment_world : placement.attachment_worlds) {
+          DrawLine3D(ToRaylib(placement.tip_world), ToRaylib(attachment_world), Color{180, 186, 190, 220});
+        }
       };
       for (const auto& placement : layout_view->lowered_support_groups) {
         draw_lowered_support_group(placement);

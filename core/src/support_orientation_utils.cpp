@@ -76,6 +76,18 @@ bool UsesGroupedLoweredSupport(const SupportLayoutEndpoint& endpoint, BackboneLo
           endpoint.decision.solver_used_same_level_constraint);
 }
 
+int SupportGroupIdForEndpoint(ObjectId owner_pole_id, const EndpointContinuityDecision& decision) {
+  std::size_t seed = static_cast<std::size_t>(owner_pole_id);
+  seed ^= static_cast<std::size_t>(decision.relation_kind) << 8;
+  seed ^= static_cast<std::size_t>(decision.continuity_class) << 16;
+  seed ^= static_cast<std::size_t>(decision.support_orientation_rule) << 24;
+  seed ^= static_cast<std::size_t>(decision.side_assignment_rule) << 32;
+  seed ^= static_cast<std::size_t>(decision.used_junction_pair_side_assignment ? 1u : 0u) << 40;
+  seed ^= static_cast<std::size_t>(decision.in_through_pair ? 1u : 0u) << 41;
+  seed ^= static_cast<std::size_t>(decision.lower_required ? 1u : 0u) << 42;
+  return static_cast<int>(seed % 1000000000ull);
+}
+
 Vec3d SafeHorizontalNormalized(Vec3d v, const Vec3d& fallback) {
   v.z = 0.0;
   if (Normalize(&v) && IsFiniteXY(v)) {

@@ -38,14 +38,6 @@ bool endpoint_uses_grouped_lowered_support(const SupportLayoutEndpoint* endpoint
   return endpoint != nullptr && UsesGroupedLoweredSupport(*endpoint, lowering_kind);
 }
 
-int support_group_id_for_endpoint(ObjectId owner_pole_id, const EndpointContinuityDecision& decision) {
-  std::size_t seed = static_cast<std::size_t>(owner_pole_id);
-  seed ^= static_cast<std::size_t>(decision.relation_kind) << 8;
-  seed ^= static_cast<std::size_t>(decision.support_orientation_basis) << 16;
-  seed ^= static_cast<std::size_t>(decision.chosen_side) << 24;
-  return static_cast<int>(seed % 1000000000ull);
-}
-
 std::pair<Vec3d, Vec3d> shared_support_anchor_points(const Pole& pole, const Vec3d& support_axis, double z_m,
                                                      const CacheState& cache_state) {
   Vec3d axis = SafeHorizontalNormalized(support_axis, {1.0, 0.0, 0.0});
@@ -77,11 +69,14 @@ void append_lowered_support_group_placement(std::vector<LoweredSupportGroupPlace
   }
   const Port* port = edit_state.ports.find(endpoint.port_id);
   const Vec3d attachment_world = (port == nullptr) ? endpoint.endpoint_world : port->world_position;
-  const int support_group_id = support_group_id_for_endpoint(endpoint.owner_pole_id, endpoint.decision);
+  const int support_group_id = SupportGroupIdForEndpoint(endpoint.owner_pole_id, endpoint.decision);
   auto existing = std::find_if(groups->begin(), groups->end(), [&](const LoweredSupportGroupPlacement& group) {
     return group.owner_pole_id == endpoint.owner_pole_id && group.support_group_id == support_group_id;
   });
-  const Vec3d fallback_axis = endpoint.support_world - pole->world_transform.position;
+  Vec3d fallback_axis = ComputeLateralAxis(endpoint.departure_dir);
+  if (!IsFiniteXY(fallback_axis) || !Normalize(&fallback_axis)) {
+    fallback_axis = endpoint.endpoint_world - pole->world_transform.position;
+  }
   const Vec3d support_axis = CanonicalSharedSupportAxis(AuthoritativeSupportAxisForEndpoint(endpoint, fallback_axis),
                                                         fallback_axis);
   const auto [mount_world, tip_world] =
@@ -652,7 +647,10 @@ SupportLayoutEndpoint build_support_layout_endpoint(const CoreState& state, cons
                    : BackboneLoweringKind::kBranchSupport)
             : BackboneLoweringKind::kNone;
     if (owner_pole != nullptr && endpoint_uses_grouped_lowered_support(&endpoint, endpoint_lowering_kind)) {
-      const Vec3d fallback_axis = port.world_position - owner_pole->world_transform.position;
+      Vec3d fallback_axis = ComputeLateralAxis(endpoint.departure_dir);
+      if (!IsFiniteXY(fallback_axis) || !Normalize(&fallback_axis)) {
+        fallback_axis = endpoint.endpoint_world - owner_pole->world_transform.position;
+      }
       const Vec3d support_axis =
         CanonicalSharedSupportAxis(AuthoritativeSupportAxisForEndpoint(endpoint, fallback_axis), fallback_axis);
       const auto [mount_world, tip_world] = shared_support_anchor_points(
@@ -1533,6 +1531,29 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
     layout.end.bundle_order_choice = authoritative_layout->end.bundle_order_choice;
     layout.start.bundle_order_choice_reason = authoritative_layout->start.bundle_order_choice_reason;
     layout.end.bundle_order_choice_reason = authoritative_layout->end.bundle_order_choice_reason;
+
+    auto apply_grouped_authoritative_support_world = [&](SupportLayoutEndpoint* endpoint,
+                                                         const SupportLayoutEndpoint& authoritative_endpoint) {
+      if (endpoint == nullptr || !endpoint_uses_grouped_lowered_support(endpoint, layout.lowering_kind)) {
+        return;
+      }
+      const int support_group_id = SupportGroupIdForEndpoint(endpoint->owner_pole_id, endpoint->decision);
+      auto it = std::find_if(authoritative_layout->lowered_support_groups.begin(),
+                             authoritative_layout->lowered_support_groups.end(),
+                             [&](const LoweredSupportGroupPlacement& group) {
+                               return group.owner_pole_id == endpoint->owner_pole_id &&
+                                      group.support_group_id == support_group_id;
+                             });
+      if (it != authoritative_layout->lowered_support_groups.end()) {
+        endpoint->support_world = it->tip_world;
+        return;
+      }
+      endpoint->support_world = authoritative_endpoint.support_world;
+    };
+
+    // Keep grouped lowered-support anchor points stable across refresh using group-authoritative tips.
+    apply_grouped_authoritative_support_world(&layout.start, authoritative_layout->start);
+    apply_grouped_authoritative_support_world(&layout.end, authoritative_layout->end);
   }
   return layout;
 }

@@ -81,9 +81,9 @@ void append_lowered_support_group_placement(std::vector<LoweredSupportGroupPlace
   auto existing = std::find_if(groups->begin(), groups->end(), [&](const LoweredSupportGroupPlacement& group) {
     return group.owner_pole_id == endpoint.owner_pole_id && group.support_group_id == support_group_id;
   });
-  Vec3d pole_to_tip = endpoint.support_world - pole->world_transform.position;
-  const Vec3d support_axis =
-      CanonicalSharedSupportAxis(endpoint.has_side_axis ? endpoint.side_axis : pole_to_tip, pole_to_tip);
+  const Vec3d fallback_axis = endpoint.support_world - pole->world_transform.position;
+  const Vec3d support_axis = CanonicalSharedSupportAxis(AuthoritativeSupportAxisForEndpoint(endpoint, fallback_axis),
+                                                        fallback_axis);
   const auto [mount_world, tip_world] =
       shared_support_anchor_points(*pole, support_axis, endpoint.support_world.z, cache_state);
   if (existing == groups->end()) {
@@ -652,17 +652,13 @@ SupportLayoutEndpoint build_support_layout_endpoint(const CoreState& state, cons
                    : BackboneLoweringKind::kBranchSupport)
             : BackboneLoweringKind::kNone;
     if (owner_pole != nullptr && endpoint_uses_grouped_lowered_support(&endpoint, endpoint_lowering_kind)) {
-      const Port* other_port =
-          (port.id == span.port_a_id) ? state.view().ports().find(span.port_b_id) : state.view().ports().find(span.port_a_id);
-      if (other_port != nullptr) {
-        Vec3d support_axis =
-          ResolveSupportAxisForEndpoint(port, span, *other_port, *owner_pole, &endpoint, state.view().edit_state());
-        support_axis = CanonicalSharedSupportAxis(support_axis, endpoint.has_side_axis ? endpoint.side_axis : support_axis);
-        const auto [mount_world, tip_world] = shared_support_anchor_points(
-            *owner_pole, support_axis, port.world_position.z + endpoint.branch_down_offset_m, state.view().cache_state());
-        (void)mount_world;
-        endpoint.support_world = tip_world;
-      }
+      const Vec3d fallback_axis = port.world_position - owner_pole->world_transform.position;
+      const Vec3d support_axis =
+        CanonicalSharedSupportAxis(AuthoritativeSupportAxisForEndpoint(endpoint, fallback_axis), fallback_axis);
+      const auto [mount_world, tip_world] = shared_support_anchor_points(
+          *owner_pole, support_axis, port.world_position.z + endpoint.branch_down_offset_m, state.view().cache_state());
+      (void)mount_world;
+      endpoint.support_world = tip_world;
     }
     return endpoint;
   }
@@ -1216,13 +1212,14 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
     const BackboneLoweringKind layout_lowering_kind =
         (support_layout == nullptr) ? BackboneLoweringKind::kNone : support_layout->lowering_kind;
     const bool uses_lowered_support_visual =
-      layout_endpoint != nullptr && UsesGroupedLoweredSupport(*layout_endpoint, layout_lowering_kind);
+        layout_endpoint != nullptr && UsesGroupedLoweredSupport(*layout_endpoint, layout_lowering_kind);
+    const bool uses_grouped_lowered_support =
+        layout_endpoint != nullptr && endpoint_uses_grouped_lowered_support(layout_endpoint, layout_lowering_kind);
     const Port& other_port = (port.id == span->port_a_id) ? *b : *a;
-    if (uses_lowered_support_visual) {
+    if (uses_grouped_lowered_support) {
+      radial = AuthoritativeSupportAxisForEndpoint(*layout_endpoint, radial);
+    } else if (uses_lowered_support_visual) {
       radial = ResolveSupportAxisForEndpoint(port, *span, other_port, *pole, layout_endpoint, edit_state_);
-      if (layout_endpoint != nullptr && endpoint_uses_grouped_lowered_support(layout_endpoint, layout_lowering_kind)) {
-        radial = CanonicalSharedSupportAxis(radial, layout_endpoint->has_side_axis ? layout_endpoint->side_axis : radial);
-      }
     }
 
     SpanVisualCacheEntry& entry = cache_state_.visual_cache.by_span[span_id];
@@ -1255,7 +1252,7 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
       entry.parts.push_back(ins);
     }
 
-    if (!uses_lowered_support_visual) {
+    if (!uses_lowered_support_visual || uses_grouped_lowered_support) {
       return;
     }
     const double down_offset_m = (layout_endpoint == nullptr) ? 0.0 : layout_endpoint->branch_down_offset_m;
@@ -1281,6 +1278,45 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
     }
   };
 
+  auto append_grouped_lowered_support_parts = [&](const LoweredSupportGroupPlacement& group) {
+    if (group.attachment_worlds.empty()) {
+      return;
+    }
+    SpanVisualCacheEntry& entry = cache_state_.visual_cache.by_span[span_id];
+    if (cache_state_.visual_settings.enable_support_structures) {
+      VisualPart arm{};
+      arm.kind = VisualPartKind::kSupportArm;
+      arm.a = group.mount_world;
+      arm.b = group.tip_world;
+      arm.radius_m = 0.03;
+      entry.parts.push_back(arm);
+      for (const Vec3d& attachment_world : group.attachment_worlds) {
+        VisualPart hanger{};
+        hanger.kind = VisualPartKind::kFitting;
+        hanger.a = group.tip_world;
+        hanger.b = attachment_world;
+        hanger.radius_m = 0.02;
+        entry.parts.push_back(hanger);
+      }
+    }
+    if (cache_state_.visual_settings.enable_insulators && requires_insulator) {
+      const Vec3d fallback_axis = group.tip_world - group.mount_world;
+      const Vec3d support_axis = AuthoritativeSupportAxisForGroup(group, fallback_axis);
+      for (const Vec3d& attachment_world : group.attachment_worlds) {
+        VisualPart ins{};
+        ins.kind = VisualPartKind::kInsulator;
+        ins.a = attachment_world;
+        ins.b = {
+            attachment_world.x + support_axis.x * cache_state_.visual_settings.insulator_length_m,
+            attachment_world.y + support_axis.y * cache_state_.visual_settings.insulator_length_m,
+            attachment_world.z,
+        };
+        ins.radius_m = cache_state_.visual_settings.insulator_radius_m;
+        entry.parts.push_back(ins);
+      }
+    }
+  };
+
   SpanVisualCacheEntry entry{};
   entry.source_version = (runtime == nullptr) ? 0 : runtime->data_version;
   cache_state_.visual_cache.by_span[span_id] = std::move(entry);
@@ -1290,6 +1326,11 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
       (support_layout != nullptr && support_layout->end.port_id == b->id) ? &support_layout->end : nullptr;
   append_parts_for_port(*a, start_layout);
   append_parts_for_port(*b, end_layout);
+  if (support_layout != nullptr) {
+    for (const LoweredSupportGroupPlacement& group : support_layout->lowered_support_groups) {
+      append_grouped_lowered_support_parts(group);
+    }
+  }
 
   SpanRenderCacheEntry render{};
   render.source_version = (runtime == nullptr) ? 0 : runtime->data_version;

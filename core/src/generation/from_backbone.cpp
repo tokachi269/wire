@@ -1475,6 +1475,7 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     bool underpass_at_cross = false;
   };
   constexpr double kThroughPairStraightnessThreshold = 0.3;
+  constexpr double kExplicitMiddleRouteNearStraightThreshold = 0.95;
   auto category_same_level_margin_m = [](ConnectionCategory category) {
     switch (category) {
     case ConnectionCategory::kHighVoltage:
@@ -1503,6 +1504,34 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
         (route_neighbors_by_node.contains(node_id) ? route_neighbors_by_node.at(node_id) : std::vector<ObjectId>{});
     const std::vector<ObjectId> combined_neighbors = combined_neighbors_for_node(node_id);
     relation.is_cross_like = combined_neighbors.size() >= 4;
+
+    auto explicit_middle_route_corner_score = [&]() -> std::optional<double> {
+      const auto it_support_node = support_node_by_id.find(node_id);
+      if (it_support_node == support_node_by_id.end()) {
+        return std::nullopt;
+      }
+      const int path_point_index = it_support_node->second.path_point_index;
+      const BackboneInputSpec::NodeSpec* explicit_node_spec =
+          (path_point_index >= 0) ? node_spec_for_point(static_cast<std::size_t>(path_point_index)) : nullptr;
+      if (path_point_index <= 0 ||
+          path_point_index >= static_cast<int>(request.path.polyline.size()) - 1 ||
+          route_neighbors.size() != 2 || explicit_node_spec == nullptr || request.path.node_specs.size() != 1 ||
+          explicit_node_spec->node_id != node_id) {
+        return std::nullopt;
+      }
+
+      const Vec3d center = request.path.polyline[static_cast<std::size_t>(path_point_index)];
+      const Vec3d first_dir =
+          normalize_forward_xy(request.path.polyline[static_cast<std::size_t>(path_point_index - 1)] - center);
+      const Vec3d second_dir =
+          normalize_forward_xy(request.path.polyline[static_cast<std::size_t>(path_point_index + 1)] - center);
+      if (!std::isfinite(first_dir.x) || !std::isfinite(first_dir.y) || !std::isfinite(second_dir.x) ||
+          !std::isfinite(second_dir.y)) {
+        return std::nullopt;
+      }
+      return dot(first_dir, Vec3d{-second_dir.x, -second_dir.y, -second_dir.z});
+    };
+
     if (combined_neighbors.empty()) {
       return relation;
     }
@@ -1549,6 +1578,15 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       incident.kind = JunctionRelationKind::kNone;
       incident.in_route = candidate.is_route_neighbor;
       relation.incidents.push_back(incident);
+    }
+    if (const std::optional<double> route_corner_score = explicit_middle_route_corner_score();
+        route_corner_score.has_value() && *route_corner_score + 1e-9 < kExplicitMiddleRouteNearStraightThreshold) {
+      for (JunctionIncidentRelation& incident : relation.incidents) {
+        if (incident.in_route) {
+          incident.kind = JunctionRelationKind::kCornerContinuation;
+        }
+      }
+      return relation;
     }
     if (route_neighbors.size() == 1 && relation.is_cross_like) {
       for (JunctionIncidentRelation& incident : relation.incidents) {

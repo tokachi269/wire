@@ -425,6 +425,27 @@ ValidationResult CoreState::Validate() const {
   std::unordered_map<SupportGroupKey, SupportGroupPlacementSnapshot, SupportGroupKeyHash> support_groups{};
   for (const auto& [span_id, layout] : cache_state.support_layout_cache.by_span) {
     for (const LoweredSupportGroupPlacement& group : layout.lowered_support_groups) {
+      if (group.grouped_port_count != static_cast<int>(group.attachment_worlds.size())) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportGroupAttachmentCountMismatch",
+                                 "Grouped lowered support must carry one attachment world per grouped port", span_id});
+      }
+      if (group.decision.support_orientation_basis != SupportOrientationBasisKind::kRadial &&
+          (!group.has_side_axis || !std::isfinite(group.side_axis.x) || !std::isfinite(group.side_axis.y))) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportGroupAxisMissing",
+                                 "Grouped lowered support must carry a finite authoritative side axis", span_id});
+      }
+      Vec3d support_axis = group.tip_world - group.mount_world;
+      support_axis.z = 0.0;
+      if (Normalize(&support_axis) && IsFiniteXY(support_axis)) {
+        const Vec3d authoritative_axis = CanonicalSharedSupportAxis(AuthoritativeSupportAxisForGroup(group, support_axis),
+                                                                    support_axis);
+        const double alignment = support_axis.x * authoritative_axis.x + support_axis.y * authoritative_axis.y;
+        if (alignment < 1.0 - 1e-6) {
+          result.issues.push_back({ValidationSeverity::kError, "SupportGroupAxisReinterpreted",
+                                   "Grouped lowered support mount/tip must stay aligned with the authoritative axis",
+                                   span_id});
+        }
+      }
       const SupportGroupKey key{group.owner_pole_id, group.support_group_id};
       SupportGroupPlacementSnapshot snapshot{};
       snapshot.span_id = span_id;

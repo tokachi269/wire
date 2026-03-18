@@ -97,6 +97,20 @@ Vec3d CanonicalSharedSupportAxis(Vec3d axis, const Vec3d& fallback) {
   return axis;
 }
 
+Vec3d AuthoritativeSupportAxisForEndpoint(const SupportLayoutEndpoint& endpoint, const Vec3d& fallback) {
+  Vec3d axis = endpoint.has_side_axis ? endpoint.side_axis : fallback;
+  axis = SafeHorizontalNormalized(axis, fallback);
+  if (std::abs(endpoint.chosen_side_sign) > 1e-9) {
+    axis = ScaleVec(axis, (endpoint.chosen_side_sign >= 0.0) ? 1.0 : -1.0);
+  }
+  return axis;
+}
+
+Vec3d AuthoritativeSupportAxisForGroup(const LoweredSupportGroupPlacement& group, const Vec3d& fallback) {
+  Vec3d axis = group.has_side_axis ? group.side_axis : fallback;
+  return CanonicalSharedSupportAxis(axis, fallback);
+}
+
 Vec3d ResolveSupportAxisForEndpoint(const Port& port, const Span& span, const Port& other_port, const Pole& pole,
                                     const SupportLayoutEndpoint* layout_endpoint, const EditState& edit_state) {
   const double dx = port.world_position.x - pole.world_transform.position.x;
@@ -114,13 +128,7 @@ Vec3d ResolveSupportAxisForEndpoint(const Port& port, const Span& span, const Po
   if (layout_endpoint != nullptr && layout_endpoint->has_side_axis &&
       layout_endpoint->decision.support_orientation_basis != SupportOrientationBasisKind::kRadial &&
       IsFiniteXY(layout_endpoint->side_axis)) {
-    Vec3d support_axis = SafeHorizontalNormalized(layout_endpoint->side_axis, pole_radial);
-    if (std::abs(layout_endpoint->decision.chosen_side_sign) > 1e-9) {
-      support_axis = ScaleVec(support_axis, (layout_endpoint->decision.chosen_side_sign >= 0.0) ? 1.0 : -1.0);
-    } else if (DotHorizontal(support_axis, pole_radial) < 0.0) {
-      support_axis = ScaleVec(support_axis, -1.0);
-    }
-    return support_axis;
+    return AuthoritativeSupportAxisForEndpoint(*layout_endpoint, pole_radial);
   }
 
   Vec3d forward = ChordForwardForSupport(port, span, other_port, pole, layout_endpoint, edit_state);

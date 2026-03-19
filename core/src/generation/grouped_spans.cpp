@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <map>
 #include <tuple>
 #include <unordered_map>
 #include <unordered_set>
@@ -670,8 +671,9 @@ CoreState::generate_grouped_spans_between_support_nodes(
           decision.used_junction_pair_side_assignment = true;
         } else {
           axis = lowered_dirs.front();
-          decision.side_assignment_rule = SideAssignmentRuleKind::kChord;
-          decision.support_orientation_rule = SupportOrientationRuleKind::kChord;
+          decision.side_assignment_rule = SideAssignmentRuleKind::kBisector;
+          decision.support_orientation_rule = SupportOrientationRuleKind::kBisector;
+          decision.used_junction_pair_side_assignment = true;
         }
       } else if (feasibility.kind == JunctionRelationKind::kCrossUnderpass) {
         if (const auto through_pair_axis = through_pair_side_axis_for_node(node_id); through_pair_axis.has_value()) {
@@ -791,24 +793,64 @@ CoreState::generate_grouped_spans_between_support_nodes(
     const double chord_dot = dot_xy(chord_side_axis, decision->side_axis);
     decision->chosen_side_sign = (std::abs(chord_dot) <= 1e-9) ? 1.0 : ((chord_dot >= 0.0) ? 1.0 : -1.0);
   };
-  auto support_group_id_for_endpoint = [&](ObjectId node_id, const SegmentRelationFeasibility& feasibility,
+  struct SupportGroupDecisionKey {
+    ObjectId owner_pole_id = kInvalidObjectId;
+    JunctionRelationKind relation_kind = JunctionRelationKind::kNone;
+    ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
+    SideAssignmentRuleKind side_assignment_rule = SideAssignmentRuleKind::kPoleLocal;
+    SupportOrientationRuleKind support_orientation_rule = SupportOrientationRuleKind::kRadial;
+    int side_sign_bucket = 0;
+    int axis_bucket_x = 0;
+    int axis_bucket_y = 0;
+    bool in_through_pair = false;
+    bool used_junction_pair_side_assignment = false;
+    auto operator<=>(const SupportGroupDecisionKey&) const = default;
+  };
+  std::map<SupportGroupDecisionKey, int> support_group_ids{};
+  int next_support_group_id = 1;
+  auto quantize_axis_bucket = [](double value) -> int {
+    return static_cast<int>(std::llround(value * 1000000.0));
+  };
+  auto support_group_id_for_endpoint = [&](ObjectId node_id, ObjectId peer_id,
+                                           const SegmentRelationFeasibility& feasibility,
                                            const EndpointSideDecision& side_decision) {
-    if ((feasibility.default_lower_required || !feasibility.same_level_feasible) &&
-        std::abs(side_decision.chosen_side_sign) > 1e-9) {
-      std::uint64_t seed = static_cast<std::uint64_t>(node_id);
-      seed ^= static_cast<std::uint64_t>(feasibility.kind) << 8;
-      seed ^= static_cast<std::uint64_t>(feasibility.continuity_class) << 16;
-      seed ^= static_cast<std::uint64_t>(side_decision.side_assignment_rule) << 24;
-      seed ^= static_cast<std::uint64_t>(side_decision.support_orientation_rule) << 32;
-      seed ^= (side_decision.chosen_side_sign < 0.0 ? 1ull : 2ull) << 40;
-      seed ^= static_cast<std::uint64_t>(side_decision.used_junction_pair_side_assignment ? 1ull : 0ull) << 48;
-      return static_cast<int>(seed % 1000000000ull);
+    const bool needs_lower = feasibility.default_lower_required || !feasibility.same_level_feasible;
+    if (!needs_lower) {
+      return -1;
     }
-    return -1;
+    Vec3d axis = side_decision.side_axis;
+    if (!side_decision.has_side_axis || !normalize_xy(&axis)) {
+      axis = canonical_side_axis_for_order(node_id, peer_id);
+    }
+    if (!normalize_xy(&axis)) {
+      axis = {1.0, 0.0, 0.0};
+    }
+    int side_sign_bucket = 0;
+    if (side_decision.chosen_side_sign > 1e-9) {
+      side_sign_bucket = 1;
+    } else if (side_decision.chosen_side_sign < -1e-9) {
+      side_sign_bucket = -1;
+    }
+    SupportGroupDecisionKey key{};
+    key.owner_pole_id = node_id;
+    key.relation_kind = feasibility.kind;
+    key.continuity_class = feasibility.continuity_class;
+    key.side_assignment_rule = side_decision.side_assignment_rule;
+    key.support_orientation_rule = side_decision.support_orientation_rule;
+    key.side_sign_bucket = side_sign_bucket;
+    key.axis_bucket_x = quantize_axis_bucket(axis.x);
+    key.axis_bucket_y = quantize_axis_bucket(axis.y);
+    key.in_through_pair = feasibility.in_through_pair;
+    key.used_junction_pair_side_assignment = side_decision.used_junction_pair_side_assignment;
+    auto [it, inserted] = support_group_ids.emplace(key, next_support_group_id);
+    if (inserted) {
+      ++next_support_group_id;
+    }
+    return it->second;
   };
   auto build_endpoint_decision = [&](const SegmentRelationFeasibility& feasibility,
                                      const EndpointSideDecision& side_decision,
-                                     ObjectId node_id,
+                                     ObjectId node_id, ObjectId peer_id,
                                      BundleOrderChoiceKind order_choice,
                                      BundleOrderChoiceReason order_reason, bool solver_used_same_level_constraint,
                                      bool used_special_case_ports, bool lowering_blocked_by_policy,
@@ -820,7 +862,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
     decision.continuity_class = feasibility.continuity_class;
     decision.in_through_pair = feasibility.in_through_pair;
     decision.support_group_id =
-        lowering_blocked_by_policy ? -1 : support_group_id_for_endpoint(node_id, feasibility, side_decision);
+        lowering_blocked_by_policy ? -1 : support_group_id_for_endpoint(node_id, peer_id, feasibility, side_decision);
     decision.lower_required = feasibility.default_lower_required || !feasibility.same_level_feasible;
     decision.default_lower_required = feasibility.default_lower_required;
     decision.same_level_feasible = feasibility.same_level_feasible;
@@ -2448,12 +2490,12 @@ CoreState::generate_grouped_spans_between_support_nodes(
     side_decision_a.has_side_axis = std::isfinite(assignment.side_axis_a.x) && std::isfinite(assignment.side_axis_a.y);
     side_decision_b.has_side_axis = std::isfinite(assignment.side_axis_b.x) && std::isfinite(assignment.side_axis_b.y);
     assignment.decision_a =
-        build_endpoint_decision(effective_relation_a, side_decision_a, node_a, assignment.bundle_order_choice_a,
+        build_endpoint_decision(effective_relation_a, side_decision_a, node_a, node_b, assignment.bundle_order_choice_a,
                                 assignment.bundle_order_choice_reason_a, assignment.solver_used_same_level_constraint,
                                 assignment.used_special_case_ports, assignment.lowering_blocked_by_policy,
                                 assignment.unresolved_same_level_conflict);
     assignment.decision_b =
-        build_endpoint_decision(effective_relation_b, side_decision_b, node_b, assignment.bundle_order_choice_b,
+        build_endpoint_decision(effective_relation_b, side_decision_b, node_b, node_a, assignment.bundle_order_choice_b,
                                 assignment.bundle_order_choice_reason_b, assignment.solver_used_same_level_constraint,
                                 assignment.used_special_case_ports, assignment.lowering_blocked_by_policy,
                                 assignment.unresolved_same_level_conflict);

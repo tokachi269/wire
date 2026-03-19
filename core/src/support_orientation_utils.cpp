@@ -9,11 +9,6 @@ bool IsFiniteXY(const Vec3d& v) {
   return std::isfinite(v.x) && std::isfinite(v.y);
 }
 
-bool UsesGroupedLoweredSupport(const SupportLayoutEndpoint& endpoint) {
-  return endpoint.decision.lower_required && !endpoint.decision.lowering_blocked_by_policy &&
-         endpoint.decision.support_group_id >= 0;
-}
-
 Vec3d SafeHorizontalNormalized(Vec3d v, const Vec3d& fallback) {
   v.z = 0.0;
   if (Normalize(&v) && IsFiniteXY(v)) {

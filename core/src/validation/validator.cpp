@@ -35,7 +35,8 @@ bool has_duplicate_ids(const std::vector<ObjectId>& ids) {
 }
 
 bool endpoint_uses_grouped_lowered_support_for_validation(const SupportLayoutEndpoint& endpoint) {
-  return UsesGroupedLoweredSupport(endpoint);
+  return endpoint.decision.lower_required && !endpoint.decision.lowering_blocked_by_policy &&
+         endpoint.decision.support_group_id >= 0;
 }
 
 bool almost_equal_validation(double a, double b, double eps = 1e-9) { return std::abs(a - b) <= eps; }

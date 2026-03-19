@@ -35,17 +35,12 @@ struct ResolvedSpanCurveInputs {
 };
 
 bool endpoint_uses_grouped_lowered_support(const SupportLayoutEndpoint* endpoint) {
-  return endpoint != nullptr && UsesGroupedLoweredSupport(*endpoint);
+  return endpoint != nullptr && endpoint->decision.lower_required && !endpoint->decision.lowering_blocked_by_policy &&
+         endpoint->decision.support_group_id >= 0;
 }
 
 LoweredSupportGroupKey lowered_support_group_key_for_endpoint(const SupportLayoutEndpoint& endpoint) {
   return {endpoint.owner_pole_id, endpoint.decision.support_group_id};
-}
-
-const LoweredSupportGroupPlacement* find_lowered_support_group(const CacheState& cache_state,
-                                                               const SupportLayoutEndpoint& endpoint) {
-  const auto it = cache_state.support_layout_cache.lowered_support_groups.find(lowered_support_group_key_for_endpoint(endpoint));
-  return (it == cache_state.support_layout_cache.lowered_support_groups.end()) ? nullptr : &it->second;
 }
 
 std::pair<Vec3d, Vec3d> shared_support_anchor_points(const Pole& pole, const Vec3d& support_axis, double z_m,
@@ -67,11 +62,10 @@ std::pair<Vec3d, Vec3d> shared_support_anchor_points(const Pole& pole, const Vec
   return {mount, tip};
 }
 
-void append_lowered_support_group_placement(
+void apply_endpoint_to_grouped_support_placement(
     std::unordered_map<LoweredSupportGroupKey, LoweredSupportGroupPlacement, LoweredSupportGroupKeyHash>* groups,
-    const EditState& edit_state, const CacheState& cache_state, const SpanSupportLayoutEntry& layout,
+    const EditState& edit_state, const CacheState& cache_state,
     const SupportLayoutEndpoint& endpoint) {
-  (void)layout;
   if (groups == nullptr || !endpoint_uses_grouped_lowered_support(&endpoint)) {
     return;
   }
@@ -118,57 +112,50 @@ void append_lowered_support_group_placement(
   existing->second.attachment_worlds.push_back(attachment_world);
 }
 
-std::unordered_map<LoweredSupportGroupKey, LoweredSupportGroupPlacement, LoweredSupportGroupKeyHash>
-build_lowered_support_group_placements(const EditState& edit_state, const CacheState& cache_state,
-                                       const std::vector<const SpanSupportLayoutEntry*>& layouts) {
-  std::unordered_map<LoweredSupportGroupKey, LoweredSupportGroupPlacement, LoweredSupportGroupKeyHash> groups{};
-  for (const SpanSupportLayoutEntry* layout : layouts) {
-    if (layout == nullptr) {
-      continue;
-    }
-    append_lowered_support_group_placement(&groups, edit_state, cache_state, *layout, layout->start);
-    append_lowered_support_group_placement(&groups, edit_state, cache_state, *layout, layout->end);
-  }
-  return groups;
-}
-
-std::uint64_t lowered_support_layout_segment_key(const SpanSupportLayoutEntry& layout);
-
 void rebuild_all_lowered_support_groups(const EditState& edit_state, CacheState* cache_state) {
   if (cache_state == nullptr) {
     return;
   }
   cache_state->support_layout_cache.lowered_support_groups.clear();
-  std::unordered_map<std::uint64_t, std::vector<SpanSupportLayoutEntry*>> layouts_by_segment{};
   for (auto& [span_id, layout] : cache_state->support_layout_cache.by_span) {
     (void)span_id;
     layout.lowered_support_group_keys.clear();
-    layouts_by_segment[lowered_support_layout_segment_key(layout)].push_back(&layout);
+    if (endpoint_uses_grouped_lowered_support(&layout.start)) {
+      const LoweredSupportGroupKey key = lowered_support_group_key_for_endpoint(layout.start);
+      apply_endpoint_to_grouped_support_placement(
+          &cache_state->support_layout_cache.lowered_support_groups, edit_state, *cache_state, layout.start);
+      if (std::find(layout.lowered_support_group_keys.begin(), layout.lowered_support_group_keys.end(), key) ==
+          layout.lowered_support_group_keys.end()) {
+        layout.lowered_support_group_keys.push_back(key);
+      }
+    }
+    if (endpoint_uses_grouped_lowered_support(&layout.end)) {
+      const LoweredSupportGroupKey key = lowered_support_group_key_for_endpoint(layout.end);
+      apply_endpoint_to_grouped_support_placement(
+          &cache_state->support_layout_cache.lowered_support_groups, edit_state, *cache_state, layout.end);
+      if (std::find(layout.lowered_support_group_keys.begin(), layout.lowered_support_group_keys.end(), key) ==
+          layout.lowered_support_group_keys.end()) {
+        layout.lowered_support_group_keys.push_back(key);
+      }
+    }
   }
-  for (auto& [segment_key, segment_layouts] : layouts_by_segment) {
-    (void)segment_key;
-    std::vector<const SpanSupportLayoutEntry*> readonly_layouts{};
-    readonly_layouts.reserve(segment_layouts.size());
-    for (SpanSupportLayoutEntry* layout : segment_layouts) {
-      readonly_layouts.push_back(layout);
+  for (auto& [span_id, layout] : cache_state->support_layout_cache.by_span) {
+    (void)span_id;
+    if (endpoint_uses_grouped_lowered_support(&layout.start)) {
+      const LoweredSupportGroupKey key = lowered_support_group_key_for_endpoint(layout.start);
+      const auto it = cache_state->support_layout_cache.lowered_support_groups.find(key);
+      if (it != cache_state->support_layout_cache.lowered_support_groups.end()) {
+        layout.start.support_world = it->second.tip_world;
+      }
     }
-    auto groups = build_lowered_support_group_placements(edit_state, *cache_state, readonly_layouts);
-    std::vector<LoweredSupportGroupKey> keys{};
-    keys.reserve(groups.size());
-    for (auto& [key, group] : groups) {
-      keys.push_back(key);
-      cache_state->support_layout_cache.lowered_support_groups[key] = std::move(group);
-    }
-    for (SpanSupportLayoutEntry* layout : segment_layouts) {
-      layout->lowered_support_group_keys = keys;
+    if (endpoint_uses_grouped_lowered_support(&layout.end)) {
+      const LoweredSupportGroupKey key = lowered_support_group_key_for_endpoint(layout.end);
+      const auto it = cache_state->support_layout_cache.lowered_support_groups.find(key);
+      if (it != cache_state->support_layout_cache.lowered_support_groups.end()) {
+        layout.end.support_world = it->second.tip_world;
+      }
     }
   }
-}
-
-std::uint64_t lowered_support_layout_segment_key(const SpanSupportLayoutEntry& layout) {
-  const std::uint64_t a = std::min(layout.start.endpoint_node_id, layout.end.endpoint_node_id);
-  const std::uint64_t b = std::max(layout.start.endpoint_node_id, layout.end.endpoint_node_id);
-  return (a << 32) ^ b;
 }
 
 bool build_attachment_frame(const Vec3d& tangent, Vec3d* forward, Vec3d* lateral, Vec3d* up) {
@@ -1097,25 +1084,12 @@ void CoreState::cache_span_support_layout(SpanSupportLayoutEntry layout) {
 }
 
 void CoreState::erase_cached_span_support_layout(ObjectId span_id) {
-  ObjectId bundle_id = kInvalidObjectId;
-  if (const Span* span = edit_state_.spans.find(span_id); span != nullptr) {
-    bundle_id = span->bundle_id;
-  }
   cache_state_.support_layout_cache.by_span.erase(span_id);
-  if (bundle_id != kInvalidObjectId) {
-    rebuild_lowered_support_groups_for_bundle(bundle_id);
-  }
+  rebuild_all_lowered_support_groups(edit_state_, &cache_state_);
 }
 
 void CoreState::rebuild_lowered_support_groups_for_span(ObjectId span_id) {
   if (edit_state_.spans.find(span_id) == nullptr) {
-    return;
-  }
-  rebuild_all_lowered_support_groups(edit_state_, &cache_state_);
-}
-
-void CoreState::rebuild_lowered_support_groups_for_bundle(ObjectId bundle_id) {
-  if (bundle_id == kInvalidObjectId) {
     return;
   }
   rebuild_all_lowered_support_groups(edit_state_, &cache_state_);
@@ -1208,8 +1182,10 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
     }
 
     SpanVisualCacheEntry& entry = cache_state_.visual_cache.by_span[span_id];
+    if (uses_grouped_lowered_support) {
+      return;
+    }
     if (cache_state_.visual_settings.enable_support_structures &&
-        !uses_grouped_lowered_support &&
         port.template_side != SlotSide::kCenter &&
         planar > cache_state_.visual_settings.support_center_threshold_m + 1e-9) {
       VisualPart arm{};
@@ -1235,10 +1211,6 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
       };
       ins.radius_m = cache_state_.visual_settings.insulator_radius_m;
       entry.parts.push_back(ins);
-    }
-
-    if (!uses_grouped_lowered_support) {
-      return;
     }
   };
 
@@ -1501,22 +1473,7 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
     layout.start.bundle_order_choice_reason = authoritative_layout->start.bundle_order_choice_reason;
     layout.end.bundle_order_choice_reason = authoritative_layout->end.bundle_order_choice_reason;
 
-    auto apply_grouped_authoritative_support_world = [&](SupportLayoutEndpoint* endpoint,
-                                                         const SupportLayoutEndpoint& authoritative_endpoint) {
-      if (endpoint == nullptr || !endpoint_uses_grouped_lowered_support(endpoint)) {
-        return;
-      }
-      if (const LoweredSupportGroupPlacement* group = find_lowered_support_group(cache_state_, *endpoint);
-          group != nullptr) {
-        endpoint->support_world = group->tip_world;
-        return;
-      }
-      endpoint->support_world = authoritative_endpoint.support_world;
-    };
-
-    // Keep grouped lowered-support anchor points stable across refresh using group-authoritative tips.
-    apply_grouped_authoritative_support_world(&layout.start, authoritative_layout->start);
-    apply_grouped_authoritative_support_world(&layout.end, authoritative_layout->end);
+    // Refresh reuses the authoritative decision endpoint support anchors as-is.
   }
   return layout;
 }

@@ -621,7 +621,6 @@ private:
   void erase_cached_span_support_layout(ObjectId span_id);
   void remove_span_from_caches(ObjectId span_id);
   void rebuild_lowered_support_groups_for_span(ObjectId span_id);
-  void rebuild_lowered_support_groups_for_bundle(ObjectId bundle_id);
   [[nodiscard]] static std::vector<Vec3d> sample_polyline_points(const std::vector<Vec3d>& polyline, double interval);
   EditResult<std::vector<ObjectId>> generate_poles_from_points(const RoadSegment& road, PoleTypeId pole_type_id,
                                                                const std::vector<Vec3d>& points);

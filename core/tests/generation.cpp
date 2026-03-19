@@ -4835,7 +4835,7 @@ bool test_backbone_constrained_lowered_support_prefers_line_direction() {
   return saw_constrained_visual;
 }
 
-bool test_backbone_bundle_branch_support_orientation_uses_connected_branch_chord() {
+bool test_backbone_bundle_branch_support_orientation_uses_bisector_when_available() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
   if (type_ids.empty()) {
@@ -5648,14 +5648,18 @@ bool test_backbone_non_lowered_cross_spans_do_not_expose_lowered_support_groups(
     if (!layout_view.has_value()) {
       continue;
     }
-    if (layout_view->lowering_kind == wire::core::BackboneLoweringKind::kCrossUnderpass) {
+    const auto endpoint = layout_endpoint_for_owner(*layout_view, center_id);
+    if (!endpoint.has_value()) {
+      continue;
+    }
+    if (endpoint->decision.lower_required) {
       saw_lowered_cross = true;
       continue;
     }
     saw_non_lowered_center_span = true;
     if (!layout_view->lowered_support_groups.empty()) {
       std::cerr << "[DBG] C267 span=" << span_entry.id
-                << " lowering=" << static_cast<int>(layout_view->lowering_kind)
+                << " lowerRequired=" << endpoint->decision.lower_required
                 << " groupCount=" << layout_view->lowered_support_groups.size()
                 << " relationA=" << static_cast<int>(layout_view->relation_a)
                 << " relationB=" << static_cast<int>(layout_view->relation_b) << "\n";
@@ -5729,8 +5733,8 @@ bool test_backbone_non_lowered_spans_do_not_inherit_acute_corner_support_groups(
     return false;
   }
 
-  bool saw_acute = false;
-  bool saw_flat_after_acute = false;
+  bool saw_lowered = false;
+  bool saw_flat_after_lowered = false;
   for (ObjectId span_id : generated.value.generated_span_ids) {
     const auto span_view = state.view().inspect_span(span_id);
     const auto layout_view = state.view().inspect_support_layout(span_id);
@@ -5742,23 +5746,24 @@ bool test_backbone_non_lowered_spans_do_not_inherit_acute_corner_support_groups(
     if (bundle == nullptr || bundle->bundle_template_id != wire::core::BundleKind::kHighVoltage) {
       continue;
     }
-    if (layout_view->lowering_kind == wire::core::BackboneLoweringKind::kAcuteCorner) {
-      saw_acute = true;
+    const bool has_lowered_endpoint =
+        layout_view->start_endpoint.decision.lower_required || layout_view->end_endpoint.decision.lower_required;
+    if (has_lowered_endpoint) {
+      saw_lowered = true;
       continue;
     }
-    if (layout_view->lowering_kind == wire::core::BackboneLoweringKind::kNone) {
-      saw_flat_after_acute = true;
+    saw_flat_after_lowered = true;
       if (!layout_view->lowered_support_groups.empty()) {
         std::cerr << "[DBG] C268 span=" << span_id
                   << " groupCount=" << layout_view->lowered_support_groups.size()
                   << " flow=" << static_cast<int>(span_view->flow_kind)
-                  << " lowering=" << static_cast<int>(layout_view->lowering_kind) << "\n";
+                  << " startLower=" << layout_view->start_endpoint.decision.lower_required
+                  << " endLower=" << layout_view->end_endpoint.decision.lower_required << "\n";
         return false;
       }
-    }
   }
 
-  return saw_acute && saw_flat_after_acute;
+  return saw_lowered && saw_flat_after_lowered;
 }
 
 bool test_backbone_refresh_keeps_lowered_side_and_orientation_origin() {
@@ -8083,17 +8088,17 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C235_Backbone_ConstrainedLoweredSupportOrientation",
                          "Constrained-placement lowered support uses a line/chord-oriented visual rule instead of falling back to pole-radial orientation",
                          "Invariant", false, test_backbone_constrained_lowered_support_prefers_line_direction);
-  test_registry::AddTest(tests, "C236_Backbone_BundleBranchOrientationUsesConnectedChord",
+  test_registry::AddTest(tests, "C236_Backbone_BundleBranchOrientationUsesBisectorWhenAvailable",
                          "Bundle-like lowered branch root uses bisector orientation when available instead of falling back to branch chord",
-                         "Invariant", false, test_backbone_bundle_branch_support_orientation_uses_connected_branch_chord);
+                         "Invariant", false, test_backbone_bundle_branch_support_orientation_uses_bisector_when_available);
   test_registry::AddTest(tests, "C237_Backbone_PointLikeOrientationNonRegression",
                          "Point-like branch keeps radial/default orientation behavior and does not inherit bundle-like lowered support rules",
                          "Invariant", false, test_backbone_point_like_orientation_rule_non_regression);
   test_registry::AddTest(tests, "C267_Backbone_NonLoweredCrossSpansDoNotExposeLoweredSupportGroups",
-                         "Cross junction main spans do not expose grouped lowered support when their lowering kind is none",
+                         "Cross junction main spans with lower_required=false do not expose grouped lowered support",
                          "Invariant", false, test_backbone_non_lowered_cross_spans_do_not_expose_lowered_support_groups);
   test_registry::AddTest(tests, "C268_Backbone_NonLoweredSpansDoNotInheritAcuteCornerSupportGroups",
-                         "Non-lowered spans in a bundle do not inherit grouped lowered support from acute-corner segments",
+                         "Bundle spans with lower_required=false do not inherit grouped lowered support from lowered segments",
                          "Invariant", false, test_backbone_non_lowered_spans_do_not_inherit_acute_corner_support_groups);
   test_registry::AddTest(tests, "C238_Backbone_RefreshKeepsSideOrientationOrigin",
                          "Refresh keeps lowered side/orientation origin visible instead of collapsing constrained or cross-lowered spans back to generic radial support rules",

@@ -123,6 +123,5 @@
 - `README.md`
 - `docs/core_model_inventory.md`
 - `docs/core_model_architecture.md`
-- `docs/codex_shared_context.md`
 - `docs/chat_handoff_checklist.md`
-- `docs/operation_policy.md`
+- `docs/command_cheatsheet.md`

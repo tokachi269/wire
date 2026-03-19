@@ -74,6 +74,9 @@ Definition Layer
 | `GeometrySettings` | `core/include/wire/core/core_state.hpp` | 曲線生成設定を保持する。 | scalar params | `PersistCore`（設定） |
 | `CurveCacheEntry`, `CurveCache` | `core/include/wire/core/core_state.hpp` | span 曲線サンプルを保持する。 | span IDs -> points | `DerivedCache` |
 | `BoundsCacheEntry`, `BoundsCache` | `core/include/wire/core/core_state.hpp` | span/区間 AABB を保持する。 | span IDs -> AABBs | `DerivedCache` |
+| `SupportLayoutEndpoint`, `SpanSupportLayoutEntry`, `SupportLayoutCache` | `core/include/wire/core/core_state.hpp` | support layout の派生ビューと span 単位の参照キーを保持する。 | span ID / endpoint decision / group key | `DerivedCache` |
+| `SupportGroupDecision` | `core/include/wire/core/core_state.hpp` | grouped lowered support の materialization 前の正本決定を保持する。 | owner pole + support_group_id + authoritative decision fields | `DerivedCache` |
+| `LoweredSupportGroupPlacement` | `core/include/wire/core/core_state.hpp` | grouped lowered support の実体配置（mount/tip/attachments）を保持する。 | support group key -> placement | `DerivedCache` |
 | `CacheState` | `core/include/wire/core/core_state.hpp` | 派生キャッシュ群を保持する。 | cache structs | mixed（設定 + 派生） |
 
 ## 5. 責務混在の検出（分割候補）
@@ -103,6 +106,7 @@ Definition Layer
 
 ### 7.2 保存しない対象（固定）
 - `CurveCache` / `BoundsCache`
+- `SupportLayoutCache`（`support_group_decisions`, `lowered_support_groups` を含む）
 - `DirtyQueue` / `RecalcStats` / `SpanRuntimeState`
 - 配置候補選定の debug records
 - `path_direction_debug_records_`

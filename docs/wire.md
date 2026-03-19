@@ -36,6 +36,18 @@
 - 派生（DerivedCache）: `CurveCache / BoundsCache / DirtyQueue / SpanRuntimeState`
 - セッション情報（SessionDebug）: 選定ログ、評価ログ、統計
 
+### 4.4 パイプライン（固定）
+処理は次の順で流す。
+
+1. Input Normalization
+2. Relation / Decision
+3. Materialization
+4. Detail Curve
+5. Presentation / Inspection
+
+各段は前段の正本を消費するだけとし、後段で前段の意味を再判定しない。
+補正・再解釈・再導出で辻褄を合わせる実装は禁止する。
+
 ## 5. 用語ルール
 - テンプレ配置ヒント: テンプレート側の候補情報（実体ではない）
 - `Port`: 実接続点（実体）
@@ -76,32 +88,38 @@
 - Port/Span 詳細編集や見た目規則本体は詳細層の責務。
 - ルート探索は Backbone を優先し、必要時のみ詳細に降りる。
 
-## 9. 鋭角コーナー補正（現行）
+## 9. lowered support の固定経路
+- 正規経路: `EndpointDecision -> SupportGroupDecision -> GroupedSupportPlacement -> Render`
+- Materialization 層以外で lowered support を実体化しない。
+- `support_group_id` は decision の正本フィールドを使い、downstream で再計算しない。
+- orientation / side / lower_required は upstream decision を正とし、recalc/viewer で再推論しない。
+
+## 10. 鋭角コーナー補正（現行）
 - 鋭角判定は `corner interior angle < 75°`。
 - 鋭角時は Port 列の side 軸を角の二等分線に直交する向きへ補正する。
 - デバッグで `theta / bisector / side_dir` を観測できること。
 
-## 10. viewer 最低要件
+## 11. viewer 最低要件
 - Pole/Port/Span/Bundle の可視化
 - DrawPath 入力と生成実行
 - Pole の Pin/Unpin
 - Dirty/Version/再計算件数の観測
 - 主要デバッグ値の表示
 
-## 11. テスト方針
+## 12. テスト方針
 - 公開 API の観測可能事実だけを根拠にする。
 - 正常系 + 異常系 + 復帰可能性を必ず含める。
 - 決定論は Exact、可変要素は Invariant で検証する。
 - ケース観点は `core/tests/spec_ledger.md` に集約する。
 
-## 12. フェーズ位置づけ
+## 13. フェーズ位置づけ
 - Phase 0-4: 基盤、編集、Dirty/Version、幾何表示
 - Phase 4.x: 設計棚卸し
-- Phase 4.9: 公開面整理（inspection / override / support layout / DetailCurve 方針の固定）（現在）
+- Phase 4.9: 公開面整理（inspection / override / support layout / DetailCurve 方針の固定）
 - Phase 4.8 系: Bundle 正本化、BackboneSpec 生成、Manual 保持、局所再生成
 - Phase 5+: 保存読込、レイキャスト、カリング/LOD
 
-## 13. 参照ドキュメント
+## 14. 参照ドキュメント
 - `README.md`
 - `docs/core_model_inventory.md`
 - `docs/core_model_architecture.md`

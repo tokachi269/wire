@@ -1,30 +1,23 @@
-﻿# docs 目次
+# docs 目次
 
-このディレクトリの文書は、以下の順で読むと全体像が揃います。
+最初に読むべき文書は 3 つだけです。
 
 1. `wire.md`
-- 現行の要求仕様（対象/非対象、正本モデル、更新整合ルール）。
+- 要求仕様と対象範囲。
 
 2. `core_model_architecture.md`
-- レイヤ分離と依存ルール。
+- パイプライン境界と実装ルール。
 
 3. `core_model_inventory.md`
-- 実コードに対応した型棚卸し（PersistCore / DerivedCache / SessionDebug）。
+- 実コードの型棚卸し（どの層に何があるか）。
 
-4. `codex_shared_context.md`
-- 設計意図と優先順位、運用上の注意。
+補助資料:
+- `codex_shared_context.md`: 設計意図の補足
+- `chat_handoff_checklist.md`: 作業開始/終了チェック
+- `operation_policy.md`: 運用方針
+- `command_cheatsheet.md`: build/run コマンド
 
-5. `chat_handoff_checklist.md`
-- 新規チャット再始動時の開始/終了チェック。
-
-6. `operation_policy.md`
-- チャット運用ポリシー（改訂版）。
-
-7. `command_cheatsheet.md`
-- Windows ローカルで実際に通った configure / build / run コマンド集。
-
-## 位置づけ
-- 仕様の正本: `wire.md`
-- 設計ルールの正本: `core_model_architecture.md`
-- 実装現況の正本: `core_model_inventory.md`
-- 運用ルールの正本: `operation_policy.md`
+## 正本
+- 仕様: `wire.md`
+- 設計規約: `core_model_architecture.md`
+- 実装マップ: `core_model_inventory.md`

@@ -57,19 +57,19 @@ std::pair<Vec3d, Vec3d> shared_support_anchor_points(const Pole& pole, const Vec
   return {mount, tip};
 }
 
-void apply_endpoint_to_support_group_decision(
+bool apply_endpoint_to_support_group_decision(
     std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash>* groups,
     const EditState& edit_state, const SupportLayoutEndpoint& endpoint) {
   if (groups == nullptr || !endpoint_uses_grouped_lowered_support(&endpoint)) {
-    return;
+    return false;
   }
   const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint.decision);
   if (key.owner_pole_id == kInvalidObjectId || key.support_group_id < 0) {
-    return;
+    return false;
   }
   const Pole* pole = edit_state.poles.find(key.owner_pole_id);
   if (pole == nullptr) {
-    return;
+    return false;
   }
   const Port* port = edit_state.ports.find(endpoint.port_id);
   const Vec3d attachment_world = (port == nullptr) ? endpoint.endpoint_world : port->world_position;
@@ -99,6 +99,7 @@ void apply_endpoint_to_support_group_decision(
   }
   existing->second.grouped_port_count += 1;
   existing->second.attachment_worlds.push_back(attachment_world);
+  return true;
 }
 
 LoweredSupportGroupPlacement build_grouped_support_placement_from_decision(
@@ -158,19 +159,21 @@ void rebuild_all_lowered_support_groups(const EditState& edit_state, CacheState*
     layout.lowered_support_group_keys.clear();
     if (endpoint_uses_grouped_lowered_support(&layout.start)) {
       const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(layout.start.decision);
-      apply_endpoint_to_support_group_decision(
+      const bool accepted = apply_endpoint_to_support_group_decision(
           &cache_state->support_layout_cache.support_group_decisions, edit_state, layout.start);
-      if (std::find(layout.lowered_support_group_keys.begin(), layout.lowered_support_group_keys.end(), key) ==
-          layout.lowered_support_group_keys.end()) {
+      if (accepted &&
+          std::find(layout.lowered_support_group_keys.begin(), layout.lowered_support_group_keys.end(), key) ==
+              layout.lowered_support_group_keys.end()) {
         layout.lowered_support_group_keys.push_back(key);
       }
     }
     if (endpoint_uses_grouped_lowered_support(&layout.end)) {
       const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(layout.end.decision);
-      apply_endpoint_to_support_group_decision(
+      const bool accepted = apply_endpoint_to_support_group_decision(
           &cache_state->support_layout_cache.support_group_decisions, edit_state, layout.end);
-      if (std::find(layout.lowered_support_group_keys.begin(), layout.lowered_support_group_keys.end(), key) ==
-          layout.lowered_support_group_keys.end()) {
+      if (accepted &&
+          std::find(layout.lowered_support_group_keys.begin(), layout.lowered_support_group_keys.end(), key) ==
+              layout.lowered_support_group_keys.end()) {
         layout.lowered_support_group_keys.push_back(key);
       }
     }

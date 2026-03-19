@@ -1210,9 +1210,6 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
         0.0,
     };
     const bool uses_grouped_lowered_support = layout_endpoint != nullptr && endpoint_uses_grouped_lowered_support(layout_endpoint);
-    if (uses_grouped_lowered_support) {
-      radial = AuthoritativeSupportAxisForEndpoint(*layout_endpoint, radial);
-    }
 
     SpanVisualCacheEntry& entry = cache_state_.visual_cache.by_span[span_id];
     if (uses_grouped_lowered_support) {
@@ -1269,8 +1266,11 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
       }
     }
     if (cache_state_.visual_settings.enable_insulators && requires_insulator) {
-      const Vec3d fallback_axis = group.tip_world - group.mount_world;
-      const Vec3d support_axis = AuthoritativeSupportAxisForGroup(group, fallback_axis);
+      Vec3d support_axis = group.tip_world - group.mount_world;
+      support_axis.z = 0.0;
+      if (!Normalize(&support_axis) || !IsFiniteXY(support_axis)) {
+        return;
+      }
       for (const Vec3d& attachment_world : group.attachment_worlds) {
         VisualPart ins{};
         ins.kind = VisualPartKind::kInsulator;

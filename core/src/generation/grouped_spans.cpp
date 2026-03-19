@@ -731,6 +731,12 @@ CoreState::generate_grouped_spans_between_support_nodes(
         decision.has_side_axis = true;
         return decision;
       }
+      decision.side_axis = canonical_side_axis_for_order(node_id, peer_id);
+      decision.side_assignment_rule = SideAssignmentRuleKind::kBisector;
+      decision.support_orientation_rule = SupportOrientationRuleKind::kBisector;
+      decision.used_junction_pair_side_assignment = false;
+      decision.has_side_axis = true;
+      return decision;
     }
     decision.side_axis = chord_side_axis_for_endpoint(node_id, peer_id);
     decision.side_assignment_rule = SideAssignmentRuleKind::kChord;

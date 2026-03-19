@@ -589,11 +589,11 @@ CoreState::generate_grouped_spans_between_support_nodes(
     return axis;
   };
   auto connected_lowered_support_decision_for_node =
-      [&](ObjectId node_id, ObjectId peer_id, const SegmentRelationFeasibility& feasibility,
-          BackboneLoweringKind lowering_kind) -> std::optional<EndpointSideDecision> {
+      [&](ObjectId node_id, ObjectId peer_id, const SegmentRelationFeasibility& feasibility)
+      -> std::optional<EndpointSideDecision> {
     if (junction_relations_by_node == nullptr || node_id == kInvalidObjectId ||
         feasibility.continuity_class != ContinuityCategoryClass::kBundleLike ||
-        lowering_kind == BackboneLoweringKind::kNone) {
+        (!feasibility.default_lower_required && feasibility.same_level_feasible)) {
       return std::nullopt;
     }
     const auto it = junction_relations_by_node->find(node_id);
@@ -696,18 +696,18 @@ CoreState::generate_grouped_spans_between_support_nodes(
     return decision;
   };
   auto preferred_side_axis_for_endpoint =
-      [&](ObjectId node_id, ObjectId peer_id, const SegmentRelationFeasibility& feasibility,
-          BackboneLoweringKind lowering_kind) -> EndpointSideDecision {
+      [&](ObjectId node_id, ObjectId peer_id, const SegmentRelationFeasibility& feasibility) -> EndpointSideDecision {
     EndpointSideDecision decision{};
     decision.side_axis = canonical_side_axis_for_order(node_id, peer_id);
     decision.has_side_axis = std::isfinite(decision.side_axis.x) && std::isfinite(decision.side_axis.y);
     const bool prefers_line_oriented_lowering =
-        feasibility.continuity_class == ContinuityCategoryClass::kBundleLike && lowering_kind != BackboneLoweringKind::kNone;
+        feasibility.continuity_class == ContinuityCategoryClass::kBundleLike &&
+        (feasibility.default_lower_required || !feasibility.same_level_feasible);
     if (!prefers_line_oriented_lowering) {
       return decision;
     }
     if (const auto connected_lowered =
-            connected_lowered_support_decision_for_node(node_id, peer_id, feasibility, lowering_kind);
+            connected_lowered_support_decision_for_node(node_id, peer_id, feasibility);
         connected_lowered.has_value()) {
       return *connected_lowered;
     }
@@ -856,6 +856,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
                                      bool used_special_case_ports, bool lowering_blocked_by_policy,
                                      bool unresolved_same_level_conflict) {
     EndpointContinuityDecision decision{};
+    decision.owner_pole_id = node_id;
     const bool endpoint_has_conflict =
         feasibility.default_lower_required || !feasibility.same_level_feasible;
     decision.relation_kind = feasibility.kind;
@@ -1244,11 +1245,8 @@ CoreState::generate_grouped_spans_between_support_nodes(
         branch_forward_axis = {1.0, 0.0, 0.0};
       }
       const Vec3d branch_row_axis = ComputeLateralAxis(branch_forward_axis);
-      const EndpointSideDecision preferred_side_decision = preferred_side_axis_for_endpoint(
-          node_id, peer_id, branch_feasibility,
-          (branch_feasibility.kind == JunctionRelationKind::kCrossUnderpass)
-              ? BackboneLoweringKind::kCrossUnderpass
-              : BackboneLoweringKind::kBranchSupport);
+      const EndpointSideDecision preferred_side_decision =
+          preferred_side_axis_for_endpoint(node_id, peer_id, branch_feasibility);
       const Vec3d side_axis = preferred_side_decision.has_side_axis ? preferred_side_decision.side_axis
                                                                     : canonical_side_axis_for_order(node_id, peer_id);
       Vec3d peer_dir = peer_delta;
@@ -1592,19 +1590,8 @@ CoreState::generate_grouped_spans_between_support_nodes(
       }
 
       const SegmentRelationFeasibility scaffold_feasibility = segment_relation_feasibility_for(node_id, peer_id);
-      const BackboneLoweringKind scaffold_lowering_kind =
-          (!scaffold_feasibility.same_level_feasible &&
-           scaffold_feasibility.kind == JunctionRelationKind::kCrossUnderpass)
-              ? BackboneLoweringKind::kCrossUnderpass
-              : ((!scaffold_feasibility.same_level_feasible &&
-                  scaffold_feasibility.kind == JunctionRelationKind::kCornerContinuation)
-                     ? BackboneLoweringKind::kAcuteCorner
-                     : ((!scaffold_feasibility.same_level_feasible &&
-                         scaffold_feasibility.kind == JunctionRelationKind::kSideBranch)
-                            ? BackboneLoweringKind::kBranchSupport
-                            : BackboneLoweringKind::kNone));
       const EndpointSideDecision scaffold_side_decision =
-          preferred_side_axis_for_endpoint(node_id, peer_id, scaffold_feasibility, scaffold_lowering_kind);
+          preferred_side_axis_for_endpoint(node_id, peer_id, scaffold_feasibility);
       const Vec3d stable_side_axis =
           scaffold_side_decision.has_side_axis ? scaffold_side_decision.side_axis
                                                : canonical_side_axis_for_order(node_id, peer_id);
@@ -2467,10 +2454,8 @@ CoreState::generate_grouped_spans_between_support_nodes(
         !segment_same_level_feasible && assignment.lowering_blocked_by_policy;
     assignment.branch_down_offset_m =
         (assignment.lowering_kind != BackboneLoweringKind::kNone) ? effective_branch_down_offset_m : 0.0;
-    EndpointSideDecision side_decision_a =
-        preferred_side_axis_for_endpoint(node_a, node_b, effective_relation_a, assignment.lowering_kind);
-    EndpointSideDecision side_decision_b =
-        preferred_side_axis_for_endpoint(node_b, node_a, effective_relation_b, assignment.lowering_kind);
+    EndpointSideDecision side_decision_a = preferred_side_axis_for_endpoint(node_a, node_b, effective_relation_a);
+    EndpointSideDecision side_decision_b = preferred_side_axis_for_endpoint(node_b, node_a, effective_relation_b);
     finalize_side_sign_for_ports(&side_decision_a, node_a, node_b, assignment.port_ids_a);
     finalize_side_sign_for_ports(&side_decision_b, node_b, node_a, assignment.port_ids_b);
     assignment.side_assignment_rule_a = side_decision_a.side_assignment_rule;

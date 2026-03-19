@@ -86,7 +86,7 @@ SupportLayoutEndpoint make_support_layout_seed_endpoint(const Span& span, const 
   endpoint.owner_pole_id = port.owner_pole_id;
   endpoint.port_id = port.id;
   endpoint.decision = decision;
-  endpoint.support_group_key = {endpoint.owner_pole_id, decision.support_group_id};
+  endpoint.decision.owner_pole_id = endpoint.owner_pole_id;
   endpoint.flow_kind = assignment.flow_kind;
   endpoint.relation_kind = decision.relation_kind;
   endpoint.continuity_class = decision.continuity_class;

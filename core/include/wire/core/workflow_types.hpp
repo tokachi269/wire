@@ -293,6 +293,7 @@ enum class SupportGroupingRuleKind : std::uint8_t {
 };
 
 struct EndpointContinuityDecision {
+  ObjectId owner_pole_id = kInvalidObjectId;
   JunctionRelationKind relation_kind = JunctionRelationKind::kNone;
   ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
   bool in_through_pair = false;
@@ -320,6 +321,11 @@ struct EndpointContinuityDecision {
   double chosen_side_sign = 0.0;
   bool downstream_overridden = false;
 };
+
+[[nodiscard]] inline bool UsesAuthoritativeGroupedLoweredSupport(const EndpointContinuityDecision& decision) {
+  return decision.owner_pole_id != kInvalidObjectId && decision.lower_required && !decision.lowering_blocked_by_policy &&
+         decision.support_group_id >= 0;
+}
 
 [[nodiscard]] inline LateralSideChoiceKind LateralSideChoiceFromSign(double sign) {
   if (sign > 1e-9) {

@@ -477,6 +477,7 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
                           double down_offset_m, const wire::core::Vec3d& mount_world,
                           const wire::core::Vec3d& tip_world) {
     group->owner_pole_id = pole_a;
+    group->decision.owner_pole_id = pole_a;
     group->decision.relation_kind = wire::core::JunctionRelationKind::kSideBranch;
     group->decision.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
     group->decision.lower_required = true;
@@ -484,8 +485,11 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
     group->decision.same_level_feasible = false;
     group->decision.chosen_side = wire::core::LateralSideChoiceKind::kRight;
     group->decision.chosen_side_sign = 1.0;
+    group->decision.support_orientation_rule = wire::core::SupportOrientationRuleKind::kChord;
     group->decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kChordForward;
     group->decision.support_group_id = 1234;
+    group->decision.has_side_axis = true;
+    group->decision.side_axis = axis;
     group->grouping_rule = wire::core::SupportGroupingRuleKind::kDecisionGroup;
     group->support_group_id = 1234;
     group->grouped_port_count = 1;
@@ -500,12 +504,34 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
 
   it_ab->second.lowered_support_group_keys = {{pole_a, 1234}};
   it_ac->second.lowered_support_group_keys = {{pole_a, 1234}};
+  auto& decision_store = CoreStateTestHook::cache_state(state).support_layout_cache.support_group_decisions;
+  decision_store.clear();
   auto& grouped_store = CoreStateTestHook::cache_state(state).support_layout_cache.lowered_support_groups;
   grouped_store.clear();
   make_grouped(&grouped_store[{pole_a, 1234}], {1.0, 0.0, 0.0}, 1.0, {0.2, 0.0, 4.0}, {0.6, 0.0, 4.0});
+  auto& decision = decision_store[{pole_a, 1234}];
+  decision.owner_pole_id = pole_a;
+  decision.support_group_id = 1234;
+  decision.decision = grouped_store[{pole_a, 1234}].decision;
+  decision.side = grouped_store[{pole_a, 1234}].side;
+  decision.origin = grouped_store[{pole_a, 1234}].origin;
+  decision.bundle_order_policy = grouped_store[{pole_a, 1234}].bundle_order_policy;
+  decision.bundle_order_choice = grouped_store[{pole_a, 1234}].bundle_order_choice;
+  decision.bundle_order_choice_reason = grouped_store[{pole_a, 1234}].bundle_order_choice_reason;
+  decision.side_assignment_rule = grouped_store[{pole_a, 1234}].side_assignment_rule;
+  decision.support_orientation_rule = grouped_store[{pole_a, 1234}].support_orientation_rule;
+  decision.used_junction_pair_side_assignment = grouped_store[{pole_a, 1234}].used_junction_pair_side_assignment;
+  decision.has_side_axis = grouped_store[{pole_a, 1234}].has_side_axis;
+  decision.side_axis = grouped_store[{pole_a, 1234}].side_axis;
+  decision.chosen_side_sign = grouped_store[{pole_a, 1234}].chosen_side_sign;
+  decision.down_offset_m = grouped_store[{pole_a, 1234}].down_offset_m;
+  decision.support_world = grouped_store[{pole_a, 1234}].tip_world;
+  decision.grouped_port_count = grouped_store[{pole_a, 1234}].grouped_port_count;
+  decision.attachment_worlds = grouped_store[{pole_a, 1234}].attachment_worlds;
 
   const auto validation = helpers::validate_now(state);
   return validation.ok() && grouped_store.size() == 1 &&
+         decision_store.size() == 1 &&
          it_ab->second.lowered_support_group_keys.size() == 1 &&
          it_ac->second.lowered_support_group_keys.size() == 1 &&
          it_ab->second.lowered_support_group_keys.front() == it_ac->second.lowered_support_group_keys.front();
@@ -538,6 +564,7 @@ bool test_inspection_uses_authoritative_lowered_support_groups() {
   it->second.lowered_support_group_keys = {{pole_a, 777}};
   auto& group = CoreStateTestHook::cache_state(state).support_layout_cache.lowered_support_groups[{pole_a, 777}];
   group.owner_pole_id = pole_a;
+  group.decision.owner_pole_id = pole_a;
   group.decision.relation_kind = wire::core::JunctionRelationKind::kSideBranch;
   group.decision.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
   group.decision.lower_required = true;
@@ -545,8 +572,11 @@ bool test_inspection_uses_authoritative_lowered_support_groups() {
   group.decision.same_level_feasible = false;
   group.decision.chosen_side = wire::core::LateralSideChoiceKind::kLeft;
   group.decision.chosen_side_sign = -1.0;
+  group.decision.support_orientation_rule = wire::core::SupportOrientationRuleKind::kChord;
   group.decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kChordForward;
   group.decision.support_group_id = 777;
+  group.decision.has_side_axis = true;
+  group.decision.side_axis = {0.0, 1.0, 0.0};
   group.grouping_rule = wire::core::SupportGroupingRuleKind::kDecisionGroup;
   group.support_group_id = 777;
   group.grouped_port_count = 1;

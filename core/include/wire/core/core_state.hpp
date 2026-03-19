@@ -104,6 +104,11 @@ struct LoweredSupportGroupKey {
   }
 };
 
+[[nodiscard]] inline LoweredSupportGroupKey LoweredSupportGroupKeyFromDecision(
+    const EndpointContinuityDecision& decision) {
+  return {decision.owner_pole_id, decision.support_group_id};
+}
+
 struct LoweredSupportGroupKeyHash {
   std::size_t operator()(const LoweredSupportGroupKey& key) const {
     const std::size_t h1 = std::hash<ObjectId>{}(key.owner_pole_id);
@@ -117,7 +122,6 @@ struct SupportLayoutEndpoint {
   ObjectId owner_pole_id = kInvalidObjectId;
   ObjectId port_id = kInvalidObjectId;
   EndpointContinuityDecision decision{};
-  LoweredSupportGroupKey support_group_key{};
   EndpointAttachmentRequest attachment_request{};
   std::optional<int> resolved_socket_id{};
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
@@ -154,6 +158,28 @@ struct SupportLayoutEndpoint {
   bool solver_used_same_level_constraint = false;
   bool used_special_case_ports = false;
   HierarchicalVariationSample down_offset_variation{};
+};
+
+struct SupportGroupDecision {
+  ObjectId owner_pole_id = kInvalidObjectId;
+  int support_group_id = -1;
+  EndpointContinuityDecision decision{};
+  SlotSide side = SlotSide::kCenter;
+  SupportLayoutOriginKind origin = SupportLayoutOriginKind::kFallback;
+  BundleOrderPolicyKind bundle_order_policy = BundleOrderPolicyKind::kFixedOrder;
+  BundleOrderChoiceKind bundle_order_choice = BundleOrderChoiceKind::kNormal;
+  BundleOrderChoiceReason bundle_order_choice_reason = BundleOrderChoiceReason::kFixedOrder;
+  SideAssignmentRuleKind side_assignment_rule = SideAssignmentRuleKind::kPoleLocal;
+  SupportOrientationRuleKind support_orientation_rule = SupportOrientationRuleKind::kRadial;
+  bool used_junction_pair_side_assignment = false;
+  bool has_side_axis = false;
+  Vec3d side_axis{};
+  double chosen_side_sign = 0.0;
+  double down_offset_m = 0.0;
+  Vec3d support_world{};
+  HierarchicalVariationSample down_offset_variation{};
+  int grouped_port_count = 0;
+  std::vector<Vec3d> attachment_worlds{};
 };
 
 struct LoweredSupportGroupPlacement {
@@ -207,6 +233,7 @@ struct SpanSupportLayoutEntry {
 
 struct SupportLayoutCache {
   std::unordered_map<ObjectId, SpanSupportLayoutEntry> by_span{};
+  std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash> support_group_decisions{};
   std::unordered_map<LoweredSupportGroupKey, LoweredSupportGroupPlacement, LoweredSupportGroupKeyHash> lowered_support_groups{};
 };
 

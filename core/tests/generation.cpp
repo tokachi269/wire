@@ -6146,6 +6146,8 @@ bool test_backbone_authoritative_endpoint_decision_matches_support_layout() {
     return false;
   }
   const bool same_start =
+      layout_view->start_endpoint.decision.owner_pole_id == layout_view->start_endpoint.owner_pole_id &&
+      layout_view->start_endpoint.decision.owner_pole_id == assignment->decision_a.owner_pole_id &&
       layout_view->start_endpoint.decision.bundle_order_choice == assignment->decision_a.bundle_order_choice &&
       layout_view->start_endpoint.decision.chosen_side == assignment->decision_a.chosen_side &&
       layout_view->start_endpoint.decision.support_orientation_basis == assignment->decision_a.support_orientation_basis &&
@@ -6153,6 +6155,8 @@ bool test_backbone_authoritative_endpoint_decision_matches_support_layout() {
       layout_view->start_endpoint.decision.relation_kind == assignment->decision_a.relation_kind &&
       !layout_view->start_endpoint.decision.downstream_overridden;
   const bool same_end =
+      layout_view->end_endpoint.decision.owner_pole_id == layout_view->end_endpoint.owner_pole_id &&
+      layout_view->end_endpoint.decision.owner_pole_id == assignment->decision_b.owner_pole_id &&
       layout_view->end_endpoint.decision.bundle_order_choice == assignment->decision_b.bundle_order_choice &&
       layout_view->end_endpoint.decision.chosen_side == assignment->decision_b.chosen_side &&
       layout_view->end_endpoint.decision.support_orientation_basis == assignment->decision_b.support_orientation_basis &&
@@ -6223,6 +6227,8 @@ bool test_backbone_refresh_does_not_override_authoritative_endpoint_decision() {
   }
   const auto after_endpoint = layout_endpoint_for_owner(*after, center_id);
   return after_endpoint.has_value() &&
+         after_endpoint->decision.owner_pole_id == before_decision.owner_pole_id &&
+         after_endpoint->decision.owner_pole_id == after_endpoint->owner_pole_id &&
          after_endpoint->decision.bundle_order_choice == before_decision.bundle_order_choice &&
          after_endpoint->decision.chosen_side == before_decision.chosen_side &&
          after_endpoint->decision.support_orientation_basis == before_decision.support_orientation_basis &&

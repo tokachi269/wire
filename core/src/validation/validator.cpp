@@ -35,8 +35,7 @@ bool has_duplicate_ids(const std::vector<ObjectId>& ids) {
 }
 
 bool endpoint_uses_grouped_lowered_support_for_validation(const SupportLayoutEndpoint& endpoint) {
-  return endpoint.decision.lower_required && !endpoint.decision.lowering_blocked_by_policy &&
-         endpoint.decision.support_group_id >= 0;
+  return UsesAuthoritativeGroupedLoweredSupport(endpoint.decision);
 }
 
 bool almost_equal_validation(double a, double b, double eps = 1e-9) { return std::abs(a - b) <= eps; }
@@ -400,16 +399,41 @@ ValidationResult CoreState::Validate() const {
       if (!endpoint_uses_grouped_lowered_support_for_validation(endpoint)) {
         return;
       }
+      if (endpoint.decision.support_orientation_basis == SupportOrientationBasisKind::kRadial ||
+          endpoint.decision.support_orientation_rule == SupportOrientationRuleKind::kRadial ||
+          !endpoint.decision.has_side_axis || !std::isfinite(endpoint.decision.side_axis.x) ||
+          !std::isfinite(endpoint.decision.side_axis.y) || std::abs(endpoint.decision.chosen_side_sign) <= 1e-9) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionIncomplete",
+                                 "Grouped-lowered endpoint must carry non-radial authoritative orientation/side fields",
+                                 span_id});
+        return;
+      }
+      if (endpoint.decision.owner_pole_id != endpoint.owner_pole_id) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportGroupOwnerMismatch",
+                                 "Grouped-lowered endpoint decision owner does not match endpoint owner pole", span_id});
+        return;
+      }
       if (endpoint.decision.support_group_id < 0) {
         result.issues.push_back({ValidationSeverity::kError, "SupportGroupEndpointMissing",
                                  "Grouped-lowered endpoint does not resolve to a support group placement", span_id});
         return;
       }
-      const LoweredSupportGroupKey key = endpoint.support_group_key;
+      const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint.decision);
+      if (key.owner_pole_id != endpoint.decision.owner_pole_id || key.support_group_id != endpoint.decision.support_group_id) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportGroupKeyMismatch",
+                                 "Grouped-lowered endpoint key must match authoritative decision owner/group id", span_id});
+        return;
+      }
       if (std::find(layout.lowered_support_group_keys.begin(), layout.lowered_support_group_keys.end(), key) ==
           layout.lowered_support_group_keys.end()) {
         result.issues.push_back({ValidationSeverity::kError, "SupportGroupEndpointMissing",
                                  "Grouped-lowered endpoint does not reference its support group placement", span_id});
+        return;
+      }
+      const auto decision_it = cache_state.support_layout_cache.support_group_decisions.find(key);
+      if (decision_it == cache_state.support_layout_cache.support_group_decisions.end()) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionMissing",
+                                 "Grouped-lowered endpoint references a missing support group decision", span_id});
         return;
       }
       const auto it = cache_state.support_layout_cache.lowered_support_groups.find(key);
@@ -428,12 +452,66 @@ ValidationResult CoreState::Validate() const {
                                  "Grouped-lowered endpoint decision does not match grouped placement decision",
                                  span_id});
       }
+      if (endpoint.decision.support_orientation_basis != decision_it->second.decision.support_orientation_basis ||
+          endpoint.decision.chosen_side != decision_it->second.decision.chosen_side ||
+          endpoint.decision.support_orientation_rule != decision_it->second.decision.support_orientation_rule) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionMismatch",
+                                 "Grouped-lowered endpoint decision does not match support-group decision",
+                                 span_id});
+      }
     };
     validate_grouped_endpoint_alignment(layout.start);
     validate_grouped_endpoint_alignment(layout.end);
   }
 
+  for (const auto& [key, group_decision] : cache_state.support_layout_cache.support_group_decisions) {
+    if (group_decision.owner_pole_id != key.owner_pole_id || group_decision.support_group_id != key.support_group_id ||
+        group_decision.decision.owner_pole_id != key.owner_pole_id ||
+        group_decision.decision.support_group_id != key.support_group_id) {
+      result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionKeyMismatch",
+                               "Support-group decision key must match authoritative decision owner/group id",
+                               key.owner_pole_id});
+    }
+    if (!UsesAuthoritativeGroupedLoweredSupport(group_decision.decision)) {
+      result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionNotAuthoritative",
+                               "Support-group decision must be backed by an authoritative lowered decision",
+                               key.owner_pole_id});
+    }
+    if (group_decision.decision.support_orientation_basis == SupportOrientationBasisKind::kRadial ||
+        group_decision.decision.support_orientation_rule == SupportOrientationRuleKind::kRadial ||
+        !group_decision.decision.has_side_axis || !std::isfinite(group_decision.decision.side_axis.x) ||
+        !std::isfinite(group_decision.decision.side_axis.y) ||
+        std::abs(group_decision.decision.chosen_side_sign) <= 1e-9) {
+      result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionIncomplete",
+                               "Support-group decision must carry non-radial authoritative orientation/side fields",
+                               key.owner_pole_id});
+    }
+  }
+
   for (const auto& [key, group] : cache_state.support_layout_cache.lowered_support_groups) {
+    if (cache_state.support_layout_cache.support_group_decisions.find(key) ==
+        cache_state.support_layout_cache.support_group_decisions.end()) {
+      result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionMissing",
+                               "Grouped placement must have a matching support-group decision", key.owner_pole_id});
+    }
+    if (group.decision.owner_pole_id != key.owner_pole_id || group.decision.support_group_id != key.support_group_id) {
+      result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionKeyMismatch",
+                               "Grouped placement key must match authoritative decision owner/group id",
+                               key.owner_pole_id});
+    }
+    if (!UsesAuthoritativeGroupedLoweredSupport(group.decision)) {
+      result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionNotAuthoritative",
+                               "Grouped placement must be backed by an authoritative lowered decision",
+                               key.owner_pole_id});
+    }
+    if (group.decision.support_orientation_basis == SupportOrientationBasisKind::kRadial ||
+        group.decision.support_orientation_rule == SupportOrientationRuleKind::kRadial ||
+        !group.decision.has_side_axis || !std::isfinite(group.decision.side_axis.x) ||
+        !std::isfinite(group.decision.side_axis.y) || std::abs(group.decision.chosen_side_sign) <= 1e-9) {
+      result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionIncomplete",
+                               "Grouped placement must carry non-radial authoritative orientation/side fields",
+                               key.owner_pole_id});
+    }
     if (group.grouped_port_count != static_cast<int>(group.attachment_worlds.size())) {
       result.issues.push_back({ValidationSeverity::kError, "SupportGroupAttachmentCountMismatch",
                                "Grouped lowered support must carry one attachment world per grouped port",
@@ -465,6 +543,11 @@ ValidationResult CoreState::Validate() const {
       if (!seen_group_keys.insert(key).second) {
         result.issues.push_back({ValidationSeverity::kError, "SupportGroupPlacementDuplicateRef",
                                  "Support layout must not reference the same grouped lowered support twice", span_id});
+      }
+      if (cache_state.support_layout_cache.support_group_decisions.find(key) ==
+          cache_state.support_layout_cache.support_group_decisions.end()) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionMissing",
+                                 "Support layout references a missing support-group decision", span_id});
       }
       if (cache_state.support_layout_cache.lowered_support_groups.find(key) ==
           cache_state.support_layout_cache.lowered_support_groups.end()) {

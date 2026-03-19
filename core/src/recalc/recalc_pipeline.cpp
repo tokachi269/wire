@@ -35,12 +35,7 @@ struct ResolvedSpanCurveInputs {
 };
 
 bool endpoint_uses_grouped_lowered_support(const SupportLayoutEndpoint* endpoint) {
-  return endpoint != nullptr && endpoint->decision.lower_required && !endpoint->decision.lowering_blocked_by_policy &&
-         endpoint->decision.support_group_id >= 0;
-}
-
-LoweredSupportGroupKey lowered_support_group_key_for_endpoint(const SupportLayoutEndpoint& endpoint) {
-  return endpoint.support_group_key;
+  return endpoint != nullptr && UsesAuthoritativeGroupedLoweredSupport(endpoint->decision);
 }
 
 std::pair<Vec3d, Vec3d> shared_support_anchor_points(const Pole& pole, const Vec3d& support_axis, double z_m,
@@ -62,38 +57,32 @@ std::pair<Vec3d, Vec3d> shared_support_anchor_points(const Pole& pole, const Vec
   return {mount, tip};
 }
 
-void apply_endpoint_to_grouped_support_placement(
-    std::unordered_map<LoweredSupportGroupKey, LoweredSupportGroupPlacement, LoweredSupportGroupKeyHash>* groups,
-    const EditState& edit_state, const CacheState& cache_state,
-    const SupportLayoutEndpoint& endpoint) {
+void apply_endpoint_to_support_group_decision(
+    std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash>* groups,
+    const EditState& edit_state, const SupportLayoutEndpoint& endpoint) {
   if (groups == nullptr || !endpoint_uses_grouped_lowered_support(&endpoint)) {
     return;
   }
-  const Pole* pole = edit_state.poles.find(endpoint.owner_pole_id);
+  const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint.decision);
+  if (key.owner_pole_id == kInvalidObjectId || key.support_group_id < 0) {
+    return;
+  }
+  const Pole* pole = edit_state.poles.find(key.owner_pole_id);
   if (pole == nullptr) {
     return;
   }
   const Port* port = edit_state.ports.find(endpoint.port_id);
   const Vec3d attachment_world = (port == nullptr) ? endpoint.endpoint_world : port->world_position;
-  const LoweredSupportGroupKey key = lowered_support_group_key_for_endpoint(endpoint);
-  Vec3d fallback_axis = ComputeLateralAxis(endpoint.departure_dir);
-  if (!IsFiniteXY(fallback_axis) || !Normalize(&fallback_axis)) {
-    fallback_axis = endpoint.endpoint_world - pole->world_transform.position;
-  }
-  const Vec3d support_axis = CanonicalSharedSupportAxis(AuthoritativeSupportAxisForEndpoint(endpoint, fallback_axis),
-                                                        fallback_axis);
-  const auto [mount_world, tip_world] =
-      shared_support_anchor_points(*pole, support_axis, endpoint.support_world.z, cache_state);
   auto [existing, inserted] = groups->try_emplace(key);
   if (inserted) {
-    LoweredSupportGroupPlacement& group = existing->second;
-    group.owner_pole_id = endpoint.owner_pole_id;
+    SupportGroupDecision& group = existing->second;
+    group.owner_pole_id = key.owner_pole_id;
+    group.support_group_id = key.support_group_id;
     group.decision = endpoint.decision;
+    group.decision.owner_pole_id = key.owner_pole_id;
+    group.decision.support_group_id = key.support_group_id;
     group.side = endpoint.side;
     group.origin = endpoint.origin;
-    group.grouping_rule = SupportGroupingRuleKind::kDecisionGroup;
-    group.support_group_id = endpoint.decision.support_group_id;
-    group.grouped_port_count = 0;
     group.bundle_order_policy = endpoint.bundle_order_policy;
     group.bundle_order_choice = endpoint.bundle_order_choice;
     group.bundle_order_choice_reason = endpoint.bundle_order_choice_reason;
@@ -104,52 +93,103 @@ void apply_endpoint_to_grouped_support_placement(
     group.side_axis = endpoint.side_axis;
     group.chosen_side_sign = endpoint.chosen_side_sign;
     group.down_offset_m = endpoint.branch_down_offset_m;
-    group.mount_world = mount_world;
-    group.tip_world = tip_world;
+    group.support_world = endpoint.support_world;
     group.down_offset_variation = endpoint.down_offset_variation;
+    group.grouped_port_count = 0;
   }
   existing->second.grouped_port_count += 1;
   existing->second.attachment_worlds.push_back(attachment_world);
+}
+
+LoweredSupportGroupPlacement build_grouped_support_placement_from_decision(
+    const SupportGroupDecision& group_decision, const EditState& edit_state, const CacheState& cache_state) {
+  LoweredSupportGroupPlacement group{};
+  group.owner_pole_id = group_decision.owner_pole_id;
+  group.decision = group_decision.decision;
+  group.decision.owner_pole_id = group_decision.owner_pole_id;
+  group.decision.support_group_id = group_decision.support_group_id;
+  group.side = group_decision.side;
+  group.origin = group_decision.origin;
+  group.grouping_rule = SupportGroupingRuleKind::kDecisionGroup;
+  group.support_group_id = group_decision.support_group_id;
+  group.grouped_port_count = group_decision.grouped_port_count;
+  group.bundle_order_policy = group_decision.bundle_order_policy;
+  group.bundle_order_choice = group_decision.bundle_order_choice;
+  group.bundle_order_choice_reason = group_decision.bundle_order_choice_reason;
+  group.side_assignment_rule = group_decision.side_assignment_rule;
+  group.support_orientation_rule = group_decision.support_orientation_rule;
+  group.used_junction_pair_side_assignment = group_decision.used_junction_pair_side_assignment;
+  group.has_side_axis = group_decision.has_side_axis;
+  group.side_axis = group_decision.side_axis;
+  group.chosen_side_sign = group_decision.chosen_side_sign;
+  group.down_offset_m = group_decision.down_offset_m;
+  group.attachment_worlds = group_decision.attachment_worlds;
+  group.down_offset_variation = group_decision.down_offset_variation;
+
+  const Pole* pole = edit_state.poles.find(group.owner_pole_id);
+  if (pole == nullptr) {
+    return group;
+  }
+  Vec3d fallback_axis = group.side_axis;
+  if (!IsFiniteXY(fallback_axis) || !Normalize(&fallback_axis)) {
+    if (!group.attachment_worlds.empty()) {
+      fallback_axis = group.attachment_worlds.front() - pole->world_transform.position;
+    } else {
+      fallback_axis = {1.0, 0.0, 0.0};
+    }
+  }
+  const Vec3d support_axis =
+      CanonicalSharedSupportAxis(AuthoritativeSupportAxisForGroup(group, fallback_axis), fallback_axis);
+  const auto [mount_world, tip_world] =
+      shared_support_anchor_points(*pole, support_axis, group_decision.support_world.z, cache_state);
+  group.mount_world = mount_world;
+  group.tip_world = tip_world;
+  return group;
 }
 
 void rebuild_all_lowered_support_groups(const EditState& edit_state, CacheState* cache_state) {
   if (cache_state == nullptr) {
     return;
   }
+  cache_state->support_layout_cache.support_group_decisions.clear();
   cache_state->support_layout_cache.lowered_support_groups.clear();
   for (auto& [span_id, layout] : cache_state->support_layout_cache.by_span) {
     (void)span_id;
     layout.lowered_support_group_keys.clear();
     if (endpoint_uses_grouped_lowered_support(&layout.start)) {
-      const LoweredSupportGroupKey key = lowered_support_group_key_for_endpoint(layout.start);
-      apply_endpoint_to_grouped_support_placement(
-          &cache_state->support_layout_cache.lowered_support_groups, edit_state, *cache_state, layout.start);
+      const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(layout.start.decision);
+      apply_endpoint_to_support_group_decision(
+          &cache_state->support_layout_cache.support_group_decisions, edit_state, layout.start);
       if (std::find(layout.lowered_support_group_keys.begin(), layout.lowered_support_group_keys.end(), key) ==
           layout.lowered_support_group_keys.end()) {
         layout.lowered_support_group_keys.push_back(key);
       }
     }
     if (endpoint_uses_grouped_lowered_support(&layout.end)) {
-      const LoweredSupportGroupKey key = lowered_support_group_key_for_endpoint(layout.end);
-      apply_endpoint_to_grouped_support_placement(
-          &cache_state->support_layout_cache.lowered_support_groups, edit_state, *cache_state, layout.end);
+      const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(layout.end.decision);
+      apply_endpoint_to_support_group_decision(
+          &cache_state->support_layout_cache.support_group_decisions, edit_state, layout.end);
       if (std::find(layout.lowered_support_group_keys.begin(), layout.lowered_support_group_keys.end(), key) ==
           layout.lowered_support_group_keys.end()) {
         layout.lowered_support_group_keys.push_back(key);
       }
     }
   }
+  for (const auto& [key, group_decision] : cache_state->support_layout_cache.support_group_decisions) {
+    cache_state->support_layout_cache.lowered_support_groups[key] =
+        build_grouped_support_placement_from_decision(group_decision, edit_state, *cache_state);
+  }
   for (auto& [span_id, layout] : cache_state->support_layout_cache.by_span) {
     (void)span_id;
     if (endpoint_uses_grouped_lowered_support(&layout.start)) {
-      const LoweredSupportGroupKey key = lowered_support_group_key_for_endpoint(layout.start);
+      const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(layout.start.decision);
       const auto it = cache_state->support_layout_cache.lowered_support_groups.find(key);
       if (it != cache_state->support_layout_cache.lowered_support_groups.end()) {
         layout.start.support_world = it->second.tip_world;
       }
     }
     if (endpoint_uses_grouped_lowered_support(&layout.end)) {
-      const LoweredSupportGroupKey key = lowered_support_group_key_for_endpoint(layout.end);
+      const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(layout.end.decision);
       const auto it = cache_state->support_layout_cache.lowered_support_groups.find(key);
       if (it != cache_state->support_layout_cache.lowered_support_groups.end()) {
         layout.end.support_world = it->second.tip_world;
@@ -497,7 +537,7 @@ void apply_endpoint_decision_to_layout_endpoint(const EndpointContinuityDecision
     return;
   }
   endpoint->decision = decision;
-  endpoint->support_group_key = {endpoint->owner_pole_id, decision.support_group_id};
+  endpoint->decision.owner_pole_id = endpoint->owner_pole_id;
   endpoint->relation_kind = decision.relation_kind;
   endpoint->continuity_class = decision.continuity_class;
   endpoint->default_lower_required = decision.default_lower_required;
@@ -640,8 +680,8 @@ SupportLayoutEndpoint build_support_layout_endpoint(const CoreState& state, cons
   }
   endpoint.port_source = port.placement_source;
   endpoint.side = port.template_side;
-    endpoint.support_world = port.world_position;
-  endpoint.support_group_key = {endpoint.owner_pole_id, endpoint.decision.support_group_id};
+  endpoint.support_world = port.world_position;
+  endpoint.decision.owner_pole_id = endpoint.owner_pole_id;
   endpoint.automatic_branch_down_offset_m = automatic_branch_down_offset_m;
   endpoint.down_offset_variation = down_offset_variation;
   endpoint.branch_down_offset_m = resolved_branch_down_offset_m;
@@ -664,25 +704,13 @@ SupportLayoutEndpoint build_support_layout_endpoint(const CoreState& state, cons
     endpoint.endpoint_source = SupportLayoutEndpointSourceKind::kPlainSupport;
   }
 
-    endpoint.endpoint_mode = constraint.endpoint_mode;
-    endpoint.endpoint_world = constraint.point;
-    endpoint.departure_dir = constraint.tangent_dir;
-    endpoint.endpoint_offset = constraint.endpoint_offset;
-    endpoint.local_departure_length_m = constraint.support_departure_length_m;
-    if (owner_pole != nullptr && endpoint_uses_grouped_lowered_support(&endpoint)) {
-      Vec3d fallback_axis = ComputeLateralAxis(endpoint.departure_dir);
-      if (!IsFiniteXY(fallback_axis) || !Normalize(&fallback_axis)) {
-        fallback_axis = endpoint.endpoint_world - owner_pole->world_transform.position;
-      }
-      const Vec3d support_axis =
-        CanonicalSharedSupportAxis(AuthoritativeSupportAxisForEndpoint(endpoint, fallback_axis), fallback_axis);
-      const auto [mount_world, tip_world] = shared_support_anchor_points(
-          *owner_pole, support_axis, port.world_position.z + endpoint.branch_down_offset_m, state.view().cache_state());
-      (void)mount_world;
-      endpoint.support_world = tip_world;
-    }
-    return endpoint;
-  }
+  endpoint.endpoint_mode = constraint.endpoint_mode;
+  endpoint.endpoint_world = constraint.point;
+  endpoint.departure_dir = constraint.tangent_dir;
+  endpoint.endpoint_offset = constraint.endpoint_offset;
+  endpoint.local_departure_length_m = constraint.support_departure_length_m;
+  return endpoint;
+}
 
 CurveConstraint make_curve_constraint_from_support_layout(const SupportLayoutEndpoint& endpoint, const Pole* owner_pole,
                                                           double basis_length, double effective_sag_ratio,

@@ -5168,6 +5168,63 @@ bool test_backbone_refresh_keeps_local_lower_and_grouped_support() {
     return grouped_count;
   };
 
+  struct EndpointSnapshot {
+    int support_group_id = -1;
+    wire::core::Vec3d support_world{};
+    wire::core::SupportOrientationRuleKind support_orientation_rule = wire::core::SupportOrientationRuleKind::kRadial;
+    wire::core::SupportOrientationBasisKind support_orientation_basis = wire::core::SupportOrientationBasisKind::kRadial;
+    wire::core::Vec3d side_axis{};
+    double chosen_side_sign = 0.0;
+    bool lower_required = false;
+    bool default_lower_required = false;
+    wire::core::JunctionRelationKind relation_kind = wire::core::JunctionRelationKind::kNone;
+  };
+  struct GroupSnapshot {
+    int support_group_id = -1;
+    wire::core::Vec3d mount_world{};
+    wire::core::Vec3d tip_world{};
+    wire::core::SupportOrientationRuleKind support_orientation_rule = wire::core::SupportOrientationRuleKind::kRadial;
+    wire::core::SupportOrientationBasisKind support_orientation_basis = wire::core::SupportOrientationBasisKind::kRadial;
+    wire::core::Vec3d side_axis{};
+    double chosen_side_sign = 0.0;
+    bool lower_required = false;
+    bool default_lower_required = false;
+    wire::core::JunctionRelationKind relation_kind = wire::core::JunctionRelationKind::kNone;
+  };
+  auto snapshot_endpoint = [&](const wire::core::SupportLayoutEndpointView& endpoint) {
+    EndpointSnapshot s{};
+    s.support_group_id = endpoint.decision.support_group_id;
+    s.support_world = endpoint.support_world;
+    s.support_orientation_rule = endpoint.support_orientation_rule;
+    s.support_orientation_basis = endpoint.decision.support_orientation_basis;
+    s.side_axis = endpoint.side_axis;
+    s.chosen_side_sign = endpoint.chosen_side_sign;
+    s.lower_required = endpoint.decision.lower_required;
+    s.default_lower_required = endpoint.decision.default_lower_required;
+    s.relation_kind = endpoint.relation_kind;
+    return s;
+  };
+  auto snapshot_group_for_center = [&](const wire::core::SupportLayoutInspectionView& layout) {
+    GroupSnapshot s{};
+    for (const auto& g : layout.lowered_support_groups) {
+      if (g.owner_pole_id != center_id) {
+        continue;
+      }
+      s.support_group_id = g.support_group_id;
+      s.mount_world = g.mount_world;
+      s.tip_world = g.tip_world;
+      s.support_orientation_rule = g.support_orientation_rule;
+      s.support_orientation_basis = g.decision.support_orientation_basis;
+      s.side_axis = g.side_axis;
+      s.chosen_side_sign = g.chosen_side_sign;
+      s.lower_required = g.decision.lower_required;
+      s.default_lower_required = g.decision.default_lower_required;
+      s.relation_kind = g.decision.relation_kind;
+      break;
+    }
+    return s;
+  };
+
   ObjectId target_span_id = wire::core::kInvalidObjectId;
   for (ObjectId span_id : generated.value.generated_span_ids) {
     if (grouped_support_count_for_center(span_id) > 0) {
@@ -5183,27 +5240,46 @@ bool test_backbone_refresh_keeps_local_lower_and_grouped_support() {
     if (!before.has_value() || before_grouped == 0) {
       return false;
     }
-    const wire::core::Vec3d before_support_world = before->start_endpoint.owner_pole_id == center_id
-                                                       ? before->start_endpoint.support_world
-                                                       : before->end_endpoint.support_world;
+    const auto before_endpoint = before->start_endpoint.owner_pole_id == center_id
+                                     ? snapshot_endpoint(before->start_endpoint)
+                                     : snapshot_endpoint(before->end_endpoint);
+    const auto before_group = snapshot_group_for_center(*before);
     if (!state.SetPoleManualYawOverride(center_id, 19.0).ok) {
       return false;
     }
     const auto after = state.view().inspect_support_layout(target_span_id);
     const int after_grouped = grouped_support_count_for_center(target_span_id);
+    if (!after.has_value()) {
+      return false;
+    }
+    const auto after_endpoint = after->start_endpoint.owner_pole_id == center_id
+                                    ? snapshot_endpoint(after->start_endpoint)
+                                    : snapshot_endpoint(after->end_endpoint);
+    const auto after_group = snapshot_group_for_center(*after);
     return after.has_value() &&
          before->lowering_kind == after->lowering_kind &&
          before->start_endpoint.decision.lower_required == after->start_endpoint.decision.lower_required &&
          before->end_endpoint.decision.lower_required == after->end_endpoint.decision.lower_required &&
          before_grouped == after_grouped && after_grouped > 0 &&
-         almost_equal(
-           (after->start_endpoint.owner_pole_id == center_id ? after->start_endpoint.support_world.x
-                                   : after->end_endpoint.support_world.x),
-           before_support_world.x, 1e-6) &&
-         almost_equal(
-           (after->start_endpoint.owner_pole_id == center_id ? after->start_endpoint.support_world.y
-                                   : after->end_endpoint.support_world.y),
-           before_support_world.y, 1e-6);
+         before_endpoint.support_group_id == after_endpoint.support_group_id &&
+         before_group.support_group_id == after_group.support_group_id &&
+         almost_equal(before_endpoint.support_world.x, after_endpoint.support_world.x, 1e-6) &&
+         almost_equal(before_endpoint.support_world.y, after_endpoint.support_world.y, 1e-6) &&
+         almost_equal(before_endpoint.support_world.z, after_endpoint.support_world.z, 1e-6) &&
+         almost_equal(before_group.mount_world.x, after_group.mount_world.x, 1e-6) &&
+         almost_equal(before_group.mount_world.y, after_group.mount_world.y, 1e-6) &&
+         almost_equal(before_group.mount_world.z, after_group.mount_world.z, 1e-6) &&
+         almost_equal(before_group.tip_world.x, after_group.tip_world.x, 1e-6) &&
+         almost_equal(before_group.tip_world.y, after_group.tip_world.y, 1e-6) &&
+         almost_equal(before_group.tip_world.z, after_group.tip_world.z, 1e-6) &&
+         before_endpoint.support_orientation_rule == after_endpoint.support_orientation_rule &&
+         before_endpoint.support_orientation_basis == after_endpoint.support_orientation_basis &&
+         almost_equal(before_endpoint.side_axis.x, after_endpoint.side_axis.x, 1e-6) &&
+         almost_equal(before_endpoint.side_axis.y, after_endpoint.side_axis.y, 1e-6) &&
+         almost_equal(before_endpoint.chosen_side_sign, after_endpoint.chosen_side_sign, 1e-9) &&
+         before_endpoint.lower_required == after_endpoint.lower_required &&
+         before_endpoint.default_lower_required == after_endpoint.default_lower_required &&
+         before_endpoint.relation_kind == after_endpoint.relation_kind;
   }
 
 bool test_backbone_grouped_support_visual_cache_uses_single_group_placement() {
@@ -5528,6 +5604,9 @@ bool test_backbone_corner_support_uses_connected_line_basis() {
   const double side_sign = placements.front().chosen_side_sign;
   for (const auto& placement : placements) {
     if (placement.support_group_id != group_id ||
+        placement.support_orientation_rule != wire::core::SupportOrientationRuleKind::kBisector ||
+        (placement.decision.support_orientation_basis != wire::core::SupportOrientationBasisKind::kBisectorForward &&
+         placement.decision.support_orientation_basis != wire::core::SupportOrientationBasisKind::kBisectorReverse) ||
         placement.support_orientation_rule == wire::core::SupportOrientationRuleKind::kRadial ||
         std::abs(placement.chosen_side_sign - side_sign) > 1e-9 ||
         !almost_equal(placement.mount_world.x, placements.front().mount_world.x, 1e-6) ||

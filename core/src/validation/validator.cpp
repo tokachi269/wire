@@ -494,7 +494,8 @@ ValidationResult CoreState::Validate() const {
       result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionMissing",
                                "Grouped placement must have a matching support-group decision", key.owner_pole_id});
     }
-    if (group.decision.owner_pole_id != key.owner_pole_id || group.decision.support_group_id != key.support_group_id) {
+    if (group.support_group_id != key.support_group_id || group.owner_pole_id != key.owner_pole_id ||
+        group.decision.owner_pole_id != key.owner_pole_id || group.decision.support_group_id != key.support_group_id) {
       result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionKeyMismatch",
                                "Grouped placement key must match authoritative decision owner/group id",
                                key.owner_pole_id});
@@ -535,6 +536,13 @@ ValidationResult CoreState::Validate() const {
                                  key.owner_pole_id});
       }
     }
+  }
+
+  if (cache_state.support_layout_cache.support_group_decisions.size() !=
+      cache_state.support_layout_cache.lowered_support_groups.size()) {
+    result.issues.push_back({ValidationSeverity::kError, "SupportGroupPlacementCountMismatch",
+                             "support_group_decisions and lowered_support_groups must stay 1:1",
+                             kInvalidObjectId});
   }
 
   for (const auto& [span_id, layout] : cache_state.support_layout_cache.by_span) {

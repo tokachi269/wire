@@ -40,7 +40,7 @@ bool endpoint_uses_grouped_lowered_support(const SupportLayoutEndpoint* endpoint
 }
 
 LoweredSupportGroupKey lowered_support_group_key_for_endpoint(const SupportLayoutEndpoint& endpoint) {
-  return {endpoint.owner_pole_id, endpoint.decision.support_group_id};
+  return endpoint.support_group_key;
 }
 
 std::pair<Vec3d, Vec3d> shared_support_anchor_points(const Pole& pole, const Vec3d& support_axis, double z_m,
@@ -497,6 +497,7 @@ void apply_endpoint_decision_to_layout_endpoint(const EndpointContinuityDecision
     return;
   }
   endpoint->decision = decision;
+  endpoint->support_group_key = {endpoint->owner_pole_id, decision.support_group_id};
   endpoint->relation_kind = decision.relation_kind;
   endpoint->continuity_class = decision.continuity_class;
   endpoint->default_lower_required = decision.default_lower_required;
@@ -637,9 +638,10 @@ SupportLayoutEndpoint build_support_layout_endpoint(const CoreState& state, cons
   if (resolved_socket_id >= 0) {
     endpoint.resolved_socket_id = resolved_socket_id;
   }
-    endpoint.port_source = port.placement_source;
-    endpoint.side = port.template_side;
+  endpoint.port_source = port.placement_source;
+  endpoint.side = port.template_side;
     endpoint.support_world = port.world_position;
+  endpoint.support_group_key = {endpoint.owner_pole_id, endpoint.decision.support_group_id};
   endpoint.automatic_branch_down_offset_m = automatic_branch_down_offset_m;
   endpoint.down_offset_variation = down_offset_variation;
   endpoint.branch_down_offset_m = resolved_branch_down_offset_m;

@@ -96,11 +96,28 @@ enum class SupportLayoutOriginKind : std::uint8_t {
   kFallback = 4,
 };
 
+struct LoweredSupportGroupKey {
+  ObjectId owner_pole_id = kInvalidObjectId;
+  int support_group_id = -1;
+  bool operator==(const LoweredSupportGroupKey& other) const {
+    return owner_pole_id == other.owner_pole_id && support_group_id == other.support_group_id;
+  }
+};
+
+struct LoweredSupportGroupKeyHash {
+  std::size_t operator()(const LoweredSupportGroupKey& key) const {
+    const std::size_t h1 = std::hash<ObjectId>{}(key.owner_pole_id);
+    const std::size_t h2 = std::hash<int>{}(key.support_group_id);
+    return h1 ^ (h2 + 0x9e3779b9 + (h1 << 6) + (h1 >> 2));
+  }
+};
+
 struct SupportLayoutEndpoint {
   ObjectId endpoint_node_id = kInvalidObjectId;
   ObjectId owner_pole_id = kInvalidObjectId;
   ObjectId port_id = kInvalidObjectId;
   EndpointContinuityDecision decision{};
+  LoweredSupportGroupKey support_group_key{};
   EndpointAttachmentRequest attachment_request{};
   std::optional<int> resolved_socket_id{};
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
@@ -161,22 +178,6 @@ struct LoweredSupportGroupPlacement {
   Vec3d tip_world{};
   std::vector<Vec3d> attachment_worlds{};
   HierarchicalVariationSample down_offset_variation{};
-};
-
-struct LoweredSupportGroupKey {
-  ObjectId owner_pole_id = kInvalidObjectId;
-  int support_group_id = -1;
-  bool operator==(const LoweredSupportGroupKey& other) const {
-    return owner_pole_id == other.owner_pole_id && support_group_id == other.support_group_id;
-  }
-};
-
-struct LoweredSupportGroupKeyHash {
-  std::size_t operator()(const LoweredSupportGroupKey& key) const {
-    const std::size_t h1 = std::hash<ObjectId>{}(key.owner_pole_id);
-    const std::size_t h2 = std::hash<int>{}(key.support_group_id);
-    return h1 ^ (h2 + 0x9e3779b9 + (h1 << 6) + (h1 >> 2));
-  }
 };
 
 struct SpanSupportLayoutEntry {

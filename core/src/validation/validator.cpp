@@ -405,7 +405,7 @@ ValidationResult CoreState::Validate() const {
                                  "Grouped-lowered endpoint does not resolve to a support group placement", span_id});
         return;
       }
-      const LoweredSupportGroupKey key{endpoint.owner_pole_id, endpoint.decision.support_group_id};
+      const LoweredSupportGroupKey key = endpoint.support_group_key;
       if (std::find(layout.lowered_support_group_keys.begin(), layout.lowered_support_group_keys.end(), key) ==
           layout.lowered_support_group_keys.end()) {
         result.issues.push_back({ValidationSeverity::kError, "SupportGroupEndpointMissing",

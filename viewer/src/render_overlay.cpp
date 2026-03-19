@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <cmath>
 #include <unordered_map>
-#include <unordered_set>
 
 #include "host_coords.hpp"
 #include "ui_common.hpp"
@@ -331,7 +330,6 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
     }
   }
 
-  std::unordered_set<std::uint64_t> drawn_support_groups{};
   for (const wire::core::Span& span : edit.spans.items()) {
     const wire::core::Port* start_port = edit.ports.find(span.port_a_id);
     const wire::core::Port* end_port = edit.ports.find(span.port_b_id);
@@ -420,15 +418,6 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
     }
     if (layout_view.has_value()) {
       const auto draw_lowered_support_group = [&](const auto& placement) {
-        const std::uint64_t support_key =
-            (static_cast<std::uint64_t>(static_cast<std::uint32_t>(placement.owner_pole_id)) << 32) ^
-            static_cast<std::uint32_t>(placement.support_group_id);
-        const bool grouped =
-            placement.grouping_rule == wire::core::SupportGroupingRuleKind::kDecisionGroup &&
-            placement.support_group_id >= 0;
-        if (grouped && !drawn_support_groups.insert(support_key).second) {
-          return;
-        }
         const Color support_color = Color{96, 118, 126, 220};
         DrawLine3D(ToRaylib(placement.mount_world), ToRaylib(placement.tip_world), support_color);
         DrawSphere(ToRaylib(placement.mount_world), 0.05f, Color{104, 116, 122, 220});

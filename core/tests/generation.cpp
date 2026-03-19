@@ -4835,7 +4835,7 @@ bool test_backbone_constrained_lowered_support_prefers_line_direction() {
   return saw_constrained_visual;
 }
 
-bool test_backbone_bundle_branch_support_orientation_uses_connected_branch_chord() {
+bool test_backbone_bundle_branch_support_orientation_uses_bisector_when_available() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
   if (type_ids.empty()) {
@@ -4877,6 +4877,8 @@ bool test_backbone_bundle_branch_support_orientation_uses_connected_branch_chord
   }
 
   const wire::core::Vec3d branch_dir = normalize_xy_safe({10.0, 14.0, 0.0});
+  const wire::core::Vec3d main_dir = normalize_xy_safe({-1.0, 0.0, 0.0});
+  const wire::core::Vec3d expected_bisector = normalize_xy_safe(branch_dir + main_dir);
   bool found = false;
   for (ObjectId span_id : generated.value.generated_span_ids) {
     const auto layout_view = state.view().inspect_support_layout(span_id);
@@ -4885,7 +4887,7 @@ bool test_backbone_bundle_branch_support_orientation_uses_connected_branch_chord
     }
     const auto endpoint = layout_endpoint_for_owner(*layout_view, center_id);
     if (!endpoint.has_value() ||
-        endpoint->support_orientation_rule != wire::core::SupportOrientationRuleKind::kChord) {
+        endpoint->support_orientation_rule != wire::core::SupportOrientationRuleKind::kBisector) {
       continue;
     }
     const auto placement = lowered_support_group_for_owner(*layout_view, center_id);
@@ -4893,12 +4895,13 @@ bool test_backbone_bundle_branch_support_orientation_uses_connected_branch_chord
       continue;
     }
     const wire::core::Vec3d support_axis = normalize_xy_safe(placement->tip_world - placement->mount_world);
-    if (std::abs(dot_xy(support_axis, branch_dir)) >= 0.97 &&
-        placement->decision.support_orientation_basis != wire::core::SupportOrientationBasisKind::kRadial) {
+    if (std::abs(dot_xy(support_axis, expected_bisector)) >= 0.97 &&
+        (placement->decision.support_orientation_basis == wire::core::SupportOrientationBasisKind::kBisectorForward ||
+         placement->decision.support_orientation_basis == wire::core::SupportOrientationBasisKind::kBisectorReverse)) {
       found = true;
     } else {
-      std::cerr << "[DBG] C236 bad chord align=" << std::abs(dot_xy(support_axis, branch_dir)) << " mount=("
-                << placement->mount_world.x << "," << placement->mount_world.y << "," << placement->mount_world.z
+      std::cerr << "[DBG] C236 bad bisector align=" << std::abs(dot_xy(support_axis, expected_bisector))
+                << " mount=(" << placement->mount_world.x << "," << placement->mount_world.y << "," << placement->mount_world.z
                 << ") tip=(" << placement->tip_world.x << "," << placement->tip_world.y << ","
                 << placement->tip_world.z << ") sideSign=" << placement->chosen_side_sign << " origin="
                 << placement->origin << " sideRule="
@@ -4916,12 +4919,12 @@ bool test_backbone_bundle_branch_support_orientation_uses_connected_branch_chord
       if (!endpoint.has_value()) {
         continue;
       }
-      const bool chord_basis =
-          endpoint->decision.support_orientation_basis == wire::core::SupportOrientationBasisKind::kChordForward ||
-          endpoint->decision.support_orientation_basis == wire::core::SupportOrientationBasisKind::kChordReverse;
+      const bool bisector_basis =
+          endpoint->decision.support_orientation_basis == wire::core::SupportOrientationBasisKind::kBisectorForward ||
+          endpoint->decision.support_orientation_basis == wire::core::SupportOrientationBasisKind::kBisectorReverse;
       if (endpoint->decision.lower_required &&
           endpoint->decision.relation_kind == wire::core::JunctionRelationKind::kSideBranch &&
-          endpoint->support_orientation_rule == wire::core::SupportOrientationRuleKind::kChord && chord_basis) {
+          endpoint->support_orientation_rule == wire::core::SupportOrientationRuleKind::kBisector && bisector_basis) {
         return true;
       }
     }
@@ -5188,27 +5191,31 @@ bool test_backbone_refresh_keeps_local_lower_and_grouped_support() {
     if (!before.has_value() || before_grouped == 0) {
       return false;
     }
-    const wire::core::Vec3d before_support_world = before->start_endpoint.owner_pole_id == center_id
-                                                       ? before->start_endpoint.support_world
-                                                       : before->end_endpoint.support_world;
-    if (!state.SetPoleManualYawOverride(center_id, 19.0).ok) {
-      return false;
-    }
-    const auto after = state.view().inspect_support_layout(target_span_id);
-    const int after_grouped = grouped_support_count_for_center(target_span_id);
-    return after.has_value() &&
-         before->lowering_kind == after->lowering_kind &&
-         before->start_endpoint.decision.lower_required == after->start_endpoint.decision.lower_required &&
-         before->end_endpoint.decision.lower_required == after->end_endpoint.decision.lower_required &&
+  const auto before_endpoint = layout_endpoint_for_owner(*before, center_id);
+  const auto before_group = lowered_support_group_for_owner(*before, center_id);
+  if (!before_endpoint.has_value() || !before_group.has_value()) {
+    return false;
+  }
+  if (!state.SetPoleManualYawOverride(center_id, 19.0).ok) {
+    return false;
+  }
+  const auto after = state.view().inspect_support_layout(target_span_id);
+  const int after_grouped = grouped_support_count_for_center(target_span_id);
+  const auto after_endpoint = after.has_value() ? layout_endpoint_for_owner(*after, center_id) : std::nullopt;
+  const auto after_group = after.has_value() ? lowered_support_group_for_owner(*after, center_id) : std::nullopt;
+  return after.has_value() && after_endpoint.has_value() && after_group.has_value() &&
          before_grouped == after_grouped && after_grouped > 0 &&
-         almost_equal(
-           (after->start_endpoint.owner_pole_id == center_id ? after->start_endpoint.support_world.x
-                                   : after->end_endpoint.support_world.x),
-           before_support_world.x, 1e-6) &&
-         almost_equal(
-           (after->start_endpoint.owner_pole_id == center_id ? after->start_endpoint.support_world.y
-                                   : after->end_endpoint.support_world.y),
-           before_support_world.y, 1e-6);
+         before_endpoint->decision.support_group_id == after_endpoint->decision.support_group_id &&
+         almost_equal(before_endpoint->support_world, after_endpoint->support_world, 1e-6) &&
+         almost_equal(before_group->mount_world, after_group->mount_world, 1e-6) &&
+         almost_equal(before_group->tip_world, after_group->tip_world, 1e-6) &&
+         before_endpoint->support_orientation_rule == after_endpoint->support_orientation_rule &&
+         before_endpoint->decision.support_orientation_basis == after_endpoint->decision.support_orientation_basis &&
+         almost_equal(before_endpoint->side_axis, after_endpoint->side_axis, 1e-6) &&
+         almost_equal(before_endpoint->chosen_side_sign, after_endpoint->chosen_side_sign, 1e-6) &&
+         before_endpoint->decision.lower_required == after_endpoint->decision.lower_required &&
+         before_endpoint->decision.default_lower_required == after_endpoint->decision.default_lower_required &&
+         before_endpoint->decision.relation_kind == after_endpoint->decision.relation_kind;
   }
 
 bool test_backbone_grouped_support_visual_cache_uses_single_group_placement() {
@@ -8088,9 +8095,9 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C235_Backbone_ConstrainedLoweredSupportOrientation",
                          "Constrained-placement lowered support uses a line/chord-oriented visual rule instead of falling back to pole-radial orientation",
                          "Invariant", false, test_backbone_constrained_lowered_support_prefers_line_direction);
-  test_registry::AddTest(tests, "C236_Backbone_BundleBranchOrientationUsesConnectedChord",
-                         "Bundle-like lowered branch root uses only the connected lowered branch chord instead of mixing in non-lowered main-line direction",
-                         "Invariant", false, test_backbone_bundle_branch_support_orientation_uses_connected_branch_chord);
+  test_registry::AddTest(tests, "C236_Backbone_BundleBranchOrientationUsesBisectorWhenAvailable",
+                         "Bundle-like lowered branch root uses the branch/corner bisector when available instead of falling back to chord",
+                         "Invariant", false, test_backbone_bundle_branch_support_orientation_uses_bisector_when_available);
   test_registry::AddTest(tests, "C237_Backbone_PointLikeOrientationNonRegression",
                          "Point-like branch keeps radial/default orientation behavior and does not inherit bundle-like lowered support rules",
                          "Invariant", false, test_backbone_point_like_orientation_rule_non_regression);
@@ -8228,4 +8235,3 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
 WIRE_REGISTER_TEST_SUITE(register_generation_tests);
 
 } // namespace
-

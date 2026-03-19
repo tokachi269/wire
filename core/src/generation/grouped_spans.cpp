@@ -661,11 +661,8 @@ CoreState::generate_grouped_spans_between_support_nodes(
           }
         }
       } else {
-      if (feasibility.kind == JunctionRelationKind::kSideBranch) {
-        axis = lowered_dirs.front();
-        decision.side_assignment_rule = SideAssignmentRuleKind::kChord;
-        decision.support_orientation_rule = SupportOrientationRuleKind::kChord;
-      } else if (feasibility.kind == JunctionRelationKind::kCornerContinuation) {
+      if (feasibility.kind == JunctionRelationKind::kSideBranch ||
+          feasibility.kind == JunctionRelationKind::kCornerContinuation) {
         if (const auto bisector_axis = bisector_axis_for_endpoint(node_id, peer_id); bisector_axis.has_value()) {
           axis = *bisector_axis;
           decision.side_assignment_rule = SideAssignmentRuleKind::kBisector;
@@ -794,8 +791,69 @@ CoreState::generate_grouped_spans_between_support_nodes(
     const double chord_dot = dot_xy(chord_side_axis, decision->side_axis);
     decision->chosen_side_sign = (std::abs(chord_dot) <= 1e-9) ? 1.0 : ((chord_dot >= 0.0) ? 1.0 : -1.0);
   };
+  struct SupportGroupAllocationKey {
+    ObjectId owner_node_id = kInvalidObjectId;
+    ObjectId peer_node_id = kInvalidObjectId;
+    JunctionRelationKind relation_kind = JunctionRelationKind::kNone;
+    ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
+    SideAssignmentRuleKind side_assignment_rule = SideAssignmentRuleKind::kPoleLocal;
+    SupportOrientationRuleKind support_orientation_rule = SupportOrientationRuleKind::kRadial;
+    int side_sign_bucket = 0;
+    bool used_pair_assignment = false;
+    bool operator==(const SupportGroupAllocationKey& other) const {
+      return owner_node_id == other.owner_node_id &&
+             peer_node_id == other.peer_node_id &&
+             relation_kind == other.relation_kind &&
+             continuity_class == other.continuity_class &&
+             side_assignment_rule == other.side_assignment_rule &&
+             support_orientation_rule == other.support_orientation_rule &&
+             side_sign_bucket == other.side_sign_bucket &&
+             used_pair_assignment == other.used_pair_assignment;
+    }
+  };
+  struct SupportGroupAllocationKeyHash {
+    std::size_t operator()(const SupportGroupAllocationKey& key) const {
+      std::size_t h = std::hash<ObjectId>{}(key.owner_node_id);
+      h ^= std::hash<ObjectId>{}(key.peer_node_id) + 0x9e3779b9 + (h << 6) + (h >> 2);
+      h ^= std::hash<int>{}(static_cast<int>(key.relation_kind)) + 0x9e3779b9 + (h << 6) + (h >> 2);
+      h ^= std::hash<int>{}(static_cast<int>(key.continuity_class)) + 0x9e3779b9 + (h << 6) + (h >> 2);
+      h ^= std::hash<int>{}(static_cast<int>(key.side_assignment_rule)) + 0x9e3779b9 + (h << 6) + (h >> 2);
+      h ^= std::hash<int>{}(static_cast<int>(key.support_orientation_rule)) + 0x9e3779b9 + (h << 6) + (h >> 2);
+      h ^= std::hash<int>{}(key.side_sign_bucket) + 0x9e3779b9 + (h << 6) + (h >> 2);
+      h ^= std::hash<bool>{}(key.used_pair_assignment) + 0x9e3779b9 + (h << 6) + (h >> 2);
+      return h;
+    }
+  };
+  std::unordered_map<SupportGroupAllocationKey, int, SupportGroupAllocationKeyHash> support_group_ids{};
+  int next_support_group_id = 1;
+  auto allocate_support_group_id = [&](ObjectId node_id, ObjectId peer_id,
+                                       const SegmentRelationFeasibility& feasibility,
+                                       const EndpointSideDecision& side_decision) {
+    if (!(feasibility.default_lower_required || !feasibility.same_level_feasible) ||
+        std::abs(side_decision.chosen_side_sign) <= 1e-9) {
+      return -1;
+    }
+    const SupportGroupAllocationKey key{
+        node_id,
+        peer_id,
+        feasibility.kind,
+        feasibility.continuity_class,
+        side_decision.side_assignment_rule,
+        side_decision.support_orientation_rule,
+        (side_decision.chosen_side_sign < 0.0) ? -1 : 1,
+        side_decision.used_junction_pair_side_assignment,
+    };
+    auto it = support_group_ids.find(key);
+    if (it != support_group_ids.end()) {
+      return it->second;
+    }
+    const int assigned = next_support_group_id++;
+    support_group_ids.emplace(key, assigned);
+    return assigned;
+  };
   auto build_endpoint_decision = [&](const SegmentRelationFeasibility& feasibility,
                                      const EndpointSideDecision& side_decision,
+                                     ObjectId node_id, ObjectId peer_id,
                                      BundleOrderChoiceKind order_choice,
                                      BundleOrderChoiceReason order_reason, bool solver_used_same_level_constraint,
                                      bool used_special_case_ports, bool lowering_blocked_by_policy,
@@ -806,6 +864,8 @@ CoreState::generate_grouped_spans_between_support_nodes(
     decision.relation_kind = feasibility.kind;
     decision.continuity_class = feasibility.continuity_class;
     decision.in_through_pair = feasibility.in_through_pair;
+    decision.support_group_id =
+        lowering_blocked_by_policy ? -1 : allocate_support_group_id(node_id, peer_id, feasibility, side_decision);
     decision.lower_required = feasibility.default_lower_required || !feasibility.same_level_feasible;
     decision.default_lower_required = feasibility.default_lower_required;
     decision.same_level_feasible = feasibility.same_level_feasible;
@@ -2433,15 +2493,15 @@ CoreState::generate_grouped_spans_between_support_nodes(
     side_decision_a.has_side_axis = std::isfinite(assignment.side_axis_a.x) && std::isfinite(assignment.side_axis_a.y);
     side_decision_b.has_side_axis = std::isfinite(assignment.side_axis_b.x) && std::isfinite(assignment.side_axis_b.y);
     assignment.decision_a =
-        build_endpoint_decision(effective_relation_a, side_decision_a, assignment.bundle_order_choice_a,
-                                assignment.bundle_order_choice_reason_a, assignment.solver_used_same_level_constraint,
-                                assignment.used_special_case_ports, assignment.lowering_blocked_by_policy,
-                                assignment.unresolved_same_level_conflict);
+        build_endpoint_decision(effective_relation_a, side_decision_a, node_a, node_b,
+                                assignment.bundle_order_choice_a, assignment.bundle_order_choice_reason_a,
+                                assignment.solver_used_same_level_constraint, assignment.used_special_case_ports,
+                                assignment.lowering_blocked_by_policy, assignment.unresolved_same_level_conflict);
     assignment.decision_b =
-        build_endpoint_decision(effective_relation_b, side_decision_b, assignment.bundle_order_choice_b,
-                                assignment.bundle_order_choice_reason_b, assignment.solver_used_same_level_constraint,
-                                assignment.used_special_case_ports, assignment.lowering_blocked_by_policy,
-                                assignment.unresolved_same_level_conflict);
+        build_endpoint_decision(effective_relation_b, side_decision_b, node_b, node_a,
+                                assignment.bundle_order_choice_b, assignment.bundle_order_choice_reason_b,
+                                assignment.solver_used_same_level_constraint, assignment.used_special_case_ports,
+                                assignment.lowering_blocked_by_policy, assignment.unresolved_same_level_conflict);
     sync_assignment_from_decisions(&assignment);
 
     for (int lane = 0; lane < lane_count; ++lane) {

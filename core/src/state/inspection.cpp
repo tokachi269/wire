@@ -440,10 +440,16 @@ VariationBreakdownView MakeVariationBreakdownView(const HierarchicalVariationSam
   return view;
 }
 
-std::vector<LoweredSupportGroupInspectionView> BuildLoweredSupportGroupInspectionViews(const SpanSupportLayoutEntry& layout) {
+std::vector<LoweredSupportGroupInspectionView> BuildLoweredSupportGroupInspectionViews(const CacheState& cache_state,
+                                                                                      const SpanSupportLayoutEntry& layout) {
   std::vector<LoweredSupportGroupInspectionView> result{};
-  result.reserve(layout.lowered_support_groups.size());
-  for (const LoweredSupportGroupPlacement& source : layout.lowered_support_groups) {
+  result.reserve(layout.lowered_support_group_keys.size());
+  for (const LoweredSupportGroupKey& key : layout.lowered_support_group_keys) {
+    const auto it = cache_state.support_layout_cache.lowered_support_groups.find(key);
+    if (it == cache_state.support_layout_cache.lowered_support_groups.end()) {
+      continue;
+    }
+    const LoweredSupportGroupPlacement& source = it->second;
     LoweredSupportGroupInspectionView group{};
     group.owner_pole_id = source.owner_pole_id;
     group.decision = source.decision;
@@ -773,7 +779,7 @@ std::optional<SupportLayoutInspectionView> CoreView::inspect_support_layout(Obje
   result.start_endpoint = MakeSupportLayoutEndpointView(layout->start);
   result.end_endpoint = MakeSupportLayoutEndpointView(layout->end);
 
-  result.lowered_support_groups = BuildLoweredSupportGroupInspectionViews(*layout);
+  result.lowered_support_groups = BuildLoweredSupportGroupInspectionViews(state_.cache_state_, *layout);
 
   std::unordered_set<std::uint64_t> seen{};
   AddLink(&result.links, &seen, "Source Span", EntityKind::kSpan, span_id);

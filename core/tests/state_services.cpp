@@ -445,7 +445,7 @@ bool test_validate_rejects_grouped_lowered_support_with_radial_basis() {
   return has_validation_issue(validation, wire::core::ValidationSeverity::kError, "LoweredBundleLikeRadialBasis");
 }
 
-bool test_validate_rejects_conflicting_grouped_support_identity() {
+bool test_grouped_support_identity_uses_single_authoritative_placement() {
   CoreState state;
   const ObjectId pole_a = state.AddPole(Transformd{{0.0, 0.0, 0.0}}, 10.0, "A", PoleKind::kGeneric, PlacementMode::kAuto).value;
   const ObjectId pole_b = state.AddPole(Transformd{{10.0, 0.0, 0.0}}, 10.0, "B", PoleKind::kGeneric, PlacementMode::kAuto).value;
@@ -477,11 +477,13 @@ bool test_validate_rejects_conflicting_grouped_support_identity() {
     group->owner_pole_id = pole_a;
     group->decision.relation_kind = wire::core::JunctionRelationKind::kSideBranch;
     group->decision.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
+    group->decision.lower_required = true;
     group->decision.default_lower_required = true;
     group->decision.same_level_feasible = false;
     group->decision.chosen_side = wire::core::LateralSideChoiceKind::kRight;
     group->decision.chosen_side_sign = 1.0;
     group->decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kChordForward;
+    group->decision.support_group_id = 1234;
     group->grouping_rule = wire::core::SupportGroupingRuleKind::kDecisionGroup;
     group->support_group_id = 1234;
     group->grouped_port_count = 1;
@@ -491,17 +493,20 @@ bool test_validate_rejects_conflicting_grouped_support_identity() {
     group->down_offset_m = down_offset_m;
     group->mount_world = mount_world;
     group->tip_world = tip_world;
+    group->attachment_worlds = {{tip_world.x, tip_world.y, tip_world.z + down_offset_m}};
   };
 
-  it_ab->second.lowered_support_groups.clear();
-  it_ac->second.lowered_support_groups.clear();
-  it_ab->second.lowered_support_groups.emplace_back();
-  it_ac->second.lowered_support_groups.emplace_back();
-  make_grouped(&it_ab->second.lowered_support_groups.front(), {1.0, 0.0, 0.0}, 1.0, {0.2, 0.0, 4.0}, {0.6, 0.0, 4.0});
-  make_grouped(&it_ac->second.lowered_support_groups.front(), {0.0, 1.0, 0.0}, 2.0, {0.0, 0.2, 3.0}, {0.0, 0.7, 3.0});
+  it_ab->second.lowered_support_group_keys = {{pole_a, 1234}};
+  it_ac->second.lowered_support_group_keys = {{pole_a, 1234}};
+  auto& grouped_store = CoreStateTestHook::cache_state(state).support_layout_cache.lowered_support_groups;
+  grouped_store.clear();
+  make_grouped(&grouped_store[{pole_a, 1234}], {1.0, 0.0, 0.0}, 1.0, {0.2, 0.0, 4.0}, {0.6, 0.0, 4.0});
 
   const auto validation = helpers::validate_now(state);
-  return has_validation_issue(validation, wire::core::ValidationSeverity::kError, "SupportGroupPlacementConflict");
+  return validation.ok() && grouped_store.size() == 1 &&
+         it_ab->second.lowered_support_group_keys.size() == 1 &&
+         it_ac->second.lowered_support_group_keys.size() == 1 &&
+         it_ab->second.lowered_support_group_keys.front() == it_ac->second.lowered_support_group_keys.front();
 }
 
 bool test_inspection_uses_authoritative_lowered_support_groups() {
@@ -526,17 +531,21 @@ bool test_inspection_uses_authoritative_lowered_support_groups() {
   it->second.start.decision.same_level_feasible = true;
   it->second.start.has_side_axis = false;
   it->second.start.side_axis = {};
-  it->second.lowered_support_groups.clear();
-  it->second.lowered_support_groups.emplace_back();
-  wire::core::LoweredSupportGroupPlacement& group = it->second.lowered_support_groups.front();
+  it->second.start.decision.support_group_id = 777;
+  it->second.start.decision.lower_required = true;
+  it->second.lowered_support_group_keys = {{pole_a, 777}};
+  wire::core::LoweredSupportGroupPlacement& group =
+      CoreStateTestHook::cache_state(state).support_layout_cache.lowered_support_groups[{pole_a, 777}];
   group.owner_pole_id = pole_a;
   group.decision.relation_kind = wire::core::JunctionRelationKind::kSideBranch;
   group.decision.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
+  group.decision.lower_required = true;
   group.decision.default_lower_required = true;
   group.decision.same_level_feasible = false;
   group.decision.chosen_side = wire::core::LateralSideChoiceKind::kLeft;
   group.decision.chosen_side_sign = -1.0;
   group.decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kChordForward;
+  group.decision.support_group_id = 777;
   group.grouping_rule = wire::core::SupportGroupingRuleKind::kDecisionGroup;
   group.support_group_id = 777;
   group.grouped_port_count = 1;
@@ -593,8 +602,8 @@ void RegisterStateServiceTests(test_registry::TestRegistry& tests) {
                          "validation rejects grouped lowered support that still keeps radial orientation basis",
                          "Invariant", false, &test_validate_rejects_grouped_lowered_support_with_radial_basis);
   test_registry::AddTest(tests, "C262_Validation_GroupedSupportIdentityConflict",
-                         "validation rejects conflicting grouped support placements sharing the same support identity",
-                         "Invariant", false, &test_validate_rejects_conflicting_grouped_support_identity);
+                         "grouped lowered support identity resolves to one authoritative placement instead of per-layout duplicates",
+                         "Invariant", false, &test_grouped_support_identity_uses_single_authoritative_placement);
   test_registry::AddTest(tests, "C263_Inspection_UsesAuthoritativeLoweredSupportGroups",
                          "inspection maps authoritative lowered support placements instead of reconstructing from endpoints",
                          "Invariant", false, &test_inspection_uses_authoritative_lowered_support_groups);

@@ -1481,55 +1481,83 @@ bool test_attachment_behavior_is_not_name_driven() {
 
 bool test_support_layout_branch_support_is_explicit_and_shared_with_curve_and_visual() {
   CoreState state;
-  const ObjectId pole_a =
-      state.AddPole(wire::core::Transformd{{0.0, 0.0, 0.0}}, 10.0, "A").value;
-  const ObjectId pole_b =
-      state.AddPole(wire::core::Transformd{{12.0, 0.0, 0.0}}, 10.0, "B").value;
-  const ObjectId port_a = state.AddPort(pole_a, {0.0, 0.85, 4.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
-  const ObjectId port_b = state.AddPort(pole_b, {12.0, 0.0, 4.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
-  const ObjectId span = state.AddSpan(port_a, port_b, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
 
-  wire::core::Port* edit_port_a = wire::core::CoreStateTestHook::edit_state(state).ports.find(port_a);
-  wire::core::Port* edit_port_b = wire::core::CoreStateTestHook::edit_state(state).ports.find(port_b);
-  wire::core::Span* edit_span = wire::core::CoreStateTestHook::edit_state(state).spans.find(span);
-  if (edit_port_a == nullptr || edit_port_b == nullptr || edit_span == nullptr) {
+  wire::core::BackboneSpec trunk{};
+  trunk.path.polyline = {{-12.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}};
+  trunk.interval_m = 1000.0;
+  trunk.pole_type_id = type_ids.front();
+  add_backbone_bundle(trunk, wire::core::BundleKind::kHighVoltage);
+  if (!state.GenerateFromBackboneSpec(trunk).ok) {
     return false;
   }
-  edit_port_a->category = wire::core::ConnectionCategory::kCommunication;
-  edit_port_a->generated_by_rule = true;
-  edit_port_a->placement_source = wire::core::PortPlacementSourceKind::kBranchSupport;
-  edit_port_a->template_side = wire::core::SlotSide::kRight;
-  edit_port_a->placement_context = wire::core::ConnectionContext::kBranchAdd;
-  edit_port_b->category = wire::core::ConnectionCategory::kCommunication;
-  edit_port_b->generated_by_rule = true;
-  edit_port_b->placement_source = wire::core::PortPlacementSourceKind::kGenerated;
-  edit_span->placement_context = wire::core::ConnectionContext::kBranchAdd;
+  const ObjectId center_id = find_pole_id_by_position(state, {0.0, 0.0, 0.0});
+  if (center_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
 
-  (void)state.Commit().recalc_stats;
-  const auto* support_layout = state.view().find_span_support_layout(span);
-  const auto* curve = state.find_curve_cache(span);
-  const auto support_layout_view = state.view().inspect_support_layout(span);
-  if (support_layout == nullptr || curve == nullptr || !support_layout_view.has_value()) {
+  wire::core::BackboneSpec branch{};
+  branch.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 14.0, 0.0}};
+  branch.interval_m = 1000.0;
+  branch.pole_type_id = type_ids.front();
+  wire::core::BackboneInputSpec::NodeSpec shared{};
+  shared.point_index = 0;
+  shared.support_kind = wire::core::SupportKind::kPole;
+  shared.node_id = center_id;
+  branch.path.node_specs.push_back(shared);
+  add_backbone_bundle(branch, wire::core::BundleKind::kHighVoltage);
+  const auto generated = state.GenerateFromBackboneSpec(branch);
+  if (!generated.ok || generated.value.generated_span_ids.empty()) {
     return false;
   }
-  if (support_layout->flow_kind != wire::core::BackboneFlowKind::kBranch ||
-      support_layout->start.origin != wire::core::SupportLayoutOriginKind::kBranchSupport ||
-      support_layout->end.origin != wire::core::SupportLayoutOriginKind::kMainSupport ||
-      support_layout->start.branch_down_offset_m <= 0.0 ||
-      support_layout->start.local_departure_length_m <= 0.0) {
+
+  wire::core::CommitOptions options{};
+  options.run_recalc = true;
+  if (!state.Commit(options).validation.ok()) {
     return false;
   }
-  if (!almost_equal(curve->detail.start_constraint.point, support_layout->start.endpoint_world, 1e-9) ||
-      !almost_equal(curve->detail.start_constraint.tangent_dir, support_layout->start.departure_dir, 1e-9) ||
-      !almost_equal(curve->detail.start_constraint.support_departure_length_m,
-                    support_layout->start.local_departure_length_m, 1e-9)) {
-    return false;
+
+  for (ObjectId span_id : generated.value.generated_span_ids) {
+    const auto* support_layout = state.view().find_span_support_layout(span_id);
+    const auto* curve = state.find_curve_cache(span_id);
+    const auto support_layout_view = state.view().inspect_support_layout(span_id);
+    if (support_layout == nullptr || curve == nullptr || !support_layout_view.has_value()) {
+      continue;
+    }
+
+    const bool center_is_start = support_layout->start.owner_pole_id == center_id;
+    const bool center_is_end = support_layout->end.owner_pole_id == center_id;
+    if (!center_is_start && !center_is_end) {
+      continue;
+    }
+    const wire::core::SupportLayoutEndpoint& endpoint = center_is_start ? support_layout->start : support_layout->end;
+    const wire::core::CurveConstraint& constraint =
+        center_is_start ? curve->detail.start_constraint : curve->detail.end_constraint;
+    if (support_layout->flow_kind != wire::core::BackboneFlowKind::kBranch ||
+        endpoint.origin != wire::core::SupportLayoutOriginKind::kBranchSupport ||
+        endpoint.branch_down_offset_m <= 0.0 || endpoint.local_departure_length_m <= 0.0) {
+      continue;
+    }
+    if (!almost_equal(constraint.point, endpoint.endpoint_world, 1e-9) ||
+        !almost_equal(constraint.tangent_dir, endpoint.departure_dir, 1e-9) ||
+        !almost_equal(constraint.support_departure_length_m, endpoint.local_departure_length_m, 1e-9)) {
+      return false;
+    }
+
+    const auto group_it =
+        std::find_if(support_layout_view->lowered_support_groups.begin(), support_layout_view->lowered_support_groups.end(),
+                     [center_id](const wire::core::LoweredSupportGroupInspectionView& group) {
+                       return group.owner_pole_id == center_id;
+                     });
+    if (group_it == support_layout_view->lowered_support_groups.end()) {
+      return false;
+    }
+    return almost_equal(group_it->down_offset_m, endpoint.branch_down_offset_m, 1e-9);
   }
-  if (support_layout_view->lowered_support_groups.empty()) {
-    return false;
-  }
-  return almost_equal(support_layout_view->lowered_support_groups.front().down_offset_m,
-                      support_layout->start.branch_down_offset_m, 1e-9);
+  return false;
 }
 
 bool test_support_layout_attachment_socket_endpoint_matches_curve_input() {

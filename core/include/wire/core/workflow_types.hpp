@@ -296,6 +296,7 @@ struct EndpointContinuityDecision {
   JunctionRelationKind relation_kind = JunctionRelationKind::kNone;
   ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
   bool in_through_pair = false;
+  int support_group_id = -1;
   bool lower_required = false;
   bool default_lower_required = false;
   bool same_level_feasible = true;

@@ -34,9 +34,8 @@ bool has_duplicate_ids(const std::vector<ObjectId>& ids) {
   return false;
 }
 
-bool endpoint_uses_grouped_lowered_support_for_validation(const SupportLayoutEndpoint& endpoint,
-                                                          BackboneLoweringKind lowering_kind) {
-  return UsesGroupedLoweredSupport(endpoint, lowering_kind);
+bool endpoint_uses_grouped_lowered_support_for_validation(const SupportLayoutEndpoint& endpoint) {
+  return UsesGroupedLoweredSupport(endpoint);
 }
 
 bool almost_equal_validation(double a, double b, double eps = 1e-9) { return std::abs(a - b) <= eps; }
@@ -387,7 +386,7 @@ ValidationResult CoreState::Validate() const {
         result.issues.push_back({ValidationSeverity::kError, code,
                                  "Non-radial support orientation must carry a finite authoritative side axis", span_id});
       }
-      if (endpoint_uses_grouped_lowered_support_for_validation(endpoint, layout.lowering_kind) &&
+      if (endpoint_uses_grouped_lowered_support_for_validation(endpoint) &&
           endpoint.decision.support_orientation_basis == SupportOrientationBasisKind::kRadial) {
         result.issues.push_back({ValidationSeverity::kError, "LoweredBundleLikeRadialBasis",
                                  "Grouped lowered support must not keep a radial orientation basis", span_id});
@@ -397,21 +396,28 @@ ValidationResult CoreState::Validate() const {
     validate_endpoint(layout.end, "SupportLayoutEndAxisMissing");
 
     const auto validate_grouped_endpoint_alignment = [&](const SupportLayoutEndpoint& endpoint) {
-      if (!endpoint_uses_grouped_lowered_support_for_validation(endpoint, layout.lowering_kind)) {
+      if (!endpoint_uses_grouped_lowered_support_for_validation(endpoint)) {
         return;
       }
-      const int expected_group_id = SupportGroupIdForEndpoint(endpoint.owner_pole_id, endpoint.decision);
-      auto it = std::find_if(layout.lowered_support_groups.begin(), layout.lowered_support_groups.end(),
-                             [&](const LoweredSupportGroupPlacement& group) {
-                               return group.owner_pole_id == endpoint.owner_pole_id &&
-                                      group.support_group_id == expected_group_id;
-                             });
-      if (it == layout.lowered_support_groups.end()) {
+      if (endpoint.decision.support_group_id < 0) {
         result.issues.push_back({ValidationSeverity::kError, "SupportGroupEndpointMissing",
                                  "Grouped-lowered endpoint does not resolve to a support group placement", span_id});
         return;
       }
-      const LoweredSupportGroupPlacement& group = *it;
+      const LoweredSupportGroupKey key{endpoint.owner_pole_id, endpoint.decision.support_group_id};
+      if (std::find(layout.lowered_support_group_keys.begin(), layout.lowered_support_group_keys.end(), key) ==
+          layout.lowered_support_group_keys.end()) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportGroupEndpointMissing",
+                                 "Grouped-lowered endpoint does not reference its support group placement", span_id});
+        return;
+      }
+      const auto it = cache_state.support_layout_cache.lowered_support_groups.find(key);
+      if (it == cache_state.support_layout_cache.lowered_support_groups.end()) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportGroupEndpointMissing",
+                                 "Grouped-lowered endpoint references a missing support group placement", span_id});
+        return;
+      }
+      const LoweredSupportGroupPlacement& group = it->second;
       const bool decision_aligned =
           endpoint.decision.support_orientation_basis == group.decision.support_orientation_basis &&
           endpoint.decision.chosen_side == group.decision.chosen_side &&
@@ -426,80 +432,43 @@ ValidationResult CoreState::Validate() const {
     validate_grouped_endpoint_alignment(layout.end);
   }
 
-  struct SupportGroupPlacementSnapshot {
-    ObjectId span_id = kInvalidObjectId;
-    ObjectId owner_pole_id = kInvalidObjectId;
-    int support_group_id = -1;
-    SupportOrientationBasisKind basis = SupportOrientationBasisKind::kRadial;
-    double chosen_side_sign = 0.0;
-    Vec3d side_axis{};
-    double branch_down_offset_m = 0.0;
-    Vec3d mount_world{};
-    Vec3d tip_world{};
-  };
-  struct SupportGroupKey {
-    ObjectId owner_pole_id = kInvalidObjectId;
-    int support_group_id = -1;
-    bool operator==(const SupportGroupKey& other) const {
-      return owner_pole_id == other.owner_pole_id && support_group_id == other.support_group_id;
+  for (const auto& [key, group] : cache_state.support_layout_cache.lowered_support_groups) {
+    if (group.grouped_port_count != static_cast<int>(group.attachment_worlds.size())) {
+      result.issues.push_back({ValidationSeverity::kError, "SupportGroupAttachmentCountMismatch",
+                               "Grouped lowered support must carry one attachment world per grouped port",
+                               key.owner_pole_id});
     }
-  };
-  struct SupportGroupKeyHash {
-    std::size_t operator()(const SupportGroupKey& key) const {
-      const std::size_t h1 = std::hash<ObjectId>{}(key.owner_pole_id);
-      const std::size_t h2 = std::hash<int>{}(key.support_group_id);
-      return h1 ^ (h2 + 0x9e3779b9 + (h1 << 6) + (h1 >> 2));
+    if (group.decision.support_orientation_basis != SupportOrientationBasisKind::kRadial &&
+        (!group.has_side_axis || !std::isfinite(group.side_axis.x) || !std::isfinite(group.side_axis.y))) {
+      result.issues.push_back({ValidationSeverity::kError, "SupportGroupAxisMissing",
+                               "Grouped lowered support must carry a finite authoritative side axis",
+                               key.owner_pole_id});
     }
-  };
-  std::unordered_map<SupportGroupKey, SupportGroupPlacementSnapshot, SupportGroupKeyHash> support_groups{};
+    Vec3d support_axis = group.tip_world - group.mount_world;
+    support_axis.z = 0.0;
+    if (Normalize(&support_axis) && IsFiniteXY(support_axis)) {
+      const Vec3d authoritative_axis =
+          CanonicalSharedSupportAxis(AuthoritativeSupportAxisForGroup(group, support_axis), support_axis);
+      const double alignment = support_axis.x * authoritative_axis.x + support_axis.y * authoritative_axis.y;
+      if (alignment < 1.0 - 1e-6) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportGroupAxisReinterpreted",
+                                 "Grouped lowered support mount/tip must stay aligned with the authoritative axis",
+                                 key.owner_pole_id});
+      }
+    }
+  }
+
   for (const auto& [span_id, layout] : cache_state.support_layout_cache.by_span) {
-    for (const LoweredSupportGroupPlacement& group : layout.lowered_support_groups) {
-      if (group.grouped_port_count != static_cast<int>(group.attachment_worlds.size())) {
-        result.issues.push_back({ValidationSeverity::kError, "SupportGroupAttachmentCountMismatch",
-                                 "Grouped lowered support must carry one attachment world per grouped port", span_id});
+    std::unordered_set<LoweredSupportGroupKey, LoweredSupportGroupKeyHash> seen_group_keys{};
+    for (const LoweredSupportGroupKey& key : layout.lowered_support_group_keys) {
+      if (!seen_group_keys.insert(key).second) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportGroupPlacementDuplicateRef",
+                                 "Support layout must not reference the same grouped lowered support twice", span_id});
       }
-      if (group.decision.support_orientation_basis != SupportOrientationBasisKind::kRadial &&
-          (!group.has_side_axis || !std::isfinite(group.side_axis.x) || !std::isfinite(group.side_axis.y))) {
-        result.issues.push_back({ValidationSeverity::kError, "SupportGroupAxisMissing",
-                                 "Grouped lowered support must carry a finite authoritative side axis", span_id});
-      }
-      Vec3d support_axis = group.tip_world - group.mount_world;
-      support_axis.z = 0.0;
-      if (Normalize(&support_axis) && IsFiniteXY(support_axis)) {
-        const Vec3d authoritative_axis = CanonicalSharedSupportAxis(AuthoritativeSupportAxisForGroup(group, support_axis),
-                                                                    support_axis);
-        const double alignment = support_axis.x * authoritative_axis.x + support_axis.y * authoritative_axis.y;
-        if (alignment < 1.0 - 1e-6) {
-          result.issues.push_back({ValidationSeverity::kError, "SupportGroupAxisReinterpreted",
-                                   "Grouped lowered support mount/tip must stay aligned with the authoritative axis",
-                                   span_id});
-        }
-      }
-      const SupportGroupKey key{group.owner_pole_id, group.support_group_id};
-      SupportGroupPlacementSnapshot snapshot{};
-      snapshot.span_id = span_id;
-      snapshot.owner_pole_id = group.owner_pole_id;
-      snapshot.support_group_id = key.support_group_id;
-      snapshot.basis = group.decision.support_orientation_basis;
-      snapshot.chosen_side_sign = group.chosen_side_sign;
-      snapshot.side_axis = group.side_axis;
-      snapshot.branch_down_offset_m = group.down_offset_m;
-      snapshot.mount_world = group.mount_world;
-      snapshot.tip_world = group.tip_world;
-      const auto [it, inserted] = support_groups.emplace(key, snapshot);
-      if (inserted) {
-        continue;
-      }
-      const SupportGroupPlacementSnapshot& first = it->second;
-      const bool same_snapshot = first.basis == snapshot.basis &&
-                                 almost_equal_validation(first.chosen_side_sign, snapshot.chosen_side_sign) &&
-                                 almost_equal_validation(first.side_axis, snapshot.side_axis) &&
-                                 almost_equal_validation(first.branch_down_offset_m, snapshot.branch_down_offset_m) &&
-                                 almost_equal_validation(first.mount_world, snapshot.mount_world) &&
-                                 almost_equal_validation(first.tip_world, snapshot.tip_world);
-      if (!same_snapshot) {
-        result.issues.push_back({ValidationSeverity::kError, "SupportGroupPlacementConflict",
-                                 "Grouped lowered support id resolves to multiple conflicting placements", span_id});
+      if (cache_state.support_layout_cache.lowered_support_groups.find(key) ==
+          cache_state.support_layout_cache.lowered_support_groups.end()) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportGroupPlacementMissing",
+                                 "Support layout references a missing grouped lowered support placement", span_id});
       }
     }
   }

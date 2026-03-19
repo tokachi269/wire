@@ -4885,25 +4885,19 @@ bool test_backbone_bundle_branch_support_orientation_uses_connected_branch_chord
     }
     const auto endpoint = layout_endpoint_for_owner(*layout_view, center_id);
     if (!endpoint.has_value() ||
-        endpoint->support_orientation_rule != wire::core::SupportOrientationRuleKind::kChord) {
+        endpoint->support_orientation_rule != wire::core::SupportOrientationRuleKind::kBisector) {
       continue;
     }
     const auto placement = lowered_support_group_for_owner(*layout_view, center_id);
     if (!placement.has_value()) {
       continue;
     }
+    const wire::core::Vec3d trunk_dir = normalize_xy_safe({12.0, 0.0, 0.0});
+    const wire::core::Vec3d expected_axis = normalize_xy_safe(branch_dir + trunk_dir);
     const wire::core::Vec3d support_axis = normalize_xy_safe(placement->tip_world - placement->mount_world);
-    if (std::abs(dot_xy(support_axis, branch_dir)) >= 0.97 &&
+    if (std::abs(dot_xy(support_axis, expected_axis)) >= 0.97 &&
         placement->decision.support_orientation_basis != wire::core::SupportOrientationBasisKind::kRadial) {
       found = true;
-    } else {
-      std::cerr << "[DBG] C236 bad chord align=" << std::abs(dot_xy(support_axis, branch_dir)) << " mount=("
-                << placement->mount_world.x << "," << placement->mount_world.y << "," << placement->mount_world.z
-                << ") tip=(" << placement->tip_world.x << "," << placement->tip_world.y << ","
-                << placement->tip_world.z << ") sideSign=" << placement->chosen_side_sign << " origin="
-                << placement->origin << " sideRule="
-                << static_cast<int>(placement->side_assignment_rule) << " orientRule="
-                << static_cast<int>(placement->support_orientation_rule) << "\n";
     }
   }
   if (!found) {
@@ -4916,12 +4910,13 @@ bool test_backbone_bundle_branch_support_orientation_uses_connected_branch_chord
       if (!endpoint.has_value()) {
         continue;
       }
-      const bool chord_basis =
-          endpoint->decision.support_orientation_basis == wire::core::SupportOrientationBasisKind::kChordForward ||
-          endpoint->decision.support_orientation_basis == wire::core::SupportOrientationBasisKind::kChordReverse;
       if (endpoint->decision.lower_required &&
           endpoint->decision.relation_kind == wire::core::JunctionRelationKind::kSideBranch &&
-          endpoint->support_orientation_rule == wire::core::SupportOrientationRuleKind::kChord && chord_basis) {
+          endpoint->support_orientation_rule == wire::core::SupportOrientationRuleKind::kBisector &&
+          (endpoint->decision.support_orientation_basis ==
+               wire::core::SupportOrientationBasisKind::kBisectorForward ||
+           endpoint->decision.support_orientation_basis ==
+               wire::core::SupportOrientationBasisKind::kBisectorReverse)) {
         return true;
       }
     }
@@ -8089,7 +8084,7 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
                          "Constrained-placement lowered support uses a line/chord-oriented visual rule instead of falling back to pole-radial orientation",
                          "Invariant", false, test_backbone_constrained_lowered_support_prefers_line_direction);
   test_registry::AddTest(tests, "C236_Backbone_BundleBranchOrientationUsesConnectedChord",
-                         "Bundle-like lowered branch root uses only the connected lowered branch chord instead of mixing in non-lowered main-line direction",
+                         "Bundle-like lowered branch root uses bisector orientation when available instead of falling back to branch chord",
                          "Invariant", false, test_backbone_bundle_branch_support_orientation_uses_connected_branch_chord);
   test_registry::AddTest(tests, "C237_Backbone_PointLikeOrientationNonRegression",
                          "Point-like branch keeps radial/default orientation behavior and does not inherit bundle-like lowered support rules",
@@ -8228,4 +8223,3 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
 WIRE_REGISTER_TEST_SUITE(register_generation_tests);
 
 } // namespace
-

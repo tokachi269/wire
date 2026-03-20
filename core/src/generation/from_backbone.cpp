@@ -2058,10 +2058,7 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       std::vector<SegmentLaneAssignment> lane_assignments{};
       std::vector<BackboneEdgeOrientation> edge_orientations{};
       BackboneLoweringPolicy lowering_policy{};
-      double branch_down_offset_m = 0.0;
-      bool relation_has_cross = false;
-      bool relation_has_branch = false;
-      bool relation_has_corner = false;
+      bool relation_has_lowering_candidate = false;
       for (std::size_t node_offset = run_start; node_offset <= run_end + 1; ++node_offset) {
         if (node_offset >= ordered_support_node_ids.size()) {
           continue;
@@ -2075,34 +2072,17 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
           if (!incident.in_route || incident.same_level_feasible) {
             continue;
           }
-          switch (incident.kind) {
-          case JunctionRelationKind::kCrossUnderpass:
-            relation_has_cross = true;
-            break;
-          case JunctionRelationKind::kSideBranch:
-            relation_has_branch = true;
-            break;
-          case JunctionRelationKind::kCornerContinuation:
-            relation_has_corner = true;
-            break;
-          default:
-            break;
+          if (incident.kind != JunctionRelationKind::kThroughMain && incident.kind != JunctionRelationKind::kNone) {
+            relation_has_lowering_candidate = true;
           }
         }
       }
-      if (relation_has_cross) {
-        lowering_policy.enable_cross_underpass = true;
-        branch_down_offset_m = generation::detail::BranchDownOffsetForCategory(plan.category);
-      }
-      if (relation_has_branch && plan.enable_branch_down_offset) {
-        lowering_policy.enable_branch_support = true;
-        branch_down_offset_m = generation::detail::BranchDownOffsetForCategory(plan.category);
-      }
-      if (relation_has_corner && plan.enable_branch_down_offset) {
-        lowering_policy.enable_acute_corner = true;
-        branch_down_offset_m = generation::detail::BranchDownOffsetForCategory(plan.category);
-      }
-      lowering_policy.offset_m = branch_down_offset_m;
+      const bool enable_uniform_lowering = plan.enable_branch_down_offset && relation_has_lowering_candidate;
+      lowering_policy.enable_cross_underpass = enable_uniform_lowering;
+      lowering_policy.enable_branch_support = enable_uniform_lowering;
+      lowering_policy.enable_acute_corner = enable_uniform_lowering;
+      lowering_policy.offset_m =
+          enable_uniform_lowering ? generation::detail::BranchDownOffsetForCategory(plan.category) : 0.0;
       EditResult<std::vector<ObjectId>> spans_result = generate_grouped_spans_between_support_nodes(
           local_support_nodes, support_node_by_id, bundle_id, plan.category, plan.count, plan.spacing_m, true,
           plan.allow_mirror, plan.bundle_order_policy, flow_info.kind, lowering_policy, &plan_junction_relations_by_node,

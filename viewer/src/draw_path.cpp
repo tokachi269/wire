@@ -793,6 +793,13 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
   ofs << "capture.selected_id=" << static_cast<unsigned long long>(ui_state.selected_id) << "\n";
   ofs << "capture.focus_type=" << SelectedTypeLabelLocal(ui_state.selected_type) << "\n";
   ofs << "capture.focus_id=" << static_cast<unsigned long long>(ui_state.selected_id) << "\n";
+  ofs << "capture.selection_item_count=" << ui_state.selection_items.size() << "\n";
+  for (std::size_t selection_index = 0; selection_index < ui_state.selection_items.size(); ++selection_index) {
+    const SelectionItem& item = ui_state.selection_items[selection_index];
+    ofs << "capture.selection_item[" << selection_index << "].type=" << SelectedTypeLabelLocal(item.type) << "\n";
+    ofs << "capture.selection_item[" << selection_index
+        << "].id=" << static_cast<unsigned long long>(item.id) << "\n";
+  }
   ofs << "capture.last_error=" << ui_state.last_error << "\n";
   ofs << "capture.last_generated_poles=" << ui_state.last_generated_poles << "\n";
   ofs << "capture.last_generated_spans=" << ui_state.last_generated_spans << "\n";
@@ -824,6 +831,17 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
   } else {
     ofs << "capture.focus_entity.kind=none\n";
     ofs << "capture.focus_entity.stable_id=0\n";
+  }
+  ofs << "capture.all_span_trace_count=" << view.edit_state().spans.size() << "\n";
+  std::size_t all_span_trace_index = 0;
+  for (const auto& span : view.edit_state().spans.items()) {
+    const std::string prefix = "capture.all_span[" + std::to_string(all_span_trace_index) + "]";
+    ofs << prefix << ".span_id=" << static_cast<unsigned long long>(span.id) << "\n";
+    ofs << prefix << ".bundle_id=" << static_cast<unsigned long long>(span.bundle_id) << "\n";
+    ofs << prefix << ".endpoint_node_a_id=" << static_cast<unsigned long long>(span.endpoint_node_a_id) << "\n";
+    ofs << prefix << ".endpoint_node_b_id=" << static_cast<unsigned long long>(span.endpoint_node_b_id) << "\n";
+    write_decision_trace(prefix, wire::core::EntityRef{wire::core::EntityKind::kSpan, span.id});
+    ++all_span_trace_index;
   }
 
   ofs << "draw.path_count=" << ui_state.draw_path_points.size() << "\n";
@@ -1392,6 +1410,71 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
     ofs << "result.grouped_lowered_support[" << grouped_support_index_i
         << "].tip_world=" << group.tip_world.x << "," << group.tip_world.y << "," << group.tip_world.z << "\n";
     ++grouped_support_index_i;
+  }
+
+  ofs << "result.current_pole_count=" << view.edit_state().poles.size() << "\n";
+  std::size_t current_pole_index = 0;
+  for (const auto& pole : view.edit_state().poles.items()) {
+    const std::string prefix = "result.current_pole[" + std::to_string(current_pole_index) + "]";
+    ofs << prefix << ".pole_id=" << static_cast<unsigned long long>(pole.id) << "\n";
+    ofs << prefix << ".display_id=" << pole.display_id << "\n";
+    ofs << prefix << ".name=" << pole.name << "\n";
+    ofs << prefix << ".pole_type_id=" << static_cast<unsigned long long>(pole.pole_type_id) << "\n";
+    ofs << prefix << ".position=" << pole.world_transform.position.x << "," << pole.world_transform.position.y << ","
+        << pole.world_transform.position.z << "\n";
+    ofs << prefix << ".rotation_euler_deg=" << pole.world_transform.rotation_euler_deg.x << ","
+        << pole.world_transform.rotation_euler_deg.y << "," << pole.world_transform.rotation_euler_deg.z << "\n";
+    ofs << prefix << ".height_m=" << pole.height_m << "\n";
+    ofs << prefix << ".tilt_magnitude_deg=" << pole.tilt_magnitude_deg << "\n";
+    ofs << prefix << ".placement_mode=" << static_cast<int>(pole.placement_mode) << "\n";
+    ofs << prefix << ".context_kind=" << static_cast<int>(pole.context.kind) << "\n";
+    ofs << prefix << ".sharp_orientation_applied=" << (pole.context.sharp_orientation_applied ? 1 : 0) << "\n";
+    ofs << prefix << ".sharp_theta_deg=" << pole.context.sharp_theta_deg << "\n";
+    ofs << prefix << ".sharp_bisector_dir=" << pole.context.sharp_bisector_dir.x << ","
+        << pole.context.sharp_bisector_dir.y << "," << pole.context.sharp_bisector_dir.z << "\n";
+    ofs << prefix << ".sharp_side_dir=" << pole.context.sharp_side_dir.x << "," << pole.context.sharp_side_dir.y
+        << "," << pole.context.sharp_side_dir.z << "\n";
+    if (const auto pole_view = view.inspect_pole(pole.id); pole_view.has_value()) {
+      ofs << prefix << ".layout_yaw_deg=" << pole_view->layout_yaw_deg << "\n";
+      ofs << prefix << ".support_axis_rule=" << static_cast<int>(pole_view->support_axis_rule) << "\n";
+      ofs << prefix << ".support_axis=" << pole_view->support_axis_dir.x << "," << pole_view->support_axis_dir.y
+          << "," << pole_view->support_axis_dir.z << "\n";
+    }
+    write_decision_trace(prefix, wire::core::EntityRef{wire::core::EntityKind::kPole, pole.id});
+    ++current_pole_index;
+  }
+
+  ofs << "result.current_port_count=" << view.edit_state().ports.size() << "\n";
+  std::size_t current_port_index = 0;
+  for (const auto& port : view.edit_state().ports.items()) {
+    const std::string prefix = "result.current_port[" + std::to_string(current_port_index) + "]";
+    ofs << prefix << ".port_id=" << static_cast<unsigned long long>(port.id) << "\n";
+    ofs << prefix << ".display_id=" << port.display_id << "\n";
+    ofs << prefix << ".owner_pole_id=" << static_cast<unsigned long long>(port.owner_pole_id) << "\n";
+    ofs << prefix << ".world_position=" << port.world_position.x << "," << port.world_position.y << ","
+        << port.world_position.z << "\n";
+    ofs << prefix << ".kind=" << static_cast<int>(port.kind) << "\n";
+    ofs << prefix << ".layer=" << static_cast<int>(port.layer) << "\n";
+    ofs << prefix << ".category=" << static_cast<int>(port.category) << "\n";
+    ofs << prefix << ".template_layer=" << port.template_layer << "\n";
+    ofs << prefix << ".template_side=" << static_cast<int>(port.template_side) << "\n";
+    ofs << prefix << ".placement_context=" << static_cast<int>(port.placement_context) << "\n";
+    ofs << prefix << ".position_mode=" << static_cast<int>(port.position_mode) << "\n";
+    ofs << prefix << ".placement_source=" << static_cast<int>(port.placement_source) << "\n";
+    ++current_port_index;
+  }
+
+  ofs << "result.current_bundle_count=" << view.edit_state().bundles.size() << "\n";
+  std::size_t current_bundle_index = 0;
+  for (const auto& bundle : view.edit_state().bundles.items()) {
+    const std::string prefix = "result.current_bundle[" + std::to_string(current_bundle_index) + "]";
+    ofs << prefix << ".bundle_id=" << static_cast<unsigned long long>(bundle.id) << "\n";
+    ofs << prefix << ".display_id=" << bundle.display_id << "\n";
+    ofs << prefix << ".bundle_template_id=" << static_cast<int>(bundle.bundle_template_id) << "\n";
+    ofs << prefix << ".conductor_count=" << bundle.conductor_count << "\n";
+    ofs << prefix << ".phase_spacing_m=" << bundle.phase_spacing_m << "\n";
+    ofs << prefix << ".regeneration_required=" << (bundle.regeneration_required ? 1 : 0) << "\n";
+    ++current_bundle_index;
   }
 
   ofs << "state.poles=" << view.edit_state().poles.size() << "\n";

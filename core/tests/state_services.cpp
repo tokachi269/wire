@@ -485,6 +485,7 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
     group->decision.same_level_feasible = false;
     group->decision.chosen_side = wire::core::LateralSideChoiceKind::kRight;
     group->decision.chosen_side_sign = 1.0;
+    group->decision.side_assignment_rule = wire::core::SideAssignmentRuleKind::kChord;
     group->decision.support_orientation_rule = wire::core::SupportOrientationRuleKind::kChord;
     group->decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kChordForward;
     group->decision.support_group_id = 1234;
@@ -492,14 +493,16 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
     group->decision.side_axis = axis;
     group->grouping_rule = wire::core::SupportGroupingRuleKind::kDecisionGroup;
     group->support_group_id = 1234;
-    group->grouped_port_count = 1;
+    group->grouped_port_count = 2;
+    group->side_assignment_rule = wire::core::SideAssignmentRuleKind::kChord;
+    group->support_orientation_rule = wire::core::SupportOrientationRuleKind::kChord;
     group->has_side_axis = true;
     group->side_axis = axis;
     group->chosen_side_sign = 1.0;
     group->down_offset_m = down_offset_m;
     group->mount_world = mount_world;
     group->tip_world = tip_world;
-    group->attachment_worlds = {{tip_world.x, tip_world.y, tip_world.z + down_offset_m}};
+    group->attachment_worlds = {{0.0, 0.8, 5.0}, {0.0, 1.1, 5.0}};
   };
 
   it_ab->second.lowered_support_group_keys = {{pole_a, 1234}};
@@ -508,7 +511,7 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
   decision_store.clear();
   auto& grouped_store = CoreStateTestHook::cache_state(state).support_layout_cache.lowered_support_groups;
   grouped_store.clear();
-  make_grouped(&grouped_store[{pole_a, 1234}], {1.0, 0.0, 0.0}, 1.0, {0.2, 0.0, 4.0}, {0.6, 0.0, 4.0});
+  make_grouped(&grouped_store[{pole_a, 1234}], {1.0, 0.0, 0.0}, 1.0, {0.2, 0.0, 7.0}, {0.6, 0.0, 7.0});
   auto& decision = decision_store[{pole_a, 1234}];
   decision.owner_pole_id = pole_a;
   decision.support_group_id = 1234;
@@ -528,6 +531,34 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
   decision.support_world = grouped_store[{pole_a, 1234}].tip_world;
   decision.grouped_port_count = grouped_store[{pole_a, 1234}].grouped_port_count;
   decision.attachment_worlds = grouped_store[{pole_a, 1234}].attachment_worlds;
+
+  auto apply_grouped_endpoint = [&](wire::core::SupportLayoutEndpoint* endpoint, ObjectId owner_pole_id,
+                                    ObjectId port_id, const wire::core::Vec3d& endpoint_world) {
+    if (endpoint == nullptr) {
+      return;
+    }
+    endpoint->owner_pole_id = owner_pole_id;
+    endpoint->port_id = port_id;
+    endpoint->endpoint_world = endpoint_world;
+    endpoint->decision = grouped_store[{pole_a, 1234}].decision;
+    endpoint->decision.owner_pole_id = owner_pole_id;
+    endpoint->decision.support_group_id = 1234;
+    endpoint->relation_kind = endpoint->decision.relation_kind;
+    endpoint->continuity_class = endpoint->decision.continuity_class;
+    endpoint->default_lower_required = endpoint->decision.default_lower_required;
+    endpoint->same_level_feasible = endpoint->decision.same_level_feasible;
+    endpoint->lowering_blocked_by_policy = endpoint->decision.lowering_blocked_by_policy;
+    endpoint->side_assignment_rule = endpoint->decision.side_assignment_rule;
+    endpoint->support_orientation_rule = endpoint->decision.support_orientation_rule;
+    endpoint->used_junction_pair_side_assignment = endpoint->decision.used_junction_pair_side_assignment;
+    endpoint->has_side_axis = endpoint->decision.has_side_axis;
+    endpoint->side_axis = endpoint->decision.side_axis;
+    endpoint->chosen_side_sign = endpoint->decision.chosen_side_sign;
+    endpoint->branch_down_offset_m = grouped_store[{pole_a, 1234}].down_offset_m;
+    endpoint->support_world = grouped_store[{pole_a, 1234}].tip_world;
+  };
+  apply_grouped_endpoint(&it_ab->second.start, pole_a, port_ab_a, {0.0, 0.8, 5.0});
+  apply_grouped_endpoint(&it_ac->second.start, pole_a, port_ac_a, {0.0, 1.1, 5.0});
 
   const auto validation = helpers::validate_now(state);
   return validation.ok() && grouped_store.size() == 1 &&

@@ -1,5 +1,6 @@
 #include "wire/core/core_state.hpp"
 #include "wire/core/coord_utils.hpp"
+#include "../generation/support_policy.hpp"
 #include "../support_orientation_utils.hpp"
 
 #include <algorithm>
@@ -43,6 +44,33 @@ bool almost_equal_validation(double a, double b, double eps = 1e-9) { return std
 bool almost_equal_validation(const Vec3d& a, const Vec3d& b, double eps = 1e-9) {
   return almost_equal_validation(a.x, b.x, eps) && almost_equal_validation(a.y, b.y, eps) &&
          almost_equal_validation(a.z, b.z, eps);
+}
+
+double template_layer_base_z_for_validation(const CoreView& core, const Pole& pole, ConnectionCategory category) {
+  double best_z = -std::numeric_limits<double>::infinity();
+  const int target_layer = generation::detail::TemplateLayerForCategory(category);
+  const auto pole_type_it = core.pole_types().find(pole.pole_type_id);
+  if (pole_type_it != core.pole_types().end()) {
+    for (const PortPlacementBand& band : pole_type_it->second.port_bands) {
+      if (!band.enabled) {
+        continue;
+      }
+      if (band.layer == target_layer) {
+        best_z = std::max(best_z, band.height_max_m);
+      }
+    }
+    if (!std::isfinite(best_z)) {
+      for (const PortPlacementBand& band : pole_type_it->second.port_bands) {
+        if (band.enabled && band.category == category) {
+          best_z = std::max(best_z, band.height_max_m);
+        }
+      }
+    }
+  }
+  if (std::isfinite(best_z)) {
+    return best_z;
+  }
+  return std::max(0.5, pole.height_m * 0.8);
 }
 
 } // namespace
@@ -379,8 +407,42 @@ ValidationResult CoreState::Validate() const {
     }
   }
 
+  std::unordered_map<LoweredSupportGroupKey, ConnectionCategory, LoweredSupportGroupKeyHash> support_group_category_by_key{};
   for (const auto& [span_id, layout] : cache_state.support_layout_cache.by_span) {
     const auto validate_endpoint = [&](const SupportLayoutEndpoint& endpoint, const char* code) {
+      const Pole* endpoint_pole = edit_state.poles.find(endpoint.owner_pole_id);
+      const Port* endpoint_port = edit_state.ports.find(endpoint.port_id);
+      if (endpoint_pole != nullptr && endpoint_port != nullptr &&
+          endpoint.decision.continuity_class == ContinuityCategoryClass::kBundleLike) {
+        const double template_z = template_layer_base_z_for_validation(core, *endpoint_pole, endpoint_port->category);
+        if (endpoint.decision.relation_kind == JunctionRelationKind::kThroughMain) {
+          if (endpoint.decision.lower_required || endpoint.branch_down_offset_m > 1e-9 ||
+              !almost_equal_validation(endpoint.support_world.z, template_z)) {
+            result.issues.push_back({ValidationSeverity::kError, "ThroughMainHeightMismatch",
+                                     "ThroughMain endpoint must stay at template height with no lowering offset",
+                                     span_id});
+          }
+        } else if (endpoint.decision.lower_required && !endpoint.decision.lowering_blocked_by_policy) {
+          if (endpoint.branch_down_offset_m <= 1e-9) {
+            result.issues.push_back({ValidationSeverity::kError, "LoweredEndpointOffsetMissing",
+                                     "Lowered non-through endpoint must carry a positive one-step down offset",
+                                     span_id});
+          } else {
+            const double expected_z = template_z - endpoint.branch_down_offset_m;
+            if (!almost_equal_validation(endpoint.support_world.z, expected_z)) {
+              result.issues.push_back({ValidationSeverity::kError, "LoweredEndpointHeightNotTwoState",
+                                       "Lowered non-through endpoint height must equal template height minus one-step down offset",
+                                       span_id});
+            }
+          }
+        } else if (endpoint.decision.lowering_blocked_by_policy &&
+                   (!almost_equal_validation(endpoint.support_world.z, template_z) ||
+                    endpoint.branch_down_offset_m > 1e-9)) {
+          result.issues.push_back({ValidationSeverity::kError, "PolicyBlockedEndpointHeightMismatch",
+                                   "Policy-blocked endpoint must stay at template height with no materialized lowering offset",
+                                   span_id});
+        }
+      }
       if (endpoint.decision.support_orientation_basis != SupportOrientationBasisKind::kRadial &&
           (!endpoint.has_side_axis || !std::isfinite(endpoint.side_axis.x) || !std::isfinite(endpoint.side_axis.y))) {
         result.issues.push_back({ValidationSeverity::kError, code,
@@ -436,6 +498,14 @@ ValidationResult CoreState::Validate() const {
                                  "Grouped-lowered endpoint references a missing support group decision", span_id});
         return;
       }
+      if (const Port* endpoint_port = edit_state.ports.find(endpoint.port_id); endpoint_port != nullptr) {
+        const auto [category_it, inserted] = support_group_category_by_key.emplace(key, endpoint_port->category);
+        if (!inserted && category_it->second != endpoint_port->category) {
+          result.issues.push_back({ValidationSeverity::kError, "SupportGroupCategoryMismatch",
+                                   "Grouped-lowered support must not mix categories inside one support group",
+                                   span_id});
+        }
+      }
       const auto it = cache_state.support_layout_cache.lowered_support_groups.find(key);
       if (it == cache_state.support_layout_cache.lowered_support_groups.end()) {
         result.issues.push_back({ValidationSeverity::kError, "SupportGroupEndpointMissing",
@@ -444,17 +514,46 @@ ValidationResult CoreState::Validate() const {
       }
       const LoweredSupportGroupPlacement& group = it->second;
       const bool decision_aligned =
+          endpoint.decision.side_assignment_rule == group.decision.side_assignment_rule &&
           endpoint.decision.support_orientation_basis == group.decision.support_orientation_basis &&
           endpoint.decision.chosen_side == group.decision.chosen_side &&
-          endpoint.decision.support_orientation_rule == group.decision.support_orientation_rule;
+          endpoint.decision.support_orientation_rule == group.decision.support_orientation_rule &&
+          almost_equal_validation(endpoint.decision.chosen_side_sign, group.decision.chosen_side_sign) &&
+          endpoint.decision.has_side_axis == group.decision.has_side_axis &&
+          almost_equal_validation(endpoint.decision.side_axis.x, group.decision.side_axis.x) &&
+          almost_equal_validation(endpoint.decision.side_axis.y, group.decision.side_axis.y);
       if (!decision_aligned) {
         result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionMismatch",
                                  "Grouped-lowered endpoint decision does not match grouped placement decision",
                                  span_id});
       }
-      if (endpoint.decision.support_orientation_basis != decision_it->second.decision.support_orientation_basis ||
+      if (endpoint.side_assignment_rule == SideAssignmentRuleKind::kPoleLocal ||
+          endpoint.support_orientation_rule == SupportOrientationRuleKind::kRadial ||
+          !endpoint.has_side_axis || !std::isfinite(endpoint.side_axis.x) || !std::isfinite(endpoint.side_axis.y) ||
+          std::abs(endpoint.chosen_side_sign) <= 1e-9) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportGroupEndpointRuleIncomplete",
+                                 "Grouped-lowered endpoint view must carry non-pole-local, non-radial authoritative side/orientation fields",
+                                 span_id});
+      }
+      if (endpoint.side_assignment_rule != endpoint.decision.side_assignment_rule ||
+          endpoint.support_orientation_rule != endpoint.decision.support_orientation_rule ||
+          endpoint.used_junction_pair_side_assignment != endpoint.decision.used_junction_pair_side_assignment ||
+          endpoint.has_side_axis != endpoint.decision.has_side_axis ||
+          !almost_equal_validation(endpoint.side_axis.x, endpoint.decision.side_axis.x) ||
+          !almost_equal_validation(endpoint.side_axis.y, endpoint.decision.side_axis.y) ||
+          !almost_equal_validation(endpoint.chosen_side_sign, endpoint.decision.chosen_side_sign)) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportGroupEndpointRuleMismatch",
+                                 "Grouped-lowered endpoint view must match its authoritative decision side/orientation fields",
+                                 span_id});
+      }
+      if (endpoint.decision.side_assignment_rule != decision_it->second.decision.side_assignment_rule ||
+          endpoint.decision.support_orientation_basis != decision_it->second.decision.support_orientation_basis ||
           endpoint.decision.chosen_side != decision_it->second.decision.chosen_side ||
-          endpoint.decision.support_orientation_rule != decision_it->second.decision.support_orientation_rule) {
+          endpoint.decision.support_orientation_rule != decision_it->second.decision.support_orientation_rule ||
+          !almost_equal_validation(endpoint.decision.chosen_side_sign, decision_it->second.decision.chosen_side_sign) ||
+          endpoint.decision.has_side_axis != decision_it->second.decision.has_side_axis ||
+          !almost_equal_validation(endpoint.decision.side_axis.x, decision_it->second.decision.side_axis.x) ||
+          !almost_equal_validation(endpoint.decision.side_axis.y, decision_it->second.decision.side_axis.y)) {
         result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionMismatch",
                                  "Grouped-lowered endpoint decision does not match support-group decision",
                                  span_id});
@@ -462,6 +561,12 @@ ValidationResult CoreState::Validate() const {
       if (!almost_equal_validation(endpoint.support_world.z, group.tip_world.z)) {
         result.issues.push_back({ValidationSeverity::kError, "SupportGroupHeightMismatch",
                                  "Grouped-lowered endpoint support height must match grouped placement tip height",
+                                 span_id});
+      }
+      if (endpoint.branch_down_offset_m <= 1e-9 ||
+          !almost_equal_validation(endpoint.branch_down_offset_m, group.down_offset_m)) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportGroupOffsetMismatch",
+                                 "Grouped-lowered endpoint must carry the authoritative one-step down offset",
                                  span_id});
       }
     };
@@ -484,6 +589,7 @@ ValidationResult CoreState::Validate() const {
     }
     if (group_decision.decision.support_orientation_basis == SupportOrientationBasisKind::kRadial ||
         group_decision.decision.support_orientation_rule == SupportOrientationRuleKind::kRadial ||
+        group_decision.decision.side_assignment_rule == SideAssignmentRuleKind::kPoleLocal ||
         !group_decision.decision.has_side_axis || !std::isfinite(group_decision.decision.side_axis.x) ||
         !std::isfinite(group_decision.decision.side_axis.y) ||
         std::abs(group_decision.decision.chosen_side_sign) <= 1e-9) {
@@ -491,9 +597,31 @@ ValidationResult CoreState::Validate() const {
                                "Support-group decision must carry non-radial authoritative orientation/side fields",
                                key.owner_pole_id});
     }
+    if (group_decision.side_assignment_rule != group_decision.decision.side_assignment_rule ||
+        group_decision.support_orientation_rule != group_decision.decision.support_orientation_rule ||
+        group_decision.used_junction_pair_side_assignment != group_decision.decision.used_junction_pair_side_assignment ||
+        group_decision.has_side_axis != group_decision.decision.has_side_axis ||
+        !almost_equal_validation(group_decision.side_axis.x, group_decision.decision.side_axis.x) ||
+        !almost_equal_validation(group_decision.side_axis.y, group_decision.decision.side_axis.y) ||
+        !almost_equal_validation(group_decision.chosen_side_sign, group_decision.decision.chosen_side_sign)) {
+      result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionMismatch",
+                               "Support-group decision cache fields must match the authoritative decision side/orientation fields",
+                               key.owner_pole_id});
+    }
     if (!std::isfinite(group_decision.support_world.z)) {
       result.issues.push_back({ValidationSeverity::kError, "SupportGroupHeightInvalid",
                                "Support-group decision must carry a finite authoritative support z", key.owner_pole_id});
+    }
+    const Pole* pole = edit_state.poles.find(key.owner_pole_id);
+    const auto category_it = support_group_category_by_key.find(key);
+    if (pole != nullptr && category_it != support_group_category_by_key.end() && group_decision.down_offset_m > 1e-9) {
+      const double expected_support_z =
+          template_layer_base_z_for_validation(core, *pole, category_it->second) - group_decision.down_offset_m;
+      if (!almost_equal_validation(group_decision.support_world.z, expected_support_z)) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportGroupHeightNotTwoState",
+                                 "Support-group decision height must equal template height minus one-step down offset",
+                                 key.owner_pole_id});
+      }
     }
   }
 
@@ -516,10 +644,22 @@ ValidationResult CoreState::Validate() const {
     }
     if (group.decision.support_orientation_basis == SupportOrientationBasisKind::kRadial ||
         group.decision.support_orientation_rule == SupportOrientationRuleKind::kRadial ||
+        group.decision.side_assignment_rule == SideAssignmentRuleKind::kPoleLocal ||
         !group.decision.has_side_axis || !std::isfinite(group.decision.side_axis.x) ||
         !std::isfinite(group.decision.side_axis.y) || std::abs(group.decision.chosen_side_sign) <= 1e-9) {
       result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionIncomplete",
                                "Grouped placement must carry non-radial authoritative orientation/side fields",
+                               key.owner_pole_id});
+    }
+    if (group.side_assignment_rule != group.decision.side_assignment_rule ||
+        group.support_orientation_rule != group.decision.support_orientation_rule ||
+        group.used_junction_pair_side_assignment != group.decision.used_junction_pair_side_assignment ||
+        group.has_side_axis != group.decision.has_side_axis ||
+        !almost_equal_validation(group.side_axis.x, group.decision.side_axis.x) ||
+        !almost_equal_validation(group.side_axis.y, group.decision.side_axis.y) ||
+        !almost_equal_validation(group.chosen_side_sign, group.decision.chosen_side_sign)) {
+      result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionMismatch",
+                               "Grouped placement cached side/orientation fields must match the authoritative decision",
                                key.owner_pole_id});
     }
     if (group.grouped_port_count != static_cast<int>(group.attachment_worlds.size())) {
@@ -540,6 +680,18 @@ ValidationResult CoreState::Validate() const {
       result.issues.push_back({ValidationSeverity::kError, "SupportGroupAxisMissing",
                                "Grouped lowered support must carry a finite authoritative side axis",
                                key.owner_pole_id});
+    }
+    const Pole* pole = edit_state.poles.find(key.owner_pole_id);
+    const auto category_it = support_group_category_by_key.find(key);
+    if (pole != nullptr && category_it != support_group_category_by_key.end() && group.down_offset_m > 1e-9) {
+      const double expected_support_z =
+          template_layer_base_z_for_validation(core, *pole, category_it->second) - group.down_offset_m;
+      if (!almost_equal_validation(group.mount_world.z, expected_support_z) ||
+          !almost_equal_validation(group.tip_world.z, expected_support_z)) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportGroupHeightNotTwoState",
+                                 "Grouped placement height must equal template height minus one-step down offset",
+                                 key.owner_pole_id});
+      }
     }
     Vec3d support_axis = group.tip_world - group.mount_world;
     support_axis.z = 0.0;

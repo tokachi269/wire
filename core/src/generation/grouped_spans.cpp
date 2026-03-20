@@ -126,33 +126,10 @@ CoreState::generate_grouped_spans_between_support_nodes(
     return JunctionRelationKind::kNone;
   };
   const bool has_relation_policy = junction_relations_by_node != nullptr;
-  bool relation_has_branch_support = false;
-  bool relation_has_acute_corner = false;
-  if (has_relation_policy) {
-    for (std::size_t node_index = 0; node_index < node_ids.size(); ++node_index) {
-      const JunctionRelationKind kind = node_relation_kind_at(node_index);
-      const ObjectId node_id = node_ids[node_index];
-      const ObjectId prev_node_id = (node_index > 0) ? node_ids[node_index - 1] : kInvalidObjectId;
-      const ObjectId next_node_id = (node_index + 1 < node_ids.size()) ? node_ids[node_index + 1] : kInvalidObjectId;
-      const bool prev_infeasible = (prev_node_id != kInvalidObjectId) && !incident_same_level_feasible_for(node_id, prev_node_id);
-      const bool next_infeasible = (next_node_id != kInvalidObjectId) && !incident_same_level_feasible_for(node_id, next_node_id);
-      relation_has_branch_support =
-          relation_has_branch_support ||
-          ((kind == JunctionRelationKind::kSideBranch || kind == JunctionRelationKind::kCrossUnderpass) &&
-           (prev_infeasible || next_infeasible));
-      relation_has_acute_corner =
-          relation_has_acute_corner || (kind == JunctionRelationKind::kCornerContinuation && (prev_infeasible || next_infeasible));
-    }
-  }
-  const bool uses_branch_support =
-      lowering_policy.offset_m > 1e-6 &&
-      (has_relation_policy ? relation_has_branch_support
-                           : (lowering_policy.enable_branch_support || lowering_policy.enable_cross_underpass));
-  const bool uses_acute_corner_lowering =
-      lowering_policy.offset_m > 1e-6 &&
-      (has_relation_policy ? relation_has_acute_corner : lowering_policy.enable_acute_corner);
+  const bool supports_outboard_lowered_ports = lowering_policy.offset_m > 1e-6;
   const double effective_branch_down_offset_m = std::max(0.0, lowering_policy.offset_m);
-  std::unordered_map<ObjectId, std::vector<ObjectId>> node_lane_ports_cache{};
+  using NodePeerKey = std::pair<ObjectId, ObjectId>;
+  std::map<NodePeerKey, std::vector<ObjectId>> node_lane_ports_cache{};
   std::unordered_map<ObjectId, Vec3d> node_side_axis_hints{};
   auto support_position = [&](ObjectId node_id) -> Vec3d {
     if (const auto it = support_node_by_id.find(node_id); it != support_node_by_id.end()) {
@@ -196,31 +173,6 @@ CoreState::generate_grouped_spans_between_support_nodes(
     return Vec3d{0.0, 1.0, 0.0};
   };
   auto layout_yaw_for_pole = [&](const Pole& pole) { return effective_pole_layout_yaw_deg(pole); };
-  auto highest_owned_port_z_for_pole = [&](const Pole& pole) -> std::optional<double> {
-    const auto it_ports = relation_index_access().ports_by_pole.find(pole.id);
-    if (it_ports == relation_index_access().ports_by_pole.end()) {
-      return std::nullopt;
-    }
-    const PoleFrame frame = BuildPoleFrame(pole.world_transform, layout_yaw_for_pole(pole));
-    const int target_layer = generation::detail::TemplateLayerForCategory(category);
-    double best_z = -std::numeric_limits<double>::infinity();
-    for (ObjectId port_id : it_ports->second) {
-      const Port* port = edit_state_access().ports.find(port_id);
-      if (port == nullptr || port->owner_pole_id != pole.id) {
-        continue;
-      }
-      const bool layer_match = (port->layer == target_port_layer);
-      const bool template_layer_match = (port->template_layer == target_layer);
-      if (!layer_match && !template_layer_match) {
-        continue;
-      }
-      const double local_z = WorldPointToLocal(frame, port->world_position).z;
-      if (std::isfinite(local_z)) {
-        best_z = std::max(best_z, local_z);
-      }
-    }
-    return std::isfinite(best_z) ? std::optional<double>{best_z} : std::nullopt;
-  };
   auto template_layer_base_z_for_pole = [&](const Pole& pole) {
     double best_z = -std::numeric_limits<double>::infinity();
     const int target_layer = generation::detail::TemplateLayerForCategory(category);
@@ -247,20 +199,37 @@ CoreState::generate_grouped_spans_between_support_nodes(
     return std::max(0.5, pole.height_m * 0.8);
   };
   auto lane_row_base_z_for_pole = [&](const Pole& pole) {
-    if (const auto port_z = highest_owned_port_z_for_pole(pole); port_z.has_value()) {
-      return *port_z;
-    }
-    return template_layer_base_z_for_pole(pole);
-  };
-  auto lowered_support_base_z_for_pole = [&](const Pole& pole) {
     return template_layer_base_z_for_pole(pole);
   };
   auto span_context_for_segment = [&](ObjectId node_a, ObjectId node_b) -> ConnectionContext {
     if (category == ConnectionCategory::kDrop) {
       return ConnectionContext::kDropAdd;
     }
-    if (uses_branch_support) {
+    auto relation_rank = [](JunctionRelationKind kind) {
+      switch (kind) {
+      case JunctionRelationKind::kCrossUnderpass:
+        return 4;
+      case JunctionRelationKind::kSideBranch:
+        return 3;
+      case JunctionRelationKind::kCornerContinuation:
+        return 2;
+      case JunctionRelationKind::kThroughMain:
+        return 1;
+      case JunctionRelationKind::kNone:
+      default:
+        return 0;
+      }
+    };
+    const JunctionRelationKind relation_a = incident_relation_kind_for(node_a, node_b);
+    const JunctionRelationKind relation_b = incident_relation_kind_for(node_b, node_a);
+    const JunctionRelationKind segment_relation =
+        (relation_rank(relation_a) >= relation_rank(relation_b)) ? relation_a : relation_b;
+    if (segment_relation == JunctionRelationKind::kSideBranch ||
+        segment_relation == JunctionRelationKind::kCrossUnderpass) {
       return ConnectionContext::kBranchAdd;
+    }
+    if (segment_relation == JunctionRelationKind::kCornerContinuation) {
+      return ConnectionContext::kCornerPass;
     }
     const Pole* pole_a = support_pole(node_a);
     const Pole* pole_b = support_pole(node_b);
@@ -275,25 +244,21 @@ CoreState::generate_grouped_spans_between_support_nodes(
     }
     return (port == nullptr) ? kInvalidObjectId : port->owner_pole_id;
   };
-  auto node_requires_branch_support = [&](ObjectId node_id, ObjectId peer_id) -> bool {
-    if (!uses_branch_support) {
+  auto endpoint_requires_outboard_lowered_ports = [&](ObjectId node_id, ObjectId peer_id) -> bool {
+    if (!supports_outboard_lowered_ports) {
       return false;
     }
-    const JunctionRelationKind relation_kind = incident_relation_kind_for(node_id, peer_id);
-    const bool same_level_feasible = incident_same_level_feasible_for(node_id, peer_id);
-    if (!same_level_feasible &&
-        relation_kind == JunctionRelationKind::kCrossUnderpass) {
-      return lowering_policy.enable_cross_underpass && lowering_policy.offset_m > 1e-6;
-    }
-    if (!same_level_feasible &&
-        relation_kind == JunctionRelationKind::kSideBranch) {
-      return lowering_policy.enable_branch_support && lowering_policy.offset_m > 1e-6;
-    }
-    if (relation_kind == JunctionRelationKind::kCrossUnderpass) {
+    const SegmentRelationFeasibility feasibility = segment_relation_feasibility_for(node_id, peer_id);
+    if (feasibility.kind == JunctionRelationKind::kCornerContinuation) {
       return false;
     }
-    if (relation_kind == JunctionRelationKind::kSideBranch) {
-      return false;
+    const bool uses_lowered_height =
+        (feasibility.default_lower_required || !feasibility.same_level_feasible) && lowering_policy.offset_m > 1e-6 &&
+        feasibility.kind != JunctionRelationKind::kThroughMain && feasibility.kind != JunctionRelationKind::kNone;
+    if ((feasibility.kind == JunctionRelationKind::kCrossUnderpass ||
+         feasibility.kind == JunctionRelationKind::kSideBranch) &&
+        uses_lowered_height) {
+      return true;
     }
     if (junction_relations_by_node != nullptr) {
       return false;
@@ -391,67 +356,28 @@ CoreState::generate_grouped_spans_between_support_nodes(
   for (std::size_t i = 0; i < node_ids.size(); ++i) {
     node_index_by_id[node_ids[i]] = i;
   }
-  std::vector<bool> node_uses_down_offset(node_ids.size(), false);
-  if (uses_acute_corner_lowering && has_relation_policy) {
-    for (std::size_t i = 0; i < node_ids.size(); ++i) {
-      const ObjectId prev_node_id = (i > 0) ? node_ids[i - 1] : kInvalidObjectId;
-      const ObjectId next_node_id = (i + 1 < node_ids.size()) ? node_ids[i + 1] : kInvalidObjectId;
-      const bool prev_infeasible =
-          (prev_node_id != kInvalidObjectId) && !incident_same_level_feasible_for(node_ids[i], prev_node_id);
-      const bool next_infeasible =
-          (next_node_id != kInvalidObjectId) && !incident_same_level_feasible_for(node_ids[i], next_node_id);
-      node_uses_down_offset[i] =
-          (node_relation_kind_at(i) == JunctionRelationKind::kCornerContinuation) && (prev_infeasible || next_infeasible);
-    }
-  } else if (uses_acute_corner_lowering && node_ids.size() >= 3) {
-    constexpr double kPi = 3.14159265358979323846;
-    constexpr double kAngleEps = 1e-6;
-    for (std::size_t i = 1; i + 1 < node_ids.size(); ++i) {
-      Vec3d in_dir = support_position(node_ids[i - 1]) - support_position(node_ids[i]);
-      Vec3d out_dir = support_position(node_ids[i + 1]) - support_position(node_ids[i]);
-      if (!normalize_xy(&in_dir) || !normalize_xy(&out_dir)) {
-        continue;
-      }
-      const double cos_theta = std::clamp(dot_xy(in_dir, out_dir), -1.0, 1.0);
-      const double turn_angle_deg = std::acos(cos_theta) * (180.0 / kPi);
-      if (turn_angle_deg + kAngleEps < layout_settings_.corner_threshold_deg) {
-        node_uses_down_offset[i] = true;
-      }
-    }
-  }
-  auto lane_row_target_z_for_pole = [&](const Pole& pole, std::size_t node_index) {
-    double target_z_m = lane_row_base_z_for_pole(pole);
-    if (uses_acute_corner_lowering && node_index < node_uses_down_offset.size() && node_uses_down_offset[node_index]) {
-      target_z_m = std::max(0.5, lowered_support_base_z_for_pole(pole) - effective_branch_down_offset_m);
-    }
-    return target_z_m;
+  auto endpoint_has_lowering_conflict = [&](const SegmentRelationFeasibility& feasibility) {
+    return feasibility.default_lower_required || !feasibility.same_level_feasible;
   };
-  auto lowering_kind_rank = [](BackboneLoweringKind kind) {
-    switch (kind) {
-    case BackboneLoweringKind::kCrossUnderpass:
-      return 3;
-    case BackboneLoweringKind::kBranchSupport:
-      return 2;
-    case BackboneLoweringKind::kAcuteCorner:
-      return 1;
-    case BackboneLoweringKind::kNone:
-    default:
-      return 0;
-    }
+  auto endpoint_lowering_blocked_by_policy = [&](const SegmentRelationFeasibility& feasibility) {
+    return endpoint_has_lowering_conflict(feasibility) && lowering_policy.offset_m <= 1e-6 &&
+           feasibility.kind != JunctionRelationKind::kThroughMain && feasibility.kind != JunctionRelationKind::kNone;
   };
-  auto lowering_kind_for_relation = [](JunctionRelationKind kind) {
-    switch (kind) {
-    case JunctionRelationKind::kCrossUnderpass:
-      return BackboneLoweringKind::kCrossUnderpass;
-    case JunctionRelationKind::kSideBranch:
-      return BackboneLoweringKind::kBranchSupport;
-    case JunctionRelationKind::kCornerContinuation:
-      return BackboneLoweringKind::kAcuteCorner;
-    case JunctionRelationKind::kThroughMain:
-    case JunctionRelationKind::kNone:
-    default:
-      return BackboneLoweringKind::kNone;
+  auto endpoint_lowering_offset_m = [&](const SegmentRelationFeasibility& feasibility) {
+    if (endpoint_lowering_blocked_by_policy(feasibility)) {
+      return 0.0;
     }
+    if (!endpoint_has_lowering_conflict(feasibility) || feasibility.kind == JunctionRelationKind::kThroughMain ||
+        feasibility.kind == JunctionRelationKind::kNone) {
+      return 0.0;
+    }
+    return effective_branch_down_offset_m;
+  };
+  auto endpoint_uses_lowered_height = [&](const SegmentRelationFeasibility& feasibility) {
+    return endpoint_lowering_offset_m(feasibility) > 1e-6;
+  };
+  auto lane_row_target_z_for_endpoint = [&](const Pole& pole, const SegmentRelationFeasibility& feasibility) {
+    return std::max(0.5, lane_row_base_z_for_pole(pole) - endpoint_lowering_offset_m(feasibility));
   };
   auto canonical_side_axis_for_order = [&](ObjectId node_id, ObjectId peer_id) -> Vec3d {
     if (const auto it = node_side_axis_hints.find(node_id);
@@ -809,21 +735,113 @@ CoreState::generate_grouped_spans_between_support_nodes(
     ObjectId owner_pole_id = kInvalidObjectId;
     JunctionRelationKind relation_kind = JunctionRelationKind::kNone;
     ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
-    SideAssignmentRuleKind side_assignment_rule = SideAssignmentRuleKind::kPoleLocal;
-    SupportOrientationRuleKind support_orientation_rule = SupportOrientationRuleKind::kRadial;
-    int side_sign_bucket = 0;
-    int axis_bucket_x = 0;
-    int axis_bucket_y = 0;
     bool in_through_pair = false;
-    bool used_junction_pair_side_assignment = false;
     auto operator<=>(const SupportGroupDecisionKey&) const = default;
   };
   std::map<SupportGroupDecisionKey, int> support_group_ids{};
   int next_support_group_id = 1;
-  std::unordered_map<LoweredSupportGroupKey, EndpointContinuityDecision, LoweredSupportGroupKeyHash>
-      authoritative_group_endpoint_decisions{};
-  auto quantize_axis_bucket = [](double value) -> int {
-    return static_cast<int>(std::llround(value * 1000000.0));
+  std::unordered_map<LoweredSupportGroupKey, EndpointSideDecision, LoweredSupportGroupKeyHash>
+      authoritative_group_side_decisions{};
+  auto orientation_rule_priority = [](SupportOrientationRuleKind rule) {
+    switch (rule) {
+    case SupportOrientationRuleKind::kThroughPairNormal:
+      return 3;
+    case SupportOrientationRuleKind::kBisector:
+      return 2;
+    case SupportOrientationRuleKind::kChord:
+      return 1;
+    case SupportOrientationRuleKind::kRadial:
+    default:
+      return 0;
+    }
+  };
+  auto side_assignment_rule_priority = [](SideAssignmentRuleKind rule) {
+    switch (rule) {
+    case SideAssignmentRuleKind::kThroughPairNormal:
+      return 3;
+    case SideAssignmentRuleKind::kBisector:
+      return 2;
+    case SideAssignmentRuleKind::kChord:
+      return 1;
+    case SideAssignmentRuleKind::kPoleLocal:
+    default:
+      return 0;
+    }
+  };
+  auto normalize_group_side_decision = [&](ObjectId node_id, ObjectId peer_id, EndpointSideDecision decision) {
+    if (decision.support_orientation_rule == SupportOrientationRuleKind::kRadial) {
+      decision.support_orientation_rule = SupportOrientationRuleKind::kChord;
+    }
+    if (decision.side_assignment_rule == SideAssignmentRuleKind::kPoleLocal) {
+      decision.side_assignment_rule = SideAssignmentRuleKind::kChord;
+    }
+    Vec3d axis = decision.side_axis;
+    if (!decision.has_side_axis || !normalize_xy(&axis)) {
+      if (decision.support_orientation_rule == SupportOrientationRuleKind::kThroughPairNormal) {
+        if (const auto through_pair_axis = through_pair_side_axis_for_node(node_id); through_pair_axis.has_value()) {
+          axis = *through_pair_axis;
+        }
+      } else if (decision.support_orientation_rule == SupportOrientationRuleKind::kBisector) {
+        if (const auto bisector_axis = bisector_axis_for_endpoint(node_id, peer_id); bisector_axis.has_value()) {
+          axis = *bisector_axis;
+        }
+      }
+    }
+    if (!normalize_xy(&axis)) {
+      axis = chord_side_axis_for_endpoint(node_id, peer_id);
+    }
+    if (!normalize_xy(&axis)) {
+      axis = canonical_side_axis_for_order(node_id, peer_id);
+    }
+    decision.side_axis = axis;
+    decision.has_side_axis = std::isfinite(axis.x) && std::isfinite(axis.y);
+    if (std::abs(decision.chosen_side_sign) <= 1e-9) {
+      const Vec3d chord_axis = chord_side_axis_for_endpoint(node_id, peer_id);
+      const double chord_dot = dot_xy(chord_axis, decision.side_axis);
+      decision.chosen_side_sign = (std::abs(chord_dot) <= 1e-9) ? 1.0 : ((chord_dot >= 0.0) ? 1.0 : -1.0);
+    }
+    return decision;
+  };
+  auto better_group_side_decision = [&](const EndpointSideDecision& candidate, const EndpointSideDecision& existing) {
+    const int candidate_orientation = orientation_rule_priority(candidate.support_orientation_rule);
+    const int existing_orientation = orientation_rule_priority(existing.support_orientation_rule);
+    if (candidate_orientation != existing_orientation) {
+      return candidate_orientation > existing_orientation;
+    }
+    const int candidate_side = side_assignment_rule_priority(candidate.side_assignment_rule);
+    const int existing_side = side_assignment_rule_priority(existing.side_assignment_rule);
+    if (candidate_side != existing_side) {
+      return candidate_side > existing_side;
+    }
+    if (candidate.used_junction_pair_side_assignment != existing.used_junction_pair_side_assignment) {
+      return candidate.used_junction_pair_side_assignment;
+    }
+    return false;
+  };
+  auto canonical_group_side_decision = [&](const LoweredSupportGroupKey& key, ObjectId node_id, ObjectId peer_id,
+                                           const EndpointSideDecision& raw_decision) {
+    EndpointSideDecision candidate = normalize_group_side_decision(node_id, peer_id, raw_decision);
+    auto [it, inserted] = authoritative_group_side_decisions.emplace(key, candidate);
+    if (!inserted) {
+      EndpointSideDecision existing = it->second;
+      if (dot_xy(existing.side_axis, candidate.side_axis) < 0.0) {
+        candidate.side_axis = ScaleVec(candidate.side_axis, -1.0);
+        candidate.chosen_side_sign *= -1.0;
+      }
+      if (better_group_side_decision(candidate, existing)) {
+        existing = candidate;
+      } else {
+        if (std::abs(existing.chosen_side_sign) <= 1e-9 && std::abs(candidate.chosen_side_sign) > 1e-9) {
+          existing.chosen_side_sign = candidate.chosen_side_sign;
+        }
+        if (!existing.has_side_axis && candidate.has_side_axis) {
+          existing.side_axis = candidate.side_axis;
+          existing.has_side_axis = true;
+        }
+      }
+      it->second = normalize_group_side_decision(node_id, peer_id, existing);
+    }
+    return it->second;
   };
   auto support_group_id_for_endpoint = [&](ObjectId node_id, ObjectId peer_id,
                                            const SegmentRelationFeasibility& feasibility,
@@ -832,30 +850,13 @@ CoreState::generate_grouped_spans_between_support_nodes(
     if (!needs_lower) {
       return -1;
     }
-    Vec3d axis = side_decision.side_axis;
-    if (!side_decision.has_side_axis || !normalize_xy(&axis)) {
-      axis = canonical_side_axis_for_order(node_id, peer_id);
-    }
-    if (!normalize_xy(&axis)) {
-      axis = {1.0, 0.0, 0.0};
-    }
-    int side_sign_bucket = 0;
-    if (side_decision.chosen_side_sign > 1e-9) {
-      side_sign_bucket = 1;
-    } else if (side_decision.chosen_side_sign < -1e-9) {
-      side_sign_bucket = -1;
-    }
+    (void)peer_id;
+    (void)side_decision;
     SupportGroupDecisionKey key{};
     key.owner_pole_id = node_id;
     key.relation_kind = feasibility.kind;
     key.continuity_class = feasibility.continuity_class;
-    key.side_assignment_rule = side_decision.side_assignment_rule;
-    key.support_orientation_rule = side_decision.support_orientation_rule;
-    key.side_sign_bucket = side_sign_bucket;
-    key.axis_bucket_x = quantize_axis_bucket(axis.x);
-    key.axis_bucket_y = quantize_axis_bucket(axis.y);
     key.in_through_pair = feasibility.in_through_pair;
-    key.used_junction_pair_side_assignment = side_decision.used_junction_pair_side_assignment;
     auto [it, inserted] = support_group_ids.emplace(key, next_support_group_id);
     if (inserted) {
       ++next_support_group_id;
@@ -906,41 +907,24 @@ CoreState::generate_grouped_spans_between_support_nodes(
     decision.chosen_side_sign = side_decision.chosen_side_sign;
     return decision;
   };
-  auto canonicalize_group_endpoint_decision = [&](const EndpointContinuityDecision& decision) {
+  auto canonicalize_group_endpoint_decision = [&](const EndpointContinuityDecision& decision, ObjectId node_id,
+                                                  ObjectId peer_id, const EndpointSideDecision& side_decision) {
     if (!UsesAuthoritativeGroupedLoweredSupport(decision)) {
       return decision;
     }
     const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(decision);
-    const auto [it, inserted] = authoritative_group_endpoint_decisions.emplace(key, decision);
-    if (inserted) {
-      return decision;
-    }
-    EndpointContinuityDecision canonical = it->second;
-    canonical.bundle_order_policy = decision.bundle_order_policy;
-    canonical.bundle_order_choice = decision.bundle_order_choice;
-    canonical.bundle_order_choice_reason = decision.bundle_order_choice_reason;
-    canonical.solver_used_same_level_constraint = decision.solver_used_same_level_constraint;
-    canonical.used_special_case_ports = decision.used_special_case_ports;
-    canonical.downstream_overridden = decision.downstream_overridden;
+    const EndpointSideDecision canonical_side = canonical_group_side_decision(key, node_id, peer_id, side_decision);
+    EndpointContinuityDecision canonical = decision;
+    canonical.side_assignment_rule = canonical_side.side_assignment_rule;
+    canonical.support_orientation_rule = canonical_side.support_orientation_rule;
+    canonical.support_orientation_basis =
+        SupportOrientationBasisFromDecision(canonical_side.support_orientation_rule, canonical_side.chosen_side_sign);
+    canonical.chosen_side = LateralSideChoiceFromSign(canonical_side.chosen_side_sign);
+    canonical.used_junction_pair_side_assignment = canonical_side.used_junction_pair_side_assignment;
+    canonical.has_side_axis = canonical_side.has_side_axis;
+    canonical.side_axis = canonical_side.side_axis;
+    canonical.chosen_side_sign = canonical_side.chosen_side_sign;
     return canonical;
-  };
-  auto endpoint_lowering_blocked_by_policy = [&](const SegmentRelationFeasibility& feasibility) {
-    const bool endpoint_has_conflict = feasibility.default_lower_required || !feasibility.same_level_feasible;
-    if (!endpoint_has_conflict) {
-      return false;
-    }
-    switch (feasibility.kind) {
-    case JunctionRelationKind::kCrossUnderpass:
-      return !lowering_policy.enable_cross_underpass;
-    case JunctionRelationKind::kSideBranch:
-      return !lowering_policy.enable_branch_support;
-    case JunctionRelationKind::kCornerContinuation:
-      return !lowering_policy.enable_acute_corner;
-    case JunctionRelationKind::kThroughMain:
-    case JunctionRelationKind::kNone:
-    default:
-      return !lowering_policy.enable_branch_support;
-    }
   };
   auto sync_assignment_from_decisions = [&](SegmentLaneAssignment* assignment) {
     if (assignment == nullptr) {
@@ -990,10 +974,11 @@ CoreState::generate_grouped_spans_between_support_nodes(
   auto ensure_ports = [&](ObjectId node_id, ObjectId peer_id, int segment_index, bool prefer_existing_neighbor_order,
                           bool* out_seeded_from_previous = nullptr) -> EditResult<std::vector<ObjectId>> {
     EditResult<std::vector<ObjectId>> ports_result;
+    const NodePeerKey cache_key{node_id, peer_id};
     if (out_seeded_from_previous != nullptr) {
       *out_seeded_from_previous = false;
     }
-    if (const auto it_cached = node_lane_ports_cache.find(node_id); it_cached != node_lane_ports_cache.end()) {
+    if (const auto it_cached = node_lane_ports_cache.find(cache_key); it_cached != node_lane_ports_cache.end()) {
       if (static_cast<int>(it_cached->second.size()) == lane_count) {
         ports_result.value = it_cached->second;
         ports_result.ok = true;
@@ -1142,11 +1127,11 @@ CoreState::generate_grouped_spans_between_support_nodes(
         ports_result.value.push_back(add_port.value);
       }
       sort_nonpole_ports(&ports_result.value);
-      node_lane_ports_cache[node_id] = ports_result.value;
+      node_lane_ports_cache[cache_key] = ports_result.value;
       ports_result.ok = true;
       return ports_result;
     }
-    const bool use_branch_support_here = node_requires_branch_support(node_id, peer_id);
+    const bool use_outboard_lowered_ports_here = endpoint_requires_outboard_lowered_ports(node_id, peer_id);
     auto try_solver_ports_for_pole = [&](ConnectionContext solver_context, SlotRole preferred_role,
                                          const SegmentRelationFeasibility& feasibility,
                                          std::vector<ObjectId>* out_ports) -> bool {
@@ -1222,67 +1207,30 @@ CoreState::generate_grouped_spans_between_support_nodes(
       if (static_cast<int>(solved_ports.size()) == lane_count && !solved_ports.empty()) {
         const double layout_yaw = layout_yaw_for_pole(*pole);
         const PoleFrame frame = BuildPoleFrame(pole->world_transform, layout_yaw);
-        double uniform_z = std::numeric_limits<double>::infinity();
-        double existing_bundle_port_min_z_m = std::numeric_limits<double>::infinity();
-        if (const auto it_ports = relation_index_access().ports_by_pole.find(node_id);
-            it_ports != relation_index_access().ports_by_pole.end()) {
-          for (ObjectId existing_port_id : it_ports->second) {
-            const Port* existing_port = edit_state_access().ports.find(existing_port_id);
-            if (existing_port == nullptr || existing_port->owner_pole_id != node_id || existing_port->category != category) {
-              continue;
-            }
-            if (used_ports.find(existing_port_id) != used_ports.end()) {
-              continue;
-            }
-            const auto it_spans = connection_index_access().spans_by_port.find(existing_port_id);
-            if (it_spans == connection_index_access().spans_by_port.end() || it_spans->second.empty()) {
-              continue;
-            }
-            existing_bundle_port_min_z_m = std::min(existing_bundle_port_min_z_m, existing_port->world_position.z);
-          }
-        }
+        const double target_uniform_z = lane_row_target_z_for_endpoint(*pole, feasibility);
         for (ObjectId port_id : solved_ports) {
           Port* selected_port = edit_state_access().ports.find(port_id);
           if (selected_port == nullptr) {
             continue;
           }
-          const Vec3d local = WorldPointToLocal(frame, selected_port->world_position);
-          uniform_z = std::min(uniform_z, local.z);
-        }
-        if (std::isfinite(uniform_z)) {
-          double target_uniform_z = uniform_z;
-          if (std::isfinite(existing_bundle_port_min_z_m)) {
-            target_uniform_z = std::min(target_uniform_z, existing_bundle_port_min_z_m);
+          Vec3d local = WorldPointToLocal(frame, selected_port->world_position);
+          if (std::abs(local.z - target_uniform_z) <= 1e-9) {
+            continue;
           }
-          if (feasibility.kind == JunctionRelationKind::kSideBranch ||
-              feasibility.kind == JunctionRelationKind::kCrossUnderpass ||
-              feasibility.kind == JunctionRelationKind::kCornerContinuation) {
-            target_uniform_z = std::max(0.5, lowered_support_base_z_for_pole(*pole) - effective_branch_down_offset_m);
-          }
-          for (ObjectId port_id : solved_ports) {
-            Port* selected_port = edit_state_access().ports.find(port_id);
-            if (selected_port == nullptr) {
-              continue;
-            }
-            Vec3d local = WorldPointToLocal(frame, selected_port->world_position);
-            if (std::abs(local.z - target_uniform_z) <= 1e-9) {
-              continue;
-            }
-            local.z = target_uniform_z;
-            selected_port->world_position = local_to_world_on_pole_local(pole->world_transform, layout_yaw, local);
-            add_unique_id(result.change_set.updated_ids, selected_port->id);
-          }
+          local.z = target_uniform_z;
+          selected_port->world_position = local_to_world_on_pole_local(pole->world_transform, layout_yaw, local);
+          add_unique_id(result.change_set.updated_ids, selected_port->id);
         }
       }
       *out_ports = std::move(solved_ports);
       return static_cast<int>(out_ports->size()) == lane_count;
     };
-    if (use_branch_support_here) {
+    if (use_outboard_lowered_ports_here) {
       const SegmentRelationFeasibility branch_feasibility = segment_relation_feasibility_for(node_id, peer_id);
       if (branch_feasibility.kind == JunctionRelationKind::kCrossUnderpass &&
           try_solver_ports_for_pole(ConnectionContext::kBranchAdd, SlotRole::kBranchPreferred, branch_feasibility,
                                     &ports_result.value)) {
-        node_lane_ports_cache[node_id] = ports_result.value;
+        node_lane_ports_cache[cache_key] = ports_result.value;
         ports_result.ok = true;
         return ports_result;
       }
@@ -1314,14 +1262,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
       const double branch_support_yaw_deg =
           std::atan2(branch_forward_axis.y, branch_forward_axis.x) * (180.0 / kPi);
 
-      const bool use_scaffold_layout = use_lane_row_geometry;
-      double main_support_base_z_m = lowered_support_base_z_for_pole(*pole);
-      double branch_base_z_m = main_support_base_z_m;
-      if (use_scaffold_layout) {
-        main_support_base_z_m = std::min(main_support_base_z_m, pole->height_m * 0.8);
-        branch_base_z_m = main_support_base_z_m;
-      }
-      branch_base_z_m = std::max(0.5, main_support_base_z_m - effective_branch_down_offset_m);
+      const double branch_base_z_m = lane_row_target_z_for_endpoint(*pole, branch_feasibility);
 
       const double lane_spacing = std::max(0.1, spacing_m);
       const double center = (static_cast<double>(lane_count) - 1.0) * 0.5;
@@ -1377,7 +1318,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
         }
         return a < b;
       });
-      node_lane_ports_cache[node_id] = ports_result.value;
+      node_lane_ports_cache[cache_key] = ports_result.value;
       ports_result.ok = true;
       return ports_result;
     }
@@ -1402,7 +1343,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
                 ? SlotRole::kBranchPreferred
                 : SlotRole::kNeutral;
         if (try_solver_ports_for_pole(solver_context, preferred_role, relation_feasibility, &ports_result.value)) {
-          node_lane_ports_cache[node_id] = ports_result.value;
+          node_lane_ports_cache[cache_key] = ports_result.value;
           ports_result.ok = true;
           return ports_result;
         }
@@ -1425,7 +1366,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
 
       const auto it_index = node_index_by_id.find(node_id);
       const std::size_t node_index = (it_index == node_index_by_id.end()) ? node_ids.size() : it_index->second;
-      const double target_z_m = lane_row_target_z_for_pole(*pole, node_index);
+      const double target_z_m = lane_row_target_z_for_endpoint(*pole, relation_feasibility);
       const double spacing = std::max(0.1, spacing_m);
       const double center = (static_cast<double>(lane_count) - 1.0) * 0.5;
       for (int lane = 0; lane < lane_count; ++lane) {
@@ -1600,7 +1541,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
         });
         seeded_order.resize(static_cast<std::size_t>(lane_count));
         ports_result.value = std::move(seeded_order);
-        node_lane_ports_cache[node_id] = ports_result.value;
+        node_lane_ports_cache[cache_key] = ports_result.value;
         if (out_seeded_from_previous != nullptr) {
           *out_seeded_from_previous = true;
         }
@@ -1658,7 +1599,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
           }
         }
 
-        const double target_z_m = lane_row_target_z_for_pole(*pole, node_index);
+        const double target_z_m = lane_row_target_z_for_endpoint(*pole, scaffold_feasibility);
 
         auto realize_terminal_world = [&](double target_y) {
           const Vec3d local{0.0, target_y, target_z_m};
@@ -1717,7 +1658,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
         }
 
         ports_result.value = std::move(normalized_ports);
-        node_lane_ports_cache[node_id] = ports_result.value;
+        node_lane_ports_cache[cache_key] = ports_result.value;
         ports_result.ok = true;
         return ports_result;
       }
@@ -1725,7 +1666,8 @@ CoreState::generate_grouped_spans_between_support_nodes(
       const bool use_scaffold_geometry = use_lane_row_geometry;
       auto desired_world_for_target = [&](double target_y) {
         const Vec3d base = pole->world_transform.position;
-        const double base_z_m = lane_row_target_z_for_pole(*pole, node_index);
+        const SegmentRelationFeasibility relation_feasibility = segment_relation_feasibility_for(node_id, peer_id);
+        const double base_z_m = lane_row_target_z_for_endpoint(*pole, relation_feasibility);
         if (!use_scaffold_geometry || node_index == node_ids.size()) {
           const Vec3d local{0.0, target_y, base_z_m};
           return local_to_world_on_pole_local(pole->world_transform, layout_yaw_for_pole(*pole), local);
@@ -1836,7 +1778,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
       }
 
       ports_result.value = std::move(ordered_ports);
-      node_lane_ports_cache[node_id] = ports_result.value;
+      node_lane_ports_cache[cache_key] = ports_result.value;
       ports_result.ok = true;
       return ports_result;
     }
@@ -1900,7 +1842,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
     if (static_cast<int>(ports_result.value.size()) > lane_count) {
       ports_result.value.resize(static_cast<std::size_t>(lane_count));
     }
-    node_lane_ports_cache[node_id] = ports_result.value;
+    node_lane_ports_cache[cache_key] = ports_result.value;
     ports_result.ok = true;
     return ports_result;
   };
@@ -2451,26 +2393,6 @@ CoreState::generate_grouped_spans_between_support_nodes(
     const bool endpoint_policy_block_a = endpoint_lowering_blocked_by_policy(effective_relation_a);
     const bool endpoint_policy_block_b = endpoint_lowering_blocked_by_policy(effective_relation_b);
     assignment.lowering_blocked_by_policy = endpoint_policy_block_a || endpoint_policy_block_b;
-    const bool touches_lowered_corner =
-        (segment_relation_kind == JunctionRelationKind::kCornerContinuation && !segment_same_level_feasible) ||
-        ((seg < node_uses_down_offset.size() && node_uses_down_offset[seg]) ||
-         (seg + 1 < node_uses_down_offset.size() && node_uses_down_offset[seg + 1]));
-    const bool should_cross_lower =
-        (segment_relation_kind == JunctionRelationKind::kCrossUnderpass && !segment_same_level_feasible);
-    const bool should_branch_lower =
-        (assignment.uses_branch_support || segment_relation_kind == JunctionRelationKind::kSideBranch) &&
-        !segment_same_level_feasible;
-    const bool should_corner_lower =
-        (touches_lowered_corner && !segment_same_level_feasible);
-    if (should_cross_lower && lowering_policy.enable_cross_underpass) {
-      assignment.lowering_kind = BackboneLoweringKind::kCrossUnderpass;
-    } else if (should_branch_lower && lowering_policy.enable_branch_support) {
-      assignment.lowering_kind = BackboneLoweringKind::kBranchSupport;
-    } else if (should_corner_lower && lowering_policy.enable_acute_corner) {
-      assignment.lowering_kind = BackboneLoweringKind::kAcuteCorner;
-    } else {
-      assignment.lowering_kind = BackboneLoweringKind::kNone;
-    }
     assignment.lowering_blocked_by_policy =
         endpoint_policy_block_a || endpoint_policy_block_b;
     if (assignment.lowering_blocked_by_policy) {
@@ -2501,15 +2423,31 @@ CoreState::generate_grouped_spans_between_support_nodes(
         build_endpoint_decision(effective_relation_a, side_decision_a, node_a, node_b, assignment.bundle_order_choice_a,
                                 assignment.bundle_order_choice_reason_a, assignment.solver_used_same_level_constraint,
                                 assignment.used_special_case_ports, endpoint_policy_block_a,
-                                assignment.unresolved_same_level_conflict));
+                                assignment.unresolved_same_level_conflict),
+        node_a, node_b, side_decision_a);
     assignment.decision_b = canonicalize_group_endpoint_decision(
         build_endpoint_decision(effective_relation_b, side_decision_b, node_b, node_a, assignment.bundle_order_choice_b,
                                 assignment.bundle_order_choice_reason_b, assignment.solver_used_same_level_constraint,
                                 assignment.used_special_case_ports, endpoint_policy_block_b,
-                                assignment.unresolved_same_level_conflict));
+                                assignment.unresolved_same_level_conflict),
+        node_b, node_a, side_decision_b);
+    assignment.decision_a =
+        canonicalize_group_endpoint_decision(assignment.decision_a, node_a, node_b, side_decision_a);
+    assignment.decision_b =
+        canonicalize_group_endpoint_decision(assignment.decision_b, node_b, node_a, side_decision_b);
     sync_assignment_from_decisions(&assignment);
     const bool decision_lowered_a = UsesAuthoritativeGroupedLoweredSupport(assignment.decision_a);
     const bool decision_lowered_b = UsesAuthoritativeGroupedLoweredSupport(assignment.decision_b);
+    const bool segment_uses_lowered_height = decision_lowered_a || decision_lowered_b;
+    if (segment_uses_lowered_height && segment_relation_kind == JunctionRelationKind::kCrossUnderpass) {
+      assignment.lowering_kind = BackboneLoweringKind::kCrossUnderpass;
+    } else if (segment_uses_lowered_height && segment_relation_kind == JunctionRelationKind::kSideBranch) {
+      assignment.lowering_kind = BackboneLoweringKind::kBranchSupport;
+    } else if (segment_uses_lowered_height && segment_relation_kind == JunctionRelationKind::kCornerContinuation) {
+      assignment.lowering_kind = BackboneLoweringKind::kAcuteCorner;
+    } else {
+      assignment.lowering_kind = BackboneLoweringKind::kNone;
+    }
     assignment.branch_down_offset_m = (decision_lowered_a || decision_lowered_b) ? effective_branch_down_offset_m : 0.0;
 
     for (int lane = 0; lane < lane_count; ++lane) {

@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <cstdint>
 #include <limits>
@@ -255,17 +255,17 @@ enum class SupportOrientationRuleKind : std::uint8_t {
   kBisector = 3,
 };
 
-enum class BundleOrderPolicyKind : std::uint8_t {
+enum class OrderDecisionPolicyKind : std::uint8_t {
   kFixedOrder = 0,
   kPermutableHomogeneous = 1,
 };
 
-enum class BundleOrderChoiceKind : std::uint8_t {
+enum class OrderDecisionChoiceKind : std::uint8_t {
   kNormal = 0,
   kReversed = 1,
 };
 
-enum class BundleOrderChoiceReason : std::uint8_t {
+enum class OrderDecisionChoiceReason : std::uint8_t {
   kFixedOrder = 0,
   kCrossingFewer = 1,
   kSpacingBetter = 2,
@@ -310,9 +310,9 @@ struct EndpointContinuityDecision {
   bool unresolved_same_level_conflict = false;
   bool solver_used_same_level_constraint = false;
   bool used_special_case_ports = false;
-  BundleOrderPolicyKind bundle_order_policy = BundleOrderPolicyKind::kFixedOrder;
-  BundleOrderChoiceKind bundle_order_choice = BundleOrderChoiceKind::kNormal;
-  BundleOrderChoiceReason bundle_order_choice_reason = BundleOrderChoiceReason::kFixedOrder;
+  OrderDecisionPolicyKind order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
+  OrderDecisionChoiceKind order_decision_choice = OrderDecisionChoiceKind::kNormal;
+  OrderDecisionChoiceReason order_decision_choice_reason = OrderDecisionChoiceReason::kFixedOrder;
   LateralSideChoiceKind chosen_side = LateralSideChoiceKind::kCenter;
   SideAssignmentRuleKind side_assignment_rule = SideAssignmentRuleKind::kPoleLocal;
   SupportOrientationRuleKind support_orientation_rule = SupportOrientationRuleKind::kRadial;
@@ -430,11 +430,11 @@ struct BackboneEdgeOrientation {
   bool unresolved_same_level_conflict = false;
   bool solver_used_same_level_constraint = false;
   bool used_special_case_ports = false;
-  BundleOrderPolicyKind bundle_order_policy = BundleOrderPolicyKind::kFixedOrder;
-  BundleOrderChoiceKind bundle_order_choice_a = BundleOrderChoiceKind::kNormal;
-  BundleOrderChoiceKind bundle_order_choice_b = BundleOrderChoiceKind::kNormal;
-  BundleOrderChoiceReason bundle_order_choice_reason_a = BundleOrderChoiceReason::kFixedOrder;
-  BundleOrderChoiceReason bundle_order_choice_reason_b = BundleOrderChoiceReason::kFixedOrder;
+  OrderDecisionPolicyKind order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
+  OrderDecisionChoiceKind order_decision_choice_a = OrderDecisionChoiceKind::kNormal;
+  OrderDecisionChoiceKind order_decision_choice_b = OrderDecisionChoiceKind::kNormal;
+  OrderDecisionChoiceReason order_decision_choice_reason_a = OrderDecisionChoiceReason::kFixedOrder;
+  OrderDecisionChoiceReason order_decision_choice_reason_b = OrderDecisionChoiceReason::kFixedOrder;
   LaneOrientation orientation = LaneOrientation::kNormal;
   bool uses_branch_support = false;
   BackboneLoweringKind lowering_kind = BackboneLoweringKind::kNone;
@@ -453,3 +453,5 @@ struct BackboneResult {
 };
 
 } // namespace wire::core
+
+

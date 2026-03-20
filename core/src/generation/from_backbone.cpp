@@ -1,4 +1,4 @@
-#include "wire/core/core_state.hpp"
+﻿#include "wire/core/core_state.hpp"
 #include "../pole_orientation_utils.hpp"
 #include "backbone_prepare.hpp"
 #include "detail_utils.hpp"
@@ -94,9 +94,9 @@ SupportLayoutEndpoint make_support_layout_seed_endpoint(const Span& span, const 
   endpoint.origin = support_layout_origin_from_port_source(port.placement_source);
   endpoint.endpoint_source = SupportLayoutEndpointSourceKind::kFallback;
   endpoint.port_source = port.placement_source;
-  endpoint.bundle_order_policy = decision.bundle_order_policy;
-  endpoint.bundle_order_choice = decision.bundle_order_choice;
-  endpoint.bundle_order_choice_reason = decision.bundle_order_choice_reason;
+  endpoint.order_decision_policy = decision.order_decision_policy;
+  endpoint.order_decision_choice = decision.order_decision_choice;
+  endpoint.order_decision_choice_reason = decision.order_decision_choice_reason;
   endpoint.side = port.template_side;
   endpoint.side_assignment_rule = decision.side_assignment_rule;
   endpoint.support_orientation_rule = decision.support_orientation_rule;
@@ -147,7 +147,7 @@ build_seed_generated_support_layouts(const EditState& edit_state, const std::vec
                                     ? CurvePassMode::kPassThrough
                                     : CurvePassMode::kPassThrough);
       layout.variation_flow_key = variation_flow_key;
-      layout.bundle_order_policy = assignment.bundle_order_policy;
+      layout.order_decision_policy = assignment.order_decision_policy;
       layout.relation_a = assignment.relation_a;
       layout.relation_b = assignment.relation_b;
       layout.continuity_class = assignment.continuity_class;
@@ -202,7 +202,7 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     int count = 1;
     double spacing_m = 0.2;
     ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
-    BundleOrderPolicyKind bundle_order_policy = BundleOrderPolicyKind::kFixedOrder;
+    OrderDecisionPolicyKind order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
     bool allow_mirror = true;
     bool preserve_conductor_identity = false;
     bool allow_midair_node = true;
@@ -255,10 +255,10 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     }
     plan.continuity_class =
         (plan.count > 1) ? ContinuityCategoryClass::kBundleLike : ContinuityCategoryClass::kPointLike;
-    plan.bundle_order_policy =
+    plan.order_decision_policy =
         (!plan.preserve_conductor_identity && plan.category == ConnectionCategory::kHighVoltage && plan.count == 3)
-            ? BundleOrderPolicyKind::kPermutableHomogeneous
-            : BundleOrderPolicyKind::kFixedOrder;
+            ? OrderDecisionPolicyKind::kPermutableHomogeneous
+            : OrderDecisionPolicyKind::kFixedOrder;
     if (plan.layer == SpanLayer::kUnknown) {
       result.error = "bundle layer could not be resolved";
       return result;
@@ -677,6 +677,52 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     }
   }
 
+  std::unordered_map<ObjectId, std::vector<ObjectId>> route_neighbors_by_node{};
+  for (std::size_t i = 0; i < ordered_support_node_ids.size(); ++i) {
+    const ObjectId node_id = ordered_support_node_ids[i];
+    std::vector<ObjectId>& neighbors = route_neighbors_by_node[node_id];
+    if (i > 0) {
+      const ObjectId prev = ordered_support_node_ids[i - 1];
+      if (prev != node_id && std::find(neighbors.begin(), neighbors.end(), prev) == neighbors.end()) {
+        neighbors.push_back(prev);
+      }
+    }
+    if (i + 1 < ordered_support_node_ids.size()) {
+      const ObjectId next = ordered_support_node_ids[i + 1];
+      if (next != node_id && std::find(neighbors.begin(), neighbors.end(), next) == neighbors.end()) {
+        neighbors.push_back(next);
+      }
+    }
+  }
+
+  std::unordered_map<ObjectId, Vec3d> existing_node_position_by_id{};
+  existing_node_position_by_id.reserve(existing_network_backbone.nodes.size() + edit_state_access().poles.size());
+  for (const SupportNode& node : existing_network_backbone.nodes) {
+    existing_node_position_by_id[node.node_id] = node.position;
+  }
+  for (const Pole& pole : edit_state_access().poles.items()) {
+    existing_node_position_by_id.try_emplace(pole.id, pole.world_transform.position);
+  }
+
+  std::unordered_map<ObjectId, std::vector<ObjectId>> existing_adjacency{};
+  for (const BackboneEdge& edge : existing_network_backbone.edges) {
+    if (edge.node_a == kInvalidObjectId || edge.node_b == kInvalidObjectId || edge.node_a == edge.node_b) {
+      continue;
+    }
+    existing_adjacency[edge.node_a].push_back(edge.node_b);
+    existing_adjacency[edge.node_b].push_back(edge.node_a);
+  }
+  for (auto& [_, neighbors] : existing_adjacency) {
+    std::sort(neighbors.begin(), neighbors.end());
+    neighbors.erase(std::unique(neighbors.begin(), neighbors.end()), neighbors.end());
+  }
+
+  std::unordered_map<ObjectId, const JunctionInfo*> existing_junction_by_node{};
+  existing_junction_by_node.reserve(existing_network_backbone.junctions.size());
+  for (const JunctionInfo& junction : existing_network_backbone.junctions) {
+    existing_junction_by_node[junction.node_id] = &junction;
+  }
+
   std::unordered_map<ObjectId, ObjectId> backbone_primary_neighbors{};
   for (const auto& [node_id, neighbors] : incident_first_order) {
     if (neighbors.size() < 3) {
@@ -874,55 +920,10 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
   std::sort(generation_backbone.nodes.begin(), generation_backbone.nodes.end(),
             [](const SupportNode& a, const SupportNode& b) { return a.node_id < b.node_id; });
 
-  std::unordered_map<ObjectId, Vec3d> existing_node_position_by_id{};
-  existing_node_position_by_id.reserve(existing_network_backbone.nodes.size() + edit_state_access().poles.size());
-  for (const SupportNode& node : existing_network_backbone.nodes) {
-    existing_node_position_by_id[node.node_id] = node.position;
-  }
-  for (const Pole& pole : edit_state_access().poles.items()) {
-    existing_node_position_by_id.try_emplace(pole.id, pole.world_transform.position);
-  }
-
-  std::unordered_map<ObjectId, std::vector<ObjectId>> existing_adjacency{};
-  for (const BackboneEdge& edge : existing_network_backbone.edges) {
-    if (edge.node_a == kInvalidObjectId || edge.node_b == kInvalidObjectId || edge.node_a == edge.node_b) {
-      continue;
-    }
-    existing_adjacency[edge.node_a].push_back(edge.node_b);
-    existing_adjacency[edge.node_b].push_back(edge.node_a);
-  }
-  for (auto& [_, neighbors] : existing_adjacency) {
-    std::sort(neighbors.begin(), neighbors.end());
-    neighbors.erase(std::unique(neighbors.begin(), neighbors.end()), neighbors.end());
-  }
-
-  std::unordered_map<ObjectId, const JunctionInfo*> existing_junction_by_node{};
-  existing_junction_by_node.reserve(existing_network_backbone.junctions.size());
-  for (const JunctionInfo& junction : existing_network_backbone.junctions) {
-    existing_junction_by_node[junction.node_id] = &junction;
-  }
   std::unordered_map<ObjectId, const JunctionInfo*> active_junction_by_node = existing_junction_by_node;
   active_junction_by_node.reserve(existing_junction_by_node.size() + generation_backbone.junctions.size());
   for (const JunctionInfo& junction : generation_backbone.junctions) {
     active_junction_by_node[junction.node_id] = &junction;
-  }
-
-  std::unordered_map<ObjectId, std::vector<ObjectId>> route_neighbors_by_node{};
-  for (std::size_t i = 0; i < ordered_support_node_ids.size(); ++i) {
-    const ObjectId node_id = ordered_support_node_ids[i];
-    std::vector<ObjectId>& neighbors = route_neighbors_by_node[node_id];
-    if (i > 0) {
-      const ObjectId prev = ordered_support_node_ids[i - 1];
-      if (prev != node_id && std::find(neighbors.begin(), neighbors.end(), prev) == neighbors.end()) {
-        neighbors.push_back(prev);
-      }
-    }
-    if (i + 1 < ordered_support_node_ids.size()) {
-      const ObjectId next = ordered_support_node_ids[i + 1];
-      if (next != node_id && std::find(neighbors.begin(), neighbors.end(), next) == neighbors.end()) {
-        neighbors.push_back(next);
-      }
-    }
   }
 
   auto current_support_position = [&](ObjectId node_id) -> Vec3d {
@@ -985,6 +986,65 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     return neighbors;
   };
 
+  struct BundleCategoryTieBreakKey {
+    int category_rank = std::numeric_limits<int>::max();
+    int bundle_rank = std::numeric_limits<int>::max();
+  };
+  auto bundle_category_key_tuple = [](const BundleCategoryTieBreakKey& key) {
+    return std::tuple<int, int>{key.category_rank, key.bundle_rank};
+  };
+  auto better_bundle_category_key = [&](const BundleCategoryTieBreakKey& lhs, const BundleCategoryTieBreakKey& rhs) {
+    return bundle_category_key_tuple(lhs) < bundle_category_key_tuple(rhs);
+  };
+  auto edge_key_for_neighbors = [&](ObjectId node_a, ObjectId node_b) {
+    const std::uint64_t lo = static_cast<std::uint64_t>(std::min(node_a, node_b));
+    const std::uint64_t hi = static_cast<std::uint64_t>(std::max(node_a, node_b));
+    return hash_combine(lo, hi);
+  };
+  BundleCategoryTieBreakKey route_bundle_category_key{};
+  for (const BundlePlan& plan : active_bundle_plans) {
+    const BundleCategoryTieBreakKey candidate_key{
+        static_cast<int>(plan.category), static_cast<int>(plan.template_id)};
+    if (better_bundle_category_key(candidate_key, route_bundle_category_key)) {
+      route_bundle_category_key = candidate_key;
+    }
+  }
+  std::unordered_map<std::uint64_t, BundleCategoryTieBreakKey> bundle_category_key_by_edge{};
+  for (const Span& span : edit_state_access().spans.items()) {
+    const Port* port_a = edit_state_access().ports.find(span.port_a_id);
+    const Port* port_b = edit_state_access().ports.find(span.port_b_id);
+    const Bundle* bundle = edit_state_access().bundles.find(span.bundle_id);
+    if (port_a == nullptr || port_b == nullptr || bundle == nullptr) {
+      continue;
+    }
+    if (port_a->owner_pole_id == kInvalidObjectId || port_b->owner_pole_id == kInvalidObjectId ||
+        port_a->owner_pole_id == port_b->owner_pole_id) {
+      continue;
+    }
+    const BundleTemplate* bundle_template = find_bundle_template(bundle->bundle_template_id);
+    if (bundle_template == nullptr) {
+      continue;
+    }
+    const BundleCategoryTieBreakKey candidate_key{
+        static_cast<int>(bundle_template->category), static_cast<int>(bundle->bundle_template_id)};
+    BundleCategoryTieBreakKey& current_key =
+        bundle_category_key_by_edge[edge_key_for_neighbors(port_a->owner_pole_id, port_b->owner_pole_id)];
+    if (better_bundle_category_key(candidate_key, current_key)) {
+      current_key = candidate_key;
+    }
+  }
+  auto bundle_category_key_for_neighbor = [&](ObjectId node_id, ObjectId neighbor_id, bool is_route_neighbor) {
+    BundleCategoryTieBreakKey key{};
+    const auto it = bundle_category_key_by_edge.find(edge_key_for_neighbors(node_id, neighbor_id));
+    if (it != bundle_category_key_by_edge.end()) {
+      key = it->second;
+    }
+    if (is_route_neighbor && better_bundle_category_key(route_bundle_category_key, key)) {
+      key = route_bundle_category_key;
+    }
+    return key;
+  };
+
   auto existing_continuation_neighbors_for_orientation = [&](ObjectId node_id) {
     std::vector<ObjectId> neighbors{};
     if (const auto it = active_junction_by_node.find(node_id); it != active_junction_by_node.end()) {
@@ -1029,6 +1089,41 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     }
     return neighbors;
   };
+  auto existing_continuation_neighbors_for_order = [&](ObjectId node_id) {
+    std::vector<ObjectId> neighbors{};
+    if (const auto it = existing_junction_by_node.find(node_id); it != existing_junction_by_node.end()) {
+      const JunctionInfo* junction = it->second;
+      if (junction != nullptr && junction->incidents.size() >= 2) {
+        const JunctionIncident* primary_incident = nullptr;
+        const JunctionIncident* continuation_incident = nullptr;
+        for (const JunctionIncident& incident : junction->incidents) {
+          if ((incident.primary || incident.order == 0) &&
+              (primary_incident == nullptr ||
+               (incident.primary && !primary_incident->primary) ||
+               (incident.order >= 0 && (primary_incident->order < 0 || incident.order < primary_incident->order)))) {
+            primary_incident = &incident;
+          }
+          if (incident.order == 1 &&
+              (continuation_incident == nullptr || incident.neighbor_node_id < continuation_incident->neighbor_node_id)) {
+            continuation_incident = &incident;
+          }
+        }
+        const bool has_continuation_pair =
+            primary_incident != nullptr && continuation_incident != nullptr &&
+            primary_incident->neighbor_node_id != continuation_incident->neighbor_node_id &&
+            (junction->used_neighbor_continuity || junction->incidents.size() == 2);
+        if (has_continuation_pair) {
+          neighbors.push_back(primary_incident->neighbor_node_id);
+          neighbors.push_back(continuation_incident->neighbor_node_id);
+          return neighbors;
+        }
+      }
+    }
+    if (const auto it = existing_adjacency.find(node_id); it != existing_adjacency.end() && it->second.size() == 2) {
+      return it->second;
+    }
+    return neighbors;
+  };
   auto existing_primary_neighbor_for_orientation = [&](ObjectId node_id) -> ObjectId {
     if (const auto it = active_junction_by_node.find(node_id); it != active_junction_by_node.end()) {
       const JunctionInfo* junction = it->second;
@@ -1053,6 +1148,28 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       }
     }
     return kInvalidObjectId;
+  };
+  auto existing_primary_neighbor_for_order = [&](ObjectId node_id) -> ObjectId {
+    if (const auto it = existing_junction_by_node.find(node_id); it != existing_junction_by_node.end()) {
+      const JunctionInfo* junction = it->second;
+      if (junction != nullptr) {
+        for (const JunctionIncident& incident : junction->incidents) {
+          if (incident.primary || incident.order == 0) {
+            return incident.neighbor_node_id;
+          }
+        }
+      }
+    }
+    const auto it_route = route_neighbors_by_node.find(node_id);
+    const std::size_t route_degree = (it_route == route_neighbors_by_node.end()) ? 0 : it_route->second.size();
+    if (route_degree <= 1) {
+      if (const auto it = existing_adjacency.find(node_id); it != existing_adjacency.end() && it->second.size() == 1) {
+        return it->second.front();
+      }
+    }
+    const auto it_existing_primary = existing_primary_neighbor_by_node.find(node_id);
+    return (it_existing_primary == existing_primary_neighbor_by_node.end()) ? kInvalidObjectId
+                                                                            : it_existing_primary->second;
   };
   auto preferred_straight_main_pair_for_orientation = [&](ObjectId node_id) -> std::pair<ObjectId, ObjectId> {
     const auto it_route = route_neighbors_by_node.find(node_id);
@@ -1163,11 +1280,11 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
 
       const double existing_score = pair_straightness_score(stable_existing_pair[0], stable_existing_pair[1]);
       const bool existing_pair_is_straight = existing_score + 1e-9 >= kPreferredPairStraightnessThreshold;
-      const bool existing_pair_is_route_disjoint =
-          route_degree == 2 &&
-          std::find(route_neighbors.begin(), route_neighbors.end(), stable_existing_pair[0]) == route_neighbors.end() &&
-          std::find(route_neighbors.begin(), route_neighbors.end(), stable_existing_pair[1]) == route_neighbors.end();
-      if (combined_neighbors.size() >= 4 && existing_pair_is_straight && existing_pair_is_route_disjoint) {
+      if (const bool existing_pair_is_route_disjoint =
+              route_degree == 2 &&
+              std::ranges::find(route_neighbors, stable_existing_pair[0]) == route_neighbors.end() &&
+              std::ranges::find(route_neighbors, stable_existing_pair[1]) == route_neighbors.end();
+          combined_neighbors.size() >= 4 && existing_pair_is_straight && existing_pair_is_route_disjoint) {
         const double route_score = pair_straightness_score(route_neighbors[0], route_neighbors[1]);
         const bool route_pair_is_straight = route_score + 1e-9 >= kPreferredPairStraightnessThreshold;
         if (route_pair_is_straight) {
@@ -1592,14 +1709,38 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       ObjectId neighbor_id = kInvalidObjectId;
       Vec3d dir{};
       bool is_route_neighbor = false;
-      bool semantic_primary = false;
+      bool preserves_existing_continuity = false;
+      bool continuity_primary = false;
       int order = std::numeric_limits<int>::max();
+      std::uint64_t source_session_id = std::numeric_limits<std::uint64_t>::max();
+      BundleCategoryTieBreakKey bundle_category_key{};
     };
 
     std::vector<Candidate> candidates{};
     candidates.reserve(combined_neighbors.size());
     const Vec3d center = current_support_position(node_id);
-    const ObjectId semantic_primary_neighbor = existing_primary_neighbor_for_orientation(node_id);
+    const std::vector<ObjectId> existing_continuity_neighbors =
+        existing_continuation_neighbors_for_order(node_id);
+    const bool has_existing_continuity_pair =
+        existing_continuity_neighbors.size() >= 2 &&
+        existing_continuity_neighbors[0] != existing_continuity_neighbors[1];
+    auto pair_straightness_score = [&](ObjectId neighbor_a_id, ObjectId neighbor_b_id) {
+      const Vec3d axis_a = normalize_forward_xy(current_support_position(neighbor_a_id) - center);
+      const Vec3d axis_b = normalize_forward_xy(current_support_position(neighbor_b_id) - center);
+      if (!std::isfinite(axis_a.x) || !std::isfinite(axis_a.y) || !std::isfinite(axis_b.x) ||
+          !std::isfinite(axis_b.y)) {
+        return -2.0;
+      }
+      return dot(axis_a, Vec3d{-axis_b.x, -axis_b.y, -axis_b.z});
+    };
+    const double existing_continuity_score =
+        has_existing_continuity_pair
+            ? pair_straightness_score(existing_continuity_neighbors[0], existing_continuity_neighbors[1])
+            : -2.0;
+    const bool preserve_existing_continuity =
+        has_existing_continuity_pair &&
+        existing_continuity_score + 1e-9 >= kThroughPairStraightnessThreshold;
+    const ObjectId continuity_primary_neighbor = existing_primary_neighbor_for_order(node_id);
     for (ObjectId neighbor_id : combined_neighbors) {
       const Vec3d dir = normalize_forward_xy(current_support_position(neighbor_id) - center);
       if (!std::isfinite(dir.x) || !std::isfinite(dir.y)) {
@@ -1610,12 +1751,20 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       candidate.dir = dir;
       candidate.is_route_neighbor =
           std::find(route_neighbors.begin(), route_neighbors.end(), neighbor_id) != route_neighbors.end();
-      candidate.semantic_primary = (neighbor_id == semantic_primary_neighbor);
+      candidate.continuity_primary = (neighbor_id == continuity_primary_neighbor);
+      candidate.preserves_existing_continuity =
+          preserve_existing_continuity &&
+          std::find(existing_continuity_neighbors.begin(), existing_continuity_neighbors.end(), neighbor_id) !=
+              existing_continuity_neighbors.end();
+      candidate.bundle_category_key =
+          bundle_category_key_for_neighbor(node_id, neighbor_id, candidate.is_route_neighbor);
       if (junction != nullptr) {
         for (const JunctionIncident& incident : junction->incidents) {
           if (incident.neighbor_node_id == neighbor_id) {
             candidate.order = (incident.order >= 0) ? incident.order : candidate.order;
-            candidate.semantic_primary = candidate.semantic_primary || incident.primary || incident.order == 0;
+            candidate.source_session_id = incident.source_session_id;
+            candidate.continuity_primary =
+                candidate.continuity_primary || incident.primary || incident.order == 0;
             break;
           }
         }
@@ -1670,59 +1819,74 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     double best_score = -2.0;
     int best_i = -1;
     int best_j = -1;
-    bool best_used_semantic_tiebreak = false;
-    auto semantic_rank = [](const Candidate& candidate) {
-      return std::tuple<int, int, ObjectId>{candidate.semantic_primary ? 0 : 1, candidate.order, candidate.neighbor_id};
+    bool best_used_priority_tiebreak = false;
+    auto candidate_stable_key = [](const Candidate& candidate) {
+      return std::tuple<int, std::uint64_t, ObjectId>{
+          candidate.order, candidate.source_session_id, candidate.neighbor_id};
+    };
+    auto pair_matches_existing_continuity = [&](const Candidate& a, const Candidate& b) {
+      if (!preserve_existing_continuity) {
+        return false;
+      }
+      return a.preserves_existing_continuity && b.preserves_existing_continuity;
+    };
+    auto pair_bundle_category_key = [&](const Candidate& a, const Candidate& b) {
+      const auto key_a = bundle_category_key_tuple(a.bundle_category_key);
+      const auto key_b = bundle_category_key_tuple(b.bundle_category_key);
+      return (key_b < key_a) ? std::tuple{key_b, key_a} : std::tuple{key_a, key_b};
+    };
+    auto pair_stable_key = [&](const Candidate& a, const Candidate& b) {
+      const auto key_a = candidate_stable_key(a);
+      const auto key_b = candidate_stable_key(b);
+      return (key_b < key_a) ? std::tuple{key_b, key_a} : std::tuple{key_a, key_b};
     };
     for (std::size_t i = 0; i < candidates.size(); ++i) {
       for (std::size_t j = i + 1; j < candidates.size(); ++j) {
         const double straight_score =
             dot(candidates[i].dir, Vec3d{-candidates[j].dir.x, -candidates[j].dir.y, -candidates[j].dir.z});
-        const bool better_score = straight_score > best_score + 1e-9;
-        const bool equal_score = std::abs(straight_score - best_score) <= 1e-9;
-        const auto current_rank =
-            std::tuple{semantic_rank(candidates[i]), semantic_rank(candidates[j])};
-        const auto best_rank =
-            (best_i < 0 || best_j < 0)
-                ? std::tuple{semantic_rank(Candidate{}), semantic_rank(Candidate{})}
-                : std::tuple{semantic_rank(candidates[static_cast<std::size_t>(best_i)]),
-                             semantic_rank(candidates[static_cast<std::size_t>(best_j)])};
-        const bool better_semantic = equal_score && current_rank < best_rank;
-        if (!(better_score || better_semantic)) {
+        const bool current_preserves_existing =
+            pair_matches_existing_continuity(candidates[i], candidates[j]);
+        const bool best_preserves_existing =
+            (best_i >= 0 && best_j >= 0) &&
+            pair_matches_existing_continuity(candidates[static_cast<std::size_t>(best_i)],
+                                             candidates[static_cast<std::size_t>(best_j)]);
+        bool choose_current = false;
+        bool used_priority_tiebreak = false;
+        if (best_i < 0 || best_j < 0) {
+          choose_current = true;
+        } else if (current_preserves_existing != best_preserves_existing) {
+          choose_current = current_preserves_existing;
+          used_priority_tiebreak = true;
+        } else if (straight_score > best_score + 1e-9) {
+          choose_current = true;
+        } else if (std::abs(straight_score - best_score) <= 1e-9) {
+          const auto current_bundle_key =
+              pair_bundle_category_key(candidates[i], candidates[j]);
+          const auto best_bundle_key =
+              pair_bundle_category_key(candidates[static_cast<std::size_t>(best_i)],
+                                       candidates[static_cast<std::size_t>(best_j)]);
+          if (current_bundle_key != best_bundle_key) {
+            choose_current = current_bundle_key < best_bundle_key;
+            used_priority_tiebreak = true;
+          } else {
+            const auto current_stable_key =
+                pair_stable_key(candidates[i], candidates[j]);
+            const auto best_stable_key =
+                pair_stable_key(candidates[static_cast<std::size_t>(best_i)],
+                                candidates[static_cast<std::size_t>(best_j)]);
+            if (current_stable_key < best_stable_key) {
+              choose_current = true;
+              used_priority_tiebreak = true;
+            }
+          }
+        }
+        if (!choose_current) {
           continue;
         }
         best_score = straight_score;
         best_i = static_cast<int>(i);
         best_j = static_cast<int>(j);
-        best_used_semantic_tiebreak = !better_score && better_semantic;
-      }
-    }
-
-    const auto preferred_pair = preferred_straight_main_pair_for_orientation(node_id);
-    if (preferred_pair.first != kInvalidObjectId && preferred_pair.second != kInvalidObjectId &&
-        preferred_pair.first != preferred_pair.second) {
-      auto candidate_index_for = [&](ObjectId neighbor_id) -> int {
-        for (std::size_t i = 0; i < candidates.size(); ++i) {
-          if (candidates[i].neighbor_id == neighbor_id) {
-            return static_cast<int>(i);
-          }
-        }
-        return -1;
-      };
-      const int preferred_i = candidate_index_for(preferred_pair.first);
-      const int preferred_j = candidate_index_for(preferred_pair.second);
-      if (preferred_i >= 0 && preferred_j >= 0 && preferred_i != preferred_j) {
-        const double preferred_score =
-            dot(candidates[static_cast<std::size_t>(preferred_i)].dir,
-                Vec3d{-candidates[static_cast<std::size_t>(preferred_j)].dir.x,
-                      -candidates[static_cast<std::size_t>(preferred_j)].dir.y,
-                      -candidates[static_cast<std::size_t>(preferred_j)].dir.z});
-        if (!(best_score > preferred_score + 1e-6)) {
-          best_score = preferred_score;
-          best_i = preferred_i;
-          best_j = preferred_j;
-          best_used_semantic_tiebreak = true;
-        }
+        best_used_priority_tiebreak = used_priority_tiebreak;
       }
     }
 
@@ -1750,7 +1914,7 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     relation.through_pair.neighbor_a_id = candidates[static_cast<std::size_t>(best_i)].neighbor_id;
     relation.through_pair.neighbor_b_id = candidates[static_cast<std::size_t>(best_j)].neighbor_id;
     relation.through_pair.accepted = true;
-    relation.through_pair.used_semantic_tiebreak = best_used_semantic_tiebreak;
+    relation.through_pair.used_semantic_tiebreak = best_used_priority_tiebreak;
 
     auto in_through_pair = [&](ObjectId neighbor_id) {
       return neighbor_id == relation.through_pair.neighbor_a_id || neighbor_id == relation.through_pair.neighbor_b_id;
@@ -1766,6 +1930,42 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       } else if (incident.in_route) {
         incident.kind = JunctionRelationKind::kSideBranch;
       }
+    }
+    auto candidate_for_neighbor = [&](ObjectId neighbor_id) -> const Candidate* {
+      for (const Candidate& candidate : candidates) {
+        if (candidate.neighbor_id == neighbor_id) {
+          return &candidate;
+        }
+      }
+      return nullptr;
+    };
+    auto incident_order_key = [&](const JunctionIncidentRelation& incident) {
+      const Candidate* candidate = candidate_for_neighbor(incident.neighbor_node_id);
+      const bool preserves_existing = (candidate != nullptr) ? candidate->preserves_existing_continuity : false;
+      const bool continuity_primary = (candidate != nullptr) ? candidate->continuity_primary : false;
+      const auto bundle_key =
+          (candidate != nullptr) ? bundle_category_key_tuple(candidate->bundle_category_key)
+                                 : std::tuple<int, int>{std::numeric_limits<int>::max(), std::numeric_limits<int>::max()};
+      const auto stable_key = (candidate != nullptr)
+                                  ? candidate_stable_key(*candidate)
+                                  : std::tuple<int, std::uint64_t, ObjectId>{
+                                        std::numeric_limits<int>::max(),
+                                        std::numeric_limits<std::uint64_t>::max(),
+                                        incident.neighbor_node_id};
+      return std::tuple<int, int, int, decltype(bundle_key), decltype(stable_key)>{
+          preserves_existing ? 0 : 1,
+          incident.in_through_pair ? 0 : 1,
+          continuity_primary ? 0 : 1,
+          bundle_key,
+          stable_key};
+    };
+    std::sort(relation.incidents.begin(), relation.incidents.end(),
+              [&](const JunctionIncidentRelation& lhs, const JunctionIncidentRelation& rhs) {
+                return incident_order_key(lhs) < incident_order_key(rhs);
+              });
+    if (relation.through_pair.accepted && relation.incidents.size() >= 2) {
+      relation.through_pair.neighbor_a_id = relation.incidents[0].neighbor_node_id;
+      relation.through_pair.neighbor_b_id = relation.incidents[1].neighbor_node_id;
     }
     return relation;
   };
@@ -1953,6 +2153,63 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     path_junction_relations_by_node[node_id] = relation;
     path_junction_relations.push_back(std::move(relation));
   }
+  generation_backbone.junctions.clear();
+  generation_backbone.junctions.reserve(path_junction_relations_by_node.size());
+  std::unordered_set<ObjectId> rebuilt_junction_nodes{};
+  for (ObjectId node_id : ordered_support_node_ids) {
+    if (!rebuilt_junction_nodes.insert(node_id).second) {
+      continue;
+    }
+    const auto it_relation = path_junction_relations_by_node.find(node_id);
+    if (it_relation == path_junction_relations_by_node.end()) {
+      continue;
+    }
+    const JunctionRelation& relation = it_relation->second;
+    if (relation.incidents.size() < 3) {
+      continue;
+    }
+    JunctionInfo junction{};
+    junction.node_id = node_id;
+    if (const auto it_existing_prioritized = existing_prioritized_session_by_node.find(node_id);
+        it_existing_prioritized != existing_prioritized_session_by_node.end()) {
+      junction.prioritized_session_id = it_existing_prioritized->second;
+    } else {
+      junction.prioritized_session_id = session_id;
+    }
+    junction.used_neighbor_continuity =
+        relation.through_pair.accepted &&
+        std::any_of(relation.incidents.begin(), relation.incidents.end(), [](const JunctionIncidentRelation& incident) {
+          return incident.in_through_pair && !incident.in_route;
+        });
+    junction.incidents.reserve(relation.incidents.size());
+    for (std::size_t index = 0; index < relation.incidents.size(); ++index) {
+      const JunctionIncidentRelation& source = relation.incidents[index];
+      JunctionIncident incident{};
+      incident.neighbor_node_id = source.neighbor_node_id;
+      incident.order = static_cast<int>(index);
+      incident.primary = (index == 0);
+      incident.source_session_id = session_id;
+      if (const auto it_existing_node = existing_incident_session_by_node.find(node_id);
+          it_existing_node != existing_incident_session_by_node.end()) {
+        if (const auto it_existing_source = it_existing_node->second.find(source.neighbor_node_id);
+            it_existing_source != it_existing_node->second.end()) {
+          incident.source_session_id = it_existing_source->second;
+        }
+      }
+      junction.incidents.push_back(incident);
+    }
+    generation_backbone.junctions.push_back(std::move(junction));
+  }
+  std::sort(generation_backbone.junctions.begin(), generation_backbone.junctions.end(),
+            [](const JunctionInfo& a, const JunctionInfo& b) { return a.node_id < b.node_id; });
+  active_junction_by_node.clear();
+  active_junction_by_node.reserve(existing_junction_by_node.size() + generation_backbone.junctions.size());
+  for (const auto& [node_id, junction] : existing_junction_by_node) {
+    active_junction_by_node[node_id] = junction;
+  }
+  for (const JunctionInfo& junction : generation_backbone.junctions) {
+    active_junction_by_node[junction.node_id] = &junction;
+  }
   auto path_relation_kind_at = [&](std::size_t node_index) {
     if (node_index >= ordered_support_node_ids.size()) {
       return JunctionRelationKind::kNone;
@@ -2112,7 +2369,7 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
           enable_uniform_lowering ? generation::detail::BranchDownOffsetForCategory(plan.category) : 0.0;
       EditResult<std::vector<ObjectId>> spans_result = generate_grouped_spans_between_support_nodes(
           local_support_nodes, support_node_by_id, bundle_id, plan.category, plan.count, plan.spacing_m, true,
-          plan.allow_mirror, plan.bundle_order_policy, flow_info.kind, lowering_policy, &plan_junction_relations_by_node,
+          plan.allow_mirror, plan.order_decision_policy, flow_info.kind, lowering_policy, &plan_junction_relations_by_node,
           &lane_assignments,
           &edge_orientations, plan.template_id);
       if (!spans_result.ok) {
@@ -2200,3 +2457,5 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
 
 
 } // namespace wire::core
+
+

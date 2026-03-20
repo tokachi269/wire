@@ -312,9 +312,9 @@ ValidationResult CoreState::Validate() const {
     }
     if (!std::isfinite(bundle_template.grouped_support_fanout_spacing_m) ||
         bundle_template.grouped_support_fanout_spacing_m < 0.0) {
-      result.issues.push_back({ValidationSeverity::kError, "BundleTemplateGroupedSupportFanoutInvalid",
-                               "BundleTemplate grouped support fanout spacing must be finite and >= 0",
-                               kInvalidObjectId});
+      result.issues.emplace_back(ValidationIssue{ValidationSeverity::kError, "BundleTemplateGroupedSupportFanoutInvalid",
+                                                 "BundleTemplate grouped support fanout spacing must be finite and >= 0",
+                                                 kInvalidObjectId});
     }
   }
 
@@ -322,9 +322,9 @@ ValidationResult CoreState::Validate() const {
     (void)cable_template_id;
     if (!std::isfinite(cable_template.default_grouped_support_fanout_spacing_m) ||
         cable_template.default_grouped_support_fanout_spacing_m < 0.0) {
-      result.issues.push_back({ValidationSeverity::kError, "CableTemplateGroupedSupportFanoutInvalid",
-                               "CableTemplate grouped support default fanout spacing must be finite and >= 0",
-                               kInvalidObjectId});
+      result.issues.emplace_back(ValidationIssue{ValidationSeverity::kError, "CableTemplateGroupedSupportFanoutInvalid",
+                                                 "CableTemplate grouped support default fanout spacing must be finite and >= 0",
+                                                 kInvalidObjectId});
     }
   }
 
@@ -712,8 +712,7 @@ ValidationResult CoreState::Validate() const {
     Vec3d support_axis = group.tip_world - group.mount_world;
     support_axis.z = 0.0;
     if (Normalize(&support_axis) && IsFiniteXY(support_axis)) {
-      const Vec3d authoritative_axis =
-          CanonicalSharedSupportAxis(AuthoritativeSupportAxisForGroup(group, support_axis), support_axis);
+      const Vec3d authoritative_axis = AuthoritativeSupportAxisForGroup(group, support_axis);
       const double alignment = support_axis.x * authoritative_axis.x + support_axis.y * authoritative_axis.y;
       if (alignment < 1.0 - 1e-6) {
         result.issues.push_back({ValidationSeverity::kError, "SupportGroupAxisReinterpreted",

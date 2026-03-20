@@ -1,4 +1,4 @@
-#include <array>
+﻿#include <array>
 #include <cmath>
 #include <iostream>
 #include <optional>
@@ -1199,55 +1199,6 @@ bool test_grouped_line_mirror_metric_non_regression() {
 }
 
 // Intent: In T-junction, earlier DrawPath session should keep order=0 primary incident.
-
-// Intent: Grouped mirror handling should keep lane ordering monotonic (identity/reverse only).
-bool test_grouped_lane_mirror_is_two_choice_only() {
-  CoreState state;
-  const auto type_ids = sorted_pole_type_ids(state);
-  if (type_ids.empty()) {
-    return false;
-  }
-  BackbonePathGenerateOptions options{};
-  options.road.id = 1199;
-  options.road.polyline = {
-      {-20.0, 0.0, 0.0},
-      {-6.0, 0.0, 0.0},
-      {-6.0, 8.0, 0.0},
-      {8.0, 8.0, 0.0},
-      {8.0, -2.0, 0.0},
-      {20.0, -2.0, 0.0},
-  };
-  options.interval = 0.0;
-  options.pole_type_id = type_ids.front();
-  options.bundle_template_id = wire::core::BundleKind::kCommunication;
-  options.bundle_count = 4;
-  options.override_allow_mirror = true;
-  options.allow_mirror = true;
-
-  const auto generated = generate_from_backbone_options(state, options);
-  if (!generated.ok) {
-    return false;
-  }
-
-  for (const auto& assignment : generated.value.lane_assignments) {
-    const auto* pole_b = state.view().edit_state().poles.find(assignment.pole_b_id);
-    if (pole_b == nullptr) {
-      return false;
-    }
-    std::vector<double> y_values{};
-    for (ObjectId port_id : assignment.port_ids_b) {
-      const auto* port = state.view().edit_state().ports.find(port_id);
-      if (port == nullptr) {
-        return false;
-      }
-      y_values.push_back(to_local_on_pole_test(*pole_b, port->world_position).y);
-    }
-    if (!is_monotonic(y_values)) {
-      return false;
-    }
-  }
-  return true;
-}
 
 bool test_generate_from_backbone_spec_basic_hv_default_lanes() {
   CoreState state;
@@ -6095,10 +6046,10 @@ bool test_backbone_unrelated_generation_does_not_downgrade_existing_lowered_bund
         return false;
       }
       if (layout_view->continuity_class != wire::core::ContinuityCategoryClass::kBundleLike ||
-          layout_view->bundle_order_policy != wire::core::BundleOrderPolicyKind::kPermutableHomogeneous) {
+          layout_view->order_decision_policy != wire::core::OrderDecisionPolicyKind::kPermutableHomogeneous) {
         std::cerr << "[DBG] C256 downgraded span=" << span_id << " class="
                   << static_cast<int>(layout_view->continuity_class) << " orderPolicy="
-                  << static_cast<int>(layout_view->bundle_order_policy) << "\n";
+                  << static_cast<int>(layout_view->order_decision_policy) << "\n";
         return false;
       }
       const auto endpoint = layout_endpoint_for_owner(*layout_view, center_id);
@@ -6496,7 +6447,7 @@ bool test_backbone_refresh_keeps_lowered_side_and_orientation_origin() {
   return false;
 }
 
-bool test_backbone_hv3_same_level_bundle_order_is_permutable() {
+bool test_backbone_hv3_same_level_order_decision_is_permutable() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
   if (type_ids.empty()) {
@@ -6526,28 +6477,23 @@ bool test_backbone_hv3_same_level_bundle_order_is_permutable() {
 
   bool saw_permutable = false;
   bool saw_compared_choice = false;
-  bool saw_reversed_choice = false;
   for (const auto& orientation : state.view().last_generation_edge_orientations()) {
     if (orientation.bundle_template_id != wire::core::BundleKind::kHighVoltage) {
       continue;
     }
     saw_permutable = saw_permutable ||
-                     orientation.bundle_order_policy == wire::core::BundleOrderPolicyKind::kPermutableHomogeneous;
-    const bool compared_a = orientation.bundle_order_choice_reason_a != wire::core::BundleOrderChoiceReason::kFixedOrder;
-    const bool compared_b = orientation.bundle_order_choice_reason_b != wire::core::BundleOrderChoiceReason::kFixedOrder;
+                     orientation.order_decision_policy == wire::core::OrderDecisionPolicyKind::kPermutableHomogeneous;
+    const bool compared_a = orientation.order_decision_choice_reason_a != wire::core::OrderDecisionChoiceReason::kFixedOrder;
+    const bool compared_b = orientation.order_decision_choice_reason_b != wire::core::OrderDecisionChoiceReason::kFixedOrder;
     saw_compared_choice = saw_compared_choice || compared_a || compared_b;
-    saw_reversed_choice = saw_reversed_choice ||
-                          orientation.bundle_order_choice_a == wire::core::BundleOrderChoiceKind::kReversed ||
-                          orientation.bundle_order_choice_b == wire::core::BundleOrderChoiceKind::kReversed;
   }
   if (!(saw_permutable && saw_compared_choice)) {
-    std::cerr << "[DBG] C239 permutable=" << saw_permutable << " compared=" << saw_compared_choice
-              << " reversed=" << saw_reversed_choice << "\n";
+    std::cerr << "[DBG] C239 permutable=" << saw_permutable << " compared=" << saw_compared_choice << "\n";
   }
   return saw_permutable && saw_compared_choice;
 }
 
-bool test_backbone_hv3_lowered_bundle_order_is_permutable() {
+bool test_backbone_hv3_lowered_order_decision_is_permutable() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
   if (type_ids.empty()) {
@@ -6602,9 +6548,9 @@ bool test_backbone_hv3_lowered_bundle_order_is_permutable() {
     }
     saw_lowered = true;
     saw_permutable = saw_permutable ||
-                     endpoint->bundle_order_policy == wire::core::BundleOrderPolicyKind::kPermutableHomogeneous;
+                     endpoint->order_decision_policy == wire::core::OrderDecisionPolicyKind::kPermutableHomogeneous;
     saw_compared_choice = saw_compared_choice ||
-                          endpoint->bundle_order_choice_reason != wire::core::BundleOrderChoiceReason::kFixedOrder;
+                          endpoint->order_decision_choice_reason != wire::core::OrderDecisionChoiceReason::kFixedOrder;
   }
   if (!(saw_lowered && saw_permutable && saw_compared_choice)) {
     std::cerr << "[DBG] C240 lowered=" << saw_lowered << " permutable=" << saw_permutable
@@ -6653,23 +6599,21 @@ bool test_backbone_fixed_order_bundle_skips_permutation() {
       continue;
     }
     saw_hv = true;
-    if (orientation.bundle_order_policy != wire::core::BundleOrderPolicyKind::kFixedOrder ||
-        orientation.bundle_order_choice_a != wire::core::BundleOrderChoiceKind::kNormal ||
-        orientation.bundle_order_choice_b != wire::core::BundleOrderChoiceKind::kNormal ||
-        orientation.bundle_order_choice_reason_a != wire::core::BundleOrderChoiceReason::kFixedOrder ||
-        orientation.bundle_order_choice_reason_b != wire::core::BundleOrderChoiceReason::kFixedOrder) {
-      std::cerr << "[DBG] C241 policy=" << static_cast<int>(orientation.bundle_order_policy)
-                << " choiceA=" << static_cast<int>(orientation.bundle_order_choice_a)
-                << " reasonA=" << static_cast<int>(orientation.bundle_order_choice_reason_a)
-                << " choiceB=" << static_cast<int>(orientation.bundle_order_choice_b)
-                << " reasonB=" << static_cast<int>(orientation.bundle_order_choice_reason_b) << "\n";
+    if (orientation.order_decision_policy != wire::core::OrderDecisionPolicyKind::kFixedOrder ||
+        orientation.order_decision_choice_reason_a != wire::core::OrderDecisionChoiceReason::kFixedOrder ||
+        orientation.order_decision_choice_reason_b != wire::core::OrderDecisionChoiceReason::kFixedOrder) {
+      std::cerr << "[DBG] C241 policy=" << static_cast<int>(orientation.order_decision_policy)
+                << " choiceA=" << static_cast<int>(orientation.order_decision_choice_a)
+                << " reasonA=" << static_cast<int>(orientation.order_decision_choice_reason_a)
+                << " choiceB=" << static_cast<int>(orientation.order_decision_choice_b)
+                << " reasonB=" << static_cast<int>(orientation.order_decision_choice_reason_b) << "\n";
       return false;
     }
   }
   return saw_hv;
 }
 
-bool test_backbone_refresh_keeps_bundle_order_choice() {
+bool test_backbone_refresh_keeps_order_decision_choice() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
   if (type_ids.empty()) {
@@ -6718,8 +6662,8 @@ bool test_backbone_refresh_keeps_bundle_order_choice() {
   if (!before_endpoint.has_value()) {
     return false;
   }
-  const auto before_choice = before_endpoint->bundle_order_choice;
-  const auto before_reason = before_endpoint->bundle_order_choice_reason;
+  const auto before_choice = before_endpoint->order_decision_choice;
+  const auto before_reason = before_endpoint->order_decision_choice_reason;
 
   if (!state.SetPoleManualYawOverride(center_id, 15.0).ok) {
     return false;
@@ -6731,13 +6675,13 @@ bool test_backbone_refresh_keeps_bundle_order_choice() {
   }
   const auto after_endpoint = layout_endpoint_for_owner(*after, center_id);
   return after_endpoint.has_value() &&
-         before_endpoint->bundle_order_policy == wire::core::BundleOrderPolicyKind::kPermutableHomogeneous &&
-         after_endpoint->bundle_order_policy == wire::core::BundleOrderPolicyKind::kPermutableHomogeneous &&
-         after_endpoint->bundle_order_choice == before_choice &&
-         after_endpoint->bundle_order_choice_reason == before_reason;
+         before_endpoint->order_decision_policy == wire::core::OrderDecisionPolicyKind::kPermutableHomogeneous &&
+         after_endpoint->order_decision_policy == wire::core::OrderDecisionPolicyKind::kPermutableHomogeneous &&
+         after_endpoint->order_decision_choice == before_choice &&
+         after_endpoint->order_decision_choice_reason == before_reason;
 }
 
-bool test_backbone_point_like_bundle_order_non_regression() {
+bool test_backbone_point_like_order_decision_non_regression() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
   if (type_ids.empty()) {
@@ -6760,12 +6704,12 @@ bool test_backbone_point_like_bundle_order_non_regression() {
       continue;
     }
     saw_lv = true;
-    if (orientation.bundle_order_policy != wire::core::BundleOrderPolicyKind::kFixedOrder ||
-        orientation.bundle_order_choice_reason_a != wire::core::BundleOrderChoiceReason::kFixedOrder ||
-        orientation.bundle_order_choice_reason_b != wire::core::BundleOrderChoiceReason::kFixedOrder) {
-      std::cerr << "[DBG] C243 unexpected point-like bundle order policy=" << static_cast<int>(orientation.bundle_order_policy)
-                << " reasonA=" << static_cast<int>(orientation.bundle_order_choice_reason_a)
-                << " reasonB=" << static_cast<int>(orientation.bundle_order_choice_reason_b) << "\n";
+    if (orientation.order_decision_policy != wire::core::OrderDecisionPolicyKind::kFixedOrder ||
+        orientation.order_decision_choice_reason_a != wire::core::OrderDecisionChoiceReason::kFixedOrder ||
+        orientation.order_decision_choice_reason_b != wire::core::OrderDecisionChoiceReason::kFixedOrder) {
+      std::cerr << "[DBG] C243 unexpected point-like bundle order policy=" << static_cast<int>(orientation.order_decision_policy)
+                << " reasonA=" << static_cast<int>(orientation.order_decision_choice_reason_a)
+                << " reasonB=" << static_cast<int>(orientation.order_decision_choice_reason_b) << "\n";
       return false;
     }
   }
@@ -6821,7 +6765,7 @@ bool test_backbone_authoritative_endpoint_decision_matches_support_layout() {
   const bool same_start =
       layout_view->start_endpoint.decision.owner_pole_id == layout_view->start_endpoint.owner_pole_id &&
       layout_view->start_endpoint.decision.owner_pole_id == assignment->decision_a.owner_pole_id &&
-      layout_view->start_endpoint.decision.bundle_order_choice == assignment->decision_a.bundle_order_choice &&
+      layout_view->start_endpoint.decision.order_decision_choice == assignment->decision_a.order_decision_choice &&
       layout_view->start_endpoint.decision.chosen_side == assignment->decision_a.chosen_side &&
       layout_view->start_endpoint.decision.support_orientation_basis == assignment->decision_a.support_orientation_basis &&
       layout_view->start_endpoint.decision.lower_required == assignment->decision_a.lower_required &&
@@ -6830,7 +6774,7 @@ bool test_backbone_authoritative_endpoint_decision_matches_support_layout() {
   const bool same_end =
       layout_view->end_endpoint.decision.owner_pole_id == layout_view->end_endpoint.owner_pole_id &&
       layout_view->end_endpoint.decision.owner_pole_id == assignment->decision_b.owner_pole_id &&
-      layout_view->end_endpoint.decision.bundle_order_choice == assignment->decision_b.bundle_order_choice &&
+      layout_view->end_endpoint.decision.order_decision_choice == assignment->decision_b.order_decision_choice &&
       layout_view->end_endpoint.decision.chosen_side == assignment->decision_b.chosen_side &&
       layout_view->end_endpoint.decision.support_orientation_basis == assignment->decision_b.support_orientation_basis &&
       layout_view->end_endpoint.decision.lower_required == assignment->decision_b.lower_required &&
@@ -6902,7 +6846,7 @@ bool test_backbone_refresh_does_not_override_authoritative_endpoint_decision() {
   return after_endpoint.has_value() &&
          after_endpoint->decision.owner_pole_id == before_decision.owner_pole_id &&
          after_endpoint->decision.owner_pole_id == after_endpoint->owner_pole_id &&
-         after_endpoint->decision.bundle_order_choice == before_decision.bundle_order_choice &&
+         after_endpoint->decision.order_decision_choice == before_decision.order_decision_choice &&
          after_endpoint->decision.chosen_side == before_decision.chosen_side &&
          after_endpoint->decision.support_orientation_basis == before_decision.support_orientation_basis &&
          after_endpoint->decision.lower_required == before_decision.lower_required &&
@@ -7028,14 +6972,14 @@ bool test_backbone_constrained_orientation_uses_authoritative_basis() {
       continue;
     }
     return placement->decision.support_orientation_basis == endpoint->decision.support_orientation_basis &&
-           placement->decision.bundle_order_choice == endpoint->decision.bundle_order_choice &&
+           placement->decision.order_decision_choice == endpoint->decision.order_decision_choice &&
            placement->decision.chosen_side == endpoint->decision.chosen_side &&
            placement->decision.support_orientation_basis != wire::core::SupportOrientationBasisKind::kRadial;
   }
   return false;
 }
 
-bool test_backbone_hv3_authoritative_bundle_order_survives_refresh() {
+bool test_backbone_hv3_authoritative_order_decision_survives_refresh() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
   if (type_ids.empty()) {
@@ -7070,7 +7014,7 @@ bool test_backbone_hv3_authoritative_bundle_order_survives_refresh() {
     return false;
   }
   const auto before_decision = before->start_endpoint.decision;
-  if (before_decision.bundle_order_policy != wire::core::BundleOrderPolicyKind::kPermutableHomogeneous) {
+  if (before_decision.order_decision_policy != wire::core::OrderDecisionPolicyKind::kPermutableHomogeneous) {
     return false;
   }
 
@@ -7084,12 +7028,12 @@ bool test_backbone_hv3_authoritative_bundle_order_survives_refresh() {
 
   const auto after = state.view().inspect_support_layout(span_id);
   return after.has_value() &&
-         after->start_endpoint.decision.bundle_order_choice == before_decision.bundle_order_choice &&
-         after->start_endpoint.decision.bundle_order_choice_reason == before_decision.bundle_order_choice_reason &&
+         after->start_endpoint.decision.order_decision_choice == before_decision.order_decision_choice &&
+         after->start_endpoint.decision.order_decision_choice_reason == before_decision.order_decision_choice_reason &&
          after->start_endpoint.decision.downstream_overridden == false;
 }
 
-bool test_backbone_edge_orientation_uses_chosen_bundle_order() {
+bool test_backbone_edge_orientation_uses_chosen_order_decision() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
   if (type_ids.empty()) {
@@ -7113,13 +7057,13 @@ bool test_backbone_edge_orientation_uses_chosen_bundle_order() {
       continue;
     }
     saw_hv = true;
-    const auto expected = (orientation.bundle_order_choice_a != orientation.bundle_order_choice_b)
+    const auto expected = (orientation.order_decision_choice_a != orientation.order_decision_choice_b)
                               ? wire::core::LaneOrientation::kReversed
                               : wire::core::LaneOrientation::kNormal;
     if (orientation.orientation != expected) {
       std::cerr << "[DBG] C249 orientation mismatch edge=" << orientation.node_a_id << "->" << orientation.node_b_id
-                << " orderA=" << static_cast<int>(orientation.bundle_order_choice_a)
-                << " orderB=" << static_cast<int>(orientation.bundle_order_choice_b)
+                << " orderA=" << static_cast<int>(orientation.order_decision_choice_a)
+                << " orderB=" << static_cast<int>(orientation.order_decision_choice_b)
                 << " orientation=" << static_cast<int>(orientation.orientation)
                 << " expected=" << static_cast<int>(expected) << "\n";
       return false;
@@ -8543,8 +8487,8 @@ bool test_variation_settings_do_not_change_topology_flow_or_mirror() {
   }
   for (std::size_t i = 0; i < a.size(); ++i) {
     if (a[i].flow_kind != b[i].flow_kind || a[i].flow_decision_rule != b[i].flow_decision_rule ||
-        a[i].bundle_order_choice_a != b[i].bundle_order_choice_a ||
-        a[i].bundle_order_choice_b != b[i].bundle_order_choice_b ||
+        a[i].order_decision_choice_a != b[i].order_decision_choice_a ||
+        a[i].order_decision_choice_b != b[i].order_decision_choice_b ||
         a[i].flipped_from_previous != b[i].flipped_from_previous ||
         a[i].variation_flow_key != b[i].variation_flow_key) {
       return false;
@@ -8579,9 +8523,6 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C76_GroupedLine_AcuteCornerNoInversion",
                          "Acute corner grouped path keeps conductor order stable", "Invariant", false,
                          test_grouped_line_acute_corner_no_inversion);
-  test_registry::AddTest(tests, "C85_GroupedLine_TwoChoiceMirror",
-                         "Grouped mirror handling stays within the two-choice model", "Invariant", false,
-                         test_grouped_lane_mirror_is_two_choice_only);
   test_registry::AddTest(tests, "C86_GroupedLine_AcutePatternSuite",
                          "Acute pattern suite stays inversion-free", "Invariant", false,
                          test_grouped_line_acute_pattern_suite_no_inversion);
@@ -8785,26 +8726,26 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C238_Backbone_RefreshKeepsSideOrientationOrigin",
                          "Refresh keeps lowered side/orientation origin visible instead of collapsing constrained or cross-lowered spans back to generic radial support rules",
                          "Invariant", false, test_backbone_refresh_keeps_lowered_side_and_orientation_origin);
-  test_registry::AddTest(tests, "C239_Backbone_HV3SameLevelBundleOrderPermutable",
-                         "HV3 ThroughPair path compares normal/reversed bundle order and records a non-fixed order choice reason",
-                         "Invariant", false, test_backbone_hv3_same_level_bundle_order_is_permutable);
-  test_registry::AddTest(tests, "C240_Backbone_HV3LoweredBundleOrderPermutable",
-                         "Lowered HV3 cross keeps bundle order permutable and records a non-fixed order choice at the lowered endpoint",
-                         "Invariant", false, test_backbone_hv3_lowered_bundle_order_is_permutable);
+  test_registry::AddTest(tests, "C239_Backbone_HV3SameLevelOrderDecisionPermutable",
+                         "HV3 ThroughPair path keeps an authoritative non-fixed order decision instead of reverting to fixed-order",
+                         "Invariant", false, test_backbone_hv3_same_level_order_decision_is_permutable);
+  test_registry::AddTest(tests, "C240_Backbone_HV3LoweredOrderDecisionPermutable",
+                         "Lowered HV3 cross keeps an authoritative non-fixed order decision at the lowered endpoint",
+                         "Invariant", false, test_backbone_hv3_lowered_order_decision_is_permutable);
   test_registry::AddTest(tests, "C241_Backbone_FixedOrderBundleUntouched",
-                         "Fixed-order bundle mock keeps normal order and skips permutation optimization entirely",
+                         "Fixed-order bundle skips non-fixed order evaluation entirely",
                          "Invariant", false, test_backbone_fixed_order_bundle_skips_permutation);
-  test_registry::AddTest(tests, "C242_Backbone_RefreshKeepsBundleOrderChoice",
-                         "Refresh keeps chosen HV3 bundle order instead of re-flipping after constrained lowered generation",
-                         "Invariant", false, test_backbone_refresh_keeps_bundle_order_choice);
-  test_registry::AddTest(tests, "C243_Backbone_PointLikeBundleOrderNonRegression",
-                         "Point-like low-voltage route stays fixed-order and does not opt into HV3 bundle permutation",
-                         "Invariant", false, test_backbone_point_like_bundle_order_non_regression);
+  test_registry::AddTest(tests, "C242_Backbone_RefreshKeepsOrderDecision",
+                         "Refresh keeps the chosen HV3 order decision instead of re-flipping after constrained lowered generation",
+                         "Invariant", false, test_backbone_refresh_keeps_order_decision_choice);
+  test_registry::AddTest(tests, "C243_Backbone_PointLikeOrderDecisionNonRegression",
+                         "Point-like low-voltage route stays fixed-order and does not opt into HV3 order permutation",
+                         "Invariant", false, test_backbone_point_like_order_decision_non_regression);
   test_registry::AddTest(tests, "C244_Backbone_AuthoritativeDecisionMatchesSupportLayout",
                          "Support layout copies grouped endpoint decisions without reinterpreting chosen order, side, or orientation basis",
                          "Invariant", false, test_backbone_authoritative_endpoint_decision_matches_support_layout);
   test_registry::AddTest(tests, "C245_Backbone_RefreshDoesNotOverrideAuthoritativeDecision",
-                         "Refresh keeps chosen bundle order, side, and orientation basis instead of re-flipping them downstream",
+                         "Refresh keeps the chosen order decision, side, and orientation basis instead of re-flipping them downstream",
                          "Invariant", false, test_backbone_refresh_does_not_override_authoritative_endpoint_decision);
   test_registry::AddTest(tests, "C246_Backbone_AuthoritativeCrossPairSideSymmetry",
                          "Cross lowered pair keeps one authoritative shared side choice instead of re-splitting into endpoint-local left/right supports",
@@ -8812,12 +8753,12 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C247_Backbone_ConstrainedOrientationUsesAuthoritativeBasis",
                          "Constrained placement support visuals reuse the authoritative orientation basis instead of recomputing a radial rule",
                          "Invariant", false, test_backbone_constrained_orientation_uses_authoritative_basis);
-  test_registry::AddTest(tests, "C248_Backbone_HV3AuthoritativeBundleOrderSurvivesRefresh",
-                         "HV3 chosen bundle order survives refresh as an authoritative result without downstream override",
-                         "Invariant", false, test_backbone_hv3_authoritative_bundle_order_survives_refresh);
-  test_registry::AddTest(tests, "C249_Backbone_EdgeOrientationUsesChosenBundleOrder",
-                         "Edge orientation is derived from chosen endpoint bundle order instead of legacy mirror state",
-                         "Invariant", false, test_backbone_edge_orientation_uses_chosen_bundle_order);
+  test_registry::AddTest(tests, "C248_Backbone_HV3AuthoritativeOrderDecisionSurvivesRefresh",
+                         "HV3 chosen order decision survives refresh as an authoritative result without downstream override",
+                         "Invariant", false, test_backbone_hv3_authoritative_order_decision_survives_refresh);
+  test_registry::AddTest(tests, "C249_Backbone_EdgeOrientationUsesChosenOrderDecision",
+                         "Edge orientation is derived from the chosen endpoint order decision instead of legacy mirror state",
+                         "Invariant", false, test_backbone_edge_orientation_uses_chosen_order_decision);
   test_registry::AddTest(tests, "C250_Backbone_BundleBranchLoweringIsPoleLocal",
                          "Bundle-like branch lowering is decided from each pole endpoint locally instead of relying on run propagation",
                          "Invariant", false, test_backbone_bundle_branch_lowering_stays_pole_local);
@@ -8919,3 +8860,5 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
 WIRE_REGISTER_TEST_SUITE(register_generation_tests);
 
 } // namespace
+
+

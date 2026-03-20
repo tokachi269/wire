@@ -1,4 +1,4 @@
-#include "wire/core/core_state.hpp"
+﻿#include "wire/core/core_state.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -111,37 +111,37 @@ const char* SameLevelReasonText(SameLevelFeasibilityReason reason) {
   }
 }
 
-const char* BundleOrderPolicyText(BundleOrderPolicyKind policy) {
+const char* OrderDecisionPolicyText(OrderDecisionPolicyKind policy) {
   switch (policy) {
-  case BundleOrderPolicyKind::kPermutableHomogeneous:
+  case OrderDecisionPolicyKind::kPermutableHomogeneous:
     return "PermutableHomogeneous";
-  case BundleOrderPolicyKind::kFixedOrder:
+  case OrderDecisionPolicyKind::kFixedOrder:
   default:
     return "FixedOrder";
   }
 }
 
-const char* BundleOrderChoiceText(BundleOrderChoiceKind choice) {
+const char* OrderDecisionChoiceText(OrderDecisionChoiceKind choice) {
   switch (choice) {
-  case BundleOrderChoiceKind::kReversed:
+  case OrderDecisionChoiceKind::kReversed:
     return "Reversed";
-  case BundleOrderChoiceKind::kNormal:
+  case OrderDecisionChoiceKind::kNormal:
   default:
     return "Normal";
   }
 }
 
-const char* BundleOrderChoiceReasonText(BundleOrderChoiceReason reason) {
+const char* OrderDecisionChoiceReasonText(OrderDecisionChoiceReason reason) {
   switch (reason) {
-  case BundleOrderChoiceReason::kCrossingFewer:
+  case OrderDecisionChoiceReason::kCrossingFewer:
     return "CrossingFewer";
-  case BundleOrderChoiceReason::kSpacingBetter:
+  case OrderDecisionChoiceReason::kSpacingBetter:
     return "SpacingBetter";
-  case BundleOrderChoiceReason::kTwistSmaller:
+  case OrderDecisionChoiceReason::kTwistSmaller:
     return "TwistSmaller";
-  case BundleOrderChoiceReason::kKeptDefault:
+  case OrderDecisionChoiceReason::kKeptDefault:
     return "KeptDefault";
-  case BundleOrderChoiceReason::kFixedOrder:
+  case OrderDecisionChoiceReason::kFixedOrder:
   default:
     return "FixedOrder";
   }
@@ -458,9 +458,9 @@ std::vector<LoweredSupportGroupInspectionView> BuildLoweredSupportGroupInspectio
     group.grouping_rule = source.grouping_rule;
     group.support_group_id = source.support_group_id;
     group.grouped_port_count = source.grouped_port_count;
-    group.bundle_order_policy = source.bundle_order_policy;
-    group.bundle_order_choice = source.bundle_order_choice;
-    group.bundle_order_choice_reason = source.bundle_order_choice_reason;
+    group.order_decision_policy = source.order_decision_policy;
+    group.order_decision_choice = source.order_decision_choice;
+    group.order_decision_choice_reason = source.order_decision_choice_reason;
     group.side_assignment_rule = source.side_assignment_rule;
     group.support_orientation_rule = source.support_orientation_rule;
     group.used_junction_pair_side_assignment = source.used_junction_pair_side_assignment;
@@ -485,9 +485,7 @@ std::vector<JunctionIncident> BuildJunctionIncidentsFromRelation(const JunctionR
     JunctionIncident incident{};
     incident.neighbor_node_id = source.neighbor_node_id;
     incident.order = static_cast<int>(index);
-    incident.primary = relation.through_pair.accepted &&
-                       (source.neighbor_node_id == relation.through_pair.neighbor_a_id ||
-                        source.neighbor_node_id == relation.through_pair.neighbor_b_id);
+    incident.primary = (index == 0);
     incidents.push_back(incident);
   }
   return incidents;
@@ -505,9 +503,9 @@ SupportLayoutEndpointView MakeSupportLayoutEndpointView(const SupportLayoutEndpo
   view.relation_kind = endpoint.relation_kind;
   view.continuity_class = endpoint.continuity_class;
   view.default_lower_required = endpoint.default_lower_required;
-  view.bundle_order_policy = endpoint.bundle_order_policy;
-  view.bundle_order_choice = endpoint.bundle_order_choice;
-  view.bundle_order_choice_reason = endpoint.bundle_order_choice_reason;
+  view.order_decision_policy = endpoint.order_decision_policy;
+  view.order_decision_choice = endpoint.order_decision_choice;
+  view.order_decision_choice_reason = endpoint.order_decision_choice_reason;
   view.side = endpoint.side;
   view.side_assignment_rule = endpoint.side_assignment_rule;
   view.support_orientation_rule = endpoint.support_orientation_rule;
@@ -697,11 +695,11 @@ std::optional<SpanInspectionView> CoreView::inspect_span(ObjectId span_id) const
     result.support_layout_ref = {EntityKind::kSupportLayout, span_id};
     result.flow_kind = layout->flow_kind;
     result.continuity_class = layout->continuity_class;
-    result.bundle_order_policy = layout->bundle_order_policy;
-    result.bundle_order_choice_a = layout->start.bundle_order_choice;
-    result.bundle_order_choice_b = layout->end.bundle_order_choice;
-    result.bundle_order_choice_reason_a = layout->start.bundle_order_choice_reason;
-    result.bundle_order_choice_reason_b = layout->end.bundle_order_choice_reason;
+    result.order_decision_policy = layout->order_decision_policy;
+    result.order_decision_choice_a = layout->start.order_decision_choice;
+    result.order_decision_choice_b = layout->end.order_decision_choice;
+    result.order_decision_choice_reason_a = layout->start.order_decision_choice_reason;
+    result.order_decision_choice_reason_b = layout->end.order_decision_choice_reason;
     result.default_lower_required = layout->default_lower_required;
     result.uses_branch_support = layout->start.origin == SupportLayoutOriginKind::kBranchSupport ||
                                  layout->end.origin == SupportLayoutOriginKind::kBranchSupport;
@@ -762,7 +760,7 @@ std::optional<SupportLayoutInspectionView> CoreView::inspect_support_layout(Obje
   result.flow_kind = layout->flow_kind;
   result.pass_mode = layout->pass_mode;
   result.variation_flow_key = layout->variation_flow_key;
-  result.bundle_order_policy = layout->bundle_order_policy;
+  result.order_decision_policy = layout->order_decision_policy;
   result.relation_a = layout->relation_a;
   result.relation_b = layout->relation_b;
   result.continuity_class = layout->continuity_class;
@@ -1166,11 +1164,11 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
       std::ostringstream summary;
       summary << "start=" << SupportLayoutOriginText(layout->start.origin) << " dep=" << layout->start.local_departure_length_m
               << " end=" << SupportLayoutOriginText(layout->end.origin) << " dep=" << layout->end.local_departure_length_m
-              << " bundleOrderPolicy=" << BundleOrderPolicyText(layout->bundle_order_policy)
-              << " orderA=" << BundleOrderChoiceText(layout->start.bundle_order_choice)
-              << "/" << BundleOrderChoiceReasonText(layout->start.bundle_order_choice_reason)
-              << " orderB=" << BundleOrderChoiceText(layout->end.bundle_order_choice)
-              << "/" << BundleOrderChoiceReasonText(layout->end.bundle_order_choice_reason)
+              << " orderPolicy=" << OrderDecisionPolicyText(layout->order_decision_policy)
+              << " orderDecisionA=" << OrderDecisionChoiceText(layout->start.order_decision_choice)
+              << "/" << OrderDecisionChoiceReasonText(layout->start.order_decision_choice_reason)
+              << " orderDecisionB=" << OrderDecisionChoiceText(layout->end.order_decision_choice)
+              << "/" << OrderDecisionChoiceReasonText(layout->end.order_decision_choice_reason)
               << " class=" << ContinuityCategoryClassText(layout->continuity_class)
               << " defaultLower=" << BoolText(layout->default_lower_required)
               << " down=" << std::max(layout->start.branch_down_offset_m, layout->end.branch_down_offset_m)
@@ -1187,8 +1185,8 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
       std::ostringstream endpoint_summary;
       endpoint_summary << "start=" << SupportLayoutEndpointSourceText(layout->start.endpoint_source)
                        << " request=" << EndpointAttachmentRequestKindText(layout->start.attachment_request.kind)
-                       << " bundleOrder=" << BundleOrderChoiceText(layout->start.bundle_order_choice)
-                       << "/" << BundleOrderChoiceReasonText(layout->start.bundle_order_choice_reason)
+                       << " orderDecision=" << OrderDecisionChoiceText(layout->start.order_decision_choice)
+                       << "/" << OrderDecisionChoiceReasonText(layout->start.order_decision_choice_reason)
                        << " chosenSide=" << LateralSideChoiceText(layout->start.decision.chosen_side)
                        << " sideRule=" << SideAssignmentRuleText(layout->start.side_assignment_rule)
                        << " orientRule=" << SupportOrientationRuleText(layout->start.support_orientation_rule)
@@ -1202,8 +1200,8 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
                                                                         : "none")
                        << " end=" << SupportLayoutEndpointSourceText(layout->end.endpoint_source)
                        << " request=" << EndpointAttachmentRequestKindText(layout->end.attachment_request.kind)
-                       << " bundleOrder=" << BundleOrderChoiceText(layout->end.bundle_order_choice)
-                       << "/" << BundleOrderChoiceReasonText(layout->end.bundle_order_choice_reason)
+                       << " orderDecision=" << OrderDecisionChoiceText(layout->end.order_decision_choice)
+                       << "/" << OrderDecisionChoiceReasonText(layout->end.order_decision_choice_reason)
                        << " chosenSide=" << LateralSideChoiceText(layout->end.decision.chosen_side)
                        << " sideRule=" << SideAssignmentRuleText(layout->end.side_assignment_rule)
                        << " orientRule=" << SupportOrientationRuleText(layout->end.support_orientation_rule)
@@ -1301,10 +1299,10 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
                          << " inRoute=" << BoolText(incident.in_route)
                          << " inPair=" << BoolText(incident.in_through_pair)
                          << " class=" << ContinuityCategoryClassText(incident.continuity_class)
-                         << " bundleOrderPolicy=" << BundleOrderPolicyText(
+                         << " orderPolicy=" << OrderDecisionPolicyText(
                                 incident.continuity_class == ContinuityCategoryClass::kBundleLike
-                                    ? BundleOrderPolicyKind::kPermutableHomogeneous
-                                    : BundleOrderPolicyKind::kFixedOrder)
+                                    ? OrderDecisionPolicyKind::kPermutableHomogeneous
+                                    : OrderDecisionPolicyKind::kFixedOrder)
                          << " defaultLower=" << BoolText(incident.default_lower_required)
                          << " sameLevel=" << BoolText(incident.same_level_feasible)
                          << " reason=" << SameLevelReasonText(incident.infeasible_reason);
@@ -1322,3 +1320,5 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
 }
 
 } // namespace wire::core
+
+

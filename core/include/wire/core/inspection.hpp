@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <array>
 #include <cstdint>
@@ -163,11 +163,11 @@ struct SpanInspectionView {
   EntityRef detail_curve_ref{};
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
   BackboneFlowDecisionRule flow_rule = BackboneFlowDecisionRule::kDefaultMain;
-  BundleOrderPolicyKind bundle_order_policy = BundleOrderPolicyKind::kFixedOrder;
-  BundleOrderChoiceKind bundle_order_choice_a = BundleOrderChoiceKind::kNormal;
-  BundleOrderChoiceKind bundle_order_choice_b = BundleOrderChoiceKind::kNormal;
-  BundleOrderChoiceReason bundle_order_choice_reason_a = BundleOrderChoiceReason::kFixedOrder;
-  BundleOrderChoiceReason bundle_order_choice_reason_b = BundleOrderChoiceReason::kFixedOrder;
+  OrderDecisionPolicyKind order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
+  OrderDecisionChoiceKind order_decision_choice_a = OrderDecisionChoiceKind::kNormal;
+  OrderDecisionChoiceKind order_decision_choice_b = OrderDecisionChoiceKind::kNormal;
+  OrderDecisionChoiceReason order_decision_choice_reason_a = OrderDecisionChoiceReason::kFixedOrder;
+  OrderDecisionChoiceReason order_decision_choice_reason_b = OrderDecisionChoiceReason::kFixedOrder;
   ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
   bool default_lower_required = false;
   CableContinuityPolicyHint requested_continuity = CableContinuityPolicyHint::kAuto;
@@ -203,9 +203,9 @@ struct SupportLayoutEndpointView {
   JunctionRelationKind relation_kind = JunctionRelationKind::kNone;
   ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
   bool default_lower_required = false;
-  BundleOrderPolicyKind bundle_order_policy = BundleOrderPolicyKind::kFixedOrder;
-  BundleOrderChoiceKind bundle_order_choice = BundleOrderChoiceKind::kNormal;
-  BundleOrderChoiceReason bundle_order_choice_reason = BundleOrderChoiceReason::kFixedOrder;
+  OrderDecisionPolicyKind order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
+  OrderDecisionChoiceKind order_decision_choice = OrderDecisionChoiceKind::kNormal;
+  OrderDecisionChoiceReason order_decision_choice_reason = OrderDecisionChoiceReason::kFixedOrder;
   SlotSide side = SlotSide::kCenter;
   SideAssignmentRuleKind side_assignment_rule = SideAssignmentRuleKind::kPoleLocal;
   SupportOrientationRuleKind support_orientation_rule = SupportOrientationRuleKind::kRadial;
@@ -243,9 +243,9 @@ struct LoweredSupportGroupInspectionView {
   SupportGroupingRuleKind grouping_rule = SupportGroupingRuleKind::kDecisionGroup;
   int support_group_id = -1;
   int grouped_port_count = 1;
-  BundleOrderPolicyKind bundle_order_policy = BundleOrderPolicyKind::kFixedOrder;
-  BundleOrderChoiceKind bundle_order_choice = BundleOrderChoiceKind::kNormal;
-  BundleOrderChoiceReason bundle_order_choice_reason = BundleOrderChoiceReason::kFixedOrder;
+  OrderDecisionPolicyKind order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
+  OrderDecisionChoiceKind order_decision_choice = OrderDecisionChoiceKind::kNormal;
+  OrderDecisionChoiceReason order_decision_choice_reason = OrderDecisionChoiceReason::kFixedOrder;
   SideAssignmentRuleKind side_assignment_rule = SideAssignmentRuleKind::kPoleLocal;
   SupportOrientationRuleKind support_orientation_rule = SupportOrientationRuleKind::kRadial;
   bool used_junction_pair_side_assignment = false;
@@ -265,7 +265,7 @@ struct SupportLayoutInspectionView {
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
   CurvePassMode pass_mode = CurvePassMode::kPassThrough;
   std::uint64_t variation_flow_key = 0;
-  BundleOrderPolicyKind bundle_order_policy = BundleOrderPolicyKind::kFixedOrder;
+  OrderDecisionPolicyKind order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
   JunctionRelationKind relation_a = JunctionRelationKind::kNone;
   JunctionRelationKind relation_b = JunctionRelationKind::kNone;
   ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
@@ -380,3 +380,5 @@ struct OverrideInspectionView {
 };
 
 } // namespace wire::core
+
+

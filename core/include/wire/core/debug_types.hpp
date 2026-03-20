@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <cstddef>
 #include <string>
@@ -72,11 +72,11 @@ struct SegmentLaneAssignment {
   bool unresolved_same_level_conflict = false;
   bool solver_used_same_level_constraint = false;
   bool used_special_case_ports = false;
-  BundleOrderPolicyKind bundle_order_policy = BundleOrderPolicyKind::kFixedOrder;
-  BundleOrderChoiceKind bundle_order_choice_a = BundleOrderChoiceKind::kNormal;
-  BundleOrderChoiceKind bundle_order_choice_b = BundleOrderChoiceKind::kNormal;
-  BundleOrderChoiceReason bundle_order_choice_reason_a = BundleOrderChoiceReason::kFixedOrder;
-  BundleOrderChoiceReason bundle_order_choice_reason_b = BundleOrderChoiceReason::kFixedOrder;
+  OrderDecisionPolicyKind order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
+  OrderDecisionChoiceKind order_decision_choice_a = OrderDecisionChoiceKind::kNormal;
+  OrderDecisionChoiceKind order_decision_choice_b = OrderDecisionChoiceKind::kNormal;
+  OrderDecisionChoiceReason order_decision_choice_reason_a = OrderDecisionChoiceReason::kFixedOrder;
+  OrderDecisionChoiceReason order_decision_choice_reason_b = OrderDecisionChoiceReason::kFixedOrder;
   EndpointContinuityDecision decision_a{};
   EndpointContinuityDecision decision_b{};
   std::vector<ObjectId> port_ids_a{};
@@ -168,3 +168,5 @@ struct PortResolutionDebugRecord {
 };
 
 } // namespace wire::core
+
+

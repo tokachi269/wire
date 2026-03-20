@@ -1,4 +1,4 @@
-#include "wire/core/core_state.hpp"
+﻿#include "wire/core/core_state.hpp"
 #include "wire/core/coord_utils.hpp"
 #include "../generation/support_policy.hpp"
 #include "../support_orientation_utils.hpp"
@@ -123,9 +123,9 @@ void apply_authoritative_group_decision_fields(const EndpointContinuityDecision&
   group->decision.support_group_id = group->support_group_id;
   group->side = endpoint.side;
   group->origin = endpoint.origin;
-  group->bundle_order_policy = endpoint.bundle_order_policy;
-  group->bundle_order_choice = endpoint.bundle_order_choice;
-  group->bundle_order_choice_reason = endpoint.bundle_order_choice_reason;
+  group->order_decision_policy = endpoint.order_decision_policy;
+  group->order_decision_choice = endpoint.order_decision_choice;
+  group->order_decision_choice_reason = endpoint.order_decision_choice_reason;
   group->side_assignment_rule = decision.side_assignment_rule;
   group->support_orientation_rule = decision.support_orientation_rule;
   group->used_junction_pair_side_assignment = decision.used_junction_pair_side_assignment;
@@ -224,9 +224,9 @@ LoweredSupportGroupPlacement build_grouped_support_placement_from_decision(
   group.grouping_rule = SupportGroupingRuleKind::kDecisionGroup;
   group.support_group_id = group_decision.support_group_id;
   group.grouped_port_count = group_decision.grouped_port_count;
-  group.bundle_order_policy = group_decision.bundle_order_policy;
-  group.bundle_order_choice = group_decision.bundle_order_choice;
-  group.bundle_order_choice_reason = group_decision.bundle_order_choice_reason;
+  group.order_decision_policy = group_decision.order_decision_policy;
+  group.order_decision_choice = group_decision.order_decision_choice;
+  group.order_decision_choice_reason = group_decision.order_decision_choice_reason;
   group.side_assignment_rule = group_decision.side_assignment_rule;
   group.support_orientation_rule = group_decision.support_orientation_rule;
   group.used_junction_pair_side_assignment = group_decision.used_junction_pair_side_assignment;
@@ -249,8 +249,7 @@ LoweredSupportGroupPlacement build_grouped_support_placement_from_decision(
       fallback_axis = {1.0, 0.0, 0.0};
     }
   }
-  const Vec3d support_axis =
-      CanonicalSharedSupportAxis(AuthoritativeSupportAxisForGroup(group, fallback_axis), fallback_axis);
+  const Vec3d support_axis = AuthoritativeSupportAxisForGroup(group, fallback_axis);
   const auto [mount_world, tip_world] =
       shared_support_anchor_points(*pole, support_axis, group_decision.support_world.z, cache_state);
   group.mount_world = mount_world;
@@ -666,9 +665,9 @@ void apply_endpoint_decision_to_layout_endpoint(const EndpointContinuityDecision
   endpoint->relation_kind = decision.relation_kind;
   endpoint->continuity_class = decision.continuity_class;
   endpoint->default_lower_required = decision.default_lower_required;
-  endpoint->bundle_order_policy = decision.bundle_order_policy;
-  endpoint->bundle_order_choice = decision.bundle_order_choice;
-  endpoint->bundle_order_choice_reason = decision.bundle_order_choice_reason;
+  endpoint->order_decision_policy = decision.order_decision_policy;
+  endpoint->order_decision_choice = decision.order_decision_choice;
+  endpoint->order_decision_choice_reason = decision.order_decision_choice_reason;
   endpoint->side_assignment_rule = decision.side_assignment_rule;
   endpoint->support_orientation_rule = decision.support_orientation_rule;
   endpoint->used_junction_pair_side_assignment = decision.used_junction_pair_side_assignment;
@@ -1549,7 +1548,7 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
       automatic_branch_down_offset_b, down_offset_variation_b, resolved_branch_down_offset_b, false);
   if (authoritative_layout != nullptr) {
     layout.flow_kind = authoritative_layout->flow_kind;
-    layout.bundle_order_policy = authoritative_layout->bundle_order_policy;
+    layout.order_decision_policy = authoritative_layout->order_decision_policy;
     layout.relation_a = authoritative_layout->relation_a;
     layout.relation_b = authoritative_layout->relation_b;
     layout.continuity_class = authoritative_layout->continuity_class;
@@ -1575,12 +1574,12 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
     layout.end.default_lower_required = authoritative_layout->end.default_lower_required;
     layout.start.origin = authoritative_layout->start.origin;
     layout.end.origin = authoritative_layout->end.origin;
-    layout.start.bundle_order_policy = authoritative_layout->start.bundle_order_policy;
-    layout.end.bundle_order_policy = authoritative_layout->end.bundle_order_policy;
-    layout.start.bundle_order_choice = authoritative_layout->start.bundle_order_choice;
-    layout.end.bundle_order_choice = authoritative_layout->end.bundle_order_choice;
-    layout.start.bundle_order_choice_reason = authoritative_layout->start.bundle_order_choice_reason;
-    layout.end.bundle_order_choice_reason = authoritative_layout->end.bundle_order_choice_reason;
+    layout.start.order_decision_policy = authoritative_layout->start.order_decision_policy;
+    layout.end.order_decision_policy = authoritative_layout->end.order_decision_policy;
+    layout.start.order_decision_choice = authoritative_layout->start.order_decision_choice;
+    layout.end.order_decision_choice = authoritative_layout->end.order_decision_choice;
+    layout.start.order_decision_choice_reason = authoritative_layout->start.order_decision_choice_reason;
+    layout.end.order_decision_choice_reason = authoritative_layout->end.order_decision_choice_reason;
 
     // Refresh reuses the authoritative decision endpoint support anchors as-is.
   }
@@ -1671,3 +1670,4 @@ void CoreState::remove_span_from_caches(ObjectId span_id) {
 }
 
 } // namespace wire::core
+

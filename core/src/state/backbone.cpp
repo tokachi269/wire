@@ -12,6 +12,86 @@
 
 namespace wire::core {
 
+namespace {
+
+struct BackboneIncidentMeta {
+  std::uint64_t min_session_id = std::numeric_limits<std::uint64_t>::max();
+  std::uint32_t min_generation_order = std::numeric_limits<std::uint32_t>::max();
+};
+
+std::vector<JunctionInfo> BuildJunctionsFromRelations(
+    const std::unordered_map<ObjectId, JunctionRelation>& relations_by_node,
+    const std::unordered_map<ObjectId, std::unordered_set<ObjectId>>& adjacency,
+    const std::unordered_map<ObjectId, std::unordered_map<ObjectId, BackboneIncidentMeta>>& incident_meta_by_node,
+    const std::unordered_map<ObjectId, std::uint64_t>& existing_prioritized_session_by_node,
+    const std::unordered_map<ObjectId, std::unordered_map<ObjectId, std::uint64_t>>& existing_incident_session_by_node) {
+  std::vector<JunctionInfo> junctions{};
+  junctions.reserve(relations_by_node.size());
+  for (const auto& [node_id, relation] : relations_by_node) {
+    const auto it_neighbors = adjacency.find(node_id);
+    if (it_neighbors == adjacency.end() || it_neighbors->second.size() < 3) {
+      continue;
+    }
+
+    JunctionInfo junction{};
+    junction.node_id = node_id;
+    junction.used_neighbor_continuity =
+        relation.through_pair.accepted &&
+        std::any_of(relation.incidents.begin(), relation.incidents.end(), [](const JunctionIncidentRelation& incident) {
+          return incident.in_through_pair && !incident.in_route;
+        });
+
+    junction.incidents.reserve(relation.incidents.size());
+    for (const JunctionIncidentRelation& source : relation.incidents) {
+      if (!it_neighbors->second.contains(source.neighbor_node_id)) {
+        continue;
+      }
+
+      JunctionIncident incident{};
+      incident.neighbor_node_id = source.neighbor_node_id;
+      incident.order = static_cast<int>(junction.incidents.size());
+      incident.primary = junction.incidents.empty();
+
+      if (const auto it_node = incident_meta_by_node.find(node_id); it_node != incident_meta_by_node.end()) {
+        if (const auto it_meta = it_node->second.find(source.neighbor_node_id); it_meta != it_node->second.end() &&
+            it_meta->second.min_session_id != std::numeric_limits<std::uint64_t>::max()) {
+          incident.source_session_id = it_meta->second.min_session_id;
+        }
+      }
+      if (incident.source_session_id == 0) {
+        if (const auto it_existing_node = existing_incident_session_by_node.find(node_id);
+            it_existing_node != existing_incident_session_by_node.end()) {
+          if (const auto it_existing_source = it_existing_node->second.find(source.neighbor_node_id);
+              it_existing_source != it_existing_node->second.end()) {
+            incident.source_session_id = it_existing_source->second;
+          }
+        }
+      }
+
+      junction.incidents.push_back(incident);
+    }
+
+    if (junction.incidents.size() < 3) {
+      continue;
+    }
+
+    junction.prioritized_session_id = junction.incidents.front().source_session_id;
+    if (junction.prioritized_session_id == 0) {
+      if (const auto it_prioritized = existing_prioritized_session_by_node.find(node_id);
+          it_prioritized != existing_prioritized_session_by_node.end()) {
+        junction.prioritized_session_id = it_prioritized->second;
+      }
+    }
+    junctions.push_back(std::move(junction));
+  }
+
+  std::sort(junctions.begin(), junctions.end(),
+            [](const JunctionInfo& a, const JunctionInfo& b) { return a.node_id < b.node_id; });
+  return junctions;
+}
+
+} // namespace
+
 CoreState::PoleDetailInfo CoreState::GetPoleDetail(ObjectId pole_id) const {
   PoleDetailInfo detail{};
   detail.pole = edit_state_.poles.find(pole_id);
@@ -435,14 +515,10 @@ BackboneResult CoreState::BuildBackboneResult() const {
       ensure_node(edge.node_b);
     }
 
-    struct IncidentAccum {
-      std::uint64_t min_session_id = std::numeric_limits<std::uint64_t>::max();
-      std::uint32_t min_generation_order = std::numeric_limits<std::uint32_t>::max();
-    };
-    std::unordered_map<ObjectId, std::unordered_map<ObjectId, IncidentAccum>> incident_meta_by_node{};
+    std::unordered_map<ObjectId, std::unordered_map<ObjectId, BackboneIncidentMeta>> incident_meta_by_node{};
     auto accumulate_incident_meta = [&](ObjectId node_id, ObjectId neighbor_id, std::uint64_t session_id,
                                         std::uint32_t generation_order) {
-      IncidentAccum& acc = incident_meta_by_node[node_id][neighbor_id];
+      BackboneIncidentMeta& acc = incident_meta_by_node[node_id][neighbor_id];
       if (session_id < acc.min_session_id ||
           (session_id == acc.min_session_id && generation_order < acc.min_generation_order)) {
         acc.min_session_id = session_id;
@@ -485,170 +561,176 @@ BackboneResult CoreState::BuildBackboneResult() const {
       adjacency[edge.node_b].insert(edge.node_a);
     }
 
-    auto normalize_dir = [](const Vec3d& v) -> Vec3d {
-      const double len = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
-      if (len <= 1e-9) {
-        return {0.0, 0.0, 0.0};
+    if (!last_generation_junction_relations_.empty()) {
+      out.junctions = BuildJunctionsFromRelations(last_generation_junction_relations_, adjacency, incident_meta_by_node,
+                                                 existing_prioritized_session_by_node,
+                                                 existing_incident_session_by_node);
+    } else {
+      out.junctions.clear();
+      std::vector<ObjectId> junction_node_ids{};
+      for (const auto& [node_id, neighbors] : adjacency) {
+        if (neighbors.size() >= 3) {
+          junction_node_ids.push_back(node_id);
+        }
       }
-      return {v.x / len, v.y / len, v.z / len};
-    };
-    auto dot = [](const Vec3d& a, const Vec3d& b) { return a.x * b.x + a.y * b.y + a.z * b.z; };
+      std::sort(junction_node_ids.begin(), junction_node_ids.end());
 
-    out.junctions.clear();
-    std::vector<ObjectId> junction_node_ids{};
-    for (const auto& [node_id, neighbors] : adjacency) {
-      if (neighbors.size() >= 3) {
-        junction_node_ids.push_back(node_id);
-      }
-    }
-    std::sort(junction_node_ids.begin(), junction_node_ids.end());
-
-    for (ObjectId node_id : junction_node_ids) {
-      const auto it_neighbors = adjacency.find(node_id);
-      if (it_neighbors == adjacency.end() || it_neighbors->second.size() < 3) {
-        continue;
-      }
-      const Vec3d center = node_by_id[node_id].position;
-      struct Candidate {
-        ObjectId neighbor_id = kInvalidObjectId;
-        std::uint64_t min_session_id = std::numeric_limits<std::uint64_t>::max();
-        std::uint32_t min_generation_order = std::numeric_limits<std::uint32_t>::max();
-        Vec3d dir{};
+      auto normalize_dir = [](const Vec3d& v) -> Vec3d {
+        const double len = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+        if (len <= 1e-9) {
+          return {0.0, 0.0, 0.0};
+        }
+        return {v.x / len, v.y / len, v.z / len};
       };
-      std::vector<Candidate> candidates{};
-      candidates.reserve(it_neighbors->second.size());
-      for (ObjectId neighbor_id : it_neighbors->second) {
-        if (neighbor_id == kInvalidObjectId || !node_by_id.contains(neighbor_id)) {
+      auto dot = [](const Vec3d& a, const Vec3d& b) { return a.x * b.x + a.y * b.y + a.z * b.z; };
+
+      for (ObjectId node_id : junction_node_ids) {
+        const auto it_neighbors = adjacency.find(node_id);
+        if (it_neighbors == adjacency.end() || it_neighbors->second.size() < 3) {
           continue;
         }
-        Candidate candidate{};
-        candidate.neighbor_id = neighbor_id;
-        if (const auto it_node = incident_meta_by_node.find(node_id); it_node != incident_meta_by_node.end()) {
-          if (const auto it_meta = it_node->second.find(neighbor_id); it_meta != it_node->second.end()) {
-            candidate.min_session_id = it_meta->second.min_session_id;
-            candidate.min_generation_order = it_meta->second.min_generation_order;
-          }
-        }
-        candidate.dir = normalize_dir(node_by_id[neighbor_id].position - center);
-        candidates.push_back(candidate);
-      }
-      if (candidates.size() < 3) {
-        continue;
-      }
-      std::sort(candidates.begin(), candidates.end(),
-                [](const Candidate& a, const Candidate& b) { return a.neighbor_id < b.neighbor_id; });
-
-      int anchor_index = -1;
-      bool used_neighbor_continuity = false;
-      if (const auto it_primary = existing_primary_neighbor_by_node.find(node_id);
-          it_primary != existing_primary_neighbor_by_node.end()) {
-        for (std::size_t i = 0; i < candidates.size(); ++i) {
-          if (candidates[i].neighbor_id == it_primary->second) {
-            anchor_index = static_cast<int>(i);
-            used_neighbor_continuity = true;
-            break;
-          }
-        }
-      }
-      if (anchor_index < 0) {
-        auto better_anchor = [&](int lhs, int rhs) {
-          const Candidate& a = candidates[static_cast<std::size_t>(lhs)];
-          const Candidate& b = candidates[static_cast<std::size_t>(rhs)];
-          if (a.min_session_id != b.min_session_id) {
-            return a.min_session_id < b.min_session_id;
-          }
-          if (a.min_generation_order != b.min_generation_order) {
-            return a.min_generation_order < b.min_generation_order;
-          }
-          return a.neighbor_id < b.neighbor_id;
+        const Vec3d center = node_by_id[node_id].position;
+        struct Candidate {
+          ObjectId neighbor_id = kInvalidObjectId;
+          std::uint64_t min_session_id = std::numeric_limits<std::uint64_t>::max();
+          std::uint32_t min_generation_order = std::numeric_limits<std::uint32_t>::max();
+          Vec3d dir{};
         };
-        for (std::size_t i = 0; i < candidates.size(); ++i) {
-          const int idx = static_cast<int>(i);
-          if (anchor_index < 0 || better_anchor(idx, anchor_index)) {
-            anchor_index = idx;
+        std::vector<Candidate> candidates{};
+        candidates.reserve(it_neighbors->second.size());
+        for (ObjectId neighbor_id : it_neighbors->second) {
+          if (neighbor_id == kInvalidObjectId || !node_by_id.contains(neighbor_id)) {
+            continue;
           }
+          Candidate candidate{};
+          candidate.neighbor_id = neighbor_id;
+          if (const auto it_node = incident_meta_by_node.find(node_id); it_node != incident_meta_by_node.end()) {
+            if (const auto it_meta = it_node->second.find(neighbor_id); it_meta != it_node->second.end()) {
+              candidate.min_session_id = it_meta->second.min_session_id;
+              candidate.min_generation_order = it_meta->second.min_generation_order;
+            }
+          }
+          candidate.dir = normalize_dir(node_by_id[neighbor_id].position - center);
+          candidates.push_back(candidate);
         }
-      }
-
-      int opposite_index = -1;
-      double best_straight = -2.0;
-      for (std::size_t i = 0; i < candidates.size(); ++i) {
-        const int idx = static_cast<int>(i);
-        if (idx == anchor_index) {
+        if (candidates.size() < 3) {
           continue;
         }
-        const double straight_score =
-            dot(candidates[static_cast<std::size_t>(anchor_index)].dir,
-                Vec3d{-candidates[i].dir.x, -candidates[i].dir.y, -candidates[i].dir.z});
-        if (straight_score > best_straight + 1e-9 ||
-            (std::abs(straight_score - best_straight) <= 1e-9 &&
-             (opposite_index < 0 || candidates[i].neighbor_id <
-                                        candidates[static_cast<std::size_t>(opposite_index)].neighbor_id))) {
-          best_straight = straight_score;
-          opposite_index = idx;
-        }
-      }
+        std::sort(candidates.begin(), candidates.end(),
+                  [](const Candidate& a, const Candidate& b) { return a.neighbor_id < b.neighbor_id; });
 
-      std::vector<int> order_indices{};
-      order_indices.push_back(anchor_index);
-      if (opposite_index >= 0 && opposite_index != anchor_index) {
-        order_indices.push_back(opposite_index);
-      }
-      for (std::size_t i = 0; i < candidates.size(); ++i) {
-        const int idx = static_cast<int>(i);
-        if (idx == anchor_index || idx == opposite_index) {
-          continue;
-        }
-        order_indices.push_back(idx);
-      }
-      std::sort(order_indices.begin() + ((opposite_index >= 0 && opposite_index != anchor_index) ? 2 : 1),
-                order_indices.end(), [&](int lhs, int rhs) {
-                  const Candidate& a = candidates[static_cast<std::size_t>(lhs)];
-                  const Candidate& b = candidates[static_cast<std::size_t>(rhs)];
-                  if (a.min_session_id != b.min_session_id) {
-                    return a.min_session_id < b.min_session_id;
-                  }
-                  if (a.min_generation_order != b.min_generation_order) {
-                    return a.min_generation_order < b.min_generation_order;
-                  }
-                  return a.neighbor_id < b.neighbor_id;
-                });
-
-      JunctionInfo junction{};
-      junction.node_id = node_id;
-      junction.prioritized_session_id = candidates[static_cast<std::size_t>(anchor_index)].min_session_id;
-      if (junction.prioritized_session_id == std::numeric_limits<std::uint64_t>::max()) {
-        junction.prioritized_session_id = 0;
-        if (const auto it_prioritized = existing_prioritized_session_by_node.find(node_id);
-            it_prioritized != existing_prioritized_session_by_node.end()) {
-          junction.prioritized_session_id = it_prioritized->second;
-        }
-      }
-      junction.used_neighbor_continuity = used_neighbor_continuity;
-      junction.incidents.reserve(order_indices.size());
-      for (std::size_t rank = 0; rank < order_indices.size(); ++rank) {
-        const Candidate& candidate = candidates[static_cast<std::size_t>(order_indices[rank])];
-        JunctionIncident incident{};
-        incident.neighbor_node_id = candidate.neighbor_id;
-        incident.order = static_cast<int>(rank);
-        incident.primary = (rank == 0);
-        incident.source_session_id = candidate.min_session_id;
-        if (incident.source_session_id == std::numeric_limits<std::uint64_t>::max()) {
-          incident.source_session_id = 0;
-          if (const auto it_existing_node = existing_incident_session_by_node.find(node_id);
-              it_existing_node != existing_incident_session_by_node.end()) {
-            if (const auto it_existing_source = it_existing_node->second.find(candidate.neighbor_id);
-                it_existing_source != it_existing_node->second.end()) {
-              incident.source_session_id = it_existing_source->second;
+        int anchor_index = -1;
+        bool used_neighbor_continuity = false;
+        if (const auto it_primary = existing_primary_neighbor_by_node.find(node_id);
+            it_primary != existing_primary_neighbor_by_node.end()) {
+          for (std::size_t i = 0; i < candidates.size(); ++i) {
+            if (candidates[i].neighbor_id == it_primary->second) {
+              anchor_index = static_cast<int>(i);
+              used_neighbor_continuity = true;
+              break;
             }
           }
         }
-        junction.incidents.push_back(incident);
+        if (anchor_index < 0) {
+          auto better_anchor = [&](int lhs, int rhs) {
+            const Candidate& a = candidates[static_cast<std::size_t>(lhs)];
+            const Candidate& b = candidates[static_cast<std::size_t>(rhs)];
+            if (a.min_session_id != b.min_session_id) {
+              return a.min_session_id < b.min_session_id;
+            }
+            if (a.min_generation_order != b.min_generation_order) {
+              return a.min_generation_order < b.min_generation_order;
+            }
+            return a.neighbor_id < b.neighbor_id;
+          };
+          for (std::size_t i = 0; i < candidates.size(); ++i) {
+            const int idx = static_cast<int>(i);
+            if (anchor_index < 0 || better_anchor(idx, anchor_index)) {
+              anchor_index = idx;
+            }
+          }
+        }
+
+        int opposite_index = -1;
+        double best_straight = -2.0;
+        for (std::size_t i = 0; i < candidates.size(); ++i) {
+          const int idx = static_cast<int>(i);
+          if (idx == anchor_index) {
+            continue;
+          }
+          const double straight_score =
+              dot(candidates[static_cast<std::size_t>(anchor_index)].dir,
+                  Vec3d{-candidates[i].dir.x, -candidates[i].dir.y, -candidates[i].dir.z});
+          if (straight_score > best_straight + 1e-9 ||
+              (std::abs(straight_score - best_straight) <= 1e-9 &&
+               (opposite_index < 0 || candidates[i].neighbor_id <
+                                          candidates[static_cast<std::size_t>(opposite_index)].neighbor_id))) {
+            best_straight = straight_score;
+            opposite_index = idx;
+          }
+        }
+
+        std::vector<int> order_indices{};
+        order_indices.push_back(anchor_index);
+        if (opposite_index >= 0 && opposite_index != anchor_index) {
+          order_indices.push_back(opposite_index);
+        }
+        for (std::size_t i = 0; i < candidates.size(); ++i) {
+          const int idx = static_cast<int>(i);
+          if (idx == anchor_index || idx == opposite_index) {
+            continue;
+          }
+          order_indices.push_back(idx);
+        }
+        std::sort(order_indices.begin() + ((opposite_index >= 0 && opposite_index != anchor_index) ? 2 : 1),
+                  order_indices.end(), [&](int lhs, int rhs) {
+                    const Candidate& a = candidates[static_cast<std::size_t>(lhs)];
+                    const Candidate& b = candidates[static_cast<std::size_t>(rhs)];
+                    if (a.min_session_id != b.min_session_id) {
+                      return a.min_session_id < b.min_session_id;
+                    }
+                    if (a.min_generation_order != b.min_generation_order) {
+                      return a.min_generation_order < b.min_generation_order;
+                    }
+                    return a.neighbor_id < b.neighbor_id;
+                  });
+
+        JunctionInfo junction{};
+        junction.node_id = node_id;
+        junction.prioritized_session_id = candidates[static_cast<std::size_t>(anchor_index)].min_session_id;
+        if (junction.prioritized_session_id == std::numeric_limits<std::uint64_t>::max()) {
+          junction.prioritized_session_id = 0;
+          if (const auto it_prioritized = existing_prioritized_session_by_node.find(node_id);
+              it_prioritized != existing_prioritized_session_by_node.end()) {
+            junction.prioritized_session_id = it_prioritized->second;
+          }
+        }
+        junction.used_neighbor_continuity = used_neighbor_continuity;
+        junction.incidents.reserve(order_indices.size());
+        for (std::size_t rank = 0; rank < order_indices.size(); ++rank) {
+          const Candidate& candidate = candidates[static_cast<std::size_t>(order_indices[rank])];
+          JunctionIncident incident{};
+          incident.neighbor_node_id = candidate.neighbor_id;
+          incident.order = static_cast<int>(rank);
+          incident.primary = (rank == 0);
+          incident.source_session_id = candidate.min_session_id;
+          if (incident.source_session_id == std::numeric_limits<std::uint64_t>::max()) {
+            incident.source_session_id = 0;
+            if (const auto it_existing_node = existing_incident_session_by_node.find(node_id);
+                it_existing_node != existing_incident_session_by_node.end()) {
+              if (const auto it_existing_source = it_existing_node->second.find(candidate.neighbor_id);
+                  it_existing_source != it_existing_node->second.end()) {
+                incident.source_session_id = it_existing_source->second;
+              }
+            }
+          }
+          junction.incidents.push_back(incident);
+        }
+        out.junctions.push_back(std::move(junction));
       }
-      out.junctions.push_back(std::move(junction));
+      std::sort(out.junctions.begin(), out.junctions.end(),
+                [](const JunctionInfo& a, const JunctionInfo& b) { return a.node_id < b.node_id; });
     }
-    std::sort(out.junctions.begin(), out.junctions.end(),
-              [](const JunctionInfo& a, const JunctionInfo& b) { return a.node_id < b.node_id; });
 
     out.nodes.clear();
     out.nodes.reserve(node_by_id.size());
@@ -664,8 +746,7 @@ BackboneResult CoreState::BuildBackboneResult() const {
 
   struct IncidentAccum {
     ObjectId neighbor_id = kInvalidObjectId;
-    std::uint64_t min_session_id = std::numeric_limits<std::uint64_t>::max();
-    std::uint32_t min_generation_order = std::numeric_limits<std::uint32_t>::max();
+    BackboneIncidentMeta meta{};
   };
   struct IncidentCandidate {
     ObjectId neighbor_id = kInvalidObjectId;
@@ -679,12 +760,12 @@ BackboneResult CoreState::BuildBackboneResult() const {
                                  std::unordered_map<ObjectId, std::unordered_map<ObjectId, IncidentAccum>>& map) {
     IncidentAccum& acc = map[node_id][neighbor_id];
     acc.neighbor_id = neighbor_id;
-    if (session_id < acc.min_session_id ||
-        (session_id == acc.min_session_id && generation_order < acc.min_generation_order)) {
-      acc.min_session_id = session_id;
-      acc.min_generation_order = generation_order;
-    }
-  };
+      if (session_id < acc.meta.min_session_id ||
+          (session_id == acc.meta.min_session_id && generation_order < acc.meta.min_generation_order)) {
+        acc.meta.min_session_id = session_id;
+        acc.meta.min_generation_order = generation_order;
+      }
+    };
 
   std::unordered_map<ObjectId, std::unordered_map<ObjectId, IncidentAccum>> incident_map{};
   std::unordered_map<ObjectId, std::unordered_map<BundleKind, int>> node_bundle_degree{};
@@ -725,7 +806,7 @@ BackboneResult CoreState::BuildBackboneResult() const {
         return m;
       }
       for (const auto& [_, acc] : it->second) {
-        m = std::min(m, acc.min_session_id);
+        m = std::min(m, acc.meta.min_session_id);
       }
       return m;
     };
@@ -737,134 +818,147 @@ BackboneResult CoreState::BuildBackboneResult() const {
     return a < b;
   });
 
-  auto normalize_dir = [](const Vec3d& v) -> Vec3d {
-    const double len = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
-    if (len <= 1e-9) {
-      return {0.0, 0.0, 0.0};
-    }
-    return {v.x / len, v.y / len, v.z / len};
-  };
-  auto dot = [](const Vec3d& a, const Vec3d& b) -> double { return a.x * b.x + a.y * b.y + a.z * b.z; };
-
-  std::unordered_map<ObjectId, ObjectId> primary_neighbor_by_node{};
-  for (ObjectId node_id : junction_nodes) {
-    auto it_inc = incident_map.find(node_id);
-    if (it_inc == incident_map.end()) {
-      continue;
-    }
-    std::vector<IncidentCandidate> candidates{};
-    candidates.reserve(it_inc->second.size());
-    for (const auto& [neighbor_id, acc] : it_inc->second) {
-      IncidentCandidate c{};
-      c.neighbor_id = neighbor_id;
-      c.min_session_id = acc.min_session_id;
-      c.min_generation_order = acc.min_generation_order;
-      c.dir = normalize_dir(resolve_span_endpoint_position(neighbor_id, nullptr) -
-                            resolve_span_endpoint_position(node_id, nullptr));
-      candidates.push_back(c);
-    }
-    if (candidates.size() < 3) {
-      continue;
-    }
-
-    int anchor_index = -1;
-    bool used_neighbor_continuity = false;
-    auto better_anchor = [&](int lhs, int rhs) {
-      const auto& a = candidates[static_cast<std::size_t>(lhs)];
-      const auto& b = candidates[static_cast<std::size_t>(rhs)];
-      if (a.min_session_id != b.min_session_id) {
-        return a.min_session_id < b.min_session_id;
+  if (!last_generation_junction_relations_.empty()) {
+    std::unordered_map<ObjectId, std::unordered_set<ObjectId>> adjacency{};
+    std::unordered_map<ObjectId, std::unordered_map<ObjectId, BackboneIncidentMeta>> incident_meta_by_node{};
+    for (const auto& [node_id, incidents] : incident_map) {
+      for (const auto& [neighbor_id, acc] : incidents) {
+        adjacency[node_id].insert(neighbor_id);
+        incident_meta_by_node[node_id][neighbor_id] = acc.meta;
       }
-      if (a.min_generation_order != b.min_generation_order) {
-        return a.min_generation_order < b.min_generation_order;
+    }
+    out.junctions = BuildJunctionsFromRelations(last_generation_junction_relations_, adjacency, incident_meta_by_node,
+                                                {}, {});
+  } else {
+    auto normalize_dir = [](const Vec3d& v) -> Vec3d {
+      const double len = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+      if (len <= 1e-9) {
+        return {0.0, 0.0, 0.0};
       }
-      return a.neighbor_id < b.neighbor_id;
+      return {v.x / len, v.y / len, v.z / len};
     };
+    auto dot = [](const Vec3d& a, const Vec3d& b) -> double { return a.x * b.x + a.y * b.y + a.z * b.z; };
 
-    for (std::size_t i = 0; i < candidates.size(); ++i) {
-      auto it_prev = primary_neighbor_by_node.find(candidates[i].neighbor_id);
-      if (it_prev == primary_neighbor_by_node.end() || it_prev->second != node_id) {
+    std::unordered_map<ObjectId, ObjectId> primary_neighbor_by_node{};
+    for (ObjectId node_id : junction_nodes) {
+      auto it_inc = incident_map.find(node_id);
+      if (it_inc == incident_map.end()) {
         continue;
       }
-      const int idx = static_cast<int>(i);
-      if (anchor_index < 0 || better_anchor(idx, anchor_index)) {
-        anchor_index = idx;
-        used_neighbor_continuity = true;
+      std::vector<IncidentCandidate> candidates{};
+      candidates.reserve(it_inc->second.size());
+      for (const auto& [neighbor_id, acc] : it_inc->second) {
+        IncidentCandidate c{};
+        c.neighbor_id = neighbor_id;
+        c.min_session_id = acc.meta.min_session_id;
+        c.min_generation_order = acc.meta.min_generation_order;
+        c.dir = normalize_dir(resolve_span_endpoint_position(neighbor_id, nullptr) -
+                              resolve_span_endpoint_position(node_id, nullptr));
+        candidates.push_back(c);
       }
-    }
-    if (anchor_index < 0) {
+      if (candidates.size() < 3) {
+        continue;
+      }
+
+      int anchor_index = -1;
+      bool used_neighbor_continuity = false;
+      auto better_anchor = [&](int lhs, int rhs) {
+        const auto& a = candidates[static_cast<std::size_t>(lhs)];
+        const auto& b = candidates[static_cast<std::size_t>(rhs)];
+        if (a.min_session_id != b.min_session_id) {
+          return a.min_session_id < b.min_session_id;
+        }
+        if (a.min_generation_order != b.min_generation_order) {
+          return a.min_generation_order < b.min_generation_order;
+        }
+        return a.neighbor_id < b.neighbor_id;
+      };
+
       for (std::size_t i = 0; i < candidates.size(); ++i) {
+        auto it_prev = primary_neighbor_by_node.find(candidates[i].neighbor_id);
+        if (it_prev == primary_neighbor_by_node.end() || it_prev->second != node_id) {
+          continue;
+        }
         const int idx = static_cast<int>(i);
         if (anchor_index < 0 || better_anchor(idx, anchor_index)) {
           anchor_index = idx;
+          used_neighbor_continuity = true;
         }
       }
+      if (anchor_index < 0) {
+        for (std::size_t i = 0; i < candidates.size(); ++i) {
+          const int idx = static_cast<int>(i);
+          if (anchor_index < 0 || better_anchor(idx, anchor_index)) {
+            anchor_index = idx;
+          }
+        }
+      }
+
+      int opposite_index = -1;
+      double best_straight = -2.0;
+      for (std::size_t i = 0; i < candidates.size(); ++i) {
+        const int idx = static_cast<int>(i);
+        if (idx == anchor_index) {
+          continue;
+        }
+        const double straight_score =
+            dot(candidates[static_cast<std::size_t>(anchor_index)].dir, Vec3d{-candidates[i].dir.x, -candidates[i].dir.y,
+                                                                              -candidates[i].dir.z});
+        if (straight_score > best_straight + 1e-9 ||
+            (std::abs(straight_score - best_straight) <= 1e-9 &&
+             candidates[i].neighbor_id < candidates[static_cast<std::size_t>(opposite_index < 0 ? idx : opposite_index)]
+                                           .neighbor_id)) {
+          best_straight = straight_score;
+          opposite_index = idx;
+        }
+      }
+
+      std::vector<int> ordered_indices{};
+      ordered_indices.push_back(anchor_index);
+      if (opposite_index >= 0 && opposite_index != anchor_index) {
+        ordered_indices.push_back(opposite_index);
+      }
+      std::vector<int> tail{};
+      for (std::size_t i = 0; i < candidates.size(); ++i) {
+        const int idx = static_cast<int>(i);
+        if (idx == anchor_index || idx == opposite_index) {
+          continue;
+        }
+        tail.push_back(idx);
+      }
+      std::sort(tail.begin(), tail.end(), [&](int lhs, int rhs) {
+        const auto& a = candidates[static_cast<std::size_t>(lhs)];
+        const auto& b = candidates[static_cast<std::size_t>(rhs)];
+        if (a.min_session_id != b.min_session_id) {
+          return a.min_session_id < b.min_session_id;
+        }
+        if (a.min_generation_order != b.min_generation_order) {
+          return a.min_generation_order < b.min_generation_order;
+        }
+        return a.neighbor_id < b.neighbor_id;
+      });
+      ordered_indices.insert(ordered_indices.end(), tail.begin(), tail.end());
+
+      JunctionInfo junction{};
+      junction.node_id = node_id;
+      junction.prioritized_session_id = candidates[static_cast<std::size_t>(anchor_index)].min_session_id;
+      junction.used_neighbor_continuity = used_neighbor_continuity;
+      for (std::size_t rank = 0; rank < ordered_indices.size(); ++rank) {
+        const auto& c = candidates[static_cast<std::size_t>(ordered_indices[rank])];
+        JunctionIncident inc{};
+        inc.neighbor_node_id = c.neighbor_id;
+        inc.order = static_cast<int>(rank);
+        inc.primary = (rank == 0);
+        inc.source_session_id = c.min_session_id;
+        junction.incidents.push_back(inc);
+      }
+      primary_neighbor_by_node[node_id] = candidates[static_cast<std::size_t>(anchor_index)].neighbor_id;
+      out.junctions.push_back(std::move(junction));
     }
 
-    int opposite_index = -1;
-    double best_straight = -2.0;
-    for (std::size_t i = 0; i < candidates.size(); ++i) {
-      const int idx = static_cast<int>(i);
-      if (idx == anchor_index) {
-        continue;
-      }
-      const double straight_score =
-          dot(candidates[static_cast<std::size_t>(anchor_index)].dir, Vec3d{-candidates[i].dir.x, -candidates[i].dir.y,
-                                                                            -candidates[i].dir.z});
-      if (straight_score > best_straight + 1e-9 ||
-          (std::abs(straight_score - best_straight) <= 1e-9 &&
-           candidates[i].neighbor_id < candidates[static_cast<std::size_t>(opposite_index < 0 ? idx : opposite_index)]
-                                         .neighbor_id)) {
-        best_straight = straight_score;
-        opposite_index = idx;
-      }
-    }
-
-    std::vector<int> ordered_indices{};
-    ordered_indices.push_back(anchor_index);
-    if (opposite_index >= 0 && opposite_index != anchor_index) {
-      ordered_indices.push_back(opposite_index);
-    }
-    std::vector<int> tail{};
-    for (std::size_t i = 0; i < candidates.size(); ++i) {
-      const int idx = static_cast<int>(i);
-      if (idx == anchor_index || idx == opposite_index) {
-        continue;
-      }
-      tail.push_back(idx);
-    }
-    std::sort(tail.begin(), tail.end(), [&](int lhs, int rhs) {
-      const auto& a = candidates[static_cast<std::size_t>(lhs)];
-      const auto& b = candidates[static_cast<std::size_t>(rhs)];
-      if (a.min_session_id != b.min_session_id) {
-        return a.min_session_id < b.min_session_id;
-      }
-      if (a.min_generation_order != b.min_generation_order) {
-        return a.min_generation_order < b.min_generation_order;
-      }
-      return a.neighbor_id < b.neighbor_id;
-    });
-    ordered_indices.insert(ordered_indices.end(), tail.begin(), tail.end());
-
-    JunctionInfo junction{};
-    junction.node_id = node_id;
-    junction.prioritized_session_id = candidates[static_cast<std::size_t>(anchor_index)].min_session_id;
-    junction.used_neighbor_continuity = used_neighbor_continuity;
-    for (std::size_t rank = 0; rank < ordered_indices.size(); ++rank) {
-      const auto& c = candidates[static_cast<std::size_t>(ordered_indices[rank])];
-      JunctionIncident inc{};
-      inc.neighbor_node_id = c.neighbor_id;
-      inc.order = static_cast<int>(rank);
-      inc.primary = (rank == 0);
-      inc.source_session_id = c.min_session_id;
-      junction.incidents.push_back(inc);
-    }
-    primary_neighbor_by_node[node_id] = candidates[static_cast<std::size_t>(anchor_index)].neighbor_id;
-    out.junctions.push_back(std::move(junction));
+    std::sort(out.junctions.begin(), out.junctions.end(),
+              [](const JunctionInfo& a, const JunctionInfo& b) { return a.node_id < b.node_id; });
   }
-
-  std::sort(out.junctions.begin(), out.junctions.end(),
-            [](const JunctionInfo& a, const JunctionInfo& b) { return a.node_id < b.node_id; });
 
   std::unordered_set<ObjectId> support_node_ids{};
   for (const BackboneEdge& edge : out.edges) {

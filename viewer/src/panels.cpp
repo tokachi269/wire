@@ -1,4 +1,4 @@
-#include "panels.hpp"
+﻿#include "panels.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -330,28 +330,28 @@ const char* BackboneLoweringKindLabel(wire::core::BackboneLoweringKind kind) {
   }
 }
 
-const char* BundleOrderChoiceLabel(wire::core::BundleOrderChoiceKind choice) {
+const char* OrderDecisionChoiceLabel(wire::core::OrderDecisionChoiceKind choice) {
   switch (choice) {
-  case wire::core::BundleOrderChoiceKind::kNormal:
+  case wire::core::OrderDecisionChoiceKind::kNormal:
     return "Normal";
-  case wire::core::BundleOrderChoiceKind::kReversed:
+  case wire::core::OrderDecisionChoiceKind::kReversed:
     return "Reversed";
   default:
     return "Unknown";
   }
 }
 
-const char* BundleOrderChoiceReasonLabel(wire::core::BundleOrderChoiceReason reason) {
+const char* OrderDecisionChoiceReasonLabel(wire::core::OrderDecisionChoiceReason reason) {
   switch (reason) {
-  case wire::core::BundleOrderChoiceReason::kFixedOrder:
+  case wire::core::OrderDecisionChoiceReason::kFixedOrder:
     return "FixedOrder";
-  case wire::core::BundleOrderChoiceReason::kCrossingFewer:
+  case wire::core::OrderDecisionChoiceReason::kCrossingFewer:
     return "CrossingFewer";
-  case wire::core::BundleOrderChoiceReason::kSpacingBetter:
+  case wire::core::OrderDecisionChoiceReason::kSpacingBetter:
     return "SpacingBetter";
-  case wire::core::BundleOrderChoiceReason::kTwistSmaller:
+  case wire::core::OrderDecisionChoiceReason::kTwistSmaller:
     return "TwistSmaller";
-  case wire::core::BundleOrderChoiceReason::kKeptDefault:
+  case wire::core::OrderDecisionChoiceReason::kKeptDefault:
     return "KeptDefault";
   default:
     return "Unknown";
@@ -420,11 +420,11 @@ const char* SameLevelFeasibilityReasonLabel(wire::core::SameLevelFeasibilityReas
   }
 }
 
-const char* BundleOrderPolicyLabel(wire::core::BundleOrderPolicyKind policy) {
+const char* OrderDecisionPolicyLabel(wire::core::OrderDecisionPolicyKind policy) {
   switch (policy) {
-  case wire::core::BundleOrderPolicyKind::kFixedOrder:
+  case wire::core::OrderDecisionPolicyKind::kFixedOrder:
     return "FixedOrder";
-  case wire::core::BundleOrderPolicyKind::kPermutableHomogeneous:
+  case wire::core::OrderDecisionPolicyKind::kPermutableHomogeneous:
     return "PermutableHomogeneous";
   default:
     return "Unknown";
@@ -1055,9 +1055,9 @@ void DrawEndpointDecisionSummary(const char* label, const wire::core::SupportLay
               endpoint.solver_used_same_level_constraint ? "true" : "false",
               endpoint.used_special_case_ports ? "true" : "false");
   ImGui::Text("  order=%s choice=%s(%s) side=%s sign=%.2f sideRule=%s pairSide=%s",
-              BundleOrderPolicyLabel(endpoint.bundle_order_policy),
-              BundleOrderChoiceLabel(endpoint.bundle_order_choice),
-              BundleOrderChoiceReasonLabel(endpoint.bundle_order_choice_reason),
+              OrderDecisionPolicyLabel(endpoint.order_decision_policy),
+              OrderDecisionChoiceLabel(endpoint.order_decision_choice),
+              OrderDecisionChoiceReasonLabel(endpoint.order_decision_choice_reason),
               LateralSideChoiceLabel(endpoint.decision.chosen_side), endpoint.chosen_side_sign,
               SideAssignmentRuleKindLabel(endpoint.side_assignment_rule),
               endpoint.used_junction_pair_side_assignment ? "true" : "false");
@@ -1085,8 +1085,8 @@ void DrawLoweredSupportGroupsBlock(const std::vector<wire::core::LoweredSupportG
                 JunctionRelationKindLabel(group.decision.relation_kind),
                 ContinuityCategoryClassLabel(group.decision.continuity_class),
                 group.decision.lower_required ? "true" : "false",
-                BundleOrderPolicyLabel(group.bundle_order_policy), BundleOrderChoiceLabel(group.bundle_order_choice),
-                BundleOrderChoiceReasonLabel(group.bundle_order_choice_reason));
+                OrderDecisionPolicyLabel(group.order_decision_policy), OrderDecisionChoiceLabel(group.order_decision_choice),
+                OrderDecisionChoiceReasonLabel(group.order_decision_choice_reason));
     ImGui::Text("  side=%s sign=%.2f sideRule=%s orient=%s basis=%s pairSide=%s down=%.2f",
                 LateralSideChoiceLabel(group.decision.chosen_side), group.chosen_side_sign,
                 SideAssignmentRuleKindLabel(group.side_assignment_rule),
@@ -1299,11 +1299,11 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
           span_view->unresolved_same_level_conflict ? "true" : "false",
           span_view->solver_used_same_level_constraint ? "true" : "false",
           span_view->used_special_case_ports ? "true" : "false");
-      ImGui::Text("bundleOrder: A=%s(%s) B=%s(%s) flippedPrev=%s turn=%.2f",
-                  BundleOrderChoiceLabel(span_view->bundle_order_choice_a),
-                  BundleOrderChoiceReasonLabel(span_view->bundle_order_choice_reason_a),
-                  BundleOrderChoiceLabel(span_view->bundle_order_choice_b),
-                  BundleOrderChoiceReasonLabel(span_view->bundle_order_choice_reason_b),
+      ImGui::Text("orderDecision: A=%s(%s) B=%s(%s) flippedPrev=%s turn=%.2f",
+                  OrderDecisionChoiceLabel(span_view->order_decision_choice_a),
+                  OrderDecisionChoiceReasonLabel(span_view->order_decision_choice_reason_a),
+                  OrderDecisionChoiceLabel(span_view->order_decision_choice_b),
+                  OrderDecisionChoiceReasonLabel(span_view->order_decision_choice_reason_b),
                   span_view->flipped_from_previous ? "true" : "false", span_view->turn_angle_deg);
       if (layout_view.has_value()) {
         auto draw_support_endpoint = [&](const char* label, const wire::core::SupportLayoutEndpointView& endpoint) {
@@ -1350,7 +1350,7 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
                     layout_view->unresolved_same_level_conflict ? "true" : "false",
                     layout_view->solver_used_same_level_constraint ? "true" : "false",
                     layout_view->used_special_case_ports ? "true" : "false");
-        ImGui::Text("  orderPolicy=%s topview=%.2f required=%.2f", BundleOrderPolicyLabel(layout_view->bundle_order_policy),
+        ImGui::Text("  orderPolicy=%s topview=%.2f required=%.2f", OrderDecisionPolicyLabel(layout_view->order_decision_policy),
                     layout_view->projected_spacing_topview_m, layout_view->required_clearance_m);
         draw_support_endpoint("endpointA", layout_view->start_endpoint);
         DrawEndpointDecisionSummary("endpointA decision", layout_view->start_endpoint);
@@ -1495,7 +1495,7 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
                 layout_view->solver_used_same_level_constraint ? "true" : "false",
                 layout_view->used_special_case_ports ? "true" : "false");
     ImGui::Text("orderPolicy=%s lowering=%s topview=%.2f required=%.2f",
-                BundleOrderPolicyLabel(layout_view->bundle_order_policy),
+                OrderDecisionPolicyLabel(layout_view->order_decision_policy),
                 BackboneLoweringKindLabel(layout_view->lowering_kind),
                 layout_view->projected_spacing_topview_m, layout_view->required_clearance_m);
     auto draw_endpoint = [&](const char* label, const wire::core::SupportLayoutEndpointView& endpoint) {
@@ -2364,3 +2364,4 @@ void DrawStatsPanel(CoreState& state, ViewerUiState& ui_state) {
     DrawDiagnosticsWindow(state, ui_state);
   }
 }
+

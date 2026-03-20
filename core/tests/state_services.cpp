@@ -1,4 +1,4 @@
-#include "registry.hpp"
+﻿#include "registry.hpp"
 
 #include "../src/state/internal_services.hpp"
 #include "helpers.hpp"
@@ -518,9 +518,9 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
   decision.decision = grouped_store[{pole_a, 1234}].decision;
   decision.side = grouped_store[{pole_a, 1234}].side;
   decision.origin = grouped_store[{pole_a, 1234}].origin;
-  decision.bundle_order_policy = grouped_store[{pole_a, 1234}].bundle_order_policy;
-  decision.bundle_order_choice = grouped_store[{pole_a, 1234}].bundle_order_choice;
-  decision.bundle_order_choice_reason = grouped_store[{pole_a, 1234}].bundle_order_choice_reason;
+  decision.order_decision_policy = grouped_store[{pole_a, 1234}].order_decision_policy;
+  decision.order_decision_choice = grouped_store[{pole_a, 1234}].order_decision_choice;
+  decision.order_decision_choice_reason = grouped_store[{pole_a, 1234}].order_decision_choice_reason;
   decision.side_assignment_rule = grouped_store[{pole_a, 1234}].side_assignment_rule;
   decision.support_orientation_rule = grouped_store[{pole_a, 1234}].support_orientation_rule;
   decision.used_junction_pair_side_assignment = grouped_store[{pole_a, 1234}].used_junction_pair_side_assignment;
@@ -674,3 +674,4 @@ void RegisterStateServiceTests(test_registry::TestRegistry& tests) {
 WIRE_REGISTER_TEST_SUITE(RegisterStateServiceTests);
 
 } // namespace
+

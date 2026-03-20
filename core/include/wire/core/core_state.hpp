@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <optional>
 #include <string>
@@ -131,9 +131,9 @@ struct SupportLayoutEndpoint {
   SupportLayoutOriginKind origin = SupportLayoutOriginKind::kFallback;
   SupportLayoutEndpointSourceKind endpoint_source = SupportLayoutEndpointSourceKind::kFallback;
   PortPlacementSourceKind port_source = PortPlacementSourceKind::kUnknown;
-  BundleOrderPolicyKind bundle_order_policy = BundleOrderPolicyKind::kFixedOrder;
-  BundleOrderChoiceKind bundle_order_choice = BundleOrderChoiceKind::kNormal;
-  BundleOrderChoiceReason bundle_order_choice_reason = BundleOrderChoiceReason::kFixedOrder;
+  OrderDecisionPolicyKind order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
+  OrderDecisionChoiceKind order_decision_choice = OrderDecisionChoiceKind::kNormal;
+  OrderDecisionChoiceReason order_decision_choice_reason = OrderDecisionChoiceReason::kFixedOrder;
   SlotSide side = SlotSide::kCenter;
   SideAssignmentRuleKind side_assignment_rule = SideAssignmentRuleKind::kPoleLocal;
   SupportOrientationRuleKind support_orientation_rule = SupportOrientationRuleKind::kRadial;
@@ -166,9 +166,9 @@ struct SupportGroupDecision {
   EndpointContinuityDecision decision{};
   SlotSide side = SlotSide::kCenter;
   SupportLayoutOriginKind origin = SupportLayoutOriginKind::kFallback;
-  BundleOrderPolicyKind bundle_order_policy = BundleOrderPolicyKind::kFixedOrder;
-  BundleOrderChoiceKind bundle_order_choice = BundleOrderChoiceKind::kNormal;
-  BundleOrderChoiceReason bundle_order_choice_reason = BundleOrderChoiceReason::kFixedOrder;
+  OrderDecisionPolicyKind order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
+  OrderDecisionChoiceKind order_decision_choice = OrderDecisionChoiceKind::kNormal;
+  OrderDecisionChoiceReason order_decision_choice_reason = OrderDecisionChoiceReason::kFixedOrder;
   SideAssignmentRuleKind side_assignment_rule = SideAssignmentRuleKind::kPoleLocal;
   SupportOrientationRuleKind support_orientation_rule = SupportOrientationRuleKind::kRadial;
   bool used_junction_pair_side_assignment = false;
@@ -190,9 +190,9 @@ struct LoweredSupportGroupPlacement {
   SupportGroupingRuleKind grouping_rule = SupportGroupingRuleKind::kDecisionGroup;
   int support_group_id = -1;
   int grouped_port_count = 1;
-  BundleOrderPolicyKind bundle_order_policy = BundleOrderPolicyKind::kFixedOrder;
-  BundleOrderChoiceKind bundle_order_choice = BundleOrderChoiceKind::kNormal;
-  BundleOrderChoiceReason bundle_order_choice_reason = BundleOrderChoiceReason::kFixedOrder;
+  OrderDecisionPolicyKind order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
+  OrderDecisionChoiceKind order_decision_choice = OrderDecisionChoiceKind::kNormal;
+  OrderDecisionChoiceReason order_decision_choice_reason = OrderDecisionChoiceReason::kFixedOrder;
   SideAssignmentRuleKind side_assignment_rule = SideAssignmentRuleKind::kPoleLocal;
   SupportOrientationRuleKind support_orientation_rule = SupportOrientationRuleKind::kRadial;
   bool used_junction_pair_side_assignment = false;
@@ -211,7 +211,7 @@ struct SpanSupportLayoutEntry {
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
   CurvePassMode pass_mode = CurvePassMode::kPassThrough;
   std::uint64_t variation_flow_key = 0;
-  BundleOrderPolicyKind bundle_order_policy = BundleOrderPolicyKind::kFixedOrder;
+  OrderDecisionPolicyKind order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
   JunctionRelationKind relation_a = JunctionRelationKind::kNone;
   JunctionRelationKind relation_b = JunctionRelationKind::kNone;
   ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
@@ -657,7 +657,7 @@ private:
                                                const std::unordered_map<ObjectId, SupportNode>& support_node_by_id,
                                                ObjectId bundle_id, ConnectionCategory category, int conductor_count,
                                                double spacing_m, bool maintain_lane_order, bool allow_lane_mirror,
-                                               BundleOrderPolicyKind bundle_order_policy,
+                                               OrderDecisionPolicyKind order_decision_policy,
                                                BackboneFlowKind flow_kind, const BackboneLoweringPolicy& lowering_policy,
                                                const std::unordered_map<ObjectId, JunctionRelation>* junction_relations_by_node,
                                                std::vector<SegmentLaneAssignment>* out_lane_assignments,
@@ -919,3 +919,5 @@ inline CoreView CoreState::view() const { return CoreView(*this); }
 CoreState make_demo_state();
 
 } // namespace wire::core
+
+

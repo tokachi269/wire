@@ -1,4 +1,4 @@
-#include "wire/core/core_state.hpp"
+﻿#include "wire/core/core_state.hpp"
 #include "../pole_orientation_utils.hpp"
 #include "detail_utils.hpp"
 #include "support_policy.hpp"
@@ -26,7 +26,7 @@ EditResult<std::vector<ObjectId>>
 CoreState::generate_grouped_spans_between_support_nodes(
     const std::vector<ObjectId>& node_ids, const std::unordered_map<ObjectId, SupportNode>& support_node_by_id,
     ObjectId bundle_id, ConnectionCategory category, int conductor_count, double spacing_m, bool maintain_lane_order,
-    bool allow_lane_mirror, BundleOrderPolicyKind bundle_order_policy, BackboneFlowKind flow_kind,
+    bool allow_lane_mirror, OrderDecisionPolicyKind order_decision_policy, BackboneFlowKind flow_kind,
     const BackboneLoweringPolicy& lowering_policy,
     const std::unordered_map<ObjectId, JunctionRelation>* junction_relations_by_node,
     std::vector<SegmentLaneAssignment>* out_lane_assignments,
@@ -470,89 +470,80 @@ CoreState::generate_grouped_spans_between_support_nodes(
     (*pairings)[peer_a] = info_a;
     (*pairings)[peer_b] = info_b;
   };
+  auto linear_support_pair_cost = [&](const std::vector<const SupportPairCandidate*>& sequence) {
+    if (sequence.size() < 2 || (sequence.size() % 2) != 0) {
+      return std::numeric_limits<double>::infinity();
+    }
+    double total = 0.0;
+    for (std::size_t i = 0; i + 1 < sequence.size(); i += 2) {
+      total += angular_gap_rad(sequence[i]->angle, sequence[i + 1]->angle);
+    }
+    return total;
+  };
+  auto build_support_pair_sequence = [&](const std::vector<SupportPairCandidate>& ordered, int start_index, int skip_index) {
+    std::vector<const SupportPairCandidate*> sequence{};
+    sequence.reserve(ordered.size());
+    for (std::size_t offset = 0; offset < ordered.size(); ++offset) {
+      const int index = (start_index + static_cast<int>(offset)) % static_cast<int>(ordered.size());
+      if (index != skip_index) {
+        sequence.push_back(&ordered[static_cast<std::size_t>(index)]);
+      }
+    }
+    return sequence;
+  };
+  auto best_adjacent_support_pair_sequence = [&](const std::vector<SupportPairCandidate>& ordered) {
+    std::vector<const SupportPairCandidate*> best_sequence{};
+    double best_cost = std::numeric_limits<double>::infinity();
+    const auto consider_sequence = [&](std::vector<const SupportPairCandidate*> sequence) {
+      const double cost = linear_support_pair_cost(sequence);
+      if (cost + 1e-9 < best_cost) {
+        best_cost = cost;
+        best_sequence = std::move(sequence);
+      }
+    };
+    if ((ordered.size() % 2) == 0) {
+      for (int start_index : {0, 1}) {
+        if (start_index < static_cast<int>(ordered.size())) {
+          consider_sequence(build_support_pair_sequence(ordered, start_index, -1));
+        }
+      }
+    } else {
+      for (int skip_index = 0; skip_index < static_cast<int>(ordered.size()); ++skip_index) {
+        consider_sequence(build_support_pair_sequence(
+            ordered, (skip_index + 1) % static_cast<int>(ordered.size()), skip_index));
+      }
+    }
+    return best_sequence;
+  };
+  auto sort_support_pair_candidates = [](std::vector<SupportPairCandidate>* candidates) {
+    if (candidates == nullptr) {
+      return;
+    }
+    std::ranges::sort(*candidates, [](const SupportPairCandidate& a, const SupportPairCandidate& b) {
+      if (a.angle != b.angle) {
+        return a.angle < b.angle;
+      }
+      return a.peer_id < b.peer_id;
+    });
+  };
   auto build_adjacent_support_pairs = [&](const std::vector<SupportPairCandidate>& ordered,
                                           std::map<ObjectId, LoweredSupportPairInfo>* pairings) {
     if (pairings == nullptr || ordered.size() < 2) {
       return;
     }
-    auto linear_pair_cost = [&](const std::vector<const SupportPairCandidate*>& sequence) {
-      if (sequence.size() < 2 || (sequence.size() % 2) != 0) {
-        return std::numeric_limits<double>::infinity();
-      }
-      double total = 0.0;
-      for (std::size_t i = 0; i + 1 < sequence.size(); i += 2) {
-        total += angular_gap_rad(sequence[i]->angle, sequence[i + 1]->angle);
-      }
-      return total;
-    };
-    auto build_sequence = [&](int start_index, int skip_index) {
-      std::vector<const SupportPairCandidate*> sequence{};
-      sequence.reserve(ordered.size());
-      for (std::size_t offset = 0; offset < ordered.size(); ++offset) {
-        const int index = (start_index + static_cast<int>(offset)) % static_cast<int>(ordered.size());
-        if (index == skip_index) {
-          continue;
-        }
-        sequence.push_back(&ordered[static_cast<std::size_t>(index)]);
-      }
-      return sequence;
-    };
-    std::vector<const SupportPairCandidate*> best_sequence{};
-    double best_cost = std::numeric_limits<double>::infinity();
-    if ((ordered.size() % 2) == 0) {
-      for (int start_index : {0, 1}) {
-        if (start_index >= static_cast<int>(ordered.size())) {
-          continue;
-        }
-        std::vector<const SupportPairCandidate*> sequence = build_sequence(start_index, -1);
-        const double cost = linear_pair_cost(sequence);
-        if (cost + 1e-9 < best_cost) {
-          best_cost = cost;
-          best_sequence = std::move(sequence);
-        }
-      }
-    } else {
-      for (int skip_index = 0; skip_index < static_cast<int>(ordered.size()); ++skip_index) {
-        std::vector<const SupportPairCandidate*> sequence =
-            build_sequence((skip_index + 1) % static_cast<int>(ordered.size()), skip_index);
-        const double cost = linear_pair_cost(sequence);
-        if (cost + 1e-9 < best_cost) {
-          best_cost = cost;
-          best_sequence = std::move(sequence);
-        }
-      }
-    }
+    const std::vector<const SupportPairCandidate*> best_sequence = best_adjacent_support_pair_sequence(ordered);
     for (std::size_t i = 0; i + 1 < best_sequence.size(); i += 2) {
       record_support_pair(pairings, best_sequence[i]->peer_id, best_sequence[i + 1]->peer_id);
     }
   };
-  auto lowered_support_pair_info_for_endpoint =
-      [&](ObjectId node_id, ObjectId peer_id, const SegmentRelationFeasibility& feasibility)
-      -> std::optional<LoweredSupportPairInfo> {
-    if (junction_relations_by_node == nullptr || node_id == kInvalidObjectId || peer_id == kInvalidObjectId ||
-        feasibility.continuity_class != ContinuityCategoryClass::kBundleLike || !endpoint_has_lowering_conflict(feasibility) ||
-        feasibility.kind == JunctionRelationKind::kThroughMain || feasibility.kind == JunctionRelationKind::kNone) {
-      return std::nullopt;
+  auto populate_support_pair_candidates = [&](ObjectId node_id, const JunctionRelation& relation,
+                                              std::vector<SupportPairCandidate>* route_candidates,
+                                              std::vector<SupportPairCandidate>* lowered_candidates,
+                                              std::map<ObjectId, LoweredSupportPairInfo>* pairings) {
+    if (route_candidates == nullptr || lowered_candidates == nullptr || pairings == nullptr) {
+      return;
     }
-    if (!lowered_support_pair_cache_built.insert(node_id).second) {
-      const auto node_it = lowered_support_pair_cache.find(node_id);
-      if (node_it == lowered_support_pair_cache.end()) {
-        return std::nullopt;
-      }
-      const auto pair_it = node_it->second.find(peer_id);
-      if (pair_it == node_it->second.end()) {
-        return std::nullopt;
-      }
-      return pair_it->second;
-    }
-    auto& pairings = lowered_support_pair_cache[node_id];
-    const auto relation_it = junction_relations_by_node->find(node_id);
-    if (relation_it == junction_relations_by_node->end()) {
-      return std::nullopt;
-    }
-    std::vector<SupportPairCandidate> route_candidates{};
-    std::vector<SupportPairCandidate> lowered_candidates{};
-    for (const JunctionIncidentRelation& incident : relation_it->second.incidents) {
+    for (const JunctionIncidentRelation& incident : relation.incidents) {
       if (!incident.in_route || incident.continuity_class != ContinuityCategoryClass::kBundleLike ||
           incident.kind == JunctionRelationKind::kNone) {
         continue;
@@ -569,61 +560,110 @@ CoreState::generate_grouped_spans_between_support_nodes(
       candidate.lower_required =
           incident.kind != JunctionRelationKind::kThroughMain &&
           (incident.default_lower_required || !incident.same_level_feasible);
-      route_candidates.push_back(candidate);
+      route_candidates->push_back(candidate);
       if (candidate.lower_required) {
-        lowered_candidates.push_back(candidate);
+        lowered_candidates->push_back(candidate);
       }
-      pairings[incident.neighbor_node_id] = {};
+      (*pairings)[incident.neighbor_node_id] = {};
     }
-    std::sort(route_candidates.begin(), route_candidates.end(), [](const SupportPairCandidate& a,
-                                                                   const SupportPairCandidate& b) {
-      if (a.angle != b.angle) {
-        return a.angle < b.angle;
+  };
+  auto angular_companion_for_lowered = [&](const SupportPairCandidate& lowered_candidate,
+                                           const std::vector<SupportPairCandidate>& route_candidates) {
+    ObjectId companion_peer_id = kInvalidObjectId;
+    double best_gap = std::numeric_limits<double>::infinity();
+    for (const SupportPairCandidate& route_candidate : route_candidates) {
+      if (route_candidate.peer_id == lowered_candidate.peer_id) {
+        continue;
       }
-      return a.peer_id < b.peer_id;
-    });
-    std::sort(lowered_candidates.begin(), lowered_candidates.end(), [](const SupportPairCandidate& a,
-                                                                       const SupportPairCandidate& b) {
-      if (a.angle != b.angle) {
-        return a.angle < b.angle;
-      }
-      return a.peer_id < b.peer_id;
-    });
-    build_adjacent_support_pairs(lowered_candidates, &pairings);
-    auto angular_companion_for_lowered = [&](const SupportPairCandidate& lowered_candidate) -> ObjectId {
-      ObjectId companion_peer_id = kInvalidObjectId;
-      double best_gap = std::numeric_limits<double>::infinity();
-      for (const SupportPairCandidate& route_candidate : route_candidates) {
-        if (route_candidate.peer_id == lowered_candidate.peer_id) {
-          continue;
-        }
-        const double gap = angular_gap_rad(lowered_candidate.angle, route_candidate.angle);
-        const bool better_gap = gap + 1e-9 < best_gap;
-        const bool equal_gap = std::abs(gap - best_gap) <= 1e-9;
-        if (!(better_gap || (equal_gap && route_candidate.peer_id < companion_peer_id))) {
-          continue;
-        }
+      const double gap = angular_gap_rad(lowered_candidate.angle, route_candidate.angle);
+      if (const bool equal_gap = std::abs(gap - best_gap) <= 1e-9;
+          gap + 1e-9 < best_gap || (equal_gap && route_candidate.peer_id < companion_peer_id)) {
         companion_peer_id = route_candidate.peer_id;
         best_gap = gap;
       }
-      return companion_peer_id;
-    };
+    }
+    return companion_peer_id;
+  };
+  auto pair_unpaired_lowered_candidates = [&](const std::vector<SupportPairCandidate>& lowered_candidates,
+                                              const std::vector<SupportPairCandidate>& route_candidates,
+                                              std::map<ObjectId, LoweredSupportPairInfo>* pairings) {
+    if (pairings == nullptr) {
+      return;
+    }
     for (const SupportPairCandidate& lowered_candidate : lowered_candidates) {
-      auto existing_pair = pairings.find(lowered_candidate.peer_id);
-      if (existing_pair != pairings.end() && existing_pair->second.has_pair) {
+      if (const auto existing_pair = pairings->find(lowered_candidate.peer_id);
+          existing_pair != pairings->end() && existing_pair->second.has_pair) {
         continue;
       }
-      const ObjectId companion_peer_id = angular_companion_for_lowered(lowered_candidate);
-      if (companion_peer_id == kInvalidObjectId) {
-        continue;
+      if (const ObjectId companion_peer_id = angular_companion_for_lowered(lowered_candidate, route_candidates);
+          companion_peer_id != kInvalidObjectId) {
+        record_support_pair(pairings, lowered_candidate.peer_id, companion_peer_id);
       }
-      record_support_pair(&pairings, lowered_candidate.peer_id, companion_peer_id);
+    }
+  };
+  auto supports_lowered_support_pairing = [&](ObjectId node_id, ObjectId peer_id,
+                                              const SegmentRelationFeasibility& feasibility) {
+    return junction_relations_by_node != nullptr && node_id != kInvalidObjectId && peer_id != kInvalidObjectId &&
+           feasibility.continuity_class == ContinuityCategoryClass::kBundleLike &&
+           endpoint_has_lowering_conflict(feasibility) && feasibility.kind != JunctionRelationKind::kThroughMain &&
+           feasibility.kind != JunctionRelationKind::kNone;
+  };
+  auto cached_lowered_support_pair_info = [&](ObjectId node_id, ObjectId peer_id) -> std::optional<LoweredSupportPairInfo> {
+    if (lowered_support_pair_cache_built.insert(node_id).second) {
+      return std::nullopt;
+    }
+    if (const auto node_it = lowered_support_pair_cache.find(node_id); node_it != lowered_support_pair_cache.end()) {
+      if (const auto pair_it = node_it->second.find(peer_id); pair_it != node_it->second.end()) {
+        return pair_it->second;
+      }
+    }
+    return std::nullopt;
+  };
+  auto build_lowered_support_pairs_for_node = [&](ObjectId node_id, std::map<ObjectId, LoweredSupportPairInfo>* pairings) {
+    if (pairings == nullptr) {
+      return false;
+    }
+    const auto relation_it = junction_relations_by_node->find(node_id);
+    if (relation_it == junction_relations_by_node->end()) {
+      return false;
+    }
+    std::vector<SupportPairCandidate> route_candidates{};
+    std::vector<SupportPairCandidate> lowered_candidates{};
+    populate_support_pair_candidates(node_id, relation_it->second, &route_candidates, &lowered_candidates, pairings);
+    sort_support_pair_candidates(&route_candidates);
+    sort_support_pair_candidates(&lowered_candidates);
+    build_adjacent_support_pairs(lowered_candidates, pairings);
+    pair_unpaired_lowered_candidates(lowered_candidates, route_candidates, pairings);
+    return true;
+  };
+  auto lowered_support_pair_info_for_endpoint =
+      [&](ObjectId node_id, ObjectId peer_id, const SegmentRelationFeasibility& feasibility)
+      -> std::optional<LoweredSupportPairInfo> {
+    if (!supports_lowered_support_pairing(node_id, peer_id, feasibility)) {
+      return std::nullopt;
+    }
+    if (const auto cached_pair = cached_lowered_support_pair_info(node_id, peer_id); cached_pair.has_value()) {
+      return cached_pair;
+    }
+    auto& pairings = lowered_support_pair_cache[node_id];
+    if (!build_lowered_support_pairs_for_node(node_id, &pairings)) {
+      return std::nullopt;
     }
     const auto pair_it = pairings.find(peer_id);
     if (pair_it == pairings.end()) {
       return std::nullopt;
     }
     return pair_it->second;
+  };
+  auto pair_reference_axis_for_endpoint = [&](ObjectId node_id, ObjectId peer_id, const LoweredSupportPairInfo& pair_info) {
+    Vec3d pair_reference = support_position(pair_info.pair_peer_high) - support_position(pair_info.pair_peer_low);
+    pair_reference.z = 0.0;
+    if (!normalize_xy(&pair_reference)) {
+      pair_reference = support_position(peer_id) - support_position(node_id);
+      pair_reference.z = 0.0;
+      normalize_xy(&pair_reference);
+    }
+    return pair_reference;
   };
   auto pair_bisector_axis_for_endpoint = [&](ObjectId node_id, ObjectId peer_id,
                                              const LoweredSupportPairInfo& pair_info) -> std::optional<Vec3d> {
@@ -637,12 +677,12 @@ CoreState::generate_grouped_spans_between_support_nodes(
     if (!normalize_xy(&peer_dir) || !normalize_xy(&companion_dir)) {
       return std::nullopt;
     }
+    Vec3d pair_reference = pair_reference_axis_for_endpoint(node_id, peer_id, pair_info);
     Vec3d bisector = peer_dir + companion_dir;
     if (!normalize_xy(&bisector)) {
-      return std::nullopt;
+      return pair_reference;
     }
-    Vec3d canonical = canonical_side_axis_for_order(node_id, peer_id);
-    if (dot_xy(bisector, canonical) < 0.0) {
+    if (dot_xy(bisector, pair_reference) < 0.0) {
       bisector = ScaleVec(bisector, -1.0);
     }
     return bisector;
@@ -730,8 +770,8 @@ CoreState::generate_grouped_spans_between_support_nodes(
     if (!normalize_xy(&bisector)) {
       return std::nullopt;
     }
-    Vec3d canonical = canonical_side_axis_for_order(node_id, peer_id);
-    if (dot_xy(bisector, canonical) < 0.0) {
+    if (const Vec3d canonical = canonical_side_axis_for_order(node_id, peer_id);
+        dot_xy(bisector, canonical) < 0.0) {
       bisector = ScaleVec(bisector, -1.0);
     }
     return bisector;
@@ -742,11 +782,25 @@ CoreState::generate_grouped_spans_between_support_nodes(
     if (!normalize_xy(&axis)) {
       return canonical_side_axis_for_order(node_id, peer_id);
     }
-    axis = ComputeLateralAxis(axis);
-    if (!normalize_xy(&axis)) {
-      return canonical_side_axis_for_order(node_id, peer_id);
-    }
     return axis;
+  };
+  auto build_pair_side_decision = [&](ObjectId node_id, ObjectId peer_id,
+                                      const LoweredSupportPairInfo& pair_info) {
+    EndpointSideDecision decision{};
+    decision.has_side_axis = true;
+    decision.chosen_side_sign = 1.0;
+    if (const auto pair_axis = pair_bisector_axis_for_endpoint(node_id, peer_id, pair_info); pair_axis.has_value()) {
+      decision.side_axis = *pair_axis;
+      decision.side_assignment_rule = SideAssignmentRuleKind::kBisector;
+      decision.support_orientation_rule = SupportOrientationRuleKind::kBisector;
+      decision.used_junction_pair_side_assignment = true;
+      return decision;
+    }
+    decision.side_axis = chord_side_axis_for_endpoint(node_id, peer_id);
+    decision.side_assignment_rule = SideAssignmentRuleKind::kChord;
+    decision.support_orientation_rule = SupportOrientationRuleKind::kChord;
+    decision.used_junction_pair_side_assignment = false;
+    return decision;
   };
   auto connected_lowered_support_decision_for_node =
       [&](ObjectId node_id, ObjectId peer_id, const SegmentRelationFeasibility& feasibility)
@@ -760,28 +814,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
     if (!pair_info.has_value() || !pair_info->has_pair) {
       return std::nullopt;
     }
-    EndpointSideDecision decision{};
-    decision.has_side_axis = true;
-    decision.chosen_side_sign = 1.0;
-    if (const auto pair_axis = pair_bisector_axis_for_endpoint(node_id, peer_id, *pair_info); pair_axis.has_value()) {
-      decision.side_axis = *pair_axis;
-      decision.side_assignment_rule = SideAssignmentRuleKind::kBisector;
-      decision.support_orientation_rule = SupportOrientationRuleKind::kBisector;
-      decision.used_junction_pair_side_assignment = true;
-    } else {
-      if (const auto through_pair_axis = through_pair_side_axis_for_node(node_id); through_pair_axis.has_value()) {
-        decision.side_axis = *through_pair_axis;
-        decision.side_assignment_rule = SideAssignmentRuleKind::kThroughPairNormal;
-        decision.support_orientation_rule = SupportOrientationRuleKind::kThroughPairNormal;
-        decision.used_junction_pair_side_assignment = true;
-      } else {
-        decision.side_axis = chord_side_axis_for_endpoint(node_id, peer_id);
-        decision.side_assignment_rule = SideAssignmentRuleKind::kChord;
-        decision.support_orientation_rule = SupportOrientationRuleKind::kChord;
-        decision.used_junction_pair_side_assignment = false;
-      }
-    }
-    return decision;
+    return build_pair_side_decision(node_id, peer_id, *pair_info);
   };
   auto preferred_side_axis_for_endpoint =
       [&](ObjectId node_id, ObjectId peer_id, const SegmentRelationFeasibility& feasibility) -> EndpointSideDecision {
@@ -799,18 +832,9 @@ CoreState::generate_grouped_spans_between_support_nodes(
         connected_lowered.has_value()) {
       return *connected_lowered;
     }
-    if (feasibility.kind == JunctionRelationKind::kCrossUnderpass) {
-      if (const auto through_pair_axis = through_pair_side_axis_for_node(node_id); through_pair_axis.has_value()) {
-        decision.side_axis = *through_pair_axis;
-        decision.side_assignment_rule = SideAssignmentRuleKind::kThroughPairNormal;
-        decision.support_orientation_rule = SupportOrientationRuleKind::kThroughPairNormal;
-        decision.used_junction_pair_side_assignment = true;
-        decision.has_side_axis = true;
-        return decision;
-      }
-    }
     if (feasibility.kind == JunctionRelationKind::kSideBranch ||
-        feasibility.kind == JunctionRelationKind::kCornerContinuation) {
+        feasibility.kind == JunctionRelationKind::kCornerContinuation ||
+        feasibility.kind == JunctionRelationKind::kCrossUnderpass) {
       if (const auto bisector_axis = bisector_axis_for_endpoint(node_id, peer_id); bisector_axis.has_value()) {
         decision.side_axis = *bisector_axis;
         decision.side_assignment_rule = SideAssignmentRuleKind::kBisector;
@@ -819,9 +843,9 @@ CoreState::generate_grouped_spans_between_support_nodes(
         decision.has_side_axis = true;
         return decision;
       }
-      decision.side_axis = canonical_side_axis_for_order(node_id, peer_id);
-      decision.side_assignment_rule = SideAssignmentRuleKind::kBisector;
-      decision.support_orientation_rule = SupportOrientationRuleKind::kBisector;
+      decision.side_axis = chord_side_axis_for_endpoint(node_id, peer_id);
+      decision.side_assignment_rule = SideAssignmentRuleKind::kChord;
+      decision.support_orientation_rule = SupportOrientationRuleKind::kChord;
       decision.used_junction_pair_side_assignment = false;
       decision.has_side_axis = true;
       return decision;
@@ -926,39 +950,18 @@ CoreState::generate_grouped_spans_between_support_nodes(
       return 0;
     }
   };
-  auto normalize_group_side_decision = [&](ObjectId node_id, ObjectId peer_id, EndpointSideDecision decision) {
-    const SegmentRelationFeasibility feasibility = segment_relation_feasibility_for(node_id, peer_id);
-    if (const auto pair_info = lowered_support_pair_info_for_endpoint(node_id, peer_id, feasibility);
-        pair_info.has_value() && pair_info->has_pair) {
-      if (const auto pair_axis = pair_bisector_axis_for_endpoint(node_id, peer_id, *pair_info); pair_axis.has_value()) {
-        decision.side_axis = *pair_axis;
-        decision.has_side_axis = true;
-        decision.side_assignment_rule = SideAssignmentRuleKind::kBisector;
-        decision.support_orientation_rule = SupportOrientationRuleKind::kBisector;
-        decision.used_junction_pair_side_assignment = true;
-      } else {
-        if (const auto through_pair_axis = through_pair_side_axis_for_node(node_id); through_pair_axis.has_value()) {
-          decision.side_axis = *through_pair_axis;
-          decision.has_side_axis = true;
-          decision.side_assignment_rule = SideAssignmentRuleKind::kThroughPairNormal;
-          decision.support_orientation_rule = SupportOrientationRuleKind::kThroughPairNormal;
-          decision.used_junction_pair_side_assignment = true;
-        } else {
-          decision.side_axis = chord_side_axis_for_endpoint(node_id, peer_id);
-          decision.has_side_axis = true;
-          decision.side_assignment_rule = SideAssignmentRuleKind::kChord;
-          decision.support_orientation_rule = SupportOrientationRuleKind::kChord;
-          decision.used_junction_pair_side_assignment = false;
-        }
-      }
-    } else {
-      if (decision.support_orientation_rule == SupportOrientationRuleKind::kRadial) {
-        decision.support_orientation_rule = SupportOrientationRuleKind::kChord;
-      }
-      if (decision.side_assignment_rule == SideAssignmentRuleKind::kPoleLocal) {
-        decision.side_assignment_rule = SideAssignmentRuleKind::kChord;
-      }
+  auto coerce_non_group_side_rules = [](EndpointSideDecision* decision) {
+    if (decision == nullptr) {
+      return;
     }
+    if (decision->support_orientation_rule == SupportOrientationRuleKind::kRadial) {
+      decision->support_orientation_rule = SupportOrientationRuleKind::kChord;
+    }
+    if (decision->side_assignment_rule == SideAssignmentRuleKind::kPoleLocal) {
+      decision->side_assignment_rule = SideAssignmentRuleKind::kChord;
+    }
+  };
+  auto resolve_group_side_axis = [&](ObjectId node_id, ObjectId peer_id, const EndpointSideDecision& decision) {
     Vec3d axis = decision.side_axis;
     if (!decision.has_side_axis || !normalize_xy(&axis)) {
       if (decision.support_orientation_rule == SupportOrientationRuleKind::kThroughPairNormal) {
@@ -977,13 +980,28 @@ CoreState::generate_grouped_spans_between_support_nodes(
     if (!normalize_xy(&axis)) {
       axis = canonical_side_axis_for_order(node_id, peer_id);
     }
+    return axis;
+  };
+  auto resolve_group_side_sign = [&](ObjectId node_id, ObjectId peer_id, const EndpointSideDecision& decision) {
+    if (std::abs(decision.chosen_side_sign) > 1e-9) {
+      return decision.chosen_side_sign;
+    }
+    const Vec3d chord_axis = chord_side_axis_for_endpoint(node_id, peer_id);
+    const double chord_dot = dot_xy(chord_axis, decision.side_axis);
+    return (std::abs(chord_dot) <= 1e-9) ? 1.0 : ((chord_dot >= 0.0) ? 1.0 : -1.0);
+  };
+  auto normalize_group_side_decision = [&](ObjectId node_id, ObjectId peer_id, EndpointSideDecision decision) {
+    const SegmentRelationFeasibility feasibility = segment_relation_feasibility_for(node_id, peer_id);
+    if (const auto pair_info = lowered_support_pair_info_for_endpoint(node_id, peer_id, feasibility);
+        pair_info.has_value() && pair_info->has_pair) {
+      decision = build_pair_side_decision(node_id, peer_id, *pair_info);
+    } else {
+      coerce_non_group_side_rules(&decision);
+    }
+    Vec3d axis = resolve_group_side_axis(node_id, peer_id, decision);
     decision.side_axis = axis;
     decision.has_side_axis = std::isfinite(axis.x) && std::isfinite(axis.y);
-    if (std::abs(decision.chosen_side_sign) <= 1e-9) {
-      const Vec3d chord_axis = chord_side_axis_for_endpoint(node_id, peer_id);
-      const double chord_dot = dot_xy(chord_axis, decision.side_axis);
-      decision.chosen_side_sign = (std::abs(chord_dot) <= 1e-9) ? 1.0 : ((chord_dot >= 0.0) ? 1.0 : -1.0);
-    }
+    decision.chosen_side_sign = resolve_group_side_sign(node_id, peer_id, decision);
     return decision;
   };
   auto better_group_side_decision = [&](const EndpointSideDecision& candidate, const EndpointSideDecision& existing) {
@@ -1056,8 +1074,8 @@ CoreState::generate_grouped_spans_between_support_nodes(
   auto build_endpoint_decision = [&](const SegmentRelationFeasibility& feasibility,
                                      const EndpointSideDecision& side_decision,
                                      ObjectId node_id, ObjectId peer_id,
-                                     BundleOrderChoiceKind order_choice,
-                                     BundleOrderChoiceReason order_reason, bool solver_used_same_level_constraint,
+                                     OrderDecisionChoiceKind order_choice,
+                                     OrderDecisionChoiceReason order_reason, bool solver_used_same_level_constraint,
                                      bool used_special_case_ports, bool lowering_blocked_by_policy,
                                      bool unresolved_same_level_conflict) {
     EndpointContinuityDecision decision{};
@@ -1083,9 +1101,9 @@ CoreState::generate_grouped_spans_between_support_nodes(
         unresolved_same_level_conflict && endpoint_has_conflict;
     decision.solver_used_same_level_constraint = solver_used_same_level_constraint;
     decision.used_special_case_ports = used_special_case_ports;
-    decision.bundle_order_policy = bundle_order_policy;
-    decision.bundle_order_choice = order_choice;
-    decision.bundle_order_choice_reason = order_reason;
+    decision.order_decision_policy = order_decision_policy;
+    decision.order_decision_choice = order_choice;
+    decision.order_decision_choice_reason = order_reason;
     decision.side_assignment_rule = side_decision.side_assignment_rule;
     decision.support_orientation_rule = side_decision.support_orientation_rule;
     decision.support_orientation_basis =
@@ -1361,7 +1379,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
         request.endpoint_decision.same_level_reason = feasibility.reason;
         request.endpoint_decision.projected_spacing_topview_m = feasibility.projected_spacing_topview_m;
         request.endpoint_decision.required_clearance_m = feasibility.required_clearance_m;
-        request.endpoint_decision.bundle_order_policy = bundle_order_policy;
+        request.endpoint_decision.order_decision_policy = order_decision_policy;
         request.excluded_port_ids.assign(solved_ports.begin(), solved_ports.end());
         EditResult<ObjectId> port_result = ensure_pole_connection_port(request);
         if (!port_result.ok) {
@@ -2190,9 +2208,9 @@ CoreState::generate_grouped_spans_between_support_nodes(
     return intersections;
   };
 
-  const bool bundle_order_permutable =
-      bundle_order_policy == BundleOrderPolicyKind::kPermutableHomogeneous && lane_count > 1;
-  const bool allow_bundle_order_reverse = bundle_order_permutable;
+  const bool order_decision_permutable =
+      order_decision_policy == OrderDecisionPolicyKind::kPermutableHomogeneous && lane_count > 1;
+  const bool allow_order_decision_reverse = order_decision_permutable;
   constexpr double kAngleEps = 1e-6;
   constexpr double kReverseStraightAngleDeg = 179.999;
 
@@ -2216,15 +2234,15 @@ CoreState::generate_grouped_spans_between_support_nodes(
     base_ports_by_node[seg + 1] = prepared_ports_b[seg];
   }
 
-  auto order_for_choice = [&](const std::vector<ObjectId>& base_ports, BundleOrderChoiceKind choice) {
+  auto order_for_choice = [&](const std::vector<ObjectId>& base_ports, OrderDecisionChoiceKind choice) {
     std::vector<ObjectId> ordered = base_ports;
-    if (choice == BundleOrderChoiceKind::kReversed) {
+    if (choice == OrderDecisionChoiceKind::kReversed) {
       std::reverse(ordered.begin(), ordered.end());
     }
     return ordered;
   };
   auto choice_for_parity = [](int parity) {
-    return (parity != 0) ? BundleOrderChoiceKind::kReversed : BundleOrderChoiceKind::kNormal;
+    return (parity != 0) ? OrderDecisionChoiceKind::kReversed : OrderDecisionChoiceKind::kNormal;
   };
   auto compute_turn_angle_deg = [&](std::size_t segment_index) -> double {
     if (segment_index == 0 || segment_index + 1 >= node_ids.size()) {
@@ -2292,13 +2310,13 @@ CoreState::generate_grouped_spans_between_support_nodes(
   std::vector<int> node_parity(node_ids.size(), 0);
   if (segment_count == 1) {
     const std::vector<int> first_candidates =
-        (first_seeded_from_previous || !allow_bundle_order_reverse) ? std::vector<int>{0} : std::vector<int>{0, 1};
+        (first_seeded_from_previous || !allow_order_decision_reverse) ? std::vector<int>{0} : std::vector<int>{0, 1};
     OrientationPlanScore best_score{};
     bool has_best = false;
     for (int parity_a : first_candidates) {
       const std::vector<ObjectId> ports_a = order_for_choice(base_ports_by_node[0], choice_for_parity(parity_a));
       for (int parity_b : {0, 1}) {
-        if (!allow_bundle_order_reverse && parity_b != 0) {
+        if (!allow_order_decision_reverse && parity_b != 0) {
           continue;
         }
         const std::vector<ObjectId> ports_b = order_for_choice(base_ports_by_node[1], choice_for_parity(parity_b));
@@ -2320,12 +2338,12 @@ CoreState::generate_grouped_spans_between_support_nodes(
     };
     std::vector<std::array<std::array<DpCell, 2>, 2>> dp(segment_count + 1);
     const std::vector<int> first_candidates =
-        (first_seeded_from_previous || !allow_bundle_order_reverse) ? std::vector<int>{0} : std::vector<int>{0, 1};
+        (first_seeded_from_previous || !allow_order_decision_reverse) ? std::vector<int>{0} : std::vector<int>{0, 1};
 
     for (int parity_0 : first_candidates) {
       const std::vector<ObjectId> ports_0 = order_for_choice(base_ports_by_node[0], choice_for_parity(parity_0));
       for (int parity_1 : {0, 1}) {
-        if (!allow_bundle_order_reverse && parity_1 != 0) {
+        if (!allow_order_decision_reverse && parity_1 != 0) {
           continue;
         }
         const std::vector<ObjectId> ports_1 = order_for_choice(base_ports_by_node[1], choice_for_parity(parity_1));
@@ -2345,7 +2363,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
           }
           const int prev_orientation = parity_prev_prev ^ parity_prev;
           for (int parity_curr : {0, 1}) {
-            if (!allow_bundle_order_reverse && parity_curr != 0) {
+            if (!allow_order_decision_reverse && parity_curr != 0) {
               continue;
             }
             const std::vector<ObjectId> ports_prev =
@@ -2443,28 +2461,28 @@ CoreState::generate_grouped_spans_between_support_nodes(
     return score;
   };
   auto order_choice_reason_from_scores = [&](const OrientationPlanScore& chosen, const OrientationPlanScore& alternate,
-                                             BundleOrderPolicyKind policy) {
-    if (policy != BundleOrderPolicyKind::kPermutableHomogeneous) {
-      return BundleOrderChoiceReason::kFixedOrder;
+                                             OrderDecisionPolicyKind policy) {
+    if (policy != OrderDecisionPolicyKind::kPermutableHomogeneous) {
+      return OrderDecisionChoiceReason::kFixedOrder;
     }
     if (use_lane_row_geometry && chosen.adjacent_xy_intersections != alternate.adjacent_xy_intersections) {
-      return BundleOrderChoiceReason::kCrossingFewer;
+      return OrderDecisionChoiceReason::kCrossingFewer;
     }
     if (chosen.order.cross_y != alternate.order.cross_y) {
-      return BundleOrderChoiceReason::kCrossingFewer;
+      return OrderDecisionChoiceReason::kCrossingFewer;
     }
     if (chosen.order.cross_z != alternate.order.cross_z ||
         std::abs(chosen.order.span_z_delta - alternate.order.span_z_delta) > 1e-6) {
-      return BundleOrderChoiceReason::kSpacingBetter;
+      return OrderDecisionChoiceReason::kSpacingBetter;
     }
     if (chosen.acute_orientation_flips != alternate.acute_orientation_flips ||
         chosen.orientation_flips != alternate.orientation_flips) {
-      return BundleOrderChoiceReason::kTwistSmaller;
+      return OrderDecisionChoiceReason::kTwistSmaller;
     }
-    return BundleOrderChoiceReason::kKeptDefault;
+    return OrderDecisionChoiceReason::kKeptDefault;
   };
 
-  std::vector<BundleOrderChoiceKind> node_order_choices(node_ids.size(), BundleOrderChoiceKind::kNormal);
+  std::vector<OrderDecisionChoiceKind> node_order_choices(node_ids.size(), OrderDecisionChoiceKind::kNormal);
   for (std::size_t i = 0; i < node_ids.size(); ++i) {
     node_order_choices[i] = choice_for_parity(node_parity[i]);
   }
@@ -2480,13 +2498,13 @@ CoreState::generate_grouped_spans_between_support_nodes(
     assignment.pole_b_id = node_b;
     assignment.bundle_id = bundle_id;
     assignment.flow_kind = flow_kind;
-    assignment.bundle_order_policy = bundle_order_policy;
-    assignment.bundle_order_choice_a = node_order_choices[seg];
-    assignment.bundle_order_choice_b = node_order_choices[seg + 1];
-    assignment.port_ids_a = order_for_choice(base_ports_by_node[seg], assignment.bundle_order_choice_a);
-    assignment.port_ids_b = order_for_choice(base_ports_by_node[seg + 1], assignment.bundle_order_choice_b);
+    assignment.order_decision_policy = order_decision_policy;
+    assignment.order_decision_choice_a = node_order_choices[seg];
+    assignment.order_decision_choice_b = node_order_choices[seg + 1];
+    assignment.port_ids_a = order_for_choice(base_ports_by_node[seg], assignment.order_decision_choice_a);
+    assignment.port_ids_b = order_for_choice(base_ports_by_node[seg + 1], assignment.order_decision_choice_b);
     const bool chosen_orientation_flip =
-        (assignment.bundle_order_choice_a != assignment.bundle_order_choice_b);
+        (assignment.order_decision_choice_a != assignment.order_decision_choice_b);
     const double turn_angle_deg = compute_turn_angle_deg(seg);
     const bool is_acute_turn = (seg > 0) && (turn_angle_deg + kAngleEps < layout_settings_.corner_threshold_deg);
     LaneFlipReason flip_reason = LaneFlipReason::kNone;
@@ -2500,7 +2518,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
         flip_reason = LaneFlipReason::kAcuteTurn;
       }
     }
-    if (bundle_order_policy == BundleOrderPolicyKind::kPermutableHomogeneous) {
+    if (order_decision_policy == OrderDecisionPolicyKind::kPermutableHomogeneous) {
       const int prev_parity = (seg > 0) ? node_parity[seg - 1] : 0;
       const OrientationPlanScore chosen_score =
           build_local_order_score(seg, node_parity[seg], node_parity[seg + 1], prev_parity, seg > 0);
@@ -2508,13 +2526,13 @@ CoreState::generate_grouped_spans_between_support_nodes(
           build_local_order_score(seg, node_parity[seg] ^ 1, node_parity[seg + 1], prev_parity, seg > 0);
       const OrientationPlanScore alternate_b =
           build_local_order_score(seg, node_parity[seg], node_parity[seg + 1] ^ 1, prev_parity, seg > 0);
-      assignment.bundle_order_choice_reason_a =
-          order_choice_reason_from_scores(chosen_score, alternate_a, bundle_order_policy);
-      assignment.bundle_order_choice_reason_b =
-          order_choice_reason_from_scores(chosen_score, alternate_b, bundle_order_policy);
+      assignment.order_decision_choice_reason_a =
+          order_choice_reason_from_scores(chosen_score, alternate_a, order_decision_policy);
+      assignment.order_decision_choice_reason_b =
+          order_choice_reason_from_scores(chosen_score, alternate_b, order_decision_policy);
     } else {
-      assignment.bundle_order_choice_reason_a = BundleOrderChoiceReason::kFixedOrder;
-      assignment.bundle_order_choice_reason_b = BundleOrderChoiceReason::kFixedOrder;
+      assignment.order_decision_choice_reason_a = OrderDecisionChoiceReason::kFixedOrder;
+      assignment.order_decision_choice_reason_b = OrderDecisionChoiceReason::kFixedOrder;
     }
     assignment.flipped_from_previous = flipped_from_previous;
     assignment.flip_reason = flip_reason;
@@ -2609,14 +2627,14 @@ CoreState::generate_grouped_spans_between_support_nodes(
     side_decision_a.has_side_axis = std::isfinite(assignment.side_axis_a.x) && std::isfinite(assignment.side_axis_a.y);
     side_decision_b.has_side_axis = std::isfinite(assignment.side_axis_b.x) && std::isfinite(assignment.side_axis_b.y);
     assignment.decision_a = canonicalize_group_endpoint_decision(
-        build_endpoint_decision(effective_relation_a, side_decision_a, node_a, node_b, assignment.bundle_order_choice_a,
-                                assignment.bundle_order_choice_reason_a, assignment.solver_used_same_level_constraint,
+        build_endpoint_decision(effective_relation_a, side_decision_a, node_a, node_b, assignment.order_decision_choice_a,
+                                assignment.order_decision_choice_reason_a, assignment.solver_used_same_level_constraint,
                                 assignment.used_special_case_ports, endpoint_policy_block_a,
                                 assignment.unresolved_same_level_conflict),
         node_a, node_b, side_decision_a);
     assignment.decision_b = canonicalize_group_endpoint_decision(
-        build_endpoint_decision(effective_relation_b, side_decision_b, node_b, node_a, assignment.bundle_order_choice_b,
-                                assignment.bundle_order_choice_reason_b, assignment.solver_used_same_level_constraint,
+        build_endpoint_decision(effective_relation_b, side_decision_b, node_b, node_a, assignment.order_decision_choice_b,
+                                assignment.order_decision_choice_reason_b, assignment.solver_used_same_level_constraint,
                                 assignment.used_special_case_ports, endpoint_policy_block_b,
                                 assignment.unresolved_same_level_conflict),
         node_b, node_a, side_decision_b);
@@ -2689,13 +2707,13 @@ CoreState::generate_grouped_spans_between_support_nodes(
       edge_orientation.unresolved_same_level_conflict = assignment.unresolved_same_level_conflict;
       edge_orientation.solver_used_same_level_constraint = assignment.solver_used_same_level_constraint;
       edge_orientation.used_special_case_ports = assignment.used_special_case_ports;
-      edge_orientation.bundle_order_policy = assignment.bundle_order_policy;
-      edge_orientation.bundle_order_choice_a = assignment.bundle_order_choice_a;
-      edge_orientation.bundle_order_choice_b = assignment.bundle_order_choice_b;
-      edge_orientation.bundle_order_choice_reason_a = assignment.bundle_order_choice_reason_a;
-      edge_orientation.bundle_order_choice_reason_b = assignment.bundle_order_choice_reason_b;
+      edge_orientation.order_decision_policy = assignment.order_decision_policy;
+      edge_orientation.order_decision_choice_a = assignment.order_decision_choice_a;
+      edge_orientation.order_decision_choice_b = assignment.order_decision_choice_b;
+      edge_orientation.order_decision_choice_reason_a = assignment.order_decision_choice_reason_a;
+      edge_orientation.order_decision_choice_reason_b = assignment.order_decision_choice_reason_b;
     edge_orientation.orientation =
-        (assignment.bundle_order_choice_a != assignment.bundle_order_choice_b) ? LaneOrientation::kReversed
+        (assignment.order_decision_choice_a != assignment.order_decision_choice_b) ? LaneOrientation::kReversed
                                                                                : LaneOrientation::kNormal;
       edge_orientation.uses_branch_support = assignment.uses_branch_support;
       edge_orientation.lowering_kind = assignment.lowering_kind;
@@ -2715,3 +2733,5 @@ CoreState::generate_grouped_spans_between_support_nodes(
 }
 
 } // namespace wire::core
+
+

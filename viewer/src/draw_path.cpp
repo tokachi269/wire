@@ -1,4 +1,4 @@
-#include "app_state.hpp"
+﻿#include "app_state.hpp"
 #include "path_pick_policy.hpp"
 
 #include <algorithm>
@@ -6,15 +6,22 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <format>
 #include <map>
 #include <optional>
 #include <sstream>
+#include <type_traits>
 #include <utility>
 
 #include "imgui.h"
 #include "scene_query.hpp"
 
 namespace {
+
+template <typename Enum>
+constexpr auto EnumOrdinal(Enum value) noexcept {
+  return static_cast<std::underlying_type_t<Enum>>(value);
+}
 
 const char* CategoryLabelLocal(wire::core::ConnectionCategory category) {
   switch (category) {
@@ -203,39 +210,39 @@ const char* SameLevelReasonLabelLocal(wire::core::SameLevelFeasibilityReason rea
   }
 }
 
-const char* BundleOrderPolicyLabelLocal(wire::core::BundleOrderPolicyKind policy) {
+const char* OrderDecisionPolicyLabelLocal(wire::core::OrderDecisionPolicyKind policy) {
   switch (policy) {
-  case wire::core::BundleOrderPolicyKind::kFixedOrder:
+  case wire::core::OrderDecisionPolicyKind::kFixedOrder:
     return "FixedOrder";
-  case wire::core::BundleOrderPolicyKind::kPermutableHomogeneous:
+  case wire::core::OrderDecisionPolicyKind::kPermutableHomogeneous:
     return "PermutableHomogeneous";
   default:
     return "Unknown";
   }
 }
 
-const char* BundleOrderChoiceLabelLocal(wire::core::BundleOrderChoiceKind choice) {
+const char* OrderDecisionChoiceLabelLocal(wire::core::OrderDecisionChoiceKind choice) {
   switch (choice) {
-  case wire::core::BundleOrderChoiceKind::kNormal:
+  case wire::core::OrderDecisionChoiceKind::kNormal:
     return "Normal";
-  case wire::core::BundleOrderChoiceKind::kReversed:
+  case wire::core::OrderDecisionChoiceKind::kReversed:
     return "Reversed";
   default:
     return "Unknown";
   }
 }
 
-const char* BundleOrderChoiceReasonLabelLocal(wire::core::BundleOrderChoiceReason reason) {
+const char* OrderDecisionChoiceReasonLabelLocal(wire::core::OrderDecisionChoiceReason reason) {
   switch (reason) {
-  case wire::core::BundleOrderChoiceReason::kFixedOrder:
+  case wire::core::OrderDecisionChoiceReason::kFixedOrder:
     return "FixedOrder";
-  case wire::core::BundleOrderChoiceReason::kCrossingFewer:
+  case wire::core::OrderDecisionChoiceReason::kCrossingFewer:
     return "CrossingFewer";
-  case wire::core::BundleOrderChoiceReason::kSpacingBetter:
+  case wire::core::OrderDecisionChoiceReason::kSpacingBetter:
     return "SpacingBetter";
-  case wire::core::BundleOrderChoiceReason::kTwistSmaller:
+  case wire::core::OrderDecisionChoiceReason::kTwistSmaller:
     return "TwistSmaller";
-  case wire::core::BundleOrderChoiceReason::kKeptDefault:
+  case wire::core::OrderDecisionChoiceReason::kKeptDefault:
     return "KeptDefault";
   default:
     return "Unknown";
@@ -835,7 +842,7 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
   ofs << "capture.all_span_trace_count=" << view.edit_state().spans.size() << "\n";
   std::size_t all_span_trace_index = 0;
   for (const auto& span : view.edit_state().spans.items()) {
-    const std::string prefix = "capture.all_span[" + std::to_string(all_span_trace_index) + "]";
+    const std::string prefix = std::format("capture.all_span[{}]", all_span_trace_index);
     ofs << prefix << ".span_id=" << static_cast<unsigned long long>(span.id) << "\n";
     ofs << prefix << ".bundle_id=" << static_cast<unsigned long long>(span.bundle_id) << "\n";
     ofs << prefix << ".endpoint_node_a_id=" << static_cast<unsigned long long>(span.endpoint_node_a_id) << "\n";
@@ -1123,25 +1130,25 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
           ofs << "result.lane_assignment[" << i << "].lane[" << lane
             << "].span_used_special_case_ports=" << (span_view->used_special_case_ports ? 1 : 0) << "\n";
           ofs << "result.lane_assignment[" << i << "].lane[" << lane
-            << "].span_bundle_order_policy=" << BundleOrderPolicyLabelLocal(span_view->bundle_order_policy) << "\n";
+            << "].span_order_decision_policy=" << OrderDecisionPolicyLabelLocal(span_view->order_decision_policy) << "\n";
           ofs << "result.lane_assignment[" << i << "].lane[" << lane
-            << "].span_bundle_order_choice_a=" << BundleOrderChoiceLabelLocal(span_view->bundle_order_choice_a)
+            << "].span_order_decision_choice_a=" << OrderDecisionChoiceLabelLocal(span_view->order_decision_choice_a)
             << "\n";
           ofs << "result.lane_assignment[" << i << "].lane[" << lane
-            << "].span_bundle_order_reason_a="
-            << BundleOrderChoiceReasonLabelLocal(span_view->bundle_order_choice_reason_a) << "\n";
+            << "].span_order_decision_reason_a="
+            << OrderDecisionChoiceReasonLabelLocal(span_view->order_decision_choice_reason_a) << "\n";
           ofs << "result.lane_assignment[" << i << "].lane[" << lane
-            << "].span_bundle_order_choice_b=" << BundleOrderChoiceLabelLocal(span_view->bundle_order_choice_b)
+            << "].span_order_decision_choice_b=" << OrderDecisionChoiceLabelLocal(span_view->order_decision_choice_b)
             << "\n";
           ofs << "result.lane_assignment[" << i << "].lane[" << lane
-            << "].span_bundle_order_reason_b="
-            << BundleOrderChoiceReasonLabelLocal(span_view->bundle_order_choice_reason_b) << "\n";
+            << "].span_order_decision_reason_b="
+            << OrderDecisionChoiceReasonLabelLocal(span_view->order_decision_choice_reason_b) << "\n";
         }
         if (const auto layout_view = view.inspect_support_layout(span->id); layout_view.has_value()) {
           ofs << "result.lane_assignment[" << i << "].lane[" << lane
             << "].layout_flow_kind=" << FlowKindLabelLocal(layout_view->flow_kind) << "\n";
           ofs << "result.lane_assignment[" << i << "].lane[" << lane
-            << "].layout_bundle_order_policy=" << BundleOrderPolicyLabelLocal(layout_view->bundle_order_policy)
+            << "].layout_order_decision_policy=" << OrderDecisionPolicyLabelLocal(layout_view->order_decision_policy)
             << "\n";
           ofs << "result.lane_assignment[" << i << "].lane[" << lane
             << "].layout_relation_a=" << JunctionRelationLabelLocal(layout_view->relation_a) << "\n";
@@ -1211,24 +1218,24 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
               << "].layout_end_same_level_reason="
               << SameLevelReasonLabelLocal(layout_view->end_endpoint.same_level_reason) << "\n";
             ofs << "result.lane_assignment[" << i << "].lane[" << lane
-              << "].layout_start_bundle_order_policy="
-              << BundleOrderPolicyLabelLocal(layout_view->start_endpoint.bundle_order_policy) << "\n";
+              << "].layout_start_order_decision_policy="
+              << OrderDecisionPolicyLabelLocal(layout_view->start_endpoint.order_decision_policy) << "\n";
             ofs << "result.lane_assignment[" << i << "].lane[" << lane
-              << "].layout_end_bundle_order_policy="
-              << BundleOrderPolicyLabelLocal(layout_view->end_endpoint.bundle_order_policy) << "\n";
+              << "].layout_end_order_decision_policy="
+              << OrderDecisionPolicyLabelLocal(layout_view->end_endpoint.order_decision_policy) << "\n";
             ofs << "result.lane_assignment[" << i << "].lane[" << lane
-              << "].layout_start_bundle_order_choice="
-              << BundleOrderChoiceLabelLocal(layout_view->start_endpoint.bundle_order_choice) << "\n";
+              << "].layout_start_order_decision_choice="
+              << OrderDecisionChoiceLabelLocal(layout_view->start_endpoint.order_decision_choice) << "\n";
             ofs << "result.lane_assignment[" << i << "].lane[" << lane
-              << "].layout_end_bundle_order_choice="
-              << BundleOrderChoiceLabelLocal(layout_view->end_endpoint.bundle_order_choice) << "\n";
+              << "].layout_end_order_decision_choice="
+              << OrderDecisionChoiceLabelLocal(layout_view->end_endpoint.order_decision_choice) << "\n";
             ofs << "result.lane_assignment[" << i << "].lane[" << lane
-              << "].layout_start_bundle_order_reason="
-              << BundleOrderChoiceReasonLabelLocal(layout_view->start_endpoint.bundle_order_choice_reason)
+              << "].layout_start_order_decision_reason="
+              << OrderDecisionChoiceReasonLabelLocal(layout_view->start_endpoint.order_decision_choice_reason)
               << "\n";
             ofs << "result.lane_assignment[" << i << "].lane[" << lane
-              << "].layout_end_bundle_order_reason="
-              << BundleOrderChoiceReasonLabelLocal(layout_view->end_endpoint.bundle_order_choice_reason)
+              << "].layout_end_order_decision_reason="
+              << OrderDecisionChoiceReasonLabelLocal(layout_view->end_endpoint.order_decision_choice_reason)
               << "\n";
             ofs << "result.lane_assignment[" << i << "].lane[" << lane
               << "].layout_start_side=" << LateralSideChoiceLabelLocal(layout_view->start_endpoint.decision.chosen_side)
@@ -1277,12 +1284,12 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
             ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
               << "].same_level_reason=" << SameLevelReasonLabelLocal(group.decision.same_level_reason) << "\n";
             ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
-              << "].bundle_order_policy=" << BundleOrderPolicyLabelLocal(group.bundle_order_policy) << "\n";
+              << "].order_decision_policy=" << OrderDecisionPolicyLabelLocal(group.order_decision_policy) << "\n";
             ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
-              << "].bundle_order_choice=" << BundleOrderChoiceLabelLocal(group.bundle_order_choice) << "\n";
+              << "].order_decision_choice=" << OrderDecisionChoiceLabelLocal(group.order_decision_choice) << "\n";
             ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
-              << "].bundle_order_reason="
-              << BundleOrderChoiceReasonLabelLocal(group.bundle_order_choice_reason) << "\n";
+              << "].order_decision_reason="
+              << OrderDecisionChoiceReasonLabelLocal(group.order_decision_choice_reason) << "\n";
             ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
               << "].side=" << LateralSideChoiceLabelLocal(group.decision.chosen_side) << "\n";
             ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
@@ -1333,12 +1340,12 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
         << (span_view->same_level_feasible ? 1 : 0) << "\n";
       ofs << "result.current_span[" << current_span_index << "].same_level_reason="
         << SameLevelReasonLabelLocal(span_view->same_level_reason) << "\n";
-      ofs << "result.current_span[" << current_span_index << "].bundle_order_policy="
-        << BundleOrderPolicyLabelLocal(span_view->bundle_order_policy) << "\n";
-      ofs << "result.current_span[" << current_span_index << "].bundle_order_choice_a="
-        << BundleOrderChoiceLabelLocal(span_view->bundle_order_choice_a) << "\n";
-      ofs << "result.current_span[" << current_span_index << "].bundle_order_choice_b="
-        << BundleOrderChoiceLabelLocal(span_view->bundle_order_choice_b) << "\n";
+      ofs << "result.current_span[" << current_span_index << "].order_decision_policy="
+        << OrderDecisionPolicyLabelLocal(span_view->order_decision_policy) << "\n";
+      ofs << "result.current_span[" << current_span_index << "].order_decision_choice_a="
+        << OrderDecisionChoiceLabelLocal(span_view->order_decision_choice_a) << "\n";
+      ofs << "result.current_span[" << current_span_index << "].order_decision_choice_b="
+        << OrderDecisionChoiceLabelLocal(span_view->order_decision_choice_b) << "\n";
     }
     if (const auto layout_view = view.inspect_support_layout(span.id); layout_view.has_value()) {
       ofs << "result.current_span[" << current_span_index << "].layout_relation_a="
@@ -1415,7 +1422,7 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
   ofs << "result.current_pole_count=" << view.edit_state().poles.size() << "\n";
   std::size_t current_pole_index = 0;
   for (const auto& pole : view.edit_state().poles.items()) {
-    const std::string prefix = "result.current_pole[" + std::to_string(current_pole_index) + "]";
+    const std::string prefix = std::format("result.current_pole[{}]", current_pole_index);
     ofs << prefix << ".pole_id=" << static_cast<unsigned long long>(pole.id) << "\n";
     ofs << prefix << ".display_id=" << pole.display_id << "\n";
     ofs << prefix << ".name=" << pole.name << "\n";
@@ -1426,8 +1433,8 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
         << pole.world_transform.rotation_euler_deg.y << "," << pole.world_transform.rotation_euler_deg.z << "\n";
     ofs << prefix << ".height_m=" << pole.height_m << "\n";
     ofs << prefix << ".tilt_magnitude_deg=" << pole.tilt_magnitude_deg << "\n";
-    ofs << prefix << ".placement_mode=" << static_cast<int>(pole.placement_mode) << "\n";
-    ofs << prefix << ".context_kind=" << static_cast<int>(pole.context.kind) << "\n";
+    ofs << prefix << ".placement_mode=" << EnumOrdinal(pole.placement_mode) << "\n";
+    ofs << prefix << ".context_kind=" << EnumOrdinal(pole.context.kind) << "\n";
     ofs << prefix << ".sharp_orientation_applied=" << (pole.context.sharp_orientation_applied ? 1 : 0) << "\n";
     ofs << prefix << ".sharp_theta_deg=" << pole.context.sharp_theta_deg << "\n";
     ofs << prefix << ".sharp_bisector_dir=" << pole.context.sharp_bisector_dir.x << ","
@@ -1847,3 +1854,4 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
     ImGui::TextWrapped("Last capture: %s", ui_state.last_repro_capture_path.c_str());
   }
 }
+

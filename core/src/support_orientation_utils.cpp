@@ -41,7 +41,11 @@ Vec3d AuthoritativeSupportAxisForEndpoint(const SupportLayoutEndpoint& endpoint,
 
 Vec3d AuthoritativeSupportAxisForGroup(const LoweredSupportGroupPlacement& group, const Vec3d& fallback) {
   Vec3d axis = group.has_side_axis ? group.side_axis : fallback;
-  return CanonicalSharedSupportAxis(axis, fallback);
+  axis = SafeHorizontalNormalized(axis, fallback);
+  if (std::abs(group.chosen_side_sign) > 1e-9) {
+    axis = ScaleVec(axis, (group.chosen_side_sign >= 0.0) ? 1.0 : -1.0);
+  }
+  return axis;
 }
 
 } // namespace wire::core

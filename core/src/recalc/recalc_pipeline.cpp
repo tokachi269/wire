@@ -97,6 +97,14 @@ bool apply_endpoint_to_support_group_decision(
     group.down_offset_variation = endpoint.down_offset_variation;
     group.grouped_port_count = 0;
   }
+  if (std::isfinite(endpoint.support_world.z)) {
+    if (!std::isfinite(existing->second.support_world.z)) {
+      existing->second.support_world.z = endpoint.support_world.z;
+    } else {
+      existing->second.support_world.z = std::min(existing->second.support_world.z, endpoint.support_world.z);
+    }
+  }
+  existing->second.down_offset_m = std::max(existing->second.down_offset_m, endpoint.branch_down_offset_m);
   existing->second.grouped_port_count += 1;
   existing->second.attachment_worlds.push_back(attachment_world);
   return true;

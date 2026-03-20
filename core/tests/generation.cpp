@@ -5102,11 +5102,20 @@ bool test_backbone_cross_underpass_supports_share_one_side_group() {
   if (support_worlds.size() >= 2) {
     const wire::core::Vec3d ref = support_worlds.front();
     for (const wire::core::Vec3d& support_world : support_worlds) {
-      if (!almost_equal(support_world.x, ref.x, 1e-6) || !almost_equal(support_world.y, ref.y, 1e-6)) {
+      if (!almost_equal(support_world.x, ref.x, 1e-6) || !almost_equal(support_world.y, ref.y, 1e-6) ||
+          !almost_equal(support_world.z, ref.z, 1e-6)) {
         std::cerr << "[DBG] C251 support_world mismatch (" << support_world.x << "," << support_world.y
-                  << ") ref=(" << ref.x << "," << ref.y << ")\n";
+                  << "," << support_world.z << ") ref=(" << ref.x << "," << ref.y << "," << ref.z << ")\n";
         return false;
       }
+    }
+  }
+  for (const auto& decision : lowered_endpoint_decisions) {
+    if (!decision.lower_required || decision.lowering_blocked_by_policy || decision.support_group_id != group_id) {
+      std::cerr << "[DBG] C251 lower decision mismatch group=" << decision.support_group_id
+                << " expected=" << group_id << " lowerRequired=" << decision.lower_required
+                << " blocked=" << decision.lowering_blocked_by_policy << "\n";
+      return false;
     }
   }
   return true;
@@ -5370,6 +5379,143 @@ bool test_backbone_grouped_support_visual_cache_uses_single_group_placement() {
   }
 
   return false;
+}
+
+bool test_backbone_branch_lower_required_height_survives_to_grouped_placement() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec trunk{};
+  trunk.path.polyline = {{-12.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}};
+  trunk.interval_m = 1000.0;
+  trunk.pole_type_id = type_ids.front();
+  add_backbone_bundle(trunk, wire::core::BundleKind::kHighVoltage);
+  if (!state.GenerateFromBackboneSpec(trunk).ok) {
+    return false;
+  }
+  const ObjectId center_id = find_pole_id_by_position(state, {0.0, 0.0, 0.0});
+  if (center_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec branch{};
+  branch.path.polyline = {{0.0, 0.0, 0.0}, {0.0, 12.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec shared{};
+  shared.point_index = 0;
+  shared.support_kind = wire::core::SupportKind::kPole;
+  shared.node_id = center_id;
+  branch.path.node_specs.push_back(shared);
+  branch.interval_m = 1000.0;
+  branch.pole_type_id = type_ids.front();
+  add_backbone_bundle(branch, wire::core::BundleKind::kHighVoltage);
+  const auto generated = state.GenerateFromBackboneSpec(branch);
+  if (!generated.ok || generated.value.generated_span_ids.empty()) {
+    return false;
+  }
+
+  wire::core::CommitOptions options{};
+  options.run_recalc = true;
+  if (!state.Commit(options).validation.ok()) {
+    return false;
+  }
+
+  struct Snapshot {
+    ObjectId span_id = wire::core::kInvalidObjectId;
+    int support_group_id = -1;
+    bool lower_required = false;
+    bool default_lower_required = false;
+    wire::core::JunctionRelationKind relation_kind = wire::core::JunctionRelationKind::kNone;
+    wire::core::Vec3d support_world{};
+    wire::core::Vec3d mount_world{};
+    wire::core::Vec3d tip_world{};
+  };
+  auto collect = [&]() {
+    std::vector<Snapshot> snapshots{};
+    for (const auto& span_entry : state.view().spans().items()) {
+      const ObjectId span_id = span_entry.id;
+      const auto layout = state.view().inspect_support_layout(span_id);
+      if (!layout.has_value()) {
+        continue;
+      }
+      const auto collect_endpoint = [&](const wire::core::SupportLayoutEndpointView& endpoint) {
+        if (endpoint.owner_pole_id != center_id ||
+            endpoint.decision.relation_kind != wire::core::JunctionRelationKind::kSideBranch ||
+            !endpoint.decision.lower_required || endpoint.decision.lowering_blocked_by_policy ||
+            endpoint.decision.support_group_id < 0) {
+          return;
+        }
+        for (const auto& group : layout->lowered_support_groups) {
+          if (group.owner_pole_id == center_id && group.support_group_id == endpoint.decision.support_group_id) {
+            Snapshot s{};
+            s.span_id = span_id;
+            s.support_group_id = endpoint.decision.support_group_id;
+            s.lower_required = endpoint.decision.lower_required;
+            s.default_lower_required = endpoint.decision.default_lower_required;
+            s.relation_kind = endpoint.decision.relation_kind;
+            s.support_world = endpoint.support_world;
+            s.mount_world = group.mount_world;
+            s.tip_world = group.tip_world;
+            snapshots.push_back(s);
+            return;
+          }
+        }
+      };
+      collect_endpoint(layout->start_endpoint);
+      collect_endpoint(layout->end_endpoint);
+    }
+    std::sort(snapshots.begin(), snapshots.end(), [](const Snapshot& a, const Snapshot& b) {
+      if (a.span_id != b.span_id) {
+        return a.span_id < b.span_id;
+      }
+      return a.support_group_id < b.support_group_id;
+    });
+    return snapshots;
+  };
+
+  const auto before = collect();
+  if (before.empty()) {
+    std::cerr << "[DBG] C272 no lowered branch endpoint/group snapshots\n";
+    return false;
+  }
+  for (const auto& s : before) {
+    if (!almost_equal(s.support_world.z, s.tip_world.z, 1e-6) ||
+        !almost_equal(s.mount_world.z, s.tip_world.z, 1e-6)) {
+      std::cerr << "[DBG] C272 height mismatch span=" << s.span_id << " group=" << s.support_group_id
+                << " supportZ=" << s.support_world.z << " mountZ=" << s.mount_world.z
+                << " tipZ=" << s.tip_world.z << "\n";
+      return false;
+    }
+  }
+
+  if (!state.SetPoleManualYawOverride(center_id, 23.0).ok) {
+    return false;
+  }
+  const auto after = collect();
+  if (before.size() != after.size()) {
+    std::cerr << "[DBG] C272 snapshot size changed before=" << before.size() << " after=" << after.size() << "\n";
+    return false;
+  }
+  for (std::size_t i = 0; i < before.size(); ++i) {
+    const Snapshot& b = before[i];
+    const Snapshot& a = after[i];
+    if (b.span_id != a.span_id || b.support_group_id != a.support_group_id || b.lower_required != a.lower_required ||
+        b.default_lower_required != a.default_lower_required || b.relation_kind != a.relation_kind ||
+        !almost_equal(b.support_world.z, a.support_world.z, 1e-6) ||
+        !almost_equal(b.mount_world.z, a.mount_world.z, 1e-6) ||
+        !almost_equal(b.tip_world.z, a.tip_world.z, 1e-6)) {
+      std::cerr << "[DBG] C272 refresh mismatch i=" << i << " spanBefore=" << b.span_id
+                << " spanAfter=" << a.span_id << " groupBefore=" << b.support_group_id
+                << " groupAfter=" << a.support_group_id << " supportZBefore=" << b.support_world.z
+                << " supportZAfter=" << a.support_world.z << " mountZBefore=" << b.mount_world.z
+                << " mountZAfter=" << a.mount_world.z << " tipZBefore=" << b.tip_world.z
+                << " tipZAfter=" << a.tip_world.z << "\n";
+      return false;
+    }
+  }
+  return true;
 }
 
 bool test_backbone_grouped_support_membership_is_visible_on_all_bundle_lanes() {
@@ -8278,6 +8424,9 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C271_Backbone_GroupedSupportVisualUsesSinglePlacement",
                          "Grouped lowered support visual cache uses one group placement with grouped hangers instead of per-endpoint support materialization",
                          "Invariant", false, test_backbone_grouped_support_visual_cache_uses_single_group_placement);
+  test_registry::AddTest(tests, "C272_Backbone_BranchLowerRequiredHeightSurvivesPlacementAndRefresh",
+                         "Bundle-like non-through lower_required propagates to grouped placement height and stays unchanged after refresh/recalc",
+                         "Invariant", false, test_backbone_branch_lower_required_height_survives_to_grouped_placement);
   test_registry::AddTest(tests, "C150_Backbone_NewChainOrientationFallback",
                          "Poles without existing chain or primary context use the explicit fallback orientation rule",
                          "Invariant", false, test_backbone_new_chain_uses_fallback_orientation_without_existing_main_context);

@@ -1795,9 +1795,27 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       }
 
       for (const JunctionIncidentRelation& incident : relation.incidents) {
-        if (!incident.in_route || incident.kind == JunctionRelationKind::kThroughMain) {
+        const bool skip_through_pair_main =
+            incident.kind == JunctionRelationKind::kThroughMain && incident.in_through_pair;
+        if (skip_through_pair_main) {
           continue;
         }
+        const bool is_non_through_relation =
+            incident.kind != JunctionRelationKind::kThroughMain && incident.kind != JunctionRelationKind::kNone;
+        if (!incident.in_route && !(bundle_like && is_non_through_relation)) {
+          continue;
+        }
+        JunctionIncidentRelation* mutable_incident = find_incident_relation_ptr(relation, incident.neighbor_node_id);
+        if (mutable_incident == nullptr) {
+          continue;
+        }
+        if (bundle_like && is_non_through_relation) {
+          mutable_incident->default_lower_required = true;
+          mutable_incident->same_level_feasible = false;
+          mutable_incident->infeasible_reason = SameLevelFeasibilityReason::kBundleRule;
+          continue;
+        }
+
         std::vector<ObjectId> comparison_neighbors{};
         if (relation.through_pair.accepted) {
           if (relation.through_pair.neighbor_a_id != kInvalidObjectId &&
@@ -1826,18 +1844,8 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
           min_projected_spacing_m =
               std::min(min_projected_spacing_m, projected_spacing_for(node_id, incident.neighbor_node_id, other_neighbor_id));
         }
-        JunctionIncidentRelation* mutable_incident = find_incident_relation_ptr(relation, incident.neighbor_node_id);
-        if (mutable_incident == nullptr) {
-          continue;
-        }
         mutable_incident->projected_spacing_topview_m = min_projected_spacing_m;
         mutable_incident->required_clearance_m = required_clearance_m;
-        if (bundle_like) {
-          mutable_incident->default_lower_required = true;
-          mutable_incident->same_level_feasible = false;
-          mutable_incident->infeasible_reason = SameLevelFeasibilityReason::kBundleRule;
-          continue;
-        }
         if (!(std::isfinite(min_projected_spacing_m) && min_projected_spacing_m + 1e-9 >= required_clearance_m)) {
           mutable_incident->same_level_feasible = false;
           mutable_incident->infeasible_reason =

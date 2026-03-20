@@ -459,6 +459,11 @@ ValidationResult CoreState::Validate() const {
                                  "Grouped-lowered endpoint decision does not match support-group decision",
                                  span_id});
       }
+      if (!almost_equal_validation(endpoint.support_world.z, group.tip_world.z)) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportGroupHeightMismatch",
+                                 "Grouped-lowered endpoint support height must match grouped placement tip height",
+                                 span_id});
+      }
     };
     validate_grouped_endpoint_alignment(layout.start);
     validate_grouped_endpoint_alignment(layout.end);
@@ -485,6 +490,10 @@ ValidationResult CoreState::Validate() const {
       result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionIncomplete",
                                "Support-group decision must carry non-radial authoritative orientation/side fields",
                                key.owner_pole_id});
+    }
+    if (!std::isfinite(group_decision.support_world.z)) {
+      result.issues.push_back({ValidationSeverity::kError, "SupportGroupHeightInvalid",
+                               "Support-group decision must carry a finite authoritative support z", key.owner_pole_id});
     }
   }
 
@@ -516,6 +525,14 @@ ValidationResult CoreState::Validate() const {
     if (group.grouped_port_count != static_cast<int>(group.attachment_worlds.size())) {
       result.issues.push_back({ValidationSeverity::kError, "SupportGroupAttachmentCountMismatch",
                                "Grouped lowered support must carry one attachment world per grouped port",
+                               key.owner_pole_id});
+    }
+    const auto decision_it = cache_state.support_layout_cache.support_group_decisions.find(key);
+    if (decision_it != cache_state.support_layout_cache.support_group_decisions.end() &&
+        (!almost_equal_validation(group.mount_world.z, decision_it->second.support_world.z) ||
+         !almost_equal_validation(group.tip_world.z, decision_it->second.support_world.z))) {
+      result.issues.push_back({ValidationSeverity::kError, "SupportGroupHeightMismatch",
+                               "Grouped placement mount/tip z must match support-group decision support z",
                                key.owner_pole_id});
     }
     if (group.decision.support_orientation_basis != SupportOrientationBasisKind::kRadial &&

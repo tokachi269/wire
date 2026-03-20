@@ -221,10 +221,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
     }
     return std::isfinite(best_z) ? std::optional<double>{best_z} : std::nullopt;
   };
-  auto lane_row_base_z_for_pole = [&](const Pole& pole) {
-    if (const auto port_z = highest_owned_port_z_for_pole(pole); port_z.has_value()) {
-      return *port_z;
-    }
+  auto template_layer_base_z_for_pole = [&](const Pole& pole) {
     double best_z = -std::numeric_limits<double>::infinity();
     const int target_layer = generation::detail::TemplateLayerForCategory(category);
     if (const PoleTypeDefinition* pole_type = find_pole_type(pole.pole_type_id); pole_type != nullptr) {
@@ -248,6 +245,15 @@ CoreState::generate_grouped_spans_between_support_nodes(
       return best_z;
     }
     return std::max(0.5, pole.height_m * 0.8);
+  };
+  auto lane_row_base_z_for_pole = [&](const Pole& pole) {
+    if (const auto port_z = highest_owned_port_z_for_pole(pole); port_z.has_value()) {
+      return *port_z;
+    }
+    return template_layer_base_z_for_pole(pole);
+  };
+  auto lowered_support_base_z_for_pole = [&](const Pole& pole) {
+    return template_layer_base_z_for_pole(pole);
   };
   auto span_context_for_segment = [&](ObjectId node_a, ObjectId node_b) -> ConnectionContext {
     if (category == ConnectionCategory::kDrop) {
@@ -416,7 +422,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
   auto lane_row_target_z_for_pole = [&](const Pole& pole, std::size_t node_index) {
     double target_z_m = lane_row_base_z_for_pole(pole);
     if (uses_acute_corner_lowering && node_index < node_uses_down_offset.size() && node_uses_down_offset[node_index]) {
-      target_z_m = std::max(0.5, target_z_m - effective_branch_down_offset_m);
+      target_z_m = std::max(0.5, lowered_support_base_z_for_pole(pole) - effective_branch_down_offset_m);
     }
     return target_z_m;
   };
@@ -814,6 +820,8 @@ CoreState::generate_grouped_spans_between_support_nodes(
   };
   std::map<SupportGroupDecisionKey, int> support_group_ids{};
   int next_support_group_id = 1;
+  std::unordered_map<LoweredSupportGroupKey, EndpointContinuityDecision, LoweredSupportGroupKeyHash>
+      authoritative_group_endpoint_decisions{};
   auto quantize_axis_bucket = [](double value) -> int {
     return static_cast<int>(std::llround(value * 1000000.0));
   };
@@ -897,6 +905,42 @@ CoreState::generate_grouped_spans_between_support_nodes(
     decision.side_axis = side_decision.side_axis;
     decision.chosen_side_sign = side_decision.chosen_side_sign;
     return decision;
+  };
+  auto canonicalize_group_endpoint_decision = [&](const EndpointContinuityDecision& decision) {
+    if (!UsesAuthoritativeGroupedLoweredSupport(decision)) {
+      return decision;
+    }
+    const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(decision);
+    const auto [it, inserted] = authoritative_group_endpoint_decisions.emplace(key, decision);
+    if (inserted) {
+      return decision;
+    }
+    EndpointContinuityDecision canonical = it->second;
+    canonical.bundle_order_policy = decision.bundle_order_policy;
+    canonical.bundle_order_choice = decision.bundle_order_choice;
+    canonical.bundle_order_choice_reason = decision.bundle_order_choice_reason;
+    canonical.solver_used_same_level_constraint = decision.solver_used_same_level_constraint;
+    canonical.used_special_case_ports = decision.used_special_case_ports;
+    canonical.downstream_overridden = decision.downstream_overridden;
+    return canonical;
+  };
+  auto endpoint_lowering_blocked_by_policy = [&](const SegmentRelationFeasibility& feasibility) {
+    const bool endpoint_has_conflict = feasibility.default_lower_required || !feasibility.same_level_feasible;
+    if (!endpoint_has_conflict) {
+      return false;
+    }
+    switch (feasibility.kind) {
+    case JunctionRelationKind::kCrossUnderpass:
+      return !lowering_policy.enable_cross_underpass;
+    case JunctionRelationKind::kSideBranch:
+      return !lowering_policy.enable_branch_support;
+    case JunctionRelationKind::kCornerContinuation:
+      return !lowering_policy.enable_acute_corner;
+    case JunctionRelationKind::kThroughMain:
+    case JunctionRelationKind::kNone:
+    default:
+      return !lowering_policy.enable_branch_support;
+    }
   };
   auto sync_assignment_from_decisions = [&](SegmentLaneAssignment* assignment) {
     if (assignment == nullptr) {
@@ -1211,12 +1255,9 @@ CoreState::generate_grouped_spans_between_support_nodes(
             target_uniform_z = std::min(target_uniform_z, existing_bundle_port_min_z_m);
           }
           if (feasibility.kind == JunctionRelationKind::kSideBranch ||
-              feasibility.kind == JunctionRelationKind::kCrossUnderpass) {
-            target_uniform_z = std::max(0.5, uniform_z - effective_branch_down_offset_m);
-            if (std::isfinite(existing_bundle_port_min_z_m)) {
-              target_uniform_z =
-                  std::max(0.5, std::min(target_uniform_z, existing_bundle_port_min_z_m - effective_branch_down_offset_m));
-            }
+              feasibility.kind == JunctionRelationKind::kCrossUnderpass ||
+              feasibility.kind == JunctionRelationKind::kCornerContinuation) {
+            target_uniform_z = std::max(0.5, lowered_support_base_z_for_pole(*pole) - effective_branch_down_offset_m);
           }
           for (ObjectId port_id : solved_ports) {
             Port* selected_port = edit_state_access().ports.find(port_id);
@@ -1274,26 +1315,8 @@ CoreState::generate_grouped_spans_between_support_nodes(
           std::atan2(branch_forward_axis.y, branch_forward_axis.x) * (180.0 / kPi);
 
       const bool use_scaffold_layout = use_lane_row_geometry;
-      double main_support_base_z_m = lane_row_base_z_for_pole(*pole);
+      double main_support_base_z_m = lowered_support_base_z_for_pole(*pole);
       double branch_base_z_m = main_support_base_z_m;
-      double existing_bundle_port_min_z_m = std::numeric_limits<double>::infinity();
-      if (const auto it_ports = relation_index_access().ports_by_pole.find(node_id);
-          it_ports != relation_index_access().ports_by_pole.end()) {
-        for (ObjectId existing_port_id : it_ports->second) {
-          const Port* existing_port = edit_state_access().ports.find(existing_port_id);
-          if (existing_port == nullptr || existing_port->owner_pole_id != node_id || existing_port->category != category) {
-            continue;
-          }
-          const auto it_spans = connection_index_access().spans_by_port.find(existing_port_id);
-          if (it_spans == connection_index_access().spans_by_port.end()) {
-            continue;
-          }
-          existing_bundle_port_min_z_m = std::min(existing_bundle_port_min_z_m, existing_port->world_position.z);
-        }
-      }
-      if (std::isfinite(existing_bundle_port_min_z_m)) {
-        main_support_base_z_m = std::min(main_support_base_z_m, existing_bundle_port_min_z_m);
-      }
       if (use_scaffold_layout) {
         main_support_base_z_m = std::min(main_support_base_z_m, pole->height_m * 0.8);
         branch_base_z_m = main_support_base_z_m;
@@ -2420,14 +2443,14 @@ CoreState::generate_grouped_spans_between_support_nodes(
     const JunctionRelationKind segment_relation_kind =
         (relation_rank(assignment.relation_a) >= relation_rank(assignment.relation_b)) ? assignment.relation_a
                                                                                         : assignment.relation_b;
-    const SegmentRelationFeasibility segment_feasibility =
-        (relation_rank(relation_a.kind) >= relation_rank(relation_b.kind)) ? relation_a : relation_b;
     const bool segment_same_level_feasible =
         effective_relation_a.same_level_feasible && effective_relation_b.same_level_feasible;
     assignment.used_special_case_ports =
         !assignment.solver_used_same_level_constraint && !segment_same_level_feasible &&
         (ports_use_special_case_source(assignment.port_ids_a) || ports_use_special_case_source(assignment.port_ids_b));
-    assignment.lowering_blocked_by_policy = false;
+    const bool endpoint_policy_block_a = endpoint_lowering_blocked_by_policy(effective_relation_a);
+    const bool endpoint_policy_block_b = endpoint_lowering_blocked_by_policy(effective_relation_b);
+    assignment.lowering_blocked_by_policy = endpoint_policy_block_a || endpoint_policy_block_b;
     const bool touches_lowered_corner =
         (segment_relation_kind == JunctionRelationKind::kCornerContinuation && !segment_same_level_feasible) ||
         ((seg < node_uses_down_offset.size() && node_uses_down_offset[seg]) ||
@@ -2449,17 +2472,11 @@ CoreState::generate_grouped_spans_between_support_nodes(
       assignment.lowering_kind = BackboneLoweringKind::kNone;
     }
     assignment.lowering_blocked_by_policy =
-        assignment.lowering_kind == BackboneLoweringKind::kNone &&
-        ((should_cross_lower && !lowering_policy.enable_cross_underpass) ||
-         (should_branch_lower && !lowering_policy.enable_branch_support) ||
-         (should_corner_lower && !lowering_policy.enable_acute_corner));
+        endpoint_policy_block_a || endpoint_policy_block_b;
     if (assignment.lowering_blocked_by_policy) {
       assignment.same_level_reason = SameLevelFeasibilityReason::kCategoryPolicyDisabled;
     }
-    assignment.unresolved_same_level_conflict =
-        !segment_same_level_feasible && assignment.lowering_blocked_by_policy;
-    assignment.branch_down_offset_m =
-        (assignment.lowering_kind != BackboneLoweringKind::kNone) ? effective_branch_down_offset_m : 0.0;
+    assignment.unresolved_same_level_conflict = !segment_same_level_feasible && assignment.lowering_blocked_by_policy;
     EndpointSideDecision side_decision_a = preferred_side_axis_for_endpoint(node_a, node_b, effective_relation_a);
     EndpointSideDecision side_decision_b = preferred_side_axis_for_endpoint(node_b, node_a, effective_relation_b);
     finalize_side_sign_for_ports(&side_decision_a, node_a, node_b, assignment.port_ids_a);
@@ -2480,17 +2497,20 @@ CoreState::generate_grouped_spans_between_support_nodes(
     side_decision_b.side_axis = assignment.side_axis_b;
     side_decision_a.has_side_axis = std::isfinite(assignment.side_axis_a.x) && std::isfinite(assignment.side_axis_a.y);
     side_decision_b.has_side_axis = std::isfinite(assignment.side_axis_b.x) && std::isfinite(assignment.side_axis_b.y);
-    assignment.decision_a =
+    assignment.decision_a = canonicalize_group_endpoint_decision(
         build_endpoint_decision(effective_relation_a, side_decision_a, node_a, node_b, assignment.bundle_order_choice_a,
                                 assignment.bundle_order_choice_reason_a, assignment.solver_used_same_level_constraint,
-                                assignment.used_special_case_ports, assignment.lowering_blocked_by_policy,
-                                assignment.unresolved_same_level_conflict);
-    assignment.decision_b =
+                                assignment.used_special_case_ports, endpoint_policy_block_a,
+                                assignment.unresolved_same_level_conflict));
+    assignment.decision_b = canonicalize_group_endpoint_decision(
         build_endpoint_decision(effective_relation_b, side_decision_b, node_b, node_a, assignment.bundle_order_choice_b,
                                 assignment.bundle_order_choice_reason_b, assignment.solver_used_same_level_constraint,
-                                assignment.used_special_case_ports, assignment.lowering_blocked_by_policy,
-                                assignment.unresolved_same_level_conflict);
+                                assignment.used_special_case_ports, endpoint_policy_block_b,
+                                assignment.unresolved_same_level_conflict));
     sync_assignment_from_decisions(&assignment);
+    const bool decision_lowered_a = UsesAuthoritativeGroupedLoweredSupport(assignment.decision_a);
+    const bool decision_lowered_b = UsesAuthoritativeGroupedLoweredSupport(assignment.decision_b);
+    assignment.branch_down_offset_m = (decision_lowered_a || decision_lowered_b) ? effective_branch_down_offset_m : 0.0;
 
     for (int lane = 0; lane < lane_count; ++lane) {
       const ObjectId port_a_id = assignment.port_ids_a[static_cast<std::size_t>(lane)];

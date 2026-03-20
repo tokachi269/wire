@@ -6,8 +6,10 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <optional>
 #include <sstream>
+#include <utility>
 
 #include "imgui.h"
 #include "scene_query.hpp"
@@ -779,13 +781,18 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
         }
       }
       };
-      ofs << "capture.version=5\n";
+      ofs << "capture.version=6\n";
+  ofs << "capture.scope=all_state_plus_focus\n";
+  ofs << "capture.includes_all_current_spans=1\n";
+  ofs << "capture.includes_all_lane_assignments=1\n";
   ofs << "draw.endpoint_attachment_input_supported=0\n";
   ofs << "draw.endpoint_socket_input_supported=0\n";
   ofs << "capture.timestamp_unix=" << static_cast<long long>(now) << "\n";
   ofs << "capture.mode=" << ModeLabelLocal(ui_state.mode) << "\n";
   ofs << "capture.selected_type=" << SelectedTypeLabelLocal(ui_state.selected_type) << "\n";
   ofs << "capture.selected_id=" << static_cast<unsigned long long>(ui_state.selected_id) << "\n";
+  ofs << "capture.focus_type=" << SelectedTypeLabelLocal(ui_state.selected_type) << "\n";
+  ofs << "capture.focus_id=" << static_cast<unsigned long long>(ui_state.selected_id) << "\n";
   ofs << "capture.last_error=" << ui_state.last_error << "\n";
   ofs << "capture.last_generated_poles=" << ui_state.last_generated_poles << "\n";
   ofs << "capture.last_generated_spans=" << ui_state.last_generated_spans << "\n";
@@ -802,12 +809,21 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
   if (const auto selected_ref = SelectedEntityRefLocal(ui_state); selected_ref.has_value()) {
     ofs << "capture.selected_entity.kind=" << static_cast<int>(selected_ref->kind) << "\n";
     ofs << "capture.selected_entity.stable_id=" << selected_ref->stable_id << "\n";
+    ofs << "capture.focus_entity.kind=" << static_cast<int>(selected_ref->kind) << "\n";
+    ofs << "capture.focus_entity.stable_id=" << selected_ref->stable_id << "\n";
     if (const auto meta = view.describe_entity(*selected_ref); meta.has_value()) {
       ofs << "capture.selected_entity.display_name=" << meta->display_name << "\n";
       ofs << "capture.selected_entity.provenance=" << meta->provenance << "\n";
       ofs << "capture.selected_entity.role=" << static_cast<int>(meta->role) << "\n";
+      ofs << "capture.focus_entity.display_name=" << meta->display_name << "\n";
+      ofs << "capture.focus_entity.provenance=" << meta->provenance << "\n";
+      ofs << "capture.focus_entity.role=" << static_cast<int>(meta->role) << "\n";
     }
     write_decision_trace("capture.selected_entity", *selected_ref);
+    write_decision_trace("capture.focus_entity", *selected_ref);
+  } else {
+    ofs << "capture.focus_entity.kind=none\n";
+    ofs << "capture.focus_entity.stable_id=0\n";
   }
 
   ofs << "draw.path_count=" << ui_state.draw_path_points.size() << "\n";
@@ -1332,6 +1348,51 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
                wire::core::EntityRef{wire::core::EntityKind::kSpan, span.id});
     ++current_span_index;
     }
+
+  std::map<std::pair<wire::core::ObjectId, int>, wire::core::LoweredSupportGroupInspectionView> grouped_support_index{};
+  for (const auto& span : view.edit_state().spans.items()) {
+    if (const auto layout_view = view.inspect_support_layout(span.id); layout_view.has_value()) {
+      for (const auto& group : layout_view->lowered_support_groups) {
+        grouped_support_index.emplace(std::make_pair(group.owner_pole_id, group.support_group_id), group);
+      }
+    }
+  }
+  ofs << "result.grouped_lowered_support_count=" << grouped_support_index.size() << "\n";
+  std::size_t grouped_support_index_i = 0;
+  for (const auto& [key, group] : grouped_support_index) {
+    (void)key;
+    ofs << "result.grouped_lowered_support[" << grouped_support_index_i
+        << "].owner_pole_id=" << static_cast<unsigned long long>(group.owner_pole_id) << "\n";
+    ofs << "result.grouped_lowered_support[" << grouped_support_index_i
+        << "].support_group_id=" << group.support_group_id << "\n";
+    ofs << "result.grouped_lowered_support[" << grouped_support_index_i
+        << "].relation_kind=" << JunctionRelationLabelLocal(group.decision.relation_kind) << "\n";
+    ofs << "result.grouped_lowered_support[" << grouped_support_index_i
+        << "].continuity_class=" << ContinuityClassLabelLocal(group.decision.continuity_class) << "\n";
+    ofs << "result.grouped_lowered_support[" << grouped_support_index_i
+        << "].lower_required=" << (group.decision.lower_required ? 1 : 0) << "\n";
+    ofs << "result.grouped_lowered_support[" << grouped_support_index_i
+        << "].side=" << LateralSideChoiceLabelLocal(group.decision.chosen_side) << "\n";
+    ofs << "result.grouped_lowered_support[" << grouped_support_index_i
+        << "].side_assignment_rule=" << SideAssignmentRuleLabelLocal(group.side_assignment_rule) << "\n";
+    ofs << "result.grouped_lowered_support[" << grouped_support_index_i
+        << "].support_orientation_rule=" << SupportOrientationRuleLabelLocal(group.support_orientation_rule) << "\n";
+    ofs << "result.grouped_lowered_support[" << grouped_support_index_i
+        << "].support_orientation_basis="
+        << SupportOrientationBasisLabelLocal(group.decision.support_orientation_basis) << "\n";
+    ofs << "result.grouped_lowered_support[" << grouped_support_index_i
+        << "].has_side_axis=" << (group.has_side_axis ? 1 : 0) << "\n";
+    ofs << "result.grouped_lowered_support[" << grouped_support_index_i
+        << "].side_axis=" << group.side_axis.x << "," << group.side_axis.y << "," << group.side_axis.z << "\n";
+    ofs << "result.grouped_lowered_support[" << grouped_support_index_i
+        << "].chosen_side_sign=" << group.chosen_side_sign << "\n";
+    ofs << "result.grouped_lowered_support[" << grouped_support_index_i
+        << "].mount_world=" << group.mount_world.x << "," << group.mount_world.y << "," << group.mount_world.z
+        << "\n";
+    ofs << "result.grouped_lowered_support[" << grouped_support_index_i
+        << "].tip_world=" << group.tip_world.x << "," << group.tip_world.y << "," << group.tip_world.z << "\n";
+    ++grouped_support_index_i;
+  }
 
   ofs << "state.poles=" << view.edit_state().poles.size() << "\n";
   ofs << "state.ports=" << view.edit_state().ports.size() << "\n";

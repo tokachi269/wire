@@ -71,6 +71,7 @@ EditResult<bool> TemplateMutationService::UpdateCableTemplate(CoreState& state, 
 
   CableTemplate normalized = cable_template;
   normalized.outer_diameter_m = std::max(0.0, normalized.outer_diameter_m);
+  normalized.default_grouped_support_fanout_spacing_m = std::max(0.0, normalized.default_grouped_support_fanout_spacing_m);
   normalized.bend_stiffness = std::max(0.0, normalized.bend_stiffness);
   normalized.min_bend_radius_m = std::max(0.0, normalized.min_bend_radius_m);
   normalized.sag_factor = std::max(0.0, normalized.sag_factor);
@@ -78,6 +79,8 @@ EditResult<bool> TemplateMutationService::UpdateCableTemplate(CoreState& state, 
   normalized.version = it->second.version;
   const bool changed =
       normalized.name != it->second.name || std::abs(normalized.outer_diameter_m - it->second.outer_diameter_m) > 1e-12 ||
+      std::abs(normalized.default_grouped_support_fanout_spacing_m -
+               it->second.default_grouped_support_fanout_spacing_m) > 1e-12 ||
       std::abs(normalized.bend_stiffness - it->second.bend_stiffness) > 1e-12 ||
       std::abs(normalized.min_bend_radius_m - it->second.min_bend_radius_m) > 1e-12 ||
       normalized.material_style != it->second.material_style || normalized.color_rgba != it->second.color_rgba ||
@@ -141,6 +144,11 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
   }
 
   BundleTemplate normalized = bundle_template;
+  const CableTemplate* cable_template = state.find_cable_template(normalized.cable_template_id);
+  if (normalized.grouped_support_fanout_spacing_m <= 1e-9) {
+    normalized.grouped_support_fanout_spacing_m =
+        (cable_template == nullptr) ? normalized.default_spacing_m : cable_template->default_grouped_support_fanout_spacing_m;
+  }
   normalized.version = it->second.version;
   bool changed = false;
   const bool visual_only_change =
@@ -151,6 +159,7 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
       normalized.min_count == it->second.min_count && normalized.max_count == it->second.max_count &&
       normalized.default_count == it->second.default_count &&
       std::abs(normalized.default_spacing_m - it->second.default_spacing_m) <= 1e-12 &&
+      std::abs(normalized.grouped_support_fanout_spacing_m - it->second.grouped_support_fanout_spacing_m) <= 1e-12 &&
       normalized.allow_mirror == it->second.allow_mirror &&
       normalized.allow_midair_node == it->second.allow_midair_node &&
       normalized.allow_midair_branch == it->second.allow_midair_branch &&
@@ -165,6 +174,7 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
       normalized.min_count != it->second.min_count || normalized.max_count != it->second.max_count ||
       normalized.default_count != it->second.default_count ||
       std::abs(normalized.default_spacing_m - it->second.default_spacing_m) > 1e-12 ||
+      std::abs(normalized.grouped_support_fanout_spacing_m - it->second.grouped_support_fanout_spacing_m) > 1e-12 ||
       normalized.allow_mirror != it->second.allow_mirror ||
       normalized.allow_midair_node != it->second.allow_midair_node ||
       normalized.allow_midair_branch != it->second.allow_midair_branch ||

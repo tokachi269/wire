@@ -83,6 +83,7 @@ struct CableTemplate {
   CableTemplateId id = kInvalidCableTemplateId;
   std::string name{};
   double outer_diameter_m = 0.03;
+  double default_grouped_support_fanout_spacing_m = 0.2;
   double bend_stiffness = 1.0;
   double min_bend_radius_m = 0.2;
   CableMaterialStyleKind material_style = CableMaterialStyleKind::kGeneric;
@@ -110,6 +111,7 @@ struct BundleTemplate {
   int max_count = 1;
   int default_count = 1;
   double default_spacing_m = 0.2;
+  double grouped_support_fanout_spacing_m = 0.2;
   bool allow_mirror = true;
   bool allow_midair_node = true;
   bool allow_midair_branch = true;

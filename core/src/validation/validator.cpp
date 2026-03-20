@@ -310,6 +310,22 @@ ValidationResult CoreState::Validate() const {
       result.issues.push_back({ValidationSeverity::kError, "BundleTemplateCableMissing",
                                "BundleTemplate references unknown CableTemplate", kInvalidObjectId});
     }
+    if (!std::isfinite(bundle_template.grouped_support_fanout_spacing_m) ||
+        bundle_template.grouped_support_fanout_spacing_m < 0.0) {
+      result.issues.push_back({ValidationSeverity::kError, "BundleTemplateGroupedSupportFanoutInvalid",
+                               "BundleTemplate grouped support fanout spacing must be finite and >= 0",
+                               kInvalidObjectId});
+    }
+  }
+
+  for (const auto& [cable_template_id, cable_template] : cable_templates) {
+    (void)cable_template_id;
+    if (!std::isfinite(cable_template.default_grouped_support_fanout_spacing_m) ||
+        cable_template.default_grouped_support_fanout_spacing_m < 0.0) {
+      result.issues.push_back({ValidationSeverity::kError, "CableTemplateGroupedSupportFanoutInvalid",
+                               "CableTemplate grouped support default fanout spacing must be finite and >= 0",
+                               kInvalidObjectId});
+    }
   }
 
   for (const Bundle& bundle : edit_state.bundles.items()) {

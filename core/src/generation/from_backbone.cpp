@@ -1057,6 +1057,9 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
   auto preferred_straight_main_pair_for_orientation = [&](ObjectId node_id) -> std::pair<ObjectId, ObjectId> {
     const auto it_route = route_neighbors_by_node.find(node_id);
     const std::size_t route_degree = (it_route == route_neighbors_by_node.end()) ? 0 : it_route->second.size();
+    const std::vector<ObjectId> route_neighbors =
+        (it_route == route_neighbors_by_node.end()) ? std::vector<ObjectId>{} : it_route->second;
+    constexpr double kPreferredPairStraightnessThreshold = 0.3;
     if (route_degree == 0) {
       return {kInvalidObjectId, kInvalidObjectId};
     }
@@ -1135,13 +1138,16 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       }
     }
     if (stable_existing_pair.size() >= 2) {
-      const Vec3d existing_a = normalize_forward_xy(current_support_position(stable_existing_pair[0]) - center);
-      const Vec3d existing_b = normalize_forward_xy(current_support_position(stable_existing_pair[1]) - center);
-      const double existing_score = dot(existing_a, Vec3d{-existing_b.x, -existing_b.y, -existing_b.z});
-      if (!(best_score > existing_score + 1e-6)) {
-        if (combined_neighbors.size() < 4) {
-          return {kInvalidObjectId, kInvalidObjectId};
+      auto pair_straightness_score = [&](ObjectId neighbor_a_id, ObjectId neighbor_b_id) {
+        const Vec3d axis_a = normalize_forward_xy(current_support_position(neighbor_a_id) - center);
+        const Vec3d axis_b = normalize_forward_xy(current_support_position(neighbor_b_id) - center);
+        if (!std::isfinite(axis_a.x) || !std::isfinite(axis_a.y) || !std::isfinite(axis_b.x) ||
+            !std::isfinite(axis_b.y)) {
+          return -2.0;
         }
+        return dot(axis_a, Vec3d{-axis_b.x, -axis_b.y, -axis_b.z});
+      };
+      auto ordered_existing_pair = [&]() {
         ObjectId primary_neighbor_id = stable_existing_pair[0];
         ObjectId secondary_neighbor_id = stable_existing_pair[1];
         const auto it_existing_primary = existing_primary_neighbor_by_node.find(node_id);
@@ -1152,7 +1158,28 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
         } else if (existing_primary_neighbor_id != primary_neighbor_id && secondary_neighbor_id < primary_neighbor_id) {
           std::swap(primary_neighbor_id, secondary_neighbor_id);
         }
-        return {primary_neighbor_id, secondary_neighbor_id};
+        return std::pair<ObjectId, ObjectId>{primary_neighbor_id, secondary_neighbor_id};
+      };
+
+      const double existing_score = pair_straightness_score(stable_existing_pair[0], stable_existing_pair[1]);
+      const bool existing_pair_is_straight = existing_score + 1e-9 >= kPreferredPairStraightnessThreshold;
+      const bool existing_pair_is_route_disjoint =
+          route_degree == 2 &&
+          std::find(route_neighbors.begin(), route_neighbors.end(), stable_existing_pair[0]) == route_neighbors.end() &&
+          std::find(route_neighbors.begin(), route_neighbors.end(), stable_existing_pair[1]) == route_neighbors.end();
+      if (combined_neighbors.size() >= 4 && existing_pair_is_straight && existing_pair_is_route_disjoint) {
+        const double route_score = pair_straightness_score(route_neighbors[0], route_neighbors[1]);
+        const bool route_pair_is_straight = route_score + 1e-9 >= kPreferredPairStraightnessThreshold;
+        if (route_pair_is_straight) {
+          return ordered_existing_pair();
+        }
+      }
+
+      if (!(best_score > existing_score + 1e-6)) {
+        if (combined_neighbors.size() < 4) {
+          return {kInvalidObjectId, kInvalidObjectId};
+        }
+        return ordered_existing_pair();
       }
     }
 

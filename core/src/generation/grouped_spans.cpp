@@ -39,6 +39,9 @@ CoreState::generate_grouped_spans_between_support_nodes(
   const int lane_count = std::max(1, conductor_count);
   const PortLayer target_port_layer = category_to_port_layer(category);
   const bool use_lane_row_geometry = maintain_lane_order && lane_count > 1;
+  const BundleTemplate* bundle_template = find_bundle_template(bundle_template_id);
+  const double grouped_support_fanout_spacing_m =
+      std::max(0.1, (bundle_template == nullptr) ? spacing_m : bundle_template->grouped_support_fanout_spacing_m);
   struct SegmentRelationFeasibility {
     JunctionRelationKind kind = JunctionRelationKind::kNone;
     ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
@@ -376,6 +379,12 @@ CoreState::generate_grouped_spans_between_support_nodes(
   auto endpoint_uses_lowered_height = [&](const SegmentRelationFeasibility& feasibility) {
     return endpoint_lowering_offset_m(feasibility) > 1e-6;
   };
+  auto lane_spacing_for_endpoint = [&](const SegmentRelationFeasibility& feasibility) {
+    if (endpoint_uses_lowered_height(feasibility)) {
+      return grouped_support_fanout_spacing_m;
+    }
+    return std::max(0.1, spacing_m);
+  };
   auto lane_row_target_z_for_endpoint = [&](const Pole& pole, const SegmentRelationFeasibility& feasibility) {
     return std::max(0.5, lane_row_base_z_for_pole(pole) - endpoint_lowering_offset_m(feasibility));
   };
@@ -426,9 +435,228 @@ CoreState::generate_grouped_spans_between_support_nodes(
     }
     return side_axis;
   };
+  struct LoweredSupportPairInfo {
+    ObjectId companion_peer_id = kInvalidObjectId;
+    ObjectId pair_peer_low = kInvalidObjectId;
+    ObjectId pair_peer_high = kInvalidObjectId;
+    bool has_pair = false;
+  };
+  struct SupportPairCandidate {
+    ObjectId peer_id = kInvalidObjectId;
+    Vec3d dir{};
+    double angle = 0.0;
+    bool lower_required = false;
+  };
+  std::unordered_map<ObjectId, std::map<ObjectId, LoweredSupportPairInfo>> lowered_support_pair_cache{};
+  std::unordered_set<ObjectId> lowered_support_pair_cache_built{};
+  auto angular_gap_rad = [](double a, double b) {
+    double gap = std::abs(a - b);
+    while (gap > 2.0 * kPi) {
+      gap -= 2.0 * kPi;
+    }
+    return std::min(gap, 2.0 * kPi - gap);
+  };
+  auto record_support_pair = [&](std::map<ObjectId, LoweredSupportPairInfo>* pairings, ObjectId peer_a, ObjectId peer_b) {
+    if (pairings == nullptr || peer_a == kInvalidObjectId || peer_b == kInvalidObjectId || peer_a == peer_b) {
+      return;
+    }
+    LoweredSupportPairInfo info_a{};
+    info_a.companion_peer_id = peer_b;
+    info_a.pair_peer_low = std::min(peer_a, peer_b);
+    info_a.pair_peer_high = std::max(peer_a, peer_b);
+    info_a.has_pair = true;
+    LoweredSupportPairInfo info_b = info_a;
+    info_b.companion_peer_id = peer_a;
+    (*pairings)[peer_a] = info_a;
+    (*pairings)[peer_b] = info_b;
+  };
+  auto build_adjacent_support_pairs = [&](const std::vector<SupportPairCandidate>& ordered,
+                                          std::map<ObjectId, LoweredSupportPairInfo>* pairings) {
+    if (pairings == nullptr || ordered.size() < 2) {
+      return;
+    }
+    auto linear_pair_cost = [&](const std::vector<const SupportPairCandidate*>& sequence) {
+      if (sequence.size() < 2 || (sequence.size() % 2) != 0) {
+        return std::numeric_limits<double>::infinity();
+      }
+      double total = 0.0;
+      for (std::size_t i = 0; i + 1 < sequence.size(); i += 2) {
+        total += angular_gap_rad(sequence[i]->angle, sequence[i + 1]->angle);
+      }
+      return total;
+    };
+    auto build_sequence = [&](int start_index, int skip_index) {
+      std::vector<const SupportPairCandidate*> sequence{};
+      sequence.reserve(ordered.size());
+      for (std::size_t offset = 0; offset < ordered.size(); ++offset) {
+        const int index = (start_index + static_cast<int>(offset)) % static_cast<int>(ordered.size());
+        if (index == skip_index) {
+          continue;
+        }
+        sequence.push_back(&ordered[static_cast<std::size_t>(index)]);
+      }
+      return sequence;
+    };
+    std::vector<const SupportPairCandidate*> best_sequence{};
+    double best_cost = std::numeric_limits<double>::infinity();
+    if ((ordered.size() % 2) == 0) {
+      for (int start_index : {0, 1}) {
+        if (start_index >= static_cast<int>(ordered.size())) {
+          continue;
+        }
+        std::vector<const SupportPairCandidate*> sequence = build_sequence(start_index, -1);
+        const double cost = linear_pair_cost(sequence);
+        if (cost + 1e-9 < best_cost) {
+          best_cost = cost;
+          best_sequence = std::move(sequence);
+        }
+      }
+    } else {
+      for (int skip_index = 0; skip_index < static_cast<int>(ordered.size()); ++skip_index) {
+        std::vector<const SupportPairCandidate*> sequence =
+            build_sequence((skip_index + 1) % static_cast<int>(ordered.size()), skip_index);
+        const double cost = linear_pair_cost(sequence);
+        if (cost + 1e-9 < best_cost) {
+          best_cost = cost;
+          best_sequence = std::move(sequence);
+        }
+      }
+    }
+    for (std::size_t i = 0; i + 1 < best_sequence.size(); i += 2) {
+      record_support_pair(pairings, best_sequence[i]->peer_id, best_sequence[i + 1]->peer_id);
+    }
+  };
+  auto lowered_support_pair_info_for_endpoint =
+      [&](ObjectId node_id, ObjectId peer_id, const SegmentRelationFeasibility& feasibility)
+      -> std::optional<LoweredSupportPairInfo> {
+    if (junction_relations_by_node == nullptr || node_id == kInvalidObjectId || peer_id == kInvalidObjectId ||
+        feasibility.continuity_class != ContinuityCategoryClass::kBundleLike || !endpoint_has_lowering_conflict(feasibility) ||
+        feasibility.kind == JunctionRelationKind::kThroughMain || feasibility.kind == JunctionRelationKind::kNone) {
+      return std::nullopt;
+    }
+    if (!lowered_support_pair_cache_built.insert(node_id).second) {
+      const auto node_it = lowered_support_pair_cache.find(node_id);
+      if (node_it == lowered_support_pair_cache.end()) {
+        return std::nullopt;
+      }
+      const auto pair_it = node_it->second.find(peer_id);
+      if (pair_it == node_it->second.end()) {
+        return std::nullopt;
+      }
+      return pair_it->second;
+    }
+    auto& pairings = lowered_support_pair_cache[node_id];
+    const auto relation_it = junction_relations_by_node->find(node_id);
+    if (relation_it == junction_relations_by_node->end()) {
+      return std::nullopt;
+    }
+    std::vector<SupportPairCandidate> route_candidates{};
+    std::vector<SupportPairCandidate> lowered_candidates{};
+    for (const JunctionIncidentRelation& incident : relation_it->second.incidents) {
+      if (!incident.in_route || incident.continuity_class != ContinuityCategoryClass::kBundleLike ||
+          incident.kind == JunctionRelationKind::kNone) {
+        continue;
+      }
+      Vec3d dir = support_position(incident.neighbor_node_id) - support_position(node_id);
+      dir.z = 0.0;
+      if (!normalize_xy(&dir)) {
+        continue;
+      }
+      SupportPairCandidate candidate{};
+      candidate.peer_id = incident.neighbor_node_id;
+      candidate.dir = dir;
+      candidate.angle = std::atan2(dir.y, dir.x);
+      candidate.lower_required =
+          incident.kind != JunctionRelationKind::kThroughMain &&
+          (incident.default_lower_required || !incident.same_level_feasible);
+      route_candidates.push_back(candidate);
+      if (candidate.lower_required) {
+        lowered_candidates.push_back(candidate);
+      }
+      pairings[incident.neighbor_node_id] = {};
+    }
+    std::sort(route_candidates.begin(), route_candidates.end(), [](const SupportPairCandidate& a,
+                                                                   const SupportPairCandidate& b) {
+      if (a.angle != b.angle) {
+        return a.angle < b.angle;
+      }
+      return a.peer_id < b.peer_id;
+    });
+    std::sort(lowered_candidates.begin(), lowered_candidates.end(), [](const SupportPairCandidate& a,
+                                                                       const SupportPairCandidate& b) {
+      if (a.angle != b.angle) {
+        return a.angle < b.angle;
+      }
+      return a.peer_id < b.peer_id;
+    });
+    build_adjacent_support_pairs(lowered_candidates, &pairings);
+    auto angular_companion_for_lowered = [&](const SupportPairCandidate& lowered_candidate) -> ObjectId {
+      ObjectId companion_peer_id = kInvalidObjectId;
+      double best_gap = std::numeric_limits<double>::infinity();
+      for (const SupportPairCandidate& route_candidate : route_candidates) {
+        if (route_candidate.peer_id == lowered_candidate.peer_id) {
+          continue;
+        }
+        const double gap = angular_gap_rad(lowered_candidate.angle, route_candidate.angle);
+        const bool better_gap = gap + 1e-9 < best_gap;
+        const bool equal_gap = std::abs(gap - best_gap) <= 1e-9;
+        if (!(better_gap || (equal_gap && route_candidate.peer_id < companion_peer_id))) {
+          continue;
+        }
+        companion_peer_id = route_candidate.peer_id;
+        best_gap = gap;
+      }
+      return companion_peer_id;
+    };
+    for (const SupportPairCandidate& lowered_candidate : lowered_candidates) {
+      auto existing_pair = pairings.find(lowered_candidate.peer_id);
+      if (existing_pair != pairings.end() && existing_pair->second.has_pair) {
+        continue;
+      }
+      const ObjectId companion_peer_id = angular_companion_for_lowered(lowered_candidate);
+      if (companion_peer_id == kInvalidObjectId) {
+        continue;
+      }
+      record_support_pair(&pairings, lowered_candidate.peer_id, companion_peer_id);
+    }
+    const auto pair_it = pairings.find(peer_id);
+    if (pair_it == pairings.end()) {
+      return std::nullopt;
+    }
+    return pair_it->second;
+  };
+  auto pair_bisector_axis_for_endpoint = [&](ObjectId node_id, ObjectId peer_id,
+                                             const LoweredSupportPairInfo& pair_info) -> std::optional<Vec3d> {
+    if (!pair_info.has_pair || pair_info.companion_peer_id == kInvalidObjectId) {
+      return std::nullopt;
+    }
+    Vec3d peer_dir = support_position(peer_id) - support_position(node_id);
+    peer_dir.z = 0.0;
+    Vec3d companion_dir = support_position(pair_info.companion_peer_id) - support_position(node_id);
+    companion_dir.z = 0.0;
+    if (!normalize_xy(&peer_dir) || !normalize_xy(&companion_dir)) {
+      return std::nullopt;
+    }
+    Vec3d bisector = peer_dir + companion_dir;
+    if (!normalize_xy(&bisector)) {
+      return std::nullopt;
+    }
+    Vec3d canonical = canonical_side_axis_for_order(node_id, peer_id);
+    if (dot_xy(bisector, canonical) < 0.0) {
+      bisector = ScaleVec(bisector, -1.0);
+    }
+    return bisector;
+  };
   auto bisector_axis_for_endpoint = [&](ObjectId node_id, ObjectId peer_id) -> std::optional<Vec3d> {
     if (junction_relations_by_node == nullptr || node_id == kInvalidObjectId || peer_id == kInvalidObjectId) {
       return std::nullopt;
+    }
+    const SegmentRelationFeasibility feasibility = segment_relation_feasibility_for(node_id, peer_id);
+    if (const auto pair_info = lowered_support_pair_info_for_endpoint(node_id, peer_id, feasibility);
+        pair_info.has_value()) {
+      if (const auto pair_axis = pair_bisector_axis_for_endpoint(node_id, peer_id, *pair_info); pair_axis.has_value()) {
+        return pair_axis;
+      }
     }
     const auto it = junction_relations_by_node->find(node_id);
     if (it == junction_relations_by_node->end()) {
@@ -528,103 +756,31 @@ CoreState::generate_grouped_spans_between_support_nodes(
         (!feasibility.default_lower_required && feasibility.same_level_feasible)) {
       return std::nullopt;
     }
-    const auto it = junction_relations_by_node->find(node_id);
-    if (it == junction_relations_by_node->end()) {
+    const auto pair_info = lowered_support_pair_info_for_endpoint(node_id, peer_id, feasibility);
+    if (!pair_info.has_value() || !pair_info->has_pair) {
       return std::nullopt;
     }
-    std::vector<Vec3d> lowered_dirs{};
-    lowered_dirs.reserve(it->second.incidents.size());
-    for (const JunctionIncidentRelation& incident : it->second.incidents) {
-      if (!incident.in_route || incident.continuity_class != ContinuityCategoryClass::kBundleLike ||
-          incident.kind == JunctionRelationKind::kThroughMain || incident.kind == JunctionRelationKind::kNone ||
-          (!incident.default_lower_required && incident.same_level_feasible)) {
-        continue;
-      }
-      Vec3d dir = support_position(incident.neighbor_node_id) - support_position(node_id);
-      dir.z = 0.0;
-      if (normalize_xy(&dir) && std::isfinite(dir.x) && std::isfinite(dir.y)) {
-        lowered_dirs.push_back(dir);
-      }
-    }
-    if (lowered_dirs.empty()) {
-      return std::nullopt;
-    }
-
-      EndpointSideDecision decision{};
-      decision.has_side_axis = true;
-      decision.chosen_side_sign = 1.0;
-
-      Vec3d axis{};
-      if (lowered_dirs.size() >= 2) {
-        if (feasibility.kind == JunctionRelationKind::kCrossUnderpass) {
-          if (const auto through_pair_axis = through_pair_side_axis_for_node(node_id); through_pair_axis.has_value()) {
-            axis = *through_pair_axis;
-            decision.side_assignment_rule = SideAssignmentRuleKind::kThroughPairNormal;
-            decision.support_orientation_rule = SupportOrientationRuleKind::kThroughPairNormal;
-            decision.used_junction_pair_side_assignment = true;
-          }
-        }
-        if (!normalize_xy(&axis)) {
-          Vec3d sum{0.0, 0.0, 0.0};
-          for (const Vec3d& dir : lowered_dirs) {
-            sum = sum + dir;
-          }
-          if (normalize_xy(&sum)) {
-            axis = sum;
-            decision.side_assignment_rule = SideAssignmentRuleKind::kBisector;
-            decision.support_orientation_rule = SupportOrientationRuleKind::kBisector;
-          } else {
-            axis = lowered_dirs.front();
-            if (!normalize_xy(&axis)) {
-              axis = canonical_side_axis_for_order(node_id, peer_id);
-            }
-            if (feasibility.kind == JunctionRelationKind::kCrossUnderpass) {
-              decision.side_assignment_rule = SideAssignmentRuleKind::kThroughPairNormal;
-              decision.support_orientation_rule = SupportOrientationRuleKind::kThroughPairNormal;
-            } else {
-              decision.side_assignment_rule = SideAssignmentRuleKind::kBisector;
-              decision.support_orientation_rule = SupportOrientationRuleKind::kBisector;
-            }
-          }
-          decision.used_junction_pair_side_assignment = true;
-          const Vec3d canonical = canonical_side_axis_for_order(node_id, peer_id);
-          if (dot_xy(axis, canonical) < 0.0 &&
-              feasibility.kind != JunctionRelationKind::kCrossUnderpass) {
-            axis = ScaleVec(axis, -1.0);
-          }
-        }
+    EndpointSideDecision decision{};
+    decision.has_side_axis = true;
+    decision.chosen_side_sign = 1.0;
+    if (const auto pair_axis = pair_bisector_axis_for_endpoint(node_id, peer_id, *pair_info); pair_axis.has_value()) {
+      decision.side_axis = *pair_axis;
+      decision.side_assignment_rule = SideAssignmentRuleKind::kBisector;
+      decision.support_orientation_rule = SupportOrientationRuleKind::kBisector;
+      decision.used_junction_pair_side_assignment = true;
+    } else {
+      if (const auto through_pair_axis = through_pair_side_axis_for_node(node_id); through_pair_axis.has_value()) {
+        decision.side_axis = *through_pair_axis;
+        decision.side_assignment_rule = SideAssignmentRuleKind::kThroughPairNormal;
+        decision.support_orientation_rule = SupportOrientationRuleKind::kThroughPairNormal;
+        decision.used_junction_pair_side_assignment = true;
       } else {
-      if (feasibility.kind == JunctionRelationKind::kSideBranch ||
-          feasibility.kind == JunctionRelationKind::kCornerContinuation) {
-        if (const auto bisector_axis = bisector_axis_for_endpoint(node_id, peer_id); bisector_axis.has_value()) {
-          axis = *bisector_axis;
-          decision.side_assignment_rule = SideAssignmentRuleKind::kBisector;
-          decision.support_orientation_rule = SupportOrientationRuleKind::kBisector;
-          decision.used_junction_pair_side_assignment = true;
-        } else {
-          axis = lowered_dirs.front();
-          decision.side_assignment_rule = SideAssignmentRuleKind::kBisector;
-          decision.support_orientation_rule = SupportOrientationRuleKind::kBisector;
-          decision.used_junction_pair_side_assignment = true;
-        }
-      } else if (feasibility.kind == JunctionRelationKind::kCrossUnderpass) {
-        if (const auto through_pair_axis = through_pair_side_axis_for_node(node_id); through_pair_axis.has_value()) {
-          axis = *through_pair_axis;
-          decision.side_assignment_rule = SideAssignmentRuleKind::kThroughPairNormal;
-          decision.support_orientation_rule = SupportOrientationRuleKind::kThroughPairNormal;
-          decision.used_junction_pair_side_assignment = true;
-        } else {
-          axis = lowered_dirs.front();
-          decision.side_assignment_rule = SideAssignmentRuleKind::kChord;
-          decision.support_orientation_rule = SupportOrientationRuleKind::kChord;
-        }
-      } else {
-        axis = lowered_dirs.front();
+        decision.side_axis = chord_side_axis_for_endpoint(node_id, peer_id);
         decision.side_assignment_rule = SideAssignmentRuleKind::kChord;
         decision.support_orientation_rule = SupportOrientationRuleKind::kChord;
+        decision.used_junction_pair_side_assignment = false;
       }
     }
-    decision.side_axis = axis;
     return decision;
   };
   auto preferred_side_axis_for_endpoint =
@@ -733,8 +889,10 @@ CoreState::generate_grouped_spans_between_support_nodes(
   };
   struct SupportGroupDecisionKey {
     ObjectId owner_pole_id = kInvalidObjectId;
-    JunctionRelationKind relation_kind = JunctionRelationKind::kNone;
     ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
+    ObjectId pair_peer_low = kInvalidObjectId;
+    ObjectId pair_peer_high = kInvalidObjectId;
+    JunctionRelationKind relation_kind = JunctionRelationKind::kNone;
     bool in_through_pair = false;
     auto operator<=>(const SupportGroupDecisionKey&) const = default;
   };
@@ -769,11 +927,37 @@ CoreState::generate_grouped_spans_between_support_nodes(
     }
   };
   auto normalize_group_side_decision = [&](ObjectId node_id, ObjectId peer_id, EndpointSideDecision decision) {
-    if (decision.support_orientation_rule == SupportOrientationRuleKind::kRadial) {
-      decision.support_orientation_rule = SupportOrientationRuleKind::kChord;
-    }
-    if (decision.side_assignment_rule == SideAssignmentRuleKind::kPoleLocal) {
-      decision.side_assignment_rule = SideAssignmentRuleKind::kChord;
+    const SegmentRelationFeasibility feasibility = segment_relation_feasibility_for(node_id, peer_id);
+    if (const auto pair_info = lowered_support_pair_info_for_endpoint(node_id, peer_id, feasibility);
+        pair_info.has_value() && pair_info->has_pair) {
+      if (const auto pair_axis = pair_bisector_axis_for_endpoint(node_id, peer_id, *pair_info); pair_axis.has_value()) {
+        decision.side_axis = *pair_axis;
+        decision.has_side_axis = true;
+        decision.side_assignment_rule = SideAssignmentRuleKind::kBisector;
+        decision.support_orientation_rule = SupportOrientationRuleKind::kBisector;
+        decision.used_junction_pair_side_assignment = true;
+      } else {
+        if (const auto through_pair_axis = through_pair_side_axis_for_node(node_id); through_pair_axis.has_value()) {
+          decision.side_axis = *through_pair_axis;
+          decision.has_side_axis = true;
+          decision.side_assignment_rule = SideAssignmentRuleKind::kThroughPairNormal;
+          decision.support_orientation_rule = SupportOrientationRuleKind::kThroughPairNormal;
+          decision.used_junction_pair_side_assignment = true;
+        } else {
+          decision.side_axis = chord_side_axis_for_endpoint(node_id, peer_id);
+          decision.has_side_axis = true;
+          decision.side_assignment_rule = SideAssignmentRuleKind::kChord;
+          decision.support_orientation_rule = SupportOrientationRuleKind::kChord;
+          decision.used_junction_pair_side_assignment = false;
+        }
+      }
+    } else {
+      if (decision.support_orientation_rule == SupportOrientationRuleKind::kRadial) {
+        decision.support_orientation_rule = SupportOrientationRuleKind::kChord;
+      }
+      if (decision.side_assignment_rule == SideAssignmentRuleKind::kPoleLocal) {
+        decision.side_assignment_rule = SideAssignmentRuleKind::kChord;
+      }
     }
     Vec3d axis = decision.side_axis;
     if (!decision.has_side_axis || !normalize_xy(&axis)) {
@@ -854,9 +1038,15 @@ CoreState::generate_grouped_spans_between_support_nodes(
     (void)side_decision;
     SupportGroupDecisionKey key{};
     key.owner_pole_id = node_id;
-    key.relation_kind = feasibility.kind;
     key.continuity_class = feasibility.continuity_class;
-    key.in_through_pair = feasibility.in_through_pair;
+    if (const auto pair_info = lowered_support_pair_info_for_endpoint(node_id, peer_id, feasibility);
+        pair_info.has_value() && pair_info->has_pair) {
+      key.pair_peer_low = pair_info->pair_peer_low;
+      key.pair_peer_high = pair_info->pair_peer_high;
+    } else {
+      key.relation_kind = feasibility.kind;
+      key.in_through_pair = feasibility.in_through_pair;
+    }
     auto [it, inserted] = support_group_ids.emplace(key, next_support_group_id);
     if (inserted) {
       ++next_support_group_id;
@@ -1139,7 +1329,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
         return false;
       }
       const Pole* peer_pole = support_pole(peer_id);
-      const double spacing = std::max(0.1, spacing_m);
+      const double spacing = lane_spacing_for_endpoint(feasibility);
       const double center = (static_cast<double>(lane_count) - 1.0) * 0.5;
       std::unordered_set<ObjectId> used_ports{};
       std::vector<ObjectId> solved_ports{};
@@ -1264,7 +1454,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
 
       const double branch_base_z_m = lane_row_target_z_for_endpoint(*pole, branch_feasibility);
 
-      const double lane_spacing = std::max(0.1, spacing_m);
+      const double lane_spacing = lane_spacing_for_endpoint(branch_feasibility);
       const double center = (static_cast<double>(lane_count) - 1.0) * 0.5;
       const double half_span = center * lane_spacing;
         const double min_outboard =
@@ -1367,7 +1557,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
       const auto it_index = node_index_by_id.find(node_id);
       const std::size_t node_index = (it_index == node_index_by_id.end()) ? node_ids.size() : it_index->second;
       const double target_z_m = lane_row_target_z_for_endpoint(*pole, relation_feasibility);
-      const double spacing = std::max(0.1, spacing_m);
+      const double spacing = lane_spacing_for_endpoint(relation_feasibility);
       const double center = (static_cast<double>(lane_count) - 1.0) * 0.5;
       for (int lane = 0; lane < lane_count; ++lane) {
         const double target_y = (static_cast<double>(lane) - center) * spacing;
@@ -1552,14 +1742,13 @@ CoreState::generate_grouped_spans_between_support_nodes(
 
     const bool use_scaffold_layout = use_lane_row_geometry;
     if (use_scaffold_layout && pole != nullptr) {
-      const double spacing = std::max(0.1, spacing_m);
+      const SegmentRelationFeasibility scaffold_feasibility = segment_relation_feasibility_for(node_id, peer_id);
+      const double spacing = lane_spacing_for_endpoint(scaffold_feasibility);
       const double center = (static_cast<double>(lane_count) - 1.0) * 0.5;
       std::vector<double> target_local_y(static_cast<std::size_t>(lane_count), 0.0);
       for (int lane = 0; lane < lane_count; ++lane) {
         target_local_y[static_cast<std::size_t>(lane)] = (static_cast<double>(lane) - center) * spacing;
       }
-
-      const SegmentRelationFeasibility scaffold_feasibility = segment_relation_feasibility_for(node_id, peer_id);
       const EndpointSideDecision scaffold_side_decision =
           preferred_side_axis_for_endpoint(node_id, peer_id, scaffold_feasibility);
       const Vec3d stable_side_axis =

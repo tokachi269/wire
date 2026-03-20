@@ -626,8 +626,3 @@ void register_template_policy_tests(test_registry::TestRegistry& tests) {
 WIRE_REGISTER_TEST_SUITE(register_template_policy_tests);
 
 } // namespace
-
-
-
-
-

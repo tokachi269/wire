@@ -5845,6 +5845,126 @@ bool test_backbone_bundle_non_through_height_collapses_to_two_states() {
   return true;
 }
 
+bool test_backbone_crosslike_reuse_keeps_existing_straight_main_pair() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec trunk{};
+  trunk.path.polyline = {{8.06891, 4.30726, 0.0}, {14.9458, -0.818155, 0.0}, {20.266, -1.66916, 0.0}};
+  trunk.interval_m = 1000.0;
+  trunk.pole_type_id = type_ids.front();
+  add_backbone_bundle(trunk, wire::core::BundleKind::kHighVoltage);
+  const auto trunk_generated = state.GenerateFromBackboneSpec(trunk);
+  if (!trunk_generated.ok) {
+    std::cerr << "[DBG] C274 trunk generate failed error=" << trunk_generated.error << "\n";
+    return false;
+  }
+
+  const ObjectId center_id = find_pole_id_by_position(state, {14.9458, -0.818155, 0.0}, 1e-4);
+  const ObjectId existing_a_id = find_pole_id_by_position(state, {8.06891, 4.30726, 0.0}, 1e-4);
+  const ObjectId existing_b_id = find_pole_id_by_position(state, {20.266, -1.66916, 0.0}, 1e-4);
+  if (center_id == wire::core::kInvalidObjectId || existing_a_id == wire::core::kInvalidObjectId ||
+      existing_b_id == wire::core::kInvalidObjectId) {
+    std::cerr << "[DBG] C274 existing node lookup failed center=" << center_id << " a=" << existing_a_id
+              << " b=" << existing_b_id << "\n";
+    return false;
+  }
+
+  wire::core::BackboneSpec crossing{};
+  crossing.path.polyline = {{15.6658, 4.29683, 0.0}, {14.9458, -0.818155, 0.0}, {14.2857, -6.95258, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec shared{};
+  shared.point_index = 1;
+  shared.support_kind = wire::core::SupportKind::kPole;
+  shared.node_id = center_id;
+  crossing.path.node_specs.push_back(shared);
+  crossing.interval_m = 1000.0;
+  crossing.pole_type_id = type_ids.front();
+  add_backbone_bundle(crossing, wire::core::BundleKind::kHighVoltage);
+  const auto generated = state.GenerateFromBackboneSpec(crossing);
+  if (!generated.ok) {
+    std::cerr << "[DBG] C274 crossing generate failed error=" << generated.error << "\n";
+    return false;
+  }
+
+  const ObjectId new_a_id = find_pole_id_by_position(state, {15.6658, 4.29683, 0.0}, 1e-4);
+  const ObjectId new_b_id = find_pole_id_by_position(state, {14.2857, -6.95258, 0.0}, 1e-4);
+  const auto junction = state.view().inspect_junction(center_id);
+  if (new_a_id == wire::core::kInvalidObjectId || new_b_id == wire::core::kInvalidObjectId || !junction.has_value()) {
+    std::cerr << "[DBG] C274 new node or junction lookup failed newA=" << new_a_id << " newB=" << new_b_id
+              << " hasJunction=" << (junction.has_value() ? 1 : 0) << "\n";
+    return false;
+  }
+
+  auto is_existing_pair = [&](ObjectId a, ObjectId b) {
+    return (a == existing_a_id && b == existing_b_id) || (a == existing_b_id && b == existing_a_id);
+  };
+  auto relation_kind_for = [&](ObjectId neighbor_id) {
+    for (const auto& relation : junction->local_relations) {
+      if (relation.neighbor_node_id == neighbor_id) {
+        return relation.kind;
+      }
+    }
+    return wire::core::JunctionRelationKind::kNone;
+  };
+
+  int generated_hv_count = 0;
+  int generated_cross_under_count = 0;
+  for (ObjectId span_id : generated.value.generated_span_ids) {
+    const auto span_view = state.view().inspect_span(span_id);
+    const auto* span = state.view().edit_state().spans.find(span_id);
+    const auto* bundle = (span == nullptr) ? nullptr : state.view().edit_state().bundles.find(span->bundle_id);
+    if (!span_view.has_value() || bundle == nullptr || bundle->bundle_template_id != wire::core::BundleKind::kHighVoltage) {
+      continue;
+    }
+    ++generated_hv_count;
+    if (span_view->lowering_kind == wire::core::BackboneLoweringKind::kCrossUnderpass &&
+        !span_view->same_level_feasible) {
+      ++generated_cross_under_count;
+    }
+  }
+
+  const bool ok = junction->through_pair_accepted &&
+                  is_existing_pair(junction->through_pair_neighbor_a_id, junction->through_pair_neighbor_b_id) &&
+                  relation_kind_for(existing_a_id) == wire::core::JunctionRelationKind::kThroughMain &&
+                  relation_kind_for(existing_b_id) == wire::core::JunctionRelationKind::kThroughMain &&
+                  relation_kind_for(new_a_id) == wire::core::JunctionRelationKind::kCrossUnderpass &&
+                  relation_kind_for(new_b_id) == wire::core::JunctionRelationKind::kCrossUnderpass &&
+                  generated_hv_count == 6 && generated_cross_under_count == generated_hv_count;
+  if (!ok) {
+    std::cerr << "[DBG] C274 accepted=" << (junction->through_pair_accepted ? 1 : 0)
+              << " pair=" << junction->through_pair_neighbor_a_id << "/" << junction->through_pair_neighbor_b_id
+              << " existingAkind=" << static_cast<int>(relation_kind_for(existing_a_id))
+              << " existingBkind=" << static_cast<int>(relation_kind_for(existing_b_id))
+              << " newAkind=" << static_cast<int>(relation_kind_for(new_a_id))
+              << " newBkind=" << static_cast<int>(relation_kind_for(new_b_id))
+              << " generatedHv=" << generated_hv_count << " generatedCross=" << generated_cross_under_count << "\n";
+    for (const auto& relation : junction->local_relations) {
+      std::cerr << "[DBG] C274 rel neighbor=" << relation.neighbor_node_id
+                << " kind=" << static_cast<int>(relation.kind)
+                << " inRoute=" << (relation.in_route ? 1 : 0)
+                << " inPair=" << (relation.in_through_pair ? 1 : 0)
+                << " same=" << (relation.same_level_feasible ? 1 : 0)
+                << " defaultLower=" << (relation.default_lower_required ? 1 : 0) << "\n";
+    }
+    for (ObjectId span_id : generated.value.generated_span_ids) {
+      const auto span_view = state.view().inspect_span(span_id);
+      const auto* span = state.view().edit_state().spans.find(span_id);
+      const auto* bundle = (span == nullptr) ? nullptr : state.view().edit_state().bundles.find(span->bundle_id);
+      if (!span_view.has_value() || bundle == nullptr || bundle->bundle_template_id != wire::core::BundleKind::kHighVoltage) {
+        continue;
+      }
+      std::cerr << "[DBG] C274 span=" << span_id << " flow=" << static_cast<int>(span_view->flow_kind)
+                << " lowering=" << static_cast<int>(span_view->lowering_kind)
+                << " same=" << (span_view->same_level_feasible ? 1 : 0)
+                << " defaultLower=" << (span_view->default_lower_required ? 1 : 0) << "\n";
+    }
+  }
+  return ok;
+}
+
 bool test_backbone_grouped_support_membership_is_visible_on_all_bundle_lanes() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
@@ -8761,6 +8881,9 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C273_Backbone_NonThroughHeightCollapsesToOneLowerStep",
                          "Bundle-like non-through uses one shared lower step while ThroughMain stays at template height",
                          "Invariant", false, test_backbone_bundle_non_through_height_collapses_to_two_states);
+  test_registry::AddTest(tests, "C274_Backbone_CrossLikeReuseKeepsExistingStraightMainPair",
+                         "Cross-like reuse keeps the existing straight main pair instead of promoting a new crossing path to ThroughMain",
+                         "Invariant", false, test_backbone_crosslike_reuse_keeps_existing_straight_main_pair);
   test_registry::AddTest(tests, "C150_Backbone_NewChainOrientationFallback",
                          "Poles without existing chain or primary context use the explicit fallback orientation rule",
                          "Invariant", false, test_backbone_new_chain_uses_fallback_orientation_without_existing_main_context);

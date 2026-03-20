@@ -319,6 +319,13 @@ const PoleTypeDefinition* CoreState::find_pole_type(PoleTypeId pole_type_id) con
 }
 
 void CoreState::register_default_bundle_templates() {
+  auto grouped_support_fanout_spacing_for = [&](CableTemplateId cable_template_id, double fallback_spacing_m) {
+    const CableTemplate* cable_template = find_cable_template(cable_template_id);
+    if (cable_template == nullptr || cable_template->default_grouped_support_fanout_spacing_m <= 1e-9) {
+      return fallback_spacing_m;
+    }
+    return cable_template->default_grouped_support_fanout_spacing_m;
+  };
   BundleTemplate hv{};
   hv.id = BundleKind::kHighVoltage;
   hv.name = "HV_3PH";
@@ -332,6 +339,8 @@ void CoreState::register_default_bundle_templates() {
   hv.max_count = 3;
   hv.default_count = 3;
   hv.default_spacing_m = 0.45;
+  hv.grouped_support_fanout_spacing_m =
+      grouped_support_fanout_spacing_for(hv.cable_template_id, hv.default_spacing_m);
   hv.allow_mirror = true;
   hv.allow_midair_node = true;
   hv.allow_midair_branch = false;
@@ -351,6 +360,8 @@ void CoreState::register_default_bundle_templates() {
   lv.max_count = 1;
   lv.default_count = 1;
   lv.default_spacing_m = 0.20;
+  lv.grouped_support_fanout_spacing_m =
+      grouped_support_fanout_spacing_for(lv.cable_template_id, lv.default_spacing_m);
   lv.allow_mirror = true;
   lv.allow_midair_node = true;
   lv.allow_midair_branch = true;
@@ -370,6 +381,8 @@ void CoreState::register_default_bundle_templates() {
   comm.max_count = 8;
   comm.default_count = 1;
   comm.default_spacing_m = 0.20;
+  comm.grouped_support_fanout_spacing_m =
+      grouped_support_fanout_spacing_for(comm.cable_template_id, comm.default_spacing_m);
   comm.allow_mirror = true;
   comm.allow_midair_node = true;
   comm.allow_midair_branch = true;
@@ -389,6 +402,8 @@ void CoreState::register_default_bundle_templates() {
   optical.max_count = 1;
   optical.default_count = 1;
   optical.default_spacing_m = 0.20;
+  optical.grouped_support_fanout_spacing_m =
+      grouped_support_fanout_spacing_for(optical.cable_template_id, optical.default_spacing_m);
   optical.allow_mirror = true;
   optical.allow_midair_node = true;
   optical.allow_midair_branch = true;
@@ -1024,6 +1039,7 @@ void CoreState::register_default_cable_templates() {
   hv.id = kHighVoltageCableTemplate;
   hv.name = "HV_BARE";
   hv.outer_diameter_m = 0.030;
+  hv.default_grouped_support_fanout_spacing_m = 0.45;
   hv.bend_stiffness = 1.4;
   hv.min_bend_radius_m = 0.8;
   hv.material_style = CableMaterialStyleKind::kBareConductor;
@@ -1039,6 +1055,7 @@ void CoreState::register_default_cable_templates() {
   lv.id = kLowVoltageCableTemplate;
   lv.name = "LV_INSULATED";
   lv.outer_diameter_m = 0.020;
+  lv.default_grouped_support_fanout_spacing_m = 0.20;
   lv.bend_stiffness = 0.9;
   lv.min_bend_radius_m = 0.25;
   lv.material_style = CableMaterialStyleKind::kInsulated;
@@ -1054,6 +1071,7 @@ void CoreState::register_default_cable_templates() {
   comm.id = kCommunicationCableTemplate;
   comm.name = "COMM_MULTI";
   comm.outer_diameter_m = 0.014;
+  comm.default_grouped_support_fanout_spacing_m = 0.20;
   comm.bend_stiffness = 0.6;
   comm.min_bend_radius_m = 0.18;
   comm.material_style = CableMaterialStyleKind::kInsulated;
@@ -1069,6 +1087,7 @@ void CoreState::register_default_cable_templates() {
   optical.id = kOpticalCableTemplate;
   optical.name = "OPTICAL_FIBER";
   optical.outer_diameter_m = 0.012;
+  optical.default_grouped_support_fanout_spacing_m = 0.20;
   optical.bend_stiffness = 0.5;
   optical.min_bend_radius_m = 0.20;
   optical.material_style = CableMaterialStyleKind::kOptical;

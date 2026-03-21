@@ -164,6 +164,8 @@ struct SupportGroupDecision {
   ObjectId owner_pole_id = kInvalidObjectId;
   int support_group_id = -1;
   EndpointContinuityDecision decision{};
+  ObjectId pair_peer_low = kInvalidObjectId;
+  ObjectId pair_peer_high = kInvalidObjectId;
   SlotSide side = SlotSide::kCenter;
   SupportLayoutOriginKind origin = SupportLayoutOriginKind::kFallback;
   OrderDecisionPolicyKind order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
@@ -185,6 +187,8 @@ struct SupportGroupDecision {
 struct LoweredSupportGroupPlacement {
   ObjectId owner_pole_id = kInvalidObjectId;
   EndpointContinuityDecision decision{};
+  ObjectId pair_peer_low = kInvalidObjectId;
+  ObjectId pair_peer_high = kInvalidObjectId;
   SlotSide side = SlotSide::kCenter;
   SupportLayoutOriginKind origin = SupportLayoutOriginKind::kFallback;
   SupportGroupingRuleKind grouping_rule = SupportGroupingRuleKind::kDecisionGroup;

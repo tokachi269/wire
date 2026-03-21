@@ -424,6 +424,17 @@ ValidationResult CoreState::Validate() const {
   }
 
   std::unordered_map<LoweredSupportGroupKey, ConnectionCategory, LoweredSupportGroupKeyHash> support_group_category_by_key{};
+  std::unordered_map<LoweredSupportGroupKey, std::pair<ObjectId, ObjectId>, LoweredSupportGroupKeyHash>
+      support_group_pair_by_key{};
+  auto authoritative_pair_for_decision = [](const EndpointContinuityDecision& decision) {
+    return std::pair<ObjectId, ObjectId>{decision.support_pair_peer_low, decision.support_pair_peer_high};
+  };
+  auto authoritative_pair_for_group = [](const SupportGroupDecision& group) {
+    return std::pair<ObjectId, ObjectId>{group.pair_peer_low, group.pair_peer_high};
+  };
+  auto authoritative_pair_for_placement = [](const LoweredSupportGroupPlacement& group) {
+    return std::pair<ObjectId, ObjectId>{group.pair_peer_low, group.pair_peer_high};
+  };
   for (const auto& [span_id, layout] : cache_state.support_layout_cache.by_span) {
     const auto validate_endpoint = [&](const SupportLayoutEndpoint& endpoint, const char* code) {
       const Pole* endpoint_pole = edit_state.poles.find(endpoint.owner_pole_id);
@@ -522,6 +533,13 @@ ValidationResult CoreState::Validate() const {
                                    span_id});
         }
       }
+      if (endpoint.decision.continuity_class == ContinuityCategoryClass::kBundleLike) {
+        if (!HasAuthoritativeSupportPair(decision_it->second.pair_peer_low, decision_it->second.pair_peer_high)) {
+          result.issues.push_back({ValidationSeverity::kError, "SupportGroupPairMissing",
+                                   "Grouped-lowered bundle support-group decision must carry one authoritative pole-incident pair",
+                                   span_id});
+        }
+      }
       const auto it = cache_state.support_layout_cache.lowered_support_groups.find(key);
       if (it == cache_state.support_layout_cache.lowered_support_groups.end()) {
         result.issues.push_back({ValidationSeverity::kError, "SupportGroupEndpointMissing",
@@ -530,6 +548,8 @@ ValidationResult CoreState::Validate() const {
       }
       const LoweredSupportGroupPlacement& group = it->second;
       const bool decision_aligned =
+          group.pair_peer_low == decision_it->second.pair_peer_low &&
+          group.pair_peer_high == decision_it->second.pair_peer_high &&
           endpoint.decision.side_assignment_rule == group.decision.side_assignment_rule &&
           endpoint.decision.support_orientation_basis == group.decision.support_orientation_basis &&
           endpoint.decision.chosen_side == group.decision.chosen_side &&
@@ -540,7 +560,13 @@ ValidationResult CoreState::Validate() const {
           almost_equal_validation(endpoint.decision.side_axis.y, group.decision.side_axis.y);
       if (!decision_aligned) {
         result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionMismatch",
-                                 "Grouped-lowered endpoint decision does not match grouped placement decision",
+                                 "Grouped-lowered support-group decision does not match grouped placement decision",
+                                 span_id});
+      }
+      if (HasAuthoritativeSupportPair(endpoint.decision) &&
+          authoritative_pair_for_decision(endpoint.decision) != authoritative_pair_for_group(decision_it->second)) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportGroupPairMismatch",
+                                 "Grouped-lowered endpoint pair copy must match the authoritative support-group pair decision",
                                  span_id});
       }
       if (endpoint.side_assignment_rule == SideAssignmentRuleKind::kPoleLocal ||
@@ -574,6 +600,15 @@ ValidationResult CoreState::Validate() const {
                                  "Grouped-lowered endpoint decision does not match support-group decision",
                                  span_id});
       }
+      if (endpoint.decision.relation_kind == JunctionRelationKind::kThroughMain &&
+          (endpoint.decision.side_assignment_rule != SideAssignmentRuleKind::kBisector ||
+           endpoint.decision.support_orientation_rule != SupportOrientationRuleKind::kBisector ||
+           endpoint.decision.support_orientation_basis !=
+               CanonicalSupportOrientationBasis(SupportOrientationRuleKind::kBisector))) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportGroupThroughMainNotPairBased",
+                                 "Grouped-lowered ThroughMain endpoint must keep pair-based bisector orientation",
+                                 span_id});
+      }
       if (!almost_equal_validation(endpoint.support_world.z, group.tip_world.z)) {
         result.issues.push_back({ValidationSeverity::kError, "SupportGroupHeightMismatch",
                                  "Grouped-lowered endpoint support height must match grouped placement tip height",
@@ -603,6 +638,12 @@ ValidationResult CoreState::Validate() const {
                                "Support-group decision must be backed by an authoritative lowered decision",
                                key.owner_pole_id});
     }
+    if (group_decision.decision.continuity_class == ContinuityCategoryClass::kBundleLike &&
+        !HasAuthoritativeSupportPair(group_decision.pair_peer_low, group_decision.pair_peer_high)) {
+      result.issues.push_back({ValidationSeverity::kError, "SupportGroupPairMissing",
+                               "Support-group decision must keep the authoritative support pair decision",
+                               key.owner_pole_id});
+    }
     if (group_decision.decision.support_orientation_basis == SupportOrientationBasisKind::kRadial ||
         group_decision.decision.support_orientation_rule == SupportOrientationRuleKind::kRadial ||
         group_decision.decision.side_assignment_rule == SideAssignmentRuleKind::kPoleLocal ||
@@ -622,6 +663,27 @@ ValidationResult CoreState::Validate() const {
         !almost_equal_validation(group_decision.chosen_side_sign, group_decision.decision.chosen_side_sign)) {
       result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionMismatch",
                                "Support-group decision cache fields must match the authoritative decision side/orientation fields",
+                               key.owner_pole_id});
+    }
+    if (HasAuthoritativeSupportPair(group_decision.decision) &&
+        authoritative_pair_for_decision(group_decision.decision) != authoritative_pair_for_group(group_decision)) {
+      result.issues.push_back({ValidationSeverity::kError, "SupportGroupPairMismatch",
+                               "Endpoint pair copy must match the authoritative support-group pair decision",
+                               key.owner_pole_id});
+    }
+    const auto [pair_it, inserted] = support_group_pair_by_key.emplace(key, authoritative_pair_for_group(group_decision));
+    if (!inserted && pair_it->second != authoritative_pair_for_group(group_decision)) {
+      result.issues.push_back({ValidationSeverity::kError, "SupportGroupPairMismatch",
+                               "Same support group must share one authoritative support-group pair decision",
+                               key.owner_pole_id});
+    }
+    if (group_decision.decision.relation_kind == JunctionRelationKind::kThroughMain &&
+        (group_decision.decision.side_assignment_rule != SideAssignmentRuleKind::kBisector ||
+         group_decision.decision.support_orientation_rule != SupportOrientationRuleKind::kBisector ||
+         group_decision.decision.support_orientation_basis !=
+             CanonicalSupportOrientationBasis(SupportOrientationRuleKind::kBisector))) {
+      result.issues.push_back({ValidationSeverity::kError, "SupportGroupThroughMainNotPairBased",
+                               "Grouped-lowered ThroughMain support-group decision must keep pair-based bisector orientation",
                                key.owner_pole_id});
     }
     if (!std::isfinite(group_decision.support_world.z)) {
@@ -658,6 +720,12 @@ ValidationResult CoreState::Validate() const {
                                "Grouped placement must be backed by an authoritative lowered decision",
                                key.owner_pole_id});
     }
+    if (group.decision.continuity_class == ContinuityCategoryClass::kBundleLike &&
+        !HasAuthoritativeSupportPair(group.pair_peer_low, group.pair_peer_high)) {
+      result.issues.push_back({ValidationSeverity::kError, "SupportGroupPairMissing",
+                               "Grouped placement must keep the authoritative support pair decision",
+                               key.owner_pole_id});
+    }
     if (group.decision.support_orientation_basis == SupportOrientationBasisKind::kRadial ||
         group.decision.support_orientation_rule == SupportOrientationRuleKind::kRadial ||
         group.decision.side_assignment_rule == SideAssignmentRuleKind::kPoleLocal ||
@@ -676,6 +744,19 @@ ValidationResult CoreState::Validate() const {
         !almost_equal_validation(group.chosen_side_sign, group.decision.chosen_side_sign)) {
       result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionMismatch",
                                "Grouped placement cached side/orientation fields must match the authoritative decision",
+                               key.owner_pole_id});
+    }
+    if (HasAuthoritativeSupportPair(group.decision) &&
+        authoritative_pair_for_decision(group.decision) != authoritative_pair_for_placement(group)) {
+      result.issues.push_back({ValidationSeverity::kError, "SupportGroupPairMismatch",
+                               "Endpoint pair copy must match the authoritative grouped placement pair decision",
+                               key.owner_pole_id});
+    }
+    const auto pair_it = support_group_pair_by_key.find(key);
+    if (pair_it != support_group_pair_by_key.end() &&
+        pair_it->second != authoritative_pair_for_placement(group)) {
+      result.issues.push_back({ValidationSeverity::kError, "SupportGroupPairMismatch",
+                               "Grouped placement must preserve the authoritative support-group pair decision",
                                key.owner_pole_id});
     }
     if (group.grouped_port_count != static_cast<int>(group.attachment_worlds.size())) {

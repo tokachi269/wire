@@ -238,6 +238,8 @@ struct SupportLayoutEndpointView {
 struct LoweredSupportGroupInspectionView {
   ObjectId owner_pole_id = kInvalidObjectId;
   EndpointContinuityDecision decision{};
+  ObjectId pair_peer_low = kInvalidObjectId;
+  ObjectId pair_peer_high = kInvalidObjectId;
   SlotSide side = SlotSide::kCenter;
   std::string origin{};
   SupportGroupingRuleKind grouping_rule = SupportGroupingRuleKind::kDecisionGroup;

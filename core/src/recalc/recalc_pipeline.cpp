@@ -82,8 +82,7 @@ EndpointContinuityDecision aligned_group_decision_candidate(const EndpointContin
       aligned.side_axis = ScaleVec(aligned.side_axis, -1.0);
       aligned.chosen_side_sign *= -1.0;
       aligned.chosen_side = LateralSideChoiceFromSign(aligned.chosen_side_sign);
-      aligned.support_orientation_basis =
-          SupportOrientationBasisFromDecision(aligned.support_orientation_rule, aligned.chosen_side_sign);
+      aligned.support_orientation_basis = CanonicalSupportOrientationBasis(aligned.support_orientation_rule);
     }
   }
   return aligned;
@@ -121,6 +120,8 @@ void apply_authoritative_group_decision_fields(const EndpointContinuityDecision&
   group->decision = decision;
   group->decision.owner_pole_id = group->owner_pole_id;
   group->decision.support_group_id = group->support_group_id;
+  group->pair_peer_low = decision.support_pair_peer_low;
+  group->pair_peer_high = decision.support_pair_peer_high;
   group->side = endpoint.side;
   group->origin = endpoint.origin;
   group->order_decision_policy = endpoint.order_decision_policy;
@@ -190,6 +191,13 @@ bool apply_endpoint_to_support_group_decision(
         existing->second.has_side_axis = true;
         existing->second.side_axis = candidate.side_axis;
       }
+      if (!HasAuthoritativeSupportPair(existing->second.pair_peer_low, existing->second.pair_peer_high) &&
+          HasAuthoritativeSupportPair(candidate)) {
+        existing->second.pair_peer_low = candidate.support_pair_peer_low;
+        existing->second.pair_peer_high = candidate.support_pair_peer_high;
+        existing->second.decision.support_pair_peer_low = candidate.support_pair_peer_low;
+        existing->second.decision.support_pair_peer_high = candidate.support_pair_peer_high;
+      }
       if (std::abs(existing->second.decision.chosen_side_sign) <= 1e-9 &&
           std::abs(candidate.chosen_side_sign) > 1e-9) {
         existing->second.decision.chosen_side_sign = candidate.chosen_side_sign;
@@ -219,6 +227,10 @@ LoweredSupportGroupPlacement build_grouped_support_placement_from_decision(
   group.decision = group_decision.decision;
   group.decision.owner_pole_id = group_decision.owner_pole_id;
   group.decision.support_group_id = group_decision.support_group_id;
+  group.decision.support_pair_peer_low = group_decision.pair_peer_low;
+  group.decision.support_pair_peer_high = group_decision.pair_peer_high;
+  group.pair_peer_low = group_decision.pair_peer_low;
+  group.pair_peer_high = group_decision.pair_peer_high;
   group.side = group_decision.side;
   group.origin = group_decision.origin;
   group.grouping_rule = SupportGroupingRuleKind::kDecisionGroup;
@@ -1307,9 +1319,9 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
       ins.kind = VisualPartKind::kInsulator;
       ins.a = port.world_position;
       ins.b = {
-          port.world_position.x + radial.x * cache_state_.visual_settings.insulator_length_m,
-          port.world_position.y + radial.y * cache_state_.visual_settings.insulator_length_m,
-          port.world_position.z,
+          port.world_position.x,
+          port.world_position.y,
+          port.world_position.z + cache_state_.visual_settings.insulator_length_m,
       };
       ins.radius_m = cache_state_.visual_settings.insulator_radius_m;
       entry.parts.push_back(ins);
@@ -1338,19 +1350,14 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
       }
     }
     if (cache_state_.visual_settings.enable_insulators && requires_insulator) {
-      Vec3d support_axis = group.tip_world - group.mount_world;
-      support_axis.z = 0.0;
-      if (!Normalize(&support_axis) || !IsFiniteXY(support_axis)) {
-        return;
-      }
       for (const Vec3d& attachment_world : group.attachment_worlds) {
         VisualPart ins{};
         ins.kind = VisualPartKind::kInsulator;
         ins.a = attachment_world;
         ins.b = {
-            attachment_world.x + support_axis.x * cache_state_.visual_settings.insulator_length_m,
-            attachment_world.y + support_axis.y * cache_state_.visual_settings.insulator_length_m,
-            attachment_world.z,
+            attachment_world.x,
+            attachment_world.y,
+            attachment_world.z + cache_state_.visual_settings.insulator_length_m,
         };
         ins.radius_m = cache_state_.visual_settings.insulator_radius_m;
         entry.parts.push_back(ins);

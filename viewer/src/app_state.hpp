@@ -86,6 +86,7 @@ struct ViewerUiState {
   bool cable_requires_insulator = false;
   double cable_sag_factor = 0.03;
   double cable_slack_factor = 0.0;
+  double cable_default_grouped_support_fanout_spacing = 0.2;
   int cable_continuity_policy = static_cast<int>(wire::core::CableContinuityPolicyHint::kAuto);
   bool bundle_template_loaded = false;
   wire::core::BundleKind selected_bundle_template_id = wire::core::BundleKind::kLowVoltage;
@@ -97,6 +98,7 @@ struct ViewerUiState {
   int bundle_template_support_style = static_cast<int>(wire::core::BundleSupportStyleHint::kAuto);
   int bundle_template_branch_policy = static_cast<int>(wire::core::BundleBranchPolicyHint::kAuto);
   int bundle_template_continuity_policy = static_cast<int>(wire::core::CableContinuityPolicyHint::kAuto);
+  double bundle_template_grouped_support_fanout_spacing = 0.2;
   double tilt_all_max_deg = 0.0;
   std::uint64_t road_id = 1;
   std::uint32_t draw_category_mask = (1u << static_cast<int>(wire::core::ConnectionCategory::kLowVoltage));

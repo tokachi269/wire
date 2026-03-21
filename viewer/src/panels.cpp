@@ -575,6 +575,7 @@ void LoadCableTemplateState(const CoreState& state, ViewerUiState& ui_state, wir
   ui_state.cable_requires_insulator = it->second.requires_insulator;
   ui_state.cable_sag_factor = it->second.sag_factor;
   ui_state.cable_slack_factor = it->second.slack_factor;
+  ui_state.cable_default_grouped_support_fanout_spacing = it->second.default_grouped_support_fanout_spacing_m;
   ui_state.cable_continuity_policy = static_cast<int>(it->second.continuity_policy);
 }
 
@@ -592,6 +593,7 @@ void LoadBundleTemplateState(const CoreState& state, ViewerUiState& ui_state, wi
   ui_state.bundle_template_support_style = static_cast<int>(it->second.support_style);
   ui_state.bundle_template_branch_policy = static_cast<int>(it->second.branch_policy);
   ui_state.bundle_template_continuity_policy = static_cast<int>(it->second.continuity_policy);
+  ui_state.bundle_template_grouped_support_fanout_spacing = it->second.grouped_support_fanout_spacing_m;
 }
 
 void DrawObjectList(ViewerUiState& ui_state, const char* header, SelectedType type, const std::vector<ObjectId>& ids,
@@ -1999,6 +2001,8 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
     ImGui::Checkbox("Cable Requires Insulator", &ui_state.cable_requires_insulator);
     ImGui::InputDouble("Cable Sag Factor", &ui_state.cable_sag_factor, 0.005, 0.01, "%.4f");
     ImGui::InputDouble("Cable Slack Factor", &ui_state.cable_slack_factor, 0.005, 0.01, "%.4f");
+    ImGui::InputDouble("Cable Default Grouped Fanout Spacing", &ui_state.cable_default_grouped_support_fanout_spacing,
+                       0.01, 0.05, "%.3f");
     const auto selected_cable_continuity =
         static_cast<wire::core::CableContinuityPolicyHint>(ui_state.cable_continuity_policy);
     if (ImGui::BeginCombo("Cable Continuity", ContinuityPolicyLabel(selected_cable_continuity))) {
@@ -2028,6 +2032,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
         tpl.requires_insulator = ui_state.cable_requires_insulator;
         tpl.sag_factor = ui_state.cable_sag_factor;
         tpl.slack_factor = ui_state.cable_slack_factor;
+        tpl.default_grouped_support_fanout_spacing_m = ui_state.cable_default_grouped_support_fanout_spacing;
         tpl.continuity_policy =
             static_cast<wire::core::CableContinuityPolicyHint>(ui_state.cable_continuity_policy);
         const auto apply = state.UpdateCableTemplate(tpl, ui_state.preferred_visible_span_ids);
@@ -2113,6 +2118,8 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
       ImGui::Checkbox("Bundle Allow Mirror", &ui_state.bundle_template_allow_mirror);
       ImGui::Checkbox("Bundle Allow Midair Node", &ui_state.bundle_template_allow_midair_node);
       ImGui::Checkbox("Bundle Allow Midair Branch", &ui_state.bundle_template_allow_midair_branch);
+      ImGui::InputDouble("Bundle Grouped Fanout Spacing", &ui_state.bundle_template_grouped_support_fanout_spacing,
+                         0.01, 0.05, "%.3f");
       const auto selected_support_style =
           static_cast<wire::core::BundleSupportStyleHint>(ui_state.bundle_template_support_style);
       if (ImGui::BeginCombo("Bundle Support Style", BundleSupportStyleLabel(selected_support_style))) {
@@ -2170,6 +2177,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
         tpl.allow_midair_branch = ui_state.bundle_template_allow_midair_branch;
         tpl.support_style = static_cast<wire::core::BundleSupportStyleHint>(ui_state.bundle_template_support_style);
         tpl.branch_policy = static_cast<wire::core::BundleBranchPolicyHint>(ui_state.bundle_template_branch_policy);
+        tpl.grouped_support_fanout_spacing_m = ui_state.bundle_template_grouped_support_fanout_spacing;
         tpl.continuity_policy =
             static_cast<wire::core::CableContinuityPolicyHint>(ui_state.bundle_template_continuity_policy);
         const auto apply = state.UpdateBundleTemplate(tpl);

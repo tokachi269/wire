@@ -453,6 +453,8 @@ std::vector<LoweredSupportGroupInspectionView> BuildLoweredSupportGroupInspectio
     LoweredSupportGroupInspectionView group{};
     group.owner_pole_id = source.owner_pole_id;
     group.decision = source.decision;
+    group.pair_peer_low = source.pair_peer_low;
+    group.pair_peer_high = source.pair_peer_high;
     group.side = source.side;
     group.origin = SupportLayoutOriginText(source.origin);
     group.grouping_rule = source.grouping_rule;
@@ -966,6 +968,9 @@ std::optional<TemplateInspectionView> CoreView::inspect_cable_template(CableTemp
       {"min_bend_radius_m", std::to_string(tpl.min_bend_radius_m), PropertyAccessKind::kEditable});
   result.properties.push_back({"sag_factor", std::to_string(tpl.sag_factor), PropertyAccessKind::kEditable});
   result.properties.push_back({"slack_factor", std::to_string(tpl.slack_factor), PropertyAccessKind::kEditable});
+  result.properties.push_back({"default_grouped_support_fanout_spacing_m",
+                               std::to_string(tpl.default_grouped_support_fanout_spacing_m),
+                               PropertyAccessKind::kEditable});
   return result;
 }
 
@@ -988,6 +993,8 @@ std::optional<TemplateInspectionView> CoreView::inspect_bundle_template(BundleKi
       {"support_style", std::to_string(static_cast<int>(tpl.support_style)), PropertyAccessKind::kEditable});
   result.properties.push_back(
       {"branch_policy", std::to_string(static_cast<int>(tpl.branch_policy)), PropertyAccessKind::kEditable});
+  result.properties.push_back({"grouped_support_fanout_spacing_m", std::to_string(tpl.grouped_support_fanout_spacing_m),
+                               PropertyAccessKind::kEditable});
   result.properties.push_back({"cable_template_id", std::to_string(static_cast<unsigned long long>(tpl.cable_template_id)),
                                PropertyAccessKind::kEditable});
   if (tpl.cable_template_id != kInvalidCableTemplateId) {

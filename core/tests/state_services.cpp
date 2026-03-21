@@ -472,6 +472,8 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
   if (it_ab == layouts.end() || it_ac == layouts.end()) {
     return false;
   }
+  const ObjectId pair_peer_low = std::min(pole_b, pole_c);
+  const ObjectId pair_peer_high = std::max(pole_b, pole_c);
 
   auto make_grouped = [&](wire::core::LoweredSupportGroupPlacement* group, const wire::core::Vec3d& axis,
                           double down_offset_m, const wire::core::Vec3d& mount_world,
@@ -483,19 +485,23 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
     group->decision.lower_required = true;
     group->decision.default_lower_required = true;
     group->decision.same_level_feasible = false;
+    group->decision.support_pair_peer_low = pair_peer_low;
+    group->decision.support_pair_peer_high = pair_peer_high;
+    group->pair_peer_low = pair_peer_low;
+    group->pair_peer_high = pair_peer_high;
     group->decision.chosen_side = wire::core::LateralSideChoiceKind::kRight;
     group->decision.chosen_side_sign = 1.0;
-    group->decision.side_assignment_rule = wire::core::SideAssignmentRuleKind::kChord;
-    group->decision.support_orientation_rule = wire::core::SupportOrientationRuleKind::kChord;
-    group->decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kChordForward;
+    group->decision.side_assignment_rule = wire::core::SideAssignmentRuleKind::kBisector;
+    group->decision.support_orientation_rule = wire::core::SupportOrientationRuleKind::kBisector;
+    group->decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kBisectorForward;
     group->decision.support_group_id = 1234;
     group->decision.has_side_axis = true;
     group->decision.side_axis = axis;
     group->grouping_rule = wire::core::SupportGroupingRuleKind::kDecisionGroup;
     group->support_group_id = 1234;
     group->grouped_port_count = 2;
-    group->side_assignment_rule = wire::core::SideAssignmentRuleKind::kChord;
-    group->support_orientation_rule = wire::core::SupportOrientationRuleKind::kChord;
+    group->side_assignment_rule = wire::core::SideAssignmentRuleKind::kBisector;
+    group->support_orientation_rule = wire::core::SupportOrientationRuleKind::kBisector;
     group->has_side_axis = true;
     group->side_axis = axis;
     group->chosen_side_sign = 1.0;
@@ -516,6 +522,8 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
   decision.owner_pole_id = pole_a;
   decision.support_group_id = 1234;
   decision.decision = grouped_store[{pole_a, 1234}].decision;
+  decision.pair_peer_low = grouped_store[{pole_a, 1234}].pair_peer_low;
+  decision.pair_peer_high = grouped_store[{pole_a, 1234}].pair_peer_high;
   decision.side = grouped_store[{pole_a, 1234}].side;
   decision.origin = grouped_store[{pole_a, 1234}].origin;
   decision.order_decision_policy = grouped_store[{pole_a, 1234}].order_decision_policy;
@@ -601,6 +609,10 @@ bool test_inspection_uses_authoritative_lowered_support_groups() {
   group.decision.lower_required = true;
   group.decision.default_lower_required = true;
   group.decision.same_level_feasible = false;
+  group.pair_peer_low = pole_a;
+  group.pair_peer_high = pole_b;
+  group.decision.support_pair_peer_low = group.pair_peer_low;
+  group.decision.support_pair_peer_high = group.pair_peer_high;
   group.decision.chosen_side = wire::core::LateralSideChoiceKind::kLeft;
   group.decision.chosen_side_sign = -1.0;
   group.decision.support_orientation_rule = wire::core::SupportOrientationRuleKind::kChord;

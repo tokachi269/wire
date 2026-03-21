@@ -6167,6 +6167,216 @@ bool test_backbone_corner_support_uses_connected_line_basis() {
   return true;
 }
 
+bool test_backbone_lowered_bundle_midspan_support_uses_pair_based_orientation() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec req{};
+  req.path.polyline = {{-12.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 12.0, 0.0}, {12.0, 12.0, 0.0}};
+  req.interval_m = 1000.0;
+  req.pole_type_id = type_ids.front();
+  add_backbone_bundle(req, wire::core::BundleKind::kHighVoltage);
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  if (!generated.ok || generated.value.generated_span_ids.size() < 9) {
+    return false;
+  }
+
+  wire::core::CommitOptions options{};
+  options.run_recalc = true;
+  if (!state.Commit(options).validation.ok()) {
+    return false;
+  }
+
+  const ObjectId downstream_corner_id = find_pole_id_by_position(state, {0.0, 12.0, 0.0});
+  if (downstream_corner_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  struct Snapshot {
+    ObjectId span_id = wire::core::kInvalidObjectId;
+    int support_group_id = -1;
+    ObjectId pair_peer_low = wire::core::kInvalidObjectId;
+    ObjectId pair_peer_high = wire::core::kInvalidObjectId;
+    wire::core::SideAssignmentRuleKind side_rule = wire::core::SideAssignmentRuleKind::kPoleLocal;
+    wire::core::SupportOrientationRuleKind orientation_rule = wire::core::SupportOrientationRuleKind::kRadial;
+    wire::core::SupportOrientationBasisKind orientation_basis = wire::core::SupportOrientationBasisKind::kRadial;
+    double side_sign = 0.0;
+    wire::core::Vec3d side_axis{};
+  };
+  auto collect = [&]() {
+    std::vector<Snapshot> snapshots{};
+    int expected_group_id = -1;
+    ObjectId expected_pair_low = wire::core::kInvalidObjectId;
+    ObjectId expected_pair_high = wire::core::kInvalidObjectId;
+    double expected_side_sign = 0.0;
+    wire::core::Vec3d expected_axis{};
+    for (ObjectId span_id : generated.value.generated_span_ids) {
+      const auto layout = state.view().inspect_support_layout(span_id);
+      if (!layout.has_value()) {
+        continue;
+      }
+      const auto authoritative_group = [&]() -> const wire::core::LoweredSupportGroupInspectionView* {
+        for (const auto& group : layout->lowered_support_groups) {
+          if (group.owner_pole_id == downstream_corner_id) {
+            return &group;
+          }
+        }
+        return nullptr;
+      }();
+      const auto inspect_endpoint = [&](const wire::core::SupportLayoutEndpointView& endpoint) {
+        if (endpoint.owner_pole_id != downstream_corner_id || !endpoint.decision.lower_required ||
+            endpoint.decision.support_group_id < 0) {
+          return true;
+        }
+        if (authoritative_group == nullptr || authoritative_group->support_group_id != endpoint.decision.support_group_id) {
+          return false;
+        }
+        const bool pair_based =
+            endpoint.side_assignment_rule == wire::core::SideAssignmentRuleKind::kBisector &&
+            endpoint.support_orientation_rule == wire::core::SupportOrientationRuleKind::kBisector &&
+            (endpoint.decision.support_orientation_basis ==
+                 wire::core::SupportOrientationBasisKind::kBisectorForward ||
+             endpoint.decision.support_orientation_basis ==
+                 wire::core::SupportOrientationBasisKind::kBisectorReverse);
+        if (!pair_based || endpoint.support_orientation_rule == wire::core::SupportOrientationRuleKind::kRadial ||
+            authoritative_group->pair_peer_low == wire::core::kInvalidObjectId ||
+            authoritative_group->pair_peer_high == wire::core::kInvalidObjectId) {
+          return false;
+        }
+        if (expected_group_id < 0) {
+          expected_group_id = endpoint.decision.support_group_id;
+          expected_pair_low = authoritative_group->pair_peer_low;
+          expected_pair_high = authoritative_group->pair_peer_high;
+          expected_side_sign = endpoint.chosen_side_sign;
+          expected_axis = endpoint.side_axis;
+        }
+        if (endpoint.decision.support_group_id != expected_group_id ||
+            authoritative_group->pair_peer_low != expected_pair_low ||
+            authoritative_group->pair_peer_high != expected_pair_high ||
+            std::abs(endpoint.chosen_side_sign - expected_side_sign) > 1e-9 ||
+            !almost_equal(endpoint.side_axis.x, expected_axis.x, 1e-6) ||
+            !almost_equal(endpoint.side_axis.y, expected_axis.y, 1e-6)) {
+          return false;
+        }
+        Snapshot snapshot{};
+        snapshot.span_id = span_id;
+        snapshot.support_group_id = endpoint.decision.support_group_id;
+        snapshot.pair_peer_low = authoritative_group->pair_peer_low;
+        snapshot.pair_peer_high = authoritative_group->pair_peer_high;
+        snapshot.side_rule = endpoint.side_assignment_rule;
+        snapshot.orientation_rule = endpoint.support_orientation_rule;
+        snapshot.orientation_basis = endpoint.decision.support_orientation_basis;
+        snapshot.side_sign = endpoint.chosen_side_sign;
+        snapshot.side_axis = endpoint.side_axis;
+        snapshots.push_back(snapshot);
+        return true;
+      };
+      if (!inspect_endpoint(layout->start_endpoint) || !inspect_endpoint(layout->end_endpoint)) {
+        return std::optional<std::vector<Snapshot>>{};
+      }
+    }
+    std::sort(snapshots.begin(), snapshots.end(), [](const Snapshot& a, const Snapshot& b) {
+      if (a.span_id != b.span_id) {
+        return a.span_id < b.span_id;
+      }
+      return a.support_group_id < b.support_group_id;
+    });
+    return std::optional<std::vector<Snapshot>>{snapshots};
+  };
+
+  const auto before = collect();
+  if (!before.has_value()) {
+    return false;
+  }
+  if (before->size() < 2) {
+    return false;
+  }
+  if (!state.SetPoleManualYawOverride(downstream_corner_id, 17.0).ok) {
+    return false;
+  }
+  const auto after = collect();
+  if (!after.has_value()) {
+    return false;
+  }
+  if (before->size() != after->size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < before->size(); ++i) {
+    const Snapshot& b = (*before)[i];
+    const Snapshot& a = (*after)[i];
+    if (b.span_id != a.span_id || b.support_group_id != a.support_group_id ||
+        b.pair_peer_low != a.pair_peer_low || b.pair_peer_high != a.pair_peer_high ||
+        b.side_rule != a.side_rule || b.orientation_rule != a.orientation_rule ||
+        b.orientation_basis != a.orientation_basis || !almost_equal(b.side_sign, a.side_sign, 1e-9) ||
+        !almost_equal(b.side_axis.x, a.side_axis.x, 1e-6) ||
+        !almost_equal(b.side_axis.y, a.side_axis.y, 1e-6)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool test_backbone_pair_based_orientation_allows_opposite_signs_per_pole() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec req{};
+  req.path.polyline = {{-12.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 12.0, 0.0}, {12.0, 12.0, 0.0}};
+  req.interval_m = 1000.0;
+  req.pole_type_id = type_ids.front();
+  add_backbone_bundle(req, wire::core::BundleKind::kHighVoltage);
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  if (!generated.ok || generated.value.generated_span_ids.size() < 9) {
+    return false;
+  }
+
+  wire::core::CommitOptions options{};
+  options.run_recalc = true;
+  if (!state.Commit(options).validation.ok()) {
+    return false;
+  }
+
+  for (ObjectId span_id : generated.value.generated_span_ids) {
+    const auto layout = state.view().inspect_support_layout(span_id);
+    if (!layout.has_value()) {
+      continue;
+    }
+    const auto& start = layout->start_endpoint;
+    const auto& end = layout->end_endpoint;
+    const bool both_grouped = start.decision.lower_required && end.decision.lower_required &&
+                              start.decision.support_group_id >= 0 && end.decision.support_group_id >= 0;
+    if (!both_grouped) {
+      continue;
+    }
+    const bool pair_based =
+        start.side_assignment_rule == wire::core::SideAssignmentRuleKind::kBisector &&
+        end.side_assignment_rule == wire::core::SideAssignmentRuleKind::kBisector &&
+        start.support_orientation_rule == wire::core::SupportOrientationRuleKind::kBisector &&
+        end.support_orientation_rule == wire::core::SupportOrientationRuleKind::kBisector &&
+        start.decision.support_orientation_basis == wire::core::SupportOrientationBasisKind::kBisectorForward &&
+        end.decision.support_orientation_basis == wire::core::SupportOrientationBasisKind::kBisectorForward;
+    if (!pair_based) {
+      continue;
+    }
+    if (!almost_equal(start.side_axis.x, end.side_axis.x, 1e-6) ||
+        !almost_equal(start.side_axis.y, end.side_axis.y, 1e-6)) {
+      return false;
+    }
+    if (std::abs(start.chosen_side_sign) <= 1e-9 || std::abs(end.chosen_side_sign) <= 1e-9) {
+      return false;
+    }
+    return start.chosen_side_sign * end.chosen_side_sign < 0.0;
+  }
+
+  return false;
+}
+
 bool test_backbone_point_like_orientation_rule_non_regression() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
@@ -8777,6 +8987,12 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C253_Backbone_CornerSupportUsesConnectedLineBasis",
                          "Bundle-like lowered corner uses only connected lowered lines to choose a non-radial support basis and shared support identity",
                          "Invariant", false, test_backbone_corner_support_uses_connected_line_basis);
+  test_registry::AddTest(tests, "C275_Backbone_LoweredBundleMidspanSupportUsesPairBasedOrientation",
+                         "Bundle-like lowered midspan support uses the route-pair bisector instead of falling back to pole-local radial orientation",
+                         "Invariant", false, test_backbone_lowered_bundle_midspan_support_uses_pair_based_orientation);
+  test_registry::AddTest(tests, "C276_Backbone_PairAxisSharedButSignFlipsPerPole",
+                         "Pair-based lowered support keeps one shared axis/basis while opposite poles may take opposite side signs",
+                         "Invariant", false, test_backbone_pair_based_orientation_allows_opposite_signs_per_pole);
   test_registry::AddTest(tests, "C136_Backbone_HV3MainPortsStableAfterBranch",
                          "Adding an HV3 branch keeps existing main-chain ports stable", "Invariant", false,
                          test_backbone_branch_generation_preserves_existing_hv3_main_ports);

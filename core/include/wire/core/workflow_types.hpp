@@ -299,6 +299,8 @@ struct EndpointContinuityDecision {
   JunctionRelationKind relation_kind = JunctionRelationKind::kNone;
   ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
   bool in_through_pair = false;
+  ObjectId support_pair_peer_low = kInvalidObjectId;
+  ObjectId support_pair_peer_high = kInvalidObjectId;
   int support_group_id = -1;
   bool lower_required = false;
   bool default_lower_required = false;
@@ -323,6 +325,15 @@ struct EndpointContinuityDecision {
   double chosen_side_sign = 0.0;
   bool downstream_overridden = false;
 };
+
+[[nodiscard]] inline bool HasAuthoritativeSupportPair(const EndpointContinuityDecision& decision) {
+  return decision.support_pair_peer_low != kInvalidObjectId && decision.support_pair_peer_high != kInvalidObjectId &&
+         decision.support_pair_peer_low != decision.support_pair_peer_high;
+}
+
+[[nodiscard]] inline bool HasAuthoritativeSupportPair(ObjectId pair_peer_low, ObjectId pair_peer_high) {
+  return pair_peer_low != kInvalidObjectId && pair_peer_high != kInvalidObjectId && pair_peer_low != pair_peer_high;
+}
 
 [[nodiscard]] inline bool UsesAuthoritativeGroupedLoweredSupport(const EndpointContinuityDecision& decision) {
   return decision.owner_pole_id != kInvalidObjectId && decision.lower_required && !decision.lowering_blocked_by_policy &&
@@ -354,6 +365,20 @@ struct EndpointContinuityDecision {
   }
   return (chosen_side_sign < 0.0) ? SupportOrientationBasisKind::kChordReverse
                                   : SupportOrientationBasisKind::kChordForward;
+}
+
+[[nodiscard]] inline SupportOrientationBasisKind CanonicalSupportOrientationBasis(
+    SupportOrientationRuleKind rule) {
+  if (rule == SupportOrientationRuleKind::kRadial) {
+    return SupportOrientationBasisKind::kRadial;
+  }
+  if (rule == SupportOrientationRuleKind::kThroughPairNormal) {
+    return SupportOrientationBasisKind::kPairNormalPositive;
+  }
+  if (rule == SupportOrientationRuleKind::kBisector) {
+    return SupportOrientationBasisKind::kBisectorForward;
+  }
+  return SupportOrientationBasisKind::kChordForward;
 }
 
 struct ThroughPair {

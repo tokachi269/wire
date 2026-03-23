@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -27,6 +28,11 @@ enum class CurveShapePolicyKind : std::uint8_t {
   kBranchPass = 3,
   kTerminate = 4,
   kViaAttachment = 5,
+};
+
+enum class CurveProfileHint : std::uint8_t {
+  kAuto = 0,
+  kCompositeHeightTransition = 1,
 };
 
 enum class DetailCurveContinuityMode : std::uint8_t {
@@ -69,6 +75,7 @@ struct CurveConstraint {
   CableContinuityPolicyHint continuity_preference = CableContinuityPolicyHint::kAuto;
   CurvePassMode pass_mode = CurvePassMode::kPassThrough;
   CurveEndpointMode endpoint_mode = CurveEndpointMode::kDirectThrough;
+  CurveProfileHint profile_hint = CurveProfileHint::kAuto;
   bool corner_pass = false;
   double corner_angle_deg = 0.0;
 };
@@ -130,10 +137,17 @@ struct DetailCurveQualityInfo {
   HierarchicalVariationSample sag_variation{};
 };
 
+struct DetailCurveSegment {
+  std::array<Vec3d, 4> control_points{};
+  double u_start = 0.0;
+  double u_end = 1.0;
+};
+
 struct DetailCurve {
   CurveConstraint start_constraint{};
   CurveConstraint end_constraint{};
   std::array<Vec3d, 4> control_points{};
+  std::vector<DetailCurveSegment> segments{};
   double sag_amplitude_m = 0.0;
   std::vector<Vec3d> sample_points{};
   std::vector<CurveLengthSample> arc_length_table{};
@@ -148,6 +162,7 @@ struct DetailCurve {
   [[nodiscard]] Vec3d EvaluatePosition(double u) const;
   [[nodiscard]] Vec3d EvaluateTangent(double u) const;
   [[nodiscard]] double Length() const { return total_length_m; }
+  [[nodiscard]] std::size_t SegmentCount() const { return segments.empty() ? 1u : segments.size(); }
   [[nodiscard]] double LengthToU(double s) const;
   [[nodiscard]] double NormalizedLengthToU(double x) const;
   [[nodiscard]] Vec3d PositionAtLength(double s) const;

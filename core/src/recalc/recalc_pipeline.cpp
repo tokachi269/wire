@@ -36,80 +36,10 @@ struct ResolvedSpanCurveInputs {
 
 void apply_endpoint_decision_to_layout_endpoint(const EndpointContinuityDecision& decision,
                                                 SupportLayoutEndpoint* endpoint);
+double template_layer_base_z_for_port_category(const CoreState& state, const Pole& pole, ConnectionCategory category);
 
 bool endpoint_uses_grouped_lowered_support(const SupportLayoutEndpoint* endpoint) {
   return endpoint != nullptr && UsesAuthoritativeGroupedLoweredSupport(endpoint->decision);
-}
-
-int support_orientation_rule_priority_for_group(SupportOrientationRuleKind rule) {
-  switch (rule) {
-  case SupportOrientationRuleKind::kThroughPairNormal:
-    return 3;
-  case SupportOrientationRuleKind::kBisector:
-    return 2;
-  case SupportOrientationRuleKind::kChord:
-    return 1;
-  case SupportOrientationRuleKind::kRadial:
-  default:
-    return 0;
-  }
-}
-
-int side_assignment_rule_priority_for_group(SideAssignmentRuleKind rule) {
-  switch (rule) {
-  case SideAssignmentRuleKind::kThroughPairNormal:
-    return 3;
-  case SideAssignmentRuleKind::kBisector:
-    return 2;
-  case SideAssignmentRuleKind::kChord:
-    return 1;
-  case SideAssignmentRuleKind::kPoleLocal:
-  default:
-    return 0;
-  }
-}
-
-EndpointContinuityDecision aligned_group_decision_candidate(const EndpointContinuityDecision& candidate,
-                                                            const EndpointContinuityDecision& existing) {
-  EndpointContinuityDecision aligned = candidate;
-  Vec3d existing_axis = existing.side_axis;
-  Vec3d candidate_axis = aligned.side_axis;
-  existing_axis.z = 0.0;
-  candidate_axis.z = 0.0;
-  if (existing.has_side_axis && aligned.has_side_axis && Normalize(&existing_axis) && Normalize(&candidate_axis)) {
-    const double alignment = existing_axis.x * candidate_axis.x + existing_axis.y * candidate_axis.y;
-    if (alignment < 0.0) {
-      aligned.side_axis = ScaleVec(aligned.side_axis, -1.0);
-      aligned.chosen_side_sign *= -1.0;
-      aligned.chosen_side = LateralSideChoiceFromSign(aligned.chosen_side_sign);
-      aligned.support_orientation_basis = CanonicalSupportOrientationBasis(aligned.support_orientation_rule);
-    }
-  }
-  return aligned;
-}
-
-bool grouped_decision_candidate_is_better(const EndpointContinuityDecision& candidate,
-                                          const EndpointContinuityDecision& existing) {
-  const int candidate_orientation = support_orientation_rule_priority_for_group(candidate.support_orientation_rule);
-  const int existing_orientation = support_orientation_rule_priority_for_group(existing.support_orientation_rule);
-  if (candidate_orientation != existing_orientation) {
-    return candidate_orientation > existing_orientation;
-  }
-  const int candidate_side = side_assignment_rule_priority_for_group(candidate.side_assignment_rule);
-  const int existing_side = side_assignment_rule_priority_for_group(existing.side_assignment_rule);
-  if (candidate_side != existing_side) {
-    return candidate_side > existing_side;
-  }
-  if (candidate.used_junction_pair_side_assignment != existing.used_junction_pair_side_assignment) {
-    return candidate.used_junction_pair_side_assignment;
-  }
-  if (candidate.has_side_axis != existing.has_side_axis) {
-    return candidate.has_side_axis;
-  }
-  if ((std::abs(candidate.chosen_side_sign) > 1e-9) != (std::abs(existing.chosen_side_sign) > 1e-9)) {
-    return std::abs(candidate.chosen_side_sign) > 1e-9;
-  }
-  return false;
 }
 
 void apply_authoritative_group_decision_fields(const EndpointContinuityDecision& decision, const SupportLayoutEndpoint& endpoint,
@@ -156,7 +86,7 @@ std::pair<Vec3d, Vec3d> shared_support_anchor_points(const Pole& pole, const Vec
 
 bool apply_endpoint_to_support_group_decision(
     std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash>* groups,
-    const EditState& edit_state, const SupportLayoutEndpoint& endpoint) {
+    const CoreState& state, const EditState& edit_state, const SupportLayoutEndpoint& endpoint) {
   if (groups == nullptr || !endpoint_uses_grouped_lowered_support(&endpoint)) {
     return false;
   }
@@ -169,52 +99,28 @@ bool apply_endpoint_to_support_group_decision(
     return false;
   }
   const Port* port = edit_state.ports.find(endpoint.port_id);
-  const Vec3d attachment_world = (port == nullptr) ? endpoint.endpoint_world : port->world_position;
+  if (port == nullptr) {
+    return false;
+  }
+  const double template_support_z =
+      template_layer_base_z_for_port_category(state, *pole, port->category);
+  const double support_z = template_support_z - endpoint.branch_down_offset_m;
+  Vec3d support_world = pole->world_transform.position;
+  SetHeightAlongWorldUp(&support_world, support_z);
+  const Vec3d attachment_world = port->world_position;
   auto [existing, inserted] = groups->try_emplace(key);
   if (inserted) {
     SupportGroupDecision& group = existing->second;
     group.owner_pole_id = key.owner_pole_id;
     group.support_group_id = key.support_group_id;
+    // Grouped support decisions stay generation-authored. Recalc only aggregates
+    // materialized geometry from endpoints that already reference the same key.
     apply_authoritative_group_decision_fields(endpoint.decision, endpoint, &group);
     group.down_offset_m = endpoint.branch_down_offset_m;
-    group.support_world = endpoint.support_world;
+    group.support_world = support_world;
     group.down_offset_variation = endpoint.down_offset_variation;
     group.grouped_port_count = 0;
-  } else {
-    const EndpointContinuityDecision candidate = aligned_group_decision_candidate(endpoint.decision, existing->second.decision);
-    if (grouped_decision_candidate_is_better(candidate, existing->second.decision)) {
-      apply_authoritative_group_decision_fields(candidate, endpoint, &existing->second);
-    } else {
-      if (!existing->second.decision.has_side_axis && candidate.has_side_axis) {
-        existing->second.decision.has_side_axis = true;
-        existing->second.decision.side_axis = candidate.side_axis;
-        existing->second.has_side_axis = true;
-        existing->second.side_axis = candidate.side_axis;
-      }
-      if (!HasAuthoritativeSupportPair(existing->second.pair_peer_low, existing->second.pair_peer_high) &&
-          HasAuthoritativeSupportPair(candidate)) {
-        existing->second.pair_peer_low = candidate.support_pair_peer_low;
-        existing->second.pair_peer_high = candidate.support_pair_peer_high;
-        existing->second.decision.support_pair_peer_low = candidate.support_pair_peer_low;
-        existing->second.decision.support_pair_peer_high = candidate.support_pair_peer_high;
-      }
-      if (std::abs(existing->second.decision.chosen_side_sign) <= 1e-9 &&
-          std::abs(candidate.chosen_side_sign) > 1e-9) {
-        existing->second.decision.chosen_side_sign = candidate.chosen_side_sign;
-        existing->second.decision.chosen_side = candidate.chosen_side;
-        existing->second.decision.support_orientation_basis = candidate.support_orientation_basis;
-        existing->second.chosen_side_sign = candidate.chosen_side_sign;
-      }
-    }
   }
-  if (std::isfinite(endpoint.support_world.z)) {
-    if (!std::isfinite(existing->second.support_world.z)) {
-      existing->second.support_world.z = endpoint.support_world.z;
-    } else {
-      existing->second.support_world.z = std::min(existing->second.support_world.z, endpoint.support_world.z);
-    }
-  }
-  existing->second.down_offset_m = std::max(existing->second.down_offset_m, endpoint.branch_down_offset_m);
   existing->second.grouped_port_count += 1;
   existing->second.attachment_worlds.push_back(attachment_world);
   return true;
@@ -269,19 +175,44 @@ LoweredSupportGroupPlacement build_grouped_support_placement_from_decision(
   return group;
 }
 
-void rebuild_all_lowered_support_groups(const EditState& edit_state, CacheState* cache_state) {
+void apply_grouped_support_placement_to_layout_endpoint(const SupportGroupDecision& group_decision,
+                                                        const LoweredSupportGroupPlacement& group,
+                                                        SupportLayoutEndpoint* endpoint) {
+  if (endpoint == nullptr) {
+    return;
+  }
+  // For grouped lowered supports, endpoint support placement is derived from the
+  // canonical group decision plus the materialized group geometry.
+  apply_endpoint_decision_to_layout_endpoint(group_decision.decision, endpoint);
+  endpoint->automatic_branch_down_offset_m = group_decision.down_offset_m;
+  endpoint->branch_down_offset_m = group_decision.down_offset_m;
+  endpoint->down_offset_variation = group_decision.down_offset_variation;
+  endpoint->support_world = group.tip_world;
+}
+
+void rebuild_all_lowered_support_groups(const CoreState& state, const EditState& edit_state, CacheState* cache_state) {
   if (cache_state == nullptr) {
     return;
   }
   cache_state->support_layout_cache.support_group_decisions.clear();
   cache_state->support_layout_cache.lowered_support_groups.clear();
-  for (auto& [span_id, layout] : cache_state->support_layout_cache.by_span) {
-    (void)span_id;
+  std::vector<ObjectId> ordered_span_ids{};
+  ordered_span_ids.reserve(cache_state->support_layout_cache.by_span.size());
+  for (const auto& [span_id, _] : cache_state->support_layout_cache.by_span) {
+    ordered_span_ids.push_back(span_id);
+  }
+  std::sort(ordered_span_ids.begin(), ordered_span_ids.end());
+  for (ObjectId span_id : ordered_span_ids) {
+    auto layout_it = cache_state->support_layout_cache.by_span.find(span_id);
+    if (layout_it == cache_state->support_layout_cache.by_span.end()) {
+      continue;
+    }
+    auto& layout = layout_it->second;
     layout.lowered_support_group_keys.clear();
     if (endpoint_uses_grouped_lowered_support(&layout.start)) {
       const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(layout.start.decision);
       const bool accepted = apply_endpoint_to_support_group_decision(
-          &cache_state->support_layout_cache.support_group_decisions, edit_state, layout.start);
+          &cache_state->support_layout_cache.support_group_decisions, state, edit_state, layout.start);
       if (accepted &&
           std::find(layout.lowered_support_group_keys.begin(), layout.lowered_support_group_keys.end(), key) ==
               layout.lowered_support_group_keys.end()) {
@@ -291,7 +222,7 @@ void rebuild_all_lowered_support_groups(const EditState& edit_state, CacheState*
     if (endpoint_uses_grouped_lowered_support(&layout.end)) {
       const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(layout.end.decision);
       const bool accepted = apply_endpoint_to_support_group_decision(
-          &cache_state->support_layout_cache.support_group_decisions, edit_state, layout.end);
+          &cache_state->support_layout_cache.support_group_decisions, state, edit_state, layout.end);
       if (accepted &&
           std::find(layout.lowered_support_group_keys.begin(), layout.lowered_support_group_keys.end(), key) ==
               layout.lowered_support_group_keys.end()) {
@@ -309,26 +240,18 @@ void rebuild_all_lowered_support_groups(const EditState& edit_state, CacheState*
       const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(layout.start.decision);
       const auto group_decision_it = cache_state->support_layout_cache.support_group_decisions.find(key);
       const auto it = cache_state->support_layout_cache.lowered_support_groups.find(key);
-      if (group_decision_it != cache_state->support_layout_cache.support_group_decisions.end()) {
-        apply_endpoint_decision_to_layout_endpoint(group_decision_it->second.decision, &layout.start);
-        layout.start.branch_down_offset_m = group_decision_it->second.down_offset_m;
-        layout.start.down_offset_variation = group_decision_it->second.down_offset_variation;
-      }
-      if (it != cache_state->support_layout_cache.lowered_support_groups.end()) {
-        layout.start.support_world = it->second.tip_world;
+      if (group_decision_it != cache_state->support_layout_cache.support_group_decisions.end() &&
+          it != cache_state->support_layout_cache.lowered_support_groups.end()) {
+        apply_grouped_support_placement_to_layout_endpoint(group_decision_it->second, it->second, &layout.start);
       }
     }
     if (endpoint_uses_grouped_lowered_support(&layout.end)) {
       const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(layout.end.decision);
       const auto group_decision_it = cache_state->support_layout_cache.support_group_decisions.find(key);
       const auto it = cache_state->support_layout_cache.lowered_support_groups.find(key);
-      if (group_decision_it != cache_state->support_layout_cache.support_group_decisions.end()) {
-        apply_endpoint_decision_to_layout_endpoint(group_decision_it->second.decision, &layout.end);
-        layout.end.branch_down_offset_m = group_decision_it->second.down_offset_m;
-        layout.end.down_offset_variation = group_decision_it->second.down_offset_variation;
-      }
-      if (it != cache_state->support_layout_cache.lowered_support_groups.end()) {
-        layout.end.support_world = it->second.tip_world;
+      if (group_decision_it != cache_state->support_layout_cache.support_group_decisions.end() &&
+          it != cache_state->support_layout_cache.lowered_support_groups.end()) {
+        apply_grouped_support_placement_to_layout_endpoint(group_decision_it->second, it->second, &layout.end);
       }
     }
   }
@@ -799,11 +722,41 @@ SupportLayoutEndpoint build_support_layout_endpoint(const CoreState& state, cons
   return endpoint;
 }
 
+CurveProfileHint detail_curve_profile_hint_from_support_layout(const SpanSupportLayoutEntry& layout) {
+  auto has_valid_departure = [](const SupportLayoutEndpoint& endpoint) {
+    Vec3d departure = endpoint.departure_dir;
+    return Normalize(&departure);
+  };
+  if (layout.pass_mode != CurvePassMode::kPassThrough) {
+    return CurveProfileHint::kAuto;
+  }
+  if (layout.start.endpoint_mode == CurveEndpointMode::kOffsetEndpoint ||
+      layout.end.endpoint_mode == CurveEndpointMode::kOffsetEndpoint) {
+    return CurveProfileHint::kAuto;
+  }
+  if (layout.basis_length_m < 10.0 || !has_valid_departure(layout.start) || !has_valid_departure(layout.end)) {
+    return CurveProfileHint::kAuto;
+  }
+  const double support_height_delta_m =
+      std::abs(HeightAlongWorldUp(layout.end.support_world) - HeightAlongWorldUp(layout.start.support_world));
+  const Vec3d support_delta = layout.end.support_world - layout.start.support_world;
+  const Vec3d vertical = ScaleVec(WorldUp(), Dot(support_delta, WorldUp()));
+  const double support_horizontal_distance_m =
+      std::sqrt(std::max(0.0, LengthSquared(support_delta - vertical)));
+  if (support_height_delta_m < 1.8) {
+    return CurveProfileHint::kAuto;
+  }
+  if (support_height_delta_m < support_horizontal_distance_m * 0.16) {
+    return CurveProfileHint::kAuto;
+  }
+  return CurveProfileHint::kCompositeHeightTransition;
+}
+
 CurveConstraint make_curve_constraint_from_support_layout(const SupportLayoutEndpoint& endpoint, const Pole* owner_pole,
                                                           double basis_length, double effective_sag_ratio,
                                                           double bend_stiffness_hint, double min_bend_radius_hint_m,
                                                           CableContinuityPolicyHint continuity_preference,
-                                                          CurvePassMode pass_mode,
+                                                          CurvePassMode pass_mode, CurveProfileHint profile_hint,
                                                           ConnectionContext connection_context) {
   CurveConstraint constraint{};
   constraint.point = endpoint.endpoint_world;
@@ -819,6 +772,7 @@ CurveConstraint make_curve_constraint_from_support_layout(const SupportLayoutEnd
   constraint.continuity_preference = continuity_preference;
   constraint.pass_mode = pass_mode;
   constraint.endpoint_mode = endpoint.endpoint_mode;
+  constraint.profile_hint = profile_hint;
   constraint.corner_pass =
       (connection_context == ConnectionContext::kCornerPass) && owner_pole != nullptr &&
       owner_pole->context.kind == PoleContextKind::kCorner && owner_pole->context.corner_angle_deg > 1e-6;
@@ -1202,14 +1156,14 @@ void CoreState::cache_span_support_layout(SpanSupportLayoutEntry layout) {
 
 void CoreState::erase_cached_span_support_layout(ObjectId span_id) {
   cache_state_.support_layout_cache.by_span.erase(span_id);
-  rebuild_all_lowered_support_groups(edit_state_, &cache_state_);
+  rebuild_all_lowered_support_groups(*this, edit_state_, &cache_state_);
 }
 
 void CoreState::rebuild_lowered_support_groups_for_span(ObjectId span_id) {
   if (edit_state_.spans.find(span_id) == nullptr) {
     return;
   }
-  rebuild_all_lowered_support_groups(edit_state_, &cache_state_);
+  rebuild_all_lowered_support_groups(*this, edit_state_, &cache_state_);
 }
 
 bool CoreState::rebuild_span_bounds(ObjectId span_id, std::string* error_message) {
@@ -1514,7 +1468,13 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
   layout.span_id = span.id;
   layout.flow_kind = inputs.flow_kind;
   layout.pass_mode = inputs.pass_mode;
+  layout.basis_length_m = inputs.basis_length;
+  layout.effective_sag_ratio = inputs.effective_sag_ratio;
+  layout.continuity_preference = inputs.continuity_preference;
+  layout.bend_stiffness_hint = inputs.bend_stiffness_hint;
+  layout.min_bend_radius_hint_m = inputs.min_bend_radius_hint_m;
   layout.variation_flow_key = inputs.variation_flow_key;
+  layout.sag_variation = inputs.sag_variation;
   const SpanSupportLayoutEntry* existing_layout = find_span_support_layout(span.id);
   const SpanSupportLayoutEntry* authoritative_layout = existing_layout;
   const int resolved_socket_a = resolve_span_endpoint_socket_id(span, true);
@@ -1590,6 +1550,7 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
 
     // Refresh reuses the authoritative decision endpoint support anchors as-is.
   }
+  layout.detail_curve_profile_hint = detail_curve_profile_hint_from_support_layout(layout);
   return layout;
 }
 
@@ -1605,26 +1566,21 @@ DetailCurve CoreState::generate_span_curve(const Span& span, const SpanSupportLa
   }
 
   const int samples = std::max(2, cache_state_.geometry_settings.curve_samples);
-
-  const Vec3d a = port_a->world_position;
-  const Vec3d b = port_b->world_position;
   const Pole* pole_a = edit_state_.poles.find(port_a->owner_pole_id);
   const Pole* pole_b = edit_state_.poles.find(port_b->owner_pole_id);
-  const double dx = b.x - a.x;
-  const double dy = b.y - a.y;
-  const double dz = b.z - a.z;
-  const double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
-  const ResolvedSpanCurveInputs inputs =
-      resolve_span_curve_inputs(*this, span, *port_a, *port_b, pole_a, pole_b, a, b, distance);
 
   CurveConstraint start = make_curve_constraint_from_support_layout(
-      support_layout.start, pole_a, inputs.basis_length, inputs.effective_sag_ratio, inputs.bend_stiffness_hint,
-      inputs.min_bend_radius_hint_m, inputs.continuity_preference, support_layout.pass_mode, span.placement_context);
+      support_layout.start, pole_a, support_layout.basis_length_m, support_layout.effective_sag_ratio,
+      support_layout.bend_stiffness_hint, support_layout.min_bend_radius_hint_m,
+      support_layout.continuity_preference, support_layout.pass_mode, support_layout.detail_curve_profile_hint,
+      span.placement_context);
   CurveConstraint end = make_curve_constraint_from_support_layout(
-      support_layout.end, pole_b, inputs.basis_length, inputs.effective_sag_ratio, inputs.bend_stiffness_hint,
-      inputs.min_bend_radius_hint_m, inputs.continuity_preference, support_layout.pass_mode, span.placement_context);
+      support_layout.end, pole_b, support_layout.basis_length_m, support_layout.effective_sag_ratio,
+      support_layout.bend_stiffness_hint, support_layout.min_bend_radius_hint_m,
+      support_layout.continuity_preference, support_layout.pass_mode, support_layout.detail_curve_profile_hint,
+      span.placement_context);
   DetailCurve curve = BuildDetailCurve(start, end, samples);
-  curve.quality.sag_variation = inputs.sag_variation;
+  curve.quality.sag_variation = support_layout.sag_variation;
   apply_attachment_line_effects_to_curve(*this, span.id, &curve);
   return curve;
 }
@@ -1677,4 +1633,3 @@ void CoreState::remove_span_from_caches(ObjectId span_id) {
 }
 
 } // namespace wire::core
-

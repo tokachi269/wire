@@ -57,66 +57,66 @@ wire.md    要求仕様書
 
 実績あるコマンドだけをまとめたものは [docs/command_cheatsheet.md](docs/command_cheatsheet.md) を参照。
 
-```powershell
-Import-Module "C:\Program Files\Microsoft Visual Studio\18\Community\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
-Enter-VsDevShell -VsInstallPath "C:\Program Files\Microsoft Visual Studio\18\Community" -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DWIRE_BUILD_VIEWER=ON
-cmake --build build --target wire_core_tests
-cmake --build build --target wire_viewer
-```
-
-既存の `build/` が古い Visual Studio インスタンス情報を持っている場合は configure に失敗するため、新しい build ディレクトリを使います。
-
-```powershell
-Import-Module "C:\Program Files\Microsoft Visual Studio\18\Community\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
-Enter-VsDevShell -VsInstallPath "C:\Program Files\Microsoft Visual Studio\18\Community" -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'
-cmake -S . -B build-viewer -G Ninja -DCMAKE_BUILD_TYPE=Debug -DWIRE_BUILD_VIEWER=ON
-cmake --build build-viewer --target wire_viewer
-```
+通常の build/test は `Visual Studio 18 2026` generator を使います。`Ninja` は不要です。
 
 ### core のみを clean build する
-```powershell
-Import-Module "C:\Program Files\Microsoft Visual Studio\18\Community\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
-Enter-VsDevShell -VsInstallPath "C:\Program Files\Microsoft Visual Studio\18\Community" -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'
-cmake -S . -B build-core -G Ninja -DCMAKE_BUILD_TYPE=Debug -DWIRE_BUILD_VIEWER=OFF
-cmake --build build-core --target wire_core_tests
+```cmd
+call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"
+"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -S . -B build-vs18-coretests -G "Visual Studio 18 2026" -A x64 -DWIRE_BUILD_VIEWER=OFF
+"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" --build build-vs18-coretests --config Debug --target wire_core_tests
 ```
 
-### viewer をオフラインでビルドする
+### viewer を build する
 
-ネットワーク取得を使わずに viewer をビルドしたい場合は、依存ソースをローカルに用意して次を指定します。
+viewer は local dependency source dirs を渡す手順を基準にします。既に `build-viewer\_deps\raylib-src`、`build-viewer\_deps\imgui-src`、`build-viewer\_deps\rlimgui-src` があるならそのまま再利用できます。
 
-```powershell
-Import-Module "C:\Program Files\Microsoft Visual Studio\18\Community\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
-Enter-VsDevShell -VsInstallPath "C:\Program Files\Microsoft Visual Studio\18\Community" -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'
-cmake -S . -B build-offline -G Ninja -DCMAKE_BUILD_TYPE=Debug `
-  -DWIRE_BUILD_VIEWER=ON `
-  -DWIRE_VIEWER_FETCH_DEPS=OFF `
-  -DWIRE_RAYLIB_SOURCE_DIR=C:\deps\raylib `
-  -DWIRE_IMGUI_SOURCE_DIR=C:\deps\imgui `
-  -DWIRE_RLIMGUI_SOURCE_DIR=C:\deps\rlImGui
-cmake --build build-offline --target wire_viewer
+```cmd
+call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"
+"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -S . -B build-vs18-viewer-local -G "Visual Studio 18 2026" -A x64 -DWIRE_BUILD_VIEWER=ON -DWIRE_VIEWER_FETCH_DEPS=OFF -DWIRE_RAYLIB_SOURCE_DIR=D:/GitHub/wire/build-viewer/_deps/raylib-src -DWIRE_IMGUI_SOURCE_DIR=D:/GitHub/wire/build-viewer/_deps/imgui-src -DWIRE_RLIMGUI_SOURCE_DIR=D:/GitHub/wire/build-viewer/_deps/rlimgui-src
+"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" --build build-vs18-viewer-local --config Debug --target wire_viewer
 ```
 
-ローカル依存ディレクトリを指定せずに `WIRE_VIEWER_FETCH_DEPS=OFF` を使った場合は、configure 時点で明示的に停止します。
+依存ソースを別の場所に置いている場合は、`WIRE_RAYLIB_SOURCE_DIR`、`WIRE_IMGUI_SOURCE_DIR`、`WIRE_RLIMGUI_SOURCE_DIR` をそのパスに置き換えます。
 
 ## テスト
-```powershell
-.\build\core\wire_core_tests.exe
+```cmd
+build-vs18-coretests\core\Debug\wire_core_tests.exe
 ```
 
 ## フォーマット
-```powershell
-cmake --build build --target format-check
-cmake --build build --target format
+```cmd
+"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" --build build-vs18-coretests --config Debug --target format-check
+"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" --build build-vs18-coretests --config Debug --target format
 ```
 
-## viewer 実行
-```powershell
-.\build\viewer\wire_viewer.exe
+## UML 図生成
 
-# 新しい build ディレクトリを使った場合
-.\build-viewer\viewer\wire_viewer.exe
+`clang-uml` は PCH を除いた専用の `compile_commands.json` を `build/clang-uml-db` に作ってから使います。
+
+```cmd
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\prepare_clang_uml_compile_db.ps1 -WorkspaceRoot .
+"C:\Program Files\clang-uml\bin\clang-uml.exe" -c .clang-uml -l
+"C:\Program Files\clang-uml\bin\clang-uml.exe" -c .clang-uml -n core_packages -g plantuml -p
+```
+
+任意の configure 済み build dir から CMake target で実行することもできます。
+
+```cmd
+"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" --build build-vs18-coretests --config Debug --target uml-list
+"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" --build build-vs18-coretests --config Debug --target uml
+```
+
+生成された `.puml` は `docs/diagrams/clang-uml/` に出力されます。既定の `.clang-uml` には以下の図を定義しています。
+
+- `core_packages`
+- `core_state_context`
+- `viewer_packages`
+
+`clang-uml` を `PATH` で見つけられない場合は、configure 時に `-DWIRE_CLANG_UML_PROGRAM="C:/Program Files/clang-uml/bin/clang-uml.exe"` を指定してください。
+
+## viewer 実行
+```cmd
+build-vs18-viewer-local\viewer\Debug\wire_viewer.exe
 ```
 
 ## 実装フェーズ

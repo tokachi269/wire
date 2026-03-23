@@ -1248,6 +1248,7 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
       const auto override_view = view.inspect_overrides({wire::core::EntityKind::kSpan, span->id});
       if (curve_view.has_value()) {
         ImGui::Text("curveLength: %.2f", curve_view->curve_length_m);
+        ImGui::Text("segments: %d", static_cast<int>(curve_view->segment_count));
         ImGui::Text("arcSamples: %d", static_cast<int>(curve_view->arc_length_sample_count));
         ImGui::Text("visible/hidden/replaced: %d / %d / %d", static_cast<int>(curve_view->visible_interval_count),
                     static_cast<int>(curve_view->hidden_interval_count),
@@ -1539,6 +1540,7 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
                 curve_view->degraded_to_g1 ? "true" : "false");
     ImGui::Text("sagAmplitude: %.3f", curve_view->sag_amplitude_m);
     ImGui::Text("curveLength: %.3f", curve_view->curve_length_m);
+    ImGui::Text("segments: %d", static_cast<int>(curve_view->segment_count));
     ImGui::Text("controlP1: %.2f %.2f %.2f", curve_view->control_points[1].x, curve_view->control_points[1].y,
                 curve_view->control_points[1].z);
     ImGui::Text("controlP2: %.2f %.2f %.2f", curve_view->control_points[2].x, curve_view->control_points[2].y,

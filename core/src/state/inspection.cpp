@@ -820,6 +820,7 @@ std::optional<DetailCurveInspectionView> CoreView::inspect_detail_curve(ObjectId
   result.handle_length_start_m = curve->detail.quality.handle_length_start_m;
   result.handle_length_end_m = curve->detail.quality.handle_length_end_m;
   result.control_points = curve->detail.control_points;
+  result.segment_count = curve->detail.segments.empty() ? 1u : curve->detail.segments.size();
   result.arc_length_sample_count = curve->detail.arc_length_table.size();
   result.visible_interval_count = curve->detail.visible_intervals.size();
   result.hidden_interval_count = curve->detail.hidden_intervals.size();

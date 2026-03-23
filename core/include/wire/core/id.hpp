@@ -1,8 +1,8 @@
 #pragma once
 
+#include <array>
+#include <charconv>
 #include <cstdint>
-#include <iomanip>
-#include <sstream>
 #include <string>
 #include <string_view>
 
@@ -26,9 +26,23 @@ private:
 };
 
 inline std::string make_display_id(std::string_view prefix, ObjectId id, int pad_width = 6) {
-  std::ostringstream oss;
-  oss << prefix << "-" << std::setw(pad_width) << std::setfill('0') << id;
-  return oss.str();
+  std::array<char, 32> digits{};
+  const auto [end, ec] = std::to_chars(digits.data(), digits.data() + digits.size(), id);
+  const std::size_t digit_count = (ec == std::errc{}) ? static_cast<std::size_t>(end - digits.data()) : 1u;
+  const std::size_t zero_pad =
+      (pad_width > static_cast<int>(digit_count)) ? static_cast<std::size_t>(pad_width - static_cast<int>(digit_count)) : 0u;
+
+  std::string out{};
+  out.reserve(prefix.size() + 1u + zero_pad + digit_count);
+  out.append(prefix);
+  out.push_back('-');
+  out.append(zero_pad, '0');
+  if (ec == std::errc{}) {
+    out.append(digits.data(), digit_count);
+  } else {
+    out.push_back('0');
+  }
+  return out;
 }
 
 } // namespace wire::core

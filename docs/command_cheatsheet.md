@@ -1,45 +1,37 @@
-# コマンドチートシート（2026-03 現在有効）
+# command_cheatsheet.md
 
-このリポジトリで実際に通る最小コマンドだけを残す。  
-PowerShell 5 前提（`&&` は PowerShell 側で使わない）。
+workdir: `D:\GitHub\wire`
 
-## 0. 前提
-- 作業ディレクトリ: `D:\GitHub\wire`
-- VS 環境初期化: `vcvars64.bat` を通して実行する
-- 既定 build dir: `build-viewer`（Ninja + Debug）
+## core tests
 
-## 1. configure（初回のみ）
-```powershell
-cmake -S . -B build-viewer -G Ninja -DCMAKE_BUILD_TYPE=Debug -DWIRE_BUILD_VIEWER=ON
+```cmd
+call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"
+"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -S . -B build-vs18-coretests -G "Visual Studio 18 2026" -A x64 -DWIRE_BUILD_VIEWER=OFF
+"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" --build build-vs18-coretests --config Debug --target wire_core_tests
+build-vs18-coretests\core\Debug\wire_core_tests.exe
 ```
 
-## 2. core tests を build/run
-```powershell
-cmd.exe /c '"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat" && cmake --build build-viewer --target wire_core_tests'
-cmd.exe /c '"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat" && build-viewer\core\wire_core_tests.exe'
+## viewer
+
+Use local dependency source trees. If you already have `build-viewer\_deps\raylib-src`, `build-viewer\_deps\imgui-src`, and `build-viewer\_deps\rlimgui-src`, you can reuse them as-is.
+
+```cmd
+call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"
+"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -S . -B build-vs18-viewer-local -G "Visual Studio 18 2026" -A x64 -DWIRE_BUILD_VIEWER=ON -DWIRE_VIEWER_FETCH_DEPS=OFF -DWIRE_RAYLIB_SOURCE_DIR=D:/GitHub/wire/build-viewer/_deps/raylib-src -DWIRE_IMGUI_SOURCE_DIR=D:/GitHub/wire/build-viewer/_deps/imgui-src -DWIRE_RLIMGUI_SOURCE_DIR=D:/GitHub/wire/build-viewer/_deps/rlimgui-src
+"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" --build build-vs18-viewer-local --config Debug --target wire_viewer
+build-vs18-viewer-local\viewer\Debug\wire_viewer.exe
 ```
 
-## 3. viewer tests を build/run
-```powershell
-cmd.exe /c '"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat" && cmake --build build-viewer --target wire_viewer_tests'
-cmd.exe /c '"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat" && ctest --test-dir build-viewer --output-on-failure'
-```
+## notes
 
-## 4. viewer を build/run
-```powershell
-cmd.exe /c '"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat" && cmake --build build-viewer --target wire_viewer'
-.\build-viewer\viewer\wire_viewer.exe
-```
+- No `Ninja` is required for the normal build/test path.
+- If you open `Developer Command Prompt` or `Developer PowerShell for VS` first, `vcvars64.bat` is not needed.
+- If you use plain PowerShell, keep the build and run in the same initialized shell or wrap them with `cmd.exe /c`.
 
-## 5. fresh build（stale 回避）
-```powershell
-cmd.exe /c '"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat" && cmake --build build-viewer --target wire_core_tests --clean-first'
-```
+## clang-uml
 
-## 6. よくある失敗と対処
-- `build is not a directory`
-  - `cmake -S . -B build-viewer ...` を先に実行する。
-- `include <algorithm> が見つからない / C1083`
-  - `vcvars64.bat` を通して build/run する。
-- `PowerShell で && が使えない`
-  - `cmd.exe /c '\"...vcvars64.bat\" && ...'` 形式で実行する。
+```cmd
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\prepare_clang_uml_compile_db.ps1 -WorkspaceRoot .
+"C:\Program Files\clang-uml\bin\clang-uml.exe" -c .clang-uml -l
+"C:\Program Files\clang-uml\bin\clang-uml.exe" -c .clang-uml -n core_packages -g plantuml -p
+```

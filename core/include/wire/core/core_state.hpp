@@ -214,7 +214,14 @@ struct SpanSupportLayoutEntry {
   ObjectId span_id = kInvalidObjectId;
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
   CurvePassMode pass_mode = CurvePassMode::kPassThrough;
+  CurveProfileHint detail_curve_profile_hint = CurveProfileHint::kAuto;
+  double basis_length_m = 0.0;
+  double effective_sag_ratio = 0.0;
+  CableContinuityPolicyHint continuity_preference = CableContinuityPolicyHint::kAuto;
+  double bend_stiffness_hint = 1.0;
+  double min_bend_radius_hint_m = 0.0;
   std::uint64_t variation_flow_key = 0;
+  HierarchicalVariationSample sag_variation{};
   OrderDecisionPolicyKind order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
   JunctionRelationKind relation_a = JunctionRelationKind::kNone;
   JunctionRelationKind relation_b = JunctionRelationKind::kNone;

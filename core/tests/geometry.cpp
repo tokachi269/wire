@@ -2307,6 +2307,94 @@ bool test_detail_curve_main_sag_reads_stronger_than_branch() {
          main_result.first > branch_result.first + 0.08 && branch_result.first > 0.0;
 }
 
+bool test_detail_curve_large_height_difference_uses_composite_segments() {
+  wire::core::CurveConstraint start{};
+  start.point = {0.0, 0.0, 11.0};
+  start.tangent_dir = {0.96, 0.0, -0.28};
+  start.tangent_length_hint_m = 5.0;
+  start.continuity_preference = wire::core::CableContinuityPolicyHint::kPreferG2;
+  start.profile_hint = wire::core::CurveProfileHint::kCompositeHeightTransition;
+
+  wire::core::CurveConstraint end{};
+  end.point = {20.0, 0.0, 4.0};
+  end.tangent_dir = {0.98, 0.0, -0.16};
+  end.tangent_length_hint_m = 5.0;
+  end.continuity_preference = wire::core::CableContinuityPolicyHint::kPreferG2;
+  end.profile_hint = wire::core::CurveProfileHint::kCompositeHeightTransition;
+
+  const wire::core::DetailCurve curve = wire::core::BuildDetailCurve(start, end, 41);
+  if ((curve.segments.empty() ? 1u : curve.segments.size()) <= 1 || curve.sample_points.size() < 5 ||
+      curve.arc_length_table.empty()) {
+    return false;
+  }
+  if (!almost_equal(curve.EvaluatePosition(0.0), start.point, 1e-9) ||
+      !almost_equal(curve.EvaluatePosition(1.0), end.point, 1e-9)) {
+    return false;
+  }
+  if (!is_monotonic([&]() {
+        std::vector<double> lengths{};
+        lengths.reserve(curve.arc_length_table.size());
+        for (const auto& sample : curve.arc_length_table) {
+          lengths.push_back(sample.arc_length_m);
+        }
+        return lengths;
+      }())) {
+    return false;
+  }
+  const double early_z = wire::core::HeightAlongWorldUp(curve.EvaluatePosition(0.18));
+  const double late_z = wire::core::HeightAlongWorldUp(curve.EvaluatePosition(0.82));
+  return curve.quality.shape_policy == wire::core::CurveShapePolicyKind::kSmoothPass &&
+         curve.quality.adopted_continuity == wire::core::DetailCurveContinuityMode::kG2 &&
+         early_z > late_z && curve.Length() > 0.0;
+}
+
+bool test_span_curve_support_layout_height_difference_uses_composite_segments() {
+  CoreState state;
+  wire::core::GeometrySettings settings = state.view().geometry_settings();
+  settings.curve_samples = 41;
+  settings.sag_enabled = true;
+  settings.sag_factor = 0.03;
+  (void)state.UpdateGeometrySettings(settings, true);
+
+  const ObjectId pole_a =
+      state.AddPole(wire::core::Transformd{{0.0, 0.0, 0.0}}, 12.0, "A").value;
+  const ObjectId pole_b =
+      state.AddPole(wire::core::Transformd{{20.0, 0.0, 0.0}}, 12.0, "B").value;
+  const ObjectId port_a = state.AddPort(pole_a, {0.0, 0.0, 11.0}, PortKind::kCommunication,
+                                        PortLayer::kCommunication)
+                              .value;
+  const ObjectId port_b = state.AddPort(pole_b, {20.0, 0.0, 4.0}, PortKind::kCommunication,
+                                        PortLayer::kCommunication)
+                              .value;
+  const ObjectId span = state.AddSpan(port_a, port_b, SpanKind::kDistribution,
+                                      SpanLayer::kCommunication)
+                            .value;
+
+  const auto commit = state.Commit();
+  if (!commit.validation.ok()) {
+    return false;
+  }
+  const auto* support_layout = state.view().find_span_support_layout(span);
+  const auto* curve = state.find_curve_cache(span);
+  if (support_layout == nullptr || curve == nullptr || curve->detail.sample_points.size() < 5 ||
+      curve->detail.arc_length_table.empty()) {
+    return false;
+  }
+  if (support_layout->detail_curve_profile_hint != wire::core::CurveProfileHint::kCompositeHeightTransition) {
+    return false;
+  }
+  if (curve->detail.SegmentCount() <= 1) {
+    return false;
+  }
+  const double early_z = wire::core::HeightAlongWorldUp(curve->detail.EvaluatePosition(0.18));
+  const double late_z = wire::core::HeightAlongWorldUp(curve->detail.EvaluatePosition(0.82));
+  return curve->detail.quality.shape_policy == wire::core::CurveShapePolicyKind::kSmoothPass &&
+         curve->detail.quality.adopted_continuity == wire::core::DetailCurveContinuityMode::kG2 &&
+         almost_equal(curve->detail.EvaluatePosition(0.0), support_layout->start.endpoint_world, 1e-9) &&
+         almost_equal(curve->detail.EvaluatePosition(1.0), support_layout->end.endpoint_world, 1e-9) &&
+         early_z > late_z;
+}
+
 bool test_detail_curve_prefer_g1_policy_is_explicit_not_degraded() {
   wire::core::CurveConstraint start{};
   start.point = {0.0, 0.0, 5.0};
@@ -2601,6 +2689,12 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C149_DetailCurve_ViaAttachment_UsesAttachmentPolicy",
                          "ViaAttachment policy uses offset endpoints and falls back to endpoint-priority G1 instead of forcing smooth pass",
                          "Invariant", false, test_detail_curve_via_attachment_policy_uses_offset_endpoint_and_g1);
+  test_registry::AddTest(tests, "C277_DetailCurve_HeightDifference_UsesCompositeSegments",
+                         "Large height-difference smooth spans switch to composite segments while preserving endpoint and s-based evaluation",
+                         "Invariant", false, test_detail_curve_large_height_difference_uses_composite_segments);
+  test_registry::AddTest(tests, "C278_SpanCurve_SupportLayoutHeightDifference_UsesCompositeSegments",
+                         "Recalc consumes authoritative support-layout curve inputs so large height-difference spans materialize as composite curves",
+                         "Invariant", false, test_span_curve_support_layout_height_difference_uses_composite_segments);
   test_registry::AddTest(tests, "C132_RenderCurve_DistanceAttributesBaked",
                          "Render cache bakes arc-length attributes for GPU-side length-driven effects",
                          "Invariant", false, test_render_cache_bakes_arc_length_attributes);

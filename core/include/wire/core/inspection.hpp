@@ -306,6 +306,7 @@ struct DetailCurveInspectionView {
   double handle_length_start_m = 0.0;
   double handle_length_end_m = 0.0;
   std::array<Vec3d, 4> control_points{};
+  std::size_t segment_count = 0;
   std::size_t arc_length_sample_count = 0;
   std::size_t visible_interval_count = 0;
   std::size_t hidden_interval_count = 0;

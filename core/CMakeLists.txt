@@ -29,20 +29,7 @@ target_include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-if(MSVC)
-  target_compile_options(
-    wire_core
-    PRIVATE
-    /EHsc
-    /MP
-    /FS
-  )
-  set_property(
-    TARGET wire_core
-    PROPERTY MSVC_DEBUG_INFORMATION_FORMAT
-             "$<$<CONFIG:Debug,RelWithDebInfo>:Embedded>"
-  )
-endif()
+wire_enable_msvc_target_defaults(wire_core)
 
 if(WIRE_ENABLE_PCH)
   target_precompile_headers(
@@ -69,18 +56,7 @@ target_compile_features(
   PRIVATE
   cxx_std_20
 )
-
-function(wire_enable_builtin_vcpkg_applocal target_name)
-  if(MSVC)
-    # Avoid the noisy pwsh.exe probe in vcpkg's MSBuild applocal path while
-    # keeping DLL deployment enabled via vcpkg's built-in helper.
-    set_target_properties(
-      ${target_name}
-      PROPERTIES
-      VS_GLOBAL_VcpkgXUseBuiltInApplocalDeps "true"
-    )
-  endif()
-endfunction()
+wire_enable_msvc_target_defaults(wire_core_public_headers_smoke)
 
 if(BUILD_TESTING)
   add_executable(
@@ -94,20 +70,7 @@ if(BUILD_TESTING)
     wire_core
   )
 
-  if(MSVC)
-    target_compile_options(
-      wire_capture_replay
-      PRIVATE
-      /EHsc
-      /MP
-      /FS
-    )
-    set_property(
-      TARGET wire_capture_replay
-      PROPERTY MSVC_DEBUG_INFORMATION_FORMAT
-               "$<$<CONFIG:Debug,RelWithDebInfo>:Embedded>"
-    )
-  endif()
+  wire_enable_msvc_target_defaults(wire_capture_replay)
 
   if(WIRE_ENABLE_PCH)
     target_precompile_headers(
@@ -152,20 +115,7 @@ if(BUILD_TESTING)
     wire_core
   )
 
-  if(MSVC)
-    target_compile_options(
-      wire_core_tests
-      PRIVATE
-      /EHsc
-      /MP
-      /FS
-    )
-    set_property(
-      TARGET wire_core_tests
-      PROPERTY MSVC_DEBUG_INFORMATION_FORMAT
-               "$<$<CONFIG:Debug,RelWithDebInfo>:Embedded>"
-    )
-  endif()
+  wire_enable_msvc_target_defaults(wire_core_tests)
 
   if(WIRE_ENABLE_PCH)
     target_precompile_headers(

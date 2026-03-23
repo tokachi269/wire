@@ -2,6 +2,8 @@ set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BUILD_GAMES OFF CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 
+option(WIRE_ENABLE_VIEWER_PCH "Enable precompiled headers for viewer targets" ON)
+
 set(_wire_has_any_local_viewer_dep OFF)
 if(WIRE_RAYLIB_SOURCE_DIR OR WIRE_IMGUI_SOURCE_DIR OR WIRE_RLIMGUI_SOURCE_DIR)
   set(_wire_has_any_local_viewer_dep ON)
@@ -78,6 +80,7 @@ target_include_directories(
   PUBLIC
   ${imgui_SOURCE_DIR}
 )
+wire_enable_msvc_target_defaults(imgui_static)
 
 add_library(
   rlimgui_static
@@ -97,6 +100,7 @@ target_link_libraries(
   raylib
   imgui_static
 )
+wire_enable_msvc_target_defaults(rlimgui_static)
 
 add_executable(
   wire_viewer
@@ -119,22 +123,14 @@ target_link_libraries(
   imgui_static
   rlimgui_static
 )
+wire_enable_msvc_target_defaults(wire_viewer)
+wire_enable_builtin_vcpkg_applocal(wire_viewer)
 
-if(MSVC)
-  target_compile_options(
+if(WIRE_ENABLE_VIEWER_PCH)
+  target_precompile_headers(
     wire_viewer
     PRIVATE
-    /EHsc
-  )
-endif()
-
-if(MSVC)
-  # Avoid the noisy pwsh.exe probe in vcpkg's MSBuild applocal path while
-  # keeping DLL deployment enabled via vcpkg's built-in helper.
-  set_target_properties(
-    wire_viewer
-    PROPERTIES
-    VS_GLOBAL_VcpkgXUseBuiltInApplocalDeps "true"
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/pch.hpp
   )
 endif()
 
@@ -164,20 +160,14 @@ target_link_libraries(
   wire_core
   raylib
 )
+wire_enable_msvc_target_defaults(wire_viewer_tests)
+wire_enable_builtin_vcpkg_applocal(wire_viewer_tests)
 
-if(MSVC)
-  target_compile_options(
+if(WIRE_ENABLE_VIEWER_PCH)
+  target_precompile_headers(
     wire_viewer_tests
     PRIVATE
-    /EHsc
-  )
-endif()
-
-if(MSVC)
-  set_target_properties(
-    wire_viewer_tests
-    PROPERTIES
-    VS_GLOBAL_VcpkgXUseBuiltInApplocalDeps "true"
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/pch.hpp
   )
 endif()
 

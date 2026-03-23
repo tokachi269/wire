@@ -66,6 +66,12 @@ struct EndpointTangentDecision {
   double lateral_ratio_limit = 0.0;
 };
 
+struct DetailCurveSegmentSpan {
+  const DetailCurveSegment* segment = nullptr;
+  double local_u = 0.0;
+  double global_span = 1.0;
+};
+
 double Clamp01(double v) {
   return std::max(0.0, std::min(1.0, v));
 }
@@ -244,6 +250,143 @@ Vec3d EvaluateBezierDerivative(const std::array<Vec3d, 4>& cp, double u) {
   return ScaleVec(a, 3.0 * omt * omt) + ScaleVec(b, 6.0 * omt * t) + ScaleVec(c, 3.0 * t * t);
 }
 
+DetailCurveSegment MakeCurveSegment(const Vec3d& start_point, const Vec3d& end_point, const Vec3d& start_tangent,
+                                    const Vec3d& end_tangent, double start_handle_m, double end_handle_m,
+                                    double u_start, double u_end) {
+  DetailCurveSegment segment{};
+  segment.u_start = u_start;
+  segment.u_end = u_end;
+  segment.control_points[0] = start_point;
+  segment.control_points[1] = start_point + ScaleVec(start_tangent, start_handle_m);
+  segment.control_points[2] = end_point - ScaleVec(end_tangent, end_handle_m);
+  segment.control_points[3] = end_point;
+  return segment;
+}
+
+double HeightDeltaM(const Vec3d& a, const Vec3d& b) {
+  return std::abs(HeightAlongWorldUp(b) - HeightAlongWorldUp(a));
+}
+
+bool ShouldUseCompositeHeightTransition(const CurveConstraint& start_constraint,
+                                        const CurveConstraint& end_constraint,
+                                        const CurveShapePolicyDecision& shape_policy,
+                                        double chord_length) {
+  auto has_valid_tangent_hint = [](const CurveConstraint& constraint) {
+    Vec3d tangent = constraint.tangent_dir;
+    return Normalize(&tangent);
+  };
+  if (shape_policy.kind != CurveShapePolicyKind::kSmoothPass) {
+    return false;
+  }
+  if (start_constraint.profile_hint != CurveProfileHint::kCompositeHeightTransition ||
+      end_constraint.profile_hint != CurveProfileHint::kCompositeHeightTransition) {
+    return false;
+  }
+  if (start_constraint.pass_mode != CurvePassMode::kPassThrough ||
+      end_constraint.pass_mode != CurvePassMode::kPassThrough) {
+    return false;
+  }
+  if (start_constraint.endpoint_mode == CurveEndpointMode::kOffsetEndpoint ||
+      end_constraint.endpoint_mode == CurveEndpointMode::kOffsetEndpoint) {
+    return false;
+  }
+  if (chord_length < 10.0) {
+    return false;
+  }
+  return has_valid_tangent_hint(start_constraint) && has_valid_tangent_hint(end_constraint);
+}
+
+std::vector<DetailCurveSegment> BuildCompositeHeightTransitionSegments(
+    const Vec3d& start_point, const Vec3d& end_point, const Vec3d& start_tangent, const Vec3d& end_tangent,
+    const Vec3d& chord_dir, double chord_length, const EndpointTangentDecision& start_tangent_decision,
+    const EndpointTangentDecision& end_tangent_decision, double start_handle_length_m, double end_handle_length_m) {
+  std::vector<DetailCurveSegment> segments{};
+  const double height_delta_m = HeightDeltaM(start_point, end_point);
+  const double height_transition_bias = SmoothStep(1.8, 7.5, height_delta_m);
+  double start_lead_m = std::clamp(
+      std::max(start_tangent_decision.departure_length_m, start_handle_length_m * 0.85),
+      chord_length * (0.11 + 0.03 * height_transition_bias), chord_length * 0.24);
+  double end_lead_m = std::clamp(
+      std::max(end_tangent_decision.departure_length_m, end_handle_length_m * 0.85),
+      chord_length * (0.11 + 0.03 * height_transition_bias), chord_length * 0.24);
+  const double lead_budget_m = chord_length * 0.62;
+  if (start_lead_m + end_lead_m > lead_budget_m) {
+    const double scale = lead_budget_m / std::max(kZeroLengthEps, start_lead_m + end_lead_m);
+    start_lead_m *= scale;
+    end_lead_m *= scale;
+  }
+
+  const Vec3d transition_start = start_point + ScaleVec(start_tangent, start_lead_m);
+  const Vec3d transition_end = end_point - ScaleVec(end_tangent, end_lead_m);
+  const double middle_length_m = std::sqrt(std::max(0.0, LengthSquared(transition_end - transition_start)));
+  if (middle_length_m <= chord_length * 0.18) {
+    return segments;
+  }
+
+  const double lead_start_length_m = std::sqrt(std::max(0.0, LengthSquared(transition_start - start_point)));
+  const double lead_end_length_m = std::sqrt(std::max(0.0, LengthSquared(end_point - transition_end)));
+  const double total_piece_length_m = std::max(kZeroLengthEps, lead_start_length_m + middle_length_m + lead_end_length_m);
+  const double u_break_a = lead_start_length_m / total_piece_length_m;
+  const double u_break_b = (lead_start_length_m + middle_length_m) / total_piece_length_m;
+
+  const Vec3d transition_start_tangent = BlendDirections(start_tangent, chord_dir, 0.58, chord_dir);
+  const Vec3d transition_end_tangent = BlendDirections(end_tangent, chord_dir, 0.58, chord_dir);
+
+  const double seg1_start_handle_m = std::min(start_handle_length_m * 0.58, std::max(lead_start_length_m * 0.40, 0.12));
+  const double seg1_end_handle_m = std::min(start_lead_m * 0.42, std::max(lead_start_length_m * 0.32, 0.12));
+  const double seg2_start_handle_m = std::min(start_lead_m * 0.36, std::max(middle_length_m * 0.16, 0.18));
+  const double seg2_end_handle_m = std::min(end_lead_m * 0.36, std::max(middle_length_m * 0.16, 0.18));
+  const double seg3_start_handle_m = std::min(end_lead_m * 0.42, std::max(lead_end_length_m * 0.32, 0.12));
+  const double seg3_end_handle_m = std::min(end_handle_length_m * 0.58, std::max(lead_end_length_m * 0.40, 0.12));
+
+  segments.push_back(MakeCurveSegment(start_point, transition_start, start_tangent, transition_start_tangent,
+                                      seg1_start_handle_m, seg1_end_handle_m, 0.0, u_break_a));
+  segments.push_back(MakeCurveSegment(transition_start, transition_end, transition_start_tangent,
+                                      transition_end_tangent, seg2_start_handle_m, seg2_end_handle_m,
+                                      u_break_a, u_break_b));
+  segments.push_back(MakeCurveSegment(transition_end, end_point, transition_end_tangent, end_tangent,
+                                      seg3_start_handle_m, seg3_end_handle_m, u_break_b, 1.0));
+  return segments;
+}
+
+DetailCurveSegmentSpan ResolveCurveSegmentSpan(const DetailCurve& curve, double u) {
+  DetailCurveSegmentSpan span{};
+  if (curve.segments.empty()) {
+    return span;
+  }
+  const double clamped = Clamp01(u);
+  for (const DetailCurveSegment& segment : curve.segments) {
+    if (clamped <= segment.u_end + 1e-9) {
+      const double global_span = std::max(kZeroLengthEps, segment.u_end - segment.u_start);
+      span.segment = &segment;
+      span.global_span = global_span;
+      span.local_u = Clamp01((clamped - segment.u_start) / global_span);
+      return span;
+    }
+  }
+  const DetailCurveSegment& last = curve.segments.back();
+  span.segment = &last;
+  span.local_u = 1.0;
+  span.global_span = std::max(kZeroLengthEps, last.u_end - last.u_start);
+  return span;
+}
+
+Vec3d EvaluateCurveBasePosition(const DetailCurve& curve, double u) {
+  const DetailCurveSegmentSpan span = ResolveCurveSegmentSpan(curve, u);
+  if (span.segment == nullptr) {
+    return EvaluateBezier(curve.control_points, u);
+  }
+  return EvaluateBezier(span.segment->control_points, span.local_u);
+}
+
+Vec3d EvaluateCurveBaseDerivative(const DetailCurve& curve, double u) {
+  const DetailCurveSegmentSpan span = ResolveCurveSegmentSpan(curve, u);
+  if (span.segment == nullptr) {
+    return EvaluateBezierDerivative(curve.control_points, u);
+  }
+  return ScaleVec(EvaluateBezierDerivative(span.segment->control_points, span.local_u), 1.0 / span.global_span);
+}
+
 double ChordProjectionProgress(const Vec3d& start, const Vec3d& chord_dir, const Vec3d& point) {
   return Dot(point - start, chord_dir);
 }
@@ -418,6 +561,21 @@ CurveShapePolicyDecision ChooseShapePolicy(const CurveConstraint& start_constrai
     decision.lateral_suppression = 0.82;
     decision.handle_scale = 0.50;
     decision.quality_lateral_limit_ratio = 0.08;
+    return decision;
+  }
+
+  const bool authoritative_composite_height_transition =
+      start_constraint.profile_hint == CurveProfileHint::kCompositeHeightTransition &&
+      end_constraint.profile_hint == CurveProfileHint::kCompositeHeightTransition &&
+      start_constraint.pass_mode == CurvePassMode::kPassThrough &&
+      end_constraint.pass_mode == CurvePassMode::kPassThrough &&
+      start_constraint.endpoint_mode != CurveEndpointMode::kOffsetEndpoint &&
+      end_constraint.endpoint_mode != CurveEndpointMode::kOffsetEndpoint && chord_length >= 10.0;
+  if (authoritative_composite_height_transition) {
+    decision.kind = CurveShapePolicyKind::kSmoothPass;
+    decision.lateral_suppression = 0.20;
+    decision.handle_scale = 1.12;
+    decision.quality_lateral_limit_ratio = 0.22;
     return decision;
   }
 
@@ -723,7 +881,7 @@ void PopulateLengthData(DetailCurve* curve) {
 } // namespace
 
 Vec3d DetailCurve::EvaluatePosition(double u) const {
-  Vec3d point = EvaluateBezier(control_points, u);
+  Vec3d point = EvaluateCurveBasePosition(*this, u);
   if (std::abs(sag_amplitude_m) > kZeroLengthEps) {
     OffsetAlongWorldUp(&point, -sag_amplitude_m * SagShape(u));
   }
@@ -731,7 +889,7 @@ Vec3d DetailCurve::EvaluatePosition(double u) const {
 }
 
 Vec3d DetailCurve::EvaluateTangent(double u) const {
-  Vec3d tangent = EvaluateBezierDerivative(control_points, u);
+  Vec3d tangent = EvaluateCurveBaseDerivative(*this, u);
   if (std::abs(sag_amplitude_m) > kZeroLengthEps) {
     tangent = tangent + ScaleVec(WorldUp(), -sag_amplitude_m * SagShapeDerivative(u));
   }
@@ -866,6 +1024,15 @@ DetailCurve BuildDetailCurve(const CurveConstraint& start_constraint, const Curv
   }
 
   curve.control_points = cp;
+  if (ShouldUseCompositeHeightTransition(start_constraint, end_constraint, shape_policy, chord_length)) {
+    curve.segments = BuildCompositeHeightTransitionSegments(start_point, end_point, start_tangent, end_tangent,
+                                                            chord_dir, chord_length, start_tangent_decision,
+                                                            end_tangent_decision, h0, h1);
+    if (!curve.segments.empty()) {
+      curve.control_points = {curve.segments.front().control_points[0], curve.segments.front().control_points[1],
+                              curve.segments.back().control_points[2], curve.segments.back().control_points[3]};
+    }
+  }
   curve.sag_amplitude_m = sag_amplitude_m;
   curve.quality.requested_policy = requested_policy;
   curve.quality.shape_policy = shape_policy.kind;

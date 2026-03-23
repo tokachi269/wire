@@ -2,6 +2,8 @@
 
 #include <algorithm>
 
+#include "wire/core/core_state.hpp"
+
 namespace {
 
 bool IsTemplateSelected(std::uint32_t selected_template_mask, wire::core::BundleKind kind) {

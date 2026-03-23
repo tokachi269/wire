@@ -1,5 +1,7 @@
 #include "wire/core/core_state.hpp"
 
+#include "wire/core/core_view.hpp"
+
 #include <cstdint>
 #include <filesystem>
 #include <fstream>

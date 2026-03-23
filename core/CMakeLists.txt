@@ -4,6 +4,7 @@ add_library(
   src/support_orientation_utils.cpp
   src/state/state.cpp
   src/state/templates.cpp
+  src/state/core_view.cpp
   src/state/inspection.cpp
   src/state/endpoint_refresh_service.cpp
   src/state/override_resolution.cpp

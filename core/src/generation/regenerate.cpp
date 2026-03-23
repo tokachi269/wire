@@ -9,7 +9,7 @@ namespace wire::core {
 
 using namespace generation::detail;
 
-EditResult<CoreState::GenerateBundleFromPathResult>
+EditResult<GenerateBundleFromPathResult>
 CoreState::RegenerateSessionAutoParts(std::uint64_t generation_session_id, const BackboneSpec& request) {
   EditResult<GenerateBundleFromPathResult> result;
   if (generation_session_id == 0) {

@@ -6,6 +6,7 @@
 #include <sstream>
 
 #include "host_coords.hpp"
+#include "wire/core/core_state.hpp"
 
 constexpr std::array<wire::core::ConnectionCategory, 5> kAllCategories = {
     wire::core::ConnectionCategory::kHighVoltage,   wire::core::ConnectionCategory::kLowVoltage,
@@ -457,5 +458,4 @@ void PushLog(ViewerUiState& ui_state, const std::string& line) {
     ui_state.logs.erase(ui_state.logs.begin());
   }
 }
-
 

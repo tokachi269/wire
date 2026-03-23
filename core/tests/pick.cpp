@@ -48,7 +48,7 @@ bool test_branch_pick_segment_near_endpoint_snaps_to_node() {
   if (!resolved.ok) {
     return false;
   }
-  return resolved.value.resolution == wire::core::CoreState::PickBranchResolutionKind::kNode &&
+  return resolved.value.resolution == wire::core::PickBranchResolutionKind::kNode &&
          resolved.value.resolved_node_id == pole_a && resolved.value.snapped_from_segment_endpoint &&
          wire::core::CoreStateTestHook::last_generation_support_nodes(state).empty();
 }
@@ -96,7 +96,7 @@ bool test_branch_pick_segment_midpoint_creates_midair_node() {
   if (!resolved.ok) {
     return false;
   }
-  if (resolved.value.resolution != wire::core::CoreState::PickBranchResolutionKind::kMidair ||
+  if (resolved.value.resolution != wire::core::PickBranchResolutionKind::kMidair ||
       resolved.value.support_kind != wire::core::SupportKind::kMidair ||
       resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
     return false;
@@ -153,7 +153,7 @@ bool test_branch_pick_segment_midpoint_dryrun_keeps_state_unchanged() {
   if (!resolved.ok) {
     return false;
   }
-  if (resolved.value.resolution != wire::core::CoreState::PickBranchResolutionKind::kMidair ||
+  if (resolved.value.resolution != wire::core::PickBranchResolutionKind::kMidair ||
       resolved.value.support_kind != wire::core::SupportKind::kMidair ||
       resolved.value.resolved_node_id != wire::core::kInvalidObjectId) {
     return false;
@@ -245,7 +245,7 @@ bool test_branch_pick_hv_template_allows_midair_when_policy_not_enforced() {
   resolve.snap_radius_world = 0.5;
   resolve.enforce_midair_template_policy = false;
   const auto resolved = state.ResolveBranchPick(pick, resolve);
-  return resolved.ok && resolved.value.resolution == wire::core::CoreState::PickBranchResolutionKind::kMidair &&
+  return resolved.ok && resolved.value.resolution == wire::core::PickBranchResolutionKind::kMidair &&
          resolved.value.support_kind == wire::core::SupportKind::kMidair &&
          resolved.value.resolved_node_id != wire::core::kInvalidObjectId;
 }

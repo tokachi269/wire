@@ -1144,12 +1144,12 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
   return result;
 }
 
-EditResult<CoreState::AddConnectionByPoleResult>
+EditResult<AddConnectionByPoleResult>
 CoreState::AddConnectionByPole(ObjectId pole_a_id, ObjectId pole_b_id, ConnectionCategory category) {
   return AddConnectionByPole(pole_a_id, pole_b_id, category, AddConnectionByPoleOptions{});
 }
 
-EditResult<CoreState::AddConnectionByPoleResult>
+EditResult<AddConnectionByPoleResult>
 CoreState::AddConnectionByPole(ObjectId pole_a_id, ObjectId pole_b_id, ConnectionCategory category,
                                const AddConnectionByPoleOptions& options) {
   EditResult<AddConnectionByPoleResult> result;
@@ -1283,7 +1283,7 @@ CoreState::AddConnectionByPole(ObjectId pole_a_id, ObjectId pole_b_id, Connectio
   return result;
 }
 
-EditResult<CoreState::AddDropResult>
+EditResult<AddDropResult>
 CoreState::AddDropFromPole(ObjectId source_pole_id, const Vec3d& target_world_position, ConnectionCategory category) {
   EditResult<AddDropResult> result;
   if (edit_state_.poles.find(source_pole_id) == nullptr) {
@@ -1357,7 +1357,7 @@ CoreState::AddDropFromPole(ObjectId source_pole_id, const Vec3d& target_world_po
   return result;
 }
 
-EditResult<CoreState::AddDropResult> CoreState::AddDropFromSpan(ObjectId source_span_id, double t,
+EditResult<AddDropResult> CoreState::AddDropFromSpan(ObjectId source_span_id, double t,
                                                                 const Vec3d& target_world_position,
                                                                 ConnectionCategory category) {
   EditResult<AddDropResult> result;

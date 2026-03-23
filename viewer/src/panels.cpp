@@ -14,6 +14,7 @@
 #include "imgui.h"
 #include "raylib.h"
 #include "ui_common.hpp"
+#include "wire/core/core_state.hpp"
 
 namespace {
 
@@ -2374,4 +2375,3 @@ void DrawStatsPanel(CoreState& state, ViewerUiState& ui_state) {
     DrawDiagnosticsWindow(state, ui_state);
   }
 }
-

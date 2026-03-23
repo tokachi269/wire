@@ -1,6 +1,8 @@
 ﻿#include "helpers.hpp"
 
 #include "wire/core/coord_utils.hpp"
+#include "wire/core/core_test_hook.hpp"
+#include "wire/core/core_state.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -885,7 +887,7 @@ std::string describe_branch_runout_metrics(const BranchRunoutMetrics& metrics) {
   return oss.str();
 }
 
-wire::core::EditResult<wire::core::CoreState::AddConnectionByPoleResult>
+wire::core::EditResult<wire::core::AddConnectionByPoleResult>
 add_connection_by_category(wire::core::CoreState& state, wire::core::ObjectId pole_a_id, wire::core::ObjectId pole_b_id,
                            wire::core::ConnectionCategory category,
                            wire::core::AddConnectionByPoleOptions options) {

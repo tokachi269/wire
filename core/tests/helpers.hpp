@@ -6,8 +6,8 @@
 #include <string>
 #include <vector>
 
-#include "wire/core/core_test_hook.hpp"
-#include "wire/core/core_state.hpp"
+#include "wire/core/core_state_api_types.hpp"
+#include "wire/core/core_view.hpp"
 
 namespace helpers {
 
@@ -135,7 +135,7 @@ BranchRunoutMetrics measure_branch_runout_metrics(const CoreState& state, Object
 std::string describe_axis_relation_metrics(const AxisRelationMetrics& metrics);
 std::string describe_visual_separation_metrics(const VisualSeparationMetrics& metrics);
 std::string describe_branch_runout_metrics(const BranchRunoutMetrics& metrics);
-wire::core::EditResult<wire::core::CoreState::AddConnectionByPoleResult>
+wire::core::EditResult<wire::core::AddConnectionByPoleResult>
 add_connection_by_category(wire::core::CoreState& state, wire::core::ObjectId pole_a_id, wire::core::ObjectId pole_b_id,
                            wire::core::ConnectionCategory category,
                            wire::core::AddConnectionByPoleOptions options = {});

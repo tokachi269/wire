@@ -9,6 +9,7 @@
 #include "host_coords.hpp"
 #include "ui_common.hpp"
 #include "wire/core/coord_utils.hpp"
+#include "wire/core/core_state.hpp"
 
 namespace {
 
@@ -160,9 +161,9 @@ void DrawAxesImpl() {
 }
 
 void DrawPickHighlightImpl(const CoreState& state, const wire::core::PickResult& pick, bool has_resolution,
-                           const wire::core::CoreState::ResolveBranchPickResult& resolution) {
+                           const wire::core::ResolveBranchPickResult& resolution) {
   if (has_resolution) {
-    const bool is_midair = (resolution.resolution == wire::core::CoreState::PickBranchResolutionKind::kMidair);
+    const bool is_midair = (resolution.resolution == wire::core::PickBranchResolutionKind::kMidair);
     const Color resolved_color = is_midair ? Color{90, 154, 176, 235} : Color{214, 180, 92, 235};
     DrawSphere(ToRaylib(resolution.position), 0.16f, resolved_color);
     DrawSphereWires(ToRaylib(resolution.position), 0.21f, 10, 16, Color{122, 124, 128, 210});
@@ -257,7 +258,7 @@ void UpdatePreferredVisibleSpans(const CoreState& state, const Camera3D& camera,
 void DrawAxes() { DrawAxesImpl(); }
 
 void DrawPickHighlight(const CoreState& state, const wire::core::PickResult& pick, bool has_resolution,
-                       const wire::core::CoreState::ResolveBranchPickResult& resolution) {
+                       const wire::core::ResolveBranchPickResult& resolution) {
   DrawPickHighlightImpl(state, pick, has_resolution, resolution);
 }
 

@@ -15,6 +15,7 @@
 
 #include "imgui.h"
 #include "scene_query.hpp"
+#include "wire/core/core_state.hpp"
 
 namespace {
 
@@ -580,9 +581,9 @@ void DrawPathClearPoints(ViewerUiState& ui_state) {
   ui_state.draw_path_point_node_ids.clear();
 }
 
-wire::core::CoreState::ResolveBranchPickResult DirectResolvedDrawPathTarget(const wire::core::PickResult& pick) {
-  wire::core::CoreState::ResolveBranchPickResult resolved{};
-  resolved.resolution = wire::core::CoreState::PickBranchResolutionKind::kNode;
+wire::core::ResolveBranchPickResult DirectResolvedDrawPathTarget(const wire::core::PickResult& pick) {
+  wire::core::ResolveBranchPickResult resolved{};
+  resolved.resolution = wire::core::PickBranchResolutionKind::kNode;
   resolved.resolved_node_id = pick.hit_id;
   resolved.position = pick.hit_pos_world;
   resolved.support_kind = (pick.hit_kind == wire::core::PickHitKind::kBuilding) ? wire::core::SupportKind::kBuilding
@@ -1548,7 +1549,7 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
       }
       if (pick.hit_kind == wire::core::PickHitKind::kNode || pick.hit_kind == wire::core::PickHitKind::kSegment ||
           pick.hit_kind == wire::core::PickHitKind::kBuilding) {
-        wire::core::EditResult<wire::core::CoreState::ResolveBranchPickResult> resolved{};
+        wire::core::EditResult<wire::core::ResolveBranchPickResult> resolved{};
         if (pick.hit_kind == wire::core::PickHitKind::kNode || pick.hit_kind == wire::core::PickHitKind::kBuilding) {
           resolved.ok = true;
           resolved.value = DirectResolvedDrawPathTarget(pick);
@@ -1562,7 +1563,7 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
         }
         if (resolved.ok) {
           const std::string blocked_template = FindMidairBranchBlockedTemplateName(state, pick_template_ids);
-          if (resolved.value.resolution == wire::core::CoreState::PickBranchResolutionKind::kMidair &&
+          if (resolved.value.resolution == wire::core::PickBranchResolutionKind::kMidair &&
               !blocked_template.empty()) {
             ui_state.draw_hover_status += " -> warn: template " + blocked_template + " will not connect here";
           }
@@ -1571,7 +1572,7 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
           ui_state.draw_hover_point = resolved.value.position;
           ui_state.draw_hover_valid = true;
           ui_state.draw_hover_status +=
-              (resolved.value.resolution == wire::core::CoreState::PickBranchResolutionKind::kNode)
+              (resolved.value.resolution == wire::core::PickBranchResolutionKind::kNode)
                   ? " | resolved: Node"
                   : " | resolved: Midair";
           if (resolved.value.resolved_node_id != wire::core::kInvalidObjectId) {
@@ -1592,10 +1593,10 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
   if (accept_mouse_input) {
     if (ui_state.draw_hover_valid && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
       if (ui_state.draw_hover_has_resolution) {
-        wire::core::EditResult<wire::core::CoreState::ResolveBranchPickResult> applied{};
+        wire::core::EditResult<wire::core::ResolveBranchPickResult> applied{};
         if (ui_state.draw_hover_pick.hit_kind == wire::core::PickHitKind::kNode ||
             ui_state.draw_hover_pick.hit_kind == wire::core::PickHitKind::kBuilding ||
-            ui_state.draw_hover_resolution.resolution == wire::core::CoreState::PickBranchResolutionKind::kNode) {
+            ui_state.draw_hover_resolution.resolution == wire::core::PickBranchResolutionKind::kNode) {
           applied.ok = true;
           applied.value = ui_state.draw_hover_resolution;
         } else {
@@ -1715,7 +1716,7 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
   }
   if (ui_state.draw_hover_has_resolution) {
     ImGui::Text("Hover resolved: %s kind=%s",
-                (ui_state.draw_hover_resolution.resolution == wire::core::CoreState::PickBranchResolutionKind::kNode)
+                (ui_state.draw_hover_resolution.resolution == wire::core::PickBranchResolutionKind::kNode)
                     ? "Node"
                     : "Midair",
                 SupportKindLabelLocal(ui_state.draw_hover_resolution.support_kind));

@@ -2,6 +2,7 @@
 #include "backbone_plane.hpp"
 #include "host_coords.hpp"
 #include "wire/core/coord_utils.hpp"
+#include "wire/core/core_state.hpp"
 
 #include <algorithm>
 #include <cmath>

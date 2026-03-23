@@ -9,7 +9,8 @@
 #include <vector>
 
 #include "raylib.h"
-#include "wire/core/core_state.hpp"
+#include "wire/core/core_state_api_types.hpp"
+#include "wire/core/core_view.hpp"
 
 using wire::core::CoreState;
 using wire::core::ObjectId;
@@ -118,7 +119,7 @@ struct ViewerUiState {
   bool draw_show_backbone_overlay = true;
   wire::core::PickResult draw_hover_pick{};
   bool draw_hover_has_resolution = false;
-  wire::core::CoreState::ResolveBranchPickResult draw_hover_resolution{};
+  wire::core::ResolveBranchPickResult draw_hover_resolution{};
   std::string draw_hover_status{};
   bool draw_hover_valid = false;
   wire::core::Vec3d draw_hover_point{};

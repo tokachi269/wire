@@ -4,7 +4,12 @@
 #include <string>
 #include <vector>
 
-#include "wire/core/core_state.hpp"
+#include "wire/core/types.hpp"
+#include "wire/core/workflow_types.hpp"
+
+namespace wire::core {
+class CoreState;
+}
 
 std::vector<wire::core::BundleKind> SelectedBundleTemplateKinds(const wire::core::CoreState& state,
                                                                 std::uint32_t selected_template_mask);

@@ -1,5 +1,7 @@
 ﻿#include "wire/core/core_state.hpp"
 
+#include "wire/core/core_view.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <sstream>
@@ -8,6 +10,7 @@
 #include <unordered_set>
 
 namespace wire::core {
+
 namespace {
 
 std::string DisplayOrFallback(std::string_view prefix, std::string_view display_id, std::uint64_t stable_id) {
@@ -1328,5 +1331,3 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
 }
 
 } // namespace wire::core
-
-

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "wire/core/core_state.hpp"
+#include "wire/core/support_layout_types.hpp"
 
 namespace wire::core {
 

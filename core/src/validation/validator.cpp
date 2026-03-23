@@ -1,4 +1,5 @@
 #include "wire/core/core_state.hpp"
+#include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
 #include "../generation/support_policy.hpp"
 #include "../support_orientation_utils.hpp"

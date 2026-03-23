@@ -301,7 +301,7 @@ build_seed_generated_support_layouts(const EditState& edit_state, const std::vec
 
 } // namespace
 
-EditResult<CoreState::GenerateBundleFromPathResult>
+EditResult<GenerateBundleFromPathResult>
 CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
   const BackboneSpec& request = spec;
   EditResult<GenerateBundleFromPathResult> result;
@@ -2531,5 +2531,4 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
 
 
 } // namespace wire::core
-
 

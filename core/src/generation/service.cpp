@@ -56,9 +56,9 @@ BackboneSpec make_backbone_request_from_road(const RoadSegment& road, double int
   return request;
 }
 
-CoreState::GenerateSimpleLineResult make_simple_line_result_from_backbone(const CoreState& state,
-                                                                          const CoreState::GenerateBundleFromPathResult& generated) {
-  CoreState::GenerateSimpleLineResult out{};
+GenerateSimpleLineResult make_simple_line_result_from_backbone(const CoreState& state,
+                                                               const GenerateBundleFromPathResult& generated) {
+  GenerateSimpleLineResult out{};
   out.pole_ids = generated.generated_pole_ids;
   out.span_ids = generated.generated_span_ids;
   if (!generated.generated_span_ids.empty()) {
@@ -231,9 +231,9 @@ EditResult<std::vector<ObjectId>> CoreState::GenerateSpansBetweenPoles(const std
   return result;
 }
 
-EditResult<CoreState::GenerateSimpleLineResult> CoreState::GenerateSimpleLine(const RoadSegment& road, double interval,
-                                                                              PoleTypeId pole_type_id,
-                                                                              ConnectionCategory category) {
+EditResult<GenerateSimpleLineResult> CoreState::GenerateSimpleLine(const RoadSegment& road, double interval,
+                                                                   PoleTypeId pole_type_id,
+                                                                   ConnectionCategory category) {
   EditResult<GenerateSimpleLineResult> result;
   if (road.polyline.size() < 2) {
     result.error = "road polyline must contain at least 2 points";
@@ -261,7 +261,7 @@ EditResult<CoreState::GenerateSimpleLineResult> CoreState::GenerateSimpleLine(co
   return result;
 }
 
-EditResult<CoreState::GenerateSimpleLineResult>
+EditResult<GenerateSimpleLineResult>
 CoreState::GenerateSimpleLineFromPoints(const RoadSegment& road, PoleTypeId pole_type_id, ConnectionCategory category) {
   EditResult<GenerateSimpleLineResult> result;
   if (road.polyline.size() < 2) {

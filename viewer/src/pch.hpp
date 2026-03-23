@@ -21,4 +21,4 @@
 #include <vector>
 
 #include "raylib.h"
-#include "wire/core/core_state.hpp"
+#include "wire/core/core_view.hpp"

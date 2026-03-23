@@ -3,7 +3,12 @@
 #include <string>
 
 #include "raylib.h"
-#include "wire/core/core_state.hpp"
+#include "wire/core/types.hpp"
+#include "wire/core/workflow_types.hpp"
+
+namespace wire::core {
+class CoreState;
+}
 
 bool TryPickGroundPoint(const Camera3D& camera, double ue_plane_z, wire::core::Vec3d* out_ue_point);
 

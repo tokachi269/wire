@@ -8,6 +8,7 @@
 
 namespace wire::core {
 class CoreState;
+class CoreView;
 }
 
 bool TryPickGroundPoint(const Camera3D& camera, double ue_plane_z, wire::core::Vec3d* out_ue_point);
@@ -18,13 +19,13 @@ double DistancePointToSegmentSquared(const wire::core::Vec3d& p, const wire::cor
 class ISceneQuery {
 public:
   virtual ~ISceneQuery() = default;
-  virtual wire::core::PickResult Raycast(const wire::core::CoreState& state, const Camera3D& camera,
+  virtual wire::core::PickResult Raycast(const wire::core::CoreView& view, const Camera3D& camera,
                                          double draw_plane_z) const = 0;
 };
 
 class ViewerSceneQuery final : public ISceneQuery {
 public:
-  wire::core::PickResult Raycast(const wire::core::CoreState& state, const Camera3D& camera,
+  wire::core::PickResult Raycast(const wire::core::CoreView& view, const Camera3D& camera,
                                  double draw_plane_z) const override;
 };
 

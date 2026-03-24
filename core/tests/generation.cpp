@@ -8707,6 +8707,150 @@ bool test_variation_settings_do_not_change_topology_flow_or_mirror() {
   return true;
 }
 
+bool test_backbone_adjacent_branch_roots_use_route_local_bisector() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec trunk{};
+  trunk.path.polyline = {{-20.0, 0.0, 0.0}, {-10.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}};
+  trunk.interval_m = 1000.0;
+  trunk.pole_type_id = type_ids.front();
+  add_backbone_bundle(trunk, wire::core::BundleKind::kHighVoltage);
+  if (!state.GenerateFromBackboneSpec(trunk).ok) {
+    std::cerr << "[DBG] C279 trunk_generate_failed\n";
+    return false;
+  }
+
+  const ObjectId root_a_id = find_pole_id_by_position(state, {-10.0, 0.0, 0.0});
+  const ObjectId root_b_id = find_pole_id_by_position(state, {0.0, 0.0, 0.0});
+  if (root_a_id == wire::core::kInvalidObjectId || root_b_id == wire::core::kInvalidObjectId) {
+    std::cerr << "[DBG] C279 root_missing a=" << root_a_id << " b=" << root_b_id << "\n";
+    return false;
+  }
+
+  wire::core::BackboneSpec branch_a{};
+  branch_a.path.polyline = {{-10.0, 0.0, 0.0}, {-18.0, -12.0, 0.0}};
+  branch_a.interval_m = 1000.0;
+  branch_a.pole_type_id = type_ids.front();
+  wire::core::BackboneInputSpec::NodeSpec shared_a{};
+  shared_a.point_index = 0;
+  shared_a.support_kind = wire::core::SupportKind::kPole;
+  shared_a.node_id = root_a_id;
+  branch_a.path.node_specs.push_back(shared_a);
+  add_backbone_bundle(branch_a, wire::core::BundleKind::kHighVoltage);
+  const auto generated_a = state.GenerateFromBackboneSpec(branch_a);
+  if (!generated_a.ok || generated_a.value.generated_span_ids.empty()) {
+    std::cerr << "[DBG] C279 branch_a_generate_failed error=" << generated_a.error << "\n";
+    return false;
+  }
+
+  wire::core::BackboneSpec branch_b{};
+  branch_b.path.polyline = {{0.0, 0.0, 0.0}, {6.0, 14.0, 0.0}};
+  branch_b.interval_m = 1000.0;
+  branch_b.pole_type_id = type_ids.front();
+  wire::core::BackboneInputSpec::NodeSpec shared_b{};
+  shared_b.point_index = 0;
+  shared_b.support_kind = wire::core::SupportKind::kPole;
+  shared_b.node_id = root_b_id;
+  branch_b.path.node_specs.push_back(shared_b);
+  add_backbone_bundle(branch_b, wire::core::BundleKind::kHighVoltage);
+  const auto generated_b = state.GenerateFromBackboneSpec(branch_b);
+  if (!generated_b.ok || generated_b.value.generated_span_ids.empty()) {
+    std::cerr << "[DBG] C279 branch_b_generate_failed error=" << generated_b.error << "\n";
+    return false;
+  }
+
+  wire::core::CommitOptions options{};
+  options.run_recalc = true;
+  if (!state.Commit(options).validation.ok()) {
+    std::cerr << "[DBG] C279 commit_failed\n";
+    return false;
+  }
+
+  struct RootObservation {
+    wire::core::Vec3d support_axis{};
+    wire::core::Vec3d expected_axis{};
+    wire::core::SupportOrientationRuleKind rule = wire::core::SupportOrientationRuleKind::kRadial;
+    wire::core::SupportOrientationBasisKind basis = wire::core::SupportOrientationBasisKind::kRadial;
+    double alignment = -1.0;
+    int group_id = -1;
+    ObjectId span_id = wire::core::kInvalidObjectId;
+  };
+
+  const auto observe_root = [&](const std::vector<ObjectId>& span_ids, ObjectId owner_pole_id,
+                                const wire::core::Vec3d& branch_tip_world,
+                                const wire::core::Vec3d& route_local_peer_world) -> std::optional<RootObservation> {
+    const auto pole_view = state.view().inspect_pole(owner_pole_id);
+    if (!pole_view.has_value()) {
+      return std::nullopt;
+    }
+    const wire::core::Vec3d owner_world = pole_view->position;
+    const wire::core::Vec3d expected_axis =
+        normalize_xy_safe((branch_tip_world - owner_world) + (route_local_peer_world - owner_world));
+    for (ObjectId span_id : span_ids) {
+      const auto layout_view = state.view().inspect_support_layout(span_id);
+      if (!layout_view.has_value()) {
+        continue;
+      }
+      const auto endpoint = layout_endpoint_for_owner(*layout_view, owner_pole_id);
+      const auto group = lowered_support_group_for_owner(*layout_view, owner_pole_id);
+      if (!endpoint.has_value() || !group.has_value()) {
+        continue;
+      }
+      RootObservation observation{};
+      observation.support_axis = normalize_xy_safe(group->tip_world - group->mount_world);
+      observation.expected_axis = expected_axis;
+      observation.rule = group->support_orientation_rule;
+      observation.basis = group->decision.support_orientation_basis;
+      observation.alignment = dot_xy(observation.support_axis, observation.expected_axis);
+      observation.group_id = group->support_group_id;
+      observation.span_id = span_id;
+      return observation;
+    }
+    return std::nullopt;
+  };
+
+  const auto root_a = observe_root(generated_a.value.generated_span_ids, root_a_id, {-18.0, -12.0, 0.0},
+                                   {0.0, 0.0, 0.0});
+  const auto root_b = observe_root(generated_b.value.generated_span_ids, root_b_id, {6.0, 14.0, 0.0},
+                                   {10.0, 0.0, 0.0});
+  if (!root_a.has_value() || !root_b.has_value()) {
+    std::cerr << "[DBG] C279 missing_observation a=" << (root_a.has_value() ? 1 : 0)
+              << " b=" << (root_b.has_value() ? 1 : 0) << "\n";
+    return false;
+  }
+
+  const bool a_ok = root_a->rule == wire::core::SupportOrientationRuleKind::kBisector &&
+                    root_a->basis != wire::core::SupportOrientationBasisKind::kRadial && root_a->alignment >= 0.95 &&
+                    root_a->support_axis.y < -0.10;
+  const bool b_ok = root_b->rule == wire::core::SupportOrientationRuleKind::kBisector &&
+                    root_b->basis != wire::core::SupportOrientationBasisKind::kRadial && root_b->alignment >= 0.95 &&
+                    root_b->support_axis.y > 0.10;
+  const bool opposite_y = (root_a->support_axis.y * root_b->support_axis.y) < -0.01;
+  if (!(a_ok && b_ok && opposite_y)) {
+    std::cerr << "[DBG] C279"
+              << " aSpan=" << root_a->span_id << " aGroup=" << root_a->group_id << " aRule="
+              << static_cast<int>(root_a->rule) << " aBasis=" << static_cast<int>(root_a->basis)
+              << " aAlign=" << root_a->alignment << " aAxis=(" << root_a->support_axis.x << ","
+              << root_a->support_axis.y << "," << root_a->support_axis.z << ")"
+              << " aExpected=(" << root_a->expected_axis.x << "," << root_a->expected_axis.y << ","
+              << root_a->expected_axis.z << ")"
+              << " bSpan=" << root_b->span_id << " bGroup=" << root_b->group_id << " bRule="
+              << static_cast<int>(root_b->rule) << " bBasis=" << static_cast<int>(root_b->basis)
+              << " bAlign=" << root_b->alignment << " bAxis=(" << root_b->support_axis.x << ","
+              << root_b->support_axis.y << "," << root_b->support_axis.z << ")"
+              << " bExpected=(" << root_b->expected_axis.x << "," << root_b->expected_axis.y << ","
+              << root_b->expected_axis.z << ")"
+              << " oppositeY=" << (opposite_y ? 1 : 0) << "\n";
+    return false;
+  }
+
+  return true;
+}
+
 // Intent: Backbone generation must require bundles[] and reject legacy-only fields.
 namespace {
 
@@ -9071,6 +9215,9 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C155_Variation_DoesNotAffectTopologyOrMirror",
                          "Variation settings do not change deterministic flow classification or mirror decisions",
                          "Invariant", false, test_variation_settings_do_not_change_topology_flow_or_mirror);
+  test_registry::AddTest(tests, "C279_Backbone_AdjacentBranchRootsUseRouteLocalBisector",
+                         "Adjacent bundle branch roots use route-local bisector orientation instead of collapsing to one shared direction",
+                         "Invariant", false, test_backbone_adjacent_branch_roots_use_route_local_bisector);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_generation_tests);

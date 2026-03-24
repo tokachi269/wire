@@ -66,6 +66,18 @@ else()
     "WIRE_IMGUI_SOURCE_DIR, WIRE_RLIMGUI_SOURCE_DIR, or enable WIRE_VIEWER_FETCH_DEPS=ON.")
 endif()
 
+if(MSVC AND TARGET raylib)
+  get_target_property(_wire_raylib_interface_links raylib INTERFACE_LINK_LIBRARIES)
+  if(_wire_raylib_interface_links)
+    list(REMOVE_ITEM _wire_raylib_interface_links "-lpthreads" "pthreads" "pthread")
+    set_target_properties(
+      raylib
+      PROPERTIES
+      INTERFACE_LINK_LIBRARIES "${_wire_raylib_interface_links}"
+    )
+  endif()
+endif()
+
 add_library(
   imgui_static
   STATIC

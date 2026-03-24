@@ -1,4 +1,5 @@
 #include "wire/core/core_state.hpp"
+#include "wire/core/core_view.hpp"
 #include "../pole_orientation_utils.hpp"
 #include "detail_utils.hpp"
 

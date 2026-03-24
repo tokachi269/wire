@@ -1525,10 +1525,10 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
 
   if (ui_state.draw_pick_enabled && accept_mouse_input) {
     ViewerSceneQuery scene_query{};
-    const wire::core::PickResult raw_pick = scene_query.Raycast(state, camera, ui_state.draw_plane_z);
+    const wire::core::PickResult raw_pick = scene_query.Raycast(state.view(), camera, ui_state.draw_plane_z);
     const double hover_snap_radius_world = std::max(ui_state.draw_snap_radius_world, 1.25);
     wire::core::PickResult pick =
-        CanonicalizeDrawPathPick(state, raw_pick, hover, has_ground_hit, hover_snap_radius_world);
+        CanonicalizeDrawPathPick(state.view(), raw_pick, hover, has_ground_hit, hover_snap_radius_world);
     ui_state.draw_hover_pick = pick;
     bool blocked_pick_target = false;
     if (pick.hit_kind == wire::core::PickHitKind::kEmpty) {
@@ -1542,7 +1542,7 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
                                      std::to_string(static_cast<unsigned long long>(pick.hit_id));
       }
       const std::vector<wire::core::BundleKind> pick_template_ids =
-          ResolveTemplateKindsForPathPick(state, ui_state.draw_bundle_template_mask, pick);
+          ResolveTemplateKindsForPathPick(state.view(), ui_state.draw_bundle_template_mask, pick);
       if (ui_state.draw_hover_status.empty()) {
         ui_state.draw_hover_status =
             std::string("target: ") + PickHitKindLabelLocal(pick.hit_kind) + " " + PickTargetLabel(pick);
@@ -1562,7 +1562,7 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
           resolved = state.ResolveBranchPick(pick, options);
         }
         if (resolved.ok) {
-          const std::string blocked_template = FindMidairBranchBlockedTemplateName(state, pick_template_ids);
+          const std::string blocked_template = FindMidairBranchBlockedTemplateName(state.view(), pick_template_ids);
           if (resolved.value.resolution == wire::core::PickBranchResolutionKind::kMidair &&
               !blocked_template.empty()) {
             ui_state.draw_hover_status += " -> warn: template " + blocked_template + " will not connect here";
@@ -1601,7 +1601,7 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
           applied.value = ui_state.draw_hover_resolution;
         } else {
           const std::vector<wire::core::BundleKind> click_template_ids =
-              ResolveTemplateKindsForPathPick(state, ui_state.draw_bundle_template_mask, ui_state.draw_hover_pick);
+              ResolveTemplateKindsForPathPick(state.view(), ui_state.draw_bundle_template_mask, ui_state.draw_hover_pick);
           wire::core::ResolveBranchPickOptions click_options{};
           click_options.selected_bundle_template_ids = click_template_ids;
           click_options.snap_radius_world = ui_state.draw_snap_radius_world;

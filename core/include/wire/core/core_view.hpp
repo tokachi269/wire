@@ -49,7 +49,10 @@ public:
   [[nodiscard]] const std::vector<PortResolutionDebugRecord>& port_resolution_debug_records() const;
   [[nodiscard]] const std::vector<SegmentLaneAssignment>& last_lane_assignments() const;
   [[nodiscard]] const std::unordered_map<ObjectId, SpanRuntimeState>& span_runtime_states() const;
+  [[nodiscard]] BackboneResult build_backbone_result() const;
   [[nodiscard]] const SpanRuntimeState* find_span_runtime_state(ObjectId span_id) const;
+  [[nodiscard]] const CurveCacheEntry* find_curve_cache(ObjectId span_id) const;
+  [[nodiscard]] const BoundsCacheEntry* find_bounds_cache(ObjectId span_id) const;
   [[nodiscard]] const SpanSupportLayoutEntry* find_span_support_layout(ObjectId span_id) const;
   [[nodiscard]] const SpanVisualCacheEntry* find_span_visual_cache(ObjectId span_id) const;
   [[nodiscard]] const SpanRenderCacheEntry* find_span_render_cache(ObjectId span_id) const;

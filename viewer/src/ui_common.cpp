@@ -6,7 +6,6 @@
 #include <sstream>
 
 #include "host_coords.hpp"
-#include "wire/core/core_state.hpp"
 
 constexpr std::array<wire::core::ConnectionCategory, 5> kAllCategories = {
     wire::core::ConnectionCategory::kHighVoltage,   wire::core::ConnectionCategory::kLowVoltage,
@@ -262,9 +261,9 @@ int FallbackParallelSpanCount(wire::core::ConnectionCategory category) {
   }
 }
 
-int AutoParallelSpanCountFromPoleType(const CoreState& state, wire::core::PoleTypeId pole_type_id,
+int AutoParallelSpanCountFromPoleType(const wire::core::CoreView& view, wire::core::PoleTypeId pole_type_id,
                                       wire::core::ConnectionCategory category) {
-  const int count = state.view().count_port_bands(pole_type_id, category);
+  const int count = view.count_port_bands(pole_type_id, category);
   if (count <= 0) {
     return FallbackParallelSpanCount(category);
   }
@@ -318,10 +317,10 @@ std::string DrawCategoryPreview(const ViewerUiState& ui_state) {
   return oss.str();
 }
 
-std::vector<wire::core::BundleKind> SortedBundleTemplateKinds(const CoreState& state) {
+std::vector<wire::core::BundleKind> SortedBundleTemplateKinds(const wire::core::CoreView& view) {
   std::vector<wire::core::BundleKind> ids;
-  ids.reserve(state.view().bundle_templates().size());
-  for (const auto& [id, _] : state.view().bundle_templates()) {
+  ids.reserve(view.bundle_templates().size());
+  for (const auto& [id, _] : view.bundle_templates()) {
     ids.push_back(id);
   }
   std::sort(ids.begin(), ids.end(), [](wire::core::BundleKind a, wire::core::BundleKind b) {
@@ -351,9 +350,10 @@ void SetBundleTemplateSelected(ViewerUiState& ui_state, wire::core::BundleKind k
   }
 }
 
-std::vector<wire::core::BundleKind> SelectedBundleTemplates(const CoreState& state, const ViewerUiState& ui_state) {
+std::vector<wire::core::BundleKind> SelectedBundleTemplates(const wire::core::CoreView& view,
+                                                            const ViewerUiState& ui_state) {
   std::vector<wire::core::BundleKind> selected{};
-  const auto all = SortedBundleTemplateKinds(state);
+  const auto all = SortedBundleTemplateKinds(view);
   for (wire::core::BundleKind kind : all) {
     if (IsBundleTemplateSelected(ui_state, kind)) {
       selected.push_back(kind);
@@ -362,28 +362,28 @@ std::vector<wire::core::BundleKind> SelectedBundleTemplates(const CoreState& sta
   return selected;
 }
 
-std::string BundleTemplatePreview(const CoreState& state, wire::core::BundleKind kind) {
-  const auto it = state.view().bundle_templates().find(kind);
-  if (it == state.view().bundle_templates().end()) {
+std::string BundleTemplatePreview(const wire::core::CoreView& view, wire::core::BundleKind kind) {
+  const auto it = view.bundle_templates().find(kind);
+  if (it == view.bundle_templates().end()) {
     return "UnknownTemplate";
   }
   return it->second.name.empty() ? std::to_string(static_cast<int>(kind)) : it->second.name;
 }
 
-std::string BundleTemplateMultiPreview(const CoreState& state, const ViewerUiState& ui_state) {
-  const auto selected = SelectedBundleTemplates(state, ui_state);
+std::string BundleTemplateMultiPreview(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
+  const auto selected = SelectedBundleTemplates(view, ui_state);
   if (selected.empty()) {
     return "(none)";
   }
   if (selected.size() == 1) {
-    return BundleTemplatePreview(state, selected.front());
+    return BundleTemplatePreview(view, selected.front());
   }
   std::ostringstream oss;
   for (std::size_t i = 0; i < selected.size(); ++i) {
     if (i > 0) {
       oss << ", ";
     }
-    oss << BundleTemplatePreview(state, selected[i]);
+    oss << BundleTemplatePreview(view, selected[i]);
   }
   return oss.str();
 }
@@ -401,10 +401,10 @@ int ResolveBundleTemplateCount(ViewerUiState& ui_state, const wire::core::Bundle
   return value;
 }
 
-std::vector<wire::core::PoleTypeId> SortedPoleTypeIds(const CoreState& state) {
+std::vector<wire::core::PoleTypeId> SortedPoleTypeIds(const wire::core::CoreView& view) {
   std::vector<wire::core::PoleTypeId> ids;
-  ids.reserve(state.view().pole_types().size());
-  for (const auto& [id, _] : state.view().pole_types()) {
+  ids.reserve(view.pole_types().size());
+  for (const auto& [id, _] : view.pole_types()) {
     ids.push_back(id);
   }
   std::sort(ids.begin(), ids.end());
@@ -458,4 +458,3 @@ void PushLog(ViewerUiState& ui_state, const std::string& line) {
     ui_state.logs.erase(ui_state.logs.begin());
   }
 }
-

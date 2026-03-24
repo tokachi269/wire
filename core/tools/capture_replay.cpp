@@ -371,10 +371,7 @@ bool restore_pre_request_backbone(const ParsedRequest& parsed, wire::core::CoreS
       continue;
     }
     if (node.support_kind != SupportKind::kPole) {
-      if (error != nullptr) {
-        *error = "replay restore currently supports only pole backbone nodes";
-      }
-      return false;
+      continue;
     }
     wire::core::Transformd tf{};
     tf.position = node.position;
@@ -478,6 +475,16 @@ const char* same_level_reason_text(wire::core::SameLevelFeasibilityReason reason
   }
 }
 
+Vec3d normalized_xy(Vec3d v) {
+  v.z = 0.0;
+  const double len2 = v.x * v.x + v.y * v.y;
+  if (len2 <= 1e-18) {
+    return {0.0, 0.0, 0.0};
+  }
+  const double inv_len = 1.0 / std::sqrt(len2);
+  return {v.x * inv_len, v.y * inv_len, 0.0};
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -523,6 +530,42 @@ int main(int argc, char** argv) {
               << " reason=" << same_level_reason_text(span_view->same_level_reason)
               << " lowered_groups=" << (layout_view.has_value() ? layout_view->lowered_support_groups.size() : 0)
               << "\n";
+    if (!layout_view.has_value()) {
+      continue;
+    }
+    std::cout << "  start owner=" << layout_view->start_endpoint.owner_pole_id
+              << " pair=" << layout_view->start_endpoint.decision.support_pair_peer_low << "/"
+              << layout_view->start_endpoint.decision.support_pair_peer_high
+              << " side_rule=" << static_cast<int>(layout_view->start_endpoint.side_assignment_rule)
+              << " orient_rule=" << static_cast<int>(layout_view->start_endpoint.support_orientation_rule)
+              << " basis=" << static_cast<int>(layout_view->start_endpoint.decision.support_orientation_basis)
+              << " side_axis=" << layout_view->start_endpoint.side_axis.x << ","
+              << layout_view->start_endpoint.side_axis.y << "," << layout_view->start_endpoint.side_axis.z
+              << "\n";
+    std::cout << "  end owner=" << layout_view->end_endpoint.owner_pole_id
+              << " pair=" << layout_view->end_endpoint.decision.support_pair_peer_low << "/"
+              << layout_view->end_endpoint.decision.support_pair_peer_high
+              << " side_rule=" << static_cast<int>(layout_view->end_endpoint.side_assignment_rule)
+              << " orient_rule=" << static_cast<int>(layout_view->end_endpoint.support_orientation_rule)
+              << " basis=" << static_cast<int>(layout_view->end_endpoint.decision.support_orientation_basis)
+              << " side_axis=" << layout_view->end_endpoint.side_axis.x << ","
+              << layout_view->end_endpoint.side_axis.y << "," << layout_view->end_endpoint.side_axis.z
+              << "\n";
+    for (const auto& group : layout_view->lowered_support_groups) {
+      const Vec3d actual_dir = normalized_xy(group.tip_world - group.mount_world);
+      std::cout << "  group owner=" << group.owner_pole_id
+                << " group_id=" << group.support_group_id
+                << " relation=" << static_cast<int>(group.decision.relation_kind)
+                << " pair=" << group.pair_peer_low << "/" << group.pair_peer_high
+                << " side=" << static_cast<int>(group.side)
+                << " side_rule=" << static_cast<int>(group.side_assignment_rule)
+                << " orient_rule=" << static_cast<int>(group.support_orientation_rule)
+                << " basis=" << static_cast<int>(group.decision.support_orientation_basis)
+                << " sign=" << group.chosen_side_sign
+                << " axis=" << group.side_axis.x << "," << group.side_axis.y << "," << group.side_axis.z
+                << " dir=" << actual_dir.x << "," << actual_dir.y << "," << actual_dir.z
+                << "\n";
+    }
   }
 
   return 0;

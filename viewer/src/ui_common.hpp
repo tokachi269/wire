@@ -30,22 +30,23 @@ const char* ModeLabel(EditMode mode);
 const char* SelectedTypeLabel(SelectedType selected_type);
 
 int FallbackParallelSpanCount(wire::core::ConnectionCategory category);
-int AutoParallelSpanCountFromPoleType(const CoreState& state, wire::core::PoleTypeId pole_type_id,
+int AutoParallelSpanCountFromPoleType(const wire::core::CoreView& view, wire::core::PoleTypeId pole_type_id,
                                       wire::core::ConnectionCategory category);
 bool IsDrawCategorySelected(const ViewerUiState& ui_state, int category_index);
 void SetDrawCategorySelected(ViewerUiState& ui_state, int category_index, bool selected);
 std::string DrawCategoryPreview(const ViewerUiState& ui_state);
 
-std::vector<wire::core::BundleKind> SortedBundleTemplateKinds(const CoreState& state);
+std::vector<wire::core::BundleKind> SortedBundleTemplateKinds(const wire::core::CoreView& view);
 bool IsBundleTemplateSelected(const ViewerUiState& ui_state, wire::core::BundleKind kind);
 void SetBundleTemplateSelected(ViewerUiState& ui_state, wire::core::BundleKind kind, bool selected);
-std::vector<wire::core::BundleKind> SelectedBundleTemplates(const CoreState& state, const ViewerUiState& ui_state);
-std::string BundleTemplatePreview(const CoreState& state, wire::core::BundleKind kind);
-std::string BundleTemplateMultiPreview(const CoreState& state, const ViewerUiState& ui_state);
+std::vector<wire::core::BundleKind> SelectedBundleTemplates(const wire::core::CoreView& view,
+                                                            const ViewerUiState& ui_state);
+std::string BundleTemplatePreview(const wire::core::CoreView& view, wire::core::BundleKind kind);
+std::string BundleTemplateMultiPreview(const wire::core::CoreView& view, const ViewerUiState& ui_state);
 int ResolveBundleTemplateCount(ViewerUiState& ui_state, const wire::core::BundleTemplate& bundle_template,
                                wire::core::BundleKind kind);
 
-std::vector<wire::core::PoleTypeId> SortedPoleTypeIds(const CoreState& state);
+std::vector<wire::core::PoleTypeId> SortedPoleTypeIds(const wire::core::CoreView& view);
 std::size_t ClampedTypeIndex(int current, std::size_t count);
 Vector3 ToRaylib(const wire::core::Vec3d& ue_xyz);
 BoundingBox ToRaylibBounds(const wire::core::AABBd& box_ue);

@@ -63,8 +63,15 @@ const std::vector<PortResolutionDebugRecord>& CoreView::port_resolution_debug_re
 const std::unordered_map<ObjectId, SpanRuntimeState>& CoreView::span_runtime_states() const {
   return state_.span_runtime_states_;
 }
+BackboneResult CoreView::build_backbone_result() const { return state_.BuildBackboneResult(); }
 const SpanRuntimeState* CoreView::find_span_runtime_state(ObjectId span_id) const {
   return state_.find_span_runtime_state(span_id);
+}
+const CurveCacheEntry* CoreView::find_curve_cache(ObjectId span_id) const {
+  return state_.find_curve_cache(span_id);
+}
+const BoundsCacheEntry* CoreView::find_bounds_cache(ObjectId span_id) const {
+  return state_.find_bounds_cache(span_id);
 }
 const SpanSupportLayoutEntry* CoreView::find_span_support_layout(ObjectId span_id) const {
   return state_.find_span_support_layout(span_id);

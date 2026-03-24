@@ -18,7 +18,10 @@ add_library(
   src/state/backbone.cpp
   src/validation/validator.cpp
   src/recalc/detail_curve.cpp
+  src/recalc/detail_curve_input_resolution.cpp
+  src/recalc/detail_curve_postprocess.cpp
   src/recalc/variation.cpp
+  src/recalc/support_layout_materialization.cpp
   src/recalc/recalc_pipeline.cpp
 )
 

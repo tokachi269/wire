@@ -220,6 +220,68 @@ const char* SupportOrientationBasisText(SupportOrientationBasisKind basis) {
   return "Radial";
 }
 
+OrderDecisionPolicyKind support_layout_order_decision_policy(const SpanSupportLayoutEntry& layout) {
+  if (layout.start.decision.order_decision_policy == OrderDecisionPolicyKind::kPermutableHomogeneous ||
+      layout.end.decision.order_decision_policy == OrderDecisionPolicyKind::kPermutableHomogeneous) {
+    return OrderDecisionPolicyKind::kPermutableHomogeneous;
+  }
+  return OrderDecisionPolicyKind::kFixedOrder;
+}
+
+ContinuityCategoryClass support_layout_continuity_class(const SpanSupportLayoutEntry& layout) {
+  if (layout.start.decision.continuity_class == ContinuityCategoryClass::kBundleLike ||
+      layout.end.decision.continuity_class == ContinuityCategoryClass::kBundleLike) {
+    return ContinuityCategoryClass::kBundleLike;
+  }
+  return ContinuityCategoryClass::kPointLike;
+}
+
+bool support_layout_default_lower_required(const SpanSupportLayoutEntry& layout) {
+  return layout.start.decision.default_lower_required || layout.end.decision.default_lower_required;
+}
+
+bool support_layout_same_level_feasible(const SpanSupportLayoutEntry& layout) {
+  return layout.start.decision.same_level_feasible && layout.end.decision.same_level_feasible;
+}
+
+SameLevelFeasibilityReason support_layout_same_level_reason(const SpanSupportLayoutEntry& layout) {
+  if (support_layout_same_level_feasible(layout)) {
+    return SameLevelFeasibilityReason::kNone;
+  }
+  return layout.start.decision.same_level_feasible ? layout.end.decision.same_level_reason
+                                                   : layout.start.decision.same_level_reason;
+}
+
+double support_layout_projected_spacing_topview_m(const SpanSupportLayoutEntry& layout) {
+  const bool start_same = layout.start.decision.same_level_feasible;
+  const bool end_same = layout.end.decision.same_level_feasible;
+  if (!start_same && !end_same) {
+    return std::min(layout.start.decision.projected_spacing_topview_m, layout.end.decision.projected_spacing_topview_m);
+  }
+  return start_same ? layout.end.decision.projected_spacing_topview_m : layout.start.decision.projected_spacing_topview_m;
+}
+
+double support_layout_required_clearance_m(const SpanSupportLayoutEntry& layout) {
+  return std::max(layout.start.decision.required_clearance_m, layout.end.decision.required_clearance_m);
+}
+
+bool support_layout_lowering_blocked_by_policy(const SpanSupportLayoutEntry& layout) {
+  return layout.start.decision.lowering_blocked_by_policy || layout.end.decision.lowering_blocked_by_policy;
+}
+
+bool support_layout_unresolved_same_level_conflict(const SpanSupportLayoutEntry& layout) {
+  return layout.start.decision.unresolved_same_level_conflict || layout.end.decision.unresolved_same_level_conflict;
+}
+
+bool support_layout_solver_used_same_level_constraint(const SpanSupportLayoutEntry& layout) {
+  return layout.start.decision.solver_used_same_level_constraint ||
+         layout.end.decision.solver_used_same_level_constraint;
+}
+
+bool support_layout_used_special_case_ports(const SpanSupportLayoutEntry& layout) {
+  return layout.start.decision.used_special_case_ports || layout.end.decision.used_special_case_ports;
+}
+
 const char* SupportLayoutOriginText(SupportLayoutOriginKind origin) {
   switch (origin) {
   case SupportLayoutOriginKind::kMainSupport:
@@ -454,24 +516,24 @@ std::vector<LoweredSupportGroupInspectionView> BuildLoweredSupportGroupInspectio
     }
     const LoweredSupportGroupPlacement& source = it->second;
     LoweredSupportGroupInspectionView group{};
-    group.owner_pole_id = source.owner_pole_id;
+    group.owner_pole_id = source.decision.owner_pole_id;
     group.decision = source.decision;
-    group.pair_peer_low = source.pair_peer_low;
-    group.pair_peer_high = source.pair_peer_high;
+    group.pair_peer_low = source.decision.support_pair_peer_low;
+    group.pair_peer_high = source.decision.support_pair_peer_high;
     group.side = source.side;
     group.origin = SupportLayoutOriginText(source.origin);
     group.grouping_rule = source.grouping_rule;
-    group.support_group_id = source.support_group_id;
+    group.support_group_id = source.decision.support_group_id;
     group.grouped_port_count = source.grouped_port_count;
-    group.order_decision_policy = source.order_decision_policy;
-    group.order_decision_choice = source.order_decision_choice;
-    group.order_decision_choice_reason = source.order_decision_choice_reason;
-    group.side_assignment_rule = source.side_assignment_rule;
-    group.support_orientation_rule = source.support_orientation_rule;
-    group.used_junction_pair_side_assignment = source.used_junction_pair_side_assignment;
-    group.has_side_axis = source.has_side_axis;
-    group.side_axis = source.side_axis;
-    group.chosen_side_sign = source.chosen_side_sign;
+    group.order_decision_policy = source.decision.order_decision_policy;
+    group.order_decision_choice = source.decision.order_decision_choice;
+    group.order_decision_choice_reason = source.decision.order_decision_choice_reason;
+    group.side_assignment_rule = source.decision.side_assignment_rule;
+    group.support_orientation_rule = source.decision.support_orientation_rule;
+    group.used_junction_pair_side_assignment = source.decision.used_junction_pair_side_assignment;
+    group.has_side_axis = source.decision.has_side_axis;
+    group.side_axis = source.decision.side_axis;
+    group.chosen_side_sign = source.decision.chosen_side_sign;
     group.down_offset_m = source.down_offset_m;
     group.mount_world = source.mount_world;
     group.tip_world = source.tip_world;
@@ -505,19 +567,19 @@ SupportLayoutEndpointView MakeSupportLayoutEndpointView(const SupportLayoutEndpo
   view.attachment_request = endpoint.attachment_request;
   view.resolved_socket_id = endpoint.resolved_socket_id;
   view.flow_kind = endpoint.flow_kind;
-  view.relation_kind = endpoint.relation_kind;
-  view.continuity_class = endpoint.continuity_class;
-  view.default_lower_required = endpoint.default_lower_required;
-  view.order_decision_policy = endpoint.order_decision_policy;
-  view.order_decision_choice = endpoint.order_decision_choice;
-  view.order_decision_choice_reason = endpoint.order_decision_choice_reason;
+  view.relation_kind = endpoint.decision.relation_kind;
+  view.continuity_class = endpoint.decision.continuity_class;
+  view.default_lower_required = endpoint.decision.default_lower_required;
+  view.order_decision_policy = endpoint.decision.order_decision_policy;
+  view.order_decision_choice = endpoint.decision.order_decision_choice;
+  view.order_decision_choice_reason = endpoint.decision.order_decision_choice_reason;
   view.side = endpoint.side;
-  view.side_assignment_rule = endpoint.side_assignment_rule;
-  view.support_orientation_rule = endpoint.support_orientation_rule;
-  view.used_junction_pair_side_assignment = endpoint.used_junction_pair_side_assignment;
-  view.has_side_axis = endpoint.has_side_axis;
-  view.side_axis = endpoint.side_axis;
-  view.chosen_side_sign = endpoint.chosen_side_sign;
+  view.side_assignment_rule = endpoint.decision.side_assignment_rule;
+  view.support_orientation_rule = endpoint.decision.support_orientation_rule;
+  view.used_junction_pair_side_assignment = endpoint.decision.used_junction_pair_side_assignment;
+  view.has_side_axis = endpoint.decision.has_side_axis;
+  view.side_axis = endpoint.decision.side_axis;
+  view.chosen_side_sign = endpoint.decision.chosen_side_sign;
   view.origin = SupportLayoutOriginText(endpoint.origin);
   view.endpoint_source = endpoint.endpoint_source;
   view.port_source = PortPlacementSourceText(endpoint.port_source);
@@ -529,14 +591,14 @@ SupportLayoutEndpointView MakeSupportLayoutEndpointView(const SupportLayoutEndpo
   view.local_departure_length_m = endpoint.local_departure_length_m;
   view.automatic_branch_down_offset_m = endpoint.automatic_branch_down_offset_m;
   view.branch_down_offset_m = endpoint.branch_down_offset_m;
-  view.same_level_feasible = endpoint.same_level_feasible;
-  view.same_level_reason = endpoint.same_level_reason;
-  view.projected_spacing_topview_m = endpoint.projected_spacing_topview_m;
-  view.required_clearance_m = endpoint.required_clearance_m;
-  view.lowering_blocked_by_policy = endpoint.lowering_blocked_by_policy;
-  view.unresolved_same_level_conflict = endpoint.unresolved_same_level_conflict;
-  view.solver_used_same_level_constraint = endpoint.solver_used_same_level_constraint;
-  view.used_special_case_ports = endpoint.used_special_case_ports;
+  view.same_level_feasible = endpoint.decision.same_level_feasible;
+  view.same_level_reason = endpoint.decision.same_level_reason;
+  view.projected_spacing_topview_m = endpoint.decision.projected_spacing_topview_m;
+  view.required_clearance_m = endpoint.decision.required_clearance_m;
+  view.lowering_blocked_by_policy = endpoint.decision.lowering_blocked_by_policy;
+  view.unresolved_same_level_conflict = endpoint.decision.unresolved_same_level_conflict;
+  view.solver_used_same_level_constraint = endpoint.decision.solver_used_same_level_constraint;
+  view.used_special_case_ports = endpoint.decision.used_special_case_ports;
   view.down_offset_variation = MakeVariationBreakdownView(endpoint.down_offset_variation);
   return view;
 }
@@ -699,25 +761,25 @@ std::optional<SpanInspectionView> CoreView::inspect_span(ObjectId span_id) const
   if (const SpanSupportLayoutEntry* layout = find_span_support_layout(span_id); layout != nullptr) {
     result.support_layout_ref = {EntityKind::kSupportLayout, span_id};
     result.flow_kind = layout->flow_kind;
-    result.continuity_class = layout->continuity_class;
-    result.order_decision_policy = layout->order_decision_policy;
-    result.order_decision_choice_a = layout->start.order_decision_choice;
-    result.order_decision_choice_b = layout->end.order_decision_choice;
-    result.order_decision_choice_reason_a = layout->start.order_decision_choice_reason;
-    result.order_decision_choice_reason_b = layout->end.order_decision_choice_reason;
-    result.default_lower_required = layout->default_lower_required;
+    result.continuity_class = support_layout_continuity_class(*layout);
+    result.order_decision_policy = support_layout_order_decision_policy(*layout);
+    result.order_decision_choice_a = layout->start.decision.order_decision_choice;
+    result.order_decision_choice_b = layout->end.decision.order_decision_choice;
+    result.order_decision_choice_reason_a = layout->start.decision.order_decision_choice_reason;
+    result.order_decision_choice_reason_b = layout->end.decision.order_decision_choice_reason;
+    result.default_lower_required = support_layout_default_lower_required(*layout);
     result.uses_branch_support = layout->start.origin == SupportLayoutOriginKind::kBranchSupport ||
                                  layout->end.origin == SupportLayoutOriginKind::kBranchSupport;
     result.lowering_kind = layout->lowering_kind;
     result.branch_down_offset_m = std::max(layout->start.branch_down_offset_m, layout->end.branch_down_offset_m);
-    result.same_level_feasible = layout->same_level_feasible;
-    result.same_level_reason = layout->same_level_reason;
-    result.projected_spacing_topview_m = layout->projected_spacing_topview_m;
-    result.required_clearance_m = layout->required_clearance_m;
-    result.lowering_blocked_by_policy = layout->lowering_blocked_by_policy;
-    result.unresolved_same_level_conflict = layout->unresolved_same_level_conflict;
-    result.solver_used_same_level_constraint = layout->solver_used_same_level_constraint;
-    result.used_special_case_ports = layout->used_special_case_ports;
+    result.same_level_feasible = support_layout_same_level_feasible(*layout);
+    result.same_level_reason = support_layout_same_level_reason(*layout);
+    result.projected_spacing_topview_m = support_layout_projected_spacing_topview_m(*layout);
+    result.required_clearance_m = support_layout_required_clearance_m(*layout);
+    result.lowering_blocked_by_policy = support_layout_lowering_blocked_by_policy(*layout);
+    result.unresolved_same_level_conflict = support_layout_unresolved_same_level_conflict(*layout);
+    result.solver_used_same_level_constraint = support_layout_solver_used_same_level_constraint(*layout);
+    result.used_special_case_ports = support_layout_used_special_case_ports(*layout);
   }
   if (const SegmentLaneAssignment* assignment = FindLaneAssignmentForSpan(*this, *span); assignment != nullptr) {
     result.flow_kind = assignment->flow_kind;
@@ -765,19 +827,19 @@ std::optional<SupportLayoutInspectionView> CoreView::inspect_support_layout(Obje
   result.flow_kind = layout->flow_kind;
   result.pass_mode = layout->pass_mode;
   result.variation_flow_key = layout->variation_flow_key;
-  result.order_decision_policy = layout->order_decision_policy;
-  result.relation_a = layout->relation_a;
-  result.relation_b = layout->relation_b;
-  result.continuity_class = layout->continuity_class;
-  result.default_lower_required = layout->default_lower_required;
-  result.same_level_feasible = layout->same_level_feasible;
-  result.same_level_reason = layout->same_level_reason;
-  result.projected_spacing_topview_m = layout->projected_spacing_topview_m;
-  result.required_clearance_m = layout->required_clearance_m;
-  result.lowering_blocked_by_policy = layout->lowering_blocked_by_policy;
-  result.unresolved_same_level_conflict = layout->unresolved_same_level_conflict;
-  result.solver_used_same_level_constraint = layout->solver_used_same_level_constraint;
-  result.used_special_case_ports = layout->used_special_case_ports;
+  result.order_decision_policy = support_layout_order_decision_policy(*layout);
+  result.relation_a = layout->start.decision.relation_kind;
+  result.relation_b = layout->end.decision.relation_kind;
+  result.continuity_class = support_layout_continuity_class(*layout);
+  result.default_lower_required = support_layout_default_lower_required(*layout);
+  result.same_level_feasible = support_layout_same_level_feasible(*layout);
+  result.same_level_reason = support_layout_same_level_reason(*layout);
+  result.projected_spacing_topview_m = support_layout_projected_spacing_topview_m(*layout);
+  result.required_clearance_m = support_layout_required_clearance_m(*layout);
+  result.lowering_blocked_by_policy = support_layout_lowering_blocked_by_policy(*layout);
+  result.unresolved_same_level_conflict = support_layout_unresolved_same_level_conflict(*layout);
+  result.solver_used_same_level_constraint = support_layout_solver_used_same_level_constraint(*layout);
+  result.used_special_case_ports = support_layout_used_special_case_ports(*layout);
   result.lowering_kind = layout->lowering_kind;
   result.start_endpoint = MakeSupportLayoutEndpointView(layout->start);
   result.end_endpoint = MakeSupportLayoutEndpointView(layout->end);
@@ -1175,51 +1237,51 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
       std::ostringstream summary;
       summary << "start=" << SupportLayoutOriginText(layout->start.origin) << " dep=" << layout->start.local_departure_length_m
               << " end=" << SupportLayoutOriginText(layout->end.origin) << " dep=" << layout->end.local_departure_length_m
-              << " orderPolicy=" << OrderDecisionPolicyText(layout->order_decision_policy)
-              << " orderDecisionA=" << OrderDecisionChoiceText(layout->start.order_decision_choice)
-              << "/" << OrderDecisionChoiceReasonText(layout->start.order_decision_choice_reason)
-              << " orderDecisionB=" << OrderDecisionChoiceText(layout->end.order_decision_choice)
-              << "/" << OrderDecisionChoiceReasonText(layout->end.order_decision_choice_reason)
-              << " class=" << ContinuityCategoryClassText(layout->continuity_class)
-              << " defaultLower=" << BoolText(layout->default_lower_required)
+              << " orderPolicy=" << OrderDecisionPolicyText(support_layout_order_decision_policy(*layout))
+              << " orderDecisionA=" << OrderDecisionChoiceText(layout->start.decision.order_decision_choice)
+              << "/" << OrderDecisionChoiceReasonText(layout->start.decision.order_decision_choice_reason)
+              << " orderDecisionB=" << OrderDecisionChoiceText(layout->end.decision.order_decision_choice)
+              << "/" << OrderDecisionChoiceReasonText(layout->end.decision.order_decision_choice_reason)
+              << " class=" << ContinuityCategoryClassText(support_layout_continuity_class(*layout))
+              << " defaultLower=" << BoolText(support_layout_default_lower_required(*layout))
               << " down=" << std::max(layout->start.branch_down_offset_m, layout->end.branch_down_offset_m)
-              << " sameLevel=" << BoolText(layout->same_level_feasible)
-              << " reason=" << SameLevelReasonText(layout->same_level_reason)
-              << " unresolved=" << BoolText(layout->unresolved_same_level_conflict)
-              << " solver=" << BoolText(layout->solver_used_same_level_constraint)
-              << " special=" << BoolText(layout->used_special_case_ports);
-      if (layout->projected_spacing_topview_m >= 0.0) {
-        summary << " projected=" << layout->projected_spacing_topview_m
-                << " required=" << layout->required_clearance_m;
+              << " sameLevel=" << BoolText(support_layout_same_level_feasible(*layout))
+              << " reason=" << SameLevelReasonText(support_layout_same_level_reason(*layout))
+              << " unresolved=" << BoolText(support_layout_unresolved_same_level_conflict(*layout))
+              << " solver=" << BoolText(support_layout_solver_used_same_level_constraint(*layout))
+              << " special=" << BoolText(support_layout_used_special_case_ports(*layout));
+      if (support_layout_projected_spacing_topview_m(*layout) >= 0.0) {
+        summary << " projected=" << support_layout_projected_spacing_topview_m(*layout)
+                << " required=" << support_layout_required_clearance_m(*layout);
       }
       trace.push_back({DecisionTraceTopic::kSupportLayoutSelection, FlowKindText(layout->flow_kind), summary.str()});
       std::ostringstream endpoint_summary;
       endpoint_summary << "start=" << SupportLayoutEndpointSourceText(layout->start.endpoint_source)
                        << " request=" << EndpointAttachmentRequestKindText(layout->start.attachment_request.kind)
-                       << " orderDecision=" << OrderDecisionChoiceText(layout->start.order_decision_choice)
-                       << "/" << OrderDecisionChoiceReasonText(layout->start.order_decision_choice_reason)
+                       << " orderDecision=" << OrderDecisionChoiceText(layout->start.decision.order_decision_choice)
+                       << "/" << OrderDecisionChoiceReasonText(layout->start.decision.order_decision_choice_reason)
                        << " chosenSide=" << LateralSideChoiceText(layout->start.decision.chosen_side)
-                       << " sideRule=" << SideAssignmentRuleText(layout->start.side_assignment_rule)
-                       << " orientRule=" << SupportOrientationRuleText(layout->start.support_orientation_rule)
+                       << " sideRule=" << SideAssignmentRuleText(layout->start.decision.side_assignment_rule)
+                       << " orientRule=" << SupportOrientationRuleText(layout->start.decision.support_orientation_rule)
                        << " orientBasis="
                        << SupportOrientationBasisText(layout->start.decision.support_orientation_basis)
-                       << " pairSide=" << BoolText(layout->start.used_junction_pair_side_assignment)
-                       << " sideSign=" << layout->start.chosen_side_sign
+                       << " pairSide=" << BoolText(layout->start.decision.used_junction_pair_side_assignment)
+                       << " sideSign=" << layout->start.decision.chosen_side_sign
                        << " downstreamOverride=" << BoolText(layout->start.decision.downstream_overridden)
                        << " socket="
                        << (layout->start.resolved_socket_id.has_value() ? std::to_string(*layout->start.resolved_socket_id)
                                                                         : "none")
                        << " end=" << SupportLayoutEndpointSourceText(layout->end.endpoint_source)
                        << " request=" << EndpointAttachmentRequestKindText(layout->end.attachment_request.kind)
-                       << " orderDecision=" << OrderDecisionChoiceText(layout->end.order_decision_choice)
-                       << "/" << OrderDecisionChoiceReasonText(layout->end.order_decision_choice_reason)
+                       << " orderDecision=" << OrderDecisionChoiceText(layout->end.decision.order_decision_choice)
+                       << "/" << OrderDecisionChoiceReasonText(layout->end.decision.order_decision_choice_reason)
                        << " chosenSide=" << LateralSideChoiceText(layout->end.decision.chosen_side)
-                       << " sideRule=" << SideAssignmentRuleText(layout->end.side_assignment_rule)
-                       << " orientRule=" << SupportOrientationRuleText(layout->end.support_orientation_rule)
+                       << " sideRule=" << SideAssignmentRuleText(layout->end.decision.side_assignment_rule)
+                       << " orientRule=" << SupportOrientationRuleText(layout->end.decision.support_orientation_rule)
                        << " orientBasis="
                        << SupportOrientationBasisText(layout->end.decision.support_orientation_basis)
-                       << " pairSide=" << BoolText(layout->end.used_junction_pair_side_assignment)
-                       << " sideSign=" << layout->end.chosen_side_sign
+                       << " pairSide=" << BoolText(layout->end.decision.used_junction_pair_side_assignment)
+                       << " sideSign=" << layout->end.decision.chosen_side_sign
                        << " downstreamOverride=" << BoolText(layout->end.decision.downstream_overridden)
                        << " socket="
                        << (layout->end.resolved_socket_id.has_value() ? std::to_string(*layout->end.resolved_socket_id)

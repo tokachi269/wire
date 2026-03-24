@@ -191,7 +191,10 @@ private:
                                                 std::string* error_message) const;
   [[nodiscard]] static AABBd build_aabb_from_points(const std::vector<Vec3d>& points);
   [[nodiscard]] static AABBd build_aabb_from_two_points(const Vec3d& a, const Vec3d& b);
+  [[nodiscard]] const SpanSupportLayoutDecisionSeed* find_span_support_layout_seed(ObjectId span_id) const;
   void cache_span_support_layout(SpanSupportLayoutEntry layout);
+  void cache_span_support_layout_seed(SpanSupportLayoutDecisionSeed seed);
+  void erase_cached_span_support_layout_seed(ObjectId span_id);
   void erase_cached_span_support_layout(ObjectId span_id);
   void remove_span_from_caches(ObjectId span_id);
   void rebuild_lowered_support_groups_for_span(ObjectId span_id);

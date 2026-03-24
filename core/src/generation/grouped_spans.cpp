@@ -682,14 +682,65 @@ CoreState::generate_grouped_spans_between_support_nodes(
     }
     return pair_reference;
   };
+  auto route_local_pair_companion_for_endpoint = [&](ObjectId node_id, ObjectId peer_id,
+                                                     const LoweredSupportPairInfo& pair_info) {
+    if (!pair_info.has_pair || pair_info.companion_peer_id == kInvalidObjectId ||
+        peer_id == pair_info.pair_peer_low || peer_id == pair_info.pair_peer_high ||
+        junction_relations_by_node == nullptr) {
+      return pair_info.companion_peer_id;
+    }
+    const auto relation_it = junction_relations_by_node->find(node_id);
+    if (relation_it == junction_relations_by_node->end()) {
+      return pair_info.companion_peer_id;
+    }
+    ObjectId in_route_pair_peer = kInvalidObjectId;
+    for (const JunctionIncidentRelation& incident : relation_it->second.incidents) {
+      if (!incident.in_route) {
+        continue;
+      }
+      const ObjectId candidate_id = incident.neighbor_node_id;
+      if (candidate_id != pair_info.pair_peer_low && candidate_id != pair_info.pair_peer_high) {
+        continue;
+      }
+      if (in_route_pair_peer != kInvalidObjectId && in_route_pair_peer != candidate_id) {
+        return pair_info.companion_peer_id;
+      }
+      in_route_pair_peer = candidate_id;
+    }
+    if (in_route_pair_peer != kInvalidObjectId) {
+      return in_route_pair_peer;
+    }
+
+    const Vec3d pair_reference = pair_reference_axis_for_endpoint(node_id, peer_id, pair_info);
+    ObjectId forward_pair_peer = kInvalidObjectId;
+    double best_alignment = -std::numeric_limits<double>::infinity();
+    for (ObjectId candidate_id : {pair_info.pair_peer_low, pair_info.pair_peer_high}) {
+      if (candidate_id == kInvalidObjectId || candidate_id == peer_id) {
+        continue;
+      }
+      Vec3d candidate_dir = support_position(candidate_id) - support_position(node_id);
+      candidate_dir.z = 0.0;
+      if (!normalize_xy(&candidate_dir)) {
+        continue;
+      }
+      const double alignment = dot_xy(candidate_dir, pair_reference);
+      if (alignment > best_alignment + 1e-9 ||
+          (std::abs(alignment - best_alignment) <= 1e-9 && candidate_id == pair_info.companion_peer_id)) {
+        best_alignment = alignment;
+        forward_pair_peer = candidate_id;
+      }
+    }
+    return (forward_pair_peer == kInvalidObjectId) ? pair_info.companion_peer_id : forward_pair_peer;
+  };
   auto pair_bisector_axis_for_endpoint = [&](ObjectId node_id, ObjectId peer_id,
                                              const LoweredSupportPairInfo& pair_info) -> std::optional<Vec3d> {
-    if (!pair_info.has_pair || pair_info.companion_peer_id == kInvalidObjectId) {
+    const ObjectId companion_id = route_local_pair_companion_for_endpoint(node_id, peer_id, pair_info);
+    if (!pair_info.has_pair || companion_id == kInvalidObjectId) {
       return std::nullopt;
     }
     Vec3d peer_dir = support_position(peer_id) - support_position(node_id);
     peer_dir.z = 0.0;
-    Vec3d companion_dir = support_position(pair_info.companion_peer_id) - support_position(node_id);
+    Vec3d companion_dir = support_position(companion_id) - support_position(node_id);
     companion_dir.z = 0.0;
     if (!normalize_xy(&peer_dir) || !normalize_xy(&companion_dir)) {
       return std::nullopt;
@@ -742,8 +793,17 @@ CoreState::generate_grouped_spans_between_support_nodes(
         companion_id = (peer_id == relation.through_pair.neighbor_a_id) ? relation.through_pair.neighbor_b_id
                                                                          : relation.through_pair.neighbor_a_id;
       } else {
+        Vec3d pair_reference =
+            support_position(relation.through_pair.neighbor_b_id) - support_position(relation.through_pair.neighbor_a_id);
+        pair_reference.z = 0.0;
+        const bool has_pair_reference = normalize_xy(&pair_reference);
         for (ObjectId candidate_id : {relation.through_pair.neighbor_a_id, relation.through_pair.neighbor_b_id}) {
-          const double score = score_neighbor(candidate_id);
+          Vec3d candidate_dir = support_position(candidate_id) - support_position(node_id);
+          candidate_dir.z = 0.0;
+          if (!normalize_xy(&candidate_dir)) {
+            continue;
+          }
+          const double score = has_pair_reference ? dot_xy(candidate_dir, pair_reference) : score_neighbor(candidate_id);
           if (score > companion_score) {
             companion_score = score;
             companion_id = candidate_id;
@@ -787,8 +847,8 @@ CoreState::generate_grouped_spans_between_support_nodes(
     if (!normalize_xy(&bisector)) {
       return std::nullopt;
     }
-    if (const Vec3d canonical = canonical_side_axis_for_order(node_id, peer_id);
-        dot_xy(bisector, canonical) < 0.0) {
+    const Vec3d peer_lateral = ComputeLateralAxis(peer_dir);
+    if (dot_xy(bisector, peer_lateral) < 0.0) {
       bisector = ScaleVec(bisector, -1.0);
     }
     return bisector;
@@ -941,6 +1001,8 @@ CoreState::generate_grouped_spans_between_support_nodes(
   std::unordered_map<LoweredSupportGroupKey, LoweredSupportPairInfo, LoweredSupportGroupKeyHash> authoritative_group_pairs{};
   std::unordered_map<LoweredSupportGroupKey, EndpointSideDecision, LoweredSupportGroupKeyHash>
       authoritative_group_side_decisions{};
+  std::unordered_map<LoweredSupportGroupKey, bool, LoweredSupportGroupKeyHash>
+      authoritative_group_prefers_branch_leg{};
   auto orientation_rule_priority = [](SupportOrientationRuleKind rule) {
     switch (rule) {
     case SupportOrientationRuleKind::kThroughPairNormal:
@@ -1018,38 +1080,46 @@ CoreState::generate_grouped_spans_between_support_nodes(
       coerce_non_group_side_rules(&decision);
     }
     const Vec3d local_axis = resolve_group_side_axis(node_id, peer_id, decision);
-    decision.side_axis = CanonicalSharedSupportAxis(local_axis, canonical_side_axis_for_order(node_id, peer_id));
+    const Vec3d peer_lateral = chord_side_axis_for_endpoint(node_id, peer_id);
+    decision.side_axis = CanonicalSharedSupportAxis(local_axis, peer_lateral);
     decision.has_side_axis = std::isfinite(local_axis.x) && std::isfinite(local_axis.y);
     decision.chosen_side_sign = resolve_group_side_sign_from_axis(local_axis, decision.side_axis);
     return decision;
   };
-  auto canonical_group_pair_decision = [&](const LoweredSupportGroupKey& key, ObjectId peer_id,
+  auto canonical_group_pair_decision = [&](const LoweredSupportGroupKey& key, ObjectId node_id, ObjectId peer_id,
                                            const std::optional<LoweredSupportPairInfo>& raw_pair_info) {
-    if (!raw_pair_info.has_value() || !raw_pair_info->has_pair) {
-      const auto existing = authoritative_group_pairs.find(key);
-      if (existing == authoritative_group_pairs.end()) {
-        return std::optional<LoweredSupportPairInfo>{};
+    auto resolve_companion = [&](const LoweredSupportPairInfo& info) {
+      if (!info.has_pair) {
+        return info.companion_peer_id;
       }
-      return std::optional<LoweredSupportPairInfo>{existing->second};
+      if (peer_id == info.pair_peer_low) {
+        return info.pair_peer_high;
+      }
+      if (peer_id == info.pair_peer_high) {
+        return info.pair_peer_low;
+      }
+      return route_local_pair_companion_for_endpoint(node_id, peer_id, info);
+    };
+
+    if (raw_pair_info.has_value() && raw_pair_info->has_pair) {
+      LoweredSupportPairInfo pair_info = *raw_pair_info;
+      pair_info.companion_peer_id = resolve_companion(pair_info);
+      auto [it, inserted] = authoritative_group_pairs.emplace(key, pair_info);
+      if (inserted || !it->second.has_pair) {
+        it->second = pair_info;
+        return std::optional<LoweredSupportPairInfo>{pair_info};
+      }
+      LoweredSupportPairInfo canonical = it->second;
+      canonical.companion_peer_id = resolve_companion(canonical);
+      return std::optional<LoweredSupportPairInfo>{canonical};
     }
-    LoweredSupportPairInfo pair_info = *raw_pair_info;
-    if (peer_id == pair_info.pair_peer_low) {
-      pair_info.companion_peer_id = pair_info.pair_peer_high;
-    } else if (peer_id == pair_info.pair_peer_high) {
-      pair_info.companion_peer_id = pair_info.pair_peer_low;
-    } else {
-      pair_info.has_pair = false;
-      pair_info.companion_peer_id = kInvalidObjectId;
+
+    const auto existing = authoritative_group_pairs.find(key);
+    if (existing == authoritative_group_pairs.end() || !existing->second.has_pair) {
       return std::optional<LoweredSupportPairInfo>{};
     }
-    auto [it, inserted] = authoritative_group_pairs.emplace(key, pair_info);
-    if (inserted || !it->second.has_pair) {
-      it->second = pair_info;
-      return std::optional<LoweredSupportPairInfo>{pair_info};
-    }
-    LoweredSupportPairInfo canonical = it->second;
-    canonical.companion_peer_id =
-        (peer_id == canonical.pair_peer_low) ? canonical.pair_peer_high : canonical.pair_peer_low;
+    LoweredSupportPairInfo canonical = existing->second;
+    canonical.companion_peer_id = resolve_companion(canonical);
     return std::optional<LoweredSupportPairInfo>{canonical};
   };
   auto better_group_side_decision = [&](const EndpointSideDecision& candidate, const EndpointSideDecision& existing) {
@@ -1068,16 +1138,35 @@ CoreState::generate_grouped_spans_between_support_nodes(
     }
     return false;
   };
+  auto grouped_support_candidate_uses_branch_leg = [&](ObjectId peer_id,
+                                                        const std::optional<LoweredSupportPairInfo>& pair_info,
+                                                        const EndpointSideDecision& decision) {
+    if (!pair_info.has_value() || !pair_info->has_pair ||
+        decision.support_orientation_rule != SupportOrientationRuleKind::kBisector) {
+      return false;
+    }
+    return peer_id != pair_info->pair_peer_low && peer_id != pair_info->pair_peer_high;
+  };
   auto canonical_group_side_decision = [&](const LoweredSupportGroupKey& key, ObjectId node_id, ObjectId peer_id,
                                            const std::optional<LoweredSupportPairInfo>& raw_pair_info,
                                            const EndpointSideDecision& raw_decision) {
     const std::optional<LoweredSupportPairInfo> authoritative_pair =
-        canonical_group_pair_decision(key, peer_id, raw_pair_info);
+        canonical_group_pair_decision(key, node_id, peer_id, raw_pair_info);
     EndpointSideDecision candidate = normalize_group_side_decision(node_id, peer_id, raw_decision, authoritative_pair);
+    const bool candidate_uses_branch_leg =
+        grouped_support_candidate_uses_branch_leg(peer_id, authoritative_pair, candidate);
     auto [it, inserted] = authoritative_group_side_decisions.emplace(key, candidate);
+    auto [branch_leg_it, branch_leg_inserted] =
+        authoritative_group_prefers_branch_leg.emplace(key, candidate_uses_branch_leg);
     if (!inserted) {
       EndpointSideDecision existing = it->second;
-      if (better_group_side_decision(candidate, existing)) {
+      const bool existing_uses_branch_leg = branch_leg_it->second;
+      if (candidate_uses_branch_leg != existing_uses_branch_leg) {
+        if (candidate_uses_branch_leg) {
+          existing = candidate;
+          branch_leg_it->second = true;
+        }
+      } else if (better_group_side_decision(candidate, existing)) {
         existing = candidate;
       } else {
         if (!existing.has_side_axis && candidate.has_side_axis) {
@@ -1086,6 +1175,8 @@ CoreState::generate_grouped_spans_between_support_nodes(
         }
       }
       it->second = normalize_group_side_decision(node_id, peer_id, existing, authoritative_pair);
+    } else if (!branch_leg_inserted) {
+      branch_leg_it->second = candidate_uses_branch_leg;
     }
     return it->second;
   };
@@ -1172,7 +1263,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
     const EndpointSideDecision canonical_side =
         canonical_group_side_decision(key, node_id, peer_id, pair_info, side_decision);
     EndpointContinuityDecision canonical = decision;
-    if (const auto canonical_pair = canonical_group_pair_decision(key, peer_id, pair_info);
+    if (const auto canonical_pair = canonical_group_pair_decision(key, node_id, peer_id, pair_info);
         canonical_pair.has_value() && canonical_pair->has_pair) {
       canonical.support_pair_peer_low = canonical_pair->pair_peer_low;
       canonical.support_pair_peer_high = canonical_pair->pair_peer_high;

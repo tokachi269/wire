@@ -409,8 +409,8 @@ bool test_validate_rejects_non_radial_support_without_authoritative_axis() {
     return false;
   }
   it->second.start.decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kChordForward;
-  it->second.start.has_side_axis = false;
-  it->second.start.side_axis = {};
+  it->second.start.decision.has_side_axis = false;
+  it->second.start.decision.side_axis = {};
 
   const auto validation = helpers::validate_now(state);
   return has_validation_issue(validation, wire::core::ValidationSeverity::kError, "SupportLayoutStartAxisMissing");
@@ -440,8 +440,8 @@ bool test_validate_rejects_grouped_lowered_support_with_radial_basis() {
   it->second.start.decision.default_lower_required = true;
   it->second.start.decision.same_level_feasible = false;
   it->second.start.decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kRadial;
-  it->second.start.has_side_axis = true;
-  it->second.start.side_axis = {1.0, 0.0, 0.0};
+  it->second.start.decision.has_side_axis = true;
+  it->second.start.decision.side_axis = {1.0, 0.0, 0.0};
 
   const auto validation = helpers::validate_now(state);
   return has_validation_issue(validation, wire::core::ValidationSeverity::kError, "LoweredBundleLikeRadialBasis");
@@ -478,7 +478,6 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
   auto make_grouped = [&](wire::core::LoweredSupportGroupPlacement* group, const wire::core::Vec3d& axis,
                           double down_offset_m, const wire::core::Vec3d& mount_world,
                           const wire::core::Vec3d& tip_world) {
-    group->owner_pole_id = pole_a;
     group->decision.owner_pole_id = pole_a;
     group->decision.relation_kind = wire::core::JunctionRelationKind::kSideBranch;
     group->decision.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
@@ -487,8 +486,6 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
     group->decision.same_level_feasible = false;
     group->decision.support_pair_peer_low = pair_peer_low;
     group->decision.support_pair_peer_high = pair_peer_high;
-    group->pair_peer_low = pair_peer_low;
-    group->pair_peer_high = pair_peer_high;
     group->decision.chosen_side = wire::core::LateralSideChoiceKind::kRight;
     group->decision.chosen_side_sign = 1.0;
     group->decision.side_assignment_rule = wire::core::SideAssignmentRuleKind::kBisector;
@@ -498,13 +495,7 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
     group->decision.has_side_axis = true;
     group->decision.side_axis = axis;
     group->grouping_rule = wire::core::SupportGroupingRuleKind::kDecisionGroup;
-    group->support_group_id = 1234;
     group->grouped_port_count = 2;
-    group->side_assignment_rule = wire::core::SideAssignmentRuleKind::kBisector;
-    group->support_orientation_rule = wire::core::SupportOrientationRuleKind::kBisector;
-    group->has_side_axis = true;
-    group->side_axis = axis;
-    group->chosen_side_sign = 1.0;
     group->down_offset_m = down_offset_m;
     group->mount_world = mount_world;
     group->tip_world = tip_world;
@@ -519,22 +510,9 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
   grouped_store.clear();
   make_grouped(&grouped_store[{pole_a, 1234}], {1.0, 0.0, 0.0}, 1.0, {0.2, 0.0, 7.0}, {0.6, 0.0, 7.0});
   auto& decision = decision_store[{pole_a, 1234}];
-  decision.owner_pole_id = pole_a;
-  decision.support_group_id = 1234;
   decision.decision = grouped_store[{pole_a, 1234}].decision;
-  decision.pair_peer_low = grouped_store[{pole_a, 1234}].pair_peer_low;
-  decision.pair_peer_high = grouped_store[{pole_a, 1234}].pair_peer_high;
   decision.side = grouped_store[{pole_a, 1234}].side;
   decision.origin = grouped_store[{pole_a, 1234}].origin;
-  decision.order_decision_policy = grouped_store[{pole_a, 1234}].order_decision_policy;
-  decision.order_decision_choice = grouped_store[{pole_a, 1234}].order_decision_choice;
-  decision.order_decision_choice_reason = grouped_store[{pole_a, 1234}].order_decision_choice_reason;
-  decision.side_assignment_rule = grouped_store[{pole_a, 1234}].side_assignment_rule;
-  decision.support_orientation_rule = grouped_store[{pole_a, 1234}].support_orientation_rule;
-  decision.used_junction_pair_side_assignment = grouped_store[{pole_a, 1234}].used_junction_pair_side_assignment;
-  decision.has_side_axis = grouped_store[{pole_a, 1234}].has_side_axis;
-  decision.side_axis = grouped_store[{pole_a, 1234}].side_axis;
-  decision.chosen_side_sign = grouped_store[{pole_a, 1234}].chosen_side_sign;
   decision.down_offset_m = grouped_store[{pole_a, 1234}].down_offset_m;
   decision.support_world = grouped_store[{pole_a, 1234}].tip_world;
   decision.grouped_port_count = grouped_store[{pole_a, 1234}].grouped_port_count;
@@ -551,17 +529,6 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
     endpoint->decision = grouped_store[{pole_a, 1234}].decision;
     endpoint->decision.owner_pole_id = owner_pole_id;
     endpoint->decision.support_group_id = 1234;
-    endpoint->relation_kind = endpoint->decision.relation_kind;
-    endpoint->continuity_class = endpoint->decision.continuity_class;
-    endpoint->default_lower_required = endpoint->decision.default_lower_required;
-    endpoint->same_level_feasible = endpoint->decision.same_level_feasible;
-    endpoint->lowering_blocked_by_policy = endpoint->decision.lowering_blocked_by_policy;
-    endpoint->side_assignment_rule = endpoint->decision.side_assignment_rule;
-    endpoint->support_orientation_rule = endpoint->decision.support_orientation_rule;
-    endpoint->used_junction_pair_side_assignment = endpoint->decision.used_junction_pair_side_assignment;
-    endpoint->has_side_axis = endpoint->decision.has_side_axis;
-    endpoint->side_axis = endpoint->decision.side_axis;
-    endpoint->chosen_side_sign = endpoint->decision.chosen_side_sign;
     endpoint->branch_down_offset_m = grouped_store[{pole_a, 1234}].down_offset_m;
     endpoint->support_world = grouped_store[{pole_a, 1234}].tip_world;
   };
@@ -596,23 +563,20 @@ bool test_inspection_uses_authoritative_lowered_support_groups() {
   it->second.start.decision.continuity_class = wire::core::ContinuityCategoryClass::kPointLike;
   it->second.start.decision.default_lower_required = false;
   it->second.start.decision.same_level_feasible = true;
-  it->second.start.has_side_axis = false;
-  it->second.start.side_axis = {};
+  it->second.start.decision.has_side_axis = false;
+  it->second.start.decision.side_axis = {};
   it->second.start.decision.support_group_id = 777;
   it->second.start.decision.lower_required = true;
   it->second.lowered_support_group_keys = {{pole_a, 777}};
   auto& group = CoreStateTestHook::cache_state(state).support_layout_cache.lowered_support_groups[{pole_a, 777}];
-  group.owner_pole_id = pole_a;
   group.decision.owner_pole_id = pole_a;
   group.decision.relation_kind = wire::core::JunctionRelationKind::kSideBranch;
   group.decision.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
   group.decision.lower_required = true;
   group.decision.default_lower_required = true;
   group.decision.same_level_feasible = false;
-  group.pair_peer_low = pole_a;
-  group.pair_peer_high = pole_b;
-  group.decision.support_pair_peer_low = group.pair_peer_low;
-  group.decision.support_pair_peer_high = group.pair_peer_high;
+  group.decision.support_pair_peer_low = pole_a;
+  group.decision.support_pair_peer_high = pole_b;
   group.decision.chosen_side = wire::core::LateralSideChoiceKind::kLeft;
   group.decision.chosen_side_sign = -1.0;
   group.decision.support_orientation_rule = wire::core::SupportOrientationRuleKind::kChord;
@@ -621,11 +585,7 @@ bool test_inspection_uses_authoritative_lowered_support_groups() {
   group.decision.has_side_axis = true;
   group.decision.side_axis = {0.0, 1.0, 0.0};
   group.grouping_rule = wire::core::SupportGroupingRuleKind::kDecisionGroup;
-  group.support_group_id = 777;
   group.grouped_port_count = 1;
-  group.has_side_axis = true;
-  group.side_axis = {0.0, 1.0, 0.0};
-  group.chosen_side_sign = -1.0;
   group.down_offset_m = 1.25;
   group.mount_world = {0.0, 0.2, 4.0};
   group.tip_world = {0.0, 0.8, 4.0};

@@ -78,44 +78,22 @@ SupportLayoutOriginKind support_layout_origin_from_port_source(PortPlacementSour
   }
 }
 
-SupportLayoutEndpoint make_support_layout_seed_endpoint(const Span& span, const Port& port,
-                                                        const SegmentLaneAssignment& assignment,
-                                                        const EndpointContinuityDecision& decision,
-                                                        bool is_start_endpoint) {
-  SupportLayoutEndpoint endpoint{};
+SupportLayoutDecisionSeedEndpoint make_support_layout_seed_endpoint(const Span& span, const Port& port,
+                                                                    const SegmentLaneAssignment& assignment,
+                                                                    const EndpointContinuityDecision& decision,
+                                                                    bool is_start_endpoint) {
+  SupportLayoutDecisionSeedEndpoint endpoint{};
   endpoint.endpoint_node_id = is_start_endpoint ? span.endpoint_node_a_id : span.endpoint_node_b_id;
   endpoint.owner_pole_id = port.owner_pole_id;
   endpoint.port_id = port.id;
   endpoint.decision = decision;
   endpoint.decision.owner_pole_id = endpoint.owner_pole_id;
   endpoint.flow_kind = assignment.flow_kind;
-  endpoint.relation_kind = decision.relation_kind;
-  endpoint.continuity_class = decision.continuity_class;
-  endpoint.default_lower_required = decision.default_lower_required;
   endpoint.origin = support_layout_origin_from_port_source(port.placement_source);
   endpoint.endpoint_source = SupportLayoutEndpointSourceKind::kFallback;
   endpoint.port_source = port.placement_source;
-  endpoint.order_decision_policy = decision.order_decision_policy;
-  endpoint.order_decision_choice = decision.order_decision_choice;
-  endpoint.order_decision_choice_reason = decision.order_decision_choice_reason;
   endpoint.side = port.template_side;
-  endpoint.side_assignment_rule = decision.side_assignment_rule;
-  endpoint.support_orientation_rule = decision.support_orientation_rule;
-  endpoint.used_junction_pair_side_assignment = decision.used_junction_pair_side_assignment;
-  endpoint.has_side_axis = decision.has_side_axis;
-  endpoint.side_axis = decision.side_axis;
-  endpoint.chosen_side_sign = decision.chosen_side_sign;
   endpoint.endpoint_mode = CurveEndpointMode::kDirectThrough;
-  endpoint.support_world = port.world_position;
-  endpoint.endpoint_world = port.world_position;
-  endpoint.same_level_feasible = decision.same_level_feasible;
-  endpoint.same_level_reason = decision.same_level_reason;
-  endpoint.projected_spacing_topview_m = decision.projected_spacing_topview_m;
-  endpoint.required_clearance_m = decision.required_clearance_m;
-  endpoint.lowering_blocked_by_policy = decision.lowering_blocked_by_policy;
-  endpoint.unresolved_same_level_conflict = decision.unresolved_same_level_conflict;
-  endpoint.solver_used_same_level_constraint = decision.solver_used_same_level_constraint;
-  endpoint.used_special_case_ports = decision.used_special_case_ports;
   const bool uses_lowering = decision.lower_required && !decision.lowering_blocked_by_policy;
   endpoint.automatic_branch_down_offset_m = uses_lowering ? assignment.branch_down_offset_m : 0.0;
   endpoint.branch_down_offset_m = uses_lowering ? assignment.branch_down_offset_m : 0.0;
@@ -251,11 +229,11 @@ BackboneDecisionPhaseOutput run_backbone_decision_phase(const BackboneDecisionPh
   return phase;
 }
 
-std::vector<SpanSupportLayoutEntry>
+std::vector<SpanSupportLayoutDecisionSeed>
 build_seed_generated_support_layouts(const EditState& edit_state, const std::vector<ObjectId>& span_ids,
                                      const std::vector<SegmentLaneAssignment>& lane_assignments,
                                      std::uint64_t variation_flow_key) {
-  std::vector<SpanSupportLayoutEntry> layouts{};
+  std::vector<SpanSupportLayoutDecisionSeed> layouts{};
   layouts.reserve(span_ids.size());
   std::size_t span_index = 0;
   for (const SegmentLaneAssignment& assignment : lane_assignments) {
@@ -268,7 +246,7 @@ build_seed_generated_support_layouts(const EditState& edit_state, const std::vec
       if (span == nullptr || port_a == nullptr || port_b == nullptr) {
         continue;
       }
-      SpanSupportLayoutEntry layout{};
+      SpanSupportLayoutDecisionSeed layout{};
       layout.span_id = span_id;
       layout.flow_kind = assignment.flow_kind;
       layout.pass_mode = (span->placement_context == ConnectionContext::kBranchAdd)
@@ -277,19 +255,6 @@ build_seed_generated_support_layouts(const EditState& edit_state, const std::vec
                                     ? CurvePassMode::kPassThrough
                                     : CurvePassMode::kPassThrough);
       layout.variation_flow_key = variation_flow_key;
-      layout.order_decision_policy = assignment.order_decision_policy;
-      layout.relation_a = assignment.relation_a;
-      layout.relation_b = assignment.relation_b;
-      layout.continuity_class = assignment.continuity_class;
-      layout.default_lower_required = assignment.default_lower_required;
-      layout.same_level_feasible = assignment.same_level_feasible;
-      layout.same_level_reason = assignment.same_level_reason;
-      layout.projected_spacing_topview_m = assignment.projected_spacing_topview_m;
-      layout.required_clearance_m = assignment.required_clearance_m;
-      layout.lowering_blocked_by_policy = assignment.lowering_blocked_by_policy;
-      layout.unresolved_same_level_conflict = assignment.unresolved_same_level_conflict;
-      layout.solver_used_same_level_constraint = assignment.solver_used_same_level_constraint;
-      layout.used_special_case_ports = assignment.used_special_case_ports;
       layout.lowering_kind = assignment.lowering_kind;
       layout.start = make_support_layout_seed_endpoint(*span, *port_a, assignment, assignment.decision_a, true);
       layout.end = make_support_layout_seed_endpoint(*span, *port_b, assignment, assignment.decision_b, false);
@@ -2139,14 +2104,19 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
         }
         const bool is_non_through_relation =
             incident.kind != JunctionRelationKind::kThroughMain && incident.kind != JunctionRelationKind::kNone;
-        if (!incident.in_route && !(bundle_like && is_non_through_relation)) {
+        const bool allow_non_route_bundle_lower =
+            bundle_like &&
+            (incident.kind == JunctionRelationKind::kCornerContinuation ||
+             incident.kind == JunctionRelationKind::kCrossUnderpass);
+        if (!incident.in_route && !allow_non_route_bundle_lower) {
           continue;
         }
         JunctionIncidentRelation* mutable_incident = find_incident_relation_ptr(relation, incident.neighbor_node_id);
         if (mutable_incident == nullptr) {
           continue;
         }
-        if (bundle_like && is_non_through_relation) {
+        if (bundle_like && is_non_through_relation &&
+            (incident.in_route || allow_non_route_bundle_lower)) {
           mutable_incident->default_lower_required = true;
           mutable_incident->same_level_feasible = false;
           mutable_incident->infeasible_reason = SameLevelFeasibilityReason::kBundleRule;
@@ -2444,11 +2414,11 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
                                                    lane_assignments.end());
         phase_result.value.edge_orientations.insert(phase_result.value.edge_orientations.end(),
                                                     edge_orientations.begin(), edge_orientations.end());
-        std::vector<SpanSupportLayoutEntry> seeded_support_layouts =
+        std::vector<SpanSupportLayoutDecisionSeed> seeded_support_layouts =
             build_seed_generated_support_layouts(edit_state_access(), spans_result.value, lane_assignments,
                                                  variation_flow_key);
-        for (SpanSupportLayoutEntry& layout : seeded_support_layouts) {
-          cache_span_support_layout(std::move(layout));
+        for (SpanSupportLayoutDecisionSeed& layout : seeded_support_layouts) {
+          cache_span_support_layout_seed(std::move(layout));
         }
 
         for (std::size_t i = 0; i < spans_result.value.size(); ++i) {
@@ -2531,4 +2501,3 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
 
 
 } // namespace wire::core
-

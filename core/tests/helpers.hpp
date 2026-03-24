@@ -6,7 +6,9 @@
 #include <string>
 #include <vector>
 
+#include "wire/core/core_state.hpp"
 #include "wire/core/core_state_api_types.hpp"
+#include "wire/core/core_test_hook.hpp"
 #include "wire/core/core_view.hpp"
 
 namespace helpers {

@@ -9,7 +9,6 @@
 #include "host_coords.hpp"
 #include "ui_common.hpp"
 #include "wire/core/coord_utils.hpp"
-#include "wire/core/core_state.hpp"
 
 namespace {
 
@@ -160,7 +159,7 @@ void DrawAxesImpl() {
   DrawLine3D(ToRaylib({0.0, 0.0, 0.0}), ToRaylib({0.0, 0.0, kAxisLength}), BLUE);
 }
 
-void DrawPickHighlightImpl(const CoreState& state, const wire::core::PickResult& pick, bool has_resolution,
+void DrawPickHighlightImpl(const wire::core::PickResult& pick, bool has_resolution,
                            const wire::core::ResolveBranchPickResult& resolution) {
   if (has_resolution) {
     const bool is_midair = (resolution.resolution == wire::core::PickBranchResolutionKind::kMidair);
@@ -240,10 +239,10 @@ static Color ColorFromRgba(std::uint32_t rgba) {
 }
 } // namespace
 
-void UpdatePreferredVisibleSpans(const CoreState& state, const Camera3D& camera, ViewerUiState& ui_state) {
+void UpdatePreferredVisibleSpans(const wire::core::CoreView& view, const Camera3D& camera, ViewerUiState& ui_state) {
   ui_state.preferred_visible_span_ids.clear();
-  for (const wire::core::Span& span : state.view().edit_state().spans.items()) {
-    const wire::core::BoundsCacheEntry* bounds = state.find_bounds_cache(span.id);
+  for (const wire::core::Span& span : view.edit_state().spans.items()) {
+    const wire::core::BoundsCacheEntry* bounds = view.find_bounds_cache(span.id);
     if (bounds == nullptr) {
       continue;
     }
@@ -257,19 +256,18 @@ void UpdatePreferredVisibleSpans(const CoreState& state, const Camera3D& camera,
 
 void DrawAxes() { DrawAxesImpl(); }
 
-void DrawPickHighlight(const CoreState& state, const wire::core::PickResult& pick, bool has_resolution,
+void DrawPickHighlight(const wire::core::PickResult& pick, bool has_resolution,
                        const wire::core::ResolveBranchPickResult& resolution) {
-  DrawPickHighlightImpl(state, pick, has_resolution, resolution);
+  DrawPickHighlightImpl(pick, has_resolution, resolution);
 }
 
 void DrawBackboneOverlay(const wire::core::BackboneResult& backbone, const ViewerUiState& ui_state) {
   DrawBackboneOverlayImpl(backbone, ui_state);
 }
 
-void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
-  const auto view = state.view();
+void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
   const auto& edit = view.edit_state();
-  const wire::core::BackboneResult backbone = state.BuildBackboneResult();
+  const wire::core::BackboneResult backbone = view.build_backbone_result();
   ObjectId selected_bundle_id = wire::core::kInvalidObjectId;
   for (const SelectionItem& item : ui_state.selection_items) {
     if (item.type == SelectedType::kSpan && item.id != wire::core::kInvalidObjectId) {
@@ -337,7 +335,7 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
     if (start_port == nullptr || end_port == nullptr) {
       continue;
     }
-    const wire::core::SpanRuntimeState* runtime_state = state.view().find_span_runtime_state(span.id);
+    const wire::core::SpanRuntimeState* runtime_state = view.find_span_runtime_state(span.id);
     Color color = DirtyColorForSpan(runtime_state);
     if (SelectionContains(ui_state, SelectedType::kSpan, span.id)) {
       color = GOLD;
@@ -346,11 +344,11 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
       color = ORANGE;
     }
 
-    const wire::core::CurveCacheEntry* curve = state.find_curve_cache(span.id);
-    const wire::core::SpanRenderCacheEntry* render = state.view().find_span_render_cache(span.id);
-    const wire::core::SpanSupportLayoutEntry* support_layout = state.find_span_support_layout(span.id);
-    const auto layout_view = state.view().inspect_support_layout(span.id);
-    const wire::core::SpanVisualCacheEntry* visual = state.view().find_span_visual_cache(span.id);
+    const wire::core::CurveCacheEntry* curve = view.find_curve_cache(span.id);
+    const wire::core::SpanRenderCacheEntry* render = view.find_span_render_cache(span.id);
+    const wire::core::SpanSupportLayoutEntry* support_layout = view.find_span_support_layout(span.id);
+    const auto layout_view = view.inspect_support_layout(span.id);
+    const wire::core::SpanVisualCacheEntry* visual = view.find_span_visual_cache(span.id);
     const wire::core::BackboneFlowKind flow_kind =
         (support_layout == nullptr) ? wire::core::BackboneFlowKind::kMain : support_layout->flow_kind;
     const bool uses_branch_support =
@@ -381,7 +379,7 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
                      8, wire_color);
     }
 
-    const wire::core::BoundsCacheEntry* bounds = state.find_bounds_cache(span.id);
+    const wire::core::BoundsCacheEntry* bounds = view.find_bounds_cache(span.id);
     if (bounds != nullptr) {
       if (ui_state.show_whole_aabb) {
         DrawBoundingBox(ToRaylibBounds(bounds->whole), DARKGREEN);
@@ -442,7 +440,7 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
     if (span == nullptr) {
       continue;
     }
-    const wire::core::CurveCacheEntry* curve = state.find_curve_cache(span->id);
+    const wire::core::CurveCacheEntry* curve = view.find_curve_cache(span->id);
     if (curve == nullptr) {
       continue;
     }
@@ -457,7 +455,6 @@ void DrawCore(const CoreState& state, const ViewerUiState& ui_state) {
   }
 
   if (ui_state.mode == EditMode::kDrawPath && ui_state.draw_pick_enabled) {
-    DrawPickHighlightImpl(state, ui_state.draw_hover_pick, ui_state.draw_hover_has_resolution,
-                          ui_state.draw_hover_resolution);
+    DrawPickHighlightImpl(ui_state.draw_hover_pick, ui_state.draw_hover_has_resolution, ui_state.draw_hover_resolution);
   }
 }

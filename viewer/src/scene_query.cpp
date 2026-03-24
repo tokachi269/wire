@@ -2,7 +2,6 @@
 #include "backbone_plane.hpp"
 #include "host_coords.hpp"
 #include "wire/core/coord_utils.hpp"
-#include "wire/core/core_state.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -95,7 +94,7 @@ bool TryPickGroundPoint(const Camera3D& camera, double ue_plane_z, wire::core::V
   return true;
 }
 
-wire::core::PickResult ViewerSceneQuery::Raycast(const wire::core::CoreState& state, const Camera3D& camera,
+wire::core::PickResult ViewerSceneQuery::Raycast(const wire::core::CoreView& view, const Camera3D& camera,
                                                  double draw_plane_z) const {
   wire::core::PickResult pick{};
 
@@ -125,7 +124,7 @@ wire::core::PickResult ViewerSceneQuery::Raycast(const wire::core::CoreState& st
   };
   NodeCandidate best_node{};
 
-  const wire::core::BackboneResult backbone = state.BuildBackboneResult();
+  const wire::core::BackboneResult backbone = view.build_backbone_result();
   std::unordered_map<wire::core::ObjectId, wire::core::Vec3d> backbone_node_positions{};
   backbone_node_positions.reserve(backbone.nodes.size());
   for (const wire::core::SupportNode& node : backbone.nodes) {

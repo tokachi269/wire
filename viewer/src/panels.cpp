@@ -2054,7 +2054,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
     ImGui::Text("Preferred Visible Spans: %d", ui_state.preferred_visible_span_count);
 
     ImGui::Separator();
-    const auto bundle_ids = SortedBundleTemplateKinds(state);
+    const auto bundle_ids = SortedBundleTemplateKinds(state.view());
     if (const auto it = state.view().bundle_templates().find(ui_state.selected_bundle_template_id);
         it != state.view().bundle_templates().end()) {
       if (ImGui::BeginCombo("Bundle Template", it->second.name.c_str())) {

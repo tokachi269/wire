@@ -747,12 +747,12 @@ int main() {
       options.run_validate = false;
       (void)state.Commit(options);
     }
-    UpdatePreferredVisibleSpans(state, camera, ui_state);
+    UpdatePreferredVisibleSpans(state.view(), camera, ui_state);
 
     BeginMode3D(camera);
     DrawGroundGrid();
     DrawAxes();
-    DrawCore(state, ui_state);
+    DrawCore(state.view(), ui_state);
     DrawPathPreview(ui_state);
     EndMode3D();
 

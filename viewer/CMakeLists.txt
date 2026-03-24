@@ -118,6 +118,7 @@ add_executable(
   wire_viewer
   src/main.cpp
   src/backbone_plane.cpp
+  src/core_state_adapter.cpp
   src/draw_path.cpp
   src/host_coords.cpp
   src/panels.cpp

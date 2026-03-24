@@ -1,5 +1,7 @@
 ﻿#include "app_state.hpp"
+#include "core_state_adapter.hpp"
 #include "path_pick_policy.hpp"
+#include "ui_common.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -15,7 +17,6 @@
 
 #include "imgui.h"
 #include "scene_query.hpp"
-#include "wire/core/core_state.hpp"
 
 namespace {
 
@@ -400,73 +401,22 @@ std::optional<wire::core::EntityRef> SelectedEntityRefLocal(const ViewerUiState&
   }
 }
 
-std::vector<wire::core::BundleKind> SortedBundleTemplateKindsLocal(const CoreState& state) {
-  std::vector<wire::core::BundleKind> ids;
-  for (const auto& [kind, _] : state.view().bundle_templates()) {
-    ids.push_back(kind);
-  }
-  std::sort(ids.begin(), ids.end(), [](auto a, auto b) { return static_cast<int>(a) < static_cast<int>(b); });
-  return ids;
-}
-
-bool IsBundleTemplateSelectedLocal(const ViewerUiState& ui_state, wire::core::BundleKind kind) {
-  const auto bit = (1u << static_cast<unsigned>(kind));
-  return (ui_state.draw_bundle_template_mask & bit) != 0;
-}
-
-void SetBundleTemplateSelectedLocal(ViewerUiState& ui_state, wire::core::BundleKind kind, bool selected) {
-  const auto bit = (1u << static_cast<unsigned>(kind));
-  if (selected) {
-    ui_state.draw_bundle_template_mask |= bit;
-  } else {
-    ui_state.draw_bundle_template_mask &= ~bit;
-  }
-}
-
-std::vector<wire::core::BundleKind> SelectedBundleTemplatesLocal(const CoreState& state, const ViewerUiState& ui_state) {
-  std::vector<wire::core::BundleKind> out;
-  for (wire::core::BundleKind kind : SortedBundleTemplateKindsLocal(state)) {
-    if (IsBundleTemplateSelectedLocal(ui_state, kind)) {
-      out.push_back(kind);
-    }
-  }
-  return out;
-}
-
-std::string BundleTemplatePreviewLocal(const CoreState& state, wire::core::BundleKind kind) {
-  const auto it = state.view().bundle_templates().find(kind);
-  if (it == state.view().bundle_templates().end()) {
+std::string BundleTemplatePreviewOrIdLocal(const wire::core::CoreView& view, wire::core::BundleKind kind) {
+  const auto it = view.bundle_templates().find(kind);
+  if (it == view.bundle_templates().end()) {
     return std::to_string(static_cast<int>(kind));
   }
   return it->second.name;
 }
 
-std::string BundleTemplateMultiPreviewLocal(const CoreState& state, const ViewerUiState& ui_state) {
-  const auto selected = SelectedBundleTemplatesLocal(state, ui_state);
-  if (selected.empty()) {
-    return "None";
-  }
-  if (selected.size() == 1) {
-    return BundleTemplatePreviewLocal(state, selected.front());
-  }
-  std::ostringstream oss;
-  for (std::size_t i = 0; i < selected.size(); ++i) {
-    if (i > 0) {
-      oss << ", ";
-    }
-    oss << BundleTemplatePreviewLocal(state, selected[i]);
-  }
-  return oss.str();
-}
-
-std::string GeneratedEndpointSourceSummaryLocal(const CoreState& state, const std::vector<ObjectId>& span_ids) {
+std::string GeneratedEndpointSourceSummaryLocal(const wire::core::CoreView& view, const std::vector<ObjectId>& span_ids) {
   int plain = 0;
   int socket = 0;
   int socket_override = 0;
   int fallback = 0;
   int attachment_inputs = 0;
   for (ObjectId span_id : span_ids) {
-    const auto layout_view = state.view().inspect_support_layout(span_id);
+    const auto layout_view = view.inspect_support_layout(span_id);
     if (!layout_view.has_value()) {
       continue;
     }
@@ -495,21 +445,15 @@ std::string GeneratedEndpointSourceSummaryLocal(const CoreState& state, const st
 
 int ResolveBundleTemplateCountLocal(ViewerUiState& ui_state, const wire::core::BundleTemplate& bundle_template,
                                     wire::core::BundleKind kind) {
-  const int key = static_cast<int>(kind);
-  auto it = ui_state.draw_bundle_count_by_template.find(key);
-  int count = (it == ui_state.draw_bundle_count_by_template.end()) ? bundle_template.default_count : it->second;
-  count = std::clamp(count, bundle_template.min_count, bundle_template.max_count);
-  ui_state.draw_bundle_count_by_template[key] = count;
-  return count;
+  return ResolveBundleTemplateCount(ui_state, bundle_template, kind);
 }
 
-std::vector<wire::core::PoleTypeId> SortedPoleTypeIdsLocal(const CoreState& state) {
-  std::vector<wire::core::PoleTypeId> ids;
-  for (const auto& [id, _] : state.view().pole_types()) {
-    ids.push_back(id);
+std::string PoleTypePreviewLocal(const wire::core::CoreView& view, wire::core::PoleTypeId pole_type_id) {
+  const auto it = view.pole_types().find(pole_type_id);
+  if (it == view.pole_types().end()) {
+    return std::to_string(pole_type_id);
   }
-  std::sort(ids.begin(), ids.end());
-  return ids;
+  return it->second.name;
 }
 
 std::size_t ClampedTypeIndexLocal(int current, std::size_t count) {
@@ -595,8 +539,9 @@ wire::core::ResolveBranchPickResult DirectResolvedDrawPathTarget(const wire::cor
 bool ExecuteBackboneRequest(CoreState& state, ViewerUiState& ui_state, const wire::core::BackboneSpec& request,
                             bool clear_draw_path_on_success, const char* success_log,
                             const char* failure_log) {
+  const auto view = viewer_core_state::View(state);
   ui_state.last_draw_path_request = request;
-  const auto result = state.GenerateFromBackboneSpec(request);
+  const auto result = viewer_core_state::GenerateFromBackboneSpec(state, request);
   if (!result.ok) {
     ui_state.last_error = result.error;
     PushLogLocal(ui_state, failure_log);
@@ -620,18 +565,19 @@ bool ExecuteBackboneRequest(CoreState& state, ViewerUiState& ui_state, const wir
   PushLogLocal(ui_state, std::string(success_log) + " poles=" + std::to_string(ui_state.last_generated_poles) +
                              " spans=" + std::to_string(ui_state.last_generated_spans));
   PushLogLocal(ui_state, "DrawPath attachment/socket request input: unsupported in BackboneSpec node/path request");
-  PushLogLocal(ui_state, GeneratedEndpointSourceSummaryLocal(state, result.value.generated_span_ids));
+  PushLogLocal(ui_state, GeneratedEndpointSourceSummaryLocal(view, result.value.generated_span_ids));
   return true;
 }
 
 void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool from_enter_key) {
+  const auto view = viewer_core_state::View(state);
   EnsureDrawPathPointKinds(ui_state);
   if (ui_state.draw_path_points.size() < 2) {
     ui_state.last_error = "path needs at least 2 points";
     return;
   }
 
-  const auto type_ids = SortedPoleTypeIdsLocal(state);
+  const auto type_ids = SortedPoleTypeIds(view);
   if (type_ids.empty()) {
     ui_state.last_error = "no pole type available";
     return;
@@ -644,7 +590,7 @@ void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool
   road.id = ui_state.road_id++;
   road.polyline = ui_state.draw_path_points;
 
-  const auto selected_templates = SelectedBundleTemplatesLocal(state, ui_state);
+  const auto selected_templates = SelectedBundleTemplates(view, ui_state);
   if (selected_templates.empty()) {
     ui_state.last_error = "select at least one bundle template";
     return;
@@ -676,8 +622,8 @@ void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool
   request.pole_type_id = type_ids[ui_state.road_pole_type_index];
   request.direction_mode = static_cast<wire::core::PathDirectionMode>(mode_index);
   for (wire::core::BundleKind kind : selected_templates) {
-    const auto it = state.view().bundle_templates().find(kind);
-    if (it == state.view().bundle_templates().end()) {
+    const auto it = view.bundle_templates().find(kind);
+    if (it == view.bundle_templates().end()) {
       ui_state.last_error = "selected bundle template is not available";
       return;
     }
@@ -694,7 +640,7 @@ void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool
 
   const std::string success_log =
       std::string(from_enter_key ? "Generated path (Enter)" : "Generated path") + " templates=" +
-      BundleTemplateMultiPreviewLocal(state, ui_state);
+      BundleTemplateMultiPreview(view, ui_state);
   const char* failure_log = from_enter_key ? "Generate path (Enter) failed" : "Generate path failed";
   (void)ExecuteBackboneRequest(state, ui_state, request, !ui_state.draw_keep_path_after_generate, success_log.c_str(),
                                failure_log);
@@ -732,8 +678,8 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
     return false;
   }
 
-  const auto selected_templates = SelectedBundleTemplatesLocal(state, ui_state);
-  const auto& view = state.view();
+  const auto view = viewer_core_state::View(state);
+  const auto selected_templates = SelectedBundleTemplates(view, ui_state);
   const auto& dir_debug = view.last_path_direction_debug();
   const auto write_decision_trace = [&](const std::string& prefix, const wire::core::EntityRef& ref) {
     const auto trace = view.collect_decision_trace(ref);
@@ -908,7 +854,7 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
   ofs << "draw.keep_path_after_generate=" << (ui_state.draw_keep_path_after_generate ? 1 : 0) << "\n";
   ofs << "draw.plane_z=" << ui_state.draw_plane_z << "\n";
 
-  const auto type_ids = SortedPoleTypeIdsLocal(state);
+  const auto type_ids = SortedPoleTypeIds(view);
   if (!type_ids.empty()) {
     const std::size_t idx = ClampedTypeIndexLocal(ui_state.road_pole_type_index, type_ids.size());
     ofs << "draw.pole_type_id=" << static_cast<unsigned long long>(type_ids[idx]) << "\n";
@@ -953,7 +899,7 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
   ofs << "result.direction.cost.forward.corner=" << dir_debug.forward_cost.corner_compression_penalty << "\n";
   ofs << "result.direction.cost.forward.branch=" << dir_debug.forward_cost.branch_conflict_penalty << "\n";
 
-  const wire::core::BackboneResult rebuilt_backbone = state.BuildBackboneResult();
+  const wire::core::BackboneResult rebuilt_backbone = view.build_backbone_result();
   const auto& edge_orientations = view.last_generation_edge_orientations();
   ofs << "result.backbone.snapshot_node_count=" << rebuilt_backbone.nodes.size() << "\n";
   ofs << "result.backbone.snapshot_edge_count=" << rebuilt_backbone.edges.size() << "\n";
@@ -1504,6 +1450,7 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
   return true;
 }
 void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState& ui_state) {
+  const auto view = viewer_core_state::View(state);
   ui_state.draw_hover_pick = {};
   ui_state.draw_hover_has_resolution = false;
   ui_state.draw_hover_status.clear();
@@ -1525,10 +1472,10 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
 
   if (ui_state.draw_pick_enabled && accept_mouse_input) {
     ViewerSceneQuery scene_query{};
-    const wire::core::PickResult raw_pick = scene_query.Raycast(state.view(), camera, ui_state.draw_plane_z);
+    const wire::core::PickResult raw_pick = scene_query.Raycast(view, camera, ui_state.draw_plane_z);
     const double hover_snap_radius_world = std::max(ui_state.draw_snap_radius_world, 1.25);
     wire::core::PickResult pick =
-        CanonicalizeDrawPathPick(state.view(), raw_pick, hover, has_ground_hit, hover_snap_radius_world);
+        CanonicalizeDrawPathPick(view, raw_pick, hover, has_ground_hit, hover_snap_radius_world);
     ui_state.draw_hover_pick = pick;
     bool blocked_pick_target = false;
     if (pick.hit_kind == wire::core::PickHitKind::kEmpty) {
@@ -1542,7 +1489,7 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
                                      std::to_string(static_cast<unsigned long long>(pick.hit_id));
       }
       const std::vector<wire::core::BundleKind> pick_template_ids =
-          ResolveTemplateKindsForPathPick(state.view(), ui_state.draw_bundle_template_mask, pick);
+          ResolveTemplateKindsForPathPick(view, ui_state.draw_bundle_template_mask, pick);
       if (ui_state.draw_hover_status.empty()) {
         ui_state.draw_hover_status =
             std::string("target: ") + PickHitKindLabelLocal(pick.hit_kind) + " " + PickTargetLabel(pick);
@@ -1559,10 +1506,10 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
           options.snap_radius_world = ui_state.draw_snap_radius_world;
           options.create_midair_node = false;
           options.enforce_midair_template_policy = false;
-          resolved = state.ResolveBranchPick(pick, options);
+          resolved = viewer_core_state::ResolveBranchPick(state, pick, options);
         }
         if (resolved.ok) {
-          const std::string blocked_template = FindMidairBranchBlockedTemplateName(state.view(), pick_template_ids);
+          const std::string blocked_template = FindMidairBranchBlockedTemplateName(view, pick_template_ids);
           if (resolved.value.resolution == wire::core::PickBranchResolutionKind::kMidair &&
               !blocked_template.empty()) {
             ui_state.draw_hover_status += " -> warn: template " + blocked_template + " will not connect here";
@@ -1601,13 +1548,13 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
           applied.value = ui_state.draw_hover_resolution;
         } else {
           const std::vector<wire::core::BundleKind> click_template_ids =
-              ResolveTemplateKindsForPathPick(state.view(), ui_state.draw_bundle_template_mask, ui_state.draw_hover_pick);
+              ResolveTemplateKindsForPathPick(view, ui_state.draw_bundle_template_mask, ui_state.draw_hover_pick);
           wire::core::ResolveBranchPickOptions click_options{};
           click_options.selected_bundle_template_ids = click_template_ids;
           click_options.snap_radius_world = ui_state.draw_snap_radius_world;
           click_options.create_midair_node = true;
           click_options.enforce_midair_template_policy = false;
-          applied = state.ResolveBranchPick(ui_state.draw_hover_pick, click_options);
+          applied = viewer_core_state::ResolveBranchPick(state, ui_state.draw_hover_pick, click_options);
         }
         if (!applied.ok) {
           ui_state.last_error = applied.error;
@@ -1677,6 +1624,7 @@ void DrawPathPreview(const ViewerUiState& ui_state) {
   }
 }
 void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
+  const auto view = viewer_core_state::View(state);
   EnsureDrawPathPointKinds(ui_state);
   ImGui::TextUnformatted("Draw Path");
   ImGui::TextUnformatted("LMB: add point on Backbone node/edge (with draw-plane fallback)");
@@ -1722,18 +1670,15 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
                 SupportKindLabelLocal(ui_state.draw_hover_resolution.support_kind));
   }
 
-  const auto type_ids = SortedPoleTypeIdsLocal(state);
+  const auto type_ids = SortedPoleTypeIds(view);
   if (!type_ids.empty()) {
     const std::size_t road_type_index = ClampedTypeIndexLocal(ui_state.road_pole_type_index, type_ids.size());
     ui_state.road_pole_type_index = static_cast<int>(road_type_index);
     const wire::core::PoleTypeId road_type_id = type_ids[road_type_index];
-    const auto road_type_it = state.view().pole_types().find(road_type_id);
-    const std::string road_type_name =
-        (road_type_it != state.view().pole_types().end()) ? road_type_it->second.name : std::to_string(road_type_id);
+    const std::string road_type_name = PoleTypePreviewLocal(view, road_type_id);
     if (ImGui::BeginCombo("Path PoleType", road_type_name.c_str())) {
       for (std::size_t i = 0; i < type_ids.size(); ++i) {
-        const auto it = state.view().pole_types().find(type_ids[i]);
-        const std::string label = (it != state.view().pole_types().end()) ? it->second.name : std::to_string(type_ids[i]);
+        const std::string label = PoleTypePreviewLocal(view, type_ids[i]);
         const bool selected = (i == road_type_index);
         if (ImGui::Selectable(label.c_str(), selected)) {
           ui_state.road_pole_type_index = static_cast<int>(i);
@@ -1746,17 +1691,17 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
     }
   }
 
-  const auto template_ids = SortedBundleTemplateKindsLocal(state);
+  const auto template_ids = SortedBundleTemplateKinds(view);
   if (template_ids.empty()) {
     ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "No bundle template registered in core");
   } else {
-    if (ImGui::BeginCombo("Bundle Templates", BundleTemplateMultiPreviewLocal(state, ui_state).c_str())) {
+    if (ImGui::BeginCombo("Bundle Templates", BundleTemplateMultiPreview(view, ui_state).c_str())) {
       for (const wire::core::BundleKind kind : template_ids) {
-        bool selected = IsBundleTemplateSelectedLocal(ui_state, kind);
-        if (ImGui::Selectable(BundleTemplatePreviewLocal(state, kind).c_str(), selected,
+        bool selected = IsBundleTemplateSelected(ui_state, kind);
+        if (ImGui::Selectable(BundleTemplatePreviewOrIdLocal(view, kind).c_str(), selected,
                               ImGuiSelectableFlags_DontClosePopups)) {
           selected = !selected;
-          SetBundleTemplateSelectedLocal(ui_state, kind, selected);
+          SetBundleTemplateSelected(ui_state, kind, selected);
         }
         if (selected) {
           ImGui::SetItemDefaultFocus();
@@ -1764,18 +1709,18 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
       }
       ImGui::EndCombo();
     }
-    const auto selected_templates = SelectedBundleTemplatesLocal(state, ui_state);
+    const auto selected_templates = SelectedBundleTemplates(view, ui_state);
     if (selected_templates.empty()) {
       ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "Select at least one bundle template");
     }
     for (wire::core::BundleKind kind : selected_templates) {
-      const auto it = state.view().bundle_templates().find(kind);
-      if (it == state.view().bundle_templates().end()) {
+      const auto it = view.bundle_templates().find(kind);
+      if (it == view.bundle_templates().end()) {
         continue;
       }
       const wire::core::BundleTemplate& bundle_template = it->second;
       ImGui::Separator();
-      ImGui::TextUnformatted(BundleTemplatePreviewLocal(state, kind).c_str());
+      ImGui::TextUnformatted(BundleTemplatePreviewOrIdLocal(view, kind).c_str());
       ImGui::Text("Category: %s", CategoryLabelLocal(bundle_template.category));
       if (bundle_template.count_rule == wire::core::BundleCountRuleKind::kRange) {
         const int key = static_cast<int>(kind);
@@ -1819,7 +1764,7 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
       ui_state.draw_direction_mode = static_cast<int>(wire::core::PathDirectionMode::kReverse);
     }
   }
-  const auto& dir_debug = state.view().last_path_direction_debug();
+  const auto& dir_debug = view.last_path_direction_debug();
   ImGui::Text("Direction chosen: %s (mode=%s)", PathDirectionChosenLabelLocal(dir_debug.chosen),
               PathDirectionModeLabelLocal(dir_debug.requested_mode));
   ImGui::Text("Cost F/R: %d / %d", dir_debug.forward_cost.total, dir_debug.reverse_cost.total);

@@ -407,6 +407,14 @@ CoreState::generate_grouped_spans_between_support_nodes(
     }
     return Vec3d{0.0, 1.0, 0.0};
   };
+  auto route_axis_for_endpoint = [&](ObjectId node_id, ObjectId peer_id) -> std::optional<Vec3d> {
+    Vec3d axis = support_position(peer_id) - support_position(node_id);
+    axis.z = 0.0;
+    if (!normalize_xy(&axis)) {
+      return std::nullopt;
+    }
+    return axis;
+  };
   struct EndpointSideDecision {
     Vec3d side_axis{0.0, 1.0, 0.0};
     bool has_side_axis = false;
@@ -854,12 +862,16 @@ CoreState::generate_grouped_spans_between_support_nodes(
     return bisector;
   };
   auto chord_side_axis_for_endpoint = [&](ObjectId node_id, ObjectId peer_id) {
-    Vec3d axis = support_position(peer_id) - support_position(node_id);
-    axis.z = 0.0;
-    if (!normalize_xy(&axis)) {
-      return canonical_side_axis_for_order(node_id, peer_id);
+    if (const auto axis = route_axis_for_endpoint(node_id, peer_id); axis.has_value()) {
+      return *axis;
     }
-    return axis;
+    return canonical_side_axis_for_order(node_id, peer_id);
+  };
+  auto grouped_line_axis_for_endpoint = [&](ObjectId node_id, ObjectId peer_id) {
+    if (const auto axis = route_axis_for_endpoint(node_id, peer_id); axis.has_value()) {
+      return *axis;
+    }
+    return Vec3d{1.0, 0.0, 0.0};
   };
   auto build_pair_side_decision = [&](ObjectId node_id, ObjectId peer_id,
                                       const LoweredSupportPairInfo& pair_info) {
@@ -873,7 +885,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
       decision.used_junction_pair_side_assignment = true;
       return decision;
     }
-    decision.side_axis = chord_side_axis_for_endpoint(node_id, peer_id);
+    decision.side_axis = grouped_line_axis_for_endpoint(node_id, peer_id);
     decision.side_assignment_rule = SideAssignmentRuleKind::kChord;
     decision.support_orientation_rule = SupportOrientationRuleKind::kChord;
     decision.used_junction_pair_side_assignment = false;
@@ -919,14 +931,14 @@ CoreState::generate_grouped_spans_between_support_nodes(
         decision.has_side_axis = true;
         return decision;
       }
-      decision.side_axis = chord_side_axis_for_endpoint(node_id, peer_id);
+      decision.side_axis = grouped_line_axis_for_endpoint(node_id, peer_id);
       decision.side_assignment_rule = SideAssignmentRuleKind::kChord;
       decision.support_orientation_rule = SupportOrientationRuleKind::kChord;
       decision.used_junction_pair_side_assignment = false;
       decision.has_side_axis = true;
       return decision;
     }
-    decision.side_axis = chord_side_axis_for_endpoint(node_id, peer_id);
+    decision.side_axis = grouped_line_axis_for_endpoint(node_id, peer_id);
     decision.side_assignment_rule = SideAssignmentRuleKind::kChord;
     decision.support_orientation_rule = SupportOrientationRuleKind::kChord;
     decision.has_side_axis = true;
@@ -1054,10 +1066,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
       }
     }
     if (!normalize_xy(&axis)) {
-      axis = chord_side_axis_for_endpoint(node_id, peer_id);
-    }
-    if (!normalize_xy(&axis)) {
-      axis = canonical_side_axis_for_order(node_id, peer_id);
+      axis = grouped_line_axis_for_endpoint(node_id, peer_id);
     }
     return axis;
   };

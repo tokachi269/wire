@@ -11,10 +11,10 @@
 #include <unordered_set>
 #include <vector>
 
+#include "core_state_adapter.hpp"
 #include "imgui.h"
 #include "raylib.h"
 #include "ui_common.hpp"
-#include "wire/core/core_state.hpp"
 
 namespace {
 
@@ -552,19 +552,19 @@ const char* PoleSupportAxisRuleLabel(wire::core::PoleSupportAxisRule rule) {
   }
 }
 
-std::vector<wire::core::CableTemplateId> SortedCableTemplateIds(const CoreState& state) {
+std::vector<wire::core::CableTemplateId> SortedCableTemplateIds(const wire::core::CoreView& view) {
   std::vector<wire::core::CableTemplateId> ids;
-  ids.reserve(state.view().cable_templates().size());
-  for (const auto& [id, _] : state.view().cable_templates()) {
+  ids.reserve(view.cable_templates().size());
+  for (const auto& [id, _] : view.cable_templates()) {
     ids.push_back(id);
   }
   std::sort(ids.begin(), ids.end());
   return ids;
 }
 
-void LoadCableTemplateState(const CoreState& state, ViewerUiState& ui_state, wire::core::CableTemplateId id) {
-  const auto it = state.view().cable_templates().find(id);
-  if (it == state.view().cable_templates().end()) {
+void LoadCableTemplateState(const wire::core::CoreView& view, ViewerUiState& ui_state, wire::core::CableTemplateId id) {
+  const auto it = view.cable_templates().find(id);
+  if (it == view.cable_templates().end()) {
     return;
   }
   ui_state.selected_cable_template_id = id;
@@ -580,9 +580,9 @@ void LoadCableTemplateState(const CoreState& state, ViewerUiState& ui_state, wir
   ui_state.cable_continuity_policy = static_cast<int>(it->second.continuity_policy);
 }
 
-void LoadBundleTemplateState(const CoreState& state, ViewerUiState& ui_state, wire::core::BundleKind id) {
-  const auto it = state.view().bundle_templates().find(id);
-  if (it == state.view().bundle_templates().end()) {
+void LoadBundleTemplateState(const wire::core::CoreView& view, ViewerUiState& ui_state, wire::core::BundleKind id) {
+  const auto it = view.bundle_templates().find(id);
+  if (it == view.bundle_templates().end()) {
     return;
   }
   ui_state.selected_bundle_template_id = id;
@@ -675,9 +675,17 @@ bool NearlySameWorld(const wire::core::Vec3d& a, const wire::core::Vec3d& b, dou
 std::vector<PoleHeightMarker> BuildPoleHeightMarkers(const CoreState& state, const wire::core::Pole& pole,
                                                      const ViewerUiState& ui_state) {
   std::vector<PoleHeightMarker> markers{};
-  const auto view = state.view();
-  const auto detail = state.GetPoleDetail(pole.id);
-  std::vector<const wire::core::Port*> owned_ports = detail.owned_ports;
+  const auto view = viewer_core_state::View(state);
+  std::vector<const wire::core::Port*> owned_ports{};
+  if (const auto ports_it = view.relation_index().ports_by_pole.find(pole.id);
+      ports_it != view.relation_index().ports_by_pole.end()) {
+    owned_ports.reserve(ports_it->second.size());
+    for (ObjectId port_id : ports_it->second) {
+      if (const wire::core::Port* port = view.ports().find(port_id); port != nullptr) {
+        owned_ports.push_back(port);
+      }
+    }
+  }
   std::sort(owned_ports.begin(), owned_ports.end(),
             [](const wire::core::Port* a, const wire::core::Port* b) { return a->world_position.z > b->world_position.z; });
 
@@ -827,7 +835,7 @@ void ApplyPoleHeightMarkerDelta(CoreState& state, const PoleHeightMarker& marker
   if (!marker.editable || marker.port_ids.empty()) {
     return;
   }
-  const auto view = state.view();
+  const auto view = viewer_core_state::View(state);
   std::vector<const wire::core::Port*> ports{};
   for (ObjectId port_id : marker.port_ids) {
     if (const wire::core::Port* port = view.ports().find(port_id); port != nullptr) {
@@ -845,7 +853,7 @@ void ApplyPoleHeightMarkerDelta(CoreState& state, const PoleHeightMarker& marker
   for (const wire::core::Port* port : ports) {
     wire::core::Vec3d world = port->world_position;
     world.z += delta;
-    (void)state.SetPortWorldPositionManual(port->id, world);
+    (void)viewer_core_state::SetPortWorldPositionManual(state, port->id, world);
   }
 }
 
@@ -1112,7 +1120,7 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
     return;
   }
 
-  const auto view = state.view();
+  const auto view = viewer_core_state::View(state);
   const auto& edit = view.edit_state();
   if (const auto ref = SelectedEntityRef(ui_state); ref.has_value()) {
     if (const auto meta = view.describe_entity(*ref); meta.has_value()) {
@@ -1178,7 +1186,7 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
       DrawRelatedLinks(ui_state, pole_view->links);
       DrawOverrideViewBlock(override_view);
       if (pole_view->orientation_override && ImGui::Button("Clear Pole Orientation Override")) {
-        const auto clear = state.ClearPoleOrientationOverride(pole->id);
+        const auto clear = viewer_core_state::ClearPoleOrientationOverride(state, pole->id);
         PushLog(ui_state, clear.ok ? "ClearPoleOrientationOverride updated" : "ClearPoleOrientationOverride failed");
       }
       DrawTemplateViewBlock("Template", view.inspect_pole_template(pole->pole_type_id));
@@ -1226,7 +1234,7 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
     ImGui::Text("GeneratedByRule: %s", span->generated_by_rule ? "true" : "false");
     ImGui::Text("PlacementContext: %s", ContextLabel(span->placement_context));
     ImGui::Text("placementOverride: %s", span->placement_override_flag ? "true" : "false");
-    const auto* bounds = state.find_bounds_cache(span->id);
+    const auto* bounds = view.find_bounds_cache(span->id);
     if (bounds != nullptr) {
       const double sx = bounds->whole.max.x - bounds->whole.min.x;
       const double sy = bounds->whole.max.y - bounds->whole.min.y;
@@ -1234,7 +1242,7 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
       ImGui::Text("AABB size: %.2f %.2f %.2f", sx, sy, sz);
       ImGui::Text("segmentAABBs: %d", static_cast<int>(bounds->segments.size()));
     }
-    const auto* runtime_state = state.view().find_span_runtime_state(span->id);
+    const auto* runtime_state = view.find_span_runtime_state(span->id);
     if (runtime_state != nullptr) {
       ImGui::Separator();
       ImGui::Text("dataVersion: %llu", static_cast<unsigned long long>(runtime_state->data_version));
@@ -1379,19 +1387,19 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
       DrawOverrideViewBlock(override_view);
       if (has_socket_override) {
         if (ImGui::Button("Clear Span Socket Override A")) {
-          const auto clear = state.ClearSpanEndpointSocketOverride(span->id, true);
+          const auto clear = viewer_core_state::ClearSpanEndpointSocketOverride(state, span->id, true);
           PushLog(ui_state, clear.ok ? "ClearSpanEndpointSocketOverride A updated"
                                      : "ClearSpanEndpointSocketOverride A failed");
         }
         ImGui::SameLine();
         if (ImGui::Button("Clear Span Socket Override B")) {
-          const auto clear = state.ClearSpanEndpointSocketOverride(span->id, false);
+          const auto clear = viewer_core_state::ClearSpanEndpointSocketOverride(state, span->id, false);
           PushLog(ui_state, clear.ok ? "ClearSpanEndpointSocketOverride B updated"
                                      : "ClearSpanEndpointSocketOverride B failed");
         }
       }
       if (has_branch_down_override && ImGui::Button("Clear Branch Down Offset Override")) {
-        const auto clear = state.ClearSpanBranchDownOffsetOverride(span->id);
+        const auto clear = viewer_core_state::ClearSpanBranchDownOffsetOverride(state, span->id);
         PushLog(ui_state, clear.ok ? "ClearSpanBranchDownOffsetOverride updated"
                                    : "ClearSpanBranchDownOffsetOverride failed");
       }
@@ -1454,7 +1462,7 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
     return;
   }
   case SelectedType::kSupportNode: {
-    const wire::core::BackboneResult backbone = state.BuildBackboneResult();
+    const wire::core::BackboneResult backbone = viewer_core_state::BuildBackboneResult(state);
     const auto it =
         std::find_if(backbone.nodes.begin(), backbone.nodes.end(),
                      [&](const wire::core::SupportNode& node) { return node.node_id == ui_state.selected_id; });
@@ -1602,7 +1610,7 @@ void DrawEditSelectedPanel(CoreState& state, ViewerUiState& ui_state) {
 }
 
 void DrawTopbarWindow(const CoreState& state, ViewerUiState& ui_state) {
-  const auto view = state.view();
+  const auto view = viewer_core_state::View(state);
   const float w = static_cast<float>(GetScreenWidth());
   const float topbar_h = 74.0f;
   ImGui::SetNextWindowPos(ImVec2(8.0f, 8.0f), ImGuiCond_Always);
@@ -1693,8 +1701,8 @@ void DrawInspectorWindow(CoreState& state, ViewerUiState& ui_state) {
 }
 
 void DrawOutlinerContent(CoreState& state, ViewerUiState& ui_state) {
-  const auto view = state.view();
-  const wire::core::BackboneResult backbone = state.BuildBackboneResult();
+  const auto view = viewer_core_state::View(state);
+  const wire::core::BackboneResult backbone = viewer_core_state::BuildBackboneResult(state);
   DrawObjectList(
       ui_state, "Poles", SelectedType::kPole,
       [&]() {
@@ -1783,8 +1791,9 @@ void DrawOutlinerWindow(CoreState& state, ViewerUiState& ui_state) {
 }
 
 void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
+  const auto view = viewer_core_state::View(state);
   if (!ui_state.geometry_settings_loaded) {
-    const auto& gs = state.view().geometry_settings();
+    const auto& gs = view.geometry_settings();
     ui_state.geometry_samples = gs.curve_samples;
     ui_state.geometry_sag_enabled = gs.sag_enabled;
     ui_state.geometry_sag_factor = gs.sag_factor;
@@ -1792,7 +1801,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
     ui_state.geometry_settings_loaded = true;
   }
   if (!ui_state.layout_settings_loaded) {
-    const auto& ls = state.view().layout_settings();
+    const auto& ls = view.layout_settings();
     ui_state.layout_angle_correction_enabled = ls.angle_correction_enabled;
     ui_state.layout_corner_threshold_deg = ls.corner_threshold_deg;
     ui_state.layout_min_side_scale = ls.min_side_scale;
@@ -1800,7 +1809,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
     ui_state.layout_settings_loaded = true;
   }
   if (!ui_state.visual_settings_loaded) {
-    const auto& vs = state.view().visual_settings();
+    const auto& vs = view.visual_settings();
     ui_state.visual_enable_support_structures = vs.enable_support_structures;
     ui_state.visual_enable_insulators = vs.enable_insulators;
     ui_state.visual_support_center_threshold = vs.support_center_threshold_m;
@@ -1810,28 +1819,28 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
     ui_state.visual_settings_loaded = true;
   }
   if (!ui_state.cable_template_loaded) {
-    for (const auto& [id, tpl] : state.view().cable_templates()) {
+    for (const auto& [id, tpl] : view.cable_templates()) {
       (void)tpl;
-      LoadCableTemplateState(state, ui_state, id);
+      LoadCableTemplateState(view, ui_state, id);
       break;
     }
     ui_state.cable_template_loaded = true;
   }
   if (!ui_state.bundle_template_loaded) {
-    for (const auto& [id, _] : state.view().bundle_templates()) {
-      LoadBundleTemplateState(state, ui_state, id);
+    for (const auto& [id, _] : view.bundle_templates()) {
+      LoadBundleTemplateState(view, ui_state, id);
       break;
     }
     ui_state.bundle_template_loaded = true;
   }
 
-  const auto& recalc = state.view().last_recalc_stats();
+  const auto& recalc = view.last_recalc_stats();
   ImGui::Text("Dirty T/G/B/R/X: %d / %d / %d / %d / %d",
-              static_cast<int>(state.view().dirty_queue().topology_dirty_span_ids.size()),
-              static_cast<int>(state.view().dirty_queue().geometry_dirty_span_ids.size()),
-              static_cast<int>(state.view().dirty_queue().bounds_dirty_span_ids.size()),
-              static_cast<int>(state.view().dirty_queue().render_dirty_span_ids.size()),
-              static_cast<int>(state.view().dirty_queue().raycast_dirty_span_ids.size()));
+              static_cast<int>(view.dirty_queue().topology_dirty_span_ids.size()),
+              static_cast<int>(view.dirty_queue().geometry_dirty_span_ids.size()),
+              static_cast<int>(view.dirty_queue().bounds_dirty_span_ids.size()),
+              static_cast<int>(view.dirty_queue().render_dirty_span_ids.size()),
+              static_cast<int>(view.dirty_queue().raycast_dirty_span_ids.size()));
   ImGui::Text("Last Recalc total=%d geom=%d bounds=%d render=%d", static_cast<int>(recalc.total_processed()),
               static_cast<int>(recalc.geometry_processed), static_cast<int>(recalc.bounds_processed),
               static_cast<int>(recalc.render_processed));
@@ -1841,7 +1850,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
     wire::core::CommitOptions options{};
     options.run_recalc = true;
     options.run_validate = false;
-    const auto stats = state.Commit(options).recalc_stats;
+    const auto stats = viewer_core_state::Commit(state, options).recalc_stats;
     PushLog(ui_state, "Recalc processed=" + std::to_string(stats.total_processed()));
   }
 
@@ -1874,7 +1883,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
       settings.sag_enabled = ui_state.geometry_sag_enabled;
       settings.sag_factor = ui_state.geometry_sag_factor;
       settings.pole_clearance_m = ui_state.geometry_pole_clearance;
-      const auto result = state.UpdateGeometrySettings(settings, true);
+      const auto result = viewer_core_state::UpdateGeometrySettings(state, settings, true);
       if (!result.ok) {
         ui_state.last_error = result.error;
         PushLog(ui_state, "UpdateGeometrySettings failed");
@@ -1894,7 +1903,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
       settings.corner_threshold_deg = ui_state.layout_corner_threshold_deg;
       settings.min_side_scale = ui_state.layout_min_side_scale;
       settings.max_side_scale = ui_state.layout_max_side_scale;
-      const auto result = state.UpdateLayoutSettings(settings);
+      const auto result = viewer_core_state::UpdateLayoutSettings(state, settings);
       if (!result.ok) {
         ui_state.last_error = result.error;
         PushLog(ui_state, "UpdateLayoutSettings failed");
@@ -1919,7 +1928,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
         if (selected_pole_ids.empty()) {
           PushLog(ui_state, "No poles selected");
         } else {
-          const auto tilt = state.ApplyPoleTilt(selected_pole_ids, ui_state.tilt_all_max_deg);
+          const auto tilt = viewer_core_state::ApplyPoleTilt(state, selected_pole_ids, ui_state.tilt_all_max_deg);
           if (!tilt.ok) {
             ui_state.last_error = tilt.error;
             PushLog(ui_state, "ApplyPoleTilt(selected) failed");
@@ -1940,7 +1949,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
     ImGui::Checkbox("Select Spans", &ui_state.selection_include_spans);
     ImGui::TextUnformatted("Viewport: LMB click select, Shift+LMB drag box select");
     if (ImGui::Button("Apply Tilt To All Poles")) {
-      const auto tilt = state.ApplyPoleTilt({}, ui_state.tilt_all_max_deg);
+      const auto tilt = viewer_core_state::ApplyPoleTilt(state, {}, ui_state.tilt_all_max_deg);
       if (!tilt.ok) {
         ui_state.last_error = tilt.error;
         PushLog(ui_state, "ApplyPoleTilt failed");
@@ -1951,7 +1960,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
     }
     ImGui::SameLine();
     if (ImGui::Button("Reset All Span Reference Lengths")) {
-      const auto reset = state.ResetAllSpanReferenceLengths(true);
+      const auto reset = viewer_core_state::ResetAllSpanReferenceLengths(state, true);
       if (!reset.ok) {
         ui_state.last_error = reset.error;
         PushLog(ui_state, "ResetAllSpanReferenceLengths failed");
@@ -1962,18 +1971,18 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
     }
 
     ImGui::Separator();
-    const auto cable_ids = SortedCableTemplateIds(state);
-    if (const auto it = state.view().cable_templates().find(ui_state.selected_cable_template_id);
-        it != state.view().cable_templates().end()) {
+    const auto cable_ids = SortedCableTemplateIds(view);
+    if (const auto it = view.cable_templates().find(ui_state.selected_cable_template_id);
+        it != view.cable_templates().end()) {
       if (ImGui::BeginCombo("Cable Template", it->second.name.c_str())) {
         for (wire::core::CableTemplateId id : cable_ids) {
-          const auto jt = state.view().cable_templates().find(id);
-          if (jt == state.view().cable_templates().end()) {
+          const auto jt = view.cable_templates().find(id);
+          if (jt == view.cable_templates().end()) {
             continue;
           }
           const bool selected = (id == ui_state.selected_cable_template_id);
           if (ImGui::Selectable(jt->second.name.c_str(), selected)) {
-            LoadCableTemplateState(state, ui_state, id);
+            LoadCableTemplateState(view, ui_state, id);
           }
           if (selected) {
             ImGui::SetItemDefaultFocus();
@@ -2023,8 +2032,8 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
       ImGui::EndCombo();
     }
     if (ImGui::Button("Apply Cable Template")) {
-      const auto it = state.view().cable_templates().find(ui_state.selected_cable_template_id);
-      if (it == state.view().cable_templates().end()) {
+      const auto it = view.cable_templates().find(ui_state.selected_cable_template_id);
+      if (it == view.cable_templates().end()) {
         ui_state.last_error = "selected cable template missing";
       } else {
         wire::core::CableTemplate tpl = it->second;
@@ -2038,13 +2047,13 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
         tpl.default_grouped_support_fanout_spacing_m = ui_state.cable_default_grouped_support_fanout_spacing;
         tpl.continuity_policy =
             static_cast<wire::core::CableContinuityPolicyHint>(ui_state.cable_continuity_policy);
-        const auto apply = state.UpdateCableTemplate(tpl, ui_state.preferred_visible_span_ids);
+        const auto apply = viewer_core_state::UpdateCableTemplate(state, tpl, ui_state.preferred_visible_span_ids);
         if (!apply.ok) {
           ui_state.last_error = apply.error;
           PushLog(ui_state, "UpdateCableTemplate failed");
         } else {
           ui_state.last_error.clear();
-          LoadCableTemplateState(state, ui_state, tpl.id);
+          LoadCableTemplateState(viewer_core_state::View(state), ui_state, tpl.id);
           PushLog(ui_state, "Cable template updated; visible-first=" +
                                     std::to_string(ui_state.preferred_visible_span_count) + " dirty spans=" +
                                     std::to_string(apply.change_set.dirty_span_ids.size()));
@@ -2054,18 +2063,18 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
     ImGui::Text("Preferred Visible Spans: %d", ui_state.preferred_visible_span_count);
 
     ImGui::Separator();
-    const auto bundle_ids = SortedBundleTemplateKinds(state.view());
-    if (const auto it = state.view().bundle_templates().find(ui_state.selected_bundle_template_id);
-        it != state.view().bundle_templates().end()) {
+    const auto bundle_ids = SortedBundleTemplateKinds(view);
+    if (const auto it = view.bundle_templates().find(ui_state.selected_bundle_template_id);
+        it != view.bundle_templates().end()) {
       if (ImGui::BeginCombo("Bundle Template", it->second.name.c_str())) {
         for (wire::core::BundleKind id : bundle_ids) {
-          const auto jt = state.view().bundle_templates().find(id);
-          if (jt == state.view().bundle_templates().end()) {
+          const auto jt = view.bundle_templates().find(id);
+          if (jt == view.bundle_templates().end()) {
             continue;
           }
           const bool selected = (id == ui_state.selected_bundle_template_id);
           if (ImGui::Selectable(jt->second.name.c_str(), selected)) {
-            LoadBundleTemplateState(state, ui_state, id);
+            LoadBundleTemplateState(view, ui_state, id);
           }
           if (selected) {
             ImGui::SetItemDefaultFocus();
@@ -2081,15 +2090,14 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
         ImGui::Text("Count Range: %d..%d default=%d", it->second.min_count, it->second.max_count,
                     it->second.default_count);
       }
-      const auto selected_bundle_cable_it =
-          state.view().cable_templates().find(ui_state.bundle_template_cable_template_id);
+      const auto selected_bundle_cable_it = view.cable_templates().find(ui_state.bundle_template_cable_template_id);
       const char* selected_bundle_cable_label =
-          selected_bundle_cable_it != state.view().cable_templates().end() ? selected_bundle_cable_it->second.name.c_str()
-                                                                           : "(missing)";
+          selected_bundle_cable_it != view.cable_templates().end() ? selected_bundle_cable_it->second.name.c_str()
+                                                                   : "(missing)";
       if (ImGui::BeginCombo("Bundle Cable Template", selected_bundle_cable_label)) {
         for (wire::core::CableTemplateId id : cable_ids) {
-          const auto cable_it = state.view().cable_templates().find(id);
-          if (cable_it == state.view().cable_templates().end()) {
+          const auto cable_it = view.cable_templates().find(id);
+          if (cable_it == view.cable_templates().end()) {
             continue;
           }
           const bool selected = (id == ui_state.bundle_template_cable_template_id);
@@ -2183,13 +2191,13 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
         tpl.grouped_support_fanout_spacing_m = ui_state.bundle_template_grouped_support_fanout_spacing;
         tpl.continuity_policy =
             static_cast<wire::core::CableContinuityPolicyHint>(ui_state.bundle_template_continuity_policy);
-        const auto apply = state.UpdateBundleTemplate(tpl);
+        const auto apply = viewer_core_state::UpdateBundleTemplate(state, tpl);
         if (!apply.ok) {
           ui_state.last_error = apply.error;
           PushLog(ui_state, "UpdateBundleTemplate failed");
         } else {
           ui_state.last_error.clear();
-          const auto& deps = state.view().template_dependency_state();
+          const auto& deps = viewer_core_state::View(state).template_dependency_state();
           if (!deps.bundles_requiring_regeneration.empty() || !deps.sessions_requiring_regeneration.empty()) {
             PushLog(ui_state, "Bundle template updated; regeneration required bundles=" +
                                       std::to_string(deps.bundles_requiring_regeneration.size()) + " sessions=" +
@@ -2198,11 +2206,11 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
             PushLog(ui_state, "Bundle template updated; dirty spans=" +
                                       std::to_string(apply.change_set.dirty_span_ids.size()));
           }
-          LoadBundleTemplateState(state, ui_state, tpl.id);
+          LoadBundleTemplateState(viewer_core_state::View(state), ui_state, tpl.id);
         }
       }
     }
-    const auto& template_deps = state.view().template_dependency_state();
+    const auto& template_deps = view.template_dependency_state();
     ImGui::Text("Regen Required Bundles: %d", static_cast<int>(template_deps.bundles_requiring_regeneration.size()));
     ImGui::Text("Regen Required Sessions: %d", static_cast<int>(template_deps.sessions_requiring_regeneration.size()));
 
@@ -2221,7 +2229,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
       settings.support_arm_extra_m = ui_state.visual_support_arm_extra;
       settings.insulator_radius_m = ui_state.visual_insulator_radius;
       settings.insulator_length_m = ui_state.visual_insulator_length;
-      const auto apply = state.UpdateVisualSettings(settings, true);
+      const auto apply = viewer_core_state::UpdateVisualSettings(state, settings, true);
       if (!apply.ok) {
         ui_state.last_error = apply.error;
         PushLog(ui_state, "UpdateVisualSettings failed");
@@ -2239,12 +2247,12 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
     wire::core::CommitOptions options{};
     options.run_recalc = false;
     options.run_validate = true;
-    const wire::core::ValidationResult validation = state.Commit(options).validation;
+    const wire::core::ValidationResult validation = viewer_core_state::Commit(state, options).validation;
     ImGui::Text("Validation: %s", validation.ok() ? "OK" : "ERROR");
   }
 
   if (ImGui::CollapsingHeader("Backbone Junction Debug")) {
-    const wire::core::BackboneResult backbone = state.BuildBackboneResult();
+    const wire::core::BackboneResult backbone = viewer_core_state::BuildBackboneResult(state);
     ImGui::Text("SupportNodes: %d", static_cast<int>(backbone.nodes.size()));
     ImGui::Text("Edges: %d", static_cast<int>(backbone.edges.size()));
     ImGui::Text("Junctions(deg>=3): %d", static_cast<int>(backbone.junctions.size()));

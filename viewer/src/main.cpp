@@ -18,6 +18,7 @@
 #include "raymath.h"
 #include "rlImGui.h"
 #include "app_state.hpp"
+#include "core_state_adapter.hpp"
 #include "scene_query.hpp"
 #include "render_overlay.hpp"
 #include "panels.hpp"
@@ -289,10 +290,11 @@ bool RectangleIntersectsSegment(const Rectangle& rect, const Vector2& a, const V
          SegmentsIntersect2d(a, b, br, bl) || SegmentsIntersect2d(a, b, bl, tl);
 }
 
-std::vector<Vector2> ProjectSpanPolyline(const CoreState& state, const wire::core::EditState& edit, const Camera3D& camera,
+std::vector<Vector2> ProjectSpanPolyline(const wire::core::CoreView& view, const wire::core::EditState& edit,
+                                         const Camera3D& camera,
                                          const wire::core::Span& span) {
   std::vector<Vector2> projected{};
-  if (const wire::core::CurveCacheEntry* curve = state.find_curve_cache(span.id);
+  if (const wire::core::CurveCacheEntry* curve = view.find_curve_cache(span.id);
       curve != nullptr && curve->points.size() >= 2) {
     projected.reserve(curve->points.size());
     for (const wire::core::Vec3d& point : curve->points) {
@@ -341,11 +343,11 @@ bool PolylineIntersectsRectangle(const std::vector<Vector2>& polyline, const Rec
   return false;
 }
 
-SelectionItem PickViewportSelection(const CoreState& state, const Camera3D& camera, const ViewerUiState& ui_state,
+SelectionItem PickViewportSelection(const wire::core::CoreView& view, const Camera3D& camera,
+                                    const ViewerUiState& ui_state,
                                     const Vector2& mouse_screen) {
-  const auto view = state.view();
   const auto& edit = view.edit_state();
-  const wire::core::BackboneResult backbone = state.BuildBackboneResult();
+  const wire::core::BackboneResult backbone = view.build_backbone_result();
   SelectionItem best{};
   float best_distance_sq = kSelectionClickRadiusPx * kSelectionClickRadiusPx;
 
@@ -390,7 +392,7 @@ SelectionItem PickViewportSelection(const CoreState& state, const Camera3D& came
 
   if (ui_state.selection_include_spans) {
     for (const wire::core::Span& span : edit.spans.items()) {
-      const std::vector<Vector2> polyline = ProjectSpanPolyline(state, edit, camera, span);
+      const std::vector<Vector2> polyline = ProjectSpanPolyline(view, edit, camera, span);
       const float d2 = DistanceToProjectedPolylineSquared(polyline, mouse_screen);
       if (d2 < best_distance_sq) {
         best = {SelectedType::kSpan, span.id};
@@ -402,11 +404,10 @@ SelectionItem PickViewportSelection(const CoreState& state, const Camera3D& came
   return best;
 }
 
-std::vector<SelectionItem> CollectViewportSelection(const CoreState& state, const Camera3D& camera,
+std::vector<SelectionItem> CollectViewportSelection(const wire::core::CoreView& view, const Camera3D& camera,
                                                     const ViewerUiState& ui_state, const Rectangle& rect) {
-  const auto view = state.view();
   const auto& edit = view.edit_state();
-  const wire::core::BackboneResult backbone = state.BuildBackboneResult();
+  const wire::core::BackboneResult backbone = view.build_backbone_result();
   std::vector<SelectionItem> items{};
 
   if (ui_state.selection_include_poles) {
@@ -441,7 +442,7 @@ std::vector<SelectionItem> CollectViewportSelection(const CoreState& state, cons
 
   if (ui_state.selection_include_spans) {
     for (const wire::core::Span& span : edit.spans.items()) {
-      const std::vector<Vector2> polyline = ProjectSpanPolyline(state, edit, camera, span);
+      const std::vector<Vector2> polyline = ProjectSpanPolyline(view, edit, camera, span);
       if (PolylineIntersectsRectangle(polyline, rect)) {
         items.push_back({SelectedType::kSpan, span.id});
       }
@@ -475,6 +476,7 @@ void UpdateViewportSelectionInput(const CoreState& state, const Camera3D& camera
   }
 
   const Vector2 mouse_screen = GetMousePosition();
+  const auto view = viewer_core_state::View(state);
   if (!ui_state.drag_selection.active && shift && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
     ui_state.drag_selection.active = true;
     ui_state.drag_selection.start_screen = mouse_screen;
@@ -489,10 +491,10 @@ void UpdateViewportSelectionInput(const CoreState& state, const Camera3D& camera
       const Rectangle rect = SelectionRectangle(ui_state.drag_selection);
       ui_state.drag_selection.active = false;
       if (used_box) {
-        ReplaceSelection(ui_state, CollectViewportSelection(state, camera, ui_state, rect));
+        ReplaceSelection(ui_state, CollectViewportSelection(view, camera, ui_state, rect));
         PushLog(ui_state, "Box select count=" + std::to_string(static_cast<unsigned long long>(ui_state.selection_items.size())));
       } else {
-        const SelectionItem picked = PickViewportSelection(state, camera, ui_state, mouse_screen);
+        const SelectionItem picked = PickViewportSelection(view, camera, ui_state, mouse_screen);
         if (IsValidSelectionItem(picked)) {
           SetPrimarySelection(ui_state, picked.type, picked.id);
         } else {
@@ -504,7 +506,7 @@ void UpdateViewportSelectionInput(const CoreState& state, const Camera3D& camera
   }
 
   if (!shift && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-    const SelectionItem picked = PickViewportSelection(state, camera, ui_state, mouse_screen);
+    const SelectionItem picked = PickViewportSelection(view, camera, ui_state, mouse_screen);
     if (IsValidSelectionItem(picked)) {
       SetPrimarySelection(ui_state, picked.type, picked.id);
     } else {
@@ -703,9 +705,10 @@ int main() {
 
   CoreState state{};
   {
-    wire::core::GeometrySettings geometry = state.view().geometry_settings();
+    const auto view = viewer_core_state::View(state);
+    wire::core::GeometrySettings geometry = view.geometry_settings();
     geometry.sag_enabled = true;
-    (void)state.UpdateGeometrySettings(geometry, false);
+    (void)viewer_core_state::UpdateGeometrySettings(state, geometry, false);
   }
   ViewerUiState ui_state;
   ui_state.ui_unified_workspace = persisted.ui_unified_workspace;
@@ -741,18 +744,19 @@ int main() {
     UpdateCameraForViewport(&camera, ui_state);
     UpdateViewportSelectionInput(state, camera, ui_state);
     UpdateDrawPathInput(state, camera, ui_state);
+    const auto view = viewer_core_state::View(state);
     if (ui_state.auto_recalc) {
       wire::core::CommitOptions options{};
       options.run_recalc = true;
       options.run_validate = false;
-      (void)state.Commit(options);
+      (void)viewer_core_state::Commit(state, options);
     }
-    UpdatePreferredVisibleSpans(state.view(), camera, ui_state);
+    UpdatePreferredVisibleSpans(view, camera, ui_state);
 
     BeginMode3D(camera);
     DrawGroundGrid();
     DrawAxes();
-    DrawCore(state.view(), ui_state);
+    DrawCore(view, ui_state);
     DrawPathPreview(ui_state);
     EndMode3D();
 

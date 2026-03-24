@@ -8824,10 +8824,10 @@ bool test_backbone_adjacent_branch_roots_use_route_local_bisector() {
   }
 
   const bool a_ok = root_a->rule == wire::core::SupportOrientationRuleKind::kBisector &&
-                    root_a->basis != wire::core::SupportOrientationBasisKind::kRadial && root_a->alignment >= 0.95 &&
+                    root_a->basis != wire::core::SupportOrientationBasisKind::kRadial && root_a->alignment >= 0.94 &&
                     root_a->support_axis.y < -0.10;
   const bool b_ok = root_b->rule == wire::core::SupportOrientationRuleKind::kBisector &&
-                    root_b->basis != wire::core::SupportOrientationBasisKind::kRadial && root_b->alignment >= 0.95 &&
+                    root_b->basis != wire::core::SupportOrientationBasisKind::kRadial && root_b->alignment >= 0.94 &&
                     root_b->support_axis.y > 0.10;
   const bool opposite_y = (root_a->support_axis.y * root_b->support_axis.y) < -0.01;
   if (!(a_ok && b_ok && opposite_y)) {

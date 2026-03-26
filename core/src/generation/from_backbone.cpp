@@ -1,4 +1,6 @@
 ﻿#include "wire/core/core_state.hpp"
+#include "wire/core/coord_utils.hpp"
+#include "wire/core/core_view.hpp"
 #include "../pole_orientation_utils.hpp"
 #include "backbone_prepare.hpp"
 #include "detail_utils.hpp"
@@ -9,6 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -98,6 +101,63 @@ SupportLayoutDecisionSeedEndpoint make_support_layout_seed_endpoint(const Span& 
   endpoint.automatic_branch_down_offset_m = uses_lowering ? assignment.branch_down_offset_m : 0.0;
   endpoint.branch_down_offset_m = uses_lowering ? assignment.branch_down_offset_m : 0.0;
   return endpoint;
+}
+
+double template_layer_base_z_for_port_category_seed(const CoreState& state, const Pole& pole, ConnectionCategory category) {
+  double best_z = -std::numeric_limits<double>::infinity();
+  const auto pole_type_it = state.view().pole_types().find(pole.pole_type_id);
+  const int target_layer = generation::detail::TemplateLayerForCategory(category);
+  if (pole_type_it != state.view().pole_types().end()) {
+    for (const PortPlacementBand& band : pole_type_it->second.port_bands) {
+      if (band.enabled && band.layer == target_layer) {
+        best_z = std::max(best_z, band.height_max_m);
+      }
+    }
+    if (!std::isfinite(best_z)) {
+      for (const PortPlacementBand& band : pole_type_it->second.port_bands) {
+        if (band.enabled && band.category == category) {
+          best_z = std::max(best_z, band.height_max_m);
+        }
+      }
+    }
+  }
+  if (std::isfinite(best_z)) {
+    return best_z;
+  }
+  return std::max(0.5, pole.height_m * 0.8);
+}
+
+void append_seed_support_group_decision(const CoreState& state, const Port& port,
+                                        const SupportLayoutDecisionSeedEndpoint& endpoint,
+                                        SpanSupportLayoutDecisionSeed* layout) {
+  if (layout == nullptr || !UsesAuthoritativeGroupedLoweredSupport(endpoint.decision)) {
+    return;
+  }
+  const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint.decision);
+  if (key.owner_pole_id == kInvalidObjectId || key.support_group_id < 0) {
+    return;
+  }
+  const Pole* pole = state.view().poles().find(key.owner_pole_id);
+  if (pole == nullptr) {
+    return;
+  }
+  auto [it, inserted] = layout->support_group_decisions.try_emplace(key);
+  if (inserted) {
+    SupportGroupDecision& group = it->second;
+    group.decision = endpoint.decision;
+    group.decision.owner_pole_id = endpoint.owner_pole_id;
+    group.decision.support_group_id = endpoint.decision.support_group_id;
+    group.side = endpoint.side;
+    group.origin = endpoint.origin;
+    group.down_offset_m = endpoint.branch_down_offset_m;
+    group.down_offset_variation = endpoint.down_offset_variation;
+    Vec3d support_world = pole->world_transform.position;
+    const double template_support_z = template_layer_base_z_for_port_category_seed(state, *pole, port.category);
+    SetHeightAlongWorldUp(&support_world, template_support_z - endpoint.branch_down_offset_m);
+    group.support_world = support_world;
+  }
+  it->second.grouped_port_count += 1;
+  it->second.attachment_worlds.push_back(port.world_position);
 }
 
 struct BackboneBundlePlan {
@@ -230,7 +290,7 @@ BackboneDecisionPhaseOutput run_backbone_decision_phase(const BackboneDecisionPh
 }
 
 std::vector<SpanSupportLayoutDecisionSeed>
-build_seed_generated_support_layouts(const EditState& edit_state, const std::vector<ObjectId>& span_ids,
+build_seed_generated_support_layouts(const CoreState& state, const EditState& edit_state, const std::vector<ObjectId>& span_ids,
                                      const std::vector<SegmentLaneAssignment>& lane_assignments,
                                      std::uint64_t variation_flow_key) {
   std::vector<SpanSupportLayoutDecisionSeed> layouts{};
@@ -258,6 +318,8 @@ build_seed_generated_support_layouts(const EditState& edit_state, const std::vec
       layout.lowering_kind = assignment.lowering_kind;
       layout.start = make_support_layout_seed_endpoint(*span, *port_a, assignment, assignment.decision_a, true);
       layout.end = make_support_layout_seed_endpoint(*span, *port_b, assignment, assignment.decision_b, false);
+      append_seed_support_group_decision(state, *port_a, layout.start, &layout);
+      append_seed_support_group_decision(state, *port_b, layout.end, &layout);
       layouts.push_back(std::move(layout));
     }
   }
@@ -2415,7 +2477,7 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
         phase_result.value.edge_orientations.insert(phase_result.value.edge_orientations.end(),
                                                     edge_orientations.begin(), edge_orientations.end());
         std::vector<SpanSupportLayoutDecisionSeed> seeded_support_layouts =
-            build_seed_generated_support_layouts(edit_state_access(), spans_result.value, lane_assignments,
+            build_seed_generated_support_layouts(*this, edit_state_access(), spans_result.value, lane_assignments,
                                                  variation_flow_key);
         for (SpanSupportLayoutDecisionSeed& layout : seeded_support_layouts) {
           cache_span_support_layout_seed(std::move(layout));

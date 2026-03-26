@@ -395,6 +395,7 @@ void apply_support_layout_decision_seed(const SpanSupportLayoutDecisionSeed& see
   layout->lowering_kind = seed.lowering_kind;
   apply_support_layout_decision_seed_endpoint(seed.start, &layout->start);
   apply_support_layout_decision_seed_endpoint(seed.end, &layout->end);
+  layout->support_group_decisions = seed.support_group_decisions;
 }
 
 void apply_authoritative_support_layout_decisions(const SpanSupportLayoutEntry& authoritative_layout,
@@ -410,25 +411,14 @@ void apply_authoritative_support_layout_decisions(const SpanSupportLayoutEntry& 
   layout->end.flow_kind = authoritative_layout.flow_kind;
   layout->start.origin = authoritative_layout.start.origin;
   layout->end.origin = authoritative_layout.end.origin;
+  layout->support_group_decisions = authoritative_layout.support_group_decisions;
 }
 
 namespace {
 
-void apply_authoritative_group_decision_fields(const EndpointContinuityDecision& decision,
-                                               const SupportLayoutEndpoint& endpoint, SupportGroupDecision* group) {
-  if (group == nullptr) {
-    return;
-  }
-  group->decision = decision;
-  group->decision.owner_pole_id = endpoint.owner_pole_id;
-  group->decision.support_group_id = decision.support_group_id;
-  group->side = endpoint.side;
-  group->origin = endpoint.origin;
-}
-
 std::pair<Vec3d, Vec3d> shared_support_anchor_points(const Pole& pole, const Vec3d& support_axis, double z_m,
                                                      const CacheState& cache_state) {
-  Vec3d axis = SafeHorizontalNormalized(support_axis, {1.0, 0.0, 0.0});
+  Vec3d axis = SafeHorizontalNormalized(support_axis);
   const double mount_radius =
       cache_state.visual_settings.support_center_threshold_m + cache_state.geometry_settings.pole_clearance_m;
   const double tip_radius = mount_radius + cache_state.visual_settings.support_arm_extra_m;
@@ -445,40 +435,19 @@ std::pair<Vec3d, Vec3d> shared_support_anchor_points(const Pole& pole, const Vec
   return {mount, tip};
 }
 
-bool apply_endpoint_to_support_group_decision(
+bool merge_layout_support_group_decision(
     std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash>* groups,
-    const CoreState& state, const EditState& edit_state, const SupportLayoutEndpoint& endpoint) {
-  if (groups == nullptr || !endpoint_uses_grouped_lowered_support(&endpoint)) {
+    const LoweredSupportGroupKey& key, const SupportGroupDecision& group_copy) {
+  if (groups == nullptr || key.owner_pole_id == kInvalidObjectId || key.support_group_id < 0) {
     return false;
   }
-  const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint.decision);
-  if (key.owner_pole_id == kInvalidObjectId || key.support_group_id < 0) {
-    return false;
+  auto [it, inserted] = groups->try_emplace(key, group_copy);
+  if (!inserted) {
+    it->second.grouped_port_count += group_copy.grouped_port_count;
+    it->second.attachment_worlds.insert(it->second.attachment_worlds.end(), group_copy.attachment_worlds.begin(),
+                                        group_copy.attachment_worlds.end());
+    return true;
   }
-  const Pole* pole = edit_state.poles.find(key.owner_pole_id);
-  if (pole == nullptr) {
-    return false;
-  }
-  const Port* port = edit_state.ports.find(endpoint.port_id);
-  if (port == nullptr) {
-    return false;
-  }
-  const double template_support_z = template_layer_base_z_for_port_category(state, *pole, port->category);
-  const double support_z = template_support_z - endpoint.branch_down_offset_m;
-  Vec3d support_world = pole->world_transform.position;
-  SetHeightAlongWorldUp(&support_world, support_z);
-  const Vec3d attachment_world = port->world_position;
-  auto [existing, inserted] = groups->try_emplace(key);
-  if (inserted) {
-    SupportGroupDecision& group = existing->second;
-    apply_authoritative_group_decision_fields(endpoint.decision, endpoint, &group);
-    group.down_offset_m = endpoint.branch_down_offset_m;
-    group.support_world = support_world;
-    group.down_offset_variation = endpoint.down_offset_variation;
-    group.grouped_port_count = 0;
-  }
-  existing->second.grouped_port_count += 1;
-  existing->second.attachment_worlds.push_back(attachment_world);
   return true;
 }
 
@@ -486,26 +455,23 @@ LoweredSupportGroupPlacement build_grouped_support_placement_from_decision(const
                                                                            const EditState& edit_state,
                                                                            const CacheState& cache_state) {
   LoweredSupportGroupPlacement group{};
-  group.decision = group_decision.decision;
-  group.side = group_decision.side;
-  group.origin = group_decision.origin;
   group.grouping_rule = SupportGroupingRuleKind::kDecisionGroup;
   group.grouped_port_count = group_decision.grouped_port_count;
   group.down_offset_m = group_decision.down_offset_m;
   group.attachment_worlds = group_decision.attachment_worlds;
   group.down_offset_variation = group_decision.down_offset_variation;
 
-  const Pole* pole = edit_state.poles.find(group.decision.owner_pole_id);
+  const Pole* pole = edit_state.poles.find(group_decision.decision.owner_pole_id);
   if (pole == nullptr) {
     return group;
   }
-  Vec3d support_axis = group.decision.side_axis;
+  Vec3d support_axis = group_decision.decision.side_axis;
   support_axis.z = 0.0;
   if (!Normalize(&support_axis) || !IsFiniteXY(support_axis)) {
     return group;
   }
-  if (std::abs(group.decision.chosen_side_sign) > 1e-9) {
-    support_axis = ScaleVec(support_axis, (group.decision.chosen_side_sign >= 0.0) ? 1.0 : -1.0);
+  if (std::abs(group_decision.decision.chosen_side_sign) > 1e-9) {
+    support_axis = ScaleVec(support_axis, (group_decision.decision.chosen_side_sign >= 0.0) ? 1.0 : -1.0);
   }
   const auto [mount_world, tip_world] =
       shared_support_anchor_points(*pole, support_axis, group_decision.support_world.z, cache_state);
@@ -533,6 +499,7 @@ void rebuild_all_lowered_support_groups(const CoreState& state, const EditState&
   if (cache_state == nullptr) {
     return;
   }
+  (void)state;
   cache_state->support_layout_cache.support_group_decisions.clear();
   cache_state->support_layout_cache.lowered_support_groups.clear();
   std::vector<ObjectId> ordered_span_ids{};
@@ -548,22 +515,9 @@ void rebuild_all_lowered_support_groups(const CoreState& state, const EditState&
     }
     auto& layout = layout_it->second;
     layout.lowered_support_group_keys.clear();
-    if (endpoint_uses_grouped_lowered_support(&layout.start)) {
-      const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(layout.start.decision);
+    for (const auto& [key, group_copy] : layout.support_group_decisions) {
       const bool accepted =
-          apply_endpoint_to_support_group_decision(&cache_state->support_layout_cache.support_group_decisions, state,
-                                                   edit_state, layout.start);
-      if (accepted &&
-          std::find(layout.lowered_support_group_keys.begin(), layout.lowered_support_group_keys.end(), key) ==
-              layout.lowered_support_group_keys.end()) {
-        layout.lowered_support_group_keys.push_back(key);
-      }
-    }
-    if (endpoint_uses_grouped_lowered_support(&layout.end)) {
-      const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(layout.end.decision);
-      const bool accepted =
-          apply_endpoint_to_support_group_decision(&cache_state->support_layout_cache.support_group_decisions, state,
-                                                   edit_state, layout.end);
+          merge_layout_support_group_decision(&cache_state->support_layout_cache.support_group_decisions, key, group_copy);
       if (accepted &&
           std::find(layout.lowered_support_group_keys.begin(), layout.lowered_support_group_keys.end(), key) ==
               layout.lowered_support_group_keys.end()) {

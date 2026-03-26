@@ -514,26 +514,31 @@ std::vector<LoweredSupportGroupInspectionView> BuildLoweredSupportGroupInspectio
     if (it == cache_state.support_layout_cache.lowered_support_groups.end()) {
       continue;
     }
+    const auto decision_it = cache_state.support_layout_cache.support_group_decisions.find(key);
+    if (decision_it == cache_state.support_layout_cache.support_group_decisions.end()) {
+      continue;
+    }
     const LoweredSupportGroupPlacement& source = it->second;
+    const SupportGroupDecision& authority = decision_it->second;
     LoweredSupportGroupInspectionView group{};
-    group.owner_pole_id = source.decision.owner_pole_id;
-    group.decision = source.decision;
-    group.pair_peer_low = source.decision.support_pair_peer_low;
-    group.pair_peer_high = source.decision.support_pair_peer_high;
-    group.side = source.side;
-    group.origin = SupportLayoutOriginText(source.origin);
+    group.owner_pole_id = authority.decision.owner_pole_id;
+    group.decision = authority.decision;
+    group.pair_peer_low = authority.decision.support_pair_peer_low;
+    group.pair_peer_high = authority.decision.support_pair_peer_high;
+    group.side = authority.side;
+    group.origin = SupportLayoutOriginText(authority.origin);
     group.grouping_rule = source.grouping_rule;
-    group.support_group_id = source.decision.support_group_id;
+    group.support_group_id = authority.decision.support_group_id;
     group.grouped_port_count = source.grouped_port_count;
-    group.order_decision_policy = source.decision.order_decision_policy;
-    group.order_decision_choice = source.decision.order_decision_choice;
-    group.order_decision_choice_reason = source.decision.order_decision_choice_reason;
-    group.side_assignment_rule = source.decision.side_assignment_rule;
-    group.support_orientation_rule = source.decision.support_orientation_rule;
-    group.used_junction_pair_side_assignment = source.decision.used_junction_pair_side_assignment;
-    group.has_side_axis = source.decision.has_side_axis;
-    group.side_axis = source.decision.side_axis;
-    group.chosen_side_sign = source.decision.chosen_side_sign;
+    group.order_decision_policy = authority.decision.order_decision_policy;
+    group.order_decision_choice = authority.decision.order_decision_choice;
+    group.order_decision_choice_reason = authority.decision.order_decision_choice_reason;
+    group.side_assignment_rule = authority.decision.side_assignment_rule;
+    group.support_orientation_rule = authority.decision.support_orientation_rule;
+    group.used_junction_pair_side_assignment = authority.decision.used_junction_pair_side_assignment;
+    group.has_side_axis = authority.decision.has_side_axis;
+    group.side_axis = authority.decision.side_axis;
+    group.chosen_side_sign = authority.decision.chosen_side_sign;
     group.down_offset_m = source.down_offset_m;
     group.mount_world = source.mount_world;
     group.tip_world = source.tip_world;
@@ -601,6 +606,41 @@ SupportLayoutEndpointView MakeSupportLayoutEndpointView(const SupportLayoutEndpo
   view.used_special_case_ports = endpoint.decision.used_special_case_ports;
   view.down_offset_variation = MakeVariationBreakdownView(endpoint.down_offset_variation);
   return view;
+}
+
+void ApplyAuthoritativeGroupedEndpointDecision(const CacheState& cache_state, const SupportLayoutEndpoint& endpoint,
+                                               SupportLayoutEndpointView* view) {
+  if (view == nullptr || !UsesAuthoritativeGroupedLoweredSupport(endpoint.decision)) {
+    return;
+  }
+  const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint.decision);
+  const auto it = cache_state.support_layout_cache.support_group_decisions.find(key);
+  if (it == cache_state.support_layout_cache.support_group_decisions.end()) {
+    return;
+  }
+  const SupportGroupDecision& authority = it->second;
+  view->decision.support_pair_peer_low = authority.decision.support_pair_peer_low;
+  view->decision.support_pair_peer_high = authority.decision.support_pair_peer_high;
+  view->decision.side_assignment_rule = authority.decision.side_assignment_rule;
+  view->decision.support_orientation_rule = authority.decision.support_orientation_rule;
+  view->decision.support_orientation_basis = authority.decision.support_orientation_basis;
+  view->decision.used_junction_pair_side_assignment = authority.decision.used_junction_pair_side_assignment;
+  view->decision.has_side_axis = authority.decision.has_side_axis;
+  view->decision.side_axis = authority.decision.side_axis;
+  view->decision.chosen_side_sign = authority.decision.chosen_side_sign;
+  view->decision.chosen_side = authority.decision.chosen_side;
+  view->relation_kind = authority.decision.relation_kind;
+  view->continuity_class = authority.decision.continuity_class;
+  view->default_lower_required = authority.decision.default_lower_required;
+  view->order_decision_policy = authority.decision.order_decision_policy;
+  view->order_decision_choice = authority.decision.order_decision_choice;
+  view->order_decision_choice_reason = authority.decision.order_decision_choice_reason;
+  view->side_assignment_rule = authority.decision.side_assignment_rule;
+  view->support_orientation_rule = authority.decision.support_orientation_rule;
+  view->used_junction_pair_side_assignment = authority.decision.used_junction_pair_side_assignment;
+  view->has_side_axis = authority.decision.has_side_axis;
+  view->side_axis = authority.decision.side_axis;
+  view->chosen_side_sign = authority.decision.chosen_side_sign;
 }
 
 } // namespace
@@ -843,6 +883,8 @@ std::optional<SupportLayoutInspectionView> CoreView::inspect_support_layout(Obje
   result.lowering_kind = layout->lowering_kind;
   result.start_endpoint = MakeSupportLayoutEndpointView(layout->start);
   result.end_endpoint = MakeSupportLayoutEndpointView(layout->end);
+  ApplyAuthoritativeGroupedEndpointDecision(state_.cache_state_, layout->start, &result.start_endpoint);
+  ApplyAuthoritativeGroupedEndpointDecision(state_.cache_state_, layout->end, &result.end_endpoint);
 
   result.lowered_support_groups = BuildLoweredSupportGroupInspectionViews(state_.cache_state_, *layout);
 

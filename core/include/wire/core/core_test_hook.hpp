@@ -28,6 +28,9 @@ struct CoreStateTestHook {
   static std::unordered_map<ObjectId, JunctionRelation>& last_generation_junction_relations(CoreState& state) {
     return state.last_generation_junction_relations_;
   }
+  static void cache_span_support_layout(CoreState& state, SpanSupportLayoutEntry layout) {
+    state.cache_span_support_layout(std::move(layout));
+  }
 };
 #endif
 

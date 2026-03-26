@@ -475,25 +475,29 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
   const ObjectId pair_peer_low = std::min(pole_b, pole_c);
   const ObjectId pair_peer_high = std::max(pole_b, pole_c);
 
-  auto make_grouped = [&](wire::core::LoweredSupportGroupPlacement* group, const wire::core::Vec3d& axis,
-                          double down_offset_m, const wire::core::Vec3d& mount_world,
-                          const wire::core::Vec3d& tip_world) {
-    group->decision.owner_pole_id = pole_a;
-    group->decision.relation_kind = wire::core::JunctionRelationKind::kSideBranch;
-    group->decision.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
-    group->decision.lower_required = true;
-    group->decision.default_lower_required = true;
-    group->decision.same_level_feasible = false;
-    group->decision.support_pair_peer_low = pair_peer_low;
-    group->decision.support_pair_peer_high = pair_peer_high;
-    group->decision.chosen_side = wire::core::LateralSideChoiceKind::kRight;
-    group->decision.chosen_side_sign = 1.0;
-    group->decision.side_assignment_rule = wire::core::SideAssignmentRuleKind::kBisector;
-    group->decision.support_orientation_rule = wire::core::SupportOrientationRuleKind::kBisector;
-    group->decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kBisectorForward;
-    group->decision.support_group_id = 1234;
-    group->decision.has_side_axis = true;
-    group->decision.side_axis = axis;
+  auto make_grouped = [&](wire::core::SupportGroupDecision* decision, wire::core::LoweredSupportGroupPlacement* group,
+                          const wire::core::Vec3d& axis, double down_offset_m,
+                          const wire::core::Vec3d& mount_world, const wire::core::Vec3d& tip_world) {
+    decision->decision.owner_pole_id = pole_a;
+    decision->decision.relation_kind = wire::core::JunctionRelationKind::kSideBranch;
+    decision->decision.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
+    decision->decision.lower_required = true;
+    decision->decision.default_lower_required = true;
+    decision->decision.same_level_feasible = false;
+    decision->decision.support_pair_peer_low = pair_peer_low;
+    decision->decision.support_pair_peer_high = pair_peer_high;
+    decision->decision.chosen_side = wire::core::LateralSideChoiceKind::kRight;
+    decision->decision.chosen_side_sign = 1.0;
+    decision->decision.side_assignment_rule = wire::core::SideAssignmentRuleKind::kBisector;
+    decision->decision.support_orientation_rule = wire::core::SupportOrientationRuleKind::kBisector;
+    decision->decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kBisectorForward;
+    decision->decision.support_group_id = 1234;
+    decision->decision.has_side_axis = true;
+    decision->decision.side_axis = axis;
+    decision->down_offset_m = down_offset_m;
+    decision->support_world = tip_world;
+    decision->grouped_port_count = 2;
+    decision->attachment_worlds = {{0.0, 0.8, 5.0}, {0.0, 1.1, 5.0}};
     group->grouping_rule = wire::core::SupportGroupingRuleKind::kDecisionGroup;
     group->grouped_port_count = 2;
     group->down_offset_m = down_offset_m;
@@ -508,15 +512,8 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
   decision_store.clear();
   auto& grouped_store = CoreStateTestHook::cache_state(state).support_layout_cache.lowered_support_groups;
   grouped_store.clear();
-  make_grouped(&grouped_store[{pole_a, 1234}], {1.0, 0.0, 0.0}, 1.0, {0.2, 0.0, 7.0}, {0.6, 0.0, 7.0});
-  auto& decision = decision_store[{pole_a, 1234}];
-  decision.decision = grouped_store[{pole_a, 1234}].decision;
-  decision.side = grouped_store[{pole_a, 1234}].side;
-  decision.origin = grouped_store[{pole_a, 1234}].origin;
-  decision.down_offset_m = grouped_store[{pole_a, 1234}].down_offset_m;
-  decision.support_world = grouped_store[{pole_a, 1234}].tip_world;
-  decision.grouped_port_count = grouped_store[{pole_a, 1234}].grouped_port_count;
-  decision.attachment_worlds = grouped_store[{pole_a, 1234}].attachment_worlds;
+  make_grouped(&decision_store[{pole_a, 1234}], &grouped_store[{pole_a, 1234}], {1.0, 0.0, 0.0}, 1.0,
+               {0.2, 0.0, 7.0}, {0.6, 0.0, 7.0});
 
   auto apply_grouped_endpoint = [&](wire::core::SupportLayoutEndpoint* endpoint, ObjectId owner_pole_id,
                                     ObjectId port_id, const wire::core::Vec3d& endpoint_world) {
@@ -526,10 +523,10 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
     endpoint->owner_pole_id = owner_pole_id;
     endpoint->port_id = port_id;
     endpoint->endpoint_world = endpoint_world;
-    endpoint->decision = grouped_store[{pole_a, 1234}].decision;
+    endpoint->decision = decision_store[{pole_a, 1234}].decision;
     endpoint->decision.owner_pole_id = owner_pole_id;
     endpoint->decision.support_group_id = 1234;
-    endpoint->branch_down_offset_m = grouped_store[{pole_a, 1234}].down_offset_m;
+    endpoint->branch_down_offset_m = decision_store[{pole_a, 1234}].down_offset_m;
     endpoint->support_world = grouped_store[{pole_a, 1234}].tip_world;
   };
   apply_grouped_endpoint(&it_ab->second.start, pole_a, port_ab_a, {0.0, 0.8, 5.0});
@@ -568,22 +565,27 @@ bool test_inspection_uses_authoritative_lowered_support_groups() {
   it->second.start.decision.support_group_id = 777;
   it->second.start.decision.lower_required = true;
   it->second.lowered_support_group_keys = {{pole_a, 777}};
+  auto& decision = CoreStateTestHook::cache_state(state).support_layout_cache.support_group_decisions[{pole_a, 777}];
   auto& group = CoreStateTestHook::cache_state(state).support_layout_cache.lowered_support_groups[{pole_a, 777}];
-  group.decision.owner_pole_id = pole_a;
-  group.decision.relation_kind = wire::core::JunctionRelationKind::kSideBranch;
-  group.decision.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
-  group.decision.lower_required = true;
-  group.decision.default_lower_required = true;
-  group.decision.same_level_feasible = false;
-  group.decision.support_pair_peer_low = pole_a;
-  group.decision.support_pair_peer_high = pole_b;
-  group.decision.chosen_side = wire::core::LateralSideChoiceKind::kLeft;
-  group.decision.chosen_side_sign = -1.0;
-  group.decision.support_orientation_rule = wire::core::SupportOrientationRuleKind::kChord;
-  group.decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kChordForward;
-  group.decision.support_group_id = 777;
-  group.decision.has_side_axis = true;
-  group.decision.side_axis = {0.0, 1.0, 0.0};
+  decision.decision.owner_pole_id = pole_a;
+  decision.decision.relation_kind = wire::core::JunctionRelationKind::kSideBranch;
+  decision.decision.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
+  decision.decision.lower_required = true;
+  decision.decision.default_lower_required = true;
+  decision.decision.same_level_feasible = false;
+  decision.decision.support_pair_peer_low = pole_a;
+  decision.decision.support_pair_peer_high = pole_b;
+  decision.decision.chosen_side = wire::core::LateralSideChoiceKind::kLeft;
+  decision.decision.chosen_side_sign = -1.0;
+  decision.decision.support_orientation_rule = wire::core::SupportOrientationRuleKind::kChord;
+  decision.decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kChordForward;
+  decision.decision.support_group_id = 777;
+  decision.decision.has_side_axis = true;
+  decision.decision.side_axis = {0.0, 1.0, 0.0};
+  decision.down_offset_m = 1.25;
+  decision.support_world = {0.0, 0.8, 4.0};
+  decision.grouped_port_count = 1;
+  decision.attachment_worlds = {{0.0, 0.5, 5.0}};
   group.grouping_rule = wire::core::SupportGroupingRuleKind::kDecisionGroup;
   group.grouped_port_count = 1;
   group.down_offset_m = 1.25;
@@ -604,6 +606,167 @@ bool test_inspection_uses_authoritative_lowered_support_groups() {
          helpers::almost_equal(inspected.tip_world, Vec3d{0.0, 0.8, 4.0}) &&
          inspected.attachment_worlds.size() == 1 &&
          helpers::almost_equal(inspected.attachment_worlds.front(), Vec3d{0.0, 0.5, 5.0});
+}
+
+bool test_materialization_reads_layout_owned_support_group_decision() {
+  CoreState state;
+  const ObjectId pole_a =
+      state.AddPole(Transformd{{0.0, 0.0, 0.0}}, 10.0, "A", PoleKind::kGeneric, PlacementMode::kAuto).value;
+  const ObjectId pole_b =
+      state.AddPole(Transformd{{10.0, 0.0, 0.0}}, 10.0, "B", PoleKind::kGeneric, PlacementMode::kAuto).value;
+  const ObjectId port_a = state.AddPort(pole_a, {0.0, 0.3, 5.0}).value;
+  const ObjectId port_b = state.AddPort(pole_b, {10.0, 0.3, 5.0}).value;
+  const ObjectId span = state.AddSpan(port_a, port_b).value;
+  (void)state.Commit();
+
+  auto& layouts = CoreStateTestHook::cache_state(state).support_layout_cache.by_span;
+  auto it = layouts.find(span);
+  if (it == layouts.end()) {
+    return false;
+  }
+
+  wire::core::SpanSupportLayoutEntry layout = it->second;
+  layout.start.owner_pole_id = pole_a;
+  layout.start.port_id = port_a;
+  layout.start.endpoint_world = {0.0, 0.5, 5.0};
+  layout.start.decision.owner_pole_id = pole_a;
+  layout.start.decision.relation_kind = wire::core::JunctionRelationKind::kSideBranch;
+  layout.start.decision.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
+  layout.start.decision.lower_required = true;
+  layout.start.decision.default_lower_required = true;
+  layout.start.decision.same_level_feasible = false;
+  layout.start.decision.support_group_id = 777;
+  layout.start.decision.support_pair_peer_low = pole_a;
+  layout.start.decision.support_pair_peer_high = pole_b;
+  layout.start.decision.side_assignment_rule = wire::core::SideAssignmentRuleKind::kChord;
+  layout.start.decision.support_orientation_rule = wire::core::SupportOrientationRuleKind::kChord;
+  layout.start.decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kChordForward;
+  layout.start.decision.chosen_side = wire::core::LateralSideChoiceKind::kRight;
+  layout.start.decision.chosen_side_sign = 1.0;
+  layout.start.decision.has_side_axis = true;
+  layout.start.decision.side_axis = {1.0, 0.0, 0.0};
+  layout.start.branch_down_offset_m = 9.0;
+  layout.start.down_offset_variation = {};
+  layout.start.support_world = {9.0, 9.0, 9.0};
+
+  layout.support_group_decisions.clear();
+  wire::core::SupportGroupDecision authoritative{};
+  authoritative.decision.owner_pole_id = pole_a;
+  authoritative.decision.relation_kind = wire::core::JunctionRelationKind::kSideBranch;
+  authoritative.decision.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
+  authoritative.decision.lower_required = true;
+  authoritative.decision.default_lower_required = true;
+  authoritative.decision.same_level_feasible = false;
+  authoritative.decision.support_pair_peer_low = pole_a;
+  authoritative.decision.support_pair_peer_high = pole_b;
+  authoritative.decision.side_assignment_rule = wire::core::SideAssignmentRuleKind::kBisector;
+  authoritative.decision.support_orientation_rule = wire::core::SupportOrientationRuleKind::kBisector;
+  authoritative.decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kBisectorForward;
+  authoritative.decision.chosen_side = wire::core::LateralSideChoiceKind::kLeft;
+  authoritative.decision.chosen_side_sign = -1.0;
+  authoritative.decision.support_group_id = 777;
+  authoritative.decision.has_side_axis = true;
+  authoritative.decision.side_axis = {0.0, 1.0, 0.0};
+  authoritative.side = wire::core::SlotSide::kLeft;
+  authoritative.origin = wire::core::SupportLayoutOriginKind::kBranchSupport;
+  authoritative.down_offset_m = 1.25;
+  authoritative.support_world = {0.0, 0.8, 6.75};
+  authoritative.grouped_port_count = 1;
+  authoritative.attachment_worlds = {{0.0, 0.5, 5.0}};
+  layout.support_group_decisions[{pole_a, 777}] = authoritative;
+
+  CoreStateTestHook::cache_span_support_layout(state, std::move(layout));
+
+  auto& cache = CoreStateTestHook::cache_state(state).support_layout_cache;
+  const auto decision_it = cache.support_group_decisions.find({pole_a, 777});
+  const auto layout_it = cache.by_span.find(span);
+  if (decision_it == cache.support_group_decisions.end() || layout_it == cache.by_span.end()) {
+    return false;
+  }
+
+  const auto validation = helpers::validate_now(state);
+  return validation.ok() &&
+         decision_it->second.decision.side_assignment_rule == wire::core::SideAssignmentRuleKind::kBisector &&
+         decision_it->second.decision.support_orientation_rule == wire::core::SupportOrientationRuleKind::kBisector &&
+         decision_it->second.decision.support_orientation_basis ==
+             wire::core::SupportOrientationBasisKind::kBisectorForward &&
+         helpers::almost_equal(decision_it->second.decision.chosen_side_sign, -1.0) &&
+         helpers::almost_equal(decision_it->second.decision.side_axis, Vec3d{0.0, 1.0, 0.0}) &&
+         helpers::almost_equal(decision_it->second.down_offset_m, 1.25) &&
+         layout_it->second.lowered_support_group_keys.size() == 1 &&
+         layout_it->second.lowered_support_group_keys.front() == wire::core::LoweredSupportGroupKey{pole_a, 777} &&
+         layout_it->second.start.decision.side_assignment_rule == wire::core::SideAssignmentRuleKind::kBisector &&
+         layout_it->second.start.decision.support_orientation_rule ==
+             wire::core::SupportOrientationRuleKind::kBisector &&
+         layout_it->second.start.decision.support_orientation_basis ==
+             wire::core::SupportOrientationBasisKind::kBisectorForward &&
+         helpers::almost_equal(layout_it->second.start.decision.chosen_side_sign, -1.0) &&
+         helpers::almost_equal(layout_it->second.start.decision.side_axis, Vec3d{0.0, 1.0, 0.0}) &&
+         helpers::almost_equal(layout_it->second.start.branch_down_offset_m, 1.25);
+}
+
+bool test_validation_treats_grouped_endpoint_semantics_as_derived_copies() {
+  CoreState state;
+  const ObjectId pole_a =
+      state.AddPole(Transformd{{0.0, 0.0, 0.0}}, 10.0, "A", PoleKind::kGeneric, PlacementMode::kAuto).value;
+  const ObjectId pole_b =
+      state.AddPole(Transformd{{10.0, 0.0, 0.0}}, 10.0, "B", PoleKind::kGeneric, PlacementMode::kAuto).value;
+  const ObjectId port_a = state.AddPort(pole_a, {0.0, 0.3, 5.0}).value;
+  const ObjectId port_b = state.AddPort(pole_b, {10.0, 0.3, 5.0}).value;
+  const ObjectId span = state.AddSpan(port_a, port_b).value;
+  (void)state.Commit();
+
+  auto& layouts = CoreStateTestHook::cache_state(state).support_layout_cache.by_span;
+  auto it = layouts.find(span);
+  if (it == layouts.end()) {
+    return false;
+  }
+
+  wire::core::SpanSupportLayoutEntry layout = it->second;
+  layout.start.owner_pole_id = pole_a;
+  layout.start.port_id = port_a;
+  layout.start.endpoint_world = {0.0, 0.5, 5.0};
+  layout.start.decision.owner_pole_id = pole_a;
+  layout.start.decision.relation_kind = wire::core::JunctionRelationKind::kSideBranch;
+  layout.start.decision.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
+  layout.start.decision.lower_required = true;
+  layout.start.decision.default_lower_required = true;
+  layout.start.decision.same_level_feasible = false;
+  layout.start.decision.support_group_id = 777;
+  layout.start.decision.support_pair_peer_low = pole_a;
+  layout.start.decision.support_pair_peer_high = pole_b;
+  layout.start.decision.side_assignment_rule = wire::core::SideAssignmentRuleKind::kBisector;
+  layout.start.decision.support_orientation_rule = wire::core::SupportOrientationRuleKind::kBisector;
+  layout.start.decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kBisectorForward;
+  layout.start.decision.chosen_side = wire::core::LateralSideChoiceKind::kLeft;
+  layout.start.decision.chosen_side_sign = -1.0;
+  layout.start.decision.has_side_axis = true;
+  layout.start.decision.side_axis = {0.0, 1.0, 0.0};
+  layout.start.branch_down_offset_m = 1.25;
+  layout.start.support_world = {0.0, 0.8, 6.75};
+
+  layout.support_group_decisions.clear();
+  wire::core::SupportGroupDecision authoritative{};
+  authoritative.decision = layout.start.decision;
+  authoritative.side = wire::core::SlotSide::kLeft;
+  authoritative.origin = wire::core::SupportLayoutOriginKind::kBranchSupport;
+  authoritative.down_offset_m = 1.25;
+  authoritative.support_world = {0.0, 0.8, 6.75};
+  authoritative.grouped_port_count = 1;
+  authoritative.attachment_worlds = {{0.0, 0.5, 5.0}};
+  layout.support_group_decisions[{pole_a, 777}] = authoritative;
+
+  CoreStateTestHook::cache_span_support_layout(state, std::move(layout));
+  auto& cached_layout = CoreStateTestHook::cache_state(state).support_layout_cache.by_span[span];
+  cached_layout.start.decision.side_assignment_rule = wire::core::SideAssignmentRuleKind::kChord;
+  cached_layout.start.decision.support_orientation_rule = wire::core::SupportOrientationRuleKind::kChord;
+  cached_layout.start.decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kChordForward;
+  cached_layout.start.decision.chosen_side = wire::core::LateralSideChoiceKind::kRight;
+  cached_layout.start.decision.chosen_side_sign = 1.0;
+  cached_layout.start.decision.side_axis = {1.0, 0.0, 0.0};
+
+  const auto validation = helpers::validate_now(state);
+  return validation.ok();
 }
 
 void RegisterStateServiceTests(test_registry::TestRegistry& tests) {
@@ -639,8 +802,14 @@ void RegisterStateServiceTests(test_registry::TestRegistry& tests) {
                          "grouped support identity uses a single authoritative placement",
                          "Invariant", false, &test_grouped_support_identity_uses_single_authoritative_placement);
   test_registry::AddTest(tests, "C263_Inspection_UsesAuthoritativeLoweredSupportGroups",
-                         "inspection maps authoritative lowered support placements instead of reconstructing from endpoints",
+                         "inspection maps authoritative support-group decision and grouped placement instead of reconstructing from endpoints",
                          "Invariant", false, &test_inspection_uses_authoritative_lowered_support_groups);
+  test_registry::AddTest(tests, "C280_CoreStateService_GroupMaterializationConsumesLayoutAuthority",
+                         "grouped support materialization consumes layout-owned support-group decisions instead of reconstructing authority from endpoint copies",
+                         "Invariant", false, &test_materialization_reads_layout_owned_support_group_decision);
+  test_registry::AddTest(tests, "C281_Validation_GroupAuthorityBeatsEndpointSemanticCopies",
+                         "validation treats grouped endpoint semantics as derived copies and uses support-group authority as the semantic owner",
+                         "Invariant", false, &test_validation_treats_grouped_endpoint_semantics_as_derived_copies);
 }
 
 WIRE_REGISTER_TEST_SUITE(RegisterStateServiceTests);

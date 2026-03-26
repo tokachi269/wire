@@ -89,16 +89,6 @@ struct SupportLayoutDecisionSeedEndpoint {
   HierarchicalVariationSample down_offset_variation{};
 };
 
-struct SpanSupportLayoutDecisionSeed {
-  ObjectId span_id = kInvalidObjectId;
-  BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
-  CurvePassMode pass_mode = CurvePassMode::kPassThrough;
-  std::uint64_t variation_flow_key = 0;
-  BackboneLoweringKind lowering_kind = BackboneLoweringKind::kNone;
-  SupportLayoutDecisionSeedEndpoint start{};
-  SupportLayoutDecisionSeedEndpoint end{};
-};
-
 struct SupportGroupDecision {
   EndpointContinuityDecision decision{};
   SlotSide side = SlotSide::kCenter;
@@ -110,10 +100,19 @@ struct SupportGroupDecision {
   std::vector<Vec3d> attachment_worlds{};
 };
 
+struct SpanSupportLayoutDecisionSeed {
+  ObjectId span_id = kInvalidObjectId;
+  BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
+  CurvePassMode pass_mode = CurvePassMode::kPassThrough;
+  std::uint64_t variation_flow_key = 0;
+  BackboneLoweringKind lowering_kind = BackboneLoweringKind::kNone;
+  SupportLayoutDecisionSeedEndpoint start{};
+  SupportLayoutDecisionSeedEndpoint end{};
+  std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash> support_group_decisions{};
+};
+
 struct LoweredSupportGroupPlacement {
-  EndpointContinuityDecision decision{};
-  SlotSide side = SlotSide::kCenter;
-  SupportLayoutOriginKind origin = SupportLayoutOriginKind::kFallback;
+  // Geometry/materialization only. Semantic authority lives in SupportGroupDecision.
   SupportGroupingRuleKind grouping_rule = SupportGroupingRuleKind::kDecisionGroup;
   int grouped_port_count = 1;
   double down_offset_m = 0.0;
@@ -139,6 +138,7 @@ struct SpanSupportLayoutEntry {
   SupportLayoutEndpoint start{};
   SupportLayoutEndpoint end{};
   std::vector<LoweredSupportGroupKey> lowered_support_group_keys{};
+  std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash> support_group_decisions{};
   std::uint64_t source_version = 0;
 };
 

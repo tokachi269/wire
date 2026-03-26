@@ -109,6 +109,20 @@ struct GenerateBundleFromPathResult {
   std::vector<ObjectId> generated_pole_ids{};
 };
 
+struct PoleDetailInfo {
+  const Pole* pole = nullptr;
+  const PoleTypeDefinition* pole_type = nullptr;
+  std::vector<const Port*> owned_ports{};
+  std::vector<const Anchor*> owned_anchors{};
+};
+
+struct SplitSpanResult {
+  ObjectId old_span_id = kInvalidObjectId;
+  ObjectId new_port_id = kInvalidObjectId;
+  ObjectId new_span_a_id = kInvalidObjectId;
+  ObjectId new_span_b_id = kInvalidObjectId;
+};
+
 enum class PickBranchResolutionKind : std::uint8_t {
   kNode = 0,
   kMidair = 1,

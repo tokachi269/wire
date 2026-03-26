@@ -1,6 +1,5 @@
 ﻿#pragma once
 
-#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -9,15 +8,8 @@
 #include "wire/core/core_authoritative_types.hpp"
 #include "wire/core/core_runtime_types.hpp"
 #include "wire/core/core_state_api_types.hpp"
+#include "wire/core/core_state_internal_types.hpp"
 #include "wire/core/debug_types.hpp"
-#include "wire/core/detail_curve.hpp"
-#include "wire/core/entities.hpp"
-#include "wire/core/id.hpp"
-#include "wire/core/object_store.hpp"
-#include "wire/core/support_layout_types.hpp"
-#include "wire/core/types.hpp"
-#include "wire/core/variation.hpp"
-#include "wire/core/workflow_types.hpp"
 
 namespace wire::core {
 
@@ -27,40 +19,13 @@ struct OverrideResolutionService;
 struct EndpointRefreshService;
 struct TemplateMutationService;
 }
-
-struct PoleOrientationOverride {
-  std::optional<double> manual_yaw_deg{};
-  std::optional<bool> flip_180{};
-  std::uint64_t version = 1;
-};
-
-struct SpanEndpointOverride {
-  std::optional<int> socket_a_id{};
-  std::optional<int> socket_b_id{};
-  std::uint64_t version = 1;
-};
-
-struct SpanSupportOverride {
-  std::optional<double> branch_down_offset_m{};
-  std::uint64_t version = 1;
-};
-
-struct OverrideState {
-  std::unordered_map<ObjectId, PoleOrientationOverride> pole_orientation_by_pole{};
-  std::unordered_map<ObjectId, SpanEndpointOverride> span_endpoint_by_span{};
-  std::unordered_map<ObjectId, SpanSupportOverride> span_support_by_span{};
-};
+namespace generation::detail {
+class GroupedSpanLanePreparer;
+}
 
 class CoreState {
 public:
   CoreState();
-
-  struct PoleDetailInfo {
-    const Pole* pole = nullptr;
-    const PoleTypeDefinition* pole_type = nullptr;
-    std::vector<const Port*> owned_ports{};
-    std::vector<const Anchor*> owned_anchors{};
-  };
 
   EditResult<ObjectId> AddPole(const Transformd& world_transform, double height_m = 10.0, std::string_view name = {},
                                PoleKind kind = PoleKind::kGeneric,
@@ -91,13 +56,6 @@ public:
   EditResult<ObjectId> MoveAnchor(ObjectId anchor_id, const Vec3d& new_world_position);
   EditResult<ObjectId> DeletePole(ObjectId pole_id);
   EditResult<ObjectId> DeleteSpan(ObjectId span_id);
-
-  struct SplitSpanResult {
-    ObjectId old_span_id = kInvalidObjectId;
-    ObjectId new_port_id = kInvalidObjectId;
-    ObjectId new_span_a_id = kInvalidObjectId;
-    ObjectId new_span_b_id = kInvalidObjectId;
-  };
   EditResult<SplitSpanResult> SplitSpan(ObjectId span_id, double t);
   EditResult<ObjectId> ApplyPoleType(ObjectId pole_id, PoleTypeId pole_type_id);
   // When template/bundle is supplied in options, connection behavior is derived from that template,
@@ -173,6 +131,7 @@ private:
   friend struct CoreStateTestHook;
 #endif
   friend class CoreView;
+  friend class generation::detail::GroupedSpanLanePreparer;
   friend struct state_internal::OverrideResolutionService;
   friend struct state_internal::EndpointRefreshService;
   friend struct state_internal::TemplateMutationService;
@@ -239,27 +198,6 @@ private:
   [[nodiscard]] std::vector<PortPlacementBand> sorted_port_bands(const PoleTypeDefinition& pole_type,
                                                                  ConnectionCategory category) const;
   [[nodiscard]] bool is_port_band_used(ObjectId pole_id, const PortPlacementBand& band) const;
-
-  struct PortResolutionRequest {
-    ObjectId pole_id = kInvalidObjectId;
-    ObjectId peer_pole_id = kInvalidObjectId;
-    ObjectId reference_span_id = kInvalidObjectId;
-    ConnectionCategory category = ConnectionCategory::kLowVoltage;
-    ConnectionContext connection_context = ConnectionContext::kTrunkContinue;
-    PoleContextKind pole_context = PoleContextKind::kStraight;
-    double corner_angle_deg = 0.0;
-    double corner_turn_sign = 0.0;
-    bool allow_generate_port = true;
-    bool prefer_template_match = false;
-    int preferred_template_layer = 1;
-    SlotSide preferred_template_side = SlotSide::kCenter;
-    SlotRole preferred_template_role = SlotRole::kNeutral;
-    std::uint32_t branch_index = 0;
-    // Authoritative endpoint placement decision. Port resolution must not reinterpret
-    // continuity/lowering policy through a parallel hint path.
-    EndpointContinuityDecision endpoint_decision{};
-    std::vector<ObjectId> excluded_port_ids{};
-  };
 
   EditResult<ObjectId> ensure_pole_connection_port(const PortResolutionRequest& request);
   [[nodiscard]] static std::uint8_t deterministic_tiebreak_0_255(ObjectId pole_id, int tiebreak_key,

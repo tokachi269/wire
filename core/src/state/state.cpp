@@ -956,7 +956,7 @@ EditResult<ObjectId> CoreState::DeleteSpan(ObjectId span_id) {
   return result;
 }
 
-EditResult<CoreState::SplitSpanResult> CoreState::SplitSpan(ObjectId span_id, double t) {
+EditResult<SplitSpanResult> CoreState::SplitSpan(ObjectId span_id, double t) {
   EditResult<SplitSpanResult> result;
   if (!(t > 0.0 && t < 1.0)) {
     result.error = "split t must be in (0, 1)";

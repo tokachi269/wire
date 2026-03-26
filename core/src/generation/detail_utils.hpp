@@ -1,7 +1,7 @@
 #pragma once
 
 #include "wire/core/coord_utils.hpp"
-#include "wire/core/core_state.hpp"
+#include "wire/core/core_state_api_types.hpp"
 
 #include <algorithm>
 #include <cmath>

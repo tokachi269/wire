@@ -92,7 +92,7 @@ std::vector<JunctionInfo> BuildJunctionsFromRelations(
 
 } // namespace
 
-CoreState::PoleDetailInfo CoreState::GetPoleDetail(ObjectId pole_id) const {
+PoleDetailInfo CoreState::GetPoleDetail(ObjectId pole_id) const {
   PoleDetailInfo detail{};
   detail.pole = edit_state_.poles.find(pole_id);
   if (detail.pole == nullptr) {

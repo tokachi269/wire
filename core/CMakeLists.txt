@@ -12,6 +12,9 @@ add_library(
   src/pole_orientation_utils.cpp
   src/generation/service.cpp
   src/generation/grouped_spans.cpp
+  src/generation/grouped_span_lane_preparation.cpp
+  src/generation/grouped_span_lowering.cpp
+  src/generation/grouped_span_orientation.cpp
   src/generation/from_backbone.cpp
   src/generation/backbone_prepare.cpp
   src/generation/regenerate.cpp

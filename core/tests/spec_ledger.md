@@ -173,7 +173,7 @@
 | C129 | sベース配置APIと sag 合成 | 端点固定 + sag 付き曲線 | BuildDetailCurve + PositionAtLength | Invariant: sag 後も端点位置は不変で、長さ基準の中点配置が使える | DetailCurve.arc_length_table | 正確な配置を s ベースで扱える |
 | C141 | 懸垂寄り support slope | 端点同高 + sag 付き曲線 | BuildDetailCurve | Invariant: sag 付き曲線は支点で完全水平に寝ず、両端で上下向きの傾きが出る | DetailCurve.EvaluateTangent | quartic 的な平坦 sag に戻る回帰防止 |
 | C142 | 近直線での横揺れ抑止強化 | 同高ほぼ直線 + 軽い逆向き横tangent | BuildDetailCurve | Invariant: 近直線 span は lateral tangent 差があっても平面内でほぼ真っ直ぐに保たれる | DetailCurve.sample_points | 微小な横成分で左右にぐにゃる回帰防止 |
-| C143 | SmoothPass の制御付き横曲げ | 同方向へ緩く曲がる長尺 span | BuildDetailCurve | Invariant: SmoothPass は全 lateral 成分を潰さず、制御された平面曲がりを保つ | DetailCurve.quality / sample_points | NearStraight 向け横抑制が緩い継続カーブまで潰す回帰防止 |
+| C143 | SmoothPass の横揺れ抑止 | 同方向へ緩く曲がる長尺 span | BuildDetailCurve | Invariant: SmoothPass は G2 継続を保ちつつ top-view の lateral bend を抑える | DetailCurve.quality / sample_points | 継続カーブで不要な左右揺れを残す回帰防止 |
 | C130 | OffsetEndpoint 端点 | 支点と派生 endpoint offset が既知 | BuildDetailCurve(OffsetEndpoint) | Invariant: 曲線端点は支点そのものではなく派生 offset 位置になる | DetailCurve | 支点近傍で急に折れない離脱表現の土台 |
 | C137 | Attachment表示offset非干渉 | Span + Attachment(display offset) | AddAttachment→Commit | Invariant: 正本 attachment の表示offsetは detail curve 端点を変えない | Attachment / DetailCurve | 接続情報と表示補正の責務混線防止 |
 | C131 | 鋭角/競合接線での品質劣化安全策 | 反対向きに近い接線ヒント | BuildDetailCurve | Invariant: tangent fallback が働き、過度な膨張や逆行を抑える | DetailCurve.quality / sample_points | 高度最適化なしで見た目破綻を抑える |

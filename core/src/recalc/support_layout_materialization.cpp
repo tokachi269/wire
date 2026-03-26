@@ -499,15 +499,14 @@ LoweredSupportGroupPlacement build_grouped_support_placement_from_decision(const
   if (pole == nullptr) {
     return group;
   }
-  Vec3d fallback_axis = group.decision.side_axis;
-  if (!IsFiniteXY(fallback_axis) || !Normalize(&fallback_axis)) {
-    if (!group.attachment_worlds.empty()) {
-      fallback_axis = group.attachment_worlds.front() - pole->world_transform.position;
-    } else {
-      fallback_axis = {1.0, 0.0, 0.0};
-    }
+  Vec3d support_axis = group.decision.side_axis;
+  support_axis.z = 0.0;
+  if (!Normalize(&support_axis) || !IsFiniteXY(support_axis)) {
+    return group;
   }
-  const Vec3d support_axis = AuthoritativeSupportAxisForGroup(group, fallback_axis);
+  if (std::abs(group.decision.chosen_side_sign) > 1e-9) {
+    support_axis = ScaleVec(support_axis, (group.decision.chosen_side_sign >= 0.0) ? 1.0 : -1.0);
+  }
   const auto [mount_world, tip_world] =
       shared_support_anchor_points(*pole, support_axis, group_decision.support_world.z, cache_state);
   group.mount_world = mount_world;

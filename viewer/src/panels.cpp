@@ -2217,6 +2217,8 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
     ImGui::Separator();
     ImGui::Checkbox("Enable Support Structures", &ui_state.visual_enable_support_structures);
     ImGui::Checkbox("Enable Insulators", &ui_state.visual_enable_insulators);
+    ImGui::Checkbox("Solid Support Render", &ui_state.viewer_enable_solid_support_render);
+    ImGui::Checkbox("Simple Ground Shadows", &ui_state.viewer_enable_simple_ground_shadows);
     ImGui::InputDouble("Support Center Threshold", &ui_state.visual_support_center_threshold, 0.005, 0.01, "%.3f");
     ImGui::InputDouble("Support Arm Extra", &ui_state.visual_support_arm_extra, 0.01, 0.05, "%.3f");
     ImGui::InputDouble("Insulator Radius", &ui_state.visual_insulator_radius, 0.005, 0.01, "%.3f");

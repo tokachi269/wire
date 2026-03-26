@@ -30,18 +30,24 @@ Vec3d CanonicalSharedSupportAxis(Vec3d axis, const Vec3d& fallback) {
   return axis;
 }
 
-Vec3d AuthoritativeSupportAxisForEndpoint(const SupportLayoutEndpoint& endpoint, const Vec3d& fallback) {
-  Vec3d axis = endpoint.decision.has_side_axis ? endpoint.decision.side_axis : fallback;
-  axis = SafeHorizontalNormalized(axis, fallback);
+Vec3d AuthoritativeSupportAxisForEndpoint(const SupportLayoutEndpoint& endpoint) {
+  Vec3d axis = endpoint.decision.side_axis;
+  axis.z = 0.0;
+  if (!Normalize(&axis) || !IsFiniteXY(axis)) {
+    return {0.0, 0.0, 0.0};
+  }
   if (std::abs(endpoint.decision.chosen_side_sign) > 1e-9) {
     axis = ScaleVec(axis, (endpoint.decision.chosen_side_sign >= 0.0) ? 1.0 : -1.0);
   }
   return axis;
 }
 
-Vec3d AuthoritativeSupportAxisForGroup(const LoweredSupportGroupPlacement& group, const Vec3d& fallback) {
-  Vec3d axis = group.decision.has_side_axis ? group.decision.side_axis : fallback;
-  axis = SafeHorizontalNormalized(axis, fallback);
+Vec3d AuthoritativeSupportAxisForGroup(const LoweredSupportGroupPlacement& group) {
+  Vec3d axis = group.decision.side_axis;
+  axis.z = 0.0;
+  if (!Normalize(&axis) || !IsFiniteXY(axis)) {
+    return {0.0, 0.0, 0.0};
+  }
   if (std::abs(group.decision.chosen_side_sign) > 1e-9) {
     axis = ScaleVec(axis, (group.decision.chosen_side_sign >= 0.0) ? 1.0 : -1.0);
   }

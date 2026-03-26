@@ -9,6 +9,7 @@ call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\v
 "C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -S . -B build-vs18-coretests -G "Visual Studio 18 2026" -A x64 -DWIRE_BUILD_VIEWER=OFF
 "C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" --build build-vs18-coretests --config Debug --target wire_core_tests
 build-vs18-coretests\core\Debug\wire_core_tests.exe
+
 ```
 
 ## viewer
@@ -20,6 +21,7 @@ call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\v
 "C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -S . -B build-vs18-viewer-local -G "Visual Studio 18 2026" -A x64 -DWIRE_BUILD_VIEWER=ON -DWIRE_VIEWER_FETCH_DEPS=OFF -DWIRE_RAYLIB_SOURCE_DIR=D:/GitHub/wire/build-viewer/_deps/raylib-src -DWIRE_IMGUI_SOURCE_DIR=D:/GitHub/wire/build-viewer/_deps/imgui-src -DWIRE_RLIMGUI_SOURCE_DIR=D:/GitHub/wire/build-viewer/_deps/rlimgui-src
 "C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" --build build-vs18-viewer-local --config Debug --target wire_viewer
 build-vs18-viewer-local\viewer\Debug\wire_viewer.exe
+
 ```
 
 ## notes

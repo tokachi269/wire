@@ -73,6 +73,8 @@ struct ViewerUiState {
   bool visual_settings_loaded = false;
   bool visual_enable_support_structures = true;
   bool visual_enable_insulators = true;
+  bool viewer_enable_solid_support_render = true;
+  bool viewer_enable_simple_ground_shadows = true;
   double visual_support_center_threshold = 0.03;
   double visual_support_arm_extra = 0.20;
   double visual_insulator_radius = 0.07;

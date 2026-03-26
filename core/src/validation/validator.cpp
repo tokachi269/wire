@@ -753,12 +753,18 @@ ValidationResult CoreState::Validate() const {
     Vec3d support_axis = group.tip_world - group.mount_world;
     support_axis.z = 0.0;
     if (Normalize(&support_axis) && IsFiniteXY(support_axis)) {
-      const Vec3d authoritative_axis = AuthoritativeSupportAxisForGroup(group, support_axis);
-      const double alignment = support_axis.x * authoritative_axis.x + support_axis.y * authoritative_axis.y;
-      if (alignment < 1.0 - 1e-6) {
+      Vec3d authoritative_axis = AuthoritativeSupportAxisForGroup(group);
+      if (!Normalize(&authoritative_axis) || !IsFiniteXY(authoritative_axis)) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportGroupAxisMissing",
+                                 "Grouped lowered support must carry a finite authoritative axis",
+                                 key.owner_pole_id});
+      } else {
+        const double alignment = support_axis.x * authoritative_axis.x + support_axis.y * authoritative_axis.y;
+        if (alignment < 1.0 - 1e-6) {
         result.issues.push_back({ValidationSeverity::kError, "SupportGroupAxisReinterpreted",
                                  "Grouped lowered support mount/tip must stay aligned with the authoritative axis",
                                  key.owner_pole_id});
+        }
       }
     }
   }

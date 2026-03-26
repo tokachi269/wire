@@ -84,18 +84,6 @@ struct SegmentLaneAssignment {
   bool uses_branch_support = false;
   BackboneLoweringKind lowering_kind = BackboneLoweringKind::kNone;
   double branch_down_offset_m = 0.0;
-  SideAssignmentRuleKind side_assignment_rule_a = SideAssignmentRuleKind::kPoleLocal;
-  SideAssignmentRuleKind side_assignment_rule_b = SideAssignmentRuleKind::kPoleLocal;
-  SupportOrientationRuleKind support_orientation_rule_a = SupportOrientationRuleKind::kRadial;
-  SupportOrientationRuleKind support_orientation_rule_b = SupportOrientationRuleKind::kRadial;
-  bool used_junction_pair_side_assignment_a = false;
-  bool used_junction_pair_side_assignment_b = false;
-  bool has_side_axis_a = false;
-  bool has_side_axis_b = false;
-  Vec3d side_axis_a{};
-  Vec3d side_axis_b{};
-  double chosen_side_sign_a = 0.0;
-  double chosen_side_sign_b = 0.0;
   bool flipped_from_previous = false;
   LaneFlipReason flip_reason = LaneFlipReason::kNone;
   double turn_angle_deg = 0.0;

@@ -163,19 +163,6 @@ CoreState::generate_grouped_spans_between_support_nodes(
     }
     return (edit_state_access().poles.find(node_id) != nullptr) ? SupportKind::kPole : SupportKind::kMidair;
   };
-  auto support_axis_for_pole = [&](const Pole& pole) -> Vec3d {
-    if (const auto it = pole_orientation_debug_records_.find(pole.id); it != pole_orientation_debug_records_.end()) {
-      Vec3d axis = it->second.adopted_support_axis;
-      if (normalize_xy(&axis) && std::isfinite(axis.x) && std::isfinite(axis.y)) {
-        return axis;
-      }
-    }
-    Vec3d axis = side_axis_from_yaw_deg(effective_pole_layout_yaw_deg(pole));
-    if (normalize_xy(&axis) && std::isfinite(axis.x) && std::isfinite(axis.y)) {
-      return axis;
-    }
-    return Vec3d{0.0, 1.0, 0.0};
-  };
   auto layout_yaw_for_pole = [&](const Pole& pole) { return effective_pole_layout_yaw_deg(pole); };
   auto template_layer_base_z_for_pole = [&](const Pole& pole) {
     double best_z = -std::numeric_limits<double>::infinity();
@@ -321,14 +308,17 @@ CoreState::generate_grouped_spans_between_support_nodes(
     }
     return false;
   };
-  std::vector<Vec3d> side_axis_by_index(node_ids.size(), Vec3d{0.0, 1.0, 0.0});
-  for (std::size_t i = 0; i < node_ids.size(); ++i) {
-    if (const Pole* pole = support_pole(node_ids[i]); pole != nullptr) {
-      side_axis_by_index[i] = support_axis_for_pole(*pole);
-      continue;
+  auto normalized_or_zero_xy = [&](Vec3d axis) {
+    axis.z = 0.0;
+    if (!normalize_xy(&axis) || !std::isfinite(axis.x) || !std::isfinite(axis.y)) {
+      return Vec3d{0.0, 0.0, 0.0};
     }
+    return axis;
+  };
+  std::vector<Vec3d> side_axis_by_index(node_ids.size(), Vec3d{0.0, 0.0, 0.0});
+  for (std::size_t i = 0; i < node_ids.size(); ++i) {
     const Vec3d center = support_position(node_ids[i]);
-    Vec3d tangent{1.0, 0.0, 0.0};
+    Vec3d tangent{0.0, 0.0, 0.0};
     if (i == 0 && i + 1 < node_ids.size()) {
       tangent = support_position(node_ids[i + 1]) - center;
     } else if (i + 1 == node_ids.size() && i > 0) {
@@ -342,11 +332,18 @@ CoreState::generate_grouped_spans_between_support_nodes(
       }
     }
     if (!normalize_xy(&tangent)) {
-      tangent = {1.0, 0.0, 0.0};
+      side_axis_by_index[i] = Vec3d{0.0, 0.0, 0.0};
+      continue;
     }
-    side_axis_by_index[i] = Vec3d{-tangent.y, tangent.x, 0.0};
+    side_axis_by_index[i] = normalized_or_zero_xy(Vec3d{-tangent.y, tangent.x, 0.0});
   }
   for (std::size_t i = 1; i < side_axis_by_index.size(); ++i) {
+    if (side_axis_by_index[i - 1].x == 0.0 && side_axis_by_index[i - 1].y == 0.0) {
+      continue;
+    }
+    if (side_axis_by_index[i].x == 0.0 && side_axis_by_index[i].y == 0.0) {
+      continue;
+    }
     if (dot_xy(side_axis_by_index[i - 1], side_axis_by_index[i]) < 0.0) {
       side_axis_by_index[i].x = -side_axis_by_index[i].x;
       side_axis_by_index[i].y = -side_axis_by_index[i].y;
@@ -390,22 +387,17 @@ CoreState::generate_grouped_spans_between_support_nodes(
     return std::max(0.5, lane_row_base_z_for_pole(pole) - endpoint_lowering_offset_m(feasibility));
   };
   auto canonical_side_axis_for_order = [&](ObjectId node_id, ObjectId peer_id) -> Vec3d {
-    if (const auto it = node_side_axis_hints.find(node_id);
-        it != node_side_axis_hints.end() && std::isfinite(it->second.x) && std::isfinite(it->second.y)) {
-      return it->second;
-    }
-    const Pole* pole = support_pole(node_id);
-    if (pole != nullptr) {
-      Vec3d dir_xy = support_position(peer_id) - pole->world_transform.position;
-      if (normalize_xy(&dir_xy) && std::isfinite(dir_xy.x) && std::isfinite(dir_xy.y)) {
-        return ComputeLateralAxis(dir_xy);
-      }
-      Vec3d yaw_side_axis = support_axis_for_pole(*pole);
-      if (std::isfinite(yaw_side_axis.x) && std::isfinite(yaw_side_axis.y)) {
-        return yaw_side_axis;
+    if (const auto it = node_side_axis_hints.find(node_id); it != node_side_axis_hints.end()) {
+      const Vec3d axis = normalized_or_zero_xy(it->second);
+      if (axis.x != 0.0 || axis.y != 0.0) {
+        return axis;
       }
     }
-    return Vec3d{0.0, 1.0, 0.0};
+    Vec3d dir_xy = support_position(peer_id) - support_position(node_id);
+    if (normalize_xy(&dir_xy) && std::isfinite(dir_xy.x) && std::isfinite(dir_xy.y)) {
+      return normalized_or_zero_xy(ComputeLateralAxis(dir_xy));
+    }
+    return Vec3d{0.0, 0.0, 0.0};
   };
   auto route_axis_for_endpoint = [&](ObjectId node_id, ObjectId peer_id) -> std::optional<Vec3d> {
     Vec3d axis = support_position(peer_id) - support_position(node_id);
@@ -416,7 +408,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
     return axis;
   };
   struct EndpointSideDecision {
-    Vec3d side_axis{0.0, 1.0, 0.0};
+    Vec3d side_axis{0.0, 0.0, 0.0};
     bool has_side_axis = false;
     double chosen_side_sign = 0.0;
     SideAssignmentRuleKind side_assignment_rule = SideAssignmentRuleKind::kPoleLocal;
@@ -865,30 +857,31 @@ CoreState::generate_grouped_spans_between_support_nodes(
     if (const auto axis = route_axis_for_endpoint(node_id, peer_id); axis.has_value()) {
       return *axis;
     }
-    return canonical_side_axis_for_order(node_id, peer_id);
+    return Vec3d{0.0, 0.0, 0.0};
   };
   auto grouped_line_axis_for_endpoint = [&](ObjectId node_id, ObjectId peer_id) {
     if (const auto axis = route_axis_for_endpoint(node_id, peer_id); axis.has_value()) {
       return *axis;
     }
-    return Vec3d{1.0, 0.0, 0.0};
+    return Vec3d{0.0, 0.0, 0.0};
   };
   auto build_pair_side_decision = [&](ObjectId node_id, ObjectId peer_id,
                                       const LoweredSupportPairInfo& pair_info) {
     EndpointSideDecision decision{};
-    decision.has_side_axis = true;
     decision.chosen_side_sign = 1.0;
     if (const auto pair_axis = pair_bisector_axis_for_endpoint(node_id, peer_id, pair_info); pair_axis.has_value()) {
-      decision.side_axis = *pair_axis;
+      decision.side_axis = normalized_or_zero_xy(*pair_axis);
       decision.side_assignment_rule = SideAssignmentRuleKind::kBisector;
       decision.support_orientation_rule = SupportOrientationRuleKind::kBisector;
       decision.used_junction_pair_side_assignment = true;
+      decision.has_side_axis = (decision.side_axis.x != 0.0 || decision.side_axis.y != 0.0);
       return decision;
     }
-    decision.side_axis = grouped_line_axis_for_endpoint(node_id, peer_id);
+    decision.side_axis = normalized_or_zero_xy(grouped_line_axis_for_endpoint(node_id, peer_id));
     decision.side_assignment_rule = SideAssignmentRuleKind::kChord;
     decision.support_orientation_rule = SupportOrientationRuleKind::kChord;
     decision.used_junction_pair_side_assignment = false;
+    decision.has_side_axis = (decision.side_axis.x != 0.0 || decision.side_axis.y != 0.0);
     return decision;
   };
   auto connected_bundle_support_decision_for_node =
@@ -907,8 +900,8 @@ CoreState::generate_grouped_spans_between_support_nodes(
   auto preferred_side_axis_for_endpoint =
       [&](ObjectId node_id, ObjectId peer_id, const SegmentRelationFeasibility& feasibility) -> EndpointSideDecision {
     EndpointSideDecision decision{};
-    decision.side_axis = canonical_side_axis_for_order(node_id, peer_id);
-    decision.has_side_axis = std::isfinite(decision.side_axis.x) && std::isfinite(decision.side_axis.y);
+    decision.side_axis = normalized_or_zero_xy(canonical_side_axis_for_order(node_id, peer_id));
+    decision.has_side_axis = (decision.side_axis.x != 0.0 || decision.side_axis.y != 0.0);
     const bool prefers_line_oriented_lowering =
         feasibility.continuity_class == ContinuityCategoryClass::kBundleLike &&
         (feasibility.default_lower_required || !feasibility.same_level_feasible);
@@ -924,38 +917,38 @@ CoreState::generate_grouped_spans_between_support_nodes(
         feasibility.kind == JunctionRelationKind::kCornerContinuation ||
         feasibility.kind == JunctionRelationKind::kCrossUnderpass) {
       if (const auto bisector_axis = bisector_axis_for_endpoint(node_id, peer_id); bisector_axis.has_value()) {
-        decision.side_axis = *bisector_axis;
+        decision.side_axis = normalized_or_zero_xy(*bisector_axis);
         decision.side_assignment_rule = SideAssignmentRuleKind::kBisector;
         decision.support_orientation_rule = SupportOrientationRuleKind::kBisector;
         decision.used_junction_pair_side_assignment = true;
-        decision.has_side_axis = true;
+        decision.has_side_axis = (decision.side_axis.x != 0.0 || decision.side_axis.y != 0.0);
         return decision;
       }
-      decision.side_axis = grouped_line_axis_for_endpoint(node_id, peer_id);
+      decision.side_axis = normalized_or_zero_xy(grouped_line_axis_for_endpoint(node_id, peer_id));
       decision.side_assignment_rule = SideAssignmentRuleKind::kChord;
       decision.support_orientation_rule = SupportOrientationRuleKind::kChord;
       decision.used_junction_pair_side_assignment = false;
-      decision.has_side_axis = true;
+      decision.has_side_axis = (decision.side_axis.x != 0.0 || decision.side_axis.y != 0.0);
       return decision;
     }
-    decision.side_axis = grouped_line_axis_for_endpoint(node_id, peer_id);
+    decision.side_axis = normalized_or_zero_xy(grouped_line_axis_for_endpoint(node_id, peer_id));
     decision.side_assignment_rule = SideAssignmentRuleKind::kChord;
     decision.support_orientation_rule = SupportOrientationRuleKind::kChord;
-    decision.has_side_axis = true;
+    decision.has_side_axis = (decision.side_axis.x != 0.0 || decision.side_axis.y != 0.0);
     return decision;
   };
-  auto support_orientation_axis_for_endpoint = [&](ObjectId node_id, ObjectId peer_id,
-                                                   const EndpointSideDecision& decision) {
-    if (decision.has_side_axis && decision.support_orientation_rule != SupportOrientationRuleKind::kRadial) {
-      return decision.side_axis;
+  auto finalize_endpoint_side_decision = [&](ObjectId node_id, ObjectId peer_id, EndpointSideDecision decision) {
+    if (decision.support_orientation_rule == SupportOrientationRuleKind::kChord || !decision.has_side_axis) {
+      decision.side_axis = chord_side_axis_for_endpoint(node_id, peer_id);
+      Vec3d normalized_axis = decision.side_axis;
+      decision.has_side_axis = normalize_xy(&normalized_axis);
+      decision.side_axis = decision.has_side_axis ? normalized_axis : Vec3d{0.0, 0.0, 0.0};
+      return decision;
     }
-    if (decision.support_orientation_rule == SupportOrientationRuleKind::kChord) {
-      return chord_side_axis_for_endpoint(node_id, peer_id);
-    }
-    if (decision.has_side_axis) {
-      return decision.side_axis;
-    }
-    return canonical_side_axis_for_order(node_id, peer_id);
+    Vec3d normalized_axis = decision.side_axis;
+    decision.has_side_axis = normalize_xy(&normalized_axis);
+    decision.side_axis = decision.has_side_axis ? normalized_axis : Vec3d{0.0, 0.0, 0.0};
+    return decision;
   };
   auto finalize_side_sign_for_ports = [&](EndpointSideDecision* decision, ObjectId node_id, ObjectId peer_id,
                                           const std::vector<ObjectId>& port_ids) {
@@ -1319,18 +1312,6 @@ CoreState::generate_grouped_spans_between_support_nodes(
         assignment->decision_a.lowering_blocked_by_policy || assignment->decision_b.lowering_blocked_by_policy;
     assignment->unresolved_same_level_conflict =
         assignment->decision_a.unresolved_same_level_conflict || assignment->decision_b.unresolved_same_level_conflict;
-    assignment->side_assignment_rule_a = assignment->decision_a.side_assignment_rule;
-    assignment->side_assignment_rule_b = assignment->decision_b.side_assignment_rule;
-    assignment->support_orientation_rule_a = assignment->decision_a.support_orientation_rule;
-    assignment->support_orientation_rule_b = assignment->decision_b.support_orientation_rule;
-    assignment->used_junction_pair_side_assignment_a = assignment->decision_a.used_junction_pair_side_assignment;
-    assignment->used_junction_pair_side_assignment_b = assignment->decision_b.used_junction_pair_side_assignment;
-    assignment->has_side_axis_a = assignment->decision_a.has_side_axis;
-    assignment->has_side_axis_b = assignment->decision_b.has_side_axis;
-    assignment->side_axis_a = assignment->decision_a.side_axis;
-    assignment->side_axis_b = assignment->decision_b.side_axis;
-    assignment->chosen_side_sign_a = assignment->decision_a.chosen_side_sign;
-    assignment->chosen_side_sign_b = assignment->decision_b.chosen_side_sign;
   };
   auto ensure_ports = [&](ObjectId node_id, ObjectId peer_id, int segment_index, bool prefer_existing_neighbor_order,
                           bool* out_seeded_from_previous = nullptr) -> EditResult<std::vector<ObjectId>> {
@@ -1350,7 +1331,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
     const Pole* pole = support_pole(node_id);
     if (kind != SupportKind::kPole || pole == nullptr) {
       const Vec3d base_position = support_position(node_id);
-      const Vec3d side_axis = canonical_side_axis_for_order(node_id, peer_id);
+      const Vec3d side_axis = grouped_line_axis_for_endpoint(node_id, peer_id);
       auto nonpole_order_key = [&](const Port* port) {
         if (port == nullptr) {
           return std::tuple<double, double, ObjectId>(0.0, 0.0, kInvalidObjectId);
@@ -1603,8 +1584,8 @@ CoreState::generate_grouped_spans_between_support_nodes(
       const Vec3d branch_row_axis = ComputeLateralAxis(branch_forward_axis);
       const EndpointSideDecision preferred_side_decision =
           preferred_side_axis_for_endpoint(node_id, peer_id, branch_feasibility);
-      const Vec3d side_axis = preferred_side_decision.has_side_axis ? preferred_side_decision.side_axis
-                                                                    : canonical_side_axis_for_order(node_id, peer_id);
+      const Vec3d side_axis =
+          preferred_side_decision.has_side_axis ? preferred_side_decision.side_axis : branch_row_axis;
       Vec3d peer_dir = peer_delta;
       peer_dir.z = 0.0;
       double side_sign = preferred_side_decision.chosen_side_sign;
@@ -1924,7 +1905,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
           preferred_side_axis_for_endpoint(node_id, peer_id, scaffold_feasibility);
       const Vec3d stable_side_axis =
           scaffold_side_decision.has_side_axis ? scaffold_side_decision.side_axis
-                                               : canonical_side_axis_for_order(node_id, peer_id);
+                                               : grouped_line_axis_for_endpoint(node_id, peer_id);
       const auto it_index = node_index_by_id.find(node_id);
       const std::size_t node_index = (it_index == node_index_by_id.end()) ? node_ids.size() : it_index->second;
       const bool is_terminal_node = (node_index == 0 || node_index + 1 >= node_ids.size());
@@ -2222,16 +2203,17 @@ CoreState::generate_grouped_spans_between_support_nodes(
   base_ports_by_node.front() = first_ports.value;
 
   struct BundleOrderScore {
+    int segment_xy_intersections = 0;
     int cross_y = 0;
     int cross_z = 0;
     int layer_jump = 0;
     double span_z_delta = 0.0;
   };
   auto secondary_score_less = [&](const BundleOrderScore& a, const BundleOrderScore& b) {
-    const auto key_a =
-        std::make_tuple(a.cross_z, a.layer_jump, static_cast<long long>(std::llround(a.span_z_delta * 1000.0)));
-    const auto key_b =
-        std::make_tuple(b.cross_z, b.layer_jump, static_cast<long long>(std::llround(b.span_z_delta * 1000.0)));
+    const auto key_a = std::make_tuple(a.cross_z, a.segment_xy_intersections, a.layer_jump,
+                                       static_cast<long long>(std::llround(a.span_z_delta * 1000.0)));
+    const auto key_b = std::make_tuple(b.cross_z, b.segment_xy_intersections, b.layer_jump,
+                                       static_cast<long long>(std::llround(b.span_z_delta * 1000.0)));
     return key_a < key_b;
   };
   auto evaluate_increment = [&](ObjectId node_a, ObjectId node_b, const std::vector<ObjectId>& lanes_a,
@@ -2252,15 +2234,12 @@ CoreState::generate_grouped_spans_between_support_nodes(
     }
     const Vec3d lateral_axis{-segment_dir.y, segment_dir.x, 0.0};
     auto axis_for_node = [&](ObjectId node_id) -> Vec3d {
-      if (const Pole* pole = support_pole(node_id); pole != nullptr) {
-        Vec3d support_axis = support_axis_for_pole(*pole);
-        if (std::isfinite(support_axis.x) && std::isfinite(support_axis.y)) {
-          return support_axis;
-        }
-      }
       const auto it = node_side_axis_hints.find(node_id);
-      if (it != node_side_axis_hints.end() && std::isfinite(it->second.x) && std::isfinite(it->second.y)) {
-        return it->second;
+      if (it != node_side_axis_hints.end()) {
+        const Vec3d axis = normalized_or_zero_xy(it->second);
+        if (axis.x != 0.0 || axis.y != 0.0) {
+          return axis;
+        }
       }
       return lateral_axis;
     };
@@ -2315,6 +2294,15 @@ CoreState::generate_grouped_spans_between_support_nodes(
       for (int j = i + 1; j < lane_count; ++j) {
         const std::size_t ii = static_cast<std::size_t>(i);
         const std::size_t jj = static_cast<std::size_t>(j);
+        const Port* port_ai = edit_state_access().ports.find(lanes_a[ii]);
+        const Port* port_bi = edit_state_access().ports.find(lanes_b[ii]);
+        const Port* port_aj = edit_state_access().ports.find(lanes_a[jj]);
+        const Port* port_bj = edit_state_access().ports.find(lanes_b[jj]);
+        if (port_ai != nullptr && port_bi != nullptr && port_aj != nullptr && port_bj != nullptr &&
+            segments_intersect_xy_strict_local(port_ai->world_position, port_bi->world_position,
+                                               port_aj->world_position, port_bj->world_position)) {
+          ++score.segment_xy_intersections;
+        }
         const double dy_a = y_a[ii] - y_a[jj];
         const double dy_b = y_b[ii] - y_b[jj];
         constexpr double kOrderEps = 1e-4;
@@ -2434,6 +2422,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
     if (dst == nullptr) {
       return;
     }
+    dst->segment_xy_intersections += src.segment_xy_intersections;
     dst->cross_y += src.cross_y;
     dst->cross_z += src.cross_z;
     dst->layer_jump += src.layer_jump;
@@ -2445,6 +2434,9 @@ CoreState::generate_grouped_spans_between_support_nodes(
     }
     if (a.order.cross_y != b.order.cross_y) {
       return a.order.cross_y < b.order.cross_y;
+    }
+    if (a.order.segment_xy_intersections != b.order.segment_xy_intersections) {
+      return a.order.segment_xy_intersections < b.order.segment_xy_intersections;
     }
     if (a.acute_orientation_flips != b.acute_orientation_flips) {
       return a.acute_orientation_flips < b.acute_orientation_flips;
@@ -2624,6 +2616,9 @@ CoreState::generate_grouped_spans_between_support_nodes(
     if (chosen.order.cross_y != alternate.order.cross_y) {
       return OrderDecisionChoiceReason::kCrossingFewer;
     }
+    if (chosen.order.segment_xy_intersections != alternate.order.segment_xy_intersections) {
+      return OrderDecisionChoiceReason::kCrossingFewer;
+    }
     if (chosen.order.cross_z != alternate.order.cross_z ||
         std::abs(chosen.order.span_z_delta - alternate.order.span_z_delta) > 1e-6) {
       return OrderDecisionChoiceReason::kSpacingBetter;
@@ -2761,42 +2756,40 @@ CoreState::generate_grouped_spans_between_support_nodes(
     assignment.unresolved_same_level_conflict = !segment_same_level_feasible && assignment.lowering_blocked_by_policy;
     const auto pair_info_a = lowered_support_pair_info_for_endpoint(node_a, node_b, effective_relation_a);
     const auto pair_info_b = lowered_support_pair_info_for_endpoint(node_b, node_a, effective_relation_b);
-    EndpointSideDecision side_decision_a = preferred_side_axis_for_endpoint(node_a, node_b, effective_relation_a);
-    EndpointSideDecision side_decision_b = preferred_side_axis_for_endpoint(node_b, node_a, effective_relation_b);
+    EndpointSideDecision side_decision_a =
+        finalize_endpoint_side_decision(node_a, node_b, preferred_side_axis_for_endpoint(node_a, node_b,
+                                                                                          effective_relation_a));
+    EndpointSideDecision side_decision_b =
+        finalize_endpoint_side_decision(node_b, node_a, preferred_side_axis_for_endpoint(node_b, node_a,
+                                                                                          effective_relation_b));
     finalize_side_sign_for_ports(&side_decision_a, node_a, node_b, assignment.port_ids_a);
     finalize_side_sign_for_ports(&side_decision_b, node_b, node_a, assignment.port_ids_b);
-    assignment.side_assignment_rule_a = side_decision_a.side_assignment_rule;
-    assignment.side_assignment_rule_b = side_decision_b.side_assignment_rule;
-    assignment.support_orientation_rule_a = side_decision_a.support_orientation_rule;
-    assignment.support_orientation_rule_b = side_decision_b.support_orientation_rule;
-    assignment.used_junction_pair_side_assignment_a = side_decision_a.used_junction_pair_side_assignment;
-    assignment.used_junction_pair_side_assignment_b = side_decision_b.used_junction_pair_side_assignment;
-    assignment.has_side_axis_a = side_decision_a.has_side_axis;
-    assignment.has_side_axis_b = side_decision_b.has_side_axis;
-    assignment.side_axis_a = support_orientation_axis_for_endpoint(node_a, node_b, side_decision_a);
-    assignment.side_axis_b = support_orientation_axis_for_endpoint(node_b, node_a, side_decision_b);
-    assignment.chosen_side_sign_a = side_decision_a.chosen_side_sign;
-    assignment.chosen_side_sign_b = side_decision_b.chosen_side_sign;
-    side_decision_a.side_axis = assignment.side_axis_a;
-    side_decision_b.side_axis = assignment.side_axis_b;
-    side_decision_a.has_side_axis = std::isfinite(assignment.side_axis_a.x) && std::isfinite(assignment.side_axis_a.y);
-    side_decision_b.has_side_axis = std::isfinite(assignment.side_axis_b.x) && std::isfinite(assignment.side_axis_b.y);
-    assignment.decision_a = canonicalize_group_endpoint_decision(
-        build_endpoint_decision(effective_relation_a, pair_info_a, side_decision_a, node_a, node_b, assignment.order_decision_choice_a,
-                                assignment.order_decision_choice_reason_a, assignment.solver_used_same_level_constraint,
-                                assignment.used_special_case_ports, endpoint_policy_block_a,
-                                assignment.unresolved_same_level_conflict),
-        node_a, node_b, pair_info_a, side_decision_a);
-    assignment.decision_b = canonicalize_group_endpoint_decision(
-        build_endpoint_decision(effective_relation_b, pair_info_b, side_decision_b, node_b, node_a, assignment.order_decision_choice_b,
-                                assignment.order_decision_choice_reason_b, assignment.solver_used_same_level_constraint,
-                                assignment.used_special_case_ports, endpoint_policy_block_b,
-                                assignment.unresolved_same_level_conflict),
-        node_b, node_a, pair_info_b, side_decision_b);
+    EndpointContinuityDecision raw_decision_a =
+        build_endpoint_decision(effective_relation_a, pair_info_a, side_decision_a, node_a, node_b,
+                                assignment.order_decision_choice_a, assignment.order_decision_choice_reason_a,
+                                assignment.solver_used_same_level_constraint, assignment.used_special_case_ports,
+                                endpoint_policy_block_a, assignment.unresolved_same_level_conflict);
+    EndpointContinuityDecision raw_decision_b =
+        build_endpoint_decision(effective_relation_b, pair_info_b, side_decision_b, node_b, node_a,
+                                assignment.order_decision_choice_b, assignment.order_decision_choice_reason_b,
+                                assignment.solver_used_same_level_constraint, assignment.used_special_case_ports,
+                                endpoint_policy_block_b, assignment.unresolved_same_level_conflict);
+    auto prime_group_endpoint_decision = [&](const EndpointContinuityDecision& decision, ObjectId owner_node_id,
+                                             ObjectId peer_node_id,
+                                             const std::optional<LoweredSupportPairInfo>& pair_info,
+                                             const EndpointSideDecision& side_decision) {
+      if (!UsesAuthoritativeGroupedLoweredSupport(decision)) {
+        return;
+      }
+      const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(decision);
+      (void)canonical_group_side_decision(key, owner_node_id, peer_node_id, pair_info, side_decision);
+    };
+    prime_group_endpoint_decision(raw_decision_a, node_a, node_b, pair_info_a, side_decision_a);
+    prime_group_endpoint_decision(raw_decision_b, node_b, node_a, pair_info_b, side_decision_b);
     assignment.decision_a =
-        canonicalize_group_endpoint_decision(assignment.decision_a, node_a, node_b, pair_info_a, side_decision_a);
+        canonicalize_group_endpoint_decision(raw_decision_a, node_a, node_b, pair_info_a, side_decision_a);
     assignment.decision_b =
-        canonicalize_group_endpoint_decision(assignment.decision_b, node_b, node_a, pair_info_b, side_decision_b);
+        canonicalize_group_endpoint_decision(raw_decision_b, node_b, node_a, pair_info_b, side_decision_b);
     sync_assignment_from_decisions(&assignment);
     const bool decision_lowered_a = UsesAuthoritativeGroupedLoweredSupport(assignment.decision_a);
     const bool decision_lowered_b = UsesAuthoritativeGroupedLoweredSupport(assignment.decision_b);

@@ -1253,7 +1253,7 @@ bool test_detail_curve_near_straight_tangent_hints_do_not_wobble_sideways() {
   return curve.quality.shape_policy == wire::core::CurveShapePolicyKind::kNearStraight && max_abs_y <= 0.03;
 }
 
-bool test_detail_curve_smooth_pass_allows_controlled_lateral_bend() {
+bool test_detail_curve_smooth_pass_suppresses_lateral_bend() {
   wire::core::CurveConstraint start{};
   start.point = {0.0, 0.0, 5.0};
   start.tangent_dir = {0.90, 0.43, 0.0};
@@ -1267,13 +1267,14 @@ bool test_detail_curve_smooth_pass_allows_controlled_lateral_bend() {
   end.continuity_preference = wire::core::CableContinuityPolicyHint::kPreferG2;
 
   const wire::core::DetailCurve curve = wire::core::BuildDetailCurve(start, end, 33);
-  double max_y = 0.0;
+  double max_abs_y = 0.0;
   for (const wire::core::Vec3d& sample : curve.sample_points) {
-    max_y = std::max(max_y, sample.y);
+    max_abs_y = std::max(max_abs_y, std::abs(sample.y));
   }
   return curve.quality.shape_policy == wire::core::CurveShapePolicyKind::kSmoothPass &&
          curve.quality.adopted_continuity == wire::core::DetailCurveContinuityMode::kG2 &&
-         max_y >= 0.20;
+         curve.quality.lateral_suppression >= 0.99 && curve.quality.start_lateral_ratio_limit <= 1e-9 &&
+         curve.quality.end_lateral_ratio_limit <= 1e-9 && max_abs_y <= 0.03;
 }
 
 bool test_detail_curve_sharp_corner_stays_compact() {
@@ -2661,9 +2662,9 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C142_DetailCurve_NearStraightNoSideWobble",
                          "Near-straight endpoint tangents do not introduce visible sideways wobble",
                          "Invariant", false, test_detail_curve_near_straight_tangent_hints_do_not_wobble_sideways);
-  test_registry::AddTest(tests, "C143_DetailCurve_SmoothPass_AllowsControlledLateralBend",
-                         "Smooth-pass policy preserves a controlled planar curve instead of flattening every lateral hint",
-                         "Invariant", false, test_detail_curve_smooth_pass_allows_controlled_lateral_bend);
+  test_registry::AddTest(tests, "C143_DetailCurve_SmoothPass_SuppressesLateralBend",
+                         "Smooth-pass policy keeps G2 continuity but suppresses top-view lateral wobble",
+                         "Invariant", false, test_detail_curve_smooth_pass_suppresses_lateral_bend);
   test_registry::AddTest(tests, "C130_DetailCurve_OffsetEndpoint_UsesOffsetEndpoints",
                          "Derived endpoint-offset mode moves detail-curve endpoints without changing source support points",
                          "Invariant", false, test_detail_curve_offset_endpoint_uses_offset_endpoints);

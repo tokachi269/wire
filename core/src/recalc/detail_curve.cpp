@@ -506,8 +506,9 @@ EndpointTangentDecision ResolveEndpointTangentDecision(const CurveConstraint& co
     decision.chord_weight = std::max(0.0, 1.0 - decision.support_weight);
     decision.departure_length_m = std::clamp(std::max(constraint.support_departure_length_m, chord_length * 0.20), 0.26,
                                              std::max(0.26, chord_length * 0.34));
-    decision.lateral_ratio_limit = 0.68;
+    decision.lateral_ratio_limit = 0.0;
     decision.tangent = BlendDirections(chord_dir, support_dir, decision.support_weight, chord_dir);
+    decision.tangent = ClampPlanarLateralRatio(chord_dir, decision.tangent, decision.lateral_ratio_limit);
     return decision;
   }
 
@@ -573,7 +574,7 @@ CurveShapePolicyDecision ChooseShapePolicy(const CurveConstraint& start_constrai
       end_constraint.endpoint_mode != CurveEndpointMode::kOffsetEndpoint && chord_length >= 10.0;
   if (authoritative_composite_height_transition) {
     decision.kind = CurveShapePolicyKind::kSmoothPass;
-    decision.lateral_suppression = 0.20;
+    decision.lateral_suppression = 1.0;
     decision.handle_scale = 1.12;
     decision.quality_lateral_limit_ratio = 0.22;
     return decision;
@@ -589,7 +590,7 @@ CurveShapePolicyDecision ChooseShapePolicy(const CurveConstraint& start_constrai
   }
 
   decision.kind = CurveShapePolicyKind::kSmoothPass;
-  decision.lateral_suppression = 0.20;
+  decision.lateral_suppression = 1.0;
   decision.handle_scale = 1.12;
   decision.quality_lateral_limit_ratio = 0.22;
   return decision;

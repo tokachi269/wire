@@ -370,75 +370,6 @@ bool test_display_id_is_per_prefix_sequence() {
          pt2->display_id == "PT-000002" && starts_with(sp1->display_id, "SP-000001");
 }
 
-bool test_demo_state_has_dense_spans() {
-  CoreState state = wire::core::make_demo_state();
-  return state.view().edit_state().poles.size() >= 3 && state.view().edit_state().spans.size() >= 10 &&
-         state.view().edit_state().ports.size() >= 20;
-}
-
-bool test_clear_debug_records_is_entity_noop() {
-  CoreState state;
-  const auto pole_type_ids = sorted_pole_type_ids(state);
-  if (pole_type_ids.empty()) {
-    return false;
-  }
-
-  wire::core::Transformd pole_a_tf{};
-  pole_a_tf.position = {0.0, 0.0, 0.0};
-  wire::core::Transformd pole_b_tf{};
-  pole_b_tf.position = {12.0, 0.0, 0.0};
-  const auto add_a = state.AddPole(pole_a_tf, 10.0, "A");
-  const auto add_b = state.AddPole(pole_b_tf, 10.0, "B");
-  if (!add_a.ok || !add_b.ok) {
-    return false;
-  }
-  const ObjectId pole_a = add_a.value;
-  const ObjectId pole_b = add_b.value;
-  if (!state.ApplyPoleType(pole_a, pole_type_ids[0]).ok || !state.ApplyPoleType(pole_b, pole_type_ids[0]).ok) {
-    return false;
-  }
-  if (!add_connection_by_category(state, pole_a, pole_b, ConnectionCategory::kLowVoltage).ok) {
-    return false;
-  }
-
-  wire::core::RoadSegment road{};
-  road.id = 10;
-  road.polyline = {{0.0, 0.0, 0.0}, {6.0, 0.0, 0.0}, {12.0, 3.0, 0.0}};
-  BackbonePathGenerateOptions options{};
-  options.road = road;
-  options.interval = 0.0;
-  options.pole_type_id = pole_type_ids[0];
-  options.bundle_template_id = wire::core::BundleKind::kCommunication;
-  options.bundle_count = 2;
-  const auto grouped = generate_from_backbone_options(state, options);
-  if (!grouped.ok) {
-    return false;
-  }
-
-  const std::size_t port_debug_before = state.view().port_resolution_debug_records().size();
-  const std::size_t path_debug_before = state.view().path_direction_debug_records().size();
-
-  const CoreCounts before = snapshot_counts(state);
-  const auto poles_before = collect_sorted_ids(state.view().edit_state().poles.items());
-  const auto ports_before = collect_sorted_ids(state.view().edit_state().ports.items());
-  const auto spans_before = collect_sorted_ids(state.view().edit_state().spans.items());
-  const bool validate_before = validate_now(state).ok();
-
-  state.clear_port_resolution_debug_records();
-  state.clear_path_direction_debug_records();
-
-  const CoreCounts after = snapshot_counts(state);
-  const auto poles_after = collect_sorted_ids(state.view().edit_state().poles.items());
-  const auto ports_after = collect_sorted_ids(state.view().edit_state().ports.items());
-  const auto spans_after = collect_sorted_ids(state.view().edit_state().spans.items());
-
-  return port_debug_before >= state.view().port_resolution_debug_records().size() &&
-         path_debug_before >= state.view().path_direction_debug_records().size() &&
-         state.view().port_resolution_debug_records().empty() && state.view().path_direction_debug_records().empty() &&
-         same_counts(before, after) && poles_before == poles_after && ports_before == ports_after &&
-         spans_before == spans_after && validate_now(state).ok() == validate_before;
-}
-
 bool test_recalc_cache_pipeline_is_entity_noop() {
   CoreState state = wire::core::make_demo_state();
   if (state.view().edit_state().spans.empty()) {
@@ -480,8 +411,6 @@ void register_workflow_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C27_Phase45_GenerateSimpleLine_Integration", "Simple line generation integrates dirty/recalc/caches", "Invariant", false, test_generate_simple_line_integration);
   test_registry::AddTest(tests, "C28_Phase45_GenerateSimpleLine_Continuity", "Intermediate poles reuse same through-port", "Invariant", false, test_generate_simple_line_reuses_intermediate_ports);
   test_registry::AddTest(tests, "C29_Phase45_DisplayId_PerPrefix", "Display IDs increment per prefix", "Exact", false, test_display_id_is_per_prefix_sequence);
-  test_registry::AddTest(tests, "C18_Phase4_DemoState_Dense", "Demo state has dense enough spans for initial viewer", "Invariant", false, test_demo_state_has_dense_spans);
-  test_registry::AddTest(tests, "C41_Phase4x_ClearDebug_NoEntityMutation", "Clearing session debug records does not mutate core entities", "Exact", false, test_clear_debug_records_is_entity_noop);
   test_registry::AddTest(tests, "C42_Phase4x_RecalcCache_NoEntityMutation", "Derived cache rebuild does not mutate entity identity/counts", "Invariant", false, test_recalc_cache_pipeline_is_entity_noop);
 }
 

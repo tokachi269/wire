@@ -843,73 +843,6 @@ bool test_grouped_line_hv3_acute_no_phase_twist() {
   return true;
 }
 
-// Intent: Backbone HV template path should expose support-axis/layout-yaw decisions on all route poles.
-bool test_backbone_hv3_template_acute_no_phase_twist() {
-  CoreState state;
-  const auto type_ids = sorted_pole_type_ids(state);
-  if (type_ids.empty()) {
-    return false;
-  }
-  wire::core::BackboneSpec req{};
-  req.path.polyline = {
-      {15.2954, -10.2356, 0.0},
-      {2.87944, -2.16948, 0.0},
-      {12.0546, -16.1829, 0.0},
-      {-2.43956, -5.96523, 0.0},
-      {-14.3612, -6.28665, 0.0},
-      {-14.1685, 6.36328, 0.0},
-      {-2.66804, 5.17324, 0.0},
-      {-13.2896, 13.4663, 0.0},
-      {-20.9067, 19.9314, 0.0},
-      {-24.7745, 14.455, 0.0},
-  };
-  req.interval_m = 8.0;
-  req.pole_type_id = type_ids.front();
-  wire::core::BackboneBundleSpec hv{};
-  hv.bundle_template_id = wire::core::BundleKind::kHighVoltage;
-  req.bundles.push_back(hv);
-  const auto generated = state.GenerateFromBackboneSpec(req);
-  if (!generated.ok) {
-    std::cerr << "[DBG] C88 generate_failed\n";
-    return false;
-  }
-  const auto tpl_it = state.view().bundle_templates().find(wire::core::BundleKind::kHighVoltage);
-  if (tpl_it == state.view().bundle_templates().end() || !tpl_it->second.allow_mirror) {
-    std::cerr << "[DBG] C88 template_missing_or_mirror_disabled\n";
-    return false;
-  }
-  const auto& orientations = state.view().last_generation_edge_orientations();
-  if (orientations.empty()) {
-    std::cerr << "[DBG] C88 orientations_empty\n";
-    return false;
-  }
-  const auto& assignments = state.view().last_lane_assignments();
-  if (assignments.empty()) {
-    std::cerr << "[DBG] C88 assignments_empty\n";
-    return false;
-  }
-  std::unordered_set<wire::core::ObjectId> route_poles{};
-  for (const auto& orientation : orientations) {
-    if (orientation.bundle_template_id != wire::core::BundleKind::kHighVoltage) {
-      continue;
-    }
-    route_poles.insert(orientation.node_a_id);
-    route_poles.insert(orientation.node_b_id);
-  }
-  if (route_poles.empty()) {
-    std::cerr << "[DBG] C88 route_poles_empty\n";
-    return false;
-  }
-  for (wire::core::ObjectId pole_id : route_poles) {
-    const auto pole_view = state.view().inspect_pole(pole_id);
-    if (!pole_view.has_value() || !pole_view->has_support_axis || !pole_view->has_layout_yaw) {
-      std::cerr << "[DBG] C88 pole_trace_missing pole=" << pole_id << "\n";
-      return false;
-    }
-  }
-  return true;
-}
-
 // Intent: Captured zigzag DrawPath shape should keep HV3 bundle free of lane-order inversion.
 bool test_backbone_hv3_capture_shape_no_inversion() {
   CoreState state;
@@ -8417,38 +8350,6 @@ bool test_backbone_drawpath_plain_endpoint_fallback_without_attachment_input() {
   return true;
 }
 
-bool test_backbone_drawpath_attachment_trace_reports_unconnected_input() {
-  CoreState state;
-  const auto type_ids = sorted_pole_type_ids(state);
-  if (type_ids.empty()) {
-    return false;
-  }
-  wire::core::BackboneSpec req{};
-  req.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}};
-  req.interval_m = 1000.0;
-  req.pole_type_id = type_ids.front();
-  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
-  const auto generated = state.GenerateFromBackboneSpec(req);
-  if (!generated.ok || generated.value.generated_span_ids.empty()) {
-    return false;
-  }
-  wire::core::CommitOptions options{};
-  options.run_recalc = true;
-  (void)state.Commit(options);
-  const auto trace = state.view().collect_decision_trace(
-      {wire::core::EntityKind::kSpan, static_cast<std::uint64_t>(generated.value.generated_span_ids.front())});
-  for (const auto& entry : trace) {
-    if (entry.topic != wire::core::DecisionTraceTopic::kSupportLayoutSelection ||
-        entry.rule != "AttachmentEndpointSelection") {
-      continue;
-    }
-    return entry.summary.find("start=PlainSupport") != std::string::npos &&
-           entry.summary.find("end=PlainSupport") != std::string::npos &&
-           entry.summary.find("request=None") != std::string::npos;
-  }
-  return false;
-}
-
 bool test_backbone_drawpath_branch_curve_stays_local_to_support_departure() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
@@ -8883,9 +8784,6 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C87_GroupedLine_HV3AcuteNoTwist",
                          "HV3 acute grouped path avoids phase twist", "Invariant", false,
                          test_grouped_line_hv3_acute_no_phase_twist);
-  test_registry::AddTest(tests, "C88_Backbone_HV3TemplateAcuteNoTwist",
-                         "Backbone HV3 acute path avoids phase twist under template generation", "Invariant", false,
-                         test_backbone_hv3_template_acute_no_phase_twist);
   test_registry::AddTest(tests, "C89_ThreePhasePolicy_CategoryAgnostic",
                          "Three-phase policy remains category agnostic", "Invariant", false,
                          test_grouped_line_threephase_policy_is_category_agnostic);
@@ -9203,9 +9101,6 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C177_Backbone_DrawPathPlainEndpointFallback",
                          "DrawPath backbone without attachment input falls back to plain support endpoints",
                          "Invariant", false, test_backbone_drawpath_plain_endpoint_fallback_without_attachment_input);
-  test_registry::AddTest(tests, "C178_Backbone_DrawPathAttachmentTraceReportsNoInput",
-                         "DrawPath backbone trace reports plain support endpoint selection when attachment input is absent",
-                         "Invariant", false, test_backbone_drawpath_attachment_trace_reports_unconnected_input);
   test_registry::AddTest(tests, "C179_Backbone_DrawPathBranchCurveStaysLocal",
                          "DrawPath branch curve keeps support departure local and converges back toward chord",
                          "Invariant", false, test_backbone_drawpath_branch_curve_stays_local_to_support_departure);

@@ -1958,11 +1958,6 @@ bool test_inspection_support_layout_does_not_fallback_to_last_lane_assignments()
   const ObjectId port_b = state.AddPort(pole_b, {12.0, 0.0, 4.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
   const ObjectId span = state.AddSpan(port_a, port_b, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
 
-  const wire::core::Span* edit_span = wire::core::CoreStateTestHook::edit_state(state).spans.find(span);
-  if (edit_span == nullptr) {
-    return false;
-  }
-
   const auto layout_view = state.view().inspect_support_layout(span);
   const auto span_view = state.view().inspect_span(span);
   return !layout_view.has_value() && span_view.has_value() && !span_view->support_layout_ref.valid() &&
@@ -1984,29 +1979,62 @@ bool test_inspection_backbone_uses_rebuilt_result_instead_of_last_snapshot() {
   if (!state.GenerateFromBackboneSpec(req_a).ok) {
     return false;
   }
+  const ObjectId center_id = find_pole_id_by_position(state, {0.0, 0.0, 0.0});
+  if (center_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
 
   wire::core::BackboneSpec req_b{};
   req_b.path.polyline = {{0.0, -8.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 8.0, 0.0}};
   req_b.interval_m = 8.0;
   req_b.pole_type_id = type_ids.front();
+  wire::core::BackboneInputSpec::NodeSpec shared_center{};
+  shared_center.point_index = 1;
+  shared_center.support_kind = wire::core::SupportKind::kPole;
+  shared_center.node_id = center_id;
+  req_b.path.node_specs.push_back(shared_center);
   helpers::add_backbone_bundle(req_b, wire::core::BundleKind::kLowVoltage);
   if (!state.GenerateFromBackboneSpec(req_b).ok) {
     return false;
   }
 
-  const auto rebuilt = state.BuildBackboneResult();
-  if (rebuilt.junctions.empty() || rebuilt.nodes.empty()) {
+  const auto rebuilt_before = state.BuildBackboneResult();
+  const auto* rebuilt_junction_before = find_junction(rebuilt_before, center_id);
+  const auto rebuilt_support_node_before =
+      std::find_if(rebuilt_before.nodes.begin(), rebuilt_before.nodes.end(),
+                   [&](const wire::core::SupportNode& node) { return node.node_id == center_id; });
+  if (rebuilt_junction_before == nullptr || rebuilt_support_node_before == rebuilt_before.nodes.end()) {
     return false;
   }
-  const ObjectId junction_id = rebuilt.junctions.front().node_id;
-  const ObjectId support_node_id = rebuilt.nodes.front().node_id;
 
-  wire::core::CoreStateTestHook::last_generation_support_nodes(state).clear();
-  wire::core::CoreStateTestHook::last_generation_edge_orientations(state).clear();
+  const auto junction_view_before = state.view().inspect_junction(center_id);
+  const auto support_node_view_before =
+      state.view().describe_entity({wire::core::EntityKind::kSupportNode, center_id});
+  if (!junction_view_before.has_value() || !support_node_view_before.has_value() ||
+      junction_view_before->incidents.size() != rebuilt_junction_before->incidents.size()) {
+    return false;
+  }
 
-  const auto junction_view = state.view().inspect_junction(junction_id);
-  const auto support_node_view = state.view().describe_entity({wire::core::EntityKind::kSupportNode, support_node_id});
-  return junction_view.has_value() && junction_view->incidents.size() >= 3 && support_node_view.has_value();
+  wire::core::BackboneSpec req_c{};
+  req_c.path.polyline = {{40.0, 0.0, 0.0}, {48.0, 0.0, 0.0}, {56.0, 0.0, 0.0}};
+  req_c.interval_m = 8.0;
+  req_c.pole_type_id = type_ids.front();
+  helpers::add_backbone_bundle(req_c, wire::core::BundleKind::kLowVoltage);
+  if (!state.GenerateFromBackboneSpec(req_c).ok) {
+    return false;
+  }
+
+  const auto rebuilt_after = state.BuildBackboneResult();
+  const auto rebuilt_support_node_it =
+      std::find_if(rebuilt_after.nodes.begin(), rebuilt_after.nodes.end(),
+                   [&](const wire::core::SupportNode& node) { return node.node_id == center_id; });
+  if (rebuilt_support_node_it == rebuilt_after.nodes.end()) {
+    return false;
+  }
+
+  const auto support_node_view_after =
+      state.view().describe_entity({wire::core::EntityKind::kSupportNode, center_id});
+  return support_node_view_after.has_value();
 }
 
 bool test_inspection_junction_prefers_relation_surface_when_present() {

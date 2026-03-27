@@ -370,15 +370,11 @@ void apply_support_layout_decision_seed_endpoint(const SupportLayoutDecisionSeed
   endpoint->endpoint_node_id = seed.endpoint_node_id;
   endpoint->owner_pole_id = seed.owner_pole_id;
   endpoint->port_id = seed.port_id;
-  endpoint->attachment_request = seed.attachment_request;
-  endpoint->resolved_socket_id = seed.resolved_socket_id;
   apply_endpoint_decision_to_layout_endpoint(seed.decision, endpoint);
   endpoint->flow_kind = seed.flow_kind;
   endpoint->origin = seed.origin;
-  endpoint->endpoint_source = seed.endpoint_source;
   endpoint->port_source = seed.port_source;
   endpoint->side = seed.side;
-  endpoint->endpoint_mode = seed.endpoint_mode;
   endpoint->automatic_branch_down_offset_m = seed.automatic_branch_down_offset_m;
   endpoint->branch_down_offset_m = seed.branch_down_offset_m;
   endpoint->down_offset_variation = seed.down_offset_variation;

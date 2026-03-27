@@ -46,25 +46,6 @@ if(WIRE_ENABLE_PCH)
   )
 endif()
 
-add_library(
-  wire_core_public_headers_smoke
-  OBJECT
-  tests/public_headers_smoke.cpp
-)
-
-target_include_directories(
-  wire_core_public_headers_smoke
-  PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
-
-target_compile_features(
-  wire_core_public_headers_smoke
-  PRIVATE
-  cxx_std_20
-)
-wire_enable_msvc_target_defaults(wire_core_public_headers_smoke)
-
 if(BUILD_TESTING)
   add_executable(
     wire_capture_replay

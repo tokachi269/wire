@@ -38,6 +38,7 @@ private:
     ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
     ObjectId pair_peer_low = kInvalidObjectId;
     ObjectId pair_peer_high = kInvalidObjectId;
+    ObjectId nonpair_peer_id = kInvalidObjectId;
     JunctionRelationKind relation_kind = JunctionRelationKind::kNone;
     bool in_through_pair = false;
     auto operator<=>(const SupportGroupDecisionKey&) const = default;

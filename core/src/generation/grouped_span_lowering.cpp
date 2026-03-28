@@ -191,7 +191,6 @@ int GroupedSpanLoweringDecider::SupportGroupIdForEndpoint(ObjectId node_id, Obje
   if (!needs_lower) {
     return -1;
   }
-  (void)peer_id;
   SupportGroupDecisionKey key{};
   key.owner_pole_id = node_id;
   key.continuity_class = feasibility.continuity_class;
@@ -199,6 +198,7 @@ int GroupedSpanLoweringDecider::SupportGroupIdForEndpoint(ObjectId node_id, Obje
     key.pair_peer_low = pair_info->pair_peer_low;
     key.pair_peer_high = pair_info->pair_peer_high;
   } else {
+    key.nonpair_peer_id = peer_id;
     key.relation_kind = feasibility.kind;
     key.in_through_pair = feasibility.in_through_pair;
   }

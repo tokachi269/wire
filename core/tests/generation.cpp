@@ -8,6 +8,7 @@
 
 #include "registry.hpp"
 #include "helpers.hpp"
+#include "../src/generation/grouped_span_lowering.hpp"
 
 using namespace helpers;
 
@@ -8748,6 +8749,72 @@ bool test_backbone_adjacent_branch_roots_use_route_local_bisector() {
   return true;
 }
 
+bool test_backbone_same_pole_branch_roots_keep_distinct_support_groups() {
+  const std::vector<ObjectId> node_ids{55, 316, 400};
+  const std::unordered_map<ObjectId, wire::core::SupportNode> support_node_by_id{
+      {55, wire::core::SupportNode{.node_id = 55, .support_kind = wire::core::SupportKind::kPole, .position = {0.0, 0.0, 0.0}, .pole_id = 55}},
+      {316, wire::core::SupportNode{.node_id = 316, .support_kind = wire::core::SupportKind::kPole, .position = {6.0, 14.0, 0.0}, .pole_id = 316}},
+      {400, wire::core::SupportNode{.node_id = 400, .support_kind = wire::core::SupportKind::kPole, .position = {-6.0, 14.0, 0.0}, .pole_id = 400}},
+  };
+  const wire::core::EditState edit_state{};
+  const wire::core::RelationIndex relation_index{};
+  const wire::core::ConnectionIndex connection_index{};
+  const wire::core::generation::detail::GroupedSpanSharedContext ctx{
+      .node_ids = node_ids,
+      .support_node_by_id = support_node_by_id,
+      .edit_state = edit_state,
+      .relation_index = relation_index,
+      .connection_index = connection_index,
+      .junction_relations_by_node = nullptr,
+  };
+  wire::core::BackboneLoweringPolicy lowering_policy{};
+  lowering_policy.offset_m = 0.275;
+  lowering_policy.enable_branch_support = true;
+
+  wire::core::generation::detail::GroupedSpanLoweringDecider lowering(ctx, lowering_policy,
+                                                                      wire::core::BundleKind::kHighVoltage, 0.4, 0.2);
+
+  wire::core::generation::detail::SegmentRelationFeasibility feasibility{};
+  feasibility.kind = wire::core::JunctionRelationKind::kSideBranch;
+  feasibility.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
+  feasibility.in_through_pair = false;
+  feasibility.default_lower_required = true;
+  feasibility.same_level_feasible = false;
+  feasibility.reason = wire::core::SameLevelFeasibilityReason::kBundleRule;
+
+  wire::core::generation::detail::EndpointSideDecision side_decision{};
+  side_decision.has_side_axis = true;
+  side_decision.side_axis = {1.0, 0.0, 0.0};
+  side_decision.chosen_side_sign = 1.0;
+  side_decision.side_assignment_rule = wire::core::SideAssignmentRuleKind::kBisector;
+  side_decision.support_orientation_rule = wire::core::SupportOrientationRuleKind::kBisector;
+
+  const auto first = lowering.BuildEndpointDecision(feasibility, std::nullopt, side_decision, 55, 316,
+                                                    wire::core::OrderDecisionPolicyKind::kFixedOrder,
+                                                    wire::core::OrderDecisionChoiceKind::kNormal,
+                                                    wire::core::OrderDecisionChoiceReason::kFixedOrder, false, false,
+                                                    false, false);
+  const auto second = lowering.BuildEndpointDecision(feasibility, std::nullopt, side_decision, 55, 400,
+                                                     wire::core::OrderDecisionPolicyKind::kFixedOrder,
+                                                     wire::core::OrderDecisionChoiceKind::kNormal,
+                                                     wire::core::OrderDecisionChoiceReason::kFixedOrder, false, false,
+                                                     false, false);
+  const auto repeat_first = lowering.BuildEndpointDecision(feasibility, std::nullopt, side_decision, 55, 316,
+                                                           wire::core::OrderDecisionPolicyKind::kFixedOrder,
+                                                           wire::core::OrderDecisionChoiceKind::kNormal,
+                                                           wire::core::OrderDecisionChoiceReason::kFixedOrder, false,
+                                                           false, false, false);
+
+  if (!(first.support_group_id >= 0 && second.support_group_id >= 0 &&
+        first.support_group_id != second.support_group_id && first.support_group_id == repeat_first.support_group_id)) {
+    std::cerr << "[DBG] C282 firstGroup=" << first.support_group_id << " secondGroup=" << second.support_group_id
+              << " repeatFirstGroup=" << repeat_first.support_group_id << "\n";
+    return false;
+  }
+
+  return true;
+}
+
 // Intent: Backbone generation must require bundles[] and reject legacy-only fields.
 namespace {
 
@@ -9109,6 +9176,9 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C279_Backbone_AdjacentBranchRootsUseRouteLocalBisector",
                          "Adjacent bundle branch roots use route-local bisector orientation instead of collapsing to one shared direction",
                          "Invariant", false, test_backbone_adjacent_branch_roots_use_route_local_bisector);
+  test_registry::AddTest(tests, "C282_Backbone_SamePoleBranchRootsKeepDistinctSupportGroups",
+                         "Two bundle branch roots on the same pole keep distinct lowered support groups instead of collapsing to one shared direction",
+                         "Invariant", false, test_backbone_same_pole_branch_roots_keep_distinct_support_groups);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_generation_tests);

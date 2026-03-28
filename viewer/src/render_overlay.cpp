@@ -13,8 +13,6 @@
 namespace {
 
 constexpr float kAxisLength = 2.0f;
-constexpr double kShadowLiftM = 0.004;
-constexpr float kGroundShadowHeight = 0.008f;
 
 Color BlendColor(Color a, Color b, float t) {
   const float clamped = std::clamp(t, 0.0f, 1.0f);
@@ -46,12 +44,6 @@ Color FlowTintedWireColor(Color base, wire::core::BackboneFlowKind flow_kind, bo
   return base;
 }
 
-Color GroundShadowColor(unsigned char alpha) { return Color{30, 34, 38, alpha}; }
-
-wire::core::Vec3d GroundProjectedPoint(const wire::core::Vec3d& point, double ground_z) {
-  return {point.x, point.y, ground_z + kShadowLiftM};
-}
-
 float SegmentLengthSquared(const wire::core::Vec3d& a, const wire::core::Vec3d& b) {
   const double dx = b.x - a.x;
   const double dy = b.y - a.y;
@@ -72,32 +64,6 @@ float SolidVisualPartRadius(wire::core::VisualPartKind kind, double radius_m) {
     return 0.015f;
   default:
     return 0.014f;
-  }
-}
-
-void DrawGroundShadowDisk(const wire::core::Vec3d& center, float radius, double ground_z, Color color) {
-  Vector3 host = ToRaylib(GroundProjectedPoint(center, ground_z));
-  host.y += kGroundShadowHeight * 0.5f;
-  DrawCylinder(host, radius, radius, kGroundShadowHeight, 12, color);
-}
-
-void DrawGroundShadowSegment(const wire::core::Vec3d& a, const wire::core::Vec3d& b, float radius, double ground_z,
-                             Color color) {
-  const wire::core::Vec3d pa = GroundProjectedPoint(a, ground_z);
-  const wire::core::Vec3d pb = GroundProjectedPoint(b, ground_z);
-  if (SegmentLengthSquared(pa, pb) <= 1e-8f) {
-    DrawGroundShadowDisk(pa, radius, ground_z, color);
-    return;
-  }
-  DrawCylinderEx(ToRaylib(pa), ToRaylib(pb), radius, radius, 8, color);
-}
-
-void DrawGroundShadowPolyline(const std::vector<wire::core::Vec3d>& points, float radius, double ground_z, Color color) {
-  if (points.size() < 2) {
-    return;
-  }
-  for (std::size_t i = 0; i + 1 < points.size(); ++i) {
-    DrawGroundShadowSegment(points[i], points[i + 1], radius, ground_z, color);
   }
 }
 
@@ -339,8 +305,6 @@ void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
   const auto& edit = view.edit_state();
   const wire::core::BackboneResult backbone = view.build_backbone_result();
   const bool enable_solid_support_render = ui_state.viewer_enable_solid_support_render;
-  const bool enable_simple_ground_shadows = ui_state.viewer_enable_simple_ground_shadows;
-  const double ground_z = ui_state.draw_plane_z;
   ObjectId selected_bundle_id = wire::core::kInvalidObjectId;
   for (const SelectionItem& item : ui_state.selection_items) {
     if (item.type == SelectedType::kSpan && item.id != wire::core::kInvalidObjectId) {
@@ -363,9 +327,6 @@ void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
     if (SelectionContains(ui_state, SelectedType::kPole, pole.id)) {
       color = GOLD;
     }
-    if (enable_simple_ground_shadows) {
-      DrawGroundShadowSegment(pole_base_ue, pole_top_ue, 0.11f, ground_z, GroundShadowColor(82));
-    }
     DrawCylinderEx(ToRaylib(pole_base_ue), ToRaylib(pole_top_ue), 0.12f, 0.08f, 10, color);
   }
 
@@ -379,9 +340,6 @@ void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
                                                                              : Color{110, 154, 100, 230};
       if (SelectionContains(ui_state, SelectedType::kSupportNode, node.node_id)) {
         color = GOLD;
-      }
-      if (enable_simple_ground_shadows) {
-        DrawGroundShadowDisk(node.position, 0.10f, ground_z, GroundShadowColor(70));
       }
       DrawSphere(ToRaylib(node.position), 0.11f, color);
     }
@@ -443,21 +401,6 @@ void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
       wire_color = Color{154, 112, 56, 255};
     }
     if (curve != nullptr && curve->points.size() >= 2) {
-      if (enable_simple_ground_shadows) {
-        const Color shadow_color = GroundShadowColor(46);
-        const float shadow_radius = std::max(0.003f, wire_radius * 1.65f);
-        if (!curve->detail.visible_intervals.empty()) {
-          for (const wire::core::CurveLengthInterval& interval : curve->detail.visible_intervals) {
-            DrawGroundShadowPolyline(SampleCurveInterval(curve->detail, interval.start_m, interval.end_m), shadow_radius,
-                                     ground_z, shadow_color);
-          }
-        } else {
-          DrawGroundShadowPolyline(curve->points, shadow_radius, ground_z, shadow_color);
-        }
-        for (const wire::core::DetailReplacementPath& replacement : curve->detail.replacement_paths) {
-          DrawGroundShadowPolyline(replacement.points, shadow_radius, ground_z, shadow_color);
-        }
-      }
       if (!curve->detail.visible_intervals.empty()) {
         for (const wire::core::CurveLengthInterval& interval : curve->detail.visible_intervals) {
           DrawWirePolyline(SampleCurveInterval(curve->detail, interval.start_m, interval.end_m), wire_radius, wire_color);
@@ -469,10 +412,6 @@ void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
         DrawWirePolyline(replacement.points, wire_radius, wire_color);
       }
     } else {
-      if (enable_simple_ground_shadows) {
-        DrawGroundShadowSegment(start_port->world_position, end_port->world_position, std::max(0.003f, wire_radius * 1.65f),
-                                ground_z, GroundShadowColor(46));
-      }
       DrawCylinderEx(ToRaylib(start_port->world_position), ToRaylib(end_port->world_position), wire_radius, wire_radius,
                      8, wire_color);
     }
@@ -506,17 +445,10 @@ void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
         }
         const Color part_color = VisualPartColor(part.kind);
         if (part.kind == wire::core::VisualPartKind::kInsulator) {
-          if (enable_simple_ground_shadows) {
-            DrawGroundShadowSegment(part.a, part.b, std::max(0.008f, static_cast<float>(part.radius_m) * 1.6f), ground_z,
-                                    GroundShadowColor(54));
-          }
           DrawCylinderEx(ToRaylib(part.a), ToRaylib(part.b), static_cast<float>(part.radius_m),
                          static_cast<float>(part.radius_m), 8, part_color);
         } else {
           const float part_radius = SolidVisualPartRadius(part.kind, part.radius_m);
-          if (enable_simple_ground_shadows) {
-            DrawGroundShadowSegment(part.a, part.b, std::max(0.008f, part_radius * 1.55f), ground_z, GroundShadowColor(58));
-          }
           DrawSupportSegment(part.a, part.b, part_radius, part_color, enable_solid_support_render);
         }
       }
@@ -524,16 +456,10 @@ void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
     if (layout_view.has_value()) {
       const auto draw_lowered_support_group = [&](const auto& placement) {
         const Color support_color = Color{96, 118, 126, 220};
-        if (enable_simple_ground_shadows) {
-          DrawGroundShadowSegment(placement.mount_world, placement.tip_world, 0.024f, ground_z, GroundShadowColor(66));
-        }
         DrawSupportSegment(placement.mount_world, placement.tip_world, 0.018f, support_color, enable_solid_support_render);
         DrawSphere(ToRaylib(placement.mount_world), 0.05f, Color{104, 116, 122, 220});
         DrawSphere(ToRaylib(placement.tip_world), 0.05f, Color{112, 136, 144, 220});
         for (const auto& attachment_world : placement.attachment_worlds) {
-          if (enable_simple_ground_shadows) {
-            DrawGroundShadowSegment(placement.tip_world, attachment_world, 0.016f, ground_z, GroundShadowColor(52));
-          }
           DrawSupportSegment(placement.tip_world, attachment_world, 0.012f, Color{180, 186, 190, 220},
                              enable_solid_support_render);
         }
@@ -563,9 +489,6 @@ void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
     Color color = MAGENTA;
     if (SelectionContains(ui_state, SelectedType::kAttachment, attachment.id)) {
       color = GOLD;
-    }
-    if (ui_state.viewer_enable_simple_ground_shadows) {
-      DrawGroundShadowDisk(pos, 0.10f, ui_state.draw_plane_z, GroundShadowColor(72));
     }
     DrawCubeV(ToRaylib(pos), Vector3{0.14f, 0.14f, 0.14f}, color);
   }

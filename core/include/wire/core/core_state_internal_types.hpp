@@ -34,6 +34,16 @@ struct OverrideState {
   std::unordered_map<ObjectId, SpanSupportOverride> span_support_by_span{};
 };
 
+struct PortResolutionHints {
+  ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
+  JunctionRelationKind relation_kind = JunctionRelationKind::kNone;
+  bool default_lower_required = false;
+  bool same_level_feasible = true;
+  SameLevelFeasibilityReason same_level_reason = SameLevelFeasibilityReason::kNone;
+  double projected_spacing_topview_m = 0.0;
+  double required_clearance_m = 0.0;
+};
+
 struct PortResolutionRequest {
   ObjectId pole_id = kInvalidObjectId;
   ObjectId peer_pole_id = kInvalidObjectId;
@@ -49,7 +59,7 @@ struct PortResolutionRequest {
   SlotSide preferred_template_side = SlotSide::kCenter;
   SlotRole preferred_template_role = SlotRole::kNeutral;
   std::uint32_t branch_index = 0;
-  EndpointContinuityDecision endpoint_decision{};
+  PortResolutionHints hints{};
   std::vector<ObjectId> excluded_port_ids{};
 };
 

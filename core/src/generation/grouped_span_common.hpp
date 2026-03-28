@@ -56,6 +56,14 @@ struct GroupedSpanSharedContext {
     return (port == nullptr) ? kInvalidObjectId : port->owner_pole_id;
   }
 
+  [[nodiscard]] ObjectId resolve_span_endpoint_node(const Span& span, ObjectId owner_pole_id, bool is_a) const {
+    const ObjectId explicit_node_id = is_a ? span.endpoint_node_a_id : span.endpoint_node_b_id;
+    if (explicit_node_id != kInvalidObjectId) {
+      return explicit_node_id;
+    }
+    return owner_pole_id;
+  }
+
   [[nodiscard]] Vec3d support_position(ObjectId node_id) const {
     if (const auto it = support_node_by_id.find(node_id); it != support_node_by_id.end()) {
       return it->second.position;

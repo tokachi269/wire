@@ -453,14 +453,14 @@ bool CoreState::is_port_band_used(ObjectId pole_id, const PortPlacementBand& ban
 EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolutionRequest& request) {
   EditResult<ObjectId> result;
   const Pole* pole = authoritative_.edit_state.poles.find(request.pole_id);
-  const EndpointContinuityDecision& endpoint_decision = request.endpoint_decision;
-  const ContinuityCategoryClass continuity_class_hint = endpoint_decision.continuity_class;
-  const bool default_lower_required_hint = endpoint_decision.default_lower_required;
-  const bool same_level_feasible_hint = endpoint_decision.same_level_feasible;
-  const SameLevelFeasibilityReason same_level_reason_hint = endpoint_decision.same_level_reason;
-  const double projected_spacing_topview_hint_m = endpoint_decision.projected_spacing_topview_m;
-  const double required_clearance_hint_m = endpoint_decision.required_clearance_m;
-  const JunctionRelationKind relation_kind_hint = endpoint_decision.relation_kind;
+  const PortResolutionHints& hints = request.hints;
+  const ContinuityCategoryClass continuity_class_hint = hints.continuity_class;
+  const bool default_lower_required_hint = hints.default_lower_required;
+  const bool same_level_feasible_hint = hints.same_level_feasible;
+  const SameLevelFeasibilityReason same_level_reason_hint = hints.same_level_reason;
+  const double projected_spacing_topview_hint_m = hints.projected_spacing_topview_m;
+  const double required_clearance_hint_m = hints.required_clearance_m;
+  const JunctionRelationKind relation_kind_hint = hints.relation_kind;
 
   PortResolutionDebugRecord debug{};
   debug.pole_id = request.pole_id;

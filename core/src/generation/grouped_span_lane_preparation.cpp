@@ -115,6 +115,308 @@ void add_order_score(BundleOrderScore* dst, const BundleOrderScore& src) {
 
 } // namespace
 
+GroupedSpanLaneStateAccess::GroupedSpanLaneStateAccess(CoreState& state) : state_(&state) {}
+
+double GroupedSpanLaneStateAccess::effective_pole_layout_yaw_deg(const Pole& pole) const {
+  return state_->effective_pole_layout_yaw_deg(pole);
+}
+
+const PoleTypeDefinition* GroupedSpanLaneStateAccess::find_pole_type(PoleTypeId pole_type_id) const {
+  return state_->find_pole_type(pole_type_id);
+}
+
+namespace {
+
+[[nodiscard]] int side_rank(SlotSide side) {
+  switch (side) {
+  case SlotSide::kLeft:
+    return 0;
+  case SlotSide::kCenter:
+    return 1;
+  case SlotSide::kRight:
+    return 2;
+  default:
+    return 3;
+  }
+}
+
+} // namespace
+
+std::optional<Vec3d> GroupedSpanLaneStateAccess::port_world_position(ObjectId port_id) const {
+  const Port* port = state_->edit_state_access().ports.find(port_id);
+  if (port == nullptr) {
+    return std::nullopt;
+  }
+  return port->world_position;
+}
+
+std::optional<int> GroupedSpanLaneStateAccess::port_template_layer(ObjectId port_id) const {
+  const Port* port = state_->edit_state_access().ports.find(port_id);
+  if (port == nullptr) {
+    return std::nullopt;
+  }
+  return port->template_layer;
+}
+
+std::optional<double> GroupedSpanLaneStateAccess::port_local_y(ObjectId port_id, const Pole* pole,
+                                                               double layout_yaw_deg) const {
+  const auto world = port_world_position(port_id);
+  if (!world.has_value()) {
+    return std::nullopt;
+  }
+  if (pole == nullptr) {
+    return 0.0;
+  }
+  return WorldPointToLocal(BuildPoleFrame(pole->world_transform, layout_yaw_deg), *world).y;
+}
+
+std::optional<PortPlacementSourceKind> GroupedSpanLaneStateAccess::port_placement_source(ObjectId port_id) const {
+  const Port* port = state_->edit_state_access().ports.find(port_id);
+  if (port == nullptr) {
+    return std::nullopt;
+  }
+  return port->placement_source;
+}
+
+std::optional<ObjectId> GroupedSpanLaneStateAccess::port_owner_pole_id_on_layer(ObjectId port_id, PortLayer layer) const {
+  const Port* port = state_->edit_state_access().ports.find(port_id);
+  if (port == nullptr || port->layer != layer) {
+    return std::nullopt;
+  }
+  return port->owner_pole_id;
+}
+
+bool GroupedSpanLaneStateAccess::port_matches_owner_layer(ObjectId port_id, ObjectId owner_pole_id,
+                                                          PortLayer layer) const {
+  const Port* port = state_->edit_state_access().ports.find(port_id);
+  return port != nullptr && port->owner_pole_id == owner_pole_id && port->layer == layer;
+}
+
+bool GroupedSpanLaneStateAccess::port_matches_owner_layer_category(ObjectId port_id, ObjectId owner_pole_id,
+                                                                   PortLayer layer,
+                                                                   ConnectionCategory category) const {
+  const Port* port = state_->edit_state_access().ports.find(port_id);
+  return port != nullptr && port->owner_pole_id == owner_pole_id && port->layer == layer &&
+         port->category == category;
+}
+
+std::optional<GroupedSpanLanePortOrderKey> GroupedSpanLaneStateAccess::port_order_key(ObjectId port_id,
+                                                                                       const Pole* pole,
+                                                                                       double layout_yaw_deg) const {
+  const Port* port = state_->edit_state_access().ports.find(port_id);
+  if (port == nullptr) {
+    return std::nullopt;
+  }
+  double local_y = 0.0;
+  if (pole != nullptr) {
+    local_y = WorldPointToLocal(BuildPoleFrame(pole->world_transform, layout_yaw_deg), port->world_position).y;
+  }
+  return GroupedSpanLanePortOrderKey{
+      .local_y = local_y,
+      .template_layer = port->template_layer,
+      .side_rank = side_rank(port->template_side),
+      .height_millimeters = static_cast<int>(std::llround(HeightAlongWorldUp(port->world_position) * 1000.0)),
+      .id = port->id,
+  };
+}
+
+std::optional<GroupedSpanLaneTerminalPortOrderKey>
+GroupedSpanLaneStateAccess::port_terminal_order_key(ObjectId port_id, const Pole* pole, double layout_yaw_deg) const {
+  const Port* port = state_->edit_state_access().ports.find(port_id);
+  if (port == nullptr) {
+    return std::nullopt;
+  }
+  double local_y = 0.0;
+  if (pole != nullptr) {
+    local_y = WorldPointToLocal(BuildPoleFrame(pole->world_transform, layout_yaw_deg), port->world_position).y;
+  }
+  return GroupedSpanLaneTerminalPortOrderKey{
+      .template_layer = port->template_layer,
+      .side_rank = side_rank(port->template_side),
+      .local_y = local_y,
+      .id = port->id,
+  };
+}
+
+std::optional<GroupedSpanLaneSpanEndpointSample>
+GroupedSpanLaneStateAccess::port_segment_sample(const Span& span) const {
+  const Port* port_a = state_->edit_state_access().ports.find(span.port_a_id);
+  const Port* port_b = state_->edit_state_access().ports.find(span.port_b_id);
+  if (port_a == nullptr || port_b == nullptr) {
+    return std::nullopt;
+  }
+  return GroupedSpanLaneSpanEndpointSample{
+      .port_a_id = port_a->id,
+      .port_b_id = port_b->id,
+      .owner_pole_a_id = port_a->owner_pole_id,
+      .owner_pole_b_id = port_b->owner_pole_id,
+      .layer_a = port_a->layer,
+      .layer_b = port_b->layer,
+      .world_a = port_a->world_position,
+      .world_b = port_b->world_position,
+  };
+}
+
+void GroupedSpanLaneStateAccess::for_each_span_in_bundle_template(
+    BundleKind bundle_template_id, const std::function<void(const Span&)>& visitor) const {
+  for (const Span& span : state_->edit_state_access().spans.items()) {
+    if (span.bundle_id == kInvalidObjectId) {
+      continue;
+    }
+    const Bundle* bundle = state_->edit_state_access().bundles.find(span.bundle_id);
+    if (bundle == nullptr || bundle->bundle_template_id != bundle_template_id) {
+      continue;
+    }
+    visitor(span);
+  }
+}
+
+void GroupedSpanLaneStateAccess::for_each_port_owned_by_pole(ObjectId pole_id,
+                                                             const std::function<void(const Port&)>& visitor) const {
+  const auto it = state_->relation_index_access().ports_by_pole.find(pole_id);
+  if (it == state_->relation_index_access().ports_by_pole.end()) {
+    return;
+  }
+  for (ObjectId port_id : it->second) {
+    const Port* port = state_->edit_state_access().ports.find(port_id);
+    if (port != nullptr) {
+      visitor(*port);
+    }
+  }
+}
+
+void GroupedSpanLaneStateAccess::for_each_connected_span(ObjectId port_id,
+                                                         const std::function<void(const Span&)>& visitor) const {
+  const auto it = state_->connection_index_access().spans_by_port.find(port_id);
+  if (it == state_->connection_index_access().spans_by_port.end()) {
+    return;
+  }
+  for (ObjectId span_id : it->second) {
+    const Span* span = state_->edit_state_access().spans.find(span_id);
+    if (span != nullptr) {
+      visitor(*span);
+    }
+  }
+}
+
+const GeometrySettings& GroupedSpanLaneStateAccess::geometry_settings() const {
+  return state_->cache_state_access().geometry_settings;
+}
+
+const LayoutSettings& GroupedSpanLaneStateAccess::layout_settings() const {
+  return state_->authoritative_.layout_settings;
+}
+
+PortKind GroupedSpanLaneStateAccess::port_kind_for_category(ConnectionCategory category) const {
+  return CoreState::category_to_port_kind(category);
+}
+
+PortLayer GroupedSpanLaneStateAccess::port_layer_for_category(ConnectionCategory category) const {
+  return CoreState::category_to_port_layer(category);
+}
+
+int GroupedSpanLaneStateAccess::template_layer_for_category(ConnectionCategory category) const {
+  return generation::detail::TemplateLayerForCategory(category);
+}
+
+double GroupedSpanLaneStateAccess::pole_radius_at_height_m(const Pole& pole, double local_z_m) const {
+  return state_->pole_radius_at_height_m(pole, local_z_m);
+}
+
+Vec3d GroupedSpanLaneStateAccess::apply_pole_clearance_to_local(const Pole& pole, const Vec3d& local,
+                                                                SlotSide side) const {
+  return state_->apply_pole_clearance_to_local(pole, local, side);
+}
+
+EditResult<ObjectId> GroupedSpanLaneStateAccess::AddPort(ObjectId owner_pole_id, const Vec3d& world_position,
+                                                         PortKind kind, PortLayer layer) const {
+  return state_->AddPort(owner_pole_id, world_position, kind, layer);
+}
+
+EditResult<ObjectId> GroupedSpanLaneStateAccess::ensure_pole_connection_port(
+    const PortResolutionRequest& request) const {
+  return state_->ensure_pole_connection_port(request);
+}
+
+bool GroupedSpanLaneStateAccess::reposition_port_world(ObjectId port_id, const Vec3d& world_position) const {
+  Port* port = state_->edit_state_access().ports.find(port_id);
+  if (port == nullptr) {
+    return false;
+  }
+  port->world_position = world_position;
+  return true;
+}
+
+bool GroupedSpanLaneStateAccess::mark_aerial_branch_port(ObjectId port_id) const {
+  Port* port = state_->edit_state_access().ports.find(port_id);
+  if (port == nullptr) {
+    return false;
+  }
+  port->generated_by_rule = true;
+  port->placement_context = ConnectionContext::kBranchAdd;
+  CoreState::apply_port_position_mode(*port, PortPositionMode::kAuto, PortPlacementSourceKind::kAerialBranch);
+  return true;
+}
+
+bool GroupedSpanLaneStateAccess::finalize_branch_support_port(ObjectId port_id, ConnectionCategory category,
+                                                              int template_layer, SlotSide template_side) const {
+  Port* port = state_->edit_state_access().ports.find(port_id);
+  if (port == nullptr) {
+    return false;
+  }
+  port->category = category;
+  port->template_layer = template_layer;
+  port->template_side = template_side;
+  port->template_role = SlotRole::kBranchPreferred;
+  port->generated_from_template = false;
+  port->generated_by_rule = true;
+  port->placement_context = ConnectionContext::kBranchAdd;
+  CoreState::apply_port_position_mode(*port, PortPositionMode::kAuto, PortPlacementSourceKind::kBranchSupport);
+  return true;
+}
+
+bool GroupedSpanLaneStateAccess::finalize_generated_row_port(ObjectId port_id, const Vec3d* world_position,
+                                                             ConnectionCategory category, int template_layer,
+                                                             SlotSide template_side) const {
+  Port* port = state_->edit_state_access().ports.find(port_id);
+  if (port == nullptr) {
+    return false;
+  }
+  if (world_position != nullptr) {
+    port->world_position = *world_position;
+  }
+  port->category = category;
+  port->template_layer = template_layer;
+  port->template_side = template_side;
+  port->generated_by_rule = true;
+  port->placement_context = ConnectionContext::kTrunkContinue;
+  CoreState::apply_port_position_mode(*port, PortPositionMode::kAuto, PortPlacementSourceKind::kGenerated);
+  return true;
+}
+
+bool GroupedSpanLaneStateAccess::finalize_terminal_fallback_port(ObjectId port_id, const Vec3d* world_position,
+                                                                 ConnectionCategory category, int template_layer,
+                                                                 SlotSide template_side) const {
+  Port* port = state_->edit_state_access().ports.find(port_id);
+  if (port == nullptr) {
+    return false;
+  }
+  if (world_position != nullptr) {
+    port->world_position = *world_position;
+  }
+  port->category = category;
+  port->template_layer = template_layer;
+  port->template_side = template_side;
+  port->generated_by_rule = true;
+  port->placement_context = ConnectionContext::kTrunkContinue;
+  CoreState::apply_port_position_mode(*port, PortPositionMode::kAuto, PortPlacementSourceKind::kGenerated);
+  return true;
+}
+
+void GroupedSpanLaneStateAccess::add_unique_id(std::vector<ObjectId>& ids, ObjectId id) const {
+  CoreState::add_unique_id(ids, id);
+}
+
 GroupedSpanLanePreparer::GroupedSpanLanePreparer(CoreState& state, const GroupedSpanSharedContext& ctx,
                                                  const GroupedSpanLoweringDecider& lowering,
                                                  GroupedSpanOrientationDecider& orientation, ObjectId bundle_id,
@@ -134,7 +436,7 @@ double GroupedSpanLanePreparer::LayoutYawForPole(const Pole& pole) const {
 
 double GroupedSpanLanePreparer::TemplateLayerBaseZForPole(const Pole& pole) const {
   double best_z = -std::numeric_limits<double>::infinity();
-  const int target_layer = generation::detail::TemplateLayerForCategory(category_);
+  const int target_layer = state_.template_layer_for_category(category_);
   if (const PoleTypeDefinition* pole_type = state_.find_pole_type(pole.pole_type_id); pole_type != nullptr) {
     for (const PortPlacementBand& band : pole_type->port_bands) {
       if (!band.enabled) {
@@ -168,8 +470,9 @@ double GroupedSpanLanePreparer::LaneRowTargetZForEndpoint(const Pole& pole,
 }
 
 std::size_t GroupedSpanLanePreparer::PortConnectionCount(ObjectId port_id) const {
-  const auto it = state_.connection_index_access().spans_by_port.find(port_id);
-  return (it == state_.connection_index_access().spans_by_port.end()) ? 0 : it->second.size();
+  std::size_t count = 0;
+  state_.for_each_connected_span(port_id, [&](const Span&) { ++count; });
+  return count;
 }
 
 double GroupedSpanLanePreparer::ComputeTurnAngleDeg(const GroupedSpanLanePlan& plan, std::size_t segment_index) const {
@@ -236,23 +539,23 @@ GroupedSpanLanePreparer::AnalyzePreparedPorts(const std::vector<ObjectId>& port_
                                               bool segment_same_level_feasible) const {
   auto ports_use_branch_support = [&](const std::vector<ObjectId>& port_ids) {
     return std::any_of(port_ids.begin(), port_ids.end(), [&](ObjectId port_id) {
-      const Port* port = state_.edit_state_access().ports.find(port_id);
-      return port != nullptr && port->placement_source == PortPlacementSourceKind::kBranchSupport;
+      const auto source = state_.port_placement_source(port_id);
+      return source && *source == PortPlacementSourceKind::kBranchSupport;
     });
   };
   auto ports_use_constrained_solver = [&](const std::vector<ObjectId>& port_ids) {
     return std::any_of(port_ids.begin(), port_ids.end(), [&](ObjectId port_id) {
-      const Port* port = state_.edit_state_access().ports.find(port_id);
-      return port != nullptr && port->placement_source == PortPlacementSourceKind::kPlacementBandConstrained;
+      const auto source = state_.port_placement_source(port_id);
+      return source && *source == PortPlacementSourceKind::kPlacementBandConstrained;
     });
   };
   auto ports_use_special_case_source = [&](const std::vector<ObjectId>& port_ids) {
     return std::any_of(port_ids.begin(), port_ids.end(), [&](ObjectId port_id) {
-      const Port* port = state_.edit_state_access().ports.find(port_id);
-      return port != nullptr &&
-             (port->placement_source == PortPlacementSourceKind::kGenerated ||
-              port->placement_source == PortPlacementSourceKind::kBranchSupport ||
-              port->placement_source == PortPlacementSourceKind::kAerialBranch);
+      const auto source = state_.port_placement_source(port_id);
+      return source &&
+             (*source == PortPlacementSourceKind::kGenerated ||
+              *source == PortPlacementSourceKind::kBranchSupport ||
+              *source == PortPlacementSourceKind::kAerialBranch);
     });
   };
 
@@ -340,47 +643,46 @@ GroupedSpanLanePreparer::BuildLanePlan(const BackboneLoweringPolicy& lowering_po
     std::vector<double> z_b(static_cast<std::size_t>(lane_count_), 0.0);
     for (int lane = 0; lane < lane_count_; ++lane) {
       const std::size_t idx = static_cast<std::size_t>(lane);
-      const Port* port_a = state_.edit_state_access().ports.find(lanes_a[idx]);
-      const Port* port_b = state_.edit_state_access().ports.find(lanes_b[idx]);
-      if (port_a == nullptr || port_b == nullptr) {
+      const auto world_a = state_.port_world_position(lanes_a[idx]);
+      const auto world_b = state_.port_world_position(lanes_b[idx]);
+      const auto template_layer_a = state_.port_template_layer(lanes_a[idx]);
+      const auto template_layer_b = state_.port_template_layer(lanes_b[idx]);
+      if (!world_a || !world_b || !template_layer_a || !template_layer_b) {
         score.layer_jump += 4;
         score.span_z_delta += 5.0;
         continue;
       }
       if (use_lane_row_geometry_) {
         const Vec3d local_a =
-            (pole_a == nullptr)
-                ? port_a->world_position
-                : WorldPointToLocal(BuildPoleFrame(pole_a->world_transform, LayoutYawForPole(*pole_a)),
-                                    port_a->world_position);
+            (pole_a == nullptr) ? *world_a
+                                : WorldPointToLocal(BuildPoleFrame(pole_a->world_transform, LayoutYawForPole(*pole_a)),
+                                                    *world_a);
         const Vec3d local_b =
-            (pole_b == nullptr)
-                ? port_b->world_position
-                : WorldPointToLocal(BuildPoleFrame(pole_b->world_transform, LayoutYawForPole(*pole_b)),
-                                    port_b->world_position);
+            (pole_b == nullptr) ? *world_b
+                                : WorldPointToLocal(BuildPoleFrame(pole_b->world_transform, LayoutYawForPole(*pole_b)),
+                                                    *world_b);
         y_a[idx] = local_a.y;
         y_b[idx] = local_b.y * y_sign_b;
       } else {
-        y_a[idx] = dot_xy(port_a->world_position - pos_a, axis_a);
-        y_b[idx] = dot_xy(port_b->world_position - pos_b, axis_b) * y_sign_b;
+        y_a[idx] = dot_xy(*world_a - pos_a, axis_a);
+        y_b[idx] = dot_xy(*world_b - pos_b, axis_b) * y_sign_b;
       }
-      z_a[idx] = port_a->world_position.z;
-      z_b[idx] = port_b->world_position.z;
-      score.layer_jump += std::abs(port_a->template_layer - port_b->template_layer);
-      score.span_z_delta += std::abs(port_a->world_position.z - port_b->world_position.z);
+      z_a[idx] = world_a->z;
+      z_b[idx] = world_b->z;
+      score.layer_jump += std::abs(*template_layer_a - *template_layer_b);
+      score.span_z_delta += std::abs(world_a->z - world_b->z);
     }
 
     for (int i = 0; i < lane_count_; ++i) {
       for (int j = i + 1; j < lane_count_; ++j) {
         const std::size_t ii = static_cast<std::size_t>(i);
         const std::size_t jj = static_cast<std::size_t>(j);
-        const Port* port_ai = state_.edit_state_access().ports.find(lanes_a[ii]);
-        const Port* port_bi = state_.edit_state_access().ports.find(lanes_b[ii]);
-        const Port* port_aj = state_.edit_state_access().ports.find(lanes_a[jj]);
-        const Port* port_bj = state_.edit_state_access().ports.find(lanes_b[jj]);
-        if (port_ai != nullptr && port_bi != nullptr && port_aj != nullptr && port_bj != nullptr &&
-            segments_intersect_xy_strict_local(port_ai->world_position, port_bi->world_position,
-                                               port_aj->world_position, port_bj->world_position)) {
+        const auto world_ai = state_.port_world_position(lanes_a[ii]);
+        const auto world_bi = state_.port_world_position(lanes_b[ii]);
+        const auto world_aj = state_.port_world_position(lanes_a[jj]);
+        const auto world_bj = state_.port_world_position(lanes_b[jj]);
+        if (world_ai && world_bi && world_aj && world_bj &&
+            segments_intersect_xy_strict_local(*world_ai, *world_bi, *world_aj, *world_bj)) {
           ++score.segment_xy_intersections;
         }
         constexpr double kOrderEps = 1e-4;
@@ -406,9 +708,9 @@ GroupedSpanLanePreparer::BuildLanePlan(const BackboneLoweringPolicy& lowering_po
     int intersections = 0;
     for (int i = 0; i < lane_count_; ++i) {
       const std::size_t ii = static_cast<std::size_t>(i);
-      const Port* curr_a_port = state_.edit_state_access().ports.find(curr_a[ii]);
-      const Port* curr_b_port = state_.edit_state_access().ports.find(curr_b[ii]);
-      if (curr_a_port == nullptr || curr_b_port == nullptr) {
+      const auto curr_a_world = state_.port_world_position(curr_a[ii]);
+      const auto curr_b_world = state_.port_world_position(curr_b[ii]);
+      if (!curr_a_world || !curr_b_world) {
         continue;
       }
       for (int j = 0; j < lane_count_; ++j) {
@@ -416,13 +718,12 @@ GroupedSpanLanePreparer::BuildLanePlan(const BackboneLoweringPolicy& lowering_po
           continue;
         }
         const std::size_t jj = static_cast<std::size_t>(j);
-        const Port* prev_a_port = state_.edit_state_access().ports.find(prev_a[jj]);
-        const Port* prev_b_port = state_.edit_state_access().ports.find(prev_b[jj]);
-        if (prev_a_port == nullptr || prev_b_port == nullptr) {
+        const auto prev_a_world = state_.port_world_position(prev_a[jj]);
+        const auto prev_b_world = state_.port_world_position(prev_b[jj]);
+        if (!prev_a_world || !prev_b_world) {
           continue;
         }
-        if (segments_intersect_xy_strict_local(curr_a_port->world_position, curr_b_port->world_position,
-                                               prev_a_port->world_position, prev_b_port->world_position)) {
+        if (segments_intersect_xy_strict_local(*curr_a_world, *curr_b_world, *prev_a_world, *prev_b_world)) {
           ++intersections;
         }
       }
@@ -595,7 +896,7 @@ void GroupedSpanLanePreparer::PopulateAssignmentOrdering(const GroupedSpanLanePl
   if (segment_index > 0 && chosen_orientation_flip != previous_orientation_flip &&
       (assignment->turn_angle_deg + kAngleEps < kReverseStraightAngleDeg)) {
     assignment->flipped_from_previous = true;
-    if (assignment->turn_angle_deg + kAngleEps < state_.authoritative_.layout_settings.corner_threshold_deg) {
+    if (assignment->turn_angle_deg + kAngleEps < state_.layout_settings().corner_threshold_deg) {
       assignment->flip_reason = LaneFlipReason::kAcuteTurn;
     }
   }
@@ -639,46 +940,45 @@ void GroupedSpanLanePreparer::PopulateAssignmentOrdering(const GroupedSpanLanePl
     std::vector<double> z_b(static_cast<std::size_t>(lane_count_), 0.0);
     for (int lane = 0; lane < lane_count_; ++lane) {
       const std::size_t idx = static_cast<std::size_t>(lane);
-      const Port* port_a = state_.edit_state_access().ports.find(lanes_a[idx]);
-      const Port* port_b = state_.edit_state_access().ports.find(lanes_b[idx]);
-      if (port_a == nullptr || port_b == nullptr) {
+      const auto world_a = state_.port_world_position(lanes_a[idx]);
+      const auto world_b = state_.port_world_position(lanes_b[idx]);
+      const auto template_layer_a = state_.port_template_layer(lanes_a[idx]);
+      const auto template_layer_b = state_.port_template_layer(lanes_b[idx]);
+      if (!world_a || !world_b || !template_layer_a || !template_layer_b) {
         score.layer_jump += 4;
         score.span_z_delta += 5.0;
         continue;
       }
       if (use_lane_row_geometry_) {
         const Vec3d local_a =
-            (pole_a == nullptr)
-                ? port_a->world_position
-                : WorldPointToLocal(BuildPoleFrame(pole_a->world_transform, LayoutYawForPole(*pole_a)),
-                                    port_a->world_position);
+            (pole_a == nullptr) ? *world_a
+                                : WorldPointToLocal(BuildPoleFrame(pole_a->world_transform, LayoutYawForPole(*pole_a)),
+                                                    *world_a);
         const Vec3d local_b =
-            (pole_b == nullptr)
-                ? port_b->world_position
-                : WorldPointToLocal(BuildPoleFrame(pole_b->world_transform, LayoutYawForPole(*pole_b)),
-                                    port_b->world_position);
+            (pole_b == nullptr) ? *world_b
+                                : WorldPointToLocal(BuildPoleFrame(pole_b->world_transform, LayoutYawForPole(*pole_b)),
+                                                    *world_b);
         y_a[idx] = local_a.y;
         y_b[idx] = local_b.y * y_sign_b;
       } else {
-        y_a[idx] = dot_xy(port_a->world_position - pos_a, axis_a);
-        y_b[idx] = dot_xy(port_b->world_position - pos_b, axis_b) * y_sign_b;
+        y_a[idx] = dot_xy(*world_a - pos_a, axis_a);
+        y_b[idx] = dot_xy(*world_b - pos_b, axis_b) * y_sign_b;
       }
-      z_a[idx] = port_a->world_position.z;
-      z_b[idx] = port_b->world_position.z;
-      score.layer_jump += std::abs(port_a->template_layer - port_b->template_layer);
-      score.span_z_delta += std::abs(port_a->world_position.z - port_b->world_position.z);
+      z_a[idx] = world_a->z;
+      z_b[idx] = world_b->z;
+      score.layer_jump += std::abs(*template_layer_a - *template_layer_b);
+      score.span_z_delta += std::abs(world_a->z - world_b->z);
     }
     for (int i = 0; i < lane_count_; ++i) {
       for (int j = i + 1; j < lane_count_; ++j) {
         const std::size_t ii = static_cast<std::size_t>(i);
         const std::size_t jj = static_cast<std::size_t>(j);
-        const Port* port_ai = state_.edit_state_access().ports.find(lanes_a[ii]);
-        const Port* port_bi = state_.edit_state_access().ports.find(lanes_b[ii]);
-        const Port* port_aj = state_.edit_state_access().ports.find(lanes_a[jj]);
-        const Port* port_bj = state_.edit_state_access().ports.find(lanes_b[jj]);
-        if (port_ai != nullptr && port_bi != nullptr && port_aj != nullptr && port_bj != nullptr &&
-            segments_intersect_xy_strict_local(port_ai->world_position, port_bi->world_position,
-                                               port_aj->world_position, port_bj->world_position)) {
+        const auto world_ai = state_.port_world_position(lanes_a[ii]);
+        const auto world_bi = state_.port_world_position(lanes_b[ii]);
+        const auto world_aj = state_.port_world_position(lanes_a[jj]);
+        const auto world_bj = state_.port_world_position(lanes_b[jj]);
+        if (world_ai && world_bi && world_aj && world_bj &&
+            segments_intersect_xy_strict_local(*world_ai, *world_bi, *world_aj, *world_bj)) {
           ++score.segment_xy_intersections;
         }
         constexpr double kOrderEps = 1e-4;
@@ -709,9 +1009,9 @@ void GroupedSpanLanePreparer::PopulateAssignmentOrdering(const GroupedSpanLanePl
           order_for_choice(plan.base_ports_by_node[segment_index - 1], choice_for_parity(prev_parity));
       for (int i = 0; i < lane_count_; ++i) {
         const std::size_t ii = static_cast<std::size_t>(i);
-        const Port* curr_a = state_.edit_state_access().ports.find(ports_a[ii]);
-        const Port* curr_b = state_.edit_state_access().ports.find(ports_b[ii]);
-        if (curr_a == nullptr || curr_b == nullptr) {
+        const auto curr_a_world = state_.port_world_position(ports_a[ii]);
+        const auto curr_b_world = state_.port_world_position(ports_b[ii]);
+        if (!curr_a_world || !curr_b_world) {
           continue;
         }
         for (int j = 0; j < lane_count_; ++j) {
@@ -719,11 +1019,10 @@ void GroupedSpanLanePreparer::PopulateAssignmentOrdering(const GroupedSpanLanePl
             continue;
           }
           const std::size_t jj = static_cast<std::size_t>(j);
-          const Port* prev_a = state_.edit_state_access().ports.find(prev_ports[jj]);
-          const Port* prev_b = state_.edit_state_access().ports.find(ports_a[jj]);
-          if (prev_a != nullptr && prev_b != nullptr &&
-              segments_intersect_xy_strict_local(prev_a->world_position, prev_b->world_position,
-                                                 curr_a->world_position, curr_b->world_position)) {
+          const auto prev_a_world = state_.port_world_position(prev_ports[jj]);
+          const auto prev_b_world = state_.port_world_position(ports_a[jj]);
+          if (prev_a_world && prev_b_world &&
+              segments_intersect_xy_strict_local(*prev_a_world, *prev_b_world, *curr_a_world, *curr_b_world)) {
             ++score.adjacent_xy_intersections;
           }
         }
@@ -736,7 +1035,7 @@ void GroupedSpanLanePreparer::PopulateAssignmentOrdering(const GroupedSpanLanePl
           (plan.turn_angle_by_segment[segment_index] + kAngleEps < kReverseStraightAngleDeg)) {
         ++score.orientation_flips;
         if (plan.turn_angle_by_segment[segment_index] + kAngleEps <
-            state_.authoritative_.layout_settings.corner_threshold_deg) {
+            state_.layout_settings().corner_threshold_deg) {
           ++score.acute_orientation_flips;
         }
       }
@@ -783,7 +1082,7 @@ GroupedSpanLanePreparer::EnsurePorts(ObjectId node_id, ObjectId peer_id, int seg
   };
   auto mark_updated = [&](ObjectId id) {
     if (change_set_ != nullptr) {
-      CoreState::add_unique_id(change_set_->updated_ids, id);
+      state_.add_unique_id(change_set_->updated_ids, id);
     }
   };
 
@@ -792,47 +1091,38 @@ GroupedSpanLanePreparer::EnsurePorts(ObjectId node_id, ObjectId peer_id, int seg
   if (kind != SupportKind::kPole || pole == nullptr) {
     const Vec3d base_position = ctx_.support_position(node_id);
     const Vec3d side_axis = orientation_.GroupedLineAxisForEndpoint(node_id, peer_id);
-    auto nonpole_order_key = [&](const Port* port) {
-      if (port == nullptr) {
-        return std::tuple<double, double, ObjectId>(0.0, 0.0, kInvalidObjectId);
-      }
-      return std::tuple<double, double, ObjectId>(dot_xy(port->world_position - base_position, side_axis),
-                                                  port->world_position.z, port->id);
-    };
     auto sort_nonpole_ports = [&](std::vector<ObjectId>* port_ids) {
       if (port_ids == nullptr) {
         return;
       }
       std::sort(port_ids->begin(), port_ids->end(), [&](ObjectId a, ObjectId b) {
-        const Port* pa = state_.edit_state_access().ports.find(a);
-        const Port* pb = state_.edit_state_access().ports.find(b);
-        return nonpole_order_key(pa) < nonpole_order_key(pb);
+        const auto pa = state_.port_world_position(a);
+        const auto pb = state_.port_world_position(b);
+        const auto key_a =
+            pa ? std::tuple<double, double, ObjectId>(dot_xy(*pa - base_position, side_axis), pa->z, a)
+               : std::tuple<double, double, ObjectId>(0.0, 0.0, kInvalidObjectId);
+        const auto key_b =
+            pb ? std::tuple<double, double, ObjectId>(dot_xy(*pb - base_position, side_axis), pb->z, b)
+               : std::tuple<double, double, ObjectId>(0.0, 0.0, kInvalidObjectId);
+        return key_a < key_b;
       });
     };
 
     std::unordered_set<ObjectId> unique_nonpole_ports{};
-    for (const Span& span : state_.edit_state_access().spans.items()) {
-      if (span.bundle_id == kInvalidObjectId) {
-        continue;
+    state_.for_each_span_in_bundle_template(bundle_template_id_, [&](const Span& span) {
+      const auto sample = state_.port_segment_sample(span);
+      if (!sample) {
+        return;
       }
-      const Bundle* bundle = state_.edit_state_access().bundles.find(span.bundle_id);
-      if (bundle == nullptr || bundle->bundle_template_id != bundle_template_id_) {
-        continue;
+      if (ctx_.resolve_span_endpoint_node(span, sample->owner_pole_a_id, true) == node_id &&
+          sample->layer_a == target_port_layer_ && unique_nonpole_ports.insert(sample->port_a_id).second) {
+        ports_result.value.push_back(sample->port_a_id);
       }
-      const Port* pa = state_.edit_state_access().ports.find(span.port_a_id);
-      const Port* pb = state_.edit_state_access().ports.find(span.port_b_id);
-      if (pa == nullptr || pb == nullptr) {
-        continue;
+      if (ctx_.resolve_span_endpoint_node(span, sample->owner_pole_b_id, false) == node_id &&
+          sample->layer_b == target_port_layer_ && unique_nonpole_ports.insert(sample->port_b_id).second) {
+        ports_result.value.push_back(sample->port_b_id);
       }
-      if (ctx_.resolve_span_endpoint_node(span, pa, true) == node_id && pa->layer == target_port_layer_ &&
-          unique_nonpole_ports.insert(pa->id).second) {
-        ports_result.value.push_back(pa->id);
-      }
-      if (ctx_.resolve_span_endpoint_node(span, pb, false) == node_id && pb->layer == target_port_layer_ &&
-          unique_nonpole_ports.insert(pb->id).second) {
-        ports_result.value.push_back(pb->id);
-      }
-    }
+    });
     sort_nonpole_ports(&ports_result.value);
     if (static_cast<int>(ports_result.value.size()) > lane_count_) {
       ports_result.value.resize(static_cast<std::size_t>(lane_count_));
@@ -847,35 +1137,27 @@ GroupedSpanLanePreparer::EnsurePorts(ObjectId node_id, ObjectId peer_id, int seg
       };
       std::vector<SourcePortSample> samples{};
       const SupportNode& support = it_support->second;
-      for (const Span& span : state_.edit_state_access().spans.items()) {
-        if (span.bundle_id == kInvalidObjectId) {
-          continue;
+      state_.for_each_span_in_bundle_template(bundle_template_id_, [&](const Span& span) {
+        const auto sample = state_.port_segment_sample(span);
+        if (!sample || sample->layer_a != target_port_layer_ || sample->layer_b != target_port_layer_) {
+          return;
         }
-        const Bundle* bundle = state_.edit_state_access().bundles.find(span.bundle_id);
-        if (bundle == nullptr || bundle->bundle_template_id != bundle_template_id_) {
-          continue;
-        }
-        const Port* pa = state_.edit_state_access().ports.find(span.port_a_id);
-        const Port* pb = state_.edit_state_access().ports.find(span.port_b_id);
-        if (pa == nullptr || pb == nullptr || pa->layer != target_port_layer_ || pb->layer != target_port_layer_) {
-          continue;
-        }
-        const ObjectId endpoint_a = ctx_.resolve_span_endpoint_node(span, pa, true);
-        const ObjectId endpoint_b = ctx_.resolve_span_endpoint_node(span, pb, false);
+        const ObjectId endpoint_a = ctx_.resolve_span_endpoint_node(span, sample->owner_pole_a_id, true);
+        const ObjectId endpoint_b = ctx_.resolve_span_endpoint_node(span, sample->owner_pole_b_id, false);
         double t = support.source_edge_t;
         if (endpoint_a == support.source_edge_node_a_id && endpoint_b == support.source_edge_node_b_id) {
         } else if (endpoint_a == support.source_edge_node_b_id && endpoint_b == support.source_edge_node_a_id) {
           t = 1.0 - t;
         } else {
-          continue;
+          return;
         }
         const Vec3d world{
-            pa->world_position.x + (pb->world_position.x - pa->world_position.x) * t,
-            pa->world_position.y + (pb->world_position.y - pa->world_position.y) * t,
-            pa->world_position.z + (pb->world_position.z - pa->world_position.z) * t,
+            sample->world_a.x + (sample->world_b.x - sample->world_a.x) * t,
+            sample->world_a.y + (sample->world_b.y - sample->world_a.y) * t,
+            sample->world_a.z + (sample->world_b.z - sample->world_a.z) * t,
         };
         samples.push_back({world, dot_xy(world - base_position, side_axis)});
-      }
+      });
       std::sort(samples.begin(), samples.end(), [](const SourcePortSample& a, const SourcePortSample& b) {
         if (std::abs(a.side - b.side) > 1e-9) {
           return a.side < b.side;
@@ -892,21 +1174,16 @@ GroupedSpanLanePreparer::EnsurePorts(ObjectId node_id, ObjectId peer_id, int seg
         if (static_cast<int>(ports_result.value.size()) >= lane_count_) {
           break;
         }
-        EditResult<ObjectId> add_port =
-            state_.AddPort(kInvalidObjectId, sample.world, CoreState::category_to_port_kind(category_),
-                           target_port_layer_);
+      EditResult<ObjectId> add_port =
+          state_.AddPort(kInvalidObjectId, sample.world, state_.port_kind_for_category(category_),
+                         target_port_layer_);
         if (!add_port.ok) {
           ports_result.error = add_port.error;
           return ports_result;
         }
         append_state_change_set(add_port.change_set);
-        Port* created_port = state_.edit_state_access().ports.find(add_port.value);
-        if (created_port != nullptr) {
-          created_port->generated_by_rule = true;
-          created_port->placement_context = ConnectionContext::kBranchAdd;
-          CoreState::apply_port_position_mode(*created_port, PortPositionMode::kAuto,
-                                              PortPlacementSourceKind::kAerialBranch);
-          mark_updated(created_port->id);
+        if (state_.mark_aerial_branch_port(add_port.value)) {
+          mark_updated(add_port.value);
         }
         ports_result.value.push_back(add_port.value);
       }
@@ -915,20 +1192,15 @@ GroupedSpanLanePreparer::EnsurePorts(ObjectId node_id, ObjectId peer_id, int seg
     ports_result.value.reserve(static_cast<std::size_t>(lane_count_));
     while (static_cast<int>(ports_result.value.size()) < lane_count_) {
       EditResult<ObjectId> add_port =
-          state_.AddPort(kInvalidObjectId, base_position, CoreState::category_to_port_kind(category_),
+          state_.AddPort(kInvalidObjectId, base_position, state_.port_kind_for_category(category_),
                          target_port_layer_);
       if (!add_port.ok) {
         ports_result.error = add_port.error;
         return ports_result;
       }
       append_state_change_set(add_port.change_set);
-      Port* created_port = state_.edit_state_access().ports.find(add_port.value);
-      if (created_port != nullptr) {
-        created_port->generated_by_rule = true;
-        created_port->placement_context = ConnectionContext::kBranchAdd;
-        CoreState::apply_port_position_mode(*created_port, PortPositionMode::kAuto,
-                                            PortPlacementSourceKind::kAerialBranch);
-        mark_updated(created_port->id);
+      if (state_.mark_aerial_branch_port(add_port.value)) {
+        mark_updated(add_port.value);
       }
       ports_result.value.push_back(add_port.value);
     }
@@ -963,70 +1235,58 @@ GroupedSpanLanePreparer::EnsurePorts(ObjectId node_id, ObjectId peer_id, int seg
       request.corner_turn_sign = pole->context.corner_turn_sign;
       request.allow_generate_port = true;
       request.prefer_template_match = true;
-      request.preferred_template_layer = generation::detail::TemplateLayerForCategory(category_);
+      request.preferred_template_layer = state_.template_layer_for_category(category_);
       request.preferred_template_side =
           (target_y < -1e-9) ? SlotSide::kLeft : ((target_y > 1e-9) ? SlotSide::kRight : SlotSide::kCenter);
       request.preferred_template_role = preferred_role;
       request.branch_index = static_cast<std::uint32_t>(lane);
-      request.endpoint_decision.relation_kind = feasibility.kind;
-      request.endpoint_decision.continuity_class = feasibility.continuity_class;
-      request.endpoint_decision.in_through_pair = feasibility.in_through_pair;
-      request.endpoint_decision.lower_required =
-          feasibility.default_lower_required || !feasibility.same_level_feasible;
-      request.endpoint_decision.default_lower_required = feasibility.default_lower_required;
-      request.endpoint_decision.same_level_feasible = false;
-      request.endpoint_decision.same_level_reason = feasibility.reason;
-      request.endpoint_decision.projected_spacing_topview_m = feasibility.projected_spacing_topview_m;
-      request.endpoint_decision.required_clearance_m = feasibility.required_clearance_m;
-      request.endpoint_decision.order_decision_policy = order_decision_policy_;
+      request.hints.relation_kind = feasibility.kind;
+      request.hints.continuity_class = feasibility.continuity_class;
+      request.hints.default_lower_required = feasibility.default_lower_required;
+      request.hints.same_level_feasible = feasibility.same_level_feasible;
+      request.hints.same_level_reason = feasibility.reason;
+      request.hints.projected_spacing_topview_m = feasibility.projected_spacing_topview_m;
+      request.hints.required_clearance_m = feasibility.required_clearance_m;
       request.excluded_port_ids.assign(solved_ports.begin(), solved_ports.end());
       EditResult<ObjectId> port_result = state_.ensure_pole_connection_port(request);
       if (!port_result.ok) {
         return false;
       }
-      Port* selected_port = state_.edit_state_access().ports.find(port_result.value);
-      if (selected_port == nullptr || selected_port->owner_pole_id != node_id ||
-          (selected_port->placement_source != PortPlacementSourceKind::kPlacementBand &&
-           selected_port->placement_source != PortPlacementSourceKind::kPlacementBandConstrained) ||
-          !used_ports.insert(selected_port->id).second) {
+      const auto source = state_.port_placement_source(port_result.value);
+      if (!state_.port_matches_owner_layer(port_result.value, node_id, target_port_layer_) || !source ||
+          (*source != PortPlacementSourceKind::kPlacementBand &&
+           *source != PortPlacementSourceKind::kPlacementBandConstrained) ||
+          !used_ports.insert(port_result.value).second) {
         return false;
       }
-      solved_ports.push_back(selected_port->id);
+      solved_ports.push_back(port_result.value);
     }
+    const double layout_yaw = LayoutYawForPole(*pole);
     std::sort(solved_ports.begin(), solved_ports.end(), [&](ObjectId a, ObjectId b) {
-      const Port* pa = state_.edit_state_access().ports.find(a);
-      const Port* pb = state_.edit_state_access().ports.find(b);
-      const double ya =
-          (pa == nullptr) ? 0.0
-                          : WorldPointToLocal(BuildPoleFrame(pole->world_transform, LayoutYawForPole(*pole)),
-                                              pa->world_position)
-                                .y;
-      const double yb =
-          (pb == nullptr) ? 0.0
-                          : WorldPointToLocal(BuildPoleFrame(pole->world_transform, LayoutYawForPole(*pole)),
-                                              pb->world_position)
-                                .y;
+      const double ya = state_.port_local_y(a, pole, layout_yaw).value_or(0.0);
+      const double yb = state_.port_local_y(b, pole, layout_yaw).value_or(0.0);
       if (std::abs(ya - yb) > 1e-9) {
         return ya < yb;
       }
       return a < b;
     });
     if (static_cast<int>(solved_ports.size()) == lane_count_ && !solved_ports.empty()) {
-      const double layout_yaw = LayoutYawForPole(*pole);
       const PoleFrame frame = BuildPoleFrame(pole->world_transform, layout_yaw);
       const double target_uniform_z = LaneRowTargetZForEndpoint(*pole, feasibility);
       for (ObjectId port_id : solved_ports) {
-        Port* selected_port = state_.edit_state_access().ports.find(port_id);
-        if (selected_port == nullptr) {
+        const auto world = state_.port_world_position(port_id);
+        if (!world) {
           continue;
         }
-        Vec3d local = WorldPointToLocal(frame, selected_port->world_position);
+        Vec3d local = WorldPointToLocal(frame, *world);
         if (std::abs(local.z - target_uniform_z) <= 1e-9) {
           continue;
         }
         local.z = target_uniform_z;
-        selected_port->world_position = local_to_world_on_pole_local(pole->world_transform, layout_yaw, local);
-        mark_updated(selected_port->id);
+        if (state_.reposition_port_world(port_id,
+                                         local_to_world_on_pole_local(pole->world_transform, layout_yaw, local))) {
+          mark_updated(port_id);
+        }
       }
     }
     *out_ports = std::move(solved_ports);
@@ -1072,7 +1332,7 @@ GroupedSpanLanePreparer::EnsurePorts(ObjectId node_id, ObjectId peer_id, int seg
     const double center = (static_cast<double>(lane_count_) - 1.0) * 0.5;
     const double half_span = center * lane_spacing;
     const double min_outboard = state_.pole_radius_at_height_m(*pole, branch_base_z_m) +
-                                state_.cache_state_access().geometry_settings.pole_clearance_m + half_span + 0.25;
+                                state_.geometry_settings().pole_clearance_m + half_span + 0.25;
     const double branch_support_offset_m = std::max(0.65, min_outboard);
     ports_result.value.reserve(static_cast<std::size_t>(lane_count_));
     for (int lane = 0; lane < lane_count_; ++lane) {
@@ -1082,41 +1342,22 @@ GroupedSpanLanePreparer::EnsurePorts(ObjectId node_id, ObjectId peer_id, int seg
       local = state_.apply_pole_clearance_to_local(*pole, local, branch_side);
       const Vec3d world = local_to_world_on_pole_local(pole->world_transform, branch_support_yaw_deg, local);
       EditResult<ObjectId> add_port =
-          state_.AddPort(node_id, world, CoreState::category_to_port_kind(category_),
-                         CoreState::category_to_port_layer(category_));
+          state_.AddPort(node_id, world, state_.port_kind_for_category(category_),
+                         state_.port_layer_for_category(category_));
       if (!add_port.ok) {
         ports_result.error = add_port.error;
         return ports_result;
       }
       append_state_change_set(add_port.change_set);
-      Port* created_port = state_.edit_state_access().ports.find(add_port.value);
-      if (created_port != nullptr) {
-        created_port->category = category_;
-        created_port->template_layer = generation::detail::TemplateLayerForCategory(category_);
-        created_port->template_side = branch_side;
-        created_port->template_role = SlotRole::kBranchPreferred;
-        created_port->generated_from_template = false;
-        created_port->generated_by_rule = true;
-        created_port->placement_context = ConnectionContext::kBranchAdd;
-        CoreState::apply_port_position_mode(*created_port, PortPositionMode::kAuto,
-                                            PortPlacementSourceKind::kBranchSupport);
-        mark_updated(created_port->id);
+      if (state_.finalize_branch_support_port(add_port.value, category_,
+                                              state_.template_layer_for_category(category_), branch_side)) {
+        mark_updated(add_port.value);
       }
       ports_result.value.push_back(add_port.value);
     }
     std::sort(ports_result.value.begin(), ports_result.value.end(), [&](ObjectId a, ObjectId b) {
-      const Port* pa = state_.edit_state_access().ports.find(a);
-      const Port* pb = state_.edit_state_access().ports.find(b);
-      const double ya =
-          (pa == nullptr) ? 0.0
-                          : WorldPointToLocal(BuildPoleFrame(pole->world_transform, branch_support_yaw_deg),
-                                              pa->world_position)
-                                .y;
-      const double yb =
-          (pb == nullptr) ? 0.0
-                          : WorldPointToLocal(BuildPoleFrame(pole->world_transform, branch_support_yaw_deg),
-                                              pb->world_position)
-                                .y;
+      const double ya = state_.port_local_y(a, pole, branch_support_yaw_deg).value_or(0.0);
+      const double yb = state_.port_local_y(b, pole, branch_support_yaw_deg).value_or(0.0);
       if (std::abs(ya - yb) > 1e-9) {
         return ya < yb;
       }
@@ -1151,18 +1392,14 @@ GroupedSpanLanePreparer::EnsurePorts(ObjectId node_id, ObjectId peer_id, int seg
     std::unordered_set<ObjectId> unique{};
     std::vector<ObjectId> reusable_generated_ports{};
 
-    if (const auto it_ports = state_.relation_index_access().ports_by_pole.find(node_id);
-        it_ports != state_.relation_index_access().ports_by_pole.end()) {
-      for (ObjectId port_id : it_ports->second) {
-        const Port* port = state_.edit_state_access().ports.find(port_id);
-        if (port == nullptr || port->layer != target_port_layer_ || port->category != category_) {
-          continue;
-        }
-        if (port->generated_by_rule && PortConnectionCount(port_id) == 0) {
-          reusable_generated_ports.push_back(port_id);
-        }
+    state_.for_each_port_owned_by_pole(node_id, [&](const Port& port) {
+      if (port.layer != target_port_layer_ || port.category != category_) {
+        return;
       }
-    }
+      if (port.generated_by_rule && PortConnectionCount(port.id) == 0) {
+        reusable_generated_ports.push_back(port.id);
+      }
+    });
 
     const double target_z_m = LaneRowTargetZForEndpoint(*pole, relation_feasibility);
     const double spacing = lowering_.LaneSpacingForEndpoint(relation_feasibility);
@@ -1182,127 +1419,69 @@ GroupedSpanLanePreparer::EnsurePorts(ObjectId node_id, ObjectId peer_id, int seg
       }
 
       if (port_id != kInvalidObjectId) {
-        Port* reused_port = state_.edit_state_access().ports.find(port_id);
-        if (reused_port == nullptr) {
+        const SlotSide template_side =
+            (target_y < -1e-9) ? SlotSide::kLeft : ((target_y > 1e-9) ? SlotSide::kRight : SlotSide::kCenter);
+        if (!state_.finalize_generated_row_port(port_id, &world, category_,
+                                                state_.template_layer_for_category(category_), template_side)) {
           continue;
         }
-        reused_port->world_position = world;
-        reused_port->category = category_;
-        reused_port->generated_by_rule = true;
-        reused_port->placement_context = ConnectionContext::kTrunkContinue;
-        reused_port->template_layer = generation::detail::TemplateLayerForCategory(category_);
-        reused_port->template_side =
-            (target_y < -1e-9) ? SlotSide::kLeft : ((target_y > 1e-9) ? SlotSide::kRight : SlotSide::kCenter);
-        CoreState::apply_port_position_mode(*reused_port, PortPositionMode::kAuto, PortPlacementSourceKind::kGenerated);
-        mark_updated(reused_port->id);
+        mark_updated(port_id);
         unique.insert(port_id);
         ports_result.value.push_back(port_id);
         continue;
       }
 
-      EditResult<ObjectId> add_port =
-          state_.AddPort(node_id, world, CoreState::category_to_port_kind(category_),
-                         CoreState::category_to_port_layer(category_));
+        EditResult<ObjectId> add_port =
+          state_.AddPort(node_id, world, state_.port_kind_for_category(category_),
+                         state_.port_layer_for_category(category_));
       if (!add_port.ok) {
         ports_result.error = add_port.error;
         return ports_result;
       }
       append_state_change_set(add_port.change_set);
-      Port* created_port = state_.edit_state_access().ports.find(add_port.value);
-      if (created_port != nullptr) {
-        created_port->category = category_;
-        created_port->generated_by_rule = true;
-        created_port->placement_context = ConnectionContext::kTrunkContinue;
-        created_port->template_layer = generation::detail::TemplateLayerForCategory(category_);
-        created_port->template_side =
-            (target_y < -1e-9) ? SlotSide::kLeft : ((target_y > 1e-9) ? SlotSide::kRight : SlotSide::kCenter);
-        CoreState::apply_port_position_mode(*created_port, PortPositionMode::kAuto, PortPlacementSourceKind::kGenerated);
-        mark_updated(created_port->id);
+      const SlotSide template_side =
+          (target_y < -1e-9) ? SlotSide::kLeft : ((target_y > 1e-9) ? SlotSide::kRight : SlotSide::kCenter);
+      if (state_.finalize_generated_row_port(add_port.value, nullptr, category_,
+                                             state_.template_layer_for_category(category_), template_side)) {
+        mark_updated(add_port.value);
       }
       unique.insert(add_port.value);
       ports_result.value.push_back(add_port.value);
     }
   } else {
-    for (const Port& port : state_.edit_state_access().ports.items()) {
-      if (port.owner_pole_id == node_id && port.layer == target_port_layer_) {
+    state_.for_each_port_owned_by_pole(node_id, [&](const Port& port) {
+      if (port.layer == target_port_layer_) {
         ports_result.value.push_back(port.id);
       }
-    }
+    });
   }
 
   auto port_links_to_neighbor = [&](ObjectId port_id, ObjectId neighbor_node_id) -> int {
     int count = 0;
-    const auto it = state_.connection_index_access().spans_by_port.find(port_id);
-    if (it == state_.connection_index_access().spans_by_port.end()) {
-      return 0;
-    }
-    for (ObjectId span_id : it->second) {
-      const Span* span = state_.edit_state_access().spans.find(span_id);
-      if (span == nullptr) {
-        continue;
-      }
-      const ObjectId other_port_id = (span->port_a_id == port_id) ? span->port_b_id : span->port_a_id;
-      const Port* other_port = state_.edit_state_access().ports.find(other_port_id);
-      if (other_port == nullptr || other_port->layer != target_port_layer_) {
-        continue;
-      }
-      if (other_port->owner_pole_id == neighbor_node_id) {
+    state_.for_each_connected_span(port_id, [&](const Span& span) {
+      const ObjectId other_port_id = (span.port_a_id == port_id) ? span.port_b_id : span.port_a_id;
+      if (state_.port_matches_owner_layer(other_port_id, neighbor_node_id, target_port_layer_)) {
         ++count;
       }
-    }
+    });
     return count;
-  };
-
-  auto side_rank = [](SlotSide side) -> int {
-    switch (side) {
-    case SlotSide::kLeft:
-      return 0;
-    case SlotSide::kCenter:
-      return 1;
-    case SlotSide::kRight:
-      return 2;
-    default:
-      return 3;
-    }
-  };
-  auto local_y_of = [&](const Port* p) -> double {
-    if (p == nullptr || pole == nullptr) {
-      return 0.0;
-    }
-    return WorldPointToLocal(BuildPoleFrame(pole->world_transform, LayoutYawForPole(*pole)), p->world_position).y;
-  };
-  auto order_key = [&](const Port* p) -> std::tuple<double, int, int, int, int, ObjectId> {
-    if (p == nullptr) {
-      return {0.0, 1, 999, 999999, 999999, kInvalidObjectId};
-    }
-    return {local_y_of(p), 0, p->template_layer, side_rank(p->template_side),
-            static_cast<int>(std::llround(HeightAlongWorldUp(p->world_position) * 1000.0)), p->id};
   };
 
   ObjectId continuity_neighbor_id = kInvalidObjectId;
   if (prefer_existing_neighbor_order) {
     std::unordered_map<ObjectId, int> neighbor_counts{};
     for (ObjectId port_id : ports_result.value) {
-      const auto it = state_.connection_index_access().spans_by_port.find(port_id);
-      if (it == state_.connection_index_access().spans_by_port.end()) {
-        continue;
-      }
-      for (ObjectId span_id : it->second) {
-        const Span* span = state_.edit_state_access().spans.find(span_id);
-        if (span == nullptr) {
-          continue;
+      state_.for_each_connected_span(port_id, [&](const Span& span) {
+        const ObjectId other_port_id = (span.port_a_id == port_id) ? span.port_b_id : span.port_a_id;
+        const auto other_node_id = state_.port_owner_pole_id_on_layer(other_port_id, target_port_layer_);
+        if (!other_node_id) {
+          return;
         }
-        const ObjectId other_port_id = (span->port_a_id == port_id) ? span->port_b_id : span->port_a_id;
-        const Port* other_port = state_.edit_state_access().ports.find(other_port_id);
-        if (other_port == nullptr || other_port->layer != target_port_layer_) {
-          continue;
+        if (*other_node_id == kInvalidObjectId || *other_node_id == node_id || *other_node_id == peer_id) {
+          return;
         }
-        const ObjectId other_node_id = other_port->owner_pole_id;
-        if (other_node_id == kInvalidObjectId || other_node_id == node_id || other_node_id == peer_id) {
-          continue;
-        }
-        neighbor_counts[other_node_id] += 1;
-      }
+        neighbor_counts[*other_node_id] += 1;
+      });
     }
     int best_count = 0;
     for (const auto& [neighbor_id, count] : neighbor_counts) {
@@ -1321,8 +1500,7 @@ GroupedSpanLanePreparer::EnsurePorts(ObjectId node_id, ObjectId peer_id, int seg
     std::unordered_set<ObjectId> unique_seeded_ports{};
     seeded_order.reserve(static_cast<std::size_t>(lane_count_));
     for (ObjectId port_id : ports_result.value) {
-      const Port* port = state_.edit_state_access().ports.find(port_id);
-      if (port == nullptr || port->owner_pole_id != node_id || port->layer != target_port_layer_ ||
+      if (!state_.port_matches_owner_layer(port_id, node_id, target_port_layer_) ||
           port_links_to_neighbor(port_id, continuity_neighbor_id) <= 0) {
         continue;
       }
@@ -1332,10 +1510,9 @@ GroupedSpanLanePreparer::EnsurePorts(ObjectId node_id, ObjectId peer_id, int seg
       seeded_order.push_back(port_id);
     }
     if (static_cast<int>(seeded_order.size()) >= lane_count_) {
+      const double layout_yaw = LayoutYawForPole(*pole);
       std::sort(seeded_order.begin(), seeded_order.end(), [&](ObjectId a, ObjectId b) {
-        const Port* pa = state_.edit_state_access().ports.find(a);
-        const Port* pb = state_.edit_state_access().ports.find(b);
-        return order_key(pa) < order_key(pb);
+        return state_.port_order_key(a, pole, layout_yaw) < state_.port_order_key(b, pole, layout_yaw);
       });
       seeded_order.resize(static_cast<std::size_t>(lane_count_));
       ports_result.value = std::move(seeded_order);
@@ -1368,16 +1545,10 @@ GroupedSpanLanePreparer::EnsurePorts(ObjectId node_id, ObjectId peer_id, int seg
                                        : static_cast<std::size_t>(it_index - ctx_.node_ids.begin());
     const bool is_terminal_node = (node_index == 0 || node_index + 1 >= ctx_.node_ids.size());
     if (is_terminal_node) {
-      auto terminal_order_key = [&](const Port* p) -> std::tuple<int, int, double, ObjectId> {
-        if (p == nullptr) {
-          return {999, 999, 0.0, kInvalidObjectId};
-        }
-        return {p->template_layer, side_rank(p->template_side), local_y_of(p), p->id};
-      };
+      const double layout_yaw = LayoutYawForPole(*pole);
       std::sort(ports_result.value.begin(), ports_result.value.end(), [&](ObjectId a, ObjectId b) {
-        const Port* pa = state_.edit_state_access().ports.find(a);
-        const Port* pb = state_.edit_state_access().ports.find(b);
-        return terminal_order_key(pa) < terminal_order_key(pb);
+        return state_.port_terminal_order_key(a, pole, layout_yaw) <
+               state_.port_terminal_order_key(b, pole, layout_yaw);
       });
 
       std::vector<ObjectId> normalized_ports{};
@@ -1385,10 +1556,6 @@ GroupedSpanLanePreparer::EnsurePorts(ObjectId node_id, ObjectId peer_id, int seg
       std::vector<ObjectId> reusable_fallback_ports{};
       reusable_fallback_ports.reserve(ports_result.value.size());
       for (ObjectId port_id : ports_result.value) {
-        const Port* port = state_.edit_state_access().ports.find(port_id);
-        if (port == nullptr) {
-          continue;
-        }
         if (PortConnectionCount(port_id) == 0) {
           reusable_fallback_ports.push_back(port_id);
         }
@@ -1406,47 +1573,35 @@ GroupedSpanLanePreparer::EnsurePorts(ObjectId node_id, ObjectId peer_id, int seg
         if (!reusable_fallback_ports.empty()) {
           const ObjectId port_id = reusable_fallback_ports.front();
           reusable_fallback_ports.erase(reusable_fallback_ports.begin());
-          Port* port = state_.edit_state_access().ports.find(port_id);
-          if (port != nullptr) {
-            port->world_position = world;
-            port->category = category_;
-            port->generated_by_rule = true;
-            port->template_layer = generation::detail::TemplateLayerForCategory(category_);
-            port->template_side =
-                (target_y < -1e-9) ? SlotSide::kLeft : ((target_y > 1e-9) ? SlotSide::kRight : SlotSide::kCenter);
-            CoreState::apply_port_position_mode(*port, PortPositionMode::kAuto, PortPlacementSourceKind::kGenerated);
-            mark_updated(port->id);
+          const SlotSide template_side =
+              (target_y < -1e-9) ? SlotSide::kLeft : ((target_y > 1e-9) ? SlotSide::kRight : SlotSide::kCenter);
+          if (state_.finalize_terminal_fallback_port(port_id, &world, category_,
+                                                     state_.template_layer_for_category(category_), template_side)) {
+            mark_updated(port_id);
             normalized_ports.push_back(port_id);
             continue;
           }
         }
 
         EditResult<ObjectId> add_port =
-            state_.AddPort(node_id, world, CoreState::category_to_port_kind(category_),
-                           CoreState::category_to_port_layer(category_));
+            state_.AddPort(node_id, world, state_.port_kind_for_category(category_),
+                           state_.port_layer_for_category(category_));
         if (!add_port.ok) {
           ports_result.error = add_port.error;
           return ports_result;
         }
         append_state_change_set(add_port.change_set);
-        Port* created_port = state_.edit_state_access().ports.find(add_port.value);
-        if (created_port != nullptr) {
-          created_port->category = category_;
-          created_port->generated_by_rule = true;
-          created_port->placement_context = ConnectionContext::kTrunkContinue;
-          created_port->template_layer = generation::detail::TemplateLayerForCategory(category_);
-          created_port->template_side =
-              (target_y < -1e-9) ? SlotSide::kLeft : ((target_y > 1e-9) ? SlotSide::kRight : SlotSide::kCenter);
-          CoreState::apply_port_position_mode(*created_port, PortPositionMode::kAuto, PortPlacementSourceKind::kGenerated);
-          mark_updated(created_port->id);
+        const SlotSide template_side =
+            (target_y < -1e-9) ? SlotSide::kLeft : ((target_y > 1e-9) ? SlotSide::kRight : SlotSide::kCenter);
+        if (state_.finalize_terminal_fallback_port(add_port.value, nullptr, category_,
+                                                   state_.template_layer_for_category(category_), template_side)) {
+          mark_updated(add_port.value);
         }
         normalized_ports.push_back(add_port.value);
       }
 
       std::sort(normalized_ports.begin(), normalized_ports.end(), [&](ObjectId a, ObjectId b) {
-        const Port* pa = state_.edit_state_access().ports.find(a);
-        const Port* pb = state_.edit_state_access().ports.find(b);
-        return local_y_of(pa) < local_y_of(pb);
+        return state_.port_order_key(a, pole, layout_yaw) < state_.port_order_key(b, pole, layout_yaw);
       });
       if (static_cast<int>(normalized_ports.size()) > lane_count_) {
         normalized_ports.resize(static_cast<std::size_t>(lane_count_));
@@ -1531,15 +1686,14 @@ GroupedSpanLanePreparer::EnsurePorts(ObjectId node_id, ObjectId peer_id, int seg
         if (used.find(candidate_id) != used.end()) {
           continue;
         }
-        const Port* candidate = state_.edit_state_access().ports.find(candidate_id);
-        if (candidate == nullptr || candidate->owner_pole_id != node_id || candidate->layer != target_port_layer_) {
+        const auto world = state_.port_world_position(candidate_id);
+        if (!world || !state_.port_matches_owner_layer(candidate_id, node_id, target_port_layer_)) {
           continue;
         }
         const double dist =
             use_scaffold_geometry
-                ? std::sqrt(std::pow(candidate->world_position.x - desired_world.x, 2.0) +
-                            std::pow(candidate->world_position.y - desired_world.y, 2.0))
-                : std::abs(dot_xy(candidate->world_position - pole->world_transform.position, stable_side_axis) - target_y);
+                ? std::sqrt(std::pow(world->x - desired_world.x, 2.0) + std::pow(world->y - desired_world.y, 2.0))
+                : std::abs(dot_xy(*world - pole->world_transform.position, stable_side_axis) - target_y);
         if (dist < best_dist) {
           best_dist = dist;
           best_id = candidate_id;
@@ -1550,8 +1704,8 @@ GroupedSpanLanePreparer::EnsurePorts(ObjectId node_id, ObjectId peer_id, int seg
           use_scaffold_geometry ? std::max(0.05, spacing * 0.35) : std::max(0.02, spacing * 0.1);
       if (best_id == kInvalidObjectId || best_dist > kTargetMatchTolerance) {
         EditResult<ObjectId> extra =
-            state_.AddPort(node_id, desired_world, CoreState::category_to_port_kind(category_),
-                           CoreState::category_to_port_layer(category_));
+            state_.AddPort(node_id, desired_world, state_.port_kind_for_category(category_),
+                           state_.port_layer_for_category(category_));
         if (!extra.ok) {
           ports_result.error = extra.error;
           return ports_result;
@@ -1560,10 +1714,10 @@ GroupedSpanLanePreparer::EnsurePorts(ObjectId node_id, ObjectId peer_id, int seg
         best_id = extra.value;
       }
       if (use_scaffold_geometry) {
-        Port* selected = state_.edit_state_access().ports.find(best_id);
-        if (selected != nullptr && selected->owner_pole_id == node_id) {
-          selected->world_position = desired_world;
-          mark_updated(selected->id);
+        if (state_.port_matches_owner_layer(best_id, node_id, target_port_layer_)) {
+          if (state_.reposition_port_world(best_id, desired_world)) {
+            mark_updated(best_id);
+          }
         }
       }
 
@@ -1578,9 +1732,8 @@ GroupedSpanLanePreparer::EnsurePorts(ObjectId node_id, ObjectId peer_id, int seg
   }
 
   std::sort(ports_result.value.begin(), ports_result.value.end(), [&](ObjectId a, ObjectId b) {
-    const Port* pa = state_.edit_state_access().ports.find(a);
-    const Port* pb = state_.edit_state_access().ports.find(b);
-    return order_key(pa) < order_key(pb);
+    const double layout_yaw = (pole != nullptr) ? LayoutYawForPole(*pole) : 0.0;
+    return state_.port_order_key(a, pole, layout_yaw) < state_.port_order_key(b, pole, layout_yaw);
   });
 
   if (static_cast<int>(ports_result.value.size()) > lane_count_) {
@@ -1591,15 +1744,13 @@ GroupedSpanLanePreparer::EnsurePorts(ObjectId node_id, ObjectId peer_id, int seg
         if (score_a != score_b) {
           return score_a > score_b;
         }
-        const Port* pa = state_.edit_state_access().ports.find(a);
-        const Port* pb = state_.edit_state_access().ports.find(b);
-        return order_key(pa) < order_key(pb);
+        const double layout_yaw = (pole != nullptr) ? LayoutYawForPole(*pole) : 0.0;
+        return state_.port_order_key(a, pole, layout_yaw) < state_.port_order_key(b, pole, layout_yaw);
       });
       ports_result.value.resize(static_cast<std::size_t>(lane_count_));
       std::sort(ports_result.value.begin(), ports_result.value.end(), [&](ObjectId a, ObjectId b) {
-        const Port* pa = state_.edit_state_access().ports.find(a);
-        const Port* pb = state_.edit_state_access().ports.find(b);
-        return order_key(pa) < order_key(pb);
+        const double layout_yaw = (pole != nullptr) ? LayoutYawForPole(*pole) : 0.0;
+        return state_.port_order_key(a, pole, layout_yaw) < state_.port_order_key(b, pole, layout_yaw);
       });
     } else {
       const std::size_t target = static_cast<std::size_t>(lane_count_);
@@ -1612,8 +1763,8 @@ GroupedSpanLanePreparer::EnsurePorts(ObjectId node_id, ObjectId peer_id, int seg
         double y_min = std::numeric_limits<double>::max();
         double y_max = -std::numeric_limits<double>::max();
         for (std::size_t i = start; i < start + target; ++i) {
-          const Port* p = state_.edit_state_access().ports.find(ports_result.value[i]);
-          const double y = local_y_of(p);
+          const auto key = state_.port_order_key(ports_result.value[i], pole, LayoutYawForPole(*pole));
+          const double y = key ? key->local_y : 0.0;
           sum += y;
           y_min = std::min(y_min, y);
           y_max = std::max(y_max, y);

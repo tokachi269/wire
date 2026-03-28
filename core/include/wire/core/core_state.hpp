@@ -18,6 +18,7 @@ struct TemplateMutationService;
 }
 namespace generation::detail {
 class GroupedSpanLanePreparer;
+class GroupedSpanLaneStateAccess;
 }
 
 class CoreState {
@@ -129,6 +130,7 @@ private:
 #endif
   friend class CoreView;
   friend class generation::detail::GroupedSpanLanePreparer;
+  friend class generation::detail::GroupedSpanLaneStateAccess;
   friend struct state_internal::OverrideResolutionService;
   friend struct state_internal::EndpointRefreshService;
   friend struct state_internal::TemplateMutationService;

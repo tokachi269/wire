@@ -184,6 +184,42 @@ Vec3d local_to_world_on_pole(const Transformd& tf, double yaw_deg, const Vec3d& 
   return LocalPointToWorld(BuildPoleFrame(tf, yaw_deg), local);
 }
 
+bool port_band_equals(const PortPlacementBand& a, const PortPlacementBand& b) {
+  const auto same_double = [](double lhs, double rhs) { return std::abs(lhs - rhs) <= 1e-12; };
+  return a.band_id == b.band_id && a.category == b.category && a.layer == b.layer && a.side == b.side &&
+         a.role == b.role && same_double(a.lateral_center_m, b.lateral_center_m) &&
+         same_double(a.lateral_min_m, b.lateral_min_m) && same_double(a.lateral_max_m, b.lateral_max_m) &&
+         same_double(a.height_center_m, b.height_center_m) && same_double(a.height_min_m, b.height_min_m) &&
+         same_double(a.height_max_m, b.height_max_m) && a.priority == b.priority &&
+         same_double(a.min_spacing_m, b.min_spacing_m) && a.allow_multiple == b.allow_multiple &&
+         a.overflow_policy == b.overflow_policy && a.enabled == b.enabled;
+}
+
+bool anchor_slot_equals(const AnchorSlotTemplate& a, const AnchorSlotTemplate& b) {
+  const auto same_double = [](double lhs, double rhs) { return std::abs(lhs - rhs) <= 1e-12; };
+  return a.slot_id == b.slot_id && a.usage == b.usage && same_double(a.local_position.x, b.local_position.x) &&
+         same_double(a.local_position.y, b.local_position.y) && same_double(a.local_position.z, b.local_position.z) &&
+         a.priority == b.priority && a.enabled == b.enabled;
+}
+
+bool pole_type_definition_equals(const PoleTypeDefinition& a, const PoleTypeDefinition& b) {
+  if (a.id != b.id || a.name != b.name || a.description != b.description || a.port_bands.size() != b.port_bands.size() ||
+      a.anchor_slots.size() != b.anchor_slots.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < a.port_bands.size(); ++i) {
+    if (!port_band_equals(a.port_bands[i], b.port_bands[i])) {
+      return false;
+    }
+  }
+  for (std::size_t i = 0; i < a.anchor_slots.size(); ++i) {
+    if (!anchor_slot_equals(a.anchor_slots[i], b.anchor_slots[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 double normalize_yaw_deg(double yaw_deg) {
   return NormalizeYawDeg(yaw_deg);
 }
@@ -1044,6 +1080,73 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
   pole->pole_type_id = pole_type_id;
   result.change_set.updated_ids.push_back(pole_id);
 
+  auto recompute_band_local = [&](const PortPlacementBand& band, double* out_scale, bool* out_angle_correction) {
+    Vec3d adjusted_local{0.0, band.lateral_center_m, band.height_center_m};
+    const bool apply_angle_correction = authoritative_.layout_settings.angle_correction_enabled &&
+                                        pole->context.kind == PoleContextKind::kCorner &&
+                                        band.side != SlotSide::kCenter;
+    double applied_scale = 1.0;
+    if (apply_angle_correction) {
+      adjusted_local.y =
+          apply_corner_side_scale(adjusted_local.y, band.side, pole->context.corner_turn_sign, pole->context.side_scale);
+      if (std::abs(band.lateral_center_m) > 1e-9) {
+        applied_scale = std::abs(adjusted_local.y / band.lateral_center_m);
+      }
+    }
+    adjusted_local.y = std::clamp(adjusted_local.y, band.lateral_min_m, band.lateral_max_m);
+    adjusted_local.z = std::clamp(adjusted_local.z, band.height_min_m, band.height_max_m);
+    adjusted_local = apply_pole_clearance_to_local(*pole, adjusted_local, band.side);
+    if (out_scale != nullptr) {
+      *out_scale = applied_scale;
+    }
+    if (out_angle_correction != nullptr) {
+      *out_angle_correction = apply_angle_correction;
+    }
+    return adjusted_local;
+  };
+
+  const auto owned_port_ids_it = runtime_.relation_index.ports_by_pole.find(pole_id);
+  if (owned_port_ids_it != runtime_.relation_index.ports_by_pole.end()) {
+    for (ObjectId port_id : owned_port_ids_it->second) {
+      Port* existing_port = authoritative_.edit_state.ports.find(port_id);
+      if (existing_port == nullptr || !existing_port->generated_from_template ||
+          existing_port->position_mode != PortPositionMode::kAuto) {
+        continue;
+      }
+
+      const PortPlacementBand* band_ptr = nullptr;
+      for (const PortPlacementBand& band : pole_type->port_bands) {
+        if (!band.enabled || band.category != existing_port->category || band.layer != existing_port->template_layer ||
+            band.side != existing_port->template_side || band.role != existing_port->template_role) {
+          continue;
+        }
+        if (band_ptr == nullptr || band.priority > band_ptr->priority ||
+            (band.priority == band_ptr->priority && band.band_id < band_ptr->band_id)) {
+          band_ptr = &band;
+        }
+      }
+      if (band_ptr == nullptr) {
+        continue;
+      }
+
+      double applied_scale = 1.0;
+      bool apply_angle_correction = false;
+      const Vec3d adjusted_local = recompute_band_local(*band_ptr, &applied_scale, &apply_angle_correction);
+      const Vec3d world_position =
+          local_to_world_on_pole(pole->world_transform, effective_pole_layout_yaw_deg(*pole), adjusted_local);
+      if (LengthSquared(existing_port->world_position - world_position) > 1e-12 ||
+          existing_port->angle_correction_applied != apply_angle_correction ||
+          std::abs(existing_port->side_scale_applied - applied_scale) > 1e-12) {
+        existing_port->world_position = world_position;
+        existing_port->angle_correction_applied = apply_angle_correction;
+        existing_port->side_scale_applied = apply_angle_correction ? applied_scale : 1.0;
+        apply_port_position_mode(*existing_port, PortPositionMode::kAuto, PortPlacementSourceKind::kPlacementBand);
+        add_unique_id(result.change_set.updated_ids, existing_port->id);
+        mark_connected_spans_dirty_from_port(existing_port->id, DirtyBits::kGeometry, &result.change_set);
+      }
+    }
+  }
+
   const double anchor_yaw = effective_pole_yaw_deg(*pole);
   std::vector<const Anchor*> anchors_on_pole;
   const auto anchor_ids_it = runtime_.relation_index.anchors_by_pole.find(pole_id);
@@ -1060,21 +1163,9 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
     if (!band.enabled || is_port_band_used(pole_id, band)) {
       continue;
     }
-    Vec3d adjusted_local{0.0, band.lateral_center_m, band.height_center_m};
-    const bool apply_angle_correction = authoritative_.layout_settings.angle_correction_enabled &&
-                                        pole->context.kind == PoleContextKind::kCorner &&
-                                        band.side != SlotSide::kCenter;
     double applied_scale = 1.0;
-    if (apply_angle_correction) {
-      adjusted_local.y = apply_corner_side_scale(adjusted_local.y, band.side, pole->context.corner_turn_sign,
-                                                 pole->context.side_scale);
-      if (std::abs(band.lateral_center_m) > 1e-9) {
-        applied_scale = std::abs(adjusted_local.y / band.lateral_center_m);
-      }
-    }
-    adjusted_local.y = std::clamp(adjusted_local.y, band.lateral_min_m, band.lateral_max_m);
-    adjusted_local.z = std::clamp(adjusted_local.z, band.height_min_m, band.height_max_m);
-    adjusted_local = apply_pole_clearance_to_local(*pole, adjusted_local, band.side);
+    bool apply_angle_correction = false;
+    const Vec3d adjusted_local = recompute_band_local(band, &applied_scale, &apply_angle_correction);
     const Vec3d world_position =
         local_to_world_on_pole(pole->world_transform, effective_pole_layout_yaw_deg(*pole), adjusted_local);
     EditResult<ObjectId> add_port_result = AddPort(pole_id, world_position, category_to_port_kind(band.category),
@@ -1280,6 +1371,13 @@ CoreState::AddConnectionByPole(ObjectId pole_a_id, ObjectId pole_b_id, Connectio
   append_change_set(result.change_set, port_b_result.change_set);
   append_change_set(result.change_set, bundle_result.change_set);
   append_change_set(result.change_set, span_result.change_set);
+  const auto ensure_attachments = ensure_default_endpoint_attachments_for_span(result.value.span_id);
+  if (!ensure_attachments.ok) {
+    result.ok = false;
+    result.error = ensure_attachments.error;
+    return result;
+  }
+  append_change_set(result.change_set, ensure_attachments.change_set);
   return result;
 }
 
@@ -1354,6 +1452,13 @@ CoreState::AddDropFromPole(ObjectId source_pole_id, const Vec3d& target_world_po
   append_change_set(result.change_set, target_port_result.change_set);
   append_change_set(result.change_set, bundle_result.change_set);
   append_change_set(result.change_set, span_result.change_set);
+  const auto ensure_attachments = ensure_default_endpoint_attachments_for_span(result.value.span_id);
+  if (!ensure_attachments.ok) {
+    result.ok = false;
+    result.error = ensure_attachments.error;
+    return result;
+  }
+  append_change_set(result.change_set, ensure_attachments.change_set);
   return result;
 }
 
@@ -1415,6 +1520,13 @@ EditResult<AddDropResult> CoreState::AddDropFromSpan(ObjectId source_span_id, do
   append_change_set(result.change_set, target_port_result.change_set);
   append_change_set(result.change_set, bundle_result.change_set);
   append_change_set(result.change_set, span_result.change_set);
+  const auto ensure_attachments = ensure_default_endpoint_attachments_for_span(result.value.span_id);
+  if (!ensure_attachments.ok) {
+    result.ok = false;
+    result.error = ensure_attachments.error;
+    return result;
+  }
+  append_change_set(result.change_set, ensure_attachments.change_set);
   return result;
 }
 
@@ -1539,6 +1651,10 @@ EditResult<bool> CoreState::UpdateCableTemplate(const CableTemplate& cable_templ
   return state_internal::TemplateMutationService::UpdateCableTemplate(*this, cable_template, preferred_visible_span_ids);
 }
 
+EditResult<bool> CoreState::UpdatePoleTypeDefinition(const PoleTypeDefinition& pole_type) {
+  return update_pole_type_and_refresh_instances(pole_type);
+}
+
 EditResult<bool> CoreState::UpdateBundleTemplate(const BundleTemplate& bundle_template) {
   return state_internal::TemplateMutationService::UpdateBundleTemplate(*this, bundle_template);
 }
@@ -1552,6 +1668,102 @@ EditResult<bool> CoreState::UpdateAttachmentTemplate(const AttachmentTemplate& a
 EditResult<bool> CoreState::ResetAllSpanReferenceLengths(bool mark_all_spans_dirty) {
   return state_internal::TemplateMutationService::ResetAllSpanReferenceLengths(*this, mark_all_spans_dirty);
 }
+
+EditResult<bool> CoreState::ensure_default_endpoint_attachments_for_span(ObjectId span_id) {
+  EditResult<bool> result;
+  const Span* span = authoritative_.edit_state.spans.find(span_id);
+  if (span == nullptr) {
+    result.error = "span not found";
+    return result;
+  }
+  const Bundle* bundle = authoritative_.edit_state.bundles.find(span->bundle_id);
+  if (bundle == nullptr) {
+    result.ok = true;
+    result.value = false;
+    return result;
+  }
+  const BundleTemplate* bundle_template = find_bundle_template(bundle->bundle_template_id);
+  if (bundle_template == nullptr) {
+    result.error = "bundle template not found";
+    return result;
+  }
+  const CableTemplate* cable_template = find_cable_template(bundle_template->cable_template_id);
+  if (cable_template == nullptr || cable_template->default_endpoint_attachment_template_id == kInvalidAttachmentTemplateId) {
+    result.ok = true;
+    result.value = false;
+    return result;
+  }
+  const AttachmentTemplate* attachment_template =
+      find_attachment_template(cable_template->default_endpoint_attachment_template_id);
+  if (attachment_template == nullptr) {
+    result.error = "default endpoint attachment template not found";
+    return result;
+  }
+
+  Span* span_edit = authoritative_.edit_state.spans.find(span_id);
+  if (span_edit == nullptr) {
+    result.error = "span not found";
+    return result;
+  }
+
+  auto ensure_endpoint_attachment = [&](bool is_start_endpoint, double t) -> bool {
+    ObjectId& attachment_slot = is_start_endpoint ? span_edit->endpoint_attachment_a_id : span_edit->endpoint_attachment_b_id;
+    if (attachment_slot != kInvalidObjectId) {
+      return true;
+    }
+    const auto add_attachment =
+        AddAttachment(span_id, t, attachment_template->kind, 0.0, cable_template->default_endpoint_attachment_template_id);
+    if (!add_attachment.ok) {
+      result.error = add_attachment.error;
+      return false;
+    }
+    attachment_slot = add_attachment.value;
+    append_change_set(result.change_set, add_attachment.change_set);
+    add_unique_id(result.change_set.updated_ids, span_id);
+    result.value = true;
+    return true;
+  };
+
+  result.ok = ensure_endpoint_attachment(true, 0.0) && ensure_endpoint_attachment(false, 1.0);
+  return result;
+}
+
+EditResult<bool> CoreState::update_pole_type_and_refresh_instances(const PoleTypeDefinition& pole_type) {
+  EditResult<bool> result;
+  auto it = authoritative_.pole_types.find(pole_type.id);
+  if (it == authoritative_.pole_types.end()) {
+    result.error = "pole type not found";
+    return result;
+  }
+  if (pole_type_definition_equals(it->second, pole_type)) {
+    result.ok = true;
+    result.value = false;
+    return result;
+  }
+  it->second = pole_type;
+  result.ok = true;
+  result.value = true;
+
+  std::vector<ObjectId> pole_ids{};
+  pole_ids.reserve(authoritative_.edit_state.poles.size());
+  for (const Pole& pole : authoritative_.edit_state.poles.items()) {
+    if (pole.pole_type_id == pole_type.id) {
+      pole_ids.push_back(pole.id);
+    }
+  }
+  for (ObjectId pole_id : pole_ids) {
+    const auto apply = ApplyPoleType(pole_id, pole_type.id);
+    if (!apply.ok) {
+      result.ok = false;
+      result.error = apply.error;
+      return result;
+    }
+    append_change_set(result.change_set, apply.change_set);
+    add_unique_id(result.change_set.updated_ids, pole_id);
+  }
+  return result;
+}
+
 bool CoreState::has_pole_orientation_override(ObjectId pole_id) const {
   return state_internal::OverrideResolutionService::HasPoleOrientationOverride(*this, pole_id);
 }

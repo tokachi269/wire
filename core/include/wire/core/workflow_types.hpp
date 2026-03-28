@@ -58,9 +58,19 @@ struct AttachmentSocketTemplate {
 };
 
 struct AttachmentInternalPathTemplate {
+  enum class ProfileKind : std::uint8_t {
+    kExplicitPolyline = 0,
+    kStraightCable = 1,
+    kCoiledCable = 2,
+  };
+
   int start_socket_id = -1;
   int end_socket_id = -1;
+  ProfileKind profile_kind = ProfileKind::kExplicitPolyline;
   std::vector<Vec3d> local_points{};
+  double coil_radius_m = 0.0;
+  int coil_turn_count = 0;
+  int coil_samples_per_turn = 12;
 };
 
 struct AttachmentTemplate {
@@ -93,6 +103,7 @@ struct CableTemplate {
   double slack_factor = 0.0;
   CableContinuityPolicyHint continuity_policy = CableContinuityPolicyHint::kAuto;
   CableAttachmentStyleHint attachment_style = CableAttachmentStyleHint::kAuto;
+  AttachmentTemplateId default_endpoint_attachment_template_id = kInvalidAttachmentTemplateId;
   std::uint64_t version = 1;
 };
 

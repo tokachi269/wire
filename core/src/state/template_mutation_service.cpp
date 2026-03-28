@@ -27,7 +27,9 @@ bool attachment_socket_equals(const AttachmentSocketTemplate& a, const Attachmen
 
 bool attachment_internal_path_equals(const AttachmentInternalPathTemplate& a, const AttachmentInternalPathTemplate& b) {
   if (a.start_socket_id != b.start_socket_id || a.end_socket_id != b.end_socket_id ||
-      a.local_points.size() != b.local_points.size()) {
+      a.profile_kind != b.profile_kind || a.local_points.size() != b.local_points.size() ||
+      std::abs(a.coil_radius_m - b.coil_radius_m) > 1e-12 || a.coil_turn_count != b.coil_turn_count ||
+      a.coil_samples_per_turn != b.coil_samples_per_turn) {
     return false;
   }
   for (std::size_t i = 0; i < a.local_points.size(); ++i) {
@@ -88,7 +90,8 @@ EditResult<bool> TemplateMutationService::UpdateCableTemplate(CoreState& state, 
       std::abs(normalized.sag_factor - it->second.sag_factor) > 1e-12 ||
       std::abs(normalized.slack_factor - it->second.slack_factor) > 1e-12 ||
       normalized.continuity_policy != it->second.continuity_policy ||
-      normalized.attachment_style != it->second.attachment_style;
+      normalized.attachment_style != it->second.attachment_style ||
+      normalized.default_endpoint_attachment_template_id != it->second.default_endpoint_attachment_template_id;
   if (!changed) {
     result.ok = true;
     result.value = false;

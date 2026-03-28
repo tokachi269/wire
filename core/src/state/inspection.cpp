@@ -1123,6 +1123,27 @@ std::optional<TemplateInspectionView> CoreView::inspect_attachment_template(
                          DisplayOrFallback("AttachmentTemplate", tpl.name, attachment_template_id),
                          EntityRoleKind::kAuthoritative, true, false, "definition.attachment_template");
   result.template_kind = TemplateKind::kAttachment;
+  auto profile_name = [](AttachmentInternalPathTemplate::ProfileKind kind) {
+    switch (kind) {
+    case AttachmentInternalPathTemplate::ProfileKind::kExplicitPolyline:
+      return "ExplicitPolyline";
+    case AttachmentInternalPathTemplate::ProfileKind::kStraightCable:
+      return "StraightCable";
+    case AttachmentInternalPathTemplate::ProfileKind::kCoiledCable:
+      return "CoiledCable";
+    default:
+      return "Unknown";
+    }
+  };
+  int straight_profile_count = 0;
+  int coiled_profile_count = 0;
+  for (const AttachmentInternalPathTemplate& path : tpl.internal_paths) {
+    if (path.profile_kind == AttachmentInternalPathTemplate::ProfileKind::kStraightCable) {
+      ++straight_profile_count;
+    } else if (path.profile_kind == AttachmentInternalPathTemplate::ProfileKind::kCoiledCable) {
+      ++coiled_profile_count;
+    }
+  }
   result.properties.push_back({"line_interaction_mode", std::to_string(static_cast<int>(tpl.line_interaction_mode)),
                                PropertyAccessKind::kEditable});
   result.properties.push_back({"socket_count", std::to_string(static_cast<unsigned long long>(tpl.sockets.size())),
@@ -1130,6 +1151,14 @@ std::optional<TemplateInspectionView> CoreView::inspect_attachment_template(
   result.properties.push_back({"internal_path_count",
                                std::to_string(static_cast<unsigned long long>(tpl.internal_paths.size())),
                                PropertyAccessKind::kEditable});
+  result.properties.push_back({"generated_straight_path_count", std::to_string(straight_profile_count),
+                               PropertyAccessKind::kEditable});
+  result.properties.push_back({"generated_coiled_path_count", std::to_string(coiled_profile_count),
+                               PropertyAccessKind::kEditable});
+  if (!tpl.internal_paths.empty()) {
+    result.properties.push_back({"internal_path_profile_0", profile_name(tpl.internal_paths.front().profile_kind),
+                                 PropertyAccessKind::kEditable});
+  }
   return result;
 }
 

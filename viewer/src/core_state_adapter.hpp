@@ -41,6 +41,9 @@ wire::core::EditResult<bool> UpdateCableTemplate(CoreState& state, const wire::c
 
 wire::core::EditResult<bool> UpdateBundleTemplate(CoreState& state, const wire::core::BundleTemplate& bundle_template);
 
+wire::core::EditResult<bool> UpdatePoleTypeDefinition(CoreState& state,
+                                                      const wire::core::PoleTypeDefinition& pole_type);
+
 wire::core::EditResult<bool> UpdateVisualSettings(CoreState& state, const wire::core::VisualSettings& settings,
                                                   bool mark_all_spans_dirty);
 

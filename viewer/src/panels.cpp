@@ -597,6 +597,105 @@ void LoadBundleTemplateState(const wire::core::CoreView& view, ViewerUiState& ui
   ui_state.bundle_template_grouped_support_fanout_spacing = it->second.grouped_support_fanout_spacing_m;
 }
 
+constexpr int kCommunicationPoleSupportWireBandId = 600;
+constexpr int kCommunicationPoleHighVoltageBandIds[] = {610, 611, 612};
+constexpr int kCommunicationPoleCommunicationBandIds[] = {620, 621};
+constexpr int kCommunicationPoleOpticalBandIds[] = {700, 701};
+
+const wire::core::PoleTypeDefinition* FindCommunicationPoleType(const wire::core::CoreView& view) {
+  for (const auto& [_, pole_type] : view.pole_types()) {
+    if (pole_type.name == "CommunicationPole") {
+      return &pole_type;
+    }
+  }
+  return nullptr;
+}
+
+wire::core::PortPlacementBand* FindPortBand(wire::core::PoleTypeDefinition* pole_type, int band_id) {
+  if (pole_type == nullptr) {
+    return nullptr;
+  }
+  for (auto& band : pole_type->port_bands) {
+    if (band.band_id == band_id) {
+      return &band;
+    }
+  }
+  return nullptr;
+}
+
+const wire::core::PortPlacementBand* FindPortBand(const wire::core::PoleTypeDefinition& pole_type, int band_id) {
+  for (const auto& band : pole_type.port_bands) {
+    if (band.band_id == band_id) {
+      return &band;
+    }
+  }
+  return nullptr;
+}
+
+void SetBandHeightCenter(wire::core::PortPlacementBand* band, double new_center_m) {
+  if (band == nullptr) {
+    return;
+  }
+  const double half_range = std::max(0.0, 0.5 * (band->height_max_m - band->height_min_m));
+  band->height_center_m = new_center_m;
+  band->height_min_m = new_center_m - half_range;
+  band->height_max_m = new_center_m + half_range;
+}
+
+template <std::size_t N>
+double AverageBandHeight(const wire::core::PoleTypeDefinition& pole_type, const int (&band_ids)[N], double fallback_m) {
+  double total = 0.0;
+  int count = 0;
+  for (int band_id : band_ids) {
+    if (const auto* band = FindPortBand(pole_type, band_id); band != nullptr) {
+      total += band->height_center_m;
+      ++count;
+    }
+  }
+  return count > 0 ? total / static_cast<double>(count) : fallback_m;
+}
+
+template <std::size_t N>
+void ShiftBandGroupHeights(wire::core::PoleTypeDefinition* pole_type, const int (&band_ids)[N], double target_center_m) {
+  if (pole_type == nullptr) {
+    return;
+  }
+  double total = 0.0;
+  int count = 0;
+  for (int band_id : band_ids) {
+    if (const auto* band = FindPortBand(*pole_type, band_id); band != nullptr) {
+      total += band->height_center_m;
+      ++count;
+    }
+  }
+  if (count <= 0) {
+    return;
+  }
+  const double delta = target_center_m - (total / static_cast<double>(count));
+  for (int band_id : band_ids) {
+    if (auto* band = FindPortBand(pole_type, band_id); band != nullptr) {
+      SetBandHeightCenter(band, band->height_center_m + delta);
+    }
+  }
+}
+
+void LoadCommunicationPoleTemplateState(const wire::core::CoreView& view, ViewerUiState& ui_state) {
+  const auto* pole_type = FindCommunicationPoleType(view);
+  if (pole_type == nullptr) {
+    return;
+  }
+  if (const auto* band = FindPortBand(*pole_type, kCommunicationPoleSupportWireBandId); band != nullptr) {
+    ui_state.communication_pole_support_wire_height = band->height_center_m;
+  }
+  ui_state.communication_pole_high_voltage_height =
+      AverageBandHeight(*pole_type, kCommunicationPoleHighVoltageBandIds, ui_state.communication_pole_high_voltage_height);
+  ui_state.communication_pole_communication_height =
+      AverageBandHeight(*pole_type, kCommunicationPoleCommunicationBandIds, ui_state.communication_pole_communication_height);
+  ui_state.communication_pole_optical_height =
+      AverageBandHeight(*pole_type, kCommunicationPoleOpticalBandIds, ui_state.communication_pole_optical_height);
+  ui_state.communication_pole_template_loaded = true;
+}
+
 void DrawObjectList(ViewerUiState& ui_state, const char* header, SelectedType type, const std::vector<ObjectId>& ids,
                     std::function<std::string(ObjectId)> make_label) {
   if (!ImGui::CollapsingHeader(header, ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -1833,6 +1932,9 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
     }
     ui_state.bundle_template_loaded = true;
   }
+  if (!ui_state.communication_pole_template_loaded) {
+    LoadCommunicationPoleTemplateState(view, ui_state);
+  }
 
   const auto& recalc = view.last_recalc_stats();
   ImGui::Text("Dirty T/G/B/R/X: %d / %d / %d / %d / %d",
@@ -2209,6 +2311,37 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
           LoadBundleTemplateState(viewer_core_state::View(state), ui_state, tpl.id);
         }
       }
+    }
+    ImGui::Separator();
+    if (const auto* communication_pole_type = FindCommunicationPoleType(view); communication_pole_type != nullptr) {
+      ImGui::Text("Pole Template: %s", communication_pole_type->name.c_str());
+      ImGui::InputDouble("Top Support Wire Height", &ui_state.communication_pole_support_wire_height, 0.05, 0.10, "%.3f");
+      ImGui::InputDouble("High Voltage Height", &ui_state.communication_pole_high_voltage_height, 0.05, 0.10, "%.3f");
+      ImGui::InputDouble("Communication Height", &ui_state.communication_pole_communication_height, 0.05, 0.10, "%.3f");
+      ImGui::InputDouble("Optical Height", &ui_state.communication_pole_optical_height, 0.05, 0.10, "%.3f");
+      if (ImGui::Button("Apply Communication Pole Heights")) {
+        wire::core::PoleTypeDefinition pole_type = *communication_pole_type;
+        SetBandHeightCenter(FindPortBand(&pole_type, kCommunicationPoleSupportWireBandId),
+                            ui_state.communication_pole_support_wire_height);
+        ShiftBandGroupHeights(&pole_type, kCommunicationPoleHighVoltageBandIds,
+                              ui_state.communication_pole_high_voltage_height);
+        ShiftBandGroupHeights(&pole_type, kCommunicationPoleCommunicationBandIds,
+                              ui_state.communication_pole_communication_height);
+        ShiftBandGroupHeights(&pole_type, kCommunicationPoleOpticalBandIds,
+                              ui_state.communication_pole_optical_height);
+        const auto apply = viewer_core_state::UpdatePoleTypeDefinition(state, pole_type);
+        if (!apply.ok) {
+          ui_state.last_error = apply.error;
+          PushLog(ui_state, "UpdatePoleTypeDefinition failed");
+        } else {
+          ui_state.last_error.clear();
+          LoadCommunicationPoleTemplateState(viewer_core_state::View(state), ui_state);
+          PushLog(ui_state, "Communication pole heights updated; dirty spans=" +
+                                std::to_string(apply.change_set.dirty_span_ids.size()));
+        }
+      }
+    } else {
+      ImGui::TextUnformatted("CommunicationPole template missing");
     }
     const auto& template_deps = view.template_dependency_state();
     ImGui::Text("Regen Required Bundles: %d", static_cast<int>(template_deps.bundles_requiring_regeneration.size()));

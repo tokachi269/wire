@@ -6,11 +6,14 @@
 #include "support_layout_materialization.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 namespace wire::core {
 
 namespace {
 constexpr double kZeroLengthEps = 1e-9;
+constexpr double kPi = 3.14159265358979323846;
+constexpr double kTwoPi = 2.0 * kPi;
 
 std::vector<CurveLengthInterval> merged_intervals(std::vector<CurveLengthInterval> intervals, double total_length_m) {
   std::vector<CurveLengthInterval> merged{};
@@ -56,6 +59,51 @@ std::vector<CurveLengthInterval> visible_intervals_from_hidden(const std::vector
     visible.push_back({0.0, total_length_m});
   }
   return visible;
+}
+
+std::vector<Vec3d> build_attachment_replacement_points(const AttachmentInternalPathTemplate& path,
+                                                       const AttachmentSocketTemplate& socket_a,
+                                                       const AttachmentSocketTemplate& socket_b,
+                                                       const Vec3d& origin, const Vec3d& forward,
+                                                       const Vec3d& lateral, const Vec3d& up) {
+  std::vector<Vec3d> points{};
+  const auto push_local = [&](const Vec3d& local) {
+    points.push_back(attachment_local_to_world(origin, forward, lateral, up, local));
+  };
+  switch (path.profile_kind) {
+  case AttachmentInternalPathTemplate::ProfileKind::kExplicitPolyline:
+    push_local(socket_a.local_position);
+    for (const Vec3d& local_point : path.local_points) {
+      push_local(local_point);
+    }
+    push_local(socket_b.local_position);
+    break;
+  case AttachmentInternalPathTemplate::ProfileKind::kStraightCable:
+    push_local(socket_a.local_position);
+    push_local(socket_b.local_position);
+    break;
+  case AttachmentInternalPathTemplate::ProfileKind::kCoiledCable: {
+    const int sample_count = std::max(8, path.coil_turn_count * std::max(4, path.coil_samples_per_turn));
+    points.reserve(static_cast<std::size_t>(sample_count + 1));
+    for (int i = 0; i <= sample_count; ++i) {
+      const double t = static_cast<double>(i) / static_cast<double>(sample_count);
+      Vec3d local{
+          socket_a.local_position.x + (socket_b.local_position.x - socket_a.local_position.x) * t,
+          socket_a.local_position.y + (socket_b.local_position.y - socket_a.local_position.y) * t,
+          socket_a.local_position.z + (socket_b.local_position.z - socket_a.local_position.z) * t,
+      };
+      const double envelope = std::sin(kPi * t);
+      const double phase = kTwoPi * static_cast<double>(path.coil_turn_count) * t;
+      local.y += std::cos(phase) * path.coil_radius_m * envelope;
+      local.z += std::sin(phase) * path.coil_radius_m * envelope;
+      push_local(local);
+    }
+    break;
+  }
+  default:
+    break;
+  }
+  return points;
 }
 
 } // namespace
@@ -123,11 +171,8 @@ void apply_attachment_line_effects_to_curve(const CoreState& state, ObjectId spa
     replacement.attachment_template_id = attachment_template->id;
     replacement.interaction_mode = attachment_template->line_interaction_mode;
     replacement.replaced_interval = {start_s, end_s};
-    replacement.points.push_back(attachment_local_to_world(origin, forward, lateral, up, socket_a->local_position));
-    for (const Vec3d& local_point : internal_path->local_points) {
-      replacement.points.push_back(attachment_local_to_world(origin, forward, lateral, up, local_point));
-    }
-    replacement.points.push_back(attachment_local_to_world(origin, forward, lateral, up, socket_b->local_position));
+    replacement.points =
+        build_attachment_replacement_points(*internal_path, *socket_a, *socket_b, origin, forward, lateral, up);
     if (replacement.points.size() >= 2) {
       replaced.push_back(replacement.replaced_interval);
       replacement_paths.push_back(std::move(replacement));

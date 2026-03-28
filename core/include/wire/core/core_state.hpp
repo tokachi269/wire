@@ -103,6 +103,7 @@ public:
   EditResult<bool> UpdateCableTemplate(const CableTemplate& cable_template);
   EditResult<bool> UpdateCableTemplate(const CableTemplate& cable_template,
                                        const std::vector<ObjectId>& preferred_visible_span_ids);
+  EditResult<bool> UpdatePoleTypeDefinition(const PoleTypeDefinition& pole_type);
   EditResult<bool> UpdateBundleTemplate(const BundleTemplate& bundle_template);
   EditResult<bool> UpdateAttachmentTemplate(const AttachmentTemplate& attachment_template,
                                             bool mark_dependent_spans_dirty = true);
@@ -180,6 +181,8 @@ private:
   [[nodiscard]] static SpanLayer category_to_span_layer(ConnectionCategory category);
   [[nodiscard]] static BundleKind category_to_bundle_kind(ConnectionCategory category);
   [[nodiscard]] static PortKind category_to_port_kind(ConnectionCategory category);
+  EditResult<bool> ensure_default_endpoint_attachments_for_span(ObjectId span_id);
+  EditResult<bool> update_pole_type_and_refresh_instances(const PoleTypeDefinition& pole_type);
   [[nodiscard]] bool has_pole_orientation_override(ObjectId pole_id) const;
   [[nodiscard]] bool has_span_endpoint_socket_override(ObjectId span_id, bool is_start_endpoint) const;
   [[nodiscard]] bool has_span_branch_down_offset_override(ObjectId span_id) const;

@@ -210,6 +210,12 @@ CoreState::generate_grouped_spans_between_support_nodes(
         return result;
       }
       append_change_set(result.change_set, add.change_set);
+      const auto ensure_attachments = ensure_default_endpoint_attachments_for_span(add.value);
+      if (!ensure_attachments.ok) {
+        result.error = ensure_attachments.error;
+        return result;
+      }
+      append_change_set(result.change_set, ensure_attachments.change_set);
       result.value.push_back(add.value);
 
       const Port* pa = edit_state_access().ports.find(port_a_id);

@@ -327,6 +327,12 @@ ValidationResult CoreState::Validate() const {
                                                  "CableTemplate grouped support default fanout spacing must be finite and >= 0",
                                                  kInvalidObjectId});
     }
+    if (cable_template.default_endpoint_attachment_template_id != kInvalidAttachmentTemplateId &&
+        attachment_templates.find(cable_template.default_endpoint_attachment_template_id) == attachment_templates.end()) {
+      result.issues.emplace_back(
+          ValidationIssue{ValidationSeverity::kError, "CableTemplateAttachmentTemplateMissing",
+                          "CableTemplate default endpoint attachment template must exist", kInvalidObjectId});
+    }
   }
 
   for (const Bundle& bundle : edit_state.bundles.items()) {
@@ -349,6 +355,29 @@ ValidationResult CoreState::Validate() const {
       if (!socket_ids.contains(path.start_socket_id) || !socket_ids.contains(path.end_socket_id)) {
         result.issues.push_back({ValidationSeverity::kError, "AttachmentTemplatePathSocketMissing",
                                  "AttachmentTemplate internal path references missing socket", kInvalidObjectId});
+      }
+      if (attachment_template.line_interaction_mode != AttachmentLineInteractionMode::kReplaceWithInternalPath) {
+        result.issues.push_back({ValidationSeverity::kError, "AttachmentTemplatePathModeMismatch",
+                                 "AttachmentTemplate internal paths require ReplaceWithInternalPath interaction mode",
+                                 kInvalidObjectId});
+      }
+      if (path.profile_kind != AttachmentInternalPathTemplate::ProfileKind::kExplicitPolyline &&
+          !path.local_points.empty()) {
+        result.issues.push_back({ValidationSeverity::kError, "AttachmentTemplateGeneratedPathHasExplicitPoints",
+                                 "Generated attachment path profiles must not carry explicit local points",
+                                 kInvalidObjectId});
+      }
+      if (path.profile_kind == AttachmentInternalPathTemplate::ProfileKind::kCoiledCable) {
+        if (!std::isfinite(path.coil_radius_m) || path.coil_radius_m <= 1e-6 || path.coil_turn_count < 1 ||
+            path.coil_samples_per_turn < 4) {
+          result.issues.push_back({ValidationSeverity::kError, "AttachmentTemplateCoilProfileInvalid",
+                                   "Coiled attachment path profile requires finite positive radius, turn count >= 1, and samples per turn >= 4",
+                                   kInvalidObjectId});
+        }
+      } else if (path.coil_turn_count != 0 || std::abs(path.coil_radius_m) > 1e-12) {
+        result.issues.push_back({ValidationSeverity::kError, "AttachmentTemplateCoilParamsUnused",
+                                 "Only CoiledCable attachment path profiles may set coil parameters",
+                                 kInvalidObjectId});
       }
     }
   }

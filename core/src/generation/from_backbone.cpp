@@ -1642,6 +1642,7 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
   };
 
   debug_.pole_orientation_debug_records.clear();
+  constexpr double kMainBisectorSupportAxisMaxForwardAlignment = 0.85;
   std::unordered_set<ObjectId> oriented_poles{};
   for (std::size_t ordered_index = 0; ordered_index < ordered_support_node_ids.size(); ++ordered_index) {
     const ObjectId node_id = ordered_support_node_ids[ordered_index];
@@ -1724,6 +1725,21 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     if (!has_chosen_forward) {
       chosen_forward = normalize_forward_xy(previous_forward);
       debug.rule = PoleForwardRule::kFallback;
+    }
+    if (debug.rule == PoleForwardRule::kMainChainBisector) {
+      Vec3d normalized_support_axis = normalize_forward_xy(chosen_support_axis);
+      if (Normalize(&normalized_support_axis)) {
+        const double forward_alignment = std::abs(Dot(normalized_support_axis, chosen_forward));
+        if (forward_alignment > kMainBisectorSupportAxisMaxForwardAlignment) {
+          Vec3d lateral_axis = ComputeLateralAxis(chosen_forward);
+          if (Normalize(&lateral_axis)) {
+            chosen_support_axis = choose_continuous_axis(lateral_axis, normalized_support_axis);
+            if (Normalize(&chosen_support_axis) && debug.secondary_neighbor_id != kInvalidObjectId) {
+              debug.support_axis_rule = PoleSupportAxisRule::kMainChainPair;
+            }
+          }
+        }
+      }
     }
     debug.adopted_forward = chosen_forward;
     debug.adopted_support_axis = chosen_support_axis;

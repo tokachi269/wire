@@ -412,20 +412,32 @@ void apply_authoritative_support_layout_decisions(const SpanSupportLayoutEntry& 
 
 namespace {
 
-std::pair<Vec3d, Vec3d> shared_support_anchor_points(const Pole& pole, const Vec3d& support_axis, double z_m,
-                                                     const CacheState& cache_state) {
+std::pair<Vec3d, Vec3d> shared_support_anchor_points(const CoreState& state, const Pole& pole, const Vec3d& support_axis,
+                                                     double z_m, const CacheState& cache_state) {
   Vec3d axis = SafeHorizontalNormalized(support_axis);
   const double mount_radius =
       cache_state.visual_settings.support_center_threshold_m + cache_state.geometry_settings.pole_clearance_m;
   const double tip_radius = mount_radius + cache_state.visual_settings.support_arm_extra_m;
+  Vec3d center_world = pole.world_transform.position;
+  double layout_yaw_deg = pole.world_transform.rotation_euler_deg.z;
+  if (const auto pole_view = state.view().inspect_pole(pole.id); pole_view.has_value() && pole_view->has_layout_yaw) {
+    layout_yaw_deg = pole_view->layout_yaw_deg;
+  }
+  const PoleFrame frame = BuildPoleFrame(pole.world_transform, layout_yaw_deg);
+  if (std::abs(frame.up.z) > 1e-9) {
+    const double local_z = (z_m - frame.origin.z) / frame.up.z;
+    center_world = LocalPointToWorld(frame, {0.0, 0.0, local_z});
+  } else {
+    center_world.z = z_m;
+  }
   const Vec3d mount{
-      pole.world_transform.position.x + axis.x * mount_radius,
-      pole.world_transform.position.y + axis.y * mount_radius,
+      center_world.x + axis.x * mount_radius,
+      center_world.y + axis.y * mount_radius,
       z_m,
   };
   const Vec3d tip{
-      pole.world_transform.position.x + axis.x * tip_radius,
-      pole.world_transform.position.y + axis.y * tip_radius,
+      center_world.x + axis.x * tip_radius,
+      center_world.y + axis.y * tip_radius,
       z_m,
   };
   return {mount, tip};
@@ -447,7 +459,8 @@ bool merge_layout_support_group_decision(
   return true;
 }
 
-LoweredSupportGroupPlacement build_grouped_support_placement_from_decision(const SupportGroupDecision& group_decision,
+LoweredSupportGroupPlacement build_grouped_support_placement_from_decision(const CoreState& state,
+                                                                           const SupportGroupDecision& group_decision,
                                                                            const EditState& edit_state,
                                                                            const CacheState& cache_state) {
   LoweredSupportGroupPlacement group{};
@@ -470,7 +483,7 @@ LoweredSupportGroupPlacement build_grouped_support_placement_from_decision(const
     support_axis = ScaleVec(support_axis, (group_decision.decision.chosen_side_sign >= 0.0) ? 1.0 : -1.0);
   }
   const auto [mount_world, tip_world] =
-      shared_support_anchor_points(*pole, support_axis, group_decision.support_world.z, cache_state);
+      shared_support_anchor_points(state, *pole, support_axis, group_decision.support_world.z, cache_state);
   group.mount_world = mount_world;
   group.tip_world = tip_world;
   return group;
@@ -523,7 +536,7 @@ void rebuild_all_lowered_support_groups(const CoreState& state, const EditState&
   }
   for (const auto& [key, group_decision] : cache_state->support_layout_cache.support_group_decisions) {
     cache_state->support_layout_cache.lowered_support_groups[key] =
-        build_grouped_support_placement_from_decision(group_decision, edit_state, *cache_state);
+        build_grouped_support_placement_from_decision(state, group_decision, edit_state, *cache_state);
   }
   for (auto& [span_id, layout] : cache_state->support_layout_cache.by_span) {
     (void)span_id;

@@ -29,6 +29,29 @@ wire::core::AttachmentTemplateId find_attachment_template_by_mode(
   return wire::core::kInvalidAttachmentTemplateId;
 }
 
+wire::core::AttachmentTemplateId find_attachment_template_by_profile(
+    const CoreState& state, wire::core::AttachmentInternalPathTemplate::ProfileKind profile_kind) {
+  for (const auto& [id, attachment_template] : state.view().attachment_templates()) {
+    if (attachment_template.line_interaction_mode != wire::core::AttachmentLineInteractionMode::kReplaceWithInternalPath ||
+        attachment_template.internal_paths.empty()) {
+      continue;
+    }
+    if (attachment_template.internal_paths.front().profile_kind == profile_kind) {
+      return id;
+    }
+  }
+  return wire::core::kInvalidAttachmentTemplateId;
+}
+
+double polyline_length(const std::vector<wire::core::Vec3d>& points) {
+  double length = 0.0;
+  for (std::size_t i = 0; i + 1 < points.size(); ++i) {
+    const wire::core::Vec3d delta = points[i + 1] - points[i];
+    length += std::sqrt(wire::core::LengthSquared(delta));
+  }
+  return length;
+}
+
 bool build_attachment_test_span(CoreState& state, ObjectId* out_span) {
   if (out_span == nullptr) {
     return false;
@@ -1406,8 +1429,8 @@ bool test_attachment_replace_with_internal_path_replaces_interval() {
   if (!build_attachment_test_span(state, &span)) {
     return false;
   }
-  const auto template_id =
-      find_attachment_template_by_mode(state, wire::core::AttachmentLineInteractionMode::kReplaceWithInternalPath);
+  const auto template_id = find_attachment_template_by_profile(
+      state, wire::core::AttachmentInternalPathTemplate::ProfileKind::kExplicitPolyline);
   if (template_id == wire::core::kInvalidAttachmentTemplateId) {
     return false;
   }
@@ -1418,6 +1441,83 @@ bool test_attachment_replace_with_internal_path_replaces_interval() {
   const auto* curve = state.find_curve_cache(span);
   return curve != nullptr && !curve->detail.hidden_intervals.empty() && !curve->detail.replacement_paths.empty() &&
          curve->detail.replacement_paths.front().points.size() >= 2;
+}
+
+bool test_attachment_straight_auxiliary_profile_replaces_interval_without_touching_support_layout() {
+  CoreState state;
+  ObjectId span = wire::core::kInvalidObjectId;
+  if (!build_attachment_test_span(state, &span)) {
+    return false;
+  }
+  const auto before_layout = state.view().inspect_support_layout(span);
+  const auto template_id = find_attachment_template_by_profile(
+      state, wire::core::AttachmentInternalPathTemplate::ProfileKind::kStraightCable);
+  if (template_id == wire::core::kInvalidAttachmentTemplateId) {
+    return false;
+  }
+  if (!state.AddAttachment(span, 0.5, wire::core::AttachmentKind::kSpacer, 0.0, template_id).ok) {
+    return false;
+  }
+  (void)state.Commit().recalc_stats;
+  const auto* curve = state.find_curve_cache(span);
+  if (curve == nullptr || curve->detail.hidden_intervals.empty() || curve->detail.replacement_paths.size() != 1 ||
+      curve->detail.replacement_paths.front().points.size() != 2) {
+    return false;
+  }
+  const auto after_layout = state.view().inspect_support_layout(span);
+  if (before_layout.has_value() != after_layout.has_value()) {
+    return false;
+  }
+  if (before_layout.has_value()) {
+    return before_layout->flow_kind == after_layout->flow_kind && before_layout->pass_mode == after_layout->pass_mode &&
+           before_layout->lowering_kind == after_layout->lowering_kind &&
+           before_layout->relation_a == after_layout->relation_a && before_layout->relation_b == after_layout->relation_b &&
+           before_layout->start_endpoint.attachment_request.kind == after_layout->start_endpoint.attachment_request.kind &&
+           before_layout->end_endpoint.attachment_request.kind == after_layout->end_endpoint.attachment_request.kind;
+  }
+  return true;
+}
+
+bool test_attachment_coiled_auxiliary_profile_produces_longer_replacement_path_without_changing_layout_authority() {
+  CoreState state;
+  ObjectId span = wire::core::kInvalidObjectId;
+  if (!build_attachment_test_span(state, &span)) {
+    return false;
+  }
+  const auto before_layout = state.view().inspect_support_layout(span);
+  const auto template_id = find_attachment_template_by_profile(
+      state, wire::core::AttachmentInternalPathTemplate::ProfileKind::kCoiledCable);
+  if (template_id == wire::core::kInvalidAttachmentTemplateId) {
+    return false;
+  }
+  if (!state.AddAttachment(span, 0.5, wire::core::AttachmentKind::kSpacer, 0.0, template_id).ok) {
+    return false;
+  }
+  (void)state.Commit().recalc_stats;
+  const auto* curve = state.find_curve_cache(span);
+  if (curve == nullptr || curve->detail.hidden_intervals.empty() || curve->detail.replacement_paths.size() != 1) {
+    return false;
+  }
+  const auto& replacement = curve->detail.replacement_paths.front();
+  if (replacement.points.size() < 12) {
+    return false;
+  }
+  const double chord_length =
+      std::sqrt(wire::core::LengthSquared(replacement.points.back() - replacement.points.front()));
+  if (polyline_length(replacement.points) <= chord_length + 0.05) {
+    return false;
+  }
+  const auto after_layout = state.view().inspect_support_layout(span);
+  if (before_layout.has_value() != after_layout.has_value()) {
+    return false;
+  }
+  if (before_layout.has_value()) {
+    return before_layout->flow_kind == after_layout->flow_kind && before_layout->pass_mode == after_layout->pass_mode &&
+           before_layout->lowering_kind == after_layout->lowering_kind &&
+           before_layout->start_endpoint.attachment_request.kind == after_layout->start_endpoint.attachment_request.kind &&
+           before_layout->end_endpoint.attachment_request.kind == after_layout->end_endpoint.attachment_request.kind;
+  }
+  return true;
 }
 
 bool test_attachment_socket_endpoint_can_override_curve_endpoint() {
@@ -2750,6 +2850,13 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C158_Attachment_ReplaceWithInternalPath_ReplacesInterval",
                          "ReplaceWithInternalPath hides the covered outer interval and emits replacement path geometry",
                          "Invariant", false, test_attachment_replace_with_internal_path_replaces_interval);
+  test_registry::AddTest(tests, "C283_Attachment_StraightAuxiliaryProfile_ReplacesInterval",
+                         "Straight auxiliary attachment profile emits replacement geometry without changing support-layout authority",
+                         "Invariant", false, test_attachment_straight_auxiliary_profile_replaces_interval_without_touching_support_layout);
+  test_registry::AddTest(tests, "C284_Attachment_CoiledAuxiliaryProfile_ProducesLongerReplacementPath",
+                         "Coiled auxiliary attachment profile emits a longer replacement path while keeping support-layout authority unchanged",
+                         "Invariant", false,
+                         test_attachment_coiled_auxiliary_profile_produces_longer_replacement_path_without_changing_layout_authority);
   test_registry::AddTest(tests, "C159_Attachment_SocketEndpoint_OverridesCurveEndpoint",
                          "Attachment socket endpoint can replace a span endpoint so the curve meets the socket without a gap",
                          "Invariant", false, test_attachment_socket_endpoint_can_override_curve_endpoint);

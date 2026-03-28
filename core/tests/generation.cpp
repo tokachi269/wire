@@ -8,6 +8,7 @@
 
 #include "registry.hpp"
 #include "helpers.hpp"
+#include "wire/core/coord_utils.hpp"
 #include "../src/generation/grouped_span_lowering.hpp"
 
 using namespace helpers;
@@ -1752,6 +1753,125 @@ bool test_backbone_branch_support_visual_stays_perpendicular_to_branch() {
     }
   }
   return found;
+}
+
+bool test_backbone_tilted_branch_support_follows_tilted_pole_centerline() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec main_req{};
+  main_req.path.polyline = {{-12.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}};
+  main_req.interval_m = 1000.0;
+  main_req.pole_type_id = type_ids.front();
+  add_backbone_bundle(main_req, wire::core::BundleKind::kHighVoltage);
+  if (!state.GenerateFromBackboneSpec(main_req).ok) {
+    return false;
+  }
+
+  const ObjectId center_id = find_pole_id_by_position(state, {0.0, 0.0, 0.0});
+  if (center_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec branch_req{};
+  branch_req.path.polyline = {{0.0, 0.0, 0.0}, {0.0, 12.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec shared{};
+  shared.point_index = 0;
+  shared.support_kind = wire::core::SupportKind::kPole;
+  shared.node_id = center_id;
+  branch_req.path.node_specs.push_back(shared);
+  branch_req.interval_m = 1000.0;
+  branch_req.pole_type_id = type_ids.front();
+  add_backbone_bundle(branch_req, wire::core::BundleKind::kHighVoltage);
+  const auto branch_generated = state.GenerateFromBackboneSpec(branch_req);
+  if (!branch_generated.ok || branch_generated.value.generated_span_ids.empty()) {
+    return false;
+  }
+
+  wire::core::CommitOptions options{};
+  options.run_recalc = true;
+  if (!state.Commit(options).validation.ok()) {
+    return false;
+  }
+
+  auto observe_group = [&](wire::core::Vec3d* mount_world, wire::core::Vec3d* tip_world,
+                           wire::core::Vec3d* side_axis) -> bool {
+    for (ObjectId span_id : branch_generated.value.generated_span_ids) {
+      const auto layout_view = state.view().inspect_support_layout(span_id);
+      if (!layout_view.has_value()) {
+        continue;
+      }
+      const auto placement = lowered_support_group_for_owner(*layout_view, center_id);
+      if (!placement.has_value()) {
+        continue;
+      }
+      if (mount_world != nullptr) {
+        *mount_world = placement->mount_world;
+      }
+      if (tip_world != nullptr) {
+        *tip_world = placement->tip_world;
+      }
+      if (side_axis != nullptr) {
+        *side_axis = normalize_xy_safe(placement->side_axis);
+      }
+      return true;
+    }
+    return false;
+  };
+
+  wire::core::Vec3d before_mount{};
+  wire::core::Vec3d before_tip{};
+  wire::core::Vec3d side_axis{};
+  if (!observe_group(&before_mount, &before_tip, &side_axis)) {
+    return false;
+  }
+
+  const auto tilt_result = state.SetPoleTilt(center_id, 20.0);
+  if (!tilt_result.ok) {
+    return false;
+  }
+  if (!state.Commit(options).validation.ok()) {
+    return false;
+  }
+
+  wire::core::Vec3d after_mount{};
+  wire::core::Vec3d after_tip{};
+  if (!observe_group(&after_mount, &after_tip, nullptr)) {
+    return false;
+  }
+
+  const auto pole_view = state.view().inspect_pole(center_id);
+  const auto* pole = state.view().edit_state().poles.find(center_id);
+  if (!pole_view.has_value() || pole == nullptr || !pole_view->has_layout_yaw) {
+    return false;
+  }
+
+  const wire::core::PoleFrame frame =
+      wire::core::BuildPoleFrame(pole->world_transform, pole_view->layout_yaw_deg);
+  if (std::abs(frame.up.z) <= 1e-9) {
+    return false;
+  }
+  const double local_z = (after_mount.z - frame.origin.z) / frame.up.z;
+  const wire::core::Vec3d centerline_world = wire::core::LocalPointToWorld(frame, {0.0, 0.0, local_z});
+  const wire::core::Vec3d center_to_mount = after_mount - centerline_world;
+  const double along_axis = dot_xy(center_to_mount, side_axis);
+  const double cross_axis = std::abs(center_to_mount.x * side_axis.y - center_to_mount.y * side_axis.x);
+  const bool moved_xy = !almost_equal(before_mount.x, after_mount.x, 1e-6) || !almost_equal(before_mount.y, after_mount.y, 1e-6) ||
+                        !almost_equal(before_tip.x, after_tip.x, 1e-6) || !almost_equal(before_tip.y, after_tip.y, 1e-6);
+
+  if (!(moved_xy && std::abs(along_axis) > 0.05 && cross_axis < 1e-4)) {
+    std::cerr << "[DBG] C286 movedXY=" << (moved_xy ? 1 : 0) << " beforeMount=(" << before_mount.x << ","
+              << before_mount.y << "," << before_mount.z << ") afterMount=(" << after_mount.x << "," << after_mount.y
+              << "," << after_mount.z << ") centerline=(" << centerline_world.x << "," << centerline_world.y << ","
+              << centerline_world.z << ") sideAxis=(" << side_axis.x << "," << side_axis.y << "," << side_axis.z
+              << ") alongAxis=" << along_axis << " crossAxis=" << cross_axis << "\n";
+    return false;
+  }
+
+  return true;
 }
 
 bool test_backbone_default_single_branch_stays_flat_without_branch_support() {
@@ -8749,6 +8869,89 @@ bool test_backbone_adjacent_branch_roots_use_route_local_bisector() {
   return true;
 }
 
+bool test_backbone_main_bisector_support_axis_stays_perpendicular_on_acute_branch_root() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec trunk{};
+  trunk.path.polyline = {
+      {4.09661, -1.6937, 0.0},
+      {6.62541, -4.13897, 0.0},
+      {8.93477, -4.88286, 0.0},
+      {13.4003, -2.73847, 0.0},
+      {14.9671, -0.460638, 0.0},
+  };
+  trunk.interval_m = 1000.0;
+  trunk.pole_type_id = type_ids.front();
+  add_backbone_bundle(trunk, wire::core::BundleKind::kHighVoltage);
+  if (!state.GenerateFromBackboneSpec(trunk).ok) {
+    std::cerr << "[DBG] C285 trunk_generate_failed\n";
+    return false;
+  }
+
+  const ObjectId root_id = find_pole_id_by_position(state, {8.93477, -4.88286, 0.0});
+  if (root_id == wire::core::kInvalidObjectId) {
+    std::cerr << "[DBG] C285 root_missing\n";
+    return false;
+  }
+
+  wire::core::BackboneSpec branch{};
+  branch.path.polyline = {{8.93477, -4.88286, 0.0}, {10.5102, 1.17011, 0.0}};
+  branch.interval_m = 1000.0;
+  branch.pole_type_id = type_ids.front();
+  wire::core::BackboneInputSpec::NodeSpec shared{};
+  shared.point_index = 0;
+  shared.support_kind = wire::core::SupportKind::kPole;
+  shared.node_id = root_id;
+  branch.path.node_specs.push_back(shared);
+  add_backbone_bundle(branch, wire::core::BundleKind::kHighVoltage);
+  const auto generated = state.GenerateFromBackboneSpec(branch);
+  if (!generated.ok || generated.value.generated_span_ids.empty()) {
+    std::cerr << "[DBG] C285 branch_generate_failed error=" << generated.error << "\n";
+    return false;
+  }
+
+  wire::core::CommitOptions options{};
+  options.run_recalc = true;
+  if (!state.Commit(options).validation.ok()) {
+    std::cerr << "[DBG] C285 commit_failed\n";
+    return false;
+  }
+
+  const auto pole_view = state.view().inspect_pole(root_id);
+  if (!pole_view.has_value() || !pole_view->has_support_axis ||
+      pole_view->forward_rule != wire::core::PoleForwardRule::kMainChainBisector) {
+    std::cerr << "[DBG] C285 pole_view_missing_or_rule"
+              << " has=" << (pole_view.has_value() ? 1 : 0)
+              << " axis=" << (pole_view.has_value() && pole_view->has_support_axis ? 1 : 0)
+              << " rule="
+              << (pole_view.has_value() ? static_cast<int>(pole_view->forward_rule)
+                                        : static_cast<int>(wire::core::PoleForwardRule::kFallback))
+              << "\n";
+    return false;
+  }
+
+  const double yaw_rad = pole_view->final_yaw_deg * (3.14159265358979323846 / 180.0);
+  const wire::core::Vec3d forward = normalize_xy_safe({std::cos(yaw_rad), std::sin(yaw_rad), 0.0});
+  const wire::core::Vec3d support_axis = normalize_xy_safe(pole_view->support_axis_dir);
+  const wire::core::Vec3d lateral = normalize_xy_safe({-forward.y, forward.x, 0.0});
+  const double forward_alignment = std::abs(dot_xy(support_axis, forward));
+  const double lateral_alignment = std::abs(dot_xy(support_axis, lateral));
+  if (!(forward_alignment <= 0.35 && lateral_alignment >= 0.93)) {
+    std::cerr << "[DBG] C285 pole=" << root_id << " rule=" << static_cast<int>(pole_view->forward_rule)
+              << " supportRule=" << static_cast<int>(pole_view->support_axis_rule) << " forward=(" << forward.x << ","
+              << forward.y << "," << forward.z << ") support=(" << support_axis.x << "," << support_axis.y << ","
+              << support_axis.z << ") lateral=(" << lateral.x << "," << lateral.y << "," << lateral.z
+              << ") forwardAlign=" << forward_alignment << " lateralAlign=" << lateral_alignment << "\n";
+    return false;
+  }
+
+  return true;
+}
+
 bool test_backbone_same_pole_branch_roots_keep_distinct_support_groups() {
   const std::vector<ObjectId> node_ids{55, 316, 400};
   const std::unordered_map<ObjectId, wire::core::SupportNode> support_node_by_id{
@@ -8911,6 +9114,9 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C196_Backbone_BranchSupportVisualPerpendicular",
                          "Branch support visual placement stays perpendicular to the branch and hangs vertically under the lane attachment",
                          "Invariant", false, test_backbone_branch_support_visual_stays_perpendicular_to_branch);
+  test_registry::AddTest(tests, "C286_Backbone_TiltedBranchSupportFollowsTiltedPoleCenterline",
+                         "Tilted pole refresh moves grouped branch support with the tilted pole centerline instead of reusing pre-tilt XY anchors",
+                         "Invariant", false, test_backbone_tilted_branch_support_follows_tilted_pole_centerline);
   test_registry::AddTest(tests, "C197_Backbone_DefaultSingleBranchStaysFlat",
                          "DefaultSingle branch stays branch-flow without authoritative lowered decision or height drop",
                          "Invariant", false, test_backbone_default_single_branch_stays_flat_without_branch_support);
@@ -9176,6 +9382,9 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C279_Backbone_AdjacentBranchRootsUseRouteLocalBisector",
                          "Adjacent bundle branch roots use route-local bisector orientation instead of collapsing to one shared direction",
                          "Invariant", false, test_backbone_adjacent_branch_roots_use_route_local_bisector);
+  test_registry::AddTest(tests, "C285_Backbone_MainBisectorSupportAxisStaysPerpendicularOnAcuteBranchRoot",
+                         "Acute main-chain branch root keeps pole support axis perpendicular to the main bisector instead of nearly parallel to it",
+                         "Invariant", false, test_backbone_main_bisector_support_axis_stays_perpendicular_on_acute_branch_root);
   test_registry::AddTest(tests, "C282_Backbone_SamePoleBranchRootsKeepDistinctSupportGroups",
                          "Two bundle branch roots on the same pole keep distinct lowered support groups instead of collapsing to one shared direction",
                          "Invariant", false, test_backbone_same_pole_branch_roots_keep_distinct_support_groups);

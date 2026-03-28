@@ -44,13 +44,14 @@ bool test_branch_pick_segment_near_endpoint_snaps_to_node() {
   wire::core::ResolveBranchPickOptions resolve{};
   resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
   resolve.snap_radius_world = 0.5;
+  const CoreCounts before = snapshot_counts(state);
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok) {
     return false;
   }
   return resolved.value.resolution == wire::core::PickBranchResolutionKind::kNode &&
          resolved.value.resolved_node_id == pole_a && resolved.value.snapped_from_segment_endpoint &&
-         wire::core::CoreStateTestHook::last_generation_support_nodes(state).empty();
+         same_counts(before, snapshot_counts(state));
 }
 
 // Intent: Segment pick far from endpoints creates a Midair support node.

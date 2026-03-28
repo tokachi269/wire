@@ -8,25 +8,25 @@ namespace wire::core {
 // Test-only backdoor for exceptional white-box checks.
 // Production code must use CoreState public APIs only.
 struct CoreStateTestHook {
-  static EditState& edit_state(CoreState& state) { return state.edit_state_; }
-  static CacheState& cache_state(CoreState& state) { return state.cache_state_; }
-  static RelationIndex& relation_index(CoreState& state) { return state.relation_index_; }
-  static OverrideState& override_state(CoreState& state) { return state.override_state_; }
-  static IdGenerator& id_generator(CoreState& state) { return state.id_generator_; }
+  static EditState& edit_state(CoreState& state) { return state.authoritative_.edit_state; }
+  static CacheState& cache_state(CoreState& state) { return state.runtime_.cache_state; }
+  static RelationIndex& relation_index(CoreState& state) { return state.runtime_.relation_index; }
+  static OverrideState& override_state(CoreState& state) { return state.authoritative_.override_state; }
+  static IdGenerator& id_generator(CoreState& state) { return state.identity_.id_generator; }
   static std::unordered_map<BundleKind, BundleTemplate>& bundle_templates(CoreState& state) {
-    return state.bundle_templates_;
+    return state.authoritative_.bundle_templates;
   }
   static std::unordered_map<CableTemplateId, CableTemplate>& cable_templates(CoreState& state) {
-    return state.cable_templates_;
+    return state.authoritative_.cable_templates;
   }
   static std::vector<SupportNode>& last_generation_support_nodes(CoreState& state) {
-    return state.last_generation_support_nodes_;
+    return state.debug_.last_generation_support_nodes;
   }
   static std::vector<BackboneEdgeOrientation>& last_generation_edge_orientations(CoreState& state) {
-    return state.last_generation_edge_orientations_;
+    return state.debug_.last_generation_edge_orientations;
   }
   static std::unordered_map<ObjectId, JunctionRelation>& last_generation_junction_relations(CoreState& state) {
-    return state.last_generation_junction_relations_;
+    return state.debug_.last_generation_junction_relations;
   }
   static void cache_span_support_layout(CoreState& state, SpanSupportLayoutEntry layout) {
     state.cache_span_support_layout(std::move(layout));
@@ -35,3 +35,4 @@ struct CoreStateTestHook {
 #endif
 
 } // namespace wire::core
+

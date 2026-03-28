@@ -1,4 +1,4 @@
-﻿#include "wire/core/core_state.hpp"
+#include "wire/core/core_state.hpp"
 #include "wire/core/coord_utils.hpp"
 #include "wire/core/core_view.hpp"
 #include "../pole_orientation_utils.hpp"
@@ -426,7 +426,7 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
         node_spec->node_id == kInvalidObjectId) {
       return false;
     }
-    for (const SupportNode& node : last_generation_support_nodes_) {
+    for (const SupportNode& node : debug_.last_generation_support_nodes) {
       if (node.node_id == node_spec->node_id) {
         return node.has_source_edge;
       }
@@ -485,7 +485,7 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
   std::vector<Vec3d> guide_points{};
   PathDirectionEvaluationDebug direction_debug{};
   generation::detail::build_backbone_guide_points(request, &guide_points, &direction_debug);
-  last_path_direction_debug_ = direction_debug;
+  debug_.last_path_direction_debug = direction_debug;
   path_direction_debug_records_access().push_back(direction_debug);
   if (path_direction_debug_records_access().size() > 128) {
     path_direction_debug_records_access().erase(path_direction_debug_records_access().begin());
@@ -578,7 +578,7 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
         support_node_id = next_virtual_support_id++;
       } else {
         const SupportNode* existing_node = nullptr;
-        for (const SupportNode& node : last_generation_support_nodes_) {
+        for (const SupportNode& node : debug_.last_generation_support_nodes) {
           if (node.node_id == support_node_id) {
             existing_node = &node;
             break;
@@ -1641,7 +1641,7 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     return has_axis ? chosen_axis : Vec3d{};
   };
 
-  pole_orientation_debug_records_.clear();
+  debug_.pole_orientation_debug_records.clear();
   std::unordered_set<ObjectId> oriented_poles{};
   for (std::size_t ordered_index = 0; ordered_index < ordered_support_node_ids.size(); ++ordered_index) {
     const ObjectId node_id = ordered_support_node_ids[ordered_index];
@@ -1670,8 +1670,8 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       if (prev_node_id != node_id) {
         const Pole* prev_pole = edit_state_access().poles.find(prev_node_id);
         if (prev_pole != nullptr) {
-          const auto it_prev_debug = pole_orientation_debug_records_.find(prev_pole->id);
-          if (it_prev_debug != pole_orientation_debug_records_.end()) {
+          const auto it_prev_debug = debug_.pole_orientation_debug_records.find(prev_pole->id);
+          if (it_prev_debug != debug_.pole_orientation_debug_records.end()) {
             Vec3d previous_route_axis = normalize_forward_xy(it_prev_debug->second.adopted_support_axis);
             if (Normalize(&previous_route_axis)) {
               chosen_support_axis = choose_continuous_axis(chosen_support_axis, previous_route_axis);
@@ -1727,7 +1727,7 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     }
     debug.adopted_forward = chosen_forward;
     debug.adopted_support_axis = chosen_support_axis;
-    pole_orientation_debug_records_[pole->id] = debug;
+    debug_.pole_orientation_debug_records[pole->id] = debug;
 
     const double next_layout_yaw = effective_pole_layout_yaw_deg(*pole);
     const double layout_yaw_delta = normalize_yaw_deg(next_layout_yaw - previous_layout_yaw);
@@ -2547,19 +2547,20 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
                                          materialization_phase.generated_span_ids.begin(),
                                          materialization_phase.generated_span_ids.end());
 
-  last_generation_support_nodes_.clear();
-  last_generation_support_nodes_.reserve(generation_backbone.nodes.size());
+  debug_.last_generation_support_nodes.clear();
+  debug_.last_generation_support_nodes.reserve(generation_backbone.nodes.size());
   for (const SupportNode& node : generation_backbone.nodes) {
     if (node.support_kind != SupportKind::kPole) {
-      last_generation_support_nodes_.push_back(node);
+      debug_.last_generation_support_nodes.push_back(node);
     }
   }
-  last_generation_lane_assignments_ = std::move(materialization_phase.lane_assignments);
-  last_generation_edge_orientations_ = std::move(materialization_phase.edge_orientations);
-  last_generation_junction_relations_ = std::move(materialization_phase.junction_relations_by_node);
+  debug_.last_generation_lane_assignments = std::move(materialization_phase.lane_assignments);
+  debug_.last_generation_edge_orientations = std::move(materialization_phase.edge_orientations);
+  debug_.last_generation_junction_relations = std::move(materialization_phase.junction_relations_by_node);
   result.ok = true;
   return result;
 }
 
 
 } // namespace wire::core
+

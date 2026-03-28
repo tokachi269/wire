@@ -6,37 +6,37 @@ namespace wire::core {
 
 CoreView::CoreView(const CoreState& state) : state_(state) {}
 
-const EditState& CoreView::edit_state() const { return state_.edit_state_; }
-const ObjectStore<Pole>& CoreView::poles() const { return state_.edit_state_.poles; }
-const ObjectStore<Port>& CoreView::ports() const { return state_.edit_state_.ports; }
-const ObjectStore<Anchor>& CoreView::anchors() const { return state_.edit_state_.anchors; }
-const ObjectStore<Bundle>& CoreView::bundles() const { return state_.edit_state_.bundles; }
-const ObjectStore<Span>& CoreView::spans() const { return state_.edit_state_.spans; }
-const ObjectStore<Attachment>& CoreView::attachments() const { return state_.edit_state_.attachments; }
+const EditState& CoreView::edit_state() const { return state_.authoritative_.edit_state; }
+const ObjectStore<Pole>& CoreView::poles() const { return state_.authoritative_.edit_state.poles; }
+const ObjectStore<Port>& CoreView::ports() const { return state_.authoritative_.edit_state.ports; }
+const ObjectStore<Anchor>& CoreView::anchors() const { return state_.authoritative_.edit_state.anchors; }
+const ObjectStore<Bundle>& CoreView::bundles() const { return state_.authoritative_.edit_state.bundles; }
+const ObjectStore<Span>& CoreView::spans() const { return state_.authoritative_.edit_state.spans; }
+const ObjectStore<Attachment>& CoreView::attachments() const { return state_.authoritative_.edit_state.attachments; }
 
-const ConnectionIndex& CoreView::connection_index() const { return state_.connection_index_; }
-const RelationIndex& CoreView::relation_index() const { return state_.relation_index_; }
-const DirtyQueue& CoreView::dirty_queue() const { return state_.dirty_queue_; }
-const RecalcStats& CoreView::last_recalc_stats() const { return state_.last_recalc_stats_; }
-const GeometrySettings& CoreView::geometry_settings() const { return state_.cache_state_.geometry_settings; }
-const VisualSettings& CoreView::visual_settings() const { return state_.cache_state_.visual_settings; }
-const VariationSettings& CoreView::variation_settings() const { return state_.cache_state_.variation_settings; }
-const LayoutSettings& CoreView::layout_settings() const { return state_.layout_settings_; }
-const PathDirectionEvaluationDebug& CoreView::last_path_direction_debug() const { return state_.last_path_direction_debug_; }
+const ConnectionIndex& CoreView::connection_index() const { return state_.runtime_.connection_index; }
+const RelationIndex& CoreView::relation_index() const { return state_.runtime_.relation_index; }
+const DirtyQueue& CoreView::dirty_queue() const { return state_.runtime_.dirty_queue; }
+const RecalcStats& CoreView::last_recalc_stats() const { return state_.runtime_.last_recalc_stats; }
+const GeometrySettings& CoreView::geometry_settings() const { return state_.runtime_.cache_state.geometry_settings; }
+const VisualSettings& CoreView::visual_settings() const { return state_.runtime_.cache_state.visual_settings; }
+const VariationSettings& CoreView::variation_settings() const { return state_.runtime_.cache_state.variation_settings; }
+const LayoutSettings& CoreView::layout_settings() const { return state_.authoritative_.layout_settings; }
+const PathDirectionEvaluationDebug& CoreView::last_path_direction_debug() const { return state_.debug_.last_path_direction_debug; }
 const std::vector<PathDirectionEvaluationDebug>& CoreView::path_direction_debug_records() const {
-  return state_.path_direction_debug_records_;
+  return state_.debug_.path_direction_debug_records;
 }
 const std::unordered_map<ObjectId, PoleOrientationDebugRecord>& CoreView::pole_orientation_debug_records() const {
-  return state_.pole_orientation_debug_records_;
+  return state_.debug_.pole_orientation_debug_records;
 }
 const std::vector<BackboneEdgeOrientation>& CoreView::last_generation_edge_orientations() const {
-  return state_.last_generation_edge_orientations_;
+  return state_.debug_.last_generation_edge_orientations;
 }
-const CacheState& CoreView::cache_state() const { return state_.cache_state_; }
-const std::unordered_map<PoleTypeId, PoleTypeDefinition>& CoreView::pole_types() const { return state_.pole_types_; }
+const CacheState& CoreView::cache_state() const { return state_.runtime_.cache_state; }
+const std::unordered_map<PoleTypeId, PoleTypeDefinition>& CoreView::pole_types() const { return state_.authoritative_.pole_types; }
 int CoreView::count_port_bands(PoleTypeId pole_type_id, ConnectionCategory category) const {
-  const auto it = state_.pole_types_.find(pole_type_id);
-  if (it == state_.pole_types_.end()) {
+  const auto it = state_.authoritative_.pole_types.find(pole_type_id);
+  if (it == state_.authoritative_.pole_types.end()) {
     return 0;
   }
   int count = 0;
@@ -48,20 +48,20 @@ int CoreView::count_port_bands(PoleTypeId pole_type_id, ConnectionCategory categ
   return count;
 }
 const std::unordered_map<CableTemplateId, CableTemplate>& CoreView::cable_templates() const {
-  return state_.cable_templates_;
+  return state_.authoritative_.cable_templates;
 }
 const std::unordered_map<BundleKind, BundleTemplate>& CoreView::bundle_templates() const {
-  return state_.bundle_templates_;
+  return state_.authoritative_.bundle_templates;
 }
 const std::unordered_map<AttachmentTemplateId, AttachmentTemplate>& CoreView::attachment_templates() const {
-  return state_.attachment_templates_;
+  return state_.authoritative_.attachment_templates;
 }
-const TemplateDependencyState& CoreView::template_dependency_state() const { return state_.template_dependency_state_; }
+const TemplateDependencyState& CoreView::template_dependency_state() const { return state_.authoritative_.template_dependency_state; }
 const std::vector<PortResolutionDebugRecord>& CoreView::port_resolution_debug_records() const {
-  return state_.port_resolution_debug_records_;
+  return state_.debug_.port_resolution_debug_records;
 }
 const std::unordered_map<ObjectId, SpanRuntimeState>& CoreView::span_runtime_states() const {
-  return state_.span_runtime_states_;
+  return state_.runtime_.span_runtime_states;
 }
 BackboneResult CoreView::build_backbone_result() const { return state_.BuildBackboneResult(); }
 const SpanRuntimeState* CoreView::find_span_runtime_state(ObjectId span_id) const {
@@ -92,3 +92,4 @@ double CoreView::pole_radius_at_height_m(const Pole& pole, double local_z_m) con
 CoreView CoreState::view() const { return CoreView(*this); }
 
 } // namespace wire::core
+

@@ -282,7 +282,7 @@ void CoreState::register_default_pole_types() {
   dist.anchor_slots = {
       {500, AnchorSupportKind::kGround, {0.0, 0.0, 0.5}, 10, true},
   };
-  pole_types_[dist.id] = dist;
+  authoritative_.pole_types[dist.id] = dist;
 
   PoleTypeDefinition comm{};
   comm.id = kCommunicationPoleType;
@@ -307,12 +307,12 @@ void CoreState::register_default_pole_types() {
   comm.anchor_slots = {
       {900, AnchorSupportKind::kGround, {0.0, 0.0, 0.5}, 10, true},
   };
-  pole_types_[comm.id] = comm;
+  authoritative_.pole_types[comm.id] = comm;
 }
 
 const PoleTypeDefinition* CoreState::find_pole_type(PoleTypeId pole_type_id) const {
-  auto it = pole_types_.find(pole_type_id);
-  if (it == pole_types_.end()) {
+  auto it = authoritative_.pole_types.find(pole_type_id);
+  if (it == authoritative_.pole_types.end()) {
     return nullptr;
   }
   return &it->second;
@@ -345,7 +345,7 @@ void CoreState::register_default_bundle_templates() {
   hv.allow_midair_node = true;
   hv.allow_midair_branch = false;
   hv.enable_branch_down_offset = true;
-  bundle_templates_[hv.id] = hv;
+  authoritative_.bundle_templates[hv.id] = hv;
 
   BundleTemplate lv{};
   lv.id = BundleKind::kLowVoltage;
@@ -366,7 +366,7 @@ void CoreState::register_default_bundle_templates() {
   lv.allow_midair_node = true;
   lv.allow_midair_branch = true;
   lv.enable_branch_down_offset = false;
-  bundle_templates_[lv.id] = lv;
+  authoritative_.bundle_templates[lv.id] = lv;
 
   BundleTemplate comm{};
   comm.id = BundleKind::kCommunication;
@@ -387,7 +387,7 @@ void CoreState::register_default_bundle_templates() {
   comm.allow_midair_node = true;
   comm.allow_midair_branch = true;
   comm.enable_branch_down_offset = false;
-  bundle_templates_[comm.id] = comm;
+  authoritative_.bundle_templates[comm.id] = comm;
 
   BundleTemplate optical{};
   optical.id = BundleKind::kOptical;
@@ -408,12 +408,12 @@ void CoreState::register_default_bundle_templates() {
   optical.allow_midair_node = true;
   optical.allow_midair_branch = true;
   optical.enable_branch_down_offset = false;
-  bundle_templates_[optical.id] = optical;
+  authoritative_.bundle_templates[optical.id] = optical;
 }
 
 const BundleTemplate* CoreState::find_bundle_template(BundleKind bundle_template_id) const {
-  auto it = bundle_templates_.find(bundle_template_id);
-  if (it == bundle_templates_.end()) {
+  auto it = authoritative_.bundle_templates.find(bundle_template_id);
+  if (it == authoritative_.bundle_templates.end()) {
     return nullptr;
   }
   return &it->second;
@@ -437,8 +437,8 @@ std::vector<PortPlacementBand> CoreState::sorted_port_bands(const PoleTypeDefini
 }
 
 bool CoreState::is_port_band_used(ObjectId pole_id, const PortPlacementBand& band) const {
-  for (ObjectId port_id : relation_ids_or_empty(relation_index_.ports_by_pole, pole_id)) {
-    const Port* port = edit_state_.ports.find(port_id);
+  for (ObjectId port_id : relation_ids_or_empty(runtime_.relation_index.ports_by_pole, pole_id)) {
+    const Port* port = authoritative_.edit_state.ports.find(port_id);
     if (port == nullptr) {
       continue;
     }
@@ -452,7 +452,7 @@ bool CoreState::is_port_band_used(ObjectId pole_id, const PortPlacementBand& ban
 
 EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolutionRequest& request) {
   EditResult<ObjectId> result;
-  const Pole* pole = edit_state_.poles.find(request.pole_id);
+  const Pole* pole = authoritative_.edit_state.poles.find(request.pole_id);
   const EndpointContinuityDecision& endpoint_decision = request.endpoint_decision;
   const ContinuityCategoryClass continuity_class_hint = endpoint_decision.continuity_class;
   const bool default_lower_required_hint = endpoint_decision.default_lower_required;
@@ -481,10 +481,10 @@ EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolution
   debug.relation_kind_hint = relation_kind_hint;
 
   auto push_debug = [&]() {
-    port_resolution_debug_records_.push_back(debug);
+    debug_.port_resolution_debug_records.push_back(debug);
     constexpr std::size_t kMaxDebugRecords = 256;
-    if (port_resolution_debug_records_.size() > kMaxDebugRecords) {
-      port_resolution_debug_records_.erase(port_resolution_debug_records_.begin());
+    if (debug_.port_resolution_debug_records.size() > kMaxDebugRecords) {
+      debug_.port_resolution_debug_records.erase(debug_.port_resolution_debug_records.begin());
     }
   };
 
@@ -496,17 +496,17 @@ EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolution
   }
 
   auto connection_count = [&](ObjectId port_id) -> std::size_t {
-    auto it = connection_index_.spans_by_port.find(port_id);
-    if (it == connection_index_.spans_by_port.end()) {
+    auto it = runtime_.connection_index.spans_by_port.find(port_id);
+    if (it == runtime_.connection_index.spans_by_port.end()) {
       return 0;
     }
     return it->second.size();
   };
 
   std::vector<Port*> owned_ports;
-  owned_ports.reserve(relation_ids_or_empty(relation_index_.ports_by_pole, request.pole_id).size());
-  for (ObjectId port_id : relation_ids_or_empty(relation_index_.ports_by_pole, request.pole_id)) {
-    Port* port = edit_state_.ports.find(port_id);
+  owned_ports.reserve(relation_ids_or_empty(runtime_.relation_index.ports_by_pole, request.pole_id).size());
+  for (ObjectId port_id : relation_ids_or_empty(runtime_.relation_index.ports_by_pole, request.pole_id)) {
+    Port* port = authoritative_.edit_state.ports.find(port_id);
     if (port == nullptr) {
       continue;
     }
@@ -542,7 +542,7 @@ EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolution
     };
 
     const int target_layer = target_template_layer_for_category(request.category);
-    const Pole* peer_pole = edit_state_.poles.find(request.peer_pole_id);
+    const Pole* peer_pole = authoritative_.edit_state.poles.find(request.peer_pole_id);
     const SlotSide preferred_side = preferred_side_from_geometry(*pole, peer_pole, 0.10);
     const bool prefer_non_center = (preferred_side != SlotSide::kCenter);
     std::vector<std::pair<ObjectId, Vec3d>> occupied_locals{};
@@ -874,7 +874,7 @@ EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolution
 
       auto realize_selected_world = [&]() {
         Vec3d adjusted_local{0.0, best_solve.lateral_m, best_solve.height_m};
-        const bool apply_angle_correction = layout_settings_.angle_correction_enabled &&
+        const bool apply_angle_correction = authoritative_.layout_settings.angle_correction_enabled &&
                                             request.pole_context == PoleContextKind::kCorner &&
                                             best_band->side != SlotSide::kCenter;
         double applied_scale = 1.0;
@@ -899,7 +899,7 @@ EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolution
           best_port->world_position = selected_world;
           add_unique_id(result.change_set.updated_ids, best_port->id);
         }
-        best_port->angle_correction_applied = layout_settings_.angle_correction_enabled &&
+        best_port->angle_correction_applied = authoritative_.layout_settings.angle_correction_enabled &&
                                               request.pole_context == PoleContextKind::kCorner &&
                                               best_band->side != SlotSide::kCenter;
         best_port->side_scale_applied = applied_scale;
@@ -923,7 +923,7 @@ EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolution
         push_debug();
         return add_port_result;
       }
-      Port* created = edit_state_.ports.find(add_port_result.value);
+      Port* created = authoritative_.edit_state.ports.find(add_port_result.value);
       if (created != nullptr) {
         created->category = request.category;
         created->template_layer = best_band->layer;
@@ -932,7 +932,7 @@ EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolution
         created->generated_from_template = true;
         created->generated_by_rule = true;
         created->placement_context = request.connection_context;
-        created->angle_correction_applied = layout_settings_.angle_correction_enabled &&
+        created->angle_correction_applied = authoritative_.layout_settings.angle_correction_enabled &&
                                             request.pole_context == PoleContextKind::kCorner &&
                                             best_band->side != SlotSide::kCenter;
         created->side_scale_applied = applied_scale;
@@ -960,7 +960,7 @@ EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolution
 EditResult<ObjectId> CoreState::ensure_bundle_for_template(const AddConnectionByPoleOptions& options) {
   EditResult<ObjectId> result;
   if (options.bundle_id != kInvalidObjectId) {
-    const Bundle* existing_bundle = edit_state_.bundles.find(options.bundle_id);
+    const Bundle* existing_bundle = authoritative_.edit_state.bundles.find(options.bundle_id);
     if (existing_bundle == nullptr) {
       result.error = "bundle does not exist";
       return result;
@@ -1049,7 +1049,7 @@ void CoreState::register_default_cable_templates() {
   hv.slack_factor = 0.0;
   hv.continuity_policy = CableContinuityPolicyHint::kPreferG1;
   hv.attachment_style = CableAttachmentStyleHint::kViaAttachment;
-  cable_templates_[hv.id] = hv;
+  authoritative_.cable_templates[hv.id] = hv;
 
   CableTemplate lv{};
   lv.id = kLowVoltageCableTemplate;
@@ -1065,7 +1065,7 @@ void CoreState::register_default_cable_templates() {
   lv.slack_factor = 0.0;
   lv.continuity_policy = CableContinuityPolicyHint::kAuto;
   lv.attachment_style = CableAttachmentStyleHint::kDirectThrough;
-  cable_templates_[lv.id] = lv;
+  authoritative_.cable_templates[lv.id] = lv;
 
   CableTemplate comm{};
   comm.id = kCommunicationCableTemplate;
@@ -1081,7 +1081,7 @@ void CoreState::register_default_cable_templates() {
   comm.slack_factor = 0.02;
   comm.continuity_policy = CableContinuityPolicyHint::kPreferG2;
   comm.attachment_style = CableAttachmentStyleHint::kDirectThrough;
-  cable_templates_[comm.id] = comm;
+  authoritative_.cable_templates[comm.id] = comm;
 
   CableTemplate optical{};
   optical.id = kOpticalCableTemplate;
@@ -1097,7 +1097,7 @@ void CoreState::register_default_cable_templates() {
   optical.slack_factor = 0.03;
   optical.continuity_policy = CableContinuityPolicyHint::kPreferG2;
   optical.attachment_style = CableAttachmentStyleHint::kDirectThrough;
-  cable_templates_[optical.id] = optical;
+  authoritative_.cable_templates[optical.id] = optical;
 }
 
 void CoreState::register_default_attachment_templates() {
@@ -1110,7 +1110,7 @@ void CoreState::register_default_attachment_templates() {
       AttachmentSocketTemplate{0, {-0.12, 0.0, 0.0}, {-1.0, 0.0, 0.0}},
       AttachmentSocketTemplate{1, {0.12, 0.0, 0.0}, {1.0, 0.0, 0.0}},
   };
-  attachment_templates_[generic.id] = generic;
+  authoritative_.attachment_templates[generic.id] = generic;
 
   AttachmentTemplate hidden{};
   hidden.id = kHiddenAttachmentTemplate;
@@ -1121,7 +1121,7 @@ void CoreState::register_default_attachment_templates() {
       AttachmentSocketTemplate{0, {-0.10, 0.0, 0.0}, {-1.0, 0.0, 0.0}},
       AttachmentSocketTemplate{1, {0.10, 0.0, 0.0}, {1.0, 0.0, 0.0}},
   };
-  attachment_templates_[hidden.id] = hidden;
+  authoritative_.attachment_templates[hidden.id] = hidden;
 
   AttachmentTemplate internal{};
   internal.id = kInternalPathAttachmentTemplate;
@@ -1137,23 +1137,24 @@ void CoreState::register_default_attachment_templates() {
   path.end_socket_id = 1;
   path.local_points = {{-0.05, 0.0, 0.10}, {0.05, 0.0, 0.10}};
   internal.internal_paths.push_back(path);
-  attachment_templates_[internal.id] = internal;
+  authoritative_.attachment_templates[internal.id] = internal;
 }
 
 const CableTemplate* CoreState::find_cable_template(CableTemplateId cable_template_id) const {
-  auto it = cable_templates_.find(cable_template_id);
-  if (it == cable_templates_.end()) {
+  auto it = authoritative_.cable_templates.find(cable_template_id);
+  if (it == authoritative_.cable_templates.end()) {
     return nullptr;
   }
   return &it->second;
 }
 
 const AttachmentTemplate* CoreState::find_attachment_template(AttachmentTemplateId attachment_template_id) const {
-  auto it = attachment_templates_.find(attachment_template_id);
-  if (it == attachment_templates_.end()) {
+  auto it = authoritative_.attachment_templates.find(attachment_template_id);
+  if (it == authoritative_.attachment_templates.end()) {
     return nullptr;
   }
   return &it->second;
 }
 
 } // namespace wire::core
+

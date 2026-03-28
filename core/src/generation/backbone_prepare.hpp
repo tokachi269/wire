@@ -1,6 +1,7 @@
 #pragma once
 
-#include "wire/core/core_state_api_types.hpp"
+#include "wire/core/debug_types.hpp"
+#include "wire/core/entities.hpp"
 #include "wire/core/workflow_types.hpp"
 
 #include <string>

@@ -5,6 +5,7 @@
 #include "wire/core/core_state.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <tuple>
@@ -12,6 +13,107 @@
 #include <unordered_set>
 
 namespace wire::core::generation::detail {
+
+namespace {
+
+struct BundleOrderScore {
+  int segment_xy_intersections = 0;
+  int cross_y = 0;
+  int cross_z = 0;
+  int layer_jump = 0;
+  double span_z_delta = 0.0;
+};
+
+struct OrientationPlanScore {
+  BundleOrderScore order{};
+  int adjacent_xy_intersections = 0;
+  int orientation_flips = 0;
+  int acute_orientation_flips = 0;
+};
+
+constexpr double kAngleEps = 1e-6;
+constexpr double kReverseStraightAngleDeg = 179.999;
+
+[[nodiscard]] std::vector<ObjectId> order_for_choice(const std::vector<ObjectId>& base_ports,
+                                                     OrderDecisionChoiceKind choice) {
+  std::vector<ObjectId> ordered = base_ports;
+  if (choice == OrderDecisionChoiceKind::kReversed) {
+    std::reverse(ordered.begin(), ordered.end());
+  }
+  return ordered;
+}
+
+[[nodiscard]] OrderDecisionChoiceKind choice_for_parity(int parity) {
+  return (parity != 0) ? OrderDecisionChoiceKind::kReversed : OrderDecisionChoiceKind::kNormal;
+}
+
+void add_order_score(BundleOrderScore* dst, const BundleOrderScore& src) {
+  if (dst == nullptr) {
+    return;
+  }
+  dst->segment_xy_intersections += src.segment_xy_intersections;
+  dst->cross_y += src.cross_y;
+  dst->cross_z += src.cross_z;
+  dst->layer_jump += src.layer_jump;
+  dst->span_z_delta += src.span_z_delta;
+}
+
+[[nodiscard]] bool secondary_score_less(const BundleOrderScore& a, const BundleOrderScore& b) {
+  const auto key_a = std::make_tuple(a.cross_z, a.segment_xy_intersections, a.layer_jump,
+                                     static_cast<long long>(std::llround(a.span_z_delta * 1000.0)));
+  const auto key_b = std::make_tuple(b.cross_z, b.segment_xy_intersections, b.layer_jump,
+                                     static_cast<long long>(std::llround(b.span_z_delta * 1000.0)));
+  return key_a < key_b;
+}
+
+[[nodiscard]] bool orientation_plan_less(const OrientationPlanScore& a, const OrientationPlanScore& b,
+                                         bool use_lane_row_geometry) {
+  if (use_lane_row_geometry && a.adjacent_xy_intersections != b.adjacent_xy_intersections) {
+    return a.adjacent_xy_intersections < b.adjacent_xy_intersections;
+  }
+  if (a.order.cross_y != b.order.cross_y) {
+    return a.order.cross_y < b.order.cross_y;
+  }
+  if (a.order.segment_xy_intersections != b.order.segment_xy_intersections) {
+    return a.order.segment_xy_intersections < b.order.segment_xy_intersections;
+  }
+  if (a.acute_orientation_flips != b.acute_orientation_flips) {
+    return a.acute_orientation_flips < b.acute_orientation_flips;
+  }
+  if (a.orientation_flips != b.orientation_flips) {
+    return a.orientation_flips < b.orientation_flips;
+  }
+  return secondary_score_less(a.order, b.order);
+}
+
+[[nodiscard]] OrderDecisionChoiceReason order_choice_reason_from_scores(const OrientationPlanScore& chosen,
+                                                                        const OrientationPlanScore& alternate,
+                                                                        OrderDecisionPolicyKind policy,
+                                                                        bool use_lane_row_geometry) {
+  if (policy != OrderDecisionPolicyKind::kPermutableHomogeneous) {
+    return OrderDecisionChoiceReason::kFixedOrder;
+  }
+  if (use_lane_row_geometry && chosen.adjacent_xy_intersections != alternate.adjacent_xy_intersections) {
+    return OrderDecisionChoiceReason::kCrossingFewer;
+  }
+  if (chosen.order.cross_y != alternate.order.cross_y) {
+    return OrderDecisionChoiceReason::kCrossingFewer;
+  }
+  if (chosen.order.segment_xy_intersections != alternate.order.segment_xy_intersections) {
+    return OrderDecisionChoiceReason::kCrossingFewer;
+  }
+  if (chosen.order.cross_z != alternate.order.cross_z ||
+      std::abs(chosen.order.span_z_delta - alternate.order.span_z_delta) > 1e-6) {
+    return OrderDecisionChoiceReason::kSpacingBetter;
+  }
+  if (chosen.acute_orientation_flips != alternate.acute_orientation_flips ||
+      chosen.orientation_flips != alternate.orientation_flips) {
+    return OrderDecisionChoiceReason::kTwistSmaller;
+  }
+  return OrderDecisionChoiceReason::kKeptDefault;
+}
+
+} // namespace
 
 GroupedSpanLanePreparer::GroupedSpanLanePreparer(CoreState& state, const GroupedSpanSharedContext& ctx,
                                                  const GroupedSpanLoweringDecider& lowering,
@@ -68,6 +170,594 @@ double GroupedSpanLanePreparer::LaneRowTargetZForEndpoint(const Pole& pole,
 std::size_t GroupedSpanLanePreparer::PortConnectionCount(ObjectId port_id) const {
   const auto it = state_.connection_index_access().spans_by_port.find(port_id);
   return (it == state_.connection_index_access().spans_by_port.end()) ? 0 : it->second.size();
+}
+
+double GroupedSpanLanePreparer::ComputeTurnAngleDeg(const GroupedSpanLanePlan& plan, std::size_t segment_index) const {
+  (void)plan;
+  if (segment_index == 0 || segment_index + 1 >= ctx_.node_ids.size()) {
+    return 180.0;
+  }
+  const Vec3d prev = ctx_.support_position(ctx_.node_ids[segment_index - 1]);
+  const Vec3d curr = ctx_.support_position(ctx_.node_ids[segment_index]);
+  const Vec3d next = ctx_.support_position(ctx_.node_ids[segment_index + 1]);
+  const Vec3d in_check = prev - curr;
+  const Vec3d out_check = next - curr;
+  if ((in_check.x * in_check.x + in_check.y * in_check.y + in_check.z * in_check.z) <= 1e-12 ||
+      (out_check.x * out_check.x + out_check.y * out_check.y + out_check.z * out_check.z) <= 1e-12) {
+    return 180.0;
+  }
+  Vec3d in_dir = prev - curr;
+  Vec3d out_dir = next - curr;
+  if (!normalize_xy(&in_dir) || !normalize_xy(&out_dir)) {
+    return 180.0;
+  }
+  const double d = std::clamp(dot_xy(in_dir, out_dir), -1.0, 1.0);
+  const double angle = std::acos(d) * (180.0 / kPi);
+  return std::isfinite(angle) ? angle : 180.0;
+}
+
+void GroupedSpanLanePreparer::SyncAssignmentFromDecisions(SegmentLaneAssignment* assignment) {
+  if (assignment == nullptr) {
+    return;
+  }
+  assignment->relation_a = assignment->decision_a.relation_kind;
+  assignment->relation_b = assignment->decision_b.relation_kind;
+  assignment->continuity_class =
+      (assignment->decision_a.continuity_class == ContinuityCategoryClass::kBundleLike ||
+       assignment->decision_b.continuity_class == ContinuityCategoryClass::kBundleLike)
+          ? ContinuityCategoryClass::kBundleLike
+          : ContinuityCategoryClass::kPointLike;
+  assignment->default_lower_required =
+      assignment->decision_a.default_lower_required || assignment->decision_b.default_lower_required;
+  assignment->same_level_feasible =
+      assignment->decision_a.same_level_feasible && assignment->decision_b.same_level_feasible;
+  assignment->same_level_reason =
+      assignment->same_level_feasible ? SameLevelFeasibilityReason::kNone
+                                      : assignment->decision_a.same_level_feasible
+                                            ? assignment->decision_b.same_level_reason
+                                            : assignment->decision_a.same_level_reason;
+  assignment->projected_spacing_topview_m =
+      (!assignment->decision_a.same_level_feasible && !assignment->decision_b.same_level_feasible)
+          ? std::min(assignment->decision_a.projected_spacing_topview_m,
+                     assignment->decision_b.projected_spacing_topview_m)
+          : (!assignment->decision_a.same_level_feasible ? assignment->decision_a.projected_spacing_topview_m
+                                                         : assignment->decision_b.projected_spacing_topview_m);
+  assignment->required_clearance_m =
+      std::max(assignment->decision_a.required_clearance_m, assignment->decision_b.required_clearance_m);
+  assignment->lowering_blocked_by_policy =
+      assignment->decision_a.lowering_blocked_by_policy || assignment->decision_b.lowering_blocked_by_policy;
+  assignment->unresolved_same_level_conflict =
+      assignment->decision_a.unresolved_same_level_conflict || assignment->decision_b.unresolved_same_level_conflict;
+}
+
+GroupedSpanPreparedPortUsage
+GroupedSpanLanePreparer::AnalyzePreparedPorts(const std::vector<ObjectId>& port_ids_a,
+                                              const std::vector<ObjectId>& port_ids_b,
+                                              bool segment_same_level_feasible) const {
+  auto ports_use_branch_support = [&](const std::vector<ObjectId>& port_ids) {
+    return std::any_of(port_ids.begin(), port_ids.end(), [&](ObjectId port_id) {
+      const Port* port = state_.edit_state_access().ports.find(port_id);
+      return port != nullptr && port->placement_source == PortPlacementSourceKind::kBranchSupport;
+    });
+  };
+  auto ports_use_constrained_solver = [&](const std::vector<ObjectId>& port_ids) {
+    return std::any_of(port_ids.begin(), port_ids.end(), [&](ObjectId port_id) {
+      const Port* port = state_.edit_state_access().ports.find(port_id);
+      return port != nullptr && port->placement_source == PortPlacementSourceKind::kPlacementBandConstrained;
+    });
+  };
+  auto ports_use_special_case_source = [&](const std::vector<ObjectId>& port_ids) {
+    return std::any_of(port_ids.begin(), port_ids.end(), [&](ObjectId port_id) {
+      const Port* port = state_.edit_state_access().ports.find(port_id);
+      return port != nullptr &&
+             (port->placement_source == PortPlacementSourceKind::kGenerated ||
+              port->placement_source == PortPlacementSourceKind::kBranchSupport ||
+              port->placement_source == PortPlacementSourceKind::kAerialBranch);
+    });
+  };
+
+  GroupedSpanPreparedPortUsage usage{};
+  usage.uses_branch_support = ports_use_branch_support(port_ids_a) || ports_use_branch_support(port_ids_b);
+  usage.solver_used_same_level_constraint =
+      ports_use_constrained_solver(port_ids_a) || ports_use_constrained_solver(port_ids_b);
+  usage.used_special_case_ports =
+      !usage.solver_used_same_level_constraint && !segment_same_level_feasible &&
+      (ports_use_special_case_source(port_ids_a) || ports_use_special_case_source(port_ids_b));
+  return usage;
+}
+
+EditResult<GroupedSpanLanePlan>
+GroupedSpanLanePreparer::BuildLanePlan(const BackboneLoweringPolicy& lowering_policy, double corner_threshold_deg) {
+  (void)lowering_policy;
+
+  EditResult<GroupedSpanLanePlan> result;
+  const std::size_t node_count = ctx_.node_ids.size();
+  const std::size_t segment_count = (node_count > 0) ? (node_count - 1) : 0;
+  if (segment_count == 0) {
+    result.error = "at least one grouped segment is required";
+    return result;
+  }
+
+  GroupedSpanLanePlan plan{};
+  plan.base_ports_by_node.resize(node_count);
+  EditResult<std::vector<ObjectId>> first_ports =
+      EnsurePorts(ctx_.node_ids.front(), ctx_.node_ids[1], 0, true, &plan.first_seeded_from_previous);
+  if (!first_ports.ok) {
+    result.error = first_ports.error;
+    return result;
+  }
+  if (static_cast<int>(first_ports.value.size()) != lane_count_) {
+    result.error = "failed to seed first segment lanes";
+    return result;
+  }
+  plan.base_ports_by_node.front() = first_ports.value;
+
+  for (std::size_t seg = 0; seg < segment_count; ++seg) {
+    EditResult<std::vector<ObjectId>> right_ports =
+        EnsurePorts(ctx_.node_ids[seg + 1], ctx_.node_ids[seg], static_cast<int>(seg), false, nullptr);
+    if (!right_ports.ok) {
+      result.error = right_ports.error;
+      return result;
+    }
+    if (static_cast<int>(right_ports.value.size()) != lane_count_) {
+      result.error = "failed to prepare right-side lane candidates";
+      return result;
+    }
+    plan.base_ports_by_node[seg + 1] = std::move(right_ports.value);
+  }
+
+  auto evaluate_increment = [&](ObjectId node_a, ObjectId node_b, const std::vector<ObjectId>& lanes_a,
+                                const std::vector<ObjectId>& lanes_b) -> BundleOrderScore {
+    BundleOrderScore score{};
+    const Pole* pole_a = ctx_.support_pole(node_a);
+    const Pole* pole_b = ctx_.support_pole(node_b);
+    const Vec3d pos_a = ctx_.support_position(node_a);
+    const Vec3d pos_b = ctx_.support_position(node_b);
+
+    Vec3d segment_dir{1.0, 0.0, 0.0};
+    if (((pos_b.x - pos_a.x) * (pos_b.x - pos_a.x) + (pos_b.y - pos_a.y) * (pos_b.y - pos_a.y) +
+         (pos_b.z - pos_a.z) * (pos_b.z - pos_a.z)) > 1e-12) {
+      segment_dir = pos_b - pos_a;
+      if (!normalize_xy(&segment_dir) || !std::isfinite(segment_dir.x) || !std::isfinite(segment_dir.y)) {
+        segment_dir = {1.0, 0.0, 0.0};
+      }
+    }
+    const Vec3d lateral_axis{-segment_dir.y, segment_dir.x, 0.0};
+    auto axis_for_node = [&](ObjectId node_id, ObjectId peer_id) -> Vec3d {
+      const Vec3d axis = orientation_.CanonicalSideAxisForOrder(node_id, peer_id);
+      if (axis.x != 0.0 || axis.y != 0.0) {
+        return axis;
+      }
+      return lateral_axis;
+    };
+    const Vec3d axis_a = axis_for_node(node_a, node_b);
+    const Vec3d axis_b = axis_for_node(node_b, node_a);
+    const double y_sign_b = (dot_xy(axis_a, axis_b) < 0.0) ? -1.0 : 1.0;
+
+    std::vector<double> y_a(static_cast<std::size_t>(lane_count_), 0.0);
+    std::vector<double> y_b(static_cast<std::size_t>(lane_count_), 0.0);
+    std::vector<double> z_a(static_cast<std::size_t>(lane_count_), 0.0);
+    std::vector<double> z_b(static_cast<std::size_t>(lane_count_), 0.0);
+    for (int lane = 0; lane < lane_count_; ++lane) {
+      const std::size_t idx = static_cast<std::size_t>(lane);
+      const Port* port_a = state_.edit_state_access().ports.find(lanes_a[idx]);
+      const Port* port_b = state_.edit_state_access().ports.find(lanes_b[idx]);
+      if (port_a == nullptr || port_b == nullptr) {
+        score.layer_jump += 4;
+        score.span_z_delta += 5.0;
+        continue;
+      }
+      if (use_lane_row_geometry_) {
+        const Vec3d local_a =
+            (pole_a == nullptr)
+                ? port_a->world_position
+                : WorldPointToLocal(BuildPoleFrame(pole_a->world_transform, LayoutYawForPole(*pole_a)),
+                                    port_a->world_position);
+        const Vec3d local_b =
+            (pole_b == nullptr)
+                ? port_b->world_position
+                : WorldPointToLocal(BuildPoleFrame(pole_b->world_transform, LayoutYawForPole(*pole_b)),
+                                    port_b->world_position);
+        y_a[idx] = local_a.y;
+        y_b[idx] = local_b.y * y_sign_b;
+      } else {
+        y_a[idx] = dot_xy(port_a->world_position - pos_a, axis_a);
+        y_b[idx] = dot_xy(port_b->world_position - pos_b, axis_b) * y_sign_b;
+      }
+      z_a[idx] = port_a->world_position.z;
+      z_b[idx] = port_b->world_position.z;
+      score.layer_jump += std::abs(port_a->template_layer - port_b->template_layer);
+      score.span_z_delta += std::abs(port_a->world_position.z - port_b->world_position.z);
+    }
+
+    for (int i = 0; i < lane_count_; ++i) {
+      for (int j = i + 1; j < lane_count_; ++j) {
+        const std::size_t ii = static_cast<std::size_t>(i);
+        const std::size_t jj = static_cast<std::size_t>(j);
+        const Port* port_ai = state_.edit_state_access().ports.find(lanes_a[ii]);
+        const Port* port_bi = state_.edit_state_access().ports.find(lanes_b[ii]);
+        const Port* port_aj = state_.edit_state_access().ports.find(lanes_a[jj]);
+        const Port* port_bj = state_.edit_state_access().ports.find(lanes_b[jj]);
+        if (port_ai != nullptr && port_bi != nullptr && port_aj != nullptr && port_bj != nullptr &&
+            segments_intersect_xy_strict_local(port_ai->world_position, port_bi->world_position,
+                                               port_aj->world_position, port_bj->world_position)) {
+          ++score.segment_xy_intersections;
+        }
+        constexpr double kOrderEps = 1e-4;
+        const double dy_a = y_a[ii] - y_a[jj];
+        const double dy_b = y_b[ii] - y_b[jj];
+        if ((dy_a > kOrderEps && dy_b < -kOrderEps) || (dy_a < -kOrderEps && dy_b > kOrderEps)) {
+          ++score.cross_y;
+        }
+        const double dz_a = z_a[ii] - z_a[jj];
+        const double dz_b = z_b[ii] - z_b[jj];
+        if ((dz_a > kOrderEps && dz_b < -kOrderEps) || (dz_a < -kOrderEps && dz_b > kOrderEps)) {
+          ++score.cross_z;
+        }
+      }
+    }
+    return score;
+  };
+
+  auto count_adjacent_segment_xy_intersections = [&](const std::vector<ObjectId>& prev_a,
+                                                     const std::vector<ObjectId>& prev_b,
+                                                     const std::vector<ObjectId>& curr_a,
+                                                     const std::vector<ObjectId>& curr_b) {
+    int intersections = 0;
+    for (int i = 0; i < lane_count_; ++i) {
+      const std::size_t ii = static_cast<std::size_t>(i);
+      const Port* curr_a_port = state_.edit_state_access().ports.find(curr_a[ii]);
+      const Port* curr_b_port = state_.edit_state_access().ports.find(curr_b[ii]);
+      if (curr_a_port == nullptr || curr_b_port == nullptr) {
+        continue;
+      }
+      for (int j = 0; j < lane_count_; ++j) {
+        if (i == j) {
+          continue;
+        }
+        const std::size_t jj = static_cast<std::size_t>(j);
+        const Port* prev_a_port = state_.edit_state_access().ports.find(prev_a[jj]);
+        const Port* prev_b_port = state_.edit_state_access().ports.find(prev_b[jj]);
+        if (prev_a_port == nullptr || prev_b_port == nullptr) {
+          continue;
+        }
+        if (segments_intersect_xy_strict_local(curr_a_port->world_position, curr_b_port->world_position,
+                                               prev_a_port->world_position, prev_b_port->world_position)) {
+          ++intersections;
+        }
+      }
+    }
+    return intersections;
+  };
+
+  const bool allow_order_decision_reverse =
+      order_decision_policy_ == OrderDecisionPolicyKind::kPermutableHomogeneous && lane_count_ > 1;
+  plan.turn_angle_by_segment.assign(segment_count, 180.0);
+  for (std::size_t seg = 0; seg < segment_count; ++seg) {
+    plan.turn_angle_by_segment[seg] = ComputeTurnAngleDeg(plan, seg);
+  }
+
+  std::vector<int> node_parity(node_count, 0);
+  const std::vector<int> first_candidates =
+      (plan.first_seeded_from_previous || !allow_order_decision_reverse) ? std::vector<int>{0}
+                                                                         : std::vector<int>{0, 1};
+  if (segment_count == 1) {
+    OrientationPlanScore best_score{};
+    bool has_best = false;
+    for (int parity_a : first_candidates) {
+      const std::vector<ObjectId> ports_a = order_for_choice(plan.base_ports_by_node[0], choice_for_parity(parity_a));
+      for (int parity_b : {0, 1}) {
+        if (!allow_order_decision_reverse && parity_b != 0) {
+          continue;
+        }
+        const std::vector<ObjectId> ports_b =
+            order_for_choice(plan.base_ports_by_node[1], choice_for_parity(parity_b));
+        OrientationPlanScore candidate{};
+        candidate.order = evaluate_increment(ctx_.node_ids[0], ctx_.node_ids[1], ports_a, ports_b);
+        if (!has_best || orientation_plan_less(candidate, best_score, use_lane_row_geometry_)) {
+          has_best = true;
+          best_score = candidate;
+          node_parity[0] = parity_a;
+          node_parity[1] = parity_b;
+        }
+      }
+    }
+  } else {
+    struct DpCell {
+      bool reachable = false;
+      OrientationPlanScore score{};
+      int prev_prev_parity = -1;
+    };
+    std::vector<std::array<std::array<DpCell, 2>, 2>> dp(segment_count + 1);
+    for (int parity_0 : first_candidates) {
+      const std::vector<ObjectId> ports_0 = order_for_choice(plan.base_ports_by_node[0], choice_for_parity(parity_0));
+      for (int parity_1 : {0, 1}) {
+        if (!allow_order_decision_reverse && parity_1 != 0) {
+          continue;
+        }
+        const std::vector<ObjectId> ports_1 =
+            order_for_choice(plan.base_ports_by_node[1], choice_for_parity(parity_1));
+        DpCell& cell = dp[1][parity_0][parity_1];
+        cell.reachable = true;
+        cell.prev_prev_parity = -1;
+        cell.score.order = evaluate_increment(ctx_.node_ids[0], ctx_.node_ids[1], ports_0, ports_1);
+      }
+    }
+
+    for (std::size_t step = 1; step < segment_count; ++step) {
+      for (int parity_prev_prev : {0, 1}) {
+        for (int parity_prev : {0, 1}) {
+          const DpCell& cell = dp[step][parity_prev_prev][parity_prev];
+          if (!cell.reachable) {
+            continue;
+          }
+          const int prev_orientation = parity_prev_prev ^ parity_prev;
+          for (int parity_curr : {0, 1}) {
+            if (!allow_order_decision_reverse && parity_curr != 0) {
+              continue;
+            }
+            const std::vector<ObjectId> ports_prev =
+                order_for_choice(plan.base_ports_by_node[step], choice_for_parity(parity_prev));
+            const std::vector<ObjectId> ports_curr =
+                order_for_choice(plan.base_ports_by_node[step + 1], choice_for_parity(parity_curr));
+            OrientationPlanScore candidate = cell.score;
+            add_order_score(&candidate.order,
+                            evaluate_increment(ctx_.node_ids[step], ctx_.node_ids[step + 1], ports_prev, ports_curr));
+            if (use_lane_row_geometry_) {
+              const std::vector<ObjectId> ports_prev_prev =
+                  order_for_choice(plan.base_ports_by_node[step - 1], choice_for_parity(parity_prev_prev));
+              candidate.adjacent_xy_intersections +=
+                  count_adjacent_segment_xy_intersections(ports_prev_prev, ports_prev, ports_prev, ports_curr);
+            }
+            const int curr_orientation = parity_prev ^ parity_curr;
+            if (curr_orientation != prev_orientation &&
+                (plan.turn_angle_by_segment[step] + kAngleEps < kReverseStraightAngleDeg)) {
+              ++candidate.orientation_flips;
+              if (plan.turn_angle_by_segment[step] + kAngleEps < corner_threshold_deg) {
+                ++candidate.acute_orientation_flips;
+              }
+            }
+
+            DpCell& next = dp[step + 1][parity_prev][parity_curr];
+            if (!next.reachable || orientation_plan_less(candidate, next.score, use_lane_row_geometry_)) {
+              next.reachable = true;
+              next.score = candidate;
+              next.prev_prev_parity = parity_prev_prev;
+            }
+          }
+        }
+      }
+    }
+
+    bool has_best = false;
+    OrientationPlanScore best_score{};
+    int best_prev = 0;
+    int best_curr = 0;
+    for (int parity_prev : {0, 1}) {
+      for (int parity_curr : {0, 1}) {
+        const DpCell& cell = dp[segment_count][parity_prev][parity_curr];
+        if (!cell.reachable) {
+          continue;
+        }
+        if (!has_best || orientation_plan_less(cell.score, best_score, use_lane_row_geometry_)) {
+          has_best = true;
+          best_score = cell.score;
+          best_prev = parity_prev;
+          best_curr = parity_curr;
+        }
+      }
+    }
+    if (!has_best) {
+      result.error = "failed to resolve deterministic node orientation plan";
+      return result;
+    }
+    node_parity[node_count - 2] = best_prev;
+    node_parity[node_count - 1] = best_curr;
+    for (std::size_t step = segment_count; step > 1; --step) {
+      const DpCell& cell = dp[step][node_parity[step - 1]][node_parity[step]];
+      node_parity[step - 2] = cell.prev_prev_parity;
+    }
+  }
+
+  plan.node_order_choices.assign(node_count, OrderDecisionChoiceKind::kNormal);
+  for (std::size_t i = 0; i < node_count; ++i) {
+    plan.node_order_choices[i] = choice_for_parity(node_parity[i]);
+  }
+
+  result.value = std::move(plan);
+  result.ok = true;
+  return result;
+}
+
+void GroupedSpanLanePreparer::PopulateAssignmentOrdering(const GroupedSpanLanePlan& plan, std::size_t segment_index,
+                                                         SegmentLaneAssignment* assignment) const {
+  if (assignment == nullptr || segment_index + 1 >= plan.base_ports_by_node.size() ||
+      segment_index + 1 >= plan.node_order_choices.size()) {
+    return;
+  }
+
+  assignment->order_decision_policy = order_decision_policy_;
+  assignment->order_decision_choice_a = plan.node_order_choices[segment_index];
+  assignment->order_decision_choice_b = plan.node_order_choices[segment_index + 1];
+  assignment->port_ids_a =
+      order_for_choice(plan.base_ports_by_node[segment_index], assignment->order_decision_choice_a);
+  assignment->port_ids_b =
+      order_for_choice(plan.base_ports_by_node[segment_index + 1], assignment->order_decision_choice_b);
+
+  const bool chosen_orientation_flip = (assignment->order_decision_choice_a != assignment->order_decision_choice_b);
+  assignment->turn_angle_deg =
+      (segment_index < plan.turn_angle_by_segment.size()) ? plan.turn_angle_by_segment[segment_index] : 180.0;
+  assignment->flipped_from_previous = false;
+  assignment->flip_reason = LaneFlipReason::kNone;
+  const bool previous_orientation_flip =
+      (segment_index > 0) ? (plan.node_order_choices[segment_index - 1] != plan.node_order_choices[segment_index])
+                          : false;
+  if (segment_index > 0 && chosen_orientation_flip != previous_orientation_flip &&
+      (assignment->turn_angle_deg + kAngleEps < kReverseStraightAngleDeg)) {
+    assignment->flipped_from_previous = true;
+    if (assignment->turn_angle_deg + kAngleEps < state_.authoritative_.layout_settings.corner_threshold_deg) {
+      assignment->flip_reason = LaneFlipReason::kAcuteTurn;
+    }
+  }
+
+  if (order_decision_policy_ != OrderDecisionPolicyKind::kPermutableHomogeneous) {
+    assignment->order_decision_choice_reason_a = OrderDecisionChoiceReason::kFixedOrder;
+    assignment->order_decision_choice_reason_b = OrderDecisionChoiceReason::kFixedOrder;
+    return;
+  }
+
+  auto evaluate_increment = [&](const std::vector<ObjectId>& lanes_a,
+                                const std::vector<ObjectId>& lanes_b) -> BundleOrderScore {
+    const ObjectId node_a = ctx_.node_ids[segment_index];
+    const ObjectId node_b = ctx_.node_ids[segment_index + 1];
+    const Pole* pole_a = ctx_.support_pole(node_a);
+    const Pole* pole_b = ctx_.support_pole(node_b);
+    const Vec3d pos_a = ctx_.support_position(node_a);
+    const Vec3d pos_b = ctx_.support_position(node_b);
+    BundleOrderScore score{};
+
+    Vec3d segment_dir{1.0, 0.0, 0.0};
+    if (((pos_b.x - pos_a.x) * (pos_b.x - pos_a.x) + (pos_b.y - pos_a.y) * (pos_b.y - pos_a.y) +
+         (pos_b.z - pos_a.z) * (pos_b.z - pos_a.z)) > 1e-12) {
+      segment_dir = pos_b - pos_a;
+      if (!normalize_xy(&segment_dir) || !std::isfinite(segment_dir.x) || !std::isfinite(segment_dir.y)) {
+        segment_dir = {1.0, 0.0, 0.0};
+      }
+    }
+    const Vec3d lateral_axis{-segment_dir.y, segment_dir.x, 0.0};
+    auto axis_for_node = [&](ObjectId node_id, ObjectId peer_id) -> Vec3d {
+      const Vec3d axis = orientation_.CanonicalSideAxisForOrder(node_id, peer_id);
+      return (axis.x != 0.0 || axis.y != 0.0) ? axis : lateral_axis;
+    };
+    const Vec3d axis_a = axis_for_node(node_a, node_b);
+    const Vec3d axis_b = axis_for_node(node_b, node_a);
+    const double y_sign_b = (dot_xy(axis_a, axis_b) < 0.0) ? -1.0 : 1.0;
+
+    std::vector<double> y_a(static_cast<std::size_t>(lane_count_), 0.0);
+    std::vector<double> y_b(static_cast<std::size_t>(lane_count_), 0.0);
+    std::vector<double> z_a(static_cast<std::size_t>(lane_count_), 0.0);
+    std::vector<double> z_b(static_cast<std::size_t>(lane_count_), 0.0);
+    for (int lane = 0; lane < lane_count_; ++lane) {
+      const std::size_t idx = static_cast<std::size_t>(lane);
+      const Port* port_a = state_.edit_state_access().ports.find(lanes_a[idx]);
+      const Port* port_b = state_.edit_state_access().ports.find(lanes_b[idx]);
+      if (port_a == nullptr || port_b == nullptr) {
+        score.layer_jump += 4;
+        score.span_z_delta += 5.0;
+        continue;
+      }
+      if (use_lane_row_geometry_) {
+        const Vec3d local_a =
+            (pole_a == nullptr)
+                ? port_a->world_position
+                : WorldPointToLocal(BuildPoleFrame(pole_a->world_transform, LayoutYawForPole(*pole_a)),
+                                    port_a->world_position);
+        const Vec3d local_b =
+            (pole_b == nullptr)
+                ? port_b->world_position
+                : WorldPointToLocal(BuildPoleFrame(pole_b->world_transform, LayoutYawForPole(*pole_b)),
+                                    port_b->world_position);
+        y_a[idx] = local_a.y;
+        y_b[idx] = local_b.y * y_sign_b;
+      } else {
+        y_a[idx] = dot_xy(port_a->world_position - pos_a, axis_a);
+        y_b[idx] = dot_xy(port_b->world_position - pos_b, axis_b) * y_sign_b;
+      }
+      z_a[idx] = port_a->world_position.z;
+      z_b[idx] = port_b->world_position.z;
+      score.layer_jump += std::abs(port_a->template_layer - port_b->template_layer);
+      score.span_z_delta += std::abs(port_a->world_position.z - port_b->world_position.z);
+    }
+    for (int i = 0; i < lane_count_; ++i) {
+      for (int j = i + 1; j < lane_count_; ++j) {
+        const std::size_t ii = static_cast<std::size_t>(i);
+        const std::size_t jj = static_cast<std::size_t>(j);
+        const Port* port_ai = state_.edit_state_access().ports.find(lanes_a[ii]);
+        const Port* port_bi = state_.edit_state_access().ports.find(lanes_b[ii]);
+        const Port* port_aj = state_.edit_state_access().ports.find(lanes_a[jj]);
+        const Port* port_bj = state_.edit_state_access().ports.find(lanes_b[jj]);
+        if (port_ai != nullptr && port_bi != nullptr && port_aj != nullptr && port_bj != nullptr &&
+            segments_intersect_xy_strict_local(port_ai->world_position, port_bi->world_position,
+                                               port_aj->world_position, port_bj->world_position)) {
+          ++score.segment_xy_intersections;
+        }
+        constexpr double kOrderEps = 1e-4;
+        const double dy_a = y_a[ii] - y_a[jj];
+        const double dy_b = y_b[ii] - y_b[jj];
+        if ((dy_a > kOrderEps && dy_b < -kOrderEps) || (dy_a < -kOrderEps && dy_b > kOrderEps)) {
+          ++score.cross_y;
+        }
+        const double dz_a = z_a[ii] - z_a[jj];
+        const double dz_b = z_b[ii] - z_b[jj];
+        if ((dz_a > kOrderEps && dz_b < -kOrderEps) || (dz_a < -kOrderEps && dz_b > kOrderEps)) {
+          ++score.cross_z;
+        }
+      }
+    }
+    return score;
+  };
+
+  auto build_local_order_score = [&](int parity_a, int parity_b, int prev_parity, bool has_prev_segment) {
+    OrientationPlanScore score{};
+    const std::vector<ObjectId> ports_a =
+        order_for_choice(plan.base_ports_by_node[segment_index], choice_for_parity(parity_a));
+    const std::vector<ObjectId> ports_b =
+        order_for_choice(plan.base_ports_by_node[segment_index + 1], choice_for_parity(parity_b));
+    score.order = evaluate_increment(ports_a, ports_b);
+    if (use_lane_row_geometry_ && has_prev_segment) {
+      const std::vector<ObjectId> prev_ports =
+          order_for_choice(plan.base_ports_by_node[segment_index - 1], choice_for_parity(prev_parity));
+      for (int i = 0; i < lane_count_; ++i) {
+        const std::size_t ii = static_cast<std::size_t>(i);
+        const Port* curr_a = state_.edit_state_access().ports.find(ports_a[ii]);
+        const Port* curr_b = state_.edit_state_access().ports.find(ports_b[ii]);
+        if (curr_a == nullptr || curr_b == nullptr) {
+          continue;
+        }
+        for (int j = 0; j < lane_count_; ++j) {
+          if (i == j) {
+            continue;
+          }
+          const std::size_t jj = static_cast<std::size_t>(j);
+          const Port* prev_a = state_.edit_state_access().ports.find(prev_ports[jj]);
+          const Port* prev_b = state_.edit_state_access().ports.find(ports_a[jj]);
+          if (prev_a != nullptr && prev_b != nullptr &&
+              segments_intersect_xy_strict_local(prev_a->world_position, prev_b->world_position,
+                                                 curr_a->world_position, curr_b->world_position)) {
+            ++score.adjacent_xy_intersections;
+          }
+        }
+      }
+    }
+    if (has_prev_segment) {
+      const int prev_orientation = prev_parity ^ parity_a;
+      const int curr_orientation = parity_a ^ parity_b;
+      if (curr_orientation != prev_orientation &&
+          (plan.turn_angle_by_segment[segment_index] + kAngleEps < kReverseStraightAngleDeg)) {
+        ++score.orientation_flips;
+        if (plan.turn_angle_by_segment[segment_index] + kAngleEps <
+            state_.authoritative_.layout_settings.corner_threshold_deg) {
+          ++score.acute_orientation_flips;
+        }
+      }
+    }
+    return score;
+  };
+
+  const int parity_a = (assignment->order_decision_choice_a == OrderDecisionChoiceKind::kReversed) ? 1 : 0;
+  const int parity_b = (assignment->order_decision_choice_b == OrderDecisionChoiceKind::kReversed) ? 1 : 0;
+  const int prev_parity =
+      (segment_index > 0 && plan.node_order_choices[segment_index - 1] == OrderDecisionChoiceKind::kReversed) ? 1 : 0;
+  const OrientationPlanScore chosen_score =
+      build_local_order_score(parity_a, parity_b, prev_parity, segment_index > 0);
+  const OrientationPlanScore alternate_a =
+      build_local_order_score(parity_a ^ 1, parity_b, prev_parity, segment_index > 0);
+  const OrientationPlanScore alternate_b =
+      build_local_order_score(parity_a, parity_b ^ 1, prev_parity, segment_index > 0);
+  assignment->order_decision_choice_reason_a =
+      order_choice_reason_from_scores(chosen_score, alternate_a, order_decision_policy_, use_lane_row_geometry_);
+  assignment->order_decision_choice_reason_b =
+      order_choice_reason_from_scores(chosen_score, alternate_b, order_decision_policy_, use_lane_row_geometry_);
 }
 
 EditResult<std::vector<ObjectId>>

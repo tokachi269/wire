@@ -1,4 +1,4 @@
-﻿#include "wire/core/core_state.hpp"
+#include "wire/core/core_state.hpp"
 #include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
 #include "detail_curve_input_resolution.hpp"
@@ -14,48 +14,48 @@
 namespace wire::core {
 
 const CurveCacheEntry* CoreState::find_curve_cache(ObjectId span_id) const {
-  auto it = cache_state_.curve_cache.by_span.find(span_id);
-  if (it == cache_state_.curve_cache.by_span.end()) {
+  auto it = runtime_.cache_state.curve_cache.by_span.find(span_id);
+  if (it == runtime_.cache_state.curve_cache.by_span.end()) {
     return nullptr;
   }
   return &it->second;
 }
 
 const BoundsCacheEntry* CoreState::find_bounds_cache(ObjectId span_id) const {
-  auto it = cache_state_.bounds_cache.by_span.find(span_id);
-  if (it == cache_state_.bounds_cache.by_span.end()) {
+  auto it = runtime_.cache_state.bounds_cache.by_span.find(span_id);
+  if (it == runtime_.cache_state.bounds_cache.by_span.end()) {
     return nullptr;
   }
   return &it->second;
 }
 
 const SpanSupportLayoutEntry* CoreState::find_span_support_layout(ObjectId span_id) const {
-  auto it = cache_state_.support_layout_cache.by_span.find(span_id);
-  if (it == cache_state_.support_layout_cache.by_span.end()) {
+  auto it = runtime_.cache_state.support_layout_cache.by_span.find(span_id);
+  if (it == runtime_.cache_state.support_layout_cache.by_span.end()) {
     return nullptr;
   }
   return &it->second;
 }
 
 const SpanSupportLayoutDecisionSeed* CoreState::find_span_support_layout_seed(ObjectId span_id) const {
-  auto it = cache_state_.support_layout_cache.decision_seeds_by_span.find(span_id);
-  if (it == cache_state_.support_layout_cache.decision_seeds_by_span.end()) {
+  auto it = runtime_.cache_state.support_layout_cache.decision_seeds_by_span.find(span_id);
+  if (it == runtime_.cache_state.support_layout_cache.decision_seeds_by_span.end()) {
     return nullptr;
   }
   return &it->second;
 }
 
 const SpanVisualCacheEntry* CoreState::find_span_visual_cache(ObjectId span_id) const {
-  auto it = cache_state_.visual_cache.by_span.find(span_id);
-  if (it == cache_state_.visual_cache.by_span.end()) {
+  auto it = runtime_.cache_state.visual_cache.by_span.find(span_id);
+  if (it == runtime_.cache_state.visual_cache.by_span.end()) {
     return nullptr;
   }
   return &it->second;
 }
 
 const SpanRenderCacheEntry* CoreState::find_span_render_cache(ObjectId span_id) const {
-  auto it = cache_state_.render_cache.by_span.find(span_id);
-  if (it == cache_state_.render_cache.by_span.end()) {
+  auto it = runtime_.cache_state.render_cache.by_span.find(span_id);
+  if (it == runtime_.cache_state.render_cache.by_span.end()) {
     return nullptr;
   }
   return &it->second;
@@ -70,24 +70,24 @@ RecalcStats CoreState::ProcessDirtyQueues() {
   std::unordered_set<ObjectId> processed_render;
   std::unordered_set<ObjectId> processed_raycast;
 
-  for (ObjectId span_id : dirty_queue_.topology_dirty_span_ids) {
+  for (ObjectId span_id : runtime_.dirty_queue.topology_dirty_span_ids) {
     if (!processed_topology.insert(span_id).second) {
       continue;
     }
-    auto it = span_runtime_states_.find(span_id);
-    if (it == span_runtime_states_.end() || !any(it->second.dirty_bits, DirtyBits::kTopology)) {
+    auto it = runtime_.span_runtime_states.find(span_id);
+    if (it == runtime_.span_runtime_states.end() || !any(it->second.dirty_bits, DirtyBits::kTopology)) {
       continue;
     }
     it->second.dirty_bits = it->second.dirty_bits & ~DirtyBits::kTopology;
     ++stats.topology_processed;
   }
 
-  for (ObjectId span_id : dirty_queue_.geometry_dirty_span_ids) {
+  for (ObjectId span_id : runtime_.dirty_queue.geometry_dirty_span_ids) {
     if (!processed_geometry.insert(span_id).second) {
       continue;
     }
-    auto it = span_runtime_states_.find(span_id);
-    if (it == span_runtime_states_.end() || !any(it->second.dirty_bits, DirtyBits::kGeometry)) {
+    auto it = runtime_.span_runtime_states.find(span_id);
+    if (it == runtime_.span_runtime_states.end() || !any(it->second.dirty_bits, DirtyBits::kGeometry)) {
       continue;
     }
 
@@ -101,13 +101,13 @@ RecalcStats CoreState::ProcessDirtyQueues() {
     mark_span_dirty(span_id, DirtyBits::kBounds | DirtyBits::kRender, false);
   }
 
-  std::vector<ObjectId> bounds_queue = dirty_queue_.bounds_dirty_span_ids;
+  std::vector<ObjectId> bounds_queue = runtime_.dirty_queue.bounds_dirty_span_ids;
   for (ObjectId span_id : bounds_queue) {
     if (!processed_bounds.insert(span_id).second) {
       continue;
     }
-    auto it = span_runtime_states_.find(span_id);
-    if (it == span_runtime_states_.end() || !any(it->second.dirty_bits, DirtyBits::kBounds)) {
+    auto it = runtime_.span_runtime_states.find(span_id);
+    if (it == runtime_.span_runtime_states.end() || !any(it->second.dirty_bits, DirtyBits::kBounds)) {
       continue;
     }
 
@@ -120,13 +120,13 @@ RecalcStats CoreState::ProcessDirtyQueues() {
     ++stats.bounds_processed;
   }
 
-  std::vector<ObjectId> render_queue = dirty_queue_.render_dirty_span_ids;
+  std::vector<ObjectId> render_queue = runtime_.dirty_queue.render_dirty_span_ids;
   for (ObjectId span_id : render_queue) {
     if (!processed_render.insert(span_id).second) {
       continue;
     }
-    auto it = span_runtime_states_.find(span_id);
-    if (it == span_runtime_states_.end() || !any(it->second.dirty_bits, DirtyBits::kRender)) {
+    auto it = runtime_.span_runtime_states.find(span_id);
+    if (it == runtime_.span_runtime_states.end() || !any(it->second.dirty_bits, DirtyBits::kRender)) {
       continue;
     }
     std::string error_message;
@@ -138,12 +138,12 @@ RecalcStats CoreState::ProcessDirtyQueues() {
     ++stats.render_processed;
   }
 
-  for (ObjectId span_id : dirty_queue_.raycast_dirty_span_ids) {
+  for (ObjectId span_id : runtime_.dirty_queue.raycast_dirty_span_ids) {
     if (!processed_raycast.insert(span_id).second) {
       continue;
     }
-    auto it = span_runtime_states_.find(span_id);
-    if (it == span_runtime_states_.end() || !any(it->second.dirty_bits, DirtyBits::kRaycast)) {
+    auto it = runtime_.span_runtime_states.find(span_id);
+    if (it == runtime_.span_runtime_states.end() || !any(it->second.dirty_bits, DirtyBits::kRaycast)) {
       continue;
     }
     it->second.raycast_version = it->second.data_version;
@@ -151,8 +151,8 @@ RecalcStats CoreState::ProcessDirtyQueues() {
     ++stats.raycast_processed;
   }
 
-  dirty_queue_ = DirtyQueue{};
-  last_recalc_stats_ = stats;
+  runtime_.dirty_queue = DirtyQueue{};
+  runtime_.last_recalc_stats = stats;
   return stats;
 }
 
@@ -175,38 +175,38 @@ CommitResult CoreState::Commit(const CommitOptions& options) {
 }
 
 const SpanRuntimeState* CoreState::find_span_runtime_state(ObjectId span_id) const {
-  auto it = span_runtime_states_.find(span_id);
-  if (it == span_runtime_states_.end()) {
+  auto it = runtime_.span_runtime_states.find(span_id);
+  if (it == runtime_.span_runtime_states.end()) {
     return nullptr;
   }
   return &it->second;
 }
 
 void CoreState::remove_span_from_indexes(const Span& span) {
-  index_remove(connection_index_.spans_by_port, span.port_a_id, span.id);
-  index_remove(connection_index_.spans_by_port, span.port_b_id, span.id);
+  index_remove(runtime_.connection_index.spans_by_port, span.port_a_id, span.id);
+  index_remove(runtime_.connection_index.spans_by_port, span.port_b_id, span.id);
   if (span.anchor_a_id != kInvalidObjectId) {
-    index_remove(connection_index_.spans_by_anchor, span.anchor_a_id, span.id);
+    index_remove(runtime_.connection_index.spans_by_anchor, span.anchor_a_id, span.id);
   }
   if (span.anchor_b_id != kInvalidObjectId) {
-    index_remove(connection_index_.spans_by_anchor, span.anchor_b_id, span.id);
+    index_remove(runtime_.connection_index.spans_by_anchor, span.anchor_b_id, span.id);
   }
   if (span.bundle_id != kInvalidObjectId) {
-    index_remove(relation_index_.spans_by_bundle, span.bundle_id, span.id);
+    index_remove(runtime_.relation_index.spans_by_bundle, span.bundle_id, span.id);
   }
 }
 
 void CoreState::add_span_to_index(const Span& span) {
-  index_add(connection_index_.spans_by_port, span.port_a_id, span.id);
-  index_add(connection_index_.spans_by_port, span.port_b_id, span.id);
+  index_add(runtime_.connection_index.spans_by_port, span.port_a_id, span.id);
+  index_add(runtime_.connection_index.spans_by_port, span.port_b_id, span.id);
   if (span.anchor_a_id != kInvalidObjectId) {
-    index_add(connection_index_.spans_by_anchor, span.anchor_a_id, span.id);
+    index_add(runtime_.connection_index.spans_by_anchor, span.anchor_a_id, span.id);
   }
   if (span.anchor_b_id != kInvalidObjectId) {
-    index_add(connection_index_.spans_by_anchor, span.anchor_b_id, span.id);
+    index_add(runtime_.connection_index.spans_by_anchor, span.anchor_b_id, span.id);
   }
   if (span.bundle_id != kInvalidObjectId) {
-    index_add(relation_index_.spans_by_bundle, span.bundle_id, span.id);
+    index_add(runtime_.relation_index.spans_by_bundle, span.bundle_id, span.id);
   }
 }
 
@@ -220,19 +220,19 @@ void CoreState::initialize_span_runtime_state(ObjectId span_id) {
   runtime.raycast_version = 0;
   runtime.variation_flow_key = 0;
   runtime.dirty_bits = DirtyBits::kNone;
-  span_runtime_states_[span_id] = runtime;
+  runtime_.span_runtime_states[span_id] = runtime;
 }
 
 void CoreState::mark_span_dirty(ObjectId span_id, DirtyBits dirty_bits, bool bump_data_version) {
-  if (edit_state_.spans.find(span_id) == nullptr) {
+  if (authoritative_.edit_state.spans.find(span_id) == nullptr) {
     return;
   }
-  SpanRuntimeState& runtime = span_runtime_states_[span_id];
+  SpanRuntimeState& runtime = runtime_.span_runtime_states[span_id];
   if (runtime.span_id == kInvalidObjectId) {
     runtime.span_id = span_id;
   }
   if (bump_data_version || runtime.data_version == 0) {
-    runtime.data_version = next_data_version_++;
+    runtime.data_version = identity_.next_data_version++;
   }
   runtime.dirty_bits |= dirty_bits;
   add_dirty_queue(span_id, dirty_bits);
@@ -240,20 +240,20 @@ void CoreState::mark_span_dirty(ObjectId span_id, DirtyBits dirty_bits, bool bum
 
 void CoreState::add_dirty_queue(ObjectId span_id, DirtyBits dirty_bits) {
   if (any(dirty_bits, DirtyBits::kTopology))
-    dirty_queue_.topology_dirty_span_ids.push_back(span_id);
+    runtime_.dirty_queue.topology_dirty_span_ids.push_back(span_id);
   if (any(dirty_bits, DirtyBits::kGeometry))
-    dirty_queue_.geometry_dirty_span_ids.push_back(span_id);
+    runtime_.dirty_queue.geometry_dirty_span_ids.push_back(span_id);
   if (any(dirty_bits, DirtyBits::kBounds))
-    dirty_queue_.bounds_dirty_span_ids.push_back(span_id);
+    runtime_.dirty_queue.bounds_dirty_span_ids.push_back(span_id);
   if (any(dirty_bits, DirtyBits::kRender))
-    dirty_queue_.render_dirty_span_ids.push_back(span_id);
+    runtime_.dirty_queue.render_dirty_span_ids.push_back(span_id);
   if (any(dirty_bits, DirtyBits::kRaycast))
-    dirty_queue_.raycast_dirty_span_ids.push_back(span_id);
+    runtime_.dirty_queue.raycast_dirty_span_ids.push_back(span_id);
 }
 
 void CoreState::mark_connected_spans_dirty_from_port(ObjectId port_id, DirtyBits dirty_bits, ChangeSet* change_set) {
-  auto it = connection_index_.spans_by_port.find(port_id);
-  if (it == connection_index_.spans_by_port.end()) {
+  auto it = runtime_.connection_index.spans_by_port.find(port_id);
+  if (it == runtime_.connection_index.spans_by_port.end()) {
     return;
   }
   for (ObjectId span_id : it->second) {
@@ -267,8 +267,8 @@ void CoreState::mark_connected_spans_dirty_from_port(ObjectId port_id, DirtyBits
 
 void CoreState::mark_connected_spans_dirty_from_anchor(ObjectId anchor_id, DirtyBits dirty_bits,
                                                        ChangeSet* change_set) {
-  auto it = connection_index_.spans_by_anchor.find(anchor_id);
-  if (it == connection_index_.spans_by_anchor.end()) {
+  auto it = runtime_.connection_index.spans_by_anchor.find(anchor_id);
+  if (it == runtime_.connection_index.spans_by_anchor.end()) {
     return;
   }
   for (ObjectId span_id : it->second) {
@@ -281,7 +281,7 @@ void CoreState::mark_connected_spans_dirty_from_anchor(ObjectId anchor_id, Dirty
 }
 
 bool CoreState::rebuild_span_curve(ObjectId span_id, std::string* error_message) {
-  const Span* span = edit_state_.spans.find(span_id);
+  const Span* span = authoritative_.edit_state.spans.find(span_id);
   if (span == nullptr) {
     if (error_message != nullptr) {
       *error_message = "span not found";
@@ -309,13 +309,13 @@ bool CoreState::rebuild_span_curve(ObjectId span_id, std::string* error_message)
   entry.source_version = (runtime == nullptr) ? 0 : runtime->data_version;
   support_layout.source_version = entry.source_version;
   cache_span_support_layout(std::move(support_layout));
-  cache_state_.curve_cache.by_span[span_id] = std::move(entry);
+  runtime_.cache_state.curve_cache.by_span[span_id] = std::move(entry);
   return true;
 }
 
 void CoreState::cache_span_support_layout(SpanSupportLayoutEntry layout) {
   const ObjectId span_id = layout.span_id;
-  cache_state_.support_layout_cache.by_span[span_id] = std::move(layout);
+  runtime_.cache_state.support_layout_cache.by_span[span_id] = std::move(layout);
   rebuild_lowered_support_groups_for_span(span_id);
 }
 
@@ -324,8 +324,8 @@ void CoreState::cache_span_support_layout_seed(SpanSupportLayoutDecisionSeed see
     return;
   }
   const ObjectId span_id = seed.span_id;
-  cache_state_.support_layout_cache.decision_seeds_by_span[span_id] = std::move(seed);
-  const Span* span = edit_state_.spans.find(span_id);
+  runtime_.cache_state.support_layout_cache.decision_seeds_by_span[span_id] = std::move(seed);
+  const Span* span = authoritative_.edit_state.spans.find(span_id);
   if (span == nullptr) {
     erase_cached_span_support_layout(span_id);
     return;
@@ -341,31 +341,31 @@ void CoreState::cache_span_support_layout_seed(SpanSupportLayoutDecisionSeed see
 }
 
 void CoreState::erase_cached_span_support_layout_seed(ObjectId span_id) {
-  cache_state_.support_layout_cache.decision_seeds_by_span.erase(span_id);
+  runtime_.cache_state.support_layout_cache.decision_seeds_by_span.erase(span_id);
 }
 
 void CoreState::erase_cached_span_support_layout(ObjectId span_id) {
-  cache_state_.support_layout_cache.by_span.erase(span_id);
-  rebuild_all_lowered_support_groups(*this, edit_state_, &cache_state_);
+  runtime_.cache_state.support_layout_cache.by_span.erase(span_id);
+  rebuild_all_lowered_support_groups(*this, authoritative_.edit_state, &runtime_.cache_state);
 }
 
 void CoreState::rebuild_lowered_support_groups_for_span(ObjectId span_id) {
-  if (edit_state_.spans.find(span_id) == nullptr) {
+  if (authoritative_.edit_state.spans.find(span_id) == nullptr) {
     return;
   }
-  rebuild_all_lowered_support_groups(*this, edit_state_, &cache_state_);
+  rebuild_all_lowered_support_groups(*this, authoritative_.edit_state, &runtime_.cache_state);
 }
 
 bool CoreState::rebuild_span_bounds(ObjectId span_id, std::string* error_message) {
-  const Span* span = edit_state_.spans.find(span_id);
+  const Span* span = authoritative_.edit_state.spans.find(span_id);
   if (span == nullptr) {
     if (error_message != nullptr) {
       *error_message = "span not found";
     }
     return false;
   }
-  auto curve_it = cache_state_.curve_cache.by_span.find(span_id);
-  if (curve_it == cache_state_.curve_cache.by_span.end()) {
+  auto curve_it = runtime_.cache_state.curve_cache.by_span.find(span_id);
+  if (curve_it == runtime_.cache_state.curve_cache.by_span.end()) {
     if (error_message != nullptr) {
       *error_message = "curve cache missing";
     }
@@ -387,20 +387,20 @@ bool CoreState::rebuild_span_bounds(ObjectId span_id, std::string* error_message
   }
   const SpanRuntimeState* runtime = find_span_runtime_state(span_id);
   bounds.source_version = (runtime == nullptr) ? 0 : runtime->data_version;
-  cache_state_.bounds_cache.by_span[span_id] = std::move(bounds);
+  runtime_.cache_state.bounds_cache.by_span[span_id] = std::move(bounds);
   return true;
 }
 
 bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message) {
-  const Span* span = edit_state_.spans.find(span_id);
+  const Span* span = authoritative_.edit_state.spans.find(span_id);
   if (span == nullptr) {
     if (error_message != nullptr) {
       *error_message = "span not found";
     }
     return false;
   }
-  const Port* a = edit_state_.ports.find(span->port_a_id);
-  const Port* b = edit_state_.ports.find(span->port_b_id);
+  const Port* a = authoritative_.edit_state.ports.find(span->port_a_id);
+  const Port* b = authoritative_.edit_state.ports.find(span->port_b_id);
   if (a == nullptr || b == nullptr) {
     if (error_message != nullptr) {
       *error_message = "span endpoint port is missing";
@@ -408,7 +408,7 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
     return false;
   }
 
-  const Bundle* bundle = edit_state_.bundles.find(span->bundle_id);
+  const Bundle* bundle = authoritative_.edit_state.bundles.find(span->bundle_id);
   const BundleTemplate* bundle_template =
       (bundle == nullptr) ? nullptr : find_bundle_template(bundle->bundle_template_id);
   const CableTemplate* cable_template =
@@ -424,7 +424,7 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
     if (support_pole_id == kInvalidObjectId && layout_endpoint != nullptr) {
       support_pole_id = layout_endpoint->owner_pole_id;
     }
-    const Pole* pole = edit_state_.poles.find(support_pole_id);
+    const Pole* pole = authoritative_.edit_state.poles.find(support_pole_id);
     if (pole == nullptr) {
       return;
     }
@@ -438,35 +438,35 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
     };
     const bool uses_grouped_lowered_support = layout_endpoint != nullptr && endpoint_uses_grouped_lowered_support(layout_endpoint);
 
-    SpanVisualCacheEntry& entry = cache_state_.visual_cache.by_span[span_id];
+    SpanVisualCacheEntry& entry = runtime_.cache_state.visual_cache.by_span[span_id];
     if (uses_grouped_lowered_support) {
       return;
     }
-    if (cache_state_.visual_settings.enable_support_structures &&
+    if (runtime_.cache_state.visual_settings.enable_support_structures &&
         port.template_side != SlotSide::kCenter &&
-        planar > cache_state_.visual_settings.support_center_threshold_m + 1e-9) {
+        planar > runtime_.cache_state.visual_settings.support_center_threshold_m + 1e-9) {
       VisualPart arm{};
       arm.kind = VisualPartKind::kSupportArm;
       arm.a = {pole->world_transform.position.x, pole->world_transform.position.y, port.world_position.z};
       arm.b = {
-          port.world_position.x + radial.x * cache_state_.visual_settings.support_arm_extra_m,
-          port.world_position.y + radial.y * cache_state_.visual_settings.support_arm_extra_m,
+          port.world_position.x + radial.x * runtime_.cache_state.visual_settings.support_arm_extra_m,
+          port.world_position.y + radial.y * runtime_.cache_state.visual_settings.support_arm_extra_m,
           port.world_position.z,
       };
       arm.radius_m = 0.03;
       entry.parts.push_back(arm);
     }
 
-    if (cache_state_.visual_settings.enable_insulators && requires_insulator) {
+    if (runtime_.cache_state.visual_settings.enable_insulators && requires_insulator) {
       VisualPart ins{};
       ins.kind = VisualPartKind::kInsulator;
       ins.a = port.world_position;
       ins.b = {
           port.world_position.x,
           port.world_position.y,
-          port.world_position.z + cache_state_.visual_settings.insulator_length_m,
+          port.world_position.z + runtime_.cache_state.visual_settings.insulator_length_m,
       };
-      ins.radius_m = cache_state_.visual_settings.insulator_radius_m;
+      ins.radius_m = runtime_.cache_state.visual_settings.insulator_radius_m;
       entry.parts.push_back(ins);
     }
   };
@@ -475,8 +475,8 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
     if (group.attachment_worlds.empty()) {
       return;
     }
-    SpanVisualCacheEntry& entry = cache_state_.visual_cache.by_span[span_id];
-    if (cache_state_.visual_settings.enable_support_structures) {
+    SpanVisualCacheEntry& entry = runtime_.cache_state.visual_cache.by_span[span_id];
+    if (runtime_.cache_state.visual_settings.enable_support_structures) {
       VisualPart arm{};
       arm.kind = VisualPartKind::kSupportArm;
       arm.a = group.mount_world;
@@ -492,7 +492,7 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
         entry.parts.push_back(hanger);
       }
     }
-    if (cache_state_.visual_settings.enable_insulators && requires_insulator) {
+    if (runtime_.cache_state.visual_settings.enable_insulators && requires_insulator) {
       for (const Vec3d& attachment_world : group.attachment_worlds) {
         VisualPart ins{};
         ins.kind = VisualPartKind::kInsulator;
@@ -500,9 +500,9 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
         ins.b = {
             attachment_world.x,
             attachment_world.y,
-            attachment_world.z + cache_state_.visual_settings.insulator_length_m,
+            attachment_world.z + runtime_.cache_state.visual_settings.insulator_length_m,
         };
-        ins.radius_m = cache_state_.visual_settings.insulator_radius_m;
+        ins.radius_m = runtime_.cache_state.visual_settings.insulator_radius_m;
         entry.parts.push_back(ins);
       }
     }
@@ -510,7 +510,7 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
 
   SpanVisualCacheEntry entry{};
   entry.source_version = (runtime == nullptr) ? 0 : runtime->data_version;
-  cache_state_.visual_cache.by_span[span_id] = std::move(entry);
+  runtime_.cache_state.visual_cache.by_span[span_id] = std::move(entry);
   const SupportLayoutEndpoint* start_layout =
       (support_layout != nullptr && support_layout->start.port_id == a->id) ? &support_layout->start : nullptr;
   const SupportLayoutEndpoint* end_layout =
@@ -519,8 +519,8 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
   append_parts_for_port(*b, end_layout);
   if (support_layout != nullptr) {
     for (const LoweredSupportGroupKey& key : support_layout->lowered_support_group_keys) {
-      auto it = cache_state_.support_layout_cache.lowered_support_groups.find(key);
-      if (it != cache_state_.support_layout_cache.lowered_support_groups.end()) {
+      auto it = runtime_.cache_state.support_layout_cache.lowered_support_groups.find(key);
+      if (it != runtime_.cache_state.support_layout_cache.lowered_support_groups.end()) {
         append_grouped_lowered_support_parts(it->second);
       }
     }
@@ -533,20 +533,20 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
     render.color_rgba = cable_template->color_rgba;
     render.material_style = cable_template->material_style;
   }
-  const auto curve_it = cache_state_.curve_cache.by_span.find(span_id);
-  if (curve_it != cache_state_.curve_cache.by_span.end()) {
+  const auto curve_it = runtime_.cache_state.curve_cache.by_span.find(span_id);
+  if (curve_it != runtime_.cache_state.curve_cache.by_span.end()) {
     render.arc_length_m_by_point = curve_it->second.detail.distance_attributes.arc_length_m;
     render.arc_length_normalized_by_point = curve_it->second.detail.distance_attributes.arc_length_normalized;
     render.segment_length_m = curve_it->second.detail.distance_attributes.segment_length_m;
   }
-  cache_state_.render_cache.by_span[span_id] = render;
+  runtime_.cache_state.render_cache.by_span[span_id] = render;
   return true;
 }
 
 DetailCurve CoreState::generate_span_curve(const Span& span, const SpanSupportLayoutEntry& support_layout,
                                            std::string* error_message) const {
-  const Port* port_a = edit_state_.ports.find(span.port_a_id);
-  const Port* port_b = edit_state_.ports.find(span.port_b_id);
+  const Port* port_a = authoritative_.edit_state.ports.find(span.port_a_id);
+  const Port* port_b = authoritative_.edit_state.ports.find(span.port_b_id);
   if (port_a == nullptr || port_b == nullptr) {
     if (error_message != nullptr) {
       *error_message = "span endpoint port is missing";
@@ -554,9 +554,9 @@ DetailCurve CoreState::generate_span_curve(const Span& span, const SpanSupportLa
     return {};
   }
 
-  const int samples = std::max(2, cache_state_.geometry_settings.curve_samples);
-  const Pole* pole_a = edit_state_.poles.find(port_a->owner_pole_id);
-  const Pole* pole_b = edit_state_.poles.find(port_b->owner_pole_id);
+  const int samples = std::max(2, runtime_.cache_state.geometry_settings.curve_samples);
+  const Pole* pole_a = authoritative_.edit_state.poles.find(port_a->owner_pole_id);
+  const Pole* pole_b = authoritative_.edit_state.poles.find(port_b->owner_pole_id);
 
   CurveConstraint start = make_curve_constraint_from_support_layout(
       support_layout.start, pole_a, support_layout.basis_length_m, support_layout.effective_sag_ratio,
@@ -614,12 +614,13 @@ AABBd CoreState::build_aabb_from_two_points(const Vec3d& a, const Vec3d& b) {
 }
 
 void CoreState::remove_span_from_caches(ObjectId span_id) {
-  cache_state_.curve_cache.by_span.erase(span_id);
-  cache_state_.bounds_cache.by_span.erase(span_id);
+  runtime_.cache_state.curve_cache.by_span.erase(span_id);
+  runtime_.cache_state.bounds_cache.by_span.erase(span_id);
   erase_cached_span_support_layout_seed(span_id);
   erase_cached_span_support_layout(span_id);
-  cache_state_.visual_cache.by_span.erase(span_id);
-  cache_state_.render_cache.by_span.erase(span_id);
+  runtime_.cache_state.visual_cache.by_span.erase(span_id);
+  runtime_.cache_state.render_cache.by_span.erase(span_id);
 }
 
 } // namespace wire::core
+

@@ -1,4 +1,4 @@
-﻿#include "wire/core/core_state.hpp"
+#include "wire/core/core_state.hpp"
 
 #include "wire/core/core_view.hpp"
 
@@ -646,7 +646,7 @@ void ApplyAuthoritativeGroupedEndpointDecision(const CacheState& cache_state, co
 } // namespace
 
 const std::vector<SegmentLaneAssignment>& CoreView::last_lane_assignments() const {
-  return state_.last_generation_lane_assignments_;
+  return state_.debug_.last_generation_lane_assignments;
 }
 
 std::optional<EntityMeta> CoreView::describe_entity(EntityRef ref) const {
@@ -694,7 +694,7 @@ std::optional<EntityMeta> CoreView::describe_entity(EntityRef ref) const {
   }
   case EntityKind::kJunction: {
     if (!FindJunctionByNode(state_, ref.stable_id).has_value() &&
-        !state_.last_generation_junction_relations_.contains(ref.stable_id)) {
+        !state_.debug_.last_generation_junction_relations.contains(ref.stable_id)) {
       return std::nullopt;
     }
     return MakeMeta(ref.kind, ref.stable_id, "Junction " + std::to_string(ref.stable_id), EntityRoleKind::kDerived,
@@ -883,10 +883,10 @@ std::optional<SupportLayoutInspectionView> CoreView::inspect_support_layout(Obje
   result.lowering_kind = layout->lowering_kind;
   result.start_endpoint = MakeSupportLayoutEndpointView(layout->start);
   result.end_endpoint = MakeSupportLayoutEndpointView(layout->end);
-  ApplyAuthoritativeGroupedEndpointDecision(state_.cache_state_, layout->start, &result.start_endpoint);
-  ApplyAuthoritativeGroupedEndpointDecision(state_.cache_state_, layout->end, &result.end_endpoint);
+  ApplyAuthoritativeGroupedEndpointDecision(state_.runtime_.cache_state, layout->start, &result.start_endpoint);
+  ApplyAuthoritativeGroupedEndpointDecision(state_.runtime_.cache_state, layout->end, &result.end_endpoint);
 
-  result.lowered_support_groups = BuildLoweredSupportGroupInspectionViews(state_.cache_state_, *layout);
+  result.lowered_support_groups = BuildLoweredSupportGroupInspectionViews(state_.runtime_.cache_state, *layout);
 
   std::unordered_set<std::uint64_t> seen{};
   AddLink(&result.links, &seen, "Source Span", EntityKind::kSpan, span_id);
@@ -973,14 +973,14 @@ std::optional<DetailCurveInspectionView> CoreView::inspect_detail_curve(ObjectId
 
 std::optional<JunctionInspectionView> CoreView::inspect_junction(ObjectId node_id) const {
   const auto junction = FindJunctionByNode(state_, node_id);
-  const auto relation_it = state_.last_generation_junction_relations_.find(node_id);
-  if (!junction.has_value() && relation_it == state_.last_generation_junction_relations_.end()) {
+  const auto relation_it = state_.debug_.last_generation_junction_relations.find(node_id);
+  if (!junction.has_value() && relation_it == state_.debug_.last_generation_junction_relations.end()) {
     return std::nullopt;
   }
   JunctionInspectionView result{};
   result.meta = *describe_entity({EntityKind::kJunction, node_id});
   result.node_id = node_id;
-  if (relation_it != state_.last_generation_junction_relations_.end()) {
+  if (relation_it != state_.debug_.last_generation_junction_relations.end()) {
     const JunctionRelation& relation = relation_it->second;
     result.incidents = BuildJunctionIncidentsFromRelation(relation);
     result.has_primary = std::any_of(result.incidents.begin(), result.incidents.end(),
@@ -990,7 +990,7 @@ std::optional<JunctionInspectionView> CoreView::inspect_junction(ObjectId node_i
     result.has_primary = std::any_of(junction->incidents.begin(), junction->incidents.end(),
                                      [](const JunctionIncident& incident) { return incident.primary; });
   }
-  if (relation_it != state_.last_generation_junction_relations_.end()) {
+  if (relation_it != state_.debug_.last_generation_junction_relations.end()) {
     const JunctionRelation& relation = relation_it->second;
     result.has_local_relation = true;
     result.through_pair_accepted = relation.through_pair.accepted;
@@ -1020,7 +1020,7 @@ std::optional<JunctionInspectionView> CoreView::inspect_junction(ObjectId node_i
   }
 
   std::unordered_set<std::uint64_t> seen{};
-  if (relation_it != state_.last_generation_junction_relations_.end()) {
+  if (relation_it != state_.debug_.last_generation_junction_relations.end()) {
     for (const JunctionIncidentRelation& incident : relation_it->second.incidents) {
       AddLink(&result.links, &seen, "Neighbor " + std::to_string(incident.neighbor_node_id), EntityKind::kSupportNode,
               incident.neighbor_node_id);
@@ -1386,8 +1386,8 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
   }
 
   if (ref.kind == EntityKind::kJunction) {
-    if (const auto it = state_.last_generation_junction_relations_.find(static_cast<ObjectId>(ref.stable_id));
-        it != state_.last_generation_junction_relations_.end()) {
+    if (const auto it = state_.debug_.last_generation_junction_relations.find(static_cast<ObjectId>(ref.stable_id));
+        it != state_.debug_.last_generation_junction_relations.end()) {
       const JunctionRelation& relation = it->second;
       const std::vector<JunctionIncident> incidents = BuildJunctionIncidentsFromRelation(relation);
       std::ostringstream summary;
@@ -1435,3 +1435,4 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
 }
 
 } // namespace wire::core
+

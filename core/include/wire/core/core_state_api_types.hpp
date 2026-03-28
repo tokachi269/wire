@@ -1,29 +1,15 @@
 #pragma once
 
 #include <cstdint>
-#include <string>
 #include <vector>
 
+#include "wire/core/core_edit_types.hpp"
 #include "wire/core/core_runtime_types.hpp"
 #include "wire/core/entities.hpp"
 #include "wire/core/id.hpp"
 #include "wire/core/workflow_types.hpp"
 
 namespace wire::core {
-
-struct ChangeSet {
-  std::vector<ObjectId> created_ids;
-  std::vector<ObjectId> updated_ids;
-  std::vector<ObjectId> deleted_ids;
-  std::vector<ObjectId> dirty_span_ids;
-};
-
-template <typename TValue> struct EditResult {
-  bool ok = false;
-  TValue value{};
-  std::string error{};
-  ChangeSet change_set{};
-};
 
 enum class ValidationSeverity : std::uint8_t {
   kError = 0,

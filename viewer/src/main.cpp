@@ -461,7 +461,7 @@ void DrawDragSelectionOverlay(const ViewerUiState& ui_state) {
   DrawRectangleLinesEx(rect, 1.5f, Color{255, 225, 120, 220});
 }
 
-void UpdateViewportSelectionInput(const CoreState& state, const Camera3D& camera, ViewerUiState& ui_state) {
+void UpdateViewportSelectionInput(const wire::core::CoreView& view, const Camera3D& camera, ViewerUiState& ui_state) {
   ImGuiIO& io = ImGui::GetIO();
   if (!IsSelectionViewportMode(ui_state) || io.WantCaptureMouse || ui_state.camera_walk_mode ||
       ui_state.camera_drag_mode != CameraDragMode::kNone) {
@@ -476,7 +476,6 @@ void UpdateViewportSelectionInput(const CoreState& state, const Camera3D& camera
   }
 
   const Vector2 mouse_screen = GetMousePosition();
-  const auto view = viewer_core_state::View(state);
   if (!ui_state.drag_selection.active && shift && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
     ui_state.drag_selection.active = true;
     ui_state.drag_selection.start_screen = mouse_screen;
@@ -742,7 +741,8 @@ int main() {
 
     rlImGuiBegin();
     UpdateCameraForViewport(&camera, ui_state);
-    UpdateViewportSelectionInput(state, camera, ui_state);
+    const auto selection_view = viewer_core_state::View(state);
+    UpdateViewportSelectionInput(selection_view, camera, ui_state);
     UpdateDrawPathInput(state, camera, ui_state);
     const auto view = viewer_core_state::View(state);
     if (ui_state.auto_recalc) {

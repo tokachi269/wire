@@ -549,8 +549,8 @@ void rebuild_all_lowered_support_groups(const CoreState& state, const EditState&
 }
 
 SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span, std::string* error_message) const {
-  const Port* port_a = edit_state_.ports.find(span.port_a_id);
-  const Port* port_b = edit_state_.ports.find(span.port_b_id);
+  const Port* port_a = authoritative_.edit_state.ports.find(span.port_a_id);
+  const Port* port_b = authoritative_.edit_state.ports.find(span.port_b_id);
   if (port_a == nullptr || port_b == nullptr) {
     if (error_message != nullptr) {
       *error_message = "span endpoint port is missing";
@@ -560,8 +560,8 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
 
   const Vec3d a = port_a->world_position;
   const Vec3d b = port_b->world_position;
-  const Pole* pole_a = edit_state_.poles.find(port_a->owner_pole_id);
-  const Pole* pole_b = edit_state_.poles.find(port_b->owner_pole_id);
+  const Pole* pole_a = authoritative_.edit_state.poles.find(port_a->owner_pole_id);
+  const Pole* pole_b = authoritative_.edit_state.poles.find(port_b->owner_pole_id);
   const double dx = b.x - a.x;
   const double dy = b.y - a.y;
   const double dz = b.z - a.z;
@@ -644,3 +644,4 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
 }
 
 } // namespace wire::core
+

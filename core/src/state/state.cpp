@@ -206,7 +206,7 @@ EditResult<ObjectId> CoreState::AddPole(const Transformd& world_transform, doubl
   }
 
   Pole pole{};
-  pole.id = id_generator_.next();
+  pole.id = identity_.id_generator.next();
   pole.display_id = next_display_id("P");
   pole.name = std::string(name);
   pole.world_transform = world_transform;
@@ -214,7 +214,7 @@ EditResult<ObjectId> CoreState::AddPole(const Transformd& world_transform, doubl
   pole.kind = kind;
   pole.pole_type_id = kInvalidPoleTypeId;
   apply_pole_placement_mode(pole, placement_mode);
-  edit_state_.poles.insert(pole);
+  authoritative_.edit_state.poles.insert(pole);
 
   result.ok = true;
   result.value = pole.id;
@@ -230,13 +230,13 @@ EditResult<ObjectId> CoreState::AddPort(ObjectId owner_pole_id, const Vec3d& wor
 EditResult<ObjectId> CoreState::AddPort(ObjectId owner_pole_id, const Vec3d& world_position, PortKind kind,
                                         PortLayer layer, const Frame3d& direction) {
   EditResult<ObjectId> result;
-  if (owner_pole_id != kInvalidObjectId && edit_state_.poles.find(owner_pole_id) == nullptr) {
+  if (owner_pole_id != kInvalidObjectId && authoritative_.edit_state.poles.find(owner_pole_id) == nullptr) {
     result.error = "owner pole does not exist";
     return result;
   }
 
   Port port{};
-  port.id = id_generator_.next();
+  port.id = identity_.id_generator.next();
   port.display_id = next_display_id("PT");
   port.owner_pole_id = owner_pole_id;
   port.world_position = world_position;
@@ -253,9 +253,9 @@ EditResult<ObjectId> CoreState::AddPort(ObjectId owner_pole_id, const Vec3d& wor
   port.angle_correction_applied = false;
   port.side_scale_applied = 1.0;
   apply_port_position_mode(port, PortPositionMode::kAuto, PortPlacementSourceKind::kGenerated);
-  edit_state_.ports.insert(port);
+  authoritative_.edit_state.ports.insert(port);
   if (owner_pole_id != kInvalidObjectId) {
-    index_add(relation_index_.ports_by_pole, owner_pole_id, port.id);
+    index_add(runtime_.relation_index.ports_by_pole, owner_pole_id, port.id);
   }
 
   result.ok = true;
@@ -267,7 +267,7 @@ EditResult<ObjectId> CoreState::AddPort(ObjectId owner_pole_id, const Vec3d& wor
 EditResult<ObjectId> CoreState::AddAnchor(ObjectId owner_pole_id, const Vec3d& world_position,
                                           AnchorSupportKind support_kind, double support_strength) {
   EditResult<ObjectId> result;
-  if (owner_pole_id != kInvalidObjectId && edit_state_.poles.find(owner_pole_id) == nullptr) {
+  if (owner_pole_id != kInvalidObjectId && authoritative_.edit_state.poles.find(owner_pole_id) == nullptr) {
     result.error = "owner pole does not exist";
     return result;
   }
@@ -277,15 +277,15 @@ EditResult<ObjectId> CoreState::AddAnchor(ObjectId owner_pole_id, const Vec3d& w
   }
 
   Anchor anchor{};
-  anchor.id = id_generator_.next();
+  anchor.id = identity_.id_generator.next();
   anchor.display_id = next_display_id("A");
   anchor.owner_pole_id = owner_pole_id;
   anchor.world_position = world_position;
   anchor.support_kind = support_kind;
   anchor.support_strength = support_strength;
-  edit_state_.anchors.insert(anchor);
+  authoritative_.edit_state.anchors.insert(anchor);
   if (owner_pole_id != kInvalidObjectId) {
-    index_add(relation_index_.anchors_by_pole, owner_pole_id, anchor.id);
+    index_add(runtime_.relation_index.anchors_by_pole, owner_pole_id, anchor.id);
   }
 
   result.ok = true;
@@ -306,12 +306,12 @@ EditResult<ObjectId> CoreState::AddBundle(int conductor_count, double phase_spac
   }
 
   Bundle bundle{};
-  bundle.id = id_generator_.next();
+  bundle.id = identity_.id_generator.next();
   bundle.display_id = next_display_id("B");
   bundle.conductor_count = conductor_count;
   bundle.phase_spacing_m = phase_spacing_m;
   bundle.bundle_template_id = kind;
-  edit_state_.bundles.insert(bundle);
+  authoritative_.edit_state.bundles.insert(bundle);
 
   result.ok = true;
   result.value = bundle.id;
@@ -323,8 +323,8 @@ EditResult<ObjectId> CoreState::AddBundle(int conductor_count, double phase_spac
 EditResult<ObjectId> CoreState::AddSpan(ObjectId port_a_id, ObjectId port_b_id, SpanKind kind, SpanLayer layer,
                                         ObjectId bundle_id, ObjectId anchor_a_id, ObjectId anchor_b_id) {
   EditResult<ObjectId> result;
-  const Port* port_a = edit_state_.ports.find(port_a_id);
-  const Port* port_b = edit_state_.ports.find(port_b_id);
+  const Port* port_a = authoritative_.edit_state.ports.find(port_a_id);
+  const Port* port_b = authoritative_.edit_state.ports.find(port_b_id);
   if (port_a == nullptr || port_b == nullptr) {
     result.error = "span ports do not exist";
     return result;
@@ -337,21 +337,21 @@ EditResult<ObjectId> CoreState::AddSpan(ObjectId port_a_id, ObjectId port_b_id, 
     result.error = "zero-length span is not allowed";
     return result;
   }
-  if (bundle_id != kInvalidObjectId && edit_state_.bundles.find(bundle_id) == nullptr) {
+  if (bundle_id != kInvalidObjectId && authoritative_.edit_state.bundles.find(bundle_id) == nullptr) {
     result.error = "bundle does not exist";
     return result;
   }
-  if (anchor_a_id != kInvalidObjectId && edit_state_.anchors.find(anchor_a_id) == nullptr) {
+  if (anchor_a_id != kInvalidObjectId && authoritative_.edit_state.anchors.find(anchor_a_id) == nullptr) {
     result.error = "anchor_a does not exist";
     return result;
   }
-  if (anchor_b_id != kInvalidObjectId && edit_state_.anchors.find(anchor_b_id) == nullptr) {
+  if (anchor_b_id != kInvalidObjectId && authoritative_.edit_state.anchors.find(anchor_b_id) == nullptr) {
     result.error = "anchor_b does not exist";
     return result;
   }
 
   Span span{};
-  span.id = id_generator_.next();
+  span.id = identity_.id_generator.next();
   span.display_id = next_display_id("SP");
   span.port_a_id = port_a_id;
   span.port_b_id = port_b_id;
@@ -364,7 +364,7 @@ EditResult<ObjectId> CoreState::AddSpan(ObjectId port_a_id, ObjectId port_b_id, 
   const double dy = port_b->world_position.y - port_a->world_position.y;
   const double dz = port_b->world_position.z - port_a->world_position.z;
   span.reference_length_m = std::sqrt(dx * dx + dy * dy + dz * dz);
-  edit_state_.spans.insert(span);
+  authoritative_.edit_state.spans.insert(span);
 
   add_span_to_index(span);
   initialize_span_runtime_state(span.id);
@@ -380,7 +380,7 @@ EditResult<ObjectId> CoreState::AddSpan(ObjectId port_a_id, ObjectId port_b_id, 
 EditResult<ObjectId> CoreState::AddAttachment(ObjectId span_id, double t, AttachmentKind kind, double display_offset_m,
                                               AttachmentTemplateId template_id) {
   EditResult<ObjectId> result;
-  if (edit_state_.spans.find(span_id) == nullptr) {
+  if (authoritative_.edit_state.spans.find(span_id) == nullptr) {
     result.error = "span does not exist";
     return result;
   }
@@ -389,7 +389,7 @@ EditResult<ObjectId> CoreState::AddAttachment(ObjectId span_id, double t, Attach
     return result;
   }
   if (template_id == kInvalidAttachmentTemplateId) {
-    for (const auto& [candidate_id, attachment_template] : attachment_templates_) {
+    for (const auto& [candidate_id, attachment_template] : authoritative_.attachment_templates) {
       if (attachment_template.kind == kind) {
         template_id = candidate_id;
         break;
@@ -402,15 +402,15 @@ EditResult<ObjectId> CoreState::AddAttachment(ObjectId span_id, double t, Attach
   }
 
   Attachment attachment{};
-  attachment.id = id_generator_.next();
+  attachment.id = identity_.id_generator.next();
   attachment.display_id = next_display_id("AT");
   attachment.span_id = span_id;
   attachment.template_id = template_id;
   attachment.t = t;
   attachment.kind = kind;
   attachment.display_offset_m = display_offset_m;
-  edit_state_.attachments.insert(attachment);
-  index_add(relation_index_.attachments_by_span, span_id, attachment.id);
+  authoritative_.edit_state.attachments.insert(attachment);
+  index_add(runtime_.relation_index.attachments_by_span, span_id, attachment.id);
   mark_span_dirty(span_id, DirtyBits::kGeometry | DirtyBits::kRender, true);
 
   result.ok = true;
@@ -424,7 +424,7 @@ EditResult<ObjectId> CoreState::AddAttachment(ObjectId span_id, double t, Attach
 
 EditResult<ObjectId> CoreState::MovePole(ObjectId pole_id, const Transformd& new_world_transform) {
   EditResult<ObjectId> result;
-  Pole* pole = edit_state_.poles.find(pole_id);
+  Pole* pole = authoritative_.edit_state.poles.find(pole_id);
   if (pole == nullptr) {
     result.error = "pole not found";
     return result;
@@ -444,15 +444,15 @@ EditResult<bool> CoreState::ApplyPoleTilt(const std::vector<ObjectId>& pole_ids,
   EditResult<bool> result;
   std::vector<ObjectId> targets = pole_ids;
   if (targets.empty()) {
-    targets.reserve(edit_state_.poles.size());
-    for (const Pole& pole : edit_state_.poles.items()) {
+    targets.reserve(authoritative_.edit_state.poles.size());
+    for (const Pole& pole : authoritative_.edit_state.poles.items()) {
       targets.push_back(pole.id);
     }
   }
   const double clamped_max_tilt_deg = std::clamp(max_tilt_deg, 0.0, 45.0);
   bool changed = false;
   for (ObjectId pole_id : targets) {
-    Pole* pole = edit_state_.poles.find(pole_id);
+    Pole* pole = authoritative_.edit_state.poles.find(pole_id);
     if (pole == nullptr) {
       result.error = "pole not found";
       result.ok = false;
@@ -464,17 +464,17 @@ EditResult<bool> CoreState::ApplyPoleTilt(const std::vector<ObjectId>& pole_ids,
     Vec3d pull_world_dir{};
     std::unordered_set<ObjectId> seen_spans{};
     std::size_t incident_span_count = 0;
-    if (const auto ports_it = relation_index_.ports_by_pole.find(pole_id); ports_it != relation_index_.ports_by_pole.end()) {
+    if (const auto ports_it = runtime_.relation_index.ports_by_pole.find(pole_id); ports_it != runtime_.relation_index.ports_by_pole.end()) {
       for (ObjectId port_id : ports_it->second) {
-        const auto spans_it = connection_index_.spans_by_port.find(port_id);
-        if (spans_it == connection_index_.spans_by_port.end()) {
+        const auto spans_it = runtime_.connection_index.spans_by_port.find(port_id);
+        if (spans_it == runtime_.connection_index.spans_by_port.end()) {
           continue;
         }
         for (ObjectId span_id : spans_it->second) {
           if (!seen_spans.insert(span_id).second) {
             continue;
           }
-          const Span* span = edit_state_.spans.find(span_id);
+          const Span* span = authoritative_.edit_state.spans.find(span_id);
           if (span == nullptr) {
             continue;
           }
@@ -483,7 +483,7 @@ EditResult<bool> CoreState::ApplyPoleTilt(const std::vector<ObjectId>& pole_ids,
           if (other_port_id == kInvalidObjectId) {
             continue;
           }
-          const Port* other_port = edit_state_.ports.find(other_port_id);
+          const Port* other_port = authoritative_.edit_state.ports.find(other_port_id);
           if (other_port == nullptr) {
             continue;
           }
@@ -552,7 +552,7 @@ EditResult<ObjectId> CoreState::MovePort(ObjectId port_id, const Vec3d& new_worl
 
 EditResult<ObjectId> CoreState::SetPortWorldPositionManual(ObjectId port_id, const Vec3d& new_world_position) {
   EditResult<ObjectId> result;
-  Port* port = edit_state_.ports.find(port_id);
+  Port* port = authoritative_.edit_state.ports.find(port_id);
   if (port == nullptr) {
     result.error = "port not found";
     return result;
@@ -568,7 +568,7 @@ EditResult<ObjectId> CoreState::SetPortWorldPositionManual(ObjectId port_id, con
 
 EditResult<ObjectId> CoreState::ResetPortPositionToAuto(ObjectId port_id) {
   EditResult<ObjectId> result;
-  Port* port = edit_state_.ports.find(port_id);
+  Port* port = authoritative_.edit_state.ports.find(port_id);
   if (port == nullptr) {
     result.error = "port not found";
     return result;
@@ -578,7 +578,7 @@ EditResult<ObjectId> CoreState::ResetPortPositionToAuto(ObjectId port_id) {
 
   bool recomputed = false;
   if (port->owner_pole_id != kInvalidObjectId && port->generated_from_template) {
-    const Pole* pole = edit_state_.poles.find(port->owner_pole_id);
+    const Pole* pole = authoritative_.edit_state.poles.find(port->owner_pole_id);
     if (pole != nullptr) {
       const PoleTypeDefinition* pole_type = find_pole_type(pole->pole_type_id);
       if (pole_type != nullptr) {
@@ -601,7 +601,7 @@ EditResult<ObjectId> CoreState::ResetPortPositionToAuto(ObjectId port_id) {
               std::clamp(current_local.y, band_ptr->lateral_min_m, band_ptr->lateral_max_m),
               std::clamp(current_local.z, band_ptr->height_min_m, band_ptr->height_max_m),
           };
-          const bool apply_angle_correction = layout_settings_.angle_correction_enabled &&
+          const bool apply_angle_correction = authoritative_.layout_settings.angle_correction_enabled &&
                                               pole->context.kind == PoleContextKind::kCorner &&
                                               band_ptr->side != SlotSide::kCenter;
           double applied_scale = 1.0;
@@ -636,7 +636,7 @@ EditResult<ObjectId> CoreState::ResetPortPositionToAuto(ObjectId port_id) {
 
 EditResult<ObjectId> CoreState::MoveAnchor(ObjectId anchor_id, const Vec3d& new_world_position) {
   EditResult<ObjectId> result;
-  Anchor* anchor = edit_state_.anchors.find(anchor_id);
+  Anchor* anchor = authoritative_.edit_state.anchors.find(anchor_id);
   if (anchor == nullptr) {
     result.error = "anchor not found";
     return result;
@@ -651,12 +651,12 @@ EditResult<ObjectId> CoreState::MoveAnchor(ObjectId anchor_id, const Vec3d& new_
 
 EditResult<ObjectId> CoreState::SetPoleFlip180(ObjectId pole_id, bool flip_180) {
   EditResult<ObjectId> result;
-  Pole* pole = edit_state_.poles.find(pole_id);
+  Pole* pole = authoritative_.edit_state.poles.find(pole_id);
   if (pole == nullptr) {
     result.error = "pole not found";
     return result;
   }
-  PoleOrientationOverride next = override_state_.pole_orientation_by_pole[pole_id];
+  PoleOrientationOverride next = authoritative_.override_state.pole_orientation_by_pole[pole_id];
   if (next.flip_180.has_value() && *next.flip_180 == flip_180) {
     result.ok = true;
     result.value = pole_id;
@@ -665,7 +665,7 @@ EditResult<ObjectId> CoreState::SetPoleFlip180(ObjectId pole_id, bool flip_180) 
 
   const Pole old_pole = *pole;
   next.flip_180 = flip_180;
-  override_state_.pole_orientation_by_pole[pole_id] = next;
+  authoritative_.override_state.pole_orientation_by_pole[pole_id] = next;
   finalize_pole_transform_update(pole_id, old_pole, &result.change_set);
 
   result.ok = true;
@@ -675,7 +675,7 @@ EditResult<ObjectId> CoreState::SetPoleFlip180(ObjectId pole_id, bool flip_180) 
 
 EditResult<ObjectId> CoreState::SetPoleManualYawOverride(ObjectId pole_id, double manual_yaw_deg) {
   EditResult<ObjectId> result;
-  Pole* pole = edit_state_.poles.find(pole_id);
+  Pole* pole = authoritative_.edit_state.poles.find(pole_id);
   if (pole == nullptr) {
     result.error = "pole not found";
     return result;
@@ -685,7 +685,7 @@ EditResult<ObjectId> CoreState::SetPoleManualYawOverride(ObjectId pole_id, doubl
     return result;
   }
 
-  PoleOrientationOverride next = override_state_.pole_orientation_by_pole[pole_id];
+  PoleOrientationOverride next = authoritative_.override_state.pole_orientation_by_pole[pole_id];
   if (next.manual_yaw_deg.has_value() && std::abs(*next.manual_yaw_deg - manual_yaw_deg) <= 1e-9) {
     result.ok = true;
     result.value = pole_id;
@@ -694,10 +694,10 @@ EditResult<ObjectId> CoreState::SetPoleManualYawOverride(ObjectId pole_id, doubl
 
   const Pole old_pole = *pole;
   next.manual_yaw_deg = normalize_yaw_deg(manual_yaw_deg);
-  override_state_.pole_orientation_by_pole[pole_id] = next;
+  authoritative_.override_state.pole_orientation_by_pole[pole_id] = next;
   pole->world_transform.rotation_euler_deg.z = *next.manual_yaw_deg;
   finalize_pole_transform_update(pole_id, old_pole, &result.change_set);
-  last_recalc_stats_ = ProcessDirtyQueues();
+  runtime_.last_recalc_stats = ProcessDirtyQueues();
 
   result.ok = true;
   result.value = pole_id;
@@ -706,13 +706,13 @@ EditResult<ObjectId> CoreState::SetPoleManualYawOverride(ObjectId pole_id, doubl
 
 EditResult<ObjectId> CoreState::ClearPoleOrientationOverride(ObjectId pole_id) {
   EditResult<ObjectId> result;
-  Pole* pole = edit_state_.poles.find(pole_id);
+  Pole* pole = authoritative_.edit_state.poles.find(pole_id);
   if (pole == nullptr) {
     result.error = "pole not found";
     return result;
   }
 
-  const bool had_override = override_state_.pole_orientation_by_pole.erase(pole_id) > 0;
+  const bool had_override = authoritative_.override_state.pole_orientation_by_pole.erase(pole_id) > 0;
   if (!had_override) {
     result.ok = true;
     result.value = pole_id;
@@ -720,7 +720,7 @@ EditResult<ObjectId> CoreState::ClearPoleOrientationOverride(ObjectId pole_id) {
   }
 
   const Pole old_pole = *pole;
-  if (const auto it = pole_orientation_debug_records_.find(pole_id); it != pole_orientation_debug_records_.end()) {
+  if (const auto it = debug_.pole_orientation_debug_records.find(pole_id); it != debug_.pole_orientation_debug_records.end()) {
     const Vec3d forward = it->second.adopted_forward;
     if ((forward.x * forward.x + forward.y * forward.y + forward.z * forward.z) > 1e-12) {
       pole->world_transform.rotation_euler_deg.z =
@@ -728,7 +728,7 @@ EditResult<ObjectId> CoreState::ClearPoleOrientationOverride(ObjectId pole_id) {
     }
   }
   finalize_pole_transform_update(pole_id, old_pole, &result.change_set);
-  last_recalc_stats_ = ProcessDirtyQueues();
+  runtime_.last_recalc_stats = ProcessDirtyQueues();
 
   result.ok = true;
   result.value = pole_id;
@@ -737,12 +737,12 @@ EditResult<ObjectId> CoreState::ClearPoleOrientationOverride(ObjectId pole_id) {
 
 EditResult<ObjectId> CoreState::SetSpanEndpointSocketOverride(ObjectId span_id, bool is_start_endpoint, int socket_id) {
   EditResult<ObjectId> result;
-  Span* span = edit_state_.spans.find(span_id);
+  Span* span = authoritative_.edit_state.spans.find(span_id);
   if (span == nullptr) {
     result.error = "span not found";
     return result;
   }
-  SpanEndpointOverride next = override_state_.span_endpoint_by_span[span_id];
+  SpanEndpointOverride next = authoritative_.override_state.span_endpoint_by_span[span_id];
   std::optional<int>& slot = is_start_endpoint ? next.socket_a_id : next.socket_b_id;
   if (slot.has_value() && *slot == socket_id) {
     result.ok = true;
@@ -750,7 +750,7 @@ EditResult<ObjectId> CoreState::SetSpanEndpointSocketOverride(ObjectId span_id, 
     return result;
   }
   slot = socket_id;
-  override_state_.span_endpoint_by_span[span_id] = next;
+  authoritative_.override_state.span_endpoint_by_span[span_id] = next;
   mark_span_dirty(span_id, DirtyBits::kGeometry, true);
   add_unique_id(result.change_set.updated_ids, span_id);
   add_unique_id(result.change_set.dirty_span_ids, span_id);
@@ -761,19 +761,19 @@ EditResult<ObjectId> CoreState::SetSpanEndpointSocketOverride(ObjectId span_id, 
 
 EditResult<ObjectId> CoreState::ClearSpanEndpointSocketOverride(ObjectId span_id, bool is_start_endpoint) {
   EditResult<ObjectId> result;
-  Span* span = edit_state_.spans.find(span_id);
+  Span* span = authoritative_.edit_state.spans.find(span_id);
   if (span == nullptr) {
     result.error = "span not found";
     return result;
   }
-  auto it = override_state_.span_endpoint_by_span.find(span_id);
+  auto it = authoritative_.override_state.span_endpoint_by_span.find(span_id);
   bool changed = false;
-  if (it != override_state_.span_endpoint_by_span.end()) {
+  if (it != authoritative_.override_state.span_endpoint_by_span.end()) {
     std::optional<int>& slot = is_start_endpoint ? it->second.socket_a_id : it->second.socket_b_id;
     changed = slot.has_value();
     slot.reset();
     if (!it->second.socket_a_id.has_value() && !it->second.socket_b_id.has_value()) {
-      override_state_.span_endpoint_by_span.erase(it);
+      authoritative_.override_state.span_endpoint_by_span.erase(it);
     }
   }
   if (!changed) {
@@ -791,7 +791,7 @@ EditResult<ObjectId> CoreState::ClearSpanEndpointSocketOverride(ObjectId span_id
 
 EditResult<ObjectId> CoreState::SetSpanBranchDownOffsetOverride(ObjectId span_id, double branch_down_offset_m) {
   EditResult<ObjectId> result;
-  Span* span = edit_state_.spans.find(span_id);
+  Span* span = authoritative_.edit_state.spans.find(span_id);
   if (span == nullptr) {
     result.error = "span not found";
     return result;
@@ -800,14 +800,14 @@ EditResult<ObjectId> CoreState::SetSpanBranchDownOffsetOverride(ObjectId span_id
     result.error = "branch down offset override must be finite and >= 0";
     return result;
   }
-  SpanSupportOverride next = override_state_.span_support_by_span[span_id];
+  SpanSupportOverride next = authoritative_.override_state.span_support_by_span[span_id];
   if (next.branch_down_offset_m.has_value() && std::abs(*next.branch_down_offset_m - branch_down_offset_m) <= 1e-9) {
     result.ok = true;
     result.value = span_id;
     return result;
   }
   next.branch_down_offset_m = branch_down_offset_m;
-  override_state_.span_support_by_span[span_id] = next;
+  authoritative_.override_state.span_support_by_span[span_id] = next;
   mark_span_dirty(span_id, DirtyBits::kGeometry | DirtyBits::kRender, true);
   add_unique_id(result.change_set.updated_ids, span_id);
   add_unique_id(result.change_set.dirty_span_ids, span_id);
@@ -818,12 +818,12 @@ EditResult<ObjectId> CoreState::SetSpanBranchDownOffsetOverride(ObjectId span_id
 
 EditResult<ObjectId> CoreState::ClearSpanBranchDownOffsetOverride(ObjectId span_id) {
   EditResult<ObjectId> result;
-  Span* span = edit_state_.spans.find(span_id);
+  Span* span = authoritative_.edit_state.spans.find(span_id);
   if (span == nullptr) {
     result.error = "span not found";
     return result;
   }
-  if (override_state_.span_support_by_span.erase(span_id) == 0) {
+  if (authoritative_.override_state.span_support_by_span.erase(span_id) == 0) {
     result.ok = true;
     result.value = span_id;
     return result;
@@ -838,7 +838,7 @@ EditResult<ObjectId> CoreState::ClearSpanBranchDownOffsetOverride(ObjectId span_
 
 EditResult<ObjectId> CoreState::SetPolePlacementMode(ObjectId pole_id, PlacementMode mode) {
   EditResult<ObjectId> result;
-  Pole* pole = edit_state_.poles.find(pole_id);
+  Pole* pole = authoritative_.edit_state.poles.find(pole_id);
   if (pole == nullptr) {
     result.error = "pole not found";
     return result;
@@ -870,54 +870,54 @@ void CoreState::refresh_owned_endpoints_from_pole(ObjectId pole_id, ChangeSet* c
 
 EditResult<ObjectId> CoreState::DeletePole(ObjectId pole_id) {
   EditResult<ObjectId> result;
-  const Pole* pole = edit_state_.poles.find(pole_id);
+  const Pole* pole = authoritative_.edit_state.poles.find(pole_id);
   if (pole == nullptr) {
     result.error = "pole not found";
     return result;
   }
 
   std::vector<ObjectId> owned_ports{};
-  if (const auto it = relation_index_.ports_by_pole.find(pole_id); it != relation_index_.ports_by_pole.end()) {
+  if (const auto it = runtime_.relation_index.ports_by_pole.find(pole_id); it != runtime_.relation_index.ports_by_pole.end()) {
     owned_ports = it->second;
   }
   std::vector<ObjectId> owned_anchors{};
-  if (const auto it = relation_index_.anchors_by_pole.find(pole_id); it != relation_index_.anchors_by_pole.end()) {
+  if (const auto it = runtime_.relation_index.anchors_by_pole.find(pole_id); it != runtime_.relation_index.anchors_by_pole.end()) {
     owned_anchors = it->second;
   }
 
   for (ObjectId port_id : owned_ports) {
-    const auto spans_it = connection_index_.spans_by_port.find(port_id);
-    if (spans_it != connection_index_.spans_by_port.end() && !spans_it->second.empty()) {
+    const auto spans_it = runtime_.connection_index.spans_by_port.find(port_id);
+    if (spans_it != runtime_.connection_index.spans_by_port.end() && !spans_it->second.empty()) {
       result.error = "pole still has connected spans";
       return result;
     }
   }
   for (ObjectId anchor_id : owned_anchors) {
-    const auto spans_it = connection_index_.spans_by_anchor.find(anchor_id);
-    if (spans_it != connection_index_.spans_by_anchor.end() && !spans_it->second.empty()) {
+    const auto spans_it = runtime_.connection_index.spans_by_anchor.find(anchor_id);
+    if (spans_it != runtime_.connection_index.spans_by_anchor.end() && !spans_it->second.empty()) {
       result.error = "pole still has connected anchors";
       return result;
     }
   }
 
   for (ObjectId port_id : owned_ports) {
-    connection_index_.spans_by_port.erase(port_id);
-    if (edit_state_.ports.remove(port_id)) {
+    runtime_.connection_index.spans_by_port.erase(port_id);
+    if (authoritative_.edit_state.ports.remove(port_id)) {
       add_unique_id(result.change_set.deleted_ids, port_id);
     }
   }
-  relation_index_.ports_by_pole.erase(pole_id);
+  runtime_.relation_index.ports_by_pole.erase(pole_id);
 
   for (ObjectId anchor_id : owned_anchors) {
-    connection_index_.spans_by_anchor.erase(anchor_id);
-    if (edit_state_.anchors.remove(anchor_id)) {
+    runtime_.connection_index.spans_by_anchor.erase(anchor_id);
+    if (authoritative_.edit_state.anchors.remove(anchor_id)) {
       add_unique_id(result.change_set.deleted_ids, anchor_id);
     }
   }
-  relation_index_.anchors_by_pole.erase(pole_id);
+  runtime_.relation_index.anchors_by_pole.erase(pole_id);
 
-  override_state_.pole_orientation_by_pole.erase(pole_id);
-  if (edit_state_.poles.remove(pole_id)) {
+  authoritative_.override_state.pole_orientation_by_pole.erase(pole_id);
+  if (authoritative_.edit_state.poles.remove(pole_id)) {
     add_unique_id(result.change_set.deleted_ids, pole_id);
   }
 
@@ -928,7 +928,7 @@ EditResult<ObjectId> CoreState::DeletePole(ObjectId pole_id) {
 
 EditResult<ObjectId> CoreState::DeleteSpan(ObjectId span_id) {
   EditResult<ObjectId> result;
-  const Span* span = edit_state_.spans.find(span_id);
+  const Span* span = authoritative_.edit_state.spans.find(span_id);
   if (span == nullptr) {
     result.error = "span not found";
     return result;
@@ -936,19 +936,19 @@ EditResult<ObjectId> CoreState::DeleteSpan(ObjectId span_id) {
 
   const Span copy = *span;
   remove_span_from_indexes(copy);
-  edit_state_.spans.remove(span_id);
-  span_runtime_states_.erase(span_id);
+  authoritative_.edit_state.spans.remove(span_id);
+  runtime_.span_runtime_states.erase(span_id);
   remove_span_from_caches(span_id);
 
   std::vector<ObjectId> remove_attachments{};
-  if (const auto it = relation_index_.attachments_by_span.find(span_id); it != relation_index_.attachments_by_span.end()) {
+  if (const auto it = runtime_.relation_index.attachments_by_span.find(span_id); it != runtime_.relation_index.attachments_by_span.end()) {
     remove_attachments = it->second;
   }
   for (ObjectId attachment_id : remove_attachments) {
-    edit_state_.attachments.remove(attachment_id);
+    authoritative_.edit_state.attachments.remove(attachment_id);
     add_unique_id(result.change_set.deleted_ids, attachment_id);
   }
-  relation_index_.attachments_by_span.erase(span_id);
+  runtime_.relation_index.attachments_by_span.erase(span_id);
 
   result.ok = true;
   result.value = span_id;
@@ -963,14 +963,14 @@ EditResult<SplitSpanResult> CoreState::SplitSpan(ObjectId span_id, double t) {
     return result;
   }
 
-  const Span* span = edit_state_.spans.find(span_id);
+  const Span* span = authoritative_.edit_state.spans.find(span_id);
   if (span == nullptr) {
     result.error = "span not found";
     return result;
   }
   const Span old_span = *span;
-  const Port* port_a = edit_state_.ports.find(old_span.port_a_id);
-  const Port* port_b = edit_state_.ports.find(old_span.port_b_id);
+  const Port* port_a = authoritative_.edit_state.ports.find(old_span.port_a_id);
+  const Port* port_b = authoritative_.edit_state.ports.find(old_span.port_b_id);
   if (port_a == nullptr || port_b == nullptr) {
     result.error = "span endpoints are missing";
     return result;
@@ -989,7 +989,7 @@ EditResult<SplitSpanResult> CoreState::SplitSpan(ObjectId span_id, double t) {
     result.error = add_port_result.error;
     return result;
   }
-  if (Port* split_port = edit_state_.ports.find(add_port_result.value); split_port != nullptr) {
+  if (Port* split_port = authoritative_.edit_state.ports.find(add_port_result.value); split_port != nullptr) {
     apply_port_position_mode(*split_port, PortPositionMode::kAuto, PortPlacementSourceKind::kAerialBranch);
     add_unique_id(add_port_result.change_set.updated_ids, split_port->id);
   }
@@ -1030,7 +1030,7 @@ EditResult<SplitSpanResult> CoreState::SplitSpan(ObjectId span_id, double t) {
 
 EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_type_id) {
   EditResult<ObjectId> result;
-  Pole* pole = edit_state_.poles.find(pole_id);
+  Pole* pole = authoritative_.edit_state.poles.find(pole_id);
   if (pole == nullptr) {
     result.error = "pole not found";
     return result;
@@ -1046,10 +1046,10 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
 
   const double anchor_yaw = effective_pole_yaw_deg(*pole);
   std::vector<const Anchor*> anchors_on_pole;
-  const auto anchor_ids_it = relation_index_.anchors_by_pole.find(pole_id);
-  if (anchor_ids_it != relation_index_.anchors_by_pole.end()) {
+  const auto anchor_ids_it = runtime_.relation_index.anchors_by_pole.find(pole_id);
+  if (anchor_ids_it != runtime_.relation_index.anchors_by_pole.end()) {
     for (ObjectId anchor_id : anchor_ids_it->second) {
-      const Anchor* anchor = edit_state_.anchors.find(anchor_id);
+      const Anchor* anchor = authoritative_.edit_state.anchors.find(anchor_id);
       if (anchor != nullptr) {
         anchors_on_pole.push_back(anchor);
       }
@@ -1061,7 +1061,7 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
       continue;
     }
     Vec3d adjusted_local{0.0, band.lateral_center_m, band.height_center_m};
-    const bool apply_angle_correction = layout_settings_.angle_correction_enabled &&
+    const bool apply_angle_correction = authoritative_.layout_settings.angle_correction_enabled &&
                                         pole->context.kind == PoleContextKind::kCorner &&
                                         band.side != SlotSide::kCenter;
     double applied_scale = 1.0;
@@ -1083,7 +1083,7 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
       result.error = add_port_result.error;
       return result;
     }
-    Port* created = edit_state_.ports.find(add_port_result.value);
+    Port* created = authoritative_.edit_state.ports.find(add_port_result.value);
     if (created != nullptr) {
       created->category = band.category;
       created->template_layer = band.layer;
@@ -1130,7 +1130,7 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
       result.error = add_anchor_result.error;
       return result;
     }
-    Anchor* created = edit_state_.anchors.find(add_anchor_result.value);
+    Anchor* created = authoritative_.edit_state.anchors.find(add_anchor_result.value);
     if (created != nullptr) {
       created->generated_from_template = true;
       add_unique_id(result.change_set.updated_ids, created->id);
@@ -1153,7 +1153,7 @@ EditResult<AddConnectionByPoleResult>
 CoreState::AddConnectionByPole(ObjectId pole_a_id, ObjectId pole_b_id, ConnectionCategory category,
                                const AddConnectionByPoleOptions& options) {
   EditResult<AddConnectionByPoleResult> result;
-  if (edit_state_.poles.find(pole_a_id) == nullptr || edit_state_.poles.find(pole_b_id) == nullptr) {
+  if (authoritative_.edit_state.poles.find(pole_a_id) == nullptr || authoritative_.edit_state.poles.find(pole_b_id) == nullptr) {
     result.error = "pole does not exist";
     return result;
   }
@@ -1168,7 +1168,7 @@ CoreState::AddConnectionByPole(ObjectId pole_a_id, ObjectId pole_b_id, Connectio
   if (options.use_bundle_template) {
     resolved_bundle_template = find_bundle_template(options.bundle_template_id);
   } else if (options.bundle_id != kInvalidObjectId) {
-    const Bundle* existing_bundle = edit_state_.bundles.find(options.bundle_id);
+    const Bundle* existing_bundle = authoritative_.edit_state.bundles.find(options.bundle_id);
     if (existing_bundle != nullptr) {
       resolved_bundle_template = find_bundle_template(existing_bundle->bundle_template_id);
     }
@@ -1185,8 +1185,8 @@ CoreState::AddConnectionByPole(ObjectId pole_a_id, ObjectId pole_b_id, Connectio
     resolved_span_layer = options.span_layer;
   }
 
-  const Pole* pole_a = edit_state_.poles.find(pole_a_id);
-  const Pole* pole_b = edit_state_.poles.find(pole_b_id);
+  const Pole* pole_a = authoritative_.edit_state.poles.find(pole_a_id);
+  const Pole* pole_b = authoritative_.edit_state.poles.find(pole_b_id);
   const PoleContextKind pole_context_a = (options.pole_context_a != PoleContextKind::kStraight || (pole_a == nullptr))
                                              ? options.pole_context_a
                                              : pole_a->context.kind;
@@ -1209,7 +1209,7 @@ CoreState::AddConnectionByPole(ObjectId pole_a_id, ObjectId pole_b_id, Connectio
   auto resolve_port = [&](ObjectId pole_id, ObjectId preferred_port_id,
                           const Port* preferred_template_port) -> EditResult<ObjectId> {
     if (preferred_port_id != kInvalidObjectId) {
-      const Port* preferred_port = edit_state_.ports.find(preferred_port_id);
+      const Port* preferred_port = authoritative_.edit_state.ports.find(preferred_port_id);
       if (preferred_port != nullptr && preferred_port->owner_pole_id == pole_id &&
           (preferred_port->category == resolved_category ||
            preferred_port->layer == category_to_port_layer(resolved_category))) {
@@ -1244,7 +1244,7 @@ CoreState::AddConnectionByPole(ObjectId pole_a_id, ObjectId pole_b_id, Connectio
     result.error = port_a_result.error;
     return result;
   }
-  const Port* preferred_template_port = edit_state_.ports.find(port_a_result.value);
+  const Port* preferred_template_port = authoritative_.edit_state.ports.find(port_a_result.value);
   EditResult<ObjectId> port_b_result = resolve_port(pole_b_id, options.preferred_port_b_id, preferred_template_port);
   if (!port_b_result.ok) {
     result.error = port_b_result.error;
@@ -1264,7 +1264,7 @@ CoreState::AddConnectionByPole(ObjectId pole_a_id, ObjectId pole_b_id, Connectio
     result.error = span_result.error;
     return result;
   }
-  Span* created_span = edit_state_.spans.find(span_result.value);
+  Span* created_span = authoritative_.edit_state.spans.find(span_result.value);
   if (created_span != nullptr) {
     created_span->placement_context = options.connection_context;
     created_span->generated_by_rule = (created_span->generation.source == GenerationSource::kRoadAuto) ||
@@ -1286,7 +1286,7 @@ CoreState::AddConnectionByPole(ObjectId pole_a_id, ObjectId pole_b_id, Connectio
 EditResult<AddDropResult>
 CoreState::AddDropFromPole(ObjectId source_pole_id, const Vec3d& target_world_position, ConnectionCategory category) {
   EditResult<AddDropResult> result;
-  if (edit_state_.poles.find(source_pole_id) == nullptr) {
+  if (authoritative_.edit_state.poles.find(source_pole_id) == nullptr) {
     result.error = "source pole does not exist";
     return result;
   }
@@ -1310,7 +1310,7 @@ CoreState::AddDropFromPole(ObjectId source_pole_id, const Vec3d& target_world_po
   request.pole_id = source_pole_id;
   request.category = resolved_category;
   request.connection_context = ConnectionContext::kDropAdd;
-  const Pole* source_pole = edit_state_.poles.find(source_pole_id);
+  const Pole* source_pole = authoritative_.edit_state.poles.find(source_pole_id);
   request.pole_context = (source_pole == nullptr) ? PoleContextKind::kTerminal : source_pole->context.kind;
   request.corner_angle_deg = (source_pole == nullptr) ? 0.0 : source_pole->context.corner_angle_deg;
   request.corner_turn_sign = (source_pole == nullptr) ? 0.0 : source_pole->context.corner_turn_sign;
@@ -1338,7 +1338,7 @@ CoreState::AddDropFromPole(ObjectId source_pole_id, const Vec3d& target_world_po
     result.error = span_result.error;
     return result;
   }
-  Span* created_span = edit_state_.spans.find(span_result.value);
+  Span* created_span = authoritative_.edit_state.spans.find(span_result.value);
   if (created_span != nullptr) {
     created_span->placement_context = ConnectionContext::kDropAdd;
     created_span->generated_by_rule = true;
@@ -1399,7 +1399,7 @@ EditResult<AddDropResult> CoreState::AddDropFromSpan(ObjectId source_span_id, do
     result.error = span_result.error;
     return result;
   }
-  Span* created_span = edit_state_.spans.find(span_result.value);
+  Span* created_span = authoritative_.edit_state.spans.find(span_result.value);
   if (created_span != nullptr) {
     created_span->placement_context = ConnectionContext::kDropAdd;
     created_span->generated_by_rule = true;
@@ -1427,17 +1427,17 @@ EditResult<bool> CoreState::UpdateGeometrySettings(const GeometrySettings& setti
   }
   normalized.pole_clearance_m = std::max(0.0, normalized.pole_clearance_m);
 
-  const bool changed = normalized.curve_samples != cache_state_.geometry_settings.curve_samples ||
-                       normalized.sag_enabled != cache_state_.geometry_settings.sag_enabled ||
-                       std::abs(normalized.sag_factor - cache_state_.geometry_settings.sag_factor) > 1e-12 ||
-                       std::abs(normalized.pole_clearance_m - cache_state_.geometry_settings.pole_clearance_m) > 1e-12;
+  const bool changed = normalized.curve_samples != runtime_.cache_state.geometry_settings.curve_samples ||
+                       normalized.sag_enabled != runtime_.cache_state.geometry_settings.sag_enabled ||
+                       std::abs(normalized.sag_factor - runtime_.cache_state.geometry_settings.sag_factor) > 1e-12 ||
+                       std::abs(normalized.pole_clearance_m - runtime_.cache_state.geometry_settings.pole_clearance_m) > 1e-12;
 
-  cache_state_.geometry_settings = normalized;
+  runtime_.cache_state.geometry_settings = normalized;
   result.ok = true;
   result.value = changed;
 
   if (changed && mark_all_spans_dirty) {
-    for (const Span& span : edit_state_.spans.items()) {
+    for (const Span& span : authoritative_.edit_state.spans.items()) {
       mark_span_dirty(span.id, DirtyBits::kGeometry, true);
       add_unique_id(result.change_set.dirty_span_ids, span.id);
       add_unique_id(result.change_set.updated_ids, span.id);
@@ -1453,12 +1453,12 @@ EditResult<bool> CoreState::UpdateLayoutSettings(const LayoutSettings& settings)
   normalized.min_side_scale = std::clamp(normalized.min_side_scale, 0.5, 4.0);
   normalized.max_side_scale = std::clamp(normalized.max_side_scale, normalized.min_side_scale, 6.0);
 
-  const bool changed = normalized.angle_correction_enabled != layout_settings_.angle_correction_enabled ||
-                       std::abs(normalized.corner_threshold_deg - layout_settings_.corner_threshold_deg) > 1e-9 ||
-                       std::abs(normalized.min_side_scale - layout_settings_.min_side_scale) > 1e-9 ||
-                       std::abs(normalized.max_side_scale - layout_settings_.max_side_scale) > 1e-9;
+  const bool changed = normalized.angle_correction_enabled != authoritative_.layout_settings.angle_correction_enabled ||
+                       std::abs(normalized.corner_threshold_deg - authoritative_.layout_settings.corner_threshold_deg) > 1e-9 ||
+                       std::abs(normalized.min_side_scale - authoritative_.layout_settings.min_side_scale) > 1e-9 ||
+                       std::abs(normalized.max_side_scale - authoritative_.layout_settings.max_side_scale) > 1e-9;
 
-  layout_settings_ = normalized;
+  authoritative_.layout_settings = normalized;
   result.ok = true;
   result.value = changed;
   return result;
@@ -1472,19 +1472,19 @@ EditResult<bool> CoreState::UpdateVisualSettings(const VisualSettings& settings,
   normalized.insulator_radius_m = std::max(0.0, normalized.insulator_radius_m);
   normalized.insulator_length_m = std::max(0.0, normalized.insulator_length_m);
 
-  const bool changed = normalized.enable_support_structures != cache_state_.visual_settings.enable_support_structures ||
-                       normalized.enable_insulators != cache_state_.visual_settings.enable_insulators ||
+  const bool changed = normalized.enable_support_structures != runtime_.cache_state.visual_settings.enable_support_structures ||
+                       normalized.enable_insulators != runtime_.cache_state.visual_settings.enable_insulators ||
                        std::abs(normalized.support_center_threshold_m -
-                                cache_state_.visual_settings.support_center_threshold_m) > 1e-12 ||
-                       std::abs(normalized.support_arm_extra_m - cache_state_.visual_settings.support_arm_extra_m) > 1e-12 ||
-                       std::abs(normalized.insulator_radius_m - cache_state_.visual_settings.insulator_radius_m) > 1e-12 ||
-                       std::abs(normalized.insulator_length_m - cache_state_.visual_settings.insulator_length_m) > 1e-12;
+                                runtime_.cache_state.visual_settings.support_center_threshold_m) > 1e-12 ||
+                       std::abs(normalized.support_arm_extra_m - runtime_.cache_state.visual_settings.support_arm_extra_m) > 1e-12 ||
+                       std::abs(normalized.insulator_radius_m - runtime_.cache_state.visual_settings.insulator_radius_m) > 1e-12 ||
+                       std::abs(normalized.insulator_length_m - runtime_.cache_state.visual_settings.insulator_length_m) > 1e-12;
 
-  cache_state_.visual_settings = normalized;
+  runtime_.cache_state.visual_settings = normalized;
   result.ok = true;
   result.value = changed;
   if (changed && mark_all_spans_dirty) {
-    for (const Span& span : edit_state_.spans.items()) {
+    for (const Span& span : authoritative_.edit_state.spans.items()) {
       mark_span_dirty(span.id, DirtyBits::kRender, true);
       add_unique_id(result.change_set.dirty_span_ids, span.id);
       add_unique_id(result.change_set.updated_ids, span.id);
@@ -1505,7 +1505,7 @@ EditResult<bool> CoreState::UpdateVariationSettings(const VariationSettings& set
   normalized.sag_variation_scale = std::max(0.0, normalized.sag_variation_scale);
   normalized.branch_down_offset_variation_scale = std::max(0.0, normalized.branch_down_offset_variation_scale);
 
-  const VariationSettings& current = cache_state_.variation_settings;
+  const VariationSettings& current = runtime_.cache_state.variation_settings;
   const bool changed =
       normalized.enabled != current.enabled || normalized.global_seed != current.global_seed ||
       std::abs(normalized.world_cell_size_m - current.world_cell_size_m) > 1e-12 ||
@@ -1516,11 +1516,11 @@ EditResult<bool> CoreState::UpdateVariationSettings(const VariationSettings& set
       std::abs(normalized.sag_variation_scale - current.sag_variation_scale) > 1e-12 ||
       std::abs(normalized.branch_down_offset_variation_scale - current.branch_down_offset_variation_scale) > 1e-12;
 
-  cache_state_.variation_settings = normalized;
+  runtime_.cache_state.variation_settings = normalized;
   result.ok = true;
   result.value = changed;
   if (changed && mark_all_spans_dirty) {
-    for (const Span& span : edit_state_.spans.items()) {
+    for (const Span& span : authoritative_.edit_state.spans.items()) {
       mark_span_dirty(span.id, DirtyBits::kGeometry | DirtyBits::kRender, true);
       add_unique_id(result.change_set.dirty_span_ids, span.id);
       add_unique_id(result.change_set.updated_ids, span.id);
@@ -1595,7 +1595,7 @@ double CoreState::effective_pole_layout_yaw_deg(const Pole& pole) const {
   if (has_pole_orientation_override(pole.id)) {
     return effective_pole_yaw_deg(pole);
   }
-  if (const auto it = pole_orientation_debug_records_.find(pole.id); it != pole_orientation_debug_records_.end()) {
+  if (const auto it = debug_.pole_orientation_debug_records.find(pole.id); it != debug_.pole_orientation_debug_records.end()) {
     Vec3d support_axis = it->second.adopted_support_axis;
     if (Normalize(&support_axis)) {
       return normalize_yaw_deg(std::atan2(support_axis.y, support_axis.x) * (180.0 / 3.14159265358979323846) - 90.0);
@@ -1623,18 +1623,18 @@ SlotSide CoreState::preferred_side_from_geometry(const Pole& pole, const Pole* p
 }
 
 double CoreState::compute_side_scale(PoleContextKind context, double corner_angle_deg) const {
-  if (!layout_settings_.angle_correction_enabled || context != PoleContextKind::kCorner) {
+  if (!authoritative_.layout_settings.angle_correction_enabled || context != PoleContextKind::kCorner) {
     return 1.0;
   }
-  const double threshold = std::max(0.0, layout_settings_.corner_threshold_deg);
+  const double threshold = std::max(0.0, authoritative_.layout_settings.corner_threshold_deg);
   if (corner_angle_deg <= threshold + 1e-9) {
     return 1.0;
   }
   const double denom = std::max(1e-6, 180.0 - threshold);
   const double normalized = std::clamp((corner_angle_deg - threshold) / denom, 0.0, 1.0);
-  const double scale = layout_settings_.min_side_scale +
-                       (layout_settings_.max_side_scale - layout_settings_.min_side_scale) * normalized;
-  return std::clamp(scale, layout_settings_.min_side_scale, layout_settings_.max_side_scale);
+  const double scale = authoritative_.layout_settings.min_side_scale +
+                       (authoritative_.layout_settings.max_side_scale - authoritative_.layout_settings.min_side_scale) * normalized;
+  return std::clamp(scale, authoritative_.layout_settings.min_side_scale, authoritative_.layout_settings.max_side_scale);
 }
 
 double CoreState::compute_corner_angle_deg(const Vec3d& prev, const Vec3d& curr, const Vec3d& next) {
@@ -1692,10 +1692,10 @@ PoleContextInfo CoreState::classify_pole_context_from_path(const std::vector<Vec
   } else {
     info.corner_turn_sign = 0.0;
   }
-  if (info.corner_angle_deg >= layout_settings_.corner_threshold_deg) {
+  if (info.corner_angle_deg >= authoritative_.layout_settings.corner_threshold_deg) {
     info.kind = PoleContextKind::kCorner;
     info.side_scale = compute_side_scale(info.kind, info.corner_angle_deg);
-    info.angle_correction_applied = layout_settings_.angle_correction_enabled;
+    info.angle_correction_applied = authoritative_.layout_settings.angle_correction_enabled;
   } else {
     info.kind = PoleContextKind::kStraight;
     info.corner_angle_deg = 0.0;
@@ -1707,7 +1707,7 @@ PoleContextInfo CoreState::classify_pole_context_from_path(const std::vector<Vec
 }
 
 std::string CoreState::next_display_id(std::string_view prefix) {
-  std::uint64_t& serial = display_id_counters_[std::string(prefix)];
+  std::uint64_t& serial = identity_.display_id_counters[std::string(prefix)];
   ++serial;
   return make_display_id(prefix, serial);
 }
@@ -1810,7 +1810,7 @@ double CoreState::pole_radius_at_height_m(const Pole& pole, double local_z_m) co
 
 Vec3d CoreState::apply_pole_clearance_to_local(const Pole& pole, const Vec3d& local, SlotSide side) const {
   Vec3d adjusted = local;
-  const double min_offset = pole_radius_at_height_m(pole, std::max(0.0, adjusted.z)) + cache_state_.geometry_settings.pole_clearance_m;
+  const double min_offset = pole_radius_at_height_m(pole, std::max(0.0, adjusted.z)) + runtime_.cache_state.geometry_settings.pole_clearance_m;
   double sign = (adjusted.y >= 0.0) ? 1.0 : -1.0;
   if (side == SlotSide::kLeft) {
     sign = -1.0;
@@ -2032,3 +2032,4 @@ CoreState make_demo_state() {
 }
 
 } // namespace wire::core
+

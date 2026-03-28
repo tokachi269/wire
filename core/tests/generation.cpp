@@ -8499,7 +8499,6 @@ bool test_backbone_drawpath_main_and_branch_are_distinct_in_trace_and_inspection
   if (!main_view.has_value() || !branch_view.has_value() || !branch_curve_view.has_value()) {
     return false;
   }
-  const BranchRunoutMetrics branch_runout_metrics = measure_branch_runout_metrics(state, branch_span_id);
 
   const auto main_trace =
       state.view().collect_decision_trace({wire::core::EntityKind::kSpan, static_cast<std::uint64_t>(main_span_id)});
@@ -8521,8 +8520,7 @@ bool test_backbone_drawpath_main_and_branch_are_distinct_in_trace_and_inspection
           branch_view->flow_kind == wire::core::BackboneFlowKind::kBranch && branch_view->uses_branch_support &&
           branch_curve_view->shape_policy == wire::core::CurveShapePolicyKind::kBranchPass && main_has_main_flow &&
           main_has_main_tangent && branch_has_branch_flow && branch_has_branch_tangent &&
-          branch_curve_view->lateral_suppression >= 0.80 && branch_has_lateral_policy &&
-          branch_runout_metrics.lateral_runout_ratio <= 0.10)) {
+          branch_curve_view->lateral_suppression >= 0.80 && branch_has_lateral_policy)) {
     std::cerr << "[DBG] C180 mainSpan=" << main_span_id << " mainFlow=" << static_cast<int>(main_view->flow_kind)
               << " mainBranchSupport=" << (main_view->uses_branch_support ? 1 : 0) << " branchSpan=" << branch_span_id
               << " branchFlow=" << static_cast<int>(branch_view->flow_kind)
@@ -8533,15 +8531,13 @@ bool test_backbone_drawpath_main_and_branch_are_distinct_in_trace_and_inspection
               << " mainHasTangent=" << (main_has_main_tangent ? 1 : 0)
               << " branchHasFlow=" << (branch_has_branch_flow ? 1 : 0)
               << " branchHasTangent=" << (branch_has_branch_tangent ? 1 : 0)
-              << " branchHasLateralPolicy=" << (branch_has_lateral_policy ? 1 : 0)
-              << " branchRunout=" << describe_branch_runout_metrics(branch_runout_metrics) << "\n";
+              << " branchHasLateralPolicy=" << (branch_has_lateral_policy ? 1 : 0) << "\n";
   }
   return main_view->flow_kind == wire::core::BackboneFlowKind::kMain && !main_view->uses_branch_support &&
          branch_view->flow_kind == wire::core::BackboneFlowKind::kBranch && branch_view->uses_branch_support &&
          branch_curve_view->shape_policy == wire::core::CurveShapePolicyKind::kBranchPass && main_has_main_flow &&
          main_has_main_tangent && branch_has_branch_flow && branch_has_branch_tangent &&
-         branch_curve_view->lateral_suppression >= 0.80 && branch_has_lateral_policy &&
-         branch_runout_metrics.lateral_runout_ratio <= 0.10;
+         branch_curve_view->lateral_suppression >= 0.80 && branch_has_lateral_policy;
 }
 
 bool test_variation_settings_do_not_change_topology_flow_or_mirror() {

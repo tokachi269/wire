@@ -672,10 +672,9 @@ bool NearlySameWorld(const wire::core::Vec3d& a, const wire::core::Vec3d& b, dou
   return std::abs(a.x - b.x) <= eps && std::abs(a.y - b.y) <= eps && std::abs(a.z - b.z) <= eps;
 }
 
-std::vector<PoleHeightMarker> BuildPoleHeightMarkers(const CoreState& state, const wire::core::Pole& pole,
-                                                     const ViewerUiState& ui_state) {
+std::vector<PoleHeightMarker> BuildPoleHeightMarkers(const wire::core::CoreView& view,
+                                                     const wire::core::Pole& pole, const ViewerUiState& ui_state) {
   std::vector<PoleHeightMarker> markers{};
-  const auto view = viewer_core_state::View(state);
   std::vector<const wire::core::Port*> owned_ports{};
   if (const auto ports_it = view.relation_index().ports_by_pole.find(pole.id);
       ports_it != view.relation_index().ports_by_pole.end()) {
@@ -861,6 +860,7 @@ void DrawPoleHeightDebugView(CoreState& state, ViewerUiState& ui_state, const wi
   if (!ImGui::CollapsingHeader("Pole Height Debug", ImGuiTreeNodeFlags_DefaultOpen)) {
     return;
   }
+  const auto view = viewer_core_state::View(state);
 
   ImGui::Checkbox("Show Ports", &ui_state.pole_height_view_show_ports);
   ImGui::SameLine();
@@ -869,7 +869,7 @@ void DrawPoleHeightDebugView(CoreState& state, ViewerUiState& ui_state, const wi
   ImGui::Checkbox("Show Bundles", &ui_state.pole_height_view_show_bundles);
   ImGui::TextUnformatted("Height only. X is auto-resolved from pole radius + clearance.");
 
-  const std::vector<PoleHeightMarker> markers = BuildPoleHeightMarkers(state, pole, ui_state);
+  const std::vector<PoleHeightMarker> markers = BuildPoleHeightMarkers(view, pole, ui_state);
   const float canvas_width = std::max(280.0f, ImGui::GetContentRegionAvail().x);
   const float canvas_height = 260.0f;
   const ImVec2 canvas_pos = ImGui::GetCursorScreenPos();
@@ -1609,8 +1609,7 @@ void DrawEditSelectedPanel(CoreState& state, ViewerUiState& ui_state) {
   ImGui::TextUnformatted("Use DrawPath as the only generation/edit entry.");
 }
 
-void DrawTopbarWindow(const CoreState& state, ViewerUiState& ui_state) {
-  const auto view = viewer_core_state::View(state);
+void DrawTopbarWindow(const wire::core::CoreView& view, ViewerUiState& ui_state) {
   const float w = static_cast<float>(GetScreenWidth());
   const float topbar_h = 74.0f;
   ImGui::SetNextWindowPos(ImVec2(8.0f, 8.0f), ImGuiCond_Always);
@@ -1700,9 +1699,8 @@ void DrawInspectorWindow(CoreState& state, ViewerUiState& ui_state) {
   ImGui::End();
 }
 
-void DrawOutlinerContent(CoreState& state, ViewerUiState& ui_state) {
-  const auto view = viewer_core_state::View(state);
-  const wire::core::BackboneResult backbone = viewer_core_state::BuildBackboneResult(state);
+void DrawOutlinerContent(const wire::core::CoreView& view, const wire::core::BackboneResult& backbone,
+                         ViewerUiState& ui_state) {
   DrawObjectList(
       ui_state, "Poles", SelectedType::kPole,
       [&]() {
@@ -1779,6 +1777,8 @@ void DrawOutlinerContent(CoreState& state, ViewerUiState& ui_state) {
 }
 
 void DrawOutlinerWindow(CoreState& state, ViewerUiState& ui_state) {
+  const auto view = viewer_core_state::View(state);
+  const wire::core::BackboneResult backbone = viewer_core_state::BuildBackboneResult(state);
   ImGui::SetNextWindowPos(ImVec2(8.0f, 620.0f), ImGuiCond_FirstUseEver);
   ImGui::SetNextWindowSize(ImVec2(420.0f, 260.0f), ImGuiCond_FirstUseEver);
   const ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse;
@@ -1786,7 +1786,7 @@ void DrawOutlinerWindow(CoreState& state, ViewerUiState& ui_state) {
     ImGui::End();
     return;
   }
-  DrawOutlinerContent(state, ui_state);
+  DrawOutlinerContent(view, backbone, ui_state);
   ImGui::End();
 }
 
@@ -2326,6 +2326,8 @@ void DrawUnifiedWorkspaceWindow(CoreState& state, ViewerUiState& ui_state) {
   if (!ui_state.ui_show_workspace) {
     return;
   }
+  const auto view = viewer_core_state::View(state);
+  const wire::core::BackboneResult backbone = viewer_core_state::BuildBackboneResult(state);
   const float screen_w = static_cast<float>(GetScreenWidth());
   const float screen_h = static_cast<float>(GetScreenHeight());
   const float topbar_h = 74.0f;
@@ -2360,7 +2362,7 @@ void DrawUnifiedWorkspaceWindow(CoreState& state, ViewerUiState& ui_state) {
       ImGui::EndTabItem();
     }
     if (ImGui::BeginTabItem("Outliner")) {
-      DrawOutlinerContent(state, ui_state);
+      DrawOutlinerContent(view, backbone, ui_state);
       ImGui::EndTabItem();
     }
     if (ImGui::BeginTabItem("Diagnostics")) {
@@ -2375,7 +2377,7 @@ void DrawUnifiedWorkspaceWindow(CoreState& state, ViewerUiState& ui_state) {
 } // namespace
 
 void DrawStatsPanel(CoreState& state, ViewerUiState& ui_state) {
-  DrawTopbarWindow(state, ui_state);
+  DrawTopbarWindow(viewer_core_state::View(state), ui_state);
   if (ui_state.ui_unified_workspace) {
     DrawUnifiedWorkspaceWindow(state, ui_state);
   } else {

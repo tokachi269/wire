@@ -94,21 +94,21 @@ std::vector<JunctionInfo> BuildJunctionsFromRelations(
 
 PoleDetailInfo CoreState::GetPoleDetail(ObjectId pole_id) const {
   PoleDetailInfo detail{};
-  detail.pole = edit_state_.poles.find(pole_id);
+  detail.pole = authoritative_.edit_state.poles.find(pole_id);
   if (detail.pole == nullptr) {
     return detail;
   }
   detail.pole_type = find_pole_type(detail.pole->pole_type_id);
-  if (const auto it = relation_index_.ports_by_pole.find(pole_id); it != relation_index_.ports_by_pole.end()) {
+  if (const auto it = runtime_.relation_index.ports_by_pole.find(pole_id); it != runtime_.relation_index.ports_by_pole.end()) {
     for (ObjectId port_id : it->second) {
-      if (const Port* port = edit_state_.ports.find(port_id); port != nullptr) {
+      if (const Port* port = authoritative_.edit_state.ports.find(port_id); port != nullptr) {
         detail.owned_ports.push_back(port);
       }
     }
   }
-  if (const auto it = relation_index_.anchors_by_pole.find(pole_id); it != relation_index_.anchors_by_pole.end()) {
+  if (const auto it = runtime_.relation_index.anchors_by_pole.find(pole_id); it != runtime_.relation_index.anchors_by_pole.end()) {
     for (ObjectId anchor_id : it->second) {
-      if (const Anchor* anchor = edit_state_.anchors.find(anchor_id); anchor != nullptr) {
+      if (const Anchor* anchor = authoritative_.edit_state.anchors.find(anchor_id); anchor != nullptr) {
         detail.owned_anchors.push_back(anchor);
       }
     }
@@ -125,13 +125,13 @@ std::vector<ObjectId> CoreState::GetSpansByBundle(ObjectId bundle_id) const {
   if (bundle_id == kInvalidObjectId) {
     return span_ids;
   }
-  auto it = relation_index_.spans_by_bundle.find(bundle_id);
-  if (it == relation_index_.spans_by_bundle.end()) {
+  auto it = runtime_.relation_index.spans_by_bundle.find(bundle_id);
+  if (it == runtime_.relation_index.spans_by_bundle.end()) {
     return span_ids;
   }
   span_ids.reserve(it->second.size());
   for (ObjectId span_id : it->second) {
-    if (edit_state_.spans.find(span_id) != nullptr) {
+    if (authoritative_.edit_state.spans.find(span_id) != nullptr) {
       span_ids.push_back(span_id);
     }
   }
@@ -202,7 +202,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
     if (out_kind == nullptr || out_position == nullptr) {
       return false;
     }
-    for (const SupportNode& node : last_generation_support_nodes_) {
+    for (const SupportNode& node : debug_.last_generation_support_nodes) {
       if (node.node_id != node_id) {
         continue;
       }
@@ -210,7 +210,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
       *out_position = node.position;
       return true;
     }
-    const Pole* pole = edit_state_.poles.find(node_id);
+    const Pole* pole = authoritative_.edit_state.poles.find(node_id);
     if (pole != nullptr) {
       *out_kind = SupportKind::kPole;
       *out_position = pole->world_transform.position;
@@ -230,9 +230,9 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
     *out_pos_b = pick.segment_endpoint_b_world;
     bool has_endpoints = pick.has_segment_endpoints;
 
-    if (const Span* span = edit_state_.spans.find(pick.hit_id); span != nullptr) {
-      const Port* pa = edit_state_.ports.find(span->port_a_id);
-      const Port* pb = edit_state_.ports.find(span->port_b_id);
+    if (const Span* span = authoritative_.edit_state.spans.find(pick.hit_id); span != nullptr) {
+      const Port* pa = authoritative_.edit_state.ports.find(span->port_a_id);
+      const Port* pb = authoritative_.edit_state.ports.find(span->port_b_id);
       if (pa != nullptr && pb != nullptr) {
         auto resolve_endpoint = [&](bool is_a, const Port* port, ObjectId* out_node_id, Vec3d* out_pos) {
           const ObjectId explicit_node_id = is_a ? span->endpoint_node_a_id : span->endpoint_node_b_id;
@@ -244,7 +244,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
           if (node_id != kInvalidObjectId && resolve_node_info(node_id, &kind, &node_pos)) {
             *out_pos = node_pos;
           } else if (port->owner_pole_id != kInvalidObjectId) {
-            if (const Pole* pole = edit_state_.poles.find(port->owner_pole_id); pole != nullptr) {
+            if (const Pole* pole = authoritative_.edit_state.poles.find(port->owner_pole_id); pole != nullptr) {
               *out_pos = pole->world_transform.position;
             }
           }
@@ -310,7 +310,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
   }
 
   constexpr double kReuseEps2 = 1e-10;
-  for (const SupportNode& node : last_generation_support_nodes_) {
+  for (const SupportNode& node : debug_.last_generation_support_nodes) {
     if (node.support_kind != SupportKind::kMidair) {
       continue;
     }
@@ -318,7 +318,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
       continue;
     }
     if (options.create_midair_node && has_endpoints) {
-      for (SupportNode& mutable_node : last_generation_support_nodes_) {
+      for (SupportNode& mutable_node : debug_.last_generation_support_nodes) {
         if (mutable_node.node_id != node.node_id) {
           continue;
         }
@@ -367,7 +367,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
   }
 
   SupportNode midair{};
-  midair.node_id = next_virtual_support_node_id_++;
+  midair.node_id = debug_.next_virtual_support_node_id++;
   midair.support_kind = SupportKind::kMidair;
   midair.position = pick.hit_pos_world;
   midair.pole_id = kInvalidObjectId;
@@ -386,8 +386,8 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
                                                                                          : BundleNodeMode::kNotPresent;
     midair.bundle_modes.push_back(mode);
   }
-  last_generation_support_nodes_.push_back(midair);
-  std::sort(last_generation_support_nodes_.begin(), last_generation_support_nodes_.end(),
+  debug_.last_generation_support_nodes.push_back(midair);
+  std::sort(debug_.last_generation_support_nodes.begin(), debug_.last_generation_support_nodes.end(),
             [](const SupportNode& a, const SupportNode& b) { return a.node_id < b.node_id; });
 
   result.value.resolution = PickBranchResolutionKind::kMidair;
@@ -408,17 +408,17 @@ BackboneResult CoreState::BuildBackboneResult() const {
     return (port == nullptr) ? kInvalidObjectId : port->owner_pole_id;
   };
   auto resolve_span_endpoint_position = [&](ObjectId node_id, const Port* port) -> Vec3d {
-    for (const SupportNode& node : last_generation_support_nodes_) {
+    for (const SupportNode& node : debug_.last_generation_support_nodes) {
       if (node.node_id == node_id) {
         return node.position;
       }
     }
-    if (const Pole* pole = edit_state_.poles.find(node_id); pole != nullptr) {
+    if (const Pole* pole = authoritative_.edit_state.poles.find(node_id); pole != nullptr) {
       return pole->world_transform.position;
     }
-    for (const Span& span : edit_state_.spans.items()) {
-      const Port* pa = edit_state_.ports.find(span.port_a_id);
-      const Port* pb = edit_state_.ports.find(span.port_b_id);
+    for (const Span& span : authoritative_.edit_state.spans.items()) {
+      const Port* pa = authoritative_.edit_state.ports.find(span.port_a_id);
+      const Port* pb = authoritative_.edit_state.ports.find(span.port_b_id);
       if (span.endpoint_node_a_id == node_id && pa != nullptr) {
         return pa->world_position;
       }
@@ -428,9 +428,9 @@ BackboneResult CoreState::BuildBackboneResult() const {
     }
     return (port == nullptr) ? Vec3d{} : port->world_position;
   };
-  out.edge_orientations = last_generation_edge_orientations_;
-  if (!last_generation_support_nodes_.empty()) {
-    out.nodes = last_generation_support_nodes_;
+  out.edge_orientations = debug_.last_generation_edge_orientations;
+  if (!debug_.last_generation_support_nodes.empty()) {
+    out.nodes = debug_.last_generation_support_nodes;
     // Merge in span-derived pole edges so BuildBackboneResult observes full-network continuity across sessions.
     const std::vector<BackboneEdge> pole_edges = BuildBackboneEdges();
     out.edges.insert(out.edges.end(), pole_edges.begin(), pole_edges.end());
@@ -501,7 +501,7 @@ BackboneResult CoreState::BuildBackboneResult() const {
       node.node_id = node_id;
       node.support_kind = SupportKind::kMidair;
       node.pole_id = kInvalidObjectId;
-      if (const Pole* pole = edit_state_.poles.find(node_id); pole != nullptr) {
+      if (const Pole* pole = authoritative_.edit_state.poles.find(node_id); pole != nullptr) {
         node.support_kind = SupportKind::kPole;
         node.position = pole->world_transform.position;
         node.pole_id = pole->id;
@@ -525,12 +525,12 @@ BackboneResult CoreState::BuildBackboneResult() const {
         acc.min_generation_order = generation_order;
       }
     };
-    for (const Span& span : edit_state_.spans.items()) {
+    for (const Span& span : authoritative_.edit_state.spans.items()) {
       if (span.bundle_id == kInvalidObjectId) {
         continue;
       }
-      const Port* pa = edit_state_.ports.find(span.port_a_id);
-      const Port* pb = edit_state_.ports.find(span.port_b_id);
+      const Port* pa = authoritative_.edit_state.ports.find(span.port_a_id);
+      const Port* pb = authoritative_.edit_state.ports.find(span.port_b_id);
       const ObjectId node_a = resolve_span_endpoint_node(span, pa, true);
       const ObjectId node_b = resolve_span_endpoint_node(span, pb, false);
       if (pa == nullptr || pb == nullptr || node_a == kInvalidObjectId || node_b == kInvalidObjectId || node_a == node_b) {
@@ -561,8 +561,8 @@ BackboneResult CoreState::BuildBackboneResult() const {
       adjacency[edge.node_b].insert(edge.node_a);
     }
 
-    if (!last_generation_junction_relations_.empty()) {
-      out.junctions = BuildJunctionsFromRelations(last_generation_junction_relations_, adjacency, incident_meta_by_node,
+    if (!debug_.last_generation_junction_relations.empty()) {
+      out.junctions = BuildJunctionsFromRelations(debug_.last_generation_junction_relations, adjacency, incident_meta_by_node,
                                                  existing_prioritized_session_by_node,
                                                  existing_incident_session_by_node);
     } else {
@@ -769,16 +769,16 @@ BackboneResult CoreState::BuildBackboneResult() const {
 
   std::unordered_map<ObjectId, std::unordered_map<ObjectId, IncidentAccum>> incident_map{};
   std::unordered_map<ObjectId, std::unordered_map<BundleKind, int>> node_bundle_degree{};
-  for (const Span& span : edit_state_.spans.items()) {
+  for (const Span& span : authoritative_.edit_state.spans.items()) {
     if (span.bundle_id == kInvalidObjectId) {
       continue;
     }
-    const Bundle* bundle = edit_state_.bundles.find(span.bundle_id);
+    const Bundle* bundle = authoritative_.edit_state.bundles.find(span.bundle_id);
     if (bundle == nullptr) {
       continue;
     }
-    const Port* pa = edit_state_.ports.find(span.port_a_id);
-    const Port* pb = edit_state_.ports.find(span.port_b_id);
+    const Port* pa = authoritative_.edit_state.ports.find(span.port_a_id);
+    const Port* pb = authoritative_.edit_state.ports.find(span.port_b_id);
     const ObjectId node_a = resolve_span_endpoint_node(span, pa, true);
     const ObjectId node_b = resolve_span_endpoint_node(span, pb, false);
     if (pa == nullptr || pb == nullptr || node_a == kInvalidObjectId || node_b == kInvalidObjectId || node_a == node_b) {
@@ -818,7 +818,7 @@ BackboneResult CoreState::BuildBackboneResult() const {
     return a < b;
   });
 
-  if (!last_generation_junction_relations_.empty()) {
+  if (!debug_.last_generation_junction_relations.empty()) {
     std::unordered_map<ObjectId, std::unordered_set<ObjectId>> adjacency{};
     std::unordered_map<ObjectId, std::unordered_map<ObjectId, BackboneIncidentMeta>> incident_meta_by_node{};
     for (const auto& [node_id, incidents] : incident_map) {
@@ -827,7 +827,7 @@ BackboneResult CoreState::BuildBackboneResult() const {
         incident_meta_by_node[node_id][neighbor_id] = acc.meta;
       }
     }
-    out.junctions = BuildJunctionsFromRelations(last_generation_junction_relations_, adjacency, incident_meta_by_node,
+    out.junctions = BuildJunctionsFromRelations(debug_.last_generation_junction_relations, adjacency, incident_meta_by_node,
                                                 {}, {});
   } else {
     auto normalize_dir = [](const Vec3d& v) -> Vec3d {
@@ -976,7 +976,7 @@ BackboneResult CoreState::BuildBackboneResult() const {
     node.support_kind = SupportKind::kMidair;
     node.position = resolve_span_endpoint_position(node_id, nullptr);
     node.pole_id = kInvalidObjectId;
-    if (const Pole* pole = edit_state_.poles.find(node_id); pole != nullptr) {
+    if (const Pole* pole = authoritative_.edit_state.poles.find(node_id); pole != nullptr) {
       node.support_kind = SupportKind::kPole;
       node.position = pole->world_transform.position;
       node.pole_id = pole->id;
@@ -1034,12 +1034,12 @@ std::vector<BackboneEdge> CoreState::BuildBackboneEdges() const {
     return (port == nullptr) ? kInvalidObjectId : port->owner_pole_id;
   };
 
-  for (const Span& span : edit_state_.spans.items()) {
+  for (const Span& span : authoritative_.edit_state.spans.items()) {
     if (span.bundle_id == kInvalidObjectId) {
       continue;
     }
-    const Port* pa = edit_state_.ports.find(span.port_a_id);
-    const Port* pb = edit_state_.ports.find(span.port_b_id);
+    const Port* pa = authoritative_.edit_state.ports.find(span.port_a_id);
+    const Port* pb = authoritative_.edit_state.ports.find(span.port_b_id);
     if (pa == nullptr || pb == nullptr) {
       continue;
     }
@@ -1149,3 +1149,4 @@ std::vector<ObjectId> CoreState::FindBackboneRoute(ObjectId start_node_id, Objec
 }
 
 } // namespace wire::core
+

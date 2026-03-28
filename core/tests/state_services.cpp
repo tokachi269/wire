@@ -28,7 +28,38 @@ bool has_validation_issue(const wire::core::ValidationResult& validation, wire::
                      });
 }
 
-bool test_endpoint_refresh_service_collects_owned_endpoints_from_relation_index() {
+const wire::core::OverrideEntryView* find_override_entry(const wire::core::OverrideInspectionView& view,
+                                                         const char* name) {
+  const auto it = std::find_if(view.entries.begin(), view.entries.end(),
+                               [&](const wire::core::OverrideEntryView& entry) { return entry.name == name; });
+  return it == view.entries.end() ? nullptr : &(*it);
+}
+
+std::vector<ObjectId> collect_ids_from_ports(const std::vector<const wire::core::Port*>& ports) {
+  std::vector<ObjectId> ids;
+  ids.reserve(ports.size());
+  for (const auto* port : ports) {
+    if (port != nullptr) {
+      ids.push_back(port->id);
+    }
+  }
+  std::sort(ids.begin(), ids.end());
+  return ids;
+}
+
+std::vector<ObjectId> collect_ids_from_anchors(const std::vector<const wire::core::Anchor*>& anchors) {
+  std::vector<ObjectId> ids;
+  ids.reserve(anchors.size());
+  for (const auto* anchor : anchors) {
+    if (anchor != nullptr) {
+      ids.push_back(anchor->id);
+    }
+  }
+  std::sort(ids.begin(), ids.end());
+  return ids;
+}
+
+bool test_get_pole_detail_exposes_only_owned_endpoints() {
   CoreState state;
 
   Transformd a_tf{};
@@ -43,18 +74,20 @@ bool test_endpoint_refresh_service_collects_owned_endpoints_from_relation_index(
   const ObjectId anchor_a = state.AddAnchor(pole_a, {0.0, -0.6, 1.0}).value;
   const ObjectId anchor_b = state.AddAnchor(pole_b, {10.0, -0.6, 1.0}).value;
 
-  const auto owned = wire::core::state_internal::EndpointRefreshService::CollectOwnedEndpointIds(state, pole_a);
-  const auto& relation_index = CoreStateTestHook::relation_index(state);
-  const auto ports_it = relation_index.ports_by_pole.find(pole_a);
-  const auto anchors_it = relation_index.anchors_by_pole.find(pole_a);
+  const auto detail_a = state.GetPoleDetail(pole_a);
+  const auto detail_b = state.GetPoleDetail(pole_b);
+  const auto ports_a = collect_ids_from_ports(detail_a.owned_ports);
+  const auto ports_b = collect_ids_from_ports(detail_b.owned_ports);
+  const auto anchors_a = collect_ids_from_anchors(detail_a.owned_anchors);
+  const auto anchors_b = collect_ids_from_anchors(detail_b.owned_anchors);
 
-  return ports_it != relation_index.ports_by_pole.end() && anchors_it != relation_index.anchors_by_pole.end() &&
-         owned.port_ids == ports_it->second && owned.anchor_ids == anchors_it->second &&
-         contains_id(owned.port_ids, port_a) && !contains_id(owned.port_ids, port_b) &&
-         contains_id(owned.anchor_ids, anchor_a) && !contains_id(owned.anchor_ids, anchor_b);
+  return detail_a.pole != nullptr && detail_b.pole != nullptr && contains_id(ports_a, port_a) &&
+         !contains_id(ports_a, port_b) && contains_id(ports_b, port_b) && !contains_id(ports_b, port_a) &&
+         contains_id(anchors_a, anchor_a) && !contains_id(anchors_a, anchor_b) &&
+         contains_id(anchors_b, anchor_b) && !contains_id(anchors_b, anchor_a);
 }
 
-bool test_endpoint_refresh_service_refreshes_only_target_pole_owned_endpoints() {
+bool test_move_pole_updates_only_target_pole_owned_endpoints() {
   CoreState state;
 
   Transformd a_tf{};
@@ -81,17 +114,13 @@ bool test_endpoint_refresh_service_refreshes_only_target_pole_owned_endpoints() 
   const Vec3d old_port_b_pos = old_port_b->world_position;
   const Vec3d old_anchor_b_pos = old_anchor_b->world_position;
 
-  wire::core::Pole* pole_a_edit = CoreStateTestHook::edit_state(state).poles.find(pole_a);
-  if (pole_a_edit == nullptr) {
+  Transformd moved = a_tf;
+  moved.position.x += 3.0;
+  moved.position.y += 1.0;
+  const auto move = state.MovePole(pole_a, moved);
+  if (!move.ok) {
     return false;
   }
-  const wire::core::Pole previous_pole = *pole_a_edit;
-  pole_a_edit->world_transform.position.x += 3.0;
-  pole_a_edit->world_transform.position.y += 1.0;
-
-  ChangeSet change_set{};
-  wire::core::state_internal::EndpointRefreshService::RefreshOwnedEndpointsFromPole(state, pole_a, &change_set,
-                                                                                    &previous_pole);
 
   const auto* new_port_a = state.view().ports().find(port_a);
   const auto* new_anchor_a = state.view().anchors().find(anchor_a);
@@ -106,12 +135,12 @@ bool test_endpoint_refresh_service_refreshes_only_target_pole_owned_endpoints() 
   const bool b_unchanged = helpers::almost_equal(old_port_b_pos, new_port_b->world_position) &&
                            helpers::almost_equal(old_anchor_b_pos, new_anchor_b->world_position);
 
-  return a_moved && b_unchanged && contains_id(change_set.updated_ids, port_a) &&
-         contains_id(change_set.updated_ids, anchor_a) && !contains_id(change_set.updated_ids, port_b) &&
-         !contains_id(change_set.updated_ids, anchor_b);
+  return a_moved && b_unchanged && contains_id(move.change_set.updated_ids, port_a) &&
+         contains_id(move.change_set.updated_ids, anchor_a) && !contains_id(move.change_set.updated_ids, port_b) &&
+         !contains_id(move.change_set.updated_ids, anchor_b);
 }
 
-bool test_override_resolution_service_matches_formal_override_state() {
+bool test_public_override_surfaces_match_mutation_state() {
   CoreState state;
   const auto pole_type_ids = sorted_pole_type_ids(state);
   if (pole_type_ids.empty()) {
@@ -142,27 +171,37 @@ bool test_override_resolution_service_matches_formal_override_state() {
     return false;
   }
 
-  const wire::core::Pole* pole = state.view().poles().find(pole_a);
-  const wire::core::Span* span = state.view().spans().find(span_id);
-  if (pole == nullptr || span == nullptr) {
+  const auto commit = state.Commit();
+  if (!commit.validation.ok()) {
     return false;
   }
 
-  const auto manual_yaw =
-      wire::core::state_internal::OverrideResolutionService::ResolvePoleManualYawOverride(state, *pole);
-  const auto flip =
-      wire::core::state_internal::OverrideResolutionService::ResolvePoleFlip180Override(state, *pole);
-  const int socket = wire::core::state_internal::OverrideResolutionService::ResolveSpanEndpointSocketId(state, *span, true);
-  const double down = wire::core::state_internal::OverrideResolutionService::ResolveSpanBranchDownOffsetM(state, *span, 0.1);
+  const auto pole_view = state.view().inspect_pole(pole_a);
+  const auto pole_overrides = state.view().inspect_overrides({wire::core::EntityKind::kPole, pole_a});
+  const auto span_overrides = state.view().inspect_overrides({wire::core::EntityKind::kSpan, span_id});
+  const auto support_layout = state.view().inspect_support_layout(span_id);
+  if (!pole_view.has_value() || !pole_overrides.has_value() || !span_overrides.has_value() || !support_layout.has_value()) {
+    return false;
+  }
 
-  return wire::core::state_internal::OverrideResolutionService::HasPoleOrientationOverride(state, pole_a) &&
-         wire::core::state_internal::OverrideResolutionService::HasSpanEndpointSocketOverride(state, span_id, true) &&
-         wire::core::state_internal::OverrideResolutionService::HasSpanBranchDownOffsetOverride(state, span_id) &&
-         manual_yaw.has_value() && helpers::almost_equal(*manual_yaw, 37.0) && flip.value_or(false) && socket == 3 &&
-         helpers::almost_equal(down, 0.42);
+  const auto* manual_yaw = find_override_entry(*pole_overrides, "manualYaw");
+  const auto* flip = find_override_entry(*pole_overrides, "flip180");
+  const auto* socket_a = find_override_entry(*span_overrides, "endpointSocketA");
+  const auto* branch_down = find_override_entry(*span_overrides, "branchDownOffset");
+  if (manual_yaw == nullptr || flip == nullptr || socket_a == nullptr || branch_down == nullptr) {
+    return false;
+  }
+
+  return pole_view->orientation_override && pole_view->manual_yaw_override_deg.has_value() &&
+         helpers::almost_equal(*pole_view->manual_yaw_override_deg, 37.0) &&
+         pole_view->flip_180_override.value_or(false) && manual_yaw->active && flip->active && socket_a->active &&
+         socket_a->resolved_value == "3" && branch_down->active &&
+         helpers::almost_equal(std::max(support_layout->start_endpoint.branch_down_offset_m,
+                                        support_layout->end_endpoint.branch_down_offset_m),
+                               0.42, 1e-9);
 }
 
-bool test_apply_pole_type_reuses_only_relation_index_owned_endpoints() {
+bool test_apply_pole_type_reuses_only_target_pole_owned_endpoints() {
   CoreState state;
   const auto pole_type_ids = sorted_pole_type_ids(state);
   if (pole_type_ids.empty()) {
@@ -180,20 +219,12 @@ bool test_apply_pole_type_reuses_only_relation_index_owned_endpoints() {
     return false;
   }
 
-  const auto& before_index = CoreStateTestHook::relation_index(state);
-  const auto ports_a_before = before_index.ports_by_pole.find(pole_a);
-  const auto ports_b_before = before_index.ports_by_pole.find(pole_b);
-  const auto anchors_a_before = before_index.anchors_by_pole.find(pole_a);
-  const auto anchors_b_before = before_index.anchors_by_pole.find(pole_b);
-  if (ports_a_before == before_index.ports_by_pole.end() || ports_b_before == before_index.ports_by_pole.end() ||
-      anchors_a_before == before_index.anchors_by_pole.end() || anchors_b_before == before_index.anchors_by_pole.end()) {
-    return false;
-  }
-
-  const std::vector<ObjectId> ports_a_ids = ports_a_before->second;
-  const std::vector<ObjectId> ports_b_ids = ports_b_before->second;
-  const std::vector<ObjectId> anchors_a_ids = anchors_a_before->second;
-  const std::vector<ObjectId> anchors_b_ids = anchors_b_before->second;
+  const auto detail_a_before = state.GetPoleDetail(pole_a);
+  const auto detail_b_before = state.GetPoleDetail(pole_b);
+  const auto ports_a_ids = collect_ids_from_ports(detail_a_before.owned_ports);
+  const auto ports_b_ids = collect_ids_from_ports(detail_b_before.owned_ports);
+  const auto anchors_a_ids = collect_ids_from_anchors(detail_a_before.owned_anchors);
+  const auto anchors_b_ids = collect_ids_from_anchors(detail_b_before.owned_anchors);
   const std::size_t port_count_before = state.view().ports().items().size();
   const std::size_t anchor_count_before = state.view().anchors().items().size();
 
@@ -201,18 +232,13 @@ bool test_apply_pole_type_reuses_only_relation_index_owned_endpoints() {
     return false;
   }
 
-  const auto& after_index = CoreStateTestHook::relation_index(state);
-  const auto ports_a_after = after_index.ports_by_pole.find(pole_a);
-  const auto ports_b_after = after_index.ports_by_pole.find(pole_b);
-  const auto anchors_a_after = after_index.anchors_by_pole.find(pole_a);
-  const auto anchors_b_after = after_index.anchors_by_pole.find(pole_b);
-  if (ports_a_after == after_index.ports_by_pole.end() || ports_b_after == after_index.ports_by_pole.end() ||
-      anchors_a_after == after_index.anchors_by_pole.end() || anchors_b_after == after_index.anchors_by_pole.end()) {
-    return false;
-  }
+  const auto detail_a_after = state.GetPoleDetail(pole_a);
+  const auto detail_b_after = state.GetPoleDetail(pole_b);
 
-  return ports_a_after->second == ports_a_ids && ports_b_after->second == ports_b_ids &&
-         anchors_a_after->second == anchors_a_ids && anchors_b_after->second == anchors_b_ids &&
+  return collect_ids_from_ports(detail_a_after.owned_ports) == ports_a_ids &&
+         collect_ids_from_ports(detail_b_after.owned_ports) == ports_b_ids &&
+         collect_ids_from_anchors(detail_a_after.owned_anchors) == anchors_a_ids &&
+         collect_ids_from_anchors(detail_b_after.owned_anchors) == anchors_b_ids &&
          state.view().ports().items().size() == port_count_before &&
          state.view().anchors().items().size() == anchor_count_before && state.ValidateFast().ok();
 }
@@ -344,7 +370,7 @@ bool test_template_mutation_service_marks_only_attached_span_dirty() {
          !contains_id(update.change_set.updated_ids, span_bc.value.span_id);
 }
 
-bool test_template_mutation_service_treats_branch_down_offset_policy_as_topology_change() {
+bool test_update_bundle_template_treats_branch_down_offset_policy_as_topology_change() {
   CoreState state;
   const auto pole_type_ids = sorted_pole_type_ids(state);
   if (pole_type_ids.empty()) {
@@ -382,7 +408,7 @@ bool test_template_mutation_service_treats_branch_down_offset_policy_as_topology
 
   wire::core::BundleTemplate edited = *hv_template;
   edited.enable_branch_down_offset = !edited.enable_branch_down_offset;
-  const auto update = wire::core::state_internal::TemplateMutationService::UpdateBundleTemplate(state, edited);
+  const auto update = state.UpdateBundleTemplate(edited);
   if (!update.ok || !update.value) {
     return false;
   }
@@ -771,17 +797,17 @@ bool test_validation_treats_grouped_endpoint_semantics_as_derived_copies() {
 
 void RegisterStateServiceTests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C181_CoreStateService_CollectOwnedEndpoints",
-                         "endpoint refresh service targets owned endpoints via relation index",
-                         "Invariant", false, &test_endpoint_refresh_service_collects_owned_endpoints_from_relation_index);
+                         "GetPoleDetail exposes only the requested pole owned ports and anchors",
+                         "Invariant", false, &test_get_pole_detail_exposes_only_owned_endpoints);
   test_registry::AddTest(tests, "C182_CoreStateService_RefreshOwnedEndpoints",
-                         "endpoint refresh service updates only the target pole owned endpoints",
-                         "Invariant", false, &test_endpoint_refresh_service_refreshes_only_target_pole_owned_endpoints);
+                         "MovePole updates only the target pole owned ports and anchors",
+                         "Invariant", false, &test_move_pole_updates_only_target_pole_owned_endpoints);
   test_registry::AddTest(tests, "C183_CoreStateService_OverrideResolution",
-                         "override resolution service keeps formal override precedence coherent",
-                         "Invariant", false, &test_override_resolution_service_matches_formal_override_state);
+                         "public override mutations are reflected coherently on pole/span inspection surfaces",
+                         "Invariant", false, &test_public_override_surfaces_match_mutation_state);
   test_registry::AddTest(tests, "C184_CoreStateService_ApplyPoleType_ReusesOwnedEndpoints",
-                         "template application reuses relation-index-owned ports and anchors without touching other poles",
-                         "Invariant", false, &test_apply_pole_type_reuses_only_relation_index_owned_endpoints);
+                         "template application reuses the target pole owned ports and anchors without touching other poles",
+                         "Invariant", false, &test_apply_pole_type_reuses_only_target_pole_owned_endpoints);
   test_registry::AddTest(tests, "C186_CoreStateService_TemplateMutation_LocalizesBundleImpact",
                          "template mutation service marks only bundles matching the edited template for regeneration",
                          "Invariant", false, &test_template_mutation_service_marks_only_matching_bundle_regeneration);
@@ -791,7 +817,7 @@ void RegisterStateServiceTests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C200_CoreStateService_TemplateMutation_BranchDownOffsetPolicyIsTopology",
                          "bundle template branch-down-offset policy changes force regeneration instead of being ignored or treated as visual-only",
                          "Invariant", false,
-                         &test_template_mutation_service_treats_branch_down_offset_policy_as_topology_change);
+                         &test_update_bundle_template_treats_branch_down_offset_policy_as_topology_change);
   test_registry::AddTest(tests, "C260_Validation_NonRadialBasisRequiresAxis",
                          "validation rejects non-radial support orientation without authoritative side axis",
                          "Invariant", false, &test_validate_rejects_non_radial_support_without_authoritative_axis);

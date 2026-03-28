@@ -112,7 +112,7 @@ ValidationResult CoreState::ValidateFast() const {
     }
   }
 
-  for (const auto& [pole_id, override_value] : override_state_.pole_orientation_by_pole) {
+  for (const auto& [pole_id, override_value] : authoritative_.override_state.pole_orientation_by_pole) {
     if (edit_state.poles.find(pole_id) == nullptr) {
       result.issues.push_back(
           {ValidationSeverity::kError, "PoleOverrideTargetMissing", "Pole orientation override target is missing", pole_id});
@@ -122,7 +122,7 @@ ValidationResult CoreState::ValidateFast() const {
     }
   }
 
-  for (const auto& [span_id, override_value] : override_state_.span_endpoint_by_span) {
+  for (const auto& [span_id, override_value] : authoritative_.override_state.span_endpoint_by_span) {
     if (edit_state.spans.find(span_id) == nullptr) {
       result.issues.push_back({ValidationSeverity::kError, "SpanEndpointOverrideTargetMissing",
                                "Span endpoint override target is missing", span_id});
@@ -133,7 +133,7 @@ ValidationResult CoreState::ValidateFast() const {
     }
   }
 
-  for (const auto& [span_id, override_value] : override_state_.span_support_by_span) {
+  for (const auto& [span_id, override_value] : authoritative_.override_state.span_support_by_span) {
     if (edit_state.spans.find(span_id) == nullptr) {
       result.issues.push_back({ValidationSeverity::kError, "SpanSupportOverrideTargetMissing",
                                "Span support override target is missing", span_id});
@@ -198,7 +198,7 @@ ValidationResult CoreState::Validate() const {
     }
   }
 
-  for (const auto& [pole_id, override_value] : override_state_.pole_orientation_by_pole) {
+  for (const auto& [pole_id, override_value] : authoritative_.override_state.pole_orientation_by_pole) {
     if (edit_state.poles.find(pole_id) == nullptr) {
       result.issues.push_back(
           {ValidationSeverity::kError, "PoleOverrideTargetMissing", "Pole orientation override target is missing", pole_id});
@@ -398,7 +398,7 @@ ValidationResult CoreState::Validate() const {
     }
   }
 
-  for (const auto& [span_id, override_value] : override_state_.span_endpoint_by_span) {
+  for (const auto& [span_id, override_value] : authoritative_.override_state.span_endpoint_by_span) {
     if (edit_state.spans.find(span_id) == nullptr) {
       result.issues.push_back({ValidationSeverity::kError, "SpanEndpointOverrideTargetMissing",
                                "Span endpoint override target is missing", span_id});
@@ -411,7 +411,7 @@ ValidationResult CoreState::Validate() const {
     }
   }
 
-  for (const auto& [span_id, override_value] : override_state_.span_support_by_span) {
+  for (const auto& [span_id, override_value] : authoritative_.override_state.span_support_by_span) {
     if (edit_state.spans.find(span_id) == nullptr) {
       result.issues.push_back({ValidationSeverity::kError, "SpanSupportOverrideTargetMissing",
                                "Span support override target is missing", span_id});
@@ -1042,3 +1042,4 @@ ValidationResult CoreState::Validate() const {
 }
 
 } // namespace wire::core
+

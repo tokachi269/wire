@@ -5,11 +5,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include "wire/core/core_authoritative_types.hpp"
-#include "wire/core/core_runtime_types.hpp"
 #include "wire/core/core_state_api_types.hpp"
-#include "wire/core/core_state_internal_types.hpp"
-#include "wire/core/debug_types.hpp"
+#include "wire/core/core_state_storage_types.hpp"
 
 namespace wire::core {
 
@@ -120,9 +117,9 @@ public:
   [[nodiscard]] CommitResult Commit();
   [[nodiscard]] CommitResult Commit(const CommitOptions& options);
 
-  [[nodiscard]] ObjectId next_id() const { return id_generator_.peek(); }
-  void clear_path_direction_debug_records() { path_direction_debug_records_.clear(); }
-  void clear_port_resolution_debug_records() { port_resolution_debug_records_.clear(); }
+  [[nodiscard]] ObjectId next_id() const { return identity_.id_generator.peek(); }
+  void clear_path_direction_debug_records() { debug_.path_direction_debug_records.clear(); }
+  void clear_port_resolution_debug_records() { debug_.port_resolution_debug_records.clear(); }
 
   [[nodiscard]] CoreView view() const;
 
@@ -225,25 +222,25 @@ private:
   std::string next_display_id(std::string_view prefix);
   void refresh_owned_endpoints_from_pole(ObjectId pole_id, ChangeSet* change_set, const Pole* previous_pole = nullptr,
                                          const double* previous_layout_yaw_override = nullptr);
-  [[nodiscard]] EditState& edit_state_access() { return edit_state_; }
-  [[nodiscard]] const EditState& edit_state_access() const { return edit_state_; }
-  [[nodiscard]] ConnectionIndex& connection_index_access() { return connection_index_; }
-  [[nodiscard]] const ConnectionIndex& connection_index_access() const { return connection_index_; }
-  [[nodiscard]] RelationIndex& relation_index_access() { return relation_index_; }
-  [[nodiscard]] const RelationIndex& relation_index_access() const { return relation_index_; }
+  [[nodiscard]] EditState& edit_state_access() { return authoritative_.edit_state; }
+  [[nodiscard]] const EditState& edit_state_access() const { return authoritative_.edit_state; }
+  [[nodiscard]] ConnectionIndex& connection_index_access() { return runtime_.connection_index; }
+  [[nodiscard]] const ConnectionIndex& connection_index_access() const { return runtime_.connection_index; }
+  [[nodiscard]] RelationIndex& relation_index_access() { return runtime_.relation_index; }
+  [[nodiscard]] const RelationIndex& relation_index_access() const { return runtime_.relation_index; }
   [[nodiscard]] std::unordered_map<ObjectId, SpanRuntimeState>& span_runtime_states_access() {
-    return span_runtime_states_;
+    return runtime_.span_runtime_states;
   }
   [[nodiscard]] const std::unordered_map<ObjectId, SpanRuntimeState>& span_runtime_states_access() const {
-    return span_runtime_states_;
+    return runtime_.span_runtime_states;
   }
-  [[nodiscard]] DirtyQueue& dirty_queue_access() { return dirty_queue_; }
-  [[nodiscard]] const DirtyQueue& dirty_queue_access() const { return dirty_queue_; }
-  [[nodiscard]] CacheState& cache_state_access() { return cache_state_; }
-  [[nodiscard]] const CacheState& cache_state_access() const { return cache_state_; }
-  [[nodiscard]] std::uint64_t& next_generation_session_id_access() { return next_generation_session_id_; }
+  [[nodiscard]] DirtyQueue& dirty_queue_access() { return runtime_.dirty_queue; }
+  [[nodiscard]] const DirtyQueue& dirty_queue_access() const { return runtime_.dirty_queue; }
+  [[nodiscard]] CacheState& cache_state_access() { return runtime_.cache_state; }
+  [[nodiscard]] const CacheState& cache_state_access() const { return runtime_.cache_state; }
+  [[nodiscard]] std::uint64_t& next_generation_session_id_access() { return identity_.next_generation_session_id; }
   [[nodiscard]] std::vector<PathDirectionEvaluationDebug>& path_direction_debug_records_access() {
-    return path_direction_debug_records_;
+    return debug_.path_direction_debug_records;
   }
 
   [[nodiscard]] static bool has_zero_length(const Port& a, const Port& b);
@@ -263,37 +260,10 @@ private:
   [[nodiscard]] static std::unordered_map<ObjectId, std::vector<ObjectId>>
   make_expected_span_attachment_index(const EditState& edit_state);
 
-  IdGenerator id_generator_{};
-  std::uint64_t next_data_version_ = 1;
-  std::uint64_t next_generation_session_id_ = 1;
-  std::unordered_map<std::string, std::uint64_t> display_id_counters_{};
-  // PersistCore entity layer.
-  EditState edit_state_{};
-  ConnectionIndex connection_index_{};
-  RelationIndex relation_index_{};
-  std::unordered_map<PoleTypeId, PoleTypeDefinition> pole_types_{};
-  std::unordered_map<CableTemplateId, CableTemplate> cable_templates_{};
-  std::unordered_map<BundleKind, BundleTemplate> bundle_templates_{};
-  std::unordered_map<AttachmentTemplateId, AttachmentTemplate> attachment_templates_{};
-  TemplateDependencyState template_dependency_state_{};
-  OverrideState override_state_{};
-  // Derived cache/runtime layer.
-  std::unordered_map<ObjectId, SpanRuntimeState> span_runtime_states_{};
-  DirtyQueue dirty_queue_{};
-  RecalcStats last_recalc_stats_{};
-  CacheState cache_state_{};
-  // Persisted/authoritative generation policy layer.
-  LayoutSettings layout_settings_{};
-  // Session debug layer (non-authoritative, non-persist by policy).
-  PathDirectionEvaluationDebug last_path_direction_debug_{};
-  std::vector<PathDirectionEvaluationDebug> path_direction_debug_records_{};
-  std::unordered_map<ObjectId, PoleOrientationDebugRecord> pole_orientation_debug_records_{};
-  std::vector<SupportNode> last_generation_support_nodes_{};
-  std::vector<SegmentLaneAssignment> last_generation_lane_assignments_{};
-  std::vector<BackboneEdgeOrientation> last_generation_edge_orientations_{};
-  std::unordered_map<ObjectId, JunctionRelation> last_generation_junction_relations_{};
-  ObjectId next_virtual_support_node_id_ = 0x9000000000000000ull;
-  std::vector<PortResolutionDebugRecord> port_resolution_debug_records_{};
+  CoreStateIdentityStorage identity_{};
+  CoreStateAuthoritativeStorage authoritative_{};
+  CoreStateRuntimeStorage runtime_{};
+  CoreStateDebugStorage debug_{};
 };
 
 CoreState make_demo_state();

@@ -63,8 +63,8 @@ bool attachment_template_equals(const AttachmentTemplate& a, const AttachmentTem
 EditResult<bool> TemplateMutationService::UpdateCableTemplate(CoreState& state, const CableTemplate& cable_template,
                                                               const std::vector<ObjectId>& preferred_visible_span_ids) {
   EditResult<bool> result;
-  auto it = state.cable_templates_.find(cable_template.id);
-  if (it == state.cable_templates_.end()) {
+  auto it = state.authoritative_.cable_templates.find(cable_template.id);
+  if (it == state.authoritative_.cable_templates.end()) {
     result.error = "cable template not found";
     return result;
   }
@@ -102,14 +102,14 @@ EditResult<bool> TemplateMutationService::UpdateCableTemplate(CoreState& state, 
 
   std::vector<ObjectId> ordered_target_span_ids{};
   std::unordered_set<ObjectId> target_span_ids{};
-  ordered_target_span_ids.reserve(preferred_visible_span_ids.size() + state.relation_index_.spans_by_bundle.size());
+  ordered_target_span_ids.reserve(preferred_visible_span_ids.size() + state.runtime_.relation_index.spans_by_bundle.size());
   for (ObjectId span_id : preferred_visible_span_ids) {
     if (target_span_ids.insert(span_id).second) {
       ordered_target_span_ids.push_back(span_id);
     }
   }
-  for (const auto& [bundle_id, span_ids] : state.relation_index_.spans_by_bundle) {
-    const Bundle* bundle = state.edit_state_.bundles.find(bundle_id);
+  for (const auto& [bundle_id, span_ids] : state.runtime_.relation_index.spans_by_bundle) {
+    const Bundle* bundle = state.authoritative_.edit_state.bundles.find(bundle_id);
     if (bundle == nullptr) {
       continue;
     }
@@ -133,8 +133,8 @@ EditResult<bool> TemplateMutationService::UpdateCableTemplate(CoreState& state, 
 
 EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state, const BundleTemplate& bundle_template) {
   EditResult<bool> result;
-  auto it = state.bundle_templates_.find(bundle_template.id);
-  if (it == state.bundle_templates_.end()) {
+  auto it = state.authoritative_.bundle_templates.find(bundle_template.id);
+  if (it == state.authoritative_.bundle_templates.end()) {
     result.error = "bundle template not found";
     return result;
   }
@@ -194,21 +194,21 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
   result.ok = true;
   result.value = true;
 
-  state.template_dependency_state_.bundles_requiring_regeneration.clear();
-  state.template_dependency_state_.sessions_requiring_regeneration.clear();
+  state.authoritative_.template_dependency_state.bundles_requiring_regeneration.clear();
+  state.authoritative_.template_dependency_state.sessions_requiring_regeneration.clear();
 
-  for (const Bundle& existing_bundle : state.edit_state_.bundles.items()) {
+  for (const Bundle& existing_bundle : state.authoritative_.edit_state.bundles.items()) {
     if (existing_bundle.bundle_template_id != normalized.id) {
       continue;
     }
-    Bundle* bundle = state.edit_state_.bundles.find(existing_bundle.id);
+    Bundle* bundle = state.authoritative_.edit_state.bundles.find(existing_bundle.id);
     if (bundle == nullptr) {
       continue;
     }
     CoreState::add_unique_id(result.change_set.updated_ids, bundle->id);
     if (visual_only_change) {
-      auto spans_it = state.relation_index_.spans_by_bundle.find(bundle->id);
-      if (spans_it == state.relation_index_.spans_by_bundle.end()) {
+      auto spans_it = state.runtime_.relation_index.spans_by_bundle.find(bundle->id);
+      if (spans_it == state.runtime_.relation_index.spans_by_bundle.end()) {
         continue;
       }
       for (ObjectId span_id : spans_it->second) {
@@ -220,23 +220,23 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
     }
     if (topology_change) {
       bundle->regeneration_required = true;
-      CoreState::add_unique_id(state.template_dependency_state_.bundles_requiring_regeneration, bundle->id);
-      auto spans_it = state.relation_index_.spans_by_bundle.find(bundle->id);
-      if (spans_it == state.relation_index_.spans_by_bundle.end()) {
+      CoreState::add_unique_id(state.authoritative_.template_dependency_state.bundles_requiring_regeneration, bundle->id);
+      auto spans_it = state.runtime_.relation_index.spans_by_bundle.find(bundle->id);
+      if (spans_it == state.runtime_.relation_index.spans_by_bundle.end()) {
         continue;
       }
       for (ObjectId span_id : spans_it->second) {
-        const Span* span = state.edit_state_.spans.find(span_id);
+        const Span* span = state.authoritative_.edit_state.spans.find(span_id);
         if (span == nullptr || span->generation.generation_session_id == 0) {
           continue;
         }
-        CoreState::add_unique_id(state.template_dependency_state_.sessions_requiring_regeneration,
+        CoreState::add_unique_id(state.authoritative_.template_dependency_state.sessions_requiring_regeneration,
                                  span->generation.generation_session_id);
       }
     }
   }
   if (topology_change) {
-    for (ObjectId bundle_id : state.template_dependency_state_.bundles_requiring_regeneration) {
+    for (ObjectId bundle_id : state.authoritative_.template_dependency_state.bundles_requiring_regeneration) {
       CoreState::add_unique_id(result.change_set.updated_ids, bundle_id);
     }
   }
@@ -247,8 +247,8 @@ EditResult<bool> TemplateMutationService::UpdateAttachmentTemplate(CoreState& st
                                                                    const AttachmentTemplate& attachment_template,
                                                                    bool mark_dependent_spans_dirty) {
   EditResult<bool> result;
-  auto it = state.attachment_templates_.find(attachment_template.id);
-  if (it == state.attachment_templates_.end()) {
+  auto it = state.authoritative_.attachment_templates.find(attachment_template.id);
+  if (it == state.authoritative_.attachment_templates.end()) {
     result.error = "attachment template not found";
     return result;
   }
@@ -270,7 +270,7 @@ EditResult<bool> TemplateMutationService::UpdateAttachmentTemplate(CoreState& st
   if (!mark_dependent_spans_dirty) {
     return result;
   }
-  for (const Attachment& attachment : state.edit_state_.attachments.items()) {
+  for (const Attachment& attachment : state.authoritative_.edit_state.attachments.items()) {
     if (attachment.template_id != normalized.id) {
       continue;
     }
@@ -284,13 +284,13 @@ EditResult<bool> TemplateMutationService::UpdateAttachmentTemplate(CoreState& st
 EditResult<bool> TemplateMutationService::ResetAllSpanReferenceLengths(CoreState& state, bool mark_all_spans_dirty) {
   EditResult<bool> result;
   bool changed = false;
-  for (const Span& existing_span : state.edit_state_.spans.items()) {
-    Span* span = state.edit_state_.spans.find(existing_span.id);
+  for (const Span& existing_span : state.authoritative_.edit_state.spans.items()) {
+    Span* span = state.authoritative_.edit_state.spans.find(existing_span.id);
     if (span == nullptr) {
       continue;
     }
-    const Port* a = state.edit_state_.ports.find(span->port_a_id);
-    const Port* b = state.edit_state_.ports.find(span->port_b_id);
+    const Port* a = state.authoritative_.edit_state.ports.find(span->port_a_id);
+    const Port* b = state.authoritative_.edit_state.ports.find(span->port_b_id);
     if (a == nullptr || b == nullptr) {
       continue;
     }
@@ -306,7 +306,7 @@ EditResult<bool> TemplateMutationService::ResetAllSpanReferenceLengths(CoreState
     CoreState::add_unique_id(result.change_set.updated_ids, span->id);
   }
   if (changed && mark_all_spans_dirty) {
-    for (const Span& span : state.edit_state_.spans.items()) {
+    for (const Span& span : state.authoritative_.edit_state.spans.items()) {
       state.mark_span_dirty(span.id, DirtyBits::kGeometry | DirtyBits::kRender, true);
       CoreState::add_unique_id(result.change_set.dirty_span_ids, span.id);
       CoreState::add_unique_id(result.change_set.updated_ids, span.id);
@@ -318,3 +318,4 @@ EditResult<bool> TemplateMutationService::ResetAllSpanReferenceLengths(CoreState
 }
 
 } // namespace wire::core::state_internal
+

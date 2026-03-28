@@ -78,21 +78,21 @@ const AnchorSlotTemplate* find_anchor_hint(const PoleTypeDefinition* pole_type, 
 
 OwnedEndpointIds EndpointRefreshService::CollectOwnedEndpointIds(const CoreState& state, ObjectId pole_id) {
   OwnedEndpointIds ids{};
-  if (const auto it = state.relation_index_.ports_by_pole.find(pole_id); it != state.relation_index_.ports_by_pole.end()) {
+  if (const auto it = state.runtime_.relation_index.ports_by_pole.find(pole_id); it != state.runtime_.relation_index.ports_by_pole.end()) {
     ids.port_ids = it->second;
     ids.port_ids.erase(
         std::remove_if(ids.port_ids.begin(), ids.port_ids.end(),
-                       [&](ObjectId id) { return state.edit_state_.ports.find(id) == nullptr; }),
+                       [&](ObjectId id) { return state.authoritative_.edit_state.ports.find(id) == nullptr; }),
         ids.port_ids.end());
     std::sort(ids.port_ids.begin(), ids.port_ids.end());
     ids.port_ids.erase(std::unique(ids.port_ids.begin(), ids.port_ids.end()), ids.port_ids.end());
   }
-  if (const auto it = state.relation_index_.anchors_by_pole.find(pole_id);
-      it != state.relation_index_.anchors_by_pole.end()) {
+  if (const auto it = state.runtime_.relation_index.anchors_by_pole.find(pole_id);
+      it != state.runtime_.relation_index.anchors_by_pole.end()) {
     ids.anchor_ids = it->second;
     ids.anchor_ids.erase(
         std::remove_if(ids.anchor_ids.begin(), ids.anchor_ids.end(),
-                       [&](ObjectId id) { return state.edit_state_.anchors.find(id) == nullptr; }),
+                       [&](ObjectId id) { return state.authoritative_.edit_state.anchors.find(id) == nullptr; }),
         ids.anchor_ids.end());
     std::sort(ids.anchor_ids.begin(), ids.anchor_ids.end());
     ids.anchor_ids.erase(std::unique(ids.anchor_ids.begin(), ids.anchor_ids.end()), ids.anchor_ids.end());
@@ -103,7 +103,7 @@ OwnedEndpointIds EndpointRefreshService::CollectOwnedEndpointIds(const CoreState
 void EndpointRefreshService::RefreshOwnedEndpointsFromPole(CoreState& state, ObjectId pole_id, ChangeSet* change_set,
                                                            const Pole* previous_pole,
                                                            const double* previous_layout_yaw_override) {
-  Pole* pole = state.edit_state_.poles.find(pole_id);
+  Pole* pole = state.authoritative_.edit_state.poles.find(pole_id);
   if (pole == nullptr) {
     return;
   }
@@ -119,7 +119,7 @@ void EndpointRefreshService::RefreshOwnedEndpointsFromPole(CoreState& state, Obj
   const OwnedEndpointIds owned = CollectOwnedEndpointIds(state, pole_id);
 
   for (ObjectId port_id : owned.port_ids) {
-    Port* port = state.edit_state_.ports.find(port_id);
+    Port* port = state.authoritative_.edit_state.ports.find(port_id);
     if (port == nullptr || port->position_mode == PortPositionMode::kManual) {
       continue;
     }
@@ -144,7 +144,7 @@ void EndpointRefreshService::RefreshOwnedEndpointsFromPole(CoreState& state, Obj
                 ? reference_local.z
                 : std::clamp(reference_local.z, band->height_min_m, band->height_max_m),
         };
-        apply_angle_correction = state.layout_settings_.angle_correction_enabled &&
+        apply_angle_correction = state.authoritative_.layout_settings.angle_correction_enabled &&
                                  pole->context.kind == PoleContextKind::kCorner && band->side != SlotSide::kCenter;
         if (apply_angle_correction) {
           adjusted_local.y =
@@ -187,7 +187,7 @@ void EndpointRefreshService::RefreshOwnedEndpointsFromPole(CoreState& state, Obj
   }
 
   for (ObjectId anchor_id : owned.anchor_ids) {
-    Anchor* anchor = state.edit_state_.anchors.find(anchor_id);
+    Anchor* anchor = state.authoritative_.edit_state.anchors.find(anchor_id);
     if (anchor == nullptr) {
       continue;
     }
@@ -215,3 +215,4 @@ void EndpointRefreshService::RefreshOwnedEndpointsFromPole(CoreState& state, Obj
 }
 
 } // namespace wire::core::state_internal
+

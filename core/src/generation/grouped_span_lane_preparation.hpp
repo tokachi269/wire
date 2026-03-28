@@ -12,6 +12,19 @@ class CoreState;
 
 namespace wire::core::generation::detail {
 
+struct GroupedSpanLanePlan {
+  std::vector<std::vector<ObjectId>> base_ports_by_node{};
+  std::vector<OrderDecisionChoiceKind> node_order_choices{};
+  std::vector<double> turn_angle_by_segment{};
+  bool first_seeded_from_previous = false;
+};
+
+struct GroupedSpanPreparedPortUsage {
+  bool uses_branch_support = false;
+  bool solver_used_same_level_constraint = false;
+  bool used_special_case_ports = false;
+};
+
 class GroupedSpanLanePreparer {
 public:
   GroupedSpanLanePreparer(CoreState& state, const GroupedSpanSharedContext& ctx,
@@ -24,6 +37,14 @@ public:
   [[nodiscard]] EditResult<std::vector<ObjectId>>
   EnsurePorts(ObjectId node_id, ObjectId peer_id, int segment_index, bool prefer_existing_neighbor_order,
               bool* out_seeded_from_previous = nullptr);
+  [[nodiscard]] EditResult<GroupedSpanLanePlan> BuildLanePlan(const BackboneLoweringPolicy& lowering_policy,
+                                                              double corner_threshold_deg);
+  void PopulateAssignmentOrdering(const GroupedSpanLanePlan& plan, std::size_t segment_index,
+                                  SegmentLaneAssignment* assignment) const;
+  [[nodiscard]] GroupedSpanPreparedPortUsage AnalyzePreparedPorts(const std::vector<ObjectId>& port_ids_a,
+                                                                  const std::vector<ObjectId>& port_ids_b,
+                                                                  bool segment_same_level_feasible) const;
+  static void SyncAssignmentFromDecisions(SegmentLaneAssignment* assignment);
 
 private:
   [[nodiscard]] double LayoutYawForPole(const Pole& pole) const;
@@ -31,6 +52,7 @@ private:
   [[nodiscard]] double LaneRowBaseZForPole(const Pole& pole) const;
   [[nodiscard]] double LaneRowTargetZForEndpoint(const Pole& pole, const SegmentRelationFeasibility& feasibility) const;
   [[nodiscard]] std::size_t PortConnectionCount(ObjectId port_id) const;
+  [[nodiscard]] double ComputeTurnAngleDeg(const GroupedSpanLanePlan& plan, std::size_t segment_index) const;
 
   CoreState& state_;
   const GroupedSpanSharedContext& ctx_;

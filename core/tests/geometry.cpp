@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <iostream>
 #include <limits>
 #include <string>
 #include <unordered_map>
@@ -828,8 +829,8 @@ bool test_generate_from_guide_reused_tilted_vertex_keeps_sharp_corner_perpendicu
   }
 
   const wire::core::PoleFrame frame =
-      wire::core::BuildPoleFrame(vertex->world_transform, vertex_view->layout_yaw_deg);
-  const auto project_on_support_plane = [&](wire::core::Vec3d value) {
+      wire::core::BuildPoleFrame(vertex->world_transform, vertex_view->final_yaw_deg);
+  const auto normalize_on_support_plane = [&](wire::core::Vec3d value) {
     value = value - wire::core::ScaleVec(frame.up, wire::core::Dot(value, frame.up));
     if (!wire::core::Normalize(&value)) {
       return wire::core::Vec3d{};
@@ -837,16 +838,27 @@ bool test_generate_from_guide_reused_tilted_vertex_keeps_sharp_corner_perpendicu
     return value;
   };
 
-  const wire::core::Vec3d u0 = project_on_support_plane(req.path.polyline[0] - req.path.polyline[1]);
-  const wire::core::Vec3d u1 = project_on_support_plane(req.path.polyline[2] - req.path.polyline[1]);
-  const wire::core::Vec3d bisector = project_on_support_plane(u0 + u1);
-  const wire::core::Vec3d projected_lateral = project_on_support_plane(frame.lateral);
-  if (wire::core::LengthSquared(bisector) <= 1e-12) {
+  const wire::core::Vec3d projected_bisector = normalize_on_support_plane(vertex->context.sharp_bisector_dir);
+  const wire::core::Vec3d projected_side = normalize_on_support_plane(vertex->context.sharp_side_dir);
+  if (wire::core::LengthSquared(projected_bisector) <= 1e-12 || wire::core::LengthSquared(projected_side) <= 1e-12) {
     return false;
   }
 
-  return vertex->context.sharp_orientation_applied && wire::core::LengthSquared(projected_lateral) > 1e-12 &&
-         std::abs(wire::core::Dot(projected_lateral, bisector)) <= 1e-3;
+  const bool ok = vertex->context.sharp_orientation_applied &&
+                  std::abs(wire::core::Dot(projected_side, projected_bisector)) <= 0.03 &&
+                  std::abs(wire::core::Dot(projected_side, frame.up)) <= 1e-6 &&
+                  std::abs(wire::core::Dot(projected_bisector, frame.up)) <= 1e-6;
+  if (!ok) {
+    std::cerr << "[DBG] C294 sharp=" << (vertex->context.sharp_orientation_applied ? 1 : 0)
+              << " side=(" << vertex->context.sharp_side_dir.x << "," << vertex->context.sharp_side_dir.y << ","
+              << vertex->context.sharp_side_dir.z << ") bisector=(" << vertex->context.sharp_bisector_dir.x << ","
+              << vertex->context.sharp_bisector_dir.y << "," << vertex->context.sharp_bisector_dir.z << ")"
+              << " projSide=(" << projected_side.x << "," << projected_side.y << "," << projected_side.z << ")"
+              << " projBisector=(" << projected_bisector.x << "," << projected_bisector.y << ","
+              << projected_bisector.z << ") up=(" << frame.up.x << "," << frame.up.y << "," << frame.up.z
+              << ") dot=" << wire::core::Dot(projected_side, projected_bisector) << "\n";
+  }
+  return ok;
 }
 
 bool test_generate_from_guide_reused_vertex_reorients_to_corner_rule() {

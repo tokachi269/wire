@@ -38,6 +38,8 @@ const char* SpanLayerLabel(wire::core::SpanLayer layer) {
     return "Communication";
   case wire::core::SpanLayer::kOptical:
     return "Optical";
+  case wire::core::SpanLayer::kDrop:
+    return "Drop";
   default:
     return "Unknown";
   }
@@ -517,8 +519,9 @@ wire::core::BundleKind BundleTemplateForCategory(wire::core::ConnectionCategory 
     return wire::core::BundleKind::kCommunication;
   case wire::core::ConnectionCategory::kOptical:
     return wire::core::BundleKind::kOptical;
-  case wire::core::ConnectionCategory::kLowVoltage:
   case wire::core::ConnectionCategory::kDrop:
+    return wire::core::BundleKind::kDrop;
+  case wire::core::ConnectionCategory::kLowVoltage:
   default:
     return wire::core::BundleKind::kLowVoltage;
   }
@@ -662,6 +665,16 @@ std::vector<wire::core::PoleTypeId> SortedPoleTypeIds(const wire::core::CoreView
   return ids;
 }
 
+void SyncDrawPathPoleTypeSelection(const wire::core::CoreView& view, ViewerUiState& ui_state, wire::core::PoleTypeId id) {
+  const auto type_ids = SortedPoleTypeIds(view);
+  for (std::size_t i = 0; i < type_ids.size(); ++i) {
+    if (type_ids[i] == id) {
+      ui_state.road_pole_type_index = static_cast<int>(i);
+      return;
+    }
+  }
+}
+
 void LoadPoleTemplateState(const wire::core::CoreView& view, ViewerUiState& ui_state, wire::core::PoleTypeId id) {
   const auto it = view.pole_types().find(id);
   if (it == view.pole_types().end()) {
@@ -670,6 +683,7 @@ void LoadPoleTemplateState(const wire::core::CoreView& view, ViewerUiState& ui_s
   ui_state.selected_pole_template_id = id;
   ui_state.pole_template_edit = it->second;
   ui_state.pole_template_loaded = true;
+  SyncDrawPathPoleTypeSelection(view, ui_state, id);
 }
 
 wire::core::PoleTypeId SuggestedPoleTypeForBundleCategory(const wire::core::CoreView& view,
@@ -691,13 +705,44 @@ wire::core::PoleTypeId SuggestedPoleTypeForBundleCategory(const wire::core::Core
   return best_id;
 }
 
+int EditablePolePlacementLayerForCategory(wire::core::ConnectionCategory category) {
+  switch (category) {
+  case wire::core::ConnectionCategory::kHighVoltage:
+    return 2;
+  case wire::core::ConnectionCategory::kLowVoltage:
+  case wire::core::ConnectionCategory::kCommunication:
+  case wire::core::ConnectionCategory::kOptical:
+    return 1;
+  case wire::core::ConnectionCategory::kDrop:
+    return 0;
+  default:
+    return 1;
+  }
+}
+
+bool CategoryHasEditableTargetLayerBands(const wire::core::PoleTypeDefinition& pole_type,
+                                         wire::core::ConnectionCategory category) {
+  const int target_layer = EditablePolePlacementLayerForCategory(category);
+  return std::any_of(pole_type.port_bands.begin(), pole_type.port_bands.end(), [&](const auto& band) {
+    return band.enabled && band.category == category && band.layer == target_layer;
+  });
+}
+
+bool BandMatchesEditableCategoryScope(const wire::core::PoleTypeDefinition& pole_type,
+                                      const wire::core::PortPlacementBand& band,
+                                      wire::core::ConnectionCategory category) {
+  return band.enabled && band.category == category &&
+         (!CategoryHasEditableTargetLayerBands(pole_type, category) ||
+          band.layer == EditablePolePlacementLayerForCategory(category));
+}
+
 double AverageBandHeightForCategory(const wire::core::PoleTypeDefinition& pole_type,
                                     wire::core::ConnectionCategory category,
                                     double fallback_m) {
   double total = 0.0;
   int count = 0;
   for (const auto& band : pole_type.port_bands) {
-    if (!band.enabled || band.category != category) {
+    if (!BandMatchesEditableCategoryScope(pole_type, band, category)) {
       continue;
     }
     total += band.height_center_m;
@@ -712,7 +757,7 @@ double AverageBandLateralForCategory(const wire::core::PoleTypeDefinition& pole_
   double total = 0.0;
   int count = 0;
   for (const auto& band : pole_type.port_bands) {
-    if (!band.enabled || band.category != category) {
+    if (!BandMatchesEditableCategoryScope(pole_type, band, category)) {
       continue;
     }
     total += band.lateral_center_m;
@@ -726,7 +771,7 @@ double MaxBandLateralSpreadForCategory(const wire::core::PoleTypeDefinition& pol
                                        double center_m) {
   double spread = 0.0;
   for (const auto& band : pole_type.port_bands) {
-    if (!band.enabled || band.category != category) {
+    if (!BandMatchesEditableCategoryScope(pole_type, band, category)) {
       continue;
     }
     spread = std::max(spread, std::abs(band.lateral_center_m - center_m));
@@ -741,7 +786,7 @@ void SetBandCategoryHeights(wire::core::PoleTypeDefinition* pole_type,
     return;
   }
   for (auto& band : pole_type->port_bands) {
-    if (!band.enabled || band.category != category) {
+    if (!BandMatchesEditableCategoryScope(*pole_type, band, category)) {
       continue;
     }
     const double half_range = std::max(0.0, 0.5 * (band.height_max_m - band.height_min_m));
@@ -760,7 +805,7 @@ void SetBandCategoryLateralCenter(wire::core::PoleTypeDefinition* pole_type,
   const double current_center_m = AverageBandLateralForCategory(*pole_type, category, 0.0);
   const double delta = target_center_m - current_center_m;
   for (auto& band : pole_type->port_bands) {
-    if (!band.enabled || band.category != category) {
+    if (!BandMatchesEditableCategoryScope(*pole_type, band, category)) {
       continue;
     }
     band.lateral_center_m += delta;
@@ -779,7 +824,7 @@ void SetBandCategorySpread(wire::core::PoleTypeDefinition* pole_type,
   const double current_spread_m = MaxBandLateralSpreadForCategory(*pole_type, category, center_m);
   const double scale = (current_spread_m <= 1e-9) ? 1.0 : (target_spread_m / current_spread_m);
   for (auto& band : pole_type->port_bands) {
-    if (!band.enabled || band.category != category) {
+    if (!BandMatchesEditableCategoryScope(*pole_type, band, category)) {
       continue;
     }
     const double half_range = std::max(0.0, 0.5 * (band.lateral_max_m - band.lateral_min_m));
@@ -2345,7 +2390,8 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
       if (ImGui::BeginCombo("Bundle Default Layer", SpanLayerLabel(selected_layer))) {
         constexpr wire::core::SpanLayer kLayers[] = {
             wire::core::SpanLayer::kHighVoltage, wire::core::SpanLayer::kLowVoltage,
-            wire::core::SpanLayer::kCommunication, wire::core::SpanLayer::kOptical};
+            wire::core::SpanLayer::kCommunication, wire::core::SpanLayer::kOptical,
+            wire::core::SpanLayer::kDrop};
         for (wire::core::SpanLayer layer : kLayers) {
           const bool selected = (layer == selected_layer);
           if (ImGui::Selectable(SpanLayerLabel(layer), selected)) {
@@ -2459,7 +2505,8 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
                   selected_pole_it != view.pole_types().end() ? selected_pole_it->second.name.c_str() : "(missing)");
 
       if (selected_pole_it != view.pole_types().end()) {
-        if (ui_state.selected_pole_template_id != selected_pole_it->first || ui_state.pole_template_edit.id == wire::core::kInvalidPoleTypeId) {
+        if (ui_state.pole_template_edit.id != selected_pole_it->first ||
+            ui_state.pole_template_edit.id == wire::core::kInvalidPoleTypeId) {
           LoadPoleTemplateState(view, ui_state, selected_pole_it->first);
         }
         wire::core::PoleTypeDefinition& pole_type = ui_state.pole_template_edit;

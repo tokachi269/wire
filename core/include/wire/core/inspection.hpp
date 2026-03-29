@@ -142,6 +142,8 @@ struct PoleInspectionView {
   bool orientation_override = false;
   PoleForwardRule forward_rule = PoleForwardRule::kFallback;
   PoleSupportAxisRule support_axis_rule = PoleSupportAxisRule::kFallback;
+  RowLayoutAxisMode row_layout_axis_mode = RowLayoutAxisMode::kPoleYaw;
+  ConnectionCategory row_layout_axis_category = ConnectionCategory::kLowVoltage;
   ObjectId primary_neighbor_id = kInvalidObjectId;
   ObjectId secondary_neighbor_id = kInvalidObjectId;
   Vec3d support_axis_dir{};
@@ -384,4 +386,3 @@ struct OverrideInspectionView {
 };
 
 } // namespace wire::core
-

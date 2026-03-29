@@ -76,6 +76,8 @@ ConnectionCategory port_layer_to_category(PortLayer layer) {
     return ConnectionCategory::kCommunication;
   case PortLayer::kOptical:
     return ConnectionCategory::kOptical;
+  case PortLayer::kDrop:
+    return ConnectionCategory::kDrop;
   default:
     return ConnectionCategory::kLowVoltage;
   }
@@ -91,6 +93,8 @@ PortLayer span_layer_to_port_layer(SpanLayer layer) {
     return PortLayer::kCommunication;
   case SpanLayer::kOptical:
     return PortLayer::kOptical;
+  case SpanLayer::kDrop:
+    return PortLayer::kDrop;
   default:
     return PortLayer::kUnknown;
   }
@@ -106,6 +110,8 @@ ConnectionCategory span_layer_to_category(SpanLayer layer) {
     return ConnectionCategory::kCommunication;
   case SpanLayer::kOptical:
     return ConnectionCategory::kOptical;
+  case SpanLayer::kDrop:
+    return ConnectionCategory::kDrop;
   default:
     return ConnectionCategory::kLowVoltage;
   }
@@ -631,7 +637,8 @@ EditResult<ObjectId> CoreState::ResetPortPositionToAuto(ObjectId port_id) {
           }
         }
         if (band_ptr != nullptr) {
-          const PoleFrame frame = BuildPoleFrame(pole->world_transform, effective_pole_layout_yaw_deg(*pole));
+          const PoleFrame frame =
+              BuildPoleFrame(pole->world_transform, effective_port_layout_yaw_deg(*pole, port->category));
           const Vec3d current_local = WorldPointToLocal(frame, port->world_position);
           Vec3d adjusted_local{
               0.0,
@@ -651,7 +658,8 @@ EditResult<ObjectId> CoreState::ResetPortPositionToAuto(ObjectId port_id) {
           }
           adjusted_local = apply_pole_clearance_to_local(*pole, adjusted_local, band_ptr->side);
           port->world_position =
-              local_to_world_on_pole(pole->world_transform, effective_pole_layout_yaw_deg(*pole), adjusted_local);
+              local_to_world_on_pole(pole->world_transform, effective_port_layout_yaw_deg(*pole, port->category),
+                                     adjusted_local);
           port->angle_correction_applied = apply_angle_correction;
           port->side_scale_applied = apply_angle_correction ? applied_scale : 1.0;
           apply_port_position_mode(*port, PortPositionMode::kAuto, PortPlacementSourceKind::kPlacementBand);
@@ -900,9 +908,9 @@ void CoreState::finalize_pole_transform_update(ObjectId pole_id, const Pole& old
 }
 
 void CoreState::refresh_owned_endpoints_from_pole(ObjectId pole_id, ChangeSet* change_set, const Pole* previous_pole,
-                                                  const double* previous_layout_yaw_override) {
+                                                  const PortLayoutYawOverride* previous_row_layout_yaw_override) {
   state_internal::EndpointRefreshService::RefreshOwnedEndpointsFromPole(*this, pole_id, change_set, previous_pole,
-                                                                        previous_layout_yaw_override);
+                                                                        previous_row_layout_yaw_override);
 }
 
 EditResult<ObjectId> CoreState::DeletePole(ObjectId pole_id) {
@@ -1138,7 +1146,8 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
       bool apply_angle_correction = false;
       const Vec3d adjusted_local = recompute_band_local(*band_ptr, &applied_scale, &apply_angle_correction);
       const Vec3d world_position =
-          local_to_world_on_pole(pole->world_transform, effective_pole_layout_yaw_deg(*pole), adjusted_local);
+          local_to_world_on_pole(pole->world_transform,
+                                 effective_port_layout_yaw_deg(*pole, existing_port->category), adjusted_local);
       if (LengthSquared(existing_port->world_position - world_position) > 1e-12 ||
           existing_port->angle_correction_applied != apply_angle_correction ||
           std::abs(existing_port->side_scale_applied - applied_scale) > 1e-12) {
@@ -1172,7 +1181,7 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
     bool apply_angle_correction = false;
     const Vec3d adjusted_local = recompute_band_local(band, &applied_scale, &apply_angle_correction);
     const Vec3d world_position =
-        local_to_world_on_pole(pole->world_transform, effective_pole_layout_yaw_deg(*pole), adjusted_local);
+        local_to_world_on_pole(pole->world_transform, effective_port_layout_yaw_deg(*pole, band.category), adjusted_local);
     EditResult<ObjectId> add_port_result = AddPort(pole_id, world_position, category_to_port_kind(band.category),
                                                    category_to_port_layer(band.category), band.local_direction);
     if (!add_port_result.ok) {
@@ -1353,7 +1362,9 @@ CoreState::AddConnectionByPole(ObjectId pole_a_id, ObjectId pole_b_id, Connectio
     return result;
   }
 
-  const SpanKind span_kind = (resolved_category == ConnectionCategory::kDrop) ? SpanKind::kService : options.span_kind;
+  const SpanKind span_kind = (options.span_kind == SpanKind::kGeneric)
+                                 ? generation::detail::DefaultSpanKindForCategory(resolved_category)
+                                 : options.span_kind;
   EditResult<ObjectId> span_result = AddSpan(port_a_result.value, port_b_result.value, span_kind,
                                              resolved_span_layer, bundle_result.value);
   if (!span_result.ok) {
@@ -1866,10 +1877,24 @@ double CoreState::effective_pole_yaw_deg(const Pole& pole) const {
 }
 
 double CoreState::effective_pole_layout_yaw_deg(const Pole& pole) const {
+  return effective_pole_yaw_deg(pole);
+}
+
+double CoreState::effective_port_layout_yaw_deg(const Pole& pole, ConnectionCategory category,
+                                                const PortLayoutYawOverride* row_layout_yaw_override) const {
   if (has_pole_orientation_override(pole.id)) {
     return effective_pole_yaw_deg(pole);
   }
+  if (row_layout_yaw_override != nullptr && row_layout_yaw_override->category == category) {
+    return normalize_yaw_deg(row_layout_yaw_override->yaw_deg);
+  }
   if (const auto it = debug_.pole_orientation_debug_records.find(pole.id); it != debug_.pole_orientation_debug_records.end()) {
+    const bool uses_support_axis_layout =
+        it->second.row_layout_axis_mode == RowLayoutAxisMode::kSupportAxis &&
+        it->second.row_layout_axis_category == category;
+    if (!uses_support_axis_layout) {
+      return effective_pole_yaw_deg(pole);
+    }
     Vec3d support_axis = it->second.adopted_support_axis;
     if (Normalize(&support_axis)) {
       return normalize_yaw_deg(std::atan2(support_axis.y, support_axis.x) * (180.0 / 3.14159265358979323846) - 90.0);
@@ -2277,8 +2302,10 @@ CoreState make_demo_state() {
     case ConnectionCategory::kOptical:
       options.bundle_template_id = BundleKind::kOptical;
       break;
-    case ConnectionCategory::kLowVoltage:
     case ConnectionCategory::kDrop:
+      options.bundle_template_id = BundleKind::kDrop;
+      break;
+    case ConnectionCategory::kLowVoltage:
     default:
       options.bundle_template_id = BundleKind::kLowVoltage;
       break;

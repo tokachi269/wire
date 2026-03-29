@@ -2,6 +2,11 @@
 
 #include "wire/core/core_view.hpp"
 
+#include "../generation/support_policy.hpp"
+
+#include <cmath>
+#include <limits>
+
 namespace wire::core {
 
 CoreView::CoreView(const CoreState& state) : state_(state) {}
@@ -46,6 +51,31 @@ int CoreView::count_port_bands(PoleTypeId pole_type_id, ConnectionCategory categ
     }
   }
   return count;
+}
+double CoreView::port_category_base_z_for_pole(const Pole& pole, ConnectionCategory category) const {
+  const auto it = state_.authoritative_.pole_types.find(pole.pole_type_id);
+  if (it == state_.authoritative_.pole_types.end()) {
+    return std::max(0.5, pole.height_m * 0.8);
+  }
+
+  const int target_layer = generation::detail::TemplateLayerForCategory(category);
+  double best_z = -std::numeric_limits<double>::infinity();
+  auto accumulate = [&](const auto& predicate) {
+    for (const PortPlacementBand& band : it->second.port_bands) {
+      if (!band.enabled || !predicate(band)) {
+        continue;
+      }
+      best_z = std::max(best_z, band.height_max_m);
+    }
+    return std::isfinite(best_z);
+  };
+
+  if (accumulate([&](const PortPlacementBand& band) { return band.layer == target_layer && band.category == category; }) ||
+      accumulate([&](const PortPlacementBand& band) { return band.category == category; }) ||
+      accumulate([&](const PortPlacementBand& band) { return band.layer == target_layer; })) {
+    return best_z;
+  }
+  return std::max(0.5, pole.height_m * 0.8);
 }
 const std::unordered_map<CableTemplateId, CableTemplate>& CoreView::cable_templates() const {
   return state_.authoritative_.cable_templates;

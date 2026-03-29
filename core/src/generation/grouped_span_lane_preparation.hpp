@@ -58,6 +58,7 @@ public:
   explicit GroupedSpanLaneStateAccess(CoreState& state);
 
   [[nodiscard]] double effective_pole_layout_yaw_deg(const Pole& pole) const;
+  [[nodiscard]] double effective_port_layout_yaw_deg(const Pole& pole, ConnectionCategory category) const;
   [[nodiscard]] const PoleTypeDefinition* find_pole_type(PoleTypeId pole_type_id) const;
   [[nodiscard]] std::optional<Vec3d> port_world_position(ObjectId port_id) const;
   [[nodiscard]] std::optional<int> port_template_layer(ObjectId port_id) const;
@@ -81,6 +82,7 @@ public:
   [[nodiscard]] PortKind port_kind_for_category(ConnectionCategory category) const;
   [[nodiscard]] PortLayer port_layer_for_category(ConnectionCategory category) const;
   [[nodiscard]] int template_layer_for_category(ConnectionCategory category) const;
+  [[nodiscard]] double port_category_base_z_for_pole(const Pole& pole, ConnectionCategory category) const;
   [[nodiscard]] double pole_radius_at_height_m(const Pole& pole, double local_z_m) const;
   [[nodiscard]] Vec3d apply_pole_clearance_to_local(const Pole& pole, const Vec3d& local, SlotSide side) const;
   [[nodiscard]] EditResult<ObjectId> AddPort(ObjectId owner_pole_id, const Vec3d& world_position, PortKind kind,

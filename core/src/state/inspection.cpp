@@ -740,6 +740,8 @@ std::optional<PoleInspectionView> CoreView::inspect_pole(ObjectId pole_id) const
   if (const auto it = pole_orientation_debug_records().find(pole_id); it != pole_orientation_debug_records().end()) {
     result.forward_rule = it->second.rule;
     result.support_axis_rule = it->second.support_axis_rule;
+    result.row_layout_axis_mode = it->second.row_layout_axis_mode;
+    result.row_layout_axis_category = it->second.row_layout_axis_category;
     result.primary_neighbor_id = it->second.primary_neighbor_id;
     result.secondary_neighbor_id = it->second.secondary_neighbor_id;
     result.forward_dir = it->second.adopted_forward;
@@ -1126,6 +1128,10 @@ std::optional<TemplateInspectionView> CoreView::inspect_bundle_template(BundleKi
   result.properties.push_back({"allow_mirror", BoolText(tpl.allow_mirror), PropertyAccessKind::kEditable});
   result.properties.push_back({"allow_midair_node", BoolText(tpl.allow_midair_node), PropertyAccessKind::kEditable});
   result.properties.push_back({"allow_midair_branch", BoolText(tpl.allow_midair_branch), PropertyAccessKind::kEditable});
+  result.properties.push_back(
+      {"order_decision_policy", OrderDecisionPolicyText(tpl.order_decision_policy), PropertyAccessKind::kEditable});
+  result.properties.push_back(
+      {"row_layout_axis_mode", std::to_string(static_cast<int>(tpl.row_layout_axis_mode)), PropertyAccessKind::kEditable});
   result.properties.push_back(
       {"support_style", std::to_string(static_cast<int>(tpl.support_style)), PropertyAccessKind::kEditable});
   result.properties.push_back(

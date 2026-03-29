@@ -19,6 +19,19 @@ inline double BranchDownOffsetForCategory(ConnectionCategory category) {
   }
 }
 
+inline SpanKind DefaultSpanKindForCategory(ConnectionCategory category) {
+  switch (category) {
+  case ConnectionCategory::kDrop:
+    return SpanKind::kService;
+  case ConnectionCategory::kHighVoltage:
+  case ConnectionCategory::kLowVoltage:
+  case ConnectionCategory::kCommunication:
+  case ConnectionCategory::kOptical:
+  default:
+    return SpanKind::kDistribution;
+  }
+}
+
 inline int TemplateLayerForCategory(ConnectionCategory category) {
   switch (category) {
   case ConnectionCategory::kHighVoltage:

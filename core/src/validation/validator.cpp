@@ -72,30 +72,7 @@ double insulator_lift_for_span(const CoreView& core, ObjectId span_id) {
 }
 
 double template_layer_base_z_for_validation(const CoreView& core, const Pole& pole, ConnectionCategory category) {
-  double best_z = -std::numeric_limits<double>::infinity();
-  const int target_layer = generation::detail::TemplateLayerForCategory(category);
-  const auto pole_type_it = core.pole_types().find(pole.pole_type_id);
-  if (pole_type_it != core.pole_types().end()) {
-    for (const PortPlacementBand& band : pole_type_it->second.port_bands) {
-      if (!band.enabled) {
-        continue;
-      }
-      if (band.layer == target_layer) {
-        best_z = std::max(best_z, band.height_max_m);
-      }
-    }
-    if (!std::isfinite(best_z)) {
-      for (const PortPlacementBand& band : pole_type_it->second.port_bands) {
-        if (band.enabled && band.category == category) {
-          best_z = std::max(best_z, band.height_max_m);
-        }
-      }
-    }
-  }
-  if (std::isfinite(best_z)) {
-    return best_z;
-  }
-  return std::max(0.5, pole.height_m * 0.8);
+  return core.port_category_base_z_for_pole(pole, category);
 }
 
 } // namespace
@@ -253,7 +230,8 @@ ValidationResult CoreState::Validate() const {
         if (pole_type_it != pole_types.end()) {
           bool matched_hint = false;
           const PoleFrame frame =
-              BuildPoleFrame(owner_pole->world_transform, effective_pole_layout_yaw_deg(*owner_pole));
+              BuildPoleFrame(owner_pole->world_transform,
+                             effective_port_layout_yaw_deg(*owner_pole, port.category));
           const Vec3d local = WorldPointToLocal(frame, port.world_position);
           for (const PortPlacementBand& band : pole_type_it->second.port_bands) {
             if (!band.enabled) {

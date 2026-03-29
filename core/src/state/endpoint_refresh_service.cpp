@@ -102,7 +102,7 @@ OwnedEndpointIds EndpointRefreshService::CollectOwnedEndpointIds(const CoreState
 
 void EndpointRefreshService::RefreshOwnedEndpointsFromPole(CoreState& state, ObjectId pole_id, ChangeSet* change_set,
                                                            const Pole* previous_pole,
-                                                           const double* previous_layout_yaw_override) {
+                                                           const PortLayoutYawOverride* previous_row_layout_yaw_override) {
   Pole* pole = state.authoritative_.edit_state.poles.find(pole_id);
   if (pole == nullptr) {
     return;
@@ -110,11 +110,6 @@ void EndpointRefreshService::RefreshOwnedEndpointsFromPole(CoreState& state, Obj
 
   const PoleTypeDefinition* pole_type = state.find_pole_type(pole->pole_type_id);
   const double effective_yaw = state.effective_pole_yaw_deg(*pole);
-  const double layout_yaw = state.effective_pole_layout_yaw_deg(*pole);
-  const double previous_layout_yaw =
-      (previous_layout_yaw_override != nullptr)
-          ? *previous_layout_yaw_override
-          : ((previous_pole == nullptr) ? effective_yaw : state.effective_pole_layout_yaw_deg(*previous_pole));
 
   const OwnedEndpointIds owned = CollectOwnedEndpointIds(state, pole_id);
 
@@ -123,6 +118,12 @@ void EndpointRefreshService::RefreshOwnedEndpointsFromPole(CoreState& state, Obj
     if (port == nullptr || port->position_mode == PortPositionMode::kManual) {
       continue;
     }
+    const double layout_yaw = state.effective_port_layout_yaw_deg(*pole, port->category);
+    const double previous_layout_yaw =
+        (previous_pole == nullptr)
+            ? effective_yaw
+            : state.effective_port_layout_yaw_deg(*previous_pole, port->category,
+                                                  previous_row_layout_yaw_override);
     Vec3d new_world = port->world_position;
     bool apply_angle_correction = false;
     double applied_scale = 1.0;

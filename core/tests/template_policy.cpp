@@ -357,13 +357,18 @@ bool test_drop_generation_uses_template_defaults() {
     return false;
   }
   const auto* bundle = state.view().edit_state().bundles.find(span->bundle_id);
-  const auto tpl_it = state.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
-  if (bundle == nullptr || tpl_it == state.view().bundle_templates().end()) {
+  const auto tpl_it = state.view().bundle_templates().find(wire::core::BundleKind::kDrop);
+  const auto lv_tpl_it = state.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  if (bundle == nullptr || tpl_it == state.view().bundle_templates().end() ||
+      lv_tpl_it == state.view().bundle_templates().end()) {
     return false;
   }
   const auto& tpl = tpl_it->second;
-  return span->layer == tpl.default_layer && bundle->bundle_template_id == tpl.id &&
-         almost_equal(bundle->phase_spacing_m, tpl.default_spacing_m, 1e-9);
+  const auto& lv_tpl = lv_tpl_it->second;
+  return span->layer == wire::core::SpanLayer::kDrop && span->layer == tpl.default_layer &&
+         bundle->bundle_template_id == wire::core::BundleKind::kDrop && bundle->bundle_template_id == tpl.id &&
+         almost_equal(bundle->phase_spacing_m, tpl.default_spacing_m, 1e-9) &&
+         tpl.cable_template_id != lv_tpl.cable_template_id;
 }
 
 // Intent: Fixed bundle template must reject explicit count override inputs.

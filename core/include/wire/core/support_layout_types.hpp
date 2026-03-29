@@ -91,6 +91,7 @@ struct SupportLayoutDecisionSeedEndpoint {
 
 struct SupportGroupDecision {
   EndpointContinuityDecision decision{};
+  ConnectionCategory category = ConnectionCategory::kLowVoltage;
   SlotSide side = SlotSide::kCenter;
   SupportLayoutOriginKind origin = SupportLayoutOriginKind::kFallback;
   double down_offset_m = 0.0;

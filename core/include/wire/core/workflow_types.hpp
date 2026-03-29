@@ -132,6 +132,12 @@ struct CableTemplate {
   std::uint64_t version = 1;
 };
 
+enum class OrderDecisionPolicyKind : std::uint8_t;
+enum class RowLayoutAxisMode : std::uint8_t {
+  kPoleYaw = 0,
+  kSupportAxis = 1,
+};
+
 struct BundleTemplate {
   // Bundle/system rule set. Topology policy lives here, not on CableTemplate.
   BundleKind id = BundleKind::kLowVoltage;
@@ -153,6 +159,8 @@ struct BundleTemplate {
   bool allow_midair_node = true;
   bool allow_midair_branch = true;
   bool enable_branch_down_offset = false;
+  OrderDecisionPolicyKind order_decision_policy{};
+  RowLayoutAxisMode row_layout_axis_mode = RowLayoutAxisMode::kPoleYaw;
   BundleSupportStyleHint support_style = BundleSupportStyleHint::kAuto;
   BundleBranchPolicyHint branch_policy = BundleBranchPolicyHint::kAuto;
   CableContinuityPolicyHint continuity_policy = CableContinuityPolicyHint::kAuto;
@@ -255,6 +263,97 @@ enum class BackboneFlowDecisionRule : std::uint8_t {
   kJunctionOrderBranch = 2,
   kExistingChainMain = 3,
   kExistingChainBranch = 4,
+};
+
+// High-level realism input. This stays abstract; core does not own raw road/district datasets.
+struct ContextProfile {
+  double age = 0.5;
+  double clutter = 0.5;
+  double regularity = 0.5;
+  double service_mix = 0.5;
+  std::uint64_t style_seed = 1;
+};
+
+// Stable style keys should be derived from route/segment/lane semantics, not transient object ids.
+struct StyleRouteKey {
+  std::uint64_t family_id = 0;
+  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  ConnectionCategory category = ConnectionCategory::kLowVoltage;
+  BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
+};
+
+struct StyleClusterKey {
+  StyleRouteKey route{};
+  std::uint32_t cluster_index = 0;
+};
+
+enum class StyleObjectKind : std::uint8_t {
+  kSpan = 0,
+  kEndpoint = 1,
+  kAttachment = 2,
+  kSupport = 3,
+  kPoleAccessory = 4,
+};
+
+struct StyleObjectKey {
+  StyleRouteKey route{};
+  std::uint32_t segment_index = 0;
+  std::uint32_t lane_index = 0;
+  StyleObjectKind kind = StyleObjectKind::kSpan;
+  std::uint32_t ordinal = 0;
+  bool is_start_endpoint = false;
+};
+
+struct VariationScope {
+  std::uint64_t district_seed = 0;
+  std::uint64_t route_seed = 0;
+  std::uint64_t cluster_seed = 0;
+  std::uint64_t object_seed = 0;
+};
+
+struct DistrictStyle {
+  double age = 0.5;
+  double clutter = 0.5;
+  double regularity = 0.5;
+  double service_mix = 0.5;
+  CableMaterialStyleKind cable_family = CableMaterialStyleKind::kGeneric;
+  CableAttachmentStyleHint attachment_family = CableAttachmentStyleHint::kAuto;
+};
+
+struct RouteStyle {
+  StyleRouteKey key{};
+  double age_bias = 0.0;
+  double clutter_bias = 0.0;
+  double regularity_bias = 0.0;
+  double service_mix_bias = 0.0;
+  double sag_bias = 0.0;
+  CableMaterialStyleKind cable_family = CableMaterialStyleKind::kGeneric;
+  CableAttachmentStyleHint attachment_family = CableAttachmentStyleHint::kAuto;
+};
+
+struct ClusterStyle {
+  StyleClusterKey key{};
+  double clutter_bias = 0.0;
+  double service_mix_bias = 0.0;
+  double family_mix = 0.0;
+};
+
+struct ObjectVariation {
+  StyleObjectKey key{};
+  Vec3d local_offset_m{};
+  double sag_delta_m = 0.0;
+  double attachment_offset_m = 0.0;
+  double choice_bias = 0.0;
+};
+
+// Downstream-only style surface. This must not reinterpret topology or ownership authority.
+struct ResolvedStyleContext {
+  ContextProfile profile{};
+  VariationScope scope{};
+  DistrictStyle district{};
+  RouteStyle route{};
+  ClusterStyle cluster{};
+  ObjectVariation object{};
 };
 
 enum class JunctionRelationKind : std::uint8_t {

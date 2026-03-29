@@ -21,6 +21,11 @@ class GroupedSpanLanePreparer;
 class GroupedSpanLaneStateAccess;
 }
 
+struct PortLayoutYawOverride {
+  ConnectionCategory category = ConnectionCategory::kLowVoltage;
+  double yaw_deg = 0.0;
+};
+
 class CoreState {
 public:
   CoreState();
@@ -116,6 +121,9 @@ public:
   [[nodiscard]] const SpanRenderCacheEntry* find_span_render_cache(ObjectId span_id) const;
   [[nodiscard]] const AttachmentTemplate* find_attachment_template(AttachmentTemplateId attachment_template_id) const;
   [[nodiscard]] ValidationResult ValidateFast() const;
+  [[nodiscard]] double effective_pole_layout_yaw_deg(const Pole& pole) const;
+  [[nodiscard]] double effective_port_layout_yaw_deg(const Pole& pole, ConnectionCategory category,
+                                                     const PortLayoutYawOverride* row_layout_yaw_override = nullptr) const;
 
   [[nodiscard]] CommitResult Commit();
   [[nodiscard]] CommitResult Commit(const CommitOptions& options);
@@ -174,7 +182,6 @@ private:
                                                BundleKind bundle_template_id = BundleKind::kLowVoltage);
   [[nodiscard]] static std::uint64_t hash_path_points(const std::vector<Vec3d>& points);
   [[nodiscard]] double effective_pole_yaw_deg(const Pole& pole) const;
-  [[nodiscard]] double effective_pole_layout_yaw_deg(const Pole& pole) const;
   [[nodiscard]] Vec3d to_local_on_pole(const Pole& pole, const Vec3d& world) const;
   [[nodiscard]] SlotSide preferred_side_from_geometry(const Pole& pole, const Pole* peer, double eps) const;
   [[nodiscard]] static double polyline_length(const std::vector<Vec3d>& polyline);
@@ -227,7 +234,7 @@ private:
   void finalize_pole_transform_update(ObjectId pole_id, const Pole& old_pole, ChangeSet* change_set);
   std::string next_display_id(std::string_view prefix);
   void refresh_owned_endpoints_from_pole(ObjectId pole_id, ChangeSet* change_set, const Pole* previous_pole = nullptr,
-                                         const double* previous_layout_yaw_override = nullptr);
+                                         const PortLayoutYawOverride* previous_row_layout_yaw_override = nullptr);
   [[nodiscard]] EditState& edit_state_access() { return authoritative_.edit_state; }
   [[nodiscard]] const EditState& edit_state_access() const { return authoritative_.edit_state; }
   [[nodiscard]] ConnectionIndex& connection_index_access() { return runtime_.connection_index; }

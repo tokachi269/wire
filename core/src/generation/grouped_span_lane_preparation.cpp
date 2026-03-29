@@ -2,6 +2,7 @@
 
 #include "detail_utils.hpp"
 #include "support_policy.hpp"
+#include "wire/core/core_view.hpp"
 #include "wire/core/core_state.hpp"
 
 #include <algorithm>
@@ -119,6 +120,10 @@ GroupedSpanLaneStateAccess::GroupedSpanLaneStateAccess(CoreState& state) : state
 
 double GroupedSpanLaneStateAccess::effective_pole_layout_yaw_deg(const Pole& pole) const {
   return state_->effective_pole_layout_yaw_deg(pole);
+}
+
+double GroupedSpanLaneStateAccess::effective_port_layout_yaw_deg(const Pole& pole, ConnectionCategory category) const {
+  return state_->effective_port_layout_yaw_deg(pole, category);
 }
 
 const PoleTypeDefinition* GroupedSpanLaneStateAccess::find_pole_type(PoleTypeId pole_type_id) const {
@@ -319,6 +324,10 @@ int GroupedSpanLaneStateAccess::template_layer_for_category(ConnectionCategory c
   return generation::detail::TemplateLayerForCategory(category);
 }
 
+double GroupedSpanLaneStateAccess::port_category_base_z_for_pole(const Pole& pole, ConnectionCategory category) const {
+  return state_->view().port_category_base_z_for_pole(pole, category);
+}
+
 double GroupedSpanLaneStateAccess::pole_radius_at_height_m(const Pole& pole, double local_z_m) const {
   return state_->pole_radius_at_height_m(pole, local_z_m);
 }
@@ -448,33 +457,11 @@ GroupedSpanLanePreparer::GroupedSpanLanePreparer(CoreState& state, const Grouped
       order_decision_policy_(order_decision_policy), change_set_(change_set) {}
 
 double GroupedSpanLanePreparer::LayoutYawForPole(const Pole& pole) const {
-  return state_.effective_pole_layout_yaw_deg(pole);
+  return state_.effective_port_layout_yaw_deg(pole, category_);
 }
 
 double GroupedSpanLanePreparer::TemplateLayerBaseZForPole(const Pole& pole) const {
-  double best_z = -std::numeric_limits<double>::infinity();
-  const int target_layer = state_.template_layer_for_category(category_);
-  if (const PoleTypeDefinition* pole_type = state_.find_pole_type(pole.pole_type_id); pole_type != nullptr) {
-    for (const PortPlacementBand& band : pole_type->port_bands) {
-      if (!band.enabled) {
-        continue;
-      }
-      if (band.layer == target_layer) {
-        best_z = std::max(best_z, band.height_max_m);
-      }
-    }
-    if (!std::isfinite(best_z)) {
-      for (const PortPlacementBand& band : pole_type->port_bands) {
-        if (band.enabled && band.category == category_) {
-          best_z = std::max(best_z, band.height_max_m);
-        }
-      }
-    }
-  }
-  if (std::isfinite(best_z)) {
-    return best_z;
-  }
-  return std::max(0.5, pole.height_m * 0.8);
+  return state_.port_category_base_z_for_pole(pole, category_);
 }
 
 double GroupedSpanLanePreparer::LaneRowBaseZForPole(const Pole& pole) const {

@@ -29,8 +29,9 @@ BundleKind bundle_template_for_category(ConnectionCategory category) {
     return BundleKind::kCommunication;
   case ConnectionCategory::kOptical:
     return BundleKind::kOptical;
-  case ConnectionCategory::kLowVoltage:
   case ConnectionCategory::kDrop:
+    return BundleKind::kDrop;
+  case ConnectionCategory::kLowVoltage:
   default:
     return BundleKind::kLowVoltage;
   }

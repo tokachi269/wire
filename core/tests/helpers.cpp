@@ -267,13 +267,10 @@ wire::core::EditResult<BackbonePathGenerateResult> generate_from_backbone_option
 LaneOrderMetrics compute_lane_order_metrics(const CoreState& state,
                                             const std::vector<wire::core::SegmentLaneAssignment>& assignments) {
   LaneOrderMetrics metrics{};
-  auto to_layout_local = [&](const wire::core::Pole& pole, const wire::core::Vec3d& world) {
-    double layout_yaw_deg = effective_pole_yaw_deg_test(pole);
-    if (const auto pole_view = state.view().inspect_pole(pole.id); pole_view.has_value() && pole_view->has_layout_yaw) {
-      layout_yaw_deg = pole_view->layout_yaw_deg;
-    }
+  auto to_layout_local = [&](const wire::core::Pole& pole, const wire::core::Port& port) {
+    const double layout_yaw_deg = state.effective_port_layout_yaw_deg(pole, port.category);
     return wire::core::WorldPointToLocal(
-        wire::core::BuildPoleFrame(pole.world_transform, layout_yaw_deg), world);
+        wire::core::BuildPoleFrame(pole.world_transform, layout_yaw_deg), port.world_position);
   };
   for (const auto& assignment : assignments) {
     const auto* pole_a = state.view().edit_state().poles.find(assignment.pole_a_id);
@@ -287,21 +284,12 @@ LaneOrderMetrics compute_lane_order_metrics(const CoreState& state,
     }
 
     std::vector<double> y_a(lane_count, 0.0);
+    std::vector<double> y_b_raw(lane_count, 0.0);
     std::vector<double> y_b(lane_count, 0.0);
     std::vector<double> z_a(lane_count, 0.0);
     std::vector<double> z_b(lane_count, 0.0);
     std::vector<int> layer_a(lane_count, 0);
     std::vector<int> layer_b(lane_count, 0);
-    double y_sign_b = 1.0;
-    const auto pole_view_a = state.view().inspect_pole(assignment.pole_a_id);
-    const auto pole_view_b = state.view().inspect_pole(assignment.pole_b_id);
-    if (pole_view_a.has_value() && pole_view_b.has_value() && pole_view_a->has_support_axis && pole_view_b->has_support_axis) {
-      const wire::core::Vec3d axis_a = normalize_xy_safe(pole_view_a->support_axis_dir);
-      const wire::core::Vec3d axis_b = normalize_xy_safe(pole_view_b->support_axis_dir);
-      if (dot_xy(axis_a, axis_b) < 0.0) {
-        y_sign_b = -1.0;
-      }
-    }
 
     for (std::size_t lane = 0; lane < lane_count; ++lane) {
       const auto* port_a = state.view().edit_state().ports.find(assignment.port_ids_a[lane]);
@@ -309,15 +297,34 @@ LaneOrderMetrics compute_lane_order_metrics(const CoreState& state,
       if (port_a == nullptr || port_b == nullptr) {
         continue;
       }
-      const wire::core::Vec3d local_a = to_layout_local(*pole_a, port_a->world_position);
-      const wire::core::Vec3d local_b = to_layout_local(*pole_b, port_b->world_position);
+      const wire::core::Vec3d local_a = to_layout_local(*pole_a, *port_a);
+      const wire::core::Vec3d local_b = to_layout_local(*pole_b, *port_b);
       y_a[lane] = local_a.y;
-      y_b[lane] = local_b.y * y_sign_b;
+      y_b_raw[lane] = local_b.y;
       z_a[lane] = port_a->world_position.z;
       z_b[lane] = port_b->world_position.z;
       layer_a[lane] = port_a->template_layer;
       layer_b[lane] = port_b->template_layer;
       metrics.layer_jumps += std::abs(layer_a[lane] - layer_b[lane]);
+    }
+
+    auto inversion_count_for_sign = [&](double sign) {
+      int inversions = 0;
+      constexpr double kOrderEps = 1e-4;
+      for (std::size_t i = 0; i < lane_count; ++i) {
+        for (std::size_t j = i + 1; j < lane_count; ++j) {
+          const double dy_a = y_a[i] - y_a[j];
+          const double dy_b = (y_b_raw[i] * sign) - (y_b_raw[j] * sign);
+          if ((dy_a > kOrderEps && dy_b < -kOrderEps) || (dy_a < -kOrderEps && dy_b > kOrderEps)) {
+            ++inversions;
+          }
+        }
+      }
+      return inversions;
+    };
+    const double y_sign_b = (inversion_count_for_sign(-1.0) < inversion_count_for_sign(1.0)) ? -1.0 : 1.0;
+    for (std::size_t lane = 0; lane < lane_count; ++lane) {
+      y_b[lane] = y_b_raw[lane] * y_sign_b;
     }
 
     for (std::size_t i = 0; i < lane_count; ++i) {
@@ -342,13 +349,10 @@ LaneOrderMetrics compute_lane_order_metrics(const CoreState& state,
 void dump_lane_assignment_debug(const CoreState& state,
                                 const std::vector<wire::core::SegmentLaneAssignment>& assignments, const char* tag) {
   std::cerr << "[DBG] " << tag << " assignment_count=" << assignments.size() << "\n";
-  auto to_layout_local = [&](const wire::core::Pole& pole, const wire::core::Vec3d& world) {
-    double layout_yaw_deg = effective_pole_yaw_deg_test(pole);
-    if (const auto pole_view = state.view().inspect_pole(pole.id); pole_view.has_value() && pole_view->has_layout_yaw) {
-      layout_yaw_deg = pole_view->layout_yaw_deg;
-    }
+  auto to_layout_local = [&](const wire::core::Pole& pole, const wire::core::Port& port) {
+    const double layout_yaw_deg = state.effective_port_layout_yaw_deg(pole, port.category);
     return wire::core::WorldPointToLocal(
-        wire::core::BuildPoleFrame(pole.world_transform, layout_yaw_deg), world);
+        wire::core::BuildPoleFrame(pole.world_transform, layout_yaw_deg), port.world_position);
   };
   for (const auto& assignment : assignments) {
     const auto* pole_a = state.view().edit_state().poles.find(assignment.pole_a_id);
@@ -357,28 +361,38 @@ void dump_lane_assignment_debug(const CoreState& state,
       continue;
     }
     std::vector<double> y_a{};
+    std::vector<double> y_b_raw{};
     std::vector<double> y_b{};
-    double y_sign_b = 1.0;
-    const auto pole_view_a = state.view().inspect_pole(assignment.pole_a_id);
-    const auto pole_view_b = state.view().inspect_pole(assignment.pole_b_id);
-    if (pole_view_a.has_value() && pole_view_b.has_value() && pole_view_a->has_support_axis && pole_view_b->has_support_axis) {
-      const wire::core::Vec3d axis_a = normalize_xy_safe(pole_view_a->support_axis_dir);
-      const wire::core::Vec3d axis_b = normalize_xy_safe(pole_view_b->support_axis_dir);
-      if (dot_xy(axis_a, axis_b) < 0.0) {
-        y_sign_b = -1.0;
-      }
-    }
     const std::size_t lane_count = std::min(assignment.port_ids_a.size(), assignment.port_ids_b.size());
     for (std::size_t lane = 0; lane < lane_count; ++lane) {
       const auto* pa = state.view().edit_state().ports.find(assignment.port_ids_a[lane]);
       const auto* pb = state.view().edit_state().ports.find(assignment.port_ids_b[lane]);
       if (pa == nullptr || pb == nullptr) {
         y_a.push_back(0.0);
-        y_b.push_back(0.0);
+        y_b_raw.push_back(0.0);
         continue;
       }
-      y_a.push_back(to_layout_local(*pole_a, pa->world_position).y);
-      y_b.push_back(to_layout_local(*pole_b, pb->world_position).y * y_sign_b);
+      y_a.push_back(to_layout_local(*pole_a, *pa).y);
+      y_b_raw.push_back(to_layout_local(*pole_b, *pb).y);
+    }
+    auto inversion_count_for_sign = [&](double sign) {
+      int inversions = 0;
+      constexpr double kOrderEps = 1e-4;
+      for (std::size_t i = 0; i < lane_count; ++i) {
+        for (std::size_t j = i + 1; j < lane_count; ++j) {
+          const double dy_a = y_a[i] - y_a[j];
+          const double dy_b = (y_b_raw[i] * sign) - (y_b_raw[j] * sign);
+          if ((dy_a > kOrderEps && dy_b < -kOrderEps) || (dy_a < -kOrderEps && dy_b > kOrderEps)) {
+            ++inversions;
+          }
+        }
+      }
+      return inversions;
+    };
+    const double y_sign_b = (inversion_count_for_sign(-1.0) < inversion_count_for_sign(1.0)) ? -1.0 : 1.0;
+    y_b.reserve(y_b_raw.size());
+    for (double value : y_b_raw) {
+      y_b.push_back(value * y_sign_b);
     }
     int inv = 0;
     constexpr double kOrderEps = 1e-4;
@@ -557,12 +571,10 @@ int count_bundle_lane_adjacent_order_discontinuities(const CoreState& state,
       max_segment_index = std::max(max_segment_index, assignment->segment_index);
     }
 
-    auto to_layout_local = [&](const wire::core::Pole& pole, const wire::core::Vec3d& world) {
-      double layout_yaw_deg = effective_pole_yaw_deg_test(pole);
-      if (const auto pole_view = state.view().inspect_pole(pole.id); pole_view.has_value() && pole_view->has_layout_yaw) {
-        layout_yaw_deg = pole_view->layout_yaw_deg;
-      }
-      return wire::core::WorldPointToLocal(wire::core::BuildPoleFrame(pole.world_transform, layout_yaw_deg), world);
+    auto to_layout_local = [&](const wire::core::Pole& pole, const wire::core::Port& port) {
+      const double layout_yaw_deg = state.effective_port_layout_yaw_deg(pole, port.category);
+      return wire::core::WorldPointToLocal(wire::core::BuildPoleFrame(pole.world_transform, layout_yaw_deg),
+                                           port.world_position);
     };
 
     for (std::size_t idx = 1; idx < bundle_assignments.size(); ++idx) {
@@ -590,8 +602,8 @@ int count_bundle_lane_adjacent_order_discontinuities(const CoreState& state,
         if (prev_port == nullptr || curr_port == nullptr) {
           continue;
         }
-        prev_y[i] = to_layout_local(*shared_pole, prev_port->world_position).y;
-        curr_y[i] = to_layout_local(*shared_pole, curr_port->world_position).y;
+        prev_y[i] = to_layout_local(*shared_pole, *prev_port).y;
+        curr_y[i] = to_layout_local(*shared_pole, *curr_port).y;
       }
 
       constexpr double kOrderEps = 1e-4;
@@ -683,8 +695,9 @@ wire::core::BundleKind bundle_template_for_category_test(wire::core::ConnectionC
     return wire::core::BundleKind::kCommunication;
   case wire::core::ConnectionCategory::kOptical:
     return wire::core::BundleKind::kOptical;
-  case wire::core::ConnectionCategory::kLowVoltage:
   case wire::core::ConnectionCategory::kDrop:
+    return wire::core::BundleKind::kDrop;
+  case wire::core::ConnectionCategory::kLowVoltage:
   default:
     return wire::core::BundleKind::kLowVoltage;
   }

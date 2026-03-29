@@ -19,6 +19,8 @@ bool test_public_headers_offer_stable_smoke_surface() {
   static_assert(std::is_default_constructible_v<AddConnectionByPoleOptions>);
   static_assert(std::is_default_constructible_v<ResolveBranchPickOptions>);
   static_assert(std::is_default_constructible_v<VariationSettings>);
+  static_assert(std::is_default_constructible_v<ContextProfile>);
+  static_assert(std::is_default_constructible_v<ResolvedStyleContext>);
   static_assert(std::is_copy_constructible_v<SupportLayoutEndpointView>);
   static_assert(std::is_copy_constructible_v<LoweredSupportGroupInspectionView>);
 
@@ -62,7 +64,15 @@ bool test_public_headers_offer_stable_smoke_surface() {
   BackboneBundleSpec bundle{};
   bundle.bundle_template_id = BundleKind::kLowVoltage;
   spec.bundles.push_back(bundle);
-  return spec.interval_m == 20.0 && spec.bundles.size() == 1;
+
+  ContextProfile profile{};
+  profile.style_seed = 7;
+  ResolvedStyleContext style{};
+  style.profile = profile;
+  style.route.key.family_id = 11;
+  style.object.key.segment_index = 2;
+  return spec.interval_m == 20.0 && spec.bundles.size() == 1 && style.profile.style_seed == 7 &&
+         style.route.key.family_id == 11 && style.object.key.segment_index == 2;
 }
 
 void RegisterApiSurfaceTests(test_registry::TestRegistry& tests) {

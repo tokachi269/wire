@@ -26,7 +26,7 @@ struct EndpointRefreshService {
   static OwnedEndpointIds CollectOwnedEndpointIds(const CoreState& state, ObjectId pole_id);
   static void RefreshOwnedEndpointsFromPole(CoreState& state, ObjectId pole_id, ChangeSet* change_set,
                                             const Pole* previous_pole = nullptr,
-                                            const double* previous_layout_yaw_override = nullptr);
+                                            const PortLayoutYawOverride* previous_row_layout_yaw_override = nullptr);
 };
 
 struct TemplateMutationService {

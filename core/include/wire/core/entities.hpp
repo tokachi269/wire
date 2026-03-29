@@ -79,6 +79,7 @@ enum class PortLayer : std::uint8_t {
   kLowVoltage = 2,
   kCommunication = 3,
   kOptical = 4,
+  kDrop = 5,
 };
 
 enum class PlacementMode : std::uint8_t {
@@ -113,6 +114,7 @@ enum class SpanLayer : std::uint8_t {
   kLowVoltage = 2,
   kCommunication = 3,
   kOptical = 4,
+  kDrop = 5,
 };
 
 enum class PoleKind : std::uint8_t {
@@ -134,6 +136,7 @@ enum class BundleKind : std::uint8_t {
   kHighVoltage = 1,
   kCommunication = 2,
   kOptical = 3,
+  kDrop = 4,
 };
 
 enum class CableMaterialStyleKind : std::uint8_t {

@@ -22,6 +22,7 @@ constexpr CableTemplateId kHighVoltageCableTemplate = 1;
 constexpr CableTemplateId kLowVoltageCableTemplate = 2;
 constexpr CableTemplateId kCommunicationCableTemplate = 3;
 constexpr CableTemplateId kOpticalCableTemplate = 4;
+constexpr CableTemplateId kDropCableTemplate = 5;
 constexpr AttachmentTemplateId kGenericAttachmentTemplate = 1;
 constexpr AttachmentTemplateId kHiddenAttachmentTemplate = 2;
 constexpr AttachmentTemplateId kInternalPathAttachmentTemplate = 3;
@@ -37,6 +38,8 @@ ConnectionCategory port_layer_to_category(PortLayer layer) {
     return ConnectionCategory::kCommunication;
   case PortLayer::kOptical:
     return ConnectionCategory::kOptical;
+  case PortLayer::kDrop:
+    return ConnectionCategory::kDrop;
   default:
     return ConnectionCategory::kLowVoltage;
   }
@@ -52,6 +55,8 @@ PortLayer span_layer_to_port_layer(SpanLayer layer) {
     return PortLayer::kCommunication;
   case SpanLayer::kOptical:
     return PortLayer::kOptical;
+  case SpanLayer::kDrop:
+    return PortLayer::kDrop;
   default:
     return PortLayer::kUnknown;
   }
@@ -67,6 +72,8 @@ ConnectionCategory span_layer_to_category(SpanLayer layer) {
     return ConnectionCategory::kCommunication;
   case SpanLayer::kOptical:
     return ConnectionCategory::kOptical;
+  case SpanLayer::kDrop:
+    return ConnectionCategory::kDrop;
   default:
     return ConnectionCategory::kLowVoltage;
   }
@@ -180,12 +187,13 @@ PortLayer CoreState::category_to_port_layer(ConnectionCategory category) {
   case ConnectionCategory::kHighVoltage:
     return PortLayer::kHighVoltage;
   case ConnectionCategory::kLowVoltage:
-  case ConnectionCategory::kDrop:
     return PortLayer::kLowVoltage;
   case ConnectionCategory::kCommunication:
     return PortLayer::kCommunication;
   case ConnectionCategory::kOptical:
     return PortLayer::kOptical;
+  case ConnectionCategory::kDrop:
+    return PortLayer::kDrop;
   default:
     return PortLayer::kUnknown;
   }
@@ -196,12 +204,13 @@ SpanLayer CoreState::category_to_span_layer(ConnectionCategory category) {
   case ConnectionCategory::kHighVoltage:
     return SpanLayer::kHighVoltage;
   case ConnectionCategory::kLowVoltage:
-  case ConnectionCategory::kDrop:
     return SpanLayer::kLowVoltage;
   case ConnectionCategory::kCommunication:
     return SpanLayer::kCommunication;
   case ConnectionCategory::kOptical:
     return SpanLayer::kOptical;
+  case ConnectionCategory::kDrop:
+    return SpanLayer::kDrop;
   default:
     return SpanLayer::kUnknown;
   }
@@ -212,12 +221,13 @@ BundleKind CoreState::category_to_bundle_kind(ConnectionCategory category) {
   case ConnectionCategory::kHighVoltage:
     return BundleKind::kHighVoltage;
   case ConnectionCategory::kLowVoltage:
-  case ConnectionCategory::kDrop:
     return BundleKind::kLowVoltage;
   case ConnectionCategory::kCommunication:
     return BundleKind::kCommunication;
   case ConnectionCategory::kOptical:
     return BundleKind::kOptical;
+  case ConnectionCategory::kDrop:
+    return BundleKind::kDrop;
   default:
     return BundleKind::kLowVoltage;
   }
@@ -356,6 +366,8 @@ void CoreState::register_default_bundle_templates() {
   hv.allow_midair_node = true;
   hv.allow_midair_branch = false;
   hv.enable_branch_down_offset = true;
+  hv.order_decision_policy = OrderDecisionPolicyKind::kPermutableHomogeneous;
+  hv.row_layout_axis_mode = RowLayoutAxisMode::kSupportAxis;
   authoritative_.bundle_templates[hv.id] = hv;
 
   BundleTemplate lv{};
@@ -378,7 +390,31 @@ void CoreState::register_default_bundle_templates() {
   lv.allow_midair_node = true;
   lv.allow_midair_branch = true;
   lv.enable_branch_down_offset = false;
+  lv.order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
   authoritative_.bundle_templates[lv.id] = lv;
+
+  BundleTemplate drop{};
+  drop.id = BundleKind::kDrop;
+  drop.name = "DROP_SERVICE";
+  drop.category = ConnectionCategory::kDrop;
+  drop.cable_template_id = kDropCableTemplate;
+  drop.default_layer = SpanLayer::kDrop;
+  drop.related_pole_type_id = kDistributionPoleType;
+  drop.preserve_conductor_identity = false;
+  drop.count_rule = BundleCountRuleKind::kFixed;
+  drop.fixed_count = 1;
+  drop.min_count = 1;
+  drop.max_count = 1;
+  drop.default_count = 1;
+  drop.default_spacing_m = 0.18;
+  drop.grouped_support_fanout_spacing_m =
+      grouped_support_fanout_spacing_for(drop.cable_template_id, drop.default_spacing_m);
+  drop.allow_mirror = true;
+  drop.allow_midair_node = true;
+  drop.allow_midair_branch = true;
+  drop.enable_branch_down_offset = false;
+  drop.order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
+  authoritative_.bundle_templates[drop.id] = drop;
 
   BundleTemplate comm{};
   comm.id = BundleKind::kCommunication;
@@ -400,6 +436,7 @@ void CoreState::register_default_bundle_templates() {
   comm.allow_midair_node = true;
   comm.allow_midair_branch = true;
   comm.enable_branch_down_offset = false;
+  comm.order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
   authoritative_.bundle_templates[comm.id] = comm;
 
   BundleTemplate optical{};
@@ -422,6 +459,7 @@ void CoreState::register_default_bundle_templates() {
   optical.allow_midair_node = true;
   optical.allow_midair_branch = true;
   optical.enable_branch_down_offset = false;
+  optical.order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
   authoritative_.bundle_templates[optical.id] = optical;
 }
 
@@ -543,7 +581,7 @@ EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolution
   const PoleTypeDefinition* pole_type = find_pole_type(pole->pole_type_id);
   if (pole_type != nullptr) {
     auto bands = sorted_port_bands(*pole_type, request.category);
-    const double layout_yaw = effective_pole_layout_yaw_deg(*pole);
+    const double layout_yaw = effective_port_layout_yaw_deg(*pole, request.category);
     const PoleFrame pole_frame = BuildPoleFrame(pole->world_transform, layout_yaw);
 
     struct BandSolveResult {
@@ -1082,6 +1120,23 @@ void CoreState::register_default_cable_templates() {
   lv.continuity_policy = CableContinuityPolicyHint::kAuto;
   lv.attachment_style = CableAttachmentStyleHint::kDirectThrough;
   authoritative_.cable_templates[lv.id] = lv;
+
+  CableTemplate drop{};
+  drop.id = kDropCableTemplate;
+  drop.name = "DROP_SERVICE";
+  drop.outer_diameter_m = 0.016;
+  drop.default_grouped_support_fanout_spacing_m = 0.18;
+  drop.bend_stiffness = 0.7;
+  drop.min_bend_radius_m = 0.20;
+  drop.material_style = CableMaterialStyleKind::kInsulated;
+  drop.color_rgba = 0x1E1E1EFFu;
+  drop.requires_insulator = false;
+  drop.insulator_attachment_height_m = 0.0;
+  drop.sag_factor = 0.035;
+  drop.slack_factor = 0.01;
+  drop.continuity_policy = CableContinuityPolicyHint::kPreferG1;
+  drop.attachment_style = CableAttachmentStyleHint::kDirectThrough;
+  authoritative_.cable_templates[drop.id] = drop;
 
   CableTemplate comm{};
   comm.id = kCommunicationCableTemplate;

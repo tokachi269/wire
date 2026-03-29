@@ -74,6 +74,14 @@
 - Auto 部分を優先更新する。
 - 影響範囲を局所化し、無関係要素を巻き込まない。
 
+### 6.4 テンプレ責務の分担
+- `BundleTemplate` は束のルールと、関連する `CableTemplate` / `PoleTypeDefinition` への参照を持つ。
+- `CableTemplate` は線の見た目と detail 用派生入力を持つ。
+- `PoleTypeDefinition` は pole 本体高さと `PortPlacementBand` / `AnchorSlotTemplate` を持ち、pole 上幾何の正本とする。
+- `PortPlacementBand` は中間結果ではなく、auto port 配置の正本である。
+- viewer の category 単位 pole placement UI は編集補助であり、保存時は `PortPlacementBand` に落とし込む。
+- `BundleTemplate.related_pole_type_id` は bundle 主語の編集参照であり、pole 幾何そのものを bundle 側へ移さない。
+
 ## 7. 更新整合ルール
 - 変更は編集 API 経由のみ。
 - Pole transform 変更時は同一経路で次を実行する。
@@ -82,6 +90,9 @@
 3. 関連 Span を Dirty 化
 4. 再計算で Version 追随
 - 参照整合は `ValidateFast()` / `Validate()` で検出する。
+- `UpdatePoleTypeDefinition(...)` は、すでにその `pole_type_id` を持つ既存 pole にだけ再適用する。
+- `UpdateBundleTemplate(...)` は bundle 定義を更新するが、既存 pole instance の `pole_type_id` は自動変更しない。
+- bundle 主語で既存 pole instance に関連 pole type を反映したい場合は `ApplyBundleRelatedPoleTypeToExistingPoles(...)` を使う。
 
 ## 8. Backbone の責務
 - Backbone は Pole 間接続の骨格表現を扱う。
@@ -95,8 +106,9 @@
 - orientation / side / lower_required は upstream decision を正とし、recalc/viewer で再推論しない。
 
 ## 10. 鋭角コーナー補正（現行）
-- 鋭角判定は `corner interior angle < 75°`。
+- 鋭角判定は `corner interior angle <= 74°`。
 - 鋭角時は Port 列の side 軸を角の二等分線に直交する向きへ補正する。
+- tilted pole の再利用時も、world XY 固定ではなく pole の support plane 上で同じ sharp 判定を使う。
 - デバッグで `theta / bisector / side_dir` を観測できること。
 
 ## 11. viewer 最低要件

@@ -201,6 +201,8 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
       normalized.allow_midair_node == it->second.allow_midair_node &&
       normalized.allow_midair_branch == it->second.allow_midair_branch &&
       normalized.enable_branch_down_offset == it->second.enable_branch_down_offset &&
+      normalized.order_decision_policy == it->second.order_decision_policy &&
+      normalized.row_layout_axis_mode == it->second.row_layout_axis_mode &&
       normalized.support_style == it->second.support_style && normalized.branch_policy == it->second.branch_policy &&
       normalized.continuity_policy == it->second.continuity_policy && normalized.name == it->second.name;
 
@@ -216,6 +218,8 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
       normalized.allow_midair_node != it->second.allow_midair_node ||
       normalized.allow_midair_branch != it->second.allow_midair_branch ||
       normalized.enable_branch_down_offset != it->second.enable_branch_down_offset ||
+      normalized.order_decision_policy != it->second.order_decision_policy ||
+      normalized.row_layout_axis_mode != it->second.row_layout_axis_mode ||
       normalized.support_style != it->second.support_style || normalized.branch_policy != it->second.branch_policy ||
       normalized.continuity_policy != it->second.continuity_policy;
 

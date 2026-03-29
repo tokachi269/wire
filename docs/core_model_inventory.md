@@ -28,7 +28,7 @@ Definition Layer
 ### 4.1 Definition Layer
 | 型 | ファイル | 責務（1行） | 主依存 | 保存分類 |
 |---|---|---|---|---|
-| `PoleTypeDefinition` | `core/include/wire/core/entities.hpp` | 再利用可能な電柱テンプレートと、その内部配置ヒントを定義する。 | `PoleTypeId`, placement metadata | `PersistCore` |
+| `PoleTypeDefinition` | `core/include/wire/core/entities.hpp` | 再利用可能な電柱テンプレートとして pole 本体高さと pole 上配置正本（`PortPlacementBand` / `AnchorSlotTemplate`）を定義する。 | `PoleTypeId`, placement metadata | `PersistCore` |
 | `LayoutSettings` | `core/include/wire/core/core_state.hpp` | 配置補正ポリシーのパラメータを定義する。 | scalar params | `PersistCore`（設定） |
 | `PathDirectionCostWeights` | `core/include/wire/core/debug_types.hpp` | 経路方向評価の重みを定義する。 | scalar params | `PersistCore`（設定） |
 | 基本 enum 群（`ConnectionCategory` など） | `core/include/wire/core/entities.hpp` | テンプレート/実体/編集で使う分類語彙を定義する。 | none | `PersistCore` |
@@ -53,7 +53,7 @@ Definition Layer
 |---|---|---|---|---|
 | `RoadSegment` | `core/include/wire/core/workflow_types.hpp` | 生成入力用ポリラインを運ぶ。 | `RoadId`, `Vec3d[]` | `SessionDebug` |
 | `BackboneInputSpec`, `BackboneGenerationConstraints`, `BackbonePolePlacementOptions`, `BackboneBundleSpec`, `BackboneSpec` | `core/include/wire/core/workflow_types.hpp` | 道路概念に依存しない backbone 指向の生成入力を定義する。 | path + bundles[] + constraints + mode | `SessionDebug` |
-| `BundleTemplate` | `core/include/wire/core/workflow_types.hpp` | 束テンプレ（固定本数/可変範囲、既定layer、mirror許可）を定義する。 | template id + count rules | `PersistCore` |
+| `BundleTemplate` | `core/include/wire/core/workflow_types.hpp` | 束テンプレ（固定本数/可変範囲、既定layer、mirror許可）と、関連 `CableTemplate` / `PoleTypeDefinition` 参照を定義する。 | template id + count rules + related refs | `PersistCore` |
 | `BackboneResult` | `core/include/wire/core/workflow_types.hpp` | 入力仕様から分離した骨格グラフ結果を保持する。 | `BackboneEdge[]` | `DerivedCache` |
 | `ConductorGroupSpec` | `core/include/wire/core/workflow_types.hpp` | 束生成1回分の意図（カテゴリ/本数/種別）を定義する。 | category/count/kind | `SessionDebug` |
 | `ConductorLaneId`, `ConductorGroupState` | `core/include/wire/core/workflow_types.hpp` | 束生成時の lane 順序管理（内部）を保持する。 | bundle ref + lane order | `SessionDebug` |
@@ -83,7 +83,7 @@ Definition Layer
 | 現状型/フィールド | 混在理由 | 分離方向 |
 |---|---|---|
 | `Pole::context` (`PoleContextInfo`) | 経路解析ヒント（workflow）を entity に持っている。 | `pole_id` キーの workflow テーブルへ移動。必要最小限だけ永続化。 |
-| `Port` の `template_layer/side/role` と補正フラグ | テンプレ由来情報/生成診断と実接続点が同居。 | `PortPlacementMeta`（永続）と `PortPlacementDebug`（セッション）へ分割。 |
+| `Port` の `template_layer/side/role` と補正フラグ | テンプレ由来情報/生成診断と実接続点が同居。現状は `ApplyPoleType(...)` がこの metadata を使って auto port を再投影する。 | `PortPlacementMeta`（永続）と `PortPlacementDebug`（セッション）へ分割。 |
 | `Pole`/`Span` 内 `GenerationMeta` | セッション順序/由来と永続トポロジが同居。 | `generated/source` は必要時のみ残し、順序情報は workflow 側へ移す。 |
 | `CacheState` が設定と派生を同居 | 設定寿命とキャッシュ寿命が異なる。 | `GenerationSettingsState` と `DerivedCacheState` 分割。 |
 | `ConnectionIndex` / `RelationIndex` の分類 | 再構築可能だが高速参照のため正本近傍にある。 | 当面は維持し、Phase5 serializer で再構築可能扱いを明示。 |

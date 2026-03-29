@@ -203,7 +203,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
     for (int lane = 0; lane < lane_count; ++lane) {
       const ObjectId port_a_id = assignment.port_ids_a[static_cast<std::size_t>(lane)];
       const ObjectId port_b_id = assignment.port_ids_b[static_cast<std::size_t>(lane)];
-      const auto add = AddSpan(port_a_id, port_b_id, SpanKind::kDistribution, category_to_span_layer(category),
+      const auto add = AddSpan(port_a_id, port_b_id, DefaultSpanKindForCategory(category), category_to_span_layer(category),
                                bundle_id);
       if (!add.ok) {
         result.error = add.error;

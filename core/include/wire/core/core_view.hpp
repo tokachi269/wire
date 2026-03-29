@@ -42,6 +42,7 @@ public:
   [[nodiscard]] const CacheState& cache_state() const;
   [[nodiscard]] const std::unordered_map<PoleTypeId, PoleTypeDefinition>& pole_types() const;
   [[nodiscard]] int count_port_bands(PoleTypeId pole_type_id, ConnectionCategory category) const;
+  [[nodiscard]] double port_category_base_z_for_pole(const Pole& pole, ConnectionCategory category) const;
   [[nodiscard]] const std::unordered_map<CableTemplateId, CableTemplate>& cable_templates() const;
   [[nodiscard]] const std::unordered_map<BundleKind, BundleTemplate>& bundle_templates() const;
   [[nodiscard]] const std::unordered_map<AttachmentTemplateId, AttachmentTemplate>& attachment_templates() const;

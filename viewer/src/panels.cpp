@@ -300,6 +300,8 @@ const char* AttachmentLineInteractionModeLabel(wire::core::AttachmentLineInterac
     return "ReplaceWithInternalPath";
   case wire::core::AttachmentLineInteractionMode::kHideSegment:
     return "HideSegment";
+  case wire::core::AttachmentLineInteractionMode::kAddInternalPath:
+    return "AddInternalPath";
   default:
     return "Unknown";
   }
@@ -562,6 +564,10 @@ std::vector<wire::core::CableTemplateId> SortedCableTemplateIds(const wire::core
   return ids;
 }
 
+void LoadPoleTemplateState(const wire::core::CoreView& view, ViewerUiState& ui_state, wire::core::PoleTypeId id);
+wire::core::PoleTypeId SuggestedPoleTypeForBundleCategory(const wire::core::CoreView& view,
+                                                          wire::core::ConnectionCategory category);
+
 void LoadCableTemplateState(const wire::core::CoreView& view, ViewerUiState& ui_state, wire::core::CableTemplateId id) {
   const auto it = view.cable_templates().find(id);
   if (it == view.cable_templates().end()) {
@@ -574,6 +580,7 @@ void LoadCableTemplateState(const wire::core::CoreView& view, ViewerUiState& ui_
   ui_state.cable_min_bend_radius = it->second.min_bend_radius_m;
   ui_state.cable_material_style = static_cast<int>(it->second.material_style);
   ui_state.cable_requires_insulator = it->second.requires_insulator;
+  ui_state.cable_insulator_attachment_height = it->second.insulator_attachment_height_m;
   ui_state.cable_sag_factor = it->second.sag_factor;
   ui_state.cable_slack_factor = it->second.slack_factor;
   ui_state.cable_default_grouped_support_fanout_spacing = it->second.default_grouped_support_fanout_spacing_m;
@@ -595,105 +602,198 @@ void LoadBundleTemplateState(const wire::core::CoreView& view, ViewerUiState& ui
   ui_state.bundle_template_branch_policy = static_cast<int>(it->second.branch_policy);
   ui_state.bundle_template_continuity_policy = static_cast<int>(it->second.continuity_policy);
   ui_state.bundle_template_grouped_support_fanout_spacing = it->second.grouped_support_fanout_spacing_m;
+  LoadCableTemplateState(view, ui_state, it->second.cable_template_id);
+  if (it->second.related_pole_type_id != wire::core::kInvalidPoleTypeId) {
+    LoadPoleTemplateState(view, ui_state, it->second.related_pole_type_id);
+  } else if (const wire::core::PoleTypeId suggested_id = SuggestedPoleTypeForBundleCategory(view, it->second.category);
+             suggested_id != wire::core::kInvalidPoleTypeId) {
+    LoadPoleTemplateState(view, ui_state, suggested_id);
+  }
 }
 
-constexpr int kCommunicationPoleSupportWireBandId = 600;
-constexpr int kCommunicationPoleHighVoltageBandIds[] = {610, 611, 612};
-constexpr int kCommunicationPoleCommunicationBandIds[] = {620, 621};
-constexpr int kCommunicationPoleOpticalBandIds[] = {700, 701};
-
-const wire::core::PoleTypeDefinition* FindCommunicationPoleType(const wire::core::CoreView& view) {
-  for (const auto& [_, pole_type] : view.pole_types()) {
-    if (pole_type.name == "CommunicationPole") {
-      return &pole_type;
-    }
+const char* BandOverflowPolicyLabel(wire::core::BandOverflowPolicy policy) {
+  switch (policy) {
+  case wire::core::BandOverflowPolicy::kTrySiblingBand:
+    return "TrySiblingBand";
+  case wire::core::BandOverflowPolicy::kRaiseHeight:
+    return "RaiseHeight";
+  case wire::core::BandOverflowPolicy::kConstrainedFallback:
+    return "ConstrainedFallback";
+  default:
+    return "Unknown";
   }
-  return nullptr;
 }
 
-wire::core::PortPlacementBand* FindPortBand(wire::core::PoleTypeDefinition* pole_type, int band_id) {
-  if (pole_type == nullptr) {
-    return nullptr;
+const char* AnchorSupportKindLabel(wire::core::AnchorSupportKind kind) {
+  switch (kind) {
+  case wire::core::AnchorSupportKind::kGeneric:
+    return "Generic";
+  case wire::core::AnchorSupportKind::kGround:
+    return "Ground";
+  case wire::core::AnchorSupportKind::kBuilding:
+    return "Building";
+  case wire::core::AnchorSupportKind::kMidair:
+    return "Midair";
+  default:
+    return "Unknown";
   }
-  for (auto& band : pole_type->port_bands) {
-    if (band.band_id == band_id) {
-      return &band;
-    }
-  }
-  return nullptr;
 }
 
-const wire::core::PortPlacementBand* FindPortBand(const wire::core::PoleTypeDefinition& pole_type, int band_id) {
-  for (const auto& band : pole_type.port_bands) {
-    if (band.band_id == band_id) {
-      return &band;
-    }
+bool InputTextString(const char* label, std::string* value) {
+  if (value == nullptr) {
+    return false;
   }
-  return nullptr;
+  std::vector<char> buffer(value->begin(), value->end());
+  buffer.resize(std::max<std::size_t>(256, buffer.size() + 64), '\0');
+  const bool changed = ImGui::InputText(label, buffer.data(), buffer.size());
+  if (changed) {
+    *value = buffer.data();
+  }
+  return changed;
 }
 
-void SetBandHeightCenter(wire::core::PortPlacementBand* band, double new_center_m) {
-  if (band == nullptr) {
+std::vector<wire::core::PoleTypeId> SortedPoleTypeIds(const wire::core::CoreView& view) {
+  std::vector<wire::core::PoleTypeId> ids;
+  ids.reserve(view.pole_types().size());
+  for (const auto& [id, _] : view.pole_types()) {
+    ids.push_back(id);
+  }
+  std::sort(ids.begin(), ids.end());
+  return ids;
+}
+
+void LoadPoleTemplateState(const wire::core::CoreView& view, ViewerUiState& ui_state, wire::core::PoleTypeId id) {
+  const auto it = view.pole_types().find(id);
+  if (it == view.pole_types().end()) {
     return;
   }
-  const double half_range = std::max(0.0, 0.5 * (band->height_max_m - band->height_min_m));
-  band->height_center_m = new_center_m;
-  band->height_min_m = new_center_m - half_range;
-  band->height_max_m = new_center_m + half_range;
+  ui_state.selected_pole_template_id = id;
+  ui_state.pole_template_edit = it->second;
+  ui_state.pole_template_loaded = true;
 }
 
-template <std::size_t N>
-double AverageBandHeight(const wire::core::PoleTypeDefinition& pole_type, const int (&band_ids)[N], double fallback_m) {
+wire::core::PoleTypeId SuggestedPoleTypeForBundleCategory(const wire::core::CoreView& view,
+                                                          wire::core::ConnectionCategory category) {
+  wire::core::PoleTypeId best_id = wire::core::kInvalidPoleTypeId;
+  int best_score = -1;
+  for (const auto& [id, pole_type] : view.pole_types()) {
+    int score = 0;
+    for (const auto& band : pole_type.port_bands) {
+      if (band.enabled && band.category == category) {
+        score += 1;
+      }
+    }
+    if (score > best_score || (score == best_score && best_id == wire::core::kInvalidPoleTypeId)) {
+      best_score = score;
+      best_id = id;
+    }
+  }
+  return best_id;
+}
+
+double AverageBandHeightForCategory(const wire::core::PoleTypeDefinition& pole_type,
+                                    wire::core::ConnectionCategory category,
+                                    double fallback_m) {
   double total = 0.0;
   int count = 0;
-  for (int band_id : band_ids) {
-    if (const auto* band = FindPortBand(pole_type, band_id); band != nullptr) {
-      total += band->height_center_m;
-      ++count;
+  for (const auto& band : pole_type.port_bands) {
+    if (!band.enabled || band.category != category) {
+      continue;
     }
+    total += band.height_center_m;
+    ++count;
   }
   return count > 0 ? total / static_cast<double>(count) : fallback_m;
 }
 
-template <std::size_t N>
-void ShiftBandGroupHeights(wire::core::PoleTypeDefinition* pole_type, const int (&band_ids)[N], double target_center_m) {
+double AverageBandLateralForCategory(const wire::core::PoleTypeDefinition& pole_type,
+                                     wire::core::ConnectionCategory category,
+                                     double fallback_m) {
+  double total = 0.0;
+  int count = 0;
+  for (const auto& band : pole_type.port_bands) {
+    if (!band.enabled || band.category != category) {
+      continue;
+    }
+    total += band.lateral_center_m;
+    ++count;
+  }
+  return count > 0 ? total / static_cast<double>(count) : fallback_m;
+}
+
+double MaxBandLateralSpreadForCategory(const wire::core::PoleTypeDefinition& pole_type,
+                                       wire::core::ConnectionCategory category,
+                                       double center_m) {
+  double spread = 0.0;
+  for (const auto& band : pole_type.port_bands) {
+    if (!band.enabled || band.category != category) {
+      continue;
+    }
+    spread = std::max(spread, std::abs(band.lateral_center_m - center_m));
+  }
+  return spread;
+}
+
+void SetBandCategoryHeights(wire::core::PoleTypeDefinition* pole_type,
+                            wire::core::ConnectionCategory category,
+                            double target_center_m) {
   if (pole_type == nullptr) {
     return;
   }
-  double total = 0.0;
-  int count = 0;
-  for (int band_id : band_ids) {
-    if (const auto* band = FindPortBand(*pole_type, band_id); band != nullptr) {
-      total += band->height_center_m;
-      ++count;
+  for (auto& band : pole_type->port_bands) {
+    if (!band.enabled || band.category != category) {
+      continue;
     }
-  }
-  if (count <= 0) {
-    return;
-  }
-  const double delta = target_center_m - (total / static_cast<double>(count));
-  for (int band_id : band_ids) {
-    if (auto* band = FindPortBand(pole_type, band_id); band != nullptr) {
-      SetBandHeightCenter(band, band->height_center_m + delta);
-    }
+    const double half_range = std::max(0.0, 0.5 * (band.height_max_m - band.height_min_m));
+    band.height_center_m = target_center_m;
+    band.height_min_m = target_center_m - half_range;
+    band.height_max_m = target_center_m + half_range;
   }
 }
 
-void LoadCommunicationPoleTemplateState(const wire::core::CoreView& view, ViewerUiState& ui_state) {
-  const auto* pole_type = FindCommunicationPoleType(view);
+void SetBandCategoryLateralCenter(wire::core::PoleTypeDefinition* pole_type,
+                                  wire::core::ConnectionCategory category,
+                                  double target_center_m) {
   if (pole_type == nullptr) {
     return;
   }
-  if (const auto* band = FindPortBand(*pole_type, kCommunicationPoleSupportWireBandId); band != nullptr) {
-    ui_state.communication_pole_support_wire_height = band->height_center_m;
+  const double current_center_m = AverageBandLateralForCategory(*pole_type, category, 0.0);
+  const double delta = target_center_m - current_center_m;
+  for (auto& band : pole_type->port_bands) {
+    if (!band.enabled || band.category != category) {
+      continue;
+    }
+    band.lateral_center_m += delta;
+    band.lateral_min_m += delta;
+    band.lateral_max_m += delta;
   }
-  ui_state.communication_pole_high_voltage_height =
-      AverageBandHeight(*pole_type, kCommunicationPoleHighVoltageBandIds, ui_state.communication_pole_high_voltage_height);
-  ui_state.communication_pole_communication_height =
-      AverageBandHeight(*pole_type, kCommunicationPoleCommunicationBandIds, ui_state.communication_pole_communication_height);
-  ui_state.communication_pole_optical_height =
-      AverageBandHeight(*pole_type, kCommunicationPoleOpticalBandIds, ui_state.communication_pole_optical_height);
-  ui_state.communication_pole_template_loaded = true;
+}
+
+void SetBandCategorySpread(wire::core::PoleTypeDefinition* pole_type,
+                           wire::core::ConnectionCategory category,
+                           double target_spread_m) {
+  if (pole_type == nullptr) {
+    return;
+  }
+  const double center_m = AverageBandLateralForCategory(*pole_type, category, 0.0);
+  const double current_spread_m = MaxBandLateralSpreadForCategory(*pole_type, category, center_m);
+  const double scale = (current_spread_m <= 1e-9) ? 1.0 : (target_spread_m / current_spread_m);
+  for (auto& band : pole_type->port_bands) {
+    if (!band.enabled || band.category != category) {
+      continue;
+    }
+    const double half_range = std::max(0.0, 0.5 * (band.lateral_max_m - band.lateral_min_m));
+    const double deviation = band.lateral_center_m - center_m;
+    band.lateral_center_m = center_m + deviation * scale;
+    band.lateral_min_m = band.lateral_center_m - half_range;
+    band.lateral_max_m = band.lateral_center_m + half_range;
+  }
+}
+
+bool PoleTypeHasCategory(const wire::core::PoleTypeDefinition& pole_type, wire::core::ConnectionCategory category) {
+  return std::any_of(pole_type.port_bands.begin(), pole_type.port_bands.end(), [&](const auto& band) {
+    return band.enabled && band.category == category;
+  });
 }
 
 void DrawObjectList(ViewerUiState& ui_state, const char* header, SelectedType type, const std::vector<ObjectId>& ids,
@@ -1358,9 +1458,11 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
         ImGui::Text("curveLength: %.2f", curve_view->curve_length_m);
         ImGui::Text("segments: %d", static_cast<int>(curve_view->segment_count));
         ImGui::Text("arcSamples: %d", static_cast<int>(curve_view->arc_length_sample_count));
-        ImGui::Text("visible/hidden/replaced: %d / %d / %d", static_cast<int>(curve_view->visible_interval_count),
+        ImGui::Text("visible/hidden/replaced/supplemental: %d / %d / %d / %d",
+                    static_cast<int>(curve_view->visible_interval_count),
                     static_cast<int>(curve_view->hidden_interval_count),
-                    static_cast<int>(curve_view->replacement_path_count));
+                    static_cast<int>(curve_view->replacement_path_count),
+                    static_cast<int>(curve_view->supplemental_path_count));
         ImGui::Text("continuity: %s (%s)", DetailCurveContinuityModeLabel(curve_view->adopted_continuity),
                     DetailCurveContinuityReasonLabel(curve_view->continuity_reason));
         ImGui::Text("shapePolicy: %s", CurveShapePolicyLabel(curve_view->shape_policy));
@@ -1653,9 +1755,11 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
                 curve_view->control_points[1].z);
     ImGui::Text("controlP2: %.2f %.2f %.2f", curve_view->control_points[2].x, curve_view->control_points[2].y,
                 curve_view->control_points[2].z);
-    ImGui::Text("arcSamples=%d visible=%d hidden=%d replaced=%d", static_cast<int>(curve_view->arc_length_sample_count),
+    ImGui::Text("arcSamples=%d visible=%d hidden=%d replaced=%d supplemental=%d",
+                static_cast<int>(curve_view->arc_length_sample_count),
                 static_cast<int>(curve_view->visible_interval_count), static_cast<int>(curve_view->hidden_interval_count),
-                static_cast<int>(curve_view->replacement_path_count));
+                static_cast<int>(curve_view->replacement_path_count),
+                static_cast<int>(curve_view->supplemental_path_count));
     ImGui::Text("tangentRule: %s / %s", DetailCurveEndpointTangentRuleLabel(curve_view->start_tangent_rule),
                 DetailCurveEndpointTangentRuleLabel(curve_view->end_tangent_rule));
     ImGui::Text("lateralSuppression: %.2f", curve_view->lateral_suppression);
@@ -1932,8 +2036,11 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
     }
     ui_state.bundle_template_loaded = true;
   }
-  if (!ui_state.communication_pole_template_loaded) {
-    LoadCommunicationPoleTemplateState(view, ui_state);
+  if (!ui_state.pole_template_loaded) {
+    for (const auto& [id, _] : view.pole_types()) {
+      LoadPoleTemplateState(view, ui_state, id);
+      break;
+    }
   }
 
   const auto& recalc = view.last_recalc_stats();
@@ -2113,6 +2220,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
       ImGui::EndCombo();
     }
     ImGui::Checkbox("Cable Requires Insulator", &ui_state.cable_requires_insulator);
+    ImGui::InputDouble("Cable Insulator Attach Height", &ui_state.cable_insulator_attachment_height, 0.005, 0.01, "%.3f");
     ImGui::InputDouble("Cable Sag Factor", &ui_state.cable_sag_factor, 0.005, 0.01, "%.4f");
     ImGui::InputDouble("Cable Slack Factor", &ui_state.cable_slack_factor, 0.005, 0.01, "%.4f");
     ImGui::InputDouble("Cable Default Grouped Fanout Spacing", &ui_state.cable_default_grouped_support_fanout_spacing,
@@ -2144,6 +2252,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
         tpl.min_bend_radius_m = ui_state.cable_min_bend_radius;
         tpl.material_style = static_cast<wire::core::CableMaterialStyleKind>(ui_state.cable_material_style);
         tpl.requires_insulator = ui_state.cable_requires_insulator;
+        tpl.insulator_attachment_height_m = ui_state.cable_insulator_attachment_height;
         tpl.sag_factor = ui_state.cable_sag_factor;
         tpl.slack_factor = ui_state.cable_slack_factor;
         tpl.default_grouped_support_fanout_spacing_m = ui_state.cable_default_grouped_support_fanout_spacing;
@@ -2205,6 +2314,26 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
           const bool selected = (id == ui_state.bundle_template_cable_template_id);
           if (ImGui::Selectable(cable_it->second.name.c_str(), selected)) {
             ui_state.bundle_template_cable_template_id = id;
+          }
+          if (selected) {
+            ImGui::SetItemDefaultFocus();
+          }
+        }
+        ImGui::EndCombo();
+      }
+      const auto pole_type_ids = SortedPoleTypeIds(view);
+      const auto selected_related_pole_it = view.pole_types().find(ui_state.selected_pole_template_id);
+      const char* selected_related_pole_label =
+          selected_related_pole_it != view.pole_types().end() ? selected_related_pole_it->second.name.c_str() : "(none)";
+      if (ImGui::BeginCombo("Related Pole Template##bundle", selected_related_pole_label)) {
+        for (wire::core::PoleTypeId id : pole_type_ids) {
+          const auto pole_it = view.pole_types().find(id);
+          if (pole_it == view.pole_types().end()) {
+            continue;
+          }
+          const bool selected = (id == ui_state.selected_pole_template_id);
+          if (ImGui::Selectable(pole_it->second.name.c_str(), selected)) {
+            LoadPoleTemplateState(view, ui_state, id);
           }
           if (selected) {
             ImGui::SetItemDefaultFocus();
@@ -2284,6 +2413,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
       if (ImGui::Button("Apply Bundle Template")) {
         wire::core::BundleTemplate tpl = it->second;
         tpl.cable_template_id = ui_state.bundle_template_cable_template_id;
+        tpl.related_pole_type_id = ui_state.selected_pole_template_id;
         tpl.default_layer = static_cast<wire::core::SpanLayer>(ui_state.bundle_template_default_layer);
         tpl.allow_mirror = ui_state.bundle_template_allow_mirror;
         tpl.allow_midair_node = ui_state.bundle_template_allow_midair_node;
@@ -2298,6 +2428,13 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
           ui_state.last_error = apply.error;
           PushLog(ui_state, "UpdateBundleTemplate failed");
         } else {
+          const auto apply_related_poles =
+              viewer_core_state::ApplyBundleRelatedPoleTypeToExistingPoles(state, tpl.id);
+          if (!apply_related_poles.ok) {
+            ui_state.last_error = apply_related_poles.error;
+            PushLog(ui_state, "ApplyBundleRelatedPoleTypeToExistingPoles failed");
+            return;
+          }
           ui_state.last_error.clear();
           const auto& deps = viewer_core_state::View(state).template_dependency_state();
           if (!deps.bundles_requiring_regeneration.empty() || !deps.sessions_requiring_regeneration.empty()) {
@@ -2306,42 +2443,261 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
                                       std::to_string(deps.sessions_requiring_regeneration.size()));
           } else {
             PushLog(ui_state, "Bundle template updated; dirty spans=" +
-                                      std::to_string(apply.change_set.dirty_span_ids.size()));
+                                      std::to_string(apply.change_set.dirty_span_ids.size()) + " related apply updates=" +
+                                      std::to_string(apply_related_poles.change_set.updated_ids.size()));
           }
           LoadBundleTemplateState(viewer_core_state::View(state), ui_state, tpl.id);
         }
       }
     }
     ImGui::Separator();
-    if (const auto* communication_pole_type = FindCommunicationPoleType(view); communication_pole_type != nullptr) {
-      ImGui::Text("Pole Template: %s", communication_pole_type->name.c_str());
-      ImGui::InputDouble("Top Support Wire Height", &ui_state.communication_pole_support_wire_height, 0.05, 0.10, "%.3f");
-      ImGui::InputDouble("High Voltage Height", &ui_state.communication_pole_high_voltage_height, 0.05, 0.10, "%.3f");
-      ImGui::InputDouble("Communication Height", &ui_state.communication_pole_communication_height, 0.05, 0.10, "%.3f");
-      ImGui::InputDouble("Optical Height", &ui_state.communication_pole_optical_height, 0.05, 0.10, "%.3f");
-      if (ImGui::Button("Apply Communication Pole Heights")) {
-        wire::core::PoleTypeDefinition pole_type = *communication_pole_type;
-        SetBandHeightCenter(FindPortBand(&pole_type, kCommunicationPoleSupportWireBandId),
-                            ui_state.communication_pole_support_wire_height);
-        ShiftBandGroupHeights(&pole_type, kCommunicationPoleHighVoltageBandIds,
-                              ui_state.communication_pole_high_voltage_height);
-        ShiftBandGroupHeights(&pole_type, kCommunicationPoleCommunicationBandIds,
-                              ui_state.communication_pole_communication_height);
-        ShiftBandGroupHeights(&pole_type, kCommunicationPoleOpticalBandIds,
-                              ui_state.communication_pole_optical_height);
-        const auto apply = viewer_core_state::UpdatePoleTypeDefinition(state, pole_type);
-        if (!apply.ok) {
-          ui_state.last_error = apply.error;
-          PushLog(ui_state, "UpdatePoleTypeDefinition failed");
-        } else {
-          ui_state.last_error.clear();
-          LoadCommunicationPoleTemplateState(viewer_core_state::View(state), ui_state);
-          PushLog(ui_state, "Communication pole heights updated; dirty spans=" +
-                                std::to_string(apply.change_set.dirty_span_ids.size()));
+    const auto pole_type_ids = SortedPoleTypeIds(view);
+    if (!pole_type_ids.empty()) {
+      const auto selected_pole_it = view.pole_types().find(ui_state.selected_pole_template_id);
+      ImGui::TextUnformatted("Bundle-linked Pole Template");
+      ImGui::Text("Editing: %s",
+                  selected_pole_it != view.pole_types().end() ? selected_pole_it->second.name.c_str() : "(missing)");
+
+      if (selected_pole_it != view.pole_types().end()) {
+        if (ui_state.selected_pole_template_id != selected_pole_it->first || ui_state.pole_template_edit.id == wire::core::kInvalidPoleTypeId) {
+          LoadPoleTemplateState(view, ui_state, selected_pole_it->first);
+        }
+        wire::core::PoleTypeDefinition& pole_type = ui_state.pole_template_edit;
+        InputTextString("Pole Template Name", &pole_type.name);
+        InputTextString("Pole Template Description", &pole_type.description);
+        ImGui::InputDouble("Pole Default Height", &pole_type.default_height_m, 0.05, 0.10, "%.3f");
+
+        if (ImGui::CollapsingHeader("Pole Placement", ImGuiTreeNodeFlags_DefaultOpen)) {
+          constexpr wire::core::ConnectionCategory kEditableCategories[] = {
+              wire::core::ConnectionCategory::kHighVoltage, wire::core::ConnectionCategory::kLowVoltage,
+              wire::core::ConnectionCategory::kCommunication, wire::core::ConnectionCategory::kOptical,
+              wire::core::ConnectionCategory::kDrop};
+          if (ImGui::BeginTable("##pole_placement_table", 4,
+                                ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchSame |
+                                    ImGuiTableFlags_ScrollY,
+                                ImVec2(0.0f, 220.0f))) {
+            ImGui::TableSetupColumn("Category");
+            ImGui::TableSetupColumn("Height");
+            ImGui::TableSetupColumn("Offset");
+            ImGui::TableSetupColumn("Spread");
+            ImGui::TableHeadersRow();
+
+            for (auto category : kEditableCategories) {
+              if (!PoleTypeHasCategory(pole_type, category)) {
+                continue;
+              }
+              ImGui::PushID(static_cast<int>(category));
+              ImGui::TableNextRow();
+
+              ImGui::TableNextColumn();
+              ImGui::TextUnformatted(CategoryLabel(category));
+
+              ImGui::TableNextColumn();
+              double height_m = AverageBandHeightForCategory(pole_type, category, pole_type.default_height_m);
+              if (ImGui::InputDouble("##height", &height_m, 0.05, 0.10, "%.3f")) {
+                SetBandCategoryHeights(&pole_type, category, height_m);
+              }
+
+              ImGui::TableNextColumn();
+              double lateral_center_m = AverageBandLateralForCategory(pole_type, category, 0.0);
+              if (ImGui::InputDouble("##offset", &lateral_center_m, 0.02, 0.05, "%.3f")) {
+                SetBandCategoryLateralCenter(&pole_type, category, lateral_center_m);
+              }
+
+              ImGui::TableNextColumn();
+              double lateral_spread_m =
+                  MaxBandLateralSpreadForCategory(pole_type, category,
+                                                  AverageBandLateralForCategory(pole_type, category, 0.0));
+              if (ImGui::InputDouble("##spread", &lateral_spread_m, 0.02, 0.05, "%.3f")) {
+                SetBandCategorySpread(&pole_type, category, std::max(0.0, lateral_spread_m));
+              }
+              ImGui::PopID();
+            }
+            ImGui::EndTable();
+          }
+        }
+
+        if (ImGui::CollapsingHeader("Advanced Port Bands")) {
+          int remove_band_index = -1;
+          for (std::size_t i = 0; i < pole_type.port_bands.size(); ++i) {
+            auto& band = pole_type.port_bands[i];
+            ImGui::PushID(static_cast<int>(i));
+            std::ostringstream label;
+            label << "Band " << band.band_id;
+            if (ImGui::TreeNode(label.str().c_str())) {
+              ImGui::InputInt("Band Id", &band.band_id);
+              if (ImGui::BeginCombo("Category", CategoryLabel(band.category))) {
+                constexpr wire::core::ConnectionCategory kCategories[] = {
+                    wire::core::ConnectionCategory::kHighVoltage, wire::core::ConnectionCategory::kLowVoltage,
+                    wire::core::ConnectionCategory::kCommunication, wire::core::ConnectionCategory::kOptical,
+                    wire::core::ConnectionCategory::kDrop};
+                for (auto category : kCategories) {
+                  const bool selected = (category == band.category);
+                  if (ImGui::Selectable(CategoryLabel(category), selected)) {
+                    band.category = category;
+                  }
+                  if (selected) {
+                    ImGui::SetItemDefaultFocus();
+                  }
+                }
+                ImGui::EndCombo();
+              }
+              ImGui::InputInt("Layer", &band.layer);
+              if (ImGui::BeginCombo("Side", SlotSideLabel(band.side))) {
+                constexpr wire::core::SlotSide kSides[] = {wire::core::SlotSide::kLeft,
+                                                           wire::core::SlotSide::kCenter,
+                                                           wire::core::SlotSide::kRight};
+                for (auto side : kSides) {
+                  const bool selected = (side == band.side);
+                  if (ImGui::Selectable(SlotSideLabel(side), selected)) {
+                    band.side = side;
+                  }
+                  if (selected) {
+                    ImGui::SetItemDefaultFocus();
+                  }
+                }
+                ImGui::EndCombo();
+              }
+              if (ImGui::BeginCombo("Role", SlotRoleLabel(band.role))) {
+                constexpr wire::core::SlotRole kRoles[] = {
+                    wire::core::SlotRole::kNeutral, wire::core::SlotRole::kTrunkPreferred,
+                    wire::core::SlotRole::kBranchPreferred, wire::core::SlotRole::kDropPreferred};
+                for (auto role : kRoles) {
+                  const bool selected = (role == band.role);
+                  if (ImGui::Selectable(SlotRoleLabel(role), selected)) {
+                    band.role = role;
+                  }
+                  if (selected) {
+                    ImGui::SetItemDefaultFocus();
+                  }
+                }
+                ImGui::EndCombo();
+              }
+              ImGui::InputDouble("Lateral Center", &band.lateral_center_m, 0.01, 0.05, "%.3f");
+              ImGui::InputDouble("Lateral Min", &band.lateral_min_m, 0.01, 0.05, "%.3f");
+              ImGui::InputDouble("Lateral Max", &band.lateral_max_m, 0.01, 0.05, "%.3f");
+              ImGui::InputDouble("Height Center", &band.height_center_m, 0.01, 0.05, "%.3f");
+              ImGui::InputDouble("Height Min", &band.height_min_m, 0.01, 0.05, "%.3f");
+              ImGui::InputDouble("Height Max", &band.height_max_m, 0.01, 0.05, "%.3f");
+              ImGui::InputInt("Priority", &band.priority);
+              ImGui::InputDouble("Min Spacing", &band.min_spacing_m, 0.01, 0.05, "%.3f");
+              ImGui::Checkbox("Allow Multiple", &band.allow_multiple);
+              if (ImGui::BeginCombo("Overflow Policy", BandOverflowPolicyLabel(band.overflow_policy))) {
+                constexpr wire::core::BandOverflowPolicy kPolicies[] = {
+                    wire::core::BandOverflowPolicy::kTrySiblingBand,
+                    wire::core::BandOverflowPolicy::kRaiseHeight,
+                    wire::core::BandOverflowPolicy::kConstrainedFallback};
+                for (auto policy : kPolicies) {
+                  const bool selected = (policy == band.overflow_policy);
+                  if (ImGui::Selectable(BandOverflowPolicyLabel(policy), selected)) {
+                    band.overflow_policy = policy;
+                  }
+                  if (selected) {
+                    ImGui::SetItemDefaultFocus();
+                  }
+                }
+                ImGui::EndCombo();
+              }
+              ImGui::Checkbox("Enabled", &band.enabled);
+              if (ImGui::Button("Remove Band")) {
+                remove_band_index = static_cast<int>(i);
+              }
+              ImGui::TreePop();
+            }
+            ImGui::PopID();
+          }
+          if (remove_band_index >= 0) {
+            pole_type.port_bands.erase(pole_type.port_bands.begin() + remove_band_index);
+          }
+          if (ImGui::Button("Add Port Band")) {
+            wire::core::PortPlacementBand band{};
+            int next_band_id = 1;
+            for (const auto& existing : pole_type.port_bands) {
+              next_band_id = std::max(next_band_id, existing.band_id + 1);
+            }
+            band.band_id = next_band_id;
+            pole_type.port_bands.push_back(band);
+          }
+        }
+
+        if (ImGui::CollapsingHeader("Advanced Anchor Slots")) {
+          int remove_anchor_index = -1;
+          for (std::size_t i = 0; i < pole_type.anchor_slots.size(); ++i) {
+            auto& slot = pole_type.anchor_slots[i];
+            ImGui::PushID(static_cast<int>(i + 1000));
+            std::ostringstream label;
+            label << "Anchor Slot " << slot.slot_id;
+            if (ImGui::TreeNode(label.str().c_str())) {
+              ImGui::InputInt("Slot Id", &slot.slot_id);
+              if (ImGui::BeginCombo("Usage", AnchorSupportKindLabel(slot.usage))) {
+                constexpr wire::core::AnchorSupportKind kUsages[] = {
+                    wire::core::AnchorSupportKind::kGeneric, wire::core::AnchorSupportKind::kGround,
+                    wire::core::AnchorSupportKind::kBuilding, wire::core::AnchorSupportKind::kMidair};
+                for (auto usage : kUsages) {
+                  const bool selected = (usage == slot.usage);
+                  if (ImGui::Selectable(AnchorSupportKindLabel(usage), selected)) {
+                    slot.usage = usage;
+                  }
+                  if (selected) {
+                    ImGui::SetItemDefaultFocus();
+                  }
+                }
+                ImGui::EndCombo();
+              }
+              ImGui::InputDouble("Local X", &slot.local_position.x, 0.01, 0.05, "%.3f");
+              ImGui::InputDouble("Local Y", &slot.local_position.y, 0.01, 0.05, "%.3f");
+              ImGui::InputDouble("Local Z", &slot.local_position.z, 0.01, 0.05, "%.3f");
+              ImGui::InputInt("Anchor Priority", &slot.priority);
+              ImGui::Checkbox("Anchor Enabled", &slot.enabled);
+              if (ImGui::Button("Remove Anchor Slot")) {
+                remove_anchor_index = static_cast<int>(i);
+              }
+              ImGui::TreePop();
+            }
+            ImGui::PopID();
+          }
+          if (remove_anchor_index >= 0) {
+            pole_type.anchor_slots.erase(pole_type.anchor_slots.begin() + remove_anchor_index);
+          }
+          if (ImGui::Button("Add Anchor Slot")) {
+            wire::core::AnchorSlotTemplate slot{};
+            int next_slot_id = 1;
+            for (const auto& existing : pole_type.anchor_slots) {
+              next_slot_id = std::max(next_slot_id, existing.slot_id + 1);
+            }
+            slot.slot_id = next_slot_id;
+            pole_type.anchor_slots.push_back(slot);
+          }
+        }
+
+        if (ImGui::Button("Apply Pole Template")) {
+          const auto apply = viewer_core_state::UpdatePoleTypeDefinition(state, pole_type);
+          if (!apply.ok) {
+            ui_state.last_error = apply.error;
+            PushLog(ui_state, "UpdatePoleTypeDefinition failed");
+          } else {
+            wire::core::EditResult<bool> apply_related_poles{};
+            apply_related_poles.ok = true;
+            apply_related_poles.value = false;
+            if (view.bundle_templates().find(ui_state.selected_bundle_template_id) != view.bundle_templates().end()) {
+              apply_related_poles = viewer_core_state::ApplyBundleRelatedPoleTypeToExistingPoles(
+                  state, ui_state.selected_bundle_template_id);
+              if (!apply_related_poles.ok) {
+                ui_state.last_error = apply_related_poles.error;
+                PushLog(ui_state, "ApplyBundleRelatedPoleTypeToExistingPoles failed");
+                return;
+              }
+            }
+            ui_state.last_error.clear();
+            LoadPoleTemplateState(viewer_core_state::View(state), ui_state, pole_type.id);
+            PushLog(ui_state, "Pole template updated; dirty spans=" +
+                                  std::to_string(apply.change_set.dirty_span_ids.size()) + " related apply updates=" +
+                                  std::to_string(apply_related_poles.change_set.updated_ids.size()));
+          }
         }
       }
     } else {
-      ImGui::TextUnformatted("CommunicationPole template missing");
+      ImGui::TextUnformatted("No pole templates");
     }
     const auto& template_deps = view.template_dependency_state();
     ImGui::Text("Regen Required Bundles: %d", static_cast<int>(template_deps.bundles_requiring_regeneration.size()));

@@ -32,8 +32,7 @@ wire::core::AttachmentTemplateId find_attachment_template_by_mode(
 wire::core::AttachmentTemplateId find_attachment_template_by_profile(
     const CoreState& state, wire::core::AttachmentInternalPathTemplate::ProfileKind profile_kind) {
   for (const auto& [id, attachment_template] : state.view().attachment_templates()) {
-    if (attachment_template.line_interaction_mode != wire::core::AttachmentLineInteractionMode::kReplaceWithInternalPath ||
-        attachment_template.internal_paths.empty()) {
+    if (attachment_template.internal_paths.empty()) {
       continue;
     }
     if (attachment_template.internal_paths.front().profile_kind == profile_kind) {
@@ -773,9 +772,81 @@ bool test_sharp_corner_threshold_boundary_orientation() {
     return false;
   }
 
-  return sharp74 && sharp75 && !sharp76 &&
+  return sharp74 && !sharp75 && !sharp76 &&
          angle_diff_abs_deg(yaw74, yaw76) > 1e-3 &&
-         angle_diff_abs_deg(yaw75, yaw76) > 1e-3;
+         angle_diff_abs_deg(yaw74, yaw75) > 1e-3;
+}
+
+bool test_generate_from_guide_reused_tilted_vertex_keeps_sharp_corner_perpendicular() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::BackboneSpec req{};
+  req.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {2.9289321881345245, 7.0710678118654755, 0.0}};
+  req.interval_m = 100.0;
+  req.pole_type_id = type_ids.front();
+  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
+  const auto first = state.GenerateFromBackboneSpec(req);
+  if (!first.ok) {
+    return false;
+  }
+
+  ObjectId vertex_id = wire::core::kInvalidObjectId;
+  for (const auto& pole : state.view().edit_state().poles.items()) {
+    if (almost_equal(pole.world_transform.position, req.path.polyline[1], 1e-6)) {
+      vertex_id = pole.id;
+      break;
+    }
+  }
+  if (vertex_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  if (!state.SetPoleTilt(vertex_id, 12.0).ok) {
+    return false;
+  }
+  (void)state.Commit().recalc_stats;
+
+  wire::core::BackboneInputSpec::NodeSpec reused{};
+  reused.point_index = 1;
+  reused.support_kind = wire::core::SupportKind::kPole;
+  reused.node_id = vertex_id;
+  req.path.node_specs.clear();
+  req.path.node_specs.push_back(reused);
+  const auto second = state.GenerateFromBackboneSpec(req);
+  if (!second.ok) {
+    return false;
+  }
+
+  const auto* vertex = state.view().edit_state().poles.find(vertex_id);
+  const auto vertex_view = state.view().inspect_pole(vertex_id);
+  if (vertex == nullptr || !vertex_view.has_value()) {
+    return false;
+  }
+
+  const wire::core::PoleFrame frame =
+      wire::core::BuildPoleFrame(vertex->world_transform, vertex_view->layout_yaw_deg);
+  const auto project_on_support_plane = [&](wire::core::Vec3d value) {
+    value = value - wire::core::ScaleVec(frame.up, wire::core::Dot(value, frame.up));
+    if (!wire::core::Normalize(&value)) {
+      return wire::core::Vec3d{};
+    }
+    return value;
+  };
+
+  const wire::core::Vec3d u0 = project_on_support_plane(req.path.polyline[0] - req.path.polyline[1]);
+  const wire::core::Vec3d u1 = project_on_support_plane(req.path.polyline[2] - req.path.polyline[1]);
+  const wire::core::Vec3d bisector = project_on_support_plane(u0 + u1);
+  const wire::core::Vec3d projected_lateral = project_on_support_plane(frame.lateral);
+  if (wire::core::LengthSquared(bisector) <= 1e-12) {
+    return false;
+  }
+
+  return vertex->context.sharp_orientation_applied && wire::core::LengthSquared(projected_lateral) > 1e-12 &&
+         std::abs(wire::core::Dot(projected_lateral, bisector)) <= 1e-3;
 }
 
 bool test_generate_from_guide_reused_vertex_reorients_to_corner_rule() {
@@ -1443,7 +1514,7 @@ bool test_attachment_replace_with_internal_path_replaces_interval() {
          curve->detail.replacement_paths.front().points.size() >= 2;
 }
 
-bool test_attachment_straight_auxiliary_profile_replaces_interval_without_touching_support_layout() {
+bool test_attachment_straight_auxiliary_profile_adds_supplemental_path_without_touching_support_layout() {
   CoreState state;
   ObjectId span = wire::core::kInvalidObjectId;
   if (!build_attachment_test_span(state, &span)) {
@@ -1460,8 +1531,8 @@ bool test_attachment_straight_auxiliary_profile_replaces_interval_without_touchi
   }
   (void)state.Commit().recalc_stats;
   const auto* curve = state.find_curve_cache(span);
-  if (curve == nullptr || curve->detail.hidden_intervals.empty() || curve->detail.replacement_paths.size() != 1 ||
-      curve->detail.replacement_paths.front().points.size() != 2) {
+  if (curve == nullptr || !curve->detail.hidden_intervals.empty() || curve->detail.replacement_paths.size() != 0 ||
+      curve->detail.supplemental_paths.size() != 1 || curve->detail.supplemental_paths.front().points.size() != 2) {
     return false;
   }
   const auto after_layout = state.view().inspect_support_layout(span);
@@ -1478,7 +1549,7 @@ bool test_attachment_straight_auxiliary_profile_replaces_interval_without_touchi
   return true;
 }
 
-bool test_attachment_coiled_auxiliary_profile_produces_longer_replacement_path_without_changing_layout_authority() {
+bool test_attachment_coiled_auxiliary_profile_adds_longer_supplemental_path_without_changing_layout_authority() {
   CoreState state;
   ObjectId span = wire::core::kInvalidObjectId;
   if (!build_attachment_test_span(state, &span)) {
@@ -1495,16 +1566,17 @@ bool test_attachment_coiled_auxiliary_profile_produces_longer_replacement_path_w
   }
   (void)state.Commit().recalc_stats;
   const auto* curve = state.find_curve_cache(span);
-  if (curve == nullptr || curve->detail.hidden_intervals.empty() || curve->detail.replacement_paths.size() != 1) {
+  if (curve == nullptr || !curve->detail.hidden_intervals.empty() || curve->detail.replacement_paths.size() != 0 ||
+      curve->detail.supplemental_paths.size() != 1) {
     return false;
   }
-  const auto& replacement = curve->detail.replacement_paths.front();
-  if (replacement.points.size() < 12) {
+  const auto& supplemental = curve->detail.supplemental_paths.front();
+  if (supplemental.points.size() < 12) {
     return false;
   }
   const double chord_length =
-      std::sqrt(wire::core::LengthSquared(replacement.points.back() - replacement.points.front()));
-  if (polyline_length(replacement.points) <= chord_length + 0.05) {
+      std::sqrt(wire::core::LengthSquared(supplemental.points.back() - supplemental.points.front()));
+  if (polyline_length(supplemental.points) <= chord_length + 0.05) {
     return false;
   }
   const auto after_layout = state.view().inspect_support_layout(span);
@@ -2763,8 +2835,9 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C34_Phase47_GenerateSimpleLine_CornerContext", "Corner path generation keeps the guide vertex pole classified as corner under canonical path generation", "Invariant", false, test_generate_simple_line_corner_context_integration);
   test_registry::AddTest(tests, "C36_Phase47_DrawPath_ClickPointsExact", "DrawPath generation uses clicked points directly and sets pole yaw", "Exact", false, test_generate_simple_line_from_points_exact_poles_and_orientation);
   test_registry::AddTest(tests, "C43_Phase4x_SharpCorner_SideAxisPerpendicular", "Sharp-corner pole side axis is perpendicular to bisector and points away from inward side", "Invariant", false, test_generate_simple_line_from_points_sharp_corner_perpendicular_orientation);
-  test_registry::AddTest(tests, "C56_Phase48h_SharpCorner_ThresholdBoundary", "Sharp-corner orientation applies at <=75deg and disables above threshold", "Invariant", false, test_sharp_corner_threshold_boundary_orientation);
+  test_registry::AddTest(tests, "C56_Phase48h_SharpCorner_ThresholdBoundary", "Sharp-corner orientation applies at <=74deg and disables above threshold", "Invariant", false, test_sharp_corner_threshold_boundary_orientation);
   test_registry::AddTest(tests, "C60_Phase48h_Guide_ReusedVertexReorient", "Reused guide vertex pole is reoriented by sharp-corner rule when not manually overridden", "Invariant", false, test_generate_from_guide_reused_vertex_reorients_to_corner_rule);
+  test_registry::AddTest(tests, "C294_Phase48h_Guide_ReusedTiltedVertexSharpCorner", "Reused tilted guide vertex keeps sharp-corner side axis perpendicular on the tilted support plane", "Invariant", false, test_generate_from_guide_reused_tilted_vertex_keeps_sharp_corner_perpendicular);
   test_registry::AddTest(tests, "C108_Phase56_SharpCorner_EntryConsistency", "Sharp-corner pole orientation stays identical between simple-line and backbone entry paths", "Invariant", false, test_sharp_corner_orientation_consistent_across_entry_paths);
   test_registry::AddTest(tests, "C70_Phase48h_Guide_ReusedVertexPortReproject", "Reused guide vertex reprojections move template-owned ports when corner orientation changes", "Invariant", false, test_generate_from_guide_reused_pole_reprojects_owned_ports);
   test_registry::AddTest(tests, "C57_Phase48h_Guide_DuplicatePointsRobust", "Guide generation with duplicate points stays finite and keeps path height along world up", "Invariant", false, test_generate_from_guide_with_duplicate_points_is_robust);
@@ -2850,13 +2923,13 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C158_Attachment_ReplaceWithInternalPath_ReplacesInterval",
                          "ReplaceWithInternalPath hides the covered outer interval and emits replacement path geometry",
                          "Invariant", false, test_attachment_replace_with_internal_path_replaces_interval);
-  test_registry::AddTest(tests, "C283_Attachment_StraightAuxiliaryProfile_ReplacesInterval",
-                         "Straight auxiliary attachment profile emits replacement geometry without changing support-layout authority",
-                         "Invariant", false, test_attachment_straight_auxiliary_profile_replaces_interval_without_touching_support_layout);
-  test_registry::AddTest(tests, "C284_Attachment_CoiledAuxiliaryProfile_ProducesLongerReplacementPath",
-                         "Coiled auxiliary attachment profile emits a longer replacement path while keeping support-layout authority unchanged",
+  test_registry::AddTest(tests, "C283_Attachment_StraightAuxiliaryProfile_AddsSupplementalPath",
+                         "Straight auxiliary attachment profile adds a separate supplemental path without changing support-layout authority",
+                         "Invariant", false, test_attachment_straight_auxiliary_profile_adds_supplemental_path_without_touching_support_layout);
+  test_registry::AddTest(tests, "C284_Attachment_CoiledAuxiliaryProfile_AddsLongerSupplementalPath",
+                         "Coiled auxiliary attachment profile adds a longer supplemental path while keeping support-layout authority unchanged",
                          "Invariant", false,
-                         test_attachment_coiled_auxiliary_profile_produces_longer_replacement_path_without_changing_layout_authority);
+                         test_attachment_coiled_auxiliary_profile_adds_longer_supplemental_path_without_changing_layout_authority);
   test_registry::AddTest(tests, "C159_Attachment_SocketEndpoint_OverridesCurveEndpoint",
                          "Attachment socket endpoint can replace a span endpoint so the curve meets the socket without a gap",
                          "Invariant", false, test_attachment_socket_endpoint_can_override_curve_endpoint);

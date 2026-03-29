@@ -40,6 +40,8 @@ wire::core::EditResult<bool> UpdateCableTemplate(CoreState& state, const wire::c
                                                  const std::vector<ObjectId>& preferred_visible_span_ids);
 
 wire::core::EditResult<bool> UpdateBundleTemplate(CoreState& state, const wire::core::BundleTemplate& bundle_template);
+wire::core::EditResult<bool> ApplyBundleRelatedPoleTypeToExistingPoles(CoreState& state,
+                                                                       wire::core::BundleKind bundle_template_id);
 
 wire::core::EditResult<bool> UpdatePoleTypeDefinition(CoreState& state,
                                                       const wire::core::PoleTypeDefinition& pole_type);

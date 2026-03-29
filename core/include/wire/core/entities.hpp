@@ -192,6 +192,7 @@ enum class AttachmentLineInteractionMode : std::uint8_t {
   kPassThrough = 0,
   kReplaceWithInternalPath = 1,
   kHideSegment = 2,
+  kAddInternalPath = 3,
 };
 
 enum class GenerationSource : std::uint8_t {
@@ -247,6 +248,7 @@ struct PoleTypeDefinition {
   PoleTypeId id = kInvalidPoleTypeId;
   std::string name{};
   std::string description{};
+  double default_height_m = 10.0;
   std::vector<PortPlacementBand> port_bands{};
   std::vector<AnchorSlotTemplate> anchor_slots{};
 };

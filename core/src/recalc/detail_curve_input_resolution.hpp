@@ -17,6 +17,7 @@ struct ResolvedSpanCurveInputs {
   std::uint64_t variation_flow_key = 0;
   HierarchicalVariationSample sag_variation{};
   double effective_sag_ratio = 0.0;
+  double endpoint_vertical_attachment_offset_m = 0.0;
   CurvePassMode pass_mode = CurvePassMode::kPassThrough;
   CurveEndpointMode endpoint_mode = CurveEndpointMode::kDirectThrough;
   CableContinuityPolicyHint continuity_preference = CableContinuityPolicyHint::kAuto;

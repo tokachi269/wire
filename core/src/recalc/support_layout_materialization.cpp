@@ -305,7 +305,8 @@ SupportLayoutEndpoint build_support_layout_endpoint(
     const CoreState& state, const Span& span, const Port& port, const Pole* owner_pole, const Vec3d& chord_dir,
     double basis_length, double endpoint_offset_m, double effective_sag_ratio, double bend_stiffness_hint,
     double min_bend_radius_hint_m, CableContinuityPolicyHint continuity_preference, CurvePassMode pass_mode,
-    CurveEndpointMode endpoint_mode, BackboneFlowKind flow_kind, int resolved_socket_id, bool socket_override_active,
+    CurveEndpointMode endpoint_mode, double endpoint_vertical_attachment_offset_m, BackboneFlowKind flow_kind,
+    int resolved_socket_id, bool socket_override_active,
     double automatic_branch_down_offset_m, const HierarchicalVariationSample& down_offset_variation,
     double resolved_branch_down_offset_m, bool is_start_endpoint) {
   SupportLayoutEndpoint endpoint{};
@@ -331,6 +332,9 @@ SupportLayoutEndpoint build_support_layout_endpoint(
       port, owner_pole, chord_dir, basis_length, endpoint_offset_m, effective_sag_ratio, bend_stiffness_hint,
       min_bend_radius_hint_m, continuity_preference, pass_mode, span.placement_context, endpoint_mode,
       !is_start_endpoint);
+  if (endpoint_vertical_attachment_offset_m > 1e-9) {
+    OffsetAlongWorldUp(&constraint.point, endpoint_vertical_attachment_offset_m);
+  }
   const bool applied_attachment_socket =
       endpoint.attachment_request.attachment_id.has_value() && endpoint.resolved_socket_id.has_value() &&
       apply_endpoint_attachment_socket(state, *endpoint.attachment_request.attachment_id, *endpoint.resolved_socket_id,
@@ -347,6 +351,7 @@ SupportLayoutEndpoint build_support_layout_endpoint(
 
   endpoint.endpoint_mode = constraint.endpoint_mode;
   endpoint.endpoint_world = constraint.point;
+  endpoint.support_world = constraint.point;
   endpoint.departure_dir = constraint.tangent_dir;
   endpoint.endpoint_offset = constraint.endpoint_offset;
   endpoint.local_departure_length_m = constraint.support_departure_length_m;
@@ -495,11 +500,12 @@ void apply_grouped_support_placement_to_layout_endpoint(const SupportGroupDecisi
   if (endpoint == nullptr) {
     return;
   }
+  (void)group;
   apply_endpoint_decision_to_layout_endpoint(group_decision.decision, endpoint);
   endpoint->automatic_branch_down_offset_m = group_decision.down_offset_m;
   endpoint->branch_down_offset_m = group_decision.down_offset_m;
   endpoint->down_offset_variation = group_decision.down_offset_variation;
-  endpoint->support_world = group.tip_world;
+  endpoint->support_world = endpoint->endpoint_world;
 }
 
 } // namespace
@@ -640,12 +646,14 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
   layout.start = build_support_layout_endpoint(
       *this, span, *port_a, pole_a, chord_dir, inputs.basis_length, endpoint_offset_m, inputs.effective_sag_ratio,
       inputs.bend_stiffness_hint, inputs.min_bend_radius_hint_m, inputs.continuity_preference, inputs.pass_mode,
-      inputs.endpoint_mode, inputs.flow_kind, resolved_socket_a, socket_override_a, automatic_branch_down_offset_a,
+      inputs.endpoint_mode, inputs.endpoint_vertical_attachment_offset_m, inputs.flow_kind, resolved_socket_a,
+      socket_override_a, automatic_branch_down_offset_a,
       down_offset_variation_a, resolved_branch_down_offset_a, true);
   layout.end = build_support_layout_endpoint(
       *this, span, *port_b, pole_b, chord_dir, inputs.basis_length, endpoint_offset_m, inputs.effective_sag_ratio,
       inputs.bend_stiffness_hint, inputs.min_bend_radius_hint_m, inputs.continuity_preference, inputs.pass_mode,
-      inputs.endpoint_mode, inputs.flow_kind, resolved_socket_b, socket_override_b, automatic_branch_down_offset_b,
+      inputs.endpoint_mode, inputs.endpoint_vertical_attachment_offset_m, inputs.flow_kind, resolved_socket_b,
+      socket_override_b, automatic_branch_down_offset_b,
       down_offset_variation_b, resolved_branch_down_offset_b, false);
   if (decision_seed != nullptr) {
     apply_support_layout_decision_seed(*decision_seed, &layout);

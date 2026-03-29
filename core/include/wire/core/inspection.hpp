@@ -311,6 +311,7 @@ struct DetailCurveInspectionView {
   std::size_t visible_interval_count = 0;
   std::size_t hidden_interval_count = 0;
   std::size_t replacement_path_count = 0;
+  std::size_t supplemental_path_count = 0;
   DetailCurveEndpointTangentRule start_tangent_rule = DetailCurveEndpointTangentRule::kFallbackChord;
   DetailCurveEndpointTangentRule end_tangent_rule = DetailCurveEndpointTangentRule::kFallbackChord;
   double start_support_weight = 0.0;
@@ -383,5 +384,4 @@ struct OverrideInspectionView {
 };
 
 } // namespace wire::core
-
 

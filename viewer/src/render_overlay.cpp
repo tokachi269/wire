@@ -411,6 +411,9 @@ void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
       for (const wire::core::DetailReplacementPath& replacement : curve->detail.replacement_paths) {
         DrawWirePolyline(replacement.points, wire_radius, wire_color);
       }
+      for (const wire::core::DetailSupplementalPath& supplemental : curve->detail.supplemental_paths) {
+        DrawWirePolyline(supplemental.points, wire_radius, wire_color);
+      }
     } else {
       DrawCylinderEx(ToRaylib(start_port->world_position), ToRaylib(end_port->world_position), wire_radius, wire_radius,
                      8, wire_color);
@@ -472,25 +475,6 @@ void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
 
   if (show_backbone_overlay) {
     DrawBackboneOverlayImpl(backbone, ui_state);
-  }
-
-  for (const wire::core::Attachment& attachment : edit.attachments.items()) {
-    const wire::core::Span* span = edit.spans.find(attachment.span_id);
-    if (span == nullptr) {
-      continue;
-    }
-    const wire::core::CurveCacheEntry* curve = view.find_curve_cache(span->id);
-    if (curve == nullptr) {
-      continue;
-    }
-    wire::core::Vec3d pos = curve->detail.PositionAtLength(curve->detail.Length() * attachment.t);
-    wire::core::OffsetAlongWorldUp(&pos, attachment.display_offset_m);
-
-    Color color = MAGENTA;
-    if (SelectionContains(ui_state, SelectedType::kAttachment, attachment.id)) {
-      color = GOLD;
-    }
-    DrawCubeV(ToRaylib(pos), Vector3{0.14f, 0.14f, 0.14f}, color);
   }
 
   if (ui_state.mode == EditMode::kDrawPath && ui_state.draw_pick_enabled) {

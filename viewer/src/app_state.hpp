@@ -86,6 +86,7 @@ struct ViewerUiState {
   double cable_min_bend_radius = 0.2;
   int cable_material_style = static_cast<int>(wire::core::CableMaterialStyleKind::kGeneric);
   bool cable_requires_insulator = false;
+  double cable_insulator_attachment_height = 0.0;
   double cable_sag_factor = 0.03;
   double cable_slack_factor = 0.0;
   double cable_default_grouped_support_fanout_spacing = 0.2;
@@ -101,11 +102,9 @@ struct ViewerUiState {
   int bundle_template_branch_policy = static_cast<int>(wire::core::BundleBranchPolicyHint::kAuto);
   int bundle_template_continuity_policy = static_cast<int>(wire::core::CableContinuityPolicyHint::kAuto);
   double bundle_template_grouped_support_fanout_spacing = 0.2;
-  bool communication_pole_template_loaded = false;
-  double communication_pole_support_wire_height = 10.0;
-  double communication_pole_high_voltage_height = 9.25;
-  double communication_pole_communication_height = 8.25;
-  double communication_pole_optical_height = 7.25;
+  bool pole_template_loaded = false;
+  wire::core::PoleTypeId selected_pole_template_id = wire::core::kInvalidPoleTypeId;
+  wire::core::PoleTypeDefinition pole_template_edit{};
   double tilt_all_max_deg = 0.0;
   std::uint64_t road_id = 1;
   std::uint32_t draw_category_mask = (1u << static_cast<int>(wire::core::ConnectionCategory::kLowVoltage));

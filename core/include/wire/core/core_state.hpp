@@ -105,6 +105,7 @@ public:
                                        const std::vector<ObjectId>& preferred_visible_span_ids);
   EditResult<bool> UpdatePoleTypeDefinition(const PoleTypeDefinition& pole_type);
   EditResult<bool> UpdateBundleTemplate(const BundleTemplate& bundle_template);
+  EditResult<bool> ApplyBundleRelatedPoleTypeToExistingPoles(BundleKind bundle_template_id);
   EditResult<bool> UpdateAttachmentTemplate(const AttachmentTemplate& attachment_template,
                                             bool mark_dependent_spans_dirty = true);
   EditResult<bool> ResetAllSpanReferenceLengths(bool mark_all_spans_dirty = true);

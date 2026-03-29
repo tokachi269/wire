@@ -1,5 +1,6 @@
 #include "registry.hpp"
 #include "helpers.hpp"
+#include "wire/core/coord_utils.hpp"
 
 #include <algorithm>
 #include <array>
@@ -374,7 +375,7 @@ bool test_communication_pole_default_band_order_places_support_hv_comm_optical_t
          communication_z > optical_z;
 }
 
-bool test_optical_connection_auto_creates_coiled_endpoint_attachments() {
+bool test_optical_connection_uses_cable_template_supplemental_path() {
   CoreState state;
   const auto communication_pole_type = find_pole_type_by_name(state, "CommunicationPole");
   if (!communication_pole_type.has_value()) {
@@ -402,29 +403,137 @@ bool test_optical_connection_auto_creates_coiled_endpoint_attachments() {
   }
 
   const auto* span = state.view().edit_state().spans.find(add.value.span_id);
-  if (span == nullptr || span->endpoint_attachment_a_id == wire::core::kInvalidObjectId ||
-      span->endpoint_attachment_b_id == wire::core::kInvalidObjectId) {
+  if (span == nullptr || span->endpoint_attachment_a_id != wire::core::kInvalidObjectId ||
+      span->endpoint_attachment_b_id != wire::core::kInvalidObjectId) {
     return false;
   }
-  const auto* attachment_a = state.view().attachments().find(span->endpoint_attachment_a_id);
-  const auto* attachment_b = state.view().attachments().find(span->endpoint_attachment_b_id);
-  if (attachment_a == nullptr || attachment_b == nullptr || attachment_a->template_id != attachment_b->template_id) {
+  const auto* bundle = state.view().edit_state().bundles.find(span->bundle_id);
+  if (bundle == nullptr || bundle->bundle_template_id != wire::core::BundleKind::kOptical) {
     return false;
   }
-  const auto template_it = state.view().attachment_templates().find(attachment_a->template_id);
-  if (template_it == state.view().attachment_templates().end()) {
+  const auto bundle_template_it = state.view().bundle_templates().find(bundle->bundle_template_id);
+  if (bundle_template_it == state.view().bundle_templates().end()) {
     return false;
   }
-  if (template_it->second.line_interaction_mode != wire::core::AttachmentLineInteractionMode::kReplaceWithInternalPath ||
-      template_it->second.internal_paths.empty() ||
-      template_it->second.internal_paths.front().profile_kind !=
-          wire::core::AttachmentInternalPathTemplate::ProfileKind::kCoiledCable) {
+  const auto cable_template_it = state.view().cable_templates().find(bundle_template_it->second.cable_template_id);
+  if (cable_template_it == state.view().cable_templates().end()) {
+    return false;
+  }
+  if (cable_template_it->second.supplemental_paths.size() != 2 ||
+      cable_template_it->second.default_endpoint_attachment_template_id != wire::core::kInvalidAttachmentTemplateId) {
+    return false;
+  }
+  bool has_coil_profile = false;
+  bool has_support_wire_profile = false;
+  for (const auto& supplemental : cable_template_it->second.supplemental_paths) {
+    has_coil_profile = has_coil_profile ||
+                       (supplemental.profile_kind == wire::core::CableSupplementalPathTemplate::ProfileKind::kCoiledCable &&
+                        supplemental.anchor_mode ==
+                            wire::core::CableSupplementalPathTemplate::AnchorMode::kCurveOffset);
+    has_support_wire_profile =
+        has_support_wire_profile ||
+        (supplemental.profile_kind == wire::core::CableSupplementalPathTemplate::ProfileKind::kStraightCable &&
+         supplemental.anchor_mode == wire::core::CableSupplementalPathTemplate::AnchorMode::kPoleBandChord &&
+         supplemental.pole_band_id == 600);
+  }
+  if (!has_coil_profile || !has_support_wire_profile) {
     return false;
   }
 
   (void)state.Commit().recalc_stats;
   const auto* curve = state.find_curve_cache(add.value.span_id);
-  return curve != nullptr && !curve->detail.replacement_paths.empty() && validate_now(state).ok();
+  if (curve == nullptr || !curve->detail.hidden_intervals.empty() || !curve->detail.replacement_paths.empty() ||
+      curve->detail.supplemental_paths.size() != 2) {
+    return false;
+  }
+  bool has_top_support_wire = false;
+  bool has_coiled_aux = false;
+  wire::core::Vec3d top_support_a{};
+  wire::core::Vec3d top_support_b{};
+  for (const auto& supplemental : curve->detail.supplemental_paths) {
+    if (supplemental.points.size() == 2 &&
+        std::abs(supplemental.points.front().z - communication_pole_type->default_height_m) < 1e-6 &&
+        std::abs(supplemental.points.back().z - communication_pole_type->default_height_m) < 1e-6) {
+      has_top_support_wire = true;
+      top_support_a = supplemental.points.front();
+      top_support_b = supplemental.points.back();
+    }
+    if (supplemental.points.size() > 2) {
+      has_coiled_aux = true;
+    }
+  }
+  if (!has_top_support_wire || !has_coiled_aux) {
+    return false;
+  }
+  const auto* port_a = state.view().edit_state().ports.find(span->port_a_id);
+  const auto* port_b = state.view().edit_state().ports.find(span->port_b_id);
+  const auto* pole_a_entity =
+      (port_a == nullptr) ? nullptr : state.view().edit_state().poles.find(port_a->owner_pole_id);
+  const auto* pole_b_entity =
+      (port_b == nullptr) ? nullptr : state.view().edit_state().poles.find(port_b->owner_pole_id);
+  if (port_a == nullptr || port_b == nullptr || pole_a_entity == nullptr || pole_b_entity == nullptr) {
+    return false;
+  }
+  double layout_yaw_a = pole_a_entity->world_transform.rotation_euler_deg.z;
+  if (const auto pole_view = state.view().inspect_pole(pole_a_entity->id); pole_view.has_value() && pole_view->has_layout_yaw) {
+    layout_yaw_a = pole_view->layout_yaw_deg;
+  }
+  double layout_yaw_b = pole_b_entity->world_transform.rotation_euler_deg.z;
+  if (const auto pole_view = state.view().inspect_pole(pole_b_entity->id); pole_view.has_value() && pole_view->has_layout_yaw) {
+    layout_yaw_b = pole_view->layout_yaw_deg;
+  }
+  const auto local_port_a =
+      wire::core::WorldPointToLocal(wire::core::BuildPoleFrame(pole_a_entity->world_transform, layout_yaw_a), port_a->world_position);
+  const auto local_port_b =
+      wire::core::WorldPointToLocal(wire::core::BuildPoleFrame(pole_b_entity->world_transform, layout_yaw_b), port_b->world_position);
+  const auto local_support_a =
+      wire::core::WorldPointToLocal(wire::core::BuildPoleFrame(pole_a_entity->world_transform, layout_yaw_a), top_support_a);
+  const auto local_support_b =
+      wire::core::WorldPointToLocal(wire::core::BuildPoleFrame(pole_b_entity->world_transform, layout_yaw_b), top_support_b);
+  if (std::abs(local_support_a.y - local_port_a.y) > 1e-6 || std::abs(local_support_b.y - local_port_b.y) > 1e-6) {
+    return false;
+  }
+  return validate_now(state).ok();
+}
+
+bool test_optical_nonpole_span_does_not_add_top_support_wire() {
+  CoreState state;
+  const auto communication_pole_type = find_pole_type_by_name(state, "CommunicationPole");
+  if (!communication_pole_type.has_value()) {
+    return false;
+  }
+
+  wire::core::Transformd a{};
+  a.position = {0.0, 0.0, 0.0};
+  wire::core::Transformd b{};
+  b.position = {16.0, 0.0, 0.0};
+  const ObjectId pole_a = state.AddPole(a, 10.0, "A").value;
+  const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
+  if (!state.ApplyPoleType(pole_a, communication_pole_type->id).ok ||
+      !state.ApplyPoleType(pole_b, communication_pole_type->id).ok) {
+    return false;
+  }
+
+  wire::core::AddConnectionByPoleOptions options{};
+  options.auto_create_bundle = true;
+  options.use_bundle_template = true;
+  options.bundle_template_id = wire::core::BundleKind::kOptical;
+  const auto base = state.AddConnectionByPole(pole_a, pole_b, wire::core::ConnectionCategory::kOptical, options);
+  if (!base.ok) {
+    return false;
+  }
+
+  const auto branch = state.AddDropFromSpan(base.value.span_id, 0.5, {8.0, 4.0, 0.0}, wire::core::ConnectionCategory::kOptical);
+  if (!branch.ok) {
+    return false;
+  }
+
+  (void)state.Commit().recalc_stats;
+  const auto* curve = state.find_curve_cache(branch.value.span_id);
+  if (curve == nullptr || curve->detail.supplemental_paths.size() != 1) {
+    return false;
+  }
+  return curve->detail.supplemental_paths.front().points.size() > 2 && validate_now(state).ok();
 }
 
 bool test_update_pole_type_definition_refreshes_existing_communication_ports() {
@@ -443,8 +552,10 @@ bool test_update_pole_type_definition_refreshes_existing_communication_ports() {
   if (!std::isfinite(before_optical_height)) {
     return false;
   }
+  const double before_pole_height = state.view().edit_state().poles.find(pole_id)->height_m;
 
   wire::core::PoleTypeDefinition updated = *communication_pole_type;
+  updated.default_height_m += 0.35;
   for (auto& band : updated.port_bands) {
     if (band.category == wire::core::ConnectionCategory::kOptical) {
       band.height_center_m += 0.75;
@@ -459,8 +570,82 @@ bool test_update_pole_type_definition_refreshes_existing_communication_ports() {
 
   const auto after = state.GetPoleDetail(pole_id);
   const double after_optical_height = average_owned_port_height_for_layer(after, wire::core::PortLayer::kOptical);
+  const double after_pole_height = state.view().edit_state().poles.find(pole_id)->height_m;
   return std::isfinite(after_optical_height) &&
+         std::abs((after_pole_height - before_pole_height) - 0.35) < 1e-6 &&
          std::abs((after_optical_height - before_optical_height) - 0.75) < 1e-6 &&
+         validate_now(state).ok();
+}
+
+bool test_default_pole_types_use_single_hv_height_per_template() {
+  CoreState state;
+  for (const char* pole_type_name : {"DistributionPole", "CommunicationPole"}) {
+    const auto pole_type = find_pole_type_by_name(state, pole_type_name);
+    if (!pole_type.has_value()) {
+      return false;
+    }
+    double first_height = std::numeric_limits<double>::quiet_NaN();
+    for (const auto& band : pole_type->port_bands) {
+      if (!band.enabled || band.category != wire::core::ConnectionCategory::kHighVoltage) {
+        continue;
+      }
+      if (!std::isfinite(first_height)) {
+        first_height = band.height_center_m;
+        continue;
+      }
+      if (std::abs(band.height_center_m - first_height) > 1e-9) {
+        return false;
+      }
+    }
+    if (!std::isfinite(first_height)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool test_bundle_related_pole_type_applies_to_existing_poles() {
+  CoreState state;
+  const auto distribution_pole_type = find_pole_type_by_name(state, "DistributionPole");
+  const auto communication_pole_type = find_pole_type_by_name(state, "CommunicationPole");
+  if (!distribution_pole_type.has_value() || !communication_pole_type.has_value()) {
+    return false;
+  }
+
+  wire::core::Transformd a{};
+  a.position = {0.0, 0.0, 0.0};
+  wire::core::Transformd b{};
+  b.position = {18.0, 0.0, 0.0};
+  const ObjectId pole_a = state.AddPole(a, 10.0, "A").value;
+  const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
+  if (!state.ApplyPoleType(pole_a, distribution_pole_type->id).ok ||
+      !state.ApplyPoleType(pole_b, distribution_pole_type->id).ok) {
+    return false;
+  }
+
+  wire::core::AddConnectionByPoleOptions options{};
+  options.auto_create_bundle = true;
+  options.use_bundle_template = true;
+  options.bundle_template_id = wire::core::BundleKind::kOptical;
+  const auto add = state.AddConnectionByPole(pole_a, pole_b, wire::core::ConnectionCategory::kOptical, options);
+  if (!add.ok) {
+    return false;
+  }
+
+  const auto apply = state.ApplyBundleRelatedPoleTypeToExistingPoles(wire::core::BundleKind::kOptical);
+  if (!apply.ok || !apply.value) {
+    return false;
+  }
+
+  const auto* pole_a_after = state.view().edit_state().poles.find(pole_a);
+  const auto* pole_b_after = state.view().edit_state().poles.find(pole_b);
+  if (pole_a_after == nullptr || pole_b_after == nullptr) {
+    return false;
+  }
+  return pole_a_after->pole_type_id == communication_pole_type->id &&
+         pole_b_after->pole_type_id == communication_pole_type->id &&
+         std::abs(pole_a_after->height_m - communication_pole_type->default_height_m) < 1e-9 &&
+         std::abs(pole_b_after->height_m - communication_pole_type->default_height_m) < 1e-9 &&
          validate_now(state).ok();
 }
 
@@ -477,8 +662,19 @@ void register_editing_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C11_Phase35_AddDropFromPole_Basic", "Drop from pole creates service span", "Invariant", false, test_add_drop_from_pole_creates_service_connection);
   test_registry::AddTest(tests, "C12_Phase35_AddDropFromSpan_Basic", "Drop from span splits and connects", "Invariant", false, test_add_drop_from_span_splits_and_connects_drop);
   test_registry::AddTest(tests, "C287_CommunicationPole_DefaultBandOrder", "CommunicationPole keeps support, HV, communication, optical in descending height order", "Invariant", false, test_communication_pole_default_band_order_places_support_hv_comm_optical_top_down);
-  test_registry::AddTest(tests, "C288_OpticalConnection_AutoCoiledEndpointAttachments", "Optical connection auto-creates coiled endpoint attachments through the existing attachment authority chain", "Invariant", false, test_optical_connection_auto_creates_coiled_endpoint_attachments);
+  test_registry::AddTest(tests, "C288_OpticalConnection_UsesCableTemplateSupplementalPath",
+                         "Optical connection uses cable-template supplemental line authority instead of endpoint attachments",
+                         "Invariant", false, test_optical_connection_uses_cable_template_supplemental_path);
+  test_registry::AddTest(tests, "C293_OpticalNonPoleSpan_SkipsTopSupportWire",
+                         "Optical supplemental support wire is not generated when a span endpoint is not a pole",
+                         "Invariant", false, test_optical_nonpole_span_does_not_add_top_support_wire);
   test_registry::AddTest(tests, "C289_UpdatePoleTypeDefinition_ReappliesExistingPorts", "Updating CommunicationPole port-band heights reapplies owned auto ports on existing poles", "Invariant", false, test_update_pole_type_definition_refreshes_existing_communication_ports);
+  test_registry::AddTest(tests, "C296_DefaultPoleTypes_HVCategoryUsesSingleHeight",
+                         "Default pole templates keep one HV category height so category-level editing does not average multiple defaults",
+                         "Invariant", false, test_default_pole_types_use_single_hv_height_per_template);
+  test_registry::AddTest(tests, "C297_BundleTemplate_ApplyRelatedPoleTypeToExistingPoles",
+                         "Bundle-linked pole template can be applied to existing poles attached to bundles of that template",
+                         "Invariant", false, test_bundle_related_pole_type_applies_to_existing_poles);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_editing_tests);

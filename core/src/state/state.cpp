@@ -203,7 +203,8 @@ bool anchor_slot_equals(const AnchorSlotTemplate& a, const AnchorSlotTemplate& b
 }
 
 bool pole_type_definition_equals(const PoleTypeDefinition& a, const PoleTypeDefinition& b) {
-  if (a.id != b.id || a.name != b.name || a.description != b.description || a.port_bands.size() != b.port_bands.size() ||
+  if (a.id != b.id || a.name != b.name || a.description != b.description ||
+      std::abs(a.default_height_m - b.default_height_m) > 1e-12 || a.port_bands.size() != b.port_bands.size() ||
       a.anchor_slots.size() != b.anchor_slots.size()) {
     return false;
   }
@@ -1079,6 +1080,10 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
 
   pole->pole_type_id = pole_type_id;
   result.change_set.updated_ids.push_back(pole_id);
+  if (std::abs(pole->height_m - pole_type->default_height_m) > 1e-12) {
+    pole->height_m = pole_type->default_height_m;
+    add_unique_id(result.change_set.updated_ids, pole_id);
+  }
 
   auto recompute_band_local = [&](const PortPlacementBand& band, double* out_scale, bool* out_angle_correction) {
     Vec3d adjusted_local{0.0, band.lateral_center_m, band.height_center_m};
@@ -1657,6 +1662,63 @@ EditResult<bool> CoreState::UpdatePoleTypeDefinition(const PoleTypeDefinition& p
 
 EditResult<bool> CoreState::UpdateBundleTemplate(const BundleTemplate& bundle_template) {
   return state_internal::TemplateMutationService::UpdateBundleTemplate(*this, bundle_template);
+}
+
+EditResult<bool> CoreState::ApplyBundleRelatedPoleTypeToExistingPoles(BundleKind bundle_template_id) {
+  EditResult<bool> result;
+  const BundleTemplate* bundle_template = find_bundle_template(bundle_template_id);
+  if (bundle_template == nullptr) {
+    result.error = "bundle template not found";
+    return result;
+  }
+  if (bundle_template->related_pole_type_id == kInvalidPoleTypeId) {
+    result.ok = true;
+    result.value = false;
+    return result;
+  }
+  if (find_pole_type(bundle_template->related_pole_type_id) == nullptr) {
+    result.error = "related pole type not found";
+    return result;
+  }
+
+  std::unordered_set<ObjectId> target_pole_ids;
+  for (const Bundle& bundle : authoritative_.edit_state.bundles.items()) {
+    if (bundle.bundle_template_id != bundle_template_id) {
+      continue;
+    }
+    const auto spans_it = runtime_.relation_index.spans_by_bundle.find(bundle.id);
+    if (spans_it == runtime_.relation_index.spans_by_bundle.end()) {
+      continue;
+    }
+    for (ObjectId span_id : spans_it->second) {
+      const Span* span = authoritative_.edit_state.spans.find(span_id);
+      if (span == nullptr) {
+        continue;
+      }
+      const Port* port_a = authoritative_.edit_state.ports.find(span->port_a_id);
+      const Port* port_b = authoritative_.edit_state.ports.find(span->port_b_id);
+      if (port_a != nullptr && port_a->owner_pole_id != kInvalidObjectId) {
+        target_pole_ids.insert(port_a->owner_pole_id);
+      }
+      if (port_b != nullptr && port_b->owner_pole_id != kInvalidObjectId) {
+        target_pole_ids.insert(port_b->owner_pole_id);
+      }
+    }
+  }
+
+  result.ok = true;
+  result.value = false;
+  for (ObjectId pole_id : target_pole_ids) {
+    const auto apply = ApplyPoleType(pole_id, bundle_template->related_pole_type_id);
+    if (!apply.ok) {
+      result.ok = false;
+      result.error = apply.error;
+      return result;
+    }
+    append_change_set(result.change_set, apply.change_set);
+    result.value = true;
+  }
+  return result;
 }
 
 EditResult<bool> CoreState::UpdateAttachmentTemplate(const AttachmentTemplate& attachment_template,

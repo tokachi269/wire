@@ -83,6 +83,29 @@ struct AttachmentTemplate {
   std::uint64_t version = 1;
 };
 
+struct CableSupplementalPathTemplate {
+  enum class AnchorMode : std::uint8_t {
+    kCurveOffset = 0,
+    kPoleBandChord = 1,
+  };
+
+  enum class ProfileKind : std::uint8_t {
+    kNone = 0,
+    kStraightCable = 1,
+    kCoiledCable = 2,
+  };
+
+  AnchorMode anchor_mode = AnchorMode::kCurveOffset;
+  ProfileKind profile_kind = ProfileKind::kNone;
+  int pole_band_id = 0;
+  double endpoint_trim_m = 0.0;
+  double lateral_offset_m = 0.0;
+  double vertical_offset_m = 0.0;
+  double coil_radius_m = 0.0;
+  double coil_turns_per_meter = 0.0;
+  int coil_samples_per_turn = 12;
+};
+
 enum class BundleCountRuleKind : std::uint8_t {
   kFixed = 0,
   kRange = 1,
@@ -99,11 +122,13 @@ struct CableTemplate {
   CableMaterialStyleKind material_style = CableMaterialStyleKind::kGeneric;
   std::uint32_t color_rgba = 0xFFFFFFFFu;
   bool requires_insulator = false;
+  double insulator_attachment_height_m = 0.0;
   double sag_factor = 0.03;
   double slack_factor = 0.0;
   CableContinuityPolicyHint continuity_policy = CableContinuityPolicyHint::kAuto;
   CableAttachmentStyleHint attachment_style = CableAttachmentStyleHint::kAuto;
   AttachmentTemplateId default_endpoint_attachment_template_id = kInvalidAttachmentTemplateId;
+  std::vector<CableSupplementalPathTemplate> supplemental_paths{};
   std::uint64_t version = 1;
 };
 
@@ -114,6 +139,7 @@ struct BundleTemplate {
   ConnectionCategory category = ConnectionCategory::kLowVoltage;
   CableTemplateId cable_template_id = kInvalidCableTemplateId;
   SpanLayer default_layer = SpanLayer::kLowVoltage;
+  PoleTypeId related_pole_type_id = kInvalidPoleTypeId;
   // If true, conductor identity/order is treated as strict by higher-level workflow policy.
   bool preserve_conductor_identity = false;
   BundleCountRuleKind count_rule = BundleCountRuleKind::kFixed;

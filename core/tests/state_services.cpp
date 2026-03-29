@@ -1,5 +1,6 @@
 ﻿#include "registry.hpp"
 
+#include "../src/generation/support_policy.hpp"
 #include "../src/state/internal_services.hpp"
 #include "helpers.hpp"
 
@@ -26,6 +27,34 @@ bool has_validation_issue(const wire::core::ValidationResult& validation, wire::
                      [&](const wire::core::ValidationIssue& issue) {
                        return issue.severity == severity && issue.code == code;
                      });
+}
+
+double template_layer_base_z_for_test(const wire::core::CoreState& state, ObjectId pole_id,
+                                      wire::core::ConnectionCategory category) {
+  const auto& view = state.view();
+  const wire::core::Pole* pole = view.edit_state().poles.find(pole_id);
+  if (pole == nullptr) {
+    return 0.0;
+  }
+  const auto pole_type_it = view.pole_types().find(pole->pole_type_id);
+  if (pole_type_it == view.pole_types().end()) {
+    return std::max(0.5, pole->height_m * 0.8);
+  }
+  double best_z = -std::numeric_limits<double>::infinity();
+  const int target_layer = wire::core::generation::detail::TemplateLayerForCategory(category);
+  for (const wire::core::PortPlacementBand& band : pole_type_it->second.port_bands) {
+    if (band.enabled && band.layer == target_layer) {
+      best_z = std::max(best_z, band.height_max_m);
+    }
+  }
+  if (!std::isfinite(best_z)) {
+    for (const wire::core::PortPlacementBand& band : pole_type_it->second.port_bands) {
+      if (band.enabled && band.category == category) {
+        best_z = std::max(best_z, band.height_max_m);
+      }
+    }
+  }
+  return std::isfinite(best_z) ? best_z : std::max(0.5, pole->height_m * 0.8);
 }
 
 const wire::core::OverrideEntryView* find_override_entry(const wire::core::OverrideInspectionView& view,
@@ -500,6 +529,8 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
   }
   const ObjectId pair_peer_low = std::min(pole_b, pole_c);
   const ObjectId pair_peer_high = std::max(pole_b, pole_c);
+  const double expected_support_z =
+      template_layer_base_z_for_test(state, pole_a, wire::core::ConnectionCategory::kHighVoltage) - 1.0;
 
   auto make_grouped = [&](wire::core::SupportGroupDecision* decision, wire::core::LoweredSupportGroupPlacement* group,
                           const wire::core::Vec3d& axis, double down_offset_m,
@@ -523,13 +554,13 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
     decision->down_offset_m = down_offset_m;
     decision->support_world = tip_world;
     decision->grouped_port_count = 2;
-    decision->attachment_worlds = {{0.0, 0.8, 5.0}, {0.0, 1.1, 5.0}};
+    decision->attachment_worlds = {{0.0, 0.8, expected_support_z}, {0.0, 1.1, expected_support_z}};
     group->grouping_rule = wire::core::SupportGroupingRuleKind::kDecisionGroup;
     group->grouped_port_count = 2;
     group->down_offset_m = down_offset_m;
     group->mount_world = mount_world;
     group->tip_world = tip_world;
-    group->attachment_worlds = {{0.0, 0.8, 5.0}, {0.0, 1.1, 5.0}};
+    group->attachment_worlds = {{0.0, 0.8, expected_support_z}, {0.0, 1.1, expected_support_z}};
   };
 
   it_ab->second.lowered_support_group_keys = {{pole_a, 1234}};
@@ -539,7 +570,7 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
   auto& grouped_store = CoreStateTestHook::cache_state(state).support_layout_cache.lowered_support_groups;
   grouped_store.clear();
   make_grouped(&decision_store[{pole_a, 1234}], &grouped_store[{pole_a, 1234}], {1.0, 0.0, 0.0}, 1.0,
-               {0.2, 0.0, 7.0}, {0.6, 0.0, 7.0});
+               {0.2, 0.0, expected_support_z}, {0.6, 0.0, expected_support_z});
 
   auto apply_grouped_endpoint = [&](wire::core::SupportLayoutEndpoint* endpoint, ObjectId owner_pole_id,
                                     ObjectId port_id, const wire::core::Vec3d& endpoint_world) {
@@ -553,10 +584,10 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
     endpoint->decision.owner_pole_id = owner_pole_id;
     endpoint->decision.support_group_id = 1234;
     endpoint->branch_down_offset_m = decision_store[{pole_a, 1234}].down_offset_m;
-    endpoint->support_world = grouped_store[{pole_a, 1234}].tip_world;
+    endpoint->support_world = endpoint_world;
   };
-  apply_grouped_endpoint(&it_ab->second.start, pole_a, port_ab_a, {0.0, 0.8, 5.0});
-  apply_grouped_endpoint(&it_ac->second.start, pole_a, port_ac_a, {0.0, 1.1, 5.0});
+  apply_grouped_endpoint(&it_ab->second.start, pole_a, port_ab_a, {0.0, 0.8, expected_support_z});
+  apply_grouped_endpoint(&it_ac->second.start, pole_a, port_ac_a, {0.0, 1.1, expected_support_z});
 
   const auto validation = helpers::validate_now(state);
   return validation.ok() && grouped_store.size() == 1 &&
@@ -640,10 +671,15 @@ bool test_materialization_reads_layout_owned_support_group_decision() {
       state.AddPole(Transformd{{0.0, 0.0, 0.0}}, 10.0, "A", PoleKind::kGeneric, PlacementMode::kAuto).value;
   const ObjectId pole_b =
       state.AddPole(Transformd{{10.0, 0.0, 0.0}}, 10.0, "B", PoleKind::kGeneric, PlacementMode::kAuto).value;
-  const ObjectId port_a = state.AddPort(pole_a, {0.0, 0.3, 5.0}).value;
-  const ObjectId port_b = state.AddPort(pole_b, {10.0, 0.3, 5.0}).value;
-  const ObjectId span = state.AddSpan(port_a, port_b).value;
+  const ObjectId port_a =
+      state.AddPort(pole_a, {0.0, 0.3, 5.0}, wire::core::PortKind::kPower, wire::core::PortLayer::kHighVoltage).value;
+  const ObjectId port_b =
+      state.AddPort(pole_b, {10.0, 0.3, 5.0}, wire::core::PortKind::kPower, wire::core::PortLayer::kHighVoltage).value;
+  const ObjectId span =
+      state.AddSpan(port_a, port_b, wire::core::SpanKind::kDistribution, wire::core::SpanLayer::kHighVoltage).value;
   (void)state.Commit();
+  const double expected_support_z =
+      template_layer_base_z_for_test(state, pole_a, wire::core::ConnectionCategory::kHighVoltage) - 1.25;
 
   auto& layouts = CoreStateTestHook::cache_state(state).support_layout_cache.by_span;
   auto it = layouts.find(span);
@@ -654,7 +690,7 @@ bool test_materialization_reads_layout_owned_support_group_decision() {
   wire::core::SpanSupportLayoutEntry layout = it->second;
   layout.start.owner_pole_id = pole_a;
   layout.start.port_id = port_a;
-  layout.start.endpoint_world = {0.0, 0.5, 5.0};
+  layout.start.endpoint_world = {0.0, 0.5, expected_support_z};
   layout.start.decision.owner_pole_id = pole_a;
   layout.start.decision.relation_kind = wire::core::JunctionRelationKind::kSideBranch;
   layout.start.decision.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
@@ -673,7 +709,7 @@ bool test_materialization_reads_layout_owned_support_group_decision() {
   layout.start.decision.side_axis = {1.0, 0.0, 0.0};
   layout.start.branch_down_offset_m = 9.0;
   layout.start.down_offset_variation = {};
-  layout.start.support_world = {9.0, 9.0, 9.0};
+  layout.start.support_world = layout.start.endpoint_world;
 
   layout.support_group_decisions.clear();
   wire::core::SupportGroupDecision authoritative{};
@@ -696,9 +732,9 @@ bool test_materialization_reads_layout_owned_support_group_decision() {
   authoritative.side = wire::core::SlotSide::kLeft;
   authoritative.origin = wire::core::SupportLayoutOriginKind::kBranchSupport;
   authoritative.down_offset_m = 1.25;
-  authoritative.support_world = {0.0, 0.8, 6.75};
+  authoritative.support_world = {0.0, 0.8, expected_support_z};
   authoritative.grouped_port_count = 1;
-  authoritative.attachment_worlds = {{0.0, 0.5, 5.0}};
+  authoritative.attachment_worlds = {{0.0, 0.5, expected_support_z}};
   layout.support_group_decisions[{pole_a, 777}] = authoritative;
 
   CoreStateTestHook::cache_span_support_layout(state, std::move(layout));
@@ -737,10 +773,15 @@ bool test_validation_treats_grouped_endpoint_semantics_as_derived_copies() {
       state.AddPole(Transformd{{0.0, 0.0, 0.0}}, 10.0, "A", PoleKind::kGeneric, PlacementMode::kAuto).value;
   const ObjectId pole_b =
       state.AddPole(Transformd{{10.0, 0.0, 0.0}}, 10.0, "B", PoleKind::kGeneric, PlacementMode::kAuto).value;
-  const ObjectId port_a = state.AddPort(pole_a, {0.0, 0.3, 5.0}).value;
-  const ObjectId port_b = state.AddPort(pole_b, {10.0, 0.3, 5.0}).value;
-  const ObjectId span = state.AddSpan(port_a, port_b).value;
+  const ObjectId port_a =
+      state.AddPort(pole_a, {0.0, 0.3, 5.0}, wire::core::PortKind::kPower, wire::core::PortLayer::kHighVoltage).value;
+  const ObjectId port_b =
+      state.AddPort(pole_b, {10.0, 0.3, 5.0}, wire::core::PortKind::kPower, wire::core::PortLayer::kHighVoltage).value;
+  const ObjectId span =
+      state.AddSpan(port_a, port_b, wire::core::SpanKind::kDistribution, wire::core::SpanLayer::kHighVoltage).value;
   (void)state.Commit();
+  const double expected_support_z =
+      template_layer_base_z_for_test(state, pole_a, wire::core::ConnectionCategory::kHighVoltage) - 1.25;
 
   auto& layouts = CoreStateTestHook::cache_state(state).support_layout_cache.by_span;
   auto it = layouts.find(span);
@@ -751,7 +792,7 @@ bool test_validation_treats_grouped_endpoint_semantics_as_derived_copies() {
   wire::core::SpanSupportLayoutEntry layout = it->second;
   layout.start.owner_pole_id = pole_a;
   layout.start.port_id = port_a;
-  layout.start.endpoint_world = {0.0, 0.5, 5.0};
+  layout.start.endpoint_world = {0.0, 0.5, expected_support_z};
   layout.start.decision.owner_pole_id = pole_a;
   layout.start.decision.relation_kind = wire::core::JunctionRelationKind::kSideBranch;
   layout.start.decision.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
@@ -769,7 +810,7 @@ bool test_validation_treats_grouped_endpoint_semantics_as_derived_copies() {
   layout.start.decision.has_side_axis = true;
   layout.start.decision.side_axis = {0.0, 1.0, 0.0};
   layout.start.branch_down_offset_m = 1.25;
-  layout.start.support_world = {0.0, 0.8, 6.75};
+  layout.start.support_world = layout.start.endpoint_world;
 
   layout.support_group_decisions.clear();
   wire::core::SupportGroupDecision authoritative{};
@@ -777,9 +818,9 @@ bool test_validation_treats_grouped_endpoint_semantics_as_derived_copies() {
   authoritative.side = wire::core::SlotSide::kLeft;
   authoritative.origin = wire::core::SupportLayoutOriginKind::kBranchSupport;
   authoritative.down_offset_m = 1.25;
-  authoritative.support_world = {0.0, 0.8, 6.75};
+  authoritative.support_world = {0.0, 0.8, expected_support_z};
   authoritative.grouped_port_count = 1;
-  authoritative.attachment_worlds = {{0.0, 0.5, 5.0}};
+  authoritative.attachment_worlds = {{0.0, 0.5, expected_support_z}};
   layout.support_group_decisions[{pole_a, 777}] = authoritative;
 
   CoreStateTestHook::cache_span_support_layout(state, std::move(layout));

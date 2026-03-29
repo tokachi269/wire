@@ -60,6 +60,16 @@ bool attachment_template_equals(const AttachmentTemplate& a, const AttachmentTem
   return true;
 }
 
+bool cable_supplemental_path_equals(const CableSupplementalPathTemplate& a, const CableSupplementalPathTemplate& b) {
+  return a.anchor_mode == b.anchor_mode && a.profile_kind == b.profile_kind && a.pole_band_id == b.pole_band_id &&
+         std::abs(a.endpoint_trim_m - b.endpoint_trim_m) <= 1e-12 &&
+         std::abs(a.lateral_offset_m - b.lateral_offset_m) <= 1e-12 &&
+         std::abs(a.vertical_offset_m - b.vertical_offset_m) <= 1e-12 &&
+         std::abs(a.coil_radius_m - b.coil_radius_m) <= 1e-12 &&
+         std::abs(a.coil_turns_per_meter - b.coil_turns_per_meter) <= 1e-12 &&
+         a.coil_samples_per_turn == b.coil_samples_per_turn;
+}
+
 } // namespace
 
 EditResult<bool> TemplateMutationService::UpdateCableTemplate(CoreState& state, const CableTemplate& cable_template,
@@ -76,9 +86,25 @@ EditResult<bool> TemplateMutationService::UpdateCableTemplate(CoreState& state, 
   normalized.default_grouped_support_fanout_spacing_m = std::max(0.0, normalized.default_grouped_support_fanout_spacing_m);
   normalized.bend_stiffness = std::max(0.0, normalized.bend_stiffness);
   normalized.min_bend_radius_m = std::max(0.0, normalized.min_bend_radius_m);
+  normalized.insulator_attachment_height_m = std::max(0.0, normalized.insulator_attachment_height_m);
   normalized.sag_factor = std::max(0.0, normalized.sag_factor);
   normalized.slack_factor = std::max(0.0, normalized.slack_factor);
+  for (auto& path : normalized.supplemental_paths) {
+    path.endpoint_trim_m = std::max(0.0, path.endpoint_trim_m);
+    path.coil_radius_m = std::max(0.0, path.coil_radius_m);
+    path.coil_turns_per_meter = std::max(0.0, path.coil_turns_per_meter);
+    path.coil_samples_per_turn = std::max(4, path.coil_samples_per_turn);
+  }
   normalized.version = it->second.version;
+  bool supplemental_paths_changed = normalized.supplemental_paths.size() != it->second.supplemental_paths.size();
+  if (!supplemental_paths_changed) {
+    for (std::size_t i = 0; i < normalized.supplemental_paths.size(); ++i) {
+      if (!cable_supplemental_path_equals(normalized.supplemental_paths[i], it->second.supplemental_paths[i])) {
+        supplemental_paths_changed = true;
+        break;
+      }
+    }
+  }
   const bool changed =
       normalized.name != it->second.name || std::abs(normalized.outer_diameter_m - it->second.outer_diameter_m) > 1e-12 ||
       std::abs(normalized.default_grouped_support_fanout_spacing_m -
@@ -87,11 +113,13 @@ EditResult<bool> TemplateMutationService::UpdateCableTemplate(CoreState& state, 
       std::abs(normalized.min_bend_radius_m - it->second.min_bend_radius_m) > 1e-12 ||
       normalized.material_style != it->second.material_style || normalized.color_rgba != it->second.color_rgba ||
       normalized.requires_insulator != it->second.requires_insulator ||
+      std::abs(normalized.insulator_attachment_height_m - it->second.insulator_attachment_height_m) > 1e-12 ||
       std::abs(normalized.sag_factor - it->second.sag_factor) > 1e-12 ||
       std::abs(normalized.slack_factor - it->second.slack_factor) > 1e-12 ||
       normalized.continuity_policy != it->second.continuity_policy ||
       normalized.attachment_style != it->second.attachment_style ||
-      normalized.default_endpoint_attachment_template_id != it->second.default_endpoint_attachment_template_id;
+      normalized.default_endpoint_attachment_template_id != it->second.default_endpoint_attachment_template_id ||
+      supplemental_paths_changed;
   if (!changed) {
     result.ok = true;
     result.value = false;
@@ -145,6 +173,11 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
     result.error = "bundle template references unknown cable template";
     return result;
   }
+  if (bundle_template.related_pole_type_id != kInvalidPoleTypeId &&
+      state.find_pole_type(bundle_template.related_pole_type_id) == nullptr) {
+    result.error = "bundle template references unknown pole type";
+    return result;
+  }
 
   BundleTemplate normalized = bundle_template;
   const CableTemplate* cable_template = state.find_cable_template(normalized.cable_template_id);
@@ -157,6 +190,7 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
   const bool visual_only_change =
       normalized.cable_template_id != it->second.cable_template_id && normalized.category == it->second.category &&
       normalized.default_layer == it->second.default_layer &&
+      normalized.related_pole_type_id == it->second.related_pole_type_id &&
       normalized.preserve_conductor_identity == it->second.preserve_conductor_identity &&
       normalized.count_rule == it->second.count_rule && normalized.fixed_count == it->second.fixed_count &&
       normalized.min_count == it->second.min_count && normalized.max_count == it->second.max_count &&
@@ -185,7 +219,8 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
       normalized.support_style != it->second.support_style || normalized.branch_policy != it->second.branch_policy ||
       normalized.continuity_policy != it->second.continuity_policy;
 
-  changed = visual_only_change || topology_change || normalized.name != it->second.name;
+  changed = visual_only_change || topology_change || normalized.name != it->second.name ||
+            normalized.related_pole_type_id != it->second.related_pole_type_id;
   if (!changed) {
     result.ok = true;
     result.value = false;

@@ -506,17 +506,8 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
 
   const CoreState snapshot = *this;
   const std::uint64_t session_id = next_generation_session_id_access()++;
-  std::vector<AutoPoleTransformResult> guide_auto_transforms{};
-  guide_auto_transforms.reserve(guide_points.size());
   Vec3d preferred_side_dir{0.0, 0.0, 0.0};
   bool has_preferred_side_dir = false;
-  for (std::size_t i = 0; i < guide_points.size(); ++i) {
-    const AutoPoleTransformResult auto_tf =
-        compute_auto_pole_transform(guide_points, i, has_preferred_side_dir ? &preferred_side_dir : nullptr);
-    guide_auto_transforms.push_back(auto_tf);
-    preferred_side_dir = side_axis_from_yaw_deg(auto_tf.transform.rotation_euler_deg.z);
-    has_preferred_side_dir = true;
-  }
 
   auto find_near_pole = [&](const Vec3d& world, PlacementMode preferred_mode) -> ObjectId {
     constexpr double kReuseRadius = 0.25;
@@ -609,6 +600,17 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     if (pole_id != kInvalidObjectId) {
       Pole* pole = edit_state_access().poles.find(pole_id);
       if (pole != nullptr) {
+        std::optional<AutoPoleTransformResult> auto_tf{};
+        if (candidate.vertex_index >= 0) {
+          Vec3d base_rotation_euler_deg = pole->world_transform.rotation_euler_deg;
+          base_rotation_euler_deg.z = 0.0;
+          auto_tf = compute_auto_pole_transform(guide_points, static_cast<std::size_t>(candidate.vertex_index),
+                                                has_preferred_side_dir ? &preferred_side_dir : nullptr,
+                                                &base_rotation_euler_deg);
+          const PoleFrame preferred_frame = BuildPoleFrame(auto_tf->transform, auto_tf->transform.rotation_euler_deg.z);
+          preferred_side_dir = preferred_frame.lateral;
+          has_preferred_side_dir = Normalize(&preferred_side_dir);
+        }
         const Pole old_pole = *pole;
         bool updated = false;
         if (candidate.mode == PlacementMode::kManual) {
@@ -618,13 +620,12 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
 
         if (candidate.vertex_index >= 0) {
           pole->context = classify_pole_context_from_path(guide_points, static_cast<std::size_t>(candidate.vertex_index), 0);
-          const AutoPoleTransformResult& auto_tf =
-              guide_auto_transforms[static_cast<std::size_t>(candidate.vertex_index)];
-          apply_sharp_debug_to_context(&pole->context, auto_tf.sharp);
+          apply_sharp_debug_to_context(&pole->context, auto_tf.has_value() ? auto_tf->sharp : SharpCornerOrientationDebug{});
           updated = true;
           // Reused poles must follow current corner-orientation rule unless explicitly overridden.
           if (!has_pole_orientation_override(pole->id)) {
-            pole->world_transform.rotation_euler_deg.z = auto_tf.transform.rotation_euler_deg.z;
+            pole->world_transform.rotation_euler_deg.z =
+                auto_tf.has_value() ? auto_tf->transform.rotation_euler_deg.z : pole->world_transform.rotation_euler_deg.z;
             updated = true;
           }
         } else {
@@ -655,12 +656,16 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     bool has_created_sharp_debug = false;
     tf.position = candidate.world;
     if (candidate.vertex_index >= 0) {
-      const AutoPoleTransformResult& auto_tf =
-          guide_auto_transforms[static_cast<std::size_t>(candidate.vertex_index)];
+      const AutoPoleTransformResult auto_tf =
+          compute_auto_pole_transform(guide_points, static_cast<std::size_t>(candidate.vertex_index),
+                                      has_preferred_side_dir ? &preferred_side_dir : nullptr);
       tf = auto_tf.transform;
       tf.position = candidate.world;
       created_sharp_debug = auto_tf.sharp;
       has_created_sharp_debug = true;
+      const PoleFrame preferred_frame = BuildPoleFrame(tf, tf.rotation_euler_deg.z);
+      preferred_side_dir = preferred_frame.lateral;
+      has_preferred_side_dir = Normalize(&preferred_side_dir);
     } else {
       const Vec3d dir = guide_points[candidate.segment_index + 1] - guide_points[candidate.segment_index];
       if ((dir.x * dir.x + dir.y * dir.y + dir.z * dir.z) > 1e-12) {

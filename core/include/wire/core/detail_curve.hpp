@@ -98,6 +98,13 @@ struct DetailReplacementPath {
   std::vector<Vec3d> points{};
 };
 
+struct DetailSupplementalPath {
+  ObjectId attachment_id = kInvalidObjectId;
+  AttachmentTemplateId attachment_template_id = kInvalidAttachmentTemplateId;
+  AttachmentLineInteractionMode interaction_mode = AttachmentLineInteractionMode::kPassThrough;
+  std::vector<Vec3d> points{};
+};
+
 struct CurveDistanceAttributes {
   std::vector<float> arc_length_m{};
   std::vector<float> arc_length_normalized{};
@@ -155,6 +162,7 @@ struct DetailCurve {
   std::vector<CurveLengthInterval> hidden_intervals{};
   std::vector<CurveLengthInterval> replacement_intervals{};
   std::vector<DetailReplacementPath> replacement_paths{};
+  std::vector<DetailSupplementalPath> supplemental_paths{};
   CurveDistanceAttributes distance_attributes{};
   DetailCurveQualityInfo quality{};
   double total_length_m = 0.0;

@@ -394,6 +394,23 @@ bool GroupedSpanLaneStateAccess::finalize_generated_row_port(ObjectId port_id, c
   return true;
 }
 
+bool GroupedSpanLaneStateAccess::finalize_constrained_solver_port(ObjectId port_id, const Vec3d& world_position,
+                                                                  ConnectionCategory category, int template_layer,
+                                                                  SlotSide template_side) const {
+  Port* port = state_->edit_state_access().ports.find(port_id);
+  if (port == nullptr) {
+    return false;
+  }
+  port->world_position = world_position;
+  port->category = category;
+  port->template_layer = template_layer;
+  port->template_side = template_side;
+  port->generated_from_template = true;
+  port->generated_by_rule = true;
+  CoreState::apply_port_position_mode(*port, PortPositionMode::kAuto, PortPlacementSourceKind::kPlacementBandConstrained);
+  return true;
+}
+
 bool GroupedSpanLaneStateAccess::finalize_terminal_fallback_port(ObjectId port_id, const Vec3d* world_position,
                                                                  ConnectionCategory category, int template_layer,
                                                                  SlotSide template_side) const {
@@ -1273,18 +1290,25 @@ GroupedSpanLanePreparer::EnsurePorts(ObjectId node_id, ObjectId peer_id, int seg
     if (static_cast<int>(solved_ports.size()) == lane_count_ && !solved_ports.empty()) {
       const PoleFrame frame = BuildPoleFrame(pole->world_transform, layout_yaw);
       const double target_uniform_z = LaneRowTargetZForEndpoint(*pole, feasibility);
-      for (ObjectId port_id : solved_ports) {
+      const double normalize_center = (static_cast<double>(lane_count_) - 1.0) * 0.5;
+      for (int lane = 0; lane < lane_count_; ++lane) {
+        const ObjectId port_id = solved_ports[static_cast<std::size_t>(lane)];
         const auto world = state_.port_world_position(port_id);
         if (!world) {
           continue;
         }
         Vec3d local = WorldPointToLocal(frame, *world);
-        if (std::abs(local.z - target_uniform_z) <= 1e-9) {
+        const double target_y = (static_cast<double>(lane) - normalize_center) * spacing;
+        const SlotSide template_side =
+            (target_y < -1e-9) ? SlotSide::kLeft : ((target_y > 1e-9) ? SlotSide::kRight : SlotSide::kCenter);
+        if (std::abs(local.y - target_y) <= 1e-9 && std::abs(local.z - target_uniform_z) <= 1e-9) {
           continue;
         }
+        local.y = target_y;
         local.z = target_uniform_z;
-        if (state_.reposition_port_world(port_id,
-                                         local_to_world_on_pole_local(pole->world_transform, layout_yaw, local))) {
+        if (state_.finalize_constrained_solver_port(
+                port_id, local_to_world_on_pole_local(pole->world_transform, layout_yaw, local), category_,
+                state_.template_layer_for_category(category_), template_side)) {
           mark_updated(port_id);
         }
       }

@@ -93,6 +93,9 @@ public:
   [[nodiscard]] bool finalize_generated_row_port(ObjectId port_id, const Vec3d* world_position,
                                                  ConnectionCategory category, int template_layer,
                                                  SlotSide template_side) const;
+  [[nodiscard]] bool finalize_constrained_solver_port(ObjectId port_id, const Vec3d& world_position,
+                                                      ConnectionCategory category, int template_layer,
+                                                      SlotSide template_side) const;
   [[nodiscard]] bool finalize_terminal_fallback_port(ObjectId port_id, const Vec3d* world_position,
                                                      ConnectionCategory category, int template_layer,
                                                      SlotSide template_side) const;

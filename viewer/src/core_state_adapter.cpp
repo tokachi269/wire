@@ -63,6 +63,11 @@ wire::core::EditResult<bool> UpdateBundleTemplate(CoreState& state, const wire::
   return state.UpdateBundleTemplate(bundle_template);
 }
 
+wire::core::EditResult<bool> ApplyBundleRelatedPoleTypeToExistingPoles(CoreState& state,
+                                                                       wire::core::BundleKind bundle_template_id) {
+  return state.ApplyBundleRelatedPoleTypeToExistingPoles(bundle_template_id);
+}
+
 wire::core::EditResult<bool> UpdatePoleTypeDefinition(CoreState& state,
                                                       const wire::core::PoleTypeDefinition& pole_type) {
   return state.UpdatePoleTypeDefinition(pole_type);

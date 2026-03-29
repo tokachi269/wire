@@ -932,6 +932,7 @@ std::optional<DetailCurveInspectionView> CoreView::inspect_detail_curve(ObjectId
   result.visible_interval_count = curve->detail.visible_intervals.size();
   result.hidden_interval_count = curve->detail.hidden_intervals.size();
   result.replacement_path_count = curve->detail.replacement_paths.size();
+  result.supplemental_path_count = curve->detail.supplemental_paths.size();
   result.start_tangent_rule = curve->detail.quality.start_tangent_rule;
   result.end_tangent_rule = curve->detail.quality.end_tangent_rule;
   result.start_support_weight = curve->detail.quality.start_support_weight;
@@ -1074,11 +1075,39 @@ std::optional<TemplateInspectionView> CoreView::inspect_cable_template(CableTemp
   result.properties.push_back({"stiffness", std::to_string(tpl.bend_stiffness), PropertyAccessKind::kEditable});
   result.properties.push_back(
       {"min_bend_radius_m", std::to_string(tpl.min_bend_radius_m), PropertyAccessKind::kEditable});
+  result.properties.push_back({"requires_insulator", BoolText(tpl.requires_insulator), PropertyAccessKind::kEditable});
+  result.properties.push_back(
+      {"insulator_attachment_height_m", std::to_string(tpl.insulator_attachment_height_m), PropertyAccessKind::kEditable});
   result.properties.push_back({"sag_factor", std::to_string(tpl.sag_factor), PropertyAccessKind::kEditable});
   result.properties.push_back({"slack_factor", std::to_string(tpl.slack_factor), PropertyAccessKind::kEditable});
   result.properties.push_back({"default_grouped_support_fanout_spacing_m",
                                std::to_string(tpl.default_grouped_support_fanout_spacing_m),
                                PropertyAccessKind::kEditable});
+  auto supplemental_profile_name = [](CableSupplementalPathTemplate::ProfileKind kind) {
+    switch (kind) {
+    case CableSupplementalPathTemplate::ProfileKind::kNone:
+      return "None";
+    case CableSupplementalPathTemplate::ProfileKind::kStraightCable:
+      return "StraightCable";
+    case CableSupplementalPathTemplate::ProfileKind::kCoiledCable:
+      return "CoiledCable";
+    default:
+      return "Unknown";
+    }
+  };
+  result.properties.push_back({"supplemental_path_count", std::to_string(tpl.supplemental_paths.size()),
+                               PropertyAccessKind::kEditable});
+  if (!tpl.supplemental_paths.empty()) {
+    const auto& supplemental = tpl.supplemental_paths.front();
+    result.properties.push_back({"supplemental_path_profile", supplemental_profile_name(supplemental.profile_kind),
+                                 PropertyAccessKind::kEditable});
+    result.properties.push_back(
+        {"supplemental_path_lateral_offset_m", std::to_string(supplemental.lateral_offset_m),
+         PropertyAccessKind::kEditable});
+    result.properties.push_back(
+        {"supplemental_path_vertical_offset_m", std::to_string(supplemental.vertical_offset_m),
+         PropertyAccessKind::kEditable});
+  }
   return result;
 }
 
@@ -1105,8 +1134,14 @@ std::optional<TemplateInspectionView> CoreView::inspect_bundle_template(BundleKi
                                PropertyAccessKind::kEditable});
   result.properties.push_back({"cable_template_id", std::to_string(static_cast<unsigned long long>(tpl.cable_template_id)),
                                PropertyAccessKind::kEditable});
+  result.properties.push_back(
+      {"related_pole_type_id", std::to_string(static_cast<unsigned long long>(tpl.related_pole_type_id)),
+       PropertyAccessKind::kEditable});
   if (tpl.cable_template_id != kInvalidCableTemplateId) {
     result.links.push_back({"CableTemplate", {EntityKind::kTemplate, tpl.cable_template_id}});
+  }
+  if (tpl.related_pole_type_id != kInvalidPoleTypeId) {
+    result.links.push_back({"PoleTemplate", {EntityKind::kTemplate, tpl.related_pole_type_id}});
   }
   return result;
 }

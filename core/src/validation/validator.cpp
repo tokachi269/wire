@@ -47,6 +47,30 @@ bool almost_equal_validation(const Vec3d& a, const Vec3d& b, double eps = 1e-9) 
          almost_equal_validation(a.z, b.z, eps);
 }
 
+double insulator_lift_for_span(const CoreView& core, ObjectId span_id) {
+  const Span* span = core.edit_state().spans.find(span_id);
+  if (span == nullptr) {
+    return 0.0;
+  }
+  const Bundle* bundle = core.edit_state().bundles.find(span->bundle_id);
+  if (bundle == nullptr) {
+    return 0.0;
+  }
+  const auto bundle_template_it = core.bundle_templates().find(bundle->bundle_template_id);
+  if (bundle_template_it == core.bundle_templates().end()) {
+    return 0.0;
+  }
+  const auto cable_template_it = core.cable_templates().find(bundle_template_it->second.cable_template_id);
+  if (cable_template_it == core.cable_templates().end()) {
+    return 0.0;
+  }
+  const CableTemplate& cable_template = cable_template_it->second;
+  if (!cable_template.requires_insulator) {
+    return 0.0;
+  }
+  return std::max(0.0, cable_template.insulator_attachment_height_m);
+}
+
 double template_layer_base_z_for_validation(const CoreView& core, const Pole& pole, ConnectionCategory category) {
   double best_z = -std::numeric_limits<double>::infinity();
   const int target_layer = generation::detail::TemplateLayerForCategory(category);
@@ -333,6 +357,43 @@ ValidationResult CoreState::Validate() const {
           ValidationIssue{ValidationSeverity::kError, "CableTemplateAttachmentTemplateMissing",
                           "CableTemplate default endpoint attachment template must exist", kInvalidObjectId});
     }
+    if (!std::isfinite(cable_template.insulator_attachment_height_m) || cable_template.insulator_attachment_height_m < 0.0) {
+      result.issues.emplace_back(ValidationIssue{ValidationSeverity::kError, "CableTemplateInsulatorAttachmentHeightInvalid",
+                                                 "CableTemplate insulator attachment height must be finite and >= 0",
+                                                 kInvalidObjectId});
+    }
+    if (!cable_template.requires_insulator && cable_template.insulator_attachment_height_m > 1e-9) {
+      result.issues.emplace_back(ValidationIssue{ValidationSeverity::kError, "CableTemplateInsulatorAttachmentHeightUnused",
+                                                 "Only insulator-requiring cable templates may set insulator attachment height",
+                                                 kInvalidObjectId});
+    }
+    for (const CableSupplementalPathTemplate& supplemental : cable_template.supplemental_paths) {
+      if (!std::isfinite(supplemental.endpoint_trim_m) || supplemental.endpoint_trim_m < 0.0) {
+        result.issues.emplace_back(ValidationIssue{ValidationSeverity::kError, "CableTemplateSupplementalTrimInvalid",
+                                                   "CableTemplate supplemental path trim must be finite and >= 0",
+                                                   kInvalidObjectId});
+      }
+      if (supplemental.anchor_mode == CableSupplementalPathTemplate::AnchorMode::kPoleBandChord &&
+          supplemental.pole_band_id == 0) {
+        result.issues.emplace_back(ValidationIssue{ValidationSeverity::kError, "CableTemplateSupplementalPoleBandMissing",
+                                                   "Pole-band chord supplemental path must name a pole band id",
+                                                   kInvalidObjectId});
+      }
+      if (supplemental.profile_kind == CableSupplementalPathTemplate::ProfileKind::kCoiledCable) {
+        if (!std::isfinite(supplemental.coil_radius_m) || supplemental.coil_radius_m <= 1e-6 ||
+            !std::isfinite(supplemental.coil_turns_per_meter) || supplemental.coil_turns_per_meter <= 1e-6 ||
+            supplemental.coil_samples_per_turn < 4) {
+          result.issues.emplace_back(
+              ValidationIssue{ValidationSeverity::kError, "CableTemplateSupplementalCoilInvalid",
+                              "Coiled cable supplemental path requires finite positive radius, positive turns-per-meter, and samples-per-turn >= 4",
+                              kInvalidObjectId});
+        }
+      } else if (std::abs(supplemental.coil_radius_m) > 1e-12 || std::abs(supplemental.coil_turns_per_meter) > 1e-12) {
+        result.issues.emplace_back(ValidationIssue{ValidationSeverity::kError, "CableTemplateSupplementalCoilParamsUnused",
+                                                   "Only CoiledCable supplemental paths may set coil parameters",
+                                                   kInvalidObjectId});
+      }
+    }
   }
 
   for (const Bundle& bundle : edit_state.bundles.items()) {
@@ -356,9 +417,10 @@ ValidationResult CoreState::Validate() const {
         result.issues.push_back({ValidationSeverity::kError, "AttachmentTemplatePathSocketMissing",
                                  "AttachmentTemplate internal path references missing socket", kInvalidObjectId});
       }
-      if (attachment_template.line_interaction_mode != AttachmentLineInteractionMode::kReplaceWithInternalPath) {
+      if (attachment_template.line_interaction_mode != AttachmentLineInteractionMode::kReplaceWithInternalPath &&
+          attachment_template.line_interaction_mode != AttachmentLineInteractionMode::kAddInternalPath) {
         result.issues.push_back({ValidationSeverity::kError, "AttachmentTemplatePathModeMismatch",
-                                 "AttachmentTemplate internal paths require ReplaceWithInternalPath interaction mode",
+                                 "AttachmentTemplate internal paths require ReplaceWithInternalPath or AddInternalPath interaction mode",
                                  kInvalidObjectId});
       }
       if (path.profile_kind != AttachmentInternalPathTemplate::ProfileKind::kExplicitPolyline &&
@@ -460,12 +522,14 @@ ValidationResult CoreState::Validate() const {
     return std::pair<ObjectId, ObjectId>{group.decision.support_pair_peer_low, group.decision.support_pair_peer_high};
   };
   for (const auto& [span_id, layout] : cache_state.support_layout_cache.by_span) {
+    const double endpoint_attach_lift_m = insulator_lift_for_span(core, span_id);
     const auto validate_endpoint = [&](const SupportLayoutEndpoint& endpoint, const char* code) {
       const Pole* endpoint_pole = edit_state.poles.find(endpoint.owner_pole_id);
       const Port* endpoint_port = edit_state.ports.find(endpoint.port_id);
       if (endpoint_pole != nullptr && endpoint_port != nullptr &&
           endpoint.decision.continuity_class == ContinuityCategoryClass::kBundleLike) {
-        const double template_z = template_layer_base_z_for_validation(core, *endpoint_pole, endpoint_port->category);
+        const double template_z =
+            template_layer_base_z_for_validation(core, *endpoint_pole, endpoint_port->category) + endpoint_attach_lift_m;
         if (endpoint.decision.relation_kind == JunctionRelationKind::kThroughMain) {
           if (endpoint.decision.lower_required || endpoint.branch_down_offset_m > 1e-9 ||
               !almost_equal_validation(endpoint.support_world.z, template_z)) {
@@ -573,9 +637,9 @@ ValidationResult CoreState::Validate() const {
                                  "Grouped-lowered ThroughMain support-group decision must keep pair-based bisector orientation",
                                  span_id});
       }
-      if (!almost_equal_validation(endpoint.support_world.z, group.tip_world.z)) {
-        result.issues.push_back({ValidationSeverity::kError, "SupportGroupHeightMismatch",
-                                 "Grouped-lowered endpoint support height must match grouped placement tip height",
+      if (!almost_equal_validation(endpoint.support_world, endpoint.endpoint_world)) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportGroupAttachPointMismatch",
+                                 "Grouped-lowered endpoint must keep its per-endpoint wire attachment point",
                                  span_id});
       }
       if (endpoint.branch_down_offset_m <= 1e-9 ||

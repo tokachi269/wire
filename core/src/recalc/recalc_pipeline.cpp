@@ -414,6 +414,10 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
   const CableTemplate* cable_template =
       (bundle_template == nullptr) ? nullptr : find_cable_template(bundle_template->cable_template_id);
   const bool requires_insulator = (cable_template != nullptr) ? cable_template->requires_insulator : false;
+  const double insulator_attachment_height_m =
+      (cable_template != nullptr && cable_template->requires_insulator && cable_template->insulator_attachment_height_m > 1e-9)
+          ? cable_template->insulator_attachment_height_m
+          : runtime_.cache_state.visual_settings.insulator_length_m;
   const SpanRuntimeState* runtime = find_span_runtime_state(span_id);
   const SpanSupportLayoutEntry* support_layout = find_span_support_layout(span_id);
 
@@ -464,7 +468,7 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
       ins.b = {
           port.world_position.x,
           port.world_position.y,
-          port.world_position.z + runtime_.cache_state.visual_settings.insulator_length_m,
+          port.world_position.z + insulator_attachment_height_m,
       };
       ins.radius_m = runtime_.cache_state.visual_settings.insulator_radius_m;
       entry.parts.push_back(ins);
@@ -500,7 +504,7 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
         ins.b = {
             attachment_world.x,
             attachment_world.y,
-            attachment_world.z + runtime_.cache_state.visual_settings.insulator_length_m,
+            attachment_world.z + insulator_attachment_height_m,
         };
         ins.radius_m = runtime_.cache_state.visual_settings.insulator_radius_m;
         entry.parts.push_back(ins);

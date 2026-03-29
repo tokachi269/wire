@@ -876,6 +876,8 @@ void PopulateLengthData(DetailCurve* curve) {
   curve->visible_intervals.clear();
   curve->hidden_intervals.clear();
   curve->replacement_intervals.clear();
+  curve->replacement_paths.clear();
+  curve->supplemental_paths.clear();
   curve->visible_intervals.push_back({0.0, curve->total_length_m});
 }
 

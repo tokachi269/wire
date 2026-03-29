@@ -4,6 +4,7 @@
 #include "wire/core/core_state_api_types.hpp"
 #include "wire/core/core_view.hpp"
 #include "wire/core/inspection.hpp"
+#include "wire/core/style_context.hpp"
 #include "wire/core/variation.hpp"
 #include "wire/core/workflow_types.hpp"
 
@@ -67,12 +68,20 @@ bool test_public_headers_offer_stable_smoke_surface() {
 
   ContextProfile profile{};
   profile.style_seed = 7;
+  StyleRouteKey route_key{};
+  route_key.family_id = 11;
+  StyleObjectKey object_key{};
+  object_key.route = route_key;
+  object_key.segment_index = 2;
+  const ResolvedStyleContext resolved = ResolveStyleContext(profile, route_key, object_key);
   ResolvedStyleContext style{};
   style.profile = profile;
   style.route.key.family_id = 11;
   style.object.key.segment_index = 2;
   return spec.interval_m == 20.0 && spec.bundles.size() == 1 && style.profile.style_seed == 7 &&
-         style.route.key.family_id == 11 && style.object.key.segment_index == 2;
+         style.route.key.family_id == 11 && style.object.key.segment_index == 2 &&
+         resolved.profile.style_seed == 7 && resolved.route.key.family_id == 11 &&
+         resolved.object.key.segment_index == 2;
 }
 
 void RegisterApiSurfaceTests(test_registry::TestRegistry& tests) {

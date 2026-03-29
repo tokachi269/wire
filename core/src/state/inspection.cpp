@@ -1,6 +1,7 @@
 #include "wire/core/core_state.hpp"
 
 #include "wire/core/core_view.hpp"
+#include "wire/core/style_context.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -12,6 +13,76 @@
 namespace wire::core {
 
 namespace {
+
+std::uint64_t splitmix64(std::uint64_t x) {
+  x += 0x9E3779B97F4A7C15ull;
+  x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ull;
+  x = (x ^ (x >> 27)) * 0x94D049BB133111EBull;
+  return x ^ (x >> 31);
+}
+
+std::uint64_t hash_combine(std::uint64_t seed, std::uint64_t value) {
+  return splitmix64(seed ^ (value + 0x9E3779B97F4A7C15ull + (seed << 6) + (seed >> 2)));
+}
+
+ConnectionCategory category_from_span_layer(SpanLayer layer) {
+  switch (layer) {
+  case SpanLayer::kHighVoltage:
+    return ConnectionCategory::kHighVoltage;
+  case SpanLayer::kCommunication:
+    return ConnectionCategory::kCommunication;
+  case SpanLayer::kOptical:
+    return ConnectionCategory::kOptical;
+  case SpanLayer::kDrop:
+    return ConnectionCategory::kDrop;
+  case SpanLayer::kLowVoltage:
+  default:
+    return ConnectionCategory::kLowVoltage;
+  }
+}
+
+std::uint64_t fallback_variation_flow_key_for_span(const Span& span) {
+  std::uint64_t key = hash_combine(span.generation.generation_session_id, static_cast<std::uint64_t>(span.bundle_id));
+  key = hash_combine(key, static_cast<std::uint64_t>(span.endpoint_node_a_id));
+  key = hash_combine(key, static_cast<std::uint64_t>(span.endpoint_node_b_id));
+  key = hash_combine(key, static_cast<std::uint64_t>(span.placement_context));
+  return key;
+}
+
+StyleInspectionView BuildStyleInspectionView(const CoreState& state, const Span& span, BackboneFlowKind flow_kind) {
+  StyleInspectionView style{};
+  const CoreView view = state.view();
+  const SpanRuntimeState* runtime = view.find_span_runtime_state(span.id);
+  const std::uint64_t variation_flow_key =
+      (runtime != nullptr && runtime->variation_flow_key != 0) ? runtime->variation_flow_key
+                                                               : fallback_variation_flow_key_for_span(span);
+  const Bundle* bundle = view.bundles().find(span.bundle_id);
+  const BundleTemplate* bundle_template = nullptr;
+  if (bundle != nullptr) {
+    const auto it = view.bundle_templates().find(bundle->bundle_template_id);
+    if (it != view.bundle_templates().end()) {
+      bundle_template = &it->second;
+    }
+  }
+
+  style.route_key.family_id = variation_flow_key;
+  style.route_key.bundle_template_id =
+      (bundle != nullptr) ? bundle->bundle_template_id : BundleKind::kLowVoltage;
+  style.route_key.category =
+      (bundle_template != nullptr) ? bundle_template->category : category_from_span_layer(span.layer);
+  style.route_key.flow_kind = flow_kind;
+
+  style.object_key.route = style.route_key;
+  style.object_key.segment_index = span.generation.generation_order;
+  style.object_key.lane_index = 0;
+  style.object_key.kind = StyleObjectKind::kSpan;
+  style.object_key.ordinal = 0;
+  style.object_key.is_start_endpoint = false;
+
+  style.resolved = ResolveStyleContext(view.context_profile(), style.route_key, style.object_key);
+  style.has_context = true;
+  return style;
+}
 
 std::string DisplayOrFallback(std::string_view prefix, std::string_view display_id, std::uint64_t stable_id) {
   if (!display_id.empty()) {
@@ -838,6 +909,7 @@ std::optional<SpanInspectionView> CoreView::inspect_span(ObjectId span_id) const
     result.sag_amplitude_m = curve->detail.sag_amplitude_m;
     result.curve_length_m = curve->detail.Length();
   }
+  result.style = BuildStyleInspectionView(state_, *span, result.flow_kind);
   std::unordered_set<std::uint64_t> seen{};
   if (result.start_pole_ref.valid()) {
     AddLink(&result.links, &seen, "Start Pole", result.start_pole_ref.kind, result.start_pole_ref.stable_id);
@@ -959,6 +1031,15 @@ std::optional<DetailCurveInspectionView> CoreView::inspect_detail_curve(ObjectId
   result.sag_pass_scale = curve->detail.quality.sag_pass_scale;
   result.sag_rigidity_scale = curve->detail.quality.sag_rigidity_scale;
   result.sag_variation = MakeVariationBreakdownView(curve->detail.quality.sag_variation);
+  if (const Span* span = spans().find(span_id); span != nullptr) {
+    BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
+    if (const SpanSupportLayoutEntry* layout = find_span_support_layout(span_id); layout != nullptr) {
+      flow_kind = layout->flow_kind;
+    } else if (const SegmentLaneAssignment* assignment = FindLaneAssignmentForSpan(*this, *span); assignment != nullptr) {
+      flow_kind = assignment->flow_kind;
+    }
+    result.style = BuildStyleInspectionView(state_, *span, flow_kind);
+  }
 
   std::unordered_set<std::uint64_t> seen{};
   AddLink(&result.links, &seen, "Source Span", EntityKind::kSpan, span_id);

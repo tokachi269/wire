@@ -1,5 +1,6 @@
 #include "registry.hpp"
 #include "helpers.hpp"
+#include "wire/core/style_context.hpp"
 
 #include <algorithm>
 #include <string>
@@ -399,6 +400,89 @@ bool test_recalc_cache_pipeline_is_entity_noop() {
          ports_before == ports_after && spans_before == spans_after && validate_now(state).ok();
 }
 
+bool test_style_context_resolver_is_deterministic_and_route_correlated() {
+  wire::core::ContextProfile profile{};
+  profile.age = 0.7;
+  profile.clutter = 0.35;
+  profile.regularity = 0.8;
+  profile.service_mix = 0.6;
+  profile.style_seed = 42;
+
+  wire::core::StyleRouteKey route_key{};
+  route_key.family_id = 1001;
+  route_key.bundle_template_id = wire::core::BundleKind::kCommunication;
+  route_key.category = wire::core::ConnectionCategory::kCommunication;
+  route_key.flow_kind = wire::core::BackboneFlowKind::kMain;
+
+  wire::core::StyleObjectKey object_a{};
+  object_a.route = route_key;
+  object_a.segment_index = 3;
+  object_a.lane_index = 0;
+  object_a.kind = wire::core::StyleObjectKind::kSpan;
+  object_a.ordinal = 0;
+
+  wire::core::StyleObjectKey object_b = object_a;
+  object_b.ordinal = 1;
+
+  const wire::core::ResolvedStyleContext resolved_a =
+      wire::core::ResolveStyleContext(profile, route_key, object_a);
+  const wire::core::ResolvedStyleContext resolved_a_repeat =
+      wire::core::ResolveStyleContext(profile, route_key, object_a);
+  const wire::core::ResolvedStyleContext resolved_b =
+      wire::core::ResolveStyleContext(profile, route_key, object_b);
+
+  return resolved_a.scope.district_seed == resolved_a_repeat.scope.district_seed &&
+         resolved_a.scope.route_seed == resolved_a_repeat.scope.route_seed &&
+         resolved_a.scope.object_seed == resolved_a_repeat.scope.object_seed &&
+         almost_equal(resolved_a.route.age_bias, resolved_a_repeat.route.age_bias, 1e-12) &&
+         almost_equal(resolved_a.object.local_offset_m.x, resolved_a_repeat.object.local_offset_m.x, 1e-12) &&
+         almost_equal(resolved_a.object.local_offset_m.y, resolved_a_repeat.object.local_offset_m.y, 1e-12) &&
+         resolved_a.route.key.family_id == resolved_b.route.key.family_id &&
+         resolved_a.scope.route_seed == resolved_b.scope.route_seed &&
+         resolved_a.scope.object_seed != resolved_b.scope.object_seed &&
+         (std::abs(resolved_a.object.local_offset_m.x - resolved_b.object.local_offset_m.x) > 1e-9 ||
+          std::abs(resolved_a.object.local_offset_m.y - resolved_b.object.local_offset_m.y) > 1e-9 ||
+          std::abs(resolved_a.object.choice_bias - resolved_b.object.choice_bias) > 1e-9);
+}
+
+bool test_inspection_exposes_resolved_style_context_on_span_and_detail_curve() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::RoadSegment road{};
+  road.id = 91;
+  road.polyline = {{0.0, 0.0, 0.0}, {18.0, 0.0, 0.0}, {36.0, 8.0, 0.0}};
+  const auto generated = state.GenerateSimpleLine(road, 18.0, type_ids.front(), ConnectionCategory::kCommunication);
+  if (!generated.ok || generated.value.span_ids.empty()) {
+    return false;
+  }
+
+  (void)state.Commit().recalc_stats;
+
+  const ObjectId span_id = generated.value.span_ids.front();
+  const auto span_view = state.view().inspect_span(span_id);
+  const auto curve_view = state.view().inspect_detail_curve(span_id);
+  if (!span_view.has_value() || !curve_view.has_value()) {
+    return false;
+  }
+
+  const auto& span_style = span_view->style;
+  const auto& curve_style = curve_view->style;
+  return span_style.has_context && curve_style.has_context && span_style.route_key.family_id != 0 &&
+         span_style.route_key.family_id == curve_style.route_key.family_id &&
+         span_style.route_key.bundle_template_id == curve_style.route_key.bundle_template_id &&
+         span_style.route_key.category == curve_style.route_key.category &&
+         span_style.route_key.flow_kind == curve_style.route_key.flow_kind &&
+         span_style.object_key.route.family_id == span_style.route_key.family_id &&
+         curve_style.object_key.route.family_id == curve_style.route_key.family_id &&
+         span_style.resolved.scope.district_seed == curve_style.resolved.scope.district_seed &&
+         span_style.resolved.scope.route_seed == curve_style.resolved.scope.route_seed &&
+         span_style.resolved.scope.object_seed == curve_style.resolved.scope.object_seed;
+}
+
 void register_workflow_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C20_Phase46_GenerateSimpleLine_FailShortPolyline", "Simple line short polyline fails with state unchanged", "Exact", true, test_generate_simple_line_fails_with_short_polyline);
   test_registry::AddTest(tests, "C21_Phase46_GenerateSimpleLine_FailInvalidInterval", "Simple line invalid interval fails with state unchanged", "Exact", true, test_generate_simple_line_fails_with_invalid_interval);
@@ -412,6 +496,12 @@ void register_workflow_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C28_Phase45_GenerateSimpleLine_Continuity", "Intermediate poles reuse same through-port", "Invariant", false, test_generate_simple_line_reuses_intermediate_ports);
   test_registry::AddTest(tests, "C29_Phase45_DisplayId_PerPrefix", "Display IDs increment per prefix", "Exact", false, test_display_id_is_per_prefix_sequence);
   test_registry::AddTest(tests, "C42_Phase4x_RecalcCache_NoEntityMutation", "Derived cache rebuild does not mutate entity identity/counts", "Invariant", false, test_recalc_cache_pipeline_is_entity_noop);
+  test_registry::AddTest(tests, "C304_StyleContext_DeterministicRouteCorrelated",
+                         "Style context resolver stays deterministic per semantic key and shares route-level style across sibling objects",
+                         "Invariant", false, test_style_context_resolver_is_deterministic_and_route_correlated);
+  test_registry::AddTest(tests, "C305_Inspection_ResolvedStyleContext",
+                         "Span and detail inspections expose the same resolved style context for a generated span",
+                         "Invariant", false, test_inspection_exposes_resolved_style_context_on_span_and_detail_curve);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_workflow_tests);

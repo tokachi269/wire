@@ -26,6 +26,7 @@ const RecalcStats& CoreView::last_recalc_stats() const { return state_.runtime_.
 const GeometrySettings& CoreView::geometry_settings() const { return state_.runtime_.cache_state.geometry_settings; }
 const VisualSettings& CoreView::visual_settings() const { return state_.runtime_.cache_state.visual_settings; }
 const VariationSettings& CoreView::variation_settings() const { return state_.runtime_.cache_state.variation_settings; }
+const ContextProfile& CoreView::context_profile() const { return state_.authoritative_.context_profile; }
 const LayoutSettings& CoreView::layout_settings() const { return state_.authoritative_.layout_settings; }
 const PathDirectionEvaluationDebug& CoreView::last_path_direction_debug() const { return state_.debug_.last_path_direction_debug; }
 const std::vector<PathDirectionEvaluationDebug>& CoreView::path_direction_debug_records() const {

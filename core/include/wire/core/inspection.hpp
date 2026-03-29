@@ -89,6 +89,13 @@ struct VariationBreakdownView {
   double final_value = 0.0;
 };
 
+struct StyleInspectionView {
+  bool has_context = false;
+  StyleRouteKey route_key{};
+  StyleObjectKey object_key{};
+  ResolvedStyleContext resolved{};
+};
+
 struct EntityMeta {
   EntityRef ref{};
   std::string display_name{};
@@ -191,6 +198,7 @@ struct SpanInspectionView {
   bool used_special_case_ports = false;
   bool flipped_from_previous = false;
   double turn_angle_deg = 0.0;
+  StyleInspectionView style{};
   std::vector<RelatedEntityLink> links{};
 };
 
@@ -336,6 +344,7 @@ struct DetailCurveInspectionView {
   double sag_pass_scale = 1.0;
   double sag_rigidity_scale = 1.0;
   VariationBreakdownView sag_variation{};
+  StyleInspectionView style{};
   std::vector<RelatedEntityLink> links{};
 };
 

@@ -34,6 +34,7 @@ public:
   [[nodiscard]] const GeometrySettings& geometry_settings() const;
   [[nodiscard]] const VisualSettings& visual_settings() const;
   [[nodiscard]] const VariationSettings& variation_settings() const;
+  [[nodiscard]] const ContextProfile& context_profile() const;
   [[nodiscard]] const LayoutSettings& layout_settings() const;
   [[nodiscard]] const PathDirectionEvaluationDebug& last_path_direction_debug() const;
   [[nodiscard]] const std::vector<PathDirectionEvaluationDebug>& path_direction_debug_records() const;

@@ -1,4 +1,4 @@
-﻿#include "app_state.hpp"
+#include "app_state.hpp"
 #include "core_state_adapter.hpp"
 #include "path_pick_policy.hpp"
 #include "ui_common.hpp"
@@ -91,6 +91,51 @@ const char* PathDirectionChosenLabelLocal(wire::core::PathDirectionChosen chosen
     return "Forward";
   case wire::core::PathDirectionChosen::kReverse:
     return "Reverse";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* CableMaterialStyleLabelLocal(wire::core::CableMaterialStyleKind kind) {
+  switch (kind) {
+  case wire::core::CableMaterialStyleKind::kGeneric:
+    return "Generic";
+  case wire::core::CableMaterialStyleKind::kBareConductor:
+    return "BareConductor";
+  case wire::core::CableMaterialStyleKind::kInsulated:
+    return "Insulated";
+  case wire::core::CableMaterialStyleKind::kOptical:
+    return "Optical";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* CableAttachmentStyleLabelLocal(wire::core::CableAttachmentStyleHint kind) {
+  switch (kind) {
+  case wire::core::CableAttachmentStyleHint::kAuto:
+    return "Auto";
+  case wire::core::CableAttachmentStyleHint::kDirectThrough:
+    return "DirectThrough";
+  case wire::core::CableAttachmentStyleHint::kViaAttachment:
+    return "ViaAttachment";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* StyleObjectKindLabelLocal(wire::core::StyleObjectKind kind) {
+  switch (kind) {
+  case wire::core::StyleObjectKind::kSpan:
+    return "Span";
+  case wire::core::StyleObjectKind::kEndpoint:
+    return "Endpoint";
+  case wire::core::StyleObjectKind::kAttachment:
+    return "Attachment";
+  case wire::core::StyleObjectKind::kSupport:
+    return "Support";
+  case wire::core::StyleObjectKind::kPoleAccessory:
+    return "PoleAccessory";
   default:
     return "Unknown";
   }
@@ -691,6 +736,55 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
       ofs << prefix << ".decision_trace[" << index << "].summary=" << trace[index].summary << "\n";
     }
   };
+  const auto write_style_inspection = [&](const std::string& prefix, const wire::core::StyleInspectionView& style) {
+    ofs << prefix << ".has_context=" << (style.has_context ? 1 : 0) << "\n";
+    if (!style.has_context) {
+      return;
+    }
+    ofs << prefix << ".route.family_id=" << static_cast<unsigned long long>(style.route_key.family_id) << "\n";
+    ofs << prefix << ".route.bundle_template_id=" << static_cast<int>(style.route_key.bundle_template_id) << "\n";
+    ofs << prefix << ".route.category=" << CategoryLabelLocal(style.route_key.category) << "\n";
+    ofs << prefix << ".route.flow_kind=" << FlowKindLabelLocal(style.route_key.flow_kind) << "\n";
+    ofs << prefix << ".object.segment_index=" << style.object_key.segment_index << "\n";
+    ofs << prefix << ".object.lane_index=" << style.object_key.lane_index << "\n";
+    ofs << prefix << ".object.kind=" << StyleObjectKindLabelLocal(style.object_key.kind) << "\n";
+    ofs << prefix << ".object.ordinal=" << style.object_key.ordinal << "\n";
+    ofs << prefix << ".object.is_start_endpoint=" << (style.object_key.is_start_endpoint ? 1 : 0) << "\n";
+    ofs << prefix << ".scope.district_seed=" << static_cast<unsigned long long>(style.resolved.scope.district_seed) << "\n";
+    ofs << prefix << ".scope.route_seed=" << static_cast<unsigned long long>(style.resolved.scope.route_seed) << "\n";
+    ofs << prefix << ".scope.cluster_seed=" << static_cast<unsigned long long>(style.resolved.scope.cluster_seed) << "\n";
+    ofs << prefix << ".scope.object_seed=" << static_cast<unsigned long long>(style.resolved.scope.object_seed) << "\n";
+    ofs << prefix << ".profile.age=" << style.resolved.profile.age << "\n";
+    ofs << prefix << ".profile.clutter=" << style.resolved.profile.clutter << "\n";
+    ofs << prefix << ".profile.regularity=" << style.resolved.profile.regularity << "\n";
+    ofs << prefix << ".profile.service_mix=" << style.resolved.profile.service_mix << "\n";
+    ofs << prefix << ".profile.style_seed=" << static_cast<unsigned long long>(style.resolved.profile.style_seed) << "\n";
+    ofs << prefix << ".district.cable_family=" << CableMaterialStyleLabelLocal(style.resolved.district.cable_family) << "\n";
+    ofs << prefix << ".district.attachment_family="
+        << CableAttachmentStyleLabelLocal(style.resolved.district.attachment_family) << "\n";
+    ofs << prefix << ".district.age=" << style.resolved.district.age << "\n";
+    ofs << prefix << ".district.clutter=" << style.resolved.district.clutter << "\n";
+    ofs << prefix << ".district.regularity=" << style.resolved.district.regularity << "\n";
+    ofs << prefix << ".district.service_mix=" << style.resolved.district.service_mix << "\n";
+    ofs << prefix << ".route_style.cable_family=" << CableMaterialStyleLabelLocal(style.resolved.route.cable_family)
+        << "\n";
+    ofs << prefix << ".route_style.attachment_family="
+        << CableAttachmentStyleLabelLocal(style.resolved.route.attachment_family) << "\n";
+    ofs << prefix << ".route_style.age_bias=" << style.resolved.route.age_bias << "\n";
+    ofs << prefix << ".route_style.clutter_bias=" << style.resolved.route.clutter_bias << "\n";
+    ofs << prefix << ".route_style.regularity_bias=" << style.resolved.route.regularity_bias << "\n";
+    ofs << prefix << ".route_style.service_mix_bias=" << style.resolved.route.service_mix_bias << "\n";
+    ofs << prefix << ".route_style.sag_bias=" << style.resolved.route.sag_bias << "\n";
+    ofs << prefix << ".cluster.index=" << style.resolved.cluster.key.cluster_index << "\n";
+    ofs << prefix << ".cluster.clutter_bias=" << style.resolved.cluster.clutter_bias << "\n";
+    ofs << prefix << ".cluster.service_mix_bias=" << style.resolved.cluster.service_mix_bias << "\n";
+    ofs << prefix << ".cluster.family_mix=" << style.resolved.cluster.family_mix << "\n";
+    ofs << prefix << ".object_variation.local_offset=" << style.resolved.object.local_offset_m.x << ","
+        << style.resolved.object.local_offset_m.y << "," << style.resolved.object.local_offset_m.z << "\n";
+    ofs << prefix << ".object_variation.sag_delta_m=" << style.resolved.object.sag_delta_m << "\n";
+    ofs << prefix << ".object_variation.attachment_offset_m=" << style.resolved.object.attachment_offset_m << "\n";
+    ofs << prefix << ".object_variation.choice_bias=" << style.resolved.object.choice_bias << "\n";
+  };
       const auto write_endpoint_junction = [&](const std::string& prefix, wire::core::ObjectId node_id,
                            wire::core::ObjectId peer_node_id) {
       ofs << prefix << ".node_id=" << static_cast<unsigned long long>(node_id) << "\n";
@@ -735,7 +829,7 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
         }
       }
       };
-      ofs << "capture.version=6\n";
+      ofs << "capture.version=7\n";
   ofs << "capture.scope=all_state_plus_focus\n";
   ofs << "capture.includes_all_current_spans=1\n";
   ofs << "capture.includes_all_lane_assignments=1\n";
@@ -795,6 +889,9 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
     ofs << prefix << ".endpoint_node_a_id=" << static_cast<unsigned long long>(span.endpoint_node_a_id) << "\n";
     ofs << prefix << ".endpoint_node_b_id=" << static_cast<unsigned long long>(span.endpoint_node_b_id) << "\n";
     write_decision_trace(prefix, wire::core::EntityRef{wire::core::EntityKind::kSpan, span.id});
+    if (const auto span_view = view.inspect_span(span.id); span_view.has_value()) {
+      write_style_inspection(prefix + ".style", span_view->style);
+    }
     ++all_span_trace_index;
   }
 

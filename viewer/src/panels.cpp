@@ -60,6 +60,36 @@ const char* CableMaterialStyleLabel(wire::core::CableMaterialStyleKind kind) {
   }
 }
 
+const char* CableAttachmentStyleLabel(wire::core::CableAttachmentStyleHint kind) {
+  switch (kind) {
+  case wire::core::CableAttachmentStyleHint::kAuto:
+    return "Auto";
+  case wire::core::CableAttachmentStyleHint::kDirectThrough:
+    return "DirectThrough";
+  case wire::core::CableAttachmentStyleHint::kViaAttachment:
+    return "ViaAttachment";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* StyleObjectKindLabel(wire::core::StyleObjectKind kind) {
+  switch (kind) {
+  case wire::core::StyleObjectKind::kSpan:
+    return "Span";
+  case wire::core::StyleObjectKind::kEndpoint:
+    return "Endpoint";
+  case wire::core::StyleObjectKind::kAttachment:
+    return "Attachment";
+  case wire::core::StyleObjectKind::kSupport:
+    return "Support";
+  case wire::core::StyleObjectKind::kPoleAccessory:
+    return "PoleAccessory";
+  default:
+    return "Unknown";
+  }
+}
+
 const char* ContinuityPolicyLabel(wire::core::CableContinuityPolicyHint policy) {
   switch (policy) {
   case wire::core::CableContinuityPolicyHint::kAuto:
@@ -1255,6 +1285,47 @@ void DrawDecisionTraceBlock(const wire::core::CoreView& view, const wire::core::
   }
 }
 
+void DrawStyleInspectionBlock(const wire::core::StyleInspectionView& style) {
+  ImGui::Separator();
+  ImGui::TextUnformatted("StyleContext");
+  if (!style.has_context) {
+    ImGui::TextUnformatted("(none)");
+    return;
+  }
+  ImGui::Text("route: family=%llu bundle=%d category=%s flow=%s",
+              static_cast<unsigned long long>(style.route_key.family_id),
+              static_cast<int>(style.route_key.bundle_template_id), CategoryLabel(style.route_key.category),
+              BackboneFlowKindLabel(style.route_key.flow_kind));
+  ImGui::Text("object: segment=%u lane=%u kind=%s ordinal=%u start=%s", style.object_key.segment_index,
+              style.object_key.lane_index, StyleObjectKindLabel(style.object_key.kind), style.object_key.ordinal,
+              style.object_key.is_start_endpoint ? "true" : "false");
+  ImGui::Text("scope: district=%llu route=%llu cluster=%llu object=%llu",
+              static_cast<unsigned long long>(style.resolved.scope.district_seed),
+              static_cast<unsigned long long>(style.resolved.scope.route_seed),
+              static_cast<unsigned long long>(style.resolved.scope.cluster_seed),
+              static_cast<unsigned long long>(style.resolved.scope.object_seed));
+  ImGui::Text("profile: age=%.2f clutter=%.2f regularity=%.2f serviceMix=%.2f seed=%llu",
+              style.resolved.profile.age, style.resolved.profile.clutter, style.resolved.profile.regularity,
+              style.resolved.profile.service_mix, static_cast<unsigned long long>(style.resolved.profile.style_seed));
+  ImGui::Text("district: cable=%s attachment=%s age=%.2f clutter=%.2f regularity=%.2f serviceMix=%.2f",
+              CableMaterialStyleLabel(style.resolved.district.cable_family),
+              CableAttachmentStyleLabel(style.resolved.district.attachment_family), style.resolved.district.age,
+              style.resolved.district.clutter, style.resolved.district.regularity,
+              style.resolved.district.service_mix);
+  ImGui::Text("routeStyle: cable=%s attachment=%s age=%.3f clutter=%.3f regularity=%.3f serviceMix=%.3f sag=%.3f",
+              CableMaterialStyleLabel(style.resolved.route.cable_family),
+              CableAttachmentStyleLabel(style.resolved.route.attachment_family), style.resolved.route.age_bias,
+              style.resolved.route.clutter_bias, style.resolved.route.regularity_bias,
+              style.resolved.route.service_mix_bias, style.resolved.route.sag_bias);
+  ImGui::Text("cluster: index=%u clutter=%.3f serviceMix=%.3f familyMix=%.3f",
+              style.resolved.cluster.key.cluster_index, style.resolved.cluster.clutter_bias,
+              style.resolved.cluster.service_mix_bias, style.resolved.cluster.family_mix);
+  ImGui::Text("objectVariation: offset=%.3f %.3f %.3f sag=%.3f attachment=%.3f choice=%.3f",
+              style.resolved.object.local_offset_m.x, style.resolved.object.local_offset_m.y,
+              style.resolved.object.local_offset_m.z, style.resolved.object.sag_delta_m,
+              style.resolved.object.attachment_offset_m, style.resolved.object.choice_bias);
+}
+
 void DrawRelatedLinks(ViewerUiState& ui_state, const std::vector<wire::core::RelatedEntityLink>& links) {
   ImGui::Separator();
   ImGui::TextUnformatted("Links");
@@ -1563,6 +1634,7 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
                   OrderDecisionChoiceLabel(span_view->order_decision_choice_b),
                   OrderDecisionChoiceReasonLabel(span_view->order_decision_choice_reason_b),
                   span_view->flipped_from_previous ? "true" : "false", span_view->turn_angle_deg);
+      DrawStyleInspectionBlock(span_view->style);
       if (layout_view.has_value()) {
         auto draw_support_endpoint = [&](const char* label, const wire::core::SupportLayoutEndpointView& endpoint) {
           ImGui::Text("%s: %s src=%s flow=%s port=%s mode=%s", label, endpoint.origin.c_str(),
@@ -1825,6 +1897,7 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
                 curve_view->end_resolved_socket_id.has_value()
                     ? std::to_string(*curve_view->end_resolved_socket_id).c_str()
                     : "none");
+    DrawStyleInspectionBlock(curve_view->style);
     DrawRelatedLinks(ui_state, curve_view->links);
     return;
   }

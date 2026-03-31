@@ -319,6 +319,29 @@ ValidationResult CoreState::Validate() const {
                                                  "BundleTemplate grouped support fanout spacing must be finite and >= 0",
                                                  kInvalidObjectId});
     }
+    if (bundle_template.support_wire_pole_band_id < 0) {
+      result.issues.emplace_back(ValidationIssue{ValidationSeverity::kError, "BundleTemplateSupportWireBandInvalid",
+                                                 "BundleTemplate support wire pole band id must be >= 0",
+                                                 kInvalidObjectId});
+    }
+    if (bundle_template.support_wire_pole_band_id > 0 && bundle_template.related_pole_type_id != kInvalidPoleTypeId) {
+      const auto pole_type_it = pole_types.find(bundle_template.related_pole_type_id);
+      bool found_support_band = false;
+      if (pole_type_it != pole_types.end()) {
+        for (const PortPlacementBand& band : pole_type_it->second.port_bands) {
+          if (band.band_id == bundle_template.support_wire_pole_band_id && band.enabled) {
+            found_support_band = true;
+            break;
+          }
+        }
+      }
+      if (!found_support_band) {
+        result.issues.emplace_back(
+            ValidationIssue{ValidationSeverity::kError, "BundleTemplateSupportWireBandMissing",
+                            "BundleTemplate support wire pole band id must exist on the related pole type",
+                            kInvalidObjectId});
+      }
+    }
   }
 
   for (const auto& [cable_template_id, cable_template] : cable_templates) {
@@ -346,16 +369,38 @@ ValidationResult CoreState::Validate() const {
                                                  kInvalidObjectId});
     }
     for (const CableSupplementalPathTemplate& supplemental : cable_template.supplemental_paths) {
+      if (supplemental.interaction_mode != AttachmentLineInteractionMode::kReplaceWithInternalPath &&
+          supplemental.interaction_mode != AttachmentLineInteractionMode::kAddInternalPath) {
+        result.issues.emplace_back(
+            ValidationIssue{ValidationSeverity::kError, "CableTemplateSupplementalInteractionModeInvalid",
+                            "CableTemplate supplemental paths require ReplaceWithInternalPath or AddInternalPath interaction mode",
+                            kInvalidObjectId});
+      }
       if (!std::isfinite(supplemental.endpoint_trim_m) || supplemental.endpoint_trim_m < 0.0) {
         result.issues.emplace_back(ValidationIssue{ValidationSeverity::kError, "CableTemplateSupplementalTrimInvalid",
                                                    "CableTemplate supplemental path trim must be finite and >= 0",
                                                    kInvalidObjectId});
+      }
+      if (!std::isfinite(supplemental.wobble_amplitude_m) || supplemental.wobble_amplitude_m < 0.0 ||
+          !std::isfinite(supplemental.wobble_wavelength_m) || supplemental.wobble_wavelength_m < 0.0 ||
+          !std::isfinite(supplemental.wobble_phase_bias) || !std::isfinite(supplemental.endpoint_envelope_ratio) ||
+          supplemental.endpoint_envelope_ratio < 0.0 || supplemental.endpoint_envelope_ratio > 0.5) {
+        result.issues.emplace_back(
+            ValidationIssue{ValidationSeverity::kError, "CableTemplateSupplementalWobbleInvalid",
+                            "CableTemplate supplemental wobble params must be finite, amplitude/wavelength >= 0, and envelope ratio in [0, 0.5]",
+                            kInvalidObjectId});
       }
       if (supplemental.anchor_mode == CableSupplementalPathTemplate::AnchorMode::kPoleBandChord &&
           supplemental.pole_band_id == 0) {
         result.issues.emplace_back(ValidationIssue{ValidationSeverity::kError, "CableTemplateSupplementalPoleBandMissing",
                                                    "Pole-band chord supplemental path must name a pole band id",
                                                    kInvalidObjectId});
+      }
+      if (supplemental.wobble_amplitude_m > 1e-9 && supplemental.wobble_wavelength_m <= 1e-6) {
+        result.issues.emplace_back(
+            ValidationIssue{ValidationSeverity::kError, "CableTemplateSupplementalWavelengthMissing",
+                            "Supplemental wobble requires positive wavelength when amplitude is non-zero",
+                            kInvalidObjectId});
       }
       if (supplemental.profile_kind == CableSupplementalPathTemplate::ProfileKind::kCoiledCable) {
         if (!std::isfinite(supplemental.coil_radius_m) || supplemental.coil_radius_m <= 1e-6 ||

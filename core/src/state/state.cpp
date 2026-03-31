@@ -1657,6 +1657,35 @@ EditResult<bool> CoreState::UpdateVariationSettings(const VariationSettings& set
   return result;
 }
 
+EditResult<bool> CoreState::UpdateContextProfile(const ContextProfile& profile, bool mark_all_spans_dirty) {
+  EditResult<bool> result;
+  ContextProfile normalized = profile;
+  normalized.age = std::clamp(normalized.age, 0.0, 1.0);
+  normalized.clutter = std::clamp(normalized.clutter, 0.0, 1.0);
+  normalized.regularity = std::clamp(normalized.regularity, 0.0, 1.0);
+  normalized.service_mix = std::clamp(normalized.service_mix, 0.0, 1.0);
+  normalized.style_seed = (normalized.style_seed == 0) ? 1 : normalized.style_seed;
+
+  const ContextProfile& current = authoritative_.context_profile;
+  const bool changed = std::abs(normalized.age - current.age) > 1e-12 ||
+                       std::abs(normalized.clutter - current.clutter) > 1e-12 ||
+                       std::abs(normalized.regularity - current.regularity) > 1e-12 ||
+                       std::abs(normalized.service_mix - current.service_mix) > 1e-12 ||
+                       normalized.style_seed != current.style_seed;
+
+  authoritative_.context_profile = normalized;
+  result.ok = true;
+  result.value = changed;
+  if (changed && mark_all_spans_dirty) {
+    for (const Span& span : authoritative_.edit_state.spans.items()) {
+      mark_span_dirty(span.id, DirtyBits::kGeometry | DirtyBits::kRender, true);
+      add_unique_id(result.change_set.dirty_span_ids, span.id);
+      add_unique_id(result.change_set.updated_ids, span.id);
+    }
+  }
+  return result;
+}
+
 EditResult<bool> CoreState::UpdateCableTemplate(const CableTemplate& cable_template) {
   static const std::vector<ObjectId> kNoPreferredVisibleSpans{};
   return UpdateCableTemplate(cable_template, kNoPreferredVisibleSpans);

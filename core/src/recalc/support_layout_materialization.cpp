@@ -261,15 +261,12 @@ BackboneFlowKind support_layout_flow_kind_for_span(const Span& span, const Port&
   return BackboneFlowKind::kMain;
 }
 
-CurveEndpointMode curve_endpoint_mode_for_template(const CableTemplate* cable_template, const Bundle* bundle,
-                                                   const BundleTemplate* bundle_template) {
+CurveEndpointMode curve_endpoint_mode_for_attachment_style(CableAttachmentStyleHint attachment_style, const Bundle* bundle,
+                                                           const BundleTemplate* bundle_template) {
   if (bundle_prefers_offset_endpoint_mode(bundle, bundle_template)) {
     return CurveEndpointMode::kOffsetEndpoint;
   }
-  if (cable_template == nullptr) {
-    return CurveEndpointMode::kDirectThrough;
-  }
-  switch (cable_template->attachment_style) {
+  switch (attachment_style) {
   case CableAttachmentStyleHint::kDirectThrough:
     return CurveEndpointMode::kDirectThrough;
   case CableAttachmentStyleHint::kViaAttachment:
@@ -279,6 +276,13 @@ CurveEndpointMode curve_endpoint_mode_for_template(const CableTemplate* cable_te
     break;
   }
   return CurveEndpointMode::kDirectThrough;
+}
+
+CurveEndpointMode curve_endpoint_mode_for_template(const CableTemplate* cable_template, const Bundle* bundle,
+                                                   const BundleTemplate* bundle_template) {
+  const CableAttachmentStyleHint attachment_style =
+      (cable_template == nullptr) ? CableAttachmentStyleHint::kDirectThrough : cable_template->attachment_style;
+  return curve_endpoint_mode_for_attachment_style(attachment_style, bundle, bundle_template);
 }
 
 SupportLayoutEndpoint build_support_layout_endpoint(

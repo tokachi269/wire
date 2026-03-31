@@ -305,23 +305,27 @@ void CoreState::register_default_pole_types() {
   comm.port_bands = {
       make_band(600, ConnectionCategory::kCommunication, 0.0, 11.35, 2, SlotSide::kCenter, SlotRole::kTrunkPreferred, 34,
                 0.26, false, 0.12, 0.10, BandOverflowPolicy::kConstrainedFallback),
-      make_band(610, ConnectionCategory::kHighVoltage, -0.6, 9.15, 2, SlotSide::kLeft, SlotRole::kTrunkPreferred, 33,
+      make_band(610, ConnectionCategory::kHighVoltage, -0.6, 9.20, 2, SlotSide::kLeft, SlotRole::kTrunkPreferred, 33,
                 0.40, false, 0.22, 0.12, BandOverflowPolicy::kTrySiblingBand),
-      make_band(611, ConnectionCategory::kHighVoltage, 0.0, 9.15, 2, SlotSide::kCenter, SlotRole::kTrunkPreferred, 32,
+      make_band(611, ConnectionCategory::kHighVoltage, 0.0, 9.20, 2, SlotSide::kCenter, SlotRole::kTrunkPreferred, 32,
                 0.40, false, 0.18, 0.12, BandOverflowPolicy::kTrySiblingBand),
-      make_band(612, ConnectionCategory::kHighVoltage, 0.6, 9.15, 2, SlotSide::kRight, SlotRole::kTrunkPreferred, 31,
+      make_band(612, ConnectionCategory::kHighVoltage, 0.6, 9.20, 2, SlotSide::kRight, SlotRole::kTrunkPreferred, 31,
                 0.40, false, 0.22, 0.12, BandOverflowPolicy::kTrySiblingBand),
-      make_band(620, ConnectionCategory::kCommunication, -0.45, 8.25, 1, SlotSide::kLeft, SlotRole::kTrunkPreferred, 28,
-                0.24, true, 0.18, 0.12, BandOverflowPolicy::kConstrainedFallback),
-      make_band(621, ConnectionCategory::kCommunication, 0.45, 8.25, 1, SlotSide::kRight, SlotRole::kTrunkPreferred, 27,
-                0.24, true, 0.18, 0.12, BandOverflowPolicy::kConstrainedFallback),
-      make_band(700, ConnectionCategory::kOptical, -0.4, 7.25, 1, SlotSide::kLeft, SlotRole::kTrunkPreferred, 25, 0.24,
-                true, 0.18, 0.12, BandOverflowPolicy::kConstrainedFallback),
-      make_band(701, ConnectionCategory::kOptical, 0.4, 7.25, 1, SlotSide::kRight, SlotRole::kTrunkPreferred, 24, 0.24,
-                true, 0.18, 0.12, BandOverflowPolicy::kConstrainedFallback),
-      make_band(800, ConnectionCategory::kLowVoltage, 0.0, 5.8, 1, SlotSide::kCenter, SlotRole::kBranchPreferred, 10,
+      make_band(800, ConnectionCategory::kLowVoltage, -0.4, 8.03, 1, SlotSide::kLeft, SlotRole::kTrunkPreferred, 30,
                 0.22, true, 0.16, 0.12, BandOverflowPolicy::kConstrainedFallback),
-      make_band(801, ConnectionCategory::kDrop, 0.0, 4.0, 0, SlotSide::kCenter, SlotRole::kDropPreferred, 9, 0.18, true,
+      make_band(802, ConnectionCategory::kLowVoltage, 0.0, 8.03, 1, SlotSide::kCenter, SlotRole::kBranchPreferred, 29,
+                0.22, true, 0.16, 0.12, BandOverflowPolicy::kConstrainedFallback),
+      make_band(803, ConnectionCategory::kLowVoltage, 0.4, 8.03, 1, SlotSide::kRight, SlotRole::kTrunkPreferred, 28,
+                0.22, true, 0.16, 0.12, BandOverflowPolicy::kConstrainedFallback),
+      make_band(700, ConnectionCategory::kOptical, 0.04, 6.60, 1, SlotSide::kCenter, SlotRole::kTrunkPreferred, 27,
+                0.24, true, 0.18, 0.12, BandOverflowPolicy::kConstrainedFallback),
+      make_band(701, ConnectionCategory::kOptical, 0.04, 6.60, 1, SlotSide::kCenter, SlotRole::kTrunkPreferred, 26,
+                0.24, true, 0.18, 0.12, BandOverflowPolicy::kConstrainedFallback),
+      make_band(620, ConnectionCategory::kCommunication, 0.22, 6.25, 1, SlotSide::kCenter, SlotRole::kTrunkPreferred, 25,
+                0.24, true, 0.18, 0.12, BandOverflowPolicy::kConstrainedFallback),
+      make_band(621, ConnectionCategory::kCommunication, 0.22, 6.25, 1, SlotSide::kCenter, SlotRole::kTrunkPreferred, 24,
+                0.24, true, 0.18, 0.12, BandOverflowPolicy::kConstrainedFallback),
+      make_band(801, ConnectionCategory::kDrop, 0.0, 4.20, 0, SlotSide::kCenter, SlotRole::kDropPreferred, 9, 0.18, true,
                 0.15, 0.10, BandOverflowPolicy::kConstrainedFallback),
   };
   comm.anchor_slots = {
@@ -441,7 +445,7 @@ void CoreState::register_default_bundle_templates() {
 
   BundleTemplate optical{};
   optical.id = BundleKind::kOptical;
-  optical.name = "OPTICAL_FIXED";
+  optical.name = "OPTICAL";
   optical.category = ConnectionCategory::kOptical;
   optical.cable_template_id = kOpticalCableTemplate;
   optical.default_layer = SpanLayer::kOptical;
@@ -1145,14 +1149,14 @@ void CoreState::register_default_cable_templates() {
   comm.default_grouped_support_fanout_spacing_m = 0.20;
   comm.bend_stiffness = 0.6;
   comm.min_bend_radius_m = 0.18;
-  comm.material_style = CableMaterialStyleKind::kInsulated;
+  comm.material_style = CableMaterialStyleKind::kGeneric;
   comm.color_rgba = 0x5D5D5DFFu;
   comm.requires_insulator = false;
   comm.insulator_attachment_height_m = 0.0;
   comm.sag_factor = 0.025;
   comm.slack_factor = 0.02;
   comm.continuity_policy = CableContinuityPolicyHint::kPreferG2;
-  comm.attachment_style = CableAttachmentStyleHint::kDirectThrough;
+  comm.attachment_style = CableAttachmentStyleHint::kAuto;
   authoritative_.cable_templates[comm.id] = comm;
 
   CableTemplate optical{};
@@ -1175,18 +1179,18 @@ void CoreState::register_default_cable_templates() {
     CableSupplementalPathTemplate coil{};
     coil.anchor_mode = CableSupplementalPathTemplate::AnchorMode::kCurveOffset;
     coil.profile_kind = CableSupplementalPathTemplate::ProfileKind::kCoiledCable;
+    coil.interaction_mode = AttachmentLineInteractionMode::kAddInternalPath;
     coil.endpoint_trim_m = 0.45;
-    coil.vertical_offset_m = 0.03;
+    coil.vertical_offset_m = 0.0;
     coil.coil_radius_m = 0.025;
     coil.coil_turns_per_meter = 1.8;
     coil.coil_samples_per_turn = 16;
+    coil.wobble_amplitude_m = 0.0;
+    coil.wobble_wavelength_m = 0.0;
+    coil.wobble_phase_bias = 0.0;
+    coil.endpoint_envelope_ratio = 0.18;
     optical.supplemental_paths.push_back(coil);
 
-    CableSupplementalPathTemplate support_wire{};
-    support_wire.anchor_mode = CableSupplementalPathTemplate::AnchorMode::kPoleBandChord;
-    support_wire.profile_kind = CableSupplementalPathTemplate::ProfileKind::kStraightCable;
-    support_wire.pole_band_id = 600;
-    optical.supplemental_paths.push_back(support_wire);
   }
   authoritative_.cable_templates[optical.id] = optical;
 }

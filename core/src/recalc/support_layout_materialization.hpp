@@ -35,6 +35,10 @@ struct CacheState;
 
 [[nodiscard]] BackboneFlowKind support_layout_flow_kind_for_span(const Span& span, const Port& port_a, const Port& port_b);
 
+[[nodiscard]] CurveEndpointMode curve_endpoint_mode_for_attachment_style(CableAttachmentStyleHint attachment_style,
+                                                                         const Bundle* bundle,
+                                                                         const BundleTemplate* bundle_template);
+
 [[nodiscard]] CurveEndpointMode curve_endpoint_mode_for_template(const CableTemplate* cable_template,
                                                                  const Bundle* bundle,
                                                                  const BundleTemplate* bundle_template);

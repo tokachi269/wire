@@ -91,6 +91,13 @@ struct ViewerUiState {
   double cable_slack_factor = 0.0;
   double cable_default_grouped_support_fanout_spacing = 0.2;
   int cable_continuity_policy = static_cast<int>(wire::core::CableContinuityPolicyHint::kAuto);
+  bool cable_curve_offset_straight_supplemental_enabled = false;
+  double cable_curve_offset_straight_lateral_offset = 0.0;
+  double cable_curve_offset_straight_vertical_offset = 0.0;
+  double cable_curve_offset_straight_wobble_amplitude = 0.0;
+  double cable_curve_offset_straight_wobble_wavelength = 0.0;
+  double cable_curve_offset_straight_wobble_phase_bias = 0.0;
+  double cable_curve_offset_straight_endpoint_envelope_ratio = 0.0;
   bool bundle_template_loaded = false;
   wire::core::BundleKind selected_bundle_template_id = wire::core::BundleKind::kLowVoltage;
   wire::core::CableTemplateId bundle_template_cable_template_id = wire::core::kInvalidCableTemplateId;

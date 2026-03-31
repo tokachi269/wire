@@ -1604,6 +1604,316 @@ bool test_attachment_coiled_auxiliary_profile_adds_longer_supplemental_path_with
   return true;
 }
 
+bool test_curve_offset_straight_cable_supplemental_uses_deterministic_wobble() {
+  CoreState state;
+  wire::core::GeometrySettings settings = state.view().geometry_settings();
+  settings.sag_enabled = false;
+  settings.sag_factor = 0.0;
+  if (!state.UpdateGeometrySettings(settings, false).ok) {
+    return false;
+  }
+
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::Transformd tf_a{};
+  tf_a.position = {0.0, 0.0, 0.0};
+  wire::core::Transformd tf_b{};
+  tf_b.position = {24.0, 0.0, 0.0};
+  const ObjectId pole_a = state.AddPole(tf_a, 10.0, "A").value;
+  const ObjectId pole_b = state.AddPole(tf_b, 10.0, "B").value;
+  if (!state.ApplyPoleType(pole_a, type_ids.front()).ok || !state.ApplyPoleType(pole_b, type_ids.front()).ok) {
+    return false;
+  }
+
+  wire::core::AddConnectionByPoleOptions options{};
+  options.auto_create_bundle = true;
+  options.use_bundle_template = true;
+  options.bundle_template_id = wire::core::BundleKind::kLowVoltage;
+  const auto add = state.AddConnectionByPole(pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage, options);
+  if (!add.ok) {
+    return false;
+  }
+
+  const auto* span = state.view().edit_state().spans.find(add.value.span_id);
+  if (span == nullptr) {
+    return false;
+  }
+  const auto* bundle = state.view().edit_state().bundles.find(span->bundle_id);
+  if (bundle == nullptr) {
+    return false;
+  }
+  const auto bundle_it = state.view().bundle_templates().find(bundle->bundle_template_id);
+  if (bundle_it == state.view().bundle_templates().end()) {
+    return false;
+  }
+  const auto cable_it = state.view().cable_templates().find(bundle_it->second.cable_template_id);
+  if (cable_it == state.view().cable_templates().end()) {
+    return false;
+  }
+
+  wire::core::CableTemplate cable = cable_it->second;
+  cable.supplemental_paths.clear();
+  wire::core::CableSupplementalPathTemplate supplemental{};
+  supplemental.anchor_mode = wire::core::CableSupplementalPathTemplate::AnchorMode::kCurveOffset;
+  supplemental.profile_kind = wire::core::CableSupplementalPathTemplate::ProfileKind::kStraightCable;
+  supplemental.lateral_offset_m = 0.28;
+  supplemental.wobble_amplitude_m = 0.09;
+  supplemental.wobble_wavelength_m = 6.0;
+  supplemental.endpoint_envelope_ratio = 0.2;
+  cable.supplemental_paths.push_back(supplemental);
+  if (!state.UpdateCableTemplate(cable).ok) {
+    return false;
+  }
+
+  (void)state.Commit().recalc_stats;
+  const auto* curve_before = state.find_curve_cache(add.value.span_id);
+  if (curve_before == nullptr || curve_before->detail.supplemental_paths.size() != 1) {
+    return false;
+  }
+  const std::vector<wire::core::Vec3d> points_before = curve_before->detail.supplemental_paths.front().points;
+  if (points_before.size() <= 8) {
+    return false;
+  }
+
+  const wire::core::Vec3d chord = points_before.back() - points_before.front();
+  const double chord_len_sq = wire::core::LengthSquared(chord);
+  if (chord_len_sq <= 1e-9) {
+    return false;
+  }
+  double max_deviation_m = 0.0;
+  for (std::size_t i = 1; i + 1 < points_before.size(); ++i) {
+    const wire::core::Vec3d delta = points_before[i] - points_before.front();
+    const double t = wire::core::Dot(delta, chord) / chord_len_sq;
+    const wire::core::Vec3d projected = points_before.front() + wire::core::ScaleVec(chord, t);
+    max_deviation_m = std::max(max_deviation_m,
+                               std::sqrt(wire::core::LengthSquared(points_before[i] - projected)));
+  }
+  if (max_deviation_m <= 0.015) {
+    return false;
+  }
+
+  const wire::core::GeometrySettings rebuild_settings = state.view().geometry_settings();
+  if (!state.UpdateGeometrySettings(rebuild_settings, true).ok) {
+    return false;
+  }
+  (void)state.Commit().recalc_stats;
+
+  const auto* curve_after = state.find_curve_cache(add.value.span_id);
+  if (curve_after == nullptr || curve_after->detail.supplemental_paths.size() != 1) {
+    return false;
+  }
+  const auto& points_after = curve_after->detail.supplemental_paths.front().points;
+  if (points_before.size() != points_after.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < points_before.size(); ++i) {
+    if (!almost_equal(points_before[i], points_after[i], 1e-9)) {
+      return false;
+    }
+  }
+  return validate_now(state).ok();
+}
+
+bool test_context_profile_influences_detail_wobble_without_breaking_determinism() {
+  CoreState state;
+  wire::core::GeometrySettings settings = state.view().geometry_settings();
+  settings.sag_enabled = false;
+  settings.sag_factor = 0.0;
+  if (!state.UpdateGeometrySettings(settings, false).ok) {
+    return false;
+  }
+
+  wire::core::ContextProfile calm{};
+  calm.age = 0.3;
+  calm.clutter = 0.2;
+  calm.regularity = 0.85;
+  calm.service_mix = 0.4;
+  calm.style_seed = 9;
+  if (!state.UpdateContextProfile(calm).ok) {
+    return false;
+  }
+
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+
+  wire::core::Transformd tf_a{};
+  tf_a.position = {0.0, 0.0, 0.0};
+  wire::core::Transformd tf_b{};
+  tf_b.position = {24.0, 0.0, 0.0};
+  const ObjectId pole_a = state.AddPole(tf_a, 10.0, "A").value;
+  const ObjectId pole_b = state.AddPole(tf_b, 10.0, "B").value;
+  if (!state.ApplyPoleType(pole_a, type_ids.front()).ok || !state.ApplyPoleType(pole_b, type_ids.front()).ok) {
+    return false;
+  }
+
+  wire::core::AddConnectionByPoleOptions options{};
+  options.auto_create_bundle = true;
+  options.use_bundle_template = true;
+  options.bundle_template_id = wire::core::BundleKind::kLowVoltage;
+  const auto add = state.AddConnectionByPole(pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage, options);
+  if (!add.ok) {
+    return false;
+  }
+
+  const auto* span = state.view().edit_state().spans.find(add.value.span_id);
+  if (span == nullptr) {
+    return false;
+  }
+  const auto* bundle = state.view().edit_state().bundles.find(span->bundle_id);
+  if (bundle == nullptr) {
+    return false;
+  }
+  const auto bundle_it = state.view().bundle_templates().find(bundle->bundle_template_id);
+  if (bundle_it == state.view().bundle_templates().end()) {
+    return false;
+  }
+  const auto cable_it = state.view().cable_templates().find(bundle_it->second.cable_template_id);
+  if (cable_it == state.view().cable_templates().end()) {
+    return false;
+  }
+
+  wire::core::CableTemplate cable = cable_it->second;
+  cable.supplemental_paths.clear();
+  wire::core::CableSupplementalPathTemplate supplemental{};
+  supplemental.anchor_mode = wire::core::CableSupplementalPathTemplate::AnchorMode::kCurveOffset;
+  supplemental.profile_kind = wire::core::CableSupplementalPathTemplate::ProfileKind::kStraightCable;
+  supplemental.lateral_offset_m = 0.28;
+  supplemental.wobble_amplitude_m = 0.09;
+  supplemental.wobble_wavelength_m = 6.0;
+  supplemental.endpoint_envelope_ratio = 0.2;
+  cable.supplemental_paths.push_back(supplemental);
+  if (!state.UpdateCableTemplate(cable).ok) {
+    return false;
+  }
+
+  (void)state.Commit().recalc_stats;
+  const auto* curve_calm = state.find_curve_cache(add.value.span_id);
+  if (curve_calm == nullptr || curve_calm->detail.supplemental_paths.size() != 1) {
+    return false;
+  }
+  const std::vector<wire::core::Vec3d> points_calm = curve_calm->detail.supplemental_paths.front().points;
+  if (points_calm.size() <= 8) {
+    return false;
+  }
+
+  wire::core::ContextProfile busy = calm;
+  busy.clutter = 0.9;
+  busy.regularity = 0.15;
+  if (!state.UpdateContextProfile(busy).ok) {
+    return false;
+  }
+  (void)state.Commit().recalc_stats;
+
+  const auto* curve_busy = state.find_curve_cache(add.value.span_id);
+  if (curve_busy == nullptr || curve_busy->detail.supplemental_paths.size() != 1) {
+    return false;
+  }
+  const std::vector<wire::core::Vec3d> points_busy = curve_busy->detail.supplemental_paths.front().points;
+  if (points_calm.size() != points_busy.size()) {
+    return false;
+  }
+
+  double max_delta = 0.0;
+  for (std::size_t i = 0; i < points_calm.size(); ++i) {
+    max_delta = std::max(max_delta, std::sqrt(wire::core::LengthSquared(points_calm[i] - points_busy[i])));
+  }
+  if (max_delta <= 0.005) {
+    return false;
+  }
+
+  if (!state.UpdateContextProfile(busy).ok) {
+    return false;
+  }
+  (void)state.Commit().recalc_stats;
+  const auto* curve_busy_repeat = state.find_curve_cache(add.value.span_id);
+  if (curve_busy_repeat == nullptr || curve_busy_repeat->detail.supplemental_paths.size() != 1) {
+    return false;
+  }
+  const auto& points_busy_repeat = curve_busy_repeat->detail.supplemental_paths.front().points;
+  if (points_busy.size() != points_busy_repeat.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < points_busy.size(); ++i) {
+    if (!almost_equal(points_busy[i], points_busy_repeat[i], 1e-9)) {
+      return false;
+    }
+  }
+  return validate_now(state).ok();
+}
+
+bool test_context_profile_selects_communication_cable_and_attachment_families() {
+  CoreState state;
+  const auto communication_pole_type = find_pole_type_by_name(state, "CommunicationPole");
+  if (!communication_pole_type.has_value()) {
+    return false;
+  }
+
+  wire::core::ContextProfile calm{};
+  calm.age = 0.2;
+  calm.clutter = 0.2;
+  calm.regularity = 0.85;
+  calm.service_mix = 0.2;
+  calm.style_seed = 17;
+  if (!state.UpdateContextProfile(calm).ok) {
+    return false;
+  }
+
+  wire::core::Transformd a{};
+  a.position = {0.0, 0.0, 0.0};
+  wire::core::Transformd b{};
+  b.position = {18.0, 0.0, 0.0};
+  const ObjectId pole_a = state.AddPole(a, 10.0, "A").value;
+  const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
+  if (!state.ApplyPoleType(pole_a, communication_pole_type->id).ok ||
+      !state.ApplyPoleType(pole_b, communication_pole_type->id).ok) {
+    return false;
+  }
+
+  wire::core::AddConnectionByPoleOptions options{};
+  options.auto_create_bundle = true;
+  options.use_bundle_template = true;
+  options.bundle_template_id = wire::core::BundleKind::kCommunication;
+  const auto add = state.AddConnectionByPole(pole_a, pole_b, wire::core::ConnectionCategory::kCommunication, options);
+  if (!add.ok) {
+    return false;
+  }
+
+  (void)state.Commit().recalc_stats;
+  const auto* calm_render = state.view().find_span_render_cache(add.value.span_id);
+  const auto calm_layout = state.view().inspect_support_layout(add.value.span_id);
+  if (calm_render == nullptr || !calm_layout.has_value()) {
+    return false;
+  }
+  if (calm_render->material_style != wire::core::CableMaterialStyleKind::kGeneric ||
+      calm_layout->start.endpoint_mode != wire::core::CurveEndpointMode::kDirectThrough ||
+      calm_layout->end.endpoint_mode != wire::core::CurveEndpointMode::kDirectThrough) {
+    return false;
+  }
+
+  wire::core::ContextProfile busy = calm;
+  busy.clutter = 0.9;
+  busy.regularity = 0.15;
+  busy.service_mix = 0.85;
+  if (!state.UpdateContextProfile(busy).ok) {
+    return false;
+  }
+  (void)state.Commit().recalc_stats;
+
+  const auto* busy_render = state.view().find_span_render_cache(add.value.span_id);
+  const auto busy_layout = state.view().inspect_support_layout(add.value.span_id);
+  if (busy_render == nullptr || !busy_layout.has_value()) {
+    return false;
+  }
+  return busy_render->material_style == wire::core::CableMaterialStyleKind::kInsulated &&
+         busy_layout->start.endpoint_mode == wire::core::CurveEndpointMode::kOffsetEndpoint &&
+         busy_layout->end.endpoint_mode == wire::core::CurveEndpointMode::kOffsetEndpoint && validate_now(state).ok();
+}
+
 bool test_attachment_socket_endpoint_can_override_curve_endpoint() {
   CoreState state;
   ObjectId span = wire::core::kInvalidObjectId;
@@ -2942,6 +3252,15 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
                          "Coiled auxiliary attachment profile adds a longer supplemental path while keeping support-layout authority unchanged",
                          "Invariant", false,
                          test_attachment_coiled_auxiliary_profile_adds_longer_supplemental_path_without_changing_layout_authority);
+  test_registry::AddTest(tests, "C306_DetailCurve_CurveOffsetStraightSupplemental_Wobble",
+                         "Curve-offset straight supplemental paths can add deterministic gentle wobble without becoming structural support wires",
+                         "Invariant", false, test_curve_offset_straight_cable_supplemental_uses_deterministic_wobble);
+  test_registry::AddTest(tests, "C307_ContextProfile_InfluencesDetailWobble",
+                         "Context profile can change detail wobble appearance while preserving deterministic regeneration",
+                         "Invariant", false, test_context_profile_influences_detail_wobble_without_breaking_determinism);
+  test_registry::AddTest(tests, "C308_ContextProfile_SelectsCommunicationFamilies",
+                         "Context profile can select communication cable/attachment families through shared style resolution",
+                         "Invariant", false, test_context_profile_selects_communication_cable_and_attachment_families);
   test_registry::AddTest(tests, "C159_Attachment_SocketEndpoint_OverridesCurveEndpoint",
                          "Attachment socket endpoint can replace a span endpoint so the curve meets the socket without a gap",
                          "Invariant", false, test_attachment_socket_endpoint_can_override_curve_endpoint);

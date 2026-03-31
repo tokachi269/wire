@@ -488,24 +488,26 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
       arm.radius_m = 0.03;
       entry.parts.push_back(arm);
       for (const Vec3d& attachment_world : group.attachment_worlds) {
+        Vec3d hanger_target = attachment_world;
+        if (requires_insulator && insulator_attachment_height_m > 1e-9) {
+          hanger_target.z -= insulator_attachment_height_m;
+        }
         VisualPart hanger{};
         hanger.kind = VisualPartKind::kFitting;
         hanger.a = group.tip_world;
-        hanger.b = attachment_world;
+        hanger.b = hanger_target;
         hanger.radius_m = 0.02;
         entry.parts.push_back(hanger);
       }
     }
     if (runtime_.cache_state.visual_settings.enable_insulators && requires_insulator) {
       for (const Vec3d& attachment_world : group.attachment_worlds) {
+        Vec3d insulator_base = attachment_world;
+        insulator_base.z -= insulator_attachment_height_m;
         VisualPart ins{};
         ins.kind = VisualPartKind::kInsulator;
-        ins.a = attachment_world;
-        ins.b = {
-            attachment_world.x,
-            attachment_world.y,
-            attachment_world.z + insulator_attachment_height_m,
-        };
+        ins.a = insulator_base;
+        ins.b = attachment_world;
         ins.radius_m = runtime_.cache_state.visual_settings.insulator_radius_m;
         entry.parts.push_back(ins);
       }
@@ -533,9 +535,10 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
   SpanRenderCacheEntry render{};
   render.source_version = (runtime == nullptr) ? 0 : runtime->data_version;
   if (cable_template != nullptr) {
+    const ResolvedStyleContext style = resolve_style_context_for_span(*this, *span, StyleObjectKind::kSpan, 0, false);
     render.wire_radius_m = std::max(0.0005, cable_template->outer_diameter_m * 0.5);
     render.color_rgba = cable_template->color_rgba;
-    render.material_style = cable_template->material_style;
+    render.material_style = resolve_effective_cable_material_style(cable_template, style);
   }
   const auto curve_it = runtime_.cache_state.curve_cache.by_span.find(span_id);
   if (curve_it != runtime_.cache_state.curve_cache.by_span.end()) {

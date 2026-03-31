@@ -97,10 +97,15 @@ struct CableSupplementalPathTemplate {
 
   AnchorMode anchor_mode = AnchorMode::kCurveOffset;
   ProfileKind profile_kind = ProfileKind::kNone;
+  AttachmentLineInteractionMode interaction_mode = AttachmentLineInteractionMode::kAddInternalPath;
   int pole_band_id = 0;
   double endpoint_trim_m = 0.0;
   double lateral_offset_m = 0.0;
   double vertical_offset_m = 0.0;
+  double wobble_amplitude_m = 0.0;
+  double wobble_wavelength_m = 0.0;
+  double wobble_phase_bias = 0.0;
+  double endpoint_envelope_ratio = 0.0;
   double coil_radius_m = 0.0;
   double coil_turns_per_meter = 0.0;
   int coil_samples_per_turn = 12;
@@ -164,6 +169,7 @@ struct BundleTemplate {
   BundleSupportStyleHint support_style = BundleSupportStyleHint::kAuto;
   BundleBranchPolicyHint branch_policy = BundleBranchPolicyHint::kAuto;
   CableContinuityPolicyHint continuity_policy = CableContinuityPolicyHint::kAuto;
+  int support_wire_pole_band_id = 0;
   std::uint64_t version = 1;
 };
 

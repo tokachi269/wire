@@ -180,6 +180,7 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
   }
 
   BundleTemplate normalized = bundle_template;
+  normalized.support_wire_pole_band_id = std::max(0, normalized.support_wire_pole_band_id);
   const CableTemplate* cable_template = state.find_cable_template(normalized.cable_template_id);
   if (normalized.grouped_support_fanout_spacing_m <= 1e-9) {
     normalized.grouped_support_fanout_spacing_m =
@@ -204,7 +205,10 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
       normalized.order_decision_policy == it->second.order_decision_policy &&
       normalized.row_layout_axis_mode == it->second.row_layout_axis_mode &&
       normalized.support_style == it->second.support_style && normalized.branch_policy == it->second.branch_policy &&
-      normalized.continuity_policy == it->second.continuity_policy && normalized.name == it->second.name;
+      normalized.continuity_policy == it->second.continuity_policy &&
+      normalized.support_wire_pole_band_id == it->second.support_wire_pole_band_id && normalized.name == it->second.name;
+
+  const bool detail_change = normalized.support_wire_pole_band_id != it->second.support_wire_pole_band_id;
 
   const bool topology_change =
       normalized.category != it->second.category || normalized.default_layer != it->second.default_layer ||
@@ -223,7 +227,7 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
       normalized.support_style != it->second.support_style || normalized.branch_policy != it->second.branch_policy ||
       normalized.continuity_policy != it->second.continuity_policy;
 
-  changed = visual_only_change || topology_change || normalized.name != it->second.name ||
+  changed = visual_only_change || topology_change || detail_change || normalized.name != it->second.name ||
             normalized.related_pole_type_id != it->second.related_pole_type_id;
   if (!changed) {
     result.ok = true;
@@ -248,7 +252,7 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
       continue;
     }
     CoreState::add_unique_id(result.change_set.updated_ids, bundle->id);
-    if (visual_only_change) {
+    if (visual_only_change || detail_change) {
       auto spans_it = state.runtime_.relation_index.spans_by_bundle.find(bundle->id);
       if (spans_it == state.runtime_.relation_index.spans_by_bundle.end()) {
         continue;

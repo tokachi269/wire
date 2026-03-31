@@ -31,6 +31,22 @@ std::uint64_t fallback_variation_flow_key_for_span(const Span& span) {
   return key;
 }
 
+ConnectionCategory category_from_span_layer(SpanLayer layer) {
+  switch (layer) {
+  case SpanLayer::kHighVoltage:
+    return ConnectionCategory::kHighVoltage;
+  case SpanLayer::kCommunication:
+    return ConnectionCategory::kCommunication;
+  case SpanLayer::kOptical:
+    return ConnectionCategory::kOptical;
+  case SpanLayer::kDrop:
+    return ConnectionCategory::kDrop;
+  case SpanLayer::kLowVoltage:
+  default:
+    return ConnectionCategory::kLowVoltage;
+  }
+}
+
 } // namespace
 
 CurvePassMode curve_pass_mode_from_context(ConnectionContext context) {
@@ -109,6 +125,80 @@ std::uint64_t variation_flow_key_for_span(const SpanRuntimeState* runtime, const
   return fallback_variation_flow_key_for_span(span);
 }
 
+ResolvedStyleContext resolve_style_context_for_span(const CoreState& state, const Span& span, StyleObjectKind object_kind,
+                                                    std::uint32_t ordinal, bool is_start_endpoint) {
+  const CoreView view = state.view();
+  const SpanRuntimeState* runtime = view.find_span_runtime_state(span.id);
+  const std::uint64_t variation_flow_key = variation_flow_key_for_span(runtime, span);
+
+  const Bundle* bundle = view.bundles().find(span.bundle_id);
+  const BundleTemplate* bundle_template = nullptr;
+  if (bundle != nullptr) {
+    const auto it = view.bundle_templates().find(bundle->bundle_template_id);
+    if (it != view.bundle_templates().end()) {
+      bundle_template = &it->second;
+    }
+  }
+
+  BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
+  if (const SpanSupportLayoutEntry* layout = state.find_span_support_layout(span.id); layout != nullptr) {
+    flow_kind = layout->flow_kind;
+  } else {
+    const Port* port_a = view.edit_state().ports.find(span.port_a_id);
+    const Port* port_b = view.edit_state().ports.find(span.port_b_id);
+    if (port_a != nullptr && port_b != nullptr) {
+      flow_kind = support_layout_flow_kind_for_span(span, *port_a, *port_b);
+    }
+  }
+
+  StyleRouteKey route_key{};
+  route_key.family_id = variation_flow_key;
+  route_key.bundle_template_id = (bundle != nullptr) ? bundle->bundle_template_id : BundleKind::kLowVoltage;
+  route_key.category = (bundle_template != nullptr) ? bundle_template->category : category_from_span_layer(span.layer);
+  route_key.flow_kind = flow_kind;
+
+  StyleObjectKey object_key{};
+  object_key.route = route_key;
+  object_key.segment_index = span.generation.generation_order;
+  object_key.lane_index = 0;
+  object_key.kind = object_kind;
+  object_key.ordinal = ordinal;
+  object_key.is_start_endpoint = is_start_endpoint;
+  return ResolveStyleContext(view.context_profile(), route_key, object_key);
+}
+
+CableMaterialStyleKind resolve_effective_cable_material_style(const CableTemplate* cable_template,
+                                                              const ResolvedStyleContext& style) {
+  const CableMaterialStyleKind template_family =
+      (cable_template == nullptr) ? CableMaterialStyleKind::kGeneric : cable_template->material_style;
+  if (template_family != CableMaterialStyleKind::kGeneric) {
+    return template_family;
+  }
+  if (style.route.cable_family != CableMaterialStyleKind::kGeneric) {
+    return style.route.cable_family;
+  }
+  if (style.district.cable_family != CableMaterialStyleKind::kGeneric) {
+    return style.district.cable_family;
+  }
+  return CableMaterialStyleKind::kGeneric;
+}
+
+CableAttachmentStyleHint resolve_effective_attachment_style(const CableTemplate* cable_template,
+                                                            const ResolvedStyleContext& style) {
+  const CableAttachmentStyleHint template_family =
+      (cable_template == nullptr) ? CableAttachmentStyleHint::kAuto : cable_template->attachment_style;
+  if (template_family != CableAttachmentStyleHint::kAuto) {
+    return template_family;
+  }
+  if (style.route.attachment_family != CableAttachmentStyleHint::kAuto) {
+    return style.route.attachment_family;
+  }
+  if (style.district.attachment_family != CableAttachmentStyleHint::kAuto) {
+    return style.district.attachment_family;
+  }
+  return CableAttachmentStyleHint::kDirectThrough;
+}
+
 ResolvedSpanCurveInputs resolve_span_curve_inputs(const CoreState& state, const Span& span, const Port& port_a,
                                                   const Port& port_b, const Pole* pole_a, const Pole* pole_b,
                                                   const Vec3d& a, const Vec3d& b, double distance) {
@@ -132,6 +222,7 @@ ResolvedSpanCurveInputs resolve_span_curve_inputs(const CoreState& state, const 
   const double sag_ratio = (cable_template == nullptr) ? view.geometry_settings().sag_factor
                                                        : (cable_template->sag_factor + cable_template->slack_factor);
   const bool use_reference_length = true;
+  const ResolvedStyleContext style = resolve_style_context_for_span(state, span, StyleObjectKind::kSpan, 0, false);
 
   const SpanSupportLayoutEntry* existing_layout = state.find_span_support_layout(span.id);
 
@@ -144,7 +235,8 @@ ResolvedSpanCurveInputs resolve_span_curve_inputs(const CoreState& state, const 
     inputs.flow_kind = support_layout_flow_kind_for_span(span, port_a, port_b);
   }
   inputs.pass_mode = curve_pass_mode_from_context(span.placement_context);
-  inputs.endpoint_mode = curve_endpoint_mode_for_template(cable_template, bundle, bundle_template);
+  inputs.endpoint_mode =
+      curve_endpoint_mode_for_attachment_style(resolve_effective_attachment_style(cable_template, style), bundle, bundle_template);
   inputs.continuity_preference =
       (cable_template == nullptr) ? CableContinuityPolicyHint::kAuto : cable_template->continuity_policy;
   inputs.bend_stiffness_hint = (cable_template == nullptr) ? 1.0 : cable_template->bend_stiffness;

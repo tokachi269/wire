@@ -3,6 +3,7 @@
 #include "wire/core/core_state.hpp"
 #include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
+#include "detail_curve_input_resolution.hpp"
 #include "support_layout_materialization.hpp"
 
 #include <algorithm>
@@ -14,6 +15,50 @@ namespace {
 constexpr double kZeroLengthEps = 1e-9;
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kTwoPi = 2.0 * kPi;
+
+std::uint64_t splitmix64(std::uint64_t x) {
+  x += 0x9E3779B97F4A7C15ull;
+  x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ull;
+  x = (x ^ (x >> 27)) * 0x94D049BB133111EBull;
+  return x ^ (x >> 31);
+}
+
+std::uint64_t hash_combine(std::uint64_t seed, std::uint64_t value) {
+  return splitmix64(seed ^ (value + 0x9E3779B97F4A7C15ull + (seed << 6) + (seed >> 2)));
+}
+
+double unit_noise_from_u64(std::uint64_t value) {
+  return static_cast<double>(value >> 11) * (1.0 / static_cast<double>(1ull << 53));
+}
+
+double endpoint_envelope(double t, double endpoint_ratio) {
+  const double ratio = std::clamp(endpoint_ratio, 0.0, 0.5);
+  if (ratio <= 1e-9) {
+    return 1.0;
+  }
+  if (t <= ratio) {
+    return std::sin((t / ratio) * (kPi * 0.5));
+  }
+  if (t >= 1.0 - ratio) {
+    return std::sin(((1.0 - t) / ratio) * (kPi * 0.5));
+  }
+  return 1.0;
+}
+
+double supplemental_wobble_offset_m(const CableSupplementalPathTemplate& path, double t, double distance_from_start_m,
+                                    double wobble_phase, double amplitude_scale, double wavelength_scale) {
+  if (path.wobble_amplitude_m <= 1e-9 || path.wobble_wavelength_m <= 1e-6) {
+    return 0.0;
+  }
+  const double effective_amplitude_m = std::max(0.0, path.wobble_amplitude_m * amplitude_scale);
+  const double effective_wavelength_m = std::max(0.15, path.wobble_wavelength_m * wavelength_scale);
+  const double envelope = endpoint_envelope(t, path.endpoint_envelope_ratio);
+  const double primary_phase = wobble_phase + kTwoPi * (distance_from_start_m / effective_wavelength_m);
+  const double secondary_phase =
+      (wobble_phase * 0.61) + kTwoPi * (distance_from_start_m / std::max(0.15, effective_wavelength_m * 0.57)) + 1.1;
+  const double blended = (std::sin(primary_phase) * 0.72) + (std::sin(secondary_phase) * 0.28);
+  return blended * effective_amplitude_m * envelope;
+}
 
 double pole_band_chord_lateral_m(const CoreState& state, const Span& span, bool is_start_endpoint, const Pole& pole,
                                  double layout_yaw_deg, const Port& port, double fallback_lateral_m) {
@@ -126,7 +171,8 @@ std::vector<Vec3d> build_attachment_replacement_points(const AttachmentInternalP
 }
 
 std::vector<Vec3d> build_cable_supplemental_points(const CableSupplementalPathTemplate& path,
-                                                   const CoreState& state, const Span& span, const DetailCurve& curve) {
+                                                   const CoreState& state, const Span& span, const DetailCurve& curve,
+                                                   std::uint32_t path_ordinal) {
   std::vector<Vec3d> points{};
   if (curve.Length() <= kZeroLengthEps || path.profile_kind == CableSupplementalPathTemplate::ProfileKind::kNone) {
     return points;
@@ -200,8 +246,34 @@ std::vector<Vec3d> build_cable_supplemental_points(const CableSupplementalPathTe
         std::max(16, static_cast<int>(std::ceil(visible_length_m * path.coil_turns_per_meter *
                                                 std::max(4, path.coil_samples_per_turn))));
   } else {
-    sample_count = std::max(2, static_cast<int>(std::ceil(visible_length_m / 1.0)));
+    if (path.profile_kind == CableSupplementalPathTemplate::ProfileKind::kStraightCable &&
+        path.anchor_mode == CableSupplementalPathTemplate::AnchorMode::kCurveOffset &&
+        path.wobble_amplitude_m > 1e-9 && path.wobble_wavelength_m > 1e-6) {
+      const double sample_step_m = std::max(0.25, path.wobble_wavelength_m / 8.0);
+      sample_count = std::max(8, static_cast<int>(std::ceil(visible_length_m / sample_step_m)));
+    } else {
+      sample_count = std::max(2, static_cast<int>(std::ceil(visible_length_m / 1.0)));
+    }
   }
+
+  const std::uint64_t variation_flow_key = variation_flow_key_for_span(state.view().find_span_runtime_state(span.id), span);
+  std::uint64_t wobble_seed = hash_combine(variation_flow_key, static_cast<std::uint64_t>(span.generation.generation_order));
+  wobble_seed = hash_combine(wobble_seed, static_cast<std::uint64_t>(path.anchor_mode));
+  wobble_seed = hash_combine(wobble_seed, static_cast<std::uint64_t>(path.profile_kind));
+  const ResolvedStyleContext style = resolve_style_context_for_span(state, span, StyleObjectKind::kSpan, path_ordinal, false);
+  const double route_clutter =
+      std::clamp(style.district.clutter + style.route.clutter_bias + style.cluster.clutter_bias, 0.0, 1.0);
+  const double route_regularity =
+      std::clamp(style.district.regularity + style.route.regularity_bias - style.cluster.clutter_bias * 0.25, 0.0, 1.0);
+  const double amplitude_scale = std::clamp(0.70 + route_clutter * 0.35 + (1.0 - route_regularity) * 0.20 +
+                                                std::abs(style.object.choice_bias) * 0.10,
+                                            0.45, 1.35);
+  const double wavelength_scale = std::clamp(1.00 - route_clutter * 0.12 + route_regularity * 0.10 +
+                                                 style.route.sag_bias * 0.08,
+                                             0.75, 1.25);
+  const double wobble_phase = path.wobble_phase_bias +
+                              kTwoPi * unit_noise_from_u64(hash_combine(wobble_seed, 0xBEEF1234u)) +
+                              style.route.service_mix_bias * 0.45 + style.object.choice_bias * 0.35;
 
   points.reserve(static_cast<std::size_t>(sample_count + 1));
   for (int i = 0; i <= sample_count; ++i) {
@@ -218,14 +290,30 @@ std::vector<Vec3d> build_cable_supplemental_points(const CableSupplementalPathTe
 
     Vec3d point = base + ScaleVec(lateral, path.lateral_offset_m) + ScaleVec(up, path.vertical_offset_m);
     if (path.profile_kind == CableSupplementalPathTemplate::ProfileKind::kCoiledCable) {
+      point = point +
+              ScaleVec(lateral, supplemental_wobble_offset_m(path, t, s - start_s, wobble_phase, amplitude_scale,
+                                                             wavelength_scale));
       const double phase = kTwoPi * path.coil_turns_per_meter * (s - start_s);
       point = point + ScaleVec(lateral, std::cos(phase) * path.coil_radius_m) +
               ScaleVec(up, std::sin(phase) * path.coil_radius_m);
+    } else if (path.profile_kind == CableSupplementalPathTemplate::ProfileKind::kStraightCable &&
+               path.anchor_mode == CableSupplementalPathTemplate::AnchorMode::kCurveOffset &&
+               path.wobble_amplitude_m > 1e-9 && path.wobble_wavelength_m > 1e-6) {
+      point = point +
+              ScaleVec(lateral, supplemental_wobble_offset_m(path, t, s - start_s, wobble_phase, amplitude_scale,
+                                                             wavelength_scale));
     }
     points.push_back(point);
   }
 
   return points;
+}
+
+CurveLengthInterval cable_supplemental_replaced_interval(const CableSupplementalPathTemplate& path, const DetailCurve& curve) {
+  const double trim_m = std::max(0.0, path.endpoint_trim_m);
+  const double start_s = std::clamp(trim_m, 0.0, curve.Length());
+  const double end_s = std::clamp(curve.Length() - trim_m, 0.0, curve.Length());
+  return {start_s, end_s};
 }
 
 } // namespace
@@ -318,13 +406,6 @@ void apply_attachment_line_effects_to_curve(const CoreState& state, ObjectId spa
     }
   }
 
-  curve->hidden_intervals = merged_intervals(std::move(hidden), curve->Length());
-  curve->replacement_intervals = merged_intervals(std::move(replaced), curve->Length());
-  curve->visible_intervals = visible_intervals_from_hidden(curve->hidden_intervals, curve->Length());
-  if (curve->visible_intervals.empty() && curve->Length() > kZeroLengthEps) {
-    curve->visible_intervals.push_back({0.0, curve->Length()});
-  }
-
   const Span* span = state.view().edit_state().spans.find(span_id);
   if (span != nullptr) {
     const Bundle* bundle = state.view().edit_state().bundles.find(span->bundle_id);
@@ -338,22 +419,64 @@ void apply_attachment_line_effects_to_curve(const CoreState& state, ObjectId spa
     const CableTemplate* cable_template =
         (it_cable_template == state.view().cable_templates().end()) ? nullptr : &it_cable_template->second;
     if (cable_template != nullptr) {
-      for (const CableSupplementalPathTemplate& path : cable_template->supplemental_paths) {
+      for (std::size_t path_index = 0; path_index < cable_template->supplemental_paths.size(); ++path_index) {
+        const CableSupplementalPathTemplate& path = cable_template->supplemental_paths[path_index];
         if (path.profile_kind == CableSupplementalPathTemplate::ProfileKind::kNone) {
           continue;
         }
-        const std::vector<Vec3d> path_points = build_cable_supplemental_points(path, state, *span, *curve);
+        const std::vector<Vec3d> path_points =
+            build_cable_supplemental_points(path, state, *span, *curve, static_cast<std::uint32_t>(path_index));
         if (path_points.size() >= 2) {
-          DetailSupplementalPath supplemental{};
-          supplemental.attachment_template_id = kInvalidAttachmentTemplateId;
-          supplemental.interaction_mode = AttachmentLineInteractionMode::kAddInternalPath;
-          supplemental.points = path_points;
-          supplemental_paths.push_back(std::move(supplemental));
+          if (path.interaction_mode == AttachmentLineInteractionMode::kReplaceWithInternalPath) {
+            const CurveLengthInterval replaced_interval = cable_supplemental_replaced_interval(path, *curve);
+            if (replaced_interval.end_m - replaced_interval.start_m > kZeroLengthEps) {
+              hidden.push_back(replaced_interval);
+              replaced.push_back(replaced_interval);
+              DetailReplacementPath replacement{};
+              replacement.attachment_id = kInvalidObjectId;
+              replacement.attachment_template_id = kInvalidAttachmentTemplateId;
+              replacement.interaction_mode = path.interaction_mode;
+              replacement.replaced_interval = replaced_interval;
+              replacement.points = path_points;
+              replacement_paths.push_back(std::move(replacement));
+            }
+          } else {
+            DetailSupplementalPath supplemental{};
+            supplemental.attachment_template_id = kInvalidAttachmentTemplateId;
+            supplemental.interaction_mode = path.interaction_mode;
+            supplemental.points = path_points;
+            supplemental_paths.push_back(std::move(supplemental));
+          }
         }
+      }
+    }
+    if (bundle_template != nullptr && bundle_template->support_wire_pole_band_id > 0) {
+      CableSupplementalPathTemplate support_wire{};
+      support_wire.anchor_mode = CableSupplementalPathTemplate::AnchorMode::kPoleBandChord;
+      support_wire.profile_kind = CableSupplementalPathTemplate::ProfileKind::kStraightCable;
+      support_wire.interaction_mode = AttachmentLineInteractionMode::kAddInternalPath;
+      support_wire.pole_band_id = bundle_template->support_wire_pole_band_id;
+      const std::vector<Vec3d> path_points =
+          build_cable_supplemental_points(support_wire, state, *span, *curve,
+                                          static_cast<std::uint32_t>((cable_template == nullptr)
+                                                                         ? 0
+                                                                         : cable_template->supplemental_paths.size()));
+      if (path_points.size() >= 2) {
+        DetailSupplementalPath supplemental{};
+        supplemental.attachment_template_id = kInvalidAttachmentTemplateId;
+        supplemental.interaction_mode = support_wire.interaction_mode;
+        supplemental.points = path_points;
+        supplemental_paths.push_back(std::move(supplemental));
       }
     }
   }
 
+  curve->hidden_intervals = merged_intervals(std::move(hidden), curve->Length());
+  curve->replacement_intervals = merged_intervals(std::move(replaced), curve->Length());
+  curve->visible_intervals = visible_intervals_from_hidden(curve->hidden_intervals, curve->Length());
+  if (curve->visible_intervals.empty() && curve->Length() > kZeroLengthEps) {
+    curve->visible_intervals.push_back({0.0, curve->Length()});
+  }
   curve->replacement_paths = std::move(replacement_paths);
   curve->supplemental_paths = std::move(supplemental_paths);
 }

@@ -612,8 +612,27 @@ bool test_grouped_lowered_support_keeps_per_lane_insulator_attach_point() {
     if (group_it == layout_view->lowered_support_groups.end()) {
       continue;
     }
+    const auto* visual = state.find_span_visual_cache(span_id);
+    if (visual == nullptr) {
+      return false;
+    }
+    bool matched_visual = false;
+    for (const auto& part : visual->parts) {
+      if (part.kind != wire::core::VisualPartKind::kInsulator) {
+        continue;
+      }
+      if (almost_equal(part.a.x, endpoint->support_world.x, 1e-9) &&
+          almost_equal(part.a.y, endpoint->support_world.y, 1e-9) &&
+          almost_equal(part.a.z, endpoint->support_world.z - expected_lift, 1e-9) &&
+          almost_equal(part.b.x, endpoint->support_world.x, 1e-9) &&
+          almost_equal(part.b.y, endpoint->support_world.y, 1e-9) &&
+          almost_equal(part.b.z, endpoint->support_world.z, 1e-9)) {
+        matched_visual = true;
+        break;
+      }
+    }
     return almost_equal(endpoint->support_world, endpoint->endpoint_world, 1e-9) &&
-           almost_equal(endpoint->support_world.z - group_it->tip_world.z, expected_lift, 1e-9) &&
+           almost_equal(endpoint->support_world.z - group_it->tip_world.z, expected_lift, 1e-9) && matched_visual &&
            validate_now(state).ok();
   }
 

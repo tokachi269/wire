@@ -1,6 +1,7 @@
 #pragma once
 
 #include "wire/core/detail_curve.hpp"
+#include "wire/core/style_context.hpp"
 #include "wire/core/support_layout_types.hpp"
 
 namespace wire::core {
@@ -35,6 +36,17 @@ struct ResolvedSpanCurveInputs {
     CurvePassMode pass_mode, CurveProfileHint profile_hint, ConnectionContext connection_context);
 
 [[nodiscard]] std::uint64_t variation_flow_key_for_span(const SpanRuntimeState* runtime, const Span& span);
+
+[[nodiscard]] ResolvedStyleContext resolve_style_context_for_span(const CoreState& state, const Span& span,
+                                                                 StyleObjectKind object_kind = StyleObjectKind::kSpan,
+                                                                 std::uint32_t ordinal = 0,
+                                                                 bool is_start_endpoint = false);
+
+[[nodiscard]] CableMaterialStyleKind resolve_effective_cable_material_style(const CableTemplate* cable_template,
+                                                                            const ResolvedStyleContext& style);
+
+[[nodiscard]] CableAttachmentStyleHint resolve_effective_attachment_style(const CableTemplate* cable_template,
+                                                                         const ResolvedStyleContext& style);
 
 [[nodiscard]] ResolvedSpanCurveInputs resolve_span_curve_inputs(const CoreState& state, const Span& span,
                                                                 const Port& port_a, const Port& port_b,

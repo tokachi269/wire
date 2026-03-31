@@ -953,6 +953,68 @@ bool test_backbone_hv3_capture_shape_no_adjacent_crossings() {
   return true;
 }
 
+// Intent: Latest captured CommunicationPole HV path should keep route-wide parity continuous instead of flipping mid-route.
+bool test_backbone_hv3_latest_capture_shape_no_twist() {
+  CoreState state;
+  PoleTypeId communication_pole_type_id = wire::core::kInvalidPoleTypeId;
+  for (const auto& [type_id, pole_type] : state.view().pole_types()) {
+    if (pole_type.name == "CommunicationPole") {
+      communication_pole_type_id = type_id;
+      break;
+    }
+  }
+  if (communication_pole_type_id == wire::core::kInvalidPoleTypeId) {
+    std::cerr << "[DBG] C311 missing CommunicationPole\n";
+    return false;
+  }
+
+  wire::core::BackboneSpec req{};
+  req.path.polyline = {
+      {2.38374, -21.7773, 0.0},
+      {-12.8223, -15.1594, 0.0},
+      {-17.5767, -14.0377, 0.0},
+      {-16.1859, -5.45037, 0.0},
+      {-15.6915, -4.78471, 0.0},
+      {-13.6725, -5.22158, 0.0},
+      {-12.7205, -9.02353, 0.0},
+  };
+  req.interval_m = 37.9821;
+  req.pole_type_id = communication_pole_type_id;
+  add_backbone_bundle(req, wire::core::BundleKind::kHighVoltage);
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  if (!generated.ok) {
+    std::cerr << "[DBG] C311 generate_failed\n";
+    return false;
+  }
+
+  const auto& orientations = state.view().last_generation_edge_orientations();
+  bool saw_hv = false;
+  for (const auto& orientation : orientations) {
+    if (orientation.bundle_template_id != wire::core::BundleKind::kHighVoltage) {
+      continue;
+    }
+    saw_hv = true;
+    if (orientation.flipped_from_previous) {
+      std::cerr << "[DBG] C311 flipped edge=" << orientation.node_a_id << "->" << orientation.node_b_id
+                << " orientation=" << static_cast<int>(orientation.orientation)
+                << " turn=" << orientation.turn_angle_deg << "\n";
+      return false;
+    }
+  }
+  if (!saw_hv) {
+    std::cerr << "[DBG] C311 hv_orientations_empty\n";
+    return false;
+  }
+
+  const auto& assignments = state.view().last_lane_assignments();
+  const int adjacent_discontinuities = count_bundle_lane_adjacent_order_discontinuities(state, assignments);
+  if (adjacent_discontinuities != 0) {
+    dump_lane_assignment_debug(state, assignments, "C311_latest_capture_twist");
+    return false;
+  }
+  return true;
+}
+
 // Intent: ThreePhase group-kind should still permit mirror-two-choice when allow_lane_mirror=true.
 bool test_grouped_line_threephase_policy_is_category_agnostic() {
   CoreState state;
@@ -9612,6 +9674,9 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
                          "Captured HV3 backbone shape keeps interior shared-pole lane order continuous",
                          "Invariant", false,
                          test_backbone_hv3_capture_shape_no_adjacent_crossings);
+  test_registry::AddTest(tests, "C311_Backbone_HV3LatestCaptureNoTwist",
+                         "Latest captured CommunicationPole HV backbone shape keeps route parity continuous",
+                         "Invariant", false, test_backbone_hv3_latest_capture_shape_no_twist);
   test_registry::AddTest(tests, "C110_Backbone_ReuseExplicitPoleNode",
                          "Backbone generation reuses explicitly picked pole nodes", "Invariant", false,
                          test_backbone_generation_reuses_explicit_pole_node_id);

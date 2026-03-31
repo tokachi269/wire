@@ -72,17 +72,18 @@ void add_order_score(BundleOrderScore* dst, const BundleOrderScore& src) {
   if (use_lane_row_geometry && a.adjacent_xy_intersections != b.adjacent_xy_intersections) {
     return a.adjacent_xy_intersections < b.adjacent_xy_intersections;
   }
-  if (a.order.cross_y != b.order.cross_y) {
-    return a.order.cross_y < b.order.cross_y;
-  }
-  if (a.order.segment_xy_intersections != b.order.segment_xy_intersections) {
-    return a.order.segment_xy_intersections < b.order.segment_xy_intersections;
-  }
+  // For row-style bundles, route-wide parity continuity matters more than locally shaving one crossing.
   if (a.acute_orientation_flips != b.acute_orientation_flips) {
     return a.acute_orientation_flips < b.acute_orientation_flips;
   }
   if (a.orientation_flips != b.orientation_flips) {
     return a.orientation_flips < b.orientation_flips;
+  }
+  if (a.order.cross_y != b.order.cross_y) {
+    return a.order.cross_y < b.order.cross_y;
+  }
+  if (a.order.segment_xy_intersections != b.order.segment_xy_intersections) {
+    return a.order.segment_xy_intersections < b.order.segment_xy_intersections;
   }
   return secondary_score_less(a.order, b.order);
 }
@@ -97,6 +98,10 @@ void add_order_score(BundleOrderScore* dst, const BundleOrderScore& src) {
   if (use_lane_row_geometry && chosen.adjacent_xy_intersections != alternate.adjacent_xy_intersections) {
     return OrderDecisionChoiceReason::kCrossingFewer;
   }
+  if (chosen.acute_orientation_flips != alternate.acute_orientation_flips ||
+      chosen.orientation_flips != alternate.orientation_flips) {
+    return OrderDecisionChoiceReason::kTwistSmaller;
+  }
   if (chosen.order.cross_y != alternate.order.cross_y) {
     return OrderDecisionChoiceReason::kCrossingFewer;
   }
@@ -106,10 +111,6 @@ void add_order_score(BundleOrderScore* dst, const BundleOrderScore& src) {
   if (chosen.order.cross_z != alternate.order.cross_z ||
       std::abs(chosen.order.span_z_delta - alternate.order.span_z_delta) > 1e-6) {
     return OrderDecisionChoiceReason::kSpacingBetter;
-  }
-  if (chosen.acute_orientation_flips != alternate.acute_orientation_flips ||
-      chosen.orientation_flips != alternate.orientation_flips) {
-    return OrderDecisionChoiceReason::kTwistSmaller;
   }
   return OrderDecisionChoiceReason::kKeptDefault;
 }

@@ -39,8 +39,12 @@ CableMaterialStyleKind cable_family_for_route(const ContextProfile& profile, con
   if (route_key.category == ConnectionCategory::kHighVoltage) {
     return CableMaterialStyleKind::kBareConductor;
   }
-  if (route_key.category == ConnectionCategory::kOptical || route_service_mix >= 0.7) {
+  if (route_key.category == ConnectionCategory::kOptical) {
     return CableMaterialStyleKind::kOptical;
+  }
+  if (route_key.category == ConnectionCategory::kCommunication) {
+    return (profile.age >= 0.45 || route_service_mix >= 0.55) ? CableMaterialStyleKind::kInsulated
+                                                               : CableMaterialStyleKind::kGeneric;
   }
   if (profile.age >= 0.45) {
     return CableMaterialStyleKind::kInsulated;

@@ -2,6 +2,7 @@
 
 #include "wire/core/core_view.hpp"
 #include "wire/core/style_context.hpp"
+#include "../recalc/detail_curve_input_resolution.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -14,72 +15,12 @@ namespace wire::core {
 
 namespace {
 
-std::uint64_t splitmix64(std::uint64_t x) {
-  x += 0x9E3779B97F4A7C15ull;
-  x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ull;
-  x = (x ^ (x >> 27)) * 0x94D049BB133111EBull;
-  return x ^ (x >> 31);
-}
-
-std::uint64_t hash_combine(std::uint64_t seed, std::uint64_t value) {
-  return splitmix64(seed ^ (value + 0x9E3779B97F4A7C15ull + (seed << 6) + (seed >> 2)));
-}
-
-ConnectionCategory category_from_span_layer(SpanLayer layer) {
-  switch (layer) {
-  case SpanLayer::kHighVoltage:
-    return ConnectionCategory::kHighVoltage;
-  case SpanLayer::kCommunication:
-    return ConnectionCategory::kCommunication;
-  case SpanLayer::kOptical:
-    return ConnectionCategory::kOptical;
-  case SpanLayer::kDrop:
-    return ConnectionCategory::kDrop;
-  case SpanLayer::kLowVoltage:
-  default:
-    return ConnectionCategory::kLowVoltage;
-  }
-}
-
-std::uint64_t fallback_variation_flow_key_for_span(const Span& span) {
-  std::uint64_t key = hash_combine(span.generation.generation_session_id, static_cast<std::uint64_t>(span.bundle_id));
-  key = hash_combine(key, static_cast<std::uint64_t>(span.endpoint_node_a_id));
-  key = hash_combine(key, static_cast<std::uint64_t>(span.endpoint_node_b_id));
-  key = hash_combine(key, static_cast<std::uint64_t>(span.placement_context));
-  return key;
-}
-
 StyleInspectionView BuildStyleInspectionView(const CoreState& state, const Span& span, BackboneFlowKind flow_kind) {
+  (void)flow_kind;
   StyleInspectionView style{};
-  const CoreView view = state.view();
-  const SpanRuntimeState* runtime = view.find_span_runtime_state(span.id);
-  const std::uint64_t variation_flow_key =
-      (runtime != nullptr && runtime->variation_flow_key != 0) ? runtime->variation_flow_key
-                                                               : fallback_variation_flow_key_for_span(span);
-  const Bundle* bundle = view.bundles().find(span.bundle_id);
-  const BundleTemplate* bundle_template = nullptr;
-  if (bundle != nullptr) {
-    const auto it = view.bundle_templates().find(bundle->bundle_template_id);
-    if (it != view.bundle_templates().end()) {
-      bundle_template = &it->second;
-    }
-  }
-
-  style.route_key.family_id = variation_flow_key;
-  style.route_key.bundle_template_id =
-      (bundle != nullptr) ? bundle->bundle_template_id : BundleKind::kLowVoltage;
-  style.route_key.category =
-      (bundle_template != nullptr) ? bundle_template->category : category_from_span_layer(span.layer);
-  style.route_key.flow_kind = flow_kind;
-
-  style.object_key.route = style.route_key;
-  style.object_key.segment_index = span.generation.generation_order;
-  style.object_key.lane_index = 0;
-  style.object_key.kind = StyleObjectKind::kSpan;
-  style.object_key.ordinal = 0;
-  style.object_key.is_start_endpoint = false;
-
-  style.resolved = ResolveStyleContext(view.context_profile(), style.route_key, style.object_key);
+  style.resolved = resolve_style_context_for_span(state, span, StyleObjectKind::kSpan, 0, false);
+  style.route_key = style.resolved.route.key;
+  style.object_key = style.resolved.object.key;
   style.has_context = true;
   return style;
 }
@@ -1219,6 +1160,8 @@ std::optional<TemplateInspectionView> CoreView::inspect_bundle_template(BundleKi
       {"branch_policy", std::to_string(static_cast<int>(tpl.branch_policy)), PropertyAccessKind::kEditable});
   result.properties.push_back({"grouped_support_fanout_spacing_m", std::to_string(tpl.grouped_support_fanout_spacing_m),
                                PropertyAccessKind::kEditable});
+  result.properties.push_back(
+      {"support_wire_pole_band_id", std::to_string(tpl.support_wire_pole_band_id), PropertyAccessKind::kEditable});
   result.properties.push_back({"cable_template_id", std::to_string(static_cast<unsigned long long>(tpl.cable_template_id)),
                                PropertyAccessKind::kEditable});
   result.properties.push_back(

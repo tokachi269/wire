@@ -601,6 +601,17 @@ void LoadPoleTemplateState(const wire::core::CoreView& view, ViewerUiState& ui_s
 wire::core::PoleTypeId SuggestedPoleTypeForBundleCategory(const wire::core::CoreView& view,
                                                           wire::core::ConnectionCategory category);
 
+const wire::core::CableSupplementalPathTemplate* FindCurveOffsetStraightSupplemental(
+    const wire::core::CableTemplate& tpl) {
+  for (const auto& supplemental : tpl.supplemental_paths) {
+    if (supplemental.anchor_mode == wire::core::CableSupplementalPathTemplate::AnchorMode::kCurveOffset &&
+        supplemental.profile_kind == wire::core::CableSupplementalPathTemplate::ProfileKind::kStraightCable) {
+      return &supplemental;
+    }
+  }
+  return nullptr;
+}
+
 void LoadCableTemplateState(const wire::core::CoreView& view, ViewerUiState& ui_state, wire::core::CableTemplateId id) {
   const auto it = view.cable_templates().find(id);
   if (it == view.cable_templates().end()) {
@@ -618,6 +629,23 @@ void LoadCableTemplateState(const wire::core::CoreView& view, ViewerUiState& ui_
   ui_state.cable_slack_factor = it->second.slack_factor;
   ui_state.cable_default_grouped_support_fanout_spacing = it->second.default_grouped_support_fanout_spacing_m;
   ui_state.cable_continuity_policy = static_cast<int>(it->second.continuity_policy);
+  if (const auto* supplemental = FindCurveOffsetStraightSupplemental(it->second); supplemental != nullptr) {
+    ui_state.cable_curve_offset_straight_supplemental_enabled = true;
+    ui_state.cable_curve_offset_straight_lateral_offset = supplemental->lateral_offset_m;
+    ui_state.cable_curve_offset_straight_vertical_offset = supplemental->vertical_offset_m;
+    ui_state.cable_curve_offset_straight_wobble_amplitude = supplemental->wobble_amplitude_m;
+    ui_state.cable_curve_offset_straight_wobble_wavelength = supplemental->wobble_wavelength_m;
+    ui_state.cable_curve_offset_straight_wobble_phase_bias = supplemental->wobble_phase_bias;
+    ui_state.cable_curve_offset_straight_endpoint_envelope_ratio = supplemental->endpoint_envelope_ratio;
+  } else {
+    ui_state.cable_curve_offset_straight_supplemental_enabled = false;
+    ui_state.cable_curve_offset_straight_lateral_offset = 0.0;
+    ui_state.cable_curve_offset_straight_vertical_offset = 0.0;
+    ui_state.cable_curve_offset_straight_wobble_amplitude = 0.0;
+    ui_state.cable_curve_offset_straight_wobble_wavelength = 0.0;
+    ui_state.cable_curve_offset_straight_wobble_phase_bias = 0.0;
+    ui_state.cable_curve_offset_straight_endpoint_envelope_ratio = 0.2;
+  }
 }
 
 void LoadBundleTemplateState(const wire::core::CoreView& view, ViewerUiState& ui_state, wire::core::BundleKind id) {
@@ -2359,6 +2387,22 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
       }
       ImGui::EndCombo();
     }
+    ImGui::Separator();
+    ImGui::Checkbox("CurveOffset Straight Supplemental", &ui_state.cable_curve_offset_straight_supplemental_enabled);
+    if (ui_state.cable_curve_offset_straight_supplemental_enabled) {
+      ImGui::InputDouble("Supplemental Lateral Offset", &ui_state.cable_curve_offset_straight_lateral_offset, 0.01, 0.05,
+                         "%.3f");
+      ImGui::InputDouble("Supplemental Vertical Offset", &ui_state.cable_curve_offset_straight_vertical_offset, 0.01, 0.05,
+                         "%.3f");
+      ImGui::InputDouble("Supplemental Wobble Amplitude", &ui_state.cable_curve_offset_straight_wobble_amplitude, 0.005,
+                         0.01, "%.3f");
+      ImGui::InputDouble("Supplemental Wobble Wavelength", &ui_state.cable_curve_offset_straight_wobble_wavelength, 0.1,
+                         0.5, "%.3f");
+      ImGui::InputDouble("Supplemental Wobble Phase", &ui_state.cable_curve_offset_straight_wobble_phase_bias, 0.1, 0.5,
+                         "%.3f");
+      ImGui::InputDouble("Supplemental Endpoint Envelope", &ui_state.cable_curve_offset_straight_endpoint_envelope_ratio,
+                         0.05, 0.1, "%.3f");
+    }
     if (ImGui::Button("Apply Cable Template")) {
       const auto it = view.cable_templates().find(ui_state.selected_cable_template_id);
       if (it == view.cable_templates().end()) {
@@ -2376,6 +2420,36 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
         tpl.default_grouped_support_fanout_spacing_m = ui_state.cable_default_grouped_support_fanout_spacing;
         tpl.continuity_policy =
             static_cast<wire::core::CableContinuityPolicyHint>(ui_state.cable_continuity_policy);
+        auto supplemental_it =
+            std::find_if(tpl.supplemental_paths.begin(), tpl.supplemental_paths.end(),
+                         [](const wire::core::CableSupplementalPathTemplate& supplemental) {
+                           return supplemental.anchor_mode ==
+                                      wire::core::CableSupplementalPathTemplate::AnchorMode::kCurveOffset &&
+                                  supplemental.profile_kind ==
+                                      wire::core::CableSupplementalPathTemplate::ProfileKind::kStraightCable;
+                         });
+        if (ui_state.cable_curve_offset_straight_supplemental_enabled) {
+          wire::core::CableSupplementalPathTemplate supplemental{};
+          if (supplemental_it != tpl.supplemental_paths.end()) {
+            supplemental = *supplemental_it;
+          }
+          supplemental.anchor_mode = wire::core::CableSupplementalPathTemplate::AnchorMode::kCurveOffset;
+          supplemental.profile_kind = wire::core::CableSupplementalPathTemplate::ProfileKind::kStraightCable;
+          supplemental.lateral_offset_m = ui_state.cable_curve_offset_straight_lateral_offset;
+          supplemental.vertical_offset_m = ui_state.cable_curve_offset_straight_vertical_offset;
+          supplemental.wobble_amplitude_m = ui_state.cable_curve_offset_straight_wobble_amplitude;
+          supplemental.wobble_wavelength_m = ui_state.cable_curve_offset_straight_wobble_wavelength;
+          supplemental.wobble_phase_bias = ui_state.cable_curve_offset_straight_wobble_phase_bias;
+          supplemental.endpoint_envelope_ratio =
+              std::clamp(ui_state.cable_curve_offset_straight_endpoint_envelope_ratio, 0.0, 0.5);
+          if (supplemental_it != tpl.supplemental_paths.end()) {
+            *supplemental_it = supplemental;
+          } else {
+            tpl.supplemental_paths.push_back(supplemental);
+          }
+        } else if (supplemental_it != tpl.supplemental_paths.end()) {
+          tpl.supplemental_paths.erase(supplemental_it);
+        }
         const auto apply = viewer_core_state::UpdateCableTemplate(state, tpl, ui_state.preferred_visible_span_ids);
         if (!apply.ok) {
           ui_state.last_error = apply.error;

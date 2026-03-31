@@ -137,6 +137,7 @@ enum class BundleKind : std::uint8_t {
   kCommunication = 2,
   kOptical = 3,
   kDrop = 4,
+  kOpticalWithSupport = 5,
 };
 
 enum class CableMaterialStyleKind : std::uint8_t {

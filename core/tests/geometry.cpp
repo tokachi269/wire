@@ -20,6 +20,17 @@ using wire::core::SpanKind;
 using wire::core::SpanLayer;
 
 namespace {
+std::optional<wire::core::PoleTypeDefinition> find_pole_type_by_name(const CoreState& state, const std::string& name) {
+  for (const auto& [id, pole_type] : state.view().pole_types()) {
+    if (pole_type.name == name) {
+      wire::core::PoleTypeDefinition copy = pole_type;
+      copy.id = id;
+      return copy;
+    }
+  }
+  return std::nullopt;
+}
+
 wire::core::AttachmentTemplateId find_attachment_template_by_mode(
     const CoreState& state, wire::core::AttachmentLineInteractionMode mode) {
   for (const auto& [id, attachment_template] : state.view().attachment_templates()) {
@@ -1890,8 +1901,8 @@ bool test_context_profile_selects_communication_cable_and_attachment_families() 
     return false;
   }
   if (calm_render->material_style != wire::core::CableMaterialStyleKind::kGeneric ||
-      calm_layout->start.endpoint_mode != wire::core::CurveEndpointMode::kDirectThrough ||
-      calm_layout->end.endpoint_mode != wire::core::CurveEndpointMode::kDirectThrough) {
+      calm_layout->start_endpoint.endpoint_mode != "DirectThrough" ||
+      calm_layout->end_endpoint.endpoint_mode != "DirectThrough") {
     return false;
   }
 
@@ -1910,8 +1921,9 @@ bool test_context_profile_selects_communication_cable_and_attachment_families() 
     return false;
   }
   return busy_render->material_style == wire::core::CableMaterialStyleKind::kInsulated &&
-         busy_layout->start.endpoint_mode == wire::core::CurveEndpointMode::kOffsetEndpoint &&
-         busy_layout->end.endpoint_mode == wire::core::CurveEndpointMode::kOffsetEndpoint && validate_now(state).ok();
+         busy_layout->start_endpoint.endpoint_mode == "OffsetEndpoint" &&
+         busy_layout->end_endpoint.endpoint_mode == "OffsetEndpoint" &&
+         validate_now(state).ok();
 }
 
 bool test_attachment_socket_endpoint_can_override_curve_endpoint() {
@@ -2097,6 +2109,50 @@ bool test_support_layout_attachment_socket_endpoint_matches_curve_input() {
          almost_equal(curve->detail.start_constraint.point, support_layout->start.endpoint_world, 1e-9) &&
          layout_view->start_endpoint.endpoint_source ==
              wire::core::SupportLayoutEndpointSourceKind::kAttachmentSocketOverride &&
+         curve_view->start_endpoint_source == layout_view->start_endpoint.endpoint_source &&
+         curve_view->start_attachment_request.kind == wire::core::EndpointAttachmentRequestKind::kAttachmentSocket &&
+         curve_view->start_attachment_request.attachment_id == add_attachment.value &&
+         curve_view->start_resolved_socket_id == 1;
+}
+
+bool test_support_layout_attachment_auto_resolves_default_socket_endpoint() {
+  CoreState state;
+  ObjectId span = wire::core::kInvalidObjectId;
+  if (!build_attachment_test_span(state, &span)) {
+    return false;
+  }
+  const auto template_id =
+      find_attachment_template_by_mode(state, wire::core::AttachmentLineInteractionMode::kPassThrough);
+  if (template_id == wire::core::kInvalidAttachmentTemplateId) {
+    return false;
+  }
+  const auto add_attachment = state.AddAttachment(span, 0.0, wire::core::AttachmentKind::kGeneric, 0.2, template_id);
+  if (!add_attachment.ok) {
+    return false;
+  }
+  wire::core::Span* span_edit = wire::core::CoreStateTestHook::edit_state(state).spans.find(span);
+  if (span_edit == nullptr) {
+    return false;
+  }
+  span_edit->endpoint_attachment_a_id = add_attachment.value;
+
+  (void)state.Commit().recalc_stats;
+  const auto* support_layout = state.view().find_span_support_layout(span);
+  const auto* curve = state.find_curve_cache(span);
+  const auto layout_view = state.view().inspect_support_layout(span);
+  const auto curve_view = state.view().inspect_detail_curve(span);
+  if (support_layout == nullptr || curve == nullptr || !layout_view.has_value() || !curve_view.has_value()) {
+    return false;
+  }
+  return support_layout->start.attachment_request.attachment_id == add_attachment.value &&
+         support_layout->start.attachment_request.kind == wire::core::EndpointAttachmentRequestKind::kAttachmentSocket &&
+         support_layout->start.attachment_request.requested_socket_id == 1 &&
+         support_layout->start.resolved_socket_id == 1 &&
+         support_layout->start.endpoint_source == wire::core::SupportLayoutEndpointSourceKind::kAttachmentSocket &&
+         support_layout->start.endpoint_mode == wire::core::CurveEndpointMode::kDirectThrough &&
+         almost_equal(support_layout->start.endpoint_world, wire::core::Vec3d{0.12, 0.0, 4.2}, 1e-6) &&
+         almost_equal(curve->detail.start_constraint.point, support_layout->start.endpoint_world, 1e-9) &&
+         layout_view->start_endpoint.endpoint_source == wire::core::SupportLayoutEndpointSourceKind::kAttachmentSocket &&
          curve_view->start_endpoint_source == layout_view->start_endpoint.endpoint_source &&
          curve_view->start_attachment_request.kind == wire::core::EndpointAttachmentRequestKind::kAttachmentSocket &&
          curve_view->start_attachment_request.attachment_id == add_attachment.value &&
@@ -2366,16 +2422,16 @@ bool test_span_socket_override_roundtrip_returns_to_auto() {
   span_edit->endpoint_attachment_a_id = add_attachment.value;
   (void)state.Commit().recalc_stats;
   const auto* auto_layout = state.view().find_span_support_layout(span);
-  if (auto_layout == nullptr) {
+  if (auto_layout == nullptr || auto_layout->start.resolved_socket_id != 1) {
     return false;
   }
   const wire::core::Vec3d auto_endpoint = auto_layout->start.endpoint_world;
-  if (!state.SetSpanEndpointSocketOverride(span, true, 1).ok) {
+  if (!state.SetSpanEndpointSocketOverride(span, true, 0).ok) {
     return false;
   }
   (void)state.Commit().recalc_stats;
   const auto* overridden_layout = state.view().find_span_support_layout(span);
-  if (overridden_layout == nullptr || overridden_layout->start.resolved_socket_id != 1 ||
+  if (overridden_layout == nullptr || overridden_layout->start.resolved_socket_id != 0 ||
       almost_equal(overridden_layout->start.endpoint_world, auto_endpoint, 1e-6)) {
     return false;
   }
@@ -2384,7 +2440,7 @@ bool test_span_socket_override_roundtrip_returns_to_auto() {
   }
   (void)state.Commit().recalc_stats;
   const auto* restored_layout = state.view().find_span_support_layout(span);
-  return restored_layout != nullptr && !restored_layout->start.resolved_socket_id.has_value() &&
+  return restored_layout != nullptr && restored_layout->start.resolved_socket_id == 1 &&
          almost_equal(restored_layout->start.endpoint_world, auto_endpoint, 1e-6);
 }
 
@@ -3273,6 +3329,9 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C165_SupportLayout_AttachmentSocket_CapturesEndpoint",
                          "Support layout captures attachment socket endpoint input before detail-curve generation",
                          "Invariant", false, test_support_layout_attachment_socket_endpoint_matches_curve_input);
+  test_registry::AddTest(tests, "C315_SupportLayout_AttachmentAuto_ResolvesDefaultSocket",
+                         "Support layout auto attachment resolves the default socket endpoint instead of falling back to the raw support point",
+                         "Invariant", false, test_support_layout_attachment_auto_resolves_default_socket_endpoint);
   test_registry::AddTest(tests, "C166_Inspection_SpanSupportDetailCurve_Surface",
                          "Inspection surface exposes span/support-layout/detail-curve views and decision trace without leaking internals",
                          "Invariant", false, test_inspection_span_support_layout_detail_curve_surface_is_coherent);

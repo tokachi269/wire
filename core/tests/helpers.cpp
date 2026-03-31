@@ -541,6 +541,88 @@ int count_bundle_lane_polyline_xy_intersections(const CoreState& state,
   return intersections;
 }
 
+int count_bundle_lane_detail_curve_xy_intersections(const CoreState& state,
+                                                    const std::vector<wire::core::SegmentLaneAssignment>& assignments) {
+  std::unordered_map<ObjectId, std::vector<const wire::core::SegmentLaneAssignment*>> by_bundle{};
+  for (const auto& assignment : assignments) {
+    by_bundle[assignment.bundle_id].push_back(&assignment);
+  }
+
+  int intersections = 0;
+  for (auto& [_, bundle_assignments] : by_bundle) {
+    if (bundle_assignments.empty()) {
+      continue;
+    }
+    std::sort(bundle_assignments.begin(), bundle_assignments.end(),
+              [](const wire::core::SegmentLaneAssignment* a, const wire::core::SegmentLaneAssignment* b) {
+                if (a->segment_index != b->segment_index) {
+                  return a->segment_index < b->segment_index;
+                }
+                if (a->pole_a_id != b->pole_a_id) {
+                  return a->pole_a_id < b->pole_a_id;
+                }
+                return a->pole_b_id < b->pole_b_id;
+              });
+
+    std::size_t lane_count = std::numeric_limits<std::size_t>::max();
+    for (const auto* assignment : bundle_assignments) {
+      lane_count = std::min(lane_count, std::min(assignment->port_ids_a.size(), assignment->port_ids_b.size()));
+    }
+    if (lane_count == std::numeric_limits<std::size_t>::max() || lane_count < 2) {
+      continue;
+    }
+
+    std::vector<std::vector<std::pair<wire::core::Vec3d, wire::core::Vec3d>>> lane_segments(lane_count);
+    for (const auto* assignment : bundle_assignments) {
+      const std::size_t assignment_lane_count =
+          std::min(lane_count, std::min(assignment->port_ids_a.size(), assignment->port_ids_b.size()));
+      for (std::size_t lane = 0; lane < assignment_lane_count; ++lane) {
+        const ObjectId port_a_id = assignment->port_ids_a[lane];
+        const ObjectId port_b_id = assignment->port_ids_b[lane];
+        const wire::core::Span* span = find_span_by_ports(state, port_a_id, port_b_id);
+        if (span == nullptr) {
+          continue;
+        }
+        const wire::core::CurveCacheEntry* curve = state.find_curve_cache(span->id);
+        if (curve == nullptr || curve->detail.sample_points.size() < 2) {
+          const auto* port_a = state.view().edit_state().ports.find(port_a_id);
+          const auto* port_b = state.view().edit_state().ports.find(port_b_id);
+          if (port_a == nullptr || port_b == nullptr) {
+            continue;
+          }
+          lane_segments[lane].push_back({port_a->world_position, port_b->world_position});
+          continue;
+        }
+
+        const bool forward_matches_assignment = (span->port_a_id == port_a_id && span->port_b_id == port_b_id);
+        const auto& points = curve->detail.sample_points;
+        if (forward_matches_assignment) {
+          for (std::size_t i = 1; i < points.size(); ++i) {
+            lane_segments[lane].push_back({points[i - 1], points[i]});
+          }
+        } else {
+          for (std::size_t i = points.size(); i-- > 1;) {
+            lane_segments[lane].push_back({points[i], points[i - 1]});
+          }
+        }
+      }
+    }
+
+    for (std::size_t i = 0; i < lane_count; ++i) {
+      for (std::size_t j = i + 1; j < lane_count; ++j) {
+        for (const auto& seg_i : lane_segments[i]) {
+          for (const auto& seg_j : lane_segments[j]) {
+            if (segments_intersect_xy_strict_test(seg_i.first, seg_i.second, seg_j.first, seg_j.second)) {
+              ++intersections;
+            }
+          }
+        }
+      }
+    }
+  }
+  return intersections;
+}
+
 int count_bundle_lane_adjacent_order_discontinuities(const CoreState& state,
                                                      const std::vector<wire::core::SegmentLaneAssignment>& assignments) {
   std::unordered_map<ObjectId, std::vector<const wire::core::SegmentLaneAssignment*>> by_bundle{};

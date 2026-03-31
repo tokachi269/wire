@@ -532,15 +532,21 @@ std::optional<Vec3d> GroupedSpanOrientationDecider::BisectorAxisForEndpoint(Obje
 }
 
 Vec3d GroupedSpanOrientationDecider::ChordSideAxisForEndpoint(ObjectId node_id, ObjectId peer_id) const {
-  if (const auto axis = RouteAxisForEndpoint(node_id, peer_id); axis.has_value()) {
-    return *axis;
+  if (const auto route_axis = RouteAxisForEndpoint(node_id, peer_id); route_axis.has_value()) {
+    Vec3d side_axis = ComputeLateralAxis(*route_axis);
+    if (normalize_xy(&side_axis)) {
+      return side_axis;
+    }
   }
   return Vec3d{0.0, 0.0, 0.0};
 }
 
 Vec3d GroupedSpanOrientationDecider::GroupedLineAxisForEndpoint(ObjectId node_id, ObjectId peer_id) const {
-  if (const auto axis = RouteAxisForEndpoint(node_id, peer_id); axis.has_value()) {
-    return *axis;
+  if (const auto route_axis = RouteAxisForEndpoint(node_id, peer_id); route_axis.has_value()) {
+    Vec3d side_axis = ComputeLateralAxis(*route_axis);
+    if (normalize_xy(&side_axis)) {
+      return side_axis;
+    }
   }
   return Vec3d{0.0, 0.0, 0.0};
 }
@@ -609,6 +615,12 @@ EndpointSideDecision GroupedSpanOrientationDecider::PreferredSideAxisForEndpoint
     decision.support_orientation_rule = SupportOrientationRuleKind::kChord;
     decision.used_junction_pair_side_assignment = false;
     decision.has_side_axis = (decision.side_axis.x != 0.0 || decision.side_axis.y != 0.0);
+    return decision;
+  }
+  if (decision.has_side_axis) {
+    decision.side_assignment_rule = SideAssignmentRuleKind::kBisector;
+    decision.support_orientation_rule = SupportOrientationRuleKind::kBisector;
+    decision.used_junction_pair_side_assignment = false;
     return decision;
   }
   decision.side_axis = NormalizedOrZeroXY(GroupedLineAxisForEndpoint(node_id, peer_id));

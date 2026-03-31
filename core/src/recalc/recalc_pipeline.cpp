@@ -475,8 +475,9 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
     }
   };
 
-  auto append_grouped_lowered_support_parts = [&](const LoweredSupportGroupPlacement& group) {
-    if (group.attachment_worlds.empty()) {
+  auto append_grouped_lowered_support_parts = [&](const LoweredSupportGroupPlacement& group,
+                                                  const std::vector<Vec3d>& span_attachment_worlds) {
+    if (span_attachment_worlds.empty()) {
       return;
     }
     SpanVisualCacheEntry& entry = runtime_.cache_state.visual_cache.by_span[span_id];
@@ -487,7 +488,7 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
       arm.b = group.tip_world;
       arm.radius_m = 0.03;
       entry.parts.push_back(arm);
-      for (const Vec3d& attachment_world : group.attachment_worlds) {
+      for (const Vec3d& attachment_world : span_attachment_worlds) {
         Vec3d hanger_target = attachment_world;
         if (requires_insulator && insulator_attachment_height_m > 1e-9) {
           hanger_target.z -= insulator_attachment_height_m;
@@ -501,7 +502,7 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
       }
     }
     if (runtime_.cache_state.visual_settings.enable_insulators && requires_insulator) {
-      for (const Vec3d& attachment_world : group.attachment_worlds) {
+      for (const Vec3d& attachment_world : span_attachment_worlds) {
         Vec3d insulator_base = attachment_world;
         insulator_base.z -= insulator_attachment_height_m;
         VisualPart ins{};
@@ -527,7 +528,19 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
     for (const LoweredSupportGroupKey& key : support_layout->lowered_support_group_keys) {
       auto it = runtime_.cache_state.support_layout_cache.lowered_support_groups.find(key);
       if (it != runtime_.cache_state.support_layout_cache.lowered_support_groups.end()) {
-        append_grouped_lowered_support_parts(it->second);
+        std::vector<Vec3d> span_attachment_worlds{};
+        auto append_span_attachment = [&](const SupportLayoutEndpoint* endpoint) {
+          if (!endpoint_uses_grouped_lowered_support(endpoint)) {
+            return;
+          }
+          if (LoweredSupportGroupKeyFromDecision(endpoint->decision) != key) {
+            return;
+          }
+          span_attachment_worlds.push_back(endpoint->endpoint_world);
+        };
+        append_span_attachment(start_layout);
+        append_span_attachment(end_layout);
+        append_grouped_lowered_support_parts(it->second, span_attachment_worlds);
       }
     }
   }

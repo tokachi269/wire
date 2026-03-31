@@ -465,6 +465,20 @@ EndpointTangentDecision ResolveEndpointTangentDecision(const CurveConstraint& co
     support_dir = ScaleVec(support_dir, -1.0);
   }
 
+  if (constraint.profile_hint == CurveProfileHint::kGroupedLoweredSupport) {
+    decision.rule = DetailCurveEndpointTangentRule::kMainFlowBlend;
+    decision.support_weight = 0.14 * std::clamp(constraint.tangent_strength, 0.3, 1.2);
+    decision.chord_weight = std::max(0.0, 1.0 - decision.support_weight);
+    const double local_budget = std::clamp(chord_length * 0.035, 0.12, 0.28);
+    decision.departure_length_m = std::clamp(
+        (constraint.support_departure_length_m > 0.0) ? constraint.support_departure_length_m : local_budget,
+        0.12, local_budget);
+    decision.lateral_ratio_limit = 0.02;
+    decision.tangent = BlendDirections(chord_dir, support_dir, decision.support_weight, chord_dir);
+    decision.tangent = ClampPlanarLateralRatio(chord_dir, decision.tangent, decision.lateral_ratio_limit);
+    return decision;
+  }
+
   if (constraint.pass_mode == CurvePassMode::kBranch || shape_policy.kind == CurveShapePolicyKind::kBranchPass) {
     decision.rule = DetailCurveEndpointTangentRule::kBranchChordPriority;
     decision.support_weight = BranchSupportWeightForChordLength(chord_length) * std::clamp(constraint.tangent_strength, 0.3, 1.2);
@@ -525,6 +539,9 @@ EndpointTangentDecision ResolveEndpointTangentDecision(const CurveConstraint& co
 CurveShapePolicyDecision ChooseShapePolicy(const CurveConstraint& start_constraint, const CurveConstraint& end_constraint,
                                            double chord_length, const Vec3d& chord_dir) {
   CurveShapePolicyDecision decision{};
+  const bool grouped_lowered_profile =
+      start_constraint.profile_hint == CurveProfileHint::kGroupedLoweredSupport ||
+      end_constraint.profile_hint == CurveProfileHint::kGroupedLoweredSupport;
   const double max_endpoint_offset_m =
       std::max(EndpointOffsetMagnitude(start_constraint), EndpointOffsetMagnitude(end_constraint));
   const double min_alignment =
@@ -554,6 +571,14 @@ CurveShapePolicyDecision ChooseShapePolicy(const CurveConstraint& start_constrai
     decision.lateral_suppression = 0.68;
     decision.handle_scale = 0.76;
     decision.quality_lateral_limit_ratio = 0.08;
+    return decision;
+  }
+
+  if (grouped_lowered_profile) {
+    decision.kind = CurveShapePolicyKind::kNearStraight;
+    decision.lateral_suppression = 1.0;
+    decision.handle_scale = 0.12;
+    decision.quality_lateral_limit_ratio = 0.01;
     return decision;
   }
 
@@ -655,6 +680,8 @@ HandleLengthComponents ComputeHandleLength(double chord_length, const Vec3d& cho
   double min_length_scale = 0.06;
   if (policy.kind == CurveShapePolicyKind::kBranchPass) {
     min_length_scale = 0.03;
+  } else if (constraint.profile_hint == CurveProfileHint::kGroupedLoweredSupport) {
+    min_length_scale = 0.02;
   } else if (policy.kind == CurveShapePolicyKind::kTerminate) {
     min_length_scale = 0.04;
   }
@@ -992,7 +1019,11 @@ DetailCurve BuildDetailCurve(const CurveConstraint& start_constraint, const Curv
     h0 = start_handle.length_m * CornerPassTangentLengthScale(start_constraint);
     h1 = end_handle.length_m * CornerPassTangentLengthScale(end_constraint);
     const double branch_handle_floor = chord_length * 0.03;
-    const double default_handle_floor = chord_length * 0.06;
+    const double default_handle_floor =
+        ((start_constraint.profile_hint == CurveProfileHint::kGroupedLoweredSupport) ||
+         (end_constraint.profile_hint == CurveProfileHint::kGroupedLoweredSupport))
+            ? (chord_length * 0.015)
+            : (chord_length * 0.06);
     const double start_handle_floor =
         (shape_policy.kind == CurveShapePolicyKind::kBranchPass) ? branch_handle_floor : default_handle_floor;
     const double end_handle_floor =

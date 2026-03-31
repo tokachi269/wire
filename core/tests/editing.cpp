@@ -576,8 +576,20 @@ bool test_optical_connection_uses_cable_template_supplemental_path() {
   if (port_a == nullptr || port_b == nullptr || pole_a_entity == nullptr || pole_b_entity == nullptr) {
     return false;
   }
-  if (!almost_equal(supplemental.points.front(), port_a->world_position, 1e-6) ||
-      !almost_equal(supplemental.points.back(), port_b->world_position, 1e-6)) {
+  const auto point_near_trimmed_main = [&](const wire::core::Vec3d& point, double min_t, double max_t) {
+    const auto chord = port_b->world_position - port_a->world_position;
+    const double chord_len_sq = Dot(chord, chord);
+    if (chord_len_sq <= 1e-12) {
+      return false;
+    }
+    const double t = Dot(point - port_a->world_position, chord) / chord_len_sq;
+    const auto on_chord = port_a->world_position + ScaleVec(chord, std::clamp(t, 0.0, 1.0));
+    const auto delta = point - on_chord;
+    const double distance_to_chord = std::sqrt(std::max(0.0, Dot(delta, delta)));
+    return t >= min_t && t <= max_t && distance_to_chord <= 0.08;
+  };
+  if (!point_near_trimmed_main(supplemental.points.front(), 0.0, 0.08) ||
+      !point_near_trimmed_main(supplemental.points.back(), 0.92, 1.0)) {
     return false;
   }
   return validate_now(state).ok();

@@ -33,6 +33,7 @@ enum class CurveShapePolicyKind : std::uint8_t {
 enum class CurveProfileHint : std::uint8_t {
   kAuto = 0,
   kCompositeHeightTransition = 1,
+  kGroupedLoweredSupport = 2,
 };
 
 enum class DetailCurveContinuityMode : std::uint8_t {

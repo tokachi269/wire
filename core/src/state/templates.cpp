@@ -1105,7 +1105,7 @@ void CoreState::register_default_cable_templates() {
   hv.sag_factor = 0.03;
   hv.slack_factor = 0.0;
   hv.continuity_policy = CableContinuityPolicyHint::kPreferG1;
-  hv.attachment_style = CableAttachmentStyleHint::kViaAttachment;
+  hv.attachment_style = CableAttachmentStyleHint::kDirectThrough;
   authoritative_.cable_templates[hv.id] = hv;
 
   CableTemplate lv{};

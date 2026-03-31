@@ -69,21 +69,30 @@ void add_order_score(BundleOrderScore* dst, const BundleOrderScore& src) {
 
 [[nodiscard]] bool orientation_plan_less(const OrientationPlanScore& a, const OrientationPlanScore& b,
                                          bool use_lane_row_geometry) {
-  if (use_lane_row_geometry && a.adjacent_xy_intersections != b.adjacent_xy_intersections) {
-    return a.adjacent_xy_intersections < b.adjacent_xy_intersections;
+  if (use_lane_row_geometry) {
+    if (a.acute_orientation_flips != b.acute_orientation_flips) {
+      return a.acute_orientation_flips < b.acute_orientation_flips;
+    }
+    if (a.orientation_flips != b.orientation_flips) {
+      return a.orientation_flips < b.orientation_flips;
+    }
+    if (a.adjacent_xy_intersections != b.adjacent_xy_intersections) {
+      return a.adjacent_xy_intersections < b.adjacent_xy_intersections;
+    }
+    if (a.order.segment_xy_intersections != b.order.segment_xy_intersections) {
+      return a.order.segment_xy_intersections < b.order.segment_xy_intersections;
+    }
+    if (a.order.cross_y != b.order.cross_y) {
+      return a.order.cross_y < b.order.cross_y;
+    }
+  } else if (a.order.cross_y != b.order.cross_y) {
+    return a.order.cross_y < b.order.cross_y;
   }
-  // For row-style bundles, route-wide parity continuity matters more than locally shaving one crossing.
   if (a.acute_orientation_flips != b.acute_orientation_flips) {
     return a.acute_orientation_flips < b.acute_orientation_flips;
   }
   if (a.orientation_flips != b.orientation_flips) {
     return a.orientation_flips < b.orientation_flips;
-  }
-  if (a.order.cross_y != b.order.cross_y) {
-    return a.order.cross_y < b.order.cross_y;
-  }
-  if (a.order.segment_xy_intersections != b.order.segment_xy_intersections) {
-    return a.order.segment_xy_intersections < b.order.segment_xy_intersections;
   }
   return secondary_score_less(a.order, b.order);
 }
@@ -95,18 +104,22 @@ void add_order_score(BundleOrderScore* dst, const BundleOrderScore& src) {
   if (policy != OrderDecisionPolicyKind::kPermutableHomogeneous) {
     return OrderDecisionChoiceReason::kFixedOrder;
   }
-  if (use_lane_row_geometry && chosen.adjacent_xy_intersections != alternate.adjacent_xy_intersections) {
+  if (use_lane_row_geometry) {
+    if (chosen.acute_orientation_flips != alternate.acute_orientation_flips ||
+        chosen.orientation_flips != alternate.orientation_flips) {
+      return OrderDecisionChoiceReason::kTwistSmaller;
+    }
+    if (chosen.adjacent_xy_intersections != alternate.adjacent_xy_intersections ||
+        chosen.order.segment_xy_intersections != alternate.order.segment_xy_intersections ||
+        chosen.order.cross_y != alternate.order.cross_y) {
+      return OrderDecisionChoiceReason::kCrossingFewer;
+    }
+  } else if (chosen.order.cross_y != alternate.order.cross_y) {
     return OrderDecisionChoiceReason::kCrossingFewer;
   }
   if (chosen.acute_orientation_flips != alternate.acute_orientation_flips ||
       chosen.orientation_flips != alternate.orientation_flips) {
     return OrderDecisionChoiceReason::kTwistSmaller;
-  }
-  if (chosen.order.cross_y != alternate.order.cross_y) {
-    return OrderDecisionChoiceReason::kCrossingFewer;
-  }
-  if (chosen.order.segment_xy_intersections != alternate.order.segment_xy_intersections) {
-    return OrderDecisionChoiceReason::kCrossingFewer;
   }
   if (chosen.order.cross_z != alternate.order.cross_z ||
       std::abs(chosen.order.span_z_delta - alternate.order.span_z_delta) > 1e-6) {
@@ -862,6 +875,61 @@ GroupedSpanLanePreparer::BuildLanePlan(const BackboneLoweringPolicy& lowering_po
     for (std::size_t step = segment_count; step > 1; --step) {
       const DpCell& cell = dp[step][node_parity[step - 1]][node_parity[step]];
       node_parity[step - 2] = cell.prev_prev_parity;
+    }
+  }
+
+  if (use_lane_row_geometry_ && allow_order_decision_reverse && node_count >= 3) {
+    auto score_segments_for_parity = [&](const std::vector<int>& parities, std::size_t first_segment,
+                                         std::size_t one_past_last_segment) {
+      OrientationPlanScore score{};
+      if (first_segment >= one_past_last_segment || first_segment >= segment_count) {
+        return score;
+      }
+      const std::size_t last_segment = std::min(one_past_last_segment, segment_count);
+      for (std::size_t seg = first_segment; seg < last_segment; ++seg) {
+        const std::vector<ObjectId> ports_a =
+            order_for_choice(plan.base_ports_by_node[seg], choice_for_parity(parities[seg]));
+        const std::vector<ObjectId> ports_b =
+            order_for_choice(plan.base_ports_by_node[seg + 1], choice_for_parity(parities[seg + 1]));
+        add_order_score(&score.order, evaluate_increment(ctx_.node_ids[seg], ctx_.node_ids[seg + 1], ports_a, ports_b));
+        if (seg > 0) {
+          const std::vector<ObjectId> prev_ports_a =
+              order_for_choice(plan.base_ports_by_node[seg - 1], choice_for_parity(parities[seg - 1]));
+          const std::vector<ObjectId> prev_ports_b =
+              order_for_choice(plan.base_ports_by_node[seg], choice_for_parity(parities[seg]));
+          score.adjacent_xy_intersections +=
+              count_adjacent_segment_xy_intersections(prev_ports_a, prev_ports_b, prev_ports_b, ports_b);
+          const int prev_orientation = parities[seg - 1] ^ parities[seg];
+          const int curr_orientation = parities[seg] ^ parities[seg + 1];
+          if (curr_orientation != prev_orientation &&
+              (plan.turn_angle_by_segment[seg] + kAngleEps < kReverseStraightAngleDeg)) {
+            ++score.orientation_flips;
+            if (plan.turn_angle_by_segment[seg] + kAngleEps < corner_threshold_deg) {
+              ++score.acute_orientation_flips;
+            }
+          }
+        }
+      }
+      return score;
+    };
+
+    bool improved = true;
+    while (improved) {
+      improved = false;
+      for (std::size_t node_index = 1; node_index + 1 < node_count; ++node_index) {
+        const std::size_t first_segment = (node_index == 0) ? 0 : (node_index - 1);
+        const std::size_t one_past_last_segment = std::min(segment_count, node_index + 1);
+        const OrientationPlanScore current_score =
+            score_segments_for_parity(node_parity, first_segment, one_past_last_segment);
+        std::vector<int> flipped = node_parity;
+        flipped[node_index] ^= 1;
+        const OrientationPlanScore flipped_score =
+            score_segments_for_parity(flipped, first_segment, one_past_last_segment);
+        if (orientation_plan_less(flipped_score, current_score, use_lane_row_geometry_)) {
+          node_parity.swap(flipped);
+          improved = true;
+        }
+      }
     }
   }
 

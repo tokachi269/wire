@@ -20,7 +20,93 @@ std::optional<wire::core::SupportLayoutEndpointView> layout_endpoint_for_owner(
 std::optional<wire::core::LoweredSupportGroupInspectionView> lowered_support_group_for_owner(
   const wire::core::SupportLayoutInspectionView& layout_view, wire::core::ObjectId owner_pole_id);
 std::optional<wire::core::SegmentLaneAssignment> find_assignment_for_span(const wire::core::CoreState& state,
-                                                                           wire::core::ObjectId span_id);
+                                                                          wire::core::ObjectId span_id);
+
+namespace {
+
+std::uint64_t mix_u64_test(std::uint64_t x) {
+  x += 0x9E3779B97F4A7C15ull;
+  x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ull;
+  x = (x ^ (x >> 27)) * 0x94D049BB133111EBull;
+  return x ^ (x >> 31);
+}
+
+double unit_from_u64_test(std::uint64_t x) {
+  constexpr double kInv = 1.0 / static_cast<double>(1ull << 53);
+  return static_cast<double>((mix_u64_test(x) >> 11) & ((1ull << 53) - 1ull)) * kInv;
+}
+
+std::vector<wire::core::Vec3d> make_latest_capture_twist_variant_polyline(std::uint64_t seed) {
+  std::vector<wire::core::Vec3d> polyline = {
+      {2.38374, -21.7773, 0.0},
+      {-12.8223, -15.1594, 0.0},
+      {-17.5767, -14.0377, 0.0},
+      {-16.1859, -5.45037, 0.0},
+      {-15.6915, -4.78471, 0.0},
+      {-13.6725, -5.22158, 0.0},
+      {-12.7205, -9.02353, 0.0},
+  };
+  for (std::size_t i = 1; i + 1 < polyline.size(); ++i) {
+    const std::uint64_t sx = mix_u64_test(seed ^ (0xA511E9B3ull + static_cast<std::uint64_t>(i) * 17ull));
+    const std::uint64_t sy = mix_u64_test(seed ^ (0xC3D2E1F0ull + static_cast<std::uint64_t>(i) * 29ull));
+    polyline[i].x += (unit_from_u64_test(sx) * 2.0 - 1.0) * 1.2;
+    polyline[i].y += (unit_from_u64_test(sy) * 2.0 - 1.0) * 1.2;
+  }
+  return polyline;
+}
+
+bool hv_route_has_parity_discontinuity(const CoreState& state, std::string* details) {
+  bool saw_hv = false;
+  for (const auto& orientation : state.view().last_generation_edge_orientations()) {
+    if (orientation.bundle_template_id != wire::core::BundleKind::kHighVoltage) {
+      continue;
+    }
+    saw_hv = true;
+    if (orientation.flipped_from_previous) {
+      if (details != nullptr) {
+        std::ostringstream oss;
+        oss << "flipped edge=" << orientation.node_a_id << "->" << orientation.node_b_id
+            << " turn=" << orientation.turn_angle_deg;
+        *details = oss.str();
+      }
+      return true;
+    }
+  }
+  if (!saw_hv) {
+    if (details != nullptr) {
+      *details = "hv orientations missing";
+    }
+    return true;
+  }
+
+  const int adjacent_discontinuities =
+      count_bundle_lane_adjacent_order_discontinuities(state, state.view().last_lane_assignments());
+  if (adjacent_discontinuities != 0) {
+    if (details != nullptr) {
+      std::ostringstream oss;
+      oss << "adjacent discontinuities=" << adjacent_discontinuities;
+      *details = oss.str();
+    }
+    return true;
+  }
+  return false;
+}
+
+bool hv_route_has_final_curve_twist(const CoreState& state, std::string* details) {
+  const auto& assignments = state.view().last_lane_assignments();
+  const int final_curve_intersections = count_bundle_lane_detail_curve_xy_intersections(state, assignments);
+  if (final_curve_intersections != 0) {
+    if (details != nullptr) {
+      std::ostringstream oss;
+      oss << "final_curve_intersections=" << final_curve_intersections;
+      *details = oss.str();
+    }
+    return true;
+  }
+  return false;
+}
+
+} // namespace
 
 bool endpoint_has_authoritative_lowering(const wire::core::SupportLayoutEndpointView& endpoint) {
   return endpoint.decision.lower_required && !endpoint.decision.lowering_blocked_by_policy &&
@@ -980,7 +1066,9 @@ bool test_backbone_hv3_latest_capture_shape_no_twist() {
   };
   req.interval_m = 37.9821;
   req.pole_type_id = communication_pole_type_id;
+  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
   add_backbone_bundle(req, wire::core::BundleKind::kHighVoltage);
+  add_backbone_bundle(req, wire::core::BundleKind::kCommunication, wire::core::SpanLayer::kUnknown, 1);
   const auto generated = state.GenerateFromBackboneSpec(req);
   if (!generated.ok) {
     std::cerr << "[DBG] C311 generate_failed\n";
@@ -1010,6 +1098,386 @@ bool test_backbone_hv3_latest_capture_shape_no_twist() {
   const int adjacent_discontinuities = count_bundle_lane_adjacent_order_discontinuities(state, assignments);
   if (adjacent_discontinuities != 0) {
     dump_lane_assignment_debug(state, assignments, "C311_latest_capture_twist");
+    return false;
+  }
+  return true;
+}
+
+bool test_backbone_hv3_latest_capture_variant_bank_no_twist() {
+  constexpr std::array<std::uint64_t, 24> kSeeds = {
+      0x11ull, 0x22ull, 0x33ull, 0x44ull, 0x55ull, 0x66ull, 0x77ull, 0x88ull,
+      0x99ull, 0xAAull, 0xBBull, 0xCCull, 0xDDull, 0xEEull, 0xFFull, 0x123ull,
+      0x234ull, 0x345ull, 0x456ull, 0x567ull, 0x678ull, 0x789ull, 0x89Aull, 0x9ABull,
+  };
+
+  for (std::uint64_t seed : kSeeds) {
+    CoreState state;
+    PoleTypeId communication_pole_type_id = wire::core::kInvalidPoleTypeId;
+    for (const auto& [type_id, pole_type] : state.view().pole_types()) {
+      if (pole_type.name == "CommunicationPole") {
+        communication_pole_type_id = type_id;
+        break;
+      }
+    }
+    if (communication_pole_type_id == wire::core::kInvalidPoleTypeId) {
+      std::cerr << "[DBG] C314 missing CommunicationPole\n";
+      return false;
+    }
+
+    wire::core::BackboneSpec req{};
+    req.path.polyline = make_latest_capture_twist_variant_polyline(seed);
+    req.interval_m = 37.9821;
+    req.pole_type_id = communication_pole_type_id;
+    add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
+    add_backbone_bundle(req, wire::core::BundleKind::kHighVoltage);
+    add_backbone_bundle(req, wire::core::BundleKind::kCommunication, wire::core::SpanLayer::kUnknown, 1);
+    const auto generated = state.GenerateFromBackboneSpec(req);
+    if (!generated.ok) {
+      std::cerr << "[DBG] C314 generate_failed seed=" << seed << " error=" << generated.error << "\n";
+      return false;
+    }
+
+    std::string details{};
+    if (hv_route_has_parity_discontinuity(state, &details)) {
+      std::cerr << "[DBG] C314 seed=" << seed << " " << details << "\n";
+      return false;
+    }
+  }
+
+  return true;
+}
+
+// Intent: Latest captured CommunicationPole HV path should remain untwisted in final detail curves after recalc.
+bool test_backbone_hv3_latest_capture_final_curve_no_twist() {
+  CoreState state;
+  PoleTypeId communication_pole_type_id = wire::core::kInvalidPoleTypeId;
+  for (const auto& [type_id, pole_type] : state.view().pole_types()) {
+    if (pole_type.name == "CommunicationPole") {
+      communication_pole_type_id = type_id;
+      break;
+    }
+  }
+  if (communication_pole_type_id == wire::core::kInvalidPoleTypeId) {
+    std::cerr << "[DBG] C316 missing CommunicationPole\n";
+    return false;
+  }
+
+  wire::core::BackboneSpec req{};
+  req.path.polyline = {
+      {2.38374, -21.7773, 0.0},
+      {-12.8223, -15.1594, 0.0},
+      {-17.5767, -14.0377, 0.0},
+      {-16.1859, -5.45037, 0.0},
+      {-15.6915, -4.78471, 0.0},
+      {-13.6725, -5.22158, 0.0},
+      {-12.7205, -9.02353, 0.0},
+  };
+  req.interval_m = 37.9821;
+  req.pole_type_id = communication_pole_type_id;
+  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
+  add_backbone_bundle(req, wire::core::BundleKind::kHighVoltage);
+  add_backbone_bundle(req, wire::core::BundleKind::kCommunication, wire::core::SpanLayer::kUnknown, 1);
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  if (!generated.ok) {
+    std::cerr << "[DBG] C316 generate_failed\n";
+    return false;
+  }
+
+  wire::core::CommitOptions options{};
+  options.run_recalc = true;
+  const auto commit = state.Commit(options);
+  if (!commit.validation.ok()) {
+    std::cerr << "[DBG] C316 commit_failed\n";
+    return false;
+  }
+
+  std::string details{};
+  if (hv_route_has_final_curve_twist(state, &details)) {
+    std::cerr << "[DBG] C316 " << details << "\n";
+    dump_lane_assignment_debug(state, state.view().last_lane_assignments(), "C316_final_curve_twist");
+    struct LaneCurveSegment {
+      std::size_t segment_index = 0;
+      std::size_t lane_index = 0;
+      wire::core::ObjectId span_id = wire::core::kInvalidObjectId;
+      wire::core::Vec3d a{};
+      wire::core::Vec3d b{};
+    };
+    auto segments_intersect_xy_debug = [](const wire::core::Vec3d& a, const wire::core::Vec3d& b,
+                                          const wire::core::Vec3d& c, const wire::core::Vec3d& d) {
+      auto orient = [](const wire::core::Vec3d& p, const wire::core::Vec3d& q, const wire::core::Vec3d& r) {
+        return (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+      };
+      const double o1 = orient(a, b, c);
+      const double o2 = orient(a, b, d);
+      const double o3 = orient(c, d, a);
+      const double o4 = orient(c, d, b);
+      return ((o1 > 1e-9 && o2 < -1e-9) || (o1 < -1e-9 && o2 > 1e-9)) &&
+             ((o3 > 1e-9 && o4 < -1e-9) || (o3 < -1e-9 && o4 > 1e-9));
+    };
+    std::vector<LaneCurveSegment> lane_curve_segments{};
+    for (const auto& assignment : state.view().last_lane_assignments()) {
+      const auto* bundle = state.view().edit_state().bundles.find(assignment.bundle_id);
+      if (bundle == nullptr || bundle->bundle_template_id != wire::core::BundleKind::kHighVoltage) {
+        continue;
+      }
+      const std::size_t lane_count = std::min(assignment.port_ids_a.size(), assignment.port_ids_b.size());
+      for (std::size_t lane = 0; lane < lane_count; ++lane) {
+        const wire::core::ObjectId port_a_id = assignment.port_ids_a[lane];
+        const wire::core::ObjectId port_b_id = assignment.port_ids_b[lane];
+        const wire::core::Span* matched_span = nullptr;
+        for (const auto& span : state.view().edit_state().spans.items()) {
+          const bool same_forward = span.port_a_id == port_a_id && span.port_b_id == port_b_id;
+          const bool same_reverse = span.port_a_id == port_b_id && span.port_b_id == port_a_id;
+          if (same_forward || same_reverse) {
+            matched_span = &span;
+            break;
+          }
+        }
+        if (matched_span == nullptr) {
+          continue;
+        }
+        const auto* curve = state.find_curve_cache(matched_span->id);
+        if (curve == nullptr || curve->detail.sample_points.size() < 2) {
+          continue;
+        }
+        const bool same_forward = matched_span->port_a_id == port_a_id && matched_span->port_b_id == port_b_id;
+        const auto& points = curve->detail.sample_points;
+        if (same_forward) {
+          for (std::size_t i = 1; i < points.size(); ++i) {
+            lane_curve_segments.push_back({assignment.segment_index, lane, matched_span->id, points[i - 1], points[i]});
+          }
+        } else {
+          for (std::size_t i = points.size(); i-- > 1;) {
+            lane_curve_segments.push_back({assignment.segment_index, lane, matched_span->id, points[i], points[i - 1]});
+          }
+        }
+      }
+    }
+    int printed_intersections = 0;
+    for (std::size_t i = 0; i < lane_curve_segments.size() && printed_intersections < 12; ++i) {
+      for (std::size_t j = i + 1; j < lane_curve_segments.size() && printed_intersections < 12; ++j) {
+        const auto& lhs = lane_curve_segments[i];
+        const auto& rhs = lane_curve_segments[j];
+        if (lhs.lane_index == rhs.lane_index) {
+          continue;
+        }
+        if (!segments_intersect_xy_debug(lhs.a, lhs.b, rhs.a, rhs.b)) {
+          continue;
+        }
+        ++printed_intersections;
+        std::cerr << "[DBG] C316 intersection lhs(seg=" << lhs.segment_index << ",lane=" << lhs.lane_index
+                  << ",span=" << lhs.span_id << ") rhs(seg=" << rhs.segment_index << ",lane=" << rhs.lane_index
+                  << ",span=" << rhs.span_id << ")\n";
+      }
+    }
+    for (const auto& span : state.view().edit_state().spans.items()) {
+      const auto assignment = find_assignment_for_span(state, span.id);
+      if (!assignment.has_value()) {
+        continue;
+      }
+      const auto bundle = state.view().edit_state().bundles.find(span.bundle_id);
+      if (bundle == nullptr || bundle->bundle_template_id != wire::core::BundleKind::kHighVoltage) {
+        continue;
+      }
+      const auto curve_view = state.view().inspect_detail_curve(span.id);
+      const auto layout_view = state.view().inspect_support_layout(span.id);
+      const auto* curve = state.find_curve_cache(span.id);
+      if (!curve_view.has_value() || !layout_view.has_value() || curve == nullptr) {
+        continue;
+      }
+      std::cerr << "[DBG] C316 span=" << span.id << " seg=" << assignment->segment_index
+                << " flow=" << static_cast<int>(assignment->flow_kind)
+                << " shape=" << static_cast<int>(curve_view->shape_policy)
+                << " startRule=" << static_cast<int>(curve_view->start_tangent_rule)
+                << " endRule=" << static_cast<int>(curve_view->end_tangent_rule)
+                << " startW=" << curve_view->start_support_weight
+                << " endW=" << curve_view->end_support_weight
+                << " startDep=" << curve_view->start_departure_length_m
+                << " endDep=" << curve_view->end_departure_length_m
+                << " sameLevel=" << (layout_view->same_level_feasible ? 1 : 0)
+                << " lower=" << (layout_view->default_lower_required ? 1 : 0)
+                << " samples=" << curve->detail.sample_points.size()
+                << " startEndpoint=" << layout_view->start_endpoint.endpoint_world.x << ","
+                << layout_view->start_endpoint.endpoint_world.y
+                << " startDir=" << layout_view->start_endpoint.departure_dir.x << ","
+                << layout_view->start_endpoint.departure_dir.y
+                << " endEndpoint=" << layout_view->end_endpoint.endpoint_world.x << ","
+                << layout_view->end_endpoint.endpoint_world.y
+                << " endDir=" << layout_view->end_endpoint.departure_dir.x << ","
+                << layout_view->end_endpoint.departure_dir.y << "\n";
+    }
+    for (const auto& pole : state.view().edit_state().poles.items()) {
+      const auto pole_view = state.view().inspect_pole(pole.id);
+      if (!pole_view.has_value() || pole_view->row_layout_axis_category != wire::core::ConnectionCategory::kHighVoltage) {
+        continue;
+      }
+      std::cerr << "[DBG] C316 pole=" << pole.id << " yaw=" << pole_view->final_yaw_deg
+                << " layoutYaw=" << pole_view->layout_yaw_deg
+                << " supportRule=" << static_cast<int>(pole_view->support_axis_rule)
+                << " rowMode=" << static_cast<int>(pole_view->row_layout_axis_mode)
+                << " axisCat=" << static_cast<int>(pole_view->row_layout_axis_category)
+                << " supportAxis=" << pole_view->support_axis_dir.x << "," << pole_view->support_axis_dir.y
+                << " forward=" << pole_view->forward_dir.x << "," << pole_view->forward_dir.y << "\n";
+    }
+    return false;
+  }
+  return true;
+}
+
+// Intent: Latest captured lowered HV spans should resolve through the grouped-lowered local-departure profile.
+bool test_backbone_hv3_latest_capture_lowered_support_uses_local_departure_profile() {
+  CoreState state;
+  PoleTypeId communication_pole_type_id = wire::core::kInvalidPoleTypeId;
+  for (const auto& [type_id, pole_type] : state.view().pole_types()) {
+    if (pole_type.name == "CommunicationPole") {
+      communication_pole_type_id = type_id;
+      break;
+    }
+  }
+  if (communication_pole_type_id == wire::core::kInvalidPoleTypeId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec req{};
+  req.path.polyline = {
+      {2.38374, -21.7773, 0.0},
+      {-12.8223, -15.1594, 0.0},
+      {-17.5767, -14.0377, 0.0},
+      {-16.1859, -5.45037, 0.0},
+      {-15.6915, -4.78471, 0.0},
+      {-13.6725, -5.22158, 0.0},
+      {-12.7205, -9.02353, 0.0},
+  };
+  req.interval_m = 37.9821;
+  req.pole_type_id = communication_pole_type_id;
+  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
+  add_backbone_bundle(req, wire::core::BundleKind::kHighVoltage);
+  add_backbone_bundle(req, wire::core::BundleKind::kCommunication, wire::core::SpanLayer::kUnknown, 1);
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  if (!generated.ok) {
+    return false;
+  }
+
+  bool saw_lowered_hv = false;
+  for (const auto& span : state.view().edit_state().spans.items()) {
+    const auto* bundle = state.view().edit_state().bundles.find(span.bundle_id);
+    if (bundle == nullptr || bundle->bundle_template_id != wire::core::BundleKind::kHighVoltage) {
+      continue;
+    }
+    const auto* support_layout = state.find_span_support_layout(span.id);
+    if (support_layout == nullptr) {
+      continue;
+    }
+    const bool same_level_feasible =
+        support_layout->start.decision.same_level_feasible && support_layout->end.decision.same_level_feasible;
+    const bool default_lower_required =
+        support_layout->start.decision.default_lower_required || support_layout->end.decision.default_lower_required;
+    if (same_level_feasible || !default_lower_required) {
+      continue;
+    }
+    saw_lowered_hv = true;
+    if (support_layout->detail_curve_profile_hint != wire::core::CurveProfileHint::kGroupedLoweredSupport) {
+      return false;
+    }
+  }
+  return saw_lowered_hv;
+}
+
+// Intent: Latest captured lowered HV spans should keep one shared route-local side-axis across an interior lowered corner.
+bool test_backbone_hv3_latest_capture_lowered_support_departure_uses_shared_route_axis() {
+  CoreState state;
+  PoleTypeId communication_pole_type_id = wire::core::kInvalidPoleTypeId;
+  for (const auto& [type_id, pole_type] : state.view().pole_types()) {
+    if (pole_type.name == "CommunicationPole") {
+      communication_pole_type_id = type_id;
+      break;
+    }
+  }
+  if (communication_pole_type_id == wire::core::kInvalidPoleTypeId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec req{};
+  req.path.polyline = {
+      {2.38374, -21.7773, 0.0},
+      {-12.8223, -15.1594, 0.0},
+      {-17.5767, -14.0377, 0.0},
+      {-16.1859, -5.45037, 0.0},
+      {-15.6915, -4.78471, 0.0},
+      {-13.6725, -5.22158, 0.0},
+      {-12.7205, -9.02353, 0.0},
+  };
+  req.interval_m = 37.9821;
+  req.pole_type_id = communication_pole_type_id;
+  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
+  add_backbone_bundle(req, wire::core::BundleKind::kHighVoltage);
+  add_backbone_bundle(req, wire::core::BundleKind::kCommunication, wire::core::SpanLayer::kUnknown, 1);
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  if (!generated.ok) {
+    return false;
+  }
+
+  struct LoweredEndpointSnapshot {
+    wire::core::ObjectId span_id = wire::core::kInvalidObjectId;
+    wire::core::ObjectId node_id = wire::core::kInvalidObjectId;
+    bool is_start = false;
+    wire::core::EndpointContinuityDecision decision{};
+  };
+
+  std::vector<LoweredEndpointSnapshot> lowered_endpoints{};
+  bool saw_lowered_hv = false;
+  for (const auto& span : state.view().edit_state().spans.items()) {
+    const auto* bundle = state.view().edit_state().bundles.find(span.bundle_id);
+    if (bundle == nullptr || bundle->bundle_template_id != wire::core::BundleKind::kHighVoltage) {
+      continue;
+    }
+    const auto* support_layout = state.find_span_support_layout(span.id);
+    if (support_layout == nullptr) {
+      continue;
+    }
+    const bool same_level_feasible =
+        support_layout->start.decision.same_level_feasible && support_layout->end.decision.same_level_feasible;
+    const bool default_lower_required =
+        support_layout->start.decision.default_lower_required || support_layout->end.decision.default_lower_required;
+    if (same_level_feasible || !default_lower_required) {
+      continue;
+    }
+    saw_lowered_hv = true;
+    lowered_endpoints.push_back({span.id, span.endpoint_node_a_id, true, support_layout->start.decision});
+    lowered_endpoints.push_back({span.id, span.endpoint_node_b_id, false, support_layout->end.decision});
+  }
+  if (!saw_lowered_hv) {
+    return false;
+  }
+
+  for (std::size_t i = 0; i < lowered_endpoints.size(); ++i) {
+    for (std::size_t j = i + 1; j < lowered_endpoints.size(); ++j) {
+      const auto& a = lowered_endpoints[i];
+      const auto& b = lowered_endpoints[j];
+      if (a.node_id == wire::core::kInvalidObjectId || a.node_id != b.node_id || a.span_id == b.span_id) {
+        continue;
+      }
+      if (!a.decision.has_side_axis || !b.decision.has_side_axis) {
+        return false;
+      }
+      if (a.decision.support_orientation_rule == wire::core::SupportOrientationRuleKind::kChord ||
+          b.decision.support_orientation_rule == wire::core::SupportOrientationRuleKind::kChord) {
+        return false;
+      }
+      wire::core::Vec3d axis_a = a.decision.side_axis;
+      wire::core::Vec3d axis_b = b.decision.side_axis;
+      if (!wire::core::Normalize(&axis_a) || !wire::core::Normalize(&axis_b)) {
+        return false;
+      }
+      if (std::abs(wire::core::Dot(axis_a, axis_b)) < 0.98) {
+        return false;
+      }
+      return true;
+    }
+  }
+
+  if (saw_lowered_hv) {
+    // The latest capture should expose at least one interior lowered-corner node shared by adjacent HV spans.
     return false;
   }
   return true;
@@ -5968,8 +6436,21 @@ bool test_backbone_grouped_support_visual_cache_uses_single_group_placement() {
       continue;
     }
 
+    std::vector<wire::core::Vec3d> span_attachment_worlds{};
+    if (layout_view->start_endpoint.owner_pole_id == center_id && endpoint_has_authoritative_lowering(layout_view->start_endpoint)) {
+      span_attachment_worlds.push_back(layout_view->start_endpoint.endpoint_world);
+    }
+    if (layout_view->end_endpoint.owner_pole_id == center_id && endpoint_has_authoritative_lowering(layout_view->end_endpoint)) {
+      span_attachment_worlds.push_back(layout_view->end_endpoint.endpoint_world);
+    }
+    if (span_attachment_worlds.empty()) {
+      continue;
+    }
+    const double expected_lift = insulator_lift_for_span_test(state, span_id);
+
     int matching_arms = 0;
     int matching_hangers = 0;
+    int matching_insulators = 0;
     for (const auto& part : visual->parts) {
       if (part.kind == wire::core::VisualPartKind::kSupportArm &&
           almost_equal(part.a.x, group->mount_world.x, 1e-6) &&
@@ -5985,18 +6466,41 @@ bool test_backbone_grouped_support_visual_cache_uses_single_group_placement() {
           almost_equal(part.a.y, group->tip_world.y, 1e-6) &&
           almost_equal(part.a.z, group->tip_world.z, 1e-6)) {
         const bool matches_attachment = std::any_of(
-            group->attachment_worlds.begin(), group->attachment_worlds.end(), [&](const wire::core::Vec3d& attachment) {
+            span_attachment_worlds.begin(), span_attachment_worlds.end(), [&](const wire::core::Vec3d& attachment) {
               return almost_equal(part.b.x, attachment.x, 1e-6) && almost_equal(part.b.y, attachment.y, 1e-6) &&
-                     almost_equal(part.b.z, attachment.z, 1e-6);
+                     almost_equal(part.b.z, attachment.z - expected_lift, 1e-6);
             });
         if (matches_attachment) {
           ++matching_hangers;
         }
       }
+      if (part.kind == wire::core::VisualPartKind::kInsulator) {
+        const bool matches_attachment = std::any_of(
+            span_attachment_worlds.begin(), span_attachment_worlds.end(), [&](const wire::core::Vec3d& attachment) {
+              return almost_equal(part.b.x, attachment.x, 1e-6) && almost_equal(part.b.y, attachment.y, 1e-6) &&
+                     almost_equal(part.b.z, attachment.z, 1e-6);
+            });
+        if (matches_attachment) {
+          ++matching_insulators;
+        }
+      }
     }
-    if (matching_arms != 1 || matching_hangers != group->grouped_port_count) {
+    if (matching_arms != 1 || matching_hangers != static_cast<int>(span_attachment_worlds.size()) ||
+        matching_insulators != static_cast<int>(span_attachment_worlds.size())) {
       std::cerr << "[DBG] C271 span=" << span_id << " arms=" << matching_arms
-                << " hangers=" << matching_hangers << " groupedPortCount=" << group->grouped_port_count << "\n";
+                << " hangers=" << matching_hangers << " insulators=" << matching_insulators
+                << " spanAttachmentCount=" << span_attachment_worlds.size()
+                << " groupedPortCount=" << group->grouped_port_count << " expectedLift=" << expected_lift << "\n";
+      for (const auto& attachment : span_attachment_worlds) {
+        std::cerr << "[DBG] C271 attachment=(" << attachment.x << "," << attachment.y << "," << attachment.z
+                  << ") hangerTargetZ=" << (attachment.z - expected_lift) << "\n";
+      }
+      for (const auto& part : visual->parts) {
+        if (part.kind == wire::core::VisualPartKind::kFitting || part.kind == wire::core::VisualPartKind::kInsulator) {
+          std::cerr << "[DBG] C271 part kind=" << static_cast<int>(part.kind) << " a=(" << part.a.x << "," << part.a.y
+                    << "," << part.a.z << ") b=(" << part.b.x << "," << part.b.y << "," << part.b.z << ")\n";
+        }
+      }
       return false;
     }
     return true;
@@ -9677,6 +10181,18 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C311_Backbone_HV3LatestCaptureNoTwist",
                          "Latest captured CommunicationPole HV backbone shape keeps route parity continuous",
                          "Invariant", false, test_backbone_hv3_latest_capture_shape_no_twist);
+  test_registry::AddTest(tests, "C314_Backbone_HV3LatestCaptureVariantBankNoTwist",
+                         "Latest captured CommunicationPole HV shape stays parity-continuous across a fixed perturbation bank",
+                         "Invariant", false, test_backbone_hv3_latest_capture_variant_bank_no_twist);
+  test_registry::AddTest(tests, "C316_Backbone_HV3LatestCaptureFinalCurveNoTwist",
+                         "Latest captured CommunicationPole HV shape keeps final detail curves untwisted after recalc",
+                         "Invariant", false, test_backbone_hv3_latest_capture_final_curve_no_twist);
+  test_registry::AddTest(tests, "C317_Backbone_HV3LatestCaptureLoweredSupportUsesLocalDepartureProfile",
+                         "Latest captured lowered HV spans declare a local-departure detail-curve profile",
+                         "Invariant", false, test_backbone_hv3_latest_capture_lowered_support_uses_local_departure_profile);
+  test_registry::AddTest(tests, "C318_Backbone_HV3LatestCaptureLoweredSupportDepartureUsesSharedRouteAxis",
+                         "Latest captured lowered HV spans keep one shared route-local side-axis across an interior lowered corner",
+                         "Invariant", false, test_backbone_hv3_latest_capture_lowered_support_departure_uses_shared_route_axis);
   test_registry::AddTest(tests, "C110_Backbone_ReuseExplicitPoleNode",
                          "Backbone generation reuses explicitly picked pole nodes", "Invariant", false,
                          test_backbone_generation_reuses_explicit_pole_node_id);
@@ -9961,7 +10477,7 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
                          "Invariant", false,
                          test_backbone_explicit_middle_bent_route_stays_corner_main_against_existing_chain);
   test_registry::AddTest(tests, "C271_Backbone_GroupedSupportVisualUsesSinglePlacement",
-                         "Grouped lowered support visual cache uses one group placement with grouped hangers instead of per-endpoint support materialization",
+                         "Grouped lowered support visual cache uses one group placement but only span-local grouped attachments",
                          "Invariant", false, test_backbone_grouped_support_visual_cache_uses_single_group_placement);
   test_registry::AddTest(tests, "C272_Backbone_BranchLowerRequiredHeightSurvivesPlacementAndRefresh",
                          "Bundle-like non-through lower_required propagates to grouped placement height and stays unchanged after refresh/recalc",

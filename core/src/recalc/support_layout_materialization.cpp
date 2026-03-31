@@ -214,6 +214,32 @@ bool resolve_attachment_socket_pair(const AttachmentTemplate& attachment_templat
   return false;
 }
 
+int resolve_default_attachment_socket_id(const CoreState& state, ObjectId attachment_id, bool is_start_endpoint) {
+  if (attachment_id == kInvalidObjectId) {
+    return -1;
+  }
+  const Attachment* attachment = state.view().attachments().find(attachment_id);
+  if (attachment == nullptr) {
+    return -1;
+  }
+  const AttachmentTemplate* attachment_template = state.find_attachment_template(attachment->template_id);
+  if (attachment_template == nullptr) {
+    return -1;
+  }
+
+  const AttachmentSocketTemplate* socket_a = nullptr;
+  const AttachmentSocketTemplate* socket_b = nullptr;
+  const AttachmentInternalPathTemplate* internal_path = nullptr;
+  if (!resolve_attachment_socket_pair(*attachment_template, &socket_a, &socket_b, &internal_path)) {
+    return -1;
+  }
+  const AttachmentSocketTemplate* selected = is_start_endpoint ? socket_b : socket_a;
+  if (selected == nullptr) {
+    return -1;
+  }
+  return selected->id;
+}
+
 bool endpoint_uses_grouped_lowered_support(const SupportLayoutEndpoint* endpoint) {
   return endpoint != nullptr && UsesAuthoritativeGroupedLoweredSupport(endpoint->decision);
 }
@@ -300,10 +326,6 @@ SupportLayoutEndpoint build_support_layout_endpoint(
   const ObjectId attachment_id = is_start_endpoint ? span.endpoint_attachment_a_id : span.endpoint_attachment_b_id;
   endpoint.flow_kind = flow_kind;
   endpoint.origin = support_layout_origin_from_port(port);
-  endpoint.attachment_request = make_endpoint_attachment_request(attachment_id, resolved_socket_id, socket_override_active);
-  if (resolved_socket_id >= 0) {
-    endpoint.resolved_socket_id = resolved_socket_id;
-  }
   endpoint.port_source = port.placement_source;
   endpoint.side = port.template_side;
   endpoint.support_world = port.world_position;
@@ -318,6 +340,15 @@ SupportLayoutEndpoint build_support_layout_endpoint(
       !is_start_endpoint);
   if (endpoint_vertical_attachment_offset_m > 1e-9) {
     OffsetAlongWorldUp(&constraint.point, endpoint_vertical_attachment_offset_m);
+  }
+  int effective_socket_id = resolved_socket_id;
+  if (effective_socket_id < 0 && attachment_id != kInvalidObjectId) {
+    effective_socket_id = resolve_default_attachment_socket_id(state, attachment_id, is_start_endpoint);
+  }
+  endpoint.attachment_request =
+      make_endpoint_attachment_request(attachment_id, effective_socket_id, socket_override_active);
+  if (effective_socket_id >= 0) {
+    endpoint.resolved_socket_id = effective_socket_id;
   }
   const bool applied_attachment_socket =
       endpoint.attachment_request.attachment_id.has_value() && endpoint.resolved_socket_id.has_value() &&
@@ -400,6 +431,32 @@ void apply_authoritative_support_layout_decisions(const SpanSupportLayoutEntry& 
 }
 
 namespace {
+
+Vec3d grouped_lowered_route_local_departure_dir(const SupportLayoutEndpoint& endpoint,
+                                                const SupportLayoutEndpoint& other_endpoint) {
+  Vec3d fallback = other_endpoint.endpoint_world - endpoint.endpoint_world;
+  if (!Normalize(&fallback)) {
+    fallback = WorldForward();
+  }
+  if (!endpoint.decision.has_side_axis) {
+    return fallback;
+  }
+  Vec3d side_axis = endpoint.decision.side_axis;
+  side_axis.z = 0.0;
+  if (!Normalize(&side_axis)) {
+    return fallback;
+  }
+  Vec3d tangent = ComputeLateralAxis(side_axis);
+  if (!Normalize(&tangent)) {
+    return fallback;
+  }
+  Vec3d peer_dir = other_endpoint.endpoint_world - endpoint.endpoint_world;
+  peer_dir.z = 0.0;
+  if (Normalize(&peer_dir) && Dot(tangent, peer_dir) < 0.0) {
+    tangent = ScaleVec(tangent, -1.0);
+  }
+  return tangent;
+}
 
 std::pair<Vec3d, Vec3d> shared_support_anchor_points(const CoreState& state, const Pole& pole, const Vec3d& support_axis,
                                                      ConnectionCategory category, double z_m,
@@ -656,6 +713,18 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
     apply_support_layout_decision_seed(*decision_seed, &layout);
   } else if (authoritative_layout != nullptr) {
     apply_authoritative_support_layout_decisions(*authoritative_layout, &layout);
+  }
+  Vec3d resolved_chord_dir = layout.end.endpoint_world - layout.start.endpoint_world;
+  if (!Normalize(&resolved_chord_dir)) {
+    resolved_chord_dir = chord_dir;
+  }
+  const bool grouped_lowered_span =
+      (UsesAuthoritativeGroupedLoweredSupport(layout.start.decision) ||
+       UsesAuthoritativeGroupedLoweredSupport(layout.end.decision)) &&
+      (!layout.start.decision.same_level_feasible || !layout.end.decision.same_level_feasible);
+  if (grouped_lowered_span) {
+    layout.start.departure_dir = grouped_lowered_route_local_departure_dir(layout.start, layout.end);
+    layout.end.departure_dir = grouped_lowered_route_local_departure_dir(layout.end, layout.start);
   }
   layout.detail_curve_profile_hint = detail_curve_profile_hint_from_support_layout(layout);
   return layout;

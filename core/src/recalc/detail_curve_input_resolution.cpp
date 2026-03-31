@@ -65,8 +65,15 @@ CurveProfileHint detail_curve_profile_hint_from_support_layout(const SpanSupport
     Vec3d departure = endpoint.departure_dir;
     return Normalize(&departure);
   };
+  const bool grouped_lowered_support =
+      UsesAuthoritativeGroupedLoweredSupport(layout.start.decision) ||
+      UsesAuthoritativeGroupedLoweredSupport(layout.end.decision);
   if (layout.pass_mode != CurvePassMode::kPassThrough) {
     return CurveProfileHint::kAuto;
+  }
+  if (grouped_lowered_support &&
+      (!layout.start.decision.same_level_feasible || !layout.end.decision.same_level_feasible)) {
+    return CurveProfileHint::kGroupedLoweredSupport;
   }
   if (layout.start.endpoint_mode == CurveEndpointMode::kOffsetEndpoint ||
       layout.end.endpoint_mode == CurveEndpointMode::kOffsetEndpoint) {

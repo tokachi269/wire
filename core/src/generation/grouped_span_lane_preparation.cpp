@@ -70,12 +70,6 @@ void add_order_score(BundleOrderScore* dst, const BundleOrderScore& src) {
 [[nodiscard]] bool orientation_plan_less(const OrientationPlanScore& a, const OrientationPlanScore& b,
                                          bool use_lane_row_geometry) {
   if (use_lane_row_geometry) {
-    if (a.acute_orientation_flips != b.acute_orientation_flips) {
-      return a.acute_orientation_flips < b.acute_orientation_flips;
-    }
-    if (a.orientation_flips != b.orientation_flips) {
-      return a.orientation_flips < b.orientation_flips;
-    }
     if (a.adjacent_xy_intersections != b.adjacent_xy_intersections) {
       return a.adjacent_xy_intersections < b.adjacent_xy_intersections;
     }
@@ -84,6 +78,12 @@ void add_order_score(BundleOrderScore* dst, const BundleOrderScore& src) {
     }
     if (a.order.cross_y != b.order.cross_y) {
       return a.order.cross_y < b.order.cross_y;
+    }
+    if (a.acute_orientation_flips != b.acute_orientation_flips) {
+      return a.acute_orientation_flips < b.acute_orientation_flips;
+    }
+    if (a.orientation_flips != b.orientation_flips) {
+      return a.orientation_flips < b.orientation_flips;
     }
   } else if (a.order.cross_y != b.order.cross_y) {
     return a.order.cross_y < b.order.cross_y;
@@ -105,14 +105,14 @@ void add_order_score(BundleOrderScore* dst, const BundleOrderScore& src) {
     return OrderDecisionChoiceReason::kFixedOrder;
   }
   if (use_lane_row_geometry) {
-    if (chosen.acute_orientation_flips != alternate.acute_orientation_flips ||
-        chosen.orientation_flips != alternate.orientation_flips) {
-      return OrderDecisionChoiceReason::kTwistSmaller;
-    }
     if (chosen.adjacent_xy_intersections != alternate.adjacent_xy_intersections ||
         chosen.order.segment_xy_intersections != alternate.order.segment_xy_intersections ||
         chosen.order.cross_y != alternate.order.cross_y) {
       return OrderDecisionChoiceReason::kCrossingFewer;
+    }
+    if (chosen.acute_orientation_flips != alternate.acute_orientation_flips ||
+        chosen.orientation_flips != alternate.orientation_flips) {
+      return OrderDecisionChoiceReason::kTwistSmaller;
     }
   } else if (chosen.order.cross_y != alternate.order.cross_y) {
     return OrderDecisionChoiceReason::kCrossingFewer;

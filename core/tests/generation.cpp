@@ -5,6 +5,7 @@
 #include <optional>
 #include <set>
 #include <sstream>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -55,6 +56,133 @@ std::vector<wire::core::Vec3d> make_latest_capture_twist_variant_polyline(std::u
   return polyline;
 }
 
+struct HvEndpointSnapshot {
+  int segment_index = -1;
+  wire::core::ObjectId bundle_id = wire::core::kInvalidObjectId;
+  wire::core::ObjectId pole_id = wire::core::kInvalidObjectId;
+  std::vector<wire::core::ObjectId> port_ids{};
+  std::vector<double> local_y{};
+  std::vector<wire::core::Vec3d> world_positions{};
+  wire::core::RowLayoutAxisMode row_layout_axis_mode = wire::core::RowLayoutAxisMode::kPoleYaw;
+  double layout_yaw_deg = 0.0;
+  double final_yaw_deg = 0.0;
+  wire::core::Vec3d support_axis_dir{};
+};
+
+std::string hv_endpoint_snapshot_key(const HvEndpointSnapshot& snapshot) {
+  std::ostringstream oss;
+  oss << snapshot.bundle_id << ":" << snapshot.segment_index << ":" << snapshot.pole_id;
+  return oss.str();
+}
+
+std::vector<HvEndpointSnapshot> capture_hv_endpoint_snapshots(const CoreState& state) {
+  std::vector<HvEndpointSnapshot> snapshots{};
+  for (const auto& assignment : state.view().last_lane_assignments()) {
+    const auto* bundle = state.view().edit_state().bundles.find(assignment.bundle_id);
+    if (bundle == nullptr || bundle->bundle_template_id != wire::core::BundleKind::kHighVoltage) {
+      continue;
+    }
+
+    const auto capture_side = [&](wire::core::ObjectId pole_id, const std::vector<wire::core::ObjectId>& port_ids) {
+      const auto* pole = state.view().edit_state().poles.find(pole_id);
+      if (pole == nullptr) {
+        return;
+      }
+      const auto pole_view = state.view().inspect_pole(pole_id);
+      HvEndpointSnapshot snapshot{};
+      snapshot.segment_index = assignment.segment_index;
+      snapshot.bundle_id = assignment.bundle_id;
+      snapshot.pole_id = pole_id;
+      snapshot.port_ids = port_ids;
+      if (pole_view.has_value()) {
+        snapshot.row_layout_axis_mode = pole_view->row_layout_axis_mode;
+        snapshot.layout_yaw_deg = pole_view->layout_yaw_deg;
+        snapshot.final_yaw_deg = pole_view->final_yaw_deg;
+        snapshot.support_axis_dir = pole_view->support_axis_dir;
+      }
+      for (wire::core::ObjectId port_id : port_ids) {
+        const auto* port = state.view().edit_state().ports.find(port_id);
+        if (port == nullptr) {
+          snapshot.local_y.push_back(0.0);
+          snapshot.world_positions.push_back({});
+          continue;
+        }
+        const double layout_yaw_deg = state.effective_port_layout_yaw_deg(*pole, port->category);
+        const wire::core::Vec3d local = wire::core::WorldPointToLocal(
+            wire::core::BuildPoleFrame(pole->world_transform, layout_yaw_deg), port->world_position);
+        snapshot.local_y.push_back(local.y);
+        snapshot.world_positions.push_back(port->world_position);
+      }
+      snapshots.push_back(std::move(snapshot));
+    };
+
+    capture_side(assignment.pole_a_id, assignment.port_ids_a);
+    capture_side(assignment.pole_b_id, assignment.port_ids_b);
+  }
+  std::sort(snapshots.begin(), snapshots.end(), [](const HvEndpointSnapshot& a, const HvEndpointSnapshot& b) {
+    return hv_endpoint_snapshot_key(a) < hv_endpoint_snapshot_key(b);
+  });
+  return snapshots;
+}
+
+void dump_hv_endpoint_snapshot_diff(const std::vector<HvEndpointSnapshot>& before,
+                                    const std::vector<HvEndpointSnapshot>& after, const char* tag) {
+  std::unordered_map<std::string, const HvEndpointSnapshot*> before_by_key{};
+  for (const auto& snapshot : before) {
+    before_by_key.emplace(hv_endpoint_snapshot_key(snapshot), &snapshot);
+  }
+  for (const auto& snapshot_after : after) {
+    const std::string key = hv_endpoint_snapshot_key(snapshot_after);
+    const auto it_before = before_by_key.find(key);
+    if (it_before == before_by_key.end()) {
+      std::cerr << "[DBG] " << tag << " added key=" << key << "\n";
+      continue;
+    }
+    const HvEndpointSnapshot& snapshot_before = *it_before->second;
+    const std::size_t lane_count = std::min(
+        {snapshot_before.port_ids.size(), snapshot_after.port_ids.size(), snapshot_before.local_y.size(),
+         snapshot_after.local_y.size(), snapshot_before.world_positions.size(), snapshot_after.world_positions.size()});
+    bool changed = false;
+    std::ostringstream oss;
+    for (std::size_t lane = 0; lane < lane_count; ++lane) {
+      const double dy = std::abs(snapshot_before.local_y[lane] - snapshot_after.local_y[lane]);
+      const double dx_world =
+          std::abs(snapshot_before.world_positions[lane].x - snapshot_after.world_positions[lane].x);
+      const double dy_world =
+          std::abs(snapshot_before.world_positions[lane].y - snapshot_after.world_positions[lane].y);
+      const double dz_world =
+          std::abs(snapshot_before.world_positions[lane].z - snapshot_after.world_positions[lane].z);
+      if (dy > 1e-6 || dx_world > 1e-6 || dy_world > 1e-6 || dz_world > 1e-6 ||
+          snapshot_before.port_ids[lane] != snapshot_after.port_ids[lane]) {
+        changed = true;
+        oss << " lane=" << lane << " port=" << snapshot_before.port_ids[lane] << "->" << snapshot_after.port_ids[lane]
+            << " localY=" << snapshot_before.local_y[lane] << "->" << snapshot_after.local_y[lane]
+            << " world=(" << snapshot_before.world_positions[lane].x << "," << snapshot_before.world_positions[lane].y
+            << "," << snapshot_before.world_positions[lane].z << ")->(" << snapshot_after.world_positions[lane].x
+            << "," << snapshot_after.world_positions[lane].y << "," << snapshot_after.world_positions[lane].z << ")";
+      }
+    }
+    const bool pole_changed =
+        snapshot_before.row_layout_axis_mode != snapshot_after.row_layout_axis_mode ||
+        std::abs(snapshot_before.layout_yaw_deg - snapshot_after.layout_yaw_deg) > 1e-6 ||
+        std::abs(snapshot_before.final_yaw_deg - snapshot_after.final_yaw_deg) > 1e-6 ||
+        std::abs(snapshot_before.support_axis_dir.x - snapshot_after.support_axis_dir.x) > 1e-6 ||
+        std::abs(snapshot_before.support_axis_dir.y - snapshot_after.support_axis_dir.y) > 1e-6 ||
+        std::abs(snapshot_before.support_axis_dir.z - snapshot_after.support_axis_dir.z) > 1e-6;
+    if (changed || pole_changed) {
+      std::cerr << "[DBG] " << tag << " key=" << key << " rowMode="
+                << static_cast<int>(snapshot_before.row_layout_axis_mode) << "->"
+                << static_cast<int>(snapshot_after.row_layout_axis_mode) << " layoutYaw="
+                << snapshot_before.layout_yaw_deg << "->" << snapshot_after.layout_yaw_deg << " finalYaw="
+                << snapshot_before.final_yaw_deg << "->" << snapshot_after.final_yaw_deg << " axis=("
+                << snapshot_before.support_axis_dir.x << "," << snapshot_before.support_axis_dir.y << ","
+                << snapshot_before.support_axis_dir.z << ")->(" << snapshot_after.support_axis_dir.x << ","
+                << snapshot_after.support_axis_dir.y << "," << snapshot_after.support_axis_dir.z << ")"
+                << oss.str() << "\n";
+    }
+  }
+}
+
 bool hv_route_has_parity_discontinuity(const CoreState& state, std::string* details) {
   bool saw_hv = false;
   for (const auto& orientation : state.view().last_generation_edge_orientations()) {
@@ -79,6 +207,17 @@ bool hv_route_has_parity_discontinuity(const CoreState& state, std::string* deta
     return true;
   }
 
+  const int polyline_intersections =
+      count_bundle_lane_polyline_xy_intersections(state, state.view().last_lane_assignments());
+  if (polyline_intersections != 0) {
+    if (details != nullptr) {
+      std::ostringstream oss;
+      oss << "polyline_intersections=" << polyline_intersections;
+      *details = oss.str();
+    }
+    return true;
+  }
+
   const int adjacent_discontinuities =
       count_bundle_lane_adjacent_order_discontinuities(state, state.view().last_lane_assignments());
   if (adjacent_discontinuities != 0) {
@@ -94,6 +233,15 @@ bool hv_route_has_parity_discontinuity(const CoreState& state, std::string* deta
 
 bool hv_route_has_final_curve_twist(const CoreState& state, std::string* details) {
   const auto& assignments = state.view().last_lane_assignments();
+  const int polyline_intersections = count_bundle_lane_polyline_xy_intersections(state, assignments);
+  if (polyline_intersections != 0) {
+    if (details != nullptr) {
+      std::ostringstream oss;
+      oss << "polyline_intersections=" << polyline_intersections;
+      *details = oss.str();
+    }
+    return true;
+  }
   const int final_curve_intersections = count_bundle_lane_detail_curve_xy_intersections(state, assignments);
   if (final_curve_intersections != 0) {
     if (details != nullptr) {
@@ -1075,29 +1223,10 @@ bool test_backbone_hv3_latest_capture_shape_no_twist() {
     return false;
   }
 
-  const auto& orientations = state.view().last_generation_edge_orientations();
-  bool saw_hv = false;
-  for (const auto& orientation : orientations) {
-    if (orientation.bundle_template_id != wire::core::BundleKind::kHighVoltage) {
-      continue;
-    }
-    saw_hv = true;
-    if (orientation.flipped_from_previous) {
-      std::cerr << "[DBG] C311 flipped edge=" << orientation.node_a_id << "->" << orientation.node_b_id
-                << " orientation=" << static_cast<int>(orientation.orientation)
-                << " turn=" << orientation.turn_angle_deg << "\n";
-      return false;
-    }
-  }
-  if (!saw_hv) {
-    std::cerr << "[DBG] C311 hv_orientations_empty\n";
-    return false;
-  }
-
-  const auto& assignments = state.view().last_lane_assignments();
-  const int adjacent_discontinuities = count_bundle_lane_adjacent_order_discontinuities(state, assignments);
-  if (adjacent_discontinuities != 0) {
-    dump_lane_assignment_debug(state, assignments, "C311_latest_capture_twist");
+  std::string details;
+  if (hv_route_has_parity_discontinuity(state, &details)) {
+    std::cerr << "[DBG] C311 " << details << "\n";
+    dump_lane_assignment_debug(state, state.view().last_lane_assignments(), "C311_latest_capture_twist");
     return false;
   }
   return true;
@@ -1319,6 +1448,74 @@ bool test_backbone_hv3_latest_capture_final_curve_no_twist() {
                 << " supportAxis=" << pole_view->support_axis_dir.x << "," << pole_view->support_axis_dir.y
                 << " forward=" << pole_view->forward_dir.x << "," << pole_view->forward_dir.y << "\n";
     }
+    return false;
+  }
+  return true;
+}
+
+// Intent: Latest captured CommunicationPole HV path should keep lane polylines non-crossing across Commit(recalc).
+bool test_backbone_hv3_latest_capture_commit_preserves_polyline_order() {
+  CoreState state;
+  PoleTypeId communication_pole_type_id = wire::core::kInvalidPoleTypeId;
+  for (const auto& [type_id, pole_type] : state.view().pole_types()) {
+    if (pole_type.name == "CommunicationPole") {
+      communication_pole_type_id = type_id;
+      break;
+    }
+  }
+  if (communication_pole_type_id == wire::core::kInvalidPoleTypeId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec req{};
+  req.path.polyline = {
+      {2.38374, -21.7773, 0.0},
+      {-12.8223, -15.1594, 0.0},
+      {-17.5767, -14.0377, 0.0},
+      {-16.1859, -5.45037, 0.0},
+      {-15.6915, -4.78471, 0.0},
+      {-13.6725, -5.22158, 0.0},
+      {-12.7205, -9.02353, 0.0},
+  };
+  req.interval_m = 37.9821;
+  req.pole_type_id = communication_pole_type_id;
+  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
+  add_backbone_bundle(req, wire::core::BundleKind::kHighVoltage);
+  add_backbone_bundle(req, wire::core::BundleKind::kCommunication, wire::core::SpanLayer::kUnknown, 1);
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  if (!generated.ok) {
+    return false;
+  }
+
+  const int before_intersections_raw =
+      count_bundle_lane_polyline_xy_intersections(state, state.view().last_lane_assignments());
+  const auto before_snapshots = capture_hv_endpoint_snapshots(state);
+  const int before_intersections =
+      count_bundle_lane_polyline_xy_intersections(state, state.view().last_lane_assignments());
+  if (before_intersections_raw != before_intersections) {
+    std::cerr << "[DBG] C319 snapshot_side_effect raw=" << before_intersections_raw
+              << " afterSnapshot=" << before_intersections << "\n";
+  }
+  if (before_intersections != 0) {
+    std::cerr << "[DBG] C319 before_commit_polyline_intersections=" << before_intersections << "\n";
+    dump_lane_assignment_debug(state, state.view().last_lane_assignments(), "C319_before_commit_polyline");
+    return false;
+  }
+
+  wire::core::CommitOptions options{};
+  options.run_recalc = true;
+  const auto commit = state.Commit(options);
+  if (!commit.validation.ok()) {
+    return false;
+  }
+
+  const auto after_snapshots = capture_hv_endpoint_snapshots(state);
+  const int after_intersections =
+      count_bundle_lane_polyline_xy_intersections(state, state.view().last_lane_assignments());
+  if (after_intersections != 0) {
+    std::cerr << "[DBG] C319 after_commit_polyline_intersections=" << after_intersections << "\n";
+    dump_hv_endpoint_snapshot_diff(before_snapshots, after_snapshots, "C319_commit_diff");
+    dump_lane_assignment_debug(state, state.view().last_lane_assignments(), "C319_commit_polyline");
     return false;
   }
   return true;
@@ -2978,6 +3175,8 @@ bool test_backbone_hv3_acute_corner_lowering_survives_pole_refresh() {
   }
   return ok;
 }
+
+// Intent: Latest captured CommunicationPole HV path should keep one row-order sign per shared pole across incident spans.
 
 bool test_backbone_hv3_moderate_acute_corner_lowers_bundle_at_default_threshold() {
   CoreState state;
@@ -10179,14 +10378,17 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
                          "Invariant", false,
                          test_backbone_hv3_capture_shape_no_adjacent_crossings);
   test_registry::AddTest(tests, "C311_Backbone_HV3LatestCaptureNoTwist",
-                         "Latest captured CommunicationPole HV backbone shape keeps route parity continuous",
+                         "Latest captured CommunicationPole HV backbone shape keeps route parity and lane polylines continuous",
                          "Invariant", false, test_backbone_hv3_latest_capture_shape_no_twist);
   test_registry::AddTest(tests, "C314_Backbone_HV3LatestCaptureVariantBankNoTwist",
-                         "Latest captured CommunicationPole HV shape stays parity-continuous across a fixed perturbation bank",
+                         "Latest captured CommunicationPole HV shape stays parity/polyline-continuous across a fixed perturbation bank",
                          "Invariant", false, test_backbone_hv3_latest_capture_variant_bank_no_twist);
   test_registry::AddTest(tests, "C316_Backbone_HV3LatestCaptureFinalCurveNoTwist",
                          "Latest captured CommunicationPole HV shape keeps final detail curves untwisted after recalc",
                          "Invariant", false, test_backbone_hv3_latest_capture_final_curve_no_twist);
+  test_registry::AddTest(tests, "C319_Backbone_HV3LatestCaptureCommitPreservesPolylineOrder",
+                         "Latest captured CommunicationPole HV shape keeps lane polylines non-crossing across recalc",
+                         "Invariant", false, test_backbone_hv3_latest_capture_commit_preserves_polyline_order);
   test_registry::AddTest(tests, "C317_Backbone_HV3LatestCaptureLoweredSupportUsesLocalDepartureProfile",
                          "Latest captured lowered HV spans declare a local-departure detail-curve profile",
                          "Invariant", false, test_backbone_hv3_latest_capture_lowered_support_uses_local_departure_profile);

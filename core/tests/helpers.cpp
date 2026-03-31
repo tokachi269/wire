@@ -407,7 +407,12 @@ void dump_lane_assignment_debug(const CoreState& state,
     }
     const bool orientation_reversed = assignment.order_decision_choice_a != assignment.order_decision_choice_b;
     std::cerr << "[DBG] " << tag << " seg=" << assignment.segment_index << " inv=" << inv
-              << " orientationReversed=" << (orientation_reversed ? 1 : 0) << " yA=";
+              << " orientationReversed=" << (orientation_reversed ? 1 : 0)
+              << " usesBranch=" << (assignment.uses_branch_support ? 1 : 0)
+              << " solver=" << (assignment.solver_used_same_level_constraint ? 1 : 0)
+              << " special=" << (assignment.used_special_case_ports ? 1 : 0)
+              << " lowerKind=" << static_cast<int>(assignment.lowering_kind)
+              << " sameLevel=" << (assignment.same_level_feasible ? 1 : 0) << " yA=";
     for (double v : y_a) {
       std::cerr << v << ",";
     }

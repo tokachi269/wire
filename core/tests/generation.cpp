@@ -75,6 +75,180 @@ std::string hv_endpoint_snapshot_key(const HvEndpointSnapshot& snapshot) {
   return oss.str();
 }
 
+std::vector<wire::core::ObjectId> undo_order_choice(const std::vector<wire::core::ObjectId>& ordered,
+                                                    wire::core::OrderDecisionChoiceKind choice) {
+  std::vector<wire::core::ObjectId> base = ordered;
+  if (choice == wire::core::OrderDecisionChoiceKind::kReversed) {
+    std::reverse(base.begin(), base.end());
+  }
+  return base;
+}
+
+std::vector<wire::core::ObjectId> apply_order_choice(const std::vector<wire::core::ObjectId>& base,
+                                                     wire::core::OrderDecisionChoiceKind choice) {
+  std::vector<wire::core::ObjectId> ordered = base;
+  if (choice == wire::core::OrderDecisionChoiceKind::kReversed) {
+    std::reverse(ordered.begin(), ordered.end());
+  }
+  return ordered;
+}
+
+std::vector<wire::core::SegmentLaneAssignment> collect_template_assignments(const CoreState& state,
+                                                                            wire::core::BundleKind bundle_kind) {
+  std::vector<wire::core::SegmentLaneAssignment> result{};
+  for (const auto& assignment : state.view().last_lane_assignments()) {
+    const auto* bundle = state.view().edit_state().bundles.find(assignment.bundle_id);
+    if (bundle == nullptr || bundle->bundle_template_id != bundle_kind) {
+      continue;
+    }
+    result.push_back(assignment);
+  }
+  std::sort(result.begin(), result.end(),
+            [](const wire::core::SegmentLaneAssignment& a, const wire::core::SegmentLaneAssignment& b) {
+              return a.segment_index < b.segment_index;
+            });
+  return result;
+}
+
+bool reconstruct_assignment_node_bases(
+    const std::vector<wire::core::SegmentLaneAssignment>& assignments,
+    std::vector<std::vector<wire::core::ObjectId>>* base_ports_by_node, std::vector<int>* chosen_parity,
+    std::vector<wire::core::ObjectId>* node_ids, std::string* error) {
+  if (base_ports_by_node == nullptr || chosen_parity == nullptr || node_ids == nullptr) {
+    return false;
+  }
+  if (assignments.empty()) {
+    if (error != nullptr) {
+      *error = "no assignments";
+    }
+    return false;
+  }
+
+  const std::size_t node_count = assignments.size() + 1;
+  base_ports_by_node->assign(node_count, {});
+  chosen_parity->assign(node_count, 0);
+  node_ids->assign(node_count, wire::core::kInvalidObjectId);
+
+  (*node_ids)[0] = assignments.front().pole_a_id;
+  (*chosen_parity)[0] =
+      (assignments.front().order_decision_choice_a == wire::core::OrderDecisionChoiceKind::kReversed) ? 1 : 0;
+  (*base_ports_by_node)[0] =
+      undo_order_choice(assignments.front().port_ids_a, assignments.front().order_decision_choice_a);
+
+  for (std::size_t seg = 0; seg < assignments.size(); ++seg) {
+    const auto& assignment = assignments[seg];
+    const std::size_t node_index = seg + 1;
+    (*node_ids)[node_index] = assignment.pole_b_id;
+    (*chosen_parity)[node_index] =
+        (assignment.order_decision_choice_b == wire::core::OrderDecisionChoiceKind::kReversed) ? 1 : 0;
+    const auto base_from_left = undo_order_choice(assignment.port_ids_b, assignment.order_decision_choice_b);
+    if ((*base_ports_by_node)[node_index].empty()) {
+      (*base_ports_by_node)[node_index] = base_from_left;
+    } else if ((*base_ports_by_node)[node_index] != base_from_left) {
+      if (error != nullptr) {
+        std::ostringstream oss;
+        oss << "base_mismatch nodeIndex=" << node_index;
+        *error = oss.str();
+      }
+      return false;
+    }
+
+    if (seg + 1 < assignments.size()) {
+      const auto& next = assignments[seg + 1];
+      if (assignment.pole_b_id != next.pole_a_id) {
+        if (error != nullptr) {
+          std::ostringstream oss;
+          oss << "route_break seg=" << seg << " node=" << assignment.pole_b_id << " next=" << next.pole_a_id;
+          *error = oss.str();
+        }
+        return false;
+      }
+      const int next_parity =
+          (next.order_decision_choice_a == wire::core::OrderDecisionChoiceKind::kReversed) ? 1 : 0;
+      if (next_parity != (*chosen_parity)[node_index]) {
+        if (error != nullptr) {
+          std::ostringstream oss;
+          oss << "parity_break nodeIndex=" << node_index << " left=" << (*chosen_parity)[node_index]
+              << " right=" << next_parity;
+          *error = oss.str();
+        }
+        return false;
+      }
+      const auto base_from_right = undo_order_choice(next.port_ids_a, next.order_decision_choice_a);
+      if ((*base_ports_by_node)[node_index] != base_from_right) {
+        if (error != nullptr) {
+          std::ostringstream oss;
+          oss << "peer_base_mismatch nodeIndex=" << node_index;
+          *error = oss.str();
+        }
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+void dump_assignment_parity_bruteforce(const CoreState& state,
+                                       const std::vector<wire::core::SegmentLaneAssignment>& assignments,
+                                       const char* tag) {
+  std::vector<std::vector<wire::core::ObjectId>> base_ports_by_node{};
+  std::vector<int> chosen_parity{};
+  std::vector<wire::core::ObjectId> node_ids{};
+  std::string error{};
+  if (!reconstruct_assignment_node_bases(assignments, &base_ports_by_node, &chosen_parity, &node_ids, &error)) {
+    std::cerr << "[DBG] " << tag << " bruteforce_unavailable reason=" << error << "\n";
+    return;
+  }
+
+  const std::size_t node_count = base_ports_by_node.size();
+  if (node_count == 0 || node_count > 20) {
+    std::cerr << "[DBG] " << tag << " bruteforce_unavailable nodeCount=" << node_count << "\n";
+    return;
+  }
+
+  auto build_assignments_for_mask = [&](std::uint64_t mask) {
+    std::vector<wire::core::SegmentLaneAssignment> candidate = assignments;
+    for (std::size_t seg = 0; seg < assignments.size(); ++seg) {
+      const bool parity_a = ((mask >> seg) & 1ull) != 0ull;
+      const bool parity_b = ((mask >> (seg + 1)) & 1ull) != 0ull;
+      candidate[seg].order_decision_choice_a =
+          parity_a ? wire::core::OrderDecisionChoiceKind::kReversed : wire::core::OrderDecisionChoiceKind::kNormal;
+      candidate[seg].order_decision_choice_b =
+          parity_b ? wire::core::OrderDecisionChoiceKind::kReversed : wire::core::OrderDecisionChoiceKind::kNormal;
+      candidate[seg].port_ids_a = apply_order_choice(base_ports_by_node[seg], candidate[seg].order_decision_choice_a);
+      candidate[seg].port_ids_b =
+          apply_order_choice(base_ports_by_node[seg + 1], candidate[seg].order_decision_choice_b);
+    }
+    return candidate;
+  };
+
+  std::uint64_t chosen_mask = 0ull;
+  for (std::size_t i = 0; i < chosen_parity.size(); ++i) {
+    if (chosen_parity[i] != 0) {
+      chosen_mask |= (1ull << i);
+    }
+  }
+  const int chosen_intersections = count_bundle_lane_polyline_xy_intersections(state, assignments);
+
+  int best_intersections = std::numeric_limits<int>::max();
+  std::uint64_t best_mask = 0ull;
+  for (std::uint64_t mask = 0ull; mask < (1ull << node_count); ++mask) {
+    const auto candidate = build_assignments_for_mask(mask);
+    const int intersections = count_bundle_lane_polyline_xy_intersections(state, candidate);
+    if (intersections < best_intersections) {
+      best_intersections = intersections;
+      best_mask = mask;
+    }
+  }
+
+  std::cerr << "[DBG] " << tag << " chosenMask=" << chosen_mask << " chosenIntersections=" << chosen_intersections
+            << " bestMask=" << best_mask << " bestIntersections=" << best_intersections << " nodeParities=";
+  for (std::size_t i = 0; i < chosen_parity.size(); ++i) {
+    std::cerr << chosen_parity[i] << ",";
+  }
+  std::cerr << "\n";
+}
+
 std::vector<HvEndpointSnapshot> capture_hv_endpoint_snapshots(const CoreState& state) {
   std::vector<HvEndpointSnapshot> snapshots{};
   for (const auto& assignment : state.view().last_lane_assignments()) {
@@ -184,31 +358,15 @@ void dump_hv_endpoint_snapshot_diff(const std::vector<HvEndpointSnapshot>& befor
 }
 
 bool hv_route_has_parity_discontinuity(const CoreState& state, std::string* details) {
-  bool saw_hv = false;
-  for (const auto& orientation : state.view().last_generation_edge_orientations()) {
-    if (orientation.bundle_template_id != wire::core::BundleKind::kHighVoltage) {
-      continue;
-    }
-    saw_hv = true;
-    if (orientation.flipped_from_previous) {
-      if (details != nullptr) {
-        std::ostringstream oss;
-        oss << "flipped edge=" << orientation.node_a_id << "->" << orientation.node_b_id
-            << " turn=" << orientation.turn_angle_deg;
-        *details = oss.str();
-      }
-      return true;
-    }
-  }
-  if (!saw_hv) {
+  const auto assignments = collect_template_assignments(state, wire::core::BundleKind::kHighVoltage);
+  if (assignments.empty()) {
     if (details != nullptr) {
       *details = "hv orientations missing";
     }
     return true;
   }
 
-  const int polyline_intersections =
-      count_bundle_lane_polyline_xy_intersections(state, state.view().last_lane_assignments());
+  const int polyline_intersections = count_bundle_lane_polyline_xy_intersections(state, assignments);
   if (polyline_intersections != 0) {
     if (details != nullptr) {
       std::ostringstream oss;
@@ -219,7 +377,7 @@ bool hv_route_has_parity_discontinuity(const CoreState& state, std::string* deta
   }
 
   const int adjacent_discontinuities =
-      count_bundle_lane_adjacent_order_discontinuities(state, state.view().last_lane_assignments());
+      count_bundle_lane_adjacent_order_discontinuities(state, assignments);
   if (adjacent_discontinuities != 0) {
     if (details != nullptr) {
       std::ostringstream oss;
@@ -227,6 +385,61 @@ bool hv_route_has_parity_discontinuity(const CoreState& state, std::string* deta
       *details = oss.str();
     }
     return true;
+  }
+
+  std::vector<std::vector<wire::core::ObjectId>> base_ports_by_node{};
+  std::vector<int> chosen_parity{};
+  std::vector<wire::core::ObjectId> node_ids{};
+  std::string error{};
+  if (!reconstruct_assignment_node_bases(assignments, &base_ports_by_node, &chosen_parity, &node_ids, &error)) {
+    if (details != nullptr) {
+      *details = "parity_reconstruct_failed:" + error;
+    }
+    return true;
+  }
+
+  const std::size_t node_count = base_ports_by_node.size();
+  if (node_count != 0 && node_count <= 20) {
+    auto build_assignments_for_mask = [&](std::uint64_t mask) {
+      std::vector<wire::core::SegmentLaneAssignment> candidate = assignments;
+      for (std::size_t seg = 0; seg < assignments.size(); ++seg) {
+        const bool parity_a = ((mask >> seg) & 1ull) != 0ull;
+        const bool parity_b = ((mask >> (seg + 1)) & 1ull) != 0ull;
+        candidate[seg].order_decision_choice_a =
+            parity_a ? wire::core::OrderDecisionChoiceKind::kReversed : wire::core::OrderDecisionChoiceKind::kNormal;
+        candidate[seg].order_decision_choice_b =
+            parity_b ? wire::core::OrderDecisionChoiceKind::kReversed : wire::core::OrderDecisionChoiceKind::kNormal;
+        candidate[seg].port_ids_a = apply_order_choice(base_ports_by_node[seg], candidate[seg].order_decision_choice_a);
+        candidate[seg].port_ids_b =
+            apply_order_choice(base_ports_by_node[seg + 1], candidate[seg].order_decision_choice_b);
+      }
+      return candidate;
+    };
+
+    std::uint64_t chosen_mask = 0ull;
+    for (std::size_t i = 0; i < chosen_parity.size(); ++i) {
+      if (chosen_parity[i] != 0) {
+        chosen_mask |= (1ull << i);
+      }
+    }
+
+    const int chosen_intersections = count_bundle_lane_polyline_xy_intersections(state, assignments);
+    int best_intersections = std::numeric_limits<int>::max();
+    for (std::uint64_t mask = 0ull; mask < (1ull << node_count); ++mask) {
+      const auto candidate = build_assignments_for_mask(mask);
+      const int intersections = count_bundle_lane_polyline_xy_intersections(state, candidate);
+      best_intersections = std::min(best_intersections, intersections);
+    }
+
+    if (chosen_intersections != best_intersections) {
+      if (details != nullptr) {
+        std::ostringstream oss;
+        oss << "suboptimal parity chosen=" << chosen_intersections << " best=" << best_intersections
+            << " chosenMask=" << chosen_mask;
+        *details = oss.str();
+      }
+      return true;
+    }
   }
   return false;
 }
@@ -1136,16 +1349,14 @@ bool test_backbone_hv3_capture_shape_no_inversion() {
     std::cerr << "[DBG] C99 orientations_empty\n";
     return false;
   }
-  for (const auto& orientation : orientations) {
-    if (orientation.bundle_template_id != wire::core::BundleKind::kHighVoltage) {
-      continue;
-    }
-    if (orientation.flipped_from_previous) {
-      std::cerr << "[DBG] C99 flipped edge=" << orientation.node_a_id << "->" << orientation.node_b_id
-                << " orientation=" << static_cast<int>(orientation.orientation) << " turn=" << orientation.turn_angle_deg
-                << " flow=" << static_cast<int>(orientation.flow_kind) << "\n";
-      return false;
-    }
+  const auto assignments = collect_template_assignments(state, wire::core::BundleKind::kHighVoltage);
+  const int polyline_intersections = count_bundle_lane_polyline_xy_intersections(state, assignments);
+  const int adjacent_discontinuities = count_bundle_lane_adjacent_order_discontinuities(state, assignments);
+  if (polyline_intersections != 0 || adjacent_discontinuities != 0) {
+    dump_lane_assignment_debug(state, assignments, "C99_capture_shape");
+    std::cerr << "[DBG] C99 polyline_intersections=" << polyline_intersections
+              << " adjacent=" << adjacent_discontinuities << "\n";
+    return false;
   }
   return true;
 }
@@ -1226,7 +1437,9 @@ bool test_backbone_hv3_latest_capture_shape_no_twist() {
   std::string details;
   if (hv_route_has_parity_discontinuity(state, &details)) {
     std::cerr << "[DBG] C311 " << details << "\n";
-    dump_lane_assignment_debug(state, state.view().last_lane_assignments(), "C311_latest_capture_twist");
+    const auto assignments = collect_template_assignments(state, wire::core::BundleKind::kHighVoltage);
+    dump_lane_assignment_debug(state, assignments, "C311_latest_capture_twist");
+    dump_assignment_parity_bruteforce(state, assignments, "C311_latest_capture_twist");
     return false;
   }
   return true;
@@ -1269,6 +1482,10 @@ bool test_backbone_hv3_latest_capture_variant_bank_no_twist() {
     std::string details{};
     if (hv_route_has_parity_discontinuity(state, &details)) {
       std::cerr << "[DBG] C314 seed=" << seed << " " << details << "\n";
+      const auto assignments = collect_template_assignments(state, wire::core::BundleKind::kHighVoltage);
+      dump_lane_assignment_debug(state, assignments, "C314_variant_bank_twist");
+      dump_assignment_parity_bruteforce(state, assignments, "C314_variant_bank_twist");
+      dump_bundle_lane_polyline_xy_intersections(state, assignments, "C314_variant_bank_twist");
       return false;
     }
   }
@@ -1323,7 +1540,9 @@ bool test_backbone_hv3_latest_capture_final_curve_no_twist() {
   std::string details{};
   if (hv_route_has_final_curve_twist(state, &details)) {
     std::cerr << "[DBG] C316 " << details << "\n";
-    dump_lane_assignment_debug(state, state.view().last_lane_assignments(), "C316_final_curve_twist");
+    const auto hv_assignments = collect_template_assignments(state, wire::core::BundleKind::kHighVoltage);
+    dump_lane_assignment_debug(state, hv_assignments, "C316_final_curve_twist");
+    dump_assignment_parity_bruteforce(state, hv_assignments, "C316_final_curve_twist");
     struct LaneCurveSegment {
       std::size_t segment_index = 0;
       std::size_t lane_index = 0;

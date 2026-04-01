@@ -363,6 +363,8 @@ void dump_lane_assignment_debug(const CoreState& state,
     std::vector<double> y_a{};
     std::vector<double> y_b_raw{};
     std::vector<double> y_b{};
+    std::vector<wire::core::Vec3d> world_a{};
+    std::vector<wire::core::Vec3d> world_b{};
     const std::size_t lane_count = std::min(assignment.port_ids_a.size(), assignment.port_ids_b.size());
     for (std::size_t lane = 0; lane < lane_count; ++lane) {
       const auto* pa = state.view().edit_state().ports.find(assignment.port_ids_a[lane]);
@@ -370,10 +372,14 @@ void dump_lane_assignment_debug(const CoreState& state,
       if (pa == nullptr || pb == nullptr) {
         y_a.push_back(0.0);
         y_b_raw.push_back(0.0);
+        world_a.push_back({});
+        world_b.push_back({});
         continue;
       }
       y_a.push_back(to_layout_local(*pole_a, *pa).y);
       y_b_raw.push_back(to_layout_local(*pole_b, *pb).y);
+      world_a.push_back(pa->world_position);
+      world_b.push_back(pb->world_position);
     }
     auto inversion_count_for_sign = [&](double sign) {
       int inversions = 0;
@@ -412,13 +418,29 @@ void dump_lane_assignment_debug(const CoreState& state,
               << " solver=" << (assignment.solver_used_same_level_constraint ? 1 : 0)
               << " special=" << (assignment.used_special_case_ports ? 1 : 0)
               << " lowerKind=" << static_cast<int>(assignment.lowering_kind)
-              << " sameLevel=" << (assignment.same_level_feasible ? 1 : 0) << " yA=";
+              << " sameLevel=" << (assignment.same_level_feasible ? 1 : 0) << " portsA=";
+    for (wire::core::ObjectId id : assignment.port_ids_a) {
+      std::cerr << id << ",";
+    }
+    std::cerr << " portsB=";
+    for (wire::core::ObjectId id : assignment.port_ids_b) {
+      std::cerr << id << ",";
+    }
+    std::cerr << " yA=";
     for (double v : y_a) {
       std::cerr << v << ",";
     }
     std::cerr << " yB=";
     for (double v : y_b) {
       std::cerr << v << ",";
+    }
+    std::cerr << " worldA=";
+    for (const auto& v : world_a) {
+      std::cerr << "(" << v.x << "," << v.y << "," << v.z << "),";
+    }
+    std::cerr << " worldB=";
+    for (const auto& v : world_b) {
+      std::cerr << "(" << v.x << "," << v.y << "," << v.z << "),";
     }
     std::cerr << "\n";
   }
@@ -544,6 +566,76 @@ int count_bundle_lane_polyline_xy_intersections(const CoreState& state,
     }
   }
   return intersections;
+}
+
+void dump_bundle_lane_polyline_xy_intersections(const CoreState& state,
+                                                const std::vector<wire::core::SegmentLaneAssignment>& assignments,
+                                                const char* tag) {
+  std::unordered_map<ObjectId, std::vector<const wire::core::SegmentLaneAssignment*>> by_bundle{};
+  for (const auto& assignment : assignments) {
+    by_bundle[assignment.bundle_id].push_back(&assignment);
+  }
+
+  for (auto& [bundle_id, bundle_assignments] : by_bundle) {
+    if (bundle_assignments.empty()) {
+      continue;
+    }
+    std::sort(bundle_assignments.begin(), bundle_assignments.end(),
+              [](const wire::core::SegmentLaneAssignment* a, const wire::core::SegmentLaneAssignment* b) {
+                if (a->segment_index != b->segment_index) {
+                  return a->segment_index < b->segment_index;
+                }
+                if (a->pole_a_id != b->pole_a_id) {
+                  return a->pole_a_id < b->pole_a_id;
+                }
+                return a->pole_b_id < b->pole_b_id;
+              });
+
+    std::size_t lane_count = std::numeric_limits<std::size_t>::max();
+    for (const auto* assignment : bundle_assignments) {
+      lane_count = std::min(lane_count, std::min(assignment->port_ids_a.size(), assignment->port_ids_b.size()));
+    }
+    if (lane_count == std::numeric_limits<std::size_t>::max() || lane_count < 2) {
+      continue;
+    }
+
+    struct LaneSegmentRef {
+      int segment_index = -1;
+      std::size_t lane_index = 0;
+      wire::core::Vec3d a{};
+      wire::core::Vec3d b{};
+    };
+    std::vector<std::vector<LaneSegmentRef>> lane_segments(lane_count);
+    for (const auto* assignment : bundle_assignments) {
+      const std::size_t assignment_lane_count =
+          std::min(lane_count, std::min(assignment->port_ids_a.size(), assignment->port_ids_b.size()));
+      for (std::size_t lane = 0; lane < assignment_lane_count; ++lane) {
+        const auto* a = state.view().edit_state().ports.find(assignment->port_ids_a[lane]);
+        const auto* b = state.view().edit_state().ports.find(assignment->port_ids_b[lane]);
+        if (a == nullptr || b == nullptr) {
+          continue;
+        }
+        lane_segments[lane].push_back(LaneSegmentRef{
+            static_cast<int>(assignment->segment_index), lane, a->world_position, b->world_position});
+      }
+    }
+
+    for (std::size_t i = 0; i < lane_count; ++i) {
+      for (std::size_t j = i + 1; j < lane_count; ++j) {
+        for (const auto& seg_i : lane_segments[i]) {
+          for (const auto& seg_j : lane_segments[j]) {
+            if (!segments_intersect_xy_strict_test(seg_i.a, seg_i.b, seg_j.a, seg_j.b)) {
+              continue;
+            }
+            std::cerr << "[DBG] " << tag << " bundle=" << bundle_id << " lanes=" << i << "," << j
+                      << " segs=" << seg_i.segment_index << "," << seg_j.segment_index << " A=(" << seg_i.a.x << ","
+                      << seg_i.a.y << ")->(" << seg_i.b.x << "," << seg_i.b.y << ") B=(" << seg_j.a.x << ","
+                      << seg_j.a.y << ")->(" << seg_j.b.x << "," << seg_j.b.y << ")\n";
+          }
+        }
+      }
+    }
+  }
 }
 
 int count_bundle_lane_detail_curve_xy_intersections(const CoreState& state,

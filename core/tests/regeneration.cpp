@@ -766,19 +766,10 @@ bool test_regenerate_session_interval_extension_preserves_hv_lane_order() {
 
   const LaneOrderMetrics metrics = compute_lane_order_metrics(state, hv_assignments);
   const int adjacent_discontinuities = count_bundle_lane_adjacent_order_discontinuities(state, hv_assignments);
-  if (metrics.y_inversions != 0 || adjacent_discontinuities != 0) {
+  const int polyline_intersections = count_bundle_lane_polyline_xy_intersections(state, hv_assignments);
+  if (metrics.y_inversions != 0 || adjacent_discontinuities != 0 || polyline_intersections != 0) {
     dump_lane_assignment_debug(state, hv_assignments, "C207_regen_interval_extension");
     return false;
-  }
-
-  const auto& orientations = state.view().last_generation_edge_orientations();
-  for (const auto& orientation : orientations) {
-    if (orientation.bundle_template_id != wire::core::BundleKind::kHighVoltage) {
-      continue;
-    }
-    if (orientation.flipped_from_previous) {
-      return false;
-    }
   }
   return true;
 }

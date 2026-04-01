@@ -116,6 +116,9 @@ int count_lane_segment_xy_intersections(const CoreState& state,
                                         const std::vector<wire::core::SegmentLaneAssignment>& assignments);
 int count_bundle_lane_polyline_xy_intersections(const CoreState& state,
                                                 const std::vector<wire::core::SegmentLaneAssignment>& assignments);
+void dump_bundle_lane_polyline_xy_intersections(const CoreState& state,
+                                                const std::vector<wire::core::SegmentLaneAssignment>& assignments,
+                                                const char* tag);
 int count_bundle_lane_detail_curve_xy_intersections(const CoreState& state,
                                                     const std::vector<wire::core::SegmentLaneAssignment>& assignments);
 int count_bundle_lane_adjacent_order_discontinuities(const CoreState& state,

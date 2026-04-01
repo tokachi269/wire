@@ -1284,6 +1284,79 @@ GroupedSpanLanePreparer::EnsurePorts(ObjectId node_id, ObjectId peer_id, int seg
   }
 
   const bool use_outboard_lowered_ports_here = lowering_.EndpointRequiresOutboardLoweredPorts(node_id, peer_id);
+  auto desired_scaffold_world_for_target = [&](double target_y,
+                                               const SegmentRelationFeasibility& feasibility) -> Vec3d {
+    const double base_z_m = LaneRowTargetZForEndpoint(*pole, feasibility);
+    const double layout_yaw = LayoutYawForPole(*pole);
+    const Vec3d local{0.0, target_y, base_z_m};
+    if (!use_lane_row_geometry_) {
+      return local_to_world_on_pole_local(pole->world_transform, layout_yaw, local);
+    }
+
+    const auto it_index = std::find(ctx_.node_ids.begin(), ctx_.node_ids.end(), node_id);
+    const std::size_t node_index = (it_index == ctx_.node_ids.end())
+                                       ? ctx_.node_ids.size()
+                                       : static_cast<std::size_t>(it_index - ctx_.node_ids.begin());
+    const bool is_terminal_node = (node_index == 0 || node_index + 1 >= ctx_.node_ids.size());
+    if (is_terminal_node || node_index == ctx_.node_ids.size()) {
+      return local_to_world_on_pole_local(pole->world_transform, layout_yaw, local);
+    }
+    const EndpointSideDecision scaffold_side_decision =
+        orientation_.PreferredSideAxisForEndpoint(node_id, peer_id, feasibility);
+    const Vec3d stable_side_axis =
+        scaffold_side_decision.has_side_axis ? scaffold_side_decision.side_axis
+                                             : orientation_.GroupedLineAxisForEndpoint(node_id, peer_id);
+    const Vec3d base = pole->world_transform.position;
+    const Vec3d prev = ctx_.support_position(ctx_.node_ids[node_index - 1]);
+    const Vec3d next = ctx_.support_position(ctx_.node_ids[node_index + 1]);
+    if ((prev - base).x * (prev - base).x + (prev - base).y * (prev - base).y <= 1e-12 ||
+        (next - base).x * (next - base).x + (next - base).y * (next - base).y <= 1e-12) {
+      return local_to_world_on_pole_local(pole->world_transform, layout_yaw, local);
+    }
+
+    Vec3d dir_in = base - prev;
+    Vec3d dir_out = next - base;
+    if (!normalize_xy(&dir_in) || !normalize_xy(&dir_out)) {
+      return local_to_world_on_pole_local(pole->world_transform, layout_yaw, local);
+    }
+    Vec3d normal_in = ComputeLateralAxis(dir_in);
+    Vec3d normal_out = ComputeLateralAxis(dir_out);
+    if (!normalize_xy(&normal_in)) {
+      normal_in = stable_side_axis;
+    }
+    if (!normalize_xy(&normal_out)) {
+      normal_out = stable_side_axis;
+    }
+    if (dot_xy(normal_in, stable_side_axis) < 0.0) {
+      normal_in.x = -normal_in.x;
+      normal_in.y = -normal_in.y;
+    }
+    if (dot_xy(normal_out, stable_side_axis) < 0.0) {
+      normal_out.x = -normal_out.x;
+      normal_out.y = -normal_out.y;
+    }
+
+    Vec3d joined_xy{};
+    const Vec3d offset_in{base.x + normal_in.x * target_y, base.y + normal_in.y * target_y, HeightAlongWorldUp(base)};
+    const Vec3d offset_out{base.x + normal_out.x * target_y, base.y + normal_out.y * target_y,
+                           HeightAlongWorldUp(base)};
+    if (line_intersection_xy_local(offset_in, dir_in, offset_out, dir_out, &joined_xy)) {
+      SetHeightAlongWorldUp(&joined_xy, HeightAlongWorldUp(base) + base_z_m);
+      const double dx = joined_xy.x - base.x;
+      const double dy = joined_xy.y - base.y;
+      const double dist = std::sqrt(dx * dx + dy * dy);
+      const double spacing = lowering_.LaneSpacingForEndpoint(feasibility);
+      const double limit = std::max(spacing * 8.0, std::abs(target_y) * 8.0 + 0.2);
+      if (dist <= limit || dist <= 1e-9) {
+        return joined_xy;
+      }
+      const double scale = limit / dist;
+      return Vec3d{base.x + dx * scale, base.y + dy * scale, HeightAlongWorldUp(base) + base_z_m};
+    }
+
+    return local_to_world_on_pole_local(pole->world_transform, layout_yaw, local);
+  };
+
   auto try_solver_ports_for_pole = [&](ConnectionContext solver_context, SlotRole preferred_role,
                                        const SegmentRelationFeasibility& feasibility,
                                        std::vector<ObjectId>* out_ports) -> bool {
@@ -1344,27 +1417,15 @@ GroupedSpanLanePreparer::EnsurePorts(ObjectId node_id, ObjectId peer_id, int seg
       return a < b;
     });
     if (static_cast<int>(solved_ports.size()) == lane_count_ && !solved_ports.empty()) {
-      const PoleFrame frame = BuildPoleFrame(pole->world_transform, layout_yaw);
-      const double target_uniform_z = LaneRowTargetZForEndpoint(*pole, feasibility);
       const double normalize_center = (static_cast<double>(lane_count_) - 1.0) * 0.5;
       for (int lane = 0; lane < lane_count_; ++lane) {
         const ObjectId port_id = solved_ports[static_cast<std::size_t>(lane)];
-        const auto world = state_.port_world_position(port_id);
-        if (!world) {
-          continue;
-        }
-        Vec3d local = WorldPointToLocal(frame, *world);
         const double target_y = (static_cast<double>(lane) - normalize_center) * spacing;
         const SlotSide template_side =
             (target_y < -1e-9) ? SlotSide::kLeft : ((target_y > 1e-9) ? SlotSide::kRight : SlotSide::kCenter);
-        if (std::abs(local.y - target_y) <= 1e-9 && std::abs(local.z - target_uniform_z) <= 1e-9) {
-          continue;
-        }
-        local.y = target_y;
-        local.z = target_uniform_z;
+        const Vec3d desired_world = desired_scaffold_world_for_target(target_y, feasibility);
         if (state_.finalize_constrained_solver_port(
-                port_id, local_to_world_on_pole_local(pole->world_transform, layout_yaw, local), category_,
-                state_.template_layer_for_category(category_), template_side)) {
+                port_id, desired_world, category_, state_.template_layer_for_category(category_), template_side)) {
           mark_updated(port_id);
         }
       }
@@ -1695,64 +1756,7 @@ GroupedSpanLanePreparer::EnsurePorts(ObjectId node_id, ObjectId peer_id, int seg
 
     const bool use_scaffold_geometry = use_lane_row_geometry_;
     auto desired_world_for_target = [&](double target_y) {
-      const Vec3d base = pole->world_transform.position;
-      const SegmentRelationFeasibility relation_feasibility = lowering_.SegmentRelationFeasibilityFor(node_id, peer_id);
-      const double base_z_m = LaneRowTargetZForEndpoint(*pole, relation_feasibility);
-      if (!use_scaffold_geometry || node_index == ctx_.node_ids.size()) {
-        const Vec3d local{0.0, target_y, base_z_m};
-        return local_to_world_on_pole_local(pole->world_transform, LayoutYawForPole(*pole), local);
-      }
-
-      const Vec3d prev = ctx_.support_position(ctx_.node_ids[node_index - 1]);
-      const Vec3d next = ctx_.support_position(ctx_.node_ids[node_index + 1]);
-      if ((prev - base).x * (prev - base).x + (prev - base).y * (prev - base).y <= 1e-12 ||
-          (next - base).x * (next - base).x + (next - base).y * (next - base).y <= 1e-12) {
-        const Vec3d local{0.0, target_y, base_z_m};
-        return local_to_world_on_pole_local(pole->world_transform, LayoutYawForPole(*pole), local);
-      }
-
-      Vec3d dir_in = base - prev;
-      Vec3d dir_out = next - base;
-      if (!normalize_xy(&dir_in) || !normalize_xy(&dir_out)) {
-        const Vec3d local{0.0, target_y, base_z_m};
-        return local_to_world_on_pole_local(pole->world_transform, LayoutYawForPole(*pole), local);
-      }
-      Vec3d normal_in = ComputeLateralAxis(dir_in);
-      Vec3d normal_out = ComputeLateralAxis(dir_out);
-      if (!normalize_xy(&normal_in)) {
-        normal_in = stable_side_axis;
-      }
-      if (!normalize_xy(&normal_out)) {
-        normal_out = stable_side_axis;
-      }
-      if (dot_xy(normal_in, stable_side_axis) < 0.0) {
-        normal_in.x = -normal_in.x;
-        normal_in.y = -normal_in.y;
-      }
-      if (dot_xy(normal_out, stable_side_axis) < 0.0) {
-        normal_out.x = -normal_out.x;
-        normal_out.y = -normal_out.y;
-      }
-
-      Vec3d joined_xy{};
-      const Vec3d offset_in{base.x + normal_in.x * target_y, base.y + normal_in.y * target_y, HeightAlongWorldUp(base)};
-      const Vec3d offset_out{base.x + normal_out.x * target_y, base.y + normal_out.y * target_y,
-                             HeightAlongWorldUp(base)};
-      if (line_intersection_xy_local(offset_in, dir_in, offset_out, dir_out, &joined_xy)) {
-        SetHeightAlongWorldUp(&joined_xy, HeightAlongWorldUp(base) + base_z_m);
-        const double dx = joined_xy.x - base.x;
-        const double dy = joined_xy.y - base.y;
-        const double dist = std::sqrt(dx * dx + dy * dy);
-        const double limit = std::max(spacing * 8.0, std::abs(target_y) * 8.0 + 0.2);
-        if (dist <= limit || dist <= 1e-9) {
-          return joined_xy;
-        }
-        const double scale = limit / dist;
-        return Vec3d{base.x + dx * scale, base.y + dy * scale, HeightAlongWorldUp(base) + base_z_m};
-      }
-
-      const Vec3d local{0.0, target_y, base_z_m};
-      return local_to_world_on_pole_local(pole->world_transform, LayoutYawForPole(*pole), local);
+      return desired_scaffold_world_for_target(target_y, scaffold_feasibility);
     };
 
     std::vector<ObjectId> ordered_ports(static_cast<std::size_t>(lane_count_), kInvalidObjectId);

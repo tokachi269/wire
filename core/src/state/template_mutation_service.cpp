@@ -155,7 +155,7 @@ EditResult<bool> TemplateMutationService::UpdateCableTemplate(CoreState& state, 
     }
   }
   for (ObjectId span_id : ordered_target_span_ids) {
-    state.mark_span_dirty(span_id, DirtyBits::kGeometry | DirtyBits::kRender, true);
+    state.mark_span_dirty(span_id, DirtyBits::kDecision, true);
     CoreState::add_unique_id(result.change_set.dirty_span_ids, span_id);
     CoreState::add_unique_id(result.change_set.updated_ids, span_id);
   }
@@ -258,7 +258,7 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
         continue;
       }
       for (ObjectId span_id : spans_it->second) {
-        state.mark_span_dirty(span_id, DirtyBits::kGeometry | DirtyBits::kRender, true);
+        state.mark_span_dirty(span_id, DirtyBits::kDecision, true);
         CoreState::add_unique_id(result.change_set.dirty_span_ids, span_id);
         CoreState::add_unique_id(result.change_set.updated_ids, span_id);
       }
@@ -320,7 +320,7 @@ EditResult<bool> TemplateMutationService::UpdateAttachmentTemplate(CoreState& st
     if (attachment.template_id != normalized.id) {
       continue;
     }
-    state.mark_span_dirty(attachment.span_id, DirtyBits::kGeometry | DirtyBits::kRender, true);
+    state.mark_span_dirty(attachment.span_id, DirtyBits::kDecision, true);
     CoreState::add_unique_id(result.change_set.dirty_span_ids, attachment.span_id);
     CoreState::add_unique_id(result.change_set.updated_ids, attachment.span_id);
   }
@@ -353,7 +353,7 @@ EditResult<bool> TemplateMutationService::ResetAllSpanReferenceLengths(CoreState
   }
   if (changed && mark_all_spans_dirty) {
     for (const Span& span : state.authoritative_.edit_state.spans.items()) {
-      state.mark_span_dirty(span.id, DirtyBits::kGeometry | DirtyBits::kRender, true);
+      state.mark_span_dirty(span.id, DirtyBits::kGeometryRefresh, true);
       CoreState::add_unique_id(result.change_set.dirty_span_ids, span.id);
       CoreState::add_unique_id(result.change_set.updated_ids, span.id);
     }

@@ -10,6 +10,8 @@ namespace wire::core::generation::detail {
 
 namespace {
 
+constexpr double kNearDuplicateSupportNodeDistanceM = 1.5;
+
 bool is_supported_bundle_node_mode(BundleNodeMode mode) {
   return mode == BundleNodeMode::kNotPresent || mode == BundleNodeMode::kPassThrough;
 }
@@ -23,7 +25,21 @@ void add_unique_candidate(std::vector<SupportNodeCandidate>* candidates, const S
     return;
   }
   const Vec3d d = candidate.world - candidates->back().world;
-  if ((d.x * d.x + d.y * d.y + d.z * d.z) > 1e-10) {
+  const double dist2 = d.x * d.x + d.y * d.y + d.z * d.z;
+  const bool can_collapse_near_duplicate =
+      candidates->back().mode == PlacementMode::kAuto && candidate.mode == PlacementMode::kAuto &&
+      candidates->back().support_kind == SupportKind::kPole && candidate.support_kind == SupportKind::kPole &&
+      !candidates->back().has_tangent_hint && !candidate.has_tangent_hint &&
+      dist2 < (kNearDuplicateSupportNodeDistanceM * kNearDuplicateSupportNodeDistanceM);
+  if (can_collapse_near_duplicate) {
+    // Keep the route start anchored at the clicked endpoint; only collapse the adjacent interior auto candidate.
+    if (candidates->back().vertex_index == 0 && candidate.vertex_index > 0) {
+      return;
+    }
+    candidates->back() = candidate;
+    return;
+  }
+  if (dist2 > 1e-10) {
     candidates->push_back(candidate);
   }
 }

@@ -69,6 +69,7 @@ CoreState::RegenerateSessionAutoParts(std::uint64_t generation_session_id, const
                 queue.end());
   };
   erase_removed_spans_from_queue(dirty_queue_access().topology_dirty_span_ids);
+  erase_removed_spans_from_queue(dirty_queue_access().decision_dirty_span_ids);
   erase_removed_spans_from_queue(dirty_queue_access().geometry_dirty_span_ids);
   erase_removed_spans_from_queue(dirty_queue_access().bounds_dirty_span_ids);
   erase_removed_spans_from_queue(dirty_queue_access().render_dirty_span_ids);

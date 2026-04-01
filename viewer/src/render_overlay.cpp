@@ -178,11 +178,13 @@ Color DirtyColorForSpan(const wire::core::SpanRuntimeState* runtime_state) {
   }
   if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kTopology))
     return Color{126, 102, 145, 255};
-  if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kGeometry))
+  if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kDecision))
+    return Color{186, 132, 96, 255};
+  if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kGeometryRefresh))
     return Color{164, 140, 62, 255};
   if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kBounds))
     return Color{83, 112, 154, 255};
-  if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kRender))
+  if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kRenderRefresh))
     return Color{146, 86, 79, 255};
   if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kRaycast))
     return Color{88, 132, 88, 255};

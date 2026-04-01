@@ -285,7 +285,9 @@ bool test_generate_simple_line_integration() {
     }
   }
 
-  if (state.view().dirty_queue().geometry_dirty_span_ids.size() < result.value.span_ids.size()) {
+  const std::size_t pending_layout_or_geometry =
+      state.view().dirty_queue().decision_dirty_span_ids.size() + state.view().dirty_queue().geometry_dirty_span_ids.size();
+  if (pending_layout_or_geometry < result.value.span_ids.size()) {
     return false;
   }
 

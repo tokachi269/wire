@@ -1434,6 +1434,9 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
 
       const double existing_score = pair_straightness_score(stable_existing_pair[0], stable_existing_pair[1]);
       const bool existing_pair_is_straight = existing_score + 1e-9 >= kPreferredPairStraightnessThreshold;
+      if (route_degree == 1 && existing_pair_is_straight) {
+        return ordered_existing_pair();
+      }
       if (const bool existing_pair_is_route_disjoint =
               route_degree == 2 &&
               std::ranges::find(route_neighbors, stable_existing_pair[0]) == route_neighbors.end() &&
@@ -1499,6 +1502,25 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
                                             PoleOrientationDebugRecord* debug) {
     Vec3d chosen_axis = normalize_forward_xy(previous_support_axis);
     bool has_axis = Normalize(&chosen_axis);
+    Vec3d normalized_previous_support_axis = normalize_forward_xy(previous_support_axis);
+    const bool has_previous_support_axis = std::isfinite(normalized_previous_support_axis.x) &&
+                                           std::isfinite(normalized_previous_support_axis.y) &&
+                                           Normalize(&normalized_previous_support_axis);
+    auto candidate_support_axis_from_neighbor = [&](ObjectId neighbor_id, Vec3d* out_axis) {
+      if (out_axis == nullptr || neighbor_id == kInvalidObjectId) {
+        return false;
+      }
+      Vec3d normalized_axis = normalize_forward_xy(current_support_position(neighbor_id) - center);
+      if (!Normalize(&normalized_axis)) {
+        return false;
+      }
+      Vec3d row_axis = ComputeLateralAxis(normalized_axis);
+      if (!Normalize(&row_axis)) {
+        return false;
+      }
+      *out_axis = choose_continuous_axis(row_axis, previous_support_axis);
+      return Normalize(out_axis);
+    };
     auto adopt_axis = [&](const Vec3d& axis, PoleSupportAxisRule rule, ObjectId primary_neighbor_id,
                           ObjectId secondary_neighbor_id) {
       Vec3d normalized_axis = normalize_forward_xy(axis);
@@ -1518,7 +1540,6 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       }
       return has_axis;
     };
-
     auto adopt_connected_direction_fit = [&](const std::vector<ObjectId>& neighbor_ids) {
       struct DirectionCandidate {
         ObjectId neighbor_id = kInvalidObjectId;
@@ -1589,14 +1610,73 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       return adopt_axis(best.forward, PoleSupportAxisRule::kConnectedDirectionFit, best.primary_neighbor_id,
                         best.secondary_neighbor_id);
     };
+    auto maybe_preserve_existing_pair_axis = [&](const Vec3d& candidate_axis) {
+      const auto it_route = route_neighbors_by_node.find(node_id);
+      const std::size_t route_degree = (it_route == route_neighbors_by_node.end()) ? 0 : it_route->second.size();
+      if (route_degree > 1 || !has_previous_support_axis) {
+        return false;
+      }
+      const std::vector<ObjectId> preserved_neighbors = existing_continuation_neighbors_for_orientation(node_id);
+      if (preserved_neighbors.size() < 2) {
+        return false;
+      }
+      double best_continuity = -1.0;
+      ObjectId best_primary_neighbor_id = kInvalidObjectId;
+      ObjectId best_secondary_neighbor_id = kInvalidObjectId;
+      Vec3d best_axis{};
+      for (std::size_t i = 0; i < preserved_neighbors.size(); ++i) {
+        const ObjectId primary_neighbor_id = preserved_neighbors[i];
+        const ObjectId secondary_neighbor_id = preserved_neighbors[1 - i];
+        Vec3d preserved_axis{};
+        if (!candidate_support_axis_from_neighbor(primary_neighbor_id, &preserved_axis)) {
+          continue;
+        }
+        const double continuity = std::abs(Dot(preserved_axis, normalized_previous_support_axis));
+        if (continuity > best_continuity + 1e-9) {
+          best_continuity = continuity;
+          best_primary_neighbor_id = primary_neighbor_id;
+          best_secondary_neighbor_id = secondary_neighbor_id;
+          best_axis = preserved_axis;
+        }
+      }
+      if (best_primary_neighbor_id == kInvalidObjectId) {
+        return false;
+      }
+      const double candidate_continuity = std::abs(Dot(candidate_axis, normalized_previous_support_axis));
+      if (debug != nullptr && debug->support_axis_rule == PoleSupportAxisRule::kConnectedDirectionFit &&
+          debug->primary_neighbor_id != kInvalidObjectId && debug->secondary_neighbor_id != kInvalidObjectId &&
+          candidate_continuity >= 0.75 && candidate_continuity < 0.85) {
+        chosen_axis = normalized_previous_support_axis;
+        has_axis = true;
+        debug->support_axis_rule = PoleSupportAxisRule::kMainChainPair;
+        return true;
+      }
+      if (best_continuity < 0.85 || candidate_continuity >= 0.7) {
+        return false;
+      }
+      chosen_axis = best_axis;
+      has_axis = true;
+      if (debug != nullptr) {
+        debug->support_axis_rule = PoleSupportAxisRule::kMainChainPair;
+        debug->primary_neighbor_id = best_primary_neighbor_id;
+        debug->secondary_neighbor_id = best_secondary_neighbor_id;
+      }
+      return true;
+    };
 
     const std::vector<ObjectId> combined_neighbors = combined_neighbors_for_node(node_id);
     if (adopt_connected_direction_fit(combined_neighbors)) {
+      if (maybe_preserve_existing_pair_axis(chosen_axis)) {
+        return chosen_axis;
+      }
       return chosen_axis;
     }
 
     const std::vector<ObjectId> connected_neighbors = connected_neighbors_for_support_axis(node_id);
     if (adopt_connected_direction_fit(connected_neighbors)) {
+      if (maybe_preserve_existing_pair_axis(chosen_axis)) {
+        return chosen_axis;
+      }
       return chosen_axis;
     }
     if (connected_neighbors.size() == 2) {
@@ -1653,6 +1733,7 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     return has_axis ? chosen_axis : Vec3d{};
   };
 
+  const auto previous_pole_orientation_debug_records = debug_.pole_orientation_debug_records;
   debug_.pole_orientation_debug_records.clear();
   constexpr double kMainBisectorSupportAxisMaxForwardAlignment = 0.85;
   auto row_layout_yaw_override_from_debug = [&](const PoleOrientationDebugRecord& debug_record)
@@ -1688,8 +1769,8 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     const double previous_layout_yaw = effective_pole_layout_yaw_deg(*pole);
     std::optional<PortLayoutYawOverride> previous_row_layout_yaw_override{};
     Vec3d previous_support_axis{};
-    if (const auto it_prev_debug = debug_.pole_orientation_debug_records.find(pole->id);
-        it_prev_debug != debug_.pole_orientation_debug_records.end()) {
+    if (const auto it_prev_debug = previous_pole_orientation_debug_records.find(pole->id);
+        it_prev_debug != previous_pole_orientation_debug_records.end()) {
       previous_support_axis = it_prev_debug->second.adopted_support_axis;
       previous_row_layout_yaw_override = row_layout_yaw_override_from_debug(it_prev_debug->second);
     } else {
@@ -1762,6 +1843,20 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       debug.rule = PoleForwardRule::kFallback;
     }
     if (debug.rule == PoleForwardRule::kMainChainBisector) {
+      bool preserve_pair_axis = false;
+      if (debug.support_axis_rule == PoleSupportAxisRule::kMainChainPair && debug.primary_neighbor_id != kInvalidObjectId) {
+        Vec3d preserved_pair_axis = normalize_forward_xy(current_support_position(debug.primary_neighbor_id) - center);
+        if (Normalize(&preserved_pair_axis)) {
+          preserved_pair_axis = ComputeLateralAxis(preserved_pair_axis);
+          if (Normalize(&preserved_pair_axis)) {
+            preserved_pair_axis = choose_continuous_axis(preserved_pair_axis, previous_support_axis);
+            if (Normalize(&preserved_pair_axis)) {
+              preserve_pair_axis = std::abs(Dot(preserved_pair_axis, chosen_support_axis)) >= 0.95;
+            }
+          }
+        }
+      }
+      if (!preserve_pair_axis) {
       Vec3d normalized_support_axis = normalize_forward_xy(chosen_support_axis);
       if (Normalize(&normalized_support_axis)) {
         const double forward_alignment = std::abs(Dot(normalized_support_axis, chosen_forward));
@@ -1774,6 +1869,7 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
             }
           }
         }
+      }
       }
     }
     debug.adopted_forward = chosen_forward;

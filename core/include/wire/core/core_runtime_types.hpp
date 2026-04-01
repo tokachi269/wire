@@ -140,10 +140,13 @@ struct RelationIndex {
 enum class DirtyBits : std::uint32_t {
   kNone = 0,
   kTopology = 1u << 0,
-  kGeometry = 1u << 1,
-  kBounds = 1u << 2,
-  kRender = 1u << 3,
-  kRaycast = 1u << 4,
+  kDecision = 1u << 1,
+  kGeometryRefresh = 1u << 2,
+  kBounds = 1u << 3,
+  kRenderRefresh = 1u << 4,
+  kRaycast = 1u << 5,
+  kGeometry = (1u << 1) | (1u << 2),
+  kRender = 1u << 4,
 };
 
 inline DirtyBits operator|(DirtyBits a, DirtyBits b) {
@@ -183,6 +186,7 @@ struct SpanRuntimeState {
 struct DirtyQueue {
   // Derived work queues. Content is rebuildable from edit operations.
   std::vector<ObjectId> topology_dirty_span_ids;
+  std::vector<ObjectId> decision_dirty_span_ids;
   std::vector<ObjectId> geometry_dirty_span_ids;
   std::vector<ObjectId> bounds_dirty_span_ids;
   std::vector<ObjectId> render_dirty_span_ids;
@@ -191,13 +195,15 @@ struct DirtyQueue {
 
 struct RecalcStats {
   std::size_t topology_processed = 0;
+  std::size_t decision_processed = 0;
   std::size_t geometry_processed = 0;
   std::size_t bounds_processed = 0;
   std::size_t render_processed = 0;
   std::size_t raycast_processed = 0;
 
   [[nodiscard]] std::size_t total_processed() const {
-    return topology_processed + geometry_processed + bounds_processed + render_processed + raycast_processed;
+    return topology_processed + decision_processed + geometry_processed + bounds_processed + render_processed +
+           raycast_processed;
   }
 };
 

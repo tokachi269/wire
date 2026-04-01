@@ -36,6 +36,12 @@
 - 役割: 表示・検査ビュー生成。
 - 禁止: dedupe で意味補正、group 推定、lower 再判断、orientation 再計算。
 
+## 現状のズレ
+- 設計目標は「後段が前段の意味を再判定しない」ですが、現在の `Commit(run_recalc=true)` は `kGeometry` 経路で support layout と detail-curve 入力の再構築まで含んでいます。
+- そのため downstream が upstream authority を消費し直す途中で fallback / refresh / resolver が入り、実質的に再決定っぽく振る舞う経路が残っています。
+- ただし、これを「recalc が毎回 lane continuity や `lower_required` を再決定している」とまでは断定しません。fresh generate 時点で壊れる系と、`Commit(recalc)` で悪化する系は分けて観測します。
+- 改修方針は `recalc` 廃止ではなく縮小です。`Decision/Layout recompute` と `GeometryRefresh` と `RenderRefresh` を同じ `kGeometry` に閉じ込めない方向で整理します。
+
 ## lowered support の設計固定
 - group identity は `owner_pole_id + support_group_id`。
 - `support_group_id` は decision 正本フィールドとして保持し、downstream で再導出しない。
@@ -57,6 +63,7 @@
 ## 変更時チェックリスト
 - どの段の正本を更新したかを明示したか。
 - 後段で同じ意味を再判定していないか。
+- `kGeometry` が decision/layout recompute を抱え込んでいないか。
 - 旧経路を削除したか（未使用で放置していないか）。
 - validator/test で不変条件を固定したか。
 - refresh/recalc 前後で意味が不変かを確認したか。

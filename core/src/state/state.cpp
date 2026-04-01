@@ -411,7 +411,7 @@ EditResult<ObjectId> CoreState::AddSpan(ObjectId port_a_id, ObjectId port_b_id, 
 
   add_span_to_index(span);
   initialize_span_runtime_state(span.id);
-  mark_span_dirty(span.id, DirtyBits::kTopology | DirtyBits::kGeometry, true);
+  mark_span_dirty(span.id, DirtyBits::kTopology | DirtyBits::kDecision, true);
 
   result.ok = true;
   result.value = span.id;
@@ -454,7 +454,7 @@ EditResult<ObjectId> CoreState::AddAttachment(ObjectId span_id, double t, Attach
   attachment.display_offset_m = display_offset_m;
   authoritative_.edit_state.attachments.insert(attachment);
   index_add(runtime_.relation_index.attachments_by_span, span_id, attachment.id);
-  mark_span_dirty(span_id, DirtyBits::kGeometry | DirtyBits::kRender, true);
+  mark_span_dirty(span_id, DirtyBits::kDecision, true);
 
   result.ok = true;
   result.value = attachment.id;
@@ -603,7 +603,7 @@ EditResult<ObjectId> CoreState::SetPortWorldPositionManual(ObjectId port_id, con
   port->world_position = new_world_position;
   apply_port_position_mode(*port, PortPositionMode::kManual, PortPlacementSourceKind::kManualEdit);
   result.change_set.updated_ids.push_back(port_id);
-  mark_connected_spans_dirty_from_port(port_id, DirtyBits::kGeometry, &result.change_set);
+  mark_connected_spans_dirty_from_port(port_id, DirtyBits::kGeometryRefresh, &result.change_set);
   result.ok = true;
   result.value = port_id;
   return result;
@@ -673,7 +673,7 @@ EditResult<ObjectId> CoreState::ResetPortPositionToAuto(ObjectId port_id) {
   }
 
   result.change_set.updated_ids.push_back(port_id);
-  mark_connected_spans_dirty_from_port(port_id, DirtyBits::kGeometry, &result.change_set);
+  mark_connected_spans_dirty_from_port(port_id, DirtyBits::kGeometryRefresh, &result.change_set);
   result.ok = true;
   result.value = port_id;
   return result;
@@ -688,7 +688,7 @@ EditResult<ObjectId> CoreState::MoveAnchor(ObjectId anchor_id, const Vec3d& new_
   }
   anchor->world_position = new_world_position;
   result.change_set.updated_ids.push_back(anchor_id);
-  mark_connected_spans_dirty_from_anchor(anchor_id, DirtyBits::kGeometry, &result.change_set);
+  mark_connected_spans_dirty_from_anchor(anchor_id, DirtyBits::kGeometryRefresh, &result.change_set);
   result.ok = true;
   result.value = anchor_id;
   return result;
@@ -796,7 +796,7 @@ EditResult<ObjectId> CoreState::SetSpanEndpointSocketOverride(ObjectId span_id, 
   }
   slot = socket_id;
   authoritative_.override_state.span_endpoint_by_span[span_id] = next;
-  mark_span_dirty(span_id, DirtyBits::kGeometry, true);
+  mark_span_dirty(span_id, DirtyBits::kDecision, true);
   add_unique_id(result.change_set.updated_ids, span_id);
   add_unique_id(result.change_set.dirty_span_ids, span_id);
   result.ok = true;
@@ -826,7 +826,7 @@ EditResult<ObjectId> CoreState::ClearSpanEndpointSocketOverride(ObjectId span_id
     result.value = span_id;
     return result;
   }
-  mark_span_dirty(span_id, DirtyBits::kGeometry, true);
+  mark_span_dirty(span_id, DirtyBits::kDecision, true);
   add_unique_id(result.change_set.updated_ids, span_id);
   add_unique_id(result.change_set.dirty_span_ids, span_id);
   result.ok = true;
@@ -853,7 +853,7 @@ EditResult<ObjectId> CoreState::SetSpanBranchDownOffsetOverride(ObjectId span_id
   }
   next.branch_down_offset_m = branch_down_offset_m;
   authoritative_.override_state.span_support_by_span[span_id] = next;
-  mark_span_dirty(span_id, DirtyBits::kGeometry | DirtyBits::kRender, true);
+  mark_span_dirty(span_id, DirtyBits::kDecision, true);
   add_unique_id(result.change_set.updated_ids, span_id);
   add_unique_id(result.change_set.dirty_span_ids, span_id);
   result.ok = true;
@@ -873,7 +873,7 @@ EditResult<ObjectId> CoreState::ClearSpanBranchDownOffsetOverride(ObjectId span_
     result.value = span_id;
     return result;
   }
-  mark_span_dirty(span_id, DirtyBits::kGeometry | DirtyBits::kRender, true);
+  mark_span_dirty(span_id, DirtyBits::kDecision, true);
   add_unique_id(result.change_set.updated_ids, span_id);
   add_unique_id(result.change_set.dirty_span_ids, span_id);
   result.ok = true;
@@ -1156,7 +1156,7 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
         existing_port->side_scale_applied = apply_angle_correction ? applied_scale : 1.0;
         apply_port_position_mode(*existing_port, PortPositionMode::kAuto, PortPlacementSourceKind::kPlacementBand);
         add_unique_id(result.change_set.updated_ids, existing_port->id);
-        mark_connected_spans_dirty_from_port(existing_port->id, DirtyBits::kGeometry, &result.change_set);
+        mark_connected_spans_dirty_from_port(existing_port->id, DirtyBits::kGeometryRefresh, &result.change_set);
       }
     }
   }
@@ -1566,7 +1566,7 @@ EditResult<bool> CoreState::UpdateGeometrySettings(const GeometrySettings& setti
 
   if (changed && mark_all_spans_dirty) {
     for (const Span& span : authoritative_.edit_state.spans.items()) {
-      mark_span_dirty(span.id, DirtyBits::kGeometry, true);
+      mark_span_dirty(span.id, DirtyBits::kGeometryRefresh, true);
       add_unique_id(result.change_set.dirty_span_ids, span.id);
       add_unique_id(result.change_set.updated_ids, span.id);
     }
@@ -1613,7 +1613,7 @@ EditResult<bool> CoreState::UpdateVisualSettings(const VisualSettings& settings,
   result.value = changed;
   if (changed && mark_all_spans_dirty) {
     for (const Span& span : authoritative_.edit_state.spans.items()) {
-      mark_span_dirty(span.id, DirtyBits::kRender, true);
+      mark_span_dirty(span.id, DirtyBits::kRenderRefresh, true);
       add_unique_id(result.change_set.dirty_span_ids, span.id);
       add_unique_id(result.change_set.updated_ids, span.id);
     }
@@ -1649,7 +1649,7 @@ EditResult<bool> CoreState::UpdateVariationSettings(const VariationSettings& set
   result.value = changed;
   if (changed && mark_all_spans_dirty) {
     for (const Span& span : authoritative_.edit_state.spans.items()) {
-      mark_span_dirty(span.id, DirtyBits::kGeometry | DirtyBits::kRender, true);
+      mark_span_dirty(span.id, DirtyBits::kDecision, true);
       add_unique_id(result.change_set.dirty_span_ids, span.id);
       add_unique_id(result.change_set.updated_ids, span.id);
     }
@@ -1678,7 +1678,7 @@ EditResult<bool> CoreState::UpdateContextProfile(const ContextProfile& profile, 
   result.value = changed;
   if (changed && mark_all_spans_dirty) {
     for (const Span& span : authoritative_.edit_state.spans.items()) {
-      mark_span_dirty(span.id, DirtyBits::kGeometry | DirtyBits::kRender, true);
+      mark_span_dirty(span.id, DirtyBits::kDecision, true);
       add_unique_id(result.change_set.dirty_span_ids, span.id);
       add_unique_id(result.change_set.updated_ids, span.id);
     }
@@ -2078,12 +2078,14 @@ std::string CoreState::dirty_bits_to_string(DirtyBits bits) {
   std::string text;
   if (any(bits, DirtyBits::kTopology))
     text += "Topology|";
-  if (any(bits, DirtyBits::kGeometry))
-    text += "Geometry|";
+  if (any(bits, DirtyBits::kDecision))
+    text += "Decision|";
+  if (any(bits, DirtyBits::kGeometryRefresh))
+    text += "GeometryRefresh|";
   if (any(bits, DirtyBits::kBounds))
     text += "Bounds|";
-  if (any(bits, DirtyBits::kRender))
-    text += "Render|";
+  if (any(bits, DirtyBits::kRenderRefresh))
+    text += "RenderRefresh|";
   if (any(bits, DirtyBits::kRaycast))
     text += "Raycast|";
   if (!text.empty()) {

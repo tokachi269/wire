@@ -183,7 +183,7 @@ void EndpointRefreshService::RefreshOwnedEndpointsFromPole(CoreState& state, Obj
     state.apply_port_position_mode(*port, PortPositionMode::kAuto, refresh_source);
     if (change_set != nullptr) {
       state.add_unique_id(change_set->updated_ids, port->id);
-      state.mark_connected_spans_dirty_from_port(port->id, DirtyBits::kGeometry, change_set);
+      state.mark_connected_spans_dirty_from_port(port->id, DirtyBits::kGeometryRefresh, change_set);
     }
   }
 
@@ -210,7 +210,7 @@ void EndpointRefreshService::RefreshOwnedEndpointsFromPole(CoreState& state, Obj
     anchor->world_position = new_world;
     if (change_set != nullptr) {
       state.add_unique_id(change_set->updated_ids, anchor->id);
-      state.mark_connected_spans_dirty_from_anchor(anchor->id, DirtyBits::kGeometry, change_set);
+      state.mark_connected_spans_dirty_from_anchor(anchor->id, DirtyBits::kGeometryRefresh, change_set);
     }
   }
 }

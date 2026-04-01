@@ -21,9 +21,10 @@ namespace {
 std::string DirtyBitsToText(wire::core::DirtyBits bits) {
   std::string out;
   if ((bits & wire::core::DirtyBits::kTopology) != wire::core::DirtyBits::kNone) out += "T";
-  if ((bits & wire::core::DirtyBits::kGeometry) != wire::core::DirtyBits::kNone) out += "G";
+  if ((bits & wire::core::DirtyBits::kDecision) != wire::core::DirtyBits::kNone) out += "D";
+  if ((bits & wire::core::DirtyBits::kGeometryRefresh) != wire::core::DirtyBits::kNone) out += "G";
   if ((bits & wire::core::DirtyBits::kBounds) != wire::core::DirtyBits::kNone) out += "B";
-  if ((bits & wire::core::DirtyBits::kRender) != wire::core::DirtyBits::kNone) out += "R";
+  if ((bits & wire::core::DirtyBits::kRenderRefresh) != wire::core::DirtyBits::kNone) out += "R";
   if ((bits & wire::core::DirtyBits::kRaycast) != wire::core::DirtyBits::kNone) out += "X";
   return out.empty() ? std::string("-") : out;
 }
@@ -2190,14 +2191,16 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
   }
 
   const auto& recalc = view.last_recalc_stats();
-  ImGui::Text("Dirty T/G/B/R/X: %d / %d / %d / %d / %d",
+  ImGui::Text("Dirty T/D/G/B/R/X: %d / %d / %d / %d / %d / %d",
               static_cast<int>(view.dirty_queue().topology_dirty_span_ids.size()),
+              static_cast<int>(view.dirty_queue().decision_dirty_span_ids.size()),
               static_cast<int>(view.dirty_queue().geometry_dirty_span_ids.size()),
               static_cast<int>(view.dirty_queue().bounds_dirty_span_ids.size()),
               static_cast<int>(view.dirty_queue().render_dirty_span_ids.size()),
               static_cast<int>(view.dirty_queue().raycast_dirty_span_ids.size()));
-  ImGui::Text("Last Recalc total=%d geom=%d bounds=%d render=%d", static_cast<int>(recalc.total_processed()),
-              static_cast<int>(recalc.geometry_processed), static_cast<int>(recalc.bounds_processed),
+  ImGui::Text("Last Recalc total=%d decision=%d geom=%d bounds=%d render=%d", static_cast<int>(recalc.total_processed()),
+              static_cast<int>(recalc.decision_processed), static_cast<int>(recalc.geometry_processed),
+              static_cast<int>(recalc.bounds_processed),
               static_cast<int>(recalc.render_processed));
   ImGui::Checkbox("Auto Recalc", &ui_state.auto_recalc);
   ImGui::SameLine();

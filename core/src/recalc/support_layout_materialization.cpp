@@ -621,7 +621,121 @@ void rebuild_all_lowered_support_groups(const CoreState& state, const EditState&
   }
 }
 
+namespace {
+
+struct SpanSupportLayoutAuthority {
+  const SpanSupportLayoutDecisionSeed* decision_seed = nullptr;
+  const SpanSupportLayoutEntry* authoritative_layout = nullptr;
+
+  [[nodiscard]] bool has_authority() const {
+    return decision_seed != nullptr || authoritative_layout != nullptr;
+  }
+};
+
+double automatic_branch_down_offset_from_authority(const CoreState& state, const Port& port,
+                                                   const SpanSupportLayoutAuthority& authority, bool is_start_endpoint,
+                                                   HierarchicalVariationSample* variation) {
+  if (authority.decision_seed != nullptr) {
+    const SupportLayoutDecisionSeedEndpoint& endpoint =
+        is_start_endpoint ? authority.decision_seed->start : authority.decision_seed->end;
+    if (variation != nullptr) {
+      *variation = endpoint.down_offset_variation;
+    }
+    return endpoint.automatic_branch_down_offset_m;
+  }
+  if (authority.authoritative_layout != nullptr) {
+    const SupportLayoutEndpoint& endpoint =
+        is_start_endpoint ? authority.authoritative_layout->start : authority.authoritative_layout->end;
+    if (variation != nullptr) {
+      *variation = endpoint.down_offset_variation;
+    }
+    return endpoint.automatic_branch_down_offset_m;
+  }
+  if (variation != nullptr) {
+    *variation = {};
+  }
+  return fallback_branch_down_offset_for_support_port(state, port);
+}
+
+void apply_consumed_support_layout_authority(const SpanSupportLayoutAuthority& authority, SpanSupportLayoutEntry* layout) {
+  if (layout == nullptr) {
+    return;
+  }
+  if (authority.decision_seed != nullptr) {
+    apply_support_layout_decision_seed(*authority.decision_seed, layout);
+  } else if (authority.authoritative_layout != nullptr) {
+    apply_authoritative_support_layout_decisions(*authority.authoritative_layout, layout);
+  }
+}
+
+void finalize_support_layout_materialization(const Vec3d& fallback_chord_dir, SpanSupportLayoutEntry* layout) {
+  if (layout == nullptr) {
+    return;
+  }
+  Vec3d resolved_chord_dir = layout->end.endpoint_world - layout->start.endpoint_world;
+  if (!Normalize(&resolved_chord_dir)) {
+    resolved_chord_dir = fallback_chord_dir;
+  }
+  const bool grouped_lowered_span =
+      (UsesAuthoritativeGroupedLoweredSupport(layout->start.decision) ||
+       UsesAuthoritativeGroupedLoweredSupport(layout->end.decision)) &&
+      (!layout->start.decision.same_level_feasible || !layout->end.decision.same_level_feasible);
+  if (grouped_lowered_span) {
+    layout->start.departure_dir = grouped_lowered_route_local_departure_dir(layout->start, layout->end);
+    layout->end.departure_dir = grouped_lowered_route_local_departure_dir(layout->end, layout->start);
+  }
+  layout->detail_curve_profile_hint = detail_curve_profile_hint_from_support_layout(*layout);
+}
+
+SpanSupportLayoutEntry materialize_span_support_layout(const CoreState& state, const Span& span,
+                                                       const ResolvedSpanCurveInputs& inputs, const Port& port_a,
+                                                       const Port& port_b, const Pole* pole_a, const Pole* pole_b,
+                                                       const Vec3d& chord_dir,
+                                                       const SpanSupportLayoutAuthority& authority,
+                                                       int resolved_socket_a, int resolved_socket_b, bool socket_override_a,
+                                                       bool socket_override_b, double automatic_branch_down_offset_a,
+                                                       double automatic_branch_down_offset_b,
+                                                       const HierarchicalVariationSample& down_offset_variation_a,
+                                                       const HierarchicalVariationSample& down_offset_variation_b,
+                                                       double resolved_branch_down_offset_a,
+                                                       double resolved_branch_down_offset_b) {
+  const double endpoint_offset_m = std::min(std::max(0.02, inputs.basis_length * 0.03), 0.35);
+
+  SpanSupportLayoutEntry layout{};
+  layout.span_id = span.id;
+  layout.flow_kind = inputs.flow_kind;
+  layout.pass_mode = inputs.pass_mode;
+  layout.basis_length_m = inputs.basis_length;
+  layout.effective_sag_ratio = inputs.effective_sag_ratio;
+  layout.continuity_preference = inputs.continuity_preference;
+  layout.bend_stiffness_hint = inputs.bend_stiffness_hint;
+  layout.min_bend_radius_hint_m = inputs.min_bend_radius_hint_m;
+  layout.variation_flow_key = inputs.variation_flow_key;
+  layout.sag_variation = inputs.sag_variation;
+
+  layout.start = build_support_layout_endpoint(
+      state, span, port_a, pole_a, chord_dir, inputs.basis_length, endpoint_offset_m, inputs.effective_sag_ratio,
+      inputs.bend_stiffness_hint, inputs.min_bend_radius_hint_m, inputs.continuity_preference, inputs.pass_mode,
+      inputs.endpoint_mode, inputs.endpoint_vertical_attachment_offset_m, inputs.flow_kind, resolved_socket_a,
+      socket_override_a, automatic_branch_down_offset_a, down_offset_variation_a, resolved_branch_down_offset_a, true);
+  layout.end = build_support_layout_endpoint(
+      state, span, port_b, pole_b, chord_dir, inputs.basis_length, endpoint_offset_m, inputs.effective_sag_ratio,
+      inputs.bend_stiffness_hint, inputs.min_bend_radius_hint_m, inputs.continuity_preference, inputs.pass_mode,
+      inputs.endpoint_mode, inputs.endpoint_vertical_attachment_offset_m, inputs.flow_kind, resolved_socket_b,
+      socket_override_b, automatic_branch_down_offset_b, down_offset_variation_b, resolved_branch_down_offset_b, false);
+  apply_consumed_support_layout_authority(authority, &layout);
+  finalize_support_layout_materialization(chord_dir, &layout);
+  return layout;
+}
+
+} // namespace
+
 SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span, std::string* error_message) const {
+  return generate_span_support_layout(span, error_message, true);
+}
+
+SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span, std::string* error_message,
+                                                              bool allow_authority_fallback) const {
   const Port* port_a = authoritative_.edit_state.ports.find(span.port_a_id);
   const Port* port_b = authoritative_.edit_state.ports.find(span.port_b_id);
   if (port_a == nullptr || port_b == nullptr) {
@@ -646,88 +760,35 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
   if (!Normalize(&chord_dir)) {
     chord_dir = WorldForward();
   }
-  const double endpoint_offset_m = std::min(std::max(0.02, inputs.basis_length * 0.03), 0.35);
-
-  SpanSupportLayoutEntry layout{};
-  layout.span_id = span.id;
-  layout.flow_kind = inputs.flow_kind;
-  layout.pass_mode = inputs.pass_mode;
-  layout.basis_length_m = inputs.basis_length;
-  layout.effective_sag_ratio = inputs.effective_sag_ratio;
-  layout.continuity_preference = inputs.continuity_preference;
-  layout.bend_stiffness_hint = inputs.bend_stiffness_hint;
-  layout.min_bend_radius_hint_m = inputs.min_bend_radius_hint_m;
-  layout.variation_flow_key = inputs.variation_flow_key;
-  layout.sag_variation = inputs.sag_variation;
   const SpanSupportLayoutDecisionSeed* decision_seed = find_span_support_layout_seed(span.id);
-  const SpanSupportLayoutEntry* existing_layout = find_span_support_layout(span.id);
-  const SpanSupportLayoutEntry* authoritative_layout = (decision_seed == nullptr) ? existing_layout : nullptr;
+  const SpanSupportLayoutEntry* authoritative_layout =
+      (decision_seed == nullptr && allow_authority_fallback) ? find_span_support_layout(span.id) : nullptr;
+  const SpanSupportLayoutAuthority authority{decision_seed, authoritative_layout};
+  if (!allow_authority_fallback && !authority.has_authority()) {
+    if (error_message != nullptr && error_message->empty()) {
+      *error_message = "support layout authority is missing";
+    }
+    return {};
+  }
+
   const int resolved_socket_a = resolve_span_endpoint_socket_id(span, true);
   const int resolved_socket_b = resolve_span_endpoint_socket_id(span, false);
   const bool socket_override_a = has_span_endpoint_socket_override(span.id, true);
   const bool socket_override_b = has_span_endpoint_socket_override(span.id, false);
   HierarchicalVariationSample down_offset_variation_a{};
   HierarchicalVariationSample down_offset_variation_b{};
-  const auto automatic_branch_down_offset_for_endpoint =
-      [&](const Port& port, bool is_start_endpoint, HierarchicalVariationSample* variation) {
-        if (decision_seed != nullptr) {
-          const SupportLayoutDecisionSeedEndpoint& endpoint = is_start_endpoint ? decision_seed->start : decision_seed->end;
-          if (variation != nullptr) {
-            *variation = endpoint.down_offset_variation;
-          }
-          return endpoint.automatic_branch_down_offset_m;
-        }
-        if (authoritative_layout != nullptr) {
-          const SupportLayoutEndpoint& endpoint = is_start_endpoint ? authoritative_layout->start : authoritative_layout->end;
-          if (variation != nullptr) {
-            *variation = endpoint.down_offset_variation;
-          }
-          return endpoint.automatic_branch_down_offset_m;
-        }
-        if (variation != nullptr) {
-          *variation = {};
-        }
-        return fallback_branch_down_offset_for_support_port(*this, port);
-      };
   const double automatic_branch_down_offset_a =
-      automatic_branch_down_offset_for_endpoint(*port_a, true, &down_offset_variation_a);
+      automatic_branch_down_offset_from_authority(*this, *port_a, authority, true, &down_offset_variation_a);
   const double automatic_branch_down_offset_b =
-      automatic_branch_down_offset_for_endpoint(*port_b, false, &down_offset_variation_b);
-  const double resolved_branch_down_offset_a =
-      resolve_span_branch_down_offset_m(span, automatic_branch_down_offset_a);
-  const double resolved_branch_down_offset_b =
-      resolve_span_branch_down_offset_m(span, automatic_branch_down_offset_b);
-  layout.start = build_support_layout_endpoint(
-      *this, span, *port_a, pole_a, chord_dir, inputs.basis_length, endpoint_offset_m, inputs.effective_sag_ratio,
-      inputs.bend_stiffness_hint, inputs.min_bend_radius_hint_m, inputs.continuity_preference, inputs.pass_mode,
-      inputs.endpoint_mode, inputs.endpoint_vertical_attachment_offset_m, inputs.flow_kind, resolved_socket_a,
-      socket_override_a, automatic_branch_down_offset_a,
-      down_offset_variation_a, resolved_branch_down_offset_a, true);
-  layout.end = build_support_layout_endpoint(
-      *this, span, *port_b, pole_b, chord_dir, inputs.basis_length, endpoint_offset_m, inputs.effective_sag_ratio,
-      inputs.bend_stiffness_hint, inputs.min_bend_radius_hint_m, inputs.continuity_preference, inputs.pass_mode,
-      inputs.endpoint_mode, inputs.endpoint_vertical_attachment_offset_m, inputs.flow_kind, resolved_socket_b,
-      socket_override_b, automatic_branch_down_offset_b,
-      down_offset_variation_b, resolved_branch_down_offset_b, false);
-  if (decision_seed != nullptr) {
-    apply_support_layout_decision_seed(*decision_seed, &layout);
-  } else if (authoritative_layout != nullptr) {
-    apply_authoritative_support_layout_decisions(*authoritative_layout, &layout);
-  }
-  Vec3d resolved_chord_dir = layout.end.endpoint_world - layout.start.endpoint_world;
-  if (!Normalize(&resolved_chord_dir)) {
-    resolved_chord_dir = chord_dir;
-  }
-  const bool grouped_lowered_span =
-      (UsesAuthoritativeGroupedLoweredSupport(layout.start.decision) ||
-       UsesAuthoritativeGroupedLoweredSupport(layout.end.decision)) &&
-      (!layout.start.decision.same_level_feasible || !layout.end.decision.same_level_feasible);
-  if (grouped_lowered_span) {
-    layout.start.departure_dir = grouped_lowered_route_local_departure_dir(layout.start, layout.end);
-    layout.end.departure_dir = grouped_lowered_route_local_departure_dir(layout.end, layout.start);
-  }
-  layout.detail_curve_profile_hint = detail_curve_profile_hint_from_support_layout(layout);
-  return layout;
+      automatic_branch_down_offset_from_authority(*this, *port_b, authority, false, &down_offset_variation_b);
+  const double resolved_branch_down_offset_a = resolve_span_branch_down_offset_m(span, automatic_branch_down_offset_a);
+  const double resolved_branch_down_offset_b = resolve_span_branch_down_offset_m(span, automatic_branch_down_offset_b);
+
+  return materialize_span_support_layout(*this, span, inputs, *port_a, *port_b, pole_a, pole_b, chord_dir, authority,
+                                         resolved_socket_a, resolved_socket_b, socket_override_a, socket_override_b,
+                                         automatic_branch_down_offset_a, automatic_branch_down_offset_b,
+                                         down_offset_variation_a, down_offset_variation_b,
+                                         resolved_branch_down_offset_a, resolved_branch_down_offset_b);
 }
 
 } // namespace wire::core

@@ -69,10 +69,60 @@ struct HvEndpointSnapshot {
   wire::core::Vec3d support_axis_dir{};
 };
 
+struct BackboneCandidateObservation {
+  std::vector<wire::core::SupportNode> nodes{};
+  std::vector<wire::core::ObjectId> generated_pole_ids{};
+};
+
 std::string hv_endpoint_snapshot_key(const HvEndpointSnapshot& snapshot) {
   std::ostringstream oss;
   oss << snapshot.bundle_id << ":" << snapshot.segment_index << ":" << snapshot.pole_id;
   return oss.str();
+}
+
+std::optional<BackboneCandidateObservation> observe_backbone_candidates(
+    const std::vector<wire::core::Vec3d>& polyline, double interval_m, bool pin_vertices, bool pin_endpoints,
+    const std::vector<wire::core::BackboneInputSpec::NodeSpec>& node_specs = {}, std::string* error = nullptr) {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    if (error != nullptr) {
+      *error = "missing pole types";
+    }
+    return std::nullopt;
+  }
+
+  wire::core::BackboneSpec req{};
+  req.path.polyline = polyline;
+  req.path.node_specs = node_specs;
+  req.interval_m = interval_m;
+  req.pole_type_id = type_ids.front();
+  req.pole_placement.pin_vertices = pin_vertices;
+  req.pole_placement.pin_endpoints = pin_endpoints;
+  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
+
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  if (!generated.ok) {
+    if (error != nullptr) {
+      *error = generated.error;
+    }
+    return std::nullopt;
+  }
+
+  BackboneCandidateObservation observation{};
+  observation.nodes = state.BuildBackboneResult().nodes;
+  observation.generated_pole_ids = generated.value.generated_pole_ids;
+  return observation;
+}
+
+const wire::core::SupportNode* find_backbone_node_near_world(const BackboneCandidateObservation& observation,
+                                                             const wire::core::Vec3d& world, double eps = 1e-6) {
+  for (const auto& node : observation.nodes) {
+    if (almost_equal(node.position, world, eps)) {
+      return &node;
+    }
+  }
+  return nullptr;
 }
 
 std::vector<wire::core::ObjectId> undo_order_choice(const std::vector<wire::core::ObjectId>& ordered,
@@ -1735,6 +1785,118 @@ bool test_backbone_hv3_latest_capture_commit_preserves_polyline_order() {
     std::cerr << "[DBG] C319 after_commit_polyline_intersections=" << after_intersections << "\n";
     dump_hv_endpoint_snapshot_diff(before_snapshots, after_snapshots, "C319_commit_diff");
     dump_lane_assignment_debug(state, state.view().last_lane_assignments(), "C319_commit_polyline");
+    return false;
+  }
+  return true;
+}
+
+// Intent: Near-duplicate auto generic candidates collapse only below the 1.5m threshold.
+bool test_backbone_auto_candidate_near_duplicate_boundary() {
+  std::string error{};
+  const auto obs_14 = observe_backbone_candidates(
+      {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {11.4, 0.0, 0.0}, {25.0, 0.0, 0.0}}, 1000.0, false, false, {}, &error);
+  if (!obs_14.has_value()) {
+    std::cerr << "[DBG] C320 obs_14 failed: " << error << "\n";
+    return false;
+  }
+  const auto obs_15 = observe_backbone_candidates(
+      {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {11.5, 0.0, 0.0}, {25.0, 0.0, 0.0}}, 1000.0, false, false, {}, &error);
+  if (!obs_15.has_value()) {
+    std::cerr << "[DBG] C320 obs_15 failed: " << error << "\n";
+    return false;
+  }
+  const auto obs_16 = observe_backbone_candidates(
+      {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {11.6, 0.0, 0.0}, {25.0, 0.0, 0.0}}, 1000.0, false, false, {}, &error);
+  if (!obs_16.has_value()) {
+    std::cerr << "[DBG] C320 obs_16 failed: " << error << "\n";
+    return false;
+  }
+
+  const bool ok_14 = obs_14->nodes.size() == 3 &&
+                     find_backbone_node_near_world(*obs_14, {10.0, 0.0, 0.0}) == nullptr &&
+                     find_backbone_node_near_world(*obs_14, {11.4, 0.0, 0.0}) != nullptr;
+  const bool ok_15 = obs_15->nodes.size() == 4 && find_backbone_node_near_world(*obs_15, {10.0, 0.0, 0.0}) != nullptr &&
+                     find_backbone_node_near_world(*obs_15, {11.5, 0.0, 0.0}) != nullptr;
+  const bool ok_16 = obs_16->nodes.size() == 4 && find_backbone_node_near_world(*obs_16, {10.0, 0.0, 0.0}) != nullptr &&
+                     find_backbone_node_near_world(*obs_16, {11.6, 0.0, 0.0}) != nullptr;
+  if (!(ok_14 && ok_15 && ok_16)) {
+    std::cerr << "[DBG] C320 sizes=" << obs_14->nodes.size() << "," << obs_15->nodes.size() << ","
+              << obs_16->nodes.size() << "\n";
+    return false;
+  }
+  return true;
+}
+
+// Intent: Manual vertices and tangent-hint vertices must not be collapsed by near-duplicate auto candidate cleanup.
+bool test_backbone_manual_and_tangent_candidates_do_not_collapse() {
+  std::string error{};
+  const std::vector<wire::core::Vec3d> polyline = {
+      {0.0, 0.0, 0.0},
+      {10.0, 0.0, 0.0},
+      {11.4, 0.0, 0.0},
+      {25.0, 0.0, 0.0},
+  };
+  const auto manual_obs = observe_backbone_candidates(polyline, 1000.0, true, false, {}, &error);
+  if (!manual_obs.has_value()) {
+    std::cerr << "[DBG] C321 manual failed: " << error << "\n";
+    return false;
+  }
+  wire::core::BackboneInputSpec::NodeSpec tangent{};
+  tangent.point_index = 2;
+  tangent.has_tangent_hint = true;
+  tangent.tangent_hint = {1.0, 0.0, 0.0};
+  const auto tangent_obs = observe_backbone_candidates(polyline, 1000.0, false, false, {tangent}, &error);
+  if (!tangent_obs.has_value()) {
+    std::cerr << "[DBG] C321 tangent failed: " << error << "\n";
+    return false;
+  }
+
+  const bool manual_ok = manual_obs->nodes.size() == 4 &&
+                         find_backbone_node_near_world(*manual_obs, {10.0, 0.0, 0.0}) != nullptr &&
+                         find_backbone_node_near_world(*manual_obs, {11.4, 0.0, 0.0}) != nullptr;
+  const bool tangent_ok = tangent_obs->nodes.size() == 4 &&
+                          find_backbone_node_near_world(*tangent_obs, {10.0, 0.0, 0.0}) != nullptr &&
+                          find_backbone_node_near_world(*tangent_obs, {11.4, 0.0, 0.0}) != nullptr;
+  if (!(manual_ok && tangent_ok)) {
+    std::cerr << "[DBG] C321 manual_size=" << manual_obs->nodes.size()
+              << " tangent_size=" << tangent_obs->nodes.size()
+              << " tangent_has_11_4="
+              << (find_backbone_node_near_world(*tangent_obs, {11.4, 0.0, 0.0}) != nullptr ? 1 : 0) << "\n";
+    return false;
+  }
+  return true;
+}
+
+// Intent: Short unpinned start/end segments should keep endpoint candidates instead of erasing the route endpoints.
+bool test_backbone_short_unpinned_endpoint_segments_keep_endpoints() {
+  std::string error{};
+  const auto leading_obs = observe_backbone_candidates(
+      {{0.0, 0.0, 0.0}, {1.4, 0.0, 0.0}, {20.0, 0.0, 0.0}}, 1000.0, false, false, {}, &error);
+  if (!leading_obs.has_value()) {
+    std::cerr << "[DBG] C322 leading failed: " << error << "\n";
+    return false;
+  }
+  const auto trailing_obs = observe_backbone_candidates(
+      {{0.0, 0.0, 0.0}, {18.6, 0.0, 0.0}, {20.0, 0.0, 0.0}}, 1000.0, false, false, {}, &error);
+  if (!trailing_obs.has_value()) {
+    std::cerr << "[DBG] C322 trailing failed: " << error << "\n";
+    return false;
+  }
+
+  const bool leading_ok = leading_obs->nodes.size() == 2 &&
+                          find_backbone_node_near_world(*leading_obs, {0.0, 0.0, 0.0}) != nullptr &&
+                          find_backbone_node_near_world(*leading_obs, {20.0, 0.0, 0.0}) != nullptr &&
+                          find_backbone_node_near_world(*leading_obs, {1.4, 0.0, 0.0}) == nullptr;
+  const bool trailing_ok = trailing_obs->nodes.size() == 2 &&
+                           find_backbone_node_near_world(*trailing_obs, {0.0, 0.0, 0.0}) != nullptr &&
+                           find_backbone_node_near_world(*trailing_obs, {20.0, 0.0, 0.0}) != nullptr &&
+                           find_backbone_node_near_world(*trailing_obs, {18.6, 0.0, 0.0}) == nullptr;
+  if (!(leading_ok && trailing_ok)) {
+    std::cerr << "[DBG] C322 leading_size=" << leading_obs->nodes.size()
+              << " trailing_size=" << trailing_obs->nodes.size()
+              << " leading_has_start=" << (find_backbone_node_near_world(*leading_obs, {0.0, 0.0, 0.0}) != nullptr ? 1 : 0)
+              << " trailing_has_end=" << (find_backbone_node_near_world(*trailing_obs, {20.0, 0.0, 0.0}) != nullptr ? 1 : 0)
+              << "\n";
     return false;
   }
   return true;
@@ -9959,6 +10121,351 @@ bool test_backbone_branch_keeps_main_support_axis_non_diagonal() {
   return diag_dot > 0.9 && metrics.valid && metrics.angle_row_vs_span_deg >= 70.0;
 }
 
+bool test_backbone_single_edge_reuse_preserves_existing_straight_support_axis() {
+  CoreState state;
+
+  PoleTypeId communication_pole_type_id = wire::core::kInvalidPoleTypeId;
+  for (const auto& [_, pole_type] : state.view().pole_types()) {
+    if (pole_type.name == "CommunicationPole") {
+      communication_pole_type_id = pole_type.id;
+      break;
+    }
+  }
+  if (communication_pole_type_id == wire::core::kInvalidPoleTypeId) {
+    std::cerr << "[DBG] C323 missing CommunicationPole\n";
+    return false;
+  }
+
+  auto add_all_templates = [](wire::core::BackboneSpec& req) {
+    add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
+    add_backbone_bundle(req, wire::core::BundleKind::kHighVoltage);
+    add_backbone_bundle(req, wire::core::BundleKind::kCommunication, wire::core::SpanLayer::kUnknown, 1);
+    add_backbone_bundle(req, wire::core::BundleKind::kOptical);
+  };
+  auto support_axis_for_pole = [&](ObjectId pole_id) {
+    const auto pole_view = state.view().inspect_pole(pole_id);
+    if (!pole_view.has_value() || !pole_view->has_support_axis) {
+      return wire::core::Vec3d{};
+    }
+    return normalize_xy_safe(pole_view->support_axis_dir);
+  };
+
+  constexpr wire::core::Vec3d kTrunk0{10.8184, 4.94506, 0.0};
+  constexpr wire::core::Vec3d kTrunk1{9.90598, 14.2226, 0.0};
+  constexpr wire::core::Vec3d kTrunk2{-5.24054, 15.5595, 0.0};
+  constexpr wire::core::Vec3d kCenter{-15.9599, -2.86144, 0.0};
+  constexpr wire::core::Vec3d kTrunk4{-14.128, -7.28552, 0.0};
+  constexpr wire::core::Vec3d kTrunk5{-8.03361, -13.365, 0.0};
+  constexpr wire::core::Vec3d kBranchA{-24.2948, -1.36634, 0.0};
+  constexpr wire::core::Vec3d kBranchB{-5.34189, -3.8355, 0.0};
+
+  wire::core::BackboneSpec trunk{};
+  trunk.path.polyline = {kTrunk0, kTrunk1, kTrunk2, kCenter, kTrunk4, kTrunk5};
+  trunk.interval_m = 1000.0;
+  trunk.pole_type_id = communication_pole_type_id;
+  add_all_templates(trunk);
+  if (!state.GenerateFromBackboneSpec(trunk).ok) {
+    std::cerr << "[DBG] C323 trunk_generate_failed\n";
+    return false;
+  }
+
+  const ObjectId center_id = find_pole_id_by_position(state, kCenter, 1e-4);
+  if (center_id == wire::core::kInvalidObjectId) {
+    std::cerr << "[DBG] C323 center_missing_after_trunk\n";
+    return false;
+  }
+  const wire::core::Vec3d baseline_axis = support_axis_for_pole(center_id);
+  if ((baseline_axis.x * baseline_axis.x + baseline_axis.y * baseline_axis.y) <= 1e-12) {
+    std::cerr << "[DBG] C323 baseline_axis_missing\n";
+    return false;
+  }
+  const auto baseline_trace =
+      state.view().collect_decision_trace({wire::core::EntityKind::kPole, static_cast<std::uint64_t>(center_id)});
+
+  wire::core::BackboneSpec branch{};
+  branch.path.polyline = {kCenter, kBranchA};
+  branch.interval_m = 1000.0;
+  branch.pole_type_id = communication_pole_type_id;
+  wire::core::BackboneInputSpec::NodeSpec shared_branch{};
+  shared_branch.point_index = 0;
+  shared_branch.support_kind = wire::core::SupportKind::kPole;
+  shared_branch.node_id = center_id;
+  branch.path.node_specs.push_back(shared_branch);
+  add_all_templates(branch);
+  if (!state.GenerateFromBackboneSpec(branch).ok) {
+    std::cerr << "[DBG] C323 first_branch_generate_failed\n";
+    return false;
+  }
+
+  const wire::core::Vec3d after_branch_axis = support_axis_for_pole(center_id);
+  const double branch_alignment = std::abs(dot_xy(after_branch_axis, baseline_axis));
+  if (branch_alignment < 0.95) {
+    const auto branch_trace =
+        state.view().collect_decision_trace({wire::core::EntityKind::kPole, static_cast<std::uint64_t>(center_id)});
+    std::cerr << "[DBG] C323 branch_alignment=" << branch_alignment << " baseline=(" << baseline_axis.x << ","
+              << baseline_axis.y << "," << baseline_axis.z << ") after=(" << after_branch_axis.x << ","
+              << after_branch_axis.y << "," << after_branch_axis.z << ")";
+    for (const auto& entry : baseline_trace) {
+      std::cerr << " [base " << static_cast<int>(entry.topic) << ":" << entry.rule << ":" << entry.summary << "]";
+    }
+    for (const auto& entry : branch_trace) {
+      std::cerr << " [" << static_cast<int>(entry.topic) << ":" << entry.rule << ":" << entry.summary << "]";
+    }
+    std::cerr << "\n";
+    return false;
+  }
+
+  wire::core::BackboneSpec extension{};
+  extension.path.polyline = {kBranchB, kCenter};
+  extension.interval_m = 1000.0;
+  extension.pole_type_id = communication_pole_type_id;
+  wire::core::BackboneInputSpec::NodeSpec shared_extension{};
+  shared_extension.point_index = 1;
+  shared_extension.support_kind = wire::core::SupportKind::kPole;
+  shared_extension.node_id = center_id;
+  extension.path.node_specs.push_back(shared_extension);
+  add_all_templates(extension);
+  if (!state.GenerateFromBackboneSpec(extension).ok) {
+    std::cerr << "[DBG] C323 second_branch_generate_failed\n";
+    return false;
+  }
+
+  const wire::core::Vec3d after_extension_axis = support_axis_for_pole(center_id);
+  const double extension_alignment = std::abs(dot_xy(after_extension_axis, baseline_axis));
+  const auto pole_view = state.view().inspect_pole(center_id);
+  const bool ok = extension_alignment >= 0.95 && pole_view.has_value() &&
+                  pole_view->support_axis_rule == wire::core::PoleSupportAxisRule::kMainChainPair;
+  if (!ok) {
+    std::cerr << "[DBG] C323 extension_alignment=" << extension_alignment << " baseline=(" << baseline_axis.x << ","
+              << baseline_axis.y << "," << baseline_axis.z << ") after=(" << after_extension_axis.x << ","
+              << after_extension_axis.y << "," << after_extension_axis.z << ") supportRule="
+              << static_cast<int>(pole_view.has_value() ? pole_view->support_axis_rule
+                                                        : wire::core::PoleSupportAxisRule::kFallback)
+              << "\n";
+  }
+  return ok;
+}
+
+struct CaptureLikeIncrementalCrossObservation {
+  ObjectId center_id = wire::core::kInvalidObjectId;
+  ObjectId trunk_prev_id = wire::core::kInvalidObjectId;
+  ObjectId trunk_next_id = wire::core::kInvalidObjectId;
+  ObjectId branch_id = wire::core::kInvalidObjectId;
+  ObjectId opposite_id = wire::core::kInvalidObjectId;
+  wire::core::Vec3d baseline_axis{};
+  wire::core::Vec3d after_branch_axis{};
+  wire::core::Vec3d after_extension_axis{};
+};
+
+bool build_capture_like_incremental_cross_observation(CaptureLikeIncrementalCrossObservation* out) {
+  if (out == nullptr) {
+    return false;
+  }
+
+  CoreState state;
+  PoleTypeId communication_pole_type_id = wire::core::kInvalidPoleTypeId;
+  for (const auto& [_, pole_type] : state.view().pole_types()) {
+    if (pole_type.name == "CommunicationPole") {
+      communication_pole_type_id = pole_type.id;
+      break;
+    }
+  }
+  if (communication_pole_type_id == wire::core::kInvalidPoleTypeId) {
+    std::cerr << "[DBG] C324/C325 missing CommunicationPole\n";
+    return false;
+  }
+
+  auto add_all_templates = [](wire::core::BackboneSpec& req) {
+    add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
+    add_backbone_bundle(req, wire::core::BundleKind::kHighVoltage);
+    add_backbone_bundle(req, wire::core::BundleKind::kCommunication, wire::core::SpanLayer::kUnknown, 1);
+    add_backbone_bundle(req, wire::core::BundleKind::kOptical);
+  };
+  auto support_axis_for_pole = [&](ObjectId pole_id) {
+    const auto pole_view = state.view().inspect_pole(pole_id);
+    if (!pole_view.has_value() || !pole_view->has_support_axis) {
+      return wire::core::Vec3d{};
+    }
+    return normalize_xy_safe(pole_view->support_axis_dir);
+  };
+
+  constexpr wire::core::Vec3d kTrunkPrev{2.23971, 14.9132, 0.0};
+  constexpr wire::core::Vec3d kCenter{-9.08387, 7.15014, 0.0};
+  constexpr wire::core::Vec3d kTrunkNext{-16.0024, -3.71055, 0.0};
+  constexpr wire::core::Vec3d kBranch{-13.7777, 11.7497, 0.0};
+  constexpr wire::core::Vec3d kOpposite{-2.38788, 1.38919, 0.0};
+
+  wire::core::BackboneSpec trunk{};
+  trunk.path.polyline = {kTrunkPrev, kCenter, kTrunkNext};
+  trunk.interval_m = 1000.0;
+  trunk.pole_type_id = communication_pole_type_id;
+  add_all_templates(trunk);
+  if (!state.GenerateFromBackboneSpec(trunk).ok) {
+    std::cerr << "[DBG] C324/C325 trunk_generate_failed\n";
+    return false;
+  }
+
+  out->trunk_prev_id = find_pole_id_by_position(state, kTrunkPrev, 1e-4);
+  out->center_id = find_pole_id_by_position(state, kCenter, 1e-4);
+  out->trunk_next_id = find_pole_id_by_position(state, kTrunkNext, 1e-4);
+  if (out->trunk_prev_id == wire::core::kInvalidObjectId || out->center_id == wire::core::kInvalidObjectId ||
+      out->trunk_next_id == wire::core::kInvalidObjectId) {
+    std::cerr << "[DBG] C324/C325 trunk_nodes_missing prev=" << out->trunk_prev_id << " center=" << out->center_id
+              << " next=" << out->trunk_next_id << "\n";
+    return false;
+  }
+
+  out->baseline_axis = support_axis_for_pole(out->center_id);
+  if ((out->baseline_axis.x * out->baseline_axis.x + out->baseline_axis.y * out->baseline_axis.y) <= 1e-12) {
+    std::cerr << "[DBG] C324/C325 baseline_axis_missing center=" << out->center_id << "\n";
+    return false;
+  }
+
+  wire::core::BackboneSpec branch{};
+  branch.path.polyline = {kCenter, kBranch};
+  branch.interval_m = 1000.0;
+  branch.pole_type_id = communication_pole_type_id;
+  wire::core::BackboneInputSpec::NodeSpec shared_branch{};
+  shared_branch.point_index = 0;
+  shared_branch.support_kind = wire::core::SupportKind::kPole;
+  shared_branch.node_id = out->center_id;
+  branch.path.node_specs.push_back(shared_branch);
+  add_all_templates(branch);
+  if (!state.GenerateFromBackboneSpec(branch).ok) {
+    std::cerr << "[DBG] C324/C325 branch_generate_failed\n";
+    return false;
+  }
+  out->branch_id = find_pole_id_by_position(state, kBranch, 1e-4);
+  out->after_branch_axis = support_axis_for_pole(out->center_id);
+
+  wire::core::BackboneSpec extension{};
+  extension.path.polyline = {kOpposite, kCenter};
+  extension.interval_m = 1000.0;
+  extension.pole_type_id = communication_pole_type_id;
+  wire::core::BackboneInputSpec::NodeSpec shared_extension{};
+  shared_extension.point_index = 1;
+  shared_extension.support_kind = wire::core::SupportKind::kPole;
+  shared_extension.node_id = out->center_id;
+  extension.path.node_specs.push_back(shared_extension);
+  add_all_templates(extension);
+  if (!state.GenerateFromBackboneSpec(extension).ok) {
+    std::cerr << "[DBG] C324/C325 extension_generate_failed\n";
+    return false;
+  }
+  out->opposite_id = find_pole_id_by_position(state, kOpposite, 1e-4);
+  out->after_extension_axis = support_axis_for_pole(out->center_id);
+
+  const auto debug_it = state.view().pole_orientation_debug_records().find(out->center_id);
+  if (debug_it != state.view().pole_orientation_debug_records().end()) {
+    out->after_extension_axis = normalize_xy_safe(debug_it->second.adopted_support_axis);
+  }
+  return out->branch_id != wire::core::kInvalidObjectId && out->opposite_id != wire::core::kInvalidObjectId;
+}
+
+bool test_backbone_capture_like_incremental_cross_keeps_trunk_support_axis() {
+  CaptureLikeIncrementalCrossObservation observation{};
+  if (!build_capture_like_incremental_cross_observation(&observation)) {
+    return false;
+  }
+
+  const double branch_alignment = std::abs(dot_xy(observation.after_branch_axis, observation.baseline_axis));
+  const double extension_alignment = std::abs(dot_xy(observation.after_extension_axis, observation.baseline_axis));
+  const bool ok = branch_alignment >= 0.95 && extension_alignment >= 0.95;
+  if (!ok) {
+    std::cerr << "[DBG] C324 branchAlign=" << branch_alignment << " extensionAlign=" << extension_alignment
+              << " baseline=(" << observation.baseline_axis.x << "," << observation.baseline_axis.y << ") branch=("
+              << observation.after_branch_axis.x << "," << observation.after_branch_axis.y << ") extension=("
+              << observation.after_extension_axis.x << "," << observation.after_extension_axis.y << ") center="
+              << observation.center_id << " trunkPair=" << observation.trunk_prev_id << "/" << observation.trunk_next_id
+              << " branchPair=" << observation.branch_id << "/" << observation.opposite_id << "\n";
+    return false;
+  }
+  return true;
+}
+
+bool test_backbone_capture_like_incremental_cross_preserves_trunk_pair_authority() {
+  CaptureLikeIncrementalCrossObservation observation{};
+  if (!build_capture_like_incremental_cross_observation(&observation)) {
+    return false;
+  }
+
+  CoreState state;
+  PoleTypeId communication_pole_type_id = wire::core::kInvalidPoleTypeId;
+  for (const auto& [_, pole_type] : state.view().pole_types()) {
+    if (pole_type.name == "CommunicationPole") {
+      communication_pole_type_id = pole_type.id;
+      break;
+    }
+  }
+  if (communication_pole_type_id == wire::core::kInvalidPoleTypeId) {
+    return false;
+  }
+  auto add_all_templates = [](wire::core::BackboneSpec& req) {
+    add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
+    add_backbone_bundle(req, wire::core::BundleKind::kHighVoltage);
+    add_backbone_bundle(req, wire::core::BundleKind::kCommunication, wire::core::SpanLayer::kUnknown, 1);
+    add_backbone_bundle(req, wire::core::BundleKind::kOptical);
+  };
+  constexpr wire::core::Vec3d kTrunkPrev{2.23971, 14.9132, 0.0};
+  constexpr wire::core::Vec3d kCenter{-9.08387, 7.15014, 0.0};
+  constexpr wire::core::Vec3d kTrunkNext{-16.0024, -3.71055, 0.0};
+  constexpr wire::core::Vec3d kBranch{-13.7777, 11.7497, 0.0};
+  constexpr wire::core::Vec3d kOpposite{-2.38788, 1.38919, 0.0};
+  wire::core::BackboneSpec trunk{};
+  trunk.path.polyline = {kTrunkPrev, kCenter, kTrunkNext};
+  trunk.interval_m = 1000.0;
+  trunk.pole_type_id = communication_pole_type_id;
+  add_all_templates(trunk);
+  if (!state.GenerateFromBackboneSpec(trunk).ok) {
+    return false;
+  }
+  const ObjectId center_id = find_pole_id_by_position(state, kCenter, 1e-4);
+  const ObjectId trunk_prev_id = find_pole_id_by_position(state, kTrunkPrev, 1e-4);
+  const ObjectId trunk_next_id = find_pole_id_by_position(state, kTrunkNext, 1e-4);
+  wire::core::BackboneSpec branch{};
+  branch.path.polyline = {kCenter, kBranch};
+  branch.interval_m = 1000.0;
+  branch.pole_type_id = communication_pole_type_id;
+  wire::core::BackboneInputSpec::NodeSpec shared_branch{};
+  shared_branch.point_index = 0;
+  shared_branch.support_kind = wire::core::SupportKind::kPole;
+  shared_branch.node_id = center_id;
+  branch.path.node_specs.push_back(shared_branch);
+  add_all_templates(branch);
+  if (!state.GenerateFromBackboneSpec(branch).ok) {
+    return false;
+  }
+  wire::core::BackboneSpec extension{};
+  extension.path.polyline = {kOpposite, kCenter};
+  extension.interval_m = 1000.0;
+  extension.pole_type_id = communication_pole_type_id;
+  wire::core::BackboneInputSpec::NodeSpec shared_extension{};
+  shared_extension.point_index = 1;
+  shared_extension.support_kind = wire::core::SupportKind::kPole;
+  shared_extension.node_id = center_id;
+  extension.path.node_specs.push_back(shared_extension);
+  add_all_templates(extension);
+  if (!state.GenerateFromBackboneSpec(extension).ok) {
+    return false;
+  }
+
+  const auto debug_it = state.view().pole_orientation_debug_records().find(center_id);
+  if (debug_it == state.view().pole_orientation_debug_records().end()) {
+    std::cerr << "[DBG] C325 missing_debug center=" << center_id << "\n";
+    return false;
+  }
+  const auto& debug = debug_it->second;
+  const std::unordered_set<ObjectId> expected{trunk_prev_id, trunk_next_id};
+  const std::unordered_set<ObjectId> actual{debug.primary_neighbor_id, debug.secondary_neighbor_id};
+  const bool ok = debug.support_axis_rule == wire::core::PoleSupportAxisRule::kMainChainPair && actual == expected;
+  if (!ok) {
+    std::cerr << "[DBG] C325 rule=" << static_cast<int>(debug.support_axis_rule) << " primary="
+              << debug.primary_neighbor_id << " secondary=" << debug.secondary_neighbor_id << " expected="
+              << trunk_prev_id << "/" << trunk_next_id << "\n";
+  }
+  return ok;
+}
+
 bool test_backbone_drawpath_plain_endpoint_fallback_without_attachment_input() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
@@ -10608,6 +11115,15 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C319_Backbone_HV3LatestCaptureCommitPreservesPolylineOrder",
                          "Latest captured CommunicationPole HV shape keeps lane polylines non-crossing across recalc",
                          "Invariant", false, test_backbone_hv3_latest_capture_commit_preserves_polyline_order);
+  test_registry::AddTest(tests, "C320_Backbone_NearDuplicateAutoCandidateBoundary",
+                         "Near-duplicate auto generic pole candidates collapse only below the 1.5m threshold",
+                         "Invariant", false, test_backbone_auto_candidate_near_duplicate_boundary);
+  test_registry::AddTest(tests, "C321_Backbone_ManualAndTangentCandidatesDoNotCollapse",
+                         "Manual vertices and tangent-hint vertices are preserved even when they are within the near-duplicate auto-candidate threshold",
+                         "Invariant", false, test_backbone_manual_and_tangent_candidates_do_not_collapse);
+  test_registry::AddTest(tests, "C322_Backbone_ShortUnpinnedEndpointSegmentsKeepEndpoints",
+                         "Short unpinned leading/trailing segments preserve the route endpoints instead of erasing them during near-duplicate auto-candidate collapse",
+                         "Invariant", false, test_backbone_short_unpinned_endpoint_segments_keep_endpoints);
   test_registry::AddTest(tests, "C317_Backbone_HV3LatestCaptureLoweredSupportUsesLocalDepartureProfile",
                          "Latest captured lowered HV spans declare a local-departure detail-curve profile",
                          "Invariant", false, test_backbone_hv3_latest_capture_lowered_support_uses_local_departure_profile);
@@ -10930,6 +11446,19 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C176_Backbone_BranchKeepsMainSupportAxis",
                          "Adding a branch turns support heading toward connected directions while keeping the row geometry readable",
                          "Invariant", false, test_backbone_branch_keeps_main_support_axis_non_diagonal);
+  test_registry::AddTest(
+      tests, "C323_Backbone_SingleEdgeReusePreservesExistingStraightSupportAxis",
+      "Single-edge reuse on a captured CommunicationPole trunk keeps the existing straight support axis instead of "
+      "switching to the newer branch-side pair",
+      "Invariant", false, test_backbone_single_edge_reuse_preserves_existing_straight_support_axis);
+  test_registry::AddTest(
+      tests, "C324_Backbone_CaptureLikeIncrementalCrossKeepsTrunkSupportAxis",
+      "Capture-like incremental cross keeps the original trunk support axis instead of rotating the main support toward the later cross pair",
+      "Invariant", false, test_backbone_capture_like_incremental_cross_keeps_trunk_support_axis);
+  test_registry::AddTest(
+      tests, "C325_Backbone_CaptureLikeIncrementalCrossPreservesTrunkPairAuthority",
+      "Capture-like incremental cross keeps the pole support-axis authority on the original trunk pair instead of rebinding to the later cross pair",
+      "Invariant", false, test_backbone_capture_like_incremental_cross_preserves_trunk_pair_authority);
   test_registry::AddTest(tests, "C177_Backbone_DrawPathPlainEndpointFallback",
                          "DrawPath backbone without attachment input falls back to plain support endpoints",
                          "Invariant", false, test_backbone_drawpath_plain_endpoint_fallback_without_attachment_input);

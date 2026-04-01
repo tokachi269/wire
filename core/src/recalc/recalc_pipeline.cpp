@@ -65,6 +65,7 @@ RecalcStats CoreState::ProcessDirtyQueues() {
   RecalcStats stats{};
 
   std::unordered_set<ObjectId> processed_topology;
+  std::unordered_set<ObjectId> processed_decision;
   std::unordered_set<ObjectId> processed_geometry;
   std::unordered_set<ObjectId> processed_bounds;
   std::unordered_set<ObjectId> processed_render;
@@ -82,23 +83,43 @@ RecalcStats CoreState::ProcessDirtyQueues() {
     ++stats.topology_processed;
   }
 
+  for (ObjectId span_id : runtime_.dirty_queue.decision_dirty_span_ids) {
+    if (!processed_decision.insert(span_id).second) {
+      continue;
+    }
+    auto it = runtime_.span_runtime_states.find(span_id);
+    if (it == runtime_.span_runtime_states.end() || !any(it->second.dirty_bits, DirtyBits::kDecision)) {
+      continue;
+    }
+
+    std::string error_message;
+    if (!rebuild_span_curve(span_id, &error_message, true)) {
+      continue;
+    }
+    it->second.geometry_version = it->second.data_version;
+    it->second.dirty_bits = it->second.dirty_bits & ~DirtyBits::kDecision;
+    it->second.dirty_bits = it->second.dirty_bits & ~DirtyBits::kGeometryRefresh;
+    ++stats.decision_processed;
+    mark_span_dirty(span_id, DirtyBits::kBounds | DirtyBits::kRenderRefresh, false);
+  }
+
   for (ObjectId span_id : runtime_.dirty_queue.geometry_dirty_span_ids) {
     if (!processed_geometry.insert(span_id).second) {
       continue;
     }
     auto it = runtime_.span_runtime_states.find(span_id);
-    if (it == runtime_.span_runtime_states.end() || !any(it->second.dirty_bits, DirtyBits::kGeometry)) {
+    if (it == runtime_.span_runtime_states.end() || !any(it->second.dirty_bits, DirtyBits::kGeometryRefresh)) {
       continue;
     }
 
     std::string error_message;
-    if (!rebuild_span_curve(span_id, &error_message)) {
+    if (!rebuild_span_curve(span_id, &error_message, false)) {
       continue;
     }
     it->second.geometry_version = it->second.data_version;
-    it->second.dirty_bits = it->second.dirty_bits & ~DirtyBits::kGeometry;
+    it->second.dirty_bits = it->second.dirty_bits & ~DirtyBits::kGeometryRefresh;
     ++stats.geometry_processed;
-    mark_span_dirty(span_id, DirtyBits::kBounds | DirtyBits::kRender, false);
+    mark_span_dirty(span_id, DirtyBits::kBounds | DirtyBits::kRenderRefresh, false);
   }
 
   std::vector<ObjectId> bounds_queue = runtime_.dirty_queue.bounds_dirty_span_ids;
@@ -126,7 +147,7 @@ RecalcStats CoreState::ProcessDirtyQueues() {
       continue;
     }
     auto it = runtime_.span_runtime_states.find(span_id);
-    if (it == runtime_.span_runtime_states.end() || !any(it->second.dirty_bits, DirtyBits::kRender)) {
+    if (it == runtime_.span_runtime_states.end() || !any(it->second.dirty_bits, DirtyBits::kRenderRefresh)) {
       continue;
     }
     std::string error_message;
@@ -134,7 +155,7 @@ RecalcStats CoreState::ProcessDirtyQueues() {
       continue;
     }
     it->second.render_version = it->second.data_version;
-    it->second.dirty_bits = it->second.dirty_bits & ~DirtyBits::kRender;
+    it->second.dirty_bits = it->second.dirty_bits & ~DirtyBits::kRenderRefresh;
     ++stats.render_processed;
   }
 
@@ -241,11 +262,13 @@ void CoreState::mark_span_dirty(ObjectId span_id, DirtyBits dirty_bits, bool bum
 void CoreState::add_dirty_queue(ObjectId span_id, DirtyBits dirty_bits) {
   if (any(dirty_bits, DirtyBits::kTopology))
     runtime_.dirty_queue.topology_dirty_span_ids.push_back(span_id);
-  if (any(dirty_bits, DirtyBits::kGeometry))
+  if (any(dirty_bits, DirtyBits::kDecision))
+    runtime_.dirty_queue.decision_dirty_span_ids.push_back(span_id);
+  if (any(dirty_bits, DirtyBits::kGeometryRefresh))
     runtime_.dirty_queue.geometry_dirty_span_ids.push_back(span_id);
   if (any(dirty_bits, DirtyBits::kBounds))
     runtime_.dirty_queue.bounds_dirty_span_ids.push_back(span_id);
-  if (any(dirty_bits, DirtyBits::kRender))
+  if (any(dirty_bits, DirtyBits::kRenderRefresh))
     runtime_.dirty_queue.render_dirty_span_ids.push_back(span_id);
   if (any(dirty_bits, DirtyBits::kRaycast))
     runtime_.dirty_queue.raycast_dirty_span_ids.push_back(span_id);
@@ -281,6 +304,10 @@ void CoreState::mark_connected_spans_dirty_from_anchor(ObjectId anchor_id, Dirty
 }
 
 bool CoreState::rebuild_span_curve(ObjectId span_id, std::string* error_message) {
+  return rebuild_span_curve(span_id, error_message, true);
+}
+
+bool CoreState::rebuild_span_curve(ObjectId span_id, std::string* error_message, bool allow_authority_fallback) {
   const Span* span = authoritative_.edit_state.spans.find(span_id);
   if (span == nullptr) {
     if (error_message != nullptr) {
@@ -289,7 +316,11 @@ bool CoreState::rebuild_span_curve(ObjectId span_id, std::string* error_message)
     return false;
   }
 
-  SpanSupportLayoutEntry support_layout = generate_span_support_layout(*span, error_message);
+  SpanSupportLayoutEntry support_layout =
+      generate_span_support_layout(*span, error_message, allow_authority_fallback);
+  if (support_layout.span_id == kInvalidObjectId && !allow_authority_fallback) {
+    support_layout = generate_span_support_layout(*span, error_message, true);
+  }
   if (support_layout.span_id == kInvalidObjectId) {
     return false;
   }
@@ -332,7 +363,7 @@ void CoreState::cache_span_support_layout_seed(SpanSupportLayoutDecisionSeed see
   }
 
   std::string error_message;
-  SpanSupportLayoutEntry layout = generate_span_support_layout(*span, &error_message);
+  SpanSupportLayoutEntry layout = generate_span_support_layout(*span, &error_message, true);
   if (layout.span_id == kInvalidObjectId) {
     erase_cached_span_support_layout(span_id);
     return;

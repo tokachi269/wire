@@ -463,8 +463,21 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
     if (pole == nullptr) {
       return;
     }
-    const double dx = port.world_position.x - pole->world_transform.position.x;
-    const double dy = port.world_position.y - pole->world_transform.position.y;
+    Vec3d endpoint_world = (layout_endpoint != nullptr) ? layout_endpoint->endpoint_world : port.world_position;
+    Vec3d support_world = (layout_endpoint != nullptr) ? layout_endpoint->support_world : port.world_position;
+    const bool uses_grouped_lowered_support = layout_endpoint != nullptr && endpoint_uses_grouped_lowered_support(layout_endpoint);
+    const bool suppress_connector_insulator =
+        !uses_grouped_lowered_support && endpoint_decision != nullptr &&
+        endpoint_decision->continuity_class == ContinuityCategoryClass::kPointLike &&
+        endpoint_decision->same_level_feasible && !endpoint_decision->lower_required &&
+        (endpoint_decision->relation_kind == JunctionRelationKind::kSideBranch ||
+         endpoint_decision->relation_kind == JunctionRelationKind::kCrossUnderpass);
+    if (suppress_connector_insulator) {
+      support_world.z -= runtime_.cache_state.visual_settings.insulator_length_m;
+    }
+
+    const double dx = endpoint_world.x - pole->world_transform.position.x;
+    const double dy = endpoint_world.y - pole->world_transform.position.y;
     const double planar = std::sqrt(dx * dx + dy * dy);
     Vec3d radial{
         (planar <= 1e-9) ? 1.0 : (dx / planar),
@@ -484,39 +497,44 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
         support_dir = radial;
       }
     }
-    const bool uses_grouped_lowered_support = layout_endpoint != nullptr && endpoint_uses_grouped_lowered_support(layout_endpoint);
-
     SpanVisualCacheEntry& entry = runtime_.cache_state.visual_cache.by_span[span_id];
     if (uses_grouped_lowered_support) {
       return;
     }
+    const Vec3d support_attach_world{
+        pole->world_transform.position.x + support_dir.x * planar,
+        pole->world_transform.position.y + support_dir.y * planar,
+        support_world.z,
+    };
     if (runtime_.cache_state.visual_settings.enable_support_structures &&
-        port.template_side != SlotSide::kCenter &&
         planar > runtime_.cache_state.visual_settings.support_center_threshold_m + 1e-9) {
       VisualPart arm{};
       arm.kind = VisualPartKind::kSupportArm;
-      arm.a = {pole->world_transform.position.x, pole->world_transform.position.y, port.world_position.z};
-      const double support_arm_length_m = planar + runtime_.cache_state.visual_settings.support_arm_extra_m;
-      arm.b = {
-          pole->world_transform.position.x + support_dir.x * support_arm_length_m,
-          pole->world_transform.position.y + support_dir.y * support_arm_length_m,
-          port.world_position.z,
-      };
+      arm.a = {pole->world_transform.position.x, pole->world_transform.position.y, support_world.z};
+      arm.b = support_attach_world;
       arm.radius_m = 0.03;
       entry.parts.push_back(arm);
     }
 
-    if (runtime_.cache_state.visual_settings.enable_insulators && requires_insulator) {
+    const double connector_dx = endpoint_world.x - support_attach_world.x;
+    const double connector_dy = endpoint_world.y - support_attach_world.y;
+    const double connector_dz = endpoint_world.z - support_attach_world.z;
+    const double connector_length = std::sqrt(connector_dx * connector_dx + connector_dy * connector_dy + connector_dz * connector_dz);
+    if (runtime_.cache_state.visual_settings.enable_insulators && requires_insulator && !suppress_connector_insulator &&
+        connector_length > 1e-9) {
       VisualPart ins{};
       ins.kind = VisualPartKind::kInsulator;
-      ins.a = port.world_position;
-      ins.b = {
-          port.world_position.x,
-          port.world_position.y,
-          port.world_position.z + insulator_attachment_height_m,
-      };
+      ins.a = support_attach_world;
+      ins.b = endpoint_world;
       ins.radius_m = runtime_.cache_state.visual_settings.insulator_radius_m;
       entry.parts.push_back(ins);
+    } else if (runtime_.cache_state.visual_settings.enable_support_structures && connector_length > 1e-9) {
+      VisualPart fitting{};
+      fitting.kind = VisualPartKind::kFitting;
+      fitting.a = support_attach_world;
+      fitting.b = endpoint_world;
+      fitting.radius_m = 0.02;
+      entry.parts.push_back(fitting);
     }
   };
 

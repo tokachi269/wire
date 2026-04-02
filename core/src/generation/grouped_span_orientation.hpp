@@ -19,8 +19,16 @@ public:
   [[nodiscard]] std::optional<LoweredSupportPairInfo>
   LoweredSupportPairInfoForEndpoint(ObjectId node_id, ObjectId peer_id, const SegmentRelationFeasibility& feasibility);
 
+  [[nodiscard]] std::optional<LoweredSupportPairInfo>
+  SupportPairInfoForEndpoint(ObjectId node_id, ObjectId peer_id, const SegmentRelationFeasibility& feasibility);
+
+  [[nodiscard]] std::optional<LoweredSupportPairInfo> JunctionSupportPairInfoForNode(ObjectId node_id) const;
+
   [[nodiscard]] EndpointSideDecision PreferredSideAxisForEndpoint(ObjectId node_id, ObjectId peer_id,
                                                                  const SegmentRelationFeasibility& feasibility);
+
+  [[nodiscard]] EndpointSideDecision PairNormalSideDecisionForEndpoint(ObjectId node_id, ObjectId peer_id,
+                                                                       const LoweredSupportPairInfo& pair_info) const;
 
   [[nodiscard]] EndpointSideDecision NormalizeGroupSideDecision(EndpointSideDecision decision) const;
 
@@ -62,6 +70,9 @@ private:
   [[nodiscard]] bool NodeHasBundleLoweringConflict(ObjectId node_id) const;
   [[nodiscard]] bool SupportsBundleSupportPairing(ObjectId node_id, ObjectId peer_id,
                                                  const SegmentRelationFeasibility& feasibility) const;
+  [[nodiscard]] std::optional<LoweredSupportPairInfo>
+  SameLevelSupportPairInfoForEndpoint(ObjectId node_id, ObjectId peer_id,
+                                      const SegmentRelationFeasibility& feasibility) const;
   [[nodiscard]] std::optional<LoweredSupportPairInfo> CachedLoweredSupportPairInfo(ObjectId node_id,
                                                                                    ObjectId peer_id);
   [[nodiscard]] bool BuildLoweredSupportPairsForNode(ObjectId node_id,
@@ -95,6 +106,8 @@ private:
   [[nodiscard]] Vec3d ChordSideAxisForEndpoint(ObjectId node_id, ObjectId peer_id) const;
   [[nodiscard]] EndpointSideDecision BuildPairSideDecision(ObjectId node_id, ObjectId peer_id,
                                                            const LoweredSupportPairInfo& pair_info) const;
+  [[nodiscard]] EndpointSideDecision BuildPairNormalSideDecision(ObjectId node_id, ObjectId peer_id,
+                                                                 const LoweredSupportPairInfo& pair_info) const;
   [[nodiscard]] std::optional<EndpointSideDecision>
   ConnectedBundleSupportDecisionForNode(ObjectId node_id, ObjectId peer_id,
                                         const SegmentRelationFeasibility& feasibility);

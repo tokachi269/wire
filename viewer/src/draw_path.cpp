@@ -360,6 +360,19 @@ const char* SupportOrientationBasisLabelLocal(wire::core::SupportOrientationBasi
   }
 }
 
+const char* VisualPartKindLabelLocal(wire::core::VisualPartKind kind) {
+  switch (kind) {
+  case wire::core::VisualPartKind::kSupportArm:
+    return "SupportArm";
+  case wire::core::VisualPartKind::kInsulator:
+    return "Insulator";
+  case wire::core::VisualPartKind::kFitting:
+    return "Fitting";
+  default:
+    return "Unknown";
+  }
+}
+
 const char* SupportGroupingRuleLabelLocal(wire::core::SupportGroupingRuleKind rule) {
   switch (rule) {
   case wire::core::SupportGroupingRuleKind::kPerPort:
@@ -829,12 +842,16 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
         }
       }
       };
-      ofs << "capture.version=7\n";
+      ofs << "capture.version=8\n";
   ofs << "capture.scope=all_state_plus_focus\n";
   ofs << "capture.includes_all_current_spans=1\n";
   ofs << "capture.includes_all_lane_assignments=1\n";
   ofs << "draw.endpoint_attachment_input_supported=0\n";
   ofs << "draw.endpoint_socket_input_supported=0\n";
+  ofs << "viewer.show_whole_aabb=" << (ui_state.show_whole_aabb ? 1 : 0) << "\n";
+  ofs << "viewer.show_segment_aabb=" << (ui_state.show_segment_aabb ? 1 : 0) << "\n";
+  ofs << "viewer.draw_show_backbone_overlay=" << (ui_state.draw_show_backbone_overlay ? 1 : 0) << "\n";
+  ofs << "viewer.enable_solid_support_render=" << (ui_state.viewer_enable_solid_support_render ? 1 : 0) << "\n";
   ofs << "capture.timestamp_unix=" << static_cast<long long>(now) << "\n";
   ofs << "capture.mode=" << ModeLabelLocal(ui_state.mode) << "\n";
   ofs << "capture.selected_type=" << SelectedTypeLabelLocal(ui_state.selected_type) << "\n";
@@ -1408,6 +1425,20 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
       ofs << "result.current_span[" << current_span_index << "].layout_end_orientation_basis="
         << SupportOrientationBasisLabelLocal(layout_view->end_endpoint.decision.support_orientation_basis)
         << "\n";
+    }
+    if (const auto* visual = view.find_span_visual_cache(span.id); visual != nullptr) {
+      ofs << "result.current_span[" << current_span_index << "].visual_part_count=" << visual->parts.size() << "\n";
+      for (std::size_t part_index = 0; part_index < visual->parts.size(); ++part_index) {
+        const auto& part = visual->parts[part_index];
+        ofs << "result.current_span[" << current_span_index << "].visual_part[" << part_index
+            << "].kind=" << VisualPartKindLabelLocal(part.kind) << "\n";
+        ofs << "result.current_span[" << current_span_index << "].visual_part[" << part_index
+            << "].a=" << part.a.x << "," << part.a.y << "," << part.a.z << "\n";
+        ofs << "result.current_span[" << current_span_index << "].visual_part[" << part_index
+            << "].b=" << part.b.x << "," << part.b.y << "," << part.b.z << "\n";
+        ofs << "result.current_span[" << current_span_index << "].visual_part[" << part_index
+            << "].radius_m=" << part.radius_m << "\n";
+      }
     }
     write_endpoint_junction("result.current_span[" + std::to_string(current_span_index) + "].endpoint_a_junction",
                             span.endpoint_node_a_id, span.endpoint_node_b_id);

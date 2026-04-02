@@ -159,14 +159,56 @@ CoreState::generate_grouped_spans_between_support_nodes(
       assignment.same_level_reason = SameLevelFeasibilityReason::kCategoryPolicyDisabled;
     }
     assignment.unresolved_same_level_conflict = !segment_same_level_feasible && assignment.lowering_blocked_by_policy;
-    const auto pair_info_a = orientation.LoweredSupportPairInfoForEndpoint(node_a, node_b, effective_relation_a);
-    const auto pair_info_b = orientation.LoweredSupportPairInfoForEndpoint(node_b, node_a, effective_relation_b);
+    const auto pair_info_a = orientation.SupportPairInfoForEndpoint(node_a, node_b, effective_relation_a);
+    const auto pair_info_b = orientation.SupportPairInfoForEndpoint(node_b, node_a, effective_relation_b);
+    std::optional<LoweredSupportPairInfo> effective_pair_info_a = pair_info_a;
+    std::optional<LoweredSupportPairInfo> effective_pair_info_b = pair_info_b;
     EndpointSideDecision side_decision_a =
         orientation.FinalizeEndpointSideDecision(node_a, node_b, orientation.PreferredSideAxisForEndpoint(node_a, node_b,
                                                                                           effective_relation_a));
     EndpointSideDecision side_decision_b =
         orientation.FinalizeEndpointSideDecision(node_b, node_a, orientation.PreferredSideAxisForEndpoint(node_b, node_a,
                                                                                           effective_relation_b));
+    auto maybe_borrow_peer_pair_authority = [&](const SegmentRelationFeasibility& self_relation,
+                                                const SegmentRelationFeasibility& peer_relation,
+                                                ObjectId self_node_id, ObjectId peer_node_id,
+                                                const std::vector<ObjectId>& self_port_ids,
+                                                std::optional<LoweredSupportPairInfo>* self_pair_info,
+                                                const std::optional<LoweredSupportPairInfo>& peer_pair_info,
+                                                EndpointSideDecision* self_side_decision) {
+      if (self_pair_info == nullptr || self_side_decision == nullptr || self_pair_info->has_value()) {
+        return;
+      }
+      if (!self_relation.same_level_feasible || self_relation.default_lower_required ||
+          self_relation.kind == JunctionRelationKind::kNone) {
+        return;
+      }
+      if (self_relation.kind != JunctionRelationKind::kThroughMain &&
+          self_relation.kind != JunctionRelationKind::kCrossUnderpass) {
+        return;
+      }
+      const auto borrowed_pair_info =
+          peer_pair_info.has_value() ? peer_pair_info : orientation.JunctionSupportPairInfoForNode(peer_node_id);
+      if (!borrowed_pair_info.has_value() || !borrowed_pair_info->has_pair) {
+        return;
+      }
+      const bool endpoint_local_fallback =
+          !self_side_decision->used_junction_pair_side_assignment ||
+          self_side_decision->support_orientation_rule == SupportOrientationRuleKind::kRadial ||
+          self_side_decision->side_assignment_rule == SideAssignmentRuleKind::kPoleLocal;
+      if (!endpoint_local_fallback) {
+        return;
+      }
+      *self_pair_info = borrowed_pair_info;
+      *self_side_decision = orientation.FinalizeEndpointSideDecision(
+          self_node_id, peer_node_id,
+          orientation.PairNormalSideDecisionForEndpoint(self_node_id, peer_node_id, *borrowed_pair_info));
+      orientation.FinalizeSideSignForPorts(self_side_decision, self_node_id, peer_node_id, self_port_ids);
+    };
+    maybe_borrow_peer_pair_authority(effective_relation_a, effective_relation_b, node_a, node_b, assignment.port_ids_a,
+                                     &effective_pair_info_a, effective_pair_info_b, &side_decision_a);
+    maybe_borrow_peer_pair_authority(effective_relation_b, effective_relation_a, node_b, node_a, assignment.port_ids_b,
+                                     &effective_pair_info_b, effective_pair_info_a, &side_decision_b);
     if (effective_relation_a.continuity_class == ContinuityCategoryClass::kBundleLike &&
         (effective_relation_a.default_lower_required || !effective_relation_a.same_level_feasible)) {
       side_decision_a = orientation.NormalizeGroupSideDecision(side_decision_a);
@@ -178,19 +220,19 @@ CoreState::generate_grouped_spans_between_support_nodes(
     orientation.FinalizeSideSignForPorts(&side_decision_a, node_a, node_b, assignment.port_ids_a);
     orientation.FinalizeSideSignForPorts(&side_decision_b, node_b, node_a, assignment.port_ids_b);
     EndpointContinuityDecision raw_decision_a =
-        lowering.BuildEndpointDecision(effective_relation_a, pair_info_a, side_decision_a, node_a, node_b,
+        lowering.BuildEndpointDecision(effective_relation_a, effective_pair_info_a, side_decision_a, node_a, node_b,
                                 order_decision_policy,
                                 assignment.order_decision_choice_a, assignment.order_decision_choice_reason_a,
                                 assignment.solver_used_same_level_constraint, assignment.used_special_case_ports,
                                 endpoint_policy_block_a, assignment.unresolved_same_level_conflict);
     EndpointContinuityDecision raw_decision_b =
-        lowering.BuildEndpointDecision(effective_relation_b, pair_info_b, side_decision_b, node_b, node_a,
+        lowering.BuildEndpointDecision(effective_relation_b, effective_pair_info_b, side_decision_b, node_b, node_a,
                                 order_decision_policy,
                                 assignment.order_decision_choice_b, assignment.order_decision_choice_reason_b,
                                 assignment.solver_used_same_level_constraint, assignment.used_special_case_ports,
                                 endpoint_policy_block_b, assignment.unresolved_same_level_conflict);
-    orientation.PrimeGroupEndpointDecision(raw_decision_a, node_b, pair_info_a, side_decision_a);
-    orientation.PrimeGroupEndpointDecision(raw_decision_b, node_a, pair_info_b, side_decision_b);
+    orientation.PrimeGroupEndpointDecision(raw_decision_a, node_b, effective_pair_info_a, side_decision_a);
+    orientation.PrimeGroupEndpointDecision(raw_decision_b, node_a, effective_pair_info_b, side_decision_b);
     assignment.decision_a = orientation.CanonicalizeGroupEndpointDecision(raw_decision_a);
     assignment.decision_b = orientation.CanonicalizeGroupEndpointDecision(raw_decision_b);
     GroupedSpanLanePreparer::SyncAssignmentFromDecisions(&assignment);

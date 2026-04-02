@@ -597,6 +597,34 @@ EndpointSideDecision GroupedSpanOrientationDecider::PreferredSideAxisForEndpoint
     return *connected_bundle;
   }
   if (!prefers_line_oriented_lowering) {
+    if (feasibility.in_through_pair) {
+      if (const auto through_pair_axis = ThroughPairSideAxisForNode(node_id); through_pair_axis.has_value()) {
+        decision.side_axis = NormalizedOrZeroXY(*through_pair_axis);
+        decision.side_assignment_rule = SideAssignmentRuleKind::kThroughPairNormal;
+        decision.support_orientation_rule = SupportOrientationRuleKind::kThroughPairNormal;
+        decision.used_junction_pair_side_assignment = true;
+        decision.has_side_axis = (decision.side_axis.x != 0.0 || decision.side_axis.y != 0.0);
+        return decision;
+      }
+    }
+    if (feasibility.kind == JunctionRelationKind::kSideBranch ||
+        feasibility.kind == JunctionRelationKind::kCornerContinuation ||
+        feasibility.kind == JunctionRelationKind::kCrossUnderpass) {
+      if (const auto bisector_axis = BisectorAxisForEndpoint(node_id, peer_id); bisector_axis.has_value()) {
+        decision.side_axis = NormalizedOrZeroXY(*bisector_axis);
+        decision.side_assignment_rule = SideAssignmentRuleKind::kBisector;
+        decision.support_orientation_rule = SupportOrientationRuleKind::kBisector;
+        decision.used_junction_pair_side_assignment = true;
+        decision.has_side_axis = (decision.side_axis.x != 0.0 || decision.side_axis.y != 0.0);
+        return decision;
+      }
+      decision.side_axis = NormalizedOrZeroXY(GroupedLineAxisForEndpoint(node_id, peer_id));
+      decision.side_assignment_rule = SideAssignmentRuleKind::kChord;
+      decision.support_orientation_rule = SupportOrientationRuleKind::kChord;
+      decision.used_junction_pair_side_assignment = false;
+      decision.has_side_axis = (decision.side_axis.x != 0.0 || decision.side_axis.y != 0.0);
+      return decision;
+    }
     return decision;
   }
   if (feasibility.kind == JunctionRelationKind::kSideBranch ||

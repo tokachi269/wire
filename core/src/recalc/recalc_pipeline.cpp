@@ -471,6 +471,19 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
         (planar <= 1e-9) ? 0.0 : (dy / planar),
         0.0,
     };
+    Vec3d support_dir = radial;
+    if (endpoint_decision != nullptr && endpoint_decision->has_side_axis &&
+        endpoint_decision->support_orientation_rule != SupportOrientationRuleKind::kRadial &&
+        std::abs(endpoint_decision->chosen_side_sign) > 1e-9) {
+      support_dir = endpoint_decision->side_axis;
+      if (endpoint_decision->chosen_side_sign < 0.0) {
+        support_dir.x = -support_dir.x;
+        support_dir.y = -support_dir.y;
+      }
+      if (!NormalizeXY(&support_dir)) {
+        support_dir = radial;
+      }
+    }
     const bool uses_grouped_lowered_support = layout_endpoint != nullptr && endpoint_uses_grouped_lowered_support(layout_endpoint);
 
     SpanVisualCacheEntry& entry = runtime_.cache_state.visual_cache.by_span[span_id];
@@ -483,9 +496,10 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
       VisualPart arm{};
       arm.kind = VisualPartKind::kSupportArm;
       arm.a = {pole->world_transform.position.x, pole->world_transform.position.y, port.world_position.z};
+      const double support_arm_length_m = planar + runtime_.cache_state.visual_settings.support_arm_extra_m;
       arm.b = {
-          port.world_position.x + radial.x * runtime_.cache_state.visual_settings.support_arm_extra_m,
-          port.world_position.y + radial.y * runtime_.cache_state.visual_settings.support_arm_extra_m,
+          pole->world_transform.position.x + support_dir.x * support_arm_length_m,
+          pole->world_transform.position.y + support_dir.y * support_arm_length_m,
           port.world_position.z,
       };
       arm.radius_m = 0.03;

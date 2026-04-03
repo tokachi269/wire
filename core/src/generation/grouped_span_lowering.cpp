@@ -31,11 +31,29 @@ SegmentRelationFeasibility GroupedSpanLoweringDecider::SegmentRelationFeasibilit
   info.kind = incident->kind;
   info.continuity_class = incident->continuity_class;
   info.in_through_pair = incident->in_through_pair;
+  if (ctx_.junction_relations_by_node != nullptr) {
+    if (const auto node_it = ctx_.junction_relations_by_node->find(node_id); node_it != ctx_.junction_relations_by_node->end()) {
+      info.through_pair_accepted = node_it->second.through_pair.accepted;
+    }
+    if (const auto peer_it = ctx_.junction_relations_by_node->find(peer_id); peer_it != ctx_.junction_relations_by_node->end()) {
+      info.peer_through_pair_accepted = peer_it->second.through_pair.accepted;
+    }
+  }
   info.default_lower_required = incident->default_lower_required;
   info.same_level_feasible = incident->same_level_feasible;
   info.reason = incident->infeasible_reason;
   info.projected_spacing_topview_m = incident->projected_spacing_topview_m;
   info.required_clearance_m = incident->required_clearance_m;
+  if (const JunctionIncidentRelation* peer_incident = IncidentRelationFor(peer_id, node_id); peer_incident != nullptr) {
+    info.peer_relation_found = true;
+    info.peer_relation_kind = peer_incident->kind;
+    info.peer_in_route = peer_incident->in_route;
+    info.peer_in_through_pair = peer_incident->in_through_pair;
+    info.peer_continuity_class = peer_incident->continuity_class;
+    info.peer_default_lower_required = peer_incident->default_lower_required;
+    info.peer_same_level_feasible = peer_incident->same_level_feasible;
+    info.peer_reason = peer_incident->infeasible_reason;
+  }
   return info;
 }
 
@@ -121,9 +139,7 @@ bool GroupedSpanLoweringDecider::EndpointRequiresOutboardLoweredPorts(ObjectId n
   const bool uses_lowered_height =
       (feasibility.default_lower_required || !feasibility.same_level_feasible) && lowering_policy_.offset_m > 1e-6 &&
       feasibility.kind != JunctionRelationKind::kThroughMain && feasibility.kind != JunctionRelationKind::kNone;
-  if ((feasibility.kind == JunctionRelationKind::kCrossUnderpass ||
-       feasibility.kind == JunctionRelationKind::kSideBranch) &&
-      uses_lowered_height) {
+  if (feasibility.kind == JunctionRelationKind::kCrossUnderpass && uses_lowered_height) {
     return true;
   }
   if (ctx_.junction_relations_by_node != nullptr) {

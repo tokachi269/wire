@@ -163,10 +163,12 @@ CoreState::generate_grouped_spans_between_support_nodes(
     const auto pair_info_b = orientation.LoweredSupportPairInfoForEndpoint(node_b, node_a, effective_relation_b);
     EndpointSideDecision side_decision_a =
         orientation.FinalizeEndpointSideDecision(node_a, node_b, orientation.PreferredSideAxisForEndpoint(node_a, node_b,
-                                                                                          effective_relation_a));
+                                                                                         effective_relation_a,
+                                                                                         bundle_id));
     EndpointSideDecision side_decision_b =
         orientation.FinalizeEndpointSideDecision(node_b, node_a, orientation.PreferredSideAxisForEndpoint(node_b, node_a,
-                                                                                          effective_relation_b));
+                                                                                         effective_relation_b,
+                                                                                         bundle_id));
     if (effective_relation_a.continuity_class == ContinuityCategoryClass::kBundleLike &&
         (effective_relation_a.default_lower_required || !effective_relation_a.same_level_feasible)) {
       side_decision_a = orientation.NormalizeGroupSideDecision(side_decision_a);
@@ -282,7 +284,6 @@ CoreState::generate_grouped_spans_between_support_nodes(
 }
 
 } // namespace wire::core
-
 
 
 

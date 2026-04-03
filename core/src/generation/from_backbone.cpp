@@ -1665,6 +1665,44 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     };
 
     const std::vector<ObjectId> combined_neighbors = combined_neighbors_for_node(node_id);
+    const auto it_route = route_neighbors_by_node.find(node_id);
+    const std::size_t route_degree = (it_route == route_neighbors_by_node.end()) ? 0 : it_route->second.size();
+    const auto preferred_pair = preferred_straight_main_pair_for_orientation(node_id);
+    auto pair_straightness = [&](ObjectId neighbor_a_id, ObjectId neighbor_b_id) {
+      const Vec3d axis_a = normalize_forward_xy(current_support_position(neighbor_a_id) - center);
+      const Vec3d axis_b = normalize_forward_xy(current_support_position(neighbor_b_id) - center);
+      if (!std::isfinite(axis_a.x) || !std::isfinite(axis_a.y) || !std::isfinite(axis_b.x) || !std::isfinite(axis_b.y)) {
+        return -2.0;
+      }
+      return dot(axis_a, Vec3d{-axis_b.x, -axis_b.y, -axis_b.z});
+    };
+    if (route_degree <= 2 &&
+        preferred_pair.first != kInvalidObjectId && preferred_pair.second != kInvalidObjectId &&
+        preferred_pair.first != preferred_pair.second &&
+        pair_straightness(preferred_pair.first, preferred_pair.second) >= 0.95) {
+      const Vec3d axis = current_support_position(preferred_pair.first) - center;
+      if (adopt_axis(axis, PoleSupportAxisRule::kMainChainPair, preferred_pair.first, preferred_pair.second)) {
+        return chosen_axis;
+      }
+    }
+    const std::vector<ObjectId> connected_neighbors = connected_neighbors_for_support_axis(node_id);
+    ObjectId route_peer_id = kInvalidObjectId;
+    if (connected_neighbors.size() == 1) {
+      route_peer_id = connected_neighbors.front();
+    } else if (route_degree == 1) {
+      route_peer_id = it_route->second.front();
+    }
+    if (route_peer_id != kInvalidObjectId) {
+      const std::vector<ObjectId> peer_pair = continuation_neighbors_for_orientation(route_peer_id);
+      if (peer_pair.size() >= 2 && peer_pair[0] != kInvalidObjectId && peer_pair[1] != kInvalidObjectId &&
+          peer_pair[0] != peer_pair[1] && peer_pair[0] != node_id && peer_pair[1] != node_id) {
+        const Vec3d peer_center = current_support_position(route_peer_id);
+        const Vec3d axis = current_support_position(peer_pair[0]) - peer_center;
+        if (adopt_axis(axis, PoleSupportAxisRule::kMainChainPair, peer_pair[0], peer_pair[1])) {
+          return chosen_axis;
+        }
+      }
+    }
     if (adopt_connected_direction_fit(combined_neighbors)) {
       if (maybe_preserve_existing_pair_axis(chosen_axis)) {
         return chosen_axis;
@@ -1672,7 +1710,6 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       return chosen_axis;
     }
 
-    const std::vector<ObjectId> connected_neighbors = connected_neighbors_for_support_axis(node_id);
     if (adopt_connected_direction_fit(connected_neighbors)) {
       if (maybe_preserve_existing_pair_axis(chosen_axis)) {
         return chosen_axis;
@@ -2725,4 +2762,3 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
 
 
 } // namespace wire::core
-

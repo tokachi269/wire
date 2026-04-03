@@ -471,10 +471,13 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
         (planar <= 1e-9) ? 0.0 : (dy / planar),
         0.0,
     };
-    Vec3d support_dir = radial;
-    if (endpoint_decision != nullptr && endpoint_decision->has_side_axis &&
+    const bool uses_grouped_lowered_support = layout_endpoint != nullptr && endpoint_uses_grouped_lowered_support(layout_endpoint);
+    const bool has_nonradial_endpoint_authority =
+        endpoint_decision != nullptr && endpoint_decision->has_side_axis &&
         endpoint_decision->support_orientation_rule != SupportOrientationRuleKind::kRadial &&
-        std::abs(endpoint_decision->chosen_side_sign) > 1e-9) {
+        std::abs(endpoint_decision->chosen_side_sign) > 1e-9;
+    Vec3d support_dir = radial;
+    if (has_nonradial_endpoint_authority) {
       support_dir = endpoint_decision->side_axis;
       if (endpoint_decision->chosen_side_sign < 0.0) {
         support_dir.x = -support_dir.x;
@@ -484,15 +487,15 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
         support_dir = radial;
       }
     }
-    const bool uses_grouped_lowered_support = layout_endpoint != nullptr && endpoint_uses_grouped_lowered_support(layout_endpoint);
-
     SpanVisualCacheEntry& entry = runtime_.cache_state.visual_cache.by_span[span_id];
     if (uses_grouped_lowered_support) {
       return;
     }
-    if (runtime_.cache_state.visual_settings.enable_support_structures &&
+    const bool off_center_port =
         port.template_side != SlotSide::kCenter &&
-        planar > runtime_.cache_state.visual_settings.support_center_threshold_m + 1e-9) {
+        planar > runtime_.cache_state.visual_settings.support_center_threshold_m + 1e-9;
+    if (runtime_.cache_state.visual_settings.enable_support_structures &&
+        (off_center_port || has_nonradial_endpoint_authority)) {
       VisualPart arm{};
       arm.kind = VisualPartKind::kSupportArm;
       arm.a = {pole->world_transform.position.x, pole->world_transform.position.y, port.world_position.z};
@@ -688,4 +691,3 @@ void CoreState::remove_span_from_caches(ObjectId span_id) {
 }
 
 } // namespace wire::core
-

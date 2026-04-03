@@ -1302,7 +1302,7 @@ GroupedSpanLanePreparer::EnsurePorts(ObjectId node_id, ObjectId peer_id, int seg
       return local_to_world_on_pole_local(pole->world_transform, layout_yaw, local);
     }
     const EndpointSideDecision scaffold_side_decision =
-        orientation_.PreferredSideAxisForEndpoint(node_id, peer_id, feasibility);
+        orientation_.PreferredSideAxisForEndpoint(node_id, peer_id, feasibility, bundle_id_);
     const Vec3d stable_side_axis =
         scaffold_side_decision.has_side_axis ? scaffold_side_decision.side_axis
                                              : orientation_.GroupedLineAxisForEndpoint(node_id, peer_id);
@@ -1450,7 +1450,7 @@ GroupedSpanLanePreparer::EnsurePorts(ObjectId node_id, ObjectId peer_id, int seg
     }
     const Vec3d branch_row_axis = ComputeLateralAxis(branch_forward_axis);
     const EndpointSideDecision preferred_side_decision =
-        orientation_.PreferredSideAxisForEndpoint(node_id, peer_id, branch_feasibility);
+        orientation_.PreferredSideAxisForEndpoint(node_id, peer_id, branch_feasibility, bundle_id_);
     const Vec3d side_axis = preferred_side_decision.has_side_axis ? preferred_side_decision.side_axis : branch_row_axis;
     Vec3d peer_dir = peer_delta;
     peer_dir.z = 0.0;
@@ -1676,7 +1676,7 @@ GroupedSpanLanePreparer::EnsurePorts(ObjectId node_id, ObjectId peer_id, int seg
       target_local_y[static_cast<std::size_t>(lane)] = (static_cast<double>(lane) - center) * spacing;
     }
     const EndpointSideDecision scaffold_side_decision =
-        orientation_.PreferredSideAxisForEndpoint(node_id, peer_id, scaffold_feasibility);
+        orientation_.PreferredSideAxisForEndpoint(node_id, peer_id, scaffold_feasibility, bundle_id_);
     const Vec3d stable_side_axis =
         scaffold_side_decision.has_side_axis ? scaffold_side_decision.side_axis
                                              : orientation_.GroupedLineAxisForEndpoint(node_id, peer_id);

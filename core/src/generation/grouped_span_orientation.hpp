@@ -20,7 +20,8 @@ public:
   LoweredSupportPairInfoForEndpoint(ObjectId node_id, ObjectId peer_id, const SegmentRelationFeasibility& feasibility);
 
   [[nodiscard]] EndpointSideDecision PreferredSideAxisForEndpoint(ObjectId node_id, ObjectId peer_id,
-                                                                 const SegmentRelationFeasibility& feasibility);
+                                                                 const SegmentRelationFeasibility& feasibility,
+                                                                 ObjectId bundle_id);
 
   [[nodiscard]] EndpointSideDecision NormalizeGroupSideDecision(EndpointSideDecision decision) const;
 
@@ -58,6 +59,17 @@ private:
   [[nodiscard]] Vec3d NormalizedOrZeroXY(Vec3d axis) const;
   [[nodiscard]] std::optional<Vec3d> RouteAxisForEndpoint(ObjectId node_id, ObjectId peer_id) const;
   [[nodiscard]] std::optional<Vec3d> ThroughPairSideAxisForNode(ObjectId node_id) const;
+  [[nodiscard]] std::optional<EndpointSideDecision> ExplicitPairNormalSideDecisionForEndpoint(
+      ObjectId node_id, ObjectId peer_id, ObjectId pair_a, ObjectId pair_b) const;
+  [[nodiscard]] std::optional<EndpointSideDecision> ThroughPairSideDecisionForEndpoint(ObjectId node_id,
+                                                                                       ObjectId peer_id) const;
+  [[nodiscard]] std::optional<EndpointSideDecision> CrossPairSideDecisionForEndpoint(ObjectId node_id,
+                                                                                     ObjectId peer_id) const;
+  [[nodiscard]] std::optional<EndpointSideDecision> BundlePairSideDecisionForEndpoint(ObjectId node_id,
+                                                                                      ObjectId peer_id,
+                                                                                      ObjectId bundle_id) const;
+  [[nodiscard]] std::optional<EndpointSideDecision> CrossLikePairSideDecisionForEndpoint(ObjectId node_id,
+                                                                                         ObjectId peer_id) const;
   [[nodiscard]] bool EndpointHasLoweringConflict(const SegmentRelationFeasibility& feasibility) const;
   [[nodiscard]] bool NodeHasBundleLoweringConflict(ObjectId node_id) const;
   [[nodiscard]] bool SupportsBundleSupportPairing(ObjectId node_id, ObjectId peer_id,

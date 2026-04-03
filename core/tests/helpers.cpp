@@ -6,8 +6,12 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <limits>
+#include <map>
+#include <optional>
 #include <regex>
 #include <sstream>
 #include <unordered_map>
@@ -108,6 +112,284 @@ const wire::core::Span* find_span_by_ports(const CoreState& state, ObjectId port
     }
   }
   return nullptr;
+}
+
+struct ParsedCaptureRequest {
+  wire::core::BackboneSpec spec{};
+  bool available = false;
+  struct BackboneNode {
+    ObjectId node_id = wire::core::kInvalidObjectId;
+    wire::core::SupportKind support_kind = wire::core::SupportKind::kPole;
+    wire::core::Vec3d position{};
+    double pole_layout_yaw_deg = 0.0;
+    bool has_pole_layout_yaw = false;
+  };
+  struct BackboneEdge {
+    ObjectId node_a_id = wire::core::kInvalidObjectId;
+    ObjectId node_b_id = wire::core::kInvalidObjectId;
+  };
+  struct CurrentSpan {
+    ObjectId span_id = wire::core::kInvalidObjectId;
+    ObjectId bundle_id = wire::core::kInvalidObjectId;
+    ObjectId endpoint_node_a_id = wire::core::kInvalidObjectId;
+    ObjectId endpoint_node_b_id = wire::core::kInvalidObjectId;
+  };
+  struct CurrentBundle {
+    ObjectId bundle_id = wire::core::kInvalidObjectId;
+    wire::core::BundleKind bundle_template_id = wire::core::BundleKind::kLowVoltage;
+  };
+  std::vector<BackboneNode> backbone_nodes{};
+  std::vector<BackboneEdge> backbone_edges{};
+  std::vector<CurrentSpan> current_spans{};
+  std::vector<CurrentBundle> current_bundles{};
+  std::vector<ObjectId> last_generated_pole_ids{};
+  std::vector<ObjectId> last_generated_span_ids{};
+};
+
+std::optional<std::pair<std::string, std::string>> split_key_value_test(const std::string& line) {
+  const std::size_t pos = line.find('=');
+  if (pos == std::string::npos) {
+    return std::nullopt;
+  }
+  return std::pair{line.substr(0, pos), line.substr(pos + 1)};
+}
+
+bool parse_indexed_key_test(const std::string& key, std::string_view prefix, std::size_t* index, std::string* suffix) {
+  if (!starts_with(key, std::string(prefix))) {
+    return false;
+  }
+  const std::size_t begin = prefix.size();
+  const std::size_t end = key.find(']', begin);
+  if (end == std::string::npos) {
+    return false;
+  }
+  try {
+    *index = static_cast<std::size_t>(std::stoull(key.substr(begin, end - begin)));
+  } catch (...) {
+    return false;
+  }
+  *suffix = key.substr(end + 1);
+  return true;
+}
+
+bool parse_vec3_test(const std::string& text, wire::core::Vec3d* out) {
+  if (out == nullptr) {
+    return false;
+  }
+  char comma_a = 0;
+  char comma_b = 0;
+  std::istringstream iss(text);
+  wire::core::Vec3d value{};
+  if (!(iss >> value.x >> comma_a >> value.y >> comma_b >> value.z) || comma_a != ',' || comma_b != ',') {
+    return false;
+  }
+  *out = value;
+  return true;
+}
+
+wire::core::SupportKind parse_support_kind_test(const std::string& text) {
+  if (text == "Midair") {
+    return wire::core::SupportKind::kMidair;
+  }
+  if (text == "Building") {
+    return wire::core::SupportKind::kBuilding;
+  }
+  return wire::core::SupportKind::kPole;
+}
+
+wire::core::PathDirectionMode parse_direction_mode_test(const std::string& text) {
+  if (text == "Forward") {
+    return wire::core::PathDirectionMode::kForward;
+  }
+  if (text == "Reverse") {
+    return wire::core::PathDirectionMode::kReverse;
+  }
+  return wire::core::PathDirectionMode::kAuto;
+}
+
+std::optional<ParsedCaptureRequest> parse_capture_request_test(const std::filesystem::path& path, std::string* error) {
+  std::ifstream ifs(path);
+  if (!ifs.is_open()) {
+    if (error != nullptr) {
+      *error = "failed to open capture";
+    }
+    return std::nullopt;
+  }
+
+  ParsedCaptureRequest parsed{};
+  std::map<std::size_t, wire::core::Vec3d> path_points{};
+  std::map<std::size_t, wire::core::BackboneInputSpec::NodeSpec> node_specs{};
+  std::map<std::size_t, wire::core::BackboneBundleSpec> bundles{};
+  std::map<std::size_t, ParsedCaptureRequest::BackboneNode> backbone_nodes{};
+  std::map<std::size_t, ParsedCaptureRequest::BackboneEdge> backbone_edges{};
+  std::map<std::size_t, ParsedCaptureRequest::CurrentSpan> current_spans{};
+  std::map<std::size_t, ParsedCaptureRequest::CurrentBundle> current_bundles{};
+
+  std::string line{};
+  while (std::getline(ifs, line)) {
+    const auto kv = split_key_value_test(line);
+    if (!kv.has_value()) {
+      continue;
+    }
+    const std::string& key = kv->first;
+    const std::string& value = kv->second;
+    std::size_t index = 0;
+    std::string suffix{};
+
+    if (key == "request.available") {
+      parsed.available = (value == "1");
+      continue;
+    }
+    if (parse_indexed_key_test(key, "capture.last_generated_pole_id[", &index, &suffix) && suffix.empty()) {
+      parsed.last_generated_pole_ids.push_back(static_cast<ObjectId>(std::stoull(value)));
+      continue;
+    }
+    if (parse_indexed_key_test(key, "capture.last_generated_span_id[", &index, &suffix) && suffix.empty()) {
+      parsed.last_generated_span_ids.push_back(static_cast<ObjectId>(std::stoull(value)));
+      continue;
+    }
+    if (key == "request.interval_m") {
+      parsed.spec.interval_m = std::stod(value);
+      continue;
+    }
+    if (key == "request.pole_type_id") {
+      parsed.spec.pole_type_id = static_cast<wire::core::PoleTypeId>(std::stoul(value));
+      continue;
+    }
+    if (key == "request.direction_mode") {
+      parsed.spec.direction_mode = parse_direction_mode_test(value);
+      continue;
+    }
+    if (parse_indexed_key_test(key, "request.path[", &index, &suffix) && suffix.empty()) {
+      wire::core::Vec3d point{};
+      if (parse_vec3_test(value, &point)) {
+        path_points[index] = point;
+      }
+      continue;
+    }
+    if (parse_indexed_key_test(key, "request.node_spec[", &index, &suffix)) {
+      auto& node = node_specs[index];
+      if (suffix == ".point_index") {
+        node.point_index = static_cast<std::size_t>(std::stoull(value));
+      } else if (suffix == ".support_kind") {
+        node.support_kind = parse_support_kind_test(value);
+      } else if (suffix == ".node_id") {
+        node.node_id = static_cast<ObjectId>(std::stoull(value));
+      } else if (suffix == ".has_tangent_hint") {
+        node.has_tangent_hint = (value == "1");
+      } else if (suffix == ".tangent_hint") {
+        parse_vec3_test(value, &node.tangent_hint);
+      }
+      continue;
+    }
+    if (parse_indexed_key_test(key, "request.bundle[", &index, &suffix)) {
+      auto& bundle = bundles[index];
+      if (suffix == ".kind") {
+        bundle.bundle_template_id = static_cast<wire::core::BundleKind>(std::stoi(value));
+      } else if (suffix == ".layer") {
+        bundle.layer = static_cast<wire::core::SpanLayer>(std::stoi(value));
+      } else if (suffix == ".count") {
+        bundle.count = std::stoi(value);
+      }
+      continue;
+    }
+    if (parse_indexed_key_test(key, "result.backbone.node[", &index, &suffix)) {
+      auto& node = backbone_nodes[index];
+      if (suffix == ".id") {
+        node.node_id = static_cast<ObjectId>(std::stoull(value));
+      } else if (suffix == ".support_kind") {
+        node.support_kind = parse_support_kind_test(value);
+      } else if (suffix == ".position") {
+        parse_vec3_test(value, &node.position);
+      } else if (suffix == ".pole_layout_yaw_deg") {
+        node.pole_layout_yaw_deg = std::stod(value);
+        node.has_pole_layout_yaw = true;
+      }
+      continue;
+    }
+    if (parse_indexed_key_test(key, "result.backbone.edge[", &index, &suffix)) {
+      auto& edge = backbone_edges[index];
+      if (suffix == ".node_a_id") {
+        edge.node_a_id = static_cast<ObjectId>(std::stoull(value));
+      } else if (suffix == ".node_b_id") {
+        edge.node_b_id = static_cast<ObjectId>(std::stoull(value));
+      }
+      continue;
+    }
+    if (parse_indexed_key_test(key, "result.current_span[", &index, &suffix)) {
+      auto& span = current_spans[index];
+      if (suffix == ".span_id") {
+        span.span_id = static_cast<ObjectId>(std::stoull(value));
+      } else if (suffix == ".bundle_id") {
+        span.bundle_id = static_cast<ObjectId>(std::stoull(value));
+      } else if (suffix == ".endpoint_node_a_id") {
+        span.endpoint_node_a_id = static_cast<ObjectId>(std::stoull(value));
+      } else if (suffix == ".endpoint_node_b_id") {
+        span.endpoint_node_b_id = static_cast<ObjectId>(std::stoull(value));
+      }
+      continue;
+    }
+    if (parse_indexed_key_test(key, "result.current_bundle[", &index, &suffix)) {
+      auto& bundle = current_bundles[index];
+      if (suffix == ".bundle_id") {
+        bundle.bundle_id = static_cast<ObjectId>(std::stoull(value));
+      } else if (suffix == ".bundle_template_id") {
+        bundle.bundle_template_id = static_cast<wire::core::BundleKind>(std::stoi(value));
+      }
+      continue;
+    }
+  }
+
+  if (!parsed.available) {
+    if (error != nullptr) {
+      *error = "capture does not contain request.available=1";
+    }
+    return std::nullopt;
+  }
+  for (const auto& [index, point] : path_points) {
+    if (index >= parsed.spec.path.polyline.size()) {
+      parsed.spec.path.polyline.resize(index + 1);
+    }
+    parsed.spec.path.polyline[index] = point;
+  }
+  for (const auto& [index, node] : node_specs) {
+    if (index >= parsed.spec.path.node_specs.size()) {
+      parsed.spec.path.node_specs.resize(index + 1);
+    }
+    parsed.spec.path.node_specs[index] = node;
+  }
+  for (const auto& [index, bundle] : bundles) {
+    if (index >= parsed.spec.bundles.size()) {
+      parsed.spec.bundles.resize(index + 1);
+    }
+    parsed.spec.bundles[index] = bundle;
+  }
+  for (const auto& [_, node] : backbone_nodes) {
+    parsed.backbone_nodes.push_back(node);
+  }
+  for (const auto& [_, edge] : backbone_edges) {
+    parsed.backbone_edges.push_back(edge);
+  }
+  for (const auto& [_, span] : current_spans) {
+    parsed.current_spans.push_back(span);
+  }
+  for (const auto& [_, bundle] : current_bundles) {
+    parsed.current_bundles.push_back(bundle);
+  }
+
+  if (parsed.spec.path.polyline.size() < 2) {
+    if (error != nullptr) {
+      *error = "capture request path has fewer than 2 points";
+    }
+    return std::nullopt;
+  }
+  return parsed;
+}
+
+std::uint64_t stable_edge_key_test(ObjectId a, ObjectId b) {
+  const std::uint64_t lo = static_cast<std::uint64_t>(std::min(a, b));
+  const std::uint64_t hi = static_cast<std::uint64_t>(std::max(a, b));
+  return (lo << 32) ^ hi;
 }
 
 } // namespace
@@ -882,6 +1164,22 @@ wire::core::BundleKind bundle_template_for_category_test(wire::core::ConnectionC
   }
 }
 
+wire::core::ConnectionCategory category_for_bundle_template_test(wire::core::BundleKind bundle_template_id) {
+  switch (bundle_template_id) {
+  case wire::core::BundleKind::kHighVoltage:
+    return wire::core::ConnectionCategory::kHighVoltage;
+  case wire::core::BundleKind::kCommunication:
+    return wire::core::ConnectionCategory::kCommunication;
+  case wire::core::BundleKind::kOptical:
+    return wire::core::ConnectionCategory::kOptical;
+  case wire::core::BundleKind::kDrop:
+    return wire::core::ConnectionCategory::kDrop;
+  case wire::core::BundleKind::kLowVoltage:
+  default:
+    return wire::core::ConnectionCategory::kLowVoltage;
+  }
+}
+
 AxisRelationMetrics measure_pole_axis_relation_metrics(const CoreState& state, ObjectId pole_id, wire::core::PortLayer layer,
                                                        const wire::core::Vec3d& span_axis) {
   AxisRelationMetrics metrics{};
@@ -1105,9 +1403,185 @@ bool has_selected_port_in_candidates(const wire::core::PortResolutionDebugRecord
   return false;
 }
 
+bool restore_capture_request_scene(const std::filesystem::path& capture_path, CoreState& state,
+                                   wire::core::BackboneSpec* remapped_spec, std::string* error) {
+  if (remapped_spec == nullptr) {
+    if (error != nullptr) {
+      *error = "null remapped_spec";
+    }
+    return false;
+  }
+  const auto parsed = parse_capture_request_test(capture_path, error);
+  if (!parsed.has_value()) {
+    return false;
+  }
+
+  *remapped_spec = parsed->spec;
+  const auto& view = state.view();
+  const auto& pole_types = view.pole_types();
+  if (pole_types.empty()) {
+    if (error != nullptr) {
+      *error = "no pole types available";
+    }
+    return false;
+  }
+
+  std::unordered_map<ObjectId, wire::core::BundleKind> bundle_templates_by_id{};
+  for (const auto& bundle : parsed->current_bundles) {
+    if (bundle.bundle_id != wire::core::kInvalidObjectId) {
+      bundle_templates_by_id[bundle.bundle_id] = bundle.bundle_template_id;
+    }
+  }
+  std::unordered_map<std::uint64_t, std::vector<wire::core::BundleKind>> restore_templates_by_edge{};
+  wire::core::PoleTypeId restore_pole_type_id = wire::core::kInvalidPoleTypeId;
+  auto supports_bundle_template = [&](wire::core::PoleTypeId pole_type_id, wire::core::BundleKind template_id) {
+    return view.count_port_bands(pole_type_id, category_for_bundle_template_test(template_id)) > 0;
+  };
+  auto supports_restore_templates = [&](wire::core::PoleTypeId pole_type_id) {
+    if (bundle_templates_by_id.empty()) {
+      return supports_bundle_template(pole_type_id, wire::core::BundleKind::kLowVoltage);
+    }
+    for (const auto& [_, template_id] : bundle_templates_by_id) {
+      if (!supports_bundle_template(pole_type_id, template_id)) {
+        return false;
+      }
+    }
+    return true;
+  };
+  if (pole_types.find(remapped_spec->pole_type_id) != pole_types.end() &&
+      supports_restore_templates(remapped_spec->pole_type_id)) {
+    restore_pole_type_id = remapped_spec->pole_type_id;
+  }
+  if (restore_pole_type_id == wire::core::kInvalidPoleTypeId) {
+    for (const auto& [pole_type_id, _] : pole_types) {
+      if (supports_restore_templates(pole_type_id)) {
+        restore_pole_type_id = pole_type_id;
+        break;
+      }
+    }
+  }
+  if (restore_pole_type_id == wire::core::kInvalidPoleTypeId) {
+    restore_pole_type_id = pole_types.begin()->first;
+  }
+
+  std::unordered_set<ObjectId> excluded_generated_poles(parsed->last_generated_pole_ids.begin(),
+                                                        parsed->last_generated_pole_ids.end());
+  std::unordered_map<ObjectId, ParsedCaptureRequest::CurrentSpan> current_span_by_id{};
+  for (const auto& span : parsed->current_spans) {
+    current_span_by_id[span.span_id] = span;
+    if (span.bundle_id == wire::core::kInvalidObjectId || span.endpoint_node_a_id == wire::core::kInvalidObjectId ||
+        span.endpoint_node_b_id == wire::core::kInvalidObjectId || span.endpoint_node_a_id == span.endpoint_node_b_id) {
+      continue;
+    }
+    if (std::ranges::find(parsed->last_generated_span_ids, span.span_id) != parsed->last_generated_span_ids.end()) {
+      continue;
+    }
+    const auto bundle_it = bundle_templates_by_id.find(span.bundle_id);
+    if (bundle_it == bundle_templates_by_id.end()) {
+      continue;
+    }
+    auto& edge_templates = restore_templates_by_edge[stable_edge_key_test(span.endpoint_node_a_id, span.endpoint_node_b_id)];
+    if (std::ranges::find(edge_templates, bundle_it->second) == edge_templates.end()) {
+      edge_templates.push_back(bundle_it->second);
+    }
+  }
+  std::unordered_set<std::uint64_t> excluded_generated_edges{};
+  for (ObjectId span_id : parsed->last_generated_span_ids) {
+    const auto it = current_span_by_id.find(span_id);
+    if (it == current_span_by_id.end()) {
+      continue;
+    }
+    const auto& span = it->second;
+    if (span.endpoint_node_a_id == wire::core::kInvalidObjectId ||
+        span.endpoint_node_b_id == wire::core::kInvalidObjectId ||
+        span.endpoint_node_a_id == span.endpoint_node_b_id) {
+      continue;
+    }
+    excluded_generated_edges.insert(stable_edge_key_test(span.endpoint_node_a_id, span.endpoint_node_b_id));
+  }
+
+  std::unordered_map<ObjectId, ObjectId> remapped_node_ids{};
+  for (const auto& node : parsed->backbone_nodes) {
+    if (node.node_id == wire::core::kInvalidObjectId || excluded_generated_poles.contains(node.node_id)) {
+      continue;
+    }
+    if (node.support_kind != wire::core::SupportKind::kPole) {
+      continue;
+    }
+    wire::core::Transformd tf{};
+    tf.position = node.position;
+    if (node.has_pole_layout_yaw) {
+      tf.rotation_euler_deg.z = node.pole_layout_yaw_deg;
+    }
+    const auto add_pole = state.AddPole(tf, 10.0, "ReplayPole", wire::core::PoleKind::kConcrete,
+                                        wire::core::PlacementMode::kManual);
+    if (!add_pole.ok) {
+      if (error != nullptr) {
+        *error = add_pole.error;
+      }
+      return false;
+    }
+    const auto apply_type = state.ApplyPoleType(add_pole.value, restore_pole_type_id);
+    if (!apply_type.ok) {
+      if (error != nullptr) {
+        *error = apply_type.error;
+      }
+      return false;
+    }
+    remapped_node_ids[node.node_id] = add_pole.value;
+  }
+
+  for (const auto& edge : parsed->backbone_edges) {
+    if (edge.node_a_id == wire::core::kInvalidObjectId || edge.node_b_id == wire::core::kInvalidObjectId ||
+        edge.node_a_id == edge.node_b_id) {
+      continue;
+    }
+    if (excluded_generated_poles.contains(edge.node_a_id) || excluded_generated_poles.contains(edge.node_b_id) ||
+        excluded_generated_edges.contains(stable_edge_key_test(edge.node_a_id, edge.node_b_id))) {
+      continue;
+    }
+    const auto it_a = remapped_node_ids.find(edge.node_a_id);
+    const auto it_b = remapped_node_ids.find(edge.node_b_id);
+    if (it_a == remapped_node_ids.end() || it_b == remapped_node_ids.end()) {
+      continue;
+    }
+    auto templates_it = restore_templates_by_edge.find(stable_edge_key_test(edge.node_a_id, edge.node_b_id));
+    std::vector<wire::core::BundleKind> restore_templates =
+        (templates_it == restore_templates_by_edge.end() || templates_it->second.empty())
+            ? std::vector<wire::core::BundleKind>{wire::core::BundleKind::kLowVoltage}
+            : templates_it->second;
+    for (wire::core::BundleKind bundle_template_id : restore_templates) {
+      wire::core::AddConnectionByPoleOptions options{};
+      options.use_bundle_template = true;
+      options.bundle_template_id = bundle_template_id;
+      const auto add_connection = state.AddConnectionByPole(it_a->second, it_b->second,
+                                                            category_for_bundle_template_test(bundle_template_id), options);
+      if (!add_connection.ok) {
+        if (error != nullptr) {
+          *error = add_connection.error;
+        }
+        return false;
+      }
+    }
+  }
+
+  for (auto& node_spec : remapped_spec->path.node_specs) {
+    if (node_spec.node_id == wire::core::kInvalidObjectId) {
+      continue;
+    }
+    const auto it = remapped_node_ids.find(node_spec.node_id);
+    if (it == remapped_node_ids.end()) {
+      node_spec.node_id = wire::core::kInvalidObjectId;
+      node_spec.support_kind = wire::core::SupportKind::kPole;
+    } else {
+      node_spec.node_id = it->second;
+    }
+  }
+  return true;
+}
+
 } // namespace helpers
 
 
 
 #include "wire/core/coord_utils.hpp"
-

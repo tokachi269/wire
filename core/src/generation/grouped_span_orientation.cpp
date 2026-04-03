@@ -10,6 +10,12 @@
 
 namespace wire::core::generation::detail {
 
+namespace {
+
+constexpr double kPairStraightnessThresholdForOrientation = 0.3;
+
+}
+
 GroupedSpanOrientationDecider::GroupedSpanOrientationDecider(const GroupedSpanSharedContext& ctx) : ctx_(ctx) {
   BuildNodeSideAxisHints();
 }
@@ -103,6 +109,186 @@ std::optional<Vec3d> GroupedSpanOrientationDecider::ThroughPairSideAxisForNode(O
     return std::nullopt;
   }
   return side_axis;
+}
+
+std::optional<EndpointSideDecision> GroupedSpanOrientationDecider::ExplicitPairNormalSideDecisionForEndpoint(
+    ObjectId node_id, ObjectId peer_id, ObjectId pair_a, ObjectId pair_b) const {
+  if (node_id == kInvalidObjectId || peer_id == kInvalidObjectId || pair_a == kInvalidObjectId ||
+      pair_b == kInvalidObjectId) {
+    return std::nullopt;
+  }
+  if (peer_id != pair_a && peer_id != pair_b) {
+    return std::nullopt;
+  }
+  Vec3d pair_dir = ctx_.support_position(pair_b) - ctx_.support_position(pair_a);
+  pair_dir.z = 0.0;
+  if (!normalize_xy(&pair_dir)) {
+    return std::nullopt;
+  }
+  Vec3d side_axis = ComputeLateralAxis(pair_dir);
+  if (!normalize_xy(&side_axis)) {
+    return std::nullopt;
+  }
+  Vec3d peer_dir = ctx_.support_position(peer_id) - ctx_.support_position(node_id);
+  peer_dir.z = 0.0;
+  if (!normalize_xy(&peer_dir)) {
+    return std::nullopt;
+  }
+  const double along_pair = dot_xy(peer_dir, pair_dir);
+  if (std::abs(along_pair) <= 1e-9) {
+    return std::nullopt;
+  }
+
+  EndpointSideDecision decision{};
+  decision.side_axis = NormalizedOrZeroXY(side_axis);
+  decision.side_assignment_rule = SideAssignmentRuleKind::kThroughPairNormal;
+  decision.support_orientation_rule = SupportOrientationRuleKind::kThroughPairNormal;
+  decision.used_junction_pair_side_assignment = true;
+  decision.has_side_axis = (decision.side_axis.x != 0.0 || decision.side_axis.y != 0.0);
+  decision.chosen_side_sign = (along_pair >= 0.0) ? 1.0 : -1.0;
+  return decision;
+}
+
+std::optional<EndpointSideDecision> GroupedSpanOrientationDecider::ThroughPairSideDecisionForEndpoint(
+    ObjectId node_id, ObjectId peer_id) const {
+  if (ctx_.junction_relations_by_node == nullptr || node_id == kInvalidObjectId || peer_id == kInvalidObjectId) {
+    return std::nullopt;
+  }
+  const auto it = ctx_.junction_relations_by_node->find(node_id);
+  if (it == ctx_.junction_relations_by_node->end() || !it->second.through_pair.accepted) {
+    return std::nullopt;
+  }
+  return ExplicitPairNormalSideDecisionForEndpoint(node_id, peer_id, it->second.through_pair.neighbor_a_id,
+                                                   it->second.through_pair.neighbor_b_id);
+}
+
+std::optional<EndpointSideDecision> GroupedSpanOrientationDecider::CrossPairSideDecisionForEndpoint(
+    ObjectId node_id, ObjectId peer_id) const {
+  if (ctx_.junction_relations_by_node == nullptr || node_id == kInvalidObjectId || peer_id == kInvalidObjectId) {
+    return std::nullopt;
+  }
+  const auto it = ctx_.junction_relations_by_node->find(node_id);
+  if (it == ctx_.junction_relations_by_node->end() || !it->second.is_cross_like) {
+    return std::nullopt;
+  }
+  std::vector<ObjectId> cross_peers{};
+  for (const JunctionIncidentRelation& incident : it->second.incidents) {
+    if (incident.in_route && incident.kind == JunctionRelationKind::kCrossUnderpass) {
+      cross_peers.push_back(incident.neighbor_node_id);
+    }
+  }
+  if (cross_peers.size() != 2 ||
+      std::find(cross_peers.begin(), cross_peers.end(), peer_id) == cross_peers.end()) {
+    return std::nullopt;
+  }
+  const ObjectId pair_peer_low = std::min(cross_peers[0], cross_peers[1]);
+  const ObjectId pair_peer_high = std::max(cross_peers[0], cross_peers[1]);
+  return ExplicitPairNormalSideDecisionForEndpoint(node_id, peer_id, pair_peer_low, pair_peer_high);
+}
+
+std::optional<EndpointSideDecision> GroupedSpanOrientationDecider::BundlePairSideDecisionForEndpoint(
+    ObjectId node_id, ObjectId peer_id, ObjectId bundle_id) const {
+  if (node_id == kInvalidObjectId || peer_id == kInvalidObjectId || bundle_id == kInvalidObjectId) {
+    return std::nullopt;
+  }
+
+  std::unordered_set<ObjectId> pair_peers{};
+  for (std::size_t i = 0; i < ctx_.node_ids.size(); ++i) {
+    if (ctx_.node_ids[i] != node_id) {
+      continue;
+    }
+    if (i > 0 && ctx_.node_ids[i - 1] != kInvalidObjectId && ctx_.node_ids[i - 1] != node_id) {
+      pair_peers.insert(ctx_.node_ids[i - 1]);
+    }
+    if (i + 1 < ctx_.node_ids.size() && ctx_.node_ids[i + 1] != kInvalidObjectId && ctx_.node_ids[i + 1] != node_id) {
+      pair_peers.insert(ctx_.node_ids[i + 1]);
+    }
+  }
+
+  for (const auto& span_entry : ctx_.edit_state.spans.items()) {
+    if (span_entry.bundle_id != bundle_id) {
+      continue;
+    }
+    if (span_entry.endpoint_node_a_id == node_id && span_entry.endpoint_node_b_id != kInvalidObjectId &&
+        span_entry.endpoint_node_b_id != node_id) {
+      pair_peers.insert(span_entry.endpoint_node_b_id);
+    } else if (span_entry.endpoint_node_b_id == node_id && span_entry.endpoint_node_a_id != kInvalidObjectId &&
+               span_entry.endpoint_node_a_id != node_id) {
+      pair_peers.insert(span_entry.endpoint_node_a_id);
+    }
+  }
+
+  if (!pair_peers.contains(peer_id) || pair_peers.size() != 2) {
+    return std::nullopt;
+  }
+
+  const auto companion_it = std::ranges::find_if(pair_peers, [&](ObjectId candidate_id) { return candidate_id != peer_id; });
+  if (companion_it == pair_peers.end()) {
+    return std::nullopt;
+  }
+  const ObjectId companion_id = *companion_it;
+  return ExplicitPairNormalSideDecisionForEndpoint(node_id, peer_id, std::min(peer_id, companion_id),
+                                                   std::max(peer_id, companion_id));
+}
+
+std::optional<EndpointSideDecision> GroupedSpanOrientationDecider::CrossLikePairSideDecisionForEndpoint(
+    ObjectId node_id, ObjectId peer_id) const {
+  if (ctx_.junction_relations_by_node == nullptr || node_id == kInvalidObjectId || peer_id == kInvalidObjectId) {
+    return std::nullopt;
+  }
+  const auto it = ctx_.junction_relations_by_node->find(node_id);
+  if (it == ctx_.junction_relations_by_node->end() || !it->second.is_cross_like) {
+    return std::nullopt;
+  }
+
+  const JunctionIncidentRelation* peer_incident = nullptr;
+  for (const JunctionIncidentRelation& incident : it->second.incidents) {
+    if (incident.neighbor_node_id == peer_id) {
+      peer_incident = &incident;
+      break;
+    }
+  }
+  if (peer_incident == nullptr) {
+    return std::nullopt;
+  }
+
+  std::vector<ObjectId> pair_peers{};
+  for (const JunctionIncidentRelation& incident : it->second.incidents) {
+    if (incident.in_route != peer_incident->in_route) {
+      continue;
+    }
+    pair_peers.push_back(incident.neighbor_node_id);
+  }
+  if (pair_peers.size() != 2 ||
+      std::find(pair_peers.begin(), pair_peers.end(), peer_id) == pair_peers.end()) {
+    return std::nullopt;
+  }
+
+  const ObjectId pair_a = pair_peers[0];
+  const ObjectId pair_b = pair_peers[1];
+  Vec3d dir_a = ctx_.support_position(pair_a) - ctx_.support_position(node_id);
+  dir_a.z = 0.0;
+  Vec3d dir_b = ctx_.support_position(pair_b) - ctx_.support_position(node_id);
+  dir_b.z = 0.0;
+  if (!normalize_xy(&dir_a) || !normalize_xy(&dir_b)) {
+    return std::nullopt;
+  }
+  const double straightness = dot_xy(dir_a, Vec3d{-dir_b.x, -dir_b.y, -dir_b.z});
+  if (straightness + 1e-9 >= kPairStraightnessThresholdForOrientation) {
+    return ExplicitPairNormalSideDecisionForEndpoint(node_id, peer_id, pair_a, pair_b);
+  }
+
+  LoweredSupportPairInfo pair_info{};
+  pair_info.companion_peer_id = (peer_id == pair_a) ? pair_b : pair_a;
+  pair_info.pair_peer_low = std::min(pair_a, pair_b);
+  pair_info.pair_peer_high = std::max(pair_a, pair_b);
+  pair_info.has_pair = true;
+  EndpointSideDecision decision = BuildPairSideDecision(node_id, peer_id, pair_info);
+  if (!decision.has_side_axis) {
+    return std::nullopt;
+  }
+  decision.used_junction_pair_side_assignment = true;
+  return decision;
 }
 
 bool GroupedSpanOrientationDecider::EndpointHasLoweringConflict(const SegmentRelationFeasibility& feasibility) const {
@@ -585,10 +771,41 @@ std::optional<EndpointSideDecision> GroupedSpanOrientationDecider::ConnectedBund
 }
 
 EndpointSideDecision GroupedSpanOrientationDecider::PreferredSideAxisForEndpoint(
-    ObjectId node_id, ObjectId peer_id, const SegmentRelationFeasibility& feasibility) {
+    ObjectId node_id, ObjectId peer_id, const SegmentRelationFeasibility& feasibility, ObjectId bundle_id) {
   EndpointSideDecision decision{};
   decision.side_axis = NormalizedOrZeroXY(CanonicalSideAxisForOrder(node_id, peer_id));
   decision.has_side_axis = (decision.side_axis.x != 0.0 || decision.side_axis.y != 0.0);
+  const bool pointlike_same_level =
+      feasibility.continuity_class == ContinuityCategoryClass::kPointLike && !feasibility.default_lower_required &&
+      feasibility.same_level_feasible;
+  const bool bundlelike_same_level =
+      feasibility.continuity_class == ContinuityCategoryClass::kBundleLike &&
+      !feasibility.default_lower_required && feasibility.same_level_feasible;
+  auto borrow_peer_through_pair_axis = [&]() -> std::optional<Vec3d> {
+    if (node_id == kInvalidObjectId || peer_id == kInvalidObjectId) {
+      return std::nullopt;
+    }
+    if (feasibility.kind != JunctionRelationKind::kThroughMain || feasibility.in_through_pair) {
+      return std::nullopt;
+    }
+    if (feasibility.through_pair_accepted) {
+      return std::nullopt;
+    }
+    if (!pointlike_same_level && !bundlelike_same_level) {
+      return std::nullopt;
+    }
+    if (ctx_.junction_relations_by_node == nullptr) {
+      return std::nullopt;
+    }
+    const auto peer_it = ctx_.junction_relations_by_node->find(peer_id);
+    if (peer_it == ctx_.junction_relations_by_node->end() || !peer_it->second.through_pair.accepted) {
+      return std::nullopt;
+    }
+    if (peer_it->second.through_pair.neighbor_a_id == node_id || peer_it->second.through_pair.neighbor_b_id == node_id) {
+      return std::nullopt;
+    }
+    return ThroughPairSideAxisForNode(peer_id);
+  };
   const bool prefers_line_oriented_lowering =
       feasibility.continuity_class == ContinuityCategoryClass::kBundleLike &&
       (feasibility.default_lower_required || !feasibility.same_level_feasible);
@@ -597,7 +814,54 @@ EndpointSideDecision GroupedSpanOrientationDecider::PreferredSideAxisForEndpoint
     return *connected_bundle;
   }
   if (!prefers_line_oriented_lowering) {
+    if ((pointlike_same_level || bundlelike_same_level) &&
+        (feasibility.kind == JunctionRelationKind::kThroughMain ||
+         feasibility.kind == JunctionRelationKind::kCornerContinuation ||
+         feasibility.kind == JunctionRelationKind::kCrossUnderpass)) {
+      if (const auto bundle_pair_decision = BundlePairSideDecisionForEndpoint(node_id, peer_id, bundle_id);
+          bundle_pair_decision.has_value()) {
+        return *bundle_pair_decision;
+      }
+      if (const auto cross_like_pair_decision = CrossLikePairSideDecisionForEndpoint(node_id, peer_id);
+          cross_like_pair_decision.has_value()) {
+        return *cross_like_pair_decision;
+      }
+    }
+  }
+  if (const auto peer_through_pair_axis = borrow_peer_through_pair_axis(); peer_through_pair_axis.has_value()) {
+    decision.side_axis = NormalizedOrZeroXY(*peer_through_pair_axis);
+    decision.side_assignment_rule = SideAssignmentRuleKind::kThroughPairNormal;
+    decision.support_orientation_rule = SupportOrientationRuleKind::kThroughPairNormal;
+    decision.used_junction_pair_side_assignment = true;
+    decision.has_side_axis = (decision.side_axis.x != 0.0 || decision.side_axis.y != 0.0);
+    return decision;
+  }
+  if (!prefers_line_oriented_lowering) {
+    if (feasibility.kind == JunctionRelationKind::kCrossUnderpass &&
+        feasibility.continuity_class == ContinuityCategoryClass::kPointLike && !feasibility.default_lower_required &&
+        feasibility.same_level_feasible) {
+      if (const auto cross_pair_decision = CrossPairSideDecisionForEndpoint(node_id, peer_id);
+          cross_pair_decision.has_value()) {
+        return *cross_pair_decision;
+      }
+    }
     if (feasibility.in_through_pair) {
+      if (const auto through_pair_decision = ThroughPairSideDecisionForEndpoint(node_id, peer_id);
+          through_pair_decision.has_value()) {
+        return *through_pair_decision;
+      }
+      if (const auto through_pair_axis = ThroughPairSideAxisForNode(node_id); through_pair_axis.has_value()) {
+        decision.side_axis = NormalizedOrZeroXY(*through_pair_axis);
+        decision.side_assignment_rule = SideAssignmentRuleKind::kThroughPairNormal;
+        decision.support_orientation_rule = SupportOrientationRuleKind::kThroughPairNormal;
+        decision.used_junction_pair_side_assignment = true;
+        decision.has_side_axis = (decision.side_axis.x != 0.0 || decision.side_axis.y != 0.0);
+        return decision;
+      }
+    }
+    if (feasibility.kind == JunctionRelationKind::kCrossUnderpass &&
+        feasibility.continuity_class == ContinuityCategoryClass::kPointLike && !feasibility.default_lower_required &&
+        feasibility.same_level_feasible) {
       if (const auto through_pair_axis = ThroughPairSideAxisForNode(node_id); through_pair_axis.has_value()) {
         decision.side_axis = NormalizedOrZeroXY(*through_pair_axis);
         decision.side_assignment_rule = SideAssignmentRuleKind::kThroughPairNormal;
@@ -679,6 +943,9 @@ void GroupedSpanOrientationDecider::FinalizeSideSignForPorts(EndpointSideDecisio
   if (decision == nullptr || !decision->has_side_axis) {
     return;
   }
+  if (decision->used_junction_pair_side_assignment && std::abs(decision->chosen_side_sign) > 1e-9) {
+    return;
+  }
   const Vec3d base_position = ctx_.support_position(node_id);
   Vec3d peer_dir = ctx_.support_position(peer_id) - ctx_.support_position(node_id);
   peer_dir.z = 0.0;
@@ -691,26 +958,12 @@ void GroupedSpanOrientationDecider::FinalizeSideSignForPorts(EndpointSideDecisio
       return;
     }
   }
-  double sum = 0.0;
-  int count = 0;
-  for (ObjectId port_id : port_ids) {
-    const Port* port = ctx_.edit_state.ports.find(port_id);
-    if (port == nullptr) {
-      continue;
-    }
-    sum += dot_xy(port->world_position - base_position, decision->side_axis);
-    ++count;
-  }
-  if (count > 0) {
-    const double mean = sum / static_cast<double>(count);
-    if (std::abs(mean) > 1e-9) {
-      decision->chosen_side_sign = (mean >= 0.0) ? 1.0 : -1.0;
-      return;
-    }
-  }
-  const Vec3d chord_side_axis = ChordSideAxisForEndpoint(node_id, peer_id);
-  const double chord_dot = dot_xy(chord_side_axis, decision->side_axis);
-  decision->chosen_side_sign = (std::abs(chord_dot) <= 1e-9) ? 1.0 : ((chord_dot >= 0.0) ? 1.0 : -1.0);
+  (void)base_position;
+  (void)port_ids;
+  // Do not synthesize a side sign from local port offsets or chord fallback.
+  // If pair / bisector authority cannot decide a sign, leave it at zero and let
+  // downstream materialization fall back to the plain radial connector.
+  decision->chosen_side_sign = 0.0;
 }
 
 int GroupedSpanOrientationDecider::OrientationRulePriority(SupportOrientationRuleKind rule) const {

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -147,6 +148,8 @@ add_connection_by_category(wire::core::CoreState& state, wire::core::ObjectId po
                            wire::core::ConnectionCategory category,
                            wire::core::AddConnectionByPoleOptions options = {});
 bool has_selected_port_in_candidates(const wire::core::PortResolutionDebugRecord& record);
+bool restore_capture_request_scene(const std::filesystem::path& capture_path, CoreState& state,
+                                   wire::core::BackboneSpec* remapped_spec, std::string* error = nullptr);
 
 template <typename T> std::vector<ObjectId> collect_sorted_ids(const std::vector<T>& items) {
   std::vector<ObjectId> ids;

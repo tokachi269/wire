@@ -17,11 +17,21 @@ struct SegmentRelationFeasibility {
   JunctionRelationKind kind = JunctionRelationKind::kNone;
   ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
   bool in_through_pair = false;
+  bool through_pair_accepted = false;
   bool default_lower_required = false;
   bool same_level_feasible = true;
   SameLevelFeasibilityReason reason = SameLevelFeasibilityReason::kNone;
   double projected_spacing_topview_m = -1.0;
   double required_clearance_m = 0.0;
+  bool peer_relation_found = false;
+  JunctionRelationKind peer_relation_kind = JunctionRelationKind::kNone;
+  bool peer_in_route = false;
+  bool peer_in_through_pair = false;
+  bool peer_through_pair_accepted = false;
+  ContinuityCategoryClass peer_continuity_class = ContinuityCategoryClass::kPointLike;
+  bool peer_default_lower_required = false;
+  bool peer_same_level_feasible = true;
+  SameLevelFeasibilityReason peer_reason = SameLevelFeasibilityReason::kNone;
 };
 
 struct EndpointSideDecision {

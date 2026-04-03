@@ -138,10 +138,15 @@ struct ParsedCaptureRequest {
     ObjectId bundle_id = wire::core::kInvalidObjectId;
     wire::core::BundleKind bundle_template_id = wire::core::BundleKind::kLowVoltage;
   };
+  struct CurrentPole {
+    ObjectId pole_id = wire::core::kInvalidObjectId;
+    wire::core::PoleTypeId pole_type_id = wire::core::kInvalidPoleTypeId;
+  };
   std::vector<BackboneNode> backbone_nodes{};
   std::vector<BackboneEdge> backbone_edges{};
   std::vector<CurrentSpan> current_spans{};
   std::vector<CurrentBundle> current_bundles{};
+  std::vector<CurrentPole> current_poles{};
   std::vector<ObjectId> last_generated_pole_ids{};
   std::vector<ObjectId> last_generated_span_ids{};
 };
@@ -224,6 +229,7 @@ std::optional<ParsedCaptureRequest> parse_capture_request_test(const std::filesy
   std::map<std::size_t, ParsedCaptureRequest::BackboneEdge> backbone_edges{};
   std::map<std::size_t, ParsedCaptureRequest::CurrentSpan> current_spans{};
   std::map<std::size_t, ParsedCaptureRequest::CurrentBundle> current_bundles{};
+  std::map<std::size_t, ParsedCaptureRequest::CurrentPole> current_poles{};
 
   std::string line{};
   while (std::getline(ifs, line)) {
@@ -338,6 +344,15 @@ std::optional<ParsedCaptureRequest> parse_capture_request_test(const std::filesy
       }
       continue;
     }
+    if (parse_indexed_key_test(key, "result.current_pole[", &index, &suffix)) {
+      auto& pole = current_poles[index];
+      if (suffix == ".pole_id") {
+        pole.pole_id = static_cast<ObjectId>(std::stoull(value));
+      } else if (suffix == ".pole_type_id") {
+        pole.pole_type_id = static_cast<wire::core::PoleTypeId>(std::stoul(value));
+      }
+      continue;
+    }
   }
 
   if (!parsed.available) {
@@ -375,6 +390,9 @@ std::optional<ParsedCaptureRequest> parse_capture_request_test(const std::filesy
   }
   for (const auto& [_, bundle] : current_bundles) {
     parsed.current_bundles.push_back(bundle);
+  }
+  for (const auto& [_, pole] : current_poles) {
+    parsed.current_poles.push_back(pole);
   }
 
   if (parsed.spec.path.polyline.size() < 2) {
@@ -1448,7 +1466,28 @@ bool restore_capture_request_scene(const std::filesystem::path& capture_path, Co
     }
     return true;
   };
-  if (pole_types.find(remapped_spec->pole_type_id) != pole_types.end() &&
+  std::unordered_set<ObjectId> excluded_generated_poles(parsed->last_generated_pole_ids.begin(),
+                                                        parsed->last_generated_pole_ids.end());
+  std::unordered_map<wire::core::PoleTypeId, int> current_pole_type_counts{};
+  for (const auto& pole : parsed->current_poles) {
+    if (pole.pole_id == wire::core::kInvalidObjectId || excluded_generated_poles.contains(pole.pole_id) ||
+        pole.pole_type_id == wire::core::kInvalidPoleTypeId) {
+      continue;
+    }
+    ++current_pole_type_counts[pole.pole_type_id];
+  }
+  int best_restore_pole_count = -1;
+  for (const auto& [pole_type_id, count] : current_pole_type_counts) {
+    if (pole_types.find(pole_type_id) == pole_types.end() || !supports_restore_templates(pole_type_id)) {
+      continue;
+    }
+    if (count > best_restore_pole_count) {
+      best_restore_pole_count = count;
+      restore_pole_type_id = pole_type_id;
+    }
+  }
+  if (restore_pole_type_id == wire::core::kInvalidPoleTypeId &&
+      pole_types.find(remapped_spec->pole_type_id) != pole_types.end() &&
       supports_restore_templates(remapped_spec->pole_type_id)) {
     restore_pole_type_id = remapped_spec->pole_type_id;
   }
@@ -1463,9 +1502,6 @@ bool restore_capture_request_scene(const std::filesystem::path& capture_path, Co
   if (restore_pole_type_id == wire::core::kInvalidPoleTypeId) {
     restore_pole_type_id = pole_types.begin()->first;
   }
-
-  std::unordered_set<ObjectId> excluded_generated_poles(parsed->last_generated_pole_ids.begin(),
-                                                        parsed->last_generated_pole_ids.end());
   std::unordered_map<ObjectId, ParsedCaptureRequest::CurrentSpan> current_span_by_id{};
   for (const auto& span : parsed->current_spans) {
     current_span_by_id[span.span_id] = span;

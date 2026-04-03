@@ -8,6 +8,7 @@
 #include "wire/core/core_authoritative_types.hpp"
 #include "wire/core/core_runtime_types.hpp"
 #include "wire/core/core_state_api_types.hpp"
+#include "wire/core/debug_types.hpp"
 #include "wire/core/support_layout_types.hpp"
 #include "wire/core/workflow_types.hpp"
 
@@ -57,6 +58,7 @@ struct GroupedSpanSharedContext {
   const RelationIndex& relation_index;
   const ConnectionIndex& connection_index;
   const std::unordered_map<ObjectId, JunctionRelation>* junction_relations_by_node = nullptr;
+  const std::unordered_map<ObjectId, PoleOrientationDebugRecord>* pole_orientation_debug_records = nullptr;
 
   [[nodiscard]] ObjectId resolve_span_endpoint_node(const Span& span, const Port* port, bool is_a) const {
     const ObjectId explicit_node_id = is_a ? span.endpoint_node_a_id : span.endpoint_node_b_id;

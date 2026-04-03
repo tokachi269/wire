@@ -70,6 +70,8 @@ private:
                                                                                       ObjectId bundle_id) const;
   [[nodiscard]] std::optional<EndpointSideDecision> CrossLikePairSideDecisionForEndpoint(ObjectId node_id,
                                                                                          ObjectId peer_id) const;
+  [[nodiscard]] std::optional<EndpointSideDecision> PoleDebugPairSideDecisionForEndpoint(
+      ObjectId node_id, ObjectId peer_id, const SegmentRelationFeasibility& feasibility) const;
   [[nodiscard]] bool EndpointHasLoweringConflict(const SegmentRelationFeasibility& feasibility) const;
   [[nodiscard]] bool NodeHasBundleLoweringConflict(ObjectId node_id) const;
   [[nodiscard]] bool SupportsBundleSupportPairing(ObjectId node_id, ObjectId peer_id,

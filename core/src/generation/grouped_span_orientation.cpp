@@ -10,11 +10,7 @@
 
 namespace wire::core::generation::detail {
 
-namespace {
-
-constexpr double kPairStraightnessThresholdForOrientation = 0.3;
-
-}
+namespace {}
 
 GroupedSpanOrientationDecider::GroupedSpanOrientationDecider(const GroupedSpanSharedContext& ctx) : ctx_(ctx) {
   BuildNodeSideAxisHints();
@@ -115,9 +111,6 @@ std::optional<EndpointSideDecision> GroupedSpanOrientationDecider::ExplicitPairN
     ObjectId node_id, ObjectId peer_id, ObjectId pair_a, ObjectId pair_b) const {
   if (node_id == kInvalidObjectId || peer_id == kInvalidObjectId || pair_a == kInvalidObjectId ||
       pair_b == kInvalidObjectId) {
-    return std::nullopt;
-  }
-  if (peer_id != pair_a && peer_id != pair_b) {
     return std::nullopt;
   }
   Vec3d pair_dir = ctx_.support_position(pair_b) - ctx_.support_position(pair_a);
@@ -264,31 +257,41 @@ std::optional<EndpointSideDecision> GroupedSpanOrientationDecider::CrossLikePair
     return std::nullopt;
   }
 
-  const ObjectId pair_a = pair_peers[0];
-  const ObjectId pair_b = pair_peers[1];
-  Vec3d dir_a = ctx_.support_position(pair_a) - ctx_.support_position(node_id);
-  dir_a.z = 0.0;
-  Vec3d dir_b = ctx_.support_position(pair_b) - ctx_.support_position(node_id);
-  dir_b.z = 0.0;
-  if (!normalize_xy(&dir_a) || !normalize_xy(&dir_b)) {
-    return std::nullopt;
-  }
-  const double straightness = dot_xy(dir_a, Vec3d{-dir_b.x, -dir_b.y, -dir_b.z});
-  if (straightness + 1e-9 >= kPairStraightnessThresholdForOrientation) {
-    return ExplicitPairNormalSideDecisionForEndpoint(node_id, peer_id, pair_a, pair_b);
-  }
+  return ExplicitPairNormalSideDecisionForEndpoint(node_id, peer_id, std::min(pair_peers[0], pair_peers[1]),
+                                                   std::max(pair_peers[0], pair_peers[1]));
+}
 
-  LoweredSupportPairInfo pair_info{};
-  pair_info.companion_peer_id = (peer_id == pair_a) ? pair_b : pair_a;
-  pair_info.pair_peer_low = std::min(pair_a, pair_b);
-  pair_info.pair_peer_high = std::max(pair_a, pair_b);
-  pair_info.has_pair = true;
-  EndpointSideDecision decision = BuildPairSideDecision(node_id, peer_id, pair_info);
-  if (!decision.has_side_axis) {
+std::optional<EndpointSideDecision> GroupedSpanOrientationDecider::PoleDebugPairSideDecisionForEndpoint(
+    ObjectId node_id, ObjectId peer_id, const SegmentRelationFeasibility& feasibility) const {
+  if (ctx_.pole_orientation_debug_records == nullptr || ctx_.junction_relations_by_node == nullptr ||
+      node_id == kInvalidObjectId || peer_id == kInvalidObjectId) {
     return std::nullopt;
   }
-  decision.used_junction_pair_side_assignment = true;
-  return decision;
+  const bool same_level =
+      !feasibility.default_lower_required && feasibility.same_level_feasible &&
+      (feasibility.continuity_class == ContinuityCategoryClass::kPointLike ||
+       feasibility.continuity_class == ContinuityCategoryClass::kBundleLike);
+  if (!same_level || feasibility.kind != JunctionRelationKind::kThroughMain || feasibility.in_through_pair ||
+      feasibility.through_pair_accepted) {
+    return std::nullopt;
+  }
+  const auto relation_it = ctx_.junction_relations_by_node->find(node_id);
+  if (relation_it == ctx_.junction_relations_by_node->end() || !relation_it->second.is_cross_like) {
+    return std::nullopt;
+  }
+  const auto debug_it = ctx_.pole_orientation_debug_records->find(node_id);
+  if (debug_it == ctx_.pole_orientation_debug_records->end()) {
+    return std::nullopt;
+  }
+  const PoleOrientationDebugRecord& debug = debug_it->second;
+  if (debug.primary_neighbor_id == kInvalidObjectId || debug.secondary_neighbor_id == kInvalidObjectId ||
+      peer_id == debug.primary_neighbor_id || peer_id == debug.secondary_neighbor_id) {
+    return std::nullopt;
+  }
+  return ExplicitPairNormalSideDecisionForEndpoint(node_id, peer_id, std::min(debug.primary_neighbor_id,
+                                                                               debug.secondary_neighbor_id),
+                                                   std::max(debug.primary_neighbor_id,
+                                                            debug.secondary_neighbor_id));
 }
 
 bool GroupedSpanOrientationDecider::EndpointHasLoweringConflict(const SegmentRelationFeasibility& feasibility) const {
@@ -816,8 +819,15 @@ EndpointSideDecision GroupedSpanOrientationDecider::PreferredSideAxisForEndpoint
   if (!prefers_line_oriented_lowering) {
     if ((pointlike_same_level || bundlelike_same_level) &&
         (feasibility.kind == JunctionRelationKind::kThroughMain ||
+         feasibility.kind == JunctionRelationKind::kSideBranch ||
          feasibility.kind == JunctionRelationKind::kCornerContinuation ||
          feasibility.kind == JunctionRelationKind::kCrossUnderpass)) {
+      if (feasibility.kind == JunctionRelationKind::kSideBranch) {
+        if (const auto through_pair_decision = ThroughPairSideDecisionForEndpoint(node_id, peer_id);
+            through_pair_decision.has_value()) {
+          return *through_pair_decision;
+        }
+      }
       if (const auto bundle_pair_decision = BundlePairSideDecisionForEndpoint(node_id, peer_id, bundle_id);
           bundle_pair_decision.has_value()) {
         return *bundle_pair_decision;
@@ -827,6 +837,10 @@ EndpointSideDecision GroupedSpanOrientationDecider::PreferredSideAxisForEndpoint
         return *cross_like_pair_decision;
       }
     }
+  }
+  if (const auto pole_debug_pair_decision = PoleDebugPairSideDecisionForEndpoint(node_id, peer_id, feasibility);
+      pole_debug_pair_decision.has_value()) {
+    return *pole_debug_pair_decision;
   }
   if (const auto peer_through_pair_axis = borrow_peer_through_pair_axis(); peer_through_pair_axis.has_value()) {
     decision.side_axis = NormalizedOrZeroXY(*peer_through_pair_axis);

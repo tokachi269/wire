@@ -87,7 +87,8 @@ private:
   void SortSupportPairCandidates(std::vector<SupportPairCandidate>* candidates) const;
   void BuildAdjacentSupportPairs(const std::vector<SupportPairCandidate>& ordered,
                                  std::map<ObjectId, LoweredSupportPairInfo>* pairings) const;
-  void PairUnpairedLoweredCandidates(const std::vector<SupportPairCandidate>& lowered_candidates,
+  void PairUnpairedLoweredCandidates(ObjectId node_id, const JunctionRelation& relation,
+                                     const std::vector<SupportPairCandidate>& lowered_candidates,
                                      const std::vector<SupportPairCandidate>& route_candidates,
                                      std::map<ObjectId, LoweredSupportPairInfo>* pairings) const;
   [[nodiscard]] ObjectId AngularCompanionForLowered(const SupportPairCandidate& lowered_candidate,

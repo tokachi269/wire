@@ -558,14 +558,40 @@ ObjectId GroupedSpanOrientationDecider::AngularCompanionForLowered(
 }
 
 void GroupedSpanOrientationDecider::PairUnpairedLoweredCandidates(
-    const std::vector<SupportPairCandidate>& lowered_candidates, const std::vector<SupportPairCandidate>& route_candidates,
-    std::map<ObjectId, LoweredSupportPairInfo>* pairings) const {
+    ObjectId node_id, const JunctionRelation& relation, const std::vector<SupportPairCandidate>& lowered_candidates,
+    const std::vector<SupportPairCandidate>& route_candidates, std::map<ObjectId, LoweredSupportPairInfo>* pairings) const {
   if (pairings == nullptr) {
     return;
   }
+  auto route_candidate_contains = [&](ObjectId candidate_id) {
+    return std::any_of(route_candidates.begin(), route_candidates.end(),
+                       [&](const SupportPairCandidate& candidate) { return candidate.peer_id == candidate_id; });
+  };
+  auto preferred_route_local_companion = [&](ObjectId lowered_peer_id) -> ObjectId {
+    if (!relation.through_pair.accepted || lowered_peer_id == relation.through_pair.neighbor_a_id ||
+        lowered_peer_id == relation.through_pair.neighbor_b_id) {
+      return kInvalidObjectId;
+    }
+    if (relation.through_pair.neighbor_a_id != kInvalidObjectId &&
+        relation.through_pair.neighbor_a_id != lowered_peer_id &&
+        route_candidate_contains(relation.through_pair.neighbor_a_id)) {
+      return relation.through_pair.neighbor_a_id;
+    }
+    if (relation.through_pair.neighbor_b_id != kInvalidObjectId &&
+        relation.through_pair.neighbor_b_id != lowered_peer_id &&
+        route_candidate_contains(relation.through_pair.neighbor_b_id)) {
+      return relation.through_pair.neighbor_b_id;
+    }
+    return kInvalidObjectId;
+  };
   for (const SupportPairCandidate& lowered_candidate : lowered_candidates) {
     if (const auto existing_pair = pairings->find(lowered_candidate.peer_id);
         existing_pair != pairings->end() && existing_pair->second.has_pair) {
+      continue;
+    }
+    if (const ObjectId companion_peer_id = preferred_route_local_companion(lowered_candidate.peer_id);
+        companion_peer_id != kInvalidObjectId) {
+      RecordSupportPair(pairings, lowered_candidate.peer_id, companion_peer_id);
       continue;
     }
     if (const ObjectId companion_peer_id = AngularCompanionForLowered(lowered_candidate, route_candidates);
@@ -590,7 +616,7 @@ bool GroupedSpanOrientationDecider::BuildLoweredSupportPairsForNode(
   SortSupportPairCandidates(&route_candidates);
   SortSupportPairCandidates(&lowered_candidates);
   BuildAdjacentSupportPairs(lowered_candidates, pairings);
-  PairUnpairedLoweredCandidates(lowered_candidates, route_candidates, pairings);
+  PairUnpairedLoweredCandidates(node_id, relation_it->second, lowered_candidates, route_candidates, pairings);
   return true;
 }
 

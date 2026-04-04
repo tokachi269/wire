@@ -8178,11 +8178,28 @@ bool test_backbone_same_level_cross_underpass_uses_through_pair_authority() {
   }
 
   std::vector<ObjectId> generated_span_ids = generated.value.generated_span_ids;
-  const auto pole_view = state.view().inspect_pole(center_id);
-  if (!pole_view.has_value() || !pole_view->has_support_axis) {
+  std::optional<wire::core::Vec3d> through_axis{};
+  for (ObjectId span_id : generated_span_ids) {
+    const auto layout_view = state.view().inspect_support_layout(span_id);
+    if (!layout_view.has_value()) {
+      continue;
+    }
+    const auto endpoint = layout_endpoint_for_owner(*layout_view, center_id);
+    if (!endpoint.has_value() || endpoint->continuity_class != wire::core::ContinuityCategoryClass::kPointLike ||
+        endpoint->decision.lower_required || endpoint->relation_kind != wire::core::JunctionRelationKind::kThroughMain ||
+        endpoint->support_orientation_rule != wire::core::SupportOrientationRuleKind::kThroughPairNormal) {
+      continue;
+    }
+    const wire::core::Vec3d axis = endpoint->has_signed_support_axis ? endpoint->signed_support_axis : endpoint->side_axis;
+    const wire::core::Vec3d normalized = helpers::normalize_xy_safe(axis);
+    if (std::abs(normalized.x) > 1e-9 || std::abs(normalized.y) > 1e-9) {
+      through_axis = normalized;
+      break;
+    }
+  }
+  if (!through_axis.has_value()) {
     return false;
   }
-  const wire::core::Vec3d through_axis = helpers::normalize_xy_safe(pole_view->support_axis_dir);
 
   for (ObjectId span_id : generated_span_ids) {
     const auto layout_view = state.view().inspect_support_layout(span_id);
@@ -8195,8 +8212,9 @@ bool test_backbone_same_level_cross_underpass_uses_through_pair_authority() {
         endpoint->relation_kind != wire::core::JunctionRelationKind::kCrossUnderpass) {
       continue;
     }
-    const wire::core::Vec3d actual_axis = helpers::normalize_xy_safe(endpoint->side_axis);
-    const double align = std::abs(helpers::dot_xy(through_axis, actual_axis));
+    const wire::core::Vec3d actual_axis = helpers::normalize_xy_safe(
+        endpoint->has_signed_support_axis ? endpoint->signed_support_axis : endpoint->side_axis);
+    const double align = std::abs(helpers::dot_xy(*through_axis, actual_axis));
     return endpoint->support_orientation_rule == wire::core::SupportOrientationRuleKind::kThroughPairNormal &&
            endpoint->side_assignment_rule == wire::core::SideAssignmentRuleKind::kThroughPairNormal &&
            endpoint->used_junction_pair_side_assignment && endpoint->has_side_axis &&
@@ -8679,8 +8697,8 @@ bool test_backbone_capture_like_outer_same_level_cross_visual_uses_pair_axis() {
       std::cerr << "[DBG] C347 missing_arm span=" << span_entry.id << "\n";
       return false;
     }
-    wire::core::Vec3d expected_axis = endpoint->side_axis;
-    if (endpoint->chosen_side_sign < 0.0) {
+    wire::core::Vec3d expected_axis = endpoint->has_signed_support_axis ? endpoint->signed_support_axis : endpoint->side_axis;
+    if (!endpoint->has_signed_support_axis && endpoint->chosen_side_sign < 0.0) {
       expected_axis.x = -expected_axis.x;
       expected_axis.y = -expected_axis.y;
     }
@@ -9347,8 +9365,8 @@ bool test_backbone_non_grouped_support_visual_uses_endpoint_authority() {
     if (!arm.has_value()) {
       continue;
     }
-    wire::core::Vec3d expected_axis = endpoint->side_axis;
-    if (endpoint->chosen_side_sign < 0.0) {
+    wire::core::Vec3d expected_axis = endpoint->has_signed_support_axis ? endpoint->signed_support_axis : endpoint->side_axis;
+    if (!endpoint->has_signed_support_axis && endpoint->chosen_side_sign < 0.0) {
       expected_axis.x = -expected_axis.x;
       expected_axis.y = -expected_axis.y;
     }

@@ -5,6 +5,7 @@
 #include <functional>
 #include <optional>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "wire/core/detail_curve.hpp"
@@ -164,6 +165,7 @@ struct SpanSupportLayoutEntry {
 
 struct SupportLayoutCache {
   std::unordered_map<ObjectId, SpanSupportLayoutDecisionSeed> decision_seeds_by_span{};
+  std::unordered_set<ObjectId> decision_required_span_ids{};
   std::unordered_map<ObjectId, SpanSupportLayoutEntry> by_span{};
   std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash> support_group_decisions{};
   std::unordered_map<LoweredSupportGroupKey, LoweredSupportGroupPlacement, LoweredSupportGroupKeyHash>

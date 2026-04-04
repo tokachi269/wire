@@ -105,21 +105,24 @@ EditResult<bool> TemplateMutationService::UpdateCableTemplate(CoreState& state, 
       }
     }
   }
-  const bool changed =
-      normalized.name != it->second.name || std::abs(normalized.outer_diameter_m - it->second.outer_diameter_m) > 1e-12 ||
+  const bool metadata_change = normalized.name != it->second.name;
+  const bool geometry_change =
+      std::abs(normalized.outer_diameter_m - it->second.outer_diameter_m) > 1e-12 ||
       std::abs(normalized.default_grouped_support_fanout_spacing_m -
                it->second.default_grouped_support_fanout_spacing_m) > 1e-12 ||
       std::abs(normalized.bend_stiffness - it->second.bend_stiffness) > 1e-12 ||
       std::abs(normalized.min_bend_radius_m - it->second.min_bend_radius_m) > 1e-12 ||
+      std::abs(normalized.sag_factor - it->second.sag_factor) > 1e-12 ||
+      std::abs(normalized.slack_factor - it->second.slack_factor) > 1e-12 || supplemental_paths_changed;
+  const bool render_change =
       normalized.material_style != it->second.material_style || normalized.color_rgba != it->second.color_rgba ||
       normalized.requires_insulator != it->second.requires_insulator ||
       std::abs(normalized.insulator_attachment_height_m - it->second.insulator_attachment_height_m) > 1e-12 ||
-      std::abs(normalized.sag_factor - it->second.sag_factor) > 1e-12 ||
-      std::abs(normalized.slack_factor - it->second.slack_factor) > 1e-12 ||
+      normalized.attachment_style != it->second.attachment_style;
+  const bool decision_change =
       normalized.continuity_policy != it->second.continuity_policy ||
-      normalized.attachment_style != it->second.attachment_style ||
-      normalized.default_endpoint_attachment_template_id != it->second.default_endpoint_attachment_template_id ||
-      supplemental_paths_changed;
+      normalized.default_endpoint_attachment_template_id != it->second.default_endpoint_attachment_template_id;
+  const bool changed = metadata_change || geometry_change || render_change || decision_change;
   if (!changed) {
     result.ok = true;
     result.value = false;
@@ -155,9 +158,22 @@ EditResult<bool> TemplateMutationService::UpdateCableTemplate(CoreState& state, 
     }
   }
   for (ObjectId span_id : ordered_target_span_ids) {
-    state.mark_span_dirty(span_id, DirtyBits::kDecision, true);
-    CoreState::add_unique_id(result.change_set.dirty_span_ids, span_id);
-    CoreState::add_unique_id(result.change_set.updated_ids, span_id);
+    DirtyBits bits = DirtyBits::kNone;
+    if (decision_change) {
+      bits |= DirtyBits::kDecision;
+    } else {
+      if (geometry_change) {
+        bits |= DirtyBits::kGeometryRefresh;
+      }
+      if (render_change) {
+        bits |= DirtyBits::kRenderRefresh;
+      }
+    }
+    if (bits != DirtyBits::kNone) {
+      state.mark_span_dirty(span_id, bits, true);
+      CoreState::add_unique_id(result.change_set.dirty_span_ids, span_id);
+      CoreState::add_unique_id(result.change_set.updated_ids, span_id);
+    }
   }
   return result;
 }
@@ -364,4 +380,3 @@ EditResult<bool> TemplateMutationService::ResetAllSpanReferenceLengths(CoreState
 }
 
 } // namespace wire::core::state_internal
-

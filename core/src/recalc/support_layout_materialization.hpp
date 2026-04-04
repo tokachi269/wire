@@ -59,8 +59,6 @@ void apply_support_layout_decision_seed_endpoint(const SupportLayoutDecisionSeed
 
 void apply_support_layout_decision_seed(const SpanSupportLayoutDecisionSeed& seed, SpanSupportLayoutEntry* layout);
 
-void apply_authoritative_support_layout_decisions(const SpanSupportLayoutEntry& authoritative_layout,
-                                                  SpanSupportLayoutEntry* layout);
 
 void rebuild_all_lowered_support_groups(const CoreState& state, const EditState& edit_state, CacheState* cache_state);
 

@@ -983,6 +983,7 @@ EditResult<ObjectId> CoreState::DeleteSpan(ObjectId span_id) {
   remove_span_from_indexes(copy);
   authoritative_.edit_state.spans.remove(span_id);
   runtime_.span_runtime_states.erase(span_id);
+  runtime_.cache_state.support_layout_cache.decision_required_span_ids.erase(span_id);
   remove_span_from_caches(span_id);
 
   std::vector<ObjectId> remove_attachments{};
@@ -2364,4 +2365,3 @@ CoreState make_demo_state() {
 }
 
 } // namespace wire::core
-

@@ -191,10 +191,10 @@ CoreState::generate_grouped_spans_between_support_nodes(
                                 assignment.order_decision_choice_b, assignment.order_decision_choice_reason_b,
                                 assignment.solver_used_same_level_constraint, assignment.used_special_case_ports,
                                 endpoint_policy_block_b, assignment.unresolved_same_level_conflict);
-    orientation.PrimeGroupEndpointDecision(raw_decision_a, node_b, pair_info_a, side_decision_a);
-    orientation.PrimeGroupEndpointDecision(raw_decision_b, node_a, pair_info_b, side_decision_b);
-    assignment.decision_a = orientation.CanonicalizeGroupEndpointDecision(raw_decision_a);
-    assignment.decision_b = orientation.CanonicalizeGroupEndpointDecision(raw_decision_b);
+    assignment.decision_a =
+        orientation.FinalizeGroupEndpointDecision(raw_decision_a, node_b, pair_info_a, side_decision_a);
+    assignment.decision_b =
+        orientation.FinalizeGroupEndpointDecision(raw_decision_b, node_a, pair_info_b, side_decision_b);
     GroupedSpanLanePreparer::SyncAssignmentFromDecisions(&assignment);
     const bool decision_lowered_a = UsesAuthoritativeGroupedLoweredSupport(assignment.decision_a);
     const bool decision_lowered_b = UsesAuthoritativeGroupedLoweredSupport(assignment.decision_b);
@@ -284,6 +284,5 @@ CoreState::generate_grouped_spans_between_support_nodes(
 }
 
 } // namespace wire::core
-
 
 

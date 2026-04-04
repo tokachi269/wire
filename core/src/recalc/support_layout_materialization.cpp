@@ -716,12 +716,6 @@ SpanSupportLayoutEntry materialize_span_support_layout(const CoreState& state, c
 } // namespace
 
 SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span, std::string* error_message) const {
-  return generate_span_support_layout(span, error_message, true);
-}
-
-SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span, std::string* error_message,
-                                                              bool allow_authority_fallback) const {
-  (void)allow_authority_fallback;
   const Port* port_a = authoritative_.edit_state.ports.find(span.port_a_id);
   const Port* port_b = authoritative_.edit_state.ports.find(span.port_b_id);
   if (port_a == nullptr || port_b == nullptr) {
@@ -747,9 +741,8 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
     chord_dir = WorldForward();
   }
   const SpanSupportLayoutDecisionSeed* decision_seed = find_span_support_layout_seed(span.id);
-  const SpanSupportLayoutEntry* cached_layout = find_span_support_layout(span.id);
   const bool requires_decision_seed =
-      (decision_seed != nullptr) || (cached_layout != nullptr && cached_layout->requires_decision_seed);
+      runtime_.cache_state.support_layout_cache.decision_required_span_ids.contains(span.id);
   const SpanSupportLayoutAuthority authority{decision_seed, requires_decision_seed};
   if (authority.requires_decision_seed && !authority.has_authority()) {
     if (error_message != nullptr && error_message->empty()) {

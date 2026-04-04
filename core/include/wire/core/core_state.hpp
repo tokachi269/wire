@@ -153,12 +153,11 @@ private:
   void mark_connected_spans_dirty_from_port(ObjectId port_id, DirtyBits dirty_bits, ChangeSet* change_set);
   void mark_connected_spans_dirty_from_anchor(ObjectId anchor_id, DirtyBits dirty_bits, ChangeSet* change_set);
   [[nodiscard]] bool rebuild_span_curve(ObjectId span_id, std::string* error_message);
-  [[nodiscard]] bool rebuild_span_curve(ObjectId span_id, std::string* error_message, bool allow_authority_fallback);
+  [[nodiscard]] bool rebuild_span_decision_path(ObjectId span_id, std::string* error_message);
+  [[nodiscard]] bool rebuild_span_geometry_from_seed(ObjectId span_id, std::string* error_message);
   [[nodiscard]] bool rebuild_span_bounds(ObjectId span_id, std::string* error_message);
   [[nodiscard]] bool rebuild_span_visual(ObjectId span_id, std::string* error_message);
   [[nodiscard]] SpanSupportLayoutEntry generate_span_support_layout(const Span& span, std::string* error_message) const;
-  [[nodiscard]] SpanSupportLayoutEntry generate_span_support_layout(const Span& span, std::string* error_message,
-                                                                    bool allow_authority_fallback) const;
   [[nodiscard]] DetailCurve generate_span_curve(const Span& span, const SpanSupportLayoutEntry& support_layout,
                                                 std::string* error_message) const;
   [[nodiscard]] static AABBd build_aabb_from_points(const std::vector<Vec3d>& points);
@@ -286,5 +285,3 @@ private:
 CoreState make_demo_state();
 
 } // namespace wire::core
-
-

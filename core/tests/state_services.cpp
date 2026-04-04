@@ -88,6 +88,44 @@ std::vector<ObjectId> collect_ids_from_anchors(const std::vector<const wire::cor
   return ids;
 }
 
+bool prepare_single_low_voltage_span(CoreState& state, ObjectId* span_id, wire::core::CableTemplateId* cable_template_id) {
+  Transformd a_tf{};
+  a_tf.position = {0.0, 0.0, 0.0};
+  Transformd b_tf{};
+  b_tf.position = {12.0, 0.0, 0.0};
+  const ObjectId pole_a = state.AddPole(a_tf, 10.0, "A", PoleKind::kGeneric, PlacementMode::kAuto).value;
+  const ObjectId pole_b = state.AddPole(b_tf, 10.0, "B", PoleKind::kGeneric, PlacementMode::kAuto).value;
+
+  auto connect =
+      helpers::add_connection_by_category(state, pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage);
+  if (!connect.ok) {
+    return false;
+  }
+  const auto commit = state.Commit();
+  if (!commit.validation.ok()) {
+    return false;
+  }
+  const wire::core::Span* span = state.view().spans().find(connect.value.span_id);
+  if (span == nullptr) {
+    return false;
+  }
+  const wire::core::Bundle* bundle = state.view().bundles().find(span->bundle_id);
+  if (bundle == nullptr) {
+    return false;
+  }
+  const auto bundle_template_it = state.view().bundle_templates().find(bundle->bundle_template_id);
+  if (bundle_template_it == state.view().bundle_templates().end()) {
+    return false;
+  }
+  if (span_id != nullptr) {
+    *span_id = span->id;
+  }
+  if (cable_template_id != nullptr) {
+    *cable_template_id = bundle_template_it->second.cable_template_id;
+  }
+  return true;
+}
+
 bool test_get_pole_detail_exposes_only_owned_endpoints() {
   CoreState state;
 
@@ -836,6 +874,89 @@ bool test_validation_treats_grouped_endpoint_semantics_as_derived_copies() {
   return validation.ok();
 }
 
+bool test_update_cable_template_marks_render_refresh_only_for_render_change() {
+  CoreState state;
+  ObjectId span_id = wire::core::kInvalidObjectId;
+  wire::core::CableTemplateId cable_id = wire::core::kInvalidCableTemplateId;
+  if (!prepare_single_low_voltage_span(state, &span_id, &cable_id)) {
+    return false;
+  }
+  auto cable_it = state.view().cable_templates().find(cable_id);
+  if (cable_it == state.view().cable_templates().end()) {
+    return false;
+  }
+  wire::core::CableTemplate edited = cable_it->second;
+  edited.color_rgba ^= 0x0000FF00u;
+  const auto update = state.UpdateCableTemplate(edited);
+  if (!update.ok) {
+    return false;
+  }
+  const auto runtime_it = wire::core::CoreStateTestHook::span_runtime_states(state).find(span_id);
+  if (runtime_it == wire::core::CoreStateTestHook::span_runtime_states(state).end()) {
+    return false;
+  }
+  return contains_id(update.change_set.dirty_span_ids, span_id) &&
+         helpers::has_dirty(&runtime_it->second, wire::core::DirtyBits::kRenderRefresh) &&
+         !helpers::has_dirty(&runtime_it->second, wire::core::DirtyBits::kGeometryRefresh) &&
+         !helpers::has_dirty(&runtime_it->second, wire::core::DirtyBits::kDecision);
+}
+
+bool test_update_cable_template_marks_geometry_refresh_only_for_geometry_change() {
+  CoreState state;
+  ObjectId span_id = wire::core::kInvalidObjectId;
+  wire::core::CableTemplateId cable_id = wire::core::kInvalidCableTemplateId;
+  if (!prepare_single_low_voltage_span(state, &span_id, &cable_id)) {
+    return false;
+  }
+  auto cable_it = state.view().cable_templates().find(cable_id);
+  if (cable_it == state.view().cable_templates().end()) {
+    return false;
+  }
+  wire::core::CableTemplate edited = cable_it->second;
+  edited.sag_factor += 0.01;
+  const auto update = state.UpdateCableTemplate(edited);
+  if (!update.ok) {
+    return false;
+  }
+  const auto runtime_it = wire::core::CoreStateTestHook::span_runtime_states(state).find(span_id);
+  if (runtime_it == wire::core::CoreStateTestHook::span_runtime_states(state).end()) {
+    return false;
+  }
+  return contains_id(update.change_set.dirty_span_ids, span_id) &&
+         helpers::has_dirty(&runtime_it->second, wire::core::DirtyBits::kGeometryRefresh) &&
+         !helpers::has_dirty(&runtime_it->second, wire::core::DirtyBits::kRenderRefresh) &&
+         !helpers::has_dirty(&runtime_it->second, wire::core::DirtyBits::kDecision);
+}
+
+bool test_update_cable_template_marks_decision_for_policy_change() {
+  CoreState state;
+  ObjectId span_id = wire::core::kInvalidObjectId;
+  wire::core::CableTemplateId cable_id = wire::core::kInvalidCableTemplateId;
+  if (!prepare_single_low_voltage_span(state, &span_id, &cable_id)) {
+    return false;
+  }
+  auto cable_it = state.view().cable_templates().find(cable_id);
+  if (cable_it == state.view().cable_templates().end()) {
+    return false;
+  }
+  wire::core::CableTemplate edited = cable_it->second;
+  edited.continuity_policy = (edited.continuity_policy == wire::core::CableContinuityPolicyHint::kPreferG1)
+                                 ? wire::core::CableContinuityPolicyHint::kPreferG2
+                                 : wire::core::CableContinuityPolicyHint::kPreferG1;
+  const auto update = state.UpdateCableTemplate(edited);
+  if (!update.ok) {
+    return false;
+  }
+  const auto runtime_it = wire::core::CoreStateTestHook::span_runtime_states(state).find(span_id);
+  if (runtime_it == wire::core::CoreStateTestHook::span_runtime_states(state).end()) {
+    return false;
+  }
+  return contains_id(update.change_set.dirty_span_ids, span_id) &&
+         helpers::has_dirty(&runtime_it->second, wire::core::DirtyBits::kDecision) &&
+         !helpers::has_dirty(&runtime_it->second, wire::core::DirtyBits::kGeometryRefresh) &&
+         !helpers::has_dirty(&runtime_it->second, wire::core::DirtyBits::kRenderRefresh);
+}
+
 void RegisterStateServiceTests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C181_CoreStateService_CollectOwnedEndpoints",
                          "GetPoleDetail exposes only the requested pole owned ports and anchors",
@@ -877,9 +998,17 @@ void RegisterStateServiceTests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C281_Validation_GroupAuthorityBeatsEndpointSemanticCopies",
                          "validation treats grouped endpoint semantics as derived copies and uses support-group authority as the semantic owner",
                          "Invariant", false, &test_validation_treats_grouped_endpoint_semantics_as_derived_copies);
+  test_registry::AddTest(tests, "C355_CoreStateService_CableTemplateRenderChangeMarksRenderRefresh",
+                         "render-only cable template changes dirty spans with RenderRefresh only",
+                         "Invariant", false, &test_update_cable_template_marks_render_refresh_only_for_render_change);
+  test_registry::AddTest(tests, "C356_CoreStateService_CableTemplateGeometryChangeMarksGeometryRefresh",
+                         "geometry-only cable template changes dirty spans with GeometryRefresh only",
+                         "Invariant", false, &test_update_cable_template_marks_geometry_refresh_only_for_geometry_change);
+  test_registry::AddTest(tests, "C357_CoreStateService_CableTemplatePolicyChangeMarksDecision",
+                         "decision-bearing cable template changes dirty spans with Decision only",
+                         "Invariant", false, &test_update_cable_template_marks_decision_for_policy_change);
 }
 
 WIRE_REGISTER_TEST_SUITE(RegisterStateServiceTests);
 
 } // namespace
-

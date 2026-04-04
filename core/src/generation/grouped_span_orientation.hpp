@@ -31,12 +31,9 @@ public:
   void FinalizeSideSignForPorts(EndpointSideDecision* decision, ObjectId node_id, ObjectId peer_id,
                                 const std::vector<ObjectId>& port_ids) const;
 
-  void PrimeGroupEndpointDecision(const EndpointContinuityDecision& decision, ObjectId peer_node_id,
-                                  const std::optional<LoweredSupportPairInfo>& pair_info,
-                                  const EndpointSideDecision& side_decision);
-
-  [[nodiscard]] EndpointContinuityDecision
-  CanonicalizeGroupEndpointDecision(const EndpointContinuityDecision& decision) const;
+  [[nodiscard]] EndpointContinuityDecision FinalizeGroupEndpointDecision(
+      const EndpointContinuityDecision& decision, ObjectId peer_node_id,
+      const std::optional<LoweredSupportPairInfo>& pair_info, const EndpointSideDecision& side_decision);
 
 private:
   struct SupportPairCandidate {
@@ -121,9 +118,9 @@ private:
   [[nodiscard]] bool GroupedSupportCandidateUsesBranchLeg(ObjectId peer_id,
                                                           const std::optional<LoweredSupportPairInfo>& pair_info,
                                                           const EndpointSideDecision& decision) const;
-  [[nodiscard]] EndpointSideDecision CanonicalGroupSideDecision(const LoweredSupportGroupKey& key, ObjectId peer_id,
-                                                                const std::optional<LoweredSupportPairInfo>& raw_pair_info,
-                                                                const EndpointSideDecision& raw_decision);
+  [[nodiscard]] EndpointSideDecision CanonicalGroupSideDecision(
+      const LoweredSupportGroupKey& key, ObjectId peer_id,
+      const std::optional<LoweredSupportPairInfo>& authoritative_pair, const EndpointSideDecision& raw_decision);
   void BuildNodeSideAxisHints();
   [[nodiscard]] int OrientationRulePriority(SupportOrientationRuleKind rule) const;
   [[nodiscard]] int SideAssignmentRulePriority(SideAssignmentRuleKind rule) const;

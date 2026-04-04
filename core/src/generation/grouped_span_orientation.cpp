@@ -391,9 +391,16 @@ bool GroupedSpanOrientationDecider::NodeHasBundleLoweringConflict(ObjectId node_
 
 bool GroupedSpanOrientationDecider::SupportsBundleSupportPairing(ObjectId node_id, ObjectId peer_id,
                                                                 const SegmentRelationFeasibility& feasibility) const {
+  const bool same_level_bundle_pairing =
+      feasibility.continuity_class == ContinuityCategoryClass::kBundleLike && !feasibility.default_lower_required &&
+      feasibility.same_level_feasible &&
+      (feasibility.kind == JunctionRelationKind::kThroughMain || feasibility.kind == JunctionRelationKind::kSideBranch ||
+       feasibility.kind == JunctionRelationKind::kCornerContinuation ||
+       feasibility.kind == JunctionRelationKind::kCrossUnderpass);
   return ctx_.junction_relations_by_node != nullptr && node_id != kInvalidObjectId && peer_id != kInvalidObjectId &&
          feasibility.continuity_class == ContinuityCategoryClass::kBundleLike &&
-         (EndpointHasLoweringConflict(feasibility) || NodeHasBundleLoweringConflict(node_id));
+         (EndpointHasLoweringConflict(feasibility) || NodeHasBundleLoweringConflict(node_id) ||
+          same_level_bundle_pairing);
 }
 
 std::optional<LoweredSupportPairInfo> GroupedSpanOrientationDecider::CachedLoweredSupportPairInfo(ObjectId node_id,
@@ -664,14 +671,8 @@ ObjectId GroupedSpanOrientationDecider::RouteLocalPairCompanionForEndpoint(Objec
     return pair_info.companion_peer_id;
   }
   if (relation_it->second.through_pair.accepted) {
-    const ObjectId route_local_peer = relation_it->second.through_pair.neighbor_a_id;
-    if (route_local_peer != kInvalidObjectId && route_local_peer != peer_id) {
-      return route_local_peer;
-    }
-    const ObjectId alternate_peer = relation_it->second.through_pair.neighbor_b_id;
-    if (alternate_peer != kInvalidObjectId && alternate_peer != peer_id) {
-      return alternate_peer;
-    }
+    // Do not infer a route-local companion from neighbor_a/neighbor_b ordering.
+    // Route-local choice should come from the incident ordering / pair authority below.
   }
   ObjectId ordered_in_route_pair_peer = kInvalidObjectId;
   std::size_t ordered_in_route_pair_peer_index = std::numeric_limits<std::size_t>::max();
@@ -898,8 +899,6 @@ std::optional<EndpointSideDecision> GroupedSpanOrientationDecider::ConnectedBund
 EndpointSideDecision GroupedSpanOrientationDecider::PreferredSideAxisForEndpoint(
     ObjectId node_id, ObjectId peer_id, const SegmentRelationFeasibility& feasibility, ObjectId bundle_id) {
   EndpointSideDecision decision{};
-  decision.side_axis = NormalizedOrZeroXY(CanonicalSideAxisForOrder(node_id, peer_id));
-  decision.has_side_axis = (decision.side_axis.x != 0.0 || decision.side_axis.y != 0.0);
   const bool pointlike_same_level =
       feasibility.continuity_class == ContinuityCategoryClass::kPointLike && !feasibility.default_lower_required &&
       feasibility.same_level_feasible;
@@ -1079,35 +1078,14 @@ EndpointSideDecision GroupedSpanOrientationDecider::PreferredSideAxisForEndpoint
     decision.side_axis = NormalizedOrZeroXY(GroupedLineAxisForEndpoint(node_id, peer_id));
     decision.side_assignment_rule = SideAssignmentRuleKind::kChord;
     decision.support_orientation_rule = SupportOrientationRuleKind::kChord;
-    decision.used_junction_pair_side_assignment = false;
     decision.has_side_axis = (decision.side_axis.x != 0.0 || decision.side_axis.y != 0.0);
-    return decision;
   }
-  if (allows_endpoint_local_fallback && decision.has_side_axis) {
-    decision.side_assignment_rule = SideAssignmentRuleKind::kBisector;
-    decision.support_orientation_rule = SupportOrientationRuleKind::kBisector;
-    decision.used_junction_pair_side_assignment = false;
-    return decision;
-  }
-  if (!allows_endpoint_local_fallback) {
-    decision.side_axis = {0.0, 0.0, 0.0};
-    decision.has_side_axis = false;
-    decision.side_assignment_rule = SideAssignmentRuleKind::kPoleLocal;
-    decision.support_orientation_rule = SupportOrientationRuleKind::kRadial;
-    decision.used_junction_pair_side_assignment = false;
-    decision.chosen_side_sign = 0.0;
-    return decision;
-  }
-  decision.side_axis = NormalizedOrZeroXY(GroupedLineAxisForEndpoint(node_id, peer_id));
-  decision.side_assignment_rule = SideAssignmentRuleKind::kChord;
-  decision.support_orientation_rule = SupportOrientationRuleKind::kChord;
-  decision.has_side_axis = (decision.side_axis.x != 0.0 || decision.side_axis.y != 0.0);
   return decision;
 }
 
 EndpointSideDecision GroupedSpanOrientationDecider::FinalizeEndpointSideDecision(ObjectId node_id, ObjectId peer_id,
                                                                                  EndpointSideDecision decision) const {
-  if (decision.support_orientation_rule == SupportOrientationRuleKind::kChord || !decision.has_side_axis) {
+  if (decision.support_orientation_rule == SupportOrientationRuleKind::kChord) {
     decision.side_axis = ChordSideAxisForEndpoint(node_id, peer_id);
     Vec3d normalized_axis = decision.side_axis;
     decision.has_side_axis = normalize_xy(&normalized_axis);
@@ -1228,9 +1206,9 @@ bool GroupedSpanOrientationDecider::GroupedSupportCandidateUsesBranchLeg(
 }
 
 EndpointSideDecision GroupedSpanOrientationDecider::CanonicalGroupSideDecision(
-    const LoweredSupportGroupKey& key, ObjectId peer_id, const std::optional<LoweredSupportPairInfo>& raw_pair_info,
+    const LoweredSupportGroupKey& key, ObjectId peer_id,
+    const std::optional<LoweredSupportPairInfo>& authoritative_pair,
     const EndpointSideDecision& raw_decision) {
-  const std::optional<LoweredSupportPairInfo> authoritative_pair = CanonicalGroupPairDecision(key, raw_pair_info);
   EndpointSideDecision candidate = NormalizeGroupSideDecision(raw_decision);
   const bool candidate_uses_branch_leg =
       GroupedSupportCandidateUsesBranchLeg(peer_id, authoritative_pair, candidate);
@@ -1258,38 +1236,25 @@ EndpointSideDecision GroupedSpanOrientationDecider::CanonicalGroupSideDecision(
   return it->second;
 }
 
-void GroupedSpanOrientationDecider::PrimeGroupEndpointDecision(const EndpointContinuityDecision& decision,
-                                                              ObjectId peer_node_id,
-                                                              const std::optional<LoweredSupportPairInfo>& pair_info,
-                                                              const EndpointSideDecision& side_decision) {
-  if (!UsesAuthoritativeGroupedLoweredSupport(decision)) {
-    return;
-  }
-  const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(decision);
-  (void)CanonicalGroupSideDecision(key, peer_node_id, pair_info, side_decision);
-}
-
-EndpointContinuityDecision
-GroupedSpanOrientationDecider::CanonicalizeGroupEndpointDecision(const EndpointContinuityDecision& decision) const {
+EndpointContinuityDecision GroupedSpanOrientationDecider::FinalizeGroupEndpointDecision(
+    const EndpointContinuityDecision& decision, ObjectId peer_node_id,
+    const std::optional<LoweredSupportPairInfo>& pair_info, const EndpointSideDecision& side_decision) {
   if (!UsesAuthoritativeGroupedLoweredSupport(decision)) {
     return decision;
   }
   const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(decision);
-  const auto side_it = authoritative_group_side_decisions_.find(key);
-  if (side_it == authoritative_group_side_decisions_.end()) {
-    return decision;
-  }
   EndpointContinuityDecision canonical = decision;
-  const auto pair_it = authoritative_group_pairs_.find(key);
-  if (pair_it != authoritative_group_pairs_.end() && pair_it->second.has_pair) {
-    canonical.support_pair_peer_low = pair_it->second.pair_peer_low;
-    canonical.support_pair_peer_high = pair_it->second.pair_peer_high;
+  const std::optional<LoweredSupportPairInfo> authoritative_pair = CanonicalGroupPairDecision(key, pair_info);
+  if (authoritative_pair.has_value() && authoritative_pair->has_pair) {
+    canonical.support_pair_peer_low = authoritative_pair->pair_peer_low;
+    canonical.support_pair_peer_high = authoritative_pair->pair_peer_high;
   }
-  const EndpointSideDecision& canonical_side = side_it->second;
+  const EndpointSideDecision canonical_side = CanonicalGroupSideDecision(key, peer_node_id, authoritative_pair, side_decision);
   canonical.side_assignment_rule = canonical_side.side_assignment_rule;
   canonical.support_orientation_rule = canonical_side.support_orientation_rule;
   canonical.support_orientation_basis = CanonicalSupportOrientationBasis(canonical_side.support_orientation_rule);
-  canonical.chosen_side = LateralSideChoiceFromSign(canonical.chosen_side_sign);
+  canonical.chosen_side_sign = canonical_side.chosen_side_sign;
+  canonical.chosen_side = LateralSideChoiceFromSign(canonical_side.chosen_side_sign);
   canonical.used_junction_pair_side_assignment = canonical_side.used_junction_pair_side_assignment;
   canonical.has_side_axis = canonical_side.has_side_axis;
   canonical.side_axis = canonical_side.side_axis;

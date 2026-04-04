@@ -93,7 +93,7 @@ RecalcStats CoreState::ProcessDirtyQueues() {
     }
 
     std::string error_message;
-    if (!rebuild_span_curve(span_id, &error_message, true)) {
+    if (!rebuild_span_decision_path(span_id, &error_message)) {
       continue;
     }
     it->second.geometry_version = it->second.data_version;
@@ -113,7 +113,7 @@ RecalcStats CoreState::ProcessDirtyQueues() {
     }
 
     std::string error_message;
-    if (!rebuild_span_curve(span_id, &error_message, false)) {
+    if (!rebuild_span_geometry_from_seed(span_id, &error_message)) {
       continue;
     }
     it->second.geometry_version = it->second.data_version;
@@ -304,10 +304,20 @@ void CoreState::mark_connected_spans_dirty_from_anchor(ObjectId anchor_id, Dirty
 }
 
 bool CoreState::rebuild_span_curve(ObjectId span_id, std::string* error_message) {
-  return rebuild_span_curve(span_id, error_message, true);
+  return rebuild_span_geometry_from_seed(span_id, error_message);
 }
 
-bool CoreState::rebuild_span_curve(ObjectId span_id, std::string* error_message, bool allow_authority_fallback) {
+bool CoreState::rebuild_span_decision_path(ObjectId span_id, std::string* error_message) {
+  if (find_span_support_layout_seed(span_id) == nullptr) {
+    if (error_message != nullptr && error_message->empty()) {
+      *error_message = "support layout decision seed is missing";
+    }
+    return false;
+  }
+  return rebuild_span_geometry_from_seed(span_id, error_message);
+}
+
+bool CoreState::rebuild_span_geometry_from_seed(ObjectId span_id, std::string* error_message) {
   const Span* span = authoritative_.edit_state.spans.find(span_id);
   if (span == nullptr) {
     if (error_message != nullptr) {
@@ -316,8 +326,7 @@ bool CoreState::rebuild_span_curve(ObjectId span_id, std::string* error_message,
     return false;
   }
 
-  SpanSupportLayoutEntry support_layout =
-      generate_span_support_layout(*span, error_message, allow_authority_fallback);
+  SpanSupportLayoutEntry support_layout = generate_span_support_layout(*span, error_message);
   if (support_layout.span_id == kInvalidObjectId) {
     return false;
   }
@@ -343,6 +352,11 @@ bool CoreState::rebuild_span_curve(ObjectId span_id, std::string* error_message,
 
 void CoreState::cache_span_support_layout(SpanSupportLayoutEntry layout) {
   const ObjectId span_id = layout.span_id;
+  if (layout.requires_decision_seed) {
+    runtime_.cache_state.support_layout_cache.decision_required_span_ids.insert(span_id);
+  } else {
+    runtime_.cache_state.support_layout_cache.decision_required_span_ids.erase(span_id);
+  }
   runtime_.cache_state.support_layout_cache.by_span[span_id] = std::move(layout);
   rebuild_lowered_support_groups_for_span(span_id);
 }
@@ -352,20 +366,9 @@ void CoreState::cache_span_support_layout_seed(SpanSupportLayoutDecisionSeed see
     return;
   }
   const ObjectId span_id = seed.span_id;
+  runtime_.cache_state.support_layout_cache.decision_required_span_ids.insert(span_id);
   runtime_.cache_state.support_layout_cache.decision_seeds_by_span[span_id] = std::move(seed);
-  const Span* span = authoritative_.edit_state.spans.find(span_id);
-  if (span == nullptr) {
-    erase_cached_span_support_layout(span_id);
-    return;
-  }
-
-  std::string error_message;
-  SpanSupportLayoutEntry layout = generate_span_support_layout(*span, &error_message, true);
-  if (layout.span_id == kInvalidObjectId) {
-    erase_cached_span_support_layout(span_id);
-    return;
-  }
-  cache_span_support_layout(std::move(layout));
+  erase_cached_span_support_layout(span_id);
 }
 
 void CoreState::erase_cached_span_support_layout_seed(ObjectId span_id) {
@@ -454,12 +457,6 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
            endpoint->decision.relation_kind == JunctionRelationKind::kThroughMain &&
            endpoint->decision.continuity_class == ContinuityCategoryClass::kBundleLike;
   };
-  auto endpoint_prefers_port_radial_support_visual = [](const SupportLayoutEndpoint* endpoint) {
-    return endpoint != nullptr && endpoint->decision.relation_kind == JunctionRelationKind::kThroughMain &&
-           endpoint->decision.continuity_class == ContinuityCategoryClass::kBundleLike &&
-           !endpoint->decision.lower_required;
-  };
-
   auto append_parts_for_port = [&](const Port& port, const SupportLayoutEndpoint* layout_endpoint) {
     ObjectId support_pole_id = port.owner_pole_id;
     if (support_pole_id == kInvalidObjectId && layout_endpoint != nullptr) {
@@ -471,25 +468,16 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
     }
     const bool uses_grouped_lowered_support = layout_endpoint != nullptr && endpoint_uses_grouped_lowered_support(layout_endpoint);
     const bool prefers_span_local_lowered_visual = endpoint_prefers_span_local_lowered_visual(layout_endpoint);
-    const bool prefers_port_radial_visual = endpoint_prefers_port_radial_support_visual(layout_endpoint);
     const double dx = port.world_position.x - pole->world_transform.position.x;
     const double dy = port.world_position.y - pole->world_transform.position.y;
     const double planar = std::sqrt(dx * dx + dy * dy);
-    Vec3d radial{
-        (planar <= 1e-9) ? 1.0 : (dx / planar),
-        (planar <= 1e-9) ? 0.0 : (dy / planar),
-        0.0,
-    };
     SpanVisualCacheEntry& entry = runtime_.cache_state.visual_cache.by_span[span_id];
     if (uses_grouped_lowered_support && !prefers_span_local_lowered_visual) {
       return;
     }
     Vec3d support_dir{};
     bool has_support_dir = false;
-    if (prefers_port_radial_visual) {
-      support_dir = radial;
-      has_support_dir = NormalizeXY(&support_dir);
-    } else if (layout_endpoint != nullptr && layout_endpoint->support_authority.has_signed_support_axis) {
+    if (layout_endpoint != nullptr && layout_endpoint->support_authority.has_signed_support_axis) {
       support_dir = layout_endpoint->support_authority.signed_support_axis;
       has_support_dir = NormalizeXY(&support_dir);
     }

@@ -1592,27 +1592,8 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       };
 
       const double existing_score = pair_straightness_score(stable_existing_pair[0], stable_existing_pair[1]);
-      const bool existing_pair_is_straight = existing_score + 1e-9 >= kPreferredPairStraightnessThreshold;
-      if (route_degree == 1 && existing_pair_is_straight) {
-        return ordered_existing_pair();
-      }
-      if (const bool existing_pair_is_route_disjoint =
-              route_degree == 2 &&
-              std::ranges::find(route_neighbors, stable_existing_pair[0]) == route_neighbors.end() &&
-              std::ranges::find(route_neighbors, stable_existing_pair[1]) == route_neighbors.end();
-          combined_neighbors.size() >= 4 && existing_pair_is_straight && existing_pair_is_route_disjoint) {
-        const double route_score = pair_straightness_score(route_neighbors[0], route_neighbors[1]);
-        const bool route_pair_is_straight = route_score + 1e-9 >= kPreferredPairStraightnessThreshold;
-        if (route_pair_is_straight) {
-          return ordered_existing_pair();
-        }
-      }
-
       if (!(best_score > existing_score + 1e-6)) {
-        if (combined_neighbors.size() < 4) {
-          return {kInvalidObjectId, kInvalidObjectId};
-        }
-        return ordered_existing_pair();
+        return {kInvalidObjectId, kInvalidObjectId};
       }
     }
 
@@ -1836,12 +1817,6 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       return dot(axis_a, Vec3d{-axis_b.x, -axis_b.y, -axis_b.z});
     };
     const bool is_cross_like_support_axis_candidate = route_degree >= 2 && combined_neighbors.size() >= 4;
-    if (is_cross_like_support_axis_candidate && adopt_connected_direction_fit(combined_neighbors)) {
-      if (maybe_preserve_existing_pair_axis(chosen_axis)) {
-        return chosen_axis;
-      }
-      return chosen_axis;
-    }
     if (route_degree <= 2 &&
         preferred_pair.first != kInvalidObjectId && preferred_pair.second != kInvalidObjectId &&
         preferred_pair.first != preferred_pair.second &&

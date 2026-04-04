@@ -9091,7 +9091,7 @@ bool test_backbone_rebuild_without_seed_fails_and_keeps_cached_layout() {
 
   std::string error_message;
   const bool rebuild_ok =
-      wire::core::CoreStateTestHook::rebuild_span_curve(state, before.span_id, &error_message, true);
+      wire::core::CoreStateTestHook::rebuild_span_curve(state, before.span_id, &error_message);
 
   const auto layout_view = state.view().inspect_support_layout(before.span_id);
   if (!layout_view.has_value()) {
@@ -9365,8 +9365,21 @@ bool test_backbone_non_grouped_support_visual_uses_endpoint_authority() {
     if (!arm.has_value()) {
       continue;
     }
-    wire::core::Vec3d expected_axis = endpoint->has_signed_support_axis ? endpoint->signed_support_axis : endpoint->side_axis;
-    if (!endpoint->has_signed_support_axis && endpoint->chosen_side_sign < 0.0) {
+    const wire::core::Pole* pole = state.view().edit_state().poles.find(center_id);
+    if (pole == nullptr) {
+      continue;
+    }
+    wire::core::Vec3d expected_axis{};
+    const bool prefers_port_radial_visual =
+        endpoint->decision.relation_kind == wire::core::JunctionRelationKind::kThroughMain &&
+        endpoint->decision.continuity_class == wire::core::ContinuityCategoryClass::kBundleLike &&
+        !endpoint->decision.lower_required;
+    if (prefers_port_radial_visual) {
+      expected_axis = endpoint->endpoint_world - pole->world_transform.position;
+    } else {
+      expected_axis = endpoint->has_signed_support_axis ? endpoint->signed_support_axis : endpoint->side_axis;
+    }
+    if (!prefers_port_radial_visual && !endpoint->has_signed_support_axis && endpoint->chosen_side_sign < 0.0) {
       expected_axis.x = -expected_axis.x;
       expected_axis.y = -expected_axis.y;
     }
@@ -9374,7 +9387,6 @@ bool test_backbone_non_grouped_support_visual_uses_endpoint_authority() {
     const wire::core::Vec3d actual = normalize_xy_safe(arm->b - arm->a);
     const double align = std::abs(dot_xy(actual, expected));
     if (align < 0.97) {
-      const wire::core::Pole* pole = state.view().edit_state().poles.find(center_id);
       std::cerr << "[DBG] C327 span=" << span_entry.id << " align=" << align << " expected=(" << expected.x << ","
                 << expected.y << ") actual=(" << actual.x << "," << actual.y << ") endpoint=("
                 << endpoint->endpoint_world.x << "," << endpoint->endpoint_world.y << "," << endpoint->endpoint_world.z

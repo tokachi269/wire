@@ -93,8 +93,20 @@ bool prepare_single_low_voltage_span(CoreState& state, ObjectId* span_id, wire::
   a_tf.position = {0.0, 0.0, 0.0};
   Transformd b_tf{};
   b_tf.position = {12.0, 0.0, 0.0};
-  const ObjectId pole_a = state.AddPole(a_tf, 10.0, "A", PoleKind::kGeneric, PlacementMode::kAuto).value;
-  const ObjectId pole_b = state.AddPole(b_tf, 10.0, "B", PoleKind::kGeneric, PlacementMode::kAuto).value;
+  const auto add_a = state.AddPole(a_tf, 10.0, "A", PoleKind::kGeneric, PlacementMode::kAuto);
+  const auto add_b = state.AddPole(b_tf, 10.0, "B", PoleKind::kGeneric, PlacementMode::kAuto);
+  if (!add_a.ok || !add_b.ok) {
+    return false;
+  }
+  const ObjectId pole_a = add_a.value;
+  const ObjectId pole_b = add_b.value;
+  const auto pole_type_ids = sorted_pole_type_ids(state);
+  if (pole_type_ids.empty()) {
+    return false;
+  }
+  if (!state.ApplyPoleType(pole_a, pole_type_ids.front()).ok || !state.ApplyPoleType(pole_b, pole_type_ids.front()).ok) {
+    return false;
+  }
 
   auto connect =
       helpers::add_connection_by_category(state, pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage);
@@ -116,6 +128,10 @@ bool prepare_single_low_voltage_span(CoreState& state, ObjectId* span_id, wire::
   const auto bundle_template_it = state.view().bundle_templates().find(bundle->bundle_template_id);
   if (bundle_template_it == state.view().bundle_templates().end()) {
     return false;
+  }
+  auto runtime_it = wire::core::CoreStateTestHook::span_runtime_states(state).find(span->id);
+  if (runtime_it != wire::core::CoreStateTestHook::span_runtime_states(state).end()) {
+    runtime_it->second.dirty_bits = wire::core::DirtyBits::kNone;
   }
   if (span_id != nullptr) {
     *span_id = span->id;

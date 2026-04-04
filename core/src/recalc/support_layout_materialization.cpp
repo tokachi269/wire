@@ -482,26 +482,8 @@ bool merge_layout_support_group_decision(
   if (groups == nullptr || key.owner_pole_id == kInvalidObjectId || key.support_group_id < 0) {
     return false;
   }
-  SupportGroupDecision normalized = group_copy;
-  normalized.grouped_port_count = 0;
-  normalized.attachment_worlds.clear();
-  groups->try_emplace(key, normalized);
+  groups->try_emplace(key, group_copy);
   return true;
-}
-
-void accumulate_grouped_endpoint_attachment(
-    std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash>* groups,
-    const SupportLayoutEndpoint& endpoint) {
-  if (groups == nullptr || !endpoint_uses_grouped_lowered_support(&endpoint)) {
-    return;
-  }
-  const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint.decision);
-  auto it = groups->find(key);
-  if (it == groups->end()) {
-    return;
-  }
-  it->second.grouped_port_count += 1;
-  it->second.attachment_worlds.push_back(endpoint.endpoint_world);
 }
 
 LoweredSupportGroupPlacement build_grouped_support_placement_from_decision(const CoreState& state,
@@ -585,8 +567,6 @@ void rebuild_all_lowered_support_groups(const CoreState& state, const EditState&
         layout.lowered_support_group_keys.push_back(key);
       }
     }
-    accumulate_grouped_endpoint_attachment(&cache_state->support_layout_cache.support_group_decisions, layout.start);
-    accumulate_grouped_endpoint_attachment(&cache_state->support_layout_cache.support_group_decisions, layout.end);
   }
   for (const auto& [key, group_decision] : cache_state->support_layout_cache.support_group_decisions) {
     cache_state->support_layout_cache.lowered_support_groups[key] =

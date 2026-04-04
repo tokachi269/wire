@@ -545,6 +545,8 @@ void rebuild_all_lowered_support_groups(const CoreState& state, const EditState&
   (void)state;
   cache_state->support_layout_cache.support_group_decisions.clear();
   cache_state->support_layout_cache.lowered_support_groups.clear();
+  std::unordered_map<LoweredSupportGroupKey, ConnectionCategory, LoweredSupportGroupKeyHash> observed_category_by_key{};
+  std::unordered_map<LoweredSupportGroupKey, std::vector<Vec3d>, LoweredSupportGroupKeyHash> observed_attachment_worlds{};
   std::vector<ObjectId> ordered_span_ids{};
   ordered_span_ids.reserve(cache_state->support_layout_cache.by_span.size());
   for (const auto& [span_id, _] : cache_state->support_layout_cache.by_span) {
@@ -566,6 +568,30 @@ void rebuild_all_lowered_support_groups(const CoreState& state, const EditState&
               layout.lowered_support_group_keys.end()) {
         layout.lowered_support_group_keys.push_back(key);
       }
+    }
+    const auto observe_endpoint = [&](const SupportLayoutEndpoint& endpoint) {
+      if (!endpoint_uses_grouped_lowered_support(&endpoint)) {
+        return;
+      }
+      const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint.decision);
+      if (key.owner_pole_id == kInvalidObjectId || key.support_group_id < 0) {
+        return;
+      }
+      if (const Port* port = edit_state.ports.find(endpoint.port_id); port != nullptr) {
+        observed_category_by_key.try_emplace(key, port->category);
+      }
+      observed_attachment_worlds[key].push_back(endpoint.endpoint_world);
+    };
+    observe_endpoint(layout.start);
+    observe_endpoint(layout.end);
+  }
+  for (auto& [key, group_decision] : cache_state->support_layout_cache.support_group_decisions) {
+    if (const auto category_it = observed_category_by_key.find(key); category_it != observed_category_by_key.end()) {
+      group_decision.category = category_it->second;
+    }
+    if (const auto attachment_it = observed_attachment_worlds.find(key); attachment_it != observed_attachment_worlds.end()) {
+      group_decision.grouped_port_count = static_cast<int>(attachment_it->second.size());
+      group_decision.attachment_worlds = attachment_it->second;
     }
   }
   for (const auto& [key, group_decision] : cache_state->support_layout_cache.support_group_decisions) {

@@ -175,12 +175,13 @@ std::optional<EndpointSideDecision> GroupedSpanOrientationDecider::CrossPairSide
   }
   std::vector<ObjectId> cross_peers{};
   for (const JunctionIncidentRelation& incident : it->second.incidents) {
-    if (incident.in_route && incident.kind == JunctionRelationKind::kCrossUnderpass) {
+    if (incident.kind == JunctionRelationKind::kCrossUnderpass) {
       cross_peers.push_back(incident.neighbor_node_id);
     }
   }
-  if (cross_peers.size() != 2 ||
-      std::find(cross_peers.begin(), cross_peers.end(), peer_id) == cross_peers.end()) {
+  std::sort(cross_peers.begin(), cross_peers.end());
+  cross_peers.erase(std::unique(cross_peers.begin(), cross_peers.end()), cross_peers.end());
+  if (cross_peers.size() != 2 || std::find(cross_peers.begin(), cross_peers.end(), peer_id) == cross_peers.end()) {
     return std::nullopt;
   }
   const ObjectId pair_peer_low = std::min(cross_peers[0], cross_peers[1]);
@@ -252,6 +253,22 @@ std::optional<EndpointSideDecision> GroupedSpanOrientationDecider::CrossLikePair
   }
   if (peer_incident == nullptr) {
     return std::nullopt;
+  }
+  if (peer_incident->kind == JunctionRelationKind::kCrossUnderpass) {
+    std::vector<ObjectId> cross_underpass_peers{};
+    for (const JunctionIncidentRelation& incident : it->second.incidents) {
+      if (incident.kind == JunctionRelationKind::kCrossUnderpass) {
+        cross_underpass_peers.push_back(incident.neighbor_node_id);
+      }
+    }
+    std::sort(cross_underpass_peers.begin(), cross_underpass_peers.end());
+    cross_underpass_peers.erase(std::unique(cross_underpass_peers.begin(), cross_underpass_peers.end()),
+                                cross_underpass_peers.end());
+    if (cross_underpass_peers.size() == 2 &&
+        std::find(cross_underpass_peers.begin(), cross_underpass_peers.end(), peer_id) != cross_underpass_peers.end()) {
+      return ExplicitPairNormalSideDecisionForEndpoint(node_id, peer_id, cross_underpass_peers[0],
+                                                       cross_underpass_peers[1]);
+    }
   }
 
   auto choose_straightest_pair = [&](const std::vector<ObjectId>& candidates,
@@ -966,6 +983,14 @@ EndpointSideDecision GroupedSpanOrientationDecider::PreferredSideAxisForEndpoint
          feasibility.kind == JunctionRelationKind::kSideBranch ||
          feasibility.kind == JunctionRelationKind::kCornerContinuation ||
          feasibility.kind == JunctionRelationKind::kCrossUnderpass)) {
+      if (feasibility.kind == JunctionRelationKind::kCrossUnderpass &&
+          feasibility.continuity_class == ContinuityCategoryClass::kPointLike && !feasibility.default_lower_required &&
+          feasibility.same_level_feasible) {
+        if (const auto cross_pair_decision = CrossPairSideDecisionForEndpoint(node_id, peer_id);
+            cross_pair_decision.has_value()) {
+          return *cross_pair_decision;
+        }
+      }
       if (feasibility.kind == JunctionRelationKind::kSideBranch) {
         if (const auto through_pair_decision = ThroughPairSideDecisionForEndpoint(node_id, peer_id);
             through_pair_decision.has_value()) {
@@ -980,6 +1005,19 @@ EndpointSideDecision GroupedSpanOrientationDecider::PreferredSideAxisForEndpoint
           cross_like_pair_decision.has_value()) {
         return *cross_like_pair_decision;
       }
+    }
+  }
+  if (prefers_line_oriented_lowering &&
+      (feasibility.kind == JunctionRelationKind::kSideBranch ||
+       feasibility.kind == JunctionRelationKind::kCornerContinuation ||
+       feasibility.kind == JunctionRelationKind::kCrossUnderpass)) {
+    if (const auto bisector_axis = BisectorAxisForEndpoint(node_id, peer_id); bisector_axis.has_value()) {
+      decision.side_axis = NormalizedOrZeroXY(*bisector_axis);
+      decision.side_assignment_rule = SideAssignmentRuleKind::kBisector;
+      decision.support_orientation_rule = SupportOrientationRuleKind::kBisector;
+      decision.used_junction_pair_side_assignment = true;
+      decision.has_side_axis = (decision.side_axis.x != 0.0 || decision.side_axis.y != 0.0);
+      return decision;
     }
   }
   if (const auto pole_debug_pair_decision = PoleDebugPairSideDecisionForEndpoint(node_id, peer_id, feasibility);

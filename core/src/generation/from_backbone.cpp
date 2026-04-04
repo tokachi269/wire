@@ -1592,8 +1592,11 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       };
 
       const double existing_score = pair_straightness_score(stable_existing_pair[0], stable_existing_pair[1]);
-      if (!(best_score > existing_score + 1e-6)) {
-        return {kInvalidObjectId, kInvalidObjectId};
+      const bool existing_pair_still_available =
+          std::find(combined_neighbors.begin(), combined_neighbors.end(), stable_existing_pair[0]) != combined_neighbors.end() &&
+          std::find(combined_neighbors.begin(), combined_neighbors.end(), stable_existing_pair[1]) != combined_neighbors.end();
+      if (existing_pair_still_available && existing_score >= kPreferredPairStraightnessThreshold) {
+        return ordered_existing_pair();
       }
     }
 

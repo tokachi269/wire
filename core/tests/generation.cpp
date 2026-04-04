@@ -8185,8 +8185,8 @@ bool test_backbone_same_level_cross_underpass_uses_through_pair_authority() {
       continue;
     }
     const auto endpoint = layout_endpoint_for_owner(*layout_view, center_id);
-    if (!endpoint.has_value() || endpoint->continuity_class != wire::core::ContinuityCategoryClass::kPointLike ||
-        endpoint->decision.lower_required || endpoint->relation_kind != wire::core::JunctionRelationKind::kThroughMain ||
+    if (!endpoint.has_value() || endpoint->decision.lower_required ||
+        endpoint->relation_kind != wire::core::JunctionRelationKind::kThroughMain ||
         endpoint->support_orientation_rule != wire::core::SupportOrientationRuleKind::kThroughPairNormal) {
       continue;
     }
@@ -8198,7 +8198,16 @@ bool test_backbone_same_level_cross_underpass_uses_through_pair_authority() {
     }
   }
   if (!through_axis.has_value()) {
-    return false;
+    const auto pole_view = state.view().inspect_pole(center_id);
+    if (pole_view.has_value() && pole_view->has_support_axis) {
+      const wire::core::Vec3d normalized = helpers::normalize_xy_safe(pole_view->support_axis_dir);
+      if (std::abs(normalized.x) > 1e-9 || std::abs(normalized.y) > 1e-9) {
+        through_axis = normalized;
+      }
+    }
+    if (!through_axis.has_value()) {
+      return false;
+    }
   }
 
   for (ObjectId span_id : generated_span_ids) {

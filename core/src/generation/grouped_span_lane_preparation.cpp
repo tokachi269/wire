@@ -933,6 +933,103 @@ GroupedSpanLanePreparer::BuildLanePlan(const BackboneLoweringPolicy& lowering_po
     }
   }
 
+  if (use_lane_row_geometry_ && allow_order_decision_reverse && node_count > 0 && node_count <= 14) {
+    auto score_segments_for_parity = [&](const std::vector<int>& parities) {
+      OrientationPlanScore score{};
+      for (std::size_t seg = 0; seg < segment_count; ++seg) {
+        const std::vector<ObjectId> ports_a =
+            order_for_choice(plan.base_ports_by_node[seg], choice_for_parity(parities[seg]));
+        const std::vector<ObjectId> ports_b =
+            order_for_choice(plan.base_ports_by_node[seg + 1], choice_for_parity(parities[seg + 1]));
+        add_order_score(&score.order, evaluate_increment(ctx_.node_ids[seg], ctx_.node_ids[seg + 1], ports_a, ports_b));
+        if (seg > 0) {
+          const std::vector<ObjectId> prev_ports_a =
+              order_for_choice(plan.base_ports_by_node[seg - 1], choice_for_parity(parities[seg - 1]));
+          const std::vector<ObjectId> prev_ports_b =
+              order_for_choice(plan.base_ports_by_node[seg], choice_for_parity(parities[seg]));
+          score.adjacent_xy_intersections +=
+              count_adjacent_segment_xy_intersections(prev_ports_a, prev_ports_b, prev_ports_b, ports_b);
+          const int prev_orientation = parities[seg - 1] ^ parities[seg];
+          const int curr_orientation = parities[seg] ^ parities[seg + 1];
+          if (curr_orientation != prev_orientation &&
+              (plan.turn_angle_by_segment[seg] + kAngleEps < kReverseStraightAngleDeg)) {
+            ++score.orientation_flips;
+            if (plan.turn_angle_by_segment[seg] + kAngleEps < corner_threshold_deg) {
+              ++score.acute_orientation_flips;
+            }
+          }
+        }
+      }
+      return score;
+    };
+
+    auto count_global_polyline_intersections = [&](const std::vector<int>& parities) {
+      int intersections = 0;
+      for (std::size_t seg_a = 0; seg_a < segment_count; ++seg_a) {
+        const std::vector<ObjectId> ports_a0 =
+            order_for_choice(plan.base_ports_by_node[seg_a], choice_for_parity(parities[seg_a]));
+        const std::vector<ObjectId> ports_a1 =
+            order_for_choice(plan.base_ports_by_node[seg_a + 1], choice_for_parity(parities[seg_a + 1]));
+        for (std::size_t seg_b = seg_a + 1; seg_b < segment_count; ++seg_b) {
+          const std::vector<ObjectId> ports_b0 =
+              order_for_choice(plan.base_ports_by_node[seg_b], choice_for_parity(parities[seg_b]));
+          const std::vector<ObjectId> ports_b1 =
+              order_for_choice(plan.base_ports_by_node[seg_b + 1], choice_for_parity(parities[seg_b + 1]));
+          for (int lane_a = 0; lane_a < lane_count_; ++lane_a) {
+            const auto world_a0 = state_.port_world_position(ports_a0[static_cast<std::size_t>(lane_a)]);
+            const auto world_a1 = state_.port_world_position(ports_a1[static_cast<std::size_t>(lane_a)]);
+            if (!world_a0 || !world_a1) {
+              continue;
+            }
+            for (int lane_b = 0; lane_b < lane_count_; ++lane_b) {
+              const auto world_b0 = state_.port_world_position(ports_b0[static_cast<std::size_t>(lane_b)]);
+              const auto world_b1 = state_.port_world_position(ports_b1[static_cast<std::size_t>(lane_b)]);
+              if (!world_b0 || !world_b1) {
+                continue;
+              }
+              if (segments_intersect_xy_strict_local(*world_a0, *world_a1, *world_b0, *world_b1)) {
+                ++intersections;
+              }
+            }
+          }
+        }
+      }
+      return intersections;
+    };
+
+    std::vector<int> best_parity = node_parity;
+    OrientationPlanScore best_score = score_segments_for_parity(node_parity);
+    int best_polyline_intersections = count_global_polyline_intersections(node_parity);
+    const std::uint64_t mask_limit = 1ull << node_count;
+    for (std::uint64_t mask = 0; mask < mask_limit; ++mask) {
+      std::vector<int> candidate_parity(node_count, 0);
+      bool allowed = true;
+      for (std::size_t i = 0; i < node_count; ++i) {
+        candidate_parity[i] = ((mask >> i) & 1ull) ? 1 : 0;
+        if (!allow_order_decision_reverse && candidate_parity[i] != 0) {
+          allowed = false;
+          break;
+        }
+      }
+      if (!allowed) {
+        continue;
+      }
+      if (std::find(first_candidates.begin(), first_candidates.end(), candidate_parity.front()) == first_candidates.end()) {
+        continue;
+      }
+      const int candidate_polyline_intersections = count_global_polyline_intersections(candidate_parity);
+      const OrientationPlanScore candidate_score = score_segments_for_parity(candidate_parity);
+      if (candidate_polyline_intersections < best_polyline_intersections ||
+          (candidate_polyline_intersections == best_polyline_intersections &&
+           orientation_plan_less(candidate_score, best_score, use_lane_row_geometry_))) {
+        best_polyline_intersections = candidate_polyline_intersections;
+        best_score = candidate_score;
+        best_parity = std::move(candidate_parity);
+      }
+    }
+    node_parity.swap(best_parity);
+  }
+
   plan.node_order_choices.assign(node_count, OrderDecisionChoiceKind::kNormal);
   for (std::size_t i = 0; i < node_count; ++i) {
     plan.node_order_choices[i] = choice_for_parity(node_parity[i]);

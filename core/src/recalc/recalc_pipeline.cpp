@@ -563,9 +563,14 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
       auto it = runtime_.cache_state.support_layout_cache.lowered_support_groups.find(key);
       if (it != runtime_.cache_state.support_layout_cache.lowered_support_groups.end()) {
         std::vector<Vec3d> span_attachment_worlds{};
+        bool span_has_local_owner_visual = false;
           auto append_span_attachment = [&](const SupportLayoutEndpoint* endpoint) {
           if (!endpoint_uses_grouped_lowered_support(endpoint) ||
               endpoint_prefers_span_local_lowered_visual(endpoint)) {
+              if (endpoint != nullptr && endpoint_prefers_span_local_lowered_visual(endpoint) &&
+                  LoweredSupportGroupKeyFromDecision(endpoint->decision) == key) {
+                span_has_local_owner_visual = true;
+              }
               return;
             }
           if (LoweredSupportGroupKeyFromDecision(endpoint->decision) != key) {
@@ -575,6 +580,9 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
         };
         append_span_attachment(start_layout);
         append_span_attachment(end_layout);
+        if (span_has_local_owner_visual) {
+          continue;
+        }
         append_grouped_lowered_support_parts(it->second, span_attachment_worlds);
       }
     }

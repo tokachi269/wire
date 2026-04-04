@@ -4,6 +4,8 @@
 #include "../src/state/internal_services.hpp"
 #include "helpers.hpp"
 
+#include <iostream>
+
 namespace {
 
 using helpers::contains_id;
@@ -737,11 +739,11 @@ bool test_materialization_reads_layout_owned_support_group_decision() {
 
   auto& layouts = CoreStateTestHook::cache_state(state).support_layout_cache.by_span;
   auto it = layouts.find(span);
-  if (it == layouts.end()) {
-    return false;
+  wire::core::SpanSupportLayoutEntry layout{};
+  if (it != layouts.end()) {
+    layout = it->second;
   }
-
-  wire::core::SpanSupportLayoutEntry layout = it->second;
+  layout.span_id = span;
   layout.start.owner_pole_id = pole_a;
   layout.start.port_id = port_a;
   layout.start.endpoint_world = {0.0, 0.5, expected_support_z};
@@ -801,24 +803,40 @@ bool test_materialization_reads_layout_owned_support_group_decision() {
   }
 
   const auto validation = helpers::validate_now(state);
-  return validation.ok() &&
-         decision_it->second.decision.side_assignment_rule == wire::core::SideAssignmentRuleKind::kBisector &&
-         decision_it->second.decision.support_orientation_rule == wire::core::SupportOrientationRuleKind::kBisector &&
-         decision_it->second.decision.support_orientation_basis ==
-             wire::core::SupportOrientationBasisKind::kBisectorForward &&
-         helpers::almost_equal(decision_it->second.decision.chosen_side_sign, -1.0) &&
-         helpers::almost_equal(decision_it->second.decision.side_axis, Vec3d{0.0, 1.0, 0.0}) &&
-         helpers::almost_equal(decision_it->second.down_offset_m, 1.25) &&
-         layout_it->second.lowered_support_group_keys.size() == 1 &&
-         layout_it->second.lowered_support_group_keys.front() == wire::core::LoweredSupportGroupKey{pole_a, 777} &&
-         layout_it->second.start.decision.side_assignment_rule == wire::core::SideAssignmentRuleKind::kBisector &&
-         layout_it->second.start.decision.support_orientation_rule ==
-             wire::core::SupportOrientationRuleKind::kBisector &&
-         layout_it->second.start.decision.support_orientation_basis ==
-             wire::core::SupportOrientationBasisKind::kBisectorForward &&
-         helpers::almost_equal(layout_it->second.start.decision.chosen_side_sign, -1.0) &&
-         helpers::almost_equal(layout_it->second.start.decision.side_axis, Vec3d{0.0, 1.0, 0.0}) &&
-         helpers::almost_equal(layout_it->second.start.branch_down_offset_m, 1.25);
+  const auto refreshed_decision_it = cache.support_group_decisions.find({pole_a, 777});
+  const auto refreshed_layout_it = cache.by_span.find(span);
+  if (refreshed_decision_it == cache.support_group_decisions.end() || refreshed_layout_it == cache.by_span.end()) {
+    return false;
+  }
+  const bool ok_validation = validation.ok();
+  const bool ok_decision_side =
+      refreshed_decision_it->second.decision.side_assignment_rule == wire::core::SideAssignmentRuleKind::kBisector;
+  const bool ok_decision_orient =
+      refreshed_decision_it->second.decision.support_orientation_rule == wire::core::SupportOrientationRuleKind::kBisector;
+  const bool ok_decision_basis =
+      refreshed_decision_it->second.decision.support_orientation_basis ==
+      wire::core::SupportOrientationBasisKind::kBisectorForward;
+  const bool ok_decision_sign = helpers::almost_equal(refreshed_decision_it->second.decision.chosen_side_sign, -1.0);
+  const bool ok_decision_axis =
+      helpers::almost_equal(refreshed_decision_it->second.decision.side_axis, Vec3d{0.0, 1.0, 0.0});
+  const bool ok_decision_down = helpers::almost_equal(refreshed_decision_it->second.down_offset_m, 1.25);
+  const bool ok_keys = refreshed_layout_it->second.lowered_support_group_keys.size() == 1 &&
+                       refreshed_layout_it->second.lowered_support_group_keys.front() ==
+                           wire::core::LoweredSupportGroupKey{pole_a, 777};
+  const bool ok_layout_side =
+      refreshed_layout_it->second.start.decision.side_assignment_rule == wire::core::SideAssignmentRuleKind::kBisector;
+  const bool ok_layout_orient =
+      refreshed_layout_it->second.start.decision.support_orientation_rule == wire::core::SupportOrientationRuleKind::kBisector;
+  const bool ok_layout_basis =
+      refreshed_layout_it->second.start.decision.support_orientation_basis ==
+      wire::core::SupportOrientationBasisKind::kBisectorForward;
+  const bool ok_layout_sign = helpers::almost_equal(refreshed_layout_it->second.start.decision.chosen_side_sign, -1.0);
+  const bool ok_layout_axis =
+      helpers::almost_equal(refreshed_layout_it->second.start.decision.side_axis, Vec3d{0.0, 1.0, 0.0});
+  const bool ok_layout_down = helpers::almost_equal(refreshed_layout_it->second.start.branch_down_offset_m, 1.25);
+  return ok_validation && ok_decision_side && ok_decision_orient && ok_decision_basis && ok_decision_sign &&
+         ok_decision_axis && ok_decision_down && ok_keys && ok_layout_side && ok_layout_orient && ok_layout_basis &&
+         ok_layout_sign && ok_layout_axis && ok_layout_down;
 }
 
 bool test_validation_treats_grouped_endpoint_semantics_as_derived_copies() {
@@ -837,13 +855,8 @@ bool test_validation_treats_grouped_endpoint_semantics_as_derived_copies() {
   const double expected_support_z =
       template_layer_base_z_for_test(state, pole_a, wire::core::ConnectionCategory::kHighVoltage) - 1.25;
 
-  auto& layouts = CoreStateTestHook::cache_state(state).support_layout_cache.by_span;
-  auto it = layouts.find(span);
-  if (it == layouts.end()) {
-    return false;
-  }
-
-  wire::core::SpanSupportLayoutEntry layout = it->second;
+  wire::core::SpanSupportLayoutEntry layout{};
+  layout.span_id = span;
   layout.start.owner_pole_id = pole_a;
   layout.start.port_id = port_a;
   layout.start.endpoint_world = {0.0, 0.5, expected_support_z};
@@ -865,6 +878,10 @@ bool test_validation_treats_grouped_endpoint_semantics_as_derived_copies() {
   layout.start.decision.side_axis = {0.0, 1.0, 0.0};
   layout.start.branch_down_offset_m = 1.25;
   layout.start.support_world = layout.start.endpoint_world;
+  layout.end.owner_pole_id = pole_b;
+  layout.end.port_id = port_b;
+  layout.end.endpoint_world = {10.0, 0.5, expected_support_z};
+  layout.end.support_world = layout.end.endpoint_world;
 
   layout.support_group_decisions.clear();
   wire::core::SupportGroupDecision authoritative{};

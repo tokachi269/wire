@@ -13,6 +13,17 @@ struct CoreStateTestHook {
   static RelationIndex& relation_index(CoreState& state) { return state.runtime_.relation_index; }
   static OverrideState& override_state(CoreState& state) { return state.authoritative_.override_state; }
   static IdGenerator& id_generator(CoreState& state) { return state.identity_.id_generator; }
+  static std::unordered_map<ObjectId, SpanRuntimeState>& span_runtime_states(CoreState& state) {
+    return state.runtime_.span_runtime_states;
+  }
+  static void erase_cached_span_support_layout_seed(CoreState& state, ObjectId span_id) {
+    state.erase_cached_span_support_layout_seed(span_id);
+  }
+  static bool rebuild_span_curve(CoreState& state, ObjectId span_id, std::string* error_message,
+                                 bool allow_authority_fallback) {
+    return state.rebuild_span_curve(span_id, error_message, allow_authority_fallback);
+  }
+  static ValidationResult validate(CoreState& state) { return state.Validate(); }
   static std::unordered_map<BundleKind, BundleTemplate>& bundle_templates(CoreState& state) {
     return state.authoritative_.bundle_templates;
   }
@@ -35,4 +46,3 @@ struct CoreStateTestHook {
 #endif
 
 } // namespace wire::core
-

@@ -79,19 +79,19 @@ struct ViewerUiState {
   double visual_insulator_radius = 0.07;
   double visual_insulator_length = 0.16;
   bool cable_template_loaded = false;
-  wire::core::CableTemplateId selected_cable_template_id = wire::core::kInvalidCableTemplateId;
-  std::string cable_template_name{};
-  double cable_outer_diameter = 0.02;
-  double cable_bend_stiffness = 1.0;
-  double cable_min_bend_radius = 0.2;
-  int cable_material_style = static_cast<int>(wire::core::CableMaterialStyleKind::kGeneric);
-  bool cable_requires_insulator = false;
-  double cable_insulator_attachment_height = 0.0;
-  double cable_sag_factor = 0.03;
-  double cable_slack_factor = 0.0;
-  double cable_default_grouped_support_fanout_spacing = 0.2;
-  int cable_continuity_policy = static_cast<int>(wire::core::CableContinuityPolicyHint::kAuto);
-  bool cable_curve_offset_straight_supplemental_enabled = false;
+  wire::core::CableTemplateId selected_cable_template_id = static_cast<wire::core::CableTemplateId>(1);
+  std::string cable_template_name{"HV_BARE"};
+  double cable_outer_diameter = 0.048;
+  double cable_bend_stiffness = 2.8;
+  double cable_min_bend_radius = 0.7;
+  int cable_material_style = static_cast<int>(wire::core::CableMaterialStyleKind::kBareConductor);
+  bool cable_requires_insulator = true;
+  double cable_insulator_attachment_height = 0.145;
+  double cable_sag_factor = 0.045;
+  double cable_slack_factor = 0.025;
+  double cable_default_grouped_support_fanout_spacing = 0.35;
+  int cable_continuity_policy = static_cast<int>(wire::core::CableContinuityPolicyHint::kPreferG1);
+  bool cable_curve_offset_straight_supplemental_enabled = true;
   double cable_curve_offset_straight_lateral_offset = 0.0;
   double cable_curve_offset_straight_vertical_offset = 0.0;
   double cable_curve_offset_straight_wobble_amplitude = 0.0;
@@ -99,7 +99,7 @@ struct ViewerUiState {
   double cable_curve_offset_straight_wobble_phase_bias = 0.0;
   double cable_curve_offset_straight_endpoint_envelope_ratio = 0.0;
   bool bundle_template_loaded = false;
-  wire::core::BundleKind selected_bundle_template_id = wire::core::BundleKind::kLowVoltage;
+  wire::core::BundleKind selected_bundle_template_id = wire::core::BundleKind::kHighVoltage;
   wire::core::CableTemplateId bundle_template_cable_template_id = wire::core::kInvalidCableTemplateId;
   int bundle_template_default_layer = static_cast<int>(wire::core::SpanLayer::kLowVoltage);
   bool bundle_template_allow_mirror = true;
@@ -112,12 +112,16 @@ struct ViewerUiState {
   bool pole_template_loaded = false;
   wire::core::PoleTypeId selected_pole_template_id = wire::core::kInvalidPoleTypeId;
   wire::core::PoleTypeDefinition pole_template_edit{};
-  double tilt_all_max_deg = 0.0;
+  double tilt_all_max_deg = 9.5;
   std::uint64_t road_id = 1;
   std::uint32_t draw_category_mask = (1u << static_cast<int>(wire::core::ConnectionCategory::kLowVoltage));
-  std::uint32_t draw_bundle_template_mask = (1u << static_cast<int>(wire::core::BundleKind::kLowVoltage));
+  std::uint32_t draw_bundle_template_mask =
+      (1u << static_cast<int>(wire::core::BundleKind::kLowVoltage)) |
+      (1u << static_cast<int>(wire::core::BundleKind::kHighVoltage)) |
+      (1u << static_cast<int>(wire::core::BundleKind::kCommunication)) |
+      (1u << static_cast<int>(wire::core::BundleKind::kOptical));
   std::unordered_map<int, int> draw_bundle_count_by_template{};
-  int road_pole_type_index = 0;
+  int road_pole_type_index = 1;
   int last_generated_poles = 0;
   int last_generated_spans = 0;
   std::vector<ObjectId> last_generated_pole_ids{};
@@ -138,7 +142,7 @@ struct ViewerUiState {
   double draw_plane_z = 0.0;
   bool draw_show_preview = true;
   bool draw_keep_path_after_generate = true;
-  bool draw_clicked_points_only = false;
+  bool draw_clicked_points_only = true;
   double draw_interval_m = 8.0;
   int draw_direction_mode = static_cast<int>(wire::core::PathDirectionMode::kAuto);
   bool layout_settings_loaded = false;

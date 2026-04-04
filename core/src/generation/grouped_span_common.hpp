@@ -39,6 +39,8 @@ struct EndpointSideDecision {
   Vec3d side_axis{0.0, 0.0, 0.0};
   bool has_side_axis = false;
   double chosen_side_sign = 0.0;
+  ObjectId pair_peer_low = kInvalidObjectId;
+  ObjectId pair_peer_high = kInvalidObjectId;
   SideAssignmentRuleKind side_assignment_rule = SideAssignmentRuleKind::kPoleLocal;
   SupportOrientationRuleKind support_orientation_rule = SupportOrientationRuleKind::kRadial;
   bool used_junction_pair_side_assignment = false;

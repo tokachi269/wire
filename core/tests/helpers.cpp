@@ -1537,6 +1537,13 @@ bool restore_capture_request_scene(const std::filesystem::path& capture_path, Co
   }
 
   std::unordered_map<ObjectId, ObjectId> remapped_node_ids{};
+  std::unordered_map<ObjectId, wire::core::Vec3d> backbone_positions_by_node_id{};
+  for (const auto& node : parsed->backbone_nodes) {
+    if (node.node_id == wire::core::kInvalidObjectId) {
+      continue;
+    }
+    backbone_positions_by_node_id[node.node_id] = node.position;
+  }
   for (const auto& node : parsed->backbone_nodes) {
     if (node.node_id == wire::core::kInvalidObjectId || excluded_generated_poles.contains(node.node_id)) {
       continue;
@@ -1586,18 +1593,44 @@ bool restore_capture_request_scene(const std::filesystem::path& capture_path, Co
         (templates_it == restore_templates_by_edge.end() || templates_it->second.empty())
             ? std::vector<wire::core::BundleKind>{wire::core::BundleKind::kLowVoltage}
             : templates_it->second;
+    const auto pos_a_it = backbone_positions_by_node_id.find(edge.node_a_id);
+    const auto pos_b_it = backbone_positions_by_node_id.find(edge.node_b_id);
+    if (pos_a_it == backbone_positions_by_node_id.end() || pos_b_it == backbone_positions_by_node_id.end()) {
+      continue;
+    }
+
+    wire::core::BackboneSpec edge_request{};
+    edge_request.path.polyline = {pos_a_it->second, pos_b_it->second};
+    edge_request.interval_m = 1000.0;
+    edge_request.pole_type_id = restore_pole_type_id;
+    wire::core::BackboneInputSpec::NodeSpec start{};
+    start.point_index = 0;
+    start.support_kind = wire::core::SupportKind::kPole;
+    start.node_id = it_a->second;
+    wire::core::BackboneInputSpec::NodeSpec end{};
+    end.point_index = 1;
+    end.support_kind = wire::core::SupportKind::kPole;
+    end.node_id = it_b->second;
+    edge_request.path.node_specs.push_back(start);
+    edge_request.path.node_specs.push_back(end);
     for (wire::core::BundleKind bundle_template_id : restore_templates) {
-      wire::core::AddConnectionByPoleOptions options{};
-      options.use_bundle_template = true;
-      options.bundle_template_id = bundle_template_id;
-      const auto add_connection = state.AddConnectionByPole(it_a->second, it_b->second,
-                                                            category_for_bundle_template_test(bundle_template_id), options);
-      if (!add_connection.ok) {
-        if (error != nullptr) {
-          *error = add_connection.error;
+      add_backbone_bundle(edge_request, bundle_template_id);
+    }
+    const auto replay_edge = state.GenerateFromBackboneSpec(edge_request);
+    if (!replay_edge.ok) {
+      if (error != nullptr) {
+        std::ostringstream oss;
+        oss << "replay edge " << edge.node_a_id << "-" << edge.node_b_id << " templates=";
+        for (std::size_t i = 0; i < restore_templates.size(); ++i) {
+          if (i > 0) {
+            oss << ",";
+          }
+          oss << static_cast<int>(restore_templates[i]);
         }
-        return false;
+        oss << " error=" << replay_edge.error;
+        *error = oss.str();
       }
+      return false;
     }
   }
 

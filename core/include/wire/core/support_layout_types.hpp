@@ -48,11 +48,27 @@ struct LoweredSupportGroupKeyHash {
   }
 };
 
+struct JunctionPairAuthority {
+  ObjectId pair_peer_low = kInvalidObjectId;
+  ObjectId pair_peer_high = kInvalidObjectId;
+  SupportOrientationBasisKind orientation_basis = SupportOrientationBasisKind::kRadial;
+  Vec3d pair_axis{};
+  bool has_pair_axis = false;
+  int height_rank = -1;
+};
+
+struct ResolvedSupportAuthority {
+  JunctionPairAuthority pair{};
+  Vec3d signed_support_axis{};
+  bool has_signed_support_axis = false;
+};
+
 struct SupportLayoutEndpoint {
   ObjectId endpoint_node_id = kInvalidObjectId;
   ObjectId owner_pole_id = kInvalidObjectId;
   ObjectId port_id = kInvalidObjectId;
   EndpointContinuityDecision decision{};
+  ResolvedSupportAuthority support_authority{};
   EndpointAttachmentRequest attachment_request{};
   std::optional<int> resolved_socket_id{};
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
@@ -76,6 +92,7 @@ struct SupportLayoutDecisionSeedEndpoint {
   ObjectId owner_pole_id = kInvalidObjectId;
   ObjectId port_id = kInvalidObjectId;
   EndpointContinuityDecision decision{};
+  ResolvedSupportAuthority support_authority{};
   EndpointAttachmentRequest attachment_request{};
   std::optional<int> resolved_socket_id{};
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
@@ -91,6 +108,7 @@ struct SupportLayoutDecisionSeedEndpoint {
 
 struct SupportGroupDecision {
   EndpointContinuityDecision decision{};
+  ResolvedSupportAuthority support_authority{};
   ConnectionCategory category = ConnectionCategory::kLowVoltage;
   SlotSide side = SlotSide::kCenter;
   SupportLayoutOriginKind origin = SupportLayoutOriginKind::kFallback;
@@ -125,6 +143,7 @@ struct LoweredSupportGroupPlacement {
 
 struct SpanSupportLayoutEntry {
   ObjectId span_id = kInvalidObjectId;
+  bool requires_decision_seed = false;
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
   CurvePassMode pass_mode = CurvePassMode::kPassThrough;
   CurveProfileHint detail_curve_profile_hint = CurveProfileHint::kAuto;

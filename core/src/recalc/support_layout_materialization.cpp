@@ -380,6 +380,9 @@ void apply_endpoint_decision_to_layout_endpoint(const EndpointContinuityDecision
   }
   endpoint->decision = decision;
   endpoint->decision.owner_pole_id = endpoint->owner_pole_id;
+  if (endpoint->support_authority.pair.height_rank < 0) {
+    endpoint->support_authority = ResolvedSupportAuthorityFromDecision(endpoint->decision);
+  }
 }
 
 void apply_support_layout_decision_seed_endpoint(const SupportLayoutDecisionSeedEndpoint& seed,
@@ -391,6 +394,7 @@ void apply_support_layout_decision_seed_endpoint(const SupportLayoutDecisionSeed
   endpoint->owner_pole_id = seed.owner_pole_id;
   endpoint->port_id = seed.port_id;
   apply_endpoint_decision_to_layout_endpoint(seed.decision, endpoint);
+  endpoint->support_authority = seed.support_authority;
   endpoint->flow_kind = seed.flow_kind;
   endpoint->origin = seed.origin;
   endpoint->port_source = seed.port_source;
@@ -405,6 +409,7 @@ void apply_support_layout_decision_seed(const SpanSupportLayoutDecisionSeed& see
     return;
   }
   layout->span_id = seed.span_id;
+  layout->requires_decision_seed = true;
   layout->flow_kind = seed.flow_kind;
   layout->pass_mode = seed.pass_mode;
   layout->variation_flow_key = seed.variation_flow_key;
@@ -412,22 +417,6 @@ void apply_support_layout_decision_seed(const SpanSupportLayoutDecisionSeed& see
   apply_support_layout_decision_seed_endpoint(seed.start, &layout->start);
   apply_support_layout_decision_seed_endpoint(seed.end, &layout->end);
   layout->support_group_decisions = seed.support_group_decisions;
-}
-
-void apply_authoritative_support_layout_decisions(const SpanSupportLayoutEntry& authoritative_layout,
-                                                  SpanSupportLayoutEntry* layout) {
-  if (layout == nullptr) {
-    return;
-  }
-  layout->flow_kind = authoritative_layout.flow_kind;
-  layout->lowering_kind = authoritative_layout.lowering_kind;
-  apply_endpoint_decision_to_layout_endpoint(authoritative_layout.start.decision, &layout->start);
-  apply_endpoint_decision_to_layout_endpoint(authoritative_layout.end.decision, &layout->end);
-  layout->start.flow_kind = authoritative_layout.flow_kind;
-  layout->end.flow_kind = authoritative_layout.flow_kind;
-  layout->start.origin = authoritative_layout.start.origin;
-  layout->end.origin = authoritative_layout.end.origin;
-  layout->support_group_decisions = authoritative_layout.support_group_decisions;
 }
 
 namespace {
@@ -531,12 +520,17 @@ LoweredSupportGroupPlacement build_grouped_support_placement_from_decision(const
     return group;
   }
   Vec3d support_axis = group_decision.decision.side_axis;
+  if (group_decision.support_authority.has_signed_support_axis) {
+    support_axis = group_decision.support_authority.signed_support_axis;
+  } else {
+    support_axis.z = 0.0;
+    if (std::abs(group_decision.decision.chosen_side_sign) > 1e-9) {
+      support_axis = ScaleVec(support_axis, (group_decision.decision.chosen_side_sign >= 0.0) ? 1.0 : -1.0);
+    }
+  }
   support_axis.z = 0.0;
   if (!Normalize(&support_axis) || !IsFiniteXY(support_axis)) {
     return group;
-  }
-  if (std::abs(group_decision.decision.chosen_side_sign) > 1e-9) {
-    support_axis = ScaleVec(support_axis, (group_decision.decision.chosen_side_sign >= 0.0) ? 1.0 : -1.0);
   }
   const auto [mount_world, tip_world] =
       shared_support_anchor_points(state, *pole, support_axis, group_decision.category, group_decision.support_world.z,
@@ -625,10 +619,10 @@ namespace {
 
 struct SpanSupportLayoutAuthority {
   const SpanSupportLayoutDecisionSeed* decision_seed = nullptr;
-  const SpanSupportLayoutEntry* authoritative_layout = nullptr;
+  bool requires_decision_seed = false;
 
   [[nodiscard]] bool has_authority() const {
-    return decision_seed != nullptr || authoritative_layout != nullptr;
+    return decision_seed != nullptr;
   }
 };
 
@@ -638,14 +632,6 @@ double automatic_branch_down_offset_from_authority(const CoreState& state, const
   if (authority.decision_seed != nullptr) {
     const SupportLayoutDecisionSeedEndpoint& endpoint =
         is_start_endpoint ? authority.decision_seed->start : authority.decision_seed->end;
-    if (variation != nullptr) {
-      *variation = endpoint.down_offset_variation;
-    }
-    return endpoint.automatic_branch_down_offset_m;
-  }
-  if (authority.authoritative_layout != nullptr) {
-    const SupportLayoutEndpoint& endpoint =
-        is_start_endpoint ? authority.authoritative_layout->start : authority.authoritative_layout->end;
     if (variation != nullptr) {
       *variation = endpoint.down_offset_variation;
     }
@@ -663,8 +649,6 @@ void apply_consumed_support_layout_authority(const SpanSupportLayoutAuthority& a
   }
   if (authority.decision_seed != nullptr) {
     apply_support_layout_decision_seed(*authority.decision_seed, layout);
-  } else if (authority.authoritative_layout != nullptr) {
-    apply_authoritative_support_layout_decisions(*authority.authoritative_layout, layout);
   }
 }
 
@@ -703,6 +687,7 @@ SpanSupportLayoutEntry materialize_span_support_layout(const CoreState& state, c
 
   SpanSupportLayoutEntry layout{};
   layout.span_id = span.id;
+  layout.requires_decision_seed = authority.requires_decision_seed;
   layout.flow_kind = inputs.flow_kind;
   layout.pass_mode = inputs.pass_mode;
   layout.basis_length_m = inputs.basis_length;
@@ -736,6 +721,7 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
 
 SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span, std::string* error_message,
                                                               bool allow_authority_fallback) const {
+  (void)allow_authority_fallback;
   const Port* port_a = authoritative_.edit_state.ports.find(span.port_a_id);
   const Port* port_b = authoritative_.edit_state.ports.find(span.port_b_id);
   if (port_a == nullptr || port_b == nullptr) {
@@ -761,12 +747,13 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
     chord_dir = WorldForward();
   }
   const SpanSupportLayoutDecisionSeed* decision_seed = find_span_support_layout_seed(span.id);
-  const SpanSupportLayoutEntry* authoritative_layout =
-      (decision_seed == nullptr && allow_authority_fallback) ? find_span_support_layout(span.id) : nullptr;
-  const SpanSupportLayoutAuthority authority{decision_seed, authoritative_layout};
-  if (!allow_authority_fallback && !authority.has_authority()) {
+  const SpanSupportLayoutEntry* cached_layout = find_span_support_layout(span.id);
+  const bool requires_decision_seed =
+      (decision_seed != nullptr) || (cached_layout != nullptr && cached_layout->requires_decision_seed);
+  const SpanSupportLayoutAuthority authority{decision_seed, requires_decision_seed};
+  if (authority.requires_decision_seed && !authority.has_authority()) {
     if (error_message != nullptr && error_message->empty()) {
-      *error_message = "support layout authority is missing";
+      *error_message = "support layout decision seed is missing";
     }
     return {};
   }
@@ -792,4 +779,3 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
 }
 
 } // namespace wire::core
-

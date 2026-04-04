@@ -318,9 +318,6 @@ bool CoreState::rebuild_span_curve(ObjectId span_id, std::string* error_message,
 
   SpanSupportLayoutEntry support_layout =
       generate_span_support_layout(*span, error_message, allow_authority_fallback);
-  if (support_layout.span_id == kInvalidObjectId && !allow_authority_fallback) {
-    support_layout = generate_span_support_layout(*span, error_message, true);
-  }
   if (support_layout.span_id == kInvalidObjectId) {
     return false;
   }
@@ -452,9 +449,18 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
   const SpanRuntimeState* runtime = find_span_runtime_state(span_id);
   const SpanSupportLayoutEntry* support_layout = find_span_support_layout(span_id);
 
+  auto endpoint_prefers_span_local_lowered_visual = [](const SupportLayoutEndpoint* endpoint) {
+    return endpoint != nullptr && endpoint_uses_grouped_lowered_support(endpoint) &&
+           endpoint->decision.relation_kind == JunctionRelationKind::kThroughMain &&
+           endpoint->decision.continuity_class == ContinuityCategoryClass::kBundleLike;
+  };
+  auto endpoint_prefers_port_radial_support_visual = [](const SupportLayoutEndpoint* endpoint) {
+    return endpoint != nullptr && endpoint->decision.relation_kind == JunctionRelationKind::kThroughMain &&
+           endpoint->decision.continuity_class == ContinuityCategoryClass::kBundleLike &&
+           !endpoint->decision.lower_required;
+  };
+
   auto append_parts_for_port = [&](const Port& port, const SupportLayoutEndpoint* layout_endpoint) {
-    const EndpointContinuityDecision* endpoint_decision =
-        (layout_endpoint == nullptr) ? nullptr : &layout_endpoint->decision;
     ObjectId support_pole_id = port.owner_pole_id;
     if (support_pole_id == kInvalidObjectId && layout_endpoint != nullptr) {
       support_pole_id = layout_endpoint->owner_pole_id;
@@ -463,6 +469,9 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
     if (pole == nullptr) {
       return;
     }
+    const bool uses_grouped_lowered_support = layout_endpoint != nullptr && endpoint_uses_grouped_lowered_support(layout_endpoint);
+    const bool prefers_span_local_lowered_visual = endpoint_prefers_span_local_lowered_visual(layout_endpoint);
+    const bool prefers_port_radial_visual = endpoint_prefers_port_radial_support_visual(layout_endpoint);
     const double dx = port.world_position.x - pole->world_transform.position.x;
     const double dy = port.world_position.y - pole->world_transform.position.y;
     const double planar = std::sqrt(dx * dx + dy * dy);
@@ -471,38 +480,27 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
         (planar <= 1e-9) ? 0.0 : (dy / planar),
         0.0,
     };
-    const bool uses_grouped_lowered_support = layout_endpoint != nullptr && endpoint_uses_grouped_lowered_support(layout_endpoint);
-    const bool has_nonradial_endpoint_authority =
-        endpoint_decision != nullptr && endpoint_decision->has_side_axis &&
-        endpoint_decision->support_orientation_rule != SupportOrientationRuleKind::kRadial &&
-        std::abs(endpoint_decision->chosen_side_sign) > 1e-9;
-    Vec3d support_dir = radial;
-    if (has_nonradial_endpoint_authority) {
-      support_dir = endpoint_decision->side_axis;
-      if (endpoint_decision->chosen_side_sign < 0.0) {
-        support_dir.x = -support_dir.x;
-        support_dir.y = -support_dir.y;
-      }
-      if (!NormalizeXY(&support_dir)) {
-        support_dir = radial;
-      }
-    }
     SpanVisualCacheEntry& entry = runtime_.cache_state.visual_cache.by_span[span_id];
-    if (uses_grouped_lowered_support) {
+    if (uses_grouped_lowered_support && !prefers_span_local_lowered_visual) {
       return;
     }
-    const bool off_center_port =
-        port.template_side != SlotSide::kCenter &&
-        planar > runtime_.cache_state.visual_settings.support_center_threshold_m + 1e-9;
-    if (runtime_.cache_state.visual_settings.enable_support_structures &&
-        (off_center_port || has_nonradial_endpoint_authority)) {
+    Vec3d support_dir{};
+    bool has_support_dir = false;
+    if (prefers_port_radial_visual) {
+      support_dir = radial;
+      has_support_dir = NormalizeXY(&support_dir);
+    } else if (layout_endpoint != nullptr && layout_endpoint->support_authority.has_signed_support_axis) {
+      support_dir = layout_endpoint->support_authority.signed_support_axis;
+      has_support_dir = NormalizeXY(&support_dir);
+    }
+    if (runtime_.cache_state.visual_settings.enable_support_structures && has_support_dir &&
+        planar > runtime_.cache_state.visual_settings.support_center_threshold_m + 1e-9) {
       VisualPart arm{};
       arm.kind = VisualPartKind::kSupportArm;
       arm.a = {pole->world_transform.position.x, pole->world_transform.position.y, port.world_position.z};
-      const double support_arm_length_m = planar + runtime_.cache_state.visual_settings.support_arm_extra_m;
       arm.b = {
-          pole->world_transform.position.x + support_dir.x * support_arm_length_m,
-          pole->world_transform.position.y + support_dir.y * support_arm_length_m,
+          pole->world_transform.position.x + support_dir.x * planar,
+          pole->world_transform.position.y + support_dir.y * planar,
           port.world_position.z,
       };
       arm.radius_m = 0.03;
@@ -577,10 +575,11 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
       auto it = runtime_.cache_state.support_layout_cache.lowered_support_groups.find(key);
       if (it != runtime_.cache_state.support_layout_cache.lowered_support_groups.end()) {
         std::vector<Vec3d> span_attachment_worlds{};
-        auto append_span_attachment = [&](const SupportLayoutEndpoint* endpoint) {
-          if (!endpoint_uses_grouped_lowered_support(endpoint)) {
-            return;
-          }
+          auto append_span_attachment = [&](const SupportLayoutEndpoint* endpoint) {
+          if (!endpoint_uses_grouped_lowered_support(endpoint) ||
+              endpoint_prefers_span_local_lowered_visual(endpoint)) {
+              return;
+            }
           if (LoweredSupportGroupKeyFromDecision(endpoint->decision) != key) {
             return;
           }

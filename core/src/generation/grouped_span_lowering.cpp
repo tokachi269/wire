@@ -240,6 +240,9 @@ EndpointContinuityDecision GroupedSpanLoweringDecider::BuildEndpointDecision(
   if (pair_info.has_value() && pair_info->has_pair) {
     decision.support_pair_peer_low = pair_info->pair_peer_low;
     decision.support_pair_peer_high = pair_info->pair_peer_high;
+  } else if (side_decision.pair_peer_low != kInvalidObjectId && side_decision.pair_peer_high != kInvalidObjectId) {
+    decision.support_pair_peer_low = side_decision.pair_peer_low;
+    decision.support_pair_peer_high = side_decision.pair_peer_high;
   }
   decision.support_group_id =
       lowering_blocked_by_policy ? -1 : SupportGroupIdForEndpoint(node_id, peer_id, feasibility, pair_info);

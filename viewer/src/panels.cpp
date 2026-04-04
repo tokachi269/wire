@@ -724,6 +724,46 @@ std::vector<wire::core::PoleTypeId> SortedPoleTypeIds(const wire::core::CoreView
   return ids;
 }
 
+std::optional<wire::core::CableTemplateId> FindCableTemplateIdByName(const wire::core::CoreView& view,
+                                                                     const std::string& name) {
+  for (const auto& [id, tpl] : view.cable_templates()) {
+    if (tpl.name == name) {
+      return id;
+    }
+  }
+  return std::nullopt;
+}
+
+std::optional<wire::core::PoleTypeId> FindPoleTypeIdByName(const wire::core::CoreView& view, const std::string& name) {
+  for (const auto& [id, pole_type] : view.pole_types()) {
+    if (pole_type.name == name) {
+      return id;
+    }
+  }
+  return std::nullopt;
+}
+
+void ApplyStartupCableEditorDefaults(ViewerUiState& ui_state) {
+  ui_state.cable_template_name = "HV_BARE";
+  ui_state.cable_outer_diameter = 0.048;
+  ui_state.cable_bend_stiffness = 2.8;
+  ui_state.cable_min_bend_radius = 0.7;
+  ui_state.cable_material_style = static_cast<int>(wire::core::CableMaterialStyleKind::kBareConductor);
+  ui_state.cable_requires_insulator = true;
+  ui_state.cable_insulator_attachment_height = 0.145;
+  ui_state.cable_sag_factor = 0.045;
+  ui_state.cable_slack_factor = 0.025;
+  ui_state.cable_default_grouped_support_fanout_spacing = 0.35;
+  ui_state.cable_continuity_policy = static_cast<int>(wire::core::CableContinuityPolicyHint::kPreferG1);
+  ui_state.cable_curve_offset_straight_supplemental_enabled = true;
+  ui_state.cable_curve_offset_straight_lateral_offset = 0.0;
+  ui_state.cable_curve_offset_straight_vertical_offset = 0.0;
+  ui_state.cable_curve_offset_straight_wobble_amplitude = 0.0;
+  ui_state.cable_curve_offset_straight_wobble_wavelength = 0.0;
+  ui_state.cable_curve_offset_straight_wobble_phase_bias = 0.0;
+  ui_state.cable_curve_offset_straight_endpoint_envelope_ratio = 0.2;
+}
+
 void SyncDrawPathPoleTypeSelection(const wire::core::CoreView& view, ViewerUiState& ui_state, wire::core::PoleTypeId id) {
   const auto type_ids = SortedPoleTypeIds(view);
   for (std::size_t i = 0; i < type_ids.size(); ++i) {
@@ -2169,24 +2209,42 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
     ui_state.visual_settings_loaded = true;
   }
   if (!ui_state.cable_template_loaded) {
-    for (const auto& [id, tpl] : view.cable_templates()) {
-      (void)tpl;
-      LoadCableTemplateState(view, ui_state, id);
-      break;
+    if (const auto id = FindCableTemplateIdByName(view, "HV_BARE"); id.has_value()) {
+      ui_state.selected_cable_template_id = *id;
+      LoadCableTemplateState(view, ui_state, *id);
+    } else {
+      for (const auto& [id, tpl] : view.cable_templates()) {
+        (void)tpl;
+        LoadCableTemplateState(view, ui_state, id);
+        break;
+      }
     }
+    ApplyStartupCableEditorDefaults(ui_state);
     ui_state.cable_template_loaded = true;
   }
   if (!ui_state.bundle_template_loaded) {
-    for (const auto& [id, _] : view.bundle_templates()) {
-      LoadBundleTemplateState(view, ui_state, id);
-      break;
+    if (view.bundle_templates().contains(ui_state.selected_bundle_template_id)) {
+      LoadBundleTemplateState(view, ui_state, ui_state.selected_bundle_template_id);
+    } else {
+      for (const auto& [id, _] : view.bundle_templates()) {
+        LoadBundleTemplateState(view, ui_state, id);
+        break;
+      }
     }
+    if (const auto id = FindCableTemplateIdByName(view, "HV_BARE"); id.has_value()) {
+      ui_state.selected_cable_template_id = *id;
+    }
+    ApplyStartupCableEditorDefaults(ui_state);
     ui_state.bundle_template_loaded = true;
   }
   if (!ui_state.pole_template_loaded) {
-    for (const auto& [id, _] : view.pole_types()) {
-      LoadPoleTemplateState(view, ui_state, id);
-      break;
+    if (const auto id = FindPoleTypeIdByName(view, "CommunicationPole"); id.has_value()) {
+      LoadPoleTemplateState(view, ui_state, *id);
+    } else {
+      for (const auto& [id, _] : view.pole_types()) {
+        LoadPoleTemplateState(view, ui_state, id);
+        break;
+      }
     }
   }
 

@@ -207,6 +207,7 @@ struct SupportLayoutEndpointView {
   ObjectId owner_pole_id = kInvalidObjectId;
   ObjectId port_id = kInvalidObjectId;
   EndpointContinuityDecision decision{};
+  ResolvedSupportAuthority support_authority{};
   EndpointAttachmentRequest attachment_request{};
   std::optional<int> resolved_socket_id{};
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
@@ -223,6 +224,9 @@ struct SupportLayoutEndpointView {
   bool has_side_axis = false;
   Vec3d side_axis{};
   double chosen_side_sign = 0.0;
+  bool has_signed_support_axis = false;
+  Vec3d signed_support_axis{};
+  int pair_height_rank = -1;
   std::string origin{};
   SupportLayoutEndpointSourceKind endpoint_source = SupportLayoutEndpointSourceKind::kFallback;
   std::string port_source{};
@@ -248,6 +252,7 @@ struct SupportLayoutEndpointView {
 struct LoweredSupportGroupInspectionView {
   ObjectId owner_pole_id = kInvalidObjectId;
   EndpointContinuityDecision decision{};
+  ResolvedSupportAuthority support_authority{};
   ObjectId pair_peer_low = kInvalidObjectId;
   ObjectId pair_peer_high = kInvalidObjectId;
   SlotSide side = SlotSide::kCenter;
@@ -264,6 +269,9 @@ struct LoweredSupportGroupInspectionView {
   bool has_side_axis = false;
   Vec3d side_axis{};
   double chosen_side_sign = 0.0;
+  bool has_signed_support_axis = false;
+  Vec3d signed_support_axis{};
+  int pair_height_rank = -1;
   double down_offset_m = 0.0;
   Vec3d mount_world{};
   Vec3d tip_world{};
@@ -274,6 +282,8 @@ struct LoweredSupportGroupInspectionView {
 struct SupportLayoutInspectionView {
   EntityMeta meta{};
   EntityRef source_span{};
+  bool has_decision_seed = false;
+  bool requires_decision_seed = false;
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
   CurvePassMode pass_mode = CurvePassMode::kPassThrough;
   std::uint64_t variation_flow_key = 0;

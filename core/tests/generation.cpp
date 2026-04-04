@@ -14,6 +14,7 @@
 #include "helpers.hpp"
 #include "wire/core/coord_utils.hpp"
 #include "../src/generation/grouped_span_lowering.hpp"
+#include "../src/generation/support_policy.hpp"
 
 using namespace helpers;
 
@@ -8498,6 +8499,657 @@ bool test_backbone_capture_like_cross_visual_keeps_route_and_existing_pair_axes_
          std::set<ObjectId>{remapped_ids.at(434), remapped_ids.at(446), remapped_ids.at(477), remapped_ids.at(489)};
 }
 
+bool build_minimal_latest_support_orientation_outer_scene(CoreState& state, ObjectId* out_center_id,
+                                                          std::vector<ObjectId>* out_generated_span_ids) {
+  PoleTypeId communication_pole_type_id = wire::core::kInvalidPoleTypeId;
+  for (const auto& [_, pole_type] : state.view().pole_types()) {
+    if (pole_type.name == "CommunicationPole") {
+      communication_pole_type_id = pole_type.id;
+      break;
+    }
+  }
+  if (communication_pole_type_id == wire::core::kInvalidPoleTypeId) {
+    std::cerr << "[DBG] minimal_support_outer missing_communication_pole_type\n";
+    return false;
+  }
+
+  auto add_all_templates = [](wire::core::BackboneSpec& req) {
+    add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
+    add_backbone_bundle(req, wire::core::BundleKind::kHighVoltage);
+    add_backbone_bundle(req, wire::core::BundleKind::kCommunication, wire::core::SpanLayer::kUnknown, 1);
+    add_backbone_bundle(req, wire::core::BundleKind::kOptical);
+  };
+
+  constexpr wire::core::Vec3d kPrev{-12.3574, -6.65056, 0.0};
+  constexpr wire::core::Vec3d kCenter{-10.3237, -13.3838, 0.0};
+  constexpr wire::core::Vec3d kNext{-5.25927, -18.1406, 0.0};
+  constexpr wire::core::Vec3d kBranch{-17.4937, -15.6555, 0.0};
+  constexpr wire::core::Vec3d kNewMain{-6.55614, -8.58746, 0.0};
+
+  wire::core::BackboneSpec existing{}; 
+  existing.path.polyline = {kPrev, kCenter, kNext};
+  existing.interval_m = 1000.0;
+  existing.pole_type_id = communication_pole_type_id;
+  add_all_templates(existing);
+  if (!state.GenerateFromBackboneSpec(existing).ok) {
+    std::cerr << "[DBG] minimal_support_outer existing_generate_failed\n";
+    return false;
+  }
+
+  const ObjectId center_id = find_pole_id_by_position(state, kCenter, 1e-4);
+  if (center_id == wire::core::kInvalidObjectId) {
+    std::cerr << "[DBG] minimal_support_outer center_missing\n";
+    return false;
+  }
+
+  wire::core::BackboneSpec branch{};
+  branch.path.polyline = {kCenter, kBranch};
+  branch.interval_m = 1000.0;
+  branch.pole_type_id = communication_pole_type_id;
+  wire::core::BackboneInputSpec::NodeSpec shared_branch{};
+  shared_branch.point_index = 0;
+  shared_branch.support_kind = wire::core::SupportKind::kPole;
+  shared_branch.node_id = center_id;
+  branch.path.node_specs.push_back(shared_branch);
+  add_all_templates(branch);
+  if (!state.GenerateFromBackboneSpec(branch).ok) {
+    std::cerr << "[DBG] minimal_support_outer branch_generate_failed\n";
+    return false;
+  }
+
+  wire::core::BackboneSpec new_main{};
+  new_main.path.polyline = {kNewMain, kCenter};
+  new_main.interval_m = 1000.0;
+  new_main.pole_type_id = communication_pole_type_id;
+  wire::core::BackboneInputSpec::NodeSpec shared_main{};
+  shared_main.point_index = 1;
+  shared_main.support_kind = wire::core::SupportKind::kPole;
+  shared_main.node_id = center_id;
+  new_main.path.node_specs.push_back(shared_main);
+  add_all_templates(new_main);
+  const auto generated = state.GenerateFromBackboneSpec(new_main);
+  if (!generated.ok || generated.value.generated_span_ids.empty()) {
+    std::cerr << "[DBG] minimal_support_outer new_main_generate_failed ok=" << generated.ok
+              << " error=" << generated.error << "\n";
+    return false;
+  }
+
+  wire::core::CommitOptions options{};
+  options.run_recalc = true;
+  if (!state.Commit(options).validation.ok()) {
+    std::cerr << "[DBG] minimal_support_outer commit_failed\n";
+    return false;
+  }
+
+  if (out_center_id != nullptr) {
+    *out_center_id = center_id;
+  }
+  if (out_generated_span_ids != nullptr) {
+    *out_generated_span_ids = generated.value.generated_span_ids;
+  }
+  return true;
+}
+
+bool test_backbone_capture_like_outer_same_level_cross_uses_pair_authority() {
+  CoreState state;
+  ObjectId center_id = wire::core::kInvalidObjectId;
+  std::vector<ObjectId> generated_span_ids{};
+  if (!build_minimal_latest_support_orientation_outer_scene(state, &center_id, &generated_span_ids)) {
+    return false;
+  }
+
+  const std::unordered_set<ObjectId> generated_span_set(generated_span_ids.begin(), generated_span_ids.end());
+  bool saw_through_main = false;
+  bool saw_side_branch = false;
+  for (const auto& span_entry : state.view().spans().items()) {
+    const auto layout_view = state.view().inspect_support_layout(span_entry.id);
+    if (!layout_view.has_value()) {
+      continue;
+    }
+    const auto endpoint = layout_endpoint_for_owner(*layout_view, center_id);
+    if (!endpoint.has_value() || endpoint->decision.lower_required || !endpoint->same_level_feasible ||
+        endpoint->continuity_class != wire::core::ContinuityCategoryClass::kPointLike) {
+      continue;
+    }
+
+    const bool expect_through_main =
+        generated_span_set.contains(span_entry.id) &&
+        endpoint->relation_kind == wire::core::JunctionRelationKind::kThroughMain;
+    const bool expect_side_branch = endpoint->relation_kind == wire::core::JunctionRelationKind::kSideBranch;
+    if (!expect_through_main && !expect_side_branch) {
+      continue;
+    }
+
+    if (endpoint->support_orientation_rule != wire::core::SupportOrientationRuleKind::kThroughPairNormal ||
+        endpoint->side_assignment_rule != wire::core::SideAssignmentRuleKind::kThroughPairNormal ||
+        !endpoint->used_junction_pair_side_assignment || !endpoint->has_side_axis ||
+        std::abs(endpoint->chosen_side_sign) <= 1e-9) {
+      std::cerr << "[DBG] C346 span=" << span_entry.id << " relation=" << static_cast<int>(endpoint->relation_kind)
+                << " sideRule=" << static_cast<int>(endpoint->side_assignment_rule)
+                << " orientRule=" << static_cast<int>(endpoint->support_orientation_rule)
+                << " basis=" << static_cast<int>(endpoint->decision.support_orientation_basis)
+                << " sign=" << endpoint->chosen_side_sign << "\n";
+      return false;
+    }
+    saw_through_main = saw_through_main || expect_through_main;
+    saw_side_branch = saw_side_branch || expect_side_branch;
+  }
+
+  if (!(saw_through_main && saw_side_branch)) {
+    std::cerr << "[DBG] C346 sawThroughMain=" << (saw_through_main ? 1 : 0)
+              << " sawSideBranch=" << (saw_side_branch ? 1 : 0) << "\n";
+  }
+  return saw_through_main && saw_side_branch;
+}
+
+bool test_backbone_capture_like_outer_same_level_cross_visual_uses_pair_axis() {
+  CoreState state;
+  ObjectId center_id = wire::core::kInvalidObjectId;
+  std::vector<ObjectId> generated_span_ids{};
+  if (!build_minimal_latest_support_orientation_outer_scene(state, &center_id, &generated_span_ids)) {
+    return false;
+  }
+
+  const std::unordered_set<ObjectId> generated_span_set(generated_span_ids.begin(), generated_span_ids.end());
+  bool saw_through_main = false;
+  bool saw_side_branch = false;
+  for (const auto& span_entry : state.view().spans().items()) {
+    const auto layout_view = state.view().inspect_support_layout(span_entry.id);
+    if (!layout_view.has_value()) {
+      continue;
+    }
+    const auto endpoint = layout_endpoint_for_owner(*layout_view, center_id);
+    if (!endpoint.has_value() || endpoint->decision.lower_required || !endpoint->same_level_feasible ||
+        endpoint->continuity_class != wire::core::ContinuityCategoryClass::kPointLike ||
+        endpoint->support_orientation_rule != wire::core::SupportOrientationRuleKind::kThroughPairNormal ||
+        !endpoint->has_side_axis || std::abs(endpoint->chosen_side_sign) <= 1e-9) {
+      continue;
+    }
+
+    const bool expect_through_main =
+        generated_span_set.contains(span_entry.id) &&
+        endpoint->relation_kind == wire::core::JunctionRelationKind::kThroughMain;
+    const bool expect_side_branch = endpoint->relation_kind == wire::core::JunctionRelationKind::kSideBranch;
+    if (!expect_through_main && !expect_side_branch) {
+      continue;
+    }
+
+    const auto arm = support_arm_part_for_owner(state, span_entry.id, center_id);
+    if (!arm.has_value()) {
+      std::cerr << "[DBG] C347 missing_arm span=" << span_entry.id << "\n";
+      return false;
+    }
+    wire::core::Vec3d expected_axis = endpoint->side_axis;
+    if (endpoint->chosen_side_sign < 0.0) {
+      expected_axis.x = -expected_axis.x;
+      expected_axis.y = -expected_axis.y;
+    }
+    const wire::core::Vec3d expected = normalize_xy_safe(expected_axis);
+    const wire::core::Vec3d actual = normalize_xy_safe(arm->b - arm->a);
+    const double align = std::abs(dot_xy(actual, expected));
+    if (align < 0.97) {
+      std::cerr << "[DBG] C347 span=" << span_entry.id << " relation=" << static_cast<int>(endpoint->relation_kind)
+                << " align=" << align << " expected=(" << expected.x << "," << expected.y << ") actual=("
+                << actual.x << "," << actual.y << ")\n";
+      return false;
+    }
+    saw_through_main = saw_through_main || expect_through_main;
+    saw_side_branch = saw_side_branch || expect_side_branch;
+  }
+
+  if (!(saw_through_main && saw_side_branch)) {
+    std::cerr << "[DBG] C347 sawThroughMain=" << (saw_through_main ? 1 : 0)
+              << " sawSideBranch=" << (saw_side_branch ? 1 : 0) << "\n";
+  }
+  return saw_through_main && saw_side_branch;
+}
+
+struct SupportAuthoritySnapshot {
+  ObjectId span_id = wire::core::kInvalidObjectId;
+  ObjectId owner_pole_id = wire::core::kInvalidObjectId;
+  bool has_decision_seed = false;
+  wire::core::ResolvedSupportAuthority authority{};
+  wire::core::SupportOrientationRuleKind orientation_rule = wire::core::SupportOrientationRuleKind::kRadial;
+  wire::core::SideAssignmentRuleKind side_rule = wire::core::SideAssignmentRuleKind::kPoleLocal;
+};
+
+bool resolved_support_authority_matches_decision(const wire::core::SupportLayoutEndpointView& endpoint) {
+  if (!endpoint.has_signed_support_axis || !endpoint.has_side_axis || std::abs(endpoint.chosen_side_sign) <= 1e-9) {
+    return false;
+  }
+  if (endpoint.support_authority.pair.pair_peer_low == wire::core::kInvalidObjectId ||
+      endpoint.support_authority.pair.pair_peer_high == wire::core::kInvalidObjectId ||
+      endpoint.pair_height_rank < 0) {
+    return false;
+  }
+  wire::core::Vec3d expected = endpoint.side_axis;
+  if (endpoint.chosen_side_sign < 0.0) {
+    expected.x = -expected.x;
+    expected.y = -expected.y;
+  }
+  expected = normalize_xy_safe(expected);
+  const wire::core::Vec3d actual = normalize_xy_safe(endpoint.signed_support_axis);
+  return std::abs(dot_xy(expected, actual)) >= 0.99;
+}
+
+bool collect_pair_authority_snapshot(const CoreState& state, ObjectId center_id, SupportAuthoritySnapshot* out) {
+  if (out == nullptr) {
+    return false;
+  }
+  for (const auto& span_entry : state.view().spans().items()) {
+    const auto layout_view = state.view().inspect_support_layout(span_entry.id);
+    if (!layout_view.has_value()) {
+      continue;
+    }
+    const auto endpoint = layout_endpoint_for_owner(*layout_view, center_id);
+    if (!endpoint.has_value() || endpoint->decision.lower_required || !endpoint->same_level_feasible ||
+        endpoint->continuity_class != wire::core::ContinuityCategoryClass::kPointLike ||
+        endpoint->support_orientation_rule != wire::core::SupportOrientationRuleKind::kThroughPairNormal ||
+        endpoint->side_assignment_rule != wire::core::SideAssignmentRuleKind::kThroughPairNormal ||
+        !endpoint->used_junction_pair_side_assignment) {
+      continue;
+    }
+    if (!resolved_support_authority_matches_decision(*endpoint)) {
+      continue;
+    }
+    out->span_id = span_entry.id;
+    out->owner_pole_id = center_id;
+    out->has_decision_seed = layout_view->has_decision_seed;
+    out->authority = endpoint->support_authority;
+    out->orientation_rule = endpoint->support_orientation_rule;
+    out->side_rule = endpoint->side_assignment_rule;
+    return true;
+  }
+  return false;
+}
+
+bool resolved_support_authority_equal(const wire::core::ResolvedSupportAuthority& a,
+                                      const wire::core::ResolvedSupportAuthority& b) {
+  return a.pair.pair_peer_low == b.pair.pair_peer_low && a.pair.pair_peer_high == b.pair.pair_peer_high &&
+         a.pair.orientation_basis == b.pair.orientation_basis && a.pair.has_pair_axis == b.pair.has_pair_axis &&
+         a.pair.height_rank == b.pair.height_rank &&
+         almost_equal(a.pair.pair_axis.x, b.pair.pair_axis.x, 1e-9) &&
+         almost_equal(a.pair.pair_axis.y, b.pair.pair_axis.y, 1e-9) &&
+         almost_equal(a.pair.pair_axis.z, b.pair.pair_axis.z, 1e-9) &&
+         a.has_signed_support_axis == b.has_signed_support_axis &&
+         almost_equal(a.signed_support_axis.x, b.signed_support_axis.x, 1e-9) &&
+         almost_equal(a.signed_support_axis.y, b.signed_support_axis.y, 1e-9) &&
+         almost_equal(a.signed_support_axis.z, b.signed_support_axis.z, 1e-9);
+}
+
+double pair_height_step_for_span(const CoreState& state, ObjectId span_id) {
+  const auto* span = state.view().edit_state().spans.find(span_id);
+  if (span == nullptr) {
+    return 0.0;
+  }
+  const auto* bundle = state.view().edit_state().bundles.find(span->bundle_id);
+  if (bundle == nullptr) {
+    return 0.0;
+  }
+  const auto bundle_template_it = state.view().bundle_templates().find(bundle->bundle_template_id);
+  if (bundle_template_it == state.view().bundle_templates().end()) {
+    return 0.0;
+  }
+  return wire::core::generation::detail::BranchDownOffsetForCategory(bundle_template_it->second.category);
+}
+
+bool has_validation_issue(const wire::core::ValidationResult& validation, wire::core::ValidationSeverity severity,
+                          const char* code, ObjectId object_id = wire::core::kInvalidObjectId) {
+  return std::any_of(validation.issues.begin(), validation.issues.end(),
+                     [&](const wire::core::ValidationIssue& issue) {
+                       return issue.severity == severity && issue.code == code &&
+                              (object_id == wire::core::kInvalidObjectId || issue.object_id == object_id);
+                     });
+}
+
+bool test_backbone_support_layout_inspection_exposes_resolved_support_authority() {
+  CoreState state;
+  ObjectId center_id = wire::core::kInvalidObjectId;
+  std::vector<ObjectId> generated_span_ids{};
+  if (!build_minimal_latest_support_orientation_outer_scene(state, &center_id, &generated_span_ids)) {
+    return false;
+  }
+
+  SupportAuthoritySnapshot snapshot{};
+  if (!collect_pair_authority_snapshot(state, center_id, &snapshot)) {
+    std::cerr << "[DBG] C348 missing_pair_authority_snapshot center=" << center_id << "\n";
+    return false;
+  }
+  if (!snapshot.has_decision_seed || snapshot.authority.pair.height_rank < 0 ||
+      snapshot.authority.pair.pair_peer_low == wire::core::kInvalidObjectId ||
+      snapshot.authority.pair.pair_peer_high == wire::core::kInvalidObjectId ||
+      !snapshot.authority.has_signed_support_axis) {
+    std::cerr << "[DBG] C348 seed=" << (snapshot.has_decision_seed ? 1 : 0)
+              << " heightRank=" << snapshot.authority.pair.height_rank << " peers=("
+              << snapshot.authority.pair.pair_peer_low << "," << snapshot.authority.pair.pair_peer_high
+              << ") hasSigned=" << (snapshot.authority.has_signed_support_axis ? 1 : 0) << "\n";
+    return false;
+  }
+  return true;
+}
+
+bool test_backbone_same_level_t_pair_height_rank_drives_support_offsets() {
+  CoreState state;
+  ObjectId center_id = wire::core::kInvalidObjectId;
+  std::vector<ObjectId> generated_span_ids{};
+  if (!build_minimal_latest_support_orientation_outer_scene(state, &center_id, &generated_span_ids)) {
+    return false;
+  }
+
+  const std::unordered_set<ObjectId> generated_span_set(generated_span_ids.begin(), generated_span_ids.end());
+  bool saw_through_main = false;
+  bool saw_side_branch = false;
+  for (const auto& span_entry : state.view().spans().items()) {
+    const auto layout_view = state.view().inspect_support_layout(span_entry.id);
+    if (!layout_view.has_value()) {
+      continue;
+    }
+    const auto endpoint = layout_endpoint_for_owner(*layout_view, center_id);
+    if (!endpoint.has_value() || endpoint->decision.lower_required || !endpoint->same_level_feasible ||
+        endpoint->continuity_class != wire::core::ContinuityCategoryClass::kPointLike ||
+        endpoint->support_orientation_rule != wire::core::SupportOrientationRuleKind::kThroughPairNormal) {
+      continue;
+    }
+    const double expected_step = pair_height_step_for_span(state, span_entry.id);
+    if (generated_span_set.contains(span_entry.id) &&
+        endpoint->relation_kind == wire::core::JunctionRelationKind::kThroughMain) {
+      saw_through_main = true;
+      if (!(endpoint->pair_height_rank == 0 && almost_equal(endpoint->branch_down_offset_m, 0.0, 1e-6))) {
+        std::cerr << "[DBG] C353 through span=" << span_entry.id << " rank=" << endpoint->pair_height_rank
+                  << " down=" << endpoint->branch_down_offset_m << "\n";
+        return false;
+      }
+    } else if (endpoint->relation_kind == wire::core::JunctionRelationKind::kSideBranch) {
+      saw_side_branch = true;
+      if (!(endpoint->pair_height_rank == 1 &&
+            almost_equal(endpoint->branch_down_offset_m, expected_step, 1e-6))) {
+        std::cerr << "[DBG] C353 branch span=" << span_entry.id << " rank=" << endpoint->pair_height_rank
+                  << " down=" << endpoint->branch_down_offset_m << " step=" << expected_step << "\n";
+        return false;
+      }
+    }
+  }
+
+  return saw_through_main && saw_side_branch;
+}
+
+bool test_backbone_one_shot_cross_pair_height_rank_separates_pairs() {
+  CoreState state;
+  PoleTypeId pole_type_id = wire::core::kInvalidPoleTypeId;
+  for (const auto& [id, pole_type] : state.view().pole_types()) {
+    if (pole_type.name == "CommunicationPole") {
+      pole_type_id = id;
+      break;
+    }
+  }
+  if (pole_type_id == wire::core::kInvalidPoleTypeId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec main_req{};
+  main_req.path.polyline = {{-12.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}};
+  main_req.interval_m = 1000.0;
+  main_req.pole_type_id = pole_type_id;
+  add_backbone_bundle(main_req, wire::core::BundleKind::kLowVoltage);
+  add_backbone_bundle(main_req, wire::core::BundleKind::kHighVoltage);
+  add_backbone_bundle(main_req, wire::core::BundleKind::kCommunication);
+  add_backbone_bundle(main_req, wire::core::BundleKind::kOptical);
+  if (!state.GenerateFromBackboneSpec(main_req).ok) {
+    return false;
+  }
+
+  const ObjectId center_id = find_pole_id_by_position(state, {0.0, 0.0, 0.0});
+  if (center_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec cross_req{};
+  cross_req.path.polyline = {{0.0, -12.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 12.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec shared{};
+  shared.point_index = 1;
+  shared.support_kind = wire::core::SupportKind::kPole;
+  shared.node_id = center_id;
+  cross_req.path.node_specs.push_back(shared);
+  cross_req.interval_m = 1000.0;
+  cross_req.pole_type_id = pole_type_id;
+  add_backbone_bundle(cross_req, wire::core::BundleKind::kLowVoltage);
+  add_backbone_bundle(cross_req, wire::core::BundleKind::kHighVoltage);
+  add_backbone_bundle(cross_req, wire::core::BundleKind::kCommunication);
+  add_backbone_bundle(cross_req, wire::core::BundleKind::kOptical);
+  if (!state.GenerateFromBackboneSpec(cross_req).ok) {
+    return false;
+  }
+
+  wire::core::CommitOptions options{};
+  options.run_recalc = true;
+  if (!state.Commit(options).validation.ok()) {
+    return false;
+  }
+
+  bool saw_through_main = false;
+  bool saw_cross_pair = false;
+  for (const auto& span_entry : state.view().spans().items()) {
+    const auto layout_view = state.view().inspect_support_layout(span_entry.id);
+    if (!layout_view.has_value()) {
+      continue;
+    }
+    const auto endpoint = layout_endpoint_for_owner(*layout_view, center_id);
+    if (!endpoint.has_value() || endpoint->decision.lower_required || !endpoint->same_level_feasible ||
+        endpoint->continuity_class != wire::core::ContinuityCategoryClass::kPointLike ||
+        endpoint->support_orientation_rule != wire::core::SupportOrientationRuleKind::kThroughPairNormal) {
+      continue;
+    }
+    const double expected_step = pair_height_step_for_span(state, span_entry.id);
+    if (endpoint->relation_kind == wire::core::JunctionRelationKind::kThroughMain) {
+      saw_through_main = true;
+      if (!(endpoint->pair_height_rank == 0 && almost_equal(endpoint->branch_down_offset_m, 0.0, 1e-6))) {
+        std::cerr << "[DBG] C354 through span=" << span_entry.id << " rank=" << endpoint->pair_height_rank
+                  << " down=" << endpoint->branch_down_offset_m << "\n";
+        return false;
+      }
+    } else if (endpoint->relation_kind == wire::core::JunctionRelationKind::kCrossUnderpass) {
+      saw_cross_pair = true;
+      if (!(endpoint->pair_height_rank == 1 &&
+            almost_equal(endpoint->branch_down_offset_m, expected_step, 1e-6))) {
+        std::cerr << "[DBG] C354 cross span=" << span_entry.id << " rank=" << endpoint->pair_height_rank
+                  << " down=" << endpoint->branch_down_offset_m << " step=" << expected_step << "\n";
+        return false;
+      }
+    }
+  }
+
+  return saw_through_main && saw_cross_pair;
+}
+
+bool test_backbone_geometry_refresh_keeps_resolved_support_authority_seed() {
+  CoreState state;
+  ObjectId center_id = wire::core::kInvalidObjectId;
+  std::vector<ObjectId> generated_span_ids{};
+  if (!build_minimal_latest_support_orientation_outer_scene(state, &center_id, &generated_span_ids)) {
+    return false;
+  }
+
+  SupportAuthoritySnapshot before{};
+  if (!collect_pair_authority_snapshot(state, center_id, &before)) {
+    std::cerr << "[DBG] C349 before_missing_snapshot center=" << center_id << "\n";
+    return false;
+  }
+
+  wire::core::GeometrySettings settings = state.view().geometry_settings();
+  settings.curve_samples += 1;
+  const auto update = state.UpdateGeometrySettings(settings, true);
+  if (!update.ok || !update.value) {
+    std::cerr << "[DBG] C349 update_geometry_failed ok=" << (update.ok ? 1 : 0)
+              << " changed=" << (update.value ? 1 : 0) << "\n";
+    return false;
+  }
+  wire::core::CommitOptions options{};
+  options.run_recalc = true;
+  if (!state.Commit(options).validation.ok()) {
+    std::cerr << "[DBG] C349 commit_failed\n";
+    return false;
+  }
+
+  SupportAuthoritySnapshot after{};
+  if (!collect_pair_authority_snapshot(state, center_id, &after)) {
+    std::cerr << "[DBG] C349 after_missing_snapshot center=" << center_id << "\n";
+    return false;
+  }
+  const bool ok = after.has_decision_seed && before.orientation_rule == after.orientation_rule &&
+                  before.side_rule == after.side_rule &&
+                  resolved_support_authority_equal(before.authority, after.authority);
+  if (!ok) {
+    std::cerr << "[DBG] C349 changed seed=" << (after.has_decision_seed ? 1 : 0)
+              << " beforeRule=" << static_cast<int>(before.orientation_rule)
+              << " afterRule=" << static_cast<int>(after.orientation_rule)
+              << " beforeHeight=" << before.authority.pair.height_rank
+              << " afterHeight=" << after.authority.pair.height_rank << "\n";
+  }
+  return ok;
+}
+
+bool test_backbone_render_refresh_does_not_change_resolved_support_authority_seed() {
+  CoreState state;
+  ObjectId center_id = wire::core::kInvalidObjectId;
+  std::vector<ObjectId> generated_span_ids{};
+  if (!build_minimal_latest_support_orientation_outer_scene(state, &center_id, &generated_span_ids)) {
+    return false;
+  }
+
+  SupportAuthoritySnapshot before{};
+  if (!collect_pair_authority_snapshot(state, center_id, &before)) {
+    std::cerr << "[DBG] C350 before_missing_snapshot center=" << center_id << "\n";
+    return false;
+  }
+
+  wire::core::VisualSettings settings = state.view().visual_settings();
+  settings.support_arm_extra_m += 0.05;
+  const auto update = state.UpdateVisualSettings(settings, true);
+  if (!update.ok || !update.value) {
+    std::cerr << "[DBG] C350 update_visual_failed ok=" << (update.ok ? 1 : 0)
+              << " changed=" << (update.value ? 1 : 0) << "\n";
+    return false;
+  }
+  wire::core::CommitOptions options{};
+  options.run_recalc = true;
+  if (!state.Commit(options).validation.ok()) {
+    std::cerr << "[DBG] C350 commit_failed\n";
+    return false;
+  }
+
+  SupportAuthoritySnapshot after{};
+  if (!collect_pair_authority_snapshot(state, center_id, &after)) {
+    std::cerr << "[DBG] C350 after_missing_snapshot center=" << center_id << "\n";
+    return false;
+  }
+  const bool ok = after.has_decision_seed && before.orientation_rule == after.orientation_rule &&
+                  before.side_rule == after.side_rule &&
+                  resolved_support_authority_equal(before.authority, after.authority);
+  if (!ok) {
+    std::cerr << "[DBG] C350 changed seed=" << (after.has_decision_seed ? 1 : 0)
+              << " beforeRule=" << static_cast<int>(before.orientation_rule)
+              << " afterRule=" << static_cast<int>(after.orientation_rule)
+              << " beforeHeight=" << before.authority.pair.height_rank
+              << " afterHeight=" << after.authority.pair.height_rank << "\n";
+  }
+  return ok;
+}
+
+bool test_backbone_rebuild_without_seed_fails_and_keeps_cached_layout() {
+  CoreState state;
+  ObjectId center_id = wire::core::kInvalidObjectId;
+  std::vector<ObjectId> generated_span_ids{};
+  if (!build_minimal_latest_support_orientation_outer_scene(state, &center_id, &generated_span_ids)) {
+    return false;
+  }
+
+  SupportAuthoritySnapshot before{};
+  if (!collect_pair_authority_snapshot(state, center_id, &before)) {
+    std::cerr << "[DBG] C351 before_missing_snapshot center=" << center_id << "\n";
+    return false;
+  }
+
+  wire::core::CoreStateTestHook::erase_cached_span_support_layout_seed(state, before.span_id);
+
+  std::string error_message;
+  const bool rebuild_ok =
+      wire::core::CoreStateTestHook::rebuild_span_curve(state, before.span_id, &error_message, true);
+
+  const auto layout_view = state.view().inspect_support_layout(before.span_id);
+  if (!layout_view.has_value()) {
+    std::cerr << "[DBG] C351 missing_layout_view span=" << before.span_id << "\n";
+    return false;
+  }
+  const auto endpoint = layout_endpoint_for_owner(*layout_view, center_id);
+  if (!endpoint.has_value()) {
+    std::cerr << "[DBG] C351 missing_endpoint center=" << center_id << " span=" << before.span_id << "\n";
+    return false;
+  }
+
+  const bool has_warning = has_validation_issue(wire::core::CoreStateTestHook::validate(state),
+                                                wire::core::ValidationSeverity::kWarning,
+                                                "SupportLayoutDecisionSeedMissing", before.span_id);
+  const bool ok = !rebuild_ok && !layout_view->has_decision_seed && layout_view->requires_decision_seed && has_warning &&
+                  resolved_support_authority_equal(before.authority, endpoint->support_authority);
+  if (!ok) {
+    std::cerr << "[DBG] C351 rebuild=" << (rebuild_ok ? 1 : 0)
+              << " err=" << error_message
+              << " seed=" << (layout_view->has_decision_seed ? 1 : 0)
+              << " requires=" << (layout_view->requires_decision_seed ? 1 : 0)
+              << " warning=" << (has_warning ? 1 : 0) << "\n";
+  }
+  return ok;
+}
+
+bool test_backbone_geometry_refresh_without_seed_fails_and_keeps_dirty() {
+  CoreState state;
+  ObjectId center_id = wire::core::kInvalidObjectId;
+  std::vector<ObjectId> generated_span_ids{};
+  if (!build_minimal_latest_support_orientation_outer_scene(state, &center_id, &generated_span_ids)) {
+    return false;
+  }
+
+  SupportAuthoritySnapshot before{};
+  if (!collect_pair_authority_snapshot(state, center_id, &before)) {
+    std::cerr << "[DBG] C352 before_missing_snapshot center=" << center_id << "\n";
+    return false;
+  }
+
+  wire::core::CoreStateTestHook::erase_cached_span_support_layout_seed(state, before.span_id);
+
+  wire::core::GeometrySettings settings = state.view().geometry_settings();
+  settings.curve_samples += 1;
+  const auto update = state.UpdateGeometrySettings(settings, true);
+  if (!update.ok || !update.value) {
+    std::cerr << "[DBG] C352 update_geometry_failed ok=" << (update.ok ? 1 : 0)
+              << " changed=" << (update.value ? 1 : 0) << "\n";
+    return false;
+  }
+
+  wire::core::CommitOptions options{};
+  options.run_recalc = true;
+    (void)state.Commit(options);
+  const auto runtime_it = wire::core::CoreStateTestHook::span_runtime_states(state).find(before.span_id);
+  const auto layout_view = state.view().inspect_support_layout(before.span_id);
+  const bool has_warning =
+      has_validation_issue(wire::core::CoreStateTestHook::validate(state), wire::core::ValidationSeverity::kWarning,
+                           "SupportLayoutDecisionSeedMissing", before.span_id);
+  const bool geometry_still_dirty = runtime_it != wire::core::CoreStateTestHook::span_runtime_states(state).end() &&
+                                    helpers::has_dirty(&runtime_it->second, wire::core::DirtyBits::kGeometryRefresh);
+  const auto endpoint = layout_view.has_value() ? layout_endpoint_for_owner(*layout_view, center_id) : std::nullopt;
+  const bool ok = has_warning && geometry_still_dirty && layout_view.has_value() && !layout_view->has_decision_seed &&
+                  layout_view->requires_decision_seed && endpoint.has_value() &&
+                  resolved_support_authority_equal(before.authority, endpoint->support_authority);
+  if (!ok) {
+    std::cerr << "[DBG] C352 warning=" << (has_warning ? 1 : 0)
+              << " dirty=" << (geometry_still_dirty ? 1 : 0)
+              << " seed=" << (layout_view.has_value() && layout_view->has_decision_seed ? 1 : 0)
+              << " requires=" << (layout_view.has_value() && layout_view->requires_decision_seed ? 1 : 0)
+              << " endpoint=" << (endpoint.has_value() ? 1 : 0) << "\n";
+  }
+  return ok;
+}
+
 bool test_backbone_latest_support_orientation_replay_uses_pair_authority() {
   CoreState state;
   std::vector<ObjectId> generated_span_ids{};
@@ -9380,43 +10032,43 @@ bool test_backbone_capture_like_lowered_branch_main_visual_uses_borrowed_pair_ax
         planar <= state.view().visual_settings().support_center_threshold_m + 1e-9) {
       continue;
     }
-    const double expected_x = dx / planar;
-    const double expected_y = dy / planar;
-    bool saw_support_arm = false;
-    if (const wire::core::SpanVisualCacheEntry* visual = state.view().find_span_visual_cache(span_id);
-        visual != nullptr) {
-      for (const auto& part : visual->parts) {
-        if (part.kind != wire::core::VisualPartKind::kSupportArm) {
-          continue;
-        }
-        const bool anchored_at_tip =
-            almost_equal(part.a.x, tip_pole->world_transform.position.x, 1e-6) &&
-            almost_equal(part.a.y, tip_pole->world_transform.position.y, 1e-6);
-        if (!anchored_at_tip) {
-          continue;
-        }
-        saw_support_arm = true;
-        const double arm_dx = part.b.x - part.a.x;
-        const double arm_dy = part.b.y - part.a.y;
-        const double arm_len = std::sqrt(arm_dx * arm_dx + arm_dy * arm_dy);
-        if (arm_len <= 1e-9) {
+      const double expected_x = dx / planar;
+      const double expected_y = dy / planar;
+      bool saw_support_arm = false;
+      if (const wire::core::SpanVisualCacheEntry* visual = state.view().find_span_visual_cache(span_id);
+          visual != nullptr) {
+        for (const auto& part : visual->parts) {
+          if (part.kind != wire::core::VisualPartKind::kSupportArm) {
+            continue;
+          }
+          const bool anchored_at_tip =
+              almost_equal(part.a.x, tip_pole->world_transform.position.x, 1e-6) &&
+              almost_equal(part.a.y, tip_pole->world_transform.position.y, 1e-6);
+          if (!anchored_at_tip) {
+            continue;
+          }
+          saw_support_arm = true;
+          const double arm_dx = part.b.x - part.a.x;
+          const double arm_dy = part.b.y - part.a.y;
+          const double arm_len = std::sqrt(arm_dx * arm_dx + arm_dy * arm_dy);
+          if (arm_len <= 1e-9) {
           std::cerr << "[DBG] C339 zero_arm span=" << span_id << "\n";
           found_bad_visual = true;
           continue;
         }
         const double arm_x = arm_dx / arm_len;
         const double arm_y = arm_dy / arm_len;
-        const double align = arm_x * expected_x + arm_y * expected_y;
-        if (align < 0.98) {
-          std::cerr << "[DBG] C339 bad_visual span=" << span_id << " align=" << align << " expected=("
-                    << expected_x << "," << expected_y << ") actual=(" << arm_x << "," << arm_y << ")"
-                    << " port=(" << port->world_position.x << "," << port->world_position.y << ","
-                    << port->world_position.z << ") armB=(" << part.b.x << "," << part.b.y << "," << part.b.z
-                    << ")\n";
-          found_bad_visual = true;
+          const double align = arm_x * expected_x + arm_y * expected_y;
+          if (align < 0.98) {
+            std::cerr << "[DBG] C339 bad_visual span=" << span_id << " align=" << align << " expected=("
+                      << expected_x << "," << expected_y << ") actual=(" << arm_x << "," << arm_y << ")"
+                      << " port=(" << port->world_position.x << "," << port->world_position.y << ","
+                      << port->world_position.z << ") armB=(" << part.b.x << "," << part.b.y << "," << part.b.z
+                      << ")\n";
+            found_bad_visual = true;
+          }
         }
       }
-    }
     if (!saw_support_arm) {
       std::cerr << "[DBG] C339 missing_arm span=" << span_id << " portId=" << port->id << "\n";
       found_bad_visual = true;
@@ -12918,6 +13570,42 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
       tests, "C325_Backbone_CaptureLikeIncrementalCrossPreservesTrunkPairAuthority",
       "Capture-like incremental cross keeps the pole support-axis authority on the original trunk pair instead of rebinding to the later cross pair",
       "Invariant", false, test_backbone_capture_like_incremental_cross_preserves_trunk_pair_authority);
+  test_registry::AddTest(
+      tests, "C346_Backbone_CaptureLikeOuterSameLevelCrossUsesPairAuthority",
+      "Capture-like outer same-level cross endpoints use pair authority instead of falling back to Bisector or pole-local radial",
+      "Invariant", false, test_backbone_capture_like_outer_same_level_cross_uses_pair_authority);
+  test_registry::AddTest(
+      tests, "C347_Backbone_CaptureLikeOuterSameLevelCrossVisualUsesPairAxis",
+      "Capture-like outer same-level cross support arms follow the pair axis instead of collapsing to bisector or radial directions",
+      "Invariant", false, test_backbone_capture_like_outer_same_level_cross_visual_uses_pair_axis);
+  test_registry::AddTest(
+      tests, "C348_Backbone_SupportLayoutInspectionExposesResolvedSupportAuthority",
+      "Support layout inspection exposes the generated decision seed and resolved support authority for pair-aware endpoints",
+      "Invariant", false, test_backbone_support_layout_inspection_exposes_resolved_support_authority);
+  test_registry::AddTest(
+      tests, "C349_Backbone_GeometryRefreshKeepsResolvedSupportAuthoritySeed",
+      "Geometry refresh rebuilds support layout and curve from the generated seed without changing resolved support authority",
+      "Invariant", false, test_backbone_geometry_refresh_keeps_resolved_support_authority_seed);
+  test_registry::AddTest(
+      tests, "C350_Backbone_RenderRefreshDoesNotChangeResolvedSupportAuthoritySeed",
+      "Render refresh updates visual cache only and leaves resolved support authority unchanged",
+      "Invariant", false, test_backbone_render_refresh_does_not_change_resolved_support_authority_seed);
+  test_registry::AddTest(
+      tests, "C351_Backbone_RebuildWithoutSeedFailsAndKeepsCachedLayout",
+      "Explicit rebuild without a decision seed fails and keeps the cached support layout unchanged",
+      "Invariant", false, test_backbone_rebuild_without_seed_fails_and_keeps_cached_layout);
+  test_registry::AddTest(
+      tests, "C352_Backbone_GeometryRefreshWithoutSeedFailsAndKeepsDirty",
+      "Geometry refresh without a decision seed fails, keeps geometry dirty, and reports the missing seed",
+      "Invariant", false, test_backbone_geometry_refresh_without_seed_fails_and_keeps_dirty);
+  test_registry::AddTest(
+      tests, "C353_Backbone_SameLevelTPairHeightRankDrivesSupportOffsets",
+      "Same-level T keeps the main pair at rank 0 and lowers the branch pair by one owner-controlled step",
+      "Invariant", false, test_backbone_same_level_t_pair_height_rank_drives_support_offsets);
+  test_registry::AddTest(
+      tests, "C354_Backbone_OneShotCrossPairHeightRankSeparatesPairs",
+      "One-shot cross keeps the through pair at rank 0 and lowers the cross pair by one owner-controlled step",
+      "Invariant", false, test_backbone_one_shot_cross_pair_height_rank_separates_pairs);
   test_registry::AddTest(tests, "C177_Backbone_DrawPathPlainEndpointFallback",
                          "DrawPath backbone without attachment input falls back to plain support endpoints",
                          "Invariant", false, test_backbone_drawpath_plain_endpoint_fallback_without_attachment_input);

@@ -535,6 +535,7 @@ std::vector<LoweredSupportGroupInspectionView> BuildLoweredSupportGroupInspectio
     LoweredSupportGroupInspectionView group{};
     group.owner_pole_id = authority.decision.owner_pole_id;
     group.decision = authority.decision;
+    group.support_authority = authority.support_authority;
     group.pair_peer_low = authority.decision.support_pair_peer_low;
     group.pair_peer_high = authority.decision.support_pair_peer_high;
     group.side = authority.side;
@@ -551,6 +552,9 @@ std::vector<LoweredSupportGroupInspectionView> BuildLoweredSupportGroupInspectio
     group.has_side_axis = authority.decision.has_side_axis;
     group.side_axis = authority.decision.side_axis;
     group.chosen_side_sign = authority.decision.chosen_side_sign;
+    group.has_signed_support_axis = authority.support_authority.has_signed_support_axis;
+    group.signed_support_axis = authority.support_authority.signed_support_axis;
+    group.pair_height_rank = authority.support_authority.pair.height_rank;
     group.down_offset_m = source.down_offset_m;
     group.mount_world = source.mount_world;
     group.tip_world = source.tip_world;
@@ -581,6 +585,7 @@ SupportLayoutEndpointView MakeSupportLayoutEndpointView(const SupportLayoutEndpo
   view.owner_pole_id = endpoint.owner_pole_id;
   view.port_id = endpoint.port_id;
   view.decision = endpoint.decision;
+  view.support_authority = endpoint.support_authority;
   view.attachment_request = endpoint.attachment_request;
   view.resolved_socket_id = endpoint.resolved_socket_id;
   view.flow_kind = endpoint.flow_kind;
@@ -597,6 +602,9 @@ SupportLayoutEndpointView MakeSupportLayoutEndpointView(const SupportLayoutEndpo
   view.has_side_axis = endpoint.decision.has_side_axis;
   view.side_axis = endpoint.decision.side_axis;
   view.chosen_side_sign = endpoint.decision.chosen_side_sign;
+  view.has_signed_support_axis = endpoint.support_authority.has_signed_support_axis;
+  view.signed_support_axis = endpoint.support_authority.signed_support_axis;
+  view.pair_height_rank = endpoint.support_authority.pair.height_rank;
   view.origin = SupportLayoutOriginText(endpoint.origin);
   view.endpoint_source = endpoint.endpoint_source;
   view.port_source = PortPlacementSourceText(endpoint.port_source);
@@ -636,6 +644,7 @@ void ApplyAuthoritativeGroupedEndpointDecision(const CacheState& cache_state, co
   view->decision.side_assignment_rule = authority.decision.side_assignment_rule;
   view->decision.support_orientation_rule = authority.decision.support_orientation_rule;
   view->decision.support_orientation_basis = authority.decision.support_orientation_basis;
+  view->support_authority = authority.support_authority;
   view->decision.used_junction_pair_side_assignment = authority.decision.used_junction_pair_side_assignment;
   view->decision.has_side_axis = authority.decision.has_side_axis;
   view->decision.side_axis = authority.decision.side_axis;
@@ -653,6 +662,9 @@ void ApplyAuthoritativeGroupedEndpointDecision(const CacheState& cache_state, co
   view->has_side_axis = authority.decision.has_side_axis;
   view->side_axis = authority.decision.side_axis;
   view->chosen_side_sign = authority.decision.chosen_side_sign;
+  view->has_signed_support_axis = authority.support_authority.has_signed_support_axis;
+  view->signed_support_axis = authority.support_authority.signed_support_axis;
+  view->pair_height_rank = authority.support_authority.pair.height_rank;
 }
 
 } // namespace
@@ -879,6 +891,8 @@ std::optional<SupportLayoutInspectionView> CoreView::inspect_support_layout(Obje
   SupportLayoutInspectionView result{};
   result.source_span = {EntityKind::kSpan, span_id};
   result.meta = *describe_entity({EntityKind::kSupportLayout, span_id});
+  result.has_decision_seed = state_.find_span_support_layout_seed(span_id) != nullptr;
+  result.requires_decision_seed = layout->requires_decision_seed;
   result.flow_kind = layout->flow_kind;
   result.pass_mode = layout->pass_mode;
   result.variation_flow_key = layout->variation_flow_key;
@@ -1529,4 +1543,3 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
 }
 
 } // namespace wire::core
-

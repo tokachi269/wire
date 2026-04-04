@@ -162,6 +162,7 @@ ValidationResult CoreState::Validate() const {
   const auto& bundle_templates = core.bundle_templates();
   const auto& attachment_templates = core.attachment_templates();
   const auto& port_resolution_debug_records = core.port_resolution_debug_records();
+  const auto& decision_seeds_by_span = cache_state.support_layout_cache.decision_seeds_by_span;
 
   for (const Pole& pole : edit_state.poles.items()) {
     if (pole.pole_type_id != kInvalidPoleTypeId && !pole_types.contains(pole.pole_type_id)) {
@@ -509,6 +510,16 @@ ValidationResult CoreState::Validate() const {
         edit_state.attachments.find(span.endpoint_attachment_b_id) == nullptr) {
       result.issues.push_back(
           {ValidationSeverity::kError, "SpanEndpointAttachmentMissing", "Span endpoint B attachment is missing", span.id});
+    }
+  }
+
+  for (const auto& [span_id, layout] : cache_state.support_layout_cache.by_span) {
+    const bool has_seed = decision_seeds_by_span.find(span_id) != decision_seeds_by_span.end();
+    if (layout.requires_decision_seed && !has_seed) {
+      result.issues.push_back({ValidationSeverity::kWarning,
+                               "SupportLayoutDecisionSeedMissing",
+                               "Support layout requires a decision seed but none is cached",
+                               span_id});
     }
   }
 
@@ -1158,4 +1169,3 @@ ValidationResult CoreState::Validate() const {
 }
 
 } // namespace wire::core
-

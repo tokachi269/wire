@@ -233,65 +233,65 @@ const char* SupportOrientationBasisText(SupportOrientationBasisKind basis) {
 }
 
 OrderDecisionPolicyKind support_layout_order_decision_policy(const SpanSupportLayoutEntry& layout) {
-  if (layout.start.decision.order_decision_policy == OrderDecisionPolicyKind::kPermutableHomogeneous ||
-      layout.end.decision.order_decision_policy == OrderDecisionPolicyKind::kPermutableHomogeneous) {
+  if (layout.start.order_decision_policy == OrderDecisionPolicyKind::kPermutableHomogeneous ||
+      layout.end.order_decision_policy == OrderDecisionPolicyKind::kPermutableHomogeneous) {
     return OrderDecisionPolicyKind::kPermutableHomogeneous;
   }
   return OrderDecisionPolicyKind::kFixedOrder;
 }
 
 ContinuityCategoryClass support_layout_continuity_class(const SpanSupportLayoutEntry& layout) {
-  if (layout.start.decision.continuity_class == ContinuityCategoryClass::kBundleLike ||
-      layout.end.decision.continuity_class == ContinuityCategoryClass::kBundleLike) {
+  if (layout.start.continuity_class == ContinuityCategoryClass::kBundleLike ||
+      layout.end.continuity_class == ContinuityCategoryClass::kBundleLike) {
     return ContinuityCategoryClass::kBundleLike;
   }
   return ContinuityCategoryClass::kPointLike;
 }
 
 bool support_layout_default_lower_required(const SpanSupportLayoutEntry& layout) {
-  return layout.start.decision.default_lower_required || layout.end.decision.default_lower_required;
+  return layout.start.default_lower_required || layout.end.default_lower_required;
 }
 
 bool support_layout_same_level_feasible(const SpanSupportLayoutEntry& layout) {
-  return layout.start.decision.same_level_feasible && layout.end.decision.same_level_feasible;
+  return layout.start.same_level_feasible && layout.end.same_level_feasible;
 }
 
 SameLevelFeasibilityReason support_layout_same_level_reason(const SpanSupportLayoutEntry& layout) {
   if (support_layout_same_level_feasible(layout)) {
     return SameLevelFeasibilityReason::kNone;
   }
-  return layout.start.decision.same_level_feasible ? layout.end.decision.same_level_reason
-                                                   : layout.start.decision.same_level_reason;
+  return layout.start.same_level_feasible ? layout.end.same_level_reason
+                                          : layout.start.same_level_reason;
 }
 
 double support_layout_projected_spacing_topview_m(const SpanSupportLayoutEntry& layout) {
-  const bool start_same = layout.start.decision.same_level_feasible;
-  const bool end_same = layout.end.decision.same_level_feasible;
+  const bool start_same = layout.start.same_level_feasible;
+  const bool end_same = layout.end.same_level_feasible;
   if (!start_same && !end_same) {
-    return std::min(layout.start.decision.projected_spacing_topview_m, layout.end.decision.projected_spacing_topview_m);
+    return std::min(layout.start.projected_spacing_topview_m, layout.end.projected_spacing_topview_m);
   }
-  return start_same ? layout.end.decision.projected_spacing_topview_m : layout.start.decision.projected_spacing_topview_m;
+  return start_same ? layout.end.projected_spacing_topview_m : layout.start.projected_spacing_topview_m;
 }
 
 double support_layout_required_clearance_m(const SpanSupportLayoutEntry& layout) {
-  return std::max(layout.start.decision.required_clearance_m, layout.end.decision.required_clearance_m);
+  return std::max(layout.start.required_clearance_m, layout.end.required_clearance_m);
 }
 
 bool support_layout_lowering_blocked_by_policy(const SpanSupportLayoutEntry& layout) {
-  return layout.start.decision.lowering_blocked_by_policy || layout.end.decision.lowering_blocked_by_policy;
+  return layout.start.lowering_blocked_by_policy || layout.end.lowering_blocked_by_policy;
 }
 
 bool support_layout_unresolved_same_level_conflict(const SpanSupportLayoutEntry& layout) {
-  return layout.start.decision.unresolved_same_level_conflict || layout.end.decision.unresolved_same_level_conflict;
+  return layout.start.unresolved_same_level_conflict || layout.end.unresolved_same_level_conflict;
 }
 
 bool support_layout_solver_used_same_level_constraint(const SpanSupportLayoutEntry& layout) {
-  return layout.start.decision.solver_used_same_level_constraint ||
-         layout.end.decision.solver_used_same_level_constraint;
+  return layout.start.solver_used_same_level_constraint ||
+         layout.end.solver_used_same_level_constraint;
 }
 
 bool support_layout_used_special_case_ports(const SpanSupportLayoutEntry& layout) {
-  return layout.start.decision.used_special_case_ports || layout.end.decision.used_special_case_ports;
+  return layout.start.used_special_case_ports || layout.end.used_special_case_ports;
 }
 
 const char* SupportLayoutOriginText(SupportLayoutOriginKind origin) {
@@ -533,25 +533,24 @@ std::vector<LoweredSupportGroupInspectionView> BuildLoweredSupportGroupInspectio
     const LoweredSupportGroupPlacement& source = it->second;
     const SupportGroupDecision& authority = decision_it->second;
     LoweredSupportGroupInspectionView group{};
-    group.owner_pole_id = authority.decision.owner_pole_id;
-    group.decision = authority.decision;
+    group.owner_pole_id = authority.owner_pole_id;
     group.support_authority = authority.support_authority;
-    group.pair_peer_low = authority.decision.support_pair_peer_low;
-    group.pair_peer_high = authority.decision.support_pair_peer_high;
+    group.pair_peer_low = authority.support_pair_peer_low;
+    group.pair_peer_high = authority.support_pair_peer_high;
     group.side = authority.side;
     group.origin = SupportLayoutOriginText(authority.origin);
     group.grouping_rule = source.grouping_rule;
-    group.support_group_id = authority.decision.support_group_id;
+    group.support_group_id = authority.support_group_id;
     group.grouped_port_count = source.grouped_port_count;
-    group.order_decision_policy = authority.decision.order_decision_policy;
-    group.order_decision_choice = authority.decision.order_decision_choice;
-    group.order_decision_choice_reason = authority.decision.order_decision_choice_reason;
-    group.side_assignment_rule = authority.decision.side_assignment_rule;
-    group.support_orientation_rule = authority.decision.support_orientation_rule;
-    group.used_junction_pair_side_assignment = authority.decision.used_junction_pair_side_assignment;
-    group.has_side_axis = authority.decision.has_side_axis;
-    group.side_axis = authority.decision.side_axis;
-    group.chosen_side_sign = authority.decision.chosen_side_sign;
+    group.order_decision_policy = authority.order_decision_policy;
+    group.order_decision_choice = authority.order_decision_choice;
+    group.order_decision_choice_reason = authority.order_decision_choice_reason;
+    group.side_assignment_rule = authority.side_assignment_rule;
+    group.support_orientation_rule = authority.support_orientation_rule;
+    group.used_junction_pair_side_assignment = authority.used_junction_pair_side_assignment;
+    group.has_side_axis = authority.has_side_axis;
+    group.side_axis = authority.side_axis;
+    group.chosen_side_sign = authority.chosen_side_sign;
     group.has_signed_support_axis = authority.support_authority.has_signed_support_axis;
     group.signed_support_axis = authority.support_authority.signed_support_axis;
     group.pair_height_rank = authority.support_authority.pair.height_rank;
@@ -584,24 +583,23 @@ SupportLayoutEndpointView MakeSupportLayoutEndpointView(const SupportLayoutEndpo
   view.endpoint_node_id = endpoint.endpoint_node_id;
   view.owner_pole_id = endpoint.owner_pole_id;
   view.port_id = endpoint.port_id;
-  view.decision = endpoint.decision;
   view.support_authority = endpoint.support_authority;
   view.attachment_request = endpoint.attachment_request;
   view.resolved_socket_id = endpoint.resolved_socket_id;
   view.flow_kind = endpoint.flow_kind;
-  view.relation_kind = endpoint.decision.relation_kind;
-  view.continuity_class = endpoint.decision.continuity_class;
-  view.default_lower_required = endpoint.decision.default_lower_required;
-  view.order_decision_policy = endpoint.decision.order_decision_policy;
-  view.order_decision_choice = endpoint.decision.order_decision_choice;
-  view.order_decision_choice_reason = endpoint.decision.order_decision_choice_reason;
+  view.relation_kind = endpoint.relation_kind;
+  view.continuity_class = endpoint.continuity_class;
+  view.default_lower_required = endpoint.default_lower_required;
+  view.order_decision_policy = endpoint.order_decision_policy;
+  view.order_decision_choice = endpoint.order_decision_choice;
+  view.order_decision_choice_reason = endpoint.order_decision_choice_reason;
   view.side = endpoint.side;
-  view.side_assignment_rule = endpoint.decision.side_assignment_rule;
-  view.support_orientation_rule = endpoint.decision.support_orientation_rule;
-  view.used_junction_pair_side_assignment = endpoint.decision.used_junction_pair_side_assignment;
-  view.has_side_axis = endpoint.decision.has_side_axis;
-  view.side_axis = endpoint.decision.side_axis;
-  view.chosen_side_sign = endpoint.decision.chosen_side_sign;
+  view.side_assignment_rule = endpoint.side_assignment_rule;
+  view.support_orientation_rule = endpoint.support_orientation_rule;
+  view.used_junction_pair_side_assignment = endpoint.used_junction_pair_side_assignment;
+  view.has_side_axis = endpoint.has_side_axis;
+  view.side_axis = endpoint.side_axis;
+  view.chosen_side_sign = endpoint.chosen_side_sign;
   view.has_signed_support_axis = endpoint.support_authority.has_signed_support_axis;
   view.signed_support_axis = endpoint.support_authority.signed_support_axis;
   view.pair_height_rank = endpoint.support_authority.pair.height_rank;
@@ -620,52 +618,41 @@ SupportLayoutEndpointView MakeSupportLayoutEndpointView(const SupportLayoutEndpo
   view.local_departure_length_m = endpoint.local_departure_length_m;
   view.automatic_branch_down_offset_m = endpoint.automatic_branch_down_offset_m;
   view.branch_down_offset_m = endpoint.branch_down_offset_m;
-  view.same_level_feasible = endpoint.decision.same_level_feasible;
-  view.same_level_reason = endpoint.decision.same_level_reason;
-  view.projected_spacing_topview_m = endpoint.decision.projected_spacing_topview_m;
-  view.required_clearance_m = endpoint.decision.required_clearance_m;
-  view.lowering_blocked_by_policy = endpoint.decision.lowering_blocked_by_policy;
-  view.unresolved_same_level_conflict = endpoint.decision.unresolved_same_level_conflict;
-  view.solver_used_same_level_constraint = endpoint.decision.solver_used_same_level_constraint;
-  view.used_special_case_ports = endpoint.decision.used_special_case_ports;
+  view.same_level_feasible = endpoint.same_level_feasible;
+  view.same_level_reason = endpoint.same_level_reason;
+  view.projected_spacing_topview_m = endpoint.projected_spacing_topview_m;
+  view.required_clearance_m = endpoint.required_clearance_m;
+  view.lowering_blocked_by_policy = endpoint.lowering_blocked_by_policy;
+  view.unresolved_same_level_conflict = endpoint.unresolved_same_level_conflict;
+  view.solver_used_same_level_constraint = endpoint.solver_used_same_level_constraint;
+  view.used_special_case_ports = endpoint.used_special_case_ports;
   view.down_offset_variation = MakeVariationBreakdownView(endpoint.down_offset_variation);
   return view;
 }
 
 void ApplyAuthoritativeGroupedEndpointDecision(const CacheState& cache_state, const SupportLayoutEndpoint& endpoint,
                                                SupportLayoutEndpointView* view) {
-  if (view == nullptr || !UsesAuthoritativeGroupedLoweredSupport(endpoint.decision)) {
+  if (view == nullptr || !UsesAuthoritativeGroupedLoweredSupport(endpoint)) {
     return;
   }
-  const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint.decision);
+  const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint);
   const auto it = cache_state.support_layout_cache.support_group_decisions.find(key);
   if (it == cache_state.support_layout_cache.support_group_decisions.end()) {
     return;
   }
   const SupportGroupDecision& authority = it->second;
-  view->decision.support_pair_peer_low = authority.decision.support_pair_peer_low;
-  view->decision.support_pair_peer_high = authority.decision.support_pair_peer_high;
-  view->decision.side_assignment_rule = authority.decision.side_assignment_rule;
-  view->decision.support_orientation_rule = authority.decision.support_orientation_rule;
-  view->decision.support_orientation_basis = authority.decision.support_orientation_basis;
   view->support_authority = authority.support_authority;
-  view->decision.used_junction_pair_side_assignment = authority.decision.used_junction_pair_side_assignment;
-  view->decision.has_side_axis = authority.decision.has_side_axis;
-  view->decision.side_axis = authority.decision.side_axis;
-  view->decision.chosen_side_sign = authority.decision.chosen_side_sign;
-  view->decision.chosen_side = authority.decision.chosen_side;
-  view->relation_kind = authority.decision.relation_kind;
-  view->continuity_class = authority.decision.continuity_class;
-  view->default_lower_required = authority.decision.default_lower_required;
-  view->order_decision_policy = authority.decision.order_decision_policy;
-  view->order_decision_choice = authority.decision.order_decision_choice;
-  view->order_decision_choice_reason = authority.decision.order_decision_choice_reason;
-  view->side_assignment_rule = authority.decision.side_assignment_rule;
-  view->support_orientation_rule = authority.decision.support_orientation_rule;
-  view->used_junction_pair_side_assignment = authority.decision.used_junction_pair_side_assignment;
-  view->has_side_axis = authority.decision.has_side_axis;
-  view->side_axis = authority.decision.side_axis;
-  view->chosen_side_sign = authority.decision.chosen_side_sign;
+  view->relation_kind = authority.relation_kind;
+  view->continuity_class = authority.continuity_class;
+  view->order_decision_policy = authority.order_decision_policy;
+  view->order_decision_choice = authority.order_decision_choice;
+  view->order_decision_choice_reason = authority.order_decision_choice_reason;
+  view->side_assignment_rule = authority.side_assignment_rule;
+  view->support_orientation_rule = authority.support_orientation_rule;
+  view->used_junction_pair_side_assignment = authority.used_junction_pair_side_assignment;
+  view->has_side_axis = authority.has_side_axis;
+  view->side_axis = authority.side_axis;
+  view->chosen_side_sign = authority.chosen_side_sign;
   view->has_signed_support_axis = authority.support_authority.has_signed_support_axis;
   view->signed_support_axis = authority.support_authority.signed_support_axis;
   view->pair_height_rank = authority.support_authority.pair.height_rank;
@@ -833,10 +820,10 @@ std::optional<SpanInspectionView> CoreView::inspect_span(ObjectId span_id) const
     result.flow_kind = layout->flow_kind;
     result.continuity_class = support_layout_continuity_class(*layout);
     result.order_decision_policy = support_layout_order_decision_policy(*layout);
-    result.order_decision_choice_a = layout->start.decision.order_decision_choice;
-    result.order_decision_choice_b = layout->end.decision.order_decision_choice;
-    result.order_decision_choice_reason_a = layout->start.decision.order_decision_choice_reason;
-    result.order_decision_choice_reason_b = layout->end.decision.order_decision_choice_reason;
+    result.order_decision_choice_a = layout->start.order_decision_choice;
+    result.order_decision_choice_b = layout->end.order_decision_choice;
+    result.order_decision_choice_reason_a = layout->start.order_decision_choice_reason;
+    result.order_decision_choice_reason_b = layout->end.order_decision_choice_reason;
     result.default_lower_required = support_layout_default_lower_required(*layout);
     result.uses_branch_support = layout->start.origin == SupportLayoutOriginKind::kBranchSupport ||
                                  layout->end.origin == SupportLayoutOriginKind::kBranchSupport;
@@ -901,8 +888,8 @@ std::optional<SupportLayoutInspectionView> CoreView::inspect_support_layout(Obje
   result.pass_mode = layout->pass_mode;
   result.variation_flow_key = layout->variation_flow_key;
   result.order_decision_policy = support_layout_order_decision_policy(*layout);
-  result.relation_a = layout->start.decision.relation_kind;
-  result.relation_b = layout->end.decision.relation_kind;
+  result.relation_a = layout->start.relation_kind;
+  result.relation_b = layout->end.relation_kind;
   result.continuity_class = support_layout_continuity_class(*layout);
   result.default_lower_required = support_layout_default_lower_required(*layout);
   result.same_level_feasible = support_layout_same_level_feasible(*layout);
@@ -1392,10 +1379,10 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
       summary << "start=" << SupportLayoutOriginText(layout->start.origin) << " dep=" << layout->start.local_departure_length_m
               << " end=" << SupportLayoutOriginText(layout->end.origin) << " dep=" << layout->end.local_departure_length_m
               << " orderPolicy=" << OrderDecisionPolicyText(support_layout_order_decision_policy(*layout))
-              << " orderDecisionA=" << OrderDecisionChoiceText(layout->start.decision.order_decision_choice)
-              << "/" << OrderDecisionChoiceReasonText(layout->start.decision.order_decision_choice_reason)
-              << " orderDecisionB=" << OrderDecisionChoiceText(layout->end.decision.order_decision_choice)
-              << "/" << OrderDecisionChoiceReasonText(layout->end.decision.order_decision_choice_reason)
+              << " orderDecisionA=" << OrderDecisionChoiceText(layout->start.order_decision_choice)
+              << "/" << OrderDecisionChoiceReasonText(layout->start.order_decision_choice_reason)
+              << " orderDecisionB=" << OrderDecisionChoiceText(layout->end.order_decision_choice)
+              << "/" << OrderDecisionChoiceReasonText(layout->end.order_decision_choice_reason)
               << " class=" << ContinuityCategoryClassText(support_layout_continuity_class(*layout))
               << " defaultLower=" << BoolText(support_layout_default_lower_required(*layout))
               << " down=" << std::max(layout->start.branch_down_offset_m, layout->end.branch_down_offset_m)
@@ -1412,31 +1399,27 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
       std::ostringstream endpoint_summary;
       endpoint_summary << "start=" << SupportLayoutEndpointSourceText(layout->start.endpoint_source)
                        << " request=" << EndpointAttachmentRequestKindText(layout->start.attachment_request.kind)
-                       << " orderDecision=" << OrderDecisionChoiceText(layout->start.decision.order_decision_choice)
-                       << "/" << OrderDecisionChoiceReasonText(layout->start.decision.order_decision_choice_reason)
-                       << " chosenSide=" << LateralSideChoiceText(layout->start.decision.chosen_side)
-                       << " sideRule=" << SideAssignmentRuleText(layout->start.decision.side_assignment_rule)
-                       << " orientRule=" << SupportOrientationRuleText(layout->start.decision.support_orientation_rule)
-                       << " orientBasis="
-                       << SupportOrientationBasisText(layout->start.decision.support_orientation_basis)
-                       << " pairSide=" << BoolText(layout->start.decision.used_junction_pair_side_assignment)
-                       << " sideSign=" << layout->start.decision.chosen_side_sign
-                       << " downstreamOverride=" << BoolText(layout->start.decision.downstream_overridden)
+                       << " orderDecision=" << OrderDecisionChoiceText(layout->start.order_decision_choice)
+                       << "/" << OrderDecisionChoiceReasonText(layout->start.order_decision_choice_reason)
+                       << " chosenSide=" << LateralSideChoiceText(layout->start.chosen_side)
+                       << " sideRule=" << SideAssignmentRuleText(layout->start.side_assignment_rule)
+                       << " orientRule=" << SupportOrientationRuleText(layout->start.support_orientation_rule)
+                       << " orientBasis=" << SupportOrientationBasisText(layout->start.support_orientation_basis)
+                       << " pairSide=" << BoolText(layout->start.used_junction_pair_side_assignment)
+                       << " sideSign=" << layout->start.chosen_side_sign
                        << " socket="
                        << (layout->start.resolved_socket_id.has_value() ? std::to_string(*layout->start.resolved_socket_id)
                                                                         : "none")
                        << " end=" << SupportLayoutEndpointSourceText(layout->end.endpoint_source)
                        << " request=" << EndpointAttachmentRequestKindText(layout->end.attachment_request.kind)
-                       << " orderDecision=" << OrderDecisionChoiceText(layout->end.decision.order_decision_choice)
-                       << "/" << OrderDecisionChoiceReasonText(layout->end.decision.order_decision_choice_reason)
-                       << " chosenSide=" << LateralSideChoiceText(layout->end.decision.chosen_side)
-                       << " sideRule=" << SideAssignmentRuleText(layout->end.decision.side_assignment_rule)
-                       << " orientRule=" << SupportOrientationRuleText(layout->end.decision.support_orientation_rule)
-                       << " orientBasis="
-                       << SupportOrientationBasisText(layout->end.decision.support_orientation_basis)
-                       << " pairSide=" << BoolText(layout->end.decision.used_junction_pair_side_assignment)
-                       << " sideSign=" << layout->end.decision.chosen_side_sign
-                       << " downstreamOverride=" << BoolText(layout->end.decision.downstream_overridden)
+                       << " orderDecision=" << OrderDecisionChoiceText(layout->end.order_decision_choice)
+                       << "/" << OrderDecisionChoiceReasonText(layout->end.order_decision_choice_reason)
+                       << " chosenSide=" << LateralSideChoiceText(layout->end.chosen_side)
+                       << " sideRule=" << SideAssignmentRuleText(layout->end.side_assignment_rule)
+                       << " orientRule=" << SupportOrientationRuleText(layout->end.support_orientation_rule)
+                       << " orientBasis=" << SupportOrientationBasisText(layout->end.support_orientation_basis)
+                       << " pairSide=" << BoolText(layout->end.used_junction_pair_side_assignment)
+                       << " sideSign=" << layout->end.chosen_side_sign
                        << " socket="
                        << (layout->end.resolved_socket_id.has_value() ? std::to_string(*layout->end.resolved_socket_id)
                                                                       : "none");

@@ -49,7 +49,7 @@ struct CacheState;
     double automatic_branch_down_offset_m, const HierarchicalVariationSample& down_offset_variation,
     double resolved_branch_down_offset_m, bool is_start_endpoint);
 
-void apply_endpoint_decision_to_layout_endpoint(const EndpointContinuityDecision& decision,
+void apply_endpoint_decision_to_layout_endpoint(const SupportLayoutSemanticDecision& decision,
                                                 SupportLayoutEndpoint* endpoint);
 
 void apply_support_layout_decision_seed_endpoint(const SupportLayoutDecisionSeedEndpoint& seed,

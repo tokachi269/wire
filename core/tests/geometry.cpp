@@ -2668,15 +2668,15 @@ bool test_support_layout_prefers_assignment_over_stale_branch_support_ports() {
   stale_layout.start.owner_pole_id = pole_a;
   stale_layout.start.port_id = port_a;
   stale_layout.start.flow_kind = wire::core::BackboneFlowKind::kMain;
-  stale_layout.start.decision.relation_kind = wire::core::JunctionRelationKind::kNone;
-  stale_layout.start.decision.continuity_class = wire::core::ContinuityCategoryClass::kPointLike;
+  stale_layout.start.relation_kind = wire::core::JunctionRelationKind::kNone;
+  stale_layout.start.continuity_class = wire::core::ContinuityCategoryClass::kPointLike;
   stale_layout.start.origin = wire::core::SupportLayoutOriginKind::kMainSupport;
   stale_layout.end.endpoint_node_id = edit_span->endpoint_node_b_id;
   stale_layout.end.owner_pole_id = pole_b;
   stale_layout.end.port_id = port_b;
   stale_layout.end.flow_kind = wire::core::BackboneFlowKind::kMain;
-  stale_layout.end.decision.relation_kind = wire::core::JunctionRelationKind::kNone;
-  stale_layout.end.decision.continuity_class = wire::core::ContinuityCategoryClass::kPointLike;
+  stale_layout.end.relation_kind = wire::core::JunctionRelationKind::kNone;
+  stale_layout.end.continuity_class = wire::core::ContinuityCategoryClass::kPointLike;
   stale_layout.end.origin = wire::core::SupportLayoutOriginKind::kMainSupport;
   wire::core::CoreStateTestHook::cache_state(state).support_layout_cache.by_span[span] = stale_layout;
 

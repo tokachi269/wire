@@ -107,60 +107,25 @@ std::unordered_map<PairKey, int, PairKeyHash> pair_height_rank_map_for_junction(
 
 } // namespace
 
-SeedDecisionPlacementProjection build_seed_placement_projection(const EndpointContinuityDecision& decision) {
-  SeedDecisionPlacementProjection projection{};
-  projection.lower_required = decision.lower_required;
-  projection.default_lower_required = decision.default_lower_required;
-  projection.same_level_feasible = decision.same_level_feasible;
-  projection.same_level_reason = decision.same_level_reason;
-  projection.projected_spacing_topview_m = decision.projected_spacing_topview_m;
-  projection.required_clearance_m = decision.required_clearance_m;
-  projection.lowering_blocked_by_policy = decision.lowering_blocked_by_policy;
-  projection.unresolved_same_level_conflict = decision.unresolved_same_level_conflict;
-  projection.solver_used_same_level_constraint = decision.solver_used_same_level_constraint;
-  projection.used_special_case_ports = decision.used_special_case_ports;
-  projection.order_decision_policy = decision.order_decision_policy;
-  projection.order_decision_choice = decision.order_decision_choice;
-  projection.order_decision_choice_reason = decision.order_decision_choice_reason;
-  projection.support_group_id = decision.support_group_id;
-  projection.side_assignment_rule = decision.side_assignment_rule;
-  projection.support_orientation_rule = decision.support_orientation_rule;
-  projection.support_orientation_basis = decision.support_orientation_basis;
-  projection.chosen_side = decision.chosen_side;
-  projection.used_junction_pair_side_assignment = decision.used_junction_pair_side_assignment;
-  projection.has_side_axis = decision.has_side_axis;
-  projection.side_axis = decision.side_axis;
-  projection.chosen_side_sign = decision.chosen_side_sign;
-  return projection;
-}
-
-void apply_seed_placement_projection(const SeedDecisionPlacementProjection& projection,
-                                     EndpointContinuityDecision* decision) {
+void apply_seed_placement_projection(const EndpointContinuityDecision& source,
+                                     SupportLayoutSemanticDecision* decision) {
   if (decision == nullptr) {
     return;
   }
-  decision->lower_required = projection.lower_required;
-  decision->default_lower_required = projection.default_lower_required;
-  decision->same_level_feasible = projection.same_level_feasible;
-  decision->same_level_reason = projection.same_level_reason;
-  decision->projected_spacing_topview_m = projection.projected_spacing_topview_m;
-  decision->required_clearance_m = projection.required_clearance_m;
-  decision->lowering_blocked_by_policy = projection.lowering_blocked_by_policy;
-  decision->unresolved_same_level_conflict = projection.unresolved_same_level_conflict;
-  decision->solver_used_same_level_constraint = projection.solver_used_same_level_constraint;
-  decision->used_special_case_ports = projection.used_special_case_ports;
-  decision->order_decision_policy = projection.order_decision_policy;
-  decision->order_decision_choice = projection.order_decision_choice;
-  decision->order_decision_choice_reason = projection.order_decision_choice_reason;
-  decision->support_group_id = projection.support_group_id;
-  decision->side_assignment_rule = projection.side_assignment_rule;
-  decision->support_orientation_rule = projection.support_orientation_rule;
-  decision->support_orientation_basis = projection.support_orientation_basis;
-  decision->chosen_side = projection.chosen_side;
-  decision->used_junction_pair_side_assignment = projection.used_junction_pair_side_assignment;
-  decision->has_side_axis = projection.has_side_axis;
-  decision->side_axis = projection.side_axis;
-  decision->chosen_side_sign = projection.chosen_side_sign;
+  decision->lower_required = source.lower_required;
+  decision->lowering_blocked_by_policy = source.lowering_blocked_by_policy;
+  decision->order_decision_policy = source.order_decision_policy;
+  decision->order_decision_choice = source.order_decision_choice;
+  decision->order_decision_choice_reason = source.order_decision_choice_reason;
+  decision->support_group_id = source.support_group_id;
+  decision->side_assignment_rule = source.side_assignment_rule;
+  decision->support_orientation_rule = source.support_orientation_rule;
+  decision->support_orientation_basis = source.support_orientation_basis;
+  decision->chosen_side = source.chosen_side;
+  decision->used_junction_pair_side_assignment = source.used_junction_pair_side_assignment;
+  decision->has_side_axis = source.has_side_axis;
+  decision->side_axis = source.side_axis;
+  decision->chosen_side_sign = source.chosen_side_sign;
 }
 
 int pair_height_rank_from_decision(const EditState& edit_state,
@@ -200,14 +165,9 @@ SupportLayoutDecisionSeedEndpoint build_seed_endpoint_from_decision(
     const SegmentLaneAssignment& assignment, ObjectId endpoint_node_id, const Port& port,
     const EndpointContinuityDecision& decision) {
   SupportLayoutDecisionSeedEndpoint endpoint{};
+  static_cast<SupportLayoutSemanticDecision&>(endpoint) = MakeSupportLayoutSemanticDecision(decision, port.owner_pole_id);
   endpoint.endpoint_node_id = endpoint_node_id;
-  endpoint.owner_pole_id = port.owner_pole_id;
   endpoint.port_id = port.id;
-  endpoint.decision = {};
-  const SeedDecisionTopologyProjection topology = build_seed_topology_projection(decision, endpoint.owner_pole_id);
-  const SeedDecisionPlacementProjection placement = build_seed_placement_projection(decision);
-  apply_seed_topology_projection(topology, &endpoint.decision);
-  apply_seed_placement_projection(placement, &endpoint.decision);
   const int pair_height_rank =
       pair_height_rank_from_decision(edit_state, junction_relations_by_node, endpoint.endpoint_node_id, decision);
   endpoint.support_authority = ResolvedSupportAuthorityFromDecision(decision, pair_height_rank);
@@ -217,6 +177,14 @@ SupportLayoutDecisionSeedEndpoint build_seed_endpoint_from_decision(
   endpoint.port_source = port.placement_source;
   endpoint.side = port.template_side;
   endpoint.endpoint_mode = CurveEndpointMode::kDirectThrough;
+  endpoint.default_lower_required = decision.default_lower_required;
+  endpoint.same_level_feasible = decision.same_level_feasible;
+  endpoint.unresolved_same_level_conflict = decision.unresolved_same_level_conflict;
+  endpoint.same_level_reason = decision.same_level_reason;
+  endpoint.projected_spacing_topview_m = decision.projected_spacing_topview_m;
+  endpoint.required_clearance_m = decision.required_clearance_m;
+  endpoint.solver_used_same_level_constraint = decision.solver_used_same_level_constraint;
+  endpoint.used_special_case_ports = decision.used_special_case_ports;
   const bool uses_lowering = decision.lower_required && !decision.lowering_blocked_by_policy;
   const bool uses_pair_height = !uses_lowering && pair_height_rank > 0 && decision.same_level_feasible &&
                                 HasAuthoritativeSupportPair(decision);

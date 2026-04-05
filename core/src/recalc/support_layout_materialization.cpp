@@ -285,7 +285,7 @@ MaterializedEndpointSocketPair resolve_materialized_endpoint_sockets(const CoreS
 }
 
 bool endpoint_uses_grouped_lowered_support(const SupportLayoutEndpoint* endpoint) {
-  return endpoint != nullptr && UsesAuthoritativeGroupedLoweredSupport(endpoint->decision);
+  return endpoint != nullptr && UsesAuthoritativeGroupedLoweredSupport(*endpoint);
 }
 
 double template_layer_base_z_for_port_category(const CoreState& state, const Pole& pole, ConnectionCategory category) {
@@ -480,7 +480,7 @@ void rebuild_all_lowered_support_groups(const CoreState& state, const EditState&
       if (!endpoint_uses_grouped_lowered_support(&endpoint)) {
         return;
       }
-      const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint.decision);
+      const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint);
       if (key.owner_pole_id == kInvalidObjectId || key.support_group_id < 0) {
         return;
       }

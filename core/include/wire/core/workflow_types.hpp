@@ -465,7 +465,6 @@ struct EndpointContinuityDecision {
   bool has_side_axis = false;
   Vec3d side_axis{};
   double chosen_side_sign = 0.0;
-  bool downstream_overridden = false;
 };
 
 [[nodiscard]] inline bool HasAuthoritativeSupportPair(const EndpointContinuityDecision& decision) {
@@ -620,5 +619,4 @@ struct BackboneResult {
 };
 
 } // namespace wire::core
-
 

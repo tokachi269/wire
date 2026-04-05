@@ -536,8 +536,8 @@ bool hv_route_has_final_curve_twist(const CoreState& state, std::string* details
 } // namespace
 
 bool endpoint_has_authoritative_lowering(const wire::core::SupportLayoutEndpointView& endpoint) {
-  return endpoint.decision.lower_required && !endpoint.decision.lowering_blocked_by_policy &&
-         endpoint.decision.support_group_id >= 0;
+  return endpoint.lower_required && !endpoint.lowering_blocked_by_policy &&
+         endpoint.support_group_id >= 0;
 }
 
 double insulator_lift_for_span_test(const CoreState& state, wire::core::ObjectId span_id) {
@@ -1963,9 +1963,9 @@ bool test_backbone_hv3_latest_capture_lowered_support_uses_local_departure_profi
       continue;
     }
     const bool same_level_feasible =
-        support_layout->start.decision.same_level_feasible && support_layout->end.decision.same_level_feasible;
+        support_layout->start.same_level_feasible && support_layout->end.same_level_feasible;
     const bool default_lower_required =
-        support_layout->start.decision.default_lower_required || support_layout->end.decision.default_lower_required;
+        support_layout->start.default_lower_required || support_layout->end.default_lower_required;
     if (same_level_feasible || !default_lower_required) {
       continue;
     }
@@ -2030,9 +2030,9 @@ bool test_backbone_hv3_latest_capture_lowered_support_departure_uses_shared_rout
       continue;
     }
     const bool same_level_feasible =
-        support_layout->start.decision.same_level_feasible && support_layout->end.decision.same_level_feasible;
+        support_layout->start.same_level_feasible && support_layout->end.same_level_feasible;
     const bool default_lower_required =
-        support_layout->start.decision.default_lower_required || support_layout->end.decision.default_lower_required;
+        support_layout->start.default_lower_required || support_layout->end.default_lower_required;
     if (same_level_feasible || !default_lower_required) {
       continue;
     }
@@ -2051,15 +2051,15 @@ bool test_backbone_hv3_latest_capture_lowered_support_departure_uses_shared_rout
       if (a.node_id == wire::core::kInvalidObjectId || a.node_id != b.node_id || a.span_id == b.span_id) {
         continue;
       }
-      if (!a.decision.has_side_axis || !b.decision.has_side_axis) {
+      if (!a.has_side_axis || !b.has_side_axis) {
         return false;
       }
-      if (a.decision.support_orientation_rule == wire::core::SupportOrientationRuleKind::kChord ||
-          b.decision.support_orientation_rule == wire::core::SupportOrientationRuleKind::kChord) {
+      if (a.support_orientation_rule == wire::core::SupportOrientationRuleKind::kChord ||
+          b.support_orientation_rule == wire::core::SupportOrientationRuleKind::kChord) {
         return false;
       }
-      wire::core::Vec3d axis_a = a.decision.side_axis;
-      wire::core::Vec3d axis_b = b.decision.side_axis;
+      wire::core::Vec3d axis_a = a.side_axis;
+      wire::core::Vec3d axis_b = b.side_axis;
       if (!wire::core::Normalize(&axis_a) || !wire::core::Normalize(&axis_b)) {
         return false;
       }
@@ -2505,7 +2505,7 @@ bool test_backbone_branch_bundle_uses_branch_support_ports() {
     const auto group = lowered_support_group_for_owner(*layout_view, center_id);
     if (!endpoint.has_value() || !group.has_value() || !endpoint_has_authoritative_lowering(*endpoint) ||
         endpoint->relation_kind != wire::core::JunctionRelationKind::kSideBranch ||
-        group->support_group_id != endpoint->decision.support_group_id || endpoint->branch_down_offset_m <= 1e-6) {
+        group->support_group_id != endpoint->support_group_id || endpoint->branch_down_offset_m <= 1e-6) {
       return false;
     }
     ++lowered_center_endpoints;
@@ -2704,9 +2704,9 @@ bool test_backbone_branch_support_lowers_hv3_bundle_uniformly() {
       return false;
     }
     if (support_group_id < 0) {
-      support_group_id = endpoint->decision.support_group_id;
+      support_group_id = endpoint->support_group_id;
       down_offset_m = group->down_offset_m;
-    } else if (support_group_id != endpoint->decision.support_group_id ||
+    } else if (support_group_id != endpoint->support_group_id ||
                !almost_equal(down_offset_m, group->down_offset_m, 1e-9)) {
       return false;
     }
@@ -2994,7 +2994,7 @@ bool collect_grouped_rank_family_snapshots(
       if (group.owner_pole_id != owner_pole_id) {
         continue;
       }
-      if (relation_filter.has_value() && group.decision.relation_kind != *relation_filter) {
+      if (relation_filter.has_value() && group.relation_kind != *relation_filter) {
         continue;
       }
       const std::uint64_t key =
@@ -3008,22 +3008,22 @@ bool collect_grouped_rank_family_snapshots(
       family.pair_peer_low = group.support_authority.pair.pair_peer_low;
       family.pair_peer_high = group.support_authority.pair.pair_peer_high;
       family.has_pair_axis = group.support_authority.pair.has_pair_axis;
-      family.relation_kind = group.decision.relation_kind;
-      family.continuity_class = group.decision.continuity_class;
+      family.relation_kind = group.relation_kind;
+      family.continuity_class = group.continuity_class;
       family.grouped_port_count = group.grouped_port_count;
     }
 
     const auto collect_endpoint = [&](const wire::core::SupportLayoutEndpointView& endpoint, bool is_start) {
-      if (endpoint.owner_pole_id != owner_pole_id || !endpoint.decision.lower_required ||
-          endpoint.decision.support_group_id < 0) {
+      if (endpoint.owner_pole_id != owner_pole_id || !endpoint.lower_required ||
+          endpoint.support_group_id < 0) {
         return;
       }
-      if (relation_filter.has_value() && endpoint.decision.relation_kind != *relation_filter) {
+      if (relation_filter.has_value() && endpoint.relation_kind != *relation_filter) {
         return;
       }
       const std::uint64_t key =
           (static_cast<std::uint64_t>(static_cast<std::uint32_t>(endpoint.owner_pole_id)) << 32) ^
-          static_cast<std::uint32_t>(endpoint.decision.support_group_id);
+          static_cast<std::uint32_t>(endpoint.support_group_id);
       auto it = families.find(key);
       if (it == families.end()) {
         return;
@@ -3032,7 +3032,7 @@ bool collect_grouped_rank_family_snapshots(
       snapshot.span_id = span_entry.id;
       snapshot.is_start = is_start;
       snapshot.owner_pole_id = endpoint.owner_pole_id;
-      snapshot.support_group_id = endpoint.decision.support_group_id;
+      snapshot.support_group_id = endpoint.support_group_id;
       snapshot.pair_height_rank = endpoint.pair_height_rank;
       snapshot.has_signed_support_axis = endpoint.has_signed_support_axis;
       snapshot.pair_peer_low = endpoint.support_authority.pair.pair_peer_low;
@@ -3244,7 +3244,7 @@ bool test_backbone_tilted_branch_support_follows_tilted_pole_centerline() {
     }
     const auto collect_endpoint = [&](const wire::core::SupportLayoutEndpointView& endpoint) {
       if (endpoint.owner_pole_id == center_id && endpoint_has_authoritative_lowering(endpoint) &&
-          endpoint.decision.support_group_id == support_group_id) {
+          endpoint.support_group_id == support_group_id) {
         endpoint_attachment_worlds.push_back(endpoint.endpoint_world);
       }
     };
@@ -3327,16 +3327,16 @@ bool test_backbone_default_single_branch_stays_flat_without_branch_support() {
   if (!endpoint.has_value()) {
     return false;
   }
-  if (!(span_view->flow_kind == wire::core::BackboneFlowKind::kBranch && !endpoint->decision.lower_required &&
-        endpoint->decision.support_group_id < 0 && endpoint->branch_down_offset_m == 0.0 &&
+  if (!(span_view->flow_kind == wire::core::BackboneFlowKind::kBranch && !endpoint->lower_required &&
+        endpoint->support_group_id < 0 && endpoint->branch_down_offset_m == 0.0 &&
         !lowered_support_group_for_owner(*layout_view, center_id).has_value())) {
     std::cerr << "[DBG] C197 flow=" << static_cast<int>(span_view->flow_kind)
-              << " lowerRequired=" << endpoint->decision.lower_required
-              << " groupId=" << endpoint->decision.support_group_id
+              << " lowerRequired=" << endpoint->lower_required
+              << " groupId=" << endpoint->support_group_id
               << " downOffset=" << endpoint->branch_down_offset_m << "\n";
   }
-  return span_view->flow_kind == wire::core::BackboneFlowKind::kBranch && !endpoint->decision.lower_required &&
-         endpoint->decision.support_group_id < 0 && endpoint->branch_down_offset_m == 0.0 &&
+  return span_view->flow_kind == wire::core::BackboneFlowKind::kBranch && !endpoint->lower_required &&
+         endpoint->support_group_id < 0 && endpoint->branch_down_offset_m == 0.0 &&
          !lowered_support_group_for_owner(*layout_view, center_id).has_value();
 }
 
@@ -3388,19 +3388,19 @@ bool test_backbone_communication_bundle_branch_stays_flat_without_branch_support
   if (!endpoint.has_value()) {
     return false;
   }
-  if (!(span_view->flow_kind == wire::core::BackboneFlowKind::kBranch && endpoint->decision.lower_required &&
-        endpoint->decision.support_group_id < 0 && endpoint->decision.lowering_blocked_by_policy &&
+  if (!(span_view->flow_kind == wire::core::BackboneFlowKind::kBranch && endpoint->lower_required &&
+        endpoint->support_group_id < 0 && endpoint->lowering_blocked_by_policy &&
         endpoint->branch_down_offset_m == 0.0 &&
         !lowered_support_group_for_owner(*layout_view, center_id).has_value())) {
     std::cerr << "[DBG] C198 flow=" << static_cast<int>(span_view->flow_kind)
-              << " lowerRequired=" << endpoint->decision.lower_required
-              << " groupId=" << endpoint->decision.support_group_id
-              << " blocked=" << endpoint->decision.lowering_blocked_by_policy
+              << " lowerRequired=" << endpoint->lower_required
+              << " groupId=" << endpoint->support_group_id
+              << " blocked=" << endpoint->lowering_blocked_by_policy
               << " downOffset=" << endpoint->branch_down_offset_m
               << " generatedSpanCount=" << branch_generated.value.generated_span_ids.size() << "\n";
   }
-  return span_view->flow_kind == wire::core::BackboneFlowKind::kBranch && endpoint->decision.lower_required &&
-         endpoint->decision.support_group_id < 0 && endpoint->decision.lowering_blocked_by_policy &&
+  return span_view->flow_kind == wire::core::BackboneFlowKind::kBranch && endpoint->lower_required &&
+         endpoint->support_group_id < 0 && endpoint->lowering_blocked_by_policy &&
          endpoint->branch_down_offset_m == 0.0 &&
          !lowered_support_group_for_owner(*layout_view, center_id).has_value();
 }
@@ -3497,9 +3497,9 @@ bool test_backbone_hv3_branch_support_policy_applies_on_both_default_pole_types(
         return false;
       }
       if (support_group_id < 0) {
-        support_group_id = endpoint->decision.support_group_id;
+        support_group_id = endpoint->support_group_id;
         down_offset_m = group->down_offset_m;
-      } else if (support_group_id != endpoint->decision.support_group_id ||
+      } else if (support_group_id != endpoint->support_group_id ||
                  !almost_equal(down_offset_m, group->down_offset_m, 1e-9)) {
         return false;
       }
@@ -3768,13 +3768,13 @@ bool test_backbone_hv3_acute_corner_lowering_survives_pole_refresh() {
   const bool ok = std::isfinite(after_center_z) && std::isfinite(after_neighbor_z) &&
                   after_center_z + 1e-6 < after_neighbor_z && after_endpoint.has_value() && after_group.has_value() &&
                   endpoint_has_authoritative_lowering(*after_endpoint) &&
-                  before_endpoint->decision.support_group_id == after_endpoint->decision.support_group_id &&
+                  before_endpoint->support_group_id == after_endpoint->support_group_id &&
                   almost_equal(before_group->mount_world.z, after_group->mount_world.z, 1e-6) &&
                   almost_equal(before_group->tip_world.z, after_group->tip_world.z, 1e-6);
   if (!ok) {
     std::cerr << "[DBG] C205 after centerZ=" << after_center_z << " neighborZ=" << after_neighbor_z
-              << " beforeGroup=" << before_endpoint->decision.support_group_id
-              << " afterGroup=" << (after_endpoint.has_value() ? after_endpoint->decision.support_group_id : -1) << "\n";
+              << " beforeGroup=" << before_endpoint->support_group_id
+              << " afterGroup=" << (after_endpoint.has_value() ? after_endpoint->support_group_id : -1) << "\n";
   }
   return ok;
 }
@@ -6841,7 +6841,7 @@ bool test_backbone_bundle_branch_lowering_stays_pole_local() {
       ++grouped_segments;
     }
     const bool local_lower =
-        layout_view->start_endpoint.decision.lower_required || layout_view->end_endpoint.decision.lower_required;
+        layout_view->start_endpoint.lower_required || layout_view->end_endpoint.lower_required;
     if (local_lower) {
       ++locally_lowered_segments;
     }
@@ -6910,16 +6910,16 @@ bool test_backbone_cross_underpass_supports_share_one_side_group() {
     }
     for (const auto& placement : support_layout->lowered_support_groups) {
       if (placement.owner_pole_id == center_id &&
-          placement.decision.relation_kind == wire::core::JunctionRelationKind::kCrossUnderpass) {
+          placement.relation_kind == wire::core::JunctionRelationKind::kCrossUnderpass) {
         placements.push_back(placement);
       }
     }
     const auto collect_endpoint = [&](const wire::core::SupportLayoutEndpointView& endpoint) {
       if (endpoint.owner_pole_id == center_id &&
-          endpoint.decision.relation_kind == wire::core::JunctionRelationKind::kCrossUnderpass &&
-          endpoint.decision.lower_required) {
+          endpoint.relation_kind == wire::core::JunctionRelationKind::kCrossUnderpass &&
+          endpoint.lower_required) {
         attach_points.push_back({span_id, endpoint.endpoint_world, endpoint.support_world});
-        lowered_endpoint_decisions.push_back(endpoint.decision);
+        lowered_endpoint_decisions.push_back(endpoint);
       }
     };
     collect_endpoint(support_layout->start_endpoint);
@@ -6957,8 +6957,8 @@ bool test_backbone_cross_underpass_supports_share_one_side_group() {
   const double side_sign = placements.front().chosen_side_sign;
   const auto side_rule = placements.front().side_assignment_rule;
   const auto orientation_rule = placements.front().support_orientation_rule;
-  const auto group_basis = placements.front().decision.support_orientation_basis;
-  const auto group_side = placements.front().decision.chosen_side;
+  const auto group_basis = placements.front().support_orientation_basis;
+  const auto group_side = placements.front().chosen_side;
   for (const auto& placement : placements) {
     if (placement.grouping_rule != wire::core::SupportGroupingRuleKind::kDecisionGroup ||
         placement.support_group_id != group_id ||
@@ -7101,16 +7101,16 @@ bool test_backbone_refresh_keeps_local_lower_and_grouped_support() {
   };
   auto snapshot_endpoint = [&](const wire::core::SupportLayoutEndpointView& endpoint) {
     EndpointSnapshot s{};
-    s.support_group_id = endpoint.decision.support_group_id;
+    s.support_group_id = endpoint.support_group_id;
     s.endpoint_world = endpoint.endpoint_world;
     s.support_world = endpoint.support_world;
     s.side_assignment_rule = endpoint.side_assignment_rule;
     s.support_orientation_rule = endpoint.support_orientation_rule;
-    s.support_orientation_basis = endpoint.decision.support_orientation_basis;
+    s.support_orientation_basis = endpoint.support_orientation_basis;
     s.side_axis = endpoint.side_axis;
     s.chosen_side_sign = endpoint.chosen_side_sign;
-    s.lower_required = endpoint.decision.lower_required;
-    s.default_lower_required = endpoint.decision.default_lower_required;
+    s.lower_required = endpoint.lower_required;
+    s.default_lower_required = endpoint.default_lower_required;
     s.relation_kind = endpoint.relation_kind;
     return s;
   };
@@ -7125,12 +7125,11 @@ bool test_backbone_refresh_keeps_local_lower_and_grouped_support() {
       s.tip_world = g.tip_world;
       s.side_assignment_rule = g.side_assignment_rule;
       s.support_orientation_rule = g.support_orientation_rule;
-      s.support_orientation_basis = g.decision.support_orientation_basis;
+      s.support_orientation_basis = g.support_orientation_basis;
       s.side_axis = g.side_axis;
       s.chosen_side_sign = g.chosen_side_sign;
-      s.lower_required = g.decision.lower_required;
-      s.default_lower_required = g.decision.default_lower_required;
-      s.relation_kind = g.decision.relation_kind;
+      s.lower_required = g.lower_required;
+      s.relation_kind = g.relation_kind;
       break;
     }
     return s;
@@ -7169,8 +7168,8 @@ bool test_backbone_refresh_keeps_local_lower_and_grouped_support() {
                                   : snapshot_endpoint(after->end_endpoint);
   const auto after_group = snapshot_group_for_center(*after);
   return after.has_value() &&
-         before->start_endpoint.decision.lower_required == after->start_endpoint.decision.lower_required &&
-         before->end_endpoint.decision.lower_required == after->end_endpoint.decision.lower_required &&
+         before->start_endpoint.lower_required == after->start_endpoint.lower_required &&
+         before->end_endpoint.lower_required == after->end_endpoint.lower_required &&
          before_grouped == after_grouped && after_grouped > 0 &&
          before_endpoint.support_group_id == after_endpoint.support_group_id &&
          before_group.support_group_id == after_group.support_group_id &&
@@ -7402,19 +7401,19 @@ bool test_backbone_branch_lower_required_height_survives_to_grouped_placement() 
       }
       const auto collect_endpoint = [&](const wire::core::SupportLayoutEndpointView& endpoint) {
         if (endpoint.owner_pole_id != center_id ||
-            endpoint.decision.relation_kind != wire::core::JunctionRelationKind::kSideBranch ||
-            !endpoint.decision.lower_required || endpoint.decision.lowering_blocked_by_policy ||
-            endpoint.decision.support_group_id < 0) {
+            endpoint.relation_kind != wire::core::JunctionRelationKind::kSideBranch ||
+            !endpoint.lower_required || endpoint.lowering_blocked_by_policy ||
+            endpoint.support_group_id < 0) {
           return;
         }
         for (const auto& group : layout->lowered_support_groups) {
-          if (group.owner_pole_id == center_id && group.support_group_id == endpoint.decision.support_group_id) {
+          if (group.owner_pole_id == center_id && group.support_group_id == endpoint.support_group_id) {
             Snapshot s{};
             s.span_id = span_id;
-            s.support_group_id = endpoint.decision.support_group_id;
-            s.lower_required = endpoint.decision.lower_required;
-            s.default_lower_required = endpoint.decision.default_lower_required;
-            s.relation_kind = endpoint.decision.relation_kind;
+            s.support_group_id = endpoint.support_group_id;
+            s.lower_required = endpoint.lower_required;
+            s.default_lower_required = endpoint.default_lower_required;
+            s.relation_kind = endpoint.relation_kind;
             s.support_world = endpoint.support_world;
             s.mount_world = group.mount_world;
             s.tip_world = group.tip_world;
@@ -7568,8 +7567,8 @@ bool test_backbone_bundle_non_through_height_collapses_to_two_states() {
       }
       const auto absorb = [&](const wire::core::SupportLayoutEndpointView& endpoint) {
         if (endpoint.owner_pole_id == center_id &&
-            endpoint.decision.relation_kind == wire::core::JunctionRelationKind::kThroughMain &&
-            !endpoint.decision.lower_required) {
+            endpoint.relation_kind == wire::core::JunctionRelationKind::kThroughMain &&
+            !endpoint.lower_required) {
           if (!std::isfinite(snapshot.through_main_z)) {
             snapshot.through_main_z = endpoint.support_world.z;
             snapshot.through_main_offset_m = endpoint.branch_down_offset_m;
@@ -7578,8 +7577,8 @@ bool test_backbone_bundle_non_through_height_collapses_to_two_states() {
           }
         }
         if (endpoint.owner_pole_id == center_id &&
-            endpoint.decision.relation_kind == wire::core::JunctionRelationKind::kSideBranch &&
-            endpoint.decision.lower_required && !endpoint.decision.lowering_blocked_by_policy) {
+            endpoint.relation_kind == wire::core::JunctionRelationKind::kSideBranch &&
+            endpoint.lower_required && !endpoint.lowering_blocked_by_policy) {
           if (!std::isfinite(snapshot.side_branch_z)) {
             snapshot.side_branch_z = endpoint.support_world.z;
             snapshot.side_branch_offset_m = endpoint.branch_down_offset_m;
@@ -7589,8 +7588,8 @@ bool test_backbone_bundle_non_through_height_collapses_to_two_states() {
           }
         }
         if (endpoint.owner_pole_id == corner_id &&
-            endpoint.decision.relation_kind == wire::core::JunctionRelationKind::kCornerContinuation &&
-            endpoint.decision.lower_required && !endpoint.decision.lowering_blocked_by_policy) {
+            endpoint.relation_kind == wire::core::JunctionRelationKind::kCornerContinuation &&
+            endpoint.lower_required && !endpoint.lowering_blocked_by_policy) {
           if (!std::isfinite(snapshot.corner_z)) {
             snapshot.corner_z = endpoint.support_world.z;
             snapshot.corner_offset_m = endpoint.branch_down_offset_m;
@@ -8015,10 +8014,10 @@ bool test_backbone_corner_support_uses_connected_line_basis() {
         continue;
       }
       const auto endpoint_matches = [&](const wire::core::SupportLayoutEndpointView& endpoint) {
-        return endpoint.owner_pole_id == corner_id && endpoint.decision.lower_required &&
-               (endpoint.decision.support_orientation_basis ==
+        return endpoint.owner_pole_id == corner_id && endpoint.lower_required &&
+               (endpoint.support_orientation_basis ==
                     wire::core::SupportOrientationBasisKind::kBisectorForward ||
-                endpoint.decision.support_orientation_basis ==
+                endpoint.support_orientation_basis ==
                     wire::core::SupportOrientationBasisKind::kBisectorReverse);
       };
       if (endpoint_matches(support_layout->start_endpoint) || endpoint_matches(support_layout->end_endpoint)) {
@@ -8034,8 +8033,8 @@ bool test_backbone_corner_support_uses_connected_line_basis() {
     if (placement.support_group_id != group_id ||
         placement.side_assignment_rule != wire::core::SideAssignmentRuleKind::kBisector ||
         placement.support_orientation_rule != wire::core::SupportOrientationRuleKind::kBisector ||
-        (placement.decision.support_orientation_basis != wire::core::SupportOrientationBasisKind::kBisectorForward &&
-         placement.decision.support_orientation_basis != wire::core::SupportOrientationBasisKind::kBisectorReverse) ||
+        (placement.support_orientation_basis != wire::core::SupportOrientationBasisKind::kBisectorForward &&
+         placement.support_orientation_basis != wire::core::SupportOrientationBasisKind::kBisectorReverse) ||
         placement.support_orientation_rule == wire::core::SupportOrientationRuleKind::kRadial ||
         std::abs(placement.chosen_side_sign - side_sign) > 1e-9 ||
         !almost_equal(placement.mount_world.x, placements.front().mount_world.x, 1e-6) ||
@@ -8111,19 +8110,19 @@ bool test_backbone_lowered_bundle_midspan_support_uses_pair_based_orientation() 
         return nullptr;
       }();
       const auto inspect_endpoint = [&](const wire::core::SupportLayoutEndpointView& endpoint) {
-        if (endpoint.owner_pole_id != downstream_corner_id || !endpoint.decision.lower_required ||
-            endpoint.decision.support_group_id < 0) {
+        if (endpoint.owner_pole_id != downstream_corner_id || !endpoint.lower_required ||
+            endpoint.support_group_id < 0) {
           return true;
         }
-        if (authoritative_group == nullptr || authoritative_group->support_group_id != endpoint.decision.support_group_id) {
+        if (authoritative_group == nullptr || authoritative_group->support_group_id != endpoint.support_group_id) {
           return false;
         }
         const bool pair_based =
             endpoint.side_assignment_rule == wire::core::SideAssignmentRuleKind::kBisector &&
             endpoint.support_orientation_rule == wire::core::SupportOrientationRuleKind::kBisector &&
-            (endpoint.decision.support_orientation_basis ==
+            (endpoint.support_orientation_basis ==
                  wire::core::SupportOrientationBasisKind::kBisectorForward ||
-             endpoint.decision.support_orientation_basis ==
+             endpoint.support_orientation_basis ==
                  wire::core::SupportOrientationBasisKind::kBisectorReverse);
         if (!pair_based || endpoint.support_orientation_rule == wire::core::SupportOrientationRuleKind::kRadial ||
             authoritative_group->pair_peer_low == wire::core::kInvalidObjectId ||
@@ -8131,13 +8130,13 @@ bool test_backbone_lowered_bundle_midspan_support_uses_pair_based_orientation() 
           return false;
         }
         if (expected_group_id < 0) {
-          expected_group_id = endpoint.decision.support_group_id;
+          expected_group_id = endpoint.support_group_id;
           expected_pair_low = authoritative_group->pair_peer_low;
           expected_pair_high = authoritative_group->pair_peer_high;
           expected_side_sign = endpoint.chosen_side_sign;
           expected_axis = endpoint.side_axis;
         }
-        if (endpoint.decision.support_group_id != expected_group_id ||
+        if (endpoint.support_group_id != expected_group_id ||
             authoritative_group->pair_peer_low != expected_pair_low ||
             authoritative_group->pair_peer_high != expected_pair_high ||
             std::abs(endpoint.chosen_side_sign - expected_side_sign) > 1e-9 ||
@@ -8147,12 +8146,12 @@ bool test_backbone_lowered_bundle_midspan_support_uses_pair_based_orientation() 
         }
         Snapshot snapshot{};
         snapshot.span_id = span_id;
-        snapshot.support_group_id = endpoint.decision.support_group_id;
+        snapshot.support_group_id = endpoint.support_group_id;
         snapshot.pair_peer_low = authoritative_group->pair_peer_low;
         snapshot.pair_peer_high = authoritative_group->pair_peer_high;
         snapshot.side_rule = endpoint.side_assignment_rule;
         snapshot.orientation_rule = endpoint.support_orientation_rule;
-        snapshot.orientation_basis = endpoint.decision.support_orientation_basis;
+        snapshot.orientation_basis = endpoint.support_orientation_basis;
         snapshot.side_sign = endpoint.chosen_side_sign;
         snapshot.side_axis = endpoint.side_axis;
         snapshots.push_back(snapshot);
@@ -8233,8 +8232,8 @@ bool test_backbone_pair_based_orientation_allows_opposite_signs_per_pole() {
     }
     const auto& start = layout->start_endpoint;
     const auto& end = layout->end_endpoint;
-    const bool both_grouped = start.decision.lower_required && end.decision.lower_required &&
-                              start.decision.support_group_id >= 0 && end.decision.support_group_id >= 0;
+    const bool both_grouped = start.lower_required && end.lower_required &&
+                              start.support_group_id >= 0 && end.support_group_id >= 0;
     if (!both_grouped) {
       continue;
     }
@@ -8243,8 +8242,8 @@ bool test_backbone_pair_based_orientation_allows_opposite_signs_per_pole() {
         end.side_assignment_rule == wire::core::SideAssignmentRuleKind::kBisector &&
         start.support_orientation_rule == wire::core::SupportOrientationRuleKind::kBisector &&
         end.support_orientation_rule == wire::core::SupportOrientationRuleKind::kBisector &&
-        start.decision.support_orientation_basis == wire::core::SupportOrientationBasisKind::kBisectorForward &&
-        end.decision.support_orientation_basis == wire::core::SupportOrientationBasisKind::kBisectorForward;
+        start.support_orientation_basis == wire::core::SupportOrientationBasisKind::kBisectorForward &&
+        end.support_orientation_basis == wire::core::SupportOrientationBasisKind::kBisectorForward;
     if (!pair_based) {
       continue;
     }
@@ -9868,7 +9867,7 @@ bool test_backbone_latest_support_orientation_replay_uses_pair_authority() {
   const std::unordered_set<ObjectId> generated_span_set(generated_span_ids.begin(), generated_span_ids.end());
   std::map<std::pair<ObjectId, ObjectId>, wire::core::Vec3d> sidebranch_axis_by_pair{};
   auto endpoint_requires_pair_authority = [](const wire::core::SupportLayoutEndpointView& endpoint) {
-    return !endpoint.decision.lower_required && endpoint.same_level_feasible &&
+    return !endpoint.lower_required && endpoint.same_level_feasible &&
            endpoint.continuity_class == wire::core::ContinuityCategoryClass::kPointLike &&
            (endpoint.relation_kind == wire::core::JunctionRelationKind::kSideBranch ||
             endpoint.relation_kind == wire::core::JunctionRelationKind::kThroughMain);
@@ -9948,7 +9947,7 @@ bool test_backbone_latest_support_orientation_replay_visual_follows_pair_axis() 
   std::set<std::pair<ObjectId, ObjectId>> seen{};
   const std::unordered_set<ObjectId> generated_span_set(generated_span_ids.begin(), generated_span_ids.end());
   auto endpoint_requires_pair_visual = [](const wire::core::SupportLayoutEndpointView& endpoint) {
-    return !endpoint.decision.lower_required && endpoint.same_level_feasible &&
+    return !endpoint.lower_required && endpoint.same_level_feasible &&
            endpoint.continuity_class == wire::core::ContinuityCategoryClass::kPointLike &&
            endpoint_uses_pair_authority_without_local_fallback(endpoint) &&
            endpoint.has_side_axis && std::abs(endpoint.chosen_side_sign) > 1e-9;
@@ -10028,7 +10027,7 @@ bool test_backbone_latest_capture_t_support_family_does_not_mix_pair_rules() {
   std::map<std::pair<ObjectId, ObjectId>, PairFamilyState> pair_state_by_key{};
 
   auto register_endpoint = [&](ObjectId span_id, const char* side_name, const wire::core::SupportLayoutEndpointView& endpoint) {
-    if (!generated_span_set.contains(span_id) || endpoint.decision.lower_required || !endpoint.same_level_feasible ||
+    if (!generated_span_set.contains(span_id) || endpoint.lower_required || !endpoint.same_level_feasible ||
         endpoint.continuity_class != wire::core::ContinuityCategoryClass::kPointLike ||
         !endpoint_uses_pair_authority_without_local_fallback(endpoint, false) ||
         (endpoint.relation_kind != wire::core::JunctionRelationKind::kThroughMain &&
@@ -10174,7 +10173,7 @@ bool test_backbone_non_grouped_support_visual_uses_endpoint_authority() {
       continue;
     }
     const auto endpoint = layout_endpoint_for_owner(*layout_view, center_id);
-    if (!endpoint.has_value() || endpoint->decision.lower_required ||
+    if (!endpoint.has_value() || endpoint->lower_required ||
         endpoint->support_orientation_rule == wire::core::SupportOrientationRuleKind::kRadial ||
         !endpoint->has_side_axis || std::abs(endpoint->chosen_side_sign) <= 1e-9 ||
         !layout_view->lowered_support_groups.empty()) {
@@ -11042,14 +11041,14 @@ bool test_backbone_non_lowered_cross_spans_do_not_expose_lowered_support_groups(
     if (!endpoint.has_value()) {
       continue;
     }
-    if (endpoint->decision.lower_required) {
+    if (endpoint->lower_required) {
       saw_lowered_cross = true;
       continue;
     }
     saw_non_lowered_center_span = true;
     if (!layout_view->lowered_support_groups.empty()) {
       std::cerr << "[DBG] C267 span=" << span_entry.id
-                << " lowerRequired=" << endpoint->decision.lower_required
+                << " lowerRequired=" << endpoint->lower_required
                 << " groupCount=" << layout_view->lowered_support_groups.size()
                 << " relationA=" << static_cast<int>(layout_view->relation_a)
                 << " relationB=" << static_cast<int>(layout_view->relation_b) << "\n";
@@ -11137,7 +11136,7 @@ bool test_backbone_non_lowered_spans_do_not_inherit_acute_corner_support_groups(
       continue;
     }
     const bool has_lowered_endpoint =
-        layout_view->start_endpoint.decision.lower_required || layout_view->end_endpoint.decision.lower_required;
+        layout_view->start_endpoint.lower_required || layout_view->end_endpoint.lower_required;
     if (has_lowered_endpoint) {
       saw_lowered = true;
       continue;
@@ -11147,8 +11146,8 @@ bool test_backbone_non_lowered_spans_do_not_inherit_acute_corner_support_groups(
         std::cerr << "[DBG] C268 span=" << span_id
                   << " groupCount=" << layout_view->lowered_support_groups.size()
                   << " flow=" << static_cast<int>(span_view->flow_kind)
-                  << " startLower=" << layout_view->start_endpoint.decision.lower_required
-                  << " endLower=" << layout_view->end_endpoint.decision.lower_required << "\n";
+                  << " startLower=" << layout_view->start_endpoint.lower_required
+                  << " endLower=" << layout_view->end_endpoint.lower_required << "\n";
         return false;
       }
   }
@@ -11534,23 +11533,19 @@ bool test_backbone_authoritative_endpoint_decision_matches_support_layout() {
     return false;
   }
   const bool same_start =
-      layout_view->start_endpoint.decision.owner_pole_id == layout_view->start_endpoint.owner_pole_id &&
-      layout_view->start_endpoint.decision.owner_pole_id == assignment->decision_a.owner_pole_id &&
-      layout_view->start_endpoint.decision.order_decision_choice == assignment->decision_a.order_decision_choice &&
-      layout_view->start_endpoint.decision.chosen_side == assignment->decision_a.chosen_side &&
-      layout_view->start_endpoint.decision.support_orientation_basis == assignment->decision_a.support_orientation_basis &&
-      layout_view->start_endpoint.decision.lower_required == assignment->decision_a.lower_required &&
-      layout_view->start_endpoint.decision.relation_kind == assignment->decision_a.relation_kind &&
-      !layout_view->start_endpoint.decision.downstream_overridden;
+      layout_view->start_endpoint.owner_pole_id == assignment->decision_a.owner_pole_id &&
+      layout_view->start_endpoint.order_decision_choice == assignment->decision_a.order_decision_choice &&
+      layout_view->start_endpoint.chosen_side == assignment->decision_a.chosen_side &&
+      layout_view->start_endpoint.support_orientation_basis == assignment->decision_a.support_orientation_basis &&
+      layout_view->start_endpoint.lower_required == assignment->decision_a.lower_required &&
+      layout_view->start_endpoint.relation_kind == assignment->decision_a.relation_kind;
   const bool same_end =
-      layout_view->end_endpoint.decision.owner_pole_id == layout_view->end_endpoint.owner_pole_id &&
-      layout_view->end_endpoint.decision.owner_pole_id == assignment->decision_b.owner_pole_id &&
-      layout_view->end_endpoint.decision.order_decision_choice == assignment->decision_b.order_decision_choice &&
-      layout_view->end_endpoint.decision.chosen_side == assignment->decision_b.chosen_side &&
-      layout_view->end_endpoint.decision.support_orientation_basis == assignment->decision_b.support_orientation_basis &&
-      layout_view->end_endpoint.decision.lower_required == assignment->decision_b.lower_required &&
-      layout_view->end_endpoint.decision.relation_kind == assignment->decision_b.relation_kind &&
-      !layout_view->end_endpoint.decision.downstream_overridden;
+      layout_view->end_endpoint.owner_pole_id == assignment->decision_b.owner_pole_id &&
+      layout_view->end_endpoint.order_decision_choice == assignment->decision_b.order_decision_choice &&
+      layout_view->end_endpoint.chosen_side == assignment->decision_b.chosen_side &&
+      layout_view->end_endpoint.support_orientation_basis == assignment->decision_b.support_orientation_basis &&
+      layout_view->end_endpoint.lower_required == assignment->decision_b.lower_required &&
+      layout_view->end_endpoint.relation_kind == assignment->decision_b.relation_kind;
   return same_start && same_end;
 }
 
@@ -11615,13 +11610,12 @@ bool test_backbone_refresh_does_not_override_authoritative_endpoint_decision() {
   }
   const auto after_endpoint = layout_endpoint_for_owner(*after, center_id);
   return after_endpoint.has_value() &&
-         after_endpoint->decision.owner_pole_id == before_decision.owner_pole_id &&
-         after_endpoint->decision.owner_pole_id == after_endpoint->owner_pole_id &&
-         after_endpoint->decision.order_decision_choice == before_decision.order_decision_choice &&
-         after_endpoint->decision.chosen_side == before_decision.chosen_side &&
-         after_endpoint->decision.support_orientation_basis == before_decision.support_orientation_basis &&
-         after_endpoint->decision.lower_required == before_decision.lower_required &&
-         !after_endpoint->decision.downstream_overridden;
+         after_endpoint->owner_pole_id == before_decision.owner_pole_id &&
+         after_endpoint->owner_pole_id == after_endpoint->owner_pole_id &&
+         after_endpoint->order_decision_choice == before_decision.order_decision_choice &&
+         after_endpoint->chosen_side == before_decision.chosen_side &&
+         after_endpoint->support_orientation_basis == before_decision.support_orientation_basis &&
+         after_endpoint->lower_required == before_decision.lower_required;
 }
 
 bool test_backbone_authoritative_cross_pair_side_symmetry() {
@@ -11676,13 +11670,13 @@ bool test_backbone_authoritative_cross_pair_side_symmetry() {
     if (!endpoint.has_value()) {
       continue;
     }
-    saw_pair_based = saw_pair_based || endpoint->decision.used_junction_pair_side_assignment;
-    if (endpoint->decision.chosen_side == wire::core::LateralSideChoiceKind::kCenter) {
+    saw_pair_based = saw_pair_based || endpoint->used_junction_pair_side_assignment;
+    if (endpoint->chosen_side == wire::core::LateralSideChoiceKind::kCenter) {
       return false;
     }
     if (!shared_side.has_value()) {
-      shared_side = endpoint->decision.chosen_side;
-    } else if (*shared_side != endpoint->decision.chosen_side) {
+      shared_side = endpoint->chosen_side;
+    } else if (*shared_side != endpoint->chosen_side) {
       return false;
     }
   }
@@ -11784,7 +11778,7 @@ bool test_backbone_hv3_authoritative_order_decision_survives_refresh() {
   if (!before.has_value()) {
     return false;
   }
-  const auto before_decision = before->start_endpoint.decision;
+  const auto before_decision = before->start_endpoint;
   if (before_decision.order_decision_policy != wire::core::OrderDecisionPolicyKind::kPermutableHomogeneous) {
     return false;
   }
@@ -11802,9 +11796,8 @@ bool test_backbone_hv3_authoritative_order_decision_survives_refresh() {
          before->has_decision_seed && before->requires_decision_seed &&
          after->has_decision_seed == before->has_decision_seed &&
          after->requires_decision_seed == before->requires_decision_seed &&
-         after->start_endpoint.decision.order_decision_choice == before_decision.order_decision_choice &&
-         after->start_endpoint.decision.order_decision_choice_reason == before_decision.order_decision_choice_reason &&
-         after->start_endpoint.decision.downstream_overridden == false;
+         after->start_endpoint.order_decision_choice == before_decision.order_decision_choice &&
+         after->start_endpoint.order_decision_choice_reason == before_decision.order_decision_choice_reason;
 }
 
 bool test_backbone_edge_orientation_uses_chosen_order_decision() {

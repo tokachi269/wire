@@ -32,18 +32,18 @@ Vec3d AuthoritativeSupportAxisForGroup(const SupportGroupDecision& group) {
   if (group.support_authority.has_signed_support_axis) {
     return SafeHorizontalNormalized(group.support_authority.signed_support_axis);
   }
-  Vec3d axis = group.decision.side_axis;
+  Vec3d axis = group.side_axis;
   axis.z = 0.0;
   if (!Normalize(&axis) || !IsFiniteXY(axis)) {
     return {0.0, 0.0, 0.0};
   }
-  if (std::abs(group.decision.chosen_side_sign) > 1e-9) {
-    axis = ScaleVec(axis, (group.decision.chosen_side_sign >= 0.0) ? 1.0 : -1.0);
+  if (std::abs(group.chosen_side_sign) > 1e-9) {
+    axis = ScaleVec(axis, (group.chosen_side_sign >= 0.0) ? 1.0 : -1.0);
   }
   return axis;
 }
 
-ResolvedSupportAuthority ResolvedSupportAuthorityFromDecision(const EndpointContinuityDecision& decision,
+ResolvedSupportAuthority ResolvedSupportAuthorityFromDecision(const SupportLayoutSemanticDecision& decision,
                                                              int height_rank) {
   ResolvedSupportAuthority authority{};
   authority.pair.pair_peer_low = decision.support_pair_peer_low;
@@ -61,6 +61,11 @@ ResolvedSupportAuthority ResolvedSupportAuthorityFromDecision(const EndpointCont
     authority.has_signed_support_axis = true;
   }
   return authority;
+}
+
+ResolvedSupportAuthority ResolvedSupportAuthorityFromDecision(const EndpointContinuityDecision& decision,
+                                                             int height_rank) {
+  return ResolvedSupportAuthorityFromDecision(MakeSupportLayoutSemanticDecision(decision), height_rank);
 }
 
 } // namespace wire::core

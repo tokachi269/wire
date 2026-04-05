@@ -164,10 +164,10 @@ double template_layer_base_z_for_port_category_seed(const CoreState& state, cons
 void append_seed_support_group_decision(const CoreState& state, const Port& port,
                                         const SupportLayoutDecisionSeedEndpoint& endpoint,
                                         SpanSupportLayoutDecisionSeed* layout) {
-  if (layout == nullptr || !UsesAuthoritativeGroupedLoweredSupport(endpoint.decision)) {
+  if (layout == nullptr || !UsesAuthoritativeGroupedLoweredSupport(endpoint)) {
     return;
   }
-  const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint.decision);
+  const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint);
   if (key.owner_pole_id == kInvalidObjectId || key.support_group_id < 0) {
     return;
   }
@@ -178,9 +178,9 @@ void append_seed_support_group_decision(const CoreState& state, const Port& port
   auto [it, inserted] = layout->support_group_decisions.try_emplace(key);
   if (inserted) {
     SupportGroupDecision& group = it->second;
-    group.decision = endpoint.decision;
-    group.decision.owner_pole_id = endpoint.owner_pole_id;
-    group.decision.support_group_id = endpoint.decision.support_group_id;
+    static_cast<SupportLayoutSemanticDecision&>(group) = endpoint;
+    group.owner_pole_id = endpoint.owner_pole_id;
+    group.support_group_id = endpoint.support_group_id;
     group.support_authority = endpoint.support_authority;
     group.category = port.category;
     group.side = endpoint.side;
@@ -2934,9 +2934,7 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       continue;
     }
     const SpanSupportLayoutDecisionSeed* cached_seed = find_span_support_layout_seed(span.id);
-    const auto rebuilt_seed = rebuild_existing_span_decision_seed(
-        edit_state_access(), span, cached_seed, relation_index_access(), connection_index_access(),
-        materialization_phase.junction_relations_by_node);
+    const auto rebuilt_seed = rebuild_existing_span_decision_seed(edit_state_access(), span, cached_seed);
     if (!rebuilt_seed.has_value()) {
       continue;
     }

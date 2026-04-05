@@ -13,13 +13,12 @@ void clear_layout_endpoint_authority_projection(SupportLayoutEndpoint* endpoint)
   endpoint->visual_insulator_base_world = {};
 }
 
-void apply_endpoint_decision_to_layout_endpoint(const EndpointContinuityDecision& decision,
+void apply_endpoint_decision_to_layout_endpoint(const SupportLayoutSemanticDecision& decision,
                                                 SupportLayoutEndpoint* endpoint) {
   if (endpoint == nullptr) {
     return;
   }
-  endpoint->decision = decision;
-  endpoint->decision.owner_pole_id = endpoint->owner_pole_id;
+  static_cast<SupportLayoutSemanticDecision&>(*endpoint) = decision;
 }
 
 void apply_support_layout_decision_seed_endpoint(const SupportLayoutDecisionSeedEndpoint& seed,
@@ -31,7 +30,7 @@ void apply_support_layout_decision_seed_endpoint(const SupportLayoutDecisionSeed
   endpoint->owner_pole_id = seed.owner_pole_id;
   endpoint->port_id = seed.port_id;
   clear_layout_endpoint_authority_projection(endpoint);
-  apply_endpoint_decision_to_layout_endpoint(seed.decision, endpoint);
+  apply_endpoint_decision_to_layout_endpoint(seed, endpoint);
   endpoint->support_authority = seed.support_authority;
   endpoint->flow_kind = seed.flow_kind;
   endpoint->origin = seed.origin;
@@ -43,6 +42,14 @@ void apply_support_layout_decision_seed_endpoint(const SupportLayoutDecisionSeed
   endpoint->visual_insulator_base_world = seed.visual_insulator_base_world;
   endpoint->automatic_branch_down_offset_m = seed.automatic_branch_down_offset_m;
   endpoint->branch_down_offset_m = seed.branch_down_offset_m;
+  endpoint->default_lower_required = seed.default_lower_required;
+  endpoint->same_level_feasible = seed.same_level_feasible;
+  endpoint->unresolved_same_level_conflict = seed.unresolved_same_level_conflict;
+  endpoint->same_level_reason = seed.same_level_reason;
+  endpoint->projected_spacing_topview_m = seed.projected_spacing_topview_m;
+  endpoint->required_clearance_m = seed.required_clearance_m;
+  endpoint->solver_used_same_level_constraint = seed.solver_used_same_level_constraint;
+  endpoint->used_special_case_ports = seed.used_special_case_ports;
   endpoint->down_offset_variation = seed.down_offset_variation;
 }
 
@@ -67,7 +74,7 @@ void apply_grouped_support_placement_to_layout_endpoint(const SupportGroupDecisi
     return;
   }
   clear_layout_endpoint_authority_projection(endpoint);
-  apply_endpoint_decision_to_layout_endpoint(group_decision.decision, endpoint);
+  apply_endpoint_decision_to_layout_endpoint(group_decision, endpoint);
   endpoint->support_authority = group_decision.support_authority;
   endpoint->side = group_decision.side;
   endpoint->origin = group_decision.origin;
@@ -81,11 +88,11 @@ const SupportGroupDecision* find_layout_support_group_decision_for_endpoint(cons
                                                                             const SupportLayoutEndpoint& endpoint,
                                                                             LoweredSupportGroupKey* out_key) {
   if (endpoint.owner_pole_id == kInvalidObjectId || layout.support_group_decisions.empty() ||
-      !UsesAuthoritativeGroupedLoweredSupport(endpoint.decision)) {
+      !UsesAuthoritativeGroupedLoweredSupport(endpoint)) {
     return nullptr;
   }
 
-  const LoweredSupportGroupKey exact_key = LoweredSupportGroupKeyFromDecision(endpoint.decision);
+  const LoweredSupportGroupKey exact_key = LoweredSupportGroupKeyFromDecision(endpoint);
   if (const auto exact_it = layout.support_group_decisions.find(exact_key);
       exact_it != layout.support_group_decisions.end()) {
     if (out_key != nullptr) {

@@ -37,20 +37,19 @@ bool has_duplicate_ids(const std::vector<ObjectId>& ids) {
 }
 
 bool endpoint_uses_grouped_lowered_support_for_validation(const SupportLayoutEndpoint& endpoint) {
-  return UsesAuthoritativeGroupedLoweredSupport(endpoint.decision);
+  return UsesAuthoritativeGroupedLoweredSupport(endpoint);
 }
 
 bool endpoint_requires_pair_authority_for_validation(const SupportLayoutEndpoint& endpoint) {
-  const EndpointContinuityDecision& decision = endpoint.decision;
-  return !decision.lower_required && decision.same_level_feasible &&
-         decision.continuity_class == ContinuityCategoryClass::kPointLike && HasAuthoritativeSupportPair(decision) &&
-         (decision.relation_kind == JunctionRelationKind::kThroughMain ||
-          decision.relation_kind == JunctionRelationKind::kSideBranch ||
-          decision.relation_kind == JunctionRelationKind::kCrossUnderpass);
+  return !endpoint.lower_required && endpoint.same_level_feasible &&
+         endpoint.continuity_class == ContinuityCategoryClass::kPointLike && HasAuthoritativeSupportPair(endpoint) &&
+         (endpoint.relation_kind == JunctionRelationKind::kThroughMain ||
+          endpoint.relation_kind == JunctionRelationKind::kSideBranch ||
+          endpoint.relation_kind == JunctionRelationKind::kCrossUnderpass);
 }
 
-bool endpoint_semantic_contract_equal(const EndpointContinuityDecision& seed,
-                                      const EndpointContinuityDecision& materialized) {
+bool endpoint_semantic_contract_equal(const SupportLayoutSemanticDecision& seed,
+                                      const SupportLayoutSemanticDecision& materialized) {
   return seed.relation_kind == materialized.relation_kind &&
          seed.continuity_class == materialized.continuity_class &&
          seed.in_through_pair == materialized.in_through_pair;
@@ -569,19 +568,19 @@ ValidationResult CoreState::Validate() const {
   std::unordered_map<LoweredSupportGroupKey, std::pair<ObjectId, ObjectId>, LoweredSupportGroupKeyHash>
       support_group_pair_by_key{};
   auto authoritative_pair_for_group = [](const SupportGroupDecision& group) {
-    return std::pair<ObjectId, ObjectId>{group.decision.support_pair_peer_low, group.decision.support_pair_peer_high};
+    return std::pair<ObjectId, ObjectId>{group.support_pair_peer_low, group.support_pair_peer_high};
   };
   for (const auto& [span_id, layout] : cache_state.support_layout_cache.by_span) {
     const double endpoint_attach_lift_m = insulator_lift_for_span(core, span_id);
     const auto seed_it = decision_seeds_by_span.find(span_id);
     if (seed_it != decision_seeds_by_span.end()) {
       const SpanSupportLayoutDecisionSeed& seed = seed_it->second;
-      if (!endpoint_semantic_contract_equal(seed.start.decision, layout.start.decision)) {
+      if (!endpoint_semantic_contract_equal(seed.start, layout.start)) {
         result.issues.push_back({ValidationSeverity::kError, "SupportLayoutStartSemanticShrink",
                                  "Materialized support-layout start endpoint must keep the generated seed semantic relation/continuity/in-through-pair contract",
                                  span_id});
       }
-      if (!endpoint_semantic_contract_equal(seed.end.decision, layout.end.decision)) {
+      if (!endpoint_semantic_contract_equal(seed.end, layout.end)) {
         result.issues.push_back({ValidationSeverity::kError, "SupportLayoutEndSemanticShrink",
                                  "Materialized support-layout end endpoint must keep the generated seed semantic relation/continuity/in-through-pair contract",
                                  span_id});
@@ -591,7 +590,7 @@ ValidationResult CoreState::Validate() const {
         if (group_it == layout.support_group_decisions.end()) {
           continue;
         }
-        if (!endpoint_semantic_contract_equal(seed_group.decision, group_it->second.decision)) {
+        if (!endpoint_semantic_contract_equal(seed_group, group_it->second)) {
           result.issues.push_back({ValidationSeverity::kError, "SupportGroupSemanticShrink",
                                    "Materialized support-group decision must keep the generated seed semantic relation/continuity/in-through-pair contract",
                                    span_id});
@@ -602,17 +601,17 @@ ValidationResult CoreState::Validate() const {
       const Pole* endpoint_pole = edit_state.poles.find(endpoint.owner_pole_id);
       const Port* endpoint_port = edit_state.ports.find(endpoint.port_id);
       if (endpoint_pole != nullptr && endpoint_port != nullptr &&
-          endpoint.decision.continuity_class == ContinuityCategoryClass::kBundleLike) {
+          endpoint.continuity_class == ContinuityCategoryClass::kBundleLike) {
         const double template_z =
             template_layer_base_z_for_validation(core, *endpoint_pole, endpoint_port->category) + endpoint_attach_lift_m;
-        if (endpoint.decision.relation_kind == JunctionRelationKind::kThroughMain) {
-          if (endpoint.decision.lower_required || endpoint.branch_down_offset_m > 1e-9 ||
+        if (endpoint.relation_kind == JunctionRelationKind::kThroughMain) {
+          if (endpoint.lower_required || endpoint.branch_down_offset_m > 1e-9 ||
               !almost_equal_validation(endpoint.support_world.z, template_z)) {
             result.issues.push_back({ValidationSeverity::kError, "ThroughMainHeightMismatch",
                                      "ThroughMain endpoint must stay at template height with no lowering offset",
                                      span_id});
           }
-        } else if (endpoint.decision.lower_required && !endpoint.decision.lowering_blocked_by_policy) {
+        } else if (endpoint.lower_required && !endpoint.lowering_blocked_by_policy) {
           if (endpoint.branch_down_offset_m <= 1e-9) {
             result.issues.push_back({ValidationSeverity::kError, "LoweredEndpointOffsetMissing",
                                      "Lowered non-through endpoint must carry a positive one-step down offset",
@@ -625,7 +624,7 @@ ValidationResult CoreState::Validate() const {
                                        span_id});
             }
           }
-        } else if (endpoint.decision.lowering_blocked_by_policy &&
+        } else if (endpoint.lowering_blocked_by_policy &&
                    (!almost_equal_validation(endpoint.support_world.z, template_z) ||
                     endpoint.branch_down_offset_m > 1e-9)) {
           result.issues.push_back({ValidationSeverity::kError, "PolicyBlockedEndpointHeightMismatch",
@@ -633,9 +632,9 @@ ValidationResult CoreState::Validate() const {
                                    span_id});
         }
       }
-      if (endpoint.decision.support_orientation_basis != SupportOrientationBasisKind::kRadial &&
-          (!endpoint.decision.has_side_axis || !std::isfinite(endpoint.decision.side_axis.x) ||
-           !std::isfinite(endpoint.decision.side_axis.y))) {
+      if (endpoint.support_orientation_basis != SupportOrientationBasisKind::kRadial &&
+          (!endpoint.has_side_axis || !std::isfinite(endpoint.side_axis.x) ||
+           !std::isfinite(endpoint.side_axis.y))) {
         result.issues.push_back({ValidationSeverity::kError, code,
                                  "Non-radial support orientation must carry a finite authoritative side axis", span_id});
       }
@@ -655,25 +654,25 @@ ValidationResult CoreState::Validate() const {
                                  "Materialized support layout must not reinterpret the chosen endpoint socket", span_id});
       }
       if (endpoint_requires_pair_authority_for_validation(endpoint) &&
-          (endpoint.decision.side_assignment_rule != SideAssignmentRuleKind::kThroughPairNormal ||
-           endpoint.decision.support_orientation_rule != SupportOrientationRuleKind::kThroughPairNormal ||
-           !endpoint.decision.used_junction_pair_side_assignment || !endpoint.decision.has_side_axis ||
-           std::abs(endpoint.decision.chosen_side_sign) <= 1e-9)) {
+          (endpoint.side_assignment_rule != SideAssignmentRuleKind::kThroughPairNormal ||
+           endpoint.support_orientation_rule != SupportOrientationRuleKind::kThroughPairNormal ||
+           !endpoint.used_junction_pair_side_assignment || !endpoint.has_side_axis ||
+           std::abs(endpoint.chosen_side_sign) <= 1e-9)) {
         result.issues.push_back({ValidationSeverity::kError, "SupportPairAuthorityFallback",
                                  "Pair-authoritative same-level endpoints must not fall back to endpoint-local support rules",
                                  span_id});
       }
       if (endpoint_requires_pair_authority_for_validation(endpoint) &&
-          (endpoint.support_authority.pair.pair_peer_low != endpoint.decision.support_pair_peer_low ||
-           endpoint.support_authority.pair.pair_peer_high != endpoint.decision.support_pair_peer_high ||
-           endpoint.support_authority.pair.orientation_basis != endpoint.decision.support_orientation_basis ||
-           endpoint.support_authority.pair.has_pair_axis != endpoint.decision.has_side_axis)) {
+          (endpoint.support_authority.pair.pair_peer_low != endpoint.support_pair_peer_low ||
+           endpoint.support_authority.pair.pair_peer_high != endpoint.support_pair_peer_high ||
+           endpoint.support_authority.pair.orientation_basis != endpoint.support_orientation_basis ||
+           endpoint.support_authority.pair.has_pair_axis != endpoint.has_side_axis)) {
         result.issues.push_back({ValidationSeverity::kError, "SupportPairAuthorityMismatch",
                                  "Materialized pair authority must stay aligned with the generated endpoint decision",
                                  span_id});
       }
       if (endpoint_uses_grouped_lowered_support_for_validation(endpoint) &&
-          endpoint.decision.support_orientation_basis == SupportOrientationBasisKind::kRadial) {
+          endpoint.support_orientation_basis == SupportOrientationBasisKind::kRadial) {
         result.issues.push_back({ValidationSeverity::kError, "LoweredBundleLikeRadialBasis",
                                  "Grouped lowered support must not keep a radial orientation basis", span_id});
       }
@@ -685,18 +684,13 @@ ValidationResult CoreState::Validate() const {
       if (!endpoint_uses_grouped_lowered_support_for_validation(endpoint)) {
         return;
       }
-      if (endpoint.decision.owner_pole_id != endpoint.owner_pole_id) {
-        result.issues.push_back({ValidationSeverity::kError, "SupportGroupOwnerMismatch",
-                                 "Grouped-lowered endpoint decision owner does not match endpoint owner pole", span_id});
-        return;
-      }
-      if (endpoint.decision.support_group_id < 0) {
+      if (endpoint.support_group_id < 0) {
         result.issues.push_back({ValidationSeverity::kError, "SupportGroupEndpointMissing",
                                  "Grouped-lowered endpoint does not resolve to a support group placement", span_id});
         return;
       }
-      const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint.decision);
-      if (key.owner_pole_id != endpoint.decision.owner_pole_id || key.support_group_id != endpoint.decision.support_group_id) {
+      const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint);
+      if (key.owner_pole_id != endpoint.owner_pole_id || key.support_group_id != endpoint.support_group_id) {
         result.issues.push_back({ValidationSeverity::kError, "SupportGroupKeyMismatch",
                                  "Grouped-lowered endpoint key must match authoritative decision owner/group id", span_id});
         return;
@@ -722,8 +716,8 @@ ValidationResult CoreState::Validate() const {
         }
       }
       const SupportGroupDecision& authority = decision_it->second;
-      if (authority.decision.continuity_class == ContinuityCategoryClass::kBundleLike) {
-        if (!HasAuthoritativeSupportPair(decision_it->second.decision)) {
+      if (authority.continuity_class == ContinuityCategoryClass::kBundleLike) {
+        if (!HasAuthoritativeSupportPair(decision_it->second)) {
           result.issues.push_back({ValidationSeverity::kError, "SupportGroupPairMissing",
                                    "Grouped-lowered bundle support-group decision must carry one authoritative pole-incident pair",
                                    span_id});
@@ -736,10 +730,10 @@ ValidationResult CoreState::Validate() const {
         return;
       }
       const LoweredSupportGroupPlacement& group = it->second;
-      if (authority.decision.relation_kind == JunctionRelationKind::kThroughMain &&
-          (authority.decision.side_assignment_rule != SideAssignmentRuleKind::kBisector ||
-           authority.decision.support_orientation_rule != SupportOrientationRuleKind::kBisector ||
-           authority.decision.support_orientation_basis !=
+      if (authority.relation_kind == JunctionRelationKind::kThroughMain &&
+          (authority.side_assignment_rule != SideAssignmentRuleKind::kBisector ||
+           authority.support_orientation_rule != SupportOrientationRuleKind::kBisector ||
+           authority.support_orientation_basis !=
                CanonicalSupportOrientationBasis(SupportOrientationRuleKind::kBisector))) {
         result.issues.push_back({ValidationSeverity::kError, "SupportGroupThroughMainNotPairBased",
                                  "Grouped-lowered ThroughMain support-group decision must keep pair-based bisector orientation",
@@ -762,28 +756,28 @@ ValidationResult CoreState::Validate() const {
   }
 
   for (const auto& [key, group_decision] : cache_state.support_layout_cache.support_group_decisions) {
-    if (group_decision.decision.owner_pole_id != key.owner_pole_id ||
-        group_decision.decision.support_group_id != key.support_group_id) {
+    if (group_decision.owner_pole_id != key.owner_pole_id ||
+        group_decision.support_group_id != key.support_group_id) {
       result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionKeyMismatch",
                                "Support-group decision key must match authoritative decision owner/group id",
                                key.owner_pole_id});
     }
-    if (!UsesAuthoritativeGroupedLoweredSupport(group_decision.decision)) {
+    if (!UsesAuthoritativeGroupedLoweredSupport(group_decision)) {
       result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionNotAuthoritative",
                                "Support-group decision must be backed by an authoritative lowered decision",
                                key.owner_pole_id});
     }
-    if (group_decision.decision.continuity_class == ContinuityCategoryClass::kBundleLike &&
-        !HasAuthoritativeSupportPair(group_decision.decision)) {
+    if (group_decision.continuity_class == ContinuityCategoryClass::kBundleLike &&
+        !HasAuthoritativeSupportPair(group_decision)) {
       result.issues.push_back({ValidationSeverity::kError, "SupportGroupPairMissing",
                                "Support-group decision must keep the authoritative support pair decision",
                                key.owner_pole_id});
     }
-    if (group_decision.decision.support_orientation_basis == SupportOrientationBasisKind::kRadial ||
-        group_decision.decision.support_orientation_rule == SupportOrientationRuleKind::kRadial ||
-        group_decision.decision.side_assignment_rule == SideAssignmentRuleKind::kPoleLocal ||
-        !group_decision.decision.has_side_axis || !std::isfinite(group_decision.decision.side_axis.x) ||
-        !std::isfinite(group_decision.decision.side_axis.y)) {
+    if (group_decision.support_orientation_basis == SupportOrientationBasisKind::kRadial ||
+        group_decision.support_orientation_rule == SupportOrientationRuleKind::kRadial ||
+        group_decision.side_assignment_rule == SideAssignmentRuleKind::kPoleLocal ||
+        !group_decision.has_side_axis || !std::isfinite(group_decision.side_axis.x) ||
+        !std::isfinite(group_decision.side_axis.y)) {
       result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionIncomplete",
                                "Support-group decision must carry non-radial authoritative orientation/axis fields",
                                key.owner_pole_id});
@@ -794,10 +788,10 @@ ValidationResult CoreState::Validate() const {
                                "Same support group must share one authoritative support-group pair decision",
                                key.owner_pole_id});
     }
-    if (group_decision.decision.relation_kind == JunctionRelationKind::kThroughMain &&
-        (group_decision.decision.side_assignment_rule != SideAssignmentRuleKind::kBisector ||
-         group_decision.decision.support_orientation_rule != SupportOrientationRuleKind::kBisector ||
-         group_decision.decision.support_orientation_basis !=
+    if (group_decision.relation_kind == JunctionRelationKind::kThroughMain &&
+        (group_decision.side_assignment_rule != SideAssignmentRuleKind::kBisector ||
+         group_decision.support_orientation_rule != SupportOrientationRuleKind::kBisector ||
+         group_decision.support_orientation_basis !=
              CanonicalSupportOrientationBasis(SupportOrientationRuleKind::kBisector))) {
       result.issues.push_back({ValidationSeverity::kError, "SupportGroupThroughMainNotPairBased",
                                "Grouped-lowered ThroughMain support-group decision must keep pair-based bisector orientation",

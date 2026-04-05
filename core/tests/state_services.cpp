@@ -519,9 +519,9 @@ bool test_validate_rejects_non_radial_support_without_authoritative_axis() {
   if (it == layouts.end()) {
     return false;
   }
-  it->second.start.decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kChordForward;
-  it->second.start.decision.has_side_axis = false;
-  it->second.start.decision.side_axis = {};
+  it->second.start.support_orientation_basis = wire::core::SupportOrientationBasisKind::kChordForward;
+  it->second.start.has_side_axis = false;
+  it->second.start.side_axis = {};
 
   const auto validation = helpers::validate_now(state);
   return has_validation_issue(validation, wire::core::ValidationSeverity::kError, "SupportLayoutStartAxisMissing");
@@ -545,14 +545,14 @@ bool test_validate_rejects_grouped_lowered_support_with_radial_basis() {
     return false;
   }
   it->second.lowering_kind = wire::core::BackboneLoweringKind::kBranchSupport;
-  it->second.start.decision.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
-  it->second.start.decision.support_group_id = 99;
-  it->second.start.decision.lower_required = true;
-  it->second.start.decision.default_lower_required = true;
-  it->second.start.decision.same_level_feasible = false;
-  it->second.start.decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kRadial;
-  it->second.start.decision.has_side_axis = true;
-  it->second.start.decision.side_axis = {1.0, 0.0, 0.0};
+  it->second.start.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
+  it->second.start.support_group_id = 99;
+  it->second.start.lower_required = true;
+  it->second.start.default_lower_required = true;
+  it->second.start.same_level_feasible = false;
+  it->second.start.support_orientation_basis = wire::core::SupportOrientationBasisKind::kRadial;
+  it->second.start.has_side_axis = true;
+  it->second.start.side_axis = {1.0, 0.0, 0.0};
 
   const auto validation = helpers::validate_now(state);
   return has_validation_issue(validation, wire::core::ValidationSeverity::kError, "LoweredBundleLikeRadialBasis");
@@ -591,22 +591,22 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
   auto make_grouped = [&](wire::core::SupportGroupDecision* decision, wire::core::LoweredSupportGroupPlacement* group,
                           const wire::core::Vec3d& axis, double down_offset_m,
                           const wire::core::Vec3d& mount_world, const wire::core::Vec3d& tip_world) {
-    decision->decision.owner_pole_id = pole_a;
-    decision->decision.relation_kind = wire::core::JunctionRelationKind::kSideBranch;
-    decision->decision.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
-    decision->decision.lower_required = true;
-    decision->decision.default_lower_required = true;
-    decision->decision.same_level_feasible = false;
-    decision->decision.support_pair_peer_low = pair_peer_low;
-    decision->decision.support_pair_peer_high = pair_peer_high;
-    decision->decision.chosen_side = wire::core::LateralSideChoiceKind::kRight;
-    decision->decision.chosen_side_sign = 1.0;
-    decision->decision.side_assignment_rule = wire::core::SideAssignmentRuleKind::kBisector;
-    decision->decision.support_orientation_rule = wire::core::SupportOrientationRuleKind::kBisector;
-    decision->decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kBisectorForward;
-    decision->decision.support_group_id = 1234;
-    decision->decision.has_side_axis = true;
-    decision->decision.side_axis = axis;
+    decision->owner_pole_id = pole_a;
+    decision->relation_kind = wire::core::JunctionRelationKind::kSideBranch;
+    decision->continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
+    decision->lower_required = true;
+    decision->default_lower_required = true;
+    decision->same_level_feasible = false;
+    decision->support_pair_peer_low = pair_peer_low;
+    decision->support_pair_peer_high = pair_peer_high;
+    decision->chosen_side = wire::core::LateralSideChoiceKind::kRight;
+    decision->chosen_side_sign = 1.0;
+    decision->side_assignment_rule = wire::core::SideAssignmentRuleKind::kBisector;
+    decision->support_orientation_rule = wire::core::SupportOrientationRuleKind::kBisector;
+    decision->support_orientation_basis = wire::core::SupportOrientationBasisKind::kBisectorForward;
+    decision->support_group_id = 1234;
+    decision->has_side_axis = true;
+    decision->side_axis = axis;
     decision->down_offset_m = down_offset_m;
     decision->support_world = tip_world;
     decision->grouped_port_count = 2;
@@ -636,9 +636,9 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
     endpoint->owner_pole_id = owner_pole_id;
     endpoint->port_id = port_id;
     endpoint->endpoint_world = endpoint_world;
-    endpoint->decision = decision_store[{pole_a, 1234}].decision;
-    endpoint->decision.owner_pole_id = owner_pole_id;
-    endpoint->decision.support_group_id = 1234;
+    static_cast<wire::core::SupportLayoutSemanticDecision&>(*endpoint) = decision_store[{pole_a, 1234}];
+    endpoint->owner_pole_id = owner_pole_id;
+    endpoint->support_group_id = 1234;
     endpoint->branch_down_offset_m = decision_store[{pole_a, 1234}].down_offset_m;
     endpoint->support_world = endpoint_world;
   };
@@ -669,32 +669,30 @@ bool test_inspection_uses_authoritative_lowered_support_groups() {
   }
 
   it->second.lowering_kind = wire::core::BackboneLoweringKind::kNone;
-  it->second.start.decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kRadial;
-  it->second.start.decision.continuity_class = wire::core::ContinuityCategoryClass::kPointLike;
-  it->second.start.decision.default_lower_required = false;
-  it->second.start.decision.same_level_feasible = true;
-  it->second.start.decision.has_side_axis = false;
-  it->second.start.decision.side_axis = {};
-  it->second.start.decision.support_group_id = 777;
-  it->second.start.decision.lower_required = true;
+  it->second.start.support_orientation_basis = wire::core::SupportOrientationBasisKind::kRadial;
+  it->second.start.continuity_class = wire::core::ContinuityCategoryClass::kPointLike;
+  it->second.start.default_lower_required = false;
+  it->second.start.same_level_feasible = true;
+  it->second.start.has_side_axis = false;
+  it->second.start.side_axis = {};
+  it->second.start.support_group_id = 777;
+  it->second.start.lower_required = true;
   it->second.lowered_support_group_keys = {{pole_a, 777}};
   auto& decision = CoreStateTestHook::cache_state(state).support_layout_cache.support_group_decisions[{pole_a, 777}];
   auto& group = CoreStateTestHook::cache_state(state).support_layout_cache.lowered_support_groups[{pole_a, 777}];
-  decision.decision.owner_pole_id = pole_a;
-  decision.decision.relation_kind = wire::core::JunctionRelationKind::kSideBranch;
-  decision.decision.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
-  decision.decision.lower_required = true;
-  decision.decision.default_lower_required = true;
-  decision.decision.same_level_feasible = false;
-  decision.decision.support_pair_peer_low = pole_a;
-  decision.decision.support_pair_peer_high = pole_b;
-  decision.decision.chosen_side = wire::core::LateralSideChoiceKind::kLeft;
-  decision.decision.chosen_side_sign = -1.0;
-  decision.decision.support_orientation_rule = wire::core::SupportOrientationRuleKind::kChord;
-  decision.decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kChordForward;
-  decision.decision.support_group_id = 777;
-  decision.decision.has_side_axis = true;
-  decision.decision.side_axis = {0.0, 1.0, 0.0};
+  decision.owner_pole_id = pole_a;
+  decision.relation_kind = wire::core::JunctionRelationKind::kSideBranch;
+  decision.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
+  decision.lower_required = true;
+  decision.support_pair_peer_low = pole_a;
+  decision.support_pair_peer_high = pole_b;
+  decision.chosen_side = wire::core::LateralSideChoiceKind::kLeft;
+  decision.chosen_side_sign = -1.0;
+  decision.support_orientation_rule = wire::core::SupportOrientationRuleKind::kChord;
+  decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kChordForward;
+  decision.support_group_id = 777;
+  decision.has_side_axis = true;
+  decision.side_axis = {0.0, 1.0, 0.0};
   decision.down_offset_m = 1.25;
   decision.support_world = {0.0, 0.8, 4.0};
   decision.grouped_port_count = 1;
@@ -712,7 +710,7 @@ bool test_inspection_uses_authoritative_lowered_support_groups() {
   }
   const auto& inspected = layout_view->lowered_support_groups.front();
   return inspected.support_group_id == 777 &&
-         inspected.decision.support_orientation_basis == wire::core::SupportOrientationBasisKind::kChordForward &&
+         inspected.support_orientation_basis == wire::core::SupportOrientationBasisKind::kChordForward &&
          helpers::almost_equal(inspected.chosen_side_sign, -1.0) &&
          helpers::almost_equal(inspected.down_offset_m, 1.25) &&
          helpers::almost_equal(inspected.mount_world, Vec3d{0.0, 0.2, 4.0}) &&
@@ -747,44 +745,42 @@ bool test_materialization_reads_layout_owned_support_group_decision() {
   layout.start.owner_pole_id = pole_a;
   layout.start.port_id = port_a;
   layout.start.endpoint_world = {0.0, 0.5, expected_support_z};
-  layout.start.decision.owner_pole_id = pole_a;
-  layout.start.decision.relation_kind = wire::core::JunctionRelationKind::kSideBranch;
-  layout.start.decision.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
-  layout.start.decision.lower_required = true;
-  layout.start.decision.default_lower_required = true;
-  layout.start.decision.same_level_feasible = false;
-  layout.start.decision.support_group_id = 777;
-  layout.start.decision.support_pair_peer_low = pole_a;
-  layout.start.decision.support_pair_peer_high = pole_b;
-  layout.start.decision.side_assignment_rule = wire::core::SideAssignmentRuleKind::kChord;
-  layout.start.decision.support_orientation_rule = wire::core::SupportOrientationRuleKind::kChord;
-  layout.start.decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kChordForward;
-  layout.start.decision.chosen_side = wire::core::LateralSideChoiceKind::kRight;
-  layout.start.decision.chosen_side_sign = 1.0;
-  layout.start.decision.has_side_axis = true;
-  layout.start.decision.side_axis = {1.0, 0.0, 0.0};
+  layout.start.owner_pole_id = pole_a;
+  layout.start.relation_kind = wire::core::JunctionRelationKind::kSideBranch;
+  layout.start.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
+  layout.start.lower_required = true;
+  layout.start.default_lower_required = true;
+  layout.start.same_level_feasible = false;
+  layout.start.support_group_id = 777;
+  layout.start.support_pair_peer_low = pole_a;
+  layout.start.support_pair_peer_high = pole_b;
+  layout.start.side_assignment_rule = wire::core::SideAssignmentRuleKind::kChord;
+  layout.start.support_orientation_rule = wire::core::SupportOrientationRuleKind::kChord;
+  layout.start.support_orientation_basis = wire::core::SupportOrientationBasisKind::kChordForward;
+  layout.start.chosen_side = wire::core::LateralSideChoiceKind::kRight;
+  layout.start.chosen_side_sign = 1.0;
+  layout.start.has_side_axis = true;
+  layout.start.side_axis = {1.0, 0.0, 0.0};
   layout.start.branch_down_offset_m = 9.0;
   layout.start.down_offset_variation = {};
   layout.start.support_world = layout.start.endpoint_world;
 
   layout.support_group_decisions.clear();
   wire::core::SupportGroupDecision authoritative{};
-  authoritative.decision.owner_pole_id = pole_a;
-  authoritative.decision.relation_kind = wire::core::JunctionRelationKind::kSideBranch;
-  authoritative.decision.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
-  authoritative.decision.lower_required = true;
-  authoritative.decision.default_lower_required = true;
-  authoritative.decision.same_level_feasible = false;
-  authoritative.decision.support_pair_peer_low = pole_a;
-  authoritative.decision.support_pair_peer_high = pole_b;
-  authoritative.decision.side_assignment_rule = wire::core::SideAssignmentRuleKind::kBisector;
-  authoritative.decision.support_orientation_rule = wire::core::SupportOrientationRuleKind::kBisector;
-  authoritative.decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kBisectorForward;
-  authoritative.decision.chosen_side = wire::core::LateralSideChoiceKind::kLeft;
-  authoritative.decision.chosen_side_sign = -1.0;
-  authoritative.decision.support_group_id = 777;
-  authoritative.decision.has_side_axis = true;
-  authoritative.decision.side_axis = {0.0, 1.0, 0.0};
+  authoritative.owner_pole_id = pole_a;
+  authoritative.relation_kind = wire::core::JunctionRelationKind::kSideBranch;
+  authoritative.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
+  authoritative.lower_required = true;
+  authoritative.support_pair_peer_low = pole_a;
+  authoritative.support_pair_peer_high = pole_b;
+  authoritative.side_assignment_rule = wire::core::SideAssignmentRuleKind::kBisector;
+  authoritative.support_orientation_rule = wire::core::SupportOrientationRuleKind::kBisector;
+  authoritative.support_orientation_basis = wire::core::SupportOrientationBasisKind::kBisectorForward;
+  authoritative.chosen_side = wire::core::LateralSideChoiceKind::kLeft;
+  authoritative.chosen_side_sign = -1.0;
+  authoritative.support_group_id = 777;
+  authoritative.has_side_axis = true;
+  authoritative.side_axis = {0.0, 1.0, 0.0};
   authoritative.side = wire::core::SlotSide::kLeft;
   authoritative.origin = wire::core::SupportLayoutOriginKind::kBranchSupport;
   authoritative.down_offset_m = 1.25;
@@ -810,29 +806,29 @@ bool test_materialization_reads_layout_owned_support_group_decision() {
   }
   const bool ok_validation = validation.ok();
   const bool ok_decision_side =
-      refreshed_decision_it->second.decision.side_assignment_rule == wire::core::SideAssignmentRuleKind::kBisector;
+      refreshed_decision_it->second.side_assignment_rule == wire::core::SideAssignmentRuleKind::kBisector;
   const bool ok_decision_orient =
-      refreshed_decision_it->second.decision.support_orientation_rule == wire::core::SupportOrientationRuleKind::kBisector;
+      refreshed_decision_it->second.support_orientation_rule == wire::core::SupportOrientationRuleKind::kBisector;
   const bool ok_decision_basis =
-      refreshed_decision_it->second.decision.support_orientation_basis ==
+      refreshed_decision_it->second.support_orientation_basis ==
       wire::core::SupportOrientationBasisKind::kBisectorForward;
-  const bool ok_decision_sign = helpers::almost_equal(refreshed_decision_it->second.decision.chosen_side_sign, -1.0);
+  const bool ok_decision_sign = helpers::almost_equal(refreshed_decision_it->second.chosen_side_sign, -1.0);
   const bool ok_decision_axis =
-      helpers::almost_equal(refreshed_decision_it->second.decision.side_axis, Vec3d{0.0, 1.0, 0.0});
+      helpers::almost_equal(refreshed_decision_it->second.side_axis, Vec3d{0.0, 1.0, 0.0});
   const bool ok_decision_down = helpers::almost_equal(refreshed_decision_it->second.down_offset_m, 1.25);
   const bool ok_keys = refreshed_layout_it->second.lowered_support_group_keys.size() == 1 &&
                        refreshed_layout_it->second.lowered_support_group_keys.front() ==
                            wire::core::LoweredSupportGroupKey{pole_a, 777};
   const bool ok_layout_side =
-      refreshed_layout_it->second.start.decision.side_assignment_rule == wire::core::SideAssignmentRuleKind::kBisector;
+      refreshed_layout_it->second.start.side_assignment_rule == wire::core::SideAssignmentRuleKind::kBisector;
   const bool ok_layout_orient =
-      refreshed_layout_it->second.start.decision.support_orientation_rule == wire::core::SupportOrientationRuleKind::kBisector;
+      refreshed_layout_it->second.start.support_orientation_rule == wire::core::SupportOrientationRuleKind::kBisector;
   const bool ok_layout_basis =
-      refreshed_layout_it->second.start.decision.support_orientation_basis ==
+      refreshed_layout_it->second.start.support_orientation_basis ==
       wire::core::SupportOrientationBasisKind::kBisectorForward;
-  const bool ok_layout_sign = helpers::almost_equal(refreshed_layout_it->second.start.decision.chosen_side_sign, -1.0);
+  const bool ok_layout_sign = helpers::almost_equal(refreshed_layout_it->second.start.chosen_side_sign, -1.0);
   const bool ok_layout_axis =
-      helpers::almost_equal(refreshed_layout_it->second.start.decision.side_axis, Vec3d{0.0, 1.0, 0.0});
+      helpers::almost_equal(refreshed_layout_it->second.start.side_axis, Vec3d{0.0, 1.0, 0.0});
   const bool ok_layout_down = helpers::almost_equal(refreshed_layout_it->second.start.branch_down_offset_m, 1.25);
   return ok_validation && ok_decision_side && ok_decision_orient && ok_decision_basis && ok_decision_sign &&
          ok_decision_axis && ok_decision_down && ok_keys && ok_layout_side && ok_layout_orient && ok_layout_basis &&
@@ -860,22 +856,22 @@ bool test_validation_treats_grouped_endpoint_semantics_as_derived_copies() {
   layout.start.owner_pole_id = pole_a;
   layout.start.port_id = port_a;
   layout.start.endpoint_world = {0.0, 0.5, expected_support_z};
-  layout.start.decision.owner_pole_id = pole_a;
-  layout.start.decision.relation_kind = wire::core::JunctionRelationKind::kSideBranch;
-  layout.start.decision.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
-  layout.start.decision.lower_required = true;
-  layout.start.decision.default_lower_required = true;
-  layout.start.decision.same_level_feasible = false;
-  layout.start.decision.support_group_id = 777;
-  layout.start.decision.support_pair_peer_low = pole_a;
-  layout.start.decision.support_pair_peer_high = pole_b;
-  layout.start.decision.side_assignment_rule = wire::core::SideAssignmentRuleKind::kBisector;
-  layout.start.decision.support_orientation_rule = wire::core::SupportOrientationRuleKind::kBisector;
-  layout.start.decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kBisectorForward;
-  layout.start.decision.chosen_side = wire::core::LateralSideChoiceKind::kLeft;
-  layout.start.decision.chosen_side_sign = -1.0;
-  layout.start.decision.has_side_axis = true;
-  layout.start.decision.side_axis = {0.0, 1.0, 0.0};
+  layout.start.owner_pole_id = pole_a;
+  layout.start.relation_kind = wire::core::JunctionRelationKind::kSideBranch;
+  layout.start.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
+  layout.start.lower_required = true;
+  layout.start.default_lower_required = true;
+  layout.start.same_level_feasible = false;
+  layout.start.support_group_id = 777;
+  layout.start.support_pair_peer_low = pole_a;
+  layout.start.support_pair_peer_high = pole_b;
+  layout.start.side_assignment_rule = wire::core::SideAssignmentRuleKind::kBisector;
+  layout.start.support_orientation_rule = wire::core::SupportOrientationRuleKind::kBisector;
+  layout.start.support_orientation_basis = wire::core::SupportOrientationBasisKind::kBisectorForward;
+  layout.start.chosen_side = wire::core::LateralSideChoiceKind::kLeft;
+  layout.start.chosen_side_sign = -1.0;
+  layout.start.has_side_axis = true;
+  layout.start.side_axis = {0.0, 1.0, 0.0};
   layout.start.branch_down_offset_m = 1.25;
   layout.start.support_world = layout.start.endpoint_world;
   layout.end.owner_pole_id = pole_b;
@@ -885,7 +881,7 @@ bool test_validation_treats_grouped_endpoint_semantics_as_derived_copies() {
 
   layout.support_group_decisions.clear();
   wire::core::SupportGroupDecision authoritative{};
-  authoritative.decision = layout.start.decision;
+  static_cast<wire::core::SupportLayoutSemanticDecision&>(authoritative) = layout.start.decision;
   authoritative.side = wire::core::SlotSide::kLeft;
   authoritative.origin = wire::core::SupportLayoutOriginKind::kBranchSupport;
   authoritative.down_offset_m = 1.25;
@@ -896,12 +892,12 @@ bool test_validation_treats_grouped_endpoint_semantics_as_derived_copies() {
 
   CoreStateTestHook::cache_span_support_layout(state, std::move(layout));
   auto& cached_layout = CoreStateTestHook::cache_state(state).support_layout_cache.by_span[span];
-  cached_layout.start.decision.side_assignment_rule = wire::core::SideAssignmentRuleKind::kChord;
-  cached_layout.start.decision.support_orientation_rule = wire::core::SupportOrientationRuleKind::kChord;
-  cached_layout.start.decision.support_orientation_basis = wire::core::SupportOrientationBasisKind::kChordForward;
-  cached_layout.start.decision.chosen_side = wire::core::LateralSideChoiceKind::kRight;
-  cached_layout.start.decision.chosen_side_sign = 1.0;
-  cached_layout.start.decision.side_axis = {1.0, 0.0, 0.0};
+  cached_layout.start.side_assignment_rule = wire::core::SideAssignmentRuleKind::kChord;
+  cached_layout.start.support_orientation_rule = wire::core::SupportOrientationRuleKind::kChord;
+  cached_layout.start.support_orientation_basis = wire::core::SupportOrientationBasisKind::kChordForward;
+  cached_layout.start.chosen_side = wire::core::LateralSideChoiceKind::kRight;
+  cached_layout.start.chosen_side_sign = 1.0;
+  cached_layout.start.side_axis = {1.0, 0.0, 0.0};
 
   const auto validation = helpers::validate_now(state);
   return validation.ok();

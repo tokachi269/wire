@@ -593,8 +593,8 @@ bool test_grouped_lowered_support_keeps_per_lane_insulator_attach_point() {
     }
     const double expected_lift = cable_it->second.insulator_attachment_height_m;
     auto matches_grouped_lowered_endpoint = [&](const wire::core::SupportLayoutEndpointView& endpoint) {
-      return endpoint.decision.lower_required && !endpoint.decision.lowering_blocked_by_policy &&
-             endpoint.decision.support_group_id >= 0;
+      return endpoint.lower_required && !endpoint.lowering_blocked_by_policy &&
+             endpoint.support_group_id >= 0;
     };
     const wire::core::SupportLayoutEndpointView* endpoint =
         matches_grouped_lowered_endpoint(layout_view->start_endpoint)

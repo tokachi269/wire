@@ -13,10 +13,10 @@ Vec3d grouped_lowered_route_local_departure_dir(const SupportLayoutEndpoint& end
   if (!Normalize(&fallback)) {
     fallback = WorldForward();
   }
-  if (!endpoint.decision.has_side_axis) {
+  if (!endpoint.has_side_axis) {
     return fallback;
   }
-  Vec3d side_axis = endpoint.decision.side_axis;
+  Vec3d side_axis = endpoint.side_axis;
   side_axis.z = 0.0;
   if (!Normalize(&side_axis)) {
     return fallback;
@@ -67,7 +67,7 @@ LoweredSupportGroupPlacement build_grouped_support_placement_from_decision(const
   group.attachment_worlds = group_decision.attachment_worlds;
   group.down_offset_variation = group_decision.down_offset_variation;
 
-  const Pole* pole = edit_state.poles.find(group_decision.decision.owner_pole_id);
+  const Pole* pole = edit_state.poles.find(group_decision.owner_pole_id);
   if (pole == nullptr) {
     return group;
   }
@@ -123,9 +123,9 @@ void finalize_support_layout_materialization(const Vec3d& fallback_chord_dir, Sp
     resolved_chord_dir = fallback_chord_dir;
   }
   const bool grouped_lowered_span =
-      (UsesAuthoritativeGroupedLoweredSupport(layout->start.decision) ||
-       UsesAuthoritativeGroupedLoweredSupport(layout->end.decision)) &&
-      (!layout->start.decision.same_level_feasible || !layout->end.decision.same_level_feasible);
+      (UsesAuthoritativeGroupedLoweredSupport(layout->start) ||
+       UsesAuthoritativeGroupedLoweredSupport(layout->end)) &&
+      (!layout->start.same_level_feasible || !layout->end.same_level_feasible);
   if (grouped_lowered_span) {
     layout->start.departure_dir = grouped_lowered_route_local_departure_dir(layout->start, layout->end);
     layout->end.departure_dir = grouped_lowered_route_local_departure_dir(layout->end, layout->start);

@@ -206,7 +206,6 @@ struct SupportLayoutEndpointView {
   ObjectId endpoint_node_id = kInvalidObjectId;
   ObjectId owner_pole_id = kInvalidObjectId;
   ObjectId port_id = kInvalidObjectId;
-  EndpointContinuityDecision decision{};
   ResolvedSupportAuthority support_authority{};
   EndpointAttachmentRequest attachment_request{};
   std::optional<int> resolved_socket_id{};
@@ -255,7 +254,6 @@ struct SupportLayoutEndpointView {
 
 struct LoweredSupportGroupInspectionView {
   ObjectId owner_pole_id = kInvalidObjectId;
-  EndpointContinuityDecision decision{};
   ResolvedSupportAuthority support_authority{};
   ObjectId pair_peer_low = kInvalidObjectId;
   ObjectId pair_peer_high = kInvalidObjectId;

@@ -66,13 +66,13 @@ CurveProfileHint detail_curve_profile_hint_from_support_layout(const SpanSupport
     return Normalize(&departure);
   };
   const bool grouped_lowered_support =
-      UsesAuthoritativeGroupedLoweredSupport(layout.start.decision) ||
-      UsesAuthoritativeGroupedLoweredSupport(layout.end.decision);
+      UsesAuthoritativeGroupedLoweredSupport(layout.start) ||
+      UsesAuthoritativeGroupedLoweredSupport(layout.end);
   if (layout.pass_mode != CurvePassMode::kPassThrough) {
     return CurveProfileHint::kAuto;
   }
   if (grouped_lowered_support &&
-      (!layout.start.decision.same_level_feasible || !layout.end.decision.same_level_feasible)) {
+      (!layout.start.same_level_feasible || !layout.end.same_level_feasible)) {
     return CurveProfileHint::kGroupedLoweredSupport;
   }
   if (layout.start.endpoint_mode == CurveEndpointMode::kOffsetEndpoint ||

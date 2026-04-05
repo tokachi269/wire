@@ -505,8 +505,8 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
 
   auto endpoint_prefers_span_local_lowered_visual = [](const SupportLayoutEndpoint* endpoint) {
     return endpoint != nullptr && endpoint_uses_grouped_lowered_support(endpoint) &&
-           endpoint->decision.relation_kind == JunctionRelationKind::kThroughMain &&
-           endpoint->decision.continuity_class == ContinuityCategoryClass::kBundleLike;
+           endpoint->relation_kind == JunctionRelationKind::kThroughMain &&
+           endpoint->continuity_class == ContinuityCategoryClass::kBundleLike;
   };
   auto append_parts_for_port = [&](const Port& port, const SupportLayoutEndpoint* layout_endpoint) {
     if (layout_endpoint == nullptr) {
@@ -616,12 +616,12 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
         if (!endpoint_uses_grouped_lowered_support(endpoint) ||
             endpoint_prefers_span_local_lowered_visual(endpoint)) {
           if (endpoint != nullptr && endpoint_prefers_span_local_lowered_visual(endpoint) &&
-              LoweredSupportGroupKeyFromDecision(endpoint->decision) == key) {
+              LoweredSupportGroupKeyFromDecision(*endpoint) == key) {
             span_has_local_owner_visual = true;
           }
           return;
         }
-        if (LoweredSupportGroupKeyFromDecision(endpoint->decision) != key) {
+        if (LoweredSupportGroupKeyFromDecision(*endpoint) != key) {
           return;
         }
         span_attachment_worlds.push_back(endpoint->endpoint_world);

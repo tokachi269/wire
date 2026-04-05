@@ -64,11 +64,85 @@ struct ResolvedSupportAuthority {
   bool has_signed_support_axis = false;
 };
 
-struct SupportLayoutEndpoint {
-  ObjectId endpoint_node_id = kInvalidObjectId;
+struct SupportLayoutSemanticDecision {
   ObjectId owner_pole_id = kInvalidObjectId;
+  JunctionRelationKind relation_kind = JunctionRelationKind::kNone;
+  ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
+  bool in_through_pair = false;
+  ObjectId support_pair_peer_low = kInvalidObjectId;
+  ObjectId support_pair_peer_high = kInvalidObjectId;
+  int support_group_id = -1;
+  bool lower_required = false;
+  bool lowering_blocked_by_policy = false;
+  OrderDecisionPolicyKind order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
+  OrderDecisionChoiceKind order_decision_choice = OrderDecisionChoiceKind::kNormal;
+  OrderDecisionChoiceReason order_decision_choice_reason = OrderDecisionChoiceReason::kFixedOrder;
+  LateralSideChoiceKind chosen_side = LateralSideChoiceKind::kCenter;
+  SideAssignmentRuleKind side_assignment_rule = SideAssignmentRuleKind::kPoleLocal;
+  SupportOrientationRuleKind support_orientation_rule = SupportOrientationRuleKind::kRadial;
+  SupportOrientationBasisKind support_orientation_basis = SupportOrientationBasisKind::kRadial;
+  bool used_junction_pair_side_assignment = false;
+  bool has_side_axis = false;
+  Vec3d side_axis{};
+  double chosen_side_sign = 0.0;
+
+  SupportLayoutSemanticDecision() = default;
+  SupportLayoutSemanticDecision(const EndpointContinuityDecision& source);
+  SupportLayoutSemanticDecision& operator=(const EndpointContinuityDecision& source);
+};
+
+[[nodiscard]] inline SupportLayoutSemanticDecision MakeSupportLayoutSemanticDecision(
+    const EndpointContinuityDecision& source, ObjectId owner_pole_id = kInvalidObjectId) {
+  SupportLayoutSemanticDecision decision{};
+  decision.owner_pole_id = (owner_pole_id == kInvalidObjectId) ? source.owner_pole_id : owner_pole_id;
+  decision.relation_kind = source.relation_kind;
+  decision.continuity_class = source.continuity_class;
+  decision.in_through_pair = source.in_through_pair;
+  decision.support_pair_peer_low = source.support_pair_peer_low;
+  decision.support_pair_peer_high = source.support_pair_peer_high;
+  decision.support_group_id = source.support_group_id;
+  decision.lower_required = source.lower_required;
+  decision.lowering_blocked_by_policy = source.lowering_blocked_by_policy;
+  decision.order_decision_policy = source.order_decision_policy;
+  decision.order_decision_choice = source.order_decision_choice;
+  decision.order_decision_choice_reason = source.order_decision_choice_reason;
+  decision.chosen_side = source.chosen_side;
+  decision.side_assignment_rule = source.side_assignment_rule;
+  decision.support_orientation_rule = source.support_orientation_rule;
+  decision.support_orientation_basis = source.support_orientation_basis;
+  decision.used_junction_pair_side_assignment = source.used_junction_pair_side_assignment;
+  decision.has_side_axis = source.has_side_axis;
+  decision.side_axis = source.side_axis;
+  decision.chosen_side_sign = source.chosen_side_sign;
+  return decision;
+}
+
+inline SupportLayoutSemanticDecision::SupportLayoutSemanticDecision(const EndpointContinuityDecision& source)
+    : SupportLayoutSemanticDecision(MakeSupportLayoutSemanticDecision(source)) {}
+
+inline SupportLayoutSemanticDecision&
+SupportLayoutSemanticDecision::operator=(const EndpointContinuityDecision& source) {
+  *this = MakeSupportLayoutSemanticDecision(source);
+  return *this;
+}
+
+[[nodiscard]] inline LoweredSupportGroupKey LoweredSupportGroupKeyFromDecision(
+    const SupportLayoutSemanticDecision& decision) {
+  return {decision.owner_pole_id, decision.support_group_id};
+}
+
+[[nodiscard]] inline bool HasAuthoritativeSupportPair(const SupportLayoutSemanticDecision& decision) {
+  return HasAuthoritativeSupportPair(decision.support_pair_peer_low, decision.support_pair_peer_high);
+}
+
+[[nodiscard]] inline bool UsesAuthoritativeGroupedLoweredSupport(const SupportLayoutSemanticDecision& decision) {
+  return decision.owner_pole_id != kInvalidObjectId && decision.lower_required && !decision.lowering_blocked_by_policy &&
+         decision.support_group_id >= 0;
+}
+
+struct SupportLayoutEndpoint : SupportLayoutSemanticDecision {
+  ObjectId endpoint_node_id = kInvalidObjectId;
   ObjectId port_id = kInvalidObjectId;
-  EndpointContinuityDecision decision{};
   ResolvedSupportAuthority support_authority{};
   EndpointAttachmentRequest attachment_request{};
   std::optional<int> resolved_socket_id{};
@@ -89,14 +163,20 @@ struct SupportLayoutEndpoint {
   double local_departure_length_m = 0.0;
   double automatic_branch_down_offset_m = 0.0;
   double branch_down_offset_m = 0.0;
+  bool default_lower_required = false;
+  bool same_level_feasible = true;
+  bool unresolved_same_level_conflict = false;
+  SameLevelFeasibilityReason same_level_reason = SameLevelFeasibilityReason::kNone;
+  double projected_spacing_topview_m = -1.0;
+  double required_clearance_m = 0.0;
+  bool solver_used_same_level_constraint = false;
+  bool used_special_case_ports = false;
   HierarchicalVariationSample down_offset_variation{};
 };
 
-struct SupportLayoutDecisionSeedEndpoint {
+struct SupportLayoutDecisionSeedEndpoint : SupportLayoutSemanticDecision {
   ObjectId endpoint_node_id = kInvalidObjectId;
-  ObjectId owner_pole_id = kInvalidObjectId;
   ObjectId port_id = kInvalidObjectId;
-  EndpointContinuityDecision decision{};
   ResolvedSupportAuthority support_authority{};
   EndpointAttachmentRequest attachment_request{};
   std::optional<int> resolved_socket_id{};
@@ -112,11 +192,18 @@ struct SupportLayoutDecisionSeedEndpoint {
   Vec3d visual_insulator_base_world{};
   double automatic_branch_down_offset_m = 0.0;
   double branch_down_offset_m = 0.0;
+  bool default_lower_required = false;
+  bool same_level_feasible = true;
+  bool unresolved_same_level_conflict = false;
+  SameLevelFeasibilityReason same_level_reason = SameLevelFeasibilityReason::kNone;
+  double projected_spacing_topview_m = -1.0;
+  double required_clearance_m = 0.0;
+  bool solver_used_same_level_constraint = false;
+  bool used_special_case_ports = false;
   HierarchicalVariationSample down_offset_variation{};
 };
 
-struct SupportGroupDecision {
-  EndpointContinuityDecision decision{};
+struct SupportGroupDecision : SupportLayoutSemanticDecision {
   ResolvedSupportAuthority support_authority{};
   ConnectionCategory category = ConnectionCategory::kLowVoltage;
   SlotSide side = SlotSide::kCenter;

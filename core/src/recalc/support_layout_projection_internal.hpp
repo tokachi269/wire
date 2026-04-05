@@ -9,7 +9,7 @@ struct LoweredSupportGroupKey;
 
 void clear_layout_endpoint_authority_projection(SupportLayoutEndpoint* endpoint);
 
-void apply_endpoint_decision_to_layout_endpoint(const EndpointContinuityDecision& decision,
+void apply_endpoint_decision_to_layout_endpoint(const SupportLayoutSemanticDecision& decision,
                                                 SupportLayoutEndpoint* endpoint);
 
 void apply_grouped_support_placement_to_layout_endpoint(const SupportGroupDecision& group_decision,

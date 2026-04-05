@@ -13,6 +13,31 @@
 
 namespace wire::core {
 
+namespace {
+
+bool set_missing_seed_error(std::string* error_message) {
+  if (error_message != nullptr && error_message->empty()) {
+    *error_message = "support layout decision seed is missing";
+  }
+  return false;
+}
+
+bool set_missing_span_error(std::string* error_message) {
+  if (error_message != nullptr) {
+    *error_message = "span not found";
+  }
+  return false;
+}
+
+bool set_invalid_curve_error(std::string* error_message) {
+  if (error_message != nullptr && error_message->empty()) {
+    *error_message = "generated points are invalid";
+  }
+  return false;
+}
+
+}  // namespace
+
 const CurveCacheEntry* CoreState::find_curve_cache(ObjectId span_id) const {
   auto it = runtime_.cache_state.curve_cache.by_span.find(span_id);
   if (it == runtime_.cache_state.curve_cache.by_span.end()) {
@@ -92,6 +117,9 @@ RecalcStats CoreState::ProcessDirtyQueues() {
       continue;
     }
 
+    // Decision dirty is the only rebuild path that is allowed to require a
+    // decision-bearing seed. Geometry/render refresh must not silently upgrade
+    // themselves into owner-topic recomputation.
     std::string error_message;
     if (!rebuild_span_decision_path(span_id, &error_message)) {
       continue;
@@ -112,6 +140,8 @@ RecalcStats CoreState::ProcessDirtyQueues() {
       continue;
     }
 
+    // Geometry refresh consumes the existing seed/materialized authority and
+    // only refreshes layout/curve-derived caches.
     std::string error_message;
     if (!rebuild_span_geometry_from_seed(span_id, &error_message)) {
       continue;
@@ -150,6 +180,7 @@ RecalcStats CoreState::ProcessDirtyQueues() {
     if (it == runtime_.span_runtime_states.end() || !any(it->second.dirty_bits, DirtyBits::kRenderRefresh)) {
       continue;
     }
+    // Render refresh is limited to visual/render cache rebuilds.
     std::string error_message;
     if (!rebuild_span_visual(span_id, &error_message)) {
       continue;
@@ -304,39 +335,15 @@ void CoreState::mark_connected_spans_dirty_from_anchor(ObjectId anchor_id, Dirty
 }
 
 bool CoreState::rebuild_span_curve(ObjectId span_id, std::string* error_message) {
+  // External/test-hook compatibility: rebuilding the span curve follows the
+  // geometry-refresh path and consumes the existing support-layout seed.
   return rebuild_span_geometry_from_seed(span_id, error_message);
 }
 
-bool CoreState::rebuild_span_decision_path(ObjectId span_id, std::string* error_message) {
-  if (find_span_support_layout_seed(span_id) == nullptr) {
-    if (error_message != nullptr && error_message->empty()) {
-      *error_message = "support layout decision seed is missing";
-    }
-    return false;
-  }
-  return rebuild_span_geometry_from_seed(span_id, error_message);
-}
-
-bool CoreState::rebuild_span_geometry_from_seed(ObjectId span_id, std::string* error_message) {
-  const Span* span = authoritative_.edit_state.spans.find(span_id);
-  if (span == nullptr) {
-    if (error_message != nullptr) {
-      *error_message = "span not found";
-    }
-    return false;
-  }
-
-  SpanSupportLayoutEntry support_layout = generate_span_support_layout(*span, error_message);
-  if (support_layout.span_id == kInvalidObjectId) {
-    return false;
-  }
-
-  DetailCurve detail = generate_span_curve(*span, support_layout, error_message);
+bool CoreState::cache_rebuilt_span_geometry(ObjectId span_id, SpanSupportLayoutEntry support_layout, DetailCurve detail,
+                                            std::string* error_message) {
   if (detail.sample_points.size() < 2) {
-    if (error_message != nullptr && error_message->empty()) {
-      *error_message = "generated points are invalid";
-    }
-    return false;
+    return set_invalid_curve_error(error_message);
   }
 
   CurveCacheEntry entry{};
@@ -348,6 +355,48 @@ bool CoreState::rebuild_span_geometry_from_seed(ObjectId span_id, std::string* e
   cache_span_support_layout(std::move(support_layout));
   runtime_.cache_state.curve_cache.by_span[span_id] = std::move(entry);
   return true;
+}
+
+bool CoreState::rebuild_span_decision_path(ObjectId span_id, std::string* error_message) {
+  if (find_span_support_layout_seed(span_id) == nullptr) {
+    return set_missing_seed_error(error_message);
+  }
+  const Span* span = authoritative_.edit_state.spans.find(span_id);
+  if (span == nullptr) {
+    return set_missing_span_error(error_message);
+  }
+
+  SpanSupportLayoutEntry support_layout = generate_span_support_layout(*span, error_message);
+  if (support_layout.span_id == kInvalidObjectId) {
+    return false;
+  }
+  // Decision dirty is the only path that is allowed to (re)assert the
+  // decision-seed contract on the cached support layout.
+  support_layout.requires_decision_seed = true;
+  DetailCurve detail = generate_span_curve(*span, support_layout, error_message);
+  return cache_rebuilt_span_geometry(span_id, std::move(support_layout), std::move(detail), error_message);
+}
+
+bool CoreState::rebuild_span_geometry_from_seed(ObjectId span_id, std::string* error_message) {
+  const bool requires_seed = runtime_.cache_state.support_layout_cache.decision_required_span_ids.contains(span_id);
+  if (requires_seed && find_span_support_layout_seed(span_id) == nullptr) {
+    return set_missing_seed_error(error_message);
+  }
+  const Span* span = authoritative_.edit_state.spans.find(span_id);
+  if (span == nullptr) {
+    return set_missing_span_error(error_message);
+  }
+
+  SpanSupportLayoutEntry support_layout = generate_span_support_layout(*span, error_message);
+  if (support_layout.span_id == kInvalidObjectId) {
+    return false;
+  }
+  // Geometry refresh consumes the existing cached seed contract. It does not
+  // reinterpret authority ownership and it does not downgrade/upgrade whether a
+  // decision seed is required for this span.
+  support_layout.requires_decision_seed = requires_seed;
+  DetailCurve detail = generate_span_curve(*span, support_layout, error_message);
+  return cache_rebuilt_span_geometry(span_id, std::move(support_layout), std::move(detail), error_message);
 }
 
 void CoreState::cache_span_support_layout(SpanSupportLayoutEntry layout) {
@@ -468,29 +517,34 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
     }
     const bool uses_grouped_lowered_support = layout_endpoint != nullptr && endpoint_uses_grouped_lowered_support(layout_endpoint);
     const bool prefers_span_local_lowered_visual = endpoint_prefers_span_local_lowered_visual(layout_endpoint);
-    const double dx = port.world_position.x - pole->world_transform.position.x;
-    const double dy = port.world_position.y - pole->world_transform.position.y;
-    const double planar = std::sqrt(dx * dx + dy * dy);
     SpanVisualCacheEntry& entry = runtime_.cache_state.visual_cache.by_span[span_id];
     if (uses_grouped_lowered_support && !prefers_span_local_lowered_visual) {
       return;
     }
-    Vec3d support_dir{};
-    bool has_support_dir = false;
-    if (layout_endpoint != nullptr && layout_endpoint->support_authority.has_signed_support_axis) {
-      support_dir = layout_endpoint->support_authority.signed_support_axis;
-      has_support_dir = NormalizeXY(&support_dir);
-    }
-    if (runtime_.cache_state.visual_settings.enable_support_structures && has_support_dir &&
-        planar > runtime_.cache_state.visual_settings.support_center_threshold_m + 1e-9) {
+    // Render refresh consumes materialized world-space endpoints. It does not
+    // reinterpret support authority into a new local/global axis here.
+    const Vec3d attachment_world = (layout_endpoint != nullptr) ? layout_endpoint->endpoint_world : port.world_position;
+    const Vec3d support_tip_world = (layout_endpoint != nullptr) ? layout_endpoint->support_world
+                                                                 : Vec3d{pole->world_transform.position.x,
+                                                                         pole->world_transform.position.y,
+                                                                         attachment_world.z};
+    const bool has_materialized_visual_arm = layout_endpoint != nullptr && layout_endpoint->has_visual_arm_geometry;
+    const Vec3d support_mount_world = has_materialized_visual_arm
+                                          ? layout_endpoint->visual_arm_mount_world
+                                          : Vec3d{pole->world_transform.position.x,
+                                                  pole->world_transform.position.y,
+                                                  support_tip_world.z};
+    const Vec3d materialized_tip_world =
+        has_materialized_visual_arm ? layout_endpoint->visual_arm_tip_world : support_tip_world;
+    const double support_planar =
+        std::sqrt((materialized_tip_world.x - support_mount_world.x) * (materialized_tip_world.x - support_mount_world.x) +
+                  (materialized_tip_world.y - support_mount_world.y) * (materialized_tip_world.y - support_mount_world.y));
+    if (runtime_.cache_state.visual_settings.enable_support_structures &&
+        support_planar > runtime_.cache_state.visual_settings.support_center_threshold_m + 1e-9) {
       VisualPart arm{};
       arm.kind = VisualPartKind::kSupportArm;
-      arm.a = {pole->world_transform.position.x, pole->world_transform.position.y, port.world_position.z};
-      arm.b = {
-          pole->world_transform.position.x + support_dir.x * planar,
-          pole->world_transform.position.y + support_dir.y * planar,
-          port.world_position.z,
-      };
+      arm.a = support_mount_world;
+      arm.b = materialized_tip_world;
       arm.radius_m = 0.03;
       entry.parts.push_back(arm);
     }
@@ -498,12 +552,8 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
     if (runtime_.cache_state.visual_settings.enable_insulators && requires_insulator) {
       VisualPart ins{};
       ins.kind = VisualPartKind::kInsulator;
-      ins.a = port.world_position;
-      ins.b = {
-          port.world_position.x,
-          port.world_position.y,
-          port.world_position.z + insulator_attachment_height_m,
-      };
+      ins.a = has_materialized_visual_arm ? layout_endpoint->visual_insulator_base_world : support_tip_world;
+      ins.b = attachment_world;
       ins.radius_m = runtime_.cache_state.visual_settings.insulator_radius_m;
       entry.parts.push_back(ins);
     }

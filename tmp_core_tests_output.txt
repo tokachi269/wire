@@ -1,0 +1,399 @@
+[PASS] C01_IdGenerator [Exact][Normal] - IdGenerator monotonic and reset behavior
+[PASS] C02_ObjectStore [Exact][Normal] - ObjectStore add/find/remove integrity
+[PASS] C03_Phase3_SpanRuntime_Initialized [Exact][Normal] - AddSpan initializes runtime+dirty
+[FAIL] C04_Phase3_MovePole_LocalDirty [Invariant][Normal] - MovePole dirties only related span
+[PASS] C05_Phase3_SplitSpan_Basic [Invariant][Normal] - SplitSpan replaces structure and keeps integrity
+[PASS] C06_Phase35_ApplyPoleType_GeneratesPorts [Invariant][Normal] - ApplyPoleType generates owned template ports
+[PASS] C07_Phase35_PoleType_DifferentLayouts [Invariant][Normal] - Different pole types produce different port hint layout
+[PASS] C08_Phase35_AutoAlloc_UnusedPriority [Invariant][Normal] - Auto allocation prefers unused ports
+[PASS] C09_Phase35_AddConnectionByPole_Basic [Invariant][Normal] - Pole->Pole connection updates dirty/index/changeset
+[PASS] C10_AddConnectionByPole_FailSamePole [Exact][Abnormal] - Same-pole connect fails with diagnostics and recovers
+[PASS] C11_Phase35_AddDropFromPole_Basic [Invariant][Normal] - Drop from pole creates service span
+[PASS] C12_Phase35_AddDropFromSpan_Basic [Invariant][Normal] - Drop from span splits and connects
+[FAIL] C13_Phase4_Curve_LineDeterministic [Exact][Normal] - Line mode curve cache is deterministic
+[PASS] C14_Phase4_Curve_SagBasic [Invariant][Normal] - Sag mode lowers midpoint along world up and keeps endpoints
+[FAIL] C15_Phase4_DirtyVersion_LocalGeometryBounds [Exact][Normal] - Geometry dirty propagates to bounds/render locally
+[FAIL] C16_Phase4_Bounds_Generated [Invariant][Normal] - Bounds cache is generated and valid
+[PASS] C17_Phase4_Bounds_FollowGeometry [Invariant][Normal] - Bounds follow geometry setting change along world up
+[PASS] C19_Phase45_GeneratePolesAlongRoad_Basic [Invariant][Normal] - Road interval generates pole line with pole type
+[PASS] C20_Phase46_GenerateSimpleLine_FailShortPolyline [Exact][Abnormal] - Simple line short polyline fails with state unchanged
+[PASS] C21_Phase46_GenerateSimpleLine_FailInvalidInterval [Exact][Abnormal] - Simple line invalid interval fails with state unchanged
+[PASS] C22_AddSpan_FailMissingPorts [Exact][Abnormal] - AddSpan invalid port failure leaves state recoverable
+[PASS] C23_SplitSpan_FailInvalidT [Exact][Abnormal] - SplitSpan invalid t failure leaves state recoverable
+[PASS] C24_Phase45_GenerateSpansBetweenPoles_Basic [Exact][Normal] - Adjacent poles are auto connected
+[PASS] C25_Phase45_GenerateSpansBetweenPoles_MultiPass [Exact][Normal] - Repeated auto-connect adds more spans
+[PASS] C26_Phase47_AutoConnect_UsesThirdSlot [Invariant][Normal] - Auto-connect uses at least third low-voltage candidate before reuse
+[PASS] C27_Phase45_GenerateSimpleLine_Integration [Invariant][Normal] - Simple line generation integrates dirty/recalc/caches
+[PASS] C28_Phase45_GenerateSimpleLine_Continuity [Invariant][Normal] - Intermediate poles reuse same through-port
+[PASS] C29_Phase45_DisplayId_PerPrefix [Exact][Normal] - Display IDs increment per prefix
+[PASS] C30_Phase47_PoleContext_Classification [Invariant][Normal] - Pole context classification marks terminal/straight/corner
+[PASS] C31_Phase47_AngleCorrection_Bounds [Invariant][Normal] - Angle correction side scale stays finite and bounded
+[PASS] C32_Phase47_SlotSelection_ContextBias [Invariant][Normal] - Branch context biases band choice away from trunk-only
+[PASS] C33_Phase47_SlotSelection_DeterministicDebug [Exact][Normal] - Band tie-break is deterministic and debug record is coherent
+[PASS] C34_Phase47_GenerateSimpleLine_CornerContext [Invariant][Normal] - Corner path generation keeps the guide vertex pole classified as corner under canonical path generation
+[PASS] C35_Phase47_CornerTurnSign_OuterBias [Invariant][Normal] - Corner turn sign expands outer side more than inner side
+[PASS] C36_Phase47_DrawPath_ClickPointsExact [Exact][Normal] - DrawPath generation uses clicked points directly and sets pole yaw
+[PASS] C37_Phase48_PreferredSide_Geometry [Invariant][Normal] - Preferred side is decided by peer geometry
+[PASS] C38_GroupedLine_HV3 [Invariant][Normal] - Grouped line generation creates 3-lane high-voltage spans
+[PASS] C39_Direction_ForcedReverse [Exact][Normal] - Grouped line honors forced reverse direction
+[PASS] C40_Phase48_PoleFlip180_Dirty [Invariant][Normal] - Pole flip180 updates owned ports and dirties connected spans
+[PASS] C42_Phase4x_RecalcCache_NoEntityMutation [Invariant][Normal] - Derived cache rebuild does not mutate entity identity/counts
+[PASS] C43_Phase4x_SharpCorner_SideAxisPerpendicular [Invariant][Normal] - Sharp-corner pole side axis is perpendicular to bisector and points away from inward side
+[PASS] C44_Phase48a_Bundle_AssignQuery [Invariant][Normal] - Bundle assignment and query API works on spans
+[PASS] C45_Phase48a_Bundle_InvalidReject [Exact][Abnormal] - Invalid bundle references are rejected
+[PASS] C47_Backbone_HVDefaultLanes [Invariant][Normal] - Backbone generation creates default HV bundle spans
+[PASS] C48_Backbone_DirectionModes [Invariant][Normal] - Backbone generation supports Forward/Reverse/Auto direction modes
+[PASS] C49_Backbone_InvalidInputs [Exact][Abnormal] - Backbone generation rejects invalid input and remains recoverable
+[PASS] C50_Phase48c_PortMode_DefaultAuto [Exact][Normal] - New ports default to Auto mode
+[PASS] C51_Phase48c_PortMode_ManualReset [Invariant][Normal] - Manual set/reset toggles port mode and keeps dirty local
+[PASS] C52_Phase48c_PortMode_ProtectFromRelayout [Invariant][Normal] - Manual ports are not overwritten by auto pole relayout
+[PASS] C53_Phase48h_Guide_ManualBoundaryStable [Invariant][Normal] - Guide extension keeps explicitly pinned poles fixed
+[PASS] C54_Phase48h_Guide_LocalUpdate [Invariant][Normal] - Guide regeneration adds only missing segments without duplicating unchanged spans
+[PASS] C55_Phase48h_Backbone_Route [Invariant][Normal] - Backbone edges are built from grouped spans and route search works
+[PASS] C56_Phase48h_SharpCorner_ThresholdBoundary [Invariant][Normal] - Sharp-corner orientation applies at <=74deg and disables above threshold
+[PASS] C57_Phase48h_Guide_DuplicatePointsRobust [Invariant][Normal] - Guide generation with duplicate points stays finite and keeps path height along world up
+[PASS] C58_Phase48h_Guide_ReverseSymmetry [Invariant][Normal] - Guide reverse mode preserves generated pole position set
+[PASS] C59_Phase48h_Guide_AvoidConstraint [Invariant][Normal] - Guide generation avoids forbidden radius around avoid_points
+[PASS] C60_Phase48h_Guide_ReusedVertexReorient [Invariant][Normal] - Reused guide vertex pole is reoriented by sharp-corner rule when not manually overridden
+[PASS] C61_Phase48h_AcuteCorner_AutoWidenSpacing [Invariant][Normal] - Acute corners auto-widen lane spacing without category-specific branching
+[PASS] C62_GroupedLine_NoInversionUPath [Invariant][Normal] - U-shaped grouped path keeps conductor order inversion-free
+[PASS] C63_GroupedLine_MirrorMetricNonRegression [Invariant][Normal] - Mirror enablement does not worsen grouped ordering metrics
+[PASS] C64_Phase48i_Guide_NoForcedManualVertices [Exact][Normal] - Guide generation does not force manual poles by default (including endpoints)
+[PASS] C65_Phase48i_Guide_PinVerticesOption [Exact][Normal] - Guide pin_vertices option explicitly pins intermediate vertices
+[PASS] C66_Phase48i_PolePlacementMode_Roundtrip [Exact][Normal] - Pole placement mode can round-trip Auto<->Manual by API
+[PASS] C67_Phase48i_Regenerate_KeepManualPole [Invariant][Normal] - Session-local regeneration preserves manually pinned pole position
+[PASS] C68_Phase48i_Regenerate_KeepManualPort [Invariant][Normal] - Session-local regeneration preserves manual port position edits
+[PASS] C69_Phase48i_Regenerate_SessionIsolation [Invariant][Normal] - Session-local regeneration does not mutate other generation sessions
+[PASS] C70_Phase48h_Guide_ReusedVertexPortReproject [Invariant][Normal] - Reused guide vertex reprojections move template-owned ports when corner orientation changes
+[PASS] C71_Phase48k_MovePole_ReprojectAutoPreserveManual [Invariant][Normal] - MovePole reprojects owned Auto ports and preserves Manual ports
+[PASS] C72_Phase48i_Regenerate_KeepManualPortOnAutoPole [Invariant][Normal] - Session-local regeneration preserves manual port edits even when owner pole remains Auto
+[PASS] C73_Template_FixedCountReject [Exact][Abnormal] - Fixed bundle templates reject explicit count override
+[PASS] C74_Template_DefaultSingleOneSpan [Invariant][Normal] - Default single-conductor template generates one span per segment
+[PASS] C75_Template_DefaultSingleRejectCount [Exact][Abnormal] - Default single-conductor template rejects explicit count override
+[PASS] C76_GroupedLine_AcuteCornerNoInversion [Invariant][Normal] - Acute corner grouped path keeps conductor order stable
+[PASS] C77_Template_MultiBundleRequest [Invariant][Normal] - Multiple bundle templates in one backbone request generate combined results
+[PASS] C78_Phase50_Tilt_ReprojectAndVisualFollow [Invariant][Normal] - Pole tilt reprojects Auto ports and updates span visual cache through one path
+[FAIL] C79_Phase50_ReferenceLength_StableSag [Invariant][Normal] - Reference length keeps sag depth visually stable across tilt
+[PASS] C80_Phase50_CenterOffset_NoPoleOverlap [Invariant][Normal] - Center bands are offset from pole centerline by radius+clearance
+[FAIL] C81_Phase50_Insulator_ElectricOnly [Invariant][Normal] - Visual insulators are generated only for electric lines
+[PASS] C82_Junction_FirstSessionPrimary [Invariant][Normal] - T-junction keeps the first session on primary order
+[PASS] C83_Junction_OrderStableAcrossRebuilds [Invariant][Normal] - Cross junction order stays stable across rebuilds
+[PASS] C84_Junction_NoOverwriteByLaterPath [Invariant][Normal] - Later path does not overwrite the first prioritized session
+[PASS] C86_GroupedLine_AcutePatternSuite [Invariant][Normal] - Acute pattern suite stays inversion-free
+[PASS] C87_GroupedLine_HV3AcuteNoTwist [Invariant][Normal] - HV3 acute grouped path avoids phase twist
+[PASS] C89_ThreePhasePolicy_CategoryAgnostic [Invariant][Normal] - Three-phase policy remains category agnostic
+[PASS] C90_Backbone_BundlesRequired [Exact][Abnormal] - Backbone generation requires bundles[] and rejects legacy-only fields
+[PASS] C91_AddConnection_TemplateRequired [Exact][Abnormal] - Auto-created bundle connections require an explicit template
+[PASS] C92_AddConnection_TemplateWins [Invariant][Normal] - Bundle template drives connection behavior even if category argument mismatches
+[PASS] C93_AddConnection_BundleTemplateMismatchReject [Exact][Abnormal] - Explicit bundle_id and bundle_template_id mismatch is rejected
+[PASS] C94_AddConnection_TemplateNeedsBundleId [Exact][Abnormal] - Template use without auto-create still requires explicit bundle_id
+[PASS] C95_AddConnection_SpanLayerConflictReject [Exact][Abnormal] - Template span layer conflicts are rejected
+[PASS] C96_Drop_UsesTemplateDefaults [Invariant][Normal] - Drop generation uses template defaults for spacing and layer
+[PASS] C98_Backbone_ExtensionBoundaryOrder [Invariant][Normal] - Backbone extension preserves boundary conductor ordering
+[DBG] C99_capture_shape assignment_count=5
+[DBG] C99_capture_shape seg=0 inv=0 orientationReversed=0 usesBranch=0 solver=1 special=0 lowerKind=3 sameLevel=0 portsA=2,3,4, portsB=69,68,15, yA=0.45,0,-0.45, yB=6.66134e-16,0,4.44089e-16, worldA=(19.4365,-17.0566,9.32),(19.6087,-16.6408,9.32),(19.7809,-16.225,9.32), worldB=(10.0249,-13.159,9.045),(8.22759,-11.9276,9.045),(6.4303,-10.6962,9.045),
+[DBG] C99_capture_shape seg=1 inv=0 orientationReversed=0 usesBranch=0 solver=1 special=0 lowerKind=3 sameLevel=0 portsA=69,68,15, portsB=71,26,70, yA=6.66134e-16,0,4.44089e-16, yB=-0.456391,0,0.456391, worldA=(10.0249,-13.159,9.045),(8.22759,-11.9276,9.045),(6.4303,-10.6962,9.045), worldB=(17.0781,-20.5491,9.045),(16.8051,-20.9148,9.045),(16.5321,-21.2805,9.045),
+[DBG] C99_capture_shape seg=2 inv=0 orientationReversed=1 usesBranch=0 solver=1 special=0 lowerKind=3 sameLevel=0 portsA=71,26,70, portsB=72,37,73, yA=-0.456391,0,0.456391, yB=0,0,0, worldA=(17.0781,-20.5491,9.045),(16.8051,-20.9148,9.045),(16.5321,-21.2805,9.045), worldB=(7.68983,-15.7372,9.045),(8.62249,-16.7209,9.045),(9.55515,-17.7046,9.045),
+[DBG] C99_capture_shape seg=3 inv=0 orientationReversed=0 usesBranch=0 solver=1 special=0 lowerKind=3 sameLevel=0 portsA=72,37,73, portsB=74,48,75, yA=0,0,0, yB=-7.77156e-16,0,7.77156e-16, worldA=(7.68983,-15.7372,9.045),(8.62249,-16.7209,9.045),(9.55515,-17.7046,9.045), worldB=(11.3179,-23.8532,9.045),(12.2073,-24.74,9.045),(13.0967,-25.6268,9.045),
+[DBG] C99_capture_shape seg=4 inv=0 orientationReversed=0 usesBranch=0 solver=1 special=0 lowerKind=3 sameLevel=0 portsA=74,48,75, portsB=59,58,57, yA=-7.77156e-16,0,7.77156e-16, yB=-0.45,0,0.45, worldA=(11.3179,-23.8532,9.045),(12.2073,-24.74,9.045),(13.0967,-25.6268,9.045), worldB=(4.882,-20.9982,9.32),(4.69953,-21.4095,9.32),(4.51706,-21.8208,9.32),
+[DBG] C99 polyline_intersections=3 adjacent=0
+[FAIL] C99_Backbone_HV3CaptureNoInversion [Invariant][Normal] - Captured HV3 backbone shape stays inversion-free
+[PASS] C100_Backbone_MidairSupportNode [Invariant][Normal] - Backbone generation keeps explicit Midair support nodes
+[PASS] C101_Backbone_HVRejectMidairBranch [Exact][Abnormal] - HV template keeps midair branch disabled
+[PASS] C102_Backbone_PerBundleModeMix [Invariant][Normal] - One support node can hold different two-state modes per bundle
+[PASS] C103_Backbone_BuildingSupportDetailStable [Invariant][Normal] - Detail generation remains stable with building support nodes
+[PASS] C104_Pick_SegmentEndpointSnap [Invariant][Normal] - Segment pick near endpoint snaps to an existing node
+[PASS] C105_Pick_SegmentMidairCreate [Invariant][Normal] - Segment pick away from endpoints creates Midair support node
+[PASS] C106_Pick_HVBlocksMidairBranch [Exact][Abnormal] - HV template blocks midair branch pick in core
+[PASS] C107_Pick_MidairDryRunNoMutation [Invariant][Normal] - Dry-run segment pick resolves Midair without mutating state
+[PASS] C108_Phase56_SharpCorner_EntryConsistency [Invariant][Normal] - Sharp-corner pole orientation stays identical between simple-line and backbone entry paths
+[PASS] C109_Backbone_HV3CaptureNoAdjacentCrossings [Invariant][Normal] - Captured HV3 backbone shape keeps interior shared-pole lane order continuous
+[PASS] C110_Backbone_ReuseExplicitPoleNode [Invariant][Normal] - Backbone generation reuses explicitly picked pole nodes
+[PASS] C111_Backbone_ReuseExplicitSupportNode [Invariant][Normal] - Backbone generation reuses explicitly picked non-pole support nodes
+[PASS] C112_Backbone_MidairExtensionDetailChain [Invariant][Normal] - Midair extension still produces detail poles and spans
+[PASS] C113_Backbone_MidairExtensionFirstSupportSegment [Invariant][Normal] - Midair extension includes the first support-to-detail segment in the route
+[PASS] C114_Backbone_MidairBranchUsesSourceSpanHeight [Invariant][Normal] - Midair branch keeps backbone pick at abstract height while detail starts from source span height
+[PASS] C115_Backbone_MidairSingleClickNoExtraBridge [Invariant][Normal] - Midair extension from one clicked endpoint keeps a single direct segment
+[PASS] C116_Backbone_TemplateSkipsMidairBranchGeneration [Invariant][Normal] - Disallowed template skips source-edge midair branch generation without failing request
+[PASS] C117_Pick_MidairPolicyBypassForPathInput [Invariant][Normal] - Path-input pick can resolve Midair without enforcing template branch policy
+[PASS] C118_Backbone_MidairBranchMixedTemplates [Invariant][Normal] - Midair branch generation keeps only templates that allow midair branch
+[FAIL] C119_CableTemplate_DiameterAffectsRender [Invariant][Normal] - CableTemplate diameter changes update dependent wire render radius
+[FAIL] C120_CableTemplate_InsulatorToggle [Invariant][Normal] - CableTemplate requires_insulator toggles dependent insulator visuals
+[PASS] C121_Template_OwnershipSeparated [Exact][Abnormal] - BundleTemplate owns branch policy while CableTemplate and entities do not own bezier inputs
+[PASS] C122_CableTemplate_EditPreservesPoleTilt [Invariant][Normal] - Cable template edits do not overwrite pole tilt instance values
+[PASS] C123_BundleTemplate_TopologyChangeMarksRegeneration [Invariant][Normal] - Topology-affecting bundle template edits mark dependent bundles for regeneration
+[PASS] C124_BundleTemplate_VisualChangeMarksDirtyOnly [Invariant][Normal] - Visual-only bundle template edits dirty dependent spans without forcing regeneration
+[PASS] C125_ApplyPoleTilt_SelectionOwned [Invariant][Normal] - ApplyPoleTilt updates only explicit pole instances and keeps tilt instance-owned
+[PASS] C126_Coord_WorldUpLateralConsistency [Invariant][Normal] - WorldUp and ComputeLateralAxis stay perpendicular and normalized by property
+[PASS] C127_Coord_PoleFrameRoundtrip [Invariant][Normal] - BuildPoleFrame keeps local/world roundtrip stable under tilt
+[PASS] C128_DetailCurve_UApi_EndpointConstraints [Invariant][Normal] - DetailCurve builds from endpoint position and tangent constraints with u-based evaluation
+[PASS] C129_DetailCurve_SApi_SagAndLengthPlacement [Invariant][Normal] - DetailCurve sag preserves endpoints and supports length-based placement via arc table
+[PASS] C130_DetailCurve_OffsetEndpoint_UsesOffsetEndpoints [Invariant][Normal] - Derived endpoint-offset mode moves detail-curve endpoints without changing source support points
+[PASS] C131_DetailCurve_QualityFallback_AcuteCase [Invariant][Normal] - Acute/conflicting tangents trigger tangent fallback instead of excessive bulge
+[PASS] C132_RenderCurve_DistanceAttributesBaked [Invariant][Normal] - Render cache bakes arc-length attributes for GPU-side length-driven effects
+[PASS] C133_Backbone_MainChainPoleForward [Invariant][Normal] - Reused junction pole keeps forward aligned to the existing main chain
+[FAIL] C134_Backbone_BundleBranchCreatesGroupedLoweredSupportAtRoot [Invariant][Normal] - Bundle-like branch root exposes authoritative lowered decision and grouped support
+[FAIL] C135_Backbone_BranchSupportDownOffset [Invariant][Normal] - Branch support lowers attachment height without rewriting layer semantics
+[PASS] C136_Backbone_HV3MainPortsStableAfterBranch [Invariant][Normal] - Adding an HV3 branch keeps existing main-chain ports stable
+[FAIL] C137_Attachment_DisplayOffset_IsEntityOnly [Invariant][Normal] - Attachment display offset stays in entity/display state and does not perturb detail-curve endpoints
+[PASS] C138_Backbone_MixedRouteEdgeFlow [Invariant][Normal] - Mixed route classifies main and branch per edge instead of one route-level flow
+[PASS] C139_Backbone_BranchSupportVisualPlacement [Invariant][Normal] - Branch support placement is derived into visual cache for minimal support structure
+[PASS] C140_Backbone_BranchClassificationIgnoresNearStraightAngle [Invariant][Normal] - Existing-chain branch stays branch even when geometry is nearly straight
+[PASS] C141_DetailCurve_CatenarySupportSlope [Invariant][Normal] - DetailCurve sag uses a catenary-like support slope instead of staying flat at the endpoints
+[PASS] C142_DetailCurve_NearStraightNoSideWobble [Invariant][Normal] - Near-straight endpoint tangents do not introduce visible sideways wobble
+[PASS] C143_DetailCurve_SmoothPass_SuppressesLateralBend [Invariant][Normal] - Smooth-pass policy keeps G2 continuity but suppresses top-view lateral wobble
+[PASS] C144_DetailCurve_LongPassThrough_PreferG2 [Invariant][Normal] - Long pass-through spans with smooth endpoint tangents adopt G2-preferred control-point strategy
+[PASS] C145_DetailCurve_ShortSpan_FallsBackToG1 [Invariant][Normal] - Short spans degrade to G1 instead of forcing a G2-style control-point layout
+[PASS] C146_DetailCurve_BranchPass_PreservesEndpointConstraints [Invariant][Normal] - Branch-pass spans prefer G1 and keep offset endpoints plus endpoint tangents intact
+[PASS] C147_DetailCurve_PreferG1_IsExplicit [Invariant][Normal] - PreferG1 policy is an explicit continuity choice, not a failed G2 attempt, and sag still applies
+[PASS] C148_DetailCurve_SharpCorner_StaysCompact [Invariant][Normal] - Sharp-corner policy shortens handles and degrades to G1 instead of producing a wide lateral peak
+[PASS] C149_DetailCurve_ViaAttachment_UsesAttachmentPolicy [Invariant][Normal] - ViaAttachment policy uses offset endpoints and falls back to endpoint-priority G1 instead of forcing smooth pass
+[PASS] C150_Backbone_NewChainOrientationFallback [Invariant][Normal] - Poles without existing chain or primary context use the explicit fallback orientation rule
+[PASS] C151_Variation_WorldspaceContinuous [Invariant][Normal] - Worldspace variation changes continuously across nearby positions
+[PASS] C152_Variation_SameFlowSharedBiasWithLocalDifference [Invariant][Normal] - Same flow shares a common bias while adjacent spans keep pole/local differences
+[PASS] C153_Variation_GlobalSeedReproducible [Invariant][Normal] - Fixed global seed reproduces the same derived variation values
+[PASS] C154_Variation_SeedChangesOutput [Invariant][Normal] - Changing the global seed changes derived variation output without changing rules
+[PASS] C155_Variation_DoesNotAffectTopologyOrMirror [Invariant][Normal] - Variation settings do not change deterministic flow classification or mirror decisions
+[FAIL] C156_Attachment_PassThrough_KeepsOuterCurve [Invariant][Normal] - PassThrough attachment keeps the outer curve visible and does not inject replacement geometry
+[FAIL] C157_Attachment_HideSegment_MasksOuterCurve [Invariant][Normal] - HideSegment attachment masks the covered outer-curve interval without replacement geometry
+[FAIL] C158_Attachment_ReplaceWithInternalPath_ReplacesInterval [Invariant][Normal] - ReplaceWithInternalPath hides the covered outer interval and emits replacement path geometry
+[FAIL] C159_Attachment_SocketEndpoint_OverridesCurveEndpoint [Invariant][Normal] - Attachment socket endpoint can replace a span endpoint so the curve meets the socket without a gap
+[FAIL] C160_Attachment_Runtime_IgnoresNames [Invariant][Normal] - Attachment runtime behavior is driven by explicit template mode, not template/object naming
+[PASS] C161_DetailCurve_BranchLongSpan_SuppressesSidewaysRunout [Invariant][Normal] - Long branch spans keep support departure local and suppress large sideways runout
+[PASS] C162_DetailCurve_BranchShortVsLong_LocalDepartureScaling [Invariant][Normal] - Branch local departure stays stronger on short spans and decays on long spans
+[PASS] C163_DetailCurve_MainSag_StrongerThanBranch [Invariant][Normal] - Main spans keep a stronger sag read than branch spans without breaking endpoint constraints
+[FAIL] C164_SupportLayout_BranchSupport_AggregatesCurveInputs [Invariant][Normal] - Branch support layout aggregates endpoint/departure/down-offset and feeds both curve and visual caches
+[FAIL] C165_SupportLayout_AttachmentSocket_CapturesEndpoint [Invariant][Normal] - Support layout captures attachment socket endpoint input before detail-curve generation
+[FAIL] C166_Inspection_SpanSupportDetailCurve_Surface [Invariant][Normal] - Inspection surface exposes span/support-layout/detail-curve views and decision trace without leaking internals
+[PASS] C167_Inspection_PoleTemplateOverrideJunction_Surface [Invariant][Normal] - Inspection surface exposes pole/template/override/junction views through concept-level readonly access
+[PASS] C168_Override_PoleOrientation_Roundtrip [Invariant][Normal] - Pole orientation override can be applied and cleared back to automatic resolution
+[FAIL] C169_Override_SpanSocket_Roundtrip [Invariant][Normal] - Span endpoint socket override can be applied and cleared back to automatic support-layout endpoint selection
+[FAIL] C170_Override_BranchDownOffset_Roundtrip [Invariant][Normal] - Branch down offset override can be applied and cleared back to policy-derived support layout
+[PASS] C171 [Invariant: public headers stay self-sufficient and concept-level views remain usable without reaching into internal storage][Normal] - public headers compile as a minimal consumer surface
+[PASS] C172_SupportLayout_CurvePolicyInputs_Shared [Invariant][Normal] - Support layout and detail curve share the same resolved span policy inputs and expose separate trace topics
+[PASS] C173_Backbone_StraightSupportAxisPerpendicularToRoute [Invariant][Normal] - Straight DrawPath keeps pole support axis and port row perpendicular to the route axis
+[PASS] C174_Backbone_CrossSupportAxisNotDiagonal [Invariant][Normal] - Cross junction keeps support axis on the preserved pair/trunk family instead of collapsing to a diagonal pole-global fit
+[PASS] C175_Backbone_OrthogonalSupportAxisStaysCardinal [Invariant][Normal] - Orthogonal DrawPath corner fits support axis to connected directions instead of freezing to a cardinal axis
+[PASS] C176_Backbone_BranchKeepsMainSupportAxis [Invariant][Normal] - Adding a branch turns support heading toward connected directions while keeping the row geometry readable
+[PASS] C177_Backbone_DrawPathPlainEndpointFallback [Invariant][Normal] - DrawPath backbone without attachment input falls back to plain support endpoints
+[DBG] C179 span=56 flow=1 branchSupport=0 shape=3 tangentRule=2 supportWeight=0.08 chordWeight=0.92 dep=0.95 latLimit=0.04 suppress=0.82 maxLat=0.00179298 peakIndex=2 samples=8 branchTraceHasPolicy=1 runout=maxLat=0.00179298 ratio=9.96101e-05 depLat=0.00191989 midLat=6.97973e-08 depLen=1.80021 chord=18 local=1
+[FAIL] C179_Backbone_DrawPathBranchCurveStaysLocal [Invariant][Normal] - DrawPath branch curve keeps support departure local and converges back toward chord
+[DBG] C180 mainSpan=35 mainFlow=0 mainBranchSupport=0 branchSpan=56 branchFlow=1 branchSupport=0 branchShape=3 branchSuppress=0.82 mainHasFlow=1 mainHasTangent=1 branchHasFlow=1 branchHasTangent=1 branchHasLateralPolicy=1
+[FAIL] C180_Backbone_DrawPathMainBranchTraceReadable [Invariant][Normal] - DrawPath span inspection and trace make main/branch differences explicit
+[PASS] C181_CoreStateService_CollectOwnedEndpoints [Invariant][Normal] - GetPoleDetail exposes only the requested pole owned ports and anchors
+[PASS] C182_CoreStateService_RefreshOwnedEndpoints [Invariant][Normal] - MovePole updates only the target pole owned ports and anchors
+[DBG] C191 missing derived span=1 bundle=1 layout=0
+[PASS] C183_CoreStateService_OverrideResolution [Invariant][Normal] - public override mutations are reflected coherently on pole/span inspection surfaces
+[PASS] C184_CoreStateService_ApplyPoleType_ReusesOwnedEndpoints [Invariant][Normal] - template application reuses the target pole owned ports and anchors without touching other poles
+[PASS] C185_Backbone_HV3TerminalSlotsDistinct [Invariant][Normal] - HV3 DrawPath terminals realize distinct template bands instead of fallback category ports
+[PASS] C186_CoreStateService_TemplateMutation_LocalizesBundleImpact [Invariant][Normal] - template mutation service marks only bundles matching the edited template for regeneration
+[PASS] C187_CoreStateService_TemplateMutation_LocalizesAttachmentImpact [Invariant][Normal] - template mutation service dirties only spans that actually use the edited attachment template
+[FAIL] C188_Backbone_HV3TerminalFallbackRowPerpendicular [Invariant][Normal] - HV3 DrawPath terminals without HV bands still realize a perpendicular generated row without generic fallback
+[PASS] C189_Backbone_HV3CommunicationPoleAllTemplatesTerminalRow [Invariant][Normal] - HV3 remains visually separated and perpendicular on communication poles even when all DrawPath templates are selected
+[PASS] C190_Backbone_CommunicationTerminalRowPerpendicular [Invariant][Normal] - Communication multi-lane terminals stay visually separated and perpendicular on communication poles
+[FAIL] C191_Template_PreservedIdentityOffsetEndpoints [Invariant][Normal] - Preserved multi-lane bundles use offset endpoints by template policy instead of HV-only category checks
+[PASS] C192_Backbone_ClickedExistingCommunicationPoles_AllTemplatesStaySeparated [Invariant][Normal] - Clicked existing communication poles keep HV terminals visually separated and perpendicular when all DrawPath templates are selected
+[FAIL] C193_Backbone_BundleBranchUsesOneSharedLowerStep [Invariant][Normal] - HV3 bundle branch uses one shared lower step across the whole bundle while keeping a perpendicular row
+[PASS] C194_Backbone_JunctionPrefersStraighterMainPair [Invariant][Normal] - Junction main selection prefers the straighter continuation pair over first-drawn primary
+[FAIL] C195_Backbone_BundleBranchLoweringStaysLocalToRootPole [Invariant][Normal] - Bundle-like branch lowering stays on the branch root and downstream branch poles return to a flat perpendicular row
+[PASS] C196_Backbone_BranchSupportVisualPerpendicular [Invariant][Normal] - Branch support visual placement stays perpendicular to the branch and hangs vertically under the lane attachment
+[DBG] C197 flow=1 lowerRequired=0 groupId=-1 downOffset=0.35
+[FAIL] C197_Backbone_DefaultSingleBranchStaysFlat [Invariant][Normal] - DefaultSingle branch stays branch-flow without authoritative lowered decision or height drop
+[PASS] C198_Backbone_CommunicationBundleBranchPolicyBlocked [Invariant][Normal] - Communication multi-bundle branch exposes a policy-blocked lowered decision without materializing grouped support
+[FAIL] C199_Backbone_HV3BundleBranchUsesOneSharedLowerStepOnBothPoleTypes [Invariant][Normal] - HV3 bundle branch stays on one shared lower step and keeps a perpendicular grouped support on both default pole types
+[PASS] C200_CoreStateService_TemplateMutation_BranchDownOffsetPolicyIsTopology [Invariant][Normal] - bundle template branch-down-offset policy changes force regeneration instead of being ignored or treated as visual-only
+[PASS] C201_Backbone_PointLikeCrossCanStaySameLevel [Invariant][Normal] - Point-like cross keeps branch classification but may stay same-level when near-node clearance allows
+[PASS] C202_Tilt_BiasesTowardIncidentSpanDirection [Invariant][Normal] - Pole tilt direction is random but biased toward the incident span pull direction
+[PASS] C203_Tilt_MagnitudeFollowsPullImbalance [Invariant][Normal] - Pole tilt magnitude is reduced for balanced spans and increases when pull is imbalanced
+[PASS] C204_Backbone_HV3CornerUsesOneSharedLowerStep [Invariant][Normal] - HV3 corner continuation uses the same one-step lowered height across the whole bundle without turning it into branch support
+[FAIL] C205_Backbone_HV3CornerOneStepLowerSurvivesPoleRefresh [Invariant][Normal] - HV3 corner one-step lowered support identity survives pole refresh without dropping back to template height
+[PASS] C206_Phase48i_Regenerate_AcuteLoweringNoStaleGeneratedPorts [Invariant][Normal] - Session regeneration keeps acute-corner lowering and does not accumulate stale generated ports on reused poles
+[DBG] C207_regen_interval_extension assignment_count=7
+[DBG] C207_regen_interval_extension seg=0 inv=0 orientationReversed=0 usesBranch=0 solver=0 special=0 lowerKind=0 sameLevel=1 portsA=120,119,118, portsB=131,130,129, yA=-0.45,0,0.45, yB=-0.45,0,0.45, worldA=(19.7809,-16.225,9.32),(19.6087,-16.6408,9.32),(19.4365,-17.0566,9.32), worldB=(12.3896,-13.1641,9.32),(12.2174,-13.5799,9.32),(12.0453,-13.9957,9.32),
+[DBG] C207_regen_interval_extension seg=1 inv=0 orientationReversed=1 usesBranch=0 solver=1 special=0 lowerKind=3 sameLevel=0 portsA=131,130,129, portsB=215,214,142, yA=-0.45,0,0.45, yB=-0.459918,0,0.459918, worldA=(12.3896,-13.1641,9.32),(12.2174,-13.5799,9.32),(12.0453,-13.9957,9.32), worldB=(8.48753,-11.5482,9.045),(8.22759,-11.9276,9.045),(7.96765,-12.307,9.045),
+[DBG] C207_regen_interval_extension seg=2 inv=0 orientationReversed=1 usesBranch=0 solver=1 special=0 lowerKind=3 sameLevel=0 portsA=215,214,142, portsB=153,152,151, yA=-0.459918,0,0.459918, yB=-0.45,0,0.45, worldA=(8.48753,-11.5482,9.045),(8.22759,-11.9276,9.045),(7.96765,-12.307,9.045), worldB=(14.0765,-17.4041,9.32),(13.751,-17.7148,9.32),(13.4255,-18.0255,9.32),
+[DBG] C207_regen_interval_extension seg=3 inv=0 orientationReversed=0 usesBranch=0 solver=1 special=0 lowerKind=3 sameLevel=0 portsA=153,152,151, portsB=216,164,217, yA=-0.45,0,0.45, yB=-0.456391,0,0.456391, worldA=(14.0765,-17.4041,9.32),(13.751,-17.7148,9.32),(13.4255,-18.0255,9.32), worldB=(17.0781,-20.5491,9.045),(16.8051,-20.9148,9.045),(16.5321,-21.2805,9.045),
+[DBG] C207_regen_interval_extension seg=4 inv=0 orientationReversed=0 usesBranch=0 solver=1 special=0 lowerKind=3 sameLevel=0 portsA=216,164,217, portsB=218,175,219, yA=-0.456391,0,0.456391, yB=0,0,0, worldA=(17.0781,-20.5491,9.045),(16.8051,-20.9148,9.045),(16.5321,-21.2805,9.045), worldB=(7.68983,-15.7372,9.045),(8.62249,-16.7209,9.045),(9.55515,-17.7046,9.045),
+[DBG] C207_regen_interval_extension seg=5 inv=0 orientationReversed=0 usesBranch=0 solver=1 special=0 lowerKind=3 sameLevel=0 portsA=218,175,219, portsB=220,186,221, yA=0,0,0, yB=-7.77156e-16,0,7.77156e-16, worldA=(7.68983,-15.7372,9.045),(8.62249,-16.7209,9.045),(9.55515,-17.7046,9.045), worldB=(11.3179,-23.8532,9.045),(12.2073,-24.74,9.045),(13.0967,-25.6268,9.045),
+[DBG] C207_regen_interval_extension seg=6 inv=0 orientationReversed=0 usesBranch=0 solver=1 special=0 lowerKind=3 sameLevel=0 portsA=220,186,221, portsB=197,196,195, yA=-7.77156e-16,0,7.77156e-16, yB=-0.45,0,0.45, worldA=(11.3179,-23.8532,9.045),(12.2073,-24.74,9.045),(13.0967,-25.6268,9.045), worldB=(4.882,-20.9982,9.32),(4.69953,-21.4095,9.32),(4.51706,-21.8208,9.32),
+[FAIL] C207_Phase48i_Regenerate_IntervalExtensionPreservesHvLaneOrder [Invariant][Normal] - Session-local regeneration keeps HV lane order continuous when extending an interval-driven DrawPath route
+[PASS] C208_Backbone_IntervalExtensionBoundaryOrder [Invariant][Normal] - Interval-driven backbone extension keeps conductor ordering continuous at reused poles
+[PASS] C209_Backbone_HV3ModerateCornerUsesOneSharedLowerStep [Invariant][Normal] - HV3 moderate corner still collapses to one shared lower step under the default corner threshold
+[DBG] C210 hvBranchFound=1 hvBranchLowered=0
+[DBG] C210 assignment bundle=0 flow=1 lowerA=0 lowerB=0 down=0
+[DBG] C210 assignment bundle=1 flow=1 lowerA=1 lowerB=0 down=0.275
+[DBG] C210 assignment bundle=2 flow=1 lowerA=0 lowerB=0 down=0
+[DBG] C210 assignment bundle=3 flow=1 lowerA=0 lowerB=0 down=0
+[FAIL] C210_Backbone_AllTemplatesBranchKeepsHVAtOneStepLower [Invariant][Normal] - All-template DrawPath branch on communication poles keeps HV at one shared lower step
+[PASS] C211_Backbone_AllTemplatesCrossStillUsesUnderpassOnCommunicationPole [Invariant][Normal] - All-template DrawPath cross on communication poles still keeps at least one non-main line lowered
+[PASS] C212_Backbone_CaptureBranchAndCornerShareOneStepLowerOnCommunicationPole [Invariant][Normal] - Captured all-template communication-pole path keeps the HV branch root and later corner segments on the same one-step lowered height
+[PASS] C213_Backbone_RightAngleJunctionHasNoThroughPair [Invariant][Normal] - Right-angle junction exposes a rejected through pair and corner continuation relation in inspection/trace
+[PASS] C214_Backbone_LocalCornerProjectsToMainWithoutLocalThrough [Invariant][Normal] - Local corner can project to semantic main while inspection still reports no local through pair
+[PASS] C215_Backbone_SeparateRouteMergeKeepsCornerContinuationRelation [Invariant][Normal] - Separate-route merge still records corner continuation and acute lowering on the later corner node
+[PASS] C216_Backbone_MirrorDoesNotChangeRelationOrLoweringRoot [Invariant][Normal] - Mirror enablement changes lane order choices only and does not change relation or lowering roots
+[PASS] C217_Backbone_CrossAcceptedThroughButSameLevelInfeasible [Invariant][Normal] - Cross junction can accept a through pair while the non-through HV3 route still fails same-level clearance and lowers
+[PASS] C218_Backbone_CommBranchSameLevelBlockedByPolicy [Invariant][Normal] - Communication bundle branch can be same-level infeasible while category policy blocks lowering and reports that block
+[PASS] C219_Backbone_HV3CornerFeasibilityLoweringKeepsSemanticMain [Invariant][Normal] - HV3 right-angle main keeps semantic main flow while local corner feasibility drives acute lowering
+[PASS] C220_Backbone_AcuteMergeFeasibilityAppliesAcrossRouteBoundary [Invariant][Normal] - Acute merge keeps a corner-based lowering root even when the corner arrives from a separate route boundary
+[PASS] C221_Backbone_RecalcKeepsSameLevelLoweringOrigin [Invariant][Normal] - Recalc keeps same-level infeasibility and lowering origin visible on support layout and span inspection
+[PASS] C222_Backbone_HV3CornerUsesConstrainedBandSolver [Invariant][Normal] - HV3 corner uses constrained placement-band ports instead of special-case ports when same-level feasibility fails
+[PASS] C223_Backbone_CrossConstraintUsesSolver [Invariant][Normal] - Cross underpass can keep through classification while solving near-node clearance through constrained band placement
+[PASS] C224_Backbone_PolicyBlockedConflictSurvivesRecalc [Invariant][Normal] - Policy-blocked same-level conflicts remain visible as unresolved after recalc instead of silently disappearing
+[PASS] C225_Backbone_RefreshKeepsPlacementConstraintOrigin [Invariant][Normal] - Refresh keeps placement-constraint origin and constrained band source instead of snapping lowered corner ports back to normal bands
+[PASS] C226_Backbone_MirrorDoesNotChangeConstrainedSolverUsage [Invariant][Normal] - Mirror continues to affect lane-order only and does not change constrained-solver usage or unresolved same-level state
+[PASS] C227_Backbone_CrossRelationSurvivesSupportLayoutRecalc [Invariant][Normal] - Cross underpass relation and lowering survive support-layout recalc instead of collapsing entirely into Main/Branch
+[PASS] C228_Backbone_HV3BranchDefaultLower [Invariant][Normal] - Bundle-like HV3 side branch defaults to lower even when same-level clearance would otherwise look acceptable
+[PASS] C229_Backbone_HV3CornerDefaultLower [Invariant][Normal] - Bundle-like HV3 corner continuation defaults to lower instead of staying on the main row
+[PASS] C230_Backbone_HV3CrossOnlyThroughPairSameLevel [Invariant][Normal] - Bundle-like HV3 cross keeps same-level continuity only for the accepted ThroughPair
+[PASS] C231_Backbone_PointLikeBranchCanStaySameLevel [Invariant][Normal] - Point-like branch remains feasibility-driven and can stay same-level when clearance allows
+[PASS] C232_Backbone_BundleRulePolicyBlockedUnresolved [Invariant][Normal] - Bundle-like default lower remains visible as unresolved when category policy blocks lowering
+[PASS] C233_Backbone_RefreshKeepsBundleRuleOrigin [Invariant][Normal] - Refresh keeps bundle-rule lowering origin instead of dropping back to generic same-level placement
+[PASS] C234_Backbone_CrossLoweredPairSymmetricSides [Invariant][Normal] - Cross lowered pair uses one junction-pair side group instead of splitting into left/right supports per endpoint
+[PASS] C235_Backbone_ConstrainedLoweredSupportOrientation [Invariant][Normal] - Constrained-placement lowered support uses a line/chord-oriented visual rule instead of falling back to pole-radial orientation
+[PASS] C236_Backbone_BundleBranchOrientationUsesBisectorWhenAvailable [Invariant][Normal] - Bundle-like lowered branch root uses bisector orientation when available instead of falling back to branch chord
+[FAIL] C237_Backbone_PointLikeOrientationNonRegression [Invariant][Normal] - Point-like branch uses pair-aware same-level support orientation without creating lowered support groups
+[PASS] C238_Backbone_RefreshKeepsSideOrientationOrigin [Invariant][Normal] - Refresh keeps lowered side/orientation origin visible instead of collapsing constrained or cross-lowered spans back to generic radial support rules
+[PASS] C239_Backbone_HV3SameLevelOrderDecisionPermutable [Invariant][Normal] - HV3 ThroughPair path keeps an authoritative non-fixed order decision instead of reverting to fixed-order
+[PASS] C240_Backbone_HV3LoweredOrderDecisionPermutable [Invariant][Normal] - Lowered HV3 cross keeps an authoritative non-fixed order decision at the lowered endpoint
+[PASS] C241_Backbone_FixedOrderBundleUntouched [Invariant][Normal] - Fixed-order bundle skips non-fixed order evaluation entirely
+[PASS] C242_Backbone_RefreshKeepsOrderDecision [Invariant][Normal] - Refresh keeps the chosen HV3 order decision instead of re-flipping after constrained lowered generation
+[PASS] C243_Backbone_PointLikeOrderDecisionNonRegression [Invariant][Normal] - Point-like low-voltage route stays fixed-order and does not opt into HV3 order permutation
+[PASS] C244_Backbone_AuthoritativeDecisionMatchesSupportLayout [Invariant][Normal] - Support layout copies grouped endpoint decisions without reinterpreting chosen order, side, or orientation basis
+[PASS] C245_Backbone_RefreshDoesNotOverrideAuthoritativeDecision [Invariant][Normal] - Refresh keeps the chosen order decision, side, and orientation basis instead of re-flipping them downstream
+[PASS] C246_Backbone_AuthoritativeCrossPairSideSymmetry [Invariant][Normal] - Cross lowered pair keeps one authoritative shared side choice instead of re-splitting into endpoint-local left/right supports
+[PASS] C247_Backbone_ConstrainedOrientationUsesAuthoritativeBasis [Invariant][Normal] - Constrained placement support visuals reuse the authoritative orientation basis instead of recomputing a radial rule
+[PASS] C248_Backbone_HV3AuthoritativeOrderDecisionSurvivesRefresh [Invariant][Normal] - HV3 chosen order decision survives refresh as an authoritative result without downstream override
+[PASS] C249_Backbone_EdgeOrientationUsesChosenOrderDecision [Invariant][Normal] - Edge orientation is derived from the chosen endpoint order decision instead of legacy mirror state
+[PASS] C250_Backbone_BundleBranchLoweringIsPoleLocal [Invariant][Normal] - Bundle-like branch lowering is decided from each pole endpoint locally instead of relying on run propagation
+[PASS] C251_Backbone_CrossUnderpassSupportUsesSharedSideGroup [Invariant][Normal] - Cross underpass lowered pair reuses one side group and one support anchor instead of splitting left/right per endpoint
+[PASS] C252_Backbone_RefreshKeepsLocalLowerAndGroupedSupport [Invariant][Normal] - Refresh keeps pole-local lowering decisions and grouped lowered-support identity instead of recomputing them per-port
+[DBG] C253 corner group/sign mismatch group=1 refGroup=1 orient=2 side=-1 refSide=-1
+[FAIL] C253_Backbone_CornerSupportUsesConnectedLineBasis [Invariant][Normal] - Bundle-like lowered corner uses only connected lowered lines to choose a non-radial support basis and shared support identity
+[PASS] C254_SupportLayout_AssignmentBeatsStaleBranchPort [Invariant][Normal] - Support layout prefers authoritative assignment over stale branch-support port state
+[PASS] C255_Backbone_GroupedSupportVisibleOnAllBundleLanes [Invariant][Normal] - Grouped lowered support remains visible on every participating HV3 lane instead of only a representative span
+[PASS] C256_Backbone_UnrelatedGenerationDoesNotDowngradeLoweredBundle [Invariant][Normal] - Unrelated later generation does not cause existing lowered HV3 spans to fall back to point-like/radial semantics during refresh
+[PASS] C257_Inspection_SupportLayout_NoAssignmentFallback [Invariant][Normal] - Inspection does not synthesize support layout semantics from last_lane_assignments when no support layout exists
+[PASS] C258_Inspection_Backbone_UsesRebuiltResult [Invariant][Normal] - Inspection resolves junction/support-node entities from rebuilt backbone instead of stale last_generation_backbone snapshot
+[PASS] C259_Inspection_Junction_PrefersRelationSurface [Invariant][Normal] - Inspection prefers last_generation_junction_relations when relation data exists instead of mixing rebuilt junction incidents into the same surface
+[FAIL] C260_Validation_NonRadialBasisRequiresAxis [Invariant][Normal] - validation rejects non-radial support orientation without authoritative side axis
+[FAIL] C261_Validation_GroupedLoweredSupportNotRadial [Invariant][Normal] - validation rejects grouped lowered support that still keeps radial orientation basis
+[FAIL] C262_Validation_GroupedSupportIdentityConflict [Invariant][Normal] - grouped support identity uses a single authoritative placement
+[FAIL] C263_Inspection_UsesAuthoritativeLoweredSupportGroups [Invariant][Normal] - inspection maps authoritative support-group decision and grouped placement instead of reconstructing from endpoints
+[DBG] C264 inspection missing span=1 layout=0
+[FAIL] C264_Inspection_AllTemplatesBranchKeepsHVOneStepLowerOnCommunicationPole [Invariant][Normal] - Inspection surface keeps HV branch lowering on the same one-step grouped height in the all-template branch case
+[DBG] C265 missing inspection branchSpan=1 branchLayout=0 cornerSpan=1 cornerLayout=0
+[FAIL] C265_Inspection_CaptureKeepsBranchAndCornerOnOneStepLower [Invariant][Normal] - Inspection surface keeps the first HV branch segment and later HV corner segments on the same one-step lowered height in the captured communication-pole case
+[PASS] C266_Inspection_SpanReadsFlowAndTurnFromLaneSnapshot [Invariant][Normal] - inspect_span reads flow rule and turn/flip metadata from the authoritative lane snapshot instead of leaving lane-era fields stale
+[PASS] C267_Backbone_NonLoweredCrossSpansDoNotExposeLoweredSupportGroups [Invariant][Normal] - Cross junction main spans with lower_required=false do not expose grouped lowered support
+[PASS] C268_Backbone_NonLoweredSpansDoNotInheritAcuteCornerSupportGroups [Invariant][Normal] - Bundle spans with lower_required=false do not inherit grouped lowered support from lowered segments
+[FAIL] C269_Backbone_CrossLikeSingleEdgeStaysMain [Invariant][Normal] - Single-edge DrawPath from a cross-like existing node stays Main instead of inheriting branch/cross lowering from old neighbors
+[PASS] C270_Backbone_ExplicitMiddleBentRouteStaysMainLike [Invariant][Normal] - Bent route through an explicit middle anchor stays main-like against an existing straight chain instead of falling to branch/cross classification
+[PASS] C271_Backbone_GroupedSupportVisualUsesSinglePlacement [Invariant][Normal] - Grouped lowered support visual cache uses one group placement but only span-local grouped attachments
+[PASS] C272_Backbone_BranchLowerRequiredHeightSurvivesPlacementAndRefresh [Invariant][Normal] - Bundle-like non-through lower_required propagates to grouped placement height and stays unchanged after refresh/recalc
+[PASS] C273_Backbone_NonThroughHeightCollapsesToOneLowerStep [Invariant][Normal] - Bundle-like non-through uses one shared lower step while ThroughMain stays at template height
+[DBG] C274 accepted=1 pair=1/23 existingAkind=1 existingBkind=1 newAkind=4 newBkind=4 generatedHv=6 generatedCross=0
+[DBG] C274 rel neighbor=1 kind=1 inRoute=0 inPair=1 same=1 defaultLower=0
+[DBG] C274 rel neighbor=23 kind=1 inRoute=0 inPair=1 same=1 defaultLower=0
+[DBG] C274 rel neighbor=41 kind=4 inRoute=1 inPair=0 same=0 defaultLower=1
+[DBG] C274 rel neighbor=52 kind=4 inRoute=1 inPair=0 same=0 defaultLower=1
+[DBG] C274 span=67 flow=1 lowering=0 same=1 defaultLower=0
+[DBG] C274 span=68 flow=1 lowering=0 same=1 defaultLower=0
+[DBG] C274 span=69 flow=1 lowering=0 same=1 defaultLower=0
+[DBG] C274 span=70 flow=1 lowering=0 same=1 defaultLower=0
+[DBG] C274 span=71 flow=1 lowering=0 same=1 defaultLower=0
+[DBG] C274 span=72 flow=1 lowering=0 same=1 defaultLower=0
+[FAIL] C274_Backbone_CrossLikeReuseKeepsExistingStraightMainPair [Invariant][Normal] - Cross-like reuse keeps the existing straight main pair instead of promoting a new crossing path to ThroughMain
+[FAIL] C275_Backbone_LoweredBundleMidspanSupportUsesPairBasedOrientation [Invariant][Normal] - Bundle-like lowered midspan support uses the route-pair bisector instead of falling back to pole-local radial orientation
+[FAIL] C276_Backbone_PairAxisSharedButSignFlipsPerPole [Invariant][Normal] - Pair-based lowered support keeps one shared axis/basis while opposite poles may take opposite side signs
+[PASS] C277_DetailCurve_HeightDifference_UsesCompositeSegments [Invariant][Normal] - Large height-difference smooth spans switch to composite segments while preserving endpoint and s-based evaluation
+[FAIL] C278_SpanCurve_SupportLayoutHeightDifference_UsesCompositeSegments [Invariant][Normal] - Recalc consumes authoritative support-layout curve inputs so large height-difference spans materialize as composite curves
+[PASS] C279_Backbone_AdjacentBranchRootsUseRouteLocalBisector [Invariant][Normal] - Adjacent bundle branch roots use route-local bisector orientation instead of collapsing to one shared direction
+[PASS] C280_CoreStateService_GroupMaterializationConsumesLayoutAuthority [Invariant][Normal] - grouped support materialization consumes layout-owned support-group decisions instead of reconstructing authority from endpoint copies
+[PASS] C281_Validation_GroupAuthorityBeatsEndpointSemanticCopies [Invariant][Normal] - validation treats grouped endpoint semantics as derived copies and uses support-group authority as the semantic owner
+[PASS] C282_Backbone_SamePoleBranchRootsKeepDistinctSupportGroups [Invariant][Normal] - Two bundle branch roots on the same pole keep distinct lowered support groups instead of collapsing to one shared direction
+[FAIL] C283_Attachment_StraightAuxiliaryProfile_AddsSupplementalPath [Invariant][Normal] - Straight auxiliary attachment profile adds a separate supplemental path without changing support-layout authority
+[FAIL] C284_Attachment_CoiledAuxiliaryProfile_AddsLongerSupplementalPath [Invariant][Normal] - Coiled auxiliary attachment profile adds a longer supplemental path while keeping support-layout authority unchanged
+[DBG] C285 pole=23 rule=3 supportRule=3 forward=(-0.0679804,0.997687,0) support=(0.306605,0.951837,0) lateral=(-0.997687,-0.0679804,0) forwardAlign=0.928792 lateralAlign=0.370602
+[FAIL] C285_Backbone_MainBisectorSupportAxisStaysPerpendicularOnAcuteBranchRoot [Invariant][Normal] - Acute main-chain branch root keeps pole support axis perpendicular to the main bisector instead of nearly parallel to it
+[PASS] C286_Backbone_TiltedBranchSupportFollowsTiltedPoleCenterline [Invariant][Normal] - Tilted pole refresh moves grouped branch support with the tilted pole centerline instead of reusing pre-tilt XY anchors
+[PASS] C287_CommunicationPole_DefaultBandOrder [Invariant][Normal] - CommunicationPole keeps support, HV, LV, optical, communication, drop in descending height order
+[FAIL] C288_OpticalConnection_UsesCableTemplateSupplementalPath [Invariant][Normal] - Optical connection uses cable-template supplemental line authority instead of endpoint attachments
+[PASS] C289_UpdatePoleTypeDefinition_ReappliesExistingPorts [Invariant][Normal] - Updating CommunicationPole port-band heights reapplies owned auto ports on existing poles
+[PASS] C290_Backbone_HV3CornerConstrainedSolverSpreadsRootPorts [Invariant][Normal] - HV3 acute-corner constrained solver keeps the corner-root lane ports on distinct slots instead of collapsing them onto one point
+[FAIL] C291_CableTemplate_InsulatorLift_IsVerticalOnly [Invariant][Normal] - Insulator-bearing cable endpoints lift support attachment upward without lateral drift
+[FAIL] C292_CableTemplate_InsulatorLift_UpdateRefreshesLayout [Invariant][Normal] - Updating cable insulator attachment height refreshes existing support layout endpoints
+[FAIL] C293_OpticalNonPoleSpan_SkipsTopSupportWire [Invariant][Normal] - Optical non-pole span keeps only the coiled supplemental path
+[PASS] C294_Phase48h_Guide_ReusedTiltedVertexSharpCorner [Invariant][Normal] - Reused tilted guide vertex keeps sharp-corner side axis perpendicular on the tilted support plane
+[PASS] C295_GroupedSupport_InsulatorAttachPointStaysPerLane [Invariant][Normal] - Grouped lowered support keeps each lane attached at its own insulator lift point
+[PASS] C296_DefaultPoleTypes_HVCategoryUsesSingleHeight [Invariant][Normal] - Default pole templates keep one HV category height so category-level editing does not average multiple defaults
+[PASS] C297_BundleTemplate_ApplyRelatedPoleTypeToExistingPoles [Invariant][Normal] - Bundle-linked pole template can be applied to existing poles attached to bundles of that template
+[PASS] C298_Backbone_CaptureGenerationUsesRequestedCommunicationPoleType [Invariant][Normal] - Captured all-template generation keeps generated pole instances on the requested communication pole type and height
+[PASS] C299_Backbone_HVGenerationUsesHVCategoryHeightOnCommunicationPole [Invariant][Normal] - CommunicationPole HV generation uses HV category base height instead of another layer-mate category
+[PASS] C300_BundleTemplate_OrderPolicyDrivesGeneration [Invariant][Normal] - BundleTemplate order policy is carried into grouped generation instead of being re-decided from category-specific code
+[PASS] C301_Backbone_DropTemplateUsesDedicatedBundleAndServiceLayer [Invariant][Normal] - Drop backbone generation uses dedicated drop bundle/layer and service span kind
+[PASS] C302_Backbone_PoleLayoutYawStaysOnPoleYaw [Invariant][Normal] - HV support-axis solving does not change the pole layout yaw reported for the pole itself
+[PASS] C303_BundleTemplate_RowLayoutAxisModeDrivesPortLayoutYaw [Invariant][Normal] - BundleTemplate row layout axis mode is resolved into pole row-layout decisions instead of category hardcode
+[PASS] C304_StyleContext_DeterministicRouteCorrelated [Invariant][Normal] - Style context resolver stays deterministic per semantic key and shares route-level style across sibling objects
+[PASS] C305_Inspection_ResolvedStyleContext [Invariant][Normal] - Span and detail inspections expose the same resolved style context for a generated span
+[PASS] C306_DetailCurve_CurveOffsetStraightSupplemental_Wobble [Invariant][Normal] - Curve-offset straight supplemental paths can add deterministic gentle wobble without becoming structural support wires
+[FAIL] C307_ContextProfile_InfluencesDetailWobble [Invariant][Normal] - Context profile can change detail wobble appearance while preserving deterministic regeneration
+[FAIL] C308_ContextProfile_SelectsCommunicationFamilies [Invariant][Normal] - Context profile can select communication cable/attachment families through shared style resolution
+[DBG] C314 seed=34 polyline_intersections=3
+[PASS] C309_CommunicationPole_CommOpticalBandsCentered [Invariant][Normal] - CommunicationPole keeps communication and optical default bands centered instead of split left/right
+[PASS] C310_DefaultTemplates_NoOpticalWithSupportBundle [Invariant][Normal] - Default templates do not register a split optical-with-support bundle type
+[PASS] C311_Backbone_HV3LatestCaptureNoTwist [Invariant][Normal] - Latest captured CommunicationPole HV backbone shape keeps route parity and lane polylines continuous
+[FAIL] C312_OpticalBundle_KeepsCoilWithoutSupportWire [Invariant][Normal] - Optical bundle keeps one coiled supplemental path without adding support wire
+[PASS] C313_CommunicationPole_DefaultCategoryPlacementValues [Invariant][Normal] - CommunicationPole default category placement values match viewer defaults
+[DBG] C314_variant_bank_twist assignment_count=5
+[DBG] C314_variant_bank_twist seg=0 inv=0 orientationReversed=0 usesBranch=0 solver=0 special=0 lowerKind=0 sameLevel=1 portsA=3,4,5, portsB=15,16,17, yA=0.45,0,-0.45, yB=0.45,0,-0.45, worldA=(2.22644,-22.1989,9.32),(2.38374,-21.7773,9.32),(2.54104,-21.3557,9.32), worldB=(-12.5729,-16.6776,9.32),(-12.4234,-16.253,9.32),(-12.2738,-15.8285,9.32),
+[DBG] C314_variant_bank_twist seg=1 inv=0 orientationReversed=0 usesBranch=0 solver=1 special=0 lowerKind=3 sameLevel=0 portsA=15,16,17, portsB=81,80,27, yA=0.45,0,-0.45, yB=1.60982e-15,0,-1.60982e-15, worldA=(-12.5729,-16.6776,9.32),(-12.4234,-16.253,9.32),(-12.2738,-15.8285,9.32), worldB=(-18.7761,-14.6197,9.045),(-18.2499,-14.3201,9.045),(-17.7237,-14.0206,9.045),
+[DBG] C314_variant_bank_twist seg=2 inv=0 orientationReversed=0 usesBranch=0 solver=1 special=0 lowerKind=3 sameLevel=0 portsA=81,80,27, portsB=83,82,39, yA=1.60982e-15,0,-1.60982e-15, yB=-0.522635,0,0.522635, worldA=(-18.7761,-14.6197,9.045),(-18.2499,-14.3201,9.045),(-17.7237,-14.0206,9.045), worldB=(-16.5015,-4.22211,9.045),(-16.0051,-4.05862,9.045),(-15.5087,-3.89513,9.045),
+[DBG] C314_variant_bank_twist seg=3 inv=0 orientationReversed=1 usesBranch=0 solver=1 special=0 lowerKind=3 sameLevel=0 portsA=83,82,39, portsB=53,52,51, yA=-0.522635,0,0.522635, yB=-0.45,0,0.45, worldA=(-16.5015,-4.22211,9.045),(-16.0051,-4.05862,9.045),(-15.5087,-3.89513,9.045), worldB=(-13.9111,-6.49011,9.32),(-13.5147,-6.23899,9.32),(-13.1184,-5.98788,9.32),
+[DBG] C314_variant_bank_twist seg=4 inv=0 orientationReversed=0 usesBranch=0 solver=0 special=0 lowerKind=0 sameLevel=1 portsA=53,52,51, portsB=65,64,63, yA=-0.45,0,0.45, yB=-0.45,0,0.45, worldA=(-13.9111,-6.49011,9.32),(-13.5147,-6.23899,9.32),(-13.1184,-5.98788,9.32), worldB=(-13.1532,-9.14696,9.32),(-12.7205,-9.02353,9.32),(-12.2878,-8.9001,9.32),
+[DBG] C314_variant_bank_twist chosenMask=15 chosenIntersections=3 bestMask=15 bestIntersections=3 nodeParities=1,1,1,1,0,0,
+[DBG] C314_variant_bank_twist bundle=79 lanes=0,1 segs=3,2 A=(-16.5015,-4.22211)->(-13.9111,-6.49011) B=(-18.2499,-14.3201)->(-16.0051,-4.05862)
+[DBG] C314_variant_bank_twist bundle=79 lanes=0,2 segs=3,2 A=(-16.5015,-4.22211)->(-13.9111,-6.49011) B=(-17.7237,-14.0206)->(-15.5087,-3.89513)
+[DBG] C314_variant_bank_twist bundle=79 lanes=1,2 segs=3,2 A=(-16.0051,-4.05862)->(-13.5147,-6.23899) B=(-17.7237,-14.0206)->(-15.5087,-3.89513)
+[FAIL] C314_Backbone_HV3LatestCaptureVariantBankNoTwist [Invariant][Normal] - Latest captured CommunicationPole HV shape stays parity/polyline-continuous across a fixed perturbation bank
+[FAIL] C315_SupportLayout_AttachmentAuto_ResolvesDefaultSocket [Invariant][Normal] - Support layout auto attachment resolves the default socket endpoint instead of falling back to the raw support point
+[PASS] C316_Backbone_HV3LatestCaptureFinalCurveNoTwist [Invariant][Normal] - Latest captured CommunicationPole HV shape keeps final detail curves untwisted after recalc
+[FAIL] C317_Backbone_HV3LatestCaptureLoweredSupportUsesLocalDepartureProfile [Invariant][Normal] - Latest captured lowered HV spans declare a local-departure detail-curve profile
+[FAIL] C318_Backbone_HV3LatestCaptureLoweredSupportDepartureUsesSharedRouteAxis [Invariant][Normal] - Latest captured lowered HV spans keep one shared route-local side-axis across an interior lowered corner
+[PASS] C319_Backbone_HV3LatestCaptureCommitPreservesPolylineOrder [Invariant][Normal] - Latest captured CommunicationPole HV shape keeps lane polylines non-crossing across recalc
+[PASS] C320_Backbone_NearDuplicateAutoCandidateBoundary [Invariant][Normal] - Near-duplicate auto generic pole candidates collapse only below the 1.5m threshold
+[PASS] C321_Backbone_ManualAndTangentCandidatesDoNotCollapse [Invariant][Normal] - Manual vertices and tangent-hint vertices are preserved even when they are within the near-duplicate auto-candidate threshold
+[PASS] C322_Backbone_ShortUnpinnedEndpointSegmentsKeepEndpoints [Invariant][Normal] - Short unpinned leading/trailing segments preserve the route endpoints instead of erasing them during near-duplicate auto-candidate collapse
+[PASS] C323_Backbone_SingleEdgeReusePreservesExistingStraightSupportAxis [Invariant][Normal] - Single-edge reuse on a captured CommunicationPole trunk keeps the existing straight support axis instead of switching to the newer branch-side pair
+[PASS] C324_Backbone_CaptureLikeIncrementalCrossKeepsTrunkSupportAxis [Invariant][Normal] - Capture-like incremental cross keeps the original trunk support axis instead of rotating the main support toward the later cross pair
+[PASS] C325_Backbone_CaptureLikeIncrementalCrossPreservesTrunkPairAuthority [Invariant][Normal] - Capture-like incremental cross keeps the pole support-axis authority on the original trunk pair instead of rebinding to the later cross pair
+[PASS] C326_Backbone_SameLevelCrossMainUsesThroughPairAuthority [Invariant][Normal] - Same-level cross main endpoints use through-pair support authority instead of pole-local radial fallback
+[PASS] C327_Backbone_NonGroupedSupportVisualUsesEndpointAuthority [Invariant][Normal] - Same-level non-grouped support visual follows endpoint support authority instead of pole-center radial fallback
+[PASS] C335_Backbone_SameLevelTerminalEndpointDoesNotInventSideSign [Invariant][Normal] - Same-level terminal endpoint without pair authority keeps zero side sign instead of inventing a left/right choice from local port offsets
+[PASS] C336_Backbone_CaptureLikeBranchTerminalBorrowsPeerPairAuthority [Invariant][Normal] - Latest capture-like CommunicationPole branch terminal borrows the peer through-pair authority instead of falling back to pole-local radial
+[PASS] C337_Backbone_CaptureLikeBranchTerminalVisualUsesBorrowedPairAxis [Invariant][Normal] - Latest capture-like CommunicationPole branch terminal visual arm follows the borrowed peer pair axis instead of a radial fallback
+[PASS] C338_Backbone_CaptureLikeLoweredBranchMainBorrowsPeerPairAuthority [Invariant][Normal] - Latest capture-like lowered bundle branch main endpoint borrows the peer through-pair authority instead of falling back to pole-local radial
+[PASS] C339_Backbone_CaptureLikeLoweredBranchMainVisualUsesBorrowedPairAxis [Invariant][Normal] - Latest capture-like lowered bundle branch visual arm follows the actual endpoint port radial direction instead of collapsing to one shared side-axis
+[PASS] C340_Backbone_SameLevelCrossUnderpassUsesCrossPairAuthority [Invariant][Normal] - Same-level cross underpass endpoints use the cross-pair axis instead of endpoint-local bisector or main-pair fallback
+[PASS] C341_Backbone_CrossVisualKeepsDistinctPairAxes [Invariant][Normal] - One-shot cross visual keeps through-pair and cross-pair support arms on distinct axes instead of collapsing them together
+[PASS] C342_Backbone_CaptureLikeCrossCenterUsesPairAuthority [Invariant][Normal] - Latest capture-like cross center keeps both route-pair and existing-pair endpoints on pair-based authority instead of falling back to pole-local radial
+[PASS] C343_Backbone_CaptureLikeCrossVisualKeepsRouteAndExistingPairAxesDistinct [Invariant][Normal] - Latest capture-like cross visual keeps route-pair and existing-pair support arms on distinct axes instead of collapsing them together
+[PASS] C344_Backbone_LatestReplaySupportOrientationUsesPairAuthority [Invariant][Normal] - Latest replayed support-orientation capture keeps same-level cross/T endpoints on pair authority instead of Bisector or pole-local radial fallback
+[PASS] C345_Backbone_LatestReplaySupportVisualFollowsPairAxis [Invariant][Normal] - Latest replayed support-orientation capture keeps same-level support arms aligned with pair-based endpoint authority instead of collapsing toward one pole-local direction
+[PASS] C346_Backbone_CaptureLikeOuterSameLevelCrossUsesPairAuthority [Invariant][Normal] - Capture-like outer same-level cross endpoints use pair authority instead of falling back to Bisector or pole-local radial
+[PASS] C347_Backbone_CaptureLikeOuterSameLevelCrossVisualUsesPairAxis [Invariant][Normal] - Capture-like outer same-level cross support arms follow the pair axis instead of collapsing to bisector or radial directions
+[PASS] C348_Backbone_SupportLayoutInspectionExposesResolvedSupportAuthority [Invariant][Normal] - Support layout inspection exposes the generated decision seed and resolved support authority for pair-aware endpoints
+[PASS] C349_Backbone_GeometryRefreshKeepsResolvedSupportAuthoritySeed [Invariant][Normal] - Geometry refresh rebuilds support layout and curve from the generated seed without changing resolved support authority
+[PASS] C350_Backbone_RenderRefreshDoesNotChangeResolvedSupportAuthoritySeed [Invariant][Normal] - Render refresh updates visual cache only and leaves resolved support authority unchanged
+[PASS] C351_Backbone_RebuildWithoutSeedFailsAndKeepsCachedLayout [Invariant][Normal] - Explicit rebuild without a decision seed fails and keeps the cached support layout unchanged
+[PASS] C352_Backbone_GeometryRefreshWithoutSeedFailsAndKeepsDirty [Invariant][Normal] - Geometry refresh without a decision seed fails, keeps geometry dirty, and reports the missing seed
+[PASS] C353_Backbone_SameLevelTPairHeightRankDrivesSupportOffsets [Invariant][Normal] - Same-level T keeps the main pair at rank 0 and lowers the branch pair by one owner-controlled step
+[PASS] C354_Backbone_OneShotCrossPairHeightRankSeparatesPairs [Invariant][Normal] - One-shot cross keeps the through pair at rank 0 and lowers the cross pair by one owner-controlled step
+[PASS] C355_CoreStateService_CableTemplateRenderChangeMarksRenderRefresh [Invariant][Normal] - render-only cable template changes dirty spans with RenderRefresh only
+[PASS] C356_CoreStateService_CableTemplateGeometryChangeMarksGeometryRefresh [Invariant][Normal] - geometry-only cable template changes dirty spans with GeometryRefresh only
+[PASS] C357_CoreStateService_CableTemplatePolicyChangeMarksDecision [Invariant][Normal] - decision-bearing cable template changes dirty spans with Decision only
+[PASS] C358_Backbone_MaterializationResolvesEndpointSocketAndCurveConsumesIt [Invariant][Normal] - Support layout materialization resolves endpoint sockets once and detail-curve generation consumes that resolved socket state
+[PASS] C359_Backbone_GeometryRefreshKeepsMaterializedEndpointSocketResolution [Invariant][Normal] - Geometry refresh keeps the materialized endpoint socket decision unchanged
+[PASS] C360_Backbone_ConnectedDirectionFitGateRespectsTrunkPreserve [Invariant][Normal] - ConnectedDirectionFit stays off when a preserved trunk pair is available, and the chosen neighbors stay on that trunk pair
+[PASS] C361_Backbone_ConnectedDirectionFitGateRespectsContinuationPair [Invariant][Normal] - ConnectedDirectionFit stays off when a continuation pair is available on a cross-like incremental node, and the chosen neighbors stay on the trunk continuation pair
+[PASS] C362_Backbone_ConnectedDirectionFitGateRespectsExplicitPairAxis [Invariant][Normal] - ConnectedDirectionFit stays off when an explicit two-neighbor pair axis is available, and the chosen neighbors stay on that pair
+core tests failed

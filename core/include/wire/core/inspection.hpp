@@ -231,6 +231,10 @@ struct SupportLayoutEndpointView {
   SupportLayoutEndpointSourceKind endpoint_source = SupportLayoutEndpointSourceKind::kFallback;
   std::string port_source{};
   std::string endpoint_mode{};
+  bool has_visual_arm_geometry = false;
+  Vec3d visual_arm_mount_world{};
+  Vec3d visual_arm_tip_world{};
+  Vec3d visual_insulator_base_world{};
   Vec3d support_world{};
   Vec3d endpoint_world{};
   Vec3d departure_dir{};

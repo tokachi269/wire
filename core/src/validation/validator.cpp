@@ -40,6 +40,15 @@ bool endpoint_uses_grouped_lowered_support_for_validation(const SupportLayoutEnd
   return UsesAuthoritativeGroupedLoweredSupport(endpoint.decision);
 }
 
+bool endpoint_requires_pair_authority_for_validation(const SupportLayoutEndpoint& endpoint) {
+  const EndpointContinuityDecision& decision = endpoint.decision;
+  return !decision.lower_required && decision.same_level_feasible &&
+         decision.continuity_class == ContinuityCategoryClass::kPointLike && HasAuthoritativeSupportPair(decision) &&
+         (decision.relation_kind == JunctionRelationKind::kThroughMain ||
+          decision.relation_kind == JunctionRelationKind::kSideBranch ||
+          decision.relation_kind == JunctionRelationKind::kCrossUnderpass);
+}
+
 bool almost_equal_validation(double a, double b, double eps = 1e-9) { return std::abs(a - b) <= eps; }
 
 bool almost_equal_validation(const Vec3d& a, const Vec3d& b, double eps = 1e-9) {
@@ -597,6 +606,39 @@ ValidationResult CoreState::Validate() const {
            !std::isfinite(endpoint.decision.side_axis.y))) {
         result.issues.push_back({ValidationSeverity::kError, code,
                                  "Non-radial support orientation must carry a finite authoritative side axis", span_id});
+      }
+      if (endpoint.attachment_request.kind == EndpointAttachmentRequestKind::kNone &&
+          endpoint.resolved_socket_id.has_value()) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportLayoutSocketWithoutRequest",
+                                 "Support layout must not carry a resolved socket without an attachment request", span_id});
+      }
+      if (endpoint.attachment_request.kind == EndpointAttachmentRequestKind::kAttachmentSocket &&
+          !endpoint.resolved_socket_id.has_value()) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportLayoutSocketMissing",
+                                 "Attachment-socket requests must resolve to one materialized socket id", span_id});
+      }
+      if (endpoint.attachment_request.requested_socket_id.has_value() && endpoint.resolved_socket_id.has_value() &&
+          *endpoint.attachment_request.requested_socket_id != *endpoint.resolved_socket_id) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportLayoutSocketReinterpreted",
+                                 "Materialized support layout must not reinterpret the chosen endpoint socket", span_id});
+      }
+      if (endpoint_requires_pair_authority_for_validation(endpoint) &&
+          (endpoint.decision.side_assignment_rule != SideAssignmentRuleKind::kThroughPairNormal ||
+           endpoint.decision.support_orientation_rule != SupportOrientationRuleKind::kThroughPairNormal ||
+           !endpoint.decision.used_junction_pair_side_assignment || !endpoint.decision.has_side_axis ||
+           std::abs(endpoint.decision.chosen_side_sign) <= 1e-9)) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportPairAuthorityFallback",
+                                 "Pair-authoritative same-level endpoints must not fall back to endpoint-local support rules",
+                                 span_id});
+      }
+      if (endpoint_requires_pair_authority_for_validation(endpoint) &&
+          (endpoint.support_authority.pair.pair_peer_low != endpoint.decision.support_pair_peer_low ||
+           endpoint.support_authority.pair.pair_peer_high != endpoint.decision.support_pair_peer_high ||
+           endpoint.support_authority.pair.orientation_basis != endpoint.decision.support_orientation_basis ||
+           endpoint.support_authority.pair.has_pair_axis != endpoint.decision.has_side_axis)) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportPairAuthorityMismatch",
+                                 "Materialized pair authority must stay aligned with the generated endpoint decision",
+                                 span_id});
       }
       if (endpoint_uses_grouped_lowered_support_for_validation(endpoint) &&
           endpoint.decision.support_orientation_basis == SupportOrientationBasisKind::kRadial) {

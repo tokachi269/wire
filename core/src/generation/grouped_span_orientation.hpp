@@ -22,6 +22,8 @@ public:
   [[nodiscard]] EndpointSideDecision PreferredSideAxisForEndpoint(ObjectId node_id, ObjectId peer_id,
                                                                  const SegmentRelationFeasibility& feasibility,
                                                                  ObjectId bundle_id);
+  [[nodiscard]] std::optional<EndpointSideDecision> ExplicitPairNormalSideDecisionForEndpoint(
+      ObjectId node_id, ObjectId peer_id, ObjectId pair_a, ObjectId pair_b) const;
 
   [[nodiscard]] EndpointSideDecision NormalizeGroupSideDecision(EndpointSideDecision decision) const;
 
@@ -53,11 +55,21 @@ private:
     auto operator<=>(const SupportGroupDecisionKey&) const = default;
   };
 
+  struct SupportGroupDecisionKeyHash {
+    [[nodiscard]] std::size_t operator()(const SupportGroupDecisionKey& key) const {
+      std::size_t h = std::hash<ObjectId>{}(key.owner_pole_id);
+      h ^= std::hash<int>{}(static_cast<int>(key.continuity_class)) + 0x9e3779b9 + (h << 6) + (h >> 2);
+      h ^= std::hash<ObjectId>{}(key.pair_peer_low) + 0x9e3779b9 + (h << 6) + (h >> 2);
+      h ^= std::hash<ObjectId>{}(key.pair_peer_high) + 0x9e3779b9 + (h << 6) + (h >> 2);
+      h ^= std::hash<int>{}(static_cast<int>(key.relation_kind)) + 0x9e3779b9 + (h << 6) + (h >> 2);
+      h ^= std::hash<bool>{}(key.in_through_pair) + 0x9e3779b9 + (h << 6) + (h >> 2);
+      return h;
+    }
+  };
+
   [[nodiscard]] Vec3d NormalizedOrZeroXY(Vec3d axis) const;
   [[nodiscard]] std::optional<Vec3d> RouteAxisForEndpoint(ObjectId node_id, ObjectId peer_id) const;
   [[nodiscard]] std::optional<Vec3d> ThroughPairSideAxisForNode(ObjectId node_id) const;
-  [[nodiscard]] std::optional<EndpointSideDecision> ExplicitPairNormalSideDecisionForEndpoint(
-      ObjectId node_id, ObjectId peer_id, ObjectId pair_a, ObjectId pair_b) const;
   [[nodiscard]] std::optional<EndpointSideDecision> ThroughPairSideDecisionForEndpoint(ObjectId node_id,
                                                                                        ObjectId peer_id) const;
   [[nodiscard]] std::optional<EndpointSideDecision> CrossPairSideDecisionForEndpoint(ObjectId node_id,
@@ -111,7 +123,7 @@ private:
   ConnectedBundleSupportDecisionForNode(ObjectId node_id, ObjectId peer_id,
                                         const SegmentRelationFeasibility& feasibility);
   [[nodiscard]] std::optional<LoweredSupportPairInfo>
-  CanonicalGroupPairDecision(const LoweredSupportGroupKey& key,
+  CanonicalGroupPairDecision(const SupportGroupDecisionKey& key,
                              const std::optional<LoweredSupportPairInfo>& raw_pair_info);
   [[nodiscard]] bool BetterGroupSideDecision(const EndpointSideDecision& candidate,
                                              const EndpointSideDecision& existing) const;
@@ -119,8 +131,11 @@ private:
                                                           const std::optional<LoweredSupportPairInfo>& pair_info,
                                                           const EndpointSideDecision& decision) const;
   [[nodiscard]] EndpointSideDecision CanonicalGroupSideDecision(
-      const LoweredSupportGroupKey& key, ObjectId peer_id,
+      const SupportGroupDecisionKey& key, ObjectId peer_id,
       const std::optional<LoweredSupportPairInfo>& authoritative_pair, const EndpointSideDecision& raw_decision);
+  [[nodiscard]] SupportGroupDecisionKey GroupDecisionKeyForEndpoint(
+      const EndpointContinuityDecision& decision,
+      const std::optional<LoweredSupportPairInfo>& pair_info) const;
   void BuildNodeSideAxisHints();
   [[nodiscard]] int OrientationRulePriority(SupportOrientationRuleKind rule) const;
   [[nodiscard]] int SideAssignmentRulePriority(SideAssignmentRuleKind rule) const;
@@ -129,11 +144,11 @@ private:
   std::unordered_map<ObjectId, Vec3d> node_side_axis_hints_{};
   std::unordered_map<ObjectId, std::map<ObjectId, LoweredSupportPairInfo>> lowered_support_pair_cache_{};
   std::unordered_set<ObjectId> lowered_support_pair_cache_built_{};
-  std::unordered_map<LoweredSupportGroupKey, LoweredSupportPairInfo, LoweredSupportGroupKeyHash>
+  std::unordered_map<SupportGroupDecisionKey, LoweredSupportPairInfo, SupportGroupDecisionKeyHash>
       authoritative_group_pairs_{};
-  std::unordered_map<LoweredSupportGroupKey, EndpointSideDecision, LoweredSupportGroupKeyHash>
+  std::unordered_map<SupportGroupDecisionKey, EndpointSideDecision, SupportGroupDecisionKeyHash>
       authoritative_group_side_decisions_{};
-  std::unordered_map<LoweredSupportGroupKey, bool, LoweredSupportGroupKeyHash>
+  std::unordered_map<SupportGroupDecisionKey, bool, SupportGroupDecisionKeyHash>
       authoritative_group_prefers_branch_leg_{};
 };
 

@@ -10,7 +10,40 @@
 
 namespace wire::core::generation::detail {
 
-namespace {}
+namespace {
+
+bool HasValidExplicitPairPeers(ObjectId pair_peer_low, ObjectId pair_peer_high) {
+  return pair_peer_low != kInvalidObjectId && pair_peer_high != kInvalidObjectId && pair_peer_low != pair_peer_high;
+}
+
+bool IsExplicitPairAuthorityDecision(const EndpointSideDecision& decision) {
+  return HasValidExplicitPairPeers(decision.pair_peer_low, decision.pair_peer_high) &&
+         decision.side_assignment_rule == SideAssignmentRuleKind::kThroughPairNormal &&
+         decision.support_orientation_rule == SupportOrientationRuleKind::kThroughPairNormal;
+}
+
+EndpointSideDecision MakePairAuthorityDecision(ObjectId pair_peer_low, ObjectId pair_peer_high,
+                                               std::optional<Vec3d> side_axis = std::nullopt) {
+  EndpointSideDecision decision{};
+  decision.pair_peer_low = pair_peer_low;
+  decision.pair_peer_high = pair_peer_high;
+  decision.side_assignment_rule = SideAssignmentRuleKind::kThroughPairNormal;
+  decision.support_orientation_rule = SupportOrientationRuleKind::kThroughPairNormal;
+  decision.used_junction_pair_side_assignment = HasValidExplicitPairPeers(pair_peer_low, pair_peer_high);
+  decision.chosen_side_sign = 0.0;
+  if (side_axis.has_value()) {
+    decision.side_axis = side_axis.value();
+    decision.has_side_axis = (decision.side_axis.x != 0.0 || decision.side_axis.y != 0.0);
+  }
+  return decision;
+}
+
+bool RelationConsumesPairAuthority(JunctionRelationKind kind) {
+  return kind == JunctionRelationKind::kThroughMain || kind == JunctionRelationKind::kSideBranch ||
+         kind == JunctionRelationKind::kCornerContinuation || kind == JunctionRelationKind::kCrossUnderpass;
+}
+
+} // namespace
 
 GroupedSpanOrientationDecider::GroupedSpanOrientationDecider(const GroupedSpanSharedContext& ctx) : ctx_(ctx) {
   BuildNodeSideAxisHints();
@@ -887,8 +920,8 @@ Vec3d GroupedSpanOrientationDecider::GroupedLineAxisForEndpoint(ObjectId node_id
 
 EndpointSideDecision GroupedSpanOrientationDecider::BuildPairSideDecision(ObjectId node_id, ObjectId peer_id,
                                                                           const LoweredSupportPairInfo& pair_info) const {
-  EndpointSideDecision decision{};
-  decision.chosen_side_sign = 0.0;
+  EndpointSideDecision decision =
+      MakePairAuthorityDecision(pair_info.pair_peer_low, pair_info.pair_peer_high);
   const bool peer_is_pair_peer =
       peer_id == pair_info.pair_peer_low || peer_id == pair_info.pair_peer_high;
   if (peer_is_pair_peer) {
@@ -900,17 +933,9 @@ EndpointSideDecision GroupedSpanOrientationDecider::BuildPairSideDecision(Object
   }
   if (const auto pair_axis = PairBisectorAxisForEndpoint(node_id, peer_id, pair_info); pair_axis.has_value()) {
     decision.side_axis = NormalizedOrZeroXY(*pair_axis);
-    decision.side_assignment_rule = SideAssignmentRuleKind::kBisector;
-    decision.support_orientation_rule = SupportOrientationRuleKind::kBisector;
-    decision.used_junction_pair_side_assignment = true;
     decision.has_side_axis = (decision.side_axis.x != 0.0 || decision.side_axis.y != 0.0);
     return decision;
   }
-  decision.side_axis = NormalizedOrZeroXY(GroupedLineAxisForEndpoint(node_id, peer_id));
-  decision.side_assignment_rule = SideAssignmentRuleKind::kChord;
-  decision.support_orientation_rule = SupportOrientationRuleKind::kChord;
-  decision.used_junction_pair_side_assignment = false;
-  decision.has_side_axis = (decision.side_axis.x != 0.0 || decision.side_axis.y != 0.0);
   return decision;
 }
 
@@ -942,10 +967,13 @@ EndpointSideDecision GroupedSpanOrientationDecider::PreferredSideAxisForEndpoint
   const bool bundlelike_same_level =
       feasibility.continuity_class == ContinuityCategoryClass::kBundleLike &&
       !feasibility.default_lower_required && feasibility.same_level_feasible;
-  const bool allows_endpoint_local_fallback =
-      feasibility.kind == JunctionRelationKind::kNone ||
-      (!feasibility.in_through_pair && !feasibility.through_pair_accepted && !feasibility.peer_relation_found &&
-       !feasibility.peer_in_through_pair && !feasibility.peer_through_pair_accepted);
+  const bool pair_consuming_same_level =
+      (pointlike_same_level || bundlelike_same_level) && RelationConsumesPairAuthority(feasibility.kind);
+  const bool degenerate_pair_authority_case =
+      pair_consuming_same_level && !feasibility.in_through_pair && !feasibility.through_pair_accepted &&
+      !feasibility.peer_relation_found && !feasibility.peer_in_through_pair && !feasibility.peer_through_pair_accepted;
+  const bool allows_terminal_or_degenerate_local_fallback =
+      feasibility.kind == JunctionRelationKind::kNone || degenerate_pair_authority_case;
   auto borrow_peer_through_pair_decision = [&]() -> std::optional<EndpointSideDecision> {
     if (node_id == kInvalidObjectId || peer_id == kInvalidObjectId) {
       return std::nullopt;
@@ -978,17 +1006,10 @@ EndpointSideDecision GroupedSpanOrientationDecider::PreferredSideAxisForEndpoint
     if (!peer_axis.has_value()) {
       return std::nullopt;
     }
-    EndpointSideDecision peer_decision{};
-    peer_decision.side_axis = NormalizedOrZeroXY(*peer_axis);
-    peer_decision.has_side_axis = (peer_decision.side_axis.x != 0.0 || peer_decision.side_axis.y != 0.0);
-    peer_decision.pair_peer_low =
-        std::min(peer_it->second.through_pair.neighbor_a_id, peer_it->second.through_pair.neighbor_b_id);
-    peer_decision.pair_peer_high =
-        std::max(peer_it->second.through_pair.neighbor_a_id, peer_it->second.through_pair.neighbor_b_id);
-    peer_decision.side_assignment_rule = SideAssignmentRuleKind::kThroughPairNormal;
-    peer_decision.support_orientation_rule = SupportOrientationRuleKind::kThroughPairNormal;
-    peer_decision.used_junction_pair_side_assignment = true;
-    return peer_decision;
+    return MakePairAuthorityDecision(
+        std::min(peer_it->second.through_pair.neighbor_a_id, peer_it->second.through_pair.neighbor_b_id),
+        std::max(peer_it->second.through_pair.neighbor_a_id, peer_it->second.through_pair.neighbor_b_id),
+        NormalizedOrZeroXY(*peer_axis));
   };
   const bool prefers_line_oriented_lowering =
       feasibility.continuity_class == ContinuityCategoryClass::kBundleLike &&
@@ -1012,6 +1033,24 @@ EndpointSideDecision GroupedSpanOrientationDecider::PreferredSideAxisForEndpoint
         }
       }
       if (feasibility.kind == JunctionRelationKind::kSideBranch) {
+        if (pointlike_same_level && ctx_.junction_relations_by_node != nullptr) {
+          const auto relation_it = ctx_.junction_relations_by_node->find(node_id);
+          if (relation_it != ctx_.junction_relations_by_node->end() && relation_it->second.through_pair.accepted) {
+            if (const auto bisector_axis = BisectorAxisForEndpoint(node_id, peer_id); bisector_axis.has_value()) {
+              EndpointSideDecision pair_owned_bisector = MakePairAuthorityDecision(
+                  std::min(relation_it->second.through_pair.neighbor_a_id, relation_it->second.through_pair.neighbor_b_id),
+                  std::max(relation_it->second.through_pair.neighbor_a_id, relation_it->second.through_pair.neighbor_b_id),
+                  NormalizedOrZeroXY(*bisector_axis));
+              pair_owned_bisector.side_assignment_rule = SideAssignmentRuleKind::kBisector;
+              pair_owned_bisector.support_orientation_rule = SupportOrientationRuleKind::kBisector;
+              pair_owned_bisector.used_junction_pair_side_assignment = true;
+              pair_owned_bisector.has_side_axis =
+                  (pair_owned_bisector.side_axis.x != 0.0 || pair_owned_bisector.side_axis.y != 0.0);
+              pair_owned_bisector.chosen_side_sign = 1.0;
+              return pair_owned_bisector;
+            }
+          }
+        }
         if (const auto through_pair_decision = ThroughPairSideDecisionForEndpoint(node_id, peer_id);
             through_pair_decision.has_value()) {
           return *through_pair_decision;
@@ -1062,24 +1101,18 @@ EndpointSideDecision GroupedSpanOrientationDecider::PreferredSideAxisForEndpoint
         return *through_pair_decision;
       }
       if (const auto through_pair_axis = ThroughPairSideAxisForNode(node_id); through_pair_axis.has_value()) {
-        decision.side_axis = NormalizedOrZeroXY(*through_pair_axis);
         if (ctx_.junction_relations_by_node != nullptr) {
           const auto relation_it = ctx_.junction_relations_by_node->find(node_id);
           if (relation_it != ctx_.junction_relations_by_node->end() && relation_it->second.through_pair.accepted) {
-            decision.pair_peer_low =
-                std::min(relation_it->second.through_pair.neighbor_a_id, relation_it->second.through_pair.neighbor_b_id);
-            decision.pair_peer_high =
-                std::max(relation_it->second.through_pair.neighbor_a_id, relation_it->second.through_pair.neighbor_b_id);
+            return MakePairAuthorityDecision(
+                std::min(relation_it->second.through_pair.neighbor_a_id, relation_it->second.through_pair.neighbor_b_id),
+                std::max(relation_it->second.through_pair.neighbor_a_id, relation_it->second.through_pair.neighbor_b_id),
+                NormalizedOrZeroXY(*through_pair_axis));
           }
         }
-        decision.side_assignment_rule = SideAssignmentRuleKind::kThroughPairNormal;
-        decision.support_orientation_rule = SupportOrientationRuleKind::kThroughPairNormal;
-        decision.used_junction_pair_side_assignment = true;
-        decision.has_side_axis = (decision.side_axis.x != 0.0 || decision.side_axis.y != 0.0);
-        return decision;
       }
     }
-    if (allows_endpoint_local_fallback &&
+    if (allows_terminal_or_degenerate_local_fallback &&
         (feasibility.kind == JunctionRelationKind::kSideBranch ||
          feasibility.kind == JunctionRelationKind::kCornerContinuation ||
          feasibility.kind == JunctionRelationKind::kCrossUnderpass)) {
@@ -1100,7 +1133,7 @@ EndpointSideDecision GroupedSpanOrientationDecider::PreferredSideAxisForEndpoint
     }
     return decision;
   }
-  if (allows_endpoint_local_fallback &&
+  if (allows_terminal_or_degenerate_local_fallback &&
       (feasibility.kind == JunctionRelationKind::kSideBranch ||
        feasibility.kind == JunctionRelationKind::kCornerContinuation ||
        feasibility.kind == JunctionRelationKind::kCrossUnderpass)) {
@@ -1141,15 +1174,16 @@ void GroupedSpanOrientationDecider::FinalizeSideSignForPorts(EndpointSideDecisio
   if (decision == nullptr || !decision->has_side_axis) {
     return;
   }
-  if (decision->used_junction_pair_side_assignment && std::abs(decision->chosen_side_sign) > 1e-9) {
+  if (IsExplicitPairAuthorityDecision(*decision)) {
+    return;
+  }
+  if (std::abs(decision->chosen_side_sign) > 1e-9) {
     return;
   }
   const Vec3d base_position = ctx_.support_position(node_id);
   Vec3d peer_dir = ctx_.support_position(peer_id) - ctx_.support_position(node_id);
   peer_dir.z = 0.0;
-  if ((decision->side_assignment_rule == SideAssignmentRuleKind::kThroughPairNormal ||
-       decision->side_assignment_rule == SideAssignmentRuleKind::kBisector) &&
-      normalize_xy(&peer_dir)) {
+  if (decision->side_assignment_rule == SideAssignmentRuleKind::kBisector && normalize_xy(&peer_dir)) {
     const double along = dot_xy(peer_dir, decision->side_axis);
     if (std::abs(along) > 1e-9) {
       decision->chosen_side_sign = (along >= 0.0) ? 1.0 : -1.0;
@@ -1199,7 +1233,7 @@ EndpointSideDecision GroupedSpanOrientationDecider::NormalizeGroupSideDecision(E
 }
 
 std::optional<LoweredSupportPairInfo> GroupedSpanOrientationDecider::CanonicalGroupPairDecision(
-    const LoweredSupportGroupKey& key, const std::optional<LoweredSupportPairInfo>& raw_pair_info) {
+    const SupportGroupDecisionKey& key, const std::optional<LoweredSupportPairInfo>& raw_pair_info) {
   if (raw_pair_info.has_value() && raw_pair_info->has_pair) {
     auto [it, inserted] = authoritative_group_pairs_.emplace(key, *raw_pair_info);
     if (inserted || !it->second.has_pair) {
@@ -1243,7 +1277,7 @@ bool GroupedSpanOrientationDecider::GroupedSupportCandidateUsesBranchLeg(
 }
 
 EndpointSideDecision GroupedSpanOrientationDecider::CanonicalGroupSideDecision(
-    const LoweredSupportGroupKey& key, ObjectId peer_id,
+    const SupportGroupDecisionKey& key, ObjectId peer_id,
     const std::optional<LoweredSupportPairInfo>& authoritative_pair,
     const EndpointSideDecision& raw_decision) {
   EndpointSideDecision candidate = NormalizeGroupSideDecision(raw_decision);
@@ -1273,13 +1307,35 @@ EndpointSideDecision GroupedSpanOrientationDecider::CanonicalGroupSideDecision(
   return it->second;
 }
 
+GroupedSpanOrientationDecider::SupportGroupDecisionKey
+GroupedSpanOrientationDecider::GroupDecisionKeyForEndpoint(
+    const EndpointContinuityDecision& decision, const std::optional<LoweredSupportPairInfo>& pair_info) const {
+  SupportGroupDecisionKey key{};
+  key.owner_pole_id = decision.owner_pole_id;
+  key.continuity_class = decision.continuity_class;
+  key.relation_kind = decision.relation_kind;
+  key.in_through_pair = decision.in_through_pair;
+  if (pair_info.has_value() && pair_info->has_pair) {
+    key.pair_peer_low = pair_info->pair_peer_low;
+    key.pair_peer_high = pair_info->pair_peer_high;
+  } else {
+    key.pair_peer_low = decision.support_pair_peer_low;
+    key.pair_peer_high = decision.support_pair_peer_high;
+  }
+  if (key.pair_peer_low != kInvalidObjectId && key.pair_peer_high != kInvalidObjectId &&
+      key.pair_peer_high < key.pair_peer_low) {
+    std::swap(key.pair_peer_low, key.pair_peer_high);
+  }
+  return key;
+}
+
 EndpointContinuityDecision GroupedSpanOrientationDecider::FinalizeGroupEndpointDecision(
     const EndpointContinuityDecision& decision, ObjectId peer_node_id,
     const std::optional<LoweredSupportPairInfo>& pair_info, const EndpointSideDecision& side_decision) {
   if (!UsesAuthoritativeGroupedLoweredSupport(decision)) {
     return decision;
   }
-  const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(decision);
+  const SupportGroupDecisionKey key = GroupDecisionKeyForEndpoint(decision, pair_info);
   EndpointContinuityDecision canonical = decision;
   const std::optional<LoweredSupportPairInfo> authoritative_pair = CanonicalGroupPairDecision(key, pair_info);
   if (authoritative_pair.has_value() && authoritative_pair->has_pair) {

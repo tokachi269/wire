@@ -78,6 +78,10 @@ struct SupportLayoutEndpoint {
   PortPlacementSourceKind port_source = PortPlacementSourceKind::kUnknown;
   SlotSide side = SlotSide::kCenter;
   CurveEndpointMode endpoint_mode = CurveEndpointMode::kDirectThrough;
+  bool has_visual_arm_geometry = false;
+  Vec3d visual_arm_mount_world{};
+  Vec3d visual_arm_tip_world{};
+  Vec3d visual_insulator_base_world{};
   Vec3d support_world{};
   Vec3d endpoint_world{};
   Vec3d departure_dir{};
@@ -102,6 +106,10 @@ struct SupportLayoutDecisionSeedEndpoint {
   PortPlacementSourceKind port_source = PortPlacementSourceKind::kUnknown;
   SlotSide side = SlotSide::kCenter;
   CurveEndpointMode endpoint_mode = CurveEndpointMode::kDirectThrough;
+  bool has_visual_arm_geometry = false;
+  Vec3d visual_arm_mount_world{};
+  Vec3d visual_arm_tip_world{};
+  Vec3d visual_insulator_base_world{};
   double automatic_branch_down_offset_m = 0.0;
   double branch_down_offset_m = 0.0;
   HierarchicalVariationSample down_offset_variation{};

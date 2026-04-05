@@ -609,6 +609,10 @@ SupportLayoutEndpointView MakeSupportLayoutEndpointView(const SupportLayoutEndpo
   view.endpoint_source = endpoint.endpoint_source;
   view.port_source = PortPlacementSourceText(endpoint.port_source);
   view.endpoint_mode = CurveEndpointModeText(endpoint.endpoint_mode);
+  view.has_visual_arm_geometry = endpoint.has_visual_arm_geometry;
+  view.visual_arm_mount_world = endpoint.visual_arm_mount_world;
+  view.visual_arm_tip_world = endpoint.visual_arm_tip_world;
+  view.visual_insulator_base_world = endpoint.visual_insulator_base_world;
   view.support_world = endpoint.support_world;
   view.endpoint_world = endpoint.endpoint_world;
   view.departure_dir = endpoint.departure_dir;

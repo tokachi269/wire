@@ -177,6 +177,42 @@ CoreState::generate_grouped_spans_between_support_nodes(
         (effective_relation_b.default_lower_required || !effective_relation_b.same_level_feasible)) {
       side_decision_b = orientation.NormalizeGroupSideDecision(side_decision_b);
     }
+    auto segment_pair_from_side_decision = [](const EndpointSideDecision& decision)
+        -> std::optional<std::pair<ObjectId, ObjectId>> {
+      if (decision.side_assignment_rule != SideAssignmentRuleKind::kThroughPairNormal ||
+          decision.pair_peer_low == kInvalidObjectId || decision.pair_peer_high == kInvalidObjectId ||
+          decision.pair_peer_low == decision.pair_peer_high) {
+        return std::nullopt;
+      }
+      return std::pair<ObjectId, ObjectId>{decision.pair_peer_low, decision.pair_peer_high};
+    };
+    auto endpoint_is_trunk_pair_member = [](ObjectId peer_id, const SegmentRelationFeasibility& feasibility,
+                                            const EndpointSideDecision& decision) {
+      if (decision.side_assignment_rule == SideAssignmentRuleKind::kThroughPairNormal &&
+          (peer_id == decision.pair_peer_low || peer_id == decision.pair_peer_high)) {
+        return true;
+      }
+      return feasibility.kind == JunctionRelationKind::kThroughMain || feasibility.in_through_pair;
+    };
+    auto promote_segment_pair_authority = [&](ObjectId node_id, ObjectId peer_id,
+                                              const SegmentRelationFeasibility& feasibility,
+                                              EndpointSideDecision* decision,
+                                              const std::optional<std::pair<ObjectId, ObjectId>>& shared_pair) {
+      if (decision == nullptr || !shared_pair.has_value() || !endpoint_is_trunk_pair_member(peer_id, feasibility, *decision)) {
+        return;
+      }
+      if (const auto explicit_pair = orientation.ExplicitPairNormalSideDecisionForEndpoint(
+              node_id, peer_id, shared_pair->first, shared_pair->second);
+          explicit_pair.has_value()) {
+        *decision = *explicit_pair;
+      }
+    };
+    std::optional<std::pair<ObjectId, ObjectId>> shared_segment_pair = segment_pair_from_side_decision(side_decision_a);
+    if (!shared_segment_pair.has_value()) {
+      shared_segment_pair = segment_pair_from_side_decision(side_decision_b);
+    }
+    promote_segment_pair_authority(node_a, node_b, effective_relation_a, &side_decision_a, shared_segment_pair);
+    promote_segment_pair_authority(node_b, node_a, effective_relation_b, &side_decision_b, shared_segment_pair);
     orientation.FinalizeSideSignForPorts(&side_decision_a, node_a, node_b, assignment.port_ids_a);
     orientation.FinalizeSideSignForPorts(&side_decision_b, node_b, node_a, assignment.port_ids_b);
     EndpointContinuityDecision raw_decision_a =
@@ -284,5 +320,4 @@ CoreState::generate_grouped_spans_between_support_nodes(
 }
 
 } // namespace wire::core
-
 

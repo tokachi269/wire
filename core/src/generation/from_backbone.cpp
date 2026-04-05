@@ -1820,10 +1820,12 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       return dot(axis_a, Vec3d{-axis_b.x, -axis_b.y, -axis_b.z});
     };
     const bool is_cross_like_support_axis_candidate = route_degree >= 2 && combined_neighbors.size() >= 4;
-    if (route_degree <= 2 &&
+    const bool has_preferred_straight_pair =
+        route_degree <= 2 &&
         preferred_pair.first != kInvalidObjectId && preferred_pair.second != kInvalidObjectId &&
         preferred_pair.first != preferred_pair.second &&
-        pair_straightness(preferred_pair.first, preferred_pair.second) >= 0.95) {
+        pair_straightness(preferred_pair.first, preferred_pair.second) >= 0.95;
+    if (has_preferred_straight_pair) {
       const Vec3d axis = current_support_position(preferred_pair.first) - center;
       if (adopt_axis(axis, PoleSupportAxisRule::kMainChainPair, preferred_pair.first, preferred_pair.second)) {
         return chosen_axis;
@@ -1847,19 +1849,64 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
         }
       }
     }
-    if (!is_cross_like_support_axis_candidate && adopt_connected_direction_fit(combined_neighbors)) {
+
+    const std::vector<ObjectId> continuation_neighbors = continuation_neighbors_for_orientation(node_id);
+    const bool has_continuation_pair =
+        continuation_neighbors.size() >= 2 &&
+        continuation_neighbors[0] != kInvalidObjectId &&
+        continuation_neighbors[1] != kInvalidObjectId &&
+        continuation_neighbors[0] != continuation_neighbors[1];
+    const bool has_existing_flow_context = has_existing_main_flow_context(node_id);
+    const bool has_pair_or_trunk_preserve_candidate =
+        has_preferred_straight_pair ||
+        (connected_neighbors.size() == 2 &&
+         (has_existing_flow_context || is_cross_like_support_axis_candidate || has_continuation_pair)) ||
+        (has_continuation_pair && (has_existing_flow_context || is_cross_like_support_axis_candidate));
+    const ObjectId primary_neighbor_id = primary_neighbor_for_orientation(node_id);
+    const bool has_primary_incident_candidate =
+        primary_neighbor_id != kInvalidObjectId &&
+        (has_existing_flow_context || (is_cross_like_support_axis_candidate && has_continuation_pair));
+    const bool allow_connected_direction_fit =
+        !has_pair_or_trunk_preserve_candidate && !has_primary_incident_candidate;
+
+    if (!allow_connected_direction_fit && connected_neighbors.size() == 2) {
+      const ObjectId neighbor_a = connected_neighbors[0];
+      const ObjectId neighbor_b = connected_neighbors[1];
+      const Vec3d axis = current_support_position(neighbor_a) - center;
+      if (adopt_axis(axis, PoleSupportAxisRule::kMainChainPair, neighbor_a, neighbor_b)) {
+        return chosen_axis;
+      }
+    }
+
+    if (const auto it = active_junction_by_node.find(node_id); it != active_junction_by_node.end()) {
+      if (!allow_connected_direction_fit && has_continuation_pair) {
+        const Vec3d axis = current_support_position(continuation_neighbors[0]) - center;
+        if (adopt_axis(axis, PoleSupportAxisRule::kMainChainPair, continuation_neighbors[0], continuation_neighbors[1])) {
+          return chosen_axis;
+        }
+      }
+      if (!allow_connected_direction_fit && has_primary_incident_candidate) {
+        const Vec3d axis = current_support_position(primary_neighbor_id) - center;
+        if (adopt_axis(axis, PoleSupportAxisRule::kPrimaryIncident, primary_neighbor_id, kInvalidObjectId)) {
+          return chosen_axis;
+        }
+      }
+    }
+
+    if (allow_connected_direction_fit && !is_cross_like_support_axis_candidate && adopt_connected_direction_fit(combined_neighbors)) {
       if (maybe_preserve_existing_pair_axis(chosen_axis)) {
         return chosen_axis;
       }
       return chosen_axis;
     }
 
-    if (adopt_connected_direction_fit(connected_neighbors)) {
+    if (allow_connected_direction_fit && adopt_connected_direction_fit(connected_neighbors)) {
       if (maybe_preserve_existing_pair_axis(chosen_axis)) {
         return chosen_axis;
       }
       return chosen_axis;
     }
+
     if (connected_neighbors.size() == 2) {
       const ObjectId neighbor_a = connected_neighbors[0];
       const ObjectId neighbor_b = connected_neighbors[1];
@@ -1870,14 +1917,12 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
     }
 
     if (const auto it = active_junction_by_node.find(node_id); it != active_junction_by_node.end()) {
-      const std::vector<ObjectId> continuation_neighbors = continuation_neighbors_for_orientation(node_id);
-      if (continuation_neighbors.size() >= 2) {
+      if (has_continuation_pair) {
         const Vec3d axis = current_support_position(continuation_neighbors[0]) - center;
         if (adopt_axis(axis, PoleSupportAxisRule::kMainChainPair, continuation_neighbors[0], continuation_neighbors[1])) {
           return chosen_axis;
         }
       }
-      const ObjectId primary_neighbor_id = primary_neighbor_for_orientation(node_id);
       if (primary_neighbor_id != kInvalidObjectId) {
         const Vec3d axis = current_support_position(primary_neighbor_id) - center;
         if (adopt_axis(axis, PoleSupportAxisRule::kPrimaryIncident, primary_neighbor_id, kInvalidObjectId)) {
@@ -1979,44 +2024,81 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       }
     }
     const bool apply_main_flow_orientation = has_existing_main_flow_context(node_id);
+    auto adopt_forward_from_neighbor_pair = [&](ObjectId primary_neighbor_id, ObjectId secondary_neighbor_id,
+                                                PoleForwardRule rule) {
+      if (primary_neighbor_id == kInvalidObjectId || secondary_neighbor_id == kInvalidObjectId ||
+          primary_neighbor_id == secondary_neighbor_id) {
+        return false;
+      }
+      const Vec3d dir_a = normalize_forward_xy(current_support_position(primary_neighbor_id) - center);
+      const Vec3d dir_b = normalize_forward_xy(current_support_position(secondary_neighbor_id) - center);
+      Vec3d axis = normalize_forward_xy(dir_a + dir_b);
+      if (!Normalize(&axis)) {
+        axis = normalize_forward_xy(dir_a - dir_b);
+      }
+      if (!Normalize(&axis)) {
+        return false;
+      }
+      chosen_forward = choose_continuous_axis(axis, previous_forward);
+      has_chosen_forward = Normalize(&chosen_forward);
+      if (has_chosen_forward) {
+        debug.rule = rule;
+        debug.primary_neighbor_id = primary_neighbor_id;
+        debug.secondary_neighbor_id = secondary_neighbor_id;
+      }
+      return has_chosen_forward;
+    };
+    auto adopt_forward_from_primary_neighbor = [&](ObjectId primary_neighbor_id, PoleForwardRule rule) {
+      if (primary_neighbor_id == kInvalidObjectId) {
+        return false;
+      }
+      Vec3d axis = normalize_forward_xy(current_support_position(primary_neighbor_id) - center);
+      if (!Normalize(&axis)) {
+        return false;
+      }
+      chosen_forward = choose_continuous_axis(axis, previous_forward);
+      has_chosen_forward = true;
+      debug.rule = rule;
+      debug.primary_neighbor_id = primary_neighbor_id;
+      return true;
+    };
+    auto adopt_forward_from_support_axis_selection = [&]() {
+      switch (debug.support_axis_rule) {
+      case PoleSupportAxisRule::kMainChainPair:
+        if (adopt_forward_from_neighbor_pair(debug.primary_neighbor_id, debug.secondary_neighbor_id,
+                                             PoleForwardRule::kMainChainBisector)) {
+          return true;
+        }
+        return adopt_forward_from_primary_neighbor(debug.primary_neighbor_id, PoleForwardRule::kMainChainSingle);
+      case PoleSupportAxisRule::kPrimaryIncident:
+        return adopt_forward_from_primary_neighbor(debug.primary_neighbor_id, PoleForwardRule::kPrimaryIncident);
+      case PoleSupportAxisRule::kMainChainSingle:
+        return adopt_forward_from_primary_neighbor(debug.primary_neighbor_id, PoleForwardRule::kMainChainSingle);
+      case PoleSupportAxisRule::kConnectedDirectionFit:
+      case PoleSupportAxisRule::kFallback:
+      default:
+        return false;
+      }
+    };
 
     if (apply_main_flow_orientation) {
       const std::vector<ObjectId> continuation_neighbors = continuation_neighbors_for_orientation(node_id);
       if (continuation_neighbors.size() >= 2) {
-        const Vec3d dir_a = normalize_forward_xy(current_support_position(continuation_neighbors[0]) - center);
-        const Vec3d dir_b = normalize_forward_xy(current_support_position(continuation_neighbors[1]) - center);
-        Vec3d axis = normalize_forward_xy(dir_a + dir_b);
-        if (Normalize(&axis)) {
-          chosen_forward = choose_continuous_axis(axis, previous_forward);
-          has_chosen_forward = Normalize(&chosen_forward);
-          debug.rule = PoleForwardRule::kMainChainBisector;
-          debug.primary_neighbor_id = continuation_neighbors[0];
-          debug.secondary_neighbor_id = continuation_neighbors[1];
-        } else {
-          axis = normalize_forward_xy(dir_a - dir_b);
-          if (Normalize(&axis)) {
-            chosen_forward = choose_continuous_axis(axis, previous_forward);
-            has_chosen_forward = Normalize(&chosen_forward);
-            debug.rule = PoleForwardRule::kMainChainBisector;
-            debug.primary_neighbor_id = continuation_neighbors[0];
-            debug.secondary_neighbor_id = continuation_neighbors[1];
-          }
-        }
+        adopt_forward_from_neighbor_pair(continuation_neighbors[0], continuation_neighbors[1],
+                                         PoleForwardRule::kMainChainBisector);
       } else {
         const ObjectId primary_neighbor_id = primary_neighbor_for_orientation(node_id);
         if (primary_neighbor_id != kInvalidObjectId) {
-          Vec3d axis = normalize_forward_xy(current_support_position(primary_neighbor_id) - center);
-          if (Normalize(&axis)) {
-            chosen_forward = choose_continuous_axis(axis, previous_forward);
-            has_chosen_forward = true;
-            debug.rule = active_junction_by_node.contains(node_id) ? PoleForwardRule::kPrimaryIncident
-                                                                   : PoleForwardRule::kMainChainSingle;
-            debug.primary_neighbor_id = primary_neighbor_id;
-          }
-        } else {
-          debug.rule = PoleForwardRule::kFallback;
+          adopt_forward_from_primary_neighbor(primary_neighbor_id,
+                                             active_junction_by_node.contains(node_id)
+                                                 ? PoleForwardRule::kPrimaryIncident
+                                                 : PoleForwardRule::kMainChainSingle);
         }
       }
+    }
+
+    if (!has_chosen_forward && apply_main_flow_orientation) {
+      adopt_forward_from_support_axis_selection();
     }
 
     if (!has_chosen_forward) {

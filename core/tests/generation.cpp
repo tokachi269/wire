@@ -4745,7 +4745,7 @@ bool test_inspection_all_templates_branch_keeps_hv_lowering_on_communication_pol
                   span_view->branch_down_offset_m > 1e-6 &&
                   layout_view->flow_kind == wire::core::BackboneFlowKind::kBranch &&
                   group.has_value() && lowered_endpoint != nullptr &&
-                  group->support_group_id == lowered_endpoint->decision.support_group_id &&
+                  group->support_group_id == lowered_endpoint->support_group_id &&
                   almost_equal(group->down_offset_m, lowered_endpoint->branch_down_offset_m, 1e-6) &&
                   almost_equal(lowered_endpoint->support_world, lowered_endpoint->endpoint_world, 1e-6) &&
                   almost_equal(lowered_endpoint->support_world.z - group->tip_world.z, expected_lift, 1e-6) &&
@@ -6685,7 +6685,7 @@ bool test_backbone_constrained_lowered_support_prefers_line_direction() {
     }
     const wire::core::Vec3d support_axis = normalize_xy_safe(placement->tip_world - placement->mount_world);
     if (std::abs(dot_xy(support_axis, pair_normal)) >= 0.97 &&
-        placement->decision.support_orientation_basis != wire::core::SupportOrientationBasisKind::kRadial) {
+        placement->support_orientation_basis != wire::core::SupportOrientationBasisKind::kRadial) {
       saw_constrained_visual = true;
     } else {
       std::cerr << "[DBG] C235 bad axis align=" << std::abs(dot_xy(support_axis, pair_normal)) << " mount=("
@@ -6761,7 +6761,7 @@ bool test_backbone_bundle_branch_support_orientation_uses_bisector_when_availabl
     const wire::core::Vec3d expected_axis = normalize_xy_safe(branch_dir + trunk_dir);
     const wire::core::Vec3d support_axis = normalize_xy_safe(placement->tip_world - placement->mount_world);
     if (std::abs(dot_xy(support_axis, expected_axis)) >= 0.97 &&
-        placement->decision.support_orientation_basis != wire::core::SupportOrientationBasisKind::kRadial) {
+        placement->support_orientation_basis != wire::core::SupportOrientationBasisKind::kRadial) {
       found = true;
     }
   }
@@ -6775,12 +6775,12 @@ bool test_backbone_bundle_branch_support_orientation_uses_bisector_when_availabl
       if (!endpoint.has_value()) {
         continue;
       }
-      if (endpoint->decision.lower_required &&
-          endpoint->decision.relation_kind == wire::core::JunctionRelationKind::kSideBranch &&
+      if (endpoint->lower_required &&
+          endpoint->relation_kind == wire::core::JunctionRelationKind::kSideBranch &&
           endpoint->support_orientation_rule == wire::core::SupportOrientationRuleKind::kBisector &&
-          (endpoint->decision.support_orientation_basis ==
+          (endpoint->support_orientation_basis ==
                wire::core::SupportOrientationBasisKind::kBisectorForward ||
-           endpoint->decision.support_orientation_basis ==
+           endpoint->support_orientation_basis ==
                wire::core::SupportOrientationBasisKind::kBisectorReverse)) {
         return true;
       }
@@ -7938,7 +7938,7 @@ bool test_backbone_unrelated_generation_does_not_downgrade_existing_lowered_bund
       const auto endpoint = layout_endpoint_for_owner(*layout_view, center_id);
       const auto group = lowered_support_group_for_owner(*layout_view, center_id);
       if (!endpoint.has_value() || !endpoint_has_authoritative_lowering(*endpoint) || !group.has_value() ||
-          group->support_group_id != endpoint->decision.support_group_id) {
+          group->support_group_id != endpoint->support_group_id) {
         std::cerr << "[DBG] C256 missing grouped support span=" << span_id << "\n";
         return false;
       }
@@ -8316,9 +8316,9 @@ bool test_backbone_point_like_orientation_rule_non_regression() {
          endpoint->side_assignment_rule == wire::core::SideAssignmentRuleKind::kBisector &&
          endpoint->used_junction_pair_side_assignment && endpoint->has_side_axis &&
          axis_alignment >= 0.97 &&
-         (endpoint->decision.support_orientation_basis ==
+         (endpoint->support_orientation_basis ==
               wire::core::SupportOrientationBasisKind::kBisectorForward ||
-          endpoint->decision.support_orientation_basis ==
+          endpoint->support_orientation_basis ==
               wire::core::SupportOrientationBasisKind::kBisectorReverse) &&
          layout_view->lowered_support_groups.empty();
 }
@@ -8371,15 +8371,15 @@ bool test_backbone_same_level_cross_main_uses_through_pair_authority() {
     }
     const auto endpoint = layout_endpoint_for_owner(*layout_view, center_id);
     if (!endpoint.has_value() || endpoint->continuity_class != wire::core::ContinuityCategoryClass::kPointLike ||
-        endpoint->decision.lower_required || !endpoint->decision.in_through_pair) {
+        endpoint->lower_required || !endpoint->in_through_pair) {
       continue;
     }
     return endpoint->support_orientation_rule == wire::core::SupportOrientationRuleKind::kThroughPairNormal &&
            endpoint->side_assignment_rule == wire::core::SideAssignmentRuleKind::kThroughPairNormal &&
            endpoint->used_junction_pair_side_assignment && endpoint->has_side_axis &&
-           (endpoint->decision.support_orientation_basis ==
+           (endpoint->support_orientation_basis ==
                 wire::core::SupportOrientationBasisKind::kPairNormalPositive ||
-            endpoint->decision.support_orientation_basis ==
+            endpoint->support_orientation_basis ==
                 wire::core::SupportOrientationBasisKind::kPairNormalNegative) &&
            layout_view->lowered_support_groups.empty();
   }
@@ -8438,7 +8438,7 @@ bool test_backbone_same_level_cross_underpass_uses_cross_pair_authority() {
       continue;
     }
     const auto endpoint = layout_endpoint_for_owner(*layout_view, center_id);
-    if (!endpoint.has_value() || endpoint->decision.lower_required ||
+    if (!endpoint.has_value() || endpoint->lower_required ||
         endpoint->relation_kind != wire::core::JunctionRelationKind::kThroughMain ||
         endpoint->support_orientation_rule != wire::core::SupportOrientationRuleKind::kThroughPairNormal) {
       continue;
@@ -8500,7 +8500,7 @@ bool test_backbone_same_level_cross_underpass_uses_cross_pair_authority() {
     }
     const auto endpoint = layout_endpoint_for_owner(*layout_view, center_id);
     if (!endpoint.has_value() || endpoint->continuity_class != wire::core::ContinuityCategoryClass::kPointLike ||
-        endpoint->decision.lower_required || endpoint->decision.in_through_pair ||
+        endpoint->lower_required || endpoint->in_through_pair ||
         endpoint->relation_kind != wire::core::JunctionRelationKind::kCrossUnderpass) {
       continue;
     }
@@ -8518,9 +8518,9 @@ bool test_backbone_same_level_cross_underpass_uses_cross_pair_authority() {
         endpoint->side_assignment_rule == wire::core::SideAssignmentRuleKind::kThroughPairNormal &&
         endpoint->used_junction_pair_side_assignment && endpoint->has_side_axis &&
         std::abs(endpoint->chosen_side_sign) > 1e-9 && align <= 0.3 &&
-        (endpoint->decision.support_orientation_basis ==
+        (endpoint->support_orientation_basis ==
              wire::core::SupportOrientationBasisKind::kPairNormalPositive ||
-         endpoint->decision.support_orientation_basis ==
+         endpoint->support_orientation_basis ==
              wire::core::SupportOrientationBasisKind::kPairNormalNegative) &&
         layout_view->lowered_support_groups.empty();
     return ok;
@@ -8596,16 +8596,16 @@ bool test_backbone_cross_visual_keeps_distinct_pair_axes() {
       continue;
     }
     const auto endpoint = layout_endpoint_for_owner(*layout_view, center_id);
-    if (!endpoint.has_value() || endpoint->decision.lower_required ||
+    if (!endpoint.has_value() || endpoint->lower_required ||
         endpoint->continuity_class != wire::core::ContinuityCategoryClass::kPointLike ||
         !endpoint->has_side_axis || std::abs(endpoint->chosen_side_sign) <= 1e-9 ||
         !layout_view->lowered_support_groups.empty()) {
       if (endpoint.has_value() && endpoint->relation_kind == wire::core::JunctionRelationKind::kThroughMain &&
           endpoint->continuity_class == wire::core::ContinuityCategoryClass::kPointLike &&
-          !endpoint->decision.lower_required) {
+          !endpoint->lower_required) {
         std::cerr << "[DBG] C341 skip_through span=" << span_id << " hasAxis=" << (endpoint->has_side_axis ? 1 : 0)
                   << " sign=" << endpoint->chosen_side_sign
-                  << " basis=" << static_cast<int>(endpoint->decision.support_orientation_basis)
+                  << " basis=" << static_cast<int>(endpoint->support_orientation_basis)
                   << " sideRule=" << static_cast<int>(endpoint->side_assignment_rule)
                   << " orientRule=" << static_cast<int>(endpoint->support_orientation_rule)
                   << " groups=" << layout_view->lowered_support_groups.size() << "\n";
@@ -8701,7 +8701,7 @@ bool test_backbone_capture_like_cross_center_uses_pair_authority() {
       continue;
     }
     const auto endpoint = layout_endpoint_for_owner(*layout_view, center_id);
-    if (!endpoint.has_value() || endpoint->decision.lower_required || !endpoint->same_level_feasible ||
+    if (!endpoint.has_value() || endpoint->lower_required || !endpoint->same_level_feasible ||
         endpoint->continuity_class != wire::core::ContinuityCategoryClass::kPointLike) {
       continue;
     }
@@ -8714,7 +8714,7 @@ bool test_backbone_capture_like_cross_center_uses_pair_authority() {
                 << " relation=" << static_cast<int>(endpoint->relation_kind) << " sideRule="
                 << static_cast<int>(endpoint->side_assignment_rule) << " orientRule="
                 << static_cast<int>(endpoint->support_orientation_rule) << " basis="
-                << static_cast<int>(endpoint->decision.support_orientation_basis) << " sign="
+                << static_cast<int>(endpoint->support_orientation_basis) << " sign="
                 << endpoint->chosen_side_sign << "\n";
       return false;
     }
@@ -8787,7 +8787,7 @@ bool test_backbone_capture_like_cross_visual_keeps_route_and_existing_pair_axes_
       continue;
     }
     const auto endpoint = layout_endpoint_for_owner(*layout_view, center_id);
-    if (!endpoint.has_value() || endpoint->decision.lower_required || !endpoint->same_level_feasible ||
+    if (!endpoint.has_value() || endpoint->lower_required || !endpoint->same_level_feasible ||
         endpoint->continuity_class != wire::core::ContinuityCategoryClass::kPointLike ||
         endpoint->support_orientation_rule == wire::core::SupportOrientationRuleKind::kRadial ||
         !endpoint->has_side_axis || std::abs(endpoint->chosen_side_sign) <= 1e-9) {
@@ -8929,7 +8929,7 @@ bool test_backbone_capture_like_outer_same_level_cross_uses_pair_authority() {
       continue;
     }
     const auto endpoint = layout_endpoint_for_owner(*layout_view, center_id);
-    if (!endpoint.has_value() || endpoint->decision.lower_required || !endpoint->same_level_feasible ||
+    if (!endpoint.has_value() || endpoint->lower_required || !endpoint->same_level_feasible ||
         endpoint->continuity_class != wire::core::ContinuityCategoryClass::kPointLike) {
       continue;
     }
@@ -8947,7 +8947,7 @@ bool test_backbone_capture_like_outer_same_level_cross_uses_pair_authority() {
       std::cerr << "[DBG] C346 span=" << span_entry.id << " relation=" << static_cast<int>(endpoint->relation_kind)
                 << " sideRule=" << static_cast<int>(endpoint->side_assignment_rule)
                 << " orientRule=" << static_cast<int>(endpoint->support_orientation_rule)
-                << " basis=" << static_cast<int>(endpoint->decision.support_orientation_basis)
+                << " basis=" << static_cast<int>(endpoint->support_orientation_basis)
                 << " sign=" << endpoint->chosen_side_sign
                 << " pairPeers=(" << endpoint->support_authority.pair.pair_peer_low << ","
                 << endpoint->support_authority.pair.pair_peer_high << ")\n";
@@ -8981,7 +8981,7 @@ bool test_backbone_capture_like_outer_same_level_cross_visual_uses_pair_axis() {
       continue;
     }
     const auto endpoint = layout_endpoint_for_owner(*layout_view, center_id);
-    if (!endpoint.has_value() || endpoint->decision.lower_required || !endpoint->same_level_feasible ||
+    if (!endpoint.has_value() || endpoint->lower_required || !endpoint->same_level_feasible ||
         endpoint->continuity_class != wire::core::ContinuityCategoryClass::kPointLike ||
         !endpoint_uses_pair_authority_without_local_fallback(*endpoint) ||
         !endpoint->has_side_axis || std::abs(endpoint->chosen_side_sign) <= 1e-9) {
@@ -9087,7 +9087,7 @@ bool collect_pair_authority_snapshot(const CoreState& state, ObjectId center_id,
       continue;
     }
     const auto endpoint = layout_endpoint_for_owner(*layout_view, center_id);
-    if (!endpoint.has_value() || endpoint->decision.lower_required || !endpoint->same_level_feasible ||
+    if (!endpoint.has_value() || endpoint->lower_required || !endpoint->same_level_feasible ||
         endpoint->continuity_class != wire::core::ContinuityCategoryClass::kPointLike ||
         !endpoint_uses_pair_authority_without_local_fallback(*endpoint)) {
       continue;
@@ -9105,11 +9105,11 @@ bool collect_pair_authority_snapshot(const CoreState& state, ObjectId center_id,
     out->order_policy = endpoint->order_decision_policy;
     out->order_choice = endpoint->order_decision_choice;
     out->order_reason = endpoint->order_decision_choice_reason;
-    out->orientation_basis = endpoint->decision.support_orientation_basis;
-    out->chosen_side = endpoint->decision.chosen_side;
-    out->relation_kind = endpoint->decision.relation_kind;
-    out->continuity_class = endpoint->decision.continuity_class;
-    out->in_through_pair = endpoint->decision.in_through_pair;
+    out->orientation_basis = endpoint->support_orientation_basis;
+    out->chosen_side = endpoint->chosen_side;
+    out->relation_kind = endpoint->relation_kind;
+    out->continuity_class = endpoint->continuity_class;
+    out->in_through_pair = endpoint->in_through_pair;
     out->pair_height_rank = endpoint->pair_height_rank;
     out->has_visual_arm_geometry = endpoint->has_visual_arm_geometry;
     out->visual_arm_mount_world = endpoint->visual_arm_mount_world;
@@ -9370,7 +9370,7 @@ bool test_backbone_same_level_t_pair_height_rank_drives_support_offsets() {
       continue;
     }
     const auto endpoint = layout_endpoint_for_owner(*layout_view, center_id);
-    if (!endpoint.has_value() || endpoint->decision.lower_required || !endpoint->same_level_feasible ||
+    if (!endpoint.has_value() || endpoint->lower_required || !endpoint->same_level_feasible ||
         endpoint->continuity_class != wire::core::ContinuityCategoryClass::kPointLike ||
         !endpoint_uses_pair_authority_without_local_fallback(*endpoint, false)) {
       continue;
@@ -9394,9 +9394,9 @@ bool test_backbone_same_level_t_pair_height_rank_drives_support_offsets() {
                   << static_cast<int>(endpoint->support_orientation_rule) << " relation="
                   << static_cast<int>(endpoint->relation_kind) << " continuity="
                   << static_cast<int>(endpoint->continuity_class) << " lower="
-                  << (endpoint->decision.lower_required ? 1 : 0) << " same="
+                  << (endpoint->lower_required ? 1 : 0) << " same="
                   << (endpoint->same_level_feasible ? 1 : 0) << " inPair="
-                  << (endpoint->decision.in_through_pair ? 1 : 0) << " peers=("
+                  << (endpoint->in_through_pair ? 1 : 0) << " peers=("
                   << endpoint->support_authority.pair.pair_peer_low << ","
                   << endpoint->support_authority.pair.pair_peer_high << ") owner=" << endpoint->owner_pole_id
                   << " generated=" << (generated_span_set.contains(span_entry.id) ? 1 : 0)
@@ -9509,7 +9509,7 @@ bool test_backbone_one_shot_cross_pair_height_rank_separates_pairs() {
       continue;
     }
     const auto endpoint = layout_endpoint_for_owner(*layout_view, center_id);
-    if (!endpoint.has_value() || endpoint->decision.lower_required || !endpoint->same_level_feasible ||
+    if (!endpoint.has_value() || endpoint->lower_required || !endpoint->same_level_feasible ||
         endpoint->continuity_class != wire::core::ContinuityCategoryClass::kPointLike ||
         endpoint->support_orientation_rule != wire::core::SupportOrientationRuleKind::kThroughPairNormal) {
       continue;
@@ -9689,18 +9689,18 @@ bool test_backbone_rebuild_without_seed_fails_and_keeps_cached_layout() {
                                                 "SupportLayoutDecisionSeedMissing", before.span_id);
   const bool ok = !rebuild_ok && !layout_view->has_decision_seed && layout_view->requires_decision_seed && has_warning &&
                   resolved_support_authority_equal(before.authority, endpoint->support_authority) &&
-                  endpoint->decision.relation_kind == before.relation_kind &&
-                  endpoint->decision.continuity_class == before.continuity_class &&
-                  endpoint->decision.in_through_pair == before.in_through_pair;
+                  endpoint->relation_kind == before.relation_kind &&
+                  endpoint->continuity_class == before.continuity_class &&
+                  endpoint->in_through_pair == before.in_through_pair;
   if (!ok) {
     std::cerr << "[DBG] C351 rebuild=" << (rebuild_ok ? 1 : 0)
               << " err=" << error_message
               << " seed=" << (layout_view->has_decision_seed ? 1 : 0)
               << " requires=" << (layout_view->requires_decision_seed ? 1 : 0)
               << " warning=" << (has_warning ? 1 : 0)
-              << " relation=" << static_cast<int>(endpoint->decision.relation_kind)
-              << " class=" << static_cast<int>(endpoint->decision.continuity_class)
-              << " inPair=" << (endpoint->decision.in_through_pair ? 1 : 0) << "\n";
+              << " relation=" << static_cast<int>(endpoint->relation_kind)
+              << " class=" << static_cast<int>(endpoint->continuity_class)
+              << " inPair=" << (endpoint->in_through_pair ? 1 : 0) << "\n";
   }
   return ok;
 }
@@ -9744,9 +9744,9 @@ bool test_backbone_geometry_refresh_without_seed_fails_and_keeps_dirty() {
   const bool ok = has_warning && geometry_still_dirty && layout_view.has_value() && !layout_view->has_decision_seed &&
                   layout_view->requires_decision_seed && endpoint.has_value() &&
                   resolved_support_authority_equal(before.authority, endpoint->support_authority) &&
-                  endpoint->decision.relation_kind == before.relation_kind &&
-                  endpoint->decision.continuity_class == before.continuity_class &&
-                  endpoint->decision.in_through_pair == before.in_through_pair;
+                  endpoint->relation_kind == before.relation_kind &&
+                  endpoint->continuity_class == before.continuity_class &&
+                  endpoint->in_through_pair == before.in_through_pair;
   if (!ok) {
     std::cerr << "[DBG] C352 warning=" << (has_warning ? 1 : 0)
               << " dirty=" << (geometry_still_dirty ? 1 : 0)
@@ -9754,10 +9754,10 @@ bool test_backbone_geometry_refresh_without_seed_fails_and_keeps_dirty() {
               << " requires=" << (layout_view.has_value() && layout_view->requires_decision_seed ? 1 : 0)
               << " endpoint=" << (endpoint.has_value() ? 1 : 0)
               << " relation="
-              << (endpoint.has_value() ? static_cast<int>(endpoint->decision.relation_kind) : -1)
+              << (endpoint.has_value() ? static_cast<int>(endpoint->relation_kind) : -1)
               << " class="
-              << (endpoint.has_value() ? static_cast<int>(endpoint->decision.continuity_class) : -1)
-              << " inPair=" << (endpoint.has_value() && endpoint->decision.in_through_pair ? 1 : 0) << "\n";
+              << (endpoint.has_value() ? static_cast<int>(endpoint->continuity_class) : -1)
+              << " inPair=" << (endpoint.has_value() && endpoint->in_through_pair ? 1 : 0) << "\n";
   }
   return ok;
 }
@@ -10256,7 +10256,7 @@ bool test_backbone_same_level_terminal_endpoint_does_not_invent_side_sign() {
       continue;
     }
     const auto endpoint = layout_endpoint_for_owner(*layout_view, tip_id);
-    if (!endpoint.has_value() || endpoint->decision.lower_required ||
+    if (!endpoint.has_value() || endpoint->lower_required ||
         endpoint->continuity_class != wire::core::ContinuityCategoryClass::kPointLike ||
         endpoint->relation_kind != wire::core::JunctionRelationKind::kThroughMain) {
       continue;
@@ -10397,7 +10397,7 @@ bool test_backbone_capture_like_branch_terminal_borrows_peer_pair_authority() {
     if (!endpoint.has_value()) {
       continue;
     }
-    if (endpoint->relation_kind != wire::core::JunctionRelationKind::kThroughMain || endpoint->decision.lower_required ||
+    if (endpoint->relation_kind != wire::core::JunctionRelationKind::kThroughMain || endpoint->lower_required ||
         !endpoint->same_level_feasible ||
         endpoint->continuity_class != wire::core::ContinuityCategoryClass::kPointLike) {
       continue;
@@ -10408,7 +10408,7 @@ bool test_backbone_capture_like_branch_terminal_borrows_peer_pair_authority() {
                 << " bundleTemplate=" << (bundle ? static_cast<int>(bundle->bundle_template_id) : -1)
                 << " class=" << static_cast<int>(endpoint->continuity_class)
                 << " sameLevel=" << endpoint->same_level_feasible
-                << " lower=" << endpoint->decision.lower_required
+                << " lower=" << endpoint->lower_required
                 << " relation=" << static_cast<int>(endpoint->relation_kind)
                 << " sideRule=" << static_cast<int>(endpoint->side_assignment_rule)
                 << " orientRule=" << static_cast<int>(endpoint->support_orientation_rule)
@@ -10416,7 +10416,7 @@ bool test_backbone_capture_like_branch_terminal_borrows_peer_pair_authority() {
                 << " hasAxis=" << endpoint->has_side_axis << " sign=" << endpoint->chosen_side_sign
                 << " pairPeers=(" << endpoint->support_authority.pair.pair_peer_low << ","
                 << endpoint->support_authority.pair.pair_peer_high << ")"
-                << " basis=" << static_cast<int>(endpoint->decision.support_orientation_basis) << "\n";
+                << " basis=" << static_cast<int>(endpoint->support_orientation_basis) << "\n";
       return false;
     }
   }
@@ -10832,7 +10832,7 @@ bool test_backbone_capture_like_lowered_branch_main_endpoint_borrows_peer_pair_a
                 << " orientRule=" << static_cast<int>(endpoint->support_orientation_rule)
                 << " pairSide=" << endpoint->used_junction_pair_side_assignment
                 << " hasAxis=" << endpoint->has_side_axis << " sign=" << endpoint->chosen_side_sign
-                << " lower=" << endpoint->decision.lower_required
+                << " lower=" << endpoint->lower_required
                 << " sameLevel=" << endpoint->same_level_feasible
                 << " class=" << static_cast<int>(endpoint->continuity_class)
                 << " relation=" << static_cast<int>(endpoint->relation_kind) << " inPair="
@@ -10862,7 +10862,7 @@ bool test_backbone_capture_like_lowered_branch_main_endpoint_borrows_peer_pair_a
       }
       std::cerr << " relation=" << static_cast<int>(tip_endpoint->relation_kind)
                 << " class=" << static_cast<int>(tip_endpoint->continuity_class)
-                << " lower=" << tip_endpoint->decision.lower_required
+                << " lower=" << tip_endpoint->lower_required
                 << " same=" << tip_endpoint->same_level_feasible
                 << " sideRule=" << static_cast<int>(tip_endpoint->side_assignment_rule)
                 << " orientRule=" << static_cast<int>(tip_endpoint->support_orientation_rule)
@@ -11598,7 +11598,7 @@ bool test_backbone_refresh_does_not_override_authoritative_endpoint_decision() {
   if (!before_endpoint.has_value()) {
     return false;
   }
-  const auto before_decision = before_endpoint->decision;
+  const auto before_decision = *before_endpoint;
 
   if (!state.SetPoleManualYawOverride(center_id, 17.0).ok) {
     return false;
@@ -11736,10 +11736,10 @@ bool test_backbone_constrained_orientation_uses_authoritative_basis() {
     if (!placement.has_value() || placement->origin != "PlacementConstraint") {
       continue;
     }
-    return placement->decision.support_orientation_basis == endpoint->decision.support_orientation_basis &&
-           placement->decision.order_decision_choice == endpoint->decision.order_decision_choice &&
-           placement->decision.chosen_side == endpoint->decision.chosen_side &&
-           placement->decision.support_orientation_basis != wire::core::SupportOrientationBasisKind::kRadial;
+    return placement->support_orientation_basis == endpoint->support_orientation_basis &&
+           placement->order_decision_choice == endpoint->order_decision_choice &&
+           placement->chosen_side == endpoint->chosen_side &&
+           placement->support_orientation_basis != wire::core::SupportOrientationBasisKind::kRadial;
   }
   return false;
 }

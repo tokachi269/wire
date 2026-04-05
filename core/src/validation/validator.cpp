@@ -49,6 +49,13 @@ bool endpoint_requires_pair_authority_for_validation(const SupportLayoutEndpoint
           decision.relation_kind == JunctionRelationKind::kCrossUnderpass);
 }
 
+bool endpoint_semantic_contract_equal(const EndpointContinuityDecision& seed,
+                                      const EndpointContinuityDecision& materialized) {
+  return seed.relation_kind == materialized.relation_kind &&
+         seed.continuity_class == materialized.continuity_class &&
+         seed.in_through_pair == materialized.in_through_pair;
+}
+
 bool almost_equal_validation(double a, double b, double eps = 1e-9) { return std::abs(a - b) <= eps; }
 
 bool almost_equal_validation(const Vec3d& a, const Vec3d& b, double eps = 1e-9) {
@@ -566,6 +573,31 @@ ValidationResult CoreState::Validate() const {
   };
   for (const auto& [span_id, layout] : cache_state.support_layout_cache.by_span) {
     const double endpoint_attach_lift_m = insulator_lift_for_span(core, span_id);
+    const auto seed_it = decision_seeds_by_span.find(span_id);
+    if (seed_it != decision_seeds_by_span.end()) {
+      const SpanSupportLayoutDecisionSeed& seed = seed_it->second;
+      if (!endpoint_semantic_contract_equal(seed.start.decision, layout.start.decision)) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportLayoutStartSemanticShrink",
+                                 "Materialized support-layout start endpoint must keep the generated seed semantic relation/continuity/in-through-pair contract",
+                                 span_id});
+      }
+      if (!endpoint_semantic_contract_equal(seed.end.decision, layout.end.decision)) {
+        result.issues.push_back({ValidationSeverity::kError, "SupportLayoutEndSemanticShrink",
+                                 "Materialized support-layout end endpoint must keep the generated seed semantic relation/continuity/in-through-pair contract",
+                                 span_id});
+      }
+      for (const auto& [key, seed_group] : seed.support_group_decisions) {
+        const auto group_it = layout.support_group_decisions.find(key);
+        if (group_it == layout.support_group_decisions.end()) {
+          continue;
+        }
+        if (!endpoint_semantic_contract_equal(seed_group.decision, group_it->second.decision)) {
+          result.issues.push_back({ValidationSeverity::kError, "SupportGroupSemanticShrink",
+                                   "Materialized support-group decision must keep the generated seed semantic relation/continuity/in-through-pair contract",
+                                   span_id});
+        }
+      }
+    }
     const auto validate_endpoint = [&](const SupportLayoutEndpoint& endpoint, const char* code) {
       const Pole* endpoint_pole = edit_state.poles.find(endpoint.owner_pole_id);
       const Port* endpoint_port = edit_state.ports.find(endpoint.port_id);

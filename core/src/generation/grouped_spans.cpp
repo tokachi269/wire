@@ -169,32 +169,20 @@ CoreState::generate_grouped_spans_between_support_nodes(
         orientation.FinalizeEndpointSideDecision(node_b, node_a, orientation.PreferredSideAxisForEndpoint(node_b, node_a,
                                                                                          effective_relation_b,
                                                                                          bundle_id));
-    if (effective_relation_a.continuity_class == ContinuityCategoryClass::kBundleLike &&
-        (effective_relation_a.default_lower_required || !effective_relation_a.same_level_feasible)) {
-      side_decision_a = orientation.NormalizeGroupSideDecision(side_decision_a);
-    }
-    if (effective_relation_b.continuity_class == ContinuityCategoryClass::kBundleLike &&
-        (effective_relation_b.default_lower_required || !effective_relation_b.same_level_feasible)) {
-      side_decision_b = orientation.NormalizeGroupSideDecision(side_decision_b);
-    }
     orientation.FinalizeSideSignForPorts(&side_decision_a, node_a, node_b, assignment.port_ids_a);
     orientation.FinalizeSideSignForPorts(&side_decision_b, node_b, node_a, assignment.port_ids_b);
-    EndpointContinuityDecision raw_decision_a =
+    assignment.decision_a =
         lowering.BuildEndpointDecision(effective_relation_a, pair_info_a, side_decision_a, node_a, node_b,
                                 order_decision_policy,
                                 assignment.order_decision_choice_a, assignment.order_decision_choice_reason_a,
                                 assignment.solver_used_same_level_constraint, assignment.used_special_case_ports,
                                 endpoint_policy_block_a, assignment.unresolved_same_level_conflict);
-    EndpointContinuityDecision raw_decision_b =
+    assignment.decision_b =
         lowering.BuildEndpointDecision(effective_relation_b, pair_info_b, side_decision_b, node_b, node_a,
                                 order_decision_policy,
                                 assignment.order_decision_choice_b, assignment.order_decision_choice_reason_b,
                                 assignment.solver_used_same_level_constraint, assignment.used_special_case_ports,
                                 endpoint_policy_block_b, assignment.unresolved_same_level_conflict);
-    assignment.decision_a =
-        orientation.FinalizeGroupEndpointDecision(raw_decision_a, node_b, pair_info_a, side_decision_a);
-    assignment.decision_b =
-        orientation.FinalizeGroupEndpointDecision(raw_decision_b, node_a, pair_info_b, side_decision_b);
     GroupedSpanLanePreparer::SyncAssignmentFromDecisions(&assignment);
     const bool decision_lowered_a = UsesAuthoritativeGroupedLoweredSupport(assignment.decision_a);
     const bool decision_lowered_b = UsesAuthoritativeGroupedLoweredSupport(assignment.decision_b);

@@ -1,0 +1,23 @@
+#pragma once
+
+#include "support_layout_materialization.hpp"
+
+namespace wire::core {
+
+class CoreState;
+struct SupportGroupDecision;
+struct CacheState;
+struct EditState;
+struct LoweredSupportGroupPlacement;
+
+void apply_materialized_visual_arm_geometry(const CoreState& state, const Port& port, const Pole* pole,
+                                            SupportLayoutEndpoint* endpoint);
+
+void finalize_support_layout_materialization(const Vec3d& fallback_chord_dir, SpanSupportLayoutEntry* layout);
+
+LoweredSupportGroupPlacement build_grouped_support_placement_from_decision(const CoreState& state,
+                                                                           const SupportGroupDecision& group_decision,
+                                                                           const EditState& edit_state,
+                                                                           const CacheState& cache_state);
+
+} // namespace wire::core

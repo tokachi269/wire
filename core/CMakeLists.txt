@@ -15,6 +15,8 @@ add_library(
   src/generation/grouped_span_lane_preparation.cpp
   src/generation/grouped_span_lowering.cpp
   src/generation/grouped_span_orientation.cpp
+  src/generation/backbone_seed_topology.cpp
+  src/generation/backbone_seed_placement.cpp
   src/generation/from_backbone.cpp
   src/generation/backbone_prepare.cpp
   src/generation/regenerate.cpp
@@ -25,7 +27,9 @@ add_library(
   src/recalc/detail_curve_postprocess.cpp
   src/recalc/style_context.cpp
   src/recalc/variation.cpp
+  src/recalc/support_layout_projection.cpp
   src/recalc/support_layout_materialization.cpp
+  src/recalc/support_layout_world_geometry.cpp
   src/recalc/recalc_pipeline.cpp
 )
 

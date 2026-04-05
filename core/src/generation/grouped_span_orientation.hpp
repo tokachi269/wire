@@ -41,20 +41,6 @@ private:
 
   [[nodiscard]] Vec3d NormalizedOrZeroXY(Vec3d axis) const;
   [[nodiscard]] std::optional<Vec3d> RouteAxisForEndpoint(ObjectId node_id, ObjectId peer_id) const;
-  [[nodiscard]] std::optional<Vec3d> ThroughPairSideAxisForNode(ObjectId node_id) const;
-  [[nodiscard]] std::optional<EndpointSideDecision> ThroughPairSideDecisionForEndpoint(ObjectId node_id,
-                                                                                       ObjectId peer_id) const;
-  [[nodiscard]] std::optional<EndpointSideDecision> CrossPairSideDecisionForEndpoint(ObjectId node_id,
-                                                                                     ObjectId peer_id) const;
-  [[nodiscard]] std::optional<EndpointSideDecision> BundlePairSideDecisionForEndpoint(ObjectId node_id,
-                                                                                      ObjectId peer_id,
-                                                                                      ObjectId bundle_id) const;
-  [[nodiscard]] std::optional<EndpointSideDecision> AuthoritativePairSideDecisionForEndpoint(
-      ObjectId node_id, ObjectId peer_id, const SegmentRelationFeasibility& feasibility, ObjectId bundle_id) const;
-  [[nodiscard]] bool EndpointHasLoweringConflict(const SegmentRelationFeasibility& feasibility) const;
-  [[nodiscard]] bool NodeHasBundleLoweringConflict(ObjectId node_id) const;
-  [[nodiscard]] bool SupportsBundleSupportPairing(ObjectId node_id, ObjectId peer_id,
-                                                 const SegmentRelationFeasibility& feasibility) const;
   [[nodiscard]] std::optional<LoweredSupportPairInfo> CachedLoweredSupportPairInfo(ObjectId node_id,
                                                                                    ObjectId peer_id);
   [[nodiscard]] bool BuildLoweredSupportPairsForNode(ObjectId node_id,

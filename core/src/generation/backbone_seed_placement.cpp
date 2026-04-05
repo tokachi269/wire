@@ -1,0 +1,230 @@
+#include "backbone_seed_placement.hpp"
+
+#include "../support_orientation_utils.hpp"
+
+#include <unordered_map>
+#include <vector>
+
+namespace wire::core::generation::detail {
+
+namespace {
+
+SupportLayoutOriginKind support_layout_origin_from_port_source(PortPlacementSourceKind source) {
+  switch (source) {
+  case PortPlacementSourceKind::kBranchSupport:
+    return SupportLayoutOriginKind::kBranchSupport;
+  case PortPlacementSourceKind::kAerialBranch:
+    return SupportLayoutOriginKind::kAerialBranch;
+  case PortPlacementSourceKind::kPlacementBandConstrained:
+    return SupportLayoutOriginKind::kPlacementConstraint;
+  case PortPlacementSourceKind::kPlacementBand:
+  case PortPlacementSourceKind::kGenerated:
+  case PortPlacementSourceKind::kManualEdit:
+    return SupportLayoutOriginKind::kMainSupport;
+  case PortPlacementSourceKind::kUnknown:
+  default:
+    return SupportLayoutOriginKind::kFallback;
+  }
+}
+
+using PairKey = std::pair<ObjectId, ObjectId>;
+
+[[nodiscard]] PairKey canonical_pair_key(ObjectId a, ObjectId b) {
+  return {std::min(a, b), std::max(a, b)};
+}
+
+std::vector<PairKey> derive_non_through_pair_keys(const EditState& edit_state, const JunctionRelation& relation) {
+  std::vector<ObjectId> remaining{};
+  remaining.reserve(relation.incidents.size());
+  for (const JunctionIncidentRelation& incident : relation.incidents) {
+    if (!incident.in_route || incident.neighbor_node_id == kInvalidObjectId || incident.in_through_pair) {
+      continue;
+    }
+    if (edit_state.poles.find(incident.neighbor_node_id) == nullptr) {
+      continue;
+    }
+    remaining.push_back(incident.neighbor_node_id);
+  }
+
+  std::vector<PairKey> keys{};
+  if (remaining.size() < 2) {
+    return keys;
+  }
+  while (remaining.size() >= 2) {
+    double best_score = std::numeric_limits<double>::infinity();
+    std::size_t best_i = 0;
+    std::size_t best_j = 1;
+    for (std::size_t i = 0; i < remaining.size(); ++i) {
+      const Pole* pole_i = edit_state.poles.find(remaining[i]);
+      if (pole_i == nullptr) {
+        continue;
+      }
+      for (std::size_t j = i + 1; j < remaining.size(); ++j) {
+        const Pole* pole_j = edit_state.poles.find(remaining[j]);
+        if (pole_j == nullptr) {
+          continue;
+        }
+        const double score = distance_squared_xy(pole_i->world_transform.position, pole_j->world_transform.position);
+        if (score < best_score) {
+          best_score = score;
+          best_i = i;
+          best_j = j;
+        }
+      }
+    }
+    keys.push_back(canonical_pair_key(remaining[best_i], remaining[best_j]));
+    if (best_j > best_i) {
+      remaining.erase(remaining.begin() + static_cast<std::ptrdiff_t>(best_j));
+      remaining.erase(remaining.begin() + static_cast<std::ptrdiff_t>(best_i));
+    } else {
+      remaining.erase(remaining.begin() + static_cast<std::ptrdiff_t>(best_i));
+      remaining.erase(remaining.begin() + static_cast<std::ptrdiff_t>(best_j));
+    }
+  }
+  return keys;
+}
+
+std::unordered_map<PairKey, int, PairKeyHash> pair_height_rank_map_for_junction(const EditState& edit_state,
+                                                                                const JunctionRelation& relation) {
+  std::unordered_map<PairKey, int, PairKeyHash> ranks{};
+  PairKey through_key{};
+  bool has_through_key = false;
+  if (relation.through_pair.accepted) {
+    through_key = canonical_pair_key(relation.through_pair.neighbor_a_id, relation.through_pair.neighbor_b_id);
+    ranks.emplace(through_key, 0);
+    has_through_key = true;
+  }
+  const std::vector<PairKey> non_through_keys = derive_non_through_pair_keys(edit_state, relation);
+  int next_rank = has_through_key ? 1 : 0;
+  for (const PairKey& key : non_through_keys) {
+    if (has_through_key && key == through_key) {
+      continue;
+    }
+    ranks.emplace(key, next_rank++);
+  }
+  return ranks;
+}
+
+} // namespace
+
+SeedDecisionPlacementProjection build_seed_placement_projection(const EndpointContinuityDecision& decision) {
+  SeedDecisionPlacementProjection projection{};
+  projection.lower_required = decision.lower_required;
+  projection.default_lower_required = decision.default_lower_required;
+  projection.same_level_feasible = decision.same_level_feasible;
+  projection.same_level_reason = decision.same_level_reason;
+  projection.projected_spacing_topview_m = decision.projected_spacing_topview_m;
+  projection.required_clearance_m = decision.required_clearance_m;
+  projection.lowering_blocked_by_policy = decision.lowering_blocked_by_policy;
+  projection.unresolved_same_level_conflict = decision.unresolved_same_level_conflict;
+  projection.solver_used_same_level_constraint = decision.solver_used_same_level_constraint;
+  projection.used_special_case_ports = decision.used_special_case_ports;
+  projection.order_decision_policy = decision.order_decision_policy;
+  projection.order_decision_choice = decision.order_decision_choice;
+  projection.order_decision_choice_reason = decision.order_decision_choice_reason;
+  projection.support_group_id = decision.support_group_id;
+  projection.side_assignment_rule = decision.side_assignment_rule;
+  projection.support_orientation_rule = decision.support_orientation_rule;
+  projection.support_orientation_basis = decision.support_orientation_basis;
+  projection.chosen_side = decision.chosen_side;
+  projection.used_junction_pair_side_assignment = decision.used_junction_pair_side_assignment;
+  projection.has_side_axis = decision.has_side_axis;
+  projection.side_axis = decision.side_axis;
+  projection.chosen_side_sign = decision.chosen_side_sign;
+  return projection;
+}
+
+void apply_seed_placement_projection(const SeedDecisionPlacementProjection& projection,
+                                     EndpointContinuityDecision* decision) {
+  if (decision == nullptr) {
+    return;
+  }
+  decision->lower_required = projection.lower_required;
+  decision->default_lower_required = projection.default_lower_required;
+  decision->same_level_feasible = projection.same_level_feasible;
+  decision->same_level_reason = projection.same_level_reason;
+  decision->projected_spacing_topview_m = projection.projected_spacing_topview_m;
+  decision->required_clearance_m = projection.required_clearance_m;
+  decision->lowering_blocked_by_policy = projection.lowering_blocked_by_policy;
+  decision->unresolved_same_level_conflict = projection.unresolved_same_level_conflict;
+  decision->solver_used_same_level_constraint = projection.solver_used_same_level_constraint;
+  decision->used_special_case_ports = projection.used_special_case_ports;
+  decision->order_decision_policy = projection.order_decision_policy;
+  decision->order_decision_choice = projection.order_decision_choice;
+  decision->order_decision_choice_reason = projection.order_decision_choice_reason;
+  decision->support_group_id = projection.support_group_id;
+  decision->side_assignment_rule = projection.side_assignment_rule;
+  decision->support_orientation_rule = projection.support_orientation_rule;
+  decision->support_orientation_basis = projection.support_orientation_basis;
+  decision->chosen_side = projection.chosen_side;
+  decision->used_junction_pair_side_assignment = projection.used_junction_pair_side_assignment;
+  decision->has_side_axis = projection.has_side_axis;
+  decision->side_axis = projection.side_axis;
+  decision->chosen_side_sign = projection.chosen_side_sign;
+}
+
+int pair_height_rank_from_decision(const EditState& edit_state,
+                                   const std::unordered_map<ObjectId, JunctionRelation>& junction_relations_by_node,
+                                   ObjectId endpoint_node_id, const EndpointContinuityDecision& decision) {
+  if (UsesAuthoritativeGroupedLoweredSupport(decision) || !HasAuthoritativeSupportPair(decision)) {
+    return -1;
+  }
+  const auto it_relation = junction_relations_by_node.find(endpoint_node_id);
+  if (it_relation == junction_relations_by_node.end()) {
+    if (decision.in_through_pair || decision.relation_kind == JunctionRelationKind::kThroughMain) {
+      return 0;
+    }
+    return (decision.relation_kind == JunctionRelationKind::kNone) ? -1 : 1;
+  }
+
+  const JunctionRelation& relation = it_relation->second;
+  if (relation.through_pair.accepted &&
+      (decision.in_through_pair || decision.relation_kind == JunctionRelationKind::kThroughMain)) {
+    return 0;
+  }
+
+  const auto ranks = pair_height_rank_map_for_junction(edit_state, relation);
+  const PairKey decision_key = canonical_pair_key(decision.support_pair_peer_low, decision.support_pair_peer_high);
+  if (const auto it_rank = ranks.find(decision_key); it_rank != ranks.end()) {
+    if (relation.through_pair.accepted && it_rank->second == 0 &&
+        decision.relation_kind != JunctionRelationKind::kThroughMain && !decision.in_through_pair) {
+      return 1;
+    }
+    return it_rank->second;
+  }
+  return (decision.relation_kind == JunctionRelationKind::kNone) ? -1 : (relation.through_pair.accepted ? 1 : 0);
+}
+
+SupportLayoutDecisionSeedEndpoint build_seed_endpoint_from_decision(
+    const EditState& edit_state, const std::unordered_map<ObjectId, JunctionRelation>& junction_relations_by_node,
+    const SegmentLaneAssignment& assignment, ObjectId endpoint_node_id, const Port& port,
+    const EndpointContinuityDecision& decision) {
+  SupportLayoutDecisionSeedEndpoint endpoint{};
+  endpoint.endpoint_node_id = endpoint_node_id;
+  endpoint.owner_pole_id = port.owner_pole_id;
+  endpoint.port_id = port.id;
+  endpoint.decision = {};
+  const SeedDecisionTopologyProjection topology = build_seed_topology_projection(decision, endpoint.owner_pole_id);
+  const SeedDecisionPlacementProjection placement = build_seed_placement_projection(decision);
+  apply_seed_topology_projection(topology, &endpoint.decision);
+  apply_seed_placement_projection(placement, &endpoint.decision);
+  const int pair_height_rank =
+      pair_height_rank_from_decision(edit_state, junction_relations_by_node, endpoint.endpoint_node_id, decision);
+  endpoint.support_authority = ResolvedSupportAuthorityFromDecision(decision, pair_height_rank);
+  endpoint.flow_kind = assignment.flow_kind;
+  endpoint.origin = support_layout_origin_from_port_source(port.placement_source);
+  endpoint.endpoint_source = SupportLayoutEndpointSourceKind::kFallback;
+  endpoint.port_source = port.placement_source;
+  endpoint.side = port.template_side;
+  endpoint.endpoint_mode = CurveEndpointMode::kDirectThrough;
+  const bool uses_lowering = decision.lower_required && !decision.lowering_blocked_by_policy;
+  const bool uses_pair_height = !uses_lowering && pair_height_rank > 0 && decision.same_level_feasible &&
+                                HasAuthoritativeSupportPair(decision);
+  const double pair_height_step_m = BranchDownOffsetForCategory(port.category);
+  endpoint.automatic_branch_down_offset_m =
+      uses_lowering ? assignment.branch_down_offset_m : (uses_pair_height ? pair_height_step_m * pair_height_rank : 0.0);
+  endpoint.branch_down_offset_m = endpoint.automatic_branch_down_offset_m;
+  return endpoint;
+}
+
+} // namespace wire::core::generation::detail

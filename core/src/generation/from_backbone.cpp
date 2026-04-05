@@ -3,6 +3,8 @@
 #include "wire/core/core_view.hpp"
 #include "../pole_orientation_utils.hpp"
 #include "../support_orientation_utils.hpp"
+#include "backbone_seed_placement.hpp"
+#include "backbone_seed_topology.hpp"
 #include "backbone_prepare.hpp"
 #include "detail_utils.hpp"
 #include "grouped_span_common.hpp"
@@ -67,137 +69,6 @@ std::uint64_t make_flow_variation_key(std::uint64_t generation_session_id, Bundl
   return key;
 }
 
-SupportLayoutOriginKind support_layout_origin_from_port_source(PortPlacementSourceKind source) {
-  switch (source) {
-  case PortPlacementSourceKind::kBranchSupport:
-    return SupportLayoutOriginKind::kBranchSupport;
-  case PortPlacementSourceKind::kAerialBranch:
-    return SupportLayoutOriginKind::kAerialBranch;
-  case PortPlacementSourceKind::kPlacementBandConstrained:
-    return SupportLayoutOriginKind::kPlacementConstraint;
-  case PortPlacementSourceKind::kPlacementBand:
-  case PortPlacementSourceKind::kGenerated:
-  case PortPlacementSourceKind::kManualEdit:
-    return SupportLayoutOriginKind::kMainSupport;
-  case PortPlacementSourceKind::kUnknown:
-  default:
-    return SupportLayoutOriginKind::kFallback;
-  }
-}
-
-using PairKey = std::pair<ObjectId, ObjectId>;
-
-struct PairKeyHash {
-  [[nodiscard]] std::size_t operator()(const PairKey& key) const {
-    const std::size_t h1 = std::hash<ObjectId>{}(key.first);
-    const std::size_t h2 = std::hash<ObjectId>{}(key.second);
-    return h1 ^ (h2 + 0x9e3779b9 + (h1 << 6) + (h1 >> 2));
-  }
-};
-
-[[nodiscard]] PairKey canonical_pair_key(ObjectId a, ObjectId b) {
-  return (a <= b) ? PairKey{a, b} : PairKey{b, a};
-}
-
-[[nodiscard]] Vec3d pair_height_node_position(const EditState& edit_state, ObjectId node_id) {
-  if (const Pole* pole = edit_state.poles.find(node_id); pole != nullptr) {
-    return pole->world_transform.position;
-  }
-  if (const Anchor* anchor = edit_state.anchors.find(node_id); anchor != nullptr) {
-    return anchor->world_position;
-  }
-  return {};
-}
-
-[[nodiscard]] double pair_height_rank_angle(const EditState& edit_state, const PairKey& key) {
-  const Vec3d low = pair_height_node_position(edit_state, key.first);
-  const Vec3d high = pair_height_node_position(edit_state, key.second);
-  const Vec3d axis = CanonicalSharedSupportAxis(high - low);
-  if (!IsFiniteXY(axis) || (std::abs(axis.x) <= 1e-9 && std::abs(axis.y) <= 1e-9)) {
-    return 0.0;
-  }
-  return std::atan2(axis.y, axis.x);
-}
-
-[[nodiscard]] std::vector<PairKey> classify_secondary_pair_keys(const EditState& edit_state, ObjectId center_node_id,
-                                                                const std::vector<ObjectId>& neighbor_ids) {
-  std::vector<PairKey> keys{};
-  if (neighbor_ids.size() < 2) {
-    return keys;
-  }
-
-  std::vector<ObjectId> remaining = neighbor_ids;
-  const Vec3d center = pair_height_node_position(edit_state, center_node_id);
-  while (remaining.size() >= 2) {
-    double best_score = std::numeric_limits<double>::infinity();
-    std::size_t best_i = 0;
-    std::size_t best_j = 1;
-    bool found = false;
-    for (std::size_t i = 0; i < remaining.size(); ++i) {
-      const Vec3d ai = SafeHorizontalNormalized(pair_height_node_position(edit_state, remaining[i]) - center);
-      if (!IsFiniteXY(ai) || (std::abs(ai.x) <= 1e-9 && std::abs(ai.y) <= 1e-9)) {
-        continue;
-      }
-      for (std::size_t j = i + 1; j < remaining.size(); ++j) {
-        const Vec3d aj = SafeHorizontalNormalized(pair_height_node_position(edit_state, remaining[j]) - center);
-        if (!IsFiniteXY(aj) || (std::abs(aj.x) <= 1e-9 && std::abs(aj.y) <= 1e-9)) {
-          continue;
-        }
-        const double score = Dot(ai, aj);
-        if (!found || score < best_score) {
-          best_score = score;
-          best_i = i;
-          best_j = j;
-          found = true;
-        }
-      }
-    }
-    if (!found) {
-      break;
-    }
-    keys.push_back(canonical_pair_key(remaining[best_i], remaining[best_j]));
-    remaining.erase(remaining.begin() + static_cast<std::ptrdiff_t>(best_j));
-    remaining.erase(remaining.begin() + static_cast<std::ptrdiff_t>(best_i));
-  }
-  return keys;
-}
-
-[[nodiscard]] std::unordered_map<PairKey, int, PairKeyHash>
-pair_height_rank_map_for_junction(const EditState& edit_state, const JunctionRelation& relation) {
-  std::unordered_map<PairKey, int, PairKeyHash> ranks{};
-  std::vector<PairKey> ordered_pairs{};
-  std::unordered_set<ObjectId> used_neighbors{};
-
-  PairKey through_key{kInvalidObjectId, kInvalidObjectId};
-  if (relation.through_pair.accepted &&
-      HasAuthoritativeSupportPair(relation.through_pair.neighbor_a_id, relation.through_pair.neighbor_b_id)) {
-    through_key = canonical_pair_key(relation.through_pair.neighbor_a_id, relation.through_pair.neighbor_b_id);
-    ordered_pairs.push_back(through_key);
-    used_neighbors.insert(through_key.first);
-    used_neighbors.insert(through_key.second);
-  }
-
-  std::vector<ObjectId> remaining{};
-  for (const JunctionIncidentRelation& incident : relation.incidents) {
-    if (incident.kind == JunctionRelationKind::kNone || used_neighbors.contains(incident.neighbor_node_id)) {
-      continue;
-    }
-    remaining.push_back(incident.neighbor_node_id);
-  }
-
-  std::vector<PairKey> secondary_pairs =
-      classify_secondary_pair_keys(edit_state, relation.node_id, remaining);
-  std::sort(secondary_pairs.begin(), secondary_pairs.end(),
-            [&](const PairKey& a, const PairKey& b) { return pair_height_rank_angle(edit_state, a) <
-                                                             pair_height_rank_angle(edit_state, b); });
-  ordered_pairs.insert(ordered_pairs.end(), secondary_pairs.begin(), secondary_pairs.end());
-
-  for (std::size_t index = 0; index < ordered_pairs.size(); ++index) {
-    ranks[ordered_pairs[index]] = static_cast<int>(index);
-  }
-  return ranks;
-}
-
 bool assign_nonroute_pair_for_single_route_junction(JunctionRelation* relation,
                                                     const std::function<Vec3d(ObjectId)>& support_position) {
   if (relation == nullptr || relation->route_incident_count != 1 || relation->incidents.size() < 3) {
@@ -250,171 +121,6 @@ bool assign_nonroute_pair_for_single_route_junction(JunctionRelation* relation,
   return true;
 }
 
-[[nodiscard]] int pair_height_rank_from_decision(
-    const EditState& edit_state, const std::unordered_map<ObjectId, JunctionRelation>& junction_relations_by_node,
-    ObjectId endpoint_node_id, const EndpointContinuityDecision& decision) {
-  if (UsesAuthoritativeGroupedLoweredSupport(decision) || !HasAuthoritativeSupportPair(decision)) {
-    return -1;
-  }
-  const auto it_relation = junction_relations_by_node.find(endpoint_node_id);
-  if (it_relation == junction_relations_by_node.end()) {
-    if (decision.in_through_pair || decision.relation_kind == JunctionRelationKind::kThroughMain) {
-      return 0;
-    }
-    return (decision.relation_kind == JunctionRelationKind::kNone) ? -1 : 1;
-  }
-
-  const JunctionRelation& relation = it_relation->second;
-  if (relation.through_pair.accepted &&
-      (decision.in_through_pair || decision.relation_kind == JunctionRelationKind::kThroughMain)) {
-    return 0;
-  }
-
-  const auto ranks = pair_height_rank_map_for_junction(edit_state, relation);
-  const PairKey decision_key = canonical_pair_key(decision.support_pair_peer_low, decision.support_pair_peer_high);
-  if (const auto it_rank = ranks.find(decision_key); it_rank != ranks.end()) {
-    if (relation.through_pair.accepted && it_rank->second == 0 &&
-        decision.relation_kind != JunctionRelationKind::kThroughMain && !decision.in_through_pair) {
-      return 1;
-    }
-    return it_rank->second;
-  }
-  return (decision.relation_kind == JunctionRelationKind::kNone) ? -1 : (relation.through_pair.accepted ? 1 : 0);
-}
-
-SupportLayoutDecisionSeedEndpoint build_seed_endpoint_from_decision(
-    const EditState& edit_state, const std::unordered_map<ObjectId, JunctionRelation>& junction_relations_by_node,
-    const SegmentLaneAssignment& assignment, ObjectId endpoint_node_id, const Port& port,
-    const EndpointContinuityDecision& decision) {
-  SupportLayoutDecisionSeedEndpoint endpoint{};
-  endpoint.endpoint_node_id = endpoint_node_id;
-  endpoint.owner_pole_id = port.owner_pole_id;
-  endpoint.port_id = port.id;
-  endpoint.decision = decision;
-  endpoint.decision.owner_pole_id = endpoint.owner_pole_id;
-  const int pair_height_rank = pair_height_rank_from_decision(edit_state, junction_relations_by_node,
-                                                              endpoint.endpoint_node_id, decision);
-  endpoint.support_authority = ResolvedSupportAuthorityFromDecision(decision, pair_height_rank);
-  endpoint.flow_kind = assignment.flow_kind;
-  endpoint.origin = support_layout_origin_from_port_source(port.placement_source);
-  endpoint.endpoint_source = SupportLayoutEndpointSourceKind::kFallback;
-  endpoint.port_source = port.placement_source;
-  endpoint.side = port.template_side;
-  endpoint.endpoint_mode = CurveEndpointMode::kDirectThrough;
-  const bool uses_lowering = decision.lower_required && !decision.lowering_blocked_by_policy;
-  const bool uses_pair_height = !uses_lowering && pair_height_rank > 0 && decision.same_level_feasible &&
-                                HasAuthoritativeSupportPair(decision);
-  const double pair_height_step_m = generation::detail::BranchDownOffsetForCategory(port.category);
-  endpoint.automatic_branch_down_offset_m =
-      uses_lowering ? assignment.branch_down_offset_m : (uses_pair_height ? pair_height_step_m * pair_height_rank : 0.0);
-  endpoint.branch_down_offset_m = endpoint.automatic_branch_down_offset_m;
-  return endpoint;
-}
-
-struct EndpointSeedTopologyUpdate {
-  ObjectId owner_pole_id = kInvalidObjectId;
-  JunctionRelationKind relation_kind = JunctionRelationKind::kNone;
-  ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
-  bool in_through_pair = false;
-  ObjectId support_pair_peer_low = kInvalidObjectId;
-  ObjectId support_pair_peer_high = kInvalidObjectId;
-};
-
-struct EndpointSeedPlacementUpdate {
-  bool lower_required = false;
-  bool default_lower_required = false;
-  bool same_level_feasible = false;
-  SameLevelSupportReason same_level_reason = SameLevelSupportReason::kUnknown;
-  double projected_spacing_topview_m = 0.0;
-  double required_clearance_m = 0.0;
-  EndpointSideDecision side_decision{};
-};
-
-EndpointSeedTopologyUpdate build_seed_topology_update(const SegmentRelationFeasibility& feasibility,
-                                                      ObjectId endpoint_node_id,
-                                                      const std::optional<LoweredSupportPairInfo>& pair_info,
-                                                      const EndpointSideDecision& side_decision) {
-  EndpointSeedTopologyUpdate update{};
-  update.owner_pole_id = endpoint_node_id;
-  update.relation_kind = feasibility.kind;
-  update.continuity_class = feasibility.continuity_class;
-  update.in_through_pair = feasibility.in_through_pair;
-  if (pair_info.has_value() && pair_info->has_pair) {
-    update.support_pair_peer_low = pair_info->pair_peer_low;
-    update.support_pair_peer_high = pair_info->pair_peer_high;
-  } else if (side_decision.pair_peer_low != kInvalidObjectId && side_decision.pair_peer_high != kInvalidObjectId) {
-    update.support_pair_peer_low = side_decision.pair_peer_low;
-    update.support_pair_peer_high = side_decision.pair_peer_high;
-  }
-  return update;
-}
-
-void apply_topology_to_seed_decision(const EndpointSeedTopologyUpdate& update, EndpointContinuityDecision* decision) {
-  if (decision == nullptr) {
-    return;
-  }
-  decision->owner_pole_id = update.owner_pole_id;
-  decision->relation_kind = update.relation_kind;
-  decision->continuity_class = update.continuity_class;
-  decision->in_through_pair = update.in_through_pair;
-  decision->support_pair_peer_low = update.support_pair_peer_low;
-  decision->support_pair_peer_high = update.support_pair_peer_high;
-}
-
-EndpointSeedPlacementUpdate build_seed_placement_update(const SegmentRelationFeasibility& feasibility,
-                                                        const EndpointSideDecision& side_decision) {
-  EndpointSeedPlacementUpdate update{};
-  update.lower_required = feasibility.default_lower_required || !feasibility.same_level_feasible;
-  update.default_lower_required = feasibility.default_lower_required;
-  update.same_level_feasible = feasibility.same_level_feasible;
-  update.same_level_reason = feasibility.reason;
-  update.projected_spacing_topview_m = feasibility.projected_spacing_topview_m;
-  update.required_clearance_m = feasibility.required_clearance_m;
-  update.side_decision = side_decision;
-  return update;
-}
-
-void apply_placement_feasibility_to_seed_decision(const EndpointSeedPlacementUpdate& update,
-                                                  EndpointContinuityDecision* decision) {
-  if (decision == nullptr) {
-    return;
-  }
-  decision->lower_required = update.lower_required;
-  decision->default_lower_required = update.default_lower_required;
-  decision->same_level_feasible = update.same_level_feasible;
-  decision->same_level_reason = update.same_level_reason;
-  decision->projected_spacing_topview_m = update.projected_spacing_topview_m;
-  decision->required_clearance_m = update.required_clearance_m;
-  decision->side_assignment_rule = update.side_decision.side_assignment_rule;
-  decision->support_orientation_rule = update.side_decision.support_orientation_rule;
-  decision->support_orientation_basis =
-      SupportOrientationBasisFromDecision(update.side_decision.support_orientation_rule,
-                                          update.side_decision.chosen_side_sign);
-  decision->used_junction_pair_side_assignment = update.side_decision.used_junction_pair_side_assignment;
-  decision->has_side_axis = update.side_decision.has_side_axis;
-  decision->side_axis = update.side_decision.side_axis;
-  decision->chosen_side_sign = update.side_decision.chosen_side_sign;
-  decision->chosen_side = LateralSideChoiceFromSign(update.side_decision.chosen_side_sign);
-}
-
-EndpointContinuityDecision refresh_seed_endpoint_decision(
-    GroupedSpanLoweringDecider& lowering, GroupedSpanOrientationDecider& orientation, ObjectId bundle_id,
-    ObjectId endpoint_node_id, ObjectId peer_node_id, const EndpointContinuityDecision& cached_decision) {
-  const SegmentRelationFeasibility feasibility = lowering.SegmentRelationFeasibilityFor(endpoint_node_id, peer_node_id);
-  const auto pair_info = orientation.LoweredSupportPairInfoForEndpoint(endpoint_node_id, peer_node_id, feasibility);
-  const EndpointSideDecision side_decision =
-      orientation.FinalizeEndpointSideDecision(endpoint_node_id, peer_node_id,
-                                               orientation.PreferredSideAxisForEndpoint(endpoint_node_id, peer_node_id,
-                                                                                        feasibility, bundle_id));
-  const EndpointSeedTopologyUpdate topology =
-      build_seed_topology_update(feasibility, endpoint_node_id, pair_info, side_decision);
-  const EndpointSeedPlacementUpdate placement = build_seed_placement_update(feasibility, side_decision);
-  EndpointContinuityDecision refreshed = cached_decision;
-  apply_topology_to_seed_decision(topology, &refreshed);
-  apply_placement_feasibility_to_seed_decision(placement, &refreshed);
-  return refreshed;
-}
-
 SupportLayoutDecisionSeedEndpoint build_seed_endpoint_record(
     const EditState& edit_state, const std::unordered_map<ObjectId, JunctionRelation>& junction_relations_by_node,
     const SegmentLaneAssignment& assignment, ObjectId endpoint_node_id, const Port& port,
@@ -424,9 +130,7 @@ SupportLayoutDecisionSeedEndpoint build_seed_endpoint_record(
 }
 
 std::optional<SpanSupportLayoutDecisionSeed> rebuild_existing_span_decision_seed(
-    const EditState& edit_state, const Span& span, const SpanSupportLayoutDecisionSeed* cached_seed,
-    const RelationIndex& relation_index, const ConnectionIndex& connection_index,
-    const std::unordered_map<ObjectId, JunctionRelation>& junction_relations_by_node) {
+    const EditState& edit_state, const Span& span, const SpanSupportLayoutDecisionSeed* cached_seed) {
   if (cached_seed == nullptr) {
     return std::nullopt;
   }
@@ -439,31 +143,18 @@ std::optional<SpanSupportLayoutDecisionSeed> rebuild_existing_span_decision_seed
   if (port_a == nullptr || port_b == nullptr) {
     return std::nullopt;
   }
-  SegmentLaneAssignment assignment{};
-  assignment.flow_kind = cached_seed->flow_kind;
-  assignment.branch_down_offset_m = std::max(cached_seed->start.automatic_branch_down_offset_m,
-                                             cached_seed->end.automatic_branch_down_offset_m);
-
-  const ObjectId node_a = (span.endpoint_node_a_id != kInvalidObjectId) ? span.endpoint_node_a_id : port_a->owner_pole_id;
-  const ObjectId node_b = (span.endpoint_node_b_id != kInvalidObjectId) ? span.endpoint_node_b_id : port_b->owner_pole_id;
-  const std::vector<ObjectId> span_nodes{node_a, node_b};
-  const std::unordered_map<ObjectId, SupportNode> empty_support_nodes{};
-  const GroupedSpanSharedContext grouped_span_ctx{span_nodes, empty_support_nodes, edit_state, relation_index,
-                                                  connection_index, &junction_relations_by_node, nullptr};
-  BackboneLoweringPolicy no_lowering_policy{};
-  GroupedSpanLoweringDecider lowering(grouped_span_ctx, no_lowering_policy, BundleKind::kLowVoltage, 0.0, 0.0);
-  GroupedSpanOrientationDecider orientation(grouped_span_ctx);
-  const EndpointContinuityDecision refreshed_start =
-      refresh_seed_endpoint_decision(lowering, orientation, span.bundle_id, node_a, node_b, cached_seed->start.decision);
-  const EndpointContinuityDecision refreshed_end =
-      refresh_seed_endpoint_decision(lowering, orientation, span.bundle_id, node_b, node_a, cached_seed->end.decision);
-  return build_seed_layout_record(
-      edit_state, span.id, assignment.flow_kind, cached_seed->pass_mode, cached_seed->variation_flow_key,
-      cached_seed->lowering_kind,
-      *port_a, *port_b,
-      build_seed_endpoint_record(edit_state, junction_relations_by_node, assignment, node_a, *port_a, refreshed_start),
-      build_seed_endpoint_record(edit_state, junction_relations_by_node, assignment, node_b, *port_b, refreshed_end),
-      cached_seed->support_group_decisions);
+  const bool matches_current_span =
+      cached_seed->span_id == span.id &&
+      cached_seed->start.port_id == port_a->id &&
+      cached_seed->end.port_id == port_b->id &&
+      cached_seed->start.owner_pole_id == port_a->owner_pole_id &&
+      cached_seed->end.owner_pole_id == port_b->owner_pole_id &&
+      cached_seed->start.endpoint_node_id == span.endpoint_node_a_id &&
+      cached_seed->end.endpoint_node_id == span.endpoint_node_b_id;
+  if (!matches_current_span) {
+    return std::nullopt;
+  }
+  return *cached_seed;
 }
 
 double template_layer_base_z_for_port_category_seed(const CoreState& state, const Pole& pole, ConnectionCategory category) {

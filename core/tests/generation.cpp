@@ -9047,6 +9047,9 @@ struct SupportAuthoritySnapshot {
   wire::core::OrderDecisionChoiceReason order_reason = wire::core::OrderDecisionChoiceReason::kFixedOrder;
   wire::core::SupportOrientationBasisKind orientation_basis = wire::core::SupportOrientationBasisKind::kRadial;
   wire::core::LateralSideChoiceKind chosen_side = wire::core::LateralSideChoiceKind::kCenter;
+  wire::core::JunctionRelationKind relation_kind = wire::core::JunctionRelationKind::kNone;
+  wire::core::ContinuityCategoryClass continuity_class = wire::core::ContinuityCategoryClass::kPointLike;
+  bool in_through_pair = false;
   int pair_height_rank = -1;
   bool has_visual_arm_geometry = false;
   wire::core::Vec3d visual_arm_mount_world{};
@@ -9105,6 +9108,9 @@ bool collect_pair_authority_snapshot(const CoreState& state, ObjectId center_id,
     out->order_reason = endpoint->order_decision_choice_reason;
     out->orientation_basis = endpoint->decision.support_orientation_basis;
     out->chosen_side = endpoint->decision.chosen_side;
+    out->relation_kind = endpoint->decision.relation_kind;
+    out->continuity_class = endpoint->decision.continuity_class;
+    out->in_through_pair = endpoint->decision.in_through_pair;
     out->pair_height_rank = endpoint->pair_height_rank;
     out->has_visual_arm_geometry = endpoint->has_visual_arm_geometry;
     out->visual_arm_mount_world = endpoint->visual_arm_mount_world;
@@ -9134,7 +9140,9 @@ bool support_authority_snapshot_equal(const SupportAuthoritySnapshot& a, const S
          a.requires_decision_seed == b.requires_decision_seed && a.orientation_rule == b.orientation_rule &&
          a.side_rule == b.side_rule && a.order_policy == b.order_policy && a.order_choice == b.order_choice &&
          a.order_reason == b.order_reason && a.orientation_basis == b.orientation_basis &&
-         a.chosen_side == b.chosen_side && a.pair_height_rank == b.pair_height_rank &&
+         a.chosen_side == b.chosen_side && a.relation_kind == b.relation_kind &&
+         a.continuity_class == b.continuity_class && a.in_through_pair == b.in_through_pair &&
+         a.pair_height_rank == b.pair_height_rank &&
          a.has_visual_arm_geometry == b.has_visual_arm_geometry &&
          almost_equal(a.visual_arm_mount_world.x, b.visual_arm_mount_world.x, 1e-9) &&
          almost_equal(a.visual_arm_mount_world.y, b.visual_arm_mount_world.y, 1e-9) &&
@@ -9568,6 +9576,12 @@ bool test_backbone_geometry_refresh_keeps_resolved_support_authority_seed() {
   if (!ok) {
     std::cerr << "[DBG] C349 changed beforeSeed=" << (before.has_decision_seed ? 1 : 0)
               << " afterSeed=" << (after.has_decision_seed ? 1 : 0)
+              << " beforeRelation=" << static_cast<int>(before.relation_kind)
+              << " afterRelation=" << static_cast<int>(after.relation_kind)
+              << " beforeClass=" << static_cast<int>(before.continuity_class)
+              << " afterClass=" << static_cast<int>(after.continuity_class)
+              << " beforePair=" << (before.in_through_pair ? 1 : 0)
+              << " afterPair=" << (after.in_through_pair ? 1 : 0)
               << " beforeRule=" << static_cast<int>(before.orientation_rule)
               << " afterRule=" << static_cast<int>(after.orientation_rule)
               << " beforeOrder=" << static_cast<int>(before.order_choice)
@@ -9623,6 +9637,12 @@ bool test_backbone_render_refresh_does_not_change_resolved_support_authority_see
                   detail_curve_geometry_equal(*before_curve, *after_curve);
   if (!ok) {
     std::cerr << "[DBG] C350 changed seed=" << (after.has_decision_seed ? 1 : 0)
+              << " beforeRelation=" << static_cast<int>(before.relation_kind)
+              << " afterRelation=" << static_cast<int>(after.relation_kind)
+              << " beforeClass=" << static_cast<int>(before.continuity_class)
+              << " afterClass=" << static_cast<int>(after.continuity_class)
+              << " beforePair=" << (before.in_through_pair ? 1 : 0)
+              << " afterPair=" << (after.in_through_pair ? 1 : 0)
               << " beforeRule=" << static_cast<int>(before.orientation_rule)
               << " afterRule=" << static_cast<int>(after.orientation_rule)
               << " beforeOrder=" << static_cast<int>(before.order_choice)
@@ -9669,13 +9689,19 @@ bool test_backbone_rebuild_without_seed_fails_and_keeps_cached_layout() {
                                                 wire::core::ValidationSeverity::kWarning,
                                                 "SupportLayoutDecisionSeedMissing", before.span_id);
   const bool ok = !rebuild_ok && !layout_view->has_decision_seed && layout_view->requires_decision_seed && has_warning &&
-                  resolved_support_authority_equal(before.authority, endpoint->support_authority);
+                  resolved_support_authority_equal(before.authority, endpoint->support_authority) &&
+                  endpoint->decision.relation_kind == before.relation_kind &&
+                  endpoint->decision.continuity_class == before.continuity_class &&
+                  endpoint->decision.in_through_pair == before.in_through_pair;
   if (!ok) {
     std::cerr << "[DBG] C351 rebuild=" << (rebuild_ok ? 1 : 0)
               << " err=" << error_message
               << " seed=" << (layout_view->has_decision_seed ? 1 : 0)
               << " requires=" << (layout_view->requires_decision_seed ? 1 : 0)
-              << " warning=" << (has_warning ? 1 : 0) << "\n";
+              << " warning=" << (has_warning ? 1 : 0)
+              << " relation=" << static_cast<int>(endpoint->decision.relation_kind)
+              << " class=" << static_cast<int>(endpoint->decision.continuity_class)
+              << " inPair=" << (endpoint->decision.in_through_pair ? 1 : 0) << "\n";
   }
   return ok;
 }
@@ -9718,13 +9744,21 @@ bool test_backbone_geometry_refresh_without_seed_fails_and_keeps_dirty() {
   const auto endpoint = layout_view.has_value() ? layout_endpoint_for_owner(*layout_view, center_id) : std::nullopt;
   const bool ok = has_warning && geometry_still_dirty && layout_view.has_value() && !layout_view->has_decision_seed &&
                   layout_view->requires_decision_seed && endpoint.has_value() &&
-                  resolved_support_authority_equal(before.authority, endpoint->support_authority);
+                  resolved_support_authority_equal(before.authority, endpoint->support_authority) &&
+                  endpoint->decision.relation_kind == before.relation_kind &&
+                  endpoint->decision.continuity_class == before.continuity_class &&
+                  endpoint->decision.in_through_pair == before.in_through_pair;
   if (!ok) {
     std::cerr << "[DBG] C352 warning=" << (has_warning ? 1 : 0)
               << " dirty=" << (geometry_still_dirty ? 1 : 0)
               << " seed=" << (layout_view.has_value() && layout_view->has_decision_seed ? 1 : 0)
               << " requires=" << (layout_view.has_value() && layout_view->requires_decision_seed ? 1 : 0)
-              << " endpoint=" << (endpoint.has_value() ? 1 : 0) << "\n";
+              << " endpoint=" << (endpoint.has_value() ? 1 : 0)
+              << " relation="
+              << (endpoint.has_value() ? static_cast<int>(endpoint->decision.relation_kind) : -1)
+              << " class="
+              << (endpoint.has_value() ? static_cast<int>(endpoint->decision.continuity_class) : -1)
+              << " inPair=" << (endpoint.has_value() && endpoint->decision.in_through_pair ? 1 : 0) << "\n";
   }
   return ok;
 }

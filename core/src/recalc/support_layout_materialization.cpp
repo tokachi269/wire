@@ -4,6 +4,8 @@
 #include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
 #include "detail_curve_input_resolution.hpp"
+#include "support_layout_projection_internal.hpp"
+#include "support_layout_world_geometry_internal.hpp"
 #include "../generation/support_policy.hpp"
 #include "../state/internal_services.hpp"
 #include "../support_orientation_utils.hpp"
@@ -220,6 +222,20 @@ struct ResolvedEndpointSocketDecision {
   bool socket_override_active = false;
 };
 
+struct MaterializedEndpointSocketPair {
+  ResolvedEndpointSocketDecision start{};
+  ResolvedEndpointSocketDecision end{};
+};
+
+struct MaterializedBranchDownOffsetPair {
+  double automatic_start_m = 0.0;
+  double automatic_end_m = 0.0;
+  HierarchicalVariationSample start_variation{};
+  HierarchicalVariationSample end_variation{};
+  double resolved_start_m = 0.0;
+  double resolved_end_m = 0.0;
+};
+
 int resolve_default_attachment_socket_id(const CoreState& state, ObjectId attachment_id, bool is_start_endpoint) {
   if (attachment_id == kInvalidObjectId) {
     return -1;
@@ -259,6 +275,13 @@ ResolvedEndpointSocketDecision resolve_materialized_endpoint_socket(const CoreSt
   const ObjectId attachment_id = is_start_endpoint ? span.endpoint_attachment_a_id : span.endpoint_attachment_b_id;
   resolved.resolved_socket_id = resolve_default_attachment_socket_id(state, attachment_id, is_start_endpoint);
   return resolved;
+}
+
+MaterializedEndpointSocketPair resolve_materialized_endpoint_sockets(const CoreState& state, const Span& span) {
+  MaterializedEndpointSocketPair sockets{};
+  sockets.start = resolve_materialized_endpoint_socket(state, span, true);
+  sockets.end = resolve_materialized_endpoint_socket(state, span, false);
+  return sockets;
 }
 
 bool endpoint_uses_grouped_lowered_support(const SupportLayoutEndpoint* endpoint) {
@@ -379,120 +402,7 @@ SupportLayoutEndpoint build_support_layout_endpoint(
   return endpoint;
 }
 
-void clear_layout_endpoint_authority_projection(SupportLayoutEndpoint* endpoint) {
-  if (endpoint == nullptr) {
-    return;
-  }
-  endpoint->support_authority = {};
-  endpoint->has_visual_arm_geometry = false;
-  endpoint->visual_arm_mount_world = {};
-  endpoint->visual_arm_tip_world = {};
-  endpoint->visual_insulator_base_world = {};
-}
-
-void apply_endpoint_decision_projection(const EndpointContinuityDecision& decision, SupportLayoutEndpoint* endpoint) {
-  if (endpoint == nullptr) {
-    return;
-  }
-  endpoint->decision = decision;
-  endpoint->decision.owner_pole_id = endpoint->owner_pole_id;
-}
-
-void apply_support_layout_decision_seed_endpoint(const SupportLayoutDecisionSeedEndpoint& seed,
-                                                 SupportLayoutEndpoint* endpoint) {
-  if (endpoint == nullptr) {
-    return;
-  }
-  endpoint->endpoint_node_id = seed.endpoint_node_id;
-  endpoint->owner_pole_id = seed.owner_pole_id;
-  endpoint->port_id = seed.port_id;
-  clear_layout_endpoint_authority_projection(endpoint);
-  apply_endpoint_decision_projection(seed.decision, endpoint);
-  endpoint->support_authority = seed.support_authority;
-  endpoint->flow_kind = seed.flow_kind;
-  endpoint->origin = seed.origin;
-  endpoint->port_source = seed.port_source;
-  endpoint->side = seed.side;
-  endpoint->has_visual_arm_geometry = seed.has_visual_arm_geometry;
-  endpoint->visual_arm_mount_world = seed.visual_arm_mount_world;
-  endpoint->visual_arm_tip_world = seed.visual_arm_tip_world;
-  endpoint->visual_insulator_base_world = seed.visual_insulator_base_world;
-  endpoint->automatic_branch_down_offset_m = seed.automatic_branch_down_offset_m;
-  endpoint->branch_down_offset_m = seed.branch_down_offset_m;
-  endpoint->down_offset_variation = seed.down_offset_variation;
-}
-
-void apply_support_layout_decision_seed(const SpanSupportLayoutDecisionSeed& seed, SpanSupportLayoutEntry* layout) {
-  if (layout == nullptr) {
-    return;
-  }
-  layout->span_id = seed.span_id;
-  layout->requires_decision_seed = true;
-  layout->flow_kind = seed.flow_kind;
-  layout->pass_mode = seed.pass_mode;
-  layout->variation_flow_key = seed.variation_flow_key;
-  layout->lowering_kind = seed.lowering_kind;
-  apply_support_layout_decision_seed_endpoint(seed.start, &layout->start);
-  apply_support_layout_decision_seed_endpoint(seed.end, &layout->end);
-  layout->support_group_decisions = seed.support_group_decisions;
-}
-
 namespace {
-
-Vec3d grouped_lowered_route_local_departure_dir(const SupportLayoutEndpoint& endpoint,
-                                                const SupportLayoutEndpoint& other_endpoint) {
-  Vec3d fallback = other_endpoint.endpoint_world - endpoint.endpoint_world;
-  if (!Normalize(&fallback)) {
-    fallback = WorldForward();
-  }
-  if (!endpoint.decision.has_side_axis) {
-    return fallback;
-  }
-  Vec3d side_axis = endpoint.decision.side_axis;
-  side_axis.z = 0.0;
-  if (!Normalize(&side_axis)) {
-    return fallback;
-  }
-  Vec3d tangent = ComputeLateralAxis(side_axis);
-  if (!Normalize(&tangent)) {
-    return fallback;
-  }
-  Vec3d peer_dir = other_endpoint.endpoint_world - endpoint.endpoint_world;
-  peer_dir.z = 0.0;
-  if (Normalize(&peer_dir) && Dot(tangent, peer_dir) < 0.0) {
-    tangent = ScaleVec(tangent, -1.0);
-  }
-  return tangent;
-}
-
-std::pair<Vec3d, Vec3d> shared_support_anchor_points(const CoreState& state, const Pole& pole, const Vec3d& support_axis,
-                                                     ConnectionCategory category, double z_m,
-                                                     const CacheState& cache_state) {
-  Vec3d axis = SafeHorizontalNormalized(support_axis);
-  const double mount_radius =
-      cache_state.visual_settings.support_center_threshold_m + cache_state.geometry_settings.pole_clearance_m;
-  const double tip_radius = mount_radius + cache_state.visual_settings.support_arm_extra_m;
-  Vec3d center_world = pole.world_transform.position;
-  const double layout_yaw_deg = state.effective_port_layout_yaw_deg(pole, category);
-  const PoleFrame frame = BuildPoleFrame(pole.world_transform, layout_yaw_deg);
-  if (std::abs(frame.up.z) > 1e-9) {
-    const double local_z = (z_m - frame.origin.z) / frame.up.z;
-    center_world = LocalPointToWorld(frame, {0.0, 0.0, local_z});
-  } else {
-    center_world.z = z_m;
-  }
-  const Vec3d mount{
-      center_world.x + axis.x * mount_radius,
-      center_world.y + axis.y * mount_radius,
-      z_m,
-  };
-  const Vec3d tip{
-      center_world.x + axis.x * tip_radius,
-      center_world.y + axis.y * tip_radius,
-      z_m,
-  };
-  return {mount, tip};
-}
 
 bool merge_layout_support_group_decision(
     std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash>* groups,
@@ -529,69 +439,6 @@ void merge_observed_group_support_authority(ResolvedSupportAuthority* authority,
       observed.pair.orientation_basis != SupportOrientationBasisKind::kRadial) {
     authority->pair.orientation_basis = observed.pair.orientation_basis;
   }
-}
-
-LoweredSupportGroupPlacement build_grouped_support_placement_from_decision(const CoreState& state,
-                                                                           const SupportGroupDecision& group_decision,
-                                                                           const EditState& edit_state,
-                                                                           const CacheState& cache_state) {
-  LoweredSupportGroupPlacement group{};
-  group.grouping_rule = SupportGroupingRuleKind::kDecisionGroup;
-  group.grouped_port_count = group_decision.grouped_port_count;
-  group.down_offset_m = group_decision.down_offset_m;
-  group.attachment_worlds = group_decision.attachment_worlds;
-  group.down_offset_variation = group_decision.down_offset_variation;
-
-  const Pole* pole = edit_state.poles.find(group_decision.decision.owner_pole_id);
-  if (pole == nullptr) {
-    return group;
-  }
-  Vec3d support_axis = AuthoritativeSupportAxisForGroup(group_decision);
-  if (!Normalize(&support_axis) || !IsFiniteXY(support_axis)) {
-    return group;
-  }
-  const auto [mount_world, tip_world] =
-      shared_support_anchor_points(state, *pole, support_axis, group_decision.category, group_decision.support_world.z,
-                                   cache_state);
-  group.mount_world = mount_world;
-  group.tip_world = tip_world;
-  return group;
-}
-
-void apply_grouped_support_placement_to_layout_endpoint(const SupportGroupDecision& group_decision,
-                                                        SupportLayoutEndpoint* endpoint) {
-  if (endpoint == nullptr) {
-    return;
-  }
-  clear_layout_endpoint_authority_projection(endpoint);
-  apply_endpoint_decision_projection(group_decision.decision, endpoint);
-  endpoint->support_authority = group_decision.support_authority;
-  endpoint->side = group_decision.side;
-  endpoint->origin = group_decision.origin;
-  endpoint->automatic_branch_down_offset_m = group_decision.down_offset_m;
-  endpoint->branch_down_offset_m = group_decision.down_offset_m;
-  endpoint->down_offset_variation = group_decision.down_offset_variation;
-  endpoint->support_world = endpoint->endpoint_world;
-}
-
-const SupportGroupDecision* find_layout_support_group_decision_for_endpoint(const SpanSupportLayoutEntry& layout,
-                                                                            const SupportLayoutEndpoint& endpoint,
-                                                                            LoweredSupportGroupKey* out_key = nullptr) {
-  if (endpoint.owner_pole_id == kInvalidObjectId || layout.support_group_decisions.empty() ||
-      !UsesAuthoritativeGroupedLoweredSupport(endpoint.decision)) {
-    return nullptr;
-  }
-
-  const LoweredSupportGroupKey exact_key = LoweredSupportGroupKeyFromDecision(endpoint.decision);
-  if (const auto exact_it = layout.support_group_decisions.find(exact_key);
-      exact_it != layout.support_group_decisions.end()) {
-    if (out_key != nullptr) {
-      *out_key = exact_it->first;
-    }
-    return &exact_it->second;
-  }
-
-  return nullptr;
 }
 
 } // namespace
@@ -711,6 +558,20 @@ struct SpanSupportLayoutAuthority {
   }
 };
 
+struct MaterializedEndpointSocketPair {
+  ResolvedEndpointSocketDecision start{};
+  ResolvedEndpointSocketDecision end{};
+};
+
+struct MaterializedBranchDownOffsetPair {
+  double automatic_start_m = 0.0;
+  double automatic_end_m = 0.0;
+  HierarchicalVariationSample start_variation{};
+  HierarchicalVariationSample end_variation{};
+  double resolved_start_m = 0.0;
+  double resolved_end_m = 0.0;
+};
+
 double automatic_branch_down_offset_from_authority(const CoreState& state, const Port& port,
                                                    const SpanSupportLayoutAuthority& authority, bool is_start_endpoint,
                                                    HierarchicalVariationSample* variation) {
@@ -730,6 +591,19 @@ double automatic_branch_down_offset_from_authority(const CoreState& state, const
   return 0.0;
 }
 
+MaterializedBranchDownOffsetPair resolve_materialized_branch_down_offsets(const CoreState& state, const Span& span,
+                                                                          const Port& port_a, const Port& port_b,
+                                                                          const SpanSupportLayoutAuthority& authority) {
+  MaterializedBranchDownOffsetPair offsets{};
+  offsets.automatic_start_m =
+      automatic_branch_down_offset_from_authority(state, port_a, authority, true, &offsets.start_variation);
+  offsets.automatic_end_m =
+      automatic_branch_down_offset_from_authority(state, port_b, authority, false, &offsets.end_variation);
+  offsets.resolved_start_m = resolve_span_branch_down_offset_m(span, offsets.automatic_start_m);
+  offsets.resolved_end_m = resolve_span_branch_down_offset_m(span, offsets.automatic_end_m);
+  return offsets;
+}
+
 void apply_consumed_support_layout_authority(const SpanSupportLayoutAuthority& authority, SpanSupportLayoutEntry* layout) {
   if (layout == nullptr) {
     return;
@@ -739,54 +613,18 @@ void apply_consumed_support_layout_authority(const SpanSupportLayoutAuthority& a
   }
 }
 
-void apply_materialized_visual_arm_geometry(const CoreState& state, const Port& port, const Pole* pole,
-                                            SupportLayoutEndpoint* endpoint) {
-  if (endpoint == nullptr || pole == nullptr) {
-    return;
-  }
-  if (!endpoint->support_authority.has_signed_support_axis) {
-    endpoint->has_visual_arm_geometry = false;
-    endpoint->visual_arm_mount_world = {};
-    endpoint->visual_arm_tip_world = {};
-    endpoint->visual_insulator_base_world = {};
-    return;
-  }
-
-  Vec3d support_axis = endpoint->support_authority.signed_support_axis;
-  if (!Normalize(&support_axis) || !IsFiniteXY(support_axis)) {
-    endpoint->has_visual_arm_geometry = false;
-    endpoint->visual_arm_mount_world = {};
-    endpoint->visual_arm_tip_world = {};
-    endpoint->visual_insulator_base_world = {};
-    return;
-  }
-
-  const auto [mount_world, tip_world] =
-      shared_support_anchor_points(state, *pole, support_axis, port.category, endpoint->support_world.z,
-                                   state.view().cache_state());
-  endpoint->has_visual_arm_geometry = true;
-  endpoint->visual_arm_mount_world = {pole->world_transform.position.x, pole->world_transform.position.y, mount_world.z};
-  endpoint->visual_arm_tip_world = tip_world;
-  endpoint->visual_insulator_base_world = tip_world;
+void project_materialized_layout_authority(const SpanSupportLayoutAuthority& authority, SpanSupportLayoutEntry* layout) {
+  apply_consumed_support_layout_authority(authority, layout);
 }
 
-void finalize_support_layout_materialization(const Vec3d& fallback_chord_dir, SpanSupportLayoutEntry* layout) {
+void materialize_layout_world_geometry(const CoreState& state, const Port& port_a, const Port& port_b, const Pole* pole_a,
+                                       const Pole* pole_b, const Vec3d& chord_dir, SpanSupportLayoutEntry* layout) {
   if (layout == nullptr) {
     return;
   }
-  Vec3d resolved_chord_dir = layout->end.endpoint_world - layout->start.endpoint_world;
-  if (!Normalize(&resolved_chord_dir)) {
-    resolved_chord_dir = fallback_chord_dir;
-  }
-  const bool grouped_lowered_span =
-      (UsesAuthoritativeGroupedLoweredSupport(layout->start.decision) ||
-       UsesAuthoritativeGroupedLoweredSupport(layout->end.decision)) &&
-      (!layout->start.decision.same_level_feasible || !layout->end.decision.same_level_feasible);
-  if (grouped_lowered_span) {
-    layout->start.departure_dir = grouped_lowered_route_local_departure_dir(layout->start, layout->end);
-    layout->end.departure_dir = grouped_lowered_route_local_departure_dir(layout->end, layout->start);
-  }
-  layout->detail_curve_profile_hint = detail_curve_profile_hint_from_support_layout(*layout);
+  apply_materialized_visual_arm_geometry(state, port_a, pole_a, &layout->start);
+  apply_materialized_visual_arm_geometry(state, port_b, pole_b, &layout->end);
+  finalize_support_layout_materialization(chord_dir, layout);
 }
 
 SpanSupportLayoutEntry materialize_span_support_layout(const CoreState& state, const Span& span,
@@ -794,13 +632,8 @@ SpanSupportLayoutEntry materialize_span_support_layout(const CoreState& state, c
                                                        const Port& port_b, const Pole* pole_a, const Pole* pole_b,
                                                        const Vec3d& chord_dir,
                                                        const SpanSupportLayoutAuthority& authority,
-                                                       int resolved_socket_a, int resolved_socket_b, bool socket_override_a,
-                                                       bool socket_override_b, double automatic_branch_down_offset_a,
-                                                       double automatic_branch_down_offset_b,
-                                                       const HierarchicalVariationSample& down_offset_variation_a,
-                                                       const HierarchicalVariationSample& down_offset_variation_b,
-                                                       double resolved_branch_down_offset_a,
-                                                       double resolved_branch_down_offset_b) {
+                                                       const MaterializedEndpointSocketPair& sockets,
+                                                       const MaterializedBranchDownOffsetPair& branch_down_offsets) {
   const double endpoint_offset_m = std::min(std::max(0.02, inputs.basis_length * 0.03), 0.35);
 
   SpanSupportLayoutEntry layout{};
@@ -819,17 +652,17 @@ SpanSupportLayoutEntry materialize_span_support_layout(const CoreState& state, c
   layout.start = build_support_layout_endpoint(
       state, span, port_a, pole_a, chord_dir, inputs.basis_length, endpoint_offset_m, inputs.effective_sag_ratio,
       inputs.bend_stiffness_hint, inputs.min_bend_radius_hint_m, inputs.continuity_preference, inputs.pass_mode,
-      inputs.endpoint_mode, inputs.endpoint_vertical_attachment_offset_m, inputs.flow_kind, resolved_socket_a,
-      socket_override_a, automatic_branch_down_offset_a, down_offset_variation_a, resolved_branch_down_offset_a, true);
+      inputs.endpoint_mode, inputs.endpoint_vertical_attachment_offset_m, inputs.flow_kind, sockets.start.resolved_socket_id,
+      sockets.start.socket_override_active, branch_down_offsets.automatic_start_m, branch_down_offsets.start_variation,
+      branch_down_offsets.resolved_start_m, true);
   layout.end = build_support_layout_endpoint(
       state, span, port_b, pole_b, chord_dir, inputs.basis_length, endpoint_offset_m, inputs.effective_sag_ratio,
       inputs.bend_stiffness_hint, inputs.min_bend_radius_hint_m, inputs.continuity_preference, inputs.pass_mode,
-      inputs.endpoint_mode, inputs.endpoint_vertical_attachment_offset_m, inputs.flow_kind, resolved_socket_b,
-      socket_override_b, automatic_branch_down_offset_b, down_offset_variation_b, resolved_branch_down_offset_b, false);
-  apply_consumed_support_layout_authority(authority, &layout);
-  apply_materialized_visual_arm_geometry(state, port_a, pole_a, &layout.start);
-  apply_materialized_visual_arm_geometry(state, port_b, pole_b, &layout.end);
-  finalize_support_layout_materialization(chord_dir, &layout);
+      inputs.endpoint_mode, inputs.endpoint_vertical_attachment_offset_m, inputs.flow_kind, sockets.end.resolved_socket_id,
+      sockets.end.socket_override_active, branch_down_offsets.automatic_end_m, branch_down_offsets.end_variation,
+      branch_down_offsets.resolved_end_m, false);
+  project_materialized_layout_authority(authority, &layout);
+  materialize_layout_world_geometry(state, port_a, port_b, pole_a, pole_b, chord_dir, &layout);
   return layout;
 }
 
@@ -871,23 +704,12 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
     return {};
   }
 
-  const ResolvedEndpointSocketDecision socket_a = resolve_materialized_endpoint_socket(*this, span, true);
-  const ResolvedEndpointSocketDecision socket_b = resolve_materialized_endpoint_socket(*this, span, false);
-  HierarchicalVariationSample down_offset_variation_a{};
-  HierarchicalVariationSample down_offset_variation_b{};
-  const double automatic_branch_down_offset_a =
-      automatic_branch_down_offset_from_authority(*this, *port_a, authority, true, &down_offset_variation_a);
-  const double automatic_branch_down_offset_b =
-      automatic_branch_down_offset_from_authority(*this, *port_b, authority, false, &down_offset_variation_b);
-  const double resolved_branch_down_offset_a = resolve_span_branch_down_offset_m(span, automatic_branch_down_offset_a);
-  const double resolved_branch_down_offset_b = resolve_span_branch_down_offset_m(span, automatic_branch_down_offset_b);
+  const MaterializedEndpointSocketPair sockets = resolve_materialized_endpoint_sockets(*this, span);
+  const MaterializedBranchDownOffsetPair branch_down_offsets =
+      resolve_materialized_branch_down_offsets(*this, span, *port_a, *port_b, authority);
 
   return materialize_span_support_layout(*this, span, inputs, *port_a, *port_b, pole_a, pole_b, chord_dir, authority,
-                                         socket_a.resolved_socket_id, socket_b.resolved_socket_id,
-                                         socket_a.socket_override_active, socket_b.socket_override_active,
-                                         automatic_branch_down_offset_a, automatic_branch_down_offset_b,
-                                         down_offset_variation_a, down_offset_variation_b,
-                                         resolved_branch_down_offset_a, resolved_branch_down_offset_b);
+                                         sockets, branch_down_offsets);
 }
 
 } // namespace wire::core

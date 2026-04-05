@@ -19,8 +19,8 @@ struct CoreStateTestHook {
   static void erase_cached_span_support_layout_seed(CoreState& state, ObjectId span_id) {
     state.erase_cached_span_support_layout_seed(span_id);
   }
-  static bool rebuild_span_curve(CoreState& state, ObjectId span_id, std::string* error_message) {
-    return state.rebuild_span_curve(span_id, error_message);
+  static bool rebuild_span_geometry_from_seed(CoreState& state, ObjectId span_id, std::string* error_message) {
+    return state.rebuild_span_geometry_from_seed(span_id, error_message);
   }
   static ValidationResult validate(CoreState& state) { return state.Validate(); }
   static std::unordered_map<BundleKind, BundleTemplate>& bundle_templates(CoreState& state) {

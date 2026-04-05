@@ -31,8 +31,6 @@ struct CacheState;
 
 [[nodiscard]] SupportLayoutOriginKind support_layout_origin_from_port(const Port& port);
 
-[[nodiscard]] double fallback_branch_down_offset_for_support_port(const CoreState& state, const Port& port);
-
 [[nodiscard]] BackboneFlowKind support_layout_flow_kind_for_span(const Span& span, const Port& port_a, const Port& port_b);
 
 [[nodiscard]] CurveEndpointMode curve_endpoint_mode_for_attachment_style(CableAttachmentStyleHint attachment_style,

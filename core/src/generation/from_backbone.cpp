@@ -5,6 +5,9 @@
 #include "../support_orientation_utils.hpp"
 #include "backbone_prepare.hpp"
 #include "detail_utils.hpp"
+#include "grouped_span_common.hpp"
+#include "grouped_span_lowering.hpp"
+#include "grouped_span_orientation.hpp"
 #include "support_policy.hpp"
 
 #include <algorithm>
@@ -195,6 +198,58 @@ pair_height_rank_map_for_junction(const EditState& edit_state, const JunctionRel
   return ranks;
 }
 
+bool assign_nonroute_pair_for_single_route_junction(JunctionRelation* relation,
+                                                    const std::function<Vec3d(ObjectId)>& support_position) {
+  if (relation == nullptr || relation->route_incident_count != 1 || relation->incidents.size() < 3) {
+    return false;
+  }
+  std::vector<JunctionIncidentRelation*> nonroute_incidents{};
+  for (JunctionIncidentRelation& incident : relation->incidents) {
+    if (!incident.in_route) {
+      nonroute_incidents.push_back(&incident);
+    }
+  }
+  if (nonroute_incidents.size() < 2) {
+    return false;
+  }
+  double best_nonroute_score = -2.0;
+  JunctionIncidentRelation* best_a = nullptr;
+  JunctionIncidentRelation* best_b = nullptr;
+  for (std::size_t i = 0; i < nonroute_incidents.size(); ++i) {
+    for (std::size_t j = i + 1; j < nonroute_incidents.size(); ++j) {
+      Vec3d dir_a = normalize_forward_xy(support_position(nonroute_incidents[i]->neighbor_node_id) -
+                                         support_position(relation->node_id));
+      Vec3d dir_b = normalize_forward_xy(support_position(nonroute_incidents[j]->neighbor_node_id) -
+                                         support_position(relation->node_id));
+      if (!std::isfinite(dir_a.x) || !std::isfinite(dir_a.y) || !std::isfinite(dir_b.x) || !std::isfinite(dir_b.y)) {
+        continue;
+      }
+      const double straight_score = dot_xy(dir_a, Vec3d{-dir_b.x, -dir_b.y, 0.0});
+      if (straight_score > best_nonroute_score + 1e-9) {
+        best_nonroute_score = straight_score;
+        best_a = nonroute_incidents[i];
+        best_b = nonroute_incidents[j];
+      }
+    }
+  }
+  if (best_a == nullptr || best_b == nullptr) {
+    return false;
+  }
+  relation->through_pair.neighbor_a_id = best_a->neighbor_node_id;
+  relation->through_pair.neighbor_b_id = best_b->neighbor_node_id;
+  relation->through_pair.straightness_score = best_nonroute_score;
+  relation->through_pair.accepted = true;
+  relation->through_pair.used_semantic_tiebreak = true;
+  for (JunctionIncidentRelation& incident : relation->incidents) {
+    incident.in_through_pair =
+        incident.neighbor_node_id == best_a->neighbor_node_id || incident.neighbor_node_id == best_b->neighbor_node_id;
+    incident.used_semantic_tiebreak = incident.in_through_pair;
+    incident.straightness_score = best_nonroute_score;
+    incident.kind = incident.in_through_pair ? JunctionRelationKind::kThroughMain : JunctionRelationKind::kSideBranch;
+  }
+  return true;
+}
+
 [[nodiscard]] int pair_height_rank_from_decision(
     const EditState& edit_state, const std::unordered_map<ObjectId, JunctionRelation>& junction_relations_by_node,
     ObjectId endpoint_node_id, const EndpointContinuityDecision& decision) {
@@ -227,14 +282,12 @@ pair_height_rank_map_for_junction(const EditState& edit_state, const JunctionRel
   return (decision.relation_kind == JunctionRelationKind::kNone) ? -1 : (relation.through_pair.accepted ? 1 : 0);
 }
 
-SupportLayoutDecisionSeedEndpoint make_support_layout_seed_endpoint(const EditState& edit_state, const Span& span,
-                                                                    const Port& port,
-                                                                    const std::unordered_map<ObjectId, JunctionRelation>& junction_relations_by_node,
-                                                                    const SegmentLaneAssignment& assignment,
-                                                                    const EndpointContinuityDecision& decision,
-                                                                    bool is_start_endpoint) {
+SupportLayoutDecisionSeedEndpoint build_seed_endpoint_from_decision(
+    const EditState& edit_state, const std::unordered_map<ObjectId, JunctionRelation>& junction_relations_by_node,
+    const SegmentLaneAssignment& assignment, ObjectId endpoint_node_id, const Port& port,
+    const EndpointContinuityDecision& decision) {
   SupportLayoutDecisionSeedEndpoint endpoint{};
-  endpoint.endpoint_node_id = is_start_endpoint ? span.endpoint_node_a_id : span.endpoint_node_b_id;
+  endpoint.endpoint_node_id = endpoint_node_id;
   endpoint.owner_pole_id = port.owner_pole_id;
   endpoint.port_id = port.id;
   endpoint.decision = decision;
@@ -256,6 +309,161 @@ SupportLayoutDecisionSeedEndpoint make_support_layout_seed_endpoint(const EditSt
       uses_lowering ? assignment.branch_down_offset_m : (uses_pair_height ? pair_height_step_m * pair_height_rank : 0.0);
   endpoint.branch_down_offset_m = endpoint.automatic_branch_down_offset_m;
   return endpoint;
+}
+
+struct EndpointSeedTopologyUpdate {
+  ObjectId owner_pole_id = kInvalidObjectId;
+  JunctionRelationKind relation_kind = JunctionRelationKind::kNone;
+  ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
+  bool in_through_pair = false;
+  ObjectId support_pair_peer_low = kInvalidObjectId;
+  ObjectId support_pair_peer_high = kInvalidObjectId;
+};
+
+struct EndpointSeedPlacementUpdate {
+  bool lower_required = false;
+  bool default_lower_required = false;
+  bool same_level_feasible = false;
+  SameLevelSupportReason same_level_reason = SameLevelSupportReason::kUnknown;
+  double projected_spacing_topview_m = 0.0;
+  double required_clearance_m = 0.0;
+  EndpointSideDecision side_decision{};
+};
+
+EndpointSeedTopologyUpdate build_seed_topology_update(const SegmentRelationFeasibility& feasibility,
+                                                      ObjectId endpoint_node_id,
+                                                      const std::optional<LoweredSupportPairInfo>& pair_info,
+                                                      const EndpointSideDecision& side_decision) {
+  EndpointSeedTopologyUpdate update{};
+  update.owner_pole_id = endpoint_node_id;
+  update.relation_kind = feasibility.kind;
+  update.continuity_class = feasibility.continuity_class;
+  update.in_through_pair = feasibility.in_through_pair;
+  if (pair_info.has_value() && pair_info->has_pair) {
+    update.support_pair_peer_low = pair_info->pair_peer_low;
+    update.support_pair_peer_high = pair_info->pair_peer_high;
+  } else if (side_decision.pair_peer_low != kInvalidObjectId && side_decision.pair_peer_high != kInvalidObjectId) {
+    update.support_pair_peer_low = side_decision.pair_peer_low;
+    update.support_pair_peer_high = side_decision.pair_peer_high;
+  }
+  return update;
+}
+
+void apply_topology_to_seed_decision(const EndpointSeedTopologyUpdate& update, EndpointContinuityDecision* decision) {
+  if (decision == nullptr) {
+    return;
+  }
+  decision->owner_pole_id = update.owner_pole_id;
+  decision->relation_kind = update.relation_kind;
+  decision->continuity_class = update.continuity_class;
+  decision->in_through_pair = update.in_through_pair;
+  decision->support_pair_peer_low = update.support_pair_peer_low;
+  decision->support_pair_peer_high = update.support_pair_peer_high;
+}
+
+EndpointSeedPlacementUpdate build_seed_placement_update(const SegmentRelationFeasibility& feasibility,
+                                                        const EndpointSideDecision& side_decision) {
+  EndpointSeedPlacementUpdate update{};
+  update.lower_required = feasibility.default_lower_required || !feasibility.same_level_feasible;
+  update.default_lower_required = feasibility.default_lower_required;
+  update.same_level_feasible = feasibility.same_level_feasible;
+  update.same_level_reason = feasibility.reason;
+  update.projected_spacing_topview_m = feasibility.projected_spacing_topview_m;
+  update.required_clearance_m = feasibility.required_clearance_m;
+  update.side_decision = side_decision;
+  return update;
+}
+
+void apply_placement_feasibility_to_seed_decision(const EndpointSeedPlacementUpdate& update,
+                                                  EndpointContinuityDecision* decision) {
+  if (decision == nullptr) {
+    return;
+  }
+  decision->lower_required = update.lower_required;
+  decision->default_lower_required = update.default_lower_required;
+  decision->same_level_feasible = update.same_level_feasible;
+  decision->same_level_reason = update.same_level_reason;
+  decision->projected_spacing_topview_m = update.projected_spacing_topview_m;
+  decision->required_clearance_m = update.required_clearance_m;
+  decision->side_assignment_rule = update.side_decision.side_assignment_rule;
+  decision->support_orientation_rule = update.side_decision.support_orientation_rule;
+  decision->support_orientation_basis =
+      SupportOrientationBasisFromDecision(update.side_decision.support_orientation_rule,
+                                          update.side_decision.chosen_side_sign);
+  decision->used_junction_pair_side_assignment = update.side_decision.used_junction_pair_side_assignment;
+  decision->has_side_axis = update.side_decision.has_side_axis;
+  decision->side_axis = update.side_decision.side_axis;
+  decision->chosen_side_sign = update.side_decision.chosen_side_sign;
+  decision->chosen_side = LateralSideChoiceFromSign(update.side_decision.chosen_side_sign);
+}
+
+EndpointContinuityDecision refresh_seed_endpoint_decision(
+    GroupedSpanLoweringDecider& lowering, GroupedSpanOrientationDecider& orientation, ObjectId bundle_id,
+    ObjectId endpoint_node_id, ObjectId peer_node_id, const EndpointContinuityDecision& cached_decision) {
+  const SegmentRelationFeasibility feasibility = lowering.SegmentRelationFeasibilityFor(endpoint_node_id, peer_node_id);
+  const auto pair_info = orientation.LoweredSupportPairInfoForEndpoint(endpoint_node_id, peer_node_id, feasibility);
+  const EndpointSideDecision side_decision =
+      orientation.FinalizeEndpointSideDecision(endpoint_node_id, peer_node_id,
+                                               orientation.PreferredSideAxisForEndpoint(endpoint_node_id, peer_node_id,
+                                                                                        feasibility, bundle_id));
+  const EndpointSeedTopologyUpdate topology =
+      build_seed_topology_update(feasibility, endpoint_node_id, pair_info, side_decision);
+  const EndpointSeedPlacementUpdate placement = build_seed_placement_update(feasibility, side_decision);
+  EndpointContinuityDecision refreshed = cached_decision;
+  apply_topology_to_seed_decision(topology, &refreshed);
+  apply_placement_feasibility_to_seed_decision(placement, &refreshed);
+  return refreshed;
+}
+
+SupportLayoutDecisionSeedEndpoint build_seed_endpoint_record(
+    const EditState& edit_state, const std::unordered_map<ObjectId, JunctionRelation>& junction_relations_by_node,
+    const SegmentLaneAssignment& assignment, ObjectId endpoint_node_id, const Port& port,
+    const EndpointContinuityDecision& decision) {
+  return build_seed_endpoint_from_decision(edit_state, junction_relations_by_node, assignment, endpoint_node_id, port,
+                                           decision);
+}
+
+std::optional<SpanSupportLayoutDecisionSeed> rebuild_existing_span_decision_seed(
+    const EditState& edit_state, const Span& span, const SpanSupportLayoutDecisionSeed* cached_seed,
+    const RelationIndex& relation_index, const ConnectionIndex& connection_index,
+    const std::unordered_map<ObjectId, JunctionRelation>& junction_relations_by_node) {
+  if (cached_seed == nullptr) {
+    return std::nullopt;
+  }
+  if (cached_seed != nullptr && !cached_seed->support_group_decisions.empty()) {
+    return std::nullopt;
+  }
+
+  const Port* port_a = edit_state.ports.find(span.port_a_id);
+  const Port* port_b = edit_state.ports.find(span.port_b_id);
+  if (port_a == nullptr || port_b == nullptr) {
+    return std::nullopt;
+  }
+  SegmentLaneAssignment assignment{};
+  assignment.flow_kind = cached_seed->flow_kind;
+  assignment.branch_down_offset_m = std::max(cached_seed->start.automatic_branch_down_offset_m,
+                                             cached_seed->end.automatic_branch_down_offset_m);
+
+  const ObjectId node_a = (span.endpoint_node_a_id != kInvalidObjectId) ? span.endpoint_node_a_id : port_a->owner_pole_id;
+  const ObjectId node_b = (span.endpoint_node_b_id != kInvalidObjectId) ? span.endpoint_node_b_id : port_b->owner_pole_id;
+  const std::vector<ObjectId> span_nodes{node_a, node_b};
+  const std::unordered_map<ObjectId, SupportNode> empty_support_nodes{};
+  const GroupedSpanSharedContext grouped_span_ctx{span_nodes, empty_support_nodes, edit_state, relation_index,
+                                                  connection_index, &junction_relations_by_node, nullptr};
+  BackboneLoweringPolicy no_lowering_policy{};
+  GroupedSpanLoweringDecider lowering(grouped_span_ctx, no_lowering_policy, BundleKind::kLowVoltage, 0.0, 0.0);
+  GroupedSpanOrientationDecider orientation(grouped_span_ctx);
+  const EndpointContinuityDecision refreshed_start =
+      refresh_seed_endpoint_decision(lowering, orientation, span.bundle_id, node_a, node_b, cached_seed->start.decision);
+  const EndpointContinuityDecision refreshed_end =
+      refresh_seed_endpoint_decision(lowering, orientation, span.bundle_id, node_b, node_a, cached_seed->end.decision);
+  return build_seed_layout_record(
+      edit_state, span.id, assignment.flow_kind, cached_seed->pass_mode, cached_seed->variation_flow_key,
+      cached_seed->lowering_kind,
+      *port_a, *port_b,
+      build_seed_endpoint_record(edit_state, junction_relations_by_node, assignment, node_a, *port_a, refreshed_start),
+      build_seed_endpoint_record(edit_state, junction_relations_by_node, assignment, node_b, *port_b, refreshed_end),
+      cached_seed->support_group_decisions);
 }
 
 double template_layer_base_z_for_port_category_seed(const CoreState& state, const Pole& pole, ConnectionCategory category) {
@@ -295,6 +503,25 @@ void append_seed_support_group_decision(const CoreState& state, const Port& port
   }
   it->second.grouped_port_count += 1;
   it->second.attachment_worlds.push_back(port.world_position);
+}
+
+SpanSupportLayoutDecisionSeed build_seed_layout_record(
+    const CoreState& state, ObjectId span_id, BackboneFlowKind flow_kind, CurvePassMode pass_mode,
+    std::uint64_t variation_flow_key, SpanLoweringKind lowering_kind, const Port& port_a, const Port& port_b,
+    SupportLayoutDecisionSeedEndpoint start, SupportLayoutDecisionSeedEndpoint end,
+    std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision> support_group_decisions = {}) {
+  SpanSupportLayoutDecisionSeed layout{};
+  layout.span_id = span_id;
+  layout.flow_kind = flow_kind;
+  layout.pass_mode = pass_mode;
+  layout.variation_flow_key = variation_flow_key;
+  layout.lowering_kind = lowering_kind;
+  layout.support_group_decisions = std::move(support_group_decisions);
+  layout.start = std::move(start);
+  layout.end = std::move(end);
+  append_seed_support_group_decision(state, port_a, layout.start, &layout);
+  append_seed_support_group_decision(state, port_b, layout.end, &layout);
+  return layout;
 }
 
 struct BackboneBundlePlan {
@@ -444,23 +671,17 @@ build_seed_generated_support_layouts(const CoreState& state, const EditState& ed
       if (span == nullptr || port_a == nullptr || port_b == nullptr) {
         continue;
       }
-      SpanSupportLayoutDecisionSeed layout{};
-      layout.span_id = span_id;
-      layout.flow_kind = assignment.flow_kind;
-      layout.pass_mode = (span->placement_context == ConnectionContext::kBranchAdd)
-                             ? CurvePassMode::kBranch
-                             : ((span->placement_context == ConnectionContext::kCornerPass)
-                                    ? CurvePassMode::kPassThrough
-                                    : CurvePassMode::kPassThrough);
-      layout.variation_flow_key = variation_flow_key;
-      layout.lowering_kind = assignment.lowering_kind;
-      layout.start = make_support_layout_seed_endpoint(edit_state, *span, *port_a, junction_relations_by_node,
-                                                       assignment, assignment.decision_a, true);
-      layout.end = make_support_layout_seed_endpoint(edit_state, *span, *port_b, junction_relations_by_node,
-                                                     assignment, assignment.decision_b, false);
-      append_seed_support_group_decision(state, *port_a, layout.start, &layout);
-      append_seed_support_group_decision(state, *port_b, layout.end, &layout);
-      layouts.push_back(std::move(layout));
+      const CurvePassMode pass_mode =
+          (span->placement_context == ConnectionContext::kBranchAdd)
+              ? CurvePassMode::kBranch
+              : ((span->placement_context == ConnectionContext::kCornerPass) ? CurvePassMode::kPassThrough
+                                                                             : CurvePassMode::kPassThrough);
+      layouts.push_back(build_seed_layout_record(
+          state, span_id, assignment.flow_kind, pass_mode, variation_flow_key, assignment.lowering_kind, *port_a, *port_b,
+          build_seed_endpoint_record(edit_state, junction_relations_by_node, assignment, span->endpoint_node_a_id,
+                                     *port_a, assignment.decision_a),
+          build_seed_endpoint_record(edit_state, junction_relations_by_node, assignment, span->endpoint_node_b_id,
+                                     *port_b, assignment.decision_b)));
     }
   }
   return layouts;
@@ -2378,6 +2599,10 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       return relation;
     }
 
+    if (route_neighbors.size() == 1 && assign_nonroute_pair_for_single_route_junction(&relation, current_support_position)) {
+      return relation;
+    }
+
     double best_score = -2.0;
     int best_i = -1;
     int best_j = -1;
@@ -2931,11 +3156,38 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
       }
       for (const auto& [node_id, relation] : plan_junction_relations_by_node) {
         JunctionRelation& merged = phase_result.value.junction_relations_by_node[node_id];
+        merged.route_incident_count = std::max(merged.route_incident_count, relation.route_incident_count);
+        merged.is_cross_like = merged.is_cross_like || relation.is_cross_like;
+        if (!merged.through_pair.accepted && relation.through_pair.accepted) {
+          merged.through_pair = relation.through_pair;
+        }
+        auto relation_rank = [](JunctionRelationKind kind) {
+          switch (kind) {
+          case JunctionRelationKind::kCrossUnderpass:
+            return 4;
+          case JunctionRelationKind::kSideBranch:
+            return 3;
+          case JunctionRelationKind::kCornerContinuation:
+            return 2;
+          case JunctionRelationKind::kThroughMain:
+            return 1;
+          case JunctionRelationKind::kNone:
+          default:
+            return 0;
+          }
+        };
         for (const JunctionIncidentRelation& incident : relation.incidents) {
           JunctionIncidentRelation* target = find_incident_relation_ptr(merged, incident.neighbor_node_id);
           if (target == nullptr) {
+            merged.incidents.push_back(incident);
             continue;
           }
+          if (relation_rank(incident.kind) > relation_rank(target->kind)) {
+            target->kind = incident.kind;
+          }
+          target->in_route = target->in_route || incident.in_route;
+          target->in_through_pair = target->in_through_pair || incident.in_through_pair;
+          target->used_semantic_tiebreak = target->used_semantic_tiebreak || incident.used_semantic_tiebreak;
           target->continuity_class = incident.continuity_class;
           target->default_lower_required = target->default_lower_required || incident.default_lower_required;
           if (!incident.same_level_feasible &&
@@ -2948,6 +3200,9 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
             target->required_clearance_m = incident.required_clearance_m;
             target->infeasible_reason = incident.infeasible_reason;
           }
+        }
+        if (!merged.is_cross_like) {
+          (void)assign_nonroute_pair_for_single_route_junction(&merged, current_support_position);
         }
       }
     }
@@ -2971,6 +3226,32 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
   result.value.generated_span_ids.insert(result.value.generated_span_ids.end(),
                                          materialization_phase.generated_span_ids.begin(),
                                          materialization_phase.generated_span_ids.end());
+
+  const std::unordered_set<ObjectId> generated_span_set(result.value.generated_span_ids.begin(),
+                                                        result.value.generated_span_ids.end());
+  const std::unordered_set<ObjectId> touched_nodes = [&]() {
+    std::unordered_set<ObjectId> ids{};
+    ids.reserve(materialization_phase.junction_relations_by_node.size());
+    for (const auto& [node_id, _] : materialization_phase.junction_relations_by_node) {
+      ids.insert(node_id);
+    }
+    return ids;
+  }();
+  for (const Span& span : edit_state_access().spans.items()) {
+    if (generated_span_set.contains(span.id) ||
+        (!touched_nodes.contains(span.endpoint_node_a_id) && !touched_nodes.contains(span.endpoint_node_b_id))) {
+      continue;
+    }
+    const SpanSupportLayoutDecisionSeed* cached_seed = find_span_support_layout_seed(span.id);
+    const auto rebuilt_seed = rebuild_existing_span_decision_seed(
+        edit_state_access(), span, cached_seed, relation_index_access(), connection_index_access(),
+        materialization_phase.junction_relations_by_node);
+    if (!rebuilt_seed.has_value()) {
+      continue;
+    }
+    cache_span_support_layout_seed(*rebuilt_seed);
+    mark_span_dirty(span.id, DirtyBits::kDecision, true);
+  }
 
   debug_.last_generation_support_nodes.clear();
   debug_.last_generation_support_nodes.reserve(generation_backbone.nodes.size());

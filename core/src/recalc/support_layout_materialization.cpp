@@ -287,16 +287,6 @@ SupportLayoutOriginKind support_layout_origin_from_port(const Port& port) {
   }
 }
 
-double fallback_branch_down_offset_for_support_port(const CoreState& state, const Port& port) {
-  const Pole* pole = state.view().poles().find(port.owner_pole_id);
-  if (pole == nullptr) {
-    return 0.0;
-  }
-  const double template_z_m = template_layer_base_z_for_port_category(state, *pole, port.category);
-  const double local_z_m = HeightAlongWorldUp(port.world_position) - HeightAlongWorldUp(pole->world_transform.position);
-  return std::max(0.0, template_z_m - local_z_m);
-}
-
 BackboneFlowKind support_layout_flow_kind_for_span(const Span& span, const Port& port_a, const Port& port_b) {
   if (span.placement_context == ConnectionContext::kBranchAdd ||
       port_a.placement_source == PortPlacementSourceKind::kBranchSupport ||
@@ -350,7 +340,6 @@ SupportLayoutEndpoint build_support_layout_endpoint(
   endpoint.port_source = port.placement_source;
   endpoint.side = port.template_side;
   endpoint.support_world = port.world_position;
-  endpoint.decision.owner_pole_id = endpoint.owner_pole_id;
   endpoint.automatic_branch_down_offset_m = automatic_branch_down_offset_m;
   endpoint.down_offset_variation = down_offset_variation;
   endpoint.branch_down_offset_m = resolved_branch_down_offset_m;
@@ -390,14 +379,23 @@ SupportLayoutEndpoint build_support_layout_endpoint(
   return endpoint;
 }
 
-void apply_endpoint_decision_to_layout_endpoint(const EndpointContinuityDecision& decision,
-                                                SupportLayoutEndpoint* endpoint) {
+void clear_layout_endpoint_authority_projection(SupportLayoutEndpoint* endpoint) {
+  if (endpoint == nullptr) {
+    return;
+  }
+  endpoint->support_authority = {};
+  endpoint->has_visual_arm_geometry = false;
+  endpoint->visual_arm_mount_world = {};
+  endpoint->visual_arm_tip_world = {};
+  endpoint->visual_insulator_base_world = {};
+}
+
+void apply_endpoint_decision_projection(const EndpointContinuityDecision& decision, SupportLayoutEndpoint* endpoint) {
   if (endpoint == nullptr) {
     return;
   }
   endpoint->decision = decision;
   endpoint->decision.owner_pole_id = endpoint->owner_pole_id;
-  endpoint->support_authority = ResolvedSupportAuthorityFromDecision(endpoint->decision);
 }
 
 void apply_support_layout_decision_seed_endpoint(const SupportLayoutDecisionSeedEndpoint& seed,
@@ -408,7 +406,8 @@ void apply_support_layout_decision_seed_endpoint(const SupportLayoutDecisionSeed
   endpoint->endpoint_node_id = seed.endpoint_node_id;
   endpoint->owner_pole_id = seed.owner_pole_id;
   endpoint->port_id = seed.port_id;
-  apply_endpoint_decision_to_layout_endpoint(seed.decision, endpoint);
+  clear_layout_endpoint_authority_projection(endpoint);
+  apply_endpoint_decision_projection(seed.decision, endpoint);
   endpoint->support_authority = seed.support_authority;
   endpoint->flow_kind = seed.flow_kind;
   endpoint->origin = seed.origin;
@@ -532,43 +531,6 @@ void merge_observed_group_support_authority(ResolvedSupportAuthority* authority,
   }
 }
 
-void finalize_group_support_authority_from_owner_fields(SupportGroupDecision* group_decision) {
-  if (group_decision == nullptr) {
-    return;
-  }
-  auto& authority = group_decision->support_authority;
-  const auto& decision = group_decision->decision;
-  if (!HasAuthoritativeSupportPair(authority.pair.pair_peer_low, authority.pair.pair_peer_high) &&
-      HasAuthoritativeSupportPair(decision)) {
-    authority.pair.pair_peer_low = decision.support_pair_peer_low;
-    authority.pair.pair_peer_high = decision.support_pair_peer_high;
-  }
-  if (authority.pair.orientation_basis == SupportOrientationBasisKind::kRadial &&
-      decision.support_orientation_rule != SupportOrientationRuleKind::kRadial) {
-    authority.pair.orientation_basis =
-        SupportOrientationBasisFromDecision(decision.support_orientation_rule, decision.chosen_side_sign);
-  }
-  if (!authority.pair.has_pair_axis && decision.has_side_axis) {
-    authority.pair.pair_axis = decision.side_axis;
-    authority.pair.has_pair_axis = true;
-  }
-  if (!authority.has_signed_support_axis && decision.has_side_axis && std::abs(decision.chosen_side_sign) > 1e-9) {
-    ResolvedSupportAuthority explicit_authority =
-        ResolvedSupportAuthorityFromDecision(decision, authority.pair.height_rank);
-    if (explicit_authority.has_signed_support_axis) {
-      authority.signed_support_axis = explicit_authority.signed_support_axis;
-      authority.has_signed_support_axis = true;
-    }
-    if (authority.pair.height_rank < 0 && explicit_authority.pair.height_rank >= 0) {
-      authority.pair.height_rank = explicit_authority.pair.height_rank;
-    }
-    if (!authority.pair.has_pair_axis && explicit_authority.pair.has_pair_axis) {
-      authority.pair.pair_axis = explicit_authority.pair.pair_axis;
-      authority.pair.has_pair_axis = true;
-    }
-  }
-}
-
 LoweredSupportGroupPlacement build_grouped_support_placement_from_decision(const CoreState& state,
                                                                            const SupportGroupDecision& group_decision,
                                                                            const EditState& edit_state,
@@ -601,17 +563,14 @@ void apply_grouped_support_placement_to_layout_endpoint(const SupportGroupDecisi
   if (endpoint == nullptr) {
     return;
   }
-  apply_endpoint_decision_to_layout_endpoint(group_decision.decision, endpoint);
+  clear_layout_endpoint_authority_projection(endpoint);
+  apply_endpoint_decision_projection(group_decision.decision, endpoint);
   endpoint->support_authority = group_decision.support_authority;
   endpoint->side = group_decision.side;
   endpoint->origin = group_decision.origin;
   endpoint->automatic_branch_down_offset_m = group_decision.down_offset_m;
   endpoint->branch_down_offset_m = group_decision.down_offset_m;
   endpoint->down_offset_variation = group_decision.down_offset_variation;
-  endpoint->has_visual_arm_geometry = false;
-  endpoint->visual_arm_mount_world = {};
-  endpoint->visual_arm_tip_world = {};
-  endpoint->visual_insulator_base_world = {};
   endpoint->support_world = endpoint->endpoint_world;
 }
 
@@ -632,29 +591,7 @@ const SupportGroupDecision* find_layout_support_group_decision_for_endpoint(cons
     return &exact_it->second;
   }
 
-  const SupportGroupDecision* owner_group = nullptr;
-  LoweredSupportGroupKey owner_key{};
-  for (const auto& [key, group_decision] : layout.support_group_decisions) {
-    if (key.owner_pole_id != endpoint.owner_pole_id) {
-      continue;
-    }
-    if (!UsesAuthoritativeGroupedLoweredSupport(group_decision.decision) ||
-        group_decision.decision.relation_kind != endpoint.decision.relation_kind ||
-        group_decision.decision.continuity_class != endpoint.decision.continuity_class ||
-        group_decision.decision.support_pair_peer_low != endpoint.decision.support_pair_peer_low ||
-        group_decision.decision.support_pair_peer_high != endpoint.decision.support_pair_peer_high) {
-      continue;
-    }
-    if (owner_group != nullptr) {
-      return nullptr;
-    }
-    owner_group = &group_decision;
-    owner_key = key;
-  }
-  if (owner_group != nullptr && out_key != nullptr) {
-    *out_key = owner_key;
-  }
-  return owner_group;
+  return nullptr;
 }
 
 } // namespace
@@ -721,7 +658,6 @@ void rebuild_all_lowered_support_groups(const CoreState& state, const EditState&
         authority_it != observed_group_authority_by_key.end()) {
       merge_observed_group_support_authority(&group_decision.support_authority, authority_it->second);
     }
-    finalize_group_support_authority_from_owner_fields(&group_decision);
   }
   for (const auto& [key, group_decision] : cache_state->support_layout_cache.support_group_decisions) {
     cache_state->support_layout_cache.lowered_support_groups[key] =
@@ -778,6 +714,8 @@ struct SpanSupportLayoutAuthority {
 double automatic_branch_down_offset_from_authority(const CoreState& state, const Port& port,
                                                    const SpanSupportLayoutAuthority& authority, bool is_start_endpoint,
                                                    HierarchicalVariationSample* variation) {
+  (void)state;
+  (void)port;
   if (authority.decision_seed != nullptr) {
     const SupportLayoutDecisionSeedEndpoint& endpoint =
         is_start_endpoint ? authority.decision_seed->start : authority.decision_seed->end;
@@ -789,7 +727,7 @@ double automatic_branch_down_offset_from_authority(const CoreState& state, const
   if (variation != nullptr) {
     *variation = {};
   }
-  return fallback_branch_down_offset_for_support_port(state, port);
+  return 0.0;
 }
 
 void apply_consumed_support_layout_authority(const SpanSupportLayoutAuthority& authority, SpanSupportLayoutEntry* layout) {
@@ -799,23 +737,6 @@ void apply_consumed_support_layout_authority(const SpanSupportLayoutAuthority& a
   if (authority.decision_seed != nullptr) {
     apply_support_layout_decision_seed(*authority.decision_seed, layout);
   }
-}
-
-void apply_bundlelike_throughmain_materialized_axis(const Port& port, const Pole* pole, SupportLayoutEndpoint* endpoint) {
-  if (endpoint == nullptr || pole == nullptr) {
-    return;
-  }
-  if (endpoint->decision.relation_kind != JunctionRelationKind::kThroughMain ||
-      endpoint->decision.continuity_class != ContinuityCategoryClass::kBundleLike) {
-    return;
-  }
-  Vec3d radial = port.world_position - pole->world_transform.position;
-  radial.z = 0.0;
-  if (!Normalize(&radial) || !IsFiniteXY(radial)) {
-    return;
-  }
-  endpoint->support_authority.signed_support_axis = radial;
-  endpoint->support_authority.has_signed_support_axis = true;
 }
 
 void apply_materialized_visual_arm_geometry(const CoreState& state, const Port& port, const Pole* pole,
@@ -906,8 +827,6 @@ SpanSupportLayoutEntry materialize_span_support_layout(const CoreState& state, c
       inputs.endpoint_mode, inputs.endpoint_vertical_attachment_offset_m, inputs.flow_kind, resolved_socket_b,
       socket_override_b, automatic_branch_down_offset_b, down_offset_variation_b, resolved_branch_down_offset_b, false);
   apply_consumed_support_layout_authority(authority, &layout);
-  apply_bundlelike_throughmain_materialized_axis(port_a, pole_a, &layout.start);
-  apply_bundlelike_throughmain_materialized_axis(port_b, pole_b, &layout.end);
   apply_materialized_visual_arm_geometry(state, port_a, pole_a, &layout.start);
   apply_materialized_visual_arm_geometry(state, port_b, pole_b, &layout.end);
   finalize_support_layout_materialization(chord_dir, &layout);

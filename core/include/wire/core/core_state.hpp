@@ -1,5 +1,6 @@
 ﻿#pragma once
 
+#include <memory>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -19,6 +20,12 @@ struct TemplateMutationService;
 namespace generation::detail {
 class GroupedSpanLanePreparer;
 class GroupedSpanLaneStateAccess;
+struct BackboneGenerationPlan;
+struct BackboneGenerationRequestPlan;
+struct BackboneSupportChainPlan;
+struct BackboneCommittedSupportChain;
+struct BackboneTopologyPlan;
+struct BackboneOrientationPlan;
 }
 
 struct PortLayoutYawOverride {
@@ -158,6 +165,8 @@ private:
                                                    DirtyBits dirty_bits, ChangeSet* change_set);
   [[nodiscard]] bool cache_rebuilt_span_geometry(ObjectId span_id, SpanSupportLayoutEntry support_layout,
                                                  DetailCurve detail, std::string* error_message);
+  [[nodiscard]] bool rebuild_span_geometry_with_cached_contract(ObjectId span_id, bool requires_seed,
+                                                                std::string* error_message);
   [[nodiscard]] bool rebuild_span_decision_path(ObjectId span_id, std::string* error_message);
   [[nodiscard]] bool rebuild_span_geometry_from_seed(ObjectId span_id, std::string* error_message);
   [[nodiscard]] bool rebuild_span_bounds(ObjectId span_id, std::string* error_message);
@@ -198,6 +207,23 @@ private:
   [[nodiscard]] static BundleKind category_to_bundle_kind(ConnectionCategory category);
   [[nodiscard]] static PortKind category_to_port_kind(ConnectionCategory category);
   EditResult<bool> ensure_default_endpoint_attachments_for_span(ObjectId span_id);
+  [[nodiscard]] EditResult<std::unique_ptr<generation::detail::BackboneGenerationPlan>>
+  build_backbone_generation_plan(const BackboneSpec& spec) const;
+  [[nodiscard]] EditResult<bool>
+  validate_backbone_generation_plan(const generation::detail::BackboneGenerationPlan& plan) const;
+  [[nodiscard]] EditResult<generation::detail::BackboneCommittedSupportChain>
+  commit_backbone_support_chain_plan(const generation::detail::BackboneGenerationRequestPlan& request_plan,
+                                     const generation::detail::BackboneSupportChainPlan& support_chain_plan);
+  [[nodiscard]] EditResult<GenerateBundleFromPathResult> continue_backbone_generation_from_committed_chain(
+      const generation::detail::BackboneGenerationRequestPlan& request_plan,
+      const generation::detail::BackboneTopologyPlan& topology_plan,
+      const generation::detail::BackboneOrientationPlan& orientation_plan, std::uint64_t session_id,
+      std::vector<ObjectId> generated_pole_ids, std::vector<ObjectId> ordered_support_node_ids,
+      std::unordered_map<ObjectId, SupportNode> support_node_by_id,
+      std::unordered_map<ObjectId, ObjectId> committed_node_id_by_planned_node_id, ChangeSet initial_change_set);
+  [[nodiscard]] EditResult<GenerateBundleFromPathResult>
+  commit_backbone_generation_plan(std::unique_ptr<generation::detail::BackboneGenerationPlan> plan);
+  [[nodiscard]] EditResult<GenerateBundleFromPathResult> legacy_generate_from_backbone_spec(const BackboneSpec& spec);
   EditResult<bool> update_pole_type_and_refresh_instances(const PoleTypeDefinition& pole_type);
   [[nodiscard]] bool has_pole_orientation_override(ObjectId pole_id) const;
   [[nodiscard]] bool has_span_endpoint_socket_override(ObjectId span_id, bool is_start_endpoint) const;

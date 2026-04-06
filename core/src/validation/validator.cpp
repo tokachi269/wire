@@ -104,9 +104,9 @@ bool support_authority_equal(const ResolvedSupportAuthority& a, const ResolvedSu
   return a.has_signed_support_axis == b.has_signed_support_axis &&
          almost_equal_validation(a.signed_support_axis, b.signed_support_axis, eps) &&
          a.pair.has_pair_axis == b.pair.has_pair_axis &&
-         almost_equal_validation(a.pair.axis, b.pair.axis, eps) &&
-         a.pair.low_peer_pole_id == b.pair.low_peer_pole_id &&
-         a.pair.high_peer_pole_id == b.pair.high_peer_pole_id && a.pair.height_rank == b.pair.height_rank;
+         almost_equal_validation(a.pair.pair_axis, b.pair.pair_axis, eps) &&
+         a.pair.pair_peer_low == b.pair.pair_peer_low &&
+         a.pair.pair_peer_high == b.pair.pair_peer_high && a.pair.height_rank == b.pair.height_rank;
 }
 
 bool support_group_decision_equal(const SupportGroupDecision& a, const SupportGroupDecision& b, double eps = 1e-9) {

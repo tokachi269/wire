@@ -1,6 +1,7 @@
 #include "backbone_pole_orientation_policy.hpp"
 
 #include "wire/core/coord_utils.hpp"
+#include "detail_utils.hpp"
 #include "../pole_orientation_utils.hpp"
 
 #include <cmath>

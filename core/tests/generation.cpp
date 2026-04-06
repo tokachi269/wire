@@ -2015,7 +2015,9 @@ bool test_backbone_hv3_latest_capture_lowered_support_departure_uses_shared_rout
     wire::core::ObjectId span_id = wire::core::kInvalidObjectId;
     wire::core::ObjectId node_id = wire::core::kInvalidObjectId;
     bool is_start = false;
-    wire::core::EndpointContinuityDecision decision{};
+    bool has_side_axis = false;
+    wire::core::SupportOrientationRuleKind support_orientation_rule = wire::core::SupportOrientationRuleKind::kRadial;
+    wire::core::Vec3d side_axis{};
   };
 
   std::vector<LoweredEndpointSnapshot> lowered_endpoints{};
@@ -2037,8 +2039,10 @@ bool test_backbone_hv3_latest_capture_lowered_support_departure_uses_shared_rout
       continue;
     }
     saw_lowered_hv = true;
-    lowered_endpoints.push_back({span.id, span.endpoint_node_a_id, true, support_layout->start.decision});
-    lowered_endpoints.push_back({span.id, span.endpoint_node_b_id, false, support_layout->end.decision});
+    lowered_endpoints.push_back({span.id, span.endpoint_node_a_id, true, support_layout->start.has_side_axis,
+                                 support_layout->start.support_orientation_rule, support_layout->start.side_axis});
+    lowered_endpoints.push_back({span.id, span.endpoint_node_b_id, false, support_layout->end.has_side_axis,
+                                 support_layout->end.support_orientation_rule, support_layout->end.side_axis});
   }
   if (!saw_lowered_hv) {
     return false;
@@ -6901,7 +6905,7 @@ bool test_backbone_cross_underpass_supports_share_one_side_group() {
     wire::core::Vec3d support_world{};
   };
   std::vector<EndpointAttachSnapshot> attach_points{};
-  std::vector<wire::core::EndpointContinuityDecision> lowered_endpoint_decisions{};
+  std::vector<wire::core::SupportLayoutEndpointView> lowered_endpoint_decisions{};
   for (const auto& span_entry : state.view().spans().items()) {
     const ObjectId span_id = span_entry.id;
     const auto support_layout = state.view().inspect_support_layout(span_id);
@@ -14031,7 +14035,7 @@ bool test_backbone_adjacent_branch_roots_use_route_local_bisector() {
       observation.support_axis = normalize_xy_safe(group->tip_world - group->mount_world);
       observation.expected_axis = expected_axis;
       observation.rule = group->support_orientation_rule;
-      observation.basis = group->decision.support_orientation_basis;
+      observation.basis = group->support_orientation_basis;
       observation.alignment = dot_xy(observation.support_axis, observation.expected_axis);
       observation.group_id = group->support_group_id;
       observation.span_id = span_id;

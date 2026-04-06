@@ -73,13 +73,14 @@ std::vector<LoweredSupportGroupKey> collect_cached_support_group_keys(const Cach
   return keys;
 }
 
-void invalidate_topology_dependent_caches(CoreState& state, CacheState* cache_state, ObjectId span_id) {
+void invalidate_topology_dependent_caches(CoreState& state, const EditState& edit_state, CacheState* cache_state,
+                                          ObjectId span_id) {
   if (cache_state == nullptr) {
     return;
   }
   const std::vector<LoweredSupportGroupKey> affected_group_keys = collect_cached_support_group_keys(*cache_state, span_id);
   cache_state->support_layout_cache.clear_layout(span_id);
-  rebuild_lowered_support_groups_for_keys(state, state.edit_state_access(), cache_state, affected_group_keys);
+  rebuild_lowered_support_groups_for_keys(state, edit_state, cache_state, affected_group_keys);
   cache_state->curve_cache.by_span.erase(span_id);
   cache_state->bounds_cache.by_span.erase(span_id);
   cache_state->visual_cache.by_span.erase(span_id);
@@ -147,7 +148,7 @@ RecalcStats CoreState::ProcessDirtyQueues() {
     if (it == runtime_.span_runtime_states.end() || !any(it->second.dirty_bits, DirtyBits::kTopology)) {
       continue;
     }
-    invalidate_topology_dependent_caches(*this, &runtime_.cache_state, span_id);
+    invalidate_topology_dependent_caches(*this, authoritative_.edit_state, &runtime_.cache_state, span_id);
     if (!any(it->second.dirty_bits, DirtyBits::kDecision)) {
       it->second.dirty_bits |= DirtyBits::kDecision;
       topology_promoted_decision_ids.push_back(span_id);

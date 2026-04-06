@@ -1440,7 +1440,7 @@ void DrawEndpointDecisionSummary(const char* label, const wire::core::SupportLay
   ImGui::Text("%s relation=%s class=%s lower=%s defaultLower=%s", label,
               JunctionRelationKindLabel(endpoint.relation_kind),
               ContinuityCategoryClassLabel(endpoint.continuity_class),
-              endpoint.decision.lower_required ? "true" : "false",
+              endpoint.lower_required ? "true" : "false",
               endpoint.default_lower_required ? "true" : "false");
   ImGui::Text("  sameLevel=%s reason=%s blocked=%s unresolved=%s solver=%s specialPorts=%s",
               endpoint.same_level_feasible ? "true" : "false",
@@ -1453,15 +1453,14 @@ void DrawEndpointDecisionSummary(const char* label, const wire::core::SupportLay
               OrderDecisionPolicyLabel(endpoint.order_decision_policy),
               OrderDecisionChoiceLabel(endpoint.order_decision_choice),
               OrderDecisionChoiceReasonLabel(endpoint.order_decision_choice_reason),
-              LateralSideChoiceLabel(endpoint.decision.chosen_side), endpoint.chosen_side_sign,
+              LateralSideChoiceLabel(endpoint.chosen_side), endpoint.chosen_side_sign,
               SideAssignmentRuleKindLabel(endpoint.side_assignment_rule),
               endpoint.used_junction_pair_side_assignment ? "true" : "false");
-  ImGui::Text("  orientation=%s basis=%s downstreamOverride=%s", 
+  ImGui::Text("  orientation=%s basis=%s", 
               SupportOrientationRuleKindLabel(endpoint.support_orientation_rule),
-              SupportOrientationBasisKindLabel(endpoint.decision.support_orientation_basis),
-              endpoint.decision.downstream_overridden ? "true" : "false");
+              SupportOrientationBasisKindLabel(endpoint.support_orientation_basis));
   ImGui::Text("  spacing=%.2f clearance=%.2f throughPair=%s", endpoint.projected_spacing_topview_m,
-              endpoint.required_clearance_m, endpoint.decision.in_through_pair ? "true" : "false");
+              endpoint.required_clearance_m, endpoint.in_through_pair ? "true" : "false");
 }
 
 void DrawLoweredSupportGroupsBlock(const std::vector<wire::core::LoweredSupportGroupInspectionView>& groups) {
@@ -1477,22 +1476,17 @@ void DrawLoweredSupportGroupsBlock(const std::vector<wire::core::LoweredSupportG
                 static_cast<unsigned long long>(group.owner_pole_id), group.support_group_id,
                 group.grouped_port_count, SupportGroupingRuleKindLabel(group.grouping_rule), group.origin.c_str());
     ImGui::Text("  relation=%s class=%s lower=%s order=%s %s(%s)",
-                JunctionRelationKindLabel(group.decision.relation_kind),
-                ContinuityCategoryClassLabel(group.decision.continuity_class),
-                group.decision.lower_required ? "true" : "false",
+                JunctionRelationKindLabel(group.relation_kind),
+                ContinuityCategoryClassLabel(group.continuity_class),
+                group.lower_required ? "true" : "false",
                 OrderDecisionPolicyLabel(group.order_decision_policy), OrderDecisionChoiceLabel(group.order_decision_choice),
                 OrderDecisionChoiceReasonLabel(group.order_decision_choice_reason));
     ImGui::Text("  side=%s sign=%.2f sideRule=%s orient=%s basis=%s pairSide=%s down=%.2f",
-                LateralSideChoiceLabel(group.decision.chosen_side), group.chosen_side_sign,
+                LateralSideChoiceLabel(group.chosen_side), group.chosen_side_sign,
                 SideAssignmentRuleKindLabel(group.side_assignment_rule),
                 SupportOrientationRuleKindLabel(group.support_orientation_rule),
-                SupportOrientationBasisKindLabel(group.decision.support_orientation_basis),
+                SupportOrientationBasisKindLabel(group.support_orientation_basis),
                 group.used_junction_pair_side_assignment ? "true" : "false", group.down_offset_m);
-    ImGui::Text("  sameLevel=%s reason=%s blocked=%s unresolved=%s", 
-                group.decision.same_level_feasible ? "true" : "false",
-                SameLevelFeasibilityReasonLabel(group.decision.same_level_reason),
-                group.decision.lowering_blocked_by_policy ? "true" : "false",
-                group.decision.unresolved_same_level_conflict ? "true" : "false");
   }
 }
 

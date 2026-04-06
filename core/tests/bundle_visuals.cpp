@@ -607,7 +607,7 @@ bool test_grouped_lowered_support_keeps_per_lane_insulator_attach_point() {
         std::find_if(layout_view->lowered_support_groups.begin(), layout_view->lowered_support_groups.end(),
                      [&](const wire::core::LoweredSupportGroupInspectionView& group) {
                        return group.owner_pole_id == endpoint->owner_pole_id &&
-                              group.support_group_id == endpoint->decision.support_group_id;
+                              group.support_group_id == endpoint->support_group_id;
                      });
     if (group_it == layout_view->lowered_support_groups.end()) {
       continue;

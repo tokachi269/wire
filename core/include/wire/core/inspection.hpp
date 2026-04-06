@@ -213,13 +213,18 @@ struct SupportLayoutEndpointView {
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
   JunctionRelationKind relation_kind = JunctionRelationKind::kNone;
   ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
+  bool in_through_pair = false;
+  bool lower_required = false;
+  int support_group_id = -1;
   bool default_lower_required = false;
   OrderDecisionPolicyKind order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
   OrderDecisionChoiceKind order_decision_choice = OrderDecisionChoiceKind::kNormal;
   OrderDecisionChoiceReason order_decision_choice_reason = OrderDecisionChoiceReason::kFixedOrder;
+  LateralSideChoiceKind chosen_side = LateralSideChoiceKind::kCenter;
   SlotSide side = SlotSide::kCenter;
   SideAssignmentRuleKind side_assignment_rule = SideAssignmentRuleKind::kPoleLocal;
   SupportOrientationRuleKind support_orientation_rule = SupportOrientationRuleKind::kRadial;
+  SupportOrientationBasisKind support_orientation_basis = SupportOrientationBasisKind::kRadial;
   bool used_junction_pair_side_assignment = false;
   bool has_side_axis = false;
   Vec3d side_axis{};
@@ -256,6 +261,10 @@ struct SupportLayoutEndpointView {
 struct LoweredSupportGroupInspectionView {
   ObjectId owner_pole_id = kInvalidObjectId;
   ResolvedSupportAuthority support_authority{};
+  JunctionRelationKind relation_kind = JunctionRelationKind::kNone;
+  ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
+  bool in_through_pair = false;
+  bool lower_required = false;
   ObjectId pair_peer_low = kInvalidObjectId;
   ObjectId pair_peer_high = kInvalidObjectId;
   SlotSide side = SlotSide::kCenter;
@@ -266,8 +275,10 @@ struct LoweredSupportGroupInspectionView {
   OrderDecisionPolicyKind order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
   OrderDecisionChoiceKind order_decision_choice = OrderDecisionChoiceKind::kNormal;
   OrderDecisionChoiceReason order_decision_choice_reason = OrderDecisionChoiceReason::kFixedOrder;
+  LateralSideChoiceKind chosen_side = LateralSideChoiceKind::kCenter;
   SideAssignmentRuleKind side_assignment_rule = SideAssignmentRuleKind::kPoleLocal;
   SupportOrientationRuleKind support_orientation_rule = SupportOrientationRuleKind::kRadial;
+  SupportOrientationBasisKind support_orientation_basis = SupportOrientationBasisKind::kRadial;
   bool used_junction_pair_side_assignment = false;
   bool has_side_axis = false;
   Vec3d side_axis{};

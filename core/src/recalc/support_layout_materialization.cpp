@@ -617,20 +617,6 @@ struct SpanSupportLayoutAuthority {
   }
 };
 
-struct MaterializedEndpointSocketPair {
-  ResolvedEndpointSocketDecision start{};
-  ResolvedEndpointSocketDecision end{};
-};
-
-struct MaterializedBranchDownOffsetPair {
-  double automatic_start_m = 0.0;
-  double automatic_end_m = 0.0;
-  HierarchicalVariationSample start_variation{};
-  HierarchicalVariationSample end_variation{};
-  double resolved_start_m = 0.0;
-  double resolved_end_m = 0.0;
-};
-
 double automatic_branch_down_offset_from_authority(const CoreState& state, const Port& port,
                                                    const SpanSupportLayoutAuthority& authority, bool is_start_endpoint,
                                                    HierarchicalVariationSample* variation) {
@@ -658,8 +644,10 @@ MaterializedBranchDownOffsetPair resolve_materialized_branch_down_offsets(const 
       automatic_branch_down_offset_from_authority(state, port_a, authority, true, &offsets.start_variation);
   offsets.automatic_end_m =
       automatic_branch_down_offset_from_authority(state, port_b, authority, false, &offsets.end_variation);
-  offsets.resolved_start_m = resolve_span_branch_down_offset_m(span, offsets.automatic_start_m);
-  offsets.resolved_end_m = resolve_span_branch_down_offset_m(span, offsets.automatic_end_m);
+  offsets.resolved_start_m =
+      state_internal::OverrideResolutionService::ResolveSpanBranchDownOffsetM(state, span, offsets.automatic_start_m);
+  offsets.resolved_end_m =
+      state_internal::OverrideResolutionService::ResolveSpanBranchDownOffsetM(state, span, offsets.automatic_end_m);
   return offsets;
 }
 

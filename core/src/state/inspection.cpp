@@ -545,6 +545,10 @@ std::vector<LoweredSupportGroupInspectionView> BuildLoweredSupportGroupInspectio
     LoweredSupportGroupInspectionView group{};
     group.owner_pole_id = authority.owner_pole_id;
     group.support_authority = authority.support_authority;
+    group.relation_kind = authority.relation_kind;
+    group.continuity_class = authority.continuity_class;
+    group.in_through_pair = authority.in_through_pair;
+    group.lower_required = authority.lower_required;
     group.pair_peer_low = authority.support_pair_peer_low;
     group.pair_peer_high = authority.support_pair_peer_high;
     group.side = authority.side;
@@ -558,6 +562,7 @@ std::vector<LoweredSupportGroupInspectionView> BuildLoweredSupportGroupInspectio
     group.chosen_side = authority.chosen_side;
     group.side_assignment_rule = authority.side_assignment_rule;
     group.support_orientation_rule = authority.support_orientation_rule;
+    group.support_orientation_basis = authority.support_orientation_basis;
     group.used_junction_pair_side_assignment = authority.used_junction_pair_side_assignment;
     group.has_side_axis = authority.has_side_axis;
     group.side_axis = authority.side_axis;
@@ -600,6 +605,9 @@ SupportLayoutEndpointView MakeSupportLayoutEndpointView(const SupportLayoutEndpo
   view.flow_kind = endpoint.flow_kind;
   view.relation_kind = endpoint.relation_kind;
   view.continuity_class = endpoint.continuity_class;
+  view.in_through_pair = endpoint.in_through_pair;
+  view.lower_required = endpoint.lower_required;
+  view.support_group_id = endpoint.support_group_id;
   view.default_lower_required = endpoint.default_lower_required;
   view.order_decision_policy = endpoint.order_decision_policy;
   view.order_decision_choice = endpoint.order_decision_choice;
@@ -608,6 +616,7 @@ SupportLayoutEndpointView MakeSupportLayoutEndpointView(const SupportLayoutEndpo
   view.side = endpoint.side;
   view.side_assignment_rule = endpoint.side_assignment_rule;
   view.support_orientation_rule = endpoint.support_orientation_rule;
+  view.support_orientation_basis = endpoint.support_orientation_basis;
   view.used_junction_pair_side_assignment = endpoint.used_junction_pair_side_assignment;
   view.has_side_axis = endpoint.has_side_axis;
   view.side_axis = endpoint.side_axis;
@@ -665,12 +674,16 @@ void ApplyAuthoritativeGroupedEndpointDecision(const CacheState& cache_state, co
   view->support_authority = authority.support_authority;
   view->relation_kind = authority.relation_kind;
   view->continuity_class = authority.continuity_class;
+  view->in_through_pair = authority.in_through_pair;
+  view->lower_required = authority.lower_required;
+  view->support_group_id = authority.support_group_id;
   view->order_decision_policy = authority.order_decision_policy;
   view->order_decision_choice = authority.order_decision_choice;
   view->order_decision_choice_reason = authority.order_decision_choice_reason;
   view->chosen_side = authority.chosen_side;
   view->side_assignment_rule = authority.side_assignment_rule;
   view->support_orientation_rule = authority.support_orientation_rule;
+  view->support_orientation_basis = authority.support_orientation_basis;
   view->used_junction_pair_side_assignment = authority.used_junction_pair_side_assignment;
   view->has_side_axis = authority.has_side_axis;
   view->side_axis = authority.side_axis;

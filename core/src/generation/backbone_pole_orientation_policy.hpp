@@ -1,9 +1,8 @@
 #pragma once
 
+#include "wire/core/core_state.hpp"
 #include "wire/core/debug_types.hpp"
 #include "wire/core/id.hpp"
-#include "wire/core/types.hpp"
-#include "wire/core/workflow_types.hpp"
 
 #include <functional>
 #include <optional>
@@ -12,14 +11,11 @@
 
 namespace wire::core {
 
-struct Pole;
-struct PortLayoutYawOverride;
-
 namespace generation::detail {
 
 struct RowLayoutAxisSelection {
   RowLayoutAxisMode mode = RowLayoutAxisMode::kPoleYaw;
-  ConnectionCategory category = ConnectionCategory::kPrimary;
+  ConnectionCategory category = ConnectionCategory::kLowVoltage;
 };
 
 struct BackbonePoleOrientationPolicyInput {
@@ -28,7 +24,7 @@ struct BackbonePoleOrientationPolicyInput {
   const std::unordered_map<ObjectId, PoleOrientationDebugRecord>& previous_debug_records;
   std::function<Pole*(ObjectId)> find_pole;
   std::function<Vec3d(ObjectId)> current_support_position;
-  std::function<Vec3d(ObjectId, const Vec3d&, PoleOrientationDebugRecord*)> choose_support_axis_for_layout;
+  std::function<Vec3d(ObjectId, const Vec3d&, const Vec3d&, PoleOrientationDebugRecord*)> choose_support_axis_for_layout;
   std::function<bool(ObjectId)> has_existing_main_flow_context;
   std::function<std::vector<ObjectId>(ObjectId)> continuation_neighbors_for_orientation;
   std::function<ObjectId(ObjectId)> primary_neighbor_for_orientation;

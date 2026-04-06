@@ -1,7 +1,11 @@
 #include "support_layout_world_geometry_internal.hpp"
 
 #include "wire/core/core_state.hpp"
+#include "wire/core/core_view.hpp"
+#include "wire/core/coord_utils.hpp"
+#include "../pole_orientation_utils.hpp"
 #include "../support_orientation_utils.hpp"
+#include "detail_curve_input_resolution.hpp"
 
 namespace wire::core {
 

@@ -1,5 +1,7 @@
 #include "backbone_seed_placement.hpp"
 
+#include "detail_utils.hpp"
+#include "support_policy.hpp"
 #include "../support_orientation_utils.hpp"
 
 #include <unordered_map>
@@ -28,6 +30,20 @@ SupportLayoutOriginKind support_layout_origin_from_port_source(PortPlacementSour
 }
 
 using PairKey = std::pair<ObjectId, ObjectId>;
+
+struct PairKeyHash {
+  [[nodiscard]] std::size_t operator()(const PairKey& key) const {
+    const std::size_t h1 = std::hash<ObjectId>{}(key.first);
+    const std::size_t h2 = std::hash<ObjectId>{}(key.second);
+    return h1 ^ (h2 + 0x9e3779b9 + (h1 << 6) + (h1 >> 2));
+  }
+};
+
+[[nodiscard]] double distance_squared_xy(const Vec3d& a, const Vec3d& b) {
+  const double dx = a.x - b.x;
+  const double dy = a.y - b.y;
+  return dx * dx + dy * dy;
+}
 
 [[nodiscard]] PairKey canonical_pair_key(ObjectId a, ObjectId b) {
   return {std::min(a, b), std::max(a, b)};
@@ -180,9 +196,9 @@ SupportLayoutDecisionSeedEndpoint build_seed_endpoint_from_decision(
   endpoint.required_clearance_m = decision.required_clearance_m;
   endpoint.solver_used_same_level_constraint = decision.solver_used_same_level_constraint;
   endpoint.used_special_case_ports = decision.used_special_case_ports;
-  endpoint.order_decision_policy = source.order_decision_policy;
-  endpoint.order_decision_choice = source.order_decision_choice;
-  endpoint.order_decision_choice_reason = source.order_decision_choice_reason;
+  endpoint.order_decision_policy = decision.order_decision_policy;
+  endpoint.order_decision_choice = decision.order_decision_choice;
+  endpoint.order_decision_choice_reason = decision.order_decision_choice_reason;
   endpoint.chosen_side = decision.chosen_side;
   endpoint.used_junction_pair_side_assignment = decision.used_junction_pair_side_assignment;
   const bool uses_lowering = decision.lower_required && !decision.lowering_blocked_by_policy;

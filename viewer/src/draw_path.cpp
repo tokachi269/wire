@@ -1250,10 +1250,10 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
               << "].layout_end_continuity_class="
               << ContinuityClassLabelLocal(layout_view->end_endpoint.continuity_class) << "\n";
             ofs << "result.lane_assignment[" << i << "].lane[" << lane
-              << "].layout_start_lower_required=" << (layout_view->start_endpoint.decision.lower_required ? 1 : 0)
+              << "].layout_start_lower_required=" << (layout_view->start_endpoint.lower_required ? 1 : 0)
               << "\n";
             ofs << "result.lane_assignment[" << i << "].lane[" << lane
-              << "].layout_end_lower_required=" << (layout_view->end_endpoint.decision.lower_required ? 1 : 0)
+              << "].layout_end_lower_required=" << (layout_view->end_endpoint.lower_required ? 1 : 0)
               << "\n";
             ofs << "result.lane_assignment[" << i << "].lane[" << lane
               << "].layout_start_same_level_reason="
@@ -1282,10 +1282,10 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
               << OrderDecisionChoiceReasonLabelLocal(layout_view->end_endpoint.order_decision_choice_reason)
               << "\n";
             ofs << "result.lane_assignment[" << i << "].lane[" << lane
-              << "].layout_start_side=" << LateralSideChoiceLabelLocal(layout_view->start_endpoint.decision.chosen_side)
+              << "].layout_start_side=" << LateralSideChoiceLabelLocal(layout_view->start_endpoint.chosen_side)
               << "\n";
             ofs << "result.lane_assignment[" << i << "].lane[" << lane
-              << "].layout_end_side=" << LateralSideChoiceLabelLocal(layout_view->end_endpoint.decision.chosen_side)
+              << "].layout_end_side=" << LateralSideChoiceLabelLocal(layout_view->end_endpoint.chosen_side)
               << "\n";
             ofs << "result.lane_assignment[" << i << "].lane[" << lane
               << "].layout_start_side_assignment_rule="
@@ -1301,11 +1301,11 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
               << SupportOrientationRuleLabelLocal(layout_view->end_endpoint.support_orientation_rule) << "\n";
             ofs << "result.lane_assignment[" << i << "].lane[" << lane
               << "].layout_start_support_orientation_basis="
-              << SupportOrientationBasisLabelLocal(layout_view->start_endpoint.decision.support_orientation_basis)
+              << SupportOrientationBasisLabelLocal(layout_view->start_endpoint.support_orientation_basis)
               << "\n";
             ofs << "result.lane_assignment[" << i << "].lane[" << lane
               << "].layout_end_support_orientation_basis="
-              << SupportOrientationBasisLabelLocal(layout_view->end_endpoint.decision.support_orientation_basis)
+              << SupportOrientationBasisLabelLocal(layout_view->end_endpoint.support_orientation_basis)
               << "\n";
             ofs << "result.lane_assignment[" << i << "].lane[" << lane
               << "].layout_lowered_support_group_count=" << layout_view->lowered_support_groups.size() << "\n";
@@ -1320,13 +1320,11 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
             ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
               << "].grouped_port_count=" << group.grouped_port_count << "\n";
             ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
-              << "].relation=" << JunctionRelationLabelLocal(group.decision.relation_kind) << "\n";
+              << "].relation=" << JunctionRelationLabelLocal(group.relation_kind) << "\n";
             ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
-              << "].continuity_class=" << ContinuityClassLabelLocal(group.decision.continuity_class) << "\n";
+              << "].continuity_class=" << ContinuityClassLabelLocal(group.continuity_class) << "\n";
             ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
-              << "].lower_required=" << (group.decision.lower_required ? 1 : 0) << "\n";
-            ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
-              << "].same_level_reason=" << SameLevelReasonLabelLocal(group.decision.same_level_reason) << "\n";
+              << "].lower_required=" << (group.lower_required ? 1 : 0) << "\n";
             ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
               << "].order_decision_policy=" << OrderDecisionPolicyLabelLocal(group.order_decision_policy) << "\n";
             ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
@@ -1335,7 +1333,7 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
               << "].order_decision_reason="
               << OrderDecisionChoiceReasonLabelLocal(group.order_decision_choice_reason) << "\n";
             ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
-              << "].side=" << LateralSideChoiceLabelLocal(group.decision.chosen_side) << "\n";
+              << "].side=" << LateralSideChoiceLabelLocal(group.chosen_side) << "\n";
             ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
               << "].side_assignment_rule=" << SideAssignmentRuleLabelLocal(group.side_assignment_rule) << "\n";
             ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
@@ -1343,7 +1341,7 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
               << SupportOrientationRuleLabelLocal(group.support_orientation_rule) << "\n";
             ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
               << "].support_orientation_basis="
-              << SupportOrientationBasisLabelLocal(group.decision.support_orientation_basis) << "\n";
+              << SupportOrientationBasisLabelLocal(group.support_orientation_basis) << "\n";
             ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].layout_group[" << group_index
               << "].down_offset_m=" << group.down_offset_m << "\n";
             }
@@ -1399,14 +1397,14 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
       ofs << "result.current_span[" << current_span_index << "].layout_lowered_support_group_count="
         << layout_view->lowered_support_groups.size() << "\n";
       ofs << "result.current_span[" << current_span_index << "].layout_start_side="
-        << LateralSideChoiceLabelLocal(layout_view->start_endpoint.decision.chosen_side) << "\n";
+        << LateralSideChoiceLabelLocal(layout_view->start_endpoint.chosen_side) << "\n";
       ofs << "result.current_span[" << current_span_index << "].layout_end_side="
-        << LateralSideChoiceLabelLocal(layout_view->end_endpoint.decision.chosen_side) << "\n";
+        << LateralSideChoiceLabelLocal(layout_view->end_endpoint.chosen_side) << "\n";
       ofs << "result.current_span[" << current_span_index << "].layout_start_orientation_basis="
-        << SupportOrientationBasisLabelLocal(layout_view->start_endpoint.decision.support_orientation_basis)
+        << SupportOrientationBasisLabelLocal(layout_view->start_endpoint.support_orientation_basis)
         << "\n";
       ofs << "result.current_span[" << current_span_index << "].layout_end_orientation_basis="
-        << SupportOrientationBasisLabelLocal(layout_view->end_endpoint.decision.support_orientation_basis)
+        << SupportOrientationBasisLabelLocal(layout_view->end_endpoint.support_orientation_basis)
         << "\n";
     }
     write_endpoint_junction("result.current_span[" + std::to_string(current_span_index) + "].endpoint_a_junction",
@@ -1435,20 +1433,20 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
     ofs << "result.grouped_lowered_support[" << grouped_support_index_i
         << "].support_group_id=" << group.support_group_id << "\n";
     ofs << "result.grouped_lowered_support[" << grouped_support_index_i
-        << "].relation_kind=" << JunctionRelationLabelLocal(group.decision.relation_kind) << "\n";
+        << "].relation_kind=" << JunctionRelationLabelLocal(group.relation_kind) << "\n";
     ofs << "result.grouped_lowered_support[" << grouped_support_index_i
-        << "].continuity_class=" << ContinuityClassLabelLocal(group.decision.continuity_class) << "\n";
+        << "].continuity_class=" << ContinuityClassLabelLocal(group.continuity_class) << "\n";
     ofs << "result.grouped_lowered_support[" << grouped_support_index_i
-        << "].lower_required=" << (group.decision.lower_required ? 1 : 0) << "\n";
+        << "].lower_required=" << (group.lower_required ? 1 : 0) << "\n";
     ofs << "result.grouped_lowered_support[" << grouped_support_index_i
-        << "].side=" << LateralSideChoiceLabelLocal(group.decision.chosen_side) << "\n";
+        << "].side=" << LateralSideChoiceLabelLocal(group.chosen_side) << "\n";
     ofs << "result.grouped_lowered_support[" << grouped_support_index_i
         << "].side_assignment_rule=" << SideAssignmentRuleLabelLocal(group.side_assignment_rule) << "\n";
     ofs << "result.grouped_lowered_support[" << grouped_support_index_i
         << "].support_orientation_rule=" << SupportOrientationRuleLabelLocal(group.support_orientation_rule) << "\n";
     ofs << "result.grouped_lowered_support[" << grouped_support_index_i
         << "].support_orientation_basis="
-        << SupportOrientationBasisLabelLocal(group.decision.support_orientation_basis) << "\n";
+        << SupportOrientationBasisLabelLocal(group.support_orientation_basis) << "\n";
     ofs << "result.grouped_lowered_support[" << grouped_support_index_i
         << "].has_side_axis=" << (group.has_side_axis ? 1 : 0) << "\n";
     ofs << "result.grouped_lowered_support[" << grouped_support_index_i
@@ -1897,4 +1895,3 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
     ImGui::TextWrapped("Last capture: %s", ui_state.last_repro_capture_path.c_str());
   }
 }
-

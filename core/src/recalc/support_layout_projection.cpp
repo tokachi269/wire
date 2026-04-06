@@ -50,6 +50,11 @@ void apply_support_layout_decision_seed_endpoint(const SupportLayoutDecisionSeed
   endpoint->required_clearance_m = seed.required_clearance_m;
   endpoint->solver_used_same_level_constraint = seed.solver_used_same_level_constraint;
   endpoint->used_special_case_ports = seed.used_special_case_ports;
+  endpoint->order_decision_policy = seed.order_decision_policy;
+  endpoint->order_decision_choice = seed.order_decision_choice;
+  endpoint->order_decision_choice_reason = seed.order_decision_choice_reason;
+  endpoint->chosen_side = seed.chosen_side;
+  endpoint->used_junction_pair_side_assignment = seed.used_junction_pair_side_assignment;
   endpoint->down_offset_variation = seed.down_offset_variation;
 }
 
@@ -65,10 +70,10 @@ void apply_support_layout_decision_seed(const SpanSupportLayoutDecisionSeed& see
   layout->lowering_kind = seed.lowering_kind;
   apply_support_layout_decision_seed_endpoint(seed.start, &layout->start);
   apply_support_layout_decision_seed_endpoint(seed.end, &layout->end);
-  layout->support_group_decisions = seed.support_group_decisions;
 }
 
 void apply_grouped_support_placement_to_layout_endpoint(const SupportGroupDecision& group_decision,
+                                                        const LoweredSupportGroupPlacement& placement,
                                                         SupportLayoutEndpoint* endpoint) {
   if (endpoint == nullptr) {
     return;
@@ -78,30 +83,15 @@ void apply_grouped_support_placement_to_layout_endpoint(const SupportGroupDecisi
   endpoint->support_authority = group_decision.support_authority;
   endpoint->side = group_decision.side;
   endpoint->origin = group_decision.origin;
-  endpoint->automatic_branch_down_offset_m = group_decision.down_offset_m;
-  endpoint->branch_down_offset_m = group_decision.down_offset_m;
-  endpoint->down_offset_variation = group_decision.down_offset_variation;
+  endpoint->order_decision_policy = group_decision.order_decision_policy;
+  endpoint->order_decision_choice = group_decision.order_decision_choice;
+  endpoint->order_decision_choice_reason = group_decision.order_decision_choice_reason;
+  endpoint->chosen_side = group_decision.chosen_side;
+  endpoint->used_junction_pair_side_assignment = group_decision.used_junction_pair_side_assignment;
+  endpoint->automatic_branch_down_offset_m = placement.down_offset_m;
+  endpoint->branch_down_offset_m = placement.down_offset_m;
+  endpoint->down_offset_variation = placement.down_offset_variation;
   endpoint->support_world = endpoint->endpoint_world;
-}
-
-const SupportGroupDecision* find_layout_support_group_decision_for_endpoint(const SpanSupportLayoutEntry& layout,
-                                                                            const SupportLayoutEndpoint& endpoint,
-                                                                            LoweredSupportGroupKey* out_key) {
-  if (endpoint.owner_pole_id == kInvalidObjectId || layout.support_group_decisions.empty() ||
-      !UsesAuthoritativeGroupedLoweredSupport(endpoint)) {
-    return nullptr;
-  }
-
-  const LoweredSupportGroupKey exact_key = LoweredSupportGroupKeyFromDecision(endpoint);
-  if (const auto exact_it = layout.support_group_decisions.find(exact_key);
-      exact_it != layout.support_group_decisions.end()) {
-    if (out_key != nullptr) {
-      *out_key = exact_it->first;
-    }
-    return &exact_it->second;
-  }
-
-  return nullptr;
 }
 
 } // namespace wire::core

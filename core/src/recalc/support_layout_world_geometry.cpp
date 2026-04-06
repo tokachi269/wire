@@ -59,13 +59,15 @@ std::pair<Vec3d, Vec3d> shared_support_anchor_points(const CoreState& state, con
 LoweredSupportGroupPlacement build_grouped_support_placement_from_decision(const CoreState& state,
                                                                            const SupportGroupDecision& group_decision,
                                                                            const EditState& edit_state,
-                                                                           const CacheState& cache_state) {
+                                                                           const CacheState& cache_state,
+                                                                           const ConnectionCategory* observed_category,
+                                                                           const std::vector<Vec3d>* observed_attachment_worlds) {
   LoweredSupportGroupPlacement group{};
   group.grouping_rule = SupportGroupingRuleKind::kDecisionGroup;
-  group.grouped_port_count = group_decision.grouped_port_count;
-  group.down_offset_m = group_decision.down_offset_m;
-  group.attachment_worlds = group_decision.attachment_worlds;
-  group.down_offset_variation = group_decision.down_offset_variation;
+  group.grouped_port_count = (observed_attachment_worlds == nullptr) ? 0 : static_cast<int>(observed_attachment_worlds->size());
+  group.down_offset_m = 0.0;
+  group.attachment_worlds = (observed_attachment_worlds == nullptr) ? std::vector<Vec3d>{} : *observed_attachment_worlds;
+  group.down_offset_variation = {};
 
   const Pole* pole = edit_state.poles.find(group_decision.owner_pole_id);
   if (pole == nullptr) {
@@ -75,9 +77,12 @@ LoweredSupportGroupPlacement build_grouped_support_placement_from_decision(const
   if (!Normalize(&support_axis) || !IsFiniteXY(support_axis)) {
     return group;
   }
+  const ConnectionCategory category =
+      (observed_category == nullptr) ? ConnectionCategory::kLowVoltage : *observed_category;
+  const double support_z =
+      state.view().port_category_base_z_for_pole(*pole, category) - group.down_offset_m;
   const auto [mount_world, tip_world] =
-      shared_support_anchor_points(state, *pole, support_axis, group_decision.category, group_decision.support_world.z,
-                                   cache_state);
+      shared_support_anchor_points(state, *pole, support_axis, category, support_z, cache_state);
   group.mount_world = mount_world;
   group.tip_world = tip_world;
   return group;

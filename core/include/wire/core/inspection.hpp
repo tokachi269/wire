@@ -206,6 +206,7 @@ struct SupportLayoutEndpointView {
   ObjectId endpoint_node_id = kInvalidObjectId;
   ObjectId owner_pole_id = kInvalidObjectId;
   ObjectId port_id = kInvalidObjectId;
+  bool authoritative_group_cache_present = false;
   ResolvedSupportAuthority support_authority{};
   EndpointAttachmentRequest attachment_request{};
   std::optional<int> resolved_socket_id{};
@@ -286,6 +287,7 @@ struct SupportLayoutInspectionView {
   EntityRef source_span{};
   bool has_decision_seed = false;
   bool requires_decision_seed = false;
+  bool grouped_authority_cache_complete = true;
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
   CurvePassMode pass_mode = CurvePassMode::kPassThrough;
   std::uint64_t variation_flow_key = 0;

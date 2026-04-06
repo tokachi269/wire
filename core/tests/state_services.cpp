@@ -607,10 +607,6 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
     decision->support_group_id = 1234;
     decision->has_side_axis = true;
     decision->side_axis = axis;
-    decision->down_offset_m = down_offset_m;
-    decision->support_world = tip_world;
-    decision->grouped_port_count = 2;
-    decision->attachment_worlds = {{0.0, 0.8, expected_support_z}, {0.0, 1.1, expected_support_z}};
     group->grouping_rule = wire::core::SupportGroupingRuleKind::kDecisionGroup;
     group->grouped_port_count = 2;
     group->down_offset_m = down_offset_m;
@@ -639,7 +635,9 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
     static_cast<wire::core::SupportLayoutSemanticDecision&>(*endpoint) = decision_store[{pole_a, 1234}];
     endpoint->owner_pole_id = owner_pole_id;
     endpoint->support_group_id = 1234;
-    endpoint->branch_down_offset_m = decision_store[{pole_a, 1234}].down_offset_m;
+    endpoint->automatic_branch_down_offset_m = grouped_store[{pole_a, 1234}].down_offset_m;
+    endpoint->branch_down_offset_m = grouped_store[{pole_a, 1234}].down_offset_m;
+    endpoint->down_offset_variation = grouped_store[{pole_a, 1234}].down_offset_variation;
     endpoint->support_world = endpoint_world;
   };
   apply_grouped_endpoint(&it_ab->second.start, pole_a, port_ab_a, {0.0, 0.8, expected_support_z});
@@ -693,10 +691,6 @@ bool test_inspection_uses_authoritative_lowered_support_groups() {
   decision.support_group_id = 777;
   decision.has_side_axis = true;
   decision.side_axis = {0.0, 1.0, 0.0};
-  decision.down_offset_m = 1.25;
-  decision.support_world = {0.0, 0.8, 4.0};
-  decision.grouped_port_count = 1;
-  decision.attachment_worlds = {{0.0, 0.5, 5.0}};
   group.grouping_rule = wire::core::SupportGroupingRuleKind::kDecisionGroup;
   group.grouped_port_count = 1;
   group.down_offset_m = 1.25;
@@ -705,7 +699,9 @@ bool test_inspection_uses_authoritative_lowered_support_groups() {
   group.attachment_worlds = {{0.0, 0.5, 5.0}};
 
   const auto layout_view = state.view().inspect_support_layout(span);
-  if (!layout_view.has_value() || layout_view->lowered_support_groups.size() != 1) {
+  if (!layout_view.has_value() || layout_view->lowered_support_groups.size() != 1 ||
+      !layout_view->grouped_authority_cache_complete ||
+      !layout_view->start_endpoint.authoritative_group_cache_present) {
     return false;
   }
   const auto& inspected = layout_view->lowered_support_groups.front();
@@ -765,7 +761,6 @@ bool test_materialization_reads_layout_owned_support_group_decision() {
   layout.start.down_offset_variation = {};
   layout.start.support_world = layout.start.endpoint_world;
 
-  layout.support_group_decisions.clear();
   wire::core::SupportGroupDecision authoritative{};
   authoritative.owner_pole_id = pole_a;
   authoritative.relation_kind = wire::core::JunctionRelationKind::kSideBranch;
@@ -783,15 +778,10 @@ bool test_materialization_reads_layout_owned_support_group_decision() {
   authoritative.side_axis = {0.0, 1.0, 0.0};
   authoritative.side = wire::core::SlotSide::kLeft;
   authoritative.origin = wire::core::SupportLayoutOriginKind::kBranchSupport;
-  authoritative.down_offset_m = 1.25;
-  authoritative.support_world = {0.0, 0.8, expected_support_z};
-  authoritative.grouped_port_count = 1;
-  authoritative.attachment_worlds = {{0.0, 0.5, expected_support_z}};
-  layout.support_group_decisions[{pole_a, 777}] = authoritative;
-
   CoreStateTestHook::cache_span_support_layout(state, std::move(layout));
 
   auto& cache = CoreStateTestHook::cache_state(state).support_layout_cache;
+  cache.support_group_decisions[{pole_a, 777}] = authoritative;
   const auto decision_it = cache.support_group_decisions.find({pole_a, 777});
   const auto layout_it = cache.by_span.find(span);
   if (decision_it == cache.support_group_decisions.end() || layout_it == cache.by_span.end()) {
@@ -815,7 +805,6 @@ bool test_materialization_reads_layout_owned_support_group_decision() {
   const bool ok_decision_sign = helpers::almost_equal(refreshed_decision_it->second.chosen_side_sign, -1.0);
   const bool ok_decision_axis =
       helpers::almost_equal(refreshed_decision_it->second.side_axis, Vec3d{0.0, 1.0, 0.0});
-  const bool ok_decision_down = helpers::almost_equal(refreshed_decision_it->second.down_offset_m, 1.25);
   const bool ok_keys = refreshed_layout_it->second.lowered_support_group_keys.size() == 1 &&
                        refreshed_layout_it->second.lowered_support_group_keys.front() ==
                            wire::core::LoweredSupportGroupKey{pole_a, 777};
@@ -830,8 +819,11 @@ bool test_materialization_reads_layout_owned_support_group_decision() {
   const bool ok_layout_axis =
       helpers::almost_equal(refreshed_layout_it->second.start.side_axis, Vec3d{0.0, 1.0, 0.0});
   const bool ok_layout_down = helpers::almost_equal(refreshed_layout_it->second.start.branch_down_offset_m, 1.25);
+  const auto placement_it = cache.lowered_support_groups.find({pole_a, 777});
+  const bool ok_group_down =
+      placement_it != cache.lowered_support_groups.end() && helpers::almost_equal(placement_it->second.down_offset_m, 1.25);
   return ok_validation && ok_decision_side && ok_decision_orient && ok_decision_basis && ok_decision_sign &&
-         ok_decision_axis && ok_decision_down && ok_keys && ok_layout_side && ok_layout_orient && ok_layout_basis &&
+         ok_decision_axis && ok_group_down && ok_keys && ok_layout_side && ok_layout_orient && ok_layout_basis &&
          ok_layout_sign && ok_layout_axis && ok_layout_down;
 }
 
@@ -879,18 +871,12 @@ bool test_validation_treats_grouped_endpoint_semantics_as_derived_copies() {
   layout.end.endpoint_world = {10.0, 0.5, expected_support_z};
   layout.end.support_world = layout.end.endpoint_world;
 
-  layout.support_group_decisions.clear();
   wire::core::SupportGroupDecision authoritative{};
-  static_cast<wire::core::SupportLayoutSemanticDecision&>(authoritative) = layout.start.decision;
+  static_cast<wire::core::SupportLayoutSemanticDecision&>(authoritative) = layout.start;
   authoritative.side = wire::core::SlotSide::kLeft;
   authoritative.origin = wire::core::SupportLayoutOriginKind::kBranchSupport;
-  authoritative.down_offset_m = 1.25;
-  authoritative.support_world = {0.0, 0.8, expected_support_z};
-  authoritative.grouped_port_count = 1;
-  authoritative.attachment_worlds = {{0.0, 0.5, expected_support_z}};
-  layout.support_group_decisions[{pole_a, 777}] = authoritative;
-
   CoreStateTestHook::cache_span_support_layout(state, std::move(layout));
+  CoreStateTestHook::cache_state(state).support_layout_cache.support_group_decisions[{pole_a, 777}] = authoritative;
   auto& cached_layout = CoreStateTestHook::cache_state(state).support_layout_cache.by_span[span];
   cached_layout.start.side_assignment_rule = wire::core::SideAssignmentRuleKind::kChord;
   cached_layout.start.support_orientation_rule = wire::core::SupportOrientationRuleKind::kChord;
@@ -900,7 +886,12 @@ bool test_validation_treats_grouped_endpoint_semantics_as_derived_copies() {
   cached_layout.start.side_axis = {1.0, 0.0, 0.0};
 
   const auto validation = helpers::validate_now(state);
-  return validation.ok();
+  if (validation.ok()) {
+    return false;
+  }
+  return std::any_of(validation.issues.begin(), validation.issues.end(), [](const wire::core::ValidationIssue& issue) {
+    return issue.code == "SupportGroupEndpointSemanticProjectionMismatch";
+  });
 }
 
 bool test_update_cable_template_marks_render_refresh_only_for_render_change() {
@@ -1022,10 +1013,10 @@ void RegisterStateServiceTests(test_registry::TestRegistry& tests) {
                          "inspection maps authoritative support-group decision and grouped placement instead of reconstructing from endpoints",
                          "Invariant", false, &test_inspection_uses_authoritative_lowered_support_groups);
   test_registry::AddTest(tests, "C280_CoreStateService_GroupMaterializationConsumesLayoutAuthority",
-                         "grouped support materialization consumes layout-owned support-group decisions instead of reconstructing authority from endpoint copies",
+                         "grouped support materialization consumes cache-projected support-group decisions instead of reconstructing authority from endpoint copies",
                          "Invariant", false, &test_materialization_reads_layout_owned_support_group_decision);
   test_registry::AddTest(tests, "C281_Validation_GroupAuthorityBeatsEndpointSemanticCopies",
-                         "validation treats grouped endpoint semantics as derived copies and uses support-group authority as the semantic owner",
+                         "validation rejects grouped endpoint semantic copies that diverge from support-group authority",
                          "Invariant", false, &test_validation_treats_grouped_endpoint_semantics_as_derived_copies);
   test_registry::AddTest(tests, "C355_CoreStateService_CableTemplateRenderChangeMarksRenderRefresh",
                          "render-only cable template changes dirty spans with RenderRefresh only",

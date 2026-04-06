@@ -518,16 +518,26 @@ VariationBreakdownView MakeVariationBreakdownView(const HierarchicalVariationSam
 }
 
 std::vector<LoweredSupportGroupInspectionView> BuildLoweredSupportGroupInspectionViews(const CacheState& cache_state,
-                                                                                      const SpanSupportLayoutEntry& layout) {
+                                                                                      const SpanSupportLayoutEntry& layout,
+                                                                                      bool* cache_complete) {
   std::vector<LoweredSupportGroupInspectionView> result{};
+  if (cache_complete != nullptr) {
+    *cache_complete = true;
+  }
   result.reserve(layout.lowered_support_group_keys.size());
   for (const LoweredSupportGroupKey& key : layout.lowered_support_group_keys) {
     const auto it = cache_state.support_layout_cache.lowered_support_groups.find(key);
     if (it == cache_state.support_layout_cache.lowered_support_groups.end()) {
+      if (cache_complete != nullptr) {
+        *cache_complete = false;
+      }
       continue;
     }
     const auto decision_it = cache_state.support_layout_cache.support_group_decisions.find(key);
     if (decision_it == cache_state.support_layout_cache.support_group_decisions.end()) {
+      if (cache_complete != nullptr) {
+        *cache_complete = false;
+      }
       continue;
     }
     const LoweredSupportGroupPlacement& source = it->second;
@@ -545,6 +555,7 @@ std::vector<LoweredSupportGroupInspectionView> BuildLoweredSupportGroupInspectio
     group.order_decision_policy = authority.order_decision_policy;
     group.order_decision_choice = authority.order_decision_choice;
     group.order_decision_choice_reason = authority.order_decision_choice_reason;
+    group.chosen_side = authority.chosen_side;
     group.side_assignment_rule = authority.side_assignment_rule;
     group.support_orientation_rule = authority.support_orientation_rule;
     group.used_junction_pair_side_assignment = authority.used_junction_pair_side_assignment;
@@ -593,6 +604,7 @@ SupportLayoutEndpointView MakeSupportLayoutEndpointView(const SupportLayoutEndpo
   view.order_decision_policy = endpoint.order_decision_policy;
   view.order_decision_choice = endpoint.order_decision_choice;
   view.order_decision_choice_reason = endpoint.order_decision_choice_reason;
+  view.chosen_side = endpoint.chosen_side;
   view.side = endpoint.side;
   view.side_assignment_rule = endpoint.side_assignment_rule;
   view.support_orientation_rule = endpoint.support_orientation_rule;
@@ -630,6 +642,13 @@ SupportLayoutEndpointView MakeSupportLayoutEndpointView(const SupportLayoutEndpo
   return view;
 }
 
+void mark_grouped_endpoint_cache_missing(SupportLayoutEndpointView* view) {
+  if (view == nullptr) {
+    return;
+  }
+  view->authoritative_group_cache_present = false;
+}
+
 void ApplyAuthoritativeGroupedEndpointDecision(const CacheState& cache_state, const SupportLayoutEndpoint& endpoint,
                                                SupportLayoutEndpointView* view) {
   if (view == nullptr || !UsesAuthoritativeGroupedLoweredSupport(endpoint)) {
@@ -638,15 +657,18 @@ void ApplyAuthoritativeGroupedEndpointDecision(const CacheState& cache_state, co
   const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint);
   const auto it = cache_state.support_layout_cache.support_group_decisions.find(key);
   if (it == cache_state.support_layout_cache.support_group_decisions.end()) {
+    mark_grouped_endpoint_cache_missing(view);
     return;
   }
   const SupportGroupDecision& authority = it->second;
+  view->authoritative_group_cache_present = true;
   view->support_authority = authority.support_authority;
   view->relation_kind = authority.relation_kind;
   view->continuity_class = authority.continuity_class;
   view->order_decision_policy = authority.order_decision_policy;
   view->order_decision_choice = authority.order_decision_choice;
   view->order_decision_choice_reason = authority.order_decision_choice_reason;
+  view->chosen_side = authority.chosen_side;
   view->side_assignment_rule = authority.side_assignment_rule;
   view->support_orientation_rule = authority.support_orientation_rule;
   view->used_junction_pair_side_assignment = authority.used_junction_pair_side_assignment;
@@ -906,7 +928,14 @@ std::optional<SupportLayoutInspectionView> CoreView::inspect_support_layout(Obje
   ApplyAuthoritativeGroupedEndpointDecision(state_.runtime_.cache_state, layout->start, &result.start_endpoint);
   ApplyAuthoritativeGroupedEndpointDecision(state_.runtime_.cache_state, layout->end, &result.end_endpoint);
 
-  result.lowered_support_groups = BuildLoweredSupportGroupInspectionViews(state_.runtime_.cache_state, *layout);
+  result.lowered_support_groups =
+      BuildLoweredSupportGroupInspectionViews(state_.runtime_.cache_state, *layout, &result.grouped_authority_cache_complete);
+  if (UsesAuthoritativeGroupedLoweredSupport(layout->start) && !result.start_endpoint.authoritative_group_cache_present) {
+    result.grouped_authority_cache_complete = false;
+  }
+  if (UsesAuthoritativeGroupedLoweredSupport(layout->end) && !result.end_endpoint.authoritative_group_cache_present) {
+    result.grouped_authority_cache_complete = false;
+  }
 
   std::unordered_set<std::uint64_t> seen{};
   AddLink(&result.links, &seen, "Source Span", EntityKind::kSpan, span_id);

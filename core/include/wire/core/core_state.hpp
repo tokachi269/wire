@@ -152,6 +152,10 @@ private:
   void add_dirty_queue(ObjectId span_id, DirtyBits dirty_bits);
   void mark_connected_spans_dirty_from_port(ObjectId port_id, DirtyBits dirty_bits, ChangeSet* change_set);
   void mark_connected_spans_dirty_from_anchor(ObjectId anchor_id, DirtyBits dirty_bits, ChangeSet* change_set);
+  [[nodiscard]] std::vector<ObjectId> collect_topology_related_spans_for_ports(const std::vector<ObjectId>& port_ids,
+                                                                                ObjectId exclude_span_id) const;
+  void mark_topology_related_spans_for_ports_dirty(const std::vector<ObjectId>& port_ids, ObjectId exclude_span_id,
+                                                   DirtyBits dirty_bits, ChangeSet* change_set);
   [[nodiscard]] bool cache_rebuilt_span_geometry(ObjectId span_id, SpanSupportLayoutEntry support_layout,
                                                  DetailCurve detail, std::string* error_message);
   [[nodiscard]] bool rebuild_span_decision_path(ObjectId span_id, std::string* error_message);

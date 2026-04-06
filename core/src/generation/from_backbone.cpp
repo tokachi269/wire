@@ -4,6 +4,7 @@
 #include "../pole_orientation_utils.hpp"
 #include "../support_orientation_utils.hpp"
 #include "backbone_seed_placement.hpp"
+#include "backbone_pole_orientation_policy.hpp"
 #include "backbone_seed_topology.hpp"
 #include "backbone_prepare.hpp"
 #include "detail_utils.hpp"
@@ -182,32 +183,26 @@ void append_seed_support_group_decision(const CoreState& state, const Port& port
     group.owner_pole_id = endpoint.owner_pole_id;
     group.support_group_id = endpoint.support_group_id;
     group.support_authority = endpoint.support_authority;
-    group.category = port.category;
     group.side = endpoint.side;
     group.origin = endpoint.origin;
-    group.down_offset_m = endpoint.branch_down_offset_m;
-    group.down_offset_variation = endpoint.down_offset_variation;
-    Vec3d support_world = pole->world_transform.position;
-    const double template_support_z = template_layer_base_z_for_port_category_seed(state, *pole, port.category);
-    SetHeightAlongWorldUp(&support_world, template_support_z - endpoint.branch_down_offset_m);
-    group.support_world = support_world;
+    group.order_decision_policy = endpoint.order_decision_policy;
+    group.order_decision_choice = endpoint.order_decision_choice;
+    group.order_decision_choice_reason = endpoint.order_decision_choice_reason;
+    group.chosen_side = endpoint.chosen_side;
+    group.used_junction_pair_side_assignment = endpoint.used_junction_pair_side_assignment;
   }
-  it->second.grouped_port_count += 1;
-  it->second.attachment_worlds.push_back(port.world_position);
 }
 
 SpanSupportLayoutDecisionSeed build_seed_layout_record(
     const CoreState& state, ObjectId span_id, BackboneFlowKind flow_kind, CurvePassMode pass_mode,
     std::uint64_t variation_flow_key, SpanLoweringKind lowering_kind, const Port& port_a, const Port& port_b,
-    SupportLayoutDecisionSeedEndpoint start, SupportLayoutDecisionSeedEndpoint end,
-    std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision> support_group_decisions = {}) {
+    SupportLayoutDecisionSeedEndpoint start, SupportLayoutDecisionSeedEndpoint end) {
   SpanSupportLayoutDecisionSeed layout{};
   layout.span_id = span_id;
   layout.flow_kind = flow_kind;
   layout.pass_mode = pass_mode;
   layout.variation_flow_key = variation_flow_key;
   layout.lowering_kind = lowering_kind;
-  layout.support_group_decisions = std::move(support_group_decisions);
   layout.start = std::move(start);
   layout.end = std::move(end);
   append_seed_support_group_decision(state, port_a, layout.start, &layout);
@@ -1873,225 +1868,31 @@ CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
 
   const auto previous_pole_orientation_debug_records = debug_.pole_orientation_debug_records;
   debug_.pole_orientation_debug_records.clear();
-  constexpr double kMainBisectorSupportAxisMaxForwardAlignment = 0.85;
-  auto row_layout_yaw_override_from_debug = [&](const PoleOrientationDebugRecord& debug_record)
-      -> std::optional<PortLayoutYawOverride> {
-    if (debug_record.row_layout_axis_mode != RowLayoutAxisMode::kSupportAxis) {
-      return std::nullopt;
-    }
-    Vec3d support_axis = debug_record.adopted_support_axis;
-    if (!Normalize(&support_axis)) {
-      return std::nullopt;
-    }
-    PortLayoutYawOverride override{};
-    override.category = debug_record.row_layout_axis_category;
-    override.yaw_deg =
-        normalize_yaw_deg(std::atan2(support_axis.y, support_axis.x) * (180.0 / kPi) - 90.0);
-    return override;
-  };
-  std::unordered_set<ObjectId> oriented_poles{};
-  for (std::size_t ordered_index = 0; ordered_index < ordered_support_node_ids.size(); ++ordered_index) {
-    const ObjectId node_id = ordered_support_node_ids[ordered_index];
-    if (!oriented_poles.insert(node_id).second) {
-      continue;
-    }
-    Pole* pole = edit_state_access().poles.find(node_id);
-    if (pole == nullptr) {
-      continue;
-    }
-
-    PoleOrientationDebugRecord debug{};
-    debug.pole_id = pole->id;
-    const Vec3d center = current_support_position(node_id);
-    const Vec3d previous_forward = RotateAroundWorldUpDeg(WorldForward(), effective_pole_yaw_deg(*pole));
-    const double previous_layout_yaw = effective_pole_layout_yaw_deg(*pole);
-    std::optional<PortLayoutYawOverride> previous_row_layout_yaw_override{};
-    Vec3d previous_support_axis{};
-    if (const auto it_prev_debug = previous_pole_orientation_debug_records.find(pole->id);
-        it_prev_debug != previous_pole_orientation_debug_records.end()) {
-      previous_support_axis = it_prev_debug->second.adopted_support_axis;
-      previous_row_layout_yaw_override = row_layout_yaw_override_from_debug(it_prev_debug->second);
-    } else {
-      previous_support_axis = side_axis_from_yaw_deg(previous_layout_yaw);
-    }
-    Vec3d chosen_forward = normalize_forward_xy(previous_forward);
-    bool has_chosen_forward = Normalize(&chosen_forward);
-    Vec3d chosen_support_axis = choose_support_axis_for_layout(node_id, center, previous_support_axis, &debug);
-    if (!Normalize(&chosen_support_axis)) {
-      chosen_support_axis = normalize_forward_xy(previous_support_axis);
-    }
-    if (ordered_index > 0) {
-      const ObjectId prev_node_id = ordered_support_node_ids[ordered_index - 1];
-      if (prev_node_id != node_id) {
-        const Pole* prev_pole = edit_state_access().poles.find(prev_node_id);
-        if (prev_pole != nullptr) {
-          const auto it_prev_debug = debug_.pole_orientation_debug_records.find(prev_pole->id);
-          if (it_prev_debug != debug_.pole_orientation_debug_records.end()) {
-            Vec3d previous_route_axis = normalize_forward_xy(it_prev_debug->second.adopted_support_axis);
-            if (Normalize(&previous_route_axis)) {
-              chosen_support_axis = choose_continuous_axis(chosen_support_axis, previous_route_axis);
-            }
-          }
-        }
-      }
-    }
-    const bool apply_main_flow_orientation = has_existing_main_flow_context(node_id);
-    auto adopt_forward_from_neighbor_pair = [&](ObjectId primary_neighbor_id, ObjectId secondary_neighbor_id,
-                                                PoleForwardRule rule) {
-      if (primary_neighbor_id == kInvalidObjectId || secondary_neighbor_id == kInvalidObjectId ||
-          primary_neighbor_id == secondary_neighbor_id) {
-        return false;
-      }
-      const Vec3d dir_a = normalize_forward_xy(current_support_position(primary_neighbor_id) - center);
-      const Vec3d dir_b = normalize_forward_xy(current_support_position(secondary_neighbor_id) - center);
-      Vec3d axis = normalize_forward_xy(dir_a + dir_b);
-      if (!Normalize(&axis)) {
-        axis = normalize_forward_xy(dir_a - dir_b);
-      }
-      if (!Normalize(&axis)) {
-        return false;
-      }
-      chosen_forward = choose_continuous_axis(axis, previous_forward);
-      has_chosen_forward = Normalize(&chosen_forward);
-      if (has_chosen_forward) {
-        debug.rule = rule;
-        debug.primary_neighbor_id = primary_neighbor_id;
-        debug.secondary_neighbor_id = secondary_neighbor_id;
-      }
-      return has_chosen_forward;
-    };
-    auto adopt_forward_from_primary_neighbor = [&](ObjectId primary_neighbor_id, PoleForwardRule rule) {
-      if (primary_neighbor_id == kInvalidObjectId) {
-        return false;
-      }
-      Vec3d axis = normalize_forward_xy(current_support_position(primary_neighbor_id) - center);
-      if (!Normalize(&axis)) {
-        return false;
-      }
-      chosen_forward = choose_continuous_axis(axis, previous_forward);
-      has_chosen_forward = true;
-      debug.rule = rule;
-      debug.primary_neighbor_id = primary_neighbor_id;
-      return true;
-    };
-    auto adopt_forward_from_support_axis_selection = [&]() {
-      switch (debug.support_axis_rule) {
-      case PoleSupportAxisRule::kMainChainPair:
-        if (adopt_forward_from_neighbor_pair(debug.primary_neighbor_id, debug.secondary_neighbor_id,
-                                             PoleForwardRule::kMainChainBisector)) {
-          return true;
-        }
-        return adopt_forward_from_primary_neighbor(debug.primary_neighbor_id, PoleForwardRule::kMainChainSingle);
-      case PoleSupportAxisRule::kPrimaryIncident:
-        return adopt_forward_from_primary_neighbor(debug.primary_neighbor_id, PoleForwardRule::kPrimaryIncident);
-      case PoleSupportAxisRule::kMainChainSingle:
-        return adopt_forward_from_primary_neighbor(debug.primary_neighbor_id, PoleForwardRule::kMainChainSingle);
-      case PoleSupportAxisRule::kConnectedDirectionFit:
-      case PoleSupportAxisRule::kFallback:
-      default:
-        return false;
-      }
-    };
-
-    if (apply_main_flow_orientation) {
-      const std::vector<ObjectId> continuation_neighbors = continuation_neighbors_for_orientation(node_id);
-      if (continuation_neighbors.size() >= 2) {
-        adopt_forward_from_neighbor_pair(continuation_neighbors[0], continuation_neighbors[1],
-                                         PoleForwardRule::kMainChainBisector);
-      } else {
-        const ObjectId primary_neighbor_id = primary_neighbor_for_orientation(node_id);
-        if (primary_neighbor_id != kInvalidObjectId) {
-          adopt_forward_from_primary_neighbor(primary_neighbor_id,
-                                             active_junction_by_node.contains(node_id)
-                                                 ? PoleForwardRule::kPrimaryIncident
-                                                 : PoleForwardRule::kMainChainSingle);
-        }
-      }
-    }
-
-    if (!has_chosen_forward && apply_main_flow_orientation) {
-      adopt_forward_from_support_axis_selection();
-    }
-
-    if (!has_chosen_forward) {
-      chosen_forward = normalize_forward_xy(previous_forward);
-      debug.rule = PoleForwardRule::kFallback;
-    }
-    if (debug.rule == PoleForwardRule::kMainChainBisector) {
-      bool preserve_pair_axis = false;
-      if (debug.support_axis_rule == PoleSupportAxisRule::kMainChainPair && debug.primary_neighbor_id != kInvalidObjectId) {
-        Vec3d preserved_pair_axis = normalize_forward_xy(current_support_position(debug.primary_neighbor_id) - center);
-        if (Normalize(&preserved_pair_axis)) {
-          preserved_pair_axis = ComputeLateralAxis(preserved_pair_axis);
-          if (Normalize(&preserved_pair_axis)) {
-            preserved_pair_axis = choose_continuous_axis(preserved_pair_axis, previous_support_axis);
-            if (Normalize(&preserved_pair_axis)) {
-              preserve_pair_axis = std::abs(Dot(preserved_pair_axis, chosen_support_axis)) >= 0.95;
-            }
-          }
-        }
-      }
-      if (!preserve_pair_axis) {
-      Vec3d normalized_support_axis = normalize_forward_xy(chosen_support_axis);
-      if (Normalize(&normalized_support_axis)) {
-        const double forward_alignment = std::abs(Dot(normalized_support_axis, chosen_forward));
-        if (forward_alignment > kMainBisectorSupportAxisMaxForwardAlignment) {
-          Vec3d lateral_axis = ComputeLateralAxis(chosen_forward);
-          if (Normalize(&lateral_axis)) {
-            chosen_support_axis = choose_continuous_axis(lateral_axis, normalized_support_axis);
-            if (Normalize(&chosen_support_axis) && debug.secondary_neighbor_id != kInvalidObjectId) {
-              debug.support_axis_rule = PoleSupportAxisRule::kMainChainPair;
-            }
-          }
-        }
-      }
-      }
-    }
-    debug.adopted_forward = chosen_forward;
-    debug.adopted_support_axis = chosen_support_axis;
-    const BundleCategoryTieBreakKey row_layout_key = row_layout_axis_key_for_node(node_id);
-    debug.row_layout_axis_mode = row_layout_axis_mode_for_key(row_layout_key);
-    debug.row_layout_axis_category = row_layout_key.category;
-    debug_.pole_orientation_debug_records[pole->id] = debug;
-
-    const double next_layout_yaw = effective_pole_layout_yaw_deg(*pole);
-    const double layout_yaw_delta = normalize_yaw_deg(next_layout_yaw - previous_layout_yaw);
-    const std::optional<PortLayoutYawOverride> next_row_layout_yaw_override = row_layout_yaw_override_from_debug(debug);
-    const bool row_layout_override_changed =
-        (!previous_row_layout_yaw_override.has_value() && next_row_layout_yaw_override.has_value()) ||
-        (previous_row_layout_yaw_override.has_value() && !next_row_layout_yaw_override.has_value()) ||
-        (previous_row_layout_yaw_override.has_value() && next_row_layout_yaw_override.has_value() &&
-         (previous_row_layout_yaw_override->category != next_row_layout_yaw_override->category ||
-          std::abs(normalize_yaw_deg(next_row_layout_yaw_override->yaw_deg - previous_row_layout_yaw_override->yaw_deg)) >
-              1e-6));
-
-    if (!has_chosen_forward || has_pole_orientation_override(pole->id)) {
-      if (std::abs(layout_yaw_delta) > 1e-6 || row_layout_override_changed) {
-        const Pole old_pole = *pole;
-        refresh_owned_endpoints_from_pole(
-            pole->id, &result.change_set, &old_pole,
-            previous_row_layout_yaw_override.has_value() ? &*previous_row_layout_yaw_override : nullptr);
-      }
-      continue;
-    }
-
-    const double desired_yaw = normalize_yaw_deg(std::atan2(chosen_forward.y, chosen_forward.x) * (180.0 / kPi));
-    double yaw_delta = desired_yaw - pole->world_transform.rotation_euler_deg.z;
-    yaw_delta = std::fmod(yaw_delta + 540.0, 360.0) - 180.0;
-    if (std::abs(yaw_delta) <= 1e-6) {
-      if (std::abs(layout_yaw_delta) > 1e-6 || row_layout_override_changed) {
-        const Pole old_pole = *pole;
-        refresh_owned_endpoints_from_pole(
-            pole->id, &result.change_set, &old_pole,
-            previous_row_layout_yaw_override.has_value() ? &*previous_row_layout_yaw_override : nullptr);
-      }
-      continue;
-    }
-
-    const Pole old_pole = *pole;
-    pole->world_transform.rotation_euler_deg.z = desired_yaw;
-    finalize_pole_transform_update(pole->id, old_pole, &result.change_set);
-  }
+  BackbonePoleOrientationPolicyInput pole_orientation_policy_input{
+      ordered_support_node_ids,
+      debug_.pole_orientation_debug_records,
+      previous_pole_orientation_debug_records,
+      [&](ObjectId pole_id) -> Pole* { return edit_state_access().poles.find(pole_id); },
+      [&](ObjectId node_id) -> Vec3d { return current_support_position(node_id); },
+      [&](ObjectId node_id, const Vec3d& previous_support_axis, PoleOrientationDebugRecord* debug) -> Vec3d {
+        return choose_support_axis_for_layout(node_id, current_support_position(node_id), previous_support_axis, debug);
+      },
+      [&](ObjectId node_id) -> bool { return has_existing_main_flow_context(node_id); },
+      [&](ObjectId node_id) { return continuation_neighbors_for_orientation(node_id); },
+      [&](ObjectId node_id) -> ObjectId { return primary_neighbor_for_orientation(node_id); },
+      [&](ObjectId node_id) -> bool { return active_junction_by_node.contains(node_id); },
+      [&](ObjectId node_id) -> RowLayoutAxisSelection {
+        const BundleCategoryTieBreakKey key = row_layout_axis_key_for_node(node_id);
+        return {row_layout_axis_mode_for_key(key), key.category};
+      },
+      [&](ObjectId pole_id) -> bool { return has_pole_orientation_override(pole_id); },
+      [&](const Pole& pole) -> double { return effective_pole_yaw_deg(pole); },
+      [&](const Pole& pole) -> double { return effective_pole_layout_yaw_deg(pole); },
+      [&](ObjectId pole_id, const Pole& old_pole, const PortLayoutYawOverride* previous_override) {
+        refresh_owned_endpoints_from_pole(pole_id, &result.change_set, &old_pole, previous_override);
+      },
+      [&](ObjectId pole_id, const Pole& old_pole) { finalize_pole_transform_update(pole_id, old_pole, &result.change_set); }};
+  apply_backbone_pole_orientation_policy(pole_orientation_policy_input);
 
   constexpr double kThroughPairStraightnessThreshold = 0.3;
   constexpr double kExplicitMiddleRouteNearStraightThreshold = 0.95;

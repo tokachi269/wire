@@ -74,14 +74,9 @@ struct SupportLayoutSemanticDecision {
   int support_group_id = -1;
   bool lower_required = false;
   bool lowering_blocked_by_policy = false;
-  OrderDecisionPolicyKind order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
-  OrderDecisionChoiceKind order_decision_choice = OrderDecisionChoiceKind::kNormal;
-  OrderDecisionChoiceReason order_decision_choice_reason = OrderDecisionChoiceReason::kFixedOrder;
-  LateralSideChoiceKind chosen_side = LateralSideChoiceKind::kCenter;
   SideAssignmentRuleKind side_assignment_rule = SideAssignmentRuleKind::kPoleLocal;
   SupportOrientationRuleKind support_orientation_rule = SupportOrientationRuleKind::kRadial;
   SupportOrientationBasisKind support_orientation_basis = SupportOrientationBasisKind::kRadial;
-  bool used_junction_pair_side_assignment = false;
   bool has_side_axis = false;
   Vec3d side_axis{};
   double chosen_side_sign = 0.0;
@@ -103,14 +98,9 @@ struct SupportLayoutSemanticDecision {
   decision.support_group_id = source.support_group_id;
   decision.lower_required = source.lower_required;
   decision.lowering_blocked_by_policy = source.lowering_blocked_by_policy;
-  decision.order_decision_policy = source.order_decision_policy;
-  decision.order_decision_choice = source.order_decision_choice;
-  decision.order_decision_choice_reason = source.order_decision_choice_reason;
-  decision.chosen_side = source.chosen_side;
   decision.side_assignment_rule = source.side_assignment_rule;
   decision.support_orientation_rule = source.support_orientation_rule;
   decision.support_orientation_basis = source.support_orientation_basis;
-  decision.used_junction_pair_side_assignment = source.used_junction_pair_side_assignment;
   decision.has_side_axis = source.has_side_axis;
   decision.side_axis = source.side_axis;
   decision.chosen_side_sign = source.chosen_side_sign;
@@ -171,6 +161,11 @@ struct SupportLayoutEndpoint : SupportLayoutSemanticDecision {
   double required_clearance_m = 0.0;
   bool solver_used_same_level_constraint = false;
   bool used_special_case_ports = false;
+  OrderDecisionPolicyKind order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
+  OrderDecisionChoiceKind order_decision_choice = OrderDecisionChoiceKind::kNormal;
+  OrderDecisionChoiceReason order_decision_choice_reason = OrderDecisionChoiceReason::kFixedOrder;
+  LateralSideChoiceKind chosen_side = LateralSideChoiceKind::kCenter;
+  bool used_junction_pair_side_assignment = false;
   HierarchicalVariationSample down_offset_variation{};
 };
 
@@ -200,19 +195,23 @@ struct SupportLayoutDecisionSeedEndpoint : SupportLayoutSemanticDecision {
   double required_clearance_m = 0.0;
   bool solver_used_same_level_constraint = false;
   bool used_special_case_ports = false;
+  OrderDecisionPolicyKind order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
+  OrderDecisionChoiceKind order_decision_choice = OrderDecisionChoiceKind::kNormal;
+  OrderDecisionChoiceReason order_decision_choice_reason = OrderDecisionChoiceReason::kFixedOrder;
+  LateralSideChoiceKind chosen_side = LateralSideChoiceKind::kCenter;
+  bool used_junction_pair_side_assignment = false;
   HierarchicalVariationSample down_offset_variation{};
 };
 
 struct SupportGroupDecision : SupportLayoutSemanticDecision {
   ResolvedSupportAuthority support_authority{};
-  ConnectionCategory category = ConnectionCategory::kLowVoltage;
   SlotSide side = SlotSide::kCenter;
   SupportLayoutOriginKind origin = SupportLayoutOriginKind::kFallback;
-  double down_offset_m = 0.0;
-  Vec3d support_world{};
-  HierarchicalVariationSample down_offset_variation{};
-  int grouped_port_count = 0;
-  std::vector<Vec3d> attachment_worlds{};
+  OrderDecisionPolicyKind order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
+  OrderDecisionChoiceKind order_decision_choice = OrderDecisionChoiceKind::kNormal;
+  OrderDecisionChoiceReason order_decision_choice_reason = OrderDecisionChoiceReason::kFixedOrder;
+  LateralSideChoiceKind chosen_side = LateralSideChoiceKind::kCenter;
+  bool used_junction_pair_side_assignment = false;
 };
 
 struct SpanSupportLayoutDecisionSeed {
@@ -254,17 +253,85 @@ struct SpanSupportLayoutEntry {
   SupportLayoutEndpoint start{};
   SupportLayoutEndpoint end{};
   std::vector<LoweredSupportGroupKey> lowered_support_group_keys{};
-  std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash> support_group_decisions{};
   std::uint64_t source_version = 0;
 };
 
+struct SupportLayoutCacheRecord {
+  bool decision_required = false;
+  std::optional<SpanSupportLayoutDecisionSeed> decision_seed{};
+  std::optional<SpanSupportLayoutEntry> layout{};
+};
+
 struct SupportLayoutCache {
-  std::unordered_map<ObjectId, SpanSupportLayoutDecisionSeed> decision_seeds_by_span{};
-  std::unordered_set<ObjectId> decision_required_span_ids{};
-  std::unordered_map<ObjectId, SpanSupportLayoutEntry> by_span{};
+  std::unordered_map<ObjectId, SupportLayoutCacheRecord> records_by_span{};
+  // Derived view rebuilt from records_by_span[*].decision_seed. Do not treat this as an authority source.
   std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash> support_group_decisions{};
   std::unordered_map<LoweredSupportGroupKey, LoweredSupportGroupPlacement, LoweredSupportGroupKeyHash>
       lowered_support_groups{};
+
+  [[nodiscard]] const SupportLayoutCacheRecord* find_record(ObjectId span_id) const {
+    const auto it = records_by_span.find(span_id);
+    return (it == records_by_span.end()) ? nullptr : &it->second;
+  }
+
+  [[nodiscard]] SupportLayoutCacheRecord* find_record(ObjectId span_id) {
+    const auto it = records_by_span.find(span_id);
+    return (it == records_by_span.end()) ? nullptr : &it->second;
+  }
+
+  [[nodiscard]] const SpanSupportLayoutDecisionSeed* find_seed(ObjectId span_id) const {
+    const SupportLayoutCacheRecord* record = find_record(span_id);
+    return (record == nullptr || !record->decision_seed.has_value()) ? nullptr : &*record->decision_seed;
+  }
+
+  [[nodiscard]] const SpanSupportLayoutEntry* find_layout(ObjectId span_id) const {
+    const SupportLayoutCacheRecord* record = find_record(span_id);
+    return (record == nullptr || !record->layout.has_value()) ? nullptr : &*record->layout;
+  }
+
+  [[nodiscard]] bool decision_required(ObjectId span_id) const {
+    const SupportLayoutCacheRecord* record = find_record(span_id);
+    return record != nullptr && record->decision_required;
+  }
+
+  void erase_record_if_empty(ObjectId span_id) {
+    const auto it = records_by_span.find(span_id);
+    if (it == records_by_span.end()) {
+      return;
+    }
+    if (!it->second.decision_required && !it->second.decision_seed.has_value() && !it->second.layout.has_value()) {
+      records_by_span.erase(it);
+    }
+  }
+
+  void store_layout(SpanSupportLayoutEntry layout) {
+    const ObjectId span_id = layout.span_id;
+    SupportLayoutCacheRecord& record = records_by_span[span_id];
+    record.decision_required = layout.requires_decision_seed;
+    record.layout = std::move(layout);
+  }
+
+  void store_seed(SpanSupportLayoutDecisionSeed seed) {
+    const ObjectId span_id = seed.span_id;
+    SupportLayoutCacheRecord& record = records_by_span[span_id];
+    record.decision_required = true;
+    record.decision_seed = std::move(seed);
+  }
+
+  void clear_seed(ObjectId span_id) {
+    if (SupportLayoutCacheRecord* record = find_record(span_id); record != nullptr) {
+      record->decision_seed.reset();
+      record->decision_required = false;
+      erase_record_if_empty(span_id);
+    }
+  }
+
+  void clear_layout(ObjectId span_id) {
+    if (SupportLayoutCacheRecord* record = find_record(span_id); record != nullptr) {
+      record->layout.reset();
+      erase_record_if_empty(span_id);
+    }
+  }
 };
 
 } // namespace wire::core

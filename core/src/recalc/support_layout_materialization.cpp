@@ -404,146 +404,205 @@ SupportLayoutEndpoint build_support_layout_endpoint(
 
 namespace {
 
-bool merge_layout_support_group_decision(
-    std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash>* groups,
-    const LoweredSupportGroupKey& key, const SupportGroupDecision& group_copy) {
-  if (groups == nullptr || key.owner_pole_id == kInvalidObjectId || key.support_group_id < 0) {
-    return false;
-  }
-  (*groups)[key] = group_copy;
-  return true;
-}
-
-void merge_observed_group_support_authority(ResolvedSupportAuthority* authority,
-                                            const ResolvedSupportAuthority& observed) {
-  if (authority == nullptr) {
+void append_unique_group_key(std::vector<LoweredSupportGroupKey>* keys, const LoweredSupportGroupKey& key) {
+  if (keys == nullptr || key.owner_pole_id == kInvalidObjectId || key.support_group_id < 0) {
     return;
   }
-  if (!authority->has_signed_support_axis && observed.has_signed_support_axis) {
-    authority->signed_support_axis = observed.signed_support_axis;
-    authority->has_signed_support_axis = true;
+  if (std::find(keys->begin(), keys->end(), key) == keys->end()) {
+    keys->push_back(key);
   }
-  if (!HasAuthoritativeSupportPair(authority->pair.pair_peer_low, authority->pair.pair_peer_high) &&
-      HasAuthoritativeSupportPair(observed.pair.pair_peer_low, observed.pair.pair_peer_high)) {
-    authority->pair.pair_peer_low = observed.pair.pair_peer_low;
-    authority->pair.pair_peer_high = observed.pair.pair_peer_high;
+}
+
+std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash>
+build_support_group_decision_view_from_seeds(const SupportLayoutCache& support_layout_cache) {
+  std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash> groups{};
+  std::vector<ObjectId> ordered_seed_span_ids{};
+  ordered_seed_span_ids.reserve(support_layout_cache.records_by_span.size());
+  for (const auto& [span_id, record] : support_layout_cache.records_by_span) {
+    if (record.decision_seed.has_value()) {
+      ordered_seed_span_ids.push_back(span_id);
+    }
   }
-  if (!authority->pair.has_pair_axis && observed.pair.has_pair_axis) {
-    authority->pair.pair_axis = observed.pair.pair_axis;
-    authority->pair.has_pair_axis = true;
+  std::sort(ordered_seed_span_ids.begin(), ordered_seed_span_ids.end());
+  for (ObjectId span_id : ordered_seed_span_ids) {
+    const SpanSupportLayoutDecisionSeed* seed = support_layout_cache.find_seed(span_id);
+    if (seed == nullptr) {
+      continue;
+    }
+    for (const auto& [key, group_copy] : seed->support_group_decisions) {
+      if (key.owner_pole_id == kInvalidObjectId || key.support_group_id < 0) {
+        continue;
+      }
+      groups[key] = group_copy;
+    }
   }
-  if (authority->pair.height_rank < 0 && observed.pair.height_rank >= 0) {
-    authority->pair.height_rank = observed.pair.height_rank;
+  return groups;
+}
+
+std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash>
+build_support_group_decision_view_for_keys_from_seeds(const SupportLayoutCache& support_layout_cache,
+                                                      const std::vector<LoweredSupportGroupKey>& keys) {
+  std::unordered_set<LoweredSupportGroupKey, LoweredSupportGroupKeyHash> key_set(keys.begin(), keys.end());
+  std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash> groups{};
+  std::vector<ObjectId> ordered_seed_span_ids{};
+  ordered_seed_span_ids.reserve(support_layout_cache.records_by_span.size());
+  for (const auto& [span_id, record] : support_layout_cache.records_by_span) {
+    if (record.decision_seed.has_value()) {
+      ordered_seed_span_ids.push_back(span_id);
+    }
   }
-  if (authority->pair.orientation_basis == SupportOrientationBasisKind::kRadial &&
-      observed.pair.orientation_basis != SupportOrientationBasisKind::kRadial) {
-    authority->pair.orientation_basis = observed.pair.orientation_basis;
+  std::sort(ordered_seed_span_ids.begin(), ordered_seed_span_ids.end());
+  for (ObjectId span_id : ordered_seed_span_ids) {
+    const SpanSupportLayoutDecisionSeed* seed = support_layout_cache.find_seed(span_id);
+    if (seed == nullptr) {
+      continue;
+    }
+    for (const auto& [key, group_copy] : seed->support_group_decisions) {
+      if (key_set.find(key) == key_set.end()) {
+        continue;
+      }
+      if (key.owner_pole_id == kInvalidObjectId || key.support_group_id < 0) {
+        continue;
+      }
+      groups[key] = group_copy;
+    }
   }
+  return groups;
 }
 
 } // namespace
 
-void rebuild_all_lowered_support_groups(const CoreState& state, const EditState& edit_state, CacheState* cache_state) {
+std::vector<LoweredSupportGroupKey> collect_support_group_keys_for_seed(const SpanSupportLayoutDecisionSeed& seed) {
+  std::vector<LoweredSupportGroupKey> keys{};
+  keys.reserve(seed.support_group_decisions.size());
+  for (const auto& [key, _] : seed.support_group_decisions) {
+    append_unique_group_key(&keys, key);
+  }
+  return keys;
+}
+
+std::vector<LoweredSupportGroupKey> collect_support_group_keys_for_layout(const SpanSupportLayoutEntry& layout) {
+  std::vector<LoweredSupportGroupKey> keys{};
+  keys.reserve(layout.lowered_support_group_keys.size() + 2);
+  for (const LoweredSupportGroupKey& key : layout.lowered_support_group_keys) {
+    append_unique_group_key(&keys, key);
+  }
+  const auto append_endpoint_key = [&](const SupportLayoutEndpoint& endpoint) {
+    if (!endpoint_uses_grouped_lowered_support(&endpoint)) {
+      return;
+    }
+    append_unique_group_key(&keys, LoweredSupportGroupKeyFromDecision(endpoint));
+  };
+  append_endpoint_key(layout.start);
+  append_endpoint_key(layout.end);
+  return keys;
+}
+
+void rebuild_lowered_support_groups_for_keys(const CoreState& state, const EditState& edit_state, CacheState* cache_state,
+                                             const std::vector<LoweredSupportGroupKey>& keys) {
   if (cache_state == nullptr) {
     return;
   }
-  (void)state;
-  cache_state->support_layout_cache.support_group_decisions.clear();
-  cache_state->support_layout_cache.lowered_support_groups.clear();
+  std::vector<LoweredSupportGroupKey> filtered_keys{};
+  filtered_keys.reserve(keys.size());
+  for (const LoweredSupportGroupKey& key : keys) {
+    append_unique_group_key(&filtered_keys, key);
+  }
+  if (filtered_keys.empty()) {
+    return;
+  }
+
+  const auto derived_support_group_decisions =
+      build_support_group_decision_view_for_keys_from_seeds(cache_state->support_layout_cache, filtered_keys);
+  for (const LoweredSupportGroupKey& key : filtered_keys) {
+    cache_state->support_layout_cache.support_group_decisions.erase(key);
+    cache_state->support_layout_cache.lowered_support_groups.erase(key);
+  }
+  for (const auto& [key, group_decision] : derived_support_group_decisions) {
+    cache_state->support_layout_cache.support_group_decisions[key] = group_decision;
+  }
+
+  std::unordered_set<LoweredSupportGroupKey, LoweredSupportGroupKeyHash> key_set(filtered_keys.begin(), filtered_keys.end());
   std::unordered_map<LoweredSupportGroupKey, ConnectionCategory, LoweredSupportGroupKeyHash> observed_category_by_key{};
   std::unordered_map<LoweredSupportGroupKey, std::vector<Vec3d>, LoweredSupportGroupKeyHash> observed_attachment_worlds{};
-  std::vector<ObjectId> ordered_span_ids{};
-  ordered_span_ids.reserve(cache_state->support_layout_cache.by_span.size());
-  for (const auto& [span_id, _] : cache_state->support_layout_cache.by_span) {
-    ordered_span_ids.push_back(span_id);
-  }
-  std::sort(ordered_span_ids.begin(), ordered_span_ids.end());
-  std::unordered_map<LoweredSupportGroupKey, ResolvedSupportAuthority, LoweredSupportGroupKeyHash>
-      observed_group_authority_by_key{};
-  for (ObjectId span_id : ordered_span_ids) {
-    auto layout_it = cache_state->support_layout_cache.by_span.find(span_id);
-    if (layout_it == cache_state->support_layout_cache.by_span.end()) {
+  std::unordered_map<LoweredSupportGroupKey, double, LoweredSupportGroupKeyHash> observed_down_offset_by_key{};
+  std::unordered_map<LoweredSupportGroupKey, HierarchicalVariationSample, LoweredSupportGroupKeyHash>
+      observed_down_offset_variation_by_key{};
+
+  for (auto& [_, record] : cache_state->support_layout_cache.records_by_span) {
+    if (!record.layout.has_value()) {
       continue;
     }
-    auto& layout = layout_it->second;
-    layout.lowered_support_group_keys.clear();
-    for (const auto& [key, group_copy] : layout.support_group_decisions) {
-      const bool accepted =
-          merge_layout_support_group_decision(&cache_state->support_layout_cache.support_group_decisions, key, group_copy);
-      if (accepted &&
-          std::find(layout.lowered_support_group_keys.begin(), layout.lowered_support_group_keys.end(), key) ==
-              layout.lowered_support_group_keys.end()) {
-        layout.lowered_support_group_keys.push_back(key);
-      }
-    }
+    auto& layout = *record.layout;
+    layout.lowered_support_group_keys.erase(
+        std::remove_if(layout.lowered_support_group_keys.begin(), layout.lowered_support_group_keys.end(),
+                       [&](const LoweredSupportGroupKey& key) { return key_set.find(key) != key_set.end(); }),
+        layout.lowered_support_group_keys.end());
+
     const auto observe_endpoint = [&](const SupportLayoutEndpoint& endpoint) {
       if (!endpoint_uses_grouped_lowered_support(&endpoint)) {
         return;
       }
       const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint);
-      if (key.owner_pole_id == kInvalidObjectId || key.support_group_id < 0) {
+      if (key_set.find(key) == key_set.end()) {
         return;
       }
       if (const Port* port = edit_state.ports.find(endpoint.port_id); port != nullptr) {
         observed_category_by_key.try_emplace(key, port->category);
       }
       observed_attachment_worlds[key].push_back(endpoint.endpoint_world);
-      merge_observed_group_support_authority(&observed_group_authority_by_key[key], endpoint.support_authority);
+      observed_down_offset_by_key.try_emplace(key, endpoint.branch_down_offset_m);
+      observed_down_offset_variation_by_key.try_emplace(key, endpoint.down_offset_variation);
     };
     observe_endpoint(layout.start);
     observe_endpoint(layout.end);
   }
-  for (auto& [key, group_decision] : cache_state->support_layout_cache.support_group_decisions) {
-    if (const auto category_it = observed_category_by_key.find(key); category_it != observed_category_by_key.end()) {
-      group_decision.category = category_it->second;
+
+  for (const auto& [key, group_decision] : derived_support_group_decisions) {
+    LoweredSupportGroupPlacement placement = build_grouped_support_placement_from_decision(
+        state, group_decision, edit_state, *cache_state,
+        [&]() -> const ConnectionCategory* {
+          const auto it = observed_category_by_key.find(key);
+          return (it == observed_category_by_key.end()) ? nullptr : &it->second;
+        }(),
+        [&]() -> const std::vector<Vec3d>* {
+          const auto it = observed_attachment_worlds.find(key);
+          return (it == observed_attachment_worlds.end()) ? nullptr : &it->second;
+        }());
+    if (const auto it = observed_down_offset_by_key.find(key); it != observed_down_offset_by_key.end()) {
+      placement.down_offset_m = it->second;
     }
-    if (const auto attachment_it = observed_attachment_worlds.find(key); attachment_it != observed_attachment_worlds.end()) {
-      group_decision.grouped_port_count = static_cast<int>(attachment_it->second.size());
-      group_decision.attachment_worlds = attachment_it->second;
+    if (const auto it = observed_down_offset_variation_by_key.find(key);
+        it != observed_down_offset_variation_by_key.end()) {
+      placement.down_offset_variation = it->second;
     }
-    if (const auto authority_it = observed_group_authority_by_key.find(key);
-        authority_it != observed_group_authority_by_key.end()) {
-      merge_observed_group_support_authority(&group_decision.support_authority, authority_it->second);
-    }
+    cache_state->support_layout_cache.lowered_support_groups[key] = std::move(placement);
   }
-  for (const auto& [key, group_decision] : cache_state->support_layout_cache.support_group_decisions) {
-    cache_state->support_layout_cache.lowered_support_groups[key] =
-        build_grouped_support_placement_from_decision(state, group_decision, edit_state, *cache_state);
-  }
-  for (auto& [span_id, layout] : cache_state->support_layout_cache.by_span) {
-    (void)span_id;
-    LoweredSupportGroupKey start_key{};
-    if (const SupportGroupDecision* layout_group_decision =
-            find_layout_support_group_decision_for_endpoint(layout, layout.start, &start_key);
-        layout_group_decision != nullptr) {
-      const auto group_decision_it = cache_state->support_layout_cache.support_group_decisions.find(start_key);
-      const auto it = cache_state->support_layout_cache.lowered_support_groups.find(start_key);
-      if (group_decision_it != cache_state->support_layout_cache.support_group_decisions.end() &&
-          it != cache_state->support_layout_cache.lowered_support_groups.end()) {
-        layout.support_group_decisions[start_key] = group_decision_it->second;
-        if (std::find(layout.lowered_support_group_keys.begin(), layout.lowered_support_group_keys.end(), start_key) ==
-            layout.lowered_support_group_keys.end()) {
-          layout.lowered_support_group_keys.push_back(start_key);
-        }
-        apply_grouped_support_placement_to_layout_endpoint(group_decision_it->second, &layout.start);
-      }
+
+  for (auto& [_, record] : cache_state->support_layout_cache.records_by_span) {
+    if (!record.layout.has_value()) {
+      continue;
     }
-    LoweredSupportGroupKey end_key{};
-    if (const SupportGroupDecision* layout_group_decision =
-            find_layout_support_group_decision_for_endpoint(layout, layout.end, &end_key);
-        layout_group_decision != nullptr) {
-      const auto group_decision_it = cache_state->support_layout_cache.support_group_decisions.find(end_key);
-      const auto it = cache_state->support_layout_cache.lowered_support_groups.find(end_key);
-      if (group_decision_it != cache_state->support_layout_cache.support_group_decisions.end() &&
-          it != cache_state->support_layout_cache.lowered_support_groups.end()) {
-        layout.support_group_decisions[end_key] = group_decision_it->second;
-        if (std::find(layout.lowered_support_group_keys.begin(), layout.lowered_support_group_keys.end(), end_key) ==
-            layout.lowered_support_group_keys.end()) {
-          layout.lowered_support_group_keys.push_back(end_key);
-        }
-        apply_grouped_support_placement_to_layout_endpoint(group_decision_it->second, &layout.end);
+    auto& layout = *record.layout;
+    const auto reproject_endpoint = [&](SupportLayoutEndpoint* endpoint) {
+      if (endpoint == nullptr || !endpoint_uses_grouped_lowered_support(endpoint)) {
+        return;
       }
-    }
+      const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(*endpoint);
+      if (key_set.find(key) == key_set.end()) {
+        return;
+      }
+      const auto group_decision_it = derived_support_group_decisions.find(key);
+      const auto placement_it = cache_state->support_layout_cache.lowered_support_groups.find(key);
+      if (group_decision_it == derived_support_group_decisions.end() ||
+          placement_it == cache_state->support_layout_cache.lowered_support_groups.end()) {
+        return;
+      }
+      append_unique_group_key(&layout.lowered_support_group_keys, key);
+      apply_grouped_support_placement_to_layout_endpoint(group_decision_it->second, placement_it->second, endpoint);
+    };
+    reproject_endpoint(&layout.start);
+    reproject_endpoint(&layout.end);
   }
 }
 
@@ -694,8 +753,8 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
     chord_dir = WorldForward();
   }
   const SpanSupportLayoutDecisionSeed* decision_seed = find_span_support_layout_seed(span.id);
-  const bool requires_decision_seed =
-      runtime_.cache_state.support_layout_cache.decision_required_span_ids.contains(span.id);
+  const SupportLayoutCacheRecord* cache_record = runtime_.cache_state.support_layout_cache.find_record(span.id);
+  const bool requires_decision_seed = cache_record != nullptr && cache_record->decision_required;
   const SpanSupportLayoutAuthority authority{decision_seed, requires_decision_seed};
   if (authority.requires_decision_seed && !authority.has_authority()) {
     if (error_message != nullptr && error_message->empty()) {

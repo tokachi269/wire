@@ -114,15 +114,10 @@ void apply_seed_placement_projection(const EndpointContinuityDecision& source,
   }
   decision->lower_required = source.lower_required;
   decision->lowering_blocked_by_policy = source.lowering_blocked_by_policy;
-  decision->order_decision_policy = source.order_decision_policy;
-  decision->order_decision_choice = source.order_decision_choice;
-  decision->order_decision_choice_reason = source.order_decision_choice_reason;
   decision->support_group_id = source.support_group_id;
   decision->side_assignment_rule = source.side_assignment_rule;
   decision->support_orientation_rule = source.support_orientation_rule;
   decision->support_orientation_basis = source.support_orientation_basis;
-  decision->chosen_side = source.chosen_side;
-  decision->used_junction_pair_side_assignment = source.used_junction_pair_side_assignment;
   decision->has_side_axis = source.has_side_axis;
   decision->side_axis = source.side_axis;
   decision->chosen_side_sign = source.chosen_side_sign;
@@ -185,6 +180,11 @@ SupportLayoutDecisionSeedEndpoint build_seed_endpoint_from_decision(
   endpoint.required_clearance_m = decision.required_clearance_m;
   endpoint.solver_used_same_level_constraint = decision.solver_used_same_level_constraint;
   endpoint.used_special_case_ports = decision.used_special_case_ports;
+  endpoint.order_decision_policy = source.order_decision_policy;
+  endpoint.order_decision_choice = source.order_decision_choice;
+  endpoint.order_decision_choice_reason = source.order_decision_choice_reason;
+  endpoint.chosen_side = decision.chosen_side;
+  endpoint.used_junction_pair_side_assignment = decision.used_junction_pair_side_assignment;
   const bool uses_lowering = decision.lower_required && !decision.lowering_blocked_by_policy;
   const bool uses_pair_height = !uses_lowering && pair_height_rank > 0 && decision.same_level_feasible &&
                                 HasAuthoritativeSupportPair(decision);

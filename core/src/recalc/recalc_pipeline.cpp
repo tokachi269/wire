@@ -43,6 +43,49 @@ bool set_missing_support_layout_error(std::string* error_message) {
   return false;
 }
 
+void append_unique_support_group_key(std::vector<LoweredSupportGroupKey>* keys, const LoweredSupportGroupKey& key) {
+  if (keys == nullptr) {
+    return;
+  }
+  if (std::find(keys->begin(), keys->end(), key) == keys->end()) {
+    keys->push_back(key);
+  }
+}
+
+void append_support_group_keys(std::vector<LoweredSupportGroupKey>* keys,
+                               const std::vector<LoweredSupportGroupKey>& additional_keys) {
+  if (keys == nullptr) {
+    return;
+  }
+  for (const LoweredSupportGroupKey& key : additional_keys) {
+    append_unique_support_group_key(keys, key);
+  }
+}
+
+std::vector<LoweredSupportGroupKey> collect_cached_support_group_keys(const CacheState& cache_state, ObjectId span_id) {
+  std::vector<LoweredSupportGroupKey> keys{};
+  if (const SpanSupportLayoutDecisionSeed* seed = cache_state.support_layout_cache.find_seed(span_id); seed != nullptr) {
+    append_support_group_keys(&keys, collect_support_group_keys_for_seed(*seed));
+  }
+  if (const SpanSupportLayoutEntry* layout = cache_state.support_layout_cache.find_layout(span_id); layout != nullptr) {
+    append_support_group_keys(&keys, collect_support_group_keys_for_layout(*layout));
+  }
+  return keys;
+}
+
+void invalidate_topology_dependent_caches(CoreState& state, CacheState* cache_state, ObjectId span_id) {
+  if (cache_state == nullptr) {
+    return;
+  }
+  const std::vector<LoweredSupportGroupKey> affected_group_keys = collect_cached_support_group_keys(*cache_state, span_id);
+  cache_state->support_layout_cache.clear_layout(span_id);
+  rebuild_lowered_support_groups_for_keys(state, state.edit_state_access(), cache_state, affected_group_keys);
+  cache_state->curve_cache.by_span.erase(span_id);
+  cache_state->bounds_cache.by_span.erase(span_id);
+  cache_state->visual_cache.by_span.erase(span_id);
+  cache_state->render_cache.by_span.erase(span_id);
+}
+
 }  // namespace
 
 const CurveCacheEntry* CoreState::find_curve_cache(ObjectId span_id) const {
@@ -62,19 +105,11 @@ const BoundsCacheEntry* CoreState::find_bounds_cache(ObjectId span_id) const {
 }
 
 const SpanSupportLayoutEntry* CoreState::find_span_support_layout(ObjectId span_id) const {
-  auto it = runtime_.cache_state.support_layout_cache.by_span.find(span_id);
-  if (it == runtime_.cache_state.support_layout_cache.by_span.end()) {
-    return nullptr;
-  }
-  return &it->second;
+  return runtime_.cache_state.support_layout_cache.find_layout(span_id);
 }
 
 const SpanSupportLayoutDecisionSeed* CoreState::find_span_support_layout_seed(ObjectId span_id) const {
-  auto it = runtime_.cache_state.support_layout_cache.decision_seeds_by_span.find(span_id);
-  if (it == runtime_.cache_state.support_layout_cache.decision_seeds_by_span.end()) {
-    return nullptr;
-  }
-  return &it->second;
+  return runtime_.cache_state.support_layout_cache.find_seed(span_id);
 }
 
 const SpanVisualCacheEntry* CoreState::find_span_visual_cache(ObjectId span_id) const {
@@ -102,6 +137,7 @@ RecalcStats CoreState::ProcessDirtyQueues() {
   std::unordered_set<ObjectId> processed_bounds;
   std::unordered_set<ObjectId> processed_render;
   std::unordered_set<ObjectId> processed_raycast;
+  std::vector<ObjectId> topology_promoted_decision_ids{};
 
   for (ObjectId span_id : runtime_.dirty_queue.topology_dirty_span_ids) {
     if (!processed_topology.insert(span_id).second) {
@@ -111,11 +147,18 @@ RecalcStats CoreState::ProcessDirtyQueues() {
     if (it == runtime_.span_runtime_states.end() || !any(it->second.dirty_bits, DirtyBits::kTopology)) {
       continue;
     }
+    invalidate_topology_dependent_caches(*this, &runtime_.cache_state, span_id);
+    if (!any(it->second.dirty_bits, DirtyBits::kDecision)) {
+      it->second.dirty_bits |= DirtyBits::kDecision;
+      topology_promoted_decision_ids.push_back(span_id);
+    }
     it->second.dirty_bits = it->second.dirty_bits & ~DirtyBits::kTopology;
     ++stats.topology_processed;
   }
 
-  for (ObjectId span_id : runtime_.dirty_queue.decision_dirty_span_ids) {
+  std::vector<ObjectId> decision_queue = runtime_.dirty_queue.decision_dirty_span_ids;
+  decision_queue.insert(decision_queue.end(), topology_promoted_decision_ids.begin(), topology_promoted_decision_ids.end());
+  for (ObjectId span_id : decision_queue) {
     if (!processed_decision.insert(span_id).second) {
       continue;
     }
@@ -341,6 +384,59 @@ void CoreState::mark_connected_spans_dirty_from_anchor(ObjectId anchor_id, Dirty
   }
 }
 
+std::vector<ObjectId> CoreState::collect_topology_related_spans_for_ports(const std::vector<ObjectId>& port_ids,
+                                                                          ObjectId exclude_span_id) const {
+  std::unordered_set<ObjectId> related_span_ids{};
+  for (ObjectId port_id : port_ids) {
+    if (port_id == kInvalidObjectId) {
+      continue;
+    }
+    const Port* port = authoritative_.edit_state.ports.find(port_id);
+    if (port == nullptr) {
+      continue;
+    }
+    const auto spans_it = runtime_.connection_index.spans_by_port.find(port_id);
+    if (spans_it != runtime_.connection_index.spans_by_port.end()) {
+      for (ObjectId span_id : spans_it->second) {
+        if (span_id != exclude_span_id) {
+          related_span_ids.insert(span_id);
+        }
+      }
+    }
+    if (port->owner_pole_id == kInvalidObjectId) {
+      continue;
+    }
+    const auto pole_ports_it = runtime_.relation_index.ports_by_pole.find(port->owner_pole_id);
+    if (pole_ports_it == runtime_.relation_index.ports_by_pole.end()) {
+      continue;
+    }
+    for (ObjectId peer_port_id : pole_ports_it->second) {
+      const auto peer_spans_it = runtime_.connection_index.spans_by_port.find(peer_port_id);
+      if (peer_spans_it == runtime_.connection_index.spans_by_port.end()) {
+        continue;
+      }
+      for (ObjectId span_id : peer_spans_it->second) {
+        if (span_id != exclude_span_id) {
+          related_span_ids.insert(span_id);
+        }
+      }
+    }
+  }
+  return std::vector<ObjectId>(related_span_ids.begin(), related_span_ids.end());
+}
+
+void CoreState::mark_topology_related_spans_for_ports_dirty(const std::vector<ObjectId>& port_ids, ObjectId exclude_span_id,
+                                                            DirtyBits dirty_bits, ChangeSet* change_set) {
+  const std::vector<ObjectId> related_span_ids = collect_topology_related_spans_for_ports(port_ids, exclude_span_id);
+  for (ObjectId related_span_id : related_span_ids) {
+    mark_span_dirty(related_span_id, dirty_bits, true);
+    if (change_set != nullptr) {
+      add_unique_id(change_set->dirty_span_ids, related_span_id);
+      add_unique_id(change_set->updated_ids, related_span_id);
+    }
+  }
+}
+
 bool CoreState::cache_rebuilt_span_geometry(ObjectId span_id, SpanSupportLayoutEntry support_layout, DetailCurve detail,
                                             std::string* error_message) {
   if (detail.sample_points.size() < 2) {
@@ -384,7 +480,7 @@ bool CoreState::rebuild_span_decision_path(ObjectId span_id, std::string* error_
 }
 
 bool CoreState::rebuild_span_geometry_from_seed(ObjectId span_id, std::string* error_message) {
-  const bool requires_seed = runtime_.cache_state.support_layout_cache.decision_required_span_ids.contains(span_id);
+  const bool requires_seed = runtime_.cache_state.support_layout_cache.decision_required(span_id);
   // Geometry refresh consumes the existing cached seed contract. It does not
   // reinterpret authority ownership and it does not downgrade/upgrade whether a
   // decision seed is required for this span.
@@ -393,13 +489,11 @@ bool CoreState::rebuild_span_geometry_from_seed(ObjectId span_id, std::string* e
 
 void CoreState::cache_span_support_layout(SpanSupportLayoutEntry layout) {
   const ObjectId span_id = layout.span_id;
-  if (layout.requires_decision_seed) {
-    runtime_.cache_state.support_layout_cache.decision_required_span_ids.insert(span_id);
-  } else {
-    runtime_.cache_state.support_layout_cache.decision_required_span_ids.erase(span_id);
-  }
-  runtime_.cache_state.support_layout_cache.by_span[span_id] = std::move(layout);
-  rebuild_lowered_support_groups_for_span(span_id);
+  std::vector<LoweredSupportGroupKey> affected_group_keys =
+      collect_cached_support_group_keys(runtime_.cache_state, span_id);
+  append_support_group_keys(&affected_group_keys, collect_support_group_keys_for_layout(layout));
+  runtime_.cache_state.support_layout_cache.store_layout(std::move(layout));
+  rebuild_lowered_support_groups_for_keys(*this, authoritative_.edit_state, &runtime_.cache_state, affected_group_keys);
 }
 
 void CoreState::cache_span_support_layout_seed(SpanSupportLayoutDecisionSeed seed) {
@@ -407,25 +501,35 @@ void CoreState::cache_span_support_layout_seed(SpanSupportLayoutDecisionSeed see
     return;
   }
   const ObjectId span_id = seed.span_id;
-  runtime_.cache_state.support_layout_cache.decision_required_span_ids.insert(span_id);
-  runtime_.cache_state.support_layout_cache.decision_seeds_by_span[span_id] = std::move(seed);
-  erase_cached_span_support_layout(span_id);
+  std::vector<LoweredSupportGroupKey> affected_group_keys =
+      collect_cached_support_group_keys(runtime_.cache_state, span_id);
+  append_support_group_keys(&affected_group_keys, collect_support_group_keys_for_seed(seed));
+  runtime_.cache_state.support_layout_cache.store_seed(std::move(seed));
+  runtime_.cache_state.support_layout_cache.clear_layout(span_id);
+  rebuild_lowered_support_groups_for_keys(*this, authoritative_.edit_state, &runtime_.cache_state, affected_group_keys);
 }
 
 void CoreState::erase_cached_span_support_layout_seed(ObjectId span_id) {
-  runtime_.cache_state.support_layout_cache.decision_seeds_by_span.erase(span_id);
+  const std::vector<LoweredSupportGroupKey> affected_group_keys =
+      collect_cached_support_group_keys(runtime_.cache_state, span_id);
+  runtime_.cache_state.support_layout_cache.clear_seed(span_id);
+  rebuild_lowered_support_groups_for_keys(*this, authoritative_.edit_state, &runtime_.cache_state, affected_group_keys);
 }
 
 void CoreState::erase_cached_span_support_layout(ObjectId span_id) {
-  runtime_.cache_state.support_layout_cache.by_span.erase(span_id);
-  rebuild_all_lowered_support_groups(*this, authoritative_.edit_state, &runtime_.cache_state);
+  const std::vector<LoweredSupportGroupKey> affected_group_keys =
+      collect_cached_support_group_keys(runtime_.cache_state, span_id);
+  runtime_.cache_state.support_layout_cache.clear_layout(span_id);
+  rebuild_lowered_support_groups_for_keys(*this, authoritative_.edit_state, &runtime_.cache_state, affected_group_keys);
 }
 
 void CoreState::rebuild_lowered_support_groups_for_span(ObjectId span_id) {
   if (authoritative_.edit_state.spans.find(span_id) == nullptr) {
     return;
   }
-  rebuild_all_lowered_support_groups(*this, authoritative_.edit_state, &runtime_.cache_state);
+  const std::vector<LoweredSupportGroupKey> affected_group_keys =
+      collect_cached_support_group_keys(runtime_.cache_state, span_id);
+  rebuild_lowered_support_groups_for_keys(*this, authoritative_.edit_state, &runtime_.cache_state, affected_group_keys);
 }
 
 bool CoreState::rebuild_span_bounds(ObjectId span_id, std::string* error_message) {

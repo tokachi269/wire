@@ -409,6 +409,8 @@ EditResult<ObjectId> CoreState::AddSpan(ObjectId port_a_id, ObjectId port_b_id, 
   span.reference_length_m = std::sqrt(dx * dx + dy * dy + dz * dz);
   authoritative_.edit_state.spans.insert(span);
 
+  mark_topology_related_spans_for_ports_dirty({port_a_id, port_b_id}, span.id,
+                                              DirtyBits::kTopology | DirtyBits::kDecision, &result.change_set);
   add_span_to_index(span);
   initialize_span_runtime_state(span.id);
   mark_span_dirty(span.id, DirtyBits::kTopology | DirtyBits::kDecision, true);
@@ -980,10 +982,11 @@ EditResult<ObjectId> CoreState::DeleteSpan(ObjectId span_id) {
   }
 
   const Span copy = *span;
+  mark_topology_related_spans_for_ports_dirty({copy.port_a_id, copy.port_b_id}, copy.id,
+                                              DirtyBits::kTopology | DirtyBits::kDecision, &result.change_set);
   remove_span_from_indexes(copy);
   authoritative_.edit_state.spans.remove(span_id);
   runtime_.span_runtime_states.erase(span_id);
-  runtime_.cache_state.support_layout_cache.decision_required_span_ids.erase(span_id);
   remove_span_from_caches(span_id);
 
   std::vector<ObjectId> remove_attachments{};

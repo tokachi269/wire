@@ -215,9 +215,10 @@ private:
   [[nodiscard]] EditResult<bool>
   validate_backbone_generation_plan(const generation::detail::BackboneGenerationPlan& plan) const;
   void record_backbone_path_direction_debug(const generation::detail::BackboneGenerationRequestPlan& request_plan);
+  [[nodiscard]] EditResult<generation::detail::BackboneSupportChainPlan>
+  build_backbone_support_chain_plan(const generation::detail::BackboneGenerationRequestPlan& request_plan) const;
   [[nodiscard]] EditResult<generation::detail::BackboneCommittedSupportChain>
-  commit_backbone_support_chain_plan(const generation::detail::BackboneGenerationRequestPlan& request_plan,
-                                     const generation::detail::BackboneSupportChainPlan& support_chain_plan);
+  commit_backbone_support_chain_plan(const generation::detail::BackboneSupportChainPlan& support_chain_plan);
   [[nodiscard]] EditResult<generation::detail::BackboneCommittedGenerationPlan>
   build_committed_backbone_generation_plan(
       const generation::detail::BackboneTopologyPlan& topology_plan, std::uint64_t session_id,
@@ -231,13 +232,17 @@ private:
   run_committed_backbone_materialization_phase(
       const generation::detail::BackboneGenerationRequestPlan& request_plan,
       const generation::detail::BackboneCommittedGenerationPlan& plan);
-  [[nodiscard]] EditResult<GenerateBundleFromPathResult> continue_backbone_generation_from_committed_chain(
+  void refresh_committed_backbone_seed_cache(
+      const std::vector<ObjectId>& generated_span_ids,
+      const std::unordered_map<ObjectId, JunctionRelation>& junction_relations_by_node);
+  void publish_committed_backbone_debug_state(
+      const generation::detail::BackboneCommittedGenerationPlan& plan,
+      generation::detail::BackboneMaterializationPhaseOutput* materialization_phase);
+  [[nodiscard]] EditResult<GenerateBundleFromPathResult> execute_committed_backbone_generation_plan(
       const generation::detail::BackboneGenerationRequestPlan& request_plan,
-      const generation::detail::BackboneTopologyPlan& topology_plan,
-      const generation::detail::BackboneOrientationPlan& orientation_plan, std::uint64_t session_id,
-      std::vector<ObjectId> generated_pole_ids, std::vector<ObjectId> ordered_support_node_ids,
-      std::unordered_map<ObjectId, SupportNode> support_node_by_id,
-      std::unordered_map<ObjectId, ObjectId> committed_node_id_by_planned_node_id, ChangeSet initial_change_set);
+      const generation::detail::BackboneOrientationPlan& orientation_plan,
+      generation::detail::BackboneCommittedGenerationPlan committed_plan, std::vector<ObjectId> generated_pole_ids,
+      ChangeSet initial_change_set);
   [[nodiscard]] EditResult<bool> build_committed_backbone_topology_state(
       const generation::detail::BackboneTopologyPlan& topology_plan, std::uint64_t session_id,
       const std::unordered_map<ObjectId, SupportNode>& support_node_by_id,

@@ -4,6 +4,7 @@
 #include "backbone_prepare.hpp"
 
 #include <functional>
+#include <string>
 #include <unordered_map>
 
 namespace wire::core::generation::detail {
@@ -72,6 +73,8 @@ struct BackboneSupportResolution {
   ObjectId existing_node_id = kInvalidObjectId;
   SupportKind support_kind = SupportKind::kPole;
   PlacementMode placement_mode = PlacementMode::kAuto;
+  Transformd authored_transform{};
+  PoleContextInfo authored_context{};
 };
 
 struct PlannedPoleCreation {
@@ -79,6 +82,11 @@ struct PlannedPoleCreation {
   Transformd transform{};
   PlacementMode placement_mode = PlacementMode::kAuto;
   int candidate_index = -1;
+  PoleContextInfo context{};
+  PoleTypeId pole_type_id = kInvalidPoleTypeId;
+  PoleKind pole_kind = PoleKind::kConcrete;
+  double height_m = 10.0;
+  std::string name{"PathPole"};
 };
 
 struct BackboneSupportChainPlan {

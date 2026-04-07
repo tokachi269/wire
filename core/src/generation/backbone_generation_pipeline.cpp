@@ -1087,13 +1087,15 @@ EditResult<BackboneGenerationRequestPlan> build_backbone_generation_request_plan
   return result;
 }
 
-EditResult<BackboneSupportChainPlan> build_backbone_support_chain_plan(
-    const CoreState& state, const BackboneGenerationRequestPlan& request_plan) {
+} // namespace
+
+EditResult<BackboneSupportChainPlan> CoreState::build_backbone_support_chain_plan(
+    const BackboneGenerationRequestPlan& request_plan) const {
   EditResult<BackboneSupportChainPlan> result{};
   BackboneSupportChainPlan plan{};
-  const CoreView core_view = state.view();
+  const CoreView core_view = view();
   const EditState& edit_state = core_view.edit_state();
-  const BackboneResult existing_backbone = state.BuildBackboneResult();
+  const BackboneResult existing_backbone = BuildBackboneResult();
 
   std::unordered_map<ObjectId, SupportNode> existing_support_nodes{};
   existing_support_nodes.reserve(existing_backbone.nodes.size());
@@ -1202,20 +1204,46 @@ EditResult<BackboneSupportChainPlan> build_backbone_support_chain_plan(
       pole_id = find_near_pole(candidate.world, candidate.mode);
     }
     if (pole_id != kInvalidObjectId) {
+      const Pole* existing_pole = edit_state.poles.find(pole_id);
+      if (existing_pole == nullptr) {
+        result.error = "resolved reused pole was not found";
+        return result;
+      }
       resolution.kind = BackboneSupportResolutionKind::kReusePole;
       resolution.existing_node_id = pole_id;
       resolution.planned_node_id = pole_id;
+      Pole authored_pole = *existing_pole;
+      if (candidate.mode == PlacementMode::kManual) {
+        apply_pole_placement_mode(authored_pole, PlacementMode::kManual);
+      }
       if (candidate.vertex_index >= 0) {
-        Vec3d base_rotation_euler_deg = edit_state.poles.find(pole_id)->world_transform.rotation_euler_deg;
+        Vec3d base_rotation_euler_deg = existing_pole->world_transform.rotation_euler_deg;
         base_rotation_euler_deg.z = 0.0;
         const AutoPoleTransformResult auto_tf =
             compute_auto_pole_transform(request_plan.guide_points, static_cast<std::size_t>(candidate.vertex_index),
                                         has_preferred_side_dir ? &preferred_side_dir : nullptr,
                                         &base_rotation_euler_deg);
+        authored_pole.context =
+            classify_pole_context_from_path(request_plan.guide_points, static_cast<std::size_t>(candidate.vertex_index), 0);
+        apply_sharp_debug_to_context(&authored_pole.context, auto_tf.sharp);
+        if (!has_pole_orientation_override(authored_pole.id)) {
+          authored_pole.world_transform.rotation_euler_deg.z = auto_tf.transform.rotation_euler_deg.z;
+        }
         const PoleFrame preferred_frame = BuildPoleFrame(auto_tf.transform, auto_tf.transform.rotation_euler_deg.z);
         preferred_side_dir = preferred_frame.lateral;
         has_preferred_side_dir = Normalize(&preferred_side_dir);
+      } else {
+        authored_pole.context.kind = PoleContextKind::kStraight;
+        apply_sharp_debug_to_context(&authored_pole.context, SharpCornerOrientationDebug{});
+        if (!has_pole_orientation_override(authored_pole.id)) {
+          const Vec3d dir =
+              request_plan.guide_points[candidate.segment_index + 1] - request_plan.guide_points[candidate.segment_index];
+          if ((dir.x * dir.x + dir.y * dir.y + dir.z * dir.z) > 1e-12) {
+            authored_pole.world_transform.rotation_euler_deg.z =
+                normalize_yaw_deg(std::atan2(dir.y, dir.x) * (180.0 / kPi));
       }
+      resolution.authored_transform = authored_pole.world_transform;
+      resolution.authored_context = authored_pole.context;
       plan.ordered_pole_ids.push_back(pole_id);
       ensure_support_node(pole_id, candidate, pole_id);
       plan.ordered_support_node_ids.push_back(pole_id);
@@ -1224,6 +1252,7 @@ EditResult<BackboneSupportChainPlan> build_backbone_support_chain_plan(
     }
 
     Transformd tf{};
+    PoleContextInfo context{};
     tf.position = candidate.world;
     if (candidate.vertex_index >= 0) {
       const AutoPoleTransformResult auto_tf =
@@ -1231,10 +1260,13 @@ EditResult<BackboneSupportChainPlan> build_backbone_support_chain_plan(
                                       has_preferred_side_dir ? &preferred_side_dir : nullptr);
       tf = auto_tf.transform;
       tf.position = candidate.world;
+      context = classify_pole_context_from_path(request_plan.guide_points, static_cast<std::size_t>(candidate.vertex_index), 0);
+      apply_sharp_debug_to_context(&context, auto_tf.sharp);
       const PoleFrame preferred_frame = BuildPoleFrame(tf, tf.rotation_euler_deg.z);
       preferred_side_dir = preferred_frame.lateral;
       has_preferred_side_dir = Normalize(&preferred_side_dir);
     } else {
+      context.kind = PoleContextKind::kStraight;
       const Vec3d dir = request_plan.guide_points[candidate.segment_index + 1] - request_plan.guide_points[candidate.segment_index];
       if ((dir.x * dir.x + dir.y * dir.y + dir.z * dir.z) > 1e-12) {
         tf.rotation_euler_deg.z = normalize_yaw_deg(std::atan2(dir.y, dir.x) * (180.0 / kPi));
@@ -1244,7 +1276,10 @@ EditResult<BackboneSupportChainPlan> build_backbone_support_chain_plan(
     const ObjectId planned_pole_id = next_planned_pole_id++;
     resolution.kind = BackboneSupportResolutionKind::kCreatePole;
     resolution.planned_node_id = planned_pole_id;
-    plan.pole_creations.push_back({planned_pole_id, tf, candidate.mode, static_cast<int>(i)});
+    resolution.authored_transform = tf;
+    resolution.authored_context = context;
+    plan.pole_creations.push_back({planned_pole_id, tf, candidate.mode, static_cast<int>(i), context,
+                                   request_plan.request.pole_type_id, PoleKind::kConcrete, 10.0, "PathPole"});
     plan.generated_pole_ids.push_back(planned_pole_id);
     plan.ordered_pole_ids.push_back(planned_pole_id);
     ensure_support_node(planned_pole_id, candidate, planned_pole_id);
@@ -1276,6 +1311,8 @@ EditResult<BackboneSupportChainPlan> build_backbone_support_chain_plan(
   result.ok = true;
   return result;
 }
+
+namespace {
 
 EditResult<BackboneTopologyPlan> build_backbone_topology_plan(
     const CoreState& state, const BackboneGenerationRequestPlan& request_plan, const BackboneSupportChainPlan& support_chain_plan) {
@@ -1371,24 +1408,57 @@ EditResult<BackboneTopologyPlan> build_backbone_topology_plan(
 
 } // namespace
 
-EditResult<GenerateBundleFromPathResult> CoreState::continue_backbone_generation_from_committed_chain(
-    const BackboneGenerationRequestPlan& request_plan, const BackboneTopologyPlan& topology_plan,
-    const BackboneOrientationPlan& orientation_plan, std::uint64_t session_id,
-    std::vector<ObjectId> generated_pole_ids, std::vector<ObjectId> ordered_support_node_ids,
-    std::unordered_map<ObjectId, SupportNode> support_node_by_id,
-    std::unordered_map<ObjectId, ObjectId> committed_node_id_by_planned_node_id, ChangeSet initial_change_set) {
+void CoreState::refresh_committed_backbone_seed_cache(
+    const std::vector<ObjectId>& generated_span_ids,
+    const std::unordered_map<ObjectId, JunctionRelation>& junction_relations_by_node) {
+  const std::unordered_set<ObjectId> generated_span_set(generated_span_ids.begin(), generated_span_ids.end());
+  const std::unordered_set<ObjectId> touched_nodes = [&]() {
+    std::unordered_set<ObjectId> ids{};
+    ids.reserve(junction_relations_by_node.size());
+    for (const auto& [node_id, _] : junction_relations_by_node) {
+      ids.insert(node_id);
+    }
+    return ids;
+  }();
+  for (const Span& span : edit_state_access().spans.items()) {
+    if (generated_span_set.contains(span.id) ||
+        (!touched_nodes.contains(span.endpoint_node_a_id) && !touched_nodes.contains(span.endpoint_node_b_id))) {
+      continue;
+    }
+    const SpanSupportLayoutDecisionSeed* cached_seed = find_span_support_layout_seed(span.id);
+    const auto rebuilt_seed = rebuild_existing_span_decision_seed(edit_state_access(), span, cached_seed);
+    if (!rebuilt_seed.has_value()) {
+      continue;
+    }
+    cache_span_support_layout_seed(*rebuilt_seed);
+    mark_span_dirty(span.id, DirtyBits::kDecision, true);
+  }
+}
+
+void CoreState::publish_committed_backbone_debug_state(const BackboneCommittedGenerationPlan& plan,
+                                                       BackboneMaterializationPhaseOutput* materialization_phase) {
+  if (materialization_phase == nullptr) {
+    return;
+  }
+
+  debug_.last_generation_support_nodes.clear();
+  debug_.last_generation_support_nodes.reserve(plan.topology_state.generation_backbone.nodes.size());
+  for (const SupportNode& node : plan.topology_state.generation_backbone.nodes) {
+    if (node.support_kind != SupportKind::kPole) {
+      debug_.last_generation_support_nodes.push_back(node);
+    }
+  }
+  debug_.last_generation_lane_assignments = std::move(materialization_phase->lane_assignments);
+  debug_.last_generation_edge_orientations = std::move(materialization_phase->edge_orientations);
+  debug_.last_generation_junction_relations = std::move(materialization_phase->junction_relations_by_node);
+}
+
+EditResult<GenerateBundleFromPathResult> CoreState::execute_committed_backbone_generation_plan(
+    const BackboneGenerationRequestPlan& request_plan, const BackboneOrientationPlan& orientation_plan,
+    BackboneCommittedGenerationPlan committed_plan, std::vector<ObjectId> generated_pole_ids, ChangeSet initial_change_set) {
   EditResult<GenerateBundleFromPathResult> result{};
   result.change_set = std::move(initial_change_set);
   result.value.generated_pole_ids = std::move(generated_pole_ids);
-
-  EditResult<BackboneCommittedGenerationPlan> committed_plan_result = build_committed_backbone_generation_plan(
-      topology_plan, session_id, std::move(ordered_support_node_ids), std::move(support_node_by_id),
-      std::move(committed_node_id_by_planned_node_id));
-  if (!committed_plan_result.ok) {
-    result.error = committed_plan_result.error;
-    return result;
-  }
-  BackboneCommittedGenerationPlan committed_plan = std::move(committed_plan_result.value);
 
   apply_committed_backbone_orientation_plan(request_plan, orientation_plan, &committed_plan, &result.change_set);
 
@@ -1409,46 +1479,14 @@ EditResult<GenerateBundleFromPathResult> CoreState::continue_backbone_generation
                                          materialization_phase.generated_span_ids.begin(),
                                          materialization_phase.generated_span_ids.end());
 
-  const std::unordered_set<ObjectId> generated_span_set(result.value.generated_span_ids.begin(),
-                                                        result.value.generated_span_ids.end());
-  const std::unordered_set<ObjectId> touched_nodes = [&]() {
-    std::unordered_set<ObjectId> ids{};
-    ids.reserve(materialization_phase.junction_relations_by_node.size());
-    for (const auto& [node_id, _] : materialization_phase.junction_relations_by_node) {
-      ids.insert(node_id);
-    }
-    return ids;
-  }();
-  for (const Span& span : edit_state_access().spans.items()) {
-    if (generated_span_set.contains(span.id) ||
-        (!touched_nodes.contains(span.endpoint_node_a_id) && !touched_nodes.contains(span.endpoint_node_b_id))) {
-      continue;
-    }
-    const SpanSupportLayoutDecisionSeed* cached_seed = find_span_support_layout_seed(span.id);
-    const auto rebuilt_seed = rebuild_existing_span_decision_seed(edit_state_access(), span, cached_seed);
-    if (!rebuilt_seed.has_value()) {
-      continue;
-    }
-    cache_span_support_layout_seed(*rebuilt_seed);
-    mark_span_dirty(span.id, DirtyBits::kDecision, true);
-  }
-
-  debug_.last_generation_support_nodes.clear();
-  debug_.last_generation_support_nodes.reserve(committed_plan.topology_state.generation_backbone.nodes.size());
-  for (const SupportNode& node : committed_plan.topology_state.generation_backbone.nodes) {
-    if (node.support_kind != SupportKind::kPole) {
-      debug_.last_generation_support_nodes.push_back(node);
-    }
-  }
-  debug_.last_generation_lane_assignments = std::move(materialization_phase.lane_assignments);
-  debug_.last_generation_edge_orientations = std::move(materialization_phase.edge_orientations);
-  debug_.last_generation_junction_relations = std::move(materialization_phase.junction_relations_by_node);
+  refresh_committed_backbone_seed_cache(result.value.generated_span_ids, materialization_phase.junction_relations_by_node);
+  publish_committed_backbone_debug_state(committed_plan, &materialization_phase);
   result.ok = true;
   return result;
 }
 
 EditResult<BackboneCommittedSupportChain> CoreState::commit_backbone_support_chain_plan(
-    const BackboneGenerationRequestPlan& request_plan, const BackboneSupportChainPlan& support_chain_plan) {
+    const BackboneSupportChainPlan& support_chain_plan) {
   EditResult<BackboneCommittedSupportChain> result{};
   BackboneCommittedSupportChain committed{};
   committed.session_id = next_generation_session_id_access()++;
@@ -1463,41 +1501,39 @@ EditResult<BackboneCommittedSupportChain> CoreState::commit_backbone_support_cha
     planned_pole_creation_by_id[creation.planned_pole_id] = &creation;
   }
 
-  auto ensure_support_node = [&](ObjectId node_id, const SupportNodeCandidate& candidate, ObjectId pole_id) {
-    SupportNode& node = committed.support_node_by_id[node_id];
-    node.node_id = node_id;
-    node.support_kind = candidate.support_kind;
-    node.position = candidate.world;
-    node.pole_id = pole_id;
-    node.path_point_index = candidate.vertex_index;
-    node.has_tangent_hint = candidate.has_tangent_hint;
-    node.tangent_hint = candidate.tangent_hint;
+  auto authored_support_node_for = [&](ObjectId planned_node_id) -> const SupportNode* {
+    const auto it = support_chain_plan.support_node_by_id.find(planned_node_id);
+    return (it == support_chain_plan.support_node_by_id.end()) ? nullptr : &it->second;
+  };
+  auto commit_support_node = [&](ObjectId planned_node_id, ObjectId committed_node_id, ObjectId committed_pole_id) {
+    const SupportNode* authored_node = authored_support_node_for(planned_node_id);
+    if (authored_node == nullptr) {
+      result.error = "support-chain plan is missing authored support node";
+      return false;
+    }
+    SupportNode node = *authored_node;
+    node.node_id = committed_node_id;
+    node.pole_id = committed_pole_id;
+    committed.support_node_by_id[committed_node_id] = std::move(node);
+    committed.ordered_support_node_ids.push_back(committed_node_id);
+    committed.committed_node_id_by_planned_node_id[planned_node_id] = committed_node_id;
+    return true;
   };
 
-  Vec3d preferred_side_dir{0.0, 0.0, 0.0};
-  bool has_preferred_side_dir = false;
   std::size_t committed_pole_order = 0;
   for (const BackboneSupportResolution& resolution : support_chain_plan.resolutions) {
-    if (resolution.candidate_index < 0 ||
-        static_cast<std::size_t>(resolution.candidate_index) >= request_plan.candidates.size()) {
-      result.error = "backbone support-chain plan has invalid candidate index";
-      return result;
-    }
-    const SupportNodeCandidate& candidate =
-        request_plan.candidates[static_cast<std::size_t>(resolution.candidate_index)];
-
     if (resolution.support_kind != SupportKind::kPole) {
       if (resolution.kind == BackboneSupportResolutionKind::kReuseSupportNode) {
         const auto it_existing = support_chain_plan.support_node_by_id.find(resolution.planned_node_id);
-      if (it_existing == support_chain_plan.support_node_by_id.end()) {
+        if (it_existing == support_chain_plan.support_node_by_id.end()) {
           result.error = "support-chain plan is missing reused support node";
           return result;
         }
         committed.support_node_by_id[resolution.planned_node_id] = it_existing->second;
       }
-      committed.committed_node_id_by_planned_node_id[resolution.planned_node_id] = resolution.planned_node_id;
-      ensure_support_node(resolution.planned_node_id, candidate, kInvalidObjectId);
-      committed.ordered_support_node_ids.push_back(resolution.planned_node_id);
+      if (!commit_support_node(resolution.planned_node_id, resolution.planned_node_id, kInvalidObjectId)) {
+        return result;
+      }
       continue;
     }
 
@@ -1507,52 +1543,14 @@ EditResult<BackboneCommittedSupportChain> CoreState::commit_backbone_support_cha
         result.error = "support-chain plan references missing reused pole";
         return result;
       }
-      std::optional<AutoPoleTransformResult> auto_tf{};
-      if (candidate.vertex_index >= 0) {
-        Vec3d base_rotation_euler_deg = pole->world_transform.rotation_euler_deg;
-        base_rotation_euler_deg.z = 0.0;
-        auto_tf = compute_auto_pole_transform(request_plan.guide_points, static_cast<std::size_t>(candidate.vertex_index),
-                                              has_preferred_side_dir ? &preferred_side_dir : nullptr,
-                                              &base_rotation_euler_deg);
-        const PoleFrame preferred_frame = BuildPoleFrame(auto_tf->transform, auto_tf->transform.rotation_euler_deg.z);
-        preferred_side_dir = preferred_frame.lateral;
-        has_preferred_side_dir = Normalize(&preferred_side_dir);
-      }
       const Pole old_pole = *pole;
-      bool updated = false;
-      if (candidate.mode == PlacementMode::kManual) {
-        apply_pole_placement_mode(*pole, PlacementMode::kManual);
-        updated = true;
+      pole->world_transform = resolution.authored_transform;
+      pole->context = resolution.authored_context;
+      apply_pole_placement_mode(*pole, resolution.placement_mode);
+      finalize_pole_transform_update(pole->id, old_pole, &committed.change_set);
+      if (!commit_support_node(resolution.planned_node_id, pole->id, pole->id)) {
+        return result;
       }
-      if (candidate.vertex_index >= 0) {
-        pole->context =
-            classify_pole_context_from_path(request_plan.guide_points, static_cast<std::size_t>(candidate.vertex_index), 0);
-        apply_sharp_debug_to_context(&pole->context,
-                                     auto_tf.has_value() ? auto_tf->sharp : SharpCornerOrientationDebug{});
-        updated = true;
-        if (!has_pole_orientation_override(pole->id)) {
-          pole->world_transform.rotation_euler_deg.z =
-              auto_tf.has_value() ? auto_tf->transform.rotation_euler_deg.z : pole->world_transform.rotation_euler_deg.z;
-          updated = true;
-        }
-      } else {
-        pole->context.kind = PoleContextKind::kStraight;
-        apply_sharp_debug_to_context(&pole->context, SharpCornerOrientationDebug{});
-        if (!has_pole_orientation_override(pole->id)) {
-          const Vec3d dir =
-              request_plan.guide_points[candidate.segment_index + 1] - request_plan.guide_points[candidate.segment_index];
-          if ((dir.x * dir.x + dir.y * dir.y + dir.z * dir.z) > 1e-12) {
-            pole->world_transform.rotation_euler_deg.z = normalize_yaw_deg(std::atan2(dir.y, dir.x) * (180.0 / kPi));
-            updated = true;
-          }
-        }
-      }
-      if (updated) {
-        finalize_pole_transform_update(pole->id, old_pole, &committed.change_set);
-      }
-      committed.committed_node_id_by_planned_node_id[resolution.planned_node_id] = pole->id;
-      ensure_support_node(pole->id, candidate, pole->id);
-      committed.ordered_support_node_ids.push_back(pole->id);
       ++committed_pole_order;
       continue;
     }
@@ -1568,34 +1566,23 @@ EditResult<BackboneCommittedSupportChain> CoreState::commit_backbone_support_cha
       return result;
     }
     const PlannedPoleCreation& creation = *it_creation->second;
-    EditResult<ObjectId> add_pole = AddPole(creation.transform, 10.0, "PathPole", PoleKind::kConcrete, creation.placement_mode);
+    EditResult<ObjectId> add_pole = AddPole(creation.transform, creation.height_m, creation.name, creation.pole_kind,
+                                            creation.placement_mode);
     if (!add_pole.ok) {
       result.error = add_pole.error;
       return result;
     }
     Pole* pole = edit_state_access().poles.find(add_pole.value);
     if (pole != nullptr) {
-      if (candidate.vertex_index >= 0) {
-        const AutoPoleTransformResult auto_tf = compute_auto_pole_transform(
-            request_plan.guide_points, static_cast<std::size_t>(candidate.vertex_index),
-            has_preferred_side_dir ? &preferred_side_dir : nullptr);
-        pole->context =
-            classify_pole_context_from_path(request_plan.guide_points, static_cast<std::size_t>(candidate.vertex_index), 0);
-        apply_sharp_debug_to_context(&pole->context, auto_tf.sharp);
-        const PoleFrame preferred_frame = BuildPoleFrame(auto_tf.transform, auto_tf.transform.rotation_euler_deg.z);
-        preferred_side_dir = preferred_frame.lateral;
-        has_preferred_side_dir = Normalize(&preferred_side_dir);
-      } else {
-        pole->context.kind = PoleContextKind::kStraight;
-        apply_sharp_debug_to_context(&pole->context, SharpCornerOrientationDebug{});
-      }
+      pole->world_transform = creation.transform;
+      pole->context = creation.context;
       pole->generation.generated = true;
       pole->generation.source = GenerationSource::kRoadAuto;
       pole->generation.generation_session_id = committed.session_id;
       pole->generation.generation_order = static_cast<std::uint32_t>(committed_pole_order);
       add_unique_id(add_pole.change_set.updated_ids, pole->id);
     }
-    EditResult<ObjectId> apply_type = ApplyPoleType(add_pole.value, request_plan.request.pole_type_id);
+    EditResult<ObjectId> apply_type = ApplyPoleType(add_pole.value, creation.pole_type_id);
     if (!apply_type.ok) {
       result.error = apply_type.error;
       return result;
@@ -1603,9 +1590,9 @@ EditResult<BackboneCommittedSupportChain> CoreState::commit_backbone_support_cha
     append_change_set(committed.change_set, add_pole.change_set);
     append_change_set(committed.change_set, apply_type.change_set);
     committed.generated_pole_ids.push_back(add_pole.value);
-    committed.committed_node_id_by_planned_node_id[resolution.planned_node_id] = add_pole.value;
-    ensure_support_node(add_pole.value, candidate, add_pole.value);
-    committed.ordered_support_node_ids.push_back(add_pole.value);
+    if (!commit_support_node(resolution.planned_node_id, add_pole.value, add_pole.value)) {
+      return result;
+    }
     ++committed_pole_order;
   }
 
@@ -1647,7 +1634,7 @@ EditResult<GenerateBundleFromPathResult> CoreState::legacy_generate_from_backbon
     return result;
   }
 
-  EditResult<BackboneSupportChainPlan> support_chain_plan_result = build_backbone_support_chain_plan(*this, request_plan);
+  EditResult<BackboneSupportChainPlan> support_chain_plan_result = build_backbone_support_chain_plan(request_plan);
   if (!support_chain_plan_result.ok) {
     result.error = support_chain_plan_result.error;
     return result;
@@ -1663,20 +1650,28 @@ EditResult<GenerateBundleFromPathResult> CoreState::legacy_generate_from_backbon
 
   const CoreState snapshot = *this;
   EditResult<BackboneCommittedSupportChain> committed_chain_result =
-      commit_backbone_support_chain_plan(request_plan, support_chain_plan_result.value);
+      commit_backbone_support_chain_plan(support_chain_plan_result.value);
   if (!committed_chain_result.ok) {
     *this = snapshot;
     result.error = committed_chain_result.error;
     return result;
   }
 
-  result = continue_backbone_generation_from_committed_chain(
-      request_plan, topology_plan_result.value, orientation_plan, committed_chain_result.value.session_id,
-      std::move(committed_chain_result.value.generated_pole_ids),
+  EditResult<BackboneCommittedGenerationPlan> committed_plan_result = build_committed_backbone_generation_plan(
+      topology_plan_result.value, committed_chain_result.value.session_id,
       std::move(committed_chain_result.value.ordered_support_node_ids),
       std::move(committed_chain_result.value.support_node_by_id),
-      std::move(committed_chain_result.value.committed_node_id_by_planned_node_id),
-      std::move(committed_chain_result.value.change_set));
+      std::move(committed_chain_result.value.committed_node_id_by_planned_node_id));
+  if (!committed_plan_result.ok) {
+    *this = snapshot;
+    result.error = committed_plan_result.error;
+    return result;
+  }
+
+  result = execute_committed_backbone_generation_plan(request_plan, orientation_plan,
+                                                      std::move(committed_plan_result.value),
+                                                      std::move(committed_chain_result.value.generated_pole_ids),
+                                                      std::move(committed_chain_result.value.change_set));
   if (!result.ok) {
     *this = snapshot;
   }
@@ -1695,8 +1690,7 @@ EditResult<std::unique_ptr<BackboneGenerationPlan>> CoreState::build_backbone_ge
   auto plan = std::make_unique<BackboneGenerationPlan>();
   plan->request_plan = std::move(request_plan_result.value);
 
-  EditResult<BackboneSupportChainPlan> support_chain_plan_result =
-      build_backbone_support_chain_plan(*this, plan->request_plan);
+  EditResult<BackboneSupportChainPlan> support_chain_plan_result = build_backbone_support_chain_plan(plan->request_plan);
   if (!support_chain_plan_result.ok) {
     result.error = support_chain_plan_result.error;
     return result;
@@ -1759,20 +1753,28 @@ EditResult<GenerateBundleFromPathResult> CoreState::commit_backbone_generation_p
 
   const CoreState snapshot = *this;
   EditResult<BackboneCommittedSupportChain> committed_chain_result =
-      commit_backbone_support_chain_plan(plan->request_plan, plan->support_chain_plan);
+      commit_backbone_support_chain_plan(plan->support_chain_plan);
   if (!committed_chain_result.ok) {
     *this = snapshot;
     result.error = committed_chain_result.error;
     return result;
   }
 
-  result = continue_backbone_generation_from_committed_chain(
-      plan->request_plan, plan->topology_plan, plan->orientation_plan, committed_chain_result.value.session_id,
-      std::move(committed_chain_result.value.generated_pole_ids),
+  EditResult<BackboneCommittedGenerationPlan> committed_plan_result = build_committed_backbone_generation_plan(
+      plan->topology_plan, committed_chain_result.value.session_id,
       std::move(committed_chain_result.value.ordered_support_node_ids),
       std::move(committed_chain_result.value.support_node_by_id),
-      std::move(committed_chain_result.value.committed_node_id_by_planned_node_id),
-      std::move(committed_chain_result.value.change_set));
+      std::move(committed_chain_result.value.committed_node_id_by_planned_node_id));
+  if (!committed_plan_result.ok) {
+    *this = snapshot;
+    result.error = committed_plan_result.error;
+    return result;
+  }
+
+  result = execute_committed_backbone_generation_plan(plan->request_plan, plan->orientation_plan,
+                                                      std::move(committed_plan_result.value),
+                                                      std::move(committed_chain_result.value.generated_pole_ids),
+                                                      std::move(committed_chain_result.value.change_set));
   if (!result.ok) {
     *this = snapshot;
   }

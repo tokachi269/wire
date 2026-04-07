@@ -118,6 +118,26 @@ struct BackboneOrientationPlan {
   std::unordered_map<ObjectId, PoleOrientationDebugRecord> previous_debug_records{};
 };
 
+struct BackboneCommittedTopologyState {
+  BackboneResult generation_backbone{};
+  std::unordered_map<ObjectId, std::vector<ObjectId>> route_neighbors_by_node{};
+  std::unordered_map<ObjectId, Vec3d> node_position_by_id{};
+  std::unordered_map<ObjectId, std::vector<ObjectId>> existing_adjacency{};
+  std::unordered_map<ObjectId, ObjectId> existing_primary_neighbor_by_node{};
+  std::unordered_map<ObjectId, std::uint64_t> existing_prioritized_session_by_node{};
+  std::unordered_map<ObjectId, std::unordered_map<ObjectId, std::uint64_t>> existing_incident_session_by_node{};
+  std::unordered_map<ObjectId, const JunctionInfo*> existing_junction_by_node{};
+  std::unordered_map<ObjectId, const JunctionInfo*> active_junction_by_node{};
+};
+
+struct BackboneCommittedGenerationPlan {
+  std::uint64_t session_id = 0;
+  std::vector<ObjectId> ordered_support_node_ids{};
+  std::unordered_map<ObjectId, SupportNode> support_node_by_id{};
+  BackboneCommittedTopologyState topology_state{};
+  BackboneDecisionPhaseOutput decision_phase{};
+};
+
 struct BackboneGenerationPlan {
   BackboneGenerationRequestPlan request_plan{};
   BackboneSupportChainPlan support_chain_plan{};

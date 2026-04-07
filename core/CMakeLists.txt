@@ -19,6 +19,7 @@ add_library(
   src/generation/backbone_seed_placement.cpp
   src/generation/backbone_pole_orientation_policy.cpp
   src/generation/backbone_generation_pipeline.cpp
+  src/generation/backbone_generation_commit.cpp
   src/generation/from_backbone.cpp
   src/generation/backbone_prepare.cpp
   src/generation/regenerate.cpp

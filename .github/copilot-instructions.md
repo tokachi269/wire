@@ -1,7 +1,7 @@
-# AGENTS.md
+﻿# AGENTS.md
 
 ## 目的
-このリポジトリでは、見た目の自然さと内部整合の両方を重視する。
+このリポジトリでは、見た目の自然さと内部整合の両方を重視する。  
 内部整合が取れていても、人間が見て不自然なら未完了とする。
 
 ## 基本原則
@@ -13,10 +13,10 @@
 - 処理は可能な限りパイプラインとして構成し、各段の入力・出力・責務を明確に分ける。
 - docs・code・tests・viewer 挙動がズレる可能性を前提に、まず観測事実を優先する。
 - 不明な点は不明のまま残し、想像で補完しない。
-1. Generation 以外は `support_orientation_rule` を変えない
-2. Materialization 以外は socket を変えない
-3. Recalc は owner topic を変えない
-4. Visual は world-space geometry を読むだけ
+  1. Generation 以外は `support_orientation_rule` を変えない
+  2. Materialization 以外は socket を変えない
+  3. Recalc は owner topic を変えない
+  4. Visual は world-space geometry を読むだけ
 
 ## 設計方針
 - 文章ルールを増やすより、型・API・validator で守る。
@@ -46,6 +46,7 @@
 - test は symptom を見るものと Authority を固定するものを分け、どちらを守る検証か明示する。
 - refresh / recalc 後に意味が痩せていないかを確認する。
 - viewer で違和感がある場合、core 幾何の問題か viewer 表示の問題かを切り分ける。
+- Tests are not always authoritative in this repo; prioritize observed behavior and architectural correctness over test assumptions when resolving failures.
 
 ## 出力時に必要に応じて書くこと
 - 何を観測したか
@@ -60,5 +61,9 @@
 - 今回だけの仕様
 - 作業中の閾値
 - 過去ログの長い要約
-- 一時的な検索監視対象
+- 一時的な検索監視対象  
 これらは都度の指示文に書く。
+
+## KISS原則の強調
+- KISS を優先し、`GenerateFromBackboneSpec` 周辺は plan → validate → commit の薄い orchestrator を保つ。
+- 共通 pipeline と policy/resolver の責務分離を重視する。

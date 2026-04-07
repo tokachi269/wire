@@ -1241,6 +1241,8 @@ EditResult<BackboneSupportChainPlan> CoreState::build_backbone_support_chain_pla
           if ((dir.x * dir.x + dir.y * dir.y + dir.z * dir.z) > 1e-12) {
             authored_pole.world_transform.rotation_euler_deg.z =
                 normalize_yaw_deg(std::atan2(dir.y, dir.x) * (180.0 / kPi));
+          }
+        }
       }
       resolution.authored_transform = authored_pole.world_transform;
       resolution.authored_context = authored_pole.context;
@@ -1267,6 +1269,7 @@ EditResult<BackboneSupportChainPlan> CoreState::build_backbone_support_chain_pla
       has_preferred_side_dir = Normalize(&preferred_side_dir);
     } else {
       context.kind = PoleContextKind::kStraight;
+      apply_sharp_debug_to_context(&context, SharpCornerOrientationDebug{});
       const Vec3d dir = request_plan.guide_points[candidate.segment_index + 1] - request_plan.guide_points[candidate.segment_index];
       if ((dir.x * dir.x + dir.y * dir.y + dir.z * dir.z) > 1e-12) {
         tf.rotation_euler_deg.z = normalize_yaw_deg(std::atan2(dir.y, dir.x) * (180.0 / kPi));

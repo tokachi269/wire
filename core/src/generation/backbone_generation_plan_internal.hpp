@@ -1,6 +1,7 @@
 #pragma once
 
 #include "wire/core/core_state.hpp"
+#include "backbone_pole_orientation_policy.hpp"
 #include "backbone_prepare.hpp"
 
 #include <functional>
@@ -188,7 +189,7 @@ struct BackboneTopologyPlan {
 };
 
 struct BackboneOrientationPlan {
-  std::unordered_map<ObjectId, PoleOrientationDebugRecord> previous_debug_records{};
+  std::unordered_map<ObjectId, BackbonePlannedPoleOrientation> planned_pole_orientations{};
 };
 
 struct BackboneCommittedTopologyState {
@@ -207,8 +208,11 @@ struct BackboneCommittedGenerationPlan {
   std::uint64_t session_id = 0;
   std::vector<ObjectId> ordered_support_node_ids{};
   std::unordered_map<ObjectId, SupportNode> support_node_by_id{};
+  std::unordered_map<ObjectId, ObjectId> committed_node_id_by_planned_node_id{};
   BackboneCommittedTopologyState topology_state{};
   BackboneDecisionPhaseOutput decision_phase{};
+  std::unordered_map<ObjectId, BackbonePlannedPoleOrientation> planned_pole_orientations{};
+  std::vector<SpanSupportLayoutDecisionSeed> refreshed_existing_seeds{};
 };
 
 struct BackboneGenerationPlan {
@@ -219,5 +223,8 @@ struct BackboneGenerationPlan {
   ChangeSet change_set{};
   GenerateBundleFromPathResult result{};
 };
+
+[[nodiscard]] EditResult<BackboneGenerationRequestPlan> build_backbone_generation_request_plan(
+    const CoreState& state, const BackboneSpec& spec);
 
 } // namespace wire::core::generation::detail

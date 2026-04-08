@@ -49,19 +49,32 @@ struct BackboneOrientationNodeContext {
   RowLayoutAxisSelection row_layout_axis_selection{};
 };
 
-struct BackbonePoleOrientationPolicyInput {
+struct BackbonePlannedPoleOrientation {
+  double previous_layout_yaw = 0.0;
+  std::optional<PortLayoutYawOverride> previous_row_layout_yaw_override{};
+  Vec3d adopted_forward{};
+  bool has_adopted_forward = false;
+  Vec3d adopted_support_axis{};
+  bool has_adopted_support_axis = false;
+  std::optional<PortLayoutYawOverride> row_layout_yaw_override{};
+  PoleOrientationDebugRecord debug{};
+};
+
+std::unordered_map<ObjectId, BackbonePlannedPoleOrientation> build_backbone_pole_orientation_plan(
+    const std::vector<ObjectId>& ordered_support_node_ids,
+    const std::unordered_map<ObjectId, BackboneOrientationNodeContext>& orientation_context_by_node);
+
+struct BackbonePoleOrientationApplyInput {
   const std::vector<ObjectId>& ordered_support_node_ids;
-  const std::unordered_map<ObjectId, BackboneOrientationNodeContext>& orientation_context_by_node;
+  const std::unordered_map<ObjectId, BackbonePlannedPoleOrientation>& planned_orientations_by_node;
   std::unordered_map<ObjectId, PoleOrientationDebugRecord>& debug_records;
   std::function<Pole*(ObjectId)> find_pole;
-  std::function<Vec3d(ObjectId, const BackboneOrientationNodeContext&, PoleOrientationDebugRecord*)>
-      choose_support_axis_for_layout;
   std::function<bool(ObjectId)> has_pole_orientation_override;
   std::function<void(ObjectId, const Pole&, const PortLayoutYawOverride*)> refresh_owned_endpoints_from_pole;
   std::function<void(ObjectId, const Pole&)> finalize_pole_transform_update;
 };
 
-void apply_backbone_pole_orientation_policy(const BackbonePoleOrientationPolicyInput& input);
+void apply_backbone_pole_orientation_plan(const BackbonePoleOrientationApplyInput& input);
 
 }  // namespace generation::detail
 }  // namespace wire::core

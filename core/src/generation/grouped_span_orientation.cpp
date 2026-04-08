@@ -395,6 +395,23 @@ GroupedSpanOrientationDecider::LoweredSupportPairInfoForEndpoint(ObjectId node_i
   if (ctx_.junction_relations_by_node == nullptr || node_id == kInvalidObjectId || peer_id == kInvalidObjectId) {
     return std::nullopt;
   }
+  if (const auto relation_it = ctx_.junction_relations_by_node->find(node_id);
+      relation_it != ctx_.junction_relations_by_node->end()) {
+    const JunctionRelation& relation = relation_it->second;
+    if (relation.through_pair.accepted &&
+        HasValidExplicitPairPeers(relation.through_pair.neighbor_a_id, relation.through_pair.neighbor_b_id)) {
+      LoweredSupportPairInfo info{};
+      info.pair_peer_low = std::min(relation.through_pair.neighbor_a_id, relation.through_pair.neighbor_b_id);
+      info.pair_peer_high = std::max(relation.through_pair.neighbor_a_id, relation.through_pair.neighbor_b_id);
+      info.has_pair = true;
+      if (peer_id == info.pair_peer_low) {
+        info.companion_peer_id = info.pair_peer_high;
+      } else if (peer_id == info.pair_peer_high) {
+        info.companion_peer_id = info.pair_peer_low;
+      }
+      return info;
+    }
+  }
   if (const auto cached_pair = CachedLoweredSupportPairInfo(node_id, peer_id); cached_pair.has_value()) {
     return cached_pair;
   }
@@ -627,22 +644,36 @@ Vec3d GroupedSpanOrientationDecider::GroupedLineAxisForEndpoint(ObjectId node_id
 
 EndpointSideDecision GroupedSpanOrientationDecider::BuildPairSideDecision(ObjectId node_id, ObjectId peer_id,
                                                                           const LoweredSupportPairInfo& pair_info) const {
-  EndpointSideDecision decision =
-      MakePairAuthorityDecision(pair_info.pair_peer_low, pair_info.pair_peer_high);
+  EndpointSideDecision decision{};
+  decision.pair_peer_low = pair_info.pair_peer_low;
+  decision.pair_peer_high = pair_info.pair_peer_high;
+  decision.used_junction_pair_side_assignment =
+      HasValidExplicitPairPeers(pair_info.pair_peer_low, pair_info.pair_peer_high);
   const bool peer_is_pair_peer =
       peer_id == pair_info.pair_peer_low || peer_id == pair_info.pair_peer_high;
-  if (peer_is_pair_peer) {
+  bool through_pair_accepted = false;
+  if (ctx_.junction_relations_by_node != nullptr) {
+    if (const auto relation_it = ctx_.junction_relations_by_node->find(node_id);
+        relation_it != ctx_.junction_relations_by_node->end()) {
+      through_pair_accepted = relation_it->second.through_pair.accepted;
+    }
+  }
+  if (through_pair_accepted && peer_is_pair_peer) {
     if (const auto pair_normal_decision = ExplicitPairNormalSideDecisionForEndpoint(
             node_id, peer_id, pair_info.pair_peer_low, pair_info.pair_peer_high);
         pair_normal_decision.has_value()) {
       return *pair_normal_decision;
     }
   }
+  decision.side_assignment_rule = SideAssignmentRuleKind::kBisector;
+  decision.support_orientation_rule = SupportOrientationRuleKind::kBisector;
   if (const auto pair_axis = PairBisectorAxisForEndpoint(node_id, peer_id, pair_info); pair_axis.has_value()) {
     decision.side_axis = NormalizedOrZeroXY(*pair_axis);
     decision.has_side_axis = (decision.side_axis.x != 0.0 || decision.side_axis.y != 0.0);
     return decision;
   }
+  decision.side_axis = NormalizedOrZeroXY(PairReferenceAxisForEndpoint(node_id, peer_id, pair_info));
+  decision.has_side_axis = (decision.side_axis.x != 0.0 || decision.side_axis.y != 0.0);
   return decision;
 }
 

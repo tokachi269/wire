@@ -78,15 +78,7 @@ void apply_grouped_support_placement_to_layout_endpoint(const SupportGroupDecisi
     return;
   }
   clear_layout_endpoint_authority_projection(endpoint);
-  apply_endpoint_decision_to_layout_endpoint(group_decision, endpoint);
   endpoint->support_authority = group_decision.support_authority;
-  endpoint->side = group_decision.side;
-  endpoint->origin = group_decision.origin;
-  endpoint->order_decision_policy = group_decision.order_decision_policy;
-  endpoint->order_decision_choice = group_decision.order_decision_choice;
-  endpoint->order_decision_choice_reason = group_decision.order_decision_choice_reason;
-  endpoint->chosen_side = group_decision.chosen_side;
-  endpoint->used_junction_pair_side_assignment = group_decision.used_junction_pair_side_assignment;
   endpoint->automatic_branch_down_offset_m = placement.down_offset_m;
   endpoint->branch_down_offset_m = placement.down_offset_m;
   endpoint->down_offset_variation = placement.down_offset_variation;

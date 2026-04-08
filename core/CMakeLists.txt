@@ -18,6 +18,10 @@ add_library(
   src/generation/backbone_seed_topology.cpp
   src/generation/backbone_seed_placement.cpp
   src/generation/backbone_pole_orientation_policy.cpp
+  src/generation/backbone_generation_request_planner.cpp
+  src/generation/backbone_support_chain_planner.cpp
+  src/generation/backbone_topology_planner.cpp
+  src/generation/backbone_orientation_planner.cpp
   src/generation/backbone_generation_pipeline.cpp
   src/generation/backbone_generation_commit.cpp
   src/generation/from_backbone.cpp

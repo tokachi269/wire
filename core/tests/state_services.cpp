@@ -1,4 +1,4 @@
-﻿#include "registry.hpp"
+#include "registry.hpp"
 
 #include "../src/generation/support_policy.hpp"
 #include "../src/state/internal_services.hpp"
@@ -516,10 +516,10 @@ bool test_validate_rejects_non_radial_support_without_authoritative_axis() {
 
   auto& records = CoreStateTestHook::cache_state(state).support_layout_cache.records_by_span;
   auto it = records.find(span);
-  if (it == records.end() || !it->second.layout.has_value()) {
+  if (it == records.end() || !it->second.projection.layout.has_value()) {
     return false;
   }
-  auto& layout = *it->second.layout;
+  auto& layout = *it->second.projection.layout;
   layout.start.support_orientation_basis = wire::core::SupportOrientationBasisKind::kChordForward;
   layout.start.has_side_axis = false;
   layout.start.side_axis = {};
@@ -542,10 +542,10 @@ bool test_validate_rejects_grouped_lowered_support_with_radial_basis() {
 
   auto& records = CoreStateTestHook::cache_state(state).support_layout_cache.records_by_span;
   auto it = records.find(span);
-  if (it == records.end() || !it->second.layout.has_value()) {
+  if (it == records.end() || !it->second.projection.layout.has_value()) {
     return false;
   }
-  auto& layout = *it->second.layout;
+  auto& layout = *it->second.projection.layout;
   layout.lowering_kind = wire::core::BackboneLoweringKind::kBranchSupport;
   layout.start.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
   layout.start.support_group_id = 99;
@@ -583,11 +583,11 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
   auto it_ab = records.find(span_ab);
   auto it_ac = records.find(span_ac);
   if (it_ab == records.end() || it_ac == records.end() ||
-      !it_ab->second.layout.has_value() || !it_ac->second.layout.has_value()) {
+      !it_ab->second.projection.layout.has_value() || !it_ac->second.projection.layout.has_value()) {
     return false;
   }
-  auto& layout_ab = *it_ab->second.layout;
-  auto& layout_ac = *it_ac->second.layout;
+  auto& layout_ab = *it_ab->second.projection.layout;
+  auto& layout_ac = *it_ac->second.projection.layout;
   const ObjectId pair_peer_low = std::min(pole_b, pole_c);
   const ObjectId pair_peer_high = std::max(pole_b, pole_c);
   const double expected_support_z =
@@ -620,9 +620,9 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
 
   layout_ab.lowered_support_group_keys = {{pole_a, 1234}};
   layout_ac.lowered_support_group_keys = {{pole_a, 1234}};
-  auto& decision_store = CoreStateTestHook::cache_state(state).support_layout_cache.support_group_decisions;
+  auto& decision_store = CoreStateTestHook::cache_state(state).support_layout_cache.support_groups.authority.by_key;
   decision_store.clear();
-  auto& grouped_store = CoreStateTestHook::cache_state(state).support_layout_cache.lowered_support_groups;
+  auto& grouped_store = CoreStateTestHook::cache_state(state).support_layout_cache.support_groups.placement.by_key;
   grouped_store.clear();
   make_grouped(&decision_store[{pole_a, 1234}], &grouped_store[{pole_a, 1234}], {1.0, 0.0, 0.0}, 1.0,
                {0.2, 0.0, expected_support_z}, {0.6, 0.0, expected_support_z});
@@ -665,10 +665,10 @@ bool test_inspection_uses_authoritative_lowered_support_groups() {
 
   auto& records = CoreStateTestHook::cache_state(state).support_layout_cache.records_by_span;
   auto it = records.find(span);
-  if (it == records.end() || !it->second.layout.has_value()) {
+  if (it == records.end() || !it->second.projection.layout.has_value()) {
     return false;
   }
-  auto& layout = *it->second.layout;
+  auto& layout = *it->second.projection.layout;
 
   layout.lowering_kind = wire::core::BackboneLoweringKind::kNone;
   layout.start.support_orientation_basis = wire::core::SupportOrientationBasisKind::kRadial;
@@ -680,8 +680,8 @@ bool test_inspection_uses_authoritative_lowered_support_groups() {
   layout.start.support_group_id = 777;
   layout.start.lower_required = true;
   layout.lowered_support_group_keys = {{pole_a, 777}};
-  auto& decision = CoreStateTestHook::cache_state(state).support_layout_cache.support_group_decisions[{pole_a, 777}];
-  auto& group = CoreStateTestHook::cache_state(state).support_layout_cache.lowered_support_groups[{pole_a, 777}];
+  auto& decision = CoreStateTestHook::cache_state(state).support_layout_cache.support_groups.authority.by_key[{pole_a, 777}];
+  auto& group = CoreStateTestHook::cache_state(state).support_layout_cache.support_groups.placement.by_key[{pole_a, 777}];
   decision.owner_pole_id = pole_a;
   decision.relation_kind = wire::core::JunctionRelationKind::kSideBranch;
   decision.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
@@ -738,8 +738,8 @@ bool test_materialization_reads_layout_owned_support_group_decision() {
   auto& records = CoreStateTestHook::cache_state(state).support_layout_cache.records_by_span;
   auto it = records.find(span);
   wire::core::SpanSupportLayoutEntry layout{};
-  if (it != records.end() && it->second.layout.has_value()) {
-    layout = *it->second.layout;
+  if (it != records.end() && it->second.projection.layout.has_value()) {
+    layout = *it->second.projection.layout;
   }
   layout.span_id = span;
   layout.start.owner_pole_id = pole_a;
@@ -785,22 +785,22 @@ bool test_materialization_reads_layout_owned_support_group_decision() {
   CoreStateTestHook::cache_span_support_layout(state, std::move(layout));
 
   auto& cache = CoreStateTestHook::cache_state(state).support_layout_cache;
-  cache.support_group_decisions[{pole_a, 777}] = authoritative;
-  const auto decision_it = cache.support_group_decisions.find({pole_a, 777});
+  cache.support_groups.authority.by_key[{pole_a, 777}] = authoritative;
+  const auto decision_it = cache.support_groups.authority.by_key.find({pole_a, 777});
   const auto layout_it = cache.records_by_span.find(span);
-  if (decision_it == cache.support_group_decisions.end() || layout_it == cache.records_by_span.end() ||
-      !layout_it->second.layout.has_value()) {
+  if (decision_it == cache.support_groups.authority.by_key.end() || layout_it == cache.records_by_span.end() ||
+      !layout_it->second.projection.layout.has_value()) {
     return false;
   }
 
   const auto validation = helpers::validate_now(state);
-  const auto refreshed_decision_it = cache.support_group_decisions.find({pole_a, 777});
+  const auto refreshed_decision_it = cache.support_groups.authority.by_key.find({pole_a, 777});
   const auto refreshed_layout_it = cache.records_by_span.find(span);
-  if (refreshed_decision_it == cache.support_group_decisions.end() ||
-      refreshed_layout_it == cache.records_by_span.end() || !refreshed_layout_it->second.layout.has_value()) {
+  if (refreshed_decision_it == cache.support_groups.authority.by_key.end() ||
+      refreshed_layout_it == cache.records_by_span.end() || !refreshed_layout_it->second.projection.layout.has_value()) {
     return false;
   }
-  const auto& refreshed_layout = *refreshed_layout_it->second.layout;
+  const auto& refreshed_layout = *refreshed_layout_it->second.projection.layout;
   const bool ok_validation = validation.ok();
   const bool ok_decision_side =
       refreshed_decision_it->second.side_assignment_rule == wire::core::SideAssignmentRuleKind::kBisector;
@@ -826,9 +826,10 @@ bool test_materialization_reads_layout_owned_support_group_decision() {
   const bool ok_layout_axis =
       helpers::almost_equal(refreshed_layout.start.side_axis, Vec3d{0.0, 1.0, 0.0});
   const bool ok_layout_down = helpers::almost_equal(refreshed_layout.start.branch_down_offset_m, 1.25);
-  const auto placement_it = cache.lowered_support_groups.find({pole_a, 777});
+  const auto placement_it = cache.support_groups.placement.by_key.find({pole_a, 777});
   const bool ok_group_down =
-      placement_it != cache.lowered_support_groups.end() && helpers::almost_equal(placement_it->second.down_offset_m, 1.25);
+      placement_it != cache.support_groups.placement.by_key.end() &&
+      helpers::almost_equal(placement_it->second.down_offset_m, 1.25);
   return ok_validation && ok_decision_side && ok_decision_orient && ok_decision_basis && ok_decision_sign &&
          ok_decision_axis && ok_group_down && ok_keys && ok_layout_side && ok_layout_orient && ok_layout_basis &&
          ok_layout_sign && ok_layout_axis && ok_layout_down;
@@ -883,12 +884,12 @@ bool test_validation_treats_grouped_endpoint_semantics_as_derived_copies() {
   authoritative.side = wire::core::SlotSide::kLeft;
   authoritative.origin = wire::core::SupportLayoutOriginKind::kBranchSupport;
   CoreStateTestHook::cache_span_support_layout(state, std::move(layout));
-  CoreStateTestHook::cache_state(state).support_layout_cache.support_group_decisions[{pole_a, 777}] = authoritative;
+  CoreStateTestHook::cache_state(state).support_layout_cache.support_groups.authority.by_key[{pole_a, 777}] = authoritative;
   auto& cached_record = CoreStateTestHook::cache_state(state).support_layout_cache.records_by_span[span];
-  if (!cached_record.layout.has_value()) {
+  if (!cached_record.projection.layout.has_value()) {
     return false;
   }
-  auto& cached_layout = *cached_record.layout;
+  auto& cached_layout = *cached_record.projection.layout;
   cached_layout.start.side_assignment_rule = wire::core::SideAssignmentRuleKind::kChord;
   cached_layout.start.support_orientation_rule = wire::core::SupportOrientationRuleKind::kChord;
   cached_layout.start.support_orientation_basis = wire::core::SupportOrientationBasisKind::kChordForward;

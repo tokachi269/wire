@@ -63,7 +63,6 @@ void apply_support_layout_decision_seed(const SpanSupportLayoutDecisionSeed& see
     return;
   }
   layout->span_id = seed.span_id;
-  layout->requires_decision_seed = true;
   layout->flow_kind = seed.flow_kind;
   layout->pass_mode = seed.pass_mode;
   layout->variation_flow_key = seed.variation_flow_key;

@@ -4,6 +4,7 @@
 #include "backbone_prepare.hpp"
 
 #include <functional>
+#include <limits>
 #include <string>
 #include <unordered_map>
 
@@ -33,6 +34,70 @@ struct EdgeFlowInfo {
 struct BackboneDecisionPhaseOutput {
   std::vector<EdgeFlowInfo> edge_flow_by_segment{};
   std::vector<JunctionRelation> junction_relations_in_path_order{};
+  std::unordered_map<ObjectId, JunctionRelation> junction_relations_by_node{};
+};
+
+struct BackboneFeasibilityPhaseOutput {
+  std::unordered_map<ObjectId, JunctionRelation> junction_relations_by_node{};
+};
+
+struct BackboneBundleGapSegment {
+  std::size_t segment_index = 0;
+  int missing_count = 0;
+};
+
+struct BackboneBundleGapAnalysis {
+  BackboneBundlePlan bundle_plan{};
+  int missing_total = 0;
+  std::size_t first_missing_segment = std::numeric_limits<std::size_t>::max();
+  std::vector<BackboneBundleGapSegment> missing_segments{};
+
+  [[nodiscard]] bool requires_allocation() const {
+    return missing_total > 0;
+  }
+
+  [[nodiscard]] bool has_generation_start() const {
+    return first_missing_segment != std::numeric_limits<std::size_t>::max();
+  }
+};
+
+struct BackboneBundleAllocation {
+  BackboneBundlePlan bundle_plan{};
+  ObjectId bundle_id = kInvalidObjectId;
+  ChangeSet change_set{};
+};
+
+struct BackboneSpanGenerationRunPlan {
+  std::size_t segment_start_index = 0;
+  std::size_t segment_end_index = 0;
+  std::vector<ObjectId> ordered_support_node_ids{};
+  std::uint64_t variation_flow_key = 0;
+  BackboneLoweringPolicy lowering_policy{};
+};
+
+struct BackboneGroupedSpanGenerationPhaseOutput {
+  ChangeSet change_set{};
+  std::vector<ObjectId> span_ids{};
+  std::vector<SegmentLaneAssignment> lane_assignments{};
+  std::vector<BackboneEdgeOrientation> edge_orientations{};
+  std::unordered_map<ObjectId, JunctionRelation> junction_relations_by_node{};
+};
+
+struct BackboneSupportLayoutSeedAuthorityPhaseOutput {
+  std::vector<SpanSupportLayoutDecisionSeed> support_layout_seeds{};
+};
+
+struct BackboneGeneratedSpanMetadataPhaseOutput {
+  ChangeSet change_set{};
+  std::vector<ObjectId> generated_span_ids{};
+};
+
+struct BackboneSpanMaterializationPhaseOutput {
+  ChangeSet change_set{};
+  std::vector<ObjectId> generated_span_ids{};
+  std::vector<SegmentLaneAssignment> lane_assignments{};
+  std::vector<BackboneEdgeOrientation> edge_orientations{};
+  std::vector<SpanSupportLayoutDecisionSeed> support_layout_seeds{};
   std::unordered_map<ObjectId, JunctionRelation> junction_relations_by_node{};
 };
 

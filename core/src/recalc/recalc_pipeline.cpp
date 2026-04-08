@@ -469,7 +469,6 @@ bool CoreState::rebuild_span_geometry_with_cached_contract(ObjectId span_id, boo
   if (support_layout.span_id == kInvalidObjectId) {
     return false;
   }
-  support_layout.requires_decision_seed = requires_seed;
   DetailCurve detail = generate_span_curve(*span, support_layout, error_message);
   return cache_rebuilt_span_geometry(span_id, std::move(support_layout), std::move(detail), error_message);
 }
@@ -713,8 +712,8 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
   append_parts_for_port(*a, start_layout);
   append_parts_for_port(*b, end_layout);
   for (const LoweredSupportGroupKey& key : support_layout->lowered_support_group_keys) {
-    auto it = runtime_.cache_state.support_layout_cache.lowered_support_groups.find(key);
-    if (it != runtime_.cache_state.support_layout_cache.lowered_support_groups.end()) {
+    auto it = runtime_.cache_state.support_layout_cache.support_groups.placement.by_key.find(key);
+    if (it != runtime_.cache_state.support_layout_cache.support_groups.placement.by_key.end()) {
       std::vector<Vec3d> span_attachment_worlds{};
       bool span_has_local_owner_visual = false;
       auto append_span_attachment = [&](const SupportLayoutEndpoint* endpoint) {

@@ -238,7 +238,6 @@ struct LoweredSupportGroupPlacement {
 
 struct SpanSupportLayoutEntry {
   ObjectId span_id = kInvalidObjectId;
-  bool requires_decision_seed = false;
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
   CurvePassMode pass_mode = CurvePassMode::kPassThrough;
   CurveProfileHint detail_curve_profile_hint = CurveProfileHint::kAuto;
@@ -256,18 +255,46 @@ struct SpanSupportLayoutEntry {
   std::uint64_t source_version = 0;
 };
 
-struct SupportLayoutCacheRecord {
-  bool decision_required = false;
-  std::optional<SpanSupportLayoutDecisionSeed> decision_seed{};
+struct SpanSupportLayoutAuthorityRecord {
+  bool required = false;
+  std::optional<SpanSupportLayoutDecisionSeed> seed{};
+
+  [[nodiscard]] bool has_seed() const { return seed.has_value(); }
+};
+
+struct SpanSupportLayoutProjectionRecord {
   std::optional<SpanSupportLayoutEntry> layout{};
+
+  [[nodiscard]] bool has_layout() const { return layout.has_value(); }
+};
+
+struct SupportLayoutCacheRecord {
+  SpanSupportLayoutAuthorityRecord authority{};
+  SpanSupportLayoutProjectionRecord projection{};
+
+  [[nodiscard]] bool requires_authority() const { return authority.required; }
+  [[nodiscard]] bool has_authority() const { return authority.has_seed(); }
+  [[nodiscard]] bool has_projection() const { return projection.has_layout(); }
+};
+
+struct SupportGroupAuthorityCache {
+  std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash> by_key{};
+};
+
+struct SupportGroupPlacementCache {
+  std::unordered_map<LoweredSupportGroupKey, LoweredSupportGroupPlacement, LoweredSupportGroupKeyHash> by_key{};
+};
+
+struct SupportGroupCacheContract {
+  SupportGroupAuthorityCache authority{};
+  SupportGroupPlacementCache placement{};
 };
 
 struct SupportLayoutCache {
   std::unordered_map<ObjectId, SupportLayoutCacheRecord> records_by_span{};
-  // Derived view rebuilt from records_by_span[*].decision_seed. Do not treat this as an authority source.
-  std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash> support_group_decisions{};
-  std::unordered_map<LoweredSupportGroupKey, LoweredSupportGroupPlacement, LoweredSupportGroupKeyHash>
-      lowered_support_groups{};
+  // Derived support-group cache. Authority is rebuilt from span decision seeds.
+  // Placement is rebuilt from authority + observation. Neither is an authoring source.
+  SupportGroupCacheContract support_groups{};
 
   [[nodiscard]] const SupportLayoutCacheRecord* find_record(ObjectId span_id) const {
     const auto it = records_by_span.find(span_id);
@@ -281,17 +308,17 @@ struct SupportLayoutCache {
 
   [[nodiscard]] const SpanSupportLayoutDecisionSeed* find_seed(ObjectId span_id) const {
     const SupportLayoutCacheRecord* record = find_record(span_id);
-    return (record == nullptr || !record->decision_seed.has_value()) ? nullptr : &*record->decision_seed;
+    return (record == nullptr || !record->authority.seed.has_value()) ? nullptr : &*record->authority.seed;
   }
 
   [[nodiscard]] const SpanSupportLayoutEntry* find_layout(ObjectId span_id) const {
     const SupportLayoutCacheRecord* record = find_record(span_id);
-    return (record == nullptr || !record->layout.has_value()) ? nullptr : &*record->layout;
+    return (record == nullptr || !record->projection.layout.has_value()) ? nullptr : &*record->projection.layout;
   }
 
   [[nodiscard]] bool decision_required(ObjectId span_id) const {
     const SupportLayoutCacheRecord* record = find_record(span_id);
-    return record != nullptr && record->decision_required;
+    return record != nullptr && record->authority.required;
   }
 
   void erase_record_if_empty(ObjectId span_id) {
@@ -299,7 +326,8 @@ struct SupportLayoutCache {
     if (it == records_by_span.end()) {
       return;
     }
-    if (!it->second.decision_required && !it->second.decision_seed.has_value() && !it->second.layout.has_value()) {
+    if (!it->second.authority.required && !it->second.authority.seed.has_value() &&
+        !it->second.projection.layout.has_value()) {
       records_by_span.erase(it);
     }
   }
@@ -307,28 +335,27 @@ struct SupportLayoutCache {
   void store_layout(SpanSupportLayoutEntry layout) {
     const ObjectId span_id = layout.span_id;
     SupportLayoutCacheRecord& record = records_by_span[span_id];
-    record.decision_required = layout.requires_decision_seed;
-    record.layout = std::move(layout);
+    record.projection.layout = std::move(layout);
   }
 
   void store_seed(SpanSupportLayoutDecisionSeed seed) {
     const ObjectId span_id = seed.span_id;
     SupportLayoutCacheRecord& record = records_by_span[span_id];
-    record.decision_required = true;
-    record.decision_seed = std::move(seed);
+    record.authority.required = true;
+    record.authority.seed = std::move(seed);
   }
 
   void clear_seed(ObjectId span_id) {
     if (SupportLayoutCacheRecord* record = find_record(span_id); record != nullptr) {
-      record->decision_seed.reset();
-      record->decision_required = false;
+      record->authority.seed.reset();
+      record->authority.required = false;
       erase_record_if_empty(span_id);
     }
   }
 
   void clear_layout(ObjectId span_id) {
     if (SupportLayoutCacheRecord* record = find_record(span_id); record != nullptr) {
-      record->layout.reset();
+      record->projection.layout.reset();
       erase_record_if_empty(span_id);
     }
   }

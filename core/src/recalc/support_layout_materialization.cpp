@@ -236,52 +236,65 @@ struct MaterializedBranchDownOffsetPair {
   double resolved_end_m = 0.0;
 };
 
-int resolve_default_attachment_socket_id(const CoreState& state, ObjectId attachment_id, bool is_start_endpoint) {
-  if (attachment_id == kInvalidObjectId) {
-    return -1;
-  }
-  const Attachment* attachment = state.view().attachments().find(attachment_id);
-  if (attachment == nullptr) {
-    return -1;
-  }
-  const AttachmentTemplate* attachment_template = state.find_attachment_template(attachment->template_id);
-  if (attachment_template == nullptr) {
-    return -1;
-  }
+struct SpanSupportLayoutAuthority {
+  const SpanSupportLayoutDecisionSeed* decision_seed = nullptr;
+  bool requires_decision_seed = false;
 
-  const AttachmentSocketTemplate* socket_a = nullptr;
-  const AttachmentSocketTemplate* socket_b = nullptr;
-  const AttachmentInternalPathTemplate* internal_path = nullptr;
-  if (!resolve_attachment_socket_pair(*attachment_template, &socket_a, &socket_b, &internal_path)) {
-    return -1;
+  [[nodiscard]] bool has_authority() const {
+    return decision_seed != nullptr;
   }
-  const AttachmentSocketTemplate* selected = is_start_endpoint ? socket_b : socket_a;
-  if (selected == nullptr) {
-    return -1;
-  }
-  return selected->id;
-}
+};
 
-ResolvedEndpointSocketDecision resolve_materialized_endpoint_socket(const CoreState& state, const Span& span,
-                                                                   bool is_start_endpoint) {
-  ResolvedEndpointSocketDecision resolved{};
-  resolved.socket_override_active =
-      state_internal::OverrideResolutionService::HasSpanEndpointSocketOverride(state, span.id, is_start_endpoint);
-  resolved.resolved_socket_id =
-      state_internal::OverrideResolutionService::ResolveSpanEndpointSocketId(state, span, is_start_endpoint);
-  if (resolved.resolved_socket_id >= 0 || resolved.socket_override_active) {
-    return resolved;
-  }
-  const ObjectId attachment_id = is_start_endpoint ? span.endpoint_attachment_a_id : span.endpoint_attachment_b_id;
-  resolved.resolved_socket_id = resolve_default_attachment_socket_id(state, attachment_id, is_start_endpoint);
-  return resolved;
-}
-
-MaterializedEndpointSocketPair resolve_materialized_endpoint_sockets(const CoreState& state, const Span& span) {
+struct ResolvedSpanSupportLayoutMaterializationInputs {
   MaterializedEndpointSocketPair sockets{};
-  sockets.start = resolve_materialized_endpoint_socket(state, span, true);
-  sockets.end = resolve_materialized_endpoint_socket(state, span, false);
-  return sockets;
+  MaterializedBranchDownOffsetPair branch_down_offsets{};
+};
+
+bool resolve_materialized_endpoint_socket(const CoreState& state, const Span& span,
+                                         const SpanSupportLayoutAuthority& authority, bool is_start_endpoint,
+                                         ResolvedEndpointSocketDecision* out, std::string* error_message) {
+  if (out == nullptr) {
+    return false;
+  }
+  *out = {};
+
+  const ObjectId attachment_id = is_start_endpoint ? span.endpoint_attachment_a_id : span.endpoint_attachment_b_id;
+  out->socket_override_active =
+      state_internal::OverrideResolutionService::HasSpanEndpointSocketOverride(state, span.id, is_start_endpoint);
+  if (out->socket_override_active) {
+    out->resolved_socket_id =
+        state_internal::OverrideResolutionService::ResolveSpanEndpointSocketId(state, span, is_start_endpoint);
+  } else if (authority.decision_seed != nullptr) {
+    const SupportLayoutDecisionSeedEndpoint& endpoint = is_start_endpoint ? authority.decision_seed->start
+                                                                          : authority.decision_seed->end;
+    out->resolved_socket_id = endpoint.resolved_socket_id.value_or(-1);
+  }
+
+  if (attachment_id == kInvalidObjectId) {
+    return true;
+  }
+  if (out->resolved_socket_id >= 0) {
+    return true;
+  }
+  if (error_message != nullptr && error_message->empty()) {
+    *error_message = "attachment endpoint requires explicit socket authority before materialization";
+  }
+  return false;
+}
+
+bool resolve_materialized_endpoint_sockets(const CoreState& state, const Span& span,
+                                           const SpanSupportLayoutAuthority& authority,
+                                           MaterializedEndpointSocketPair* out, std::string* error_message) {
+  if (out == nullptr) {
+    return false;
+  }
+  MaterializedEndpointSocketPair sockets{};
+  if (!resolve_materialized_endpoint_socket(state, span, authority, true, &sockets.start, error_message) ||
+      !resolve_materialized_endpoint_socket(state, span, authority, false, &sockets.end, error_message)) {
+    return false;
+  }
+  *out = sockets;
+  return true;
 }
 
 bool endpoint_uses_grouped_lowered_support(const SupportLayoutEndpoint* endpoint) {
@@ -303,10 +316,9 @@ SupportLayoutOriginKind support_layout_origin_from_port(const Port& port) {
   case PortPlacementSourceKind::kPlacementBand:
   case PortPlacementSourceKind::kGenerated:
   case PortPlacementSourceKind::kManualEdit:
-    return SupportLayoutOriginKind::kMainSupport;
   case PortPlacementSourceKind::kUnknown:
   default:
-    return SupportLayoutOriginKind::kFallback;
+    return SupportLayoutOriginKind::kMainSupport;
   }
 }
 
@@ -387,8 +399,6 @@ SupportLayoutEndpoint build_support_layout_endpoint(
     endpoint.endpoint_source = socket_override_active
                                    ? SupportLayoutEndpointSourceKind::kAttachmentSocketOverride
                                    : SupportLayoutEndpointSourceKind::kAttachmentSocket;
-  } else if (endpoint.attachment_request.kind != EndpointAttachmentRequestKind::kNone) {
-    endpoint.endpoint_source = SupportLayoutEndpointSourceKind::kFallback;
   } else {
     endpoint.endpoint_source = SupportLayoutEndpointSourceKind::kPlainSupport;
   }
@@ -416,15 +426,7 @@ void append_unique_group_key(std::vector<LoweredSupportGroupKey>* keys, const Lo
 std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash>
 build_support_group_decision_view_from_seeds(const SupportLayoutCache& support_layout_cache) {
   std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash> groups{};
-  std::vector<ObjectId> ordered_seed_span_ids{};
-  ordered_seed_span_ids.reserve(support_layout_cache.records_by_span.size());
-  for (const auto& [span_id, record] : support_layout_cache.records_by_span) {
-    if (record.has_authority()) {
-      ordered_seed_span_ids.push_back(span_id);
-    }
-  }
-  std::sort(ordered_seed_span_ids.begin(), ordered_seed_span_ids.end());
-  for (ObjectId span_id : ordered_seed_span_ids) {
+  for (ObjectId span_id : support_layout_cache.ordered_authority_span_ids()) {
     const SpanSupportLayoutDecisionSeed* seed = support_layout_cache.find_seed(span_id);
     if (seed == nullptr) {
       continue;
@@ -444,15 +446,7 @@ build_support_group_decision_view_for_keys_from_seeds(const SupportLayoutCache& 
                                                       const std::vector<LoweredSupportGroupKey>& keys) {
   std::unordered_set<LoweredSupportGroupKey, LoweredSupportGroupKeyHash> key_set(keys.begin(), keys.end());
   std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash> groups{};
-  std::vector<ObjectId> ordered_seed_span_ids{};
-  ordered_seed_span_ids.reserve(support_layout_cache.records_by_span.size());
-  for (const auto& [span_id, record] : support_layout_cache.records_by_span) {
-    if (record.has_authority()) {
-      ordered_seed_span_ids.push_back(span_id);
-    }
-  }
-  std::sort(ordered_seed_span_ids.begin(), ordered_seed_span_ids.end());
-  for (ObjectId span_id : ordered_seed_span_ids) {
+  for (ObjectId span_id : support_layout_cache.ordered_authority_span_ids()) {
     const SpanSupportLayoutDecisionSeed* seed = support_layout_cache.find_seed(span_id);
     if (seed == nullptr) {
       continue;
@@ -538,11 +532,7 @@ LoweredSupportGroupObservationMap collect_lowered_support_group_observations(
   }
 
   const std::unordered_set<LoweredSupportGroupKey, LoweredSupportGroupKeyHash> key_set(keys.begin(), keys.end());
-  for (auto& [_, record] : cache->records_by_span) {
-    if (!record.has_projection()) {
-      continue;
-    }
-    auto& layout = *record.projection.layout;
+  cache->for_each_projected_record([&](ObjectId, SupportLayoutCacheRecord&, SpanSupportLayoutEntry& layout) {
     layout.lowered_support_group_keys.erase(
         std::remove_if(layout.lowered_support_group_keys.begin(), layout.lowered_support_group_keys.end(),
                        [&](const LoweredSupportGroupKey& key) { return key_set.contains(key); }),
@@ -574,7 +564,7 @@ LoweredSupportGroupObservationMap collect_lowered_support_group_observations(
 
     observe_endpoint(layout.start);
     observe_endpoint(layout.end);
-  }
+  });
 
   return observations;
 }
@@ -614,11 +604,7 @@ void project_lowered_support_group_placements(
   }
 
   const std::unordered_set<LoweredSupportGroupKey, LoweredSupportGroupKeyHash> key_set(keys.begin(), keys.end());
-  for (auto& [_, record] : cache->records_by_span) {
-    if (!record.has_projection()) {
-      continue;
-    }
-    auto& layout = *record.projection.layout;
+  cache->for_each_projected_record([&](ObjectId, SupportLayoutCacheRecord&, SpanSupportLayoutEntry& layout) {
     const auto reproject_endpoint = [&](SupportLayoutEndpoint* endpoint) {
       if (endpoint == nullptr || !endpoint_uses_grouped_lowered_support(endpoint)) {
         return;
@@ -637,7 +623,7 @@ void project_lowered_support_group_placements(
     };
     reproject_endpoint(&layout.start);
     reproject_endpoint(&layout.end);
-  }
+  });
 }
 
 void rebuild_lowered_support_groups_for_keys(const CoreState& state, const EditState& edit_state, CacheState* cache_state,
@@ -666,15 +652,6 @@ void rebuild_lowered_support_groups_for_keys(const CoreState& state, const EditS
 }
 
 namespace {
-
-struct SpanSupportLayoutAuthority {
-  const SpanSupportLayoutDecisionSeed* decision_seed = nullptr;
-  bool requires_decision_seed = false;
-
-  [[nodiscard]] bool has_authority() const {
-    return decision_seed != nullptr;
-  }
-};
 
 double automatic_branch_down_offset_from_authority(const CoreState& state, const Port& port,
                                                    const SpanSupportLayoutAuthority& authority, bool is_start_endpoint,
@@ -708,6 +685,17 @@ MaterializedBranchDownOffsetPair resolve_materialized_branch_down_offsets(const 
   offsets.resolved_end_m =
       state_internal::OverrideResolutionService::ResolveSpanBranchDownOffsetM(state, span, offsets.automatic_end_m);
   return offsets;
+}
+
+ResolvedSpanSupportLayoutMaterializationInputs resolve_span_support_layout_materialization_inputs(
+    const CoreState& state, const Span& span, const Port& port_a, const Port& port_b,
+    const SpanSupportLayoutAuthority& authority, std::string* error_message) {
+  ResolvedSpanSupportLayoutMaterializationInputs inputs{};
+  if (!resolve_materialized_endpoint_sockets(state, span, authority, &inputs.sockets, error_message)) {
+    return {};
+  }
+  inputs.branch_down_offsets = resolve_materialized_branch_down_offsets(state, span, port_a, port_b, authority);
+  return inputs;
 }
 
 void apply_consumed_support_layout_authority(const SpanSupportLayoutAuthority& authority, SpanSupportLayoutEntry* layout) {
@@ -793,15 +781,20 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
   const double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
   const ResolvedSpanCurveInputs inputs =
       resolve_span_curve_inputs(*this, span, *port_a, *port_b, pole_a, pole_b, a, b, distance);
+  if (port_a->placement_source == PortPlacementSourceKind::kUnknown ||
+      port_b->placement_source == PortPlacementSourceKind::kUnknown) {
+    if (error_message != nullptr && error_message->empty()) {
+      *error_message = "support layout requires explicit port placement source before materialization";
+    }
+    return {};
+  }
 
   Vec3d chord_dir = b - a;
   if (!Normalize(&chord_dir)) {
     chord_dir = WorldForward();
   }
-  const SpanSupportLayoutDecisionSeed* decision_seed = find_span_support_layout_seed(span.id);
-  const SupportLayoutCacheRecord* cache_record = runtime_.cache_state.support_layout_cache.find_record(span.id);
-  const bool requires_decision_seed = cache_record != nullptr && cache_record->requires_authority();
-  const SpanSupportLayoutAuthority authority{decision_seed, requires_decision_seed};
+  const SpanSupportLayoutAuthorityView authority_view = runtime_.cache_state.support_layout_cache.authority_view(span.id);
+  const SpanSupportLayoutAuthority authority{authority_view.seed, authority_view.required};
   if (authority.requires_decision_seed && !authority.has_authority()) {
     if (error_message != nullptr && error_message->empty()) {
       *error_message = "support layout decision seed is missing";
@@ -809,12 +802,15 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
     return {};
   }
 
-  const MaterializedEndpointSocketPair sockets = resolve_materialized_endpoint_sockets(*this, span);
-  const MaterializedBranchDownOffsetPair branch_down_offsets =
-      resolve_materialized_branch_down_offsets(*this, span, *port_a, *port_b, authority);
+  const ResolvedSpanSupportLayoutMaterializationInputs resolved_inputs =
+      resolve_span_support_layout_materialization_inputs(*this, span, *port_a, *port_b, authority, error_message);
+  if ((span.endpoint_attachment_a_id != kInvalidObjectId && resolved_inputs.sockets.start.resolved_socket_id < 0) ||
+      (span.endpoint_attachment_b_id != kInvalidObjectId && resolved_inputs.sockets.end.resolved_socket_id < 0)) {
+    return {};
+  }
 
   return materialize_span_support_layout(*this, span, inputs, *port_a, *port_b, pole_a, pole_b, chord_dir, authority,
-                                         sockets, branch_down_offsets);
+                                         resolved_inputs.sockets, resolved_inputs.branch_down_offsets);
 }
 
 } // namespace wire::core

@@ -22,10 +22,9 @@ SupportLayoutOriginKind support_layout_origin_from_port_source(PortPlacementSour
   case PortPlacementSourceKind::kPlacementBand:
   case PortPlacementSourceKind::kGenerated:
   case PortPlacementSourceKind::kManualEdit:
-    return SupportLayoutOriginKind::kMainSupport;
   case PortPlacementSourceKind::kUnknown:
   default:
-    return SupportLayoutOriginKind::kFallback;
+    return SupportLayoutOriginKind::kMainSupport;
   }
 }
 
@@ -184,7 +183,7 @@ SupportLayoutDecisionSeedEndpoint build_seed_endpoint_from_decision(
   endpoint.support_authority = ResolvedSupportAuthorityFromDecision(decision, pair_height_rank);
   endpoint.flow_kind = assignment.flow_kind;
   endpoint.origin = support_layout_origin_from_port_source(port.placement_source);
-  endpoint.endpoint_source = SupportLayoutEndpointSourceKind::kFallback;
+  endpoint.endpoint_source = SupportLayoutEndpointSourceKind::kPlainSupport;
   endpoint.port_source = port.placement_source;
   endpoint.side = port.template_side;
   endpoint.endpoint_mode = CurveEndpointMode::kDirectThrough;

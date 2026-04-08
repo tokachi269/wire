@@ -168,8 +168,7 @@ private:
                                                    DirtyBits dirty_bits, ChangeSet* change_set);
   [[nodiscard]] bool cache_rebuilt_span_geometry(ObjectId span_id, SpanSupportLayoutEntry support_layout,
                                                  DetailCurve detail, std::string* error_message);
-  [[nodiscard]] bool rebuild_span_geometry_with_cached_contract(ObjectId span_id, bool requires_seed,
-                                                                std::string* error_message);
+  [[nodiscard]] bool rebuild_span_geometry_with_cached_contract(ObjectId span_id, std::string* error_message);
   [[nodiscard]] bool rebuild_span_decision_path(ObjectId span_id, std::string* error_message);
   [[nodiscard]] bool rebuild_span_geometry_from_seed(ObjectId span_id, std::string* error_message);
   [[nodiscard]] bool rebuild_span_bounds(ObjectId span_id, std::string* error_message);

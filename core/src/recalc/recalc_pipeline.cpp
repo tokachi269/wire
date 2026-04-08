@@ -64,11 +64,13 @@ void append_support_group_keys(std::vector<LoweredSupportGroupKey>* keys,
 
 std::vector<LoweredSupportGroupKey> collect_cached_support_group_keys(const CacheState& cache_state, ObjectId span_id) {
   std::vector<LoweredSupportGroupKey> keys{};
-  if (const SpanSupportLayoutDecisionSeed* seed = cache_state.support_layout_cache.find_seed(span_id); seed != nullptr) {
-    append_support_group_keys(&keys, collect_support_group_keys_for_seed(*seed));
+  const SpanSupportLayoutAuthorityView authority = cache_state.support_layout_cache.authority_view(span_id);
+  if (authority.has_authority()) {
+    append_support_group_keys(&keys, collect_support_group_keys_for_seed(*authority.seed));
   }
-  if (const SpanSupportLayoutEntry* layout = cache_state.support_layout_cache.find_layout(span_id); layout != nullptr) {
-    append_support_group_keys(&keys, collect_support_group_keys_for_layout(*layout));
+  const SpanSupportLayoutProjectionView projection = cache_state.support_layout_cache.projection_view(span_id);
+  if (projection.has_projection()) {
+    append_support_group_keys(&keys, collect_support_group_keys_for_layout(*projection.layout));
   }
   return keys;
 }
@@ -455,9 +457,8 @@ bool CoreState::cache_rebuilt_span_geometry(ObjectId span_id, SpanSupportLayoutE
   return true;
 }
 
-bool CoreState::rebuild_span_geometry_with_cached_contract(ObjectId span_id, bool requires_seed,
-                                                           std::string* error_message) {
-  if (requires_seed && find_span_support_layout_seed(span_id) == nullptr) {
+bool CoreState::rebuild_span_geometry_with_cached_contract(ObjectId span_id, std::string* error_message) {
+  if (runtime_.cache_state.support_layout_cache.decision_required(span_id) && find_span_support_layout_seed(span_id) == nullptr) {
     return set_missing_seed_error(error_message);
   }
   const Span* span = authoritative_.edit_state.spans.find(span_id);
@@ -476,15 +477,15 @@ bool CoreState::rebuild_span_geometry_with_cached_contract(ObjectId span_id, boo
 bool CoreState::rebuild_span_decision_path(ObjectId span_id, std::string* error_message) {
   // Decision dirty is the only path that is allowed to (re)assert the
   // decision-seed contract on the cached support layout.
-  return rebuild_span_geometry_with_cached_contract(span_id, true, error_message);
+  runtime_.cache_state.support_layout_cache.require_authority(span_id);
+  return rebuild_span_geometry_with_cached_contract(span_id, error_message);
 }
 
 bool CoreState::rebuild_span_geometry_from_seed(ObjectId span_id, std::string* error_message) {
-  const bool requires_seed = runtime_.cache_state.support_layout_cache.decision_required(span_id);
   // Geometry refresh consumes the existing cached seed contract. It does not
   // reinterpret authority ownership and it does not downgrade/upgrade whether a
   // decision seed is required for this span.
-  return rebuild_span_geometry_with_cached_contract(span_id, requires_seed, error_message);
+  return rebuild_span_geometry_with_cached_contract(span_id, error_message);
 }
 
 void CoreState::cache_span_support_layout(SpanSupportLayoutEntry layout) {

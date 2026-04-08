@@ -514,15 +514,14 @@ bool test_validate_rejects_non_radial_support_without_authoritative_axis() {
   const ObjectId span = state.AddSpan(port_a, port_b).value;
   (void)state.Commit();
 
-  auto& records = CoreStateTestHook::cache_state(state).support_layout_cache.records_by_span;
-  auto it = records.find(span);
-  if (it == records.end() || !it->second.projection.layout.has_value()) {
+  auto& cache = CoreStateTestHook::cache_state(state).support_layout_cache;
+  auto* layout = cache.find_layout(span);
+  if (layout == nullptr) {
     return false;
   }
-  auto& layout = *it->second.projection.layout;
-  layout.start.support_orientation_basis = wire::core::SupportOrientationBasisKind::kChordForward;
-  layout.start.has_side_axis = false;
-  layout.start.side_axis = {};
+  layout->start.support_orientation_basis = wire::core::SupportOrientationBasisKind::kChordForward;
+  layout->start.has_side_axis = false;
+  layout->start.side_axis = {};
 
   const auto validation = helpers::validate_now(state);
   return has_validation_issue(validation, wire::core::ValidationSeverity::kError, "SupportLayoutStartAxisMissing");
@@ -540,21 +539,20 @@ bool test_validate_rejects_grouped_lowered_support_with_radial_basis() {
                                       wire::core::SpanLayer::kHighVoltage).value;
   (void)state.Commit();
 
-  auto& records = CoreStateTestHook::cache_state(state).support_layout_cache.records_by_span;
-  auto it = records.find(span);
-  if (it == records.end() || !it->second.projection.layout.has_value()) {
+  auto& cache = CoreStateTestHook::cache_state(state).support_layout_cache;
+  auto* layout = cache.find_layout(span);
+  if (layout == nullptr) {
     return false;
   }
-  auto& layout = *it->second.projection.layout;
-  layout.lowering_kind = wire::core::BackboneLoweringKind::kBranchSupport;
-  layout.start.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
-  layout.start.support_group_id = 99;
-  layout.start.lower_required = true;
-  layout.start.default_lower_required = true;
-  layout.start.same_level_feasible = false;
-  layout.start.support_orientation_basis = wire::core::SupportOrientationBasisKind::kRadial;
-  layout.start.has_side_axis = true;
-  layout.start.side_axis = {1.0, 0.0, 0.0};
+  layout->lowering_kind = wire::core::BackboneLoweringKind::kBranchSupport;
+  layout->start.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
+  layout->start.support_group_id = 99;
+  layout->start.lower_required = true;
+  layout->start.default_lower_required = true;
+  layout->start.same_level_feasible = false;
+  layout->start.support_orientation_basis = wire::core::SupportOrientationBasisKind::kRadial;
+  layout->start.has_side_axis = true;
+  layout->start.side_axis = {1.0, 0.0, 0.0};
 
   const auto validation = helpers::validate_now(state);
   return has_validation_issue(validation, wire::core::ValidationSeverity::kError, "LoweredBundleLikeRadialBasis");
@@ -579,15 +577,12 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
                                          wire::core::SpanLayer::kHighVoltage).value;
   (void)state.Commit();
 
-  auto& records = CoreStateTestHook::cache_state(state).support_layout_cache.records_by_span;
-  auto it_ab = records.find(span_ab);
-  auto it_ac = records.find(span_ac);
-  if (it_ab == records.end() || it_ac == records.end() ||
-      !it_ab->second.projection.layout.has_value() || !it_ac->second.projection.layout.has_value()) {
+  auto& cache = CoreStateTestHook::cache_state(state).support_layout_cache;
+  auto* layout_ab = cache.find_layout(span_ab);
+  auto* layout_ac = cache.find_layout(span_ac);
+  if (layout_ab == nullptr || layout_ac == nullptr) {
     return false;
   }
-  auto& layout_ab = *it_ab->second.projection.layout;
-  auto& layout_ac = *it_ac->second.projection.layout;
   const ObjectId pair_peer_low = std::min(pole_b, pole_c);
   const ObjectId pair_peer_high = std::max(pole_b, pole_c);
   const double expected_support_z =
@@ -618,8 +613,8 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
     group->attachment_worlds = {{0.0, 0.8, expected_support_z}, {0.0, 1.1, expected_support_z}};
   };
 
-  layout_ab.lowered_support_group_keys = {{pole_a, 1234}};
-  layout_ac.lowered_support_group_keys = {{pole_a, 1234}};
+  layout_ab->lowered_support_group_keys = {{pole_a, 1234}};
+  layout_ac->lowered_support_group_keys = {{pole_a, 1234}};
   auto& decision_store = CoreStateTestHook::cache_state(state).support_layout_cache.support_groups.authority.by_key;
   decision_store.clear();
   auto& grouped_store = CoreStateTestHook::cache_state(state).support_layout_cache.support_groups.placement.by_key;
@@ -643,15 +638,15 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
     endpoint->down_offset_variation = grouped_store[{pole_a, 1234}].down_offset_variation;
     endpoint->support_world = endpoint_world;
   };
-  apply_grouped_endpoint(&layout_ab.start, pole_a, port_ab_a, {0.0, 0.8, expected_support_z});
-  apply_grouped_endpoint(&layout_ac.start, pole_a, port_ac_a, {0.0, 1.1, expected_support_z});
+  apply_grouped_endpoint(&layout_ab->start, pole_a, port_ab_a, {0.0, 0.8, expected_support_z});
+  apply_grouped_endpoint(&layout_ac->start, pole_a, port_ac_a, {0.0, 1.1, expected_support_z});
 
   const auto validation = helpers::validate_now(state);
   return validation.ok() && grouped_store.size() == 1 &&
          decision_store.size() == 1 &&
-         layout_ab.lowered_support_group_keys.size() == 1 &&
-         layout_ac.lowered_support_group_keys.size() == 1 &&
-         layout_ab.lowered_support_group_keys.front() == layout_ac.lowered_support_group_keys.front();
+         layout_ab->lowered_support_group_keys.size() == 1 &&
+         layout_ac->lowered_support_group_keys.size() == 1 &&
+         layout_ab->lowered_support_group_keys.front() == layout_ac->lowered_support_group_keys.front();
 }
 
 bool test_inspection_uses_authoritative_lowered_support_groups() {
@@ -663,23 +658,22 @@ bool test_inspection_uses_authoritative_lowered_support_groups() {
   const ObjectId span = state.AddSpan(port_a, port_b).value;
   (void)state.Commit();
 
-  auto& records = CoreStateTestHook::cache_state(state).support_layout_cache.records_by_span;
-  auto it = records.find(span);
-  if (it == records.end() || !it->second.projection.layout.has_value()) {
+  auto& cache = CoreStateTestHook::cache_state(state).support_layout_cache;
+  auto* layout = cache.find_layout(span);
+  if (layout == nullptr) {
     return false;
   }
-  auto& layout = *it->second.projection.layout;
 
-  layout.lowering_kind = wire::core::BackboneLoweringKind::kNone;
-  layout.start.support_orientation_basis = wire::core::SupportOrientationBasisKind::kRadial;
-  layout.start.continuity_class = wire::core::ContinuityCategoryClass::kPointLike;
-  layout.start.default_lower_required = false;
-  layout.start.same_level_feasible = true;
-  layout.start.has_side_axis = false;
-  layout.start.side_axis = {};
-  layout.start.support_group_id = 777;
-  layout.start.lower_required = true;
-  layout.lowered_support_group_keys = {{pole_a, 777}};
+  layout->lowering_kind = wire::core::BackboneLoweringKind::kNone;
+  layout->start.support_orientation_basis = wire::core::SupportOrientationBasisKind::kRadial;
+  layout->start.continuity_class = wire::core::ContinuityCategoryClass::kPointLike;
+  layout->start.default_lower_required = false;
+  layout->start.same_level_feasible = true;
+  layout->start.has_side_axis = false;
+  layout->start.side_axis = {};
+  layout->start.support_group_id = 777;
+  layout->start.lower_required = true;
+  layout->lowered_support_group_keys = {{pole_a, 777}};
   auto& decision = CoreStateTestHook::cache_state(state).support_layout_cache.support_groups.authority.by_key[{pole_a, 777}];
   auto& group = CoreStateTestHook::cache_state(state).support_layout_cache.support_groups.placement.by_key[{pole_a, 777}];
   decision.owner_pole_id = pole_a;
@@ -735,11 +729,10 @@ bool test_materialization_reads_layout_owned_support_group_decision() {
   const double expected_support_z =
       template_layer_base_z_for_test(state, pole_a, wire::core::ConnectionCategory::kHighVoltage) - 1.25;
 
-  auto& records = CoreStateTestHook::cache_state(state).support_layout_cache.records_by_span;
-  auto it = records.find(span);
   wire::core::SpanSupportLayoutEntry layout{};
-  if (it != records.end() && it->second.projection.layout.has_value()) {
-    layout = *it->second.projection.layout;
+  if (const auto* cached_layout = CoreStateTestHook::cache_state(state).support_layout_cache.find_layout(span);
+      cached_layout != nullptr) {
+    layout = *cached_layout;
   }
   layout.span_id = span;
   layout.start.owner_pole_id = pole_a;
@@ -787,20 +780,17 @@ bool test_materialization_reads_layout_owned_support_group_decision() {
   auto& cache = CoreStateTestHook::cache_state(state).support_layout_cache;
   cache.support_groups.authority.by_key[{pole_a, 777}] = authoritative;
   const auto decision_it = cache.support_groups.authority.by_key.find({pole_a, 777});
-  const auto layout_it = cache.records_by_span.find(span);
-  if (decision_it == cache.support_groups.authority.by_key.end() || layout_it == cache.records_by_span.end() ||
-      !layout_it->second.projection.layout.has_value()) {
+  const auto* cached_layout = cache.find_layout(span);
+  if (decision_it == cache.support_groups.authority.by_key.end() || cached_layout == nullptr) {
     return false;
   }
 
   const auto validation = helpers::validate_now(state);
   const auto refreshed_decision_it = cache.support_groups.authority.by_key.find({pole_a, 777});
-  const auto refreshed_layout_it = cache.records_by_span.find(span);
-  if (refreshed_decision_it == cache.support_groups.authority.by_key.end() ||
-      refreshed_layout_it == cache.records_by_span.end() || !refreshed_layout_it->second.projection.layout.has_value()) {
+  const auto* refreshed_layout = cache.find_layout(span);
+  if (refreshed_decision_it == cache.support_groups.authority.by_key.end() || refreshed_layout == nullptr) {
     return false;
   }
-  const auto& refreshed_layout = *refreshed_layout_it->second.projection.layout;
   const bool ok_validation = validation.ok();
   const bool ok_decision_side =
       refreshed_decision_it->second.side_assignment_rule == wire::core::SideAssignmentRuleKind::kBisector;
@@ -812,20 +802,20 @@ bool test_materialization_reads_layout_owned_support_group_decision() {
   const bool ok_decision_sign = helpers::almost_equal(refreshed_decision_it->second.chosen_side_sign, -1.0);
   const bool ok_decision_axis =
       helpers::almost_equal(refreshed_decision_it->second.side_axis, Vec3d{0.0, 1.0, 0.0});
-  const bool ok_keys = refreshed_layout.lowered_support_group_keys.size() == 1 &&
-                       refreshed_layout.lowered_support_group_keys.front() ==
+  const bool ok_keys = refreshed_layout->lowered_support_group_keys.size() == 1 &&
+                       refreshed_layout->lowered_support_group_keys.front() ==
                            wire::core::LoweredSupportGroupKey{pole_a, 777};
   const bool ok_layout_side =
-      refreshed_layout.start.side_assignment_rule == wire::core::SideAssignmentRuleKind::kBisector;
+      refreshed_layout->start.side_assignment_rule == wire::core::SideAssignmentRuleKind::kBisector;
   const bool ok_layout_orient =
-      refreshed_layout.start.support_orientation_rule == wire::core::SupportOrientationRuleKind::kBisector;
+      refreshed_layout->start.support_orientation_rule == wire::core::SupportOrientationRuleKind::kBisector;
   const bool ok_layout_basis =
-      refreshed_layout.start.support_orientation_basis ==
+      refreshed_layout->start.support_orientation_basis ==
       wire::core::SupportOrientationBasisKind::kBisectorForward;
-  const bool ok_layout_sign = helpers::almost_equal(refreshed_layout.start.chosen_side_sign, -1.0);
+  const bool ok_layout_sign = helpers::almost_equal(refreshed_layout->start.chosen_side_sign, -1.0);
   const bool ok_layout_axis =
-      helpers::almost_equal(refreshed_layout.start.side_axis, Vec3d{0.0, 1.0, 0.0});
-  const bool ok_layout_down = helpers::almost_equal(refreshed_layout.start.branch_down_offset_m, 1.25);
+      helpers::almost_equal(refreshed_layout->start.side_axis, Vec3d{0.0, 1.0, 0.0});
+  const bool ok_layout_down = helpers::almost_equal(refreshed_layout->start.branch_down_offset_m, 1.25);
   const auto placement_it = cache.support_groups.placement.by_key.find({pole_a, 777});
   const bool ok_group_down =
       placement_it != cache.support_groups.placement.by_key.end() &&
@@ -885,17 +875,17 @@ bool test_validation_treats_grouped_endpoint_semantics_as_derived_copies() {
   authoritative.origin = wire::core::SupportLayoutOriginKind::kBranchSupport;
   CoreStateTestHook::cache_span_support_layout(state, std::move(layout));
   CoreStateTestHook::cache_state(state).support_layout_cache.support_groups.authority.by_key[{pole_a, 777}] = authoritative;
-  auto& cached_record = CoreStateTestHook::cache_state(state).support_layout_cache.records_by_span[span];
-  if (!cached_record.projection.layout.has_value()) {
+  auto& cache = CoreStateTestHook::cache_state(state).support_layout_cache;
+  auto* cached_layout = cache.find_layout(span);
+  if (cached_layout == nullptr) {
     return false;
   }
-  auto& cached_layout = *cached_record.projection.layout;
-  cached_layout.start.side_assignment_rule = wire::core::SideAssignmentRuleKind::kChord;
-  cached_layout.start.support_orientation_rule = wire::core::SupportOrientationRuleKind::kChord;
-  cached_layout.start.support_orientation_basis = wire::core::SupportOrientationBasisKind::kChordForward;
-  cached_layout.start.chosen_side = wire::core::LateralSideChoiceKind::kRight;
-  cached_layout.start.chosen_side_sign = 1.0;
-  cached_layout.start.side_axis = {1.0, 0.0, 0.0};
+  cached_layout->start.side_assignment_rule = wire::core::SideAssignmentRuleKind::kChord;
+  cached_layout->start.support_orientation_rule = wire::core::SupportOrientationRuleKind::kChord;
+  cached_layout->start.support_orientation_basis = wire::core::SupportOrientationBasisKind::kChordForward;
+  cached_layout->start.chosen_side = wire::core::LateralSideChoiceKind::kRight;
+  cached_layout->start.chosen_side_sign = 1.0;
+  cached_layout->start.side_axis = {1.0, 0.0, 0.0};
 
   const auto validation = helpers::validate_now(state);
   if (validation.ok()) {

@@ -719,10 +719,7 @@ void CoreState::apply_committed_backbone_orientation_plan(
   const auto& route_neighbors_by_node = topology_state.route_neighbors_by_node;
   const auto& existing_node_position_by_id = topology_state.node_position_by_id;
   const auto& existing_adjacency = topology_state.existing_adjacency;
-  const auto& existing_junction_by_node = topology_state.existing_junction_by_node;
   const auto& active_junction_by_node = topology_state.active_junction_by_node;
-  const auto& existing_primary_neighbor_by_node = topology_state.existing_primary_neighbor_by_node;
-  auto dot = [](const Vec3d& a, const Vec3d& b) -> double { return a.x * b.x + a.y * b.y + a.z * b.z; };
 
   auto current_support_position = [&](ObjectId node_id) -> Vec3d {
     if (const auto it = support_node_by_id.find(node_id); it != support_node_by_id.end()) {
@@ -735,36 +732,6 @@ void CoreState::apply_committed_backbone_orientation_plan(
       return it->second;
     }
     return {};
-  };
-  auto combined_neighbors_for_node = [&](ObjectId node_id) {
-    std::vector<ObjectId> neighbors{};
-    for (const Span& span : edit_state_access().spans.items()) {
-      const Port* port_a = edit_state_access().ports.find(span.port_a_id);
-      const Port* port_b = edit_state_access().ports.find(span.port_b_id);
-      if (port_a == nullptr || port_b == nullptr) {
-        continue;
-      }
-      if (port_a->owner_pole_id == node_id && port_b->owner_pole_id != kInvalidObjectId &&
-          port_b->owner_pole_id != node_id &&
-          std::find(neighbors.begin(), neighbors.end(), port_b->owner_pole_id) == neighbors.end()) {
-        neighbors.push_back(port_b->owner_pole_id);
-      }
-      if (port_b->owner_pole_id == node_id && port_a->owner_pole_id != kInvalidObjectId &&
-          port_a->owner_pole_id != node_id &&
-          std::find(neighbors.begin(), neighbors.end(), port_a->owner_pole_id) == neighbors.end()) {
-        neighbors.push_back(port_a->owner_pole_id);
-      }
-    }
-    if (const auto it_route = route_neighbors_by_node.find(node_id); it_route != route_neighbors_by_node.end()) {
-      for (ObjectId neighbor_id : it_route->second) {
-        if (std::find(neighbors.begin(), neighbors.end(), neighbor_id) == neighbors.end()) {
-          neighbors.push_back(neighbor_id);
-        }
-      }
-    }
-    std::sort(neighbors.begin(), neighbors.end());
-    neighbors.erase(std::unique(neighbors.begin(), neighbors.end()), neighbors.end());
-    return neighbors;
   };
   auto connected_neighbors_for_support_axis = [&](ObjectId node_id) {
     std::vector<ObjectId> neighbors{};
@@ -839,14 +806,11 @@ void CoreState::apply_committed_backbone_orientation_plan(
       current_key = candidate_key;
     }
   }
-  auto bundle_category_key_for_neighbor = [&](ObjectId node_id, ObjectId neighbor_id, bool is_route_neighbor) {
+  auto bundle_category_key_for_neighbor = [&](ObjectId node_id, ObjectId neighbor_id) {
     BundleCategoryTieBreakKey key{};
     const auto it = bundle_category_key_by_edge.find(edge_key_for_neighbors(node_id, neighbor_id));
     if (it != bundle_category_key_by_edge.end()) {
       key = it->second;
-    }
-    if (is_route_neighbor && better_bundle_category_key(route_bundle_category_key, key)) {
-      key = route_bundle_category_key;
     }
     return key;
   };
@@ -855,268 +819,130 @@ void CoreState::apply_committed_backbone_orientation_plan(
     return (bundle_template != nullptr) ? bundle_template->row_layout_axis_mode : RowLayoutAxisMode::kPoleYaw;
   };
   auto row_layout_axis_key_for_node = [&](ObjectId node_id) {
+    if (row_layout_axis_mode_for_key(route_bundle_category_key) == RowLayoutAxisMode::kSupportAxis) {
+      return route_bundle_category_key;
+    }
     BundleCategoryTieBreakKey selected{};
-    const std::vector<ObjectId> route_neighbors =
-        (route_neighbors_by_node.contains(node_id) ? route_neighbors_by_node.at(node_id) : std::vector<ObjectId>{});
-    const std::vector<ObjectId> connected_neighbors = connected_neighbors_for_support_axis(node_id);
-    for (ObjectId neighbor_id : connected_neighbors) {
-      const bool is_route_neighbor =
-          std::find(route_neighbors.begin(), route_neighbors.end(), neighbor_id) != route_neighbors.end();
-      const BundleCategoryTieBreakKey candidate = bundle_category_key_for_neighbor(node_id, neighbor_id, is_route_neighbor);
-      if (row_layout_axis_mode_for_key(candidate) != RowLayoutAxisMode::kSupportAxis) {
-        continue;
-      }
-      if (better_bundle_category_key(candidate, selected)) {
+    for (ObjectId neighbor_id : connected_neighbors_for_support_axis(node_id)) {
+      const BundleCategoryTieBreakKey candidate = bundle_category_key_for_neighbor(node_id, neighbor_id);
+      if (row_layout_axis_mode_for_key(candidate) == RowLayoutAxisMode::kSupportAxis &&
+          better_bundle_category_key(candidate, selected)) {
         selected = candidate;
       }
-    }
-    if (row_layout_axis_mode_for_key(route_bundle_category_key) == RowLayoutAxisMode::kSupportAxis &&
-        better_bundle_category_key(route_bundle_category_key, selected)) {
-      selected = route_bundle_category_key;
     }
     return selected;
   };
 
-  auto existing_continuation_neighbors_for_orientation = [&](ObjectId node_id) {
-    std::vector<ObjectId> neighbors{};
+  auto row_layout_yaw_override_from_debug_context = [](const PoleOrientationDebugRecord& debug_record)
+      -> std::optional<PortLayoutYawOverride> {
+    if (debug_record.row_layout_axis_mode != RowLayoutAxisMode::kSupportAxis) {
+      return std::nullopt;
+    }
+    Vec3d support_axis = debug_record.adopted_support_axis;
+    if (!Normalize(&support_axis)) {
+      return std::nullopt;
+    }
+    PortLayoutYawOverride override{};
+    override.category = debug_record.row_layout_axis_category;
+    override.yaw_deg =
+        normalize_yaw_deg(std::atan2(support_axis.y, support_axis.x) * (180.0 / kPi) - 90.0);
+    return override;
+  };
+  auto neighbor_direction = [&](ObjectId node_id, ObjectId neighbor_id) {
+    return normalize_forward_xy_commit(current_support_position(neighbor_id) - current_support_position(node_id));
+  };
+  auto choose_junction_primary_incident = [&](const JunctionInfo& junction) -> const JunctionIncident* {
+    const JunctionIncident* primary_incident = nullptr;
+    for (const JunctionIncident& incident : junction.incidents) {
+      if ((incident.primary || incident.order == 0) &&
+          (primary_incident == nullptr || (incident.primary && !primary_incident->primary) ||
+           (incident.order >= 0 && (primary_incident->order < 0 || incident.order < primary_incident->order)))) {
+        primary_incident = &incident;
+      }
+    }
+    return primary_incident;
+  };
+  auto choose_junction_continuation_incident = [&](const JunctionInfo& junction) -> const JunctionIncident* {
+    const JunctionIncident* continuation_incident = nullptr;
+    for (const JunctionIncident& incident : junction.incidents) {
+      if (incident.order == 1 &&
+          (continuation_incident == nullptr || incident.neighbor_node_id < continuation_incident->neighbor_node_id)) {
+        continuation_incident = &incident;
+      }
+    }
+    return continuation_incident;
+  };
+  auto build_orientation_node_context = [&](ObjectId node_id) {
+    BackboneOrientationNodeContext context{};
+    context.center = current_support_position(node_id);
+    if (const Pole* pole = edit_state_access().poles.find(node_id); pole != nullptr) {
+      context.previous_forward = RotateAroundWorldUpDeg(WorldForward(), effective_pole_yaw_deg(*pole));
+      context.previous_layout_yaw = effective_pole_layout_yaw_deg(*pole);
+      if (const auto it_prev_debug = orientation_plan.previous_debug_records.find(pole->id);
+          it_prev_debug != orientation_plan.previous_debug_records.end()) {
+        context.previous_support_axis = it_prev_debug->second.adopted_support_axis;
+        context.previous_row_layout_yaw_override = row_layout_yaw_override_from_debug_context(it_prev_debug->second);
+      } else {
+        context.previous_support_axis = side_axis_from_yaw_deg(context.previous_layout_yaw);
+      }
+    }
+    context.has_active_junction = active_junction_by_node.contains(node_id);
     if (const auto it = active_junction_by_node.find(node_id); it != active_junction_by_node.end()) {
-      const JunctionInfo* junction = it->second;
-      if (junction != nullptr && junction->incidents.size() >= 2) {
-        const JunctionIncident* primary_incident = nullptr;
-        const JunctionIncident* continuation_incident = nullptr;
-        for (const JunctionIncident& incident : junction->incidents) {
-          if ((incident.primary || incident.order == 0) &&
-              (primary_incident == nullptr || (incident.primary && !primary_incident->primary) ||
-               (incident.order >= 0 &&
-                (primary_incident->order < 0 || incident.order < primary_incident->order)))) {
-            primary_incident = &incident;
-          }
-          if (incident.order == 1 &&
-              (continuation_incident == nullptr || incident.neighbor_node_id < continuation_incident->neighbor_node_id)) {
-            continuation_incident = &incident;
-          }
+      if (const JunctionInfo* junction = it->second; junction != nullptr) {
+        const JunctionIncident* primary_incident = choose_junction_primary_incident(*junction);
+        const JunctionIncident* continuation_incident = choose_junction_continuation_incident(*junction);
+        if (primary_incident != nullptr) {
+          context.primary_neighbor.neighbor_id = primary_incident->neighbor_node_id;
         }
         const bool has_continuation_pair =
             primary_incident != nullptr && continuation_incident != nullptr &&
             primary_incident->neighbor_node_id != continuation_incident->neighbor_node_id &&
             (junction->used_neighbor_continuity || junction->incidents.size() == 2);
         if (has_continuation_pair) {
-          neighbors.push_back(primary_incident->neighbor_node_id);
-          neighbors.push_back(continuation_incident->neighbor_node_id);
-          return neighbors;
+          context.continuation_pair.primary_neighbor_id = primary_incident->neighbor_node_id;
+          context.continuation_pair.secondary_neighbor_id = continuation_incident->neighbor_node_id;
         }
       }
     }
-    const auto it_route = route_neighbors_by_node.find(node_id);
-    const std::size_t route_degree = (it_route == route_neighbors_by_node.end()) ? 0 : it_route->second.size();
-    if (route_degree <= 1) {
-      if (const auto it = existing_adjacency.find(node_id); it != existing_adjacency.end() && it->second.size() == 2) {
-        return it->second;
+    if (context.continuation_pair.primary_neighbor_id == kInvalidObjectId) {
+      if (const auto it_route = route_neighbors_by_node.find(node_id);
+          it_route != route_neighbors_by_node.end() && it_route->second.size() == 2) {
+        context.continuation_pair.primary_neighbor_id = it_route->second[0];
+        context.continuation_pair.secondary_neighbor_id = it_route->second[1];
       }
     }
-    return neighbors;
+    if (context.primary_neighbor.neighbor_id == kInvalidObjectId) {
+      if (const auto it_route = route_neighbors_by_node.find(node_id);
+          it_route != route_neighbors_by_node.end() && it_route->second.size() == 1) {
+        context.primary_neighbor.neighbor_id = it_route->second.front();
+      }
+    }
+    if (context.primary_neighbor.neighbor_id != kInvalidObjectId) {
+      context.primary_neighbor.direction = neighbor_direction(node_id, context.primary_neighbor.neighbor_id);
+      context.primary_neighbor.available = Normalize(&context.primary_neighbor.direction);
+    }
+    if (context.continuation_pair.primary_neighbor_id != kInvalidObjectId &&
+        context.continuation_pair.secondary_neighbor_id != kInvalidObjectId) {
+      context.continuation_pair.primary_direction =
+          neighbor_direction(node_id, context.continuation_pair.primary_neighbor_id);
+      context.continuation_pair.secondary_direction =
+          neighbor_direction(node_id, context.continuation_pair.secondary_neighbor_id);
+      context.continuation_pair.available = Normalize(&context.continuation_pair.primary_direction) &&
+                                            Normalize(&context.continuation_pair.secondary_direction);
+    }
+    const BundleCategoryTieBreakKey key = row_layout_axis_key_for_node(node_id);
+    context.row_layout_axis_selection = {row_layout_axis_mode_for_key(key), key.category};
+    return context;
   };
-  auto existing_primary_neighbor_for_orientation = [&](ObjectId node_id) -> ObjectId {
-    if (const auto it = active_junction_by_node.find(node_id); it != active_junction_by_node.end()) {
-      const JunctionInfo* junction = it->second;
-      if (junction != nullptr) {
-        for (const JunctionIncident& incident : junction->incidents) {
-          if (incident.primary || incident.order == 0) {
-            return incident.neighbor_node_id;
-          }
-        }
-      }
-    }
-    const auto it_route = route_neighbors_by_node.find(node_id);
-    const std::size_t route_degree = (it_route == route_neighbors_by_node.end()) ? 0 : it_route->second.size();
-    if (route_degree <= 1) {
-      if (const auto it = existing_adjacency.find(node_id); it != existing_adjacency.end() && it->second.size() == 1) {
-        return it->second.front();
-      }
-    }
-    return kInvalidObjectId;
-  };
-  auto preferred_straight_main_pair_for_orientation = [&](ObjectId node_id) -> std::pair<ObjectId, ObjectId> {
-    const auto it_route = route_neighbors_by_node.find(node_id);
-    const std::size_t route_degree = (it_route == route_neighbors_by_node.end()) ? 0 : it_route->second.size();
-    constexpr double kPreferredPairStraightnessThreshold = 0.3;
-    if (route_degree == 0) {
-      return {kInvalidObjectId, kInvalidObjectId};
-    }
-
-    std::vector<ObjectId> combined_neighbors = combined_neighbors_for_node(node_id);
-    if (combined_neighbors.size() < 2) {
-      return {kInvalidObjectId, kInvalidObjectId};
-    }
-
-    struct Candidate {
-      ObjectId neighbor_id = kInvalidObjectId;
-      Vec3d dir{};
-    };
-    std::vector<Candidate> candidates{};
-    candidates.reserve(combined_neighbors.size());
-    const Vec3d center = current_support_position(node_id);
-    for (ObjectId neighbor_id : combined_neighbors) {
-      const Vec3d dir = normalize_forward_xy_commit(current_support_position(neighbor_id) - center);
-      if (!std::isfinite(dir.x) || !std::isfinite(dir.y)) {
-        continue;
-      }
-      candidates.push_back({neighbor_id, dir});
-    }
-    if (candidates.size() < 2) {
-      return {kInvalidObjectId, kInvalidObjectId};
-    }
-
-    double best_score = -2.0;
-    int best_i = -1;
-    int best_j = -1;
-    for (std::size_t i = 0; i < candidates.size(); ++i) {
-      for (std::size_t j = i + 1; j < candidates.size(); ++j) {
-        const double straight_score =
-            dot(candidates[i].dir, Vec3d{-candidates[j].dir.x, -candidates[j].dir.y, -candidates[j].dir.z});
-        if (straight_score > best_score + 1e-9) {
-          best_score = straight_score;
-          best_i = static_cast<int>(i);
-          best_j = static_cast<int>(j);
-        }
-      }
-    }
-    if (best_i < 0 || best_j < 0) {
-      return {kInvalidObjectId, kInvalidObjectId};
-    }
-
-    std::vector<ObjectId> stable_existing_pair{};
-    if (const auto it_existing_junction = existing_junction_by_node.find(node_id);
-        it_existing_junction != existing_junction_by_node.end()) {
-      const JunctionInfo* junction = it_existing_junction->second;
-      if (junction != nullptr && junction->incidents.size() >= 2) {
-        const JunctionIncident* primary_incident = nullptr;
-        const JunctionIncident* continuation_incident = nullptr;
-        for (const JunctionIncident& incident : junction->incidents) {
-          if ((incident.primary || incident.order == 0) &&
-              (primary_incident == nullptr || (incident.primary && !primary_incident->primary) ||
-               (incident.order >= 0 &&
-                (primary_incident->order < 0 || incident.order < primary_incident->order)))) {
-            primary_incident = &incident;
-          }
-          if (incident.order == 1 &&
-              (continuation_incident == nullptr || incident.neighbor_node_id < continuation_incident->neighbor_node_id)) {
-            continuation_incident = &incident;
-          }
-        }
-        if (primary_incident != nullptr && continuation_incident != nullptr &&
-            primary_incident->neighbor_node_id != continuation_incident->neighbor_node_id &&
-            (junction->used_neighbor_continuity || junction->incidents.size() == 2)) {
-          stable_existing_pair.push_back(primary_incident->neighbor_node_id);
-          stable_existing_pair.push_back(continuation_incident->neighbor_node_id);
-        }
-      }
-    }
-    if (stable_existing_pair.size() < 2) {
-      if (const auto it = existing_adjacency.find(node_id); it != existing_adjacency.end() && it->second.size() == 2) {
-        stable_existing_pair = it->second;
-      }
-    }
-    if (stable_existing_pair.size() >= 2) {
-      auto pair_straightness_score = [&](ObjectId neighbor_a_id, ObjectId neighbor_b_id) {
-        const Vec3d axis_a = normalize_forward_xy_commit(current_support_position(neighbor_a_id) - center);
-        const Vec3d axis_b = normalize_forward_xy_commit(current_support_position(neighbor_b_id) - center);
-        if (!std::isfinite(axis_a.x) || !std::isfinite(axis_a.y) || !std::isfinite(axis_b.x) ||
-            !std::isfinite(axis_b.y)) {
-          return -2.0;
-        }
-        return dot(axis_a, Vec3d{-axis_b.x, -axis_b.y, -axis_b.z});
-      };
-      auto ordered_existing_pair = [&]() {
-        ObjectId primary_neighbor_id = stable_existing_pair[0];
-        ObjectId secondary_neighbor_id = stable_existing_pair[1];
-        const auto it_existing_primary = existing_primary_neighbor_by_node.find(node_id);
-        const ObjectId existing_primary_neighbor_id =
-            (it_existing_primary == existing_primary_neighbor_by_node.end()) ? kInvalidObjectId
-                                                                             : it_existing_primary->second;
-        if (existing_primary_neighbor_id == secondary_neighbor_id) {
-          std::swap(primary_neighbor_id, secondary_neighbor_id);
-        } else if (existing_primary_neighbor_id != primary_neighbor_id && secondary_neighbor_id < primary_neighbor_id) {
-          std::swap(primary_neighbor_id, secondary_neighbor_id);
-        }
-        return std::pair<ObjectId, ObjectId>{primary_neighbor_id, secondary_neighbor_id};
-      };
-
-      const double existing_score = pair_straightness_score(stable_existing_pair[0], stable_existing_pair[1]);
-      const bool existing_pair_still_available =
-          std::find(combined_neighbors.begin(), combined_neighbors.end(), stable_existing_pair[0]) !=
-              combined_neighbors.end() &&
-          std::find(combined_neighbors.begin(), combined_neighbors.end(), stable_existing_pair[1]) !=
-              combined_neighbors.end();
-      if (existing_pair_still_available && existing_score >= kPreferredPairStraightnessThreshold) {
-        return ordered_existing_pair();
-      }
-    }
-
-    ObjectId primary_neighbor_id = candidates[static_cast<std::size_t>(best_i)].neighbor_id;
-    ObjectId secondary_neighbor_id = candidates[static_cast<std::size_t>(best_j)].neighbor_id;
-    const ObjectId existing_primary_neighbor_id = existing_primary_neighbor_for_orientation(node_id);
-    if (existing_primary_neighbor_id == primary_neighbor_id || existing_primary_neighbor_id == secondary_neighbor_id) {
-      if (existing_primary_neighbor_id == secondary_neighbor_id) {
-        std::swap(primary_neighbor_id, secondary_neighbor_id);
-      }
-    } else if (secondary_neighbor_id < primary_neighbor_id) {
-      std::swap(primary_neighbor_id, secondary_neighbor_id);
-    }
-    return {primary_neighbor_id, secondary_neighbor_id};
-  };
-  auto continuation_neighbors_for_orientation = [&](ObjectId node_id) {
-    const auto preferred_pair = preferred_straight_main_pair_for_orientation(node_id);
-    if (preferred_pair.first != kInvalidObjectId && preferred_pair.second != kInvalidObjectId &&
-        preferred_pair.first != preferred_pair.second) {
-      return std::vector<ObjectId>{preferred_pair.first, preferred_pair.second};
-    }
-    return existing_continuation_neighbors_for_orientation(node_id);
-  };
-  auto primary_neighbor_for_orientation = [&](ObjectId node_id) -> ObjectId {
-    const auto preferred_pair = preferred_straight_main_pair_for_orientation(node_id);
-    if (preferred_pair.first != kInvalidObjectId) {
-      return preferred_pair.first;
-    }
-    return existing_primary_neighbor_for_orientation(node_id);
-  };
-  auto has_existing_main_flow_context = [&](ObjectId node_id) -> bool {
-    if (active_junction_by_node.contains(node_id)) {
-      return true;
-    }
-    const auto it_route = route_neighbors_by_node.find(node_id);
-    const std::size_t route_degree = (it_route == route_neighbors_by_node.end()) ? 0 : it_route->second.size();
-    if (route_degree > 1) {
-      return false;
-    }
-    if (const auto it = existing_adjacency.find(node_id); it != existing_adjacency.end()) {
-      return !it->second.empty();
-    }
-    return false;
-  };
-  auto choose_support_axis_for_layout = [&](ObjectId node_id, const Vec3d& center, const Vec3d& previous_support_axis,
+  std::unordered_map<ObjectId, BackboneOrientationNodeContext> orientation_context_by_node{};
+  orientation_context_by_node.reserve(ordered_support_node_ids.size());
+  for (ObjectId node_id : ordered_support_node_ids) {
+    orientation_context_by_node.try_emplace(node_id, build_orientation_node_context(node_id));
+  }
+  auto choose_support_axis_for_layout = [&](ObjectId node_id, const BackboneOrientationNodeContext& node_context,
                                             PoleOrientationDebugRecord* debug) {
-    Vec3d chosen_axis = normalize_forward_xy_commit(previous_support_axis);
-    bool has_axis = Normalize(&chosen_axis);
-    Vec3d normalized_previous_support_axis = normalize_forward_xy_commit(previous_support_axis);
-    const bool has_previous_support_axis = std::isfinite(normalized_previous_support_axis.x) &&
-                                           std::isfinite(normalized_previous_support_axis.y) &&
-                                           Normalize(&normalized_previous_support_axis);
-    auto candidate_support_axis_from_neighbor = [&](ObjectId neighbor_id, Vec3d* out_axis) {
-      if (out_axis == nullptr || neighbor_id == kInvalidObjectId) {
-        return false;
-      }
-      Vec3d normalized_axis = normalize_forward_xy_commit(current_support_position(neighbor_id) - center);
-      if (!Normalize(&normalized_axis)) {
-        return false;
-      }
-      Vec3d row_axis = ComputeLateralAxis(normalized_axis);
-      if (!Normalize(&row_axis)) {
-        return false;
-      }
-      *out_axis = choose_continuous_axis_commit(row_axis, previous_support_axis);
-      return Normalize(out_axis);
-    };
+    Vec3d chosen_axis{};
+    bool has_axis = false;
     auto adopt_axis = [&](const Vec3d& axis, PoleSupportAxisRule rule, ObjectId primary_neighbor_id,
                           ObjectId secondary_neighbor_id) {
       Vec3d normalized_axis = normalize_forward_xy_commit(axis);
@@ -1127,7 +953,7 @@ void CoreState::apply_committed_backbone_orientation_plan(
       if (!Normalize(&row_axis)) {
         return false;
       }
-      chosen_axis = choose_continuous_axis_commit(row_axis, previous_support_axis);
+      chosen_axis = choose_continuous_axis_commit(row_axis, node_context.previous_support_axis);
       has_axis = Normalize(&chosen_axis);
       if (has_axis && debug != nullptr) {
         debug->support_axis_rule = rule;
@@ -1136,303 +962,81 @@ void CoreState::apply_committed_backbone_orientation_plan(
       }
       return has_axis;
     };
-    auto adopt_connected_direction_fit = [&](const std::vector<ObjectId>& neighbor_ids) {
-      struct DirectionCandidate {
-        ObjectId neighbor_id = kInvalidObjectId;
-        Vec3d dir{};
-      };
-      std::vector<DirectionCandidate> directions{};
-      directions.reserve(neighbor_ids.size());
-      for (ObjectId neighbor_id : neighbor_ids) {
-        Vec3d dir = normalize_forward_xy_commit(current_support_position(neighbor_id) - center);
-        if (Normalize(&dir)) {
-          directions.push_back({neighbor_id, dir});
-        }
-      }
-      if (directions.empty()) {
-        return false;
-      }
-
-      struct BestCandidate {
-        Vec3d forward{};
-        ObjectId primary_neighbor_id = kInvalidObjectId;
-        ObjectId secondary_neighbor_id = kInvalidObjectId;
-        double score = -1.0;
-        double continuity = -1.0;
-      };
-      BestCandidate best{};
-
-      auto consider_forward = [&](Vec3d forward, ObjectId primary_neighbor_id, ObjectId secondary_neighbor_id) {
-        if (!Normalize(&forward)) {
-          return;
-        }
-        double score = 0.0;
-        for (const DirectionCandidate& candidate : directions) {
-          score += std::abs(Dot(forward, candidate.dir));
-        }
-        Vec3d row_axis = ComputeLateralAxis(forward);
-        if (!Normalize(&row_axis)) {
-          return;
-        }
-        const double continuity = std::abs(Dot(row_axis, normalize_forward_xy_commit(previous_support_axis)));
-        const bool better_score = score > best.score + 1e-9;
-        const bool equal_score = std::abs(score - best.score) <= 1e-9;
-        const bool better_continuity = continuity > best.continuity + 1e-9;
-        const bool equal_continuity = std::abs(continuity - best.continuity) <= 1e-9;
-        const bool better_ids =
-            std::tie(primary_neighbor_id, secondary_neighbor_id) <
-            std::tie(best.primary_neighbor_id, best.secondary_neighbor_id);
-        if (better_score || (equal_score && (better_continuity || (equal_continuity && better_ids)))) {
-          best.forward = forward;
-          best.primary_neighbor_id = primary_neighbor_id;
-          best.secondary_neighbor_id = secondary_neighbor_id;
-          best.score = score;
-          best.continuity = continuity;
-        }
-      };
-
-      for (const DirectionCandidate& direction : directions) {
-        consider_forward(direction.dir, direction.neighbor_id, kInvalidObjectId);
-      }
-      for (std::size_t i = 0; i < directions.size(); ++i) {
-        for (std::size_t j = i + 1; j < directions.size(); ++j) {
-          consider_forward(directions[i].dir + directions[j].dir, directions[i].neighbor_id, directions[j].neighbor_id);
-        }
-      }
-
-      if (best.score < 0.0) {
-        return false;
-      }
-      return adopt_axis(best.forward, PoleSupportAxisRule::kConnectedDirectionFit, best.primary_neighbor_id,
-                        best.secondary_neighbor_id);
-    };
-    auto maybe_preserve_existing_pair_axis = [&](const Vec3d& candidate_axis) {
-      const auto it_route = route_neighbors_by_node.find(node_id);
-      const std::size_t route_degree = (it_route == route_neighbors_by_node.end()) ? 0 : it_route->second.size();
-      if (route_degree > 1 || !has_previous_support_axis) {
-        return false;
-      }
-      const std::vector<ObjectId> preserved_neighbors = existing_continuation_neighbors_for_orientation(node_id);
-      if (preserved_neighbors.size() < 2) {
-        return false;
-      }
-      double best_continuity = -1.0;
-      ObjectId best_primary_neighbor_id = kInvalidObjectId;
-      ObjectId best_secondary_neighbor_id = kInvalidObjectId;
-      Vec3d best_axis{};
-      for (std::size_t i = 0; i < preserved_neighbors.size(); ++i) {
-        const ObjectId primary_neighbor_id = preserved_neighbors[i];
-        const ObjectId secondary_neighbor_id = preserved_neighbors[1 - i];
-        Vec3d preserved_axis{};
-        if (!candidate_support_axis_from_neighbor(primary_neighbor_id, &preserved_axis)) {
-          continue;
-        }
-        const double continuity = std::abs(Dot(preserved_axis, normalized_previous_support_axis));
-        if (continuity > best_continuity + 1e-9) {
-          best_continuity = continuity;
-          best_primary_neighbor_id = primary_neighbor_id;
-          best_secondary_neighbor_id = secondary_neighbor_id;
-          best_axis = preserved_axis;
-        }
-      }
-      if (best_primary_neighbor_id == kInvalidObjectId) {
-        return false;
-      }
-      const double candidate_continuity = std::abs(Dot(candidate_axis, normalized_previous_support_axis));
-      if (debug != nullptr && debug->support_axis_rule == PoleSupportAxisRule::kConnectedDirectionFit &&
-          debug->primary_neighbor_id != kInvalidObjectId && debug->secondary_neighbor_id != kInvalidObjectId &&
-          candidate_continuity >= 0.75 && candidate_continuity < 0.85) {
-        chosen_axis = normalized_previous_support_axis;
-        has_axis = true;
-        debug->support_axis_rule = PoleSupportAxisRule::kMainChainPair;
-        return true;
-      }
-      if (best_continuity < 0.85 || candidate_continuity >= 0.7) {
-        return false;
-      }
-      chosen_axis = best_axis;
-      has_axis = true;
-      if (debug != nullptr) {
-        debug->support_axis_rule = PoleSupportAxisRule::kMainChainPair;
-        debug->primary_neighbor_id = best_primary_neighbor_id;
-        debug->secondary_neighbor_id = best_secondary_neighbor_id;
-      }
-      return true;
-    };
-
-    const std::vector<ObjectId> combined_neighbors = combined_neighbors_for_node(node_id);
     const auto it_route = route_neighbors_by_node.find(node_id);
     const std::size_t route_degree = (it_route == route_neighbors_by_node.end()) ? 0 : it_route->second.size();
-    const auto preferred_pair = preferred_straight_main_pair_for_orientation(node_id);
-    auto pair_straightness = [&](ObjectId neighbor_a_id, ObjectId neighbor_b_id) {
-      const Vec3d axis_a = normalize_forward_xy_commit(current_support_position(neighbor_a_id) - center);
-      const Vec3d axis_b = normalize_forward_xy_commit(current_support_position(neighbor_b_id) - center);
-      if (!std::isfinite(axis_a.x) || !std::isfinite(axis_a.y) || !std::isfinite(axis_b.x) ||
-          !std::isfinite(axis_b.y)) {
-        return -2.0;
-      }
-      return dot(axis_a, Vec3d{-axis_b.x, -axis_b.y, -axis_b.z});
-    };
-    const bool is_cross_like_support_axis_candidate = route_degree >= 2 && combined_neighbors.size() >= 4;
-    const bool has_preferred_straight_pair =
-        route_degree <= 2 && preferred_pair.first != kInvalidObjectId && preferred_pair.second != kInvalidObjectId &&
-        preferred_pair.first != preferred_pair.second &&
-        pair_straightness(preferred_pair.first, preferred_pair.second) >= 0.95;
-    if (has_preferred_straight_pair) {
-      const Vec3d axis = current_support_position(preferred_pair.first) - center;
-      if (adopt_axis(axis, PoleSupportAxisRule::kMainChainPair, preferred_pair.first, preferred_pair.second)) {
-        return chosen_axis;
-      }
-    }
-    const std::vector<ObjectId> connected_neighbors = connected_neighbors_for_support_axis(node_id);
-    ObjectId route_peer_id = kInvalidObjectId;
-    if (connected_neighbors.size() == 1) {
-      route_peer_id = connected_neighbors.front();
-    } else if (route_degree == 1) {
-      route_peer_id = it_route->second.front();
-    }
-    if (route_peer_id != kInvalidObjectId) {
-      const std::vector<ObjectId> peer_pair = continuation_neighbors_for_orientation(route_peer_id);
-      if (peer_pair.size() >= 2 && peer_pair[0] != kInvalidObjectId && peer_pair[1] != kInvalidObjectId &&
-          peer_pair[0] != peer_pair[1] && peer_pair[0] != node_id && peer_pair[1] != node_id) {
-        const Vec3d peer_center = current_support_position(route_peer_id);
-        const Vec3d axis = current_support_position(peer_pair[0]) - peer_center;
-        if (adopt_axis(axis, PoleSupportAxisRule::kMainChainPair, peer_pair[0], peer_pair[1])) {
-          return chosen_axis;
-        }
-      }
-    }
+    const bool has_continuation_pair = node_context.continuation_pair.available;
+    const ObjectId primary_neighbor_id = node_context.primary_neighbor.neighbor_id;
 
-    const std::vector<ObjectId> continuation_neighbors = continuation_neighbors_for_orientation(node_id);
-    const bool has_continuation_pair = continuation_neighbors.size() >= 2 &&
-                                       continuation_neighbors[0] != kInvalidObjectId &&
-                                       continuation_neighbors[1] != kInvalidObjectId &&
-                                       continuation_neighbors[0] != continuation_neighbors[1];
-    const bool has_existing_flow_context = has_existing_main_flow_context(node_id);
-    const bool has_pair_or_trunk_preserve_candidate =
-        has_preferred_straight_pair ||
-        (connected_neighbors.size() == 2 &&
-         (has_existing_flow_context || is_cross_like_support_axis_candidate || has_continuation_pair)) ||
-        (has_continuation_pair && (has_existing_flow_context || is_cross_like_support_axis_candidate));
-    const ObjectId primary_neighbor_id = primary_neighbor_for_orientation(node_id);
-    const bool has_primary_incident_candidate =
-        primary_neighbor_id != kInvalidObjectId &&
-        (has_existing_flow_context || (is_cross_like_support_axis_candidate && has_continuation_pair));
-    const bool allow_connected_direction_fit = !has_pair_or_trunk_preserve_candidate && !has_primary_incident_candidate;
-
-    if (!allow_connected_direction_fit && connected_neighbors.size() == 2) {
-      const ObjectId neighbor_a = connected_neighbors[0];
-      const ObjectId neighbor_b = connected_neighbors[1];
-      const Vec3d axis = current_support_position(neighbor_a) - center;
-      if (adopt_axis(axis, PoleSupportAxisRule::kMainChainPair, neighbor_a, neighbor_b)) {
-        return chosen_axis;
-      }
-    }
-
-    if (const auto it = active_junction_by_node.find(node_id); it != active_junction_by_node.end()) {
-      if (!allow_connected_direction_fit && has_continuation_pair) {
-        const Vec3d axis = current_support_position(continuation_neighbors[0]) - center;
-        if (adopt_axis(axis, PoleSupportAxisRule::kMainChainPair, continuation_neighbors[0], continuation_neighbors[1])) {
-          return chosen_axis;
-        }
-      }
-      if (!allow_connected_direction_fit && has_primary_incident_candidate) {
-        const Vec3d axis = current_support_position(primary_neighbor_id) - center;
-        if (adopt_axis(axis, PoleSupportAxisRule::kPrimaryIncident, primary_neighbor_id, kInvalidObjectId)) {
-          return chosen_axis;
-        }
-      }
-    }
-
-    if (allow_connected_direction_fit && !is_cross_like_support_axis_candidate &&
-        adopt_connected_direction_fit(combined_neighbors)) {
-      if (maybe_preserve_existing_pair_axis(chosen_axis)) {
-        return chosen_axis;
-      }
-      return chosen_axis;
-    }
-
-    if (allow_connected_direction_fit && adopt_connected_direction_fit(connected_neighbors)) {
-      if (maybe_preserve_existing_pair_axis(chosen_axis)) {
-        return chosen_axis;
-      }
-      return chosen_axis;
-    }
-
-    if (connected_neighbors.size() == 2) {
-      const ObjectId neighbor_a = connected_neighbors[0];
-      const ObjectId neighbor_b = connected_neighbors[1];
-      const Vec3d axis = current_support_position(neighbor_a) - center;
-      if (adopt_axis(axis, PoleSupportAxisRule::kMainChainPair, neighbor_a, neighbor_b)) {
-        return chosen_axis;
-      }
-    }
-
-    if (const auto it = active_junction_by_node.find(node_id); it != active_junction_by_node.end()) {
+    if (node_context.has_active_junction) {
       if (has_continuation_pair) {
-        const Vec3d axis = current_support_position(continuation_neighbors[0]) - center;
-        if (adopt_axis(axis, PoleSupportAxisRule::kMainChainPair, continuation_neighbors[0], continuation_neighbors[1])) {
+        if (adopt_axis(node_context.continuation_pair.primary_direction, PoleSupportAxisRule::kMainChainPair,
+                       node_context.continuation_pair.primary_neighbor_id,
+                       node_context.continuation_pair.secondary_neighbor_id)) {
           return chosen_axis;
         }
       }
       if (primary_neighbor_id != kInvalidObjectId) {
-        const Vec3d axis = current_support_position(primary_neighbor_id) - center;
-        if (adopt_axis(axis, PoleSupportAxisRule::kPrimaryIncident, primary_neighbor_id, kInvalidObjectId)) {
+        if (node_context.primary_neighbor.available &&
+            adopt_axis(node_context.primary_neighbor.direction, PoleSupportAxisRule::kPrimaryIncident, primary_neighbor_id,
+                       kInvalidObjectId)) {
           return chosen_axis;
         }
       }
     }
 
-    if (const auto it_route_neighbors = route_neighbors_by_node.find(node_id);
-        it_route_neighbors != route_neighbors_by_node.end() && !it_route_neighbors->second.empty()) {
-      ObjectId route_primary_neighbor_id = it_route_neighbors->second.front();
-      ObjectId secondary_neighbor_id = kInvalidObjectId;
-      PoleSupportAxisRule rule = PoleSupportAxisRule::kMainChainSingle;
-      if (it_route_neighbors->second.size() >= 2) {
-        const ObjectId candidate_a = it_route_neighbors->second[0];
-        const ObjectId candidate_b = it_route_neighbors->second[1];
-        const Vec3d delta_a = current_support_position(candidate_a) - center;
-        const Vec3d delta_b = current_support_position(candidate_b) - center;
-        const double len2_a = delta_a.x * delta_a.x + delta_a.y * delta_a.y;
-        const double len2_b = delta_b.x * delta_b.x + delta_b.y * delta_b.y;
-        route_primary_neighbor_id = (len2_b > len2_a + 1e-9) ? candidate_b : candidate_a;
-        secondary_neighbor_id = (route_primary_neighbor_id == candidate_a) ? candidate_b : candidate_a;
-        rule = PoleSupportAxisRule::kMainChainPair;
-      }
-      const Vec3d axis = current_support_position(route_primary_neighbor_id) - center;
-      if (adopt_axis(axis, rule, route_primary_neighbor_id, secondary_neighbor_id)) {
+    if (route_degree >= 2) {
+      const ObjectId neighbor_a = it_route->second[0];
+      const ObjectId neighbor_b = it_route->second[1];
+      const ObjectId ordered_primary_neighbor = (primary_neighbor_id == neighbor_b) ? neighbor_b : neighbor_a;
+      const ObjectId ordered_secondary_neighbor =
+          (ordered_primary_neighbor == neighbor_a) ? neighbor_b : neighbor_a;
+      const Vec3d axis = neighbor_direction(node_id, ordered_primary_neighbor);
+      if (adopt_axis(axis, PoleSupportAxisRule::kMainChainPair, ordered_primary_neighbor, ordered_secondary_neighbor)) {
         return chosen_axis;
       }
     }
 
-    if (debug != nullptr) {
-      debug->support_axis_rule = PoleSupportAxisRule::kFallback;
+    if (primary_neighbor_id != kInvalidObjectId && node_context.primary_neighbor.available) {
+      const PoleSupportAxisRule rule =
+          node_context.has_active_junction ? PoleSupportAxisRule::kPrimaryIncident : PoleSupportAxisRule::kMainChainSingle;
+      if (adopt_axis(node_context.primary_neighbor.direction, rule, primary_neighbor_id, kInvalidObjectId)) {
+        return chosen_axis;
+      }
     }
+
     return has_axis ? chosen_axis : Vec3d{};
   };
+  for (ObjectId node_id : ordered_support_node_ids) {
+    auto it = orientation_context_by_node.find(node_id);
+    if (it == orientation_context_by_node.end()) {
+      continue;
+    }
+    PoleOrientationDebugRecord orientation_debug{};
+    it->second.chosen_support_axis = choose_support_axis_for_layout(node_id, it->second, &orientation_debug);
+    it->second.has_chosen_support_axis = Normalize(&it->second.chosen_support_axis);
+    it->second.support_axis_rule = orientation_debug.support_axis_rule;
+    it->second.support_axis_primary_neighbor_id = orientation_debug.primary_neighbor_id;
+    it->second.support_axis_secondary_neighbor_id = orientation_debug.secondary_neighbor_id;
+  }
 
   debug_.pole_orientation_debug_records.clear();
   BackbonePoleOrientationPolicyInput pole_orientation_policy_input{
       ordered_support_node_ids,
+      orientation_context_by_node,
       debug_.pole_orientation_debug_records,
-      orientation_plan.previous_debug_records,
       [&](ObjectId pole_id) -> Pole* { return edit_state_access().poles.find(pole_id); },
-      [&](ObjectId node_id) -> Vec3d { return current_support_position(node_id); },
-      [&](ObjectId node_id, const Vec3d& center, const Vec3d& previous_support_axis,
-          PoleOrientationDebugRecord* debug) -> Vec3d {
-        return choose_support_axis_for_layout(node_id, center, previous_support_axis, debug);
-      },
-      [&](ObjectId node_id) -> bool { return has_existing_main_flow_context(node_id); },
-      [&](ObjectId node_id) { return continuation_neighbors_for_orientation(node_id); },
-      [&](ObjectId node_id) -> ObjectId { return primary_neighbor_for_orientation(node_id); },
-      [&](ObjectId node_id) -> bool { return active_junction_by_node.contains(node_id); },
-      [&](ObjectId node_id) -> RowLayoutAxisSelection {
-        const BundleCategoryTieBreakKey key = row_layout_axis_key_for_node(node_id);
-        return {row_layout_axis_mode_for_key(key), key.category};
+      [&](ObjectId node_id, const BackboneOrientationNodeContext& node_context, PoleOrientationDebugRecord* debug) -> Vec3d {
+        if (node_context.has_chosen_support_axis) {
+          if (debug != nullptr) {
+            debug->support_axis_rule = node_context.support_axis_rule;
+            debug->primary_neighbor_id = node_context.support_axis_primary_neighbor_id;
+            debug->secondary_neighbor_id = node_context.support_axis_secondary_neighbor_id;
+          }
+          return node_context.chosen_support_axis;
+        }
+        return choose_support_axis_for_layout(node_id, node_context, debug);
       },
       [&](ObjectId pole_id) -> bool { return has_pole_orientation_override(pole_id); },
-      [&](const Pole& pole) -> double { return effective_pole_yaw_deg(pole); },
-      [&](const Pole& pole) -> double { return effective_pole_layout_yaw_deg(pole); },
       [&](ObjectId pole_id, const Pole& old_pole, const PortLayoutYawOverride* previous_override) {
         refresh_owned_endpoints_from_pole(pole_id, change_set, &old_pole, previous_override);
       },

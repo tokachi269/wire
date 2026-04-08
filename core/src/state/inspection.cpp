@@ -917,11 +917,9 @@ std::optional<SupportLayoutInspectionView> CoreView::inspect_support_layout(Obje
   SupportLayoutInspectionView result{};
   result.source_span = {EntityKind::kSpan, span_id};
   result.meta = *describe_entity({EntityKind::kSupportLayout, span_id});
-  if (const SupportLayoutCacheRecord* record = state_.runtime_.cache_state.support_layout_cache.find_record(span_id);
-      record != nullptr) {
-    result.has_decision_seed = record->has_authority();
-    result.requires_decision_seed = record->requires_authority();
-  }
+  const SpanSupportLayoutAuthorityView authority = state_.runtime_.cache_state.support_layout_cache.authority_view(span_id);
+  result.has_decision_seed = authority.has_authority();
+  result.requires_decision_seed = authority.required;
   result.flow_kind = layout->flow_kind;
   result.pass_mode = layout->pass_mode;
   result.variation_flow_key = layout->variation_flow_key;

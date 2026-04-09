@@ -55,6 +55,14 @@ std::optional<PortLayoutYawOverride> row_layout_yaw_override_from_debug_context(
   return override;
 }
 
+struct SupportAxisSelection {
+  Vec3d axis{};
+  bool available = false;
+  PoleSupportAxisRule rule = PoleSupportAxisRule::kFallback;
+  ObjectId primary_neighbor_id = kInvalidObjectId;
+  ObjectId secondary_neighbor_id = kInvalidObjectId;
+};
+
 } // namespace
 
 EditResult<BackboneOrientationPlan> CoreState::build_backbone_orientation_plan(
@@ -208,10 +216,8 @@ EditResult<BackboneOrientationPlan> CoreState::build_backbone_orientation_plan(
     }
     return continuation_incident;
   };
-  auto choose_support_axis_for_layout = [&](ObjectId node_id, const BackboneOrientationNodeContext& node_context,
-                                            PoleOrientationDebugRecord* debug) {
-    Vec3d chosen_axis{};
-    bool has_axis = false;
+  auto choose_support_axis_for_layout = [&](const BackboneOrientationNodeContext& node_context) {
+    SupportAxisSelection selection{};
     auto adopt_axis = [&](const Vec3d& axis, PoleSupportAxisRule rule, ObjectId primary_neighbor_id,
                           ObjectId secondary_neighbor_id) {
       Vec3d normalized_axis = normalize_forward_xy_orientation(axis);
@@ -222,45 +228,22 @@ EditResult<BackboneOrientationPlan> CoreState::build_backbone_orientation_plan(
       if (!Normalize(&row_axis)) {
         return false;
       }
-      chosen_axis = choose_continuous_axis_orientation(row_axis, node_context.previous_support_axis);
-      has_axis = Normalize(&chosen_axis);
-      if (has_axis && debug != nullptr) {
-        debug->support_axis_rule = rule;
-        debug->primary_neighbor_id = primary_neighbor_id;
-        debug->secondary_neighbor_id = secondary_neighbor_id;
+      selection.axis = choose_continuous_axis_orientation(row_axis, node_context.previous_support_axis);
+      selection.available = Normalize(&selection.axis);
+      if (selection.available) {
+        selection.rule = rule;
+        selection.primary_neighbor_id = primary_neighbor_id;
+        selection.secondary_neighbor_id = secondary_neighbor_id;
       }
-      return has_axis;
+      return selection.available;
     };
-    const auto it_route = route_neighbors_by_node.find(node_id);
-    const std::size_t route_degree = (it_route == route_neighbors_by_node.end()) ? 0 : it_route->second.size();
-    const bool has_continuation_pair = node_context.continuation_pair.available;
     const ObjectId primary_neighbor_id = node_context.primary_neighbor.neighbor_id;
 
-    if (node_context.has_active_junction) {
-      if (has_continuation_pair) {
-        if (adopt_axis(node_context.continuation_pair.primary_direction, PoleSupportAxisRule::kMainChainPair,
-                       node_context.continuation_pair.primary_neighbor_id,
-                       node_context.continuation_pair.secondary_neighbor_id)) {
-          return chosen_axis;
-        }
-      }
-      if (primary_neighbor_id != kInvalidObjectId) {
-        if (node_context.primary_neighbor.available &&
-            adopt_axis(node_context.primary_neighbor.direction, PoleSupportAxisRule::kPrimaryIncident, primary_neighbor_id,
-                       kInvalidObjectId)) {
-          return chosen_axis;
-        }
-      }
-    }
-
-    if (route_degree >= 2) {
-      const ObjectId neighbor_a = it_route->second[0];
-      const ObjectId neighbor_b = it_route->second[1];
-      const ObjectId ordered_primary_neighbor = (primary_neighbor_id == neighbor_b) ? neighbor_b : neighbor_a;
-      const ObjectId ordered_secondary_neighbor = (ordered_primary_neighbor == neighbor_a) ? neighbor_b : neighbor_a;
-      const Vec3d axis = neighbor_direction(node_id, ordered_primary_neighbor);
-      if (adopt_axis(axis, PoleSupportAxisRule::kMainChainPair, ordered_primary_neighbor, ordered_secondary_neighbor)) {
-        return chosen_axis;
+    if (node_context.continuation_pair.available) {
+      if (adopt_axis(node_context.continuation_pair.primary_direction, PoleSupportAxisRule::kMainChainPair,
+                     node_context.continuation_pair.primary_neighbor_id,
+                     node_context.continuation_pair.secondary_neighbor_id)) {
+        return selection;
       }
     }
 
@@ -268,11 +251,11 @@ EditResult<BackboneOrientationPlan> CoreState::build_backbone_orientation_plan(
       const PoleSupportAxisRule rule =
           node_context.has_active_junction ? PoleSupportAxisRule::kPrimaryIncident : PoleSupportAxisRule::kMainChainSingle;
       if (adopt_axis(node_context.primary_neighbor.direction, rule, primary_neighbor_id, kInvalidObjectId)) {
-        return chosen_axis;
+        return selection;
       }
     }
 
-    return has_axis ? chosen_axis : Vec3d{};
+    return selection;
   };
 
   orientation_context_by_node.reserve(ordered_support_node_ids.size());
@@ -337,12 +320,12 @@ EditResult<BackboneOrientationPlan> CoreState::build_backbone_orientation_plan(
     const BundleCategoryTieBreakKey key = row_layout_axis_key_for_node(node_id);
     context.row_layout_axis_selection = {row_layout_axis_mode_for_key(key), key.category};
 
-    PoleOrientationDebugRecord orientation_debug{};
-    context.chosen_support_axis = choose_support_axis_for_layout(node_id, context, &orientation_debug);
-    context.has_chosen_support_axis = Normalize(&context.chosen_support_axis);
-    context.support_axis_rule = orientation_debug.support_axis_rule;
-    context.support_axis_primary_neighbor_id = orientation_debug.primary_neighbor_id;
-    context.support_axis_secondary_neighbor_id = orientation_debug.secondary_neighbor_id;
+    const SupportAxisSelection support_axis_selection = choose_support_axis_for_layout(context);
+    context.chosen_support_axis = support_axis_selection.axis;
+    context.has_chosen_support_axis = support_axis_selection.available;
+    context.support_axis_rule = support_axis_selection.rule;
+    context.support_axis_primary_neighbor_id = support_axis_selection.primary_neighbor_id;
+    context.support_axis_secondary_neighbor_id = support_axis_selection.secondary_neighbor_id;
     orientation_context_by_node.emplace(node_id, std::move(context));
   }
   plan.planned_pole_orientations =

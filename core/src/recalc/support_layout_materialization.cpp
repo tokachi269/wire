@@ -236,22 +236,13 @@ struct MaterializedBranchDownOffsetPair {
   double resolved_end_m = 0.0;
 };
 
-struct SpanSupportLayoutAuthority {
-  const SpanSupportLayoutDecisionSeed* decision_seed = nullptr;
-  bool requires_decision_seed = false;
-
-  [[nodiscard]] bool has_authority() const {
-    return decision_seed != nullptr;
-  }
-};
-
 struct ResolvedSpanSupportLayoutMaterializationInputs {
   MaterializedEndpointSocketPair sockets{};
   MaterializedBranchDownOffsetPair branch_down_offsets{};
 };
 
 bool resolve_materialized_endpoint_socket(const CoreState& state, const Span& span,
-                                         const SpanSupportLayoutAuthority& authority, bool is_start_endpoint,
+                                         SpanSupportLayoutAuthorityView authority, bool is_start_endpoint,
                                          ResolvedEndpointSocketDecision* out, std::string* error_message) {
   if (out == nullptr) {
     return false;
@@ -264,9 +255,9 @@ bool resolve_materialized_endpoint_socket(const CoreState& state, const Span& sp
   if (out->socket_override_active) {
     out->resolved_socket_id =
         state_internal::OverrideResolutionService::ResolveSpanEndpointSocketId(state, span, is_start_endpoint);
-  } else if (authority.decision_seed != nullptr) {
-    const SupportLayoutDecisionSeedEndpoint& endpoint = is_start_endpoint ? authority.decision_seed->start
-                                                                          : authority.decision_seed->end;
+  } else if (authority.seed != nullptr) {
+    const SupportLayoutDecisionSeedEndpoint& endpoint = is_start_endpoint ? authority.seed->start
+                                                                          : authority.seed->end;
     out->resolved_socket_id = endpoint.resolved_socket_id.value_or(-1);
   }
 
@@ -283,7 +274,7 @@ bool resolve_materialized_endpoint_socket(const CoreState& state, const Span& sp
 }
 
 bool resolve_materialized_endpoint_sockets(const CoreState& state, const Span& span,
-                                           const SpanSupportLayoutAuthority& authority,
+                                           SpanSupportLayoutAuthorityView authority,
                                            MaterializedEndpointSocketPair* out, std::string* error_message) {
   if (out == nullptr) {
     return false;
@@ -654,13 +645,13 @@ void rebuild_lowered_support_groups_for_keys(const CoreState& state, const EditS
 namespace {
 
 double automatic_branch_down_offset_from_authority(const CoreState& state, const Port& port,
-                                                   const SpanSupportLayoutAuthority& authority, bool is_start_endpoint,
+                                                   SpanSupportLayoutAuthorityView authority, bool is_start_endpoint,
                                                    HierarchicalVariationSample* variation) {
   (void)state;
   (void)port;
-  if (authority.decision_seed != nullptr) {
+  if (authority.seed != nullptr) {
     const SupportLayoutDecisionSeedEndpoint& endpoint =
-        is_start_endpoint ? authority.decision_seed->start : authority.decision_seed->end;
+        is_start_endpoint ? authority.seed->start : authority.seed->end;
     if (variation != nullptr) {
       *variation = endpoint.down_offset_variation;
     }
@@ -674,7 +665,7 @@ double automatic_branch_down_offset_from_authority(const CoreState& state, const
 
 MaterializedBranchDownOffsetPair resolve_materialized_branch_down_offsets(const CoreState& state, const Span& span,
                                                                           const Port& port_a, const Port& port_b,
-                                                                          const SpanSupportLayoutAuthority& authority) {
+                                                                          SpanSupportLayoutAuthorityView authority) {
   MaterializedBranchDownOffsetPair offsets{};
   offsets.automatic_start_m =
       automatic_branch_down_offset_from_authority(state, port_a, authority, true, &offsets.start_variation);
@@ -689,7 +680,7 @@ MaterializedBranchDownOffsetPair resolve_materialized_branch_down_offsets(const 
 
 ResolvedSpanSupportLayoutMaterializationInputs resolve_span_support_layout_materialization_inputs(
     const CoreState& state, const Span& span, const Port& port_a, const Port& port_b,
-    const SpanSupportLayoutAuthority& authority, std::string* error_message) {
+    SpanSupportLayoutAuthorityView authority, std::string* error_message) {
   ResolvedSpanSupportLayoutMaterializationInputs inputs{};
   if (!resolve_materialized_endpoint_sockets(state, span, authority, &inputs.sockets, error_message)) {
     return {};
@@ -698,16 +689,16 @@ ResolvedSpanSupportLayoutMaterializationInputs resolve_span_support_layout_mater
   return inputs;
 }
 
-void apply_consumed_support_layout_authority(const SpanSupportLayoutAuthority& authority, SpanSupportLayoutEntry* layout) {
+void apply_consumed_support_layout_authority(SpanSupportLayoutAuthorityView authority, SpanSupportLayoutEntry* layout) {
   if (layout == nullptr) {
     return;
   }
-  if (authority.decision_seed != nullptr) {
-    apply_support_layout_decision_seed(*authority.decision_seed, layout);
+  if (authority.seed != nullptr) {
+    apply_support_layout_decision_seed(*authority.seed, layout);
   }
 }
 
-void project_materialized_layout_authority(const SpanSupportLayoutAuthority& authority, SpanSupportLayoutEntry* layout) {
+void project_materialized_layout_authority(SpanSupportLayoutAuthorityView authority, SpanSupportLayoutEntry* layout) {
   apply_consumed_support_layout_authority(authority, layout);
 }
 
@@ -725,7 +716,7 @@ SpanSupportLayoutEntry materialize_span_support_layout(const CoreState& state, c
                                                        const ResolvedSpanCurveInputs& inputs, const Port& port_a,
                                                        const Port& port_b, const Pole* pole_a, const Pole* pole_b,
                                                        const Vec3d& chord_dir,
-                                                       const SpanSupportLayoutAuthority& authority,
+                                                       SpanSupportLayoutAuthorityView authority,
                                                        const MaterializedEndpointSocketPair& sockets,
                                                        const MaterializedBranchDownOffsetPair& branch_down_offsets) {
   const double endpoint_offset_m = std::min(std::max(0.02, inputs.basis_length * 0.03), 0.35);
@@ -793,9 +784,8 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
   if (!Normalize(&chord_dir)) {
     chord_dir = WorldForward();
   }
-  const SpanSupportLayoutAuthorityView authority_view = runtime_.cache_state.support_layout_cache.authority_view(span.id);
-  const SpanSupportLayoutAuthority authority{authority_view.seed, authority_view.required};
-  if (authority.requires_decision_seed && !authority.has_authority()) {
+  const SpanSupportLayoutAuthorityView authority = runtime_.cache_state.support_layout_cache.authority_view(span.id);
+  if (authority.required && !authority.has_authority()) {
     if (error_message != nullptr && error_message->empty()) {
       *error_message = "support layout decision seed is missing";
     }

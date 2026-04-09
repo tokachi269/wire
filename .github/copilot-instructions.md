@@ -17,6 +17,7 @@
   2. Materialization 以外は socket を変えない
   3. Recalc は owner topic を変えない
   4. Visual は world-space geometry を読むだけ
+- 強い中心語を置き、修飾語を積んで説明するな。manager/helper/preparation/processor のような逃げ語を避ける。名前は近傍の namespace・型・ファイル文脈で読めるようにし、新語や言い換えを増やさない。
 
 ## 設計方針
 - 文章ルールを増やすより、型・API・validator で守る。

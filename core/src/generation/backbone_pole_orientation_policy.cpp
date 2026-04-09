@@ -72,6 +72,9 @@ std::unordered_map<ObjectId, BackbonePlannedPoleOrientation> build_backbone_pole
     Vec3d chosen_forward = normalize_forward_xy_policy(previous_forward);
     bool has_chosen_forward = Normalize(&chosen_forward);
     Vec3d chosen_support_axis = node_context.chosen_support_axis;
+    planned.support_axis_rule = node_context.support_axis_rule;
+    planned.support_axis_primary_neighbor_id = node_context.support_axis_primary_neighbor_id;
+    planned.support_axis_secondary_neighbor_id = node_context.support_axis_secondary_neighbor_id;
     debug.support_axis_rule = node_context.support_axis_rule;
     debug.primary_neighbor_id = node_context.support_axis_primary_neighbor_id;
     debug.secondary_neighbor_id = node_context.support_axis_secondary_neighbor_id;
@@ -107,6 +110,9 @@ std::unordered_map<ObjectId, BackbonePlannedPoleOrientation> build_backbone_pole
       chosen_forward = choose_continuous_axis_policy(axis, previous_forward);
       has_chosen_forward = Normalize(&chosen_forward);
       if (has_chosen_forward) {
+        planned.forward_rule = rule;
+        planned.forward_primary_neighbor_id = primary_neighbor_id;
+        planned.forward_secondary_neighbor_id = secondary_neighbor_id;
         debug.rule = rule;
         debug.primary_neighbor_id = primary_neighbor_id;
         debug.secondary_neighbor_id = secondary_neighbor_id;
@@ -123,6 +129,9 @@ std::unordered_map<ObjectId, BackbonePlannedPoleOrientation> build_backbone_pole
       }
       chosen_forward = choose_continuous_axis_policy(axis, previous_forward);
       has_chosen_forward = true;
+      planned.forward_rule = rule;
+      planned.forward_primary_neighbor_id = primary_neighbor_id;
+      planned.forward_secondary_neighbor_id = kInvalidObjectId;
       debug.rule = rule;
       debug.primary_neighbor_id = primary_neighbor_id;
       return true;

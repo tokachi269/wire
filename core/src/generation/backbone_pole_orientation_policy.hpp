@@ -54,8 +54,14 @@ struct BackbonePlannedPoleOrientation {
   std::optional<PortLayoutYawOverride> previous_row_layout_yaw_override{};
   Vec3d adopted_forward{};
   bool has_adopted_forward = false;
+  PoleForwardRule forward_rule = PoleForwardRule::kFallback;
+  ObjectId forward_primary_neighbor_id = kInvalidObjectId;
+  ObjectId forward_secondary_neighbor_id = kInvalidObjectId;
   Vec3d adopted_support_axis{};
   bool has_adopted_support_axis = false;
+  PoleSupportAxisRule support_axis_rule = PoleSupportAxisRule::kFallback;
+  ObjectId support_axis_primary_neighbor_id = kInvalidObjectId;
+  ObjectId support_axis_secondary_neighbor_id = kInvalidObjectId;
   std::optional<PortLayoutYawOverride> row_layout_yaw_override{};
   PoleOrientationDebugRecord debug{};
 };

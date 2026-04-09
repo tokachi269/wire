@@ -213,6 +213,7 @@ struct BackboneCommittedGenerationPlan {
   BackboneDecisionPhaseOutput decision_phase{};
   std::unordered_map<ObjectId, BackbonePlannedPoleOrientation> planned_pole_orientations{};
   std::vector<SpanSupportLayoutDecisionSeed> refreshed_existing_seeds{};
+  std::vector<ObjectId> cleared_existing_seed_span_ids{};
 };
 
 struct BackboneGenerationPlan {

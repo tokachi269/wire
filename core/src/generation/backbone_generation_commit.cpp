@@ -68,58 +68,6 @@ std::uint64_t make_flow_variation_key_commit(std::uint64_t generation_session_id
   return key;
 }
 
-bool assign_nonroute_pair_for_single_route_junction_commit(
-    JunctionRelation* relation, const std::function<Vec3d(ObjectId)>& support_position) {
-  if (relation == nullptr || relation->route_incident_count != 1 || relation->incidents.size() < 3) {
-    return false;
-  }
-  std::vector<JunctionIncidentRelation*> nonroute_incidents{};
-  for (JunctionIncidentRelation& incident : relation->incidents) {
-    if (!incident.in_route) {
-      nonroute_incidents.push_back(&incident);
-    }
-  }
-  if (nonroute_incidents.size() < 2) {
-    return false;
-  }
-  double best_nonroute_score = -2.0;
-  JunctionIncidentRelation* best_a = nullptr;
-  JunctionIncidentRelation* best_b = nullptr;
-  for (std::size_t i = 0; i < nonroute_incidents.size(); ++i) {
-    for (std::size_t j = i + 1; j < nonroute_incidents.size(); ++j) {
-      Vec3d dir_a = normalize_forward_xy_commit(support_position(nonroute_incidents[i]->neighbor_node_id) -
-                                                support_position(relation->node_id));
-      Vec3d dir_b = normalize_forward_xy_commit(support_position(nonroute_incidents[j]->neighbor_node_id) -
-                                                support_position(relation->node_id));
-      if (!std::isfinite(dir_a.x) || !std::isfinite(dir_a.y) || !std::isfinite(dir_b.x) || !std::isfinite(dir_b.y)) {
-        continue;
-      }
-      const double straight_score = dot_xy(dir_a, Vec3d{-dir_b.x, -dir_b.y, 0.0});
-      if (straight_score > best_nonroute_score + 1e-9) {
-        best_nonroute_score = straight_score;
-        best_a = nonroute_incidents[i];
-        best_b = nonroute_incidents[j];
-      }
-    }
-  }
-  if (best_a == nullptr || best_b == nullptr) {
-    return false;
-  }
-  relation->through_pair.neighbor_a_id = best_a->neighbor_node_id;
-  relation->through_pair.neighbor_b_id = best_b->neighbor_node_id;
-  relation->through_pair.straightness_score = best_nonroute_score;
-  relation->through_pair.accepted = true;
-  relation->through_pair.used_semantic_tiebreak = true;
-  for (JunctionIncidentRelation& incident : relation->incidents) {
-    incident.in_through_pair =
-        incident.neighbor_node_id == best_a->neighbor_node_id || incident.neighbor_node_id == best_b->neighbor_node_id;
-    incident.used_semantic_tiebreak = incident.in_through_pair;
-    incident.straightness_score = best_nonroute_score;
-    incident.kind = incident.in_through_pair ? JunctionRelationKind::kThroughMain : JunctionRelationKind::kSideBranch;
-  }
-  return true;
-}
-
 SupportLayoutDecisionSeedEndpoint build_seed_endpoint_record_commit(
     const EditState& edit_state, const std::unordered_map<ObjectId, JunctionRelation>& junction_relations_by_node,
     const SegmentLaneAssignment& assignment, ObjectId endpoint_node_id, const Port& port,
@@ -236,10 +184,15 @@ std::optional<SpanSupportLayoutDecisionSeed> rebuild_existing_span_decision_seed
   return *cached_seed;
 }
 
-std::vector<SpanSupportLayoutDecisionSeed> build_refreshed_existing_span_seeds(
+void build_refreshed_existing_span_seeds(
     const EditState& edit_state, const BackboneCommittedGenerationPlan& plan,
-    const std::function<const SpanSupportLayoutDecisionSeed*(ObjectId)>& find_cached_seed) {
-  std::vector<SpanSupportLayoutDecisionSeed> refreshed{};
+    const std::function<const SpanSupportLayoutDecisionSeed*(ObjectId)>& find_cached_seed,
+    std::vector<SpanSupportLayoutDecisionSeed>* kept_seeds, std::vector<ObjectId>* cleared_span_ids) {
+  if (kept_seeds == nullptr || cleared_span_ids == nullptr) {
+    return;
+  }
+  kept_seeds->clear();
+  cleared_span_ids->clear();
   std::unordered_set<ObjectId> touched_nodes{};
   touched_nodes.reserve(plan.decision_phase.junction_relations_by_node.size());
   for (const auto& [node_id, _] : plan.decision_phase.junction_relations_by_node) {
@@ -252,10 +205,11 @@ std::vector<SpanSupportLayoutDecisionSeed> build_refreshed_existing_span_seeds(
     const SpanSupportLayoutDecisionSeed* cached_seed = find_cached_seed ? find_cached_seed(span.id) : nullptr;
     if (const auto rebuilt = rebuild_existing_span_decision_seed(edit_state, span, cached_seed);
         rebuilt.has_value()) {
-      refreshed.push_back(*rebuilt);
+      kept_seeds->push_back(*rebuilt);
+      continue;
     }
+    cleared_span_ids->push_back(span.id);
   }
-  return refreshed;
 }
 
 JunctionRelation remap_junction_relation_commit(const JunctionRelation& relation,
@@ -541,8 +495,7 @@ std::vector<BackboneSpanGenerationRunPlan> plan_committed_backbone_span_generati
 
 void merge_committed_backbone_junction_relations(
     std::unordered_map<ObjectId, JunctionRelation>* merged_relations,
-    const std::unordered_map<ObjectId, JunctionRelation>& bundle_relations,
-    const std::function<Vec3d(ObjectId)>& current_support_position) {
+    const std::unordered_map<ObjectId, JunctionRelation>& bundle_relations) {
   if (merged_relations == nullptr) {
     return;
   }
@@ -577,9 +530,6 @@ void merge_committed_backbone_junction_relations(
         target->required_clearance_m = incident.required_clearance_m;
         target->infeasible_reason = incident.infeasible_reason;
       }
-    }
-    if (!merged.is_cross_like) {
-      (void)assign_nonroute_pair_for_single_route_junction_commit(&merged, current_support_position);
     }
   }
 }
@@ -731,8 +681,9 @@ EditResult<BackboneCommittedGenerationPlan> CoreState::build_committed_backbone_
     remapped.debug.secondary_neighbor_id = remap_node_id(remapped.debug.secondary_neighbor_id);
     plan.planned_pole_orientations.emplace(remapped_node_id, std::move(remapped));
   }
-  plan.refreshed_existing_seeds = build_refreshed_existing_span_seeds(
-      edit_state_access(), plan, [&](ObjectId span_id) { return find_span_support_layout_seed(span_id); });
+  build_refreshed_existing_span_seeds(edit_state_access(), plan,
+                                      [&](ObjectId span_id) { return find_span_support_layout_seed(span_id); },
+                                      &plan.refreshed_existing_seeds, &plan.cleared_existing_seed_span_ids);
 
   result.value = std::move(plan);
   result.ok = true;
@@ -954,7 +905,7 @@ EditResult<BackboneMaterializationPhaseOutput> CoreState::run_committed_backbone
       cache_span_support_layout_seed(std::move(layout_seed));
     }
     merge_committed_backbone_junction_relations(&phase_result.value.junction_relations_by_node,
-                                                span_phase.junction_relations_by_node, current_support_position);
+                                                span_phase.junction_relations_by_node);
   }
 
   phase_result.ok = true;
@@ -962,6 +913,10 @@ EditResult<BackboneMaterializationPhaseOutput> CoreState::run_committed_backbone
 }
 
 void CoreState::refresh_committed_backbone_seed_cache(const BackboneCommittedGenerationPlan& plan) {
+  for (ObjectId span_id : plan.cleared_existing_seed_span_ids) {
+    erase_cached_span_support_layout_seed(span_id);
+    mark_span_dirty(span_id, DirtyBits::kDecision, true);
+  }
   for (const SpanSupportLayoutDecisionSeed& seed : plan.refreshed_existing_seeds) {
     cache_span_support_layout_seed(seed);
     mark_span_dirty(seed.span_id, DirtyBits::kDecision, true);

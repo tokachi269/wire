@@ -28,6 +28,16 @@ const AttachmentSocketTemplate* find_attachment_socket(const AttachmentTemplate&
   return nullptr;
 }
 
+int default_attachment_socket_id(const AttachmentTemplate& attachment_template) {
+  if (!attachment_template.internal_paths.empty()) {
+    return attachment_template.internal_paths.front().start_socket_id;
+  }
+  if (!attachment_template.sockets.empty()) {
+    return attachment_template.sockets.front().id;
+  }
+  return -1;
+}
+
 Vec3d attachment_direction_to_world(const Vec3d& forward, const Vec3d& lateral, const Vec3d& up, const Vec3d& local_dir,
                                     const Vec3d& fallback) {
   Vec3d world =
@@ -274,11 +284,16 @@ bool validate_materialized_endpoint_normal_path(const SupportLayoutEndpoint& end
       *endpoint.attachment_request.requested_socket_id != *endpoint.resolved_socket_id) {
     return set_error("support layout reinterpreted the chosen endpoint socket");
   }
+  const bool pair_normal_authority =
+      endpoint.side_assignment_rule == SideAssignmentRuleKind::kThroughPairNormal &&
+      endpoint.support_orientation_rule == SupportOrientationRuleKind::kThroughPairNormal &&
+      endpoint.used_junction_pair_side_assignment && endpoint.has_side_axis &&
+      std::abs(endpoint.chosen_side_sign) > 1e-9;
+  const bool bisector_pair_authority = endpoint.side_assignment_rule == SideAssignmentRuleKind::kBisector &&
+                                       endpoint.support_orientation_rule == SupportOrientationRuleKind::kBisector &&
+                                       endpoint.used_junction_pair_side_assignment && endpoint.has_side_axis;
   if (endpoint_requires_pair_authority_in_normal_path(endpoint) &&
-      (endpoint.side_assignment_rule != SideAssignmentRuleKind::kThroughPairNormal ||
-       endpoint.support_orientation_rule != SupportOrientationRuleKind::kThroughPairNormal ||
-       !endpoint.used_junction_pair_side_assignment || !endpoint.has_side_axis ||
-       std::abs(endpoint.chosen_side_sign) <= 1e-9)) {
+      !(pair_normal_authority || bisector_pair_authority)) {
     return set_error("pair-authoritative endpoint fell back to endpoint-local support rules");
   }
   if (UsesAuthoritativeGroupedLoweredSupport(endpoint) &&
@@ -315,6 +330,15 @@ bool resolve_materialized_endpoint_socket(const CoreState& state, const Span& sp
 
   if (attachment_id == kInvalidObjectId) {
     return true;
+  }
+  if (out->resolved_socket_id < 0) {
+    const Attachment* attachment = state.view().attachments().find(attachment_id);
+    if (attachment != nullptr) {
+      const AttachmentTemplate* attachment_template = state.find_attachment_template(attachment->template_id);
+      if (attachment_template != nullptr) {
+        out->resolved_socket_id = default_attachment_socket_id(*attachment_template);
+      }
+    }
   }
   if (out->resolved_socket_id >= 0) {
     return true;

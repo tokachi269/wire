@@ -297,10 +297,7 @@ struct SupportLayoutCacheRecord {
     authority.required = true;
     authority.seed = std::move(seed_value);
   }
-  void clear_authority() {
-    authority.seed.reset();
-    authority.required = false;
-  }
+  void clear_authority() { authority.seed.reset(); }
   void store_projection(SpanSupportLayoutEntry layout_value) { projection.layout = std::move(layout_value); }
   void clear_projection() { projection.layout.reset(); }
 };
@@ -314,6 +311,12 @@ struct SpanSupportLayoutAuthorityView {
 
 struct SpanSupportLayoutProjectionView {
   const SpanSupportLayoutEntry* layout = nullptr;
+
+  [[nodiscard]] bool has_projection() const { return layout != nullptr; }
+};
+
+struct MutableSpanSupportLayoutProjectionView {
+  SpanSupportLayoutEntry* layout = nullptr;
 
   [[nodiscard]] bool has_projection() const { return layout != nullptr; }
 };
@@ -346,44 +349,34 @@ struct SupportLayoutCache {
   // Placement is rebuilt from authority + observation. Neither is an authoring source.
   SupportGroupCacheContract support_groups{};
 
-  [[nodiscard]] const SupportLayoutCacheRecord* find_record(ObjectId span_id) const {
-    const auto it = records_by_span.find(span_id);
-    return (it == records_by_span.end()) ? nullptr : &it->second;
-  }
-
-  [[nodiscard]] SupportLayoutCacheRecord* find_record(ObjectId span_id) {
-    const auto it = records_by_span.find(span_id);
-    return (it == records_by_span.end()) ? nullptr : &it->second;
-  }
-
   [[nodiscard]] SpanSupportLayoutAuthorityView authority_view(ObjectId span_id) const {
-    const SupportLayoutCacheRecord* record = find_record(span_id);
-    if (record == nullptr) {
+    const auto it = records_by_span.find(span_id);
+    if (it == records_by_span.end()) {
       return {};
     }
-    return {record->authority_seed(), record->requires_authority()};
-  }
-
-  [[nodiscard]] const SpanSupportLayoutEntry* find_layout(ObjectId span_id) const {
-    const SupportLayoutCacheRecord* record = find_record(span_id);
-    return (record == nullptr) ? nullptr : record->projected_layout();
+    const SupportLayoutCacheRecord& record = it->second;
+    return {record.authority_seed(), record.requires_authority()};
   }
 
   [[nodiscard]] SpanSupportLayoutProjectionView projection_view(ObjectId span_id) const {
-    const SupportLayoutCacheRecord* record = find_record(span_id);
-    if (record == nullptr) {
+    const auto it = records_by_span.find(span_id);
+    if (it == records_by_span.end()) {
       return {};
     }
-    return {record->projected_layout()};
+    const SupportLayoutCacheRecord& record = it->second;
+    return {record.projected_layout()};
   }
 
   [[nodiscard]] SpanSupportLayoutContractView contract_view(ObjectId span_id) const {
     return {authority_view(span_id), projection_view(span_id)};
   }
 
-  [[nodiscard]] SpanSupportLayoutEntry* find_layout(ObjectId span_id) {
-    SupportLayoutCacheRecord* record = find_record(span_id);
-    return (record == nullptr) ? nullptr : record->projected_layout();
+  [[nodiscard]] MutableSpanSupportLayoutProjectionView edit_projection(ObjectId span_id) {
+    const auto it = records_by_span.find(span_id);
+    if (it == records_by_span.end()) {
+      return {};
+    }
+    return {it->second.projected_layout()};
   }
 
   [[nodiscard]] std::vector<ObjectId> ordered_authority_span_ids() const {
@@ -461,17 +454,21 @@ struct SupportLayoutCache {
   }
 
   void clear_seed(ObjectId span_id) {
-    if (SupportLayoutCacheRecord* record = find_record(span_id); record != nullptr) {
-      record->clear_authority();
-      erase_record_if_empty(span_id);
+    const auto it = records_by_span.find(span_id);
+    if (it == records_by_span.end()) {
+      return;
     }
+    it->second.clear_authority();
+    erase_record_if_empty(span_id);
   }
 
   void clear_layout(ObjectId span_id) {
-    if (SupportLayoutCacheRecord* record = find_record(span_id); record != nullptr) {
-      record->clear_projection();
-      erase_record_if_empty(span_id);
+    const auto it = records_by_span.find(span_id);
+    if (it == records_by_span.end()) {
+      return;
     }
+    it->second.clear_projection();
+    erase_record_if_empty(span_id);
   }
 };
 

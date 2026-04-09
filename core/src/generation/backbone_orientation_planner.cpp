@@ -76,7 +76,6 @@ EditResult<BackboneOrientationPlan> CoreState::build_backbone_orientation_plan(
   const EditState& edit_state = edit_state_access();
   const auto& ordered_support_node_ids = support_chain_plan.ordered_support_node_ids;
   const auto& support_node_by_id = support_chain_plan.support_node_by_id;
-  const auto& route_neighbors_by_node = topology_plan.route_neighbors_by_node;
   const auto& existing_node_position_by_id = topology_plan.existing_node_position_by_id;
   const auto& junction_relations_by_node = topology_plan.decision_phase.junction_relations_by_node;
   const std::vector<BackboneBundlePlan>& active_bundle_plans = request_plan.active_bundle_plans;
@@ -115,25 +114,20 @@ EditResult<BackboneOrientationPlan> CoreState::build_backbone_orientation_plan(
     return neighbors;
   };
 
-  struct BundleCategoryTieBreakKey {
-    int category_rank = std::numeric_limits<int>::max();
-    int bundle_rank = std::numeric_limits<int>::max();
+  struct BundleCategoryKey {
     ConnectionCategory category = ConnectionCategory::kLowVoltage;
     BundleKind bundle_template_id = BundleKind::kLowVoltage;
   };
-  auto bundle_category_key_tuple = [](const BundleCategoryTieBreakKey& key) {
-    return std::tuple<int, int>{key.category_rank, key.bundle_rank};
-  };
-  auto better_bundle_category_key = [&](const BundleCategoryTieBreakKey& lhs, const BundleCategoryTieBreakKey& rhs) {
-    return bundle_category_key_tuple(lhs) < bundle_category_key_tuple(rhs);
-  };
-  BundleCategoryTieBreakKey route_bundle_category_key{};
+  BundleCategoryKey route_bundle_category_key{};
+  bool has_route_bundle_category_key = false;
   for (const BackboneBundlePlan& bundle_plan : active_bundle_plans) {
-    const BundleCategoryTieBreakKey candidate_key{static_cast<int>(bundle_plan.category),
-                                                  static_cast<int>(bundle_plan.template_id), bundle_plan.category,
-                                                  bundle_plan.template_id};
-    if (better_bundle_category_key(candidate_key, route_bundle_category_key)) {
+    const BundleCategoryKey candidate_key{bundle_plan.category, bundle_plan.template_id};
+    if (!has_route_bundle_category_key ||
+        static_cast<int>(candidate_key.category) < static_cast<int>(route_bundle_category_key.category) ||
+        (candidate_key.category == route_bundle_category_key.category &&
+         static_cast<int>(candidate_key.bundle_template_id) < static_cast<int>(route_bundle_category_key.bundle_template_id))) {
       route_bundle_category_key = candidate_key;
+      has_route_bundle_category_key = true;
     }
   }
   auto edge_hash = [](ObjectId node_a, ObjectId node_b) {
@@ -141,7 +135,7 @@ EditResult<BackboneOrientationPlan> CoreState::build_backbone_orientation_plan(
     const std::uint64_t hi = static_cast<std::uint64_t>(std::max(node_a, node_b));
     return lo ^ (hi + 0x9E3779B97F4A7C15ull + (lo << 6) + (lo >> 2));
   };
-  std::unordered_map<std::uint64_t, BundleCategoryTieBreakKey> bundle_category_key_by_edge{};
+  std::unordered_map<std::uint64_t, BundleCategoryKey> bundle_category_key_by_edge{};
   for (const Span& span : edit_state.spans.items()) {
     const Port* port_a = edit_state.ports.find(span.port_a_id);
     const Port* port_b = edit_state.ports.find(span.port_b_id);
@@ -157,24 +151,29 @@ EditResult<BackboneOrientationPlan> CoreState::build_backbone_orientation_plan(
     if (bundle_template == nullptr) {
       continue;
     }
-    const BundleCategoryTieBreakKey candidate_key{static_cast<int>(bundle_template->category),
-                                                  static_cast<int>(bundle->bundle_template_id),
-                                                  bundle_template->category, bundle->bundle_template_id};
-    BundleCategoryTieBreakKey& current_key =
-        bundle_category_key_by_edge[edge_hash(port_a->owner_pole_id, port_b->owner_pole_id)];
-    if (better_bundle_category_key(candidate_key, current_key)) {
+    const BundleCategoryKey candidate_key{bundle_template->category, bundle->bundle_template_id};
+    const std::uint64_t edge = edge_hash(port_a->owner_pole_id, port_b->owner_pole_id);
+    const auto it_existing = bundle_category_key_by_edge.find(edge);
+    if (it_existing == bundle_category_key_by_edge.end()) {
+      bundle_category_key_by_edge.emplace(edge, candidate_key);
+      continue;
+    }
+    BundleCategoryKey& current_key = it_existing->second;
+    if (static_cast<int>(candidate_key.category) < static_cast<int>(current_key.category) ||
+        (candidate_key.category == current_key.category &&
+         static_cast<int>(candidate_key.bundle_template_id) < static_cast<int>(current_key.bundle_template_id))) {
       current_key = candidate_key;
     }
   }
   auto bundle_category_key_for_neighbor = [&](ObjectId node_id, ObjectId neighbor_id) {
-    BundleCategoryTieBreakKey key{};
+    BundleCategoryKey key{};
     const auto it = bundle_category_key_by_edge.find(edge_hash(node_id, neighbor_id));
     if (it != bundle_category_key_by_edge.end()) {
       key = it->second;
     }
     return key;
   };
-  auto row_layout_axis_mode_for_key = [&](const BundleCategoryTieBreakKey& key) {
+  auto row_layout_axis_mode_for_key = [&](const BundleCategoryKey& key) {
     const BundleTemplate* bundle_template = find_bundle_template(key.bundle_template_id);
     return (bundle_template != nullptr) ? bundle_template->row_layout_axis_mode : RowLayoutAxisMode::kPoleYaw;
   };
@@ -182,15 +181,13 @@ EditResult<BackboneOrientationPlan> CoreState::build_backbone_orientation_plan(
     if (row_layout_axis_mode_for_key(route_bundle_category_key) == RowLayoutAxisMode::kSupportAxis) {
       return route_bundle_category_key;
     }
-    BundleCategoryTieBreakKey selected{};
     for (ObjectId neighbor_id : connected_neighbors_for_support_axis(node_id)) {
-      const BundleCategoryTieBreakKey candidate = bundle_category_key_for_neighbor(node_id, neighbor_id);
-      if (row_layout_axis_mode_for_key(candidate) == RowLayoutAxisMode::kSupportAxis &&
-          better_bundle_category_key(candidate, selected)) {
-        selected = candidate;
+      const BundleCategoryKey candidate = bundle_category_key_for_neighbor(node_id, neighbor_id);
+      if (row_layout_axis_mode_for_key(candidate) == RowLayoutAxisMode::kSupportAxis) {
+        return candidate;
       }
     }
-    return selected;
+    return BundleCategoryKey{};
   };
   auto neighbor_direction = [&](ObjectId node_id, ObjectId neighbor_id) {
     return normalize_forward_xy_orientation(current_support_position(neighbor_id) - current_support_position(node_id));
@@ -261,12 +258,6 @@ EditResult<BackboneOrientationPlan> CoreState::build_backbone_orientation_plan(
         context.continuation_pair.secondary_neighbor_id = relation.through_pair.neighbor_b_id;
       }
     }
-    if (context.primary_neighbor.neighbor_id == kInvalidObjectId) {
-      if (const auto it_route = route_neighbors_by_node.find(node_id);
-          it_route != route_neighbors_by_node.end() && !it_route->second.empty()) {
-        context.primary_neighbor.neighbor_id = it_route->second.front();
-      }
-    }
     if (context.primary_neighbor.neighbor_id != kInvalidObjectId) {
       context.primary_neighbor.direction = neighbor_direction(node_id, context.primary_neighbor.neighbor_id);
       context.primary_neighbor.available = Normalize(&context.primary_neighbor.direction);
@@ -280,7 +271,7 @@ EditResult<BackboneOrientationPlan> CoreState::build_backbone_orientation_plan(
       context.continuation_pair.available = Normalize(&context.continuation_pair.primary_direction) &&
                                             Normalize(&context.continuation_pair.secondary_direction);
     }
-    const BundleCategoryTieBreakKey key = row_layout_axis_key_for_node(node_id);
+    const BundleCategoryKey key = row_layout_axis_key_for_node(node_id);
     context.row_layout_axis_selection = {row_layout_axis_mode_for_key(key), key.category};
 
     const SupportAxisSelection support_axis_selection = choose_support_axis_for_layout(context);

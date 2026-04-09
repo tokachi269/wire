@@ -5,6 +5,9 @@
 #include "backbone_pole_orientation_policy.hpp"
 #include "backbone_seed_placement.hpp"
 #include "detail_utils.hpp"
+#include "grouped_span_common.hpp"
+#include "grouped_span_lowering.hpp"
+#include "grouped_span_orientation.hpp"
 #include "support_policy.hpp"
 #include "../pole_orientation_utils.hpp"
 #include "../support_orientation_utils.hpp"
@@ -123,6 +126,53 @@ SpanSupportLayoutDecisionSeed build_seed_layout_record(
   append_seed_support_group_decision(state, port_a, layout.start, &layout);
   append_seed_support_group_decision(state, port_b, layout.end, &layout);
   return layout;
+}
+
+BackboneLoweringPolicy make_commit_refresh_lowering_policy(const BackboneBundlePlan& bundle_plan) {
+  BackboneLoweringPolicy policy{};
+  const bool enable_lowering = bundle_plan.enable_branch_down_offset;
+  policy.enable_cross_underpass = enable_lowering;
+  policy.enable_branch_support = enable_lowering;
+  policy.enable_acute_corner = enable_lowering;
+  policy.offset_m = enable_lowering ? BranchDownOffsetForCategory(bundle_plan.category) : 0.0;
+  return policy;
+}
+
+bool span_matches_bundle_plan_commit(const EditState& edit_state, const Span& span, const BackboneBundlePlan& bundle_plan) {
+  if (span.layer != bundle_plan.layer || span.bundle_id == kInvalidObjectId) {
+    return false;
+  }
+  const Bundle* bundle = edit_state.bundles.find(span.bundle_id);
+  return bundle != nullptr && bundle->bundle_template_id == bundle_plan.template_id;
+}
+
+SupportLayoutDecisionSeedEndpoint refresh_pointlike_endpoint_seed_commit(
+    const EditState& edit_state, const std::unordered_map<ObjectId, JunctionRelation>& junction_relations_by_node,
+    GroupedSpanLoweringDecider* lowering, GroupedSpanOrientationDecider* orientation,
+    const SupportLayoutDecisionSeedEndpoint& current, const Port& port, ObjectId node_id, ObjectId peer_id,
+    ObjectId bundle_id, double branch_down_offset_m) {
+  if (lowering == nullptr || orientation == nullptr) {
+    return current;
+  }
+  const SegmentRelationFeasibility feasibility = lowering->SegmentRelationFeasibilityFor(node_id, peer_id);
+  if (feasibility.kind == JunctionRelationKind::kNone ||
+      feasibility.continuity_class != ContinuityCategoryClass::kPointLike) {
+    return current;
+  }
+  const auto pair_info = orientation->LoweredSupportPairInfoForEndpoint(node_id, peer_id, feasibility);
+  EndpointSideDecision side_decision = orientation->FinalizeEndpointSideDecision(
+      node_id, peer_id, orientation->PreferredSideAxisForEndpoint(node_id, peer_id, feasibility, bundle_id));
+  orientation->FinalizeSideSignForPorts(&side_decision, node_id, peer_id, {port.id});
+  const bool lowering_blocked_by_policy = lowering->EndpointLoweringBlockedByPolicy(feasibility);
+  const bool unresolved_same_level_conflict = lowering_blocked_by_policy && !feasibility.same_level_feasible;
+  const EndpointContinuityDecision decision = lowering->BuildEndpointDecision(
+      feasibility, pair_info, side_decision, node_id, peer_id, current.order_decision_policy,
+      current.order_decision_choice, current.order_decision_choice_reason, current.solver_used_same_level_constraint,
+      current.used_special_case_ports, lowering_blocked_by_policy, unresolved_same_level_conflict);
+  SegmentLaneAssignment assignment{};
+  assignment.flow_kind = current.flow_kind;
+  assignment.branch_down_offset_m = branch_down_offset_m;
+  return build_seed_endpoint_from_decision(edit_state, junction_relations_by_node, assignment, node_id, port, decision);
 }
 
 std::vector<SpanSupportLayoutDecisionSeed> build_seed_generated_support_layouts(
@@ -515,7 +565,6 @@ EditResult<bool> CoreState::build_committed_backbone_topology_state(
   for (const auto& [node_id, node] : support_node_by_id) {
     out_state->node_position_by_id[node_id] = node.position;
   }
-  out_state->existing_adjacency = topology_plan.existing_adjacency;
   out_state->existing_prioritized_session_by_node = topology_plan.existing_prioritized_session_by_node;
   out_state->existing_incident_session_by_node = topology_plan.existing_incident_session_by_node;
 
@@ -567,22 +616,6 @@ EditResult<bool> CoreState::build_committed_backbone_topology_state(
         incident.source_session_id = session_id;
       }
     }
-  }
-
-  out_state->existing_junction_by_node.clear();
-  out_state->existing_junction_by_node.reserve(topology_plan.existing_network_backbone.junctions.size());
-  for (const JunctionInfo& junction : topology_plan.existing_network_backbone.junctions) {
-    out_state->existing_junction_by_node[junction.node_id] = &junction;
-  }
-
-  out_state->active_junction_by_node.clear();
-  out_state->active_junction_by_node.reserve(out_state->existing_junction_by_node.size() +
-                                             out_state->generation_backbone.junctions.size());
-  for (const auto& [node_id, junction] : out_state->existing_junction_by_node) {
-    out_state->active_junction_by_node[node_id] = junction;
-  }
-  for (JunctionInfo& junction : out_state->generation_backbone.junctions) {
-    out_state->active_junction_by_node[junction.node_id] = &junction;
   }
 
   result.value = true;
@@ -729,6 +762,68 @@ EditResult<BackboneMaterializationPhaseOutput> CoreState::run_committed_backbone
         grouped_span_phase.junction_relations_by_node, run.variation_flow_key);
     return output;
   };
+  auto refresh_existing_pointlike_support_layout_seed_phase =
+      [&](const BackboneBundlePlan& bundle_plan,
+          const std::unordered_map<ObjectId, JunctionRelation>& junction_relations_by_node,
+          const std::vector<ObjectId>& generated_span_ids) {
+        if (bundle_plan.continuity_class != ContinuityCategoryClass::kPointLike) {
+          return;
+        }
+        const BundleTemplate* bundle_template = find_bundle_template(bundle_plan.template_id);
+        const double grouped_support_fanout_spacing_m =
+            std::max(0.1, (bundle_template == nullptr) ? bundle_plan.spacing_m
+                                                       : bundle_template->grouped_support_fanout_spacing_m);
+        const BackboneLoweringPolicy lowering_policy = make_commit_refresh_lowering_policy(bundle_plan);
+        const GroupedSpanSharedContext grouped_span_ctx{ordered_support_node_ids, support_node_by_id, edit_state_access(),
+                                                        relation_index_access(), connection_index_access(),
+                                                        &junction_relations_by_node,
+                                                        &debug_.pole_orientation_debug_records};
+        GroupedSpanLoweringDecider lowering(grouped_span_ctx, lowering_policy, bundle_plan.template_id,
+                                            bundle_plan.spacing_m, grouped_support_fanout_spacing_m);
+        GroupedSpanOrientationDecider orientation(grouped_span_ctx);
+        const std::unordered_set<ObjectId> generated_span_id_set(generated_span_ids.begin(), generated_span_ids.end());
+
+        for (const Span& span : edit_state_access().spans.items()) {
+          if (generated_span_id_set.contains(span.id) ||
+              !span_matches_bundle_plan_commit(edit_state_access(), span, bundle_plan)) {
+            continue;
+          }
+          const SpanSupportLayoutContractView contract = support_layout_contract(span.id);
+          if (!contract.has_authority() || contract.authority.seed == nullptr) {
+            continue;
+          }
+          const Port* port_a = edit_state_access().ports.find(span.port_a_id);
+          const Port* port_b = edit_state_access().ports.find(span.port_b_id);
+          if (port_a == nullptr || port_b == nullptr) {
+            continue;
+          }
+          const ObjectId node_a = grouped_span_ctx.resolve_span_endpoint_node(span, port_a, true);
+          const ObjectId node_b = grouped_span_ctx.resolve_span_endpoint_node(span, port_b, false);
+          if (junction_relations_by_node.find(node_a) == junction_relations_by_node.end() &&
+              junction_relations_by_node.find(node_b) == junction_relations_by_node.end()) {
+            continue;
+          }
+
+          const SpanSupportLayoutDecisionSeed& current_seed = *contract.authority.seed;
+          SpanSupportLayoutDecisionSeed refreshed_seed = current_seed;
+          refreshed_seed.start = refresh_pointlike_endpoint_seed_commit(
+              edit_state_access(), junction_relations_by_node, &lowering, &orientation, current_seed.start, *port_a,
+              node_a, node_b, span.bundle_id, lowering.effective_branch_down_offset_m());
+          refreshed_seed.end = refresh_pointlike_endpoint_seed_commit(
+              edit_state_access(), junction_relations_by_node, &lowering, &orientation, current_seed.end, *port_b,
+              node_b, node_a, span.bundle_id, lowering.effective_branch_down_offset_m());
+          refreshed_seed.support_group_decisions.clear();
+          cache_span_support_layout_seed(std::move(refreshed_seed));
+          std::string refresh_error;
+          if (!rebuild_span_geometry_with_cached_contract(span.id, &refresh_error)) {
+            mark_span_dirty(span.id, DirtyBits::kDecision, true);
+          } else {
+            mark_span_dirty(span.id, DirtyBits::kBounds | DirtyBits::kRenderRefresh, false);
+          }
+          add_unique_id(phase_result.value.change_set.updated_ids, span.id);
+          add_unique_id(phase_result.value.change_set.dirty_span_ids, span.id);
+        }
+      };
   auto apply_generated_span_metadata_phase =
       [&](const BackboneBundleAllocation& allocation, const BackboneGroupedSpanGenerationPhaseOutput& grouped_span_phase,
           const BackboneSpanGenerationRunPlan& run, std::size_t generation_order_offset)
@@ -845,6 +940,8 @@ EditResult<BackboneMaterializationPhaseOutput> CoreState::run_committed_backbone
     for (SpanSupportLayoutDecisionSeed& layout_seed : span_phase.support_layout_seeds) {
       cache_span_support_layout_seed(std::move(layout_seed));
     }
+     refresh_existing_pointlike_support_layout_seed_phase(bundle_plan, span_phase.junction_relations_by_node,
+                                                          span_phase.generated_span_ids);
     merge_committed_backbone_junction_relations(&phase_result.value.junction_relations_by_node,
                                                 span_phase.junction_relations_by_node);
   }

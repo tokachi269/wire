@@ -104,8 +104,11 @@ const CurveCacheEntry* CoreView::find_curve_cache(ObjectId span_id) const {
 const BoundsCacheEntry* CoreView::find_bounds_cache(ObjectId span_id) const {
   return state_.find_bounds_cache(span_id);
 }
-const SpanSupportLayoutEntry* CoreView::find_span_support_layout(ObjectId span_id) const {
-  return state_.find_span_support_layout(span_id);
+SpanSupportLayoutProjectionView CoreView::support_layout_projection(ObjectId span_id) const {
+  return state_.support_layout_projection(span_id);
+}
+SpanSupportLayoutContractView CoreView::support_layout_contract(ObjectId span_id) const {
+  return state_.support_layout_contract(span_id);
 }
 const SpanVisualCacheEntry* CoreView::find_span_visual_cache(ObjectId span_id) const {
   return state_.find_span_visual_cache(span_id);
@@ -123,4 +126,3 @@ double CoreView::pole_radius_at_height_m(const Pole& pole, double local_z_m) con
 CoreView CoreState::view() const { return CoreView(*this); }
 
 } // namespace wire::core
-

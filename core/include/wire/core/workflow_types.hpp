@@ -254,7 +254,6 @@ struct JunctionIncident {
 struct JunctionInfo {
   ObjectId node_id = kInvalidObjectId;
   std::uint64_t prioritized_session_id = 0;
-  bool used_neighbor_continuity = false;
   std::vector<JunctionIncident> incidents{};
 };
 
@@ -267,8 +266,6 @@ enum class BackboneFlowDecisionRule : std::uint8_t {
   kDefaultMain = 0,
   kJunctionOrderMain = 1,
   kJunctionOrderBranch = 2,
-  kExistingChainMain = 3,
-  kExistingChainBranch = 4,
 };
 
 // High-level realism input. This stays abstract; core does not own raw road/district datasets.
@@ -527,7 +524,6 @@ struct ThroughPair {
   ObjectId neighbor_b_id = kInvalidObjectId;
   double straightness_score = -1.0;
   bool accepted = false;
-  bool used_semantic_tiebreak = false;
 };
 
 struct JunctionIncidentRelation {
@@ -536,7 +532,6 @@ struct JunctionIncidentRelation {
   double straightness_score = -1.0;
   bool in_route = false;
   bool in_through_pair = false;
-  bool used_semantic_tiebreak = false;
   ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
   bool default_lower_required = false;
   bool same_level_feasible = true;
@@ -547,6 +542,7 @@ struct JunctionIncidentRelation {
 
 struct JunctionRelation {
   ObjectId node_id = kInvalidObjectId;
+  ObjectId primary_neighbor_id = kInvalidObjectId;
   int route_incident_count = 0;
   bool is_cross_like = false;
   ThroughPair through_pair{};
@@ -619,4 +615,3 @@ struct BackboneResult {
 };
 
 } // namespace wire::core
-

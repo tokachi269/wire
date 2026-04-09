@@ -34,8 +34,6 @@ struct RawJunctionCandidate {
   ObjectId neighbor_id = kInvalidObjectId;
   Vec3d dir{};
   bool is_route_neighbor = false;
-  bool preserves_existing_continuity = false;
-  bool continuity_primary = false;
 };
 
 struct RawJunctionFacts {
@@ -50,7 +48,7 @@ struct RouteThroughPairDecision {
   ObjectId neighbor_b_id = kInvalidObjectId;
   double straightness_score = -2.0;
   bool accepted = false;
-  bool stabilized_by_existing = false;
+  bool from_existing_authority = false;
 };
 
 const RawJunctionCandidate* find_raw_junction_candidate(const RawJunctionFacts& facts, ObjectId neighbor_id) {
@@ -71,71 +69,54 @@ double raw_junction_pair_score(const RawJunctionFacts& facts, ObjectId neighbor_
   return Dot(candidate_a->dir, Vec3d{-candidate_b->dir.x, -candidate_b->dir.y, -candidate_b->dir.z});
 }
 
-RouteThroughPairDecision decide_route_through_pair(const RawJunctionFacts& facts,
-                                                   double straightness_threshold) {
+RouteThroughPairDecision decide_route_through_pair(
+    const RawJunctionFacts& facts, const std::optional<std::pair<ObjectId, ObjectId>>& existing_pair) {
   RouteThroughPairDecision decision{};
   std::vector<ObjectId> route_neighbors{};
-  std::vector<ObjectId> existing_route_pair{};
   route_neighbors.reserve(facts.candidates.size());
   for (const RawJunctionCandidate& candidate : facts.candidates) {
     if (!candidate.is_route_neighbor) {
       continue;
     }
     route_neighbors.push_back(candidate.neighbor_id);
-    if (candidate.preserves_existing_continuity) {
-      existing_route_pair.push_back(candidate.neighbor_id);
+  }
+
+  auto adopt_pair = [&](ObjectId neighbor_a_id, ObjectId neighbor_b_id, bool from_existing_authority) {
+    if (neighbor_a_id == kInvalidObjectId || neighbor_b_id == kInvalidObjectId || neighbor_a_id == neighbor_b_id ||
+        find_raw_junction_candidate(facts, neighbor_a_id) == nullptr || find_raw_junction_candidate(facts, neighbor_b_id) == nullptr) {
+      return false;
     }
-  }
+    decision.neighbor_a_id = neighbor_a_id;
+    decision.neighbor_b_id = neighbor_b_id;
+    decision.straightness_score = raw_junction_pair_score(facts, decision.neighbor_a_id, decision.neighbor_b_id);
+    decision.accepted = true;
+    decision.from_existing_authority = from_existing_authority;
+    return true;
+  };
 
-  if (route_neighbors.size() == 2) {
-    decision.straightness_score = raw_junction_pair_score(facts, route_neighbors[0], route_neighbors[1]);
-    const bool stabilized_by_existing = existing_route_pair.size() == 2;
-    if (decision.straightness_score + 1e-9 >= straightness_threshold || stabilized_by_existing) {
-      decision.neighbor_a_id = route_neighbors[0];
-      decision.neighbor_b_id = route_neighbors[1];
-      decision.accepted = true;
-      decision.stabilized_by_existing = stabilized_by_existing;
+  if (existing_pair.has_value()) {
+    const ObjectId existing_a = existing_pair->first;
+    const ObjectId existing_b = existing_pair->second;
+    if (route_neighbors.size() == 1) {
+      const ObjectId route_neighbor = route_neighbors.front();
+      const double score_a = raw_junction_pair_score(facts, route_neighbor, existing_a);
+      const double score_b = raw_junction_pair_score(facts, route_neighbor, existing_b);
+      const ObjectId chosen_existing_neighbor =
+          (score_a > score_b + 1e-9 || (std::abs(score_a - score_b) <= 1e-9 && existing_a < existing_b)) ? existing_a
+                                                                                                            : existing_b;
+      if (adopt_pair(route_neighbor, chosen_existing_neighbor, true)) {
+        return decision;
+      }
     }
-    return decision;
-  }
-
-  if (route_neighbors.size() < 3) {
-    return decision;
-  }
-
-  if (existing_route_pair.size() == 2) {
-    decision.neighbor_a_id = existing_route_pair[0];
-    decision.neighbor_b_id = existing_route_pair[1];
-    decision.straightness_score =
-        raw_junction_pair_score(facts, decision.neighbor_a_id, decision.neighbor_b_id);
-    if (decision.straightness_score + 1e-9 >= straightness_threshold) {
-      decision.accepted = true;
-      decision.stabilized_by_existing = true;
+    if (adopt_pair(existing_a, existing_b, true)) {
       return decision;
     }
   }
 
-  for (std::size_t i = 0; i < route_neighbors.size(); ++i) {
-    for (std::size_t j = i + 1; j < route_neighbors.size(); ++j) {
-      const double straightness_score = raw_junction_pair_score(facts, route_neighbors[i], route_neighbors[j]);
-      const auto current_key =
-          std::tuple<double, ObjectId, ObjectId>{-straightness_score, std::min(route_neighbors[i], route_neighbors[j]),
-                                                 std::max(route_neighbors[i], route_neighbors[j])};
-      const auto best_key =
-          std::tuple<double, ObjectId, ObjectId>{-decision.straightness_score,
-                                                 std::min(decision.neighbor_a_id, decision.neighbor_b_id),
-                                                 std::max(decision.neighbor_a_id, decision.neighbor_b_id)};
-      if (decision.neighbor_a_id == kInvalidObjectId || current_key < best_key) {
-        decision.neighbor_a_id = route_neighbors[i];
-        decision.neighbor_b_id = route_neighbors[j];
-        decision.straightness_score = straightness_score;
-      }
-    }
+  if (route_neighbors.size() != 2) {
+    return decision;
   }
-
-  if (decision.neighbor_a_id != kInvalidObjectId && decision.straightness_score + 1e-9 >= straightness_threshold) {
-    decision.accepted = true;
-  }
+  adopt_pair(route_neighbors[0], route_neighbors[1], false);
   return decision;
 }
 
@@ -143,13 +124,13 @@ JunctionRelation build_junction_relation_from_facts(const RawJunctionFacts& fact
                                                     const RouteThroughPairDecision& through_pair) {
   JunctionRelation relation{};
   relation.node_id = facts.node_id;
+  relation.primary_neighbor_id = kInvalidObjectId;
   relation.route_incident_count = facts.route_incident_count;
   relation.is_cross_like = facts.is_cross_like;
   relation.through_pair.neighbor_a_id = through_pair.neighbor_a_id;
   relation.through_pair.neighbor_b_id = through_pair.neighbor_b_id;
   relation.through_pair.straightness_score = through_pair.straightness_score;
   relation.through_pair.accepted = through_pair.accepted;
-  relation.through_pair.used_semantic_tiebreak = through_pair.stabilized_by_existing;
   relation.incidents.reserve(facts.candidates.size());
   auto in_through_pair = [&](ObjectId neighbor_id) {
     return through_pair.accepted &&
@@ -161,11 +142,12 @@ JunctionRelation build_junction_relation_from_facts(const RawJunctionFacts& fact
     incident.in_route = candidate.is_route_neighbor;
     incident.straightness_score = through_pair.straightness_score;
     incident.in_through_pair = in_through_pair(candidate.neighbor_id);
-    incident.used_semantic_tiebreak = through_pair.stabilized_by_existing && incident.in_through_pair;
     if (incident.in_through_pair) {
       incident.kind = JunctionRelationKind::kThroughMain;
     } else if (through_pair.accepted) {
-      incident.kind = facts.is_cross_like ? JunctionRelationKind::kCrossUnderpass : JunctionRelationKind::kSideBranch;
+      incident.kind =
+          (facts.is_cross_like && !through_pair.from_existing_authority) ? JunctionRelationKind::kCrossUnderpass
+                                                                         : JunctionRelationKind::kSideBranch;
     } else if (candidate.is_route_neighbor) {
       incident.kind = (facts.route_incident_count >= 2) ? JunctionRelationKind::kCornerContinuation
                                                         : JunctionRelationKind::kSideBranch;
@@ -176,24 +158,21 @@ JunctionRelation build_junction_relation_from_facts(const RawJunctionFacts& fact
   }
   std::sort(relation.incidents.begin(), relation.incidents.end(),
             [&](const JunctionIncidentRelation& lhs, const JunctionIncidentRelation& rhs) {
-              const RawJunctionCandidate* lhs_candidate = find_raw_junction_candidate(facts, lhs.neighbor_node_id);
-              const RawJunctionCandidate* rhs_candidate = find_raw_junction_candidate(facts, rhs.neighbor_node_id);
-              const bool lhs_preserves_existing =
-                  (lhs_candidate != nullptr) ? lhs_candidate->preserves_existing_continuity : false;
-              const bool rhs_preserves_existing =
-                  (rhs_candidate != nullptr) ? rhs_candidate->preserves_existing_continuity : false;
-              const bool lhs_continuity_primary =
-                  (lhs_candidate != nullptr) ? lhs_candidate->continuity_primary : false;
-              const bool rhs_continuity_primary =
-                  (rhs_candidate != nullptr) ? rhs_candidate->continuity_primary : false;
-              return std::tuple<int, int, int, ObjectId>{lhs_preserves_existing ? 0 : 1, lhs.in_through_pair ? 0 : 1,
-                                                         lhs_continuity_primary ? 0 : 1, lhs.neighbor_node_id} <
-                     std::tuple<int, int, int, ObjectId>{rhs_preserves_existing ? 0 : 1, rhs.in_through_pair ? 0 : 1,
-                                                         rhs_continuity_primary ? 0 : 1, rhs.neighbor_node_id};
+              return std::tuple<int, int, ObjectId>{lhs.in_through_pair ? 0 : 1, lhs.in_route ? 0 : 1,
+                                                    lhs.neighbor_node_id} <
+                     std::tuple<int, int, ObjectId>{rhs.in_through_pair ? 0 : 1, rhs.in_route ? 0 : 1,
+                                                    rhs.neighbor_node_id};
             });
+  for (const JunctionIncidentRelation& incident : relation.incidents) {
+    if (incident.in_route) {
+      relation.primary_neighbor_id = incident.neighbor_node_id;
+      break;
+    }
+  }
   if (relation.through_pair.accepted && relation.incidents.size() >= 2) {
     relation.through_pair.neighbor_a_id = relation.incidents[0].neighbor_node_id;
     relation.through_pair.neighbor_b_id = relation.incidents[1].neighbor_node_id;
+    relation.primary_neighbor_id = relation.through_pair.neighbor_a_id;
   }
   return relation;
 }
@@ -246,9 +225,10 @@ BackboneDecisionPhaseOutput run_backbone_decision_phase(const BackboneDecisionPh
       return info;
     }
     const JunctionRelation& relation = it_relation->second;
+    if (relation.incidents.size() < 3) {
+      return info;
+    }
     const JunctionRelationKind relation_kind = find_incident_relation(relation, peer_id);
-    const bool relation_uses_existing_continuity =
-        relation.through_pair.accepted && relation.through_pair.used_semantic_tiebreak;
     switch (relation_kind) {
     case JunctionRelationKind::kCrossUnderpass:
       info.kind = BackboneFlowKind::kBranch;
@@ -257,9 +237,7 @@ BackboneDecisionPhaseOutput run_backbone_decision_phase(const BackboneDecisionPh
       return info;
     case JunctionRelationKind::kSideBranch:
       info.kind = BackboneFlowKind::kBranch;
-      info.rule = relation_uses_existing_continuity
-                      ? BackboneFlowDecisionRule::kExistingChainBranch
-                      : BackboneFlowDecisionRule::kJunctionOrderBranch;
+      info.rule = BackboneFlowDecisionRule::kJunctionOrderBranch;
       return info;
     case JunctionRelationKind::kCornerContinuation:
       info.kind = BackboneFlowKind::kMain;
@@ -267,10 +245,8 @@ BackboneDecisionPhaseOutput run_backbone_decision_phase(const BackboneDecisionPh
       return info;
     case JunctionRelationKind::kThroughMain:
       info.kind = BackboneFlowKind::kMain;
-      info.rule = relation_uses_existing_continuity
-                      ? BackboneFlowDecisionRule::kExistingChainMain
-                      : (relation.through_pair.accepted ? BackboneFlowDecisionRule::kJunctionOrderMain
-                                                        : BackboneFlowDecisionRule::kDefaultMain);
+      info.rule = relation.through_pair.accepted ? BackboneFlowDecisionRule::kJunctionOrderMain
+                                                 : BackboneFlowDecisionRule::kDefaultMain;
       return info;
     case JunctionRelationKind::kNone:
     default:
@@ -285,16 +261,24 @@ BackboneDecisionPhaseOutput run_backbone_decision_phase(const BackboneDecisionPh
     const ObjectId node_b = context.ordered_support_node_ids[i + 1];
     const EdgeFlowInfo flow_a = classify_edge_flow_at_node(node_a, node_b);
     const EdgeFlowInfo flow_b = classify_edge_flow_at_node(node_b, node_a);
-    if (flow_a.kind == BackboneFlowKind::kBranch) {
+    if (flow_a.kind == BackboneFlowKind::kBranch && flow_b.kind != BackboneFlowKind::kBranch) {
       phase.edge_flow_by_segment.push_back(flow_a);
-    } else if (flow_b.kind == BackboneFlowKind::kBranch) {
+    } else if (flow_b.kind == BackboneFlowKind::kBranch && flow_a.kind != BackboneFlowKind::kBranch) {
       phase.edge_flow_by_segment.push_back(flow_b);
-    } else if (flow_a.rule != BackboneFlowDecisionRule::kDefaultMain) {
+    } else if (flow_a.rule != BackboneFlowDecisionRule::kDefaultMain &&
+               flow_b.rule == BackboneFlowDecisionRule::kDefaultMain) {
       phase.edge_flow_by_segment.push_back(flow_a);
-    } else if (flow_b.rule != BackboneFlowDecisionRule::kDefaultMain) {
+    } else if (flow_b.rule != BackboneFlowDecisionRule::kDefaultMain &&
+               flow_a.rule == BackboneFlowDecisionRule::kDefaultMain) {
       phase.edge_flow_by_segment.push_back(flow_b);
     } else {
-      phase.edge_flow_by_segment.push_back(flow_a);
+      EdgeFlowInfo info{};
+      info.kind = BackboneFlowKind::kMain;
+      info.rule = (flow_a.rule == BackboneFlowDecisionRule::kJunctionOrderMain ||
+                   flow_b.rule == BackboneFlowDecisionRule::kJunctionOrderMain)
+                      ? BackboneFlowDecisionRule::kJunctionOrderMain
+                      : BackboneFlowDecisionRule::kDefaultMain;
+      phase.edge_flow_by_segment.push_back(info);
     }
   }
 
@@ -321,8 +305,6 @@ BackboneDecisionPhaseOutput run_backbone_decision_phase(const BackboneDecisionPh
     } else {
       junction.prioritized_session_id = context.session_id;
     }
-    junction.used_neighbor_continuity =
-        relation.through_pair.accepted && relation.through_pair.used_semantic_tiebreak;
     junction.incidents.reserve(relation.incidents.size());
     for (std::size_t index = 0; index < relation.incidents.size(); ++index) {
       const JunctionIncidentRelation& source = relation.incidents[index];
@@ -370,9 +352,7 @@ BackboneDecisionPhaseOutput build_backbone_decision_phase(
   const EditState& edit_state = state.view().edit_state();
   const auto& route_neighbors_by_node = plan->route_neighbors_by_node;
   const auto& existing_node_position_by_id = plan->existing_node_position_by_id;
-  const auto& existing_adjacency = plan->existing_adjacency;
   const auto& existing_junction_by_node = plan->existing_junction_by_node;
-  const auto& existing_primary_neighbor_by_node = plan->existing_primary_neighbor_by_node;
   std::unordered_map<ObjectId, const JunctionInfo*> active_junction_by_node = plan->active_junction_by_node;
 
   auto current_support_position = [&](ObjectId node_id) -> Vec3d {
@@ -416,69 +396,26 @@ BackboneDecisionPhaseOutput build_backbone_decision_phase(
     return neighbors;
   };
 
-  auto existing_continuation_neighbors_for_order = [&](ObjectId node_id) {
-    std::vector<ObjectId> neighbors{};
-    if (const auto it = existing_junction_by_node.find(node_id); it != existing_junction_by_node.end()) {
-      const JunctionInfo* junction = it->second;
-      if (junction != nullptr && junction->incidents.size() >= 2) {
-        const JunctionIncident* primary_incident = nullptr;
-        const JunctionIncident* continuation_incident = nullptr;
-        for (const JunctionIncident& incident : junction->incidents) {
-          if ((incident.primary || incident.order == 0) &&
-              (primary_incident == nullptr ||
-               (incident.primary && !primary_incident->primary) ||
-               (incident.order >= 0 && (primary_incident->order < 0 || incident.order < primary_incident->order)))) {
-            primary_incident = &incident;
-          }
-          if (incident.order == 1 &&
-              (continuation_incident == nullptr || incident.neighbor_node_id < continuation_incident->neighbor_node_id)) {
-            continuation_incident = &incident;
-          }
-        }
-        const bool has_continuation_pair =
-            primary_incident != nullptr && continuation_incident != nullptr &&
-            primary_incident->neighbor_node_id != continuation_incident->neighbor_node_id &&
-            (junction->used_neighbor_continuity || junction->incidents.size() == 2);
-        if (has_continuation_pair) {
-          neighbors.push_back(primary_incident->neighbor_node_id);
-          neighbors.push_back(continuation_incident->neighbor_node_id);
-          return neighbors;
-        }
-      }
-    }
-    if (const auto it = existing_adjacency.find(node_id); it != existing_adjacency.end() && it->second.size() == 2) {
-      return it->second;
-    }
-    return neighbors;
-  };
-  auto existing_primary_neighbor_for_order = [&](ObjectId node_id) -> ObjectId {
-    if (const auto it = existing_junction_by_node.find(node_id); it != existing_junction_by_node.end()) {
-      const JunctionInfo* junction = it->second;
-      if (junction != nullptr) {
-        for (const JunctionIncident& incident : junction->incidents) {
-          if (incident.primary || incident.order == 0) {
-            return incident.neighbor_node_id;
-          }
-        }
-      }
-    }
-    const auto it_route = route_neighbors_by_node.find(node_id);
-    const std::size_t route_degree = (it_route == route_neighbors_by_node.end()) ? 0 : it_route->second.size();
-    if (route_degree <= 1) {
-      if (const auto it = existing_adjacency.find(node_id); it != existing_adjacency.end() && it->second.size() == 1) {
-        return it->second.front();
-      }
-    }
-    const auto it_existing_primary = existing_primary_neighbor_by_node.find(node_id);
-    return (it_existing_primary == existing_primary_neighbor_by_node.end()) ? kInvalidObjectId
-                                                                            : it_existing_primary->second;
-  };
-
-  constexpr double kThroughPairStraightnessThreshold = 0.3;
   auto classify_junction = [&](ObjectId node_id) {
     const std::vector<ObjectId> route_neighbors =
         (route_neighbors_by_node.contains(node_id) ? route_neighbors_by_node.at(node_id) : std::vector<ObjectId>{});
     const std::vector<ObjectId> combined_neighbors = combined_neighbors_for_node(node_id);
+    std::optional<std::pair<ObjectId, ObjectId>> existing_pair{};
+    if (const auto it_existing_relation = plan->existing_junction_relations_by_node.find(node_id);
+        it_existing_relation != plan->existing_junction_relations_by_node.end()) {
+      const JunctionRelation& relation = it_existing_relation->second;
+      if (relation.through_pair.accepted) {
+        existing_pair = std::pair<ObjectId, ObjectId>{relation.through_pair.neighbor_a_id,
+                                                      relation.through_pair.neighbor_b_id};
+      }
+    }
+    if (!existing_pair.has_value()) {
+      if (const auto it_existing_adjacency = plan->existing_adjacency.find(node_id);
+          it_existing_adjacency != plan->existing_adjacency.end() && it_existing_adjacency->second.size() == 2) {
+        existing_pair =
+            std::pair<ObjectId, ObjectId>{it_existing_adjacency->second[0], it_existing_adjacency->second[1]};
+      }
+    }
     RawJunctionFacts facts{};
     facts.node_id = node_id;
     facts.route_incident_count = static_cast<int>(route_neighbors.size());
@@ -490,11 +427,6 @@ BackboneDecisionPhaseOutput build_backbone_decision_phase(
 
     facts.candidates.reserve(combined_neighbors.size());
     const Vec3d center = current_support_position(node_id);
-    const std::vector<ObjectId> existing_continuity_neighbors = existing_continuation_neighbors_for_order(node_id);
-    const bool has_existing_continuity_pair =
-        existing_continuity_neighbors.size() >= 2 &&
-        existing_continuity_neighbors[0] != existing_continuity_neighbors[1];
-    const ObjectId continuity_primary_neighbor = existing_primary_neighbor_for_order(node_id);
     for (ObjectId neighbor_id : combined_neighbors) {
       const Vec3d dir = normalize_forward_xy(current_support_position(neighbor_id) - center);
       if (!std::isfinite(dir.x) || !std::isfinite(dir.y)) {
@@ -505,25 +437,10 @@ BackboneDecisionPhaseOutput build_backbone_decision_phase(
       candidate.dir = dir;
       candidate.is_route_neighbor =
           std::find(route_neighbors.begin(), route_neighbors.end(), neighbor_id) != route_neighbors.end();
-      candidate.continuity_primary = (neighbor_id == continuity_primary_neighbor);
       facts.candidates.push_back(candidate);
     }
-    const double existing_continuity_score =
-        has_existing_continuity_pair
-            ? raw_junction_pair_score(facts, existing_continuity_neighbors[0], existing_continuity_neighbors[1])
-            : -2.0;
-    const bool preserve_existing_continuity =
-        has_existing_continuity_pair && existing_continuity_score + 1e-9 >= kThroughPairStraightnessThreshold;
-    if (preserve_existing_continuity) {
-      for (RawJunctionCandidate& candidate : facts.candidates) {
-        candidate.preserves_existing_continuity =
-            std::find(existing_continuity_neighbors.begin(), existing_continuity_neighbors.end(), candidate.neighbor_id) !=
-            existing_continuity_neighbors.end();
-      }
-    }
 
-    const RouteThroughPairDecision through_pair =
-        decide_route_through_pair(facts, kThroughPairStraightnessThreshold);
+    const RouteThroughPairDecision through_pair = decide_route_through_pair(facts, existing_pair);
     return build_junction_relation_from_facts(facts, through_pair);
   };
   BackboneDecisionPhaseOutput phase = run_backbone_decision_phase({
@@ -603,11 +520,9 @@ EditResult<BackboneTopologyPlan> CoreState::build_backbone_topology_plan(
     plan.existing_prioritized_session_by_node[junction.node_id] = junction.prioritized_session_id;
     for (const JunctionIncident& incident : junction.incidents) {
       plan.existing_incident_session_by_node[junction.node_id][incident.neighbor_node_id] = incident.source_session_id;
-      if (incident.primary) {
-        plan.existing_primary_neighbor_by_node[junction.node_id] = incident.neighbor_node_id;
-      }
     }
   }
+  plan.existing_junction_relations_by_node = debug_.last_generation_junction_relations;
   for (const BackboneEdge& edge : plan.existing_network_backbone.edges) {
     if (edge.node_a == kInvalidObjectId || edge.node_b == kInvalidObjectId || edge.node_a == edge.node_b) {
       continue;

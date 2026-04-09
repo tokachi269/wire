@@ -55,7 +55,8 @@ public:
   [[nodiscard]] const SpanRuntimeState* find_span_runtime_state(ObjectId span_id) const;
   [[nodiscard]] const CurveCacheEntry* find_curve_cache(ObjectId span_id) const;
   [[nodiscard]] const BoundsCacheEntry* find_bounds_cache(ObjectId span_id) const;
-  [[nodiscard]] const SpanSupportLayoutEntry* find_span_support_layout(ObjectId span_id) const;
+  [[nodiscard]] SpanSupportLayoutProjectionView support_layout_projection(ObjectId span_id) const;
+  [[nodiscard]] SpanSupportLayoutContractView support_layout_contract(ObjectId span_id) const;
   [[nodiscard]] const SpanVisualCacheEntry* find_span_visual_cache(ObjectId span_id) const;
   [[nodiscard]] const SpanRenderCacheEntry* find_span_render_cache(ObjectId span_id) const;
   [[nodiscard]] const AttachmentTemplate* find_attachment_template(AttachmentTemplateId attachment_template_id) const;

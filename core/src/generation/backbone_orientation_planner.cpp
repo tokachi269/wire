@@ -78,7 +78,7 @@ EditResult<BackboneOrientationPlan> CoreState::build_backbone_orientation_plan(
   const auto& support_node_by_id = support_chain_plan.support_node_by_id;
   const auto& route_neighbors_by_node = topology_plan.route_neighbors_by_node;
   const auto& existing_node_position_by_id = topology_plan.existing_node_position_by_id;
-  const auto& active_junction_by_node = topology_plan.active_junction_by_node;
+  const auto& junction_relations_by_node = topology_plan.decision_phase.junction_relations_by_node;
   const std::vector<BackboneBundlePlan>& active_bundle_plans = request_plan.active_bundle_plans;
 
   auto current_support_position = [&](ObjectId node_id) -> Vec3d {
@@ -195,27 +195,6 @@ EditResult<BackboneOrientationPlan> CoreState::build_backbone_orientation_plan(
   auto neighbor_direction = [&](ObjectId node_id, ObjectId neighbor_id) {
     return normalize_forward_xy_orientation(current_support_position(neighbor_id) - current_support_position(node_id));
   };
-  auto choose_junction_primary_incident = [&](const JunctionInfo& junction) -> const JunctionIncident* {
-    const JunctionIncident* primary_incident = nullptr;
-    for (const JunctionIncident& incident : junction.incidents) {
-      if ((incident.primary || incident.order == 0) &&
-          (primary_incident == nullptr || (incident.primary && !primary_incident->primary) ||
-           (incident.order >= 0 && (primary_incident->order < 0 || incident.order < primary_incident->order)))) {
-        primary_incident = &incident;
-      }
-    }
-    return primary_incident;
-  };
-  auto choose_junction_continuation_incident = [&](const JunctionInfo& junction) -> const JunctionIncident* {
-    const JunctionIncident* continuation_incident = nullptr;
-    for (const JunctionIncident& incident : junction.incidents) {
-      if (incident.order == 1 &&
-          (continuation_incident == nullptr || incident.neighbor_node_id < continuation_incident->neighbor_node_id)) {
-        continuation_incident = &incident;
-      }
-    }
-    return continuation_incident;
-  };
   auto choose_support_axis_for_layout = [&](const BackboneOrientationNodeContext& node_context) {
     SupportAxisSelection selection{};
     auto adopt_axis = [&](const Vec3d& axis, PoleSupportAxisRule rule, ObjectId primary_neighbor_id,
@@ -273,34 +252,18 @@ EditResult<BackboneOrientationPlan> CoreState::build_backbone_orientation_plan(
         context.previous_support_axis = side_axis_from_yaw_deg(context.previous_layout_yaw);
       }
     }
-    context.has_active_junction = active_junction_by_node.contains(node_id);
-    if (const auto it = active_junction_by_node.find(node_id); it != active_junction_by_node.end()) {
-      if (const JunctionInfo* junction = it->second; junction != nullptr) {
-        const JunctionIncident* primary_incident = choose_junction_primary_incident(*junction);
-        const JunctionIncident* continuation_incident = choose_junction_continuation_incident(*junction);
-        if (primary_incident != nullptr) {
-          context.primary_neighbor.neighbor_id = primary_incident->neighbor_node_id;
-        }
-        const bool has_continuation_pair =
-            primary_incident != nullptr && continuation_incident != nullptr &&
-            primary_incident->neighbor_node_id != continuation_incident->neighbor_node_id &&
-            (junction->used_neighbor_continuity || junction->incidents.size() == 2);
-        if (has_continuation_pair) {
-          context.continuation_pair.primary_neighbor_id = primary_incident->neighbor_node_id;
-          context.continuation_pair.secondary_neighbor_id = continuation_incident->neighbor_node_id;
-        }
-      }
-    }
-    if (context.continuation_pair.primary_neighbor_id == kInvalidObjectId) {
-      if (const auto it_route = route_neighbors_by_node.find(node_id);
-          it_route != route_neighbors_by_node.end() && it_route->second.size() == 2) {
-        context.continuation_pair.primary_neighbor_id = it_route->second[0];
-        context.continuation_pair.secondary_neighbor_id = it_route->second[1];
+    if (const auto it = junction_relations_by_node.find(node_id); it != junction_relations_by_node.end()) {
+      const JunctionRelation& relation = it->second;
+      context.has_active_junction = relation.incidents.size() >= 3;
+      context.primary_neighbor.neighbor_id = relation.primary_neighbor_id;
+      if (relation.through_pair.accepted) {
+        context.continuation_pair.primary_neighbor_id = relation.through_pair.neighbor_a_id;
+        context.continuation_pair.secondary_neighbor_id = relation.through_pair.neighbor_b_id;
       }
     }
     if (context.primary_neighbor.neighbor_id == kInvalidObjectId) {
       if (const auto it_route = route_neighbors_by_node.find(node_id);
-          it_route != route_neighbors_by_node.end() && it_route->second.size() == 1) {
+          it_route != route_neighbors_by_node.end() && !it_route->second.empty()) {
         context.primary_neighbor.neighbor_id = it_route->second.front();
       }
     }

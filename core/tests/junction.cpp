@@ -134,7 +134,7 @@ bool test_junction_cross_order_stable_across_rebuilds() {
     const auto& ra = a->local_relations[i];
     const auto& rb = b->local_relations[i];
     if (ra.neighbor_node_id != rb.neighbor_node_id || ra.kind != rb.kind || ra.in_through_pair != rb.in_through_pair ||
-        ra.straightness_score != rb.straightness_score || ra.used_semantic_tiebreak != rb.used_semantic_tiebreak) {
+        ra.straightness_score != rb.straightness_score) {
       return false;
     }
   }
@@ -200,7 +200,6 @@ void register_junction_tests(test_registry::TestRegistry& tests) {
 WIRE_REGISTER_TEST_SUITE(register_junction_tests);
 
 } // namespace
-
 
 
 

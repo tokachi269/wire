@@ -241,6 +241,58 @@ struct ResolvedSpanSupportLayoutMaterializationInputs {
   MaterializedBranchDownOffsetPair branch_down_offsets{};
 };
 
+bool endpoint_requires_pair_authority_in_normal_path(const SupportLayoutEndpoint& endpoint) {
+  return !UsesAuthoritativeGroupedLoweredSupport(endpoint) &&
+         endpoint.continuity_class == ContinuityCategoryClass::kPointLike && HasAuthoritativeSupportPair(endpoint) &&
+         endpoint.relation_kind != JunctionRelationKind::kThroughMain;
+}
+
+bool validate_materialized_endpoint_normal_path(const SupportLayoutEndpoint& endpoint, std::string* error_message) {
+  auto set_error = [&](const char* message) {
+    if (error_message != nullptr && error_message->empty()) {
+      *error_message = message;
+    }
+    return false;
+  };
+  if (endpoint.endpoint_source == SupportLayoutEndpointSourceKind::kFallback) {
+    return set_error("support layout endpoint fallback sourcing reached materialization");
+  }
+  if (endpoint.origin == SupportLayoutOriginKind::kFallback) {
+    return set_error("support layout origin fallback reached materialization");
+  }
+  if (endpoint.port_source == PortPlacementSourceKind::kUnknown) {
+    return set_error("support layout requires explicit port placement source before materialization");
+  }
+  if (endpoint.attachment_request.kind == EndpointAttachmentRequestKind::kNone && endpoint.resolved_socket_id.has_value()) {
+    return set_error("support layout resolved a socket without an attachment request");
+  }
+  if (endpoint.attachment_request.kind == EndpointAttachmentRequestKind::kAttachmentSocket &&
+      !endpoint.resolved_socket_id.has_value()) {
+    return set_error("attachment-socket support layout request did not resolve a socket");
+  }
+  if (endpoint.attachment_request.requested_socket_id.has_value() && endpoint.resolved_socket_id.has_value() &&
+      *endpoint.attachment_request.requested_socket_id != *endpoint.resolved_socket_id) {
+    return set_error("support layout reinterpreted the chosen endpoint socket");
+  }
+  if (endpoint_requires_pair_authority_in_normal_path(endpoint) &&
+      (endpoint.side_assignment_rule != SideAssignmentRuleKind::kThroughPairNormal ||
+       endpoint.support_orientation_rule != SupportOrientationRuleKind::kThroughPairNormal ||
+       !endpoint.used_junction_pair_side_assignment || !endpoint.has_side_axis ||
+       std::abs(endpoint.chosen_side_sign) <= 1e-9)) {
+    return set_error("pair-authoritative endpoint fell back to endpoint-local support rules");
+  }
+  if (UsesAuthoritativeGroupedLoweredSupport(endpoint) &&
+      endpoint.support_orientation_basis == SupportOrientationBasisKind::kRadial) {
+    return set_error("grouped lowered support kept a radial orientation basis");
+  }
+  return true;
+}
+
+bool validate_materialized_layout_normal_path(const SpanSupportLayoutEntry& layout, std::string* error_message) {
+  return validate_materialized_endpoint_normal_path(layout.start, error_message) &&
+         validate_materialized_endpoint_normal_path(layout.end, error_message);
+}
+
 bool resolve_materialized_endpoint_socket(const CoreState& state, const Span& span,
                                          SpanSupportLayoutAuthorityView authority, bool is_start_endpoint,
                                          ResolvedEndpointSocketDecision* out, std::string* error_message) {
@@ -417,18 +469,14 @@ void append_unique_group_key(std::vector<LoweredSupportGroupKey>* keys, const Lo
 std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash>
 build_support_group_decision_view_from_seeds(const SupportLayoutCache& support_layout_cache) {
   std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash> groups{};
-  for (ObjectId span_id : support_layout_cache.ordered_authority_span_ids()) {
-    const SpanSupportLayoutDecisionSeed* seed = support_layout_cache.find_seed(span_id);
-    if (seed == nullptr) {
-      continue;
-    }
-    for (const auto& [key, group_copy] : seed->support_group_decisions) {
+  support_layout_cache.for_each_authority_seed([&](ObjectId, SpanSupportLayoutAuthorityView, const SpanSupportLayoutDecisionSeed& seed) {
+    for (const auto& [key, group_copy] : seed.support_group_decisions) {
       if (key.owner_pole_id == kInvalidObjectId || key.support_group_id < 0) {
         continue;
       }
       groups[key] = group_copy;
     }
-  }
+  });
   return groups;
 }
 
@@ -437,12 +485,8 @@ build_support_group_decision_view_for_keys_from_seeds(const SupportLayoutCache& 
                                                       const std::vector<LoweredSupportGroupKey>& keys) {
   std::unordered_set<LoweredSupportGroupKey, LoweredSupportGroupKeyHash> key_set(keys.begin(), keys.end());
   std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash> groups{};
-  for (ObjectId span_id : support_layout_cache.ordered_authority_span_ids()) {
-    const SpanSupportLayoutDecisionSeed* seed = support_layout_cache.find_seed(span_id);
-    if (seed == nullptr) {
-      continue;
-    }
-    for (const auto& [key, group_copy] : seed->support_group_decisions) {
+  support_layout_cache.for_each_authority_seed([&](ObjectId, SpanSupportLayoutAuthorityView, const SpanSupportLayoutDecisionSeed& seed) {
+    for (const auto& [key, group_copy] : seed.support_group_decisions) {
       if (key_set.find(key) == key_set.end()) {
         continue;
       }
@@ -451,7 +495,7 @@ build_support_group_decision_view_for_keys_from_seeds(const SupportLayoutCache& 
       }
       groups[key] = group_copy;
     }
-  }
+  });
   return groups;
 }
 
@@ -798,9 +842,13 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
       (span.endpoint_attachment_b_id != kInvalidObjectId && resolved_inputs.sockets.end.resolved_socket_id < 0)) {
     return {};
   }
-
-  return materialize_span_support_layout(*this, span, inputs, *port_a, *port_b, pole_a, pole_b, chord_dir, authority,
-                                         resolved_inputs.sockets, resolved_inputs.branch_down_offsets);
+  SpanSupportLayoutEntry layout =
+      materialize_span_support_layout(*this, span, inputs, *port_a, *port_b, pole_a, pole_b, chord_dir, authority,
+                                      resolved_inputs.sockets, resolved_inputs.branch_down_offsets);
+  if (!validate_materialized_layout_normal_path(layout, error_message)) {
+    return {};
+  }
+  return layout;
 }
 
 } // namespace wire::core

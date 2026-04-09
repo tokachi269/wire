@@ -1958,7 +1958,7 @@ bool test_backbone_hv3_latest_capture_lowered_support_uses_local_departure_profi
     if (bundle == nullptr || bundle->bundle_template_id != wire::core::BundleKind::kHighVoltage) {
       continue;
     }
-    const auto* support_layout = state.find_span_support_layout(span.id);
+    const auto* support_layout = state.support_layout_projection(span.id).layout;
     if (support_layout == nullptr) {
       continue;
     }
@@ -2027,7 +2027,7 @@ bool test_backbone_hv3_latest_capture_lowered_support_departure_uses_shared_rout
     if (bundle == nullptr || bundle->bundle_template_id != wire::core::BundleKind::kHighVoltage) {
       continue;
     }
-    const auto* support_layout = state.find_span_support_layout(span.id);
+    const auto* support_layout = state.support_layout_projection(span.id).layout;
     if (support_layout == nullptr) {
       continue;
     }
@@ -12402,10 +12402,10 @@ bool test_backbone_mixed_route_uses_edge_level_flow_classification() {
     return false;
   }
   const bool ok = assignments[0].flow_kind == wire::core::BackboneFlowKind::kMain &&
-                  assignments[0].flow_decision_rule == wire::core::BackboneFlowDecisionRule::kExistingChainMain &&
+                  assignments[0].flow_decision_rule == wire::core::BackboneFlowDecisionRule::kJunctionOrderMain &&
                   !assignments[0].uses_branch_support &&
                   assignments[1].flow_kind == wire::core::BackboneFlowKind::kBranch &&
-                  assignments[1].flow_decision_rule == wire::core::BackboneFlowDecisionRule::kExistingChainBranch &&
+                  assignments[1].flow_decision_rule == wire::core::BackboneFlowDecisionRule::kJunctionOrderBranch &&
                   !assignments[1].uses_branch_support &&
                   assignments[1].branch_down_offset_m == 0.0;
   if (!ok) {
@@ -12515,7 +12515,7 @@ bool test_backbone_near_straight_branch_still_classifies_as_branch() {
 
   const auto& assignments = state.view().last_lane_assignments();
   const bool ok = assignments.size() == 1 && assignments.front().flow_kind == wire::core::BackboneFlowKind::kBranch &&
-                  assignments.front().flow_decision_rule == wire::core::BackboneFlowDecisionRule::kExistingChainBranch;
+                  assignments.front().flow_decision_rule == wire::core::BackboneFlowDecisionRule::kJunctionOrderBranch;
   if (!ok) {
     std::cerr << "[DBG] C140 assignmentCount=" << assignments.size();
     if (!assignments.empty()) {

@@ -2028,7 +2028,7 @@ bool test_support_layout_branch_support_is_explicit_and_shared_with_curve_and_vi
   }
 
   for (ObjectId span_id : generated.value.generated_span_ids) {
-    const auto* support_layout = state.view().find_span_support_layout(span_id);
+    const auto* support_layout = state.view().support_layout_projection(span_id).layout;
     const auto* curve = state.find_curve_cache(span_id);
     const auto support_layout_view = state.view().inspect_support_layout(span_id);
     if (support_layout == nullptr || curve == nullptr || !support_layout_view.has_value()) {
@@ -2092,7 +2092,7 @@ bool test_support_layout_attachment_socket_endpoint_matches_curve_input() {
   }
 
   (void)state.Commit().recalc_stats;
-  const auto* support_layout = state.view().find_span_support_layout(span);
+  const auto* support_layout = state.view().support_layout_projection(span).layout;
   const auto* curve = state.find_curve_cache(span);
   const auto layout_view = state.view().inspect_support_layout(span);
   const auto curve_view = state.view().inspect_detail_curve(span);
@@ -2137,7 +2137,7 @@ bool test_support_layout_attachment_auto_resolves_default_socket_endpoint() {
   span_edit->endpoint_attachment_a_id = add_attachment.value;
 
   (void)state.Commit().recalc_stats;
-  const auto* support_layout = state.view().find_span_support_layout(span);
+  const auto* support_layout = state.view().support_layout_projection(span).layout;
   const auto* curve = state.find_curve_cache(span);
   const auto layout_view = state.view().inspect_support_layout(span);
   const auto curve_view = state.view().inspect_detail_curve(span);
@@ -2421,7 +2421,7 @@ bool test_span_socket_override_roundtrip_returns_to_auto() {
   }
   span_edit->endpoint_attachment_a_id = add_attachment.value;
   (void)state.Commit().recalc_stats;
-  const auto* auto_layout = state.view().find_span_support_layout(span);
+  const auto* auto_layout = state.view().support_layout_projection(span).layout;
   if (auto_layout == nullptr || auto_layout->start.resolved_socket_id != 1) {
     return false;
   }
@@ -2430,7 +2430,7 @@ bool test_span_socket_override_roundtrip_returns_to_auto() {
     return false;
   }
   (void)state.Commit().recalc_stats;
-  const auto* overridden_layout = state.view().find_span_support_layout(span);
+  const auto* overridden_layout = state.view().support_layout_projection(span).layout;
   if (overridden_layout == nullptr || overridden_layout->start.resolved_socket_id != 0 ||
       almost_equal(overridden_layout->start.endpoint_world, auto_endpoint, 1e-6)) {
     return false;
@@ -2439,7 +2439,7 @@ bool test_span_socket_override_roundtrip_returns_to_auto() {
     return false;
   }
   (void)state.Commit().recalc_stats;
-  const auto* restored_layout = state.view().find_span_support_layout(span);
+  const auto* restored_layout = state.view().support_layout_projection(span).layout;
   return restored_layout != nullptr && restored_layout->start.resolved_socket_id == 1 &&
          almost_equal(restored_layout->start.endpoint_world, auto_endpoint, 1e-6);
 }
@@ -2471,7 +2471,7 @@ bool test_branch_down_offset_override_roundtrip_returns_to_policy_value() {
   edit_span->placement_context = wire::core::ConnectionContext::kBranchAdd;
 
   (void)state.Commit().recalc_stats;
-  const auto* auto_layout = state.view().find_span_support_layout(span);
+  const auto* auto_layout = state.view().support_layout_projection(span).layout;
   if (auto_layout == nullptr || auto_layout->start.branch_down_offset_m <= 0.0) {
     return false;
   }
@@ -2480,7 +2480,7 @@ bool test_branch_down_offset_override_roundtrip_returns_to_policy_value() {
     return false;
   }
   (void)state.Commit().recalc_stats;
-  const auto* overridden_layout = state.view().find_span_support_layout(span);
+  const auto* overridden_layout = state.view().support_layout_projection(span).layout;
   const auto override_view = state.view().inspect_overrides({wire::core::EntityKind::kSpan, span});
   if (overridden_layout == nullptr || !override_view.has_value() ||
       !almost_equal(overridden_layout->start.branch_down_offset_m, auto_down + 0.75, 1e-9) ||
@@ -2491,7 +2491,7 @@ bool test_branch_down_offset_override_roundtrip_returns_to_policy_value() {
     return false;
   }
   (void)state.Commit().recalc_stats;
-  const auto* restored_layout = state.view().find_span_support_layout(span);
+  const auto* restored_layout = state.view().support_layout_projection(span).layout;
   if (restored_layout == nullptr || !almost_equal(restored_layout->start.branch_down_offset_m, auto_down, 1e-9)) {
     return false;
   }
@@ -2681,7 +2681,7 @@ bool test_support_layout_prefers_assignment_over_stale_branch_support_ports() {
   wire::core::CoreStateTestHook::cache_state(state).support_layout_cache.store_layout(std::move(stale_layout));
 
   (void)state.Commit().recalc_stats;
-  const auto* layout = state.view().find_span_support_layout(span);
+  const auto* layout = state.view().support_layout_projection(span).layout;
     return layout != nullptr && layout->flow_kind == wire::core::BackboneFlowKind::kMain &&
       layout->start.flow_kind == wire::core::BackboneFlowKind::kMain &&
       layout->end.flow_kind == wire::core::BackboneFlowKind::kMain &&
@@ -2952,7 +2952,7 @@ bool test_span_curve_support_layout_height_difference_uses_composite_segments() 
   if (!commit.validation.ok()) {
     return false;
   }
-  const auto* support_layout = state.view().find_span_support_layout(span);
+  const auto* support_layout = state.view().support_layout_projection(span).layout;
   const auto* curve = state.find_curve_cache(span);
   if (support_layout == nullptr || curve == nullptr || curve->detail.sample_points.size() < 5 ||
       curve->detail.arc_length_table.empty()) {

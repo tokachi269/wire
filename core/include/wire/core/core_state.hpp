@@ -127,7 +127,8 @@ public:
   EditResult<bool> ResetAllSpanReferenceLengths(bool mark_all_spans_dirty = true);
   [[nodiscard]] const CurveCacheEntry* find_curve_cache(ObjectId span_id) const;
   [[nodiscard]] const BoundsCacheEntry* find_bounds_cache(ObjectId span_id) const;
-  [[nodiscard]] const SpanSupportLayoutEntry* find_span_support_layout(ObjectId span_id) const;
+  [[nodiscard]] SpanSupportLayoutProjectionView support_layout_projection(ObjectId span_id) const;
+  [[nodiscard]] SpanSupportLayoutContractView support_layout_contract(ObjectId span_id) const;
   [[nodiscard]] const SpanVisualCacheEntry* find_span_visual_cache(ObjectId span_id) const;
   [[nodiscard]] const SpanRenderCacheEntry* find_span_render_cache(ObjectId span_id) const;
   [[nodiscard]] const AttachmentTemplate* find_attachment_template(AttachmentTemplateId attachment_template_id) const;
@@ -178,7 +179,6 @@ private:
                                                 std::string* error_message) const;
   [[nodiscard]] static AABBd build_aabb_from_points(const std::vector<Vec3d>& points);
   [[nodiscard]] static AABBd build_aabb_from_two_points(const Vec3d& a, const Vec3d& b);
-  [[nodiscard]] const SpanSupportLayoutDecisionSeed* find_span_support_layout_seed(ObjectId span_id) const;
   void cache_span_support_layout(SpanSupportLayoutEntry layout);
   void cache_span_support_layout_seed(SpanSupportLayoutDecisionSeed seed);
   void erase_cached_span_support_layout_seed(ObjectId span_id);
@@ -236,8 +236,6 @@ private:
   [[nodiscard]] EditResult<generation::detail::BackboneMaterializationPhaseOutput>
   run_committed_backbone_materialization_phase(
       const generation::detail::BackboneGenerationRequestPlan& request_plan,
-      const generation::detail::BackboneCommittedGenerationPlan& plan);
-  void refresh_committed_backbone_seed_cache(
       const generation::detail::BackboneCommittedGenerationPlan& plan);
   void publish_committed_backbone_debug_state(
       const generation::detail::BackboneCommittedGenerationPlan& plan,

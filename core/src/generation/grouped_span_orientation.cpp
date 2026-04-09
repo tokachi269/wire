@@ -642,28 +642,30 @@ Vec3d GroupedSpanOrientationDecider::GroupedLineAxisForEndpoint(ObjectId node_id
   return Vec3d{0.0, 0.0, 0.0};
 }
 
-EndpointSideDecision GroupedSpanOrientationDecider::BuildPairSideDecision(ObjectId node_id, ObjectId peer_id,
-                                                                          const LoweredSupportPairInfo& pair_info) const {
+EndpointSideDecision GroupedSpanOrientationDecider::BuildPairSideDecision(
+    ObjectId node_id, ObjectId peer_id, JunctionRelationKind relation_kind, const LoweredSupportPairInfo& pair_info) const {
   EndpointSideDecision decision{};
   decision.pair_peer_low = pair_info.pair_peer_low;
   decision.pair_peer_high = pair_info.pair_peer_high;
   decision.used_junction_pair_side_assignment =
       HasValidExplicitPairPeers(pair_info.pair_peer_low, pair_info.pair_peer_high);
-  const bool peer_is_pair_peer =
-      peer_id == pair_info.pair_peer_low || peer_id == pair_info.pair_peer_high;
   bool through_pair_accepted = false;
+  bool cross_like_pair = false;
   if (ctx_.junction_relations_by_node != nullptr) {
     if (const auto relation_it = ctx_.junction_relations_by_node->find(node_id);
         relation_it != ctx_.junction_relations_by_node->end()) {
       through_pair_accepted = relation_it->second.through_pair.accepted;
+      cross_like_pair = relation_it->second.is_cross_like;
     }
   }
-  if (through_pair_accepted && peer_is_pair_peer) {
-    if (const auto pair_normal_decision = ExplicitPairNormalSideDecisionForEndpoint(
-            node_id, peer_id, pair_info.pair_peer_low, pair_info.pair_peer_high);
-        pair_normal_decision.has_value()) {
-      return *pair_normal_decision;
-    }
+  const bool cross_pair_consumer =
+      relation_kind == JunctionRelationKind::kThroughMain || relation_kind == JunctionRelationKind::kCrossUnderpass;
+  if (cross_like_pair && through_pair_accepted && cross_pair_consumer) {
+      if (const auto pair_normal_decision = ExplicitPairNormalSideDecisionForEndpoint(
+             node_id, peer_id, pair_info.pair_peer_low, pair_info.pair_peer_high);
+          pair_normal_decision.has_value()) {
+        return *pair_normal_decision;
+      }
   }
   decision.side_assignment_rule = SideAssignmentRuleKind::kBisector;
   decision.support_orientation_rule = SupportOrientationRuleKind::kBisector;
@@ -692,7 +694,7 @@ EndpointSideDecision GroupedSpanOrientationDecider::PreferredSideAxisForEndpoint
     return EndpointSideDecision{};
   }
   if (const auto pair_info = LoweredSupportPairInfoForEndpoint(node_id, peer_id, feasibility); pair_info.has_value()) {
-    return BuildPairSideDecision(node_id, peer_id, *pair_info);
+    return BuildPairSideDecision(node_id, peer_id, feasibility.kind, *pair_info);
   }
   return EndpointSideDecision{};
 }

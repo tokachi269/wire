@@ -552,7 +552,7 @@ bool test_multilane_identity_template_uses_policy_based_offset_endpoints() {
   const ObjectId span_id = add.value.span_id;
   const auto* span = state.view().edit_state().spans.find(span_id);
   const auto* bundle = (span == nullptr) ? nullptr : state.view().edit_state().bundles.find(span->bundle_id);
-  const auto* support_layout = state.view().find_span_support_layout(span_id);
+  const auto* support_layout = state.view().support_layout_projection(span_id).layout;
   if (support_layout == nullptr || span == nullptr || bundle == nullptr) {
     std::cerr << "[DBG] C191 missing derived span=" << (span != nullptr) << " bundle=" << (bundle != nullptr)
               << " layout=" << (support_layout != nullptr) << "\n";

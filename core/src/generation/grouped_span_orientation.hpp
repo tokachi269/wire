@@ -74,6 +74,7 @@ private:
   [[nodiscard]] std::optional<Vec3d> BisectorAxisForEndpoint(ObjectId node_id, ObjectId peer_id) const;
   [[nodiscard]] Vec3d ChordSideAxisForEndpoint(ObjectId node_id, ObjectId peer_id) const;
   [[nodiscard]] EndpointSideDecision BuildPairSideDecision(ObjectId node_id, ObjectId peer_id,
+                                                           JunctionRelationKind relation_kind,
                                                            const LoweredSupportPairInfo& pair_info) const;
   void BuildNodeSideAxisHints();
 

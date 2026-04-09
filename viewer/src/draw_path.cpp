@@ -203,10 +203,6 @@ const char* FlowRuleLabelLocal(wire::core::BackboneFlowDecisionRule rule) {
     return "JunctionOrderMain";
   case wire::core::BackboneFlowDecisionRule::kJunctionOrderBranch:
     return "JunctionOrderBranch";
-  case wire::core::BackboneFlowDecisionRule::kExistingChainMain:
-    return "ExistingChainMain";
-  case wire::core::BackboneFlowDecisionRule::kExistingChainBranch:
-    return "ExistingChainBranch";
   default:
     return "Unknown";
   }
@@ -791,8 +787,6 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
       if (const auto junction_view = view.inspect_junction(node_id); junction_view.has_value()) {
         ofs << prefix << ".has_local_relation=" << (junction_view->has_local_relation ? 1 : 0) << "\n";
         ofs << prefix << ".through_pair_accepted=" << (junction_view->through_pair_accepted ? 1 : 0) << "\n";
-        ofs << prefix << ".through_pair_used_semantic_tiebreak="
-          << (junction_view->through_pair_used_semantic_tiebreak ? 1 : 0) << "\n";
         ofs << prefix << ".is_cross_like=" << (junction_view->is_cross_like ? 1 : 0) << "\n";
         ofs << prefix << ".route_incident_count=" << junction_view->route_incident_count << "\n";
         ofs << prefix << ".through_pair_neighbor_a_id="
@@ -814,8 +808,6 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
         ofs << prefix << ".peer_straightness_score=" << relation_it->straightness_score << "\n";
         ofs << prefix << ".peer_in_route=" << (relation_it->in_route ? 1 : 0) << "\n";
         ofs << prefix << ".peer_in_through_pair=" << (relation_it->in_through_pair ? 1 : 0) << "\n";
-        ofs << prefix << ".peer_used_semantic_tiebreak=" << (relation_it->used_semantic_tiebreak ? 1 : 0)
-          << "\n";
         ofs << prefix << ".peer_continuity_class=" << ContinuityClassLabelLocal(relation_it->continuity_class)
           << "\n";
         ofs << prefix << ".peer_default_lower_required=" << (relation_it->default_lower_required ? 1 : 0)

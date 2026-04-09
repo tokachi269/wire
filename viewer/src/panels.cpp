@@ -402,10 +402,6 @@ const char* BackboneFlowDecisionRuleLabel(wire::core::BackboneFlowDecisionRule r
     return "JunctionOrderMain";
   case wire::core::BackboneFlowDecisionRule::kJunctionOrderBranch:
     return "JunctionOrderBranch";
-  case wire::core::BackboneFlowDecisionRule::kExistingChainMain:
-    return "ExistingChainMain";
-  case wire::core::BackboneFlowDecisionRule::kExistingChainBranch:
-    return "ExistingChainBranch";
   default:
     return "Unknown";
   }
@@ -3007,9 +3003,8 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
     }
     for (const auto& junction : backbone.junctions) {
       ImGui::Separator();
-      ImGui::Text("Node=%llu session=%llu continuity=%s", static_cast<unsigned long long>(junction.node_id),
-                  static_cast<unsigned long long>(junction.prioritized_session_id),
-                  junction.used_neighbor_continuity ? "true" : "false");
+      ImGui::Text("Node=%llu session=%llu", static_cast<unsigned long long>(junction.node_id),
+                  static_cast<unsigned long long>(junction.prioritized_session_id));
       for (const auto& inc : junction.incidents) {
         ImGui::Text("  -> neighbor=%llu order=%d primary=%s srcSession=%llu",
                     static_cast<unsigned long long>(inc.neighbor_node_id), inc.order,

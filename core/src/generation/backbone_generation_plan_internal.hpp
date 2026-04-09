@@ -177,9 +177,9 @@ struct BackboneCommittedSupportChain {
 struct BackboneTopologyPlan {
   BackboneResult existing_network_backbone{};
   BackboneResult generation_backbone{};
-  std::unordered_map<ObjectId, ObjectId> existing_primary_neighbor_by_node{};
   std::unordered_map<ObjectId, std::uint64_t> existing_prioritized_session_by_node{};
   std::unordered_map<ObjectId, std::unordered_map<ObjectId, std::uint64_t>> existing_incident_session_by_node{};
+  std::unordered_map<ObjectId, JunctionRelation> existing_junction_relations_by_node{};
   std::unordered_map<ObjectId, std::vector<ObjectId>> route_neighbors_by_node{};
   std::unordered_map<ObjectId, Vec3d> existing_node_position_by_id{};
   std::unordered_map<ObjectId, std::vector<ObjectId>> existing_adjacency{};
@@ -197,7 +197,6 @@ struct BackboneCommittedTopologyState {
   std::unordered_map<ObjectId, std::vector<ObjectId>> route_neighbors_by_node{};
   std::unordered_map<ObjectId, Vec3d> node_position_by_id{};
   std::unordered_map<ObjectId, std::vector<ObjectId>> existing_adjacency{};
-  std::unordered_map<ObjectId, ObjectId> existing_primary_neighbor_by_node{};
   std::unordered_map<ObjectId, std::uint64_t> existing_prioritized_session_by_node{};
   std::unordered_map<ObjectId, std::unordered_map<ObjectId, std::uint64_t>> existing_incident_session_by_node{};
   std::unordered_map<ObjectId, const JunctionInfo*> existing_junction_by_node{};
@@ -212,8 +211,6 @@ struct BackboneCommittedGenerationPlan {
   BackboneCommittedTopologyState topology_state{};
   BackboneDecisionPhaseOutput decision_phase{};
   std::unordered_map<ObjectId, BackbonePlannedPoleOrientation> planned_pole_orientations{};
-  std::vector<SpanSupportLayoutDecisionSeed> refreshed_existing_seeds{};
-  std::vector<ObjectId> cleared_existing_seed_span_ids{};
 };
 
 struct BackboneGenerationPlan {

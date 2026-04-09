@@ -318,6 +318,15 @@ struct SpanSupportLayoutProjectionView {
   [[nodiscard]] bool has_projection() const { return layout != nullptr; }
 };
 
+struct SpanSupportLayoutContractView {
+  SpanSupportLayoutAuthorityView authority{};
+  SpanSupportLayoutProjectionView projection{};
+
+  [[nodiscard]] bool requires_authority() const { return authority.required; }
+  [[nodiscard]] bool has_authority() const { return authority.has_authority(); }
+  [[nodiscard]] bool has_projection() const { return projection.has_projection(); }
+};
+
 struct SupportGroupAuthorityCache {
   std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash> by_key{};
 };
@@ -347,11 +356,6 @@ struct SupportLayoutCache {
     return (it == records_by_span.end()) ? nullptr : &it->second;
   }
 
-  [[nodiscard]] const SpanSupportLayoutDecisionSeed* find_seed(ObjectId span_id) const {
-    const SupportLayoutCacheRecord* record = find_record(span_id);
-    return (record == nullptr) ? nullptr : record->authority_seed();
-  }
-
   [[nodiscard]] SpanSupportLayoutAuthorityView authority_view(ObjectId span_id) const {
     const SupportLayoutCacheRecord* record = find_record(span_id);
     if (record == nullptr) {
@@ -373,14 +377,13 @@ struct SupportLayoutCache {
     return {record->projected_layout()};
   }
 
+  [[nodiscard]] SpanSupportLayoutContractView contract_view(ObjectId span_id) const {
+    return {authority_view(span_id), projection_view(span_id)};
+  }
+
   [[nodiscard]] SpanSupportLayoutEntry* find_layout(ObjectId span_id) {
     SupportLayoutCacheRecord* record = find_record(span_id);
     return (record == nullptr) ? nullptr : record->projected_layout();
-  }
-
-  [[nodiscard]] bool decision_required(ObjectId span_id) const {
-    const SupportLayoutCacheRecord* record = find_record(span_id);
-    return record != nullptr && record->requires_authority();
   }
 
   [[nodiscard]] std::vector<ObjectId> ordered_authority_span_ids() const {

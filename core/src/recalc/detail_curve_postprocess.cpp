@@ -63,7 +63,7 @@ double supplemental_wobble_offset_m(const CableSupplementalPathTemplate& path, d
 double pole_band_chord_lateral_m(const CoreState& state, const Span& span, bool is_start_endpoint, const Pole& pole,
                                  double layout_yaw_deg, const Port& port, double fallback_lateral_m) {
   const PoleFrame frame = BuildPoleFrame(pole.world_transform, layout_yaw_deg);
-  if (const SpanSupportLayoutEntry* layout = state.find_span_support_layout(span.id); layout != nullptr) {
+  if (const SpanSupportLayoutEntry* layout = state.support_layout_projection(span.id).layout; layout != nullptr) {
     const SupportLayoutEndpoint& endpoint = is_start_endpoint ? layout->start : layout->end;
     if (endpoint.owner_pole_id == pole.id) {
       const Vec3d local = WorldPointToLocal(frame, endpoint.endpoint_world);

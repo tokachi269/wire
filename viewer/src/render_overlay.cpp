@@ -385,7 +385,7 @@ void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
 
     const wire::core::CurveCacheEntry* curve = view.find_curve_cache(span.id);
     const wire::core::SpanRenderCacheEntry* render = view.find_span_render_cache(span.id);
-    const wire::core::SpanSupportLayoutEntry* support_layout = view.find_span_support_layout(span.id);
+    const wire::core::SpanSupportLayoutEntry* support_layout = view.support_layout_projection(span.id).layout;
     const auto layout_view = view.inspect_support_layout(span.id);
     const wire::core::SpanVisualCacheEntry* visual = view.find_span_visual_cache(span.id);
     const wire::core::BackboneFlowKind flow_kind =

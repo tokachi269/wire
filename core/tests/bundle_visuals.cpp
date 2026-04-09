@@ -436,7 +436,7 @@ bool test_insulator_attachment_height_lifts_layout_endpoint_without_lateral_shif
 
   const auto* span = state.view().edit_state().spans.find(add.value.span_id);
   const auto* port = state.view().edit_state().ports.find(add.value.port_a_id);
-  const auto* layout = state.find_span_support_layout(add.value.span_id);
+  const auto* layout = state.support_layout_projection(add.value.span_id).layout;
   const auto* visual = state.find_span_visual_cache(add.value.span_id);
   if (span == nullptr || port == nullptr || layout == nullptr || visual == nullptr) {
     return false;
@@ -509,7 +509,7 @@ bool test_update_cable_template_insulator_attachment_height_refreshes_existing_l
 
   const auto* span = state.view().edit_state().spans.find(add.value.span_id);
   const auto* port = state.view().edit_state().ports.find(add.value.port_a_id);
-  const auto* before_layout = state.find_span_support_layout(add.value.span_id);
+  const auto* before_layout = state.support_layout_projection(add.value.span_id).layout;
   if (span == nullptr || port == nullptr || before_layout == nullptr) {
     return false;
   }
@@ -535,7 +535,7 @@ bool test_update_cable_template_insulator_attachment_height_refreshes_existing_l
   }
   (void)state.Commit(options);
 
-  const auto* after_layout = state.find_span_support_layout(add.value.span_id);
+  const auto* after_layout = state.support_layout_projection(add.value.span_id).layout;
   if (after_layout == nullptr) {
     return false;
   }

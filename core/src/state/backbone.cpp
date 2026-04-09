@@ -35,12 +35,6 @@ std::vector<JunctionInfo> BuildJunctionsFromRelations(
 
     JunctionInfo junction{};
     junction.node_id = node_id;
-    junction.used_neighbor_continuity =
-        relation.through_pair.accepted &&
-        std::any_of(relation.incidents.begin(), relation.incidents.end(), [](const JunctionIncidentRelation& incident) {
-          return incident.in_through_pair && !incident.in_route;
-        });
-
     junction.incidents.reserve(relation.incidents.size());
     for (const JunctionIncidentRelation& source : relation.incidents) {
       if (!it_neighbors->second.contains(source.neighbor_node_id)) {
@@ -620,13 +614,11 @@ BackboneResult CoreState::BuildBackboneResult() const {
                   [](const Candidate& a, const Candidate& b) { return a.neighbor_id < b.neighbor_id; });
 
         int anchor_index = -1;
-        bool used_neighbor_continuity = false;
         if (const auto it_primary = existing_primary_neighbor_by_node.find(node_id);
             it_primary != existing_primary_neighbor_by_node.end()) {
           for (std::size_t i = 0; i < candidates.size(); ++i) {
             if (candidates[i].neighbor_id == it_primary->second) {
               anchor_index = static_cast<int>(i);
-              used_neighbor_continuity = true;
               break;
             }
           }
@@ -705,7 +697,6 @@ BackboneResult CoreState::BuildBackboneResult() const {
             junction.prioritized_session_id = it_prioritized->second;
           }
         }
-        junction.used_neighbor_continuity = used_neighbor_continuity;
         junction.incidents.reserve(order_indices.size());
         for (std::size_t rank = 0; rank < order_indices.size(); ++rank) {
           const Candidate& candidate = candidates[static_cast<std::size_t>(order_indices[rank])];
@@ -861,7 +852,6 @@ BackboneResult CoreState::BuildBackboneResult() const {
       }
 
       int anchor_index = -1;
-      bool used_neighbor_continuity = false;
       auto better_anchor = [&](int lhs, int rhs) {
         const auto& a = candidates[static_cast<std::size_t>(lhs)];
         const auto& b = candidates[static_cast<std::size_t>(rhs)];
@@ -882,7 +872,6 @@ BackboneResult CoreState::BuildBackboneResult() const {
         const int idx = static_cast<int>(i);
         if (anchor_index < 0 || better_anchor(idx, anchor_index)) {
           anchor_index = idx;
-          used_neighbor_continuity = true;
         }
       }
       if (anchor_index < 0) {
@@ -942,7 +931,6 @@ BackboneResult CoreState::BuildBackboneResult() const {
       JunctionInfo junction{};
       junction.node_id = node_id;
       junction.prioritized_session_id = candidates[static_cast<std::size_t>(anchor_index)].min_session_id;
-      junction.used_neighbor_continuity = used_neighbor_continuity;
       for (std::size_t rank = 0; rank < ordered_indices.size(); ++rank) {
         const auto& c = candidates[static_cast<std::size_t>(ordered_indices[rank])];
         JunctionIncident inc{};
@@ -1149,4 +1137,3 @@ std::vector<ObjectId> CoreState::FindBackboneRoute(ObjectId start_node_id, Objec
 }
 
 } // namespace wire::core
-

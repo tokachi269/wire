@@ -64,13 +64,12 @@ void append_support_group_keys(std::vector<LoweredSupportGroupKey>* keys,
 
 std::vector<LoweredSupportGroupKey> collect_cached_support_group_keys(const CacheState& cache_state, ObjectId span_id) {
   std::vector<LoweredSupportGroupKey> keys{};
-  const SpanSupportLayoutAuthorityView authority = cache_state.support_layout_cache.authority_view(span_id);
-  if (authority.has_authority()) {
-    append_support_group_keys(&keys, collect_support_group_keys_for_seed(*authority.seed));
+  const SpanSupportLayoutContractView contract = cache_state.support_layout_cache.contract_view(span_id);
+  if (contract.has_authority()) {
+    append_support_group_keys(&keys, collect_support_group_keys_for_seed(*contract.authority.seed));
   }
-  const SpanSupportLayoutProjectionView projection = cache_state.support_layout_cache.projection_view(span_id);
-  if (projection.has_projection()) {
-    append_support_group_keys(&keys, collect_support_group_keys_for_layout(*projection.layout));
+  if (contract.has_projection()) {
+    append_support_group_keys(&keys, collect_support_group_keys_for_layout(*contract.projection.layout));
   }
   return keys;
 }
@@ -107,12 +106,12 @@ const BoundsCacheEntry* CoreState::find_bounds_cache(ObjectId span_id) const {
   return &it->second;
 }
 
-const SpanSupportLayoutEntry* CoreState::find_span_support_layout(ObjectId span_id) const {
-  return runtime_.cache_state.support_layout_cache.find_layout(span_id);
+SpanSupportLayoutProjectionView CoreState::support_layout_projection(ObjectId span_id) const {
+  return runtime_.cache_state.support_layout_cache.projection_view(span_id);
 }
 
-const SpanSupportLayoutDecisionSeed* CoreState::find_span_support_layout_seed(ObjectId span_id) const {
-  return runtime_.cache_state.support_layout_cache.find_seed(span_id);
+SpanSupportLayoutContractView CoreState::support_layout_contract(ObjectId span_id) const {
+  return runtime_.cache_state.support_layout_cache.contract_view(span_id);
 }
 
 const SpanVisualCacheEntry* CoreState::find_span_visual_cache(ObjectId span_id) const {
@@ -458,7 +457,8 @@ bool CoreState::cache_rebuilt_span_geometry(ObjectId span_id, SpanSupportLayoutE
 }
 
 bool CoreState::rebuild_span_geometry_with_cached_contract(ObjectId span_id, std::string* error_message) {
-  if (runtime_.cache_state.support_layout_cache.decision_required(span_id) && find_span_support_layout_seed(span_id) == nullptr) {
+  const SpanSupportLayoutContractView contract = runtime_.cache_state.support_layout_cache.contract_view(span_id);
+  if (contract.requires_authority() && !contract.has_authority()) {
     return set_missing_seed_error(error_message);
   }
   const Span* span = authoritative_.edit_state.spans.find(span_id);
@@ -596,10 +596,11 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
           ? cable_template->insulator_attachment_height_m
           : runtime_.cache_state.visual_settings.insulator_length_m;
   const SpanRuntimeState* runtime = find_span_runtime_state(span_id);
-  const SpanSupportLayoutEntry* support_layout = find_span_support_layout(span_id);
-  if (support_layout == nullptr) {
+  const SpanSupportLayoutContractView contract = runtime_.cache_state.support_layout_cache.contract_view(span_id);
+  if (!contract.has_projection()) {
     return set_missing_support_layout_error(error_message);
   }
+  const SpanSupportLayoutEntry* support_layout = contract.projection.layout;
   const auto curve_it = runtime_.cache_state.curve_cache.by_span.find(span_id);
   if (curve_it == runtime_.cache_state.curve_cache.by_span.end()) {
     if (error_message != nullptr && error_message->empty()) {

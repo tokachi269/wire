@@ -379,7 +379,6 @@ struct JunctionIncidentRelationView {
   double straightness_score = -1.0;
   bool in_route = false;
   bool in_through_pair = false;
-  bool used_semantic_tiebreak = false;
   ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
   bool default_lower_required = false;
   bool same_level_feasible = true;
@@ -394,7 +393,6 @@ struct JunctionInspectionView {
   bool has_primary = false;
   bool has_local_relation = false;
   bool through_pair_accepted = false;
-  bool through_pair_used_semantic_tiebreak = false;
   bool is_cross_like = false;
   int route_incident_count = 0;
   ObjectId through_pair_neighbor_a_id = kInvalidObjectId;

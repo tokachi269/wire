@@ -158,64 +158,11 @@ std::vector<SpanSupportLayoutDecisionSeed> build_seed_generated_support_layouts(
   return layouts;
 }
 
-std::optional<SpanSupportLayoutDecisionSeed> rebuild_existing_span_decision_seed(
-    const EditState& edit_state, const Span& span, const SpanSupportLayoutDecisionSeed* cached_seed) {
-  if (cached_seed == nullptr) {
-    return std::nullopt;
-  }
-  if (!cached_seed->support_group_decisions.empty()) {
-    return std::nullopt;
-  }
-
-  const Port* port_a = edit_state.ports.find(span.port_a_id);
-  const Port* port_b = edit_state.ports.find(span.port_b_id);
-  if (port_a == nullptr || port_b == nullptr) {
-    return std::nullopt;
-  }
-  const bool matches_current_span =
-      cached_seed->span_id == span.id && cached_seed->start.port_id == port_a->id &&
-      cached_seed->end.port_id == port_b->id && cached_seed->start.owner_pole_id == port_a->owner_pole_id &&
-      cached_seed->end.owner_pole_id == port_b->owner_pole_id &&
-      cached_seed->start.endpoint_node_id == span.endpoint_node_a_id &&
-      cached_seed->end.endpoint_node_id == span.endpoint_node_b_id;
-  if (!matches_current_span) {
-    return std::nullopt;
-  }
-  return *cached_seed;
-}
-
-void build_refreshed_existing_span_seeds(
-    const EditState& edit_state, const BackboneCommittedGenerationPlan& plan,
-    const std::function<const SpanSupportLayoutDecisionSeed*(ObjectId)>& find_cached_seed,
-    std::vector<SpanSupportLayoutDecisionSeed>* kept_seeds, std::vector<ObjectId>* cleared_span_ids) {
-  if (kept_seeds == nullptr || cleared_span_ids == nullptr) {
-    return;
-  }
-  kept_seeds->clear();
-  cleared_span_ids->clear();
-  std::unordered_set<ObjectId> touched_nodes{};
-  touched_nodes.reserve(plan.decision_phase.junction_relations_by_node.size());
-  for (const auto& [node_id, _] : plan.decision_phase.junction_relations_by_node) {
-    touched_nodes.insert(node_id);
-  }
-  for (const Span& span : edit_state.spans.items()) {
-    if (!touched_nodes.contains(span.endpoint_node_a_id) && !touched_nodes.contains(span.endpoint_node_b_id)) {
-      continue;
-    }
-    const SpanSupportLayoutDecisionSeed* cached_seed = find_cached_seed ? find_cached_seed(span.id) : nullptr;
-    if (const auto rebuilt = rebuild_existing_span_decision_seed(edit_state, span, cached_seed);
-        rebuilt.has_value()) {
-      kept_seeds->push_back(*rebuilt);
-      continue;
-    }
-    cleared_span_ids->push_back(span.id);
-  }
-}
-
 JunctionRelation remap_junction_relation_commit(const JunctionRelation& relation,
                                                 const std::function<ObjectId(ObjectId)>& remap_node_id) {
   JunctionRelation remapped = relation;
   remapped.node_id = remap_node_id(remapped.node_id);
+  remapped.primary_neighbor_id = remap_node_id(remapped.primary_neighbor_id);
   remapped.through_pair.neighbor_a_id = remap_node_id(remapped.through_pair.neighbor_a_id);
   remapped.through_pair.neighbor_b_id = remap_node_id(remapped.through_pair.neighbor_b_id);
   for (JunctionIncidentRelation& incident : remapped.incidents) {
@@ -517,7 +464,6 @@ void merge_committed_backbone_junction_relations(
       }
       target->in_route = target->in_route || incident.in_route;
       target->in_through_pair = target->in_through_pair || incident.in_through_pair;
-      target->used_semantic_tiebreak = target->used_semantic_tiebreak || incident.used_semantic_tiebreak;
       target->continuity_class = incident.continuity_class;
       target->default_lower_required = target->default_lower_required || incident.default_lower_required;
       if (!incident.same_level_feasible &&
@@ -570,7 +516,6 @@ EditResult<bool> CoreState::build_committed_backbone_topology_state(
     out_state->node_position_by_id[node_id] = node.position;
   }
   out_state->existing_adjacency = topology_plan.existing_adjacency;
-  out_state->existing_primary_neighbor_by_node = topology_plan.existing_primary_neighbor_by_node;
   out_state->existing_prioritized_session_by_node = topology_plan.existing_prioritized_session_by_node;
   out_state->existing_incident_session_by_node = topology_plan.existing_incident_session_by_node;
 
@@ -681,10 +626,6 @@ EditResult<BackboneCommittedGenerationPlan> CoreState::build_committed_backbone_
     remapped.debug.secondary_neighbor_id = remap_node_id(remapped.debug.secondary_neighbor_id);
     plan.planned_pole_orientations.emplace(remapped_node_id, std::move(remapped));
   }
-  build_refreshed_existing_span_seeds(edit_state_access(), plan,
-                                      [&](ObjectId span_id) { return find_span_support_layout_seed(span_id); },
-                                      &plan.refreshed_existing_seeds, &plan.cleared_existing_seed_span_ids);
-
   result.value = std::move(plan);
   result.ok = true;
   return result;
@@ -912,17 +853,6 @@ EditResult<BackboneMaterializationPhaseOutput> CoreState::run_committed_backbone
   return phase_result;
 }
 
-void CoreState::refresh_committed_backbone_seed_cache(const BackboneCommittedGenerationPlan& plan) {
-  for (ObjectId span_id : plan.cleared_existing_seed_span_ids) {
-    erase_cached_span_support_layout_seed(span_id);
-    mark_span_dirty(span_id, DirtyBits::kDecision, true);
-  }
-  for (const SpanSupportLayoutDecisionSeed& seed : plan.refreshed_existing_seeds) {
-    cache_span_support_layout_seed(seed);
-    mark_span_dirty(seed.span_id, DirtyBits::kDecision, true);
-  }
-}
-
 void CoreState::publish_committed_backbone_debug_state(
     const BackboneCommittedGenerationPlan& plan, BackboneMaterializationPhaseOutput* materialization_phase) {
   if (materialization_phase == nullptr) {
@@ -967,7 +897,6 @@ EditResult<GenerateBundleFromPathResult> CoreState::execute_committed_backbone_g
                                          materialization_phase.generated_span_ids.begin(),
                                          materialization_phase.generated_span_ids.end());
 
-  refresh_committed_backbone_seed_cache(committed_plan);
   publish_committed_backbone_debug_state(committed_plan, &materialization_phase);
   result.ok = true;
   return result;

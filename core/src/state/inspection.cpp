@@ -85,10 +85,6 @@ const char* FlowDecisionRuleText(BackboneFlowDecisionRule rule) {
     return "JunctionOrderMain";
   case BackboneFlowDecisionRule::kJunctionOrderBranch:
     return "JunctionOrderBranch";
-  case BackboneFlowDecisionRule::kExistingChainMain:
-    return "ExistingChainMain";
-  case BackboneFlowDecisionRule::kExistingChainBranch:
-    return "ExistingChainBranch";
   default:
     return "Unknown";
   }
@@ -711,7 +707,7 @@ std::optional<EntityMeta> CoreView::describe_entity(EntityRef ref) const {
                     EntityRoleKind::kAuthoritative, true, false, "entity.bundle");
   }
   case EntityKind::kSupportLayout: {
-    if (find_span_support_layout(ref.stable_id) == nullptr) {
+    if (!state_.runtime_.cache_state.support_layout_cache.projection_view(ref.stable_id).has_projection()) {
       return std::nullopt;
     }
     return MakeMeta(ref.kind, ref.stable_id, "SupportLayout for span " + std::to_string(ref.stable_id),
@@ -797,7 +793,9 @@ std::optional<PoleInspectionView> CoreView::inspect_pole(ObjectId pole_id) const
       }
       for (ObjectId span_id : spans_it->second) {
         AddLink(&result.links, &seen, "Span " + std::to_string(span_id), EntityKind::kSpan, span_id);
-        if (const SpanSupportLayoutEntry* layout = find_span_support_layout(span_id); layout != nullptr &&
+        if (const SpanSupportLayoutEntry* layout =
+                state_.runtime_.cache_state.support_layout_cache.projection_view(span_id).layout;
+            layout != nullptr &&
             (layout->start.owner_pole_id == pole_id || layout->end.owner_pole_id == pole_id)) {
           AddLink(&result.links, &seen, "SupportLayout " + std::to_string(span_id), EntityKind::kSupportLayout, span_id);
         }
@@ -832,7 +830,8 @@ std::optional<SpanInspectionView> CoreView::inspect_span(ObjectId span_id) const
   if (const Port* port_b = ports().find(span->port_b_id); port_b != nullptr && port_b->owner_pole_id != kInvalidObjectId) {
     result.end_pole_ref = {EntityKind::kPole, port_b->owner_pole_id};
   }
-  if (const SpanSupportLayoutEntry* layout = find_span_support_layout(span_id); layout != nullptr) {
+  const SpanSupportLayoutProjectionView projection = state_.runtime_.cache_state.support_layout_cache.projection_view(span_id);
+  if (const SpanSupportLayoutEntry* layout = projection.layout; layout != nullptr) {
     result.support_layout_ref = {EntityKind::kSupportLayout, span_id};
     result.flow_kind = layout->flow_kind;
     result.continuity_class = support_layout_continuity_class(*layout);
@@ -892,16 +891,16 @@ std::optional<SpanInspectionView> CoreView::inspect_span(ObjectId span_id) const
 }
 
 std::optional<SupportLayoutInspectionView> CoreView::inspect_support_layout(ObjectId span_id) const {
-  const SpanSupportLayoutEntry* layout = find_span_support_layout(span_id);
+  const SpanSupportLayoutContractView contract = state_.runtime_.cache_state.support_layout_cache.contract_view(span_id);
+  const SpanSupportLayoutEntry* layout = contract.projection.layout;
   if (layout == nullptr) {
     return std::nullopt;
   }
   SupportLayoutInspectionView result{};
   result.source_span = {EntityKind::kSpan, span_id};
   result.meta = *describe_entity({EntityKind::kSupportLayout, span_id});
-  const SpanSupportLayoutAuthorityView authority = state_.runtime_.cache_state.support_layout_cache.authority_view(span_id);
-  result.has_decision_seed = authority.has_authority();
-  result.requires_decision_seed = authority.required;
+  result.has_decision_seed = contract.has_authority();
+  result.requires_decision_seed = contract.requires_authority();
   result.flow_kind = layout->flow_kind;
   result.pass_mode = layout->pass_mode;
   result.variation_flow_key = layout->variation_flow_key;
@@ -989,7 +988,8 @@ std::optional<DetailCurveInspectionView> CoreView::inspect_detail_curve(ObjectId
   result.start_lateral_ratio_limit = curve->detail.quality.start_lateral_ratio_limit;
   result.end_lateral_ratio_limit = curve->detail.quality.end_lateral_ratio_limit;
   result.lateral_suppression = curve->detail.quality.lateral_suppression;
-  if (const SpanSupportLayoutEntry* layout = find_span_support_layout(span_id); layout != nullptr) {
+  const SpanSupportLayoutProjectionView projection = state_.runtime_.cache_state.support_layout_cache.projection_view(span_id);
+  if (const SpanSupportLayoutEntry* layout = projection.layout; layout != nullptr) {
     result.start_endpoint_source = layout->start.endpoint_source;
     result.end_endpoint_source = layout->end.endpoint_source;
     result.start_attachment_request = layout->start.attachment_request;
@@ -1004,7 +1004,7 @@ std::optional<DetailCurveInspectionView> CoreView::inspect_detail_curve(ObjectId
   result.sag_variation = MakeVariationBreakdownView(curve->detail.quality.sag_variation);
   if (const Span* span = spans().find(span_id); span != nullptr) {
     BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
-    if (const SpanSupportLayoutEntry* layout = find_span_support_layout(span_id); layout != nullptr) {
+    if (const SpanSupportLayoutEntry* layout = projection.layout; layout != nullptr) {
       flow_kind = layout->flow_kind;
     } else if (const SegmentLaneAssignment* assignment = FindLaneAssignmentForSpan(*this, *span); assignment != nullptr) {
       flow_kind = assignment->flow_kind;
@@ -1014,7 +1014,7 @@ std::optional<DetailCurveInspectionView> CoreView::inspect_detail_curve(ObjectId
 
   std::unordered_set<std::uint64_t> seen{};
   AddLink(&result.links, &seen, "Source Span", EntityKind::kSpan, span_id);
-  if (const SpanSupportLayoutEntry* layout = find_span_support_layout(span_id); layout != nullptr) {
+  if (const SpanSupportLayoutEntry* layout = projection.layout; layout != nullptr) {
     AddLink(&result.links, &seen, "SupportLayout", EntityKind::kSupportLayout, span_id);
     if (layout->start.owner_pole_id != kInvalidObjectId) {
       AddLink(&result.links, &seen, "Start Pole", EntityKind::kPole, layout->start.owner_pole_id);
@@ -1049,7 +1049,6 @@ std::optional<JunctionInspectionView> CoreView::inspect_junction(ObjectId node_i
     const JunctionRelation& relation = relation_it->second;
     result.has_local_relation = true;
     result.through_pair_accepted = relation.through_pair.accepted;
-    result.through_pair_used_semantic_tiebreak = relation.through_pair.used_semantic_tiebreak;
     result.is_cross_like = relation.is_cross_like;
     result.route_incident_count = relation.route_incident_count;
     result.through_pair_neighbor_a_id = relation.through_pair.neighbor_a_id;
@@ -1063,7 +1062,6 @@ std::optional<JunctionInspectionView> CoreView::inspect_junction(ObjectId node_i
       incident_view.straightness_score = incident.straightness_score;
       incident_view.in_route = incident.in_route;
       incident_view.in_through_pair = incident.in_through_pair;
-      incident_view.used_semantic_tiebreak = incident.used_semantic_tiebreak;
       incident_view.continuity_class = incident.continuity_class;
       incident_view.default_lower_required = incident.default_lower_required;
       incident_view.same_level_feasible = incident.same_level_feasible;
@@ -1321,7 +1319,9 @@ std::optional<OverrideInspectionView> CoreView::inspect_overrides(EntityRef targ
     double automatic_down_offset = 0.0;
     double final_down_offset = 0.0;
     bool down_active = false;
-    if (const SpanSupportLayoutEntry* layout = find_span_support_layout(span->id); layout != nullptr) {
+    if (const SpanSupportLayoutEntry* layout =
+            state_.runtime_.cache_state.support_layout_cache.projection_view(span->id).layout;
+        layout != nullptr) {
       automatic_down_offset =
           std::max(layout->start.automatic_branch_down_offset_m, layout->end.automatic_branch_down_offset_m);
       final_down_offset = std::max(layout->start.branch_down_offset_m, layout->end.branch_down_offset_m);
@@ -1393,7 +1393,9 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
 
   if (ref.kind == EntityKind::kSpan || ref.kind == EntityKind::kSupportLayout || ref.kind == EntityKind::kDetailCurve) {
     const ObjectId span_id = static_cast<ObjectId>(ref.stable_id);
-    if (const SpanSupportLayoutEntry* layout = find_span_support_layout(span_id); layout != nullptr) {
+    if (const SpanSupportLayoutEntry* layout =
+            state_.runtime_.cache_state.support_layout_cache.projection_view(span_id).layout;
+        layout != nullptr) {
       std::ostringstream flow_summary;
       flow_summary << "flow=" << FlowKindText(layout->flow_kind)
                    << " pass=" << static_cast<int>(layout->pass_mode)
@@ -1520,8 +1522,7 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
 
       std::ostringstream relation_summary;
       relation_summary << "throughAccepted=" << BoolText(relation.through_pair.accepted)
-                       << " score=" << relation.through_pair.straightness_score
-                       << " semanticTiebreak=" << BoolText(relation.through_pair.used_semantic_tiebreak)
+                      << " score=" << relation.through_pair.straightness_score
                        << " routeIncidents=" << relation.route_incident_count
                        << " crossLike=" << BoolText(relation.is_cross_like);
       if (relation.through_pair.neighbor_a_id != kInvalidObjectId ||

@@ -534,23 +534,6 @@ std::vector<LoweredSupportGroupKey> collect_support_group_keys_for_seed(const Sp
   return keys;
 }
 
-std::vector<LoweredSupportGroupKey> collect_support_group_keys_for_layout(const SpanSupportLayoutEntry& layout) {
-  std::vector<LoweredSupportGroupKey> keys{};
-  keys.reserve(layout.lowered_support_group_keys.size() + 2);
-  for (const LoweredSupportGroupKey& key : layout.lowered_support_group_keys) {
-    append_unique_group_key(&keys, key);
-  }
-  const auto append_endpoint_key = [&](const SupportLayoutEndpoint& endpoint) {
-    if (!endpoint_uses_grouped_lowered_support(&endpoint)) {
-      return;
-    }
-    append_unique_group_key(&keys, LoweredSupportGroupKeyFromDecision(endpoint));
-  };
-  append_endpoint_key(layout.start);
-  append_endpoint_key(layout.end);
-  return keys;
-}
-
 struct LoweredSupportGroupObservation {
   std::optional<ConnectionCategory> category{};
   std::vector<Vec3d> attachment_worlds{};

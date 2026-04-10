@@ -44,7 +44,6 @@ private:
     auto operator<=>(const SupportGroupDecisionKey&) const = default;
   };
 
-  [[nodiscard]] const JunctionIncidentRelation* IncidentRelationFor(ObjectId node_id, ObjectId peer_id) const;
   [[nodiscard]] bool EndpointHasLoweringConflict(const SegmentRelationFeasibility& feasibility) const;
   [[nodiscard]] int SupportGroupIdForEndpoint(ObjectId node_id, ObjectId peer_id,
                                               const SegmentRelationFeasibility& feasibility,

@@ -16,20 +16,14 @@ GroupedSpanLoweringDecider::GroupedSpanLoweringDecider(const GroupedSpanSharedCo
       supports_outboard_lowered_ports_(lowering_policy.offset_m > 1e-6),
       effective_branch_down_offset_m_(std::max(0.0, lowering_policy.offset_m)) {}
 
-const JunctionIncidentRelation* GroupedSpanLoweringDecider::IncidentRelationFor(ObjectId node_id,
-                                                                                ObjectId peer_id) const {
-  return ctx_.incident_relation_for(node_id, peer_id);
-}
-
 SegmentRelationFeasibility GroupedSpanLoweringDecider::SegmentRelationFeasibilityFor(ObjectId node_id,
                                                                                      ObjectId peer_id) const {
   SegmentRelationFeasibility info{};
-  const JunctionIncidentRelation* incident = IncidentRelationFor(node_id, peer_id);
+  const JunctionIncidentRelation* incident = ctx_.incident_relation_for(node_id, peer_id);
   if (incident == nullptr) {
     return info;
   }
   info.kind = incident->kind;
-  info.continuity_class = incident->continuity_class;
   info.in_through_pair = incident->in_through_pair;
   if (ctx_.junction_relations_by_node != nullptr) {
     if (const auto node_it = ctx_.junction_relations_by_node->find(node_id); node_it != ctx_.junction_relations_by_node->end()) {
@@ -39,20 +33,45 @@ SegmentRelationFeasibility GroupedSpanLoweringDecider::SegmentRelationFeasibilit
       info.peer_through_pair_accepted = peer_it->second.through_pair.accepted;
     }
   }
-  info.default_lower_required = incident->default_lower_required;
-  info.same_level_feasible = incident->same_level_feasible;
-  info.reason = incident->infeasible_reason;
-  info.projected_spacing_topview_m = incident->projected_spacing_topview_m;
-  info.required_clearance_m = incident->required_clearance_m;
-  if (const JunctionIncidentRelation* peer_incident = IncidentRelationFor(peer_id, node_id); peer_incident != nullptr) {
+  if (const JunctionIncidentFeasibility* feasibility = ctx_.incident_feasibility_for(node_id, peer_id);
+      feasibility != nullptr) {
+    info.continuity_class = feasibility->continuity_class;
+    info.default_lower_required = feasibility->default_lower_required;
+    info.same_level_feasible = feasibility->same_level_feasible;
+    info.reason = feasibility->reason;
+    info.projected_spacing_topview_m = feasibility->projected_spacing_topview_m;
+    info.required_clearance_m = feasibility->required_clearance_m;
+  }
+  bool local_terminal_relation = false;
+  if (const JunctionIncidentRelation* peer_incident = ctx_.incident_relation_for(peer_id, node_id); peer_incident != nullptr) {
     info.peer_relation_found = true;
     info.peer_relation_kind = peer_incident->kind;
     info.peer_in_route = peer_incident->in_route;
     info.peer_in_through_pair = peer_incident->in_through_pair;
-    info.peer_continuity_class = peer_incident->continuity_class;
-    info.peer_default_lower_required = peer_incident->default_lower_required;
-    info.peer_same_level_feasible = peer_incident->same_level_feasible;
-    info.peer_reason = peer_incident->infeasible_reason;
+    if (const JunctionIncidentFeasibility* peer_feasibility = ctx_.incident_feasibility_for(peer_id, node_id);
+        peer_feasibility != nullptr) {
+      info.peer_continuity_class = peer_feasibility->continuity_class;
+      info.peer_default_lower_required = peer_feasibility->default_lower_required;
+      info.peer_same_level_feasible = peer_feasibility->same_level_feasible;
+      info.peer_reason = peer_feasibility->reason;
+    }
+  }
+  if (ctx_.junction_relations_by_node != nullptr) {
+    if (const auto local_it = ctx_.junction_relations_by_node->find(node_id);
+        local_it != ctx_.junction_relations_by_node->end()) {
+      local_terminal_relation =
+          local_it->second.route_incident_count == 1 && local_it->second.incidents.size() == 1;
+    }
+    if (local_terminal_relation) {
+      if (const auto peer_it = ctx_.junction_relations_by_node->find(peer_id);
+          peer_it != ctx_.junction_relations_by_node->end() && peer_it->second.through_pair.accepted) {
+        info.kind = JunctionRelationKind::kThroughMain;
+        info.in_through_pair = true;
+        info.default_lower_required = false;
+        info.same_level_feasible = true;
+        info.reason = SameLevelFeasibilityReason::kNone;
+      }
+    }
   }
   return info;
 }

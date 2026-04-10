@@ -92,8 +92,6 @@ JunctionRelation build_junction_relation_from_facts(const RawJunctionFacts& fact
     incident.in_through_pair = in_through_pair(candidate.neighbor_id);
     if (incident.in_through_pair) {
       incident.kind = JunctionRelationKind::kThroughMain;
-    } else if (through_pair.accepted && !facts.is_cross_like && facts.route_incident_count == 1 && candidate.is_route_neighbor) {
-      incident.kind = JunctionRelationKind::kThroughMain;
     } else if (through_pair.accepted) {
       incident.kind = facts.is_cross_like ? JunctionRelationKind::kCrossUnderpass
                                           : JunctionRelationKind::kSideBranch;
@@ -371,14 +369,29 @@ BackboneDecisionPhaseOutput build_backbone_decision_phase(
       through_pair.straightness_score = raw_junction_pair_score(facts, neighbor_a_id, neighbor_b_id);
       through_pair.accepted = true;
     };
+    std::vector<const RawJunctionCandidate*> route_candidates{};
+    std::vector<const RawJunctionCandidate*> non_route_candidates{};
+    route_candidates.reserve(facts.candidates.size());
+    non_route_candidates.reserve(facts.candidates.size());
+    for (const RawJunctionCandidate& candidate : facts.candidates) {
+      if (candidate.is_route_neighbor) {
+        route_candidates.push_back(&candidate);
+      } else {
+        non_route_candidates.push_back(&candidate);
+      }
+    }
+    if (facts.is_cross_like && facts.route_incident_count == 2 && non_route_candidates.size() == 2) {
+      adopt_through_pair(non_route_candidates[0]->neighbor_id, non_route_candidates[1]->neighbor_id);
+      return build_junction_relation_from_facts(facts, through_pair);
+    }
+    if (facts.route_incident_count == 1 && non_route_candidates.size() == 2) {
+      adopt_through_pair(non_route_candidates[0]->neighbor_id, non_route_candidates[1]->neighbor_id);
+      return build_junction_relation_from_facts(facts, through_pair);
+    }
     std::vector<const RawJunctionCandidate*> through_pair_candidates{};
     through_pair_candidates.reserve(facts.candidates.size());
     if (facts.route_incident_count == 1) {
-      for (const RawJunctionCandidate& candidate : facts.candidates) {
-        if (!candidate.is_route_neighbor) {
-          through_pair_candidates.push_back(&candidate);
-        }
-      }
+      through_pair_candidates = non_route_candidates;
     }
     if (through_pair_candidates.size() < 2) {
       through_pair_candidates.clear();

@@ -35,6 +35,21 @@ struct SegmentRelationFeasibility {
   SameLevelFeasibilityReason peer_reason = SameLevelFeasibilityReason::kNone;
 };
 
+struct JunctionIncidentFeasibility {
+  ObjectId neighbor_node_id = kInvalidObjectId;
+  ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
+  bool default_lower_required = false;
+  bool same_level_feasible = true;
+  SameLevelFeasibilityReason reason = SameLevelFeasibilityReason::kNone;
+  double projected_spacing_topview_m = -1.0;
+  double required_clearance_m = 0.0;
+};
+
+struct JunctionFeasibility {
+  ObjectId node_id = kInvalidObjectId;
+  std::vector<JunctionIncidentFeasibility> incidents{};
+};
+
 struct EndpointSideDecision {
   Vec3d side_axis{0.0, 0.0, 0.0};
   bool has_side_axis = false;
@@ -60,6 +75,7 @@ struct GroupedSpanSharedContext {
   const RelationIndex& relation_index;
   const ConnectionIndex& connection_index;
   const std::unordered_map<ObjectId, JunctionRelation>* junction_relations_by_node = nullptr;
+  const std::unordered_map<ObjectId, JunctionFeasibility>* junction_feasibility_by_node = nullptr;
   const std::unordered_map<ObjectId, PoleOrientationDebugRecord>* pole_orientation_debug_records = nullptr;
 
   [[nodiscard]] ObjectId resolve_span_endpoint_node(const Span& span, const Port* port, bool is_a) const {
@@ -118,6 +134,22 @@ struct GroupedSpanSharedContext {
       return nullptr;
     }
     for (const JunctionIncidentRelation& incident : it->second.incidents) {
+      if (incident.neighbor_node_id == peer_id) {
+        return &incident;
+      }
+    }
+    return nullptr;
+  }
+
+  [[nodiscard]] const JunctionIncidentFeasibility* incident_feasibility_for(ObjectId node_id, ObjectId peer_id) const {
+    if (junction_feasibility_by_node == nullptr || node_id == kInvalidObjectId || peer_id == kInvalidObjectId) {
+      return nullptr;
+    }
+    const auto it = junction_feasibility_by_node->find(node_id);
+    if (it == junction_feasibility_by_node->end()) {
+      return nullptr;
+    }
+    for (const JunctionIncidentFeasibility& incident : it->second.incidents) {
       if (incident.neighbor_node_id == peer_id) {
         return &incident;
       }

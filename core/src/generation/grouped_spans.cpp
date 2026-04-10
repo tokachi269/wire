@@ -31,6 +31,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
     bool allow_lane_mirror, OrderDecisionPolicyKind order_decision_policy, BackboneFlowKind flow_kind,
     const BackboneLoweringPolicy& lowering_policy,
     const std::unordered_map<ObjectId, JunctionRelation>* junction_relations_by_node,
+    const std::unordered_map<ObjectId, JunctionFeasibility>* junction_feasibility_by_node,
     std::vector<SegmentLaneAssignment>* out_lane_assignments,
     std::vector<BackboneEdgeOrientation>* out_edge_orientations, BundleKind bundle_template_id) {
   EditResult<std::vector<ObjectId>> result;
@@ -43,7 +44,8 @@ CoreState::generate_grouped_spans_between_support_nodes(
   const bool use_lane_row_geometry = maintain_lane_order && lane_count > 1;
   const GroupedSpanSharedContext grouped_span_ctx{node_ids, support_node_by_id, edit_state_access(),
                                                   relation_index_access(), connection_index_access(),
-                                                  junction_relations_by_node, &debug_.pole_orientation_debug_records};
+                                                  junction_relations_by_node, junction_feasibility_by_node,
+                                                  &debug_.pole_orientation_debug_records};
   auto support_pole = [&](ObjectId node_id) -> const Pole* { return grouped_span_ctx.support_pole(node_id); };
   auto incident_relation_kind_for = [&](ObjectId node_id, ObjectId peer_id) -> JunctionRelationKind {
     const JunctionIncidentRelation* incident = grouped_span_ctx.incident_relation_for(node_id, peer_id);

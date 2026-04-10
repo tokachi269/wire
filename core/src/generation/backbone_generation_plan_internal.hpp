@@ -39,7 +39,7 @@ struct BackboneDecisionPhaseOutput {
 };
 
 struct BackboneFeasibilityPhaseOutput {
-  std::unordered_map<ObjectId, JunctionRelation> junction_relations_by_node{};
+  std::unordered_map<ObjectId, JunctionFeasibility> feasibility_by_node{};
 };
 
 struct BackboneBundleGapSegment {

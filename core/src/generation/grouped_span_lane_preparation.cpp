@@ -1545,25 +1545,11 @@ GroupedSpanLanePreparer::EnsurePorts(ObjectId node_id, ObjectId peer_id, int seg
     if (!normalize_xy(&branch_forward_axis)) {
       branch_forward_axis = {1.0, 0.0, 0.0};
     }
-    const Vec3d branch_row_axis = ComputeLateralAxis(branch_forward_axis);
     const EndpointSideDecision preferred_side_decision =
         orientation_.PreferredSideAxisForEndpoint(node_id, peer_id, branch_feasibility, bundle_id_);
-    const Vec3d side_axis = preferred_side_decision.has_side_axis ? preferred_side_decision.side_axis : branch_row_axis;
-    Vec3d peer_dir = peer_delta;
-    peer_dir.z = 0.0;
     double side_sign = preferred_side_decision.chosen_side_sign;
-    if (std::abs(side_sign) <= 1e-9 &&
-        preferred_side_decision.side_assignment_rule == SideAssignmentRuleKind::kThroughPairNormal &&
-        normalize_xy(&peer_dir)) {
-      const double along = dot_xy(peer_dir, side_axis);
-      side_sign = (std::abs(along) <= 1e-9) ? 1.0 : ((along >= 0.0) ? 1.0 : -1.0);
-    } else if (std::abs(side_sign) <= 1e-9) {
-      side_sign = (dot_xy(side_axis, branch_row_axis) >= 0.0) ? 1.0 : -1.0;
-      if (std::abs(dot_xy(side_axis, branch_row_axis)) <= 1e-9) {
-        side_sign = 1.0;
-      }
-    }
-    const SlotSide branch_side = (side_sign >= 0.0) ? SlotSide::kRight : SlotSide::kLeft;
+    const SlotSide branch_side =
+        (side_sign < -1e-9) ? SlotSide::kLeft : ((side_sign > 1e-9) ? SlotSide::kRight : SlotSide::kCenter);
     const double branch_support_yaw_deg = std::atan2(branch_forward_axis.y, branch_forward_axis.x) * (180.0 / kPi);
     const double branch_base_z_m = LaneRowTargetZForEndpoint(*pole, branch_feasibility);
     const double lane_spacing = lowering_.LaneSpacingForEndpoint(branch_feasibility);

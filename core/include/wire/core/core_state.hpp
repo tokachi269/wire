@@ -22,12 +22,13 @@ class GroupedSpanLanePreparer;
 class GroupedSpanLaneStateAccess;
 struct BackboneGenerationPlan;
 struct BackboneGenerationRequestPlan;
-  struct BackboneCommittedGenerationPlan;
+struct BackboneCommittedGenerationPlan;
 struct BackboneSupportChainPlan;
 struct BackboneCommittedSupportChain;
 struct BackboneTopologyPlan;
 struct BackboneOrientationPlan;
-  struct BackboneMaterializationPhaseOutput;
+struct BackboneMaterializationPhaseOutput;
+struct JunctionFeasibility;
 struct BackboneCommittedTopologyState;
 }
 
@@ -196,6 +197,7 @@ private:
                                                OrderDecisionPolicyKind order_decision_policy,
                                                BackboneFlowKind flow_kind, const BackboneLoweringPolicy& lowering_policy,
                                                const std::unordered_map<ObjectId, JunctionRelation>* junction_relations_by_node,
+                                               const std::unordered_map<ObjectId, generation::detail::JunctionFeasibility>* junction_feasibility_by_node,
                                                std::vector<SegmentLaneAssignment>* out_lane_assignments,
                                                std::vector<BackboneEdgeOrientation>* out_edge_orientations = nullptr,
                                                BundleKind bundle_template_id = BundleKind::kLowVoltage);

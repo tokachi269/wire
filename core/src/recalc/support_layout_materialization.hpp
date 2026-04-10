@@ -60,9 +60,6 @@ void apply_support_layout_decision_seed(const SpanSupportLayoutDecisionSeed& see
 [[nodiscard]] std::vector<LoweredSupportGroupKey>
 collect_support_group_keys_for_seed(const SpanSupportLayoutDecisionSeed& seed);
 
-[[nodiscard]] std::vector<LoweredSupportGroupKey>
-collect_support_group_keys_for_layout(const SpanSupportLayoutEntry& layout);
-
 void rebuild_lowered_support_groups_for_keys(const CoreState& state, const EditState& edit_state, CacheState* cache_state,
                                              const std::vector<LoweredSupportGroupKey>& keys);
 

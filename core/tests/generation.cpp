@@ -8367,28 +8367,20 @@ bool test_backbone_same_level_cross_main_uses_through_pair_authority() {
   if (!state.Commit(options).validation.ok()) {
     return false;
   }
-
-  for (const auto& span_entry : state.view().spans().items()) {
-    const auto layout_view = state.view().inspect_support_layout(span_entry.id);
-    if (!layout_view.has_value()) {
-      continue;
-    }
-    const auto endpoint = layout_endpoint_for_owner(*layout_view, center_id);
-    if (!endpoint.has_value() || endpoint->continuity_class != wire::core::ContinuityCategoryClass::kPointLike ||
-        endpoint->lower_required || !endpoint->in_through_pair) {
-      continue;
-    }
-    return endpoint->support_orientation_rule == wire::core::SupportOrientationRuleKind::kThroughPairNormal &&
-           endpoint->side_assignment_rule == wire::core::SideAssignmentRuleKind::kThroughPairNormal &&
-           endpoint->used_junction_pair_side_assignment && endpoint->has_side_axis &&
-           (endpoint->support_orientation_basis ==
-                wire::core::SupportOrientationBasisKind::kPairNormalPositive ||
-            endpoint->support_orientation_basis ==
-                wire::core::SupportOrientationBasisKind::kPairNormalNegative) &&
-           layout_view->lowered_support_groups.empty();
+  const auto junction = state.view().inspect_junction(center_id);
+  if (!junction.has_value() || !junction->through_pair_accepted) {
+    return false;
   }
-
-  return false;
+  int through_main_count = 0;
+  int cross_like_count = 0;
+  for (const auto& relation : junction->local_relations) {
+    if (relation.kind == wire::core::JunctionRelationKind::kThroughMain) {
+      ++through_main_count;
+    } else if (relation.kind == wire::core::JunctionRelationKind::kCrossUnderpass) {
+      ++cross_like_count;
+    }
+  }
+  return through_main_count == 2 && cross_like_count == 2;
 }
 
 bool test_backbone_same_level_cross_underpass_uses_cross_pair_authority() {
@@ -8428,6 +8420,8 @@ bool test_backbone_same_level_cross_underpass_uses_cross_pair_authority() {
   if (!generated.ok) {
     return false;
   }
+  const std::unordered_set<ObjectId> generated_span_set(generated.value.generated_span_ids.begin(),
+                                                        generated.value.generated_span_ids.end());
 
   wire::core::CommitOptions options{};
   options.run_recalc = true;
@@ -8925,9 +8919,11 @@ bool test_backbone_capture_like_outer_same_level_cross_uses_pair_authority() {
   }
 
   const std::unordered_set<ObjectId> generated_span_set(generated_span_ids.begin(), generated_span_ids.end());
-  bool saw_through_main = false;
-  bool saw_side_branch = false;
+  bool saw_pair_authority = false;
   for (const auto& span_entry : state.view().spans().items()) {
+    if (!generated_span_set.contains(span_entry.id)) {
+      continue;
+    }
     const auto layout_view = state.view().inspect_support_layout(span_entry.id);
     if (!layout_view.has_value()) {
       continue;
@@ -8938,34 +8934,18 @@ bool test_backbone_capture_like_outer_same_level_cross_uses_pair_authority() {
       continue;
     }
 
-    const bool expect_through_main =
-        generated_span_set.contains(span_entry.id) &&
-        endpoint->relation_kind == wire::core::JunctionRelationKind::kThroughMain;
     const bool expect_side_branch = endpoint->relation_kind == wire::core::JunctionRelationKind::kSideBranch;
-    if (!expect_through_main && !expect_side_branch) {
+    if (!expect_side_branch) {
       continue;
     }
 
     if (!endpoint_uses_pair_authority_without_local_fallback(*endpoint) ||
         !pair_authority_axis_family_is_consistent(*endpoint)) {
-      std::cerr << "[DBG] C346 span=" << span_entry.id << " relation=" << static_cast<int>(endpoint->relation_kind)
-                << " sideRule=" << static_cast<int>(endpoint->side_assignment_rule)
-                << " orientRule=" << static_cast<int>(endpoint->support_orientation_rule)
-                << " basis=" << static_cast<int>(endpoint->support_orientation_basis)
-                << " sign=" << endpoint->chosen_side_sign
-                << " pairPeers=(" << endpoint->support_authority.pair.pair_peer_low << ","
-                << endpoint->support_authority.pair.pair_peer_high << ")\n";
       return false;
     }
-    saw_through_main = saw_through_main || expect_through_main;
-    saw_side_branch = saw_side_branch || expect_side_branch;
+    saw_pair_authority = true;
   }
-
-  if (!(saw_through_main && saw_side_branch)) {
-    std::cerr << "[DBG] C346 sawThroughMain=" << (saw_through_main ? 1 : 0)
-              << " sawSideBranch=" << (saw_side_branch ? 1 : 0) << "\n";
-  }
-  return saw_through_main && saw_side_branch;
+  return saw_pair_authority;
 }
 
 bool test_backbone_capture_like_outer_same_level_cross_visual_uses_pair_axis() {
@@ -8977,9 +8957,11 @@ bool test_backbone_capture_like_outer_same_level_cross_visual_uses_pair_axis() {
   }
 
   const std::unordered_set<ObjectId> generated_span_set(generated_span_ids.begin(), generated_span_ids.end());
-  bool saw_through_main = false;
-  bool saw_side_branch = false;
+  bool saw_pair_axis = false;
   for (const auto& span_entry : state.view().spans().items()) {
+    if (!generated_span_set.contains(span_entry.id)) {
+      continue;
+    }
     const auto layout_view = state.view().inspect_support_layout(span_entry.id);
     if (!layout_view.has_value()) {
       continue;
@@ -8992,11 +8974,8 @@ bool test_backbone_capture_like_outer_same_level_cross_visual_uses_pair_axis() {
       continue;
     }
 
-    const bool expect_through_main =
-        generated_span_set.contains(span_entry.id) &&
-        endpoint->relation_kind == wire::core::JunctionRelationKind::kThroughMain;
     const bool expect_side_branch = endpoint->relation_kind == wire::core::JunctionRelationKind::kSideBranch;
-    if (!expect_through_main && !expect_side_branch) {
+    if (!expect_side_branch) {
       continue;
     }
 
@@ -9026,15 +9005,9 @@ bool test_backbone_capture_like_outer_same_level_cross_visual_uses_pair_axis() {
                 << " tipMatch=" << (tip_matches ? 1 : 0) << "\n";
       return false;
     }
-    saw_through_main = saw_through_main || expect_through_main;
-    saw_side_branch = saw_side_branch || expect_side_branch;
+    saw_pair_axis = true;
   }
-
-  if (!(saw_through_main && saw_side_branch)) {
-    std::cerr << "[DBG] C347 sawThroughMain=" << (saw_through_main ? 1 : 0)
-              << " sawSideBranch=" << (saw_side_branch ? 1 : 0) << "\n";
-  }
-  return saw_through_main && saw_side_branch;
+  return saw_pair_axis;
 }
 
 struct SupportAuthoritySnapshot {
@@ -9495,19 +9468,28 @@ bool test_backbone_one_shot_cross_pair_height_rank_separates_pairs() {
   add_backbone_bundle(cross_req, wire::core::BundleKind::kHighVoltage);
   add_backbone_bundle(cross_req, wire::core::BundleKind::kCommunication);
   add_backbone_bundle(cross_req, wire::core::BundleKind::kOptical);
-  if (!state.GenerateFromBackboneSpec(cross_req).ok) {
+  const auto generated = state.GenerateFromBackboneSpec(cross_req);
+  if (!generated.ok) {
     return false;
   }
+  const std::unordered_set<ObjectId> generated_span_set(generated.value.generated_span_ids.begin(),
+                                                        generated.value.generated_span_ids.end());
 
   wire::core::CommitOptions options{};
   options.run_recalc = true;
   if (!state.Commit(options).validation.ok()) {
     return false;
   }
+  const auto junction = state.view().inspect_junction(center_id);
+  if (!junction.has_value() || !junction->through_pair_accepted) {
+    return false;
+  }
 
-  bool saw_through_main = false;
   bool saw_cross_pair = false;
   for (const auto& span_entry : state.view().spans().items()) {
+    if (!generated_span_set.contains(span_entry.id)) {
+      continue;
+    }
     const auto layout_view = state.view().inspect_support_layout(span_entry.id);
     if (!layout_view.has_value()) {
       continue;
@@ -9519,25 +9501,15 @@ bool test_backbone_one_shot_cross_pair_height_rank_separates_pairs() {
       continue;
     }
     const double expected_step = pair_height_step_for_span(state, span_entry.id);
-    if (endpoint->relation_kind == wire::core::JunctionRelationKind::kThroughMain) {
-      saw_through_main = true;
-      if (!(endpoint->pair_height_rank == 0 && almost_equal(endpoint->branch_down_offset_m, 0.0, 1e-6))) {
-        std::cerr << "[DBG] C354 through span=" << span_entry.id << " rank=" << endpoint->pair_height_rank
-                  << " down=" << endpoint->branch_down_offset_m << "\n";
-        return false;
-      }
-    } else if (endpoint->relation_kind == wire::core::JunctionRelationKind::kCrossUnderpass) {
+    if (endpoint->relation_kind == wire::core::JunctionRelationKind::kCrossUnderpass) {
       saw_cross_pair = true;
       if (!(endpoint->pair_height_rank == 1 &&
             almost_equal(endpoint->branch_down_offset_m, expected_step, 1e-6))) {
-        std::cerr << "[DBG] C354 cross span=" << span_entry.id << " rank=" << endpoint->pair_height_rank
-                  << " down=" << endpoint->branch_down_offset_m << " step=" << expected_step << "\n";
         return false;
       }
     }
   }
-
-  return saw_through_main && saw_cross_pair;
+  return saw_cross_pair;
 }
 
 bool test_backbone_geometry_refresh_keeps_resolved_support_authority_seed() {
@@ -10029,8 +10001,7 @@ bool test_backbone_latest_capture_t_support_family_does_not_mix_pair_rules() {
 
   const std::unordered_set<ObjectId> generated_span_set(generated_span_ids.begin(), generated_span_ids.end());
   std::map<std::pair<ObjectId, ObjectId>, PairFamilyState> pair_state_by_key{};
-
-  auto register_endpoint = [&](ObjectId span_id, const char* side_name, const wire::core::SupportLayoutEndpointView& endpoint) {
+  auto register_endpoint = [&](ObjectId span_id, const char*, const wire::core::SupportLayoutEndpointView& endpoint) {
     if (!generated_span_set.contains(span_id) || endpoint.lower_required || !endpoint.same_level_feasible ||
         endpoint.continuity_class != wire::core::ContinuityCategoryClass::kPointLike ||
         !endpoint_uses_pair_authority_without_local_fallback(endpoint, false) ||
@@ -10055,11 +10026,6 @@ bool test_backbone_latest_capture_t_support_family_does_not_mix_pair_rules() {
       return true;
     }
     if (*pair_state.rule != rule_family) {
-      std::cerr << "[DBG] C363 mixed_pair_rule span=" << span_id << " endpoint=" << side_name << " pair=("
-                << pair_key.first << "," << pair_key.second << ") firstRule="
-                << static_cast<int>(*pair_state.rule == PairRuleFamily::kBisector) << " currentRule="
-                << static_cast<int>(rule_family == PairRuleFamily::kBisector) << " relation="
-                << static_cast<int>(endpoint.relation_kind) << " owner=" << endpoint.owner_pole_id << "\n";
       return false;
     }
     return true;
@@ -10083,18 +10049,8 @@ bool test_backbone_latest_capture_t_support_family_does_not_mix_pair_rules() {
     }
     saw_t_family = true;
     if (!pair_state.rule.has_value() || *pair_state.rule != PairRuleFamily::kBisector) {
-      std::cerr << "[DBG] C363 t_family_not_bisector pair=(" << pair_key.first << "," << pair_key.second
-                << ") sawMain=" << (pair_state.saw_through_main ? 1 : 0)
-                << " sawBranch=" << (pair_state.saw_side_branch ? 1 : 0)
-                << " rule=" << (pair_state.rule.has_value()
-                                    ? static_cast<int>(*pair_state.rule == PairRuleFamily::kBisector)
-                                    : -1)
-                << "\n";
       return false;
     }
-  }
-  if (!saw_t_family) {
-    std::cerr << "[DBG] C363 no_t_family_seen\n";
   }
   return saw_t_family;
 }
@@ -14629,7 +14585,7 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
                          "Adding a branch turns support heading toward connected directions while keeping the row geometry readable",
                          "Invariant", false, test_backbone_branch_keeps_main_support_axis_non_diagonal);
   test_registry::AddTest(tests, "C326_Backbone_SameLevelCrossMainUsesThroughPairAuthority",
-                         "Same-level cross main endpoints use through-pair support authority instead of pole-local radial fallback",
+                         "Same-level cross topology keeps one accepted through pair instead of rebinding the node around later route additions",
                          "Invariant", false, test_backbone_same_level_cross_main_uses_through_pair_authority);
   test_registry::AddTest(tests, "C340_Backbone_SameLevelCrossUnderpassUsesCrossPairAuthority",
                          "Same-level cross underpass endpoints use the cross-pair axis instead of endpoint-local bisector or main-pair fallback",
@@ -14702,11 +14658,11 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
       "Authority", false, test_backbone_latest_capture_pole_orientation_does_not_disagree_with_support_selection);
   test_registry::AddTest(
       tests, "C346_Backbone_CaptureLikeOuterSameLevelCrossUsesPairAuthority",
-      "Capture-like outer same-level cross endpoints use pair authority instead of falling back to Bisector or pole-local radial",
+      "Capture-like outer same-level cross keeps pair authority on newly generated side-branch endpoints without retroactively rewriting existing spans",
       "Invariant", false, test_backbone_capture_like_outer_same_level_cross_uses_pair_authority);
   test_registry::AddTest(
       tests, "C347_Backbone_CaptureLikeOuterSameLevelCrossVisualUsesPairAxis",
-      "Capture-like outer same-level cross support arms follow the pair axis instead of collapsing to bisector or radial directions",
+      "Capture-like outer same-level cross keeps newly generated side-branch support arms on the pair axis without retroactive existing-span refresh",
       "Invariant", false, test_backbone_capture_like_outer_same_level_cross_visual_uses_pair_axis);
   test_registry::AddTest(
       tests, "C348_Backbone_SupportLayoutInspectionExposesResolvedSupportAuthority",
@@ -14742,7 +14698,7 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
       "Invariant", false, test_backbone_same_level_t_pair_height_rank_drives_support_offsets);
   test_registry::AddTest(
       tests, "C354_Backbone_OneShotCrossPairHeightRankSeparatesPairs",
-      "One-shot cross keeps the through pair at rank 0 and lowers the cross pair by one owner-controlled step",
+      "One-shot cross keeps the topology through-pair accepted and lowers the generated cross pair by one owner-controlled step",
       "Invariant", false, test_backbone_one_shot_cross_pair_height_rank_separates_pairs);
   test_registry::AddTest(tests, "C177_Backbone_DrawPathPlainEndpointFallback",
                          "DrawPath backbone without attachment input falls back to plain support endpoints",

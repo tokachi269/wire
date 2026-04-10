@@ -4,7 +4,6 @@
 #include "detail_curve_input_resolution.hpp"
 #include "detail_curve_postprocess.hpp"
 #include "support_layout_materialization.hpp"
-
 #include <algorithm>
 #include <cmath>
 #include <string>
@@ -64,12 +63,9 @@ void append_support_group_keys(std::vector<LoweredSupportGroupKey>* keys,
 
 std::vector<LoweredSupportGroupKey> collect_cached_support_group_keys(const CacheState& cache_state, ObjectId span_id) {
   std::vector<LoweredSupportGroupKey> keys{};
-  const SpanSupportLayoutContractView contract = cache_state.support_layout_cache.contract_view(span_id);
-  if (contract.has_authority()) {
-    append_support_group_keys(&keys, collect_support_group_keys_for_seed(*contract.authority.seed));
-  }
-  if (contract.has_projection()) {
-    append_support_group_keys(&keys, collect_support_group_keys_for_layout(*contract.projection.layout));
+  const SpanSupportLayoutAuthorityView authority = cache_state.support_layout_cache.authority_view(span_id);
+  if (authority.has_authority()) {
+    append_support_group_keys(&keys, collect_support_group_keys_for_seed(*authority.seed));
   }
   return keys;
 }
@@ -492,7 +488,6 @@ void CoreState::cache_span_support_layout(SpanSupportLayoutEntry layout) {
   const ObjectId span_id = layout.span_id;
   std::vector<LoweredSupportGroupKey> affected_group_keys =
       collect_cached_support_group_keys(runtime_.cache_state, span_id);
-  append_support_group_keys(&affected_group_keys, collect_support_group_keys_for_layout(layout));
   runtime_.cache_state.support_layout_cache.store_layout(std::move(layout));
   rebuild_lowered_support_groups_for_keys(*this, authoritative_.edit_state, &runtime_.cache_state, affected_group_keys);
 }
@@ -508,6 +503,21 @@ void CoreState::cache_span_support_layout_seed(SpanSupportLayoutDecisionSeed see
   runtime_.cache_state.support_layout_cache.store_seed(std::move(seed));
   runtime_.cache_state.support_layout_cache.clear_layout(span_id);
   rebuild_lowered_support_groups_for_keys(*this, authoritative_.edit_state, &runtime_.cache_state, affected_group_keys);
+
+  std::string error_message;
+  if (rebuild_span_geometry_with_cached_contract(span_id, &error_message)) {
+    (void)rebuild_span_bounds(span_id, &error_message);
+    (void)rebuild_span_visual(span_id, &error_message);
+    auto runtime_it = runtime_.span_runtime_states.find(span_id);
+    if (runtime_it != runtime_.span_runtime_states.end()) {
+      runtime_it->second.geometry_version = runtime_it->second.data_version;
+      runtime_it->second.bounds_version = runtime_it->second.data_version;
+      runtime_it->second.render_version = runtime_it->second.data_version;
+      runtime_it->second.dirty_bits =
+          runtime_it->second.dirty_bits & ~DirtyBits::kDecision & ~DirtyBits::kGeometryRefresh & ~DirtyBits::kBounds &
+          ~DirtyBits::kRenderRefresh;
+    }
+  }
 }
 
 void CoreState::erase_cached_span_support_layout_seed(ObjectId span_id) {

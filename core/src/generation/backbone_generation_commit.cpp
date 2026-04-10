@@ -128,53 +128,6 @@ SpanSupportLayoutDecisionSeed build_seed_layout_record(
   return layout;
 }
 
-BackboneLoweringPolicy make_commit_refresh_lowering_policy(const BackboneBundlePlan& bundle_plan) {
-  BackboneLoweringPolicy policy{};
-  const bool enable_lowering = bundle_plan.enable_branch_down_offset;
-  policy.enable_cross_underpass = enable_lowering;
-  policy.enable_branch_support = enable_lowering;
-  policy.enable_acute_corner = enable_lowering;
-  policy.offset_m = enable_lowering ? BranchDownOffsetForCategory(bundle_plan.category) : 0.0;
-  return policy;
-}
-
-bool span_matches_bundle_plan_commit(const EditState& edit_state, const Span& span, const BackboneBundlePlan& bundle_plan) {
-  if (span.layer != bundle_plan.layer || span.bundle_id == kInvalidObjectId) {
-    return false;
-  }
-  const Bundle* bundle = edit_state.bundles.find(span.bundle_id);
-  return bundle != nullptr && bundle->bundle_template_id == bundle_plan.template_id;
-}
-
-SupportLayoutDecisionSeedEndpoint refresh_pointlike_endpoint_seed_commit(
-    const EditState& edit_state, const std::unordered_map<ObjectId, JunctionRelation>& junction_relations_by_node,
-    GroupedSpanLoweringDecider* lowering, GroupedSpanOrientationDecider* orientation,
-    const SupportLayoutDecisionSeedEndpoint& current, const Port& port, ObjectId node_id, ObjectId peer_id,
-    ObjectId bundle_id, double branch_down_offset_m) {
-  if (lowering == nullptr || orientation == nullptr) {
-    return current;
-  }
-  const SegmentRelationFeasibility feasibility = lowering->SegmentRelationFeasibilityFor(node_id, peer_id);
-  if (feasibility.kind == JunctionRelationKind::kNone ||
-      feasibility.continuity_class != ContinuityCategoryClass::kPointLike) {
-    return current;
-  }
-  const auto pair_info = orientation->LoweredSupportPairInfoForEndpoint(node_id, peer_id, feasibility);
-  EndpointSideDecision side_decision = orientation->FinalizeEndpointSideDecision(
-      node_id, peer_id, orientation->PreferredSideAxisForEndpoint(node_id, peer_id, feasibility, bundle_id));
-  orientation->FinalizeSideSignForPorts(&side_decision, node_id, peer_id, {port.id});
-  const bool lowering_blocked_by_policy = lowering->EndpointLoweringBlockedByPolicy(feasibility);
-  const bool unresolved_same_level_conflict = lowering_blocked_by_policy && !feasibility.same_level_feasible;
-  const EndpointContinuityDecision decision = lowering->BuildEndpointDecision(
-      feasibility, pair_info, side_decision, node_id, peer_id, current.order_decision_policy,
-      current.order_decision_choice, current.order_decision_choice_reason, current.solver_used_same_level_constraint,
-      current.used_special_case_ports, lowering_blocked_by_policy, unresolved_same_level_conflict);
-  SegmentLaneAssignment assignment{};
-  assignment.flow_kind = current.flow_kind;
-  assignment.branch_down_offset_m = branch_down_offset_m;
-  return build_seed_endpoint_from_decision(edit_state, junction_relations_by_node, assignment, node_id, port, decision);
-}
-
 std::vector<SpanSupportLayoutDecisionSeed> build_seed_generated_support_layouts(
     const CoreState& state, const EditState& edit_state, const std::vector<ObjectId>& span_ids,
     const std::vector<SegmentLaneAssignment>& lane_assignments,
@@ -252,39 +205,10 @@ double category_same_level_margin_m_commit(ConnectionCategory category) {
   }
 }
 
-JunctionIncidentRelation* find_incident_relation_ptr_commit(JunctionRelation* relation, ObjectId peer_id) {
-  if (relation == nullptr) {
-    return nullptr;
-  }
-  for (JunctionIncidentRelation& incident : relation->incidents) {
-    if (incident.neighbor_node_id == peer_id) {
-      return &incident;
-    }
-  }
-  return nullptr;
-}
-
-int junction_relation_rank_commit(JunctionRelationKind kind) {
-  switch (kind) {
-  case JunctionRelationKind::kCrossUnderpass:
-    return 4;
-  case JunctionRelationKind::kSideBranch:
-    return 3;
-  case JunctionRelationKind::kCornerContinuation:
-    return 2;
-  case JunctionRelationKind::kThroughMain:
-    return 1;
-  case JunctionRelationKind::kNone:
-  default:
-    return 0;
-  }
-}
-
 BackboneFeasibilityPhaseOutput evaluate_committed_backbone_feasibility_phase(
     const BackboneBundlePlan& bundle_plan, const std::unordered_map<ObjectId, JunctionRelation>& base_relations,
     const std::function<Vec3d(ObjectId)>& current_support_position) {
   BackboneFeasibilityPhaseOutput output{};
-  output.junction_relations_by_node = base_relations;
 
   const bool bundle_like = bundle_plan.continuity_class == ContinuityCategoryClass::kBundleLike;
   const double envelope_width_m = std::max(0, bundle_plan.count - 1) * std::max(0.0, bundle_plan.spacing_m);
@@ -304,14 +228,32 @@ BackboneFeasibilityPhaseOutput evaluate_committed_backbone_feasibility_phase(
     return std::hypot(probe_a.x - probe_b.x, probe_a.y - probe_b.y);
   };
 
-  for (auto& [node_id, relation] : output.junction_relations_by_node) {
-    for (JunctionIncidentRelation& incident : relation.incidents) {
-      incident.continuity_class = bundle_plan.continuity_class;
-      incident.default_lower_required = false;
-      incident.same_level_feasible = true;
-      incident.projected_spacing_topview_m = -1.0;
-      incident.required_clearance_m = required_clearance_m;
-      incident.infeasible_reason = SameLevelFeasibilityReason::kNone;
+  for (const auto& [node_id, relation] : base_relations) {
+    JunctionFeasibility feasibility{};
+    feasibility.node_id = node_id;
+    feasibility.incidents.reserve(relation.incidents.size());
+    for (const JunctionIncidentRelation& incident : relation.incidents) {
+      JunctionIncidentFeasibility incident_feasibility{};
+      incident_feasibility.neighbor_node_id = incident.neighbor_node_id;
+      incident_feasibility.continuity_class = bundle_plan.continuity_class;
+      incident_feasibility.default_lower_required = false;
+      incident_feasibility.same_level_feasible = true;
+      incident_feasibility.projected_spacing_topview_m = -1.0;
+      incident_feasibility.required_clearance_m = required_clearance_m;
+      incident_feasibility.reason = SameLevelFeasibilityReason::kNone;
+      feasibility.incidents.push_back(incident_feasibility);
+    }
+    output.feasibility_by_node.emplace(node_id, std::move(feasibility));
+  }
+
+  for (const auto& [node_id, relation] : base_relations) {
+    auto it_feasibility = output.feasibility_by_node.find(node_id);
+    if (it_feasibility == output.feasibility_by_node.end()) {
+      continue;
+    }
+    JunctionFeasibility& node_feasibility = it_feasibility->second;
+    if (!bundle_like) {
+      continue;
     }
     if (relation.incidents.size() < 2) {
       continue;
@@ -331,14 +273,17 @@ BackboneFeasibilityPhaseOutput evaluate_committed_backbone_feasibility_phase(
       if (!incident.in_route && !allow_non_route_bundle_lower) {
         continue;
       }
-      JunctionIncidentRelation* mutable_incident = find_incident_relation_ptr_commit(&relation, incident.neighbor_node_id);
-      if (mutable_incident == nullptr) {
+      auto it_incident = std::find_if(node_feasibility.incidents.begin(), node_feasibility.incidents.end(),
+                                      [&](const JunctionIncidentFeasibility& candidate) {
+                                        return candidate.neighbor_node_id == incident.neighbor_node_id;
+                                      });
+      if (it_incident == node_feasibility.incidents.end()) {
         continue;
       }
       if (bundle_like && is_non_through_relation && (incident.in_route || allow_non_route_bundle_lower)) {
-        mutable_incident->default_lower_required = true;
-        mutable_incident->same_level_feasible = false;
-        mutable_incident->infeasible_reason = SameLevelFeasibilityReason::kBundleRule;
+        it_incident->default_lower_required = true;
+        it_incident->same_level_feasible = false;
+        it_incident->reason = SameLevelFeasibilityReason::kBundleRule;
         continue;
       }
 
@@ -370,11 +315,11 @@ BackboneFeasibilityPhaseOutput evaluate_committed_backbone_feasibility_phase(
         min_projected_spacing_m =
             std::min(min_projected_spacing_m, projected_spacing_for(node_id, incident.neighbor_node_id, other_neighbor_id));
       }
-      mutable_incident->projected_spacing_topview_m = min_projected_spacing_m;
-      mutable_incident->required_clearance_m = required_clearance_m;
+      it_incident->projected_spacing_topview_m = min_projected_spacing_m;
+      it_incident->required_clearance_m = required_clearance_m;
       if (!(std::isfinite(min_projected_spacing_m) && min_projected_spacing_m + 1e-9 >= required_clearance_m)) {
-        mutable_incident->same_level_feasible = false;
-        mutable_incident->infeasible_reason =
+        it_incident->same_level_feasible = false;
+        it_incident->reason =
             (std::isfinite(min_projected_spacing_m) && min_projected_spacing_m + 1e-9 < envelope_width_m)
                 ? SameLevelFeasibilityReason::kEnvelopeOverlap
                 : SameLevelFeasibilityReason::kNearNodeClearance;
@@ -463,15 +408,27 @@ std::vector<BackboneSpanGenerationRunPlan> plan_committed_backbone_span_generati
         continue;
       }
       const ObjectId node_id = ordered_support_node_ids[node_offset];
-      const auto it_relation = feasibility_phase.junction_relations_by_node.find(node_id);
-      if (it_relation == feasibility_phase.junction_relations_by_node.end()) {
+      const auto it_relation = feasibility_phase.feasibility_by_node.find(node_id);
+      if (it_relation == feasibility_phase.feasibility_by_node.end()) {
         continue;
       }
-      for (const JunctionIncidentRelation& incident : it_relation->second.incidents) {
-        if (!incident.in_route || incident.same_level_feasible) {
+      const auto decision_it = decision_phase.junction_relations_by_node.find(node_id);
+      if (decision_it == decision_phase.junction_relations_by_node.end()) {
+        continue;
+      }
+      for (const JunctionIncidentFeasibility& incident : it_relation->second.incidents) {
+        if (incident.same_level_feasible) {
           continue;
         }
-        if (incident.kind != JunctionRelationKind::kThroughMain && incident.kind != JunctionRelationKind::kNone) {
+        auto incident_decision = std::find_if(decision_it->second.incidents.begin(), decision_it->second.incidents.end(),
+                                              [&](const JunctionIncidentRelation& candidate) {
+                                                return candidate.neighbor_node_id == incident.neighbor_node_id;
+                                              });
+        if (incident_decision == decision_it->second.incidents.end() || !incident_decision->in_route) {
+          continue;
+        }
+        if (incident_decision->kind != JunctionRelationKind::kThroughMain &&
+            incident_decision->kind != JunctionRelationKind::kNone) {
           relation_has_lowering_candidate = true;
         }
       }
@@ -488,46 +445,6 @@ std::vector<BackboneSpanGenerationRunPlan> plan_committed_backbone_span_generati
   }
 
   return runs;
-}
-
-void merge_committed_backbone_junction_relations(
-    std::unordered_map<ObjectId, JunctionRelation>* merged_relations,
-    const std::unordered_map<ObjectId, JunctionRelation>& bundle_relations) {
-  if (merged_relations == nullptr) {
-    return;
-  }
-  for (const auto& [node_id, relation] : bundle_relations) {
-    JunctionRelation& merged = (*merged_relations)[node_id];
-    merged.route_incident_count = std::max(merged.route_incident_count, relation.route_incident_count);
-    merged.is_cross_like = merged.is_cross_like || relation.is_cross_like;
-    if (!merged.through_pair.accepted && relation.through_pair.accepted) {
-      merged.through_pair = relation.through_pair;
-    }
-    for (const JunctionIncidentRelation& incident : relation.incidents) {
-      JunctionIncidentRelation* target = find_incident_relation_ptr_commit(&merged, incident.neighbor_node_id);
-      if (target == nullptr) {
-        merged.incidents.push_back(incident);
-        continue;
-      }
-      if (junction_relation_rank_commit(incident.kind) > junction_relation_rank_commit(target->kind)) {
-        target->kind = incident.kind;
-      }
-      target->in_route = target->in_route || incident.in_route;
-      target->in_through_pair = target->in_through_pair || incident.in_through_pair;
-      target->continuity_class = incident.continuity_class;
-      target->default_lower_required = target->default_lower_required || incident.default_lower_required;
-      if (!incident.same_level_feasible &&
-          (target->same_level_feasible ||
-           (incident.projected_spacing_topview_m >= 0.0 &&
-            (target->projected_spacing_topview_m < 0.0 ||
-             incident.projected_spacing_topview_m < target->projected_spacing_topview_m)))) {
-        target->same_level_feasible = false;
-        target->projected_spacing_topview_m = incident.projected_spacing_topview_m;
-        target->required_clearance_m = incident.required_clearance_m;
-        target->infeasible_reason = incident.infeasible_reason;
-      }
-    }
-  }
 }
 
 } // namespace
@@ -721,7 +638,8 @@ EditResult<BackboneMaterializationPhaseOutput> CoreState::run_committed_backbone
   };
   auto generate_grouped_spans_for_run =
       [&](const BackboneBundleAllocation& allocation, const BackboneSpanGenerationRunPlan& run,
-          const std::unordered_map<ObjectId, JunctionRelation>& current_relations)
+          const std::unordered_map<ObjectId, JunctionRelation>& current_relations,
+          const std::unordered_map<ObjectId, JunctionFeasibility>& current_feasibility)
       -> EditResult<BackboneGroupedSpanGenerationPhaseOutput> {
     EditResult<BackboneGroupedSpanGenerationPhaseOutput> result{};
     BackboneGroupedSpanGenerationPhaseOutput output{};
@@ -732,6 +650,7 @@ EditResult<BackboneMaterializationPhaseOutput> CoreState::run_committed_backbone
         run.ordered_support_node_ids, support_node_by_id, allocation.bundle_id, allocation.bundle_plan.category,
         allocation.bundle_plan.count, allocation.bundle_plan.spacing_m, true, allocation.bundle_plan.allow_mirror,
         allocation.bundle_plan.order_decision_policy, flow_info.kind, run.lowering_policy, &output.junction_relations_by_node,
+        &current_feasibility,
         &output.lane_assignments, &output.edge_orientations, allocation.bundle_plan.template_id);
     if (!spans_result.ok) {
       result.error = spans_result.error;
@@ -762,68 +681,6 @@ EditResult<BackboneMaterializationPhaseOutput> CoreState::run_committed_backbone
         grouped_span_phase.junction_relations_by_node, run.variation_flow_key);
     return output;
   };
-  auto refresh_existing_pointlike_support_layout_seed_phase =
-      [&](const BackboneBundlePlan& bundle_plan,
-          const std::unordered_map<ObjectId, JunctionRelation>& junction_relations_by_node,
-          const std::vector<ObjectId>& generated_span_ids) {
-        if (bundle_plan.continuity_class != ContinuityCategoryClass::kPointLike) {
-          return;
-        }
-        const BundleTemplate* bundle_template = find_bundle_template(bundle_plan.template_id);
-        const double grouped_support_fanout_spacing_m =
-            std::max(0.1, (bundle_template == nullptr) ? bundle_plan.spacing_m
-                                                       : bundle_template->grouped_support_fanout_spacing_m);
-        const BackboneLoweringPolicy lowering_policy = make_commit_refresh_lowering_policy(bundle_plan);
-        const GroupedSpanSharedContext grouped_span_ctx{ordered_support_node_ids, support_node_by_id, edit_state_access(),
-                                                        relation_index_access(), connection_index_access(),
-                                                        &junction_relations_by_node,
-                                                        &debug_.pole_orientation_debug_records};
-        GroupedSpanLoweringDecider lowering(grouped_span_ctx, lowering_policy, bundle_plan.template_id,
-                                            bundle_plan.spacing_m, grouped_support_fanout_spacing_m);
-        GroupedSpanOrientationDecider orientation(grouped_span_ctx);
-        const std::unordered_set<ObjectId> generated_span_id_set(generated_span_ids.begin(), generated_span_ids.end());
-
-        for (const Span& span : edit_state_access().spans.items()) {
-          if (generated_span_id_set.contains(span.id) ||
-              !span_matches_bundle_plan_commit(edit_state_access(), span, bundle_plan)) {
-            continue;
-          }
-          const SpanSupportLayoutContractView contract = support_layout_contract(span.id);
-          if (!contract.has_authority() || contract.authority.seed == nullptr) {
-            continue;
-          }
-          const Port* port_a = edit_state_access().ports.find(span.port_a_id);
-          const Port* port_b = edit_state_access().ports.find(span.port_b_id);
-          if (port_a == nullptr || port_b == nullptr) {
-            continue;
-          }
-          const ObjectId node_a = grouped_span_ctx.resolve_span_endpoint_node(span, port_a, true);
-          const ObjectId node_b = grouped_span_ctx.resolve_span_endpoint_node(span, port_b, false);
-          if (junction_relations_by_node.find(node_a) == junction_relations_by_node.end() &&
-              junction_relations_by_node.find(node_b) == junction_relations_by_node.end()) {
-            continue;
-          }
-
-          const SpanSupportLayoutDecisionSeed& current_seed = *contract.authority.seed;
-          SpanSupportLayoutDecisionSeed refreshed_seed = current_seed;
-          refreshed_seed.start = refresh_pointlike_endpoint_seed_commit(
-              edit_state_access(), junction_relations_by_node, &lowering, &orientation, current_seed.start, *port_a,
-              node_a, node_b, span.bundle_id, lowering.effective_branch_down_offset_m());
-          refreshed_seed.end = refresh_pointlike_endpoint_seed_commit(
-              edit_state_access(), junction_relations_by_node, &lowering, &orientation, current_seed.end, *port_b,
-              node_b, node_a, span.bundle_id, lowering.effective_branch_down_offset_m());
-          refreshed_seed.support_group_decisions.clear();
-          cache_span_support_layout_seed(std::move(refreshed_seed));
-          std::string refresh_error;
-          if (!rebuild_span_geometry_with_cached_contract(span.id, &refresh_error)) {
-            mark_span_dirty(span.id, DirtyBits::kDecision, true);
-          } else {
-            mark_span_dirty(span.id, DirtyBits::kBounds | DirtyBits::kRenderRefresh, false);
-          }
-          add_unique_id(phase_result.value.change_set.updated_ids, span.id);
-          add_unique_id(phase_result.value.change_set.dirty_span_ids, span.id);
-        }
-      };
   auto apply_generated_span_metadata_phase =
       [&](const BackboneBundleAllocation& allocation, const BackboneGroupedSpanGenerationPhaseOutput& grouped_span_phase,
           const BackboneSpanGenerationRunPlan& run, std::size_t generation_order_offset)
@@ -856,13 +713,14 @@ EditResult<BackboneMaterializationPhaseOutput> CoreState::run_committed_backbone
       -> EditResult<BackboneSpanMaterializationPhaseOutput> {
     EditResult<BackboneSpanMaterializationPhaseOutput> result{};
     BackboneSpanMaterializationPhaseOutput output{};
-    output.junction_relations_by_node = feasibility_phase.junction_relations_by_node;
+    output.junction_relations_by_node = decision_phase.junction_relations_by_node;
 
     const std::vector<BackboneSpanGenerationRunPlan> runs = plan_committed_backbone_span_generation_runs(
         gap_analysis, decision_phase, ordered_support_node_ids, feasibility_phase, session_id);
     for (const BackboneSpanGenerationRunPlan& run : runs) {
       EditResult<BackboneGroupedSpanGenerationPhaseOutput> grouped_span_result =
-          generate_grouped_spans_for_run(allocation, run, output.junction_relations_by_node);
+          generate_grouped_spans_for_run(allocation, run, output.junction_relations_by_node,
+                                         feasibility_phase.feasibility_by_node);
       if (!grouped_span_result.ok) {
         result.error = grouped_span_result.error;
         return result;
@@ -886,7 +744,6 @@ EditResult<BackboneMaterializationPhaseOutput> CoreState::run_committed_backbone
       append_change_set(output.change_set, metadata_phase.change_set);
       output.generated_span_ids.insert(output.generated_span_ids.end(), metadata_phase.generated_span_ids.begin(),
                                        metadata_phase.generated_span_ids.end());
-      output.junction_relations_by_node = std::move(grouped_span_phase.junction_relations_by_node);
     }
 
     result.value = std::move(output);
@@ -940,10 +797,6 @@ EditResult<BackboneMaterializationPhaseOutput> CoreState::run_committed_backbone
     for (SpanSupportLayoutDecisionSeed& layout_seed : span_phase.support_layout_seeds) {
       cache_span_support_layout_seed(std::move(layout_seed));
     }
-     refresh_existing_pointlike_support_layout_seed_phase(bundle_plan, span_phase.junction_relations_by_node,
-                                                          span_phase.generated_span_ids);
-    merge_committed_backbone_junction_relations(&phase_result.value.junction_relations_by_node,
-                                                span_phase.junction_relations_by_node);
   }
 
   phase_result.ok = true;

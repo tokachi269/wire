@@ -1,7 +1,7 @@
-#include "grouped_span_orientation.hpp"
+#include "build_endpoint_directions.hpp"
 
-#include "../support_orientation_utils.hpp"
-#include "detail_utils.hpp"
+#include "../../support_orientation_utils.hpp"
+#include "../detail_utils.hpp"
 
 #include <algorithm>
 #include <cmath>

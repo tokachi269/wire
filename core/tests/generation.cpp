@@ -14,7 +14,7 @@
 #include "registry.hpp"
 #include "helpers.hpp"
 #include "wire/core/coord_utils.hpp"
-#include "../src/generation/grouped_span_lowering.hpp"
+#include "../src/generation/bundle_spans/build_endpoint_heights.hpp"
 #include "../src/generation/support_policy.hpp"
 
 using namespace helpers;

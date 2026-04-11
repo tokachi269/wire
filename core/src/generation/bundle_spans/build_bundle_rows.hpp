@@ -1,8 +1,8 @@
 #pragma once
 
-#include "grouped_span_common.hpp"
-#include "grouped_span_lowering.hpp"
-#include "grouped_span_orientation.hpp"
+#include "bundle_span_context.hpp"
+#include "build_endpoint_heights.hpp"
+#include "build_endpoint_directions.hpp"
 #include "wire/core/core_state_internal_types.hpp"
 
 #include <functional>

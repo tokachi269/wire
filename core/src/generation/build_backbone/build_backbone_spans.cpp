@@ -1,16 +1,16 @@
 #include "wire/core/core_state.hpp"
 #include "wire/core/coord_utils.hpp"
 #include "wire/core/core_view.hpp"
-#include "backbone_generation_plan_internal.hpp"
-#include "backbone_pole_orientation_policy.hpp"
-#include "backbone_seed_placement.hpp"
-#include "detail_utils.hpp"
-#include "grouped_span_common.hpp"
-#include "grouped_span_lowering.hpp"
-#include "grouped_span_orientation.hpp"
-#include "support_policy.hpp"
-#include "../pole_orientation_utils.hpp"
-#include "../support_orientation_utils.hpp"
+#include "build_backbone_types.hpp"
+#include "build_span_layout_rules.hpp"
+#include "../pole_facing/pole_facing_rules.hpp"
+#include "../detail_utils.hpp"
+#include "../bundle_spans/bundle_span_context.hpp"
+#include "../bundle_spans/build_endpoint_heights.hpp"
+#include "../bundle_spans/build_endpoint_directions.hpp"
+#include "../support_policy.hpp"
+#include "../../pole_orientation_utils.hpp"
+#include "../../support_orientation_utils.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -449,7 +449,7 @@ std::vector<BackboneSpanGenerationRunPlan> plan_committed_backbone_span_generati
 
 } // namespace
 
-EditResult<bool> CoreState::build_committed_backbone_topology_state(
+EditResult<bool> CoreState::build_real_node_topology_state(
     const BackboneTopologyPlan& topology_plan, std::uint64_t session_id,
     const std::unordered_map<ObjectId, SupportNode>& support_node_by_id,
     const std::unordered_map<ObjectId, ObjectId>& committed_node_id_by_planned_node_id,
@@ -540,7 +540,7 @@ EditResult<bool> CoreState::build_committed_backbone_topology_state(
   return result;
 }
 
-EditResult<BackboneCommittedGenerationPlan> CoreState::build_committed_backbone_generation_plan(
+EditResult<BackboneCommittedGenerationPlan> CoreState::remap_backbone_build_to_real_nodes(
     const BackboneTopologyPlan& topology_plan, const BackboneOrientationPlan& orientation_plan, std::uint64_t session_id,
     std::vector<ObjectId> ordered_support_node_ids, std::unordered_map<ObjectId, SupportNode> support_node_by_id,
     std::unordered_map<ObjectId, ObjectId> committed_node_id_by_planned_node_id) const {
@@ -555,7 +555,7 @@ EditResult<BackboneCommittedGenerationPlan> CoreState::build_committed_backbone_
     return result;
   }
 
-  EditResult<bool> topology_state_result = build_committed_backbone_topology_state(
+  EditResult<bool> topology_state_result = build_real_node_topology_state(
       topology_plan, session_id, plan.support_node_by_id, plan.committed_node_id_by_planned_node_id, &plan.topology_state);
   if (!topology_state_result.ok) {
     result.error = topology_state_result.error;
@@ -581,7 +581,7 @@ EditResult<BackboneCommittedGenerationPlan> CoreState::build_committed_backbone_
   return result;
 }
 
-EditResult<BackboneMaterializationPhaseOutput> CoreState::run_committed_backbone_materialization_phase(
+EditResult<BackboneMaterializationPhaseOutput> CoreState::build_backbone_bundles(
     const BackboneGenerationRequestPlan& request_plan, const BackboneCommittedGenerationPlan& plan) {
   EditResult<BackboneMaterializationPhaseOutput> phase_result{};
   const std::vector<BackboneBundlePlan>& active_bundle_plans = request_plan.active_bundle_plans;
@@ -821,7 +821,7 @@ void CoreState::publish_committed_backbone_debug_state(
   debug_.last_generation_junction_relations = std::move(materialization_phase->junction_relations_by_node);
 }
 
-EditResult<GenerateBundleFromPathResult> CoreState::execute_committed_backbone_generation_plan(
+EditResult<GenerateBundleFromPathResult> CoreState::build_backbone_from_real_nodes(
     const BackboneGenerationRequestPlan& request_plan, BackboneCommittedGenerationPlan committed_plan,
     std::vector<ObjectId> generated_pole_ids, ChangeSet initial_change_set) {
   EditResult<GenerateBundleFromPathResult> result{};
@@ -831,7 +831,7 @@ EditResult<GenerateBundleFromPathResult> CoreState::execute_committed_backbone_g
   apply_committed_backbone_orientation_plan(&committed_plan, &result.change_set);
 
   EditResult<BackboneMaterializationPhaseOutput> materialization_phase_result =
-      run_committed_backbone_materialization_phase(request_plan, committed_plan);
+      build_backbone_bundles(request_plan, committed_plan);
   if (!materialization_phase_result.ok) {
     result.error = materialization_phase_result.error;
     return result;
@@ -852,7 +852,7 @@ EditResult<GenerateBundleFromPathResult> CoreState::execute_committed_backbone_g
   return result;
 }
 
-EditResult<BackboneCommittedSupportChain> CoreState::commit_backbone_support_chain_plan(
+EditResult<BackboneCommittedSupportChain> CoreState::realize_support_chain(
     const BackboneSupportChainPlan& support_chain_plan) {
   EditResult<BackboneCommittedSupportChain> result{};
   BackboneCommittedSupportChain committed{};
@@ -982,4 +982,3 @@ EditResult<BackboneCommittedSupportChain> CoreState::commit_backbone_support_cha
 }
 
 } // namespace wire::core
-

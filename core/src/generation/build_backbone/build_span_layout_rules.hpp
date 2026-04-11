@@ -1,10 +1,13 @@
 #pragma once
 
-#include "backbone_seed_topology.hpp"
+#include "../bundle_spans/bundle_span_context.hpp"
 
 #include <unordered_map>
 
 namespace wire::core::generation::detail {
+
+void apply_seed_topology_projection(const EndpointContinuityDecision& source, ObjectId owner_pole_id,
+                                    SupportLayoutSemanticDecision* decision);
 
 void apply_seed_placement_projection(const EndpointContinuityDecision& source,
                                      SupportLayoutSemanticDecision* decision);

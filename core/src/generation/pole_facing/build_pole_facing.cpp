@@ -1,11 +1,11 @@
 #include "wire/core/core_state.hpp"
 #include "wire/core/coord_utils.hpp"
 #include "wire/core/core_view.hpp"
-#include "backbone_generation_plan_internal.hpp"
-#include "backbone_pole_orientation_policy.hpp"
-#include "detail_utils.hpp"
-#include "../pole_orientation_utils.hpp"
-#include "../support_orientation_utils.hpp"
+#include "../build_backbone/build_backbone_types.hpp"
+#include "pole_facing_rules.hpp"
+#include "../detail_utils.hpp"
+#include "../../pole_orientation_utils.hpp"
+#include "../../support_orientation_utils.hpp"
 
 #include <algorithm>
 #include <cmath>

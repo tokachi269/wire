@@ -1,6 +1,6 @@
 #pragma once
 
-#include "grouped_span_common.hpp"
+#include "bundle_span_context.hpp"
 
 #include <map>
 

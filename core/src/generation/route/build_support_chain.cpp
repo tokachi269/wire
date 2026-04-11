@@ -1,9 +1,9 @@
 #include "wire/core/core_state.hpp"
 #include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
-#include "backbone_generation_plan_internal.hpp"
-#include "detail_utils.hpp"
-#include "../pole_orientation_utils.hpp"
+#include "../build_backbone/build_backbone_types.hpp"
+#include "../detail_utils.hpp"
+#include "../../pole_orientation_utils.hpp"
 
 #include <unordered_map>
 

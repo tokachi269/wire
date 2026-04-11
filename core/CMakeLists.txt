@@ -10,23 +10,21 @@ add_library(
   src/state/override_resolution.cpp
   src/state/template_mutation_service.cpp
   src/pole_orientation_utils.cpp
-  src/generation/service.cpp
-  src/generation/grouped_spans.cpp
-  src/generation/grouped_span_lane_preparation.cpp
-  src/generation/grouped_span_lowering.cpp
-  src/generation/grouped_span_orientation.cpp
-  src/generation/backbone_seed_topology.cpp
-  src/generation/backbone_seed_placement.cpp
-  src/generation/backbone_pole_orientation_policy.cpp
-  src/generation/backbone_generation_request_planner.cpp
-  src/generation/backbone_support_chain_planner.cpp
-  src/generation/backbone_topology_planner.cpp
-  src/generation/backbone_orientation_planner.cpp
-  src/generation/backbone_generation_pipeline.cpp
-  src/generation/backbone_generation_commit.cpp
-  src/generation/from_backbone.cpp
-  src/generation/backbone_prepare.cpp
-  src/generation/regenerate.cpp
+  src/generation/build_backbone_service.cpp
+  src/generation/bundle_spans/build_bundle_spans.cpp
+  src/generation/bundle_spans/build_bundle_rows.cpp
+  src/generation/bundle_spans/build_endpoint_heights.cpp
+  src/generation/bundle_spans/build_endpoint_directions.cpp
+  src/generation/build_backbone/build_span_layout_rules.cpp
+  src/generation/pole_facing/pole_facing_rules.cpp
+  src/generation/build_backbone/build_request.cpp
+  src/generation/route/build_support_chain.cpp
+  src/generation/route/build_junction_roles.cpp
+  src/generation/pole_facing/build_pole_facing.cpp
+  src/generation/build_backbone/build_backbone.cpp
+  src/generation/build_backbone/build_backbone_spans.cpp
+  src/generation/generate_from_backbone.cpp
+  src/generation/rebuild_from_backbone.cpp
   src/state/backbone.cpp
   src/validation/validator.cpp
   src/recalc/detail_curve.cpp

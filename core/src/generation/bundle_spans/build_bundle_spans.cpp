@@ -1,12 +1,12 @@
 #include "wire/core/core_state.hpp"
-#include "../pole_orientation_utils.hpp"
-#include "../support_orientation_utils.hpp"
-#include "detail_utils.hpp"
-#include "grouped_span_common.hpp"
-#include "grouped_span_lane_preparation.hpp"
-#include "grouped_span_lowering.hpp"
-#include "grouped_span_orientation.hpp"
-#include "support_policy.hpp"
+#include "../../pole_orientation_utils.hpp"
+#include "../../support_orientation_utils.hpp"
+#include "../detail_utils.hpp"
+#include "bundle_span_context.hpp"
+#include "build_bundle_rows.hpp"
+#include "build_endpoint_heights.hpp"
+#include "build_endpoint_directions.hpp"
+#include "../support_policy.hpp"
 
 #include <algorithm>
 #include <cmath>

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -137,6 +138,7 @@ public:
   [[nodiscard]] const BoundsCacheEntry* find_bounds_cache(ObjectId span_id) const;
   [[nodiscard]] SpanSupportLayoutProjectionView support_layout_projection(ObjectId span_id) const;
   [[nodiscard]] SpanSupportLayoutContractView support_layout_contract(ObjectId span_id) const;
+  [[nodiscard]] SpanLayoutRulesView span_layout_rules(ObjectId span_id) const;
   [[nodiscard]] const SpanVisualCacheEntry* find_span_visual_cache(ObjectId span_id) const;
   [[nodiscard]] const SpanRenderCacheEntry* find_span_render_cache(ObjectId span_id) const;
   [[nodiscard]] const AttachmentTemplate* find_attachment_template(AttachmentTemplateId attachment_template_id) const;
@@ -195,6 +197,7 @@ private:
   [[nodiscard]] static AABBd build_aabb_from_two_points(const Vec3d& a, const Vec3d& b);
   void cache_span_support_layout(SpanSupportLayoutEntry layout);
   void cache_span_support_layout_seed(SpanSupportLayoutDecisionSeed seed);
+  void cache_span_layout_rules(const SpanLayoutRules& rules);
   void erase_cached_span_support_layout_seed(ObjectId span_id);
   void erase_cached_span_support_layout(ObjectId span_id);
   void remove_span_from_caches(ObjectId span_id);
@@ -214,7 +217,13 @@ private:
                                                std::vector<SegmentLaneAssignment>* out_lane_assignments,
                                                std::vector<BackboneEdgeOrientation>* out_edge_orientations = nullptr,
                                                BundleKind bundle_template_id = BundleKind::kLowVoltage,
-                                               const std::unordered_map<ObjectId, Vec3d>* node_side_axis_by_node = nullptr);
+                                               const std::unordered_map<ObjectId, Vec3d>* node_side_axis_by_node = nullptr,
+                                               const std::unordered_map<ObjectId, std::unordered_map<ObjectId, double>>*
+                                                   node_side_sign_by_peer = nullptr,
+                                               const std::unordered_map<ObjectId, std::array<ObjectId, 2>>*
+                                                   main_pair_by_node = nullptr,
+                                               const std::unordered_map<ObjectId, std::array<ObjectId, 2>>*
+                                                   cross_pair_by_node = nullptr);
   [[nodiscard]] static std::uint64_t hash_path_points(const std::vector<Vec3d>& points);
   [[nodiscard]] double effective_pole_yaw_deg(const Pole& pole) const;
   [[nodiscard]] Vec3d to_local_on_pole(const Pole& pole, const Vec3d& world) const;

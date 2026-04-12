@@ -14,6 +14,7 @@
 #include "../../support_orientation_utils.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -77,10 +78,6 @@ struct GroupedSpanBuildOutput {
   std::unordered_map<ObjectId, JunctionRelation> junction_relations_by_node{};
 };
 
-struct SpanSeedRules {
-  std::vector<SpanSupportLayoutDecisionSeed> support_layout_seeds{};
-};
-
 struct GeneratedSpanMetadata {
   ChangeSet change_set{};
   std::vector<ObjectId> generated_span_ids{};
@@ -91,7 +88,6 @@ struct BundleSpanRunOutput {
   std::vector<ObjectId> generated_span_ids{};
   std::vector<SegmentLaneAssignment> lane_assignments{};
   std::vector<BackboneEdgeOrientation> edge_orientations{};
-  std::vector<SpanSupportLayoutDecisionSeed> support_layout_seeds{};
   std::unordered_map<ObjectId, JunctionRelation> junction_relations_by_node{};
 };
 
@@ -181,94 +177,36 @@ std::unordered_map<ObjectId, Vec3d> build_backbone_side_axis_hints(
   return hints;
 }
 
-SupportLayoutDecisionSeedEndpoint build_seed_endpoint_record_commit(
-    const EditState& edit_state, const std::unordered_map<ObjectId, JunctionRelation>& junction_relations_by_node,
-    const SegmentLaneAssignment& assignment, ObjectId endpoint_node_id, const Port& port,
-    const EndpointContinuityDecision& decision) {
-  return build_seed_endpoint_from_decision(edit_state, junction_relations_by_node, assignment, endpoint_node_id, port,
-                                           decision);
-}
-
-void append_seed_support_group_decision(const CoreState& state, const Port& port,
-                                               const SupportLayoutDecisionSeedEndpoint& endpoint,
-                                               SpanSupportLayoutDecisionSeed* layout) {
-  (void)port;
-  if (layout == nullptr || !UsesAuthoritativeGroupedLoweredSupport(endpoint)) {
-    return;
-  }
-  const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint);
-  if (key.owner_pole_id == kInvalidObjectId || key.support_group_id < 0) {
-    return;
-  }
-  const Pole* pole = state.view().poles().find(key.owner_pole_id);
-  if (pole == nullptr) {
-    return;
-  }
-  auto [it, inserted] = layout->support_group_decisions.try_emplace(key);
-  if (inserted) {
-    SupportGroupDecision& group = it->second;
-    static_cast<SupportLayoutSemanticDecision&>(group) = endpoint;
-    group.owner_pole_id = endpoint.owner_pole_id;
-    group.support_group_id = endpoint.support_group_id;
-    group.support_authority = endpoint.support_authority;
-    group.side = endpoint.side;
-    group.origin = endpoint.origin;
-    group.order_decision_policy = endpoint.order_decision_policy;
-    group.order_decision_choice = endpoint.order_decision_choice;
-    group.order_decision_choice_reason = endpoint.order_decision_choice_reason;
-    group.chosen_side = endpoint.chosen_side;
-    group.used_junction_pair_side_assignment = endpoint.used_junction_pair_side_assignment;
-  }
-}
-
-SpanSupportLayoutDecisionSeed build_seed_layout_record(
-    const CoreState& state, ObjectId span_id, BackboneFlowKind flow_kind, CurvePassMode pass_mode,
-    std::uint64_t variation_flow_key, BackboneLoweringKind lowering_kind, const Port& port_a, const Port& port_b,
-    SupportLayoutDecisionSeedEndpoint start, SupportLayoutDecisionSeedEndpoint end) {
-  SpanSupportLayoutDecisionSeed layout{};
-  layout.span_id = span_id;
-  layout.flow_kind = flow_kind;
-  layout.pass_mode = pass_mode;
-  layout.variation_flow_key = variation_flow_key;
-  layout.lowering_kind = lowering_kind;
-  layout.start = std::move(start);
-  layout.end = std::move(end);
-  append_seed_support_group_decision(state, port_a, layout.start, &layout);
-  append_seed_support_group_decision(state, port_b, layout.end, &layout);
-  return layout;
-}
-
-std::vector<SpanSupportLayoutDecisionSeed> build_seed_generated_support_layouts(
-    const CoreState& state, const EditState& edit_state, const std::vector<ObjectId>& span_ids,
-    const std::vector<SegmentLaneAssignment>& lane_assignments,
-    const std::unordered_map<ObjectId, JunctionRelation>& junction_relations_by_node, std::uint64_t variation_flow_key) {
-  std::vector<SpanSupportLayoutDecisionSeed> layouts{};
-  layouts.reserve(span_ids.size());
-  std::size_t span_index = 0;
-  for (const SegmentLaneAssignment& assignment : lane_assignments) {
-    const std::size_t lane_count = std::min(assignment.port_ids_a.size(), assignment.port_ids_b.size());
-    for (std::size_t lane = 0; lane < lane_count && span_index < span_ids.size(); ++lane, ++span_index) {
-      const ObjectId span_id = span_ids[span_index];
-      const Span* span = edit_state.spans.find(span_id);
-      const Port* port_a = edit_state.ports.find(assignment.port_ids_a[lane]);
-      const Port* port_b = edit_state.ports.find(assignment.port_ids_b[lane]);
-      if (span == nullptr || port_a == nullptr || port_b == nullptr) {
-        continue;
-      }
-      const CurvePassMode pass_mode =
-          (span->placement_context == ConnectionContext::kBranchAdd)
-              ? CurvePassMode::kBranch
-              : ((span->placement_context == ConnectionContext::kCornerPass) ? CurvePassMode::kPassThrough
-                                                                             : CurvePassMode::kPassThrough);
-      layouts.push_back(build_seed_layout_record(
-          state, span_id, assignment.flow_kind, pass_mode, variation_flow_key, assignment.lowering_kind, *port_a, *port_b,
-          build_seed_endpoint_record_commit(edit_state, junction_relations_by_node, assignment, span->endpoint_node_a_id,
-                                            *port_a, assignment.decision_a),
-          build_seed_endpoint_record_commit(edit_state, junction_relations_by_node, assignment, span->endpoint_node_b_id,
-                                            *port_b, assignment.decision_b)));
+std::unordered_map<ObjectId, std::unordered_map<ObjectId, double>> build_backbone_side_signs(
+    const JunctionRoles& roles) {
+  std::unordered_map<ObjectId, std::unordered_map<ObjectId, double>> signs{};
+  auto add_pair = [&](ObjectId node_id, const BackbonePair& pair) {
+    if (node_id == kInvalidObjectId || !pair.valid()) {
+      return;
     }
+    signs[node_id][pair.low] = -1.0;
+    signs[node_id][pair.high] = 1.0;
+  };
+  for (const auto& [node_id, pair] : roles.main_pair_by_node) {
+    add_pair(node_id, pair);
   }
-  return layouts;
+  for (const auto& [node_id, pair] : roles.cross_pair_by_node) {
+    add_pair(node_id, pair);
+  }
+  return signs;
+}
+
+std::unordered_map<ObjectId, std::array<ObjectId, 2>> build_backbone_peer_pairs(
+    const std::unordered_map<ObjectId, BackbonePair>& pairs) {
+  std::unordered_map<ObjectId, std::array<ObjectId, 2>> out{};
+  out.reserve(pairs.size());
+  for (const auto& [node_id, pair] : pairs) {
+    if (node_id == kInvalidObjectId || !pair.valid()) {
+      continue;
+    }
+    out.emplace(node_id, std::array<ObjectId, 2>{pair.low, pair.high});
+  }
+  return out;
 }
 
 JunctionRelation remap_junction_relation_commit(const JunctionRelation& relation,
@@ -698,6 +636,9 @@ EditResult<BackboneRuntimeState> CoreState::remap_backbone_build_to_real_nodes(
         }
         return Vec3d{};
       });
+  runtime.node_side_sign_by_peer = build_backbone_side_signs(runtime.roles);
+  runtime.main_pair_by_node = build_backbone_peer_pairs(runtime.roles.main_pair_by_node);
+  runtime.cross_pair_by_node = build_backbone_peer_pairs(runtime.roles.cross_pair_by_node);
   runtime.pole_facing.by_node.clear();
   runtime.pole_facing.by_node.reserve(pole_facing.by_node.size());
   for (const auto& [node_id, orientation] : pole_facing.by_node) {
@@ -783,7 +724,8 @@ EditResult<GeneratedBackboneSpans> CoreState::build_bundle_spans_for_backbone(
         allocation.bundle_plan.order_decision_policy, flow_info.kind, run.lowering_policy, &output.junction_relations_by_node,
         &current_feasibility,
         &output.lane_assignments, &output.edge_orientations, allocation.bundle_plan.template_id,
-        &runtime.node_side_axis_by_node);
+        &runtime.node_side_axis_by_node, &runtime.node_side_sign_by_peer,
+        &runtime.main_pair_by_node, &runtime.cross_pair_by_node);
     if (!spans_result.ok) {
       result.error = spans_result.error;
       return result;
@@ -803,15 +745,6 @@ EditResult<GeneratedBackboneSpans> CoreState::build_bundle_spans_for_backbone(
     result.value = std::move(output);
     result.ok = true;
     return result;
-  };
-  auto build_support_layout_seed_authority_phase =
-      [&](const GroupedSpanBuildOutput& grouped_span_phase, const SpanRun& run)
-      -> SpanSeedRules {
-    SpanSeedRules output{};
-    output.support_layout_seeds = build_seed_generated_support_layouts(
-        *this, edit_state_access(), grouped_span_phase.span_ids, grouped_span_phase.lane_assignments,
-        grouped_span_phase.junction_relations_by_node, run.variation_flow_key);
-    return output;
   };
   auto apply_generated_span_metadata_phase =
       [&](const BundleAllocation& allocation, const GroupedSpanBuildOutput& grouped_span_phase,
@@ -863,12 +796,6 @@ EditResult<GeneratedBackboneSpans> CoreState::build_bundle_spans_for_backbone(
                                      grouped_span_phase.lane_assignments.end());
       output.edge_orientations.insert(output.edge_orientations.end(), grouped_span_phase.edge_orientations.begin(),
                                       grouped_span_phase.edge_orientations.end());
-
-      SpanSeedRules seed_authority_phase =
-          build_support_layout_seed_authority_phase(grouped_span_phase, run);
-      output.support_layout_seeds.insert(output.support_layout_seeds.end(),
-                                         std::make_move_iterator(seed_authority_phase.support_layout_seeds.begin()),
-                                         std::make_move_iterator(seed_authority_phase.support_layout_seeds.end()));
 
       GeneratedSpanMetadata metadata_phase =
           apply_generated_span_metadata_phase(allocation, grouped_span_phase, run,
@@ -926,9 +853,6 @@ EditResult<GeneratedBackboneSpans> CoreState::build_bundle_spans_for_backbone(
                                                 span_phase.edge_orientations.begin(), span_phase.edge_orientations.end());
     phase_result.value.generated_span_ids.insert(phase_result.value.generated_span_ids.end(),
                                                  span_phase.generated_span_ids.begin(), span_phase.generated_span_ids.end());
-    for (SpanSupportLayoutDecisionSeed& layout_seed : span_phase.support_layout_seeds) {
-      cache_span_support_layout_seed(std::move(layout_seed));
-    }
   }
 
   phase_result.ok = true;

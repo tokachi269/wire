@@ -110,6 +110,10 @@ SpanSupportLayoutContractView CoreState::support_layout_contract(ObjectId span_i
   return runtime_.cache_state.support_layout_cache.contract_view(span_id);
 }
 
+SpanLayoutRulesView CoreState::span_layout_rules(ObjectId span_id) const {
+  return runtime_.cache_state.support_layout_cache.rules_view(span_id);
+}
+
 const SpanVisualCacheEntry* CoreState::find_span_visual_cache(ObjectId span_id) const {
   auto it = runtime_.cache_state.visual_cache.by_span.find(span_id);
   if (it == runtime_.cache_state.visual_cache.by_span.end()) {
@@ -453,9 +457,12 @@ bool CoreState::cache_rebuilt_span_geometry(ObjectId span_id, SpanSupportLayoutE
 }
 
 bool CoreState::rebuild_span_geometry_with_cached_contract(ObjectId span_id, std::string* error_message) {
-  const SpanSupportLayoutContractView contract = runtime_.cache_state.support_layout_cache.contract_view(span_id);
-  if (contract.requires_authority() && !contract.has_authority()) {
-    return set_missing_seed_error(error_message);
+  const SpanLayoutRulesView rules = runtime_.cache_state.support_layout_cache.rules_view(span_id);
+  if (!rules.has_rule()) {
+    const SpanSupportLayoutContractView contract = runtime_.cache_state.support_layout_cache.contract_view(span_id);
+    if (contract.requires_authority() && !contract.has_authority()) {
+      return set_missing_seed_error(error_message);
+    }
   }
   const Span* span = authoritative_.edit_state.spans.find(span_id);
   if (span == nullptr) {
@@ -517,6 +524,54 @@ void CoreState::cache_span_support_layout_seed(SpanSupportLayoutDecisionSeed see
           runtime_it->second.dirty_bits & ~DirtyBits::kDecision & ~DirtyBits::kGeometryRefresh & ~DirtyBits::kBounds &
           ~DirtyBits::kRenderRefresh;
     }
+  }
+}
+
+void CoreState::cache_span_layout_rules(const SpanLayoutRules& rules) {
+  runtime_.cache_state.support_layout_cache.store_rules(rules);
+  for (const SpanLayoutRule& rule : rules.spans) {
+    SpanSupportLayoutDecisionSeed seed{};
+    seed.span_id = rule.span_id;
+    seed.flow_kind = rule.flow_kind;
+    seed.pass_mode = rule.pass_mode;
+    seed.variation_flow_key = rule.variation_flow_key;
+    seed.lowering_kind = rule.lowering_kind;
+    auto copy_endpoint = [](const EndpointLayoutRule& source) {
+      SupportLayoutDecisionSeedEndpoint out{};
+      static_cast<SupportLayoutSemanticDecision&>(out) = source.semantic;
+      out.endpoint_node_id = source.endpoint_node_id;
+      out.port_id = source.port_id;
+      out.support_authority = source.support_authority;
+      out.attachment_request = source.attachment_request;
+      out.resolved_socket_id = source.resolved_socket_id;
+      out.flow_kind = source.flow_kind;
+      out.origin = source.origin;
+      out.endpoint_source = source.endpoint_source;
+      out.port_source = source.port_source;
+      out.side = source.side;
+      out.endpoint_mode = source.endpoint_mode;
+      out.automatic_branch_down_offset_m = source.automatic_branch_down_offset_m;
+      out.branch_down_offset_m = source.branch_down_offset_m;
+      out.default_lower_required = source.default_lower_required;
+      out.same_level_feasible = source.same_level_feasible;
+      out.unresolved_same_level_conflict = source.unresolved_same_level_conflict;
+      out.same_level_reason = source.same_level_reason;
+      out.projected_spacing_topview_m = source.projected_spacing_topview_m;
+      out.required_clearance_m = source.required_clearance_m;
+      out.solver_used_same_level_constraint = source.solver_used_same_level_constraint;
+      out.used_special_case_ports = source.used_special_case_ports;
+      out.order_decision_policy = source.order_decision_policy;
+      out.order_decision_choice = source.order_decision_choice;
+      out.order_decision_choice_reason = source.order_decision_choice_reason;
+      out.chosen_side = source.chosen_side;
+      out.used_junction_pair_side_assignment = source.used_junction_pair_side_assignment;
+      out.down_offset_variation = source.down_offset_variation;
+      return out;
+    };
+    seed.start = copy_endpoint(rule.start);
+    seed.end = copy_endpoint(rule.end);
+    seed.support_group_decisions = rule.support_group_rules;
+    cache_span_support_layout_seed(std::move(seed));
   }
 }
 

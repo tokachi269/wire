@@ -57,6 +57,7 @@ public:
   [[nodiscard]] const BoundsCacheEntry* find_bounds_cache(ObjectId span_id) const;
   [[nodiscard]] SpanSupportLayoutProjectionView support_layout_projection(ObjectId span_id) const;
   [[nodiscard]] SpanSupportLayoutContractView support_layout_contract(ObjectId span_id) const;
+  [[nodiscard]] SpanLayoutRulesView span_layout_rules(ObjectId span_id) const;
   [[nodiscard]] const SpanVisualCacheEntry* find_span_visual_cache(ObjectId span_id) const;
   [[nodiscard]] const SpanRenderCacheEntry* find_span_render_cache(ObjectId span_id) const;
   [[nodiscard]] const AttachmentTemplate* find_attachment_template(AttachmentTemplateId attachment_template_id) const;

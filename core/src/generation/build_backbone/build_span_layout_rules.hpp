@@ -21,4 +21,9 @@ void apply_seed_placement_projection(const EndpointContinuityDecision& source,
     const SegmentLaneAssignment& assignment, ObjectId endpoint_node_id, const Port& port,
     const EndpointContinuityDecision& decision);
 
+[[nodiscard]] EndpointLayoutRule build_endpoint_layout_rule_from_decision(
+    const EditState& edit_state, const std::unordered_map<ObjectId, JunctionRelation>& junction_relations_by_node,
+    const SegmentLaneAssignment& assignment, ObjectId endpoint_node_id, const Port& port,
+    const EndpointContinuityDecision& decision);
+
 } // namespace wire::core::generation::detail

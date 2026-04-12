@@ -110,6 +110,9 @@ SpanSupportLayoutProjectionView CoreView::support_layout_projection(ObjectId spa
 SpanSupportLayoutContractView CoreView::support_layout_contract(ObjectId span_id) const {
   return state_.support_layout_contract(span_id);
 }
+SpanLayoutRulesView CoreView::span_layout_rules(ObjectId span_id) const {
+  return state_.span_layout_rules(span_id);
+}
 const SpanVisualCacheEntry* CoreView::find_span_visual_cache(ObjectId span_id) const {
   return state_.find_span_visual_cache(span_id);
 }

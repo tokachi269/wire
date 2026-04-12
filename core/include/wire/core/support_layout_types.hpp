@@ -225,6 +225,58 @@ struct SpanSupportLayoutDecisionSeed {
   std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash> support_group_decisions{};
 };
 
+struct EndpointLayoutRule {
+  ObjectId endpoint_node_id = kInvalidObjectId;
+  ObjectId port_id = kInvalidObjectId;
+  SupportLayoutSemanticDecision semantic{};
+  ResolvedSupportAuthority support_authority{};
+  EndpointAttachmentRequest attachment_request{};
+  std::optional<int> resolved_socket_id{};
+  BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
+  SupportLayoutOriginKind origin = SupportLayoutOriginKind::kFallback;
+  SupportLayoutEndpointSourceKind endpoint_source = SupportLayoutEndpointSourceKind::kFallback;
+  PortPlacementSourceKind port_source = PortPlacementSourceKind::kUnknown;
+  SlotSide side = SlotSide::kCenter;
+  CurveEndpointMode endpoint_mode = CurveEndpointMode::kDirectThrough;
+  double automatic_branch_down_offset_m = 0.0;
+  double branch_down_offset_m = 0.0;
+  bool default_lower_required = false;
+  bool same_level_feasible = true;
+  bool unresolved_same_level_conflict = false;
+  SameLevelFeasibilityReason same_level_reason = SameLevelFeasibilityReason::kNone;
+  double projected_spacing_topview_m = -1.0;
+  double required_clearance_m = 0.0;
+  bool solver_used_same_level_constraint = false;
+  bool used_special_case_ports = false;
+  OrderDecisionPolicyKind order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
+  OrderDecisionChoiceKind order_decision_choice = OrderDecisionChoiceKind::kNormal;
+  OrderDecisionChoiceReason order_decision_choice_reason = OrderDecisionChoiceReason::kFixedOrder;
+  LateralSideChoiceKind chosen_side = LateralSideChoiceKind::kCenter;
+  bool used_junction_pair_side_assignment = false;
+  HierarchicalVariationSample down_offset_variation{};
+};
+
+struct SpanLayoutRule {
+  ObjectId span_id = kInvalidObjectId;
+  BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
+  CurvePassMode pass_mode = CurvePassMode::kPassThrough;
+  std::uint64_t variation_flow_key = 0;
+  BackboneLoweringKind lowering_kind = BackboneLoweringKind::kNone;
+  EndpointLayoutRule start{};
+  EndpointLayoutRule end{};
+  std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash> support_group_rules{};
+};
+
+struct SpanLayoutRules {
+  std::vector<SpanLayoutRule> spans{};
+};
+
+struct SpanLayoutRulesView {
+  const SpanLayoutRule* rule = nullptr;
+
+  [[nodiscard]] bool has_rule() const { return rule != nullptr; }
+};
+
 struct LoweredSupportGroupPlacement {
   // Geometry/materialization only. Semantic authority lives in SupportGroupDecision.
   SupportGroupingRuleKind grouping_rule = SupportGroupingRuleKind::kDecisionGroup;
@@ -283,6 +335,7 @@ struct SpanSupportLayoutProjectionRecord {
 struct SupportLayoutCacheRecord {
   SpanSupportLayoutAuthorityRecord authority{};
   SpanSupportLayoutProjectionRecord projection{};
+  std::optional<SpanLayoutRule> saved_rule{};
 
   [[nodiscard]] bool requires_authority() const { return authority.required; }
   [[nodiscard]] bool has_authority() const { return authority.has_seed(); }
@@ -291,6 +344,9 @@ struct SupportLayoutCacheRecord {
   [[nodiscard]] SpanSupportLayoutDecisionSeed* authority_seed() { return authority.value(); }
   [[nodiscard]] const SpanSupportLayoutEntry* projected_layout() const { return projection.value(); }
   [[nodiscard]] SpanSupportLayoutEntry* projected_layout() { return projection.value(); }
+  [[nodiscard]] const SpanLayoutRule* span_layout_rule() const {
+    return saved_rule.has_value() ? &*saved_rule : nullptr;
+  }
 
   void require_authority(bool required_value = true) { authority.required = required_value; }
   void store_authority(SpanSupportLayoutDecisionSeed seed_value) {
@@ -300,6 +356,8 @@ struct SupportLayoutCacheRecord {
   void clear_authority() { authority.seed.reset(); }
   void store_projection(SpanSupportLayoutEntry layout_value) { projection.layout = std::move(layout_value); }
   void clear_projection() { projection.layout.reset(); }
+  void store_rule(SpanLayoutRule rule_value) { saved_rule = std::move(rule_value); }
+  void clear_rule() { saved_rule.reset(); }
 };
 
 struct SpanSupportLayoutAuthorityView {
@@ -369,6 +427,14 @@ struct SupportLayoutCache {
 
   [[nodiscard]] SpanSupportLayoutContractView contract_view(ObjectId span_id) const {
     return {authority_view(span_id), projection_view(span_id)};
+  }
+
+  [[nodiscard]] SpanLayoutRulesView rules_view(ObjectId span_id) const {
+    const auto it = records_by_span.find(span_id);
+    if (it == records_by_span.end()) {
+      return {};
+    }
+    return {it->second.span_layout_rule()};
   }
 
   [[nodiscard]] MutableSpanSupportLayoutProjectionView edit_projection(ObjectId span_id) {
@@ -451,6 +517,15 @@ struct SupportLayoutCache {
     const ObjectId span_id = seed.span_id;
     SupportLayoutCacheRecord& record = records_by_span[span_id];
     record.store_authority(std::move(seed));
+  }
+
+  void store_rules(const SpanLayoutRules& rules) {
+    for (const SpanLayoutRule& rule : rules.spans) {
+      if (rule.span_id == kInvalidObjectId) {
+        continue;
+      }
+      records_by_span[rule.span_id].store_rule(rule);
+    }
   }
 
   void clear_seed(ObjectId span_id) {

@@ -1,4 +1,5 @@
 #include "backbone_pipeline.hpp"
+#include "../build_backbone/build_span_layout_rules.hpp"
 #include "../detail_utils.hpp"
 #include "../../pole_orientation_utils.hpp"
 #include "wire/core/core_view.hpp"
@@ -453,13 +454,10 @@ EditResult<JunctionRoleResolverOutput> JunctionRoleResolver::resolve(const Backb
 EditResult<PoleFacing> PoleFacingResolver::resolve(const BackboneBuilderOutput& builder_output,
                                                    const JunctionRoleResolverOutput& role_output) const {
   EditResult<PoleFacing> result{};
-  std::unordered_map<ObjectId, BackboneOrientationNodeContext> orientation_context_by_node{};
-  const EditState& edit_state = state_.edit_state_access();
   const auto& ordered_support_node_ids = builder_output.support_chain.ordered_support_node_ids;
   const auto& support_node_by_id = builder_output.support_chain.support_node_by_id;
   const auto& existing_node_position_by_id = role_output.topology.existing_node_position_by_id;
-  const auto& junction_relations_by_node = role_output.roles.by_node;
-  const std::vector<BackboneBundlePlan>& active_bundle_plans = builder_output.request.active_bundle_plans;
+  const bool reverse_build = builder_output.backbone.build_direction == BuildDirection::kReverse;
 
   auto current_support_position = [&](ObjectId node_id) -> Vec3d {
     if (const auto it = support_node_by_id.find(node_id); it != support_node_by_id.end()) {
@@ -473,200 +471,113 @@ EditResult<PoleFacing> PoleFacingResolver::resolve(const BackboneBuilderOutput& 
     }
     return {};
   };
-  auto connected_neighbors_for_support_axis = [&](ObjectId node_id) {
-    std::vector<ObjectId> neighbors{};
-    for (const Span& span : edit_state.spans.items()) {
-      const Port* port_a = edit_state.ports.find(span.port_a_id);
-      const Port* port_b = edit_state.ports.find(span.port_b_id);
-      if (port_a == nullptr || port_b == nullptr) {
-        continue;
-      }
-      if (port_a->owner_pole_id == node_id && port_b->owner_pole_id != kInvalidObjectId && port_b->owner_pole_id != node_id) {
-        neighbors.push_back(port_b->owner_pole_id);
-      }
-      if (port_b->owner_pole_id == node_id && port_a->owner_pole_id != kInvalidObjectId && port_a->owner_pole_id != node_id) {
-        neighbors.push_back(port_a->owner_pole_id);
-      }
-    }
-    std::sort(neighbors.begin(), neighbors.end());
-    neighbors.erase(std::unique(neighbors.begin(), neighbors.end()), neighbors.end());
-    return neighbors;
-  };
-  struct BundleCategoryKey {
-    ConnectionCategory category = ConnectionCategory::kLowVoltage;
-    BundleKind bundle_template_id = BundleKind::kLowVoltage;
-  };
-  BundleCategoryKey route_bundle_category_key{};
-  bool has_route_bundle_category_key = false;
-  for (const BackboneBundlePlan& bundle_plan : active_bundle_plans) {
-    const BundleCategoryKey candidate_key{bundle_plan.category, bundle_plan.template_id};
-    if (!has_route_bundle_category_key ||
-        static_cast<int>(candidate_key.category) < static_cast<int>(route_bundle_category_key.category) ||
-        (candidate_key.category == route_bundle_category_key.category &&
-         static_cast<int>(candidate_key.bundle_template_id) < static_cast<int>(route_bundle_category_key.bundle_template_id))) {
-      route_bundle_category_key = candidate_key;
-      has_route_bundle_category_key = true;
-    }
-  }
-  auto edge_hash = [](ObjectId node_a, ObjectId node_b) {
-    const std::uint64_t lo = static_cast<std::uint64_t>(std::min(node_a, node_b));
-    const std::uint64_t hi = static_cast<std::uint64_t>(std::max(node_a, node_b));
-    return lo ^ (hi + 0x9E3779B97F4A7C15ull + (lo << 6) + (lo >> 2));
-  };
-  std::unordered_map<std::uint64_t, BundleCategoryKey> bundle_category_key_by_edge{};
-  for (const Span& span : edit_state.spans.items()) {
-    const Port* port_a = edit_state.ports.find(span.port_a_id);
-    const Port* port_b = edit_state.ports.find(span.port_b_id);
-    const Bundle* bundle = edit_state.bundles.find(span.bundle_id);
-    if (port_a == nullptr || port_b == nullptr || bundle == nullptr) {
-      continue;
-    }
-    if (port_a->owner_pole_id == kInvalidObjectId || port_b->owner_pole_id == kInvalidObjectId ||
-        port_a->owner_pole_id == port_b->owner_pole_id) {
-      continue;
-    }
-    const BundleTemplate* bundle_template = state_.find_bundle_template(bundle->bundle_template_id);
-    if (bundle_template == nullptr) {
-      continue;
-    }
-    const BundleCategoryKey candidate_key{bundle_template->category, bundle->bundle_template_id};
-    const std::uint64_t edge = edge_hash(port_a->owner_pole_id, port_b->owner_pole_id);
-    const auto it_existing = bundle_category_key_by_edge.find(edge);
-    if (it_existing == bundle_category_key_by_edge.end()) {
-      bundle_category_key_by_edge.emplace(edge, candidate_key);
-    } else {
-      BundleCategoryKey& current_key = it_existing->second;
-      if (static_cast<int>(candidate_key.category) < static_cast<int>(current_key.category) ||
-          (candidate_key.category == current_key.category &&
-           static_cast<int>(candidate_key.bundle_template_id) < static_cast<int>(current_key.bundle_template_id))) {
-        current_key = candidate_key;
-      }
-    }
-  }
-  auto bundle_category_key_for_neighbor = [&](ObjectId node_id, ObjectId neighbor_id) {
-    const auto it = bundle_category_key_by_edge.find(edge_hash(node_id, neighbor_id));
-    return (it == bundle_category_key_by_edge.end()) ? BundleCategoryKey{} : it->second;
-  };
-  auto row_layout_axis_mode_for_key = [&](const BundleCategoryKey& key) {
-    const BundleTemplate* bundle_template = state_.find_bundle_template(key.bundle_template_id);
-    return (bundle_template != nullptr) ? bundle_template->row_layout_axis_mode : RowLayoutAxisMode::kPoleYaw;
-  };
-  auto row_layout_axis_key_for_node = [&](ObjectId node_id) {
-    if (row_layout_axis_mode_for_key(route_bundle_category_key) == RowLayoutAxisMode::kSupportAxis) {
-      return route_bundle_category_key;
-    }
-    for (ObjectId neighbor_id : connected_neighbors_for_support_axis(node_id)) {
-      const BundleCategoryKey candidate = bundle_category_key_for_neighbor(node_id, neighbor_id);
-      if (row_layout_axis_mode_for_key(candidate) == RowLayoutAxisMode::kSupportAxis) {
-        return candidate;
-      }
-    }
-    return BundleCategoryKey{};
-  };
-  auto neighbor_direction = [&](ObjectId node_id, ObjectId neighbor_id) {
+  PoleFacing facing{};
+  auto direction_to = [&](ObjectId node_id, ObjectId neighbor_id) {
     return normalize_forward_xy_pipeline(current_support_position(neighbor_id) - current_support_position(node_id));
   };
-  auto choose_continuous_axis = [&](const Vec3d& axis, const Vec3d& previous_forward) {
-    Vec3d out = axis;
-    if (!Normalize(&out)) {
+  auto pair_forward_neighbor = [&](const BackbonePair& pair) {
+    return reverse_build ? pair.low : pair.high;
+  };
+  auto pair_bisector = [&](ObjectId node_id, const BackbonePair& pair) {
+    if (!pair.valid()) {
       return Vec3d{};
     }
-    Vec3d prev = normalize_forward_xy_pipeline(previous_forward);
-    if (Dot(out, prev) < 0.0) {
-      out = ScaleVec(out, -1.0);
+    Vec3d dir_low = direction_to(node_id, pair.low);
+    Vec3d dir_high = direction_to(node_id, pair.high);
+    Vec3d axis = normalize_forward_xy_pipeline(dir_low + dir_high);
+    if (!Normalize(&axis)) {
+      axis = direction_to(node_id, pair_forward_neighbor(pair));
     }
-    return out;
+    return axis;
   };
-  auto choose_support_axis_for_layout = [&](const BackboneOrientationNodeContext& node_context) {
-    struct SupportAxisSelection {
-      Vec3d axis{};
-      bool available = false;
-      PoleSupportAxisRule rule = PoleSupportAxisRule::kFallback;
-      ObjectId primary_neighbor_id = kInvalidObjectId;
-      ObjectId secondary_neighbor_id = kInvalidObjectId;
-    };
-    SupportAxisSelection selection{};
-    auto adopt_axis = [&](const Vec3d& axis, PoleSupportAxisRule rule, ObjectId primary_neighbor_id,
-                          ObjectId secondary_neighbor_id) {
-      Vec3d normalized_axis = normalize_forward_xy_pipeline(axis);
-      if (!Normalize(&normalized_axis)) {
-        return false;
-      }
-      Vec3d row_axis = ComputeLateralAxis(normalized_axis);
-      if (!Normalize(&row_axis)) {
-        return false;
-      }
-      selection.axis = choose_continuous_axis(row_axis, node_context.previous_support_axis);
-      selection.available = Normalize(&selection.axis);
-      if (selection.available) {
-        selection.rule = rule;
-        selection.primary_neighbor_id = primary_neighbor_id;
-        selection.secondary_neighbor_id = secondary_neighbor_id;
-      }
-      return selection.available;
-    };
-    if (node_context.continuation_pair.available) {
-      if (adopt_axis(node_context.continuation_pair.primary_direction, PoleSupportAxisRule::kMainChainPair,
-                     node_context.continuation_pair.primary_neighbor_id,
-                     node_context.continuation_pair.secondary_neighbor_id)) {
-        return selection;
-      }
+  auto route_neighbor_for = [&](std::size_t index) {
+    if (ordered_support_node_ids.size() < 2) {
+      return kInvalidObjectId;
     }
-    if (node_context.primary_neighbor.neighbor_id != kInvalidObjectId && node_context.primary_neighbor.available) {
-      const PoleSupportAxisRule rule =
-          node_context.has_active_junction ? PoleSupportAxisRule::kPrimaryIncident : PoleSupportAxisRule::kMainChainSingle;
-      adopt_axis(node_context.primary_neighbor.direction, rule, node_context.primary_neighbor.neighbor_id, kInvalidObjectId);
+    if (!reverse_build) {
+      return (index + 1 < ordered_support_node_ids.size()) ? ordered_support_node_ids[index + 1]
+                                                           : ordered_support_node_ids[index - 1];
     }
-    return selection;
+    return (index > 0) ? ordered_support_node_ids[index - 1] : ordered_support_node_ids[index + 1];
   };
+  auto route_neighbor_in_pair = [&](std::size_t index, const BackbonePair& pair) {
+    const ObjectId route_neighbor_id = route_neighbor_for(index);
+    if (route_neighbor_id == pair.low || route_neighbor_id == pair.high) {
+      return route_neighbor_id;
+    }
+    return pair_forward_neighbor(pair);
+  };
+  std::unordered_set<ObjectId> planned_nodes{};
+  for (std::size_t index = 0; index < ordered_support_node_ids.size(); ++index) {
+    const ObjectId node_id = ordered_support_node_ids[index];
+    if (!planned_nodes.insert(node_id).second) {
+      continue;
+    }
+    BackbonePlannedPoleOrientation planned{};
+    PoleOrientationDebugRecord debug{};
+    debug.pole_id = node_id;
+    if (const Pole* pole = state_.view().poles().find(node_id); pole != nullptr) {
+      if (state_.has_pole_orientation_override(pole->id)) {
+        planned.adopted_forward = RotateAroundWorldUpDeg(WorldForward(), state_.effective_pole_yaw_deg(*pole));
+        planned.has_adopted_forward = Normalize(&planned.adopted_forward);
+        planned.forward_rule = PoleForwardRule::kFallback;
+        debug.rule = planned.forward_rule;
+        debug.adopted_forward = planned.adopted_forward;
+        planned.debug = debug;
+        facing.by_node.emplace(node_id, std::move(planned));
+        continue;
+      }
+    }
 
-  for (ObjectId node_id : ordered_support_node_ids) {
-    BackboneOrientationNodeContext context{};
-    context.center = current_support_position(node_id);
-    if (const Pole* pole = edit_state.poles.find(node_id); pole != nullptr) {
-      context.previous_forward = RotateAroundWorldUpDeg(WorldForward(), state_.effective_pole_yaw_deg(*pole));
-      context.previous_layout_yaw = state_.effective_pole_layout_yaw_deg(*pole);
-      if (const auto it_prev_debug = state_.debug_.pole_orientation_debug_records.find(pole->id);
-          it_prev_debug != state_.debug_.pole_orientation_debug_records.end()) {
-        context.previous_support_axis = it_prev_debug->second.adopted_support_axis;
-      } else {
-        context.previous_support_axis = side_axis_from_yaw_deg(context.previous_layout_yaw);
+    Vec3d forward{};
+    PoleForwardRule rule = PoleForwardRule::kFallback;
+    ObjectId primary_neighbor_id = kInvalidObjectId;
+    ObjectId secondary_neighbor_id = kInvalidObjectId;
+    const auto cross_pair_it = role_output.roles.cross_pair_by_node.find(node_id);
+    const bool is_cross = cross_pair_it != role_output.roles.cross_pair_by_node.end() && cross_pair_it->second.valid();
+    if (is_cross) {
+      if (const auto pair_it = role_output.roles.main_pair_by_node.find(node_id);
+          pair_it != role_output.roles.main_pair_by_node.end()) {
+        primary_neighbor_id = route_neighbor_in_pair(index, pair_it->second);
+        forward = direction_to(node_id, primary_neighbor_id);
+        rule = PoleForwardRule::kMainChainSingle;
+        secondary_neighbor_id = (primary_neighbor_id == pair_it->second.low) ? pair_it->second.high
+                                                                             : pair_it->second.low;
       }
     }
-    if (const auto it = junction_relations_by_node.find(node_id); it != junction_relations_by_node.end()) {
-      const JunctionRelation& relation = it->second;
-      context.has_active_junction = relation.incidents.size() >= 3;
-      context.primary_neighbor.neighbor_id = relation.primary_neighbor_id;
-      if (relation.through_pair.accepted) {
-        context.continuation_pair.primary_neighbor_id = relation.through_pair.neighbor_a_id;
-        context.continuation_pair.secondary_neighbor_id = relation.through_pair.neighbor_b_id;
+    if (!Normalize(&forward)) {
+      if (const auto pair_it = role_output.roles.main_pair_by_node.find(node_id);
+          pair_it != role_output.roles.main_pair_by_node.end()) {
+        forward = pair_bisector(node_id, pair_it->second);
+        rule = PoleForwardRule::kMainChainBisector;
+        primary_neighbor_id = pair_it->second.low;
+        secondary_neighbor_id = pair_it->second.high;
       }
     }
-    if (context.primary_neighbor.neighbor_id != kInvalidObjectId) {
-      context.primary_neighbor.direction = neighbor_direction(node_id, context.primary_neighbor.neighbor_id);
-      context.primary_neighbor.available = Normalize(&context.primary_neighbor.direction);
+    if (!Normalize(&forward)) {
+      const ObjectId neighbor_id = route_neighbor_for(index);
+      if (neighbor_id != kInvalidObjectId) {
+        forward = direction_to(node_id, neighbor_id);
+        rule = PoleForwardRule::kFallback;
+        primary_neighbor_id = neighbor_id;
+      }
     }
-    if (context.continuation_pair.primary_neighbor_id != kInvalidObjectId &&
-        context.continuation_pair.secondary_neighbor_id != kInvalidObjectId) {
-      context.continuation_pair.primary_direction = neighbor_direction(node_id, context.continuation_pair.primary_neighbor_id);
-      context.continuation_pair.secondary_direction =
-          neighbor_direction(node_id, context.continuation_pair.secondary_neighbor_id);
-      context.continuation_pair.available = Normalize(&context.continuation_pair.primary_direction) &&
-                                            Normalize(&context.continuation_pair.secondary_direction);
+    if (!Normalize(&forward)) {
+      facing.by_node.emplace(node_id, std::move(planned));
+      continue;
     }
-    const BundleCategoryKey key = row_layout_axis_key_for_node(node_id);
-    context.row_layout_axis_selection = {row_layout_axis_mode_for_key(key), key.category};
-    const auto support_axis_selection = choose_support_axis_for_layout(context);
-    context.chosen_support_axis = support_axis_selection.axis;
-    context.has_chosen_support_axis = support_axis_selection.available;
-    context.support_axis_rule = support_axis_selection.rule;
-    context.support_axis_primary_neighbor_id = support_axis_selection.primary_neighbor_id;
-    context.support_axis_secondary_neighbor_id = support_axis_selection.secondary_neighbor_id;
-    orientation_context_by_node.emplace(node_id, std::move(context));
+    planned.adopted_forward = forward;
+    planned.has_adopted_forward = true;
+    planned.forward_rule = rule;
+    planned.forward_primary_neighbor_id = primary_neighbor_id;
+    planned.forward_secondary_neighbor_id = secondary_neighbor_id;
+    debug.rule = rule;
+    debug.primary_neighbor_id = primary_neighbor_id;
+    debug.secondary_neighbor_id = secondary_neighbor_id;
+    debug.adopted_forward = forward;
+    planned.debug = debug;
+    facing.by_node.emplace(node_id, std::move(planned));
   }
-
-  PoleFacing facing{};
-  facing.by_node = build_backbone_pole_orientation_plan(ordered_support_node_ids, orientation_context_by_node);
   result.value = std::move(facing);
   result.ok = true;
   return result;
@@ -711,19 +622,69 @@ EditResult<BundleSpanBuilderOutput> BundleSpanBuilder::build(const BackboneBuild
   return result;
 }
 
-SpanLayoutRules SpanLayoutRuleBuilder::build(const std::vector<ObjectId>& span_ids) const {
+namespace {
+
+void append_support_group_rule(const CoreState& state, const EndpointLayoutRule& endpoint, SpanLayoutRule* rule) {
+  if (rule == nullptr || !UsesAuthoritativeGroupedLoweredSupport(endpoint.semantic)) {
+    return;
+  }
+  const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint.semantic);
+  if (key.owner_pole_id == kInvalidObjectId || key.support_group_id < 0) {
+    return;
+  }
+  if (state.view().poles().find(key.owner_pole_id) == nullptr) {
+    return;
+  }
+  auto [it, inserted] = rule->support_group_rules.try_emplace(key);
+  if (!inserted) {
+    return;
+  }
+  SupportGroupDecision& group = it->second;
+  static_cast<SupportLayoutSemanticDecision&>(group) = endpoint.semantic;
+  group.owner_pole_id = endpoint.semantic.owner_pole_id;
+  group.support_group_id = endpoint.semantic.support_group_id;
+  group.support_authority = endpoint.support_authority;
+  group.side = endpoint.side;
+  group.origin = endpoint.origin;
+  group.order_decision_policy = endpoint.order_decision_policy;
+  group.order_decision_choice = endpoint.order_decision_choice;
+  group.order_decision_choice_reason = endpoint.order_decision_choice_reason;
+  group.chosen_side = endpoint.chosen_side;
+  group.used_junction_pair_side_assignment = endpoint.used_junction_pair_side_assignment;
+}
+
+} // namespace
+
+SpanLayoutRules SpanLayoutRuleBuilder::build(const GeneratedBackboneSpans& spans) const {
   SpanLayoutRules rules{};
-  rules.endpoints.reserve(span_ids.size());
-  for (ObjectId span_id : span_ids) {
-    const SpanSupportLayoutAuthorityView authority = state_.support_layout_contract(span_id).authority;
-    if (!authority.has_authority()) {
-      continue;
+  rules.spans.reserve(spans.generated_span_ids.size());
+  const EditState& edit_state = state_.view().edit_state();
+  std::size_t span_index = 0;
+  for (const SegmentLaneAssignment& assignment : spans.lane_assignments) {
+    const std::size_t lane_count = std::min(assignment.port_ids_a.size(), assignment.port_ids_b.size());
+    for (std::size_t lane = 0; lane < lane_count && span_index < spans.generated_span_ids.size(); ++lane, ++span_index) {
+      const ObjectId span_id = spans.generated_span_ids[span_index];
+      const Span* span = edit_state.spans.find(span_id);
+      const Port* port_a = edit_state.ports.find(assignment.port_ids_a[lane]);
+      const Port* port_b = edit_state.ports.find(assignment.port_ids_b[lane]);
+      if (span == nullptr || port_a == nullptr || port_b == nullptr) {
+        continue;
+      }
+      SpanLayoutRule rule{};
+      rule.span_id = span_id;
+      rule.flow_kind = assignment.flow_kind;
+      rule.pass_mode = (span->placement_context == ConnectionContext::kBranchAdd) ? CurvePassMode::kBranch
+                                                                                  : CurvePassMode::kPassThrough;
+      rule.variation_flow_key = assignment.variation_flow_key;
+      rule.lowering_kind = assignment.lowering_kind;
+      rule.start = build_endpoint_layout_rule_from_decision(edit_state, spans.junctions, assignment,
+                                                            span->endpoint_node_a_id, *port_a, assignment.decision_a);
+      rule.end = build_endpoint_layout_rule_from_decision(edit_state, spans.junctions, assignment,
+                                                          span->endpoint_node_b_id, *port_b, assignment.decision_b);
+      append_support_group_rule(state_, rule.start, &rule);
+      append_support_group_rule(state_, rule.end, &rule);
+      rules.spans.push_back(std::move(rule));
     }
-    EndpointLayoutRule rule{};
-    rule.span_id = span_id;
-    rule.start = authority.seed->start;
-    rule.end = authority.seed->end;
-    rules.endpoints.push_back(std::move(rule));
   }
   return rules;
 }
@@ -808,8 +769,9 @@ EditResult<GenerateBundleFromPathResult> BackbonePipeline::build() {
   result.value.bundle_id = spans_out.value.spans.primary_bundle_id;
 
   SpanLayoutRuleBuilder rules_builder(state_);
-  const SpanLayoutRules rules = rules_builder.build(result.value.generated_span_ids);
-  (void)rules;
+  SpanLayoutRules rules = rules_builder.build(spans_out.value.spans);
+  state_.cache_span_layout_rules(rules);
+  spans_out.value.spans.layout_rules = std::move(rules);
   state_.publish_backbone_debug_state(spans_out.value.runtime, &spans_out.value.spans);
   result.ok = true;
   return result;
@@ -832,9 +794,6 @@ void CoreState::apply_backbone_pole_facing(
       debug_.pole_orientation_debug_records,
       [&](ObjectId pole_id) -> Pole* { return edit_state_access().poles.find(pole_id); },
       [&](ObjectId pole_id) -> bool { return has_pole_orientation_override(pole_id); },
-      [&](ObjectId pole_id, const Pole& old_pole, const PortLayoutYawOverride* previous_override) {
-        refresh_owned_endpoints_from_pole(pole_id, change_set, &old_pole, previous_override);
-      },
       [&](ObjectId pole_id, const Pole& old_pole) { finalize_pole_transform_update(pole_id, old_pole, change_set); }};
   apply_backbone_pole_orientation_plan(input);
 }

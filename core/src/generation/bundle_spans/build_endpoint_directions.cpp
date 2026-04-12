@@ -4,6 +4,7 @@
 #include "../detail_utils.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <ranges>
@@ -69,6 +70,25 @@ std::optional<Vec3d> GroupedSpanOrientationDecider::BackboneSideAxisHint(ObjectI
   return axis;
 }
 
+std::optional<double> GroupedSpanOrientationDecider::BackboneSideSign(ObjectId node_id, ObjectId peer_id) const {
+  if (ctx_.node_side_sign_by_peer == nullptr || node_id == kInvalidObjectId || peer_id == kInvalidObjectId) {
+    return std::nullopt;
+  }
+  const auto node_it = ctx_.node_side_sign_by_peer->find(node_id);
+  if (node_it == ctx_.node_side_sign_by_peer->end()) {
+    return std::nullopt;
+  }
+  const auto peer_it = node_it->second.find(peer_id);
+  if (peer_it == node_it->second.end()) {
+    return std::nullopt;
+  }
+  const double sign = peer_it->second;
+  if (!std::isfinite(sign) || std::abs(sign) <= 1e-9) {
+    return std::nullopt;
+  }
+  return (sign < 0.0) ? -1.0 : 1.0;
+}
+
 Vec3d GroupedSpanOrientationDecider::CanonicalSideAxisForOrder(ObjectId node_id, ObjectId peer_id) const {
   if (const auto axis = BackboneSideAxisHint(node_id); axis.has_value()) {
     return *axis;
@@ -89,12 +109,6 @@ std::optional<EndpointSideDecision> GroupedSpanOrientationDecider::ExplicitPairN
   }
   const ObjectId pair_low = std::min(pair_a, pair_b);
   const ObjectId pair_high = std::max(pair_a, pair_b);
-  double chosen_side_sign = 0.0;
-  if (peer_id == pair_low) {
-    chosen_side_sign = -1.0;
-  } else if (peer_id == pair_high) {
-    chosen_side_sign = 1.0;
-  }
 
   EndpointSideDecision decision{};
   decision.side_axis = *side_axis;
@@ -104,64 +118,46 @@ std::optional<EndpointSideDecision> GroupedSpanOrientationDecider::ExplicitPairN
   decision.support_orientation_rule = SupportOrientationRuleKind::kThroughPairNormal;
   decision.used_junction_pair_side_assignment = true;
   decision.has_side_axis = (decision.side_axis.x != 0.0 || decision.side_axis.y != 0.0);
-  decision.chosen_side_sign = chosen_side_sign;
+  if (const auto sign = BackboneSideSign(node_id, peer_id); sign.has_value()) {
+    decision.chosen_side_sign = *sign;
+  }
   return decision;
 }
 
 std::optional<LoweredSupportPairInfo>
 GroupedSpanOrientationDecider::LoweredSupportPairInfoForEndpoint(ObjectId node_id, ObjectId peer_id,
                                                                  const SegmentRelationFeasibility& feasibility) {
-  (void)feasibility;
-  if (ctx_.junction_relations_by_node == nullptr || node_id == kInvalidObjectId || peer_id == kInvalidObjectId) {
+  if (node_id == kInvalidObjectId || peer_id == kInvalidObjectId) {
     return std::nullopt;
   }
-  if (const auto relation_it = ctx_.junction_relations_by_node->find(node_id);
-      relation_it != ctx_.junction_relations_by_node->end()) {
-    const JunctionRelation& relation = relation_it->second;
-    auto explicit_pair_info = [&](std::vector<ObjectId> pair_peers) -> std::optional<LoweredSupportPairInfo> {
-      std::sort(pair_peers.begin(), pair_peers.end());
-      pair_peers.erase(std::unique(pair_peers.begin(), pair_peers.end()), pair_peers.end());
-      if (pair_peers.size() != 2) {
-        return std::nullopt;
-      }
-      LoweredSupportPairInfo info{};
-      info.pair_peer_low = pair_peers[0];
-      info.pair_peer_high = pair_peers[1];
-      info.has_pair = true;
-      if (peer_id == info.pair_peer_low) {
-        info.companion_peer_id = info.pair_peer_high;
-      } else if (peer_id == info.pair_peer_high) {
-        info.companion_peer_id = info.pair_peer_low;
-      }
-      return info;
-    };
-    if (feasibility.kind == JunctionRelationKind::kCrossUnderpass) {
-      std::vector<ObjectId> cross_peers{};
-      cross_peers.reserve(relation.incidents.size());
-      for (const JunctionIncidentRelation& incident : relation.incidents) {
-        if (incident.kind == JunctionRelationKind::kCrossUnderpass && incident.neighbor_node_id != kInvalidObjectId) {
-          cross_peers.push_back(incident.neighbor_node_id);
-        }
-      }
-      if (const auto info = explicit_pair_info(std::move(cross_peers)); info.has_value()) {
-        return info;
-      }
-    }
-    if (relation.through_pair.accepted &&
-        HasValidExplicitPairPeers(relation.through_pair.neighbor_a_id, relation.through_pair.neighbor_b_id)) {
-      LoweredSupportPairInfo info{};
-      info.pair_peer_low = std::min(relation.through_pair.neighbor_a_id, relation.through_pair.neighbor_b_id);
-      info.pair_peer_high = std::max(relation.through_pair.neighbor_a_id, relation.through_pair.neighbor_b_id);
-      info.has_pair = true;
-      if (peer_id == info.pair_peer_low) {
-        info.companion_peer_id = info.pair_peer_high;
-      } else if (peer_id == info.pair_peer_high) {
-        info.companion_peer_id = info.pair_peer_low;
-      }
-      return info;
-    }
+  const std::unordered_map<ObjectId, std::array<ObjectId, 2>>* pairs = nullptr;
+  if (feasibility.kind == JunctionRelationKind::kCrossUnderpass) {
+    pairs = ctx_.cross_pair_by_node;
+  } else if (RelationConsumesPairAuthority(feasibility.kind)) {
+    pairs = ctx_.main_pair_by_node;
   }
-  return std::nullopt;
+  if (pairs == nullptr) {
+    return std::nullopt;
+  }
+  const auto it = pairs->find(node_id);
+  if (it == pairs->end()) {
+    return std::nullopt;
+  }
+  const ObjectId pair_low = std::min(it->second[0], it->second[1]);
+  const ObjectId pair_high = std::max(it->second[0], it->second[1]);
+  if (!HasValidExplicitPairPeers(pair_low, pair_high)) {
+    return std::nullopt;
+  }
+  LoweredSupportPairInfo info{};
+  info.pair_peer_low = pair_low;
+  info.pair_peer_high = pair_high;
+  info.has_pair = true;
+  if (peer_id == info.pair_peer_low) {
+    info.companion_peer_id = info.pair_peer_high;
+  } else if (peer_id == info.pair_peer_high) {
+    info.companion_peer_id = info.pair_peer_low;
+  }
+  return info;
 }
 
 Vec3d GroupedSpanOrientationDecider::ChordSideAxisForEndpoint(ObjectId node_id, ObjectId peer_id) const {
@@ -200,6 +196,9 @@ EndpointSideDecision GroupedSpanOrientationDecider::BuildPairSideDecision(
   if (const auto side_axis = BackboneSideAxisHint(node_id); side_axis.has_value()) {
     decision.side_axis = *side_axis;
     decision.has_side_axis = true;
+  }
+  if (const auto sign = BackboneSideSign(node_id, peer_id); sign.has_value()) {
+    decision.chosen_side_sign = *sign;
   }
   return decision;
 }

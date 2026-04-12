@@ -5,6 +5,7 @@
 #include "../pole_facing/pole_facing_rules.hpp"
 #include "wire/core/support_layout_types.hpp"
 
+#include <array>
 #include <unordered_map>
 
 namespace wire::core::generation::detail {
@@ -75,6 +76,9 @@ struct BackboneRuntimeState {
   JunctionRoles roles{};
   PoleFacing pole_facing{};
   std::unordered_map<ObjectId, Vec3d> node_side_axis_by_node{};
+  std::unordered_map<ObjectId, std::unordered_map<ObjectId, double>> node_side_sign_by_peer{};
+  std::unordered_map<ObjectId, std::array<ObjectId, 2>> main_pair_by_node{};
+  std::unordered_map<ObjectId, std::array<ObjectId, 2>> cross_pair_by_node{};
 };
 
 struct GeneratedBackboneSpans {
@@ -85,16 +89,7 @@ struct GeneratedBackboneSpans {
   std::vector<SegmentLaneAssignment> lane_assignments{};
   std::vector<BackboneEdgeOrientation> edge_orientations{};
   std::unordered_map<ObjectId, JunctionRelation> junctions{};
-};
-
-struct EndpointLayoutRule {
-  ObjectId span_id = kInvalidObjectId;
-  SupportLayoutDecisionSeedEndpoint start{};
-  SupportLayoutDecisionSeedEndpoint end{};
-};
-
-struct SpanLayoutRules {
-  std::vector<EndpointLayoutRule> endpoints{};
+  SpanLayoutRules layout_rules{};
 };
 
 struct BackboneBuilderOutput {
@@ -162,7 +157,7 @@ class SpanLayoutRuleBuilder {
 public:
   explicit SpanLayoutRuleBuilder(const CoreState& state) : state_(state) {}
 
-  [[nodiscard]] SpanLayoutRules build(const std::vector<ObjectId>& span_ids) const;
+  [[nodiscard]] SpanLayoutRules build(const GeneratedBackboneSpans& spans) const;
 
 private:
   const CoreState& state_;

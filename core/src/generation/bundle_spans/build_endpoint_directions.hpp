@@ -33,6 +33,7 @@ public:
 
 private:
   [[nodiscard]] std::optional<Vec3d> BackboneSideAxisHint(ObjectId node_id) const;
+  [[nodiscard]] std::optional<double> BackboneSideSign(ObjectId node_id, ObjectId peer_id) const;
   [[nodiscard]] Vec3d NormalizedOrZeroXY(Vec3d axis) const;
   [[nodiscard]] Vec3d ChordSideAxisForEndpoint(ObjectId node_id, ObjectId peer_id) const;
   [[nodiscard]] EndpointSideDecision BuildPairSideDecision(ObjectId node_id, ObjectId peer_id,

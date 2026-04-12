@@ -891,16 +891,17 @@ std::optional<SpanInspectionView> CoreView::inspect_span(ObjectId span_id) const
 }
 
 std::optional<SupportLayoutInspectionView> CoreView::inspect_support_layout(ObjectId span_id) const {
-  const SpanSupportLayoutContractView contract = state_.runtime_.cache_state.support_layout_cache.contract_view(span_id);
-  const SpanSupportLayoutEntry* layout = contract.projection.layout;
+  const SpanLayoutRulesView rules = state_.runtime_.cache_state.support_layout_cache.rules_view(span_id);
+  const SpanSupportLayoutProjectionView projection = state_.runtime_.cache_state.support_layout_cache.projection_view(span_id);
+  const SpanSupportLayoutEntry* layout = projection.layout;
   if (layout == nullptr) {
     return std::nullopt;
   }
   SupportLayoutInspectionView result{};
   result.source_span = {EntityKind::kSpan, span_id};
   result.meta = *describe_entity({EntityKind::kSupportLayout, span_id});
-  result.has_decision_seed = contract.has_authority();
-  result.requires_decision_seed = contract.requires_authority();
+  result.has_decision_seed = rules.has_rule();
+  result.requires_decision_seed = rules.has_rule();
   result.flow_kind = layout->flow_kind;
   result.pass_mode = layout->pass_mode;
   result.variation_flow_key = layout->variation_flow_key;

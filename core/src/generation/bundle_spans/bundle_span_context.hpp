@@ -77,6 +77,7 @@ struct GroupedSpanSharedContext {
   const std::unordered_map<ObjectId, JunctionRelation>* junction_relations_by_node = nullptr;
   const std::unordered_map<ObjectId, JunctionFeasibility>* junction_feasibility_by_node = nullptr;
   const std::unordered_map<ObjectId, PoleOrientationDebugRecord>* pole_orientation_debug_records = nullptr;
+  const std::unordered_map<ObjectId, Vec3d>* node_side_axis_by_node = nullptr;
 
   [[nodiscard]] ObjectId resolve_span_endpoint_node(const Span& span, const Port* port, bool is_a) const {
     const ObjectId explicit_node_id = is_a ? span.endpoint_node_a_id : span.endpoint_node_b_id;

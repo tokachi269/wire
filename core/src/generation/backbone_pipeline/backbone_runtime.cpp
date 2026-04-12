@@ -136,6 +136,51 @@ std::uint64_t make_flow_variation_key_commit(std::uint64_t generation_session_id
   return key;
 }
 
+std::unordered_map<ObjectId, Vec3d> build_backbone_side_axis_hints(
+    const std::vector<ObjectId>& ordered_support_node_ids,
+    const std::function<Vec3d(ObjectId)>& support_position) {
+  std::unordered_map<ObjectId, Vec3d> hints{};
+  hints.reserve(ordered_support_node_ids.size());
+  std::vector<Vec3d> side_axis_by_index(ordered_support_node_ids.size(), Vec3d{0.0, 0.0, 0.0});
+  for (std::size_t i = 0; i < ordered_support_node_ids.size(); ++i) {
+    const Vec3d center = support_position(ordered_support_node_ids[i]);
+    Vec3d tangent{0.0, 0.0, 0.0};
+    if (i == 0 && i + 1 < ordered_support_node_ids.size()) {
+      tangent = support_position(ordered_support_node_ids[i + 1]) - center;
+    } else if (i + 1 == ordered_support_node_ids.size() && i > 0) {
+      tangent = center - support_position(ordered_support_node_ids[i - 1]);
+    } else if (i > 0 && i + 1 < ordered_support_node_ids.size()) {
+      const Vec3d in_dir = center - support_position(ordered_support_node_ids[i - 1]);
+      const Vec3d out_dir = support_position(ordered_support_node_ids[i + 1]) - center;
+      tangent = in_dir + out_dir;
+      if (!normalize_xy(&tangent)) {
+        tangent = out_dir;
+      }
+    }
+    if (!normalize_xy(&tangent)) {
+      continue;
+    }
+    side_axis_by_index[i] = normalize_forward_xy_commit(Vec3d{-tangent.y, tangent.x, 0.0});
+  }
+  for (std::size_t i = 1; i < side_axis_by_index.size(); ++i) {
+    if ((side_axis_by_index[i - 1].x == 0.0 && side_axis_by_index[i - 1].y == 0.0) ||
+        (side_axis_by_index[i].x == 0.0 && side_axis_by_index[i].y == 0.0)) {
+      continue;
+    }
+    if (dot_xy(side_axis_by_index[i - 1], side_axis_by_index[i]) < 0.0) {
+      side_axis_by_index[i].x = -side_axis_by_index[i].x;
+      side_axis_by_index[i].y = -side_axis_by_index[i].y;
+    }
+  }
+  for (std::size_t i = 0; i < ordered_support_node_ids.size(); ++i) {
+    const Vec3d axis = side_axis_by_index[i];
+    if (axis.x != 0.0 || axis.y != 0.0) {
+      hints.emplace(ordered_support_node_ids[i], axis);
+    }
+  }
+  return hints;
+}
+
 SupportLayoutDecisionSeedEndpoint build_seed_endpoint_record_commit(
     const EditState& edit_state, const std::unordered_map<ObjectId, JunctionRelation>& junction_relations_by_node,
     const SegmentLaneAssignment& assignment, ObjectId endpoint_node_id, const Port& port,
@@ -616,12 +661,14 @@ EditResult<bool> CoreState::build_real_node_topology_state(
 }
 
 EditResult<BackboneRuntimeState> CoreState::remap_backbone_build_to_real_nodes(
-    const BackboneTopologyPlan& topology_plan, const JunctionRoles& roles, const PoleFacing& pole_facing, std::uint64_t session_id,
+    const BackboneTopologyPlan& topology_plan, const JunctionRoles& roles, const PoleFacing& pole_facing,
+    BuildDirection build_direction, std::uint64_t session_id,
     std::vector<ObjectId> ordered_support_node_ids, std::unordered_map<ObjectId, SupportNode> support_node_by_id,
     std::unordered_map<ObjectId, ObjectId> real_node_id_by_input_node_id) const {
   EditResult<BackboneRuntimeState> result{};
   BackboneRuntimeState runtime{};
   runtime.session_id = session_id;
+  runtime.build_direction = build_direction;
   runtime.ordered_support_node_ids = std::move(ordered_support_node_ids);
   runtime.support_node_by_id = std::move(support_node_by_id);
   runtime.real_node_id_by_input_node_id = std::move(real_node_id_by_input_node_id);
@@ -644,6 +691,13 @@ EditResult<BackboneRuntimeState> CoreState::remap_backbone_build_to_real_nodes(
     return (it == runtime.real_node_id_by_input_node_id.end()) ? node_id : it->second;
   };
   runtime.roles = remap_junction_roles(roles, remap_node_id);
+  runtime.node_side_axis_by_node =
+      build_backbone_side_axis_hints(runtime.ordered_support_node_ids, [&](ObjectId node_id) {
+        if (const auto it = runtime.support_node_by_id.find(node_id); it != runtime.support_node_by_id.end()) {
+          return it->second.position;
+        }
+        return Vec3d{};
+      });
   runtime.pole_facing.by_node.clear();
   runtime.pole_facing.by_node.reserve(pole_facing.by_node.size());
   for (const auto& [node_id, orientation] : pole_facing.by_node) {
@@ -728,7 +782,8 @@ EditResult<GeneratedBackboneSpans> CoreState::build_bundle_spans_for_backbone(
         allocation.bundle_plan.count, allocation.bundle_plan.spacing_m, true, allocation.bundle_plan.allow_mirror,
         allocation.bundle_plan.order_decision_policy, flow_info.kind, run.lowering_policy, &output.junction_relations_by_node,
         &current_feasibility,
-        &output.lane_assignments, &output.edge_orientations, allocation.bundle_plan.template_id);
+        &output.lane_assignments, &output.edge_orientations, allocation.bundle_plan.template_id,
+        &runtime.node_side_axis_by_node);
     if (!spans_result.ok) {
       result.error = spans_result.error;
       return result;

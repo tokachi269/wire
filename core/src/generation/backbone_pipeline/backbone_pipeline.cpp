@@ -683,7 +683,8 @@ EditResult<BundleSpanBuilderOutput> BundleSpanBuilder::build(const BackboneBuild
   }
 
   EditResult<BackboneRuntimeState> runtime_out = state_.remap_backbone_build_to_real_nodes(
-      role_output.topology, role_output.roles, pole_facing, support_chain_out.value.session_id,
+      role_output.topology, role_output.roles, pole_facing, builder_output.backbone.build_direction,
+      support_chain_out.value.session_id,
       std::move(support_chain_out.value.ordered_support_node_ids), std::move(support_chain_out.value.support_node_by_id),
       std::move(support_chain_out.value.real_node_id_by_input_node_id));
   if (!runtime_out.ok) {

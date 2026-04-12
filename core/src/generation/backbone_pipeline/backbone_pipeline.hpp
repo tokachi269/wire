@@ -67,12 +67,14 @@ struct BackboneRuntimeTopology {
 
 struct BackboneRuntimeState {
   std::uint64_t session_id = 0;
+  BuildDirection build_direction = BuildDirection::kForward;
   std::vector<ObjectId> ordered_support_node_ids{};
   std::unordered_map<ObjectId, SupportNode> support_node_by_id{};
   std::unordered_map<ObjectId, ObjectId> real_node_id_by_input_node_id{};
   BackboneRuntimeTopology topology{};
   JunctionRoles roles{};
   PoleFacing pole_facing{};
+  std::unordered_map<ObjectId, Vec3d> node_side_axis_by_node{};
 };
 
 struct GeneratedBackboneSpans {

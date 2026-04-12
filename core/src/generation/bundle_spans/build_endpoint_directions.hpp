@@ -32,19 +32,13 @@ public:
                                 const std::vector<ObjectId>& port_ids) const;
 
 private:
+  [[nodiscard]] std::optional<Vec3d> BackboneSideAxisHint(ObjectId node_id) const;
   [[nodiscard]] Vec3d NormalizedOrZeroXY(Vec3d axis) const;
-  [[nodiscard]] std::optional<Vec3d> RouteAxisForEndpoint(ObjectId node_id, ObjectId peer_id) const;
-  [[nodiscard]] Vec3d PairReferenceAxisForEndpoint(ObjectId node_id, ObjectId peer_id,
-                                                   const LoweredSupportPairInfo& pair_info) const;
-  [[nodiscard]] ObjectId RouteLocalPairCompanionForEndpoint(ObjectId node_id, ObjectId peer_id,
-                                                            const LoweredSupportPairInfo& pair_info) const;
-  [[nodiscard]] std::optional<Vec3d> PairBisectorAxisForEndpoint(ObjectId node_id, ObjectId peer_id,
-                                                                 const LoweredSupportPairInfo& pair_info) const;
   [[nodiscard]] Vec3d ChordSideAxisForEndpoint(ObjectId node_id, ObjectId peer_id) const;
   [[nodiscard]] EndpointSideDecision BuildPairSideDecision(ObjectId node_id, ObjectId peer_id,
                                                            JunctionRelationKind relation_kind,
                                                            const LoweredSupportPairInfo& pair_info) const;
-  void BuildNodeSideAxisHints();
+  void LoadBackboneSideAxisHints();
 
   const GroupedSpanSharedContext& ctx_;
   std::unordered_map<ObjectId, Vec3d> node_side_axis_hints_{};

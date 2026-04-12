@@ -635,25 +635,16 @@ GroupedSpanLanePreparer::BuildLanePlan(const BackboneLoweringPolicy& lowering_po
     const Vec3d pos_a = ctx_.support_position(node_a);
     const Vec3d pos_b = ctx_.support_position(node_b);
 
-    Vec3d segment_dir{1.0, 0.0, 0.0};
-    if (((pos_b.x - pos_a.x) * (pos_b.x - pos_a.x) + (pos_b.y - pos_a.y) * (pos_b.y - pos_a.y) +
-         (pos_b.z - pos_a.z) * (pos_b.z - pos_a.z)) > 1e-12) {
-      segment_dir = pos_b - pos_a;
-      if (!normalize_xy(&segment_dir) || !std::isfinite(segment_dir.x) || !std::isfinite(segment_dir.y)) {
-        segment_dir = {1.0, 0.0, 0.0};
-      }
-    }
-    const Vec3d lateral_axis{-segment_dir.y, segment_dir.x, 0.0};
     auto axis_for_node = [&](ObjectId node_id, ObjectId peer_id) -> Vec3d {
       const Vec3d axis = orientation_.CanonicalSideAxisForOrder(node_id, peer_id);
-      if (axis.x != 0.0 || axis.y != 0.0) {
-        return axis;
-      }
-      return lateral_axis;
+      return (axis.x != 0.0 || axis.y != 0.0) ? axis : Vec3d{0.0, 0.0, 0.0};
     };
     const Vec3d axis_a = axis_for_node(node_a, node_b);
     const Vec3d axis_b = axis_for_node(node_b, node_a);
-    const double y_sign_b = (dot_xy(axis_a, axis_b) < 0.0) ? -1.0 : 1.0;
+    const bool has_side_axis_a = axis_a.x != 0.0 || axis_a.y != 0.0;
+    const bool has_side_axis_b = axis_b.x != 0.0 || axis_b.y != 0.0;
+    const bool has_side_axis = has_side_axis_a && has_side_axis_b;
+    const double y_sign_b = (has_side_axis && dot_xy(axis_a, axis_b) < 0.0) ? -1.0 : 1.0;
 
     std::vector<double> y_a(static_cast<std::size_t>(lane_count_), 0.0);
     std::vector<double> y_b(static_cast<std::size_t>(lane_count_), 0.0);
@@ -681,7 +672,7 @@ GroupedSpanLanePreparer::BuildLanePlan(const BackboneLoweringPolicy& lowering_po
                                                     *world_b);
         y_a[idx] = local_a.y;
         y_b[idx] = local_b.y * y_sign_b;
-      } else {
+      } else if (has_side_axis) {
         y_a[idx] = dot_xy(*world_a - pos_a, axis_a);
         y_b[idx] = dot_xy(*world_b - pos_b, axis_b) * y_sign_b;
       }
@@ -706,7 +697,7 @@ GroupedSpanLanePreparer::BuildLanePlan(const BackboneLoweringPolicy& lowering_po
         constexpr double kOrderEps = 1e-4;
         const double dy_a = y_a[ii] - y_a[jj];
         const double dy_b = y_b[ii] - y_b[jj];
-        if ((dy_a > kOrderEps && dy_b < -kOrderEps) || (dy_a < -kOrderEps && dy_b > kOrderEps)) {
+        if (has_side_axis && ((dy_a > kOrderEps && dy_b < -kOrderEps) || (dy_a < -kOrderEps && dy_b > kOrderEps))) {
           ++score.cross_y;
         }
         const double dz_a = z_a[ii] - z_a[jj];
@@ -1087,22 +1078,16 @@ void GroupedSpanLanePreparer::PopulateAssignmentOrdering(const GroupedSpanLanePl
     const Vec3d pos_b = ctx_.support_position(node_b);
     BundleOrderScore score{};
 
-    Vec3d segment_dir{1.0, 0.0, 0.0};
-    if (((pos_b.x - pos_a.x) * (pos_b.x - pos_a.x) + (pos_b.y - pos_a.y) * (pos_b.y - pos_a.y) +
-         (pos_b.z - pos_a.z) * (pos_b.z - pos_a.z)) > 1e-12) {
-      segment_dir = pos_b - pos_a;
-      if (!normalize_xy(&segment_dir) || !std::isfinite(segment_dir.x) || !std::isfinite(segment_dir.y)) {
-        segment_dir = {1.0, 0.0, 0.0};
-      }
-    }
-    const Vec3d lateral_axis{-segment_dir.y, segment_dir.x, 0.0};
     auto axis_for_node = [&](ObjectId node_id, ObjectId peer_id) -> Vec3d {
       const Vec3d axis = orientation_.CanonicalSideAxisForOrder(node_id, peer_id);
-      return (axis.x != 0.0 || axis.y != 0.0) ? axis : lateral_axis;
+      return (axis.x != 0.0 || axis.y != 0.0) ? axis : Vec3d{0.0, 0.0, 0.0};
     };
     const Vec3d axis_a = axis_for_node(node_a, node_b);
     const Vec3d axis_b = axis_for_node(node_b, node_a);
-    const double y_sign_b = (dot_xy(axis_a, axis_b) < 0.0) ? -1.0 : 1.0;
+    const bool has_side_axis_a = axis_a.x != 0.0 || axis_a.y != 0.0;
+    const bool has_side_axis_b = axis_b.x != 0.0 || axis_b.y != 0.0;
+    const bool has_side_axis = has_side_axis_a && has_side_axis_b;
+    const double y_sign_b = (has_side_axis && dot_xy(axis_a, axis_b) < 0.0) ? -1.0 : 1.0;
 
     std::vector<double> y_a(static_cast<std::size_t>(lane_count_), 0.0);
     std::vector<double> y_b(static_cast<std::size_t>(lane_count_), 0.0);
@@ -1130,7 +1115,7 @@ void GroupedSpanLanePreparer::PopulateAssignmentOrdering(const GroupedSpanLanePl
                                                     *world_b);
         y_a[idx] = local_a.y;
         y_b[idx] = local_b.y * y_sign_b;
-      } else {
+      } else if (has_side_axis) {
         y_a[idx] = dot_xy(*world_a - pos_a, axis_a);
         y_b[idx] = dot_xy(*world_b - pos_b, axis_b) * y_sign_b;
       }
@@ -1154,7 +1139,7 @@ void GroupedSpanLanePreparer::PopulateAssignmentOrdering(const GroupedSpanLanePl
         constexpr double kOrderEps = 1e-4;
         const double dy_a = y_a[ii] - y_a[jj];
         const double dy_b = y_b[ii] - y_b[jj];
-        if ((dy_a > kOrderEps && dy_b < -kOrderEps) || (dy_a < -kOrderEps && dy_b > kOrderEps)) {
+        if (has_side_axis && ((dy_a > kOrderEps && dy_b < -kOrderEps) || (dy_a < -kOrderEps && dy_b > kOrderEps))) {
           ++score.cross_y;
         }
         const double dz_a = z_a[ii] - z_a[jj];
@@ -1403,6 +1388,9 @@ GroupedSpanLanePreparer::EnsurePorts(ObjectId node_id, ObjectId peer_id, int seg
     const Vec3d stable_side_axis =
         scaffold_side_decision.has_side_axis ? scaffold_side_decision.side_axis
                                              : orientation_.GroupedLineAxisForEndpoint(node_id, peer_id);
+    if (stable_side_axis.x == 0.0 && stable_side_axis.y == 0.0) {
+      return local_to_world_on_pole_local(pole->world_transform, layout_yaw, local);
+    }
     const Vec3d base = pole->world_transform.position;
     const Vec3d prev = ctx_.support_position(ctx_.node_ids[node_index - 1]);
     const Vec3d next = ctx_.support_position(ctx_.node_ids[node_index + 1]);
@@ -1416,14 +1404,8 @@ GroupedSpanLanePreparer::EnsurePorts(ObjectId node_id, ObjectId peer_id, int seg
     if (!normalize_xy(&dir_in) || !normalize_xy(&dir_out)) {
       return local_to_world_on_pole_local(pole->world_transform, layout_yaw, local);
     }
-    Vec3d normal_in = ComputeLateralAxis(dir_in);
-    Vec3d normal_out = ComputeLateralAxis(dir_out);
-    if (!normalize_xy(&normal_in)) {
-      normal_in = stable_side_axis;
-    }
-    if (!normalize_xy(&normal_out)) {
-      normal_out = stable_side_axis;
-    }
+    Vec3d normal_in = stable_side_axis;
+    Vec3d normal_out = stable_side_axis;
     if (dot_xy(normal_in, stable_side_axis) < 0.0) {
       normal_in.x = -normal_in.x;
       normal_in.y = -normal_in.y;

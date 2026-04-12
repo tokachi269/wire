@@ -26,6 +26,7 @@ class JunctionRoleResolver;
 class PoleFacingResolver;
 class BundleSpanBuilder;
 class SpanLayoutRuleBuilder;
+enum class BuildDirection : std::uint8_t;
 struct JunctionRoles;
 struct PoleFacing;
 struct BackboneRuntimeState;
@@ -212,7 +213,8 @@ private:
                                                const std::unordered_map<ObjectId, generation::detail::JunctionFeasibility>* junction_feasibility_by_node,
                                                std::vector<SegmentLaneAssignment>* out_lane_assignments,
                                                std::vector<BackboneEdgeOrientation>* out_edge_orientations = nullptr,
-                                               BundleKind bundle_template_id = BundleKind::kLowVoltage);
+                                               BundleKind bundle_template_id = BundleKind::kLowVoltage,
+                                               const std::unordered_map<ObjectId, Vec3d>* node_side_axis_by_node = nullptr);
   [[nodiscard]] static std::uint64_t hash_path_points(const std::vector<Vec3d>& points);
   [[nodiscard]] double effective_pole_yaw_deg(const Pole& pole) const;
   [[nodiscard]] Vec3d to_local_on_pole(const Pole& pole, const Vec3d& world) const;
@@ -231,7 +233,8 @@ private:
   [[nodiscard]] EditResult<generation::detail::BackboneRuntimeState>
   remap_backbone_build_to_real_nodes(
       const generation::detail::BackboneTopologyPlan& topology_plan, const generation::detail::JunctionRoles& roles,
-      const generation::detail::PoleFacing& pole_facing, std::uint64_t session_id,
+      const generation::detail::PoleFacing& pole_facing, generation::detail::BuildDirection build_direction,
+      std::uint64_t session_id,
       std::vector<ObjectId> ordered_support_node_ids, std::unordered_map<ObjectId, SupportNode> support_node_by_id,
       std::unordered_map<ObjectId, ObjectId> real_node_id_by_input_node_id) const;
   void apply_backbone_pole_facing(

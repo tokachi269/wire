@@ -1,8 +1,9 @@
 #include "wire/core/core_state.hpp"
 #include "wire/core/coord_utils.hpp"
 #include "wire/core/core_view.hpp"
-#include "build_backbone_types.hpp"
-#include "build_span_layout_rules.hpp"
+#include "backbone_pipeline.hpp"
+#include "../build_backbone/build_backbone_types.hpp"
+#include "../build_backbone/build_span_layout_rules.hpp"
 #include "../pole_facing/pole_facing_rules.hpp"
 #include "../detail_utils.hpp"
 #include "../bundle_spans/bundle_span_context.hpp"
@@ -29,6 +30,70 @@ namespace wire::core {
 using namespace generation::detail;
 
 namespace {
+
+struct SpanFeasibility {
+  std::unordered_map<ObjectId, JunctionFeasibility> feasibility_by_node{};
+};
+
+struct BundleGapSegment {
+  std::size_t segment_index = 0;
+  int missing_count = 0;
+};
+
+struct BundleGap {
+  BackboneBundlePlan bundle_plan{};
+  int missing_total = 0;
+  std::size_t first_missing_segment = std::numeric_limits<std::size_t>::max();
+  std::vector<BundleGapSegment> missing_segments{};
+
+  [[nodiscard]] bool requires_allocation() const {
+    return missing_total > 0;
+  }
+
+  [[nodiscard]] bool has_generation_start() const {
+    return first_missing_segment != std::numeric_limits<std::size_t>::max();
+  }
+};
+
+struct BundleAllocation {
+  BackboneBundlePlan bundle_plan{};
+  ObjectId bundle_id = kInvalidObjectId;
+  ChangeSet change_set{};
+};
+
+struct SpanRun {
+  std::size_t segment_start_index = 0;
+  std::size_t segment_end_index = 0;
+  std::vector<ObjectId> ordered_support_node_ids{};
+  std::uint64_t variation_flow_key = 0;
+  BackboneLoweringPolicy lowering_policy{};
+};
+
+struct GroupedSpanBuildOutput {
+  ChangeSet change_set{};
+  std::vector<ObjectId> span_ids{};
+  std::vector<SegmentLaneAssignment> lane_assignments{};
+  std::vector<BackboneEdgeOrientation> edge_orientations{};
+  std::unordered_map<ObjectId, JunctionRelation> junction_relations_by_node{};
+};
+
+struct SpanSeedRules {
+  std::vector<SpanSupportLayoutDecisionSeed> support_layout_seeds{};
+};
+
+struct GeneratedSpanMetadata {
+  ChangeSet change_set{};
+  std::vector<ObjectId> generated_span_ids{};
+};
+
+struct BundleSpanRunOutput {
+  ChangeSet change_set{};
+  std::vector<ObjectId> generated_span_ids{};
+  std::vector<SegmentLaneAssignment> lane_assignments{};
+  std::vector<BackboneEdgeOrientation> edge_orientations{};
+  std::vector<SpanSupportLayoutDecisionSeed> support_layout_seeds{};
+  std::unordered_map<ObjectId, JunctionRelation> junction_relations_by_node{};
+};
 
 Vec3d normalize_forward_xy_commit(const Vec3d& value) {
   Vec3d out{value.x, value.y, 0.0};
@@ -174,17 +239,27 @@ JunctionRelation remap_junction_relation_commit(const JunctionRelation& relation
   return remapped;
 }
 
-BackboneDecisionPhaseOutput remap_backbone_decision_phase_commit(
-    const BackboneDecisionPhaseOutput& phase, const std::function<ObjectId(ObjectId)>& remap_node_id) {
-  BackboneDecisionPhaseOutput remapped{};
-  remapped.edge_flow_by_segment = phase.edge_flow_by_segment;
-  remapped.junction_relations_in_path_order.reserve(phase.junction_relations_in_path_order.size());
-  for (const JunctionRelation& relation : phase.junction_relations_in_path_order) {
-    remapped.junction_relations_in_path_order.push_back(remap_junction_relation_commit(relation, remap_node_id));
+JunctionRoles remap_junction_roles(const JunctionRoles& roles, const std::function<ObjectId(ObjectId)>& remap_node_id) {
+  JunctionRoles remapped{};
+  remapped.edge_flow_by_segment = roles.edge_flow_by_segment;
+  remapped.ordered.reserve(roles.ordered.size());
+  for (const JunctionRelation& relation : roles.ordered) {
+    remapped.ordered.push_back(remap_junction_relation_commit(relation, remap_node_id));
   }
-  for (const auto& [node_id, relation] : phase.junction_relations_by_node) {
-    remapped.junction_relations_by_node.emplace(remap_node_id(node_id),
-                                                remap_junction_relation_commit(relation, remap_node_id));
+  for (const auto& [node_id, relation] : roles.by_node) {
+    remapped.by_node.emplace(remap_node_id(node_id), remap_junction_relation_commit(relation, remap_node_id));
+  }
+  for (const auto& [node_id, pair] : roles.main_pair_by_node) {
+    BackbonePair remapped_pair{};
+    remapped_pair.low = remap_node_id(pair.low);
+    remapped_pair.high = remap_node_id(pair.high);
+    remapped.main_pair_by_node.emplace(remap_node_id(node_id), remapped_pair);
+  }
+  for (const auto& [node_id, pair] : roles.cross_pair_by_node) {
+    BackbonePair remapped_pair{};
+    remapped_pair.low = remap_node_id(pair.low);
+    remapped_pair.high = remap_node_id(pair.high);
+    remapped.cross_pair_by_node.emplace(remap_node_id(node_id), remapped_pair);
   }
   return remapped;
 }
@@ -205,10 +280,10 @@ double category_same_level_margin_m_commit(ConnectionCategory category) {
   }
 }
 
-BackboneFeasibilityPhaseOutput evaluate_committed_backbone_feasibility_phase(
+SpanFeasibility evaluate_span_feasibility(
     const BackboneBundlePlan& bundle_plan, const std::unordered_map<ObjectId, JunctionRelation>& base_relations,
     const std::function<Vec3d(ObjectId)>& current_support_position) {
-  BackboneFeasibilityPhaseOutput output{};
+  SpanFeasibility output{};
 
   const bool bundle_like = bundle_plan.continuity_class == ContinuityCategoryClass::kBundleLike;
   const double envelope_width_m = std::max(0, bundle_plan.count - 1) * std::max(0.0, bundle_plan.spacing_m);
@@ -330,10 +405,10 @@ BackboneFeasibilityPhaseOutput evaluate_committed_backbone_feasibility_phase(
   return output;
 }
 
-BackboneBundleGapAnalysis analyze_committed_backbone_bundle_gaps(
+BundleGap find_bundle_gaps(
     const BackboneBundlePlan& bundle_plan, const std::vector<ObjectId>& ordered_support_node_ids,
     const std::function<int(ObjectId, ObjectId, const BackboneBundlePlan&)>& count_existing_segment_spans) {
-  BackboneBundleGapAnalysis analysis{};
+  BundleGap analysis{};
   analysis.bundle_plan = bundle_plan;
   for (std::size_t i = 0; i + 1 < ordered_support_node_ids.size(); ++i) {
     const int existing_count = count_existing_segment_spans(ordered_support_node_ids[i], ordered_support_node_ids[i + 1],
@@ -351,11 +426,11 @@ BackboneBundleGapAnalysis analyze_committed_backbone_bundle_gaps(
   return analysis;
 }
 
-EditResult<BackboneBundleAllocation> allocate_committed_backbone_bundle(
-    const BackboneBundleGapAnalysis& gap_analysis,
+EditResult<BundleAllocation> allocate_bundle_for_gap(
+    const BundleGap& gap_analysis,
     const std::function<EditResult<ObjectId>(const BackboneBundlePlan&)>& create_bundle) {
-  EditResult<BackboneBundleAllocation> result{};
-  BackboneBundleAllocation allocation{};
+  EditResult<BundleAllocation> result{};
+  BundleAllocation allocation{};
   allocation.bundle_plan = gap_analysis.bundle_plan;
   if (!gap_analysis.requires_allocation()) {
     result.value = std::move(allocation);
@@ -375,24 +450,24 @@ EditResult<BackboneBundleAllocation> allocate_committed_backbone_bundle(
   return result;
 }
 
-std::vector<BackboneSpanGenerationRunPlan> plan_committed_backbone_span_generation_runs(
-    const BackboneBundleGapAnalysis& gap_analysis, const BackboneDecisionPhaseOutput& decision_phase,
-    const std::vector<ObjectId>& ordered_support_node_ids, const BackboneFeasibilityPhaseOutput& feasibility_phase,
+std::vector<SpanRun> plan_span_runs(
+    const BundleGap& gap_analysis, const JunctionRoles& roles,
+    const std::vector<ObjectId>& ordered_support_node_ids, const SpanFeasibility& feasibility_phase,
     std::uint64_t session_id) {
-  std::vector<BackboneSpanGenerationRunPlan> runs{};
+  std::vector<SpanRun> runs{};
   if (!gap_analysis.has_generation_start() || gap_analysis.first_missing_segment >= ordered_support_node_ids.size() - 1) {
     return runs;
   }
 
   for (std::size_t run_start = gap_analysis.first_missing_segment; run_start + 1 < ordered_support_node_ids.size();) {
-    const EdgeFlowInfo flow_info = decision_phase.edge_flow_by_segment[run_start];
+    const EdgeFlowInfo flow_info = roles.edge_flow_by_segment[run_start];
     std::size_t run_end = run_start;
     while (run_end + 1 < ordered_support_node_ids.size() - 1 &&
-           decision_phase.edge_flow_by_segment[run_end + 1].kind == flow_info.kind) {
+           roles.edge_flow_by_segment[run_end + 1].kind == flow_info.kind) {
       ++run_end;
     }
 
-    BackboneSpanGenerationRunPlan run{};
+    SpanRun run{};
     run.segment_start_index = run_start;
     run.segment_end_index = run_end;
     run.ordered_support_node_ids.insert(run.ordered_support_node_ids.end(),
@@ -412,8 +487,8 @@ std::vector<BackboneSpanGenerationRunPlan> plan_committed_backbone_span_generati
       if (it_relation == feasibility_phase.feasibility_by_node.end()) {
         continue;
       }
-      const auto decision_it = decision_phase.junction_relations_by_node.find(node_id);
-      if (decision_it == decision_phase.junction_relations_by_node.end()) {
+      const auto decision_it = roles.by_node.find(node_id);
+      if (decision_it == roles.by_node.end()) {
         continue;
       }
       for (const JunctionIncidentFeasibility& incident : it_relation->second.incidents) {
@@ -452,17 +527,17 @@ std::vector<BackboneSpanGenerationRunPlan> plan_committed_backbone_span_generati
 EditResult<bool> CoreState::build_real_node_topology_state(
     const BackboneTopologyPlan& topology_plan, std::uint64_t session_id,
     const std::unordered_map<ObjectId, SupportNode>& support_node_by_id,
-    const std::unordered_map<ObjectId, ObjectId>& committed_node_id_by_planned_node_id,
-    BackboneCommittedTopologyState* out_state) const {
+    const std::unordered_map<ObjectId, ObjectId>& real_node_id_by_input_node_id,
+    BackboneRuntimeTopology* out_state) const {
   EditResult<bool> result{};
   if (out_state == nullptr) {
-    result.error = "committed topology state output is null";
+    result.error = "backbone runtime topology output is null";
     return result;
   }
 
   auto remap_node_id = [&](ObjectId node_id) {
-    const auto it = committed_node_id_by_planned_node_id.find(node_id);
-    return (it == committed_node_id_by_planned_node_id.end()) ? node_id : it->second;
+    const auto it = real_node_id_by_input_node_id.find(node_id);
+    return (it == real_node_id_by_input_node_id.end()) ? node_id : it->second;
   };
 
   out_state->generation_backbone = topology_plan.generation_backbone;
@@ -540,56 +615,58 @@ EditResult<bool> CoreState::build_real_node_topology_state(
   return result;
 }
 
-EditResult<BackboneCommittedGenerationPlan> CoreState::remap_backbone_build_to_real_nodes(
-    const BackboneTopologyPlan& topology_plan, const BackboneOrientationPlan& orientation_plan, std::uint64_t session_id,
+EditResult<BackboneRuntimeState> CoreState::remap_backbone_build_to_real_nodes(
+    const BackboneTopologyPlan& topology_plan, const JunctionRoles& roles, const PoleFacing& pole_facing, std::uint64_t session_id,
     std::vector<ObjectId> ordered_support_node_ids, std::unordered_map<ObjectId, SupportNode> support_node_by_id,
-    std::unordered_map<ObjectId, ObjectId> committed_node_id_by_planned_node_id) const {
-  EditResult<BackboneCommittedGenerationPlan> result{};
-  BackboneCommittedGenerationPlan plan{};
-  plan.session_id = session_id;
-  plan.ordered_support_node_ids = std::move(ordered_support_node_ids);
-  plan.support_node_by_id = std::move(support_node_by_id);
-  plan.committed_node_id_by_planned_node_id = std::move(committed_node_id_by_planned_node_id);
-  if (plan.ordered_support_node_ids.size() < 2) {
+    std::unordered_map<ObjectId, ObjectId> real_node_id_by_input_node_id) const {
+  EditResult<BackboneRuntimeState> result{};
+  BackboneRuntimeState runtime{};
+  runtime.session_id = session_id;
+  runtime.ordered_support_node_ids = std::move(ordered_support_node_ids);
+  runtime.support_node_by_id = std::move(support_node_by_id);
+  runtime.real_node_id_by_input_node_id = std::move(real_node_id_by_input_node_id);
+  runtime.roles = roles;
+  runtime.pole_facing = pole_facing;
+  if (runtime.ordered_support_node_ids.size() < 2) {
     result.error = "failed to build valid support-node chain";
     return result;
   }
 
   EditResult<bool> topology_state_result = build_real_node_topology_state(
-      topology_plan, session_id, plan.support_node_by_id, plan.committed_node_id_by_planned_node_id, &plan.topology_state);
+      topology_plan, session_id, runtime.support_node_by_id, runtime.real_node_id_by_input_node_id, &runtime.topology);
   if (!topology_state_result.ok) {
     result.error = topology_state_result.error;
     return result;
   }
 
   auto remap_node_id = [&](ObjectId node_id) {
-    const auto it = plan.committed_node_id_by_planned_node_id.find(node_id);
-    return (it == plan.committed_node_id_by_planned_node_id.end()) ? node_id : it->second;
+    const auto it = runtime.real_node_id_by_input_node_id.find(node_id);
+    return (it == runtime.real_node_id_by_input_node_id.end()) ? node_id : it->second;
   };
-  plan.decision_phase = remap_backbone_decision_phase_commit(topology_plan.decision_phase, remap_node_id);
-  plan.planned_pole_orientations.reserve(orientation_plan.planned_pole_orientations.size());
-  for (const auto& [node_id, orientation] : orientation_plan.planned_pole_orientations) {
+  runtime.roles = remap_junction_roles(roles, remap_node_id);
+  runtime.pole_facing.by_node.clear();
+  runtime.pole_facing.by_node.reserve(pole_facing.by_node.size());
+  for (const auto& [node_id, orientation] : pole_facing.by_node) {
     const ObjectId remapped_node_id = remap_node_id(node_id);
     BackbonePlannedPoleOrientation remapped = orientation;
     remapped.debug.pole_id = remapped_node_id;
     remapped.debug.primary_neighbor_id = remap_node_id(remapped.debug.primary_neighbor_id);
     remapped.debug.secondary_neighbor_id = remap_node_id(remapped.debug.secondary_neighbor_id);
-    plan.planned_pole_orientations.emplace(remapped_node_id, std::move(remapped));
+    runtime.pole_facing.by_node.emplace(remapped_node_id, std::move(remapped));
   }
-  result.value = std::move(plan);
+  result.value = std::move(runtime);
   result.ok = true;
   return result;
 }
 
-EditResult<BackboneMaterializationPhaseOutput> CoreState::build_backbone_bundles(
-    const BackboneGenerationRequestPlan& request_plan, const BackboneCommittedGenerationPlan& plan) {
-  EditResult<BackboneMaterializationPhaseOutput> phase_result{};
+EditResult<GeneratedBackboneSpans> CoreState::build_bundle_spans_for_backbone(
+    const BackboneGenerationRequestPlan& request_plan, const BackboneRuntimeState& runtime) {
+  EditResult<GeneratedBackboneSpans> phase_result{};
   const std::vector<BackboneBundlePlan>& active_bundle_plans = request_plan.active_bundle_plans;
-  const std::uint64_t session_id = plan.session_id;
-  const auto& ordered_support_node_ids = plan.ordered_support_node_ids;
-  const auto& support_node_by_id = plan.support_node_by_id;
-  const auto& topology_state = plan.topology_state;
-  const auto& decision_phase = plan.decision_phase;
+  const std::uint64_t session_id = runtime.session_id;
+  const auto& ordered_support_node_ids = runtime.ordered_support_node_ids;
+  const auto& support_node_by_id = runtime.support_node_by_id;
+  const auto& topology_state = runtime.topology;
   const auto& existing_node_position_by_id = topology_state.node_position_by_id;
 
   auto current_support_position = [&](ObjectId node_id) -> Vec3d {
@@ -637,15 +714,15 @@ EditResult<BackboneMaterializationPhaseOutput> CoreState::build_backbone_bundles
     return count;
   };
   auto generate_grouped_spans_for_run =
-      [&](const BackboneBundleAllocation& allocation, const BackboneSpanGenerationRunPlan& run,
+      [&](const BundleAllocation& allocation, const SpanRun& run,
           const std::unordered_map<ObjectId, JunctionRelation>& current_relations,
           const std::unordered_map<ObjectId, JunctionFeasibility>& current_feasibility)
-      -> EditResult<BackboneGroupedSpanGenerationPhaseOutput> {
-    EditResult<BackboneGroupedSpanGenerationPhaseOutput> result{};
-    BackboneGroupedSpanGenerationPhaseOutput output{};
+      -> EditResult<GroupedSpanBuildOutput> {
+    EditResult<GroupedSpanBuildOutput> result{};
+    GroupedSpanBuildOutput output{};
     output.junction_relations_by_node = current_relations;
 
-    const EdgeFlowInfo flow_info = decision_phase.edge_flow_by_segment[run.segment_start_index];
+    const EdgeFlowInfo flow_info = runtime.roles.edge_flow_by_segment[run.segment_start_index];
     EditResult<std::vector<ObjectId>> spans_result = generate_grouped_spans_between_support_nodes(
         run.ordered_support_node_ids, support_node_by_id, allocation.bundle_id, allocation.bundle_plan.category,
         allocation.bundle_plan.count, allocation.bundle_plan.spacing_m, true, allocation.bundle_plan.allow_mirror,
@@ -661,11 +738,11 @@ EditResult<BackboneMaterializationPhaseOutput> CoreState::build_backbone_bundles
     for (std::size_t i = 0; i < output.lane_assignments.size(); ++i) {
       output.lane_assignments[i].segment_index += run.segment_start_index;
       output.lane_assignments[i].variation_flow_key = run.variation_flow_key;
-      output.lane_assignments[i].flow_decision_rule = decision_phase.edge_flow_by_segment[run.segment_start_index + i].rule;
+      output.lane_assignments[i].flow_decision_rule = runtime.roles.edge_flow_by_segment[run.segment_start_index + i].rule;
     }
     for (std::size_t i = 0; i < output.edge_orientations.size(); ++i) {
       output.edge_orientations[i].variation_flow_key = run.variation_flow_key;
-      output.edge_orientations[i].flow_decision_rule = decision_phase.edge_flow_by_segment[run.segment_start_index + i].rule;
+      output.edge_orientations[i].flow_decision_rule = runtime.roles.edge_flow_by_segment[run.segment_start_index + i].rule;
     }
 
     result.value = std::move(output);
@@ -673,19 +750,19 @@ EditResult<BackboneMaterializationPhaseOutput> CoreState::build_backbone_bundles
     return result;
   };
   auto build_support_layout_seed_authority_phase =
-      [&](const BackboneGroupedSpanGenerationPhaseOutput& grouped_span_phase, const BackboneSpanGenerationRunPlan& run)
-      -> BackboneSupportLayoutSeedAuthorityPhaseOutput {
-    BackboneSupportLayoutSeedAuthorityPhaseOutput output{};
+      [&](const GroupedSpanBuildOutput& grouped_span_phase, const SpanRun& run)
+      -> SpanSeedRules {
+    SpanSeedRules output{};
     output.support_layout_seeds = build_seed_generated_support_layouts(
         *this, edit_state_access(), grouped_span_phase.span_ids, grouped_span_phase.lane_assignments,
         grouped_span_phase.junction_relations_by_node, run.variation_flow_key);
     return output;
   };
   auto apply_generated_span_metadata_phase =
-      [&](const BackboneBundleAllocation& allocation, const BackboneGroupedSpanGenerationPhaseOutput& grouped_span_phase,
-          const BackboneSpanGenerationRunPlan& run, std::size_t generation_order_offset)
-      -> BackboneGeneratedSpanMetadataPhaseOutput {
-    BackboneGeneratedSpanMetadataPhaseOutput output{};
+      [&](const BundleAllocation& allocation, const GroupedSpanBuildOutput& grouped_span_phase,
+          const SpanRun& run, std::size_t generation_order_offset)
+      -> GeneratedSpanMetadata {
+    GeneratedSpanMetadata output{};
     for (std::size_t i = 0; i < grouped_span_phase.span_ids.size(); ++i) {
       const ObjectId span_id = grouped_span_phase.span_ids[i];
       Span* span = edit_state_access().spans.find(span_id);
@@ -707,38 +784,38 @@ EditResult<BackboneMaterializationPhaseOutput> CoreState::build_backbone_bundles
     }
     return output;
   };
-  auto materialize_bundle_span_generation_phase =
-      [&](const BackboneBundleAllocation& allocation, const BackboneBundleGapAnalysis& gap_analysis,
-          const BackboneFeasibilityPhaseOutput& feasibility_phase, std::size_t generation_order_offset)
-      -> EditResult<BackboneSpanMaterializationPhaseOutput> {
-    EditResult<BackboneSpanMaterializationPhaseOutput> result{};
-    BackboneSpanMaterializationPhaseOutput output{};
-    output.junction_relations_by_node = decision_phase.junction_relations_by_node;
+  auto build_bundle_span_run =
+      [&](const BundleAllocation& allocation, const BundleGap& gap_analysis,
+          const SpanFeasibility& feasibility_phase, std::size_t generation_order_offset)
+      -> EditResult<BundleSpanRunOutput> {
+    EditResult<BundleSpanRunOutput> result{};
+    BundleSpanRunOutput output{};
+    output.junction_relations_by_node = runtime.roles.by_node;
 
-    const std::vector<BackboneSpanGenerationRunPlan> runs = plan_committed_backbone_span_generation_runs(
-        gap_analysis, decision_phase, ordered_support_node_ids, feasibility_phase, session_id);
-    for (const BackboneSpanGenerationRunPlan& run : runs) {
-      EditResult<BackboneGroupedSpanGenerationPhaseOutput> grouped_span_result =
+    const std::vector<SpanRun> runs = plan_span_runs(
+        gap_analysis, runtime.roles, ordered_support_node_ids, feasibility_phase, session_id);
+    for (const SpanRun& run : runs) {
+      EditResult<GroupedSpanBuildOutput> grouped_span_result =
           generate_grouped_spans_for_run(allocation, run, output.junction_relations_by_node,
                                          feasibility_phase.feasibility_by_node);
       if (!grouped_span_result.ok) {
         result.error = grouped_span_result.error;
         return result;
       }
-      BackboneGroupedSpanGenerationPhaseOutput grouped_span_phase = std::move(grouped_span_result.value);
+      GroupedSpanBuildOutput grouped_span_phase = std::move(grouped_span_result.value);
       append_change_set(output.change_set, grouped_span_phase.change_set);
       output.lane_assignments.insert(output.lane_assignments.end(), grouped_span_phase.lane_assignments.begin(),
                                      grouped_span_phase.lane_assignments.end());
       output.edge_orientations.insert(output.edge_orientations.end(), grouped_span_phase.edge_orientations.begin(),
                                       grouped_span_phase.edge_orientations.end());
 
-      BackboneSupportLayoutSeedAuthorityPhaseOutput seed_authority_phase =
+      SpanSeedRules seed_authority_phase =
           build_support_layout_seed_authority_phase(grouped_span_phase, run);
       output.support_layout_seeds.insert(output.support_layout_seeds.end(),
                                          std::make_move_iterator(seed_authority_phase.support_layout_seeds.begin()),
                                          std::make_move_iterator(seed_authority_phase.support_layout_seeds.end()));
 
-      BackboneGeneratedSpanMetadataPhaseOutput metadata_phase =
+      GeneratedSpanMetadata metadata_phase =
           apply_generated_span_metadata_phase(allocation, grouped_span_phase, run,
                                               generation_order_offset + output.generated_span_ids.size());
       append_change_set(output.change_set, metadata_phase.change_set);
@@ -751,15 +828,15 @@ EditResult<BackboneMaterializationPhaseOutput> CoreState::build_backbone_bundles
     return result;
   };
 
-  phase_result.value.junction_relations_by_node = decision_phase.junction_relations_by_node;
+  phase_result.value.junctions = runtime.roles.by_node;
   for (const BackboneBundlePlan& bundle_plan : active_bundle_plans) {
-    const BackboneBundleGapAnalysis gap_analysis = analyze_committed_backbone_bundle_gaps(
+    const BundleGap gap_analysis = find_bundle_gaps(
         bundle_plan, ordered_support_node_ids, count_existing_segment_spans);
     if (!gap_analysis.requires_allocation()) {
       continue;
     }
 
-    EditResult<BackboneBundleAllocation> allocation_result = allocate_committed_backbone_bundle(
+    EditResult<BundleAllocation> allocation_result = allocate_bundle_for_gap(
         gap_analysis, [&](const BackboneBundlePlan& plan_to_allocate) {
           return AddBundle(plan_to_allocate.count, plan_to_allocate.spacing_m, plan_to_allocate.template_id);
         });
@@ -767,7 +844,7 @@ EditResult<BackboneMaterializationPhaseOutput> CoreState::build_backbone_bundles
       phase_result.error = allocation_result.error;
       return phase_result;
     }
-    BackboneBundleAllocation allocation = std::move(allocation_result.value);
+    BundleAllocation allocation = std::move(allocation_result.value);
     append_change_set(phase_result.value.change_set, allocation.change_set);
     phase_result.value.bundle_ids.push_back(allocation.bundle_id);
     if (phase_result.value.primary_bundle_id == kInvalidObjectId) {
@@ -777,16 +854,16 @@ EditResult<BackboneMaterializationPhaseOutput> CoreState::build_backbone_bundles
     if (!gap_analysis.has_generation_start() || gap_analysis.first_missing_segment >= ordered_support_node_ids.size() - 1) {
       continue;
     }
-    const BackboneFeasibilityPhaseOutput feasibility_phase = evaluate_committed_backbone_feasibility_phase(
-        bundle_plan, phase_result.value.junction_relations_by_node, current_support_position);
-    EditResult<BackboneSpanMaterializationPhaseOutput> span_phase_result = materialize_bundle_span_generation_phase(
+    const SpanFeasibility feasibility_phase = evaluate_span_feasibility(
+        bundle_plan, phase_result.value.junctions, current_support_position);
+    EditResult<BundleSpanRunOutput> span_phase_result = build_bundle_span_run(
         allocation, gap_analysis, feasibility_phase, phase_result.value.generated_span_ids.size());
     if (!span_phase_result.ok) {
       phase_result.error = span_phase_result.error;
       return phase_result;
     }
 
-    BackboneSpanMaterializationPhaseOutput span_phase = std::move(span_phase_result.value);
+    BundleSpanRunOutput span_phase = std::move(span_phase_result.value);
     append_change_set(phase_result.value.change_set, span_phase.change_set);
     phase_result.value.lane_assignments.insert(phase_result.value.lane_assignments.end(), span_phase.lane_assignments.begin(),
                                                span_phase.lane_assignments.end());
@@ -803,64 +880,15 @@ EditResult<BackboneMaterializationPhaseOutput> CoreState::build_backbone_bundles
   return phase_result;
 }
 
-void CoreState::publish_committed_backbone_debug_state(
-    const BackboneCommittedGenerationPlan& plan, BackboneMaterializationPhaseOutput* materialization_phase) {
-  if (materialization_phase == nullptr) {
-    return;
-  }
-
-  debug_.last_generation_support_nodes.clear();
-  debug_.last_generation_support_nodes.reserve(plan.topology_state.generation_backbone.nodes.size());
-  for (const SupportNode& node : plan.topology_state.generation_backbone.nodes) {
-    if (node.support_kind != SupportKind::kPole) {
-      debug_.last_generation_support_nodes.push_back(node);
-    }
-  }
-  debug_.last_generation_lane_assignments = std::move(materialization_phase->lane_assignments);
-  debug_.last_generation_edge_orientations = std::move(materialization_phase->edge_orientations);
-  debug_.last_generation_junction_relations = std::move(materialization_phase->junction_relations_by_node);
-}
-
-EditResult<GenerateBundleFromPathResult> CoreState::build_backbone_from_real_nodes(
-    const BackboneGenerationRequestPlan& request_plan, BackboneCommittedGenerationPlan committed_plan,
-    std::vector<ObjectId> generated_pole_ids, ChangeSet initial_change_set) {
-  EditResult<GenerateBundleFromPathResult> result{};
-  result.change_set = std::move(initial_change_set);
-  result.value.generated_pole_ids = std::move(generated_pole_ids);
-
-  apply_committed_backbone_orientation_plan(&committed_plan, &result.change_set);
-
-  EditResult<BackboneMaterializationPhaseOutput> materialization_phase_result =
-      build_backbone_bundles(request_plan, committed_plan);
-  if (!materialization_phase_result.ok) {
-    result.error = materialization_phase_result.error;
-    return result;
-  }
-  BackboneMaterializationPhaseOutput materialization_phase = std::move(materialization_phase_result.value);
-  append_change_set(result.change_set, materialization_phase.change_set);
-  result.value.bundle_ids.insert(result.value.bundle_ids.end(), materialization_phase.bundle_ids.begin(),
-                                 materialization_phase.bundle_ids.end());
-  if (result.value.bundle_id == kInvalidObjectId) {
-    result.value.bundle_id = materialization_phase.primary_bundle_id;
-  }
-  result.value.generated_span_ids.insert(result.value.generated_span_ids.end(),
-                                         materialization_phase.generated_span_ids.begin(),
-                                         materialization_phase.generated_span_ids.end());
-
-  publish_committed_backbone_debug_state(committed_plan, &materialization_phase);
-  result.ok = true;
-  return result;
-}
-
-EditResult<BackboneCommittedSupportChain> CoreState::realize_support_chain(
+EditResult<RealizedBackboneSupport> CoreState::build_real_backbone_support(
     const BackboneSupportChainPlan& support_chain_plan) {
-  EditResult<BackboneCommittedSupportChain> result{};
-  BackboneCommittedSupportChain committed{};
-  committed.session_id = next_generation_session_id_access()++;
-  committed.generated_pole_ids.reserve(support_chain_plan.generated_pole_ids.size());
-  committed.ordered_support_node_ids.reserve(support_chain_plan.ordered_support_node_ids.size());
-  committed.support_node_by_id.reserve(support_chain_plan.support_node_by_id.size());
-  committed.committed_node_id_by_planned_node_id.reserve(support_chain_plan.resolutions.size());
+  EditResult<RealizedBackboneSupport> result{};
+  RealizedBackboneSupport realized{};
+  realized.session_id = next_generation_session_id_access()++;
+  realized.generated_pole_ids.reserve(support_chain_plan.generated_pole_ids.size());
+  realized.ordered_support_node_ids.reserve(support_chain_plan.ordered_support_node_ids.size());
+  realized.support_node_by_id.reserve(support_chain_plan.support_node_by_id.size());
+  realized.real_node_id_by_input_node_id.reserve(support_chain_plan.resolutions.size());
 
   std::unordered_map<ObjectId, const PlannedPoleCreation*> planned_pole_creation_by_id{};
   planned_pole_creation_by_id.reserve(support_chain_plan.pole_creations.size());
@@ -872,22 +900,22 @@ EditResult<BackboneCommittedSupportChain> CoreState::realize_support_chain(
     const auto it = support_chain_plan.support_node_by_id.find(planned_node_id);
     return (it == support_chain_plan.support_node_by_id.end()) ? nullptr : &it->second;
   };
-  auto commit_support_node = [&](ObjectId planned_node_id, ObjectId committed_node_id, ObjectId committed_pole_id) {
+  auto record_real_support_node = [&](ObjectId planned_node_id, ObjectId real_node_id, ObjectId real_pole_id) {
     const SupportNode* authored_node = authored_support_node_for(planned_node_id);
     if (authored_node == nullptr) {
       result.error = "support-chain plan is missing authored support node";
       return false;
     }
     SupportNode node = *authored_node;
-    node.node_id = committed_node_id;
-    node.pole_id = committed_pole_id;
-    committed.support_node_by_id[committed_node_id] = std::move(node);
-    committed.ordered_support_node_ids.push_back(committed_node_id);
-    committed.committed_node_id_by_planned_node_id[planned_node_id] = committed_node_id;
+    node.node_id = real_node_id;
+    node.pole_id = real_pole_id;
+    realized.support_node_by_id[real_node_id] = std::move(node);
+    realized.ordered_support_node_ids.push_back(real_node_id);
+    realized.real_node_id_by_input_node_id[planned_node_id] = real_node_id;
     return true;
   };
 
-  std::size_t committed_pole_order = 0;
+  std::size_t real_pole_order = 0;
   for (const BackboneSupportResolution& resolution : support_chain_plan.resolutions) {
     if (resolution.support_kind != SupportKind::kPole) {
       if (resolution.kind == BackboneSupportResolutionKind::kReuseSupportNode) {
@@ -896,9 +924,9 @@ EditResult<BackboneCommittedSupportChain> CoreState::realize_support_chain(
           result.error = "support-chain plan is missing reused support node";
           return result;
         }
-        committed.support_node_by_id[resolution.planned_node_id] = it_existing->second;
+        realized.support_node_by_id[resolution.planned_node_id] = it_existing->second;
       }
-      if (!commit_support_node(resolution.planned_node_id, resolution.planned_node_id, kInvalidObjectId)) {
+      if (!record_real_support_node(resolution.planned_node_id, resolution.planned_node_id, kInvalidObjectId)) {
         return result;
       }
       continue;
@@ -914,11 +942,11 @@ EditResult<BackboneCommittedSupportChain> CoreState::realize_support_chain(
       pole->world_transform = resolution.authored_transform;
       pole->context = resolution.authored_context;
       apply_pole_placement_mode(*pole, resolution.placement_mode);
-      finalize_pole_transform_update(pole->id, old_pole, &committed.change_set);
-      if (!commit_support_node(resolution.planned_node_id, pole->id, pole->id)) {
+      finalize_pole_transform_update(pole->id, old_pole, &realized.change_set);
+      if (!record_real_support_node(resolution.planned_node_id, pole->id, pole->id)) {
         return result;
       }
-      ++committed_pole_order;
+      ++real_pole_order;
       continue;
     }
 
@@ -945,8 +973,8 @@ EditResult<BackboneCommittedSupportChain> CoreState::realize_support_chain(
       pole->context = creation.context;
       pole->generation.generated = true;
       pole->generation.source = GenerationSource::kRoadAuto;
-      pole->generation.generation_session_id = committed.session_id;
-      pole->generation.generation_order = static_cast<std::uint32_t>(committed_pole_order);
+      pole->generation.generation_session_id = realized.session_id;
+      pole->generation.generation_order = static_cast<std::uint32_t>(real_pole_order);
       add_unique_id(add_pole.change_set.updated_ids, pole->id);
     }
     EditResult<ObjectId> apply_type = ApplyPoleType(add_pole.value, creation.pole_type_id);
@@ -954,29 +982,29 @@ EditResult<BackboneCommittedSupportChain> CoreState::realize_support_chain(
       result.error = apply_type.error;
       return result;
     }
-    append_change_set(committed.change_set, add_pole.change_set);
-    append_change_set(committed.change_set, apply_type.change_set);
-    committed.generated_pole_ids.push_back(add_pole.value);
-    if (!commit_support_node(resolution.planned_node_id, add_pole.value, add_pole.value)) {
+    append_change_set(realized.change_set, add_pole.change_set);
+    append_change_set(realized.change_set, apply_type.change_set);
+    realized.generated_pole_ids.push_back(add_pole.value);
+    if (!record_real_support_node(resolution.planned_node_id, add_pole.value, add_pole.value)) {
       return result;
     }
-    ++committed_pole_order;
+    ++real_pole_order;
   }
 
   std::vector<ObjectId> compact_support_ids{};
-  compact_support_ids.reserve(committed.ordered_support_node_ids.size());
-  for (ObjectId id : committed.ordered_support_node_ids) {
+  compact_support_ids.reserve(realized.ordered_support_node_ids.size());
+  for (ObjectId id : realized.ordered_support_node_ids) {
     if (compact_support_ids.empty() || compact_support_ids.back() != id) {
       compact_support_ids.push_back(id);
     }
   }
-  committed.ordered_support_node_ids.swap(compact_support_ids);
-  if (committed.ordered_support_node_ids.size() < 2) {
+  realized.ordered_support_node_ids.swap(compact_support_ids);
+  if (realized.ordered_support_node_ids.size() < 2) {
     result.error = "failed to commit valid support-node chain";
     return result;
   }
 
-  result.value = std::move(committed);
+  result.value = std::move(realized);
   result.ok = true;
   return result;
 }

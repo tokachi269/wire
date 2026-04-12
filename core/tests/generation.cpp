@@ -15,6 +15,7 @@
 #include "helpers.hpp"
 #include "wire/core/coord_utils.hpp"
 #include "../src/generation/bundle_spans/build_endpoint_heights.hpp"
+#include "../src/generation/backbone_pipeline/backbone_pipeline.hpp"
 #include "../src/generation/support_policy.hpp"
 
 using namespace helpers;
@@ -363,6 +364,114 @@ std::vector<HvEndpointSnapshot> capture_hv_endpoint_snapshots(const CoreState& s
     return hv_endpoint_snapshot_key(a) < hv_endpoint_snapshot_key(b);
   });
   return snapshots;
+}
+
+bool test_backbone_pipeline_build_direction_initializes_from_input_direction() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  wire::core::BackboneSpec request{};
+  request.path.polyline = {{-12.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}};
+  request.interval_m = 8.0;
+  request.pole_type_id = type_ids.front();
+  request.direction_mode = wire::core::PathDirectionMode::kReverse;
+  add_backbone_bundle(request, wire::core::BundleKind::kLowVoltage);
+
+  wire::core::generation::detail::BackboneBuilder builder(state);
+  const auto built = builder.build(request);
+  if (!built.ok) {
+    return false;
+  }
+  if (built.value.backbone.input_direction != wire::core::generation::detail::InputDirection::kReverse ||
+      built.value.backbone.build_direction != wire::core::generation::detail::BuildDirection::kReverse ||
+      built.value.support_chain.ordered_support_node_ids.empty()) {
+    return false;
+  }
+  const auto first_it =
+      built.value.support_chain.support_node_by_id.find(built.value.support_chain.ordered_support_node_ids.front());
+  return first_it != built.value.support_chain.support_node_by_id.end() &&
+         almost_equal(first_it->second.position, request.path.polyline.back());
+}
+
+bool test_backbone_terminal_without_explicit_pair_does_not_borrow_pair() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  auto run_path = [&](const std::vector<wire::core::Vec3d>& polyline)
+      -> wire::core::EditResult<wire::core::GenerateBundleFromPathResult> {
+    wire::core::BackboneSpec request{};
+    request.path.polyline = polyline;
+    request.interval_m = 20.0;
+    request.pole_type_id = type_ids.front();
+    add_backbone_bundle(request, wire::core::BundleKind::kLowVoltage);
+    return state.GenerateFromBackboneSpec(request);
+  };
+
+  if (!run_path({{-12.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}}).ok) {
+    return false;
+  }
+  const auto branch = run_path({{0.0, 0.0, 0.0}, {0.0, 12.0, 0.0}});
+  if (!branch.ok || branch.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const ObjectId tip_pole_id = find_pole_id_by_position(state, {0.0, 12.0, 0.0});
+  if (tip_pole_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  const auto contract = state.support_layout_contract(branch.value.generated_span_ids.front());
+  if (!contract.has_authority()) {
+    return false;
+  }
+  const auto& start = contract.authority.seed->start;
+  const auto& end = contract.authority.seed->end;
+  const auto* endpoint = (start.owner_pole_id == tip_pole_id) ? &start : ((end.owner_pole_id == tip_pole_id) ? &end : nullptr);
+  return endpoint != nullptr && !endpoint->used_junction_pair_side_assignment &&
+         std::abs(endpoint->chosen_side_sign) <= 1e-9 &&
+         endpoint->support_pair_peer_low == wire::core::kInvalidObjectId &&
+         endpoint->support_pair_peer_high == wire::core::kInvalidObjectId;
+}
+
+bool test_backbone_materialization_does_not_change_pair_family() {
+  CoreState state;
+  const auto type_ids = sorted_pole_type_ids(state);
+  if (type_ids.empty()) {
+    return false;
+  }
+  auto run_path = [&](const std::vector<wire::core::Vec3d>& polyline)
+      -> wire::core::EditResult<wire::core::GenerateBundleFromPathResult> {
+    wire::core::BackboneSpec request{};
+    request.path.polyline = polyline;
+    request.interval_m = 8.0;
+    request.pole_type_id = type_ids.front();
+    add_backbone_bundle(request, wire::core::BundleKind::kLowVoltage);
+    return state.GenerateFromBackboneSpec(request);
+  };
+
+  if (!run_path({{-12.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}}).ok) {
+    return false;
+  }
+  const auto cross = run_path({{0.0, -12.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 12.0, 0.0}});
+  if (!cross.ok || cross.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const ObjectId span_id = cross.value.generated_span_ids.front();
+  const auto contract = state.support_layout_contract(span_id);
+  const auto layout = state.view().inspect_support_layout(span_id);
+  if (!contract.has_authority() || !layout.has_value()) {
+    return false;
+  }
+
+  const bool start_ok =
+      contract.authority.seed->start.support_pair_peer_low == layout->start_endpoint.support_authority.pair.pair_peer_low &&
+      contract.authority.seed->start.support_pair_peer_high == layout->start_endpoint.support_authority.pair.pair_peer_high;
+  const bool end_ok =
+      contract.authority.seed->end.support_pair_peer_low == layout->end_endpoint.support_authority.pair.pair_peer_low &&
+      contract.authority.seed->end.support_pair_peer_high == layout->end_endpoint.support_authority.pair.pair_peer_high;
+  return start_ok && end_ok;
 }
 
 void dump_hv_endpoint_snapshot_diff(const std::vector<HvEndpointSnapshot>& before,
@@ -14648,6 +14757,18 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
       tests, "C362_Backbone_ConnectedDirectionFitGateRespectsExplicitPairAxis",
       "ConnectedDirectionFit stays off when an explicit two-neighbor pair axis is available, and the chosen neighbors stay on that pair",
       "Invariant", false, test_backbone_connected_direction_fit_gate_respects_explicit_pair_axis);
+  test_registry::AddTest(
+      tests, "C365_BackbonePipeline_BuildDirectionFromInputDirection",
+      "BackboneBuilder initializes build direction from the input direction and keeps reversed click order",
+      "Invariant", false, test_backbone_pipeline_build_direction_initializes_from_input_direction);
+  test_registry::AddTest(
+      tests, "C366_Backbone_NoBorrowedPairAtTerminal",
+      "Terminal endpoint without an explicit pair does not borrow peer pair authority downstream",
+      "Invariant", false, test_backbone_terminal_without_explicit_pair_does_not_borrow_pair);
+  test_registry::AddTest(
+      tests, "C367_Backbone_MaterializationDoesNotChangePairFamily",
+      "Materialization consumes saved pair family without changing support pair peers",
+      "Invariant", false, test_backbone_materialization_does_not_change_pair_family);
   test_registry::AddTest(
       tests, "C363_Backbone_LatestCaptureTSupportFamilyDoesNotMixPairRules",
       "Latest captured T-support family keeps one pair-owned rule family instead of mixing ThroughPairNormal and Bisector inside the same pair",

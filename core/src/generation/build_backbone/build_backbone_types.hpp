@@ -45,86 +45,6 @@ struct EdgeFlowInfo {
   bool underpass_at_cross = false;
 };
 
-struct BackboneDecisionPhaseOutput {
-  std::vector<EdgeFlowInfo> edge_flow_by_segment{};
-  std::vector<JunctionRelation> junction_relations_in_path_order{};
-  std::unordered_map<ObjectId, JunctionRelation> junction_relations_by_node{};
-};
-
-struct BackboneFeasibilityPhaseOutput {
-  std::unordered_map<ObjectId, JunctionFeasibility> feasibility_by_node{};
-};
-
-struct BackboneBundleGapSegment {
-  std::size_t segment_index = 0;
-  int missing_count = 0;
-};
-
-struct BackboneBundleGapAnalysis {
-  BackboneBundlePlan bundle_plan{};
-  int missing_total = 0;
-  std::size_t first_missing_segment = std::numeric_limits<std::size_t>::max();
-  std::vector<BackboneBundleGapSegment> missing_segments{};
-
-  [[nodiscard]] bool requires_allocation() const {
-    return missing_total > 0;
-  }
-
-  [[nodiscard]] bool has_generation_start() const {
-    return first_missing_segment != std::numeric_limits<std::size_t>::max();
-  }
-};
-
-struct BackboneBundleAllocation {
-  BackboneBundlePlan bundle_plan{};
-  ObjectId bundle_id = kInvalidObjectId;
-  ChangeSet change_set{};
-};
-
-struct BackboneSpanGenerationRunPlan {
-  std::size_t segment_start_index = 0;
-  std::size_t segment_end_index = 0;
-  std::vector<ObjectId> ordered_support_node_ids{};
-  std::uint64_t variation_flow_key = 0;
-  BackboneLoweringPolicy lowering_policy{};
-};
-
-struct BackboneGroupedSpanGenerationPhaseOutput {
-  ChangeSet change_set{};
-  std::vector<ObjectId> span_ids{};
-  std::vector<SegmentLaneAssignment> lane_assignments{};
-  std::vector<BackboneEdgeOrientation> edge_orientations{};
-  std::unordered_map<ObjectId, JunctionRelation> junction_relations_by_node{};
-};
-
-struct BackboneSupportLayoutSeedAuthorityPhaseOutput {
-  std::vector<SpanSupportLayoutDecisionSeed> support_layout_seeds{};
-};
-
-struct BackboneGeneratedSpanMetadataPhaseOutput {
-  ChangeSet change_set{};
-  std::vector<ObjectId> generated_span_ids{};
-};
-
-struct BackboneSpanMaterializationPhaseOutput {
-  ChangeSet change_set{};
-  std::vector<ObjectId> generated_span_ids{};
-  std::vector<SegmentLaneAssignment> lane_assignments{};
-  std::vector<BackboneEdgeOrientation> edge_orientations{};
-  std::vector<SpanSupportLayoutDecisionSeed> support_layout_seeds{};
-  std::unordered_map<ObjectId, JunctionRelation> junction_relations_by_node{};
-};
-
-struct BackboneMaterializationPhaseOutput {
-  ChangeSet change_set{};
-  ObjectId primary_bundle_id = kInvalidObjectId;
-  std::vector<ObjectId> bundle_ids{};
-  std::vector<ObjectId> generated_span_ids{};
-  std::vector<SegmentLaneAssignment> lane_assignments{};
-  std::vector<BackboneEdgeOrientation> edge_orientations{};
-  std::unordered_map<ObjectId, JunctionRelation> junction_relations_by_node{};
-};
-
 struct BackboneGenerationRequestPlan {
   BackboneSpec request{};
   NodeSpecByIndex node_spec_by_index{};
@@ -178,15 +98,6 @@ struct BackboneSupportChainPlan {
   std::vector<ObjectId> generated_pole_ids{};
 };
 
-struct BackboneCommittedSupportChain {
-  std::uint64_t session_id = 0;
-  ChangeSet change_set{};
-  std::vector<ObjectId> generated_pole_ids{};
-  std::vector<ObjectId> ordered_support_node_ids{};
-  std::unordered_map<ObjectId, SupportNode> support_node_by_id{};
-  std::unordered_map<ObjectId, ObjectId> committed_node_id_by_planned_node_id{};
-};
-
 struct BackboneTopologyPlan {
   BackboneResult existing_network_backbone{};
   BackboneResult generation_backbone{};
@@ -194,38 +105,6 @@ struct BackboneTopologyPlan {
   std::unordered_map<ObjectId, std::unordered_map<ObjectId, std::uint64_t>> existing_incident_session_by_node{};
   std::unordered_map<ObjectId, std::vector<ObjectId>> route_neighbors_by_node{};
   std::unordered_map<ObjectId, Vec3d> existing_node_position_by_id{};
-  BackboneDecisionPhaseOutput decision_phase{};
-};
-
-struct BackboneOrientationPlan {
-  std::unordered_map<ObjectId, BackbonePlannedPoleOrientation> planned_pole_orientations{};
-};
-
-struct BackboneCommittedTopologyState {
-  BackboneResult generation_backbone{};
-  std::unordered_map<ObjectId, std::vector<ObjectId>> route_neighbors_by_node{};
-  std::unordered_map<ObjectId, Vec3d> node_position_by_id{};
-  std::unordered_map<ObjectId, std::uint64_t> existing_prioritized_session_by_node{};
-  std::unordered_map<ObjectId, std::unordered_map<ObjectId, std::uint64_t>> existing_incident_session_by_node{};
-};
-
-struct BackboneCommittedGenerationPlan {
-  std::uint64_t session_id = 0;
-  std::vector<ObjectId> ordered_support_node_ids{};
-  std::unordered_map<ObjectId, SupportNode> support_node_by_id{};
-  std::unordered_map<ObjectId, ObjectId> committed_node_id_by_planned_node_id{};
-  BackboneCommittedTopologyState topology_state{};
-  BackboneDecisionPhaseOutput decision_phase{};
-  std::unordered_map<ObjectId, BackbonePlannedPoleOrientation> planned_pole_orientations{};
-};
-
-struct BackboneBuildDraft {
-  BackboneGenerationRequestPlan build_request{};
-  BackboneSupportChainPlan support_chain{};
-  BackboneTopologyPlan route_topology{};
-  BackboneOrientationPlan pole_facing{};
-  ChangeSet change_set{};
-  GenerateBundleFromPathResult result{};
 };
 
 [[nodiscard]] EditResult<BackboneGenerationRequestPlan> build_backbone_generation_request_plan(

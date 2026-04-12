@@ -11,6 +11,8 @@ add_library(
   src/state/template_mutation_service.cpp
   src/pole_orientation_utils.cpp
   src/generation/build_backbone_service.cpp
+  src/generation/backbone_pipeline/backbone_pipeline.cpp
+  src/generation/backbone_pipeline/backbone_runtime.cpp
   src/generation/bundle_spans/build_bundle_spans.cpp
   src/generation/bundle_spans/build_bundle_rows.cpp
   src/generation/bundle_spans/build_endpoint_heights.cpp
@@ -19,10 +21,6 @@ add_library(
   src/generation/pole_facing/pole_facing_rules.cpp
   src/generation/build_backbone/build_request.cpp
   src/generation/route/build_support_chain.cpp
-  src/generation/route/build_junction_roles.cpp
-  src/generation/pole_facing/build_pole_facing.cpp
-  src/generation/build_backbone/build_backbone.cpp
-  src/generation/build_backbone/build_backbone_spans.cpp
   src/generation/generate_from_backbone.cpp
   src/generation/rebuild_from_backbone.cpp
   src/state/backbone.cpp

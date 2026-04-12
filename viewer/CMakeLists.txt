@@ -35,6 +35,7 @@ elseif(WIRE_VIEWER_FETCH_DEPS)
     raylib
     GIT_REPOSITORY https://github.com/raysan5/raylib.git
     GIT_TAG 5.5
+    GIT_SUBMODULES ""
   )
   set(_wire_prev_cmake_warn_deprecated ${CMAKE_WARN_DEPRECATED})
   set(CMAKE_WARN_DEPRECATED OFF)
@@ -50,6 +51,7 @@ elseif(WIRE_VIEWER_FETCH_DEPS)
     imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui.git
     GIT_TAG v1.92.1
+    GIT_SUBMODULES ""
   )
   FetchContent_MakeAvailable(imgui)
 
@@ -57,6 +59,7 @@ elseif(WIRE_VIEWER_FETCH_DEPS)
     rlimgui
     GIT_REPOSITORY https://github.com/raylib-extras/rlImGui.git
     GIT_TAG main
+    GIT_SUBMODULES ""
   )
   FetchContent_MakeAvailable(rlimgui)
 else()

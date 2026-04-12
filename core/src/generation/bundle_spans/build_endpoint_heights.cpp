@@ -42,7 +42,6 @@ SegmentRelationFeasibility GroupedSpanLoweringDecider::SegmentRelationFeasibilit
     info.projected_spacing_topview_m = feasibility->projected_spacing_topview_m;
     info.required_clearance_m = feasibility->required_clearance_m;
   }
-  bool local_terminal_relation = false;
   if (const JunctionIncidentRelation* peer_incident = ctx_.incident_relation_for(peer_id, node_id); peer_incident != nullptr) {
     info.peer_relation_found = true;
     info.peer_relation_kind = peer_incident->kind;
@@ -54,23 +53,6 @@ SegmentRelationFeasibility GroupedSpanLoweringDecider::SegmentRelationFeasibilit
       info.peer_default_lower_required = peer_feasibility->default_lower_required;
       info.peer_same_level_feasible = peer_feasibility->same_level_feasible;
       info.peer_reason = peer_feasibility->reason;
-    }
-  }
-  if (ctx_.junction_relations_by_node != nullptr) {
-    if (const auto local_it = ctx_.junction_relations_by_node->find(node_id);
-        local_it != ctx_.junction_relations_by_node->end()) {
-      local_terminal_relation =
-          local_it->second.route_incident_count == 1 && local_it->second.incidents.size() == 1;
-    }
-    if (local_terminal_relation) {
-      if (const auto peer_it = ctx_.junction_relations_by_node->find(peer_id);
-          peer_it != ctx_.junction_relations_by_node->end() && peer_it->second.through_pair.accepted) {
-        info.kind = JunctionRelationKind::kThroughMain;
-        info.in_through_pair = true;
-        info.default_lower_required = false;
-        info.same_level_feasible = true;
-        info.reason = SameLevelFeasibilityReason::kNone;
-      }
     }
   }
   return info;

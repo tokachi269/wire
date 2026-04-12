@@ -61,57 +61,6 @@ struct PairKeyHash {
   return {std::min(a, b), std::max(a, b)};
 }
 
-std::vector<PairKey> derive_non_through_pair_keys(const EditState& edit_state, const JunctionRelation& relation) {
-  std::vector<ObjectId> remaining{};
-  remaining.reserve(relation.incidents.size());
-  for (const JunctionIncidentRelation& incident : relation.incidents) {
-    if (!incident.in_route || incident.neighbor_node_id == kInvalidObjectId || incident.in_through_pair) {
-      continue;
-    }
-    if (edit_state.poles.find(incident.neighbor_node_id) == nullptr) {
-      continue;
-    }
-    remaining.push_back(incident.neighbor_node_id);
-  }
-
-  std::vector<PairKey> keys{};
-  if (remaining.size() < 2) {
-    return keys;
-  }
-  while (remaining.size() >= 2) {
-    double best_score = std::numeric_limits<double>::infinity();
-    std::size_t best_i = 0;
-    std::size_t best_j = 1;
-    for (std::size_t i = 0; i < remaining.size(); ++i) {
-      const Pole* pole_i = edit_state.poles.find(remaining[i]);
-      if (pole_i == nullptr) {
-        continue;
-      }
-      for (std::size_t j = i + 1; j < remaining.size(); ++j) {
-        const Pole* pole_j = edit_state.poles.find(remaining[j]);
-        if (pole_j == nullptr) {
-          continue;
-        }
-        const double score = distance_squared_xy(pole_i->world_transform.position, pole_j->world_transform.position);
-        if (score < best_score) {
-          best_score = score;
-          best_i = i;
-          best_j = j;
-        }
-      }
-    }
-    keys.push_back(canonical_pair_key(remaining[best_i], remaining[best_j]));
-    if (best_j > best_i) {
-      remaining.erase(remaining.begin() + static_cast<std::ptrdiff_t>(best_j));
-      remaining.erase(remaining.begin() + static_cast<std::ptrdiff_t>(best_i));
-    } else {
-      remaining.erase(remaining.begin() + static_cast<std::ptrdiff_t>(best_i));
-      remaining.erase(remaining.begin() + static_cast<std::ptrdiff_t>(best_j));
-    }
-  }
-  return keys;
-}
-
 std::unordered_map<PairKey, int, PairKeyHash> pair_height_rank_map_for_junction(const EditState& edit_state,
                                                                                 const JunctionRelation& relation) {
   std::unordered_map<PairKey, int, PairKeyHash> ranks{};
@@ -122,14 +71,7 @@ std::unordered_map<PairKey, int, PairKeyHash> pair_height_rank_map_for_junction(
     ranks.emplace(through_key, 0);
     has_through_key = true;
   }
-  const std::vector<PairKey> non_through_keys = derive_non_through_pair_keys(edit_state, relation);
-  int next_rank = has_through_key ? 1 : 0;
-  for (const PairKey& key : non_through_keys) {
-    if (has_through_key && key == through_key) {
-      continue;
-    }
-    ranks.emplace(key, next_rank++);
-  }
+  (void)edit_state;
   return ranks;
 }
 

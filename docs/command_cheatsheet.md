@@ -14,15 +14,17 @@ build-vs18-coretests\core\Debug\wire_core_tests.exe
 
 ## viewer
 
-Use local dependency source trees. If you already have `build-viewer\_deps\raylib-src`, `build-viewer\_deps\imgui-src`, and `build-viewer\_deps\rlimgui-src`, you can reuse them as-is.
+Fetch viewer dependencies when local source trees are not already present.
 
 ```cmd
 call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"
-"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -S . -B build-vs18-viewer-local -G "Visual Studio 18 2026" -A x64 -DWIRE_BUILD_VIEWER=ON -DWIRE_VIEWER_FETCH_DEPS=OFF -DWIRE_RAYLIB_SOURCE_DIR=D:/GitHub/wire/build-viewer/_deps/raylib-src -DWIRE_IMGUI_SOURCE_DIR=D:/GitHub/wire/build-viewer/_deps/imgui-src -DWIRE_RLIMGUI_SOURCE_DIR=D:/GitHub/wire/build-viewer/_deps/rlimgui-src
-"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" --build build-vs18-viewer-local --config Debug --target wire_viewer
-build-vs18-viewer-local\viewer\Debug\wire_viewer.exe
+"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -S . -B build-vs18-viewer-fetch -G "Visual Studio 18 2026" -A x64 -DWIRE_BUILD_VIEWER=ON -DWIRE_VIEWER_FETCH_DEPS=ON
+"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" --build build-vs18-viewer-fetch --config Debug --target wire_viewer
+build-vs18-viewer-fetch\viewer\Debug\wire_viewer.exe
 
 ```
+
+If you already have `build-viewer\_deps\raylib-src`, `build-viewer\_deps\imgui-src`, and `build-viewer\_deps\rlimgui-src`, you can instead use local source directories with `WIRE_VIEWER_FETCH_DEPS=OFF`.
 
 ## notes
 

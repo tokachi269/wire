@@ -37,7 +37,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
     std::vector<BackboneEdgeOrientation>* out_edge_orientations, BundleKind bundle_template_id,
     const std::unordered_map<ObjectId, Vec3d>* node_side_axis_by_node,
     const std::unordered_map<ObjectId, std::unordered_map<ObjectId, double>>* node_side_sign_by_peer,
-    const std::unordered_map<ObjectId, std::array<ObjectId, 2>>* main_pair_by_node,
+    const std::unordered_map<ObjectId, std::array<ObjectId, 2>>* through_pair_by_node,
     const std::unordered_map<ObjectId, std::array<ObjectId, 2>>* cross_pair_by_node) {
   EditResult<std::vector<ObjectId>> result;
   if (node_ids.size() < 2) {
@@ -52,7 +52,7 @@ CoreState::generate_grouped_spans_between_support_nodes(
                                                   junction_relations_by_node, junction_feasibility_by_node,
                                                   &debug_.pole_orientation_debug_records,
                                                   node_side_axis_by_node, node_side_sign_by_peer,
-                                                  main_pair_by_node, cross_pair_by_node};
+                                                  through_pair_by_node, cross_pair_by_node};
   auto support_pole = [&](ObjectId node_id) -> const Pole* { return grouped_span_ctx.support_pole(node_id); };
   auto incident_relation_kind_for = [&](ObjectId node_id, ObjectId peer_id) -> JunctionRelationKind {
     const JunctionIncidentRelation* incident = grouped_span_ctx.incident_relation_for(node_id, peer_id);

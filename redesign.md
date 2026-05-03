@@ -1,68 +1,35 @@
-# Backbone生成パイプライン再設計仕様 改訂版
+# Backbone生成パイプライン再設計仕様
 
 ## 目的
 
-backbone から span 生成までの流れを、処理順と責務が明確な形に作り直す。
-現行の `plan / commit / execute / materialization / authority / decision` などの抽象語中心の構造は前提にしない。
-生成対象として自然な概念で整理する。
+backbone から span 生成までの流れを、処理順と責務が読める一本の pipeline にする。
+後段は upstream が保存した正本を読むだけにし、local geometry や既存 layout から意味を作り直さない。
 
-この仕様では、次を重視する。
+## 処理順
 
-* 何をどの順番で確定するか
-* どの段が何を入力にして何を出力するか
-* 後段が前段の意味を作り直さないこと
-* pole を主役にしないこと
-* grouped span 側で pair や side を勝手に発明しないこと
-* backbone 自体が後段の共通基準を持つこと
+1. `BackboneBuilder`
+2. `JunctionInputBuilder`
+3. `JunctionPairResolver`
+4. `JunctionLevelResolver`
+5. `PoleFacingResolver`
+6. `BundleSpanBuilder`
+7. `SpanLayoutRuleBuilder`
 
----
+`BackbonePipeline` は `prepare()` / `check()` / `build()` だけを持つ。
 
-## スコープ
+## BackboneGraph
 
-対象は backbone 入力から grouped span 生成まで。
-
-含むもの:
-
-* backbone path 入力
-* backbone node / edge の確定
-* junction での役割決定
-* pole facing 解決
-* bundle/span 生成
-* span ごとの layout rule 保存
-
-含まないもの:
-
-* viewer
-* render
-* attachment template のデータ定義自体
-* CoreState 全体の再設計
-* curve 表現の全面見直し
-
----
-
-## backbone が持つ正本
-
-backbone は単なる node / edge の集合ではなく、**後段が向きや pair を再発明しなくて済むための正本**を持つ。
-
-### backbone が持つもの
+backbone が持つ正本:
 
 * nodes
 * edges
 * junctions
-* **input direction**
+* `InputDirection`
+* `BuildDirection`
+* `JunctionPairs`
+* `JunctionLevelRules`
 
-  * backbone path を入力した向き
-  * クリック順の方向を正とする
-* **build direction**
-
-  * 生成で使う正方向
-  * 初期値は input direction
-  * 必要なら外部指定や内部ルールで反転可能
-* main pair
-* cross pair
-* junction roles
-
-### backbone が持たないもの
+backbone が持たないもの:
 
 * final pole facing
 * lane order
@@ -70,406 +37,351 @@ backbone は単なる node / edge の集合ではなく、**後段が向きや p
 * socket の resolved 結果
 * materialization 後の world geometry
 
-重要:
+順序番号を正本にしない。downstream は local geometry から正方向を再生成しない。
 
-* 順序番号を正本にしない
-* 正方向は `input direction` と `build direction` で持つ
-* downstream は local geometry から正方向を再生成しない
+## JunctionInputBuilder
 
----
+`JunctionInputFacts` は入力から観測できる事実だけを持つ。
 
-## 処理順
+入れてよいもの:
 
-処理順はこれを正とする。
-
-1. backbone node / edge を確定する
-2. backbone の正方向を確定する
-3. junction の役割を決める
-4. pole facing を解決する
-5. bundle/span を生成する
-6. span ごとの layout rule を保存する
-7. 後段は保存済み rule を使って geometry / world を作る
-
-重要:
-
-* 4 の後に pole facing を変えてはいけない
-* 5 の後に pair / side / lowering の意味を変えてはいけない
-* 7 は consume のみで、意味決定をしない
-
-補足:
-
-* pole facing は主工程ではなく、junction roles と backbone の build direction から解く従属値
-* node / edge の順序番号は不要
-* 正方向は input/build direction を使う
-
----
-
-## 主な構成
-
-### BackbonePipeline
-
-本流の入口。
-
-工程は短い名前で持つ。
-
-* `prepare()`
-* `check()`
-* `build()`
-
-`prepare()` の中で前提を揃える。
-`check()` は入力不備の確認だけに使う。
-`build()` の中で生成まで進める。
-
-### BackboneBuilder
-
-backbone path から node / edge と方向基準を作る。
-
-### JunctionRoleResolver
-
-各 junction で
-
-* ThroughMain
-* SideBranch
-* CrossUnderpass
-* CornerContinuation
-  を決める。
-
-### PoleFacingResolver
-
-junction role と外部指定と backbone の build direction から pole facing を解決する。
-pole facing は主工程ではなく従属値として扱う。
-
-### BundleSpanBuilder
-
-backbone、junction role、pole facing を使って bundle/span を生成する。
-grouped span 系の枝処理はこの中で使う。
-
-### SpanLayoutRuleBuilder
-
-生成した span ごとに、後段が使う端点 rule を保存する。
-
----
-
-## 各段の責務
-
-### 1. BackboneBuilder
-
-入力:
-
-* backbone path
-* node spec
-* pole type
-* interval
-* 向き指定
-
-出力:
-
-* backbone nodes
-* backbone edges
-* node metadata
-* pole/node ids
-* input direction
+* node id
+* route incidents
+* external incidents
+* incident directions
 * build direction
+* explicit user constraints
+* support node geometry
 
-責務:
+入れないもの:
 
-* backbone の node / edge を確定する
-* 必要な pole を state に作る
-* input direction を記録する
-* build direction を確定する
+* 既存 span
+* 既存 layout
+* 既存 seed
 
 禁止:
 
-* junction role を決める
+* through pair / cross pair を選ぶ
+* junction axis を選ぶ
+* level rule / lowering を決める
+
+## JunctionPairResolver
+
+`JunctionInputFacts` から、生成で使う pair と axis を選ぶ。
+
+出力:
+
+* `JunctionPairs`
+* `through_pair_by_node`
+* `cross_pair_by_node`
+* `junction_axis_by_node`
+
+`main / branch / cross / corner` のようなラベルは正本ではない。必要なら debug 表示として派生させる。
+
+禁止:
+
+* level rule / lowering を決める
 * pole facing を決める
-* pair / lane / span を決める
+* grouped span 都合で pair を足す
+* bundle spec で pair / axis を変える
+* 既存 span から pair を借りる
 
----
+## JunctionLevelResolver
 
-### 2. JunctionRoleResolver
-
-入力:
-
-* backbone nodes / edges
-* build direction
-* junction raw facts
-
-出力:
-
-* junction roles
-* main pair
-* cross pair
-
-責務:
-
-* 各 junction の隣接方向に役割を付ける
-* through/main/branch/cross/corner を決める
-* main pair / cross pair をここで正本化する
-* 役割決定はここで完結する
-
-禁止:
-
-* pole facing を決める
-* lowering 可否を geometry ベースで丸める
-* grouped span 向けの pair companion を downstream 前提で足す
-
----
-
-### 3. PoleFacingResolver
+pair / axis 選択後に、level rule を決める。
 
 入力:
 
-* junction roles
-* main pair / cross pair
-* build direction
-* 外部 facing 指定
-
-出力:
-
-* pole facing
-
-責務:
-
-* pole ごとの facing を1本決める
-
-優先順位:
-
-1. 外部指定
-2. cross は本線向き
-3. 分岐でなければ二等分線
-4. それ以外のみ単純 fallback
-
-重要:
-
-* pole facing は主役ではない
-* backbone と junction の正本から解く派生値
-* 重い planner にしない
-
-禁止:
-
-* pole を主役にして junction role を逆算する
-* pair / lane / span を pole facing から決める
-* pole facing を backbone の正本の代わりに使う
-
----
-
-### 4. BundleSpanBuilder
-
-入力:
-
-* backbone
-* junction roles
-* pole facing
+* `JunctionInputFacts`
+* `JunctionPairs`
 * bundle spec
 
 出力:
 
-* generated spans
-* lane/port assignment
-* endpoint layout rules
+* `JunctionLevelRules`
+* `same_level_allowed`
+* `must_lower`
+* `level_rule`
 
-責務:
-
-* grouped span 系の処理を使って実 span を生成する
-* lowering / side / pair / lane / port をここで決める
+level rule は facts ではなく生成ルールとして扱う。
 
 禁止:
 
-* junction roles を再解釈する
-* explicit pair がないのに pair を発明する
-* lane preparation で side sign を発明する
-* build direction を local geometry で上書きする
+* through pair / cross pair / junction axis を変える
+* 既存 layout / seed で lowering を変える
 
----
+## PoleFacingResolver
 
-### 5. SpanLayoutRuleBuilder
+pole facing は従属値。
 
 入力:
 
-* generated spans
-* endpoint layout rules
-* lane assignment
-
-出力:
-
-* span layout rules
-
-責務:
-
-* 各 span の start/end 端点 rule を保存する
-* 後段がこれを読む
+* external override
+* `JunctionPairs`
+* `junction_axis_by_node`
+* `BuildDirection`
 
 禁止:
 
-* 新しい意味決定
-* rule family の補正
-* pair family の再解釈
-* junction を見て pair rule を寄せ直すこと
+* pole facing から pair / lane / side / lowering を決める
+* bundle category 分岐を持つ
+* support axis selection を主導する
+* grouped span 側の不足を埋める
 
----
+## BundleSpanBuilder
 
-### 6. 後段 geometry/world 処理
+grouped span は consumer。
 
 入力:
 
-* saved span layout rules
-
-出力:
-
-* layout
-* curve
-* bounds
-* world geometry
+* backbone
+* `JunctionPairs`
+* `JunctionLevelRules`
+* build direction
+* node side axis
 
 責務:
 
-* 保存済み rule を使って geometry/world を作る
-
-禁止:
-
-* pair rule の正規化
-* junction を見て rule を寄せ直す
-* authority/decision の作り直し
-* build direction や pair family の再解釈
-
----
-
-## grouped span 枝の方針
-
-grouped span 側では次を正とする。
-
-* explicit pair だけを使う
-* explicit pair が無ければ pair を作らない
-* borrowed pair を downstream で作らない
-* lane preparation は side sign を発明しない
-* materialization は意味を作り直さない
-* local geometry から backbone 正方向を再発明しない
-
-### grouped span 内の役割
-
-* endpoint height rule を決める
-* endpoint side / pair / axis を決める
-* lane / row を決める
+* port row を作る
 * span を作る
+* endpoint layout rule を保存する
 
----
+禁止:
 
-## 命名方針
+* pair を発明する
+* side axis を local geometry から作る
+* sign を補完する
+* existing seed を読んで意味を変える
 
-### クラス名
+## 既存物の扱い
+
+既存 pole / bundle / span / port は再利用制約であり、意味決定の正本ではない。
+
+許可:
+
+* 既存 pole の再利用
+* 既存 bundle/span の不足分判定
+* 既存 port の再利用
+* 明示 override の尊重
+
+禁止:
+
+* 既存 span で through pair / cross pair を変える
+* 既存 layout で side axis を変える
+* 既存 seed で lowering を変える
+* 既存有無で同じ input backbone の意味結果が変わる
+
+## 命名
+
+採用する中心名:
 
 * `BackbonePipeline`
 * `BackboneBuilder`
-* `JunctionRoleResolver`
+* `JunctionInputBuilder`
+* `JunctionPairResolver`
+* `JunctionLevelResolver`
 * `PoleFacingResolver`
 * `BundleSpanBuilder`
 * `SpanLayoutRuleBuilder`
+* `JunctionInputFacts`
+* `JunctionPairs`
+* `JunctionLevelRules`
+* `PoleFacing`
+* `EndpointLayoutRule`
+* `SpanLayoutRules`
 
-### 工程名
-
-* `prepare`
-* `check`
-* `build`
-
-詳細処理は補助メソッド側で具体名にする。
-
-* `buildBackbone`
-* `resolveJunctionRoles`
-* `resolvePoleFacing`
-* `buildBundles`
-* `saveSpanLayoutRules`
-
-禁止:
+避ける中心名:
 
 * `Authority`
-* `Decision`
-* `Projection`
+* `DecisionSeed`
+* `ProjectionView`
 * `Materialization`
 * `Commit`
 * `Execute`
 * `Planner`
 * `Policy`
 
----
+## Acceptance
 
-## データ構造方針
+* 既存 span なし/ありで同じ input backbone の `through_pair`, `cross_pair`, `junction_axis` が一致する。
+* bundle spec を変えても `through_pair`, `cross_pair`, `junction_axis` は変わらない。
+* bundle spec によって変わるのは `JunctionLevelRules` と span/layout 結果だけ。
+* pole facing override を変えても pair / axis / level rule / lane / side sign が変わらない。
+* `SpanLayoutRules` 保存後、後段は保存済み rule を consume するだけにする。
 
-抽象語ではなく、対象物ベースで持つ。
+## bb2 milestone 1
 
-例:
+`bb2` は v1 を整理する場所ではなく、v1 を読まない小さい新本流として扱う。
 
-* `BackboneGraph`
-* `JunctionRoles`
-* `PoleFacing`
-* `EndpointLayoutRule`
-* `SpanLayoutRules`
-* `InputDirection`
-* `BuildDirection`
+milestone 1 の対応入力:
 
-避ける例:
+* `path.polyline.size() >= 2`
+* `bundles.size() == 1`
+* pole support のみ
+* existing span / layout / seed を意味決定に使わない
 
-* `AuthorityView`
-* `DecisionSeed`
-* `ProjectionView`
-* `MaterializationInputs`
+milestone 1 の必須出力:
 
----
+* topology: poles / bundle / ports / spans
+* rules: `SpanLayoutRules`
+* layout: `SpanSupportLayoutEntry`
+* geom: `DetailCurve` / `BoundsCacheEntry`
 
-## テスト方針
+milestone 1 の非保証:
 
-正本は仕様。
-テストはその検証器とする。
+* visual support parts
+* render styling
+* attachment
+* insulator
+* grouped lowered support visual
+* style context
+* post-edit refresh
 
-### 1. 仕様テスト
+cache の扱い:
 
-* build direction は input direction から初期化される
-* pole facing は junction roles の後に決まる
-* materialization は pair family を変更しない
-* grouped span consumer は explicit pair が無ければ pair を作らない
+* rules / layout は bb2 生成結果の一部。
+* curve / bounds は生成直後に保存される deterministic derived output。
+* visual / render は draw 要件が固まるまで生成しない。
 
-### 2. 症状テスト
+viewer 表示要件:
 
-* T で main と branch の高さ関係
-* cross center が本線基準で揃う
-* lane twist が起きない
-* borrowed pair を勝手に使わない
-* 向き反転が build direction に従って一貫する
+* milestone 1 では curve があれば wire 表示可能で十分。
+* render cache が無い場合の viewer fallback は許可する。
+* support arm / insulator が無いことは milestone 1 の欠落ではない。
 
-### 3. 移行テスト
+recalc 不使用:
 
-* capture replay
-* accepted visual cases
+* bb2 generation 中は recalc / Commit / dirty queue を使わない。
+* post-edit 再派生は milestone 1 の対象外。
+* 後で必要なら bb2 専用の明示再導出 API を別途作る。
 
-注意:
+## bb2 milestone 2
 
-* 旧テストはそのまま正本扱いしない
-* 設計と衝突するテストは見直し対象にする
+pair は初期正本として `graph` から一度だけ確定する。T / cross / branch の kind label は作らず、node-local な incident continuity として扱う。
 
----
+入力構造:
 
-## 実装方針
+* `node`: input/build direction 適用後の support point。
+* `link`: node 間の入力 edge。`dir` は `a -> b` の有向進行方向。
 
-全面上書きではなく、新系統を横に作る。
+pair 正本:
 
-* `BackbonePipeline`
-* `BackboneBuilder`
-* `JunctionRoleResolver`
-* `PoleFacingResolver`
-* `BundleSpanBuilder`
-* `SpanLayoutRuleBuilder`
+* `pairs make(graph)` が唯一の確定点。
+* `pair`: 同じ route 上で連続する incoming / outgoing link の continuity。
+* `open`: terminal など、接続相手を持たない incident。
+* `row`: port placement unit。必ず pair または open を source に持つ。
 
-この新系統を入口からつないで比較可能にする。
-通ったら旧 generation 本流を物理削除する。
+下流の扱い:
 
----
+* `emit` / `rules` / `layout` / `geom` は `pairs` を読む。
+* row axis は `pairs make` の出力を正とし、downstream は route geometry から作り直さない。
+* `topo` は生成実体だけを持ち、pair/open の組み合わせを解釈しない。
 
-## 完了条件
+禁止:
 
-* 処理順が backbone → junction → facing → spans → rules 保存 で明確
-* backbone が input/build direction を持つ
-* pole facing が主工程ではなく従属値になっている
-* grouped span で pair / side を勝手に発明しない
-* 後段が意味を作り直さない
-* クラス名とメソッド名を見て流れが分かる
-* 仕様テストと症状テストが通る
-* 旧本流を削除できる見込みが立つ
+* T / cross / branch の enum や kind label を bb2 に作る。
+* pair / open / row の数で rules / layout / geom に分岐を散らす。
+* existing span / layout / seed / bundle spec / pole facing で pair を変える。
+* zero length link や ambiguous incident を fallback で補う。
+
+## bb2 milestone 3
+
+existing pole node は新規 pole を作るかどうかだけを変える。pair / open / row の意味決定には使わない。
+
+node:
+
+* `pole`: existing pole id。未指定なら invalid。
+* `is_new`: bb2 が pole を新規作成するなら true。
+* `pos`: existing pole なら pole position、new node なら input point。
+
+対応:
+
+* `node_specs.node_id` で既存 pole を指定できる。
+* existing pole node では `AddPole` せず、`topo.poles` に既存 id を入れる。
+* `generated_pole_ids` は新規作成 pole だけを返す。
+
+禁止:
+
+* existing span / port / layout / seed / recalc state を pair 決定に使う。
+* existing pole 周辺の接続状況で row axis を変える。
+* existing port reuse をこの milestone に混ぜる。
+
+## bb2 milestone 4
+
+multiple bundle は同じ `graph` / `pairs` / `row` を共有する。bundle spec は topology emission 以降でだけ使い、pair / axis を変えない。
+
+対応:
+
+* `bundles.size() >= 1`
+* bundle ごとに bundle entity / ports / spans を生成する。
+* `topo.spans` は `link`, `bundle`, `lane` を持ち、rules はこの metadata から endpoint を読む。
+
+禁止:
+
+* bundle spec / bundle count / bundle kind を `pairs make(graph)` で読む。
+* bundle ごとに pair / row axis を作り直す。
+* multiple bundle を T / cross / branch kind の代替分岐にする。
+
+## bb2 milestone 5
+
+port height は pole type の `PortPlacementBand` から読む。固定高さを使わず、missing band は unsupported とする。
+
+対応:
+
+* new pole は生成後に適用された actual pole type の band を使う。
+* existing pole は request pole type ではなく、その pole の actual pole type の band を使う。
+* bundle category と resolved layer に一致する enabled band のうち、priority / band id 順の先頭を使う。
+
+禁止:
+
+* band が無いときに固定値や geometry で高さを補う。
+* band の lateral center を row axis と混ぜる。
+* height / pole type / bundle template を `pairs make(graph)` で読む。
+
+## bb2 milestone 6
+
+`constraints.lateral_offset_m` は port placement の追加 offset としてだけ扱う。新しい `levels` 層は作らず、空の予約型も残さない。
+
+対応:
+
+* `lateral_offset_m` を `row.axis` 方向の offset に加える。
+* `avoid_points` / `avoid_radius_m` は unsupported のまま。
+* layout / curve / bounds は port world position から一方向に追従する。
+
+禁止:
+
+* `lateral_offset_m` を `pairs make(graph)` で読む。
+* lateral offset のために row axis や sign resolver を作り直す。
+* lowering / same-level / draw をこの milestone に混ぜる。
+
+## bb2 milestone 7
+
+`node_bundle_modes` は `kNotPresent` だけを no-op として受ける。no-op は生成意味に影響しないという意味で、壊れた入力を無視する意味ではない。
+
+対応:
+
+* `point_index` は input path point index として範囲チェックだけ行う。
+* `bundle_template_id` は request 内の bundle を参照している必要がある。
+* `mode == kNotPresent` は許可し、生成結果へ反映しない。
+
+禁止:
+
+* `kPassThrough` を受ける。
+* `node_bundle_modes` を `pairs make(graph)` で読む。
+* node mode から pair / row / port / rule を変える。
+
+## bb2 milestone 8
+
+`topo.rows` は generated port の置き場だけにしない。`pairs.rows` で確定した row id / node / source / axis をそのまま運び、後段が row の意味を推測しない形にする。
+
+対応:
+
+* `trow` は row id / node / source / axis / pole / ports を持つ。
+* `emit_ports` は `ps.rows` から row id / node / source / axis をコピーする。
+* row ordering と port placement は現状維持する。
+
+禁止:
+
+* `topo.rows` 側で source を推測する。
+* `emit_spans` / rules / layout / geom で pair/open/source を再解釈する。
+* pairs rename / link row mapping 分離 / midair / pass-through / avoid / draw をこの milestone に混ぜる。

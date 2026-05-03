@@ -178,7 +178,7 @@ std::unordered_map<ObjectId, Vec3d> build_backbone_side_axis_hints(
 }
 
 std::unordered_map<ObjectId, std::unordered_map<ObjectId, double>> build_backbone_side_signs(
-    const JunctionRoles& roles) {
+    const JunctionPairs& pairs) {
   std::unordered_map<ObjectId, std::unordered_map<ObjectId, double>> signs{};
   auto add_pair = [&](ObjectId node_id, const BackbonePair& pair) {
     if (node_id == kInvalidObjectId || !pair.valid()) {
@@ -187,10 +187,10 @@ std::unordered_map<ObjectId, std::unordered_map<ObjectId, double>> build_backbon
     signs[node_id][pair.low] = -1.0;
     signs[node_id][pair.high] = 1.0;
   };
-  for (const auto& [node_id, pair] : roles.main_pair_by_node) {
+  for (const auto& [node_id, pair] : pairs.through_pair_by_node) {
     add_pair(node_id, pair);
   }
-  for (const auto& [node_id, pair] : roles.cross_pair_by_node) {
+  for (const auto& [node_id, pair] : pairs.cross_pair_by_node) {
     add_pair(node_id, pair);
   }
   return signs;
@@ -222,27 +222,42 @@ JunctionRelation remap_junction_relation_commit(const JunctionRelation& relation
   return remapped;
 }
 
-JunctionRoles remap_junction_roles(const JunctionRoles& roles, const std::function<ObjectId(ObjectId)>& remap_node_id) {
-  JunctionRoles remapped{};
-  remapped.edge_flow_by_segment = roles.edge_flow_by_segment;
-  remapped.ordered.reserve(roles.ordered.size());
-  for (const JunctionRelation& relation : roles.ordered) {
-    remapped.ordered.push_back(remap_junction_relation_commit(relation, remap_node_id));
+JunctionPairs remap_junction_pairs(const JunctionPairs& pairs, const std::function<ObjectId(ObjectId)>& remap_node_id) {
+  JunctionPairs remapped{};
+  remapped.edge_flow_by_segment = pairs.edge_flow_by_segment;
+  remapped.ordered_relations.reserve(pairs.ordered_relations.size());
+  for (const JunctionRelation& relation : pairs.ordered_relations) {
+    remapped.ordered_relations.push_back(remap_junction_relation_commit(relation, remap_node_id));
   }
-  for (const auto& [node_id, relation] : roles.by_node) {
-    remapped.by_node.emplace(remap_node_id(node_id), remap_junction_relation_commit(relation, remap_node_id));
+  for (const auto& [node_id, relation] : pairs.relation_by_node) {
+    remapped.relation_by_node.emplace(remap_node_id(node_id), remap_junction_relation_commit(relation, remap_node_id));
   }
-  for (const auto& [node_id, pair] : roles.main_pair_by_node) {
+  for (const auto& [node_id, pair] : pairs.through_pair_by_node) {
     BackbonePair remapped_pair{};
     remapped_pair.low = remap_node_id(pair.low);
     remapped_pair.high = remap_node_id(pair.high);
-    remapped.main_pair_by_node.emplace(remap_node_id(node_id), remapped_pair);
+    remapped.through_pair_by_node.emplace(remap_node_id(node_id), remapped_pair);
   }
-  for (const auto& [node_id, pair] : roles.cross_pair_by_node) {
+  for (const auto& [node_id, pair] : pairs.cross_pair_by_node) {
     BackbonePair remapped_pair{};
     remapped_pair.low = remap_node_id(pair.low);
     remapped_pair.high = remap_node_id(pair.high);
     remapped.cross_pair_by_node.emplace(remap_node_id(node_id), remapped_pair);
+  }
+  for (const auto& [node_id, axis] : pairs.junction_axis_by_node) {
+    remapped.junction_axis_by_node.emplace(remap_node_id(node_id), axis);
+  }
+  return remapped;
+}
+
+JunctionLevelRules remap_junction_level_rules(const JunctionLevelRules& level_rules,
+                                              const std::function<ObjectId(ObjectId)>& remap_node_id) {
+  JunctionLevelRules remapped{};
+  remapped.by_node.reserve(level_rules.by_node.size());
+  for (const auto& [node_id, rule] : level_rules.by_node) {
+    JunctionLevelRule remapped_rule = rule;
+    remapped_rule.node_id = remap_node_id(rule.node_id);
+    remapped.by_node.emplace(remap_node_id(node_id), remapped_rule);
   }
   return remapped;
 }
@@ -434,7 +449,7 @@ EditResult<BundleAllocation> allocate_bundle_for_gap(
 }
 
 std::vector<SpanRun> plan_span_runs(
-    const BundleGap& gap_analysis, const JunctionRoles& roles,
+    const BundleGap& gap_analysis, const JunctionPairs& junction_pairs,
     const std::vector<ObjectId>& ordered_support_node_ids, const SpanFeasibility& feasibility_phase,
     std::uint64_t session_id) {
   std::vector<SpanRun> runs{};
@@ -443,10 +458,10 @@ std::vector<SpanRun> plan_span_runs(
   }
 
   for (std::size_t run_start = gap_analysis.first_missing_segment; run_start + 1 < ordered_support_node_ids.size();) {
-    const EdgeFlowInfo flow_info = roles.edge_flow_by_segment[run_start];
+    const EdgeFlowInfo flow_info = junction_pairs.edge_flow_by_segment[run_start];
     std::size_t run_end = run_start;
     while (run_end + 1 < ordered_support_node_ids.size() - 1 &&
-           roles.edge_flow_by_segment[run_end + 1].kind == flow_info.kind) {
+           junction_pairs.edge_flow_by_segment[run_end + 1].kind == flow_info.kind) {
       ++run_end;
     }
 
@@ -470,8 +485,8 @@ std::vector<SpanRun> plan_span_runs(
       if (it_relation == feasibility_phase.feasibility_by_node.end()) {
         continue;
       }
-      const auto decision_it = roles.by_node.find(node_id);
-      if (decision_it == roles.by_node.end()) {
+      const auto decision_it = junction_pairs.relation_by_node.find(node_id);
+      if (decision_it == junction_pairs.relation_by_node.end()) {
         continue;
       }
       for (const JunctionIncidentFeasibility& incident : it_relation->second.incidents) {
@@ -599,7 +614,8 @@ EditResult<bool> CoreState::build_real_node_topology_state(
 }
 
 EditResult<BackboneRuntimeState> CoreState::remap_backbone_build_to_real_nodes(
-    const BackboneTopologyPlan& topology_plan, const JunctionRoles& roles, const PoleFacing& pole_facing,
+    const BackboneTopologyPlan& topology_plan, const JunctionPairs& junction_pairs,
+    const JunctionLevelRules& junction_level_rules, const PoleFacing& pole_facing,
     BuildDirection build_direction, std::uint64_t session_id,
     std::vector<ObjectId> ordered_support_node_ids, std::unordered_map<ObjectId, SupportNode> support_node_by_id,
     std::unordered_map<ObjectId, ObjectId> real_node_id_by_input_node_id) const {
@@ -610,7 +626,8 @@ EditResult<BackboneRuntimeState> CoreState::remap_backbone_build_to_real_nodes(
   runtime.ordered_support_node_ids = std::move(ordered_support_node_ids);
   runtime.support_node_by_id = std::move(support_node_by_id);
   runtime.real_node_id_by_input_node_id = std::move(real_node_id_by_input_node_id);
-  runtime.roles = roles;
+  runtime.junction_pairs = junction_pairs;
+  runtime.junction_level_rules = junction_level_rules;
   runtime.pole_facing = pole_facing;
   if (runtime.ordered_support_node_ids.size() < 2) {
     result.error = "failed to build valid support-node chain";
@@ -628,7 +645,8 @@ EditResult<BackboneRuntimeState> CoreState::remap_backbone_build_to_real_nodes(
     const auto it = runtime.real_node_id_by_input_node_id.find(node_id);
     return (it == runtime.real_node_id_by_input_node_id.end()) ? node_id : it->second;
   };
-  runtime.roles = remap_junction_roles(roles, remap_node_id);
+  runtime.junction_pairs = remap_junction_pairs(junction_pairs, remap_node_id);
+  runtime.junction_level_rules = remap_junction_level_rules(junction_level_rules, remap_node_id);
   runtime.node_side_axis_by_node =
       build_backbone_side_axis_hints(runtime.ordered_support_node_ids, [&](ObjectId node_id) {
         if (const auto it = runtime.support_node_by_id.find(node_id); it != runtime.support_node_by_id.end()) {
@@ -636,9 +654,9 @@ EditResult<BackboneRuntimeState> CoreState::remap_backbone_build_to_real_nodes(
         }
         return Vec3d{};
       });
-  runtime.node_side_sign_by_peer = build_backbone_side_signs(runtime.roles);
-  runtime.main_pair_by_node = build_backbone_peer_pairs(runtime.roles.main_pair_by_node);
-  runtime.cross_pair_by_node = build_backbone_peer_pairs(runtime.roles.cross_pair_by_node);
+  runtime.node_side_sign_by_peer = build_backbone_side_signs(runtime.junction_pairs);
+  runtime.through_pair_by_node = build_backbone_peer_pairs(runtime.junction_pairs.through_pair_by_node);
+  runtime.cross_pair_by_node = build_backbone_peer_pairs(runtime.junction_pairs.cross_pair_by_node);
   runtime.pole_facing.by_node.clear();
   runtime.pole_facing.by_node.reserve(pole_facing.by_node.size());
   for (const auto& [node_id, orientation] : pole_facing.by_node) {
@@ -717,7 +735,7 @@ EditResult<GeneratedBackboneSpans> CoreState::build_bundle_spans_for_backbone(
     GroupedSpanBuildOutput output{};
     output.junction_relations_by_node = current_relations;
 
-    const EdgeFlowInfo flow_info = runtime.roles.edge_flow_by_segment[run.segment_start_index];
+    const EdgeFlowInfo flow_info = runtime.junction_pairs.edge_flow_by_segment[run.segment_start_index];
     EditResult<std::vector<ObjectId>> spans_result = generate_grouped_spans_between_support_nodes(
         run.ordered_support_node_ids, support_node_by_id, allocation.bundle_id, allocation.bundle_plan.category,
         allocation.bundle_plan.count, allocation.bundle_plan.spacing_m, true, allocation.bundle_plan.allow_mirror,
@@ -725,7 +743,7 @@ EditResult<GeneratedBackboneSpans> CoreState::build_bundle_spans_for_backbone(
         &current_feasibility,
         &output.lane_assignments, &output.edge_orientations, allocation.bundle_plan.template_id,
         &runtime.node_side_axis_by_node, &runtime.node_side_sign_by_peer,
-        &runtime.main_pair_by_node, &runtime.cross_pair_by_node);
+        &runtime.through_pair_by_node, &runtime.cross_pair_by_node);
     if (!spans_result.ok) {
       result.error = spans_result.error;
       return result;
@@ -735,11 +753,13 @@ EditResult<GeneratedBackboneSpans> CoreState::build_bundle_spans_for_backbone(
     for (std::size_t i = 0; i < output.lane_assignments.size(); ++i) {
       output.lane_assignments[i].segment_index += run.segment_start_index;
       output.lane_assignments[i].variation_flow_key = run.variation_flow_key;
-      output.lane_assignments[i].flow_decision_rule = runtime.roles.edge_flow_by_segment[run.segment_start_index + i].rule;
+      output.lane_assignments[i].flow_decision_rule =
+          runtime.junction_pairs.edge_flow_by_segment[run.segment_start_index + i].rule;
     }
     for (std::size_t i = 0; i < output.edge_orientations.size(); ++i) {
       output.edge_orientations[i].variation_flow_key = run.variation_flow_key;
-      output.edge_orientations[i].flow_decision_rule = runtime.roles.edge_flow_by_segment[run.segment_start_index + i].rule;
+      output.edge_orientations[i].flow_decision_rule =
+          runtime.junction_pairs.edge_flow_by_segment[run.segment_start_index + i].rule;
     }
 
     result.value = std::move(output);
@@ -778,10 +798,10 @@ EditResult<GeneratedBackboneSpans> CoreState::build_bundle_spans_for_backbone(
       -> EditResult<BundleSpanRunOutput> {
     EditResult<BundleSpanRunOutput> result{};
     BundleSpanRunOutput output{};
-    output.junction_relations_by_node = runtime.roles.by_node;
+    output.junction_relations_by_node = runtime.junction_pairs.relation_by_node;
 
     const std::vector<SpanRun> runs = plan_span_runs(
-        gap_analysis, runtime.roles, ordered_support_node_ids, feasibility_phase, session_id);
+        gap_analysis, runtime.junction_pairs, ordered_support_node_ids, feasibility_phase, session_id);
     for (const SpanRun& run : runs) {
       EditResult<GroupedSpanBuildOutput> grouped_span_result =
           generate_grouped_spans_for_run(allocation, run, output.junction_relations_by_node,
@@ -810,7 +830,7 @@ EditResult<GeneratedBackboneSpans> CoreState::build_bundle_spans_for_backbone(
     return result;
   };
 
-  phase_result.value.junctions = runtime.roles.by_node;
+  phase_result.value.junctions = runtime.junction_pairs.relation_by_node;
   for (const BackboneBundlePlan& bundle_plan : active_bundle_plans) {
     const BundleGap gap_analysis = find_bundle_gaps(
         bundle_plan, ordered_support_node_ids, count_existing_segment_spans);

@@ -499,6 +499,31 @@ void CoreState::cache_span_support_layout(SpanSupportLayoutEntry layout) {
   rebuild_lowered_support_groups_for_keys(*this, authoritative_.edit_state, &runtime_.cache_state, affected_group_keys);
 }
 
+void CoreState::cache_span_layout(SpanSupportLayoutEntry layout) {
+  cache_span_support_layout(std::move(layout));
+}
+
+void CoreState::cache_span_curve(ObjectId span_id, DetailCurve detail) {
+  if (span_id == kInvalidObjectId || detail.sample_points.size() < 2) {
+    return;
+  }
+  CurveCacheEntry entry{};
+  entry.detail = std::move(detail);
+  entry.points = entry.detail.sample_points;
+  const SpanRuntimeState* runtime = find_span_runtime_state(span_id);
+  entry.source_version = (runtime == nullptr) ? 0 : runtime->data_version;
+  runtime_.cache_state.curve_cache.by_span[span_id] = std::move(entry);
+}
+
+void CoreState::cache_span_bounds(ObjectId span_id, BoundsCacheEntry bounds) {
+  if (span_id == kInvalidObjectId) {
+    return;
+  }
+  const SpanRuntimeState* runtime = find_span_runtime_state(span_id);
+  bounds.source_version = (runtime == nullptr) ? 0 : runtime->data_version;
+  runtime_.cache_state.bounds_cache.by_span[span_id] = std::move(bounds);
+}
+
 void CoreState::cache_span_support_layout_seed(SpanSupportLayoutDecisionSeed seed) {
   if (seed.span_id == kInvalidObjectId) {
     return;
@@ -573,6 +598,10 @@ void CoreState::cache_span_layout_rules(const SpanLayoutRules& rules) {
     seed.support_group_decisions = rule.support_group_rules;
     cache_span_support_layout_seed(std::move(seed));
   }
+}
+
+void CoreState::cache_span_rules(const SpanLayoutRules& rules) {
+  runtime_.cache_state.support_layout_cache.store_rules(rules);
 }
 
 void CoreState::erase_cached_span_support_layout_seed(ObjectId span_id) {

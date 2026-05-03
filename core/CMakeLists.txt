@@ -21,6 +21,7 @@ add_library(
   src/generation/pole_facing/pole_facing_rules.cpp
   src/generation/build_backbone/build_request.cpp
   src/generation/route/build_support_chain.cpp
+  src/generation/bb2/pipeline.cpp
   src/generation/generate_from_backbone.cpp
   src/generation/rebuild_from_backbone.cpp
   src/state/backbone.cpp
@@ -94,6 +95,7 @@ if(BUILD_TESTING)
     tests/pick.cpp
     tests/workflow.cpp
     tests/api_surface.cpp
+    tests/bb2.cpp
   )
 
   if(WIRE_ENABLE_UNITY_BUILD)

@@ -37,12 +37,42 @@ struct BackboneGraph {
   BuildDirection build_direction = BuildDirection::kForward;
 };
 
-struct JunctionRoles {
+struct JunctionInputIncident {
+  ObjectId neighbor_node_id = kInvalidObjectId;
+  Vec3d direction{};
+};
+
+struct JunctionInputFacts {
+  ObjectId node_id = kInvalidObjectId;
+  BuildDirection build_direction = BuildDirection::kForward;
+  Vec3d support_position{};
+  std::vector<JunctionInputIncident> route_incidents{};
+  std::vector<JunctionInputIncident> external_incidents{};
+};
+
+struct JunctionPairs {
   std::vector<EdgeFlowInfo> edge_flow_by_segment{};
-  std::vector<JunctionRelation> ordered{};
-  std::unordered_map<ObjectId, JunctionRelation> by_node{};
-  std::unordered_map<ObjectId, BackbonePair> main_pair_by_node{};
+  std::vector<JunctionRelation> ordered_relations{};
+  std::unordered_map<ObjectId, JunctionRelation> relation_by_node{};
+  std::unordered_map<ObjectId, BackbonePair> through_pair_by_node{};
   std::unordered_map<ObjectId, BackbonePair> cross_pair_by_node{};
+  std::unordered_map<ObjectId, Vec3d> junction_axis_by_node{};
+};
+
+enum class JunctionLevelRuleKind : std::uint8_t {
+  kSameLevelAllowed = 0,
+  kMustLower = 1,
+};
+
+struct JunctionLevelRule {
+  ObjectId node_id = kInvalidObjectId;
+  JunctionLevelRuleKind kind = JunctionLevelRuleKind::kSameLevelAllowed;
+  bool same_level_allowed = true;
+  bool must_lower = false;
+};
+
+struct JunctionLevelRules {
+  std::unordered_map<ObjectId, JunctionLevelRule> by_node{};
 };
 
 struct PoleFacing {
@@ -73,11 +103,12 @@ struct BackboneRuntimeState {
   std::unordered_map<ObjectId, SupportNode> support_node_by_id{};
   std::unordered_map<ObjectId, ObjectId> real_node_id_by_input_node_id{};
   BackboneRuntimeTopology topology{};
-  JunctionRoles roles{};
+  JunctionPairs junction_pairs{};
+  JunctionLevelRules junction_level_rules{};
   PoleFacing pole_facing{};
   std::unordered_map<ObjectId, Vec3d> node_side_axis_by_node{};
   std::unordered_map<ObjectId, std::unordered_map<ObjectId, double>> node_side_sign_by_peer{};
-  std::unordered_map<ObjectId, std::array<ObjectId, 2>> main_pair_by_node{};
+  std::unordered_map<ObjectId, std::array<ObjectId, 2>> through_pair_by_node{};
   std::unordered_map<ObjectId, std::array<ObjectId, 2>> cross_pair_by_node{};
 };
 
@@ -98,9 +129,19 @@ struct BackboneBuilderOutput {
   BackboneGraph backbone{};
 };
 
-struct JunctionRoleResolverOutput {
+struct JunctionInputBuilderOutput {
   BackboneTopologyPlan topology{};
-  JunctionRoles roles{};
+  std::vector<JunctionInputFacts> ordered{};
+  std::unordered_map<ObjectId, JunctionInputFacts> by_node{};
+};
+
+struct JunctionPairResolverOutput {
+  BackboneTopologyPlan topology{};
+  JunctionPairs pairs{};
+};
+
+struct JunctionLevelResolverOutput {
+  JunctionLevelRules level_rules{};
 };
 
 class BackboneBuilder {
@@ -113,14 +154,27 @@ private:
   const CoreState& state_;
 };
 
-class JunctionRoleResolver {
+class JunctionInputBuilder {
 public:
-  explicit JunctionRoleResolver(const CoreState& state) : state_(state) {}
+  explicit JunctionInputBuilder(const CoreState& state) : state_(state) {}
 
-  [[nodiscard]] EditResult<JunctionRoleResolverOutput> resolve(const BackboneBuilderOutput& builder_output) const;
+  [[nodiscard]] EditResult<JunctionInputBuilderOutput> build(const BackboneBuilderOutput& builder_output) const;
 
 private:
   const CoreState& state_;
+};
+
+class JunctionPairResolver {
+public:
+  [[nodiscard]] EditResult<JunctionPairResolverOutput> resolve(const BackboneBuilderOutput& builder_output,
+                                                               const JunctionInputBuilderOutput& input_output) const;
+};
+
+class JunctionLevelResolver {
+public:
+  [[nodiscard]] EditResult<JunctionLevelResolverOutput> resolve(const JunctionInputBuilderOutput& input_output,
+                                                                const JunctionPairResolverOutput& pair_output,
+                                                                const BackboneGenerationRequestPlan& request) const;
 };
 
 class PoleFacingResolver {
@@ -128,7 +182,7 @@ public:
   explicit PoleFacingResolver(const CoreState& state) : state_(state) {}
 
   [[nodiscard]] EditResult<PoleFacing> resolve(const BackboneBuilderOutput& builder_output,
-                                               const JunctionRoleResolverOutput& role_output) const;
+                                               const JunctionPairResolverOutput& pair_output) const;
 
 private:
   const CoreState& state_;
@@ -146,7 +200,8 @@ public:
   explicit BundleSpanBuilder(CoreState& state) : state_(state) {}
 
   [[nodiscard]] EditResult<BundleSpanBuilderOutput> build(const BackboneBuilderOutput& builder_output,
-                                                          const JunctionRoleResolverOutput& role_output,
+                                                          const JunctionPairResolverOutput& pair_output,
+                                                          const JunctionLevelResolverOutput& level_output,
                                                           const PoleFacing& pole_facing);
 
 private:
@@ -176,7 +231,9 @@ private:
   const BackboneSpec& spec_;
   bool prepared_ = false;
   BackboneBuilderOutput builder_output_{};
-  JunctionRoleResolverOutput role_output_{};
+  JunctionInputBuilderOutput junction_input_{};
+  JunctionPairResolverOutput junction_pairs_{};
+  JunctionLevelResolverOutput junction_levels_{};
   PoleFacing pole_facing_{};
 };
 

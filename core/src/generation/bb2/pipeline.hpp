@@ -1,0 +1,147 @@
+#pragma once
+
+#include "wire/core/core_state.hpp"
+
+#include <cstddef>
+#include <limits>
+#include <utility>
+#include <vector>
+
+namespace wire::core::generation::bb2 {
+
+inline constexpr std::size_t bad = std::numeric_limits<std::size_t>::max();
+
+struct node {
+  std::size_t id = bad;
+  Vec3d pos{};
+  ObjectId pole = kInvalidObjectId;
+  bool is_new = true;
+};
+
+struct link {
+  std::size_t id = bad;
+  std::size_t a = bad;
+  std::size_t b = bad;
+  std::size_t route = 0;
+  std::size_t order = bad;
+  Vec3d dir{};
+  std::size_t arow = bad;
+  std::size_t brow = bad;
+};
+
+struct graph {
+  std::vector<node> nodes{};
+  std::vector<link> links{};
+};
+
+struct src {
+  bool is_open = false;
+  std::size_t id = bad;
+};
+
+struct pair {
+  std::size_t id = bad;
+  std::size_t node = bad;
+  std::size_t left = bad;
+  std::size_t right = bad;
+  Vec3d axis{};
+};
+
+struct open {
+  std::size_t id = bad;
+  std::size_t node = bad;
+  std::size_t link = bad;
+  Vec3d axis{};
+};
+
+struct row {
+  std::size_t id = bad;
+  std::size_t node = bad;
+  src source{};
+  Vec3d axis{};
+};
+
+struct pairs {
+  std::vector<link> links{};
+  std::vector<pair> joins{};
+  std::vector<open> opens{};
+  std::vector<row> rows{};
+};
+
+struct trow {
+  std::size_t row = bad;
+  std::size_t node = bad;
+  src source{};
+  Vec3d axis{};
+  ObjectId pole = kInvalidObjectId;
+  std::vector<std::vector<ObjectId>> ports{};
+};
+
+struct tspan {
+  ObjectId id = kInvalidObjectId;
+  std::size_t link = bad;
+  std::size_t bundle = bad;
+  std::size_t lane = bad;
+};
+
+struct topo {
+  std::vector<ObjectId> bundles{};
+  std::vector<ObjectId> poles{};
+  std::vector<ObjectId> new_poles{};
+  std::vector<tspan> spans{};
+  std::vector<trow> rows{};
+};
+
+struct rules {
+  SpanLayoutRules data{};
+};
+
+struct layout {
+  std::vector<SpanSupportLayoutEntry> entries{};
+};
+
+struct curve {
+  std::vector<std::pair<ObjectId, DetailCurve>> data{};
+};
+
+struct bounds {
+  std::vector<std::pair<ObjectId, BoundsCacheEntry>> data{};
+};
+
+struct geom {
+  curve curves{};
+  bounds boxes{};
+};
+
+struct draw {
+};
+
+class pipeline {
+public:
+  pipeline(CoreState& state, const BackboneSpec& spec) : state_(state), spec_(spec) {}
+
+  [[nodiscard]] EditResult<bool> prepare();
+  [[nodiscard]] EditResult<bool> check() const;
+  [[nodiscard]] EditResult<GenerateBundleFromPathResult> build();
+
+private:
+  [[nodiscard]] EditResult<pairs> make(const graph& made) const;
+  [[nodiscard]] EditResult<topo> emit(const pairs& ps);
+  [[nodiscard]] EditResult<bool> emit_poles(topo* made, ChangeSet* changes);
+  [[nodiscard]] EditResult<bool> emit_bundles(topo* made, ChangeSet* changes);
+  [[nodiscard]] EditResult<bool> emit_ports(topo* made, const pairs& ps, ChangeSet* changes);
+  [[nodiscard]] EditResult<bool> emit_spans(topo* made, const pairs& ps, ChangeSet* changes);
+  [[nodiscard]] rules make(const topo& made, const pairs& ps) const;
+  [[nodiscard]] EditResult<layout> make(const rules& made) const;
+  [[nodiscard]] geom make(const layout& made) const;
+  void save(const rules& made);
+  void save(const layout& made);
+  void save(geom made);
+
+  CoreState& state_;
+  const BackboneSpec& spec_;
+  bool ready_ = false;
+  graph g_{};
+};
+
+} // namespace wire::core::generation::bb2

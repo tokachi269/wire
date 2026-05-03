@@ -59,25 +59,6 @@ wire.md    要求仕様書
 
 通常の build/test は `Visual Studio 18 2026` generator を使います。`Ninja` は不要です。
 
-### core のみを clean build する
-```cmd
-call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"
-"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -S . -B build-vs18-coretests -G "Visual Studio 18 2026" -A x64 -DWIRE_BUILD_VIEWER=OFF
-"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" --build build-vs18-coretests --config Debug --target wire_core_tests
-```
-
-### viewer を build する
-
-viewer は local dependency source dirs を渡す手順を基準にします。既に `build-viewer\_deps\raylib-src`、`build-viewer\_deps\imgui-src`、`build-viewer\_deps\rlimgui-src` があるならそのまま再利用できます。
-
-```cmd
-call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"
-"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -S . -B build-vs18-viewer-local -G "Visual Studio 18 2026" -A x64 -DWIRE_BUILD_VIEWER=ON -DWIRE_VIEWER_FETCH_DEPS=OFF -DWIRE_RAYLIB_SOURCE_DIR=D:/GitHub/wire/build-viewer/_deps/raylib-src -DWIRE_IMGUI_SOURCE_DIR=D:/GitHub/wire/build-viewer/_deps/imgui-src -DWIRE_RLIMGUI_SOURCE_DIR=D:/GitHub/wire/build-viewer/_deps/rlimgui-src
-"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" --build build-vs18-viewer-local --config Debug --target wire_viewer
-```
-
-依存ソースを別の場所に置いている場合は、`WIRE_RAYLIB_SOURCE_DIR`、`WIRE_IMGUI_SOURCE_DIR`、`WIRE_RLIMGUI_SOURCE_DIR` をそのパスに置き換えます。
-
 ## テスト
 ```cmd
 build-vs18-coretests\core\Debug\wire_core_tests.exe

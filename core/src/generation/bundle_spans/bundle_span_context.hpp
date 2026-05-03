@@ -80,7 +80,7 @@ struct GroupedSpanSharedContext {
   const std::unordered_map<ObjectId, PoleOrientationDebugRecord>* pole_orientation_debug_records = nullptr;
   const std::unordered_map<ObjectId, Vec3d>* node_side_axis_by_node = nullptr;
   const std::unordered_map<ObjectId, std::unordered_map<ObjectId, double>>* node_side_sign_by_peer = nullptr;
-  const std::unordered_map<ObjectId, std::array<ObjectId, 2>>* main_pair_by_node = nullptr;
+  const std::unordered_map<ObjectId, std::array<ObjectId, 2>>* through_pair_by_node = nullptr;
   const std::unordered_map<ObjectId, std::array<ObjectId, 2>>* cross_pair_by_node = nullptr;
 
   [[nodiscard]] ObjectId resolve_span_endpoint_node(const Span& span, const Port* port, bool is_a) const {

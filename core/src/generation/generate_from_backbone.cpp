@@ -1,10 +1,10 @@
 #include "wire/core/core_state.hpp"
-#include "backbone_pipeline/backbone_pipeline.hpp"
+#include "bb2/pipeline.hpp"
 
 namespace wire::core {
 
 EditResult<GenerateBundleFromPathResult> CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
-  generation::detail::BackbonePipeline pipeline(*this, spec);
+  generation::bb2::pipeline pipeline(*this, spec);
   EditResult<bool> prepare_out = pipeline.prepare();
   if (!prepare_out.ok) {
     EditResult<GenerateBundleFromPathResult> out{};

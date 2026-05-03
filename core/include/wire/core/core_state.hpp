@@ -23,12 +23,15 @@ class GroupedSpanLanePreparer;
 class GroupedSpanLaneStateAccess;
 class BackbonePipeline;
 class BackboneBuilder;
-class JunctionRoleResolver;
+class JunctionInputBuilder;
+class JunctionPairResolver;
+class JunctionLevelResolver;
 class PoleFacingResolver;
 class BundleSpanBuilder;
 class SpanLayoutRuleBuilder;
 enum class BuildDirection : std::uint8_t;
-struct JunctionRoles;
+struct JunctionPairs;
+struct JunctionLevelRules;
 struct PoleFacing;
 struct BackboneRuntimeState;
 struct BackboneRuntimeTopology;
@@ -38,6 +41,9 @@ struct BackboneGenerationRequestPlan;
 struct BackboneSupportChainPlan;
 struct BackboneTopologyPlan;
 struct JunctionFeasibility;
+}
+namespace generation::bb2 {
+class pipeline;
 }
 
 struct PortLayoutYawOverride {
@@ -165,10 +171,11 @@ private:
   friend class generation::detail::GroupedSpanLaneStateAccess;
   friend class generation::detail::BackbonePipeline;
   friend class generation::detail::BackboneBuilder;
-  friend class generation::detail::JunctionRoleResolver;
+  friend class generation::detail::JunctionInputBuilder;
   friend class generation::detail::PoleFacingResolver;
   friend class generation::detail::BundleSpanBuilder;
   friend class generation::detail::SpanLayoutRuleBuilder;
+  friend class generation::bb2::pipeline;
   friend struct state_internal::OverrideResolutionService;
   friend struct state_internal::EndpointRefreshService;
   friend struct state_internal::TemplateMutationService;
@@ -196,8 +203,12 @@ private:
   [[nodiscard]] static AABBd build_aabb_from_points(const std::vector<Vec3d>& points);
   [[nodiscard]] static AABBd build_aabb_from_two_points(const Vec3d& a, const Vec3d& b);
   void cache_span_support_layout(SpanSupportLayoutEntry layout);
+  void cache_span_layout(SpanSupportLayoutEntry layout);
+  void cache_span_curve(ObjectId span_id, DetailCurve detail);
+  void cache_span_bounds(ObjectId span_id, BoundsCacheEntry bounds);
   void cache_span_support_layout_seed(SpanSupportLayoutDecisionSeed seed);
   void cache_span_layout_rules(const SpanLayoutRules& rules);
+  void cache_span_rules(const SpanLayoutRules& rules);
   void erase_cached_span_support_layout_seed(ObjectId span_id);
   void erase_cached_span_support_layout(ObjectId span_id);
   void remove_span_from_caches(ObjectId span_id);
@@ -221,7 +232,7 @@ private:
                                                const std::unordered_map<ObjectId, std::unordered_map<ObjectId, double>>*
                                                    node_side_sign_by_peer = nullptr,
                                                const std::unordered_map<ObjectId, std::array<ObjectId, 2>>*
-                                                   main_pair_by_node = nullptr,
+                                                   through_pair_by_node = nullptr,
                                                const std::unordered_map<ObjectId, std::array<ObjectId, 2>>*
                                                    cross_pair_by_node = nullptr);
   [[nodiscard]] static std::uint64_t hash_path_points(const std::vector<Vec3d>& points);
@@ -241,7 +252,8 @@ private:
   build_real_backbone_support(const generation::detail::BackboneSupportChainPlan& support_chain_plan);
   [[nodiscard]] EditResult<generation::detail::BackboneRuntimeState>
   remap_backbone_build_to_real_nodes(
-      const generation::detail::BackboneTopologyPlan& topology_plan, const generation::detail::JunctionRoles& roles,
+      const generation::detail::BackboneTopologyPlan& topology_plan, const generation::detail::JunctionPairs& junction_pairs,
+      const generation::detail::JunctionLevelRules& junction_level_rules,
       const generation::detail::PoleFacing& pole_facing, generation::detail::BuildDirection build_direction,
       std::uint64_t session_id,
       std::vector<ObjectId> ordered_support_node_ids, std::unordered_map<ObjectId, SupportNode> support_node_by_id,

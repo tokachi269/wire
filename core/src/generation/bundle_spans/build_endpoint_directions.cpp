@@ -134,7 +134,7 @@ GroupedSpanOrientationDecider::LoweredSupportPairInfoForEndpoint(ObjectId node_i
   if (feasibility.kind == JunctionRelationKind::kCrossUnderpass) {
     pairs = ctx_.cross_pair_by_node;
   } else if (RelationConsumesPairAuthority(feasibility.kind)) {
-    pairs = ctx_.main_pair_by_node;
+    pairs = ctx_.through_pair_by_node;
   }
   if (pairs == nullptr) {
     return std::nullopt;

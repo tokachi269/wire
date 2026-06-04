@@ -15,6 +15,7 @@ struct node {
   std::size_t id = bad;
   Vec3d pos{};
   ObjectId pole = kInvalidObjectId;
+  ObjectId saved = kInvalidObjectId;
   bool is_new = true;
 };
 
@@ -25,6 +26,8 @@ struct link {
   std::size_t route = 0;
   std::size_t order = bad;
   Vec3d dir{};
+  ObjectId saved = kInvalidObjectId;
+  bool is_new = true;
   std::size_t arow = bad;
   std::size_t brow = bad;
 };
@@ -82,6 +85,8 @@ struct tspan {
   std::size_t link = bad;
   std::size_t bundle = bad;
   std::size_t lane = bad;
+  std::size_t arow = bad;
+  std::size_t brow = bad;
 };
 
 struct topo {
@@ -97,7 +102,7 @@ struct rules {
 };
 
 struct layout {
-  std::vector<SpanSupportLayoutEntry> entries{};
+  std::vector<SpanLayoutEntry> entries{};
 };
 
 struct curve {
@@ -131,12 +136,13 @@ private:
   [[nodiscard]] EditResult<bool> emit_bundles(topo* made, ChangeSet* changes);
   [[nodiscard]] EditResult<bool> emit_ports(topo* made, const pairs& ps, ChangeSet* changes);
   [[nodiscard]] EditResult<bool> emit_spans(topo* made, const pairs& ps, ChangeSet* changes);
-  [[nodiscard]] rules make(const topo& made, const pairs& ps) const;
+  [[nodiscard]] rules make(const topo& made) const;
   [[nodiscard]] EditResult<layout> make(const rules& made) const;
   [[nodiscard]] geom make(const layout& made) const;
   void save(const rules& made);
   void save(const layout& made);
   void save(geom made);
+  void save_graph(const topo& made, const pairs& ps);
 
   CoreState& state_;
   const BackboneSpec& spec_;

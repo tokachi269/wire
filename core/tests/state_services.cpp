@@ -514,7 +514,7 @@ bool test_validate_rejects_non_radial_support_without_authoritative_axis() {
   const ObjectId span = state.AddSpan(port_a, port_b).value;
   (void)state.Commit();
 
-  auto& cache = CoreStateTestHook::cache_state(state).support_layout_cache;
+  auto& cache = CoreStateTestHook::cache_state(state).span_layout_cache;
   auto projection = cache.edit_projection(span);
   if (!projection.has_projection()) {
     return false;
@@ -540,7 +540,7 @@ bool test_validate_rejects_grouped_lowered_support_with_radial_basis() {
                                       wire::core::SpanLayer::kHighVoltage).value;
   (void)state.Commit();
 
-  auto& cache = CoreStateTestHook::cache_state(state).support_layout_cache;
+  auto& cache = CoreStateTestHook::cache_state(state).span_layout_cache;
   auto projection = cache.edit_projection(span);
   if (!projection.has_projection()) {
     return false;
@@ -579,7 +579,7 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
                                          wire::core::SpanLayer::kHighVoltage).value;
   (void)state.Commit();
 
-  auto& cache = CoreStateTestHook::cache_state(state).support_layout_cache;
+  auto& cache = CoreStateTestHook::cache_state(state).span_layout_cache;
   auto projection_ab = cache.edit_projection(span_ab);
   auto projection_ac = cache.edit_projection(span_ac);
   if (!projection_ab.has_projection() || !projection_ac.has_projection()) {
@@ -619,9 +619,9 @@ bool test_grouped_support_identity_uses_single_authoritative_placement() {
 
   layout_ab->lowered_support_group_keys = {{pole_a, 1234}};
   layout_ac->lowered_support_group_keys = {{pole_a, 1234}};
-  auto& decision_store = CoreStateTestHook::cache_state(state).support_layout_cache.support_groups.authority.by_key;
+  auto& decision_store = CoreStateTestHook::cache_state(state).span_layout_cache.support_groups.authority.by_key;
   decision_store.clear();
-  auto& grouped_store = CoreStateTestHook::cache_state(state).support_layout_cache.support_groups.placement.by_key;
+  auto& grouped_store = CoreStateTestHook::cache_state(state).span_layout_cache.support_groups.placement.by_key;
   grouped_store.clear();
   make_grouped(&decision_store[{pole_a, 1234}], &grouped_store[{pole_a, 1234}], {1.0, 0.0, 0.0}, 1.0,
                {0.2, 0.0, expected_support_z}, {0.6, 0.0, expected_support_z});
@@ -662,7 +662,7 @@ bool test_inspection_uses_authoritative_lowered_support_groups() {
   const ObjectId span = state.AddSpan(port_a, port_b).value;
   (void)state.Commit();
 
-  auto& cache = CoreStateTestHook::cache_state(state).support_layout_cache;
+  auto& cache = CoreStateTestHook::cache_state(state).span_layout_cache;
   auto projection = cache.edit_projection(span);
   if (!projection.has_projection()) {
     return false;
@@ -679,8 +679,8 @@ bool test_inspection_uses_authoritative_lowered_support_groups() {
   layout->start.support_group_id = 777;
   layout->start.lower_required = true;
   layout->lowered_support_group_keys = {{pole_a, 777}};
-  auto& decision = CoreStateTestHook::cache_state(state).support_layout_cache.support_groups.authority.by_key[{pole_a, 777}];
-  auto& group = CoreStateTestHook::cache_state(state).support_layout_cache.support_groups.placement.by_key[{pole_a, 777}];
+  auto& decision = CoreStateTestHook::cache_state(state).span_layout_cache.support_groups.authority.by_key[{pole_a, 777}];
+  auto& group = CoreStateTestHook::cache_state(state).span_layout_cache.support_groups.placement.by_key[{pole_a, 777}];
   decision.owner_pole_id = pole_a;
   decision.relation_kind = wire::core::JunctionRelationKind::kSideBranch;
   decision.continuity_class = wire::core::ContinuityCategoryClass::kBundleLike;
@@ -735,7 +735,7 @@ bool test_materialization_reads_layout_owned_support_group_decision() {
       template_layer_base_z_for_test(state, pole_a, wire::core::ConnectionCategory::kHighVoltage) - 1.25;
 
   wire::core::SpanSupportLayoutEntry layout{};
-  if (const auto cached_projection = CoreStateTestHook::cache_state(state).support_layout_cache.projection_view(span);
+  if (const auto cached_projection = CoreStateTestHook::cache_state(state).span_layout_cache.projection_view(span);
       cached_projection.has_projection()) {
     layout = *cached_projection.layout;
   }
@@ -782,7 +782,7 @@ bool test_materialization_reads_layout_owned_support_group_decision() {
   authoritative.origin = wire::core::SupportLayoutOriginKind::kBranchSupport;
   CoreStateTestHook::cache_span_support_layout(state, std::move(layout));
 
-  auto& cache = CoreStateTestHook::cache_state(state).support_layout_cache;
+  auto& cache = CoreStateTestHook::cache_state(state).span_layout_cache;
   cache.support_groups.authority.by_key[{pole_a, 777}] = authoritative;
   const auto decision_it = cache.support_groups.authority.by_key.find({pole_a, 777});
   const auto cached_projection = cache.projection_view(span);
@@ -880,8 +880,8 @@ bool test_validation_treats_grouped_endpoint_semantics_as_derived_copies() {
   authoritative.side = wire::core::SlotSide::kLeft;
   authoritative.origin = wire::core::SupportLayoutOriginKind::kBranchSupport;
   CoreStateTestHook::cache_span_support_layout(state, std::move(layout));
-  CoreStateTestHook::cache_state(state).support_layout_cache.support_groups.authority.by_key[{pole_a, 777}] = authoritative;
-  auto& cache = CoreStateTestHook::cache_state(state).support_layout_cache;
+  CoreStateTestHook::cache_state(state).span_layout_cache.support_groups.authority.by_key[{pole_a, 777}] = authoritative;
+  auto& cache = CoreStateTestHook::cache_state(state).span_layout_cache;
   auto projection = cache.edit_projection(span);
   if (!projection.has_projection()) {
     return false;

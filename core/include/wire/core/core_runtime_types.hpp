@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <type_traits>
 #include <unordered_map>
 #include <vector>
@@ -105,7 +106,7 @@ struct CacheState {
   BoundsCache bounds_cache{};
   VisualSettings visual_settings{};
   VariationSettings variation_settings{};
-  SupportLayoutCache support_layout_cache{};
+  SpanLayoutCache span_layout_cache{};
   VisualCache visual_cache{};
   RenderCache render_cache{};
 };
@@ -135,6 +136,30 @@ struct RelationIndex {
   std::unordered_map<ObjectId, std::vector<ObjectId>> anchors_by_pole;
   std::unordered_map<ObjectId, std::vector<ObjectId>> spans_by_bundle;
   std::unordered_map<ObjectId, std::vector<ObjectId>> attachments_by_span;
+};
+
+struct BackboneEdgeKey {
+  ObjectId a = kInvalidObjectId;
+  ObjectId b = kInvalidObjectId;
+  bool operator==(const BackboneEdgeKey& other) const { return a == other.a && b == other.b; }
+};
+
+struct BackboneEdgeKeyHash {
+  std::size_t operator()(const BackboneEdgeKey& key) const {
+    const std::size_t h1 = std::hash<ObjectId>{}(key.a);
+    const std::size_t h2 = std::hash<ObjectId>{}(key.b);
+    return h1 ^ (h2 + 0x9e3779b9 + (h1 << 6) + (h1 >> 2));
+  }
+};
+
+struct BackboneIndex {
+  std::unordered_map<ObjectId, std::vector<ObjectId>> node_edges;
+  std::unordered_map<BackboneEdgeKey, ObjectId, BackboneEdgeKeyHash> edge_by_nodes;
+  std::unordered_map<ObjectId, std::vector<ObjectId>> edge_bundles;
+  std::unordered_map<ObjectId, std::vector<ObjectId>> bundle_edge;
+  std::unordered_map<ObjectId, std::vector<ObjectId>> edge_bundle_spans;
+  std::unordered_map<ObjectId, ObjectId> span_edge_bundle;
+  std::unordered_map<ObjectId, ObjectId> pole_node;
 };
 
 enum class DirtyBits : std::uint32_t {

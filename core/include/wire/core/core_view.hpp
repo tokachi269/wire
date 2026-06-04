@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "wire/core/core_authoritative_types.hpp"
+#include "wire/core/core_state_api_types.hpp"
 #include "wire/core/core_runtime_types.hpp"
 #include "wire/core/inspection.hpp"
 #include "wire/core/object_store.hpp"
@@ -26,9 +27,15 @@ public:
   [[nodiscard]] const ObjectStore<Bundle>& bundles() const;
   [[nodiscard]] const ObjectStore<Span>& spans() const;
   [[nodiscard]] const ObjectStore<Attachment>& attachments() const;
+  [[nodiscard]] const SavedBackboneGraph& backbone() const;
 
   [[nodiscard]] const ConnectionIndex& connection_index() const;
   [[nodiscard]] const RelationIndex& relation_index() const;
+  [[nodiscard]] const BackboneIndex& backbone_index() const;
+  [[nodiscard]] const SavedBackboneNode* backbone_node(ObjectId node_id) const;
+  [[nodiscard]] const SavedBackboneEdge* backbone_edge(ObjectId edge_id) const;
+  [[nodiscard]] const SavedBackboneEdgeBundle* backbone_edge_bundle(ObjectId edge_bundle_id) const;
+  [[nodiscard]] const SavedBackboneNode* backbone_node_for_pole(ObjectId pole_id) const;
   [[nodiscard]] const DirtyQueue& dirty_queue() const;
   [[nodiscard]] const RecalcStats& last_recalc_stats() const;
   [[nodiscard]] const GeometrySettings& geometry_settings() const;
@@ -57,9 +64,13 @@ public:
   [[nodiscard]] const BoundsCacheEntry* find_bounds_cache(ObjectId span_id) const;
   [[nodiscard]] SpanSupportLayoutProjectionView support_layout_projection(ObjectId span_id) const;
   [[nodiscard]] SpanSupportLayoutContractView support_layout_contract(ObjectId span_id) const;
+  [[nodiscard]] SpanLayoutView span_layout(ObjectId span_id) const;
+  [[nodiscard]] SpanLayoutState span_layout_state(ObjectId span_id) const;
   [[nodiscard]] SpanLayoutRulesView span_layout_rules(ObjectId span_id) const;
   [[nodiscard]] const SpanVisualCacheEntry* find_span_visual_cache(ObjectId span_id) const;
   [[nodiscard]] const SpanRenderCacheEntry* find_span_render_cache(ObjectId span_id) const;
+  [[nodiscard]] BackboneFrontier pole_frontier(ObjectId pole_id) const;
+  [[nodiscard]] BackboneFrontier span_frontier(ObjectId span_id) const;
   [[nodiscard]] const AttachmentTemplate* find_attachment_template(AttachmentTemplateId attachment_template_id) const;
   [[nodiscard]] double pole_radius_at_height_m(const Pole& pole, double local_z_m) const;
   [[nodiscard]] std::optional<EntityMeta> describe_entity(EntityRef ref) const;

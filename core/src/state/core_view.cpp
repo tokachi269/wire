@@ -4,6 +4,7 @@
 
 #include "../generation/support_policy.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -18,9 +19,33 @@ const ObjectStore<Anchor>& CoreView::anchors() const { return state_.authoritati
 const ObjectStore<Bundle>& CoreView::bundles() const { return state_.authoritative_.edit_state.bundles; }
 const ObjectStore<Span>& CoreView::spans() const { return state_.authoritative_.edit_state.spans; }
 const ObjectStore<Attachment>& CoreView::attachments() const { return state_.authoritative_.edit_state.attachments; }
+const SavedBackboneGraph& CoreView::backbone() const { return state_.authoritative_.backbone; }
 
 const ConnectionIndex& CoreView::connection_index() const { return state_.runtime_.connection_index; }
 const RelationIndex& CoreView::relation_index() const { return state_.runtime_.relation_index; }
+const BackboneIndex& CoreView::backbone_index() const { return state_.runtime_.backbone_index; }
+const SavedBackboneNode* CoreView::backbone_node(ObjectId node_id) const {
+  const auto it = std::find_if(state_.authoritative_.backbone.nodes.begin(), state_.authoritative_.backbone.nodes.end(),
+                               [&](const SavedBackboneNode& node) { return node.node_id == node_id; });
+  return it == state_.authoritative_.backbone.nodes.end() ? nullptr : &*it;
+}
+const SavedBackboneEdge* CoreView::backbone_edge(ObjectId edge_id) const {
+  const auto it = std::find_if(state_.authoritative_.backbone.edges.begin(), state_.authoritative_.backbone.edges.end(),
+                               [&](const SavedBackboneEdge& edge) { return edge.edge_id == edge_id; });
+  return it == state_.authoritative_.backbone.edges.end() ? nullptr : &*it;
+}
+const SavedBackboneEdgeBundle* CoreView::backbone_edge_bundle(ObjectId edge_bundle_id) const {
+  const auto it = std::find_if(state_.authoritative_.backbone.edge_bundles.begin(),
+                               state_.authoritative_.backbone.edge_bundles.end(),
+                               [&](const SavedBackboneEdgeBundle& item) {
+                                 return item.edge_bundle_id == edge_bundle_id;
+                               });
+  return it == state_.authoritative_.backbone.edge_bundles.end() ? nullptr : &*it;
+}
+const SavedBackboneNode* CoreView::backbone_node_for_pole(ObjectId pole_id) const {
+  const auto it = state_.runtime_.backbone_index.pole_node.find(pole_id);
+  return it == state_.runtime_.backbone_index.pole_node.end() ? nullptr : backbone_node(it->second);
+}
 const DirtyQueue& CoreView::dirty_queue() const { return state_.runtime_.dirty_queue; }
 const RecalcStats& CoreView::last_recalc_stats() const { return state_.runtime_.last_recalc_stats; }
 const GeometrySettings& CoreView::geometry_settings() const { return state_.runtime_.cache_state.geometry_settings; }
@@ -110,6 +135,12 @@ SpanSupportLayoutProjectionView CoreView::support_layout_projection(ObjectId spa
 SpanSupportLayoutContractView CoreView::support_layout_contract(ObjectId span_id) const {
   return state_.support_layout_contract(span_id);
 }
+SpanLayoutView CoreView::span_layout(ObjectId span_id) const {
+  return state_.span_layout(span_id);
+}
+SpanLayoutState CoreView::span_layout_state(ObjectId span_id) const {
+  return state_.span_layout_state(span_id);
+}
 SpanLayoutRulesView CoreView::span_layout_rules(ObjectId span_id) const {
   return state_.span_layout_rules(span_id);
 }
@@ -119,6 +150,116 @@ const SpanVisualCacheEntry* CoreView::find_span_visual_cache(ObjectId span_id) c
 const SpanRenderCacheEntry* CoreView::find_span_render_cache(ObjectId span_id) const {
   return state_.find_span_render_cache(span_id);
 }
+
+namespace {
+
+const SavedBackboneNode* find_saved_node(const SavedBackboneGraph& graph, ObjectId node_id) {
+  const auto it = std::find_if(graph.nodes.begin(), graph.nodes.end(),
+                               [&](const SavedBackboneNode& node) { return node.node_id == node_id; });
+  return it == graph.nodes.end() ? nullptr : &*it;
+}
+
+const SavedBackboneEdge* find_saved_edge(const SavedBackboneGraph& graph, ObjectId edge_id) {
+  const auto it = std::find_if(graph.edges.begin(), graph.edges.end(),
+                               [&](const SavedBackboneEdge& edge) { return edge.edge_id == edge_id; });
+  return it == graph.edges.end() ? nullptr : &*it;
+}
+
+const SavedBackboneEdgeBundle* find_saved_edge_bundle(const SavedBackboneGraph& graph, ObjectId edge_bundle_id) {
+  const auto it = std::find_if(graph.edge_bundles.begin(), graph.edge_bundles.end(),
+                               [&](const SavedBackboneEdgeBundle& item) {
+                                 return item.edge_bundle_id == edge_bundle_id;
+                               });
+  return it == graph.edge_bundles.end() ? nullptr : &*it;
+}
+
+void add_id(std::vector<ObjectId>* ids, ObjectId id) {
+  if (ids == nullptr || id == kInvalidObjectId) {
+    return;
+  }
+  if (std::find(ids->begin(), ids->end(), id) == ids->end()) {
+    ids->push_back(id);
+  }
+}
+
+void add_frontier_node(const SavedBackboneGraph& graph, ObjectId node_id, BackboneFrontier* out) {
+  if (node_id == kInvalidObjectId || out == nullptr) {
+    return;
+  }
+  add_id(&out->node_ids, node_id);
+  if (const SavedBackboneNode* node = find_saved_node(graph, node_id);
+      node != nullptr && node->pole_id != kInvalidObjectId) {
+    add_id(&out->pole_ids, node->pole_id);
+  }
+}
+
+void add_frontier_edge(const SavedBackboneGraph& graph, const BackboneIndex& index, ObjectId edge_id,
+                       BackboneFrontier* out) {
+  if (edge_id == kInvalidObjectId || out == nullptr) {
+    return;
+  }
+  add_id(&out->edge_ids, edge_id);
+  if (const SavedBackboneEdge* edge = find_saved_edge(graph, edge_id)) {
+    add_frontier_node(graph, edge->node_a, out);
+    add_frontier_node(graph, edge->node_b, out);
+  }
+  if (const auto bundles = index.edge_bundles.find(edge_id); bundles != index.edge_bundles.end()) {
+    for (ObjectId edge_bundle_id : bundles->second) {
+      add_id(&out->edge_bundle_ids, edge_bundle_id);
+      const SavedBackboneEdgeBundle* edge_bundle = find_saved_edge_bundle(graph, edge_bundle_id);
+      if (edge_bundle != nullptr) {
+        add_id(&out->bundle_ids, edge_bundle->bundle_id);
+      }
+      if (const auto spans = index.edge_bundle_spans.find(edge_bundle_id); spans != index.edge_bundle_spans.end()) {
+        for (ObjectId span_id : spans->second) {
+          add_id(&out->span_ids, span_id);
+        }
+      }
+    }
+  }
+}
+
+} // namespace
+
+BackboneFrontier CoreView::pole_frontier(ObjectId pole_id) const {
+  BackboneFrontier out{};
+  out.pole_id = pole_id;
+  const BackboneIndex& index = state_.runtime_.backbone_index;
+  const auto node_it = index.pole_node.find(pole_id);
+  if (node_it == index.pole_node.end()) {
+    return out;
+  }
+  out.node_id = node_it->second;
+  add_frontier_node(state_.authoritative_.backbone, out.node_id, &out);
+  if (const auto edges = index.node_edges.find(out.node_id); edges != index.node_edges.end()) {
+    for (ObjectId edge_id : edges->second) {
+      add_frontier_edge(state_.authoritative_.backbone, index, edge_id, &out);
+    }
+  }
+  return out;
+}
+
+BackboneFrontier CoreView::span_frontier(ObjectId span_id) const {
+  BackboneFrontier out{};
+  out.span_id = span_id;
+  const BackboneIndex& index = state_.runtime_.backbone_index;
+  const auto edge_bundle_it = index.span_edge_bundle.find(span_id);
+  if (edge_bundle_it == index.span_edge_bundle.end()) {
+    return out;
+  }
+  out.edge_bundle_id = edge_bundle_it->second;
+  add_id(&out.edge_bundle_ids, out.edge_bundle_id);
+  const SavedBackboneEdgeBundle* edge_bundle =
+      find_saved_edge_bundle(state_.authoritative_.backbone, out.edge_bundle_id);
+  if (edge_bundle == nullptr) {
+    return out;
+  }
+  out.edge_id = edge_bundle->edge_id;
+  add_id(&out.bundle_ids, edge_bundle->bundle_id);
+  add_frontier_edge(state_.authoritative_.backbone, index, out.edge_id, &out);
+  return out;
+}
+
 const AttachmentTemplate* CoreView::find_attachment_template(AttachmentTemplateId attachment_template_id) const {
   return state_.find_attachment_template(attachment_template_id);
 }

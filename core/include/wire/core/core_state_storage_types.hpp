@@ -22,6 +22,7 @@ struct CoreStateIdentityStorage {
 
 struct CoreStateAuthoritativeStorage {
   EditState edit_state{};
+  SavedBackboneGraph backbone{};
   std::unordered_map<PoleTypeId, PoleTypeDefinition> pole_types{};
   std::unordered_map<CableTemplateId, CableTemplate> cable_templates{};
   std::unordered_map<BundleKind, BundleTemplate> bundle_templates{};
@@ -35,6 +36,7 @@ struct CoreStateAuthoritativeStorage {
 struct CoreStateRuntimeStorage {
   ConnectionIndex connection_index{};
   RelationIndex relation_index{};
+  BackboneIndex backbone_index{};
   std::unordered_map<ObjectId, SpanRuntimeState> span_runtime_states{};
   DirtyQueue dirty_queue{};
   RecalcStats last_recalc_stats{};

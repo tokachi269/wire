@@ -7,12 +7,14 @@
 
 namespace wire::core {
 
-enum class SupportLayoutEndpointSourceKind : std::uint8_t {
+enum class LayoutEndpointSourceKind : std::uint8_t {
   kPlainSupport = 0,
   kAttachmentSocket = 1,
   kAttachmentSocketOverride = 2,
   kFallback = 3,
 };
+
+using SupportLayoutEndpointSourceKind = LayoutEndpointSourceKind;
 
 enum class EndpointAttachmentRequestKind : std::uint8_t {
   kNone = 0,

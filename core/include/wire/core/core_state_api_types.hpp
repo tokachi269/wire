@@ -95,6 +95,20 @@ struct GenerateBundleFromPathResult {
   std::vector<ObjectId> generated_pole_ids{};
 };
 
+struct BackboneFrontier {
+  ObjectId pole_id = kInvalidObjectId;
+  ObjectId span_id = kInvalidObjectId;
+  ObjectId node_id = kInvalidObjectId;
+  ObjectId edge_id = kInvalidObjectId;
+  ObjectId edge_bundle_id = kInvalidObjectId;
+  std::vector<ObjectId> node_ids{};
+  std::vector<ObjectId> edge_ids{};
+  std::vector<ObjectId> edge_bundle_ids{};
+  std::vector<ObjectId> bundle_ids{};
+  std::vector<ObjectId> span_ids{};
+  std::vector<ObjectId> pole_ids{};
+};
+
 struct PoleDetailInfo {
   const Pole* pole = nullptr;
   const PoleTypeDefinition* pole_type = nullptr;

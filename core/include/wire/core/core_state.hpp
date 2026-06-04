@@ -144,6 +144,8 @@ public:
   [[nodiscard]] const BoundsCacheEntry* find_bounds_cache(ObjectId span_id) const;
   [[nodiscard]] SpanSupportLayoutProjectionView support_layout_projection(ObjectId span_id) const;
   [[nodiscard]] SpanSupportLayoutContractView support_layout_contract(ObjectId span_id) const;
+  [[nodiscard]] SpanLayoutView span_layout(ObjectId span_id) const;
+  [[nodiscard]] SpanLayoutState span_layout_state(ObjectId span_id) const;
   [[nodiscard]] SpanLayoutRulesView span_layout_rules(ObjectId span_id) const;
   [[nodiscard]] const SpanVisualCacheEntry* find_span_visual_cache(ObjectId span_id) const;
   [[nodiscard]] const SpanRenderCacheEntry* find_span_render_cache(ObjectId span_id) const;
@@ -203,9 +205,15 @@ private:
   [[nodiscard]] static AABBd build_aabb_from_points(const std::vector<Vec3d>& points);
   [[nodiscard]] static AABBd build_aabb_from_two_points(const Vec3d& a, const Vec3d& b);
   void cache_span_support_layout(SpanSupportLayoutEntry layout);
-  void cache_span_layout(SpanSupportLayoutEntry layout);
+  void cache_span_layout(SpanLayoutEntry layout);
   void cache_span_curve(ObjectId span_id, DetailCurve detail);
   void cache_span_bounds(ObjectId span_id, BoundsCacheEntry bounds);
+  ObjectId save_backbone_node(ObjectId pole_id, const Vec3d& position);
+  SavedBackboneEdgeRef save_backbone_edge(ObjectId node_a, ObjectId node_b, std::size_t route, std::size_t order,
+                                          const Vec3d& dir);
+  ObjectId bind_backbone_bundle(ObjectId edge_id, ObjectId bundle_id, bool edge_forward, std::size_t route,
+                                std::size_t order, const Vec3d& dir);
+  void bind_backbone_span(ObjectId edge_bundle_id, ObjectId span_id);
   void cache_span_support_layout_seed(SpanSupportLayoutDecisionSeed seed);
   void cache_span_layout_rules(const SpanLayoutRules& rules);
   void cache_span_rules(const SpanLayoutRules& rules);

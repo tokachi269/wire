@@ -491,9 +491,9 @@ void append_unique_group_key(std::vector<LoweredSupportGroupKey>* keys, const Lo
 }
 
 std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash>
-build_support_group_decision_view_from_seeds(const SupportLayoutCache& support_layout_cache) {
+build_support_group_decision_view_from_seeds(const SupportLayoutCache& span_layout_cache) {
   std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash> groups{};
-  support_layout_cache.for_each_authority_seed([&](ObjectId, SpanSupportLayoutAuthorityView, const SpanSupportLayoutDecisionSeed& seed) {
+  span_layout_cache.for_each_authority_seed([&](ObjectId, SpanSupportLayoutAuthorityView, const SpanSupportLayoutDecisionSeed& seed) {
     for (const auto& [key, group_copy] : seed.support_group_decisions) {
       if (key.owner_pole_id == kInvalidObjectId || key.support_group_id < 0) {
         continue;
@@ -505,11 +505,11 @@ build_support_group_decision_view_from_seeds(const SupportLayoutCache& support_l
 }
 
 std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash>
-build_support_group_decision_view_for_keys_from_seeds(const SupportLayoutCache& support_layout_cache,
+build_support_group_decision_view_for_keys_from_seeds(const SupportLayoutCache& span_layout_cache,
                                                       const std::vector<LoweredSupportGroupKey>& keys) {
   std::unordered_set<LoweredSupportGroupKey, LoweredSupportGroupKeyHash> key_set(keys.begin(), keys.end());
   std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash> groups{};
-  support_layout_cache.for_each_authority_seed([&](ObjectId, SpanSupportLayoutAuthorityView, const SpanSupportLayoutDecisionSeed& seed) {
+  span_layout_cache.for_each_authority_seed([&](ObjectId, SpanSupportLayoutAuthorityView, const SpanSupportLayoutDecisionSeed& seed) {
     for (const auto& [key, group_copy] : seed.support_group_decisions) {
       if (key_set.find(key) == key_set.end()) {
         continue;
@@ -633,7 +633,7 @@ void materialize_lowered_support_group_placements(
     if (observation != nullptr && observation->down_offset_variation.has_value()) {
       placement.down_offset_variation = *observation->down_offset_variation;
     }
-    cache_state->support_layout_cache.support_groups.placement.by_key[key] = std::move(placement);
+    cache_state->span_layout_cache.support_groups.placement.by_key[key] = std::move(placement);
   }
 }
 
@@ -683,14 +683,14 @@ void rebuild_lowered_support_groups_for_keys(const CoreState& state, const EditS
   }
 
   const auto authority_by_key =
-      build_support_group_decision_view_for_keys_from_seeds(cache_state->support_layout_cache, filtered_keys);
-  clear_lowered_support_group_derivatives(&cache_state->support_layout_cache, filtered_keys);
-  store_lowered_support_group_authority(&cache_state->support_layout_cache, authority_by_key);
+      build_support_group_decision_view_for_keys_from_seeds(cache_state->span_layout_cache, filtered_keys);
+  clear_lowered_support_group_derivatives(&cache_state->span_layout_cache, filtered_keys);
+  store_lowered_support_group_authority(&cache_state->span_layout_cache, authority_by_key);
 
   const LoweredSupportGroupObservationMap observations =
-      collect_lowered_support_group_observations(edit_state, &cache_state->support_layout_cache, filtered_keys);
+      collect_lowered_support_group_observations(edit_state, &cache_state->span_layout_cache, filtered_keys);
   materialize_lowered_support_group_placements(state, edit_state, cache_state, authority_by_key, observations);
-  project_lowered_support_group_placements(&cache_state->support_layout_cache, authority_by_key, filtered_keys);
+  project_lowered_support_group_placements(&cache_state->span_layout_cache, authority_by_key, filtered_keys);
 }
 
 namespace {
@@ -835,7 +835,7 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
   if (!Normalize(&chord_dir)) {
     chord_dir = WorldForward();
   }
-  const SpanSupportLayoutAuthorityView authority = runtime_.cache_state.support_layout_cache.authority_view(span.id);
+  const SpanSupportLayoutAuthorityView authority = runtime_.cache_state.span_layout_cache.authority_view(span.id);
   if (authority.required && !authority.has_authority()) {
     if (error_message != nullptr && error_message->empty()) {
       *error_message = "support layout decision seed is missing";

@@ -2678,7 +2678,7 @@ bool test_support_layout_prefers_assignment_over_stale_branch_support_ports() {
   stale_layout.end.relation_kind = wire::core::JunctionRelationKind::kNone;
   stale_layout.end.continuity_class = wire::core::ContinuityCategoryClass::kPointLike;
   stale_layout.end.origin = wire::core::SupportLayoutOriginKind::kMainSupport;
-  wire::core::CoreStateTestHook::cache_state(state).support_layout_cache.store_layout(std::move(stale_layout));
+  wire::core::CoreStateTestHook::cache_state(state).span_layout_cache.store_layout(std::move(stale_layout));
 
   (void)state.Commit().recalc_stats;
   const auto* layout = state.view().support_layout_projection(span).layout;

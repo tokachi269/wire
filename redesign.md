@@ -385,3 +385,212 @@ port height は pole type の `PortPlacementBand` から読む。固定高さを
 * `topo.rows` 側で source を推測する。
 * `emit_spans` / rules / layout / geom で pair/open/source を再解釈する。
 * pairs rename / link row mapping 分離 / midair / pass-through / avoid / draw をこの milestone に混ぜる。
+
+## bb2 milestone 9
+
+`rules` は `pairs.links` を読まない。`emit_spans` が span endpoint の row index を `tspan` に保存し、`rules` は `topo` だけを読む。
+
+対応:
+
+* `tspan` は `arow` / `brow` を持つ。
+* `tspan.arow` / `tspan.brow` は `topo.rows` を引くための row index として扱う。
+* 現時点では `ps.rows[].id == topo.rows index` 前提を維持する。
+* `rules make` は `make(const topo&)` とする。
+
+禁止:
+
+* `rules make` が `pairs` を受け取る。
+* `rules make` が `ps.links` から endpoint row を読む。
+* row id/index 分離、pairs rename、link row mapping 分離をこの milestone に混ぜる。
+
+## bb2 milestone 10
+
+`SavedBackboneGraph` を bb2 の長期正本として追加する。Pole / Port / Span / Bundle は生成結果であり、接続正本は saved graph が持つ。
+
+対応:
+
+* authoritative state は saved backbone nodes / edges / edge bundles を持つ。
+* node は node id / pole id / position を持つ。
+* edge は edge id / node_a / node_b / route / order / dir を持つ。
+* edge bundle は edge id / bundle id / traversal / span ids を持つ。
+* runtime index は `node_edges`, `edge_bundles`, `edge_bundle_spans`, `pole_node`, `span_edge_bundle` を持つ。
+* bb2 は generated spans を saved edge bundle に bind する。
+
+禁止:
+
+* M10 で `BuildBackboneEdges()` を置き換える。
+* M10 で branch / cross / lowering / affected frontier を入れる。
+* v1 由来 scene を saved graph へ migration する。
+
+## bb2 milestone 11
+
+saved graph を使った変更対象収集の入口を追加する。全 span scan や dirty flag 収集ではなく、runtime index から pole/span 周辺を O(incident) で読む。
+
+対応:
+
+* `BackboneFrontier` は node ids / edge ids / span ids / pole ids を持つ。
+* `pole_frontier(pole_id)` は `pole_node -> node_edges -> edge_bundles -> edge_bundle_spans` を読む。
+* `span_frontier(span_id)` は `span_edge_bundle -> edge_bundles -> edge_bundle_spans` を読む。
+* A-B-C に B-D を追加した場合、B frontier は B に接続する saved edges/spans を返す。
+
+禁止:
+
+* frontier 収集で `BuildBackboneEdges()` を使う。
+* frontier 収集で `Span -> Port -> Pole` から backbone を復元する。
+* M11 で branch / cross / lowering / graph migration / BuildBackboneEdges 置換へ進む。
+
+## bb2 milestone 12
+
+same pole pair の saved edge を重複作成しない。edge は物理 segment、edge bundle はその segment に載る bundle、span は edge bundle から生成された結果として扱う。
+
+対応:
+
+* `SavedBackboneGraph` は `nodes` / `edges` / `edge_bundles` を持つ。
+* `SavedBackboneEdgeBundle` は edge id / bundle id / edge_forward / route / order / dir / span ids を持つ。
+* `BackboneIndex.edge_by_nodes` は same node pair の saved edge reuse に使う。
+* saved edge の route / order / dir は初回作成時の値として固定し、reuse 時に上書きしない。
+* `pole_frontier` / `span_frontier` は edge bundle 経由で bundle ids と span ids を読む。
+
+禁止:
+
+* same node pair の追加生成で saved edge を重複作成する。
+* reverse 生成で saved edge の dir / route / order を上書きする。
+* span を backbone edge 直下の主正本として扱う。
+* M12 で multiple physical edge per node pair / branch / cross / lowering を扱う。
+
+## bb2 milestone 13
+
+bb2 layout 保存は旧 support-layout/recalc 経路を通らない。`cache_span_layout` は direct layout store として扱う。
+
+対応:
+
+* `cache_span_layout` は `span_layout_cache.store_layout` だけを呼ぶ。
+* `cache_span_support_layout` は v1/recalc 用として残す。
+* bb2 は `cache_span_support_layout` を呼ばない。
+* direct layout 保存は authority / seed / support group rebuild を作らない。
+
+禁止:
+
+* bb2 layout 保存で `cache_span_support_layout` へ委譲する。
+* bb2 layout 保存で lowered support group rebuild を走らせる。
+* bb2 source に `support_layout_` entrypoint を戻す。
+
+## bb2 milestone 14
+
+bb2 は saved graph 内部 vector を直接読まない。saved graph の mutation/read-for-save は `CoreState` が owner になる。
+
+対応:
+
+* `save_backbone_edge` は `SavedBackboneEdgeRef` を返す。
+* `SavedBackboneEdgeRef` は edge id / saved endpoint nodes / created を持つ。
+* edge reuse 時も saved edge の endpoint nodes を返す。
+* bb2 は `SavedBackboneEdgeRef` から `edge_forward` を決める。
+
+禁止:
+
+* bb2 source で `authoritative_.backbone` を読む。
+* bb2 source で saved edge vector を探索する。
+* edge save API 境界変更で `edge_spans/span_edge` 互換 index を戻す。
+
+## bb2 milestone 15
+
+bb2 layout 層は旧 `SpanSupportLayoutEntry` / `SupportLayout*` 型名を使わない。M13 の direct 保存口を維持し、bb2 が作る layout は neutral な `SpanLayoutEntry` 系へ寄せる。
+
+対応:
+
+* `SpanLayoutEntry` / `LayoutEndpoint` / `LayoutSemantic` / `LayoutOriginKind` / `LayoutEndpointSourceKind` を neutral 型名として使う。
+* `bb2::layout` は `SpanLayoutEntry` を持つ。
+* `CoreState::cache_span_layout` は `SpanLayoutEntry` を受け、direct store だけを行う。
+* v1/recalc 用の `SpanSupportLayoutEntry` / `SupportLayout*` 名は core 内に残す。
+
+禁止:
+
+* bb2 source に `SpanSupportLayoutEntry` / `SupportLayoutEndpoint` / `SupportLayoutSemanticDecision` / `SupportLayoutOriginKind` / `SupportLayoutEndpointSourceKind` を戻す。
+* `cache_span_layout` から `cache_span_support_layout` へ委譲する。
+* layout 型名変更と同時に draw / lowering / branch / cross を入れる。
+
+## bb2 milestone 16
+
+bb2 の layout 読み出しは `span_layout` を正規 API にする。`support_layout_projection` / `support_layout_contract` は v1/recalc/inspection 用に残すが、bb2 acceptance の layout 存在確認には使わない。
+
+対応:
+
+* `SpanLayoutView` を追加する。
+* `CoreState::span_layout` / `CoreView::span_layout` は保存済み `SpanLayoutEntry` だけを読む。
+* bb2 tests の layout 存在確認は `span_layout(span).has_layout()` を使う。
+* no-authority 確認だけは一時的に `support_layout_contract` を観測口として残す。
+
+禁止:
+
+* `span_layout` accessor が authority / contract / seed を読む。
+* bb2 acceptance が layout 存在確認に `support_layout_projection` を使う。
+* M16 で `SupportLayoutCache` の全面 rename や inspection API rename を始める。
+
+## bb2 milestone 17
+
+bb2 acceptance は旧 support layout contract を観測しない。layout 状態の確認は `span_layout_state` を正規 API にする。
+
+対応:
+
+* `SpanLayoutState` は `has_rules` / `has_layout` / `input_required` だけを持つ。
+* `CoreState::span_layout_state` / `CoreView::span_layout_state` は保存済み rules/layout と追加入力要求だけを読む。
+* bb2 tests は `support_layout_contract` を呼ばず、`span_layout_state(span).input_required == false` を見る。
+
+禁止:
+
+* `SpanLayoutState` に authority / seed / contract 名を入れる。
+* `span_layout_state` accessor が seed store path や contract view を読む。
+* M17 で v1/recalc 用 `support_layout_contract` を削除する。
+
+## bb2 milestone 18
+
+bb2 の layout cache owner 名は `span_layout_cache` を正にする。neutral API は `SpanLayoutRules` / `SpanLayoutEntry` / `SpanLayoutState` の保存先として読む。
+
+対応:
+
+* `CacheState` は `SpanLayoutCache span_layout_cache` を持つ。
+* `CoreState::span_layout` / `span_layout_state` / `span_layout_rules` は `span_layout_cache` を読む。
+* `CoreState::cache_span_layout` / `cache_span_rules` は `span_layout_cache` へ保存する。
+* v1/recalc 用の support layout API は残すが、同じ `span_layout_cache` を保存先として使う。
+
+禁止:
+
+* `CacheState` に `support_layout_cache` field を戻す。
+* bb2 source に `support_layout_cache` / `support_layout_projection` / `support_layout_contract` を出す。
+* M18 で support group / seed / authority 内部構造の全面 rename を始める。
+
+## bb2 milestone 19
+
+bb2 は existing pole に新規 route を接続するとき、saved backbone graph を context として読む。context link は pair/open/row 決定にだけ使い、生成対象にはしない。
+
+対応:
+
+* `graph` は今回入力 route link と saved graph context link を持つ。
+* `link.is_new=true` は今回生成対象、`is_new=false` は context とする。
+* `CoreView::backbone_node` / `backbone_edge` / `backbone_node_for_pole` を graph 読み出し口にする。
+* `pairs make(graph)` は new/context をまとめて読み、same route + consecutive order を pair、残りを open にする。
+* `emit_spans` は `is_new` link だけを生成する。
+
+禁止:
+
+* bb2 が `authoritative_.backbone` を直接読む。
+* context link から port/span/rules/layout/geom を生成する。
+* T/cross/branch kind enum/label を追加する。
+* existing span/layout/seed を意味決定に使う。
+
+## bb2 milestone 20
+
+same saved edge + bundle の生成は同じ `SavedBackboneEdgeBundle` に束ねる。span は edge_bundle の生成結果として追加する。
+
+対応:
+
+* `bind_backbone_bundle` は `edge_id + bundle_id` で既存 edge_bundle を再利用する。
+* 既存 edge_bundle の `edge_forward` / route / order / dir は初回値のまま保持する。
+* 新規生成された span は既存 edge_bundle の `span_ids` に bind する。
+* different bundle は同じ edge 上でも別 edge_bundle にする。
+
+禁止:
+
+* same edge + bundle で edge_bundle を重複作成する。
+* reverse 生成で edge_bundle metadata を上書きする。
+* existing port/span reuse、duplicate span 抑制、lowering、pass-through、draw を M20 に混ぜる。

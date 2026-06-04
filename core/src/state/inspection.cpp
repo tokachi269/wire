@@ -522,15 +522,15 @@ std::vector<LoweredSupportGroupInspectionView> BuildLoweredSupportGroupInspectio
   }
   result.reserve(layout.lowered_support_group_keys.size());
   for (const LoweredSupportGroupKey& key : layout.lowered_support_group_keys) {
-    const auto it = cache_state.support_layout_cache.support_groups.placement.by_key.find(key);
-    if (it == cache_state.support_layout_cache.support_groups.placement.by_key.end()) {
+    const auto it = cache_state.span_layout_cache.support_groups.placement.by_key.find(key);
+    if (it == cache_state.span_layout_cache.support_groups.placement.by_key.end()) {
       if (cache_complete != nullptr) {
         *cache_complete = false;
       }
       continue;
     }
-    const auto decision_it = cache_state.support_layout_cache.support_groups.authority.by_key.find(key);
-    if (decision_it == cache_state.support_layout_cache.support_groups.authority.by_key.end()) {
+    const auto decision_it = cache_state.span_layout_cache.support_groups.authority.by_key.find(key);
+    if (decision_it == cache_state.span_layout_cache.support_groups.authority.by_key.end()) {
       if (cache_complete != nullptr) {
         *cache_complete = false;
       }
@@ -658,8 +658,8 @@ void ApplyAuthoritativeGroupedEndpointDecision(const CacheState& cache_state, co
     return;
   }
   const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint);
-  const auto it = cache_state.support_layout_cache.support_groups.authority.by_key.find(key);
-  if (it == cache_state.support_layout_cache.support_groups.authority.by_key.end()) {
+  const auto it = cache_state.span_layout_cache.support_groups.authority.by_key.find(key);
+  if (it == cache_state.span_layout_cache.support_groups.authority.by_key.end()) {
     mark_grouped_endpoint_cache_missing(view);
     return;
   }
@@ -707,7 +707,7 @@ std::optional<EntityMeta> CoreView::describe_entity(EntityRef ref) const {
                     EntityRoleKind::kAuthoritative, true, false, "entity.bundle");
   }
   case EntityKind::kSupportLayout: {
-    if (!state_.runtime_.cache_state.support_layout_cache.projection_view(ref.stable_id).has_projection()) {
+    if (!state_.runtime_.cache_state.span_layout_cache.projection_view(ref.stable_id).has_projection()) {
       return std::nullopt;
     }
     return MakeMeta(ref.kind, ref.stable_id, "SupportLayout for span " + std::to_string(ref.stable_id),
@@ -794,7 +794,7 @@ std::optional<PoleInspectionView> CoreView::inspect_pole(ObjectId pole_id) const
       for (ObjectId span_id : spans_it->second) {
         AddLink(&result.links, &seen, "Span " + std::to_string(span_id), EntityKind::kSpan, span_id);
         if (const SpanSupportLayoutEntry* layout =
-                state_.runtime_.cache_state.support_layout_cache.projection_view(span_id).layout;
+                state_.runtime_.cache_state.span_layout_cache.projection_view(span_id).layout;
             layout != nullptr &&
             (layout->start.owner_pole_id == pole_id || layout->end.owner_pole_id == pole_id)) {
           AddLink(&result.links, &seen, "SupportLayout " + std::to_string(span_id), EntityKind::kSupportLayout, span_id);
@@ -830,7 +830,7 @@ std::optional<SpanInspectionView> CoreView::inspect_span(ObjectId span_id) const
   if (const Port* port_b = ports().find(span->port_b_id); port_b != nullptr && port_b->owner_pole_id != kInvalidObjectId) {
     result.end_pole_ref = {EntityKind::kPole, port_b->owner_pole_id};
   }
-  const SpanSupportLayoutProjectionView projection = state_.runtime_.cache_state.support_layout_cache.projection_view(span_id);
+  const SpanSupportLayoutProjectionView projection = state_.runtime_.cache_state.span_layout_cache.projection_view(span_id);
   if (const SpanSupportLayoutEntry* layout = projection.layout; layout != nullptr) {
     result.support_layout_ref = {EntityKind::kSupportLayout, span_id};
     result.flow_kind = layout->flow_kind;
@@ -891,8 +891,8 @@ std::optional<SpanInspectionView> CoreView::inspect_span(ObjectId span_id) const
 }
 
 std::optional<SupportLayoutInspectionView> CoreView::inspect_support_layout(ObjectId span_id) const {
-  const SpanLayoutRulesView rules = state_.runtime_.cache_state.support_layout_cache.rules_view(span_id);
-  const SpanSupportLayoutProjectionView projection = state_.runtime_.cache_state.support_layout_cache.projection_view(span_id);
+  const SpanLayoutRulesView rules = state_.runtime_.cache_state.span_layout_cache.rules_view(span_id);
+  const SpanSupportLayoutProjectionView projection = state_.runtime_.cache_state.span_layout_cache.projection_view(span_id);
   const SpanSupportLayoutEntry* layout = projection.layout;
   if (layout == nullptr) {
     return std::nullopt;
@@ -989,7 +989,7 @@ std::optional<DetailCurveInspectionView> CoreView::inspect_detail_curve(ObjectId
   result.start_lateral_ratio_limit = curve->detail.quality.start_lateral_ratio_limit;
   result.end_lateral_ratio_limit = curve->detail.quality.end_lateral_ratio_limit;
   result.lateral_suppression = curve->detail.quality.lateral_suppression;
-  const SpanSupportLayoutProjectionView projection = state_.runtime_.cache_state.support_layout_cache.projection_view(span_id);
+  const SpanSupportLayoutProjectionView projection = state_.runtime_.cache_state.span_layout_cache.projection_view(span_id);
   if (const SpanSupportLayoutEntry* layout = projection.layout; layout != nullptr) {
     result.start_endpoint_source = layout->start.endpoint_source;
     result.end_endpoint_source = layout->end.endpoint_source;
@@ -1321,7 +1321,7 @@ std::optional<OverrideInspectionView> CoreView::inspect_overrides(EntityRef targ
     double final_down_offset = 0.0;
     bool down_active = false;
     if (const SpanSupportLayoutEntry* layout =
-            state_.runtime_.cache_state.support_layout_cache.projection_view(span->id).layout;
+            state_.runtime_.cache_state.span_layout_cache.projection_view(span->id).layout;
         layout != nullptr) {
       automatic_down_offset =
           std::max(layout->start.automatic_branch_down_offset_m, layout->end.automatic_branch_down_offset_m);
@@ -1395,7 +1395,7 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
   if (ref.kind == EntityKind::kSpan || ref.kind == EntityKind::kSupportLayout || ref.kind == EntityKind::kDetailCurve) {
     const ObjectId span_id = static_cast<ObjectId>(ref.stable_id);
     if (const SpanSupportLayoutEntry* layout =
-            state_.runtime_.cache_state.support_layout_cache.projection_view(span_id).layout;
+            state_.runtime_.cache_state.span_layout_cache.projection_view(span_id).layout;
         layout != nullptr) {
       std::ostringstream flow_summary;
       flow_summary << "flow=" << FlowKindText(layout->flow_kind)

@@ -86,6 +86,107 @@ std::vector<JunctionInfo> BuildJunctionsFromRelations(
 
 } // namespace
 
+ObjectId CoreState::save_backbone_node(ObjectId pole_id, const Vec3d& position) {
+  if (pole_id != kInvalidObjectId) {
+    const auto existing = runtime_.backbone_index.pole_node.find(pole_id);
+    if (existing != runtime_.backbone_index.pole_node.end()) {
+      return existing->second;
+    }
+  }
+
+  SavedBackboneNode node{};
+  node.node_id = identity_.id_generator.next();
+  node.pole_id = pole_id;
+  node.position = position;
+  authoritative_.backbone.nodes.push_back(node);
+  if (pole_id != kInvalidObjectId) {
+    runtime_.backbone_index.pole_node[pole_id] = node.node_id;
+  }
+  return node.node_id;
+}
+
+SavedBackboneEdgeRef CoreState::save_backbone_edge(ObjectId node_a, ObjectId node_b, std::size_t route,
+                                                   std::size_t order, const Vec3d& dir) {
+  SavedBackboneEdgeRef out{};
+  if (node_a == kInvalidObjectId || node_b == kInvalidObjectId || node_a == node_b) {
+    return out;
+  }
+  const BackboneEdgeKey key{std::min(node_a, node_b), std::max(node_a, node_b)};
+  if (const auto existing = runtime_.backbone_index.edge_by_nodes.find(key);
+      existing != runtime_.backbone_index.edge_by_nodes.end()) {
+    for (const SavedBackboneEdge& edge : authoritative_.backbone.edges) {
+      if (edge.edge_id == existing->second) {
+        out.edge_id = edge.edge_id;
+        out.node_a = edge.node_a;
+        out.node_b = edge.node_b;
+        return out;
+      }
+    }
+    return out;
+  }
+
+  SavedBackboneEdge edge{};
+  edge.edge_id = identity_.id_generator.next();
+  edge.node_a = node_a;
+  edge.node_b = node_b;
+  edge.route = route;
+  edge.order = order;
+  edge.dir = dir;
+  authoritative_.backbone.edges.push_back(edge);
+  index_add(runtime_.backbone_index.node_edges, node_a, edge.edge_id);
+  index_add(runtime_.backbone_index.node_edges, node_b, edge.edge_id);
+  runtime_.backbone_index.edge_by_nodes[key] = edge.edge_id;
+  out.edge_id = edge.edge_id;
+  out.node_a = edge.node_a;
+  out.node_b = edge.node_b;
+  out.created = true;
+  return out;
+}
+
+ObjectId CoreState::bind_backbone_bundle(ObjectId edge_id, ObjectId bundle_id, bool edge_forward, std::size_t route,
+                                         std::size_t order, const Vec3d& dir) {
+  if (edge_id == kInvalidObjectId || bundle_id == kInvalidObjectId) {
+    return kInvalidObjectId;
+  }
+  for (SavedBackboneEdgeBundle& item : authoritative_.backbone.edge_bundles) {
+    if (item.edge_id == edge_id && item.bundle_id == bundle_id) {
+      return item.edge_bundle_id;
+    }
+  }
+
+  SavedBackboneEdgeBundle item{};
+  item.edge_bundle_id = identity_.id_generator.next();
+  item.edge_id = edge_id;
+  item.bundle_id = bundle_id;
+  item.edge_forward = edge_forward;
+  item.route = route;
+  item.order = order;
+  item.dir = dir;
+  authoritative_.backbone.edge_bundles.push_back(item);
+  index_add(runtime_.backbone_index.edge_bundles, edge_id, item.edge_bundle_id);
+  index_add(runtime_.backbone_index.bundle_edge, bundle_id, edge_id);
+  return item.edge_bundle_id;
+}
+
+void CoreState::bind_backbone_span(ObjectId edge_bundle_id, ObjectId span_id) {
+  if (edge_bundle_id == kInvalidObjectId || span_id == kInvalidObjectId) {
+    return;
+  }
+  SavedBackboneEdgeBundle* found = nullptr;
+  for (SavedBackboneEdgeBundle& item : authoritative_.backbone.edge_bundles) {
+    if (item.edge_bundle_id == edge_bundle_id) {
+      found = &item;
+      break;
+    }
+  }
+  if (found == nullptr) {
+    return;
+  }
+  add_unique_id(found->span_ids, span_id);
+  index_add(runtime_.backbone_index.edge_bundle_spans, edge_bundle_id, span_id);
+  runtime_.backbone_index.span_edge_bundle[span_id] = edge_bundle_id;
+}
+
 PoleDetailInfo CoreState::GetPoleDetail(ObjectId pole_id) const {
   PoleDetailInfo detail{};
   detail.pole = authoritative_.edit_state.poles.find(pole_id);

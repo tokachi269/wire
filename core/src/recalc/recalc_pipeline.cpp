@@ -63,7 +63,7 @@ void append_support_group_keys(std::vector<LoweredSupportGroupKey>* keys,
 
 std::vector<LoweredSupportGroupKey> collect_cached_support_group_keys(const CacheState& cache_state, ObjectId span_id) {
   std::vector<LoweredSupportGroupKey> keys{};
-  const SpanSupportLayoutAuthorityView authority = cache_state.support_layout_cache.authority_view(span_id);
+  const SpanSupportLayoutAuthorityView authority = cache_state.span_layout_cache.authority_view(span_id);
   if (authority.has_authority()) {
     append_support_group_keys(&keys, collect_support_group_keys_for_seed(*authority.seed));
   }
@@ -76,7 +76,7 @@ void invalidate_topology_dependent_caches(CoreState& state, const EditState& edi
     return;
   }
   const std::vector<LoweredSupportGroupKey> affected_group_keys = collect_cached_support_group_keys(*cache_state, span_id);
-  cache_state->support_layout_cache.clear_layout(span_id);
+  cache_state->span_layout_cache.clear_layout(span_id);
   rebuild_lowered_support_groups_for_keys(state, edit_state, cache_state, affected_group_keys);
   cache_state->curve_cache.by_span.erase(span_id);
   cache_state->bounds_cache.by_span.erase(span_id);
@@ -103,15 +103,23 @@ const BoundsCacheEntry* CoreState::find_bounds_cache(ObjectId span_id) const {
 }
 
 SpanSupportLayoutProjectionView CoreState::support_layout_projection(ObjectId span_id) const {
-  return runtime_.cache_state.support_layout_cache.projection_view(span_id);
+  return runtime_.cache_state.span_layout_cache.projection_view(span_id);
 }
 
 SpanSupportLayoutContractView CoreState::support_layout_contract(ObjectId span_id) const {
-  return runtime_.cache_state.support_layout_cache.contract_view(span_id);
+  return runtime_.cache_state.span_layout_cache.contract_view(span_id);
+}
+
+SpanLayoutView CoreState::span_layout(ObjectId span_id) const {
+  return runtime_.cache_state.span_layout_cache.layout_view(span_id);
+}
+
+SpanLayoutState CoreState::span_layout_state(ObjectId span_id) const {
+  return runtime_.cache_state.span_layout_cache.layout_state(span_id);
 }
 
 SpanLayoutRulesView CoreState::span_layout_rules(ObjectId span_id) const {
-  return runtime_.cache_state.support_layout_cache.rules_view(span_id);
+  return runtime_.cache_state.span_layout_cache.rules_view(span_id);
 }
 
 const SpanVisualCacheEntry* CoreState::find_span_visual_cache(ObjectId span_id) const {
@@ -457,9 +465,9 @@ bool CoreState::cache_rebuilt_span_geometry(ObjectId span_id, SpanSupportLayoutE
 }
 
 bool CoreState::rebuild_span_geometry_with_cached_contract(ObjectId span_id, std::string* error_message) {
-  const SpanLayoutRulesView rules = runtime_.cache_state.support_layout_cache.rules_view(span_id);
+  const SpanLayoutRulesView rules = runtime_.cache_state.span_layout_cache.rules_view(span_id);
   if (!rules.has_rule()) {
-    const SpanSupportLayoutContractView contract = runtime_.cache_state.support_layout_cache.contract_view(span_id);
+    const SpanSupportLayoutContractView contract = runtime_.cache_state.span_layout_cache.contract_view(span_id);
     if (contract.requires_authority() && !contract.has_authority()) {
       return set_missing_seed_error(error_message);
     }
@@ -480,7 +488,7 @@ bool CoreState::rebuild_span_geometry_with_cached_contract(ObjectId span_id, std
 bool CoreState::rebuild_span_decision_path(ObjectId span_id, std::string* error_message) {
   // Decision dirty is the only path that is allowed to (re)assert the
   // decision-seed contract on the cached support layout.
-  runtime_.cache_state.support_layout_cache.require_authority(span_id);
+  runtime_.cache_state.span_layout_cache.require_authority(span_id);
   return rebuild_span_geometry_with_cached_contract(span_id, error_message);
 }
 
@@ -495,12 +503,12 @@ void CoreState::cache_span_support_layout(SpanSupportLayoutEntry layout) {
   const ObjectId span_id = layout.span_id;
   std::vector<LoweredSupportGroupKey> affected_group_keys =
       collect_cached_support_group_keys(runtime_.cache_state, span_id);
-  runtime_.cache_state.support_layout_cache.store_layout(std::move(layout));
+  runtime_.cache_state.span_layout_cache.store_layout(std::move(layout));
   rebuild_lowered_support_groups_for_keys(*this, authoritative_.edit_state, &runtime_.cache_state, affected_group_keys);
 }
 
-void CoreState::cache_span_layout(SpanSupportLayoutEntry layout) {
-  cache_span_support_layout(std::move(layout));
+void CoreState::cache_span_layout(SpanLayoutEntry layout) {
+  runtime_.cache_state.span_layout_cache.store_layout(std::move(layout));
 }
 
 void CoreState::cache_span_curve(ObjectId span_id, DetailCurve detail) {
@@ -532,8 +540,8 @@ void CoreState::cache_span_support_layout_seed(SpanSupportLayoutDecisionSeed see
   std::vector<LoweredSupportGroupKey> affected_group_keys =
       collect_cached_support_group_keys(runtime_.cache_state, span_id);
   append_support_group_keys(&affected_group_keys, collect_support_group_keys_for_seed(seed));
-  runtime_.cache_state.support_layout_cache.store_seed(std::move(seed));
-  runtime_.cache_state.support_layout_cache.clear_layout(span_id);
+  runtime_.cache_state.span_layout_cache.store_seed(std::move(seed));
+  runtime_.cache_state.span_layout_cache.clear_layout(span_id);
   rebuild_lowered_support_groups_for_keys(*this, authoritative_.edit_state, &runtime_.cache_state, affected_group_keys);
 
   std::string error_message;
@@ -553,7 +561,7 @@ void CoreState::cache_span_support_layout_seed(SpanSupportLayoutDecisionSeed see
 }
 
 void CoreState::cache_span_layout_rules(const SpanLayoutRules& rules) {
-  runtime_.cache_state.support_layout_cache.store_rules(rules);
+  runtime_.cache_state.span_layout_cache.store_rules(rules);
   for (const SpanLayoutRule& rule : rules.spans) {
     SpanSupportLayoutDecisionSeed seed{};
     seed.span_id = rule.span_id;
@@ -601,20 +609,20 @@ void CoreState::cache_span_layout_rules(const SpanLayoutRules& rules) {
 }
 
 void CoreState::cache_span_rules(const SpanLayoutRules& rules) {
-  runtime_.cache_state.support_layout_cache.store_rules(rules);
+  runtime_.cache_state.span_layout_cache.store_rules(rules);
 }
 
 void CoreState::erase_cached_span_support_layout_seed(ObjectId span_id) {
   const std::vector<LoweredSupportGroupKey> affected_group_keys =
       collect_cached_support_group_keys(runtime_.cache_state, span_id);
-  runtime_.cache_state.support_layout_cache.clear_seed(span_id);
+  runtime_.cache_state.span_layout_cache.clear_seed(span_id);
   rebuild_lowered_support_groups_for_keys(*this, authoritative_.edit_state, &runtime_.cache_state, affected_group_keys);
 }
 
 void CoreState::erase_cached_span_support_layout(ObjectId span_id) {
   const std::vector<LoweredSupportGroupKey> affected_group_keys =
       collect_cached_support_group_keys(runtime_.cache_state, span_id);
-  runtime_.cache_state.support_layout_cache.clear_layout(span_id);
+  runtime_.cache_state.span_layout_cache.clear_layout(span_id);
   rebuild_lowered_support_groups_for_keys(*this, authoritative_.edit_state, &runtime_.cache_state, affected_group_keys);
 }
 
@@ -690,7 +698,7 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
           ? cable_template->insulator_attachment_height_m
           : runtime_.cache_state.visual_settings.insulator_length_m;
   const SpanRuntimeState* runtime = find_span_runtime_state(span_id);
-  const SpanSupportLayoutContractView contract = runtime_.cache_state.support_layout_cache.contract_view(span_id);
+  const SpanSupportLayoutContractView contract = runtime_.cache_state.span_layout_cache.contract_view(span_id);
   if (!contract.has_projection()) {
     return set_missing_support_layout_error(error_message);
   }
@@ -808,8 +816,8 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
   append_parts_for_port(*a, start_layout);
   append_parts_for_port(*b, end_layout);
   for (const LoweredSupportGroupKey& key : support_layout->lowered_support_group_keys) {
-    auto it = runtime_.cache_state.support_layout_cache.support_groups.placement.by_key.find(key);
-    if (it != runtime_.cache_state.support_layout_cache.support_groups.placement.by_key.end()) {
+    auto it = runtime_.cache_state.span_layout_cache.support_groups.placement.by_key.find(key);
+    if (it != runtime_.cache_state.span_layout_cache.support_groups.placement.by_key.end()) {
       std::vector<Vec3d> span_attachment_worlds{};
       bool span_has_local_owner_visual = false;
       auto append_span_attachment = [&](const SupportLayoutEndpoint* endpoint) {

@@ -19,13 +19,15 @@ namespace wire::core {
 
 // Materialization-stage boundary types. Decision authors fill these from
 // workflow_types, and downstream geometry / inspection consumes them.
-enum class SupportLayoutOriginKind : std::uint8_t {
+enum class LayoutOriginKind : std::uint8_t {
   kMainSupport = 0,
   kBranchSupport = 1,
   kAerialBranch = 2,
   kPlacementConstraint = 3,
   kFallback = 4,
 };
+
+using SupportLayoutOriginKind = LayoutOriginKind;
 
 struct LoweredSupportGroupKey {
   ObjectId owner_pole_id = kInvalidObjectId;
@@ -64,7 +66,7 @@ struct ResolvedSupportAuthority {
   bool has_signed_support_axis = false;
 };
 
-struct SupportLayoutSemanticDecision {
+struct LayoutSemantic {
   ObjectId owner_pole_id = kInvalidObjectId;
   JunctionRelationKind relation_kind = JunctionRelationKind::kNone;
   ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
@@ -81,14 +83,14 @@ struct SupportLayoutSemanticDecision {
   Vec3d side_axis{};
   double chosen_side_sign = 0.0;
 
-  SupportLayoutSemanticDecision() = default;
-  SupportLayoutSemanticDecision(const EndpointContinuityDecision& source);
-  SupportLayoutSemanticDecision& operator=(const EndpointContinuityDecision& source);
+  LayoutSemantic() = default;
+  LayoutSemantic(const EndpointContinuityDecision& source);
+  LayoutSemantic& operator=(const EndpointContinuityDecision& source);
 };
 
-[[nodiscard]] inline SupportLayoutSemanticDecision MakeSupportLayoutSemanticDecision(
+[[nodiscard]] inline LayoutSemantic MakeLayoutSemantic(
     const EndpointContinuityDecision& source, ObjectId owner_pole_id = kInvalidObjectId) {
-  SupportLayoutSemanticDecision decision{};
+  LayoutSemantic decision{};
   decision.owner_pole_id = (owner_pole_id == kInvalidObjectId) ? source.owner_pole_id : owner_pole_id;
   decision.relation_kind = source.relation_kind;
   decision.continuity_class = source.continuity_class;
@@ -107,13 +109,19 @@ struct SupportLayoutSemanticDecision {
   return decision;
 }
 
-inline SupportLayoutSemanticDecision::SupportLayoutSemanticDecision(const EndpointContinuityDecision& source)
-    : SupportLayoutSemanticDecision(MakeSupportLayoutSemanticDecision(source)) {}
+inline LayoutSemantic::LayoutSemantic(const EndpointContinuityDecision& source)
+    : LayoutSemantic(MakeLayoutSemantic(source)) {}
 
-inline SupportLayoutSemanticDecision&
-SupportLayoutSemanticDecision::operator=(const EndpointContinuityDecision& source) {
-  *this = MakeSupportLayoutSemanticDecision(source);
+inline LayoutSemantic& LayoutSemantic::operator=(const EndpointContinuityDecision& source) {
+  *this = MakeLayoutSemantic(source);
   return *this;
+}
+
+using SupportLayoutSemanticDecision = LayoutSemantic;
+
+[[nodiscard]] inline LayoutSemantic MakeSupportLayoutSemanticDecision(
+    const EndpointContinuityDecision& source, ObjectId owner_pole_id = kInvalidObjectId) {
+  return MakeLayoutSemantic(source, owner_pole_id);
 }
 
 [[nodiscard]] inline LoweredSupportGroupKey LoweredSupportGroupKeyFromDecision(
@@ -130,15 +138,15 @@ SupportLayoutSemanticDecision::operator=(const EndpointContinuityDecision& sourc
          decision.support_group_id >= 0;
 }
 
-struct SupportLayoutEndpoint : SupportLayoutSemanticDecision {
+struct LayoutEndpoint : LayoutSemantic {
   ObjectId endpoint_node_id = kInvalidObjectId;
   ObjectId port_id = kInvalidObjectId;
   ResolvedSupportAuthority support_authority{};
   EndpointAttachmentRequest attachment_request{};
   std::optional<int> resolved_socket_id{};
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
-  SupportLayoutOriginKind origin = SupportLayoutOriginKind::kFallback;
-  SupportLayoutEndpointSourceKind endpoint_source = SupportLayoutEndpointSourceKind::kFallback;
+  LayoutOriginKind origin = LayoutOriginKind::kFallback;
+  LayoutEndpointSourceKind endpoint_source = LayoutEndpointSourceKind::kFallback;
   PortPlacementSourceKind port_source = PortPlacementSourceKind::kUnknown;
   SlotSide side = SlotSide::kCenter;
   CurveEndpointMode endpoint_mode = CurveEndpointMode::kDirectThrough;
@@ -168,6 +176,8 @@ struct SupportLayoutEndpoint : SupportLayoutSemanticDecision {
   bool used_junction_pair_side_assignment = false;
   HierarchicalVariationSample down_offset_variation{};
 };
+
+using SupportLayoutEndpoint = LayoutEndpoint;
 
 struct SupportLayoutDecisionSeedEndpoint : SupportLayoutSemanticDecision {
   ObjectId endpoint_node_id = kInvalidObjectId;
@@ -228,13 +238,13 @@ struct SpanSupportLayoutDecisionSeed {
 struct EndpointLayoutRule {
   ObjectId endpoint_node_id = kInvalidObjectId;
   ObjectId port_id = kInvalidObjectId;
-  SupportLayoutSemanticDecision semantic{};
+  LayoutSemantic semantic{};
   ResolvedSupportAuthority support_authority{};
   EndpointAttachmentRequest attachment_request{};
   std::optional<int> resolved_socket_id{};
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
-  SupportLayoutOriginKind origin = SupportLayoutOriginKind::kFallback;
-  SupportLayoutEndpointSourceKind endpoint_source = SupportLayoutEndpointSourceKind::kFallback;
+  LayoutOriginKind origin = LayoutOriginKind::kFallback;
+  LayoutEndpointSourceKind endpoint_source = LayoutEndpointSourceKind::kFallback;
   PortPlacementSourceKind port_source = PortPlacementSourceKind::kUnknown;
   SlotSide side = SlotSide::kCenter;
   CurveEndpointMode endpoint_mode = CurveEndpointMode::kDirectThrough;
@@ -277,6 +287,20 @@ struct SpanLayoutRulesView {
   [[nodiscard]] bool has_rule() const { return rule != nullptr; }
 };
 
+struct SpanLayoutEntry;
+
+struct SpanLayoutView {
+  const SpanLayoutEntry* entry = nullptr;
+
+  [[nodiscard]] bool has_layout() const { return entry != nullptr; }
+};
+
+struct SpanLayoutState {
+  bool has_rules = false;
+  bool has_layout = false;
+  bool input_required = false;
+};
+
 struct LoweredSupportGroupPlacement {
   // Geometry/materialization only. Semantic authority lives in SupportGroupDecision.
   SupportGroupingRuleKind grouping_rule = SupportGroupingRuleKind::kDecisionGroup;
@@ -288,7 +312,7 @@ struct LoweredSupportGroupPlacement {
   HierarchicalVariationSample down_offset_variation{};
 };
 
-struct SpanSupportLayoutEntry {
+struct SpanLayoutEntry {
   ObjectId span_id = kInvalidObjectId;
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
   CurvePassMode pass_mode = CurvePassMode::kPassThrough;
@@ -301,11 +325,13 @@ struct SpanSupportLayoutEntry {
   std::uint64_t variation_flow_key = 0;
   HierarchicalVariationSample sag_variation{};
   BackboneLoweringKind lowering_kind = BackboneLoweringKind::kNone;
-  SupportLayoutEndpoint start{};
-  SupportLayoutEndpoint end{};
+  LayoutEndpoint start{};
+  LayoutEndpoint end{};
   std::vector<LoweredSupportGroupKey> lowered_support_group_keys{};
   std::uint64_t source_version = 0;
 };
+
+using SpanSupportLayoutEntry = SpanLayoutEntry;
 
 struct SpanSupportLayoutAuthorityRecord {
   bool required = false;
@@ -321,13 +347,13 @@ struct SpanSupportLayoutAuthorityRecord {
 };
 
 struct SpanSupportLayoutProjectionRecord {
-  std::optional<SpanSupportLayoutEntry> layout{};
+  std::optional<SpanLayoutEntry> layout{};
 
   [[nodiscard]] bool has_layout() const { return layout.has_value(); }
-  [[nodiscard]] const SpanSupportLayoutEntry* value() const {
+  [[nodiscard]] const SpanLayoutEntry* value() const {
     return layout.has_value() ? &*layout : nullptr;
   }
-  [[nodiscard]] SpanSupportLayoutEntry* value() {
+  [[nodiscard]] SpanLayoutEntry* value() {
     return layout.has_value() ? &*layout : nullptr;
   }
 };
@@ -342,8 +368,8 @@ struct SupportLayoutCacheRecord {
   [[nodiscard]] bool has_projection() const { return projection.has_layout(); }
   [[nodiscard]] const SpanSupportLayoutDecisionSeed* authority_seed() const { return authority.value(); }
   [[nodiscard]] SpanSupportLayoutDecisionSeed* authority_seed() { return authority.value(); }
-  [[nodiscard]] const SpanSupportLayoutEntry* projected_layout() const { return projection.value(); }
-  [[nodiscard]] SpanSupportLayoutEntry* projected_layout() { return projection.value(); }
+  [[nodiscard]] const SpanLayoutEntry* projected_layout() const { return projection.value(); }
+  [[nodiscard]] SpanLayoutEntry* projected_layout() { return projection.value(); }
   [[nodiscard]] const SpanLayoutRule* span_layout_rule() const {
     return saved_rule.has_value() ? &*saved_rule : nullptr;
   }
@@ -354,7 +380,7 @@ struct SupportLayoutCacheRecord {
     authority.seed = std::move(seed_value);
   }
   void clear_authority() { authority.seed.reset(); }
-  void store_projection(SpanSupportLayoutEntry layout_value) { projection.layout = std::move(layout_value); }
+  void store_projection(SpanLayoutEntry layout_value) { projection.layout = std::move(layout_value); }
   void clear_projection() { projection.layout.reset(); }
   void store_rule(SpanLayoutRule rule_value) { saved_rule = std::move(rule_value); }
   void clear_rule() { saved_rule.reset(); }
@@ -368,13 +394,13 @@ struct SpanSupportLayoutAuthorityView {
 };
 
 struct SpanSupportLayoutProjectionView {
-  const SpanSupportLayoutEntry* layout = nullptr;
+  const SpanLayoutEntry* layout = nullptr;
 
   [[nodiscard]] bool has_projection() const { return layout != nullptr; }
 };
 
 struct MutableSpanSupportLayoutProjectionView {
-  SpanSupportLayoutEntry* layout = nullptr;
+  SpanLayoutEntry* layout = nullptr;
 
   [[nodiscard]] bool has_projection() const { return layout != nullptr; }
 };
@@ -401,7 +427,7 @@ struct SupportGroupCacheContract {
   SupportGroupPlacementCache placement{};
 };
 
-struct SupportLayoutCache {
+struct SpanLayoutCache {
   std::unordered_map<ObjectId, SupportLayoutCacheRecord> records_by_span{};
   // Derived support-group cache. Authority is rebuilt from span decision seeds.
   // Placement is rebuilt from authority + observation. Neither is an authoring source.
@@ -435,6 +461,23 @@ struct SupportLayoutCache {
       return {};
     }
     return {it->second.span_layout_rule()};
+  }
+
+  [[nodiscard]] SpanLayoutView layout_view(ObjectId span_id) const {
+    const auto it = records_by_span.find(span_id);
+    if (it == records_by_span.end()) {
+      return {};
+    }
+    return {it->second.projected_layout()};
+  }
+
+  [[nodiscard]] SpanLayoutState layout_state(ObjectId span_id) const {
+    const auto it = records_by_span.find(span_id);
+    if (it == records_by_span.end()) {
+      return {};
+    }
+    const SupportLayoutCacheRecord& record = it->second;
+    return {record.span_layout_rule() != nullptr, record.projected_layout() != nullptr, record.requires_authority()};
   }
 
   [[nodiscard]] MutableSpanSupportLayoutProjectionView edit_projection(ObjectId span_id) {
@@ -471,7 +514,7 @@ struct SupportLayoutCache {
   template <typename Fn>
   void for_each_projected_record(Fn&& visitor) const {
     for (const auto& [span_id, record] : records_by_span) {
-      if (const SpanSupportLayoutEntry* layout = record.projected_layout(); layout != nullptr) {
+      if (const SpanLayoutEntry* layout = record.projected_layout(); layout != nullptr) {
         visitor(span_id, record, *layout);
       }
     }
@@ -480,7 +523,7 @@ struct SupportLayoutCache {
   template <typename Fn>
   void for_each_projected_record(Fn&& visitor) {
     for (auto& [span_id, record] : records_by_span) {
-      if (SpanSupportLayoutEntry* layout = record.projected_layout(); layout != nullptr) {
+      if (SpanLayoutEntry* layout = record.projected_layout(); layout != nullptr) {
         visitor(span_id, record, *layout);
       }
     }
@@ -488,7 +531,7 @@ struct SupportLayoutCache {
 
   template <typename Fn>
   void for_each_projected_contract(Fn&& visitor) const {
-    for_each_projected_record([&](ObjectId span_id, const SupportLayoutCacheRecord&, const SpanSupportLayoutEntry& layout) {
+    for_each_projected_record([&](ObjectId span_id, const SupportLayoutCacheRecord&, const SpanLayoutEntry& layout) {
       visitor(span_id, authority_view(span_id), projection_view(span_id), layout);
     });
   }
@@ -507,7 +550,7 @@ struct SupportLayoutCache {
     }
   }
 
-  void store_layout(SpanSupportLayoutEntry layout) {
+  void store_layout(SpanLayoutEntry layout) {
     const ObjectId span_id = layout.span_id;
     SupportLayoutCacheRecord& record = records_by_span[span_id];
     record.store_projection(std::move(layout));
@@ -546,5 +589,7 @@ struct SupportLayoutCache {
     erase_record_if_empty(span_id);
   }
 };
+
+using SupportLayoutCache = SpanLayoutCache;
 
 } // namespace wire::core

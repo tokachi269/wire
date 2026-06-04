@@ -36,6 +36,11 @@ public:
   [[nodiscard]] const SavedBackboneEdge* backbone_edge(ObjectId edge_id) const;
   [[nodiscard]] const SavedBackboneEdgeBundle* backbone_edge_bundle(ObjectId edge_bundle_id) const;
   [[nodiscard]] const SavedBackboneNode* backbone_node_for_pole(ObjectId pole_id) const;
+  [[nodiscard]] const SavedBackbonePortBinding* backbone_port_binding_for_port(ObjectId port_id) const;
+  [[nodiscard]] std::vector<const SavedBackbonePortBinding*> backbone_port_bindings_for_edge_bundle(
+      ObjectId edge_bundle_id) const;
+  [[nodiscard]] std::vector<const SavedBackbonePortBinding*> backbone_port_bindings_for_row(
+      const SavedBackboneRowKey& row_key, std::size_t lane_index) const;
   [[nodiscard]] const DirtyQueue& dirty_queue() const;
   [[nodiscard]] const RecalcStats& last_recalc_stats() const;
   [[nodiscard]] const GeometrySettings& geometry_settings() const;

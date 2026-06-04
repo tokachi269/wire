@@ -580,7 +580,7 @@ bb2 は existing pole に新規 route を接続するとき、saved backbone gra
 
 ## bb2 milestone 20
 
-same saved edge + bundle の生成は同じ `SavedBackboneEdgeBundle` に束ねる。span は edge_bundle の生成結果として追加する。
+same saved edge + bundle の低レベル保存口は同じ `SavedBackboneEdgeBundle` を返す。span は edge_bundle の生成結果として追加する。
 
 対応:
 
@@ -594,3 +594,101 @@ same saved edge + bundle の生成は同じ `SavedBackboneEdgeBundle` に束ね�
 * same edge + bundle で edge_bundle を重複作成する。
 * reverse 生成で edge_bundle metadata を上書きする。
 * existing port/span reuse、duplicate span 抑制、lowering、pass-through、draw を M20 に混ぜる。
+
+## bb2 milestone 21
+
+bb2 generation request としての duplicate same edge + bundle は no-op/reuse ではなく unsupported とする。低レベル保存口の idempotent reuse は残すが、bb2 は emit 前に duplicate を検出して止める。
+
+対応:
+
+* duplicate 判定は saved graph の `edge_bundle` 単位で行う。
+* 同じ saved edge + bundle template を再生成しようとしたら unsupported にする。
+* different bundle は同じ saved edge 上でも許可する。
+* reject は emit 前に行い、pole/port/bundle/span/rules/layout/geom を増やさない。
+
+禁止:
+
+* existing port/span reuse を M21 に混ぜる。
+* existing span/layout/seed から duplicate や不足分を判定する。
+* lane 単位の差分追加、bundle template 差分更新、geometry 近似比較を行う。
+* v1/recalc/materialization を duplicate 判定に使う。
+
+## bb2 milestone 22
+
+bb2 は connectivity row と生成された port object の対応を saved backbone graph に保存する。これは existing port reuse の実装ではなく、将来 reuse を座標推測ではなく saved identity で行うための準備である。
+
+対応:
+
+* `SavedBackbonePortBinding` を保存する。
+* binding は `edge_bundle_id + row_key + lane_index -> port_id` を持つ。
+* `row_key` は saved node id と row source の saved edge id から作る。
+* context-only row には port binding を作らない。
+* 同じ `edge_bundle_id + row_key + lane_index` の binding は duplicate として拒否する。
+
+禁止:
+
+* existing port reuse を M22 に混ぜる。
+* port 位置近似で同一性を判定する。
+* existing span/layout/seed を binding 判定に使う。
+* row id/index の全面整理や pairs rename を M22 に混ぜる。
+
+## bb2 milestone 23
+
+bb2 は saved row-port binding が一致する場合だけ existing port を再利用する。reuse は port identity の問題であり、pair/open/row/rules/layout/geom の意味決定は変えない。
+
+対応:
+
+* `row_key + lane_index` で saved port binding を探す。
+* binding の port が存在し、同じ pole に属する場合だけ reuse する。
+* binding が無ければ従来通り new port を作る。
+* 複数 binding が同じ port を指す場合は同一 identity として扱う。
+* 複数 binding が別 port に割れる場合は ambiguous として unsupported にする。
+* reuse port は new span endpoint として使う。
+
+禁止:
+
+* existing span reuse を M23 に混ぜる。
+* port 位置や layout から row を復元する。
+* support materialization / recalc / seed を reuse 判定に使う。
+* lowering / pass-through / draw / avoid を M23 に混ぜる。
+
+## bb2 milestone 24
+
+bb2 は branch/cross 相当の existing junction context で row が重ならないよう、port placement だけに row separation を入れる。T/cross/branch kind enum は作らない。
+
+対応:
+
+* `pairs make(graph)` は今まで通り pair/open/row を一度だけ決める。
+* node ごとの connectivity rows 全体から deterministic な row order を作る。
+* context-only row も row order には含める。
+* offset を適用するのは emitted spans が参照する materialized rows だけにする。
+* layout/geom は port 位置の変化に自然追従する。
+
+禁止:
+
+* lowering / pass-through / draw を M24 に混ぜる。
+* branch/cross kind enum または label を作る。
+* geometry から junction kind を推測する。
+* existing span/layout/seed を row separation に使う。
+* context-only row の port/span を生成する。
+
+## bb2 milestone 25
+
+bb2 は pass-through node mode と lowering intent を rules/layout に保存する。実際の lowered geometry、support visual、draw/render はまだ作らない。
+
+対応:
+
+* `BundleNodeMode::kPassThrough` は saved junction context のある existing node に限定して受ける。
+* kPassThrough は pair/open/row の決定には使わない。
+* pass-through 対象 row は generated route 上の active row から一意に決める。
+* 対象 row が一意でなければ unsupported にする。
+* intent は `SpanLayoutRule` / `SpanLayoutEntry` の pass/lower fields に保存する。
+* layout/geom はこれまで通り direct output を作り、lowered shape は作らない。
+
+禁止:
+
+* actual lowered curve geometry を M25 に混ぜる。
+* support arm / insulator / attachment visual を作る。
+* draw/render cache を触る。
+* branch/cross kind enum を作る。
+* existing span/layout/seed や v1/recalc/materialization を intent 決定に使う。

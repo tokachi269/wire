@@ -187,6 +187,42 @@ void CoreState::bind_backbone_span(ObjectId edge_bundle_id, ObjectId span_id) {
   runtime_.backbone_index.span_edge_bundle[span_id] = edge_bundle_id;
 }
 
+EditResult<bool> CoreState::bind_backbone_port(ObjectId edge_bundle_id, const SavedBackboneRowKey& row_key,
+                                               std::size_t lane_index, ObjectId port_id) {
+  EditResult<bool> out{};
+  if (edge_bundle_id == kInvalidObjectId || port_id == kInvalidObjectId || row_key.node_id == kInvalidObjectId ||
+      row_key.source_edge_a == kInvalidObjectId) {
+    out.error = "invalid backbone port binding";
+    return out;
+  }
+  const auto existing = runtime_.backbone_index.edge_bundle_ports.find(edge_bundle_id);
+  if (existing != runtime_.backbone_index.edge_bundle_ports.end()) {
+    for (std::size_t index : existing->second) {
+      if (index >= authoritative_.backbone.port_bindings.size()) {
+        continue;
+      }
+      const SavedBackbonePortBinding& binding = authoritative_.backbone.port_bindings[index];
+      if (binding.row_key == row_key && binding.lane_index == lane_index) {
+        out.error = "duplicate backbone port binding";
+        return out;
+      }
+    }
+  }
+
+  SavedBackbonePortBinding binding{};
+  binding.edge_bundle_id = edge_bundle_id;
+  binding.row_key = row_key;
+  binding.lane_index = lane_index;
+  binding.port_id = port_id;
+  const std::size_t index = authoritative_.backbone.port_bindings.size();
+  authoritative_.backbone.port_bindings.push_back(binding);
+  runtime_.backbone_index.edge_bundle_ports[edge_bundle_id].push_back(index);
+  runtime_.backbone_index.port_binding_by_port[port_id] = index;
+  out.value = true;
+  out.ok = true;
+  return out;
+}
+
 PoleDetailInfo CoreState::GetPoleDetail(ObjectId pole_id) const {
   PoleDetailInfo detail{};
   detail.pole = authoritative_.edit_state.poles.find(pole_id);

@@ -808,44 +808,18 @@ std::vector<wire::core::Vec3d> span_curve_points(wire::core::CoreState& state,
 }
 
 bool C395_bb2_is_new_does_not_affect_pairs() {
-  wire::core::CoreState all_new;
-  wire::core::BackboneSpec req = line_req(all_new);
-  req.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}};
-  const auto all_new_out = all_new.GenerateFromBackboneSpec(req);
-  if (!all_new_out.ok || all_new_out.value.generated_pole_ids.empty()) {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+  std::string cpp;
+  if (!file_text(source, &cpp)) {
     return false;
   }
-  const std::vector<wire::core::Vec3d> a = span_curve_points(all_new, all_new_out.value.generated_span_ids);
-
-  wire::core::CoreState existing;
-  wire::core::BackboneSpec seed = line_req(existing);
-  seed.path.polyline = {{0.0, 0.0, 0.0}, {4.0, 4.0, 0.0}};
-  const auto seed_out = existing.GenerateFromBackboneSpec(seed);
-  if (!seed_out.ok || seed_out.value.generated_pole_ids.empty()) {
+  const std::size_t make_pos = cpp.find("EditResult<pairs> pipeline::make");
+  const std::size_t check_pos = cpp.find("EditResult<intent> pipeline::make", make_pos);
+  if (make_pos == std::string::npos || check_pos == std::string::npos) {
     return false;
   }
-  wire::core::BackboneSpec next = line_req(existing);
-  const wire::core::ObjectId existing_id = seed_out.value.generated_pole_ids.front();
-  next.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}};
-  wire::core::BackboneInputSpec::NodeSpec node{};
-  node.point_index = 0;
-  node.support_kind = wire::core::SupportKind::kPole;
-  node.node_id = existing_id;
-  next.path.node_specs.push_back(node);
-  const auto existing_out = existing.GenerateFromBackboneSpec(next);
-  if (!existing_out.ok) {
-    return false;
-  }
-  const std::vector<wire::core::Vec3d> b = span_curve_points(existing, existing_out.value.generated_span_ids);
-  if (a.empty() || a.size() != b.size()) {
-    return false;
-  }
-  for (std::size_t i = 0; i < a.size(); ++i) {
-    if (!almost_equal(a[i], b[i], 1e-9)) {
-      return false;
-    }
-  }
-  return true;
+  const std::string body = cpp.substr(make_pos, check_pos - make_pos);
+  return !contains_text(body, ".is_new");
 }
 
 bool C396_bb2_existing_pole_does_not_read_existing_spans() {
@@ -1079,7 +1053,7 @@ bool C405_bb2_no_bundle_pair_branching() {
   if (start == std::string::npos) {
     return false;
   }
-  const std::size_t end = text.find("EditResult<bool> pipeline::emit_poles", start);
+  const std::size_t end = text.find("EditResult<intent> pipeline::make", start);
   const std::string body = text.substr(start, end == std::string::npos ? std::string::npos : end - start);
   return !contains_text(body, "spec_.bundles") && !contains_text(body, "BundleTemplate") &&
          !contains_text(body, "bundle_template");
@@ -1238,7 +1212,7 @@ bool C410_bb2_height_does_not_affect_pairs() {
   if (start == std::string::npos) {
     return false;
   }
-  const std::size_t end = text.find("EditResult<bool> pipeline::emit_poles", start);
+  const std::size_t end = text.find("EditResult<intent> pipeline::make", start);
   const std::string body = text.substr(start, end == std::string::npos ? std::string::npos : end - start);
   return !contains_text(body, "pole_type") && !contains_text(body, "PortPlacementBand") &&
          !contains_text(body, "height") && !contains_text(body, "BundleTemplate") &&
@@ -1330,7 +1304,7 @@ bool C413_bb2_lateral_offset_does_not_affect_pairs() {
   if (start == std::string::npos) {
     return false;
   }
-  const std::size_t end = text.find("EditResult<bool> pipeline::emit_poles", start);
+  const std::size_t end = text.find("EditResult<intent> pipeline::make", start);
   const std::string body = text.substr(start, end == std::string::npos ? std::string::npos : end - start);
   return !contains_text(body, "constraints") && !contains_text(body, "lateral_offset_m");
 }
@@ -1466,7 +1440,7 @@ bool C420_bb2_node_mode_does_not_affect_pairs() {
   if (start == std::string::npos) {
     return false;
   }
-  const std::size_t end = text.find("EditResult<bool> pipeline::emit_poles", start);
+  const std::size_t end = text.find("EditResult<intent> pipeline::make", start);
   const std::string body = text.substr(start, end == std::string::npos ? std::string::npos : end - start);
   return !contains_text(body, "node_bundle_modes") && !contains_text(body, "BundleNodeMode");
 }
@@ -1507,11 +1481,11 @@ bool C422_bb2_rules_consume_topo_only() {
   if (!file_text(header, &h) || !file_text(source, &cpp)) {
     return false;
   }
-  if (!contains_text(h, "rules make(const topo& made) const") ||
+  if (!contains_text(h, "rules make(const topo& made, const intent& intents) const") ||
       contains_text(h, "rules make(const topo& made, const pairs& ps) const")) {
     return false;
   }
-  const std::size_t rules_pos = cpp.find("rules pipeline::make(const topo& made) const");
+  const std::size_t rules_pos = cpp.find("rules pipeline::make(const topo& made, const intent& intents) const");
   const std::size_t layout_pos = cpp.find("EditResult<layout> pipeline::make", rules_pos);
   if (rules_pos == std::string::npos || layout_pos == std::string::npos) {
     return false;
@@ -1815,7 +1789,7 @@ bool C433_bb2_reuses_edge_for_same_poles() {
          state.view().backbone().edge_bundles.size() == 2;
 }
 
-bool C434_bb2_reverse_generation_reuses_edge_bundle() {
+bool C434_bb2_reverse_duplicate_same_bundle_rejected() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(line_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 2) {
@@ -1840,14 +1814,12 @@ bool C434_bb2_reverse_generation_reuses_edge_bundle() {
   na.node_id = a;
   second.path.node_specs = {nb, na};
   const auto second_out = state.GenerateFromBackboneSpec(second);
-  if (!second_out.ok || state.view().backbone().edges.size() != 1 || state.view().backbone().edge_bundles.size() != 1) {
-    return false;
-  }
-  const wire::core::SavedBackboneEdgeBundle& item = state.view().backbone().edge_bundles.front();
-  return item.span_ids.size() == first.value.generated_span_ids.size() + second_out.value.generated_span_ids.size();
+  return !second_out.ok && contains_text(second_out.error, "duplicate saved edge bundle") &&
+         state.view().backbone().edges.size() == 1 && state.view().backbone().edge_bundles.size() == 1 &&
+         state.view().backbone().edge_bundles.front().span_ids.size() == first.value.generated_span_ids.size();
 }
 
-bool C435_bb2_edge_metadata_is_not_overwritten_on_reuse() {
+bool C435_bb2_edge_metadata_is_not_overwritten_on_duplicate_reject() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(line_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 2 || state.view().backbone().edges.size() != 1) {
@@ -1873,7 +1845,8 @@ bool C435_bb2_edge_metadata_is_not_overwritten_on_reuse() {
   na.node_id = a;
   second.path.node_specs = {nb, na};
   const auto second_out = state.GenerateFromBackboneSpec(second);
-  if (!second_out.ok || state.view().backbone().edges.size() != 1) {
+  if (second_out.ok || !contains_text(second_out.error, "duplicate saved edge bundle") ||
+      state.view().backbone().edges.size() != 1) {
     return false;
   }
   const wire::core::SavedBackboneEdge& after = state.view().backbone().edges.front();
@@ -1986,7 +1959,7 @@ bool C442_bb2_edge_forward_uses_saved_ref() {
   if (!file_text(source, &cpp)) {
     return false;
   }
-  const std::size_t fn_pos = cpp.find("void pipeline::save_graph");
+  const std::size_t fn_pos = cpp.find("EditResult<bool> pipeline::save_graph");
   const std::size_t build_pos = cpp.find("EditResult<GenerateBundleFromPathResult> pipeline::build", fn_pos);
   if (fn_pos == std::string::npos || build_pos == std::string::npos) {
     return false;
@@ -1998,7 +1971,7 @@ bool C442_bb2_edge_forward_uses_saved_ref() {
 }
 
 bool C443_bb2_edge_reuse_behavior_unchanged() {
-  return C434_bb2_reverse_generation_reuses_edge_bundle();
+  return C434_bb2_reverse_duplicate_same_bundle_rejected();
 }
 
 bool C444_bb2_layout_uses_neutral_types() {
@@ -2348,13 +2321,16 @@ bool C462_bb2_no_junction_kind_after_existing_context() {
          contains_text(cpp, "if (!edge.is_new)") && contains_text(cpp, "EditResult<pairs> pipeline::make");
 }
 
-bool C463_bb2_same_edge_bundle_reuses_edge_bundle() {
+bool C463_bb2_duplicate_same_edge_bundle_rejected() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(line_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 2 || state.view().backbone().edge_bundles.size() != 1) {
     return false;
   }
-  const wire::core::ObjectId edge_bundle_id = state.view().backbone().edge_bundles.front().edge_bundle_id;
+  const std::size_t edge_count = state.view().backbone().edges.size();
+  const std::size_t edge_bundle_count = state.view().backbone().edge_bundles.size();
+  const std::size_t span_count = state.view().spans().size();
+  const std::size_t saved_span_count = state.view().backbone().edge_bundles.front().span_ids.size();
   const wire::core::ObjectId a = first.value.generated_pole_ids[0];
   const wire::core::ObjectId b = first.value.generated_pole_ids[1];
   const auto* pa = state.view().poles().find(a);
@@ -2366,43 +2342,13 @@ bool C463_bb2_same_edge_bundle_reuses_edge_bundle() {
   second.path.polyline = {pa->world_transform.position, pb->world_transform.position};
   second.path.node_specs = {pole_spec(0, a), pole_spec(1, b)};
   const auto second_out = state.GenerateFromBackboneSpec(second);
-  if (!second_out.ok || state.view().backbone().edges.size() != 1 || state.view().backbone().edge_bundles.size() != 1) {
-    return false;
-  }
-  const wire::core::SavedBackboneEdgeBundle& item = state.view().backbone().edge_bundles.front();
-  return item.edge_bundle_id == edge_bundle_id &&
-         item.span_ids.size() == first.value.generated_span_ids.size() + second_out.value.generated_span_ids.size();
+  return !second_out.ok && contains_text(second_out.error, "duplicate saved edge bundle") &&
+         state.view().backbone().edges.size() == edge_count &&
+         state.view().backbone().edge_bundles.size() == edge_bundle_count && state.view().spans().size() == span_count &&
+         state.view().backbone().edge_bundles.front().span_ids.size() == saved_span_count;
 }
 
-bool C464_bb2_reverse_same_bundle_reuses_edge_bundle_metadata() {
-  wire::core::CoreState state;
-  const auto first = state.GenerateFromBackboneSpec(line_req(state));
-  if (!first.ok || first.value.generated_pole_ids.size() != 2 || state.view().backbone().edge_bundles.size() != 1) {
-    return false;
-  }
-  const wire::core::SavedBackboneEdgeBundle before = state.view().backbone().edge_bundles.front();
-  const wire::core::ObjectId a = first.value.generated_pole_ids[0];
-  const wire::core::ObjectId b = first.value.generated_pole_ids[1];
-  const auto* pa = state.view().poles().find(a);
-  const auto* pb = state.view().poles().find(b);
-  if (pa == nullptr || pb == nullptr) {
-    return false;
-  }
-  wire::core::BackboneSpec second = line_req(state);
-  second.path.polyline = {pb->world_transform.position, pa->world_transform.position};
-  second.path.node_specs = {pole_spec(0, b), pole_spec(1, a)};
-  const auto second_out = state.GenerateFromBackboneSpec(second);
-  if (!second_out.ok || state.view().backbone().edge_bundles.size() != 1) {
-    return false;
-  }
-  const wire::core::SavedBackboneEdgeBundle& after = state.view().backbone().edge_bundles.front();
-  return after.edge_bundle_id == before.edge_bundle_id && after.edge_forward == before.edge_forward &&
-         after.route == before.route && after.order == before.order && almost_equal(after.dir.x, before.dir.x, 1e-9) &&
-         almost_equal(after.dir.y, before.dir.y, 1e-9) && almost_equal(after.dir.z, before.dir.z, 1e-9) &&
-         after.span_ids.size() == before.span_ids.size() + second_out.value.generated_span_ids.size();
-}
-
-bool C465_bb2_different_bundle_still_creates_edge_bundle() {
+bool C464_bb2_different_bundle_on_same_edge_allowed() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(line_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 2 || state.view().backbone().edge_bundles.size() != 1) {
@@ -2422,6 +2368,632 @@ bool C465_bb2_different_bundle_still_creates_edge_bundle() {
   second.path.node_specs = {pole_spec(0, a), pole_spec(1, b)};
   const auto second_out = state.GenerateFromBackboneSpec(second);
   return second_out.ok && state.view().backbone().edges.size() == 1 && state.view().backbone().edge_bundles.size() == 2;
+}
+
+bool C465_bb2_duplicate_policy_does_not_read_existing_spans() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+  std::string cpp;
+  if (!file_text(source, &cpp)) {
+    return false;
+  }
+  const std::size_t fn_pos = cpp.find("EditResult<bool> pipeline::check(const pairs& ps) const");
+  const std::size_t next_pos = cpp.find("EditResult<bool> pipeline::emit_bundles", fn_pos);
+  if (fn_pos == std::string::npos || next_pos == std::string::npos) {
+    return false;
+  }
+  const std::string body = cpp.substr(fn_pos, next_pos - fn_pos);
+  return contains_text(body, "backbone_index().edge_bundles") && contains_text(body, "backbone_edge_bundle") &&
+         !contains_text(body, ".spans") && !contains_text(body, "span_layout") && !contains_text(body, "seed") &&
+         !contains_text(body, "layout");
+}
+
+bool C466_bb2_duplicate_reject_keeps_state_unchanged() {
+  wire::core::CoreState state;
+  const auto first = state.GenerateFromBackboneSpec(line_req(state));
+  if (!first.ok || first.value.generated_pole_ids.size() != 2 || state.view().backbone().edge_bundles.size() != 1) {
+    return false;
+  }
+  const std::size_t pole_count = state.view().poles().size();
+  const std::size_t port_count = state.view().ports().size();
+  const std::size_t bundle_count_before = state.view().bundles().size();
+  const std::size_t span_count = state.view().spans().size();
+  const std::size_t edge_count = state.view().backbone().edges.size();
+  const std::size_t edge_bundle_count = state.view().backbone().edge_bundles.size();
+  const std::size_t saved_span_count = state.view().backbone().edge_bundles.front().span_ids.size();
+  const wire::core::ObjectId a = first.value.generated_pole_ids[0];
+  const wire::core::ObjectId b = first.value.generated_pole_ids[1];
+  const auto* pa = state.view().poles().find(a);
+  const auto* pb = state.view().poles().find(b);
+  if (pa == nullptr || pb == nullptr) {
+    return false;
+  }
+  wire::core::BackboneSpec second = line_req(state);
+  second.path.polyline = {pa->world_transform.position, pb->world_transform.position};
+  second.path.node_specs = {pole_spec(0, a), pole_spec(1, b)};
+  const auto second_out = state.GenerateFromBackboneSpec(second);
+  const wire::core::BackboneFrontier frontier = state.view().pole_frontier(a);
+  return !second_out.ok && contains_text(second_out.error, "duplicate saved edge bundle") &&
+         state.view().poles().size() == pole_count && state.view().ports().size() == port_count &&
+         state.view().bundles().size() == bundle_count_before && state.view().spans().size() == span_count &&
+         state.view().backbone().edges.size() == edge_count &&
+         state.view().backbone().edge_bundles.size() == edge_bundle_count &&
+         state.view().backbone().edge_bundles.front().span_ids.size() == saved_span_count &&
+         frontier.edge_ids.size() == 1 && frontier.edge_bundle_ids.size() == 1 &&
+         frontier.span_ids.size() == saved_span_count;
+}
+
+bool C467_bb2_saves_row_port_bindings() {
+  wire::core::CoreState state;
+  const auto out = state.GenerateFromBackboneSpec(line_req(state));
+  const wire::core::SavedBackboneGraph& graph = state.view().backbone();
+  if (!out.ok || graph.edge_bundles.size() != 1 ||
+      graph.port_bindings.size() != out.value.generated_span_ids.size() * 2) {
+    return false;
+  }
+  const wire::core::ObjectId edge_bundle_id = graph.edge_bundles.front().edge_bundle_id;
+  const std::vector<const wire::core::SavedBackbonePortBinding*> by_edge_bundle =
+      state.view().backbone_port_bindings_for_edge_bundle(edge_bundle_id);
+  if (by_edge_bundle.size() != graph.port_bindings.size()) {
+    return false;
+  }
+  for (const wire::core::SavedBackbonePortBinding& binding : graph.port_bindings) {
+    const wire::core::SavedBackbonePortBinding* by_port = state.view().backbone_port_binding_for_port(binding.port_id);
+    if (binding.edge_bundle_id != edge_bundle_id || binding.row_key.node_id == wire::core::kInvalidObjectId ||
+        binding.row_key.source_edge_a == wire::core::kInvalidObjectId ||
+        state.view().ports().find(binding.port_id) == nullptr || by_port == nullptr ||
+        by_port->port_id != binding.port_id) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool C468_bb2_row_port_binding_is_stable_for_existing_context() {
+  wire::core::CoreState state;
+  const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!first.ok || first.value.generated_pole_ids.size() != 3) {
+    return false;
+  }
+  const std::size_t before = state.view().backbone().port_bindings.size();
+  const wire::core::ObjectId b = first.value.generated_pole_ids[1];
+  const auto* pole_b = state.view().poles().find(b);
+  if (pole_b == nullptr) {
+    return false;
+  }
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {pole_b->world_transform.position, {20.0, 0.0, 0.0}};
+  branch.path.node_specs = {pole_spec(0, b)};
+  const auto second = state.GenerateFromBackboneSpec(branch);
+  return second.ok && state.view().backbone().port_bindings.size() == before + second.value.generated_span_ids.size() * 2;
+}
+
+bool C469_bb2_row_port_binding_rejects_duplicate_without_reuse() {
+  wire::core::CoreState state;
+  const auto first = state.GenerateFromBackboneSpec(line_req(state));
+  if (!first.ok || first.value.generated_pole_ids.size() != 2) {
+    return false;
+  }
+  const std::size_t before = state.view().backbone().port_bindings.size();
+  const wire::core::ObjectId a = first.value.generated_pole_ids[0];
+  const wire::core::ObjectId b = first.value.generated_pole_ids[1];
+  const auto* pa = state.view().poles().find(a);
+  const auto* pb = state.view().poles().find(b);
+  if (pa == nullptr || pb == nullptr) {
+    return false;
+  }
+  wire::core::BackboneSpec duplicate = line_req(state);
+  duplicate.path.polyline = {pa->world_transform.position, pb->world_transform.position};
+  duplicate.path.node_specs = {pole_spec(0, a), pole_spec(1, b)};
+  const auto second = state.GenerateFromBackboneSpec(duplicate);
+  return !second.ok && contains_text(second.error, "duplicate saved edge bundle") &&
+         state.view().backbone().port_bindings.size() == before;
+}
+
+bool C470_bb2_row_port_identity_does_not_use_position_match() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "state" / "backbone.cpp";
+  std::string cpp;
+  if (!file_text(source, &cpp)) {
+    return false;
+  }
+  const std::size_t fn_pos = cpp.find("EditResult<bool> CoreState::bind_backbone_port");
+  const std::size_t next_pos = cpp.find("PoleDetailInfo CoreState::GetPoleDetail", fn_pos);
+  if (fn_pos == std::string::npos || next_pos == std::string::npos) {
+    return false;
+  }
+  const std::string body = cpp.substr(fn_pos, next_pos - fn_pos);
+  return contains_text(body, "edge_bundle_id") && contains_text(body, "row_key") &&
+         !contains_text(body, "world_position") && !contains_text(body, "span_layout") &&
+         !contains_text(body, "seed") && !contains_text(body, "layout") && !contains_text(body, "position");
+}
+
+bool C471_bb2_reuses_existing_port_by_binding() {
+  wire::core::CoreState state;
+  const auto first = state.GenerateFromBackboneSpec(line_req(state));
+  if (!first.ok || first.value.generated_pole_ids.size() != 2) {
+    return false;
+  }
+  const std::size_t port_count = state.view().ports().size();
+  const wire::core::ObjectId a = first.value.generated_pole_ids[0];
+  const wire::core::ObjectId b = first.value.generated_pole_ids[1];
+  const auto* pa = state.view().poles().find(a);
+  const auto* pb = state.view().poles().find(b);
+  if (pa == nullptr || pb == nullptr) {
+    return false;
+  }
+  wire::core::BackboneSpec second = line_req(state);
+  second.bundles.clear();
+  add_backbone_bundle(second, wire::core::BundleKind::kCommunication);
+  second.path.polyline = {pa->world_transform.position, pb->world_transform.position};
+  second.path.node_specs = {pole_spec(0, a), pole_spec(1, b)};
+  const auto out = state.GenerateFromBackboneSpec(second);
+  return out.ok && !out.value.generated_span_ids.empty() && state.view().ports().size() == port_count;
+}
+
+bool C472_bb2_reuse_port_requires_saved_binding() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = line_req(state);
+  wire::core::Transformd ta{};
+  ta.position = req.path.polyline[0];
+  wire::core::Transformd tb{};
+  tb.position = req.path.polyline[1];
+  const auto pa = state.AddPole(ta);
+  const auto pb = state.AddPole(tb);
+  if (!pa.ok || !pb.ok || !state.ApplyPoleType(pa.value, req.pole_type_id).ok ||
+      !state.ApplyPoleType(pb.value, req.pole_type_id).ok) {
+    return false;
+  }
+  const auto manual_a =
+      state.AddPort(pa.value, {0.0, 0.0, 9.2}, wire::core::PortKind::kPower, wire::core::PortLayer::kLowVoltage);
+  const auto manual_b =
+      state.AddPort(pb.value, {12.0, 0.0, 9.2}, wire::core::PortKind::kPower, wire::core::PortLayer::kLowVoltage);
+  if (!manual_a.ok || !manual_b.ok) {
+    return false;
+  }
+  const std::size_t before = state.view().ports().size();
+  req.path.node_specs = {pole_spec(0, pa.value), pole_spec(1, pb.value)};
+  const auto out = state.GenerateFromBackboneSpec(req);
+  return out.ok && state.view().ports().size() > before;
+}
+
+bool C473_bb2_reused_port_used_by_new_span_endpoint() {
+  wire::core::CoreState state;
+  const auto first = state.GenerateFromBackboneSpec(line_req(state));
+  if (!first.ok || first.value.generated_pole_ids.size() != 2) {
+    return false;
+  }
+  std::vector<wire::core::ObjectId> before_ports{};
+  for (const wire::core::Port& port : state.view().ports().items()) {
+    before_ports.push_back(port.id);
+  }
+  const wire::core::ObjectId a = first.value.generated_pole_ids[0];
+  const wire::core::ObjectId b = first.value.generated_pole_ids[1];
+  const auto* pa = state.view().poles().find(a);
+  const auto* pb = state.view().poles().find(b);
+  if (pa == nullptr || pb == nullptr) {
+    return false;
+  }
+  wire::core::BackboneSpec second = line_req(state);
+  second.bundles.clear();
+  add_backbone_bundle(second, wire::core::BundleKind::kCommunication);
+  second.path.polyline = {pa->world_transform.position, pb->world_transform.position};
+  second.path.node_specs = {pole_spec(0, a), pole_spec(1, b)};
+  const auto out = state.GenerateFromBackboneSpec(second);
+  if (!out.ok || out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
+    const wire::core::Span* span = state.view().spans().find(span_id);
+    if (span == nullptr || !contains_id(before_ports, span->port_a_id) || !contains_id(before_ports, span->port_b_id)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool C474_bb2_port_reuse_rejects_ambiguous_binding() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+  std::string cpp;
+  if (!file_text(source, &cpp)) {
+    return false;
+  }
+  const std::size_t fn_pos = cpp.find("EditResult<ObjectId> port_for");
+  const std::size_t next_pos = cpp.find("double yaw", fn_pos);
+  if (fn_pos == std::string::npos || next_pos == std::string::npos) {
+    return false;
+  }
+  const std::string body = cpp.substr(fn_pos, next_pos - fn_pos);
+  return contains_text(body, "ambiguous backbone port binding") && contains_text(body, "found != kInvalidObjectId") &&
+         contains_text(body, "found != port->id");
+}
+
+bool C475_bb2_port_reuse_does_not_read_existing_layout() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+  std::string cpp;
+  if (!file_text(source, &cpp)) {
+    return false;
+  }
+  const std::size_t fn_pos = cpp.find("EditResult<ObjectId> port_for");
+  const std::size_t next_pos = cpp.find("double yaw", fn_pos);
+  if (fn_pos == std::string::npos || next_pos == std::string::npos) {
+    return false;
+  }
+  const std::string body = cpp.substr(fn_pos, next_pos - fn_pos);
+  return contains_text(body, "backbone_port_bindings_for_row") && !contains_text(body, "span_layout") &&
+         !contains_text(body, "support_layout") && !contains_text(body, "seed") &&
+         !contains_text(body, "world_position") && !contains_text(body, "position");
+}
+
+double dist2(const wire::core::Vec3d& a, const wire::core::Vec3d& b) {
+  const wire::core::Vec3d d = a - b;
+  return d.x * d.x + d.y * d.y + d.z * d.z;
+}
+
+std::vector<wire::core::Vec3d> pole_port_positions(const wire::core::CoreState& state, wire::core::ObjectId pole_id) {
+  std::vector<wire::core::Vec3d> out{};
+  for (const wire::core::Port& port : state.view().ports().items()) {
+    if (port.owner_pole_id == pole_id) {
+      out.push_back(port.world_position);
+    }
+  }
+  std::sort(out.begin(), out.end(), [](const wire::core::Vec3d& a, const wire::core::Vec3d& b) {
+    if (!almost_equal(a.x, b.x, 1e-9)) {
+      return a.x < b.x;
+    }
+    if (!almost_equal(a.y, b.y, 1e-9)) {
+      return a.y < b.y;
+    }
+    return a.z < b.z;
+  });
+  return out;
+}
+
+std::vector<wire::core::Vec3d> generated_ports_on_pole(const wire::core::CoreState& state,
+                                                       const std::vector<wire::core::ObjectId>& spans,
+                                                       wire::core::ObjectId pole_id) {
+  std::vector<wire::core::ObjectId> ids{};
+  for (wire::core::ObjectId span_id : spans) {
+    const wire::core::Span* span = state.view().spans().find(span_id);
+    if (span == nullptr) {
+      continue;
+    }
+    for (wire::core::ObjectId port_id : {span->port_a_id, span->port_b_id}) {
+      const wire::core::Port* port = state.view().ports().find(port_id);
+      if (port != nullptr && port->owner_pole_id == pole_id && !contains_id(ids, port->id)) {
+        ids.push_back(port->id);
+      }
+    }
+  }
+  std::vector<wire::core::Vec3d> out{};
+  for (wire::core::ObjectId id : ids) {
+    if (const wire::core::Port* port = state.view().ports().find(id)) {
+      out.push_back(port->world_position);
+    }
+  }
+  std::sort(out.begin(), out.end(), [](const wire::core::Vec3d& a, const wire::core::Vec3d& b) {
+    if (!almost_equal(a.x, b.x, 1e-9)) {
+      return a.x < b.x;
+    }
+    if (!almost_equal(a.y, b.y, 1e-9)) {
+      return a.y < b.y;
+    }
+    return a.z < b.z;
+  });
+  return out;
+}
+
+bool separated_from(const std::vector<wire::core::Vec3d>& existing, const std::vector<wire::core::Vec3d>& placed) {
+  if (existing.empty() || placed.empty()) {
+    return false;
+  }
+  for (const wire::core::Vec3d& p : placed) {
+    bool saw_separation = false;
+    for (const wire::core::Vec3d& q : existing) {
+      if (dist2(p, q) > 1e-4) {
+        saw_separation = true;
+      } else {
+        return false;
+      }
+    }
+    if (!saw_separation) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool C476_bb2_branch_rows_are_separated_without_branch_kind() {
+  wire::core::CoreState state;
+  const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!first.ok || first.value.generated_pole_ids.size() != 3) {
+    return false;
+  }
+  const wire::core::ObjectId b = first.value.generated_pole_ids[1];
+  const std::vector<wire::core::Vec3d> before = pole_port_positions(state, b);
+  const auto* pole_b = state.view().poles().find(b);
+  if (pole_b == nullptr) {
+    return false;
+  }
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {pole_b->world_transform.position, {20.0, 0.0, 0.0}};
+  branch.path.node_specs = {pole_spec(0, b)};
+  const auto second = state.GenerateFromBackboneSpec(branch);
+  const std::vector<wire::core::Vec3d> placed = generated_ports_on_pole(state, second.value.generated_span_ids, b);
+  return second.ok && separated_from(before, placed) && C391_bb2_no_kind_label();
+}
+
+bool C477_bb2_cross_rows_are_separated_without_cross_kind() {
+  wire::core::CoreState state;
+  const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!first.ok || first.value.generated_pole_ids.size() != 3) {
+    return false;
+  }
+  const wire::core::ObjectId b = first.value.generated_pole_ids[1];
+  const std::vector<wire::core::Vec3d> before = pole_port_positions(state, b);
+  const auto* pole_b = state.view().poles().find(b);
+  if (pole_b == nullptr) {
+    return false;
+  }
+  wire::core::BackboneSpec cross = line_req(state);
+  cross.path.polyline = {{12.0, -8.0, 0.0}, pole_b->world_transform.position, {20.0, 0.0, 0.0}};
+  cross.path.node_specs = {pole_spec(1, b)};
+  const auto second = state.GenerateFromBackboneSpec(cross);
+  const std::vector<wire::core::Vec3d> placed = generated_ports_on_pole(state, second.value.generated_span_ids, b);
+  return second.ok && separated_from(before, placed) && C391_bb2_no_kind_label();
+}
+
+std::vector<wire::core::Vec3d> branch_separation_points() {
+  wire::core::CoreState state;
+  const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!first.ok || first.value.generated_pole_ids.size() != 3) {
+    return {};
+  }
+  const wire::core::ObjectId b = first.value.generated_pole_ids[1];
+  const auto* pole_b = state.view().poles().find(b);
+  if (pole_b == nullptr) {
+    return {};
+  }
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {pole_b->world_transform.position, {20.0, 0.0, 0.0}};
+  branch.path.node_specs = {pole_spec(0, b)};
+  const auto second = state.GenerateFromBackboneSpec(branch);
+  if (!second.ok) {
+    return {};
+  }
+  std::vector<wire::core::Vec3d> out = generated_ports_on_pole(state, second.value.generated_span_ids, b);
+  const std::vector<wire::core::Vec3d> curves = span_curve_points(state, second.value.generated_span_ids);
+  out.insert(out.end(), curves.begin(), curves.end());
+  for (wire::core::ObjectId span_id : second.value.generated_span_ids) {
+    const wire::core::BoundsCacheEntry* bounds = state.find_bounds_cache(span_id);
+    if (bounds != nullptr) {
+      out.push_back(bounds->whole.min);
+      out.push_back(bounds->whole.max);
+    }
+  }
+  return out;
+}
+
+bool C478_bb2_row_separation_is_deterministic() {
+  const std::vector<wire::core::Vec3d> a = branch_separation_points();
+  const std::vector<wire::core::Vec3d> b = branch_separation_points();
+  if (a.empty() || a.size() != b.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < a.size(); ++i) {
+    if (!almost_equal(a[i], b[i], 1e-9)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool C479_bb2_row_separation_does_not_change_pairs() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+  std::string cpp;
+  if (!file_text(source, &cpp)) {
+    return false;
+  }
+  const std::size_t make_pos = cpp.find("EditResult<pairs> pipeline::make");
+  const std::size_t check_pos = cpp.find("EditResult<bool> pipeline::emit_poles", make_pos);
+  if (make_pos == std::string::npos || check_pos == std::string::npos) {
+    return false;
+  }
+  const std::string body = cpp.substr(make_pos, check_pos - make_pos);
+  return !contains_text(body, "row_shifts") && !contains_text(body, "kRowSeparationM");
+}
+
+bool C480_bb2_context_rows_affect_order_but_are_not_emitted() {
+  wire::core::CoreState state;
+  const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!first.ok || first.value.generated_pole_ids.size() != 3) {
+    return false;
+  }
+  const wire::core::ObjectId b = first.value.generated_pole_ids[1];
+  const auto* pole_b = state.view().poles().find(b);
+  if (pole_b == nullptr) {
+    return false;
+  }
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {pole_b->world_transform.position, {20.0, 0.0, 0.0}};
+  branch.path.node_specs = {pole_spec(0, b)};
+  const auto second = state.GenerateFromBackboneSpec(branch);
+  if (!second.ok) {
+    return false;
+  }
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+  std::string cpp;
+  if (!file_text(source, &cpp)) {
+    return false;
+  }
+  return !second.value.generated_span_ids.empty() && contains_text(cpp, "row_shifts(ps)") &&
+         contains_text(cpp, "if (r.id >= active_rows.size() || !active_rows[r.id])");
+}
+
+wire::core::BackboneSpec pass_branch_req(wire::core::CoreState& state, wire::core::ObjectId pole_id,
+                                         const wire::core::Vec3d& pole_pos) {
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {pole_pos, {20.0, 0.0, 0.0}};
+  branch.path.node_specs = {pole_spec(0, pole_id)};
+  wire::core::BackboneSpec::NodeBundleModeSpec mode{};
+  mode.point_index = 0;
+  mode.bundle_template_id = wire::core::BundleKind::kLowVoltage;
+  mode.mode = wire::core::BundleNodeMode::kPassThrough;
+  branch.node_bundle_modes = {mode};
+  return branch;
+}
+
+bool C481_bb2_pass_through_mode_is_accepted_in_limited_scope() {
+  wire::core::CoreState state;
+  const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!first.ok || first.value.generated_pole_ids.size() != 3) {
+    return false;
+  }
+  const wire::core::ObjectId b = first.value.generated_pole_ids[1];
+  const auto* pole_b = state.view().poles().find(b);
+  if (pole_b == nullptr) {
+    return false;
+  }
+  const auto ok = state.GenerateFromBackboneSpec(pass_branch_req(state, b, pole_b->world_transform.position));
+
+  wire::core::BackboneSpec bad_index = pass_branch_req(state, b, pole_b->world_transform.position);
+  bad_index.node_bundle_modes.front().point_index = 9;
+  const auto bad_index_out = state.GenerateFromBackboneSpec(bad_index);
+
+  wire::core::BackboneSpec bad_bundle = pass_branch_req(state, b, pole_b->world_transform.position);
+  bad_bundle.node_bundle_modes.front().bundle_template_id = static_cast<wire::core::BundleKind>(999);
+  const auto bad_bundle_out = state.GenerateFromBackboneSpec(bad_bundle);
+  return ok.ok && !bad_index_out.ok && !bad_bundle_out.ok;
+}
+
+bool C482_bb2_pass_through_creates_explicit_intent() {
+  wire::core::CoreState state;
+  const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!first.ok || first.value.generated_pole_ids.size() != 3) {
+    return false;
+  }
+  const wire::core::ObjectId b = first.value.generated_pole_ids[1];
+  const auto* pole_b = state.view().poles().find(b);
+  if (pole_b == nullptr) {
+    return false;
+  }
+  const auto second = state.GenerateFromBackboneSpec(pass_branch_req(state, b, pole_b->world_transform.position));
+  if (!second.ok || second.value.generated_span_ids.empty()) {
+    return false;
+  }
+  bool saw_intent = false;
+  for (wire::core::ObjectId span_id : second.value.generated_span_ids) {
+    const wire::core::SpanLayoutRulesView rules = state.span_layout_rules(span_id);
+    const wire::core::SpanLayoutView layout = state.span_layout(span_id);
+    if (!rules.has_rule() || !layout.has_layout()) {
+      return false;
+    }
+    saw_intent = saw_intent || rules.rule->lowering_kind == wire::core::BackboneLoweringKind::kBranchSupport ||
+                 rules.rule->start.default_lower_required || rules.rule->end.default_lower_required ||
+                 layout.entry->start.default_lower_required || layout.entry->end.default_lower_required;
+  }
+  return saw_intent && C479_bb2_row_separation_does_not_change_pairs();
+}
+
+bool C483_bb2_pass_through_ambiguous_target_rejected() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+  std::string cpp;
+  if (!file_text(source, &cpp)) {
+    return false;
+  }
+  const std::size_t fn_pos = cpp.find("EditResult<intent> pipeline::make(const pairs& ps) const");
+  const std::size_t next_pos = cpp.find("EditResult<bool> pipeline::emit_poles", fn_pos);
+  if (fn_pos == std::string::npos || next_pos == std::string::npos) {
+    return false;
+  }
+  const std::string body = cpp.substr(fn_pos, next_pos - fn_pos);
+  return contains_text(body, "matches.size() != 1") &&
+         contains_text(body, "pass-through target row is ambiguous");
+}
+
+bool C484_bb2_lowering_intent_does_not_emit_draw_or_visual() {
+  wire::core::CoreState state;
+  const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!first.ok || first.value.generated_pole_ids.size() != 3) {
+    return false;
+  }
+  const wire::core::ObjectId b = first.value.generated_pole_ids[1];
+  const auto* pole_b = state.view().poles().find(b);
+  if (pole_b == nullptr) {
+    return false;
+  }
+  const auto second = state.GenerateFromBackboneSpec(pass_branch_req(state, b, pole_b->world_transform.position));
+  if (!second.ok || second.value.generated_span_ids.empty()) {
+    return false;
+  }
+  for (wire::core::ObjectId span_id : second.value.generated_span_ids) {
+    if (state.find_span_visual_cache(span_id) != nullptr || state.find_span_render_cache(span_id) != nullptr) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool C485_bb2_lowering_intent_does_not_read_existing_spans() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+  std::string cpp;
+  if (!file_text(source, &cpp)) {
+    return false;
+  }
+  const std::size_t fn_pos = cpp.find("EditResult<intent> pipeline::make(const pairs& ps) const");
+  const std::size_t next_pos = cpp.find("EditResult<bool> pipeline::emit_poles", fn_pos);
+  if (fn_pos == std::string::npos || next_pos == std::string::npos) {
+    return false;
+  }
+  const std::string body = cpp.substr(fn_pos, next_pos - fn_pos);
+  return contains_text(body, "node_bundle_modes") && !contains_text(body, ".spans") &&
+         !contains_text(body, "span_layout") && !contains_text(body, "seed") && !contains_text(body, "layout");
+}
+
+std::vector<wire::core::Vec3d> pass_intent_points() {
+  wire::core::CoreState state;
+  const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!first.ok || first.value.generated_pole_ids.size() != 3) {
+    return {};
+  }
+  const wire::core::ObjectId b = first.value.generated_pole_ids[1];
+  const auto* pole_b = state.view().poles().find(b);
+  if (pole_b == nullptr) {
+    return {};
+  }
+  const auto second = state.GenerateFromBackboneSpec(pass_branch_req(state, b, pole_b->world_transform.position));
+  if (!second.ok) {
+    return {};
+  }
+  std::vector<wire::core::Vec3d> out = generated_ports_on_pole(state, second.value.generated_span_ids, b);
+  const std::vector<wire::core::Vec3d> curves = span_curve_points(state, second.value.generated_span_ids);
+  out.insert(out.end(), curves.begin(), curves.end());
+  for (wire::core::ObjectId span_id : second.value.generated_span_ids) {
+    const wire::core::SpanLayoutRulesView rules = state.span_layout_rules(span_id);
+    if (rules.has_rule()) {
+      out.push_back({rules.rule->start.default_lower_required ? 1.0 : 0.0,
+                     rules.rule->end.default_lower_required ? 1.0 : 0.0,
+                     static_cast<double>(static_cast<int>(rules.rule->lowering_kind))});
+    }
+    const wire::core::BoundsCacheEntry* bounds = state.find_bounds_cache(span_id);
+    if (bounds != nullptr) {
+      out.push_back(bounds->whole.min);
+      out.push_back(bounds->whole.max);
+    }
+  }
+  return out;
+}
+
+bool C486_bb2_pass_through_is_deterministic() {
+  const std::vector<wire::core::Vec3d> a = pass_intent_points();
+  const std::vector<wire::core::Vec3d> b = pass_intent_points();
+  if (a.empty() || a.size() != b.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < a.size(); ++i) {
+    if (!almost_equal(a[i], b[i], 1e-9)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 void register_bb2_tests(test_registry::TestRegistry& tests) {
@@ -2590,12 +3162,12 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C433_bb2_reuses_edge_for_same_poles",
                          "bb2 reuses saved edge for the same pole pair", "Boundary", false,
                          C433_bb2_reuses_edge_for_same_poles);
-  test_registry::AddTest(tests, "C434_bb2_reverse_generation_reuses_edge_bundle",
-                         "bb2 reverse generation reuses the same edge bundle", "Boundary", false,
-                         C434_bb2_reverse_generation_reuses_edge_bundle);
-  test_registry::AddTest(tests, "C435_bb2_edge_metadata_is_not_overwritten_on_reuse",
-                         "bb2 saved edge metadata is not overwritten on reuse", "Boundary", false,
-                         C435_bb2_edge_metadata_is_not_overwritten_on_reuse);
+  test_registry::AddTest(tests, "C434_bb2_reverse_duplicate_same_bundle_rejected",
+                         "bb2 reverse duplicate same-bundle generation is rejected", "Boundary", false,
+                         C434_bb2_reverse_duplicate_same_bundle_rejected);
+  test_registry::AddTest(tests, "C435_bb2_edge_metadata_is_not_overwritten_on_duplicate_reject",
+                         "bb2 saved edge metadata is not overwritten on duplicate reject", "Boundary", false,
+                         C435_bb2_edge_metadata_is_not_overwritten_on_duplicate_reject);
   test_registry::AddTest(tests, "C436_bb2_frontier_reads_edge_bundles",
                          "bb2 frontier reads edge bundles", "Boundary", false,
                          C436_bb2_frontier_reads_edge_bundles);
@@ -2618,7 +3190,7 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
                          "bb2 edge forward uses saved edge ref", "Boundary", false,
                          C442_bb2_edge_forward_uses_saved_ref);
   test_registry::AddTest(tests, "C443_bb2_edge_reuse_behavior_unchanged",
-                         "bb2 edge reuse behavior remains unchanged", "Boundary", false,
+                         "bb2 edge reuse behavior remains unchanged after duplicate reject", "Boundary", false,
                          C443_bb2_edge_reuse_behavior_unchanged);
   test_registry::AddTest(tests, "C444_bb2_layout_uses_neutral_types",
                          "bb2 layout source uses neutral layout types", "Boundary", false,
@@ -2677,15 +3249,78 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C462_bb2_no_junction_kind_after_existing_context",
                          "bb2 existing graph context does not add junction kind labels", "Boundary", false,
                          C462_bb2_no_junction_kind_after_existing_context);
-  test_registry::AddTest(tests, "C463_bb2_same_edge_bundle_reuses_edge_bundle",
-                         "bb2 same edge and bundle reuses saved edge bundle", "Boundary", false,
-                         C463_bb2_same_edge_bundle_reuses_edge_bundle);
-  test_registry::AddTest(tests, "C464_bb2_reverse_same_bundle_reuses_edge_bundle_metadata",
-                         "bb2 reverse same-bundle generation keeps edge bundle metadata", "Boundary", false,
-                         C464_bb2_reverse_same_bundle_reuses_edge_bundle_metadata);
-  test_registry::AddTest(tests, "C465_bb2_different_bundle_still_creates_edge_bundle",
-                         "bb2 different bundles still create distinct edge bundles", "Boundary", false,
-                         C465_bb2_different_bundle_still_creates_edge_bundle);
+  test_registry::AddTest(tests, "C463_bb2_duplicate_same_edge_bundle_rejected",
+                         "bb2 duplicate same edge and bundle requests are rejected", "Boundary", false,
+                         C463_bb2_duplicate_same_edge_bundle_rejected);
+  test_registry::AddTest(tests, "C464_bb2_different_bundle_on_same_edge_allowed",
+                         "bb2 different bundles on the same edge are allowed", "Boundary", false,
+                         C464_bb2_different_bundle_on_same_edge_allowed);
+  test_registry::AddTest(tests, "C465_bb2_duplicate_policy_does_not_read_existing_spans",
+                         "bb2 duplicate policy reads saved edge bundles, not existing spans", "Boundary", false,
+                         C465_bb2_duplicate_policy_does_not_read_existing_spans);
+  test_registry::AddTest(tests, "C466_bb2_duplicate_reject_keeps_state_unchanged",
+                         "bb2 duplicate reject keeps state unchanged", "Boundary", false,
+                         C466_bb2_duplicate_reject_keeps_state_unchanged);
+  test_registry::AddTest(tests, "C467_bb2_saves_row_port_bindings",
+                         "bb2 saves row to materialized port bindings", "Boundary", false,
+                         C467_bb2_saves_row_port_bindings);
+  test_registry::AddTest(tests, "C468_bb2_row_port_binding_is_stable_for_existing_context",
+                         "bb2 saves new row-port bindings without emitting context rows", "Boundary", false,
+                         C468_bb2_row_port_binding_is_stable_for_existing_context);
+  test_registry::AddTest(tests, "C469_bb2_row_port_binding_rejects_duplicate_without_reuse",
+                         "bb2 duplicate row-port binding is rejected without port reuse", "Boundary", false,
+                         C469_bb2_row_port_binding_rejects_duplicate_without_reuse);
+  test_registry::AddTest(tests, "C470_bb2_row_port_identity_does_not_use_position_match",
+                         "bb2 row-port identity does not use position matching", "Boundary", false,
+                         C470_bb2_row_port_identity_does_not_use_position_match);
+  test_registry::AddTest(tests, "C471_bb2_reuses_existing_port_by_binding",
+                         "bb2 reuses existing ports by saved row-port binding", "Boundary", false,
+                         C471_bb2_reuses_existing_port_by_binding);
+  test_registry::AddTest(tests, "C472_bb2_reuse_port_requires_saved_binding",
+                         "bb2 does not reuse ports without saved binding", "Boundary", false,
+                         C472_bb2_reuse_port_requires_saved_binding);
+  test_registry::AddTest(tests, "C473_bb2_reused_port_used_by_new_span_endpoint",
+                         "bb2 new spans use reused port endpoints", "Boundary", false,
+                         C473_bb2_reused_port_used_by_new_span_endpoint);
+  test_registry::AddTest(tests, "C474_bb2_port_reuse_rejects_ambiguous_binding",
+                         "bb2 port reuse rejects ambiguous row-port bindings", "Boundary", false,
+                         C474_bb2_port_reuse_rejects_ambiguous_binding);
+  test_registry::AddTest(tests, "C475_bb2_port_reuse_does_not_read_existing_layout",
+                         "bb2 port reuse does not read existing layout", "Boundary", false,
+                         C475_bb2_port_reuse_does_not_read_existing_layout);
+  test_registry::AddTest(tests, "C476_bb2_branch_rows_are_separated_without_branch_kind",
+                         "bb2 branch rows are separated without branch kind", "Boundary", false,
+                         C476_bb2_branch_rows_are_separated_without_branch_kind);
+  test_registry::AddTest(tests, "C477_bb2_cross_rows_are_separated_without_cross_kind",
+                         "bb2 cross rows are separated without cross kind", "Boundary", false,
+                         C477_bb2_cross_rows_are_separated_without_cross_kind);
+  test_registry::AddTest(tests, "C478_bb2_row_separation_is_deterministic",
+                         "bb2 row separation is deterministic", "Invariant", false,
+                         C478_bb2_row_separation_is_deterministic);
+  test_registry::AddTest(tests, "C479_bb2_row_separation_does_not_change_pairs",
+                         "bb2 row separation does not change pair source", "Boundary", false,
+                         C479_bb2_row_separation_does_not_change_pairs);
+  test_registry::AddTest(tests, "C480_bb2_context_rows_affect_order_but_are_not_emitted",
+                         "bb2 context rows affect separation order but are not emitted", "Boundary", false,
+                         C480_bb2_context_rows_affect_order_but_are_not_emitted);
+  test_registry::AddTest(tests, "C481_bb2_pass_through_mode_is_accepted_in_limited_scope",
+                         "bb2 accepts pass-through mode for saved junction nodes", "Boundary", false,
+                         C481_bb2_pass_through_mode_is_accepted_in_limited_scope);
+  test_registry::AddTest(tests, "C482_bb2_pass_through_creates_explicit_intent",
+                         "bb2 pass-through node mode creates explicit layout intent", "Boundary", false,
+                         C482_bb2_pass_through_creates_explicit_intent);
+  test_registry::AddTest(tests, "C483_bb2_pass_through_ambiguous_target_rejected",
+                         "bb2 pass-through ambiguous row target is rejected", "Boundary", false,
+                         C483_bb2_pass_through_ambiguous_target_rejected);
+  test_registry::AddTest(tests, "C484_bb2_lowering_intent_does_not_emit_draw_or_visual",
+                         "bb2 lowering intent does not emit draw or visual caches", "Boundary", false,
+                         C484_bb2_lowering_intent_does_not_emit_draw_or_visual);
+  test_registry::AddTest(tests, "C485_bb2_lowering_intent_does_not_read_existing_spans",
+                         "bb2 lowering intent does not read existing spans", "Boundary", false,
+                         C485_bb2_lowering_intent_does_not_read_existing_spans);
+  test_registry::AddTest(tests, "C486_bb2_pass_through_is_deterministic",
+                         "bb2 pass-through intent is deterministic", "Invariant", false,
+                         C486_bb2_pass_through_is_deterministic);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

@@ -71,6 +71,23 @@ struct pairs {
   std::vector<row> rows{};
 };
 
+enum class intent_reason : std::uint8_t {
+  none = 0,
+  node_mode_pass_through = 1,
+};
+
+struct row_intent {
+  std::size_t row = bad;
+  std::size_t bundle = bad;
+  CurvePassMode pass_mode = CurvePassMode::kPassThrough;
+  bool lower_required = false;
+  intent_reason reason = intent_reason::none;
+};
+
+struct intent {
+  std::vector<row_intent> rows{};
+};
+
 struct trow {
   std::size_t row = bad;
   std::size_t node = bad;
@@ -131,18 +148,20 @@ public:
 
 private:
   [[nodiscard]] EditResult<pairs> make(const graph& made) const;
+  [[nodiscard]] EditResult<intent> make(const pairs& ps) const;
+  [[nodiscard]] EditResult<bool> check(const pairs& ps) const;
   [[nodiscard]] EditResult<topo> emit(const pairs& ps);
   [[nodiscard]] EditResult<bool> emit_poles(topo* made, ChangeSet* changes);
   [[nodiscard]] EditResult<bool> emit_bundles(topo* made, ChangeSet* changes);
   [[nodiscard]] EditResult<bool> emit_ports(topo* made, const pairs& ps, ChangeSet* changes);
   [[nodiscard]] EditResult<bool> emit_spans(topo* made, const pairs& ps, ChangeSet* changes);
-  [[nodiscard]] rules make(const topo& made) const;
+  [[nodiscard]] rules make(const topo& made, const intent& intents) const;
   [[nodiscard]] EditResult<layout> make(const rules& made) const;
   [[nodiscard]] geom make(const layout& made) const;
   void save(const rules& made);
   void save(const layout& made);
   void save(geom made);
-  void save_graph(const topo& made, const pairs& ps);
+  [[nodiscard]] EditResult<bool> save_graph(const topo& made, const pairs& ps);
 
   CoreState& state_;
   const BackboneSpec& spec_;

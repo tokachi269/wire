@@ -46,6 +46,39 @@ const SavedBackboneNode* CoreView::backbone_node_for_pole(ObjectId pole_id) cons
   const auto it = state_.runtime_.backbone_index.pole_node.find(pole_id);
   return it == state_.runtime_.backbone_index.pole_node.end() ? nullptr : backbone_node(it->second);
 }
+const SavedBackbonePortBinding* CoreView::backbone_port_binding_for_port(ObjectId port_id) const {
+  const auto it = state_.runtime_.backbone_index.port_binding_by_port.find(port_id);
+  if (it == state_.runtime_.backbone_index.port_binding_by_port.end() ||
+      it->second >= state_.authoritative_.backbone.port_bindings.size()) {
+    return nullptr;
+  }
+  return &state_.authoritative_.backbone.port_bindings[it->second];
+}
+std::vector<const SavedBackbonePortBinding*> CoreView::backbone_port_bindings_for_edge_bundle(
+    ObjectId edge_bundle_id) const {
+  std::vector<const SavedBackbonePortBinding*> out{};
+  const auto it = state_.runtime_.backbone_index.edge_bundle_ports.find(edge_bundle_id);
+  if (it == state_.runtime_.backbone_index.edge_bundle_ports.end()) {
+    return out;
+  }
+  out.reserve(it->second.size());
+  for (std::size_t index : it->second) {
+    if (index < state_.authoritative_.backbone.port_bindings.size()) {
+      out.push_back(&state_.authoritative_.backbone.port_bindings[index]);
+    }
+  }
+  return out;
+}
+std::vector<const SavedBackbonePortBinding*> CoreView::backbone_port_bindings_for_row(
+    const SavedBackboneRowKey& row_key, std::size_t lane_index) const {
+  std::vector<const SavedBackbonePortBinding*> out{};
+  for (const SavedBackbonePortBinding& binding : state_.authoritative_.backbone.port_bindings) {
+    if (binding.row_key == row_key && binding.lane_index == lane_index) {
+      out.push_back(&binding);
+    }
+  }
+  return out;
+}
 const DirtyQueue& CoreView::dirty_queue() const { return state_.runtime_.dirty_queue; }
 const RecalcStats& CoreView::last_recalc_stats() const { return state_.runtime_.last_recalc_stats; }
 const GeometrySettings& CoreView::geometry_settings() const { return state_.runtime_.cache_state.geometry_settings; }

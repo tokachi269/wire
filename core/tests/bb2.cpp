@@ -9,6 +9,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 using namespace helpers;
@@ -3108,8 +3109,87 @@ bool C489_bb2_port_binding_index_invariant() {
   return saw_multiple;
 }
 
-bool C490_bb2_duplicate_same_edge_bundle_lane_rejected_or_noop() {
+bool C490_bb2_duplicate_same_edge_bundle_lane_rejected() {
   return C463_bb2_duplicate_same_edge_bundle_rejected() && C466_bb2_duplicate_reject_keeps_state_unchanged();
+}
+
+bool C502_bb2_span_bindings_save_lane() {
+  wire::core::CoreState state;
+  const auto out = state.GenerateFromBackboneSpec(line_req(state));
+  const wire::core::SavedBackboneGraph& graph = state.view().backbone();
+  if (!out.ok || graph.edge_bundles.size() != 1 || graph.span_bindings.size() != out.value.generated_span_ids.size()) {
+    return false;
+  }
+  const wire::core::ObjectId edge_bundle_id = graph.edge_bundles.front().edge_bundle_id;
+  const auto index_it = state.view().backbone_index().edge_bundle_span_bindings.find(edge_bundle_id);
+  if (index_it == state.view().backbone_index().edge_bundle_span_bindings.end() ||
+      index_it->second.size() != graph.span_bindings.size()) {
+    return false;
+  }
+  std::unordered_set<std::size_t> lanes{};
+  for (const wire::core::SavedBackboneSpanBinding& binding : graph.span_bindings) {
+    if (binding.edge_bundle_id != edge_bundle_id || state.view().spans().find(binding.span_id) == nullptr) {
+      return false;
+    }
+    if (!lanes.insert(binding.lane_index).second) {
+      return false;
+    }
+    const auto by_span = state.view().backbone_index().span_bindings_by_span.find(binding.span_id);
+    if (by_span == state.view().backbone_index().span_bindings_by_span.end() || by_span->second.empty()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool C503_bb2_duplicate_span_binding_rejected_by_lane() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "state" / "backbone.cpp";
+  std::string cpp;
+  if (!file_text(source, &cpp)) {
+    return false;
+  }
+  const std::size_t fn_pos = cpp.find("EditResult<bool> CoreState::bind_backbone_span");
+  const std::size_t next_pos = cpp.find("EditResult<bool> CoreState::bind_backbone_port", fn_pos);
+  if (fn_pos == std::string::npos || next_pos == std::string::npos) {
+    return false;
+  }
+  const std::string body = cpp.substr(fn_pos, next_pos - fn_pos);
+  return contains_text(body, "binding.lane_index == lane_index") &&
+         contains_text(body, "duplicate backbone span binding") &&
+         contains_text(body, "span_bindings_by_span");
+}
+
+bool C504_bb2_span_resolution_does_not_read_geometry_or_layout() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "state" / "backbone.cpp";
+  std::string cpp;
+  if (!file_text(source, &cpp)) {
+    return false;
+  }
+  const std::size_t fn_pos = cpp.find("EditResult<bool> CoreState::bind_backbone_span");
+  const std::size_t next_pos = cpp.find("EditResult<bool> CoreState::bind_backbone_port", fn_pos);
+  if (fn_pos == std::string::npos || next_pos == std::string::npos) {
+    return false;
+  }
+  const std::string body = cpp.substr(fn_pos, next_pos - fn_pos);
+  return contains_text(body, "edge_bundle_span_bindings") && contains_text(body, "lane_index") &&
+         !contains_text(body, "span_layout") && !contains_text(body, "seed") &&
+         !contains_text(body, "find_curve_cache") && !contains_text(body, "world_position");
+}
+
+bool C505_bb2_save_graph_propagates_span_binding_failure() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+  std::string cpp;
+  if (!file_text(source, &cpp)) {
+    return false;
+  }
+  const std::size_t fn_pos = cpp.find("EditResult<bool> pipeline::save_graph");
+  const std::size_t next_pos = cpp.find("EditResult<GenerateBundleFromPathResult> pipeline::build", fn_pos);
+  if (fn_pos == std::string::npos || next_pos == std::string::npos) {
+    return false;
+  }
+  const std::string body = cpp.substr(fn_pos, next_pos - fn_pos);
+  return contains_text(body, "bind_backbone_span(edge_bundle_id, span.lane, span.id)") &&
+         contains_text(body, "span_bound.error");
 }
 
 bool span_has_lowered_endpoint(const wire::core::CoreState& state, wire::core::ObjectId span_id) {
@@ -3670,9 +3750,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C489_bb2_port_binding_index_invariant",
                          "bb2 port binding index exposes all compatible bindings", "Boundary", false,
                          C489_bb2_port_binding_index_invariant);
-  test_registry::AddTest(tests, "C490_bb2_duplicate_same_edge_bundle_lane_rejected_or_noop",
+  test_registry::AddTest(tests, "C490_bb2_duplicate_same_edge_bundle_lane_rejected",
                          "bb2 duplicate same edge bundle lane requests do not duplicate", "Boundary", false,
-                         C490_bb2_duplicate_same_edge_bundle_lane_rejected_or_noop);
+                         C490_bb2_duplicate_same_edge_bundle_lane_rejected);
   test_registry::AddTest(tests, "C491_bb2_branch_lowering_v1_affects_geom",
                          "bb2 branch lowering v1 affects layout geometry", "Invariant", false,
                          C491_bb2_branch_lowering_v1_affects_geom);
@@ -3706,6 +3786,18 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C501_bb2_gate3_contract_passes",
                          "bb2 save graph keeps context links out of save targets", "Boundary", false,
                          C501_bb2_gate3_contract_passes);
+  test_registry::AddTest(tests, "C502_bb2_span_bindings_save_lane",
+                         "bb2 saved span bindings carry lane identity", "Boundary", false,
+                         C502_bb2_span_bindings_save_lane);
+  test_registry::AddTest(tests, "C503_bb2_duplicate_span_binding_rejected_by_lane",
+                         "bb2 rejects duplicate saved span binding lanes", "Boundary", false,
+                         C503_bb2_duplicate_span_binding_rejected_by_lane);
+  test_registry::AddTest(tests, "C504_bb2_span_resolution_does_not_read_geometry_or_layout",
+                         "bb2 span resolution reads saved bindings only", "Boundary", false,
+                         C504_bb2_span_resolution_does_not_read_geometry_or_layout);
+  test_registry::AddTest(tests, "C505_bb2_save_graph_propagates_span_binding_failure",
+                         "bb2 save graph propagates span binding failures", "Boundary", false,
+                         C505_bb2_save_graph_propagates_span_binding_failure);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

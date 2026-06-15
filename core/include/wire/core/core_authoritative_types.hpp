@@ -62,11 +62,18 @@ struct SavedBackbonePortBinding {
   ObjectId port_id = kInvalidObjectId;
 };
 
+struct SavedBackboneSpanBinding {
+  ObjectId edge_bundle_id = kInvalidObjectId;
+  std::size_t lane_index = 0;
+  ObjectId span_id = kInvalidObjectId;
+};
+
 struct SavedBackboneGraph {
   std::vector<SavedBackboneNode> nodes{};
   std::vector<SavedBackboneEdge> edges{};
   std::vector<SavedBackboneEdgeBundle> edge_bundles{};
   std::vector<SavedBackbonePortBinding> port_bindings{};
+  std::vector<SavedBackboneSpanBinding> span_bindings{};
 };
 
 struct EditState {

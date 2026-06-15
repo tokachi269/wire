@@ -1320,7 +1320,11 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
         stored.node_a == node_id_by_local[edge.a] && stored.node_b == node_id_by_local[edge.b];
     const ObjectId edge_bundle_id =
         state_.bind_backbone_bundle(stored.edge_id, made.bundles[span.bundle], edge_forward, edge.route, edge.order, edge.dir);
-    state_.bind_backbone_span(edge_bundle_id, span.id);
+    EditResult<bool> span_bound = state_.bind_backbone_span(edge_bundle_id, span.lane, span.id);
+    if (!span_bound.ok) {
+      out.error = span_bound.error;
+      return out;
+    }
     auto bind_port = [&](std::size_t row_index) -> bool {
       if (row_index >= made.rows.size() || span.bundle >= made.rows[row_index].ports.size() ||
           span.lane >= made.rows[row_index].ports[span.bundle].size()) {

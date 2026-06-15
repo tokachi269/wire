@@ -168,9 +168,11 @@ ObjectId CoreState::bind_backbone_bundle(ObjectId edge_id, ObjectId bundle_id, b
   return item.edge_bundle_id;
 }
 
-void CoreState::bind_backbone_span(ObjectId edge_bundle_id, ObjectId span_id) {
+EditResult<bool> CoreState::bind_backbone_span(ObjectId edge_bundle_id, std::size_t lane_index, ObjectId span_id) {
+  EditResult<bool> out{};
   if (edge_bundle_id == kInvalidObjectId || span_id == kInvalidObjectId) {
-    return;
+    out.error = "invalid backbone span binding";
+    return out;
   }
   SavedBackboneEdgeBundle* found = nullptr;
   for (SavedBackboneEdgeBundle& item : authoritative_.backbone.edge_bundles) {
@@ -180,11 +182,41 @@ void CoreState::bind_backbone_span(ObjectId edge_bundle_id, ObjectId span_id) {
     }
   }
   if (found == nullptr) {
-    return;
+    out.error = "invalid backbone span binding";
+    return out;
+  }
+  const auto existing = runtime_.backbone_index.edge_bundle_span_bindings.find(edge_bundle_id);
+  if (existing != runtime_.backbone_index.edge_bundle_span_bindings.end()) {
+    for (std::size_t index : existing->second) {
+      if (index >= authoritative_.backbone.span_bindings.size()) {
+        continue;
+      }
+      const SavedBackboneSpanBinding& binding = authoritative_.backbone.span_bindings[index];
+      if (binding.lane_index == lane_index) {
+        out.error = "duplicate backbone span binding";
+        return out;
+      }
+    }
+  }
+  const auto span_existing = runtime_.backbone_index.span_bindings_by_span.find(span_id);
+  if (span_existing != runtime_.backbone_index.span_bindings_by_span.end() && !span_existing->second.empty()) {
+    out.error = "duplicate backbone span binding";
+    return out;
   }
   add_unique_id(found->span_ids, span_id);
   index_add(runtime_.backbone_index.edge_bundle_spans, edge_bundle_id, span_id);
   runtime_.backbone_index.span_edge_bundle[span_id] = edge_bundle_id;
+  SavedBackboneSpanBinding binding{};
+  binding.edge_bundle_id = edge_bundle_id;
+  binding.lane_index = lane_index;
+  binding.span_id = span_id;
+  const std::size_t index = authoritative_.backbone.span_bindings.size();
+  authoritative_.backbone.span_bindings.push_back(binding);
+  runtime_.backbone_index.edge_bundle_span_bindings[edge_bundle_id].push_back(index);
+  runtime_.backbone_index.span_bindings_by_span[span_id].push_back(index);
+  out.value = true;
+  out.ok = true;
+  return out;
 }
 
 EditResult<bool> CoreState::bind_backbone_port(ObjectId edge_bundle_id, const SavedBackboneRowKey& row_key,

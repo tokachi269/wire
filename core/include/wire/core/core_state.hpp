@@ -213,7 +213,7 @@ private:
                                           const Vec3d& dir);
   ObjectId bind_backbone_bundle(ObjectId edge_id, ObjectId bundle_id, bool edge_forward, std::size_t route,
                                 std::size_t order, const Vec3d& dir);
-  void bind_backbone_span(ObjectId edge_bundle_id, ObjectId span_id);
+  EditResult<bool> bind_backbone_span(ObjectId edge_bundle_id, std::size_t lane_index, ObjectId span_id);
   EditResult<bool> bind_backbone_port(ObjectId edge_bundle_id, const SavedBackboneRowKey& row_key,
                                       std::size_t lane_index, BundleKind bundle_template_id, PortKind port_kind,
                                       PortLayer port_layer, ObjectId port_id);

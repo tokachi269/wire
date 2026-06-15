@@ -731,3 +731,21 @@ context link は判断入力であり、save target ではない。`save_graph` 
 
 * context link の saved edge を node pair / pole pair / geometry / span / layout / seed から推測する。
 * context link に対して `save_backbone_edge` を呼ぶ。
+
+## bb2 milestone 26
+
+bb2 は same edge bundle + lane の span binding を saved backbone graph で一意に扱う。duplicate request は no-op ではなく unsupported とし、span を geometry や layout から探さない。
+
+対応:
+
+* `SavedBackboneSpanBinding` を保存する。
+* binding は `edge_bundle_id + lane_index -> span_id` を持つ。
+* `bind_backbone_span` は同じ `edge_bundle_id + lane_index` の duplicate を拒否する。
+* bb2 `save_graph` は `span.lane` を渡して span binding を作る。
+* 既存 `edge_bundle.span_ids` は frontier 用の span list として残すが、duplicate 判定の正本にはしない。
+
+禁止:
+
+* span を curve 類似、port 位置、layout、seed、materialization result から探す。
+* existing span から不足 lane を補完する。
+* duplicate span binding を黙って no-op にする。

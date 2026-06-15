@@ -89,6 +89,24 @@ struct intent {
   std::vector<row_intent> rows{};
 };
 
+struct group_member {
+  std::size_t row = bad;
+  std::size_t bundle = bad;
+};
+
+struct group {
+  std::size_t id = bad;
+  std::size_t node = bad;
+  std::vector<group_member> row_members{};
+  Vec3d group_axis{};
+  int vertical_order = 0;
+  double lower_offset_m = 0.0;
+};
+
+struct groups {
+  std::vector<group> items{};
+};
+
 struct trow {
   std::size_t row = bad;
   std::size_t node = bad;
@@ -150,13 +168,14 @@ public:
 private:
   [[nodiscard]] EditResult<pairs> make(const graph& made) const;
   [[nodiscard]] EditResult<intent> make(const pairs& ps) const;
+  [[nodiscard]] EditResult<groups> make(const pairs& ps, const intent& intents) const;
   [[nodiscard]] EditResult<bool> check(const pairs& ps) const;
   [[nodiscard]] EditResult<topo> emit(const pairs& ps);
   [[nodiscard]] EditResult<bool> emit_poles(topo* made, ChangeSet* changes);
   [[nodiscard]] EditResult<bool> emit_bundles(topo* made, ChangeSet* changes);
   [[nodiscard]] EditResult<bool> emit_ports(topo* made, const pairs& ps, ChangeSet* changes);
   [[nodiscard]] EditResult<bool> emit_spans(topo* made, const pairs& ps, ChangeSet* changes);
-  [[nodiscard]] rules make(const topo& made, const intent& intents) const;
+  [[nodiscard]] rules make(const topo& made, const groups& placement) const;
   [[nodiscard]] EditResult<layout> make(const rules& made) const;
   [[nodiscard]] geom make(const layout& made) const;
   void save(const rules& made);

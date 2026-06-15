@@ -845,6 +845,41 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
   return out;
 }
 
+EditResult<groups> pipeline::make(const pairs& ps, const intent& intents) const {
+  EditResult<groups> out{};
+  std::unordered_map<std::size_t, std::vector<std::size_t>> rows_by_node{};
+  for (const row& r : ps.rows) {
+    rows_by_node[r.node].push_back(r.id);
+  }
+  std::unordered_map<std::size_t, int> order_by_row{};
+  for (auto& item : rows_by_node) {
+    std::vector<std::size_t>& rows = item.second;
+    std::sort(rows.begin(), rows.end());
+    for (std::size_t order = 0; order < rows.size(); ++order) {
+      order_by_row[rows[order]] = static_cast<int>(order);
+    }
+  }
+  for (const row_intent& item : intents.rows) {
+    if (!item.lower_required) {
+      continue;
+    }
+    if (item.row >= ps.rows.size() || item.bundle >= spec_.bundles.size()) {
+      out.error = "bb2 unsupported: support group row is invalid";
+      return out;
+    }
+    group placed{};
+    placed.id = out.value.items.size();
+    placed.node = ps.rows[item.row].node;
+    placed.row_members.push_back(group_member{item.row, item.bundle});
+    placed.group_axis = ps.rows[item.row].axis;
+    placed.vertical_order = order_by_row.contains(item.row) ? order_by_row[item.row] : 0;
+    placed.lower_offset_m = kLowerOffsetM;
+    out.value.items.push_back(std::move(placed));
+  }
+  out.ok = true;
+  return out;
+}
+
 EditResult<bool> pipeline::emit_poles(topo* made, ChangeSet* changes) {
   EditResult<bool> out{};
   if (made == nullptr || changes == nullptr) {
@@ -1111,12 +1146,14 @@ EditResult<topo> pipeline::emit(const pairs& ps) {
   return out;
 }
 
-rules pipeline::make(const topo& made, const intent& intents) const {
+rules pipeline::make(const topo& made, const groups& placement) const {
   rules out{};
-  auto row_intent_for = [&](std::size_t row, std::size_t bundle) -> const row_intent* {
-    for (const row_intent& item : intents.rows) {
-      if (item.row == row && item.bundle == bundle) {
-        return &item;
+  auto group_for = [&](std::size_t row, std::size_t bundle) -> const group* {
+    for (const group& item : placement.items) {
+      for (const group_member& member : item.row_members) {
+        if (member.row == row && member.bundle == bundle) {
+          return &item;
+        }
       }
     }
     return nullptr;
@@ -1124,13 +1161,13 @@ rules pipeline::make(const topo& made, const intent& intents) const {
   for (const tspan& span : made.spans) {
     const trow& arow = made.rows[span.arow];
     const trow& brow = made.rows[span.brow];
-    const row_intent* start_intent = row_intent_for(span.arow, span.bundle);
-    const row_intent* end_intent = row_intent_for(span.brow, span.bundle);
+    const group* start_group = group_for(span.arow, span.bundle);
+    const group* end_group = group_for(span.brow, span.bundle);
     SpanLayoutRule rule{};
     rule.span_id = span.id;
     rule.flow_kind = BackboneFlowKind::kMain;
     rule.pass_mode = CurvePassMode::kPassThrough;
-    if (start_intent != nullptr || end_intent != nullptr) {
+    if (start_group != nullptr || end_group != nullptr) {
       rule.pass_mode = CurvePassMode::kPassThrough;
       rule.lowering_kind = BackboneLoweringKind::kBranchSupport;
     }
@@ -1150,21 +1187,21 @@ rules pipeline::make(const topo& made, const intent& intents) const {
     };
     rule.start = endpoint(arow.pole, arow.ports[span.bundle][span.lane]);
     rule.end = endpoint(brow.pole, brow.ports[span.bundle][span.lane]);
-    auto apply_intent = [](const row_intent* source, EndpointLayoutRule* endpoint) {
+    auto apply_group = [](const group* source, EndpointLayoutRule* endpoint) {
       if (source == nullptr || endpoint == nullptr) {
         return;
       }
-      endpoint->default_lower_required = source->lower_required;
-      endpoint->same_level_feasible = !source->lower_required;
-      endpoint->same_level_reason = source->lower_required ? SameLevelFeasibilityReason::kBundleRule
-                                                           : SameLevelFeasibilityReason::kNone;
-      endpoint->semantic.lower_required = source->lower_required;
+      endpoint->default_lower_required = true;
+      endpoint->same_level_feasible = false;
+      endpoint->same_level_reason = SameLevelFeasibilityReason::kBundleRule;
+      endpoint->semantic.lower_required = true;
       endpoint->semantic.lowering_blocked_by_policy = false;
-      endpoint->branch_down_offset_m = source->lower_required ? kLowerOffsetM : 0.0;
-      endpoint->automatic_branch_down_offset_m = source->lower_required ? kLowerOffsetM : 0.0;
+      endpoint->semantic.support_group_id = static_cast<int>(source->id);
+      endpoint->branch_down_offset_m = source->lower_offset_m;
+      endpoint->automatic_branch_down_offset_m = source->lower_offset_m;
     };
-    apply_intent(start_intent, &rule.start);
-    apply_intent(end_intent, &rule.end);
+    apply_group(start_group, &rule.start);
+    apply_group(end_group, &rule.end);
     out.data.spans.push_back(std::move(rule));
   }
   return out;
@@ -1206,10 +1243,11 @@ EditResult<layout> pipeline::make(const rules& made) const {
     target->support_world = port->world_position;
     target->endpoint_world = port->world_position;
     if (rule.default_lower_required || rule.semantic.lower_required) {
-      target->support_world.z -= kLowerOffsetM;
-      target->endpoint_world.z -= kLowerOffsetM;
-      target->branch_down_offset_m = kLowerOffsetM;
-      target->automatic_branch_down_offset_m = kLowerOffsetM;
+      const double lower_offset = rule.branch_down_offset_m > 0.0 ? rule.branch_down_offset_m : rule.automatic_branch_down_offset_m;
+      target->support_world.z -= lower_offset;
+      target->endpoint_world.z -= lower_offset;
+      target->branch_down_offset_m = lower_offset;
+      target->automatic_branch_down_offset_m = lower_offset;
     }
     target->departure_dir = WorldForward();
     return true;
@@ -1377,6 +1415,11 @@ EditResult<GenerateBundleFromPathResult> pipeline::build() {
     out.error = intents.error;
     return out;
   }
+  EditResult<groups> placement = make(ps.value, intents.value);
+  if (!placement.ok) {
+    out.error = placement.error;
+    return out;
+  }
   EditResult<topo> made = emit(ps.value);
   if (!made.ok) {
     out.error = made.error;
@@ -1387,7 +1430,7 @@ EditResult<GenerateBundleFromPathResult> pipeline::build() {
     out.error = graph_saved.error;
     return out;
   }
-  rules saved = make(made.value, intents.value);
+  rules saved = make(made.value, placement.value);
   save(saved);
   EditResult<layout> placed = make(saved);
   if (!placed.ok) {

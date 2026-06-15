@@ -1474,7 +1474,7 @@ bool C421_bb2_topo_row_carries_source() {
          contains_text(body, "tr.source = r.source") && contains_text(body, "tr.axis = r.axis");
 }
 
-bool C422_bb2_rules_consume_topo_only() {
+bool C422_bb2_rules_consume_topo_and_groups() {
   const std::filesystem::path header = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.hpp";
   const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
   std::string h;
@@ -1482,17 +1482,17 @@ bool C422_bb2_rules_consume_topo_only() {
   if (!file_text(header, &h) || !file_text(source, &cpp)) {
     return false;
   }
-  if (!contains_text(h, "rules make(const topo& made, const intent& intents) const") ||
+  if (!contains_text(h, "rules make(const topo& made, const groups& placement) const") ||
       contains_text(h, "rules make(const topo& made, const pairs& ps) const")) {
     return false;
   }
-  const std::size_t rules_pos = cpp.find("rules pipeline::make(const topo& made, const intent& intents) const");
+  const std::size_t rules_pos = cpp.find("rules pipeline::make(const topo& made, const groups& placement) const");
   const std::size_t layout_pos = cpp.find("EditResult<layout> pipeline::make", rules_pos);
   if (rules_pos == std::string::npos || layout_pos == std::string::npos) {
     return false;
   }
   const std::string body = cpp.substr(rules_pos, layout_pos - rules_pos);
-  return !contains_text(body, "ps.links");
+  return contains_text(body, "group_for") && !contains_text(body, "ps.links");
 }
 
 bool C423_bb2_tspan_carries_endpoint_rows() {
@@ -3192,6 +3192,94 @@ bool C505_bb2_save_graph_propagates_span_binding_failure() {
          contains_text(body, "span_bound.error");
 }
 
+bool C506_bb2_support_group_is_placement_layer() {
+  const std::filesystem::path header = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.hpp";
+  std::string h;
+  if (!file_text(header, &h)) {
+    return false;
+  }
+  return contains_text(h, "struct group_member") && contains_text(h, "struct group") &&
+         contains_text(h, "std::vector<group_member> row_members") && contains_text(h, "Vec3d group_axis") &&
+         contains_text(h, "int vertical_order") && contains_text(h, "double lower_offset_m");
+}
+
+bool C507_bb2_support_group_built_after_intent() {
+  const std::filesystem::path header = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.hpp";
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+  std::string h;
+  std::string cpp;
+  if (!file_text(header, &h) || !file_text(source, &cpp)) {
+    return false;
+  }
+  return contains_text(h, "EditResult<groups> make(const pairs& ps, const intent& intents) const") &&
+         contains_text(h, "rules make(const topo& made, const groups& placement) const") &&
+         !contains_text(h, "rules make(const topo& made, const intent& intents) const") &&
+         contains_text(cpp, "EditResult<groups> placement = make(ps.value, intents.value)");
+}
+
+bool C508_bb2_support_group_drives_lowered_rules() {
+  wire::core::CoreState state;
+  const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!first.ok || first.value.generated_pole_ids.size() != 3) {
+    return false;
+  }
+  const wire::core::ObjectId b = first.value.generated_pole_ids[1];
+  const auto* pole_b = state.view().poles().find(b);
+  if (pole_b == nullptr) {
+    return false;
+  }
+  const auto second = state.GenerateFromBackboneSpec(pass_branch_req(state, b, pole_b->world_transform.position));
+  if (!second.ok || second.value.generated_span_ids.empty()) {
+    return false;
+  }
+  for (wire::core::ObjectId span_id : second.value.generated_span_ids) {
+    const wire::core::SpanLayoutRulesView rules = state.span_layout_rules(span_id);
+    if (!rules.has_rule()) {
+      return false;
+    }
+    const auto has_lowered_group = [](const wire::core::EndpointLayoutRule& endpoint) {
+      return endpoint.default_lower_required && endpoint.semantic.lower_required &&
+             endpoint.semantic.support_group_id >= 0 && endpoint.branch_down_offset_m > 0.0;
+    };
+    if (has_lowered_group(rules.rule->start) || has_lowered_group(rules.rule->end)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool C509_bb2_support_group_avoids_visual_terms() {
+  const std::filesystem::path header = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.hpp";
+  std::string h;
+  if (!file_text(header, &h)) {
+    return false;
+  }
+  const std::size_t group_pos = h.find("struct group {");
+  const std::size_t next_pos = h.find("struct groups", group_pos);
+  if (group_pos == std::string::npos || next_pos == std::string::npos) {
+    return false;
+  }
+  const std::string body = h.substr(group_pos, next_pos - group_pos);
+  return !contains_text(body, "mount") && !contains_text(body, "tip") && !contains_text(body, "arm") &&
+         !contains_text(body, "insulator") && !contains_text(body, "attachment");
+}
+
+bool C510_bb2_layout_consumes_group_offset() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+  std::string cpp;
+  if (!file_text(source, &cpp)) {
+    return false;
+  }
+  const std::size_t fn_pos = cpp.find("EditResult<layout> pipeline::make(const rules& made) const");
+  const std::size_t next_pos = cpp.find("geom pipeline::make", fn_pos);
+  if (fn_pos == std::string::npos || next_pos == std::string::npos) {
+    return false;
+  }
+  const std::string body = cpp.substr(fn_pos, next_pos - fn_pos);
+  return contains_text(body, "rule.branch_down_offset_m") && contains_text(body, "target->endpoint_world.z -= lower_offset") &&
+         !contains_text(body, "kLowerOffsetM");
+}
+
 bool span_has_lowered_endpoint(const wire::core::CoreState& state, wire::core::ObjectId span_id) {
   const wire::core::Span* span = state.view().spans().find(span_id);
   const wire::core::SpanLayoutView layout = state.span_layout(span_id);
@@ -3546,9 +3634,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C421_bb2_topo_row_carries_source",
                          "bb2 topology rows carry pair row source", "Boundary", false,
                          C421_bb2_topo_row_carries_source);
-  test_registry::AddTest(tests, "C422_bb2_rules_consume_topo_only",
-                         "bb2 rules consume topology without pairs", "Boundary", false,
-                         C422_bb2_rules_consume_topo_only);
+  test_registry::AddTest(tests, "C422_bb2_rules_consume_topo_and_groups",
+                         "bb2 rules consume topology and groups without pairs", "Boundary", false,
+                         C422_bb2_rules_consume_topo_and_groups);
   test_registry::AddTest(tests, "C423_bb2_tspan_carries_endpoint_rows",
                          "bb2 topology spans carry endpoint row indices", "Boundary", false,
                          C423_bb2_tspan_carries_endpoint_rows);
@@ -3798,6 +3886,21 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C505_bb2_save_graph_propagates_span_binding_failure",
                          "bb2 save graph propagates span binding failures", "Boundary", false,
                          C505_bb2_save_graph_propagates_span_binding_failure);
+  test_registry::AddTest(tests, "C506_bb2_support_group_is_placement_layer",
+                         "bb2 support group is a placement layer", "Boundary", false,
+                         C506_bb2_support_group_is_placement_layer);
+  test_registry::AddTest(tests, "C507_bb2_support_group_built_after_intent",
+                         "bb2 support group is built after intent", "Boundary", false,
+                         C507_bb2_support_group_built_after_intent);
+  test_registry::AddTest(tests, "C508_bb2_support_group_drives_lowered_rules",
+                         "bb2 support group drives lowered rules", "Boundary", false,
+                         C508_bb2_support_group_drives_lowered_rules);
+  test_registry::AddTest(tests, "C509_bb2_support_group_avoids_visual_terms",
+                         "bb2 support group avoids visual terms", "Boundary", false,
+                         C509_bb2_support_group_avoids_visual_terms);
+  test_registry::AddTest(tests, "C510_bb2_layout_consumes_group_offset",
+                         "bb2 layout consumes support group offset", "Boundary", false,
+                         C510_bb2_layout_consumes_group_offset);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

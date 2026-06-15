@@ -749,3 +749,22 @@ bb2 は same edge bundle + lane の span binding を saved backbone graph で一
 * span を curve 類似、port 位置、layout、seed、materialization result から探す。
 * existing span から不足 lane を補完する。
 * duplicate span binding を黙って no-op にする。
+
+## bb2 milestone 27
+
+bb2 は lowering V1 の placement authority として support group を持つ。support group は pair/open/row を決めず、intent で lower_required になった materialized row の配置だけを決める。
+
+対応:
+
+* `groups` は `intent` の後に作る。
+* group は `row_members`, `group_axis`, `vertical_order`, `lower_offset_m` だけを持つ。
+* `rules` は group を読み、lowering flag / support_group_id / lower offset を保存する。
+* `layout` は rule に保存された group offset を consume して endpoint / support world を下げる。
+* `geom` は layout endpoint を読むだけで curve / bounds に反映する。
+
+禁止:
+
+* support group が topology / pair / open / row を決める。
+* mount / tip / arm / insulator / attachment など visual 寄りの語を group に入れる。
+* draw/render/support visual を M27 に混ぜる。
+* existing span/layout/seed から support group を作る。

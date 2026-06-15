@@ -451,7 +451,7 @@ bool C379_bb2_m1_required_outputs() {
   return true;
 }
 
-bool C380_bb2_m1_draw_outputs_not_required() {
+bool C380_bb2_m1_draw_outputs_saved() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   const auto out = state.GenerateFromBackboneSpec(req);
@@ -459,10 +459,10 @@ bool C380_bb2_m1_draw_outputs_not_required() {
     return false;
   }
   for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
-    if (state.find_span_visual_cache(span_id) != nullptr) {
+    if (state.find_span_visual_cache(span_id) == nullptr) {
       return false;
     }
-    if (state.view().find_span_render_cache(span_id) != nullptr) {
+    if (state.view().find_span_render_cache(span_id) == nullptr) {
       return false;
     }
   }
@@ -510,15 +510,11 @@ bool C382_bb2_geom_is_single_pipeline_layer() {
   return has_geom;
 }
 
-bool C383_bb2_draw_is_declared_but_not_built() {
+bool C383_bb2_draw_is_pipeline_layer() {
   const std::filesystem::path dir = repo_root() / "core" / "src" / "generation" / "bb2";
   bool has_draw = false;
-  const std::vector<std::string> banned = {
-      "make(draw",
-      "save(draw",
-      "visual_cache",
-      "render_cache",
-  };
+  bool has_make = false;
+  bool has_save = false;
   for (const auto& entry : std::filesystem::recursive_directory_iterator(dir)) {
     if (!entry.is_regular_file()) {
       continue;
@@ -528,13 +524,13 @@ bool C383_bb2_draw_is_declared_but_not_built() {
       return false;
     }
     has_draw = has_draw || contains_text(text, "struct draw");
-    for (const std::string& token : banned) {
-      if (contains_text(text, token)) {
-        return false;
-      }
+    has_make = has_make || contains_text(text, "draw make(const layout& placed, const geom& shaped) const");
+    has_save = has_save || contains_text(text, "void save(draw made)");
+    if (contains_text(text, "visual_cache") || contains_text(text, "render_cache")) {
+      return false;
     }
   }
-  return has_draw;
+  return has_draw && has_make && has_save;
 }
 
 bool C384_bb2_topo_is_single_output_layer() {
@@ -2967,7 +2963,7 @@ bool C483_bb2_pass_through_ambiguous_target_rejected() {
          contains_text(body, "pass-through target row is ambiguous");
 }
 
-bool C484_bb2_lowering_intent_does_not_emit_draw_or_visual() {
+bool C484_bb2_lowering_draw_uses_layout_only() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 3) {
@@ -2982,12 +2978,16 @@ bool C484_bb2_lowering_intent_does_not_emit_draw_or_visual() {
   if (!second.ok || second.value.generated_span_ids.empty()) {
     return false;
   }
+  bool saw_lowered_visual = false;
   for (wire::core::ObjectId span_id : second.value.generated_span_ids) {
-    if (state.find_span_visual_cache(span_id) != nullptr || state.find_span_render_cache(span_id) != nullptr) {
+    const wire::core::SpanVisualCacheEntry* visual = state.find_span_visual_cache(span_id);
+    const wire::core::SpanRenderCacheEntry* render = state.find_span_render_cache(span_id);
+    if (visual == nullptr || render == nullptr) {
       return false;
     }
+    saw_lowered_visual = saw_lowered_visual || !visual->parts.empty();
   }
-  return true;
+  return saw_lowered_visual;
 }
 
 bool C485_bb2_lowering_intent_does_not_read_existing_spans() {
@@ -3280,6 +3280,97 @@ bool C510_bb2_layout_consumes_group_offset() {
          !contains_text(body, "kLowerOffsetM");
 }
 
+bool C511_bb2_draw_saved_from_geom() {
+  wire::core::CoreState state;
+  const auto out = state.GenerateFromBackboneSpec(line_req(state));
+  if (!out.ok || out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
+    const wire::core::CurveCacheEntry* curve = state.find_curve_cache(span_id);
+    const wire::core::SpanVisualCacheEntry* visual = state.find_span_visual_cache(span_id);
+    const wire::core::SpanRenderCacheEntry* render = state.find_span_render_cache(span_id);
+    if (curve == nullptr || visual == nullptr || render == nullptr) {
+      return false;
+    }
+    if (render->arc_length_m_by_point.size() != curve->detail.sample_points.size() ||
+        render->arc_length_normalized_by_point.size() != curve->detail.sample_points.size()) {
+      return false;
+    }
+    if (!curve->detail.sample_points.empty() && render->arc_length_m_by_point.empty()) {
+      return false;
+    }
+    if (curve->detail.sample_points.size() >= 2 &&
+        render->segment_length_m.size() + 1 != curve->detail.sample_points.size()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool C512_bb2_draw_does_not_read_topology() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+  std::string cpp;
+  if (!file_text(source, &cpp)) {
+    return false;
+  }
+  const std::size_t fn_pos = cpp.find("draw pipeline::make(const layout& placed, const geom& shaped) const");
+  const std::size_t next_pos = cpp.find("void pipeline::save(const rules& made)", fn_pos);
+  if (fn_pos == std::string::npos || next_pos == std::string::npos) {
+    return false;
+  }
+  const std::string body = cpp.substr(fn_pos, next_pos - fn_pos);
+  return !contains_text(body, "pairs") && !contains_text(body, "ps.") && !contains_text(body, "backbone") &&
+         !contains_text(body, "node_bundle_modes") && !contains_text(body, "save_backbone") &&
+         !contains_text(body, "bind_backbone");
+}
+
+bool C513_bb2_support_visual_placeholder_from_layout() {
+  wire::core::CoreState state;
+  const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!first.ok || first.value.generated_pole_ids.size() != 3) {
+    return false;
+  }
+  const wire::core::ObjectId b = first.value.generated_pole_ids[1];
+  const auto* pole_b = state.view().poles().find(b);
+  if (pole_b == nullptr) {
+    return false;
+  }
+  const auto second = state.GenerateFromBackboneSpec(pass_branch_req(state, b, pole_b->world_transform.position));
+  if (!second.ok || second.value.generated_span_ids.empty()) {
+    return false;
+  }
+  for (wire::core::ObjectId span_id : second.value.generated_span_ids) {
+    const wire::core::SpanVisualCacheEntry* visual = state.find_span_visual_cache(span_id);
+    const wire::core::SpanLayoutView layout = state.span_layout(span_id);
+    if (visual == nullptr || !layout.has_layout()) {
+      return false;
+    }
+    if (layout.entry->start.default_lower_required || layout.entry->end.default_lower_required) {
+      return !visual->parts.empty();
+    }
+  }
+  return false;
+}
+
+bool C514_bb2_draw_save_is_direct() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "recalc" / "recalc_pipeline.cpp";
+  std::string cpp;
+  if (!file_text(source, &cpp)) {
+    return false;
+  }
+  const std::size_t visual_pos = cpp.find("void CoreState::cache_span_visual");
+  const std::size_t render_pos = cpp.find("void CoreState::cache_span_render");
+  const std::size_t next_pos = cpp.find("void CoreState::cache_span_support_layout_seed", render_pos);
+  if (visual_pos == std::string::npos || render_pos == std::string::npos || next_pos == std::string::npos) {
+    return false;
+  }
+  const std::string body = cpp.substr(visual_pos, next_pos - visual_pos);
+  return contains_text(body, "visual_cache.by_span") && contains_text(body, "render_cache.by_span") &&
+         !contains_text(body, "rebuild_span_visual") && !contains_text(body, "rebuild_span_bounds") &&
+         !contains_text(body, "cache_rebuilt_span_geometry") && !contains_text(body, "dirty");
+}
+
 bool span_has_lowered_endpoint(const wire::core::CoreState& state, wire::core::ObjectId span_id) {
   const wire::core::Span* span = state.view().spans().find(span_id);
   const wire::core::SpanLayoutView layout = state.span_layout(span_id);
@@ -3368,8 +3459,8 @@ bool C493_bb2_pass_through_does_not_change_pair_open() {
   return C420_bb2_node_mode_does_not_affect_pairs() && C479_bb2_row_separation_does_not_change_pairs();
 }
 
-bool C494_bb2_lowering_v1_does_not_emit_draw_visual() {
-  return C484_bb2_lowering_intent_does_not_emit_draw_or_visual();
+bool C494_bb2_lowering_v1_draw_does_not_redecide() {
+  return C484_bb2_lowering_draw_uses_layout_only();
 }
 
 bool C495_bb2_lowering_v1_does_not_read_existing_spans() {
@@ -3528,14 +3619,14 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
                          "Invariant", false, C378_bb2_bounds_is_deterministic);
   test_registry::AddTest(tests, "C379_bb2_m1_required_outputs", "bb2 milestone 1 required outputs are fixed",
                          "Boundary", false, C379_bb2_m1_required_outputs);
-  test_registry::AddTest(tests, "C380_bb2_m1_draw_outputs_not_required", "bb2 milestone 1 does not require draw caches",
-                         "Boundary", false, C380_bb2_m1_draw_outputs_not_required);
+  test_registry::AddTest(tests, "C380_bb2_m1_draw_outputs_saved", "bb2 milestone 1 saves draw caches",
+                         "Boundary", false, C380_bb2_m1_draw_outputs_saved);
   test_registry::AddTest(tests, "C381_bb2_m1_no_recalc_contract", "bb2 milestone 1 has no recalc contract",
                          "Boundary", false, C381_bb2_m1_no_recalc_contract);
   test_registry::AddTest(tests, "C382_bb2_geom_is_single_pipeline_layer", "bb2 keeps geom as one pipeline layer",
                          "Boundary", false, C382_bb2_geom_is_single_pipeline_layer);
-  test_registry::AddTest(tests, "C383_bb2_draw_is_declared_but_not_built", "bb2 declares draw without building it",
-                         "Boundary", false, C383_bb2_draw_is_declared_but_not_built);
+  test_registry::AddTest(tests, "C383_bb2_draw_is_pipeline_layer", "bb2 draw is a pipeline layer",
+                         "Boundary", false, C383_bb2_draw_is_pipeline_layer);
   test_registry::AddTest(tests, "C384_bb2_topo_is_single_output_layer", "bb2 keeps topology as one output layer",
                          "Boundary", false, C384_bb2_topo_is_single_output_layer);
   test_registry::AddTest(tests, "C385_bb2_emit_is_split_by_topology_parts", "bb2 splits topology emission by part",
@@ -3820,9 +3911,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C483_bb2_pass_through_ambiguous_target_rejected",
                          "bb2 pass-through ambiguous row target is rejected", "Boundary", false,
                          C483_bb2_pass_through_ambiguous_target_rejected);
-  test_registry::AddTest(tests, "C484_bb2_lowering_intent_does_not_emit_draw_or_visual",
-                         "bb2 lowering intent does not emit draw or visual caches", "Boundary", false,
-                         C484_bb2_lowering_intent_does_not_emit_draw_or_visual);
+  test_registry::AddTest(tests, "C484_bb2_lowering_draw_uses_layout_only",
+                         "bb2 lowering draw uses layout only", "Boundary", false,
+                         C484_bb2_lowering_draw_uses_layout_only);
   test_registry::AddTest(tests, "C485_bb2_lowering_intent_does_not_read_existing_spans",
                          "bb2 lowering intent does not read existing spans", "Boundary", false,
                          C485_bb2_lowering_intent_does_not_read_existing_spans);
@@ -3850,9 +3941,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C493_bb2_pass_through_does_not_change_pair_open",
                          "bb2 pass-through does not change pair open authority", "Boundary", false,
                          C493_bb2_pass_through_does_not_change_pair_open);
-  test_registry::AddTest(tests, "C494_bb2_lowering_v1_does_not_emit_draw_visual",
-                         "bb2 lowering v1 does not emit draw or visual caches", "Boundary", false,
-                         C494_bb2_lowering_v1_does_not_emit_draw_visual);
+  test_registry::AddTest(tests, "C494_bb2_lowering_v1_draw_does_not_redecide",
+                         "bb2 lowering v1 draw does not redecide", "Boundary", false,
+                         C494_bb2_lowering_v1_draw_does_not_redecide);
   test_registry::AddTest(tests, "C495_bb2_lowering_v1_does_not_read_existing_spans",
                          "bb2 lowering v1 does not read existing spans", "Boundary", false,
                          C495_bb2_lowering_v1_does_not_read_existing_spans);
@@ -3901,6 +3992,18 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C510_bb2_layout_consumes_group_offset",
                          "bb2 layout consumes support group offset", "Boundary", false,
                          C510_bb2_layout_consumes_group_offset);
+  test_registry::AddTest(tests, "C511_bb2_draw_saved_from_geom",
+                         "bb2 draw is saved from geom", "Boundary", false,
+                         C511_bb2_draw_saved_from_geom);
+  test_registry::AddTest(tests, "C512_bb2_draw_does_not_read_topology",
+                         "bb2 draw does not read topology", "Boundary", false,
+                         C512_bb2_draw_does_not_read_topology);
+  test_registry::AddTest(tests, "C513_bb2_support_visual_placeholder_from_layout",
+                         "bb2 support visual placeholder comes from layout", "Boundary", false,
+                         C513_bb2_support_visual_placeholder_from_layout);
+  test_registry::AddTest(tests, "C514_bb2_draw_save_is_direct",
+                         "bb2 draw save is direct", "Boundary", false,
+                         C514_bb2_draw_save_is_direct);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

@@ -155,6 +155,8 @@ struct geom {
 };
 
 struct draw {
+  std::vector<std::pair<ObjectId, SpanVisualCacheEntry>> visuals{};
+  std::vector<std::pair<ObjectId, SpanRenderCacheEntry>> renders{};
 };
 
 class pipeline {
@@ -178,9 +180,11 @@ private:
   [[nodiscard]] rules make(const topo& made, const groups& placement) const;
   [[nodiscard]] EditResult<layout> make(const rules& made) const;
   [[nodiscard]] geom make(const layout& made) const;
+  [[nodiscard]] draw make(const layout& placed, const geom& shaped) const;
   void save(const rules& made);
   void save(const layout& made);
   void save(geom made);
+  void save(draw made);
   [[nodiscard]] EditResult<bool> save_graph(const topo& made, const pairs& ps);
 
   CoreState& state_;

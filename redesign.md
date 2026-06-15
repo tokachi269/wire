@@ -768,3 +768,21 @@ bb2 は lowering V1 の placement authority として support group を持つ。
 * mount / tip / arm / insulator / attachment など visual 寄りの語を group に入れる。
 * draw/render/support visual を M27 に混ぜる。
 * existing span/layout/seed から support group を作る。
+
+## bb2 milestone 28
+
+bb2 は layout/geom から最小 draw output を保存する。draw は topology、pair/open/row、lowering intent を新規判断せず、既に保存された layout/geom を読む consumer とする。
+
+対応:
+
+* `draw` は `layout` と `geom` の後に作る。
+* render cache は `DetailCurve` の sample points から距離配列を作る。
+* visual cache は `SpanLayoutEntry` の lowered endpoint から最小 placeholder を作る。
+* `cache_span_visual` / `cache_span_render` は direct cache store として使う。
+
+禁止:
+
+* draw が saved graph / pair/open/row / node mode / support group を再判断する。
+* draw が v1/recalc rebuild 経路を呼ぶ。
+* geometry 比較や position proximity から support visual を推測する。
+* support arm / insulator / attachment の本格仕様を M28 に混ぜる。

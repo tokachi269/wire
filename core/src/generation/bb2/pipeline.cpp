@@ -393,6 +393,26 @@ AABBd box(const std::vector<Vec3d>& pts) {
   return out;
 }
 
+SpanRenderCacheEntry render(const DetailCurve& detail) {
+  SpanRenderCacheEntry out{};
+  out.arc_length_m_by_point.reserve(detail.sample_points.size());
+  out.arc_length_normalized_by_point.reserve(detail.sample_points.size());
+  out.segment_length_m.reserve(detail.sample_points.size() > 0 ? detail.sample_points.size() - 1 : 0);
+  double total = 0.0;
+  for (std::size_t i = 0; i < detail.sample_points.size(); ++i) {
+    if (i > 0) {
+      total += len(detail.sample_points[i] - detail.sample_points[i - 1]);
+      out.segment_length_m.push_back(static_cast<float>(len(detail.sample_points[i] - detail.sample_points[i - 1])));
+    }
+    out.arc_length_m_by_point.push_back(static_cast<float>(total));
+  }
+  const double denom = total > 1e-9 ? total : 1.0;
+  for (float value : out.arc_length_m_by_point) {
+    out.arc_length_normalized_by_point.push_back(static_cast<float>(static_cast<double>(value) / denom));
+  }
+  return out;
+}
+
 EditResult<bool> unsupported(std::string reason) {
   EditResult<bool> out{};
   out.error = "bb2 unsupported: " + std::move(reason);
@@ -1300,6 +1320,40 @@ geom pipeline::make(const layout& made) const {
   return out;
 }
 
+draw pipeline::make(const layout& placed, const geom& shaped) const {
+  draw out{};
+  out.visuals.reserve(placed.entries.size());
+  out.renders.reserve(shaped.curves.data.size());
+  for (const auto& item : shaped.curves.data) {
+    out.renders.push_back({item.first, render(item.second)});
+  }
+  for (const SpanLayoutEntry& entry : placed.entries) {
+    SpanVisualCacheEntry visual{};
+    auto add_part = [&](const LayoutEndpoint& endpoint) {
+      if (!endpoint.default_lower_required && !endpoint.lower_required) {
+        return;
+      }
+      Vec3d support = endpoint.support_world;
+      if (len(endpoint.endpoint_world - support) <= 1e-9 && endpoint.branch_down_offset_m > 0.0) {
+        support.z += endpoint.branch_down_offset_m;
+      }
+      if (len(endpoint.endpoint_world - support) <= 1e-9) {
+        return;
+      }
+      VisualPart part{};
+      part.kind = VisualPartKind::kSupportArm;
+      part.a = support;
+      part.b = endpoint.endpoint_world;
+      part.radius_m = 0.02;
+      visual.parts.push_back(part);
+    };
+    add_part(entry.start);
+    add_part(entry.end);
+    out.visuals.push_back({entry.span_id, std::move(visual)});
+  }
+  return out;
+}
+
 void pipeline::save(const rules& made) {
   state_.cache_span_rules(made.data);
 }
@@ -1316,6 +1370,15 @@ void pipeline::save(geom made) {
   }
   for (auto& item : made.boxes.data) {
     state_.cache_span_bounds(item.first, std::move(item.second));
+  }
+}
+
+void pipeline::save(draw made) {
+  for (auto& item : made.visuals) {
+    state_.cache_span_visual(item.first, std::move(item.second));
+  }
+  for (auto& item : made.renders) {
+    state_.cache_span_render(item.first, std::move(item.second));
   }
 }
 
@@ -1439,7 +1502,9 @@ EditResult<GenerateBundleFromPathResult> pipeline::build() {
   }
   save(placed.value);
   geom shaped = make(placed.value);
+  draw drawn = make(placed.value, shaped);
   save(std::move(shaped));
+  save(std::move(drawn));
   out.change_set = std::move(made.change_set);
   out.value.generated_pole_ids = made.value.new_poles;
   out.value.bundle_ids = made.value.bundles;

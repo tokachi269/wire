@@ -532,6 +532,24 @@ void CoreState::cache_span_bounds(ObjectId span_id, BoundsCacheEntry bounds) {
   runtime_.cache_state.bounds_cache.by_span[span_id] = std::move(bounds);
 }
 
+void CoreState::cache_span_visual(ObjectId span_id, SpanVisualCacheEntry visual) {
+  if (span_id == kInvalidObjectId) {
+    return;
+  }
+  const SpanRuntimeState* runtime = find_span_runtime_state(span_id);
+  visual.source_version = (runtime == nullptr) ? 0 : runtime->data_version;
+  runtime_.cache_state.visual_cache.by_span[span_id] = std::move(visual);
+}
+
+void CoreState::cache_span_render(ObjectId span_id, SpanRenderCacheEntry render) {
+  if (span_id == kInvalidObjectId) {
+    return;
+  }
+  const SpanRuntimeState* runtime = find_span_runtime_state(span_id);
+  render.source_version = (runtime == nullptr) ? 0 : runtime->data_version;
+  runtime_.cache_state.render_cache.by_span[span_id] = std::move(render);
+}
+
 void CoreState::cache_span_support_layout_seed(SpanSupportLayoutDecisionSeed seed) {
   if (seed.span_id == kInvalidObjectId) {
     return;

@@ -208,6 +208,8 @@ private:
   void cache_span_layout(SpanLayoutEntry layout);
   void cache_span_curve(ObjectId span_id, DetailCurve detail);
   void cache_span_bounds(ObjectId span_id, BoundsCacheEntry bounds);
+  void cache_span_visual(ObjectId span_id, SpanVisualCacheEntry visual);
+  void cache_span_render(ObjectId span_id, SpanRenderCacheEntry render);
   ObjectId save_backbone_node(ObjectId pole_id, const Vec3d& position);
   SavedBackboneEdgeRef save_backbone_edge(ObjectId node_a, ObjectId node_b, std::size_t route, std::size_t order,
                                           const Vec3d& dir);

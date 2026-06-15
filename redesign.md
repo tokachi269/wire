@@ -304,7 +304,7 @@ node:
 
 * existing span / port / layout / seed / recalc state を pair 決定に使う。
 * existing pole 周辺の接続状況で row axis を変える。
-* existing port reuse をこの milestone に混ぜる。
+* existing port resolution をこの milestone に混ぜる。
 
 ## bb2 milestone 4
 
@@ -447,8 +447,8 @@ same pole pair の saved edge を重複作成しない。edge は物理 segment�
 
 * `SavedBackboneGraph` は `nodes` / `edges` / `edge_bundles` を持つ。
 * `SavedBackboneEdgeBundle` は edge id / bundle id / edge_forward / route / order / dir / span ids を持つ。
-* `BackboneIndex.edge_by_nodes` は same node pair の saved edge reuse に使う。
-* saved edge の route / order / dir は初回作成時の値として固定し、reuse 時に上書きしない。
+* `BackboneIndex.edge_by_nodes` は same node pair の saved edge resolution に使う。
+* saved edge の route / order / dir は初回作成時の値として固定し、resolution 時に上書きしない。
 * `pole_frontier` / `span_frontier` は edge bundle 経由で bundle ids と span ids を読む。
 
 禁止:
@@ -483,7 +483,7 @@ bb2 は saved graph 内部 vector を直接読まない。saved graph の mutati
 
 * `save_backbone_edge` は `SavedBackboneEdgeRef` を返す。
 * `SavedBackboneEdgeRef` は edge id / saved endpoint nodes / created を持つ。
-* edge reuse 時も saved edge の endpoint nodes を返す。
+* edge resolution 時も saved edge の endpoint nodes を返す。
 * bb2 は `SavedBackboneEdgeRef` から `edge_forward` を決める。
 
 禁止:
@@ -593,11 +593,11 @@ same saved edge + bundle の低レベル保存口は同じ `SavedBackboneEdgeBun
 
 * same edge + bundle で edge_bundle を重複作成する。
 * reverse 生成で edge_bundle metadata を上書きする。
-* existing port/span reuse、duplicate span 抑制、lowering、pass-through、draw を M20 に混ぜる。
+* existing port/span resolution、duplicate span 抑制、lowering、pass-through、draw を M20 に混ぜる。
 
 ## bb2 milestone 21
 
-bb2 generation request としての duplicate same edge + bundle は no-op/reuse ではなく unsupported とする。低レベル保存口の idempotent reuse は残すが、bb2 は emit 前に duplicate を検出して止める。
+bb2 generation request としての duplicate same edge + bundle は no-op/resolution ではなく unsupported とする。低レベル保存口の idempotent bind は残すが、bb2 は emit 前に duplicate を検出して止める。
 
 対応:
 
@@ -608,14 +608,14 @@ bb2 generation request としての duplicate same edge + bundle は no-op/reuse
 
 禁止:
 
-* existing port/span reuse を M21 に混ぜる。
+* existing port/span resolution を M21 に混ぜる。
 * existing span/layout/seed から duplicate や不足分を判定する。
 * lane 単位の差分追加、bundle template 差分更新、geometry 近似比較を行う。
 * v1/recalc/materialization を duplicate 判定に使う。
 
 ## bb2 milestone 22
 
-bb2 は connectivity row と生成された port object の対応を saved backbone graph に保存する。これは existing port reuse の実装ではなく、将来 reuse を座標推測ではなく saved identity で行うための準備である。
+bb2 は connectivity row と生成された port object の対応を saved backbone graph に保存する。これは existing port resolution の実装ではなく、将来 resolution を座標推測ではなく saved identity で行うための準備である。
 
 対応:
 
@@ -627,29 +627,30 @@ bb2 は connectivity row と生成された port object の対応を saved backb
 
 禁止:
 
-* existing port reuse を M22 に混ぜる。
+* existing port resolution を M22 に混ぜる。
 * port 位置近似で同一性を判定する。
 * existing span/layout/seed を binding 判定に使う。
 * row id/index の全面整理や pairs rename を M22 に混ぜる。
 
 ## bb2 milestone 23
 
-bb2 は saved row-port binding が一致する場合だけ existing port を再利用する。reuse は port identity の問題であり、pair/open/row/rules/layout/geom の意味決定は変えない。
+bb2 は saved row-port binding と compatible scope が一致する場合だけ existing port id を resolve する。port resolution は port identity の問題であり、pair/open/row/rules/layout/geom の意味決定は変えない。
 
 対応:
 
-* `row_key + lane_index` で saved port binding を探す。
-* binding の port が存在し、同じ pole に属する場合だけ reuse する。
+* `row_key + lane_index + bundle_template + port kind + port layer` で compatible な saved port binding を探す。
+* binding の port が存在し、同じ pole に属し、同じ port kind/layer の場合だけ resolve する。
 * binding が無ければ従来通り new port を作る。
-* 複数 binding が同じ port を指す場合は同一 identity として扱う。
-* 複数 binding が別 port に割れる場合は ambiguous として unsupported にする。
-* reuse port は new span endpoint として使う。
+* 複数 binding が同じ port を指す場合は compatible scope が一致する場合だけ同一 identity として扱う。
+* 複数 binding が別 port に割れる場合、または同一 port に incompatible scope を cross-bind しようとした場合は unsupported にする。
+* resolved port は new span endpoint として使う。
 
 禁止:
 
-* existing span reuse を M23 に混ぜる。
+* existing span resolution を M23 に混ぜる。
+* 別 bundle/category/layer の port を `row_key + lane_index` だけで共有する。
 * port 位置や layout から row を復元する。
-* support materialization / recalc / seed を reuse 判定に使う。
+* support materialization / recalc / seed を resolution 判定に使う。
 * lowering / pass-through / draw / avoid を M23 に混ぜる。
 
 ## bb2 milestone 24
@@ -692,3 +693,41 @@ bb2 は pass-through node mode と lowering intent を rules/layout に保存す
 * draw/render cache を触る。
 * branch/cross kind enum を作る。
 * existing span/layout/seed や v1/recalc/materialization を intent 決定に使う。
+
+## bb2 junction v1 vertical slice
+
+bb2 は existing junction を saved graph context として読み、port identity scope と minimal lowering geometry まで縦に通す。M21-M25 の境界は維持し、小さい整理 milestone は増やさない。
+
+対応:
+
+* saved graph は topology authority とし、context link は saved graph incident edge から作る。
+* existing span/layout/seed から topology、row、level、port identity を復元しない。
+* port binding resolution は `row_key + lane_index` だけではなく、bundle template / port kind / port layer compatibility を必要条件にする。
+* 同じ port に複数 binding を許す場合は runtime index が全 binding を返し、incompatible scope の cross-binding は unsupported にする。
+* duplicate same edge + bundle は unsupported とし、span geometry 比較や既存 span 差分補完はしない。
+* pair/open/row は `pairs make(graph)` で一度だけ決め、kPassThrough / lowering / row separation は pair/open を変えない。
+* row separation と lowering は placement/layout/geom の話として扱い、topology authority にはしない。
+* lowering V1 は rules/layout に intent を保存し、layout endpoint / curve / bounds へ deterministic vertical offset を反映する。
+* context-only row は ordering/intent の入力になり得るが、port/span は materialize しない。
+
+禁止:
+
+* T/cross/branch enum または kind label を追加する。
+* v1/recalc/materialization を bb2 generation 中に読む。
+* draw/render/support arm/insulator/attachment visual をこの slice に混ぜる。
+* topology を Span / layout / seed から再構成する。
+
+## bb2 gate 3 fix
+
+context link は判断入力であり、save target ではない。`save_graph` でも new link と context link を分離する。
+
+対応:
+
+* `edge.is_new=true` の link だけ `save_backbone_edge` を呼ぶ。
+* `edge.is_new=false` の context link は `edge.saved` から既存 saved edge ref を読むだけにする。
+* context link の `edge.saved` が invalid なら unsupported とする。
+
+禁止:
+
+* context link の saved edge を node pair / pole pair / geometry / span / layout / seed から推測する。
+* context link に対して `save_backbone_edge` を呼ぶ。

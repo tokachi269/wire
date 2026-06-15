@@ -15,6 +15,7 @@ namespace wire::core::generation::bb2 {
 namespace {
 
 constexpr double kRowSeparationM = 0.35;
+constexpr double kLowerOffsetM = 0.6;
 
 void add(ChangeSet& dst, const ChangeSet& src) {
   auto append = [](std::vector<ObjectId>& a, const std::vector<ObjectId>& b) {
@@ -105,6 +106,12 @@ struct spec_view {
   SpanLayer layer = SpanLayer::kUnknown;
 };
 
+struct port_scope {
+  BundleKind bundle = BundleKind::kLowVoltage;
+  PortKind kind = PortKind::kGeneric;
+  PortLayer layer = PortLayer::kUnknown;
+};
+
 EditResult<spec_view> view_for(const CoreState& state, const BackboneBundleSpec& spec) {
   EditResult<spec_view> out{};
   const auto tmpl_it = state.view().bundle_templates().find(spec.bundle_template_id);
@@ -181,8 +188,8 @@ ObjectId saved_edge_for(const CoreState& state, const graph& made, const link& e
   return it == state.view().backbone_index().edge_by_nodes.end() ? kInvalidObjectId : it->second;
 }
 
-ObjectId existing_bundle_for(const CoreState& state, const graph& made, const BackboneBundleSpec& spec) {
-  ObjectId reused = kInvalidObjectId;
+ObjectId resolve_existing_bundle(const CoreState& state, const graph& made, const BackboneBundleSpec& spec) {
+  ObjectId resolved = kInvalidObjectId;
   bool saw_existing_edge = false;
   for (const link& edge : made.links) {
     if (!edge.is_new) {
@@ -215,12 +222,12 @@ ObjectId existing_bundle_for(const CoreState& state, const graph& made, const Ba
     if (edge_bundle_match == kInvalidObjectId) {
       return kInvalidObjectId;
     }
-    if (reused != kInvalidObjectId && reused != edge_bundle_match) {
+    if (resolved != kInvalidObjectId && resolved != edge_bundle_match) {
       return kInvalidObjectId;
     }
-    reused = edge_bundle_match;
+    resolved = edge_bundle_match;
   }
-  return saw_existing_edge ? reused : kInvalidObjectId;
+  return saw_existing_edge ? resolved : kInvalidObjectId;
 }
 
 SavedBackboneRowKey key_for(const pairs& ps, const trow& row, const std::vector<ObjectId>& node_id_by_local,
@@ -255,11 +262,11 @@ SavedBackboneRowKey key_for(const pairs& ps, const trow& row, const std::vector<
 
 SavedBackboneEdgeRef ref_for_existing_edge(const CoreState& state, const graph& made, const link& edge) {
   SavedBackboneEdgeRef out{};
-  const ObjectId edge_id = (edge.saved != kInvalidObjectId) ? edge.saved : saved_edge_for(state, made, edge);
-  if (edge_id == kInvalidObjectId) {
+  (void)made;
+  if (edge.saved == kInvalidObjectId) {
     return out;
   }
-  const SavedBackboneEdge* saved = state.view().backbone_edge(edge_id);
+  const SavedBackboneEdge* saved = state.view().backbone_edge(edge.saved);
   if (saved == nullptr) {
     return out;
   }
@@ -269,8 +276,13 @@ SavedBackboneEdgeRef ref_for_existing_edge(const CoreState& state, const graph& 
   return out;
 }
 
-EditResult<ObjectId> port_for(const CoreState& state, ObjectId pole_id, const SavedBackboneRowKey& row_key,
-                              std::size_t lane_index) {
+bool same_scope(const SavedBackbonePortBinding& binding, port_scope scope) {
+  return binding.bundle_template_id == scope.bundle && binding.port_kind == scope.kind &&
+         binding.port_layer == scope.layer;
+}
+
+EditResult<ObjectId> resolve_port_binding(const CoreState& state, ObjectId pole_id, const SavedBackboneRowKey& row_key,
+                                          std::size_t lane_index, port_scope scope) {
   EditResult<ObjectId> out{};
   out.value = kInvalidObjectId;
   out.ok = true;
@@ -283,8 +295,11 @@ EditResult<ObjectId> port_for(const CoreState& state, ObjectId pole_id, const Sa
     if (binding == nullptr) {
       continue;
     }
+    if (!same_scope(*binding, scope)) {
+      continue;
+    }
     const Port* port = state.view().ports().find(binding->port_id);
-    if (port == nullptr || port->owner_pole_id != pole_id) {
+    if (port == nullptr || port->owner_pole_id != pole_id || port->kind != scope.kind || port->layer != scope.layer) {
       continue;
     }
     if (found != kInvalidObjectId && found != port->id) {
@@ -707,7 +722,7 @@ EditResult<pairs> pipeline::make(const graph& made) const {
       bused[left] = true;
       aused[matched] = true;
       if (out.value.links[left].brow != bad || out.value.links[matched].arow != bad) {
-        return unsupported_pairs("incident reused");
+        return unsupported_pairs("incident already used");
       }
       const std::size_t row_id = add_pair(&out.value, n.id, left, matched, side(chord));
       out.value.links[left].brow = row_id;
@@ -720,7 +735,7 @@ EditResult<pairs> pipeline::make(const graph& made) const {
       }
       aused[link_id] = true;
       if (out.value.links[link_id].arow != bad) {
-        return unsupported_pairs("incident reused");
+        return unsupported_pairs("incident already used");
       }
       out.value.links[link_id].arow = add_open(&out.value, n.id, link_id, side(out.value.links[link_id].dir));
     }
@@ -730,7 +745,7 @@ EditResult<pairs> pipeline::make(const graph& made) const {
       }
       bused[link_id] = true;
       if (out.value.links[link_id].brow != bad) {
-        return unsupported_pairs("incident reused");
+        return unsupported_pairs("incident already used");
       }
       out.value.links[link_id].brow = add_open(&out.value, n.id, link_id, side(out.value.links[link_id].dir));
     }
@@ -747,6 +762,18 @@ EditResult<pairs> pipeline::make(const graph& made) const {
 
 EditResult<intent> pipeline::make(const pairs& ps) const {
   EditResult<intent> out{};
+  auto add_row_intent = [&](std::size_t row_id, std::size_t bundle, intent_reason reason) {
+    for (row_intent& item : out.value.rows) {
+      if (item.row == row_id && item.bundle == bundle) {
+        item.lower_required = true;
+        if (item.reason == intent_reason::none) {
+          item.reason = reason;
+        }
+        return;
+      }
+    }
+    out.value.rows.push_back(row_intent{row_id, bundle, CurvePassMode::kPassThrough, true, reason});
+  };
   for (const BackboneSpec::NodeBundleModeSpec& mode : spec_.node_bundle_modes) {
     if (mode.mode != BundleNodeMode::kPassThrough) {
       continue;
@@ -782,8 +809,37 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
       out.error = "bb2 unsupported: pass-through target row is ambiguous";
       return out;
     }
-    out.value.rows.push_back(
-        row_intent{matches.front(), bundle, CurvePassMode::kPassThrough, true, intent_reason::node_mode_pass_through});
+    add_row_intent(matches.front(), bundle, intent_reason::node_mode_pass_through);
+  }
+
+  std::unordered_map<std::size_t, std::vector<std::size_t>> rows_by_node{};
+  for (const row& r : ps.rows) {
+    rows_by_node[r.node].push_back(r.id);
+  }
+  std::vector<bool> active(ps.rows.size(), false);
+  for (const link& edge : ps.links) {
+    if (!edge.is_new) {
+      continue;
+    }
+    if (edge.arow < active.size()) {
+      active[edge.arow] = true;
+    }
+    if (edge.brow < active.size()) {
+      active[edge.brow] = true;
+    }
+  }
+  for (const auto& item : rows_by_node) {
+    if (item.second.size() < 2) {
+      continue;
+    }
+    for (std::size_t row_id : item.second) {
+      if (row_id >= active.size() || !active[row_id]) {
+        continue;
+      }
+      for (std::size_t bundle = 0; bundle < spec_.bundles.size(); ++bundle) {
+        add_row_intent(row_id, bundle, intent_reason::conflicting_rows);
+      }
+    }
   }
   out.ok = true;
   return out;
@@ -871,9 +927,9 @@ EditResult<bool> pipeline::emit_bundles(topo* made, ChangeSet* changes) {
       out.error = v.error;
       return out;
     }
-    const ObjectId reused = existing_bundle_for(state_, g_, spec);
-    if (reused != kInvalidObjectId) {
-      made->bundles.push_back(reused);
+    const ObjectId resolved = resolve_existing_bundle(state_, g_, spec);
+    if (resolved != kInvalidObjectId) {
+      made->bundles.push_back(resolved);
       continue;
     }
     EditResult<ObjectId> bundle = state_.AddBundle(v.value.count, v.value.tmpl->default_spacing_m, v.value.tmpl->id);
@@ -953,6 +1009,8 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
         out.error = band.error;
         return out;
       }
+      const port_scope scope{spec_.bundles[bundle_index].bundle_template_id, port_kind(v.value.tmpl->category),
+                             port_layer(v.value.layer)};
       for (int lane = 0; lane < v.value.count; ++lane) {
         const double lane_offset =
             (static_cast<double>(lane) - (static_cast<double>(v.value.count - 1) * 0.5)) * v.value.tmpl->default_spacing_m;
@@ -961,17 +1019,18 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
         Vec3d p = g_.nodes[r.node].pos +
                   Vec3d{r.axis.x * offset + shift.x, r.axis.y * offset + shift.y, band.value.height_center_m};
         const SavedBackboneRowKey row_key = key_for(ps, tr, node_id_by_local, edge_by_link);
-        EditResult<ObjectId> reused = port_for(state_, tr.pole, row_key, static_cast<std::size_t>(lane));
-        if (!reused.ok) {
-          out.error = reused.error;
+        EditResult<ObjectId> resolved =
+            resolve_port_binding(state_, tr.pole, row_key, static_cast<std::size_t>(lane), scope);
+        if (!resolved.ok) {
+          out.error = resolved.error;
           return out;
         }
-        if (reused.value != kInvalidObjectId) {
-          tr.ports[bundle_index].push_back(reused.value);
+        if (resolved.value != kInvalidObjectId) {
+          tr.ports[bundle_index].push_back(resolved.value);
           continue;
         }
         EditResult<ObjectId> port =
-            state_.AddPort(made->poles[r.node], p, port_kind(v.value.tmpl->category), port_layer(v.value.layer));
+            state_.AddPort(made->poles[r.node], p, scope.kind, scope.layer);
         if (!port.ok) {
           out.error = port.error;
           return out;
@@ -1101,6 +1160,8 @@ rules pipeline::make(const topo& made, const intent& intents) const {
                                                            : SameLevelFeasibilityReason::kNone;
       endpoint->semantic.lower_required = source->lower_required;
       endpoint->semantic.lowering_blocked_by_policy = false;
+      endpoint->branch_down_offset_m = source->lower_required ? kLowerOffsetM : 0.0;
+      endpoint->automatic_branch_down_offset_m = source->lower_required ? kLowerOffsetM : 0.0;
     };
     apply_intent(start_intent, &rule.start);
     apply_intent(end_intent, &rule.end);
@@ -1144,6 +1205,12 @@ EditResult<layout> pipeline::make(const rules& made) const {
     target->down_offset_variation = rule.down_offset_variation;
     target->support_world = port->world_position;
     target->endpoint_world = port->world_position;
+    if (rule.default_lower_required || rule.semantic.lower_required) {
+      target->support_world.z -= kLowerOffsetM;
+      target->endpoint_world.z -= kLowerOffsetM;
+      target->branch_down_offset_m = kLowerOffsetM;
+      target->automatic_branch_down_offset_m = kLowerOffsetM;
+    }
     target->departure_dir = WorldForward();
     return true;
   };
@@ -1228,8 +1295,16 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
     if (edge.a >= node_id_by_local.size() || edge.b >= node_id_by_local.size() || edge.id >= edge_by_link.size()) {
       continue;
     }
-    edge_by_link[edge.id] =
-        state_.save_backbone_edge(node_id_by_local[edge.a], node_id_by_local[edge.b], edge.route, edge.order, edge.dir);
+    if (edge.is_new) {
+      edge_by_link[edge.id] =
+          state_.save_backbone_edge(node_id_by_local[edge.a], node_id_by_local[edge.b], edge.route, edge.order, edge.dir);
+      continue;
+    }
+    edge_by_link[edge.id] = ref_for_existing_edge(state_, g_, edge);
+    if (edge_by_link[edge.id].edge_id == kInvalidObjectId) {
+      out.error = "bb2 graph: context link saved edge missing";
+      return out;
+    }
   }
 
   for (const tspan& span : made.spans) {
@@ -1253,8 +1328,19 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
         return false;
       }
       const SavedBackboneRowKey row_key = key_for(ps, made.rows[row_index], node_id_by_local, edge_by_link);
+      const Bundle* bundle = state_.view().bundles().find(made.bundles[span.bundle]);
+      if (bundle == nullptr) {
+        out.error = "bb2 graph: bundle missing for port binding";
+        return false;
+      }
+      const Port* port = state_.view().ports().find(made.rows[row_index].ports[span.bundle][span.lane]);
+      if (port == nullptr) {
+        out.error = "bb2 graph: port missing for binding";
+        return false;
+      }
       EditResult<bool> bound =
-          state_.bind_backbone_port(edge_bundle_id, row_key, span.lane, made.rows[row_index].ports[span.bundle][span.lane]);
+          state_.bind_backbone_port(edge_bundle_id, row_key, span.lane, bundle->bundle_template_id, port->kind,
+                                    port->layer, port->id);
       if (!bound.ok) {
         out.error = bound.error;
         return false;

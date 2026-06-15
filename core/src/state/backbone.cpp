@@ -188,7 +188,8 @@ void CoreState::bind_backbone_span(ObjectId edge_bundle_id, ObjectId span_id) {
 }
 
 EditResult<bool> CoreState::bind_backbone_port(ObjectId edge_bundle_id, const SavedBackboneRowKey& row_key,
-                                               std::size_t lane_index, ObjectId port_id) {
+                                               std::size_t lane_index, BundleKind bundle_template_id,
+                                               PortKind port_kind, PortLayer port_layer, ObjectId port_id) {
   EditResult<bool> out{};
   if (edge_bundle_id == kInvalidObjectId || port_id == kInvalidObjectId || row_key.node_id == kInvalidObjectId ||
       row_key.source_edge_a == kInvalidObjectId) {
@@ -208,16 +209,33 @@ EditResult<bool> CoreState::bind_backbone_port(ObjectId edge_bundle_id, const Sa
       }
     }
   }
+  const auto port_existing = runtime_.backbone_index.port_bindings_by_port.find(port_id);
+  if (port_existing != runtime_.backbone_index.port_bindings_by_port.end()) {
+    for (std::size_t index : port_existing->second) {
+      if (index >= authoritative_.backbone.port_bindings.size()) {
+        continue;
+      }
+      const SavedBackbonePortBinding& binding = authoritative_.backbone.port_bindings[index];
+      if (binding.bundle_template_id != bundle_template_id || binding.port_kind != port_kind ||
+          binding.port_layer != port_layer) {
+        out.error = "incompatible backbone port binding";
+        return out;
+      }
+    }
+  }
 
   SavedBackbonePortBinding binding{};
   binding.edge_bundle_id = edge_bundle_id;
   binding.row_key = row_key;
   binding.lane_index = lane_index;
+  binding.bundle_template_id = bundle_template_id;
+  binding.port_kind = port_kind;
+  binding.port_layer = port_layer;
   binding.port_id = port_id;
   const std::size_t index = authoritative_.backbone.port_bindings.size();
   authoritative_.backbone.port_bindings.push_back(binding);
   runtime_.backbone_index.edge_bundle_ports[edge_bundle_id].push_back(index);
-  runtime_.backbone_index.port_binding_by_port[port_id] = index;
+  runtime_.backbone_index.port_bindings_by_port[port_id].push_back(index);
   out.value = true;
   out.ok = true;
   return out;

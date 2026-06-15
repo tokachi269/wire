@@ -215,7 +215,8 @@ private:
                                 std::size_t order, const Vec3d& dir);
   void bind_backbone_span(ObjectId edge_bundle_id, ObjectId span_id);
   EditResult<bool> bind_backbone_port(ObjectId edge_bundle_id, const SavedBackboneRowKey& row_key,
-                                      std::size_t lane_index, ObjectId port_id);
+                                      std::size_t lane_index, BundleKind bundle_template_id, PortKind port_kind,
+                                      PortLayer port_layer, ObjectId port_id);
   void cache_span_support_layout_seed(SpanSupportLayoutDecisionSeed seed);
   void cache_span_layout_rules(const SpanLayoutRules& rules);
   void cache_span_rules(const SpanLayoutRules& rules);

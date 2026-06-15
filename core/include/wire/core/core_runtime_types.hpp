@@ -160,7 +160,7 @@ struct BackboneIndex {
   std::unordered_map<ObjectId, std::vector<ObjectId>> edge_bundle_spans;
   std::unordered_map<ObjectId, ObjectId> span_edge_bundle;
   std::unordered_map<ObjectId, std::vector<std::size_t>> edge_bundle_ports;
-  std::unordered_map<ObjectId, std::size_t> port_binding_by_port;
+  std::unordered_map<ObjectId, std::vector<std::size_t>> port_bindings_by_port;
   std::unordered_map<ObjectId, ObjectId> pole_node;
 };
 

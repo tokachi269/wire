@@ -74,6 +74,7 @@ struct pairs {
 enum class intent_reason : std::uint8_t {
   none = 0,
   node_mode_pass_through = 1,
+  conflicting_rows = 2,
 };
 
 struct row_intent {

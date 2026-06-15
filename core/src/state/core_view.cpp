@@ -47,12 +47,26 @@ const SavedBackboneNode* CoreView::backbone_node_for_pole(ObjectId pole_id) cons
   return it == state_.runtime_.backbone_index.pole_node.end() ? nullptr : backbone_node(it->second);
 }
 const SavedBackbonePortBinding* CoreView::backbone_port_binding_for_port(ObjectId port_id) const {
-  const auto it = state_.runtime_.backbone_index.port_binding_by_port.find(port_id);
-  if (it == state_.runtime_.backbone_index.port_binding_by_port.end() ||
-      it->second >= state_.authoritative_.backbone.port_bindings.size()) {
+  const auto it = state_.runtime_.backbone_index.port_bindings_by_port.find(port_id);
+  if (it == state_.runtime_.backbone_index.port_bindings_by_port.end() || it->second.empty() ||
+      it->second.front() >= state_.authoritative_.backbone.port_bindings.size()) {
     return nullptr;
   }
-  return &state_.authoritative_.backbone.port_bindings[it->second];
+  return &state_.authoritative_.backbone.port_bindings[it->second.front()];
+}
+std::vector<const SavedBackbonePortBinding*> CoreView::backbone_port_bindings_for_port(ObjectId port_id) const {
+  std::vector<const SavedBackbonePortBinding*> out{};
+  const auto it = state_.runtime_.backbone_index.port_bindings_by_port.find(port_id);
+  if (it == state_.runtime_.backbone_index.port_bindings_by_port.end()) {
+    return out;
+  }
+  out.reserve(it->second.size());
+  for (std::size_t index : it->second) {
+    if (index < state_.authoritative_.backbone.port_bindings.size()) {
+      out.push_back(&state_.authoritative_.backbone.port_bindings[index]);
+    }
+  }
+  return out;
 }
 std::vector<const SavedBackbonePortBinding*> CoreView::backbone_port_bindings_for_edge_bundle(
     ObjectId edge_bundle_id) const {

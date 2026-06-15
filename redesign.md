@@ -786,3 +786,20 @@ bb2 は layout/geom から最小 draw output を保存する。draw は topology
 * draw が v1/recalc rebuild 経路を呼ぶ。
 * geometry 比較や position proximity から support visual を推測する。
 * support arm / insulator / attachment の本格仕様を M28 に混ぜる。
+
+## bb2 milestone 29
+
+bb2 は saved backbone graph を持たない既存 scene を暗黙 migration しない。既存 pole を `node_specs` で指定する場合、その pole は saved graph node を持っている必要がある。
+
+対応:
+
+* all-new route はこれまで通り bb2 が saved graph を作る。
+* bb2 生成済み pole は saved graph node を持つため、追加 route の既存 node として使える。
+* saved graph node を持たない既存 pole は unsupported にする。
+* migration/import は M29 では実装しない。
+
+禁止:
+
+* span / layout / seed / curve / port 位置から saved graph を推測する。
+* existing pole を見つけた時に bb2 がその場で saved graph node を作って取り込む。
+* v1 scene を fallback として暗黙に bb2 graph へ変換する。

@@ -494,6 +494,9 @@ EditResult<bool> pipeline::prepare() {
       n.pos = pole->world_transform.position;
       if (const SavedBackboneNode* saved = state_.view().backbone_node_for_pole(pole->id); saved != nullptr) {
         n.saved = saved->node_id;
+      } else {
+        out.error = "bb2 unsupported: saved backbone graph missing for existing pole";
+        return out;
       }
       n.is_new = false;
     }

@@ -1132,17 +1132,22 @@ bool C408_bb2_existing_pole_uses_actual_pole_type_height() {
   if (existing_type == wire::core::kInvalidPoleTypeId || existing_z < 0.0) {
     return false;
   }
-  wire::core::Transformd tf{};
-  tf.position = {0.0, 0.0, 0.0};
-  const auto pole = state.AddPole(tf, 10.0, "existing", wire::core::PoleKind::kConcrete);
-  if (!pole.ok || !state.ApplyPoleType(pole.value, existing_type).ok) {
+  wire::core::BackboneSpec first = line_req(state);
+  first.pole_type_id = existing_type;
+  const auto first_out = state.GenerateFromBackboneSpec(first);
+  if (!first_out.ok || first_out.value.generated_pole_ids.empty()) {
     return false;
   }
-  req.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}};
+  const wire::core::ObjectId pole = first_out.value.generated_pole_ids.front();
+  const auto* existing_pole = state.view().poles().find(pole);
+  if (existing_pole == nullptr) {
+    return false;
+  }
+  req.path.polyline = {existing_pole->world_transform.position, {0.0, 10.0, 0.0}};
   wire::core::BackboneInputSpec::NodeSpec node{};
   node.point_index = 0;
   node.support_kind = wire::core::SupportKind::kPole;
-  node.node_id = pole.value;
+  node.node_id = pole;
   req.path.node_specs.push_back(node);
   const auto out = state.GenerateFromBackboneSpec(req);
   if (!out.ok || out.value.generated_span_ids.empty()) {
@@ -1161,7 +1166,7 @@ bool C408_bb2_existing_pole_uses_actual_pole_type_height() {
       return false;
     }
     for (const wire::core::Port* port : {a, b}) {
-      if (port->owner_pole_id == pole.value) {
+      if (port->owner_pole_id == pole) {
         saw_existing = true;
         if (!almost_equal(port->world_position.z, existing_z, 1e-9)) {
           return false;
@@ -2590,28 +2595,36 @@ bool C487_bb2_port_resolution_requires_bundle_compatible_scope() {
 
 bool C472_bb2_port_resolution_requires_saved_binding() {
   wire::core::CoreState state;
-  wire::core::BackboneSpec req = line_req(state);
-  wire::core::Transformd ta{};
-  ta.position = req.path.polyline[0];
-  wire::core::Transformd tb{};
-  tb.position = req.path.polyline[1];
-  const auto pa = state.AddPole(ta);
-  const auto pb = state.AddPole(tb);
-  if (!pa.ok || !pb.ok || !state.ApplyPoleType(pa.value, req.pole_type_id).ok ||
-      !state.ApplyPoleType(pb.value, req.pole_type_id).ok) {
+  const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!first.ok || first.value.generated_pole_ids.size() != 3) {
+    return false;
+  }
+  const wire::core::ObjectId b = first.value.generated_pole_ids[1];
+  const auto* pole_b = state.view().poles().find(b);
+  if (pole_b == nullptr) {
     return false;
   }
   const auto manual_a =
-      state.AddPort(pa.value, {0.0, 0.0, 9.2}, wire::core::PortKind::kPower, wire::core::PortLayer::kLowVoltage);
-  const auto manual_b =
-      state.AddPort(pb.value, {12.0, 0.0, 9.2}, wire::core::PortKind::kPower, wire::core::PortLayer::kLowVoltage);
-  if (!manual_a.ok || !manual_b.ok) {
+      state.AddPort(b, pole_b->world_transform.position + wire::core::Vec3d{0.0, 0.0, 9.2},
+                    wire::core::PortKind::kPower, wire::core::PortLayer::kLowVoltage);
+  if (!manual_a.ok) {
     return false;
   }
   const std::size_t before = state.view().ports().size();
-  req.path.node_specs = {pole_spec(0, pa.value), pole_spec(1, pb.value)};
-  const auto out = state.GenerateFromBackboneSpec(req);
-  return out.ok && state.view().ports().size() > before;
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {pole_b->world_transform.position, {20.0, 0.0, 0.0}};
+  branch.path.node_specs = {pole_spec(0, b)};
+  const auto out = state.GenerateFromBackboneSpec(branch);
+  if (!out.ok || state.view().ports().size() <= before) {
+    return false;
+  }
+  for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
+    const wire::core::Span* span = state.view().spans().find(span_id);
+    if (span == nullptr || span->port_a_id == manual_a.value || span->port_b_id == manual_a.value) {
+      return false;
+    }
+  }
+  return true;
 }
 
 bool C473_bb2_resolved_port_used_by_new_span_endpoint() {
@@ -3371,6 +3384,64 @@ bool C514_bb2_draw_save_is_direct() {
          !contains_text(body, "cache_rebuilt_span_geometry") && !contains_text(body, "dirty");
 }
 
+bool C515_bb2_rejects_existing_pole_without_saved_graph() {
+  wire::core::CoreState state;
+  wire::core::Transformd tf{};
+  tf.position = {0.0, 0.0, 0.0};
+  const auto pole = state.AddPole(tf);
+  if (!pole.ok) {
+    return false;
+  }
+  const std::size_t pole_count = state.view().poles().size();
+  const std::size_t span_count = state.view().spans().size();
+  const std::size_t graph_nodes = state.view().backbone().nodes.size();
+  const std::size_t graph_edges = state.view().backbone().edges.size();
+  wire::core::BackboneSpec req = line_req(state);
+  req.path.polyline = {tf.position, {12.0, 0.0, 0.0}};
+  req.path.node_specs = {pole_spec(0, pole.value)};
+  const auto out = state.GenerateFromBackboneSpec(req);
+  return !out.ok && contains_text(out.error, "saved backbone graph missing") &&
+         state.view().poles().size() == pole_count && state.view().spans().size() == span_count &&
+         state.view().backbone().nodes.size() == graph_nodes && state.view().backbone().edges.size() == graph_edges;
+}
+
+bool C516_bb2_generated_pole_with_saved_graph_still_connects() {
+  wire::core::CoreState state;
+  const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!first.ok || first.value.generated_pole_ids.size() != 3) {
+    return false;
+  }
+  const wire::core::ObjectId b = first.value.generated_pole_ids[1];
+  const auto* pole_b = state.view().poles().find(b);
+  if (pole_b == nullptr || state.view().backbone_node_for_pole(b) == nullptr) {
+    return false;
+  }
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {pole_b->world_transform.position, {20.0, 0.0, 0.0}};
+  branch.path.node_specs = {pole_spec(0, b)};
+  const auto second = state.GenerateFromBackboneSpec(branch);
+  return second.ok && !second.value.generated_span_ids.empty() && state.view().pole_frontier(b).edge_ids.size() == 3;
+}
+
+bool C517_bb2_migration_gate_does_not_infer_from_outputs() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+  std::string cpp;
+  if (!file_text(source, &cpp)) {
+    return false;
+  }
+  const std::size_t fn_pos = cpp.find("EditResult<bool> pipeline::prepare()");
+  const std::size_t next_pos = cpp.find("EditResult<bool> pipeline::check() const", fn_pos);
+  if (fn_pos == std::string::npos || next_pos == std::string::npos) {
+    return false;
+  }
+  const std::string body = cpp.substr(fn_pos, next_pos - fn_pos);
+  return contains_text(body, "backbone_node_for_pole") &&
+         contains_text(body, "saved backbone graph missing for existing pole") &&
+         !contains_text(body, ".spans") && !contains_text(body, "span_layout") &&
+         !contains_text(body, "find_curve_cache") && !contains_text(body, "find_bounds_cache") &&
+         !contains_text(body, "save_backbone_node");
+}
+
 bool span_has_lowered_endpoint(const wire::core::CoreState& state, wire::core::ObjectId span_id) {
   const wire::core::Span* span = state.view().spans().find(span_id);
   const wire::core::SpanLayoutView layout = state.span_layout(span_id);
@@ -4004,6 +4075,15 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C514_bb2_draw_save_is_direct",
                          "bb2 draw save is direct", "Boundary", false,
                          C514_bb2_draw_save_is_direct);
+  test_registry::AddTest(tests, "C515_bb2_rejects_existing_pole_without_saved_graph",
+                         "bb2 rejects existing poles without saved graph", "Boundary", true,
+                         C515_bb2_rejects_existing_pole_without_saved_graph);
+  test_registry::AddTest(tests, "C516_bb2_generated_pole_with_saved_graph_still_connects",
+                         "bb2 generated poles with saved graph still connect", "Boundary", false,
+                         C516_bb2_generated_pole_with_saved_graph_still_connects);
+  test_registry::AddTest(tests, "C517_bb2_migration_gate_does_not_infer_from_outputs",
+                         "bb2 migration gate does not infer from outputs", "Boundary", false,
+                         C517_bb2_migration_gate_does_not_infer_from_outputs);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

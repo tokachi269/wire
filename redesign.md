@@ -679,7 +679,7 @@ bb2 は pass-through node mode と lowering intent を rules/layout に保存す
 
 対応:
 
-* `BundleNodeMode::kPassThrough` は saved junction context のある existing node に限定して受ける。
+* `BundleNodeMode::kPassThrough` は current route の一意な interior pair、または saved junction context のある existing node に限定して受ける。
 * kPassThrough は pair/open/row の決定には使わない。
 * pass-through 対象 row は generated route 上の active row から一意に決める。
 * 対象 row が一意でなければ unsupported にする。
@@ -863,7 +863,7 @@ Supported:
 * duplicate same edge_bundle + lane is rejected before `AddPole` / `AddPort` / `AddBundle` / `AddSpan`.
 * `constraints.lateral_offset_m` is a port placement offset.
 * `BundleNodeMode::kNotPresent` is accepted as no-op after validation.
-* `BundleNodeMode::kPassThrough` is accepted only for the limited saved-junction scope where target row intent is unambiguous.
+* `BundleNodeMode::kPassThrough` is accepted only for a unique current-route interior pair or the limited saved-junction scope where target row intent is unambiguous.
 * generated outputs include poles / bundles / ports / spans, saved backbone graph bindings, span rules, layout, geom, and minimal draw caches.
 
 Unsupported:
@@ -905,6 +905,7 @@ Scenarios:
 * same saved edge with different bundle: saved edge is shared and edge_bundle is bundle-scoped.
 * duplicate same edge_bundle + lane: request is unsupported and state remains unchanged.
 * pass-through lowering: pair/open authority is unchanged; layout, geom, and draw consume the lowering result.
+* new-route interior pass-through: a three-point route with `kPassThrough` at the middle point is supported when the current route provides exactly one target pair row; no saved junction context is required for that case.
 
 ## bb2 mutation boundary hardening
 

@@ -425,6 +425,30 @@ EditResult<pairs> unsupported_pairs(std::string reason) {
   return out;
 }
 
+bool has_current_route_pair_at(const graph& made, std::size_t node_id) {
+  const link* incoming = nullptr;
+  const link* outgoing = nullptr;
+  for (const link& edge : made.links) {
+    if (!edge.is_new) {
+      continue;
+    }
+    if (edge.b == node_id) {
+      if (incoming != nullptr) {
+        return false;
+      }
+      incoming = &edge;
+    }
+    if (edge.a == node_id) {
+      if (outgoing != nullptr) {
+        return false;
+      }
+      outgoing = &edge;
+    }
+  }
+  return incoming != nullptr && outgoing != nullptr && incoming->route == outgoing->route &&
+         incoming->order + 1 == outgoing->order;
+}
+
 std::size_t add_open(pairs* out, std::size_t node_id, std::size_t link_id, const Vec3d& axis) {
   const std::size_t open_id = out->opens.size();
   out->opens.push_back(open{open_id, node_id, link_id, axis});
@@ -627,12 +651,18 @@ EditResult<bool> pipeline::check() const {
     }
     if (mode.mode == BundleNodeMode::kPassThrough) {
       const std::size_t local = local_point(spec_, mode.point_index);
-      if (local == bad || local >= g_.nodes.size() || g_.nodes[local].saved == kInvalidObjectId) {
-        return unsupported("pass-through node mode requires saved node");
+      if (local == bad || local >= g_.nodes.size()) {
+        return unsupported("pass-through node mode point is missing");
+      }
+      if (has_current_route_pair_at(g_, local)) {
+        continue;
+      }
+      if (g_.nodes[local].saved == kInvalidObjectId) {
+        return unsupported("pass-through node mode requires current route pair or saved node");
       }
       const auto incident_it = state_.view().backbone_index().node_edges.find(g_.nodes[local].saved);
       if (incident_it == state_.view().backbone_index().node_edges.end() || incident_it->second.size() < 2) {
-        return unsupported("pass-through node mode requires saved junction context");
+        return unsupported("pass-through node mode requires current route pair or saved junction context");
       }
       continue;
     }

@@ -1395,7 +1395,7 @@ bool C416_bb2_node_mode_not_present_is_noop() {
   return true;
 }
 
-bool C417_bb2_node_mode_pass_through_rejected() {
+bool C417_bb2_node_mode_pass_through_without_target_rejected() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   wire::core::BackboneSpec::NodeBundleModeSpec mode{};
@@ -2908,6 +2908,16 @@ wire::core::BackboneSpec pass_branch_req(wire::core::CoreState& state, wire::cor
   return branch;
 }
 
+wire::core::BackboneSpec pass_poly3_req(wire::core::CoreState& state) {
+  wire::core::BackboneSpec req = poly3_req(state);
+  wire::core::BackboneSpec::NodeBundleModeSpec mode{};
+  mode.point_index = 1;
+  mode.bundle_template_id = wire::core::BundleKind::kLowVoltage;
+  mode.mode = wire::core::BundleNodeMode::kPassThrough;
+  req.node_bundle_modes = {mode};
+  return req;
+}
+
 bool C481_bb2_pass_through_mode_is_accepted_in_limited_scope() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
@@ -4004,6 +4014,31 @@ bool C542_bb2_usable_mainline_architecture_audit_passes() {
          C537_bb2_draw_source_has_no_decision_inputs() && C523_bb2_scope_gate_matches_entrypoint();
 }
 
+bool C543_bb2_new_route_interior_pass_through_supported() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = pass_poly3_req(state);
+  const int count = req_bundle_count(state, req);
+  const auto out = state.GenerateFromBackboneSpec(req);
+  if (!out.ok || out.value.generated_pole_ids.size() != 3 ||
+      out.value.generated_span_ids.size() != static_cast<std::size_t>(count * 2)) {
+    return false;
+  }
+  const wire::core::SavedBackboneGraph& graph = state.view().backbone();
+  if (graph.nodes.size() != 3 || graph.edges.size() != 2 || graph.edge_bundles.size() != 2) {
+    return false;
+  }
+  bool saw_lowered = false;
+  for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
+    if (!state.span_layout_rules(span_id).has_rule() || !state.span_layout(span_id).has_layout() ||
+        state.find_curve_cache(span_id) == nullptr || state.find_bounds_cache(span_id) == nullptr ||
+        state.find_span_visual_cache(span_id) == nullptr || state.view().find_span_render_cache(span_id) == nullptr) {
+      return false;
+    }
+    saw_lowered = saw_lowered || span_has_lowered_endpoint(state, span_id);
+  }
+  return saw_lowered;
+}
+
 void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C368_bb2_smoke_line", "bb2 generates the milestone-1 line slice", "Invariant", false,
                          C368_bb2_smoke_line);
@@ -4120,9 +4155,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C416_bb2_node_mode_not_present_is_noop",
                          "bb2 accepts kNotPresent node modes as no-op", "Invariant", false,
                          C416_bb2_node_mode_not_present_is_noop);
-  test_registry::AddTest(tests, "C417_bb2_node_mode_pass_through_rejected",
-                         "bb2 rejects pass-through node modes", "Boundary", true,
-                         C417_bb2_node_mode_pass_through_rejected);
+  test_registry::AddTest(tests, "C417_bb2_node_mode_pass_through_without_target_rejected",
+                         "bb2 rejects pass-through node modes without a target row", "Boundary", true,
+                         C417_bb2_node_mode_pass_through_without_target_rejected);
   test_registry::AddTest(tests, "C418_bb2_node_mode_unknown_bundle_rejected",
                          "bb2 rejects node modes for bundles absent from the request", "Boundary", true,
                          C418_bb2_node_mode_unknown_bundle_rejected);
@@ -4498,6 +4533,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C542_bb2_usable_mainline_architecture_audit_passes",
                          "bb2 usable mainline architecture audit passes", "Boundary", false,
                          C542_bb2_usable_mainline_architecture_audit_passes);
+  test_registry::AddTest(tests, "C543_bb2_new_route_interior_pass_through_supported",
+                         "bb2 supports pass-through on a new route interior point", "Boundary", false,
+                         C543_bb2_new_route_interior_pass_through_supported);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

@@ -961,6 +961,25 @@ EditResult<bool> pipeline::check(const pairs& ps) const {
         }
         const Bundle* bundle = state_.view().bundles().find(edge_bundle->bundle_id);
         if (bundle != nullptr && bundle->bundle_template_id == spec.bundle_template_id) {
+          const auto spans_it = state_.view().backbone_index().edge_bundle_span_bindings.find(edge_bundle_id);
+          if (spans_it != state_.view().backbone_index().edge_bundle_span_bindings.end()) {
+            const SavedBackboneGraph& graph = state_.view().backbone();
+            EditResult<spec_view> v = view_for(state_, spec);
+            if (!v.ok) {
+              EditResult<bool> error{};
+              error.error = v.error;
+              return error;
+            }
+            for (std::size_t index : spans_it->second) {
+              if (index >= graph.span_bindings.size()) {
+                continue;
+              }
+              const SavedBackboneSpanBinding& binding = graph.span_bindings[index];
+              if (binding.lane_index < static_cast<std::size_t>(v.value.count)) {
+                return unsupported("duplicate saved span binding");
+              }
+            }
+          }
           return unsupported("duplicate saved edge bundle");
         }
       }
@@ -1267,7 +1286,6 @@ EditResult<layout> pipeline::make(const rules& made) const {
     target->endpoint_world = port->world_position;
     if (rule.default_lower_required || rule.semantic.lower_required) {
       const double lower_offset = rule.branch_down_offset_m > 0.0 ? rule.branch_down_offset_m : rule.automatic_branch_down_offset_m;
-      target->support_world.z -= lower_offset;
       target->endpoint_world.z -= lower_offset;
       target->branch_down_offset_m = lower_offset;
       target->automatic_branch_down_offset_m = lower_offset;
@@ -1336,10 +1354,7 @@ draw pipeline::make(const layout& placed, const geom& shaped) const {
       if (!endpoint.default_lower_required && !endpoint.lower_required) {
         return;
       }
-      Vec3d support = endpoint.support_world;
-      if (len(endpoint.endpoint_world - support) <= 1e-9 && endpoint.branch_down_offset_m > 0.0) {
-        support.z += endpoint.branch_down_offset_m;
-      }
+      const Vec3d support = endpoint.support_world;
       if (len(endpoint.endpoint_world - support) <= 1e-9) {
         return;
       }

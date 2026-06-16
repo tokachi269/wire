@@ -803,3 +803,22 @@ bb2 は saved backbone graph を持たない既存 scene を暗黙 migration し
 * span / layout / seed / curve / port 位置から saved graph を推測する。
 * existing pole を見つけた時に bb2 がその場で saved graph node を作って取り込む。
 * v1 scene を fallback として暗黙に bb2 graph へ変換する。
+
+## Post-M29 bb2 quality fix
+
+M30 へ進む前に、M29 後に残った境界品質を固定する。
+
+対応:
+
+* lowered layout は `support_world` を port の world position に保つ。
+* lowered layout は `endpoint_world` だけを `lower_offset` 分下げる。
+* draw placeholder は `LayoutEndpoint.support_world -> endpoint_world` の線分だけを使う。
+* draw は `branch_down_offset_m` から support point を復元しない。
+* duplicate same edge bundle + lane は emit 前の `check(ps)` で saved span binding を読んで reject する。
+* `bind_backbone_span` の duplicate failure は保存時 invariant として残す。
+
+禁止:
+
+* draw が lowering offset から support を再構成する。
+* duplicate reject のために port/span/bundle を先に生成して rollback 前提にする。
+* duplicate 判定で span geometry、existing layout/seed、port position を読む。

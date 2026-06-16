@@ -1816,7 +1816,7 @@ bool C434_bb2_reverse_duplicate_same_bundle_rejected() {
   na.node_id = a;
   second.path.node_specs = {nb, na};
   const auto second_out = state.GenerateFromBackboneSpec(second);
-  return !second_out.ok && contains_text(second_out.error, "duplicate saved edge bundle") &&
+  return !second_out.ok && contains_text(second_out.error, "duplicate saved span binding") &&
          state.view().backbone().edges.size() == 1 && state.view().backbone().edge_bundles.size() == 1 &&
          state.view().backbone().edge_bundles.front().span_ids.size() == first.value.generated_span_ids.size();
 }
@@ -1847,7 +1847,7 @@ bool C435_bb2_edge_metadata_is_not_overwritten_on_duplicate_reject() {
   na.node_id = a;
   second.path.node_specs = {nb, na};
   const auto second_out = state.GenerateFromBackboneSpec(second);
-  if (second_out.ok || !contains_text(second_out.error, "duplicate saved edge bundle") ||
+  if (second_out.ok || !contains_text(second_out.error, "duplicate saved span binding") ||
       state.view().backbone().edges.size() != 1) {
     return false;
   }
@@ -2344,7 +2344,7 @@ bool C463_bb2_duplicate_same_edge_bundle_rejected() {
   second.path.polyline = {pa->world_transform.position, pb->world_transform.position};
   second.path.node_specs = {pole_spec(0, a), pole_spec(1, b)};
   const auto second_out = state.GenerateFromBackboneSpec(second);
-  return !second_out.ok && contains_text(second_out.error, "duplicate saved edge bundle") &&
+  return !second_out.ok && contains_text(second_out.error, "duplicate saved span binding") &&
          state.view().backbone().edges.size() == edge_count &&
          state.view().backbone().edge_bundles.size() == edge_bundle_count && state.view().spans().size() == span_count &&
          state.view().backbone().edge_bundles.front().span_ids.size() == saved_span_count;
@@ -2414,7 +2414,7 @@ bool C466_bb2_duplicate_reject_keeps_state_unchanged() {
   second.path.node_specs = {pole_spec(0, a), pole_spec(1, b)};
   const auto second_out = state.GenerateFromBackboneSpec(second);
   const wire::core::BackboneFrontier frontier = state.view().pole_frontier(a);
-  return !second_out.ok && contains_text(second_out.error, "duplicate saved edge bundle") &&
+  return !second_out.ok && contains_text(second_out.error, "duplicate saved span binding") &&
          state.view().poles().size() == pole_count && state.view().ports().size() == port_count &&
          state.view().bundles().size() == bundle_count_before && state.view().spans().size() == span_count &&
          state.view().backbone().edges.size() == edge_count &&
@@ -2487,7 +2487,7 @@ bool C469_bb2_row_port_binding_rejects_duplicate_without_resolution() {
   duplicate.path.polyline = {pa->world_transform.position, pb->world_transform.position};
   duplicate.path.node_specs = {pole_spec(0, a), pole_spec(1, b)};
   const auto second = state.GenerateFromBackboneSpec(duplicate);
-  return !second.ok && contains_text(second.error, "duplicate saved edge bundle") &&
+  return !second.ok && contains_text(second.error, "duplicate saved span binding") &&
          state.view().backbone().port_bindings.size() == before;
 }
 
@@ -3442,6 +3442,125 @@ bool C517_bb2_migration_gate_does_not_infer_from_outputs() {
          !contains_text(body, "save_backbone_node");
 }
 
+bool C518_bb2_lowered_layout_keeps_support_world_at_port_height() {
+  wire::core::CoreState state;
+  const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!first.ok || first.value.generated_pole_ids.size() != 3) {
+    return false;
+  }
+  const wire::core::ObjectId b = first.value.generated_pole_ids[1];
+  const auto* pole_b = state.view().poles().find(b);
+  if (pole_b == nullptr) {
+    return false;
+  }
+  const auto second = state.GenerateFromBackboneSpec(pass_branch_req(state, b, pole_b->world_transform.position));
+  if (!second.ok || second.value.generated_span_ids.empty()) {
+    return false;
+  }
+  for (wire::core::ObjectId span_id : second.value.generated_span_ids) {
+    const wire::core::SpanLayoutView layout = state.span_layout(span_id);
+    if (!layout.has_layout()) {
+      return false;
+    }
+    const auto endpoint_ok = [&](const wire::core::LayoutEndpoint& endpoint) {
+      if (!endpoint.default_lower_required && !endpoint.lower_required) {
+        return false;
+      }
+      const wire::core::Port* port = state.view().ports().find(endpoint.port_id);
+      if (port == nullptr) {
+        return false;
+      }
+      const double lower_offset =
+          endpoint.branch_down_offset_m > 0.0 ? endpoint.branch_down_offset_m : endpoint.automatic_branch_down_offset_m;
+      return lower_offset > 0.0 && almost_equal(endpoint.support_world.z, port->world_position.z, 1e-9) &&
+             almost_equal(endpoint.endpoint_world.z, port->world_position.z - lower_offset, 1e-9);
+    };
+    if (endpoint_ok(layout.entry->start) || endpoint_ok(layout.entry->end)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool C519_bb2_draw_placeholder_uses_layout_points() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+  std::string cpp;
+  if (!file_text(source, &cpp)) {
+    return false;
+  }
+  const std::size_t fn_pos = cpp.find("draw pipeline::make(const layout& placed, const geom& shaped) const");
+  const std::size_t next_pos = cpp.find("void pipeline::save(const rules& made)", fn_pos);
+  if (fn_pos == std::string::npos || next_pos == std::string::npos) {
+    return false;
+  }
+  const std::string body = cpp.substr(fn_pos, next_pos - fn_pos);
+  if (contains_text(body, "branch_down_offset_m")) {
+    return false;
+  }
+
+  wire::core::CoreState state;
+  const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!first.ok || first.value.generated_pole_ids.size() != 3) {
+    return false;
+  }
+  const wire::core::ObjectId b = first.value.generated_pole_ids[1];
+  const auto* pole_b = state.view().poles().find(b);
+  if (pole_b == nullptr) {
+    return false;
+  }
+  const auto second = state.GenerateFromBackboneSpec(pass_branch_req(state, b, pole_b->world_transform.position));
+  if (!second.ok || second.value.generated_span_ids.empty()) {
+    return false;
+  }
+  for (wire::core::ObjectId span_id : second.value.generated_span_ids) {
+    const wire::core::SpanLayoutView layout = state.span_layout(span_id);
+    const wire::core::SpanVisualCacheEntry* visual = state.find_span_visual_cache(span_id);
+    if (!layout.has_layout() || visual == nullptr) {
+      return false;
+    }
+    auto part_matches = [&](const wire::core::LayoutEndpoint& endpoint) {
+      if (!endpoint.default_lower_required && !endpoint.lower_required) {
+        return false;
+      }
+      for (const wire::core::VisualPart& part : visual->parts) {
+        if (almost_equal(part.a, endpoint.support_world, 1e-9) &&
+            almost_equal(part.b, endpoint.endpoint_world, 1e-9)) {
+          return true;
+        }
+      }
+      return false;
+    };
+    if (part_matches(layout.entry->start) || part_matches(layout.entry->end)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool C520_bb2_duplicate_span_binding_preflight_before_emit() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+  std::string cpp;
+  if (!file_text(source, &cpp)) {
+    return false;
+  }
+  const std::size_t build_pos = cpp.find("EditResult<GenerateBundleFromPathResult> pipeline::build()");
+  const std::size_t check_call = cpp.find("EditResult<bool> duplicates = check(ps.value)", build_pos);
+  const std::size_t emit_call = cpp.find("EditResult<topo> made = emit(ps.value)", build_pos);
+  if (build_pos == std::string::npos || check_call == std::string::npos || emit_call == std::string::npos ||
+      check_call > emit_call) {
+    return false;
+  }
+  const std::size_t fn_pos = cpp.find("EditResult<bool> pipeline::check(const pairs& ps) const");
+  const std::size_t next_pos = cpp.find("EditResult<bool> pipeline::emit_bundles", fn_pos);
+  if (fn_pos == std::string::npos || next_pos == std::string::npos) {
+    return false;
+  }
+  const std::string body = cpp.substr(fn_pos, next_pos - fn_pos);
+  return contains_text(body, "edge_bundle_span_bindings") && contains_text(body, "span_bindings") &&
+         contains_text(body, "lane_index") && !contains_text(body, "AddPort") && !contains_text(body, "AddSpan") &&
+         !contains_text(body, "AddBundle");
+}
+
 bool span_has_lowered_endpoint(const wire::core::CoreState& state, wire::core::ObjectId span_id) {
   const wire::core::Span* span = state.view().spans().find(span_id);
   const wire::core::SpanLayoutView layout = state.span_layout(span_id);
@@ -4084,6 +4203,15 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C517_bb2_migration_gate_does_not_infer_from_outputs",
                          "bb2 migration gate does not infer from outputs", "Boundary", false,
                          C517_bb2_migration_gate_does_not_infer_from_outputs);
+  test_registry::AddTest(tests, "C518_bb2_lowered_layout_keeps_support_world_at_port_height",
+                         "bb2 lowered layout keeps support world at port height", "Boundary", false,
+                         C518_bb2_lowered_layout_keeps_support_world_at_port_height);
+  test_registry::AddTest(tests, "C519_bb2_draw_placeholder_uses_layout_points",
+                         "bb2 draw placeholder uses layout points", "Boundary", false,
+                         C519_bb2_draw_placeholder_uses_layout_points);
+  test_registry::AddTest(tests, "C520_bb2_duplicate_span_binding_preflight_before_emit",
+                         "bb2 duplicate span binding preflight runs before emit", "Boundary", false,
+                         C520_bb2_duplicate_span_binding_preflight_before_emit);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

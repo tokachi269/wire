@@ -887,3 +887,21 @@ Boundary:
 * geom consumes layout.
 * draw consumes layout / geom and does not repair `support_world` from `branch_down_offset_m`.
 * existing span / layout / seed / materialization result and position proximity are not meaning inputs.
+
+## bb2 scenario acceptance pack
+
+Phase: usable mainline scenario coverage.
+
+Each scenario acceptance combines result checks with at least one authority or negative boundary check.
+
+Scenarios:
+
+* simple two-point line: generated topology, rules, layout, geom, draw, and saved graph exist; bb2 production source avoids v1 generation dependencies.
+* three-point polyline: link / pair / open / row are decided once; rules consume topology and placement groups rather than recalculating connectivity.
+* multiple bundles: bundle specs generate multiple outputs while sharing the same pair/open/row authority.
+* existing pole continuation: saved graph nodes are accepted, manual/v1 poles without saved graph are rejected, existing spans are not meaning input.
+* existing branch B-D on A-B-C: only the new route is emitted; context A-B/B-C links are not emitted or saved again.
+* existing cross D-B-E on A-B-C: pair+pair context is handled without T/cross/branch kind labels.
+* same saved edge with different bundle: saved edge is shared and edge_bundle is bundle-scoped.
+* duplicate same edge_bundle + lane: request is unsupported and state remains unchanged.
+* pass-through lowering: pair/open authority is unchanged; layout, geom, and draw consume the lowering result.

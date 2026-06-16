@@ -3843,6 +3843,54 @@ bool C501_bb2_gate3_contract_passes() {
          save_call < context_ref;
 }
 
+bool C524_bb2_scenario_simple_line_mainline() {
+  return C379_bb2_m1_required_outputs() && C511_bb2_draw_saved_from_geom() &&
+         C424_bb2_saves_backbone_graph_nodes_edges() && C370_bb2_no_v1_deps();
+}
+
+bool C525_bb2_scenario_polyline3_connectivity_once() {
+  return C388_bb2_polyline3_pair_model() && C392_bb2_polyline3_outputs() &&
+         C422_bb2_rules_consume_topo_and_groups();
+}
+
+bool C526_bb2_scenario_multiple_bundles_share_connectivity() {
+  return C400_bb2_multiple_bundles_smoke() && C401_bb2_multiple_bundles_polyline3_outputs() &&
+         C402_bb2_bundle_spec_does_not_affect_pairs();
+}
+
+bool C527_bb2_scenario_existing_pole_continuation_uses_saved_graph() {
+  return C516_bb2_generated_pole_with_saved_graph_still_connects() &&
+         C515_bb2_rejects_existing_pole_without_saved_graph() &&
+         C396_bb2_existing_pole_does_not_read_existing_spans();
+}
+
+bool C528_bb2_scenario_branch_emits_new_link_only() {
+  return C458_bb2_existing_branch_BD_on_ABC() && C460_bb2_context_links_are_not_emitted() &&
+         C499_bb2_context_link_is_not_saved();
+}
+
+bool C529_bb2_scenario_cross_without_kind_label() {
+  return C459_bb2_existing_cross_DBE_on_ABC() && C462_bb2_no_junction_kind_after_existing_context() &&
+         C477_bb2_cross_rows_are_separated_without_cross_kind();
+}
+
+bool C530_bb2_scenario_same_edge_different_bundle() {
+  return C464_bb2_different_bundle_on_same_edge_allowed() &&
+         C432_bb2_multiple_bundles_create_multiple_edge_bundles() &&
+         C487_bb2_port_resolution_requires_bundle_compatible_scope();
+}
+
+bool C531_bb2_scenario_duplicate_reject_unchanged() {
+  return C490_bb2_duplicate_same_edge_bundle_lane_rejected() &&
+         C466_bb2_duplicate_reject_keeps_state_unchanged() &&
+         C520_bb2_duplicate_span_binding_preflight_before_emit();
+}
+
+bool C532_bb2_scenario_pass_through_lowering_consumer_chain() {
+  return C491_bb2_branch_lowering_v1_affects_geom() && C493_bb2_pass_through_does_not_change_pair_open() &&
+         C519_bb2_draw_placeholder_uses_layout_points();
+}
+
 void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C368_bb2_smoke_line", "bb2 generates the milestone-1 line slice", "Invariant", false,
                          C368_bb2_smoke_line);
@@ -4280,6 +4328,33 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C523_bb2_scope_gate_matches_entrypoint",
                          "bb2 scope gate matches the entrypoint", "Boundary", false,
                          C523_bb2_scope_gate_matches_entrypoint);
+  test_registry::AddTest(tests, "C524_bb2_scenario_simple_line_mainline",
+                         "bb2 simple line scenario covers outputs and authority", "Boundary", false,
+                         C524_bb2_scenario_simple_line_mainline);
+  test_registry::AddTest(tests, "C525_bb2_scenario_polyline3_connectivity_once",
+                         "bb2 polyline scenario keeps connectivity authority single", "Boundary", false,
+                         C525_bb2_scenario_polyline3_connectivity_once);
+  test_registry::AddTest(tests, "C526_bb2_scenario_multiple_bundles_share_connectivity",
+                         "bb2 multiple-bundle scenario shares connectivity", "Boundary", false,
+                         C526_bb2_scenario_multiple_bundles_share_connectivity);
+  test_registry::AddTest(tests, "C527_bb2_scenario_existing_pole_continuation_uses_saved_graph",
+                         "bb2 existing-pole continuation scenario uses saved graph", "Boundary", false,
+                         C527_bb2_scenario_existing_pole_continuation_uses_saved_graph);
+  test_registry::AddTest(tests, "C528_bb2_scenario_branch_emits_new_link_only",
+                         "bb2 branch scenario emits only the new link", "Boundary", false,
+                         C528_bb2_scenario_branch_emits_new_link_only);
+  test_registry::AddTest(tests, "C529_bb2_scenario_cross_without_kind_label",
+                         "bb2 cross scenario runs without kind labels", "Boundary", false,
+                         C529_bb2_scenario_cross_without_kind_label);
+  test_registry::AddTest(tests, "C530_bb2_scenario_same_edge_different_bundle",
+                         "bb2 same-edge different-bundle scenario shares saved edge", "Boundary", false,
+                         C530_bb2_scenario_same_edge_different_bundle);
+  test_registry::AddTest(tests, "C531_bb2_scenario_duplicate_reject_unchanged",
+                         "bb2 duplicate scenario rejects without mutation", "Boundary", false,
+                         C531_bb2_scenario_duplicate_reject_unchanged);
+  test_registry::AddTest(tests, "C532_bb2_scenario_pass_through_lowering_consumer_chain",
+                         "bb2 pass-through lowering scenario preserves consumer chain", "Boundary", false,
+                         C532_bb2_scenario_pass_through_lowering_consumer_chain);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

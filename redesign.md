@@ -859,6 +859,7 @@ Supported:
 * `interval_m > 0` inserts deterministic intermediate generated pole nodes along each input segment.
 * support nodes are poles only.
 * explicit `node_specs` with `SupportKind::kPole` and no `node_id` are generated pole nodes.
+* generated pole `node_specs` may carry a non-zero `tangent_hint` that sets initial pole yaw.
 * route nodes are either new poles or existing poles that already have a `SavedBackboneGraph` node.
 * one or more bundle specs are allowed when their templates, layer, count, and pole port band can be resolved before mutation.
 * fixed-count bundle templates accept an explicit `count` only when it exactly matches the template fixed count.
@@ -880,6 +881,7 @@ Unsupported:
 * saved graph migration from v1/manual scenes.
 * graph import inferred from span / layout / seed / curve / port position.
 * explicit node specs that refer to missing existing pole ids.
+* zero-length tangent hints.
 * avoid routing with `avoid_points`.
 * fixed-count bundle templates with a mismatched explicit `count`.
 * range-count bundle templates with an explicit `count` outside the template min/max range.
@@ -898,6 +900,7 @@ Boundary:
 * draw consumes layout / geom and does not repair `support_world` from `branch_down_offset_m`.
 * existing span / layout / seed / materialization result and position proximity are not meaning inputs.
 * pole placement pinning does not affect topology, connectivity, row placement, or existing poles.
+* tangent hints affect generated pole yaw only and do not affect topology, connectivity, row placement, or existing poles.
 * `pin_vertices` applies to original clicked vertices, not interval-inserted auto nodes.
 
 ## bb2 scenario acceptance pack
@@ -924,6 +927,7 @@ Scenarios:
 * exact fixed bundle count: fixed-count templates accept a redundant explicit count equal to the template count; different counts still reject before mutation.
 * avoid radius without points: `avoid_radius_m` alone is accepted as no-op; any non-empty `avoid_points` still reject.
 * explicit range bundle count: range-count templates materialize the requested lane count within min/max; out-of-range counts reject before mutation.
+* generated pole tangent hint: non-zero tangent hints set generated pole yaw; zero hints reject before mutation, and pair/open/row remain route-derived.
 
 ## bb2 mutation boundary hardening
 

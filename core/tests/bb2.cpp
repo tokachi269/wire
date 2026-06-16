@@ -4224,6 +4224,36 @@ bool C549_bb2_range_bundle_explicit_count_is_supported() {
          rejected.view().spans().size() == span_count;
 }
 
+bool C550_bb2_generated_pole_uses_tangent_hint_yaw() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = poly3_req(state);
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 1;
+  node.support_kind = wire::core::SupportKind::kPole;
+  node.node_id = wire::core::kInvalidObjectId;
+  node.has_tangent_hint = true;
+  node.tangent_hint = {1.0, 0.0, 0.0};
+  req.path.node_specs = {node};
+  const auto out = state.GenerateFromBackboneSpec(req);
+  if (!out.ok || out.value.generated_pole_ids.size() != 3) {
+    return false;
+  }
+  const auto* middle = state.view().poles().find(out.value.generated_pole_ids[1]);
+  if (middle == nullptr || !almost_equal(middle->world_transform.rotation_euler_deg.z, 0.0, 1e-9)) {
+    return false;
+  }
+
+  wire::core::CoreState rejected;
+  wire::core::BackboneSpec bad = poly3_req(rejected);
+  node.tangent_hint = {0.0, 0.0, 0.0};
+  bad.path.node_specs = {node};
+  const std::size_t pole_count = rejected.view().poles().size();
+  const std::size_t span_count = rejected.view().spans().size();
+  const auto bad_out = rejected.GenerateFromBackboneSpec(bad);
+  return !bad_out.ok && contains_text(bad_out.error, "unsupported") && rejected.view().poles().size() == pole_count &&
+         rejected.view().spans().size() == span_count;
+}
+
 void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C368_bb2_smoke_line", "bb2 generates the milestone-1 line slice", "Invariant", false,
                          C368_bb2_smoke_line);
@@ -4739,6 +4769,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C549_bb2_range_bundle_explicit_count_is_supported",
                          "bb2 supports explicit range bundle count", "Boundary", false,
                          C549_bb2_range_bundle_explicit_count_is_supported);
+  test_registry::AddTest(tests, "C550_bb2_generated_pole_uses_tangent_hint_yaw",
+                         "bb2 uses tangent hints for generated pole yaw", "Boundary", false,
+                         C550_bb2_generated_pole_uses_tangent_hint_yaw);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

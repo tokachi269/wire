@@ -492,6 +492,13 @@ EditResult<bool> pipeline::prepare() {
       out.error = "bb2 unsupported: node specs require pole support";
       return out;
     }
+    if (spec.has_tangent_hint) {
+      Vec3d tangent = spec.tangent_hint;
+      if (!norm_strict(&tangent)) {
+        out.error = "bb2 unsupported: node spec tangent hint is zero";
+        return out;
+      }
+    }
     if (!spec_by_point.emplace(spec.point_index, &spec).second) {
       out.error = "bb2 unsupported: duplicate node spec";
       return out;
@@ -557,6 +564,12 @@ EditResult<bool> pipeline::prepare() {
       if (spec_it == spec_by_point.end()) {
         g_.nodes.push_back(n);
         continue;
+      }
+      if (spec_it->second->has_tangent_hint) {
+        Vec3d tangent = spec_it->second->tangent_hint;
+        (void)norm_strict(&tangent);
+        n.has_tangent = true;
+        n.tangent = tangent;
       }
       if (spec_it->second->node_id == kInvalidObjectId) {
         g_.nodes.push_back(n);
@@ -1001,7 +1014,10 @@ EditResult<bool> pipeline::emit_poles(topo* made, ChangeSet* changes) {
     tf.position = g_.nodes[i].pos;
     const Vec3d next = (i + 1 < g_.nodes.size()) ? g_.nodes[i + 1].pos : g_.nodes[i].pos;
     const Vec3d prev = (i > 0) ? g_.nodes[i - 1].pos : g_.nodes[i].pos;
-    tf.rotation_euler_deg.z = yaw((i + 1 < g_.nodes.size()) ? (next - g_.nodes[i].pos) : (g_.nodes[i].pos - prev));
+    const Vec3d dir = g_.nodes[i].has_tangent ? g_.nodes[i].tangent
+                                               : ((i + 1 < g_.nodes.size()) ? (next - g_.nodes[i].pos)
+                                                                            : (g_.nodes[i].pos - prev));
+    tf.rotation_euler_deg.z = yaw(dir);
     EditResult<ObjectId> pole = state_.AddPole(tf, 10.0, "bb2-pole", PoleKind::kConcrete,
                                                g_.nodes[i].pinned ? PlacementMode::kManual : PlacementMode::kAuto);
     if (!pole.ok) {

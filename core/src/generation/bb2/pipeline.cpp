@@ -127,7 +127,7 @@ EditResult<spec_view> view_for(const CoreState& state, const BackboneBundleSpec&
     out.error = "bb2 unsupported: bundle count resolved to zero";
     return out;
   }
-  if (tmpl.count_rule == BundleCountRuleKind::kFixed && spec.count > 0) {
+  if (tmpl.count_rule == BundleCountRuleKind::kFixed && spec.count > 0 && spec.count != tmpl.fixed_count) {
     out.error = "bb2 unsupported: fixed bundle count override";
     return out;
   }

@@ -860,6 +860,7 @@ Supported:
 * explicit `node_specs` with `SupportKind::kPole` and no `node_id` are generated pole nodes.
 * route nodes are either new poles or existing poles that already have a `SavedBackboneGraph` node.
 * one or more bundle specs are allowed when their templates, layer, count, and pole port band can be resolved before mutation.
+* fixed-count bundle templates accept an explicit `count` only when it exactly matches the template fixed count.
 * existing context is read only from `SavedBackboneGraph` node / edge / edge_bundle / binding records.
 * same saved edge with a different bundle-compatible scope may add an edge_bundle and generated outputs.
 * duplicate same edge_bundle + lane is rejected before `AddPole` / `AddPort` / `AddBundle` / `AddSpan`.
@@ -877,6 +878,7 @@ Unsupported:
 * graph import inferred from span / layout / seed / curve / port position.
 * explicit node specs that refer to missing existing pole ids.
 * avoid routing.
+* fixed-count bundle templates with a mismatched explicit `count`.
 * duplicate same edge_bundle + lane requests.
 * ambiguous pass-through / lowering targets.
 * full support arm, insulator, attachment, or render styling semantics.
@@ -915,6 +917,7 @@ Scenarios:
 * generated pole pinning: `pin_endpoints` materializes only generated route endpoints as manual poles, while `pin_vertices` materializes original clicked vertices as manual; existing poles and interval-inserted auto nodes are not mutated.
 * interval route generation: `interval_m` materializes intermediate pole nodes and spans along the same bb2 graph pipeline; auto interval nodes are not treated as clicked vertices for pinning.
 * explicit new pole node specs: `SupportKind::kPole` with no `node_id` is accepted as an explicit generated pole marker; missing non-invalid ids still reject.
+* exact fixed bundle count: fixed-count templates accept a redundant explicit count equal to the template count; different counts still reject before mutation.
 
 ## bb2 mutation boundary hardening
 

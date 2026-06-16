@@ -4161,6 +4161,33 @@ bool C546_bb2_explicit_new_pole_node_spec_supported() {
          C398_bb2_rejects_missing_existing_pole();
 }
 
+bool C547_bb2_fixed_bundle_exact_count_is_supported() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = line_req(state);
+  if (req.bundles.empty()) {
+    return false;
+  }
+  const auto tmpl_it = state.view().bundle_templates().find(req.bundles.front().bundle_template_id);
+  if (tmpl_it == state.view().bundle_templates().end() ||
+      tmpl_it->second.count_rule != wire::core::BundleCountRuleKind::kFixed || tmpl_it->second.fixed_count <= 0) {
+    return false;
+  }
+  req.bundles.front().count = tmpl_it->second.fixed_count;
+  const auto out = state.GenerateFromBackboneSpec(req);
+  if (!out.ok || out.value.generated_span_ids.size() != static_cast<std::size_t>(tmpl_it->second.fixed_count)) {
+    return false;
+  }
+
+  wire::core::CoreState rejected;
+  wire::core::BackboneSpec bad = line_req(rejected);
+  bad.bundles.front().count = tmpl_it->second.fixed_count + 1;
+  const std::size_t pole_count = rejected.view().poles().size();
+  const std::size_t span_count = rejected.view().spans().size();
+  const auto bad_out = rejected.GenerateFromBackboneSpec(bad);
+  return !bad_out.ok && contains_text(bad_out.error, "unsupported") && rejected.view().poles().size() == pole_count &&
+         rejected.view().spans().size() == span_count;
+}
+
 void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C368_bb2_smoke_line", "bb2 generates the milestone-1 line slice", "Invariant", false,
                          C368_bb2_smoke_line);
@@ -4667,6 +4694,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C546_bb2_explicit_new_pole_node_spec_supported",
                          "bb2 supports explicit new-pole node specs", "Boundary", false,
                          C546_bb2_explicit_new_pole_node_spec_supported);
+  test_registry::AddTest(tests, "C547_bb2_fixed_bundle_exact_count_is_supported",
+                         "bb2 supports exact fixed bundle count input", "Boundary", false,
+                         C547_bb2_fixed_bundle_exact_count_is_supported);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

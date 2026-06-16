@@ -847,3 +847,43 @@ Confirmed:
 Known non-blocker:
 
 * `BackboneLoweringKind::kBranchSupport` is still used as an existing layout enum value. In bb2 it is not a T/cross/branch topology label and does not feed pair/open/row decisions.
+
+## bb2 supported generation scope
+
+Phase: usable mainline scope freeze.
+
+Supported:
+
+* input route is a polyline with at least two points.
+* support nodes are poles only.
+* route nodes are either new poles or existing poles that already have a `SavedBackboneGraph` node.
+* one or more bundle specs are allowed when their templates, layer, count, and pole port band can be resolved before mutation.
+* existing context is read only from `SavedBackboneGraph` node / edge / edge_bundle / binding records.
+* same saved edge with a different bundle-compatible scope may add an edge_bundle and generated outputs.
+* duplicate same edge_bundle + lane is rejected before `AddPole` / `AddPort` / `AddBundle` / `AddSpan`.
+* `constraints.lateral_offset_m` is a port placement offset.
+* `BundleNodeMode::kNotPresent` is accepted as no-op after validation.
+* `BundleNodeMode::kPassThrough` is accepted only for the limited saved-junction scope where target row intent is unambiguous.
+* generated outputs include poles / bundles / ports / spans, saved backbone graph bindings, span rules, layout, geom, and minimal draw caches.
+
+Unsupported:
+
+* midair support and non-pole node specs.
+* existing pole nodes without a saved backbone node.
+* saved graph migration from v1/manual scenes.
+* graph import inferred from span / layout / seed / curve / port position.
+* avoid routing.
+* duplicate same edge_bundle + lane requests.
+* ambiguous pass-through / lowering targets.
+* full support arm, insulator, attachment, or render styling semantics.
+
+Boundary:
+
+* `GenerateFromBackboneSpec` uses bb2 and does not fall back to v1 for unsupported requests.
+* `SavedBackboneGraph` is topology authority.
+* `pairs make(graph)` is connectivity authority.
+* row separation and support groups are placement authority only.
+* layout keeps `support_world` at the original support / port point and lowers only `endpoint_world`.
+* geom consumes layout.
+* draw consumes layout / geom and does not repair `support_world` from `branch_down_offset_m`.
+* existing span / layout / seed / materialization result and position proximity are not meaning inputs.

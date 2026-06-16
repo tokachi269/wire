@@ -3582,6 +3582,44 @@ bool C521_bb2_context_link_preserves_saved_dir() {
          !contains_text(make_body, "edge.dir = made.nodes");
 }
 
+bool C522_bb2_supported_scope_is_documented() {
+  const std::filesystem::path doc = repo_root() / "redesign.md";
+  std::string text;
+  if (!file_text(doc, &text)) {
+    return false;
+  }
+  return contains_text(text, "## bb2 supported generation scope") && contains_text(text, "Supported:") &&
+         contains_text(text, "Unsupported:") && contains_text(text, "`SavedBackboneGraph` is topology authority") &&
+         contains_text(text, "`pairs make(graph)`") && contains_text(text, "duplicate same edge_bundle + lane") &&
+         contains_text(text, "support_world") && contains_text(text, "endpoint_world") &&
+         contains_text(text, "does not fall back to v1");
+}
+
+bool C523_bb2_scope_gate_matches_entrypoint() {
+  const std::filesystem::path entry = repo_root() / "core" / "src" / "generation" / "generate_from_backbone.cpp";
+  const std::filesystem::path bb2 = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+  std::string entry_text;
+  std::string bb2_text;
+  if (!file_text(entry, &entry_text) || !file_text(bb2, &bb2_text)) {
+    return false;
+  }
+  const bool entry_uses_bb2 = contains_text(entry_text, "generation::bb2::pipeline") &&
+                              contains_text(entry_text, "pipeline.prepare()") &&
+                              contains_text(entry_text, "pipeline.check()") &&
+                              contains_text(entry_text, "return pipeline.build();");
+  const bool entry_avoids_v1 = !contains_text(entry_text, "BackbonePipeline") &&
+                               !contains_text(entry_text, "backbone_pipeline") &&
+                               !contains_text(entry_text, "generate_grouped_spans_between_support_nodes");
+  const std::size_t build_pos = bb2_text.find("EditResult<GenerateBundleFromPathResult> pipeline::build()");
+  const std::size_t check_call = bb2_text.find("EditResult<bool> duplicates = check(ps.value)", build_pos);
+  const std::size_t intent_call = bb2_text.find("EditResult<intent> intents = make(ps.value)", build_pos);
+  const std::size_t emit_call = bb2_text.find("EditResult<topo> made = emit(ps.value)", build_pos);
+  const bool preflight_before_emit = build_pos != std::string::npos && check_call != std::string::npos &&
+                                     intent_call != std::string::npos && emit_call != std::string::npos &&
+                                     check_call < intent_call && intent_call < emit_call;
+  return entry_uses_bb2 && entry_avoids_v1 && preflight_before_emit;
+}
+
 bool span_has_lowered_endpoint(const wire::core::CoreState& state, wire::core::ObjectId span_id) {
   const wire::core::Span* span = state.view().spans().find(span_id);
   const wire::core::SpanLayoutView layout = state.span_layout(span_id);
@@ -4236,6 +4274,12 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C521_bb2_context_link_preserves_saved_dir",
                          "bb2 context link preserves saved direction", "Boundary", false,
                          C521_bb2_context_link_preserves_saved_dir);
+  test_registry::AddTest(tests, "C522_bb2_supported_scope_is_documented",
+                         "bb2 supported generation scope is documented", "Boundary", false,
+                         C522_bb2_supported_scope_is_documented);
+  test_registry::AddTest(tests, "C523_bb2_scope_gate_matches_entrypoint",
+                         "bb2 scope gate matches the entrypoint", "Boundary", false,
+                         C523_bb2_scope_gate_matches_entrypoint);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

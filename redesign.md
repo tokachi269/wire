@@ -862,6 +862,7 @@ Supported:
 * route nodes are either new poles or existing poles that already have a `SavedBackboneGraph` node.
 * one or more bundle specs are allowed when their templates, layer, count, and pole port band can be resolved before mutation.
 * fixed-count bundle templates accept an explicit `count` only when it exactly matches the template fixed count.
+* range-count bundle templates accept an explicit `count` inside the template min/max range.
 * existing context is read only from `SavedBackboneGraph` node / edge / edge_bundle / binding records.
 * same saved edge with a different bundle-compatible scope may add an edge_bundle and generated outputs.
 * duplicate same edge_bundle + lane is rejected before `AddPole` / `AddPort` / `AddBundle` / `AddSpan`.
@@ -881,6 +882,7 @@ Unsupported:
 * explicit node specs that refer to missing existing pole ids.
 * avoid routing with `avoid_points`.
 * fixed-count bundle templates with a mismatched explicit `count`.
+* range-count bundle templates with an explicit `count` outside the template min/max range.
 * duplicate same edge_bundle + lane requests.
 * ambiguous pass-through / lowering targets.
 * full support arm, insulator, attachment, or render styling semantics.
@@ -921,6 +923,7 @@ Scenarios:
 * explicit new pole node specs: `SupportKind::kPole` with no `node_id` is accepted as an explicit generated pole marker; missing non-invalid ids still reject.
 * exact fixed bundle count: fixed-count templates accept a redundant explicit count equal to the template count; different counts still reject before mutation.
 * avoid radius without points: `avoid_radius_m` alone is accepted as no-op; any non-empty `avoid_points` still reject.
+* explicit range bundle count: range-count templates materialize the requested lane count within min/max; out-of-range counts reject before mutation.
 
 ## bb2 mutation boundary hardening
 

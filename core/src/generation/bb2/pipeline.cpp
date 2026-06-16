@@ -131,6 +131,10 @@ EditResult<spec_view> view_for(const CoreState& state, const BackboneBundleSpec&
     out.error = "bb2 unsupported: fixed bundle count override";
     return out;
   }
+  if (tmpl.count_rule == BundleCountRuleKind::kRange && (count < tmpl.min_count || count > tmpl.max_count)) {
+    out.error = "bb2 unsupported: bundle count is out of range";
+    return out;
+  }
   const SpanLayer layer = (spec.layer == SpanLayer::kUnknown) ? tmpl.default_layer : spec.layer;
   if (layer == SpanLayer::kUnknown) {
     out.error = "bb2 unsupported: bundle layer is unknown";

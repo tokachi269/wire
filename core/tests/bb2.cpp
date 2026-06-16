@@ -4199,6 +4199,31 @@ bool C548_bb2_avoid_radius_without_points_is_noop() {
          C414_bb2_still_rejects_avoid_constraints();
 }
 
+bool C549_bb2_range_bundle_explicit_count_is_supported() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = line_req(state);
+  req.bundles.clear();
+  add_backbone_bundle(req, wire::core::BundleKind::kCommunication, wire::core::SpanLayer::kUnknown, 3);
+  const auto out = state.GenerateFromBackboneSpec(req);
+  if (!out.ok || out.value.bundle_ids.size() != 1 || out.value.generated_span_ids.size() != 3) {
+    return false;
+  }
+  const auto* bundle = state.view().bundles().find(out.value.bundle_ids.front());
+  if (bundle == nullptr || bundle->conductor_count != 3) {
+    return false;
+  }
+
+  wire::core::CoreState rejected;
+  wire::core::BackboneSpec bad = line_req(rejected);
+  bad.bundles.clear();
+  add_backbone_bundle(bad, wire::core::BundleKind::kCommunication, wire::core::SpanLayer::kUnknown, 99);
+  const std::size_t pole_count = rejected.view().poles().size();
+  const std::size_t span_count = rejected.view().spans().size();
+  const auto bad_out = rejected.GenerateFromBackboneSpec(bad);
+  return !bad_out.ok && contains_text(bad_out.error, "unsupported") && rejected.view().poles().size() == pole_count &&
+         rejected.view().spans().size() == span_count;
+}
+
 void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C368_bb2_smoke_line", "bb2 generates the milestone-1 line slice", "Invariant", false,
                          C368_bb2_smoke_line);
@@ -4711,6 +4736,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C548_bb2_avoid_radius_without_points_is_noop",
                          "bb2 accepts avoid radius without avoid points as no-op", "Boundary", false,
                          C548_bb2_avoid_radius_without_points_is_noop);
+  test_registry::AddTest(tests, "C549_bb2_range_bundle_explicit_count_is_supported",
+                         "bb2 supports explicit range bundle count", "Boundary", false,
+                         C549_bb2_range_bundle_explicit_count_is_supported);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

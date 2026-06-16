@@ -857,6 +857,7 @@ Supported:
 * input route is a polyline with at least two points.
 * `interval_m > 0` inserts deterministic intermediate generated pole nodes along each input segment.
 * support nodes are poles only.
+* explicit `node_specs` with `SupportKind::kPole` and no `node_id` are generated pole nodes.
 * route nodes are either new poles or existing poles that already have a `SavedBackboneGraph` node.
 * one or more bundle specs are allowed when their templates, layer, count, and pole port band can be resolved before mutation.
 * existing context is read only from `SavedBackboneGraph` node / edge / edge_bundle / binding records.
@@ -874,6 +875,7 @@ Unsupported:
 * existing pole nodes without a saved backbone node.
 * saved graph migration from v1/manual scenes.
 * graph import inferred from span / layout / seed / curve / port position.
+* explicit node specs that refer to missing existing pole ids.
 * avoid routing.
 * duplicate same edge_bundle + lane requests.
 * ambiguous pass-through / lowering targets.
@@ -912,6 +914,7 @@ Scenarios:
 * new-route interior pass-through: a three-point route with `kPassThrough` at the middle point is supported when the current route provides exactly one target pair row; no saved junction context is required for that case.
 * generated pole pinning: `pin_endpoints` materializes only generated route endpoints as manual poles, while `pin_vertices` materializes original clicked vertices as manual; existing poles and interval-inserted auto nodes are not mutated.
 * interval route generation: `interval_m` materializes intermediate pole nodes and spans along the same bb2 graph pipeline; auto interval nodes are not treated as clicked vertices for pinning.
+* explicit new pole node specs: `SupportKind::kPole` with no `node_id` is accepted as an explicit generated pole marker; missing non-invalid ids still reject.
 
 ## bb2 mutation boundary hardening
 

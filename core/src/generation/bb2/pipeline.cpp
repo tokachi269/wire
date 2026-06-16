@@ -484,8 +484,8 @@ EditResult<bool> pipeline::prepare() {
       out.error = "bb2 unsupported: node spec point index is out of range";
       return out;
     }
-    if (spec.support_kind != SupportKind::kPole || spec.node_id == kInvalidObjectId) {
-      out.error = "bb2 unsupported: node specs require an existing pole";
+    if (spec.support_kind != SupportKind::kPole) {
+      out.error = "bb2 unsupported: node specs require pole support";
       return out;
     }
     if (!spec_by_point.emplace(spec.point_index, &spec).second) {
@@ -551,6 +551,10 @@ EditResult<bool> pipeline::prepare() {
     if (guide_index != bad) {
       const auto spec_it = spec_by_point.find(guide_index);
       if (spec_it == spec_by_point.end()) {
+        g_.nodes.push_back(n);
+        continue;
+      }
+      if (spec_it->second->node_id == kInvalidObjectId) {
         g_.nodes.push_back(n);
         continue;
       }

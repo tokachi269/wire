@@ -4138,6 +4138,29 @@ bool C545_bb2_interval_generates_intermediate_poles() {
   return true;
 }
 
+bool C546_bb2_explicit_new_pole_node_spec_supported() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = poly3_req(state);
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 1;
+  node.support_kind = wire::core::SupportKind::kPole;
+  node.node_id = wire::core::kInvalidObjectId;
+  req.path.node_specs = {node};
+  const auto out = state.GenerateFromBackboneSpec(req);
+  if (!out.ok || out.value.generated_pole_ids.size() != 3 ||
+      out.value.generated_span_ids.size() != static_cast<std::size_t>(req_bundle_count(state, req) * 2)) {
+    return false;
+  }
+  const wire::core::SavedBackboneGraph& graph = state.view().backbone();
+  if (graph.nodes.size() != 3 || graph.edges.size() != 2 || graph.edge_bundles.size() != 2) {
+    return false;
+  }
+  const auto* middle = state.view().poles().find(out.value.generated_pole_ids[1]);
+  return middle != nullptr && almost_equal(middle->world_transform.position.x, 12.0, 1e-9) &&
+         almost_equal(middle->world_transform.position.y, 0.0, 1e-9) &&
+         C398_bb2_rejects_missing_existing_pole();
+}
+
 void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C368_bb2_smoke_line", "bb2 generates the milestone-1 line slice", "Invariant", false,
                          C368_bb2_smoke_line);
@@ -4641,6 +4664,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C545_bb2_interval_generates_intermediate_poles",
                          "bb2 interval generates intermediate poles", "Boundary", false,
                          C545_bb2_interval_generates_intermediate_poles);
+  test_registry::AddTest(tests, "C546_bb2_explicit_new_pole_node_spec_supported",
+                         "bb2 supports explicit new-pole node specs", "Boundary", false,
+                         C546_bb2_explicit_new_pole_node_spec_supported);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

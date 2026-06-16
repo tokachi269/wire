@@ -510,7 +510,7 @@ EditResult<bool> pipeline::prepare() {
     edge.b = i + 1;
     edge.route = 0;
     edge.order = i;
-    edge.dir = pts[i + 1] - pts[i];
+    edge.dir = g_.nodes[i + 1].pos - g_.nodes[i].pos;
     edge.is_new = true;
     g_.links.push_back(edge);
   }
@@ -673,7 +673,6 @@ EditResult<pairs> pipeline::make(const graph& made) const {
     if (edge.a >= made.nodes.size() || edge.b >= made.nodes.size()) {
       return unsupported_pairs("link endpoint is out of range");
     }
-    edge.dir = made.nodes[edge.b].pos - made.nodes[edge.a].pos;
     if (!norm_strict(&edge.dir)) {
       return unsupported_pairs("zero length link");
     }

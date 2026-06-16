@@ -822,3 +822,28 @@ M30 へ進む前に、M29 後に残った境界品質を固定する。
 * draw が lowering offset から support を再構成する。
 * duplicate reject のために port/span/bundle を先に生成して rollback 前提にする。
 * duplicate 判定で span geometry、existing layout/seed、port position を読む。
+
+## Post-M29 bb2 architecture audit
+
+Audit date: 2026-06-16
+
+Result: PASS after one boundary fix.
+
+Fixed:
+
+* `pairs make(graph)` no longer rebuilds context link `dir` from node positions.
+* new link `dir` is still computed from input route geometry.
+* context link `dir` remains the saved graph edge direction loaded during `prepare()`.
+
+Confirmed:
+
+* SavedBackboneGraph remains topology authority for existing context.
+* `pairs make(graph)` remains the pair/open/row decision point.
+* context link is not emitted or saved as a new edge.
+* duplicate same edge bundle + lane is rejected before emit from saved span bindings.
+* layout consumes rules/group data; geom consumes layout; draw consumes layout/geom.
+* bb2 production source does not reference v1 backbone pipeline, recalc, materialization, support layout contract/projection, authority, seed, fallback, infer, guess, legacy, grouped span generation, or support layout save entrypoints.
+
+Known non-blocker:
+
+* `BackboneLoweringKind::kBranchSupport` is still used as an existing layout enum value. In bb2 it is not a T/cross/branch topology label and does not feed pair/open/row decisions.

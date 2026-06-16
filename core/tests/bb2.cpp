@@ -3561,6 +3561,27 @@ bool C520_bb2_duplicate_span_binding_preflight_before_emit() {
          !contains_text(body, "AddBundle");
 }
 
+bool C521_bb2_context_link_preserves_saved_dir() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+  std::string cpp;
+  if (!file_text(source, &cpp)) {
+    return false;
+  }
+  const std::size_t prepare_pos = cpp.find("EditResult<bool> pipeline::prepare()");
+  const std::size_t check_pos = cpp.find("EditResult<bool> pipeline::check() const", prepare_pos);
+  const std::size_t make_pos = cpp.find("EditResult<pairs> pipeline::make(const graph& made) const");
+  const std::size_t intent_pos = cpp.find("EditResult<intent> pipeline::make(const pairs& ps) const", make_pos);
+  if (prepare_pos == std::string::npos || check_pos == std::string::npos || make_pos == std::string::npos ||
+      intent_pos == std::string::npos) {
+    return false;
+  }
+  const std::string prepare_body = cpp.substr(prepare_pos, check_pos - prepare_pos);
+  const std::string make_body = cpp.substr(make_pos, intent_pos - make_pos);
+  return contains_text(prepare_body, "edge.dir = g_.nodes[i + 1].pos - g_.nodes[i].pos") &&
+         contains_text(prepare_body, "edge.dir = saved->dir") &&
+         !contains_text(make_body, "edge.dir = made.nodes");
+}
+
 bool span_has_lowered_endpoint(const wire::core::CoreState& state, wire::core::ObjectId span_id) {
   const wire::core::Span* span = state.view().spans().find(span_id);
   const wire::core::SpanLayoutView layout = state.span_layout(span_id);
@@ -4212,6 +4233,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C520_bb2_duplicate_span_binding_preflight_before_emit",
                          "bb2 duplicate span binding preflight runs before emit", "Boundary", false,
                          C520_bb2_duplicate_span_binding_preflight_before_emit);
+  test_registry::AddTest(tests, "C521_bb2_context_link_preserves_saved_dir",
+                         "bb2 context link preserves saved direction", "Boundary", false,
+                         C521_bb2_context_link_preserves_saved_dir);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

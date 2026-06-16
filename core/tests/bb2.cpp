@@ -19,7 +19,7 @@ namespace {
 wire::core::BackboneSpec line_req(wire::core::CoreState& state) {
   wire::core::BackboneSpec req{};
   req.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}};
-  req.interval_m = 1.0;
+  req.interval_m = 0.0;
   const std::vector<wire::core::PoleTypeId> types = sorted_pole_type_ids(state);
   req.pole_type_id = types.empty() ? wire::core::kInvalidPoleTypeId : types.front();
   add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
@@ -4089,6 +4089,55 @@ bool C544_bb2_pole_placement_pins_generated_poles() {
          after->placement_mode == wire::core::PlacementMode::kAuto;
 }
 
+bool C545_bb2_interval_generates_intermediate_poles() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = line_req(state);
+  req.interval_m = 4.0;
+  const int count = req_bundle_count(state, req);
+  const auto out = state.GenerateFromBackboneSpec(req);
+  if (!out.ok || out.value.generated_pole_ids.size() != 4 ||
+      out.value.generated_span_ids.size() != static_cast<std::size_t>(count * 3)) {
+    return false;
+  }
+  const wire::core::SavedBackboneGraph& graph = state.view().backbone();
+  if (graph.nodes.size() != 4 || graph.edges.size() != 3 || graph.edge_bundles.size() != 3) {
+    return false;
+  }
+  for (std::size_t i = 0; i < out.value.generated_pole_ids.size(); ++i) {
+    const auto* pole = state.view().poles().find(out.value.generated_pole_ids[i]);
+    if (pole == nullptr || !almost_equal(pole->world_transform.position.x, static_cast<double>(i * 4), 1e-9) ||
+        !almost_equal(pole->world_transform.position.y, 0.0, 1e-9)) {
+      return false;
+    }
+  }
+  for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
+    if (!state.span_layout_rules(span_id).has_rule() || !state.span_layout(span_id).has_layout() ||
+        state.find_curve_cache(span_id) == nullptr || state.find_bounds_cache(span_id) == nullptr ||
+        state.find_span_visual_cache(span_id) == nullptr || state.view().find_span_render_cache(span_id) == nullptr) {
+      return false;
+    }
+  }
+
+  wire::core::CoreState pin_state;
+  wire::core::BackboneSpec pinned = line_req(pin_state);
+  pinned.interval_m = 4.0;
+  pinned.pole_placement.pin_vertices = true;
+  const auto pinned_out = pin_state.GenerateFromBackboneSpec(pinned);
+  if (!pinned_out.ok || pinned_out.value.generated_pole_ids.size() != 4) {
+    return false;
+  }
+  for (std::size_t i = 0; i < pinned_out.value.generated_pole_ids.size(); ++i) {
+    const auto* pole = pin_state.view().poles().find(pinned_out.value.generated_pole_ids[i]);
+    const wire::core::PlacementMode expected =
+        (i == 0 || i + 1 == pinned_out.value.generated_pole_ids.size()) ? wire::core::PlacementMode::kManual
+                                                                        : wire::core::PlacementMode::kAuto;
+    if (pole == nullptr || pole->placement_mode != expected) {
+      return false;
+    }
+  }
+  return true;
+}
+
 void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C368_bb2_smoke_line", "bb2 generates the milestone-1 line slice", "Invariant", false,
                          C368_bb2_smoke_line);
@@ -4589,6 +4638,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C544_bb2_pole_placement_pins_generated_poles",
                          "bb2 applies pole placement pin options to generated poles", "Boundary", false,
                          C544_bb2_pole_placement_pins_generated_poles);
+  test_registry::AddTest(tests, "C545_bb2_interval_generates_intermediate_poles",
+                         "bb2 interval generates intermediate poles", "Boundary", false,
+                         C545_bb2_interval_generates_intermediate_poles);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

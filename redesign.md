@@ -855,6 +855,7 @@ Phase: usable mainline scope freeze.
 Supported:
 
 * input route is a polyline with at least two points.
+* `interval_m > 0` inserts deterministic intermediate generated pole nodes along each input segment.
 * support nodes are poles only.
 * route nodes are either new poles or existing poles that already have a `SavedBackboneGraph` node.
 * one or more bundle specs are allowed when their templates, layer, count, and pole port band can be resolved before mutation.
@@ -889,6 +890,7 @@ Boundary:
 * draw consumes layout / geom and does not repair `support_world` from `branch_down_offset_m`.
 * existing span / layout / seed / materialization result and position proximity are not meaning inputs.
 * pole placement pinning does not affect topology, connectivity, row placement, or existing poles.
+* `pin_vertices` applies to original clicked vertices, not interval-inserted auto nodes.
 
 ## bb2 scenario acceptance pack
 
@@ -908,7 +910,8 @@ Scenarios:
 * duplicate same edge_bundle + lane: request is unsupported and state remains unchanged.
 * pass-through lowering: pair/open authority is unchanged; layout, geom, and draw consume the lowering result.
 * new-route interior pass-through: a three-point route with `kPassThrough` at the middle point is supported when the current route provides exactly one target pair row; no saved junction context is required for that case.
-* generated pole pinning: `pin_endpoints` materializes only generated route endpoints as manual poles, while `pin_vertices` materializes every generated route node as manual; existing poles are not mutated.
+* generated pole pinning: `pin_endpoints` materializes only generated route endpoints as manual poles, while `pin_vertices` materializes original clicked vertices as manual; existing poles and interval-inserted auto nodes are not mutated.
+* interval route generation: `interval_m` materializes intermediate pole nodes and spans along the same bb2 graph pipeline; auto interval nodes are not treated as clicked vertices for pinning.
 
 ## bb2 mutation boundary hardening
 

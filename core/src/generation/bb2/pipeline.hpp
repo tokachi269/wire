@@ -17,6 +17,7 @@ struct node {
   ObjectId pole = kInvalidObjectId;
   ObjectId saved = kInvalidObjectId;
   bool is_new = true;
+  bool pinned = false;
 };
 
 struct link {
@@ -186,11 +187,13 @@ private:
   void save(geom made);
   void save(draw made);
   [[nodiscard]] EditResult<bool> save_graph(const topo& made, const pairs& ps);
+  [[nodiscard]] std::size_t local(std::size_t input_point) const;
 
   CoreState& state_;
   const BackboneSpec& spec_;
   bool ready_ = false;
   graph g_{};
+  std::vector<std::size_t> local_by_input_{};
 };
 
 } // namespace wire::core::generation::bb2

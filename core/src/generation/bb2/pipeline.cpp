@@ -449,14 +449,6 @@ bool has_current_route_pair_at(const graph& made, std::size_t node_id) {
          incoming->order + 1 == outgoing->order;
 }
 
-PlacementMode pole_mode(const BackboneSpec& spec, std::size_t local_index, std::size_t node_count) {
-  const bool endpoint = local_index == 0 || local_index + 1 == node_count;
-  if (spec.pole_placement.pin_vertices || (spec.pole_placement.pin_endpoints && endpoint)) {
-    return PlacementMode::kManual;
-  }
-  return PlacementMode::kAuto;
-}
-
 std::size_t add_open(pairs* out, std::size_t node_id, std::size_t link_id, const Vec3d& axis) {
   const std::size_t open_id = out->opens.size();
   out->opens.push_back(open{open_id, node_id, link_id, axis});
@@ -473,23 +465,22 @@ std::size_t add_pair(pairs* out, std::size_t node_id, std::size_t left, std::siz
   return row_id;
 }
 
-std::size_t local_point(const BackboneSpec& spec, std::size_t point_index) {
-  if (point_index >= spec.path.polyline.size()) {
-    return bad;
-  }
-  return spec.direction_mode == PathDirectionMode::kReverse ? spec.path.polyline.size() - 1 - point_index : point_index;
-}
-
 } // namespace
+
+std::size_t pipeline::local(std::size_t input_point) const {
+  return input_point < local_by_input_.size() ? local_by_input_[input_point] : bad;
+}
 
 EditResult<bool> pipeline::prepare() {
   EditResult<bool> out{};
   g_ = {};
-  std::vector<Vec3d> pts = spec_.path.polyline;
+  local_by_input_.clear();
+  const std::vector<Vec3d>& input = spec_.path.polyline;
+  std::vector<Vec3d> guide = input;
   std::unordered_map<std::size_t, const BackboneInputSpec::NodeSpec*> spec_by_point{};
   spec_by_point.reserve(spec_.path.node_specs.size());
   for (const BackboneInputSpec::NodeSpec& spec : spec_.path.node_specs) {
-    if (spec.point_index >= pts.size()) {
+    if (spec.point_index >= input.size()) {
       out.error = "bb2 unsupported: node spec point index is out of range";
       return out;
     }
@@ -503,20 +494,66 @@ EditResult<bool> pipeline::prepare() {
     }
   }
   if (spec_.direction_mode == PathDirectionMode::kReverse) {
-    std::reverse(pts.begin(), pts.end());
+    std::reverse(guide.begin(), guide.end());
     std::unordered_map<std::size_t, const BackboneInputSpec::NodeSpec*> reversed{};
     reversed.reserve(spec_by_point.size());
     for (const auto& item : spec_by_point) {
-      reversed.emplace(pts.size() - 1 - item.first, item.second);
+      reversed.emplace(guide.size() - 1 - item.first, item.second);
     }
     spec_by_point.swap(reversed);
+  }
+  std::vector<Vec3d> pts{};
+  std::vector<std::size_t> guide_by_local{};
+  pts.reserve(guide.size());
+  guide_by_local.reserve(guide.size());
+  auto push_point = [&](const Vec3d& p, std::size_t guide_index) {
+    pts.push_back(p);
+    guide_by_local.push_back(guide_index);
+  };
+  if (!guide.empty()) {
+    push_point(guide.front(), 0);
+    for (std::size_t i = 0; i + 1 < guide.size(); ++i) {
+      const Vec3d a = guide[i];
+      const Vec3d b = guide[i + 1];
+      const Vec3d seg = b - a;
+      constexpr double kIntervalEps = 1e-9;
+      const double len = std::sqrt(seg.x * seg.x + seg.y * seg.y + seg.z * seg.z);
+      if (spec_.interval_m > 0.0 && len > kIntervalEps) {
+        for (double dist = spec_.interval_m; dist < len - kIntervalEps; dist += spec_.interval_m) {
+          const double t = std::clamp(dist / len, 0.0, 1.0);
+          push_point({a.x + seg.x * t, a.y + seg.y * t, a.z + seg.z * t}, bad);
+        }
+      }
+      push_point(b, i + 1);
+    }
+  }
+  std::vector<std::size_t> local_by_guide(guide.size(), bad);
+  for (std::size_t i = 0; i < guide_by_local.size(); ++i) {
+    if (guide_by_local[i] != bad && guide_by_local[i] < local_by_guide.size()) {
+      local_by_guide[guide_by_local[i]] = i;
+    }
+  }
+  local_by_input_.assign(input.size(), bad);
+  for (std::size_t i = 0; i < input.size(); ++i) {
+    const std::size_t guide_index = (spec_.direction_mode == PathDirectionMode::kReverse) ? input.size() - 1 - i : i;
+    local_by_input_[i] = guide_index < local_by_guide.size() ? local_by_guide[guide_index] : bad;
   }
   g_.nodes.reserve(pts.size());
   for (std::size_t i = 0; i < pts.size(); ++i) {
     node n{};
     n.id = i;
     n.pos = pts[i];
-    if (const auto spec_it = spec_by_point.find(i); spec_it != spec_by_point.end()) {
+    const std::size_t guide_index = guide_by_local[i];
+    if (guide_index != bad) {
+      const bool endpoint = guide_index == 0 || guide_index + 1 == guide.size();
+      n.pinned = spec_.pole_placement.pin_vertices || (spec_.pole_placement.pin_endpoints && endpoint);
+    }
+    if (guide_index != bad) {
+      const auto spec_it = spec_by_point.find(guide_index);
+      if (spec_it == spec_by_point.end()) {
+        g_.nodes.push_back(n);
+        continue;
+      }
       const Pole* pole = state_.view().poles().find(spec_it->second->node_id);
       if (pole == nullptr) {
         out.error = "bb2 unsupported: node spec pole not found";
@@ -658,7 +695,7 @@ EditResult<bool> pipeline::check() const {
       return unsupported("node bundle mode references missing bundle");
     }
     if (mode.mode == BundleNodeMode::kPassThrough) {
-      const std::size_t local = local_point(spec_, mode.point_index);
+      const std::size_t local = this->local(mode.point_index);
       if (local == bad || local >= g_.nodes.size()) {
         return unsupported("pass-through node mode point is missing");
       }
@@ -838,7 +875,7 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
     if (mode.mode != BundleNodeMode::kPassThrough) {
       continue;
     }
-    const std::size_t local = local_point(spec_, mode.point_index);
+    const std::size_t local = this->local(mode.point_index);
     if (local == bad || local >= g_.nodes.size()) {
       out.error = "bb2 unsupported: pass-through node mode point is missing";
       return out;
@@ -957,8 +994,8 @@ EditResult<bool> pipeline::emit_poles(topo* made, ChangeSet* changes) {
     const Vec3d next = (i + 1 < g_.nodes.size()) ? g_.nodes[i + 1].pos : g_.nodes[i].pos;
     const Vec3d prev = (i > 0) ? g_.nodes[i - 1].pos : g_.nodes[i].pos;
     tf.rotation_euler_deg.z = yaw((i + 1 < g_.nodes.size()) ? (next - g_.nodes[i].pos) : (g_.nodes[i].pos - prev));
-    EditResult<ObjectId> pole =
-        state_.AddPole(tf, 10.0, "bb2-pole", PoleKind::kConcrete, pole_mode(spec_, i, g_.nodes.size()));
+    EditResult<ObjectId> pole = state_.AddPole(tf, 10.0, "bb2-pole", PoleKind::kConcrete,
+                                               g_.nodes[i].pinned ? PlacementMode::kManual : PlacementMode::kAuto);
     if (!pole.ok) {
       out.error = pole.error;
       return out;

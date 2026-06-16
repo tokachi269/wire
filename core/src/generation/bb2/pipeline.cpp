@@ -449,6 +449,14 @@ bool has_current_route_pair_at(const graph& made, std::size_t node_id) {
          incoming->order + 1 == outgoing->order;
 }
 
+PlacementMode pole_mode(const BackboneSpec& spec, std::size_t local_index, std::size_t node_count) {
+  const bool endpoint = local_index == 0 || local_index + 1 == node_count;
+  if (spec.pole_placement.pin_vertices || (spec.pole_placement.pin_endpoints && endpoint)) {
+    return PlacementMode::kManual;
+  }
+  return PlacementMode::kAuto;
+}
+
 std::size_t add_open(pairs* out, std::size_t node_id, std::size_t link_id, const Vec3d& axis) {
   const std::size_t open_id = out->opens.size();
   out->opens.push_back(open{open_id, node_id, link_id, axis});
@@ -949,7 +957,8 @@ EditResult<bool> pipeline::emit_poles(topo* made, ChangeSet* changes) {
     const Vec3d next = (i + 1 < g_.nodes.size()) ? g_.nodes[i + 1].pos : g_.nodes[i].pos;
     const Vec3d prev = (i > 0) ? g_.nodes[i - 1].pos : g_.nodes[i].pos;
     tf.rotation_euler_deg.z = yaw((i + 1 < g_.nodes.size()) ? (next - g_.nodes[i].pos) : (g_.nodes[i].pos - prev));
-    EditResult<ObjectId> pole = state_.AddPole(tf, 10.0, "bb2-pole", PoleKind::kConcrete);
+    EditResult<ObjectId> pole =
+        state_.AddPole(tf, 10.0, "bb2-pole", PoleKind::kConcrete, pole_mode(spec_, i, g_.nodes.size()));
     if (!pole.ok) {
       out.error = pole.error;
       return out;

@@ -862,6 +862,7 @@ Supported:
 * same saved edge with a different bundle-compatible scope may add an edge_bundle and generated outputs.
 * duplicate same edge_bundle + lane is rejected before `AddPole` / `AddPort` / `AddBundle` / `AddSpan`.
 * `constraints.lateral_offset_m` is a port placement offset.
+* `pole_placement.pin_endpoints` and `pin_vertices` apply to newly generated poles only.
 * `BundleNodeMode::kNotPresent` is accepted as no-op after validation.
 * `BundleNodeMode::kPassThrough` is accepted only for a unique current-route interior pair or the limited saved-junction scope where target row intent is unambiguous.
 * generated outputs include poles / bundles / ports / spans, saved backbone graph bindings, span rules, layout, geom, and minimal draw caches.
@@ -887,6 +888,7 @@ Boundary:
 * geom consumes layout.
 * draw consumes layout / geom and does not repair `support_world` from `branch_down_offset_m`.
 * existing span / layout / seed / materialization result and position proximity are not meaning inputs.
+* pole placement pinning does not affect topology, connectivity, row placement, or existing poles.
 
 ## bb2 scenario acceptance pack
 
@@ -906,6 +908,7 @@ Scenarios:
 * duplicate same edge_bundle + lane: request is unsupported and state remains unchanged.
 * pass-through lowering: pair/open authority is unchanged; layout, geom, and draw consume the lowering result.
 * new-route interior pass-through: a three-point route with `kPassThrough` at the middle point is supported when the current route provides exactly one target pair row; no saved junction context is required for that case.
+* generated pole pinning: `pin_endpoints` materializes only generated route endpoints as manual poles, while `pin_vertices` materializes every generated route node as manual; existing poles are not mutated.
 
 ## bb2 mutation boundary hardening
 

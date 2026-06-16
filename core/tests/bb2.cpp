@@ -4039,6 +4039,56 @@ bool C543_bb2_new_route_interior_pass_through_supported() {
   return saw_lowered;
 }
 
+bool C544_bb2_pole_placement_pins_generated_poles() {
+  wire::core::CoreState endpoints_state;
+  wire::core::BackboneSpec endpoints = poly3_req(endpoints_state);
+  endpoints.pole_placement.pin_endpoints = true;
+  const auto endpoints_out = endpoints_state.GenerateFromBackboneSpec(endpoints);
+  if (!endpoints_out.ok || endpoints_out.value.generated_pole_ids.size() != 3) {
+    return false;
+  }
+  const auto* a = endpoints_state.view().poles().find(endpoints_out.value.generated_pole_ids[0]);
+  const auto* b = endpoints_state.view().poles().find(endpoints_out.value.generated_pole_ids[1]);
+  const auto* c = endpoints_state.view().poles().find(endpoints_out.value.generated_pole_ids[2]);
+  if (a == nullptr || b == nullptr || c == nullptr || a->placement_mode != wire::core::PlacementMode::kManual ||
+      b->placement_mode != wire::core::PlacementMode::kAuto || c->placement_mode != wire::core::PlacementMode::kManual) {
+    return false;
+  }
+
+  wire::core::CoreState vertices_state;
+  wire::core::BackboneSpec vertices = poly3_req(vertices_state);
+  vertices.pole_placement.pin_vertices = true;
+  const auto vertices_out = vertices_state.GenerateFromBackboneSpec(vertices);
+  if (!vertices_out.ok || vertices_out.value.generated_pole_ids.size() != 3) {
+    return false;
+  }
+  for (wire::core::ObjectId pole_id : vertices_out.value.generated_pole_ids) {
+    const auto* pole = vertices_state.view().poles().find(pole_id);
+    if (pole == nullptr || pole->placement_mode != wire::core::PlacementMode::kManual || !pole->user_edited) {
+      return false;
+    }
+  }
+
+  wire::core::CoreState existing_state;
+  const auto base = existing_state.GenerateFromBackboneSpec(poly3_req(existing_state));
+  if (!base.ok || base.value.generated_pole_ids.size() != 3) {
+    return false;
+  }
+  const wire::core::ObjectId existing = base.value.generated_pole_ids[1];
+  const auto* before = existing_state.view().poles().find(existing);
+  if (before == nullptr || before->placement_mode != wire::core::PlacementMode::kAuto) {
+    return false;
+  }
+  wire::core::BackboneSpec branch = line_req(existing_state);
+  branch.path.polyline = {before->world_transform.position, {20.0, 0.0, 0.0}};
+  branch.path.node_specs = {pole_spec(0, existing)};
+  branch.pole_placement.pin_endpoints = true;
+  const auto branch_out = existing_state.GenerateFromBackboneSpec(branch);
+  const auto* after = existing_state.view().poles().find(existing);
+  return branch_out.ok && branch_out.value.generated_pole_ids.size() == 1 && after != nullptr &&
+         after->placement_mode == wire::core::PlacementMode::kAuto;
+}
+
 void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C368_bb2_smoke_line", "bb2 generates the milestone-1 line slice", "Invariant", false,
                          C368_bb2_smoke_line);
@@ -4536,6 +4586,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C543_bb2_new_route_interior_pass_through_supported",
                          "bb2 supports pass-through on a new route interior point", "Boundary", false,
                          C543_bb2_new_route_interior_pass_through_supported);
+  test_registry::AddTest(tests, "C544_bb2_pole_placement_pins_generated_poles",
+                         "bb2 applies pole placement pin options to generated poles", "Boundary", false,
+                         C544_bb2_pole_placement_pins_generated_poles);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

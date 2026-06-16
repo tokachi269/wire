@@ -862,6 +862,7 @@ Supported:
 * generated pole `node_specs` may carry a non-zero `tangent_hint` that sets initial pole yaw.
 * route nodes are either new poles or existing poles that already have a `SavedBackboneGraph` node.
 * one or more bundle specs are allowed when their templates, layer, count, and pole port band can be resolved before mutation.
+* missing `pole_type_id` is accepted only when all requested bundle templates share one valid `related_pole_type_id`.
 * fixed-count bundle templates accept an explicit `count` only when it exactly matches the template fixed count.
 * range-count bundle templates accept an explicit `count` inside the template min/max range.
 * existing context is read only from `SavedBackboneGraph` node / edge / edge_bundle / binding records.
@@ -888,6 +889,7 @@ Unsupported:
 * duplicate same edge_bundle + lane requests.
 * ambiguous pass-through / lowering targets.
 * full support arm, insulator, attachment, or render styling semantics.
+* missing `pole_type_id` when requested bundle templates do not provide one common valid related pole type.
 
 Boundary:
 
@@ -928,6 +930,7 @@ Scenarios:
 * avoid radius without points: `avoid_radius_m` alone is accepted as no-op; any non-empty `avoid_points` still reject.
 * explicit range bundle count: range-count templates materialize the requested lane count within min/max; out-of-range counts reject before mutation.
 * generated pole tangent hint: non-zero tangent hints set generated pole yaw; zero hints reject before mutation, and pair/open/row remain route-derived.
+* bundle-derived pole type: if `pole_type_id` is missing and all requested bundles share one valid related pole type, generated poles use it; mixed related pole types reject before mutation.
 
 ## bb2 mutation boundary hardening
 

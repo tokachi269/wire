@@ -145,6 +145,47 @@ EditResult<spec_view> view_for(const CoreState& state, const BackboneBundleSpec&
   return out;
 }
 
+EditResult<PoleTypeId> pole_type_for(const CoreState& state, const BackboneSpec& spec) {
+  EditResult<PoleTypeId> out{};
+  if (state.view().pole_types().find(spec.pole_type_id) != state.view().pole_types().end()) {
+    out.value = spec.pole_type_id;
+    out.ok = true;
+    return out;
+  }
+  if (spec.pole_type_id != kInvalidPoleTypeId) {
+    out.error = "bb2 unsupported: pole type not found";
+    return out;
+  }
+  PoleTypeId resolved = kInvalidPoleTypeId;
+  for (const BackboneBundleSpec& bundle : spec.bundles) {
+    const auto tmpl_it = state.view().bundle_templates().find(bundle.bundle_template_id);
+    if (tmpl_it == state.view().bundle_templates().end()) {
+      out.error = "bb2 unsupported: bundle template not found";
+      return out;
+    }
+    const PoleTypeId candidate = tmpl_it->second.related_pole_type_id;
+    if (candidate == kInvalidPoleTypeId || state.view().pole_types().find(candidate) == state.view().pole_types().end()) {
+      out.error = "bb2 unsupported: pole type missing";
+      return out;
+    }
+    if (resolved == kInvalidPoleTypeId) {
+      resolved = candidate;
+      continue;
+    }
+    if (resolved != candidate) {
+      out.error = "bb2 unsupported: pole type is ambiguous";
+      return out;
+    }
+  }
+  if (resolved == kInvalidPoleTypeId) {
+    out.error = "bb2 unsupported: pole type not found";
+    return out;
+  }
+  out.value = resolved;
+  out.ok = true;
+  return out;
+}
+
 EditResult<PortPlacementBand> band_for(const CoreState& state, ObjectId pole_id, const spec_view& view) {
   EditResult<PortPlacementBand> out{};
   const Pole* pole = state.view().poles().find(pole_id);
@@ -739,8 +780,11 @@ EditResult<bool> pipeline::check() const {
   if (!spec_.constraints.avoid_points.empty()) {
     return unsupported("constraints are not in milestone 1");
   }
-  if (state_.view().pole_types().find(spec_.pole_type_id) == state_.view().pole_types().end()) {
-    return unsupported("pole type not found");
+  EditResult<PoleTypeId> resolved_type = pole_type_for(state_, spec_);
+  if (!resolved_type.ok) {
+    EditResult<bool> failed{};
+    failed.error = resolved_type.error;
+    return failed;
   }
   for (const BackboneBundleSpec& spec : spec_.bundles) {
     EditResult<spec_view> checked = view_for(state_, spec);
@@ -1005,6 +1049,11 @@ EditResult<bool> pipeline::emit_poles(topo* made, ChangeSet* changes) {
     return out;
   }
   made->poles.reserve(g_.nodes.size());
+  EditResult<PoleTypeId> resolved_type = pole_type_for(state_, spec_);
+  if (!resolved_type.ok) {
+    out.error = resolved_type.error;
+    return out;
+  }
   for (std::size_t i = 0; i < g_.nodes.size(); ++i) {
     if (!g_.nodes[i].is_new) {
       made->poles.push_back(g_.nodes[i].pole);
@@ -1025,7 +1074,7 @@ EditResult<bool> pipeline::emit_poles(topo* made, ChangeSet* changes) {
       return out;
     }
     add(*changes, pole.change_set);
-    EditResult<ObjectId> typed = state_.ApplyPoleType(pole.value, spec_.pole_type_id);
+    EditResult<ObjectId> typed = state_.ApplyPoleType(pole.value, resolved_type.value);
     if (!typed.ok) {
       out.error = typed.error;
       return out;

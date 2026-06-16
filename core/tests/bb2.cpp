@@ -4254,6 +4254,39 @@ bool C550_bb2_generated_pole_uses_tangent_hint_yaw() {
          rejected.view().spans().size() == span_count;
 }
 
+bool C551_bb2_missing_pole_type_resolves_from_bundle_templates() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = line_req(state);
+  req.pole_type_id = wire::core::kInvalidPoleTypeId;
+  req.bundles.clear();
+  add_backbone_bundle(req, wire::core::BundleKind::kCommunication);
+  const auto tmpl_it = state.view().bundle_templates().find(wire::core::BundleKind::kCommunication);
+  if (tmpl_it == state.view().bundle_templates().end() ||
+      tmpl_it->second.related_pole_type_id == wire::core::kInvalidPoleTypeId) {
+    return false;
+  }
+  const auto out = state.GenerateFromBackboneSpec(req);
+  if (!out.ok || out.value.generated_pole_ids.size() != 2 || out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  for (wire::core::ObjectId pole_id : out.value.generated_pole_ids) {
+    const auto* pole = state.view().poles().find(pole_id);
+    if (pole == nullptr || pole->pole_type_id != tmpl_it->second.related_pole_type_id) {
+      return false;
+    }
+  }
+
+  wire::core::CoreState rejected;
+  wire::core::BackboneSpec bad = line_req(rejected);
+  bad.pole_type_id = wire::core::kInvalidPoleTypeId;
+  add_backbone_bundle(bad, wire::core::BundleKind::kCommunication);
+  const std::size_t pole_count = rejected.view().poles().size();
+  const std::size_t span_count = rejected.view().spans().size();
+  const auto bad_out = rejected.GenerateFromBackboneSpec(bad);
+  return !bad_out.ok && contains_text(bad_out.error, "unsupported") && rejected.view().poles().size() == pole_count &&
+         rejected.view().spans().size() == span_count;
+}
+
 void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C368_bb2_smoke_line", "bb2 generates the milestone-1 line slice", "Invariant", false,
                          C368_bb2_smoke_line);
@@ -4772,6 +4805,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C550_bb2_generated_pole_uses_tangent_hint_yaw",
                          "bb2 uses tangent hints for generated pole yaw", "Boundary", false,
                          C550_bb2_generated_pole_uses_tangent_hint_yaw);
+  test_registry::AddTest(tests, "C551_bb2_missing_pole_type_resolves_from_bundle_templates",
+                         "bb2 resolves missing pole type from bundle templates", "Boundary", false,
+                         C551_bb2_missing_pole_type_resolves_from_bundle_templates);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

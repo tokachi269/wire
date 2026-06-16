@@ -969,3 +969,34 @@ Acceptance boundary:
 * supported requests create bb2 saved graph outputs.
 * unsupported requests leave topology objects and saved graph unchanged.
 * manual/v1 existing pole without `SavedBackboneGraph` remains rejected.
+
+## bb2 usable mainline architecture audit
+
+Audit date: 2026-06-16
+
+Result: PASS.
+
+Confirmed owners:
+
+* topology owner: `SavedBackboneGraph`.
+* connectivity owner: `pairs make(graph)`.
+* placement owner: row separation and support groups.
+* port identity owner: saved row-port binding with bundle-compatible scope.
+* span duplicate owner: saved span binding preflight, with bind invariant as final guard.
+* lowering owner: intent / support group / rules / layout.
+* geom owner: layout consumer.
+* draw owner: layout / geom consumer.
+* unsupported owner: `prepare()` / `check()` / preflight, without v1 fallback.
+
+Confirmed boundaries:
+
+* downstream does not reconstruct topology from span / layout / seed / curve / port position.
+* context links are decision input only and are not emit/save targets.
+* draw does not decide topology, pair/open/row, placement, or lowering.
+* bb2 production source does not reference v1 backbone pipeline, recalc, materialization, support layout contract/projection, authority, seed, fallback, infer, guess, legacy, grouped span generation, or support layout save entrypoints.
+
+Remaining non-blockers:
+
+* v1/recalc/inspection still keep their old contracts outside bb2.
+* v1/manual scene migration is still unsupported.
+* full support arm / insulator / attachment semantics are still unsupported.

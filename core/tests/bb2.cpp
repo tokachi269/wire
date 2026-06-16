@@ -3988,6 +3988,22 @@ bool C541_bb2_manual_existing_pole_without_graph_is_gate_rejected() {
          C517_bb2_migration_gate_does_not_infer_from_outputs();
 }
 
+bool C542_bb2_usable_mainline_architecture_audit_passes() {
+  const std::filesystem::path doc = repo_root() / "redesign.md";
+  std::string text;
+  if (!file_text(doc, &text)) {
+    return false;
+  }
+  const bool doc_ok = contains_text(text, "## bb2 usable mainline architecture audit") &&
+                      contains_text(text, "Result: PASS") &&
+                      contains_text(text, "topology owner: `SavedBackboneGraph`") &&
+                      contains_text(text, "connectivity owner: `pairs make(graph)`") &&
+                      contains_text(text, "draw owner: layout / geom consumer");
+  return doc_ok && C498_bb2_saved_graph_remains_topology_authority() && C387_bb2_pairs_are_single_source() &&
+         C506_bb2_support_group_is_placement_layer() && C535_bb2_duplicate_preflight_is_mutation_boundary() &&
+         C537_bb2_draw_source_has_no_decision_inputs() && C523_bb2_scope_gate_matches_entrypoint();
+}
+
 void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C368_bb2_smoke_line", "bb2 generates the milestone-1 line slice", "Invariant", false,
                          C368_bb2_smoke_line);
@@ -4479,6 +4495,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C541_bb2_manual_existing_pole_without_graph_is_gate_rejected",
                          "bb2 manual existing pole without graph is gate rejected", "Boundary", true,
                          C541_bb2_manual_existing_pole_without_graph_is_gate_rejected);
+  test_registry::AddTest(tests, "C542_bb2_usable_mainline_architecture_audit_passes",
+                         "bb2 usable mainline architecture audit passes", "Boundary", false,
+                         C542_bb2_usable_mainline_architecture_audit_passes);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

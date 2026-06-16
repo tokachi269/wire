@@ -905,3 +905,27 @@ Scenarios:
 * same saved edge with different bundle: saved edge is shared and edge_bundle is bundle-scoped.
 * duplicate same edge_bundle + lane: request is unsupported and state remains unchanged.
 * pass-through lowering: pair/open authority is unchanged; layout, geom, and draw consume the lowering result.
+
+## bb2 mutation boundary hardening
+
+Phase: preflight mutation boundary.
+
+Generation order:
+
+* `GenerateFromBackboneSpec` runs `prepare()` and `check()` before `build()`.
+* `build()` creates `pairs` from `graph`.
+* duplicate saved span binding preflight runs before intent, group, and topology emit.
+* intent and support groups are computed before topology emit.
+* topology emit is the first object mutation step.
+* saved backbone graph binding happens after topology emit.
+* rules, layout, geom, and draw are derived after graph save.
+
+Mutation boundary:
+
+* invalid input must stop before topology emit whenever the missing information is knowable from request / saved graph / template / band data.
+* duplicate same edge_bundle + lane is known from saved graph bindings and must reject before `AddPole` / `AddPort` / `AddBundle` / `AddSpan`.
+* saved graph binding failures after emit are treated as internal invariant failures, not normal duplicate policy.
+
+Known non-blocker:
+
+* bb2 does not implement rollback for internal invariant failures after topology emit. Current supported duplicate and unsupported-input cases are preflighted before emit.

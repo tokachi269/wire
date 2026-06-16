@@ -3891,6 +3891,44 @@ bool C532_bb2_scenario_pass_through_lowering_consumer_chain() {
          C519_bb2_draw_placeholder_uses_layout_points();
 }
 
+bool C533_bb2_build_mutation_order_is_fixed() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+  std::string cpp;
+  if (!file_text(source, &cpp)) {
+    return false;
+  }
+  const std::size_t build_pos = cpp.find("EditResult<GenerateBundleFromPathResult> pipeline::build()");
+  const std::size_t pairs_pos = cpp.find("EditResult<pairs> ps = make(g_)", build_pos);
+  const std::size_t check_pos = cpp.find("EditResult<bool> duplicates = check(ps.value)", build_pos);
+  const std::size_t intent_pos = cpp.find("EditResult<intent> intents = make(ps.value)", build_pos);
+  const std::size_t group_pos = cpp.find("EditResult<groups> placement = make(ps.value, intents.value)", build_pos);
+  const std::size_t emit_pos = cpp.find("EditResult<topo> made = emit(ps.value)", build_pos);
+  const std::size_t graph_pos = cpp.find("EditResult<bool> graph_saved = save_graph(made.value, ps.value)", build_pos);
+  const std::size_t rules_pos = cpp.find("rules saved = make(made.value, placement.value)", build_pos);
+  const std::size_t layout_pos = cpp.find("EditResult<layout> placed = make(saved)", build_pos);
+  const std::size_t geom_pos = cpp.find("geom shaped = make(placed.value)", build_pos);
+  const std::size_t draw_pos = cpp.find("draw drawn = make(placed.value, shaped)", build_pos);
+  if (build_pos == std::string::npos || pairs_pos == std::string::npos || check_pos == std::string::npos ||
+      intent_pos == std::string::npos || group_pos == std::string::npos || emit_pos == std::string::npos ||
+      graph_pos == std::string::npos || rules_pos == std::string::npos || layout_pos == std::string::npos ||
+      geom_pos == std::string::npos || draw_pos == std::string::npos) {
+    return false;
+  }
+  return pairs_pos < check_pos && check_pos < intent_pos && intent_pos < group_pos &&
+         group_pos < emit_pos && emit_pos < graph_pos && graph_pos < rules_pos && rules_pos < layout_pos &&
+         layout_pos < geom_pos && geom_pos < draw_pos;
+}
+
+bool C534_bb2_invalid_inputs_stop_before_emit() {
+  return C409_bb2_rejects_missing_port_band() && C414_bb2_still_rejects_avoid_constraints() &&
+         C515_bb2_rejects_existing_pole_without_saved_graph();
+}
+
+bool C535_bb2_duplicate_preflight_is_mutation_boundary() {
+  return C466_bb2_duplicate_reject_keeps_state_unchanged() &&
+         C520_bb2_duplicate_span_binding_preflight_before_emit();
+}
+
 void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C368_bb2_smoke_line", "bb2 generates the milestone-1 line slice", "Invariant", false,
                          C368_bb2_smoke_line);
@@ -4355,6 +4393,15 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C532_bb2_scenario_pass_through_lowering_consumer_chain",
                          "bb2 pass-through lowering scenario preserves consumer chain", "Boundary", false,
                          C532_bb2_scenario_pass_through_lowering_consumer_chain);
+  test_registry::AddTest(tests, "C533_bb2_build_mutation_order_is_fixed",
+                         "bb2 build mutation order is fixed", "Boundary", false,
+                         C533_bb2_build_mutation_order_is_fixed);
+  test_registry::AddTest(tests, "C534_bb2_invalid_inputs_stop_before_emit",
+                         "bb2 invalid inputs stop before emit", "Boundary", true,
+                         C534_bb2_invalid_inputs_stop_before_emit);
+  test_registry::AddTest(tests, "C535_bb2_duplicate_preflight_is_mutation_boundary",
+                         "bb2 duplicate preflight is the mutation boundary", "Boundary", false,
+                         C535_bb2_duplicate_preflight_is_mutation_boundary);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

@@ -929,3 +929,25 @@ Mutation boundary:
 Known non-blocker:
 
 * bb2 does not implement rollback for internal invariant failures after topology emit. Current supported duplicate and unsupported-input cases are preflighted before emit.
+
+## bb2 draw consumer boundary
+
+Phase: minimal draw output hardening.
+
+Draw responsibilities:
+
+* wire render cache is generated from saved geom curve samples.
+* lowered placeholder visual is generated from layout `support_world -> endpoint_world`.
+* draw transfers decided values; it does not decide topology, connectivity, placement, or lowering.
+
+Forbidden:
+
+* draw must not read saved graph topology.
+* draw must not read pair/open/row connectivity.
+* draw must not read support group data to decide lowering.
+* draw must not rebuild `support_world` from `branch_down_offset_m`.
+* draw must not create full support arm, insulator, attachment, or render styling semantics.
+
+Viewer note:
+
+* viewer/raylib availability is not part of bb2 core acceptance. Missing viewer deps are recorded separately and do not block `wire_core_tests` bb2 acceptance.

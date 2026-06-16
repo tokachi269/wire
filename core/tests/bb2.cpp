@@ -3929,6 +3929,38 @@ bool C535_bb2_duplicate_preflight_is_mutation_boundary() {
          C520_bb2_duplicate_span_binding_preflight_before_emit();
 }
 
+bool C536_bb2_draw_consumer_outputs_are_minimal() {
+  return C511_bb2_draw_saved_from_geom() && C513_bb2_support_visual_placeholder_from_layout() &&
+         C519_bb2_draw_placeholder_uses_layout_points();
+}
+
+bool C537_bb2_draw_source_has_no_decision_inputs() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+  std::string cpp;
+  if (!file_text(source, &cpp)) {
+    return false;
+  }
+  const std::size_t fn_pos = cpp.find("draw pipeline::make(const layout& placed, const geom& shaped) const");
+  const std::size_t next_pos = cpp.find("void pipeline::save(const rules& made)", fn_pos);
+  if (fn_pos == std::string::npos || next_pos == std::string::npos) {
+    return false;
+  }
+  const std::string body = cpp.substr(fn_pos, next_pos - fn_pos);
+  return !contains_text(body, "state_.") && !contains_text(body, "SavedBackbone") &&
+         !contains_text(body, "pairs") && !contains_text(body, "edge_bundle") &&
+         !contains_text(body, "support_group") && !contains_text(body, "branch_down_offset_m");
+}
+
+bool C538_bb2_viewer_deps_are_not_core_draw_gate() {
+  const std::filesystem::path doc = repo_root() / "redesign.md";
+  std::string text;
+  if (!file_text(doc, &text)) {
+    return false;
+  }
+  return contains_text(text, "viewer/raylib availability is not part of bb2 core acceptance") &&
+         contains_text(text, "do not block `wire_core_tests` bb2 acceptance");
+}
+
 void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C368_bb2_smoke_line", "bb2 generates the milestone-1 line slice", "Invariant", false,
                          C368_bb2_smoke_line);
@@ -4402,6 +4434,15 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C535_bb2_duplicate_preflight_is_mutation_boundary",
                          "bb2 duplicate preflight is the mutation boundary", "Boundary", false,
                          C535_bb2_duplicate_preflight_is_mutation_boundary);
+  test_registry::AddTest(tests, "C536_bb2_draw_consumer_outputs_are_minimal",
+                         "bb2 draw consumer outputs are minimal", "Boundary", false,
+                         C536_bb2_draw_consumer_outputs_are_minimal);
+  test_registry::AddTest(tests, "C537_bb2_draw_source_has_no_decision_inputs",
+                         "bb2 draw source has no decision inputs", "Boundary", false,
+                         C537_bb2_draw_source_has_no_decision_inputs);
+  test_registry::AddTest(tests, "C538_bb2_viewer_deps_are_not_core_draw_gate",
+                         "bb2 viewer deps are not the core draw gate", "Boundary", false,
+                         C538_bb2_viewer_deps_are_not_core_draw_gate);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

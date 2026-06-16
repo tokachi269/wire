@@ -1319,9 +1319,10 @@ bool C414_bb2_still_rejects_avoid_constraints() {
   if (point_out.ok || !contains_text(point_out.error, "unsupported")) {
     return false;
   }
-  wire::core::BackboneSpec avoid_radius = line_req(state);
-  avoid_radius.constraints.avoid_radius_m = 1.0;
-  const auto radius_out = state.GenerateFromBackboneSpec(avoid_radius);
+  wire::core::BackboneSpec avoid_point_radius = line_req(state);
+  avoid_point_radius.constraints.avoid_points.push_back({6.0, 0.0, 0.0});
+  avoid_point_radius.constraints.avoid_radius_m = 1.0;
+  const auto radius_out = state.GenerateFromBackboneSpec(avoid_point_radius);
   return !radius_out.ok && contains_text(radius_out.error, "unsupported");
 }
 
@@ -4188,6 +4189,16 @@ bool C547_bb2_fixed_bundle_exact_count_is_supported() {
          rejected.view().spans().size() == span_count;
 }
 
+bool C548_bb2_avoid_radius_without_points_is_noop() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = line_req(state);
+  req.constraints.avoid_radius_m = 3.0;
+  const auto out = state.GenerateFromBackboneSpec(req);
+  return out.ok && out.value.generated_pole_ids.size() == 2 &&
+         out.value.generated_span_ids.size() == static_cast<std::size_t>(req_bundle_count(state, req)) &&
+         C414_bb2_still_rejects_avoid_constraints();
+}
+
 void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C368_bb2_smoke_line", "bb2 generates the milestone-1 line slice", "Invariant", false,
                          C368_bb2_smoke_line);
@@ -4697,6 +4708,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C547_bb2_fixed_bundle_exact_count_is_supported",
                          "bb2 supports exact fixed bundle count input", "Boundary", false,
                          C547_bb2_fixed_bundle_exact_count_is_supported);
+  test_registry::AddTest(tests, "C548_bb2_avoid_radius_without_points_is_noop",
+                         "bb2 accepts avoid radius without avoid points as no-op", "Boundary", false,
+                         C548_bb2_avoid_radius_without_points_is_noop);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

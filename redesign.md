@@ -345,7 +345,8 @@ port height は pole type の `PortPlacementBand` から読む。固定高さを
 対応:
 
 * `lateral_offset_m` を `row.axis` 方向の offset に加える。
-* `avoid_points` / `avoid_radius_m` は unsupported のまま。
+* `avoid_points` は unsupported のまま。
+* `avoid_radius_m` は `avoid_points` が空なら no-op として扱う。
 * layout / curve / bounds は port world position から一方向に追従する。
 
 禁止:
@@ -865,6 +866,7 @@ Supported:
 * same saved edge with a different bundle-compatible scope may add an edge_bundle and generated outputs.
 * duplicate same edge_bundle + lane is rejected before `AddPole` / `AddPort` / `AddBundle` / `AddSpan`.
 * `constraints.lateral_offset_m` is a port placement offset.
+* `constraints.avoid_radius_m` is accepted as no-op when `avoid_points` is empty.
 * `pole_placement.pin_endpoints` and `pin_vertices` apply to newly generated poles only.
 * `BundleNodeMode::kNotPresent` is accepted as no-op after validation.
 * `BundleNodeMode::kPassThrough` is accepted only for a unique current-route interior pair or the limited saved-junction scope where target row intent is unambiguous.
@@ -877,7 +879,7 @@ Unsupported:
 * saved graph migration from v1/manual scenes.
 * graph import inferred from span / layout / seed / curve / port position.
 * explicit node specs that refer to missing existing pole ids.
-* avoid routing.
+* avoid routing with `avoid_points`.
 * fixed-count bundle templates with a mismatched explicit `count`.
 * duplicate same edge_bundle + lane requests.
 * ambiguous pass-through / lowering targets.
@@ -918,6 +920,7 @@ Scenarios:
 * interval route generation: `interval_m` materializes intermediate pole nodes and spans along the same bb2 graph pipeline; auto interval nodes are not treated as clicked vertices for pinning.
 * explicit new pole node specs: `SupportKind::kPole` with no `node_id` is accepted as an explicit generated pole marker; missing non-invalid ids still reject.
 * exact fixed bundle count: fixed-count templates accept a redundant explicit count equal to the template count; different counts still reject before mutation.
+* avoid radius without points: `avoid_radius_m` alone is accepted as no-op; any non-empty `avoid_points` still reject.
 
 ## bb2 mutation boundary hardening
 

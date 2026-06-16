@@ -719,7 +719,7 @@ EditResult<bool> pipeline::check() const {
       return unsupported("node bundle mode is not in milestone 25");
     }
   }
-  if (!spec_.constraints.avoid_points.empty() || spec_.constraints.avoid_radius_m != 0.0) {
+  if (!spec_.constraints.avoid_points.empty()) {
     return unsupported("constraints are not in milestone 1");
   }
   if (state_.view().pole_types().find(spec_.pole_type_id) == state_.view().pole_types().end()) {

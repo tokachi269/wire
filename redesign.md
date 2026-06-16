@@ -951,3 +951,21 @@ Forbidden:
 Viewer note:
 
 * viewer/raylib availability is not part of bb2 core acceptance. Missing viewer deps are recorded separately and do not block `wire_core_tests` bb2 acceptance.
+
+## bb2 GenerateFromBackboneSpec gate policy
+
+Phase: mainline gate enforcement.
+
+Policy:
+
+* supported `BackboneSpec` requests run through bb2 `prepare()` / `check()` / `build()`.
+* unsupported requests return unsupported and do not fall back to v1 generation.
+* saved graph missing for an existing pole is unsupported.
+* v1/manual scene migration is not implemented.
+* import from existing span / layout / seed / curve / port position is forbidden.
+
+Acceptance boundary:
+
+* supported requests create bb2 saved graph outputs.
+* unsupported requests leave topology objects and saved graph unchanged.
+* manual/v1 existing pole without `SavedBackboneGraph` remains rejected.

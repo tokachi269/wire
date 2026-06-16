@@ -3961,6 +3961,33 @@ bool C538_bb2_viewer_deps_are_not_core_draw_gate() {
          contains_text(text, "do not block `wire_core_tests` bb2 acceptance");
 }
 
+bool C539_bb2_supported_request_creates_saved_graph_outputs() {
+  return C524_bb2_scenario_simple_line_mainline() && C523_bb2_scope_gate_matches_entrypoint();
+}
+
+bool C540_bb2_unsupported_request_does_not_create_v1_outputs() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = line_req(state);
+  req.bundles.clear();
+  const std::size_t poles = state.view().poles().size();
+  const std::size_t ports = state.view().ports().size();
+  const std::size_t bundles = state.view().bundles().size();
+  const std::size_t spans = state.view().spans().size();
+  const std::size_t nodes = state.view().backbone().nodes.size();
+  const std::size_t edges = state.view().backbone().edges.size();
+  const std::size_t edge_bundles = state.view().backbone().edge_bundles.size();
+  const auto out = state.GenerateFromBackboneSpec(req);
+  return !out.ok && state.view().poles().size() == poles && state.view().ports().size() == ports &&
+         state.view().bundles().size() == bundles && state.view().spans().size() == spans &&
+         state.view().backbone().nodes.size() == nodes && state.view().backbone().edges.size() == edges &&
+         state.view().backbone().edge_bundles.size() == edge_bundles;
+}
+
+bool C541_bb2_manual_existing_pole_without_graph_is_gate_rejected() {
+  return C515_bb2_rejects_existing_pole_without_saved_graph() &&
+         C517_bb2_migration_gate_does_not_infer_from_outputs();
+}
+
 void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C368_bb2_smoke_line", "bb2 generates the milestone-1 line slice", "Invariant", false,
                          C368_bb2_smoke_line);
@@ -4443,6 +4470,15 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C538_bb2_viewer_deps_are_not_core_draw_gate",
                          "bb2 viewer deps are not the core draw gate", "Boundary", false,
                          C538_bb2_viewer_deps_are_not_core_draw_gate);
+  test_registry::AddTest(tests, "C539_bb2_supported_request_creates_saved_graph_outputs",
+                         "bb2 supported request creates saved graph outputs", "Boundary", false,
+                         C539_bb2_supported_request_creates_saved_graph_outputs);
+  test_registry::AddTest(tests, "C540_bb2_unsupported_request_does_not_create_v1_outputs",
+                         "bb2 unsupported request does not create v1 outputs", "Boundary", true,
+                         C540_bb2_unsupported_request_does_not_create_v1_outputs);
+  test_registry::AddTest(tests, "C541_bb2_manual_existing_pole_without_graph_is_gate_rejected",
+                         "bb2 manual existing pole without graph is gate rejected", "Boundary", true,
+                         C541_bb2_manual_existing_pole_without_graph_is_gate_rejected);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

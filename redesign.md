@@ -805,7 +805,7 @@ bb2 は saved backbone graph を持たない既存 scene を暗黙 migration し
 * existing pole を見つけた時に bb2 がその場で saved graph node を作って取り込む。
 * v1 scene を fallback として暗黙に bb2 graph へ変換する。
 
-## Post-M29 bb2 quality fix
+## M29後 bb2 品質修正
 
 M30 へ進む前に、M29 後に残った境界品質を固定する。
 
@@ -824,221 +824,215 @@ M30 へ進む前に、M29 後に残った境界品質を固定する。
 * duplicate reject のために port/span/bundle を先に生成して rollback 前提にする。
 * duplicate 判定で span geometry、existing layout/seed、port position を読む。
 
-## Post-M29 bb2 architecture audit
+## M29後 bb2 アーキテクチャ監査
 
-Audit date: 2026-06-16
+監査日: 2026-06-16
 
-Result: PASS after one boundary fix.
+結果: 1 件の境界修正後に PASS。
 
-Fixed:
+修正:
 
-* `pairs make(graph)` no longer rebuilds context link `dir` from node positions.
-* new link `dir` is still computed from input route geometry.
-* context link `dir` remains the saved graph edge direction loaded during `prepare()`.
+* `pairs make(graph)` は context link の `dir` を node position から再構成しない。
+* new link の `dir` は引き続き input route geometry から計算する。
+* context link の `dir` は `prepare()` で読み込んだ saved graph edge direction のまま維持する。
 
-Confirmed:
+確認:
 
-* SavedBackboneGraph remains topology authority for existing context.
-* `pairs make(graph)` remains the pair/open/row decision point.
-* context link is not emitted or saved as a new edge.
-* duplicate same edge bundle + lane is rejected before emit from saved span bindings.
-* layout consumes rules/group data; geom consumes layout; draw consumes layout/geom.
-* bb2 production source does not reference v1 backbone pipeline, recalc, materialization, support layout contract/projection, authority, seed, fallback, infer, guess, legacy, grouped span generation, or support layout save entrypoints.
+* existing context に対する topology authority は引き続き `SavedBackboneGraph` である。
+* `pairs make(graph)` は引き続き pair/open/row の決定点である。
+* context link は new edge として emit も save もしない。
+* duplicate same edge bundle + lane は saved span binding から emit 前に reject する。
+* layout は rules/group data を consume し、geom は layout を consume し、draw は layout/geom を consume する。
+* bb2 production source は v1 backbone pipeline、recalc、materialization、support layout contract/projection、authority、seed、fallback、infer、guess、legacy、grouped span generation、support layout save entrypoint を参照しない。
 
-Known non-blocker:
+既知の非ブロッカー:
 
-* `BackboneLoweringKind::kBranchSupport` is still used as an existing layout enum value. In bb2 it is not a T/cross/branch topology label and does not feed pair/open/row decisions.
+* `BackboneLoweringKind::kBranchSupport` は既存 layout enum 値として引き続き使っている。bb2 では T/cross/branch の topology label ではなく、pair/open/row の決定にも使わない。
 
-## bb2 supported generation scope
+## bb2 対応生成範囲
 
-Phase: usable mainline scope freeze.
+フェーズ: 実用 mainline の対応範囲凍結。
 
-Supported:
+対応:
 
-* input route is a polyline with at least two points.
-* `interval_m > 0` inserts deterministic intermediate generated pole nodes along each input segment.
-* support nodes are poles, explicit new midair route points, or explicit new building route points.
-* new route points may be explicit ownerless support nodes when `SupportKind::kMidair` or
-  `SupportKind::kBuilding` or `SupportKind::kGround` has no existing `node_id`.
-* existing ownerless route points are accepted only when `node_id` is a saved backbone node with
-  no pole id and matching support kind.
-* explicit `node_specs` with `SupportKind::kPole` and no `node_id` are generated pole nodes.
-* generated pole `node_specs` may carry a non-zero `tangent_hint` that sets initial pole yaw.
-* route nodes are either new poles or existing poles that already have a `SavedBackboneGraph` node.
-* one or more bundle specs are allowed when their templates, layer, count, and pole port band can be resolved before mutation.
-* missing `pole_type_id` is accepted only when all requested bundle templates share one valid `related_pole_type_id`.
-* fixed-count bundle templates accept an explicit `count` only when it exactly matches the template fixed count.
-* range-count bundle templates accept an explicit `count` inside the template min/max range.
-* existing context is read only from `SavedBackboneGraph` node / edge / edge_bundle / binding records.
-* same saved edge with a different bundle-compatible scope may add an edge_bundle and generated outputs.
-* duplicate same edge_bundle + lane is rejected before `AddPole` / `AddPort` / `AddBundle` / `AddSpan`.
-* `constraints.lateral_offset_m` is a port placement offset.
-* `constraints.avoid_radius_m` is accepted as no-op when `avoid_points` is empty.
-* `constraints.avoid_points` is accepted as no-op when `avoid_radius_m <= 0` or when every
-  positive-radius avoid point is clear of the requested route.
-* `pole_placement.pin_endpoints` and `pin_vertices` apply to newly generated poles only.
-* `BundleNodeMode::kNotPresent` is accepted as no-op after validation.
-* `BundleNodeMode::kPassThrough` is accepted only for a unique current-route interior pair or the limited saved-junction scope where target row intent is unambiguous.
-* generated outputs include poles / bundles / ports / spans, saved backbone graph bindings, span rules, layout, geom, and minimal draw caches.
+* input route は 2 点以上の polyline である。
+* `interval_m > 0` の場合、各 input segment 上に deterministic な中間 generated pole node を挿入する。
+* support node は pole、明示的な new midair route point、または明示的な new building route point である。
+* `SupportKind::kMidair`、`SupportKind::kBuilding`、`SupportKind::kGround` に既存 `node_id` が無い場合、new route point は明示的な ownerless support node として扱える。
+* existing ownerless route point を受けるのは、`node_id` が pole id を持たず support kind も一致する saved backbone node の場合に限る。
+* `SupportKind::kPole` かつ `node_id` なしの明示 `node_specs` は generated pole node である。
+* generated pole の `node_specs` は、初期 pole yaw を設定する non-zero `tangent_hint` を持てる。
+* route node は new pole、またはすでに `SavedBackboneGraph` node を持つ existing pole のいずれかである。
+* template、layer、count、pole port band を mutation 前に resolve できるなら、1 個以上の bundle spec を許可する。
+* `pole_type_id` 欠落を受けるのは、要求 bundle template 全体が 1 つの有効な共通 `related_pole_type_id` を共有する場合に限る。
+* fixed-count bundle template は、明示 `count` が template の fixed count と完全一致する場合だけ受ける。
+* range-count bundle template は、明示 `count` が template の min/max 範囲内にある場合だけ受ける。
+* existing context は `SavedBackboneGraph` の node / edge / edge_bundle / binding record からのみ読む。
+* same saved edge でも bundle-compatible scope が異なれば、edge_bundle と generated output を追加できる。
+* duplicate same edge_bundle + lane は `AddPole` / `AddPort` / `AddBundle` / `AddSpan` 前に reject する。
+* `constraints.lateral_offset_m` は port placement offset である。
+* `avoid_points` が空なら `constraints.avoid_radius_m` は no-op として受ける。
+* `constraints.avoid_points` は、`avoid_radius_m <= 0` の場合、または正の半径を持つ全 avoid point が要求 route と交差しない場合に no-op として受ける。
+* `pole_placement.pin_endpoints` と `pin_vertices` は newly generated pole にだけ適用する。
+* `BundleNodeMode::kNotPresent` は validation 後の no-op として受ける。
+* `BundleNodeMode::kPassThrough` は、current-route 上で target row intent が一意な interior pair、または target row intent が曖昧でない限定 saved-junction scope にだけ受ける。
+* generated output には poles / bundles / ports / spans、saved backbone graph binding、span rules、layout、geom、最小 draw cache を含む。
 
-Unsupported:
+非対応:
 
-* missing saved ownerless support nodes and unsupported support kinds.
-* existing pole nodes without a saved backbone node.
-* saved graph migration from v1/manual scenes.
-* graph import inferred from span / layout / seed / curve / port position.
-* explicit node specs that refer to missing existing pole ids.
-* zero-length tangent hints.
-* avoid routing when a positive-radius `avoid_points` constraint intersects the requested route.
-* fixed-count bundle templates with a mismatched explicit `count`.
-* range-count bundle templates with an explicit `count` outside the template min/max range.
-* duplicate same edge_bundle + lane requests.
-* ambiguous pass-through / lowering targets.
-* full support arm, insulator, attachment, or render styling semantics.
-* missing `pole_type_id` when requested bundle templates do not provide one common valid related pole type.
+* saved ownerless support node が無いケース、および未対応の support kind。
+* saved backbone node を持たない existing pole node。
+* v1/manual scene からの saved graph migration。
+* span / layout / seed / curve / port position から推測する graph import。
+* 存在しない existing pole id を参照する明示 node spec。
+* zero-length tangent hint。
+* 正の半径を持つ `avoid_points` 制約が要求 route と交差する場合の avoid routing。
+* 明示 `count` が不一致な fixed-count bundle template。
+* 明示 `count` が template の min/max 範囲外にある range-count bundle template。
+* duplicate same edge_bundle + lane request。
+* 曖昧な pass-through / lowering target。
+* 完全な support arm、insulator、attachment、render styling semantics。
+* 要求 bundle template 群が 1 つの有効な共通 related pole type を提供しない場合の `pole_type_id` 欠落。
 
-Boundary:
+境界:
 
-* `GenerateFromBackboneSpec` uses bb2 and does not fall back to v1 for unsupported requests.
-* `SavedBackboneGraph` is topology authority.
-* `pairs make(graph)` is connectivity authority.
-* row separation and support groups are placement authority only.
-* layout keeps `support_world` at the original support / port point and lowers only `endpoint_world`.
-* geom consumes layout.
-* draw consumes layout / geom and does not repair `support_world` from `branch_down_offset_m`.
-* existing span / layout / seed / materialization result and position proximity are not meaning inputs.
-* pole placement pinning does not affect topology, connectivity, row placement, or existing poles.
-* tangent hints affect generated pole yaw only and do not affect topology, connectivity, row placement, or existing poles.
-* `pin_vertices` applies to original clicked vertices, not interval-inserted auto nodes.
+* `GenerateFromBackboneSpec` は bb2 を使い、unsupported request で v1 へ fallback しない。
+* `SavedBackboneGraph` は topology authority である。
+* `pairs make(graph)` は connectivity authority である。
+* row separation と support group は placement authority のみである。
+* layout は `support_world` を元の support / port point に保ち、`endpoint_world` だけを下げる。
+* geom は layout を consume する。
+* draw は layout / geom を consume し、`branch_down_offset_m` から `support_world` を補修しない。
+* existing span / layout / seed / materialization result と position proximity は意味入力ではない。
+* pole placement pinning は topology、connectivity、row placement、existing pole に影響しない。
+* tangent hint は generated pole yaw にだけ影響し、topology、connectivity、row placement、existing pole には影響しない。
+* `pin_vertices` は interval 挿入された auto node ではなく、元の clicked vertex に適用する。
 
-## bb2 scenario acceptance pack
+## bb2 シナリオ受け入れパック
 
-Phase: usable mainline scenario coverage.
+フェーズ: 実用 mainline のシナリオ網羅。
 
-Each scenario acceptance combines result checks with at least one authority or negative boundary check.
+各シナリオ受け入れは、結果確認に加えて少なくとも 1 つの authority または否定境界 check を含む。
 
-Scenarios:
+シナリオ:
 
-* simple two-point line: generated topology, rules, layout, geom, draw, and saved graph exist; bb2 production source avoids v1 generation dependencies.
-* three-point polyline: link / pair / open / row are decided once; rules consume topology and placement groups rather than recalculating connectivity.
-* multiple bundles: bundle specs generate multiple outputs while sharing the same pair/open/row authority.
-* existing pole continuation: saved graph nodes are accepted, manual/v1 poles without saved graph are rejected, existing spans are not meaning input.
-* existing branch B-D on A-B-C: only the new route is emitted; context A-B/B-C links are not emitted or saved again.
-* existing cross D-B-E on A-B-C: pair+pair context is handled without T/cross/branch kind labels.
-* same saved edge with different bundle: saved edge is shared and edge_bundle is bundle-scoped.
-* duplicate same edge_bundle + lane: request is unsupported and state remains unchanged.
-* pass-through lowering: pair/open authority is unchanged; layout, geom, and draw consume the lowering result.
-* new-route interior pass-through: a three-point route with `kPassThrough` at the middle point is supported when the current route provides exactly one target pair row; no saved junction context is required for that case.
-* generated pole pinning: `pin_endpoints` materializes only generated route endpoints as manual poles, while `pin_vertices` materializes original clicked vertices as manual; existing poles and interval-inserted auto nodes are not mutated.
-* interval route generation: `interval_m` materializes intermediate pole nodes and spans along the same bb2 graph pipeline; auto interval nodes are not treated as clicked vertices for pinning.
-* explicit new pole node specs: `SupportKind::kPole` with no `node_id` is accepted as an explicit generated pole marker; missing non-invalid ids still reject.
-* exact fixed bundle count: fixed-count templates accept a redundant explicit count equal to the template count; different counts still reject before mutation.
-* avoid radius without points: `avoid_radius_m` alone is accepted as no-op; positive-radius `avoid_points`
-  reject only when they intersect the route.
-* zero-radius avoid points: `avoid_points` with `avoid_radius_m <= 0` are accepted as disabled no-op and do not change layout or geom.
-* clear positive avoid points: positive-radius `avoid_points` that do not intersect the route are accepted as no-op.
-* explicit range bundle count: range-count templates materialize the requested lane count within min/max; out-of-range counts reject before mutation.
-* generated pole tangent hint: non-zero tangent hints set generated pole yaw; zero hints reject before mutation, and pair/open/row remain route-derived.
-* bundle-derived pole type: if `pole_type_id` is missing and all requested bundles share one valid related pole type, generated poles use it; mixed related pole types reject before mutation.
-* new midair route point: explicit `SupportKind::kMidair` creates no pole, saves a backbone node with no pole id, and materializes ownerless ports/spans at the input point height.
-* existing midair route point: explicit `SupportKind::kMidair` with a saved backbone node id extends from that node without creating a pole or inferring from span/layout/position.
-* new building route point: explicit `SupportKind::kBuilding` creates no pole, saves a backbone node with support kind `Building`, and materializes ownerless ports/spans at the input point height.
-* building pick route point: `PickHitKind::kBuilding` resolves to a new ownerless `SupportKind::kBuilding`
-  route point. The building hit id is optional and is not treated as a saved backbone node id.
-* ground pick route point: `PickHitKind::kGround` resolves to a new ownerless `SupportKind::kGround`
-  route point. It does not create anchors or attachment visuals.
+* 単純な 2 点線: generated topology、rules、layout、geom、draw、saved graph が存在し、bb2 production source は v1 generation dependency を持たない。
+* 3 点 polyline: link / pair / open / row は一度だけ決まり、rules は connectivity を再計算せず topology と placement group を consume する。
+* 複数 bundle: bundle spec は同じ pair/open/row authority を共有したまま複数 output を生成する。
+* existing pole 継続: saved graph node は受理し、saved graph を持たない manual/v1 pole は reject し、existing span は意味入力にしない。
+* A-B-C 上の existing branch B-D: emit するのは new route だけで、context A-B/B-C link を再 emit / 再 save しない。
+* A-B-C 上の existing cross D-B-E: pair+pair context を T/cross/branch kind label なしで扱う。
+* 異なる bundle を持つ同一 saved edge: saved edge は共有し、edge_bundle は bundle 単位で扱う。
+* duplicate same edge_bundle + lane: request は unsupported で、state は不変のままである。
+* pass-through lowering: pair/open authority は不変で、layout、geom、draw が lowering result を consume する。
+* new-route 内部 pass-through: 中点に `kPassThrough` を持つ 3 点 route は、current route がちょうど 1 つの target pair row を与える場合に対応し、このケースでは saved junction context を必要としない。
+* generated pole pinning: `pin_endpoints` は generated route endpoint だけを manual pole として materialize し、`pin_vertices` は元の clicked vertex を manual として materialize する。existing pole と interval 挿入された auto node は mutate しない。
+* interval route generation: `interval_m` は同じ bb2 graph pipeline 上で中間 pole node と span を materialize し、auto interval node は pinning 上の clicked vertex として扱わない。
+* 明示 new pole node spec: `SupportKind::kPole` かつ `node_id` なしは明示 generated pole marker として受ける。欠落した non-invalid id は引き続き reject する。
+* fixed bundle count の完全一致: fixed-count template は template count と等しい冗長な明示 count を受けるが、異なる count は mutation 前に reject する。
+* point なし avoid radius: `avoid_radius_m` 単体は no-op として受け、正の半径を持つ `avoid_points` は route と交差する場合だけ reject する。
+* zero-radius avoid point: `avoid_radius_m <= 0` の `avoid_points` は無効化された no-op として受け、layout や geom を変えない。
+* 交差しない正半径 avoid point: route と交差しない正の半径の `avoid_points` は no-op として受ける。
+* 明示 range bundle count: range-count template は min/max 内の要求 lane count を materialize し、範囲外 count は mutation 前に reject する。
+* generated pole tangent hint: non-zero tangent hint は generated pole yaw を設定し、zero hint は mutation 前に reject し、pair/open/row は route 由来のまま保つ。
+* bundle 由来 pole type: `pole_type_id` が欠け、要求 bundle が 1 つの有効な related pole type を共有する場合、generated pole はそれを使う。related pole type が混在する場合は mutation 前に reject する。
+* new midair route point: 明示 `SupportKind::kMidair` は pole を作らず、pole id を持たない backbone node を保存し、input point height に ownerless port/span を materialize する。
+* existing midair route point: saved backbone node id を持つ明示 `SupportKind::kMidair` は、pole を作らず span/layout/position から推測もせず、その node から延長する。
+* new building route point: 明示 `SupportKind::kBuilding` は pole を作らず、support kind `Building` の backbone node を保存し、input point height に ownerless port/span を materialize する。
+* building pick route point: `PickHitKind::kBuilding` は新しい ownerless `SupportKind::kBuilding` route point に resolve する。building hit id は任意で、saved backbone node id としては扱わない。
+* ground pick route point: `PickHitKind::kGround` は新しい ownerless `SupportKind::kGround` route point に resolve する。anchor や attachment visual は作らない。
 
-## bb2 mutation boundary hardening
+## bb2 変更境界の強化
 
-Phase: preflight mutation boundary.
+フェーズ: emit 前変更境界。
 
-Generation order:
+生成順:
 
-* `GenerateFromBackboneSpec` runs `prepare()` and `check()` before `build()`.
-* `build()` creates `pairs` from `graph`.
-* duplicate saved span binding preflight runs before intent, group, and topology emit.
-* intent and support groups are computed before topology emit.
-* topology emit is the first object mutation step.
-* saved backbone graph binding happens after topology emit.
-* rules, layout, geom, and draw are derived after graph save.
+* `GenerateFromBackboneSpec` は `build()` の前に `prepare()` と `check()` を実行する。
+* `build()` は `graph` から `pairs` を作る。
+* duplicate saved span binding の preflight は intent、group、topology emit より前に走る。
+* intent と support group は topology emit より前に計算する。
+* topology emit が最初の object mutation step である。
+* saved backbone graph binding は topology emit の後に行う。
+* rules、layout、geom、draw は graph save の後に derive する。
 
-Mutation boundary:
+変更境界:
 
-* invalid input must stop before topology emit whenever the missing information is knowable from request / saved graph / template / band data.
-* duplicate same edge_bundle + lane is known from saved graph bindings and must reject before `AddPole` / `AddPort` / `AddBundle` / `AddSpan`.
-* saved graph binding failures after emit are treated as internal invariant failures, not normal duplicate policy.
+* request / saved graph / template / band data から不足情報を判定できる invalid input は、topology emit 前に停止しなければならない。
+* duplicate same edge_bundle + lane は saved graph binding から判明するため、`AddPole` / `AddPort` / `AddBundle` / `AddSpan` 前に reject しなければならない。
+* emit 後の saved graph binding failure は、通常の duplicate policy ではなく internal invariant failure として扱う。
 
-Known non-blocker:
+既知の非ブロッカー:
 
-* bb2 does not implement rollback for internal invariant failures after topology emit. Current supported duplicate and unsupported-input cases are preflighted before emit.
+* bb2 は topology emit 後の internal invariant failure に対する rollback を未実装である。現在対応している duplicate と unsupported-input のケースは emit 前に preflight している。
 
-## bb2 draw consumer boundary
+## bb2 draw 消費境界
 
-Phase: minimal draw output hardening.
+フェーズ: 最小 draw output 強化。
 
-Draw responsibilities:
+draw の責務:
 
-* wire render cache is generated from saved geom curve samples.
-* lowered placeholder visual is generated from layout `support_world -> endpoint_world`.
-* draw transfers decided values; it does not decide topology, connectivity, placement, or lowering.
+* wire render cache は保存済み geom curve sample から生成する。
+* lowered placeholder visual は layout の `support_world -> endpoint_world` から生成する。
+* draw は決定済みの値を転送する consumer であり、topology、connectivity、placement、lowering を決めない。
 
-Forbidden:
+禁止:
 
-* draw must not read saved graph topology.
-* draw must not read pair/open/row connectivity.
-* draw must not read support group data to decide lowering.
-* draw must not rebuild `support_world` from `branch_down_offset_m`.
-* draw must not create full support arm, insulator, attachment, or render styling semantics.
+* draw は saved graph topology を読まない。
+* draw は pair/open/row connectivity を読まない。
+* draw は lowering を決めるために support group data を読まない。
+* draw は `branch_down_offset_m` から `support_world` を再構成しない。
+* draw は完全な support arm、insulator、attachment、render styling semantics を作らない。
 
-Viewer note:
+viewer 注記:
 
-* viewer/raylib availability is not part of bb2 core acceptance. Missing viewer deps are recorded separately and do not block `wire_core_tests` bb2 acceptance.
+* viewer/raylib の利用可否は bb2 core acceptance の一部ではない。viewer 依存欠落は別途記録し、`wire_core_tests` の bb2 acceptance は block しない。
 
-## bb2 GenerateFromBackboneSpec gate policy
+## bb2 GenerateFromBackboneSpec ゲート方針
 
-Phase: mainline gate enforcement.
+フェーズ: mainline ゲート強制。
 
-Policy:
+方針:
 
-* supported `BackboneSpec` requests run through bb2 `prepare()` / `check()` / `build()`.
-* unsupported requests return unsupported and do not fall back to v1 generation.
-* saved graph missing for an existing pole is unsupported.
-* v1/manual scene migration is not implemented.
-* import from existing span / layout / seed / curve / port position is forbidden.
+* 対応済み `BackboneSpec` request は bb2 の `prepare()` / `check()` / `build()` を通す。
+* unsupported request は unsupported を返し、v1 generation へ fallback しない。
+* existing pole に対して saved graph が欠落している場合は unsupported である。
+* v1/manual scene migration は未実装である。
+* existing span / layout / seed / curve / port position からの import は禁止する。
 
-Acceptance boundary:
+受け入れ境界:
 
-* supported requests create bb2 saved graph outputs.
-* unsupported requests leave topology objects and saved graph unchanged.
-* manual/v1 existing pole without `SavedBackboneGraph` remains rejected.
+* 対応 request は bb2 saved graph output を生成する。
+* unsupported request は topology object と saved graph を変更しない。
+* `SavedBackboneGraph` を持たない manual/v1 existing pole は引き続き reject する。
 
-## bb2 usable mainline architecture audit
+## bb2 実用 mainline アーキテクチャ監査
 
-Audit date: 2026-06-16
+監査日: 2026-06-16
 
-Result: PASS.
+結果: PASS。
 
-Confirmed owners:
+確認した owner:
 
-* topology owner: `SavedBackboneGraph`.
-* connectivity owner: `pairs make(graph)`.
-* placement owner: row separation and support groups.
-* port identity owner: saved row-port binding with bundle-compatible scope.
-* span duplicate owner: saved span binding preflight, with bind invariant as final guard.
-* lowering owner: intent / support group / rules / layout.
-* geom owner: layout consumer.
-* draw owner: layout / geom consumer.
-* unsupported owner: `prepare()` / `check()` / preflight, without v1 fallback.
+* topology の owner: `SavedBackboneGraph`。
+* connectivity の owner: `pairs make(graph)`。
+* placement の owner: row separation と support group。
+* port identity の owner: bundle-compatible scope を持つ saved row-port binding。
+* span duplicate の owner: 最終 guard として bind invariant を持つ saved span binding preflight。
+* lowering の owner: intent / support group / rules / layout。
+* geom の owner: layout consumer。
+* draw の owner: layout / geom consumer。
+* unsupported の owner: v1 fallback を伴わない `prepare()` / `check()` / preflight。
 
-Confirmed boundaries:
+確認した境界:
 
-* downstream does not reconstruct topology from span / layout / seed / curve / port position.
-* context links are decision input only and are not emit/save targets.
-* draw does not decide topology, pair/open/row, placement, or lowering.
-* bb2 production source does not reference v1 backbone pipeline, recalc, materialization, support layout contract/projection, authority, seed, fallback, infer, guess, legacy, grouped span generation, or support layout save entrypoints.
+* downstream は span / layout / seed / curve / port position から topology を再構成しない。
+* context link は判断入力のみであり、emit/save target ではない。
+* draw は topology、pair/open/row、placement、lowering を決めない。
+* bb2 production source は v1 backbone pipeline、recalc、materialization、support layout contract/projection、authority、seed、fallback、infer、guess、legacy、grouped span generation、support layout save entrypoint を参照しない。
 
-Remaining non-blockers:
+残っている非ブロッカー:
 
-* v1/recalc/inspection still keep their old contracts outside bb2.
-* v1/manual scene migration is still unsupported.
-* full support arm / insulator / attachment semantics are still unsupported.
+* v1/recalc/inspection は bb2 の外側で引き続き旧 contract を保持している。
+* v1/manual scene migration は引き続き unsupported である。
+* 完全な support arm / insulator / attachment semantics は引き続き unsupported である。

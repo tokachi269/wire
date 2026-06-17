@@ -4468,6 +4468,58 @@ bool C555_bb2_new_building_route_point_is_supported() {
   return saw_building_port;
 }
 
+bool C556_bb2_building_pick_feeds_new_building_route_point() {
+  wire::core::CoreState state;
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kBuilding;
+  pick.hit_id = 42;
+  pick.hit_pos_world = {12.0, 0.0, 7.0};
+  const auto resolved = state.ResolveBranchPick(pick);
+  if (!resolved.ok || resolved.value.resolution != wire::core::PickBranchResolutionKind::kMidair ||
+      resolved.value.support_kind != wire::core::SupportKind::kBuilding ||
+      resolved.value.resolved_node_id != wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec req = poly3_req(state);
+  req.path.polyline = {{0.0, 0.0, 0.0}, resolved.value.position, {24.0, 0.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 1;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  req.path.node_specs = {node};
+  const auto out = state.GenerateFromBackboneSpec(req);
+  if (!out.ok || out.value.generated_pole_ids.size() != 2 ||
+      out.value.generated_span_ids.size() != static_cast<std::size_t>(req_bundle_count(state, req) * 2)) {
+    return false;
+  }
+  const auto building_it =
+      std::find_if(state.view().backbone().nodes.begin(), state.view().backbone().nodes.end(),
+                   [](const wire::core::SavedBackboneNode& n) {
+                     return n.pole_id == wire::core::kInvalidObjectId &&
+                            n.support_kind == wire::core::SupportKind::kBuilding;
+                   });
+  if (building_it == state.view().backbone().nodes.end() || !almost_equal(building_it->position.z, 7.0, 1e-9)) {
+    return false;
+  }
+  for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
+    const auto* span = state.view().spans().find(span_id);
+    if (span == nullptr) {
+      return false;
+    }
+    const auto* a = state.view().ports().find(span->port_a_id);
+    const auto* b = state.view().ports().find(span->port_b_id);
+    if (a == nullptr || b == nullptr) {
+      return false;
+    }
+    if ((a->owner_pole_id == wire::core::kInvalidObjectId && almost_equal(a->world_position.z, 7.0, 1e-9)) ||
+        (b->owner_pole_id == wire::core::kInvalidObjectId && almost_equal(b->world_position.z, 7.0, 1e-9))) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C368_bb2_smoke_line", "bb2 generates the milestone-1 line slice", "Invariant", false,
                          C368_bb2_smoke_line);
@@ -5002,6 +5054,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C555_bb2_new_building_route_point_is_supported",
                          "bb2 supports new building route points", "Boundary", false,
                          C555_bb2_new_building_route_point_is_supported);
+  test_registry::AddTest(tests, "C556_bb2_building_pick_feeds_new_building_route_point",
+                         "bb2 supports building picks as new building route points", "Boundary", false,
+                         C556_bb2_building_pick_feeds_new_building_route_point);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

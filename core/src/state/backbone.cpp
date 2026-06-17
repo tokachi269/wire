@@ -439,7 +439,20 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
     return has_endpoints;
   };
 
-  if (pick.hit_kind == PickHitKind::kNode || pick.hit_kind == PickHitKind::kBuilding) {
+  if (pick.hit_kind == PickHitKind::kBuilding) {
+    if (pick.hit_id == kInvalidObjectId) {
+      result.error = "building pick must include a valid hit_id";
+      return result;
+    }
+    result.value.resolution = PickBranchResolutionKind::kMidair;
+    result.value.resolved_node_id = kInvalidObjectId;
+    result.value.position = pick.hit_pos_world;
+    result.value.support_kind = SupportKind::kBuilding;
+    result.ok = true;
+    return result;
+  }
+
+  if (pick.hit_kind == PickHitKind::kNode) {
     if (pick.hit_id == kInvalidObjectId) {
       result.error = "node pick must include a valid hit_id";
       return result;

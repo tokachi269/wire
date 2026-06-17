@@ -941,7 +941,7 @@ Scenarios:
 * existing midair route point: explicit `SupportKind::kMidair` with a saved backbone node id extends from that node without creating a pole or inferring from span/layout/position.
 * new building route point: explicit `SupportKind::kBuilding` creates no pole, saves a backbone node with support kind `Building`, and materializes ownerless ports/spans at the input point height.
 * building pick route point: `PickHitKind::kBuilding` resolves to a new ownerless `SupportKind::kBuilding`
-  route point. The building hit id is not treated as a saved backbone node id.
+  route point. The building hit id is optional and is not treated as a saved backbone node id.
 
 ## bb2 mutation boundary hardening
 

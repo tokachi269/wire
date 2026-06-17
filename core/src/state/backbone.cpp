@@ -440,10 +440,6 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
   };
 
   if (pick.hit_kind == PickHitKind::kBuilding) {
-    if (pick.hit_id == kInvalidObjectId) {
-      result.error = "building pick must include a valid hit_id";
-      return result;
-    }
     result.value.resolution = PickBranchResolutionKind::kMidair;
     result.value.resolved_node_id = kInvalidObjectId;
     result.value.position = pick.hit_pos_world;

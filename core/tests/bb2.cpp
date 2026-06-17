@@ -4520,6 +4520,38 @@ bool C556_bb2_building_pick_feeds_new_building_route_point() {
   return false;
 }
 
+bool C557_bb2_building_pick_without_id_is_supported() {
+  wire::core::CoreState state;
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kBuilding;
+  pick.hit_id = wire::core::kInvalidObjectId;
+  pick.hit_pos_world = {12.0, 0.0, 5.0};
+  const auto resolved = state.ResolveBranchPick(pick);
+  if (!resolved.ok || resolved.value.support_kind != wire::core::SupportKind::kBuilding ||
+      resolved.value.resolved_node_id != wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec req = poly3_req(state);
+  req.path.polyline = {{0.0, 0.0, 0.0}, resolved.value.position, {24.0, 0.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 1;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  req.path.node_specs = {node};
+  const auto out = state.GenerateFromBackboneSpec(req);
+  if (!out.ok || out.value.generated_span_ids.size() != static_cast<std::size_t>(req_bundle_count(state, req) * 2)) {
+    return false;
+  }
+  const auto building_it =
+      std::find_if(state.view().backbone().nodes.begin(), state.view().backbone().nodes.end(),
+                   [](const wire::core::SavedBackboneNode& n) {
+                     return n.pole_id == wire::core::kInvalidObjectId &&
+                            n.support_kind == wire::core::SupportKind::kBuilding;
+                   });
+  return building_it != state.view().backbone().nodes.end() && almost_equal(building_it->position.z, 5.0, 1e-9);
+}
+
 void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C368_bb2_smoke_line", "bb2 generates the milestone-1 line slice", "Invariant", false,
                          C368_bb2_smoke_line);
@@ -5057,6 +5089,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C556_bb2_building_pick_feeds_new_building_route_point",
                          "bb2 supports building picks as new building route points", "Boundary", false,
                          C556_bb2_building_pick_feeds_new_building_route_point);
+  test_registry::AddTest(tests, "C557_bb2_building_pick_without_id_is_supported",
+                         "bb2 supports building picks without object ids", "Boundary", false,
+                         C557_bb2_building_pick_without_id_is_supported);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

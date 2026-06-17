@@ -390,6 +390,37 @@ double len(Vec3d v) {
   return std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
 }
 
+double dist2_to_segment(const Vec3d& p, const Vec3d& a, const Vec3d& b) {
+  const Vec3d ab = b - a;
+  const double len2 = ab.x * ab.x + ab.y * ab.y + ab.z * ab.z;
+  if (len2 <= 1e-12) {
+    const Vec3d d = p - a;
+    return d.x * d.x + d.y * d.y + d.z * d.z;
+  }
+  const double t = std::clamp(((p.x - a.x) * ab.x + (p.y - a.y) * ab.y + (p.z - a.z) * ab.z) / len2, 0.0, 1.0);
+  const Vec3d closest = {a.x + ab.x * t, a.y + ab.y * t, a.z + ab.z * t};
+  const Vec3d d = p - closest;
+  return d.x * d.x + d.y * d.y + d.z * d.z;
+}
+
+bool route_clear_of_avoid_points(const graph& made, const std::vector<Vec3d>& points, double radius) {
+  if (points.empty() || radius <= 0.0) {
+    return true;
+  }
+  const double radius2 = radius * radius;
+  for (const Vec3d& point : points) {
+    for (const link& edge : made.links) {
+      if (!edge.is_new || edge.a >= made.nodes.size() || edge.b >= made.nodes.size()) {
+        continue;
+      }
+      if (dist2_to_segment(point, made.nodes[edge.a].pos, made.nodes[edge.b].pos) <= radius2) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 Vec3d mul(Vec3d v, double k) {
   return Vec3d{v.x * k, v.y * k, v.z * k};
 }
@@ -799,7 +830,7 @@ EditResult<bool> pipeline::check() const {
       return unsupported("node bundle mode is not in milestone 25");
     }
   }
-  if (!spec_.constraints.avoid_points.empty() && spec_.constraints.avoid_radius_m > 0.0) {
+  if (!route_clear_of_avoid_points(g_, spec_.constraints.avoid_points, spec_.constraints.avoid_radius_m)) {
     return unsupported("constraints are not in milestone 1");
   }
   EditResult<PoleTypeId> resolved_type = pole_type_for(state_, spec_);

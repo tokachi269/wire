@@ -874,7 +874,8 @@ Supported:
 * duplicate same edge_bundle + lane is rejected before `AddPole` / `AddPort` / `AddBundle` / `AddSpan`.
 * `constraints.lateral_offset_m` is a port placement offset.
 * `constraints.avoid_radius_m` is accepted as no-op when `avoid_points` is empty.
-* `constraints.avoid_points` is accepted as no-op only when `avoid_radius_m <= 0`.
+* `constraints.avoid_points` is accepted as no-op when `avoid_radius_m <= 0` or when every
+  positive-radius avoid point is clear of the requested route.
 * `pole_placement.pin_endpoints` and `pin_vertices` apply to newly generated poles only.
 * `BundleNodeMode::kNotPresent` is accepted as no-op after validation.
 * `BundleNodeMode::kPassThrough` is accepted only for a unique current-route interior pair or the limited saved-junction scope where target row intent is unambiguous.
@@ -888,7 +889,7 @@ Unsupported:
 * graph import inferred from span / layout / seed / curve / port position.
 * explicit node specs that refer to missing existing pole ids.
 * zero-length tangent hints.
-* avoid routing with `avoid_points` and positive `avoid_radius_m`.
+* avoid routing when a positive-radius `avoid_points` constraint intersects the requested route.
 * fixed-count bundle templates with a mismatched explicit `count`.
 * range-count bundle templates with an explicit `count` outside the template min/max range.
 * duplicate same edge_bundle + lane requests.
@@ -932,8 +933,10 @@ Scenarios:
 * interval route generation: `interval_m` materializes intermediate pole nodes and spans along the same bb2 graph pipeline; auto interval nodes are not treated as clicked vertices for pinning.
 * explicit new pole node specs: `SupportKind::kPole` with no `node_id` is accepted as an explicit generated pole marker; missing non-invalid ids still reject.
 * exact fixed bundle count: fixed-count templates accept a redundant explicit count equal to the template count; different counts still reject before mutation.
-* avoid radius without points: `avoid_radius_m` alone is accepted as no-op; positive-radius `avoid_points` still reject.
+* avoid radius without points: `avoid_radius_m` alone is accepted as no-op; positive-radius `avoid_points`
+  reject only when they intersect the route.
 * zero-radius avoid points: `avoid_points` with `avoid_radius_m <= 0` are accepted as disabled no-op and do not change layout or geom.
+* clear positive avoid points: positive-radius `avoid_points` that do not intersect the route are accepted as no-op.
 * explicit range bundle count: range-count templates materialize the requested lane count within min/max; out-of-range counts reject before mutation.
 * generated pole tangent hint: non-zero tangent hints set generated pole yaw; zero hints reject before mutation, and pair/open/row remain route-derived.
 * bundle-derived pole type: if `pole_type_id` is missing and all requested bundles share one valid related pole type, generated poles use it; mixed related pole types reject before mutation.

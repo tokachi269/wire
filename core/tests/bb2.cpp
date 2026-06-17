@@ -4605,6 +4605,40 @@ bool C558_bb2_ground_pick_feeds_new_ground_route_point() {
   return false;
 }
 
+bool C559_bb2_positive_avoid_clear_of_route_is_noop() {
+  wire::core::CoreState plain;
+  wire::core::BackboneSpec base = line_req(plain);
+  const auto base_out = plain.GenerateFromBackboneSpec(base);
+  if (!base_out.ok) {
+    return false;
+  }
+  const std::vector<wire::core::Vec3d> base_samples = span_curve_points(plain, base_out.value.generated_span_ids);
+  if (base_samples.empty()) {
+    return false;
+  }
+
+  wire::core::CoreState with_avoid;
+  wire::core::BackboneSpec req = line_req(with_avoid);
+  req.constraints.avoid_points.push_back({6.0, 100.0, 0.0});
+  req.constraints.avoid_radius_m = 1.0;
+  const auto out = with_avoid.GenerateFromBackboneSpec(req);
+  if (!out.ok || out.value.generated_span_ids.size() != base_out.value.generated_span_ids.size()) {
+    return false;
+  }
+  const std::vector<wire::core::Vec3d> samples = span_curve_points(with_avoid, out.value.generated_span_ids);
+  if (samples.size() != base_samples.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < samples.size(); ++i) {
+    if (!almost_equal(samples[i].x, base_samples[i].x, 1e-9) ||
+        !almost_equal(samples[i].y, base_samples[i].y, 1e-9) ||
+        !almost_equal(samples[i].z, base_samples[i].z, 1e-9)) {
+      return false;
+    }
+  }
+  return C414_bb2_still_rejects_avoid_constraints();
+}
+
 void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C368_bb2_smoke_line", "bb2 generates the milestone-1 line slice", "Invariant", false,
                          C368_bb2_smoke_line);
@@ -5148,6 +5182,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C558_bb2_ground_pick_feeds_new_ground_route_point",
                          "bb2 supports ground picks as new ground route points", "Boundary", false,
                          C558_bb2_ground_pick_feeds_new_ground_route_point);
+  test_registry::AddTest(tests, "C559_bb2_positive_avoid_clear_of_route_is_noop",
+                         "bb2 accepts positive avoid constraints when the route is clear", "Boundary", false,
+                         C559_bb2_positive_avoid_clear_of_route_is_noop);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

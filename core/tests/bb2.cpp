@@ -1313,12 +1313,6 @@ bool C413_bb2_lateral_offset_does_not_affect_pairs() {
 
 bool C414_bb2_still_rejects_avoid_constraints() {
   wire::core::CoreState state;
-  wire::core::BackboneSpec avoid_point = line_req(state);
-  avoid_point.constraints.avoid_points.push_back({6.0, 0.0, 0.0});
-  const auto point_out = state.GenerateFromBackboneSpec(avoid_point);
-  if (point_out.ok || !contains_text(point_out.error, "unsupported")) {
-    return false;
-  }
   wire::core::BackboneSpec avoid_point_radius = line_req(state);
   avoid_point_radius.constraints.avoid_points.push_back({6.0, 0.0, 0.0});
   avoid_point_radius.constraints.avoid_radius_m = 1.0;
@@ -4287,6 +4281,40 @@ bool C551_bb2_missing_pole_type_resolves_from_bundle_templates() {
          rejected.view().spans().size() == span_count;
 }
 
+bool C552_bb2_zero_radius_avoid_points_are_noop() {
+  wire::core::CoreState plain;
+  wire::core::BackboneSpec base = line_req(plain);
+  const auto base_out = plain.GenerateFromBackboneSpec(base);
+  if (!base_out.ok) {
+    return false;
+  }
+  const std::vector<wire::core::Vec3d> base_samples = span_curve_points(plain, base_out.value.generated_span_ids);
+  if (base_samples.empty()) {
+    return false;
+  }
+
+  wire::core::CoreState with_avoid;
+  wire::core::BackboneSpec req = line_req(with_avoid);
+  req.constraints.avoid_points.push_back({6.0, 0.0, 0.0});
+  req.constraints.avoid_radius_m = 0.0;
+  const auto out = with_avoid.GenerateFromBackboneSpec(req);
+  if (!out.ok || out.value.generated_span_ids.size() != base_out.value.generated_span_ids.size()) {
+    return false;
+  }
+  const std::vector<wire::core::Vec3d> samples = span_curve_points(with_avoid, out.value.generated_span_ids);
+  if (samples.size() != base_samples.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < samples.size(); ++i) {
+    if (!almost_equal(samples[i].x, base_samples[i].x, 1e-9) ||
+        !almost_equal(samples[i].y, base_samples[i].y, 1e-9) ||
+        !almost_equal(samples[i].z, base_samples[i].z, 1e-9)) {
+      return false;
+    }
+  }
+  return C414_bb2_still_rejects_avoid_constraints();
+}
+
 void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C368_bb2_smoke_line", "bb2 generates the milestone-1 line slice", "Invariant", false,
                          C368_bb2_smoke_line);
@@ -4808,6 +4836,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C551_bb2_missing_pole_type_resolves_from_bundle_templates",
                          "bb2 resolves missing pole type from bundle templates", "Boundary", false,
                          C551_bb2_missing_pole_type_resolves_from_bundle_templates);
+  test_registry::AddTest(tests, "C552_bb2_zero_radius_avoid_points_are_noop",
+                         "bb2 accepts zero-radius avoid points as no-op", "Boundary", false,
+                         C552_bb2_zero_radius_avoid_points_are_noop);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

@@ -777,7 +777,7 @@ EditResult<bool> pipeline::check() const {
       return unsupported("node bundle mode is not in milestone 25");
     }
   }
-  if (!spec_.constraints.avoid_points.empty()) {
+  if (!spec_.constraints.avoid_points.empty() && spec_.constraints.avoid_radius_m > 0.0) {
     return unsupported("constraints are not in milestone 1");
   }
   EditResult<PoleTypeId> resolved_type = pole_type_for(state_, spec_);

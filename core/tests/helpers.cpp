@@ -199,6 +199,9 @@ wire::core::SupportKind parse_support_kind_test(const std::string& text) {
   if (text == "Building") {
     return wire::core::SupportKind::kBuilding;
   }
+  if (text == "Ground") {
+    return wire::core::SupportKind::kGround;
+  }
   return wire::core::SupportKind::kPole;
 }
 

@@ -448,6 +448,15 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
     return result;
   }
 
+  if (pick.hit_kind == PickHitKind::kGround) {
+    result.value.resolution = PickBranchResolutionKind::kMidair;
+    result.value.resolved_node_id = kInvalidObjectId;
+    result.value.position = pick.hit_pos_world;
+    result.value.support_kind = SupportKind::kGround;
+    result.ok = true;
+    return result;
+  }
+
   if (pick.hit_kind == PickHitKind::kNode) {
     if (pick.hit_id == kInvalidObjectId) {
       result.error = "node pick must include a valid hit_id";

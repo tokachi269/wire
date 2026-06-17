@@ -177,6 +177,7 @@ enum class SupportKind : std::uint8_t {
   kPole = 0,
   kMidair = 1,
   kBuilding = 2,
+  kGround = 3,
 };
 
 enum class AttachmentKind : std::uint8_t {

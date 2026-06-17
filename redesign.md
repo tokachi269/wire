@@ -859,7 +859,7 @@ Supported:
 * `interval_m > 0` inserts deterministic intermediate generated pole nodes along each input segment.
 * support nodes are poles, explicit new midair route points, or explicit new building route points.
 * new route points may be explicit ownerless support nodes when `SupportKind::kMidair` or
-  `SupportKind::kBuilding` has no existing `node_id`.
+  `SupportKind::kBuilding` or `SupportKind::kGround` has no existing `node_id`.
 * existing ownerless route points are accepted only when `node_id` is a saved backbone node with
   no pole id and matching support kind.
 * explicit `node_specs` with `SupportKind::kPole` and no `node_id` are generated pole nodes.
@@ -942,6 +942,8 @@ Scenarios:
 * new building route point: explicit `SupportKind::kBuilding` creates no pole, saves a backbone node with support kind `Building`, and materializes ownerless ports/spans at the input point height.
 * building pick route point: `PickHitKind::kBuilding` resolves to a new ownerless `SupportKind::kBuilding`
   route point. The building hit id is optional and is not treated as a saved backbone node id.
+* ground pick route point: `PickHitKind::kGround` resolves to a new ownerless `SupportKind::kGround`
+  route point. It does not create anchors or attachment visuals.
 
 ## bb2 mutation boundary hardening
 

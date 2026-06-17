@@ -530,8 +530,8 @@ EditResult<bool> pipeline::prepare() {
       return out;
     }
     if (spec.support_kind != SupportKind::kPole && spec.support_kind != SupportKind::kMidair &&
-        spec.support_kind != SupportKind::kBuilding) {
-      out.error = "bb2 unsupported: node specs require pole, midair, or building support";
+        spec.support_kind != SupportKind::kBuilding && spec.support_kind != SupportKind::kGround) {
+      out.error = "bb2 unsupported: node specs require pole, midair, building, or ground support";
       return out;
     }
     if (spec.has_tangent_hint) {
@@ -614,7 +614,8 @@ EditResult<bool> pipeline::prepare() {
         n.tangent = tangent;
       }
       n.support = spec_it->second->support_kind;
-      if (n.support == SupportKind::kMidair || n.support == SupportKind::kBuilding) {
+      if (n.support == SupportKind::kMidair || n.support == SupportKind::kBuilding ||
+          n.support == SupportKind::kGround) {
         if (spec_it->second->node_id == kInvalidObjectId) {
           g_.nodes.push_back(n);
           continue;
@@ -622,7 +623,9 @@ EditResult<bool> pipeline::prepare() {
         const SavedBackboneNode* saved = state_.view().backbone_node(spec_it->second->node_id);
         if (saved == nullptr || saved->pole_id != kInvalidObjectId || saved->support_kind != n.support) {
           out.error = (n.support == SupportKind::kMidair) ? "bb2 unsupported: saved midair node not found"
-                                                          : "bb2 unsupported: saved building node not found";
+                      : (n.support == SupportKind::kBuilding)
+                          ? "bb2 unsupported: saved building node not found"
+                          : "bb2 unsupported: saved ground node not found";
           return out;
         }
         n.saved = saved->node_id;
@@ -1074,7 +1077,8 @@ EditResult<bool> pipeline::emit_poles(topo* made, ChangeSet* changes) {
     return out;
   }
   for (std::size_t i = 0; i < g_.nodes.size(); ++i) {
-    if (g_.nodes[i].support == SupportKind::kMidair || g_.nodes[i].support == SupportKind::kBuilding) {
+    if (g_.nodes[i].support == SupportKind::kMidair || g_.nodes[i].support == SupportKind::kBuilding ||
+        g_.nodes[i].support == SupportKind::kGround) {
       made->poles.push_back(kInvalidObjectId);
       continue;
     }
@@ -1238,7 +1242,8 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
       continue;
     }
     const bool ownerless = g_.nodes[r.node].support == SupportKind::kMidair ||
-                           g_.nodes[r.node].support == SupportKind::kBuilding;
+                           g_.nodes[r.node].support == SupportKind::kBuilding ||
+                           g_.nodes[r.node].support == SupportKind::kGround;
     if (!ownerless && tr.pole == kInvalidObjectId) {
       out.error = "bb2 topology: active row pole missing";
       return out;

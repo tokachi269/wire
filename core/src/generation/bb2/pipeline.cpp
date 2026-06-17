@@ -529,8 +529,8 @@ EditResult<bool> pipeline::prepare() {
       out.error = "bb2 unsupported: node spec point index is out of range";
       return out;
     }
-    if (spec.support_kind != SupportKind::kPole) {
-      out.error = "bb2 unsupported: node specs require pole support";
+    if (spec.support_kind != SupportKind::kPole && spec.support_kind != SupportKind::kMidair) {
+      out.error = "bb2 unsupported: node specs require pole or midair support";
       return out;
     }
     if (spec.has_tangent_hint) {
@@ -611,6 +611,15 @@ EditResult<bool> pipeline::prepare() {
         (void)norm_strict(&tangent);
         n.has_tangent = true;
         n.tangent = tangent;
+      }
+      n.support = spec_it->second->support_kind;
+      if (n.support == SupportKind::kMidair) {
+        if (spec_it->second->node_id != kInvalidObjectId) {
+          out.error = "bb2 unsupported: existing midair node is not supported";
+          return out;
+        }
+        g_.nodes.push_back(n);
+        continue;
       }
       if (spec_it->second->node_id == kInvalidObjectId) {
         g_.nodes.push_back(n);
@@ -1055,6 +1064,10 @@ EditResult<bool> pipeline::emit_poles(topo* made, ChangeSet* changes) {
     return out;
   }
   for (std::size_t i = 0; i < g_.nodes.size(); ++i) {
+    if (g_.nodes[i].support == SupportKind::kMidair) {
+      made->poles.push_back(kInvalidObjectId);
+      continue;
+    }
     if (!g_.nodes[i].is_new) {
       made->poles.push_back(g_.nodes[i].pole);
       continue;
@@ -1214,7 +1227,8 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
     if (r.id >= active_rows.size() || !active_rows[r.id]) {
       continue;
     }
-    if (tr.pole == kInvalidObjectId) {
+    const bool midair = g_.nodes[r.node].support == SupportKind::kMidair;
+    if (!midair && tr.pole == kInvalidObjectId) {
       out.error = "bb2 topology: active row pole missing";
       return out;
     }
@@ -1229,10 +1243,14 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
           (static_cast<double>(bundle_index) - (static_cast<double>(spec_.bundles.size() - 1) * 0.5)) *
           (v.value.tmpl->default_spacing_m * static_cast<double>(v.value.count + 1));
       tr.ports[bundle_index].reserve(static_cast<std::size_t>(v.value.count));
-      EditResult<PortPlacementBand> band = band_for(state_, tr.pole, v.value);
-      if (!band.ok) {
-        out.error = band.error;
-        return out;
+      PortPlacementBand band{};
+      if (!midair) {
+        EditResult<PortPlacementBand> resolved_band = band_for(state_, tr.pole, v.value);
+        if (!resolved_band.ok) {
+          out.error = resolved_band.error;
+          return out;
+        }
+        band = resolved_band.value;
       }
       const port_scope scope{spec_.bundles[bundle_index].bundle_template_id, port_kind(v.value.tmpl->category),
                              port_layer(v.value.layer)};
@@ -1241,8 +1259,9 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
             (static_cast<double>(lane) - (static_cast<double>(v.value.count - 1) * 0.5)) * v.value.tmpl->default_spacing_m;
         const double offset = group_offset + lane_offset + spec_.constraints.lateral_offset_m;
         const Vec3d shift = (r.id < shifts.size()) ? shifts[r.id] : Vec3d{};
+        const double height = midair ? 0.0 : band.height_center_m;
         Vec3d p = g_.nodes[r.node].pos +
-                  Vec3d{r.axis.x * offset + shift.x, r.axis.y * offset + shift.y, band.value.height_center_m};
+                  Vec3d{r.axis.x * offset + shift.x, r.axis.y * offset + shift.y, height};
         const SavedBackboneRowKey row_key = key_for(ps, tr, node_id_by_local, edge_by_link);
         EditResult<ObjectId> resolved =
             resolve_port_binding(state_, tr.pole, row_key, static_cast<std::size_t>(lane), scope);
@@ -1255,7 +1274,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
           continue;
         }
         EditResult<ObjectId> port =
-            state_.AddPort(made->poles[r.node], p, scope.kind, scope.layer);
+            state_.AddPort(midair ? kInvalidObjectId : made->poles[r.node], p, scope.kind, scope.layer);
         if (!port.ok) {
           out.error = port.error;
           return out;

@@ -14,6 +14,7 @@ inline constexpr std::size_t bad = std::numeric_limits<std::size_t>::max();
 struct node {
   std::size_t id = bad;
   Vec3d pos{};
+  SupportKind support = SupportKind::kPole;
   ObjectId pole = kInvalidObjectId;
   ObjectId saved = kInvalidObjectId;
   bool is_new = true;

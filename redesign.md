@@ -857,7 +857,8 @@ Supported:
 
 * input route is a polyline with at least two points.
 * `interval_m > 0` inserts deterministic intermediate generated pole nodes along each input segment.
-* support nodes are poles only.
+* support nodes are poles or explicit new midair route points.
+* new route points may be explicit midair support nodes when `SupportKind::kMidair` has no existing `node_id`.
 * explicit `node_specs` with `SupportKind::kPole` and no `node_id` are generated pole nodes.
 * generated pole `node_specs` may carry a non-zero `tangent_hint` that sets initial pole yaw.
 * route nodes are either new poles or existing poles that already have a `SavedBackboneGraph` node.
@@ -878,7 +879,7 @@ Supported:
 
 Unsupported:
 
-* midair support and non-pole node specs.
+* existing midair support reuse and building support node specs.
 * existing pole nodes without a saved backbone node.
 * saved graph migration from v1/manual scenes.
 * graph import inferred from span / layout / seed / curve / port position.
@@ -933,6 +934,7 @@ Scenarios:
 * explicit range bundle count: range-count templates materialize the requested lane count within min/max; out-of-range counts reject before mutation.
 * generated pole tangent hint: non-zero tangent hints set generated pole yaw; zero hints reject before mutation, and pair/open/row remain route-derived.
 * bundle-derived pole type: if `pole_type_id` is missing and all requested bundles share one valid related pole type, generated poles use it; mixed related pole types reject before mutation.
+* new midair route point: explicit `SupportKind::kMidair` creates no pole, saves a backbone node with no pole id, and materializes ownerless ports/spans at the input point height.
 
 ## bb2 mutation boundary hardening
 

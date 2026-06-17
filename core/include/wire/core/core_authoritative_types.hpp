@@ -11,6 +11,7 @@ namespace wire::core {
 struct SavedBackboneNode {
   ObjectId node_id = kInvalidObjectId;
   ObjectId pole_id = kInvalidObjectId;
+  SupportKind support_kind = SupportKind::kPole;
   Vec3d position{};
 };
 

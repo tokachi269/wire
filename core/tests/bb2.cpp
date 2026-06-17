@@ -202,6 +202,7 @@ bool C371_bb2_rejects_unsupported() {
   wire::core::BackboneInputSpec::NodeSpec node{};
   node.point_index = 0;
   node.support_kind = wire::core::SupportKind::kBuilding;
+  node.node_id = 1;
   building.path.node_specs.push_back(node);
   const auto building_out = state.GenerateFromBackboneSpec(building);
   return !building_out.ok && contains_text(building_out.error, "unsupported");
@@ -4421,6 +4422,52 @@ bool C554_bb2_existing_midair_route_point_is_supported() {
   return C397_bb2_rejects_missing_saved_midair_node_spec();
 }
 
+bool C555_bb2_new_building_route_point_is_supported() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = poly3_req(state);
+  req.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 6.0}, {24.0, 0.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 1;
+  node.support_kind = wire::core::SupportKind::kBuilding;
+  node.node_id = wire::core::kInvalidObjectId;
+  req.path.node_specs = {node};
+  const auto out = state.GenerateFromBackboneSpec(req);
+  if (!out.ok || out.value.generated_pole_ids.size() != 2 ||
+      out.value.generated_span_ids.size() != static_cast<std::size_t>(req_bundle_count(state, req) * 2)) {
+    return false;
+  }
+  const wire::core::SavedBackboneGraph& graph = state.view().backbone();
+  if (graph.nodes.size() != 3 || graph.edges.size() != 2 || graph.edge_bundles.size() != 2) {
+    return false;
+  }
+  const auto building_it =
+      std::find_if(graph.nodes.begin(), graph.nodes.end(), [](const wire::core::SavedBackboneNode& n) {
+        return n.pole_id == wire::core::kInvalidObjectId &&
+               n.support_kind == wire::core::SupportKind::kBuilding;
+      });
+  if (building_it == graph.nodes.end() || !almost_equal(building_it->position.z, 6.0, 1e-9)) {
+    return false;
+  }
+  bool saw_building_port = false;
+  for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
+    const auto* span = state.view().spans().find(span_id);
+    if (span == nullptr || !state.span_layout_rules(span_id).has_rule() || !state.span_layout(span_id).has_layout() ||
+        state.find_curve_cache(span_id) == nullptr || state.find_bounds_cache(span_id) == nullptr) {
+      return false;
+    }
+    const auto* a = state.view().ports().find(span->port_a_id);
+    const auto* b = state.view().ports().find(span->port_b_id);
+    if (a == nullptr || b == nullptr) {
+      return false;
+    }
+    saw_building_port = saw_building_port || (a->owner_pole_id == wire::core::kInvalidObjectId &&
+                                              almost_equal(a->world_position.z, 6.0, 1e-9)) ||
+                        (b->owner_pole_id == wire::core::kInvalidObjectId &&
+                         almost_equal(b->world_position.z, 6.0, 1e-9));
+  }
+  return saw_building_port;
+}
+
 void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C368_bb2_smoke_line", "bb2 generates the milestone-1 line slice", "Invariant", false,
                          C368_bb2_smoke_line);
@@ -4952,6 +4999,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C554_bb2_existing_midair_route_point_is_supported",
                          "bb2 supports existing saved midair route points", "Boundary", false,
                          C554_bb2_existing_midair_route_point_is_supported);
+  test_registry::AddTest(tests, "C555_bb2_new_building_route_point_is_supported",
+                         "bb2 supports new building route points", "Boundary", false,
+                         C555_bb2_new_building_route_point_is_supported);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

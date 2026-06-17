@@ -86,7 +86,7 @@ std::vector<JunctionInfo> BuildJunctionsFromRelations(
 
 } // namespace
 
-ObjectId CoreState::save_backbone_node(ObjectId pole_id, const Vec3d& position) {
+ObjectId CoreState::save_backbone_node(ObjectId pole_id, const Vec3d& position, SupportKind support_kind) {
   if (pole_id != kInvalidObjectId) {
     const auto existing = runtime_.backbone_index.pole_node.find(pole_id);
     if (existing != runtime_.backbone_index.pole_node.end()) {
@@ -97,6 +97,7 @@ ObjectId CoreState::save_backbone_node(ObjectId pole_id, const Vec3d& position) 
   SavedBackboneNode node{};
   node.node_id = identity_.id_generator.next();
   node.pole_id = pole_id;
+  node.support_kind = (pole_id != kInvalidObjectId) ? SupportKind::kPole : support_kind;
   node.position = position;
   authoritative_.backbone.nodes.push_back(node);
   if (pole_id != kInvalidObjectId) {

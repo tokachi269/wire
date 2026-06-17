@@ -529,8 +529,9 @@ EditResult<bool> pipeline::prepare() {
       out.error = "bb2 unsupported: node spec point index is out of range";
       return out;
     }
-    if (spec.support_kind != SupportKind::kPole && spec.support_kind != SupportKind::kMidair) {
-      out.error = "bb2 unsupported: node specs require pole or midair support";
+    if (spec.support_kind != SupportKind::kPole && spec.support_kind != SupportKind::kMidair &&
+        spec.support_kind != SupportKind::kBuilding) {
+      out.error = "bb2 unsupported: node specs require pole, midair, or building support";
       return out;
     }
     if (spec.has_tangent_hint) {
@@ -613,14 +614,15 @@ EditResult<bool> pipeline::prepare() {
         n.tangent = tangent;
       }
       n.support = spec_it->second->support_kind;
-      if (n.support == SupportKind::kMidair) {
+      if (n.support == SupportKind::kMidair || n.support == SupportKind::kBuilding) {
         if (spec_it->second->node_id == kInvalidObjectId) {
           g_.nodes.push_back(n);
           continue;
         }
         const SavedBackboneNode* saved = state_.view().backbone_node(spec_it->second->node_id);
-        if (saved == nullptr || saved->pole_id != kInvalidObjectId) {
-          out.error = "bb2 unsupported: saved midair node not found";
+        if (saved == nullptr || saved->pole_id != kInvalidObjectId || saved->support_kind != n.support) {
+          out.error = (n.support == SupportKind::kMidair) ? "bb2 unsupported: saved midair node not found"
+                                                          : "bb2 unsupported: saved building node not found";
           return out;
         }
         n.saved = saved->node_id;
@@ -1072,7 +1074,7 @@ EditResult<bool> pipeline::emit_poles(topo* made, ChangeSet* changes) {
     return out;
   }
   for (std::size_t i = 0; i < g_.nodes.size(); ++i) {
-    if (g_.nodes[i].support == SupportKind::kMidair) {
+    if (g_.nodes[i].support == SupportKind::kMidair || g_.nodes[i].support == SupportKind::kBuilding) {
       made->poles.push_back(kInvalidObjectId);
       continue;
     }
@@ -1235,8 +1237,9 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
     if (r.id >= active_rows.size() || !active_rows[r.id]) {
       continue;
     }
-    const bool midair = g_.nodes[r.node].support == SupportKind::kMidair;
-    if (!midair && tr.pole == kInvalidObjectId) {
+    const bool ownerless = g_.nodes[r.node].support == SupportKind::kMidair ||
+                           g_.nodes[r.node].support == SupportKind::kBuilding;
+    if (!ownerless && tr.pole == kInvalidObjectId) {
       out.error = "bb2 topology: active row pole missing";
       return out;
     }
@@ -1252,7 +1255,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
           (v.value.tmpl->default_spacing_m * static_cast<double>(v.value.count + 1));
       tr.ports[bundle_index].reserve(static_cast<std::size_t>(v.value.count));
       PortPlacementBand band{};
-      if (!midair) {
+      if (!ownerless) {
         EditResult<PortPlacementBand> resolved_band = band_for(state_, tr.pole, v.value);
         if (!resolved_band.ok) {
           out.error = resolved_band.error;
@@ -1267,7 +1270,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
             (static_cast<double>(lane) - (static_cast<double>(v.value.count - 1) * 0.5)) * v.value.tmpl->default_spacing_m;
         const double offset = group_offset + lane_offset + spec_.constraints.lateral_offset_m;
         const Vec3d shift = (r.id < shifts.size()) ? shifts[r.id] : Vec3d{};
-        const double height = midair ? 0.0 : band.height_center_m;
+        const double height = ownerless ? 0.0 : band.height_center_m;
         Vec3d p = g_.nodes[r.node].pos +
                   Vec3d{r.axis.x * offset + shift.x, r.axis.y * offset + shift.y, height};
         const SavedBackboneRowKey row_key = key_for(ps, tr, node_id_by_local, edge_by_link);
@@ -1282,7 +1285,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
           continue;
         }
         EditResult<ObjectId> port =
-            state_.AddPort(midair ? kInvalidObjectId : made->poles[r.node], p, scope.kind, scope.layer);
+            state_.AddPort(ownerless ? kInvalidObjectId : made->poles[r.node], p, scope.kind, scope.layer);
         if (!port.ok) {
           out.error = port.error;
           return out;
@@ -1581,7 +1584,7 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
   for (std::size_t i = 0; i < g_.nodes.size() && i < made.poles.size(); ++i) {
     node_id_by_local[i] = (g_.nodes[i].saved != kInvalidObjectId)
                               ? g_.nodes[i].saved
-                              : state_.save_backbone_node(made.poles[i], g_.nodes[i].pos);
+                              : state_.save_backbone_node(made.poles[i], g_.nodes[i].pos, g_.nodes[i].support);
   }
 
   std::vector<SavedBackboneEdgeRef> edge_by_link(ps.links.size());

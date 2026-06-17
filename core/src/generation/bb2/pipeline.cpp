@@ -614,10 +614,18 @@ EditResult<bool> pipeline::prepare() {
       }
       n.support = spec_it->second->support_kind;
       if (n.support == SupportKind::kMidair) {
-        if (spec_it->second->node_id != kInvalidObjectId) {
-          out.error = "bb2 unsupported: existing midair node is not supported";
+        if (spec_it->second->node_id == kInvalidObjectId) {
+          g_.nodes.push_back(n);
+          continue;
+        }
+        const SavedBackboneNode* saved = state_.view().backbone_node(spec_it->second->node_id);
+        if (saved == nullptr || saved->pole_id != kInvalidObjectId) {
+          out.error = "bb2 unsupported: saved midair node not found";
           return out;
         }
+        n.saved = saved->node_id;
+        n.pos = saved->position;
+        n.is_new = false;
         g_.nodes.push_back(n);
         continue;
       }

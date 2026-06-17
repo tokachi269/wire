@@ -863,7 +863,7 @@ bool C396_bb2_existing_pole_does_not_read_existing_spans() {
   return true;
 }
 
-bool C397_bb2_rejects_existing_midair_node_spec() {
+bool C397_bb2_rejects_missing_saved_midair_node_spec() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   wire::core::BackboneInputSpec::NodeSpec node{};
@@ -4356,7 +4356,69 @@ bool C553_bb2_new_midair_route_point_is_supported() {
                       (b->owner_pole_id == wire::core::kInvalidObjectId &&
                        almost_equal(b->world_position.z, 8.0, 1e-9));
   }
-  return saw_midair_port && C397_bb2_rejects_existing_midair_node_spec();
+  return saw_midair_port && C397_bb2_rejects_missing_saved_midair_node_spec();
+}
+
+bool C554_bb2_existing_midair_route_point_is_supported() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec first = poly3_req(state);
+  first.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 8.0}, {24.0, 0.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec midair{};
+  midair.point_index = 1;
+  midair.support_kind = wire::core::SupportKind::kMidair;
+  first.path.node_specs = {midair};
+  const auto first_out = state.GenerateFromBackboneSpec(first);
+  if (!first_out.ok) {
+    return false;
+  }
+  const wire::core::SavedBackboneGraph& before_graph = state.view().backbone();
+  const auto saved_midair = std::find_if(before_graph.nodes.begin(), before_graph.nodes.end(),
+                                         [](const wire::core::SavedBackboneNode& n) {
+                                           return n.pole_id == wire::core::kInvalidObjectId;
+                                         });
+  if (saved_midair == before_graph.nodes.end()) {
+    return false;
+  }
+  const wire::core::ObjectId saved_midair_id = saved_midair->node_id;
+  const std::size_t pole_count = state.view().poles().size();
+
+  wire::core::BackboneSpec second = line_req(state);
+  second.path.polyline = {saved_midair->position, {12.0, 10.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec existing{};
+  existing.point_index = 0;
+  existing.support_kind = wire::core::SupportKind::kMidair;
+  existing.node_id = saved_midair_id;
+  second.path.node_specs = {existing};
+  const auto second_out = state.GenerateFromBackboneSpec(second);
+  if (!second_out.ok || second_out.value.generated_pole_ids.size() != 1 ||
+      second_out.value.generated_span_ids.size() != static_cast<std::size_t>(req_bundle_count(state, second))) {
+    return false;
+  }
+  if (state.view().poles().size() != pole_count + 1) {
+    return false;
+  }
+  const auto midair_again = std::find_if(state.view().backbone().nodes.begin(), state.view().backbone().nodes.end(),
+                                         [&](const wire::core::SavedBackboneNode& n) {
+                                           return n.node_id == saved_midair_id &&
+                                                  n.pole_id == wire::core::kInvalidObjectId;
+                                         });
+  if (midair_again == state.view().backbone().nodes.end()) {
+    return false;
+  }
+  for (wire::core::ObjectId span_id : second_out.value.generated_span_ids) {
+    const auto* span = state.view().spans().find(span_id);
+    if (span == nullptr || !state.span_layout_rules(span_id).has_rule() || !state.span_layout(span_id).has_layout() ||
+        state.find_curve_cache(span_id) == nullptr || state.find_bounds_cache(span_id) == nullptr) {
+      return false;
+    }
+    const auto* a = state.view().ports().find(span->port_a_id);
+    const auto* b = state.view().ports().find(span->port_b_id);
+    if (a == nullptr || b == nullptr ||
+        (a->owner_pole_id != wire::core::kInvalidObjectId && b->owner_pole_id != wire::core::kInvalidObjectId)) {
+      return false;
+    }
+  }
+  return C397_bb2_rejects_missing_saved_midair_node_spec();
 }
 
 void register_bb2_tests(test_registry::TestRegistry& tests) {
@@ -4422,9 +4484,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C396_bb2_existing_pole_does_not_read_existing_spans",
                          "bb2 existing pole nodes do not use existing spans for new meaning", "Boundary", false,
                          C396_bb2_existing_pole_does_not_read_existing_spans);
-  test_registry::AddTest(tests, "C397_bb2_rejects_existing_midair_node_spec",
-                         "bb2 rejects existing midair node specs", "Boundary", true,
-                         C397_bb2_rejects_existing_midair_node_spec);
+  test_registry::AddTest(tests, "C397_bb2_rejects_missing_saved_midair_node_spec",
+                         "bb2 rejects missing saved midair node specs", "Boundary", true,
+                         C397_bb2_rejects_missing_saved_midair_node_spec);
   test_registry::AddTest(tests, "C398_bb2_rejects_missing_existing_pole", "bb2 rejects missing existing pole ids",
                          "Boundary", true, C398_bb2_rejects_missing_existing_pole);
   test_registry::AddTest(tests, "C399_bb2_existing_pole_sequence_is_deterministic",
@@ -4887,6 +4949,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C553_bb2_new_midair_route_point_is_supported",
                          "bb2 supports new midair route points", "Boundary", false,
                          C553_bb2_new_midair_route_point_is_supported);
+  test_registry::AddTest(tests, "C554_bb2_existing_midair_route_point_is_supported",
+                         "bb2 supports existing saved midair route points", "Boundary", false,
+                         C554_bb2_existing_midair_route_point_is_supported);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

@@ -1691,12 +1691,16 @@ draw pipeline::make(const layout& placed, const geom& shaped) const {
   draw out{};
   out.visuals.reserve(placed.entries.size());
   out.renders.reserve(shaped.curves.data.size());
+  const VisualSettings& visual_settings = state_.view().visual_settings();
   for (const auto& item : shaped.curves.data) {
     out.renders.push_back({item.first, render(state_, item.first, item.second)});
   }
   for (const SpanLayoutEntry& entry : placed.entries) {
     SpanVisualCacheEntry visual{};
     auto add_part = [&](const LayoutEndpoint& endpoint) {
+      if (!visual_settings.enable_support_structures) {
+        return;
+      }
       if (!endpoint.default_lower_required && !endpoint.lower_required) {
         return;
       }
@@ -1708,7 +1712,7 @@ draw pipeline::make(const layout& placed, const geom& shaped) const {
       part.kind = VisualPartKind::kSupportArm;
       part.a = support;
       part.b = endpoint.endpoint_world;
-      part.radius_m = state_.view().visual_settings().support_arm_radius_m;
+      part.radius_m = visual_settings.support_arm_radius_m;
       visual.parts.push_back(part);
     };
     add_part(entry.start);

@@ -1084,6 +1084,7 @@ supported scenario:
 * source edge 上に作った saved ownerless node は source edge endpoint と `source_edge_t` を保持し、以後の branch generation では saved edge context を pair/open/row/placement 入力として読む。
 * render cache は generated span の bundle template から cable template appearance（radius/color/material）を読む。
 * support visual placeholder は layout の `support_world -> endpoint_world` と visual settings の radius を転写する。
+* `VisualSettings.enable_support_structures=false` の場合、bb2 は rules/layout/geom/render を生成したまま support visual placeholder だけを生成しない。
 
 境界:
 
@@ -1093,5 +1094,6 @@ supported scenario:
 * source edge context link は generation/save target ではなく判断入力であり、saved edge を split したり context span/port を生成しない。
 * render は geom curve と span bundle の template appearance を転写するだけで、topology / pair / row / lowering を判断しない。
 * support visual placeholder は full support arm / insulator / attachment semantics ではなく、既に決まった layout 線分の表示属性だけを持つ。
+* support visual の有効/無効は draw 出力の表示設定であり、topology / pair / row / lowering / layout / geom を変えない。
 * segment pick は topology を span/layout/seed から推測するための入口ではない。
 * bb2 generation は引き続き saved graph / explicit route input を正本にする。

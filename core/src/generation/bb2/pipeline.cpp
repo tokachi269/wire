@@ -787,9 +787,14 @@ EditResult<bool> pipeline::prepare() {
     node n{};
     n.id = g_.nodes.size();
     n.pos = saved->position;
+    n.support = saved->support_kind;
     n.pole = saved->pole_id;
     n.saved = saved->node_id;
     n.is_new = false;
+    n.has_source_edge = saved->has_source_edge;
+    n.source_edge_node_a = saved->source_edge_node_a;
+    n.source_edge_node_b = saved->source_edge_node_b;
+    n.source_edge_t = saved->source_edge_t;
     g_.nodes.push_back(n);
     local_by_saved[n.saved] = n.id;
     return n.id;

@@ -1082,6 +1082,7 @@ supported scenario:
 * mixed selected bundle の midair branch は許可 bundle だけを生成し、全 bundle が disallowed の場合は成功 no-op とする。
 * segment pick の hit position が地面/投影点の z を持つ場合でも、source span が分かるなら midair route point の高さは source span の port 高さから決める。
 * source edge 上に作った saved ownerless node は source edge endpoint と `source_edge_t` を保持し、以後の branch generation では saved edge context を pair/open/row/placement 入力として読む。
+* saved graph 由来の context node は `support_kind` と source-edge metadata を graph context に保持したまま読む。
 * render cache は generated span の bundle template から cable template appearance（radius/color/material）を読む。
 * support visual placeholder は layout の `support_world -> endpoint_world` と visual settings の radius を転写する。
 * `VisualSettings.enable_support_structures=false` の場合、bb2 は rules/layout/geom/render を生成したまま support visual placeholder だけを生成しない。
@@ -1093,6 +1094,7 @@ supported scenario:
 * bundle mode は active bundle 選択にだけ使い、pair/open/row の正本には使わない。
 * source span は pick geometry の高さ補正にだけ使い、topology / pair / row / port identity を span/layout/seed から復元しない。
 * source edge context link は generation/save target ではなく判断入力であり、saved edge を split したり context span/port を生成しない。
+* context node は saved graph node の support/source metadata を落とさず、pole 前提の local node へ潰さない。
 * render は geom curve と span bundle の template appearance を転写するだけで、topology / pair / row / lowering を判断しない。
 * support visual placeholder は full support arm / insulator / attachment semantics ではなく、既に決まった layout 線分の表示属性だけを持つ。
 * support visual の有効/無効は draw 出力の表示設定であり、topology / pair / row / lowering / layout / geom を変えない。

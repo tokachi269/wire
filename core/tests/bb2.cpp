@@ -5278,6 +5278,25 @@ bool C572_bb2_support_visual_radius_setting_is_mutable() {
   return false;
 }
 
+bool C573_bb2_saved_context_node_carries_support_metadata() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+  std::string cpp;
+  if (!file_text(source, &cpp)) {
+    return false;
+  }
+  const std::size_t fn_pos = cpp.find("auto local_for_saved =");
+  const std::size_t next_pos = cpp.find("std::unordered_set<ObjectId> context_edges", fn_pos);
+  if (fn_pos == std::string::npos || next_pos == std::string::npos) {
+    return false;
+  }
+  const std::string body = cpp.substr(fn_pos, next_pos - fn_pos);
+  return contains_text(body, "n.support = saved->support_kind") &&
+         contains_text(body, "n.has_source_edge = saved->has_source_edge") &&
+         contains_text(body, "n.source_edge_node_a = saved->source_edge_node_a") &&
+         contains_text(body, "n.source_edge_node_b = saved->source_edge_node_b") &&
+         contains_text(body, "n.source_edge_t = saved->source_edge_t");
+}
+
 bool C559_bb2_positive_avoid_clear_of_route_is_noop() {
   wire::core::CoreState plain;
   wire::core::BackboneSpec base = line_req(plain);
@@ -5897,6 +5916,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C572_bb2_support_visual_radius_setting_is_mutable",
                          "bb2 support visual placeholder uses updated support arm radius", "Boundary", false,
                          C572_bb2_support_visual_radius_setting_is_mutable);
+  test_registry::AddTest(tests, "C573_bb2_saved_context_node_carries_support_metadata",
+                         "bb2 saved context nodes carry support metadata", "Boundary", false,
+                         C573_bb2_saved_context_node_carries_support_metadata);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

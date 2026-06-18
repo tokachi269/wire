@@ -1078,9 +1078,12 @@ supported scenario:
 * 解決結果を `BackboneSpec.path.node_specs` に渡した場合、bb2 は ownerless midair node / port / span output を生成する。
 * selected bundle template がある segment pick で transient midair node id が返る場合、bb2 はその pending support node を route input として読める。
 * pending support node は既存 topology ではなく現在の pick input であり、generation 後は新しい saved ownerless backbone node として保存する。
+* pending support node が bundle mode を持つ場合、`kNotPresent` の bundle は materialization 対象から外す。
+* mixed selected bundle の midair branch は許可 bundle だけを生成し、全 bundle が disallowed の場合は成功 no-op とする。
 
 境界:
 
 * selected bundle template がある場合の midair branch policy は維持する。
+* bundle mode は active bundle 選択にだけ使い、pair/open/row の正本には使わない。
 * segment pick は topology を span/layout/seed から推測するための入口ではない。
 * bb2 generation は引き続き saved graph / explicit route input を正本にする。

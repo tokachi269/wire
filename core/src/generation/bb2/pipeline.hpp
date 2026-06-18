@@ -21,6 +21,7 @@ struct node {
   bool pinned = false;
   bool has_tangent = false;
   Vec3d tangent{};
+  std::vector<SupportNodeBundleMode> bundle_modes{};
 };
 
 struct link {
@@ -131,6 +132,7 @@ struct tspan {
 
 struct topo {
   std::vector<ObjectId> bundles{};
+  std::vector<std::size_t> bundle_specs{};
   std::vector<ObjectId> poles{};
   std::vector<ObjectId> new_poles{};
   std::vector<tspan> spans{};
@@ -196,6 +198,7 @@ private:
   const BackboneSpec& spec_;
   bool ready_ = false;
   graph g_{};
+  std::vector<std::size_t> active_bundle_indices_{};
   std::vector<std::size_t> local_by_input_{};
 };
 

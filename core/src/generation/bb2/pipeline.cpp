@@ -550,6 +550,7 @@ std::size_t pipeline::local(std::size_t input_point) const {
 EditResult<bool> pipeline::prepare() {
   EditResult<bool> out{};
   g_ = {};
+  active_bundle_indices_.clear();
   local_by_input_.clear();
   const std::vector<Vec3d>& input = spec_.path.polyline;
   std::vector<Vec3d> guide = input;
@@ -662,6 +663,7 @@ EditResult<bool> pipeline::prepare() {
         const SupportNode* pending = state_.view().pending_support_node(spec_it->second->node_id);
         if (pending != nullptr && pending->support_kind == n.support) {
           n.pos = pending->position;
+          n.bundle_modes = pending->bundle_modes;
           if (pending->has_tangent_hint) {
             Vec3d tangent = pending->tangent_hint;
             if (norm_strict(&tangent)) {
@@ -796,6 +798,24 @@ EditResult<bool> pipeline::prepare() {
       edge.is_new = false;
       g_.links.push_back(edge);
       context_edges.insert(edge_id);
+    }
+  }
+  active_bundle_indices_.reserve(spec_.bundles.size());
+  for (std::size_t bundle_index = 0; bundle_index < spec_.bundles.size(); ++bundle_index) {
+    bool allowed = true;
+    const BundleKind bundle_template_id = spec_.bundles[bundle_index].bundle_template_id;
+    for (const node& n : g_.nodes) {
+      const auto mode_it = std::find_if(n.bundle_modes.begin(), n.bundle_modes.end(),
+                                        [&](const SupportNodeBundleMode& mode) {
+                                          return mode.bundle_template_id == bundle_template_id;
+                                        });
+      if (mode_it != n.bundle_modes.end() && mode_it->mode == BundleNodeMode::kNotPresent) {
+        allowed = false;
+        break;
+      }
+    }
+    if (allowed) {
+      active_bundle_indices_.push_back(bundle_index);
     }
   }
   ready_ = true;
@@ -1020,7 +1040,13 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
       out.error = "bb2 unsupported: pass-through bundle is missing";
       return out;
     }
-    const std::size_t bundle = static_cast<std::size_t>(std::distance(spec_.bundles.begin(), bundle_it));
+    const std::size_t spec_index = static_cast<std::size_t>(std::distance(spec_.bundles.begin(), bundle_it));
+    const auto active_it = std::find(active_bundle_indices_.begin(), active_bundle_indices_.end(), spec_index);
+    if (active_it == active_bundle_indices_.end()) {
+      out.error = "bb2 unsupported: pass-through bundle is inactive";
+      return out;
+    }
+    const std::size_t bundle = static_cast<std::size_t>(std::distance(active_bundle_indices_.begin(), active_it));
     std::vector<std::size_t> matches{};
     for (const link& edge : ps.links) {
       if (!edge.is_new) {
@@ -1066,7 +1092,7 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
       if (row_id >= active.size() || !active[row_id]) {
         continue;
       }
-      for (std::size_t bundle = 0; bundle < spec_.bundles.size(); ++bundle) {
+      for (std::size_t bundle = 0; bundle < active_bundle_indices_.size(); ++bundle) {
         add_row_intent(row_id, bundle, intent_reason::conflicting_rows);
       }
     }
@@ -1093,7 +1119,7 @@ EditResult<groups> pipeline::make(const pairs& ps, const intent& intents) const 
     if (!item.lower_required) {
       continue;
     }
-    if (item.row >= ps.rows.size() || item.bundle >= spec_.bundles.size()) {
+    if (item.row >= ps.rows.size() || item.bundle >= active_bundle_indices_.size()) {
       out.error = "bb2 unsupported: support group row is invalid";
       return out;
     }
@@ -1174,7 +1200,8 @@ EditResult<bool> pipeline::check(const pairs& ps) const {
     if (bundles_it == state_.view().backbone_index().edge_bundles.end()) {
       continue;
     }
-    for (const BackboneBundleSpec& spec : spec_.bundles) {
+    for (std::size_t spec_index : active_bundle_indices_) {
+      const BackboneBundleSpec& spec = spec_.bundles[spec_index];
       for (ObjectId edge_bundle_id : bundles_it->second) {
         const SavedBackboneEdgeBundle* edge_bundle = state_.view().backbone_edge_bundle(edge_bundle_id);
         if (edge_bundle == nullptr) {
@@ -1218,8 +1245,10 @@ EditResult<bool> pipeline::emit_bundles(topo* made, ChangeSet* changes) {
     out.error = "bb2 topology: output missing";
     return out;
   }
-  made->bundles.reserve(spec_.bundles.size());
-  for (const BackboneBundleSpec& spec : spec_.bundles) {
+  made->bundles.reserve(active_bundle_indices_.size());
+  made->bundle_specs.reserve(active_bundle_indices_.size());
+  for (std::size_t spec_index : active_bundle_indices_) {
+    const BackboneBundleSpec& spec = spec_.bundles[spec_index];
     EditResult<spec_view> v = view_for(state_, spec);
     if (!v.ok) {
       out.error = v.error;
@@ -1228,6 +1257,7 @@ EditResult<bool> pipeline::emit_bundles(topo* made, ChangeSet* changes) {
     const ObjectId resolved = resolve_existing_bundle(state_, g_, spec);
     if (resolved != kInvalidObjectId) {
       made->bundles.push_back(resolved);
+      made->bundle_specs.push_back(spec_index);
       continue;
     }
     EditResult<ObjectId> bundle = state_.AddBundle(v.value.count, v.value.tmpl->default_spacing_m, v.value.tmpl->id);
@@ -1237,6 +1267,7 @@ EditResult<bool> pipeline::emit_bundles(topo* made, ChangeSet* changes) {
     }
     add(*changes, bundle.change_set);
     made->bundles.push_back(bundle.value);
+    made->bundle_specs.push_back(spec_index);
   }
   out.value = true;
   out.ok = true;
@@ -1294,15 +1325,20 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
       out.error = "bb2 topology: active row pole missing";
       return out;
     }
-    tr.ports.resize(spec_.bundles.size());
-    for (std::size_t bundle_index = 0; bundle_index < spec_.bundles.size(); ++bundle_index) {
-      EditResult<spec_view> v = view_for(state_, spec_.bundles[bundle_index]);
+    tr.ports.resize(made->bundles.size());
+    for (std::size_t bundle_index = 0; bundle_index < made->bundles.size(); ++bundle_index) {
+      if (bundle_index >= made->bundle_specs.size()) {
+        out.error = "bb2 topology: bundle spec missing";
+        return out;
+      }
+      const std::size_t spec_index = made->bundle_specs[bundle_index];
+      EditResult<spec_view> v = view_for(state_, spec_.bundles[spec_index]);
       if (!v.ok) {
         out.error = v.error;
         return out;
       }
       const double group_offset =
-          (static_cast<double>(bundle_index) - (static_cast<double>(spec_.bundles.size() - 1) * 0.5)) *
+          (static_cast<double>(bundle_index) - (static_cast<double>(made->bundles.size() - 1) * 0.5)) *
           (v.value.tmpl->default_spacing_m * static_cast<double>(v.value.count + 1));
       tr.ports[bundle_index].reserve(static_cast<std::size_t>(v.value.count));
       PortPlacementBand band{};
@@ -1314,7 +1350,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
         }
         band = resolved_band.value;
       }
-      const port_scope scope{spec_.bundles[bundle_index].bundle_template_id, port_kind(v.value.tmpl->category),
+      const port_scope scope{spec_.bundles[spec_index].bundle_template_id, port_kind(v.value.tmpl->category),
                              port_layer(v.value.layer)};
       for (int lane = 0; lane < v.value.count; ++lane) {
         const double lane_offset =
@@ -1366,7 +1402,11 @@ EditResult<bool> pipeline::emit_spans(topo* made, const pairs& ps, ChangeSet* ch
       return out;
     }
     for (std::size_t bundle_index = 0; bundle_index < made->bundles.size(); ++bundle_index) {
-      EditResult<spec_view> v = view_for(state_, spec_.bundles[bundle_index]);
+      if (bundle_index >= made->bundle_specs.size()) {
+        out.error = "bb2 topology: bundle spec missing";
+        return out;
+      }
+      EditResult<spec_view> v = view_for(state_, spec_.bundles[made->bundle_specs[bundle_index]]);
       if (!v.ok) {
         out.error = v.error;
         return out;
@@ -1718,6 +1758,10 @@ EditResult<GenerateBundleFromPathResult> pipeline::build() {
   EditResult<bool> duplicates = check(ps.value);
   if (!duplicates.ok) {
     out.error = duplicates.error;
+    return out;
+  }
+  if (active_bundle_indices_.empty()) {
+    out.ok = true;
     return out;
   }
   EditResult<intent> intents = make(ps.value);

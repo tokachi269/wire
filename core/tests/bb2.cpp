@@ -4915,6 +4915,102 @@ bool C564_bb2_selected_bundle_segment_pick_feeds_transient_midair_node() {
   return false;
 }
 
+bool C565_bb2_mixed_selected_midair_branch_generates_allowed_bundles_only() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec base = line_req(state);
+  const auto base_out = state.GenerateFromBackboneSpec(base);
+  if (!base_out.ok || base_out.value.generated_span_ids.empty()) {
+    return false;
+  }
+
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = base_out.value.generated_span_ids.front();
+  pick.hit_pos_world = {6.0, 0.0, 4.0};
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage, wire::core::BundleKind::kHighVoltage};
+  const auto resolved = state.ResolveBranchPick(pick, resolve);
+  if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {resolved.value.position, {6.0, 8.0, 0.0}};
+  branch.bundles.clear();
+  add_backbone_bundle(branch, wire::core::BundleKind::kLowVoltage);
+  add_backbone_bundle(branch, wire::core::BundleKind::kHighVoltage);
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  branch.path.node_specs = {node};
+  const auto out = state.GenerateFromBackboneSpec(branch);
+  if (!out.ok || out.value.bundle_ids.size() != 1 ||
+      out.value.generated_span_ids.size() != static_cast<std::size_t>(bundle_count(state, wire::core::BundleKind::kLowVoltage))) {
+    return false;
+  }
+  const auto* bundle = state.view().bundles().find(out.value.bundle_ids.front());
+  if (bundle == nullptr || bundle->bundle_template_id != wire::core::BundleKind::kLowVoltage) {
+    return false;
+  }
+  for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
+    const auto* span = state.view().spans().find(span_id);
+    if (span == nullptr) {
+      return false;
+    }
+    const auto* span_bundle = state.view().bundles().find(span->bundle_id);
+    if (span_bundle == nullptr || span_bundle->bundle_template_id != wire::core::BundleKind::kLowVoltage) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool C566_bb2_disallowed_selected_midair_branch_is_noop() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec base = line_req(state);
+  const auto base_out = state.GenerateFromBackboneSpec(base);
+  if (!base_out.ok || base_out.value.generated_span_ids.empty()) {
+    return false;
+  }
+
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = base_out.value.generated_span_ids.front();
+  pick.hit_pos_world = {6.0, 0.0, 4.0};
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage, wire::core::BundleKind::kHighVoltage};
+  const auto resolved = state.ResolveBranchPick(pick, resolve);
+  if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {resolved.value.position, {6.0, 8.0, 0.0}};
+  branch.bundles.clear();
+  add_backbone_bundle(branch, wire::core::BundleKind::kHighVoltage);
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  branch.path.node_specs = {node};
+
+  const std::size_t pole_count = state.view().poles().size();
+  const std::size_t port_count = state.view().ports().size();
+  const std::size_t bundle_count_before = state.view().bundles().size();
+  const std::size_t span_count = state.view().spans().size();
+  const std::size_t saved_node_count = state.view().backbone().nodes.size();
+  const std::size_t saved_edge_count = state.view().backbone().edges.size();
+  const std::size_t saved_edge_bundle_count = state.view().backbone().edge_bundles.size();
+  const auto out = state.GenerateFromBackboneSpec(branch);
+  return out.ok && out.value.bundle_ids.empty() && out.value.generated_pole_ids.empty() &&
+         out.value.generated_span_ids.empty() && state.view().poles().size() == pole_count &&
+         state.view().ports().size() == port_count && state.view().bundles().size() == bundle_count_before &&
+         state.view().spans().size() == span_count && state.view().backbone().nodes.size() == saved_node_count &&
+         state.view().backbone().edges.size() == saved_edge_count &&
+         state.view().backbone().edge_bundles.size() == saved_edge_bundle_count;
+}
+
 bool C559_bb2_positive_avoid_clear_of_route_is_noop() {
   wire::core::CoreState plain;
   wire::core::BackboneSpec base = line_req(plain);
@@ -5510,6 +5606,12 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C564_bb2_selected_bundle_segment_pick_feeds_transient_midair_node",
                          "bb2 accepts a selected-bundle segment pick transient midair node as route input",
                          "Boundary", false, C564_bb2_selected_bundle_segment_pick_feeds_transient_midair_node);
+  test_registry::AddTest(tests, "C565_bb2_mixed_selected_midair_branch_generates_allowed_bundles_only",
+                         "bb2 materializes only allowed bundles for mixed selected midair branch picks",
+                         "Boundary", false, C565_bb2_mixed_selected_midair_branch_generates_allowed_bundles_only);
+  test_registry::AddTest(tests, "C566_bb2_disallowed_selected_midair_branch_is_noop",
+                         "bb2 treats fully disallowed selected midair branch bundles as no-op",
+                         "Boundary", false, C566_bb2_disallowed_selected_midair_branch_is_noop);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

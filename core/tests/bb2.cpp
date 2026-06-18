@@ -5245,6 +5245,39 @@ bool C571_bb2_support_visual_respects_enable_setting() {
   return saw_lowered_endpoint;
 }
 
+bool C572_bb2_support_visual_radius_setting_is_mutable() {
+  wire::core::CoreState state;
+  wire::core::VisualSettings settings = state.view().visual_settings();
+  settings.support_arm_radius_m = 0.123;
+  const auto updated = state.UpdateVisualSettings(settings, false);
+  if (!updated.ok || !updated.value) {
+    return false;
+  }
+
+  wire::core::BackboneSpec req = poly3_req(state);
+  wire::core::BackboneSpec::NodeBundleModeSpec mode{};
+  mode.point_index = 1;
+  mode.bundle_template_id = req.bundles.front().bundle_template_id;
+  mode.mode = wire::core::BundleNodeMode::kPassThrough;
+  req.node_bundle_modes = {mode};
+  const auto out = state.GenerateFromBackboneSpec(req);
+  if (!out.ok || out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
+    const wire::core::SpanVisualCacheEntry* visual = state.find_span_visual_cache(span_id);
+    if (visual == nullptr) {
+      return false;
+    }
+    for (const wire::core::VisualPart& part : visual->parts) {
+      if (part.kind == wire::core::VisualPartKind::kSupportArm) {
+        return almost_equal(part.radius_m, settings.support_arm_radius_m, 1e-12);
+      }
+    }
+  }
+  return false;
+}
+
 bool C559_bb2_positive_avoid_clear_of_route_is_noop() {
   wire::core::CoreState plain;
   wire::core::BackboneSpec base = line_req(plain);
@@ -5861,6 +5894,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C571_bb2_support_visual_respects_enable_setting",
                          "bb2 support visual placeholder respects enable_support_structures", "Boundary", false,
                          C571_bb2_support_visual_respects_enable_setting);
+  test_registry::AddTest(tests, "C572_bb2_support_visual_radius_setting_is_mutable",
+                         "bb2 support visual placeholder uses updated support arm radius", "Boundary", false,
+                         C572_bb2_support_visual_radius_setting_is_mutable);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

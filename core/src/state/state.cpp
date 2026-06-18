@@ -1601,6 +1601,7 @@ EditResult<bool> CoreState::UpdateVisualSettings(const VisualSettings& settings,
   VisualSettings normalized = settings;
   normalized.support_center_threshold_m = std::max(0.0, normalized.support_center_threshold_m);
   normalized.support_arm_extra_m = std::max(0.0, normalized.support_arm_extra_m);
+  normalized.support_arm_radius_m = std::max(0.0, normalized.support_arm_radius_m);
   normalized.insulator_radius_m = std::max(0.0, normalized.insulator_radius_m);
   normalized.insulator_length_m = std::max(0.0, normalized.insulator_length_m);
 
@@ -1609,6 +1610,7 @@ EditResult<bool> CoreState::UpdateVisualSettings(const VisualSettings& settings,
                        std::abs(normalized.support_center_threshold_m -
                                 runtime_.cache_state.visual_settings.support_center_threshold_m) > 1e-12 ||
                        std::abs(normalized.support_arm_extra_m - runtime_.cache_state.visual_settings.support_arm_extra_m) > 1e-12 ||
+                       std::abs(normalized.support_arm_radius_m - runtime_.cache_state.visual_settings.support_arm_radius_m) > 1e-12 ||
                        std::abs(normalized.insulator_radius_m - runtime_.cache_state.visual_settings.insulator_radius_m) > 1e-12 ||
                        std::abs(normalized.insulator_length_m - runtime_.cache_state.visual_settings.insulator_length_m) > 1e-12;
 

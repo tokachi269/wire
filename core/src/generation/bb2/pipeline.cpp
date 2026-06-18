@@ -482,8 +482,21 @@ AABBd box(const std::vector<Vec3d>& pts) {
   return out;
 }
 
-SpanRenderCacheEntry render(const DetailCurve& detail) {
+SpanRenderCacheEntry render(const CoreState& state, ObjectId span_id, const DetailCurve& detail) {
   SpanRenderCacheEntry out{};
+  if (const Span* span = state.view().spans().find(span_id); span != nullptr) {
+    if (const Bundle* bundle = state.view().bundles().find(span->bundle_id); bundle != nullptr) {
+      const auto bundle_template_it = state.view().bundle_templates().find(bundle->bundle_template_id);
+      if (bundle_template_it != state.view().bundle_templates().end()) {
+        const auto cable_it = state.view().cable_templates().find(bundle_template_it->second.cable_template_id);
+        if (cable_it != state.view().cable_templates().end()) {
+          out.wire_radius_m = std::max(0.0005, cable_it->second.outer_diameter_m * 0.5);
+          out.color_rgba = cable_it->second.color_rgba;
+          out.material_style = cable_it->second.material_style;
+        }
+      }
+    }
+  }
   out.arc_length_m_by_point.reserve(detail.sample_points.size());
   out.arc_length_normalized_by_point.reserve(detail.sample_points.size());
   out.segment_length_m.reserve(detail.sample_points.size() > 0 ? detail.sample_points.size() - 1 : 0);
@@ -1679,7 +1692,7 @@ draw pipeline::make(const layout& placed, const geom& shaped) const {
   out.visuals.reserve(placed.entries.size());
   out.renders.reserve(shaped.curves.data.size());
   for (const auto& item : shaped.curves.data) {
-    out.renders.push_back({item.first, render(item.second)});
+    out.renders.push_back({item.first, render(state_, item.first, item.second)});
   }
   for (const SpanLayoutEntry& entry : placed.entries) {
     SpanVisualCacheEntry visual{};

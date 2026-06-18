@@ -5142,6 +5142,41 @@ bool C568_bb2_source_edge_midair_branch_uses_source_context_for_lowering() {
   return false;
 }
 
+bool C569_bb2_render_uses_cable_template_appearance() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = line_req(state);
+  const auto out = state.GenerateFromBackboneSpec(req);
+  if (!out.ok || out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
+    const auto* span = state.view().spans().find(span_id);
+    const wire::core::SpanRenderCacheEntry* render = state.view().find_span_render_cache(span_id);
+    if (span == nullptr || render == nullptr) {
+      return false;
+    }
+    const auto* bundle = state.view().bundles().find(span->bundle_id);
+    if (bundle == nullptr) {
+      return false;
+    }
+    const auto bundle_template_it = state.view().bundle_templates().find(bundle->bundle_template_id);
+    if (bundle_template_it == state.view().bundle_templates().end()) {
+      return false;
+    }
+    const auto cable_it = state.view().cable_templates().find(bundle_template_it->second.cable_template_id);
+    if (cable_it == state.view().cable_templates().end()) {
+      return false;
+    }
+    const double expected_radius = std::max(0.0005, cable_it->second.outer_diameter_m * 0.5);
+    if (!almost_equal(render->wire_radius_m, expected_radius, 1e-12) ||
+        render->color_rgba != cable_it->second.color_rgba ||
+        render->material_style != cable_it->second.material_style) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool C559_bb2_positive_avoid_clear_of_route_is_noop() {
   wire::core::CoreState plain;
   wire::core::BackboneSpec base = line_req(plain);
@@ -5749,6 +5784,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C568_bb2_source_edge_midair_branch_uses_source_context_for_lowering",
                          "bb2 source-edge midair branches use saved edge context for lowering", "Boundary", false,
                          C568_bb2_source_edge_midair_branch_uses_source_context_for_lowering);
+  test_registry::AddTest(tests, "C569_bb2_render_uses_cable_template_appearance",
+                         "bb2 render cache uses cable template appearance", "Boundary", false,
+                         C569_bb2_render_uses_cable_template_appearance);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

@@ -1082,6 +1082,7 @@ supported scenario:
 * mixed selected bundle の midair branch は許可 bundle だけを生成し、全 bundle が disallowed の場合は成功 no-op とする。
 * segment pick の hit position が地面/投影点の z を持つ場合でも、source span が分かるなら midair route point の高さは source span の port 高さから決める。
 * source edge 上に作った saved ownerless node は source edge endpoint と `source_edge_t` を保持し、以後の branch generation では saved edge context を pair/open/row/placement 入力として読む。
+* render cache は generated span の bundle template から cable template appearance（radius/color/material）を読む。
 
 境界:
 
@@ -1089,5 +1090,6 @@ supported scenario:
 * bundle mode は active bundle 選択にだけ使い、pair/open/row の正本には使わない。
 * source span は pick geometry の高さ補正にだけ使い、topology / pair / row / port identity を span/layout/seed から復元しない。
 * source edge context link は generation/save target ではなく判断入力であり、saved edge を split したり context span/port を生成しない。
+* render は geom curve と span bundle の template appearance を転写するだけで、topology / pair / row / lowering を判断しない。
 * segment pick は topology を span/layout/seed から推測するための入口ではない。
 * bb2 generation は引き続き saved graph / explicit route input を正本にする。

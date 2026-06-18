@@ -1080,10 +1080,12 @@ supported scenario:
 * pending support node は既存 topology ではなく現在の pick input であり、generation 後は新しい saved ownerless backbone node として保存する。
 * pending support node が bundle mode を持つ場合、`kNotPresent` の bundle は materialization 対象から外す。
 * mixed selected bundle の midair branch は許可 bundle だけを生成し、全 bundle が disallowed の場合は成功 no-op とする。
+* segment pick の hit position が地面/投影点の z を持つ場合でも、source span が分かるなら midair route point の高さは source span の port 高さから決める。
 
 境界:
 
 * selected bundle template がある場合の midair branch policy は維持する。
 * bundle mode は active bundle 選択にだけ使い、pair/open/row の正本には使わない。
+* source span は pick geometry の高さ補正にだけ使い、topology / pair / row / port identity を span/layout/seed から復元しない。
 * segment pick は topology を span/layout/seed から推測するための入口ではない。
 * bb2 generation は引き続き saved graph / explicit route input を正本にする。

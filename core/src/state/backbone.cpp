@@ -521,6 +521,18 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
   Vec3d endpoint_a{};
   Vec3d endpoint_b{};
   const bool has_endpoints = resolve_segment_endpoints(&node_a_id, &node_b_id, &endpoint_a, &endpoint_b);
+  const double source_edge_t = has_endpoints ? segment_t_xy(pick.hit_pos_world, endpoint_a, endpoint_b) : 0.0;
+  Vec3d branch_position = pick.hit_pos_world;
+  if (const Span* span = authoritative_.edit_state.spans.find(pick.hit_id); span != nullptr) {
+    const Port* pa = authoritative_.edit_state.ports.find(span->port_a_id);
+    const Port* pb = authoritative_.edit_state.ports.find(span->port_b_id);
+    if (pa != nullptr && pb != nullptr) {
+      const double t = segment_t_xy(pick.hit_pos_world, pa->world_position, pb->world_position);
+      branch_position.z = pa->world_position.z + (pb->world_position.z - pa->world_position.z) * t;
+    }
+  } else if (has_endpoints) {
+    branch_position.z = endpoint_a.z + (endpoint_b.z - endpoint_a.z) * source_edge_t;
+  }
   if (has_endpoints && options.snap_radius_world > 0.0) {
     const double snap_r2 = options.snap_radius_world * options.snap_radius_world;
     const double da2 = sqr_dist(pick.hit_pos_world, endpoint_a);
@@ -554,7 +566,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
     if (node.support_kind != SupportKind::kMidair) {
       continue;
     }
-    if (sqr_dist(node.position, pick.hit_pos_world) > kReuseEps2) {
+    if (sqr_dist(node.position, branch_position) > kReuseEps2) {
       continue;
     }
     if (options.create_midair_node && has_endpoints) {
@@ -565,7 +577,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
         mutable_node.has_source_edge = true;
         mutable_node.source_edge_node_a_id = node_a_id;
         mutable_node.source_edge_node_b_id = node_b_id;
-        mutable_node.source_edge_t = segment_t_xy(pick.hit_pos_world, endpoint_a, endpoint_b);
+        mutable_node.source_edge_t = source_edge_t;
         for (const SelectedTemplatePolicy& selected : selected_templates) {
           const auto it_mode =
               std::find_if(mutable_node.bundle_modes.begin(), mutable_node.bundle_modes.end(),
@@ -601,7 +613,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
     result.value.resolution = PickBranchResolutionKind::kMidair;
     result.value.resolved_node_id = kInvalidObjectId;
     result.value.support_kind = SupportKind::kMidair;
-    result.value.position = pick.hit_pos_world;
+    result.value.position = branch_position;
     result.ok = true;
     return result;
   }
@@ -609,13 +621,13 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
   SupportNode midair{};
   midair.node_id = debug_.next_virtual_support_node_id++;
   midair.support_kind = SupportKind::kMidair;
-  midair.position = pick.hit_pos_world;
+  midair.position = branch_position;
   midair.pole_id = kInvalidObjectId;
   if (has_endpoints) {
     midair.has_source_edge = true;
     midair.source_edge_node_a_id = node_a_id;
     midair.source_edge_node_b_id = node_b_id;
-    midair.source_edge_t = segment_t_xy(pick.hit_pos_world, endpoint_a, endpoint_b);
+    midair.source_edge_t = source_edge_t;
   }
   midair.path_point_index = -1;
   midair.has_tangent_hint = false;

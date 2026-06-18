@@ -4668,6 +4668,58 @@ bool C560_bb2_segment_pick_without_bundle_policy_feeds_midair_route_point() {
   return false;
 }
 
+bool C561_bb2_default_segment_pick_without_bundle_policy_is_ownerless_midair() {
+  wire::core::CoreState state;
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = wire::core::kInvalidObjectId;
+  pick.hit_pos_world = {6.0, 0.0, 3.0};
+  pick.has_segment_endpoints = true;
+  pick.segment_node_a_id = wire::core::kInvalidObjectId;
+  pick.segment_node_b_id = wire::core::kInvalidObjectId;
+  pick.segment_endpoint_a_world = {0.0, 0.0, 3.0};
+  pick.segment_endpoint_b_world = {12.0, 0.0, 3.0};
+
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.selected_bundle_template_ids.clear();
+  const auto resolved = state.ResolveBranchPick(pick, resolve);
+  if (!resolved.ok || resolved.value.resolution != wire::core::PickBranchResolutionKind::kMidair ||
+      resolved.value.support_kind != wire::core::SupportKind::kMidair ||
+      resolved.value.resolved_node_id != wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec req = line_req(state);
+  req.path.polyline = {resolved.value.position, {6.0, 8.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  req.path.node_specs = {node};
+  const auto out = state.GenerateFromBackboneSpec(req);
+  if (!out.ok || out.value.generated_pole_ids.size() != 1 ||
+      out.value.generated_span_ids.size() != static_cast<std::size_t>(req_bundle_count(state, req))) {
+    return false;
+  }
+  const auto midair_it =
+      std::find_if(state.view().backbone().nodes.begin(), state.view().backbone().nodes.end(),
+                   [](const wire::core::SavedBackboneNode& n) {
+                     return n.pole_id == wire::core::kInvalidObjectId &&
+                            n.support_kind == wire::core::SupportKind::kMidair;
+                   });
+  if (midair_it == state.view().backbone().nodes.end() || !almost_equal(midair_it->position.z, 3.0, 1e-9)) {
+    return false;
+  }
+  for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
+    const auto* span = state.view().spans().find(span_id);
+    if (span == nullptr || !state.span_layout_rules(span_id).has_rule() || !state.span_layout(span_id).has_layout() ||
+        state.find_curve_cache(span_id) == nullptr || state.find_bounds_cache(span_id) == nullptr) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool C559_bb2_positive_avoid_clear_of_route_is_noop() {
   wire::core::CoreState plain;
   wire::core::BackboneSpec base = line_req(plain);
@@ -5251,6 +5303,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C560_bb2_segment_pick_without_bundle_policy_feeds_midair_route_point",
                          "bb2 accepts a dry-run segment pick without selected bundle policy as a midair route point",
                          "Boundary", false, C560_bb2_segment_pick_without_bundle_policy_feeds_midair_route_point);
+  test_registry::AddTest(tests, "C561_bb2_default_segment_pick_without_bundle_policy_is_ownerless_midair",
+                         "bb2 accepts the default segment pick without selected bundle policy as an ownerless midair point",
+                         "Boundary", false, C561_bb2_default_segment_pick_without_bundle_policy_is_ownerless_midair);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

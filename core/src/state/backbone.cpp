@@ -336,9 +336,6 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
   }
 
   std::vector<BundleKind> selected_template_ids = options.selected_bundle_template_ids;
-  if (selected_template_ids.empty()) {
-    selected_template_ids.push_back(BundleKind::kLowVoltage);
-  }
   std::sort(selected_template_ids.begin(), selected_template_ids.end(),
             [](BundleKind a, BundleKind b) { return static_cast<int>(a) < static_cast<int>(b); });
   selected_template_ids.erase(std::unique(selected_template_ids.begin(), selected_template_ids.end()),
@@ -557,7 +554,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
     return result;
   }
 
-  if (!options.create_midair_node) {
+  if (!options.create_midair_node || selected_templates.empty()) {
     result.value.resolution = PickBranchResolutionKind::kMidair;
     result.value.resolved_node_id = kInvalidObjectId;
     result.value.support_kind = SupportKind::kMidair;

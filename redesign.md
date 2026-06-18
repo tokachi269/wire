@@ -1072,6 +1072,7 @@ Result: PASS.
 supported scenario:
 
 * `PickHitKind::kSegment` の dry-run branch pick は、selected bundle template が未指定でも `SupportKind::kMidair` の route point として解決できる。
+* `PickHitKind::kSegment` の既定 branch pick も、selected bundle template が未指定なら debug virtual node を作らず ownerless midair route point として解決する。
 * 解決結果を `BackboneSpec.path.node_specs` に渡した場合、bb2 は ownerless midair node / port / span output を生成する。
 
 境界:

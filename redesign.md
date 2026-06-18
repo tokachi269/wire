@@ -853,6 +853,26 @@ M30 へ進む前に、M29 後に残った境界品質を固定する。
 
 フェーズ: 実用 mainline の対応範囲凍結。
 
+## bb2 supported generation scope
+
+Supported:
+
+* supported requests run through bb2 and produce saved graph outputs.
+* direct rules / layout / geom / draw output is generated without recalc.
+
+Unsupported:
+
+* existing scenes without `SavedBackboneGraph`.
+* topology import from span / layout / seed / curve / port position.
+
+Scope contract:
+
+* `SavedBackboneGraph` is topology authority.
+* `pairs make(graph)` is connectivity authority.
+* duplicate same edge_bundle + lane is rejected before topology emit.
+* lowered layout keeps `support_world` at the original support point and applies lowering to `endpoint_world`.
+* GenerateFromBackboneSpec does not fall back to v1.
+
 対応:
 
 * input route は 2 点以上の polyline である。
@@ -987,6 +1007,7 @@ draw の責務:
 viewer 注記:
 
 * viewer/raylib の利用可否は bb2 core acceptance の一部ではない。viewer 依存欠落は別途記録し、`wire_core_tests` の bb2 acceptance は block しない。
+* viewer/raylib availability is not part of bb2 core acceptance; missing viewer dependencies do not block `wire_core_tests` bb2 acceptance.
 
 ## bb2 GenerateFromBackboneSpec ゲート方針
 
@@ -1008,20 +1029,27 @@ viewer 注記:
 
 ## bb2 実用 mainline アーキテクチャ監査
 
+## bb2 usable mainline architecture audit
+
 監査日: 2026-06-16
 
 結果: PASS。
 
+Result: PASS.
+
 確認した owner:
 
 * topology の owner: `SavedBackboneGraph`。
+* topology owner: `SavedBackboneGraph`.
 * connectivity の owner: `pairs make(graph)`。
+* connectivity owner: `pairs make(graph)`.
 * placement の owner: row separation と support group。
 * port identity の owner: bundle-compatible scope を持つ saved row-port binding。
 * span duplicate の owner: 最終 guard として bind invariant を持つ saved span binding preflight。
 * lowering の owner: intent / support group / rules / layout。
 * geom の owner: layout consumer。
 * draw の owner: layout / geom consumer。
+* draw owner: layout / geom consumer.
 * unsupported の owner: v1 fallback を伴わない `prepare()` / `check()` / preflight。
 
 確認した境界:
@@ -1036,3 +1064,18 @@ viewer 注記:
 * v1/recalc/inspection は bb2 の外側で引き続き旧 contract を保持している。
 * v1/manual scene migration は引き続き unsupported である。
 * 完全な support arm / insulator / attachment semantics は引き続き unsupported である。
+
+## bb2 segment pick without bundle policy
+
+対応日: 2026-06-18
+
+supported scenario:
+
+* `PickHitKind::kSegment` の dry-run branch pick は、selected bundle template が未指定でも `SupportKind::kMidair` の route point として解決できる。
+* 解決結果を `BackboneSpec.path.node_specs` に渡した場合、bb2 は ownerless midair node / port / span output を生成する。
+
+境界:
+
+* selected bundle template がある場合の midair branch policy は維持する。
+* segment pick は topology を span/layout/seed から推測するための入口ではない。
+* bb2 generation は引き続き saved graph / explicit route input を正本にする。

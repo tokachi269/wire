@@ -498,7 +498,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
     }
   }
 
-  if (options.enforce_midair_template_policy) {
+  if (options.enforce_midair_template_policy && !selected_templates.empty()) {
     const bool any_allow_midair = std::any_of(selected_templates.begin(), selected_templates.end(),
                                               [](const SelectedTemplatePolicy& selected) {
                                                 return selected.allow_midair_path;

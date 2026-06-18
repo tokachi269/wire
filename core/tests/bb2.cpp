@@ -4776,6 +4776,78 @@ bool C562_bb2_saved_midair_node_pick_extends_from_saved_graph_node() {
   return true;
 }
 
+bool C563_bb2_segment_pick_snaps_to_saved_ownerless_span_endpoint() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec first = poly3_req(state);
+  first.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 5.0}, {24.0, 0.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec midair{};
+  midair.point_index = 1;
+  midair.support_kind = wire::core::SupportKind::kMidair;
+  first.path.node_specs = {midair};
+  const auto first_out = state.GenerateFromBackboneSpec(first);
+  if (!first_out.ok) {
+    return false;
+  }
+  const auto saved_midair =
+      std::find_if(state.view().backbone().nodes.begin(), state.view().backbone().nodes.end(),
+                   [](const wire::core::SavedBackboneNode& n) {
+                     return n.pole_id == wire::core::kInvalidObjectId &&
+                            n.support_kind == wire::core::SupportKind::kMidair;
+                   });
+  if (saved_midair == state.view().backbone().nodes.end()) {
+    return false;
+  }
+
+  wire::core::ObjectId hit_span = wire::core::kInvalidObjectId;
+  for (wire::core::ObjectId span_id : first_out.value.generated_span_ids) {
+    const auto* span = state.view().spans().find(span_id);
+    if (span == nullptr) {
+      return false;
+    }
+    const auto* a = state.view().ports().find(span->port_a_id);
+    const auto* b = state.view().ports().find(span->port_b_id);
+    if (a == nullptr || b == nullptr) {
+      return false;
+    }
+    if ((a->owner_pole_id == wire::core::kInvalidObjectId &&
+         almost_equal(a->world_position, saved_midair->position, 1e-9)) ||
+        (b->owner_pole_id == wire::core::kInvalidObjectId &&
+         almost_equal(b->world_position, saved_midair->position, 1e-9))) {
+      hit_span = span_id;
+      break;
+    }
+  }
+  if (hit_span == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = hit_span;
+  pick.hit_pos_world = saved_midair->position;
+  pick.has_segment_endpoints = false;
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.snap_radius_world = 0.75;
+  const auto resolved = state.ResolveBranchPick(pick, resolve);
+  if (!resolved.ok || resolved.value.resolution != wire::core::PickBranchResolutionKind::kNode ||
+      resolved.value.resolved_node_id != saved_midair->node_id ||
+      resolved.value.support_kind != wire::core::SupportKind::kMidair ||
+      !resolved.value.snapped_from_segment_endpoint) {
+    return false;
+  }
+
+  wire::core::BackboneSpec second = line_req(state);
+  second.path.polyline = {resolved.value.position, {12.0, 10.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec existing{};
+  existing.point_index = 0;
+  existing.support_kind = resolved.value.support_kind;
+  existing.node_id = resolved.value.resolved_node_id;
+  second.path.node_specs = {existing};
+  const auto second_out = state.GenerateFromBackboneSpec(second);
+  return second_out.ok && second_out.value.generated_pole_ids.size() == 1 &&
+         second_out.value.generated_span_ids.size() == static_cast<std::size_t>(req_bundle_count(state, second));
+}
+
 bool C559_bb2_positive_avoid_clear_of_route_is_noop() {
   wire::core::CoreState plain;
   wire::core::BackboneSpec base = line_req(plain);
@@ -5365,6 +5437,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C562_bb2_saved_midair_node_pick_extends_from_saved_graph_node",
                          "bb2 extends from a saved midair node pick using the saved graph node", "Boundary", false,
                          C562_bb2_saved_midair_node_pick_extends_from_saved_graph_node);
+  test_registry::AddTest(tests, "C563_bb2_segment_pick_snaps_to_saved_ownerless_span_endpoint",
+                         "bb2 resolves a segment pick endpoint through saved graph ownerless span endpoints",
+                         "Boundary", false, C563_bb2_segment_pick_snaps_to_saved_ownerless_span_endpoint);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

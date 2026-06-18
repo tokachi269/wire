@@ -1074,6 +1074,7 @@ supported scenario:
 * `PickHitKind::kSegment` の dry-run branch pick は、selected bundle template が未指定でも `SupportKind::kMidair` の route point として解決できる。
 * `PickHitKind::kSegment` の既定 branch pick も、selected bundle template が未指定なら debug virtual node を作らず ownerless midair route point として解決する。
 * `PickHitKind::kNode` が saved ownerless backbone node を指す場合、その saved graph node の support kind / position を route input として解決できる。
+* `PickHitKind::kSegment` が bb2 saved span を指す場合、endpoint id が pick payload に無くても saved graph binding から ownerless endpoint node へ snap できる。
 * 解決結果を `BackboneSpec.path.node_specs` に渡した場合、bb2 は ownerless midair node / port / span output を生成する。
 
 境界:

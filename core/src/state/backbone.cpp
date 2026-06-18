@@ -419,12 +419,46 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
     bool has_endpoints = pick.has_segment_endpoints;
 
     if (const Span* span = authoritative_.edit_state.spans.find(pick.hit_id); span != nullptr) {
+      auto saved_span_nodes = [&](ObjectId* out_saved_a, ObjectId* out_saved_b) {
+        if (out_saved_a == nullptr || out_saved_b == nullptr) {
+          return false;
+        }
+        const auto edge_bundle_it = runtime_.backbone_index.span_edge_bundle.find(span->id);
+        if (edge_bundle_it == runtime_.backbone_index.span_edge_bundle.end()) {
+          return false;
+        }
+        const auto bundle_it = std::find_if(authoritative_.backbone.edge_bundles.begin(),
+                                            authoritative_.backbone.edge_bundles.end(),
+                                            [&](const SavedBackboneEdgeBundle& item) {
+                                              return item.edge_bundle_id == edge_bundle_it->second;
+                                            });
+        if (bundle_it == authoritative_.backbone.edge_bundles.end()) {
+          return false;
+        }
+        const auto edge_it = std::find_if(authoritative_.backbone.edges.begin(), authoritative_.backbone.edges.end(),
+                                          [&](const SavedBackboneEdge& item) {
+                                            return item.edge_id == bundle_it->edge_id;
+                                          });
+        if (edge_it == authoritative_.backbone.edges.end()) {
+          return false;
+        }
+        *out_saved_a = bundle_it->edge_forward ? edge_it->node_a : edge_it->node_b;
+        *out_saved_b = bundle_it->edge_forward ? edge_it->node_b : edge_it->node_a;
+        return true;
+      };
+      ObjectId saved_node_a = kInvalidObjectId;
+      ObjectId saved_node_b = kInvalidObjectId;
+      const bool has_saved_nodes = saved_span_nodes(&saved_node_a, &saved_node_b);
       const Port* pa = authoritative_.edit_state.ports.find(span->port_a_id);
       const Port* pb = authoritative_.edit_state.ports.find(span->port_b_id);
       if (pa != nullptr && pb != nullptr) {
         auto resolve_endpoint = [&](bool is_a, const Port* port, ObjectId* out_node_id, Vec3d* out_pos) {
           const ObjectId explicit_node_id = is_a ? span->endpoint_node_a_id : span->endpoint_node_b_id;
-          const ObjectId node_id = (explicit_node_id != kInvalidObjectId) ? explicit_node_id : port->owner_pole_id;
+          const ObjectId saved_node_id = is_a ? saved_node_a : saved_node_b;
+          const ObjectId node_id = (explicit_node_id != kInvalidObjectId) ? explicit_node_id
+                                 : (port->owner_pole_id != kInvalidObjectId) ? port->owner_pole_id
+                                 : has_saved_nodes                            ? saved_node_id
+                                                                              : kInvalidObjectId;
           *out_node_id = node_id;
           *out_pos = port->world_position;
           SupportKind kind = SupportKind::kPole;

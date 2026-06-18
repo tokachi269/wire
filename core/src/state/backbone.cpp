@@ -395,6 +395,15 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
       *out_position = pole->world_transform.position;
       return true;
     }
+    const auto saved_it = std::find_if(authoritative_.backbone.nodes.begin(), authoritative_.backbone.nodes.end(),
+                                       [&](const SavedBackboneNode& node) {
+                                         return node.node_id == node_id && node.pole_id == kInvalidObjectId;
+                                       });
+    if (saved_it != authoritative_.backbone.nodes.end()) {
+      *out_kind = saved_it->support_kind;
+      *out_position = saved_it->position;
+      return true;
+    }
     return false;
   };
 

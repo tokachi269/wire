@@ -4720,6 +4720,62 @@ bool C561_bb2_default_segment_pick_without_bundle_policy_is_ownerless_midair() {
   return true;
 }
 
+bool C562_bb2_saved_midair_node_pick_extends_from_saved_graph_node() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec first = poly3_req(state);
+  first.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 5.0}, {24.0, 0.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec midair{};
+  midair.point_index = 1;
+  midair.support_kind = wire::core::SupportKind::kMidair;
+  first.path.node_specs = {midair};
+  const auto first_out = state.GenerateFromBackboneSpec(first);
+  if (!first_out.ok) {
+    return false;
+  }
+  const auto saved_midair =
+      std::find_if(state.view().backbone().nodes.begin(), state.view().backbone().nodes.end(),
+                   [](const wire::core::SavedBackboneNode& n) {
+                     return n.pole_id == wire::core::kInvalidObjectId &&
+                            n.support_kind == wire::core::SupportKind::kMidair;
+                   });
+  if (saved_midair == state.view().backbone().nodes.end()) {
+    return false;
+  }
+
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kNode;
+  pick.hit_id = saved_midair->node_id;
+  pick.hit_pos_world = {0.0, 0.0, 0.0};
+  const auto resolved = state.ResolveBranchPick(pick);
+  if (!resolved.ok || resolved.value.resolution != wire::core::PickBranchResolutionKind::kNode ||
+      resolved.value.resolved_node_id != saved_midair->node_id ||
+      resolved.value.support_kind != wire::core::SupportKind::kMidair ||
+      !almost_equal(resolved.value.position, saved_midair->position, 1e-9)) {
+    return false;
+  }
+
+  wire::core::BackboneSpec second = line_req(state);
+  second.path.polyline = {resolved.value.position, {12.0, 10.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec existing{};
+  existing.point_index = 0;
+  existing.support_kind = resolved.value.support_kind;
+  existing.node_id = resolved.value.resolved_node_id;
+  second.path.node_specs = {existing};
+  const auto second_out = state.GenerateFromBackboneSpec(second);
+  if (!second_out.ok || second_out.value.generated_pole_ids.size() != 1 ||
+      second_out.value.generated_span_ids.size() != static_cast<std::size_t>(req_bundle_count(state, second))) {
+    return false;
+  }
+  for (wire::core::ObjectId span_id : second_out.value.generated_span_ids) {
+    const auto* span = state.view().spans().find(span_id);
+    if (span == nullptr || !state.span_layout_rules(span_id).has_rule() || !state.span_layout(span_id).has_layout() ||
+        state.find_curve_cache(span_id) == nullptr || state.find_bounds_cache(span_id) == nullptr) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool C559_bb2_positive_avoid_clear_of_route_is_noop() {
   wire::core::CoreState plain;
   wire::core::BackboneSpec base = line_req(plain);
@@ -5306,6 +5362,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C561_bb2_default_segment_pick_without_bundle_policy_is_ownerless_midair",
                          "bb2 accepts the default segment pick without selected bundle policy as an ownerless midair point",
                          "Boundary", false, C561_bb2_default_segment_pick_without_bundle_policy_is_ownerless_midair);
+  test_registry::AddTest(tests, "C562_bb2_saved_midair_node_pick_extends_from_saved_graph_node",
+                         "bb2 extends from a saved midair node pick using the saved graph node", "Boundary", false,
+                         C562_bb2_saved_midair_node_pick_extends_from_saved_graph_node);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

@@ -36,6 +36,7 @@ public:
   [[nodiscard]] const SavedBackboneEdge* backbone_edge(ObjectId edge_id) const;
   [[nodiscard]] const SavedBackboneEdgeBundle* backbone_edge_bundle(ObjectId edge_bundle_id) const;
   [[nodiscard]] const SavedBackboneNode* backbone_node_for_pole(ObjectId pole_id) const;
+  [[nodiscard]] const SupportNode* pending_support_node(ObjectId node_id) const;
   [[nodiscard]] const SavedBackbonePortBinding* backbone_port_binding_for_port(ObjectId port_id) const;
   [[nodiscard]] std::vector<const SavedBackbonePortBinding*> backbone_port_bindings_for_port(ObjectId port_id) const;
   [[nodiscard]] std::vector<const SavedBackbonePortBinding*> backbone_port_bindings_for_edge_bundle(

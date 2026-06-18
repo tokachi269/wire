@@ -652,6 +652,26 @@ EditResult<bool> pipeline::prepare() {
           continue;
         }
         const SavedBackboneNode* saved = state_.view().backbone_node(spec_it->second->node_id);
+        if (saved != nullptr && saved->pole_id == kInvalidObjectId && saved->support_kind == n.support) {
+          n.saved = saved->node_id;
+          n.pos = saved->position;
+          n.is_new = false;
+          g_.nodes.push_back(n);
+          continue;
+        }
+        const SupportNode* pending = state_.view().pending_support_node(spec_it->second->node_id);
+        if (pending != nullptr && pending->support_kind == n.support) {
+          n.pos = pending->position;
+          if (pending->has_tangent_hint) {
+            Vec3d tangent = pending->tangent_hint;
+            if (norm_strict(&tangent)) {
+              n.has_tangent = true;
+              n.tangent = tangent;
+            }
+          }
+          g_.nodes.push_back(n);
+          continue;
+        }
         if (saved == nullptr || saved->pole_id != kInvalidObjectId || saved->support_kind != n.support) {
           out.error = (n.support == SupportKind::kMidair) ? "bb2 unsupported: saved midair node not found"
                       : (n.support == SupportKind::kBuilding)
@@ -659,11 +679,6 @@ EditResult<bool> pipeline::prepare() {
                           : "bb2 unsupported: saved ground node not found";
           return out;
         }
-        n.saved = saved->node_id;
-        n.pos = saved->position;
-        n.is_new = false;
-        g_.nodes.push_back(n);
-        continue;
       }
       if (spec_it->second->node_id == kInvalidObjectId) {
         g_.nodes.push_back(n);

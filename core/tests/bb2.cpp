@@ -4848,6 +4848,73 @@ bool C563_bb2_segment_pick_snaps_to_saved_ownerless_span_endpoint() {
          second_out.value.generated_span_ids.size() == static_cast<std::size_t>(req_bundle_count(state, second));
 }
 
+bool C564_bb2_selected_bundle_segment_pick_feeds_transient_midair_node() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec base = line_req(state);
+  const auto base_out = state.GenerateFromBackboneSpec(base);
+  if (!base_out.ok || base_out.value.generated_span_ids.empty()) {
+    return false;
+  }
+
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = base_out.value.generated_span_ids.front();
+  pick.hit_pos_world = {6.0, 0.0, 4.0};
+  pick.has_segment_endpoints = false;
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
+  const auto resolved = state.ResolveBranchPick(pick, resolve);
+  if (!resolved.ok || resolved.value.resolution != wire::core::PickBranchResolutionKind::kMidair ||
+      resolved.value.support_kind != wire::core::SupportKind::kMidair ||
+      resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {resolved.value.position, {6.0, 8.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  branch.path.node_specs = {node};
+  const auto out = state.GenerateFromBackboneSpec(branch);
+  if (!out.ok || out.value.generated_pole_ids.size() != 1 ||
+      out.value.generated_span_ids.size() != static_cast<std::size_t>(req_bundle_count(state, branch))) {
+    return false;
+  }
+
+  const auto saved_midair =
+      std::find_if(state.view().backbone().nodes.begin(), state.view().backbone().nodes.end(),
+                   [&](const wire::core::SavedBackboneNode& n) {
+                     return n.pole_id == wire::core::kInvalidObjectId &&
+                            n.support_kind == wire::core::SupportKind::kMidair &&
+                            almost_equal(n.position, resolved.value.position, 1e-9);
+                   });
+  if (saved_midair == state.view().backbone().nodes.end()) {
+    return false;
+  }
+  for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
+    const auto* span = state.view().spans().find(span_id);
+    if (span == nullptr || !state.span_layout_rules(span_id).has_rule() || !state.span_layout(span_id).has_layout() ||
+        state.find_curve_cache(span_id) == nullptr || state.find_bounds_cache(span_id) == nullptr ||
+        state.find_span_visual_cache(span_id) == nullptr || state.view().find_span_render_cache(span_id) == nullptr) {
+      return false;
+    }
+    const auto* a = state.view().ports().find(span->port_a_id);
+    const auto* b = state.view().ports().find(span->port_b_id);
+    if (a == nullptr || b == nullptr) {
+      return false;
+    }
+    if ((a->owner_pole_id == wire::core::kInvalidObjectId &&
+         almost_equal(a->world_position, resolved.value.position, 1e-9)) ||
+        (b->owner_pole_id == wire::core::kInvalidObjectId &&
+         almost_equal(b->world_position, resolved.value.position, 1e-9))) {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool C559_bb2_positive_avoid_clear_of_route_is_noop() {
   wire::core::CoreState plain;
   wire::core::BackboneSpec base = line_req(plain);
@@ -5440,6 +5507,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C563_bb2_segment_pick_snaps_to_saved_ownerless_span_endpoint",
                          "bb2 resolves a segment pick endpoint through saved graph ownerless span endpoints",
                          "Boundary", false, C563_bb2_segment_pick_snaps_to_saved_ownerless_span_endpoint);
+  test_registry::AddTest(tests, "C564_bb2_selected_bundle_segment_pick_feeds_transient_midair_node",
+                         "bb2 accepts a selected-bundle segment pick transient midair node as route input",
+                         "Boundary", false, C564_bb2_selected_bundle_segment_pick_feeds_transient_midair_node);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

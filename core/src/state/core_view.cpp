@@ -46,6 +46,12 @@ const SavedBackboneNode* CoreView::backbone_node_for_pole(ObjectId pole_id) cons
   const auto it = state_.runtime_.backbone_index.pole_node.find(pole_id);
   return it == state_.runtime_.backbone_index.pole_node.end() ? nullptr : backbone_node(it->second);
 }
+const SupportNode* CoreView::pending_support_node(ObjectId node_id) const {
+  const auto it = std::find_if(state_.debug_.last_generation_support_nodes.begin(),
+                               state_.debug_.last_generation_support_nodes.end(),
+                               [&](const SupportNode& node) { return node.node_id == node_id; });
+  return it == state_.debug_.last_generation_support_nodes.end() ? nullptr : &*it;
+}
 const SavedBackbonePortBinding* CoreView::backbone_port_binding_for_port(ObjectId port_id) const {
   const auto it = state_.runtime_.backbone_index.port_bindings_by_port.find(port_id);
   if (it == state_.runtime_.backbone_index.port_bindings_by_port.end() || it->second.empty() ||

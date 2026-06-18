@@ -1076,6 +1076,8 @@ supported scenario:
 * `PickHitKind::kNode` が saved ownerless backbone node を指す場合、その saved graph node の support kind / position を route input として解決できる。
 * `PickHitKind::kSegment` が bb2 saved span を指す場合、endpoint id が pick payload に無くても saved graph binding から ownerless endpoint node へ snap できる。
 * 解決結果を `BackboneSpec.path.node_specs` に渡した場合、bb2 は ownerless midair node / port / span output を生成する。
+* selected bundle template がある segment pick で transient midair node id が返る場合、bb2 はその pending support node を route input として読める。
+* pending support node は既存 topology ではなく現在の pick input であり、generation 後は新しい saved ownerless backbone node として保存する。
 
 境界:
 

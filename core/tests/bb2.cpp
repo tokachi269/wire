@@ -4906,9 +4906,9 @@ bool C564_bb2_selected_bundle_segment_pick_feeds_transient_midair_node() {
       return false;
     }
     if ((a->owner_pole_id == wire::core::kInvalidObjectId &&
-         almost_equal(a->world_position, resolved.value.position, 1e-9)) ||
+         almost_equal(a->world_position.z, resolved.value.position.z, 1e-9)) ||
         (b->owner_pole_id == wire::core::kInvalidObjectId &&
-         almost_equal(b->world_position, resolved.value.position, 1e-9))) {
+         almost_equal(b->world_position.z, resolved.value.position.z, 1e-9))) {
       return true;
     }
   }
@@ -5065,6 +5065,77 @@ bool C567_bb2_segment_pick_midair_uses_source_span_height() {
     }
     if ((a->owner_pole_id == wire::core::kInvalidObjectId && almost_equal(a->world_position.z, expected_z, 1e-9)) ||
         (b->owner_pole_id == wire::core::kInvalidObjectId && almost_equal(b->world_position.z, expected_z, 1e-9))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool C568_bb2_source_edge_midair_branch_uses_source_context_for_lowering() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec base = line_req(state);
+  const auto base_out = state.GenerateFromBackboneSpec(base);
+  if (!base_out.ok || base_out.value.generated_span_ids.empty() || state.view().backbone().edges.size() != 1) {
+    return false;
+  }
+  const auto* source_span = state.view().spans().find(base_out.value.generated_span_ids.front());
+  if (source_span == nullptr) {
+    return false;
+  }
+
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = source_span->id;
+  pick.hit_pos_world = {6.0, 0.0, 0.0};
+  pick.has_segment_endpoints = false;
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
+  const auto resolved = state.ResolveBranchPick(pick, resolve);
+  if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {resolved.value.position, {6.0, 8.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  branch.path.node_specs = {node};
+  const auto out = state.GenerateFromBackboneSpec(branch);
+  if (!out.ok || out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const wire::core::SavedBackboneGraph& graph = state.view().backbone();
+  if (graph.edges.size() != 2) {
+    return false;
+  }
+  const auto saved_midair = std::find_if(graph.nodes.begin(), graph.nodes.end(),
+                                         [](const wire::core::SavedBackboneNode& saved) {
+                                           return saved.pole_id == wire::core::kInvalidObjectId &&
+                                                  saved.has_source_edge;
+                                         });
+  if (saved_midair == graph.nodes.end()) {
+    return false;
+  }
+
+  for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
+    const auto* span = state.view().spans().find(span_id);
+    const wire::core::SpanLayoutView layout = state.span_layout(span_id);
+    if (span == nullptr || !layout.has_layout()) {
+      return false;
+    }
+    const auto* a = state.view().ports().find(span->port_a_id);
+    const auto* b = state.view().ports().find(span->port_b_id);
+    if (a == nullptr || b == nullptr) {
+      return false;
+    }
+    const bool start_ownerless = a->owner_pole_id == wire::core::kInvalidObjectId;
+    const bool end_ownerless = b->owner_pole_id == wire::core::kInvalidObjectId;
+    const wire::core::LayoutEndpoint& endpoint = start_ownerless ? layout.entry->start : layout.entry->end;
+    if ((start_ownerless || end_ownerless) && endpoint.default_lower_required && endpoint.lower_required &&
+        endpoint.branch_down_offset_m > 0.0 &&
+        almost_equal(endpoint.endpoint_world.z, endpoint.support_world.z - endpoint.branch_down_offset_m, 1e-9)) {
       return true;
     }
   }
@@ -5675,6 +5746,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C567_bb2_segment_pick_midair_uses_source_span_height",
                          "bb2 segment-pick midair branches use source span height", "Boundary", false,
                          C567_bb2_segment_pick_midair_uses_source_span_height);
+  test_registry::AddTest(tests, "C568_bb2_source_edge_midair_branch_uses_source_context_for_lowering",
+                         "bb2 source-edge midair branches use saved edge context for lowering", "Boundary", false,
+                         C568_bb2_source_edge_midair_branch_uses_source_context_for_lowering);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

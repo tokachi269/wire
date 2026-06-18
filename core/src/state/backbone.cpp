@@ -86,7 +86,9 @@ std::vector<JunctionInfo> BuildJunctionsFromRelations(
 
 } // namespace
 
-ObjectId CoreState::save_backbone_node(ObjectId pole_id, const Vec3d& position, SupportKind support_kind) {
+ObjectId CoreState::save_backbone_node(ObjectId pole_id, const Vec3d& position, SupportKind support_kind,
+                                       ObjectId source_edge_node_a, ObjectId source_edge_node_b,
+                                       double source_edge_t) {
   if (pole_id != kInvalidObjectId) {
     const auto existing = runtime_.backbone_index.pole_node.find(pole_id);
     if (existing != runtime_.backbone_index.pole_node.end()) {
@@ -99,6 +101,11 @@ ObjectId CoreState::save_backbone_node(ObjectId pole_id, const Vec3d& position, 
   node.pole_id = pole_id;
   node.support_kind = (pole_id != kInvalidObjectId) ? SupportKind::kPole : support_kind;
   node.position = position;
+  node.has_source_edge =
+      pole_id == kInvalidObjectId && source_edge_node_a != kInvalidObjectId && source_edge_node_b != kInvalidObjectId;
+  node.source_edge_node_a = node.has_source_edge ? source_edge_node_a : kInvalidObjectId;
+  node.source_edge_node_b = node.has_source_edge ? source_edge_node_b : kInvalidObjectId;
+  node.source_edge_t = node.has_source_edge ? source_edge_t : 0.0;
   authoritative_.backbone.nodes.push_back(node);
   if (pole_id != kInvalidObjectId) {
     runtime_.backbone_index.pole_node[pole_id] = node.node_id;

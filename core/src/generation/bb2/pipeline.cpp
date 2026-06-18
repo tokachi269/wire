@@ -49,6 +49,19 @@ Vec3d side(Vec3d v) {
   return Vec3d{-v.y, v.x, 0.0};
 }
 
+ObjectId saved_node_id_for(const CoreState& state, ObjectId node_or_pole_id) {
+  if (node_or_pole_id == kInvalidObjectId) {
+    return kInvalidObjectId;
+  }
+  if (const SavedBackboneNode* saved = state.view().backbone_node(node_or_pole_id); saved != nullptr) {
+    return saved->node_id;
+  }
+  if (const SavedBackboneNode* saved = state.view().backbone_node_for_pole(node_or_pole_id); saved != nullptr) {
+    return saved->node_id;
+  }
+  return kInvalidObjectId;
+}
+
 PortKind port_kind(ConnectionCategory category) {
   switch (category) {
   case ConnectionCategory::kCommunication:
@@ -657,6 +670,10 @@ EditResult<bool> pipeline::prepare() {
           n.saved = saved->node_id;
           n.pos = saved->position;
           n.is_new = false;
+          n.has_source_edge = saved->has_source_edge;
+          n.source_edge_node_a = saved->source_edge_node_a;
+          n.source_edge_node_b = saved->source_edge_node_b;
+          n.source_edge_t = saved->source_edge_t;
           g_.nodes.push_back(n);
           continue;
         }
@@ -664,6 +681,10 @@ EditResult<bool> pipeline::prepare() {
         if (pending != nullptr && pending->support_kind == n.support) {
           n.pos = pending->position;
           n.bundle_modes = pending->bundle_modes;
+          n.has_source_edge = pending->has_source_edge;
+          n.source_edge_node_a = pending->source_edge_node_a_id;
+          n.source_edge_node_b = pending->source_edge_node_b_id;
+          n.source_edge_t = pending->source_edge_t;
           if (pending->has_tangent_hint) {
             Vec3d tangent = pending->tangent_hint;
             if (norm_strict(&tangent)) {
@@ -799,6 +820,49 @@ EditResult<bool> pipeline::prepare() {
       g_.links.push_back(edge);
       context_edges.insert(edge_id);
     }
+  }
+  const std::size_t source_context_node_count = g_.nodes.size();
+  for (std::size_t node_index = 0; node_index < source_context_node_count; ++node_index) {
+    const node n = g_.nodes[node_index];
+    const ObjectId source_a = saved_node_id_for(state_, n.source_edge_node_a);
+    const ObjectId source_b = saved_node_id_for(state_, n.source_edge_node_b);
+    if (!n.has_source_edge || source_a == kInvalidObjectId || source_b == kInvalidObjectId ||
+        source_a == source_b) {
+      continue;
+    }
+    const std::size_t a = local_for_saved(source_a);
+    const std::size_t b = local_for_saved(source_b);
+    if (a == bad || b == bad || n.id >= g_.nodes.size() || a == n.id || b == n.id) {
+      out.error = "bb2 unsupported: source edge context node is missing";
+      return out;
+    }
+    const BackboneEdgeKey key{std::min(source_a, source_b), std::max(source_a, source_b)};
+    const auto edge_it = state_.view().backbone_index().edge_by_nodes.find(key);
+    if (edge_it == state_.view().backbone_index().edge_by_nodes.end()) {
+      out.error = "bb2 unsupported: source edge context is missing";
+      return out;
+    }
+    const ObjectId edge_id = edge_it->second;
+    const SavedBackboneEdge* saved = state_.view().backbone_edge(edge_id);
+    if (saved == nullptr) {
+      out.error = "bb2 unsupported: source edge context is missing";
+      return out;
+    }
+    const std::size_t source_route = g_.links.size() + 1;
+    auto add_source_context = [&](std::size_t from, std::size_t to, std::size_t order) {
+      link edge{};
+      edge.id = g_.links.size();
+      edge.a = from;
+      edge.b = to;
+      edge.route = source_route;
+      edge.order = order;
+      edge.dir = g_.nodes[to].pos - g_.nodes[from].pos;
+      edge.saved = edge_id;
+      edge.is_new = false;
+      g_.links.push_back(edge);
+    };
+    add_source_context(a, n.id, 0);
+    add_source_context(n.id, b, 1);
   }
   active_bundle_indices_.reserve(spec_.bundles.size());
   for (std::size_t bundle_index = 0; bundle_index < spec_.bundles.size(); ++bundle_index) {
@@ -1673,9 +1737,12 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
   EditResult<bool> out{};
   std::vector<ObjectId> node_id_by_local(g_.nodes.size(), kInvalidObjectId);
   for (std::size_t i = 0; i < g_.nodes.size() && i < made.poles.size(); ++i) {
+    const ObjectId source_a = saved_node_id_for(state_, g_.nodes[i].source_edge_node_a);
+    const ObjectId source_b = saved_node_id_for(state_, g_.nodes[i].source_edge_node_b);
     node_id_by_local[i] = (g_.nodes[i].saved != kInvalidObjectId)
                               ? g_.nodes[i].saved
-                              : state_.save_backbone_node(made.poles[i], g_.nodes[i].pos, g_.nodes[i].support);
+                              : state_.save_backbone_node(made.poles[i], g_.nodes[i].pos, g_.nodes[i].support,
+                                                          source_a, source_b, g_.nodes[i].source_edge_t);
   }
 
   std::vector<SavedBackboneEdgeRef> edge_by_link(ps.links.size());

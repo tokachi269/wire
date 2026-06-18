@@ -211,7 +211,10 @@ private:
   void cache_span_visual(ObjectId span_id, SpanVisualCacheEntry visual);
   void cache_span_render(ObjectId span_id, SpanRenderCacheEntry render);
   ObjectId save_backbone_node(ObjectId pole_id, const Vec3d& position,
-                              SupportKind support_kind = SupportKind::kPole);
+                              SupportKind support_kind = SupportKind::kPole,
+                              ObjectId source_edge_node_a = kInvalidObjectId,
+                              ObjectId source_edge_node_b = kInvalidObjectId,
+                              double source_edge_t = 0.0);
   SavedBackboneEdgeRef save_backbone_edge(ObjectId node_a, ObjectId node_b, std::size_t route, std::size_t order,
                                           const Vec3d& dir);
   ObjectId bind_backbone_bundle(ObjectId edge_id, ObjectId bundle_id, bool edge_forward, std::size_t route,

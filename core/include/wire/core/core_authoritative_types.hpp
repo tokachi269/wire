@@ -13,6 +13,10 @@ struct SavedBackboneNode {
   ObjectId pole_id = kInvalidObjectId;
   SupportKind support_kind = SupportKind::kPole;
   Vec3d position{};
+  bool has_source_edge = false;
+  ObjectId source_edge_node_a = kInvalidObjectId;
+  ObjectId source_edge_node_b = kInvalidObjectId;
+  double source_edge_t = 0.0;
 };
 
 struct SavedBackboneEdge {

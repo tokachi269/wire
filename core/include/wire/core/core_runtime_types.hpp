@@ -95,6 +95,7 @@ struct VisualSettings {
   bool enable_insulators = true;
   double support_center_threshold_m = 0.03;
   double support_arm_extra_m = 0.20;
+  double support_arm_radius_m = 0.03;
   double insulator_radius_m = 0.07;
   double insulator_length_m = 0.16;
 };

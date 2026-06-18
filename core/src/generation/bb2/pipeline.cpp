@@ -1708,7 +1708,7 @@ draw pipeline::make(const layout& placed, const geom& shaped) const {
       part.kind = VisualPartKind::kSupportArm;
       part.a = support;
       part.b = endpoint.endpoint_world;
-      part.radius_m = 0.02;
+      part.radius_m = state_.view().visual_settings().support_arm_radius_m;
       visual.parts.push_back(part);
     };
     add_part(entry.start);

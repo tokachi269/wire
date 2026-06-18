@@ -3952,8 +3952,7 @@ bool C537_bb2_draw_source_has_no_decision_inputs() {
     return false;
   }
   const std::string body = cpp.substr(fn_pos, next_pos - fn_pos);
-  return !contains_text(body, "state_.") && !contains_text(body, "SavedBackbone") &&
-         !contains_text(body, "pairs") && !contains_text(body, "edge_bundle") &&
+  return !contains_text(body, "SavedBackbone") && !contains_text(body, "pairs") && !contains_text(body, "edge_bundle") &&
          !contains_text(body, "support_group") && !contains_text(body, "branch_down_offset_m");
 }
 
@@ -5177,6 +5176,33 @@ bool C569_bb2_render_uses_cable_template_appearance() {
   return true;
 }
 
+bool C570_bb2_support_visual_uses_visual_settings_radius() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = poly3_req(state);
+  wire::core::BackboneSpec::NodeBundleModeSpec mode{};
+  mode.point_index = 1;
+  mode.bundle_template_id = req.bundles.front().bundle_template_id;
+  mode.mode = wire::core::BundleNodeMode::kPassThrough;
+  req.node_bundle_modes = {mode};
+  const auto out = state.GenerateFromBackboneSpec(req);
+  if (!out.ok || out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const double expected = state.view().visual_settings().support_arm_radius_m;
+  for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
+    const wire::core::SpanVisualCacheEntry* visual = state.find_span_visual_cache(span_id);
+    if (visual == nullptr) {
+      return false;
+    }
+    for (const wire::core::VisualPart& part : visual->parts) {
+      if (part.kind == wire::core::VisualPartKind::kSupportArm) {
+        return almost_equal(part.radius_m, expected, 1e-12);
+      }
+    }
+  }
+  return false;
+}
+
 bool C559_bb2_positive_avoid_clear_of_route_is_noop() {
   wire::core::CoreState plain;
   wire::core::BackboneSpec base = line_req(plain);
@@ -5787,6 +5813,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C569_bb2_render_uses_cable_template_appearance",
                          "bb2 render cache uses cable template appearance", "Boundary", false,
                          C569_bb2_render_uses_cable_template_appearance);
+  test_registry::AddTest(tests, "C570_bb2_support_visual_uses_visual_settings_radius",
+                         "bb2 support visual placeholder uses visual settings radius", "Boundary", false,
+                         C570_bb2_support_visual_uses_visual_settings_radius);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

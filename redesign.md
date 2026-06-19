@@ -897,6 +897,7 @@ Scope contract:
 * route の単一 segment にだけ交差する positive avoid point は、input route の該当 segment を deterministic detour に変換して受ける。
 * 複数 positive avoid point が同じ source segment にだけ交差する場合、detour point は source segment 上の `t` 順で route に挿入する。
 * 複数 positive avoid point が複数 source segment に交差する場合、各 source segment ごとに detour point を `t` 順で route に挿入する。
+* 同じ source segment 上で同じ detour 位置になる duplicate avoid point は、1つの detour node に coalesce する。
 * `interval_m` と avoid detour が同じ segment にある場合、interval point と detour point は source segment 上の `t` 順で route に挿入する。
 * `PortPlacementBand` preflight は materialize 対象の active bundle だけを検査する。
 * `pole_placement.pin_endpoints` と `pin_vertices` は newly generated pole にだけ適用する。
@@ -962,6 +963,7 @@ Scope contract:
 * 交差しない正半径 avoid point: route と交差しない正の半径の `avoid_points` は no-op として受ける。
 * simple avoid detour: route の単一 segment 上に positive avoid point がある場合、bb2 は route 上流で detour node を挿入する。
 * multi-segment avoid detour: 複数 source segment 上に positive avoid point がある場合、bb2 は各 source segment 上流で detour node を挿入する。
+* duplicate avoid detour: 同じ detour 位置になる duplicate avoid point は zero-length link を作らないよう upstream で1点に畳む。
 * 明示 range bundle count: range-count template は min/max 内の要求 lane count を materialize し、範囲外 count は mutation 前に reject する。
 * generated pole tangent hint: non-zero tangent hint は generated pole yaw を設定し、zero hint は mutation 前に reject し、pair/open/row は route 由来のまま保つ。
 * bundle 由来 pole type: `pole_type_id` が欠け、要求 bundle が 1 つの有効な related pole type を共有する場合、generated pole はそれを使う。related pole type が混在する場合は mutation 前に reject する。

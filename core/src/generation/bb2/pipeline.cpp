@@ -843,7 +843,21 @@ EditResult<bool> pipeline::prepare() {
         const auto len2 = [](const Vec3d& p) { return p.x * p.x + p.y * p.y + p.z * p.z; };
         return len2(lhs.p) < len2(rhs.p);
       });
+      std::vector<segment_insert> unique_inserts{};
+      unique_inserts.reserve(inserts.size());
+      const auto same_point = [](const Vec3d& lhs, const Vec3d& rhs) {
+        const Vec3d d = lhs - rhs;
+        return d.x * d.x + d.y * d.y + d.z * d.z <= 1e-18;
+      };
       for (const segment_insert& item : inserts) {
+        const bool duplicate = !unique_inserts.empty() && unique_inserts.back().support == item.support &&
+                               same_point(unique_inserts.back().p, item.p);
+        if (duplicate) {
+          continue;
+        }
+        unique_inserts.push_back(item);
+      }
+      for (const segment_insert& item : unique_inserts) {
         push_point(item.p, bad, item.support);
       }
       push_point(b, i + 1);

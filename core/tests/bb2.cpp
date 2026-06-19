@@ -1445,6 +1445,26 @@ bool C584_bb2_ownerless_interval_inserts_ownerless_nodes() {
   return true;
 }
 
+bool C585_bb2_duplicate_avoid_points_are_coalesced() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = line_req(state);
+  req.constraints.avoid_points.push_back({6.0, 0.0, 0.0});
+  req.constraints.avoid_points.push_back({6.0, 0.0, 0.0});
+  req.constraints.avoid_radius_m = 1.0;
+  const auto out = state.GenerateFromBackboneSpec(req);
+  if (!out.ok || out.value.generated_pole_ids.size() != 3 || state.view().backbone().nodes.size() != 3 ||
+      state.view().backbone().edges.size() != 2) {
+    return false;
+  }
+  std::size_t detour_count = 0;
+  for (const wire::core::SavedBackboneNode& node : state.view().backbone().nodes) {
+    if (almost_equal(node.position.x, 6.0, 1e-9) && std::abs(node.position.y) > 1.0) {
+      ++detour_count;
+    }
+  }
+  return detour_count == 1;
+}
+
 bool C581_bb2_inactive_bundle_missing_band_is_ignored() {
   wire::core::CoreState state;
   wire::core::BackboneSpec base = line_req(state);
@@ -6306,6 +6326,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C584_bb2_ownerless_interval_inserts_ownerless_nodes",
                          "bb2 interval insertion inherits ownerless support", "Boundary", false,
                          C584_bb2_ownerless_interval_inserts_ownerless_nodes);
+  test_registry::AddTest(tests, "C585_bb2_duplicate_avoid_points_are_coalesced",
+                         "bb2 coalesces duplicate avoid detour points", "Boundary", false,
+                         C585_bb2_duplicate_avoid_points_are_coalesced);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

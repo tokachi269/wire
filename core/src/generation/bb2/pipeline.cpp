@@ -539,28 +539,23 @@ bool route_clear_of_avoid_points(const graph& made, const std::vector<Vec3d>& po
   return true;
 }
 
-EditResult<bool> avoid_detour_for_segment(const Vec3d& a, const Vec3d& b, const std::vector<Vec3d>& points,
-                                          double radius, Vec3d* detour_point, double* detour_t) {
-  EditResult<bool> out{};
-  out.value = false;
+struct segment_insert {
+  double t = 0.0;
+  Vec3d p{};
+};
+
+EditResult<std::size_t> avoid_detours_for_segment(const Vec3d& a, const Vec3d& b, const std::vector<Vec3d>& points,
+                                                  double radius, std::vector<segment_insert>* inserts) {
+  EditResult<std::size_t> out{};
+  out.value = 0;
   if (points.empty() || radius <= 0.0) {
     out.ok = true;
-    return out;
-  }
-  if (points.size() != 1) {
-    out.error = "bb2 unsupported: avoid routing requires one point on one segment";
     return out;
   }
   Vec3d ab = b - a;
   const double len2 = ab.x * ab.x + ab.y * ab.y + ab.z * ab.z;
   if (len2 <= 1e-12) {
     out.error = "bb2 unsupported: avoid routing source segment is zero length";
-    return out;
-  }
-  const Vec3d p = points.front();
-  const double t = ((p.x - a.x) * ab.x + (p.y - a.y) * ab.y + (p.z - a.z) * ab.z) / len2;
-  if (t <= 1e-6 || t >= 1.0 - 1e-6 || dist2_to_segment(p, a, b) > radius * radius) {
-    out.ok = true;
     return out;
   }
   Vec3d dir = ab;
@@ -570,15 +565,18 @@ EditResult<bool> avoid_detour_for_segment(const Vec3d& a, const Vec3d& b, const 
   }
   const Vec3d detour_axis = side(dir);
   constexpr double kAvoidClearanceM = 0.5;
-  const Vec3d closest = {a.x + ab.x * t, a.y + ab.y * t, a.z + ab.z * t};
   const double detour = radius + kAvoidClearanceM;
-  if (detour_point != nullptr) {
-    *detour_point = closest + Vec3d{detour_axis.x * detour, detour_axis.y * detour, 0.0};
+  for (const Vec3d& p : points) {
+    const double t = ((p.x - a.x) * ab.x + (p.y - a.y) * ab.y + (p.z - a.z) * ab.z) / len2;
+    if (t <= 1e-6 || t >= 1.0 - 1e-6 || dist2_to_segment(p, a, b) > radius * radius) {
+      continue;
+    }
+    const Vec3d closest = {a.x + ab.x * t, a.y + ab.y * t, a.z + ab.z * t};
+    if (inserts != nullptr) {
+      inserts->push_back({t, closest + Vec3d{detour_axis.x * detour, detour_axis.y * detour, 0.0}});
+    }
+    ++out.value;
   }
-  if (detour_t != nullptr) {
-    *detour_t = t;
-  }
-  out.value = true;
   out.ok = true;
   return out;
 }
@@ -788,20 +786,11 @@ EditResult<bool> pipeline::prepare() {
     }
     spec_by_point.swap(reversed);
   }
-  if (!spec_.constraints.avoid_points.empty() && spec_.constraints.avoid_radius_m > 0.0 &&
-      spec_.constraints.avoid_points.size() != 1) {
-    out.error = "bb2 unsupported: avoid routing requires one point on one segment";
-    return out;
-  }
   std::vector<Vec3d> pts{};
   std::vector<std::size_t> guide_by_local{};
   pts.reserve(guide.size());
   guide_by_local.reserve(guide.size());
-  std::size_t avoid_detour_count = 0;
-  struct insert_point {
-    double t = 0.0;
-    Vec3d p{};
-  };
+  bool avoid_detour_segment_seen = false;
   auto push_point = [&](const Vec3d& p, std::size_t guide_index) {
     pts.push_back(p);
     guide_by_local.push_back(guide_index);
@@ -814,37 +803,34 @@ EditResult<bool> pipeline::prepare() {
       const Vec3d seg = b - a;
       constexpr double kIntervalEps = 1e-9;
       const double len = std::sqrt(seg.x * seg.x + seg.y * seg.y + seg.z * seg.z);
-      std::vector<insert_point> inserts{};
+      std::vector<segment_insert> inserts{};
       if (spec_.interval_m > 0.0 && len > kIntervalEps) {
         for (double dist = spec_.interval_m; dist < len - kIntervalEps; dist += spec_.interval_m) {
           const double t = std::clamp(dist / len, 0.0, 1.0);
           inserts.push_back({t, {a.x + seg.x * t, a.y + seg.y * t, a.z + seg.z * t}});
         }
       }
-      Vec3d detour{};
-      double detour_t = 0.0;
-      EditResult<bool> avoid = avoid_detour_for_segment(a, b, spec_.constraints.avoid_points,
-                                                        spec_.constraints.avoid_radius_m, &detour, &detour_t);
+      EditResult<std::size_t> avoid =
+          avoid_detours_for_segment(a, b, spec_.constraints.avoid_points, spec_.constraints.avoid_radius_m, &inserts);
       if (!avoid.ok) {
         out.error = avoid.error;
         return out;
       }
-      if (avoid.value) {
-        ++avoid_detour_count;
-        if (avoid_detour_count > 1) {
-          out.error = "bb2 unsupported: avoid routing requires one point on one segment";
+      if (avoid.value > 0) {
+        if (avoid_detour_segment_seen) {
+          out.error = "bb2 unsupported: avoid routing requires one source segment";
           return out;
         }
-        inserts.push_back({detour_t, detour});
+        avoid_detour_segment_seen = true;
       }
-      std::sort(inserts.begin(), inserts.end(), [](const insert_point& lhs, const insert_point& rhs) {
+      std::sort(inserts.begin(), inserts.end(), [](const segment_insert& lhs, const segment_insert& rhs) {
         if (std::abs(lhs.t - rhs.t) > 1e-9) {
           return lhs.t < rhs.t;
         }
         const auto len2 = [](const Vec3d& p) { return p.x * p.x + p.y * p.y + p.z * p.z; };
         return len2(lhs.p) < len2(rhs.p);
       });
-      for (const insert_point& item : inserts) {
+      for (const segment_insert& item : inserts) {
         push_point(item.p, bad);
       }
       push_point(b, i + 1);

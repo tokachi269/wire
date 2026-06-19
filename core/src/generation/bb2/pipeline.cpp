@@ -373,6 +373,70 @@ bool needs_pole_type(const graph& made) {
   return std::any_of(made.nodes.begin(), made.nodes.end(), makes_pole);
 }
 
+bool has_band(const PoleTypeDefinition& pole_type, const spec_view& spec) {
+  const int target_rank = rank(spec.layer);
+  return std::any_of(pole_type.port_bands.begin(), pole_type.port_bands.end(),
+                     [&](const PortPlacementBand& band) {
+                       return band.enabled && band.category == spec.tmpl->category && band.layer == target_rank;
+                     });
+}
+
+EditResult<bool> check_port_bands(const CoreState& state, const graph& made, const BackboneSpec& spec) {
+  for (const node& item : made.nodes) {
+    if (item.support == SupportKind::kMidair || item.support == SupportKind::kBuilding ||
+        item.support == SupportKind::kGround) {
+      continue;
+    }
+    PoleTypeId pole_type_id = kInvalidPoleTypeId;
+    if (item.is_new) {
+      EditResult<PoleTypeId> resolved_type = pole_type_for(state, spec);
+      if (!resolved_type.ok) {
+        EditResult<bool> failed{};
+        failed.error = resolved_type.error;
+        return failed;
+      }
+      pole_type_id = resolved_type.value;
+    } else {
+      const ObjectId pole_id = item.pole;
+      if (pole_id == kInvalidObjectId) {
+        EditResult<bool> failed{};
+        failed.error = "bb2 unsupported: existing pole is missing";
+        return failed;
+      }
+      const Pole* pole = state.view().poles().find(pole_id);
+      if (pole == nullptr) {
+        EditResult<bool> failed{};
+        failed.error = "bb2 unsupported: existing pole is missing";
+        return failed;
+      }
+      pole_type_id = pole->pole_type_id;
+    }
+    const auto type_it = state.view().pole_types().find(pole_type_id);
+    if (type_it == state.view().pole_types().end()) {
+      EditResult<bool> failed{};
+      failed.error = "bb2 unsupported: pole type missing";
+      return failed;
+    }
+    for (const BackboneBundleSpec& bundle : spec.bundles) {
+      EditResult<spec_view> checked = view_for(state, bundle);
+      if (!checked.ok) {
+        EditResult<bool> failed{};
+        failed.error = checked.error;
+        return failed;
+      }
+      if (!has_band(type_it->second, checked.value)) {
+        EditResult<bool> failed{};
+        failed.error = "bb2 unsupported: port band missing";
+        return failed;
+      }
+    }
+  }
+  EditResult<bool> out{};
+  out.value = true;
+  out.ok = true;
+  return out;
+}
+
 EditResult<ObjectId> resolve_port_binding(const CoreState& state, ObjectId pole_id, const SavedBackboneRowKey& row_key,
                                           std::size_t lane_index, port_scope scope) {
   EditResult<ObjectId> out{};
@@ -1019,6 +1083,10 @@ EditResult<bool> pipeline::check() const {
       failed.error = checked.error;
       return failed;
     }
+  }
+  EditResult<bool> bands = check_port_bands(state_, g_, spec_);
+  if (!bands.ok) {
+    return bands;
   }
   EditResult<bool> out{};
   out.value = true;

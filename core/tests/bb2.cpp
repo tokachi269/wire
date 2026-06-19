@@ -5403,6 +5403,35 @@ bool C576_bb2_ownerless_multiple_bundles_do_not_require_pole_type() {
          state.view().backbone().edges.size() == 1;
 }
 
+bool C577_bb2_missing_port_band_rejects_before_mutation() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = line_req(state);
+  auto it = state.view().pole_types().find(req.pole_type_id);
+  if (it == state.view().pole_types().end()) {
+    return false;
+  }
+  wire::core::PoleTypeDefinition type = it->second;
+  type.port_bands.erase(std::remove_if(type.port_bands.begin(), type.port_bands.end(),
+                                       [](const wire::core::PortPlacementBand& band) {
+                                         return band.category == wire::core::ConnectionCategory::kLowVoltage &&
+                                                band.layer == 1;
+                                       }),
+                        type.port_bands.end());
+  if (!state.UpdatePoleTypeDefinition(type).ok) {
+    return false;
+  }
+  const std::size_t pole_count = state.view().poles().size();
+  const std::size_t port_count = state.view().ports().size();
+  const std::size_t bundle_count_before = state.view().bundles().size();
+  const std::size_t span_count = state.view().spans().size();
+  const std::size_t saved_node_count = state.view().backbone().nodes.size();
+  const std::size_t saved_edge_count = state.view().backbone().edges.size();
+  const auto out = state.GenerateFromBackboneSpec(req);
+  return !out.ok && state.view().poles().size() == pole_count && state.view().ports().size() == port_count &&
+         state.view().bundles().size() == bundle_count_before && state.view().spans().size() == span_count &&
+         state.view().backbone().nodes.size() == saved_node_count && state.view().backbone().edges.size() == saved_edge_count;
+}
+
 bool C559_bb2_positive_avoid_clear_of_route_is_noop() {
   wire::core::CoreState plain;
   wire::core::BackboneSpec base = line_req(plain);
@@ -6034,6 +6063,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C576_bb2_ownerless_multiple_bundles_do_not_require_pole_type",
                          "bb2 ownerless-only multiple bundle routes do not require a pole type", "Boundary", false,
                          C576_bb2_ownerless_multiple_bundles_do_not_require_pole_type);
+  test_registry::AddTest(tests, "C577_bb2_missing_port_band_rejects_before_mutation",
+                         "bb2 rejects missing port bands before topology mutation", "Boundary", false,
+                         C577_bb2_missing_port_band_rejects_before_mutation);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

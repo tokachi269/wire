@@ -1150,3 +1150,18 @@ supported scenario:
 * pole type は new pole を materialize する場合だけ必要。
 * ownerless port placement は pole band を読まない。
 * bundle spec は connectivity を変えず、pair/open/row は引き続き `pairs make(graph)` で一度だけ決める。
+
+## bb2 missing port band preflight
+
+対応日: 2026-06-19
+
+supported boundary:
+
+* new pole を含む route で必要な `PortPlacementBand` が無い場合、bb2 は topology mutation 前に unsupported で止まる。
+* reject 後に pole / port / bundle / span / saved graph を増やさない。
+
+境界:
+
+* port band は port placement の前提であり、emit_ports で初めて発覚させない。
+* missing band を固定値や geometry で補わない。
+* ownerless-only route は引き続き pole band を読まない。

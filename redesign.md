@@ -1101,3 +1101,20 @@ supported scenario:
 * support visual の半径変更は表示属性の変更であり、topology / pair / row / lowering / layout / geom を変えない。
 * segment pick は topology を span/layout/seed から推測するための入口ではない。
 * bb2 generation は引き続き saved graph / explicit route input を正本にする。
+
+## bb2 same edge different bundle with pass-through
+
+対応日: 2026-06-19
+
+supported scenario:
+
+* saved edge A-B に既存 bundle がある状態で、同じ A-B に別 bundle を追加できる。
+* その追加 request に `BundleNodeMode::kPassThrough` が付いていても、saved edge は共有し、別 `edge_bundle` と generated span を作る。
+* pass-through mode は pair/open/row を変えず、layout/geom intent だけに影響する。
+
+境界:
+
+* pass-through の事前検査は saved graph incident と current route incident を見る。
+* saved edge + current route link で対象 row が一意になる場合は supported とする。
+* existing span/layout/seed/port position から target row を推測しない。
+* same edge + same bundle duplicate policy は引き続き unsupported。

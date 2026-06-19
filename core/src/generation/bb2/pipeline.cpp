@@ -551,6 +551,19 @@ bool has_current_route_pair_at(const graph& made, std::size_t node_id) {
          incoming->order + 1 == outgoing->order;
 }
 
+std::size_t current_route_incident_count_at(const graph& made, std::size_t node_id) {
+  std::size_t count = 0;
+  for (const link& edge : made.links) {
+    if (!edge.is_new) {
+      continue;
+    }
+    if (edge.a == node_id || edge.b == node_id) {
+      ++count;
+    }
+  }
+  return count;
+}
+
 std::size_t add_open(pairs* out, std::size_t node_id, std::size_t link_id, const Vec3d& axis) {
   const std::size_t open_id = out->opens.size();
   out->opens.push_back(open{open_id, node_id, link_id, axis});
@@ -938,7 +951,9 @@ EditResult<bool> pipeline::check() const {
         return unsupported("pass-through node mode requires current route pair or saved node");
       }
       const auto incident_it = state_.view().backbone_index().node_edges.find(g_.nodes[local].saved);
-      if (incident_it == state_.view().backbone_index().node_edges.end() || incident_it->second.size() < 2) {
+      const std::size_t saved_incidents =
+          (incident_it == state_.view().backbone_index().node_edges.end()) ? 0U : incident_it->second.size();
+      if (saved_incidents + current_route_incident_count_at(g_, local) < 2) {
         return unsupported("pass-through node mode requires current route pair or saved junction context");
       }
       continue;

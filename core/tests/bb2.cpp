@@ -5297,6 +5297,42 @@ bool C573_bb2_saved_context_node_carries_support_metadata() {
          contains_text(body, "n.source_edge_t = saved->source_edge_t");
 }
 
+bool C574_bb2_same_edge_different_bundle_with_pass_through_is_supported() {
+  wire::core::CoreState state;
+  const auto first = state.GenerateFromBackboneSpec(line_req(state));
+  if (!first.ok || first.value.generated_pole_ids.size() != 2 || state.view().backbone().edges.size() != 1) {
+    return false;
+  }
+  const wire::core::ObjectId a = first.value.generated_pole_ids[0];
+  const wire::core::ObjectId b = first.value.generated_pole_ids[1];
+  const auto* pa = state.view().poles().find(a);
+  const auto* pb = state.view().poles().find(b);
+  if (pa == nullptr || pb == nullptr) {
+    return false;
+  }
+  wire::core::BackboneSpec second = line_req(state);
+  second.bundles.clear();
+  add_backbone_bundle(second, wire::core::BundleKind::kCommunication);
+  second.path.polyline = {pa->world_transform.position, pb->world_transform.position};
+  second.path.node_specs = {pole_spec(0, a), pole_spec(1, b)};
+  wire::core::BackboneSpec::NodeBundleModeSpec mode{};
+  mode.point_index = 0;
+  mode.bundle_template_id = second.bundles.front().bundle_template_id;
+  mode.mode = wire::core::BundleNodeMode::kPassThrough;
+  second.node_bundle_modes = {mode};
+  const auto out = state.GenerateFromBackboneSpec(second);
+  if (!out.ok || out.value.generated_span_ids.empty() || state.view().backbone().edges.size() != 1 ||
+      state.view().backbone().edge_bundles.size() != 2) {
+    return false;
+  }
+  for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
+    if (span_has_lowered_endpoint(state, span_id)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool C559_bb2_positive_avoid_clear_of_route_is_noop() {
   wire::core::CoreState plain;
   wire::core::BackboneSpec base = line_req(plain);
@@ -5919,6 +5955,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C573_bb2_saved_context_node_carries_support_metadata",
                          "bb2 saved context nodes carry support metadata", "Boundary", false,
                          C573_bb2_saved_context_node_carries_support_metadata);
+  test_registry::AddTest(tests, "C574_bb2_same_edge_different_bundle_with_pass_through_is_supported",
+                         "bb2 supports adding a different bundle on an existing edge with pass-through mode", "Boundary",
+                         false, C574_bb2_same_edge_different_bundle_with_pass_through_is_supported);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

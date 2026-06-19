@@ -662,6 +662,19 @@ std::size_t current_route_incident_count_at(const graph& made, std::size_t node_
   return count;
 }
 
+std::size_t context_incident_count_at(const graph& made, std::size_t node_id) {
+  std::size_t count = 0;
+  for (const link& edge : made.links) {
+    if (edge.is_new) {
+      continue;
+    }
+    if (edge.a == node_id || edge.b == node_id) {
+      ++count;
+    }
+  }
+  return count;
+}
+
 std::size_t add_open(pairs* out, std::size_t node_id, std::size_t link_id, const Vec3d& axis) {
   const std::size_t open_id = out->opens.size();
   out->opens.push_back(open{open_id, node_id, link_id, axis});
@@ -1051,7 +1064,12 @@ EditResult<bool> pipeline::check() const {
         continue;
       }
       if (g_.nodes[local].saved == kInvalidObjectId) {
-        return unsupported("pass-through node mode requires current route pair or saved node");
+        const std::size_t source_context_incidents =
+            g_.nodes[local].has_source_edge ? context_incident_count_at(g_, local) : 0U;
+        if (source_context_incidents + current_route_incident_count_at(g_, local) < 2) {
+          return unsupported("pass-through node mode requires current route pair or saved source context");
+        }
+        continue;
       }
       const auto incident_it = state_.view().backbone_index().node_edges.find(g_.nodes[local].saved);
       const std::size_t saved_incidents =

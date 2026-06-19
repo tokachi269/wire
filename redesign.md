@@ -1165,3 +1165,19 @@ supported boundary:
 * port band は port placement の前提であり、emit_ports で初めて発覚させない。
 * missing band を固定値や geometry で補わない。
 * ownerless-only route は引き続き pole band を読まない。
+
+## bb2 segment-pick midair pass-through
+
+対応日: 2026-06-19
+
+supported scenario:
+
+* segment pick 由来の pending ownerless midair node から branch を生成するとき、同じ route point に `BundleNodeMode::kPassThrough` を指定できる。
+* pending node が saved node になる前でも、`source_edge` context がある場合は pass-through gate を通す。
+* layout / geom は lowered result を保存する。
+
+境界:
+
+* `source_edge` context は `ResolveBranchPick` が作った saved graph edge identity から読む。
+* existing span / layout / seed / port position から pass-through target を推測しない。
+* pass-through は pair/open/row を変えず、intent / layout / geom にだけ影響する。

@@ -5432,6 +5432,52 @@ bool C577_bb2_missing_port_band_rejects_before_mutation() {
          state.view().backbone().nodes.size() == saved_node_count && state.view().backbone().edges.size() == saved_edge_count;
 }
 
+bool C578_bb2_segment_pick_midair_pass_through_supported() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec base = line_req(state);
+  const auto base_out = state.GenerateFromBackboneSpec(base);
+  if (!base_out.ok || base_out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const auto* source_span = state.view().spans().find(base_out.value.generated_span_ids.front());
+  if (source_span == nullptr) {
+    return false;
+  }
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = source_span->id;
+  pick.hit_pos_world = {6.0, 0.0, 0.0};
+  pick.has_segment_endpoints = false;
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
+  const auto resolved = state.ResolveBranchPick(pick, resolve);
+  if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {resolved.value.position, {6.0, 8.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  branch.path.node_specs = {node};
+  wire::core::BackboneSpec::NodeBundleModeSpec mode{};
+  mode.point_index = 0;
+  mode.bundle_template_id = branch.bundles.front().bundle_template_id;
+  mode.mode = wire::core::BundleNodeMode::kPassThrough;
+  branch.node_bundle_modes = {mode};
+  const auto out = state.GenerateFromBackboneSpec(branch);
+  if (!out.ok || out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
+    if (span_has_lowered_endpoint(state, span_id)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool C559_bb2_positive_avoid_clear_of_route_is_noop() {
   wire::core::CoreState plain;
   wire::core::BackboneSpec base = line_req(plain);
@@ -6066,6 +6112,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C577_bb2_missing_port_band_rejects_before_mutation",
                          "bb2 rejects missing port bands before topology mutation", "Boundary", false,
                          C577_bb2_missing_port_band_rejects_before_mutation);
+  test_registry::AddTest(tests, "C578_bb2_segment_pick_midair_pass_through_supported",
+                         "bb2 supports pass-through on a segment-pick midair branch", "Boundary", false,
+                         C578_bb2_segment_pick_midair_pass_through_supported);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

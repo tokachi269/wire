@@ -1118,3 +1118,19 @@ supported scenario:
 * saved edge + current route link で対象 row が一意になる場合は supported とする。
 * existing span/layout/seed/port position から target row を推測しない。
 * same edge + same bundle duplicate policy は引き続き unsupported。
+
+## bb2 stale segment-pick midair duplicate request
+
+対応日: 2026-06-19
+
+supported scenario:
+
+* segment pick から作った pending ownerless midair node id を使って branch を生成した後、同じ branch が stale source id + explicit saved target pole で再送されても新しい node / port / bundle / span / saved graph を増やさない。
+* pending ownerless node は、source saved edge と `source_edge_t` が一致する既存 saved ownerless node に解決する。
+* duplicate same edge + bundle + lane policy は emit 前に効き、request は unsupported で止まる。
+
+境界:
+
+* pending node の解決は position proximity ではなく、saved graph の source edge identity と `source_edge_t` で行う。
+* existing span/layout/seed から topology / pair / row / port identity を復元しない。
+* stale pending id は新規 topology ではなく、既に保存済みの ownerless backbone node への参照として扱う。

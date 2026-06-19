@@ -62,6 +62,32 @@ ObjectId saved_node_id_for(const CoreState& state, ObjectId node_or_pole_id) {
   return kInvalidObjectId;
 }
 
+const SavedBackboneNode* saved_source_node_for(const CoreState& state, const SupportNode& node) {
+  if (!node.has_source_edge) {
+    return nullptr;
+  }
+  const ObjectId source_a = saved_node_id_for(state, node.source_edge_node_a_id);
+  const ObjectId source_b = saved_node_id_for(state, node.source_edge_node_b_id);
+  if (source_a == kInvalidObjectId || source_b == kInvalidObjectId || source_a == source_b) {
+    return nullptr;
+  }
+  const ObjectId lo = std::min(source_a, source_b);
+  const ObjectId hi = std::max(source_a, source_b);
+  for (const SavedBackboneNode& saved : state.view().backbone().nodes) {
+    if (saved.pole_id != kInvalidObjectId || saved.support_kind != node.support_kind || !saved.has_source_edge) {
+      continue;
+    }
+    if (std::min(saved.source_edge_node_a, saved.source_edge_node_b) != lo ||
+        std::max(saved.source_edge_node_a, saved.source_edge_node_b) != hi) {
+      continue;
+    }
+    if (std::abs(saved.source_edge_t - node.source_edge_t) <= 1e-9) {
+      return &saved;
+    }
+  }
+  return nullptr;
+}
+
 PortKind port_kind(ConnectionCategory category) {
   switch (category) {
   case ConnectionCategory::kCommunication:
@@ -711,6 +737,11 @@ EditResult<bool> pipeline::prepare() {
           n.source_edge_node_a = pending->source_edge_node_a_id;
           n.source_edge_node_b = pending->source_edge_node_b_id;
           n.source_edge_t = pending->source_edge_t;
+          if (const SavedBackboneNode* resolved = saved_source_node_for(state_, *pending); resolved != nullptr) {
+            n.saved = resolved->node_id;
+            n.pos = resolved->position;
+            n.is_new = false;
+          }
           if (pending->has_tangent_hint) {
             Vec3d tangent = pending->tangent_hint;
             if (norm_strict(&tangent)) {

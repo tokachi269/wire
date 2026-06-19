@@ -5333,6 +5333,55 @@ bool C574_bb2_same_edge_different_bundle_with_pass_through_is_supported() {
   return false;
 }
 
+bool C575_bb2_stale_segment_pick_midair_duplicate_rejected_unchanged() {
+  wire::core::CoreState state;
+  const auto base_out = state.GenerateFromBackboneSpec(line_req(state));
+  if (!base_out.ok || base_out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const auto* source_span = state.view().spans().find(base_out.value.generated_span_ids.front());
+  if (source_span == nullptr) {
+    return false;
+  }
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = source_span->id;
+  pick.hit_pos_world = {6.0, 0.0, 0.0};
+  pick.has_segment_endpoints = false;
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
+  const auto resolved = state.ResolveBranchPick(pick, resolve);
+  if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {resolved.value.position, {6.0, 8.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  branch.path.node_specs = {node};
+  const auto branch_out = state.GenerateFromBackboneSpec(branch);
+  if (!branch_out.ok || branch_out.value.generated_pole_ids.size() != 1) {
+    return false;
+  }
+  wire::core::BackboneSpec duplicate = branch;
+  duplicate.path.node_specs.push_back(pole_spec(1, branch_out.value.generated_pole_ids.front()));
+  const std::size_t pole_count = state.view().poles().size();
+  const std::size_t port_count = state.view().ports().size();
+  const std::size_t bundle_count_before = state.view().bundles().size();
+  const std::size_t span_count = state.view().spans().size();
+  const std::size_t saved_node_count = state.view().backbone().nodes.size();
+  const std::size_t saved_edge_count = state.view().backbone().edges.size();
+  const std::size_t saved_edge_bundle_count = state.view().backbone().edge_bundles.size();
+  const auto dup = state.GenerateFromBackboneSpec(duplicate);
+  return !dup.ok && contains_text(dup.error, "unsupported") && state.view().poles().size() == pole_count &&
+         state.view().ports().size() == port_count && state.view().bundles().size() == bundle_count_before &&
+         state.view().spans().size() == span_count && state.view().backbone().nodes.size() == saved_node_count &&
+         state.view().backbone().edges.size() == saved_edge_count &&
+         state.view().backbone().edge_bundles.size() == saved_edge_bundle_count;
+}
+
 bool C559_bb2_positive_avoid_clear_of_route_is_noop() {
   wire::core::CoreState plain;
   wire::core::BackboneSpec base = line_req(plain);
@@ -5958,6 +6007,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C574_bb2_same_edge_different_bundle_with_pass_through_is_supported",
                          "bb2 supports adding a different bundle on an existing edge with pass-through mode", "Boundary",
                          false, C574_bb2_same_edge_different_bundle_with_pass_through_is_supported);
+  test_registry::AddTest(tests, "C575_bb2_stale_segment_pick_midair_duplicate_rejected_unchanged",
+                         "bb2 rejects duplicate stale segment-pick midair branch requests before mutation", "Boundary",
+                         false, C575_bb2_stale_segment_pick_midair_duplicate_rejected_unchanged);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

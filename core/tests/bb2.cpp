@@ -5382,6 +5382,27 @@ bool C575_bb2_stale_segment_pick_midair_duplicate_rejected_unchanged() {
          state.view().backbone().edge_bundles.size() == saved_edge_bundle_count;
 }
 
+bool C576_bb2_ownerless_multiple_bundles_do_not_require_pole_type() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = line_req(state);
+  req.pole_type_id = wire::core::kInvalidPoleTypeId;
+  req.path.polyline = {{0.0, 0.0, 8.0}, {10.0, 0.0, 8.0}};
+  req.bundles.clear();
+  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
+  add_backbone_bundle(req, wire::core::BundleKind::kCommunication);
+  wire::core::BackboneInputSpec::NodeSpec a{};
+  a.point_index = 0;
+  a.support_kind = wire::core::SupportKind::kMidair;
+  wire::core::BackboneInputSpec::NodeSpec b{};
+  b.point_index = 1;
+  b.support_kind = wire::core::SupportKind::kMidair;
+  req.path.node_specs = {a, b};
+  const auto out = state.GenerateFromBackboneSpec(req);
+  return out.ok && out.value.generated_pole_ids.empty() && out.value.bundle_ids.size() == 2 &&
+         !out.value.generated_span_ids.empty() && state.view().backbone().nodes.size() == 2 &&
+         state.view().backbone().edges.size() == 1;
+}
+
 bool C559_bb2_positive_avoid_clear_of_route_is_noop() {
   wire::core::CoreState plain;
   wire::core::BackboneSpec base = line_req(plain);
@@ -6010,6 +6031,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C575_bb2_stale_segment_pick_midair_duplicate_rejected_unchanged",
                          "bb2 rejects duplicate stale segment-pick midair branch requests before mutation", "Boundary",
                          false, C575_bb2_stale_segment_pick_midair_duplicate_rejected_unchanged);
+  test_registry::AddTest(tests, "C576_bb2_ownerless_multiple_bundles_do_not_require_pole_type",
+                         "bb2 ownerless-only multiple bundle routes do not require a pole type", "Boundary", false,
+                         C576_bb2_ownerless_multiple_bundles_do_not_require_pole_type);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

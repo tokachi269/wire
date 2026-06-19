@@ -1134,3 +1134,19 @@ supported scenario:
 * pending node の解決は position proximity ではなく、saved graph の source edge identity と `source_edge_t` で行う。
 * existing span/layout/seed から topology / pair / row / port identity を復元しない。
 * stale pending id は新規 topology ではなく、既に保存済みの ownerless backbone node への参照として扱う。
+
+## bb2 ownerless-only route without pole type
+
+対応日: 2026-06-19
+
+supported scenario:
+
+* 両端が ownerless midair node の route は、new pole を作らないため `pole_type_id` が未指定でも生成できる。
+* LV + Communication のように bundle template の related pole type が異なる場合でも、ownerless-only route では pole type ambiguity として reject しない。
+* bundle / span / rules / layout / geom / draw は通常通り生成する。
+
+境界:
+
+* pole type は new pole を materialize する場合だけ必要。
+* ownerless port placement は pole band を読まない。
+* bundle spec は connectivity を変えず、pair/open/row は引き続き `pairs make(graph)` で一度だけ決める。

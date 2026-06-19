@@ -365,6 +365,14 @@ bool same_scope(const SavedBackbonePortBinding& binding, port_scope scope) {
          binding.port_layer == scope.layer;
 }
 
+bool makes_pole(const node& item) {
+  return item.support == SupportKind::kPole && item.is_new;
+}
+
+bool needs_pole_type(const graph& made) {
+  return std::any_of(made.nodes.begin(), made.nodes.end(), makes_pole);
+}
+
 EditResult<ObjectId> resolve_port_binding(const CoreState& state, ObjectId pole_id, const SavedBackboneRowKey& row_key,
                                           std::size_t lane_index, port_scope scope) {
   EditResult<ObjectId> out{};
@@ -996,11 +1004,13 @@ EditResult<bool> pipeline::check() const {
   if (!route_clear_of_avoid_points(g_, spec_.constraints.avoid_points, spec_.constraints.avoid_radius_m)) {
     return unsupported("constraints are not in milestone 1");
   }
-  EditResult<PoleTypeId> resolved_type = pole_type_for(state_, spec_);
-  if (!resolved_type.ok) {
-    EditResult<bool> failed{};
-    failed.error = resolved_type.error;
-    return failed;
+  if (needs_pole_type(g_)) {
+    EditResult<PoleTypeId> resolved_type = pole_type_for(state_, spec_);
+    if (!resolved_type.ok) {
+      EditResult<bool> failed{};
+      failed.error = resolved_type.error;
+      return failed;
+    }
   }
   for (const BackboneBundleSpec& spec : spec_.bundles) {
     EditResult<spec_view> checked = view_for(state_, spec);
@@ -1271,10 +1281,14 @@ EditResult<bool> pipeline::emit_poles(topo* made, ChangeSet* changes) {
     return out;
   }
   made->poles.reserve(g_.nodes.size());
-  EditResult<PoleTypeId> resolved_type = pole_type_for(state_, spec_);
-  if (!resolved_type.ok) {
-    out.error = resolved_type.error;
-    return out;
+  PoleTypeId pole_type = kInvalidPoleTypeId;
+  if (needs_pole_type(g_)) {
+    EditResult<PoleTypeId> resolved_type = pole_type_for(state_, spec_);
+    if (!resolved_type.ok) {
+      out.error = resolved_type.error;
+      return out;
+    }
+    pole_type = resolved_type.value;
   }
   for (std::size_t i = 0; i < g_.nodes.size(); ++i) {
     if (g_.nodes[i].support == SupportKind::kMidair || g_.nodes[i].support == SupportKind::kBuilding ||
@@ -1301,7 +1315,7 @@ EditResult<bool> pipeline::emit_poles(topo* made, ChangeSet* changes) {
       return out;
     }
     add(*changes, pole.change_set);
-    EditResult<ObjectId> typed = state_.ApplyPoleType(pole.value, resolved_type.value);
+    EditResult<ObjectId> typed = state_.ApplyPoleType(pole.value, pole_type);
     if (!typed.ok) {
       out.error = typed.error;
       return out;

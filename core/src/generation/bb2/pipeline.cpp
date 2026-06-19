@@ -532,6 +532,47 @@ bool route_clear_of_avoid_points(const graph& made, const std::vector<Vec3d>& po
   return true;
 }
 
+EditResult<bool> avoid_detour_for_segment(const Vec3d& a, const Vec3d& b, const std::vector<Vec3d>& points,
+                                          double radius, Vec3d* detour_point) {
+  EditResult<bool> out{};
+  out.value = false;
+  if (points.empty() || radius <= 0.0) {
+    out.ok = true;
+    return out;
+  }
+  if (points.size() != 1) {
+    out.error = "bb2 unsupported: avoid routing requires one point on one segment";
+    return out;
+  }
+  Vec3d ab = b - a;
+  const double len2 = ab.x * ab.x + ab.y * ab.y + ab.z * ab.z;
+  if (len2 <= 1e-12) {
+    out.error = "bb2 unsupported: avoid routing source segment is zero length";
+    return out;
+  }
+  const Vec3d p = points.front();
+  const double t = ((p.x - a.x) * ab.x + (p.y - a.y) * ab.y + (p.z - a.z) * ab.z) / len2;
+  if (t <= 1e-6 || t >= 1.0 - 1e-6 || dist2_to_segment(p, a, b) > radius * radius) {
+    out.ok = true;
+    return out;
+  }
+  Vec3d dir = ab;
+  if (!norm_strict(&dir)) {
+    out.error = "bb2 unsupported: avoid routing source segment is zero length";
+    return out;
+  }
+  const Vec3d detour_axis = side(dir);
+  constexpr double kAvoidClearanceM = 0.5;
+  const Vec3d closest = {a.x + ab.x * t, a.y + ab.y * t, a.z + ab.z * t};
+  const double detour = radius + kAvoidClearanceM;
+  if (detour_point != nullptr) {
+    *detour_point = closest + Vec3d{detour_axis.x * detour, detour_axis.y * detour, 0.0};
+  }
+  out.value = true;
+  out.ok = true;
+  return out;
+}
+
 Vec3d mul(Vec3d v, double k) {
   return Vec3d{v.x * k, v.y * k, v.z * k};
 }
@@ -737,6 +778,11 @@ EditResult<bool> pipeline::prepare() {
     }
     spec_by_point.swap(reversed);
   }
+  if (!spec_.constraints.avoid_points.empty() && spec_.constraints.avoid_radius_m > 0.0 &&
+      (guide.size() != 2 || spec_.constraints.avoid_points.size() != 1)) {
+    out.error = "bb2 unsupported: avoid routing requires one point on one segment";
+    return out;
+  }
   std::vector<Vec3d> pts{};
   std::vector<std::size_t> guide_by_local{};
   pts.reserve(guide.size());
@@ -758,6 +804,16 @@ EditResult<bool> pipeline::prepare() {
           const double t = std::clamp(dist / len, 0.0, 1.0);
           push_point({a.x + seg.x * t, a.y + seg.y * t, a.z + seg.z * t}, bad);
         }
+      }
+      Vec3d detour{};
+      EditResult<bool> avoid = avoid_detour_for_segment(a, b, spec_.constraints.avoid_points,
+                                                        spec_.constraints.avoid_radius_m, &detour);
+      if (!avoid.ok) {
+        out.error = avoid.error;
+        return out;
+      }
+      if (avoid.value) {
+        push_point(detour, bad);
       }
       push_point(b, i + 1);
     }

@@ -1312,13 +1312,21 @@ bool C413_bb2_lateral_offset_does_not_affect_pairs() {
   return !contains_text(body, "constraints") && !contains_text(body, "lateral_offset_m");
 }
 
-bool C414_bb2_still_rejects_avoid_constraints() {
+bool C414_bb2_simple_avoid_detour_supported() {
   wire::core::CoreState state;
-  wire::core::BackboneSpec avoid_point_radius = line_req(state);
-  avoid_point_radius.constraints.avoid_points.push_back({6.0, 0.0, 0.0});
-  avoid_point_radius.constraints.avoid_radius_m = 1.0;
-  const auto radius_out = state.GenerateFromBackboneSpec(avoid_point_radius);
-  return !radius_out.ok && contains_text(radius_out.error, "unsupported");
+  wire::core::BackboneSpec req = line_req(state);
+  req.constraints.avoid_points.push_back({6.0, 0.0, 0.0});
+  req.constraints.avoid_radius_m = 1.0;
+  const auto out = state.GenerateFromBackboneSpec(req);
+  if (!out.ok || out.value.generated_pole_ids.size() != 3 || out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const auto detour = std::find_if(state.view().backbone().nodes.begin(), state.view().backbone().nodes.end(),
+                                   [](const wire::core::SavedBackboneNode& node) {
+                                     return almost_equal(node.position.x, 6.0, 1e-9) &&
+                                            std::abs(node.position.y) > 1.0;
+                                   });
+  return detour != state.view().backbone().nodes.end();
 }
 
 bool C415_bb2_has_no_empty_levels_layer() {
@@ -3926,7 +3934,7 @@ bool C533_bb2_build_mutation_order_is_fixed() {
 }
 
 bool C534_bb2_invalid_inputs_stop_before_emit() {
-  return C409_bb2_rejects_missing_port_band() && C414_bb2_still_rejects_avoid_constraints() &&
+  return C409_bb2_rejects_missing_port_band() && C414_bb2_simple_avoid_detour_supported() &&
          C515_bb2_rejects_existing_pole_without_saved_graph();
 }
 
@@ -4189,8 +4197,7 @@ bool C548_bb2_avoid_radius_without_points_is_noop() {
   req.constraints.avoid_radius_m = 3.0;
   const auto out = state.GenerateFromBackboneSpec(req);
   return out.ok && out.value.generated_pole_ids.size() == 2 &&
-         out.value.generated_span_ids.size() == static_cast<std::size_t>(req_bundle_count(state, req)) &&
-         C414_bb2_still_rejects_avoid_constraints();
+         out.value.generated_span_ids.size() == static_cast<std::size_t>(req_bundle_count(state, req));
 }
 
 bool C549_bb2_range_bundle_explicit_count_is_supported() {
@@ -4312,7 +4319,7 @@ bool C552_bb2_zero_radius_avoid_points_are_noop() {
       return false;
     }
   }
-  return C414_bb2_still_rejects_avoid_constraints();
+  return true;
 }
 
 bool C553_bb2_new_midair_route_point_is_supported() {
@@ -5509,7 +5516,7 @@ bool C559_bb2_positive_avoid_clear_of_route_is_noop() {
       return false;
     }
   }
-  return C414_bb2_still_rejects_avoid_constraints();
+  return true;
 }
 
 void register_bb2_tests(test_registry::TestRegistry& tests) {
@@ -5620,9 +5627,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C413_bb2_lateral_offset_does_not_affect_pairs",
                          "bb2 lateral offset does not affect pairs", "Boundary", false,
                          C413_bb2_lateral_offset_does_not_affect_pairs);
-  test_registry::AddTest(tests, "C414_bb2_still_rejects_avoid_constraints",
-                         "bb2 still rejects avoid constraints", "Boundary", true,
-                         C414_bb2_still_rejects_avoid_constraints);
+  test_registry::AddTest(tests, "C414_bb2_simple_avoid_detour_supported",
+                         "bb2 supports a simple avoid detour", "Boundary", false,
+                         C414_bb2_simple_avoid_detour_supported);
   test_registry::AddTest(tests, "C415_bb2_has_no_empty_levels_layer",
                          "bb2 has no empty levels layer", "Boundary", false,
                          C415_bb2_has_no_empty_levels_layer);

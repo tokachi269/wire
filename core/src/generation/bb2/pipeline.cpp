@@ -779,7 +779,7 @@ EditResult<bool> pipeline::prepare() {
     spec_by_point.swap(reversed);
   }
   if (!spec_.constraints.avoid_points.empty() && spec_.constraints.avoid_radius_m > 0.0 &&
-      (guide.size() != 2 || spec_.constraints.avoid_points.size() != 1)) {
+      spec_.constraints.avoid_points.size() != 1) {
     out.error = "bb2 unsupported: avoid routing requires one point on one segment";
     return out;
   }
@@ -787,6 +787,7 @@ EditResult<bool> pipeline::prepare() {
   std::vector<std::size_t> guide_by_local{};
   pts.reserve(guide.size());
   guide_by_local.reserve(guide.size());
+  std::size_t avoid_detour_count = 0;
   auto push_point = [&](const Vec3d& p, std::size_t guide_index) {
     pts.push_back(p);
     guide_by_local.push_back(guide_index);
@@ -813,6 +814,11 @@ EditResult<bool> pipeline::prepare() {
         return out;
       }
       if (avoid.value) {
+        ++avoid_detour_count;
+        if (avoid_detour_count > 1) {
+          out.error = "bb2 unsupported: avoid routing requires one point on one segment";
+          return out;
+        }
         push_point(detour, bad);
       }
       push_point(b, i + 1);

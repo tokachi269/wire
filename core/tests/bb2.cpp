@@ -1329,6 +1329,23 @@ bool C414_bb2_simple_avoid_detour_supported() {
   return detour != state.view().backbone().nodes.end();
 }
 
+bool C579_bb2_polyline_avoid_detour_supported() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = poly3_req(state);
+  req.constraints.avoid_points.push_back({6.0, 0.0, 0.0});
+  req.constraints.avoid_radius_m = 1.0;
+  const auto out = state.GenerateFromBackboneSpec(req);
+  if (!out.ok || out.value.generated_pole_ids.size() != 4 || out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const auto detour = std::find_if(state.view().backbone().nodes.begin(), state.view().backbone().nodes.end(),
+                                   [](const wire::core::SavedBackboneNode& node) {
+                                     return almost_equal(node.position.x, 6.0, 1e-9) &&
+                                            std::abs(node.position.y) > 1.0;
+                                   });
+  return detour != state.view().backbone().nodes.end();
+}
+
 bool C415_bb2_has_no_empty_levels_layer() {
   const std::filesystem::path dir = repo_root() / "core" / "src" / "generation" / "bb2";
   for (const auto& entry : std::filesystem::recursive_directory_iterator(dir)) {
@@ -6122,6 +6139,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C578_bb2_segment_pick_midair_pass_through_supported",
                          "bb2 supports pass-through on a segment-pick midair branch", "Boundary", false,
                          C578_bb2_segment_pick_midair_pass_through_supported);
+  test_registry::AddTest(tests, "C579_bb2_polyline_avoid_detour_supported",
+                         "bb2 supports a single avoid detour on one segment of a polyline route", "Boundary", false,
+                         C579_bb2_polyline_avoid_detour_supported);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

@@ -1346,6 +1346,75 @@ bool C579_bb2_polyline_avoid_detour_supported() {
   return detour != state.view().backbone().nodes.end();
 }
 
+bool C580_bb2_interval_avoid_combination_rejected_before_mutation() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = line_req(state);
+  req.interval_m = 4.0;
+  req.constraints.avoid_points.push_back({6.0, 0.0, 0.0});
+  req.constraints.avoid_radius_m = 1.0;
+  const std::size_t pole_count = state.view().poles().size();
+  const std::size_t port_count = state.view().ports().size();
+  const std::size_t bundle_count_before = state.view().bundles().size();
+  const std::size_t span_count = state.view().spans().size();
+  const std::size_t saved_node_count = state.view().backbone().nodes.size();
+  const std::size_t saved_edge_count = state.view().backbone().edges.size();
+  const auto out = state.GenerateFromBackboneSpec(req);
+  return !out.ok && contains_text(out.error, "unsupported") && state.view().poles().size() == pole_count &&
+         state.view().ports().size() == port_count && state.view().bundles().size() == bundle_count_before &&
+         state.view().spans().size() == span_count && state.view().backbone().nodes.size() == saved_node_count &&
+         state.view().backbone().edges.size() == saved_edge_count;
+}
+
+bool C581_bb2_inactive_bundle_missing_band_is_ignored() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec base = line_req(state);
+  const auto base_out = state.GenerateFromBackboneSpec(base);
+  if (!base_out.ok || base_out.value.generated_span_ids.empty()) {
+    return false;
+  }
+
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = base_out.value.generated_span_ids.front();
+  pick.hit_pos_world = {6.0, 0.0, 4.0};
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage, wire::core::BundleKind::kHighVoltage};
+  const auto resolved = state.ResolveBranchPick(pick, resolve);
+  if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {resolved.value.position, {6.0, 8.0, 0.0}};
+  branch.bundles.clear();
+  add_backbone_bundle(branch, wire::core::BundleKind::kLowVoltage);
+  add_backbone_bundle(branch, wire::core::BundleKind::kHighVoltage);
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  branch.path.node_specs = {node};
+
+  auto it = state.view().pole_types().find(branch.pole_type_id);
+  if (it == state.view().pole_types().end()) {
+    return false;
+  }
+  wire::core::PoleTypeDefinition type = it->second;
+  type.port_bands.erase(std::remove_if(type.port_bands.begin(), type.port_bands.end(),
+                                       [](const wire::core::PortPlacementBand& band) {
+                                         return band.category == wire::core::ConnectionCategory::kHighVoltage &&
+                                                band.layer == 2;
+                                       }),
+                        type.port_bands.end());
+  if (!state.UpdatePoleTypeDefinition(type).ok) {
+    return false;
+  }
+  const auto out = state.GenerateFromBackboneSpec(branch);
+  return out.ok &&
+         out.value.generated_span_ids.size() ==
+             static_cast<std::size_t>(bundle_count(state, wire::core::BundleKind::kLowVoltage));
+}
+
 bool C415_bb2_has_no_empty_levels_layer() {
   const std::filesystem::path dir = repo_root() / "core" / "src" / "generation" / "bb2";
   for (const auto& entry : std::filesystem::recursive_directory_iterator(dir)) {
@@ -6142,6 +6211,12 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C579_bb2_polyline_avoid_detour_supported",
                          "bb2 supports a single avoid detour on one segment of a polyline route", "Boundary", false,
                          C579_bb2_polyline_avoid_detour_supported);
+  test_registry::AddTest(tests, "C580_bb2_interval_avoid_combination_rejected_before_mutation",
+                         "bb2 rejects interval plus avoid before topology mutation", "Boundary", false,
+                         C580_bb2_interval_avoid_combination_rejected_before_mutation);
+  test_registry::AddTest(tests, "C581_bb2_inactive_bundle_missing_band_is_ignored",
+                         "bb2 ignores missing port bands for inactive bundles", "Boundary", false,
+                         C581_bb2_inactive_bundle_missing_band_is_ignored);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

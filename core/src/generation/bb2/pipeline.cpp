@@ -381,7 +381,8 @@ bool has_band(const PoleTypeDefinition& pole_type, const spec_view& spec) {
                      });
 }
 
-EditResult<bool> check_port_bands(const CoreState& state, const graph& made, const BackboneSpec& spec) {
+EditResult<bool> check_port_bands(const CoreState& state, const graph& made, const BackboneSpec& spec,
+                                  const std::vector<std::size_t>& active_bundle_indices) {
   for (const node& item : made.nodes) {
     if (item.support == SupportKind::kMidair || item.support == SupportKind::kBuilding ||
         item.support == SupportKind::kGround) {
@@ -417,7 +418,13 @@ EditResult<bool> check_port_bands(const CoreState& state, const graph& made, con
       failed.error = "bb2 unsupported: pole type missing";
       return failed;
     }
-    for (const BackboneBundleSpec& bundle : spec.bundles) {
+    for (const std::size_t bundle_index : active_bundle_indices) {
+      if (bundle_index >= spec.bundles.size()) {
+        EditResult<bool> failed{};
+        failed.error = "bb2 unsupported: active bundle index is invalid";
+        return failed;
+      }
+      const BackboneBundleSpec& bundle = spec.bundles[bundle_index];
       EditResult<spec_view> checked = view_for(state, bundle);
       if (!checked.ok) {
         EditResult<bool> failed{};
@@ -781,6 +788,10 @@ EditResult<bool> pipeline::prepare() {
   if (!spec_.constraints.avoid_points.empty() && spec_.constraints.avoid_radius_m > 0.0 &&
       spec_.constraints.avoid_points.size() != 1) {
     out.error = "bb2 unsupported: avoid routing requires one point on one segment";
+    return out;
+  }
+  if (!spec_.constraints.avoid_points.empty() && spec_.constraints.avoid_radius_m > 0.0 && spec_.interval_m > 0.0) {
+    out.error = "bb2 unsupported: interval and avoid routing cannot be combined";
     return out;
   }
   std::vector<Vec3d> pts{};
@@ -1164,7 +1175,7 @@ EditResult<bool> pipeline::check() const {
       return failed;
     }
   }
-  EditResult<bool> bands = check_port_bands(state_, g_, spec_);
+  EditResult<bool> bands = check_port_bands(state_, g_, spec_, active_bundle_indices_);
   if (!bands.ok) {
     return bands;
   }

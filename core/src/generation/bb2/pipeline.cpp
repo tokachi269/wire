@@ -542,10 +542,16 @@ bool route_clear_of_avoid_points(const graph& made, const std::vector<Vec3d>& po
 struct segment_insert {
   double t = 0.0;
   Vec3d p{};
+  SupportKind support = SupportKind::kPole;
 };
 
+bool ownerless_support(SupportKind kind) {
+  return kind == SupportKind::kMidair || kind == SupportKind::kBuilding || kind == SupportKind::kGround;
+}
+
 EditResult<std::size_t> avoid_detours_for_segment(const Vec3d& a, const Vec3d& b, const std::vector<Vec3d>& points,
-                                                  double radius, std::vector<segment_insert>* inserts) {
+                                                  double radius, SupportKind inserted_support,
+                                                  std::vector<segment_insert>* inserts) {
   EditResult<std::size_t> out{};
   out.value = 0;
   if (points.empty() || radius <= 0.0) {
@@ -573,7 +579,8 @@ EditResult<std::size_t> avoid_detours_for_segment(const Vec3d& a, const Vec3d& b
     }
     const Vec3d closest = {a.x + ab.x * t, a.y + ab.y * t, a.z + ab.z * t};
     if (inserts != nullptr) {
-      inserts->push_back({t, closest + Vec3d{detour_axis.x * detour, detour_axis.y * detour, 0.0}});
+      inserts->push_back(
+          {t, closest + Vec3d{detour_axis.x * detour, detour_axis.y * detour, 0.0}, inserted_support});
     }
     ++out.value;
   }
@@ -788,17 +795,30 @@ EditResult<bool> pipeline::prepare() {
   }
   std::vector<Vec3d> pts{};
   std::vector<std::size_t> guide_by_local{};
+  std::vector<SupportKind> support_by_local{};
   pts.reserve(guide.size());
   guide_by_local.reserve(guide.size());
-  auto push_point = [&](const Vec3d& p, std::size_t guide_index) {
+  support_by_local.reserve(guide.size());
+  auto push_point = [&](const Vec3d& p, std::size_t guide_index, SupportKind support = SupportKind::kPole) {
     pts.push_back(p);
     guide_by_local.push_back(guide_index);
+    support_by_local.push_back(support);
+  };
+  auto inserted_support_for_segment = [&](std::size_t a, std::size_t b) {
+    const auto spec_a = spec_by_point.find(a);
+    const auto spec_b = spec_by_point.find(b);
+    if (spec_a == spec_by_point.end() || spec_b == spec_by_point.end()) {
+      return SupportKind::kPole;
+    }
+    const SupportKind support = spec_a->second->support_kind;
+    return support == spec_b->second->support_kind && ownerless_support(support) ? support : SupportKind::kPole;
   };
   if (!guide.empty()) {
     push_point(guide.front(), 0);
     for (std::size_t i = 0; i + 1 < guide.size(); ++i) {
       const Vec3d a = guide[i];
       const Vec3d b = guide[i + 1];
+      const SupportKind inserted_support = inserted_support_for_segment(i, i + 1);
       const Vec3d seg = b - a;
       constexpr double kIntervalEps = 1e-9;
       const double len = std::sqrt(seg.x * seg.x + seg.y * seg.y + seg.z * seg.z);
@@ -806,11 +826,12 @@ EditResult<bool> pipeline::prepare() {
       if (spec_.interval_m > 0.0 && len > kIntervalEps) {
         for (double dist = spec_.interval_m; dist < len - kIntervalEps; dist += spec_.interval_m) {
           const double t = std::clamp(dist / len, 0.0, 1.0);
-          inserts.push_back({t, {a.x + seg.x * t, a.y + seg.y * t, a.z + seg.z * t}});
+          inserts.push_back({t, {a.x + seg.x * t, a.y + seg.y * t, a.z + seg.z * t}, inserted_support});
         }
       }
       EditResult<std::size_t> avoid =
-          avoid_detours_for_segment(a, b, spec_.constraints.avoid_points, spec_.constraints.avoid_radius_m, &inserts);
+          avoid_detours_for_segment(a, b, spec_.constraints.avoid_points, spec_.constraints.avoid_radius_m,
+                                    inserted_support, &inserts);
       if (!avoid.ok) {
         out.error = avoid.error;
         return out;
@@ -823,7 +844,7 @@ EditResult<bool> pipeline::prepare() {
         return len2(lhs.p) < len2(rhs.p);
       });
       for (const segment_insert& item : inserts) {
-        push_point(item.p, bad);
+        push_point(item.p, bad, item.support);
       }
       push_point(b, i + 1);
     }
@@ -844,6 +865,7 @@ EditResult<bool> pipeline::prepare() {
     node n{};
     n.id = i;
     n.pos = pts[i];
+    n.support = support_by_local[i];
     const std::size_t guide_index = guide_by_local[i];
     if (guide_index != bad) {
       const bool endpoint = guide_index == 0 || guide_index + 1 == guide.size();

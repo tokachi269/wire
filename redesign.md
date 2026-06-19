@@ -876,7 +876,8 @@ Scope contract:
 対応:
 
 * input route は 2 点以上の polyline である。
-* `interval_m > 0` の場合、各 input segment 上に deterministic な中間 generated pole node を挿入する。
+* `interval_m > 0` の場合、各 input segment 上に deterministic な中間 generated node を挿入する。
+* source segment 両端が同じ ownerless support kind の場合、`interval_m` / avoid detour の挿入 node は同じ ownerless support kind を継承する。
 * support node は pole、明示的な new midair route point、または明示的な new building route point である。
 * `SupportKind::kMidair`、`SupportKind::kBuilding`、`SupportKind::kGround` に既存 `node_id` が無い場合、new route point は明示的な ownerless support node として扱える。
 * existing ownerless route point を受けるのは、`node_id` が pole id を持たず support kind も一致する saved backbone node の場合に限る。
@@ -952,7 +953,8 @@ Scope contract:
 * pass-through lowering: pair/open authority は不変で、layout、geom、draw が lowering result を consume する。
 * new-route 内部 pass-through: 中点に `kPassThrough` を持つ 3 点 route は、current route がちょうど 1 つの target pair row を与える場合に対応し、このケースでは saved junction context を必要としない。
 * generated pole pinning: `pin_endpoints` は generated route endpoint だけを manual pole として materialize し、`pin_vertices` は元の clicked vertex を manual として materialize する。existing pole と interval 挿入された auto node は mutate しない。
-* interval route generation: `interval_m` は同じ bb2 graph pipeline 上で中間 pole node と span を materialize し、auto interval node は pinning 上の clicked vertex として扱わない。
+* interval route generation: `interval_m` は同じ bb2 graph pipeline 上で中間 node と span を materialize し、auto interval node は pinning 上の clicked vertex として扱わない。
+* ownerless interval node: source segment 両端が同じ ownerless support の場合、interval 挿入 node は pole ではなく同じ ownerless support として保存する。
 * 明示 new pole node spec: `SupportKind::kPole` かつ `node_id` なしは明示 generated pole marker として受ける。欠落した non-invalid id は引き続き reject する。
 * fixed bundle count の完全一致: fixed-count template は template count と等しい冗長な明示 count を受けるが、異なる count は mutation 前に reject する。
 * point なし avoid radius: `avoid_radius_m` 単体は no-op として受ける。

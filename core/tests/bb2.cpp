@@ -1419,6 +1419,32 @@ bool C583_bb2_avoid_points_on_multiple_segments_supported() {
   return saw_first_detour && saw_second_detour;
 }
 
+bool C584_bb2_ownerless_interval_inserts_ownerless_nodes() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = line_req(state);
+  req.pole_type_id = wire::core::kInvalidPoleTypeId;
+  req.path.polyline = {{0.0, 0.0, 8.0}, {12.0, 0.0, 8.0}};
+  req.interval_m = 6.0;
+  wire::core::BackboneInputSpec::NodeSpec a{};
+  a.point_index = 0;
+  a.support_kind = wire::core::SupportKind::kMidair;
+  wire::core::BackboneInputSpec::NodeSpec b{};
+  b.point_index = 1;
+  b.support_kind = wire::core::SupportKind::kMidair;
+  req.path.node_specs = {a, b};
+  const auto out = state.GenerateFromBackboneSpec(req);
+  if (!out.ok || !out.value.generated_pole_ids.empty() || state.view().backbone().nodes.size() != 3 ||
+      state.view().backbone().edges.size() != 2) {
+    return false;
+  }
+  for (const wire::core::SavedBackboneNode& node : state.view().backbone().nodes) {
+    if (node.pole_id != wire::core::kInvalidObjectId || node.support_kind != wire::core::SupportKind::kMidair) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool C581_bb2_inactive_bundle_missing_band_is_ignored() {
   wire::core::CoreState state;
   wire::core::BackboneSpec base = line_req(state);
@@ -6277,6 +6303,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C583_bb2_avoid_points_on_multiple_segments_supported",
                          "bb2 supports avoid points on multiple route segments", "Boundary", false,
                          C583_bb2_avoid_points_on_multiple_segments_supported);
+  test_registry::AddTest(tests, "C584_bb2_ownerless_interval_inserts_ownerless_nodes",
+                         "bb2 interval insertion inherits ownerless support", "Boundary", false,
+                         C584_bb2_ownerless_interval_inserts_ownerless_nodes);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

@@ -790,7 +790,6 @@ EditResult<bool> pipeline::prepare() {
   std::vector<std::size_t> guide_by_local{};
   pts.reserve(guide.size());
   guide_by_local.reserve(guide.size());
-  bool avoid_detour_segment_seen = false;
   auto push_point = [&](const Vec3d& p, std::size_t guide_index) {
     pts.push_back(p);
     guide_by_local.push_back(guide_index);
@@ -815,13 +814,6 @@ EditResult<bool> pipeline::prepare() {
       if (!avoid.ok) {
         out.error = avoid.error;
         return out;
-      }
-      if (avoid.value > 0) {
-        if (avoid_detour_segment_seen) {
-          out.error = "bb2 unsupported: avoid routing requires one source segment";
-          return out;
-        }
-        avoid_detour_segment_seen = true;
       }
       std::sort(inserts.begin(), inserts.end(), [](const segment_insert& lhs, const segment_insert& rhs) {
         if (std::abs(lhs.t - rhs.t) > 1e-9) {

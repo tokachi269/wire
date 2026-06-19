@@ -895,6 +895,7 @@ Scope contract:
 * `constraints.avoid_points` は、`avoid_radius_m <= 0` の場合、または正の半径を持つ全 avoid point が要求 route と交差しない場合に no-op として受ける。
 * route の単一 segment にだけ交差する positive avoid point は、input route の該当 segment を deterministic detour に変換して受ける。
 * 複数 positive avoid point が同じ source segment にだけ交差する場合、detour point は source segment 上の `t` 順で route に挿入する。
+* 複数 positive avoid point が複数 source segment に交差する場合、各 source segment ごとに detour point を `t` 順で route に挿入する。
 * `interval_m` と avoid detour が同じ segment にある場合、interval point と detour point は source segment 上の `t` 順で route に挿入する。
 * `PortPlacementBand` preflight は materialize 対象の active bundle だけを検査する。
 * `pole_placement.pin_endpoints` と `pin_vertices` は newly generated pole にだけ適用する。
@@ -910,7 +911,7 @@ Scope contract:
 * span / layout / seed / curve / port position から推測する graph import。
 * 存在しない existing pole id を参照する明示 node spec。
 * zero-length tangent hint。
-* 複数 segment に交差する avoid、endpoint 付近 avoid を含む一般 avoid routing。
+* endpoint 付近 avoid や障害物回り込み探索を含む一般 avoid routing。
 * 明示 `count` が不一致な fixed-count bundle template。
 * 明示 `count` が template の min/max 範囲外にある range-count bundle template。
 * duplicate same edge_bundle + lane request。
@@ -958,6 +959,7 @@ Scope contract:
 * zero-radius avoid point: `avoid_radius_m <= 0` の `avoid_points` は無効化された no-op として受け、layout や geom を変えない。
 * 交差しない正半径 avoid point: route と交差しない正の半径の `avoid_points` は no-op として受ける。
 * simple avoid detour: route の単一 segment 上に positive avoid point がある場合、bb2 は route 上流で detour node を挿入する。
+* multi-segment avoid detour: 複数 source segment 上に positive avoid point がある場合、bb2 は各 source segment 上流で detour node を挿入する。
 * 明示 range bundle count: range-count template は min/max 内の要求 lane count を materialize し、範囲外 count は mutation 前に reject する。
 * generated pole tangent hint: non-zero tangent hint は generated pole yaw を設定し、zero hint は mutation 前に reject し、pair/open/row は route 由来のまま保つ。
 * bundle 由来 pole type: `pole_type_id` が欠け、要求 bundle が 1 つの有効な related pole type を共有する場合、generated pole はそれを使う。related pole type が混在する場合は mutation 前に reject する。

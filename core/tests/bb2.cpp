@@ -1398,6 +1398,27 @@ bool C582_bb2_multiple_avoid_points_on_one_segment_supported() {
   return saw_first_detour && saw_second_detour;
 }
 
+bool C583_bb2_avoid_points_on_multiple_segments_supported() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = poly3_req(state);
+  req.constraints.avoid_points.push_back({6.0, 0.0, 0.0});
+  req.constraints.avoid_points.push_back({12.0, 4.0, 0.0});
+  req.constraints.avoid_radius_m = 1.0;
+  const auto out = state.GenerateFromBackboneSpec(req);
+  if (!out.ok || out.value.generated_pole_ids.size() != 5 || state.view().backbone().nodes.size() != 5 ||
+      state.view().backbone().edges.size() != 4) {
+    return false;
+  }
+  bool saw_first_detour = false;
+  bool saw_second_detour = false;
+  for (const wire::core::SavedBackboneNode& node : state.view().backbone().nodes) {
+    saw_first_detour = saw_first_detour || (almost_equal(node.position.x, 6.0, 1e-9) && std::abs(node.position.y) > 1.0);
+    saw_second_detour =
+        saw_second_detour || (almost_equal(node.position.y, 4.0, 1e-9) && std::abs(node.position.x - 12.0) > 1.0);
+  }
+  return saw_first_detour && saw_second_detour;
+}
+
 bool C581_bb2_inactive_bundle_missing_band_is_ignored() {
   wire::core::CoreState state;
   wire::core::BackboneSpec base = line_req(state);
@@ -6253,6 +6274,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C582_bb2_multiple_avoid_points_on_one_segment_supported",
                          "bb2 supports multiple avoid points on one route segment", "Boundary", false,
                          C582_bb2_multiple_avoid_points_on_one_segment_supported);
+  test_registry::AddTest(tests, "C583_bb2_avoid_points_on_multiple_segments_supported",
+                         "bb2 supports avoid points on multiple route segments", "Boundary", false,
+                         C583_bb2_avoid_points_on_multiple_segments_supported);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

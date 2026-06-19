@@ -1346,23 +1346,35 @@ bool C579_bb2_polyline_avoid_detour_supported() {
   return detour != state.view().backbone().nodes.end();
 }
 
-bool C580_bb2_interval_avoid_combination_rejected_before_mutation() {
+bool C580_bb2_interval_avoid_combination_orders_inserted_points() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   req.interval_m = 4.0;
   req.constraints.avoid_points.push_back({6.0, 0.0, 0.0});
   req.constraints.avoid_radius_m = 1.0;
-  const std::size_t pole_count = state.view().poles().size();
-  const std::size_t port_count = state.view().ports().size();
-  const std::size_t bundle_count_before = state.view().bundles().size();
-  const std::size_t span_count = state.view().spans().size();
-  const std::size_t saved_node_count = state.view().backbone().nodes.size();
-  const std::size_t saved_edge_count = state.view().backbone().edges.size();
   const auto out = state.GenerateFromBackboneSpec(req);
-  return !out.ok && contains_text(out.error, "unsupported") && state.view().poles().size() == pole_count &&
-         state.view().ports().size() == port_count && state.view().bundles().size() == bundle_count_before &&
-         state.view().spans().size() == span_count && state.view().backbone().nodes.size() == saved_node_count &&
-         state.view().backbone().edges.size() == saved_edge_count;
+  if (!out.ok || out.value.generated_pole_ids.size() != 5 || state.view().backbone().nodes.size() != 5 ||
+      state.view().backbone().edges.size() != 4) {
+    return false;
+  }
+  std::vector<double> xs{};
+  xs.reserve(state.view().backbone().nodes.size());
+  bool saw_detour = false;
+  for (const wire::core::SavedBackboneNode& node : state.view().backbone().nodes) {
+    xs.push_back(node.position.x);
+    saw_detour = saw_detour || (almost_equal(node.position.x, 6.0, 1e-9) && std::abs(node.position.y) > 1.0);
+  }
+  std::sort(xs.begin(), xs.end());
+  const std::vector<double> expected = {0.0, 4.0, 6.0, 8.0, 12.0};
+  if (!saw_detour || xs.size() != expected.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < expected.size(); ++i) {
+    if (!almost_equal(xs[i], expected[i], 1e-9)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 bool C581_bb2_inactive_bundle_missing_band_is_ignored() {
@@ -6211,9 +6223,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C579_bb2_polyline_avoid_detour_supported",
                          "bb2 supports a single avoid detour on one segment of a polyline route", "Boundary", false,
                          C579_bb2_polyline_avoid_detour_supported);
-  test_registry::AddTest(tests, "C580_bb2_interval_avoid_combination_rejected_before_mutation",
-                         "bb2 rejects interval plus avoid before topology mutation", "Boundary", false,
-                         C580_bb2_interval_avoid_combination_rejected_before_mutation);
+  test_registry::AddTest(tests, "C580_bb2_interval_avoid_combination_orders_inserted_points",
+                         "bb2 orders interval and avoid inserted points on the source segment", "Boundary", false,
+                         C580_bb2_interval_avoid_combination_orders_inserted_points);
   test_registry::AddTest(tests, "C581_bb2_inactive_bundle_missing_band_is_ignored",
                          "bb2 ignores missing port bands for inactive bundles", "Boundary", false,
                          C581_bb2_inactive_bundle_missing_band_is_ignored);

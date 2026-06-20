@@ -1465,6 +1465,15 @@ bool C585_bb2_duplicate_avoid_points_are_coalesced() {
   return detour_count == 1;
 }
 
+bool C594_bb2_avoid_point_at_route_endpoint_is_noop() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = line_req(state);
+  req.constraints.avoid_points.push_back({0.0, 0.0, 0.0});
+  req.constraints.avoid_radius_m = 1.0;
+  const auto out = state.GenerateFromBackboneSpec(req);
+  return out.ok && out.value.generated_pole_ids.size() == 2 && state.view().backbone().nodes.size() == 2 &&
+         state.view().backbone().edges.size() == 1;
+}
 bool C586_bb2_avoid_detour_replaces_interval_at_same_t() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
@@ -6620,6 +6629,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C585_bb2_duplicate_avoid_points_are_coalesced",
                          "bb2 coalesces duplicate avoid detour points", "Boundary", false,
                          C585_bb2_duplicate_avoid_points_are_coalesced);
+  test_registry::AddTest(tests, "C594_bb2_avoid_point_at_route_endpoint_is_noop",
+                         "bb2 treats an avoid point exactly at a route endpoint as no-op", "Boundary", false,
+                         C594_bb2_avoid_point_at_route_endpoint_is_noop);
   test_registry::AddTest(tests, "C586_bb2_avoid_detour_replaces_interval_at_same_t",
                          "bb2 avoid detour replaces interval insert at the same route position", "Boundary", false,
                          C586_bb2_avoid_detour_replaces_interval_at_same_t);

@@ -915,6 +915,7 @@ Scope contract:
 * span / layout / seed / curve / port position から推測する graph import。
 * 存在しない existing pole id を参照する明示 node spec。
 * zero-length tangent hint。
+* route first/last endpoint と完全一致する avoid point は no-op として受ける。
 * endpoint 付近 avoid や障害物回り込み探索を含む一般 avoid routing。
 * 明示 `count` が不一致な fixed-count bundle template。
 * 明示 `count` が template の min/max 範囲外にある range-count bundle template。
@@ -966,6 +967,7 @@ Scope contract:
 * simple avoid detour: route の単一 segment 上に positive avoid point がある場合、bb2 は route 上流で detour node を挿入する。
 * multi-segment avoid detour: 複数 source segment 上に positive avoid point がある場合、bb2 は各 source segment 上流で detour node を挿入する。
 * duplicate avoid detour: 同じ detour 位置になる duplicate avoid point は zero-length link を作らないよう upstream で1点に畳む。
+* endpoint avoid no-op: route first/last endpoint と完全一致する avoid point は固定 endpoint を動かさず no-op として受ける。
 * interval/avoid collision: interval point と avoid detour が同じ source `t` にある場合、detour node を採用し、obstacle 内の interval node は作らない。
 * 明示 range bundle count: range-count template は min/max 内の要求 lane count を materialize し、範囲外 count は mutation 前に reject する。
 * generated pole tangent hint: non-zero tangent hint は generated pole yaw を設定し、zero hint は mutation 前に reject し、pair/open/row は route 由来のまま保つ。

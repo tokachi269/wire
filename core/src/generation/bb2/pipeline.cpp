@@ -535,7 +535,7 @@ bool route_clear_of_avoid_points(const graph& made, const std::vector<Vec3d>& po
       continue;
     }
     const auto node_it = std::find_if(made.nodes.begin(), made.nodes.end(), [&](const node& n) {
-      return !n.is_new && same_point(point, n.pos);
+      return (!n.is_new || n.explicit_support) && same_point(point, n.pos);
     });
     if (node_it != made.nodes.end()) {
       continue;
@@ -959,6 +959,7 @@ EditResult<bool> pipeline::prepare() {
         n.has_tangent = true;
         n.tangent = tangent;
       }
+      n.explicit_support = true;
       n.support = spec_it->second->support_kind;
       if (n.support == SupportKind::kMidair || n.support == SupportKind::kBuilding ||
           n.support == SupportKind::kGround) {

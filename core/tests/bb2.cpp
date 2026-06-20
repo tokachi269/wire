@@ -1795,6 +1795,26 @@ bool C595_bb2_avoid_point_at_explicit_existing_support_is_noop() {
          almost_equal(same_middle->world_transform.position.y, 0.0, 1e-9);
 }
 
+bool C596_bb2_avoid_point_at_explicit_new_support_is_noop() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = poly3_req(state);
+  wire::core::BackboneInputSpec::NodeSpec middle{};
+  middle.point_index = 1;
+  middle.support_kind = wire::core::SupportKind::kPole;
+  middle.node_id = wire::core::kInvalidObjectId;
+  req.path.node_specs = {middle};
+  req.constraints.avoid_points = {req.path.polyline[1]};
+  req.constraints.avoid_radius_m = 3.0;
+  const auto out = state.GenerateFromBackboneSpec(req);
+  if (!out.ok || out.value.generated_pole_ids.size() != 3 ||
+      out.value.generated_span_ids.size() != static_cast<std::size_t>(req_bundle_count(state, req) * 2)) {
+    return false;
+  }
+  const auto* generated_middle = state.view().poles().find(out.value.generated_pole_ids[1]);
+  return generated_middle != nullptr && almost_equal(generated_middle->world_transform.position.x, 12.0, 1e-9) &&
+         almost_equal(generated_middle->world_transform.position.y, 0.0, 1e-9);
+}
+
 bool C581_bb2_inactive_bundle_missing_band_is_ignored() {
   wire::core::CoreState state;
   wire::core::BackboneSpec base = line_req(state);
@@ -6689,6 +6709,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C595_bb2_avoid_point_at_explicit_existing_support_is_noop",
                          "bb2 treats an avoid point exactly at an explicit existing support as no-op", "Boundary",
                          false, C595_bb2_avoid_point_at_explicit_existing_support_is_noop);
+  test_registry::AddTest(tests, "C596_bb2_avoid_point_at_explicit_new_support_is_noop",
+                         "bb2 treats an avoid point exactly at an explicit new support as no-op", "Boundary", false,
+                         C596_bb2_avoid_point_at_explicit_new_support_is_noop);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

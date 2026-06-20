@@ -19,6 +19,7 @@ struct node {
   ObjectId saved = kInvalidObjectId;
   bool is_new = true;
   bool pinned = false;
+  bool explicit_support = false;
   bool has_tangent = false;
   Vec3d tangent{};
   bool has_source_edge = false;

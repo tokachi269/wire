@@ -1096,6 +1096,7 @@ supported scenario:
 * pending support node は既存 topology ではなく現在の pick input であり、generation 後は新しい saved ownerless backbone node として保存する。
 * pending support node が bundle mode を持つ場合、`kNotPresent` の bundle は materialization 対象から外す。
 * pending support node が bundle mode を持つ場合、bundle mode に無い request bundle も materialization 対象から外す。selected bundle policy は選択 bundle だけを生成対象にする。
+* selected bundle policy で inactive になった bundle に `kPassThrough` node mode が指定された場合、no-op で無視せず unsupported にする。
 * mixed selected bundle の midair branch は許可 bundle だけを生成し、全 bundle が disallowed の場合は成功 no-op とする。
 * segment pick の hit position が地面/投影点の z を持つ場合でも、source span が分かるなら midair route point の高さは source span の port 高さから決める。
 * source edge 上に作った saved ownerless node は source edge endpoint と `source_edge_t` を保持し、以後の branch generation では saved edge context を pair/open/row/placement 入力として読む。

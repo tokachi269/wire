@@ -2150,13 +2150,13 @@ EditResult<GenerateBundleFromPathResult> pipeline::build() {
     out.error = duplicates.error;
     return out;
   }
-  if (active_bundle_indices_.empty()) {
-    out.ok = true;
-    return out;
-  }
   EditResult<intent> intents = make(ps.value);
   if (!intents.ok) {
     out.error = intents.error;
+    return out;
+  }
+  if (active_bundle_indices_.empty()) {
+    out.ok = true;
     return out;
   }
   EditResult<groups> placement = make(ps.value, intents.value);

@@ -1557,6 +1557,34 @@ bool C589_bb2_selected_bundle_policy_blocks_unselected_bundle() {
   return bundle != nullptr && bundle->bundle_template_id == wire::core::BundleKind::kCommunication;
 }
 
+bool C590_bb2_inactive_pass_through_bundle_rejected_before_noop() {
+  wire::core::CoreState state;
+  const auto base_out = state.GenerateFromBackboneSpec(line_req(state));
+  if (!base_out.ok || base_out.value.generated_span_ids.empty()) return false;
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = base_out.value.generated_span_ids.front();
+  pick.hit_pos_world = {6.0, 0.0, 0.0};
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kCommunication};
+  const auto resolved = state.ResolveBranchPick(pick, resolve);
+  if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) return false;
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {resolved.value.position, {6.0, 8.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  branch.path.node_specs = {node};
+  wire::core::BackboneSpec::NodeBundleModeSpec mode{};
+  mode.point_index = 0;
+  mode.bundle_template_id = branch.bundles.front().bundle_template_id;
+  mode.mode = wire::core::BundleNodeMode::kPassThrough;
+  branch.node_bundle_modes = {mode};
+  const auto out = state.GenerateFromBackboneSpec(branch);
+  return !out.ok && contains_text(out.error, "inactive");
+}
+
 bool C581_bb2_inactive_bundle_missing_band_is_ignored() {
   wire::core::CoreState state;
   wire::core::BackboneSpec base = line_req(state);
@@ -6433,6 +6461,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C589_bb2_selected_bundle_policy_blocks_unselected_bundle",
                          "bb2 selected-bundle midair policy blocks unselected request bundles", "Boundary", false,
                          C589_bb2_selected_bundle_policy_blocks_unselected_bundle);
+  test_registry::AddTest(tests, "C590_bb2_inactive_pass_through_bundle_rejected_before_noop",
+                         "bb2 rejects pass-through modes for bundles made inactive by selected policy", "Boundary",
+                         false, C590_bb2_inactive_pass_through_bundle_rejected_before_noop);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

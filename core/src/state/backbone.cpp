@@ -616,7 +616,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
     return result;
   }
 
-  if (!options.create_midair_node || selected_templates.empty()) {
+  if (!options.create_midair_node || (selected_templates.empty() && !options.create_midair_node_set)) {
     result.value.resolution = PickBranchResolutionKind::kMidair;
     result.value.resolved_node_id = kInvalidObjectId;
     result.value.support_kind = SupportKind::kMidair;

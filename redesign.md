@@ -1090,6 +1090,8 @@ supported scenario:
 * `PickHitKind::kSegment` が bb2 saved span を指す場合、endpoint id が pick payload に無くても saved graph binding から ownerless endpoint node へ snap できる。
 * 解決結果を `BackboneSpec.path.node_specs` に渡した場合、bb2 は ownerless midair node / port / span output を生成する。
 * selected bundle template がある segment pick で transient midair node id が返る場合、bb2 はその pending support node を route input として読める。
+* `create_midair_node=true` を明示した segment pick は、selected bundle template が未指定でも pending ownerless midair node id を返し、後続 bb2 generation の route input として使える。
+* selected bundle template 未指定の explicit midair pick は bundle mode を作らない。空の bundle policy は生成対象を制限せず、後続 request の bundle spec をそのまま materialize する。
 * pending support node は既存 topology ではなく現在の pick input であり、generation 後は新しい saved ownerless backbone node として保存する。
 * pending support node が bundle mode を持つ場合、`kNotPresent` の bundle は materialization 対象から外す。
 * mixed selected bundle の midair branch は許可 bundle だけを生成し、全 bundle が disallowed の場合は成功 no-op とする。

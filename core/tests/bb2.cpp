@@ -1488,6 +1488,38 @@ bool C586_bb2_avoid_detour_replaces_interval_at_same_t() {
   return saw_detour;
 }
 
+
+bool C587_bb2_create_midair_node_without_selected_bundle_supported() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec base = line_req(state);
+  const auto base_out = state.GenerateFromBackboneSpec(base);
+  if (!base_out.ok || base_out.value.generated_span_ids.empty()) return false;
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = base_out.value.generated_span_ids.front();
+  pick.hit_pos_world = {6.0, 0.0, 0.0};
+  pick.has_segment_endpoints = false;
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.selected_bundle_template_ids.clear();
+  resolve.create_midair_node = true;
+  resolve.create_midair_node_set = true;
+  const auto resolved = state.ResolveBranchPick(pick, resolve);
+  if (!resolved.ok || resolved.value.resolution != wire::core::PickBranchResolutionKind::kMidair ||
+      resolved.value.support_kind != wire::core::SupportKind::kMidair ||
+      resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {resolved.value.position, {6.0, 8.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  branch.path.node_specs = {node};
+  const auto out = state.GenerateFromBackboneSpec(branch);
+  return out.ok && !out.value.generated_span_ids.empty();
+}
+
 bool C581_bb2_inactive_bundle_missing_band_is_ignored() {
   wire::core::CoreState state;
   wire::core::BackboneSpec base = line_req(state);
@@ -6355,6 +6387,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C586_bb2_avoid_detour_replaces_interval_at_same_t",
                          "bb2 avoid detour replaces interval insert at the same route position", "Boundary", false,
                          C586_bb2_avoid_detour_replaces_interval_at_same_t);
+  test_registry::AddTest(tests, "C587_bb2_create_midair_node_without_selected_bundle_supported",
+                         "bb2 creates explicit segment-pick midair nodes without selected bundle policy", "Boundary",
+                         false, C587_bb2_create_midair_node_without_selected_bundle_supported);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

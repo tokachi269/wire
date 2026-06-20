@@ -66,6 +66,7 @@ struct ResolveBranchPickOptions {
   std::vector<BundleKind> selected_bundle_template_ids{};
   double snap_radius_world = 0.6;
   bool create_midair_node = true;
+  bool create_midair_node_set = false;
   bool enforce_midair_template_policy = true;
 };
 

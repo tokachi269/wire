@@ -189,6 +189,7 @@ struct SupportNode {
   SupportKind support_kind = SupportKind::kPole;
   Vec3d position{};
   ObjectId pole_id = kInvalidObjectId;
+  ObjectId saved_backbone_node_id = kInvalidObjectId;
   bool has_source_edge = false;
   ObjectId source_edge_node_a_id = kInvalidObjectId;
   ObjectId source_edge_node_b_id = kInvalidObjectId;

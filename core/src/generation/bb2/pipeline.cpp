@@ -988,10 +988,21 @@ EditResult<bool> pipeline::prepare() {
           n.source_edge_node_a = pending->source_edge_node_a_id;
           n.source_edge_node_b = pending->source_edge_node_b_id;
           n.source_edge_t = pending->source_edge_t;
-          if (const SavedBackboneNode* resolved = saved_source_node_for(state_, *pending); resolved != nullptr) {
+          const SavedBackboneNode* resolved = nullptr;
+          if (pending->saved_backbone_node_id != kInvalidObjectId) {
+            resolved = state_.view().backbone_node(pending->saved_backbone_node_id);
+          }
+          if (resolved == nullptr) {
+            resolved = saved_source_node_for(state_, *pending);
+          }
+          if (resolved != nullptr && resolved->pole_id == kInvalidObjectId && resolved->support_kind == n.support) {
             n.saved = resolved->node_id;
             n.pos = resolved->position;
             n.is_new = false;
+            n.has_source_edge = resolved->has_source_edge;
+            n.source_edge_node_a = resolved->source_edge_node_a;
+            n.source_edge_node_b = resolved->source_edge_node_b;
+            n.source_edge_t = resolved->source_edge_t;
           }
           if (pending->has_tangent_hint) {
             Vec3d tangent = pending->tangent_hint;

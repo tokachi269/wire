@@ -1208,3 +1208,19 @@ supported scenario:
 * `source_edge` context は `ResolveBranchPick` が作った saved graph edge identity から読む。
 * existing span / layout / seed / port position から pass-through target を推測しない。
 * pass-through は pair/open/row を変えず、intent / layout / geom にだけ影響する。
+
+## bb2 selected saved ownerless node pick
+
+対応日: 2026-06-20
+
+supported scenario:
+
+* selected bundle がある状態で saved ownerless building node を node pick し、その node から branch を生成できる。
+* node pick でも selected bundle policy は pending support node に載せ、bb2 は saved backbone node context と bundle policy の両方を読む。
+* LV + Communication request でも selected Communication だけを materialize する。
+
+境界:
+
+* selected policy は active bundle 選択にだけ使い、pair/open/row を変えない。
+* saved ownerless node context は SavedBackboneGraph から読む。
+* span/layout/seed/position proximity から topology や bundle policy を復元しない。

@@ -1465,6 +1465,29 @@ bool C585_bb2_duplicate_avoid_points_are_coalesced() {
   return detour_count == 1;
 }
 
+bool C586_bb2_avoid_detour_replaces_interval_at_same_t() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = line_req(state);
+  req.interval_m = 6.0;
+  req.constraints.avoid_points.push_back({6.0, 0.0, 0.0});
+  req.constraints.avoid_radius_m = 1.0;
+  const auto out = state.GenerateFromBackboneSpec(req);
+  if (!out.ok || out.value.generated_pole_ids.size() != 3 || state.view().backbone().nodes.size() != 3 ||
+      state.view().backbone().edges.size() != 2) {
+    return false;
+  }
+  bool saw_detour = false;
+  for (const wire::core::SavedBackboneNode& node : state.view().backbone().nodes) {
+    if (almost_equal(node.position.x, 6.0, 1e-9) && std::abs(node.position.y) > 1.0) {
+      saw_detour = true;
+    }
+    if (almost_equal(node.position.x, 6.0, 1e-9) && almost_equal(node.position.y, 0.0, 1e-9)) {
+      return false;
+    }
+  }
+  return saw_detour;
+}
+
 bool C581_bb2_inactive_bundle_missing_band_is_ignored() {
   wire::core::CoreState state;
   wire::core::BackboneSpec base = line_req(state);
@@ -6329,6 +6352,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C585_bb2_duplicate_avoid_points_are_coalesced",
                          "bb2 coalesces duplicate avoid detour points", "Boundary", false,
                          C585_bb2_duplicate_avoid_points_are_coalesced);
+  test_registry::AddTest(tests, "C586_bb2_avoid_detour_replaces_interval_at_same_t",
+                         "bb2 avoid detour replaces interval insert at the same route position", "Boundary", false,
+                         C586_bb2_avoid_detour_replaces_interval_at_same_t);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

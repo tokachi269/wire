@@ -543,6 +543,7 @@ struct segment_insert {
   double t = 0.0;
   Vec3d p{};
   SupportKind support = SupportKind::kPole;
+  bool detour = false;
 };
 
 bool ownerless_support(SupportKind kind) {
@@ -580,7 +581,7 @@ EditResult<std::size_t> avoid_detours_for_segment(const Vec3d& a, const Vec3d& b
     const Vec3d closest = {a.x + ab.x * t, a.y + ab.y * t, a.z + ab.z * t};
     if (inserts != nullptr) {
       inserts->push_back(
-          {t, closest + Vec3d{detour_axis.x * detour, detour_axis.y * detour, 0.0}, inserted_support});
+          {t, closest + Vec3d{detour_axis.x * detour, detour_axis.y * detour, 0.0}, inserted_support, true});
     }
     ++out.value;
   }
@@ -826,7 +827,7 @@ EditResult<bool> pipeline::prepare() {
       if (spec_.interval_m > 0.0 && len > kIntervalEps) {
         for (double dist = spec_.interval_m; dist < len - kIntervalEps; dist += spec_.interval_m) {
           const double t = std::clamp(dist / len, 0.0, 1.0);
-          inserts.push_back({t, {a.x + seg.x * t, a.y + seg.y * t, a.z + seg.z * t}, inserted_support});
+          inserts.push_back({t, {a.x + seg.x * t, a.y + seg.y * t, a.z + seg.z * t}, inserted_support, false});
         }
       }
       EditResult<std::size_t> avoid =
@@ -850,6 +851,13 @@ EditResult<bool> pipeline::prepare() {
         return d.x * d.x + d.y * d.y + d.z * d.z <= 1e-18;
       };
       for (const segment_insert& item : inserts) {
+        if (!unique_inserts.empty() && std::abs(unique_inserts.back().t - item.t) <= 1e-9 &&
+            unique_inserts.back().support == item.support) {
+          if (item.detour && !unique_inserts.back().detour) {
+            unique_inserts.back() = item;
+          }
+          continue;
+        }
         const bool duplicate = !unique_inserts.empty() && unique_inserts.back().support == item.support &&
                                same_point(unique_inserts.back().p, item.p);
         if (duplicate) {

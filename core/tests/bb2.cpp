@@ -1529,6 +1529,34 @@ bool C588_bb2_corner_avoid_detour_supported() {
   return out.ok && !out.value.generated_span_ids.empty();
 }
 
+bool C589_bb2_selected_bundle_policy_blocks_unselected_bundle() {
+  wire::core::CoreState state;
+  const auto base_out = state.GenerateFromBackboneSpec(line_req(state));
+  if (!base_out.ok || base_out.value.generated_span_ids.empty()) return false;
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = base_out.value.generated_span_ids.front();
+  pick.hit_pos_world = {6.0, 0.0, 0.0};
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kCommunication};
+  const auto resolved = state.ResolveBranchPick(pick, resolve);
+  if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) return false;
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.bundles.clear();
+  add_backbone_bundle(branch, wire::core::BundleKind::kLowVoltage);
+  add_backbone_bundle(branch, wire::core::BundleKind::kCommunication);
+  branch.path.polyline = {resolved.value.position, {6.0, 8.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  branch.path.node_specs = {node};
+  const auto out = state.GenerateFromBackboneSpec(branch);
+  if (!out.ok || out.value.bundle_ids.size() != 1 || out.value.generated_span_ids.empty()) return false;
+  const auto* bundle = state.view().bundles().find(out.value.bundle_ids.front());
+  return bundle != nullptr && bundle->bundle_template_id == wire::core::BundleKind::kCommunication;
+}
+
 bool C581_bb2_inactive_bundle_missing_band_is_ignored() {
   wire::core::CoreState state;
   wire::core::BackboneSpec base = line_req(state);
@@ -6402,6 +6430,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C588_bb2_corner_avoid_detour_supported",
                          "bb2 supports avoid detours at an internal route corner", "Boundary", false,
                          C588_bb2_corner_avoid_detour_supported);
+  test_registry::AddTest(tests, "C589_bb2_selected_bundle_policy_blocks_unselected_bundle",
+                         "bb2 selected-bundle midair policy blocks unselected request bundles", "Boundary", false,
+                         C589_bb2_selected_bundle_policy_blocks_unselected_bundle);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

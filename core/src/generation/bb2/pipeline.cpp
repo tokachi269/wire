@@ -1171,6 +1171,10 @@ EditResult<bool> pipeline::prepare() {
                                         [&](const SupportNodeBundleMode& mode) {
                                           return mode.bundle_template_id == bundle_template_id;
                                         });
+      if (!n.bundle_modes.empty() && mode_it == n.bundle_modes.end()) {
+        allowed = false;
+        break;
+      }
       if (mode_it != n.bundle_modes.end() && mode_it->mode == BundleNodeMode::kNotPresent) {
         allowed = false;
         break;

@@ -1099,6 +1099,7 @@ supported scenario:
 * pending support node は既存 topology ではなく現在の pick input であり、generation 後は新しい saved ownerless backbone node として保存する。
 * pending support node が bundle mode を持つ場合、`kNotPresent` の bundle は materialization 対象から外す。
 * pending support node が bundle mode を持つ場合、bundle mode に無い request bundle も materialization 対象から外す。selected bundle policy は選択 bundle だけを生成対象にする。
+* selected bundle template がある building / ground pick は pending ownerless surface node id を返し、後続 bb2 generation では選択 bundle だけを生成対象にする。
 * selected bundle policy で inactive になった bundle に `kPassThrough` node mode が指定された場合、no-op で無視せず unsupported にする。
 * selected bundle policy を持つ pending ownerless node が saved ownerless backbone node になった後も、その bundle policy は後続 continuation で保持する。
 * saved selected ownerless node からの continuation は route 方向に関係なく selected bundle だけを生成対象にする。
@@ -1115,6 +1116,7 @@ supported scenario:
 境界:
 
 * selected bundle template がある場合の midair branch policy は維持する。
+* selected bundle template がある surface pick policy も active bundle 選択にだけ使い、building / ground topology を pole や attachment 仕様から推測しない。
 * bundle mode は active bundle 選択にだけ使い、pair/open/row の正本には使わない。
 * saved ownerless node の bundle policy は SavedBackboneNode に保存する。後続 generation は span/layout/seed/position proximity から policy を復元しない。
 * source span は pick geometry の高さ補正にだけ使い、topology / pair / row / port identity を span/layout/seed から復元しない。

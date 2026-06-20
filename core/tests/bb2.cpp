@@ -5147,6 +5147,50 @@ bool C558_bb2_ground_pick_feeds_new_ground_route_point() {
   return false;
 }
 
+bool C597_bb2_selected_building_pick_generates_selected_bundle_only() {
+  wire::core::CoreState state;
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kBuilding;
+  pick.hit_id = wire::core::kInvalidObjectId;
+  pick.hit_pos_world = {12.0, 0.0, 6.0};
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kCommunication};
+  const auto resolved = state.ResolveBranchPick(pick, resolve);
+  if (!resolved.ok || resolved.value.support_kind != wire::core::SupportKind::kBuilding) {
+    return false;
+  }
+
+  wire::core::BackboneSpec req = poly3_req(state);
+  req.bundles.clear();
+  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
+  add_backbone_bundle(req, wire::core::BundleKind::kCommunication);
+  req.path.polyline = {{0.0, 0.0, 0.0}, resolved.value.position, {24.0, 0.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 1;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  req.path.node_specs = {node};
+  const auto out = state.GenerateFromBackboneSpec(req);
+  if (!out.ok || out.value.bundle_ids.size() != 1 || out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const auto* bundle = state.view().bundles().find(out.value.bundle_ids.front());
+  if (bundle == nullptr || bundle->bundle_template_id != wire::core::BundleKind::kCommunication) {
+    return false;
+  }
+  for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
+    const auto* span = state.view().spans().find(span_id);
+    if (span == nullptr) {
+      return false;
+    }
+    const auto* span_bundle = state.view().bundles().find(span->bundle_id);
+    if (span_bundle == nullptr || span_bundle->bundle_template_id != wire::core::BundleKind::kCommunication) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool C560_bb2_segment_pick_without_bundle_policy_feeds_midair_route_point() {
   wire::core::CoreState state;
   wire::core::PickResult pick{};
@@ -6712,6 +6756,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C596_bb2_avoid_point_at_explicit_new_support_is_noop",
                          "bb2 treats an avoid point exactly at an explicit new support as no-op", "Boundary", false,
                          C596_bb2_avoid_point_at_explicit_new_support_is_noop);
+  test_registry::AddTest(tests, "C597_bb2_selected_building_pick_generates_selected_bundle_only",
+                         "bb2 selected building picks generate selected bundles only", "Boundary", false,
+                         C597_bb2_selected_building_pick_generates_selected_bundle_only);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

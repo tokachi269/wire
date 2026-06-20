@@ -487,21 +487,63 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
     return has_endpoints;
   };
 
-  if (pick.hit_kind == PickHitKind::kBuilding) {
+  auto selected_bundle_modes = [&]() {
+    std::vector<SupportNodeBundleMode> modes{};
+    modes.reserve(selected_templates.size());
+    for (const SelectedTemplatePolicy& selected : selected_templates) {
+      SupportNodeBundleMode mode{};
+      mode.bundle_template_id = selected.id;
+      mode.mode = (!options.enforce_midair_template_policy || selected.allow_midair_path) ? BundleNodeMode::kPassThrough
+                                                                                           : BundleNodeMode::kNotPresent;
+      modes.push_back(mode);
+    }
+    std::sort(modes.begin(), modes.end(), [](const SupportNodeBundleMode& a, const SupportNodeBundleMode& b) {
+      return static_cast<int>(a.bundle_template_id) < static_cast<int>(b.bundle_template_id);
+    });
+    return modes;
+  };
+
+  auto resolve_ownerless_surface_pick = [&](SupportKind kind) {
+    if (options.enforce_midair_template_policy && !selected_templates.empty()) {
+      const bool any_allow_midair = std::any_of(selected_templates.begin(), selected_templates.end(),
+                                                [](const SelectedTemplatePolicy& selected) {
+                                                  return selected.allow_midair_path;
+                                                });
+      if (!any_allow_midair) {
+        result.error = "no selected bundle template allows midair branch";
+        return;
+      }
+    }
+
     result.value.resolution = PickBranchResolutionKind::kMidair;
-    result.value.resolved_node_id = kInvalidObjectId;
     result.value.position = pick.hit_pos_world;
-    result.value.support_kind = SupportKind::kBuilding;
+    result.value.support_kind = kind;
+    if (!selected_templates.empty() || options.create_midair_node_set) {
+      SupportNode node{};
+      node.node_id = debug_.next_virtual_support_node_id++;
+      node.support_kind = kind;
+      node.position = pick.hit_pos_world;
+      node.pole_id = kInvalidObjectId;
+      node.path_point_index = -1;
+      node.has_tangent_hint = false;
+      node.bundle_modes = selected_bundle_modes();
+      debug_.last_generation_support_nodes.push_back(node);
+      std::sort(debug_.last_generation_support_nodes.begin(), debug_.last_generation_support_nodes.end(),
+                [](const SupportNode& a, const SupportNode& b) { return a.node_id < b.node_id; });
+      result.value.resolved_node_id = node.node_id;
+    } else {
+      result.value.resolved_node_id = kInvalidObjectId;
+    }
     result.ok = true;
+  };
+
+  if (pick.hit_kind == PickHitKind::kBuilding) {
+    resolve_ownerless_surface_pick(SupportKind::kBuilding);
     return result;
   }
 
   if (pick.hit_kind == PickHitKind::kGround) {
-    result.value.resolution = PickBranchResolutionKind::kMidair;
-    result.value.resolved_node_id = kInvalidObjectId;
-    result.value.position = pick.hit_pos_world;
-    result.value.support_kind = SupportKind::kGround;
-    result.ok = true;
+    resolve_ownerless_surface_pick(SupportKind::kGround);
     return result;
   }
 

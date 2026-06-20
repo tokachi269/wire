@@ -1520,6 +1520,15 @@ bool C587_bb2_create_midair_node_without_selected_bundle_supported() {
   return out.ok && !out.value.generated_span_ids.empty();
 }
 
+bool C588_bb2_corner_avoid_detour_supported() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = poly3_req(state);
+  req.constraints.avoid_radius_m = 2.0;
+  req.constraints.avoid_points = {{12.0, 0.0, 0.0}};
+  const auto out = state.GenerateFromBackboneSpec(req);
+  return out.ok && !out.value.generated_span_ids.empty();
+}
+
 bool C581_bb2_inactive_bundle_missing_band_is_ignored() {
   wire::core::CoreState state;
   wire::core::BackboneSpec base = line_req(state);
@@ -6390,6 +6399,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C587_bb2_create_midair_node_without_selected_bundle_supported",
                          "bb2 creates explicit segment-pick midair nodes without selected bundle policy", "Boundary",
                          false, C587_bb2_create_midair_node_without_selected_bundle_supported);
+  test_registry::AddTest(tests, "C588_bb2_corner_avoid_detour_supported",
+                         "bb2 supports avoid detours at an internal route corner", "Boundary", false,
+                         C588_bb2_corner_avoid_detour_supported);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

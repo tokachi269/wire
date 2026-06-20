@@ -589,6 +589,39 @@ EditResult<std::size_t> avoid_detours_for_segment(const Vec3d& a, const Vec3d& b
   return out;
 }
 
+bool detour_internal_vertex(Vec3d prev, Vec3d current, Vec3d next, const std::vector<Vec3d>& points, double radius,
+                            Vec3d* out) {
+  if (points.empty() || radius <= 0.0) {
+    return false;
+  }
+  const double radius2 = radius * radius;
+  bool needs_detour = false;
+  for (const Vec3d& point : points) {
+    const Vec3d d = point - current;
+    if (d.x * d.x + d.y * d.y + d.z * d.z <= radius2) {
+      needs_detour = true;
+      break;
+    }
+  }
+  if (!needs_detour) {
+    return false;
+  }
+  Vec3d chord = next - prev;
+  if (!norm_strict(&chord)) {
+    chord = current - prev;
+    if (!norm_strict(&chord)) {
+      chord = next - current;
+      if (!norm_strict(&chord)) {
+        return false;
+      }
+    }
+  }
+  constexpr double kAvoidClearanceM = 0.5;
+  const Vec3d axis = side(chord);
+  *out = current + Vec3d{axis.x * (radius + kAvoidClearanceM), axis.y * (radius + kAvoidClearanceM), 0.0};
+  return true;
+}
+
 Vec3d mul(Vec3d v, double k) {
   return Vec3d{v.x * k, v.y * k, v.z * k};
 }
@@ -818,7 +851,15 @@ EditResult<bool> pipeline::prepare() {
     push_point(guide.front(), 0);
     for (std::size_t i = 0; i + 1 < guide.size(); ++i) {
       const Vec3d a = guide[i];
-      const Vec3d b = guide[i + 1];
+      Vec3d b = guide[i + 1];
+      if (i + 2 < guide.size() && spec_by_point.find(i + 1) == spec_by_point.end()) {
+        Vec3d detoured{};
+        if (detour_internal_vertex(guide[i], guide[i + 1], guide[i + 2], spec_.constraints.avoid_points,
+                                   spec_.constraints.avoid_radius_m, &detoured)) {
+          b = detoured;
+          guide[i + 1] = detoured;
+        }
+      }
       const SupportKind inserted_support = inserted_support_for_segment(i, i + 1);
       const Vec3d seg = b - a;
       constexpr double kIntervalEps = 1e-9;

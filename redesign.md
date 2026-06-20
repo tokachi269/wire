@@ -900,6 +900,7 @@ Scope contract:
 * 同じ source segment 上で同じ detour 位置になる duplicate avoid point は、1つの detour node に coalesce する。
 * `interval_m` と avoid detour が同じ segment にある場合、interval point と detour point は source segment 上の `t` 順で route に挿入する。
 * `interval_m` の挿入位置と avoid detour が同じ source `t` にある場合、obstacle 内の interval point は作らず detour node を優先する。
+* internal route vertex に positive avoid point が重なる場合、その vertex を upstream で deterministic detour point に置き換える。
 * `PortPlacementBand` preflight は materialize 対象の active bundle だけを検査する。
 * `pole_placement.pin_endpoints` と `pin_vertices` は newly generated pole にだけ適用する。
 * `BundleNodeMode::kNotPresent` は validation 後の no-op として受ける。

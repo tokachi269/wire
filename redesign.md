@@ -1097,6 +1097,9 @@ supported scenario:
 * pending support node が bundle mode を持つ場合、`kNotPresent` の bundle は materialization 対象から外す。
 * pending support node が bundle mode を持つ場合、bundle mode に無い request bundle も materialization 対象から外す。selected bundle policy は選択 bundle だけを生成対象にする。
 * selected bundle policy で inactive になった bundle に `kPassThrough` node mode が指定された場合、no-op で無視せず unsupported にする。
+* selected bundle policy を持つ pending ownerless node が saved ownerless backbone node になった後も、その bundle policy は後続 continuation で保持する。
+* saved selected ownerless node からの continuation は route 方向に関係なく selected bundle だけを生成対象にする。
+* saved selected ownerless node で inactive bundle の `kPassThrough` が指定された場合も、no-op 前に unsupported にする。
 * mixed selected bundle の midair branch は許可 bundle だけを生成し、全 bundle が disallowed の場合は成功 no-op とする。
 * segment pick の hit position が地面/投影点の z を持つ場合でも、source span が分かるなら midair route point の高さは source span の port 高さから決める。
 * source edge 上に作った saved ownerless node は source edge endpoint と `source_edge_t` を保持し、以後の branch generation では saved edge context を pair/open/row/placement 入力として読む。
@@ -1110,6 +1113,7 @@ supported scenario:
 
 * selected bundle template がある場合の midair branch policy は維持する。
 * bundle mode は active bundle 選択にだけ使い、pair/open/row の正本には使わない。
+* saved ownerless node の bundle policy は SavedBackboneNode に保存する。後続 generation は span/layout/seed/position proximity から policy を復元しない。
 * source span は pick geometry の高さ補正にだけ使い、topology / pair / row / port identity を span/layout/seed から復元しない。
 * source edge context link は generation/save target ではなく判断入力であり、saved edge を split したり context span/port を生成しない。
 * context node は saved graph node の support/source metadata を落とさず、pole 前提の local node へ潰さない。

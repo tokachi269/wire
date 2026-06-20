@@ -5,6 +5,7 @@
 
 #include "wire/core/entities.hpp"
 #include "wire/core/object_store.hpp"
+#include "wire/core/workflow_types.hpp"
 
 namespace wire::core {
 
@@ -17,6 +18,7 @@ struct SavedBackboneNode {
   ObjectId source_edge_node_a = kInvalidObjectId;
   ObjectId source_edge_node_b = kInvalidObjectId;
   double source_edge_t = 0.0;
+  std::vector<SupportNodeBundleMode> bundle_modes{};
 };
 
 struct SavedBackboneEdge {

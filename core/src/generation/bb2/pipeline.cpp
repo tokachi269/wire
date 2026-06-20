@@ -962,6 +962,7 @@ EditResult<bool> pipeline::prepare() {
           n.source_edge_node_a = saved->source_edge_node_a;
           n.source_edge_node_b = saved->source_edge_node_b;
           n.source_edge_t = saved->source_edge_t;
+          n.bundle_modes = saved->bundle_modes;
           g_.nodes.push_back(n);
           continue;
         }
@@ -1075,6 +1076,7 @@ EditResult<bool> pipeline::prepare() {
     n.source_edge_node_a = saved->source_edge_node_a;
     n.source_edge_node_b = saved->source_edge_node_b;
     n.source_edge_t = saved->source_edge_t;
+    n.bundle_modes = saved->bundle_modes;
     g_.nodes.push_back(n);
     local_by_saved[n.saved] = n.id;
     return n.id;
@@ -2065,7 +2067,8 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
     node_id_by_local[i] = (g_.nodes[i].saved != kInvalidObjectId)
                               ? g_.nodes[i].saved
                               : state_.save_backbone_node(made.poles[i], g_.nodes[i].pos, g_.nodes[i].support,
-                                                          source_a, source_b, g_.nodes[i].source_edge_t);
+                                                          source_a, source_b, g_.nodes[i].source_edge_t,
+                                                          g_.nodes[i].bundle_modes);
   }
 
   std::vector<SavedBackboneEdgeRef> edge_by_link(ps.links.size());

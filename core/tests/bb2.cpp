@@ -5241,6 +5241,78 @@ bool C598_bb2_selected_saved_building_node_pick_generates_selected_bundle_only()
   const auto* bundle = state.view().bundles().find(out.value.bundle_ids.front());
   return bundle != nullptr && bundle->bundle_template_id == wire::core::BundleKind::kCommunication;
 }
+bool C599_bb2_selected_saved_building_node_policy_persists_after_branch() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec first = poly3_req(state);
+  first.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 6.0}, {24.0, 0.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec building{};
+  building.point_index = 1;
+  building.support_kind = wire::core::SupportKind::kBuilding;
+  building.node_id = wire::core::kInvalidObjectId;
+  first.path.node_specs = {building};
+  const auto first_out = state.GenerateFromBackboneSpec(first);
+  if (!first_out.ok) {
+    return false;
+  }
+  const auto saved_building = std::find_if(state.view().backbone().nodes.begin(), state.view().backbone().nodes.end(),
+                                           [](const wire::core::SavedBackboneNode& n) {
+                                             return n.pole_id == wire::core::kInvalidObjectId &&
+                                                    n.support_kind == wire::core::SupportKind::kBuilding;
+                                           });
+  if (saved_building == state.view().backbone().nodes.end()) {
+    return false;
+  }
+  const wire::core::ObjectId saved_id = saved_building->node_id;
+  const wire::core::Vec3d saved_pos = saved_building->position;
+
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kNode;
+  pick.hit_id = saved_id;
+  pick.hit_pos_world = saved_pos;
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kCommunication};
+  const auto resolved = state.ResolveBranchPick(pick, resolve);
+  if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.bundles.clear();
+  add_backbone_bundle(branch, wire::core::BundleKind::kLowVoltage);
+  add_backbone_bundle(branch, wire::core::BundleKind::kCommunication);
+  branch.path.polyline = {resolved.value.position, {12.0, 10.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec pending{};
+  pending.point_index = 0;
+  pending.support_kind = resolved.value.support_kind;
+  pending.node_id = resolved.value.resolved_node_id;
+  branch.path.node_specs = {pending};
+  const auto branch_out = state.GenerateFromBackboneSpec(branch);
+  if (!branch_out.ok || branch_out.value.bundle_ids.size() != 1) {
+    return false;
+  }
+  const auto* saved_after_branch = state.view().backbone_node(saved_id);
+  if (saved_after_branch == nullptr ||
+      std::none_of(saved_after_branch->bundle_modes.begin(), saved_after_branch->bundle_modes.end(),
+                   [](const wire::core::SupportNodeBundleMode& mode) {
+                     return mode.bundle_template_id == wire::core::BundleKind::kCommunication;
+                   })) {
+    return false;
+  }
+
+  wire::core::BackboneSpec second = branch;
+  second.path.polyline = {saved_pos, {12.0, -10.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec existing{};
+  existing.point_index = 0;
+  existing.support_kind = wire::core::SupportKind::kBuilding;
+  existing.node_id = saved_id;
+  second.path.node_specs = {existing};
+  const auto out = state.GenerateFromBackboneSpec(second);
+  if (!out.ok || out.value.bundle_ids.size() != 1 || out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const auto* bundle = state.view().bundles().find(out.value.bundle_ids.front());
+  return bundle != nullptr && bundle->bundle_template_id == wire::core::BundleKind::kCommunication;
+}
 bool C560_bb2_segment_pick_without_bundle_policy_feeds_midair_route_point() {
   wire::core::CoreState state;
   wire::core::PickResult pick{};
@@ -6812,6 +6884,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C598_bb2_selected_saved_building_node_pick_generates_selected_bundle_only",
                          "bb2 selected saved building node picks generate selected bundles only", "Boundary", false,
                          C598_bb2_selected_saved_building_node_pick_generates_selected_bundle_only);
+  test_registry::AddTest(tests, "C599_bb2_selected_saved_building_node_policy_persists_after_branch",
+                         "bb2 selected saved building node policy persists after branch", "Boundary", false,
+                         C599_bb2_selected_saved_building_node_policy_persists_after_branch);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

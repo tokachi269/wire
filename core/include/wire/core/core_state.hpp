@@ -216,6 +216,8 @@ private:
                               ObjectId source_edge_node_b = kInvalidObjectId,
                               double source_edge_t = 0.0,
                               std::vector<SupportNodeBundleMode> bundle_modes = {});
+  EditResult<bool> bind_backbone_node_bundle_modes(ObjectId node_id,
+                                                   const std::vector<SupportNodeBundleMode>& bundle_modes);
   SavedBackboneEdgeRef save_backbone_edge(ObjectId node_a, ObjectId node_b, std::size_t route, std::size_t order,
                                           const Vec3d& dir);
   ObjectId bind_backbone_bundle(ObjectId edge_id, ObjectId bundle_id, bool edge_forward, std::size_t route,

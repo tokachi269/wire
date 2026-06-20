@@ -2089,11 +2089,17 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
   for (std::size_t i = 0; i < g_.nodes.size() && i < made.poles.size(); ++i) {
     const ObjectId source_a = saved_node_id_for(state_, g_.nodes[i].source_edge_node_a);
     const ObjectId source_b = saved_node_id_for(state_, g_.nodes[i].source_edge_node_b);
-    node_id_by_local[i] = (g_.nodes[i].saved != kInvalidObjectId)
-                              ? g_.nodes[i].saved
-                              : state_.save_backbone_node(made.poles[i], g_.nodes[i].pos, g_.nodes[i].support,
-                                                          source_a, source_b, g_.nodes[i].source_edge_t,
-                                                          g_.nodes[i].bundle_modes);
+    if (g_.nodes[i].saved != kInvalidObjectId) {
+      node_id_by_local[i] = g_.nodes[i].saved;
+      EditResult<bool> bound = state_.bind_backbone_node_bundle_modes(g_.nodes[i].saved, g_.nodes[i].bundle_modes);
+      if (!bound.ok) {
+        out.error = bound.error;
+        return out;
+      }
+      continue;
+    }
+    node_id_by_local[i] = state_.save_backbone_node(made.poles[i], g_.nodes[i].pos, g_.nodes[i].support, source_a,
+                                                    source_b, g_.nodes[i].source_edge_t, g_.nodes[i].bundle_modes);
   }
 
   std::vector<SavedBackboneEdgeRef> edge_by_link(ps.links.size());

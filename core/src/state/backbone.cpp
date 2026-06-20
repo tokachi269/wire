@@ -114,6 +114,47 @@ ObjectId CoreState::save_backbone_node(ObjectId pole_id, const Vec3d& position, 
   return node.node_id;
 }
 
+EditResult<bool> CoreState::bind_backbone_node_bundle_modes(
+    ObjectId node_id, const std::vector<SupportNodeBundleMode>& bundle_modes) {
+  EditResult<bool> out{};
+  if (bundle_modes.empty()) {
+    out.ok = true;
+    out.value = true;
+    return out;
+  }
+  auto node_it = std::find_if(authoritative_.backbone.nodes.begin(), authoritative_.backbone.nodes.end(),
+                              [&](const SavedBackboneNode& node) { return node.node_id == node_id; });
+  if (node_it == authoritative_.backbone.nodes.end()) {
+    out.error = "bb2 graph: saved node missing for bundle policy";
+    return out;
+  }
+  if (node_it->pole_id != kInvalidObjectId) {
+    out.error = "bb2 graph: pole node cannot carry bundle policy";
+    return out;
+  }
+  for (const SupportNodeBundleMode& mode : bundle_modes) {
+    const auto mode_it = std::find_if(node_it->bundle_modes.begin(), node_it->bundle_modes.end(),
+                                      [&](const SupportNodeBundleMode& existing) {
+                                        return existing.bundle_template_id == mode.bundle_template_id;
+                                      });
+    if (mode_it == node_it->bundle_modes.end()) {
+      node_it->bundle_modes.push_back(mode);
+      continue;
+    }
+    if (mode_it->mode != mode.mode) {
+      out.error = "bb2 graph: conflicting saved node bundle policy";
+      return out;
+    }
+  }
+  std::sort(node_it->bundle_modes.begin(), node_it->bundle_modes.end(),
+            [](const SupportNodeBundleMode& a, const SupportNodeBundleMode& b) {
+              return static_cast<int>(a.bundle_template_id) < static_cast<int>(b.bundle_template_id);
+            });
+  out.ok = true;
+  out.value = true;
+  return out;
+}
+
 SavedBackboneEdgeRef CoreState::save_backbone_edge(ObjectId node_a, ObjectId node_b, std::size_t route,
                                                    std::size_t order, const Vec3d& dir) {
   SavedBackboneEdgeRef out{};

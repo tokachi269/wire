@@ -1218,6 +1218,7 @@ supported scenario:
 * selected bundle がある状態で saved ownerless building node を node pick し、その node から branch を生成できる。
 * node pick でも selected bundle policy は pending support node に載せ、bb2 は saved backbone node context と bundle policy の両方を読む。
 * LV + Communication request でも selected Communication だけを materialize する。
+* selected policy は初回 branch 後も `SavedBackboneNode.bundle_modes` に bind され、同じ saved ownerless node からの後続 continuation でも保持される。
 
 境界:
 

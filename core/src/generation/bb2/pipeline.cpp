@@ -534,6 +534,12 @@ bool route_clear_of_avoid_points(const graph& made, const std::vector<Vec3d>& po
     if (!made.nodes.empty() && (same_point(point, made.nodes.front().pos) || same_point(point, made.nodes.back().pos))) {
       continue;
     }
+    const auto node_it = std::find_if(made.nodes.begin(), made.nodes.end(), [&](const node& n) {
+      return !n.is_new && same_point(point, n.pos);
+    });
+    if (node_it != made.nodes.end()) {
+      continue;
+    }
     for (const link& edge : made.links) {
       if (!edge.is_new || edge.a >= made.nodes.size() || edge.b >= made.nodes.size()) {
         continue;

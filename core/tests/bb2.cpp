@@ -1765,6 +1765,36 @@ bool C593_bb2_saved_selected_midair_rejects_inactive_pass_through() {
   return !out.ok && contains_text(out.error, "inactive");
 }
 
+bool C595_bb2_avoid_point_at_explicit_existing_support_is_noop() {
+  wire::core::CoreState state;
+  const auto base = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!base.ok || base.value.generated_pole_ids.size() != 3) {
+    return false;
+  }
+  const wire::core::ObjectId middle_id = base.value.generated_pole_ids[1];
+  const auto* middle = state.view().poles().find(middle_id);
+  if (middle == nullptr) {
+    return false;
+  }
+
+  wire::core::BackboneSpec req = line_req(state);
+  req.path.polyline = {{12.0, -8.0, 0.0}, middle->world_transform.position, {12.0, 8.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec existing{};
+  existing.point_index = 1;
+  existing.support_kind = wire::core::SupportKind::kPole;
+  existing.node_id = middle_id;
+  req.path.node_specs = {existing};
+  req.constraints.avoid_points = {middle->world_transform.position};
+  req.constraints.avoid_radius_m = 3.0;
+  const auto out = state.GenerateFromBackboneSpec(req);
+  if (!out.ok || out.value.generated_pole_ids.size() != 2 || out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const auto* same_middle = state.view().poles().find(middle_id);
+  return same_middle != nullptr && almost_equal(same_middle->world_transform.position.x, 12.0, 1e-9) &&
+         almost_equal(same_middle->world_transform.position.y, 0.0, 1e-9);
+}
+
 bool C581_bb2_inactive_bundle_missing_band_is_ignored() {
   wire::core::CoreState state;
   wire::core::BackboneSpec base = line_req(state);
@@ -6656,6 +6686,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C593_bb2_saved_selected_midair_rejects_inactive_pass_through",
                          "bb2 saved selected midair rejects inactive pass-through", "Boundary", false,
                          C593_bb2_saved_selected_midair_rejects_inactive_pass_through);
+  test_registry::AddTest(tests, "C595_bb2_avoid_point_at_explicit_existing_support_is_noop",
+                         "bb2 treats an avoid point exactly at an explicit existing support as no-op", "Boundary",
+                         false, C595_bb2_avoid_point_at_explicit_existing_support_is_noop);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

@@ -5365,6 +5365,73 @@ bool C600_bb2_selected_existing_pole_pick_generates_selected_bundle_only() {
   return saved_pole != nullptr && saved_pole->bundle_modes.empty();
 }
 
+bool C601_bb2_context_only_bundle_policy_does_not_filter_new_route() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec base = line_req(state);
+  const auto base_out = state.GenerateFromBackboneSpec(base);
+  if (!base_out.ok || base_out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const auto* source_span = state.view().spans().find(base_out.value.generated_span_ids.front());
+  if (source_span == nullptr) {
+    return false;
+  }
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = source_span->id;
+  pick.hit_pos_world = {6.0, 0.0, 4.0};
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kCommunication};
+  const auto resolved = state.ResolveBranchPick(pick, resolve);
+  if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.bundles.clear();
+  add_backbone_bundle(branch, wire::core::BundleKind::kLowVoltage);
+  add_backbone_bundle(branch, wire::core::BundleKind::kCommunication);
+  branch.path.polyline = {resolved.value.position, {6.0, 8.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec midair{};
+  midair.point_index = 0;
+  midair.support_kind = resolved.value.support_kind;
+  midair.node_id = resolved.value.resolved_node_id;
+  branch.path.node_specs = {midair};
+  const auto branch_out = state.GenerateFromBackboneSpec(branch);
+  if (!branch_out.ok || branch_out.value.generated_pole_ids.size() != 1 || branch_out.value.bundle_ids.size() != 1) {
+    return false;
+  }
+  const auto* branch_bundle = state.view().bundles().find(branch_out.value.bundle_ids.front());
+  if (branch_bundle == nullptr || branch_bundle->bundle_template_id != wire::core::BundleKind::kCommunication) {
+    return false;
+  }
+
+  const wire::core::ObjectId e = branch_out.value.generated_pole_ids.front();
+  const auto* pole = state.view().poles().find(e);
+  if (pole == nullptr) {
+    return false;
+  }
+  wire::core::BackboneSpec cont = line_req(state);
+  cont.bundles.clear();
+  add_backbone_bundle(cont, wire::core::BundleKind::kLowVoltage);
+  add_backbone_bundle(cont, wire::core::BundleKind::kCommunication);
+  cont.path.polyline = {pole->world_transform.position, {6.0, 16.0, 0.0}};
+  cont.path.node_specs = {pole_spec(0, e)};
+  const auto out = state.GenerateFromBackboneSpec(cont);
+  if (!out.ok || out.value.bundle_ids.size() != 2) {
+    return false;
+  }
+  std::unordered_set<wire::core::BundleKind> generated{};
+  for (wire::core::ObjectId bundle_id : out.value.bundle_ids) {
+    const auto* bundle = state.view().bundles().find(bundle_id);
+    if (bundle != nullptr) {
+      generated.insert(bundle->bundle_template_id);
+    }
+  }
+  return generated.contains(wire::core::BundleKind::kLowVoltage) &&
+         generated.contains(wire::core::BundleKind::kCommunication);
+}
+
 bool C560_bb2_segment_pick_without_bundle_policy_feeds_midair_route_point() {
   wire::core::CoreState state;
   wire::core::PickResult pick{};
@@ -6939,6 +7006,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C600_bb2_selected_existing_pole_pick_generates_selected_bundle_only",
                          "bb2 selected existing pole pick generates selected bundle only", "Boundary", false,
                          C600_bb2_selected_existing_pole_pick_generates_selected_bundle_only);
+  test_registry::AddTest(tests, "C601_bb2_context_only_bundle_policy_does_not_filter_new_route",
+                         "bb2 context-only selected bundle policy does not filter new route bundles",
+                         "Boundary", false, C601_bb2_context_only_bundle_policy_does_not_filter_new_route);
   test_registry::AddTest(tests, "C599_bb2_selected_saved_building_node_policy_persists_after_branch",
                          "bb2 selected saved building node policy persists after branch", "Boundary", false,
                          C599_bb2_selected_saved_building_node_policy_persists_after_branch);

@@ -1202,7 +1202,8 @@ EditResult<bool> pipeline::prepare() {
   for (std::size_t bundle_index = 0; bundle_index < spec_.bundles.size(); ++bundle_index) {
     bool allowed = true;
     const BundleKind bundle_template_id = spec_.bundles[bundle_index].bundle_template_id;
-    for (const node& n : g_.nodes) {
+    for (std::size_t node_index = 0; node_index < route_node_count && node_index < g_.nodes.size(); ++node_index) {
+      const node& n = g_.nodes[node_index];
       const auto mode_it = std::find_if(n.bundle_modes.begin(), n.bundle_modes.end(),
                                         [&](const SupportNodeBundleMode& mode) {
                                           return mode.bundle_template_id == bundle_template_id;

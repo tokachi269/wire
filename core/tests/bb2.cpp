@@ -5545,6 +5545,34 @@ bool C605_bb2_find_backbone_route_uses_saved_ownerless_graph() {
   return route.size() == 2 && route.front() == saved_midair->node_id && route.back() == out.value.generated_pole_ids.back();
 }
 
+bool C606_bb2_build_backbone_result_exposes_saved_ownerless_node() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = poly3_req(state);
+  req.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 8.0}, {24.0, 0.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec midair{};
+  midair.point_index = 1;
+  midair.support_kind = wire::core::SupportKind::kMidair;
+  req.path.node_specs = {midair};
+  const auto out = state.GenerateFromBackboneSpec(req);
+  if (!out.ok) {
+    return false;
+  }
+  const auto saved = std::find_if(state.view().backbone().nodes.begin(), state.view().backbone().nodes.end(),
+                                  [](const wire::core::SavedBackboneNode& node) {
+                                    return node.pole_id == wire::core::kInvalidObjectId &&
+                                           node.support_kind == wire::core::SupportKind::kMidair;
+                                  });
+  if (saved == state.view().backbone().nodes.end()) {
+    return false;
+  }
+  const wire::core::BackboneResult result = state.BuildBackboneResult();
+  const auto node = std::find_if(result.nodes.begin(), result.nodes.end(), [&](const wire::core::SupportNode& item) {
+    return item.node_id == saved->node_id && item.support_kind == wire::core::SupportKind::kMidair &&
+           item.pole_id == wire::core::kInvalidObjectId;
+  });
+  return node != result.nodes.end() && almost_equal(node->position, saved->position, 1e-9);
+}
+
 bool C560_bb2_segment_pick_without_bundle_policy_feeds_midair_route_point() {
   wire::core::CoreState state;
   wire::core::PickResult pick{};
@@ -7134,6 +7162,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C605_bb2_find_backbone_route_uses_saved_ownerless_graph",
                          "bb2 route queries use saved ownerless backbone graph", "Boundary", false,
                          C605_bb2_find_backbone_route_uses_saved_ownerless_graph);
+  test_registry::AddTest(tests, "C606_bb2_build_backbone_result_exposes_saved_ownerless_node",
+                         "bb2 BuildBackboneResult exposes saved ownerless nodes", "Boundary", false,
+                         C606_bb2_build_backbone_result_exposes_saved_ownerless_node);
   test_registry::AddTest(tests, "C599_bb2_selected_saved_building_node_policy_persists_after_branch",
                          "bb2 selected saved building node policy persists after branch", "Boundary", false,
                          C599_bb2_selected_saved_building_node_policy_persists_after_branch);

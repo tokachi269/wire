@@ -818,8 +818,50 @@ BackboneResult CoreState::BuildBackboneResult() const {
     return (port == nullptr) ? Vec3d{} : port->world_position;
   };
   out.edge_orientations = debug_.last_generation_edge_orientations;
-  if (!debug_.last_generation_support_nodes.empty()) {
+  const bool has_saved_backbone = !authoritative_.backbone.nodes.empty() || !authoritative_.backbone.edges.empty();
+  if (!debug_.last_generation_support_nodes.empty() || has_saved_backbone) {
     out.nodes = debug_.last_generation_support_nodes;
+    out.nodes.reserve(out.nodes.size() + authoritative_.backbone.nodes.size());
+    for (const SavedBackboneNode& saved_node : authoritative_.backbone.nodes) {
+      if (saved_node.node_id == kInvalidObjectId) {
+        continue;
+      }
+      SupportNode node{};
+      node.node_id = saved_node.node_id;
+      node.support_kind = saved_node.support_kind;
+      node.position = saved_node.position;
+      node.pole_id = saved_node.pole_id;
+      node.saved_backbone_node_id = saved_node.node_id;
+      node.has_source_edge = saved_node.has_source_edge;
+      node.source_edge_node_a_id = saved_node.source_edge_node_a;
+      node.source_edge_node_b_id = saved_node.source_edge_node_b;
+      node.source_edge_t = saved_node.source_edge_t;
+      node.bundle_modes = saved_node.bundle_modes;
+      out.nodes.push_back(std::move(node));
+    }
+
+    std::unordered_map<ObjectId, std::vector<ObjectId>> bundles_by_saved_edge{};
+    for (const SavedBackboneEdgeBundle& edge_bundle : authoritative_.backbone.edge_bundles) {
+      if (edge_bundle.edge_id == kInvalidObjectId || edge_bundle.bundle_id == kInvalidObjectId) {
+        continue;
+      }
+      bundles_by_saved_edge[edge_bundle.edge_id].push_back(edge_bundle.bundle_id);
+    }
+    out.edges.reserve(authoritative_.backbone.edges.size());
+    for (const SavedBackboneEdge& saved_edge : authoritative_.backbone.edges) {
+      if (saved_edge.edge_id == kInvalidObjectId || saved_edge.node_a == kInvalidObjectId ||
+          saved_edge.node_b == kInvalidObjectId || saved_edge.node_a == saved_edge.node_b) {
+        continue;
+      }
+      BackboneEdge edge{};
+      edge.node_a = saved_edge.node_a;
+      edge.node_b = saved_edge.node_b;
+      if (const auto it_bundles = bundles_by_saved_edge.find(saved_edge.edge_id); it_bundles != bundles_by_saved_edge.end()) {
+        edge.bundles = it_bundles->second;
+      }
+      out.edges.push_back(std::move(edge));
+    }
+
     // Merge in span-derived pole edges so BuildBackboneResult observes full-network continuity across sessions.
     const std::vector<BackboneEdge> pole_edges = BuildBackboneEdges();
     out.edges.insert(out.edges.end(), pole_edges.begin(), pole_edges.end());

@@ -114,6 +114,17 @@ ObjectId CoreState::save_backbone_node(ObjectId pole_id, const Vec3d& position, 
   return node.node_id;
 }
 
+void CoreState::publish_backbone_result_nodes(std::vector<SupportNode> nodes) {
+  nodes.erase(std::remove_if(nodes.begin(), nodes.end(), [](const SupportNode& node) {
+                return node.node_id == kInvalidObjectId;
+              }),
+              nodes.end());
+  std::sort(nodes.begin(), nodes.end(), [](const SupportNode& lhs, const SupportNode& rhs) {
+    return lhs.node_id < rhs.node_id;
+  });
+  debug_.last_generation_support_nodes = std::move(nodes);
+}
+
 EditResult<bool> CoreState::bind_backbone_node_bundle_modes(
     ObjectId node_id, const std::vector<SupportNodeBundleMode>& bundle_modes) {
   EditResult<bool> out{};
@@ -920,6 +931,31 @@ BackboneResult CoreState::BuildBackboneResult() const {
     node_by_id.reserve(out.nodes.size() + out.edges.size() * 2);
     for (const SupportNode& node : out.nodes) {
       if (node.node_id == kInvalidObjectId) {
+        continue;
+      }
+      if (const auto it_existing = node_by_id.find(node.node_id); it_existing != node_by_id.end()) {
+        SupportNode merged = node;
+        const SupportNode& existing = it_existing->second;
+        if (merged.path_point_index < 0) {
+          merged.path_point_index = existing.path_point_index;
+        }
+        if (!merged.has_tangent_hint && existing.has_tangent_hint) {
+          merged.has_tangent_hint = true;
+          merged.tangent_hint = existing.tangent_hint;
+        }
+        if (merged.saved_backbone_node_id == kInvalidObjectId) {
+          merged.saved_backbone_node_id = existing.saved_backbone_node_id;
+        }
+        if (!merged.has_source_edge && existing.has_source_edge) {
+          merged.has_source_edge = true;
+          merged.source_edge_node_a_id = existing.source_edge_node_a_id;
+          merged.source_edge_node_b_id = existing.source_edge_node_b_id;
+          merged.source_edge_t = existing.source_edge_t;
+        }
+        if (merged.bundle_modes.empty() && !existing.bundle_modes.empty()) {
+          merged.bundle_modes = existing.bundle_modes;
+        }
+        it_existing->second = std::move(merged);
         continue;
       }
       node_by_id[node.node_id] = node;

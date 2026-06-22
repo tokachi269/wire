@@ -5573,6 +5573,52 @@ bool C606_bb2_build_backbone_result_exposes_saved_ownerless_node() {
   return node != result.nodes.end() && almost_equal(node->position, saved->position, 1e-9);
 }
 
+
+bool C607_bb2_build_backbone_result_preserves_saved_ownerless_route_index() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec first = poly3_req(state);
+  first.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 6.0}, {20.0, 0.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec midair{};
+  midair.point_index = 1;
+  midair.support_kind = wire::core::SupportKind::kMidair;
+  first.path.node_specs = {midair};
+  const auto out1 = state.GenerateFromBackboneSpec(first);
+  if (!out1.ok) {
+    return false;
+  }
+  const wire::core::BackboneResult first_result = state.BuildBackboneResult();
+  const auto first_midair = std::find_if(first_result.nodes.begin(), first_result.nodes.end(),
+                                         [](const wire::core::SupportNode& node) {
+                                           return node.support_kind == wire::core::SupportKind::kMidair &&
+                                                  node.pole_id == wire::core::kInvalidObjectId &&
+                                                  node.path_point_index == 1;
+                                         });
+  if (first_midair == first_result.nodes.end() || first_midair->node_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec second = line_req(state);
+  second.path.polyline = {first_midair->position, {10.0, 12.0, 6.0}};
+  wire::core::BackboneInputSpec::NodeSpec reused{};
+  reused.point_index = 0;
+  reused.support_kind = wire::core::SupportKind::kMidair;
+  reused.node_id = first_midair->node_id;
+  second.path.node_specs = {reused};
+  const auto out2 = state.GenerateFromBackboneSpec(second);
+  if (!out2.ok) {
+    return false;
+  }
+  const wire::core::BackboneResult second_result = state.BuildBackboneResult();
+  const auto reused_midair = std::find_if(second_result.nodes.begin(), second_result.nodes.end(),
+                                          [&](const wire::core::SupportNode& node) {
+                                            return node.node_id == first_midair->node_id &&
+                                                   node.support_kind == wire::core::SupportKind::kMidair &&
+                                                   node.path_point_index == 0;
+                                          });
+  return reused_midair != second_result.nodes.end();
+}
+
+
 bool C560_bb2_segment_pick_without_bundle_policy_feeds_midair_route_point() {
   wire::core::CoreState state;
   wire::core::PickResult pick{};
@@ -7162,6 +7208,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C605_bb2_find_backbone_route_uses_saved_ownerless_graph",
                          "bb2 route queries use saved ownerless backbone graph", "Boundary", false,
                          C605_bb2_find_backbone_route_uses_saved_ownerless_graph);
+  test_registry::AddTest(tests, "C607_bb2_build_backbone_result_preserves_saved_ownerless_route_index",
+                         "bb2 BuildBackboneResult preserves saved ownerless route index", "Boundary", false,
+                         C607_bb2_build_backbone_result_preserves_saved_ownerless_route_index);
   test_registry::AddTest(tests, "C606_bb2_build_backbone_result_exposes_saved_ownerless_node",
                          "bb2 BuildBackboneResult exposes saved ownerless nodes", "Boundary", false,
                          C606_bb2_build_backbone_result_exposes_saved_ownerless_node);

@@ -620,6 +620,29 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
         result.value.resolved_node_id = node.node_id;
         result.value.position = node.position;
       }
+      if (result.value.support_kind == SupportKind::kPole) {
+        const Pole* pole = authoritative_.edit_state.poles.find(pick.hit_id);
+        if (pole != nullptr) {
+          SupportNode node{};
+          node.node_id = debug_.next_virtual_support_node_id++;
+          node.support_kind = SupportKind::kPole;
+          node.position = pole->world_transform.position;
+          node.pole_id = pole->id;
+          const auto saved_pole_it =
+              std::find_if(authoritative_.backbone.nodes.begin(), authoritative_.backbone.nodes.end(),
+                           [&](const SavedBackboneNode& saved) { return saved.pole_id == pole->id; });
+          if (saved_pole_it != authoritative_.backbone.nodes.end()) {
+            node.saved_backbone_node_id = saved_pole_it->node_id;
+          }
+          node.path_point_index = -1;
+          node.bundle_modes = selected_bundle_modes();
+          debug_.last_generation_support_nodes.push_back(node);
+          std::sort(debug_.last_generation_support_nodes.begin(), debug_.last_generation_support_nodes.end(),
+                    [](const SupportNode& a, const SupportNode& b) { return a.node_id < b.node_id; });
+          result.value.resolved_node_id = node.node_id;
+          result.value.position = node.position;
+        }
+      }
     }
     result.ok = true;
     return result;

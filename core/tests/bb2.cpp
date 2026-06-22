@@ -5313,6 +5313,58 @@ bool C599_bb2_selected_saved_building_node_policy_persists_after_branch() {
   const auto* bundle = state.view().bundles().find(out.value.bundle_ids.front());
   return bundle != nullptr && bundle->bundle_template_id == wire::core::BundleKind::kCommunication;
 }
+
+bool C600_bb2_selected_existing_pole_pick_generates_selected_bundle_only() {
+  wire::core::CoreState state;
+  const auto base = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!base.ok || base.value.generated_pole_ids.size() != 3) {
+    return false;
+  }
+  const wire::core::ObjectId b = base.value.generated_pole_ids[1];
+  const auto* pole = state.view().poles().find(b);
+  if (pole == nullptr) {
+    return false;
+  }
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kNode;
+  pick.hit_id = b;
+  pick.hit_pos_world = pole->world_transform.position;
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kCommunication};
+  const auto resolved = state.ResolveBranchPick(pick, resolve);
+  if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.bundles.clear();
+  add_backbone_bundle(branch, wire::core::BundleKind::kLowVoltage);
+  add_backbone_bundle(branch, wire::core::BundleKind::kCommunication);
+  branch.path.polyline = {resolved.value.position, {12.0, 12.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  branch.path.node_specs = {node};
+  const auto out = state.GenerateFromBackboneSpec(branch);
+  if (!out.ok || out.value.bundle_ids.size() != 1 || out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const auto* bundle = state.view().bundles().find(out.value.bundle_ids.front());
+  if (bundle == nullptr || bundle->bundle_template_id != wire::core::BundleKind::kCommunication) {
+    return false;
+  }
+  for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
+    const auto* span = state.view().spans().find(span_id);
+    const auto* span_bundle = span == nullptr ? nullptr : state.view().bundles().find(span->bundle_id);
+    if (span_bundle == nullptr || span_bundle->bundle_template_id != wire::core::BundleKind::kCommunication) {
+      return false;
+    }
+  }
+  const auto* saved_pole = state.view().backbone_node_for_pole(b);
+  return saved_pole != nullptr && saved_pole->bundle_modes.empty();
+}
+
 bool C560_bb2_segment_pick_without_bundle_policy_feeds_midair_route_point() {
   wire::core::CoreState state;
   wire::core::PickResult pick{};
@@ -6884,6 +6936,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C598_bb2_selected_saved_building_node_pick_generates_selected_bundle_only",
                          "bb2 selected saved building node picks generate selected bundles only", "Boundary", false,
                          C598_bb2_selected_saved_building_node_pick_generates_selected_bundle_only);
+  test_registry::AddTest(tests, "C600_bb2_selected_existing_pole_pick_generates_selected_bundle_only",
+                         "bb2 selected existing pole pick generates selected bundle only", "Boundary", false,
+                         C600_bb2_selected_existing_pole_pick_generates_selected_bundle_only);
   test_registry::AddTest(tests, "C599_bb2_selected_saved_building_node_policy_persists_after_branch",
                          "bb2 selected saved building node policy persists after branch", "Boundary", false,
                          C599_bb2_selected_saved_building_node_policy_persists_after_branch);

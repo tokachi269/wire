@@ -1225,3 +1225,6 @@ supported scenario:
 * selected policy は active bundle 選択にだけ使い、pair/open/row を変えない。
 * saved ownerless node context は SavedBackboneGraph から読む。
 * span/layout/seed/position proximity から topology や bundle policy を復元しない。
+### C600 selected existing pole pick
+
+bb2 treats selected bundle policy on an existing pole pick as transient route input. `ResolveBranchPick` may return a pending pole `SupportNode` carrying the selected bundle modes so the current `GenerateFromBackboneSpec` call materializes only the selected bundle. The policy is not stored on the saved pole backbone node; pole-backed `SavedBackboneNode.bundle_modes` remains empty. Ownerless saved nodes still persist bundle policy because they are route attachment identities, not ordinary pole topology nodes.

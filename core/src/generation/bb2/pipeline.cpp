@@ -1026,14 +1026,23 @@ EditResult<bool> pipeline::prepare() {
         g_.nodes.push_back(n);
         continue;
       }
-      const Pole* pole = state_.view().poles().find(spec_it->second->node_id);
+      const SupportNode* pending_pole = state_.view().pending_support_node(spec_it->second->node_id);
+      ObjectId pole_id = spec_it->second->node_id;
+      if (pending_pole != nullptr && pending_pole->support_kind == SupportKind::kPole &&
+          pending_pole->pole_id != kInvalidObjectId) {
+        pole_id = pending_pole->pole_id;
+        n.bundle_modes = pending_pole->bundle_modes;
+      }
+      const Pole* pole = state_.view().poles().find(pole_id);
       if (pole == nullptr) {
         out.error = "bb2 unsupported: node spec pole not found";
         return out;
       }
       n.pole = pole->id;
       n.pos = pole->world_transform.position;
-      if (const SavedBackboneNode* saved = state_.view().backbone_node_for_pole(pole->id); saved != nullptr) {
+      if (pending_pole != nullptr && pending_pole->saved_backbone_node_id != kInvalidObjectId) {
+        n.saved = pending_pole->saved_backbone_node_id;
+      } else if (const SavedBackboneNode* saved = state_.view().backbone_node_for_pole(pole->id); saved != nullptr) {
         n.saved = saved->node_id;
       } else {
         out.error = "bb2 unsupported: saved backbone graph missing for existing pole";
@@ -2091,10 +2100,12 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
     const ObjectId source_b = saved_node_id_for(state_, g_.nodes[i].source_edge_node_b);
     if (g_.nodes[i].saved != kInvalidObjectId) {
       node_id_by_local[i] = g_.nodes[i].saved;
-      EditResult<bool> bound = state_.bind_backbone_node_bundle_modes(g_.nodes[i].saved, g_.nodes[i].bundle_modes);
-      if (!bound.ok) {
-        out.error = bound.error;
-        return out;
+      if (g_.nodes[i].pole == kInvalidObjectId) {
+        EditResult<bool> bound = state_.bind_backbone_node_bundle_modes(g_.nodes[i].saved, g_.nodes[i].bundle_modes);
+        if (!bound.ok) {
+          out.error = bound.error;
+          return out;
+        }
       }
       continue;
     }

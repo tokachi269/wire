@@ -588,13 +588,26 @@ EditResult<std::size_t> avoid_detours_for_segment(const Vec3d& a, const Vec3d& b
   }
   const Vec3d detour_axis = side(dir);
   constexpr double kAvoidClearanceM = 0.5;
-  const double detour = radius + kAvoidClearanceM;
   for (const Vec3d& p : points) {
     const double t = ((p.x - a.x) * ab.x + (p.y - a.y) * ab.y + (p.z - a.z) * ab.z) / len2;
     if (t <= 1e-6 || t >= 1.0 - 1e-6 || dist2_to_segment(p, a, b) > radius * radius) {
       continue;
     }
     const Vec3d closest = {a.x + ab.x * t, a.y + ab.y * t, a.z + ab.z * t};
+    const double len_m = std::sqrt(len2);
+    const double before_m = t * len_m;
+    const double after_m = (1.0 - t) * len_m;
+    if (radius >= before_m || radius >= after_m) {
+      out.error = "bb2 unsupported: avoid radius reaches a fixed route endpoint";
+      return out;
+    }
+    double clearance = radius + kAvoidClearanceM;
+    clearance = std::min(clearance, std::min(before_m, after_m) - 1e-6);
+    auto required_detour = [&](double along_m) {
+      const double denom2 = along_m * along_m - clearance * clearance;
+      return denom2 > 1e-12 ? (clearance * along_m) / std::sqrt(denom2) : along_m + radius + kAvoidClearanceM;
+    };
+    const double detour = std::max(required_detour(before_m), required_detour(after_m));
     if (inserts != nullptr) {
       inserts->push_back(
           {t, closest + Vec3d{detour_axis.x * detour, detour_axis.y * detour, 0.0}, inserted_support, true});

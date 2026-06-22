@@ -5499,6 +5499,28 @@ bool C603_bb2_context_node_does_not_affect_generated_endpoint_yaw() {
   return endpoint != nullptr && almost_equal(endpoint->world_transform.rotation_euler_deg.z, 90.0, 1e-6);
 }
 
+bool C604_bb2_large_avoid_detour_clears_radius() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = line_req(state);
+  req.constraints.avoid_points = {{6.0, 0.0, 0.0}};
+  req.constraints.avoid_radius_m = 4.0;
+  const auto out = state.GenerateFromBackboneSpec(req);
+  if (!out.ok || out.value.generated_pole_ids.size() != 3) {
+    return false;
+  }
+  for (wire::core::ObjectId pole_id : out.value.generated_pole_ids) {
+    const auto* pole = state.view().poles().find(pole_id);
+    if (pole == nullptr) {
+      return false;
+    }
+    const wire::core::Vec3d d = pole->world_transform.position - wire::core::Vec3d{6.0, 0.0, 0.0};
+    if (d.x * d.x + d.y * d.y + d.z * d.z <= 16.0) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool C560_bb2_segment_pick_without_bundle_policy_feeds_midair_route_point() {
   wire::core::CoreState state;
   wire::core::PickResult pick{};
@@ -7082,6 +7104,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C603_bb2_context_node_does_not_affect_generated_endpoint_yaw",
                          "bb2 context nodes do not affect generated endpoint pole yaw",
                          "Boundary", false, C603_bb2_context_node_does_not_affect_generated_endpoint_yaw);
+  test_registry::AddTest(tests, "C604_bb2_large_avoid_detour_clears_radius",
+                         "bb2 large avoid detours clear the requested radius", "Boundary", false,
+                         C604_bb2_large_avoid_detour_clears_radius);
   test_registry::AddTest(tests, "C599_bb2_selected_saved_building_node_policy_persists_after_branch",
                          "bb2 selected saved building node policy persists after branch", "Boundary", false,
                          C599_bb2_selected_saved_building_node_policy_persists_after_branch);

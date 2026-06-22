@@ -1240,3 +1240,7 @@ bb2 does not let a context-only pole's `PortPlacementBand` availability reject a
 ### C603 route-local generated pole yaw
 
 Generated pole yaw in bb2 is derived from the materialized route links, not from adjacent entries in the internal graph node vector. Context-only nodes may be present for pair/open/row decisions, but they do not affect the visual orientation of newly generated route poles.
+
+### C604 large avoid detour radius
+
+bb2 supports deterministic avoid detours whose radius is larger than the simple `radius + clearance` offset can satisfy. The detour offset is chosen so the two generated adjacent route segments clear the requested radius. If the avoid radius reaches a fixed route endpoint, bb2 rejects the request instead of moving the endpoint or using downstream geometry repair.

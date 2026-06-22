@@ -5476,6 +5476,29 @@ bool C602_bb2_context_only_pole_band_does_not_filter_new_route() {
                        static_cast<std::size_t>(bundle_count(state, wire::core::BundleKind::kLowVoltage));
 }
 
+bool C603_bb2_context_node_does_not_affect_generated_endpoint_yaw() {
+  wire::core::CoreState state;
+  const auto base = state.GenerateFromBackboneSpec(line_req(state));
+  if (!base.ok || base.value.generated_pole_ids.size() != 2) {
+    return false;
+  }
+  const wire::core::ObjectId a = base.value.generated_pole_ids[0];
+  const auto* pole_a = state.view().poles().find(a);
+  if (pole_a == nullptr) {
+    return false;
+  }
+
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {pole_a->world_transform.position, {0.0, 8.0, 0.0}};
+  branch.path.node_specs = {pole_spec(0, a)};
+  const auto out = state.GenerateFromBackboneSpec(branch);
+  if (!out.ok || out.value.generated_pole_ids.size() != 1) {
+    return false;
+  }
+  const auto* endpoint = state.view().poles().find(out.value.generated_pole_ids.front());
+  return endpoint != nullptr && almost_equal(endpoint->world_transform.rotation_euler_deg.z, 90.0, 1e-6);
+}
+
 bool C560_bb2_segment_pick_without_bundle_policy_feeds_midair_route_point() {
   wire::core::CoreState state;
   wire::core::PickResult pick{};
@@ -7056,6 +7079,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C602_bb2_context_only_pole_band_does_not_filter_new_route",
                          "bb2 context-only pole bands do not filter new route bundles",
                          "Boundary", false, C602_bb2_context_only_pole_band_does_not_filter_new_route);
+  test_registry::AddTest(tests, "C603_bb2_context_node_does_not_affect_generated_endpoint_yaw",
+                         "bb2 context nodes do not affect generated endpoint pole yaw",
+                         "Boundary", false, C603_bb2_context_node_does_not_affect_generated_endpoint_yaw);
   test_registry::AddTest(tests, "C599_bb2_selected_saved_building_node_policy_persists_after_branch",
                          "bb2 selected saved building node policy persists after branch", "Boundary", false,
                          C599_bb2_selected_saved_building_node_policy_persists_after_branch);

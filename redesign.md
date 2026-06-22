@@ -1236,3 +1236,7 @@ bb2 does not let bundle policy stored on a context-only saved node filter the bu
 ### C602 context-only pole band boundary
 
 bb2 does not let a context-only pole's `PortPlacementBand` availability reject a later materialized route. Port band preflight is limited to route nodes that will own generated ports. Context poles remain connectivity/placement inputs and do not become port placement prerequisites for unrelated new links.
+
+### C603 route-local generated pole yaw
+
+Generated pole yaw in bb2 is derived from the materialized route links, not from adjacent entries in the internal graph node vector. Context-only nodes may be present for pair/open/row decisions, but they do not affect the visual orientation of newly generated route poles.

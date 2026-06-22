@@ -1586,11 +1586,24 @@ EditResult<bool> pipeline::emit_poles(topo* made, ChangeSet* changes) {
     }
     Transformd tf{};
     tf.position = g_.nodes[i].pos;
-    const Vec3d next = (i + 1 < g_.nodes.size()) ? g_.nodes[i + 1].pos : g_.nodes[i].pos;
-    const Vec3d prev = (i > 0) ? g_.nodes[i - 1].pos : g_.nodes[i].pos;
+    std::size_t prev_index = bad;
+    std::size_t next_index = bad;
+    for (const link& edge : g_.links) {
+      if (!edge.is_new) {
+        continue;
+      }
+      if (edge.b == i) {
+        prev_index = edge.a;
+      }
+      if (edge.a == i) {
+        next_index = edge.b;
+      }
+    }
+    const Vec3d next = (next_index != bad && next_index < g_.nodes.size()) ? g_.nodes[next_index].pos : g_.nodes[i].pos;
+    const Vec3d prev = (prev_index != bad && prev_index < g_.nodes.size()) ? g_.nodes[prev_index].pos : g_.nodes[i].pos;
     const Vec3d dir = g_.nodes[i].has_tangent ? g_.nodes[i].tangent
-                                               : ((i + 1 < g_.nodes.size()) ? (next - g_.nodes[i].pos)
-                                                                            : (g_.nodes[i].pos - prev));
+                                               : ((next_index != bad) ? (next - g_.nodes[i].pos)
+                                                                      : (g_.nodes[i].pos - prev));
     tf.rotation_euler_deg.z = yaw(dir);
     EditResult<ObjectId> pole = state_.AddPole(tf, 10.0, "bb2-pole", PoleKind::kConcrete,
                                                g_.nodes[i].pinned ? PlacementMode::kManual : PlacementMode::kAuto);

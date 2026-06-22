@@ -1232,3 +1232,7 @@ bb2 treats selected bundle policy on an existing pole pick as transient route in
 ### C601 context-only bundle policy boundary
 
 bb2 does not let bundle policy stored on a context-only saved node filter the bundles of a later materialized route. Context nodes remain pair/open/row inputs, but active bundle selection is based on the current route nodes only. This keeps a selected-bundle midair branch from accidentally suppressing LV/Communication generation on a later continuation from the generated endpoint pole.
+
+### C602 context-only pole band boundary
+
+bb2 does not let a context-only pole's `PortPlacementBand` availability reject a later materialized route. Port band preflight is limited to route nodes that will own generated ports. Context poles remain connectivity/placement inputs and do not become port placement prerequisites for unrelated new links.

@@ -384,6 +384,9 @@ bool has_band(const PoleTypeDefinition& pole_type, const spec_view& spec) {
 EditResult<bool> check_port_bands(const CoreState& state, const graph& made, const BackboneSpec& spec,
                                   const std::vector<std::size_t>& active_bundle_indices) {
   for (const node& item : made.nodes) {
+    if (!item.on_route) {
+      continue;
+    }
     if (item.support == SupportKind::kMidair || item.support == SupportKind::kBuilding ||
         item.support == SupportKind::kGround) {
       continue;
@@ -942,6 +945,7 @@ EditResult<bool> pipeline::prepare() {
     n.id = i;
     n.pos = pts[i];
     n.support = support_by_local[i];
+    n.on_route = true;
     const std::size_t guide_index = guide_by_local[i];
     if (guide_index != bad) {
       const bool endpoint = guide_index == 0 || guide_index + 1 == guide.size();
@@ -1202,8 +1206,10 @@ EditResult<bool> pipeline::prepare() {
   for (std::size_t bundle_index = 0; bundle_index < spec_.bundles.size(); ++bundle_index) {
     bool allowed = true;
     const BundleKind bundle_template_id = spec_.bundles[bundle_index].bundle_template_id;
-    for (std::size_t node_index = 0; node_index < route_node_count && node_index < g_.nodes.size(); ++node_index) {
-      const node& n = g_.nodes[node_index];
+    for (const node& n : g_.nodes) {
+      if (!n.on_route) {
+        continue;
+      }
       const auto mode_it = std::find_if(n.bundle_modes.begin(), n.bundle_modes.end(),
                                         [&](const SupportNodeBundleMode& mode) {
                                           return mode.bundle_template_id == bundle_template_id;

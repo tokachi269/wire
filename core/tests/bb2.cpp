@@ -5432,6 +5432,50 @@ bool C601_bb2_context_only_bundle_policy_does_not_filter_new_route() {
          generated.contains(wire::core::BundleKind::kCommunication);
 }
 
+bool C602_bb2_context_only_pole_band_does_not_filter_new_route() {
+  wire::core::CoreState state;
+  const auto base = state.GenerateFromBackboneSpec(line_req(state));
+  if (!base.ok || base.value.generated_pole_ids.size() != 2) {
+    return false;
+  }
+  const wire::core::ObjectId a = base.value.generated_pole_ids[0];
+  const wire::core::ObjectId b = base.value.generated_pole_ids[1];
+  wire::core::PoleTypeId comm_type_id = wire::core::kInvalidPoleTypeId;
+  for (const auto& item : state.view().pole_types()) {
+    if (item.second.name == "CommunicationPole") {
+      comm_type_id = item.first;
+      break;
+    }
+  }
+  if (comm_type_id == wire::core::kInvalidPoleTypeId || !state.ApplyPoleType(b, comm_type_id).ok) {
+    return false;
+  }
+  auto type_it = state.view().pole_types().find(comm_type_id);
+  if (type_it == state.view().pole_types().end()) {
+    return false;
+  }
+  wire::core::PoleTypeDefinition comm_type = type_it->second;
+  comm_type.port_bands.erase(std::remove_if(comm_type.port_bands.begin(), comm_type.port_bands.end(),
+                                            [](const wire::core::PortPlacementBand& band) {
+                                              return band.category == wire::core::ConnectionCategory::kLowVoltage &&
+                                                     band.layer == 1;
+                                            }),
+                             comm_type.port_bands.end());
+  if (!state.UpdatePoleTypeDefinition(comm_type).ok) {
+    return false;
+  }
+  const auto* pole_a = state.view().poles().find(a);
+  if (pole_a == nullptr) {
+    return false;
+  }
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {pole_a->world_transform.position, {0.0, 8.0, 0.0}};
+  branch.path.node_specs = {pole_spec(0, a)};
+  const auto out = state.GenerateFromBackboneSpec(branch);
+  return out.ok && out.value.generated_span_ids.size() ==
+                       static_cast<std::size_t>(bundle_count(state, wire::core::BundleKind::kLowVoltage));
+}
+
 bool C560_bb2_segment_pick_without_bundle_policy_feeds_midair_route_point() {
   wire::core::CoreState state;
   wire::core::PickResult pick{};
@@ -7009,6 +7053,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C601_bb2_context_only_bundle_policy_does_not_filter_new_route",
                          "bb2 context-only selected bundle policy does not filter new route bundles",
                          "Boundary", false, C601_bb2_context_only_bundle_policy_does_not_filter_new_route);
+  test_registry::AddTest(tests, "C602_bb2_context_only_pole_band_does_not_filter_new_route",
+                         "bb2 context-only pole bands do not filter new route bundles",
+                         "Boundary", false, C602_bb2_context_only_pole_band_does_not_filter_new_route);
   test_registry::AddTest(tests, "C599_bb2_selected_saved_building_node_policy_persists_after_branch",
                          "bb2 selected saved building node policy persists after branch", "Boundary", false,
                          C599_bb2_selected_saved_building_node_policy_persists_after_branch);

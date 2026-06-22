@@ -18,6 +18,7 @@ struct node {
   ObjectId pole = kInvalidObjectId;
   ObjectId saved = kInvalidObjectId;
   bool is_new = true;
+  bool on_route = false;
   bool pinned = false;
   bool explicit_support = false;
   bool has_tangent = false;

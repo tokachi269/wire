@@ -5521,6 +5521,30 @@ bool C604_bb2_large_avoid_detour_clears_radius() {
   return true;
 }
 
+bool C605_bb2_find_backbone_route_uses_saved_ownerless_graph() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec first = line_req(state);
+  wire::core::BackboneInputSpec::NodeSpec midair{};
+  midair.point_index = 1;
+  midair.support_kind = wire::core::SupportKind::kMidair;
+  first.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
+  first.path.node_specs = {midair};
+  const auto out = state.GenerateFromBackboneSpec(first);
+  if (!out.ok || out.value.generated_pole_ids.size() != 2) {
+    return false;
+  }
+  const auto saved_midair =
+      std::find_if(state.view().backbone().nodes.begin(), state.view().backbone().nodes.end(),
+                   [](const wire::core::SavedBackboneNode& node) {
+                     return node.support_kind == wire::core::SupportKind::kMidair;
+                   });
+  if (saved_midair == state.view().backbone().nodes.end()) {
+    return false;
+  }
+  const auto route = state.FindBackboneRoute(saved_midair->node_id, out.value.generated_pole_ids.back());
+  return route.size() == 2 && route.front() == saved_midair->node_id && route.back() == out.value.generated_pole_ids.back();
+}
+
 bool C560_bb2_segment_pick_without_bundle_policy_feeds_midair_route_point() {
   wire::core::CoreState state;
   wire::core::PickResult pick{};
@@ -7107,6 +7131,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C604_bb2_large_avoid_detour_clears_radius",
                          "bb2 large avoid detours clear the requested radius", "Boundary", false,
                          C604_bb2_large_avoid_detour_clears_radius);
+  test_registry::AddTest(tests, "C605_bb2_find_backbone_route_uses_saved_ownerless_graph",
+                         "bb2 route queries use saved ownerless backbone graph", "Boundary", false,
+                         C605_bb2_find_backbone_route_uses_saved_ownerless_graph);
   test_registry::AddTest(tests, "C599_bb2_selected_saved_building_node_policy_persists_after_branch",
                          "bb2 selected saved building node policy persists after branch", "Boundary", false,
                          C599_bb2_selected_saved_building_node_policy_persists_after_branch);

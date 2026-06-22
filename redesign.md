@@ -1244,3 +1244,7 @@ Generated pole yaw in bb2 is derived from the materialized route links, not from
 ### C604 large avoid detour radius
 
 bb2 supports deterministic avoid detours whose radius is larger than the simple `radius + clearance` offset can satisfy. The detour offset is chosen so the two generated adjacent route segments clear the requested radius. If the avoid radius reaches a fixed route endpoint, bb2 rejects the request instead of moving the endpoint or using downstream geometry repair.
+
+### C605 saved graph route query
+
+`FindBackboneRoute` uses `SavedBackboneGraph` first when the queried endpoints resolve to saved backbone nodes. Ownerless bb2 nodes do not have pole ids, so public route queries must be explained from saved graph node/edge/edge_bundle state instead of span-derived edges. If no saved graph route exists, the old span-derived query remains available for non-bb2 scenes.

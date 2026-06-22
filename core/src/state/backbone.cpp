@@ -1472,6 +1472,99 @@ std::vector<ObjectId> CoreState::FindBackboneRoute(ObjectId start_node_id, Objec
     return {start_node_id};
   }
 
+  auto saved_node_for_query = [&](ObjectId id) -> ObjectId {
+    if (id == kInvalidObjectId) {
+      return kInvalidObjectId;
+    }
+    const auto saved_it =
+        std::find_if(authoritative_.backbone.nodes.begin(), authoritative_.backbone.nodes.end(),
+                     [&](const SavedBackboneNode& node) { return node.node_id == id; });
+    if (saved_it != authoritative_.backbone.nodes.end()) {
+      return saved_it->node_id;
+    }
+    const auto pole_it = runtime_.backbone_index.pole_node.find(id);
+    return pole_it == runtime_.backbone_index.pole_node.end() ? kInvalidObjectId : pole_it->second;
+  };
+
+  const ObjectId saved_start = saved_node_for_query(start_node_id);
+  const ObjectId saved_end = saved_node_for_query(end_node_id);
+  if (saved_start != kInvalidObjectId && saved_end != kInvalidObjectId && saved_start != saved_end) {
+    std::unordered_map<ObjectId, std::vector<ObjectId>> saved_adjacency{};
+    for (const SavedBackboneEdge& edge : authoritative_.backbone.edges) {
+      if (edge.node_a == kInvalidObjectId || edge.node_b == kInvalidObjectId || edge.node_a == edge.node_b) {
+        continue;
+      }
+      const auto bundles_it = runtime_.backbone_index.edge_bundles.find(edge.edge_id);
+      if (bundles_it == runtime_.backbone_index.edge_bundles.end() || bundles_it->second.empty()) {
+        continue;
+      }
+      saved_adjacency[edge.node_a].push_back(edge.node_b);
+      saved_adjacency[edge.node_b].push_back(edge.node_a);
+    }
+    if (saved_adjacency.contains(saved_start) && saved_adjacency.contains(saved_end)) {
+      std::queue<ObjectId> queue{};
+      std::unordered_set<ObjectId> visited{};
+      std::unordered_map<ObjectId, ObjectId> parent{};
+      queue.push(saved_start);
+      visited.insert(saved_start);
+
+      bool found = false;
+      while (!queue.empty() && !found) {
+        const ObjectId node = queue.front();
+        queue.pop();
+        auto it = saved_adjacency.find(node);
+        if (it == saved_adjacency.end()) {
+          continue;
+        }
+        for (ObjectId next : it->second) {
+          if (visited.contains(next)) {
+            continue;
+          }
+          visited.insert(next);
+          parent[next] = node;
+          if (next == saved_end) {
+            found = true;
+            break;
+          }
+          queue.push(next);
+        }
+      }
+
+      if (found) {
+        std::vector<ObjectId> saved_path{};
+        ObjectId cur = saved_end;
+        saved_path.push_back(cur);
+        while (cur != saved_start) {
+          auto it = parent.find(cur);
+          if (it == parent.end()) {
+            saved_path.clear();
+            break;
+          }
+          cur = it->second;
+          saved_path.push_back(cur);
+        }
+        if (!saved_path.empty()) {
+          std::reverse(saved_path.begin(), saved_path.end());
+          std::vector<ObjectId> path{};
+          path.reserve(saved_path.size());
+          for (ObjectId node_id : saved_path) {
+            const auto node_it =
+                std::find_if(authoritative_.backbone.nodes.begin(), authoritative_.backbone.nodes.end(),
+                             [&](const SavedBackboneNode& node) { return node.node_id == node_id; });
+            if (node_it != authoritative_.backbone.nodes.end() && node_it->pole_id != kInvalidObjectId) {
+              path.push_back(node_it->pole_id);
+            } else {
+              path.push_back(node_id);
+            }
+          }
+          path.front() = start_node_id;
+          path.back() = end_node_id;
+          return path;
+        }
+      }
+    }
+  }
+
   const std::vector<BackboneEdge> edges = BuildBackboneEdges();
   std::unordered_map<ObjectId, std::vector<ObjectId>> adjacency{};
   for (const BackboneEdge& edge : edges) {

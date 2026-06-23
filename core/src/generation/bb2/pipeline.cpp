@@ -2265,7 +2265,7 @@ void pipeline::save(draw made) {
   }
 }
 
-std::vector<SegmentLaneAssignment> lane_assignments_for(const topo& made) {
+std::vector<SegmentLaneAssignment> lane_assignments_for(const topo& made, const layout& placed) {
   struct key {
     std::size_t link = bad;
     std::size_t bundle = bad;
@@ -2284,6 +2284,32 @@ std::vector<SegmentLaneAssignment> lane_assignments_for(const topo& made) {
     assignment.bundle_id = bundle < made.bundles.size() ? made.bundles[bundle] : kInvalidObjectId;
     out.push_back(std::move(assignment));
     return &out.back();
+  };
+  auto layout_for = [&](ObjectId span_id) -> const SpanLayoutEntry* {
+    for (const SpanLayoutEntry& entry : placed.entries) {
+      if (entry.span_id == span_id) {
+        return &entry;
+      }
+    }
+    return nullptr;
+  };
+  auto copy_decision = [](const LayoutEndpoint& endpoint) {
+    EndpointContinuityDecision out{};
+    out.owner_pole_id = endpoint.owner_pole_id;
+    out.continuity_class = endpoint.continuity_class;
+    out.in_through_pair = endpoint.in_through_pair;
+    out.support_pair_peer_low = endpoint.support_pair_peer_low;
+    out.support_pair_peer_high = endpoint.support_pair_peer_high;
+    out.support_group_id = endpoint.support_group_id;
+    out.lower_required = endpoint.lower_required;
+    out.lowering_blocked_by_policy = endpoint.lowering_blocked_by_policy;
+    out.side_assignment_rule = endpoint.side_assignment_rule;
+    out.support_orientation_rule = endpoint.support_orientation_rule;
+    out.support_orientation_basis = endpoint.support_orientation_basis;
+    out.has_side_axis = endpoint.has_side_axis;
+    out.side_axis = endpoint.side_axis;
+    out.chosen_side_sign = endpoint.chosen_side_sign;
+    return out;
   };
   for (const tspan& span : made.spans) {
     SegmentLaneAssignment* assignment = find_assignment(span.link, span.bundle);
@@ -2304,6 +2330,30 @@ std::vector<SegmentLaneAssignment> lane_assignments_for(const topo& made) {
     if (span.bundle < brow.ports.size() && span.lane < brow.ports[span.bundle].size()) {
       assignment->port_ids_b[span.lane] = brow.ports[span.bundle][span.lane];
     }
+    const SpanLayoutEntry* entry = layout_for(span.id);
+    if (entry == nullptr) {
+      continue;
+    }
+    if (entry->flow_kind == BackboneFlowKind::kBranch) {
+      assignment->flow_kind = BackboneFlowKind::kBranch;
+      assignment->flow_decision_rule = BackboneFlowDecisionRule::kJunctionOrderBranch;
+    }
+    assignment->uses_branch_support =
+        assignment->uses_branch_support || entry->lowering_kind == BackboneLoweringKind::kBranchSupport;
+    assignment->lowering_kind = entry->lowering_kind == BackboneLoweringKind::kBranchSupport
+                                    ? BackboneLoweringKind::kBranchSupport
+                                    : assignment->lowering_kind;
+    assignment->default_lower_required = assignment->default_lower_required || entry->start.default_lower_required ||
+                                         entry->end.default_lower_required;
+    assignment->same_level_feasible =
+        assignment->same_level_feasible && entry->start.same_level_feasible && entry->end.same_level_feasible;
+    assignment->same_level_reason = entry->start.same_level_reason != SameLevelFeasibilityReason::kNone
+                                        ? entry->start.same_level_reason
+                                        : entry->end.same_level_reason;
+    assignment->branch_down_offset_m =
+        std::max({assignment->branch_down_offset_m, entry->start.branch_down_offset_m, entry->end.branch_down_offset_m});
+    assignment->decision_a = copy_decision(entry->start);
+    assignment->decision_b = copy_decision(entry->end);
   }
   return out;
 }
@@ -2480,7 +2530,7 @@ EditResult<GenerateBundleFromPathResult> pipeline::build() {
   draw drawn = make(placed.value, shaped);
   save(std::move(shaped));
   save(std::move(drawn));
-  state_.publish_lane_assignments(lane_assignments_for(made.value));
+  state_.publish_lane_assignments(lane_assignments_for(made.value, placed.value));
   out.change_set = std::move(made.change_set);
   out.value.generated_pole_ids = made.value.new_poles;
   out.value.bundle_ids = made.value.bundles;

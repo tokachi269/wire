@@ -6319,6 +6319,48 @@ bool C572_bb2_support_visual_radius_setting_is_mutable() {
   return false;
 }
 
+bool C609_bb2_acute_corner_lowers_layout_geom_without_port_lowering() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = poly3_req(state);
+  req.bundles.clear();
+  add_backbone_bundle(req, wire::core::BundleKind::kHighVoltage);
+  const auto out = state.GenerateFromBackboneSpec(req);
+  if (!out.ok || out.value.generated_span_ids.empty()) {
+    return false;
+  }
+
+  bool saw_lowered_endpoint = false;
+  for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
+    const wire::core::Span* span = state.view().spans().find(span_id);
+    const wire::core::SpanLayoutView layout = state.span_layout(span_id);
+    if (span == nullptr || !layout.has_layout()) {
+      return false;
+    }
+    const wire::core::Port* a = state.view().ports().find(span->port_a_id);
+    const wire::core::Port* b = state.view().ports().find(span->port_b_id);
+    if (a == nullptr || b == nullptr) {
+      return false;
+    }
+    const auto endpoint_lowered = [](const wire::core::LayoutEndpoint& endpoint, const wire::core::Port& port) {
+      return endpoint.default_lower_required && endpoint.lower_required &&
+             almost_equal(endpoint.support_world.z, port.world_position.z, 1e-9) &&
+             endpoint.endpoint_world.z < port.world_position.z - 0.1;
+    };
+    saw_lowered_endpoint = saw_lowered_endpoint || endpoint_lowered(layout.entry->start, *a) ||
+                           endpoint_lowered(layout.entry->end, *b);
+  }
+  if (!saw_lowered_endpoint) {
+    return false;
+  }
+
+  for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
+    if (span_has_lowered_endpoint(state, span_id)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool C573_bb2_saved_context_node_carries_support_metadata() {
   const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
   std::string cpp;
@@ -7237,6 +7279,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C608_bb2_build_backbone_result_does_not_duplicate_saved_pole_nodes",
                          "bb2 BuildBackboneResult does not duplicate saved pole nodes", "Boundary", false,
                          C608_bb2_build_backbone_result_does_not_duplicate_saved_pole_nodes);
+  test_registry::AddTest(tests, "C609_bb2_acute_corner_lowers_layout_geom_without_port_lowering",
+                         "bb2 acute corners lower layout and geom without lowering ports", "Boundary", false,
+                         C609_bb2_acute_corner_lowers_layout_geom_without_port_lowering);
   test_registry::AddTest(tests, "C607_bb2_build_backbone_result_preserves_saved_ownerless_route_index",
                          "bb2 BuildBackboneResult preserves saved ownerless route index", "Boundary", false,
                          C607_bb2_build_backbone_result_preserves_saved_ownerless_route_index);

@@ -1248,3 +1248,9 @@ bb2 supports deterministic avoid detours whose radius is larger than the simple 
 ### C605 saved graph route query
 
 `FindBackboneRoute` uses `SavedBackboneGraph` first when the queried endpoints resolve to saved backbone nodes. Ownerless bb2 nodes do not have pole ids, so public route queries must be explained from saved graph node/edge/edge_bundle state instead of span-derived edges. If no saved graph route exists, the old span-derived query remains available for non-bb2 scenes.
+
+### C609 acute corner lowering
+
+bb2 lowers bent HighVoltage pair rows in the intent layer after pair/open/row has been resolved. This is a placement decision, not a junction kind label: pair/open/row is not recomputed and T/cross/branch enums are not introduced.
+
+The lowered result is stored in layout/geom. Ports stay at their band height through `support_world`; `endpoint_world`, curve samples, and bounds carry the lower offset. Draw remains a consumer of layout/geom and does not repair lowering from visual-side data.

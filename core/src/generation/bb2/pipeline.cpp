@@ -1499,6 +1499,35 @@ EditResult<pairs> pipeline::make(const graph& made) const {
 
 EditResult<intent> pipeline::make(const pairs& ps) const {
   EditResult<intent> out{};
+  std::vector<bool> high_voltage_bundle(active_bundle_indices_.size(), false);
+  for (std::size_t bundle = 0; bundle < active_bundle_indices_.size(); ++bundle) {
+    const std::size_t spec_index = active_bundle_indices_[bundle];
+    if (spec_index >= spec_.bundles.size()) {
+      out.error = "bb2 unsupported: active bundle index is invalid";
+      return out;
+    }
+    const EditResult<spec_view> v = view_for(state_, spec_.bundles[spec_index]);
+    if (!v.ok || v.value.tmpl == nullptr) {
+      out.error = v.ok ? "bb2 unsupported: bundle template not found" : v.error;
+      return out;
+    }
+    high_voltage_bundle[bundle] = v.value.tmpl->category == ConnectionCategory::kHighVoltage;
+  }
+  auto incident_dir = [&](const link& edge, std::size_t node_id) {
+    Vec3d dir = edge.dir;
+    if (edge.b == node_id) {
+      dir = Vec3d{-dir.x, -dir.y, -dir.z};
+    }
+    return norm(dir);
+  };
+  auto pair_is_bent = [&](const pair& item) {
+    if (item.left >= ps.links.size() || item.right >= ps.links.size()) {
+      return false;
+    }
+    const Vec3d left = incident_dir(ps.links[item.left], item.node);
+    const Vec3d right = incident_dir(ps.links[item.right], item.node);
+    return Dot(left, right) > -0.5;
+  };
   auto add_row_intent = [&](std::size_t row_id, std::size_t bundle, intent_reason reason) {
     for (row_intent& item : out.value.rows) {
       if (item.row == row_id && item.bundle == bundle) {
@@ -1581,6 +1610,16 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
       }
       for (std::size_t bundle = 0; bundle < active_bundle_indices_.size(); ++bundle) {
         add_row_intent(row_id, bundle, intent_reason::conflicting_rows);
+      }
+    }
+  }
+  for (const pair& item : ps.joins) {
+    if (!pair_is_bent(item)) {
+      continue;
+    }
+    for (std::size_t bundle = 0; bundle < active_bundle_indices_.size(); ++bundle) {
+      if (high_voltage_bundle[bundle]) {
+        add_row_intent(item.id, bundle, intent_reason::bent_pair);
       }
     }
   }

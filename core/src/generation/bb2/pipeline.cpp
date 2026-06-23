@@ -2181,6 +2181,49 @@ void pipeline::save(draw made) {
   }
 }
 
+std::vector<SegmentLaneAssignment> lane_assignments_for(const topo& made) {
+  struct key {
+    std::size_t link = bad;
+    std::size_t bundle = bad;
+  };
+  std::vector<key> order{};
+  std::vector<SegmentLaneAssignment> out{};
+  auto find_assignment = [&](std::size_t link, std::size_t bundle) -> SegmentLaneAssignment* {
+    for (std::size_t i = 0; i < order.size(); ++i) {
+      if (order[i].link == link && order[i].bundle == bundle) {
+        return &out[i];
+      }
+    }
+    order.push_back({link, bundle});
+    SegmentLaneAssignment assignment{};
+    assignment.segment_index = link;
+    assignment.bundle_id = bundle < made.bundles.size() ? made.bundles[bundle] : kInvalidObjectId;
+    out.push_back(std::move(assignment));
+    return &out.back();
+  };
+  for (const tspan& span : made.spans) {
+    SegmentLaneAssignment* assignment = find_assignment(span.link, span.bundle);
+    if (assignment == nullptr || span.arow >= made.rows.size() || span.brow >= made.rows.size()) {
+      continue;
+    }
+    const trow& arow = made.rows[span.arow];
+    const trow& brow = made.rows[span.brow];
+    assignment->pole_a_id = arow.pole;
+    assignment->pole_b_id = brow.pole;
+    if (span.lane >= assignment->port_ids_a.size()) {
+      assignment->port_ids_a.resize(span.lane + 1, kInvalidObjectId);
+      assignment->port_ids_b.resize(span.lane + 1, kInvalidObjectId);
+    }
+    if (span.bundle < arow.ports.size() && span.lane < arow.ports[span.bundle].size()) {
+      assignment->port_ids_a[span.lane] = arow.ports[span.bundle][span.lane];
+    }
+    if (span.bundle < brow.ports.size() && span.lane < brow.ports[span.bundle].size()) {
+      assignment->port_ids_b[span.lane] = brow.ports[span.bundle][span.lane];
+    }
+  }
+  return out;
+}
+
 EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
   EditResult<bool> out{};
   std::vector<ObjectId> node_id_by_local(g_.nodes.size(), kInvalidObjectId);
@@ -2353,6 +2396,7 @@ EditResult<GenerateBundleFromPathResult> pipeline::build() {
   draw drawn = make(placed.value, shaped);
   save(std::move(shaped));
   save(std::move(drawn));
+  state_.publish_lane_assignments(lane_assignments_for(made.value));
   out.change_set = std::move(made.change_set);
   out.value.generated_pole_ids = made.value.new_poles;
   out.value.bundle_ids = made.value.bundles;

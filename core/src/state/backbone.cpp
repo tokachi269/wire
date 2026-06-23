@@ -125,6 +125,10 @@ void CoreState::publish_backbone_result_nodes(std::vector<SupportNode> nodes) {
   debug_.last_generation_support_nodes = std::move(nodes);
 }
 
+void CoreState::publish_lane_assignments(std::vector<SegmentLaneAssignment> assignments) {
+  debug_.last_generation_lane_assignments = std::move(assignments);
+}
+
 EditResult<bool> CoreState::bind_backbone_node_bundle_modes(
     ObjectId node_id, const std::vector<SupportNodeBundleMode>& bundle_modes) {
   EditResult<bool> out{};

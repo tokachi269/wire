@@ -941,6 +941,58 @@ EditResult<bool> pipeline::prepare() {
       push_point(b, i + 1);
     }
   }
+  if (pts.size() > 2 && !spec_.pole_placement.pin_vertices) {
+    constexpr double kAutoCollapseDistanceM = 1.5;
+    constexpr double kAutoCollapseDistanceSq = kAutoCollapseDistanceM * kAutoCollapseDistanceM;
+    auto is_auto_generic = [&](std::size_t index) {
+      if (index >= guide_by_local.size() || index >= support_by_local.size()) {
+        return false;
+      }
+      const std::size_t guide_index = guide_by_local[index];
+      return guide_index != bad && support_by_local[index] == SupportKind::kPole &&
+             spec_by_point.find(guide_index) == spec_by_point.end();
+    };
+    auto is_endpoint = [&](std::size_t index) {
+      const std::size_t guide_index = guide_by_local[index];
+      return guide_index == 0 || guide_index + 1 == guide.size();
+    };
+    std::vector<bool> drop(pts.size(), false);
+    for (std::size_t i = 0; i + 1 < pts.size(); ++i) {
+      if (drop[i] || !is_auto_generic(i) || !is_auto_generic(i + 1)) {
+        continue;
+      }
+      const Vec3d d = pts[i + 1] - pts[i];
+      const double dist_sq = d.x * d.x + d.y * d.y + d.z * d.z;
+      if (dist_sq <= 1e-18 || dist_sq >= kAutoCollapseDistanceSq) {
+        continue;
+      }
+      const bool a_endpoint = is_endpoint(i);
+      const bool b_endpoint = is_endpoint(i + 1);
+      if (a_endpoint && b_endpoint) {
+        continue;
+      }
+      drop[a_endpoint ? i + 1 : i] = true;
+    }
+    if (std::any_of(drop.begin(), drop.end(), [](bool item) { return item; })) {
+      std::vector<Vec3d> kept_pts{};
+      std::vector<std::size_t> kept_guide{};
+      std::vector<SupportKind> kept_support{};
+      kept_pts.reserve(pts.size());
+      kept_guide.reserve(guide_by_local.size());
+      kept_support.reserve(support_by_local.size());
+      for (std::size_t i = 0; i < pts.size(); ++i) {
+        if (drop[i]) {
+          continue;
+        }
+        kept_pts.push_back(pts[i]);
+        kept_guide.push_back(guide_by_local[i]);
+        kept_support.push_back(support_by_local[i]);
+      }
+      pts = std::move(kept_pts);
+      guide_by_local = std::move(kept_guide);
+      support_by_local = std::move(kept_support);
+    }
+  }
   std::vector<std::size_t> local_by_guide(guide.size(), bad);
   for (std::size_t i = 0; i < guide_by_local.size(); ++i) {
     if (guide_by_local[i] != bad && guide_by_local[i] < local_by_guide.size()) {

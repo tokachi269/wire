@@ -210,6 +210,7 @@ private:
   void cache_span_bounds(ObjectId span_id, BoundsCacheEntry bounds);
   void cache_span_visual(ObjectId span_id, SpanVisualCacheEntry visual);
   void cache_span_render(ObjectId span_id, SpanRenderCacheEntry render);
+  void cache_support_group(SupportGroupDecision decision, LoweredSupportGroupPlacement placement);
   ObjectId save_backbone_node(ObjectId pole_id, const Vec3d& position,
                               SupportKind support_kind = SupportKind::kPole,
                               ObjectId source_edge_node_a = kInvalidObjectId,
@@ -218,6 +219,7 @@ private:
                               std::vector<SupportNodeBundleMode> bundle_modes = {});
   void publish_backbone_result_nodes(std::vector<SupportNode> nodes);
   void publish_lane_assignments(std::vector<SegmentLaneAssignment> assignments);
+  EditResult<bool> set_span_endpoint_nodes(ObjectId span_id, ObjectId node_a_id, ObjectId node_b_id);
   EditResult<bool> bind_backbone_node_bundle_modes(ObjectId node_id,
                                                    const std::vector<SupportNodeBundleMode>& bundle_modes);
   SavedBackboneEdgeRef save_backbone_edge(ObjectId node_a, ObjectId node_b, std::size_t route, std::size_t order,

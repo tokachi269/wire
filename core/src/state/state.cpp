@@ -422,6 +422,20 @@ EditResult<ObjectId> CoreState::AddSpan(ObjectId port_a_id, ObjectId port_b_id, 
   return result;
 }
 
+EditResult<bool> CoreState::set_span_endpoint_nodes(ObjectId span_id, ObjectId node_a_id, ObjectId node_b_id) {
+  EditResult<bool> result{};
+  Span* span = authoritative_.edit_state.spans.find(span_id);
+  if (span == nullptr) {
+    result.error = "span does not exist";
+    return result;
+  }
+  span->endpoint_node_a_id = node_a_id;
+  span->endpoint_node_b_id = node_b_id;
+  result.ok = true;
+  result.value = true;
+  return result;
+}
+
 EditResult<ObjectId> CoreState::AddAttachment(ObjectId span_id, double t, AttachmentKind kind, double display_offset_m,
                                               AttachmentTemplateId template_id) {
   EditResult<ObjectId> result;

@@ -598,6 +598,10 @@ SupportLayoutEndpointView MakeSupportLayoutEndpointView(const SupportLayoutEndpo
   view.resolved_socket_id = endpoint.resolved_socket_id;
   view.flow_kind = endpoint.flow_kind;
   view.relation_kind = endpoint.relation_kind;
+  if (view.relation_kind == JunctionRelationKind::kNone && endpoint.origin == SupportLayoutOriginKind::kBranchSupport &&
+      endpoint.lower_required) {
+    view.relation_kind = JunctionRelationKind::kSideBranch;
+  }
   view.continuity_class = endpoint.continuity_class;
   view.in_through_pair = endpoint.in_through_pair;
   view.lower_required = endpoint.lower_required;

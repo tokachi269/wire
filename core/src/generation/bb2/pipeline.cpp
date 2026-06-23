@@ -1934,6 +1934,12 @@ EditResult<bool> pipeline::emit_spans(topo* made, const pairs& ps, ChangeSet* ch
           out.error = span.error;
           return out;
         }
+        EditResult<bool> endpoints = state_.set_span_endpoint_nodes(span.value, made->rows[edge.arow].pole,
+                                                                     made->rows[edge.brow].pole);
+        if (!endpoints.ok) {
+          out.error = endpoints.error;
+          return out;
+        }
         add(*changes, span.change_set);
         made->spans.push_back(
             tspan{span.value, edge.id, bundle_index, static_cast<std::size_t>(lane), edge.arow, edge.brow});
@@ -1987,7 +1993,8 @@ rules pipeline::make(const topo& made, const groups& placement) const {
     rule.flow_kind = BackboneFlowKind::kMain;
     rule.pass_mode = CurvePassMode::kPassThrough;
     if (start_group != nullptr || end_group != nullptr) {
-      rule.pass_mode = CurvePassMode::kPassThrough;
+      rule.flow_kind = BackboneFlowKind::kBranch;
+      rule.pass_mode = CurvePassMode::kBranch;
       rule.lowering_kind = BackboneLoweringKind::kBranchSupport;
     }
     auto endpoint = [&](ObjectId pole_id, ObjectId port_id) {
@@ -2010,6 +2017,8 @@ rules pipeline::make(const topo& made, const groups& placement) const {
       if (source == nullptr || endpoint == nullptr) {
         return;
       }
+      endpoint->flow_kind = BackboneFlowKind::kBranch;
+      endpoint->origin = LayoutOriginKind::kBranchSupport;
       endpoint->default_lower_required = true;
       endpoint->same_level_feasible = false;
       endpoint->same_level_reason = SameLevelFeasibilityReason::kBundleRule;
@@ -2021,6 +2030,23 @@ rules pipeline::make(const topo& made, const groups& placement) const {
     };
     apply_group(start_group, &rule.start);
     apply_group(end_group, &rule.end);
+    auto append_group_rule = [&](const EndpointLayoutRule& endpoint) {
+      if (!UsesAuthoritativeGroupedLoweredSupport(endpoint.semantic)) {
+        return;
+      }
+      const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint.semantic);
+      SupportGroupDecision& group = rule.support_group_rules[key];
+      static_cast<LayoutSemantic&>(group) = endpoint.semantic;
+      group.side = endpoint.side;
+      group.origin = endpoint.origin;
+      group.order_decision_policy = endpoint.order_decision_policy;
+      group.order_decision_choice = endpoint.order_decision_choice;
+      group.order_decision_choice_reason = endpoint.order_decision_choice_reason;
+      group.chosen_side = endpoint.chosen_side;
+      group.used_junction_pair_side_assignment = endpoint.used_junction_pair_side_assignment;
+    };
+    append_group_rule(rule.start);
+    append_group_rule(rule.end);
     out.data.spans.push_back(std::move(rule));
   }
   return out;
@@ -2086,6 +2112,18 @@ EditResult<layout> pipeline::make(const rules& made) const {
       out.error = "bb2 layout: endpoint port not found";
       return out;
     }
+    auto append_group_key = [&](const LayoutEndpoint& endpoint) {
+      if (!UsesAuthoritativeGroupedLoweredSupport(endpoint)) {
+        return;
+      }
+      const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint);
+      if (std::find(entry.lowered_support_group_keys.begin(), entry.lowered_support_group_keys.end(), key) ==
+          entry.lowered_support_group_keys.end()) {
+        entry.lowered_support_group_keys.push_back(key);
+      }
+    };
+    append_group_key(entry.start);
+    append_group_key(entry.end);
     const Vec3d chord = entry.end.endpoint_world - entry.start.endpoint_world;
     entry.basis_length_m = std::sqrt(chord.x * chord.x + chord.y * chord.y + chord.z * chord.z);
     entry.effective_sag_ratio = 0.0;
@@ -2158,6 +2196,52 @@ void pipeline::save(const rules& made) {
 }
 
 void pipeline::save(const layout& made) {
+  struct cached_group {
+    LoweredSupportGroupKey key{};
+    SupportGroupDecision decision{};
+    LoweredSupportGroupPlacement placement{};
+  };
+  std::vector<cached_group> groups{};
+  auto group_for = [&](const LoweredSupportGroupKey& key) -> cached_group& {
+    for (cached_group& item : groups) {
+      if (item.key == key) {
+        return item;
+      }
+    }
+    cached_group item{};
+    item.key = key;
+    groups.push_back(std::move(item));
+    return groups.back();
+  };
+  auto collect_group = [&](const LayoutEndpoint& endpoint) {
+    if (!UsesAuthoritativeGroupedLoweredSupport(endpoint)) {
+      return;
+    }
+    const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint);
+    cached_group& item = group_for(key);
+    static_cast<LayoutSemantic&>(item.decision) = endpoint;
+    item.decision.side = endpoint.side;
+    item.decision.origin = endpoint.origin;
+    item.decision.order_decision_policy = endpoint.order_decision_policy;
+    item.decision.order_decision_choice = endpoint.order_decision_choice;
+    item.decision.order_decision_choice_reason = endpoint.order_decision_choice_reason;
+    item.decision.chosen_side = endpoint.chosen_side;
+    item.decision.used_junction_pair_side_assignment = endpoint.used_junction_pair_side_assignment;
+    item.placement.grouped_port_count += 1;
+    item.placement.down_offset_m = std::max(item.placement.down_offset_m, endpoint.branch_down_offset_m);
+    if (item.placement.attachment_worlds.empty()) {
+      item.placement.mount_world = endpoint.support_world;
+      item.placement.tip_world = endpoint.endpoint_world;
+    }
+    item.placement.attachment_worlds.push_back(endpoint.endpoint_world);
+  };
+  for (const SpanLayoutEntry& entry : made.entries) {
+    collect_group(entry.start);
+    collect_group(entry.end);
+  }
+  for (cached_group& item : groups) {
+    state_.cache_support_group(std::move(item.decision), std::move(item.placement));
+  }
   for (SpanLayoutEntry entry : made.entries) {
     state_.cache_span_layout(std::move(entry));
   }

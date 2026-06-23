@@ -129,6 +129,15 @@ void CoreState::publish_lane_assignments(std::vector<SegmentLaneAssignment> assi
   debug_.last_generation_lane_assignments = std::move(assignments);
 }
 
+void CoreState::cache_support_group(SupportGroupDecision decision, LoweredSupportGroupPlacement placement) {
+  const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(decision);
+  if (key.owner_pole_id == kInvalidObjectId || key.support_group_id < 0) {
+    return;
+  }
+  runtime_.cache_state.span_layout_cache.support_groups.authority.by_key[key] = std::move(decision);
+  runtime_.cache_state.span_layout_cache.support_groups.placement.by_key[key] = std::move(placement);
+}
+
 EditResult<bool> CoreState::bind_backbone_node_bundle_modes(
     ObjectId node_id, const std::vector<SupportNodeBundleMode>& bundle_modes) {
   EditResult<bool> out{};

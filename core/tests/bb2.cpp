@@ -6361,6 +6361,60 @@ bool C609_bb2_acute_corner_lowers_layout_geom_without_port_lowering() {
   return false;
 }
 
+bool C610_bb2_acute_corner_lowering_survives_pole_yaw_override() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = poly3_req(state);
+  req.bundles.clear();
+  add_backbone_bundle(req, wire::core::BundleKind::kHighVoltage);
+  const auto out = state.GenerateFromBackboneSpec(req);
+  if (!out.ok || out.value.generated_pole_ids.size() != 3 || out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  bool before = false;
+  for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
+    const wire::core::SpanLayoutState layout_state = state.span_layout_state(span_id);
+    if (!layout_state.has_rules || !layout_state.has_layout) {
+      return false;
+    }
+    before = before || span_has_lowered_endpoint(state, span_id);
+  }
+  if (!before) {
+    return false;
+  }
+
+  const auto changed = state.SetPoleManualYawOverride(out.value.generated_pole_ids[1], 45.0);
+  if (!changed.ok) {
+    return false;
+  }
+
+  for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
+    const wire::core::Span* span = state.view().spans().find(span_id);
+    const wire::core::SpanLayoutView layout = state.span_layout(span_id);
+    if (span == nullptr || !layout.has_layout()) {
+      return false;
+    }
+    const wire::core::Port* a = state.view().ports().find(span->port_a_id);
+    const wire::core::Port* b = state.view().ports().find(span->port_b_id);
+    if (a == nullptr || b == nullptr) {
+      return false;
+    }
+    if (layout.entry->start.default_lower_required &&
+        !almost_equal(layout.entry->start.support_world.z, a->world_position.z, 1e-9)) {
+      return false;
+    }
+    if (layout.entry->end.default_lower_required &&
+        !almost_equal(layout.entry->end.support_world.z, b->world_position.z, 1e-9)) {
+      return false;
+    }
+  }
+  for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
+    if (span_has_lowered_endpoint(state, span_id)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool C573_bb2_saved_context_node_carries_support_metadata() {
   const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
   std::string cpp;
@@ -7282,6 +7336,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C609_bb2_acute_corner_lowers_layout_geom_without_port_lowering",
                          "bb2 acute corners lower layout and geom without lowering ports", "Boundary", false,
                          C609_bb2_acute_corner_lowers_layout_geom_without_port_lowering);
+  test_registry::AddTest(tests, "C610_bb2_acute_corner_lowering_survives_pole_yaw_override",
+                         "bb2 acute corner lowering survives pole yaw override", "Boundary", false,
+                         C610_bb2_acute_corner_lowering_survives_pole_yaw_override);
   test_registry::AddTest(tests, "C607_bb2_build_backbone_result_preserves_saved_ownerless_route_index",
                          "bb2 BuildBackboneResult preserves saved ownerless route index", "Boundary", false,
                          C607_bb2_build_backbone_result_preserves_saved_ownerless_route_index);

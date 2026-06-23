@@ -1254,3 +1254,9 @@ bb2 supports deterministic avoid detours whose radius is larger than the simple 
 bb2 lowers bent HighVoltage pair rows in the intent layer after pair/open/row has been resolved. This is a placement decision, not a junction kind label: pair/open/row is not recomputed and T/cross/branch enums are not introduced.
 
 The lowered result is stored in layout/geom. Ports stay at their band height through `support_world`; `endpoint_world`, curve samples, and bounds carry the lower offset. Draw remains a consumer of layout/geom and does not repair lowering from visual-side data.
+
+### C610 rules-only lowering refresh
+
+bb2 rules-only spans keep their saved `SpanLayoutRule` when pole refresh invalidates projected layout. Refresh rebuilds layout/geom from the saved rule and the current endpoint ports; it does not require a v1 support-layout seed and does not infer lowering from draw/materialization state.
+
+For lowered endpoints, refresh preserves `support_world` at the current port height and applies the lower offset only to `endpoint_world`, curve samples, and bounds.

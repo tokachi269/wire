@@ -366,6 +366,7 @@ struct SupportLayoutCacheRecord {
   [[nodiscard]] bool requires_authority() const { return authority.required; }
   [[nodiscard]] bool has_authority() const { return authority.has_seed(); }
   [[nodiscard]] bool has_projection() const { return projection.has_layout(); }
+  [[nodiscard]] bool has_rule() const { return saved_rule.has_value(); }
   [[nodiscard]] const SpanSupportLayoutDecisionSeed* authority_seed() const { return authority.value(); }
   [[nodiscard]] SpanSupportLayoutDecisionSeed* authority_seed() { return authority.value(); }
   [[nodiscard]] const SpanLayoutEntry* projected_layout() const { return projection.value(); }
@@ -545,7 +546,8 @@ struct SpanLayoutCache {
     if (it == records_by_span.end()) {
       return;
     }
-    if (!it->second.requires_authority() && !it->second.has_authority() && !it->second.has_projection()) {
+    if (!it->second.requires_authority() && !it->second.has_authority() && !it->second.has_projection() &&
+        !it->second.has_rule()) {
       records_by_span.erase(it);
     }
   }

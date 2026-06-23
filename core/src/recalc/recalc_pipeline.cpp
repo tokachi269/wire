@@ -42,6 +42,30 @@ bool set_missing_support_layout_error(std::string* error_message) {
   return false;
 }
 
+DetailCurve make_straight_detail_curve(const Vec3d& a, const Vec3d& b) {
+  DetailCurve out{};
+  CurveConstraint start{};
+  start.point = a;
+  CurveConstraint end{};
+  end.point = b;
+  out.start_constraint = start;
+  out.end_constraint = end;
+  DetailCurveSegment segment{};
+  segment.control_points = {a, a, b, b};
+  segment.u_start = 0.0;
+  segment.u_end = 1.0;
+  out.segments.push_back(segment);
+  out.sample_points = {a, b};
+  const double length = std::sqrt(LengthSquared(b - a));
+  out.arc_length_table = {{0.0, 0.0}, {1.0, length}};
+  out.visible_intervals = {{0.0, length}};
+  out.total_length_m = length;
+  out.distance_attributes.arc_length_m = {0.0, static_cast<float>(length)};
+  out.distance_attributes.arc_length_normalized = {0.0f, 1.0f};
+  out.distance_attributes.segment_length_m = {static_cast<float>(length)};
+  return out;
+}
+
 void append_unique_support_group_key(std::vector<LoweredSupportGroupKey>* keys, const LoweredSupportGroupKey& key) {
   if (keys == nullptr) {
     return;
@@ -82,6 +106,53 @@ void invalidate_topology_dependent_caches(CoreState& state, const EditState& edi
   cache_state->bounds_cache.by_span.erase(span_id);
   cache_state->visual_cache.by_span.erase(span_id);
   cache_state->render_cache.by_span.erase(span_id);
+}
+
+bool endpoint_from_rule(const EditState& edit_state, const EndpointLayoutRule& rule, LayoutEndpoint* target,
+                        std::string* error_message) {
+  const Port* port = edit_state.ports.find(rule.port_id);
+  if (port == nullptr || target == nullptr) {
+    if (error_message != nullptr && error_message->empty()) {
+      *error_message = "span endpoint port is missing";
+    }
+    return false;
+  }
+  static_cast<LayoutSemantic&>(*target) = rule.semantic;
+  target->endpoint_node_id = rule.endpoint_node_id;
+  target->port_id = rule.port_id;
+  target->flow_kind = rule.flow_kind;
+  target->origin = rule.origin;
+  target->endpoint_source = rule.endpoint_source;
+  target->port_source = rule.port_source;
+  target->side = rule.side;
+  target->endpoint_mode = rule.endpoint_mode;
+  target->automatic_branch_down_offset_m = rule.automatic_branch_down_offset_m;
+  target->branch_down_offset_m = rule.branch_down_offset_m;
+  target->default_lower_required = rule.default_lower_required;
+  target->same_level_feasible = rule.same_level_feasible;
+  target->unresolved_same_level_conflict = rule.unresolved_same_level_conflict;
+  target->same_level_reason = rule.same_level_reason;
+  target->projected_spacing_topview_m = rule.projected_spacing_topview_m;
+  target->required_clearance_m = rule.required_clearance_m;
+  target->solver_used_same_level_constraint = rule.solver_used_same_level_constraint;
+  target->used_special_case_ports = rule.used_special_case_ports;
+  target->order_decision_policy = rule.order_decision_policy;
+  target->order_decision_choice = rule.order_decision_choice;
+  target->order_decision_choice_reason = rule.order_decision_choice_reason;
+  target->chosen_side = rule.chosen_side;
+  target->used_junction_pair_side_assignment = rule.used_junction_pair_side_assignment;
+  target->down_offset_variation = rule.down_offset_variation;
+  target->support_world = port->world_position;
+  target->endpoint_world = port->world_position;
+  if (rule.default_lower_required || rule.semantic.lower_required) {
+    const double lower_offset =
+        rule.branch_down_offset_m > 0.0 ? rule.branch_down_offset_m : rule.automatic_branch_down_offset_m;
+    target->endpoint_world.z -= lower_offset;
+    target->branch_down_offset_m = lower_offset;
+    target->automatic_branch_down_offset_m = lower_offset;
+  }
+  target->departure_dir = WorldForward();
+  return true;
 }
 
 }  // namespace
@@ -466,8 +537,11 @@ bool CoreState::cache_rebuilt_span_geometry(ObjectId span_id, SpanSupportLayoutE
 
 bool CoreState::rebuild_span_geometry_with_cached_contract(ObjectId span_id, std::string* error_message) {
   const SpanLayoutRulesView rules = runtime_.cache_state.span_layout_cache.rules_view(span_id);
+  const SpanSupportLayoutContractView contract = runtime_.cache_state.span_layout_cache.contract_view(span_id);
+  if (rules.has_rule() && !contract.has_authority()) {
+    return rebuild_span_geometry_from_saved_rule(span_id, *rules.rule, error_message);
+  }
   if (!rules.has_rule()) {
-    const SpanSupportLayoutContractView contract = runtime_.cache_state.span_layout_cache.contract_view(span_id);
     if (contract.requires_authority() && !contract.has_authority()) {
       return set_missing_seed_error(error_message);
     }
@@ -497,6 +571,60 @@ bool CoreState::rebuild_span_geometry_from_seed(ObjectId span_id, std::string* e
   // reinterpret authority ownership and it does not downgrade/upgrade whether a
   // decision seed is required for this span.
   return rebuild_span_geometry_with_cached_contract(span_id, error_message);
+}
+
+bool CoreState::rebuild_span_geometry_from_saved_rule(ObjectId span_id, const SpanLayoutRule& rule,
+                                                      std::string* error_message) {
+  const Span* span = authoritative_.edit_state.spans.find(span_id);
+  if (span == nullptr) {
+    return set_missing_span_error(error_message);
+  }
+  SpanLayoutEntry layout{};
+  layout.span_id = rule.span_id;
+  layout.flow_kind = rule.flow_kind;
+  layout.pass_mode = rule.pass_mode;
+  layout.variation_flow_key = rule.variation_flow_key;
+  layout.lowering_kind = rule.lowering_kind;
+  if (!endpoint_from_rule(authoritative_.edit_state, rule.start, &layout.start, error_message) ||
+      !endpoint_from_rule(authoritative_.edit_state, rule.end, &layout.end, error_message)) {
+    return false;
+  }
+  auto append_group_key = [&](const LayoutEndpoint& endpoint) {
+    if (!UsesAuthoritativeGroupedLoweredSupport(endpoint)) {
+      return;
+    }
+    const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint);
+    if (std::find(layout.lowered_support_group_keys.begin(), layout.lowered_support_group_keys.end(), key) ==
+        layout.lowered_support_group_keys.end()) {
+      layout.lowered_support_group_keys.push_back(key);
+    }
+  };
+  append_group_key(layout.start);
+  append_group_key(layout.end);
+  const Vec3d chord = layout.end.endpoint_world - layout.start.endpoint_world;
+  layout.basis_length_m = std::sqrt(LengthSquared(chord));
+  layout.effective_sag_ratio = 0.0;
+  layout.continuity_preference = CableContinuityPolicyHint::kAuto;
+  layout.bend_stiffness_hint = 1.0;
+  const SpanRuntimeState* runtime = find_span_runtime_state(span_id);
+  layout.source_version = (runtime == nullptr) ? 0 : runtime->data_version;
+
+  DetailCurve detail = make_straight_detail_curve(layout.start.endpoint_world, layout.end.endpoint_world);
+  BoundsCacheEntry bounds{};
+  bounds.whole = build_aabb_from_points(detail.sample_points);
+  if (detail.sample_points.size() >= 2) {
+    bounds.segments.reserve(detail.sample_points.size() - 1);
+    for (std::size_t i = 0; i + 1 < detail.sample_points.size(); ++i) {
+      bounds.segments.push_back(build_aabb_from_two_points(detail.sample_points[i], detail.sample_points[i + 1]));
+    }
+  }
+  bounds.source_version = layout.source_version;
+
+  cache_span_layout(std::move(layout));
+  cache_span_curve(span_id, std::move(detail));
+  cache_span_bounds(span_id, std::move(bounds));
+  (void)rebuild_span_visual(span_id, error_message);
+  return true;
 }
 
 void CoreState::cache_span_support_layout(SpanSupportLayoutEntry layout) {

@@ -197,6 +197,8 @@ private:
   [[nodiscard]] bool rebuild_span_geometry_with_cached_contract(ObjectId span_id, std::string* error_message);
   [[nodiscard]] bool rebuild_span_decision_path(ObjectId span_id, std::string* error_message);
   [[nodiscard]] bool rebuild_span_geometry_from_seed(ObjectId span_id, std::string* error_message);
+  [[nodiscard]] bool rebuild_span_geometry_from_saved_rule(ObjectId span_id, const SpanLayoutRule& rule,
+                                                           std::string* error_message);
   [[nodiscard]] bool rebuild_span_bounds(ObjectId span_id, std::string* error_message);
   [[nodiscard]] bool rebuild_span_visual(ObjectId span_id, std::string* error_message);
   [[nodiscard]] SpanSupportLayoutEntry generate_span_support_layout(const Span& span, std::string* error_message) const;

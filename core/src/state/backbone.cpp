@@ -873,9 +873,11 @@ BackboneResult CoreState::BuildBackboneResult() const {
       out.edges.push_back(std::move(edge));
     }
 
-    // Merge in span-derived pole edges so BuildBackboneResult observes full-network continuity across sessions.
-    const std::vector<BackboneEdge> pole_edges = BuildBackboneEdges();
-    out.edges.insert(out.edges.end(), pole_edges.begin(), pole_edges.end());
+    if (!has_saved_backbone) {
+      // v1 scenes do not have a saved backbone graph, so public query still needs the span-derived edge view.
+      const std::vector<BackboneEdge> pole_edges = BuildBackboneEdges();
+      out.edges.insert(out.edges.end(), pole_edges.begin(), pole_edges.end());
+    }
 
     struct EdgeKey {
       ObjectId a = kInvalidObjectId;

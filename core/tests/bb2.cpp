@@ -5619,6 +5619,32 @@ bool C607_bb2_build_backbone_result_preserves_saved_ownerless_route_index() {
 }
 
 
+
+bool C608_bb2_build_backbone_result_does_not_duplicate_saved_pole_nodes() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = line_req(state);
+  const auto out = state.GenerateFromBackboneSpec(req);
+  if (!out.ok || state.view().backbone().nodes.empty()) {
+    return false;
+  }
+  const wire::core::BackboneResult result = state.BuildBackboneResult();
+  if (result.nodes.size() != state.view().backbone().nodes.size()) {
+    return false;
+  }
+  std::unordered_set<wire::core::ObjectId> node_ids{};
+  for (const wire::core::SupportNode& node : result.nodes) {
+    if (node.node_id == wire::core::kInvalidObjectId || !node_ids.insert(node.node_id).second) {
+      return false;
+    }
+    const auto* saved = state.view().backbone_node(node.node_id);
+    if (saved == nullptr || saved->pole_id != node.pole_id || saved->support_kind != node.support_kind) {
+      return false;
+    }
+  }
+  return true;
+}
+
+
 bool C560_bb2_segment_pick_without_bundle_policy_feeds_midair_route_point() {
   wire::core::CoreState state;
   wire::core::PickResult pick{};
@@ -7208,6 +7234,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C605_bb2_find_backbone_route_uses_saved_ownerless_graph",
                          "bb2 route queries use saved ownerless backbone graph", "Boundary", false,
                          C605_bb2_find_backbone_route_uses_saved_ownerless_graph);
+  test_registry::AddTest(tests, "C608_bb2_build_backbone_result_does_not_duplicate_saved_pole_nodes",
+                         "bb2 BuildBackboneResult does not duplicate saved pole nodes", "Boundary", false,
+                         C608_bb2_build_backbone_result_does_not_duplicate_saved_pole_nodes);
   test_registry::AddTest(tests, "C607_bb2_build_backbone_result_preserves_saved_ownerless_route_index",
                          "bb2 BuildBackboneResult preserves saved ownerless route index", "Boundary", false,
                          C607_bb2_build_backbone_result_preserves_saved_ownerless_route_index);

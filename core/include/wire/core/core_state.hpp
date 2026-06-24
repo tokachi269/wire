@@ -1,6 +1,5 @@
 #pragma once
 
-#include <array>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -17,23 +16,6 @@ namespace state_internal {
 struct OverrideResolutionService;
 struct EndpointRefreshService;
 struct TemplateMutationService;
-}
-namespace generation::detail {
-class GroupedSpanLanePreparer;
-class GroupedSpanLaneStateAccess;
-class PoleFacingResolver;
-enum class BuildDirection : std::uint8_t;
-struct JunctionPairs;
-struct JunctionLevelRules;
-struct PoleFacing;
-struct BackboneRuntimeState;
-struct BackboneRuntimeTopology;
-struct GeneratedBackboneSpans;
-struct RealizedBackboneSupport;
-struct BackboneGenerationRequestPlan;
-struct BackboneSupportChainPlan;
-struct BackboneTopologyPlan;
-struct JunctionFeasibility;
 }
 namespace generation::bb2 {
 class pipeline;
@@ -163,9 +145,6 @@ private:
   friend struct CoreStateTestHook;
 #endif
   friend class CoreView;
-  friend class generation::detail::GroupedSpanLanePreparer;
-  friend class generation::detail::GroupedSpanLaneStateAccess;
-  friend class generation::detail::PoleFacingResolver;
   friend class generation::bb2::pipeline;
   friend struct state_internal::OverrideResolutionService;
   friend struct state_internal::EndpointRefreshService;
@@ -231,25 +210,6 @@ private:
   [[nodiscard]] static std::vector<Vec3d> sample_polyline_points(const std::vector<Vec3d>& polyline, double interval);
   EditResult<std::vector<ObjectId>> generate_poles_from_points(const RoadSegment& road, PoleTypeId pole_type_id,
                                                                const std::vector<Vec3d>& points);
-  EditResult<std::vector<ObjectId>>
-  generate_grouped_spans_between_support_nodes(const std::vector<ObjectId>& node_ids,
-                                               const std::unordered_map<ObjectId, SupportNode>& support_node_by_id,
-                                               ObjectId bundle_id, ConnectionCategory category, int conductor_count,
-                                               double spacing_m, bool maintain_lane_order, bool allow_lane_mirror,
-                                               OrderDecisionPolicyKind order_decision_policy,
-                                               BackboneFlowKind flow_kind, const BackboneLoweringPolicy& lowering_policy,
-                                               const std::unordered_map<ObjectId, JunctionRelation>* junction_relations_by_node,
-                                               const std::unordered_map<ObjectId, generation::detail::JunctionFeasibility>* junction_feasibility_by_node,
-                                               std::vector<SegmentLaneAssignment>* out_lane_assignments,
-                                               std::vector<BackboneEdgeOrientation>* out_edge_orientations = nullptr,
-                                               BundleKind bundle_template_id = BundleKind::kLowVoltage,
-                                               const std::unordered_map<ObjectId, Vec3d>* node_side_axis_by_node = nullptr,
-                                               const std::unordered_map<ObjectId, std::unordered_map<ObjectId, double>>*
-                                                   node_side_sign_by_peer = nullptr,
-                                               const std::unordered_map<ObjectId, std::array<ObjectId, 2>>*
-                                                   through_pair_by_node = nullptr,
-                                               const std::unordered_map<ObjectId, std::array<ObjectId, 2>>*
-                                                   cross_pair_by_node = nullptr);
   [[nodiscard]] static std::uint64_t hash_path_points(const std::vector<Vec3d>& points);
   [[nodiscard]] double effective_pole_yaw_deg(const Pole& pole) const;
   [[nodiscard]] Vec3d to_local_on_pole(const Pole& pole, const Vec3d& world) const;
@@ -260,33 +220,6 @@ private:
   [[nodiscard]] static BundleKind category_to_bundle_kind(ConnectionCategory category);
   [[nodiscard]] static PortKind category_to_port_kind(ConnectionCategory category);
   EditResult<bool> ensure_default_endpoint_attachments_for_span(ObjectId span_id);
-  void save_path_direction_debug(const generation::detail::BackboneGenerationRequestPlan& build_request);
-  [[nodiscard]] EditResult<generation::detail::BackboneSupportChainPlan>
-  build_backbone_support_chain_plan(const generation::detail::BackboneGenerationRequestPlan& request_plan) const;
-  [[nodiscard]] EditResult<generation::detail::RealizedBackboneSupport>
-  build_real_backbone_support(const generation::detail::BackboneSupportChainPlan& support_chain_plan);
-  [[nodiscard]] EditResult<generation::detail::BackboneRuntimeState>
-  remap_backbone_build_to_real_nodes(
-      const generation::detail::BackboneTopologyPlan& topology_plan, const generation::detail::JunctionPairs& junction_pairs,
-      const generation::detail::JunctionLevelRules& junction_level_rules,
-      const generation::detail::PoleFacing& pole_facing, generation::detail::BuildDirection build_direction,
-      std::uint64_t session_id,
-      std::vector<ObjectId> ordered_support_node_ids, std::unordered_map<ObjectId, SupportNode> support_node_by_id,
-      std::unordered_map<ObjectId, ObjectId> real_node_id_by_input_node_id) const;
-  void apply_backbone_pole_facing(
-      generation::detail::BackboneRuntimeState* runtime, ChangeSet* change_set);
-  [[nodiscard]] EditResult<generation::detail::GeneratedBackboneSpans>
-  build_bundle_spans_for_backbone(
-      const generation::detail::BackboneGenerationRequestPlan& request_plan,
-      const generation::detail::BackboneRuntimeState& runtime);
-  void publish_backbone_debug_state(
-      const generation::detail::BackboneRuntimeState& runtime,
-      generation::detail::GeneratedBackboneSpans* spans);
-  [[nodiscard]] EditResult<bool> build_real_node_topology_state(
-      const generation::detail::BackboneTopologyPlan& topology_plan, std::uint64_t session_id,
-      const std::unordered_map<ObjectId, SupportNode>& support_node_by_id,
-      const std::unordered_map<ObjectId, ObjectId>& real_node_id_by_input_node_id,
-      generation::detail::BackboneRuntimeTopology* out_state) const;
   EditResult<bool> update_pole_type_and_refresh_instances(const PoleTypeDefinition& pole_type);
   [[nodiscard]] bool has_pole_orientation_override(ObjectId pole_id) const;
   [[nodiscard]] bool has_span_endpoint_socket_override(ObjectId span_id, bool is_start_endpoint) const;

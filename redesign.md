@@ -1427,10 +1427,11 @@ deletion map:
 
 | Target | Class | Current readers | bb2 generation reads it? | Next cut |
 |---|---:|---|---:|---|
-| `core/src/generation/backbone_pipeline/*` | C/D | old generation tests, compiled old pipeline helpers | no | C365-C367 の旧 pipeline / authority / materialization 固定は削除済み。残りの old generation tests と compiled helpers を分類してから v1 removal slice で削除 |
-| `core/src/generation/bundle_spans/*` | C/D | old backbone pipeline, old generation tests | no | grouped span engine を bb2 mainline の依存に戻さない。旧 tests の制約移植後に old pipeline ごと削除判断 |
-| `core/src/generation/build_backbone/build_request.cpp` | C/D | old backbone pipeline, old tests | no | bb2 `prepare` が supported scope を持つため mainline では不要。old pipeline 削除時に同時判断 |
-| `core/src/generation/build_backbone/build_span_layout_rules.*` | C/D | old backbone pipeline | no | bb2 rules は直接生成済み。old pipeline 削除時に削除候補 |
+| `core/src/generation/backbone_pipeline/*` | removed | old generation tests, compiled old pipeline helpers | no | C365-C367 を退役し、旧 wrapper pipeline は物理削除済み |
+| `core/src/generation/bundle_spans/*` | removed | old grouped span engine, one old helper test | no | C282 を退役し、grouped span engine は物理削除済み。bb2 は pair/row/support group/rules/layout/geom を正とする |
+| `core/src/generation/build_backbone/build_request.cpp` | removed | old request planner | no | bb2 `prepare/check` が supported scope を持つため削除済み |
+| `core/src/generation/build_backbone/build_span_layout_rules.*` | removed | old authority/rules bridge | no | bb2 rules は direct `SpanLayoutRules` 生成なので削除済み |
+| `core/src/generation/route/build_support_chain.cpp` | removed | old request planner support resolution | no | bb2 は saved graph / explicit node spec を読むため削除済み |
 | `CoreState::BuildBackboneEdges` | B/D | v1 `BuildBackboneResult`, old tests | no | viewer は saved graph query へ移行中。v1 public query と tests を分類してから削除 |
 | `CoreState::BuildBackboneResult` span-derived fallback | D | core inspection, old route support-chain, old backbone pipeline/tests | no | `BuildSavedBackboneResult` を追加し viewer を saved graph query へ移行済み。残りは v1/recalc/inspection 側の隔離対象 |
 | `support_layout_projection` / `support_layout_contract` | B/D | viewer render overlay, old tests, recalc | no | viewer を `span_layout` / `span_layout_state` へ寄せる。recalc/v1 専用 API として隔離 |
@@ -1443,9 +1444,10 @@ deletion map:
 
 current deletion result:
 
-* A は今回見つからなかった。
-* 物理削除はしない。削除すれば tests/viewer/public query/recalc のどれが本流依存か曖昧になる。
-* mainline entrypoint はすでに bb2 へ切れているため、次の削除準備は B を減らすこと。
+* `backbone_pipeline`, `bundle_spans`, `build_backbone` request/rules, and route support-chain old planner are physically deleted.
+* C365-C367 and C282 were retired because they asserted old pipeline/grouped engine internals rather than bb2 mainline contracts.
+* `SegmentLaneAssignment` remains because bb2 publishes lane assignment snapshots for viewer/debug compatibility; it is no longer backed by the old grouped span engine.
+* remaining deletion work is no longer blocked by those old generation families; next cuts are public query / v1 recalc / old test constraints.
 
 mainline readiness:
 
@@ -1453,17 +1455,17 @@ mainline readiness:
 |---|---|---|
 | bb2 supported scope | usable v0 | C368-C610 bb2 acceptance pass。viewer 代表 scene は引き続き gate |
 | v1 fallback from `GenerateFromBackboneSpec` | removed | entrypoint は bb2 pipeline only |
-| v1 old pipeline physical deletion | blocked | old tests and v1/recalc-only code still read it |
+| v1 old pipeline physical deletion | done for generation mainline | `backbone_pipeline`, grouped span engine, and old request planner have been removed |
 | viewer old contract dependency | partially cut | render overlay reads neutral `span_layout`, curve, bounds, visual, and render caches; debug panels / draw capture still use `inspect_support_layout` for v1-style inspection |
 | public query old span-derived fallback | isolated, not removed | `BuildSavedBackboneResult` is available and viewer uses it; old `BuildBackboneResult` still falls back for v1/recalc/inspection |
-| `bb2` rename | blocked | old pipeline/recalc/public query remnants remain; renaming now would mix two mainlines |
+| `bb2` rename | blocked | recalc/public query/test remnants remain; renaming now would still mix bb2 with v1 inspection/recalc concepts |
 
 next cuts:
 
 1. viewer read boundary: move remaining debug/capture inspection away from `inspect_support_layout` only when the displayed fields have neutral bb2 equivalents.
 2. public query boundary: split saved graph query from v1 span-derived `BuildBackboneResult` fallback.
 3. old test constraint migration: migrate only high-value constraints from the top 20 list; do not chase old implementation expectations.
-4. after B/C shrink, delete `backbone_pipeline`, `bundle_spans`, and `build_backbone` old pipeline as one explicit v1 removal slice.
+4. after B/C shrink, delete or isolate remaining v1 recalc/support-layout public query paths as explicit slices.
 
 validation:
 

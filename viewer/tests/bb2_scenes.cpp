@@ -3,6 +3,7 @@
 #include "wire/core/core_state.hpp"
 #include "wire/core/core_view.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 
@@ -180,6 +181,175 @@ bool test_bb2_viewer_pass_through_lowering_is_visible_from_layout_draw() {
   return false;
 }
 
+bool test_bb2_viewer_acute_hv_corner_lowers_layout_geom() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = poly3_req(state, wire::core::BundleKind::kHighVoltage);
+  const auto out = state.GenerateFromBackboneSpec(req);
+  if (!out.ok || out.value.generated_span_ids.empty() || !viewer_outputs_exist(state, out.value.generated_span_ids)) {
+    return false;
+  }
+  bool saw_lowered_endpoint = false;
+  for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
+    const wire::core::Span* span = state.view().spans().find(span_id);
+    const wire::core::SpanLayoutView layout = state.view().span_layout(span_id);
+    if (span == nullptr || !layout.has_layout()) {
+      return false;
+    }
+    const wire::core::Port* port_a = state.view().ports().find(span->port_a_id);
+    const wire::core::Port* port_b = state.view().ports().find(span->port_b_id);
+    if (port_a == nullptr || port_b == nullptr) {
+      return false;
+    }
+    const auto endpoint_lowered = [](const wire::core::LayoutEndpoint& endpoint, const wire::core::Port& port) {
+      return endpoint.default_lower_required && endpoint.lower_required &&
+             almost_equal(endpoint.support_world.z, port.world_position.z) &&
+             endpoint.endpoint_world.z < port.world_position.z - 0.1;
+    };
+    saw_lowered_endpoint = saw_lowered_endpoint || endpoint_lowered(layout.entry->start, *port_a) ||
+                           endpoint_lowered(layout.entry->end, *port_b);
+  }
+  return saw_lowered_endpoint;
+}
+
+bool test_bb2_viewer_cross_pair_pair_has_display_outputs() {
+  wire::core::CoreState state;
+  const auto first = state.GenerateFromBackboneSpec(poly3_req(state, wire::core::BundleKind::kLowVoltage));
+  if (!first.ok || first.value.generated_pole_ids.size() != 3 ||
+      !viewer_outputs_exist(state, first.value.generated_span_ids)) {
+    return false;
+  }
+  const std::size_t span_count_before = state.view().spans().size();
+  const wire::core::ObjectId b = first.value.generated_pole_ids[1];
+  const wire::core::Pole* pole_b = state.view().poles().find(b);
+  if (pole_b == nullptr) {
+    return false;
+  }
+  wire::core::BackboneSpec cross = line_req(state, wire::core::BundleKind::kLowVoltage);
+  cross.path.polyline = {{12.0, -8.0, 0.0}, pole_b->world_transform.position, {20.0, 0.0, 0.0}};
+  cross.path.node_specs = {pole_spec(1, b)};
+  const auto second = state.GenerateFromBackboneSpec(cross);
+  if (!second.ok || second.value.generated_span_ids.empty() ||
+      state.view().spans().size() != span_count_before + second.value.generated_span_ids.size()) {
+    return false;
+  }
+  const wire::core::BackboneResult backbone = state.view().saved_backbone_result();
+  const wire::core::BackboneFrontier frontier = state.view().pole_frontier(b);
+  return backbone.edges.size() == 4 && frontier.edge_ids.size() == 4 &&
+         viewer_outputs_exist(state, second.value.generated_span_ids);
+}
+
+bool test_bb2_viewer_segment_pick_midair_branch_has_display_outputs() {
+  wire::core::CoreState state;
+  const auto base = state.GenerateFromBackboneSpec(line_req(state, wire::core::BundleKind::kLowVoltage));
+  if (!base.ok || base.value.generated_span_ids.empty() || !viewer_outputs_exist(state, base.value.generated_span_ids)) {
+    return false;
+  }
+  const wire::core::Span* source_span = state.view().spans().find(base.value.generated_span_ids.front());
+  if (source_span == nullptr) {
+    return false;
+  }
+  const wire::core::Port* source_a = state.view().ports().find(source_span->port_a_id);
+  const wire::core::Port* source_b = state.view().ports().find(source_span->port_b_id);
+  if (source_a == nullptr || source_b == nullptr) {
+    return false;
+  }
+  const double expected_z = 0.5 * (source_a->world_position.z + source_b->world_position.z);
+
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = source_span->id;
+  pick.hit_pos_world = {6.0, 0.0, 0.0};
+  pick.has_segment_endpoints = false;
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
+  const auto resolved = state.ResolveBranchPick(pick, resolve);
+  if (!resolved.ok || resolved.value.support_kind != wire::core::SupportKind::kMidair ||
+      resolved.value.resolved_node_id == wire::core::kInvalidObjectId ||
+      !almost_equal(resolved.value.position.z, expected_z)) {
+    return false;
+  }
+
+  wire::core::BackboneSpec branch = line_req(state, wire::core::BundleKind::kLowVoltage);
+  branch.path.polyline = {resolved.value.position, {6.0, 8.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  branch.path.node_specs = {node};
+  const auto out = state.GenerateFromBackboneSpec(branch);
+  if (!out.ok || out.value.generated_span_ids.empty() || !viewer_outputs_exist(state, out.value.generated_span_ids)) {
+    return false;
+  }
+  for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
+    const wire::core::Span* span = state.view().spans().find(span_id);
+    if (span == nullptr) {
+      return false;
+    }
+    const wire::core::Port* port_a = state.view().ports().find(span->port_a_id);
+    const wire::core::Port* port_b = state.view().ports().find(span->port_b_id);
+    if (port_a == nullptr || port_b == nullptr) {
+      return false;
+    }
+    if ((port_a->owner_pole_id == wire::core::kInvalidObjectId &&
+         almost_equal(port_a->world_position.z, expected_z)) ||
+        (port_b->owner_pole_id == wire::core::kInvalidObjectId &&
+         almost_equal(port_b->world_position.z, expected_z))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool test_bb2_viewer_selected_building_pick_generates_selected_bundle_only() {
+  wire::core::CoreState state;
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kBuilding;
+  pick.hit_id = wire::core::kInvalidObjectId;
+  pick.hit_pos_world = {12.0, 0.0, 6.0};
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kCommunication};
+  const auto resolved = state.ResolveBranchPick(pick, resolve);
+  if (!resolved.ok || resolved.value.support_kind != wire::core::SupportKind::kBuilding) {
+    return false;
+  }
+
+  wire::core::BackboneSpec req = poly3_req(state, wire::core::BundleKind::kLowVoltage);
+  add_bundle(req, wire::core::BundleKind::kCommunication);
+  req.path.polyline = {{0.0, 0.0, 0.0}, resolved.value.position, {24.0, 0.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 1;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  req.path.node_specs = {node};
+  const auto out = state.GenerateFromBackboneSpec(req);
+  if (!out.ok || out.value.bundle_ids.size() != 1 || out.value.generated_span_ids.empty() ||
+      !viewer_outputs_exist(state, out.value.generated_span_ids)) {
+    return false;
+  }
+  const wire::core::Bundle* bundle = state.view().bundles().find(out.value.bundle_ids.front());
+  if (bundle == nullptr || bundle->bundle_template_id != wire::core::BundleKind::kCommunication) {
+    return false;
+  }
+  const bool has_building_node =
+      std::find_if(state.view().backbone().nodes.begin(), state.view().backbone().nodes.end(),
+                   [](const wire::core::SavedBackboneNode& node) {
+                     return node.pole_id == wire::core::kInvalidObjectId &&
+                            node.support_kind == wire::core::SupportKind::kBuilding;
+                   }) != state.view().backbone().nodes.end();
+  if (!has_building_node) {
+    return false;
+  }
+  for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
+    const wire::core::Span* span = state.view().spans().find(span_id);
+    const wire::core::Bundle* span_bundle =
+        span == nullptr ? nullptr : state.view().bundles().find(span->bundle_id);
+    if (span_bundle == nullptr || span_bundle->bundle_template_id != wire::core::BundleKind::kCommunication) {
+      return false;
+    }
+  }
+  return true;
+}
+
 void register_bb2_scene_tests(viewer_test_registry::TestRegistry& tests) {
   viewer_test_registry::AddTest(tests, "V16", "bb2 viewer scene: simple LV/HV/Communication line has display outputs",
                                 test_bb2_viewer_simple_all_templates_have_display_outputs);
@@ -187,6 +357,14 @@ void register_bb2_scene_tests(viewer_test_registry::TestRegistry& tests) {
                                 test_bb2_viewer_existing_branch_uses_context_without_regenerating_it);
   viewer_test_registry::AddTest(tests, "V18", "bb2 viewer scene: pass-through lowering is visible from layout/draw",
                                 test_bb2_viewer_pass_through_lowering_is_visible_from_layout_draw);
+  viewer_test_registry::AddTest(tests, "V19", "bb2 viewer scene: acute HV corner lowers layout and geom",
+                                test_bb2_viewer_acute_hv_corner_lowers_layout_geom);
+  viewer_test_registry::AddTest(tests, "V20", "bb2 viewer scene: cross pair+pair has display outputs",
+                                test_bb2_viewer_cross_pair_pair_has_display_outputs);
+  viewer_test_registry::AddTest(tests, "V21", "bb2 viewer scene: segment-pick midair branch has display outputs",
+                                test_bb2_viewer_segment_pick_midair_branch_has_display_outputs);
+  viewer_test_registry::AddTest(tests, "V22", "bb2 viewer scene: selected building pick filters bundles",
+                                test_bb2_viewer_selected_building_pick_generates_selected_bundle_only);
 }
 
 WIRE_REGISTER_VIEWER_TEST_SUITE(register_bb2_scene_tests);

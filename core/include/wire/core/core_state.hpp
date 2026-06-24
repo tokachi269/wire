@@ -21,14 +21,7 @@ struct TemplateMutationService;
 namespace generation::detail {
 class GroupedSpanLanePreparer;
 class GroupedSpanLaneStateAccess;
-class BackbonePipeline;
-class BackboneBuilder;
-class JunctionInputBuilder;
-class JunctionPairResolver;
-class JunctionLevelResolver;
 class PoleFacingResolver;
-class BundleSpanBuilder;
-class SpanLayoutRuleBuilder;
 enum class BuildDirection : std::uint8_t;
 struct JunctionPairs;
 struct JunctionLevelRules;
@@ -172,12 +165,7 @@ private:
   friend class CoreView;
   friend class generation::detail::GroupedSpanLanePreparer;
   friend class generation::detail::GroupedSpanLaneStateAccess;
-  friend class generation::detail::BackbonePipeline;
-  friend class generation::detail::BackboneBuilder;
-  friend class generation::detail::JunctionInputBuilder;
   friend class generation::detail::PoleFacingResolver;
-  friend class generation::detail::BundleSpanBuilder;
-  friend class generation::detail::SpanLayoutRuleBuilder;
   friend class generation::bb2::pipeline;
   friend struct state_internal::OverrideResolutionService;
   friend struct state_internal::EndpointRefreshService;

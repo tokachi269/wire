@@ -11,8 +11,6 @@ add_library(
   src/state/template_mutation_service.cpp
   src/pole_orientation_utils.cpp
   src/generation/build_backbone_service.cpp
-  src/generation/backbone_pipeline/backbone_pipeline.cpp
-  src/generation/backbone_pipeline/backbone_runtime.cpp
   src/generation/bundle_spans/build_bundle_spans.cpp
   src/generation/bundle_spans/build_bundle_rows.cpp
   src/generation/bundle_spans/build_endpoint_heights.cpp

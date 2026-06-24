@@ -1454,13 +1454,13 @@ mainline readiness:
 | bb2 supported scope | usable v0 | C368-C610 bb2 acceptance pass。viewer 代表 scene は引き続き gate |
 | v1 fallback from `GenerateFromBackboneSpec` | removed | entrypoint は bb2 pipeline only |
 | v1 old pipeline physical deletion | blocked | old tests and v1/recalc-only code still read it |
-| viewer old contract dependency | blocked | render overlay still reads `support_layout_projection` and `inspect_support_layout` |
+| viewer old contract dependency | partially cut | render overlay reads neutral `span_layout`, curve, bounds, visual, and render caches; debug panels / draw capture still use `inspect_support_layout` for v1-style inspection |
 | public query old span-derived fallback | isolated, not removed | `BuildSavedBackboneResult` is available and viewer uses it; old `BuildBackboneResult` still falls back for v1/recalc/inspection |
 | `bb2` rename | blocked | old pipeline/recalc/public query remnants remain; renaming now would mix two mainlines |
 
 next cuts:
 
-1. viewer read boundary: replace viewer render overlay support-layout projection read with neutral `span_layout`/`span_layout_state` where possible.
+1. viewer read boundary: move remaining debug/capture inspection away from `inspect_support_layout` only when the displayed fields have neutral bb2 equivalents.
 2. public query boundary: split saved graph query from v1 span-derived `BuildBackboneResult` fallback.
 3. old test constraint migration: migrate only high-value constraints from the top 20 list; do not chase old implementation expectations.
 4. after B/C shrink, delete `backbone_pipeline`, `bundle_spans`, and `build_backbone` old pipeline as one explicit v1 removal slice.

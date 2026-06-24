@@ -386,7 +386,6 @@ void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
     const wire::core::CurveCacheEntry* curve = view.find_curve_cache(span.id);
     const wire::core::SpanRenderCacheEntry* render = view.find_span_render_cache(span.id);
     const auto layout_view = view.span_layout(span.id);
-    const auto support_view = view.inspect_support_layout(span.id);
     const wire::core::SpanVisualCacheEntry* visual = view.find_span_visual_cache(span.id);
     const wire::core::BackboneFlowKind flow_kind =
         (!layout_view.has_layout()) ? wire::core::BackboneFlowKind::kMain : layout_view.entry->flow_kind;
@@ -433,21 +432,8 @@ void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
       }
     }
 
-    const bool has_grouped_lowered_support =
-        support_view.has_value() && std::any_of(support_view->lowered_support_groups.begin(),
-                                                support_view->lowered_support_groups.end(),
-                                                [](const auto& placement) {
-                                                  return placement.grouping_rule ==
-                                                             wire::core::SupportGroupingRuleKind::kDecisionGroup &&
-                                                         placement.support_group_id >= 0;
-                                                });
-
     if (visual != nullptr) {
       for (const wire::core::VisualPart& part : visual->parts) {
-        if (has_grouped_lowered_support &&
-            (part.kind == wire::core::VisualPartKind::kSupportArm || part.kind == wire::core::VisualPartKind::kFitting)) {
-          continue;
-        }
         const Color part_color = VisualPartColor(part.kind);
         if (part.kind == wire::core::VisualPartKind::kInsulator) {
           DrawCylinderEx(ToRaylib(part.a), ToRaylib(part.b), static_cast<float>(part.radius_m),
@@ -456,21 +442,6 @@ void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
           const float part_radius = SolidVisualPartRadius(part.kind, part.radius_m);
           DrawSupportSegment(part.a, part.b, part_radius, part_color, enable_solid_support_render);
         }
-      }
-    }
-    if (support_view.has_value()) {
-      const auto draw_lowered_support_group = [&](const auto& placement) {
-        const Color support_color = Color{96, 118, 126, 220};
-        DrawSupportSegment(placement.mount_world, placement.tip_world, 0.018f, support_color, enable_solid_support_render);
-        DrawSphere(ToRaylib(placement.mount_world), 0.05f, Color{104, 116, 122, 220});
-        DrawSphere(ToRaylib(placement.tip_world), 0.05f, Color{112, 136, 144, 220});
-        for (const auto& attachment_world : placement.attachment_worlds) {
-          DrawSupportSegment(placement.tip_world, attachment_world, 0.012f, Color{180, 186, 190, 220},
-                             enable_solid_support_render);
-        }
-      };
-      for (const auto& placement : support_view->lowered_support_groups) {
-        draw_lowered_support_group(placement);
       }
     }
   }

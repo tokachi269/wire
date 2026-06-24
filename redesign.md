@@ -1420,7 +1420,7 @@ deletion map:
 | `SpanSupportLayoutDecisionSeed` and authority contract | C/D | recalc/materialization, old tests, validator | no | bb2 は `SpanLayoutRules` / `SpanLayoutEntry` を正とする。v1/recalc tests の制約分類後に削除判断 |
 | `core/src/recalc/support_layout_materialization.*` | D | recalc pipeline and old support layout materialization tests | no | bb2 generation からは切断済み。v1/recalc 削除または隔離までは残す |
 | `core/src/recalc/detail_curve_*` | D | recalc pipeline, old curve tests | no | bb2 geom は独自 direct output。post-edit rederive 方針が決まるまで v1/recalc 側に隔離 |
-| viewer `support_layout_projection` read | B | `viewer/src/render_overlay.cpp` | no | neutral `span_layout` read へ置換する。viewer 表示が旧 contract を正本扱いしない状態にする |
+| viewer `support_layout_projection` read | B | none in `viewer/src` | no | render overlay は neutral `span_layout` へ移行済み。残る viewer 旧依存は debug/inspection 表示の `inspect_support_layout` |
 | viewer `build_backbone_result` overlay | B | `viewer/src/render_overlay.cpp`, `viewer/src/main.cpp`, `viewer/src/scene_query.cpp`, `viewer/src/draw_path.cpp` | no | saved graph query と unsupported gate を viewer 側で明示する |
 | old tests using `Commit(run_recalc)` / support layout contract | C | `core/tests/generation.cpp`, `geometry.cpp`, `bundle_visuals.cpp`, others | no | old test constraint migration top 20 から順に、bb2 の SavedGraph/rules/layout/geom/draw 基準へ移す |
 

@@ -385,13 +385,13 @@ void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
 
     const wire::core::CurveCacheEntry* curve = view.find_curve_cache(span.id);
     const wire::core::SpanRenderCacheEntry* render = view.find_span_render_cache(span.id);
-    const wire::core::SpanSupportLayoutEntry* support_layout = view.support_layout_projection(span.id).layout;
-    const auto layout_view = view.inspect_support_layout(span.id);
+    const auto layout_view = view.span_layout(span.id);
+    const auto support_view = view.inspect_support_layout(span.id);
     const wire::core::SpanVisualCacheEntry* visual = view.find_span_visual_cache(span.id);
     const wire::core::BackboneFlowKind flow_kind =
-        (support_layout == nullptr) ? wire::core::BackboneFlowKind::kMain : support_layout->flow_kind;
+        (!layout_view.has_layout()) ? wire::core::BackboneFlowKind::kMain : layout_view.entry->flow_kind;
     const bool uses_branch_support =
-      layout_view.has_value() && layout_view->lowering_kind == wire::core::BackboneLoweringKind::kBranchSupport;
+        layout_view.has_layout() && layout_view.entry->lowering_kind == wire::core::BackboneLoweringKind::kBranchSupport;
     const float wire_radius =
         static_cast<float>((render == nullptr) ? 0.01 : std::max(0.0005, render->wire_radius_m));
     Color wire_color = (render == nullptr) ? ViewerWireColor(color) : ViewerWireColor(ColorFromRgba(render->color_rgba));
@@ -434,13 +434,13 @@ void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
     }
 
     const bool has_grouped_lowered_support =
-        layout_view.has_value() && std::any_of(layout_view->lowered_support_groups.begin(),
-                                               layout_view->lowered_support_groups.end(),
-                                               [](const auto& placement) {
-                                                 return placement.grouping_rule ==
-                                                            wire::core::SupportGroupingRuleKind::kDecisionGroup &&
-                                                        placement.support_group_id >= 0;
-                                               });
+        support_view.has_value() && std::any_of(support_view->lowered_support_groups.begin(),
+                                                support_view->lowered_support_groups.end(),
+                                                [](const auto& placement) {
+                                                  return placement.grouping_rule ==
+                                                             wire::core::SupportGroupingRuleKind::kDecisionGroup &&
+                                                         placement.support_group_id >= 0;
+                                                });
 
     if (visual != nullptr) {
       for (const wire::core::VisualPart& part : visual->parts) {
@@ -458,7 +458,7 @@ void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
         }
       }
     }
-    if (layout_view.has_value()) {
+    if (support_view.has_value()) {
       const auto draw_lowered_support_group = [&](const auto& placement) {
         const Color support_color = Color{96, 118, 126, 220};
         DrawSupportSegment(placement.mount_world, placement.tip_world, 0.018f, support_color, enable_solid_support_render);
@@ -469,7 +469,7 @@ void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
                              enable_solid_support_render);
         }
       };
-      for (const auto& placement : layout_view->lowered_support_groups) {
+      for (const auto& placement : support_view->lowered_support_groups) {
         draw_lowered_support_group(placement);
       }
     }

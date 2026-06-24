@@ -17,6 +17,15 @@ bool almost_equal(const wire::core::Vec3d& a, const wire::core::Vec3d& b, double
   return almost_equal(a.x, b.x, eps) && almost_equal(a.y, b.y, eps) && almost_equal(a.z, b.z, eps);
 }
 
+double dist2(const wire::core::Vec3d& a, const wire::core::Vec3d& b) {
+  const wire::core::Vec3d d = a - b;
+  return d.x * d.x + d.y * d.y + d.z * d.z;
+}
+
+bool finite(const wire::core::Vec3d& v) {
+  return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+}
+
 wire::core::PoleTypeId first_pole_type_id(const wire::core::CoreState& state) {
   wire::core::PoleTypeId best = wire::core::kInvalidPoleTypeId;
   for (const auto& [id, _] : state.view().pole_types()) {
@@ -73,23 +82,74 @@ bool bounds_valid(const wire::core::BoundsCacheEntry& bounds) {
          bounds.whole.min.z <= bounds.whole.max.z;
 }
 
+bool bounds_contains(const wire::core::BoundsCacheEntry& bounds, const wire::core::Vec3d& p) {
+  constexpr double eps = 1e-9;
+  return p.x >= bounds.whole.min.x - eps && p.y >= bounds.whole.min.y - eps && p.z >= bounds.whole.min.z - eps &&
+         p.x <= bounds.whole.max.x + eps && p.y <= bounds.whole.max.y + eps && p.z <= bounds.whole.max.z + eps;
+}
+
 bool viewer_outputs_exist(const wire::core::CoreState& state, const std::vector<wire::core::ObjectId>& span_ids) {
   const wire::core::CoreView& view = state.view();
   if (view.saved_backbone_result().nodes.empty() || view.saved_backbone_result().edges.empty()) {
     return false;
   }
   for (wire::core::ObjectId span_id : span_ids) {
-    if (!view.span_layout(span_id).has_layout()) {
+    const wire::core::SpanLayoutView layout = view.span_layout(span_id);
+    if (!layout.has_layout()) {
       return false;
     }
     const wire::core::CurveCacheEntry* curve = view.find_curve_cache(span_id);
     const wire::core::BoundsCacheEntry* bounds = view.find_bounds_cache(span_id);
+    const wire::core::SpanRenderCacheEntry* render = view.find_span_render_cache(span_id);
     if (curve == nullptr || curve->detail.sample_points.size() < 2 || curve->detail.total_length_m <= 0.0 ||
-        bounds == nullptr || !bounds_valid(*bounds)) {
+        bounds == nullptr || !bounds_valid(*bounds) || render == nullptr || render->wire_radius_m <= 0.0 ||
+        render->arc_length_m_by_point.size() != curve->detail.sample_points.size() ||
+        render->arc_length_normalized_by_point.size() != curve->detail.sample_points.size() ||
+        (curve->detail.sample_points.size() >= 2 &&
+         render->segment_length_m.size() + 1 != curve->detail.sample_points.size())) {
       return false;
     }
-    if (view.find_span_visual_cache(span_id) == nullptr || view.find_span_render_cache(span_id) == nullptr) {
+    if (!almost_equal(curve->detail.start_constraint.point, layout.entry->start.endpoint_world) ||
+        !almost_equal(curve->detail.end_constraint.point, layout.entry->end.endpoint_world)) {
       return false;
+    }
+    for (const wire::core::Vec3d& p : curve->detail.sample_points) {
+      if (!finite(p) || !bounds_contains(*bounds, p)) {
+        return false;
+      }
+    }
+    const wire::core::SpanVisualCacheEntry* visual = view.find_span_visual_cache(span_id);
+    if (visual == nullptr) {
+      return false;
+    }
+    for (const wire::core::VisualPart& part : visual->parts) {
+      if (!finite(part.a) || !finite(part.b) || part.radius_m < 0.0) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+bool endpoints_are_visually_separated(const wire::core::CoreState& state,
+                                      const std::vector<wire::core::ObjectId>& span_ids,
+                                      bool start_endpoint) {
+  std::vector<wire::core::Vec3d> endpoints{};
+  for (wire::core::ObjectId span_id : span_ids) {
+    const wire::core::SpanLayoutView layout = state.view().span_layout(span_id);
+    if (!layout.has_layout()) {
+      return false;
+    }
+    endpoints.push_back(start_endpoint ? layout.entry->start.endpoint_world : layout.entry->end.endpoint_world);
+  }
+  if (endpoints.size() < 2) {
+    return false;
+  }
+  for (std::size_t i = 0; i < endpoints.size(); ++i) {
+    for (std::size_t j = i + 1; j < endpoints.size(); ++j) {
+      if (dist2(endpoints[i], endpoints[j]) <= 1e-4) {
+        return false;
+      }
     }
   }
   return true;
@@ -106,7 +166,9 @@ bool test_bb2_viewer_simple_all_templates_have_display_outputs() {
   }
   const wire::core::BackboneResult backbone = state.view().saved_backbone_result();
   return backbone.nodes.size() == 2 && backbone.edges.size() == 1 &&
-         viewer_outputs_exist(state, out.value.generated_span_ids);
+         viewer_outputs_exist(state, out.value.generated_span_ids) &&
+         endpoints_are_visually_separated(state, out.value.generated_span_ids, true) &&
+         endpoints_are_visually_separated(state, out.value.generated_span_ids, false);
 }
 
 bool test_bb2_viewer_existing_branch_uses_context_without_regenerating_it() {

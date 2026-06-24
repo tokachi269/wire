@@ -1316,6 +1316,21 @@ viewer gate:
 * 代表 scene を見ていない間は「core architecture は進んだ」とだけ言い、「見た目まで順調」とは言わない。
 * viewer で違和感が出た場合、core geometry か viewer 表示かを切り分ける。
 
+headless viewer validators:
+
+| Test | Scene | Fixed evidence | Status |
+|---|---|---|---|
+| V16 | simple line with LV/HV/Communication | `saved_backbone_result`, `span_layout`, curve, bounds, visual cache, render cache exist for generated spans | pass |
+| V17 | A-B-C then B-D existing branch | context A-B/B-C are not regenerated; B-D outputs are display-readable; saved graph frontier exposes 3 edges | pass |
+| V18 | pass-through/lowering branch | lowered endpoint is visible from layout and support visual placeholder reads layout points | pass |
+
+not yet visually fixed:
+
+* 3 point acute HV corner still needs viewer-level confirmation beyond core C609/C610.
+* A-B-C then D-B-E cross still needs viewer-level confirmation beyond core C459/C477.
+* segment pick midair branch and selected bundle building/midair picks still need viewer workflow confirmation beyond core C560-C568 and C597-C600.
+* These are not counted as visually supported until a viewer validator or manual capture check exists.
+
 ### pipeline.cpp split plan
 
 `pipeline.cpp` は約 2500 行で、これ以上の機能追加前に分割候補を固定する。rename 祭りはしない。namespace と短いファイル名で読ませる。

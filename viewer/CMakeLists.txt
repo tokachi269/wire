@@ -157,6 +157,7 @@ add_executable(
   src/path_pick_policy.cpp
   tests/app_state.cpp
   tests/backbone_plane.cpp
+  tests/bb2_scenes.cpp
   tests/host_coords.cpp
   tests/pick_policy.cpp
   tests/registry.cpp

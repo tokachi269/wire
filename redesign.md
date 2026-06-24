@@ -1381,3 +1381,77 @@ Top 20 handling rule:
 2. split gate: `pipeline.cpp` を behavior 変更なしで分割し、追跡可能性を戻す。
 
 どちらもやらずに C611 以降の scenario を増やすのは、スロー化の兆候として停止する。
+
+## bb2 mainline checkpoint / v1 deletion map 2026-06-24
+
+目的:
+
+* bb2 をさらに広げず、v1 削除可能性を call graph で確認する。
+* 物理削除は proven dead なものだけに限定する。
+* `bb2` rename は v1 本流が物理的に外れるまで行わない。
+
+entrypoint:
+
+* `CoreState::GenerateFromBackboneSpec` は `generation::bb2::pipeline` の `prepare/check/build` だけを呼ぶ。
+* v1 `BackbonePipeline` へ戻る fallback はない。
+* `GenerateSimpleLine` / `GenerateSimpleLineFromPoints` は `BackboneSpec` を作って `GenerateFromBackboneSpec` に委譲する。
+
+classification:
+
+| Class | Meaning | Action |
+|---|---|---|
+| A | bb2 本流からも viewer/public query/tests からも未使用 | 物理削除可 |
+| B | viewer/public query がまだ読む | 先に neutral bb2/SavedGraph read へ移す |
+| C | tests だけが読む | 旧制約を bb2 構造へ移植してから削除 |
+| D | v1/recalc 専用として残る | bb2 本流から隔離し、mainline と混ぜない |
+| E | bb2 未対応 scenario のため残る | supported にするか unsupported を固定してから削除判断 |
+
+deletion map:
+
+| Target | Class | Current readers | bb2 generation reads it? | Next cut |
+|---|---:|---|---:|---|
+| `core/src/generation/backbone_pipeline/*` | C/D | old generation tests, compiled old pipeline helpers | no | old tests C365-C367 系の制約を bb2/SavedGraph/rules/layout へ移植し、v1専用 tests として隔離してから削除 |
+| `core/src/generation/bundle_spans/*` | C/D | old backbone pipeline, old generation tests | no | grouped span engine を bb2 mainline の依存に戻さない。旧 tests の制約移植後に old pipeline ごと削除判断 |
+| `core/src/generation/build_backbone/build_request.cpp` | C/D | old backbone pipeline, old tests | no | bb2 `prepare` が supported scope を持つため mainline では不要。old pipeline 削除時に同時判断 |
+| `core/src/generation/build_backbone/build_span_layout_rules.*` | C/D | old backbone pipeline | no | bb2 rules は直接生成済み。old pipeline 削除時に削除候補 |
+| `CoreState::BuildBackboneEdges` | B/D | `BuildBackboneResult`, viewer/public query, old tests | no | `BuildBackboneResult` を saved graph only に寄せ、saved graph が無い v1 scene の扱いを明示してから削除 |
+| `CoreState::BuildBackboneResult` span-derived fallback | B/D | viewer overlay/panels/scene query | no | viewer が saved graph query を正として読めるようにしてから fallback を削除 |
+| `support_layout_projection` / `support_layout_contract` | B/D | viewer render overlay, old tests, recalc | no | viewer を `span_layout` / `span_layout_state` へ寄せる。recalc/v1 専用 API として隔離 |
+| `SpanSupportLayoutDecisionSeed` and authority contract | C/D | recalc/materialization, old tests, validator | no | bb2 は `SpanLayoutRules` / `SpanLayoutEntry` を正とする。v1/recalc tests の制約分類後に削除判断 |
+| `core/src/recalc/support_layout_materialization.*` | D | recalc pipeline and old support layout materialization tests | no | bb2 generation からは切断済み。v1/recalc 削除または隔離までは残す |
+| `core/src/recalc/detail_curve_*` | D | recalc pipeline, old curve tests | no | bb2 geom は独自 direct output。post-edit rederive 方針が決まるまで v1/recalc 側に隔離 |
+| viewer `support_layout_projection` read | B | `viewer/src/render_overlay.cpp` | no | neutral `span_layout` read へ置換する。viewer 表示が旧 contract を正本扱いしない状態にする |
+| viewer `build_backbone_result` overlay | B | `viewer/src/render_overlay.cpp`, `viewer/src/main.cpp`, `viewer/src/scene_query.cpp`, `viewer/src/draw_path.cpp` | no | saved graph query と unsupported gate を viewer 側で明示する |
+| old tests using `Commit(run_recalc)` / support layout contract | C | `core/tests/generation.cpp`, `geometry.cpp`, `bundle_visuals.cpp`, others | no | old test constraint migration top 20 から順に、bb2 の SavedGraph/rules/layout/geom/draw 基準へ移す |
+
+current deletion result:
+
+* A は今回見つからなかった。
+* 物理削除はしない。削除すれば tests/viewer/public query/recalc のどれが本流依存か曖昧になる。
+* mainline entrypoint はすでに bb2 へ切れているため、次の削除準備は B を減らすこと。
+
+mainline readiness:
+
+| Item | Status | Reason |
+|---|---|---|
+| bb2 supported scope | usable v0 | C368-C610 bb2 acceptance pass。viewer 代表 scene は引き続き gate |
+| v1 fallback from `GenerateFromBackboneSpec` | removed | entrypoint は bb2 pipeline only |
+| v1 old pipeline physical deletion | blocked | old tests and v1/recalc-only code still read it |
+| viewer old contract dependency | blocked | render overlay still reads `support_layout_projection` and `inspect_support_layout` |
+| public query old span-derived fallback | blocked | `BuildBackboneResult` still falls back to `BuildBackboneEdges` for scenes without saved graph |
+| `bb2` rename | blocked | old pipeline/recalc/public query remnants remain; renaming now would mix two mainlines |
+
+next cuts:
+
+1. viewer read boundary: replace viewer render overlay support-layout projection read with neutral `span_layout`/`span_layout_state` where possible.
+2. public query boundary: split saved graph query from v1 span-derived `BuildBackboneResult` fallback.
+3. old test constraint migration: migrate only high-value constraints from the top 20 list; do not chase old implementation expectations.
+4. after B/C shrink, delete `backbone_pipeline`, `bundle_spans`, and `build_backbone` old pipeline as one explicit v1 removal slice.
+
+validation:
+
+* `git diff --check`: pass.
+* `wire_viewer`: build pass with VS18 CMake.
+* `wire_viewer_tests`: V01-V15 pass.
+* `wire_core_tests bb2`: C368-C610 pass.
+* full `wire_core_tests`: fails in old v1/recalc tests; this is not a bb2 blocker, but each failure must be classified before using it as a fix target.

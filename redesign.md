@@ -1455,3 +1455,30 @@ validation:
 * `wire_viewer_tests`: V01-V15 pass.
 * `wire_core_tests bb2`: C368-C610 pass.
 * full `wire_core_tests`: fails in old v1/recalc tests; this is not a bb2 blocker, but each failure must be classified before using it as a fix target.
+
+full old suite classification 2026-06-24:
+
+* Observed command: `build-vs18-coretests/core/Debug/wire_core_tests.exe`.
+* Result: exit 1, 197 failures.
+* bb2 failures: 0 by failure-name scan; C368-C610 pass in the bb2 focused run.
+* Failure log: `build-vs18-coretests/core/Debug/wire_core_tests_failures_latest.txt`.
+
+| Category | Count | Meaning | bb2 action |
+|---|---:|---|---|
+| recalc/cache/render/visual/inspection/support-layout | 89 | Old dirty queue, recalc cache, render visual, support-layout contract, override/inspection behavior | Do not fix by reintroducing recalc into bb2. Extract constraints only when they apply to bb2 direct rules/layout/geom/draw. |
+| old backbone/grouped-span/junction/lowering | 157 | Old v1 pipeline, grouped span engine, junction relation, lowering/order/side authority expectations | Do not restore v1 fallback. Migrate only the constraint if it is still valid under SavedBackboneGraph + pair/open/row + support group. |
+| uncategorized by coarse scan | 6 | Forced reverse direction, validation authority, optical/coiled render, context profile wobble | Inspect individually before acting. None is a reason to keep bb2 tied to v1. |
+
+classification rule:
+
+* A failing old test is not a fix target until its constraint is named in bb2 terms.
+* v1 implementation-detail expectations such as authority/seed/projection, grouped span internal order, or recalc side effects remain v1-only until migrated.
+* bb2 blocker examples are limited to constraints that should hold in the new structure: unsupported input leaves state unchanged, saved graph explains topology, generated outputs have rules/layout/geom/draw, duplicate requests do not mutate state, and viewer-required outputs are present.
+
+current mainline state:
+
+* bb2 can be called as the generation entrypoint without v1 fallback.
+* normal viewer overlay/query/capture now read `saved_backbone_result` instead of span-derived `BuildBackboneResult`.
+* viewer render overlay uses neutral `span_layout` for flow/lowering display; old `inspect_support_layout` remains debug/inspection only.
+* No A-class v1 files were proven dead yet, so no physical v1 deletion was done in this checkpoint.
+* Rename from `bb2` to mainline remains blocked until old pipeline/recalc/public-query remnants are either deleted or explicitly isolated.

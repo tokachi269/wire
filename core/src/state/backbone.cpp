@@ -811,6 +811,103 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
   return result;
 }
 
+BackboneResult CoreState::BuildSavedBackboneResult() const {
+  BackboneResult out{};
+  out.edge_orientations = debug_.last_generation_edge_orientations;
+
+  const bool has_saved_backbone = !authoritative_.backbone.nodes.empty() || !authoritative_.backbone.edges.empty();
+  if (!has_saved_backbone) {
+    return out;
+  }
+
+  out.nodes.reserve(authoritative_.backbone.nodes.size());
+  for (const SavedBackboneNode& saved_node : authoritative_.backbone.nodes) {
+    if (saved_node.node_id == kInvalidObjectId) {
+      continue;
+    }
+    SupportNode node{};
+    node.node_id = saved_node.node_id;
+    node.support_kind = saved_node.support_kind;
+    node.position = saved_node.position;
+    node.pole_id = saved_node.pole_id;
+    node.saved_backbone_node_id = saved_node.node_id;
+    node.has_source_edge = saved_node.has_source_edge;
+    node.source_edge_node_a_id = saved_node.source_edge_node_a;
+    node.source_edge_node_b_id = saved_node.source_edge_node_b;
+    node.source_edge_t = saved_node.source_edge_t;
+    node.bundle_modes = saved_node.bundle_modes;
+    out.nodes.push_back(std::move(node));
+  }
+  std::sort(out.nodes.begin(), out.nodes.end(),
+            [](const SupportNode& lhs, const SupportNode& rhs) { return lhs.node_id < rhs.node_id; });
+
+  std::unordered_map<ObjectId, std::vector<ObjectId>> bundles_by_edge{};
+  for (const SavedBackboneEdgeBundle& edge_bundle : authoritative_.backbone.edge_bundles) {
+    if (edge_bundle.edge_id == kInvalidObjectId || edge_bundle.bundle_id == kInvalidObjectId) {
+      continue;
+    }
+    bundles_by_edge[edge_bundle.edge_id].push_back(edge_bundle.bundle_id);
+  }
+
+  out.edges.reserve(authoritative_.backbone.edges.size());
+  for (const SavedBackboneEdge& saved_edge : authoritative_.backbone.edges) {
+    if (saved_edge.edge_id == kInvalidObjectId || saved_edge.node_a == kInvalidObjectId ||
+        saved_edge.node_b == kInvalidObjectId || saved_edge.node_a == saved_edge.node_b) {
+      continue;
+    }
+    BackboneEdge edge{};
+    edge.node_a = saved_edge.node_a;
+    edge.node_b = saved_edge.node_b;
+    if (const auto it = bundles_by_edge.find(saved_edge.edge_id); it != bundles_by_edge.end()) {
+      edge.bundles = it->second;
+      std::sort(edge.bundles.begin(), edge.bundles.end());
+      edge.bundles.erase(std::unique(edge.bundles.begin(), edge.bundles.end()), edge.bundles.end());
+    }
+    out.edges.push_back(std::move(edge));
+  }
+  std::sort(out.edges.begin(), out.edges.end(), [](const BackboneEdge& lhs, const BackboneEdge& rhs) {
+    if (lhs.node_a != rhs.node_a) {
+      return lhs.node_a < rhs.node_a;
+    }
+    return lhs.node_b < rhs.node_b;
+  });
+
+  std::unordered_map<ObjectId, std::vector<ObjectId>> adjacency{};
+  for (const BackboneEdge& edge : out.edges) {
+    adjacency[edge.node_a].push_back(edge.node_b);
+    adjacency[edge.node_b].push_back(edge.node_a);
+  }
+  std::vector<ObjectId> junction_node_ids{};
+  for (auto& [node_id, neighbors] : adjacency) {
+    std::sort(neighbors.begin(), neighbors.end());
+    neighbors.erase(std::unique(neighbors.begin(), neighbors.end()), neighbors.end());
+    if (neighbors.size() >= 3) {
+      junction_node_ids.push_back(node_id);
+    }
+  }
+  std::sort(junction_node_ids.begin(), junction_node_ids.end());
+  out.junctions.reserve(junction_node_ids.size());
+  for (ObjectId node_id : junction_node_ids) {
+    const auto it = adjacency.find(node_id);
+    if (it == adjacency.end()) {
+      continue;
+    }
+    JunctionInfo junction{};
+    junction.node_id = node_id;
+    junction.incidents.reserve(it->second.size());
+    for (std::size_t i = 0; i < it->second.size(); ++i) {
+      JunctionIncident incident{};
+      incident.neighbor_node_id = it->second[i];
+      incident.order = static_cast<int>(i);
+      incident.primary = (i == 0);
+      incident.source_session_id = 0;
+      junction.incidents.push_back(incident);
+    }
+    out.junctions.push_back(std::move(junction));
+  }
+  return out;
+}
+
 BackboneResult CoreState::BuildBackboneResult() const {
   BackboneResult out{};
   auto resolve_span_endpoint_node = [&](const Span& span, const Port* port, bool is_a) -> ObjectId {

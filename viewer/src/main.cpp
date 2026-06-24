@@ -347,7 +347,7 @@ SelectionItem PickViewportSelection(const wire::core::CoreView& view, const Came
                                     const ViewerUiState& ui_state,
                                     const Vector2& mouse_screen) {
   const auto& edit = view.edit_state();
-  const wire::core::BackboneResult backbone = view.build_backbone_result();
+  const wire::core::BackboneResult backbone = view.saved_backbone_result();
   SelectionItem best{};
   float best_distance_sq = kSelectionClickRadiusPx * kSelectionClickRadiusPx;
 
@@ -407,7 +407,7 @@ SelectionItem PickViewportSelection(const wire::core::CoreView& view, const Came
 std::vector<SelectionItem> CollectViewportSelection(const wire::core::CoreView& view, const Camera3D& camera,
                                                     const ViewerUiState& ui_state, const Rectangle& rect) {
   const auto& edit = view.edit_state();
-  const wire::core::BackboneResult backbone = view.build_backbone_result();
+  const wire::core::BackboneResult backbone = view.saved_backbone_result();
   std::vector<SelectionItem> items{};
 
   if (ui_state.selection_include_poles) {

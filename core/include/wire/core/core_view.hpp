@@ -65,6 +65,7 @@ public:
   [[nodiscard]] const std::vector<PortResolutionDebugRecord>& port_resolution_debug_records() const;
   [[nodiscard]] const std::vector<SegmentLaneAssignment>& last_lane_assignments() const;
   [[nodiscard]] const std::unordered_map<ObjectId, SpanRuntimeState>& span_runtime_states() const;
+  [[nodiscard]] BackboneResult saved_backbone_result() const;
   [[nodiscard]] BackboneResult build_backbone_result() const;
   [[nodiscard]] const SpanRuntimeState* find_span_runtime_state(ObjectId span_id) const;
   [[nodiscard]] const CurveCacheEntry* find_curve_cache(ObjectId span_id) const;

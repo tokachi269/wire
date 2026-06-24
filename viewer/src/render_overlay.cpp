@@ -305,7 +305,7 @@ void DrawBackboneOverlay(const wire::core::BackboneResult& backbone, const Viewe
 
 void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
   const auto& edit = view.edit_state();
-  const wire::core::BackboneResult backbone = view.build_backbone_result();
+  const wire::core::BackboneResult backbone = view.saved_backbone_result();
   const bool enable_solid_support_render = ui_state.viewer_enable_solid_support_render;
   ObjectId selected_bundle_id = wire::core::kInvalidObjectId;
   for (const SelectionItem& item : ui_state.selection_items) {

@@ -1132,7 +1132,7 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
   ofs << "result.direction.cost.forward.corner=" << dir_debug.forward_cost.corner_compression_penalty << "\n";
   ofs << "result.direction.cost.forward.branch=" << dir_debug.forward_cost.branch_conflict_penalty << "\n";
 
-  const wire::core::BackboneResult rebuilt_backbone = view.build_backbone_result();
+  const wire::core::BackboneResult rebuilt_backbone = view.saved_backbone_result();
   const auto& edge_orientations = view.last_generation_edge_orientations();
   ofs << "result.backbone.snapshot_node_count=" << rebuilt_backbone.nodes.size() << "\n";
   ofs << "result.backbone.snapshot_edge_count=" << rebuilt_backbone.edges.size() << "\n";

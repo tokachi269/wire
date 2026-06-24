@@ -124,7 +124,7 @@ wire::core::PickResult ViewerSceneQuery::Raycast(const wire::core::CoreView& vie
   };
   NodeCandidate best_node{};
 
-  const wire::core::BackboneResult backbone = view.build_backbone_result();
+  const wire::core::BackboneResult backbone = view.saved_backbone_result();
   std::unordered_map<wire::core::ObjectId, wire::core::Vec3d> backbone_node_positions{};
   backbone_node_positions.reserve(backbone.nodes.size());
   for (const wire::core::SupportNode& node : backbone.nodes) {

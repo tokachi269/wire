@@ -1414,14 +1414,14 @@ deletion map:
 | `core/src/generation/bundle_spans/*` | C/D | old backbone pipeline, old generation tests | no | grouped span engine を bb2 mainline の依存に戻さない。旧 tests の制約移植後に old pipeline ごと削除判断 |
 | `core/src/generation/build_backbone/build_request.cpp` | C/D | old backbone pipeline, old tests | no | bb2 `prepare` が supported scope を持つため mainline では不要。old pipeline 削除時に同時判断 |
 | `core/src/generation/build_backbone/build_span_layout_rules.*` | C/D | old backbone pipeline | no | bb2 rules は直接生成済み。old pipeline 削除時に削除候補 |
-| `CoreState::BuildBackboneEdges` | B/D | `BuildBackboneResult`, viewer/public query, old tests | no | `BuildBackboneResult` を saved graph only に寄せ、saved graph が無い v1 scene の扱いを明示してから削除 |
-| `CoreState::BuildBackboneResult` span-derived fallback | B/D | viewer overlay/panels/scene query | no | viewer が saved graph query を正として読めるようにしてから fallback を削除 |
+| `CoreState::BuildBackboneEdges` | B/D | v1 `BuildBackboneResult`, old tests | no | viewer は saved graph query へ移行中。v1 public query と tests を分類してから削除 |
+| `CoreState::BuildBackboneResult` span-derived fallback | D | core inspection, old route support-chain, old backbone pipeline/tests | no | `BuildSavedBackboneResult` を追加し viewer を saved graph query へ移行済み。残りは v1/recalc/inspection 側の隔離対象 |
 | `support_layout_projection` / `support_layout_contract` | B/D | viewer render overlay, old tests, recalc | no | viewer を `span_layout` / `span_layout_state` へ寄せる。recalc/v1 専用 API として隔離 |
 | `SpanSupportLayoutDecisionSeed` and authority contract | C/D | recalc/materialization, old tests, validator | no | bb2 は `SpanLayoutRules` / `SpanLayoutEntry` を正とする。v1/recalc tests の制約分類後に削除判断 |
 | `core/src/recalc/support_layout_materialization.*` | D | recalc pipeline and old support layout materialization tests | no | bb2 generation からは切断済み。v1/recalc 削除または隔離までは残す |
 | `core/src/recalc/detail_curve_*` | D | recalc pipeline, old curve tests | no | bb2 geom は独自 direct output。post-edit rederive 方針が決まるまで v1/recalc 側に隔離 |
 | viewer `support_layout_projection` read | B | none in `viewer/src` | no | render overlay は neutral `span_layout` へ移行済み。残る viewer 旧依存は debug/inspection 表示の `inspect_support_layout` |
-| viewer `build_backbone_result` overlay | B | `viewer/src/render_overlay.cpp`, `viewer/src/main.cpp`, `viewer/src/scene_query.cpp`, `viewer/src/draw_path.cpp` | no | saved graph query と unsupported gate を viewer 側で明示する |
+| viewer `build_backbone_result` overlay | B | none in normal viewer overlay/query/capture | no | viewer は `saved_backbone_result` / `BuildSavedBackboneResult` へ移行済み。残る旧 `BuildBackboneResult` は adapter の v1 API として未使用化対象 |
 | old tests using `Commit(run_recalc)` / support layout contract | C | `core/tests/generation.cpp`, `geometry.cpp`, `bundle_visuals.cpp`, others | no | old test constraint migration top 20 から順に、bb2 の SavedGraph/rules/layout/geom/draw 基準へ移す |
 
 current deletion result:
@@ -1438,7 +1438,7 @@ mainline readiness:
 | v1 fallback from `GenerateFromBackboneSpec` | removed | entrypoint は bb2 pipeline only |
 | v1 old pipeline physical deletion | blocked | old tests and v1/recalc-only code still read it |
 | viewer old contract dependency | blocked | render overlay still reads `support_layout_projection` and `inspect_support_layout` |
-| public query old span-derived fallback | blocked | `BuildBackboneResult` still falls back to `BuildBackboneEdges` for scenes without saved graph |
+| public query old span-derived fallback | isolated, not removed | `BuildSavedBackboneResult` is available and viewer uses it; old `BuildBackboneResult` still falls back for v1/recalc/inspection |
 | `bb2` rename | blocked | old pipeline/recalc/public query remnants remain; renaming now would mix two mainlines |
 
 next cuts:

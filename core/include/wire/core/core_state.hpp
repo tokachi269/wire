@@ -123,6 +123,7 @@ public:
   EditResult<ObjectId> ClearSpanBranchDownOffsetOverride(ObjectId span_id);
   [[nodiscard]] PoleDetailInfo GetPoleDetail(ObjectId pole_id) const;
   [[nodiscard]] std::vector<ObjectId> GetSpansByBundle(ObjectId bundle_id) const;
+  [[nodiscard]] BackboneResult BuildSavedBackboneResult() const;
   [[nodiscard]] BackboneResult BuildBackboneResult() const;
   [[nodiscard]] std::vector<BackboneEdge> BuildBackboneEdges() const;
   [[nodiscard]] std::vector<ObjectId> FindBackboneRoute(ObjectId start_node_id, ObjectId end_node_id) const;

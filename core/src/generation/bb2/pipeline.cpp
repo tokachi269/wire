@@ -1825,6 +1825,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
     out.error = "bb2 topology: output missing";
     return out;
   }
+
   std::vector<ObjectId> node_id_by_local(g_.nodes.size(), kInvalidObjectId);
   for (std::size_t i = 0; i < g_.nodes.size(); ++i) {
     node_id_by_local[i] = g_.nodes[i].saved;
@@ -2399,12 +2400,28 @@ std::vector<SegmentLaneAssignment> lane_assignments_for(const topo& made, const 
 
 EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
   EditResult<bool> out{};
+  std::vector<int> path_index_by_local(g_.nodes.size(), -1);
+  for (std::size_t input_index = 0; input_index < local_by_input_.size(); ++input_index) {
+    const std::size_t local = local_by_input_[input_index];
+    if (local < path_index_by_local.size()) {
+      path_index_by_local[local] = static_cast<int>(input_index);
+    }
+  }
+
   std::vector<ObjectId> node_id_by_local(g_.nodes.size(), kInvalidObjectId);
   for (std::size_t i = 0; i < g_.nodes.size() && i < made.poles.size(); ++i) {
     const ObjectId source_a = saved_node_id_for(state_, g_.nodes[i].source_edge_node_a);
     const ObjectId source_b = saved_node_id_for(state_, g_.nodes[i].source_edge_node_b);
     if (g_.nodes[i].saved != kInvalidObjectId) {
       node_id_by_local[i] = g_.nodes[i].saved;
+      if (g_.nodes[i].on_route && i < path_index_by_local.size()) {
+        EditResult<bool> indexed =
+            state_.bind_backbone_node_path_point_index(node_id_by_local[i], path_index_by_local[i]);
+        if (!indexed.ok) {
+          out.error = indexed.error;
+          return out;
+        }
+      }
       if (g_.nodes[i].pole == kInvalidObjectId) {
         EditResult<bool> bound = state_.bind_backbone_node_bundle_modes(g_.nodes[i].saved, g_.nodes[i].bundle_modes);
         if (!bound.ok) {
@@ -2416,6 +2433,14 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
     }
     node_id_by_local[i] = state_.save_backbone_node(made.poles[i], g_.nodes[i].pos, g_.nodes[i].support, source_a,
                                                     source_b, g_.nodes[i].source_edge_t, g_.nodes[i].bundle_modes);
+    if (g_.nodes[i].on_route && i < path_index_by_local.size()) {
+      EditResult<bool> indexed =
+          state_.bind_backbone_node_path_point_index(node_id_by_local[i], path_index_by_local[i]);
+      if (!indexed.ok) {
+        out.error = indexed.error;
+        return out;
+      }
+    }
   }
 
   std::vector<SavedBackboneEdgeRef> edge_by_link(ps.links.size());
@@ -2435,13 +2460,6 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
     }
   }
 
-  std::vector<int> path_index_by_local(g_.nodes.size(), -1);
-  for (std::size_t input_index = 0; input_index < local_by_input_.size(); ++input_index) {
-    const std::size_t local = local_by_input_[input_index];
-    if (local < path_index_by_local.size()) {
-      path_index_by_local[local] = static_cast<int>(input_index);
-    }
-  }
 
   for (const tspan& span : made.spans) {
     if (span.link >= edge_by_link.size() || span.link >= ps.links.size() || span.bundle >= made.bundles.size()) {

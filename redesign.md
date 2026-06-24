@@ -1432,8 +1432,8 @@ deletion map:
 | `core/src/generation/build_backbone/build_request.cpp` | removed | old request planner | no | bb2 `prepare/check` が supported scope を持つため削除済み |
 | `core/src/generation/build_backbone/build_span_layout_rules.*` | removed | old authority/rules bridge | no | bb2 rules は direct `SpanLayoutRules` 生成なので削除済み |
 | `core/src/generation/route/build_support_chain.cpp` | removed | old request planner support resolution | no | bb2 は saved graph / explicit node spec を読むため削除済み |
-| `CoreState::BuildBackboneEdges` | B/D | v1 `BuildBackboneResult`, old tests | no | viewer は saved graph query へ移行中。v1 public query と tests を分類してから削除 |
-| `CoreState::BuildBackboneResult` span-derived fallback | D | core inspection, old route support-chain, old backbone pipeline/tests | no | `BuildSavedBackboneResult` を追加し viewer を saved graph query へ移行済み。残りは v1/recalc/inspection 側の隔離対象 |
+| `CoreState::BuildBackboneEdges` | saved-only compat | old tests / public query name | no | span-derived edge reconstruction は削除済み。互換名だが `BuildSavedBackboneResult().edges` だけを返す |
+| `CoreState::BuildBackboneResult` span-derived fallback | removed | old tests / public query name | no | `BuildSavedBackboneResult` へ委譲するだけに変更済み。span/layout/port position から topology を復元しない |
 | `support_layout_projection` / `support_layout_contract` | B/D | viewer render overlay, old tests, recalc | no | viewer を `span_layout` / `span_layout_state` へ寄せる。recalc/v1 専用 API として隔離 |
 | `SpanSupportLayoutDecisionSeed` and authority contract | C/D | recalc/materialization, old tests, validator | no | bb2 は `SpanLayoutRules` / `SpanLayoutEntry` を正とする。v1/recalc tests の制約分類後に削除判断 |
 | `core/src/recalc/support_layout_materialization.*` | D | recalc pipeline and old support layout materialization tests | no | bb2 generation からは切断済み。v1/recalc 削除または隔離までは残す |
@@ -1447,7 +1447,8 @@ current deletion result:
 * `backbone_pipeline`, `bundle_spans`, `build_backbone` request/rules, and route support-chain old planner are physically deleted.
 * C365-C367 and C282 were retired because they asserted old pipeline/grouped engine internals rather than bb2 mainline contracts.
 * `SegmentLaneAssignment` remains because bb2 publishes lane assignment snapshots for viewer/debug compatibility; it is no longer backed by the old grouped span engine.
-* remaining deletion work is no longer blocked by those old generation families; next cuts are public query / v1 recalc / old test constraints.
+* `BuildBackboneResult` / `BuildBackboneEdges` no longer reconstruct topology from spans; both read the saved graph view only.
+* remaining deletion work is no longer blocked by those old generation families; next cuts are v1 recalc/support-layout inspection contracts and old test constraints.
 
 mainline readiness:
 
@@ -1457,13 +1458,13 @@ mainline readiness:
 | v1 fallback from `GenerateFromBackboneSpec` | removed | entrypoint は bb2 pipeline only |
 | v1 old pipeline physical deletion | done for generation mainline | `backbone_pipeline`, grouped span engine, and old request planner have been removed |
 | viewer old contract dependency | partially cut | render overlay reads neutral `span_layout`, curve, bounds, visual, and render caches; debug panels / draw capture still use `inspect_support_layout` for v1-style inspection |
-| public query old span-derived fallback | isolated, not removed | `BuildSavedBackboneResult` is available and viewer uses it; old `BuildBackboneResult` still falls back for v1/recalc/inspection |
+| public query old span-derived fallback | removed | `BuildBackboneResult` and `BuildBackboneEdges` are saved-graph-only compatibility reads |
 | `bb2` rename | blocked | recalc/public query/test remnants remain; renaming now would still mix bb2 with v1 inspection/recalc concepts |
 
 next cuts:
 
 1. viewer read boundary: move remaining debug/capture inspection away from `inspect_support_layout` only when the displayed fields have neutral bb2 equivalents.
-2. public query boundary: split saved graph query from v1 span-derived `BuildBackboneResult` fallback.
+2. support layout inspection boundary: move viewer/debug reads from `inspect_support_layout` to neutral `span_layout` / draw caches where possible.
 3. old test constraint migration: migrate only high-value constraints from the top 20 list; do not chase old implementation expectations.
 4. after B/C shrink, delete or isolate remaining v1 recalc/support-layout public query paths as explicit slices.
 

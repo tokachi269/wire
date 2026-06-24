@@ -18,6 +18,7 @@ struct SavedBackboneNode {
   ObjectId source_edge_node_a = kInvalidObjectId;
   ObjectId source_edge_node_b = kInvalidObjectId;
   double source_edge_t = 0.0;
+  int path_point_index = -1;
   std::vector<SupportNodeBundleMode> bundle_modes{};
 };
 

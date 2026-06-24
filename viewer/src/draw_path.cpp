@@ -4,11 +4,14 @@
 #include "ui_common.hpp"
 
 #include <algorithm>
+#include <array>
+#include <chrono>
 #include <cmath>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <format>
+#include <iomanip>
 #include <map>
 #include <optional>
 #include <sstream>
@@ -692,6 +695,7 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
   namespace fs = std::filesystem;
 
   std::time_t now = std::time(nullptr);
+  const auto wall_now = std::chrono::system_clock::now();
   std::tm tm_now{};
 #if defined(_WIN32)
   localtime_s(&tm_now, &now);
@@ -700,21 +704,40 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
 #endif
   char stamp[32]{};
   std::strftime(stamp, sizeof(stamp), "%Y%m%d_%H%M%S", &tm_now);
+  const auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(wall_now.time_since_epoch()).count() % 1000;
 
   std::error_code ec;
-  const fs::path capture_dir = fs::path("captures");
-  fs::create_directories(capture_dir, ec);
+  const fs::path capture_dir = fs::absolute(fs::path("captures"), ec);
   if (ec) {
     if (out_error != nullptr) {
-      *out_error = "failed to create captures directory";
+      *out_error = "failed to resolve captures directory";
     }
     return false;
   }
-  const fs::path capture_path = capture_dir / fs::path(std::string("drawpath_repro_") + stamp + ".txt");
+  fs::create_directories(capture_dir, ec);
+  if (ec) {
+    if (out_error != nullptr) {
+      *out_error = "failed to create captures directory: " + capture_dir.string();
+    }
+    return false;
+  }
+
+  fs::path capture_path{};
+  for (int attempt = 0; attempt < 1000; ++attempt) {
+    const int suffix = (static_cast<int>(millis) + attempt) % 1000;
+    std::ostringstream name{};
+    name << "drawpath_repro_" << stamp << "_" << std::setw(3) << std::setfill('0') << suffix << ".txt";
+    capture_path = capture_dir / fs::path(name.str());
+    if (!fs::exists(capture_path, ec)) {
+      break;
+    }
+    ec.clear();
+  }
+
   std::ofstream ofs(capture_path.string(), std::ios::trunc);
   if (!ofs.is_open()) {
     if (out_error != nullptr) {
-      *out_error = "failed to open capture file for writing";
+      *out_error = "failed to open capture file for writing: " + capture_path.string();
     }
     return false;
   }
@@ -722,6 +745,9 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
   const auto view = viewer_core_state::View(state);
   const auto selected_templates = SelectedBundleTemplates(view, ui_state);
   const auto& dir_debug = view.last_path_direction_debug();
+  const auto write_vec3 = [&](const std::string& key, const wire::core::Vec3d& value) {
+    ofs << key << "=" << value.x << "," << value.y << "," << value.z << "\n";
+  };
   const auto write_decision_trace = [&](const std::string& prefix, const wire::core::EntityRef& ref) {
     const auto trace = view.collect_decision_trace(ref);
     ofs << prefix << ".decision_trace_count=" << trace.size() << "\n";
@@ -852,6 +878,124 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
   for (std::size_t i = 0; i < ui_state.last_generated_span_ids.size(); ++i) {
     ofs << "capture.last_generated_span_id[" << i << "]="
         << static_cast<unsigned long long>(ui_state.last_generated_span_ids[i]) << "\n";
+  }
+  ofs << "bb2.generated_span_count=" << ui_state.last_generated_span_ids.size() << "\n";
+  for (std::size_t generated_index = 0; generated_index < ui_state.last_generated_span_ids.size(); ++generated_index) {
+    const ObjectId span_id = ui_state.last_generated_span_ids[generated_index];
+    const std::string prefix = "bb2.generated_span[" + std::to_string(generated_index) + "]";
+    ofs << prefix << ".span_id=" << static_cast<unsigned long long>(span_id) << "\n";
+
+    const auto* span = view.spans().find(span_id);
+    ofs << prefix << ".span_exists=" << (span != nullptr ? 1 : 0) << "\n";
+    if (span != nullptr) {
+      ofs << prefix << ".bundle_id=" << static_cast<unsigned long long>(span->bundle_id) << "\n";
+      ofs << prefix << ".node_a_id=" << static_cast<unsigned long long>(span->endpoint_node_a_id) << "\n";
+      ofs << prefix << ".node_b_id=" << static_cast<unsigned long long>(span->endpoint_node_b_id) << "\n";
+      ofs << prefix << ".port_a_id=" << static_cast<unsigned long long>(span->port_a_id) << "\n";
+      ofs << prefix << ".port_b_id=" << static_cast<unsigned long long>(span->port_b_id) << "\n";
+    }
+
+    const auto rules_view = view.span_layout_rules(span_id);
+    const auto layout_state = view.span_layout_state(span_id);
+    const auto layout_view = view.span_layout(span_id);
+    const auto* curve = view.find_curve_cache(span_id);
+    const auto* bounds = view.find_bounds_cache(span_id);
+    const auto* visual = view.find_span_visual_cache(span_id);
+    const auto* render = view.find_span_render_cache(span_id);
+
+    ofs << prefix << ".rules_present=" << (rules_view.has_rule() ? 1 : 0) << "\n";
+    ofs << prefix << ".layout_present=" << (layout_view.has_layout() ? 1 : 0) << "\n";
+    ofs << prefix << ".layout_state.has_rules=" << (layout_state.has_rules ? 1 : 0) << "\n";
+    ofs << prefix << ".layout_state.has_layout=" << (layout_state.has_layout ? 1 : 0) << "\n";
+    ofs << prefix << ".layout_state.input_required=" << (layout_state.input_required ? 1 : 0) << "\n";
+    ofs << prefix << ".curve_present=" << (curve != nullptr ? 1 : 0) << "\n";
+    ofs << prefix << ".bounds_present=" << (bounds != nullptr ? 1 : 0) << "\n";
+    ofs << prefix << ".visual_present=" << (visual != nullptr ? 1 : 0) << "\n";
+    ofs << prefix << ".render_present=" << (render != nullptr ? 1 : 0) << "\n";
+
+    if (layout_view.has_layout()) {
+      write_vec3(prefix + ".layout.start.support_world", layout_view.entry->start.support_world);
+      write_vec3(prefix + ".layout.start.endpoint_world", layout_view.entry->start.endpoint_world);
+      write_vec3(prefix + ".layout.end.support_world", layout_view.entry->end.support_world);
+      write_vec3(prefix + ".layout.end.endpoint_world", layout_view.entry->end.endpoint_world);
+      ofs << prefix << ".layout.lowering_kind=" << LoweringKindLabelLocal(layout_view.entry->lowering_kind) << "\n";
+      ofs << prefix << ".layout.start.lower_required=" << (layout_view.entry->start.lower_required ? 1 : 0) << "\n";
+      ofs << prefix << ".layout.end.lower_required=" << (layout_view.entry->end.lower_required ? 1 : 0) << "\n";
+    }
+    if (curve != nullptr) {
+      ofs << prefix << ".curve.sample_count=" << curve->detail.sample_points.size() << "\n";
+      ofs << prefix << ".curve.segment_count=" << curve->detail.segments.size() << "\n";
+      ofs << prefix << ".curve.total_length_m=" << curve->detail.total_length_m << "\n";
+    }
+    if (bounds != nullptr) {
+      write_vec3(prefix + ".bounds.min", bounds->whole.min);
+      write_vec3(prefix + ".bounds.max", bounds->whole.max);
+      ofs << prefix << ".bounds.segment_count=" << bounds->segments.size() << "\n";
+    }
+    if (visual != nullptr) {
+      ofs << prefix << ".visual.part_count=" << visual->parts.size() << "\n";
+    }
+    if (render != nullptr) {
+      ofs << prefix << ".render.segment_count=" << render->segment_length_m.size() << "\n";
+      ofs << prefix << ".render.wire_radius_m=" << render->wire_radius_m << "\n";
+    }
+
+    const wire::core::BackboneFrontier frontier = view.span_frontier(span_id);
+    ofs << prefix << ".frontier.node_id=" << static_cast<unsigned long long>(frontier.node_id) << "\n";
+    ofs << prefix << ".frontier.edge_id=" << static_cast<unsigned long long>(frontier.edge_id) << "\n";
+    ofs << prefix << ".frontier.edge_bundle_id=" << static_cast<unsigned long long>(frontier.edge_bundle_id) << "\n";
+    ofs << prefix << ".frontier.node_count=" << frontier.node_ids.size() << "\n";
+    ofs << prefix << ".frontier.edge_count=" << frontier.edge_ids.size() << "\n";
+    ofs << prefix << ".frontier.edge_bundle_count=" << frontier.edge_bundle_ids.size() << "\n";
+    ofs << prefix << ".frontier.bundle_count=" << frontier.bundle_ids.size() << "\n";
+    ofs << prefix << ".frontier.span_count=" << frontier.span_ids.size() << "\n";
+    ofs << prefix << ".frontier.pole_count=" << frontier.pole_ids.size() << "\n";
+
+    const auto span_binding_it = view.backbone_index().span_bindings_by_span.find(span_id);
+    const std::size_t span_binding_count =
+        (span_binding_it == view.backbone_index().span_bindings_by_span.end()) ? 0 : span_binding_it->second.size();
+    ofs << prefix << ".span_binding_count=" << span_binding_count << "\n";
+    for (std::size_t binding_i = 0; binding_i < span_binding_count; ++binding_i) {
+      const std::size_t binding_index = span_binding_it->second[binding_i];
+      if (binding_index >= view.backbone().span_bindings.size()) {
+        continue;
+      }
+      const auto& binding = view.backbone().span_bindings[binding_index];
+      ofs << prefix << ".span_binding[" << binding_i
+          << "].edge_bundle_id=" << static_cast<unsigned long long>(binding.edge_bundle_id) << "\n";
+      ofs << prefix << ".span_binding[" << binding_i << "].lane_index=" << binding.lane_index << "\n";
+    }
+
+    if (span != nullptr) {
+      const std::array<std::pair<const char*, ObjectId>, 2> endpoints = {
+          std::pair<const char*, ObjectId>{"a", span->port_a_id},
+          std::pair<const char*, ObjectId>{"b", span->port_b_id},
+      };
+      for (const auto& [label, port_id] : endpoints) {
+        const auto bindings = view.backbone_port_bindings_for_port(port_id);
+        ofs << prefix << ".port_" << label << "_binding_count=" << bindings.size() << "\n";
+        for (std::size_t binding_i = 0; binding_i < bindings.size(); ++binding_i) {
+          const auto* binding = bindings[binding_i];
+          if (binding == nullptr) {
+            continue;
+          }
+          ofs << prefix << ".port_" << label << "_binding[" << binding_i
+              << "].edge_bundle_id=" << static_cast<unsigned long long>(binding->edge_bundle_id) << "\n";
+          ofs << prefix << ".port_" << label << "_binding[" << binding_i << "].lane_index=" << binding->lane_index
+              << "\n";
+          ofs << prefix << ".port_" << label << "_binding[" << binding_i
+              << "].row_node_id=" << static_cast<unsigned long long>(binding->row_key.node_id) << "\n";
+          ofs << prefix << ".port_" << label << "_binding[" << binding_i
+              << "].row_source_is_open=" << (binding->row_key.source_is_open ? 1 : 0) << "\n";
+          ofs << prefix << ".port_" << label << "_binding[" << binding_i
+              << "].bundle_template_id=" << static_cast<int>(binding->bundle_template_id) << "\n";
+          ofs << prefix << ".port_" << label << "_binding[" << binding_i
+              << "].port_kind=" << static_cast<int>(binding->port_kind) << "\n";
+          ofs << prefix << ".port_" << label << "_binding[" << binding_i
+              << "].port_layer=" << static_cast<int>(binding->port_layer) << "\n";
+        }
+      }
+    }
   }
   if (const auto selected_ref = SelectedEntityRefLocal(ui_state); selected_ref.has_value()) {
     ofs << "capture.selected_entity.kind=" << static_cast<int>(selected_ref->kind) << "\n";

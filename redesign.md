@@ -1260,3 +1260,124 @@ The lowered result is stored in layout/geom. Ports stay at their band height thr
 bb2 rules-only spans keep their saved `SpanLayoutRule` when pole refresh invalidates projected layout. Refresh rebuilds layout/geom from the saved rule and the current endpoint ports; it does not require a v1 support-layout seed and does not infer lowering from draw/materialization state.
 
 For lowered endpoints, refresh preserves `support_world` at the current port height and applies the lower offset only to `endpoint_world`, curve samples, and bounds.
+
+## bb2 status cut 2026-06-23
+
+目的:
+
+* 進捗を C 番号ではなく supported scenario で説明する。
+* viewer 未確認、旧テスト制約未移植、`pipeline.cpp` 肥大化を明示し、次の作業が「テストを増やしただけ」にならないようにする。
+* この節は現状説明であり、新しい supported scope を宣言しない。
+
+現状評価:
+
+* bb2 は v1 fallback なしの generation mainline としてかなり広がった。
+* ただし `core/src/generation/bb2/pipeline.cpp` は約 2500 行で、責務の追跡性は落ちている。
+* `core/tests/bb2.cpp` は約 7000 行で、C 番号増加だけでは進捗説明にならない。
+* viewer 代表 scene はまだ固定確認されていないため、「見た目まで順調」とは言わない。
+* 旧 v1 テスト全体は bb2 完了条件ではないが、守っていた重要制約の移植状況は説明可能にする必要がある。
+
+### supported scenario matrix
+
+| Scenario | Status | Evidence | Notes |
+|---|---|---|---|
+| 2 点 line | supported | C368, C524, C539 | saved graph / rules / layout / geom / draw を生成する |
+| 3 点 polyline / corner | supported | C388-C393, C525, C609-C610 | acute HV lowering は layout/geom に保存し、refresh 後も維持する |
+| interval route | supported | C545, C580, C584, C586 | interval node は graph pipeline に入る。ownerless 継承も対応済み |
+| avoid detour | supported, scoped | C552, C559, C579, C582-C588, C604 | deterministic detour のみ。一般 routing は未対応 |
+| multiple bundle on one graph | supported | C400-C405, C526 | bundle spec は pair/open/row を変えない |
+| existing pole continuation with saved graph | supported | C394-C396, C458-C461, C527-C528 | saved graph が無い existing pole は unsupported |
+| same edge different bundle | supported | C464, C530, C574 | saved edge を共有し edge_bundle を追加する |
+| duplicate same edge/bundle/lane | unsupported, preflight | C463, C466, C490, C520, C531 | mutation 前 reject を正とする |
+| ownerless midair / building / ground route point | supported, scoped | C553-C558, C576, C584 | pole を作らず saved backbone node と ownerless port/span を作る |
+| saved ownerless continuation | supported | C554, C562-C568, C591-C593, C605-C607 | saved graph node/source edge metadata を読む |
+| selected bundle policy on picks | supported, scoped | C589-C601 | active bundle 選択だけに使い、pair/open/row は変えない |
+| pass-through / lowering intent | supported, scoped | C481-C486, C532, C543, C574, C578 | pair/open/row は不変。layout/geom/draw が consume する |
+| minimal draw/render | supported, minimal | C511-C514, C536-C538, C569-C572 | full support arm / insulator / attachment semantics は未対応 |
+| BuildBackboneResult / route query from saved graph | supported | C605-C608 | span/layout/seed から topology を復元しない |
+| v1/manual existing scene migration | unsupported | C515, C517, C541 | SavedBackboneGraph が無い scene は bb2 で暗黙 import しない |
+
+### representative viewer scenes
+
+bb2 の「実用として順調」を言うには、次の scene を viewer で確認する。core test pass だけでは完了扱いにしない。
+
+| Scene | Purpose | Expected visual |
+|---|---|---|
+| simple line, LV/HV/Communication | terminal row separation と template appearance | route 直交方向に row が開き、wire が一点へ潰れない |
+| 3 point acute HV corner | corner lowering | port は band height、wire endpoint/curve は一段 lower |
+| A-B-C then B-D branch | saved graph context branch | context A-B/B-C は再生成されず、B-D だけ materialize される |
+| A-B-C then D-B-E cross | pair+pair without kind label | cross/row separation が見え、T/cross enum 前提に戻らない |
+| segment pick midair branch | ownerless route point | source span height を使い、地面 z から線が出ない |
+| selected bundle midair/building pick | active bundle policy | 選択 bundle だけ materialize される |
+| duplicate request | mutation boundary | 見た目も state count も増えず unsupported になる |
+
+viewer gate:
+
+* 代表 scene を見ていない間は「core architecture は進んだ」とだけ言い、「見た目まで順調」とは言わない。
+* viewer で違和感が出た場合、core geometry か viewer 表示かを切り分ける。
+
+### pipeline.cpp split plan
+
+`pipeline.cpp` は約 2500 行で、これ以上の機能追加前に分割候補を固定する。rename 祭りはしない。namespace と短いファイル名で読ませる。
+
+| File | Moves from current pipeline.cpp | Owner |
+|---|---|---|
+| `graph.cpp` | `prepare`, route expansion, avoid/interval insertion, saved context node read | input graph / saved graph context |
+| `connect.cpp` | `make(const graph&)`, `pair/open/row`, row keys | connectivity authority |
+| `intent.cpp` | `make(const pairs&)`, pass-through/lowering intent | placement intent, not topology |
+| `group.cpp` | `make(const pairs&, const intent&)`, row separation/support groups | placement authority |
+| `emit.cpp` | `emit_poles`, `emit_bundles`, `emit_ports`, `emit_spans`, `emit` | materialized topology output |
+| `rule.cpp` | `make(const topo&, const groups&)` | saved span rules |
+| `layout.cpp` | `make(const rules&)`, layout save support group cache collection | layout consumer |
+| `geom.cpp` | `line`, `make(const layout&)`, bounds/curve creation | geometry consumer |
+| `draw.cpp` | render/visual placeholder, `make(const layout&, const geom&)` | draw consumer |
+| `save.cpp` | `save_graph`, `save(rules/layout/geom/draw)`, lane assignment publication | saved graph/cache boundary |
+
+分割ルール:
+
+* public class/method surface は急に増やさない。
+* `pairs make(graph)` の単一確定点は維持する。
+* draw は topology / pair/open/row / lowering を読まない。
+* 分割 commit は behavior 変更を含めない。behavior 変更と同じ commit にしない。
+
+### old test constraint migration top 20
+
+旧テストをそのまま合否基準にしない。守っていた制約を bb2 の構造へ移す。
+
+| Old case | Constraint | bb2 status | bb2 target |
+|---|---|---|---|
+| C110 | explicit existing pole node を重複生成しない | migrated | C394-C396 |
+| C111/C112/C113/C115 | existing midair/support node continuation | partially migrated | C554, C562-C568, C605-C607 |
+| C100/C103 | non-pole route point を pole 前提へ戻さない | migrated for scoped kinds | C553-C558 |
+| C104-C107 | segment pick midair behavior and non-destructive dry-run | partially migrated | C560-C568, C587 |
+| C185 | HV terminal row separation | partially migrated | C524/C569 周辺。viewer scene 必須 |
+| C188 | HV hint 無し terminal row separation | not explicitly migrated | candidate after viewer |
+| C189 | CommunicationPole + all templates terminal row | partially covered, not trusted visually | candidate viewer scene |
+| C190 | Communication multi-lane terminal row | not explicitly migrated | candidate viewer scene |
+| C191 | preserved multi-lane endpoint semantics | not migrated | candidate after draw/geom audit |
+| C192 | clicked existing CommunicationPole all-template row separation | not trusted | candidate viewer + bb2 saved graph scenario |
+| C204 | acute HV corner one-step lower | migrated structurally | C609 |
+| C205 | lower identity survives pole refresh | migrated structurally | C610 |
+| C206 | regeneration keeps acute lowering and cleans stale generated ports | not migrated | likely explicit rederive/regeneration milestone |
+| C207/C208 | interval route extension lane order | not migrated | candidate after viewer |
+| C209 | moderate corner lowering | not explicitly migrated | candidate if viewer shows gap |
+| C210/C211/C212 | all-template branch/cross on CommunicationPole lowering | partially migrated by bb2 branch/cross, not visual-trusted | representative viewer scenes |
+| C244-C249 | downstream does not re-decide endpoint/order/side | partially migrated by authority tests | audit when splitting `pipeline.cpp` |
+| C250-C256 | lowered support group identity through refresh/unrelated updates | partially migrated | C518-C520, C610; more needed after viewer |
+| C277 | high-low smooth span composite curve | not migrated | geom milestone, do not sneak into status cut |
+| C298/C299 | requested CommunicationPole type and HV category height | partially migrated | C406-C408, C602; viewer scene still needed |
+
+Top 20 handling rule:
+
+* `migrated` は bb2 構造で守る制約があるという意味で、旧期待値をそのまま採用した意味ではない。
+* `not trusted visually` は core test が通っても viewer 確認なしに完了扱いしない。
+* `not migrated` は次の fail scenario 候補だが、viewer で症状を見てから選ぶ。
+
+### next decision
+
+次に production code を触る前に、どちらかを選ぶ。
+
+1. viewer gate: representative viewer scenes を作って目視する。
+2. split gate: `pipeline.cpp` を behavior 変更なしで分割し、追跡可能性を戻す。
+
+どちらもやらずに C611 以降の scenario を増やすのは、スロー化の兆候として停止する。

@@ -1427,7 +1427,7 @@ deletion map:
 
 | Target | Class | Current readers | bb2 generation reads it? | Next cut |
 |---|---:|---|---:|---|
-| `core/src/generation/backbone_pipeline/*` | C/D | old generation tests, compiled old pipeline helpers | no | old tests C365-C367 系の制約を bb2/SavedGraph/rules/layout へ移植し、v1専用 tests として隔離してから削除 |
+| `core/src/generation/backbone_pipeline/*` | C/D | old generation tests, compiled old pipeline helpers | no | C365-C367 の旧 pipeline / authority / materialization 固定は削除済み。残りの old generation tests と compiled helpers を分類してから v1 removal slice で削除 |
 | `core/src/generation/bundle_spans/*` | C/D | old backbone pipeline, old generation tests | no | grouped span engine を bb2 mainline の依存に戻さない。旧 tests の制約移植後に old pipeline ごと削除判断 |
 | `core/src/generation/build_backbone/build_request.cpp` | C/D | old backbone pipeline, old tests | no | bb2 `prepare` が supported scope を持つため mainline では不要。old pipeline 削除時に同時判断 |
 | `core/src/generation/build_backbone/build_span_layout_rules.*` | C/D | old backbone pipeline | no | bb2 rules は直接生成済み。old pipeline 削除時に削除候補 |

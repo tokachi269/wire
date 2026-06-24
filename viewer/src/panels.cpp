@@ -1,4 +1,4 @@
-﻿#include "panels.hpp"
+#include "panels.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -1065,6 +1065,7 @@ std::vector<PoleHeightMarker> BuildPoleHeightMarkers(const wire::core::CoreView&
       markers.push_back(std::move(marker));
     }
 
+    // Legacy/recalc debug: lowered support placement details still live behind support-layout inspection.
     std::unordered_set<std::uint64_t> shown_support_groups{};
     for (const wire::core::Span& span : view.spans().items()) {
       const auto layout_view = view.inspect_support_layout(span.id);
@@ -1088,8 +1089,8 @@ std::vector<PoleHeightMarker> BuildPoleHeightMarkers(const wire::core::CoreView&
         marker.kind = PoleHeightMarkerKind::kSupport;
         const char* lowering_label = BackboneLoweringKindLabel(layout_view->lowering_kind);
         marker.label = (layout_view->lowering_kind == wire::core::BackboneLoweringKind::kNone)
-                   ? "LoweredSupport"
-                   : lowering_label;
+                   ? "LegacyLoweredSupport"
+                   : std::string("Legacy") + lowering_label;
         marker.height_m = placement.mount_world.z;
         marker.x_escape_m =
             view.pole_radius_at_height_m(pole, std::max(0.0, marker.height_m - pole.world_transform.position.z)) +
@@ -1457,6 +1458,33 @@ void DrawEndpointDecisionSummary(const char* label, const wire::core::SupportLay
               SupportOrientationBasisKindLabel(endpoint.support_orientation_basis));
   ImGui::Text("  spacing=%.2f clearance=%.2f throughPair=%s", endpoint.projected_spacing_topview_m,
               endpoint.required_clearance_m, endpoint.in_through_pair ? "true" : "false");
+
+}
+void DrawEndpointDecisionSummary(const char* label, const wire::core::LayoutEndpoint& endpoint) {
+  ImGui::Text("%s relation=%s class=%s lower=%s defaultLower=%s", label,
+              JunctionRelationKindLabel(endpoint.relation_kind),
+              ContinuityCategoryClassLabel(endpoint.continuity_class),
+              endpoint.lower_required ? "true" : "false",
+              endpoint.default_lower_required ? "true" : "false");
+  ImGui::Text("  sameLevel=%s reason=%s blocked=%s unresolved=%s solver=%s specialPorts=%s",
+              endpoint.same_level_feasible ? "true" : "false",
+              SameLevelFeasibilityReasonLabel(endpoint.same_level_reason),
+              endpoint.lowering_blocked_by_policy ? "true" : "false",
+              endpoint.unresolved_same_level_conflict ? "true" : "false",
+              endpoint.solver_used_same_level_constraint ? "true" : "false",
+              endpoint.used_special_case_ports ? "true" : "false");
+  ImGui::Text("  order=%s choice=%s(%s) side=%s sign=%.2f sideRule=%s pairSide=%s",
+              OrderDecisionPolicyLabel(endpoint.order_decision_policy),
+              OrderDecisionChoiceLabel(endpoint.order_decision_choice),
+              OrderDecisionChoiceReasonLabel(endpoint.order_decision_choice_reason),
+              LateralSideChoiceLabel(endpoint.chosen_side), endpoint.chosen_side_sign,
+              SideAssignmentRuleKindLabel(endpoint.side_assignment_rule),
+              endpoint.used_junction_pair_side_assignment ? "true" : "false");
+  ImGui::Text("  orientation=%s basis=%s",
+              SupportOrientationRuleKindLabel(endpoint.support_orientation_rule),
+              SupportOrientationBasisKindLabel(endpoint.support_orientation_basis));
+  ImGui::Text("  spacing=%.2f clearance=%.2f throughPair=%s", endpoint.projected_spacing_topview_m,
+              endpoint.required_clearance_m, endpoint.in_through_pair ? "true" : "false");
 }
 
 void DrawLoweredSupportGroupsBlock(const std::vector<wire::core::LoweredSupportGroupInspectionView>& groups) {
@@ -1626,7 +1654,7 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
       ImGui::Text("dirtyBits: %s", DirtyBitsToText(runtime_state->dirty_bits).c_str());
     }
     if (const auto span_view = view.inspect_span(span->id); span_view.has_value()) {
-      const auto layout_view = view.inspect_support_layout(span->id);
+      const auto layout_view = view.span_layout(span->id);
       const auto curve_view = view.inspect_detail_curve(span->id);
       const auto override_view = view.inspect_overrides({wire::core::EntityKind::kSpan, span->id});
       if (curve_view.has_value()) {
@@ -1694,19 +1722,19 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
                   OrderDecisionChoiceReasonLabel(span_view->order_decision_choice_reason_b),
                   span_view->flipped_from_previous ? "true" : "false", span_view->turn_angle_deg);
       DrawStyleInspectionBlock(span_view->style);
-      if (layout_view.has_value()) {
-        auto draw_support_endpoint = [&](const char* label, const wire::core::SupportLayoutEndpointView& endpoint) {
-          ImGui::Text("%s: %s src=%s flow=%s port=%s mode=%s", label, endpoint.origin.c_str(),
-                      SupportLayoutEndpointSourceLabel(endpoint.endpoint_source),
-                      BackboneFlowKindLabel(endpoint.flow_kind), endpoint.port_source.c_str(),
-                      endpoint.endpoint_mode.c_str());
+      if (layout_view.has_layout()) {
+        const wire::core::SpanLayoutEntry& layout = *layout_view.entry;
+        auto draw_layout_endpoint = [&](const char* label, const wire::core::LayoutEndpoint& endpoint) {
+          ImGui::Text("%s: origin=%s src=%s flow=%s portSource=%s mode=%s", label,
+                      SupportLayoutOriginLabel(endpoint.origin), SupportLayoutEndpointSourceLabel(endpoint.endpoint_source),
+                      BackboneFlowKindLabel(endpoint.flow_kind), PortPlacementSourceLabel(endpoint.port_source),
+                      CurveEndpointModeLabel(endpoint.endpoint_mode));
           ImGui::Text("  endpoint=%.2f %.2f %.2f departure=%.2f %.2f %.2f", endpoint.endpoint_world.x,
                       endpoint.endpoint_world.y, endpoint.endpoint_world.z, endpoint.departure_dir.x,
                       endpoint.departure_dir.y, endpoint.departure_dir.z);
-          ImGui::Text("  support=%.2f %.2f %.2f dep=%.2f down=%.2f autoDown=%.2f",
-                      endpoint.support_world.x, endpoint.support_world.y, endpoint.support_world.z,
-                      endpoint.local_departure_length_m, endpoint.branch_down_offset_m,
-                      endpoint.automatic_branch_down_offset_m);
+          ImGui::Text("  support=%.2f %.2f %.2f dep=%.2f down=%.2f autoDown=%.2f", endpoint.support_world.x,
+                      endpoint.support_world.y, endpoint.support_world.z, endpoint.local_departure_length_m,
+                      endpoint.branch_down_offset_m, endpoint.automatic_branch_down_offset_m);
           ImGui::Text("  request=%s attach=%s requestedSocket=%s resolvedSocket=%s",
                       EndpointAttachmentRequestKindLabel(endpoint.attachment_request.kind),
                       endpoint.attachment_request.attachment_id.has_value()
@@ -1715,9 +1743,8 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
                       endpoint.attachment_request.requested_socket_id.has_value()
                           ? std::to_string(*endpoint.attachment_request.requested_socket_id).c_str()
                           : "none",
-                      endpoint.resolved_socket_id.has_value()
-                          ? std::to_string(*endpoint.resolved_socket_id).c_str()
-                          : "none");
+                      endpoint.resolved_socket_id.has_value() ? std::to_string(*endpoint.resolved_socket_id).c_str()
+                                                              : "none");
           ImGui::Text("  variation: flow=%llu final=%.3f world=%.3f flow=%.3f pole=%.3f local=%.3f",
                       static_cast<unsigned long long>(endpoint.down_offset_variation.flow_key),
                       endpoint.down_offset_variation.final_value, endpoint.down_offset_variation.world_bias,
@@ -1725,29 +1752,25 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
                       endpoint.down_offset_variation.local_jitter);
         };
         ImGui::Separator();
-        ImGui::Text("supportLayout: flow=%s pass=%d flowKey=%llu", BackboneFlowKindLabel(layout_view->flow_kind),
-                    static_cast<int>(layout_view->pass_mode),
-                    static_cast<unsigned long long>(layout_view->variation_flow_key));
-        ImGui::Text("  relation: A=%s B=%s class=%s lower=%s", JunctionRelationKindLabel(layout_view->relation_a),
-                    JunctionRelationKindLabel(layout_view->relation_b),
-                    ContinuityCategoryClassLabel(layout_view->continuity_class),
-                    layout_view->default_lower_required ? "true" : "false");
-        ImGui::Text("  sameLevel=%s reason=%s blocked=%s unresolved=%s solver=%s specialPorts=%s",
-                    layout_view->same_level_feasible ? "true" : "false",
-                    SameLevelFeasibilityReasonLabel(layout_view->same_level_reason),
-                    layout_view->lowering_blocked_by_policy ? "true" : "false",
-                    layout_view->unresolved_same_level_conflict ? "true" : "false",
-                    layout_view->solver_used_same_level_constraint ? "true" : "false",
-                    layout_view->used_special_case_ports ? "true" : "false");
-        ImGui::Text("  orderPolicy=%s topview=%.2f required=%.2f", OrderDecisionPolicyLabel(layout_view->order_decision_policy),
-                    layout_view->projected_spacing_topview_m, layout_view->required_clearance_m);
-        draw_support_endpoint("endpointA", layout_view->start_endpoint);
-        DrawEndpointDecisionSummary("endpointA decision", layout_view->start_endpoint);
-        draw_support_endpoint("endpointB", layout_view->end_endpoint);
-        DrawEndpointDecisionSummary("endpointB decision", layout_view->end_endpoint);
-        DrawLoweredSupportGroupsBlock(layout_view->lowered_support_groups);
+        ImGui::Text("spanLayout: flow=%s pass=%d flowKey=%llu", BackboneFlowKindLabel(layout.flow_kind),
+                    static_cast<int>(layout.pass_mode), static_cast<unsigned long long>(layout.variation_flow_key));
+        ImGui::Text("  lowering=%s supportGroupKeys=%d", BackboneLoweringKindLabel(layout.lowering_kind),
+                    static_cast<int>(layout.lowered_support_group_keys.size()));
+        draw_layout_endpoint("endpointA", layout.start);
+        DrawEndpointDecisionSummary("endpointA decision", layout.start);
+        draw_layout_endpoint("endpointB", layout.end);
+        DrawEndpointDecisionSummary("endpointB decision", layout.end);
+        if (!layout.lowered_support_group_keys.empty()) {
+          ImGui::Separator();
+          ImGui::Text("LoweredSupportGroupKeys: %d", static_cast<int>(layout.lowered_support_group_keys.size()));
+          for (std::size_t index = 0; index < layout.lowered_support_group_keys.size(); ++index) {
+            const auto& key = layout.lowered_support_group_keys[index];
+            ImGui::Text("[%d] pole=%llu groupId=%d", static_cast<int>(index),
+                        static_cast<unsigned long long>(key.owner_pole_id), key.support_group_id);
+          }
+        }
       } else {
-        ImGui::TextUnformatted("supportLayout: (none)");
+        ImGui::TextUnformatted("spanLayout: (none)");
       }
       bool has_socket_override = false;
       bool has_branch_down_override = false;
@@ -1868,6 +1891,7 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
       ImGui::TextUnformatted("Selected support layout is missing");
       return;
     }
+    ImGui::TextUnformatted("Legacy/Recalc SupportLayout Inspection");
     ImGui::Text("Type: SupportLayout");
     ImGui::Text("flow: %s pass=%d flowKey=%llu", BackboneFlowKindLabel(layout_view->flow_kind),
                 static_cast<int>(layout_view->pass_mode),

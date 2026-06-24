@@ -1247,7 +1247,7 @@ bb2 supports deterministic avoid detours whose radius is larger than the simple 
 
 ### C605 saved graph route query
 
-`FindBackboneRoute` uses `SavedBackboneGraph` first when the queried endpoints resolve to saved backbone nodes. Ownerless bb2 nodes do not have pole ids, so public route queries must be explained from saved graph node/edge/edge_bundle state instead of span-derived edges. If no saved graph route exists, the old span-derived query remains available for non-bb2 scenes.
+`FindBackboneRoute` uses `SavedBackboneGraph` when queried endpoints resolve to saved backbone nodes. Ownerless bb2 nodes do not have pole ids, so public route queries must be explained from saved graph node/edge/edge_bundle state instead of span-derived edges. `BuildBackboneResult` / `BuildBackboneEdges` are saved-graph-only compatibility reads; public query must not reconstruct topology from spans/layout/ports.
 
 ### C609 acute corner lowering
 
@@ -1457,22 +1457,21 @@ mainline readiness:
 | bb2 supported scope | usable v0 | C368-C610 bb2 acceptance pass。viewer 代表 scene は引き続き gate |
 | v1 fallback from `GenerateFromBackboneSpec` | removed | entrypoint は bb2 pipeline only |
 | v1 old pipeline physical deletion | done for generation mainline | `backbone_pipeline`, grouped span engine, and old request planner have been removed |
-| viewer old contract dependency | partially cut | render overlay reads neutral `span_layout`, curve, bounds, visual, and render caches; debug panels / draw capture still use `inspect_support_layout` for v1-style inspection |
+| viewer old contract dependency | mostly cut | normal overlay and DrawPath capture read neutral `span_layout`, rules, curve, bounds, visual/render caches, and saved graph. Remaining `inspect_support_layout` calls are legacy/recalc debug only |
 | public query old span-derived fallback | removed | `BuildBackboneResult` and `BuildBackboneEdges` are saved-graph-only compatibility reads |
 | `bb2` rename | blocked | recalc/public query/test remnants remain; renaming now would still mix bb2 with v1 inspection/recalc concepts |
 
 next cuts:
 
-1. viewer read boundary: move remaining debug/capture inspection away from `inspect_support_layout` only when the displayed fields have neutral bb2 equivalents.
-2. support layout inspection boundary: move viewer/debug reads from `inspect_support_layout` to neutral `span_layout` / draw caches where possible.
-3. old test constraint migration: migrate only high-value constraints from the top 20 list; do not chase old implementation expectations.
-4. after B/C shrink, delete or isolate remaining v1 recalc/support-layout public query paths as explicit slices.
+1. support layout inspection boundary: keep remaining `inspect_support_layout` calls inside explicit legacy/recalc debug sections only; do not use it for bb2 capture or normal viewer validation.
+2. old test constraint migration: migrate only high-value constraints from the top 20 list; do not chase old implementation expectations.
+3. after B/C shrink, delete or isolate remaining v1 recalc/support-layout public query paths as explicit slices.
 
 validation:
 
 * `git diff --check`: pass.
 * `wire_viewer`: build pass with VS18 CMake.
-* `wire_viewer_tests`: V01-V15 pass.
+* `wire_viewer_tests`: V01-V22 pass.
 * `wire_core_tests bb2`: C368-C610 pass.
 * full `wire_core_tests`: fails in old v1/recalc tests; this is not a bb2 blocker, but each failure must be classified before using it as a fix target.
 
@@ -1499,6 +1498,6 @@ current mainline state:
 
 * bb2 can be called as the generation entrypoint without v1 fallback.
 * normal viewer overlay/query/capture now read `saved_backbone_result` instead of span-derived `BuildBackboneResult`.
-* viewer render overlay uses neutral `span_layout` for flow/lowering display; old `inspect_support_layout` remains debug/inspection only.
-* No A-class v1 files were proven dead yet, so no physical v1 deletion was done in this checkpoint.
+* viewer render overlay and DrawPath capture use neutral `span_layout` / `span_layout_state` / `span_layout_rules` for bb2 checks; old `inspect_support_layout` remains legacy/recalc debug only.
+* A-class old generation families were physically deleted in earlier checkpoints; remaining old pieces are recalc/inspection/test constraint work, not bb2 generation fallback.
 * Rename from `bb2` to mainline remains blocked until old pipeline/recalc/public-query remnants are either deleted or explicitly isolated.

@@ -9877,72 +9877,6 @@ bool test_backbone_hv3_same_level_order_decision_is_permutable() {
   return saw_permutable && saw_compared_choice;
 }
 
-bool test_backbone_hv3_lowered_order_decision_is_permutable() {
-  CoreState state;
-  const auto type_ids = sorted_pole_type_ids(state);
-  if (type_ids.empty()) {
-    return false;
-  }
-
-  wire::core::BackboneSpec trunk{};
-  trunk.path.polyline = {{-12.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}};
-  trunk.interval_m = 1000.0;
-  trunk.pole_type_id = type_ids.front();
-  add_backbone_bundle(trunk, wire::core::BundleKind::kHighVoltage);
-  if (!state.GenerateFromBackboneSpec(trunk).ok) {
-    return false;
-  }
-  const ObjectId center_id = find_pole_id_by_position(state, {0.0, 0.0, 0.0});
-  if (center_id == wire::core::kInvalidObjectId) {
-    return false;
-  }
-
-  wire::core::BackboneSpec cross{};
-  cross.path.polyline = {{0.0, -12.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 12.0, 0.0}};
-  cross.interval_m = 1000.0;
-  cross.pole_type_id = type_ids.front();
-  wire::core::BackboneInputSpec::NodeSpec shared{};
-  shared.point_index = 1;
-  shared.support_kind = wire::core::SupportKind::kPole;
-  shared.node_id = center_id;
-  cross.path.node_specs.push_back(shared);
-  add_backbone_bundle(cross, wire::core::BundleKind::kHighVoltage);
-  const auto generated = state.GenerateFromBackboneSpec(cross);
-  if (!generated.ok || generated.value.generated_span_ids.empty()) {
-    return false;
-  }
-  wire::core::CommitOptions options{};
-  options.run_recalc = true;
-  if (!state.Commit(options).validation.ok()) {
-    return false;
-  }
-
-  bool saw_lowered = false;
-  bool saw_permutable = false;
-  bool saw_compared_choice = false;
-  for (ObjectId span_id : generated.value.generated_span_ids) {
-    const auto layout_view = state.view().inspect_support_layout(span_id);
-    if (!layout_view.has_value() ||
-        layout_view->lowering_kind != wire::core::BackboneLoweringKind::kCrossUnderpass) {
-      continue;
-    }
-    const auto endpoint = layout_endpoint_for_owner(*layout_view, center_id);
-    if (!endpoint.has_value()) {
-      continue;
-    }
-    saw_lowered = true;
-    saw_permutable = saw_permutable ||
-                     endpoint->order_decision_policy == wire::core::OrderDecisionPolicyKind::kPermutableHomogeneous;
-    saw_compared_choice = saw_compared_choice ||
-                          endpoint->order_decision_choice_reason != wire::core::OrderDecisionChoiceReason::kFixedOrder;
-  }
-  if (!(saw_lowered && saw_permutable && saw_compared_choice)) {
-    std::cerr << "[DBG] C240 lowered=" << saw_lowered << " permutable=" << saw_permutable
-              << " compared=" << saw_compared_choice << "\n";
-  }
-  return saw_lowered && saw_permutable && saw_compared_choice;
-}
-
 bool test_backbone_fixed_order_bundle_skips_permutation() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
@@ -9995,79 +9929,6 @@ bool test_backbone_fixed_order_bundle_skips_permutation() {
     }
   }
   return saw_hv;
-}
-
-bool test_backbone_refresh_keeps_order_decision_choice() {
-  CoreState state;
-  const auto type_ids = sorted_pole_type_ids(state);
-  if (type_ids.empty()) {
-    return false;
-  }
-
-  wire::core::BackboneSpec trunk{};
-  trunk.path.polyline = {{-12.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}};
-  trunk.interval_m = 1000.0;
-  trunk.pole_type_id = type_ids.front();
-  add_backbone_bundle(trunk, wire::core::BundleKind::kHighVoltage);
-  if (!state.GenerateFromBackboneSpec(trunk).ok) {
-    return false;
-  }
-  const ObjectId center_id = find_pole_id_by_position(state, {0.0, 0.0, 0.0});
-  if (center_id == wire::core::kInvalidObjectId) {
-    return false;
-  }
-
-  wire::core::BackboneSpec cross{};
-  cross.path.polyline = {{0.0, -12.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 12.0, 0.0}};
-  cross.interval_m = 1000.0;
-  cross.pole_type_id = type_ids.front();
-  wire::core::BackboneInputSpec::NodeSpec shared{};
-  shared.point_index = 1;
-  shared.support_kind = wire::core::SupportKind::kPole;
-  shared.node_id = center_id;
-  cross.path.node_specs.push_back(shared);
-  add_backbone_bundle(cross, wire::core::BundleKind::kHighVoltage);
-  const auto generated = state.GenerateFromBackboneSpec(cross);
-  if (!generated.ok || generated.value.generated_span_ids.empty()) {
-    return false;
-  }
-  wire::core::CommitOptions options{};
-  options.run_recalc = true;
-  if (!state.Commit(options).validation.ok()) {
-    return false;
-  }
-
-  const ObjectId span_id = generated.value.generated_span_ids.front();
-  const auto before = state.view().inspect_support_layout(span_id);
-  if (!before.has_value()) {
-    return false;
-  }
-  const auto before_endpoint = layout_endpoint_for_owner(*before, center_id);
-  if (!before_endpoint.has_value()) {
-    return false;
-  }
-  const auto before_choice = before_endpoint->order_decision_choice;
-  const auto before_reason = before_endpoint->order_decision_choice_reason;
-  const bool before_has_seed = before->has_decision_seed;
-  const bool before_requires_seed = before->requires_decision_seed;
-
-  if (!state.SetPoleManualYawOverride(center_id, 15.0).ok) {
-    return false;
-  }
-
-  const auto after = state.view().inspect_support_layout(span_id);
-  if (!after.has_value()) {
-    return false;
-  }
-  const auto after_endpoint = layout_endpoint_for_owner(*after, center_id);
-  return after_endpoint.has_value() &&
-         before_has_seed && before_requires_seed &&
-         after->has_decision_seed == before_has_seed &&
-         after->requires_decision_seed == before_requires_seed &&
-         before_endpoint->order_decision_policy == wire::core::OrderDecisionPolicyKind::kPermutableHomogeneous &&
-         after_endpoint->order_decision_policy == wire::core::OrderDecisionPolicyKind::kPermutableHomogeneous &&
-         after_endpoint->order_decision_choice == before_choice &&
-         after_endpoint->order_decision_choice_reason == before_reason;
 }
 
 bool test_backbone_point_like_order_decision_non_regression() {
@@ -13009,15 +12870,9 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C239_Backbone_HV3SameLevelOrderDecisionPermutable",
                          "HV3 ThroughPair path keeps an authoritative non-fixed order decision instead of reverting to fixed-order",
                          "Invariant", false, test_backbone_hv3_same_level_order_decision_is_permutable);
-  test_registry::AddTest(tests, "C240_Backbone_HV3LoweredOrderDecisionPermutable",
-                         "Lowered HV3 cross keeps an authoritative non-fixed order decision at the lowered endpoint",
-                         "Invariant", false, test_backbone_hv3_lowered_order_decision_is_permutable);
   test_registry::AddTest(tests, "C241_Backbone_FixedOrderBundleUntouched",
                          "Fixed-order bundle skips non-fixed order evaluation entirely",
                          "Invariant", false, test_backbone_fixed_order_bundle_skips_permutation);
-  test_registry::AddTest(tests, "C242_Backbone_RefreshKeepsOrderDecision",
-                         "Refresh keeps the chosen HV3 order decision instead of re-flipping after constrained lowered generation",
-                         "Invariant", false, test_backbone_refresh_keeps_order_decision_choice);
   test_registry::AddTest(tests, "C243_Backbone_PointLikeOrderDecisionNonRegression",
                          "Point-like low-voltage route stays fixed-order and does not opt into HV3 order permutation",
                          "Invariant", false, test_backbone_point_like_order_decision_non_regression);

@@ -1613,3 +1613,10 @@ viewer normal path cut:
 * the UI labels recalc controls as legacy recalc.
 * manual legacy recalc remains available for old debug/validation, but bb2 supported generation and port edit display outputs are expected to exist without it.
 * validation: `build-vs18-viewer-fetch` config/build pass, and viewer tests V01-V23 pass.
+
+sanity audit cut:
+
+* `DeriveGeneratedSpanOutputs` remains a bb2 direct-derive boundary, not a recalc feature path.
+* bb2 curve/bounds/render/visual construction is shared through `generation/bb2/out.*` so `derive.cpp` does not carry a second copy of pipeline geom/draw logic.
+* bb2 production source still does not read support layout contract/projection, authority/seed, recalc, materialization, or fallback/infer/guess paths.
+* remaining recalc and support-layout inspection callers are v1/debug surfaces; they are deletion candidates, not bb2 dependencies.

@@ -13,6 +13,7 @@ add_library(
   src/generation/build_backbone_service.cpp
   src/generation/pole_facing/pole_facing_rules.cpp
   src/generation/bb2/derive.cpp
+  src/generation/bb2/out.cpp
   src/generation/bb2/pipeline.cpp
   src/generation/generate_from_backbone.cpp
   src/generation/rebuild_from_backbone.cpp

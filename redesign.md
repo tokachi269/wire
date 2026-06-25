@@ -1715,3 +1715,36 @@ viewer/debug inspection cut:
 * pole-height normal UI no longer reads `inspect_support_layout` for legacy lowered support markers.
 * remaining viewer `inspect_support_layout` usage is the selected `SupportLayout` manual debug panel only.
 * remaining viewer `Commit(run_recalc)` usage is manual `Run Legacy Recalc` and validation-only commit.
+
+## old test constraint migration batch
+
+Status date: 2026-06-25.
+
+Do not fix old tests one by one. Migrate or retire by family.
+
+| Family | Current old surface | Class | bb2 replacement / next action |
+|---|---|---|---|
+| unsupported leaves state unchanged | old `Commit` / dirty queue / count checks | A | already covered in bb2 by unsupported preflight and object/saved-graph count checks. Keep extending only when a new supported scenario is added |
+| duplicate does not mutate | duplicate generation + old output count checks | A | covered by bb2 duplicate preflight and saved binding checks. Do not reintroduce rollback-after-emit |
+| output cache presence | `support_layout_projection`, curve/bounds/visual/render caches after recalc | A/B | bb2 required outputs cover rules/layout/geom/draw directly. Remaining old cases migrate only when viewer-visible output is missing |
+| viewer-required output | viewer scene/capture constraints | A/B | viewer V16-V22 and bb2 scene cases cover current mainline. Add only for failing practical viewer scenarios |
+| post-edit direct derive determinism | `Commit(run_recalc)` after port/pole edits | B | first slice covered by C611-C613. Migrate more only when a supported edit still needs recalc |
+| public backbone query | `BuildBackboneResult`, `BuildBackboneEdges`, `FindBackboneRoute` | A | public query is now saved-graph backed for bb2; keep until mainline rename removes old API names |
+| support-layout authority/seed/projection internals | `inspect_support_layout`, `support_layout_contract`, authority seed/projection fields | C/D | v1 legacy only unless the underlying constraint can be expressed as SavedBackboneGraph + SpanLayoutRules + SpanLayoutEntry + support group placement |
+| recalc materialization internals | support-layout materialization, detail curve recalc, support group authority repair | C/D | v1 legacy only. Do not migrate object shape; migrate only user-visible constraints to bb2 direct derive/draw |
+| attachment/socket support layout | socket resolution through support-layout materialization | B/C | not bb2 mainline yet. Requires explicit bb2 attachment/socket requirement before migration |
+| cable style / insulator / supplemental render | recalc style context, full visual cache parts | B/C | migrate only viewer-blocking visual requirements. Current bb2 draw is minimal placeholder |
+
+Class legend:
+
+* A: already covered by bb2 structures.
+* B: should be migrated only when it blocks a supported viewer/mainline scenario.
+* C: v1 legacy only.
+* D: delete after v1 removal.
+* E: unclear.
+
+Phase 5 result:
+
+* High-value migrated constraints are already represented by saved graph topology, duplicate preflight, required direct outputs, viewer scene tests, and direct derive.
+* The largest unmigrated families are support-layout authority/seed/projection and recalc materialization internals; these are v1 legacy unless a concrete viewer scenario proves a missing bb2 output.
+* No old test should be updated to require support-layout authority/seed/projection in bb2.

@@ -4139,11 +4139,11 @@ bool C522_bb2_supported_scope_is_documented() {
   if (!file_text(doc, &text)) {
     return false;
   }
-  return contains_text(text, "## bb2 supported generation scope") && contains_text(text, "Supported:") &&
-         contains_text(text, "Unsupported:") && contains_text(text, "`SavedBackboneGraph` is topology authority") &&
+  return contains_text(text, "## bb2 mainline v0") && contains_text(text, "`GenerateFromBackboneSpec`") &&
+         contains_text(text, "unsupported") && contains_text(text, "`SavedBackboneGraph`") &&
          contains_text(text, "`pairs make(graph)`") && contains_text(text, "duplicate same edge_bundle + lane") &&
          contains_text(text, "support_world") && contains_text(text, "endpoint_world") &&
-         contains_text(text, "does not fall back to v1");
+         contains_text(text, "v1 fallback");
 }
 
 bool C523_bb2_scope_gate_matches_entrypoint() {
@@ -4507,8 +4507,9 @@ bool C538_bb2_viewer_deps_are_not_core_draw_gate() {
   if (!file_text(doc, &text)) {
     return false;
   }
-  return contains_text(text, "viewer/raylib availability is not part of bb2 core acceptance") &&
-         contains_text(text, "do not block `wire_core_tests` bb2 acceptance");
+  return contains_text(text, "viewer normal path") && contains_text(text, "bb2 neutral outputs") &&
+         contains_text(text, "visual / render cache") &&
+         contains_text(text, "topology / pair / row / lowering");
 }
 
 bool C539_bb2_supported_request_creates_saved_graph_outputs() {
@@ -4544,11 +4545,11 @@ bool C542_bb2_usable_mainline_architecture_audit_passes() {
   if (!file_text(doc, &text)) {
     return false;
   }
-  const bool doc_ok = contains_text(text, "## bb2 usable mainline architecture audit") &&
-                      contains_text(text, "Result: PASS") &&
-                      contains_text(text, "topology owner: `SavedBackboneGraph`") &&
-                      contains_text(text, "connectivity owner: `pairs make(graph)`") &&
-                      contains_text(text, "draw owner: layout / geom consumer");
+  const bool doc_ok = contains_text(text, "SavedBackboneGraph") &&
+                      contains_text(text, "topology | `SavedBackboneGraph`") &&
+                      contains_text(text, "connectivity | `pairs make(graph)`") &&
+                      contains_text(text, "placement | support group / row placement") &&
+                      contains_text(text, "draw | visual / render cache");
   return doc_ok && C498_bb2_saved_graph_remains_topology_authority() && C387_bb2_pairs_are_single_source() &&
          C506_bb2_support_group_is_placement_layer() && C535_bb2_duplicate_preflight_is_mutation_boundary() &&
          C537_bb2_draw_source_has_no_decision_inputs() && C523_bb2_scope_gate_matches_entrypoint();

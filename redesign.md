@@ -86,7 +86,7 @@ supported request の生成直後に、bb2 は次を保存する。
 1. `prepare`
 2. `check`
 3. `pairs make(graph)`
-4. duplicate / span binding preflight
+4. duplicate / span binding preflight。duplicate same edge_bundle + lane はここで拒否する。
 5. intent / support group
 6. `emit` による topology object 生成
 7. saved backbone graph への保存
@@ -141,6 +141,11 @@ support group は placement authority。
 ## derive / post-edit refresh 境界
 
 Direct derive は、saved bb2 rules と ports から layout / geom / draw を再導出する入口。
+
+layout は `support_world` と `endpoint_world` を分ける。
+
+* `support_world`: port / support の元位置。
+* `endpoint_world`: lowering などを反映した wire endpoint。
 
 守ること:
 

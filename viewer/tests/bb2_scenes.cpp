@@ -5,6 +5,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <fstream>
+#include <sstream>
+#include <string>
 #include <vector>
 
 namespace {
@@ -412,6 +415,22 @@ bool test_bb2_viewer_selected_building_pick_generates_selected_bundle_only() {
   return true;
 }
 
+bool test_support_layout_debug_panel_reads_neutral_outputs() {
+  std::ifstream file("viewer/src/panels.cpp");
+  if (!file.is_open()) {
+    return false;
+  }
+  std::ostringstream buffer;
+  buffer << file.rdbuf();
+  const std::string source = buffer.str();
+  return source.find("inspect_support_layout(") == std::string::npos &&
+         source.find("Neutral Span Output Debug") != std::string::npos &&
+         source.find("span_layout_state(") != std::string::npos &&
+         source.find("span_layout_rules(") != std::string::npos &&
+         source.find("span_layout(") != std::string::npos &&
+         source.find("span_frontier(") != std::string::npos;
+}
+
 void register_bb2_scene_tests(viewer_test_registry::TestRegistry& tests) {
   viewer_test_registry::AddTest(tests, "V16", "bb2 viewer scene: simple LV/HV/Communication line has display outputs",
                                 test_bb2_viewer_simple_all_templates_have_display_outputs);
@@ -427,6 +446,8 @@ void register_bb2_scene_tests(viewer_test_registry::TestRegistry& tests) {
                                 test_bb2_viewer_segment_pick_midair_branch_has_display_outputs);
   viewer_test_registry::AddTest(tests, "V22", "bb2 viewer scene: selected building pick filters bundles",
                                 test_bb2_viewer_selected_building_pick_generates_selected_bundle_only);
+  viewer_test_registry::AddTest(tests, "V23", "SupportLayout debug panel reads neutral span outputs",
+                                test_support_layout_debug_panel_reads_neutral_outputs);
 }
 
 WIRE_REGISTER_VIEWER_TEST_SUITE(register_bb2_scene_tests);

@@ -1842,54 +1842,77 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
     return;
   }
   case SelectedType::kSupportLayout: {
-    const auto layout_view = view.inspect_support_layout(ui_state.selected_id);
-    if (!layout_view.has_value()) {
-      ImGui::TextUnformatted("Selected support layout is missing");
+    const wire::core::ObjectId span_id = ui_state.selected_id;
+    const auto state_view = view.span_layout_state(span_id);
+    const auto rules_view = view.span_layout_rules(span_id);
+    const auto layout_view = view.span_layout(span_id);
+    const auto* curve = view.find_curve_cache(span_id);
+    const auto* bounds = view.find_bounds_cache(span_id);
+    const auto* visual = view.find_span_visual_cache(span_id);
+    const auto* render = view.find_span_render_cache(span_id);
+    const wire::core::BackboneFrontier frontier = view.span_frontier(span_id);
+    if (!state_view.has_rules && !state_view.has_layout && curve == nullptr && bounds == nullptr && visual == nullptr &&
+        render == nullptr && frontier.edge_bundle_id == wire::core::kInvalidObjectId) {
+      ImGui::TextUnformatted("Selected span layout output is missing");
       return;
     }
-    ImGui::TextUnformatted("Legacy/Recalc SupportLayout Inspection");
+    ImGui::TextUnformatted("Neutral Span Output Debug");
     ImGui::Text("Type: SupportLayout");
-    ImGui::Text("flow: %s pass=%d flowKey=%llu", BackboneFlowKindLabel(layout_view->flow_kind),
-                static_cast<int>(layout_view->pass_mode),
-                static_cast<unsigned long long>(layout_view->variation_flow_key));
-    ImGui::Text("relation: A=%s B=%s class=%s lower=%s", JunctionRelationKindLabel(layout_view->relation_a),
-                JunctionRelationKindLabel(layout_view->relation_b),
-                ContinuityCategoryClassLabel(layout_view->continuity_class),
-                layout_view->default_lower_required ? "true" : "false");
-    ImGui::Text("sameLevel=%s reason=%s blocked=%s unresolved=%s solver=%s specialPorts=%s",
-                layout_view->same_level_feasible ? "true" : "false",
-                SameLevelFeasibilityReasonLabel(layout_view->same_level_reason),
-                layout_view->lowering_blocked_by_policy ? "true" : "false",
-                layout_view->unresolved_same_level_conflict ? "true" : "false",
-                layout_view->solver_used_same_level_constraint ? "true" : "false",
-                layout_view->used_special_case_ports ? "true" : "false");
-    ImGui::Text("orderPolicy=%s lowering=%s topview=%.2f required=%.2f",
-                OrderDecisionPolicyLabel(layout_view->order_decision_policy),
-                BackboneLoweringKindLabel(layout_view->lowering_kind),
-                layout_view->projected_spacing_topview_m, layout_view->required_clearance_m);
-    auto draw_endpoint = [&](const char* label, const wire::core::SupportLayoutEndpointView& endpoint) {
-      ImGui::Text("%s origin=%s source=%s flow=%s port=%s", label, endpoint.origin.c_str(),
-                  SupportLayoutEndpointSourceLabel(endpoint.endpoint_source),
-                  BackboneFlowKindLabel(endpoint.flow_kind), endpoint.port_source.c_str());
-      ImGui::Text("  endpoint=%.2f %.2f %.2f", endpoint.endpoint_world.x, endpoint.endpoint_world.y, endpoint.endpoint_world.z);
-      ImGui::Text("  departure=%.2f %.2f %.2f localDep=%.2f", endpoint.departure_dir.x, endpoint.departure_dir.y,
-                  endpoint.departure_dir.z, endpoint.local_departure_length_m);
-      ImGui::Text("  downOffset=%.2f request=%s attach=%s requestedSocket=%s resolvedSocket=%s",
-                  endpoint.branch_down_offset_m, EndpointAttachmentRequestKindLabel(endpoint.attachment_request.kind),
-                  endpoint.attachment_request.attachment_id.has_value()
-                      ? std::to_string(static_cast<unsigned long long>(*endpoint.attachment_request.attachment_id)).c_str()
-                      : "none",
-                  endpoint.attachment_request.requested_socket_id.has_value()
-                      ? std::to_string(*endpoint.attachment_request.requested_socket_id).c_str()
-                      : "none",
-                  endpoint.resolved_socket_id.has_value() ? std::to_string(*endpoint.resolved_socket_id).c_str()
-                                                          : "none");
-      DrawEndpointDecisionSummary("  decision", endpoint);
-    };
-    draw_endpoint("start", layout_view->start_endpoint);
-    draw_endpoint("end", layout_view->end_endpoint);
-    DrawLoweredSupportGroupsBlock(layout_view->lowered_support_groups);
-    DrawRelatedLinks(ui_state, layout_view->links);
+    ImGui::Text("Span: %llu", static_cast<unsigned long long>(span_id));
+    ImGui::Text("state: rules=%s layout=%s inputRequired=%s", state_view.has_rules ? "true" : "false",
+                state_view.has_layout ? "true" : "false", state_view.input_required ? "true" : "false");
+    ImGui::Text("savedGraph: edge=%llu edgeBundle=%llu bundles=%d spans=%d",
+                static_cast<unsigned long long>(frontier.edge_id),
+                static_cast<unsigned long long>(frontier.edge_bundle_id), static_cast<int>(frontier.bundle_ids.size()),
+                static_cast<int>(frontier.span_ids.size()));
+    if (rules_view.has_rule()) {
+      const wire::core::SpanLayoutRule& rule = *rules_view.rule;
+      ImGui::Separator();
+      ImGui::Text("rules: flow=%s pass=%d lowering=%s flowKey=%llu", BackboneFlowKindLabel(rule.flow_kind),
+                  static_cast<int>(rule.pass_mode), BackboneLoweringKindLabel(rule.lowering_kind),
+                  static_cast<unsigned long long>(rule.variation_flow_key));
+      ImGui::Text("rules supportGroups: %d", static_cast<int>(rule.support_group_rules.size()));
+    }
+    if (layout_view.has_layout()) {
+      const wire::core::SpanLayoutEntry& layout = *layout_view.entry;
+      auto draw_endpoint = [&](const char* label, const wire::core::LayoutEndpoint& endpoint) {
+        ImGui::Text("%s node=%llu port=%llu origin=%s source=%s flow=%s", label,
+                    static_cast<unsigned long long>(endpoint.endpoint_node_id),
+                    static_cast<unsigned long long>(endpoint.port_id), SupportLayoutOriginLabel(endpoint.origin),
+                    SupportLayoutEndpointSourceLabel(endpoint.endpoint_source), BackboneFlowKindLabel(endpoint.flow_kind));
+        ImGui::Text("  support=%.2f %.2f %.2f endpoint=%.2f %.2f %.2f", endpoint.support_world.x,
+                    endpoint.support_world.y, endpoint.support_world.z, endpoint.endpoint_world.x,
+                    endpoint.endpoint_world.y, endpoint.endpoint_world.z);
+        ImGui::Text("  departure=%.2f %.2f %.2f down=%.2f autoDown=%.2f", endpoint.departure_dir.x,
+                    endpoint.departure_dir.y, endpoint.departure_dir.z, endpoint.branch_down_offset_m,
+                    endpoint.automatic_branch_down_offset_m);
+      };
+      ImGui::Separator();
+      ImGui::Text("layout: flow=%s pass=%d lowering=%s flowKey=%llu", BackboneFlowKindLabel(layout.flow_kind),
+                  static_cast<int>(layout.pass_mode), BackboneLoweringKindLabel(layout.lowering_kind),
+                  static_cast<unsigned long long>(layout.variation_flow_key));
+      ImGui::Text("loweredSupportGroupKeys: %d", static_cast<int>(layout.lowered_support_group_keys.size()));
+      draw_endpoint("start", layout.start);
+      draw_endpoint("end", layout.end);
+    }
+    ImGui::Separator();
+    if (curve != nullptr) {
+      ImGui::Text("curve: samples=%d segments=%d length=%.2f", static_cast<int>(curve->detail.sample_points.size()),
+                  static_cast<int>(curve->detail.SegmentCount()), curve->detail.total_length_m);
+    } else {
+      ImGui::TextUnformatted("curve: (none)");
+    }
+    if (bounds != nullptr) {
+      ImGui::Text("bounds: min=%.2f %.2f %.2f max=%.2f %.2f %.2f segments=%d", bounds->whole.min.x,
+                  bounds->whole.min.y, bounds->whole.min.z, bounds->whole.max.x, bounds->whole.max.y,
+                  bounds->whole.max.z, static_cast<int>(bounds->segments.size()));
+    } else {
+      ImGui::TextUnformatted("bounds: (none)");
+    }
+    ImGui::Text("visual: %s parts=%d", visual != nullptr ? "present" : "none",
+                visual != nullptr ? static_cast<int>(visual->parts.size()) : 0);
+    ImGui::Text("render: %s points=%d", render != nullptr ? "present" : "none",
+                render != nullptr ? static_cast<int>(render->arc_length_m_by_point.size()) : 0);
     return;
   }
   case SelectedType::kDetailCurve: {

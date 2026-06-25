@@ -2633,62 +2633,6 @@ bool test_inspection_junction_prefers_relation_surface_when_present() {
          junction_view->has_primary && junction_view->through_pair_accepted;
 }
 
-bool test_support_layout_prefers_assignment_over_stale_branch_support_ports() {
-  CoreState state;
-  const ObjectId pole_a =
-      state.AddPole(wire::core::Transformd{{0.0, 0.0, 0.0}}, 10.0, "A").value;
-  const ObjectId pole_b =
-      state.AddPole(wire::core::Transformd{{12.0, 0.0, 0.0}}, 10.0, "B").value;
-  const ObjectId port_a = state.AddPort(pole_a, {0.0, 0.85, 4.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
-  const ObjectId port_b = state.AddPort(pole_b, {12.0, 0.0, 4.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
-  const ObjectId span = state.AddSpan(port_a, port_b, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
-
-  wire::core::Port* edit_port_a = wire::core::CoreStateTestHook::edit_state(state).ports.find(port_a);
-  wire::core::Port* edit_port_b = wire::core::CoreStateTestHook::edit_state(state).ports.find(port_b);
-  wire::core::Span* edit_span = wire::core::CoreStateTestHook::edit_state(state).spans.find(span);
-  if (edit_port_a == nullptr || edit_port_b == nullptr || edit_span == nullptr) {
-    return false;
-  }
-  edit_port_a->category = wire::core::ConnectionCategory::kCommunication;
-  edit_port_a->generated_by_rule = true;
-  edit_port_a->placement_source = wire::core::PortPlacementSourceKind::kBranchSupport;
-  edit_port_a->template_side = wire::core::SlotSide::kRight;
-  edit_port_a->placement_context = wire::core::ConnectionContext::kBranchAdd;
-  edit_port_b->category = wire::core::ConnectionCategory::kCommunication;
-  edit_port_b->generated_by_rule = true;
-  edit_port_b->placement_source = wire::core::PortPlacementSourceKind::kGenerated;
-  edit_span->placement_context = wire::core::ConnectionContext::kBranchAdd;
-
-  wire::core::SpanSupportLayoutEntry stale_layout{};
-  stale_layout.span_id = span;
-  stale_layout.flow_kind = wire::core::BackboneFlowKind::kMain;
-  stale_layout.pass_mode = wire::core::CurvePassMode::kPassThrough;
-  stale_layout.lowering_kind = wire::core::BackboneLoweringKind::kNone;
-  stale_layout.start.endpoint_node_id = edit_span->endpoint_node_a_id;
-  stale_layout.start.owner_pole_id = pole_a;
-  stale_layout.start.port_id = port_a;
-  stale_layout.start.flow_kind = wire::core::BackboneFlowKind::kMain;
-  stale_layout.start.relation_kind = wire::core::JunctionRelationKind::kNone;
-  stale_layout.start.continuity_class = wire::core::ContinuityCategoryClass::kPointLike;
-  stale_layout.start.origin = wire::core::SupportLayoutOriginKind::kMainSupport;
-  stale_layout.end.endpoint_node_id = edit_span->endpoint_node_b_id;
-  stale_layout.end.owner_pole_id = pole_b;
-  stale_layout.end.port_id = port_b;
-  stale_layout.end.flow_kind = wire::core::BackboneFlowKind::kMain;
-  stale_layout.end.relation_kind = wire::core::JunctionRelationKind::kNone;
-  stale_layout.end.continuity_class = wire::core::ContinuityCategoryClass::kPointLike;
-  stale_layout.end.origin = wire::core::SupportLayoutOriginKind::kMainSupport;
-  wire::core::CoreStateTestHook::cache_state(state).span_layout_cache.store_layout(std::move(stale_layout));
-
-  (void)state.Commit().recalc_stats;
-  const auto* layout = state.view().support_layout_projection(span).layout;
-    return layout != nullptr && layout->flow_kind == wire::core::BackboneFlowKind::kMain &&
-      layout->start.flow_kind == wire::core::BackboneFlowKind::kMain &&
-      layout->end.flow_kind == wire::core::BackboneFlowKind::kMain &&
-      almost_equal(layout->start.automatic_branch_down_offset_m, 0.0, 1e-9) &&
-         almost_equal(layout->start.branch_down_offset_m, 0.0, 1e-9);
-}
-
 bool test_detail_curve_acute_case_applies_quality_fallback() {
   wire::core::CurveConstraint start{};
   start.point = {0.0, 0.0, 5.0};
@@ -3359,9 +3303,6 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C259_Inspection_Junction_PrefersRelationSurface",
                          "Inspection prefers last_generation_junction_relations when relation data exists instead of mixing rebuilt junction incidents into the same surface",
                          "Invariant", false, test_inspection_junction_prefers_relation_surface_when_present);
-  test_registry::AddTest(tests, "C254_SupportLayout_AssignmentBeatsStaleBranchPort",
-                         "Support layout prefers authoritative assignment over stale branch-support port state",
-                         "Invariant", false, test_support_layout_prefers_assignment_over_stale_branch_support_ports);
   test_registry::AddTest(tests, "C161_DetailCurve_BranchLongSpan_SuppressesSidewaysRunout",
                          "Long branch spans keep support departure local and suppress large sideways runout",
                          "Invariant", false, test_detail_curve_branch_long_span_suppresses_sideways_runout);

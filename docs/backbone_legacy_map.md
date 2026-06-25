@@ -22,13 +22,13 @@
 | `core/src/recalc/support_layout_projection.*` | recalc、validation、旧 tests | D/E | no | neutral `span_layout` / `span_layout_state` / direct caches へ読み替える |
 | `core/src/recalc/detail_curve*` | recalc curve tests、v1 geometry rebuild | D/E | no | bb2 は `core/src/generation/bb2/out.*` を使う。必要な curve 制約だけ移植する |
 | `core/src/recalc/style_context.cpp` / `variation.cpp` | v1 render/style rebuild | D/E | no | viewer-blocking visual requirement が出た場合だけ bb2 draw 側で明示実装する |
-| `CoreView::inspect_support_layout` / `SupportLayoutInspectionView` | manual debug panel、capture/debug、旧 tests | B/C/D | no | normal viewer からは外す。capture/debug は neutral output へ移す |
+| `CoreView::inspect_support_layout` / `SupportLayoutInspectionView` | selected `SupportLayout` manual debug panel、旧 tests | C/D | no | normal viewer / capture からは外した。残りは v1 manual debug として隔離するか neutral debug view へ置換 |
 | `support_layout_contract` / `support_layout_projection` accessors | recalc、validation、旧 tests | C/D/E | no | no-authority 確認は `span_layout_state` へ移行済み。残りは v1/debug/test に隔離する |
 | validation の support-layout authority checks | validation-only、旧 tests | D/E | no | bb2 normal path の blocker にしない。必要制約だけ neutral validation へ移す |
 | old `backbone_pipeline` / `bundle_spans` / grouped span generation | guard strings、旧履歴、削除済み family | A | no | production 復活禁止。残る参照が test guard だけなら削除対象ではない |
 | `core/src/generation/build_backbone_service.cpp` | public generation entrypoint | E/F | yes, as service glue | bb2 mainline rename までは残す。v1 fallback を戻さない |
 | public `BuildBackboneResult` / `BuildBackboneEdges` / `FindBackboneRoute` | public query、viewer/query tests | B | no v1 fallback | saved graph backed query として維持。旧名 rename は mainline 化後 |
-| `core/tools/capture_replay.cpp` support-layout inspection | debug/capture tooling | B/C | no | neutral span layout / geom / draw / saved graph capture へ移す |
+| `core/tools/capture_replay.cpp` | debug/capture tooling | mainline/debug | no | neutral span layout / rules / geom / draw / saved graph を読む。support-layout inspection を戻さない |
 
 ## viewer 境界
 
@@ -39,7 +39,7 @@
 | selected `SupportLayout` manual debug panel | `inspect_support_layout` を読む | C/D | neutral debug view を作るか、v1 manual debug として隔離 |
 | manual `Run Legacy Recalc` | 明示操作で `Commit(run_recalc)` を呼ぶ | D | normal path ではない。削除時は代替 direct derive 操作が必要 |
 | validation-only commit | validation/debug 経路 | D | bb2 normal path の blocker にしない |
-| capture replay | support-layout inspection を読む可能性あり | B/C | neutral output capture へ移す |
+| capture replay | neutral span layout / rules / bounds / visual / render を読む | mainline/debug | support-layout inspection を戻さない |
 
 ## 旧テスト family
 
@@ -73,11 +73,10 @@
 
 優先順:
 
-1. `capture_replay` / manual debug の support-layout inspection を neutral output へ移す。
-2. selected `SupportLayout` debug panel を neutral debug view へ置換、または v1 manual debug として明示隔離する。
-3. old tests の support-layout authority/seed/projection family を bb2 制約へ移植または v1 専用へ退役させる。
-4. recalc materialization の user-visible constraints だけを bb2 direct outputs へ移植する。
-5. viewer/public query から旧名 API を外せる状態になってから mainline rename を検討する。
+1. selected `SupportLayout` debug panel を neutral debug view へ置換、または v1 manual debug として明示隔離する。
+2. old tests の support-layout authority/seed/projection family を bb2 制約へ移植または v1 専用へ退役させる。
+3. recalc materialization の user-visible constraints だけを bb2 direct outputs へ移植する。
+4. viewer/public query から旧名 API を外せる状態になってから mainline rename を検討する。
 
 ## 運用ルール
 

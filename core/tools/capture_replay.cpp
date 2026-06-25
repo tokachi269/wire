@@ -475,16 +475,6 @@ const char* same_level_reason_text(wire::core::SameLevelFeasibilityReason reason
   }
 }
 
-Vec3d normalized_xy(Vec3d v) {
-  v.z = 0.0;
-  const double len2 = v.x * v.x + v.y * v.y;
-  if (len2 <= 1e-18) {
-    return {0.0, 0.0, 0.0};
-  }
-  const double inv_len = 1.0 / std::sqrt(len2);
-  return {v.x * inv_len, v.y * inv_len, 0.0};
-}
-
 } // namespace
 
 int main(int argc, char** argv) {
@@ -518,7 +508,12 @@ int main(int argc, char** argv) {
   std::cout << "generated_spans=" << generated.value.generated_span_ids.size() << "\n";
   for (ObjectId span_id : generated.value.generated_span_ids) {
     const auto span_view = view.inspect_span(span_id);
-    const auto layout_view = view.inspect_support_layout(span_id);
+    const auto layout_view = view.span_layout(span_id);
+    const auto layout_state = view.span_layout_state(span_id);
+    const auto rules_view = view.span_layout_rules(span_id);
+    const auto* bounds = view.find_bounds_cache(span_id);
+    const auto* visual = view.find_span_visual_cache(span_id);
+    const auto* render = view.find_span_render_cache(span_id);
     if (!span_view.has_value()) {
       continue;
     }
@@ -528,44 +523,41 @@ int main(int argc, char** argv) {
               << " lowering=" << lowering_kind_text(span_view->lowering_kind)
               << " same_level=" << (span_view->same_level_feasible ? 1 : 0)
               << " reason=" << same_level_reason_text(span_view->same_level_reason)
-              << " lowered_groups=" << (layout_view.has_value() ? layout_view->lowered_support_groups.size() : 0)
+              << " rules=" << (layout_state.has_rules ? 1 : 0)
+              << " layout=" << (layout_state.has_layout ? 1 : 0)
+              << " input_required=" << (layout_state.input_required ? 1 : 0)
+              << " bounds=" << (bounds != nullptr ? 1 : 0)
+              << " visual=" << (visual != nullptr ? 1 : 0)
+              << " render=" << (render != nullptr ? 1 : 0)
               << "\n";
-    if (!layout_view.has_value()) {
+    if (!layout_view.has_layout()) {
       continue;
     }
-    std::cout << "  start owner=" << layout_view->start_endpoint.owner_pole_id
-              << " pair=" << layout_view->start_endpoint.support_authority.pair.pair_peer_low << "/"
-              << layout_view->start_endpoint.support_authority.pair.pair_peer_high
-              << " side_rule=" << static_cast<int>(layout_view->start_endpoint.side_assignment_rule)
-              << " orient_rule=" << static_cast<int>(layout_view->start_endpoint.support_orientation_rule)
-              << " basis=" << static_cast<int>(layout_view->start_endpoint.support_orientation_basis)
-              << " side_axis=" << layout_view->start_endpoint.side_axis.x << ","
-              << layout_view->start_endpoint.side_axis.y << "," << layout_view->start_endpoint.side_axis.z
+    const auto& layout = *layout_view.entry;
+    const std::size_t group_rule_count = rules_view.has_rule() ? rules_view.rule->support_group_rules.size() : 0;
+    std::cout << "  layout flow=" << flow_kind_text(layout.flow_kind)
+              << " lowering=" << lowering_kind_text(layout.lowering_kind)
+              << " lowered_group_keys=" << layout.lowered_support_group_keys.size()
+              << " support_group_rules=" << group_rule_count
               << "\n";
-    std::cout << "  end owner=" << layout_view->end_endpoint.owner_pole_id
-              << " pair=" << layout_view->end_endpoint.support_authority.pair.pair_peer_low << "/"
-              << layout_view->end_endpoint.support_authority.pair.pair_peer_high
-              << " side_rule=" << static_cast<int>(layout_view->end_endpoint.side_assignment_rule)
-              << " orient_rule=" << static_cast<int>(layout_view->end_endpoint.support_orientation_rule)
-              << " basis=" << static_cast<int>(layout_view->end_endpoint.support_orientation_basis)
-              << " side_axis=" << layout_view->end_endpoint.side_axis.x << ","
-              << layout_view->end_endpoint.side_axis.y << "," << layout_view->end_endpoint.side_axis.z
+    std::cout << "  start node=" << layout.start.endpoint_node_id
+              << " port=" << layout.start.port_id
+              << " support=" << layout.start.support_world.x << "," << layout.start.support_world.y << ","
+              << layout.start.support_world.z
+              << " endpoint=" << layout.start.endpoint_world.x << "," << layout.start.endpoint_world.y << ","
+              << layout.start.endpoint_world.z
+              << " departure=" << layout.start.departure_dir.x << "," << layout.start.departure_dir.y << ","
+              << layout.start.departure_dir.z
               << "\n";
-    for (const auto& group : layout_view->lowered_support_groups) {
-      const Vec3d actual_dir = normalized_xy(group.tip_world - group.mount_world);
-      std::cout << "  group owner=" << group.owner_pole_id
-                << " group_id=" << group.support_group_id
-                << " relation=" << static_cast<int>(group.relation_kind)
-                << " pair=" << group.pair_peer_low << "/" << group.pair_peer_high
-                << " side=" << static_cast<int>(group.side)
-                << " side_rule=" << static_cast<int>(group.side_assignment_rule)
-                << " orient_rule=" << static_cast<int>(group.support_orientation_rule)
-                << " basis=" << static_cast<int>(group.support_orientation_basis)
-                << " sign=" << group.chosen_side_sign
-                << " axis=" << group.side_axis.x << "," << group.side_axis.y << "," << group.side_axis.z
-                << " dir=" << actual_dir.x << "," << actual_dir.y << "," << actual_dir.z
-                << "\n";
-    }
+    std::cout << "  end node=" << layout.end.endpoint_node_id
+              << " port=" << layout.end.port_id
+              << " support=" << layout.end.support_world.x << "," << layout.end.support_world.y << ","
+              << layout.end.support_world.z
+              << " endpoint=" << layout.end.endpoint_world.x << "," << layout.end.endpoint_world.y << ","
+              << layout.end.endpoint_world.z
+              << " departure=" << layout.end.departure_dir.x << "," << layout.end.departure_dir.y << ","
+              << layout.end.departure_dir.z
+              << "\n";
   }
 
   return 0;

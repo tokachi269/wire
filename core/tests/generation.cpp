@@ -6618,9 +6618,6 @@ bool test_backbone_cross_lowered_pair_uses_opposite_junction_pair_sides() {
       saw_non_center = true;
     }
   }
-  if (!(saw_pair_side && saw_non_center)) {
-    std::cerr << "[DBG] C234 pairSide=" << saw_pair_side << " nonCenter=" << saw_non_center << "\n";
-  }
   return saw_pair_side && saw_non_center;
 }
 
@@ -6680,7 +6677,6 @@ bool test_backbone_constrained_lowered_support_prefers_line_direction() {
       continue;
     }
     if (endpoint->support_orientation_rule == wire::core::SupportOrientationRuleKind::kRadial) {
-      std::cerr << "[DBG] C235 radial endpoint remained constrained\n";
       continue;
     }
     const auto placement = lowered_support_group_for_owner(*layout_view, center_id);
@@ -6691,14 +6687,6 @@ bool test_backbone_constrained_lowered_support_prefers_line_direction() {
     if (std::abs(dot_xy(support_axis, pair_normal)) >= 0.97 &&
         placement->support_orientation_basis != wire::core::SupportOrientationBasisKind::kRadial) {
       saw_constrained_visual = true;
-    } else {
-      std::cerr << "[DBG] C235 bad axis align=" << std::abs(dot_xy(support_axis, pair_normal)) << " mount=("
-                << placement->mount_world.x << "," << placement->mount_world.y << "," << placement->mount_world.z
-                << ") tip=(" << placement->tip_world.x << "," << placement->tip_world.y << ","
-                << placement->tip_world.z << ") sideSign=" << placement->chosen_side_sign << " origin="
-                << placement->origin << " sideRule="
-                << static_cast<int>(placement->side_assignment_rule) << " orientRule="
-                << static_cast<int>(placement->support_orientation_rule) << "\n";
     }
   }
   return saw_constrained_visual;

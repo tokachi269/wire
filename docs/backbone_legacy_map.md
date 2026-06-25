@@ -54,7 +54,7 @@
 | post-edit direct derive determinism | `Commit(run_recalc)` after port/pole edits | B | supported edit が recalc を必要とする場合だけ direct derive tests へ移植 |
 | public backbone query | `BuildBackboneResult`, `BuildBackboneEdges`, `FindBackboneRoute` | A/B | saved graph backed query として維持。span-derived fallback は戻さない |
 | support-layout authority/seed/projection internals | `inspect_support_layout`, `support_layout_contract`, authority seed/projection fields | C/D | v1 legacy。必要制約は `SavedBackboneGraph` + `SpanLayoutRules` + `SpanLayoutEntry` + support group で表す |
-| recalc materialization internals | support-layout materialization, detail curve recalc, support group repair | C/D | object shape は移植しない。user-visible constraints だけ移植 |
+| recalc persistence / materialization internals | `Commit(run_recalc)`, support-layout materialization, detail curve recalc, support group repair | C/D | 詳細は下の「recalc persistence family」を参照。dirty queue / materialization order は bb2 要件にしない |
 | attachment/socket support layout | socket resolution through support-layout materialization | B/C | bb2 attachment/socket requirement が明確になるまで mainline 完了条件にしない |
 | cable style / insulator / supplemental render | recalc style context, full visual cache parts | B/C | viewer-blocking visual requirement が出た場合だけ bb2 draw へ移植 |
 
@@ -86,6 +86,24 @@ bb2 側で既に固定している代表テスト:
 * 旧テストが `support_layout_projection` / authority / seed / projection の形を要求しているだけなら、v1 専用として隔離する。
 * viewer で実際に必要な visual / render が欠ける場合だけ、bb2 draw requirement として supported scenario を増やす。
 * 既に pass するケースに C 番号を足すだけなら進捗扱いにしない。
+
+## recalc persistence family
+
+旧テストは `Commit(run_recalc)` 後も generation 時の意味が痩せないことを見ていた。
+この制約は重要だが、recalc dirty queue、materialization order、support-layout object shape は bb2 の要件にしない。
+
+| representative old cases | original constraint | v1 implementation detail | bb2 replacement / 判断 |
+|---|---|---|---|
+| C221/C224/C225/C227/C232 | recalc / refresh 後も lowering、unresolved conflict、relation origin が消えない | `Commit(run_recalc)` 後に `inspect_span` / `inspect_support_layout` の旧 relation/lowering fields を読む | C/D。bb2 では `SpanLayoutRules`、support group、`SpanLayoutEntry`、geom/draw、direct derive determinism で見る。dirty queue persistence は移植しない |
+| C234-C237 | lowered/cross/branch の support side / orientation が recalc materialization 後も pair-aware に残る | `SupportLayoutInspectionView` endpoint と lowered support group の orientation/side fields | C/D。bb2 では pair/open/row + support group placement + layout/geom/draw output で見る。old support endpoint decision fields は移植しない |
+| C196/C286 | branch support visual が recalc 後の grouped support view / pole tilt に追従する | lowered support group inspection の mount/tip/attachment shape | C。viewer-blocking visual だけ bb2 draw/support group requirement に移す。full recalc grouped support inspection shape は v1 専用 |
+
+この family を今後触るときの判断:
+
+* 「supported edit 後に表示出力が再導出される」は `DeriveGeneratedSpanOutputs` と direct cache checks で見る。
+* 「lowering / placement が消えない」は support group、layout endpoint、geom bounds、draw placeholder で見る。
+* `Commit(run_recalc)` が何件 dirty queue を処理したか、どの順で materialize したかは bb2 に移植しない。
+* 旧テスト内の一時 debug 出力は制約ではないため削除対象。
 
 ## support-layout authority / seed / projection test family
 
@@ -123,7 +141,7 @@ generation が決めた pair / side / lowering / order が refresh や materiali
 優先順:
 
 1. old tests の support-layout authority/seed/projection family を v1 専用へ隔離し、必要制約だけ bb2 direct outputs へ移植する。
-2. recalc materialization の user-visible constraints だけを bb2 direct outputs へ移植する。
+2. recalc persistence family のうち、viewer-visible output 制約だけを bb2 direct derive / support group / draw へ移植する。
 3. viewer/public query から旧名 API を外せる状態になってから mainline rename を検討する。
 
 ## 運用ルール

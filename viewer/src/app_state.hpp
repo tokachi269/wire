@@ -157,7 +157,7 @@ struct ViewerUiState {
   std::string last_error;
   std::vector<std::string> logs;
   CameraDragMode camera_drag_mode = CameraDragMode::kNone;
-  bool auto_recalc = true;
+  bool auto_recalc = false;
   bool camera_walk_mode = false;
   float camera_walk_speed = 6.0f;
   float camera_mouse_sensitivity = 0.003f;

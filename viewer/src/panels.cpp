@@ -2270,13 +2270,13 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
               static_cast<int>(view.dirty_queue().bounds_dirty_span_ids.size()),
               static_cast<int>(view.dirty_queue().render_dirty_span_ids.size()),
               static_cast<int>(view.dirty_queue().raycast_dirty_span_ids.size()));
-  ImGui::Text("Last Recalc total=%d decision=%d geom=%d bounds=%d render=%d", static_cast<int>(recalc.total_processed()),
+  ImGui::Text("Legacy Recalc total=%d decision=%d geom=%d bounds=%d render=%d", static_cast<int>(recalc.total_processed()),
               static_cast<int>(recalc.decision_processed), static_cast<int>(recalc.geometry_processed),
               static_cast<int>(recalc.bounds_processed),
               static_cast<int>(recalc.render_processed));
-  ImGui::Checkbox("Auto Recalc", &ui_state.auto_recalc);
+  ImGui::Checkbox("Legacy Auto Recalc", &ui_state.auto_recalc);
   ImGui::SameLine();
-  if (ImGui::Button("Run Recalc")) {
+  if (ImGui::Button("Run Legacy Recalc")) {
     wire::core::CommitOptions options{};
     options.run_recalc = true;
     options.run_validate = false;

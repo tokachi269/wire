@@ -1581,3 +1581,10 @@ first supported post-edit slice:
 * Spans with saved backbone binding and saved `SpanLayoutRule` are immediately derived through `DeriveGeneratedSpanOutputs`.
 * Direct-derived bb2 spans are removed from geometry/bounds/render dirty queues.
 * Spans without saved backbone binding remain on the old dirty queue path until their constraints are migrated or retired.
+
+viewer normal path cut:
+
+* viewer `auto_recalc` now defaults to off.
+* the UI labels recalc controls as legacy recalc.
+* manual legacy recalc remains available for old debug/validation, but bb2 supported generation and port edit display outputs are expected to exist without it.
+* validation note: `build-vs18-viewer-fetch` reconfigure currently fails in raylib FetchContent, so the new V23 viewer test was added but not executed in this checkpoint; the existing viewer binary still passes V01-V22.

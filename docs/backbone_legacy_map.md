@@ -152,3 +152,4 @@ generation が決めた pair / side / lowering / order が refresh や materiali
 * 新しい一覧を作る場合は、削除可否、caller、次の切断先を必ず含める。
 * C 番号や commit log をこの map に増やさない。
 | C250-C256 / C264-C265 | branch/cross/corner lowering と grouped support identity が inspection/refresh 後も維持される | `SupportLayoutInspectionView` endpoint / lowered support group / old relation fields を読む | 退役済み。bb2 では support group、layout endpoint、geom/draw output、saved graph frontier、direct derive determinism で見る。旧 inspection field shape と recalc refresh surface は移植しない |
+| C260-C263 / C267-C268 | support-layout cache validation、authoritative support-group inspection、non-lowered span の lowered group 非継承 | mutated `SpanSupportLayoutEntry` / support group authority cache / `SupportLayoutInspectionView.lowered_support_groups` を読む | 退役済み。bb2 では support group と `SpanLayoutEntry` / geom / draw の生成結果で見る。旧 cache completeness / endpoint projection validation は移植しない |

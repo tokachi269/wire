@@ -1523,7 +1523,7 @@ classification:
 | Target | Class | Current callers | bb2 mainline needed? | Next cut |
 |---|---:|---|---:|---|
 | `CoreState::Commit(run_recalc)` / `ProcessDirtyQueues` | B/D | viewer auto/manual recalc, state load/update paths, old workflow/geometry/generation tests | no | add bb2 direct derive entrypoint, then cut viewer normal path from auto recalc |
-| viewer `auto_recalc` loop | B | `viewer/src/main.cpp`, `viewer/src/panels.cpp` UI | no | replace normal bb2 refresh with explicit direct derive; keep manual recalc only as legacy/debug until removed |
+| viewer `legacy_auto_recalc` loop | B | `viewer/src/main.cpp`, `viewer/src/panels.cpp` UI | no | replace normal bb2 refresh with explicit direct derive; keep manual recalc only as legacy/debug until removed |
 | `viewer_core_state::Commit` adapter | B/D | viewer auto/manual recalc and validation paths | no | keep for validation/debug; do not make bb2 post-edit depend on it |
 | `support_layout_projection` / `support_layout_contract` | C/D | old tests, recalc pipeline, v1 inspection API | no | keep v1/recalc-only until old constraints are classified; bb2 observes `span_layout` / `span_layout_state` |
 | `inspect_support_layout` | B/D | viewer legacy/recalc debug panels and old tests | no | normal viewer/capture already neutral; remaining calls stay isolated until legacy debug is removed |
@@ -1537,7 +1537,7 @@ exit order:
 
 1. Add a bb2 direct derive entrypoint for saved rules/layout/geom/draw outputs.
 2. Use that entrypoint for supported bb2 post-edit/rederive scenarios without `Commit(run_recalc)`.
-3. Cut viewer normal bb2 refresh from `auto_recalc`; leave manual recalc as legacy/debug only.
+3. Cut viewer normal bb2 refresh from `legacy_auto_recalc`; leave manual recalc as legacy/debug only.
 4. Classify old recalc tests by constraint family before changing expectations.
 5. Delete or isolate remaining recalc callers only after their active viewer/public/test dependency is gone.
 
@@ -1609,7 +1609,7 @@ first supported post-edit slice:
 
 viewer normal path cut:
 
-* viewer `auto_recalc` now defaults to off.
+* viewer `legacy_auto_recalc` now defaults to off.
 * the UI labels recalc controls as legacy recalc.
 * manual legacy recalc remains available for old debug/validation, but bb2 supported generation and port edit display outputs are expected to exist without it.
 * validation note: `build-vs18-viewer-fetch` reconfigure currently fails in raylib FetchContent, so the new V23 viewer test was added but not executed in this checkpoint; the existing viewer binary still passes V01-V22.

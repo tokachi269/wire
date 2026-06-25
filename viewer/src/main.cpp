@@ -745,7 +745,7 @@ int main() {
     UpdateViewportSelectionInput(selection_view, camera, ui_state);
     UpdateDrawPathInput(state, camera, ui_state);
     const auto view = viewer_core_state::View(state);
-    if (ui_state.auto_recalc) {
+    if (ui_state.legacy_auto_recalc) {
       wire::core::CommitOptions options{};
       options.run_recalc = true;
       options.run_validate = false;

@@ -1501,3 +1501,49 @@ current mainline state:
 * viewer render overlay and DrawPath capture use neutral `span_layout` / `span_layout_state` / `span_layout_rules` for bb2 checks; old `inspect_support_layout` remains legacy/recalc debug only.
 * A-class old generation families were physically deleted in earlier checkpoints; remaining old pieces are recalc/inspection/test constraint work, not bb2 generation fallback.
 * Rename from `bb2` to mainline remains blocked until old pipeline/recalc/public-query remnants are either deleted or explicitly isolated.
+
+## bb2 recalc exit map 2026-06-25
+
+目的:
+
+* recalc を一気に削除せず、bb2 mainline から切る順序を固定する。
+* viewer normal path / bb2 post-edit / public query が recalc なしで動く状態を先に作る。
+* recalc 依存の旧 test は、期待構造ではなく守っていた制約を bb2 構造へ移植する。
+
+baseline:
+
+* working tree: clean.
+* `git diff --check`: pass.
+* `wire_viewer_tests`: V01-V22 pass.
+* `wire_core_tests`: build pass.
+* `wire_core_tests bb2`: C368-C610 pass.
+
+classification:
+
+| Target | Class | Current callers | bb2 mainline needed? | Next cut |
+|---|---:|---|---:|---|
+| `CoreState::Commit(run_recalc)` / `ProcessDirtyQueues` | B/D | viewer auto/manual recalc, state load/update paths, old workflow/geometry/generation tests | no | add bb2 direct derive entrypoint, then cut viewer normal path from auto recalc |
+| viewer `auto_recalc` loop | B | `viewer/src/main.cpp`, `viewer/src/panels.cpp` UI | no | replace normal bb2 refresh with explicit direct derive; keep manual recalc only as legacy/debug until removed |
+| `viewer_core_state::Commit` adapter | B/D | viewer auto/manual recalc and validation paths | no | keep for validation/debug; do not make bb2 post-edit depend on it |
+| `support_layout_projection` / `support_layout_contract` | C/D | old tests, recalc pipeline, v1 inspection API | no | keep v1/recalc-only until old constraints are classified; bb2 observes `span_layout` / `span_layout_state` |
+| `inspect_support_layout` | B/D | viewer legacy/recalc debug panels and old tests | no | normal viewer/capture already neutral; remaining calls stay isolated until legacy debug is removed |
+| `cache_span_support_layout` / `cache_span_support_layout_seed` | C/D | recalc/materialization, core test hook, old validation tests | no | bb2 uses `cache_span_layout` / `cache_span_rules`; delete after old support-layout constraint migration |
+| `core/src/recalc/detail_curve_*` | D | recalc curve rebuild and old curve tests | no | bb2 geom/draw already direct; post-edit direct derive must not call these |
+| `core/src/recalc/support_layout_materialization.*` | D | recalc support layout materialization and old tests | no | isolate as v1/recalc until support-layout tests are migrated or retired |
+| `CoreView::last_recalc_stats` / `RecalcStats` UI | B/D | viewer stats panel and old tests | no | keep as legacy/debug metric; not a bb2 progress signal |
+| old tests using `Commit(run_recalc)` / support layout inspection | C | `generation.cpp`, `geometry.cpp`, `bundle_visuals.cpp`, `workflow.cpp`, `state_services.cpp`, `template_policy.cpp` | no | classify by family; migrate only constraints that still apply to SavedGraph/rules/layout/geom/draw |
+
+exit order:
+
+1. Add a bb2 direct derive entrypoint for saved rules/layout/geom/draw outputs.
+2. Use that entrypoint for supported bb2 post-edit/rederive scenarios without `Commit(run_recalc)`.
+3. Cut viewer normal bb2 refresh from `auto_recalc`; leave manual recalc as legacy/debug only.
+4. Classify old recalc tests by constraint family before changing expectations.
+5. Delete or isolate remaining recalc callers only after their active viewer/public/test dependency is gone.
+
+stop conditions:
+
+* topology, pair/open/row, port identity, or lowering would need to be inferred from span/layout/seed/curve/port position.
+* bb2 post-edit would need `Commit(run_recalc)` or support-layout materialization to produce outputs.
+* viewer normal display would need old `support_layout_contract` or `inspect_support_layout`.
+* an old recalc test failure cannot be classified as either bb2 constraint or v1 implementation detail.

@@ -8,7 +8,6 @@
 #include <optional>
 #include <sstream>
 #include <string>
-#include <unordered_set>
 #include <vector>
 
 #include "core_state_adapter.hpp"
@@ -1065,49 +1064,6 @@ std::vector<PoleHeightMarker> BuildPoleHeightMarkers(const wire::core::CoreView&
       markers.push_back(std::move(marker));
     }
 
-    // Legacy/recalc debug: lowered support placement details still live behind support-layout inspection.
-    std::unordered_set<std::uint64_t> shown_support_groups{};
-    for (const wire::core::Span& span : view.spans().items()) {
-      const auto layout_view = view.inspect_support_layout(span.id);
-      if (!layout_view.has_value()) {
-        continue;
-      }
-      for (const auto& placement : layout_view->lowered_support_groups) {
-        if (placement.owner_pole_id != pole.id) {
-          continue;
-        }
-        const bool grouped =
-            placement.grouping_rule == wire::core::SupportGroupingRuleKind::kDecisionGroup &&
-            placement.support_group_id >= 0;
-        const std::uint64_t support_key =
-            (static_cast<std::uint64_t>(static_cast<std::uint32_t>(placement.owner_pole_id)) << 32) ^
-            static_cast<std::uint32_t>(placement.support_group_id);
-        if (grouped && !shown_support_groups.insert(support_key).second) {
-          continue;
-        }
-        PoleHeightMarker marker{};
-        marker.kind = PoleHeightMarkerKind::kSupport;
-        const char* lowering_label = BackboneLoweringKindLabel(layout_view->lowering_kind);
-        marker.label = (layout_view->lowering_kind == wire::core::BackboneLoweringKind::kNone)
-                   ? "LegacyLoweredSupport"
-                   : std::string("Legacy") + lowering_label;
-        marker.height_m = placement.mount_world.z;
-        marker.x_escape_m =
-            view.pole_radius_at_height_m(pole, std::max(0.0, marker.height_m - pole.world_transform.position.z)) +
-            view.geometry_settings().pole_clearance_m + MarkerBaseOffsetForKind(marker.kind) +
-            static_cast<double>(support_index++) * 0.05;
-        const wire::core::Vec3d attachment_world =
-            placement.attachment_worlds.empty() ? placement.tip_world : placement.attachment_worlds.front();
-        for (const wire::core::Port* port : owned_ports) {
-          if (port != nullptr && NearlySameWorld(port->world_position, attachment_world, 1e-6)) {
-            marker.port_ids.push_back(port->id);
-            marker.editable = true;
-            break;
-          }
-        }
-        markers.push_back(std::move(marker));
-      }
-    }
   }
 
   if (ui_state.pole_height_view_show_bundles) {

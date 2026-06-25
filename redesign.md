@@ -1708,3 +1708,10 @@ Phase 2 result:
 * No new A-class production file/symbol was proven safe to delete in this pass.
 * The old grouped-span/backbone-pipeline production family is already physically absent; remaining references are guard strings or saved-graph public query names.
 * Remaining recalc/support-layout code is not bb2 generation dependency, but it is still held by v1 runtime, validation, manual debug, tools, and old tests.
+
+viewer/debug inspection cut:
+
+* `viewer/src/draw_path.cpp` reads neutral `span_layout`, `span_layout_state`, rules, curve, bounds, visual/render, and saved backbone result.
+* pole-height normal UI no longer reads `inspect_support_layout` for legacy lowered support markers.
+* remaining viewer `inspect_support_layout` usage is the selected `SupportLayout` manual debug panel only.
+* remaining viewer `Commit(run_recalc)` usage is manual `Run Legacy Recalc` and validation-only commit.

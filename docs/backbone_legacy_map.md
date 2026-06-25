@@ -115,6 +115,7 @@ generation が決めた pair / side / lowering / order が refresh や materiali
 |---|---|---|---|
 | C348-C352 | support pair / side / semantic relation が refresh で変わらない | `has_decision_seed`, `support_authority`, `relation_kind`, `continuity_class` を `SupportLayoutInspectionView` で読む | 退役済み。bb2 では `SavedBackboneGraph` + pair/open/row + `SpanLayoutRules` + direct derive determinism で見る。旧 seed identity は移植しない |
 | C353-C354 | same-level T/cross 相当で高さ class が分かれる | `pair_height_rank`, `branch_down_offset_m`, `relation_kind` を inspection endpoint で読む | 退役済み。bb2 では support group / layout endpoint / geom bounds で lower offset と出力差を確認する。T/cross kind は作らない |
+| C244-C248 | authoritative endpoint decision が support layout / refresh 後も変わらない | order decision / side / orientation basis / seed fields を `SupportLayoutEndpointView` で読む | 退役済み。bb2 では pair/open/row、support group、layout/geom/draw consumer chain、direct derive determinism で見る。旧 endpoint field shape は移植しない |
 | C263 | grouped support decision と placement が cache から一貫して読める | `grouped_authority_cache_complete`, `authoritative_group_cache_present`, lowered support inspection view | D/C。旧 cache completeness field は v1 専用。必要なら bb2 support group + `SpanLayoutEntry.lowered_support_group_keys` + draw placeholder で制約化する |
 | C240/C242 | lowered endpoint の order decision が refresh 後も維持される | SupportLayout endpoint の order decision/reason fields | 退役済み。bb2 では placement/support group と direct derive 後の layout/geom/draw 不変条件へ移す。旧 endpoint field shape は移植しない |
 

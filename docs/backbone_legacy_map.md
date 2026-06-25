@@ -1,0 +1,87 @@
+# backbone legacy map
+
+この文書は、v1 / recalc / support-layout / 旧テストの現行依存を整理する地図。
+履歴や milestone log ではない。現在の設計契約は `redesign.md`、退避済み履歴は `docs/archive/redesign_history_2026-06.md` を読む。
+
+## 分類
+
+| 分類 | 判断 |
+|---|---|
+| A | bb2 本流から未使用。物理削除候補 |
+| B | viewer / public query が読む。先に neutral output へ移す |
+| C | tests だけが読む。制約を bb2 構造へ移植してから退役 |
+| D | v1 専用として隔離 |
+| E | bb2 未対応 scenario のため残っている。supported 化か unsupported 固定を決める |
+
+## v1 / recalc / support-layout 残存依存
+
+| family / file | 現在の caller | 分類 | bb2 generation 中に読むか | 次の切断先 |
+|---|---|---|---|---|
+| `core/src/recalc/recalc_pipeline.cpp` / `Commit` / dirty queue | v1 runtime、手動 debug、state load/update、旧テスト | D/E | no | supported post-edit は direct derive へ移す。残りは v1/manual/debug に隔離する |
+| `core/src/recalc/support_layout_materialization.*` | recalc pipeline、旧 support-layout tests | D/E | no | user-visible 制約だけ bb2 rules/layout/geom/draw へ移植。object shape は移植しない |
+| `core/src/recalc/support_layout_projection.*` | recalc、validation、旧 tests | D/E | no | neutral `span_layout` / `span_layout_state` / direct caches へ読み替える |
+| `core/src/recalc/detail_curve*` | recalc curve tests、v1 geometry rebuild | D/E | no | bb2 は `core/src/generation/bb2/out.*` を使う。必要な curve 制約だけ移植する |
+| `core/src/recalc/style_context.cpp` / `variation.cpp` | v1 render/style rebuild | D/E | no | viewer-blocking visual requirement が出た場合だけ bb2 draw 側で明示実装する |
+| `CoreView::inspect_support_layout` / `SupportLayoutInspectionView` | manual debug panel、capture/debug、旧 tests | B/C/D | no | normal viewer からは外す。capture/debug は neutral output へ移す |
+| `support_layout_contract` / `support_layout_projection` accessors | recalc、validation、旧 tests | C/D/E | no | no-authority 確認は `span_layout_state` へ移行済み。残りは v1/debug/test に隔離する |
+| validation の support-layout authority checks | validation-only、旧 tests | D/E | no | bb2 normal path の blocker にしない。必要制約だけ neutral validation へ移す |
+| old `backbone_pipeline` / `bundle_spans` / grouped span generation | guard strings、旧履歴、削除済み family | A | no | production 復活禁止。残る参照が test guard だけなら削除対象ではない |
+| `core/src/generation/build_backbone_service.cpp` | public generation entrypoint | E/F | yes, as service glue | bb2 mainline rename までは残す。v1 fallback を戻さない |
+| public `BuildBackboneResult` / `BuildBackboneEdges` / `FindBackboneRoute` | public query、viewer/query tests | B | no v1 fallback | saved graph backed query として維持。旧名 rename は mainline 化後 |
+| `core/tools/capture_replay.cpp` support-layout inspection | debug/capture tooling | B/C | no | neutral span layout / geom / draw / saved graph capture へ移す |
+
+## viewer 境界
+
+| 領域 | 現在の状態 | 判断 | 次の切断先 |
+|---|---|---|---|
+| viewer normal path | `span_layout`, `span_layout_state`, rules, curve, bounds, visual/render, saved backbone result を読む | mainline | 旧 support-layout contract を戻さない |
+| pole-height normal UI | `inspect_support_layout` 依存は削除済み | mainline | 追加作業なし |
+| selected `SupportLayout` manual debug panel | `inspect_support_layout` を読む | C/D | neutral debug view を作るか、v1 manual debug として隔離 |
+| manual `Run Legacy Recalc` | 明示操作で `Commit(run_recalc)` を呼ぶ | D | normal path ではない。削除時は代替 direct derive 操作が必要 |
+| validation-only commit | validation/debug 経路 | D | bb2 normal path の blocker にしない |
+| capture replay | support-layout inspection を読む可能性あり | B/C | neutral output capture へ移す |
+
+## 旧テスト family
+
+旧テストは 1 件ずつ直さない。family 単位で移植または退役する。
+
+| family | 旧 surface | 分類 | bb2 replacement / 判断 |
+|---|---|---|---|
+| unsupported leaves state unchanged | old `Commit` / dirty queue / count checks | A | bb2 preflight と object/saved-graph count checks で扱う。新 supported scenario 追加時だけ拡張 |
+| duplicate does not mutate | duplicate generation + old output count checks | A | duplicate preflight と saved binding checks で扱う。rollback-after-emit を戻さない |
+| output cache presence | `support_layout_projection`, curve/bounds/visual/render after recalc | A/B | bb2 required outputs は rules/layout/geom/draw を直接確認する |
+| viewer-required output | viewer scene/capture constraints | A/B | viewer representative scenes と bb2 scenario tests で扱う。既に pass するケースへの test 追加だけでは進捗扱いにしない |
+| post-edit direct derive determinism | `Commit(run_recalc)` after port/pole edits | B | supported edit が recalc を必要とする場合だけ direct derive tests へ移植 |
+| public backbone query | `BuildBackboneResult`, `BuildBackboneEdges`, `FindBackboneRoute` | A/B | saved graph backed query として維持。span-derived fallback は戻さない |
+| support-layout authority/seed/projection internals | `inspect_support_layout`, `support_layout_contract`, authority seed/projection fields | C/D | v1 legacy。必要制約は `SavedBackboneGraph` + `SpanLayoutRules` + `SpanLayoutEntry` + support group で表す |
+| recalc materialization internals | support-layout materialization, detail curve recalc, support group repair | C/D | object shape は移植しない。user-visible constraints だけ移植 |
+| attachment/socket support layout | socket resolution through support-layout materialization | B/C | bb2 attachment/socket requirement が明確になるまで mainline 完了条件にしない |
+| cable style / insulator / supplemental render | recalc style context, full visual cache parts | B/C | viewer-blocking visual requirement が出た場合だけ bb2 draw へ移植 |
+
+## 削除候補と残存理由
+
+| 対象 | 状態 | 残す理由 | 削除条件 |
+|---|---|---|---|
+| old grouped span engine family | production 削除済み | guard/test/履歴以外の caller がない前提 | production caller が残っていないことを確認し続ける |
+| support-layout materialization | 残存 | recalc / v1 / old tests が読む | v1 専用隔離後、必要制約を bb2 に移植 |
+| support-layout authority/seed/projection inspection | 残存 | manual debug / old tests が読む | neutral debug/capture へ置換し、old tests を分類 |
+| recalc pipeline | 残存 | v1 / manual debug / validation / old tests | bb2 normal path と supported post-edit から完全に外れた後に削る |
+| public backbone query 旧名 | 残存 | viewer/public API が読む | saved graph backed API へ rename できる段階で整理 |
+| `bb2` namespace/name | 残存 | v1 がまだ同居している | v1/recalc/support-layout 本流依存削除後に mainline 名へ rename |
+
+## 次に消せる family
+
+優先順:
+
+1. `capture_replay` / manual debug の support-layout inspection を neutral output へ移す。
+2. selected `SupportLayout` debug panel を neutral debug view へ置換、または v1 manual debug として明示隔離する。
+3. old tests の support-layout authority/seed/projection family を bb2 制約へ移植または v1 専用へ退役させる。
+4. recalc materialization の user-visible constraints だけを bb2 direct outputs へ移植する。
+5. viewer/public query から旧名 API を外せる状態になってから mainline rename を検討する。
+
+## 運用ルール
+
+* この map は現行判断用。古くなった snapshot は archive へ移す。
+* `redesign.md` には詳細表を戻さない。active contract は短く保つ。
+* 新しい一覧を作る場合は、削除可否、caller、次の切断先を必ず含める。
+* C 番号や commit log をこの map に増やさない。

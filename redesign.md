@@ -184,7 +184,7 @@ recalc は bb2 の通常生成経路ではない。
 * viewer normal path。
 * supported scenario の post-edit 更新。
 
-残存依存は family 単位で判断する。
+残存依存は family 単位で判断する。詳細な caller、削除可否、次の切断先は `docs/backbone_legacy_map.md` を正とする。
 
 | 分類 | 判断 |
 |---|---|

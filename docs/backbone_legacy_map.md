@@ -87,13 +87,32 @@ bb2 側で既に固定している代表テスト:
 * viewer で実際に必要な visual / render が欠ける場合だけ、bb2 draw requirement として supported scenario を増やす。
 * 既に pass するケースに C 番号を足すだけなら進捗扱いにしない。
 
+## support-layout authority / seed / projection test family
+
+旧テストは `inspect_support_layout` と support-layout seed/authority/projection fields を使って、
+generation が決めた pair / side / lowering / order が refresh や materialization で再判断されないことを見ていた。
+この family の制約は重要だが、旧 seed/projection object identity は bb2 の要件にしない。
+
+| representative old cases | original constraint | v1 implementation detail | bb2 replacement / 判断 |
+|---|---|---|---|
+| C348-C352 | support pair / side / semantic relation が refresh で変わらない | `has_decision_seed`, `support_authority`, `relation_kind`, `continuity_class` を `SupportLayoutInspectionView` で読む | C/D。bb2 では `SavedBackboneGraph` + pair/open/row + `SpanLayoutRules` + direct derive determinism で見る。旧 seed identity は移植しない |
+| C353-C354 | same-level T/cross 相当で高さ class が分かれる | `pair_height_rank`, `branch_down_offset_m`, `relation_kind` を inspection endpoint で読む | C。bb2 では support group / layout endpoint / geom bounds で lower offset と出力差を確認する。T/cross kind は作らない |
+| C263 | grouped support decision と placement が cache から一貫して読める | `grouped_authority_cache_complete`, `authoritative_group_cache_present`, lowered support inspection view | D/C。旧 cache completeness field は v1 専用。必要なら bb2 support group + `SpanLayoutEntry.lowered_support_group_keys` + draw placeholder で制約化する |
+| C240/C242 | lowered endpoint の order decision が refresh 後も維持される | SupportLayout endpoint の order decision/reason fields | C。bb2 では placement/support group と direct derive 後の layout/geom/draw 不変条件へ移す。旧 endpoint field shape は移植しない |
+
+この family を今後触るときの判断:
+
+* 「refresh / derive 後に上流決定が変わらない」は bb2 direct derive test へ移す。
+* 「pair / side / lowering を下流が再判断しない」は `pairs make(graph)` / support group / layout owner の boundary test で見る。
+* `has_decision_seed`, authority object identity, projection internals, grouped authority cache completeness は v1 専用として隔離する。
+* 旧 `relation_kind` / ThroughMain / SideBranch / CrossUnderpass ラベルは bb2 の正本に戻さない。
 ## 削除候補と残存理由
 
 | 対象 | 状態 | 残す理由 | 削除条件 |
 |---|---|---|---|
 | old grouped span engine family | production 削除済み | guard/test/履歴以外の caller がない前提 | production caller が残っていないことを確認し続ける |
 | support-layout materialization | 残存 | recalc / v1 / old tests が読む | v1 専用隔離後、必要制約を bb2 に移植 |
-| support-layout authority/seed/projection inspection | 残存 | manual debug / old tests が読む | neutral debug/capture へ置換し、old tests を分類 |
+| support-layout authority/seed/projection inspection | 残存 | old tests が読む | old tests を v1 専用へ隔離し、必要制約だけ bb2 direct outputs へ移植 |
 | recalc pipeline | 残存 | v1 / manual debug / validation / old tests | bb2 normal path と supported post-edit から完全に外れた後に削る |
 | public backbone query 旧名 | 残存 | viewer/public API が読む | saved graph backed API へ rename できる段階で整理 |
 | `bb2` namespace/name | 残存 | v1 がまだ同居している | v1/recalc/support-layout 本流依存削除後に mainline 名へ rename |

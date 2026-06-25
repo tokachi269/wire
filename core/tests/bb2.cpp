@@ -2,6 +2,7 @@
 #include "helpers.hpp"
 
 #include "wire/core/core_state.hpp"
+#include "wire/core/core_test_hook.hpp"
 #include "wire/core/core_view.hpp"
 
 #include <algorithm>
@@ -6649,6 +6650,52 @@ bool C559_bb2_positive_avoid_clear_of_route_is_noop() {
   return true;
 }
 
+bool C611_bb2_direct_derive_restores_saved_span_outputs() {
+  wire::core::CoreState state;
+  const auto out = state.GenerateFromBackboneSpec(line_req(state));
+  if (!out.ok || out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId span_id = out.value.generated_span_ids.front();
+  if (!state.span_layout_rules(span_id).has_rule()) {
+    return false;
+  }
+  wire::core::CacheState& cache = wire::core::CoreStateTestHook::cache_state(state);
+  cache.span_layout_cache.clear_layout(span_id);
+  cache.curve_cache.by_span.erase(span_id);
+  cache.bounds_cache.by_span.erase(span_id);
+  cache.visual_cache.by_span.erase(span_id);
+  cache.render_cache.by_span.erase(span_id);
+  if (state.span_layout(span_id).has_layout() || state.find_curve_cache(span_id) != nullptr ||
+      state.find_bounds_cache(span_id) != nullptr || state.find_span_visual_cache(span_id) != nullptr ||
+      state.find_span_render_cache(span_id) != nullptr) {
+    return false;
+  }
+  const auto derived = state.DeriveGeneratedSpanOutputs(span_id);
+  return derived.ok && state.span_layout(span_id).has_layout() && state.find_curve_cache(span_id) != nullptr &&
+         state.find_bounds_cache(span_id) != nullptr && state.find_span_visual_cache(span_id) != nullptr &&
+         state.find_span_render_cache(span_id) != nullptr && !state.span_layout_state(span_id).input_required;
+}
+
+bool C612_bb2_direct_derive_does_not_call_recalc_paths() {
+  std::string text;
+  if (!file_text(repo_root() / "core/src/generation/bb2/derive.cpp", &text)) {
+    return false;
+  }
+  const std::vector<std::string> banned = {"Commit(", "ProcessDirtyQueues", "rebuild_span_geometry",
+                                           "rebuild_span_visual", "cache_span_support_layout",
+                                           "support_layout_contract", "support_layout_projection",
+                                           "materialization", "generate_span_curve"};
+  for (const std::string& word : banned) {
+    if (contains_text(text, word)) {
+      return false;
+    }
+  }
+  return contains_text(text, "DeriveGeneratedSpanOutputs") && contains_text(text, "cache_span_layout") &&
+         contains_text(text, "cache_span_curve") && contains_text(text, "cache_span_bounds") &&
+         contains_text(text, "cache_span_visual") && contains_text(text, "cache_span_render");
+}
+
 void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C368_bb2_smoke_line", "bb2 generates the milestone-1 line slice", "Invariant", false,
                          C368_bb2_smoke_line);
@@ -7348,6 +7395,12 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C599_bb2_selected_saved_building_node_policy_persists_after_branch",
                          "bb2 selected saved building node policy persists after branch", "Boundary", false,
                          C599_bb2_selected_saved_building_node_policy_persists_after_branch);
+  test_registry::AddTest(tests, "C611_bb2_direct_derive_restores_saved_span_outputs",
+                         "bb2 direct derive restores saved span outputs without recalc", "Boundary", false,
+                         C611_bb2_direct_derive_restores_saved_span_outputs);
+  test_registry::AddTest(tests, "C612_bb2_direct_derive_does_not_call_recalc_paths",
+                         "bb2 direct derive avoids recalc and materialization paths", "Boundary", false,
+                         C612_bb2_direct_derive_does_not_call_recalc_paths);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

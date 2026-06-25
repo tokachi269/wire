@@ -1547,3 +1547,30 @@ stop conditions:
 * bb2 post-edit would need `Commit(run_recalc)` or support-layout materialization to produce outputs.
 * viewer normal display would need old `support_layout_contract` or `inspect_support_layout`.
 * an old recalc test failure cannot be classified as either bb2 constraint or v1 implementation detail.
+
+### direct derive entrypoint
+
+`CoreState::DeriveGeneratedSpanOutputs(span_id)` is the bb2 direct derive entrypoint.
+
+It consumes:
+
+* existing span object
+* saved `SpanLayoutRule`
+* current endpoint ports referenced by that rule
+
+It writes:
+
+* `SpanLayoutEntry`
+* `DetailCurve`
+* `BoundsCacheEntry`
+* minimal visual/render caches
+
+It does not:
+
+* call `Commit`
+* call `ProcessDirtyQueues`
+* read support layout contract/authority/seed
+* call support-layout materialization
+* infer topology, row, port identity, or span identity from geometry
+
+This is not yet the full viewer normal refresh path. The next cut is to route supported bb2 post-edit/rederive cases through this entrypoint before keeping or removing viewer auto recalc.

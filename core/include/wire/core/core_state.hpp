@@ -102,6 +102,7 @@ public:
   [[nodiscard]] BackboneResult BuildBackboneResult() const;
   [[nodiscard]] std::vector<BackboneEdge> BuildBackboneEdges() const;
   [[nodiscard]] std::vector<ObjectId> FindBackboneRoute(ObjectId start_node_id, ObjectId end_node_id) const;
+  EditResult<bool> DeriveGeneratedSpanOutputs(ObjectId span_id);
   EditResult<bool> UpdateGeometrySettings(const GeometrySettings& settings, bool mark_all_spans_dirty = true);
   EditResult<bool> UpdateLayoutSettings(const LayoutSettings& settings);
   EditResult<bool> UpdateVisualSettings(const VisualSettings& settings, bool mark_all_spans_dirty = true);

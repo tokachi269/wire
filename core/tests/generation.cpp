@@ -14308,27 +14308,15 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C220_Backbone_AcuteMergeFeasibilityAppliesAcrossRouteBoundary",
                          "Acute merge keeps a corner-based lowering root even when the corner arrives from a separate route boundary",
                          "Invariant", false, test_backbone_acute_merge_feasibility_applies_across_route_boundary);
-  test_registry::AddTest(tests, "C221_Backbone_RecalcKeepsSameLevelLoweringOrigin",
-                         "Recalc keeps same-level infeasibility and lowering origin visible on support layout and span inspection",
-                         "Invariant", false, test_backbone_recalc_keeps_same_level_lowering_origin);
   test_registry::AddTest(tests, "C222_Backbone_HV3CornerUsesConstrainedBandSolver",
                          "HV3 corner uses constrained placement-band ports instead of special-case ports when same-level feasibility fails",
                          "Invariant", false, test_backbone_hv3_corner_uses_constrained_band_solver);
   test_registry::AddTest(tests, "C223_Backbone_CrossConstraintUsesSolver",
                          "Cross underpass can keep through classification while solving near-node clearance through constrained band placement",
                          "Invariant", false, test_backbone_cross_same_level_infeasible_can_use_constrained_solver);
-  test_registry::AddTest(tests, "C224_Backbone_PolicyBlockedConflictSurvivesRecalc",
-                         "Policy-blocked same-level conflicts remain visible as unresolved after recalc instead of silently disappearing",
-                         "Invariant", false, test_backbone_policy_blocked_unresolved_survives_recalc_inspection);
-  test_registry::AddTest(tests, "C225_Backbone_RefreshKeepsPlacementConstraintOrigin",
-                         "Refresh keeps placement-constraint origin and constrained band source instead of snapping lowered corner ports back to normal bands",
-                         "Invariant", false, test_backbone_refresh_keeps_placement_constraint_origin);
   test_registry::AddTest(tests, "C226_Backbone_MirrorDoesNotChangeConstrainedSolverUsage",
                          "Mirror continues to affect lane-order only and does not change constrained-solver usage or unresolved same-level state",
                          "Invariant", false, test_backbone_mirror_does_not_change_constrained_solver_usage);
-  test_registry::AddTest(tests, "C227_Backbone_CrossRelationSurvivesSupportLayoutRecalc",
-                         "Cross underpass relation and lowering survive support-layout recalc instead of collapsing entirely into Main/Branch",
-                         "Invariant", false, test_backbone_cross_relation_survives_support_layout_recalc);
   test_registry::AddTest(tests, "C228_Backbone_HV3BranchDefaultLower",
                          "Bundle-like HV3 side branch defaults to lower even when same-level clearance would otherwise look acceptable",
                          "Invariant", false, test_backbone_hv3_branch_default_lower_required);
@@ -14341,24 +14329,9 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C231_Backbone_PointLikeBranchCanStaySameLevel",
                          "Point-like branch remains feasibility-driven and can stay same-level when clearance allows",
                          "Invariant", false, test_backbone_point_like_branch_can_keep_same_level_when_clear);
-  test_registry::AddTest(tests, "C232_Backbone_BundleRulePolicyBlockedUnresolved",
-                         "Bundle-like default lower remains visible as unresolved when category policy blocks lowering",
-                         "Invariant", false, test_backbone_bundle_rule_policy_block_stays_unresolved);
   test_registry::AddTest(tests, "C233_Backbone_RefreshKeepsBundleRuleOrigin",
                          "Refresh keeps bundle-rule lowering origin instead of dropping back to generic same-level placement",
                          "Invariant", false, test_backbone_refresh_keeps_bundle_rule_origin);
-  test_registry::AddTest(tests, "C234_Backbone_CrossLoweredPairSymmetricSides",
-                         "Cross lowered pair uses one junction-pair side group instead of splitting into left/right supports per endpoint",
-                         "Invariant", false, test_backbone_cross_lowered_pair_uses_opposite_junction_pair_sides);
-  test_registry::AddTest(tests, "C235_Backbone_ConstrainedLoweredSupportOrientation",
-                         "Constrained-placement lowered support uses a line/chord-oriented visual rule instead of falling back to pole-radial orientation",
-                         "Invariant", false, test_backbone_constrained_lowered_support_prefers_line_direction);
-  test_registry::AddTest(tests, "C236_Backbone_BundleBranchOrientationUsesBisectorWhenAvailable",
-                         "Bundle-like lowered branch root uses bisector orientation when available instead of falling back to branch chord",
-                         "Invariant", false, test_backbone_bundle_branch_support_orientation_uses_bisector_when_available);
-  test_registry::AddTest(tests, "C237_Backbone_PointLikeOrientationNonRegression",
-                         "Point-like branch uses pair-aware same-level support orientation without creating lowered support groups",
-                         "Invariant", false, test_backbone_point_like_orientation_rule_non_regression);
   test_registry::AddTest(tests, "C267_Backbone_NonLoweredCrossSpansDoNotExposeLoweredSupportGroups",
                          "Cross junction main spans with lower_required=false do not expose grouped lowered support",
                          "Invariant", false, test_backbone_non_lowered_cross_spans_do_not_expose_lowered_support_groups);

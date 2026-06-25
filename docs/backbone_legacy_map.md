@@ -94,8 +94,8 @@ bb2 側で既に固定している代表テスト:
 
 | representative old cases | original constraint | v1 implementation detail | bb2 replacement / 判断 |
 |---|---|---|---|
-| C221/C224/C225/C227/C232 | recalc / refresh 後も lowering、unresolved conflict、relation origin が消えない | `Commit(run_recalc)` 後に `inspect_span` / `inspect_support_layout` の旧 relation/lowering fields を読む | C/D。bb2 では `SpanLayoutRules`、support group、`SpanLayoutEntry`、geom/draw、direct derive determinism で見る。dirty queue persistence は移植しない |
-| C234-C237 | lowered/cross/branch の support side / orientation が recalc materialization 後も pair-aware に残る | `SupportLayoutInspectionView` endpoint と lowered support group の orientation/side fields | C/D。bb2 では pair/open/row + support group placement + layout/geom/draw output で見る。old support endpoint decision fields は移植しない |
+| C221/C224/C225/C227/C232 | recalc / refresh 後も lowering、unresolved conflict、relation origin が消えない | `Commit(run_recalc)` 後に `inspect_span` / `inspect_support_layout` の旧 relation/lowering fields を読む | 退役済み。bb2 では `SpanLayoutRules`、support group、`SpanLayoutEntry`、geom/draw、direct derive determinism で見る。dirty queue persistence は移植しない |
+| C234-C237 | lowered/cross/branch の support side / orientation が recalc materialization 後も pair-aware に残る | `SupportLayoutInspectionView` endpoint と lowered support group の orientation/side fields | 退役済み。bb2 では pair/open/row + support group placement + layout/geom/draw output で見る。old support endpoint decision fields は移植しない |
 | C196/C286 | branch support visual が recalc 後の grouped support view / pole tilt に追従する | lowered support group inspection の mount/tip/attachment shape | C。viewer-blocking visual だけ bb2 draw/support group requirement に移す。full recalc grouped support inspection shape は v1 専用 |
 
 この family を今後触るときの判断:

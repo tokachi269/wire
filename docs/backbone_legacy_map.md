@@ -116,12 +116,13 @@ generation が決めた pair / side / lowering / order が refresh や materiali
 | recalc pipeline | 残存 | v1 / manual debug / validation / old tests | bb2 normal path と supported post-edit から完全に外れた後に削る |
 | public backbone query 旧名 | 残存 | viewer/public API が読む | saved graph backed API へ rename できる段階で整理 |
 | `bb2` namespace/name | 残存 | v1 がまだ同居している | v1/recalc/support-layout 本流依存削除後に mainline 名へ rename |
+| viewer support-layout inspection helper overloads | 削除済み | selected SupportLayout panel が neutral output 化済み | `SupportLayoutEndpointView` / `LoweredSupportGroupInspectionView` 用 helper を戻さない |
 
 ## 次に消せる family
 
 優先順:
 
-1. old tests の support-layout authority/seed/projection family を bb2 制約へ移植または v1 専用へ退役させる。
+1. old tests の support-layout authority/seed/projection family を v1 専用へ隔離し、必要制約だけ bb2 direct outputs へ移植する。
 2. recalc materialization の user-visible constraints だけを bb2 direct outputs へ移植する。
 3. viewer/public query から旧名 API を外せる状態になってから mainline rename を検討する。
 

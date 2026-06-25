@@ -1674,3 +1674,37 @@ Remaining v1/recalc/debug-only areas:
 * `inspect_support_layout` remains only in legacy/recalc debug panels and old tests.
 * `Commit(run_recalc)` / `ProcessDirtyQueues` remain for v1 runtime and old workflow tests.
 * support-layout authority/seed/projection internals are not bb2 truth and are deletion/migration targets.
+
+## v1 / recalc / support-layout deletion map
+
+Status date: 2026-06-25.
+
+Classification:
+
+* A: dead for bb2/mainline and removable now.
+* B: still used by viewer normal path.
+* C: still used by viewer debug/manual legacy path.
+* D: still used only by old tests/tools.
+* E: still used by v1/legacy runtime.
+* F: cannot classify safely.
+
+| File / symbol | Class | Current callers | bb2 generation reachable | viewer normal reachable | public query reachable | Deletion status / next action |
+|---|---|---|---|---|---|---|
+| `core/src/recalc/recalc_pipeline.cpp` / `Commit(run_recalc)` / `ProcessDirtyQueues` | C/E/D | manual viewer legacy recalc, `state.cpp` load/update paths, old workflow/editing/geometry/template tests | no | no | no | not removable now. Keep isolated as v1/manual debug runtime; remove only after state load/update and old test families move to bb2/direct derive or retire |
+| `core/src/recalc/support_layout_materialization.*` | E/D | recalc pipeline, old support-layout/materialization tests | no | no | no | not removable now. v1 materialization only; do not call from bb2 direct derive |
+| `core/src/recalc/support_layout_projection.*` | E/D | recalc pipeline, support-layout seed projection, validation/tests | no | no | no | not removable now. Delete after authority/seed/projection tests are migrated or declared v1-only |
+| `core/src/recalc/detail_curve*` | E/D | recalc curve rebuild, old geometry/render tests | no | no | no | not removable now. bb2 uses `generation/bb2/out.*`; old curve tests need family classification before deletion |
+| `core/src/recalc/style_context.cpp` / `variation.cpp` | E/D | recalc render/style path and old render/template tests | no | no | no | not removable now. Replace only when bb2 draw/render covers equivalent viewer-required outputs |
+| `CoreView::inspect_support_layout` / `SupportLayoutInspectionView` | C/D/E | viewer manual/debug panels, `core/tools/capture_replay`, old generation/geometry/state tests | no | no | no | not removable now. Normal viewer/capture should stay on neutral `span_layout` / geom / draw; remaining callers are debug/tool/tests |
+| `support_layout_contract` / `support_layout_projection` public accessors | D/E | old tests, recalc internals, validation | no | no | no | not removable now. bb2 tests use neutral `span_layout` / `span_layout_state`; old tests must be migrated by family |
+| `Validate` support-layout authority checks | E/D | validation command/path and old validation tests | no | validation-only | no | not removable now. v1 consistency validator; bb2 equivalent is saved graph + neutral cache consistency |
+| `BuildBackboneResult` / `BuildBackboneEdges` / `FindBackboneRoute` | mainline public query | viewer/public query/tests | no | yes, through saved graph-backed query | yes | keep. Implementation is saved-graph-backed; not a v1 deletion target unless renamed after bb2 becomes mainline |
+| old `backbone_pipeline` / `bundle_spans` / grouped span generation files | A/removed | source scan finds no production files; only bb2 tests ban these names | no | no | no | already removed from production. No action |
+| `core/src/generation/build_backbone_service.cpp` | E/F | public generation entrypoint and service glue | bb2 entrypoint path | yes | no | not removable until entrypoint naming/mainline rename is decided; do not replace with adapter |
+| `core/tools/capture_replay.cpp` support-layout inspection | D/C | standalone replay/debug tool | no | no | no | debug/tool dependency. Replace with neutral capture output before deleting `inspect_support_layout` |
+
+Phase 2 result:
+
+* No new A-class production file/symbol was proven safe to delete in this pass.
+* The old grouped-span/backbone-pipeline production family is already physically absent; remaining references are guard strings or saved-graph public query names.
+* Remaining recalc/support-layout code is not bb2 generation dependency, but it is still held by v1 runtime, validation, manual debug, tools, and old tests.

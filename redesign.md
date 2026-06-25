@@ -1548,6 +1548,31 @@ stop conditions:
 * viewer normal display would need old `support_layout_contract` or `inspect_support_layout`.
 * an old recalc test failure cannot be classified as either bb2 constraint or v1 implementation detail.
 
+### old recalc test constraint families
+
+Observed active old-test dependency count: about 250 reads/calls across `generation.cpp`, `geometry.cpp`, `bundle_visuals.cpp`, `workflow.cpp`, `state_services.cpp`, and `template_policy.cpp`.
+
+Do not migrate these one test at a time. Classify and move by family:
+
+| Family | Old surface | bb2 action |
+|---|---|---|
+| state unchanged on reject | `Commit` side effects / dirty queue checks | keep; assert through bb2 unsupported preflight and saved graph counts |
+| saved topology explainability | `BuildBackboneResult`, junction inspection, span-derived fallback | already migrated to SavedBackboneGraph/public saved result |
+| rules/layout/geom/draw existence | `support_layout_projection`, `inspect_support_layout`, recalc cache | migrate to `span_layout_rules`, `span_layout`, curve/bounds/draw caches |
+| lowering survives refresh | `Commit(run_recalc)` + `inspect_support_layout` | migrate only if expressible as saved rule + layout/geom direct derive; do not restore support-layout authority seed |
+| branch/cross row separation | old relation kind / support layout endpoint role | migrate as pair/open/row + support group placement; no T/cross/branch enum |
+| attachment/socket support layout | support layout endpoint socket fields | not bb2 mainline yet; keep v1/recalc-only until attachment requirement is fixed |
+| supplemental/coiled cable render | recalc detail curve supplemental paths | not bb2 mainline yet; keep v1/recalc-only until draw/geom requirement is fixed |
+| validation of stale support-layout authority | mutated seed/projection/support-group caches | v1/recalc-only; bb2 equivalent is direct cache consistency, not seed/projection repair |
+| context profile/template style recalc | `UpdateContextProfile` / cable template + Commit | migrate only as draw/render template output if needed for supported viewer scenarios |
+| old grouped span order/authority | grouped span internals, support authority fields | retire or rewrite; do not reintroduce grouped span engine |
+
+Priority:
+
+1. migrate only viewer-visible supported bb2 constraints.
+2. isolate v1/recalc-only tests behind their old surface.
+3. delete old tests only after their constraint is either migrated or declared v1-only.
+
 ### direct derive entrypoint
 
 `CoreState::DeriveGeneratedSpanOutputs(span_id)` is the bb2 direct derive entrypoint.

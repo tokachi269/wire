@@ -2274,8 +2274,6 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
               static_cast<int>(recalc.decision_processed), static_cast<int>(recalc.geometry_processed),
               static_cast<int>(recalc.bounds_processed),
               static_cast<int>(recalc.render_processed));
-  ImGui::Checkbox("Legacy Auto Recalc", &ui_state.legacy_auto_recalc);
-  ImGui::SameLine();
   if (ImGui::Button("Run Legacy Recalc")) {
     wire::core::CommitOptions options{};
     options.run_recalc = true;

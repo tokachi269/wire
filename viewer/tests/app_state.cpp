@@ -28,18 +28,11 @@ bool test_set_primary_and_clear_selection_reset_state() {
          ui_state.selected_id == wire::core::kInvalidObjectId;
 }
 
-bool test_legacy_auto_recalc_defaults_off() {
-  ViewerUiState ui_state{};
-  return !ui_state.legacy_auto_recalc;
-}
-
 void register_app_state_tests(viewer_test_registry::TestRegistry& tests) {
   viewer_test_registry::AddTest(tests, "V07", "Selection helpers keep a deduplicated primary selection",
                                 test_selection_helpers_keep_primary_and_deduplicate);
   viewer_test_registry::AddTest(tests, "V08", "Primary selection helper and clear reset viewer selection state",
                                 test_set_primary_and_clear_selection_reset_state);
-  viewer_test_registry::AddTest(tests, "V23", "Legacy auto recalc is off by default",
-                                test_legacy_auto_recalc_defaults_off);
 }
 
 WIRE_REGISTER_VIEWER_TEST_SUITE(register_app_state_tests);

@@ -1620,3 +1620,57 @@ sanity audit cut:
 * bb2 curve/bounds/render/visual construction is shared through `generation/bb2/out.*` so `derive.cpp` does not carry a second copy of pipeline geom/draw logic.
 * bb2 production source still does not read support layout contract/projection, authority/seed, recalc, materialization, or fallback/infer/guess paths.
 * remaining recalc and support-layout inspection callers are v1/debug surfaces; they are deletion candidates, not bb2 dependencies.
+
+## bb2 mainline v0 boundary
+
+Status date: 2026-06-25.
+
+Supported viewer operations:
+
+* DrawPath generation through `GenerateFromBackboneSpec` for supported route inputs.
+* New pole, existing saved pole, saved midair, new midair, building, ground, and supported segment-pick route points.
+* Simple line and polyline routes, including existing-junction branch/cross context through SavedBackboneGraph.
+* Multiple bundles on one route, selected-bundle filtering, exact/range bundle counts, and inactive-bundle no-op cases.
+* Pass-through/lowering intent and deterministic lowered layout/geom/draw for supported junction and segment-pick cases.
+* Simple deterministic avoid detours only: avoid points create deterministic route detour points when supported. This is not general obstacle routing.
+* Manual port position edits for saved bb2 spans through direct derive.
+
+Unsupported viewer operations:
+
+* General obstacle routing, collision solving, and arbitrary avoid routing.
+* v1 scene migration without SavedBackboneGraph.
+* Existing scene topology inferred from spans, layouts, seeds, curves, port positions, or materialization result.
+* Full attachment / insulator / support-arm semantics beyond the current minimal draw placeholder.
+* Any case that requires recalc/materialization in the normal viewer path.
+
+Supported `GenerateFromBackboneSpec` shapes:
+
+* Route path with at least two resolved points.
+* Pole / midair / building / ground support kinds in the currently tested bb2 scope.
+* Existing support points only when they resolve to SavedBackboneGraph nodes.
+* Context links from SavedBackboneGraph for pair/open/row and placement decisions.
+* Bundle requests that resolve through bb2 active bundle policy without duplicate edge-bundle/lane conflicts.
+
+Unsupported request shapes:
+
+* Missing saved graph for an explicit existing support.
+* Duplicate same edge + same bundle + same lane generation.
+* Ambiguous pass-through target rows.
+* Missing required pole band for an active pole-mounted bundle.
+* Requests that need topology, port identity, span identity, or lowering inferred from old outputs.
+
+Guaranteed outputs for supported requests:
+
+* SavedBackboneGraph nodes, edges, edge bundles, span bindings, port bindings, and runtime indexes.
+* `SpanLayoutRules`.
+* Neutral `SpanLayoutEntry` readable through `span_layout`.
+* `DetailCurve` and `BoundsCacheEntry`.
+* Minimal visual/render caches for viewer display.
+* Public backbone query backed by SavedBackboneGraph, not span-derived reconstruction.
+
+Remaining v1/recalc/debug-only areas:
+
+* Manual `Run Legacy Recalc` remains as a debug/v1 operation.
+* `inspect_support_layout` remains only in legacy/recalc debug panels and old tests.
+* `Commit(run_recalc)` / `ProcessDirtyQueues` remain for v1 runtime and old workflow tests.
+* support-layout authority/seed/projection internals are not bb2 truth and are deletion/migration targets.

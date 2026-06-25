@@ -526,17 +526,6 @@ const char* SupportOrientationBasisKindLabel(wire::core::SupportOrientationBasis
   }
 }
 
-const char* SupportGroupingRuleKindLabel(wire::core::SupportGroupingRuleKind rule) {
-  switch (rule) {
-  case wire::core::SupportGroupingRuleKind::kPerPort:
-    return "PerPort";
-  case wire::core::SupportGroupingRuleKind::kDecisionGroup:
-    return "DecisionGroup";
-  default:
-    return "Unknown";
-  }
-}
-
 wire::core::BundleKind BundleTemplateForCategory(wire::core::ConnectionCategory category) {
   switch (category) {
   case wire::core::ConnectionCategory::kHighVoltage:
@@ -1389,33 +1378,6 @@ void DrawOverrideViewBlock(const std::optional<wire::core::OverrideInspectionVie
   }
 }
 
-void DrawEndpointDecisionSummary(const char* label, const wire::core::SupportLayoutEndpointView& endpoint) {
-  ImGui::Text("%s relation=%s class=%s lower=%s defaultLower=%s", label,
-              JunctionRelationKindLabel(endpoint.relation_kind),
-              ContinuityCategoryClassLabel(endpoint.continuity_class),
-              endpoint.lower_required ? "true" : "false",
-              endpoint.default_lower_required ? "true" : "false");
-  ImGui::Text("  sameLevel=%s reason=%s blocked=%s unresolved=%s solver=%s specialPorts=%s",
-              endpoint.same_level_feasible ? "true" : "false",
-              SameLevelFeasibilityReasonLabel(endpoint.same_level_reason),
-              endpoint.lowering_blocked_by_policy ? "true" : "false",
-              endpoint.unresolved_same_level_conflict ? "true" : "false",
-              endpoint.solver_used_same_level_constraint ? "true" : "false",
-              endpoint.used_special_case_ports ? "true" : "false");
-  ImGui::Text("  order=%s choice=%s(%s) side=%s sign=%.2f sideRule=%s pairSide=%s",
-              OrderDecisionPolicyLabel(endpoint.order_decision_policy),
-              OrderDecisionChoiceLabel(endpoint.order_decision_choice),
-              OrderDecisionChoiceReasonLabel(endpoint.order_decision_choice_reason),
-              LateralSideChoiceLabel(endpoint.chosen_side), endpoint.chosen_side_sign,
-              SideAssignmentRuleKindLabel(endpoint.side_assignment_rule),
-              endpoint.used_junction_pair_side_assignment ? "true" : "false");
-  ImGui::Text("  orientation=%s basis=%s", 
-              SupportOrientationRuleKindLabel(endpoint.support_orientation_rule),
-              SupportOrientationBasisKindLabel(endpoint.support_orientation_basis));
-  ImGui::Text("  spacing=%.2f clearance=%.2f throughPair=%s", endpoint.projected_spacing_topview_m,
-              endpoint.required_clearance_m, endpoint.in_through_pair ? "true" : "false");
-
-}
 void DrawEndpointDecisionSummary(const char* label, const wire::core::LayoutEndpoint& endpoint) {
   ImGui::Text("%s relation=%s class=%s lower=%s defaultLower=%s", label,
               JunctionRelationKindLabel(endpoint.relation_kind),
@@ -1441,33 +1403,6 @@ void DrawEndpointDecisionSummary(const char* label, const wire::core::LayoutEndp
               SupportOrientationBasisKindLabel(endpoint.support_orientation_basis));
   ImGui::Text("  spacing=%.2f clearance=%.2f throughPair=%s", endpoint.projected_spacing_topview_m,
               endpoint.required_clearance_m, endpoint.in_through_pair ? "true" : "false");
-}
-
-void DrawLoweredSupportGroupsBlock(const std::vector<wire::core::LoweredSupportGroupInspectionView>& groups) {
-  ImGui::Separator();
-  ImGui::Text("LoweredSupportGroups: %d", static_cast<int>(groups.size()));
-  if (groups.empty()) {
-    ImGui::TextUnformatted("(none)");
-    return;
-  }
-  for (std::size_t index = 0; index < groups.size(); ++index) {
-    const auto& group = groups[index];
-    ImGui::Text("[%d] pole=%llu groupId=%d groupedPorts=%d rule=%s origin=%s", static_cast<int>(index),
-                static_cast<unsigned long long>(group.owner_pole_id), group.support_group_id,
-                group.grouped_port_count, SupportGroupingRuleKindLabel(group.grouping_rule), group.origin.c_str());
-    ImGui::Text("  relation=%s class=%s lower=%s order=%s %s(%s)",
-                JunctionRelationKindLabel(group.relation_kind),
-                ContinuityCategoryClassLabel(group.continuity_class),
-                group.lower_required ? "true" : "false",
-                OrderDecisionPolicyLabel(group.order_decision_policy), OrderDecisionChoiceLabel(group.order_decision_choice),
-                OrderDecisionChoiceReasonLabel(group.order_decision_choice_reason));
-    ImGui::Text("  side=%s sign=%.2f sideRule=%s orient=%s basis=%s pairSide=%s down=%.2f",
-                LateralSideChoiceLabel(group.chosen_side), group.chosen_side_sign,
-                SideAssignmentRuleKindLabel(group.side_assignment_rule),
-                SupportOrientationRuleKindLabel(group.support_orientation_rule),
-                SupportOrientationBasisKindLabel(group.support_orientation_basis),
-                group.used_junction_pair_side_assignment ? "true" : "false", group.down_offset_m);
-  }
 }
 
 void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {

@@ -6696,6 +6696,46 @@ bool C612_bb2_direct_derive_does_not_call_recalc_paths() {
          contains_text(text, "cache_span_visual") && contains_text(text, "cache_span_render");
 }
 
+bool C613_bb2_port_edit_rederives_generated_span_without_recalc() {
+  wire::core::CoreState state;
+  const auto out = state.GenerateFromBackboneSpec(line_req(state));
+  if (!out.ok || out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId span_id = out.value.generated_span_ids.front();
+  const wire::core::Span* span = state.view().spans().find(span_id);
+  if (span == nullptr) {
+    return false;
+  }
+  const wire::core::Port* port = state.view().ports().find(span->port_a_id);
+  if (port == nullptr) {
+    return false;
+  }
+  const wire::core::Vec3d moved{port->world_position.x, port->world_position.y + 1.25, port->world_position.z};
+  const auto edit = state.SetPortWorldPositionManual(port->id, moved);
+  if (!edit.ok) {
+    return false;
+  }
+  const wire::core::SpanLayoutView layout = state.span_layout(span_id);
+  const wire::core::CurveCacheEntry* curve = state.find_curve_cache(span_id);
+  const wire::core::BoundsCacheEntry* bounds = state.find_bounds_cache(span_id);
+  const wire::core::SpanVisualCacheEntry* visual = state.find_span_visual_cache(span_id);
+  const wire::core::SpanRenderCacheEntry* render = state.find_span_render_cache(span_id);
+  if (!layout.has_layout() || curve == nullptr || bounds == nullptr || visual == nullptr || render == nullptr ||
+      curve->detail.sample_points.empty()) {
+    return false;
+  }
+  const bool layout_moved = almost_equal(layout.entry->start.support_world.x, moved.x, 1e-9) &&
+                            almost_equal(layout.entry->start.support_world.y, moved.y, 1e-9) &&
+                            almost_equal(layout.entry->start.support_world.z, moved.z, 1e-9);
+  const bool curve_moved = almost_equal(curve->detail.sample_points.front().x, layout.entry->start.endpoint_world.x, 1e-9) &&
+                           almost_equal(curve->detail.sample_points.front().y, layout.entry->start.endpoint_world.y, 1e-9) &&
+                           almost_equal(curve->detail.sample_points.front().z, layout.entry->start.endpoint_world.z, 1e-9);
+  return layout_moved && curve_moved && !contains_id(state.view().dirty_queue().geometry_dirty_span_ids, span_id) &&
+         !contains_id(state.view().dirty_queue().bounds_dirty_span_ids, span_id) &&
+         !contains_id(state.view().dirty_queue().render_dirty_span_ids, span_id);
+}
+
 void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C368_bb2_smoke_line", "bb2 generates the milestone-1 line slice", "Invariant", false,
                          C368_bb2_smoke_line);
@@ -7401,6 +7441,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C612_bb2_direct_derive_does_not_call_recalc_paths",
                          "bb2 direct derive avoids recalc and materialization paths", "Boundary", false,
                          C612_bb2_direct_derive_does_not_call_recalc_paths);
+  test_registry::AddTest(tests, "C613_bb2_port_edit_rederives_generated_span_without_recalc",
+                         "bb2 port edits rederive generated span outputs without recalc", "Boundary", false,
+                         C613_bb2_port_edit_rederives_generated_span_without_recalc);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

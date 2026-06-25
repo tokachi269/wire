@@ -620,6 +620,11 @@ EditResult<ObjectId> CoreState::SetPortWorldPositionManual(ObjectId port_id, con
   apply_port_position_mode(*port, PortPositionMode::kManual, PortPlacementSourceKind::kManualEdit);
   result.change_set.updated_ids.push_back(port_id);
   mark_connected_spans_dirty_from_port(port_id, DirtyBits::kGeometryRefresh, &result.change_set);
+  const auto derived = derive_generated_span_outputs_for_dirty_spans(result.change_set.dirty_span_ids);
+  if (!derived.ok) {
+    result.error = derived.error;
+    return result;
+  }
   result.ok = true;
   result.value = port_id;
   return result;
@@ -690,6 +695,11 @@ EditResult<ObjectId> CoreState::ResetPortPositionToAuto(ObjectId port_id) {
 
   result.change_set.updated_ids.push_back(port_id);
   mark_connected_spans_dirty_from_port(port_id, DirtyBits::kGeometryRefresh, &result.change_set);
+  const auto derived = derive_generated_span_outputs_for_dirty_spans(result.change_set.dirty_span_ids);
+  if (!derived.ok) {
+    result.error = derived.error;
+    return result;
+  }
   result.ok = true;
   result.value = port_id;
   return result;

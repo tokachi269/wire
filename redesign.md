@@ -1574,3 +1574,10 @@ It does not:
 * infer topology, row, port identity, or span identity from geometry
 
 This is not yet the full viewer normal refresh path. The next cut is to route supported bb2 post-edit/rederive cases through this entrypoint before keeping or removing viewer auto recalc.
+
+first supported post-edit slice:
+
+* `SetPortWorldPositionManual` / `ResetPortPositionToAuto` still mark connected spans dirty for v1 compatibility.
+* Spans with saved backbone binding and saved `SpanLayoutRule` are immediately derived through `DeriveGeneratedSpanOutputs`.
+* Direct-derived bb2 spans are removed from geometry/bounds/render dirty queues.
+* Spans without saved backbone binding remain on the old dirty queue path until their constraints are migrated or retired.

@@ -49,7 +49,7 @@
 |---|---|---|---|
 | unsupported leaves state unchanged | old `Commit` / dirty queue / count checks | A | bb2 preflight と object/saved-graph count checks で扱う。新 supported scenario 追加時だけ拡張 |
 | duplicate does not mutate | duplicate generation + old output count checks | A | duplicate preflight と saved binding checks で扱う。rollback-after-emit を戻さない |
-| output cache presence | `support_layout_projection`, curve/bounds/visual/render after recalc | A/B | bb2 required outputs は rules/layout/geom/draw を直接確認する |
+| output cache presence | `support_layout_projection`, curve/bounds/visual/render after recalc | C/D | 詳細は下の「output cache presence family」を参照。bb2 required outputs は rules/layout/geom/draw を直接確認する |
 | viewer-required output | viewer scene/capture constraints | A/B | viewer representative scenes と bb2 scenario tests で扱う。既に pass するケースへの test 追加だけでは進捗扱いにしない |
 | post-edit direct derive determinism | `Commit(run_recalc)` after port/pole edits | B | supported edit が recalc を必要とする場合だけ direct derive tests へ移植 |
 | public backbone query | `BuildBackboneResult`, `BuildBackboneEdges`, `FindBackboneRoute` | A/B | saved graph backed query として維持。span-derived fallback は戻さない |
@@ -57,6 +57,35 @@
 | recalc materialization internals | support-layout materialization, detail curve recalc, support group repair | C/D | object shape は移植しない。user-visible constraints だけ移植 |
 | attachment/socket support layout | socket resolution through support-layout materialization | B/C | bb2 attachment/socket requirement が明確になるまで mainline 完了条件にしない |
 | cable style / insulator / supplemental render | recalc style context, full visual cache parts | B/C | viewer-blocking visual requirement が出た場合だけ bb2 draw へ移植 |
+
+## output cache presence family
+
+旧テストは `support_layout_projection` と recalc 後 cache を使って「出力が欠けない」制約を見ていた。
+この family の制約は bb2 でも必要だが、旧 projection / authority / seed object の存在は bb2 の完了条件にしない。
+
+| old surface | current callers | bb2 replacement | 判断 |
+|---|---|---|---|
+| `support_layout_projection(span).layout` | `core/tests/geometry.cpp`, `core/tests/generation.cpp`, `core/tests/template_policy.cpp`, `core/tests/bundle_visuals.cpp`, `core/tests/helpers.cpp` | `span_layout(span)`, `span_layout_state(span)`, `span_layout_rules(span)` | C/D。layout existence 制約だけ移植し、projection object shape は移植しない |
+| curve / bounds cache after rebuild | `core/tests/geometry.cpp`, `core/tests/generation.cpp`, `core/tests/workflow.cpp`, `core/tests/bundle_visuals.cpp` | bb2 `geom` output、`CurveCacheEntry`、`BoundsCacheEntry` | C。生成直後と direct derive 後に欠けないことを bb2 側で見る |
+| visual / render cache after rebuild | `core/tests/bundle_visuals.cpp`, `core/tests/bb2.cpp` | bb2 `draw` output、`SpanVisualCacheEntry`、`SpanRenderCacheEntry` | C。viewer required output として必要な範囲だけ見る。full support visual semantics は別 family |
+| support-layout authority / seed / projection fields | support-layout 旧 tests | `SpanLayoutRules`, `SpanLayoutEntry`, `SpanLayoutState.input_required=false` | D。旧 contract そのものは v1 専用。bb2 へ戻さない |
+
+bb2 側で既に固定している代表テスト:
+
+| bb2 test | 守る制約 |
+|---|---|
+| C379 | generated span に topology / rules / layout / curve / bounds がある |
+| C447-C457 | neutral layout read/cache boundary を使い、旧 projection を正規観測口にしない |
+| C511-C514 | draw cache は geom/layout から保存される |
+| C524 / C539 | supported request は saved graph / rules / layout / geom / draw を bb2 本流で作る |
+| C611-C613 | direct derive は saved rules から layout / geom / draw を復元し、recalc へ戻らない |
+
+この family を今後触るときの判断:
+
+* 旧テストが「出力 cache が存在する」ことを守っていたなら、bb2 の neutral output で移植する。
+* 旧テストが `support_layout_projection` / authority / seed / projection の形を要求しているだけなら、v1 専用として隔離する。
+* viewer で実際に必要な visual / render が欠ける場合だけ、bb2 draw requirement として supported scenario を増やす。
+* 既に pass するケースに C 番号を足すだけなら進捗扱いにしない。
 
 ## 削除候補と残存理由
 

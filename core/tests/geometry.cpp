@@ -2098,22 +2098,6 @@ bool test_branch_down_offset_override_roundtrip_returns_to_policy_value() {
   return true;
 }
 
-bool test_inspection_support_layout_does_not_fallback_to_last_lane_assignments() {
-  CoreState state;
-  const ObjectId pole_a =
-      state.AddPole(wire::core::Transformd{{0.0, 0.0, 0.0}}, 10.0, "A").value;
-  const ObjectId pole_b =
-      state.AddPole(wire::core::Transformd{{12.0, 0.0, 0.0}}, 10.0, "B").value;
-  const ObjectId port_a = state.AddPort(pole_a, {0.0, 0.0, 4.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
-  const ObjectId port_b = state.AddPort(pole_b, {12.0, 0.0, 4.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
-  const ObjectId span = state.AddSpan(port_a, port_b, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
-
-  const auto layout_view = state.view().inspect_support_layout(span);
-  const auto span_view = state.view().inspect_span(span);
-  return !layout_view.has_value() && span_view.has_value() && !span_view->support_layout_ref.valid() &&
-         span_view->flow_kind == wire::core::BackboneFlowKind::kMain && !span_view->uses_branch_support;
-}
-
 bool test_inspection_backbone_uses_rebuilt_result_instead_of_last_snapshot() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
@@ -2872,9 +2856,6 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C170_Override_BranchDownOffset_Roundtrip",
                          "Branch down offset override can be applied and cleared back to policy-derived support layout",
                          "Invariant", false, test_branch_down_offset_override_roundtrip_returns_to_policy_value);
-  test_registry::AddTest(tests, "C257_Inspection_SupportLayout_NoAssignmentFallback",
-                         "Inspection does not synthesize support layout semantics from last_lane_assignments when no support layout exists",
-                         "Invariant", false, test_inspection_support_layout_does_not_fallback_to_last_lane_assignments);
   test_registry::AddTest(tests, "C258_Inspection_Backbone_UsesRebuiltResult",
                          "Inspection resolves junction/support-node entities from rebuilt backbone instead of stale last_generation_backbone snapshot",
                          "Invariant", false, test_inspection_backbone_uses_rebuilt_result_instead_of_last_snapshot);

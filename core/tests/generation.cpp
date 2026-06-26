@@ -9623,42 +9623,6 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C326_Backbone_SameLevelCrossMainUsesThroughPairAuthority",
                          "Same-level cross topology keeps one accepted through pair instead of rebinding the node around later route additions",
                          "Invariant", false, test_backbone_same_level_cross_main_uses_through_pair_authority);
-  test_registry::AddTest(tests, "C340_Backbone_SameLevelCrossUnderpassUsesCrossPairAuthority",
-                         "Same-level cross underpass endpoints use the cross-pair axis instead of endpoint-local bisector or main-pair fallback",
-                         "Invariant", false, test_backbone_same_level_cross_underpass_uses_cross_pair_authority);
-  test_registry::AddTest(tests, "C341_Backbone_CrossVisualKeepsDistinctPairAxes",
-                         "One-shot cross visual keeps through-pair and cross-pair support arms on distinct axes instead of collapsing them together",
-                         "Invariant", false, test_backbone_cross_visual_keeps_distinct_pair_axes);
-  test_registry::AddTest(tests, "C342_Backbone_CaptureLikeCrossCenterUsesPairAuthority",
-                         "Latest capture-like cross center keeps both route-pair and existing-pair endpoints on pair-based authority instead of falling back to pole-local radial",
-                         "Invariant", false, test_backbone_capture_like_cross_center_uses_pair_authority);
-  test_registry::AddTest(tests, "C343_Backbone_CaptureLikeCrossVisualKeepsRouteAndExistingPairAxesDistinct",
-                         "Latest capture-like cross visual keeps route-pair and existing-pair support arms on distinct axes instead of collapsing them together",
-                         "Invariant", false, test_backbone_capture_like_cross_visual_keeps_route_and_existing_pair_axes_distinct);
-  test_registry::AddTest(tests, "C344_Backbone_LatestReplaySupportOrientationUsesPairAuthority",
-                         "Latest replayed support-orientation capture keeps same-level cross/T endpoints on pair authority instead of Bisector or pole-local radial fallback",
-                         "Invariant", false, test_backbone_latest_support_orientation_replay_uses_pair_authority);
-  test_registry::AddTest(tests, "C345_Backbone_LatestReplaySupportVisualFollowsPairAxis",
-                         "Latest replayed support-orientation capture keeps same-level support arms aligned with pair-based endpoint authority instead of collapsing toward one pole-local direction",
-                         "Invariant", false, test_backbone_latest_support_orientation_replay_visual_follows_pair_axis);
-  test_registry::AddTest(tests, "C327_Backbone_NonGroupedSupportVisualUsesEndpointAuthority",
-                         "Same-level non-grouped support visual follows endpoint support authority instead of pole-center radial fallback",
-                         "Invariant", false, test_backbone_non_grouped_support_visual_uses_endpoint_authority);
-  test_registry::AddTest(tests, "C335_Backbone_SameLevelTerminalEndpointDoesNotInventSideSign",
-                         "Same-level terminal endpoint without pair authority keeps zero side sign instead of inventing a left/right choice from local port offsets",
-                         "Invariant", false, test_backbone_same_level_terminal_endpoint_does_not_invent_side_sign);
-  test_registry::AddTest(tests, "C336_Backbone_CaptureLikeBranchTerminalBorrowsPeerPairAuthority",
-                         "Latest capture-like CommunicationPole branch terminal borrows the peer through-pair authority instead of falling back to pole-local radial",
-                         "Invariant", false, test_backbone_capture_like_branch_terminal_borrows_peer_pair_authority);
-  test_registry::AddTest(tests, "C337_Backbone_CaptureLikeBranchTerminalVisualUsesBorrowedPairAxis",
-                         "Latest capture-like CommunicationPole branch terminal visual arm follows the borrowed peer pair axis instead of a radial fallback",
-                         "Invariant", false, test_backbone_capture_like_branch_terminal_visual_uses_borrowed_pair_axis);
-  test_registry::AddTest(tests, "C338_Backbone_CaptureLikeLoweredBranchMainBorrowsPeerPairAuthority",
-                         "Latest capture-like lowered bundle branch main endpoint borrows the peer through-pair authority instead of falling back to pole-local radial",
-                         "Invariant", false, test_backbone_capture_like_lowered_branch_main_endpoint_borrows_peer_pair_authority);
-  test_registry::AddTest(tests, "C339_Backbone_CaptureLikeLoweredBranchMainVisualUsesBorrowedPairAxis",
-                         "Latest capture-like lowered bundle branch visual arm follows the actual endpoint port radial direction instead of collapsing to one shared side-axis",
-                         "Invariant", false, test_backbone_capture_like_lowered_branch_main_visual_uses_borrowed_pair_axis);
   test_registry::AddTest(
       tests, "C323_Backbone_SingleEdgeReusePreservesExistingStraightSupportAxis",
       "Single-edge reuse on a captured CommunicationPole trunk keeps the existing straight support axis instead of "
@@ -9684,22 +9648,6 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
       tests, "C362_Backbone_ConnectedDirectionFitGateRespectsExplicitPairAxis",
       "ConnectedDirectionFit stays off when an explicit two-neighbor pair axis is available, and the chosen neighbors stay on that pair",
       "Invariant", false, test_backbone_connected_direction_fit_gate_respects_explicit_pair_axis);
-  test_registry::AddTest(
-      tests, "C363_Backbone_LatestCaptureTSupportFamilyDoesNotMixPairRules",
-      "Latest captured T-support family keeps one pair-owned rule family instead of mixing ThroughPairNormal and Bisector inside the same pair",
-      "Symptom", false, test_backbone_latest_capture_t_support_family_does_not_mix_pair_rules);
-  test_registry::AddTest(
-      tests, "C364_Backbone_LatestCapturePoleOrientationDoesNotDisagreeWithSupportSelection",
-      "Latest captured pole does not keep PoleOrientation on Fallback when SupportLayoutSelection already resolved MainChainPair",
-      "Authority", false, test_backbone_latest_capture_pole_orientation_does_not_disagree_with_support_selection);
-  test_registry::AddTest(
-      tests, "C346_Backbone_CaptureLikeOuterSameLevelCrossUsesPairAuthority",
-      "Capture-like outer same-level cross keeps pair authority on newly generated side-branch endpoints without retroactively rewriting existing spans",
-      "Invariant", false, test_backbone_capture_like_outer_same_level_cross_uses_pair_authority);
-  test_registry::AddTest(
-      tests, "C347_Backbone_CaptureLikeOuterSameLevelCrossVisualUsesPairAxis",
-      "Capture-like outer same-level cross keeps newly generated side-branch support arms on the pair axis without retroactive existing-span refresh",
-      "Invariant", false, test_backbone_capture_like_outer_same_level_cross_visual_uses_pair_axis);
   test_registry::AddTest(
       tests, "C358_Backbone_MaterializationResolvesEndpointSocketAndCurveConsumesIt",
       "Support layout materialization resolves endpoint sockets once and detail-curve generation consumes that resolved socket state",

@@ -119,6 +119,7 @@ generation が決めた pair / side / lowering / order が refresh や materiali
 | C263 | grouped support decision と placement が cache から一貫して読める | `grouped_authority_cache_complete`, `authoritative_group_cache_present`, lowered support inspection view | D/C。旧 cache completeness field は v1 専用。必要なら bb2 support group + `SpanLayoutEntry.lowered_support_group_keys` + draw placeholder で制約化する |
 | C240/C242 | lowered endpoint の order decision が refresh 後も維持される | SupportLayout endpoint の order decision/reason fields | 退役済み。bb2 では placement/support group と direct derive 後の layout/geom/draw 不変条件へ移す。旧 endpoint field shape は移植しない |
 | C327/C335-C347/C363-C364 | cross / branch / terminal endpoint の pair authority と support visual が旧 inspection surface で読める | `SupportLayoutInspectionView` endpoint side axis / relation / pair-side / support visual arm axis を読む | 退役済み。bb2 では saved graph + pair/open/row + support group + layout/geom/draw consumer chain で見る。旧 endpoint authority field shape は移植しない |
+| C291-C292/C295 | insulator attachment height と grouped lowered support attach point が旧 support layout / visual cache で一貫する | `support_layout_projection`, `SupportLayoutInspectionView`, grouped lowered support visual parts を読む | 退役済み。bb2 では support group + neutral layout/geom/draw output と viewer-visible draw requirement で見る。旧 support-layout attachment surface は移植しない |
 
 この family を今後触るときの判断:
 

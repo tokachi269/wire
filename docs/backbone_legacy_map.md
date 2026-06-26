@@ -137,6 +137,7 @@ generation が決めた pair / side / lowering / order が refresh や materiali
 | `bb2` namespace/name | 残存 | v1 がまだ同居している | v1/recalc/support-layout 本流依存削除後に mainline 名へ rename |
 | viewer support-layout inspection helper overloads | 削除済み | selected SupportLayout panel が neutral output 化済み | `SupportLayoutEndpointView` / `LoweredSupportGroupInspectionView` 用 helper を戻さない |
 
+| C283-C284 | auxiliary attachment supplemental path が support layout authority を変えない | `DetailCurve.supplemental_paths` と `SupportLayoutInspectionView` を同時に読む | 退役済み。attachment/socket support layout は bb2 mainline 完了条件外。必要になったら neutral layout/geom/draw constraint として再定義する |
 ## 次に消せる family
 
 優先順:

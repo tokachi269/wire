@@ -1537,84 +1537,6 @@ bool test_attachment_replace_with_internal_path_replaces_interval() {
          curve->detail.replacement_paths.front().points.size() >= 2;
 }
 
-bool test_attachment_straight_auxiliary_profile_adds_supplemental_path_without_touching_support_layout() {
-  CoreState state;
-  ObjectId span = wire::core::kInvalidObjectId;
-  if (!build_attachment_test_span(state, &span)) {
-    return false;
-  }
-  const auto before_layout = state.view().inspect_support_layout(span);
-  const auto template_id = find_attachment_template_by_profile(
-      state, wire::core::AttachmentInternalPathTemplate::ProfileKind::kStraightCable);
-  if (template_id == wire::core::kInvalidAttachmentTemplateId) {
-    return false;
-  }
-  if (!state.AddAttachment(span, 0.5, wire::core::AttachmentKind::kSpacer, 0.0, template_id).ok) {
-    return false;
-  }
-  (void)state.Commit().recalc_stats;
-  const auto* curve = state.find_curve_cache(span);
-  if (curve == nullptr || !curve->detail.hidden_intervals.empty() || curve->detail.replacement_paths.size() != 0 ||
-      curve->detail.supplemental_paths.size() != 1 || curve->detail.supplemental_paths.front().points.size() != 2) {
-    return false;
-  }
-  const auto after_layout = state.view().inspect_support_layout(span);
-  if (before_layout.has_value() != after_layout.has_value()) {
-    return false;
-  }
-  if (before_layout.has_value()) {
-    return before_layout->flow_kind == after_layout->flow_kind && before_layout->pass_mode == after_layout->pass_mode &&
-           before_layout->lowering_kind == after_layout->lowering_kind &&
-           before_layout->relation_a == after_layout->relation_a && before_layout->relation_b == after_layout->relation_b &&
-           before_layout->start_endpoint.attachment_request.kind == after_layout->start_endpoint.attachment_request.kind &&
-           before_layout->end_endpoint.attachment_request.kind == after_layout->end_endpoint.attachment_request.kind;
-  }
-  return true;
-}
-
-bool test_attachment_coiled_auxiliary_profile_adds_longer_supplemental_path_without_changing_layout_authority() {
-  CoreState state;
-  ObjectId span = wire::core::kInvalidObjectId;
-  if (!build_attachment_test_span(state, &span)) {
-    return false;
-  }
-  const auto before_layout = state.view().inspect_support_layout(span);
-  const auto template_id = find_attachment_template_by_profile(
-      state, wire::core::AttachmentInternalPathTemplate::ProfileKind::kCoiledCable);
-  if (template_id == wire::core::kInvalidAttachmentTemplateId) {
-    return false;
-  }
-  if (!state.AddAttachment(span, 0.5, wire::core::AttachmentKind::kSpacer, 0.0, template_id).ok) {
-    return false;
-  }
-  (void)state.Commit().recalc_stats;
-  const auto* curve = state.find_curve_cache(span);
-  if (curve == nullptr || !curve->detail.hidden_intervals.empty() || curve->detail.replacement_paths.size() != 0 ||
-      curve->detail.supplemental_paths.size() != 1) {
-    return false;
-  }
-  const auto& supplemental = curve->detail.supplemental_paths.front();
-  if (supplemental.points.size() < 12) {
-    return false;
-  }
-  const double chord_length =
-      std::sqrt(wire::core::LengthSquared(supplemental.points.back() - supplemental.points.front()));
-  if (polyline_length(supplemental.points) <= chord_length + 0.05) {
-    return false;
-  }
-  const auto after_layout = state.view().inspect_support_layout(span);
-  if (before_layout.has_value() != after_layout.has_value()) {
-    return false;
-  }
-  if (before_layout.has_value()) {
-    return before_layout->flow_kind == after_layout->flow_kind && before_layout->pass_mode == after_layout->pass_mode &&
-           before_layout->lowering_kind == after_layout->lowering_kind &&
-           before_layout->start_endpoint.attachment_request.kind == after_layout->start_endpoint.attachment_request.kind &&
-           before_layout->end_endpoint.attachment_request.kind == after_layout->end_endpoint.attachment_request.kind;
-  }
-  return true;
-}
-
 bool test_curve_offset_straight_cable_supplemental_uses_deterministic_wobble() {
   CoreState state;
   wire::core::GeometrySettings settings = state.view().geometry_settings();
@@ -3245,13 +3167,6 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C158_Attachment_ReplaceWithInternalPath_ReplacesInterval",
                          "ReplaceWithInternalPath hides the covered outer interval and emits replacement path geometry",
                          "Invariant", false, test_attachment_replace_with_internal_path_replaces_interval);
-  test_registry::AddTest(tests, "C283_Attachment_StraightAuxiliaryProfile_AddsSupplementalPath",
-                         "Straight auxiliary attachment profile adds a separate supplemental path without changing support-layout authority",
-                         "Invariant", false, test_attachment_straight_auxiliary_profile_adds_supplemental_path_without_touching_support_layout);
-  test_registry::AddTest(tests, "C284_Attachment_CoiledAuxiliaryProfile_AddsLongerSupplementalPath",
-                         "Coiled auxiliary attachment profile adds a longer supplemental path while keeping support-layout authority unchanged",
-                         "Invariant", false,
-                         test_attachment_coiled_auxiliary_profile_adds_longer_supplemental_path_without_changing_layout_authority);
   test_registry::AddTest(tests, "C306_DetailCurve_CurveOffsetStraightSupplemental_Wobble",
                          "Curve-offset straight supplemental paths can add deterministic gentle wobble without becoming structural support wires",
                          "Invariant", false, test_curve_offset_straight_cable_supplemental_uses_deterministic_wobble);

@@ -1934,7 +1934,7 @@ bool test_backbone_hv3_latest_capture_lowered_support_uses_local_departure_profi
     if (bundle == nullptr || bundle->bundle_template_id != wire::core::BundleKind::kHighVoltage) {
       continue;
     }
-    const auto* support_layout = state.support_layout_projection(span.id).layout;
+    const auto* support_layout = state.span_layout(span.id).entry;
     if (support_layout == nullptr) {
       continue;
     }
@@ -2003,7 +2003,7 @@ bool test_backbone_hv3_latest_capture_lowered_support_departure_uses_shared_rout
     if (bundle == nullptr || bundle->bundle_template_id != wire::core::BundleKind::kHighVoltage) {
       continue;
     }
-    const auto* support_layout = state.support_layout_projection(span.id).layout;
+    const auto* support_layout = state.span_layout(span.id).entry;
     if (support_layout == nullptr) {
       continue;
     }

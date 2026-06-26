@@ -148,7 +148,7 @@ ResolvedStyleContext resolve_style_context_for_span(const CoreState& state, cons
   }
 
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
-  if (const SpanSupportLayoutEntry* layout = state.support_layout_projection(span.id).layout; layout != nullptr) {
+  if (const SpanLayoutEntry* layout = state.span_layout(span.id).entry; layout != nullptr) {
     flow_kind = layout->flow_kind;
   } else {
     const Port* port_a = view.edit_state().ports.find(span.port_a_id);
@@ -231,7 +231,7 @@ ResolvedSpanCurveInputs resolve_span_curve_inputs(const CoreState& state, const 
   const bool use_reference_length = true;
   const ResolvedStyleContext style = resolve_style_context_for_span(state, span, StyleObjectKind::kSpan, 0, false);
 
-  const SpanSupportLayoutEntry* existing_layout = state.support_layout_projection(span.id).layout;
+  const SpanLayoutEntry* existing_layout = state.span_layout(span.id).entry;
 
   ResolvedSpanCurveInputs inputs{};
   inputs.basis_length =

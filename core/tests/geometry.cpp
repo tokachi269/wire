@@ -1977,7 +1977,7 @@ bool test_span_socket_override_roundtrip_returns_to_auto() {
   }
   span_edit->endpoint_attachment_a_id = add_attachment.value;
   (void)state.Commit().recalc_stats;
-  const auto* auto_layout = state.view().support_layout_projection(span).layout;
+  const auto* auto_layout = state.view().span_layout(span).entry;
   if (auto_layout == nullptr || auto_layout->start.resolved_socket_id != 1) {
     return false;
   }
@@ -1986,7 +1986,7 @@ bool test_span_socket_override_roundtrip_returns_to_auto() {
     return false;
   }
   (void)state.Commit().recalc_stats;
-  const auto* overridden_layout = state.view().support_layout_projection(span).layout;
+  const auto* overridden_layout = state.view().span_layout(span).entry;
   if (overridden_layout == nullptr || overridden_layout->start.resolved_socket_id != 0 ||
       almost_equal(overridden_layout->start.endpoint_world, auto_endpoint, 1e-6)) {
     return false;
@@ -1995,7 +1995,7 @@ bool test_span_socket_override_roundtrip_returns_to_auto() {
     return false;
   }
   (void)state.Commit().recalc_stats;
-  const auto* restored_layout = state.view().support_layout_projection(span).layout;
+  const auto* restored_layout = state.view().span_layout(span).entry;
   return restored_layout != nullptr && restored_layout->start.resolved_socket_id == 1 &&
          almost_equal(restored_layout->start.endpoint_world, auto_endpoint, 1e-6);
 }
@@ -2027,7 +2027,7 @@ bool test_branch_down_offset_override_roundtrip_returns_to_policy_value() {
   edit_span->placement_context = wire::core::ConnectionContext::kBranchAdd;
 
   (void)state.Commit().recalc_stats;
-  const auto* auto_layout = state.view().support_layout_projection(span).layout;
+  const auto* auto_layout = state.view().span_layout(span).entry;
   if (auto_layout == nullptr || auto_layout->start.branch_down_offset_m <= 0.0) {
     return false;
   }
@@ -2036,7 +2036,7 @@ bool test_branch_down_offset_override_roundtrip_returns_to_policy_value() {
     return false;
   }
   (void)state.Commit().recalc_stats;
-  const auto* overridden_layout = state.view().support_layout_projection(span).layout;
+  const auto* overridden_layout = state.view().span_layout(span).entry;
   const auto override_view = state.view().inspect_overrides({wire::core::EntityKind::kSpan, span});
   if (overridden_layout == nullptr || !override_view.has_value() ||
       !almost_equal(overridden_layout->start.branch_down_offset_m, auto_down + 0.75, 1e-9) ||
@@ -2047,7 +2047,7 @@ bool test_branch_down_offset_override_roundtrip_returns_to_policy_value() {
     return false;
   }
   (void)state.Commit().recalc_stats;
-  const auto* restored_layout = state.view().support_layout_projection(span).layout;
+  const auto* restored_layout = state.view().span_layout(span).entry;
   if (restored_layout == nullptr || !almost_equal(restored_layout->start.branch_down_offset_m, auto_down, 1e-9)) {
     return false;
   }
@@ -2436,7 +2436,7 @@ bool test_span_curve_support_layout_height_difference_uses_composite_segments() 
   if (!commit.validation.ok()) {
     return false;
   }
-  const auto* support_layout = state.view().support_layout_projection(span).layout;
+  const auto* support_layout = state.view().span_layout(span).entry;
   const auto* curve = state.find_curve_cache(span);
   if (support_layout == nullptr || curve == nullptr || curve->detail.sample_points.size() < 5 ||
       curve->detail.arc_length_table.empty()) {

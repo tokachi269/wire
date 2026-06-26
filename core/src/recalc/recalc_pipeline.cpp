@@ -173,14 +173,6 @@ const BoundsCacheEntry* CoreState::find_bounds_cache(ObjectId span_id) const {
   return &it->second;
 }
 
-SpanSupportLayoutProjectionView CoreState::support_layout_projection(ObjectId span_id) const {
-  return runtime_.cache_state.span_layout_cache.projection_view(span_id);
-}
-
-SpanSupportLayoutContractView CoreState::support_layout_contract(ObjectId span_id) const {
-  return runtime_.cache_state.span_layout_cache.contract_view(span_id);
-}
-
 SpanLayoutView CoreState::span_layout(ObjectId span_id) const {
   return runtime_.cache_state.span_layout_cache.layout_view(span_id);
 }

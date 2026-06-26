@@ -70,8 +70,6 @@ public:
   [[nodiscard]] const SpanRuntimeState* find_span_runtime_state(ObjectId span_id) const;
   [[nodiscard]] const CurveCacheEntry* find_curve_cache(ObjectId span_id) const;
   [[nodiscard]] const BoundsCacheEntry* find_bounds_cache(ObjectId span_id) const;
-  [[nodiscard]] SpanSupportLayoutProjectionView support_layout_projection(ObjectId span_id) const;
-  [[nodiscard]] SpanSupportLayoutContractView support_layout_contract(ObjectId span_id) const;
   [[nodiscard]] SpanLayoutView span_layout(ObjectId span_id) const;
   [[nodiscard]] SpanLayoutState span_layout_state(ObjectId span_id) const;
   [[nodiscard]] SpanLayoutRulesView span_layout_rules(ObjectId span_id) const;

@@ -1273,7 +1273,7 @@ VisualSeparationMetrics measure_lane_visual_separation_metrics(const CoreState& 
       continue;
     }
     const bool forward_matches_assignment = (span->port_a_id == port_a_id && span->port_b_id == port_b_id);
-    const wire::core::SpanSupportLayoutEntry* layout = state.support_layout_projection(span->id).layout;
+    const wire::core::SpanLayoutEntry* layout = state.span_layout(span->id).entry;
     if (layout != nullptr) {
       start_endpoints.push_back(forward_matches_assignment ? layout->start.endpoint_world : layout->end.endpoint_world);
       end_endpoints.push_back(forward_matches_assignment ? layout->end.endpoint_world : layout->start.endpoint_world);
@@ -1325,7 +1325,7 @@ VisualSeparationMetrics measure_lane_visual_separation_metrics(const CoreState& 
 
 BranchRunoutMetrics measure_branch_runout_metrics(const CoreState& state, ObjectId span_id) {
   BranchRunoutMetrics metrics{};
-  const wire::core::SpanSupportLayoutEntry* layout = state.support_layout_projection(span_id).layout;
+  const wire::core::SpanLayoutEntry* layout = state.span_layout(span_id).entry;
   const wire::core::CurveCacheEntry* curve = state.find_curve_cache(span_id);
   if (layout == nullptr || curve == nullptr) {
     return metrics;

@@ -183,12 +183,6 @@ const CurveCacheEntry* CoreView::find_curve_cache(ObjectId span_id) const {
 const BoundsCacheEntry* CoreView::find_bounds_cache(ObjectId span_id) const {
   return state_.find_bounds_cache(span_id);
 }
-SpanSupportLayoutProjectionView CoreView::support_layout_projection(ObjectId span_id) const {
-  return state_.support_layout_projection(span_id);
-}
-SpanSupportLayoutContractView CoreView::support_layout_contract(ObjectId span_id) const {
-  return state_.support_layout_contract(span_id);
-}
 SpanLayoutView CoreView::span_layout(ObjectId span_id) const {
   return state_.span_layout(span_id);
 }

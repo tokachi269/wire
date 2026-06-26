@@ -21,8 +21,6 @@ using namespace helpers;
 
 std::optional<wire::core::SupportLayoutEndpointView> layout_endpoint_for_owner(
     const wire::core::SupportLayoutInspectionView& layout_view, wire::core::ObjectId owner_pole_id);
-std::optional<wire::core::LoweredSupportGroupInspectionView> lowered_support_group_for_owner(
-  const wire::core::SupportLayoutInspectionView& layout_view, wire::core::ObjectId owner_pole_id);
 std::optional<wire::core::SegmentLaneAssignment> find_assignment_for_span(const wire::core::CoreState& state,
                                                                           wire::core::ObjectId span_id);
 std::optional<wire::core::VisualPart> support_arm_part_for_owner(const wire::core::CoreState& state,
@@ -1694,9 +1692,8 @@ bool test_backbone_hv3_latest_capture_final_curve_no_twist() {
         continue;
       }
       const auto curve_view = state.view().inspect_detail_curve(span.id);
-      const auto layout_view = state.view().inspect_support_layout(span.id);
       const auto* curve = state.find_curve_cache(span.id);
-      if (!curve_view.has_value() || !layout_view.has_value() || curve == nullptr) {
+      if (!curve_view.has_value() || curve == nullptr) {
         continue;
       }
       std::cerr << "[DBG] C316 span=" << span.id << " seg=" << assignment->segment_index
@@ -1708,17 +1705,7 @@ bool test_backbone_hv3_latest_capture_final_curve_no_twist() {
                 << " endW=" << curve_view->end_support_weight
                 << " startDep=" << curve_view->start_departure_length_m
                 << " endDep=" << curve_view->end_departure_length_m
-                << " sameLevel=" << (layout_view->same_level_feasible ? 1 : 0)
-                << " lower=" << (layout_view->default_lower_required ? 1 : 0)
-                << " samples=" << curve->detail.sample_points.size()
-                << " startEndpoint=" << layout_view->start_endpoint.endpoint_world.x << ","
-                << layout_view->start_endpoint.endpoint_world.y
-                << " startDir=" << layout_view->start_endpoint.departure_dir.x << ","
-                << layout_view->start_endpoint.departure_dir.y
-                << " endEndpoint=" << layout_view->end_endpoint.endpoint_world.x << ","
-                << layout_view->end_endpoint.endpoint_world.y
-                << " endDir=" << layout_view->end_endpoint.departure_dir.x << ","
-                << layout_view->end_endpoint.departure_dir.y << "\n";
+                << " samples=" << curve->detail.sample_points.size() << "\n";
     }
     for (const auto& pole : state.view().edit_state().poles.items()) {
       const auto pole_view = state.view().inspect_pole(pole.id);
@@ -6119,70 +6106,6 @@ bool test_backbone_near_straight_branch_still_classifies_as_branch() {
   return ok;
 }
 
-bool test_backbone_crosslike_single_edge_stays_main() {
-  CoreState state;
-  const auto type_ids = sorted_pole_type_ids(state);
-  if (type_ids.empty()) {
-    return false;
-  }
-
-  wire::core::BackboneSpec horizontal{};
-  horizontal.path.polyline = {{-12.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}};
-  horizontal.interval_m = 1000.0;
-  horizontal.pole_type_id = type_ids.front();
-  add_backbone_bundle(horizontal, wire::core::BundleKind::kLowVoltage);
-  if (!state.GenerateFromBackboneSpec(horizontal).ok) {
-    return false;
-  }
-
-  const ObjectId center_id = find_pole_id_by_position(state, {0.0, 0.0, 0.0});
-  if (center_id == wire::core::kInvalidObjectId) {
-    return false;
-  }
-
-  wire::core::BackboneSpec vertical{};
-  vertical.path.polyline = {{0.0, -12.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 12.0, 0.0}};
-  wire::core::BackboneInputSpec::NodeSpec shared_center{};
-  shared_center.point_index = 1;
-  shared_center.support_kind = wire::core::SupportKind::kPole;
-  shared_center.node_id = center_id;
-  vertical.path.node_specs.push_back(shared_center);
-  vertical.interval_m = 1000.0;
-  vertical.pole_type_id = type_ids.front();
-  add_backbone_bundle(vertical, wire::core::BundleKind::kLowVoltage);
-  if (!state.GenerateFromBackboneSpec(vertical).ok) {
-    return false;
-  }
-
-  wire::core::BackboneSpec single{};
-  single.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 10.0, 0.0}};
-  wire::core::BackboneInputSpec::NodeSpec anchored{};
-  anchored.point_index = 0;
-  anchored.support_kind = wire::core::SupportKind::kPole;
-  anchored.node_id = center_id;
-  single.path.node_specs.push_back(anchored);
-  single.interval_m = 1000.0;
-  single.pole_type_id = type_ids.front();
-  add_backbone_bundle(single, wire::core::BundleKind::kLowVoltage);
-  const auto generated = state.GenerateFromBackboneSpec(single);
-  if (!generated.ok || generated.value.generated_span_ids.size() != 1) {
-    return false;
-  }
-
-  const auto& assignments = state.view().last_lane_assignments();
-  if (assignments.size() != 1) {
-    return false;
-  }
-  const auto span_view = state.view().inspect_span(generated.value.generated_span_ids.front());
-  const auto layout_view = state.view().inspect_support_layout(generated.value.generated_span_ids.front());
-  return span_view.has_value() && layout_view.has_value() &&
-         assignments.front().flow_kind == wire::core::BackboneFlowKind::kMain &&
-         !assignments.front().decision_a.lower_required && !assignments.front().decision_b.lower_required &&
-         assignments.front().decision_a.support_group_id < 0 && assignments.front().decision_b.support_group_id < 0 &&
-         assignments.front().branch_down_offset_m == 0.0 &&
-         layout_view->lowered_support_groups.empty() && span_view->same_level_feasible;
-}
-
 bool test_backbone_new_chain_uses_fallback_orientation_without_existing_main_context() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
@@ -6304,16 +6227,6 @@ std::optional<wire::core::SupportLayoutEndpointView> layout_endpoint_for_owner(
   }
   if (layout_view.end_endpoint.owner_pole_id == owner_pole_id) {
     return layout_view.end_endpoint;
-  }
-  return std::nullopt;
-}
-
-std::optional<wire::core::LoweredSupportGroupInspectionView> lowered_support_group_for_owner(
-    const wire::core::SupportLayoutInspectionView& layout_view, wire::core::ObjectId owner_pole_id) {
-  for (const auto& group : layout_view.lowered_support_groups) {
-    if (group.owner_pole_id == owner_pole_id) {
-      return group;
-    }
   }
   return std::nullopt;
 }
@@ -7240,42 +7153,6 @@ bool test_backbone_connected_direction_fit_gate_respects_explicit_pair_axis() {
   return ok;
 }
 
-bool test_backbone_drawpath_plain_endpoint_fallback_without_attachment_input() {
-  CoreState state;
-  const auto type_ids = sorted_pole_type_ids(state);
-  if (type_ids.empty()) {
-    return false;
-  }
-  wire::core::BackboneSpec req{};
-  req.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}};
-  req.interval_m = 1000.0;
-  req.pole_type_id = type_ids.front();
-  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
-  const auto generated = state.GenerateFromBackboneSpec(req);
-  if (!generated.ok || generated.value.generated_span_ids.empty()) {
-    return false;
-  }
-  wire::core::CommitOptions options{};
-  options.run_recalc = true;
-  (void)state.Commit(options);
-  for (ObjectId span_id : generated.value.generated_span_ids) {
-    const auto layout_view = state.view().inspect_support_layout(span_id);
-    if (!layout_view.has_value()) {
-      return false;
-    }
-    const auto check_endpoint = [](const wire::core::SupportLayoutEndpointView& endpoint) {
-      return endpoint.endpoint_source == wire::core::SupportLayoutEndpointSourceKind::kPlainSupport &&
-             endpoint.attachment_request.kind == wire::core::EndpointAttachmentRequestKind::kNone &&
-             !endpoint.attachment_request.attachment_id.has_value() &&
-             !endpoint.attachment_request.requested_socket_id.has_value() && !endpoint.resolved_socket_id.has_value();
-    };
-    if (!check_endpoint(layout_view->start_endpoint) || !check_endpoint(layout_view->end_endpoint)) {
-      return false;
-    }
-  }
-  return true;
-}
-
 bool test_backbone_drawpath_branch_curve_stays_local_to_support_departure() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
@@ -7527,150 +7404,6 @@ bool test_variation_settings_do_not_change_topology_flow_or_mirror() {
       return false;
     }
   }
-  return true;
-}
-
-bool test_backbone_adjacent_branch_roots_use_route_local_bisector() {
-  CoreState state;
-  const auto type_ids = sorted_pole_type_ids(state);
-  if (type_ids.empty()) {
-    return false;
-  }
-
-  wire::core::BackboneSpec trunk{};
-  trunk.path.polyline = {{-20.0, 0.0, 0.0}, {-10.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}};
-  trunk.interval_m = 1000.0;
-  trunk.pole_type_id = type_ids.front();
-  add_backbone_bundle(trunk, wire::core::BundleKind::kHighVoltage);
-  if (!state.GenerateFromBackboneSpec(trunk).ok) {
-    std::cerr << "[DBG] C279 trunk_generate_failed\n";
-    return false;
-  }
-
-  const ObjectId root_a_id = find_pole_id_by_position(state, {-10.0, 0.0, 0.0});
-  const ObjectId root_b_id = find_pole_id_by_position(state, {0.0, 0.0, 0.0});
-  if (root_a_id == wire::core::kInvalidObjectId || root_b_id == wire::core::kInvalidObjectId) {
-    std::cerr << "[DBG] C279 root_missing a=" << root_a_id << " b=" << root_b_id << "\n";
-    return false;
-  }
-
-  wire::core::BackboneSpec branch_a{};
-  branch_a.path.polyline = {{-10.0, 0.0, 0.0}, {-18.0, -12.0, 0.0}};
-  branch_a.interval_m = 1000.0;
-  branch_a.pole_type_id = type_ids.front();
-  wire::core::BackboneInputSpec::NodeSpec shared_a{};
-  shared_a.point_index = 0;
-  shared_a.support_kind = wire::core::SupportKind::kPole;
-  shared_a.node_id = root_a_id;
-  branch_a.path.node_specs.push_back(shared_a);
-  add_backbone_bundle(branch_a, wire::core::BundleKind::kHighVoltage);
-  const auto generated_a = state.GenerateFromBackboneSpec(branch_a);
-  if (!generated_a.ok || generated_a.value.generated_span_ids.empty()) {
-    std::cerr << "[DBG] C279 branch_a_generate_failed error=" << generated_a.error << "\n";
-    return false;
-  }
-
-  wire::core::BackboneSpec branch_b{};
-  branch_b.path.polyline = {{0.0, 0.0, 0.0}, {6.0, 14.0, 0.0}};
-  branch_b.interval_m = 1000.0;
-  branch_b.pole_type_id = type_ids.front();
-  wire::core::BackboneInputSpec::NodeSpec shared_b{};
-  shared_b.point_index = 0;
-  shared_b.support_kind = wire::core::SupportKind::kPole;
-  shared_b.node_id = root_b_id;
-  branch_b.path.node_specs.push_back(shared_b);
-  add_backbone_bundle(branch_b, wire::core::BundleKind::kHighVoltage);
-  const auto generated_b = state.GenerateFromBackboneSpec(branch_b);
-  if (!generated_b.ok || generated_b.value.generated_span_ids.empty()) {
-    std::cerr << "[DBG] C279 branch_b_generate_failed error=" << generated_b.error << "\n";
-    return false;
-  }
-
-  wire::core::CommitOptions options{};
-  options.run_recalc = true;
-  if (!state.Commit(options).validation.ok()) {
-    std::cerr << "[DBG] C279 commit_failed\n";
-    return false;
-  }
-
-  struct RootObservation {
-    wire::core::Vec3d support_axis{};
-    wire::core::Vec3d expected_axis{};
-    wire::core::SupportOrientationRuleKind rule = wire::core::SupportOrientationRuleKind::kRadial;
-    wire::core::SupportOrientationBasisKind basis = wire::core::SupportOrientationBasisKind::kRadial;
-    double alignment = -1.0;
-    int group_id = -1;
-    ObjectId span_id = wire::core::kInvalidObjectId;
-  };
-
-  const auto observe_root = [&](const std::vector<ObjectId>& span_ids, ObjectId owner_pole_id,
-                                const wire::core::Vec3d& branch_tip_world,
-                                const wire::core::Vec3d& route_local_peer_world) -> std::optional<RootObservation> {
-    const auto pole_view = state.view().inspect_pole(owner_pole_id);
-    if (!pole_view.has_value()) {
-      return std::nullopt;
-    }
-    const wire::core::Vec3d owner_world = pole_view->position;
-    const wire::core::Vec3d expected_axis =
-        normalize_xy_safe((branch_tip_world - owner_world) + (route_local_peer_world - owner_world));
-    for (ObjectId span_id : span_ids) {
-      const auto layout_view = state.view().inspect_support_layout(span_id);
-      if (!layout_view.has_value()) {
-        continue;
-      }
-      const auto endpoint = layout_endpoint_for_owner(*layout_view, owner_pole_id);
-      const auto group = lowered_support_group_for_owner(*layout_view, owner_pole_id);
-      if (!endpoint.has_value() || !group.has_value()) {
-        continue;
-      }
-      RootObservation observation{};
-      observation.support_axis = normalize_xy_safe(group->tip_world - group->mount_world);
-      observation.expected_axis = expected_axis;
-      observation.rule = group->support_orientation_rule;
-      observation.basis = group->support_orientation_basis;
-      observation.alignment = dot_xy(observation.support_axis, observation.expected_axis);
-      observation.group_id = group->support_group_id;
-      observation.span_id = span_id;
-      return observation;
-    }
-    return std::nullopt;
-  };
-
-  const auto root_a = observe_root(generated_a.value.generated_span_ids, root_a_id, {-18.0, -12.0, 0.0},
-                                   {0.0, 0.0, 0.0});
-  const auto root_b = observe_root(generated_b.value.generated_span_ids, root_b_id, {6.0, 14.0, 0.0},
-                                   {10.0, 0.0, 0.0});
-  if (!root_a.has_value() || !root_b.has_value()) {
-    std::cerr << "[DBG] C279 missing_observation a=" << (root_a.has_value() ? 1 : 0)
-              << " b=" << (root_b.has_value() ? 1 : 0) << "\n";
-    return false;
-  }
-
-  const bool a_ok = root_a->rule == wire::core::SupportOrientationRuleKind::kBisector &&
-                    root_a->basis != wire::core::SupportOrientationBasisKind::kRadial && root_a->alignment >= 0.94 &&
-                    root_a->support_axis.y < -0.10;
-  const bool b_ok = root_b->rule == wire::core::SupportOrientationRuleKind::kBisector &&
-                    root_b->basis != wire::core::SupportOrientationBasisKind::kRadial && root_b->alignment >= 0.94 &&
-                    root_b->support_axis.y > 0.10;
-  const bool opposite_y = (root_a->support_axis.y * root_b->support_axis.y) < -0.01;
-  if (!(a_ok && b_ok && opposite_y)) {
-    std::cerr << "[DBG] C279"
-              << " aSpan=" << root_a->span_id << " aGroup=" << root_a->group_id << " aRule="
-              << static_cast<int>(root_a->rule) << " aBasis=" << static_cast<int>(root_a->basis)
-              << " aAlign=" << root_a->alignment << " aAxis=(" << root_a->support_axis.x << ","
-              << root_a->support_axis.y << "," << root_a->support_axis.z << ")"
-              << " aExpected=(" << root_a->expected_axis.x << "," << root_a->expected_axis.y << ","
-              << root_a->expected_axis.z << ")"
-              << " bSpan=" << root_b->span_id << " bGroup=" << root_b->group_id << " bRule="
-              << static_cast<int>(root_b->rule) << " bBasis=" << static_cast<int>(root_b->basis)
-              << " bAlign=" << root_b->alignment << " bAxis=(" << root_b->support_axis.x << ","
-              << root_b->support_axis.y << "," << root_b->support_axis.z << ")"
-              << " bExpected=(" << root_b->expected_axis.x << "," << root_b->expected_axis.y << ","
-              << root_b->expected_axis.z << ")"
-              << " oppositeY=" << (opposite_y ? 1 : 0) << "\n";
-    return false;
-  }
-
   return true;
 }
 
@@ -7988,9 +7721,6 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C140_Backbone_BranchClassificationIgnoresNearStraightAngle",
                          "Existing-chain branch stays branch even when geometry is nearly straight", "Invariant",
                          false, test_backbone_near_straight_branch_still_classifies_as_branch);
-  test_registry::AddTest(tests, "C269_Backbone_CrossLikeSingleEdgeStaysMain",
-                         "Single-edge DrawPath from a cross-like existing node stays Main instead of inheriting branch/cross lowering from old neighbors",
-                         "Invariant", false, test_backbone_crosslike_single_edge_stays_main);
   test_registry::AddTest(tests, "C270_Backbone_ExplicitMiddleBentRouteStaysMainLike",
                          "Bent route through an explicit middle anchor stays main-like against an existing straight chain instead of falling to branch/cross classification",
                          "Invariant", false,
@@ -8047,9 +7777,6 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
       tests, "C362_Backbone_ConnectedDirectionFitGateRespectsExplicitPairAxis",
       "ConnectedDirectionFit stays off when an explicit two-neighbor pair axis is available, and the chosen neighbors stay on that pair",
       "Invariant", false, test_backbone_connected_direction_fit_gate_respects_explicit_pair_axis);
-  test_registry::AddTest(tests, "C177_Backbone_DrawPathPlainEndpointFallback",
-                         "DrawPath backbone without attachment input falls back to plain support endpoints",
-                         "Invariant", false, test_backbone_drawpath_plain_endpoint_fallback_without_attachment_input);
   test_registry::AddTest(tests, "C179_Backbone_DrawPathBranchCurveStaysLocal",
                          "DrawPath branch curve keeps support departure local and converges back toward chord",
                          "Invariant", false, test_backbone_drawpath_branch_curve_stays_local_to_support_departure);
@@ -8059,9 +7786,6 @@ void register_generation_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C155_Variation_DoesNotAffectTopologyOrMirror",
                          "Variation settings do not change deterministic flow classification or mirror decisions",
                          "Invariant", false, test_variation_settings_do_not_change_topology_flow_or_mirror);
-  test_registry::AddTest(tests, "C279_Backbone_AdjacentBranchRootsUseRouteLocalBisector",
-                         "Adjacent bundle branch roots use route-local bisector orientation instead of collapsing to one shared direction",
-                         "Invariant", false, test_backbone_adjacent_branch_roots_use_route_local_bisector);
   test_registry::AddTest(tests, "C285_Backbone_MainBisectorSupportAxisStaysPerpendicularOnAcuteBranchRoot",
                          "Acute main-chain branch root keeps pole support axis perpendicular to the main bisector instead of nearly parallel to it",
                          "Invariant", false, test_backbone_main_bisector_support_axis_stays_perpendicular_on_acute_branch_root);

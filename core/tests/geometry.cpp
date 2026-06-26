@@ -1839,50 +1839,6 @@ bool test_attachment_behavior_is_not_name_driven() {
   return curve != nullptr && !curve->detail.hidden_intervals.empty();
 }
 
-bool test_support_layout_attachment_auto_resolves_default_socket_endpoint() {
-  CoreState state;
-  ObjectId span = wire::core::kInvalidObjectId;
-  if (!build_attachment_test_span(state, &span)) {
-    return false;
-  }
-  const auto template_id =
-      find_attachment_template_by_mode(state, wire::core::AttachmentLineInteractionMode::kPassThrough);
-  if (template_id == wire::core::kInvalidAttachmentTemplateId) {
-    return false;
-  }
-  const auto add_attachment = state.AddAttachment(span, 0.0, wire::core::AttachmentKind::kGeneric, 0.2, template_id);
-  if (!add_attachment.ok) {
-    return false;
-  }
-  wire::core::Span* span_edit = wire::core::CoreStateTestHook::edit_state(state).spans.find(span);
-  if (span_edit == nullptr) {
-    return false;
-  }
-  span_edit->endpoint_attachment_a_id = add_attachment.value;
-
-  (void)state.Commit().recalc_stats;
-  const auto* support_layout = state.view().support_layout_projection(span).layout;
-  const auto* curve = state.find_curve_cache(span);
-  const auto layout_view = state.view().inspect_support_layout(span);
-  const auto curve_view = state.view().inspect_detail_curve(span);
-  if (support_layout == nullptr || curve == nullptr || !layout_view.has_value() || !curve_view.has_value()) {
-    return false;
-  }
-  return support_layout->start.attachment_request.attachment_id == add_attachment.value &&
-         support_layout->start.attachment_request.kind == wire::core::EndpointAttachmentRequestKind::kAttachmentSocket &&
-         support_layout->start.attachment_request.requested_socket_id == 1 &&
-         support_layout->start.resolved_socket_id == 1 &&
-         support_layout->start.endpoint_source == wire::core::SupportLayoutEndpointSourceKind::kAttachmentSocket &&
-         support_layout->start.endpoint_mode == wire::core::CurveEndpointMode::kDirectThrough &&
-         almost_equal(support_layout->start.endpoint_world, wire::core::Vec3d{0.12, 0.0, 4.2}, 1e-6) &&
-         almost_equal(curve->detail.start_constraint.point, support_layout->start.endpoint_world, 1e-9) &&
-         layout_view->start_endpoint.endpoint_source == wire::core::SupportLayoutEndpointSourceKind::kAttachmentSocket &&
-         curve_view->start_endpoint_source == layout_view->start_endpoint.endpoint_source &&
-         curve_view->start_attachment_request.kind == wire::core::EndpointAttachmentRequestKind::kAttachmentSocket &&
-         curve_view->start_attachment_request.attachment_id == add_attachment.value &&
-         curve_view->start_resolved_socket_id == 1;
-}
-
 bool test_inspection_pole_template_override_and_junction_surfaces_are_visible() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
@@ -2841,9 +2797,6 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C160_Attachment_Runtime_IgnoresNames",
                          "Attachment runtime behavior is driven by explicit template mode, not template/object naming",
                          "Invariant", false, test_attachment_behavior_is_not_name_driven);
-  test_registry::AddTest(tests, "C315_SupportLayout_AttachmentAuto_ResolvesDefaultSocket",
-                         "Support layout auto attachment resolves the default socket endpoint instead of falling back to the raw support point",
-                         "Invariant", false, test_support_layout_attachment_auto_resolves_default_socket_endpoint);
   test_registry::AddTest(tests, "C167_Inspection_PoleTemplateOverrideJunction_Surface",
                          "Inspection surface exposes pole/template/override/junction views through concept-level readonly access",
                          "Invariant", false, test_inspection_pole_template_override_and_junction_surfaces_are_visible);

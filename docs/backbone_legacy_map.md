@@ -122,6 +122,7 @@ generation が決めた pair / side / lowering / order が refresh や materiali
 | C291-C292/C295 | insulator attachment height と grouped lowered support attach point が旧 support layout / visual cache で一貫する | `support_layout_projection`, `SupportLayoutInspectionView`, grouped lowered support visual parts を読む | 退役済み。bb2 では support group + neutral layout/geom/draw output と viewer-visible draw requirement で見る。旧 support-layout attachment surface は移植しない |
 | C257 | support layout 未生成 span で旧 inspection が last lane assignment から意味を捏造しない | `inspect_support_layout` と `inspect_span.support_layout_ref` を読む | 退役済み。bb2 では `span_layout_state` / neutral layout read と saved graph boundary で見る。旧 support layout inspection surface は移植しない |
 | C358-C359 | endpoint socket 解決が support-layout materialization / geometry refresh 後も curve へ伝わる | `Commit(run_recalc)`, `SupportLayoutInspectionView`, `DetailCurveInspectionView` の socket fields を読む | 退役済み。bb2 では direct derive、neutral layout/geom/draw、attachment が supported scope に入った時の viewer-visible output で見る。旧 materialization socket surface は移植しない |
+| C177/C269/C279/C315 | plain endpoint / single-edge main / adjacent branch bisector / attachment auto socket を旧 support-layout inspection で確認 | `SupportLayoutInspectionView`, lowered support groups, endpoint source/socket fields, `Commit(run_recalc)` を読む | 退役済み。bb2 では saved graph + pair/open/row + support group + neutral layout/geom/draw で見る。旧 support-layout endpoint shape は移植しない |
 
 この family を今後触るときの判断:
 

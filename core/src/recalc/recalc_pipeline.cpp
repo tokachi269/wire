@@ -836,11 +836,11 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
           ? cable_template->insulator_attachment_height_m
           : runtime_.cache_state.visual_settings.insulator_length_m;
   const SpanRuntimeState* runtime = find_span_runtime_state(span_id);
-  const SpanSupportLayoutProjectionView projection = runtime_.cache_state.span_layout_cache.projection_view(span_id);
-  if (!projection.has_projection()) {
+  const SpanLayoutView layout_view = runtime_.cache_state.span_layout_cache.layout_view(span_id);
+  if (!layout_view.has_layout()) {
     return set_missing_support_layout_error(error_message);
   }
-  const SpanSupportLayoutEntry* support_layout = projection.layout;
+  const SpanLayoutEntry* support_layout = layout_view.entry;
   const auto curve_it = runtime_.cache_state.curve_cache.by_span.find(span_id);
   if (curve_it == runtime_.cache_state.curve_cache.by_span.end()) {
     if (error_message != nullptr && error_message->empty()) {

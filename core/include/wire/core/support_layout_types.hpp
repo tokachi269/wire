@@ -394,12 +394,6 @@ struct SpanSupportLayoutAuthorityView {
   [[nodiscard]] bool has_authority() const { return seed != nullptr; }
 };
 
-struct SpanSupportLayoutProjectionView {
-  const SpanLayoutEntry* layout = nullptr;
-
-  [[nodiscard]] bool has_projection() const { return layout != nullptr; }
-};
-
 struct SupportGroupAuthorityCache {
   std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash> by_key{};
 };
@@ -426,15 +420,6 @@ struct SpanLayoutCache {
     }
     const SupportLayoutCacheRecord& record = it->second;
     return {record.authority_seed(), record.requires_authority()};
-  }
-
-  [[nodiscard]] SpanSupportLayoutProjectionView projection_view(ObjectId span_id) const {
-    const auto it = records_by_span.find(span_id);
-    if (it == records_by_span.end()) {
-      return {};
-    }
-    const SupportLayoutCacheRecord& record = it->second;
-    return {record.projected_layout()};
   }
 
   [[nodiscard]] SpanLayoutRulesView rules_view(ObjectId span_id) const {
@@ -501,13 +486,6 @@ struct SpanLayoutCache {
         visitor(span_id, record, *layout);
       }
     }
-  }
-
-  template <typename Fn>
-  void for_each_projected_contract(Fn&& visitor) const {
-    for_each_projected_record([&](ObjectId span_id, const SupportLayoutCacheRecord&, const SpanLayoutEntry& layout) {
-      visitor(span_id, authority_view(span_id), projection_view(span_id), layout);
-    });
   }
 
   void require_authority(ObjectId span_id) {

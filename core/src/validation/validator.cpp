@@ -792,15 +792,15 @@ ValidationResult CoreState::Validate() const {
     }
   }
 
-  cache_state.span_layout_cache.for_each_projected_contract(
-      [&](ObjectId span_id, SpanSupportLayoutAuthorityView authority, SpanSupportLayoutProjectionView,
-          const SpanSupportLayoutEntry&) {
-    if (authority.required && !authority.has_authority()) {
-      result.issues.push_back({ValidationSeverity::kWarning,
-                               "SupportLayoutDecisionSeedMissing",
-                               "Support layout requires a decision seed but none is cached",
-                               span_id});
-    }
+  cache_state.span_layout_cache.for_each_projected_record(
+      [&](ObjectId span_id, const SupportLayoutCacheRecord& record, const SpanLayoutEntry&) {
+        const SpanSupportLayoutAuthorityView authority{record.authority_seed(), record.requires_authority()};
+        if (authority.required && !authority.has_authority()) {
+          result.issues.push_back({ValidationSeverity::kWarning,
+                                   "SupportLayoutDecisionSeedMissing",
+                                   "Support layout requires a decision seed but none is cached",
+                                   span_id});
+        }
       });
 
   for (const auto& [span_id, override_value] : authoritative_.override_state.span_endpoint_by_span) {
@@ -835,9 +835,9 @@ ValidationResult CoreState::Validate() const {
   auto authoritative_pair_for_group = [](const SupportGroupDecision& group) {
     return std::pair<ObjectId, ObjectId>{group.support_pair_peer_low, group.support_pair_peer_high};
   };
-  cache_state.span_layout_cache.for_each_projected_contract(
-      [&](ObjectId span_id, SpanSupportLayoutAuthorityView authority, SpanSupportLayoutProjectionView,
-          const SpanSupportLayoutEntry& layout) {
+  cache_state.span_layout_cache.for_each_projected_record(
+      [&](ObjectId span_id, const SupportLayoutCacheRecord& record, const SpanLayoutEntry& layout) {
+        const SpanSupportLayoutAuthorityView authority{record.authority_seed(), record.requires_authority()};
         const double endpoint_attach_lift_m = insulator_lift_for_span(core, span_id);
         validate_support_layout_authority_only(&result, span_id, authority, layout,
                                                cache_state.span_layout_cache.support_groups.authority);
@@ -959,29 +959,25 @@ ValidationResult CoreState::Validate() const {
                              kInvalidObjectId});
   }
 
-  cache_state.span_layout_cache.for_each_projected_contract(
-      [&](ObjectId span_id, SpanSupportLayoutAuthorityView, SpanSupportLayoutProjectionView projection,
-          const SpanSupportLayoutEntry& layout) {
-    if (!projection.has_projection()) {
-      return;
-    }
-    std::unordered_set<LoweredSupportGroupKey, LoweredSupportGroupKeyHash> seen_group_keys{};
-    for (const LoweredSupportGroupKey& key : layout.lowered_support_group_keys) {
-      if (!seen_group_keys.insert(key).second) {
-        result.issues.push_back({ValidationSeverity::kError, "SupportGroupPlacementDuplicateRef",
-                                 "Support layout must not reference the same grouped lowered support twice", span_id});
-      }
-      if (cache_state.span_layout_cache.support_groups.authority.by_key.find(key) ==
-          cache_state.span_layout_cache.support_groups.authority.by_key.end()) {
-        result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionMissing",
-                                 "Support layout references a missing support-group decision", span_id});
-      }
-      if (cache_state.span_layout_cache.support_groups.placement.by_key.find(key) ==
-          cache_state.span_layout_cache.support_groups.placement.by_key.end()) {
-        result.issues.push_back({ValidationSeverity::kError, "SupportGroupPlacementMissing",
-                                 "Support layout references a missing grouped lowered support placement", span_id});
-      }
-    }
+  cache_state.span_layout_cache.for_each_projected_record(
+      [&](ObjectId span_id, const SupportLayoutCacheRecord&, const SpanLayoutEntry& layout) {
+        std::unordered_set<LoweredSupportGroupKey, LoweredSupportGroupKeyHash> seen_group_keys{};
+        for (const LoweredSupportGroupKey& key : layout.lowered_support_group_keys) {
+          if (!seen_group_keys.insert(key).second) {
+            result.issues.push_back({ValidationSeverity::kError, "SupportGroupPlacementDuplicateRef",
+                                     "Support layout must not reference the same grouped lowered support twice", span_id});
+          }
+          if (cache_state.span_layout_cache.support_groups.authority.by_key.find(key) ==
+              cache_state.span_layout_cache.support_groups.authority.by_key.end()) {
+            result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionMissing",
+                                     "Support layout references a missing support-group decision", span_id});
+          }
+          if (cache_state.span_layout_cache.support_groups.placement.by_key.find(key) ==
+              cache_state.span_layout_cache.support_groups.placement.by_key.end()) {
+            result.issues.push_back({ValidationSeverity::kError, "SupportGroupPlacementMissing",
+                                     "Support layout references a missing grouped lowered support placement", span_id});
+          }
+        }
       });
 
   const auto expected_port_index = canonical_index_map(make_expected_port_index(edit_state));

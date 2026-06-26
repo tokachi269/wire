@@ -331,8 +331,6 @@ struct SpanLayoutEntry {
   std::uint64_t source_version = 0;
 };
 
-using SpanSupportLayoutEntry = SpanLayoutEntry;
-
 struct SpanSupportLayoutAuthorityRecord {
   bool required = false;
   std::optional<SpanSupportLayoutDecisionSeed> seed{};
@@ -384,7 +382,6 @@ struct SupportLayoutCacheRecord {
   void store_projection(SpanLayoutEntry layout_value) { projection.layout = std::move(layout_value); }
   void clear_projection() { projection.layout.reset(); }
   void store_rule(SpanLayoutRule rule_value) { saved_rule = std::move(rule_value); }
-  void clear_rule() { saved_rule.reset(); }
 };
 
 struct SpanSupportLayoutAuthorityView {

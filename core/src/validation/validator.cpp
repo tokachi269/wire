@@ -148,7 +148,7 @@ using SupportGroupCategoryMap =
 
 void validate_support_layout_authority_only(ValidationResult* result, ObjectId span_id,
                                             SpanSupportLayoutAuthorityView authority,
-                                            const SpanSupportLayoutEntry& layout,
+                                            const SpanLayoutEntry& layout,
                                             const SupportGroupAuthorityCache& authority_cache) {
   if (result == nullptr || !authority.has_authority()) {
     return;
@@ -274,7 +274,7 @@ void validate_projected_support_layout_endpoint(ValidationResult* result, const 
 }
 
 void validate_grouped_support_projection(ValidationResult* result, const EditState& edit_state, ObjectId span_id,
-                                         const SpanSupportLayoutEntry& layout, const SupportLayoutEndpoint& endpoint,
+                                         const SpanLayoutEntry& layout, const SupportLayoutEndpoint& endpoint,
                                          const SupportGroupCacheContract& support_groups,
                                          SupportGroupCategoryMap* support_group_category_by_key) {
   if (result == nullptr || !endpoint_uses_grouped_lowered_support_for_validation(endpoint)) {

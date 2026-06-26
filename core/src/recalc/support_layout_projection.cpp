@@ -58,7 +58,7 @@ void apply_support_layout_decision_seed_endpoint(const SupportLayoutDecisionSeed
   endpoint->down_offset_variation = seed.down_offset_variation;
 }
 
-void apply_support_layout_decision_seed(const SpanSupportLayoutDecisionSeed& seed, SpanSupportLayoutEntry* layout) {
+void apply_support_layout_decision_seed(const SpanSupportLayoutDecisionSeed& seed, SpanLayoutEntry* layout) {
   if (layout == nullptr) {
     return;
   }

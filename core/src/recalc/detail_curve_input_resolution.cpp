@@ -60,7 +60,7 @@ CurvePassMode curve_pass_mode_from_context(ConnectionContext context) {
   }
 }
 
-CurveProfileHint detail_curve_profile_hint_from_support_layout(const SpanSupportLayoutEntry& layout) {
+CurveProfileHint detail_curve_profile_hint_from_support_layout(const SpanLayoutEntry& layout) {
   auto has_valid_departure = [](const SupportLayoutEndpoint& endpoint) {
     Vec3d departure = endpoint.departure_dir;
     return Normalize(&departure);

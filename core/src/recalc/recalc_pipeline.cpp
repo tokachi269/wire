@@ -510,7 +510,7 @@ void CoreState::mark_topology_related_spans_for_ports_dirty(const std::vector<Ob
   }
 }
 
-bool CoreState::cache_rebuilt_span_geometry(ObjectId span_id, SpanSupportLayoutEntry support_layout, DetailCurve detail,
+bool CoreState::cache_rebuilt_span_geometry(ObjectId span_id, SpanLayoutEntry support_layout, DetailCurve detail,
                                             std::string* error_message) {
   if (detail.sample_points.size() < 2) {
     return set_invalid_curve_error(error_message);
@@ -543,7 +543,7 @@ bool CoreState::rebuild_span_geometry_with_cached_contract(ObjectId span_id, std
     return set_missing_span_error(error_message);
   }
 
-  SpanSupportLayoutEntry support_layout = generate_span_support_layout(*span, error_message);
+  SpanLayoutEntry support_layout = generate_span_support_layout(*span, error_message);
   if (support_layout.span_id == kInvalidObjectId) {
     return false;
   }
@@ -619,7 +619,7 @@ bool CoreState::rebuild_span_geometry_from_saved_rule(ObjectId span_id, const Sp
   return true;
 }
 
-void CoreState::cache_span_support_layout(SpanSupportLayoutEntry layout) {
+void CoreState::cache_span_support_layout(SpanLayoutEntry layout) {
   const ObjectId span_id = layout.span_id;
   std::vector<LoweredSupportGroupKey> affected_group_keys =
       collect_cached_support_group_keys(runtime_.cache_state, span_id);
@@ -996,7 +996,7 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
   return true;
 }
 
-DetailCurve CoreState::generate_span_curve(const Span& span, const SpanSupportLayoutEntry& support_layout,
+DetailCurve CoreState::generate_span_curve(const Span& span, const SpanLayoutEntry& support_layout,
                                            std::string* error_message) const {
   const Port* port_a = authoritative_.edit_state.ports.find(span.port_a_id);
   const Port* port_b = authoritative_.edit_state.ports.find(span.port_b_id);

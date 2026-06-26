@@ -137,7 +137,7 @@ generation が決めた pair / side / lowering / order が refresh や materiali
 |---|---|---|---|
 | old grouped span engine family | production 削除済み | guard/test/履歴以外の caller がない前提 | production caller が残っていないことを確認し続ける |
 | support-layout materialization | 残存 | recalc / v1 / old tests が読む | v1 専用隔離後、必要制約を bb2 に移植 |
-| support-layout authority/seed/projection inspection | public inspection surface は削除済み | recalc/cache internals に authority/projection が残る | inspection へ戻さず、recalc family の退役時に内部 contract を削除 |
+| support-layout authority/seed/projection inspection | public inspection surface と旧 `SpanSupportLayoutEntry` alias は削除済み | recalc/cache internals に authority/seed record が残る | inspection へ戻さず、recalc family の退役時に内部 contract を削除 |
 | recalc pipeline | 残存 | v1 / manual debug / validation / old tests | bb2 normal path と supported post-edit から完全に外れた後に削る |
 | public backbone query 旧名 | 残存 | viewer/public API が読む | saved graph backed API へ rename できる段階で整理 |
 | `bb2` namespace/name | 残存 | v1 がまだ同居している | v1/recalc/support-layout 本流依存削除後に mainline 名へ rename |

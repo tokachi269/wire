@@ -303,7 +303,7 @@ bool validate_materialized_endpoint_normal_path(const SupportLayoutEndpoint& end
   return true;
 }
 
-bool validate_materialized_layout_normal_path(const SpanSupportLayoutEntry& layout, std::string* error_message) {
+bool validate_materialized_layout_normal_path(const SpanLayoutEntry& layout, std::string* error_message) {
   return validate_materialized_endpoint_normal_path(layout.start, error_message) &&
          validate_materialized_endpoint_normal_path(layout.end, error_message);
 }
@@ -574,7 +574,7 @@ LoweredSupportGroupObservationMap collect_lowered_support_group_observations(
   }
 
   const std::unordered_set<LoweredSupportGroupKey, LoweredSupportGroupKeyHash> key_set(keys.begin(), keys.end());
-  cache->for_each_projected_record([&](ObjectId, SupportLayoutCacheRecord&, SpanSupportLayoutEntry& layout) {
+  cache->for_each_projected_record([&](ObjectId, SupportLayoutCacheRecord&, SpanLayoutEntry& layout) {
     layout.lowered_support_group_keys.erase(
         std::remove_if(layout.lowered_support_group_keys.begin(), layout.lowered_support_group_keys.end(),
                        [&](const LoweredSupportGroupKey& key) { return key_set.contains(key); }),
@@ -646,7 +646,7 @@ void project_lowered_support_group_placements(
   }
 
   const std::unordered_set<LoweredSupportGroupKey, LoweredSupportGroupKeyHash> key_set(keys.begin(), keys.end());
-  cache->for_each_projected_record([&](ObjectId, SupportLayoutCacheRecord&, SpanSupportLayoutEntry& layout) {
+  cache->for_each_projected_record([&](ObjectId, SupportLayoutCacheRecord&, SpanLayoutEntry& layout) {
     const auto reproject_endpoint = [&](SupportLayoutEndpoint* endpoint) {
       if (endpoint == nullptr || !endpoint_uses_grouped_lowered_support(endpoint)) {
         return;
@@ -740,7 +740,7 @@ ResolvedSpanSupportLayoutMaterializationInputs resolve_span_support_layout_mater
   return inputs;
 }
 
-void apply_consumed_support_layout_authority(SpanSupportLayoutAuthorityView authority, SpanSupportLayoutEntry* layout) {
+void apply_consumed_support_layout_authority(SpanSupportLayoutAuthorityView authority, SpanLayoutEntry* layout) {
   if (layout == nullptr) {
     return;
   }
@@ -749,12 +749,12 @@ void apply_consumed_support_layout_authority(SpanSupportLayoutAuthorityView auth
   }
 }
 
-void project_materialized_layout_authority(SpanSupportLayoutAuthorityView authority, SpanSupportLayoutEntry* layout) {
+void project_materialized_layout_authority(SpanSupportLayoutAuthorityView authority, SpanLayoutEntry* layout) {
   apply_consumed_support_layout_authority(authority, layout);
 }
 
 void materialize_layout_world_geometry(const CoreState& state, const Port& port_a, const Port& port_b, const Pole* pole_a,
-                                       const Pole* pole_b, const Vec3d& chord_dir, SpanSupportLayoutEntry* layout) {
+                                       const Pole* pole_b, const Vec3d& chord_dir, SpanLayoutEntry* layout) {
   if (layout == nullptr) {
     return;
   }
@@ -763,7 +763,7 @@ void materialize_layout_world_geometry(const CoreState& state, const Port& port_
   finalize_support_layout_materialization(chord_dir, layout);
 }
 
-SpanSupportLayoutEntry materialize_span_support_layout(const CoreState& state, const Span& span,
+SpanLayoutEntry materialize_span_support_layout(const CoreState& state, const Span& span,
                                                        const ResolvedSpanCurveInputs& inputs, const Port& port_a,
                                                        const Port& port_b, const Pole* pole_a, const Pole* pole_b,
                                                        const Vec3d& chord_dir,
@@ -772,7 +772,7 @@ SpanSupportLayoutEntry materialize_span_support_layout(const CoreState& state, c
                                                        const MaterializedBranchDownOffsetPair& branch_down_offsets) {
   const double endpoint_offset_m = std::min(std::max(0.02, inputs.basis_length * 0.03), 0.35);
 
-  SpanSupportLayoutEntry layout{};
+  SpanLayoutEntry layout{};
   layout.span_id = span.id;
   layout.flow_kind = inputs.flow_kind;
   layout.pass_mode = inputs.pass_mode;
@@ -803,7 +803,7 @@ SpanSupportLayoutEntry materialize_span_support_layout(const CoreState& state, c
 
 } // namespace
 
-SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span, std::string* error_message) const {
+SpanLayoutEntry CoreState::generate_span_support_layout(const Span& span, std::string* error_message) const {
   const Port* port_a = authoritative_.edit_state.ports.find(span.port_a_id);
   const Port* port_b = authoritative_.edit_state.ports.find(span.port_b_id);
   if (port_a == nullptr || port_b == nullptr) {
@@ -849,7 +849,7 @@ SpanSupportLayoutEntry CoreState::generate_span_support_layout(const Span& span,
       (span.endpoint_attachment_b_id != kInvalidObjectId && resolved_inputs.sockets.end.resolved_socket_id < 0)) {
     return {};
   }
-  SpanSupportLayoutEntry layout =
+  SpanLayoutEntry layout =
       materialize_span_support_layout(*this, span, inputs, *port_a, *port_b, pole_a, pole_b, chord_dir, authority,
                                       resolved_inputs.sockets, resolved_inputs.branch_down_offsets);
   if (!validate_materialized_layout_normal_path(layout, error_message)) {

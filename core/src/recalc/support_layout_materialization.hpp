@@ -55,7 +55,7 @@ void apply_endpoint_decision_to_layout_endpoint(const SupportLayoutSemanticDecis
 void apply_support_layout_decision_seed_endpoint(const SupportLayoutDecisionSeedEndpoint& seed,
                                                  SupportLayoutEndpoint* endpoint);
 
-void apply_support_layout_decision_seed(const SpanSupportLayoutDecisionSeed& seed, SpanSupportLayoutEntry* layout);
+void apply_support_layout_decision_seed(const SpanSupportLayoutDecisionSeed& seed, SpanLayoutEntry* layout);
 
 [[nodiscard]] std::vector<LoweredSupportGroupKey>
 collect_support_group_keys_for_seed(const SpanSupportLayoutDecisionSeed& seed);

@@ -13,7 +13,7 @@ struct LoweredSupportGroupPlacement;
 void apply_materialized_visual_arm_geometry(const CoreState& state, const Port& port, const Pole* pole,
                                             SupportLayoutEndpoint* endpoint);
 
-void finalize_support_layout_materialization(const Vec3d& fallback_chord_dir, SpanSupportLayoutEntry* layout);
+void finalize_support_layout_materialization(const Vec3d& fallback_chord_dir, SpanLayoutEntry* layout);
 
 LoweredSupportGroupPlacement build_grouped_support_placement_from_decision(const CoreState& state,
                                                                            const SupportGroupDecision& group_decision,

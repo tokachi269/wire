@@ -138,6 +138,7 @@ generation が決めた pair / side / lowering / order が refresh や materiali
 | viewer support-layout inspection helper overloads | 削除済み | selected SupportLayout panel が neutral output 化済み | `SupportLayoutEndpointView` / `LoweredSupportGroupInspectionView` 用 helper を戻さない |
 
 | C283-C284 | auxiliary attachment supplemental path が support layout authority を変えない | `DetailCurve.supplemental_paths` と `SupportLayoutInspectionView` を同時に読む | 退役済み。attachment/socket support layout は bb2 mainline 完了条件外。必要になったら neutral layout/geom/draw constraint として再定義する |
+| C164-C166 / C172 | support layout と detail curve / inspection trace の旧 surface が一致する | `SpanSupportLayoutEntry` / `SupportLayoutInspectionView` / `DetailCurveInspectionView` / old decision trace を読む | 退役済み。bb2 では neutral `SpanLayoutEntry`、support group、geom/draw、direct derive determinism で見る。旧 inspection/trace surface は移植しない |
 ## 次に消せる family
 
 優先順:

@@ -529,12 +529,12 @@ bool CoreState::cache_rebuilt_span_geometry(ObjectId span_id, SpanSupportLayoutE
 
 bool CoreState::rebuild_span_geometry_with_cached_contract(ObjectId span_id, std::string* error_message) {
   const SpanLayoutRulesView rules = runtime_.cache_state.span_layout_cache.rules_view(span_id);
-  const SpanSupportLayoutContractView contract = runtime_.cache_state.span_layout_cache.contract_view(span_id);
-  if (rules.has_rule() && !contract.has_authority()) {
+  const SpanSupportLayoutAuthorityView authority = runtime_.cache_state.span_layout_cache.authority_view(span_id);
+  if (rules.has_rule() && !authority.has_authority()) {
     return rebuild_span_geometry_from_saved_rule(span_id, *rules.rule, error_message);
   }
   if (!rules.has_rule()) {
-    if (contract.requires_authority() && !contract.has_authority()) {
+    if (authority.required && !authority.has_authority()) {
       return set_missing_seed_error(error_message);
     }
   }
@@ -836,11 +836,11 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
           ? cable_template->insulator_attachment_height_m
           : runtime_.cache_state.visual_settings.insulator_length_m;
   const SpanRuntimeState* runtime = find_span_runtime_state(span_id);
-  const SpanSupportLayoutContractView contract = runtime_.cache_state.span_layout_cache.contract_view(span_id);
-  if (!contract.has_projection()) {
+  const SpanSupportLayoutProjectionView projection = runtime_.cache_state.span_layout_cache.projection_view(span_id);
+  if (!projection.has_projection()) {
     return set_missing_support_layout_error(error_message);
   }
-  const SpanSupportLayoutEntry* support_layout = contract.projection.layout;
+  const SpanSupportLayoutEntry* support_layout = projection.layout;
   const auto curve_it = runtime_.cache_state.curve_cache.by_span.find(span_id);
   if (curve_it == runtime_.cache_state.curve_cache.by_span.end()) {
     if (error_message != nullptr && error_message->empty()) {

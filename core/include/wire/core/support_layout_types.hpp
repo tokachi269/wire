@@ -406,15 +406,6 @@ struct MutableSpanSupportLayoutProjectionView {
   [[nodiscard]] bool has_projection() const { return layout != nullptr; }
 };
 
-struct SpanSupportLayoutContractView {
-  SpanSupportLayoutAuthorityView authority{};
-  SpanSupportLayoutProjectionView projection{};
-
-  [[nodiscard]] bool requires_authority() const { return authority.required; }
-  [[nodiscard]] bool has_authority() const { return authority.has_authority(); }
-  [[nodiscard]] bool has_projection() const { return projection.has_projection(); }
-};
-
 struct SupportGroupAuthorityCache {
   std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash> by_key{};
 };
@@ -450,10 +441,6 @@ struct SpanLayoutCache {
     }
     const SupportLayoutCacheRecord& record = it->second;
     return {record.projected_layout()};
-  }
-
-  [[nodiscard]] SpanSupportLayoutContractView contract_view(ObjectId span_id) const {
-    return {authority_view(span_id), projection_view(span_id)};
   }
 
   [[nodiscard]] SpanLayoutRulesView rules_view(ObjectId span_id) const {

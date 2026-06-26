@@ -23,7 +23,7 @@
 | `core/src/recalc/detail_curve*` | recalc curve tests、v1 geometry rebuild | D/E | no | bb2 は `core/src/generation/bb2/out.*` を使う。必要な curve 制約だけ移植する |
 | `core/src/recalc/style_context.cpp` / `variation.cpp` | v1 render/style rebuild | D/E | no | viewer-blocking visual requirement が出た場合だけ bb2 draw 側で明示実装する |
 | `CoreView::inspect_support_layout` / `SupportLayoutInspectionView` | 削除済み | A | no | viewer / capture / tests から外したため public API surface ごと削除済み |
-| `support_layout_contract` / `support_layout_projection` accessors | recalc、validation、旧 tests | C/D/E | no | no-authority 確認は `span_layout_state` へ移行済み。残りは v1/debug/test に隔離する |
+| `support_layout_contract` / `support_layout_projection` accessors | public `CoreState` / `CoreView` accessor は削除済み。残りは cache 内部 `authority_view` / `projection_view` | D/E | no | no-authority 確認は `span_layout_state` へ移行済み。旧 contract wrapper は削除済み |
 | validation の support-layout authority checks | validation-only、旧 tests | D/E | no | bb2 normal path の blocker にしない。必要制約だけ neutral validation へ移す |
 | old `backbone_pipeline` / `bundle_spans` / grouped span generation | guard strings、旧履歴、削除済み family | A | no | production 復活禁止。残る参照が test guard だけなら削除対象ではない |
 | `core/src/generation/build_backbone_service.cpp` | public generation entrypoint | E/F | yes, as service glue | bb2 mainline rename までは残す。v1 fallback を戻さない |

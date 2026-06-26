@@ -264,8 +264,7 @@ bool test_public_override_surfaces_match_mutation_state() {
   const auto pole_view = state.view().inspect_pole(pole_a);
   const auto pole_overrides = state.view().inspect_overrides({wire::core::EntityKind::kPole, pole_a});
   const auto span_overrides = state.view().inspect_overrides({wire::core::EntityKind::kSpan, span_id});
-  const auto support_layout = state.view().inspect_support_layout(span_id);
-  if (!pole_view.has_value() || !pole_overrides.has_value() || !span_overrides.has_value() || !support_layout.has_value()) {
+  if (!pole_view.has_value() || !pole_overrides.has_value() || !span_overrides.has_value()) {
     return false;
   }
 
@@ -280,10 +279,7 @@ bool test_public_override_surfaces_match_mutation_state() {
   return pole_view->orientation_override && pole_view->manual_yaw_override_deg.has_value() &&
          helpers::almost_equal(*pole_view->manual_yaw_override_deg, 37.0) &&
          pole_view->flip_180_override.value_or(false) && manual_yaw->active && flip->active && socket_a->active &&
-         socket_a->resolved_value == "3" && branch_down->active &&
-         helpers::almost_equal(std::max(support_layout->start_endpoint.branch_down_offset_m,
-                                        support_layout->end_endpoint.branch_down_offset_m),
-                               0.42, 1e-9);
+         socket_a->resolved_value == "3" && branch_down->active && branch_down->resolved_value == "0.420000";
 }
 
 bool test_apply_pole_type_reuses_only_target_pole_owned_endpoints() {

@@ -19,8 +19,6 @@
 
 using namespace helpers;
 
-std::optional<wire::core::SupportLayoutEndpointView> layout_endpoint_for_owner(
-    const wire::core::SupportLayoutInspectionView& layout_view, wire::core::ObjectId owner_pole_id);
 std::optional<wire::core::SegmentLaneAssignment> find_assignment_for_span(const wire::core::CoreState& state,
                                                                           wire::core::ObjectId span_id);
 std::optional<wire::core::VisualPart> support_arm_part_for_owner(const wire::core::CoreState& state,
@@ -33,10 +31,6 @@ bool build_replayed_latest_support_orientation_scene(CoreState& state,
 bool build_minimal_latest_pair_cross_capture_scene(CoreState& state, wire::core::ObjectId* out_center_id,
                                                    std::unordered_map<wire::core::ObjectId, wire::core::ObjectId>* out_remapped_ids,
                                                    std::vector<wire::core::ObjectId>* out_span_ids);
-bool endpoint_uses_pair_authority_without_local_fallback(const wire::core::SupportLayoutEndpointView& endpoint,
-                                                         bool require_side_axis = true);
-bool pair_authority_axis_family_is_consistent(const wire::core::SupportLayoutEndpointView& endpoint);
-
 namespace {
 
 std::uint64_t mix_u64_test(std::uint64_t x) {
@@ -4882,156 +4876,6 @@ bool build_minimal_latest_support_orientation_outer_scene(CoreState& state, Obje
   return true;
 }
 
-struct SupportAuthoritySnapshot {
-  ObjectId span_id = wire::core::kInvalidObjectId;
-  ObjectId owner_pole_id = wire::core::kInvalidObjectId;
-  bool has_decision_seed = false;
-  bool requires_decision_seed = false;
-  wire::core::ResolvedSupportAuthority authority{};
-  wire::core::SupportOrientationRuleKind orientation_rule = wire::core::SupportOrientationRuleKind::kRadial;
-  wire::core::SideAssignmentRuleKind side_rule = wire::core::SideAssignmentRuleKind::kPoleLocal;
-  wire::core::OrderDecisionPolicyKind order_policy = wire::core::OrderDecisionPolicyKind::kFixedOrder;
-  wire::core::OrderDecisionChoiceKind order_choice = wire::core::OrderDecisionChoiceKind::kNormal;
-  wire::core::OrderDecisionChoiceReason order_reason = wire::core::OrderDecisionChoiceReason::kFixedOrder;
-  wire::core::SupportOrientationBasisKind orientation_basis = wire::core::SupportOrientationBasisKind::kRadial;
-  wire::core::LateralSideChoiceKind chosen_side = wire::core::LateralSideChoiceKind::kCenter;
-  wire::core::JunctionRelationKind relation_kind = wire::core::JunctionRelationKind::kNone;
-  wire::core::ContinuityCategoryClass continuity_class = wire::core::ContinuityCategoryClass::kPointLike;
-  bool in_through_pair = false;
-  int pair_height_rank = -1;
-  bool has_visual_arm_geometry = false;
-  wire::core::Vec3d visual_arm_mount_world{};
-  wire::core::Vec3d visual_arm_tip_world{};
-  wire::core::Vec3d visual_insulator_base_world{};
-};
-
-bool build_replayed_latest_t_support_capture_scene(CoreState& state, std::vector<ObjectId>* out_generated_span_ids);
-
-bool resolved_support_authority_matches_decision(const wire::core::SupportLayoutEndpointView& endpoint) {
-  if (!endpoint.has_signed_support_axis || !endpoint.has_side_axis || std::abs(endpoint.chosen_side_sign) <= 1e-9) {
-    return false;
-  }
-  if (endpoint.support_authority.pair.pair_peer_low == wire::core::kInvalidObjectId ||
-      endpoint.support_authority.pair.pair_peer_high == wire::core::kInvalidObjectId ||
-      endpoint.pair_height_rank < 0) {
-    return false;
-  }
-  wire::core::Vec3d expected = endpoint.side_axis;
-  if (endpoint.chosen_side_sign < 0.0) {
-    expected.x = -expected.x;
-    expected.y = -expected.y;
-  }
-  expected = normalize_xy_safe(expected);
-  const wire::core::Vec3d actual = normalize_xy_safe(endpoint.signed_support_axis);
-  return std::abs(dot_xy(expected, actual)) >= 0.99;
-}
-
-bool collect_pair_authority_snapshot(const CoreState& state, ObjectId center_id, SupportAuthoritySnapshot* out) {
-  if (out == nullptr) {
-    return false;
-  }
-  for (const auto& span_entry : state.view().spans().items()) {
-    const auto layout_view = state.view().inspect_support_layout(span_entry.id);
-    if (!layout_view.has_value()) {
-      continue;
-    }
-    const auto endpoint = layout_endpoint_for_owner(*layout_view, center_id);
-    if (!endpoint.has_value() || endpoint->lower_required || !endpoint->same_level_feasible ||
-        endpoint->continuity_class != wire::core::ContinuityCategoryClass::kPointLike ||
-        !endpoint_uses_pair_authority_without_local_fallback(*endpoint)) {
-      continue;
-    }
-    if (!resolved_support_authority_matches_decision(*endpoint)) {
-      continue;
-    }
-    out->span_id = span_entry.id;
-    out->owner_pole_id = center_id;
-    out->has_decision_seed = layout_view->has_decision_seed;
-    out->requires_decision_seed = layout_view->requires_decision_seed;
-    out->authority = endpoint->support_authority;
-    out->orientation_rule = endpoint->support_orientation_rule;
-    out->side_rule = endpoint->side_assignment_rule;
-    out->order_policy = endpoint->order_decision_policy;
-    out->order_choice = endpoint->order_decision_choice;
-    out->order_reason = endpoint->order_decision_choice_reason;
-    out->orientation_basis = endpoint->support_orientation_basis;
-    out->chosen_side = endpoint->chosen_side;
-    out->relation_kind = endpoint->relation_kind;
-    out->continuity_class = endpoint->continuity_class;
-    out->in_through_pair = endpoint->in_through_pair;
-    out->pair_height_rank = endpoint->pair_height_rank;
-    out->has_visual_arm_geometry = endpoint->has_visual_arm_geometry;
-    out->visual_arm_mount_world = endpoint->visual_arm_mount_world;
-    out->visual_arm_tip_world = endpoint->visual_arm_tip_world;
-    out->visual_insulator_base_world = endpoint->visual_insulator_base_world;
-    return true;
-  }
-  return false;
-}
-
-bool resolved_support_authority_equal(const wire::core::ResolvedSupportAuthority& a,
-                                      const wire::core::ResolvedSupportAuthority& b) {
-  return a.pair.pair_peer_low == b.pair.pair_peer_low && a.pair.pair_peer_high == b.pair.pair_peer_high &&
-         a.pair.orientation_basis == b.pair.orientation_basis && a.pair.has_pair_axis == b.pair.has_pair_axis &&
-         a.pair.height_rank == b.pair.height_rank &&
-         almost_equal(a.pair.pair_axis.x, b.pair.pair_axis.x, 1e-9) &&
-         almost_equal(a.pair.pair_axis.y, b.pair.pair_axis.y, 1e-9) &&
-         almost_equal(a.pair.pair_axis.z, b.pair.pair_axis.z, 1e-9) &&
-         a.has_signed_support_axis == b.has_signed_support_axis &&
-         almost_equal(a.signed_support_axis.x, b.signed_support_axis.x, 1e-9) &&
-         almost_equal(a.signed_support_axis.y, b.signed_support_axis.y, 1e-9) &&
-         almost_equal(a.signed_support_axis.z, b.signed_support_axis.z, 1e-9);
-}
-
-bool support_authority_snapshot_equal(const SupportAuthoritySnapshot& a, const SupportAuthoritySnapshot& b) {
-  return a.span_id == b.span_id && a.owner_pole_id == b.owner_pole_id && a.has_decision_seed == b.has_decision_seed &&
-         a.requires_decision_seed == b.requires_decision_seed && a.orientation_rule == b.orientation_rule &&
-         a.side_rule == b.side_rule && a.order_policy == b.order_policy && a.order_choice == b.order_choice &&
-         a.order_reason == b.order_reason && a.orientation_basis == b.orientation_basis &&
-         a.chosen_side == b.chosen_side && a.relation_kind == b.relation_kind &&
-         a.continuity_class == b.continuity_class && a.in_through_pair == b.in_through_pair &&
-         a.pair_height_rank == b.pair_height_rank &&
-         a.has_visual_arm_geometry == b.has_visual_arm_geometry &&
-         almost_equal(a.visual_arm_mount_world.x, b.visual_arm_mount_world.x, 1e-9) &&
-         almost_equal(a.visual_arm_mount_world.y, b.visual_arm_mount_world.y, 1e-9) &&
-         almost_equal(a.visual_arm_mount_world.z, b.visual_arm_mount_world.z, 1e-9) &&
-         almost_equal(a.visual_arm_tip_world.x, b.visual_arm_tip_world.x, 1e-9) &&
-         almost_equal(a.visual_arm_tip_world.y, b.visual_arm_tip_world.y, 1e-9) &&
-         almost_equal(a.visual_arm_tip_world.z, b.visual_arm_tip_world.z, 1e-9) &&
-         almost_equal(a.visual_insulator_base_world.x, b.visual_insulator_base_world.x, 1e-9) &&
-         almost_equal(a.visual_insulator_base_world.y, b.visual_insulator_base_world.y, 1e-9) &&
-         almost_equal(a.visual_insulator_base_world.z, b.visual_insulator_base_world.z, 1e-9) &&
-         resolved_support_authority_equal(a.authority, b.authority);
-}
-
-bool endpoint_uses_pair_authority_without_local_fallback(const wire::core::SupportLayoutEndpointView& endpoint,
-                                                         bool require_side_axis) {
-  const bool has_pair_peers =
-      endpoint.support_authority.pair.pair_peer_low != wire::core::kInvalidObjectId &&
-      endpoint.support_authority.pair.pair_peer_high != wire::core::kInvalidObjectId &&
-      endpoint.support_authority.pair.pair_peer_low != endpoint.support_authority.pair.pair_peer_high;
-  const bool pair_owned_through =
-      endpoint.support_orientation_rule == wire::core::SupportOrientationRuleKind::kThroughPairNormal &&
-      endpoint.side_assignment_rule == wire::core::SideAssignmentRuleKind::kThroughPairNormal;
-  const bool pair_owned_bisector =
-      endpoint.support_orientation_rule == wire::core::SupportOrientationRuleKind::kBisector &&
-      endpoint.side_assignment_rule == wire::core::SideAssignmentRuleKind::kBisector;
-  return (pair_owned_through || pair_owned_bisector) && endpoint.used_junction_pair_side_assignment && has_pair_peers &&
-         (!require_side_axis || endpoint.has_side_axis);
-}
-
-bool pair_authority_axis_family_is_consistent(const wire::core::SupportLayoutEndpointView& endpoint) {
-  if (!endpoint_uses_pair_authority_without_local_fallback(endpoint)) {
-    return false;
-  }
-  if (!endpoint.has_signed_support_axis) {
-    return true;
-  }
-  const wire::core::Vec3d unsigned_axis = normalize_xy_safe(endpoint.side_axis);
-  const wire::core::Vec3d signed_axis = normalize_xy_safe(endpoint.signed_support_axis);
-  return std::abs(dot_xy(unsigned_axis, signed_axis)) >= 0.97;
-}
-
 bool build_latest_capture_like_lowered_branch_scene(CoreState& state, PoleTypeId pole_type_id, ObjectId* out_center_id,
                                                     ObjectId* out_tip_id, std::vector<ObjectId>* out_span_ids) {
   constexpr wire::core::Vec3d kTrunkPrev{-14.495, -14.313, 0.0};
@@ -6218,17 +6062,6 @@ bool trace_contains_summary(const std::vector<wire::core::DecisionTraceEntry>& t
     }
   }
   return false;
-}
-
-std::optional<wire::core::SupportLayoutEndpointView> layout_endpoint_for_owner(
-    const wire::core::SupportLayoutInspectionView& layout_view, wire::core::ObjectId owner_pole_id) {
-  if (layout_view.start_endpoint.owner_pole_id == owner_pole_id) {
-    return layout_view.start_endpoint;
-  }
-  if (layout_view.end_endpoint.owner_pole_id == owner_pole_id) {
-    return layout_view.end_endpoint;
-  }
-  return std::nullopt;
 }
 
 std::optional<wire::core::SegmentLaneAssignment> find_assignment_for_span(const wire::core::CoreState& state,

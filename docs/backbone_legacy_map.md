@@ -65,7 +65,7 @@
 
 | old surface | current callers | bb2 replacement | 判断 |
 |---|---|---|---|
-| `support_layout_projection(span).layout` | public `CoreState` / `CoreView` accessor は削除済み。残りは cache 内部 `projection_view` を読む recalc / validation / inspection internals | `span_layout(span)`, `span_layout_state(span)`, `span_layout_rules(span)` | D/E。test/helper の layout existence 制約は neutral read へ移植済み。projection object shape は bb2 要件にしない |
+| `support_layout_projection(span).layout` | public `CoreState` / `CoreView` accessor と mutable projection edit view は削除済み。残りは cache 内部 `projection_view` を読む recalc / validation / inspection internals | `span_layout(span)`, `span_layout_state(span)`, `span_layout_rules(span)` | D/E。test/helper の layout existence 制約は neutral read へ移植済み。projection object shape は bb2 要件にしない |
 | curve / bounds cache after rebuild | `core/tests/geometry.cpp`, `core/tests/generation.cpp`, `core/tests/workflow.cpp`, `core/tests/bundle_visuals.cpp` | bb2 `geom` output、`CurveCacheEntry`、`BoundsCacheEntry` | C。生成直後と direct derive 後に欠けないことを bb2 側で見る |
 | visual / render cache after rebuild | `core/tests/bundle_visuals.cpp`, `core/tests/bb2.cpp` | bb2 `draw` output、`SpanVisualCacheEntry`、`SpanRenderCacheEntry` | C。viewer required output として必要な範囲だけ見る。full support visual semantics は別 family |
 | support-layout authority / seed / projection fields | support-layout 旧 tests | `SpanLayoutRules`, `SpanLayoutEntry`, `SpanLayoutState.input_required=false` | D。旧 contract そのものは v1 専用。bb2 へ戻さない |

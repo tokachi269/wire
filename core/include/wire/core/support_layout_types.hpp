@@ -400,12 +400,6 @@ struct SpanSupportLayoutProjectionView {
   [[nodiscard]] bool has_projection() const { return layout != nullptr; }
 };
 
-struct MutableSpanSupportLayoutProjectionView {
-  SpanLayoutEntry* layout = nullptr;
-
-  [[nodiscard]] bool has_projection() const { return layout != nullptr; }
-};
-
 struct SupportGroupAuthorityCache {
   std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash> by_key{};
 };
@@ -466,14 +460,6 @@ struct SpanLayoutCache {
     }
     const SupportLayoutCacheRecord& record = it->second;
     return {record.span_layout_rule() != nullptr, record.projected_layout() != nullptr, record.requires_authority()};
-  }
-
-  [[nodiscard]] MutableSpanSupportLayoutProjectionView edit_projection(ObjectId span_id) {
-    const auto it = records_by_span.find(span_id);
-    if (it == records_by_span.end()) {
-      return {};
-    }
-    return {it->second.projected_layout()};
   }
 
   [[nodiscard]] std::vector<ObjectId> ordered_authority_span_ids() const {

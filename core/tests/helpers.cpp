@@ -1,4 +1,4 @@
-﻿#include "helpers.hpp"
+#include "helpers.hpp"
 
 #include "wire/core/coord_utils.hpp"
 #include "wire/core/core_test_hook.hpp"
@@ -1331,7 +1331,7 @@ BranchRunoutMetrics measure_branch_runout_metrics(const CoreState& state, Object
     return metrics;
   }
 
-  const bool branch_at_start = layout->start.origin == wire::core::SupportLayoutOriginKind::kBranchSupport ||
+  const bool branch_at_start = layout->start.origin == wire::core::LayoutOriginKind::kBranchSupport ||
                                layout->start.flow_kind == wire::core::BackboneFlowKind::kBranch ||
                                layout->start.local_departure_length_m >= layout->end.local_departure_length_m;
   const wire::core::Vec3d root = branch_at_start ? curve->detail.EvaluatePosition(0.0) : curve->detail.EvaluatePosition(1.0);

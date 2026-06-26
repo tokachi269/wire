@@ -290,31 +290,31 @@ bool support_layout_used_special_case_ports(const SpanLayoutEntry& layout) {
   return layout.start.used_special_case_ports || layout.end.used_special_case_ports;
 }
 
-const char* SupportLayoutOriginText(SupportLayoutOriginKind origin) {
+const char* SupportLayoutOriginText(LayoutOriginKind origin) {
   switch (origin) {
-  case SupportLayoutOriginKind::kMainSupport:
+  case LayoutOriginKind::kMainSupport:
     return "MainSupport";
-  case SupportLayoutOriginKind::kBranchSupport:
+  case LayoutOriginKind::kBranchSupport:
     return "BranchSupport";
-  case SupportLayoutOriginKind::kAerialBranch:
+  case LayoutOriginKind::kAerialBranch:
     return "AerialBranch";
-  case SupportLayoutOriginKind::kPlacementConstraint:
+  case LayoutOriginKind::kPlacementConstraint:
     return "PlacementConstraint";
-  case SupportLayoutOriginKind::kFallback:
+  case LayoutOriginKind::kFallback:
   default:
     return "Fallback";
   }
 }
 
-const char* SupportLayoutEndpointSourceText(SupportLayoutEndpointSourceKind source) {
+const char* LayoutEndpointSourceText(LayoutEndpointSourceKind source) {
   switch (source) {
-  case SupportLayoutEndpointSourceKind::kPlainSupport:
+  case LayoutEndpointSourceKind::kPlainSupport:
     return "PlainSupport";
-  case SupportLayoutEndpointSourceKind::kAttachmentSocket:
+  case LayoutEndpointSourceKind::kAttachmentSocket:
     return "AttachmentSocket";
-  case SupportLayoutEndpointSourceKind::kAttachmentSocketOverride:
+  case LayoutEndpointSourceKind::kAttachmentSocketOverride:
     return "AttachmentSocketOverride";
-  case SupportLayoutEndpointSourceKind::kFallback:
+  case LayoutEndpointSourceKind::kFallback:
   default:
     return "Fallback";
   }
@@ -664,8 +664,8 @@ std::optional<SpanInspectionView> CoreView::inspect_span(ObjectId span_id) const
     result.order_decision_choice_reason_a = layout->start.order_decision_choice_reason;
     result.order_decision_choice_reason_b = layout->end.order_decision_choice_reason;
     result.default_lower_required = support_layout_default_lower_required(*layout);
-    result.uses_branch_support = layout->start.origin == SupportLayoutOriginKind::kBranchSupport ||
-                                 layout->end.origin == SupportLayoutOriginKind::kBranchSupport;
+    result.uses_branch_support = layout->start.origin == LayoutOriginKind::kBranchSupport ||
+                                 layout->end.origin == LayoutOriginKind::kBranchSupport;
     result.lowering_kind = layout->lowering_kind;
     result.branch_down_offset_m = std::max(layout->start.branch_down_offset_m, layout->end.branch_down_offset_m);
     result.same_level_feasible = support_layout_same_level_feasible(*layout);
@@ -1189,7 +1189,7 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
       }
       trace.push_back({DecisionTraceTopic::kSupportLayoutSelection, FlowKindText(layout->flow_kind), summary.str()});
       std::ostringstream endpoint_summary;
-      endpoint_summary << "start=" << SupportLayoutEndpointSourceText(layout->start.endpoint_source)
+      endpoint_summary << "start=" << LayoutEndpointSourceText(layout->start.endpoint_source)
                        << " request=" << EndpointAttachmentRequestKindText(layout->start.attachment_request.kind)
                        << " orderDecision=" << OrderDecisionChoiceText(layout->start.order_decision_choice)
                        << "/" << OrderDecisionChoiceReasonText(layout->start.order_decision_choice_reason)
@@ -1202,7 +1202,7 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
                        << " socket="
                        << (layout->start.resolved_socket_id.has_value() ? std::to_string(*layout->start.resolved_socket_id)
                                                                         : "none")
-                       << " end=" << SupportLayoutEndpointSourceText(layout->end.endpoint_source)
+                       << " end=" << LayoutEndpointSourceText(layout->end.endpoint_source)
                        << " request=" << EndpointAttachmentRequestKindText(layout->end.attachment_request.kind)
                        << " orderDecision=" << OrderDecisionChoiceText(layout->end.order_decision_choice)
                        << "/" << OrderDecisionChoiceReasonText(layout->end.order_decision_choice_reason)

@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <array>
 #include <cstdint>
@@ -238,8 +238,8 @@ struct DetailCurveInspectionView {
   double start_lateral_ratio_limit = 0.0;
   double end_lateral_ratio_limit = 0.0;
   double lateral_suppression = 0.0;
-  SupportLayoutEndpointSourceKind start_endpoint_source = SupportLayoutEndpointSourceKind::kFallback;
-  SupportLayoutEndpointSourceKind end_endpoint_source = SupportLayoutEndpointSourceKind::kFallback;
+  LayoutEndpointSourceKind start_endpoint_source = LayoutEndpointSourceKind::kFallback;
+  LayoutEndpointSourceKind end_endpoint_source = LayoutEndpointSourceKind::kFallback;
   EndpointAttachmentRequest start_attachment_request{};
   EndpointAttachmentRequest end_attachment_request{};
   std::optional<int> start_resolved_socket_id{};

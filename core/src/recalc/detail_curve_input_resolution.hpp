@@ -31,7 +31,7 @@ struct ResolvedSpanCurveInputs {
 [[nodiscard]] CurveProfileHint detail_curve_profile_hint_from_support_layout(const SpanLayoutEntry& layout);
 
 [[nodiscard]] CurveConstraint make_curve_constraint_from_support_layout(
-    const SupportLayoutEndpoint& endpoint, const Pole* owner_pole, double basis_length, double effective_sag_ratio,
+    const LayoutEndpoint& endpoint, const Pole* owner_pole, double basis_length, double effective_sag_ratio,
     double bend_stiffness_hint, double min_bend_radius_hint_m, CableContinuityPolicyHint continuity_preference,
     CurvePassMode pass_mode, CurveProfileHint profile_hint, ConnectionContext connection_context);
 

@@ -24,12 +24,12 @@ struct CacheState;
                                                   const AttachmentSocketTemplate** out_b,
                                                   const AttachmentInternalPathTemplate** out_internal_path);
 
-[[nodiscard]] bool endpoint_uses_grouped_lowered_support(const SupportLayoutEndpoint* endpoint);
+[[nodiscard]] bool endpoint_uses_grouped_lowered_support(const LayoutEndpoint* endpoint);
 
 [[nodiscard]] double template_layer_base_z_for_port_category(const CoreState& state, const Pole& pole,
                                                              ConnectionCategory category);
 
-[[nodiscard]] SupportLayoutOriginKind support_layout_origin_from_port(const Port& port);
+[[nodiscard]] LayoutOriginKind support_layout_origin_from_port(const Port& port);
 
 [[nodiscard]] BackboneFlowKind support_layout_flow_kind_for_span(const Span& span, const Port& port_a, const Port& port_b);
 
@@ -41,7 +41,7 @@ struct CacheState;
                                                                  const Bundle* bundle,
                                                                  const BundleTemplate* bundle_template);
 
-[[nodiscard]] SupportLayoutEndpoint build_support_layout_endpoint(
+[[nodiscard]] LayoutEndpoint build_support_layout_endpoint(
     const CoreState& state, const Span& span, const Port& port, const Pole* owner_pole, const Vec3d& chord_dir,
     double basis_length, double endpoint_offset_m, double effective_sag_ratio, double bend_stiffness_hint,
     double min_bend_radius_hint_m, CableContinuityPolicyHint continuity_preference, CurvePassMode pass_mode,
@@ -49,11 +49,11 @@ struct CacheState;
     double automatic_branch_down_offset_m, const HierarchicalVariationSample& down_offset_variation,
     double resolved_branch_down_offset_m, bool is_start_endpoint);
 
-void apply_endpoint_decision_to_layout_endpoint(const SupportLayoutSemanticDecision& decision,
-                                                SupportLayoutEndpoint* endpoint);
+void apply_endpoint_decision_to_layout_endpoint(const LayoutSemantic& decision,
+                                                LayoutEndpoint* endpoint);
 
 void apply_support_layout_decision_seed_endpoint(const SupportLayoutDecisionSeedEndpoint& seed,
-                                                 SupportLayoutEndpoint* endpoint);
+                                                 LayoutEndpoint* endpoint);
 
 void apply_support_layout_decision_seed(const SpanSupportLayoutDecisionSeed& seed, SpanLayoutEntry* layout);
 

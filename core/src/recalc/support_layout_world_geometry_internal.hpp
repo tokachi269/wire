@@ -11,7 +11,7 @@ struct EditState;
 struct LoweredSupportGroupPlacement;
 
 void apply_materialized_visual_arm_geometry(const CoreState& state, const Port& port, const Pole* pole,
-                                            SupportLayoutEndpoint* endpoint);
+                                            LayoutEndpoint* endpoint);
 
 void finalize_support_layout_materialization(const Vec3d& fallback_chord_dir, SpanLayoutEntry* layout);
 

@@ -8,7 +8,7 @@ namespace wire::core {
 [[nodiscard]] Vec3d SafeHorizontalNormalized(Vec3d v);
 [[nodiscard]] Vec3d CanonicalSharedSupportAxis(Vec3d axis);
 [[nodiscard]] Vec3d AuthoritativeSupportAxisForGroup(const SupportGroupDecision& group);
-[[nodiscard]] ResolvedSupportAuthority ResolvedSupportAuthorityFromDecision(const SupportLayoutSemanticDecision& decision,
+[[nodiscard]] ResolvedSupportAuthority ResolvedSupportAuthorityFromDecision(const LayoutSemantic& decision,
                                                                            int height_rank = -1);
 [[nodiscard]] ResolvedSupportAuthority ResolvedSupportAuthorityFromDecision(const EndpointContinuityDecision& decision,
                                                                            int height_rank = -1);

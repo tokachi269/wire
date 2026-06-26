@@ -52,11 +52,11 @@ build_expected_support_group_decisions_for_validation(
   return groups;
 }
 
-bool endpoint_uses_grouped_lowered_support_for_validation(const SupportLayoutEndpoint& endpoint) {
+bool endpoint_uses_grouped_lowered_support_for_validation(const LayoutEndpoint& endpoint) {
   return UsesAuthoritativeGroupedLoweredSupport(endpoint);
 }
 
-bool endpoint_requires_pair_authority_for_validation(const SupportLayoutEndpoint& endpoint) {
+bool endpoint_requires_pair_authority_for_validation(const LayoutEndpoint& endpoint) {
   return !endpoint.lower_required && endpoint.same_level_feasible &&
          endpoint.continuity_class == ContinuityCategoryClass::kPointLike && HasAuthoritativeSupportPair(endpoint) &&
          (endpoint.relation_kind == JunctionRelationKind::kThroughMain ||
@@ -64,8 +64,8 @@ bool endpoint_requires_pair_authority_for_validation(const SupportLayoutEndpoint
           endpoint.relation_kind == JunctionRelationKind::kCrossUnderpass);
 }
 
-bool endpoint_semantic_contract_equal(const SupportLayoutSemanticDecision& seed,
-                                      const SupportLayoutSemanticDecision& materialized) {
+bool endpoint_semantic_contract_equal(const LayoutSemantic& seed,
+                                      const LayoutSemantic& materialized) {
   return seed.relation_kind == materialized.relation_kind &&
          seed.continuity_class == materialized.continuity_class &&
          seed.in_through_pair == materialized.in_through_pair;
@@ -178,16 +178,16 @@ void validate_support_layout_authority_only(ValidationResult* result, ObjectId s
 
 void validate_projected_support_layout_endpoint(ValidationResult* result, const CoreView& core, const EditState& edit_state,
                                                 ObjectId span_id, double endpoint_attach_lift_m,
-                                                const SupportLayoutEndpoint& endpoint, const char* code) {
+                                                const LayoutEndpoint& endpoint, const char* code) {
   if (result == nullptr) {
     return;
   }
-  if (endpoint.endpoint_source == SupportLayoutEndpointSourceKind::kFallback) {
-    result->issues.push_back({ValidationSeverity::kError, "SupportLayoutEndpointFallbackUsed",
+  if (endpoint.endpoint_source == LayoutEndpointSourceKind::kFallback) {
+    result->issues.push_back({ValidationSeverity::kError, "LayoutEndpointFallbackUsed",
                               "Support layout endpoint must not rely on fallback endpoint sourcing in the normal path",
                               span_id});
   }
-  if (endpoint.origin == SupportLayoutOriginKind::kFallback) {
+  if (endpoint.origin == LayoutOriginKind::kFallback) {
     result->issues.push_back({ValidationSeverity::kError, "SupportLayoutOriginFallbackUsed",
                               "Support layout endpoint must not rely on fallback support origin in the normal path",
                               span_id});
@@ -274,7 +274,7 @@ void validate_projected_support_layout_endpoint(ValidationResult* result, const 
 }
 
 void validate_grouped_support_projection(ValidationResult* result, const EditState& edit_state, ObjectId span_id,
-                                         const SpanLayoutEntry& layout, const SupportLayoutEndpoint& endpoint,
+                                         const SpanLayoutEntry& layout, const LayoutEndpoint& endpoint,
                                          const SupportGroupCacheContract& support_groups,
                                          SupportGroupCategoryMap* support_group_category_by_key) {
   if (result == nullptr || !endpoint_uses_grouped_lowered_support_for_validation(endpoint)) {

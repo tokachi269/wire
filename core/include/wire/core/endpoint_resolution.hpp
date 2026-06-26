@@ -14,8 +14,6 @@ enum class LayoutEndpointSourceKind : std::uint8_t {
   kFallback = 3,
 };
 
-using SupportLayoutEndpointSourceKind = LayoutEndpointSourceKind;
-
 enum class EndpointAttachmentRequestKind : std::uint8_t {
   kNone = 0,
   kAttachmentAuto = 1,

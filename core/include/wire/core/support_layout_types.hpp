@@ -27,8 +27,6 @@ enum class LayoutOriginKind : std::uint8_t {
   kFallback = 4,
 };
 
-using SupportLayoutOriginKind = LayoutOriginKind;
-
 struct LoweredSupportGroupKey {
   ObjectId owner_pole_id = kInvalidObjectId;
   int support_group_id = -1;
@@ -117,23 +115,16 @@ inline LayoutSemantic& LayoutSemantic::operator=(const EndpointContinuityDecisio
   return *this;
 }
 
-using SupportLayoutSemanticDecision = LayoutSemantic;
-
-[[nodiscard]] inline LayoutSemantic MakeSupportLayoutSemanticDecision(
-    const EndpointContinuityDecision& source, ObjectId owner_pole_id = kInvalidObjectId) {
-  return MakeLayoutSemantic(source, owner_pole_id);
-}
-
 [[nodiscard]] inline LoweredSupportGroupKey LoweredSupportGroupKeyFromDecision(
-    const SupportLayoutSemanticDecision& decision) {
+    const LayoutSemantic& decision) {
   return {decision.owner_pole_id, decision.support_group_id};
 }
 
-[[nodiscard]] inline bool HasAuthoritativeSupportPair(const SupportLayoutSemanticDecision& decision) {
+[[nodiscard]] inline bool HasAuthoritativeSupportPair(const LayoutSemantic& decision) {
   return HasAuthoritativeSupportPair(decision.support_pair_peer_low, decision.support_pair_peer_high);
 }
 
-[[nodiscard]] inline bool UsesAuthoritativeGroupedLoweredSupport(const SupportLayoutSemanticDecision& decision) {
+[[nodiscard]] inline bool UsesAuthoritativeGroupedLoweredSupport(const LayoutSemantic& decision) {
   return decision.owner_pole_id != kInvalidObjectId && decision.lower_required && !decision.lowering_blocked_by_policy &&
          decision.support_group_id >= 0;
 }
@@ -177,17 +168,15 @@ struct LayoutEndpoint : LayoutSemantic {
   HierarchicalVariationSample down_offset_variation{};
 };
 
-using SupportLayoutEndpoint = LayoutEndpoint;
-
-struct SupportLayoutDecisionSeedEndpoint : SupportLayoutSemanticDecision {
+struct SupportLayoutDecisionSeedEndpoint : LayoutSemantic {
   ObjectId endpoint_node_id = kInvalidObjectId;
   ObjectId port_id = kInvalidObjectId;
   ResolvedSupportAuthority support_authority{};
   EndpointAttachmentRequest attachment_request{};
   std::optional<int> resolved_socket_id{};
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
-  SupportLayoutOriginKind origin = SupportLayoutOriginKind::kFallback;
-  SupportLayoutEndpointSourceKind endpoint_source = SupportLayoutEndpointSourceKind::kFallback;
+  LayoutOriginKind origin = LayoutOriginKind::kFallback;
+  LayoutEndpointSourceKind endpoint_source = LayoutEndpointSourceKind::kFallback;
   PortPlacementSourceKind port_source = PortPlacementSourceKind::kUnknown;
   SlotSide side = SlotSide::kCenter;
   CurveEndpointMode endpoint_mode = CurveEndpointMode::kDirectThrough;
@@ -213,10 +202,10 @@ struct SupportLayoutDecisionSeedEndpoint : SupportLayoutSemanticDecision {
   HierarchicalVariationSample down_offset_variation{};
 };
 
-struct SupportGroupDecision : SupportLayoutSemanticDecision {
+struct SupportGroupDecision : LayoutSemantic {
   ResolvedSupportAuthority support_authority{};
   SlotSide side = SlotSide::kCenter;
-  SupportLayoutOriginKind origin = SupportLayoutOriginKind::kFallback;
+  LayoutOriginKind origin = LayoutOriginKind::kFallback;
   OrderDecisionPolicyKind order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
   OrderDecisionChoiceKind order_decision_choice = OrderDecisionChoiceKind::kNormal;
   OrderDecisionChoiceReason order_decision_choice_reason = OrderDecisionChoiceReason::kFixedOrder;

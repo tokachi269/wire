@@ -11,8 +11,8 @@ namespace wire::core {
 
 namespace {
 
-Vec3d grouped_lowered_route_local_departure_dir(const SupportLayoutEndpoint& endpoint,
-                                                const SupportLayoutEndpoint& other_endpoint) {
+Vec3d grouped_lowered_route_local_departure_dir(const LayoutEndpoint& endpoint,
+                                                const LayoutEndpoint& other_endpoint) {
   Vec3d fallback = other_endpoint.endpoint_world - endpoint.endpoint_world;
   if (!Normalize(&fallback)) {
     fallback = WorldForward();
@@ -93,7 +93,7 @@ LoweredSupportGroupPlacement build_grouped_support_placement_from_decision(const
 }
 
 void apply_materialized_visual_arm_geometry(const CoreState& state, const Port& port, const Pole* pole,
-                                            SupportLayoutEndpoint* endpoint) {
+                                            LayoutEndpoint* endpoint) {
   if (endpoint == nullptr || pole == nullptr) {
     return;
   }

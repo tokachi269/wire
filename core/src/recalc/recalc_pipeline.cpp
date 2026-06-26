@@ -709,7 +709,7 @@ void CoreState::cache_span_layout_rules(const SpanLayoutRules& rules) {
     seed.lowering_kind = rule.lowering_kind;
     auto copy_endpoint = [](const EndpointLayoutRule& source) {
       SupportLayoutDecisionSeedEndpoint out{};
-      static_cast<SupportLayoutSemanticDecision&>(out) = source.semantic;
+      static_cast<LayoutSemantic&>(out) = source.semantic;
       out.endpoint_node_id = source.endpoint_node_id;
       out.port_id = source.port_id;
       out.support_authority = source.support_authority;
@@ -849,12 +849,12 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
     return false;
   }
 
-  auto endpoint_prefers_span_local_lowered_visual = [](const SupportLayoutEndpoint* endpoint) {
+  auto endpoint_prefers_span_local_lowered_visual = [](const LayoutEndpoint* endpoint) {
     return endpoint != nullptr && endpoint_uses_grouped_lowered_support(endpoint) &&
            endpoint->relation_kind == JunctionRelationKind::kThroughMain &&
            endpoint->continuity_class == ContinuityCategoryClass::kBundleLike;
   };
-  auto append_parts_for_port = [&](const Port& port, const SupportLayoutEndpoint* layout_endpoint) {
+  auto append_parts_for_port = [&](const Port& port, const LayoutEndpoint* layout_endpoint) {
     if (layout_endpoint == nullptr) {
       return;
     }
@@ -947,9 +947,9 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
   SpanVisualCacheEntry entry{};
   entry.source_version = (runtime == nullptr) ? 0 : runtime->data_version;
   runtime_.cache_state.visual_cache.by_span[span_id] = std::move(entry);
-  const SupportLayoutEndpoint* start_layout =
+  const LayoutEndpoint* start_layout =
       (support_layout->start.port_id == a->id) ? &support_layout->start : nullptr;
-  const SupportLayoutEndpoint* end_layout =
+  const LayoutEndpoint* end_layout =
       (support_layout->end.port_id == b->id) ? &support_layout->end : nullptr;
   append_parts_for_port(*a, start_layout);
   append_parts_for_port(*b, end_layout);
@@ -958,7 +958,7 @@ bool CoreState::rebuild_span_visual(ObjectId span_id, std::string* error_message
     if (it != runtime_.cache_state.span_layout_cache.support_groups.placement.by_key.end()) {
       std::vector<Vec3d> span_attachment_worlds{};
       bool span_has_local_owner_visual = false;
-      auto append_span_attachment = [&](const SupportLayoutEndpoint* endpoint) {
+      auto append_span_attachment = [&](const LayoutEndpoint* endpoint) {
         if (!endpoint_uses_grouped_lowered_support(endpoint) ||
             endpoint_prefers_span_local_lowered_visual(endpoint)) {
           if (endpoint != nullptr && endpoint_prefers_span_local_lowered_visual(endpoint) &&

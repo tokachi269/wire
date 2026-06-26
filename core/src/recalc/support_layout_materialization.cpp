@@ -251,23 +251,23 @@ struct ResolvedSpanSupportLayoutMaterializationInputs {
   MaterializedBranchDownOffsetPair branch_down_offsets{};
 };
 
-bool endpoint_requires_pair_authority_in_normal_path(const SupportLayoutEndpoint& endpoint) {
+bool endpoint_requires_pair_authority_in_normal_path(const LayoutEndpoint& endpoint) {
   return !UsesAuthoritativeGroupedLoweredSupport(endpoint) &&
          endpoint.continuity_class == ContinuityCategoryClass::kPointLike && HasAuthoritativeSupportPair(endpoint) &&
          endpoint.relation_kind != JunctionRelationKind::kThroughMain;
 }
 
-bool validate_materialized_endpoint_normal_path(const SupportLayoutEndpoint& endpoint, std::string* error_message) {
+bool validate_materialized_endpoint_normal_path(const LayoutEndpoint& endpoint, std::string* error_message) {
   auto set_error = [&](const char* message) {
     if (error_message != nullptr && error_message->empty()) {
       *error_message = message;
     }
     return false;
   };
-  if (endpoint.endpoint_source == SupportLayoutEndpointSourceKind::kFallback) {
+  if (endpoint.endpoint_source == LayoutEndpointSourceKind::kFallback) {
     return set_error("support layout endpoint fallback sourcing reached materialization");
   }
-  if (endpoint.origin == SupportLayoutOriginKind::kFallback) {
+  if (endpoint.origin == LayoutOriginKind::kFallback) {
     return set_error("support layout origin fallback reached materialization");
   }
   if (endpoint.port_source == PortPlacementSourceKind::kUnknown) {
@@ -364,7 +364,7 @@ bool resolve_materialized_endpoint_sockets(const CoreState& state, const Span& s
   return true;
 }
 
-bool endpoint_uses_grouped_lowered_support(const SupportLayoutEndpoint* endpoint) {
+bool endpoint_uses_grouped_lowered_support(const LayoutEndpoint* endpoint) {
   return endpoint != nullptr && UsesAuthoritativeGroupedLoweredSupport(*endpoint);
 }
 
@@ -372,20 +372,20 @@ double template_layer_base_z_for_port_category(const CoreState& state, const Pol
   return state.view().port_category_base_z_for_pole(pole, category);
 }
 
-SupportLayoutOriginKind support_layout_origin_from_port(const Port& port) {
+LayoutOriginKind support_layout_origin_from_port(const Port& port) {
   switch (port.placement_source) {
   case PortPlacementSourceKind::kBranchSupport:
-    return SupportLayoutOriginKind::kBranchSupport;
+    return LayoutOriginKind::kBranchSupport;
   case PortPlacementSourceKind::kAerialBranch:
-    return SupportLayoutOriginKind::kAerialBranch;
+    return LayoutOriginKind::kAerialBranch;
   case PortPlacementSourceKind::kPlacementBandConstrained:
-    return SupportLayoutOriginKind::kPlacementConstraint;
+    return LayoutOriginKind::kPlacementConstraint;
   case PortPlacementSourceKind::kPlacementBand:
   case PortPlacementSourceKind::kGenerated:
   case PortPlacementSourceKind::kManualEdit:
   case PortPlacementSourceKind::kUnknown:
   default:
-    return SupportLayoutOriginKind::kMainSupport;
+    return LayoutOriginKind::kMainSupport;
   }
 }
 
@@ -424,7 +424,7 @@ CurveEndpointMode curve_endpoint_mode_for_template(const CableTemplate* cable_te
   return curve_endpoint_mode_for_attachment_style(attachment_style, bundle, bundle_template);
 }
 
-SupportLayoutEndpoint build_support_layout_endpoint(
+LayoutEndpoint build_support_layout_endpoint(
     const CoreState& state, const Span& span, const Port& port, const Pole* owner_pole, const Vec3d& chord_dir,
     double basis_length, double endpoint_offset_m, double effective_sag_ratio, double bend_stiffness_hint,
     double min_bend_radius_hint_m, CableContinuityPolicyHint continuity_preference, CurvePassMode pass_mode,
@@ -432,7 +432,7 @@ SupportLayoutEndpoint build_support_layout_endpoint(
     int resolved_socket_id, bool socket_override_active,
     double automatic_branch_down_offset_m, const HierarchicalVariationSample& down_offset_variation,
     double resolved_branch_down_offset_m, bool is_start_endpoint) {
-  SupportLayoutEndpoint endpoint{};
+  LayoutEndpoint endpoint{};
   endpoint.endpoint_node_id = is_start_endpoint ? span.endpoint_node_a_id : span.endpoint_node_b_id;
   endpoint.owner_pole_id = port.owner_pole_id;
   endpoint.port_id = port.id;
@@ -464,10 +464,10 @@ SupportLayoutEndpoint build_support_layout_endpoint(
                                        &constraint);
   if (applied_attachment_socket) {
     endpoint.endpoint_source = socket_override_active
-                                   ? SupportLayoutEndpointSourceKind::kAttachmentSocketOverride
-                                   : SupportLayoutEndpointSourceKind::kAttachmentSocket;
+                                   ? LayoutEndpointSourceKind::kAttachmentSocketOverride
+                                   : LayoutEndpointSourceKind::kAttachmentSocket;
   } else {
-    endpoint.endpoint_source = SupportLayoutEndpointSourceKind::kPlainSupport;
+    endpoint.endpoint_source = LayoutEndpointSourceKind::kPlainSupport;
   }
 
   endpoint.endpoint_mode = constraint.endpoint_mode;
@@ -580,7 +580,7 @@ LoweredSupportGroupObservationMap collect_lowered_support_group_observations(
                        [&](const LoweredSupportGroupKey& key) { return key_set.contains(key); }),
         layout.lowered_support_group_keys.end());
 
-    const auto observe_endpoint = [&](const SupportLayoutEndpoint& endpoint) {
+    const auto observe_endpoint = [&](const LayoutEndpoint& endpoint) {
       if (!endpoint_uses_grouped_lowered_support(&endpoint)) {
         return;
       }
@@ -647,7 +647,7 @@ void project_lowered_support_group_placements(
 
   const std::unordered_set<LoweredSupportGroupKey, LoweredSupportGroupKeyHash> key_set(keys.begin(), keys.end());
   cache->for_each_projected_record([&](ObjectId, SupportLayoutCacheRecord&, SpanLayoutEntry& layout) {
-    const auto reproject_endpoint = [&](SupportLayoutEndpoint* endpoint) {
+    const auto reproject_endpoint = [&](LayoutEndpoint* endpoint) {
       if (endpoint == nullptr || !endpoint_uses_grouped_lowered_support(endpoint)) {
         return;
       }

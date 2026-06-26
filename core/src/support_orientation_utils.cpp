@@ -43,7 +43,7 @@ Vec3d AuthoritativeSupportAxisForGroup(const SupportGroupDecision& group) {
   return axis;
 }
 
-ResolvedSupportAuthority ResolvedSupportAuthorityFromDecision(const SupportLayoutSemanticDecision& decision,
+ResolvedSupportAuthority ResolvedSupportAuthorityFromDecision(const LayoutSemantic& decision,
                                                              int height_rank) {
   ResolvedSupportAuthority authority{};
   authority.pair.pair_peer_low = decision.support_pair_peer_low;
@@ -65,7 +65,7 @@ ResolvedSupportAuthority ResolvedSupportAuthorityFromDecision(const SupportLayou
 
 ResolvedSupportAuthority ResolvedSupportAuthorityFromDecision(const EndpointContinuityDecision& decision,
                                                              int height_rank) {
-  return ResolvedSupportAuthorityFromDecision(MakeSupportLayoutSemanticDecision(decision), height_rank);
+  return ResolvedSupportAuthorityFromDecision(MakeLayoutSemantic(decision), height_rank);
 }
 
 } // namespace wire::core

@@ -22,8 +22,8 @@ bool test_public_headers_offer_stable_smoke_surface() {
   static_assert(std::is_default_constructible_v<VariationSettings>);
   static_assert(std::is_default_constructible_v<ContextProfile>);
   static_assert(std::is_default_constructible_v<ResolvedStyleContext>);
-  static_assert(std::is_copy_constructible_v<SupportLayoutEndpointView>);
-  static_assert(std::is_copy_constructible_v<LoweredSupportGroupInspectionView>);
+  static_assert(std::is_copy_constructible_v<SpanLayoutView>);
+  static_assert(std::is_copy_constructible_v<SpanLayoutState>);
 
   VariationSettings settings{};
   VariationContext context{};
@@ -37,9 +37,9 @@ bool test_public_headers_offer_stable_smoke_surface() {
     return false;
   }
 
-  SupportLayoutEndpointView endpoint{};
-  endpoint.down_offset_variation.final_value = 1.25;
-  if (endpoint.down_offset_variation.final_value != 1.25) {
+  SpanLayoutState layout_state{};
+  layout_state.input_required = true;
+  if (!layout_state.input_required) {
     return false;
   }
 

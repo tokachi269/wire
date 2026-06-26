@@ -85,7 +85,6 @@ public:
   [[nodiscard]] std::vector<DecisionTraceEntry> collect_decision_trace(EntityRef ref) const;
   [[nodiscard]] std::optional<PoleInspectionView> inspect_pole(ObjectId pole_id) const;
   [[nodiscard]] std::optional<SpanInspectionView> inspect_span(ObjectId span_id) const;
-  [[nodiscard]] std::optional<SupportLayoutInspectionView> inspect_support_layout(ObjectId span_id) const;
   [[nodiscard]] std::optional<DetailCurveInspectionView> inspect_detail_curve(ObjectId span_id) const;
   [[nodiscard]] std::optional<JunctionInspectionView> inspect_junction(ObjectId node_id) const;
   [[nodiscard]] std::optional<TemplateInspectionView> inspect_pole_template(PoleTypeId pole_type_id) const;

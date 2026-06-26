@@ -527,11 +527,6 @@ bool hv_route_has_final_curve_twist(const CoreState& state, std::string* details
 
 } // namespace
 
-bool endpoint_has_authoritative_lowering(const wire::core::SupportLayoutEndpointView& endpoint) {
-  return endpoint.lower_required && !endpoint.lowering_blocked_by_policy &&
-         endpoint.support_group_id >= 0;
-}
-
 double insulator_lift_for_span_test(const CoreState& state, wire::core::ObjectId span_id) {
   const wire::core::Span* span = state.view().edit_state().spans.find(span_id);
   if (span == nullptr) {

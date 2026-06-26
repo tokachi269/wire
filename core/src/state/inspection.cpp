@@ -335,38 +335,6 @@ const char* EndpointAttachmentRequestKindText(EndpointAttachmentRequestKind kind
   }
 }
 
-const char* PortPlacementSourceText(PortPlacementSourceKind source) {
-  switch (source) {
-  case PortPlacementSourceKind::kUnknown:
-    return "Unknown";
-  case PortPlacementSourceKind::kPlacementBand:
-    return "PlacementBand";
-  case PortPlacementSourceKind::kPlacementBandConstrained:
-    return "PlacementBandConstrained";
-  case PortPlacementSourceKind::kGenerated:
-    return "Generated";
-  case PortPlacementSourceKind::kManualEdit:
-    return "ManualEdit";
-  case PortPlacementSourceKind::kAerialBranch:
-    return "AerialBranch";
-  case PortPlacementSourceKind::kBranchSupport:
-    return "BranchSupport";
-  default:
-    return "Unknown";
-  }
-}
-
-const char* CurveEndpointModeText(CurveEndpointMode mode) {
-  switch (mode) {
-  case CurveEndpointMode::kDirectThrough:
-    return "DirectThrough";
-  case CurveEndpointMode::kOffsetEndpoint:
-    return "OffsetEndpoint";
-  default:
-    return "Unknown";
-  }
-}
-
 const char* TangentRuleText(DetailCurveEndpointTangentRule rule) {
   switch (rule) {
   case DetailCurveEndpointTangentRule::kFallbackChord:
@@ -513,67 +481,6 @@ VariationBreakdownView MakeVariationBreakdownView(const HierarchicalVariationSam
   return view;
 }
 
-std::vector<LoweredSupportGroupInspectionView> BuildLoweredSupportGroupInspectionViews(const CacheState& cache_state,
-                                                                                      const SpanSupportLayoutEntry& layout,
-                                                                                      bool* cache_complete) {
-  std::vector<LoweredSupportGroupInspectionView> result{};
-  if (cache_complete != nullptr) {
-    *cache_complete = true;
-  }
-  result.reserve(layout.lowered_support_group_keys.size());
-  for (const LoweredSupportGroupKey& key : layout.lowered_support_group_keys) {
-    const auto it = cache_state.span_layout_cache.support_groups.placement.by_key.find(key);
-    if (it == cache_state.span_layout_cache.support_groups.placement.by_key.end()) {
-      if (cache_complete != nullptr) {
-        *cache_complete = false;
-      }
-      continue;
-    }
-    const auto decision_it = cache_state.span_layout_cache.support_groups.authority.by_key.find(key);
-    if (decision_it == cache_state.span_layout_cache.support_groups.authority.by_key.end()) {
-      if (cache_complete != nullptr) {
-        *cache_complete = false;
-      }
-      continue;
-    }
-    const LoweredSupportGroupPlacement& source = it->second;
-    const SupportGroupDecision& authority = decision_it->second;
-    LoweredSupportGroupInspectionView group{};
-    group.owner_pole_id = authority.owner_pole_id;
-    group.support_authority = authority.support_authority;
-    group.continuity_class = authority.continuity_class;
-    group.lower_required = authority.lower_required;
-    group.pair_peer_low = authority.support_pair_peer_low;
-    group.pair_peer_high = authority.support_pair_peer_high;
-    group.side = authority.side;
-    group.origin = SupportLayoutOriginText(authority.origin);
-    group.grouping_rule = source.grouping_rule;
-    group.support_group_id = authority.support_group_id;
-    group.grouped_port_count = source.grouped_port_count;
-    group.order_decision_policy = authority.order_decision_policy;
-    group.order_decision_choice = authority.order_decision_choice;
-    group.order_decision_choice_reason = authority.order_decision_choice_reason;
-    group.chosen_side = authority.chosen_side;
-    group.side_assignment_rule = authority.side_assignment_rule;
-    group.support_orientation_rule = authority.support_orientation_rule;
-    group.support_orientation_basis = authority.support_orientation_basis;
-    group.used_junction_pair_side_assignment = authority.used_junction_pair_side_assignment;
-    group.has_side_axis = authority.has_side_axis;
-    group.side_axis = authority.side_axis;
-    group.chosen_side_sign = authority.chosen_side_sign;
-    group.has_signed_support_axis = authority.support_authority.has_signed_support_axis;
-    group.signed_support_axis = authority.support_authority.signed_support_axis;
-    group.pair_height_rank = authority.support_authority.pair.height_rank;
-    group.down_offset_m = source.down_offset_m;
-    group.mount_world = source.mount_world;
-    group.tip_world = source.tip_world;
-    group.attachment_worlds = source.attachment_worlds;
-    group.down_offset_variation = MakeVariationBreakdownView(source.down_offset_variation);
-    result.push_back(std::move(group));
-  }
-  return result;
-}
-
 std::vector<JunctionIncident> BuildJunctionIncidentsFromRelation(const JunctionRelation& relation) {
   std::vector<JunctionIncident> incidents{};
   incidents.reserve(relation.incidents.size());
@@ -586,93 +493,6 @@ std::vector<JunctionIncident> BuildJunctionIncidentsFromRelation(const JunctionR
     incidents.push_back(incident);
   }
   return incidents;
-}
-
-SupportLayoutEndpointView MakeSupportLayoutEndpointView(const SupportLayoutEndpoint& endpoint) {
-  SupportLayoutEndpointView view{};
-  view.endpoint_node_id = endpoint.endpoint_node_id;
-  view.owner_pole_id = endpoint.owner_pole_id;
-  view.port_id = endpoint.port_id;
-  view.support_authority = endpoint.support_authority;
-  view.attachment_request = endpoint.attachment_request;
-  view.resolved_socket_id = endpoint.resolved_socket_id;
-  view.flow_kind = endpoint.flow_kind;
-  view.relation_kind = endpoint.relation_kind;
-  if (view.relation_kind == JunctionRelationKind::kNone && endpoint.origin == SupportLayoutOriginKind::kBranchSupport &&
-      endpoint.lower_required) {
-    view.relation_kind = JunctionRelationKind::kSideBranch;
-  }
-  view.continuity_class = endpoint.continuity_class;
-  view.in_through_pair = endpoint.in_through_pair;
-  view.lower_required = endpoint.lower_required;
-  view.support_group_id = endpoint.support_group_id;
-  view.default_lower_required = endpoint.default_lower_required;
-  view.order_decision_policy = endpoint.order_decision_policy;
-  view.order_decision_choice = endpoint.order_decision_choice;
-  view.order_decision_choice_reason = endpoint.order_decision_choice_reason;
-  view.chosen_side = endpoint.chosen_side;
-  view.side = endpoint.side;
-  view.side_assignment_rule = endpoint.side_assignment_rule;
-  view.support_orientation_rule = endpoint.support_orientation_rule;
-  view.support_orientation_basis = endpoint.support_orientation_basis;
-  view.used_junction_pair_side_assignment = endpoint.used_junction_pair_side_assignment;
-  view.has_side_axis = endpoint.has_side_axis;
-  view.side_axis = endpoint.side_axis;
-  view.chosen_side_sign = endpoint.chosen_side_sign;
-  view.has_signed_support_axis = endpoint.support_authority.has_signed_support_axis;
-  view.signed_support_axis = endpoint.support_authority.signed_support_axis;
-  view.pair_height_rank = endpoint.support_authority.pair.height_rank;
-  view.origin = SupportLayoutOriginText(endpoint.origin);
-  view.endpoint_source = endpoint.endpoint_source;
-  view.port_source = PortPlacementSourceText(endpoint.port_source);
-  view.endpoint_mode = CurveEndpointModeText(endpoint.endpoint_mode);
-  view.has_visual_arm_geometry = endpoint.has_visual_arm_geometry;
-  view.visual_arm_mount_world = endpoint.visual_arm_mount_world;
-  view.visual_arm_tip_world = endpoint.visual_arm_tip_world;
-  view.visual_insulator_base_world = endpoint.visual_insulator_base_world;
-  view.support_world = endpoint.support_world;
-  view.endpoint_world = endpoint.endpoint_world;
-  view.departure_dir = endpoint.departure_dir;
-  view.endpoint_offset = endpoint.endpoint_offset;
-  view.local_departure_length_m = endpoint.local_departure_length_m;
-  view.automatic_branch_down_offset_m = endpoint.automatic_branch_down_offset_m;
-  view.branch_down_offset_m = endpoint.branch_down_offset_m;
-  view.same_level_feasible = endpoint.same_level_feasible;
-  view.same_level_reason = endpoint.same_level_reason;
-  view.projected_spacing_topview_m = endpoint.projected_spacing_topview_m;
-  view.required_clearance_m = endpoint.required_clearance_m;
-  view.lowering_blocked_by_policy = endpoint.lowering_blocked_by_policy;
-  view.unresolved_same_level_conflict = endpoint.unresolved_same_level_conflict;
-  view.solver_used_same_level_constraint = endpoint.solver_used_same_level_constraint;
-  view.used_special_case_ports = endpoint.used_special_case_ports;
-  view.down_offset_variation = MakeVariationBreakdownView(endpoint.down_offset_variation);
-  return view;
-}
-
-void mark_grouped_endpoint_cache_missing(SupportLayoutEndpointView* view) {
-  if (view == nullptr) {
-    return;
-  }
-  view->authoritative_group_cache_present = false;
-}
-
-void ApplyAuthoritativeGroupedEndpointDecision(const CacheState& cache_state, const SupportLayoutEndpoint& endpoint,
-                                               SupportLayoutEndpointView* view) {
-  if (view == nullptr || !UsesAuthoritativeGroupedLoweredSupport(endpoint)) {
-    return;
-  }
-  const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint);
-  const auto it = cache_state.span_layout_cache.support_groups.authority.by_key.find(key);
-  if (it == cache_state.span_layout_cache.support_groups.authority.by_key.end()) {
-    mark_grouped_endpoint_cache_missing(view);
-    return;
-  }
-  const SupportGroupDecision& authority = it->second;
-  view->authoritative_group_cache_present = true;
-  view->support_authority = authority.support_authority;
-  view->has_signed_support_axis = authority.support_authority.has_signed_support_axis;
-  view->signed_support_axis = authority.support_authority.signed_support_axis;
-  view->pair_height_rank = authority.support_authority.pair.height_rank;
 }
 
 } // namespace
@@ -891,63 +711,6 @@ std::optional<SpanInspectionView> CoreView::inspect_span(ObjectId span_id) const
     AddLink(&result.links, &seen, "DetailCurve", result.detail_curve_ref.kind, result.detail_curve_ref.stable_id);
   }
   AddLink(&result.links, &seen, "Override " + std::to_string(span_id), EntityKind::kOverride, span_id);
-  return result;
-}
-
-std::optional<SupportLayoutInspectionView> CoreView::inspect_support_layout(ObjectId span_id) const {
-  const SpanLayoutRulesView rules = state_.runtime_.cache_state.span_layout_cache.rules_view(span_id);
-  const SpanSupportLayoutProjectionView projection = state_.runtime_.cache_state.span_layout_cache.projection_view(span_id);
-  const SpanSupportLayoutEntry* layout = projection.layout;
-  if (layout == nullptr) {
-    return std::nullopt;
-  }
-  SupportLayoutInspectionView result{};
-  result.source_span = {EntityKind::kSpan, span_id};
-  result.meta = *describe_entity({EntityKind::kSupportLayout, span_id});
-  result.has_decision_seed = rules.has_rule();
-  result.requires_decision_seed = rules.has_rule();
-  result.flow_kind = layout->flow_kind;
-  result.pass_mode = layout->pass_mode;
-  result.variation_flow_key = layout->variation_flow_key;
-  result.order_decision_policy = support_layout_order_decision_policy(*layout);
-  result.relation_a = layout->start.relation_kind;
-  result.relation_b = layout->end.relation_kind;
-  result.continuity_class = support_layout_continuity_class(*layout);
-  result.default_lower_required = support_layout_default_lower_required(*layout);
-  result.same_level_feasible = support_layout_same_level_feasible(*layout);
-  result.same_level_reason = support_layout_same_level_reason(*layout);
-  result.projected_spacing_topview_m = support_layout_projected_spacing_topview_m(*layout);
-  result.required_clearance_m = support_layout_required_clearance_m(*layout);
-  result.lowering_blocked_by_policy = support_layout_lowering_blocked_by_policy(*layout);
-  result.unresolved_same_level_conflict = support_layout_unresolved_same_level_conflict(*layout);
-  result.solver_used_same_level_constraint = support_layout_solver_used_same_level_constraint(*layout);
-  result.used_special_case_ports = support_layout_used_special_case_ports(*layout);
-  result.lowering_kind = layout->lowering_kind;
-  result.start_endpoint = MakeSupportLayoutEndpointView(layout->start);
-  result.end_endpoint = MakeSupportLayoutEndpointView(layout->end);
-  ApplyAuthoritativeGroupedEndpointDecision(state_.runtime_.cache_state, layout->start, &result.start_endpoint);
-  ApplyAuthoritativeGroupedEndpointDecision(state_.runtime_.cache_state, layout->end, &result.end_endpoint);
-
-  result.lowered_support_groups =
-      BuildLoweredSupportGroupInspectionViews(state_.runtime_.cache_state, *layout, &result.grouped_authority_cache_complete);
-  if (UsesAuthoritativeGroupedLoweredSupport(layout->start) && !result.start_endpoint.authoritative_group_cache_present) {
-    result.grouped_authority_cache_complete = false;
-  }
-  if (UsesAuthoritativeGroupedLoweredSupport(layout->end) && !result.end_endpoint.authoritative_group_cache_present) {
-    result.grouped_authority_cache_complete = false;
-  }
-
-  std::unordered_set<std::uint64_t> seen{};
-  AddLink(&result.links, &seen, "Source Span", EntityKind::kSpan, span_id);
-  if (result.start_endpoint.owner_pole_id != kInvalidObjectId) {
-    AddLink(&result.links, &seen, "Start Pole", EntityKind::kPole, result.start_endpoint.owner_pole_id);
-  }
-  if (result.end_endpoint.owner_pole_id != kInvalidObjectId) {
-    AddLink(&result.links, &seen, "End Pole", EntityKind::kPole, result.end_endpoint.owner_pole_id);
-  }
-  if (state_.find_curve_cache(span_id) != nullptr) {
-    AddLink(&result.links, &seen, "DetailCurve", EntityKind::kDetailCurve, span_id);
-  }
   return result;
 }
 

@@ -38,7 +38,7 @@ bool has_duplicate_ids(const std::vector<ObjectId>& ids) {
 
 std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash>
 build_expected_support_group_decisions_for_validation(
-    const SupportLayoutCache& span_layout_cache) {
+    const SpanLayoutCache& span_layout_cache) {
   std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash> groups{};
   span_layout_cache.for_each_authority_seed([&](ObjectId, SpanSupportLayoutAuthorityView,
                                                     const SpanSupportLayoutDecisionSeed& seed) {
@@ -793,7 +793,7 @@ ValidationResult CoreState::Validate() const {
   }
 
   cache_state.span_layout_cache.for_each_projected_record(
-      [&](ObjectId span_id, const SupportLayoutCacheRecord& record, const SpanLayoutEntry&) {
+      [&](ObjectId span_id, const SpanLayoutCacheRecord& record, const SpanLayoutEntry&) {
         const SpanSupportLayoutAuthorityView authority{record.authority_seed(), record.requires_authority()};
         if (authority.required && !authority.has_authority()) {
           result.issues.push_back({ValidationSeverity::kWarning,
@@ -836,7 +836,7 @@ ValidationResult CoreState::Validate() const {
     return std::pair<ObjectId, ObjectId>{group.support_pair_peer_low, group.support_pair_peer_high};
   };
   cache_state.span_layout_cache.for_each_projected_record(
-      [&](ObjectId span_id, const SupportLayoutCacheRecord& record, const SpanLayoutEntry& layout) {
+      [&](ObjectId span_id, const SpanLayoutCacheRecord& record, const SpanLayoutEntry& layout) {
         const SpanSupportLayoutAuthorityView authority{record.authority_seed(), record.requires_authority()};
         const double endpoint_attach_lift_m = insulator_lift_for_span(core, span_id);
         validate_support_layout_authority_only(&result, span_id, authority, layout,
@@ -960,7 +960,7 @@ ValidationResult CoreState::Validate() const {
   }
 
   cache_state.span_layout_cache.for_each_projected_record(
-      [&](ObjectId span_id, const SupportLayoutCacheRecord&, const SpanLayoutEntry& layout) {
+      [&](ObjectId span_id, const SpanLayoutCacheRecord&, const SpanLayoutEntry& layout) {
         std::unordered_set<LoweredSupportGroupKey, LoweredSupportGroupKeyHash> seen_group_keys{};
         for (const LoweredSupportGroupKey& key : layout.lowered_support_group_keys) {
           if (!seen_group_keys.insert(key).second) {

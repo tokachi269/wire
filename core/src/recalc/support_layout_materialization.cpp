@@ -491,7 +491,7 @@ void append_unique_group_key(std::vector<LoweredSupportGroupKey>* keys, const Lo
 }
 
 std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash>
-build_support_group_decision_view_from_seeds(const SupportLayoutCache& span_layout_cache) {
+build_support_group_decision_view_from_seeds(const SpanLayoutCache& span_layout_cache) {
   std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash> groups{};
   span_layout_cache.for_each_authority_seed([&](ObjectId, SpanSupportLayoutAuthorityView, const SpanSupportLayoutDecisionSeed& seed) {
     for (const auto& [key, group_copy] : seed.support_group_decisions) {
@@ -505,7 +505,7 @@ build_support_group_decision_view_from_seeds(const SupportLayoutCache& span_layo
 }
 
 std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash>
-build_support_group_decision_view_for_keys_from_seeds(const SupportLayoutCache& span_layout_cache,
+build_support_group_decision_view_for_keys_from_seeds(const SpanLayoutCache& span_layout_cache,
                                                       const std::vector<LoweredSupportGroupKey>& keys) {
   std::unordered_set<LoweredSupportGroupKey, LoweredSupportGroupKeyHash> key_set(keys.begin(), keys.end());
   std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash> groups{};
@@ -545,7 +545,7 @@ using LoweredSupportGroupObservationMap =
     std::unordered_map<LoweredSupportGroupKey, LoweredSupportGroupObservation, LoweredSupportGroupKeyHash>;
 
 void clear_lowered_support_group_derivatives(
-    SupportLayoutCache* cache, const std::vector<LoweredSupportGroupKey>& keys) {
+    SpanLayoutCache* cache, const std::vector<LoweredSupportGroupKey>& keys) {
   if (cache == nullptr) {
     return;
   }
@@ -556,7 +556,7 @@ void clear_lowered_support_group_derivatives(
 }
 
 void store_lowered_support_group_authority(
-    SupportLayoutCache* cache,
+    SpanLayoutCache* cache,
     const std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash>& authority_by_key) {
   if (cache == nullptr) {
     return;
@@ -567,14 +567,14 @@ void store_lowered_support_group_authority(
 }
 
 LoweredSupportGroupObservationMap collect_lowered_support_group_observations(
-    const EditState& edit_state, SupportLayoutCache* cache, const std::vector<LoweredSupportGroupKey>& keys) {
+    const EditState& edit_state, SpanLayoutCache* cache, const std::vector<LoweredSupportGroupKey>& keys) {
   LoweredSupportGroupObservationMap observations{};
   if (cache == nullptr) {
     return observations;
   }
 
   const std::unordered_set<LoweredSupportGroupKey, LoweredSupportGroupKeyHash> key_set(keys.begin(), keys.end());
-  cache->for_each_projected_record([&](ObjectId, SupportLayoutCacheRecord&, SpanLayoutEntry& layout) {
+  cache->for_each_projected_record([&](ObjectId, SpanLayoutCacheRecord&, SpanLayoutEntry& layout) {
     layout.lowered_support_group_keys.erase(
         std::remove_if(layout.lowered_support_group_keys.begin(), layout.lowered_support_group_keys.end(),
                        [&](const LoweredSupportGroupKey& key) { return key_set.contains(key); }),
@@ -638,7 +638,7 @@ void materialize_lowered_support_group_placements(
 }
 
 void project_lowered_support_group_placements(
-    SupportLayoutCache* cache,
+    SpanLayoutCache* cache,
     const std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash>& authority_by_key,
     const std::vector<LoweredSupportGroupKey>& keys) {
   if (cache == nullptr) {
@@ -646,7 +646,7 @@ void project_lowered_support_group_placements(
   }
 
   const std::unordered_set<LoweredSupportGroupKey, LoweredSupportGroupKeyHash> key_set(keys.begin(), keys.end());
-  cache->for_each_projected_record([&](ObjectId, SupportLayoutCacheRecord&, SpanLayoutEntry& layout) {
+  cache->for_each_projected_record([&](ObjectId, SpanLayoutCacheRecord&, SpanLayoutEntry& layout) {
     const auto reproject_endpoint = [&](LayoutEndpoint* endpoint) {
       if (endpoint == nullptr || !endpoint_uses_grouped_lowered_support(endpoint)) {
         return;

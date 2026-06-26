@@ -320,57 +320,41 @@ struct SpanLayoutEntry {
   std::uint64_t source_version = 0;
 };
 
-struct SpanSupportLayoutAuthorityRecord {
-  bool required = false;
+struct SpanLayoutCacheRecord {
+  bool input_required = false;
   std::optional<SpanSupportLayoutDecisionSeed> seed{};
-
-  [[nodiscard]] bool has_seed() const { return seed.has_value(); }
-  [[nodiscard]] const SpanSupportLayoutDecisionSeed* value() const {
-    return seed.has_value() ? &*seed : nullptr;
-  }
-  [[nodiscard]] SpanSupportLayoutDecisionSeed* value() {
-    return seed.has_value() ? &*seed : nullptr;
-  }
-};
-
-struct SpanSupportLayoutProjectionRecord {
   std::optional<SpanLayoutEntry> layout{};
+  std::optional<SpanLayoutRule> rule{};
 
-  [[nodiscard]] bool has_layout() const { return layout.has_value(); }
-  [[nodiscard]] const SpanLayoutEntry* value() const {
+  [[nodiscard]] bool requires_authority() const { return input_required; }
+  [[nodiscard]] bool has_authority() const { return seed.has_value(); }
+  [[nodiscard]] bool has_projection() const { return layout.has_value(); }
+  [[nodiscard]] bool has_rule() const { return rule.has_value(); }
+  [[nodiscard]] const SpanSupportLayoutDecisionSeed* authority_seed() const {
+    return seed.has_value() ? &*seed : nullptr;
+  }
+  [[nodiscard]] SpanSupportLayoutDecisionSeed* authority_seed() {
+    return seed.has_value() ? &*seed : nullptr;
+  }
+  [[nodiscard]] const SpanLayoutEntry* projected_layout() const {
     return layout.has_value() ? &*layout : nullptr;
   }
-  [[nodiscard]] SpanLayoutEntry* value() {
+  [[nodiscard]] SpanLayoutEntry* projected_layout() {
     return layout.has_value() ? &*layout : nullptr;
   }
-};
-
-struct SupportLayoutCacheRecord {
-  SpanSupportLayoutAuthorityRecord authority{};
-  SpanSupportLayoutProjectionRecord projection{};
-  std::optional<SpanLayoutRule> saved_rule{};
-
-  [[nodiscard]] bool requires_authority() const { return authority.required; }
-  [[nodiscard]] bool has_authority() const { return authority.has_seed(); }
-  [[nodiscard]] bool has_projection() const { return projection.has_layout(); }
-  [[nodiscard]] bool has_rule() const { return saved_rule.has_value(); }
-  [[nodiscard]] const SpanSupportLayoutDecisionSeed* authority_seed() const { return authority.value(); }
-  [[nodiscard]] SpanSupportLayoutDecisionSeed* authority_seed() { return authority.value(); }
-  [[nodiscard]] const SpanLayoutEntry* projected_layout() const { return projection.value(); }
-  [[nodiscard]] SpanLayoutEntry* projected_layout() { return projection.value(); }
   [[nodiscard]] const SpanLayoutRule* span_layout_rule() const {
-    return saved_rule.has_value() ? &*saved_rule : nullptr;
+    return rule.has_value() ? &*rule : nullptr;
   }
 
-  void require_authority(bool required_value = true) { authority.required = required_value; }
+  void require_authority(bool required_value = true) { input_required = required_value; }
   void store_authority(SpanSupportLayoutDecisionSeed seed_value) {
-    authority.required = true;
-    authority.seed = std::move(seed_value);
+    input_required = true;
+    seed = std::move(seed_value);
   }
-  void clear_authority() { authority.seed.reset(); }
-  void store_projection(SpanLayoutEntry layout_value) { projection.layout = std::move(layout_value); }
-  void clear_projection() { projection.layout.reset(); }
-  void store_rule(SpanLayoutRule rule_value) { saved_rule = std::move(rule_value); }
+  void clear_authority() { seed.reset(); }
+  void store_projection(SpanLayoutEntry layout_value) { layout = std::move(layout_value); }
+  void clear_projection() { layout.reset(); }
+  void store_rule(SpanLayoutRule rule_value) { rule = std::move(rule_value); }
 };
 
 struct SpanSupportLayoutAuthorityView {
@@ -394,7 +378,7 @@ struct SupportGroupCacheContract {
 };
 
 struct SpanLayoutCache {
-  std::unordered_map<ObjectId, SupportLayoutCacheRecord> records_by_span{};
+  std::unordered_map<ObjectId, SpanLayoutCacheRecord> records_by_span{};
   // Derived support-group cache. Authority is rebuilt from span decision seeds.
   // Placement is rebuilt from authority + observation. Neither is an authoring source.
   SupportGroupCacheContract support_groups{};
@@ -404,7 +388,7 @@ struct SpanLayoutCache {
     if (it == records_by_span.end()) {
       return {};
     }
-    const SupportLayoutCacheRecord& record = it->second;
+    const SpanLayoutCacheRecord& record = it->second;
     return {record.authority_seed(), record.requires_authority()};
   }
 
@@ -429,7 +413,7 @@ struct SpanLayoutCache {
     if (it == records_by_span.end()) {
       return {};
     }
-    const SupportLayoutCacheRecord& record = it->second;
+    const SpanLayoutCacheRecord& record = it->second;
     return {record.span_layout_rule() != nullptr, record.projected_layout() != nullptr, record.requires_authority()};
   }
 
@@ -491,13 +475,13 @@ struct SpanLayoutCache {
 
   void store_layout(SpanLayoutEntry layout) {
     const ObjectId span_id = layout.span_id;
-    SupportLayoutCacheRecord& record = records_by_span[span_id];
+    SpanLayoutCacheRecord& record = records_by_span[span_id];
     record.store_projection(std::move(layout));
   }
 
   void store_seed(SpanSupportLayoutDecisionSeed seed) {
     const ObjectId span_id = seed.span_id;
-    SupportLayoutCacheRecord& record = records_by_span[span_id];
+    SpanLayoutCacheRecord& record = records_by_span[span_id];
     record.store_authority(std::move(seed));
   }
 
@@ -528,7 +512,5 @@ struct SpanLayoutCache {
     erase_record_if_empty(span_id);
   }
 };
-
-using SupportLayoutCache = SpanLayoutCache;
 
 } // namespace wire::core

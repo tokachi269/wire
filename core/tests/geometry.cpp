@@ -1779,75 +1779,6 @@ bool test_context_profile_influences_detail_wobble_without_breaking_determinism(
   return validate_now(state).ok();
 }
 
-bool test_context_profile_selects_communication_cable_and_attachment_families() {
-  CoreState state;
-  const auto communication_pole_type = find_pole_type_by_name(state, "CommunicationPole");
-  if (!communication_pole_type.has_value()) {
-    return false;
-  }
-
-  wire::core::ContextProfile calm{};
-  calm.age = 0.2;
-  calm.clutter = 0.2;
-  calm.regularity = 0.85;
-  calm.service_mix = 0.2;
-  calm.style_seed = 17;
-  if (!state.UpdateContextProfile(calm).ok) {
-    return false;
-  }
-
-  wire::core::Transformd a{};
-  a.position = {0.0, 0.0, 0.0};
-  wire::core::Transformd b{};
-  b.position = {18.0, 0.0, 0.0};
-  const ObjectId pole_a = state.AddPole(a, 10.0, "A").value;
-  const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
-  if (!state.ApplyPoleType(pole_a, communication_pole_type->id).ok ||
-      !state.ApplyPoleType(pole_b, communication_pole_type->id).ok) {
-    return false;
-  }
-
-  wire::core::AddConnectionByPoleOptions options{};
-  options.auto_create_bundle = true;
-  options.use_bundle_template = true;
-  options.bundle_template_id = wire::core::BundleKind::kCommunication;
-  const auto add = state.AddConnectionByPole(pole_a, pole_b, wire::core::ConnectionCategory::kCommunication, options);
-  if (!add.ok) {
-    return false;
-  }
-
-  (void)state.Commit().recalc_stats;
-  const auto* calm_render = state.view().find_span_render_cache(add.value.span_id);
-  const auto calm_layout = state.view().inspect_support_layout(add.value.span_id);
-  if (calm_render == nullptr || !calm_layout.has_value()) {
-    return false;
-  }
-  if (calm_render->material_style != wire::core::CableMaterialStyleKind::kGeneric ||
-      calm_layout->start_endpoint.endpoint_mode != "DirectThrough" ||
-      calm_layout->end_endpoint.endpoint_mode != "DirectThrough") {
-    return false;
-  }
-
-  wire::core::ContextProfile busy = calm;
-  busy.clutter = 0.9;
-  busy.regularity = 0.15;
-  busy.service_mix = 0.85;
-  if (!state.UpdateContextProfile(busy).ok) {
-    return false;
-  }
-  (void)state.Commit().recalc_stats;
-
-  const auto* busy_render = state.view().find_span_render_cache(add.value.span_id);
-  const auto busy_layout = state.view().inspect_support_layout(add.value.span_id);
-  if (busy_render == nullptr || !busy_layout.has_value()) {
-    return false;
-  }
-  return busy_render->material_style == wire::core::CableMaterialStyleKind::kInsulated &&
-         busy_layout->start_endpoint.endpoint_mode == "OffsetEndpoint" &&
-         busy_layout->end_endpoint.endpoint_mode == "OffsetEndpoint" &&
-         validate_now(state).ok();
-}
-
 bool test_attachment_socket_endpoint_can_override_curve_endpoint() {
   CoreState state;
   ObjectId span = wire::core::kInvalidObjectId;
@@ -2920,9 +2851,6 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C307_ContextProfile_InfluencesDetailWobble",
                          "Context profile can change detail wobble appearance while preserving deterministic regeneration",
                          "Invariant", false, test_context_profile_influences_detail_wobble_without_breaking_determinism);
-  test_registry::AddTest(tests, "C308_ContextProfile_SelectsCommunicationFamilies",
-                         "Context profile can select communication cable/attachment families through shared style resolution",
-                         "Invariant", false, test_context_profile_selects_communication_cable_and_attachment_families);
   test_registry::AddTest(tests, "C159_Attachment_SocketEndpoint_OverridesCurveEndpoint",
                          "Attachment socket endpoint can replace a span endpoint so the curve meets the socket without a gap",
                          "Invariant", false, test_attachment_socket_endpoint_can_override_curve_endpoint);

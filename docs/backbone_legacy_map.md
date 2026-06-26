@@ -139,6 +139,7 @@ generation が決めた pair / side / lowering / order が refresh や materiali
 
 | C283-C284 | auxiliary attachment supplemental path が support layout authority を変えない | `DetailCurve.supplemental_paths` と `SupportLayoutInspectionView` を同時に読む | 退役済み。attachment/socket support layout は bb2 mainline 完了条件外。必要になったら neutral layout/geom/draw constraint として再定義する |
 | C164-C166 / C172 | support layout と detail curve / inspection trace の旧 surface が一致する | `SpanSupportLayoutEntry` / `SupportLayoutInspectionView` / `DetailCurveInspectionView` / old decision trace を読む | 退役済み。bb2 では neutral `SpanLayoutEntry`、support group、geom/draw、direct derive determinism で見る。旧 inspection/trace surface は移植しない |
+| C308 | context profile が communication family 選択へ届くことを support layout endpoint mode で確認 | render material と `SupportLayoutInspectionView.start/end.endpoint_mode` を読む | 退役済み。render/style が viewer-blocking になった場合だけ bb2 draw/style requirement として再定義する。旧 endpoint mode inspection は移植しない |
 ## 次に消せる family
 
 優先順:

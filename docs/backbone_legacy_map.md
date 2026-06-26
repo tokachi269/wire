@@ -65,7 +65,7 @@
 
 | old surface | current callers | bb2 replacement | 判断 |
 |---|---|---|---|
-| `support_layout_projection(span).layout` | public `CoreState` / `CoreView` accessor と mutable projection edit view は削除済み。残りは cache 内部 `projection_view` を読む recalc / validation / inspection internals | `span_layout(span)`, `span_layout_state(span)`, `span_layout_rules(span)` | D/E。test/helper の layout existence 制約は neutral read へ移植済み。projection object shape は bb2 要件にしない |
+| `support_layout_projection(span).layout` | public accessor、mutable edit view、inspection の直接 read は削除済み。残りは recalc と cache 内部 visitor | `span_layout(span)`, `span_layout_state(span)`, `span_layout_rules(span)` | D/E。normal inspection は neutral read へ移行済み。projection object shape は bb2 要件にしない |
 | curve / bounds cache after rebuild | `core/tests/geometry.cpp`, `core/tests/generation.cpp`, `core/tests/workflow.cpp`, `core/tests/bundle_visuals.cpp` | bb2 `geom` output、`CurveCacheEntry`、`BoundsCacheEntry` | C。生成直後と direct derive 後に欠けないことを bb2 側で見る |
 | visual / render cache after rebuild | `core/tests/bundle_visuals.cpp`, `core/tests/bb2.cpp` | bb2 `draw` output、`SpanVisualCacheEntry`、`SpanRenderCacheEntry` | C。viewer required output として必要な範囲だけ見る。full support visual semantics は別 family |
 | support-layout authority / seed / projection fields | support-layout 旧 tests | `SpanLayoutRules`, `SpanLayoutEntry`, `SpanLayoutState.input_required=false` | D。旧 contract そのものは v1 専用。bb2 へ戻さない |
@@ -137,7 +137,7 @@ generation が決めた pair / side / lowering / order が refresh や materiali
 |---|---|---|---|
 | old grouped span engine family | production 削除済み | guard/test/履歴以外の caller がない前提 | production caller が残っていないことを確認し続ける |
 | support-layout materialization | 残存 | recalc / v1 / old tests が読む | v1 専用隔離後、必要制約を bb2 に移植 |
-| support-layout authority/seed/projection inspection | 残存 | old tests が読む | old tests を v1 専用へ隔離し、必要制約だけ bb2 direct outputs へ移植 |
+| support-layout authority/seed/projection inspection | public inspection surface は削除済み | recalc/cache internals に authority/projection が残る | inspection へ戻さず、recalc family の退役時に内部 contract を削除 |
 | recalc pipeline | 残存 | v1 / manual debug / validation / old tests | bb2 normal path と supported post-edit から完全に外れた後に削る |
 | public backbone query 旧名 | 残存 | viewer/public API が読む | saved graph backed API へ rename できる段階で整理 |
 | `bb2` namespace/name | 残存 | v1 がまだ同居している | v1/recalc/support-layout 本流依存削除後に mainline 名へ rename |

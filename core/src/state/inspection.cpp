@@ -228,7 +228,7 @@ const char* SupportOrientationBasisText(SupportOrientationBasisKind basis) {
   return "Radial";
 }
 
-OrderDecisionPolicyKind support_layout_order_decision_policy(const SpanSupportLayoutEntry& layout) {
+OrderDecisionPolicyKind support_layout_order_decision_policy(const SpanLayoutEntry& layout) {
   if (layout.start.order_decision_policy == OrderDecisionPolicyKind::kPermutableHomogeneous ||
       layout.end.order_decision_policy == OrderDecisionPolicyKind::kPermutableHomogeneous) {
     return OrderDecisionPolicyKind::kPermutableHomogeneous;
@@ -236,7 +236,7 @@ OrderDecisionPolicyKind support_layout_order_decision_policy(const SpanSupportLa
   return OrderDecisionPolicyKind::kFixedOrder;
 }
 
-ContinuityCategoryClass support_layout_continuity_class(const SpanSupportLayoutEntry& layout) {
+ContinuityCategoryClass support_layout_continuity_class(const SpanLayoutEntry& layout) {
   if (layout.start.continuity_class == ContinuityCategoryClass::kBundleLike ||
       layout.end.continuity_class == ContinuityCategoryClass::kBundleLike) {
     return ContinuityCategoryClass::kBundleLike;
@@ -244,15 +244,15 @@ ContinuityCategoryClass support_layout_continuity_class(const SpanSupportLayoutE
   return ContinuityCategoryClass::kPointLike;
 }
 
-bool support_layout_default_lower_required(const SpanSupportLayoutEntry& layout) {
+bool support_layout_default_lower_required(const SpanLayoutEntry& layout) {
   return layout.start.default_lower_required || layout.end.default_lower_required;
 }
 
-bool support_layout_same_level_feasible(const SpanSupportLayoutEntry& layout) {
+bool support_layout_same_level_feasible(const SpanLayoutEntry& layout) {
   return layout.start.same_level_feasible && layout.end.same_level_feasible;
 }
 
-SameLevelFeasibilityReason support_layout_same_level_reason(const SpanSupportLayoutEntry& layout) {
+SameLevelFeasibilityReason support_layout_same_level_reason(const SpanLayoutEntry& layout) {
   if (support_layout_same_level_feasible(layout)) {
     return SameLevelFeasibilityReason::kNone;
   }
@@ -260,7 +260,7 @@ SameLevelFeasibilityReason support_layout_same_level_reason(const SpanSupportLay
                                           : layout.start.same_level_reason;
 }
 
-double support_layout_projected_spacing_topview_m(const SpanSupportLayoutEntry& layout) {
+double support_layout_projected_spacing_topview_m(const SpanLayoutEntry& layout) {
   const bool start_same = layout.start.same_level_feasible;
   const bool end_same = layout.end.same_level_feasible;
   if (!start_same && !end_same) {
@@ -269,24 +269,24 @@ double support_layout_projected_spacing_topview_m(const SpanSupportLayoutEntry& 
   return start_same ? layout.end.projected_spacing_topview_m : layout.start.projected_spacing_topview_m;
 }
 
-double support_layout_required_clearance_m(const SpanSupportLayoutEntry& layout) {
+double support_layout_required_clearance_m(const SpanLayoutEntry& layout) {
   return std::max(layout.start.required_clearance_m, layout.end.required_clearance_m);
 }
 
-bool support_layout_lowering_blocked_by_policy(const SpanSupportLayoutEntry& layout) {
+bool support_layout_lowering_blocked_by_policy(const SpanLayoutEntry& layout) {
   return layout.start.lowering_blocked_by_policy || layout.end.lowering_blocked_by_policy;
 }
 
-bool support_layout_unresolved_same_level_conflict(const SpanSupportLayoutEntry& layout) {
+bool support_layout_unresolved_same_level_conflict(const SpanLayoutEntry& layout) {
   return layout.start.unresolved_same_level_conflict || layout.end.unresolved_same_level_conflict;
 }
 
-bool support_layout_solver_used_same_level_constraint(const SpanSupportLayoutEntry& layout) {
+bool support_layout_solver_used_same_level_constraint(const SpanLayoutEntry& layout) {
   return layout.start.solver_used_same_level_constraint ||
          layout.end.solver_used_same_level_constraint;
 }
 
-bool support_layout_used_special_case_ports(const SpanSupportLayoutEntry& layout) {
+bool support_layout_used_special_case_ports(const SpanLayoutEntry& layout) {
   return layout.start.used_special_case_ports || layout.end.used_special_case_ports;
 }
 
@@ -531,7 +531,7 @@ std::optional<EntityMeta> CoreView::describe_entity(EntityRef ref) const {
                     EntityRoleKind::kAuthoritative, true, false, "entity.bundle");
   }
   case EntityKind::kSupportLayout: {
-    if (!state_.runtime_.cache_state.span_layout_cache.projection_view(ref.stable_id).has_projection()) {
+    if (!span_layout(ref.stable_id).has_layout()) {
       return std::nullopt;
     }
     return MakeMeta(ref.kind, ref.stable_id, "SupportLayout for span " + std::to_string(ref.stable_id),
@@ -617,8 +617,7 @@ std::optional<PoleInspectionView> CoreView::inspect_pole(ObjectId pole_id) const
       }
       for (ObjectId span_id : spans_it->second) {
         AddLink(&result.links, &seen, "Span " + std::to_string(span_id), EntityKind::kSpan, span_id);
-        if (const SpanSupportLayoutEntry* layout =
-                state_.runtime_.cache_state.span_layout_cache.projection_view(span_id).layout;
+        if (const SpanLayoutEntry* layout = span_layout(span_id).entry;
             layout != nullptr &&
             (layout->start.owner_pole_id == pole_id || layout->end.owner_pole_id == pole_id)) {
           AddLink(&result.links, &seen, "SupportLayout " + std::to_string(span_id), EntityKind::kSupportLayout, span_id);
@@ -654,8 +653,8 @@ std::optional<SpanInspectionView> CoreView::inspect_span(ObjectId span_id) const
   if (const Port* port_b = ports().find(span->port_b_id); port_b != nullptr && port_b->owner_pole_id != kInvalidObjectId) {
     result.end_pole_ref = {EntityKind::kPole, port_b->owner_pole_id};
   }
-  const SpanSupportLayoutProjectionView projection = state_.runtime_.cache_state.span_layout_cache.projection_view(span_id);
-  if (const SpanSupportLayoutEntry* layout = projection.layout; layout != nullptr) {
+  const SpanLayoutView layout_view = span_layout(span_id);
+  if (const SpanLayoutEntry* layout = layout_view.entry; layout != nullptr) {
     result.support_layout_ref = {EntityKind::kSupportLayout, span_id};
     result.flow_kind = layout->flow_kind;
     result.continuity_class = support_layout_continuity_class(*layout);
@@ -756,8 +755,8 @@ std::optional<DetailCurveInspectionView> CoreView::inspect_detail_curve(ObjectId
   result.start_lateral_ratio_limit = curve->detail.quality.start_lateral_ratio_limit;
   result.end_lateral_ratio_limit = curve->detail.quality.end_lateral_ratio_limit;
   result.lateral_suppression = curve->detail.quality.lateral_suppression;
-  const SpanSupportLayoutProjectionView projection = state_.runtime_.cache_state.span_layout_cache.projection_view(span_id);
-  if (const SpanSupportLayoutEntry* layout = projection.layout; layout != nullptr) {
+  const SpanLayoutView layout_view = span_layout(span_id);
+  if (const SpanLayoutEntry* layout = layout_view.entry; layout != nullptr) {
     result.start_endpoint_source = layout->start.endpoint_source;
     result.end_endpoint_source = layout->end.endpoint_source;
     result.start_attachment_request = layout->start.attachment_request;
@@ -772,7 +771,7 @@ std::optional<DetailCurveInspectionView> CoreView::inspect_detail_curve(ObjectId
   result.sag_variation = MakeVariationBreakdownView(curve->detail.quality.sag_variation);
   if (const Span* span = spans().find(span_id); span != nullptr) {
     BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
-    if (const SpanSupportLayoutEntry* layout = projection.layout; layout != nullptr) {
+    if (const SpanLayoutEntry* layout = layout_view.entry; layout != nullptr) {
       flow_kind = layout->flow_kind;
     } else if (const SegmentLaneAssignment* assignment = FindLaneAssignmentForSpan(*this, *span); assignment != nullptr) {
       flow_kind = assignment->flow_kind;
@@ -782,7 +781,7 @@ std::optional<DetailCurveInspectionView> CoreView::inspect_detail_curve(ObjectId
 
   std::unordered_set<std::uint64_t> seen{};
   AddLink(&result.links, &seen, "Source Span", EntityKind::kSpan, span_id);
-  if (const SpanSupportLayoutEntry* layout = projection.layout; layout != nullptr) {
+  if (const SpanLayoutEntry* layout = layout_view.entry; layout != nullptr) {
     AddLink(&result.links, &seen, "SupportLayout", EntityKind::kSupportLayout, span_id);
     if (layout->start.owner_pole_id != kInvalidObjectId) {
       AddLink(&result.links, &seen, "Start Pole", EntityKind::kPole, layout->start.owner_pole_id);
@@ -1087,8 +1086,7 @@ std::optional<OverrideInspectionView> CoreView::inspect_overrides(EntityRef targ
     double automatic_down_offset = 0.0;
     double final_down_offset = 0.0;
     bool down_active = false;
-    if (const SpanSupportLayoutEntry* layout =
-            state_.runtime_.cache_state.span_layout_cache.projection_view(span->id).layout;
+    if (const SpanLayoutEntry* layout = span_layout(span->id).entry;
         layout != nullptr) {
       automatic_down_offset =
           std::max(layout->start.automatic_branch_down_offset_m, layout->end.automatic_branch_down_offset_m);
@@ -1161,8 +1159,7 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
 
   if (ref.kind == EntityKind::kSpan || ref.kind == EntityKind::kSupportLayout || ref.kind == EntityKind::kDetailCurve) {
     const ObjectId span_id = static_cast<ObjectId>(ref.stable_id);
-    if (const SpanSupportLayoutEntry* layout =
-            state_.runtime_.cache_state.span_layout_cache.projection_view(span_id).layout;
+    if (const SpanLayoutEntry* layout = span_layout(span_id).entry;
         layout != nullptr) {
       std::ostringstream flow_summary;
       flow_summary << "flow=" << FlowKindText(layout->flow_kind)

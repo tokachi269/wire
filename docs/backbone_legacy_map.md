@@ -57,6 +57,7 @@
 | C40/C51/C52 edit setup | dirty-bit baseline を作るため編集前に `Commit` | A | Commit setupとdirty assertionを退役。port movement/mode/manual protection constraintsは維持 |
 | C288/C293/C312 optical recalc curve | optical coil/replacement paths を `Commit` 後の v1 curveで確認 | D | 退役済み。supplemental optical visual semantics は bb2 supported scope外。template registration constraintはC310で維持 |
 | C13-C17 geometry recalc cache | line/sag curve、dirty locality、bounds rebuild を `Commit` 後の v1 cache/version で確認 | C/D | 退役済み。bb2 の生成直後 geom/bounds と C611-C613 direct derive が出力・決定性を担う。dirty queue/version 同期は移植しない |
+| C137/C156-C160/C167-C170 attachment and override recalc | attachment interaction、socket endpoint、override roundtrip、旧 inspection surface を `Commit` 後の materialized curve/layout で確認 | C/D | 退役済み。attachment/full socket semantics は bb2 supported scope 外。pole override と lowering の現行制約は bb2 layout/geom/direct derive で確認し、旧 inspection/object shape は移植しない |
 | output cache presence | `support_layout_projection`, curve/bounds/visual/render after recalc | C/D | 詳細は下の「output cache presence family」を参照。bb2 required outputs は rules/layout/geom/draw を直接確認する |
 | viewer-required output | viewer scene/capture constraints | A/B | viewer representative scenes と bb2 scenario tests で扱う。既に pass するケースへの test 追加だけでは進捗扱いにしない |
 | post-edit direct derive determinism | `Commit(run_recalc)` after port/pole edits | B | supported edit が recalc を必要とする場合だけ direct derive tests へ移植 |

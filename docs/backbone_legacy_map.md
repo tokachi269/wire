@@ -18,6 +18,7 @@
 | family / file | 現在の caller | 分類 | bb2 generation 中に読むか | 次の切断先 |
 |---|---|---|---|---|
 | span runtime / dirty marking | `core/src/state/span_runtime.cpp`。Commit/recalc処理は削除済み | mainline runtime | index/cache accessとmutation tracking。recalc ownerではない |
+| dirty queue | consumer退役後にstorage/push/cleanupを削除済み | A | dirty bitsは編集状態の観測として別途残る |
 | `core/src/recalc/support_layout_materialization.*` | recalc pipeline、旧 support-layout tests | D/E | no | user-visible 制約だけ bb2 rules/layout/geom/draw へ移植。object shape は移植しない |
 | `core/src/recalc/support_layout_projection.*` | recalc、validation、旧 tests | D/E | no | neutral `span_layout` / `span_layout_state` / direct caches へ読み替える |
 | `core/src/recalc/detail_curve*` | recalc curve tests、v1 geometry rebuild | D/E | no | bb2 は `core/src/generation/bb2/out.*` を使う。必要な curve 制約だけ移植する |

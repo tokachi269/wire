@@ -149,7 +149,6 @@ private:
   void add_span_to_index(const Span& span);
   void initialize_span_runtime_state(ObjectId span_id);
   void mark_span_dirty(ObjectId span_id, DirtyBits dirty_bits, bool bump_data_version);
-  void add_dirty_queue(ObjectId span_id, DirtyBits dirty_bits);
   void mark_connected_spans_dirty_from_port(ObjectId port_id, DirtyBits dirty_bits, ChangeSet* change_set);
   void mark_connected_spans_dirty_from_anchor(ObjectId anchor_id, DirtyBits dirty_bits, ChangeSet* change_set);
   EditResult<bool> derive_generated_span_outputs_for_dirty_spans(const std::vector<ObjectId>& span_ids);
@@ -255,8 +254,6 @@ private:
   [[nodiscard]] const std::unordered_map<ObjectId, SpanRuntimeState>& span_runtime_states_access() const {
     return runtime_.span_runtime_states;
   }
-  [[nodiscard]] DirtyQueue& dirty_queue_access() { return runtime_.dirty_queue; }
-  [[nodiscard]] const DirtyQueue& dirty_queue_access() const { return runtime_.dirty_queue; }
   [[nodiscard]] CacheState& cache_state_access() { return runtime_.cache_state; }
   [[nodiscard]] const CacheState& cache_state_access() const { return runtime_.cache_state; }
   [[nodiscard]] std::uint64_t& next_generation_session_id_access() { return identity_.next_generation_session_id; }

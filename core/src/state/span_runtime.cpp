@@ -111,22 +111,6 @@ void CoreState::mark_span_dirty(ObjectId span_id, DirtyBits dirty_bits, bool bum
     runtime.data_version = identity_.next_data_version++;
   }
   runtime.dirty_bits |= dirty_bits;
-  add_dirty_queue(span_id, dirty_bits);
-}
-
-void CoreState::add_dirty_queue(ObjectId span_id, DirtyBits dirty_bits) {
-  if (any(dirty_bits, DirtyBits::kTopology))
-    runtime_.dirty_queue.topology_dirty_span_ids.push_back(span_id);
-  if (any(dirty_bits, DirtyBits::kDecision))
-    runtime_.dirty_queue.decision_dirty_span_ids.push_back(span_id);
-  if (any(dirty_bits, DirtyBits::kGeometryRefresh))
-    runtime_.dirty_queue.geometry_dirty_span_ids.push_back(span_id);
-  if (any(dirty_bits, DirtyBits::kBounds))
-    runtime_.dirty_queue.bounds_dirty_span_ids.push_back(span_id);
-  if (any(dirty_bits, DirtyBits::kRenderRefresh))
-    runtime_.dirty_queue.render_dirty_span_ids.push_back(span_id);
-  if (any(dirty_bits, DirtyBits::kRaycast))
-    runtime_.dirty_queue.raycast_dirty_span_ids.push_back(span_id);
 }
 
 void CoreState::mark_connected_spans_dirty_from_port(ObjectId port_id, DirtyBits dirty_bits, ChangeSet* change_set) {

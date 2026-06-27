@@ -38,7 +38,6 @@ struct CoreStateRuntimeStorage {
   RelationIndex relation_index{};
   BackboneIndex backbone_index{};
   std::unordered_map<ObjectId, SpanRuntimeState> span_runtime_states{};
-  DirtyQueue dirty_queue{};
   CacheState cache_state{};
 };
 

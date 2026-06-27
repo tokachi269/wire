@@ -60,21 +60,6 @@ CoreState::RegenerateSessionAutoParts(std::uint64_t generation_session_id, const
     }
   }
 
-  auto erase_removed_spans_from_queue = [&](std::vector<ObjectId>& queue) {
-    queue.erase(std::remove_if(queue.begin(), queue.end(),
-                               [&](ObjectId id) {
-                                 return std::find(target_span_ids.begin(), target_span_ids.end(), id) !=
-                                        target_span_ids.end();
-                               }),
-                queue.end());
-  };
-  erase_removed_spans_from_queue(dirty_queue_access().topology_dirty_span_ids);
-  erase_removed_spans_from_queue(dirty_queue_access().decision_dirty_span_ids);
-  erase_removed_spans_from_queue(dirty_queue_access().geometry_dirty_span_ids);
-  erase_removed_spans_from_queue(dirty_queue_access().bounds_dirty_span_ids);
-  erase_removed_spans_from_queue(dirty_queue_access().render_dirty_span_ids);
-  erase_removed_spans_from_queue(dirty_queue_access().raycast_dirty_span_ids);
-
   for (ObjectId port_id : candidate_generated_port_ids) {
     const Port* port_ptr = edit_state_access().ports.find(port_id);
     if (port_ptr == nullptr) {
@@ -211,4 +196,3 @@ CoreState::RegenerateSessionAutoParts(std::uint64_t generation_session_id, const
 }
 
 } // namespace wire::core
-

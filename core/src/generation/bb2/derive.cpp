@@ -124,18 +124,12 @@ EditResult<bool> CoreState::DeriveGeneratedSpanOutputs(ObjectId span_id) {
 
 EditResult<bool> CoreState::derive_generated_span_outputs_for_dirty_spans(const std::vector<ObjectId>& span_ids) {
   EditResult<bool> out{};
-  auto erase_id = [](std::vector<ObjectId>& ids, ObjectId span_id) {
-    ids.erase(std::remove(ids.begin(), ids.end(), span_id), ids.end());
-  };
   auto clear_direct_derived_dirty = [&](ObjectId span_id) {
     const auto runtime_it = runtime_.span_runtime_states.find(span_id);
     if (runtime_it != runtime_.span_runtime_states.end()) {
       runtime_it->second.dirty_bits = runtime_it->second.dirty_bits & ~DirtyBits::kGeometryRefresh &
                                       ~DirtyBits::kBounds & ~DirtyBits::kRenderRefresh;
     }
-    erase_id(runtime_.dirty_queue.geometry_dirty_span_ids, span_id);
-    erase_id(runtime_.dirty_queue.bounds_dirty_span_ids, span_id);
-    erase_id(runtime_.dirty_queue.render_dirty_span_ids, span_id);
   };
   for (ObjectId span_id : span_ids) {
     if (span_id == kInvalidObjectId) {

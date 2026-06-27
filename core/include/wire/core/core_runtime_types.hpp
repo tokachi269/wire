@@ -213,14 +213,4 @@ struct SpanRuntimeState {
   DirtyBits dirty_bits = DirtyBits::kNone;
 };
 
-struct DirtyQueue {
-  // Derived work queues. Content is rebuildable from edit operations.
-  std::vector<ObjectId> topology_dirty_span_ids;
-  std::vector<ObjectId> decision_dirty_span_ids;
-  std::vector<ObjectId> geometry_dirty_span_ids;
-  std::vector<ObjectId> bounds_dirty_span_ids;
-  std::vector<ObjectId> render_dirty_span_ids;
-  std::vector<ObjectId> raycast_dirty_span_ids;
-};
-
 } // namespace wire::core

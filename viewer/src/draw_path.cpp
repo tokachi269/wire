@@ -1398,14 +1398,13 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
             span->id);
         write_decision_trace("result.lane_assignment[" + std::to_string(i) + "].lane[" + std::to_string(lane) + "]",
                              wire::core::EntityRef{wire::core::EntityKind::kSpan, span->id});
-        }
       }
     }
   }
 
-    ofs << "result.current_span_count=" << view.edit_state().spans.size() << "\n";
-    std::size_t current_span_index = 0;
-    for (const auto& span : view.edit_state().spans.items()) {
+  ofs << "result.current_span_count=" << view.edit_state().spans.size() << "\n";
+  std::size_t current_span_index = 0;
+  for (const auto& span : view.edit_state().spans.items()) {
     ofs << "result.current_span[" << current_span_index << "].span_id=" << static_cast<unsigned long long>(span.id)
       << "\n";
     ofs << "result.current_span[" << current_span_index << "].bundle_id="

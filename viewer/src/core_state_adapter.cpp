@@ -78,8 +78,8 @@ wire::core::EditResult<bool> UpdateVisualSettings(CoreState& state, const wire::
   return state.UpdateVisualSettings(settings, mark_all_spans_dirty);
 }
 
-wire::core::CommitResult Commit(CoreState& state, const wire::core::CommitOptions& options) {
-  return state.Commit(options);
+wire::core::ValidationResult ValidateFast(const CoreState& state) {
+  return state.ValidateFast();
 }
 
 } // namespace viewer_core_state

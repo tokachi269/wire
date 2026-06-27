@@ -103,15 +103,15 @@ const char* ContinuityPolicyLabel(wire::core::CableContinuityPolicyHint policy) 
   }
 }
 
-const char* SupportLayoutEndpointSourceLabel(wire::core::SupportLayoutEndpointSourceKind source) {
+const char* SupportLayoutEndpointSourceLabel(wire::core::LayoutEndpointSourceKind source) {
   switch (source) {
-  case wire::core::SupportLayoutEndpointSourceKind::kPlainSupport:
+  case wire::core::LayoutEndpointSourceKind::kPlainSupport:
     return "PlainSupport";
-  case wire::core::SupportLayoutEndpointSourceKind::kAttachmentSocket:
+  case wire::core::LayoutEndpointSourceKind::kAttachmentSocket:
     return "AttachmentSocket";
-  case wire::core::SupportLayoutEndpointSourceKind::kAttachmentSocketOverride:
+  case wire::core::LayoutEndpointSourceKind::kAttachmentSocketOverride:
     return "AttachmentSocketOverride";
-  case wire::core::SupportLayoutEndpointSourceKind::kFallback:
+  case wire::core::LayoutEndpointSourceKind::kFallback:
   default:
     return "Fallback";
   }
@@ -206,15 +206,15 @@ const char* DetailCurveEndpointTangentRuleLabel(wire::core::DetailCurveEndpointT
   }
 }
 
-const char* SupportLayoutOriginLabel(wire::core::SupportLayoutOriginKind origin) {
+const char* SupportLayoutOriginLabel(wire::core::LayoutOriginKind origin) {
   switch (origin) {
-  case wire::core::SupportLayoutOriginKind::kMainSupport:
+  case wire::core::LayoutOriginKind::kMainSupport:
     return "MainSupport";
-  case wire::core::SupportLayoutOriginKind::kBranchSupport:
+  case wire::core::LayoutOriginKind::kBranchSupport:
     return "BranchSupport";
-  case wire::core::SupportLayoutOriginKind::kAerialBranch:
+  case wire::core::LayoutOriginKind::kAerialBranch:
     return "AerialBranch";
-  case wire::core::SupportLayoutOriginKind::kFallback:
+  case wire::core::LayoutOriginKind::kFallback:
   default:
     return "Fallback";
   }
@@ -2176,26 +2176,6 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
     }
   }
 
-  const auto& recalc = view.last_recalc_stats();
-  ImGui::Text("Dirty T/D/G/B/R/X: %d / %d / %d / %d / %d / %d",
-              static_cast<int>(view.dirty_queue().topology_dirty_span_ids.size()),
-              static_cast<int>(view.dirty_queue().decision_dirty_span_ids.size()),
-              static_cast<int>(view.dirty_queue().geometry_dirty_span_ids.size()),
-              static_cast<int>(view.dirty_queue().bounds_dirty_span_ids.size()),
-              static_cast<int>(view.dirty_queue().render_dirty_span_ids.size()),
-              static_cast<int>(view.dirty_queue().raycast_dirty_span_ids.size()));
-  ImGui::Text("Legacy Recalc total=%d decision=%d geom=%d bounds=%d render=%d", static_cast<int>(recalc.total_processed()),
-              static_cast<int>(recalc.decision_processed), static_cast<int>(recalc.geometry_processed),
-              static_cast<int>(recalc.bounds_processed),
-              static_cast<int>(recalc.render_processed));
-  if (ImGui::Button("Run Legacy Recalc")) {
-    wire::core::CommitOptions options{};
-    options.run_recalc = true;
-    options.run_validate = false;
-    const auto stats = viewer_core_state::Commit(state, options).recalc_stats;
-    PushLog(ui_state, "Recalc processed=" + std::to_string(stats.total_processed()));
-  }
-
   if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen)) {
     ImGui::SliderFloat("FOV", &ui_state.camera_fov_deg, 20.0f, 110.0f, "%.1f deg");
     ImGui::SliderFloat("Walk Speed", &ui_state.camera_walk_speed, 0.5f, 80.0f, "%.1f");
@@ -2915,10 +2895,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
     ImGui::Checkbox("Show Span AABB", &ui_state.show_whole_aabb);
     ImGui::Checkbox("Show Segment AABB", &ui_state.show_segment_aabb);
     ImGui::Checkbox("Highlight Selected Bundle", &ui_state.show_selected_bundle_highlight);
-    wire::core::CommitOptions options{};
-    options.run_recalc = false;
-    options.run_validate = true;
-    const wire::core::ValidationResult validation = viewer_core_state::Commit(state, options).validation;
+    const wire::core::ValidationResult validation = viewer_core_state::ValidateFast(state);
     ImGui::Text("Validation: %s", validation.ok() ? "OK" : "ERROR");
   }
 

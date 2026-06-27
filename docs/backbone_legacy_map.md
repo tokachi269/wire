@@ -37,7 +37,7 @@
 | viewer normal path | `span_layout`, `span_layout_state`, rules, curve, bounds, visual/render, saved backbone result を読む | mainline | 旧 support-layout contract を戻さない |
 | pole-height normal UI | `inspect_support_layout` 依存は削除済み | mainline | 追加作業なし |
 | selected `SupportLayout` manual debug panel | neutral `span_layout` / rules / geom / draw / saved frontier を読む | mainline/debug | `inspect_support_layout` を戻さない |
-| manual `Run Legacy Recalc` | 明示操作で `Commit(run_recalc)` を呼ぶ | D | normal path ではない。削除時は代替 direct derive 操作が必要 |
+| manual `Run Legacy Recalc` | viewer panel と adapter wrapper を削除済み | A | viewer から recalc を再導入しない |
 | validation-only commit | validation/debug 経路 | D | bb2 normal path の blocker にしない |
 | capture replay | neutral span layout / rules / bounds / visual / render を読む | mainline/debug | support-layout inspection を戻さない |
 

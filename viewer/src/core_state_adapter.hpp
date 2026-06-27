@@ -49,6 +49,6 @@ wire::core::EditResult<bool> UpdatePoleTypeDefinition(CoreState& state,
 wire::core::EditResult<bool> UpdateVisualSettings(CoreState& state, const wire::core::VisualSettings& settings,
                                                   bool mark_all_spans_dirty);
 
-[[nodiscard]] wire::core::CommitResult Commit(CoreState& state, const wire::core::CommitOptions& options);
+[[nodiscard]] wire::core::ValidationResult ValidateFast(const CoreState& state);
 
 } // namespace viewer_core_state

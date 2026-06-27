@@ -48,21 +48,6 @@ struct LoweredSupportGroupKeyHash {
   }
 };
 
-struct JunctionPairAuthority {
-  ObjectId pair_peer_low = kInvalidObjectId;
-  ObjectId pair_peer_high = kInvalidObjectId;
-  SupportOrientationBasisKind orientation_basis = SupportOrientationBasisKind::kRadial;
-  Vec3d pair_axis{};
-  bool has_pair_axis = false;
-  int height_rank = -1;
-};
-
-struct ResolvedSupportAuthority {
-  JunctionPairAuthority pair{};
-  Vec3d signed_support_axis{};
-  bool has_signed_support_axis = false;
-};
-
 struct LayoutSemantic {
   ObjectId owner_pole_id = kInvalidObjectId;
   JunctionRelationKind relation_kind = JunctionRelationKind::kNone;
@@ -131,7 +116,6 @@ inline LayoutSemantic& LayoutSemantic::operator=(const EndpointContinuityDecisio
 struct LayoutEndpoint : LayoutSemantic {
   ObjectId endpoint_node_id = kInvalidObjectId;
   ObjectId port_id = kInvalidObjectId;
-  ResolvedSupportAuthority support_authority{};
   EndpointAttachmentRequest attachment_request{};
   std::optional<int> resolved_socket_id{};
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
@@ -168,7 +152,6 @@ struct LayoutEndpoint : LayoutSemantic {
 };
 
 struct SupportGroupDecision : LayoutSemantic {
-  ResolvedSupportAuthority support_authority{};
   SlotSide side = SlotSide::kCenter;
   LayoutOriginKind origin = LayoutOriginKind::kFallback;
   OrderDecisionPolicyKind order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
@@ -182,7 +165,6 @@ struct EndpointLayoutRule {
   ObjectId endpoint_node_id = kInvalidObjectId;
   ObjectId port_id = kInvalidObjectId;
   LayoutSemantic semantic{};
-  ResolvedSupportAuthority support_authority{};
   EndpointAttachmentRequest attachment_request{};
   std::optional<int> resolved_socket_id{};
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;

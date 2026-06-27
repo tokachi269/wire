@@ -22,7 +22,7 @@
 | `SpanLayoutRules` / `SpanLayoutEntry` / `SpanLayoutState` | bb2、viewer normal/debug、public inspection | mainline | yes | support-layout authority/seed/projection を戻さない |
 | saved backbone graph | bb2、viewer/query、frontier、route query | mainline | yes | topology authority。span/layout/seed/curve/port position から復元しない |
 | `BuildSavedBackboneResult` / `BuildBackboneEdges` / `FindBackboneRoute` | public query、viewer、tests | B | no v1 fallback | saved graph backed query として維持。旧名 rename は mainline 化後 |
-| `span_layout_types.hpp` の endpoint authority 語 | neutral layout/support group data と validation | D/E | no fallback path | endpoint decision validation に残存。support group cache は `decision` 名へ退役済み |
+| `span_layout_types.hpp` の endpoint/support-group decision data | neutral layout/support group data と validation | mainline | no fallback path | 旧 authority object は削除済み。decision / placement として扱う |
 | `ValidateFast` の support-group projection checks | viewer validation panel、tests | D/E | no | normal path blocker にしない。必要制約だけ neutral validation へ移す |
 | `DirtyBits` / span runtime dirty marking | editing/runtime/viewer dirty overlay | mainline runtime | no recalc owner | mutation tracking と表示用。dirty queue/recalc ではない |
 | direct derive `DeriveGeneratedSpanOutputs` | post-edit output rederive | mainline | no recalc | saved rules/ports から layout/geom/draw を再導出。recalc へ戻さない |
@@ -39,6 +39,7 @@
 | `support_orientation_utils.*` | 削除済み | validation-only helper の別ファイル化。必要分は validator 内へ局所化 |
 | viewer/public inspection の `SupportLayout` entity/selection 名 | neutral `SpanLayout` 名へ置換済み | normal UI / public inspection に旧 support-layout entity 名を戻すこと |
 | `support_layout_types.hpp` ファイル名 | `span_layout_types.hpp` へ置換済み | neutral layout 型を旧 support-layout ファイル名へ戻すこと |
+| `ResolvedSupportAuthority` / `JunctionPairAuthority` / `support_authority` | 削除済み | default のまま保存型に残る旧 authority object |
 
 ## viewer 境界
 
@@ -66,16 +67,14 @@
 
 | 対象 | 状態 | 削除条件 |
 |---|---|---|
-| validation の旧 authority 語 | validation-only で残存 | support group consistency check を旧語なしで表せること |
 | public backbone query 旧名 | viewer/public API が読む | bb2 が mainline 名へ rename できる段階で整理 |
 | `bb2` namespace/name | v1 同居中の暫定名 | v1/recalc/support-layout 本流依存を削り切った後に mainline 名へ rename |
 | dirty bits | editing/runtime/viewer が読む | recalc ではなく mutation tracking として残すか、用途別に分ける |
 
 ## 次に消せる family
 
-1. validation-only support-layout authority 語を neutral validation に置換できるか判断する。
-2. public query 旧名を mainline API 名へ移せるか、viewer/public caller 単位で確認する。
-3. dirty bits を recalc 残骸ではなく mutation tracking として残すか、用途別に分ける。
+1. public query 旧名を mainline API 名へ移せるか、viewer/public caller 単位で確認する。
+2. dirty bits を recalc 残骸ではなく mutation tracking として残すか、用途別に分ける。
 
 ## 運用ルール
 

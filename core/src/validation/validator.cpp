@@ -39,7 +39,7 @@ bool endpoint_uses_grouped_lowered_support_for_validation(const LayoutEndpoint& 
   return UsesAuthoritativeGroupedLoweredSupport(endpoint);
 }
 
-bool endpoint_requires_pair_authority_for_validation(const LayoutEndpoint& endpoint) {
+bool endpoint_requires_pair_decision_for_validation(const LayoutEndpoint& endpoint) {
   return !endpoint.lower_required && endpoint.same_level_feasible &&
          endpoint.continuity_class == ContinuityCategoryClass::kPointLike && HasAuthoritativeSupportPair(endpoint) &&
          (endpoint.relation_kind == JunctionRelationKind::kThroughMain ||
@@ -67,9 +67,6 @@ Vec3d safe_horizontal_normalized_validation(Vec3d v) {
 }
 
 Vec3d authoritative_support_axis_for_validation(const SupportGroupDecision& group) {
-  if (group.support_authority.has_signed_support_axis) {
-    return safe_horizontal_normalized_validation(group.support_authority.signed_support_axis);
-  }
   Vec3d axis = group.side_axis;
   axis.z = 0.0;
   if (!Normalize(&axis) || !is_finite_xy_validation(axis)) {
@@ -91,16 +88,6 @@ bool variation_sample_equal(const HierarchicalVariationSample& a, const Hierarch
          a.pole_id == b.pole_id && a.secondary_pole_id == b.secondary_pole_id && a.local_key == b.local_key;
 }
 
-bool support_authority_equal(const ResolvedSupportAuthority& a, const ResolvedSupportAuthority& b,
-                             double eps = 1e-9) {
-  return a.has_signed_support_axis == b.has_signed_support_axis &&
-         almost_equal_validation(a.signed_support_axis, b.signed_support_axis, eps) &&
-         a.pair.has_pair_axis == b.pair.has_pair_axis &&
-         almost_equal_validation(a.pair.pair_axis, b.pair.pair_axis, eps) &&
-         a.pair.pair_peer_low == b.pair.pair_peer_low &&
-         a.pair.pair_peer_high == b.pair.pair_peer_high && a.pair.height_rank == b.pair.height_rank;
-}
-
 bool support_group_decision_equal(const SupportGroupDecision& a, const SupportGroupDecision& b, double eps = 1e-9) {
   return a.owner_pole_id == b.owner_pole_id && a.continuity_class == b.continuity_class &&
          a.support_group_id == b.support_group_id && a.lower_required == b.lower_required &&
@@ -115,7 +102,7 @@ bool support_group_decision_equal(const SupportGroupDecision& a, const SupportGr
          a.used_junction_pair_side_assignment == b.used_junction_pair_side_assignment &&
          a.has_side_axis == b.has_side_axis && almost_equal_validation(a.side_axis, b.side_axis, eps) &&
          a.chosen_side == b.chosen_side && almost_equal_validation(a.chosen_side_sign, b.chosen_side_sign, eps) &&
-         a.side == b.side && a.origin == b.origin && support_authority_equal(a.support_authority, b.support_authority, eps);
+         a.side == b.side && a.origin == b.origin;
 }
 
 double insulator_lift_for_span(const CoreView& core, ObjectId span_id) {
@@ -221,22 +208,13 @@ void validate_projected_span_layout_endpoint(ValidationResult* result, const Cor
     result->issues.push_back({ValidationSeverity::kError, "SpanLayoutSocketReinterpreted",
                               "Materialized span layout must not reinterpret the chosen endpoint socket", span_id});
   }
-  if (endpoint_requires_pair_authority_for_validation(endpoint) &&
+  if (endpoint_requires_pair_decision_for_validation(endpoint) &&
       (endpoint.side_assignment_rule != SideAssignmentRuleKind::kThroughPairNormal ||
        endpoint.support_orientation_rule != SupportOrientationRuleKind::kThroughPairNormal ||
        !endpoint.used_junction_pair_side_assignment || !endpoint.has_side_axis ||
        std::abs(endpoint.chosen_side_sign) <= 1e-9)) {
-    result->issues.push_back({ValidationSeverity::kError, "SupportPairAuthorityFallback",
+    result->issues.push_back({ValidationSeverity::kError, "SupportPairDecisionFallback",
                               "Pair-authoritative same-level endpoints must not fall back to endpoint-local support rules",
-                              span_id});
-  }
-  if (endpoint_requires_pair_authority_for_validation(endpoint) &&
-      (endpoint.support_authority.pair.pair_peer_low != endpoint.support_pair_peer_low ||
-       endpoint.support_authority.pair.pair_peer_high != endpoint.support_pair_peer_high ||
-       endpoint.support_authority.pair.orientation_basis != endpoint.support_orientation_basis ||
-       endpoint.support_authority.pair.has_pair_axis != endpoint.has_side_axis)) {
-    result->issues.push_back({ValidationSeverity::kError, "SupportPairAuthorityMismatch",
-                              "Materialized pair authority must stay aligned with the generated endpoint decision",
                               span_id});
   }
   if (endpoint_uses_grouped_lowered_support_for_validation(endpoint) &&
@@ -303,11 +281,6 @@ void validate_grouped_support_projection(ValidationResult* result, const EditSta
       decision.support_pair_peer_high != endpoint.support_pair_peer_high) {
     result->issues.push_back({ValidationSeverity::kError, "SupportGroupEndpointSemanticProjectionMismatch",
                               "Grouped-lowered endpoint must keep the same support-group identity and authoritative pair as the support-group decision",
-                              span_id});
-  }
-  if (!support_authority_equal(decision.support_authority, endpoint.support_authority)) {
-    result->issues.push_back({ValidationSeverity::kError, "SupportGroupEndpointAuthorityProjectionMismatch",
-                              "Grouped-lowered endpoint support authority must match the authoritative support-group decision",
                               span_id});
   }
   if (!almost_equal_validation(endpoint.support_world, endpoint.endpoint_world)) {

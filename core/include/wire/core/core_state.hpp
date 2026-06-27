@@ -130,9 +130,6 @@ public:
   [[nodiscard]] double effective_port_layout_yaw_deg(const Pole& pole, ConnectionCategory category,
                                                      const PortLayoutYawOverride* row_layout_yaw_override = nullptr) const;
 
-  [[nodiscard]] CommitResult Commit();
-  [[nodiscard]] CommitResult Commit(const CommitOptions& options);
-
   [[nodiscard]] ObjectId next_id() const { return identity_.id_generator.peek(); }
   void clear_path_direction_debug_records() { debug_.path_direction_debug_records.clear(); }
   void clear_port_resolution_debug_records() { debug_.port_resolution_debug_records.clear(); }
@@ -288,7 +285,6 @@ private:
   }
 
   [[nodiscard]] static bool has_zero_length(const Port& a, const Port& b);
-  RecalcStats ProcessDirtyQueues();
   [[nodiscard]] ValidationResult Validate() const;
   [[nodiscard]] const SpanRuntimeState* find_span_runtime_state(ObjectId span_id) const;
   [[nodiscard]] static std::unordered_map<ObjectId, std::vector<ObjectId>>

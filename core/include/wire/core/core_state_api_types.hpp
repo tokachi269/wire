@@ -30,17 +30,6 @@ struct ValidationResult {
   [[nodiscard]] bool ok() const { return !has_errors(); }
 };
 
-struct CommitOptions {
-  bool run_recalc = true;
-  bool run_validate_fast = true;
-  bool run_validate = false;
-};
-
-struct CommitResult {
-  RecalcStats recalc_stats{};
-  ValidationResult validation{};
-};
-
 struct AddConnectionByPoleOptions {
   SpanKind span_kind = SpanKind::kDistribution;
   SpanLayer span_layer = SpanLayer::kUnknown;

@@ -223,18 +223,4 @@ struct DirtyQueue {
   std::vector<ObjectId> raycast_dirty_span_ids;
 };
 
-struct RecalcStats {
-  std::size_t topology_processed = 0;
-  std::size_t decision_processed = 0;
-  std::size_t geometry_processed = 0;
-  std::size_t bounds_processed = 0;
-  std::size_t render_processed = 0;
-  std::size_t raycast_processed = 0;
-
-  [[nodiscard]] std::size_t total_processed() const {
-    return topology_processed + decision_processed + geometry_processed + bounds_processed + render_processed +
-           raycast_processed;
-  }
-};
-
 } // namespace wire::core

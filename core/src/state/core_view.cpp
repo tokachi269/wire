@@ -100,7 +100,6 @@ std::vector<const SavedBackbonePortBinding*> CoreView::backbone_port_bindings_fo
   return out;
 }
 const DirtyQueue& CoreView::dirty_queue() const { return state_.runtime_.dirty_queue; }
-const RecalcStats& CoreView::last_recalc_stats() const { return state_.runtime_.last_recalc_stats; }
 const GeometrySettings& CoreView::geometry_settings() const { return state_.runtime_.cache_state.geometry_settings; }
 const VisualSettings& CoreView::visual_settings() const { return state_.runtime_.cache_state.visual_settings; }
 const VariationSettings& CoreView::variation_settings() const { return state_.runtime_.cache_state.variation_settings; }

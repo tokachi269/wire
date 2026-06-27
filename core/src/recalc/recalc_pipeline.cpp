@@ -327,7 +327,6 @@ RecalcStats CoreState::ProcessDirtyQueues() {
   }
 
   runtime_.dirty_queue = DirtyQueue{};
-  runtime_.last_recalc_stats = stats;
   return stats;
 }
 

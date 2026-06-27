@@ -1,4 +1,4 @@
-﻿#include <vector>
+#include <vector>
 
 #include <iostream>
 #include "registry.hpp"
@@ -487,94 +487,6 @@ bool test_backbone_bundle_template_multi_request_generates_multiple_bundles() {
   return low_voltage_bundle_count == 1 && communication_bundle_count == 1;
 }
 
-bool test_multilane_identity_template_uses_policy_based_offset_endpoints() {
-  CoreState state;
-
-  PoleTypeId communication_pole_type_id = wire::core::kInvalidPoleTypeId;
-  for (const auto& [_, pole_type] : state.view().pole_types()) {
-    if (pole_type.name == "CommunicationPole") {
-      communication_pole_type_id = pole_type.id;
-      break;
-    }
-  }
-  if (communication_pole_type_id == wire::core::kInvalidPoleTypeId) {
-    std::cerr << "[DBG] C191 no communication pole type\n";
-    return false;
-  }
-
-  const auto tpl_it = state.view().bundle_templates().find(wire::core::BundleKind::kCommunication);
-  if (tpl_it == state.view().bundle_templates().end()) {
-    return false;
-  }
-  wire::core::BundleTemplate tpl = tpl_it->second;
-  tpl.preserve_conductor_identity = true;
-  tpl.default_count = 3;
-  tpl.default_spacing_m = 0.45;
-  const auto apply = state.UpdateBundleTemplate(tpl);
-  if (!apply.ok) {
-    std::cerr << "[DBG] C191 UpdateBundleTemplate failed: " << apply.error << "\n";
-    return false;
-  }
-  const auto cable_it = state.view().cable_templates().find(tpl.cable_template_id);
-  if (cable_it == state.view().cable_templates().end()) {
-    std::cerr << "[DBG] C191 cable template missing\n";
-    return false;
-  }
-  wire::core::CableTemplate cable = cable_it->second;
-  cable.attachment_style = wire::core::CableAttachmentStyleHint::kAuto;
-  const auto cable_apply = state.UpdateCableTemplate(cable);
-  if (!cable_apply.ok) {
-    std::cerr << "[DBG] C191 UpdateCableTemplate failed: " << cable_apply.error << "\n";
-    return false;
-  }
-
-  const ObjectId pole_a = state.AddPole({}, 10.0, "A").value;
-  wire::core::Transformd pole_b_tf{};
-  pole_b_tf.position = {12.0, 0.0, 0.0};
-  const ObjectId pole_b = state.AddPole(pole_b_tf, 10.0, "B").value;
-  if (!state.ApplyPoleType(pole_a, communication_pole_type_id).ok || !state.ApplyPoleType(pole_b, communication_pole_type_id).ok) {
-    std::cerr << "[DBG] C191 ApplyPoleType failed\n";
-    return false;
-  }
-
-  wire::core::AddConnectionByPoleOptions options{};
-  options.auto_create_bundle = true;
-  options.use_bundle_template = true;
-  options.bundle_template_id = wire::core::BundleKind::kCommunication;
-  const auto add =
-      add_connection_by_category(state, pole_a, pole_b, wire::core::ConnectionCategory::kCommunication, options);
-  if (!add.ok) {
-    std::cerr << "[DBG] C191 AddConnection failed: " << add.error << "\n";
-    return false;
-  }
-  (void)state.Commit().recalc_stats;
-
-  const ObjectId span_id = add.value.span_id;
-  const auto* span = state.view().edit_state().spans.find(span_id);
-  const auto* bundle = (span == nullptr) ? nullptr : state.view().edit_state().bundles.find(span->bundle_id);
-  const auto* support_layout = state.view().span_layout(span_id).entry;
-  if (support_layout == nullptr || span == nullptr || bundle == nullptr) {
-    std::cerr << "[DBG] C191 missing derived span=" << (span != nullptr) << " bundle=" << (bundle != nullptr)
-              << " layout=" << (support_layout != nullptr) << "\n";
-    return false;
-  }
-
-  const bool ok = bundle->bundle_template_id == wire::core::BundleKind::kCommunication &&
-                  bundle->conductor_count == 3 &&
-                  support_layout->start.endpoint_mode == wire::core::CurveEndpointMode::kOffsetEndpoint &&
-                  support_layout->end.endpoint_mode == wire::core::CurveEndpointMode::kOffsetEndpoint;
-  if (!ok) {
-    const auto current_tpl_it = state.view().bundle_templates().find(wire::core::BundleKind::kCommunication);
-    std::cerr << "[DBG] C191 preserve="
-              << ((current_tpl_it != state.view().bundle_templates().end() && current_tpl_it->second.preserve_conductor_identity)
-                      ? 1
-                      : 0)
-              << " count=" << bundle->conductor_count << " startMode=" << static_cast<int>(support_layout->start.endpoint_mode)
-              << " endMode=" << static_cast<int>(support_layout->end.endpoint_mode) << "\n";
-  }
-  return ok;
-}
-
 namespace {
 
 void register_template_policy_tests(test_registry::TestRegistry& tests) {
@@ -623,9 +535,6 @@ void register_template_policy_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C124_BundleTemplate_VisualChangeMarksDirtyOnly",
                          "Visual-only bundle template edits dirty dependent spans without forcing regeneration",
                          "Invariant", false, test_bundle_template_visual_change_updates_dirty_spans_without_regeneration);
-  test_registry::AddTest(tests, "C191_Template_PreservedIdentityOffsetEndpoints",
-                         "Preserved multi-lane bundles use offset endpoints by template policy instead of HV-only category checks",
-                         "Invariant", false, test_multilane_identity_template_uses_policy_based_offset_endpoints);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_template_policy_tests);

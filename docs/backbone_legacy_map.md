@@ -51,6 +51,7 @@
 | duplicate does not mutate | duplicate generation + old output count checks | A | duplicate preflight と saved binding checks で扱う。rollback-after-emit を戻さない |
 | C42 recalc cache identity | demo state + `Commit` processed count + entity count comparison | A | 退役済み。entity no-mutation は bb2 preflight/direct derive constraints で扱い、recalc processed count は移植しない |
 | C78/C79/C81/C119/C120 recalc visual | pole tilt/sag/insulator/template render を `Commit` 後の v1 cache で確認 | C/D | 退役済み。C119 の diameter/render 制約は bb2 C569へ移植済み。tilt sag と full insulator semantics は bb2 supported scope外 |
+| C191 preserved-template endpoint mode | `Commit` 後の旧 support-layout endpoint mode を要求 | D | 退役済み。bb2 は bundle spec を connectivity authority にせず、旧 OffsetEndpoint projection shape は移植しない |
 | output cache presence | `support_layout_projection`, curve/bounds/visual/render after recalc | C/D | 詳細は下の「output cache presence family」を参照。bb2 required outputs は rules/layout/geom/draw を直接確認する |
 | viewer-required output | viewer scene/capture constraints | A/B | viewer representative scenes と bb2 scenario tests で扱う。既に pass するケースへの test 追加だけでは進捗扱いにしない |
 | post-edit direct derive determinism | `Commit(run_recalc)` after port/pole edits | B | supported edit が recalc を必要とする場合だけ direct derive tests へ移植 |

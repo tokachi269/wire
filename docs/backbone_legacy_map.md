@@ -150,7 +150,7 @@ generation が決めた pair / side / lowering / order が refresh や materiali
 | old grouped span engine family | production 削除済み | guard/test/履歴以外の caller がない前提 | production caller が残っていないことを確認し続ける |
 | support-layout materialization | 残存 | recalc / v1 / old tests が読む | v1 専用隔離後、必要制約を bb2 に移植 |
 | support-layout authority/seed/projection inspection | public inspection surface と旧 layout/endpoint/semantic/cache alias family は削除済み。cache record は neutral `SpanLayoutCacheRecord` に平坦化済み | recalc/cache internals に seed/input-required contract が残る | inspection へ戻さず、recalc family の退役時に seed contract を削除 |
-| recalc rebuild internals | 残存 | public `Commit` / `ProcessDirtyQueues` / `RecalcStats` は外部 caller 退役後に削除済み。到達不能 rebuild/materialization methods が残る | neutral cache/read API と mutation dirty marking を分離後、dead rebuild chain を物理削除 |
+| recalc rebuild internals | CoreState の seed/materialization/curve/bounds/visual rebuild chain は外部入口退役後に削除済み | A | neutral cache保存、direct derive、dirty marking のみ残る。残存 recalc source は独立 utility / 旧 support-layout helper の削除可否を別途確認 |
 | public backbone query 旧名 | 残存 | viewer/public API が読む | saved graph backed API へ rename できる段階で整理 |
 | `bb2` namespace/name | 残存 | v1 がまだ同居している | v1/recalc/support-layout 本流依存削除後に mainline 名へ rename |
 | viewer support-layout inspection helper overloads | 削除済み | selected SupportLayout panel が neutral output 化済み | `SupportLayoutEndpointView` / `LoweredSupportGroupInspectionView` 用 helper を戻さない |

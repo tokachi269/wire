@@ -2704,11 +2704,11 @@ bool C455_bb2_neutral_layout_api_uses_span_layout_cache() {
     return false;
   }
   const std::size_t read_pos = cpp.find("SpanLayoutView CoreState::span_layout");
-  const std::size_t read_end = cpp.find("bool CoreState::cache_rebuilt_span_geometry", read_pos);
+  const std::size_t read_end = cpp.find("void CoreState::cache_span_layout", read_pos);
   const std::size_t save_pos = cpp.find("void CoreState::cache_span_layout(SpanLayoutEntry layout)");
   const std::size_t curve_pos = cpp.find("void CoreState::cache_span_curve", save_pos);
   const std::size_t rules_pos = cpp.find("void CoreState::cache_span_rules");
-  const std::size_t rules_end = cpp.find("void CoreState::erase_cached_span_support_layout_seed", rules_pos);
+  const std::size_t rules_end = cpp.find("void CoreState::remove_span_from_caches", rules_pos);
   if (read_pos == std::string::npos || read_end == std::string::npos || save_pos == std::string::npos ||
       curve_pos == std::string::npos || rules_pos == std::string::npos || rules_end == std::string::npos) {
     return false;
@@ -3925,7 +3925,7 @@ bool C514_bb2_draw_save_is_direct() {
   }
   const std::size_t visual_pos = cpp.find("void CoreState::cache_span_visual");
   const std::size_t render_pos = cpp.find("void CoreState::cache_span_render");
-  const std::size_t next_pos = cpp.find("void CoreState::cache_span_support_layout_seed", render_pos);
+  const std::size_t next_pos = cpp.find("void CoreState::remove_span_from_caches", render_pos);
   if (visual_pos == std::string::npos || render_pos == std::string::npos || next_pos == std::string::npos) {
     return false;
   }

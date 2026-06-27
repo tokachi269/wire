@@ -157,21 +157,6 @@ private:
                                                                                 ObjectId exclude_span_id) const;
   void mark_topology_related_spans_for_ports_dirty(const std::vector<ObjectId>& port_ids, ObjectId exclude_span_id,
                                                    DirtyBits dirty_bits, ChangeSet* change_set);
-  [[nodiscard]] bool cache_rebuilt_span_geometry(ObjectId span_id, SpanLayoutEntry support_layout,
-                                                 DetailCurve detail, std::string* error_message);
-  [[nodiscard]] bool rebuild_span_geometry_with_cached_contract(ObjectId span_id, std::string* error_message);
-  [[nodiscard]] bool rebuild_span_decision_path(ObjectId span_id, std::string* error_message);
-  [[nodiscard]] bool rebuild_span_geometry_from_seed(ObjectId span_id, std::string* error_message);
-  [[nodiscard]] bool rebuild_span_geometry_from_saved_rule(ObjectId span_id, const SpanLayoutRule& rule,
-                                                           std::string* error_message);
-  [[nodiscard]] bool rebuild_span_bounds(ObjectId span_id, std::string* error_message);
-  [[nodiscard]] bool rebuild_span_visual(ObjectId span_id, std::string* error_message);
-  [[nodiscard]] SpanLayoutEntry generate_span_support_layout(const Span& span, std::string* error_message) const;
-  [[nodiscard]] DetailCurve generate_span_curve(const Span& span, const SpanLayoutEntry& support_layout,
-                                                std::string* error_message) const;
-  [[nodiscard]] static AABBd build_aabb_from_points(const std::vector<Vec3d>& points);
-  [[nodiscard]] static AABBd build_aabb_from_two_points(const Vec3d& a, const Vec3d& b);
-  void cache_span_support_layout(SpanLayoutEntry layout);
   void cache_span_layout(SpanLayoutEntry layout);
   void cache_span_curve(ObjectId span_id, DetailCurve detail);
   void cache_span_bounds(ObjectId span_id, BoundsCacheEntry bounds);
@@ -198,13 +183,8 @@ private:
   EditResult<bool> bind_backbone_port(ObjectId edge_bundle_id, const SavedBackboneRowKey& row_key,
                                       std::size_t lane_index, BundleKind bundle_template_id, PortKind port_kind,
                                       PortLayer port_layer, ObjectId port_id);
-  void cache_span_support_layout_seed(SpanSupportLayoutDecisionSeed seed);
-  void cache_span_layout_rules(const SpanLayoutRules& rules);
   void cache_span_rules(const SpanLayoutRules& rules);
-  void erase_cached_span_support_layout_seed(ObjectId span_id);
-  void erase_cached_span_support_layout(ObjectId span_id);
   void remove_span_from_caches(ObjectId span_id);
-  void rebuild_lowered_support_groups_for_span(ObjectId span_id);
   [[nodiscard]] static std::vector<Vec3d> sample_polyline_points(const std::vector<Vec3d>& polyline, double interval);
   EditResult<std::vector<ObjectId>> generate_poles_from_points(const RoadSegment& road, PoleTypeId pole_type_id,
                                                                const std::vector<Vec3d>& points);

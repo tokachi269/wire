@@ -16,9 +16,6 @@ struct CoreStateTestHook {
   static std::unordered_map<ObjectId, SpanRuntimeState>& span_runtime_states(CoreState& state) {
     return state.runtime_.span_runtime_states;
   }
-  static bool rebuild_span_geometry_from_seed(CoreState& state, ObjectId span_id, std::string* error_message) {
-    return state.rebuild_span_geometry_from_seed(span_id, error_message);
-  }
   static ValidationResult validate(CoreState& state) { return state.Validate(); }
   static std::unordered_map<BundleKind, BundleTemplate>& bundle_templates(CoreState& state) {
     return state.authoritative_.bundle_templates;

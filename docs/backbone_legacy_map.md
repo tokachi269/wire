@@ -23,7 +23,6 @@
 | saved backbone graph | bb2、viewer/query、frontier、route query | mainline | yes | topology authority。span/layout/seed/curve/port position から復元しない |
 | `BuildSavedBackboneResult` / `BuildBackboneEdges` / `FindBackboneRoute` | public query、viewer、tests | B | no v1 fallback | saved graph backed query として維持。旧名 rename は mainline 化後 |
 | `support_layout_types.hpp` の旧 authority 語 | neutral layout/support group data と validation | D/E | no fallback path | validation-only 残存。normal generation の decision owner にしない |
-| `support_orientation_utils.*` | validation-only support group consistency check | D/E | no | neutral validation 方針を決めるまで削らない |
 | `ValidateFast` の support-group projection checks | viewer validation panel、tests | D/E | no | normal path blocker にしない。必要制約だけ neutral validation へ移す |
 | `DirtyBits` / span runtime dirty marking | editing/runtime/viewer dirty overlay | mainline runtime | no recalc owner | mutation tracking と表示用。dirty queue/recalc ではない |
 | direct derive `DeriveGeneratedSpanOutputs` | post-edit output rederive | mainline | no recalc | saved rules/ports から layout/geom/draw を再導出。recalc へ戻さない |
@@ -37,6 +36,7 @@
 | `CoreView::inspect_support_layout` / `SupportLayoutInspectionView` | public/viewer から削除済み | support-layout debug panel の復活 |
 | `support_layout_contract` / `support_layout_projection` public accessors | 削除済み | authority/seed/projection を bb2 観測口に戻すこと |
 | manual viewer `Run Legacy Recalc` | 削除済み | viewer normal/debug から recalc を起動する経路 |
+| `support_orientation_utils.*` | 削除済み | validation-only helper の別ファイル化。必要分は validator 内へ局所化 |
 
 ## viewer 境界
 
@@ -64,7 +64,7 @@
 
 | 対象 | 状態 | 削除条件 |
 |---|---|---|
-| validation の旧 authority 語 | validation-only で残存 | neutral validation 方針を決め、support group consistency check を旧語なしで表せること |
+| validation の旧 authority 語 | validation-only で残存 | support group consistency check を旧語なしで表せること |
 | public backbone query 旧名 | viewer/public API が読む | bb2 が mainline 名へ rename できる段階で整理 |
 | `bb2` namespace/name | v1 同居中の暫定名 | v1/recalc/support-layout 本流依存を削り切った後に mainline 名へ rename |
 | dirty bits | editing/runtime/viewer が読む | recalc ではなく mutation tracking として残すか、用途別に分ける |

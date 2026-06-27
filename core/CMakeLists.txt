@@ -1,7 +1,6 @@
 add_library(
   wire_core
   STATIC
-  src/support_orientation_utils.cpp
   src/state/state.cpp
   src/state/templates.cpp
   src/state/core_view.cpp

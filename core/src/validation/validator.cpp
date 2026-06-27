@@ -2,7 +2,6 @@
 #include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
 #include "../generation/support_policy.hpp"
-#include "../support_orientation_utils.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -53,6 +52,33 @@ bool almost_equal_validation(double a, double b, double eps = 1e-9) { return std
 bool almost_equal_validation(const Vec3d& a, const Vec3d& b, double eps = 1e-9) {
   return almost_equal_validation(a.x, b.x, eps) && almost_equal_validation(a.y, b.y, eps) &&
          almost_equal_validation(a.z, b.z, eps);
+}
+
+bool is_finite_xy_validation(const Vec3d& v) {
+  return std::isfinite(v.x) && std::isfinite(v.y);
+}
+
+Vec3d safe_horizontal_normalized_validation(Vec3d v) {
+  v.z = 0.0;
+  if (Normalize(&v) && is_finite_xy_validation(v)) {
+    return v;
+  }
+  return {0.0, 0.0, 0.0};
+}
+
+Vec3d authoritative_support_axis_for_validation(const SupportGroupDecision& group) {
+  if (group.support_authority.has_signed_support_axis) {
+    return safe_horizontal_normalized_validation(group.support_authority.signed_support_axis);
+  }
+  Vec3d axis = group.side_axis;
+  axis.z = 0.0;
+  if (!Normalize(&axis) || !is_finite_xy_validation(axis)) {
+    return {0.0, 0.0, 0.0};
+  }
+  if (std::abs(group.chosen_side_sign) > 1e-9) {
+    axis = ScaleVec(axis, (group.chosen_side_sign >= 0.0) ? 1.0 : -1.0);
+  }
+  return axis;
 }
 
 bool variation_sample_equal(const HierarchicalVariationSample& a, const HierarchicalVariationSample& b,
@@ -845,9 +871,9 @@ ValidationResult CoreState::Validate() const {
     }
     Vec3d support_axis = group.tip_world - group.mount_world;
     support_axis.z = 0.0;
-    if (Normalize(&support_axis) && IsFiniteXY(support_axis)) {
-      Vec3d authoritative_axis = AuthoritativeSupportAxisForGroup(authority);
-      if (!Normalize(&authoritative_axis) || !IsFiniteXY(authoritative_axis)) {
+    if (Normalize(&support_axis) && is_finite_xy_validation(support_axis)) {
+      Vec3d authoritative_axis = authoritative_support_axis_for_validation(authority);
+      if (!Normalize(&authoritative_axis) || !is_finite_xy_validation(authoritative_axis)) {
         result.issues.push_back({ValidationSeverity::kError, "SupportGroupAxisMissing",
                                  "Grouped lowered support must carry a finite authoritative axis",
                                  key.owner_pole_id});

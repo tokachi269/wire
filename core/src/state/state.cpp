@@ -768,7 +768,11 @@ EditResult<ObjectId> CoreState::SetPoleManualYawOverride(ObjectId pole_id, doubl
   authoritative_.override_state.pole_orientation_by_pole[pole_id] = next;
   pole->world_transform.rotation_euler_deg.z = *next.manual_yaw_deg;
   finalize_pole_transform_update(pole_id, old_pole, &result.change_set);
-  (void)ProcessDirtyQueues();
+  const auto derived = derive_generated_span_outputs_for_dirty_spans(result.change_set.dirty_span_ids);
+  if (!derived.ok) {
+    result.error = derived.error;
+    return result;
+  }
 
   result.ok = true;
   result.value = pole_id;
@@ -799,7 +803,11 @@ EditResult<ObjectId> CoreState::ClearPoleOrientationOverride(ObjectId pole_id) {
     }
   }
   finalize_pole_transform_update(pole_id, old_pole, &result.change_set);
-  (void)ProcessDirtyQueues();
+  const auto derived = derive_generated_span_outputs_for_dirty_spans(result.change_set.dirty_span_ids);
+  if (!derived.ok) {
+    result.error = derived.error;
+    return result;
+  }
 
   result.ok = true;
   result.value = pole_id;

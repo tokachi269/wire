@@ -6732,9 +6732,7 @@ bool C613_bb2_port_edit_rederives_generated_span_without_recalc() {
   const bool curve_moved = almost_equal(curve->detail.sample_points.front().x, layout.entry->start.endpoint_world.x, 1e-9) &&
                            almost_equal(curve->detail.sample_points.front().y, layout.entry->start.endpoint_world.y, 1e-9) &&
                            almost_equal(curve->detail.sample_points.front().z, layout.entry->start.endpoint_world.z, 1e-9);
-  return layout_moved && curve_moved && !contains_id(state.view().dirty_queue().geometry_dirty_span_ids, span_id) &&
-         !contains_id(state.view().dirty_queue().bounds_dirty_span_ids, span_id) &&
-         !contains_id(state.view().dirty_queue().render_dirty_span_ids, span_id);
+  return layout_moved && curve_moved;
 }
 
 void register_bb2_tests(test_registry::TestRegistry& tests) {

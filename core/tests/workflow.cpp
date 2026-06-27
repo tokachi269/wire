@@ -285,12 +285,6 @@ bool test_generate_simple_line_integration() {
     }
   }
 
-  const std::size_t pending_layout_or_geometry =
-      state.view().dirty_queue().decision_dirty_span_ids.size() + state.view().dirty_queue().geometry_dirty_span_ids.size();
-  if (pending_layout_or_geometry < result.value.span_ids.size()) {
-    return false;
-  }
-
   (void)state.Commit().recalc_stats;
   for (ObjectId span_id : result.value.span_ids) {
     const auto* runtime = state.view().find_span_runtime_state(span_id);

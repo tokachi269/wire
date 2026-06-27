@@ -17,7 +17,7 @@
 
 | family / file | 現在の caller | 分類 | bb2 generation 中に読むか | 次の切断先 |
 |---|---|---|---|---|
-| `core/src/recalc/recalc_pipeline.cpp` / `Commit` / dirty queue | v1 runtime、手動 debug、state load/update、旧テスト | D/E | no | supported post-edit は direct derive へ移す。残りは v1/manual/debug に隔離する |
+| `core/src/recalc/recalc_pipeline.cpp` / `Commit` / dirty queue | v1 runtime、state load/update、旧テスト。public/viewer dirty queue read は削除済み | D/E | no | supported post-edit は direct derive へ移す。残りは v1 internals に隔離する |
 | `core/src/recalc/support_layout_materialization.*` | recalc pipeline、旧 support-layout tests | D/E | no | user-visible 制約だけ bb2 rules/layout/geom/draw へ移植。object shape は移植しない |
 | `core/src/recalc/support_layout_projection.*` | recalc、validation、旧 tests | D/E | no | neutral `span_layout` / `span_layout_state` / direct caches へ読み替える |
 | `core/src/recalc/detail_curve*` | recalc curve tests、v1 geometry rebuild | D/E | no | bb2 は `core/src/generation/bb2/out.*` を使う。必要な curve 制約だけ移植する |

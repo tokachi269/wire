@@ -1794,8 +1794,8 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
     ImGui::TextUnformatted("Neutral Span Output Debug");
     ImGui::Text("Type: SupportLayout");
     ImGui::Text("Span: %llu", static_cast<unsigned long long>(span_id));
-    ImGui::Text("state: rules=%s layout=%s inputRequired=%s", state_view.has_rules ? "true" : "false",
-                state_view.has_layout ? "true" : "false", state_view.input_required ? "true" : "false");
+    ImGui::Text("state: rules=%s layout=%s", state_view.has_rules ? "true" : "false",
+                state_view.has_layout ? "true" : "false");
     ImGui::Text("savedGraph: edge=%llu edgeBundle=%llu bundles=%d spans=%d",
                 static_cast<unsigned long long>(frontier.edge_id),
                 static_cast<unsigned long long>(frontier.edge_bundle_id), static_cast<int>(frontier.bundle_ids.size()),

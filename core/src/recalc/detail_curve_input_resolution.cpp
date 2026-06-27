@@ -3,7 +3,7 @@
 #include "wire/core/core_state.hpp"
 #include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
-#include "support_layout_materialization.hpp"
+#include "curve_support.hpp"
 
 #include <algorithm>
 #include <cmath>

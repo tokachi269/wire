@@ -38,10 +38,6 @@ bool test_public_headers_offer_stable_smoke_surface() {
   }
 
   SpanLayoutState layout_state{};
-  layout_state.input_required = true;
-  if (!layout_state.input_required) {
-    return false;
-  }
 
   CoreState state;
   const CoreView& view = state.view();

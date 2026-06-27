@@ -24,9 +24,7 @@ add_library(
   src/recalc/detail_curve_postprocess.cpp
   src/recalc/style_context.cpp
   src/recalc/variation.cpp
-  src/recalc/support_layout_projection.cpp
-  src/recalc/support_layout_materialization.cpp
-  src/recalc/support_layout_world_geometry.cpp
+  src/recalc/curve_support.cpp
   src/recalc/recalc_pipeline.cpp
 )
 

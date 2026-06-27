@@ -213,17 +213,6 @@ struct SupportGroupDecision : LayoutSemantic {
   bool used_junction_pair_side_assignment = false;
 };
 
-struct SpanSupportLayoutDecisionSeed {
-  ObjectId span_id = kInvalidObjectId;
-  BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
-  CurvePassMode pass_mode = CurvePassMode::kPassThrough;
-  std::uint64_t variation_flow_key = 0;
-  BackboneLoweringKind lowering_kind = BackboneLoweringKind::kNone;
-  SupportLayoutDecisionSeedEndpoint start{};
-  SupportLayoutDecisionSeedEndpoint end{};
-  std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash> support_group_decisions{};
-};
-
 struct EndpointLayoutRule {
   ObjectId endpoint_node_id = kInvalidObjectId;
   ObjectId port_id = kInvalidObjectId;
@@ -287,7 +276,6 @@ struct SpanLayoutView {
 struct SpanLayoutState {
   bool has_rules = false;
   bool has_layout = false;
-  bool input_required = false;
 };
 
 struct LoweredSupportGroupPlacement {
@@ -321,21 +309,11 @@ struct SpanLayoutEntry {
 };
 
 struct SpanLayoutCacheRecord {
-  bool input_required = false;
-  std::optional<SpanSupportLayoutDecisionSeed> seed{};
   std::optional<SpanLayoutEntry> layout{};
   std::optional<SpanLayoutRule> rule{};
 
-  [[nodiscard]] bool requires_authority() const { return input_required; }
-  [[nodiscard]] bool has_authority() const { return seed.has_value(); }
   [[nodiscard]] bool has_projection() const { return layout.has_value(); }
   [[nodiscard]] bool has_rule() const { return rule.has_value(); }
-  [[nodiscard]] const SpanSupportLayoutDecisionSeed* authority_seed() const {
-    return seed.has_value() ? &*seed : nullptr;
-  }
-  [[nodiscard]] SpanSupportLayoutDecisionSeed* authority_seed() {
-    return seed.has_value() ? &*seed : nullptr;
-  }
   [[nodiscard]] const SpanLayoutEntry* projected_layout() const {
     return layout.has_value() ? &*layout : nullptr;
   }
@@ -346,22 +324,9 @@ struct SpanLayoutCacheRecord {
     return rule.has_value() ? &*rule : nullptr;
   }
 
-  void require_authority(bool required_value = true) { input_required = required_value; }
-  void store_authority(SpanSupportLayoutDecisionSeed seed_value) {
-    input_required = true;
-    seed = std::move(seed_value);
-  }
-  void clear_authority() { seed.reset(); }
   void store_projection(SpanLayoutEntry layout_value) { layout = std::move(layout_value); }
   void clear_projection() { layout.reset(); }
   void store_rule(SpanLayoutRule rule_value) { rule = std::move(rule_value); }
-};
-
-struct SpanSupportLayoutAuthorityView {
-  const SpanSupportLayoutDecisionSeed* seed = nullptr;
-  bool required = false;
-
-  [[nodiscard]] bool has_authority() const { return seed != nullptr; }
 };
 
 struct SupportGroupAuthorityCache {
@@ -379,18 +344,7 @@ struct SupportGroupCacheContract {
 
 struct SpanLayoutCache {
   std::unordered_map<ObjectId, SpanLayoutCacheRecord> records_by_span{};
-  // Derived support-group cache. Authority is rebuilt from span decision seeds.
-  // Placement is rebuilt from authority + observation. Neither is an authoring source.
   SupportGroupCacheContract support_groups{};
-
-  [[nodiscard]] SpanSupportLayoutAuthorityView authority_view(ObjectId span_id) const {
-    const auto it = records_by_span.find(span_id);
-    if (it == records_by_span.end()) {
-      return {};
-    }
-    const SpanLayoutCacheRecord& record = it->second;
-    return {record.authority_seed(), record.requires_authority()};
-  }
 
   [[nodiscard]] SpanLayoutRulesView rules_view(ObjectId span_id) const {
     const auto it = records_by_span.find(span_id);
@@ -414,30 +368,7 @@ struct SpanLayoutCache {
       return {};
     }
     const SpanLayoutCacheRecord& record = it->second;
-    return {record.span_layout_rule() != nullptr, record.projected_layout() != nullptr, record.requires_authority()};
-  }
-
-  [[nodiscard]] std::vector<ObjectId> ordered_authority_span_ids() const {
-    std::vector<ObjectId> span_ids{};
-    span_ids.reserve(records_by_span.size());
-    for (const auto& [span_id, record] : records_by_span) {
-      if (record.has_authority()) {
-        span_ids.push_back(span_id);
-      }
-    }
-    std::sort(span_ids.begin(), span_ids.end());
-    return span_ids;
-  }
-
-  template <typename Fn>
-  void for_each_authority_seed(Fn&& visitor) const {
-    for (ObjectId span_id : ordered_authority_span_ids()) {
-      const SpanSupportLayoutAuthorityView authority = authority_view(span_id);
-      if (!authority.has_authority()) {
-        continue;
-      }
-      visitor(span_id, authority, *authority.seed);
-    }
+    return {record.span_layout_rule() != nullptr, record.projected_layout() != nullptr};
   }
 
   template <typename Fn>
@@ -458,17 +389,12 @@ struct SpanLayoutCache {
     }
   }
 
-  void require_authority(ObjectId span_id) {
-    records_by_span[span_id].require_authority();
-  }
-
   void erase_record_if_empty(ObjectId span_id) {
     const auto it = records_by_span.find(span_id);
     if (it == records_by_span.end()) {
       return;
     }
-    if (!it->second.requires_authority() && !it->second.has_authority() && !it->second.has_projection() &&
-        !it->second.has_rule()) {
+    if (!it->second.has_projection() && !it->second.has_rule()) {
       records_by_span.erase(it);
     }
   }
@@ -479,12 +405,6 @@ struct SpanLayoutCache {
     record.store_projection(std::move(layout));
   }
 
-  void store_seed(SpanSupportLayoutDecisionSeed seed) {
-    const ObjectId span_id = seed.span_id;
-    SpanLayoutCacheRecord& record = records_by_span[span_id];
-    record.store_authority(std::move(seed));
-  }
-
   void store_rules(const SpanLayoutRules& rules) {
     for (const SpanLayoutRule& rule : rules.spans) {
       if (rule.span_id == kInvalidObjectId) {
@@ -492,15 +412,6 @@ struct SpanLayoutCache {
       }
       records_by_span[rule.span_id].store_rule(rule);
     }
-  }
-
-  void clear_seed(ObjectId span_id) {
-    const auto it = records_by_span.find(span_id);
-    if (it == records_by_span.end()) {
-      return;
-    }
-    it->second.clear_authority();
-    erase_record_if_empty(span_id);
   }
 
   void clear_layout(ObjectId span_id) {

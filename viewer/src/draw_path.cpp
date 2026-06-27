@@ -527,7 +527,6 @@ void WriteNeutralSpanLayoutCaptureLocal(const wire::core::CoreView& view, std::o
   ofs << prefix << ".layout_present=" << (layout_view.has_layout() ? 1 : 0) << "\n";
   ofs << prefix << ".layout_state.has_rules=" << (layout_state.has_rules ? 1 : 0) << "\n";
   ofs << prefix << ".layout_state.has_layout=" << (layout_state.has_layout ? 1 : 0) << "\n";
-  ofs << prefix << ".layout_state.input_required=" << (layout_state.input_required ? 1 : 0) << "\n";
   if (rules_view.has_rule()) {
     const wire::core::SpanLayoutRule& rule = *rules_view.rule;
     ofs << prefix << ".rule_flow_kind=" << FlowKindLabelLocal(rule.flow_kind) << "\n";
@@ -976,7 +975,6 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
     ofs << prefix << ".layout_present=" << (layout_view.has_layout() ? 1 : 0) << "\n";
     ofs << prefix << ".layout_state.has_rules=" << (layout_state.has_rules ? 1 : 0) << "\n";
     ofs << prefix << ".layout_state.has_layout=" << (layout_state.has_layout ? 1 : 0) << "\n";
-    ofs << prefix << ".layout_state.input_required=" << (layout_state.input_required ? 1 : 0) << "\n";
     ofs << prefix << ".curve_present=" << (curve != nullptr ? 1 : 0) << "\n";
     ofs << prefix << ".bounds_present=" << (bounds != nullptr ? 1 : 0) << "\n";
     ofs << prefix << ".visual_present=" << (visual != nullptr ? 1 : 0) << "\n";

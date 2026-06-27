@@ -36,22 +36,6 @@ bool has_duplicate_ids(const std::vector<ObjectId>& ids) {
   return false;
 }
 
-std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash>
-build_expected_support_group_decisions_for_validation(
-    const SpanLayoutCache& span_layout_cache) {
-  std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash> groups{};
-  span_layout_cache.for_each_authority_seed([&](ObjectId, SpanSupportLayoutAuthorityView,
-                                                    const SpanSupportLayoutDecisionSeed& seed) {
-    for (const auto& [key, group_copy] : seed.support_group_decisions) {
-      if (key.owner_pole_id == kInvalidObjectId || key.support_group_id < 0) {
-        continue;
-      }
-      groups[key] = group_copy;
-    }
-  });
-  return groups;
-}
-
 bool endpoint_uses_grouped_lowered_support_for_validation(const LayoutEndpoint& endpoint) {
   return UsesAuthoritativeGroupedLoweredSupport(endpoint);
 }
@@ -62,13 +46,6 @@ bool endpoint_requires_pair_authority_for_validation(const LayoutEndpoint& endpo
          (endpoint.relation_kind == JunctionRelationKind::kThroughMain ||
           endpoint.relation_kind == JunctionRelationKind::kSideBranch ||
           endpoint.relation_kind == JunctionRelationKind::kCrossUnderpass);
-}
-
-bool endpoint_semantic_contract_equal(const LayoutSemantic& seed,
-                                      const LayoutSemantic& materialized) {
-  return seed.relation_kind == materialized.relation_kind &&
-         seed.continuity_class == materialized.continuity_class &&
-         seed.in_through_pair == materialized.in_through_pair;
 }
 
 bool almost_equal_validation(double a, double b, double eps = 1e-9) { return std::abs(a - b) <= eps; }
@@ -145,36 +122,6 @@ double template_layer_base_z_for_validation(const CoreView& core, const Pole& po
 
 using SupportGroupCategoryMap =
     std::unordered_map<LoweredSupportGroupKey, ConnectionCategory, LoweredSupportGroupKeyHash>;
-
-void validate_support_layout_authority_only(ValidationResult* result, ObjectId span_id,
-                                            SpanSupportLayoutAuthorityView authority,
-                                            const SpanLayoutEntry& layout,
-                                            const SupportGroupAuthorityCache& authority_cache) {
-  if (result == nullptr || !authority.has_authority()) {
-    return;
-  }
-  if (!endpoint_semantic_contract_equal(authority.seed->start, layout.start)) {
-    result->issues.push_back({ValidationSeverity::kError, "SupportLayoutStartSemanticShrink",
-                              "Materialized support-layout start endpoint must keep the generated seed semantic relation/continuity/in-through-pair contract",
-                              span_id});
-  }
-  if (!endpoint_semantic_contract_equal(authority.seed->end, layout.end)) {
-    result->issues.push_back({ValidationSeverity::kError, "SupportLayoutEndSemanticShrink",
-                              "Materialized support-layout end endpoint must keep the generated seed semantic relation/continuity/in-through-pair contract",
-                              span_id});
-  }
-  for (const auto& [key, seed_group] : authority.seed->support_group_decisions) {
-    const auto group_it = authority_cache.by_key.find(key);
-    if (group_it == authority_cache.by_key.end()) {
-      continue;
-    }
-    if (!support_group_decision_equal(seed_group, group_it->second)) {
-      result->issues.push_back({ValidationSeverity::kError, "SupportGroupSemanticShrink",
-                                "Cached support-group decision must keep the generated seed grouped-authority contract",
-                                span_id});
-    }
-  }
-}
 
 void validate_projected_support_layout_endpoint(ValidationResult* result, const CoreView& core, const EditState& edit_state,
                                                 ObjectId span_id, double endpoint_attach_lift_m,
@@ -440,9 +387,6 @@ ValidationResult CoreState::Validate() const {
   const auto& bundle_templates = core.bundle_templates();
   const auto& attachment_templates = core.attachment_templates();
   const auto& port_resolution_debug_records = core.port_resolution_debug_records();
-  const auto expected_support_group_decisions =
-      build_expected_support_group_decisions_for_validation(cache_state.span_layout_cache);
-
   for (const Pole& pole : edit_state.poles.items()) {
     if (pole.pole_type_id != kInvalidPoleTypeId && !pole_types.contains(pole.pole_type_id)) {
       result.issues.push_back(
@@ -792,17 +736,6 @@ ValidationResult CoreState::Validate() const {
     }
   }
 
-  cache_state.span_layout_cache.for_each_projected_record(
-      [&](ObjectId span_id, const SpanLayoutCacheRecord& record, const SpanLayoutEntry&) {
-        const SpanSupportLayoutAuthorityView authority{record.authority_seed(), record.requires_authority()};
-        if (authority.required && !authority.has_authority()) {
-          result.issues.push_back({ValidationSeverity::kWarning,
-                                   "SupportLayoutDecisionSeedMissing",
-                                   "Support layout requires a decision seed but none is cached",
-                                   span_id});
-        }
-      });
-
   for (const auto& [span_id, override_value] : authoritative_.override_state.span_endpoint_by_span) {
     if (edit_state.spans.find(span_id) == nullptr) {
       result.issues.push_back({ValidationSeverity::kError, "SpanEndpointOverrideTargetMissing",
@@ -836,11 +769,8 @@ ValidationResult CoreState::Validate() const {
     return std::pair<ObjectId, ObjectId>{group.support_pair_peer_low, group.support_pair_peer_high};
   };
   cache_state.span_layout_cache.for_each_projected_record(
-      [&](ObjectId span_id, const SpanLayoutCacheRecord& record, const SpanLayoutEntry& layout) {
-        const SpanSupportLayoutAuthorityView authority{record.authority_seed(), record.requires_authority()};
+      [&](ObjectId span_id, const SpanLayoutCacheRecord&, const SpanLayoutEntry& layout) {
         const double endpoint_attach_lift_m = insulator_lift_for_span(core, span_id);
-        validate_support_layout_authority_only(&result, span_id, authority, layout,
-                                               cache_state.span_layout_cache.support_groups.authority);
         validate_projected_support_layout_endpoint(&result, core, edit_state, span_id, endpoint_attach_lift_m,
                                                    layout.start, "SupportLayoutStartAxisMissing");
         validate_projected_support_layout_endpoint(&result, core, edit_state, span_id, endpoint_attach_lift_m,
@@ -853,21 +783,7 @@ ValidationResult CoreState::Validate() const {
                                             &support_group_category_by_key);
       });
 
-  for (const auto& [key, expected_group_decision] : expected_support_group_decisions) {
-    const auto group_it = cache_state.span_layout_cache.support_groups.authority.by_key.find(key);
-    if (group_it == cache_state.span_layout_cache.support_groups.authority.by_key.end()) {
-      result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionMissingFromCacheView",
-                               "support_group_decisions cache view must be rebuilt from seed support-group decisions",
-                               key.owner_pole_id});
-      continue;
-    }
-    if (!support_group_decision_equal(expected_group_decision, group_it->second)) {
-      result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionCacheViewStale",
-                               "support_group_decisions cache view must match the seed-derived support-group decision",
-                               key.owner_pole_id});
-      continue;
-    }
-    const SupportGroupDecision& group_decision = group_it->second;
+  for (const auto& [key, group_decision] : cache_state.span_layout_cache.support_groups.authority.by_key) {
     if (group_decision.owner_pole_id != key.owner_pole_id ||
         group_decision.support_group_id != key.support_group_id) {
       result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionKeyMismatch",
@@ -944,12 +860,6 @@ ValidationResult CoreState::Validate() const {
         }
       }
     }
-  }
-
-  if (cache_state.span_layout_cache.support_groups.authority.by_key.size() != expected_support_group_decisions.size()) {
-    result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionCacheViewCountMismatch",
-                             "support_group_decisions cache view must stay 1:1 with seed support-group decisions",
-                             kInvalidObjectId});
   }
 
   if (cache_state.span_layout_cache.support_groups.authority.by_key.size() !=

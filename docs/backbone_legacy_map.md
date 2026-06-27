@@ -65,7 +65,7 @@
 | viewer-required output | viewer scene/capture constraints | A/B | viewer representative scenes と bb2 scenario tests で扱う。既に pass するケースへの test 追加だけでは進捗扱いにしない |
 | post-edit direct derive determinism | `Commit(run_recalc)` after port/pole edits | B | supported edit が recalc を必要とする場合だけ direct derive tests へ移植 |
 | public backbone query | `BuildBackboneResult`, `BuildBackboneEdges`, `FindBackboneRoute` | A/B | saved graph backed query として維持。span-derived fallback は戻さない |
-| support-layout authority/seed/projection internals | `inspect_support_layout`, `support_layout_contract`, authority seed/projection fields | C/D | v1 legacy。必要制約は `SavedBackboneGraph` + `SpanLayoutRules` + `SpanLayoutEntry` + support group で表す |
+| support-layout authority/seed/projection internals | production type/storage/projection source は削除済み | A | 必要制約は `SavedBackboneGraph` + `SpanLayoutRules` + `SpanLayoutEntry` + support group で表す |
 | recalc persistence / materialization internals | `Commit(run_recalc)`, support-layout materialization, detail curve recalc, support group repair | C/D | 詳細は下の「recalc persistence family」を参照。dirty queue / materialization order は bb2 要件にしない |
 | attachment/socket support layout | socket resolution through support-layout materialization | B/C | bb2 attachment/socket requirement が明確になるまで mainline 完了条件にしない |
 | cable style / insulator / supplemental render | recalc style context, full visual cache parts | B/C | viewer-blocking visual requirement が出た場合だけ bb2 draw へ移植 |
@@ -80,7 +80,7 @@
 | `support_layout_projection(span).layout` | public accessor、mutable edit view、projection view、inspection/recalc の直接 read は削除済み | `span_layout(span)`, `span_layout_state(span)`, `span_layout_rules(span)` | A。projection object shape は bb2 要件にせず、cache record の内部保存だけが残る |
 | curve / bounds cache after rebuild | `core/tests/geometry.cpp`, `core/tests/generation.cpp`, `core/tests/workflow.cpp`, `core/tests/bundle_visuals.cpp` | bb2 `geom` output、`CurveCacheEntry`、`BoundsCacheEntry` | C。生成直後と direct derive 後に欠けないことを bb2 側で見る |
 | visual / render cache after rebuild | `core/tests/bundle_visuals.cpp`, `core/tests/bb2.cpp` | bb2 `draw` output、`SpanVisualCacheEntry`、`SpanRenderCacheEntry` | C。viewer required output として必要な範囲だけ見る。full support visual semantics は別 family |
-| support-layout authority / seed / projection fields | support-layout 旧 tests | `SpanLayoutRules`, `SpanLayoutEntry`, `SpanLayoutState.input_required=false` | D。旧 contract そのものは v1 専用。bb2 へ戻さない |
+| support-layout authority / seed / projection fields | support-layout 旧 tests | `SpanLayoutRules`, `SpanLayoutEntry`, `SpanLayoutState` | 旧 contract はproductionから削除済み。bb2へ戻さない |
 
 bb2 側で既に固定している代表テスト:
 
@@ -148,9 +148,9 @@ generation が決めた pair / side / lowering / order が refresh や materiali
 | 対象 | 状態 | 残す理由 | 削除条件 |
 |---|---|---|---|
 | old grouped span engine family | production 削除済み | guard/test/履歴以外の caller がない前提 | production caller が残っていないことを確認し続ける |
-| support-layout materialization | 残存 | recalc / v1 / old tests が読む | v1 専用隔離後、必要制約を bb2 に移植 |
-| support-layout authority/seed/projection inspection | public inspection surface と旧 layout/endpoint/semantic/cache alias family は削除済み。cache record は neutral `SpanLayoutCacheRecord` に平坦化済み | recalc/cache internals に seed/input-required contract が残る | inspection へ戻さず、recalc family の退役時に seed contract を削除 |
-| recalc rebuild internals | CoreState の seed/materialization/curve/bounds/visual rebuild chain は外部入口退役後に削除済み | A | neutral cache保存、direct derive、dirty marking のみ残る。残存 recalc source は独立 utility / 旧 support-layout helper の削除可否を別途確認 |
+| support-layout materialization | seed/projection/world-geometry source は削除済み。detail-curve共有utilityは `curve_support` に縮小 | A | support-layout plannerを戻さない |
+| support-layout authority/seed/projection inspection | type/storage/viewer表示を削除済み | A | neutral `SpanLayoutCacheRecord` と直接保存support groupだけを使う |
+| recalc rebuild internals | CoreState の seed/materialization/curve/bounds/visual rebuild chain は削除済み | A | neutral cache保存、direct derive、dirty markingのみ残る |
 | public backbone query 旧名 | 残存 | viewer/public API が読む | saved graph backed API へ rename できる段階で整理 |
 | `bb2` namespace/name | 残存 | v1 がまだ同居している | v1/recalc/support-layout 本流依存削除後に mainline 名へ rename |
 | viewer support-layout inspection helper overloads | 削除済み | selected SupportLayout panel が neutral output 化済み | `SupportLayoutEndpointView` / `LoweredSupportGroupInspectionView` 用 helper を戻さない |
@@ -162,7 +162,7 @@ generation が決めた pair / side / lowering / order が refresh や materiali
 
 優先順:
 
-1. old tests の support-layout authority/seed/projection family を v1 専用へ隔離し、必要制約だけ bb2 direct outputs へ移植する。
+1. 残る dirty queue/runtime version family を、direct derive後も必要なmutation trackingと旧recalc専用状態に分類する。
 2. recalc persistence family のうち、viewer-visible output 制約だけを bb2 direct derive / support group / draw へ移植する。
 3. viewer/public query から旧名 API を外せる状態になってから mainline rename を検討する。
 

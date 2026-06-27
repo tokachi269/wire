@@ -220,9 +220,6 @@ bool C372_bb2_rules_do_not_seed() {
     if (!state.span_layout_rules(span_id).has_rule()) {
       return false;
     }
-    if (state.span_layout_state(span_id).input_required) {
-      return false;
-    }
   }
   return true;
 }
@@ -239,9 +236,6 @@ bool C373_bb2_layout_saved_without_recalc() {
       return false;
     }
     if (!state.span_layout(span_id).has_layout()) {
-      return false;
-    }
-    if (state.span_layout_state(span_id).input_required) {
       return false;
     }
   }
@@ -300,9 +294,6 @@ bool C375_bb2_curve_saved_without_recalc() {
     }
     const auto* curve = state.find_curve_cache(span_id);
     if (curve == nullptr || curve->detail.sample_points.size() != 2 || curve->points.size() != 2) {
-      return false;
-    }
-    if (state.span_layout_state(span_id).input_required) {
       return false;
     }
   }
@@ -374,9 +365,6 @@ bool C377_bb2_bounds_saved_without_recalc() {
     }
     const auto* bounds = state.find_bounds_cache(span_id);
     if (bounds == nullptr || bounds->segments.empty()) {
-      return false;
-    }
-    if (state.span_layout_state(span_id).input_required) {
       return false;
     }
   }
@@ -479,9 +467,6 @@ bool C381_bb2_m1_no_recalc_contract() {
     return false;
   }
   for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
-    if (state.span_layout_state(span_id).input_required) {
-      return false;
-    }
   }
   return C370_bb2_no_v1_deps();
 }
@@ -2443,9 +2428,6 @@ bool C438_bb2_layout_save_keeps_no_authority_contract() {
     if (!state.span_layout_rules(span_id).has_rule() || !state.span_layout(span_id).has_layout()) {
       return false;
     }
-    if (state.span_layout_state(span_id).input_required) {
-      return false;
-    }
   }
   return true;
 }
@@ -2573,9 +2555,6 @@ bool C446_bb2_layout_boundary_behavior_unchanged() {
         state.find_curve_cache(span_id) == nullptr || state.find_bounds_cache(span_id) == nullptr) {
       return false;
     }
-    if (state.span_layout_state(span_id).input_required) {
-      return false;
-    }
   }
   return true;
 }
@@ -2632,7 +2611,7 @@ bool C450_bb2_span_layout_state_is_neutral() {
   }
   for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
     const wire::core::SpanLayoutState state_view = state.span_layout_state(span_id);
-    if (!state_view.has_rules || !state_view.has_layout || state_view.input_required) {
+    if (!state_view.has_rules || !state_view.has_layout) {
       return false;
     }
   }
@@ -6675,7 +6654,7 @@ bool C611_bb2_direct_derive_restores_saved_span_outputs() {
   const auto derived = state.DeriveGeneratedSpanOutputs(span_id);
   return derived.ok && state.span_layout(span_id).has_layout() && state.find_curve_cache(span_id) != nullptr &&
          state.find_bounds_cache(span_id) != nullptr && state.find_span_visual_cache(span_id) != nullptr &&
-         state.find_span_render_cache(span_id) != nullptr && !state.span_layout_state(span_id).input_required;
+         state.find_span_render_cache(span_id) != nullptr;
 }
 
 bool C612_bb2_direct_derive_does_not_call_recalc_paths() {

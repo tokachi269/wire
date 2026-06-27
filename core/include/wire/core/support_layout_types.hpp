@@ -17,8 +17,7 @@
 
 namespace wire::core {
 
-// Materialization-stage boundary types. Decision authors fill these from
-// workflow_types, and downstream geometry / inspection consumes them.
+// Layout boundary types consumed by geometry and inspection.
 enum class LayoutOriginKind : std::uint8_t {
   kMainSupport = 0,
   kBranchSupport = 1,
@@ -168,40 +167,6 @@ struct LayoutEndpoint : LayoutSemantic {
   HierarchicalVariationSample down_offset_variation{};
 };
 
-struct SupportLayoutDecisionSeedEndpoint : LayoutSemantic {
-  ObjectId endpoint_node_id = kInvalidObjectId;
-  ObjectId port_id = kInvalidObjectId;
-  ResolvedSupportAuthority support_authority{};
-  EndpointAttachmentRequest attachment_request{};
-  std::optional<int> resolved_socket_id{};
-  BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
-  LayoutOriginKind origin = LayoutOriginKind::kFallback;
-  LayoutEndpointSourceKind endpoint_source = LayoutEndpointSourceKind::kFallback;
-  PortPlacementSourceKind port_source = PortPlacementSourceKind::kUnknown;
-  SlotSide side = SlotSide::kCenter;
-  CurveEndpointMode endpoint_mode = CurveEndpointMode::kDirectThrough;
-  bool has_visual_arm_geometry = false;
-  Vec3d visual_arm_mount_world{};
-  Vec3d visual_arm_tip_world{};
-  Vec3d visual_insulator_base_world{};
-  double automatic_branch_down_offset_m = 0.0;
-  double branch_down_offset_m = 0.0;
-  bool default_lower_required = false;
-  bool same_level_feasible = true;
-  bool unresolved_same_level_conflict = false;
-  SameLevelFeasibilityReason same_level_reason = SameLevelFeasibilityReason::kNone;
-  double projected_spacing_topview_m = -1.0;
-  double required_clearance_m = 0.0;
-  bool solver_used_same_level_constraint = false;
-  bool used_special_case_ports = false;
-  OrderDecisionPolicyKind order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
-  OrderDecisionChoiceKind order_decision_choice = OrderDecisionChoiceKind::kNormal;
-  OrderDecisionChoiceReason order_decision_choice_reason = OrderDecisionChoiceReason::kFixedOrder;
-  LateralSideChoiceKind chosen_side = LateralSideChoiceKind::kCenter;
-  bool used_junction_pair_side_assignment = false;
-  HierarchicalVariationSample down_offset_variation{};
-};
-
 struct SupportGroupDecision : LayoutSemantic {
   ResolvedSupportAuthority support_authority{};
   SlotSide side = SlotSide::kCenter;
@@ -279,7 +244,7 @@ struct SpanLayoutState {
 };
 
 struct LoweredSupportGroupPlacement {
-  // Geometry/materialization only. Semantic authority lives in SupportGroupDecision.
+  // Placement output. Semantic authority lives in SupportGroupDecision.
   SupportGroupingRuleKind grouping_rule = SupportGroupingRuleKind::kDecisionGroup;
   int grouped_port_count = 1;
   double down_offset_m = 0.0;

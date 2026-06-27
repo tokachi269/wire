@@ -49,6 +49,7 @@
 |---|---|---|---|
 | unsupported leaves state unchanged | old `Commit` / dirty queue / count checks | A | bb2 preflight と object/saved-graph count checks で扱う。新 supported scenario 追加時だけ拡張 |
 | duplicate does not mutate | duplicate generation + old output count checks | A | duplicate preflight と saved binding checks で扱う。rollback-after-emit を戻さない |
+| C42 recalc cache identity | demo state + `Commit` processed count + entity count comparison | A | 退役済み。entity no-mutation は bb2 preflight/direct derive constraints で扱い、recalc processed count は移植しない |
 | output cache presence | `support_layout_projection`, curve/bounds/visual/render after recalc | C/D | 詳細は下の「output cache presence family」を参照。bb2 required outputs は rules/layout/geom/draw を直接確認する |
 | viewer-required output | viewer scene/capture constraints | A/B | viewer representative scenes と bb2 scenario tests で扱う。既に pass するケースへの test 追加だけでは進捗扱いにしない |
 | post-edit direct derive determinism | `Commit(run_recalc)` after port/pole edits | B | supported edit が recalc を必要とする場合だけ direct derive tests へ移植 |

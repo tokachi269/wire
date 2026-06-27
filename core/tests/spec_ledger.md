@@ -96,7 +96,6 @@
 | C38 | Symptom | Generate/Edit | 高圧3相群生成 | 有効Path | GenerateFromBackboneSpec(HV_3PH) | Invariant: 3レーン×区間数生成, lane記録あり | span数/bundle/lane_assignments | 高圧ねじれ抑制 |
 | C39 | Symptom | Generate/Edit | 方向強制モード | 有効Path | GenerateFromBackboneSpec(direction=Reverse) | Exact: Reverseが採用される | direction_debug/先頭Pole | 手動比較可能性 |
 | C40 | Symptom | General | Pole flip_180 | 接続済Pole | SetPoleFlip180(true) | Invariant: 配下Port更新+接続Span dirty | port位置/runtime dirty | 局所向き修正性 |
-| C42 | Authority | Regenerate | 再計算の非破壊性 | Spanを含む状態 | UpdateGeometrySettings→ProcessDirtyQueues | Invariant: cache/version更新のみでEntity件数/ID不変 | counts/ID集合/runtime/cache | キャッシュ再生成で正本が歪まない |
 | C43 | Symptom | Generate/Edit | 鋭角時Port展開軸補正 | クリック点3(コーナー内角<=74°) | GenerateSimpleLineFromPoints | Invariant: 中間Poleのside軸が内角二等分線に直交し、内側へ向かない | pole yaw/context(sharp_theta,b,side_dir) | 鋭角での線間距離潰れ抑制 |
 | C108 | Symptom | LanePrep | 鋭角向きの入口間一致 | 同一acute pathをSimple/Backboneで生成 | GenerateSimpleLineFromPoints / GenerateFromBackboneSpec | Invariant: 中間Poleのyawとsharp debugが一致 | pole yaw/context(sharp_side_dir,sharp_bisector_dir) | 入口ごとの別向き決定の再混入防止 |
 | C109 | Symptom | Generate/Edit | HV3 captureの内部共有pole順序連続 | capture再現8点 path | GenerateFromBackboneSpec(HV_3PH) | Invariant: terminal fan-out を除く内部の隣接segment間では共有pole上のlane順序が連続する | lane assignments / shared-pole local ordering | perpendicular row 方針でも内部のmain-chain continuityが崩れない回帰防止 |

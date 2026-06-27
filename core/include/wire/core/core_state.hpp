@@ -310,6 +310,4 @@ private:
   CoreStateDebugStorage debug_{};
 };
 
-CoreState make_demo_state();
-
 } // namespace wire::core

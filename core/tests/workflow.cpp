@@ -367,35 +367,6 @@ bool test_display_id_is_per_prefix_sequence() {
          pt2->display_id == "PT-000002" && starts_with(sp1->display_id, "SP-000001");
 }
 
-bool test_recalc_cache_pipeline_is_entity_noop() {
-  CoreState state = wire::core::make_demo_state();
-  if (state.view().edit_state().spans.empty()) {
-    return false;
-  }
-
-  const CoreCounts before = snapshot_counts(state);
-  const auto poles_before = collect_sorted_ids(state.view().edit_state().poles.items());
-  const auto ports_before = collect_sorted_ids(state.view().edit_state().ports.items());
-  const auto spans_before = collect_sorted_ids(state.view().edit_state().spans.items());
-
-  (void)state.Commit().recalc_stats;
-  wire::core::GeometrySettings settings = state.view().geometry_settings();
-  settings.curve_samples = std::max(2, settings.curve_samples + 2);
-  const auto update = state.UpdateGeometrySettings(settings, true);
-  if (!update.ok) {
-    return false;
-  }
-  const auto recalc = state.Commit().recalc_stats;
-
-  const CoreCounts after = snapshot_counts(state);
-  const auto poles_after = collect_sorted_ids(state.view().edit_state().poles.items());
-  const auto ports_after = collect_sorted_ids(state.view().edit_state().ports.items());
-  const auto spans_after = collect_sorted_ids(state.view().edit_state().spans.items());
-
-  return recalc.geometry_processed > 0 && same_counts(before, after) && poles_before == poles_after &&
-         ports_before == ports_after && spans_before == spans_after && validate_now(state).ok();
-}
-
 bool test_style_context_resolver_is_deterministic_and_route_correlated() {
   wire::core::ContextProfile profile{};
   profile.age = 0.7;
@@ -491,7 +462,6 @@ void register_workflow_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C27_Phase45_GenerateSimpleLine_Integration", "Simple line generation integrates dirty/recalc/caches", "Invariant", false, test_generate_simple_line_integration);
   test_registry::AddTest(tests, "C28_Phase45_GenerateSimpleLine_Continuity", "Intermediate poles reuse same through-port", "Invariant", false, test_generate_simple_line_reuses_intermediate_ports);
   test_registry::AddTest(tests, "C29_Phase45_DisplayId_PerPrefix", "Display IDs increment per prefix", "Exact", false, test_display_id_is_per_prefix_sequence);
-  test_registry::AddTest(tests, "C42_Phase4x_RecalcCache_NoEntityMutation", "Derived cache rebuild does not mutate entity identity/counts", "Invariant", false, test_recalc_cache_pipeline_is_entity_noop);
   test_registry::AddTest(tests, "C304_StyleContext_DeterministicRouteCorrelated",
                          "Style context resolver stays deterministic per semantic key and shares route-level style across sibling objects",
                          "Invariant", false, test_style_context_resolver_is_deterministic_and_route_correlated);

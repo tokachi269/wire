@@ -244,7 +244,7 @@ struct SpanLayoutState {
 };
 
 struct LoweredSupportGroupPlacement {
-  // Placement output. Semantic authority lives in SupportGroupDecision.
+  // Placement output. Semantic decision lives in SupportGroupDecision.
   SupportGroupingRuleKind grouping_rule = SupportGroupingRuleKind::kDecisionGroup;
   int grouped_port_count = 1;
   double down_offset_m = 0.0;
@@ -294,7 +294,7 @@ struct SpanLayoutCacheRecord {
   void store_rule(SpanLayoutRule rule_value) { rule = std::move(rule_value); }
 };
 
-struct SupportGroupAuthorityCache {
+struct SupportGroupDecisionCache {
   std::unordered_map<LoweredSupportGroupKey, SupportGroupDecision, LoweredSupportGroupKeyHash> by_key{};
 };
 
@@ -303,7 +303,7 @@ struct SupportGroupPlacementCache {
 };
 
 struct SupportGroupCacheContract {
-  SupportGroupAuthorityCache authority{};
+  SupportGroupDecisionCache decision{};
   SupportGroupPlacementCache placement{};
 };
 

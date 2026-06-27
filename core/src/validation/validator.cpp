@@ -270,8 +270,8 @@ void validate_grouped_support_projection(ValidationResult* result, const EditSta
                               "Grouped-lowered endpoint does not reference its support group placement", span_id});
     return;
   }
-  const auto decision_it = support_groups.authority.by_key.find(key);
-  if (decision_it == support_groups.authority.by_key.end()) {
+  const auto decision_it = support_groups.decision.by_key.find(key);
+  if (decision_it == support_groups.decision.by_key.end()) {
     result->issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionMissing",
                               "Grouped-lowered endpoint references a missing support group decision", span_id});
     return;
@@ -285,8 +285,8 @@ void validate_grouped_support_projection(ValidationResult* result, const EditSta
       }
     }
   }
-  const SupportGroupDecision& authority = decision_it->second;
-  if (authority.continuity_class == ContinuityCategoryClass::kBundleLike && !HasAuthoritativeSupportPair(authority)) {
+  const SupportGroupDecision& decision = decision_it->second;
+  if (decision.continuity_class == ContinuityCategoryClass::kBundleLike && !HasAuthoritativeSupportPair(decision)) {
     result->issues.push_back({ValidationSeverity::kError, "SupportGroupPairMissing",
                               "Grouped-lowered bundle support-group decision must carry one authoritative pole-incident pair",
                               span_id});
@@ -298,14 +298,14 @@ void validate_grouped_support_projection(ValidationResult* result, const EditSta
     return;
   }
   const LoweredSupportGroupPlacement& group = placement_it->second;
-  if (authority.support_group_id != endpoint.support_group_id ||
-      authority.support_pair_peer_low != endpoint.support_pair_peer_low ||
-      authority.support_pair_peer_high != endpoint.support_pair_peer_high) {
+  if (decision.support_group_id != endpoint.support_group_id ||
+      decision.support_pair_peer_low != endpoint.support_pair_peer_low ||
+      decision.support_pair_peer_high != endpoint.support_pair_peer_high) {
     result->issues.push_back({ValidationSeverity::kError, "SupportGroupEndpointSemanticProjectionMismatch",
                               "Grouped-lowered endpoint must keep the same support-group identity and authoritative pair as the support-group decision",
                               span_id});
   }
-  if (!support_authority_equal(authority.support_authority, endpoint.support_authority)) {
+  if (!support_authority_equal(decision.support_authority, endpoint.support_authority)) {
     result->issues.push_back({ValidationSeverity::kError, "SupportGroupEndpointAuthorityProjectionMismatch",
                               "Grouped-lowered endpoint support authority must match the authoritative support-group decision",
                               span_id});
@@ -809,7 +809,7 @@ ValidationResult CoreState::Validate() const {
                                             &support_group_category_by_key);
       });
 
-  for (const auto& [key, group_decision] : cache_state.span_layout_cache.support_groups.authority.by_key) {
+  for (const auto& [key, group_decision] : cache_state.span_layout_cache.support_groups.decision.by_key) {
     if (group_decision.owner_pole_id != key.owner_pole_id ||
         group_decision.support_group_id != key.support_group_id) {
       result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionKeyMismatch",
@@ -845,13 +845,13 @@ ValidationResult CoreState::Validate() const {
   }
 
   for (const auto& [key, group] : cache_state.span_layout_cache.support_groups.placement.by_key) {
-    const auto decision_it = cache_state.span_layout_cache.support_groups.authority.by_key.find(key);
-    if (decision_it == cache_state.span_layout_cache.support_groups.authority.by_key.end()) {
+    const auto decision_it = cache_state.span_layout_cache.support_groups.decision.by_key.find(key);
+    if (decision_it == cache_state.span_layout_cache.support_groups.decision.by_key.end()) {
       result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionMissing",
                                "Grouped placement must have a matching support-group decision", key.owner_pole_id});
       continue;
     }
-    const SupportGroupDecision& authority = decision_it->second;
+    const SupportGroupDecision& decision = decision_it->second;
     if (group.grouped_port_count != static_cast<int>(group.attachment_worlds.size())) {
       result.issues.push_back({ValidationSeverity::kError, "SupportGroupAttachmentCountMismatch",
                                "Grouped lowered support must carry one attachment world per grouped port",
@@ -872,7 +872,7 @@ ValidationResult CoreState::Validate() const {
     Vec3d support_axis = group.tip_world - group.mount_world;
     support_axis.z = 0.0;
     if (Normalize(&support_axis) && is_finite_xy_validation(support_axis)) {
-      Vec3d authoritative_axis = authoritative_support_axis_for_validation(authority);
+      Vec3d authoritative_axis = authoritative_support_axis_for_validation(decision);
       if (!Normalize(&authoritative_axis) || !is_finite_xy_validation(authoritative_axis)) {
         result.issues.push_back({ValidationSeverity::kError, "SupportGroupAxisMissing",
                                  "Grouped lowered support must carry a finite authoritative axis",
@@ -888,7 +888,7 @@ ValidationResult CoreState::Validate() const {
     }
   }
 
-  if (cache_state.span_layout_cache.support_groups.authority.by_key.size() !=
+  if (cache_state.span_layout_cache.support_groups.decision.by_key.size() !=
       cache_state.span_layout_cache.support_groups.placement.by_key.size()) {
     result.issues.push_back({ValidationSeverity::kError, "SupportGroupPlacementCountMismatch",
                              "support_group_decisions and lowered_support_groups must stay 1:1",
@@ -903,8 +903,8 @@ ValidationResult CoreState::Validate() const {
             result.issues.push_back({ValidationSeverity::kError, "SupportGroupPlacementDuplicateRef",
                                      "Support layout must not reference the same grouped lowered support twice", span_id});
           }
-          if (cache_state.span_layout_cache.support_groups.authority.by_key.find(key) ==
-              cache_state.span_layout_cache.support_groups.authority.by_key.end()) {
+          if (cache_state.span_layout_cache.support_groups.decision.by_key.find(key) ==
+              cache_state.span_layout_cache.support_groups.decision.by_key.end()) {
             result.issues.push_back({ValidationSeverity::kError, "SupportGroupDecisionMissing",
                                      "Support layout references a missing support-group decision", span_id});
           }

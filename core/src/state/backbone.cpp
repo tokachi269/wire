@@ -134,7 +134,7 @@ void CoreState::cache_support_group(SupportGroupDecision decision, LoweredSuppor
   if (key.owner_pole_id == kInvalidObjectId || key.support_group_id < 0) {
     return;
   }
-  runtime_.cache_state.span_layout_cache.support_groups.authority.by_key[key] = std::move(decision);
+  runtime_.cache_state.span_layout_cache.support_groups.decision.by_key[key] = std::move(decision);
   runtime_.cache_state.span_layout_cache.support_groups.placement.by_key[key] = std::move(placement);
 }
 

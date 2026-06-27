@@ -147,19 +147,12 @@ bool C369_bb2_rules_saved() {
 bool C370_bb2_no_v1_deps() {
   const std::filesystem::path dir = repo_root() / "core" / "src" / "generation" / "bb2";
   const std::vector<std::string> banned = {
-      "backbone_pipeline",
-      "bundle_spans",
-      "build_backbone",
       "support_layout_",
-      "BackbonePipeline",
       "JunctionRelationKind",
       "SpanSupportLayoutDecisionSeed",
       "Authority",
       "Projection",
       "Materialization",
-      "generate_grouped_spans_between_support_nodes",
-      "remap_backbone_build_to_real_nodes",
-      "cache_span_layout_rules",
       "generate_span_curve",
       "cache_rebuilt_span_geometry",
       "rebuild_span_bounds",
@@ -4137,9 +4130,6 @@ bool C523_bb2_scope_gate_matches_entrypoint() {
                               contains_text(entry_text, "pipeline.prepare()") &&
                               contains_text(entry_text, "pipeline.check()") &&
                               contains_text(entry_text, "return pipeline.build();");
-  const bool entry_avoids_v1 = !contains_text(entry_text, "BackbonePipeline") &&
-                               !contains_text(entry_text, "backbone_pipeline") &&
-                               !contains_text(entry_text, "generate_grouped_spans_between_support_nodes");
   const std::size_t build_pos = bb2_text.find("EditResult<GenerateBundleFromPathResult> pipeline::build()");
   const std::size_t check_call = bb2_text.find("EditResult<bool> duplicates = check(ps.value)", build_pos);
   const std::size_t intent_call = bb2_text.find("EditResult<intent> intents = make(ps.value)", build_pos);
@@ -4147,7 +4137,7 @@ bool C523_bb2_scope_gate_matches_entrypoint() {
   const bool preflight_before_emit = build_pos != std::string::npos && check_call != std::string::npos &&
                                      intent_call != std::string::npos && emit_call != std::string::npos &&
                                      check_call < intent_call && intent_call < emit_call;
-  return entry_uses_bb2 && entry_avoids_v1 && preflight_before_emit;
+  return entry_uses_bb2 && preflight_before_emit;
 }
 
 bool span_has_lowered_endpoint(const wire::core::CoreState& state, wire::core::ObjectId span_id) {

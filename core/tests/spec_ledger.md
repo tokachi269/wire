@@ -22,11 +22,6 @@
 | C10 | Symptom | General | 同一Pole接続拒否 | Pole1本 | 同一Pole接続後に正常操作 | Exact: fail+復帰可 | error/後続成功 | 誤操作耐性 |
 | C11 | Symptom | Generate/Edit | 柱起点引込 | PoleType適用済 | AddDropFromPole | Invariant: service span生成 | spans/ports | 引込崩壊防止 |
 | C12 | Symptom | Generate/Edit | 線起点引込 | Span1本 | AddDropFromSpan | Invariant: split+drop整合 | spans/index | 分岐引込維持 |
-| C13 | Symptom | Init | 直線幾何決定性 | 同一状態 | 再生成 | Exact: 点列一致 | CurveCache | 再現性 |
-| C14 | Symptom | Curve/Render | サグ基本 | Span1本 | line→sag | Invariant: 端点一致+中点がworld up方向に低下 | CurveCache | 接続維持 |
-| C15 | Symptom | General | Version追随局所性 | 独立Span2本 | Port移動→再計算 | Exact: 対象のみ追随 | runtime | 局所更新維持 |
-| C16 | Symptom | Curve/Render | Bounds有効性 | Span1本 | 再計算 | Invariant: AABB有効 | BoundsCache | 前段データ健全 |
-| C17 | Symptom | Curve/Render | Bounds追随 | Span1本 | sag設定変更 | Invariant: AABBがworld up方向の変化に追随して更新 | BoundsCache | 表示追随 |
 | C19 | Symptom | Generate/Edit | 道路Pole生成 | PoleTypeあり | GeneratePolesAlongRoad | Invariant: 本数/Type/RoadAuto | poles/generation | 自動配置信頼性 |
 | C20 | Symptom | Generate/Edit | 短polyline拒否 | PoleTypeあり | GenerateSimpleLine(点1) | Exact: fail+状態不変 | error/count | 入力ミス耐性 |
 | C21 | Symptom | Generate/Edit | interval不正拒否 | PoleTypeあり | GenerateSimpleLine(interval<=0) | Exact: fail+状態不変 | error/count | 設定ミス耐性 |

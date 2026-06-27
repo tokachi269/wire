@@ -115,8 +115,7 @@ bool prepare_single_low_voltage_span(CoreState& state, ObjectId* span_id, wire::
   if (!connect.ok) {
     return false;
   }
-  const auto commit = state.Commit();
-  if (!commit.validation.ok()) {
+  if (!state.ValidateFast().ok()) {
     return false;
   }
   const wire::core::Span* span = state.view().spans().find(connect.value.span_id);
@@ -256,8 +255,7 @@ bool test_public_override_surfaces_match_mutation_state() {
     return false;
   }
 
-  const auto commit = state.Commit();
-  if (!commit.validation.ok()) {
+  if (!state.ValidateFast().ok()) {
     return false;
   }
 

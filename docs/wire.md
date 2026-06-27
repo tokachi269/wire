@@ -88,7 +88,7 @@
 1. Pole 更新
 2. 配下 Auto Port 再投影（Manual は保持）
 3. 関連 Span を Dirty 化
-4. 再計算で Version 追随
+4. direct derive で派生出力を追随
 - 参照整合は `ValidateFast()` / `Validate()` で検出する。
 - `UpdatePoleTypeDefinition(...)` は、すでにその `pole_type_id` を持つ既存 pole にだけ再適用する。
 - `UpdateBundleTemplate(...)` は bundle 定義を更新するが、既存 pole instance の `pole_type_id` は自動変更しない。
@@ -100,10 +100,9 @@
 - ルート探索は Backbone を優先し、必要時のみ詳細に降りる。
 
 ## 9. lowered support の固定経路
-- 正規経路: `EndpointDecision -> SupportGroupDecision -> GroupedSupportPlacement -> Render`
-- Materialization 層以外で lowered support を実体化しない。
+- 正規経路: `SpanLayoutRules -> SupportGroupDecision -> SpanLayoutEntry -> geom/draw`
 - `support_group_id` は decision の正本フィールドを使い、downstream で再計算しない。
-- orientation / side / lower_required は upstream decision を正とし、recalc/viewer で再推論しない。
+- orientation / side / lower_required は upstream decision を正とし、derive/viewer で再推論しない。
 
 ## 10. 鋭角コーナー補正（現行）
 - 鋭角判定は `corner interior angle <= 74°`。

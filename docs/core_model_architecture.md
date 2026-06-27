@@ -21,10 +21,10 @@
 - 保持する主値: `support_group_id`, `lower_required`, `relation_kind`, `side_axis`, `chosen_side_sign`, `support_orientation_rule`, `support_orientation_basis`。
 - 禁止: world 座標の support 実体化、viewer 向け補正。
 
-3. Materialization
-- 役割: decision を実体へ変換する。
-- 正本: `GroupedSupportPlacement`（cache）。
-- 固定経路: `EndpointDecision -> SupportGroupDecision -> GroupedSupportPlacement -> Render`。
+3. Layout / Placement
+- 役割: saved decision を endpoint placement へ変換する。
+- 正本: `SpanLayoutEntry` と support group placement。
+- 固定経路: `SpanLayoutRules -> SupportGroupDecision -> SpanLayoutEntry`。
 - 禁止: `support_group_id` 再計算、`lower_required` 再判定、orientation 再解釈。
 
 4. Detail Curve
@@ -37,23 +37,23 @@
 - 禁止: dedupe で意味補正、group 推定、lower 再判断、orientation 再計算。
 
 ## 現状のズレ
-- 設計目標は「後段が前段の意味を再判定しない」ですが、現在の `Commit(run_recalc=true)` は `kGeometry` 経路で support layout と detail-curve 入力の再構築まで含んでいます。
-- そのため downstream が upstream authority を消費し直す途中で fallback / refresh / resolver が入り、実質的に再決定っぽく振る舞う経路が残っています。
-- ただし、これを「recalc が毎回 lane continuity や `lower_required` を再決定している」とまでは断定しません。fresh generate 時点で壊れる系と、`Commit(recalc)` で悪化する系は分けて観測します。
-- 改修方針は `recalc` 廃止ではなく縮小です。`Decision/Layout recompute` と `GeometryRefresh` と `RenderRefresh` を同じ `kGeometry` に閉じ込めない方向で整理します。
+- `core/src/recalc` と support-layout materialization は削除済み。
+- bb2 generation と direct derive は recalc / materialization / support-layout contract を読まない。
+- 残る旧語は validation-only の support-group consistency check と public query 旧名が中心。
+- viewer normal path は neutral span output と saved graph を読む。
 
 ## lowered support の設計固定
 - group identity は `owner_pole_id + support_group_id`。
 - `support_group_id` は decision 正本フィールドとして保持し、downstream で再導出しない。
 - one owner pole + one support group = one authoritative placement。
 - grouped lowered support は non-radial basis を必須とする。
-- SideBranch / CornerContinuation は bisector を優先し、chord は最後の fallback。
+- T/cross/branch kind は正本にしない。pair/open/row と support group で表す。
 
 ## データ境界
 - Definition: テンプレート/静的定義。
 - Entity: `Pole / Port / Anchor / Bundle / Span / Attachment`。
 - Workflow: 入力 spec と決定結果。
-- Cache/Debug: 再構築可能な派生（curve/bounds/support layout/inspection 用 view）。
+- Cache/Debug: 再構築可能な派生（span layout / curve / bounds / draw / inspection 用 view）。
 
 禁止する逆依存:
 - Definition -> Entity
@@ -63,16 +63,16 @@
 ## 変更時チェックリスト
 - どの段の正本を更新したかを明示したか。
 - 後段で同じ意味を再判定していないか。
-- `kGeometry` が decision/layout recompute を抱え込んでいないか。
+- geom / draw が decision/layout recompute を抱え込んでいないか。
 - 旧経路を削除したか（未使用で放置していないか）。
 - validator/test で不変条件を固定したか。
-- refresh/recalc 前後で意味が不変かを確認したか。
+- direct derive 前後で意味が不変かを確認したか。
 
 ## 必須不変条件（最低限）
 - `support_group_id` は authoritative field で downstream 再計算しない。
 - grouped lowered support は radial basis を使わない。
 - 同一 support group で side/orientation basis が一致する。
-- refresh/recalc 前後で次が不変:
+- direct derive 前後で次が不変:
   - `support_group_id`
   - `support_world`, `mount_world`, `tip_world`
   - `support_orientation_rule`, `support_orientation_basis`

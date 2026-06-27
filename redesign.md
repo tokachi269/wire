@@ -168,7 +168,8 @@ viewer normal path は bb2 neutral outputs を読む。
 * curve / bounds。
 * visual / render cache。
 
-`inspect_support_layout` は manual debug / v1 inspection 用に限定する。viewer normal path が旧 support-layout contract を読む場合は削除候補とする。
+`inspect_support_layout` / support-layout contract / projection は viewer normal path と public debug から削除済み。
+必要な観測は neutral span output と saved graph で行う。
 
 public backbone query は saved graph を正本として読む。旧名の API が残っていても、span-derived fallback を戻してはいけない。
 
@@ -180,7 +181,6 @@ recalc は bb2 の通常生成経路ではない。
 
 * v1 専用。
 * 旧テスト。
-* 手動 debug。
 * validation 専用。
 
 残してはいけない範囲:

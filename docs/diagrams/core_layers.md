@@ -11,10 +11,10 @@ flowchart TD
   core/src/state"]
   generation["Generation / Workflow
   core/src/generation"]
-  recalc["Recalc / Materialization
-  core/src/recalc"]
   validation["Validation
   core/src/validation"]
+  derived["Direct Derived Output
+  span layout / geom / draw caches"]
   tests["Tests
   core/tests"]
   inspection["Inspection Surface
@@ -25,22 +25,21 @@ flowchart TD
 
   api --> state
   api --> generation
-  api --> recalc
   api --> validation
 
   generation --> state
-  generation --> recalc
-  state --> recalc
-  recalc --> validation
+  generation --> derived
+  state --> derived
+  derived --> validation
 
   inspection --> api
   inspection --> state
-  inspection --> recalc
+  inspection --> derived
 
   tests --> api
   tests --> state
   tests --> generation
-  tests --> recalc
+  tests --> derived
   tests --> validation
 
   viewer --> api
@@ -51,15 +50,15 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-  support["support_layout
-  authoritative decision"]
-  pipeline["recalc_pipeline
-  constraint wiring"]
+  rules["SpanLayoutRules
+  saved decision"]
+  layout["SpanLayoutEntry
+  endpoint placement"]
   detail["detail_curve
-  composite materialization"]
+  direct curve"]
   cache["curve cache / inspection"]
   viewer["viewer
   consume only"]
 
-  support --> pipeline --> detail --> cache --> viewer
+  rules --> layout --> detail --> cache --> viewer
 ```

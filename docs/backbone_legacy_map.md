@@ -55,6 +55,7 @@
 | state-services validation setup | service tests が `Commit` を validation wrapper として使用 | A | `ValidateFast()` へ移行済み。recalc output dependency はなかった |
 | C27/C305 workflow recalc output | old SimpleLine cache/version と style inspection を `Commit` 後に確認 | C/D | 退役済み。mainline output保証はbb2 scenariosへ移植済み。旧 style inspection surface は supported scope外 |
 | C40/C51/C52 edit setup | dirty-bit baseline を作るため編集前に `Commit` | A | Commit setupとdirty assertionを退役。port movement/mode/manual protection constraintsは維持 |
+| C288/C293/C312 optical recalc curve | optical coil/replacement paths を `Commit` 後の v1 curveで確認 | D | 退役済み。supplemental optical visual semantics は bb2 supported scope外。template registration constraintはC310で維持 |
 | output cache presence | `support_layout_projection`, curve/bounds/visual/render after recalc | C/D | 詳細は下の「output cache presence family」を参照。bb2 required outputs は rules/layout/geom/draw を直接確認する |
 | viewer-required output | viewer scene/capture constraints | A/B | viewer representative scenes と bb2 scenario tests で扱う。既に pass するケースへの test 追加だけでは進捗扱いにしない |
 | post-edit direct derive determinism | `Commit(run_recalc)` after port/pole edits | B | supported edit が recalc を必要とする場合だけ direct derive tests へ移植 |

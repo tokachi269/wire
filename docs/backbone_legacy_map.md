@@ -53,6 +53,7 @@
 | C78/C79/C81/C119/C120 recalc visual | pole tilt/sag/insulator/template render を `Commit` 後の v1 cache で確認 | C/D | 退役済み。C119 の diameter/render 制約は bb2 C569へ移植済み。tilt sag と full insulator semantics は bb2 supported scope外 |
 | C191 preserved-template endpoint mode | `Commit` 後の旧 support-layout endpoint mode を要求 | D | 退役済み。bb2 は bundle spec を connectivity authority にせず、旧 OffsetEndpoint projection shape は移植しない |
 | state-services validation setup | service tests が `Commit` を validation wrapper として使用 | A | `ValidateFast()` へ移行済み。recalc output dependency はなかった |
+| C27/C305 workflow recalc output | old SimpleLine cache/version と style inspection を `Commit` 後に確認 | C/D | 退役済み。mainline output保証はbb2 scenariosへ移植済み。旧 style inspection surface は supported scope外 |
 | output cache presence | `support_layout_projection`, curve/bounds/visual/render after recalc | C/D | 詳細は下の「output cache presence family」を参照。bb2 required outputs は rules/layout/geom/draw を直接確認する |
 | viewer-required output | viewer scene/capture constraints | A/B | viewer representative scenes と bb2 scenario tests で扱う。既に pass するケースへの test 追加だけでは進捗扱いにしない |
 | post-edit direct derive determinism | `Commit(run_recalc)` after port/pole edits | B | supported edit が recalc を必要とする場合だけ direct derive tests へ移植 |

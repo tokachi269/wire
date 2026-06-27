@@ -244,63 +244,6 @@ bool test_generate_spans_between_poles_uses_third_candidate_before_reuse() {
   return template_keys.size() >= 3;
 }
 
-bool test_generate_simple_line_integration() {
-  CoreState state;
-  const auto type_ids = sorted_pole_type_ids(state);
-  if (type_ids.empty()) {
-    return false;
-  }
-
-  wire::core::RoadSegment road{};
-  road.id = 44;
-  road.polyline = {{0.0, 0.0, 0.0}, {15.0, 5.0, 0.0}, {30.0, 0.0, 0.0}};
-  const auto result = state.GenerateSimpleLine(road, 6.0, type_ids.front(), ConnectionCategory::kLowVoltage);
-  if (!result.ok) {
-    return false;
-  }
-  if (result.value.pole_ids.size() < 3) {
-    return false;
-  }
-  if (result.value.span_ids.size() != result.value.pole_ids.size() - 1) {
-    return false;
-  }
-  if (result.value.generation_session_id == 0) {
-    return false;
-  }
-  const auto backbone = state.BuildBackboneResult();
-  if (backbone.nodes.empty() || backbone.edges.empty()) {
-    return false;
-  }
-
-  for (ObjectId pole_id : result.value.pole_ids) {
-    const auto* pole = state.view().edit_state().poles.find(pole_id);
-    if (pole == nullptr || pole->generation.generation_session_id != result.value.generation_session_id) {
-      return false;
-    }
-  }
-  for (ObjectId span_id : result.value.span_ids) {
-    const auto* span = state.view().edit_state().spans.find(span_id);
-    if (span == nullptr || span->generation.generation_session_id != result.value.generation_session_id) {
-      return false;
-    }
-  }
-
-  (void)state.Commit().recalc_stats;
-  for (ObjectId span_id : result.value.span_ids) {
-    const auto* runtime = state.view().find_span_runtime_state(span_id);
-    const auto* curve = state.find_curve_cache(span_id);
-    const auto* bounds = state.find_bounds_cache(span_id);
-    if (runtime == nullptr || curve == nullptr || bounds == nullptr) {
-      return false;
-    }
-    if (runtime->geometry_version != runtime->data_version || runtime->bounds_version != runtime->data_version ||
-        runtime->render_version != runtime->data_version) {
-      return false;
-    }
-  }
-  return validate_now(state).ok();
-}
-
 bool test_generate_simple_line_reuses_intermediate_ports() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
@@ -412,44 +355,6 @@ bool test_style_context_resolver_is_deterministic_and_route_correlated() {
           std::abs(resolved_a.object.choice_bias - resolved_b.object.choice_bias) > 1e-9);
 }
 
-bool test_inspection_exposes_resolved_style_context_on_span_and_detail_curve() {
-  CoreState state;
-  const auto type_ids = sorted_pole_type_ids(state);
-  if (type_ids.empty()) {
-    return false;
-  }
-
-  wire::core::RoadSegment road{};
-  road.id = 91;
-  road.polyline = {{0.0, 0.0, 0.0}, {18.0, 0.0, 0.0}, {36.0, 8.0, 0.0}};
-  const auto generated = state.GenerateSimpleLine(road, 18.0, type_ids.front(), ConnectionCategory::kCommunication);
-  if (!generated.ok || generated.value.span_ids.empty()) {
-    return false;
-  }
-
-  (void)state.Commit().recalc_stats;
-
-  const ObjectId span_id = generated.value.span_ids.front();
-  const auto span_view = state.view().inspect_span(span_id);
-  const auto curve_view = state.view().inspect_detail_curve(span_id);
-  if (!span_view.has_value() || !curve_view.has_value()) {
-    return false;
-  }
-
-  const auto& span_style = span_view->style;
-  const auto& curve_style = curve_view->style;
-  return span_style.has_context && curve_style.has_context && span_style.route_key.family_id != 0 &&
-         span_style.route_key.family_id == curve_style.route_key.family_id &&
-         span_style.route_key.bundle_template_id == curve_style.route_key.bundle_template_id &&
-         span_style.route_key.category == curve_style.route_key.category &&
-         span_style.route_key.flow_kind == curve_style.route_key.flow_kind &&
-         span_style.object_key.route.family_id == span_style.route_key.family_id &&
-         curve_style.object_key.route.family_id == curve_style.route_key.family_id &&
-         span_style.resolved.scope.district_seed == curve_style.resolved.scope.district_seed &&
-         span_style.resolved.scope.route_seed == curve_style.resolved.scope.route_seed &&
-         span_style.resolved.scope.object_seed == curve_style.resolved.scope.object_seed;
-}
-
 void register_workflow_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C20_Phase46_GenerateSimpleLine_FailShortPolyline", "Simple line short polyline fails with state unchanged", "Exact", true, test_generate_simple_line_fails_with_short_polyline);
   test_registry::AddTest(tests, "C21_Phase46_GenerateSimpleLine_FailInvalidInterval", "Simple line invalid interval fails with state unchanged", "Exact", true, test_generate_simple_line_fails_with_invalid_interval);
@@ -459,15 +364,11 @@ void register_workflow_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C24_Phase45_GenerateSpansBetweenPoles_Basic", "Adjacent poles are auto connected", "Exact", false, test_generate_spans_between_poles_basic);
   test_registry::AddTest(tests, "C25_Phase45_GenerateSpansBetweenPoles_MultiPass", "Repeated auto-connect adds more spans", "Exact", false, test_generate_spans_between_poles_multiple_passes);
   test_registry::AddTest(tests, "C26_Phase47_AutoConnect_UsesThirdSlot", "Auto-connect uses at least third low-voltage candidate before reuse", "Invariant", false, test_generate_spans_between_poles_uses_third_candidate_before_reuse);
-  test_registry::AddTest(tests, "C27_Phase45_GenerateSimpleLine_Integration", "Simple line generation integrates dirty/recalc/caches", "Invariant", false, test_generate_simple_line_integration);
   test_registry::AddTest(tests, "C28_Phase45_GenerateSimpleLine_Continuity", "Intermediate poles reuse same through-port", "Invariant", false, test_generate_simple_line_reuses_intermediate_ports);
   test_registry::AddTest(tests, "C29_Phase45_DisplayId_PerPrefix", "Display IDs increment per prefix", "Exact", false, test_display_id_is_per_prefix_sequence);
   test_registry::AddTest(tests, "C304_StyleContext_DeterministicRouteCorrelated",
                          "Style context resolver stays deterministic per semantic key and shares route-level style across sibling objects",
                          "Invariant", false, test_style_context_resolver_is_deterministic_and_route_correlated);
-  test_registry::AddTest(tests, "C305_Inspection_ResolvedStyleContext",
-                         "Span and detail inspections expose the same resolved style context for a generated span",
-                         "Invariant", false, test_inspection_exposes_resolved_style_context_on_span_and_detail_curve);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_workflow_tests);

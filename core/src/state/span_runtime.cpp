@@ -1,11 +1,6 @@
 #include "wire/core/core_state.hpp"
 #include "wire/core/core_view.hpp"
-#include "wire/core/coord_utils.hpp"
-#include "detail_curve_input_resolution.hpp"
-#include "detail_curve_postprocess.hpp"
 #include <algorithm>
-#include <cmath>
-#include <string>
 #include <unordered_set>
 #include <vector>
 

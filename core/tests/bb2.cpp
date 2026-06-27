@@ -2401,7 +2401,7 @@ bool C436_bb2_frontier_reads_edge_bundles() {
 }
 
 bool C437_bb2_layout_save_is_direct() {
-  const std::filesystem::path source = repo_root() / "core" / "src" / "recalc" / "recalc_pipeline.cpp";
+  const std::filesystem::path source = repo_root() / "core" / "src" / "state" / "span_runtime.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
     return false;
@@ -2523,7 +2523,7 @@ bool C444_bb2_layout_uses_neutral_types() {
 
 bool C445_bb2_cache_span_layout_accepts_neutral_entry() {
   const std::filesystem::path header = repo_root() / "core" / "include" / "wire" / "core" / "core_state.hpp";
-  const std::filesystem::path source = repo_root() / "core" / "src" / "recalc" / "recalc_pipeline.cpp";
+  const std::filesystem::path source = repo_root() / "core" / "src" / "state" / "span_runtime.cpp";
   std::string h;
   std::string cpp;
   if (!file_text(header, &h) || !file_text(source, &cpp)) {
@@ -2587,7 +2587,7 @@ bool C448_bb2_tests_use_neutral_layout_read() {
 }
 
 bool C449_bb2_layout_read_does_not_expose_authority() {
-  const std::filesystem::path source = repo_root() / "core" / "src" / "recalc" / "recalc_pipeline.cpp";
+  const std::filesystem::path source = repo_root() / "core" / "src" / "state" / "span_runtime.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
     return false;
@@ -2644,7 +2644,7 @@ bool C452_bb2_layout_state_does_not_expose_old_contract_names() {
 }
 
 bool C453_bb2_layout_state_reads_existing_cache_without_seed_path() {
-  const std::filesystem::path source = repo_root() / "core" / "src" / "recalc" / "recalc_pipeline.cpp";
+  const std::filesystem::path source = repo_root() / "core" / "src" / "state" / "span_runtime.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
     return false;
@@ -2677,7 +2677,7 @@ bool C454_bb2_cache_state_uses_span_layout_cache() {
 }
 
 bool C455_bb2_neutral_layout_api_uses_span_layout_cache() {
-  const std::filesystem::path source = repo_root() / "core" / "src" / "recalc" / "recalc_pipeline.cpp";
+  const std::filesystem::path source = repo_root() / "core" / "src" / "state" / "span_runtime.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
     return false;
@@ -3897,7 +3897,7 @@ bool C513_bb2_support_visual_placeholder_from_layout() {
 }
 
 bool C514_bb2_draw_save_is_direct() {
-  const std::filesystem::path source = repo_root() / "core" / "src" / "recalc" / "recalc_pipeline.cpp";
+  const std::filesystem::path source = repo_root() / "core" / "src" / "state" / "span_runtime.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
     return false;

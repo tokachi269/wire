@@ -25,7 +25,7 @@ add_library(
   src/recalc/style_context.cpp
   src/recalc/variation.cpp
   src/recalc/curve_support.cpp
-  src/recalc/recalc_pipeline.cpp
+  src/state/span_runtime.cpp
 )
 
 option(WIRE_ENABLE_PCH "Enable precompiled headers for core targets" ON)

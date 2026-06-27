@@ -494,10 +494,7 @@ bool aabb_valid(const wire::core::AABBd& aabb) {
 bool starts_with(const std::string& value, const std::string& prefix) { return value.rfind(prefix, 0) == 0; }
 
 wire::core::ValidationResult validate_now(CoreState& state) {
-  wire::core::CommitOptions options{};
-  options.run_recalc = false;
-  options.run_validate = true;
-  return state.Commit(options).validation;
+  return state.ValidateFast();
 }
 
 std::vector<PoleTypeId> sorted_pole_type_ids(const CoreState& state) {

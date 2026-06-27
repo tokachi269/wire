@@ -2,7 +2,7 @@
 
 #include "wire/core/core_view.hpp"
 #include "wire/core/style_context.hpp"
-#include "../recalc/detail_curve_input_resolution.hpp"
+#include "../geometry/detail_curve_input_resolution.hpp"
 
 #include <algorithm>
 #include <cmath>

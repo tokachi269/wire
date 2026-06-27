@@ -151,6 +151,7 @@ generation が決めた pair / side / lowering / order が refresh や materiali
 | support-layout materialization | seed/projection/world-geometry source は削除済み。detail-curve共有utilityは `curve_support` に縮小 | A | support-layout plannerを戻さない |
 | support-layout authority/seed/projection inspection | type/storage/viewer表示を削除済み | A | neutral `SpanLayoutCacheRecord` と直接保存support groupだけを使う |
 | recalc rebuild internals | CoreState の seed/materialization/curve/bounds/visual rebuild chain は削除済み | A | neutral cache保存、direct derive、dirty markingのみ残る |
+| `core/src/recalc` directory | 削除済み | A | 残った curve/style/variation utility は `core/src/geometry` へ移動 |
 | public backbone query 旧名 | 残存 | viewer/public API が読む | saved graph backed API へ rename できる段階で整理 |
 | `bb2` namespace/name | 残存 | v1 がまだ同居している | v1/recalc/support-layout 本流依存削除後に mainline 名へ rename |
 | viewer support-layout inspection helper overloads | 削除済み | selected SupportLayout panel が neutral output 化済み | `SupportLayoutEndpointView` / `LoweredSupportGroupInspectionView` 用 helper を戻さない |

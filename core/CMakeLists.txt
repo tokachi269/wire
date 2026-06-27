@@ -19,12 +19,12 @@ add_library(
   src/generation/rebuild_from_backbone.cpp
   src/state/backbone.cpp
   src/validation/validator.cpp
-  src/recalc/detail_curve.cpp
-  src/recalc/detail_curve_input_resolution.cpp
-  src/recalc/detail_curve_postprocess.cpp
-  src/recalc/style_context.cpp
-  src/recalc/variation.cpp
-  src/recalc/curve_support.cpp
+  src/geometry/detail_curve.cpp
+  src/geometry/detail_curve_input_resolution.cpp
+  src/geometry/detail_curve_postprocess.cpp
+  src/geometry/style_context.cpp
+  src/geometry/variation.cpp
+  src/geometry/curve_support.cpp
   src/state/span_runtime.cpp
 )
 

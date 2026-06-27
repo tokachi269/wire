@@ -22,7 +22,7 @@
 | `SpanLayoutRules` / `SpanLayoutEntry` / `SpanLayoutState` | bb2、viewer normal/debug、public inspection | mainline | yes | support-layout authority/seed/projection を戻さない |
 | saved backbone graph | bb2、viewer/query、frontier、route query | mainline | yes | topology authority。span/layout/seed/curve/port position から復元しない |
 | `BuildSavedBackboneResult` / `BuildBackboneEdges` / `FindBackboneRoute` | public query、viewer、tests | B | no v1 fallback | saved graph backed query として維持。旧名 rename は mainline 化後 |
-| `support_layout_types.hpp` の旧 authority 語 | neutral layout/support group data と validation | D/E | no fallback path | validation-only 残存。normal generation の decision owner にしない |
+| `span_layout_types.hpp` の旧 authority 語 | neutral layout/support group data と validation | D/E | no fallback path | validation-only 残存。normal generation の decision owner にしない |
 | `ValidateFast` の support-group projection checks | viewer validation panel、tests | D/E | no | normal path blocker にしない。必要制約だけ neutral validation へ移す |
 | `DirtyBits` / span runtime dirty marking | editing/runtime/viewer dirty overlay | mainline runtime | no recalc owner | mutation tracking と表示用。dirty queue/recalc ではない |
 | direct derive `DeriveGeneratedSpanOutputs` | post-edit output rederive | mainline | no recalc | saved rules/ports から layout/geom/draw を再導出。recalc へ戻さない |
@@ -38,6 +38,7 @@
 | manual viewer `Run Legacy Recalc` | 削除済み | viewer normal/debug から recalc を起動する経路 |
 | `support_orientation_utils.*` | 削除済み | validation-only helper の別ファイル化。必要分は validator 内へ局所化 |
 | viewer/public inspection の `SupportLayout` entity/selection 名 | neutral `SpanLayout` 名へ置換済み | normal UI / public inspection に旧 support-layout entity 名を戻すこと |
+| `support_layout_types.hpp` ファイル名 | `span_layout_types.hpp` へ置換済み | neutral layout 型を旧 support-layout ファイル名へ戻すこと |
 
 ## viewer 境界
 

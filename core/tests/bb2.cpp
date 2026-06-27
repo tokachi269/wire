@@ -2622,7 +2622,7 @@ bool C451_bb2_tests_do_not_read_old_contract() {
 }
 
 bool C452_bb2_layout_state_does_not_expose_old_contract_names() {
-  const std::filesystem::path header = repo_root() / "core" / "include" / "wire" / "core" / "support_layout_types.hpp";
+  const std::filesystem::path header = repo_root() / "core" / "include" / "wire" / "core" / "span_layout_types.hpp";
   std::string h;
   if (!file_text(header, &h)) {
     return false;

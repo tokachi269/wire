@@ -2,7 +2,7 @@
 
 #include "wire/core/detail_curve.hpp"
 #include "wire/core/style_context.hpp"
-#include "wire/core/support_layout_types.hpp"
+#include "wire/core/span_layout_types.hpp"
 
 namespace wire::core {
 
@@ -27,13 +27,6 @@ struct ResolvedSpanCurveInputs {
 };
 
 [[nodiscard]] CurvePassMode curve_pass_mode_from_context(ConnectionContext context);
-
-[[nodiscard]] CurveProfileHint detail_curve_profile_hint_from_support_layout(const SpanLayoutEntry& layout);
-
-[[nodiscard]] CurveConstraint make_curve_constraint_from_support_layout(
-    const LayoutEndpoint& endpoint, const Pole* owner_pole, double basis_length, double effective_sag_ratio,
-    double bend_stiffness_hint, double min_bend_radius_hint_m, CableContinuityPolicyHint continuity_preference,
-    CurvePassMode pass_mode, CurveProfileHint profile_hint, ConnectionContext connection_context);
 
 [[nodiscard]] std::uint64_t variation_flow_key_for_span(const SpanRuntimeState* runtime, const Span& span);
 

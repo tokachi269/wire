@@ -60,71 +60,6 @@ CurvePassMode curve_pass_mode_from_context(ConnectionContext context) {
   }
 }
 
-CurveProfileHint detail_curve_profile_hint_from_support_layout(const SpanLayoutEntry& layout) {
-  auto has_valid_departure = [](const LayoutEndpoint& endpoint) {
-    Vec3d departure = endpoint.departure_dir;
-    return Normalize(&departure);
-  };
-  const bool grouped_lowered_support =
-      UsesAuthoritativeGroupedLoweredSupport(layout.start) ||
-      UsesAuthoritativeGroupedLoweredSupport(layout.end);
-  if (layout.pass_mode != CurvePassMode::kPassThrough) {
-    return CurveProfileHint::kAuto;
-  }
-  if (grouped_lowered_support &&
-      (!layout.start.same_level_feasible || !layout.end.same_level_feasible)) {
-    return CurveProfileHint::kGroupedLoweredSupport;
-  }
-  if (layout.start.endpoint_mode == CurveEndpointMode::kOffsetEndpoint ||
-      layout.end.endpoint_mode == CurveEndpointMode::kOffsetEndpoint) {
-    return CurveProfileHint::kAuto;
-  }
-  if (layout.basis_length_m < 10.0 || !has_valid_departure(layout.start) || !has_valid_departure(layout.end)) {
-    return CurveProfileHint::kAuto;
-  }
-  const double support_height_delta_m =
-      std::abs(HeightAlongWorldUp(layout.end.support_world) - HeightAlongWorldUp(layout.start.support_world));
-  const Vec3d support_delta = layout.end.support_world - layout.start.support_world;
-  const Vec3d vertical = ScaleVec(WorldUp(), Dot(support_delta, WorldUp()));
-  const double support_horizontal_distance_m =
-      std::sqrt(std::max(0.0, LengthSquared(support_delta - vertical)));
-  if (support_height_delta_m < 1.8) {
-    return CurveProfileHint::kAuto;
-  }
-  if (support_height_delta_m < support_horizontal_distance_m * 0.16) {
-    return CurveProfileHint::kAuto;
-  }
-  return CurveProfileHint::kCompositeHeightTransition;
-}
-
-CurveConstraint make_curve_constraint_from_support_layout(const LayoutEndpoint& endpoint, const Pole* owner_pole,
-                                                          double basis_length, double effective_sag_ratio,
-                                                          double bend_stiffness_hint, double min_bend_radius_hint_m,
-                                                          CableContinuityPolicyHint continuity_preference,
-                                                          CurvePassMode pass_mode, CurveProfileHint profile_hint,
-                                                          ConnectionContext connection_context) {
-  CurveConstraint constraint{};
-  constraint.point = endpoint.endpoint_world;
-  constraint.tangent_dir = endpoint.departure_dir;
-  constraint.tangent_strength = 1.0;
-  constraint.tangent_length_hint_m = basis_length * 0.30;
-  constraint.support_departure_length_m = endpoint.local_departure_length_m;
-  constraint.bend_stiffness_hint = bend_stiffness_hint;
-  constraint.min_bend_radius_hint_m = min_bend_radius_hint_m;
-  constraint.endpoint_offset = endpoint.endpoint_offset;
-  constraint.sag_hint = effective_sag_ratio * 0.5;
-  constraint.slack_hint = 0.0;
-  constraint.continuity_preference = continuity_preference;
-  constraint.pass_mode = pass_mode;
-  constraint.endpoint_mode = endpoint.endpoint_mode;
-  constraint.profile_hint = profile_hint;
-  constraint.corner_pass =
-      (connection_context == ConnectionContext::kCornerPass) && owner_pole != nullptr &&
-      owner_pole->context.kind == PoleContextKind::kCorner && owner_pole->context.corner_angle_deg > 1e-6;
-  constraint.corner_angle_deg = (owner_pole == nullptr) ? 0.0 : owner_pole->context.corner_angle_deg;
-  return constraint;
-}
-
 std::uint64_t variation_flow_key_for_span(const SpanRuntimeState* runtime, const Span& span) {
   if (runtime != nullptr && runtime->variation_flow_key != 0) {
     return runtime->variation_flow_key;
@@ -154,7 +89,7 @@ ResolvedStyleContext resolve_style_context_for_span(const CoreState& state, cons
     const Port* port_a = view.edit_state().ports.find(span.port_a_id);
     const Port* port_b = view.edit_state().ports.find(span.port_b_id);
     if (port_a != nullptr && port_b != nullptr) {
-      flow_kind = support_layout_flow_kind_for_span(span, *port_a, *port_b);
+      flow_kind = span_layout_flow_kind_for_span(span, *port_a, *port_b);
     }
   }
 
@@ -239,7 +174,7 @@ ResolvedSpanCurveInputs resolve_span_curve_inputs(const CoreState& state, const 
   if (existing_layout != nullptr) {
     inputs.flow_kind = existing_layout->flow_kind;
   } else {
-    inputs.flow_kind = support_layout_flow_kind_for_span(span, port_a, port_b);
+    inputs.flow_kind = span_layout_flow_kind_for_span(span, port_a, port_b);
   }
   inputs.pass_mode = curve_pass_mode_from_context(span.placement_context);
   inputs.endpoint_mode =

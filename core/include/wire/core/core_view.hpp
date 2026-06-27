@@ -10,7 +10,7 @@
 #include "wire/core/core_runtime_types.hpp"
 #include "wire/core/inspection.hpp"
 #include "wire/core/object_store.hpp"
-#include "wire/core/support_layout_types.hpp"
+#include "wire/core/span_layout_types.hpp"
 
 namespace wire::core {
 

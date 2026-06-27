@@ -1,6 +1,6 @@
 #pragma once
 
-#include "wire/core/support_layout_types.hpp"
+#include "wire/core/span_layout_types.hpp"
 
 namespace wire::core {
 
@@ -19,8 +19,8 @@ struct Port;
                                                   const AttachmentSocketTemplate** out_b,
                                                   const AttachmentInternalPathTemplate** out_internal_path);
 
-[[nodiscard]] BackboneFlowKind support_layout_flow_kind_for_span(const Span& span, const Port& port_a,
-                                                                 const Port& port_b);
+[[nodiscard]] BackboneFlowKind span_layout_flow_kind_for_span(const Span& span, const Port& port_a,
+                                                              const Port& port_b);
 
 [[nodiscard]] CurveEndpointMode curve_endpoint_mode_for_attachment_style(CableAttachmentStyleHint attachment_style,
                                                                          const Bundle* bundle,

@@ -10,7 +10,7 @@
 #include "wire/core/detail_curve.hpp"
 #include "wire/core/entities.hpp"
 #include "wire/core/id.hpp"
-#include "wire/core/support_layout_types.hpp"
+#include "wire/core/span_layout_types.hpp"
 #include "wire/core/variation.hpp"
 
 namespace wire::core {

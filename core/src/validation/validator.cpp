@@ -149,9 +149,9 @@ double template_layer_base_z_for_validation(const CoreView& core, const Pole& po
 using SupportGroupCategoryMap =
     std::unordered_map<LoweredSupportGroupKey, ConnectionCategory, LoweredSupportGroupKeyHash>;
 
-void validate_projected_support_layout_endpoint(ValidationResult* result, const CoreView& core, const EditState& edit_state,
-                                                ObjectId span_id, double endpoint_attach_lift_m,
-                                                const LayoutEndpoint& endpoint, const char* code) {
+void validate_projected_span_layout_endpoint(ValidationResult* result, const CoreView& core, const EditState& edit_state,
+                                             ObjectId span_id, double endpoint_attach_lift_m,
+                                             const LayoutEndpoint& endpoint, const char* code) {
   if (result == nullptr) {
     return;
   }
@@ -161,13 +161,13 @@ void validate_projected_support_layout_endpoint(ValidationResult* result, const 
                               span_id});
   }
   if (endpoint.origin == LayoutOriginKind::kFallback) {
-    result->issues.push_back({ValidationSeverity::kError, "SupportLayoutOriginFallbackUsed",
-                              "Support layout endpoint must not rely on fallback support origin in the normal path",
+    result->issues.push_back({ValidationSeverity::kError, "SpanLayoutOriginFallbackUsed",
+                              "Span layout endpoint must not rely on fallback support origin in the normal path",
                               span_id});
   }
   if (endpoint.port_source == PortPlacementSourceKind::kUnknown) {
-    result->issues.push_back({ValidationSeverity::kError, "SupportLayoutPortSourceUnknown",
-                              "Support layout endpoint must arrive with an explicit port placement source",
+    result->issues.push_back({ValidationSeverity::kError, "SpanLayoutPortSourceUnknown",
+                              "Span layout endpoint must arrive with an explicit port placement source",
                               span_id});
   }
   const Pole* endpoint_pole = edit_state.poles.find(endpoint.owner_pole_id);
@@ -208,18 +208,18 @@ void validate_projected_support_layout_endpoint(ValidationResult* result, const 
                               "Non-radial support orientation must carry a finite authoritative side axis", span_id});
   }
   if (endpoint.attachment_request.kind == EndpointAttachmentRequestKind::kNone && endpoint.resolved_socket_id.has_value()) {
-    result->issues.push_back({ValidationSeverity::kError, "SupportLayoutSocketWithoutRequest",
-                              "Support layout must not carry a resolved socket without an attachment request", span_id});
+    result->issues.push_back({ValidationSeverity::kError, "SpanLayoutSocketWithoutRequest",
+                              "Span layout must not carry a resolved socket without an attachment request", span_id});
   }
   if (endpoint.attachment_request.kind == EndpointAttachmentRequestKind::kAttachmentSocket &&
       !endpoint.resolved_socket_id.has_value()) {
-    result->issues.push_back({ValidationSeverity::kError, "SupportLayoutSocketMissing",
+    result->issues.push_back({ValidationSeverity::kError, "SpanLayoutSocketMissing",
                               "Attachment-socket requests must resolve to one materialized socket id", span_id});
   }
   if (endpoint.attachment_request.requested_socket_id.has_value() && endpoint.resolved_socket_id.has_value() &&
       *endpoint.attachment_request.requested_socket_id != *endpoint.resolved_socket_id) {
-    result->issues.push_back({ValidationSeverity::kError, "SupportLayoutSocketReinterpreted",
-                              "Materialized support layout must not reinterpret the chosen endpoint socket", span_id});
+    result->issues.push_back({ValidationSeverity::kError, "SpanLayoutSocketReinterpreted",
+                              "Materialized span layout must not reinterpret the chosen endpoint socket", span_id});
   }
   if (endpoint_requires_pair_authority_for_validation(endpoint) &&
       (endpoint.side_assignment_rule != SideAssignmentRuleKind::kThroughPairNormal ||
@@ -797,10 +797,10 @@ ValidationResult CoreState::Validate() const {
   cache_state.span_layout_cache.for_each_projected_record(
       [&](ObjectId span_id, const SpanLayoutCacheRecord&, const SpanLayoutEntry& layout) {
         const double endpoint_attach_lift_m = insulator_lift_for_span(core, span_id);
-        validate_projected_support_layout_endpoint(&result, core, edit_state, span_id, endpoint_attach_lift_m,
-                                                   layout.start, "SupportLayoutStartAxisMissing");
-        validate_projected_support_layout_endpoint(&result, core, edit_state, span_id, endpoint_attach_lift_m,
-                                                   layout.end, "SupportLayoutEndAxisMissing");
+        validate_projected_span_layout_endpoint(&result, core, edit_state, span_id, endpoint_attach_lift_m,
+                                                layout.start, "SpanLayoutStartAxisMissing");
+        validate_projected_span_layout_endpoint(&result, core, edit_state, span_id, endpoint_attach_lift_m,
+                                                layout.end, "SpanLayoutEndAxisMissing");
         validate_grouped_support_projection(&result, edit_state, span_id, layout, layout.start,
                                             cache_state.span_layout_cache.support_groups,
                                             &support_group_category_by_key);

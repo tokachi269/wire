@@ -85,7 +85,7 @@ bool resolve_attachment_socket_pair(const AttachmentTemplate& attachment_templat
   return false;
 }
 
-BackboneFlowKind support_layout_flow_kind_for_span(const Span& span, const Port& port_a, const Port& port_b) {
+BackboneFlowKind span_layout_flow_kind_for_span(const Span& span, const Port& port_a, const Port& port_b) {
   if (span.placement_context == ConnectionContext::kBranchAdd ||
       port_a.placement_source == PortPlacementSourceKind::kBranchSupport ||
       port_b.placement_source == PortPlacementSourceKind::kBranchSupport ||

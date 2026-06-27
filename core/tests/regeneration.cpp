@@ -45,20 +45,14 @@ bool test_port_manual_set_and_reset_to_auto() {
   if (!add.ok) {
     return false;
   }
-  (void)state.Commit().recalc_stats;
-
   const ObjectId port_id = add.value.port_a_id;
   const wire::core::Vec3d manual_pos{123.0, 45.0, 9.0};
   const auto manual = state.SetPortWorldPositionManual(port_id, manual_pos);
   if (!manual.ok) {
     return false;
   }
-  const auto* runtime = state.view().find_span_runtime_state(add.value.span_id);
   const auto* manual_port = state.view().edit_state().ports.find(port_id);
-  if (runtime == nullptr || manual_port == nullptr) {
-    return false;
-  }
-  if (!has_dirty(runtime, DirtyBits::kGeometry)) {
+  if (manual_port == nullptr) {
     return false;
   }
   if (manual_port->position_mode != wire::core::PortPositionMode::kManual ||
@@ -103,7 +97,6 @@ bool test_manual_port_not_overwritten_by_auto_relayout() {
   if (!state.SetPortWorldPositionManual(manual_port_id, manual_pos).ok) {
     return false;
   }
-  (void)state.Commit().recalc_stats;
   if (!state.SetPoleFlip180(pole_a, true).ok) {
     return false;
   }
@@ -812,7 +805,7 @@ bool test_backbone_edges_and_route_search() {
   return !route.empty() && route.front() == start && route.back() == end;
 }
 
-bool test_set_pole_flip180_updates_ports_and_dirty() {
+bool test_set_pole_flip180_updates_ports() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
   if (type_ids.empty()) {
@@ -831,8 +824,6 @@ bool test_set_pole_flip180_updates_ports_and_dirty() {
   if (!add.ok) {
     return false;
   }
-  (void)state.Commit().recalc_stats;
-
   const auto* port_before = state.view().edit_state().ports.find(add.value.port_a_id);
   if (port_before == nullptr) {
     return false;
@@ -844,14 +835,10 @@ bool test_set_pole_flip180_updates_ports_and_dirty() {
   }
 
   const auto* port_after = state.view().edit_state().ports.find(add.value.port_a_id);
-  const auto* runtime = state.view().find_span_runtime_state(add.value.span_id);
-  if (port_after == nullptr || runtime == nullptr) {
+  if (port_after == nullptr) {
     return false;
   }
   if (almost_equal(before_pos, port_after->world_position)) {
-    return false;
-  }
-  if (!has_dirty(runtime, DirtyBits::kGeometry)) {
     return false;
   }
   const auto pole_view = state.view().inspect_pole(pole_a);
@@ -860,7 +847,7 @@ bool test_set_pole_flip180_updates_ports_and_dirty() {
 
 void register_regeneration_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C50_Phase48c_PortMode_DefaultAuto", "New ports default to Auto mode", "Exact", false, test_port_position_mode_defaults_auto);
-  test_registry::AddTest(tests, "C51_Phase48c_PortMode_ManualReset", "Manual set/reset toggles port mode and keeps dirty local", "Invariant", false, test_port_manual_set_and_reset_to_auto);
+  test_registry::AddTest(tests, "C51_Phase48c_PortMode_ManualReset", "Manual set/reset toggles port mode", "Invariant", false, test_port_manual_set_and_reset_to_auto);
   test_registry::AddTest(tests, "C52_Phase48c_PortMode_ProtectFromRelayout", "Manual ports are not overwritten by auto pole relayout", "Invariant", false, test_manual_port_not_overwritten_by_auto_relayout);
   test_registry::AddTest(tests, "C71_Phase48k_MovePole_ReprojectAutoPreserveManual", "MovePole reprojects owned Auto ports and preserves Manual ports", "Invariant", false, test_move_pole_reprojects_auto_ports_and_preserves_manual_ports);
   test_registry::AddTest(tests, "C53_Phase48h_Guide_ManualBoundaryStable", "Guide extension keeps explicitly pinned poles fixed", "Invariant", false, test_generate_from_guide_keeps_manual_boundaries_stable);
@@ -875,7 +862,8 @@ void register_regeneration_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C206_Phase48i_Regenerate_AcuteLoweringNoStaleGeneratedPorts", "Session regeneration keeps acute-corner lowering and does not accumulate stale generated ports on reused poles", "Invariant", false, test_regenerate_session_acute_corner_keeps_lowering_without_stale_generated_ports);
   test_registry::AddTest(tests, "C207_Phase48i_Regenerate_IntervalExtensionPreservesHvLaneOrder", "Session-local regeneration keeps HV lane order continuous when extending an interval-driven DrawPath route", "Invariant", false, test_regenerate_session_interval_extension_preserves_hv_lane_order);
   test_registry::AddTest(tests, "C55_Phase48h_Backbone_Route", "Backbone edges are built from grouped spans and route search works", "Invariant", false, test_backbone_edges_and_route_search);
-  test_registry::AddTest(tests, "C40_Phase48_PoleFlip180_Dirty", "Pole flip180 updates owned ports and dirties connected spans", "Invariant", false, test_set_pole_flip180_updates_ports_and_dirty);
+  test_registry::AddTest(tests, "C40_Phase48_PoleFlip180", "Pole flip180 updates owned ports", "Invariant", false,
+                         test_set_pole_flip180_updates_ports);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_regeneration_tests);

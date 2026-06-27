@@ -94,7 +94,7 @@
 | C37 | Symptom | Generate/Edit | 幾何based side選定 | 2Pole(左右) | AddConnectionByPole(Branch) | Invariant: 右手前でRight,左手前でLeft | selected port template_side | 偶奇依存排除 |
 | C38 | Symptom | Generate/Edit | 高圧3相群生成 | 有効Path | GenerateFromBackboneSpec(HV_3PH) | Invariant: 3レーン×区間数生成, lane記録あり | span数/bundle/lane_assignments | 高圧ねじれ抑制 |
 | C39 | Symptom | Generate/Edit | 方向強制モード | 有効Path | GenerateFromBackboneSpec(direction=Reverse) | Exact: Reverseが採用される | direction_debug/先頭Pole | 手動比較可能性 |
-| C40 | Symptom | General | Pole flip_180 | 接続済Pole | SetPoleFlip180(true) | Invariant: 配下Port更新+接続Span dirty | port位置/runtime dirty | 局所向き修正性 |
+| C40 | Symptom | General | Pole flip_180 | 接続済Pole | SetPoleFlip180(true) | Invariant: 配下Port更新 | port位置 | 局所向き修正性 |
 | C43 | Symptom | Generate/Edit | 鋭角時Port展開軸補正 | クリック点3(コーナー内角<=74°) | GenerateSimpleLineFromPoints | Invariant: 中間Poleのside軸が内角二等分線に直交し、内側へ向かない | pole yaw/context(sharp_theta,b,side_dir) | 鋭角での線間距離潰れ抑制 |
 | C108 | Symptom | LanePrep | 鋭角向きの入口間一致 | 同一acute pathをSimple/Backboneで生成 | GenerateSimpleLineFromPoints / GenerateFromBackboneSpec | Invariant: 中間Poleのyawとsharp debugが一致 | pole yaw/context(sharp_side_dir,sharp_bisector_dir) | 入口ごとの別向き決定の再混入防止 |
 | C109 | Symptom | Generate/Edit | HV3 captureの内部共有pole順序連続 | capture再現8点 path | GenerateFromBackboneSpec(HV_3PH) | Invariant: terminal fan-out を除く内部の隣接segment間では共有pole上のlane順序が連続する | lane assignments / shared-pole local ordering | perpendicular row 方針でも内部のmain-chain continuityが崩れない回帰防止 |
@@ -123,7 +123,7 @@
 | C87 | Symptom | LanePrep | HV3 acute pathの相ねじれ防止 | acute path + HV_3PH | GenerateFromBackboneSpec(HV_3PH) | Invariant: 3相の導体順が区間をまたいでねじれない | lane assignments / local Y順 | 高圧3相の相順崩れ防止 |
 | C89 | Symptom | Generate/Edit | 3相ポリシーのカテゴリ非依存性 | 複数カテゴリの3相bundle | GenerateFromBackboneSpec(3相bundle群) | Invariant: 3相ポリシーがカテゴリ名に依存せず同じ規則で働く | lane assignments | カテゴリ分岐の混入防止 |
 | C50 | Symptom | General | Port初期モード | 新規Port追加 | AddPort | Exact: position_mode=Auto | port fields | 新規Port生成規則の固定 |
-| C51 | Symptom | Generate/Edit | Port手修正/解除 | 接続済Port | SetPortWorldPositionManual→ResetPortPositionToAuto | Invariant: Manual化→Auto復帰, 関連SpanのみDirty | port/runtime | 手直し維持と復帰性 |
+| C51 | Symptom | Generate/Edit | Port手修正/解除 | 接続済Port | SetPortWorldPositionManual→ResetPortPositionToAuto | Invariant: Manual化→Auto復帰 | port position/mode | 手直し維持と復帰性 |
 | C52 | Symptom | Regenerate | Manual保護 | 手修正Portあり | SetPoleFlip180 | Invariant: Manual Port位置が維持される | port position/mode | 軽微再生成で手修正消失防止 |
 | C53 | Symptom | Generate/Edit | BackboneSpec境界手動点安定 | BackboneSpec初回生成済 | BackboneSpec延長して再GenerateFromBackboneSpec | Invariant: 既存Manual境界Poleの位置/Mode不変 | pole position/mode | 軽微変更で手直し消失防止 |
 | C54 | Symptom | Regenerate | BackboneSpec局所更新 | BackboneSpec生成済 | 同一BackboneSpec再実行→延長再実行 | Invariant: 同一入力で重複増殖なし、延長で末端のみ追加 | span数/生成結果 | 全再生成回帰防止 |

@@ -22,7 +22,7 @@ enum class EntityKind : std::uint8_t {
   kJunction = 2,
   kBackboneEdge = 3,
   kSupportNode = 4,
-  kSupportLayout = 5,
+  kSpanLayout = 5,
   kSpan = 6,
   kBundle = 7,
   kDetailCurve = 8,
@@ -65,7 +65,7 @@ enum class OverrideTopicKind : std::uint8_t {
 enum class DecisionTraceTopic : std::uint8_t {
   kPoleOrientation = 0,
   kFlowClassification = 1,
-  kSupportLayoutSelection = 2,
+  kSpanLayout = 2,
   kTangentGeneration = 3,
   kContinuitySelection = 4,
   kContinuityDegrade = 5,
@@ -168,7 +168,7 @@ struct SpanInspectionView {
   EntityRef bundle_ref{};
   EntityRef start_pole_ref{};
   EntityRef end_pole_ref{};
-  EntityRef support_layout_ref{};
+  EntityRef span_layout_ref{};
   EntityRef detail_curve_ref{};
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
   BackboneFlowDecisionRule flow_rule = BackboneFlowDecisionRule::kDefaultMain;

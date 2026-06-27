@@ -228,7 +228,7 @@ const char* SupportOrientationBasisText(SupportOrientationBasisKind basis) {
   return "Radial";
 }
 
-OrderDecisionPolicyKind support_layout_order_decision_policy(const SpanLayoutEntry& layout) {
+OrderDecisionPolicyKind span_layout_order_decision_policy(const SpanLayoutEntry& layout) {
   if (layout.start.order_decision_policy == OrderDecisionPolicyKind::kPermutableHomogeneous ||
       layout.end.order_decision_policy == OrderDecisionPolicyKind::kPermutableHomogeneous) {
     return OrderDecisionPolicyKind::kPermutableHomogeneous;
@@ -236,7 +236,7 @@ OrderDecisionPolicyKind support_layout_order_decision_policy(const SpanLayoutEnt
   return OrderDecisionPolicyKind::kFixedOrder;
 }
 
-ContinuityCategoryClass support_layout_continuity_class(const SpanLayoutEntry& layout) {
+ContinuityCategoryClass span_layout_continuity_class(const SpanLayoutEntry& layout) {
   if (layout.start.continuity_class == ContinuityCategoryClass::kBundleLike ||
       layout.end.continuity_class == ContinuityCategoryClass::kBundleLike) {
     return ContinuityCategoryClass::kBundleLike;
@@ -244,23 +244,23 @@ ContinuityCategoryClass support_layout_continuity_class(const SpanLayoutEntry& l
   return ContinuityCategoryClass::kPointLike;
 }
 
-bool support_layout_default_lower_required(const SpanLayoutEntry& layout) {
+bool span_layout_default_lower_required(const SpanLayoutEntry& layout) {
   return layout.start.default_lower_required || layout.end.default_lower_required;
 }
 
-bool support_layout_same_level_feasible(const SpanLayoutEntry& layout) {
+bool span_layout_same_level_feasible(const SpanLayoutEntry& layout) {
   return layout.start.same_level_feasible && layout.end.same_level_feasible;
 }
 
-SameLevelFeasibilityReason support_layout_same_level_reason(const SpanLayoutEntry& layout) {
-  if (support_layout_same_level_feasible(layout)) {
+SameLevelFeasibilityReason span_layout_same_level_reason(const SpanLayoutEntry& layout) {
+  if (span_layout_same_level_feasible(layout)) {
     return SameLevelFeasibilityReason::kNone;
   }
   return layout.start.same_level_feasible ? layout.end.same_level_reason
                                           : layout.start.same_level_reason;
 }
 
-double support_layout_projected_spacing_topview_m(const SpanLayoutEntry& layout) {
+double span_layout_projected_spacing_topview_m(const SpanLayoutEntry& layout) {
   const bool start_same = layout.start.same_level_feasible;
   const bool end_same = layout.end.same_level_feasible;
   if (!start_same && !end_same) {
@@ -269,28 +269,28 @@ double support_layout_projected_spacing_topview_m(const SpanLayoutEntry& layout)
   return start_same ? layout.end.projected_spacing_topview_m : layout.start.projected_spacing_topview_m;
 }
 
-double support_layout_required_clearance_m(const SpanLayoutEntry& layout) {
+double span_layout_required_clearance_m(const SpanLayoutEntry& layout) {
   return std::max(layout.start.required_clearance_m, layout.end.required_clearance_m);
 }
 
-bool support_layout_lowering_blocked_by_policy(const SpanLayoutEntry& layout) {
+bool span_layout_lowering_blocked_by_policy(const SpanLayoutEntry& layout) {
   return layout.start.lowering_blocked_by_policy || layout.end.lowering_blocked_by_policy;
 }
 
-bool support_layout_unresolved_same_level_conflict(const SpanLayoutEntry& layout) {
+bool span_layout_unresolved_same_level_conflict(const SpanLayoutEntry& layout) {
   return layout.start.unresolved_same_level_conflict || layout.end.unresolved_same_level_conflict;
 }
 
-bool support_layout_solver_used_same_level_constraint(const SpanLayoutEntry& layout) {
+bool span_layout_solver_used_same_level_constraint(const SpanLayoutEntry& layout) {
   return layout.start.solver_used_same_level_constraint ||
          layout.end.solver_used_same_level_constraint;
 }
 
-bool support_layout_used_special_case_ports(const SpanLayoutEntry& layout) {
+bool span_layout_used_special_case_ports(const SpanLayoutEntry& layout) {
   return layout.start.used_special_case_ports || layout.end.used_special_case_ports;
 }
 
-const char* SupportLayoutOriginText(LayoutOriginKind origin) {
+const char* LayoutOriginText(LayoutOriginKind origin) {
   switch (origin) {
   case LayoutOriginKind::kMainSupport:
     return "MainSupport";
@@ -530,12 +530,12 @@ std::optional<EntityMeta> CoreView::describe_entity(EntityRef ref) const {
     return MakeMeta(ref.kind, ref.stable_id, DisplayOrFallback("Bundle", bundle->display_id, ref.stable_id),
                     EntityRoleKind::kAuthoritative, true, false, "entity.bundle");
   }
-  case EntityKind::kSupportLayout: {
+  case EntityKind::kSpanLayout: {
     if (!span_layout(ref.stable_id).has_layout()) {
       return std::nullopt;
     }
-    return MakeMeta(ref.kind, ref.stable_id, "SupportLayout for span " + std::to_string(ref.stable_id),
-                    EntityRoleKind::kDerived, false, false, "derived.support_layout");
+    return MakeMeta(ref.kind, ref.stable_id, "SpanLayout for span " + std::to_string(ref.stable_id),
+                    EntityRoleKind::kDerived, false, false, "derived.span_layout");
   }
   case EntityKind::kDetailCurve: {
     if (state_.find_curve_cache(ref.stable_id) == nullptr) {
@@ -620,7 +620,7 @@ std::optional<PoleInspectionView> CoreView::inspect_pole(ObjectId pole_id) const
         if (const SpanLayoutEntry* layout = span_layout(span_id).entry;
             layout != nullptr &&
             (layout->start.owner_pole_id == pole_id || layout->end.owner_pole_id == pole_id)) {
-          AddLink(&result.links, &seen, "SupportLayout " + std::to_string(span_id), EntityKind::kSupportLayout, span_id);
+          AddLink(&result.links, &seen, "SpanLayout " + std::to_string(span_id), EntityKind::kSpanLayout, span_id);
         }
       }
     }
@@ -655,27 +655,27 @@ std::optional<SpanInspectionView> CoreView::inspect_span(ObjectId span_id) const
   }
   const SpanLayoutView layout_view = span_layout(span_id);
   if (const SpanLayoutEntry* layout = layout_view.entry; layout != nullptr) {
-    result.support_layout_ref = {EntityKind::kSupportLayout, span_id};
+    result.span_layout_ref = {EntityKind::kSpanLayout, span_id};
     result.flow_kind = layout->flow_kind;
-    result.continuity_class = support_layout_continuity_class(*layout);
-    result.order_decision_policy = support_layout_order_decision_policy(*layout);
+    result.continuity_class = span_layout_continuity_class(*layout);
+    result.order_decision_policy = span_layout_order_decision_policy(*layout);
     result.order_decision_choice_a = layout->start.order_decision_choice;
     result.order_decision_choice_b = layout->end.order_decision_choice;
     result.order_decision_choice_reason_a = layout->start.order_decision_choice_reason;
     result.order_decision_choice_reason_b = layout->end.order_decision_choice_reason;
-    result.default_lower_required = support_layout_default_lower_required(*layout);
+    result.default_lower_required = span_layout_default_lower_required(*layout);
     result.uses_branch_support = layout->start.origin == LayoutOriginKind::kBranchSupport ||
                                  layout->end.origin == LayoutOriginKind::kBranchSupport;
     result.lowering_kind = layout->lowering_kind;
     result.branch_down_offset_m = std::max(layout->start.branch_down_offset_m, layout->end.branch_down_offset_m);
-    result.same_level_feasible = support_layout_same_level_feasible(*layout);
-    result.same_level_reason = support_layout_same_level_reason(*layout);
-    result.projected_spacing_topview_m = support_layout_projected_spacing_topview_m(*layout);
-    result.required_clearance_m = support_layout_required_clearance_m(*layout);
-    result.lowering_blocked_by_policy = support_layout_lowering_blocked_by_policy(*layout);
-    result.unresolved_same_level_conflict = support_layout_unresolved_same_level_conflict(*layout);
-    result.solver_used_same_level_constraint = support_layout_solver_used_same_level_constraint(*layout);
-    result.used_special_case_ports = support_layout_used_special_case_ports(*layout);
+    result.same_level_feasible = span_layout_same_level_feasible(*layout);
+    result.same_level_reason = span_layout_same_level_reason(*layout);
+    result.projected_spacing_topview_m = span_layout_projected_spacing_topview_m(*layout);
+    result.required_clearance_m = span_layout_required_clearance_m(*layout);
+    result.lowering_blocked_by_policy = span_layout_lowering_blocked_by_policy(*layout);
+    result.unresolved_same_level_conflict = span_layout_unresolved_same_level_conflict(*layout);
+    result.solver_used_same_level_constraint = span_layout_solver_used_same_level_constraint(*layout);
+    result.used_special_case_ports = span_layout_used_special_case_ports(*layout);
   }
   if (const SegmentLaneAssignment* assignment = FindLaneAssignmentForSpan(*this, *span); assignment != nullptr) {
     result.flow_kind = assignment->flow_kind;
@@ -703,8 +703,8 @@ std::optional<SpanInspectionView> CoreView::inspect_span(ObjectId span_id) const
   if (result.bundle_ref.valid()) {
     AddLink(&result.links, &seen, "Bundle", result.bundle_ref.kind, result.bundle_ref.stable_id);
   }
-  if (result.support_layout_ref.valid()) {
-    AddLink(&result.links, &seen, "SupportLayout", result.support_layout_ref.kind, result.support_layout_ref.stable_id);
+  if (result.span_layout_ref.valid()) {
+    AddLink(&result.links, &seen, "SpanLayout", result.span_layout_ref.kind, result.span_layout_ref.stable_id);
   }
   if (result.detail_curve_ref.valid()) {
     AddLink(&result.links, &seen, "DetailCurve", result.detail_curve_ref.kind, result.detail_curve_ref.stable_id);
@@ -782,7 +782,7 @@ std::optional<DetailCurveInspectionView> CoreView::inspect_detail_curve(ObjectId
   std::unordered_set<std::uint64_t> seen{};
   AddLink(&result.links, &seen, "Source Span", EntityKind::kSpan, span_id);
   if (const SpanLayoutEntry* layout = layout_view.entry; layout != nullptr) {
-    AddLink(&result.links, &seen, "SupportLayout", EntityKind::kSupportLayout, span_id);
+    AddLink(&result.links, &seen, "SpanLayout", EntityKind::kSpanLayout, span_id);
     if (layout->start.owner_pole_id != kInvalidObjectId) {
       AddLink(&result.links, &seen, "Start Pole", EntityKind::kPole, layout->start.owner_pole_id);
     }
@@ -1128,7 +1128,7 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
                       << it->second.adopted_support_axis.z << " neighbors=" << it->second.primary_neighbor_id << "/"
                       << it->second.secondary_neighbor_id;
       trace.push_back(
-          {DecisionTraceTopic::kSupportLayoutSelection, PoleSupportAxisRuleText(it->second.support_axis_rule),
+          {DecisionTraceTopic::kSpanLayout, PoleSupportAxisRuleText(it->second.support_axis_rule),
            support_summary.str()});
     }
     if (const Pole* pole = poles().find(ref.stable_id); pole != nullptr && state_.has_pole_orientation_override(pole->id)) {
@@ -1157,7 +1157,7 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
     return trace;
   }
 
-  if (ref.kind == EntityKind::kSpan || ref.kind == EntityKind::kSupportLayout || ref.kind == EntityKind::kDetailCurve) {
+  if (ref.kind == EntityKind::kSpan || ref.kind == EntityKind::kSpanLayout || ref.kind == EntityKind::kDetailCurve) {
     const ObjectId span_id = static_cast<ObjectId>(ref.stable_id);
     if (const SpanLayoutEntry* layout = span_layout(span_id).entry;
         layout != nullptr) {
@@ -1166,28 +1166,28 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
                    << " pass=" << static_cast<int>(layout->pass_mode)
                    << " flowKey=" << layout->variation_flow_key;
       trace.push_back(
-          {DecisionTraceTopic::kFlowClassification, "SupportLayoutFlow", flow_summary.str()});
+          {DecisionTraceTopic::kFlowClassification, "SpanLayoutFlow", flow_summary.str()});
       std::ostringstream summary;
-      summary << "start=" << SupportLayoutOriginText(layout->start.origin) << " dep=" << layout->start.local_departure_length_m
-              << " end=" << SupportLayoutOriginText(layout->end.origin) << " dep=" << layout->end.local_departure_length_m
-              << " orderPolicy=" << OrderDecisionPolicyText(support_layout_order_decision_policy(*layout))
+      summary << "start=" << LayoutOriginText(layout->start.origin) << " dep=" << layout->start.local_departure_length_m
+              << " end=" << LayoutOriginText(layout->end.origin) << " dep=" << layout->end.local_departure_length_m
+              << " orderPolicy=" << OrderDecisionPolicyText(span_layout_order_decision_policy(*layout))
               << " orderDecisionA=" << OrderDecisionChoiceText(layout->start.order_decision_choice)
               << "/" << OrderDecisionChoiceReasonText(layout->start.order_decision_choice_reason)
               << " orderDecisionB=" << OrderDecisionChoiceText(layout->end.order_decision_choice)
               << "/" << OrderDecisionChoiceReasonText(layout->end.order_decision_choice_reason)
-              << " class=" << ContinuityCategoryClassText(support_layout_continuity_class(*layout))
-              << " defaultLower=" << BoolText(support_layout_default_lower_required(*layout))
+              << " class=" << ContinuityCategoryClassText(span_layout_continuity_class(*layout))
+              << " defaultLower=" << BoolText(span_layout_default_lower_required(*layout))
               << " down=" << std::max(layout->start.branch_down_offset_m, layout->end.branch_down_offset_m)
-              << " sameLevel=" << BoolText(support_layout_same_level_feasible(*layout))
-              << " reason=" << SameLevelReasonText(support_layout_same_level_reason(*layout))
-              << " unresolved=" << BoolText(support_layout_unresolved_same_level_conflict(*layout))
-              << " solver=" << BoolText(support_layout_solver_used_same_level_constraint(*layout))
-              << " special=" << BoolText(support_layout_used_special_case_ports(*layout));
-      if (support_layout_projected_spacing_topview_m(*layout) >= 0.0) {
-        summary << " projected=" << support_layout_projected_spacing_topview_m(*layout)
-                << " required=" << support_layout_required_clearance_m(*layout);
+              << " sameLevel=" << BoolText(span_layout_same_level_feasible(*layout))
+              << " reason=" << SameLevelReasonText(span_layout_same_level_reason(*layout))
+              << " unresolved=" << BoolText(span_layout_unresolved_same_level_conflict(*layout))
+              << " solver=" << BoolText(span_layout_solver_used_same_level_constraint(*layout))
+              << " special=" << BoolText(span_layout_used_special_case_ports(*layout));
+      if (span_layout_projected_spacing_topview_m(*layout) >= 0.0) {
+        summary << " projected=" << span_layout_projected_spacing_topview_m(*layout)
+                << " required=" << span_layout_required_clearance_m(*layout);
       }
-      trace.push_back({DecisionTraceTopic::kSupportLayoutSelection, FlowKindText(layout->flow_kind), summary.str()});
+      trace.push_back({DecisionTraceTopic::kSpanLayout, FlowKindText(layout->flow_kind), summary.str()});
       std::ostringstream endpoint_summary;
       endpoint_summary << "start=" << LayoutEndpointSourceText(layout->start.endpoint_source)
                        << " request=" << EndpointAttachmentRequestKindText(layout->start.attachment_request.kind)
@@ -1216,7 +1216,7 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
                        << (layout->end.resolved_socket_id.has_value() ? std::to_string(*layout->end.resolved_socket_id)
                                                                       : "none");
       trace.push_back(
-          {DecisionTraceTopic::kSupportLayoutSelection, "AttachmentEndpointSelection", endpoint_summary.str()});
+          {DecisionTraceTopic::kSpanLayout, "AttachmentEndpointSelection", endpoint_summary.str()});
       if (state_.has_span_branch_down_offset_override(span_id)) {
         std::ostringstream override_summary;
         override_summary << "autoDown="

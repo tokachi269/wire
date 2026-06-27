@@ -415,7 +415,7 @@ bool test_bb2_viewer_selected_building_pick_generates_selected_bundle_only() {
   return true;
 }
 
-bool test_support_layout_debug_panel_reads_neutral_outputs() {
+bool test_span_layout_debug_panel_reads_neutral_outputs() {
   std::ifstream file("viewer/src/panels.cpp");
   if (!file.is_open()) {
     return false;
@@ -446,8 +446,8 @@ void register_bb2_scene_tests(viewer_test_registry::TestRegistry& tests) {
                                 test_bb2_viewer_segment_pick_midair_branch_has_display_outputs);
   viewer_test_registry::AddTest(tests, "V22", "bb2 viewer scene: selected building pick filters bundles",
                                 test_bb2_viewer_selected_building_pick_generates_selected_bundle_only);
-  viewer_test_registry::AddTest(tests, "V23", "SupportLayout debug panel reads neutral span outputs",
-                                test_support_layout_debug_panel_reads_neutral_outputs);
+  viewer_test_registry::AddTest(tests, "V23", "SpanLayout debug panel reads neutral span outputs",
+                                test_span_layout_debug_panel_reads_neutral_outputs);
 }
 
 WIRE_REGISTER_VIEWER_TEST_SUITE(register_bb2_scene_tests);

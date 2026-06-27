@@ -376,8 +376,8 @@ const char* DecisionTraceTopicLabelLocal(wire::core::DecisionTraceTopic topic) {
     return "PoleOrientation";
   case wire::core::DecisionTraceTopic::kFlowClassification:
     return "FlowClassification";
-  case wire::core::DecisionTraceTopic::kSupportLayoutSelection:
-    return "SupportLayoutSelection";
+  case wire::core::DecisionTraceTopic::kSpanLayout:
+    return "SpanLayout";
   case wire::core::DecisionTraceTopic::kTangentGeneration:
     return "TangentGeneration";
   case wire::core::DecisionTraceTopic::kContinuitySelection:
@@ -434,8 +434,8 @@ std::optional<wire::core::EntityRef> SelectedEntityRefLocal(const ViewerUiState&
     return wire::core::EntityRef{EntityKind::kSpan, ui_state.selected_id};
   case SelectedType::kSupportNode:
     return wire::core::EntityRef{EntityKind::kSupportNode, ui_state.selected_id};
-  case SelectedType::kSupportLayout:
-    return wire::core::EntityRef{EntityKind::kSupportLayout, ui_state.selected_id};
+  case SelectedType::kSpanLayout:
+    return wire::core::EntityRef{EntityKind::kSpanLayout, ui_state.selected_id};
   case SelectedType::kDetailCurve:
     return wire::core::EntityRef{EntityKind::kDetailCurve, ui_state.selected_id};
   case SelectedType::kJunction:

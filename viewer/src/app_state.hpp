@@ -24,7 +24,7 @@ enum class SelectedType {
   kBundle = 5,
   kAttachment = 6,
   kSupportNode = 7,
-  kSupportLayout = 8,
+  kSpanLayout = 8,
   kDetailCurve = 9,
   kJunction = 10,
 };

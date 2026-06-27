@@ -37,13 +37,14 @@
 | `support_layout_contract` / `support_layout_projection` public accessors | 削除済み | authority/seed/projection を bb2 観測口に戻すこと |
 | manual viewer `Run Legacy Recalc` | 削除済み | viewer normal/debug から recalc を起動する経路 |
 | `support_orientation_utils.*` | 削除済み | validation-only helper の別ファイル化。必要分は validator 内へ局所化 |
+| viewer/public inspection の `SupportLayout` entity/selection 名 | neutral `SpanLayout` 名へ置換済み | normal UI / public inspection に旧 support-layout entity 名を戻すこと |
 
 ## viewer 境界
 
 | 領域 | 現在の状態 | 判断 |
 |---|---|---|
 | viewer normal path | saved graph、neutral span layout、rules、geom、draw を読む | mainline |
-| selected SupportLayout debug panel | neutral span output と saved frontier を読む | mainline/debug |
+| selected SpanLayout debug panel | neutral span output と saved frontier を読む | mainline/debug |
 | capture / replay | neutral span layout / rules / bounds / visual / render を読む | mainline/debug |
 | validation panel | `ValidateFast` を読む | validation-only。bb2 generation の blocker にしない |
 

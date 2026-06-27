@@ -103,7 +103,7 @@ const char* ContinuityPolicyLabel(wire::core::CableContinuityPolicyHint policy) 
   }
 }
 
-const char* SupportLayoutEndpointSourceLabel(wire::core::LayoutEndpointSourceKind source) {
+const char* LayoutEndpointSourceLabel(wire::core::LayoutEndpointSourceKind source) {
   switch (source) {
   case wire::core::LayoutEndpointSourceKind::kPlainSupport:
     return "PlainSupport";
@@ -206,7 +206,7 @@ const char* DetailCurveEndpointTangentRuleLabel(wire::core::DetailCurveEndpointT
   }
 }
 
-const char* SupportLayoutOriginLabel(wire::core::LayoutOriginKind origin) {
+const char* LayoutOriginLabel(wire::core::LayoutOriginKind origin) {
   switch (origin) {
   case wire::core::LayoutOriginKind::kMainSupport:
     return "MainSupport";
@@ -241,8 +241,8 @@ const char* EntityKindLabel(wire::core::EntityKind kind) {
     return "BackboneEdge";
   case wire::core::EntityKind::kSupportNode:
     return "SupportNode";
-  case wire::core::EntityKind::kSupportLayout:
-    return "SupportLayout";
+  case wire::core::EntityKind::kSpanLayout:
+    return "SpanLayout";
   case wire::core::EntityKind::kSpan:
     return "Span";
   case wire::core::EntityKind::kBundle:
@@ -281,8 +281,8 @@ const char* DecisionTraceTopicLabel(wire::core::DecisionTraceTopic topic) {
     return "pole orientation";
   case wire::core::DecisionTraceTopic::kFlowClassification:
     return "flow classification";
-  case wire::core::DecisionTraceTopic::kSupportLayoutSelection:
-    return "support layout";
+  case wire::core::DecisionTraceTopic::kSpanLayout:
+    return "span layout";
   case wire::core::DecisionTraceTopic::kTangentGeneration:
     return "tangent generation";
   case wire::core::DecisionTraceTopic::kContinuitySelection:
@@ -1234,8 +1234,8 @@ std::optional<wire::core::EntityRef> SelectedEntityRef(const ViewerUiState& ui_s
     return wire::core::EntityRef{EntityKind::kSpan, ui_state.selected_id};
   case SelectedType::kSupportNode:
     return wire::core::EntityRef{EntityKind::kSupportNode, ui_state.selected_id};
-  case SelectedType::kSupportLayout:
-    return wire::core::EntityRef{EntityKind::kSupportLayout, ui_state.selected_id};
+  case SelectedType::kSpanLayout:
+    return wire::core::EntityRef{EntityKind::kSpanLayout, ui_state.selected_id};
   case SelectedType::kDetailCurve:
     return wire::core::EntityRef{EntityKind::kDetailCurve, ui_state.selected_id};
   case SelectedType::kJunction:
@@ -1256,8 +1256,8 @@ void SelectFromEntityRef(ViewerUiState& ui_state, const wire::core::EntityRef& r
   case wire::core::EntityKind::kSupportNode:
     SetPrimarySelection(ui_state, SelectedType::kSupportNode, static_cast<ObjectId>(ref.stable_id));
     break;
-  case wire::core::EntityKind::kSupportLayout:
-    SetPrimarySelection(ui_state, SelectedType::kSupportLayout, static_cast<ObjectId>(ref.stable_id));
+  case wire::core::EntityKind::kSpanLayout:
+    SetPrimarySelection(ui_state, SelectedType::kSpanLayout, static_cast<ObjectId>(ref.stable_id));
     break;
   case wire::core::EntityKind::kDetailCurve:
     SetPrimarySelection(ui_state, SelectedType::kDetailCurve, static_cast<ObjectId>(ref.stable_id));
@@ -1617,7 +1617,7 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
         const wire::core::SpanLayoutEntry& layout = *layout_view.entry;
         auto draw_layout_endpoint = [&](const char* label, const wire::core::LayoutEndpoint& endpoint) {
           ImGui::Text("%s: origin=%s src=%s flow=%s portSource=%s mode=%s", label,
-                      SupportLayoutOriginLabel(endpoint.origin), SupportLayoutEndpointSourceLabel(endpoint.endpoint_source),
+                      LayoutOriginLabel(endpoint.origin), LayoutEndpointSourceLabel(endpoint.endpoint_source),
                       BackboneFlowKindLabel(endpoint.flow_kind), PortPlacementSourceLabel(endpoint.port_source),
                       CurveEndpointModeLabel(endpoint.endpoint_mode));
           ImGui::Text("  endpoint=%.2f %.2f %.2f departure=%.2f %.2f %.2f", endpoint.endpoint_world.x,
@@ -1776,7 +1776,7 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
     }
     return;
   }
-  case SelectedType::kSupportLayout: {
+  case SelectedType::kSpanLayout: {
     const wire::core::ObjectId span_id = ui_state.selected_id;
     const auto state_view = view.span_layout_state(span_id);
     const auto rules_view = view.span_layout_rules(span_id);
@@ -1792,7 +1792,7 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
       return;
     }
     ImGui::TextUnformatted("Neutral Span Output Debug");
-    ImGui::Text("Type: SupportLayout");
+    ImGui::Text("Type: SpanLayout");
     ImGui::Text("Span: %llu", static_cast<unsigned long long>(span_id));
     ImGui::Text("state: rules=%s layout=%s", state_view.has_rules ? "true" : "false",
                 state_view.has_layout ? "true" : "false");
@@ -1813,8 +1813,8 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
       auto draw_endpoint = [&](const char* label, const wire::core::LayoutEndpoint& endpoint) {
         ImGui::Text("%s node=%llu port=%llu origin=%s source=%s flow=%s", label,
                     static_cast<unsigned long long>(endpoint.endpoint_node_id),
-                    static_cast<unsigned long long>(endpoint.port_id), SupportLayoutOriginLabel(endpoint.origin),
-                    SupportLayoutEndpointSourceLabel(endpoint.endpoint_source), BackboneFlowKindLabel(endpoint.flow_kind));
+                    static_cast<unsigned long long>(endpoint.port_id), LayoutOriginLabel(endpoint.origin),
+                    LayoutEndpointSourceLabel(endpoint.endpoint_source), BackboneFlowKindLabel(endpoint.flow_kind));
         ImGui::Text("  support=%.2f %.2f %.2f endpoint=%.2f %.2f %.2f", endpoint.support_world.x,
                     endpoint.support_world.y, endpoint.support_world.z, endpoint.endpoint_world.x,
                     endpoint.endpoint_world.y, endpoint.endpoint_world.z);
@@ -1877,8 +1877,8 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
     ImGui::Text("tangentRule: %s / %s", DetailCurveEndpointTangentRuleLabel(curve_view->start_tangent_rule),
                 DetailCurveEndpointTangentRuleLabel(curve_view->end_tangent_rule));
     ImGui::Text("lateralSuppression: %.2f", curve_view->lateral_suppression);
-    ImGui::Text("endpointSource: %s / %s", SupportLayoutEndpointSourceLabel(curve_view->start_endpoint_source),
-                SupportLayoutEndpointSourceLabel(curve_view->end_endpoint_source));
+    ImGui::Text("endpointSource: %s / %s", LayoutEndpointSourceLabel(curve_view->start_endpoint_source),
+                LayoutEndpointSourceLabel(curve_view->end_endpoint_source));
     ImGui::Text("endpointRequest: %s[%s -> %s] / %s[%s -> %s]",
                 EndpointAttachmentRequestKindLabel(curve_view->start_attachment_request.kind),
                 curve_view->start_attachment_request.requested_socket_id.has_value()

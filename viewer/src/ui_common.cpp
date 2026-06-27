@@ -232,8 +232,8 @@ const char* SelectedTypeLabel(SelectedType selected_type) {
     return "Attachment";
   case SelectedType::kSupportNode:
     return "SupportNode";
-  case SelectedType::kSupportLayout:
-    return "SupportLayout";
+  case SelectedType::kSpanLayout:
+    return "SpanLayout";
   case SelectedType::kDetailCurve:
     return "DetailCurve";
   case SelectedType::kJunction:

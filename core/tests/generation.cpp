@@ -112,7 +112,7 @@ std::optional<BackboneCandidateObservation> observe_backbone_candidates(
   }
 
   BackboneCandidateObservation observation{};
-  observation.nodes = state.BuildBackboneResult().nodes;
+  observation.nodes = state.SavedBackboneResult().nodes;
   observation.generated_pole_ids = generated.value.generated_pole_ids;
   return observation;
 }
@@ -578,7 +578,7 @@ bool test_backbone_generation_includes_midair_support_nodes() {
   if (!generated.ok) {
     return false;
   }
-  const auto backbone = state.BuildBackboneResult();
+  const auto backbone = state.SavedBackboneResult();
   const auto* node = find_support_node_by_point_index(backbone, 1);
   return node != nullptr && node->support_kind == wire::core::SupportKind::kMidair && node->has_tangent_hint &&
          node->bundle_modes.size() == 1 && node->bundle_modes.front().mode == wire::core::BundleNodeMode::kNotPresent;
@@ -629,7 +629,7 @@ bool test_backbone_generation_reuses_explicit_pole_node_id() {
   if (new_end_id == wire::core::kInvalidObjectId || new_end_id == anchor_id) {
     return false;
   }
-  const auto route = state.FindBackboneRoute(anchor_id, new_end_id);
+  const auto route = state.FindSavedBackboneRoute(anchor_id, new_end_id);
   return route.size() == 2 && route.front() == anchor_id && route.back() == new_end_id;
 }
 
@@ -654,7 +654,7 @@ bool test_backbone_generation_reuses_explicit_support_node_id() {
   if (!generated_first.ok) {
     return false;
   }
-  const auto first_backbone = state.BuildBackboneResult();
+  const auto first_backbone = state.SavedBackboneResult();
   const auto* existing_midair = find_support_node_by_point_index(first_backbone, 1);
   if (existing_midair == nullptr || existing_midair->node_id == wire::core::kInvalidObjectId) {
     return false;
@@ -675,7 +675,7 @@ bool test_backbone_generation_reuses_explicit_support_node_id() {
   if (!generated_second.ok) {
     return false;
   }
-  const auto second_backbone = state.BuildBackboneResult();
+  const auto second_backbone = state.SavedBackboneResult();
   const auto* reused = find_support_node_by_point_index(second_backbone, 0);
   return reused != nullptr && reused->node_id == existing_midair_id &&
          reused->support_kind == wire::core::SupportKind::kMidair;
@@ -702,7 +702,7 @@ bool test_backbone_midair_extension_generates_detail_chain() {
   if (!generated_first.ok) {
     return false;
   }
-  const auto first_backbone = state.BuildBackboneResult();
+  const auto first_backbone = state.SavedBackboneResult();
   const auto* existing_midair = find_support_node_by_point_index(first_backbone, 1);
   if (existing_midair == nullptr || existing_midair->node_id == wire::core::kInvalidObjectId) {
     return false;
@@ -748,7 +748,7 @@ bool test_backbone_midair_extension_includes_first_support_segment() {
   if (!generated_first.ok) {
     return false;
   }
-  const auto first_backbone = state.BuildBackboneResult();
+  const auto first_backbone = state.SavedBackboneResult();
   const auto* existing_midair = find_support_node_by_point_index(first_backbone, 1);
   if (existing_midair == nullptr || existing_midair->node_id == wire::core::kInvalidObjectId) {
     return false;
@@ -774,7 +774,7 @@ bool test_backbone_midair_extension_includes_first_support_segment() {
   if (terminal_pole_id == wire::core::kInvalidObjectId) {
     return false;
   }
-  const std::vector<ObjectId> route = state.FindBackboneRoute(existing_midair_id, terminal_pole_id);
+  const std::vector<ObjectId> route = state.FindSavedBackboneRoute(existing_midair_id, terminal_pole_id);
   return !generated_second.value.generated_span_ids.empty() &&
          generated_second.value.generated_span_ids.size() == generated_second.value.generated_pole_ids.size() &&
          route.size() == generated_second.value.generated_pole_ids.size() + 1 &&
@@ -802,7 +802,7 @@ bool test_backbone_midair_extension_single_click_stays_single_segment() {
   if (!generated_first.ok) {
     return false;
   }
-  const auto first_backbone = state.BuildBackboneResult();
+  const auto first_backbone = state.SavedBackboneResult();
   const auto* existing_midair = find_support_node_by_point_index(first_backbone, 1);
   if (existing_midair == nullptr || existing_midair->node_id == wire::core::kInvalidObjectId) {
     return false;
@@ -830,7 +830,7 @@ bool test_backbone_midair_extension_single_click_stays_single_segment() {
   if (terminal_pole_id == wire::core::kInvalidObjectId) {
     return false;
   }
-  const std::vector<ObjectId> route = state.FindBackboneRoute(existing_midair->node_id, terminal_pole_id);
+  const std::vector<ObjectId> route = state.FindSavedBackboneRoute(existing_midair->node_id, terminal_pole_id);
   return route.size() == 2 && route.front() == existing_midair->node_id && route.back() == terminal_pole_id;
 }
 

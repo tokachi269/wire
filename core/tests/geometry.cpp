@@ -1246,7 +1246,7 @@ bool test_inspection_backbone_uses_rebuilt_result_instead_of_last_snapshot() {
     return false;
   }
 
-  const auto rebuilt_before = state.BuildBackboneResult();
+  const auto rebuilt_before = state.SavedBackboneResult();
   const auto* rebuilt_junction_before = find_junction(rebuilt_before, center_id);
   const auto rebuilt_support_node_before =
       std::find_if(rebuilt_before.nodes.begin(), rebuilt_before.nodes.end(),
@@ -1272,7 +1272,7 @@ bool test_inspection_backbone_uses_rebuilt_result_instead_of_last_snapshot() {
     return false;
   }
 
-  const auto rebuilt_after = state.BuildBackboneResult();
+  const auto rebuilt_after = state.SavedBackboneResult();
   const auto rebuilt_support_node_it =
       std::find_if(rebuilt_after.nodes.begin(), rebuilt_after.nodes.end(),
                    [&](const wire::core::SupportNode& node) { return node.node_id == center_id; });
@@ -1310,7 +1310,7 @@ bool test_inspection_junction_prefers_relation_surface_when_present() {
     return false;
   }
 
-  const auto rebuilt = state.BuildBackboneResult();
+  const auto rebuilt = state.SavedBackboneResult();
   if (rebuilt.junctions.empty()) {
     return false;
   }

@@ -33,8 +33,8 @@ wire::core::EditResult<ObjectId> ClearSpanBranchDownOffsetOverride(CoreState& st
   return state.ClearSpanBranchDownOffsetOverride(span_id);
 }
 
-wire::core::BackboneResult BuildSavedBackboneResult(const CoreState& state) {
-  return state.BuildSavedBackboneResult();
+wire::core::BackboneResult SavedBackboneResult(const CoreState& state) {
+  return state.SavedBackboneResult();
 }
 
 wire::core::EditResult<bool> UpdateGeometrySettings(CoreState& state, const wire::core::GeometrySettings& settings,

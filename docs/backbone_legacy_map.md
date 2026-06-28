@@ -21,7 +21,7 @@
 | `core/src/generation/bb2` | bb2 generation / direct derive | mainline | yes | v1 / recalc / materialization を読まない状態を維持 |
 | `SpanLayoutRules` / `SpanLayoutEntry` / `SpanLayoutState` | bb2、viewer normal/debug、public inspection | mainline | yes | support-layout authority/seed/projection を戻さない |
 | saved backbone graph | bb2、viewer/query、frontier、route query | mainline | yes | topology authority。span/layout/seed/curve/port position から復元しない |
-| `BuildSavedBackboneResult` / `BuildBackboneEdges` / `FindBackboneRoute` | public query、viewer、tests | B | no v1 fallback | saved graph backed query として維持。旧名 rename は mainline 化後 |
+| `SavedBackboneResult` / `SavedBackboneEdges` / `FindSavedBackboneRoute` | public query、viewer、tests | mainline | no v1 fallback | saved graph backed query として維持 |
 | `span_layout_types.hpp` の endpoint/support-group decision data | neutral layout/support group data と validation | mainline | no fallback path | 旧 authority object は削除済み。decision / placement として扱う |
 | `ValidateFast` の support-group projection checks | viewer validation panel、tests | D/E | no | normal path blocker にしない。必要制約だけ neutral validation へ移す |
 | `DirtyBits` / span runtime dirty marking | editing/runtime/viewer dirty overlay | mainline runtime | no recalc owner | mutation tracking と表示用。dirty queue/recalc ではない |
@@ -40,6 +40,7 @@
 | viewer/public inspection の `SupportLayout` entity/selection 名 | neutral `SpanLayout` 名へ置換済み | normal UI / public inspection に旧 support-layout entity 名を戻すこと |
 | `support_layout_types.hpp` ファイル名 | `span_layout_types.hpp` へ置換済み | neutral layout 型を旧 support-layout ファイル名へ戻すこと |
 | `ResolvedSupportAuthority` / `JunctionPairAuthority` / `support_authority` | 削除済み | default のまま保存型に残る旧 authority object |
+| `BuildBackboneResult` / `BuildBackboneEdges` / `FindBackboneRoute` public query 旧名 | 削除済み | span-derived fallback 名や build 名の public query を戻すこと |
 
 ## viewer 境界
 
@@ -61,20 +62,19 @@
 | recalc persistence | `Commit(run_recalc)` 後に meaning が痩せないこと | bb2 direct derive、support group、layout/geom/draw determinism へ移植済み。dirty queue順序は移植しない |
 | support-layout authority/seed/projection | `inspect_support_layout`、authority/seed/projection fields | bb2 では SavedBackboneGraph + pair/open/row + rules/layout/support group で見る。旧 object shape は移植しない |
 | attachment/socket/full insulator visual | support-layout materialization、full visual cache parts | bb2 supported scope 外。viewer-blocking になった場合だけ新 scenario として定義 |
-| public backbone query | `BuildBackboneResult`, `BuildBackboneEdges`, `FindBackboneRoute` | saved graph backed query として維持。span-derived fallback は戻さない |
+| public backbone query | `SavedBackboneResult`, `SavedBackboneEdges`, `FindSavedBackboneRoute` | saved graph backed query として維持。span-derived fallback は戻さない |
 
 ## 削除候補と残存理由
 
 | 対象 | 状態 | 削除条件 |
 |---|---|---|
-| public backbone query 旧名 | viewer/public API が読む | bb2 が mainline 名へ rename できる段階で整理 |
 | `bb2` namespace/name | v1 同居中の暫定名 | v1/recalc/support-layout 本流依存を削り切った後に mainline 名へ rename |
 | dirty bits | editing/runtime/viewer が読む | recalc ではなく mutation tracking として残すか、用途別に分ける |
 
 ## 次に消せる family
 
-1. public query 旧名を mainline API 名へ移せるか、viewer/public caller 単位で確認する。
-2. dirty bits を recalc 残骸ではなく mutation tracking として残すか、用途別に分ける。
+1. dirty bits を recalc 残骸ではなく mutation tracking として残すか、用途別に分ける。
+2. validation-only support-group projection checks を neutral validation 制約として残すか、退役する。
 
 ## 運用ルール
 

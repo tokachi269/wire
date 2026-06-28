@@ -81,7 +81,7 @@ bool test_junction_t_shape_preserves_first_session_primary_order() {
   if (!second_path.ok || second_session == 0) {
     return false;
   }
-  const auto second_backbone = state.BuildBackboneResult();
+  const auto second_backbone = state.SavedBackboneResult();
   const auto* second_junction = find_junction(second_backbone, center_id);
   if (second_junction == nullptr || second_junction->incidents.size() < 3) {
     return false;
@@ -173,7 +173,7 @@ bool test_junction_first_session_priority_not_overwritten_by_later_paths() {
   if (!second_path.ok || !third_path.ok) {
     return false;
   }
-  const auto after_backbone = state.BuildBackboneResult();
+  const auto after_backbone = state.SavedBackboneResult();
   const auto* after_junction = find_junction(after_backbone, center_id);
   if (after_junction == nullptr || after_junction->incidents.size() < 3) {
     return false;

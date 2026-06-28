@@ -170,8 +170,7 @@ const std::vector<PortResolutionDebugRecord>& CoreView::port_resolution_debug_re
 const std::unordered_map<ObjectId, SpanRuntimeState>& CoreView::span_runtime_states() const {
   return state_.runtime_.span_runtime_states;
 }
-BackboneResult CoreView::saved_backbone_result() const { return state_.BuildSavedBackboneResult(); }
-BackboneResult CoreView::build_backbone_result() const { return state_.BuildBackboneResult(); }
+BackboneResult CoreView::saved_backbone_result() const { return state_.SavedBackboneResult(); }
 const SpanRuntimeState* CoreView::find_span_runtime_state(ObjectId span_id) const {
   return state_.find_span_runtime_state(span_id);
 }

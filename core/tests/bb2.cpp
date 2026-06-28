@@ -2227,7 +2227,7 @@ bool C430_bb2_frontier_uses_saved_graph_index() {
   }
   const std::string body = cpp.substr(pole_pos, attach_pos - pole_pos);
   return contains_text(body, "backbone_index") && contains_text(body, "authoritative_.backbone") &&
-         !contains_text(body, "BuildBackboneEdges") && !contains_text(body, "spans_by_port");
+         !contains_text(body, "SavedBackboneEdges") && !contains_text(body, "spans_by_port");
 }
 
 bool C431_bb2_edge_bundle_is_saved_backbone_unit() {
@@ -5512,11 +5512,11 @@ bool C605_bb2_find_backbone_route_uses_saved_ownerless_graph() {
   if (saved_midair == state.view().backbone().nodes.end()) {
     return false;
   }
-  const auto route = state.FindBackboneRoute(saved_midair->node_id, out.value.generated_pole_ids.back());
+  const auto route = state.FindSavedBackboneRoute(saved_midair->node_id, out.value.generated_pole_ids.back());
   return route.size() == 2 && route.front() == saved_midair->node_id && route.back() == out.value.generated_pole_ids.back();
 }
 
-bool C606_bb2_build_backbone_result_exposes_saved_ownerless_node() {
+bool C606_bb2_saved_backbone_result_exposes_saved_ownerless_node() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = poly3_req(state);
   req.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 8.0}, {24.0, 0.0, 0.0}};
@@ -5536,7 +5536,7 @@ bool C606_bb2_build_backbone_result_exposes_saved_ownerless_node() {
   if (saved == state.view().backbone().nodes.end()) {
     return false;
   }
-  const wire::core::BackboneResult result = state.BuildBackboneResult();
+  const wire::core::BackboneResult result = state.SavedBackboneResult();
   const auto node = std::find_if(result.nodes.begin(), result.nodes.end(), [&](const wire::core::SupportNode& item) {
     return item.node_id == saved->node_id && item.support_kind == wire::core::SupportKind::kMidair &&
            item.pole_id == wire::core::kInvalidObjectId;
@@ -5545,7 +5545,7 @@ bool C606_bb2_build_backbone_result_exposes_saved_ownerless_node() {
 }
 
 
-bool C607_bb2_build_backbone_result_preserves_saved_ownerless_route_index() {
+bool C607_bb2_saved_backbone_result_preserves_saved_ownerless_route_index() {
   wire::core::CoreState state;
   wire::core::BackboneSpec first = poly3_req(state);
   first.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 6.0}, {20.0, 0.0, 0.0}};
@@ -5557,7 +5557,7 @@ bool C607_bb2_build_backbone_result_preserves_saved_ownerless_route_index() {
   if (!out1.ok) {
     return false;
   }
-  const wire::core::BackboneResult first_result = state.BuildBackboneResult();
+  const wire::core::BackboneResult first_result = state.SavedBackboneResult();
   const auto first_midair = std::find_if(first_result.nodes.begin(), first_result.nodes.end(),
                                          [](const wire::core::SupportNode& node) {
                                            return node.support_kind == wire::core::SupportKind::kMidair &&
@@ -5579,7 +5579,7 @@ bool C607_bb2_build_backbone_result_preserves_saved_ownerless_route_index() {
   if (!out2.ok) {
     return false;
   }
-  const wire::core::BackboneResult second_result = state.BuildBackboneResult();
+  const wire::core::BackboneResult second_result = state.SavedBackboneResult();
   const auto reused_midair = std::find_if(second_result.nodes.begin(), second_result.nodes.end(),
                                           [&](const wire::core::SupportNode& node) {
                                             return node.node_id == first_midair->node_id &&
@@ -5591,14 +5591,14 @@ bool C607_bb2_build_backbone_result_preserves_saved_ownerless_route_index() {
 
 
 
-bool C608_bb2_build_backbone_result_does_not_duplicate_saved_pole_nodes() {
+bool C608_bb2_saved_backbone_result_does_not_duplicate_saved_pole_nodes() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   const auto out = state.GenerateFromBackboneSpec(req);
   if (!out.ok || state.view().backbone().nodes.empty()) {
     return false;
   }
-  const wire::core::BackboneResult result = state.BuildBackboneResult();
+  const wire::core::BackboneResult result = state.SavedBackboneResult();
   if (result.nodes.size() != state.view().backbone().nodes.size()) {
     return false;
   }
@@ -7385,21 +7385,21 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C605_bb2_find_backbone_route_uses_saved_ownerless_graph",
                          "bb2 route queries use saved ownerless backbone graph", "Boundary", false,
                          C605_bb2_find_backbone_route_uses_saved_ownerless_graph);
-  test_registry::AddTest(tests, "C608_bb2_build_backbone_result_does_not_duplicate_saved_pole_nodes",
-                         "bb2 BuildBackboneResult does not duplicate saved pole nodes", "Boundary", false,
-                         C608_bb2_build_backbone_result_does_not_duplicate_saved_pole_nodes);
+  test_registry::AddTest(tests, "C608_bb2_saved_backbone_result_does_not_duplicate_saved_pole_nodes",
+                         "bb2 SavedBackboneResult does not duplicate saved pole nodes", "Boundary", false,
+                         C608_bb2_saved_backbone_result_does_not_duplicate_saved_pole_nodes);
   test_registry::AddTest(tests, "C609_bb2_acute_corner_lowers_layout_geom_without_port_lowering",
                          "bb2 acute corners lower layout and geom without lowering ports", "Boundary", false,
                          C609_bb2_acute_corner_lowers_layout_geom_without_port_lowering);
   test_registry::AddTest(tests, "C610_bb2_acute_corner_lowering_survives_pole_yaw_override",
                          "bb2 acute corner lowering survives pole yaw override", "Boundary", false,
                          C610_bb2_acute_corner_lowering_survives_pole_yaw_override);
-  test_registry::AddTest(tests, "C607_bb2_build_backbone_result_preserves_saved_ownerless_route_index",
-                         "bb2 BuildBackboneResult preserves saved ownerless route index", "Boundary", false,
-                         C607_bb2_build_backbone_result_preserves_saved_ownerless_route_index);
-  test_registry::AddTest(tests, "C606_bb2_build_backbone_result_exposes_saved_ownerless_node",
-                         "bb2 BuildBackboneResult exposes saved ownerless nodes", "Boundary", false,
-                         C606_bb2_build_backbone_result_exposes_saved_ownerless_node);
+  test_registry::AddTest(tests, "C607_bb2_saved_backbone_result_preserves_saved_ownerless_route_index",
+                         "bb2 SavedBackboneResult preserves saved ownerless route index", "Boundary", false,
+                         C607_bb2_saved_backbone_result_preserves_saved_ownerless_route_index);
+  test_registry::AddTest(tests, "C606_bb2_saved_backbone_result_exposes_saved_ownerless_node",
+                         "bb2 SavedBackboneResult exposes saved ownerless nodes", "Boundary", false,
+                         C606_bb2_saved_backbone_result_exposes_saved_ownerless_node);
   test_registry::AddTest(tests, "C599_bb2_selected_saved_building_node_policy_persists_after_branch",
                          "bb2 selected saved building node policy persists after branch", "Boundary", false,
                          C599_bb2_selected_saved_building_node_policy_persists_after_branch);

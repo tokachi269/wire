@@ -1753,7 +1753,7 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
     return;
   }
   case SelectedType::kSupportNode: {
-    const wire::core::BackboneResult backbone = viewer_core_state::BuildSavedBackboneResult(state);
+    const wire::core::BackboneResult backbone = viewer_core_state::SavedBackboneResult(state);
     const auto it =
         std::find_if(backbone.nodes.begin(), backbone.nodes.end(),
                      [&](const wire::core::SupportNode& node) { return node.node_id == ui_state.selected_id; });
@@ -2096,7 +2096,7 @@ void DrawOutlinerContent(const wire::core::CoreView& view, const wire::core::Bac
 
 void DrawOutlinerWindow(CoreState& state, ViewerUiState& ui_state) {
   const auto view = viewer_core_state::View(state);
-  const wire::core::BackboneResult backbone = viewer_core_state::BuildSavedBackboneResult(state);
+  const wire::core::BackboneResult backbone = viewer_core_state::SavedBackboneResult(state);
   ImGui::SetNextWindowPos(ImVec2(8.0f, 620.0f), ImGuiCond_FirstUseEver);
   ImGui::SetNextWindowSize(ImVec2(420.0f, 260.0f), ImGuiCond_FirstUseEver);
   const ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse;
@@ -2900,7 +2900,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
   }
 
   if (ImGui::CollapsingHeader("Backbone Junction Debug")) {
-    const wire::core::BackboneResult backbone = viewer_core_state::BuildSavedBackboneResult(state);
+    const wire::core::BackboneResult backbone = viewer_core_state::SavedBackboneResult(state);
     ImGui::Text("SupportNodes: %d", static_cast<int>(backbone.nodes.size()));
     ImGui::Text("Edges: %d", static_cast<int>(backbone.edges.size()));
     ImGui::Text("Junctions(deg>=3): %d", static_cast<int>(backbone.junctions.size()));
@@ -2972,7 +2972,7 @@ void DrawUnifiedWorkspaceWindow(CoreState& state, ViewerUiState& ui_state) {
     return;
   }
   const auto view = viewer_core_state::View(state);
-  const wire::core::BackboneResult backbone = viewer_core_state::BuildSavedBackboneResult(state);
+  const wire::core::BackboneResult backbone = viewer_core_state::SavedBackboneResult(state);
   const float screen_w = static_cast<float>(GetScreenWidth());
   const float screen_h = static_cast<float>(GetScreenHeight());
   const float topbar_h = 74.0f;

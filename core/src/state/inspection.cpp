@@ -422,7 +422,7 @@ void AddLink(std::vector<RelatedEntityLink>* links, std::unordered_set<std::uint
 }
 
 std::optional<JunctionInfo> FindJunctionByNode(const CoreState& state, ObjectId node_id) {
-  const BackboneResult rebuilt = state.BuildBackboneResult();
+  const BackboneResult rebuilt = state.SavedBackboneResult();
   for (const JunctionInfo& junction : rebuilt.junctions) {
     if (junction.node_id == node_id) {
       return junction;
@@ -432,7 +432,7 @@ std::optional<JunctionInfo> FindJunctionByNode(const CoreState& state, ObjectId 
 }
 
 std::optional<SupportNode> FindSupportNodeById(const CoreState& state, ObjectId node_id) {
-  const BackboneResult rebuilt = state.BuildBackboneResult();
+  const BackboneResult rebuilt = state.SavedBackboneResult();
   for (const SupportNode& node : rebuilt.nodes) {
     if (node.node_id == node_id) {
       return node;

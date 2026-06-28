@@ -825,7 +825,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
   return result;
 }
 
-BackboneResult CoreState::BuildSavedBackboneResult() const {
+BackboneResult CoreState::SavedBackboneResult() const {
   BackboneResult out{};
   out.edge_orientations = debug_.last_generation_edge_orientations;
 
@@ -923,14 +923,10 @@ BackboneResult CoreState::BuildSavedBackboneResult() const {
   return out;
 }
 
-BackboneResult CoreState::BuildBackboneResult() const {
-  return BuildSavedBackboneResult();
+std::vector<BackboneEdge> CoreState::SavedBackboneEdges() const {
+  return SavedBackboneResult().edges;
 }
-
-std::vector<BackboneEdge> CoreState::BuildBackboneEdges() const {
-  return BuildSavedBackboneResult().edges;
-}
-std::vector<ObjectId> CoreState::FindBackboneRoute(ObjectId start_node_id, ObjectId end_node_id) const {
+std::vector<ObjectId> CoreState::FindSavedBackboneRoute(ObjectId start_node_id, ObjectId end_node_id) const {
   if (start_node_id == kInvalidObjectId || end_node_id == kInvalidObjectId) {
     return {};
   }
@@ -1031,63 +1027,7 @@ std::vector<ObjectId> CoreState::FindBackboneRoute(ObjectId start_node_id, Objec
     }
   }
 
-  const std::vector<BackboneEdge> edges = BuildBackboneEdges();
-  std::unordered_map<ObjectId, std::vector<ObjectId>> adjacency{};
-  for (const BackboneEdge& edge : edges) {
-    if (edge.bundles.empty()) {
-      continue;
-    }
-    adjacency[edge.node_a].push_back(edge.node_b);
-    adjacency[edge.node_b].push_back(edge.node_a);
-  }
-  if (!adjacency.contains(start_node_id) || !adjacency.contains(end_node_id)) {
-    return {};
-  }
-
-  std::queue<ObjectId> queue{};
-  std::unordered_set<ObjectId> visited{};
-  std::unordered_map<ObjectId, ObjectId> parent{};
-  queue.push(start_node_id);
-  visited.insert(start_node_id);
-
-  bool found = false;
-  while (!queue.empty() && !found) {
-    const ObjectId node = queue.front();
-    queue.pop();
-    auto it = adjacency.find(node);
-    if (it == adjacency.end()) {
-      continue;
-    }
-    for (ObjectId next : it->second) {
-      if (visited.contains(next)) {
-        continue;
-      }
-      visited.insert(next);
-      parent[next] = node;
-      if (next == end_node_id) {
-        found = true;
-        break;
-      }
-      queue.push(next);
-    }
-  }
-
-  if (!found) {
-    return {};
-  }
-  std::vector<ObjectId> path{};
-  ObjectId cur = end_node_id;
-  path.push_back(cur);
-  while (cur != start_node_id) {
-    auto it = parent.find(cur);
-    if (it == parent.end()) {
-      return {};
-    }
-    cur = it->second;
-    path.push_back(cur);
-  }
-  std::reverse(path.begin(), path.end());
-  return path;
+  return {};
 }
 
 } // namespace wire::core

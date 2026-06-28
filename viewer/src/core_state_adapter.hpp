@@ -25,7 +25,7 @@ wire::core::EditResult<ObjectId> ClearSpanEndpointSocketOverride(CoreState& stat
 
 wire::core::EditResult<ObjectId> ClearSpanBranchDownOffsetOverride(CoreState& state, ObjectId span_id);
 
-[[nodiscard]] wire::core::BackboneResult BuildSavedBackboneResult(const CoreState& state);
+[[nodiscard]] wire::core::BackboneResult SavedBackboneResult(const CoreState& state);
 
 wire::core::EditResult<bool> UpdateGeometrySettings(CoreState& state, const wire::core::GeometrySettings& settings,
                                                     bool mark_all_spans_dirty);

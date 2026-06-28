@@ -784,7 +784,7 @@ bool test_backbone_edges_and_route_search() {
     return false;
   }
 
-  const auto edges = state.BuildBackboneEdges();
+  const auto edges = state.SavedBackboneEdges();
   if (edges.empty()) {
     return false;
   }
@@ -801,7 +801,7 @@ bool test_backbone_edges_and_route_search() {
 
   const ObjectId start = generated.value.generated_pole_ids.front();
   const ObjectId end = generated.value.generated_pole_ids.back();
-  const auto route = state.FindBackboneRoute(start, end);
+  const auto route = state.FindSavedBackboneRoute(start, end);
   return !route.empty() && route.front() == start && route.back() == end;
 }
 

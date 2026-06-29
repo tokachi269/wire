@@ -11,7 +11,7 @@
 - `viewer`（開発用）
 - 編集正本: `Pole / Port / Anchor / Bundle / Span / Attachment`
 - 生成入力: `BackboneSpec`（DrawPath はこの入力を作るツール）
-- 部分再計算: Dirty/Version
+- 部分更新: coarse `UpdateKind` / direct derive
 - 骨格探索: Backbone（Pole 間）
 
 ## 3. 非対象（現段階）
@@ -33,7 +33,7 @@
 
 ### 4.3 正本と派生
 - 正本（PersistCore）: `Pole / Port / Anchor / Bundle / Span / Attachment`
-- 派生（DerivedCache）: `CurveCache / BoundsCache / DirtyQueue / SpanRuntimeState`
+- 派生（DerivedCache）: `CurveCache / BoundsCache / SpanLayoutCache / SpanRuntimeState`
 - セッション情報（SessionDebug）: 選定ログ、評価ログ、統計
 
 ### 4.4 パイプライン（固定）
@@ -66,7 +66,7 @@
 - DrawPath 点は既定で強制 Manual にしない。
 - Manual はユーザー操作（Pin/Unpin）で明示する。
 - 複数本は `Bundle + 複数 Span` で表現する。
-- 固定テンプレ（例: 高圧3本）は `count` 上書きを許可しない。
+- 固定テンプレ（例: 高圧3本）は既定本数と一致する `count` だけ no-op として受け付け、異なる `count` は拒否する。
 - 可変テンプレ（例: 通信束）はテンプレ範囲内でのみ `count` を受け付ける。
 
 ### 6.3 再生成原則

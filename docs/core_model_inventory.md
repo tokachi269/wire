@@ -58,7 +58,6 @@ Definition Layer
 | `ConductorGroupSpec` | `core/include/wire/core/workflow_types.hpp` | 束生成1回分の意図（カテゴリ/本数/種別）を定義する。 | category/count/kind | `SessionDebug` |
 | `ConductorLaneId`, `ConductorGroupState` | `core/include/wire/core/workflow_types.hpp` | 束生成時の lane 順序管理（内部）を保持する。 | bundle ref + lane order | `SessionDebug` |
 | `ChangeSet`, `EditResult<T>` | `core/include/wire/core/core_state.hpp` | 操作結果の外部観測差分を返す。 | entity IDs + error | `SessionDebug` |
-| `GenerateSimpleLine*`, `GenerateGroupedLine*` 入出力 | `core/include/wire/core/core_state.hpp` | 生成コマンド I/O を定義する。 | entity IDs + workflow params | `SessionDebug` |
 | `GenerateBundleFromPathResult`（`GenerateFromBackboneSpec` の戻り） | `core/include/wire/core/core_state.hpp` | backbone 生成結果の生成ID群を定義する。 | generated bundle/span/pole IDs | `SessionDebug` |
 | `PathDirectionCostBreakdown`, `PathDirectionEvaluationDebug` | `core/include/wire/core/debug_types.hpp` | 経路方向評価の診断内訳を保持する。 | scoring values | `SessionDebug` |
 | 配置候補診断レコード群 | `core/include/wire/core/debug_types.hpp` | 配置候補の選定診断とスコア内訳を保持する。 | score fields + IDs | `SessionDebug` |
@@ -68,14 +67,14 @@ Definition Layer
 | 型 | ファイル | 責務（1行） | 主依存 | 保存分類 |
 |---|---|---|---|---|
 | `SpanRuntimeState` | `core/include/wire/core/core_state.hpp` | span 単位の dirty/version 追随状態を保持する。 | span ID + versions | `DerivedCache` |
-| `DirtyQueue` | `core/include/wire/core/core_state.hpp` | 増分再計算キューを保持する。 | span ID lists | `DerivedCache` |
-| `RecalcStats` | `core/include/wire/core/core_state.hpp` | フレーム単位の再計算統計を保持する。 | counts | `DerivedCache` |
+| `UpdateKind`, `UpdatePlan` | `core/include/wire/core/core_runtime_types.hpp` | bb2 の粗い再導出境界を定義する。 | update kind + affected IDs | `SessionDebug` |
+| `DirtyBits` / `SpanRuntimeState` | `core/include/wire/core/core_runtime_types.hpp` | mutation tracking と viewer dirty overlay 用の span runtime 状態を保持する。 | span ID + dirty flags | `DerivedCache` |
 | `GeometrySettings` | `core/include/wire/core/core_state.hpp` | 曲線生成設定を保持する。 | scalar params | `PersistCore`（設定） |
 | `CurveCacheEntry`, `CurveCache` | `core/include/wire/core/core_state.hpp` | span 曲線サンプルを保持する。 | span IDs -> points | `DerivedCache` |
 | `BoundsCacheEntry`, `BoundsCache` | `core/include/wire/core/core_state.hpp` | span/区間 AABB を保持する。 | span IDs -> AABBs | `DerivedCache` |
 | `LayoutEndpoint`, `SpanLayoutEntry`, `SpanLayoutCache` | `core/include/wire/core/span_layout_types.hpp` | span layout の派生ビューと span 単位の参照キーを保持する。 | span ID / endpoint decision / group key | `DerivedCache` |
-| `SupportGroupDecision` | `core/include/wire/core/core_state.hpp` | grouped lowered support の materialization 前の正本決定を保持する。 | owner pole + support_group_id + authoritative decision fields | `DerivedCache` |
-| `LoweredSupportGroupPlacement` | `core/include/wire/core/core_state.hpp` | grouped lowered support の実体配置（mount/tip/attachments）を保持する。 | support group key -> placement | `DerivedCache` |
+| `SupportGroupDecision` | `core/include/wire/core/span_layout_types.hpp` | support group の placement decision を保持する。 | support group key + placement fields | `DerivedCache` |
+| `LoweredSupportGroupPlacement` | `core/include/wire/core/span_layout_types.hpp` | support group の配置出力を保持する。 | support group key -> placement | `DerivedCache` |
 | `CacheState` | `core/include/wire/core/core_state.hpp` | 派生キャッシュ群を保持する。 | cache structs | mixed（設定 + 派生） |
 
 ## 5. 責務混在の検出（分割候補）
@@ -100,13 +99,13 @@ Definition Layer
 
 ### 7.1 基本分類
 - `PersistCore`: entity ストア（`poles`, `ports`, `spans`, `anchors`, `bundles`, `attachments`）、テンプレ定義（`pole_types`）、設定（`layout`, `geometry`）、ID 状態（`next_id`, display counters）
-- `DerivedCache`: curve/bounds cache、dirty queue、span runtime version、recalc stats
+- `DerivedCache`: curve/bounds cache、span layout cache、support group cache、span runtime dirty flags
 - `SessionDebug`: 配置候補/path/lane 診断、直近デバッグスナップショット、操作一時入出力
 
 ### 7.2 保存しない対象（固定）
 - `CurveCache` / `BoundsCache`
 - `SpanLayoutCache`（support group decision / placement を含む）
-- `DirtyQueue` / `RecalcStats` / `SpanRuntimeState`
+- `SpanRuntimeState`
 - 配置候補選定の debug records
 - `path_direction_debug_records_`
 - `last_path_direction_debug_`

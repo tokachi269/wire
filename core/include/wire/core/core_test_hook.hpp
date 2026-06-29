@@ -23,8 +23,8 @@ struct CoreStateTestHook {
   static std::unordered_map<CableTemplateId, CableTemplate>& cable_templates(CoreState& state) {
     return state.authoritative_.cable_templates;
   }
-  static std::vector<SupportNode>& last_generation_support_nodes(CoreState& state) {
-    return state.debug_.last_generation_support_nodes;
+  static std::vector<SupportNode>& pending_support_nodes(CoreState& state) {
+    return state.debug_.pending_support_nodes;
   }
   static std::vector<BackboneEdgeOrientation>& last_generation_edge_orientations(CoreState& state) {
     return state.debug_.last_generation_edge_orientations;

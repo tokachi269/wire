@@ -1,4 +1,4 @@
-﻿#include <vector>
+#include <vector>
 
 #include "registry.hpp"
 #include "helpers.hpp"
@@ -102,7 +102,7 @@ bool test_branch_pick_segment_midpoint_creates_midair_node() {
       resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
     return false;
   }
-  const auto& nodes = wire::core::CoreStateTestHook::last_generation_support_nodes(state);
+  const auto& nodes = wire::core::CoreStateTestHook::pending_support_nodes(state);
   if (nodes.size() != 1) {
     return false;
   }
@@ -159,7 +159,7 @@ bool test_branch_pick_segment_midpoint_dryrun_keeps_state_unchanged() {
       resolved.value.resolved_node_id != wire::core::kInvalidObjectId) {
     return false;
   }
-  return wire::core::CoreStateTestHook::last_generation_support_nodes(state).empty();
+  return wire::core::CoreStateTestHook::pending_support_nodes(state).empty();
 }
 
 // Intent: HV template rule must reject midair branch picks in core.

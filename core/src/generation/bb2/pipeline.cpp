@@ -2309,30 +2309,6 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
     }
   }
 
-  std::vector<SupportNode> route_nodes{};
-  route_nodes.reserve(g_.nodes.size());
-  for (std::size_t i = 0; i < g_.nodes.size() && i < node_id_by_local.size() && i < made.poles.size(); ++i) {
-    if (!g_.nodes[i].on_route || node_id_by_local[i] == kInvalidObjectId) {
-      continue;
-    }
-    SupportNode node{};
-    node.node_id = node_id_by_local[i];
-    node.support_kind = g_.nodes[i].support;
-    node.position = g_.nodes[i].pos;
-    node.pole_id = made.poles[i];
-    node.saved_backbone_node_id = node_id_by_local[i];
-    node.has_source_edge = g_.nodes[i].has_source_edge;
-    node.source_edge_node_a_id = g_.nodes[i].source_edge_node_a;
-    node.source_edge_node_b_id = g_.nodes[i].source_edge_node_b;
-    node.source_edge_t = g_.nodes[i].source_edge_t;
-    node.path_point_index = i < path_index_by_local.size() ? path_index_by_local[i] : -1;
-    node.has_tangent_hint = g_.nodes[i].has_tangent;
-    node.tangent_hint = g_.nodes[i].tangent;
-    node.bundle_modes = g_.nodes[i].bundle_modes;
-    route_nodes.push_back(std::move(node));
-  }
-  state_.publish_backbone_result_nodes(std::move(route_nodes));
-
   out.value = true;
   out.ok = true;
   return out;

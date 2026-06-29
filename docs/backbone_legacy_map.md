@@ -78,14 +78,14 @@
 |---|---|---|
 | `bb2` namespace/name | v1 同居中の暫定名 | v1/recalc/support-layout 本流依存を削り切った後に mainline 名へ rename |
 | dirty bits | editing/runtime/viewer が読む | coarse update boundary へ寄せた後、mutation tracking と旧制約用に残す範囲をさらに削る |
-| `last_generation_support_nodes` | branch-pick state と残存 tests が読む | saved backbone node readへ寄せてから削除判断 |
+| `pending_support_nodes` | 未保存の segment/building/pole pick を次の bb2 request へ渡す transient input | generation result を保存しない。保存後の node は SavedBackboneGraph だけを読む |
 
 ## 次に消せる family
 
-1. `last_generation_support_nodes` を branch-pick state として残す必要があるか、SavedBackboneGraph node readで置換可能か判断する。
-
 `SegmentLaneAssignment` / `last_generation_lane_assignments` / 旧 generation test suite は退役済み。
 viewer capture は current span、neutral layout、saved binding、decision trace を直接読む。
+`last_generation_support_nodes` の generation snapshot 用途も退役済み。
+未保存 pick だけを `pending_support_nodes` に保持し、bb2 generation result は SavedBackboneGraph にのみ保存する。
 
 ## 運用ルール
 

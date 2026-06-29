@@ -43,17 +43,6 @@ ObjectId CoreState::save_backbone_node(ObjectId pole_id, const Vec3d& position, 
   return node.node_id;
 }
 
-void CoreState::publish_backbone_result_nodes(std::vector<SupportNode> nodes) {
-  nodes.erase(std::remove_if(nodes.begin(), nodes.end(), [](const SupportNode& node) {
-                return node.node_id == kInvalidObjectId;
-              }),
-              nodes.end());
-  std::sort(nodes.begin(), nodes.end(), [](const SupportNode& lhs, const SupportNode& rhs) {
-    return lhs.node_id < rhs.node_id;
-  });
-  debug_.last_generation_support_nodes = std::move(nodes);
-}
-
 void CoreState::cache_support_group(SupportGroupDecision decision, LoweredSupportGroupPlacement placement) {
   const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(decision);
   if (key.owner_pole_id == kInvalidObjectId || key.support_group_id < 0) {
@@ -393,7 +382,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
     if (out_kind == nullptr || out_position == nullptr) {
       return false;
     }
-    for (const SupportNode& node : debug_.last_generation_support_nodes) {
+    for (const SupportNode& node : debug_.pending_support_nodes) {
       if (node.node_id != node_id) {
         continue;
       }
@@ -531,8 +520,8 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
       node.path_point_index = -1;
       node.has_tangent_hint = false;
       node.bundle_modes = selected_bundle_modes();
-      debug_.last_generation_support_nodes.push_back(node);
-      std::sort(debug_.last_generation_support_nodes.begin(), debug_.last_generation_support_nodes.end(),
+      debug_.pending_support_nodes.push_back(node);
+      std::sort(debug_.pending_support_nodes.begin(), debug_.pending_support_nodes.end(),
                 [](const SupportNode& a, const SupportNode& b) { return a.node_id < b.node_id; });
       result.value.resolved_node_id = node.node_id;
     } else {
@@ -577,8 +566,8 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
         node.saved_backbone_node_id = saved_it->node_id;
         node.path_point_index = -1;
         node.bundle_modes = selected_bundle_modes();
-        debug_.last_generation_support_nodes.push_back(node);
-        std::sort(debug_.last_generation_support_nodes.begin(), debug_.last_generation_support_nodes.end(),
+        debug_.pending_support_nodes.push_back(node);
+        std::sort(debug_.pending_support_nodes.begin(), debug_.pending_support_nodes.end(),
                   [](const SupportNode& a, const SupportNode& b) { return a.node_id < b.node_id; });
         result.value.resolved_node_id = node.node_id;
         result.value.position = node.position;
@@ -599,8 +588,8 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
           }
           node.path_point_index = -1;
           node.bundle_modes = selected_bundle_modes();
-          debug_.last_generation_support_nodes.push_back(node);
-          std::sort(debug_.last_generation_support_nodes.begin(), debug_.last_generation_support_nodes.end(),
+          debug_.pending_support_nodes.push_back(node);
+          std::sort(debug_.pending_support_nodes.begin(), debug_.pending_support_nodes.end(),
                     [](const SupportNode& a, const SupportNode& b) { return a.node_id < b.node_id; });
           result.value.resolved_node_id = node.node_id;
           result.value.position = node.position;
@@ -662,7 +651,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
   }
 
   constexpr double kReuseEps2 = 1e-10;
-  for (const SupportNode& node : debug_.last_generation_support_nodes) {
+  for (const SupportNode& node : debug_.pending_support_nodes) {
     if (node.support_kind != SupportKind::kMidair) {
       continue;
     }
@@ -670,7 +659,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
       continue;
     }
     if (options.create_midair_node && has_endpoints) {
-      for (SupportNode& mutable_node : debug_.last_generation_support_nodes) {
+      for (SupportNode& mutable_node : debug_.pending_support_nodes) {
         if (mutable_node.node_id != node.node_id) {
           continue;
         }
@@ -738,8 +727,8 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
                                                                                          : BundleNodeMode::kNotPresent;
     midair.bundle_modes.push_back(mode);
   }
-  debug_.last_generation_support_nodes.push_back(midair);
-  std::sort(debug_.last_generation_support_nodes.begin(), debug_.last_generation_support_nodes.end(),
+  debug_.pending_support_nodes.push_back(midair);
+  std::sort(debug_.pending_support_nodes.begin(), debug_.pending_support_nodes.end(),
             [](const SupportNode& a, const SupportNode& b) { return a.node_id < b.node_id; });
 
   result.value.resolution = PickBranchResolutionKind::kMidair;

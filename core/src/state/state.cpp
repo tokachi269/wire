@@ -2200,26 +2200,6 @@ void CoreState::index_remove(std::unordered_map<ObjectId, std::vector<ObjectId>>
   }
 }
 
-std::string CoreState::dirty_bits_to_string(DirtyBits bits) {
-  std::string text;
-  if (any(bits, DirtyBits::kTopology))
-    text += "Topology|";
-  if (any(bits, DirtyBits::kDecision))
-    text += "Decision|";
-  if (any(bits, DirtyBits::kGeometryRefresh))
-    text += "GeometryRefresh|";
-  if (any(bits, DirtyBits::kBounds))
-    text += "Bounds|";
-  if (any(bits, DirtyBits::kRenderRefresh))
-    text += "RenderRefresh|";
-  if (any(bits, DirtyBits::kRaycast))
-    text += "Raycast|";
-  if (!text.empty()) {
-    text.pop_back();
-  }
-  return text;
-}
-
 void CoreState::apply_pole_placement_mode(Pole& pole, PlacementMode mode) {
   pole.placement_mode = mode;
   pole.user_edited = (mode == PlacementMode::kManual);

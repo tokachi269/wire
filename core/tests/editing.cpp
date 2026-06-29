@@ -71,7 +71,7 @@ bool test_span_runtime_initialized_on_add() {
 
   const auto* runtime = state.view().find_span_runtime_state(span_result.value);
   return runtime != nullptr && runtime->span_id == span_result.value && runtime->data_version > 0 &&
-         has_dirty(runtime, DirtyBits::kTopology | DirtyBits::kGeometry);
+         has_dirty(runtime, DirtyBits::kTopology | DirtyBits::kDecision | DirtyBits::kGeometryRefresh);
 }
 
 bool test_move_pole_dirties_only_related_span() {
@@ -261,7 +261,7 @@ bool test_add_connection_by_pole_updates_dirty_version_and_indices() {
   }
 
   return contains_id(it_a->second, span->id) && contains_id(it_b->second, span->id) &&
-         has_dirty(runtime, DirtyBits::kGeometry) && contains_id(connection.change_set.created_ids, span->id) &&
+         has_dirty(runtime, DirtyBits::kDecision | DirtyBits::kGeometryRefresh) && contains_id(connection.change_set.created_ids, span->id) &&
          contains_id(connection.change_set.dirty_span_ids, span->id);
 }
 

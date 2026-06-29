@@ -172,11 +172,7 @@ enum class DirtyBits : std::uint32_t {
   kTopology = 1u << 0,
   kDecision = 1u << 1,
   kGeometryRefresh = 1u << 2,
-  kBounds = 1u << 3,
   kRenderRefresh = 1u << 4,
-  kRaycast = 1u << 5,
-  kGeometry = (1u << 1) | (1u << 2),
-  kRender = 1u << 4,
 };
 
 inline DirtyBits operator|(DirtyBits a, DirtyBits b) {

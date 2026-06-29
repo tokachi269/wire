@@ -164,7 +164,7 @@ bool test_generate_spans_between_poles_basic() {
     if (!span->generation.generated || span->generation.source != wire::core::GenerationSource::kRoadAuto) {
       return false;
     }
-    if (!has_dirty(runtime, DirtyBits::kGeometry)) {
+    if (!has_dirty(runtime, DirtyBits::kDecision | DirtyBits::kGeometryRefresh)) {
       return false;
     }
   }

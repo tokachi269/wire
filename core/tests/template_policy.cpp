@@ -178,7 +178,8 @@ bool test_bundle_template_visual_change_updates_dirty_spans_without_regeneration
     return false;
   }
   const auto* runtime = state.view().find_span_runtime_state(span->id);
-  if (!has_dirty(runtime, wire::core::DirtyBits::kGeometry | wire::core::DirtyBits::kRender)) {
+  if (!has_dirty(runtime, wire::core::DirtyBits::kDecision | wire::core::DirtyBits::kGeometryRefresh |
+                            wire::core::DirtyBits::kRenderRefresh)) {
     return false;
   }
   const auto& deps = state.view().template_dependency_state();

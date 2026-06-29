@@ -150,7 +150,6 @@ private:
   void mark_span_dirty(ObjectId span_id, DirtyBits dirty_bits, bool bump_data_version);
   void mark_connected_spans_dirty_from_port(ObjectId port_id, DirtyBits dirty_bits, ChangeSet* change_set);
   void mark_connected_spans_dirty_from_anchor(ObjectId anchor_id, DirtyBits dirty_bits, ChangeSet* change_set);
-  EditResult<bool> derive_generated_span_outputs_for_dirty_spans(const std::vector<ObjectId>& span_ids);
   EditResult<bool> derive_generated_span_shape_outputs(ObjectId span_id);
   EditResult<bool> derive_generated_span_draw_outputs(ObjectId span_id);
   [[nodiscard]] EditResult<UpdatePlan> make_update_plan(UpdateRequest request) const;
@@ -236,7 +235,6 @@ private:
   static void add_unique_id(std::vector<ObjectId>& ids, ObjectId id);
   static void index_add(std::unordered_map<ObjectId, std::vector<ObjectId>>& map, ObjectId key, ObjectId value);
   static void index_remove(std::unordered_map<ObjectId, std::vector<ObjectId>>& map, ObjectId key, ObjectId value);
-  static std::string dirty_bits_to_string(DirtyBits bits);
   static void apply_pole_placement_mode(Pole& pole, PlacementMode mode);
   static void apply_port_position_mode(Port& port, PortPositionMode mode, PortPlacementSourceKind source_hint);
   [[nodiscard]] double pole_radius_at_height_m(const Pole& pole, double local_z_m) const;

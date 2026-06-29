@@ -1237,52 +1237,6 @@ bool test_inspection_backbone_uses_rebuilt_result_instead_of_last_snapshot() {
   return support_node_view_after.has_value();
 }
 
-bool test_inspection_junction_prefers_relation_surface_when_present() {
-  CoreState state;
-  const auto type_ids = sorted_pole_type_ids(state);
-  if (type_ids.empty()) {
-    return false;
-  }
-
-  wire::core::BackboneSpec req_a{};
-  req_a.path.polyline = {{-8.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {8.0, 0.0, 0.0}};
-  req_a.interval_m = 8.0;
-  req_a.pole_type_id = type_ids.front();
-  helpers::add_backbone_bundle(req_a, wire::core::BundleKind::kLowVoltage);
-  if (!state.GenerateFromBackboneSpec(req_a).ok) {
-    return false;
-  }
-
-  wire::core::BackboneSpec req_b{};
-  req_b.path.polyline = {{0.0, -8.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 8.0, 0.0}};
-  req_b.interval_m = 8.0;
-  req_b.pole_type_id = type_ids.front();
-  helpers::add_backbone_bundle(req_b, wire::core::BundleKind::kLowVoltage);
-  if (!state.GenerateFromBackboneSpec(req_b).ok) {
-    return false;
-  }
-
-  const auto rebuilt = state.SavedBackboneResult();
-  if (rebuilt.junctions.empty()) {
-    return false;
-  }
-  const ObjectId junction_id = rebuilt.junctions.front().node_id;
-  auto& relations = wire::core::CoreStateTestHook::last_generation_junction_relations(state);
-  auto it = relations.find(junction_id);
-  if (it == relations.end() || it->second.incidents.size() < 3) {
-    return false;
-  }
-
-  it->second.through_pair.accepted = true;
-  it->second.through_pair.neighbor_a_id = it->second.incidents[0].neighbor_node_id;
-  it->second.through_pair.neighbor_b_id = it->second.incidents[1].neighbor_node_id;
-  it->second.incidents.resize(2);
-
-  const auto junction_view = state.view().inspect_junction(junction_id);
-  return junction_view.has_value() && junction_view->incidents.size() == 2 && junction_view->has_local_relation &&
-         junction_view->has_primary && junction_view->through_pair_accepted;
-}
-
 bool test_detail_curve_acute_case_applies_quality_fallback() {
   wire::core::CurveConstraint start{};
   start.point = {0.0, 0.0, 5.0};
@@ -1671,9 +1625,6 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C258_Inspection_Backbone_UsesRebuiltResult",
                          "Inspection resolves junction/support-node entities from rebuilt backbone instead of stale last_generation_backbone snapshot",
                          "Invariant", false, test_inspection_backbone_uses_rebuilt_result_instead_of_last_snapshot);
-  test_registry::AddTest(tests, "C259_Inspection_Junction_PrefersRelationSurface",
-                         "Inspection prefers last_generation_junction_relations when relation data exists instead of mixing rebuilt junction incidents into the same surface",
-                         "Invariant", false, test_inspection_junction_prefers_relation_surface_when_present);
   test_registry::AddTest(tests, "C161_DetailCurve_BranchLongSpan_SuppressesSidewaysRunout",
                          "Long branch spans keep support departure local and suppress large sideways runout",
                          "Invariant", false, test_detail_curve_branch_long_span_suppresses_sideways_runout);

@@ -90,22 +90,6 @@ const char* FlowDecisionRuleText(BackboneFlowDecisionRule rule) {
   }
 }
 
-const char* JunctionRelationKindText(JunctionRelationKind kind) {
-  switch (kind) {
-  case JunctionRelationKind::kThroughMain:
-    return "ThroughMain";
-  case JunctionRelationKind::kSideBranch:
-    return "SideBranch";
-  case JunctionRelationKind::kCornerContinuation:
-    return "CornerContinuation";
-  case JunctionRelationKind::kCrossUnderpass:
-    return "CrossUnderpass";
-  case JunctionRelationKind::kNone:
-  default:
-    return "None";
-  }
-}
-
 const char* SameLevelReasonText(SameLevelFeasibilityReason reason) {
   switch (reason) {
   case SameLevelFeasibilityReason::kBundleRule:
@@ -481,20 +465,6 @@ VariationBreakdownView MakeVariationBreakdownView(const HierarchicalVariationSam
   return view;
 }
 
-std::vector<JunctionIncident> BuildJunctionIncidentsFromRelation(const JunctionRelation& relation) {
-  std::vector<JunctionIncident> incidents{};
-  incidents.reserve(relation.incidents.size());
-  for (std::size_t index = 0; index < relation.incidents.size(); ++index) {
-    const JunctionIncidentRelation& source = relation.incidents[index];
-    JunctionIncident incident{};
-    incident.neighbor_node_id = source.neighbor_node_id;
-    incident.order = static_cast<int>(index);
-    incident.primary = (index == 0);
-    incidents.push_back(incident);
-  }
-  return incidents;
-}
-
 } // namespace
 
 const std::vector<SegmentLaneAssignment>& CoreView::last_lane_assignments() const {
@@ -545,8 +515,7 @@ std::optional<EntityMeta> CoreView::describe_entity(EntityRef ref) const {
                     EntityRoleKind::kDetailDerived, false, false, "detail.curve_cache");
   }
   case EntityKind::kJunction: {
-    if (!FindJunctionByNode(state_, ref.stable_id).has_value() &&
-        !state_.debug_.last_generation_junction_relations.contains(ref.stable_id)) {
+    if (!FindJunctionByNode(state_, ref.stable_id).has_value()) {
       return std::nullopt;
     }
     return MakeMeta(ref.kind, ref.stable_id, "Junction " + std::to_string(ref.stable_id), EntityRoleKind::kDerived,
@@ -795,65 +764,22 @@ std::optional<DetailCurveInspectionView> CoreView::inspect_detail_curve(ObjectId
 
 std::optional<JunctionInspectionView> CoreView::inspect_junction(ObjectId node_id) const {
   const auto junction = FindJunctionByNode(state_, node_id);
-  const auto relation_it = state_.debug_.last_generation_junction_relations.find(node_id);
-  if (!junction.has_value() && relation_it == state_.debug_.last_generation_junction_relations.end()) {
+  if (!junction.has_value()) {
     return std::nullopt;
   }
   JunctionInspectionView result{};
   result.meta = *describe_entity({EntityKind::kJunction, node_id});
   result.node_id = node_id;
-  if (relation_it != state_.debug_.last_generation_junction_relations.end()) {
-    const JunctionRelation& relation = relation_it->second;
-    result.incidents = BuildJunctionIncidentsFromRelation(relation);
-    result.has_primary = std::any_of(result.incidents.begin(), result.incidents.end(),
-                                     [](const JunctionIncident& incident) { return incident.primary; });
-  } else if (junction.has_value()) {
-    result.incidents = junction->incidents;
-    result.has_primary = std::any_of(junction->incidents.begin(), junction->incidents.end(),
-                                     [](const JunctionIncident& incident) { return incident.primary; });
-  }
-  if (relation_it != state_.debug_.last_generation_junction_relations.end()) {
-    const JunctionRelation& relation = relation_it->second;
-    result.has_local_relation = true;
-    result.through_pair_accepted = relation.through_pair.accepted;
-    result.is_cross_like = relation.is_cross_like;
-    result.route_incident_count = relation.route_incident_count;
-    result.through_pair_neighbor_a_id = relation.through_pair.neighbor_a_id;
-    result.through_pair_neighbor_b_id = relation.through_pair.neighbor_b_id;
-    result.through_pair_straightness_score = relation.through_pair.straightness_score;
-    result.local_relations.reserve(relation.incidents.size());
-    for (const JunctionIncidentRelation& incident : relation.incidents) {
-      JunctionIncidentRelationView incident_view{};
-      incident_view.neighbor_node_id = incident.neighbor_node_id;
-      incident_view.kind = incident.kind;
-      incident_view.straightness_score = incident.straightness_score;
-      incident_view.in_route = incident.in_route;
-      incident_view.in_through_pair = incident.in_through_pair;
-      incident_view.continuity_class = incident.continuity_class;
-      incident_view.default_lower_required = incident.default_lower_required;
-      incident_view.same_level_feasible = incident.same_level_feasible;
-      incident_view.infeasible_reason = incident.infeasible_reason;
-      incident_view.projected_spacing_topview_m = incident.projected_spacing_topview_m;
-      incident_view.required_clearance_m = incident.required_clearance_m;
-      result.local_relations.push_back(incident_view);
-    }
-  }
+  result.incidents = junction->incidents;
+  result.has_primary = std::any_of(junction->incidents.begin(), junction->incidents.end(),
+                                   [](const JunctionIncident& incident) { return incident.primary; });
 
   std::unordered_set<std::uint64_t> seen{};
-  if (relation_it != state_.debug_.last_generation_junction_relations.end()) {
-    for (const JunctionIncidentRelation& incident : relation_it->second.incidents) {
-      AddLink(&result.links, &seen, "Neighbor " + std::to_string(incident.neighbor_node_id), EntityKind::kSupportNode,
-              incident.neighbor_node_id);
-      AddLink(&result.links, &seen, "Edge " + std::to_string(StableBackboneEdgeId(node_id, incident.neighbor_node_id)),
-              EntityKind::kBackboneEdge, StableBackboneEdgeId(node_id, incident.neighbor_node_id));
-    }
-  } else if (junction.has_value()) {
-    for (const JunctionIncident& incident : junction->incidents) {
-      AddLink(&result.links, &seen, "Neighbor " + std::to_string(incident.neighbor_node_id), EntityKind::kSupportNode,
-              incident.neighbor_node_id);
-      AddLink(&result.links, &seen, "Edge " + std::to_string(StableBackboneEdgeId(node_id, incident.neighbor_node_id)),
-              EntityKind::kBackboneEdge, StableBackboneEdgeId(node_id, incident.neighbor_node_id));
-    }
+  for (const JunctionIncident& incident : junction->incidents) {
+    AddLink(&result.links, &seen, "Neighbor " + std::to_string(incident.neighbor_node_id), EntityKind::kSupportNode,
+            incident.neighbor_node_id);
+    AddLink(&result.links, &seen, "Edge " + std::to_string(StableBackboneEdgeId(node_id, incident.neighbor_node_id)),
+            EntityKind::kBackboneEdge, StableBackboneEdgeId(node_id, incident.neighbor_node_id));
   }
   if (const auto node = FindSupportNodeById(state_, node_id); node.has_value() && node->pole_id != kInvalidObjectId) {
     AddLink(&result.links, &seen, "Owner Pole", EntityKind::kPole, node->pole_id);
@@ -1272,51 +1198,6 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
     return trace;
   }
 
-  if (ref.kind == EntityKind::kJunction) {
-    if (const auto it = state_.debug_.last_generation_junction_relations.find(static_cast<ObjectId>(ref.stable_id));
-        it != state_.debug_.last_generation_junction_relations.end()) {
-      const JunctionRelation& relation = it->second;
-      const std::vector<JunctionIncident> incidents = BuildJunctionIncidentsFromRelation(relation);
-      std::ostringstream summary;
-      summary << "incidentCount=" << incidents.size();
-      for (const JunctionIncident& incident : incidents) {
-        summary << " [" << incident.neighbor_node_id << " order=" << incident.order
-                << " primary=" << BoolText(incident.primary) << "]";
-      }
-      trace.push_back({DecisionTraceTopic::kFlowClassification, "JunctionPrimaryOrder", summary.str()});
-
-      std::ostringstream relation_summary;
-      relation_summary << "throughAccepted=" << BoolText(relation.through_pair.accepted)
-                      << " score=" << relation.through_pair.straightness_score
-                       << " routeIncidents=" << relation.route_incident_count
-                       << " crossLike=" << BoolText(relation.is_cross_like);
-      if (relation.through_pair.neighbor_a_id != kInvalidObjectId ||
-          relation.through_pair.neighbor_b_id != kInvalidObjectId) {
-        relation_summary << " pair=" << relation.through_pair.neighbor_a_id << "/"
-                         << relation.through_pair.neighbor_b_id;
-      }
-      for (const JunctionIncidentRelation& incident : relation.incidents) {
-        relation_summary << " [" << incident.neighbor_node_id << " kind=" << JunctionRelationKindText(incident.kind)
-                         << " inRoute=" << BoolText(incident.in_route)
-                         << " inPair=" << BoolText(incident.in_through_pair)
-                         << " class=" << ContinuityCategoryClassText(incident.continuity_class)
-                         << " orderPolicy=" << OrderDecisionPolicyText(
-                                incident.continuity_class == ContinuityCategoryClass::kBundleLike
-                                    ? OrderDecisionPolicyKind::kPermutableHomogeneous
-                                    : OrderDecisionPolicyKind::kFixedOrder)
-                         << " defaultLower=" << BoolText(incident.default_lower_required)
-                         << " sameLevel=" << BoolText(incident.same_level_feasible)
-                         << " reason=" << SameLevelReasonText(incident.infeasible_reason);
-        if (incident.projected_spacing_topview_m >= 0.0) {
-          relation_summary << " projected=" << incident.projected_spacing_topview_m
-                           << " required=" << incident.required_clearance_m;
-        }
-        relation_summary << "]";
-      }
-      trace.push_back(
-          {DecisionTraceTopic::kFlowClassification, "JunctionRelationClassification", relation_summary.str()});
-    }
-  }
   return trace;
 }
 

@@ -35,9 +35,6 @@ struct CoreStateTestHook {
   static EditResult<bool> execute_update_plan(CoreState& state, const UpdatePlan& plan) {
     return state.execute_update_plan(plan);
   }
-  static std::unordered_map<ObjectId, JunctionRelation>& last_generation_junction_relations(CoreState& state) {
-    return state.debug_.last_generation_junction_relations;
-  }
 };
 #endif
 

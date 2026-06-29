@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <limits>
 #include <queue>
 #include <unordered_map>
 #include <unordered_set>
@@ -13,76 +12,6 @@
 namespace wire::core {
 
 namespace {
-
-struct BackboneIncidentMeta {
-  std::uint64_t min_session_id = std::numeric_limits<std::uint64_t>::max();
-  std::uint32_t min_generation_order = std::numeric_limits<std::uint32_t>::max();
-};
-
-std::vector<JunctionInfo> BuildJunctionsFromRelations(
-    const std::unordered_map<ObjectId, JunctionRelation>& relations_by_node,
-    const std::unordered_map<ObjectId, std::unordered_set<ObjectId>>& adjacency,
-    const std::unordered_map<ObjectId, std::unordered_map<ObjectId, BackboneIncidentMeta>>& incident_meta_by_node,
-    const std::unordered_map<ObjectId, std::uint64_t>& existing_prioritized_session_by_node,
-    const std::unordered_map<ObjectId, std::unordered_map<ObjectId, std::uint64_t>>& existing_incident_session_by_node) {
-  std::vector<JunctionInfo> junctions{};
-  junctions.reserve(relations_by_node.size());
-  for (const auto& [node_id, relation] : relations_by_node) {
-    const auto it_neighbors = adjacency.find(node_id);
-    if (it_neighbors == adjacency.end() || it_neighbors->second.size() < 3) {
-      continue;
-    }
-
-    JunctionInfo junction{};
-    junction.node_id = node_id;
-    junction.incidents.reserve(relation.incidents.size());
-    for (const JunctionIncidentRelation& source : relation.incidents) {
-      if (!it_neighbors->second.contains(source.neighbor_node_id)) {
-        continue;
-      }
-
-      JunctionIncident incident{};
-      incident.neighbor_node_id = source.neighbor_node_id;
-      incident.order = static_cast<int>(junction.incidents.size());
-      incident.primary = junction.incidents.empty();
-
-      if (const auto it_node = incident_meta_by_node.find(node_id); it_node != incident_meta_by_node.end()) {
-        if (const auto it_meta = it_node->second.find(source.neighbor_node_id); it_meta != it_node->second.end() &&
-            it_meta->second.min_session_id != std::numeric_limits<std::uint64_t>::max()) {
-          incident.source_session_id = it_meta->second.min_session_id;
-        }
-      }
-      if (incident.source_session_id == 0) {
-        if (const auto it_existing_node = existing_incident_session_by_node.find(node_id);
-            it_existing_node != existing_incident_session_by_node.end()) {
-          if (const auto it_existing_source = it_existing_node->second.find(source.neighbor_node_id);
-              it_existing_source != it_existing_node->second.end()) {
-            incident.source_session_id = it_existing_source->second;
-          }
-        }
-      }
-
-      junction.incidents.push_back(incident);
-    }
-
-    if (junction.incidents.size() < 3) {
-      continue;
-    }
-
-    junction.prioritized_session_id = junction.incidents.front().source_session_id;
-    if (junction.prioritized_session_id == 0) {
-      if (const auto it_prioritized = existing_prioritized_session_by_node.find(node_id);
-          it_prioritized != existing_prioritized_session_by_node.end()) {
-        junction.prioritized_session_id = it_prioritized->second;
-      }
-    }
-    junctions.push_back(std::move(junction));
-  }
-
-  std::sort(junctions.begin(), junctions.end(),
-            [](const JunctionInfo& a, const JunctionInfo& b) { return a.node_id < b.node_id; });
-  return junctions;
-}
 
 } // namespace
 

@@ -918,7 +918,6 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
       ofs << "capture.version=7\n";
   ofs << "capture.scope=all_state_plus_focus\n";
   ofs << "capture.includes_all_current_spans=1\n";
-  ofs << "capture.includes_all_lane_assignments=1\n";
   ofs << "draw.endpoint_attachment_input_supported=0\n";
   ofs << "draw.endpoint_socket_input_supported=0\n";
   ofs << "capture.timestamp_unix=" << static_cast<long long>(now) << "\n";
@@ -1273,131 +1272,6 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
         << "].flip_reason=" << static_cast<int>(edge_orientation.flip_reason) << "\n";
     ofs << "result.backbone.edge_orientation[" << i << "].turn_angle_deg=" << edge_orientation.turn_angle_deg
         << "\n";
-  }
-
-  const auto& assignments = view.last_lane_assignments();
-  ofs << "result.lane_assignment_snapshot_count=" << assignments.size() << "\n";
-  ofs << "result.lane_assignment_count=" << assignments.size() << "\n";
-  auto find_span_by_assignment_lane = [&](const wire::core::SegmentLaneAssignment& assignment,
-                                          std::size_t lane_index) -> const wire::core::Span* {
-    if (lane_index >= assignment.port_ids_a.size() || lane_index >= assignment.port_ids_b.size()) {
-      return nullptr;
-    }
-    const wire::core::ObjectId port_a_id = assignment.port_ids_a[lane_index];
-    const wire::core::ObjectId port_b_id = assignment.port_ids_b[lane_index];
-    for (const auto& span : view.edit_state().spans.items()) {
-      if (span.bundle_id != assignment.bundle_id) {
-        continue;
-      }
-      const bool same_forward = span.port_a_id == port_a_id && span.port_b_id == port_b_id;
-      const bool same_reverse = span.port_a_id == port_b_id && span.port_b_id == port_a_id;
-      if (same_forward || same_reverse) {
-        return &span;
-      }
-    }
-    return nullptr;
-  };
-  for (std::size_t i = 0; i < assignments.size(); ++i) {
-    const auto& assignment = assignments[i];
-    ofs << "result.lane_assignment[" << i << "].segment_index=" << assignment.segment_index << "\n";
-    ofs << "result.lane_assignment[" << i << "].pole_a_id=" << static_cast<unsigned long long>(assignment.pole_a_id)
-        << "\n";
-    ofs << "result.lane_assignment[" << i << "].pole_b_id=" << static_cast<unsigned long long>(assignment.pole_b_id)
-        << "\n";
-    ofs << "result.lane_assignment[" << i << "].bundle_id=" << static_cast<unsigned long long>(assignment.bundle_id)
-        << "\n";
-    ofs << "result.lane_assignment[" << i << "].flow_kind=" << static_cast<int>(assignment.flow_kind) << "\n";
-    ofs << "result.lane_assignment[" << i << "].flow_rule=" << static_cast<int>(assignment.flow_decision_rule) << "\n";
-    ofs << "result.lane_assignment[" << i
-        << "].uses_branch_support=" << (assignment.uses_branch_support ? 1 : 0) << "\n";
-    ofs << "result.lane_assignment[" << i << "].lowering_kind=" << static_cast<int>(assignment.lowering_kind) << "\n";
-    ofs << "result.lane_assignment[" << i << "].branch_down_offset_m=" << assignment.branch_down_offset_m << "\n";
-    ofs << "result.lane_assignment[" << i << "].lane_count=" << assignment.port_ids_a.size() << "\n";
-    for (std::size_t lane = 0; lane < assignment.port_ids_a.size() && lane < assignment.port_ids_b.size(); ++lane) {
-      const wire::core::Port* port_a = view.edit_state().ports.find(assignment.port_ids_a[lane]);
-      const wire::core::Port* port_b = view.edit_state().ports.find(assignment.port_ids_b[lane]);
-      ofs << "result.lane_assignment[" << i << "].lane[" << lane
-          << "].port_a_id=" << static_cast<unsigned long long>(assignment.port_ids_a[lane]) << "\n";
-      ofs << "result.lane_assignment[" << i << "].lane[" << lane
-          << "].port_b_id=" << static_cast<unsigned long long>(assignment.port_ids_b[lane]) << "\n";
-      if (port_a != nullptr) {
-        ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].port_a_world="
-            << port_a->world_position.x << "," << port_a->world_position.y << "," << port_a->world_position.z << "\n";
-        ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].port_a_z="
-            << port_a->world_position.z << "\n";
-        ofs << "result.lane_assignment[" << i << "].lane[" << lane
-            << "].port_a_template_layer=" << port_a->template_layer << "\n";
-      }
-      if (port_b != nullptr) {
-        ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].port_b_world="
-            << port_b->world_position.x << "," << port_b->world_position.y << "," << port_b->world_position.z << "\n";
-        ofs << "result.lane_assignment[" << i << "].lane[" << lane << "].port_b_z="
-            << port_b->world_position.z << "\n";
-        ofs << "result.lane_assignment[" << i << "].lane[" << lane
-            << "].port_b_template_layer=" << port_b->template_layer << "\n";
-      }
-      if (const wire::core::Span* span = find_span_by_assignment_lane(assignment, lane); span != nullptr) {
-        ofs << "result.lane_assignment[" << i << "].lane[" << lane
-            << "].span_id=" << static_cast<unsigned long long>(span->id) << "\n";
-        if (const auto span_view = view.inspect_span(span->id); span_view.has_value()) {
-          ofs << "result.lane_assignment[" << i << "].lane[" << lane
-              << "].span_flow_kind=" << static_cast<int>(span_view->flow_kind) << "\n";
-          ofs << "result.lane_assignment[" << i << "].lane[" << lane
-            << "].span_flow_kind_label=" << FlowKindLabelLocal(span_view->flow_kind) << "\n";
-          ofs << "result.lane_assignment[" << i << "].lane[" << lane
-            << "].span_flow_rule=" << static_cast<int>(span_view->flow_rule) << "\n";
-          ofs << "result.lane_assignment[" << i << "].lane[" << lane
-            << "].span_flow_rule_label=" << FlowRuleLabelLocal(span_view->flow_rule) << "\n";
-          ofs << "result.lane_assignment[" << i << "].lane[" << lane
-              << "].span_lowering_kind=" << static_cast<int>(span_view->lowering_kind) << "\n";
-          ofs << "result.lane_assignment[" << i << "].lane[" << lane
-            << "].span_lowering_kind_label=" << LoweringKindLabelLocal(span_view->lowering_kind) << "\n";
-          ofs << "result.lane_assignment[" << i << "].lane[" << lane
-              << "].span_branch_down_offset_m=" << span_view->branch_down_offset_m << "\n";
-          ofs << "result.lane_assignment[" << i << "].lane[" << lane
-            << "].span_continuity_class=" << ContinuityClassLabelLocal(span_view->continuity_class) << "\n";
-          ofs << "result.lane_assignment[" << i << "].lane[" << lane
-            << "].span_default_lower_required=" << (span_view->default_lower_required ? 1 : 0) << "\n";
-          ofs << "result.lane_assignment[" << i << "].lane[" << lane
-            << "].span_same_level_feasible=" << (span_view->same_level_feasible ? 1 : 0) << "\n";
-          ofs << "result.lane_assignment[" << i << "].lane[" << lane
-            << "].span_same_level_reason=" << SameLevelReasonLabelLocal(span_view->same_level_reason) << "\n";
-          ofs << "result.lane_assignment[" << i << "].lane[" << lane
-            << "].span_projected_spacing_topview_m=" << span_view->projected_spacing_topview_m << "\n";
-          ofs << "result.lane_assignment[" << i << "].lane[" << lane
-            << "].span_required_clearance_m=" << span_view->required_clearance_m << "\n";
-          ofs << "result.lane_assignment[" << i << "].lane[" << lane
-            << "].span_lowering_blocked_by_policy=" << (span_view->lowering_blocked_by_policy ? 1 : 0) << "\n";
-          ofs << "result.lane_assignment[" << i << "].lane[" << lane
-            << "].span_unresolved_same_level_conflict="
-            << (span_view->unresolved_same_level_conflict ? 1 : 0) << "\n";
-          ofs << "result.lane_assignment[" << i << "].lane[" << lane
-            << "].span_solver_used_same_level_constraint="
-            << (span_view->solver_used_same_level_constraint ? 1 : 0) << "\n";
-          ofs << "result.lane_assignment[" << i << "].lane[" << lane
-            << "].span_used_special_case_ports=" << (span_view->used_special_case_ports ? 1 : 0) << "\n";
-          ofs << "result.lane_assignment[" << i << "].lane[" << lane
-            << "].span_order_decision_policy=" << OrderDecisionPolicyLabelLocal(span_view->order_decision_policy) << "\n";
-          ofs << "result.lane_assignment[" << i << "].lane[" << lane
-            << "].span_order_decision_choice_a=" << OrderDecisionChoiceLabelLocal(span_view->order_decision_choice_a)
-            << "\n";
-          ofs << "result.lane_assignment[" << i << "].lane[" << lane
-            << "].span_order_decision_reason_a="
-            << OrderDecisionChoiceReasonLabelLocal(span_view->order_decision_choice_reason_a) << "\n";
-          ofs << "result.lane_assignment[" << i << "].lane[" << lane
-            << "].span_order_decision_choice_b=" << OrderDecisionChoiceLabelLocal(span_view->order_decision_choice_b)
-            << "\n";
-          ofs << "result.lane_assignment[" << i << "].lane[" << lane
-            << "].span_order_decision_reason_b="
-            << OrderDecisionChoiceReasonLabelLocal(span_view->order_decision_choice_reason_b) << "\n";
-        }
-        WriteNeutralSpanLayoutCaptureLocal(
-            view, ofs, "result.lane_assignment[" + std::to_string(i) + "].lane[" + std::to_string(lane) + "]",
-            span->id);
-        write_decision_trace("result.lane_assignment[" + std::to_string(i) + "].lane[" + std::to_string(lane) + "]",
-                             wire::core::EntityRef{wire::core::EntityKind::kSpan, span->id});
-      }
-    }
   }
 
   ofs << "result.current_span_count=" << view.edit_state().spans.size() << "\n";

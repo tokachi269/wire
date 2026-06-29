@@ -61,7 +61,6 @@ Definition Layer
 | `GenerateSimpleLine*`, `GenerateGroupedLine*` 入出力 | `core/include/wire/core/core_state.hpp` | 生成コマンド I/O を定義する。 | entity IDs + workflow params | `SessionDebug` |
 | `GenerateBundleFromPathResult`（`GenerateFromBackboneSpec` の戻り） | `core/include/wire/core/core_state.hpp` | backbone 生成結果の生成ID群を定義する。 | generated bundle/span/pole IDs | `SessionDebug` |
 | `PathDirectionCostBreakdown`, `PathDirectionEvaluationDebug` | `core/include/wire/core/debug_types.hpp` | 経路方向評価の診断内訳を保持する。 | scoring values | `SessionDebug` |
-| `SegmentLaneAssignment` | `core/include/wire/core/debug_types.hpp` | 区間ごとの lane 対応診断を保持する。 | poles/ports/placement candidate IDs | `SessionDebug` |
 | 配置候補診断レコード群 | `core/include/wire/core/debug_types.hpp` | 配置候補の選定診断とスコア内訳を保持する。 | score fields + IDs | `SessionDebug` |
 | `ValidationIssue`, `ValidationResult` | `core/include/wire/core/core_state.hpp` | 構造妥当性と診断を返す。 | code/message/object_id | `SessionDebug` |
 
@@ -95,7 +94,7 @@ Definition Layer
 - `bundle`: span 群を束ねる正本単位
 - `lane`: workflow/debug 専用シーケンス概念（entity ID ではない）
 - `road/path`: workflow 入力（UI は DrawPath 表示可）
-- `debug record`: セッション診断（配置候補診断、`PathDirectionEvaluationDebug`, `SegmentLaneAssignment`）
+- `debug record`: セッション診断（配置候補診断、`PathDirectionEvaluationDebug`）
 
 ## 7. Persist/Derived/Session 方針（Phase5準備）
 
@@ -111,7 +110,6 @@ Definition Layer
 - 配置候補選定の debug records
 - `path_direction_debug_records_`
 - `last_path_direction_debug_`
-- `last_lane_assignments_`（session debug 用の観測面。正本や長寿命の意味ソースとして扱わない）
 
 ## 8. このフェーズで適用済みの最小リファクタ
 - ヘッダにレイヤ境界コメントを追加し、テンプレ配置ヒントと `Port` の混同を防止。

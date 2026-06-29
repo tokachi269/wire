@@ -161,7 +161,6 @@ private:
                               double source_edge_t = 0.0,
                               std::vector<SupportNodeBundleMode> bundle_modes = {});
   void publish_backbone_result_nodes(std::vector<SupportNode> nodes);
-  void publish_lane_assignments(std::vector<SegmentLaneAssignment> assignments);
   EditResult<bool> set_span_endpoint_nodes(ObjectId span_id, ObjectId node_a_id, ObjectId node_b_id);
   EditResult<bool> bind_backbone_node_bundle_modes(ObjectId node_id,
                                                    const std::vector<SupportNodeBundleMode>& bundle_modes);

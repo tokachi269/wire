@@ -425,23 +425,6 @@ std::optional<SupportNode> FindSupportNodeById(const CoreState& state, ObjectId 
   return std::nullopt;
 }
 
-const SegmentLaneAssignment* FindLaneAssignmentForSpan(const CoreView& view, const Span& span) {
-  for (const SegmentLaneAssignment& assignment : view.last_lane_assignments()) {
-    if (assignment.bundle_id != span.bundle_id) {
-      continue;
-    }
-    const std::size_t lane_count = std::min(assignment.port_ids_a.size(), assignment.port_ids_b.size());
-    for (std::size_t lane = 0; lane < lane_count; ++lane) {
-      const bool same_direction = assignment.port_ids_a[lane] == span.port_a_id && assignment.port_ids_b[lane] == span.port_b_id;
-      const bool reverse_direction = assignment.port_ids_a[lane] == span.port_b_id && assignment.port_ids_b[lane] == span.port_a_id;
-      if (same_direction || reverse_direction) {
-        return &assignment;
-      }
-    }
-  }
-  return nullptr;
-}
-
 EntityMeta MakeMeta(EntityKind kind, std::uint64_t stable_id, std::string display_name, EntityRoleKind role, bool editable,
                     bool overrideable, std::string provenance) {
   EntityMeta meta{};
@@ -466,10 +449,6 @@ VariationBreakdownView MakeVariationBreakdownView(const HierarchicalVariationSam
 }
 
 } // namespace
-
-const std::vector<SegmentLaneAssignment>& CoreView::last_lane_assignments() const {
-  return state_.debug_.last_generation_lane_assignments;
-}
 
 std::optional<EntityMeta> CoreView::describe_entity(EntityRef ref) const {
   if (!ref.valid()) {
@@ -646,12 +625,6 @@ std::optional<SpanInspectionView> CoreView::inspect_span(ObjectId span_id) const
     result.solver_used_same_level_constraint = span_layout_solver_used_same_level_constraint(*layout);
     result.used_special_case_ports = span_layout_used_special_case_ports(*layout);
   }
-  if (const SegmentLaneAssignment* assignment = FindLaneAssignmentForSpan(*this, *span); assignment != nullptr) {
-    result.flow_kind = assignment->flow_kind;
-    result.flow_rule = assignment->flow_decision_rule;
-    result.flipped_from_previous = assignment->flipped_from_previous;
-    result.turn_angle_deg = assignment->turn_angle_deg;
-  }
   if (const CurveCacheEntry* curve = state_.find_curve_cache(span_id); curve != nullptr) {
     result.detail_curve_ref = {EntityKind::kDetailCurve, span_id};
     result.requested_continuity = curve->detail.quality.requested_policy;
@@ -742,8 +715,6 @@ std::optional<DetailCurveInspectionView> CoreView::inspect_detail_curve(ObjectId
     BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
     if (const SpanLayoutEntry* layout = layout_view.entry; layout != nullptr) {
       flow_kind = layout->flow_kind;
-    } else if (const SegmentLaneAssignment* assignment = FindLaneAssignmentForSpan(*this, *span); assignment != nullptr) {
-      flow_kind = assignment->flow_kind;
     }
     result.style = BuildStyleInspectionView(state_, *span, flow_kind);
   }

@@ -78,13 +78,14 @@
 |---|---|---|
 | `bb2` namespace/name | v1 同居中の暫定名 | v1/recalc/support-layout 本流依存を削り切った後に mainline 名へ rename |
 | dirty bits | editing/runtime/viewer が読む | coarse update boundary へ寄せた後、mutation tracking と旧制約用に残す範囲をさらに削る |
-| `last_generation_lane_assignments` | viewer capture/debug と残存 lane-order tests が読む | saved graph/layout/geom で置換できる viewer 情報を先に切る |
 | `last_generation_support_nodes` | branch-pick state と残存 tests が読む | saved backbone node readへ寄せてから削除判断 |
 
 ## 次に消せる family
 
-1. viewer capture/debug の `last_generation_lane_assignments` 依存を neutral layout/saved binding へ移せるか判断する。
-2. `last_generation_support_nodes` を branch-pick state として残す必要があるか、SavedBackboneGraph node readで置換可能か判断する。
+1. `last_generation_support_nodes` を branch-pick state として残す必要があるか、SavedBackboneGraph node readで置換可能か判断する。
+
+`SegmentLaneAssignment` / `last_generation_lane_assignments` / 旧 generation test suite は退役済み。
+viewer capture は current span、neutral layout、saved binding、decision trace を直接読む。
 
 ## 運用ルール
 

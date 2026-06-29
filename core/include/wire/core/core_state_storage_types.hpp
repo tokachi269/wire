@@ -46,7 +46,6 @@ struct CoreStateDebugStorage {
   std::vector<PathDirectionEvaluationDebug> path_direction_debug_records{};
   std::unordered_map<ObjectId, PoleOrientationDebugRecord> pole_orientation_debug_records{};
   std::vector<SupportNode> last_generation_support_nodes{};
-  std::vector<SegmentLaneAssignment> last_generation_lane_assignments{};
   std::vector<BackboneEdgeOrientation> last_generation_edge_orientations{};
   ObjectId next_virtual_support_node_id = 0x9000000000000000ull;
   std::vector<PortResolutionDebugRecord> port_resolution_debug_records{};

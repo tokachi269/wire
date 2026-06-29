@@ -29,34 +29,6 @@ struct CoreCounts {
   std::size_t attachments = 0;
 };
 
-struct BackbonePathGenerateOptions {
-  wire::core::RoadSegment road{};
-  double interval = 30.0;
-  PoleTypeId pole_type_id = wire::core::kInvalidPoleTypeId;
-  wire::core::BundleKind bundle_template_id = wire::core::BundleKind::kLowVoltage;
-  int bundle_count = 0;
-  bool override_allow_mirror = false;
-  bool allow_mirror = true;
-  wire::core::PathDirectionMode direction_mode = wire::core::PathDirectionMode::kAuto;
-};
-
-struct BackbonePathGenerateResult {
-  std::vector<ObjectId> pole_ids{};
-  std::vector<ObjectId> span_ids{};
-  ObjectId bundle_id = wire::core::kInvalidObjectId;
-  std::vector<wire::core::SegmentLaneAssignment> lane_assignments{};
-  wire::core::PathDirectionEvaluationDebug direction_debug{};
-  std::uint64_t generation_session_id = 0;
-};
-
-struct LaneOrderMetrics {
-  int y_inversions = 0;
-  int z_inversions = 0;
-  int layer_jumps = 0;
-
-  [[nodiscard]] int weighted_score() const { return y_inversions * 1000 + z_inversions * 600 + layer_jumps * 30; }
-};
-
 struct AxisRelationMetrics {
   wire::core::Vec3d row_axis{};
   wire::core::Vec3d support_forward_axis{};
@@ -64,19 +36,6 @@ struct AxisRelationMetrics {
   double angle_row_vs_span_deg = 0.0;
   double angle_forward_vs_span_deg = 0.0;
   bool valid = false;
-};
-
-struct VisualSeparationMetrics {
-  int port_count = 0;
-  double min_port_spacing_m = 0.0;
-  double min_endpoint_spacing_m = 0.0;
-  double min_wire_spacing_near_start_m = 0.0;
-  double min_wire_spacing_near_end_m = 0.0;
-  double projected_min_spacing_topview_m = 0.0;
-  double projected_mean_spacing_topview_m = 0.0;
-  double visual_separation_score = 0.0;
-  bool topology_distinct = false;
-  bool visual_distinct = false;
 };
 
 struct BranchRunoutMetrics {
@@ -107,24 +66,6 @@ bool aabb_valid(const wire::core::AABBd& aabb);
 bool starts_with(const std::string& value, const std::string& prefix);
 wire::core::ValidationResult validate_now(CoreState& state);
 std::vector<PoleTypeId> sorted_pole_type_ids(const CoreState& state);
-wire::core::EditResult<BackbonePathGenerateResult> generate_from_backbone_options(
-    CoreState& state, const BackbonePathGenerateOptions& options);
-LaneOrderMetrics compute_lane_order_metrics(const CoreState& state,
-                                            const std::vector<wire::core::SegmentLaneAssignment>& assignments);
-void dump_lane_assignment_debug(const CoreState& state,
-                                const std::vector<wire::core::SegmentLaneAssignment>& assignments, const char* tag);
-int count_lane_segment_xy_intersections(const CoreState& state,
-                                        const std::vector<wire::core::SegmentLaneAssignment>& assignments);
-int count_bundle_lane_polyline_xy_intersections(const CoreState& state,
-                                                const std::vector<wire::core::SegmentLaneAssignment>& assignments);
-void dump_bundle_lane_polyline_xy_intersections(const CoreState& state,
-                                                const std::vector<wire::core::SegmentLaneAssignment>& assignments,
-                                                const char* tag);
-int count_bundle_lane_detail_curve_xy_intersections(const CoreState& state,
-                                                    const std::vector<wire::core::SegmentLaneAssignment>& assignments);
-int count_bundle_lane_adjacent_order_discontinuities(const CoreState& state,
-                                                     const std::vector<wire::core::SegmentLaneAssignment>& assignments);
-int count_mirrored_assignments(const std::vector<wire::core::SegmentLaneAssignment>& assignments);
 const wire::core::JunctionInfo* find_junction(const wire::core::BackboneResult& backbone, ObjectId node_id);
 const wire::core::SupportNode* find_support_node_by_point_index(const wire::core::BackboneResult& backbone,
                                                                 int point_index);
@@ -136,12 +77,8 @@ wire::core::BundleKind bundle_template_for_category_test(wire::core::ConnectionC
 AxisRelationMetrics measure_pole_axis_relation_metrics(const CoreState& state, ObjectId pole_id,
                                                        wire::core::PortLayer layer,
                                                        const wire::core::Vec3d& span_axis);
-VisualSeparationMetrics measure_lane_visual_separation_metrics(const CoreState& state,
-                                                               const wire::core::SegmentLaneAssignment& assignment,
-                                                               double sample_length_m = 0.35);
 BranchRunoutMetrics measure_branch_runout_metrics(const CoreState& state, ObjectId span_id);
 std::string describe_axis_relation_metrics(const AxisRelationMetrics& metrics);
-std::string describe_visual_separation_metrics(const VisualSeparationMetrics& metrics);
 std::string describe_branch_runout_metrics(const BranchRunoutMetrics& metrics);
 wire::core::EditResult<wire::core::AddConnectionByPoleResult>
 add_connection_by_category(wire::core::CoreState& state, wire::core::ObjectId pole_a_id, wire::core::ObjectId pole_b_id,

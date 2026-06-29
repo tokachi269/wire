@@ -54,43 +54,6 @@ struct PoleOrientationDebugRecord {
   Vec3d adopted_support_axis{};
 };
 
-struct SegmentLaneAssignment {
-  std::size_t segment_index = 0;
-  ObjectId pole_a_id = kInvalidObjectId;
-  ObjectId pole_b_id = kInvalidObjectId;
-  ObjectId bundle_id = kInvalidObjectId;
-  std::uint64_t variation_flow_key = 0;
-  BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
-  BackboneFlowDecisionRule flow_decision_rule = BackboneFlowDecisionRule::kDefaultMain;
-  JunctionRelationKind relation_a = JunctionRelationKind::kNone;
-  JunctionRelationKind relation_b = JunctionRelationKind::kNone;
-  ContinuityCategoryClass continuity_class = ContinuityCategoryClass::kPointLike;
-  bool default_lower_required = false;
-  bool same_level_feasible = true;
-  SameLevelFeasibilityReason same_level_reason = SameLevelFeasibilityReason::kNone;
-  double projected_spacing_topview_m = -1.0;
-  double required_clearance_m = 0.0;
-  bool lowering_blocked_by_policy = false;
-  bool unresolved_same_level_conflict = false;
-  bool solver_used_same_level_constraint = false;
-  bool used_special_case_ports = false;
-  OrderDecisionPolicyKind order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
-  OrderDecisionChoiceKind order_decision_choice_a = OrderDecisionChoiceKind::kNormal;
-  OrderDecisionChoiceKind order_decision_choice_b = OrderDecisionChoiceKind::kNormal;
-  OrderDecisionChoiceReason order_decision_choice_reason_a = OrderDecisionChoiceReason::kFixedOrder;
-  OrderDecisionChoiceReason order_decision_choice_reason_b = OrderDecisionChoiceReason::kFixedOrder;
-  EndpointContinuityDecision decision_a{};
-  EndpointContinuityDecision decision_b{};
-  std::vector<ObjectId> port_ids_a{};
-  std::vector<ObjectId> port_ids_b{};
-  bool uses_branch_support = false;
-  BackboneLoweringKind lowering_kind = BackboneLoweringKind::kNone;
-  double branch_down_offset_m = 0.0;
-  bool flipped_from_previous = false;
-  LaneFlipReason flip_reason = LaneFlipReason::kNone;
-  double turn_angle_deg = 0.0;
-};
-
 struct PlacementCandidateDebug {
   int candidate_rank = -1;
   int band_id = -1;
@@ -158,5 +121,4 @@ struct PortResolutionDebugRecord {
 };
 
 } // namespace wire::core
-
 

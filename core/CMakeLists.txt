@@ -73,7 +73,6 @@ if(BUILD_TESTING)
     tests/runner.cpp
     tests/helpers.cpp
     tests/editing.cpp
-    tests/generation.cpp
     tests/geometry.cpp
     tests/junction.cpp
     tests/bundle_visuals.cpp

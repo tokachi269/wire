@@ -54,10 +54,6 @@ void CoreState::publish_backbone_result_nodes(std::vector<SupportNode> nodes) {
   debug_.last_generation_support_nodes = std::move(nodes);
 }
 
-void CoreState::publish_lane_assignments(std::vector<SegmentLaneAssignment> assignments) {
-  debug_.last_generation_lane_assignments = std::move(assignments);
-}
-
 void CoreState::cache_support_group(SupportGroupDecision decision, LoweredSupportGroupPlacement placement) {
   const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(decision);
   if (key.owner_pole_id == kInvalidObjectId || key.support_group_id < 0) {

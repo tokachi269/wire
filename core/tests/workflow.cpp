@@ -14,6 +14,19 @@ using wire::core::SpanKind;
 using wire::core::SpanLayer;
 
 namespace {
+wire::core::BackboneSpec simple_line_spec(const wire::core::RoadSegment& road, double interval,
+                                          wire::core::PoleTypeId pole_type_id,
+                                          wire::core::ConnectionCategory category) {
+  wire::core::BackboneSpec spec{};
+  spec.path.polyline = road.polyline;
+  spec.interval_m = interval;
+  spec.pole_type_id = pole_type_id;
+  wire::core::BackboneBundleSpec bundle{};
+  bundle.bundle_template_id = bundle_template_for_category_test(category);
+  spec.bundles.push_back(bundle);
+  return spec;
+}
+
 bool test_generate_simple_line_fails_with_short_polyline() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
@@ -24,11 +37,12 @@ bool test_generate_simple_line_fails_with_short_polyline() {
   wire::core::RoadSegment road{};
   road.id = 80;
   road.polyline = {{0.0, 0.0, 0.0}};
-  const auto result = state.GenerateSimpleLine(road, 5.0, type_ids.front(), ConnectionCategory::kLowVoltage);
+  const auto result =
+      state.GenerateFromBackboneSpec(simple_line_spec(road, 5.0, type_ids.front(), ConnectionCategory::kLowVoltage));
   if (result.ok) {
     return false;
   }
-  if (result.error != "road polyline must contain at least 2 points") {
+  if (result.error != "bb2 unsupported: path needs at least two points") {
     return false;
   }
   if (!same_counts(before, snapshot_counts(state))) {
@@ -37,7 +51,8 @@ bool test_generate_simple_line_fails_with_short_polyline() {
 
   // Recovery: next valid input should succeed.
   road.polyline.push_back({5.0, 0.0, 0.0});
-  return state.GenerateSimpleLine(road, 5.0, type_ids.front(), ConnectionCategory::kLowVoltage).ok;
+  return state.GenerateFromBackboneSpec(simple_line_spec(road, 5.0, type_ids.front(), ConnectionCategory::kLowVoltage))
+      .ok;
 }
 
 bool test_generate_simple_line_fails_with_invalid_interval() {
@@ -254,15 +269,16 @@ bool test_generate_simple_line_reuses_intermediate_ports() {
   wire::core::RoadSegment road{};
   road.id = 55;
   road.polyline = {{0.0, 0.0, 0.0}, {40.0, 0.0, 0.0}};
-  const auto result = state.GenerateSimpleLine(road, 10.0, type_ids.front(), ConnectionCategory::kLowVoltage);
-  if (!result.ok || result.value.pole_ids.size() < 4) {
+  const auto result =
+      state.GenerateFromBackboneSpec(simple_line_spec(road, 10.0, type_ids.front(), ConnectionCategory::kLowVoltage));
+  if (!result.ok || result.value.generated_pole_ids.size() < 4) {
     return false;
   }
 
-  for (std::size_t i = 1; i + 1 < result.value.pole_ids.size(); ++i) {
-    const ObjectId pole_id = result.value.pole_ids[i];
+  for (std::size_t i = 1; i + 1 < result.value.generated_pole_ids.size(); ++i) {
+    const ObjectId pole_id = result.value.generated_pole_ids[i];
     std::vector<ObjectId> used_ports;
-    for (ObjectId span_id : result.value.span_ids) {
+    for (ObjectId span_id : result.value.generated_span_ids) {
       const auto* span = state.view().edit_state().spans.find(span_id);
       if (span == nullptr) {
         return false;

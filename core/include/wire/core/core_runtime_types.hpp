@@ -201,6 +201,39 @@ inline DirtyBits& operator|=(DirtyBits& a, DirtyBits b) {
 
 inline bool any(DirtyBits bits, DirtyBits flag) { return (bits & flag) != DirtyBits::kNone; }
 
+enum class UpdateKind : std::uint8_t {
+  kRegenerate = 0,
+  kReposition = 1,
+  kReshape = 2,
+  kRedraw = 3,
+};
+
+enum class UpdateTargetKind : std::uint8_t {
+  kUnknown = 0,
+  kPole = 1,
+  kPort = 2,
+  kSpan = 3,
+  kAllSpans = 4,
+};
+
+struct UpdateRequest {
+  UpdateKind kind = UpdateKind::kRegenerate;
+  UpdateTargetKind target_kind = UpdateTargetKind::kUnknown;
+  ObjectId target_id = kInvalidObjectId;
+};
+
+struct AffectedSet {
+  std::vector<ObjectId> poles{};
+  std::vector<ObjectId> ports{};
+  std::vector<ObjectId> spans{};
+  std::vector<ObjectId> edges{};
+};
+
+struct UpdatePlan {
+  UpdateKind kind = UpdateKind::kRegenerate;
+  AffectedSet affected{};
+};
+
 struct SpanRuntimeState {
   // Derived runtime/version state for incremental recomputation.
   ObjectId span_id = kInvalidObjectId;

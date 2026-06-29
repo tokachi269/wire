@@ -29,6 +29,12 @@ struct CoreStateTestHook {
   static std::vector<BackboneEdgeOrientation>& last_generation_edge_orientations(CoreState& state) {
     return state.debug_.last_generation_edge_orientations;
   }
+  static EditResult<UpdatePlan> make_update_plan(const CoreState& state, UpdateRequest request) {
+    return state.make_update_plan(request);
+  }
+  static EditResult<bool> execute_update_plan(CoreState& state, const UpdatePlan& plan) {
+    return state.execute_update_plan(plan);
+  }
   static std::unordered_map<ObjectId, JunctionRelation>& last_generation_junction_relations(CoreState& state) {
     return state.debug_.last_generation_junction_relations;
   }

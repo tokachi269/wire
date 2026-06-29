@@ -151,6 +151,10 @@ private:
   void mark_connected_spans_dirty_from_port(ObjectId port_id, DirtyBits dirty_bits, ChangeSet* change_set);
   void mark_connected_spans_dirty_from_anchor(ObjectId anchor_id, DirtyBits dirty_bits, ChangeSet* change_set);
   EditResult<bool> derive_generated_span_outputs_for_dirty_spans(const std::vector<ObjectId>& span_ids);
+  EditResult<bool> derive_generated_span_shape_outputs(ObjectId span_id);
+  EditResult<bool> derive_generated_span_draw_outputs(ObjectId span_id);
+  [[nodiscard]] EditResult<UpdatePlan> make_update_plan(UpdateRequest request) const;
+  EditResult<bool> execute_update_plan(const UpdatePlan& plan);
   [[nodiscard]] std::vector<ObjectId> collect_topology_related_spans_for_ports(const std::vector<ObjectId>& port_ids,
                                                                                 ObjectId exclude_span_id) const;
   void mark_topology_related_spans_for_ports_dirty(const std::vector<ObjectId>& port_ids, ObjectId exclude_span_id,

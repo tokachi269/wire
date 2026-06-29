@@ -122,6 +122,92 @@ EditResult<bool> CoreState::DeriveGeneratedSpanOutputs(ObjectId span_id) {
   return out;
 }
 
+EditResult<bool> CoreState::derive_generated_span_shape_outputs(ObjectId span_id) {
+  EditResult<bool> out{};
+  const Span* span = authoritative_.edit_state.spans.find(span_id);
+  if (span == nullptr) {
+    out.error = "bb2 update: span not found";
+    return out;
+  }
+  const SpanLayoutView layout_view = runtime_.cache_state.span_layout_cache.layout_view(span_id);
+  if (!layout_view.has_layout()) {
+    out.error = "bb2 update: span layout not found";
+    return out;
+  }
+  const SpanLayoutEntry& layout = *layout_view.entry;
+  DetailCurve curve = generation::bb2::line(layout.start.endpoint_world, layout.end.endpoint_world);
+  BoundsCacheEntry bounds = generation::bb2::bounds(curve, layout.source_version);
+  SpanVisualCacheEntry visual = generation::bb2::visual(runtime_.cache_state.visual_settings, layout);
+  SpanRenderCacheEntry render = generation::bb2::render(*this, span_id, curve);
+  cache_span_curve(span_id, std::move(curve));
+  cache_span_bounds(span_id, std::move(bounds));
+  cache_span_visual(span_id, std::move(visual));
+  cache_span_render(span_id, std::move(render));
+  out.value = true;
+  out.ok = true;
+  return out;
+}
+
+EditResult<bool> CoreState::derive_generated_span_draw_outputs(ObjectId span_id) {
+  EditResult<bool> out{};
+  const Span* span = authoritative_.edit_state.spans.find(span_id);
+  if (span == nullptr) {
+    out.error = "bb2 update: span not found";
+    return out;
+  }
+  const SpanLayoutView layout_view = runtime_.cache_state.span_layout_cache.layout_view(span_id);
+  if (!layout_view.has_layout()) {
+    out.error = "bb2 update: span layout not found";
+    return out;
+  }
+  const CurveCacheEntry* curve = find_curve_cache(span_id);
+  if (curve == nullptr) {
+    out.error = "bb2 update: span curve not found";
+    return out;
+  }
+  SpanVisualCacheEntry visual = generation::bb2::visual(runtime_.cache_state.visual_settings, *layout_view.entry);
+  SpanRenderCacheEntry render = generation::bb2::render(*this, span_id, curve->detail);
+  cache_span_visual(span_id, std::move(visual));
+  cache_span_render(span_id, std::move(render));
+  out.value = true;
+  out.ok = true;
+  return out;
+}
+
+EditResult<bool> CoreState::execute_update_plan(const UpdatePlan& plan) {
+  EditResult<bool> out{};
+  if (plan.kind == UpdateKind::kRegenerate) {
+    out.error = "bb2 update: regenerate is not implemented for local updates";
+    return out;
+  }
+  for (ObjectId span_id : plan.affected.spans) {
+    if (span_id == kInvalidObjectId) {
+      continue;
+    }
+    EditResult<bool> derived{};
+    switch (plan.kind) {
+    case UpdateKind::kReposition:
+      derived = DeriveGeneratedSpanOutputs(span_id);
+      break;
+    case UpdateKind::kReshape:
+      derived = derive_generated_span_shape_outputs(span_id);
+      break;
+    case UpdateKind::kRedraw:
+      derived = derive_generated_span_draw_outputs(span_id);
+      break;
+    case UpdateKind::kRegenerate:
+      break;
+    }
+    if (!derived.ok) {
+      out.error = derived.error;
+      return out;
+    }
+  }
+  out.value = true;
+  out.ok = true;
+  return out;
+}
+
 EditResult<bool> CoreState::derive_generated_span_outputs_for_dirty_spans(const std::vector<ObjectId>& span_ids) {
   EditResult<bool> out{};
   auto clear_direct_derived_dirty = [&](ObjectId span_id) {

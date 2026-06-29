@@ -493,6 +493,16 @@ EditResult<ObjectId> CoreState::MovePole(ObjectId pole_id, const Transformd& new
   pole->world_transform = new_world_transform;
   apply_pole_placement_mode(*pole, PlacementMode::kManual);
   finalize_pole_transform_update(pole_id, old_pole, &result.change_set);
+  const auto plan = make_update_plan({UpdateKind::kReposition, UpdateTargetKind::kPole, pole_id});
+  if (!plan.ok) {
+    result.error = plan.error;
+    return result;
+  }
+  const auto updated = execute_update_plan(plan.value);
+  if (!updated.ok) {
+    result.error = updated.error;
+    return result;
+  }
 
   result.ok = true;
   result.value = pole_id;
@@ -510,6 +520,7 @@ EditResult<bool> CoreState::ApplyPoleTilt(const std::vector<ObjectId>& pole_ids,
   }
   const double clamped_max_tilt_deg = std::clamp(max_tilt_deg, 0.0, 45.0);
   bool changed = false;
+  std::vector<ObjectId> changed_poles{};
   for (ObjectId pole_id : targets) {
     Pole* pole = authoritative_.edit_state.poles.find(pole_id);
     if (pole == nullptr) {
@@ -584,7 +595,20 @@ EditResult<bool> CoreState::ApplyPoleTilt(const std::vector<ObjectId>& pole_ids,
     pole->world_transform.rotation_euler_deg.x = tilt_euler_deg.x;
     pole->world_transform.rotation_euler_deg.y = tilt_euler_deg.y;
     finalize_pole_transform_update(pole->id, old_pole, &result.change_set);
+    add_unique_id(changed_poles, pole->id);
     changed = true;
+  }
+  for (ObjectId pole_id : changed_poles) {
+    const auto plan = make_update_plan({UpdateKind::kReposition, UpdateTargetKind::kPole, pole_id});
+    if (!plan.ok) {
+      result.error = plan.error;
+      return result;
+    }
+    const auto updated = execute_update_plan(plan.value);
+    if (!updated.ok) {
+      result.error = updated.error;
+      return result;
+    }
   }
   result.ok = true;
   result.value = changed;
@@ -620,9 +644,14 @@ EditResult<ObjectId> CoreState::SetPortWorldPositionManual(ObjectId port_id, con
   apply_port_position_mode(*port, PortPositionMode::kManual, PortPlacementSourceKind::kManualEdit);
   result.change_set.updated_ids.push_back(port_id);
   mark_connected_spans_dirty_from_port(port_id, DirtyBits::kGeometryRefresh, &result.change_set);
-  const auto derived = derive_generated_span_outputs_for_dirty_spans(result.change_set.dirty_span_ids);
-  if (!derived.ok) {
-    result.error = derived.error;
+  const auto plan = make_update_plan({UpdateKind::kReposition, UpdateTargetKind::kPort, port_id});
+  if (!plan.ok) {
+    result.error = plan.error;
+    return result;
+  }
+  const auto updated = execute_update_plan(plan.value);
+  if (!updated.ok) {
+    result.error = updated.error;
     return result;
   }
   result.ok = true;
@@ -695,9 +724,14 @@ EditResult<ObjectId> CoreState::ResetPortPositionToAuto(ObjectId port_id) {
 
   result.change_set.updated_ids.push_back(port_id);
   mark_connected_spans_dirty_from_port(port_id, DirtyBits::kGeometryRefresh, &result.change_set);
-  const auto derived = derive_generated_span_outputs_for_dirty_spans(result.change_set.dirty_span_ids);
-  if (!derived.ok) {
-    result.error = derived.error;
+  const auto plan = make_update_plan({UpdateKind::kReposition, UpdateTargetKind::kPort, port_id});
+  if (!plan.ok) {
+    result.error = plan.error;
+    return result;
+  }
+  const auto updated = execute_update_plan(plan.value);
+  if (!updated.ok) {
+    result.error = updated.error;
     return result;
   }
   result.ok = true;
@@ -768,9 +802,14 @@ EditResult<ObjectId> CoreState::SetPoleManualYawOverride(ObjectId pole_id, doubl
   authoritative_.override_state.pole_orientation_by_pole[pole_id] = next;
   pole->world_transform.rotation_euler_deg.z = *next.manual_yaw_deg;
   finalize_pole_transform_update(pole_id, old_pole, &result.change_set);
-  const auto derived = derive_generated_span_outputs_for_dirty_spans(result.change_set.dirty_span_ids);
-  if (!derived.ok) {
-    result.error = derived.error;
+  const auto plan = make_update_plan({UpdateKind::kReposition, UpdateTargetKind::kPole, pole_id});
+  if (!plan.ok) {
+    result.error = plan.error;
+    return result;
+  }
+  const auto updated = execute_update_plan(plan.value);
+  if (!updated.ok) {
+    result.error = updated.error;
     return result;
   }
 
@@ -803,9 +842,14 @@ EditResult<ObjectId> CoreState::ClearPoleOrientationOverride(ObjectId pole_id) {
     }
   }
   finalize_pole_transform_update(pole_id, old_pole, &result.change_set);
-  const auto derived = derive_generated_span_outputs_for_dirty_spans(result.change_set.dirty_span_ids);
-  if (!derived.ok) {
-    result.error = derived.error;
+  const auto plan = make_update_plan({UpdateKind::kReposition, UpdateTargetKind::kPole, pole_id});
+  if (!plan.ok) {
+    result.error = plan.error;
+    return result;
+  }
+  const auto updated = execute_update_plan(plan.value);
+  if (!updated.ok) {
+    result.error = updated.error;
     return result;
   }
 
@@ -890,6 +934,16 @@ EditResult<ObjectId> CoreState::SetSpanBranchDownOffsetOverride(ObjectId span_id
   mark_span_dirty(span_id, DirtyBits::kDecision, true);
   add_unique_id(result.change_set.updated_ids, span_id);
   add_unique_id(result.change_set.dirty_span_ids, span_id);
+  const auto plan = make_update_plan({UpdateKind::kReposition, UpdateTargetKind::kSpan, span_id});
+  if (!plan.ok) {
+    result.error = plan.error;
+    return result;
+  }
+  const auto updated = execute_update_plan(plan.value);
+  if (!updated.ok) {
+    result.error = updated.error;
+    return result;
+  }
   result.ok = true;
   result.value = span_id;
   return result;
@@ -910,6 +964,16 @@ EditResult<ObjectId> CoreState::ClearSpanBranchDownOffsetOverride(ObjectId span_
   mark_span_dirty(span_id, DirtyBits::kDecision, true);
   add_unique_id(result.change_set.updated_ids, span_id);
   add_unique_id(result.change_set.dirty_span_ids, span_id);
+  const auto plan = make_update_plan({UpdateKind::kReposition, UpdateTargetKind::kSpan, span_id});
+  if (!plan.ok) {
+    result.error = plan.error;
+    return result;
+  }
+  const auto updated = execute_update_plan(plan.value);
+  if (!updated.ok) {
+    result.error = updated.error;
+    return result;
+  }
   result.ok = true;
   result.value = span_id;
   return result;
@@ -1606,6 +1670,18 @@ EditResult<bool> CoreState::UpdateGeometrySettings(const GeometrySettings& setti
       add_unique_id(result.change_set.dirty_span_ids, span.id);
       add_unique_id(result.change_set.updated_ids, span.id);
     }
+    const auto plan = make_update_plan({UpdateKind::kReshape, UpdateTargetKind::kAllSpans, kInvalidObjectId});
+    if (!plan.ok) {
+      result.error = plan.error;
+      result.ok = false;
+      return result;
+    }
+    const auto updated = execute_update_plan(plan.value);
+    if (!updated.ok) {
+      result.error = updated.error;
+      result.ok = false;
+      return result;
+    }
   }
   return result;
 }
@@ -1654,6 +1730,18 @@ EditResult<bool> CoreState::UpdateVisualSettings(const VisualSettings& settings,
       mark_span_dirty(span.id, DirtyBits::kRenderRefresh, true);
       add_unique_id(result.change_set.dirty_span_ids, span.id);
       add_unique_id(result.change_set.updated_ids, span.id);
+    }
+    const auto plan = make_update_plan({UpdateKind::kRedraw, UpdateTargetKind::kAllSpans, kInvalidObjectId});
+    if (!plan.ok) {
+      result.error = plan.error;
+      result.ok = false;
+      return result;
+    }
+    const auto updated = execute_update_plan(plan.value);
+    if (!updated.ok) {
+      result.error = updated.error;
+      result.ok = false;
+      return result;
     }
   }
   return result;

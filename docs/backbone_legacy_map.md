@@ -24,7 +24,8 @@
 | `SavedBackboneResult` / `SavedBackboneEdges` / `FindSavedBackboneRoute` | public query、viewer、tests | mainline | no v1 fallback | saved graph backed query として維持 |
 | `span_layout_types.hpp` の endpoint/support-group decision data | neutral layout/support group data と validation | mainline | no fallback path | 旧 authority object は削除済み。decision / placement として扱う |
 | `ValidateFast` の support-group projection checks | viewer validation panel、tests | D/E | no | normal path blocker にしない。必要制約だけ neutral validation へ移す |
-| `DirtyBits` / span runtime dirty marking | editing/runtime/viewer dirty overlay | mainline runtime | no recalc owner | mutation tracking と表示用。dirty queue/recalc ではない |
+| coarse update boundary / `UpdateKind` | editing/runtime/direct derive | mainline runtime | no recalc owner | kRegenerate/kReposition/kReshape/kRedraw の4分類だけ。operation-specific dirty enum を増やさない |
+| `DirtyBits` / span runtime dirty marking | editing/runtime/viewer dirty overlay | mainline runtime | no recalc owner | mutation tracking と旧制約用。bb2 output 更新は coarse update plan + direct derive へ寄せる |
 | direct derive `DeriveGeneratedSpanOutputs` | post-edit output rederive | mainline | no recalc | saved rules/ports から layout/geom/draw を再導出。recalc へ戻さない |
 
 ## 削除済み family
@@ -69,11 +70,11 @@
 | 対象 | 状態 | 削除条件 |
 |---|---|---|
 | `bb2` namespace/name | v1 同居中の暫定名 | v1/recalc/support-layout 本流依存を削り切った後に mainline 名へ rename |
-| dirty bits | editing/runtime/viewer が読む | recalc ではなく mutation tracking として残すか、用途別に分ける |
+| dirty bits | editing/runtime/viewer が読む | coarse update boundary へ寄せた後、mutation tracking と旧制約用に残す範囲をさらに削る |
 
 ## 次に消せる family
 
-1. dirty bits を recalc 残骸ではなく mutation tracking として残すか、用途別に分ける。
+1. dirty bits のうち direct derive と重複する更新トリガーを削り、mutation tracking だけに縮める。
 2. validation-only support-group projection checks を neutral validation 制約として残すか、退役する。
 
 ## 運用ルール

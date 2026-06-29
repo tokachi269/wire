@@ -6704,6 +6704,233 @@ bool C613_bb2_port_edit_rederives_generated_span_without_recalc() {
   return layout_moved && curve_moved;
 }
 
+bool C614_bb2_update_plan_uses_coarse_kinds() {
+  wire::core::CoreState state;
+  const auto out = state.GenerateFromBackboneSpec(line_req(state));
+  if (!out.ok || out.value.generated_pole_ids.empty() || out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId span_id = out.value.generated_span_ids.front();
+  const wire::core::Span* span = state.view().spans().find(span_id);
+  if (span == nullptr) {
+    return false;
+  }
+  const auto pole_plan = wire::core::CoreStateTestHook::make_update_plan(
+      state, {wire::core::UpdateKind::kReposition, wire::core::UpdateTargetKind::kPole,
+              out.value.generated_pole_ids.front()});
+  const auto port_plan = wire::core::CoreStateTestHook::make_update_plan(
+      state, {wire::core::UpdateKind::kReposition, wire::core::UpdateTargetKind::kPort, span->port_a_id});
+  const auto reshape_plan = wire::core::CoreStateTestHook::make_update_plan(
+      state, {wire::core::UpdateKind::kReshape, wire::core::UpdateTargetKind::kAllSpans,
+              wire::core::kInvalidObjectId});
+  const auto redraw_plan = wire::core::CoreStateTestHook::make_update_plan(
+      state, {wire::core::UpdateKind::kRedraw, wire::core::UpdateTargetKind::kAllSpans,
+              wire::core::kInvalidObjectId});
+  const auto regen_plan = wire::core::CoreStateTestHook::make_update_plan(
+      state, {wire::core::UpdateKind::kRegenerate, wire::core::UpdateTargetKind::kSpan, span_id});
+  return pole_plan.ok && pole_plan.value.kind == wire::core::UpdateKind::kReposition &&
+         contains_id(pole_plan.value.affected.spans, span_id) && port_plan.ok &&
+         port_plan.value.kind == wire::core::UpdateKind::kReposition &&
+         contains_id(port_plan.value.affected.spans, span_id) && reshape_plan.ok &&
+         reshape_plan.value.kind == wire::core::UpdateKind::kReshape &&
+         contains_id(reshape_plan.value.affected.spans, span_id) && redraw_plan.ok &&
+         redraw_plan.value.kind == wire::core::UpdateKind::kRedraw &&
+         contains_id(redraw_plan.value.affected.spans, span_id) && regen_plan.ok &&
+         regen_plan.value.kind == wire::core::UpdateKind::kRegenerate;
+}
+
+bool C615_bb2_regenerate_plan_is_not_local_fallback() {
+  wire::core::CoreState state;
+  const auto out = state.GenerateFromBackboneSpec(line_req(state));
+  if (!out.ok || out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const auto plan = wire::core::CoreStateTestHook::make_update_plan(
+      state, {wire::core::UpdateKind::kRegenerate, wire::core::UpdateTargetKind::kSpan,
+              out.value.generated_span_ids.front()});
+  if (!plan.ok) {
+    return false;
+  }
+  const auto executed = wire::core::CoreStateTestHook::execute_update_plan(state, plan.value);
+  return !executed.ok;
+}
+
+bool C616_bb2_reposition_keeps_saved_graph_identity() {
+  wire::core::CoreState state;
+  const auto out = state.GenerateFromBackboneSpec(line_req(state));
+  if (!out.ok || out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  std::vector<wire::core::ObjectId> before_nodes{};
+  std::vector<wire::core::ObjectId> before_edges{};
+  std::vector<wire::core::ObjectId> before_edge_bundles{};
+  std::vector<wire::core::ObjectId> before_span_bindings{};
+  for (const wire::core::SavedBackboneNode& node : state.view().backbone().nodes) {
+    before_nodes.push_back(node.node_id);
+  }
+  for (const wire::core::SavedBackboneEdge& edge : state.view().backbone().edges) {
+    before_edges.push_back(edge.edge_id);
+  }
+  for (const wire::core::SavedBackboneEdgeBundle& edge_bundle : state.view().backbone().edge_bundles) {
+    before_edge_bundles.push_back(edge_bundle.edge_bundle_id);
+  }
+  for (const wire::core::SavedBackboneSpanBinding& binding : state.view().backbone().span_bindings) {
+    before_span_bindings.push_back(binding.span_id);
+  }
+  const wire::core::ObjectId span_id = out.value.generated_span_ids.front();
+  const wire::core::Span* span = state.view().spans().find(span_id);
+  if (span == nullptr) {
+    return false;
+  }
+  const wire::core::Port* port = state.view().ports().find(span->port_a_id);
+  if (port == nullptr) {
+    return false;
+  }
+  const auto edited =
+      state.SetPortWorldPositionManual(port->id, {port->world_position.x, port->world_position.y + 0.75,
+                                                  port->world_position.z});
+  std::vector<wire::core::ObjectId> after_nodes{};
+  std::vector<wire::core::ObjectId> after_edges{};
+  std::vector<wire::core::ObjectId> after_edge_bundles{};
+  std::vector<wire::core::ObjectId> after_span_bindings{};
+  for (const wire::core::SavedBackboneNode& node : state.view().backbone().nodes) {
+    after_nodes.push_back(node.node_id);
+  }
+  for (const wire::core::SavedBackboneEdge& edge : state.view().backbone().edges) {
+    after_edges.push_back(edge.edge_id);
+  }
+  for (const wire::core::SavedBackboneEdgeBundle& edge_bundle : state.view().backbone().edge_bundles) {
+    after_edge_bundles.push_back(edge_bundle.edge_bundle_id);
+  }
+  for (const wire::core::SavedBackboneSpanBinding& binding : state.view().backbone().span_bindings) {
+    after_span_bindings.push_back(binding.span_id);
+  }
+  return edited.ok && before_nodes == after_nodes && before_edges == after_edges &&
+         before_edge_bundles == after_edge_bundles && before_span_bindings == after_span_bindings;
+}
+
+bool C617_bb2_reshape_does_not_rewrite_layout() {
+  wire::core::CoreState state;
+  const auto out = state.GenerateFromBackboneSpec(line_req(state));
+  if (!out.ok || out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId span_id = out.value.generated_span_ids.front();
+  const wire::core::SpanLayoutView before = state.span_layout(span_id);
+  if (!before.has_layout()) {
+    return false;
+  }
+  const wire::core::SpanLayoutEntry before_layout = *before.entry;
+  wire::core::GeometrySettings settings = state.view().geometry_settings();
+  settings.sag_enabled = !settings.sag_enabled;
+  settings.sag_factor += 0.01;
+  const auto updated = state.UpdateGeometrySettings(settings);
+  const wire::core::SpanLayoutView after = state.span_layout(span_id);
+  return updated.ok && after.has_layout() &&
+         almost_equal(before_layout.start.endpoint_world.x, after.entry->start.endpoint_world.x, 1e-9) &&
+         almost_equal(before_layout.start.endpoint_world.y, after.entry->start.endpoint_world.y, 1e-9) &&
+         almost_equal(before_layout.start.endpoint_world.z, after.entry->start.endpoint_world.z, 1e-9) &&
+         almost_equal(before_layout.end.endpoint_world.x, after.entry->end.endpoint_world.x, 1e-9) &&
+         almost_equal(before_layout.end.endpoint_world.y, after.entry->end.endpoint_world.y, 1e-9) &&
+         almost_equal(before_layout.end.endpoint_world.z, after.entry->end.endpoint_world.z, 1e-9) &&
+         before_layout.source_version == after.entry->source_version;
+}
+
+bool C618_bb2_redraw_does_not_rewrite_layout_or_geom() {
+  wire::core::CoreState state;
+  const auto out = state.GenerateFromBackboneSpec(line_req(state));
+  if (!out.ok || out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId span_id = out.value.generated_span_ids.front();
+  const wire::core::SpanLayoutView before_layout_view = state.span_layout(span_id);
+  const wire::core::CurveCacheEntry* before_curve = state.find_curve_cache(span_id);
+  const wire::core::BoundsCacheEntry* before_bounds = state.find_bounds_cache(span_id);
+  if (!before_layout_view.has_layout() || before_curve == nullptr || before_bounds == nullptr) {
+    return false;
+  }
+  const wire::core::SpanLayoutEntry before_layout = *before_layout_view.entry;
+  const std::vector<wire::core::Vec3d> before_samples = before_curve->detail.sample_points;
+  const wire::core::AABBd before_whole = before_bounds->whole;
+  wire::core::VisualSettings settings = state.view().visual_settings();
+  settings.support_arm_radius_m += 0.01;
+  const auto updated = state.UpdateVisualSettings(settings);
+  const wire::core::SpanLayoutView after_layout = state.span_layout(span_id);
+  const wire::core::CurveCacheEntry* after_curve = state.find_curve_cache(span_id);
+  const wire::core::BoundsCacheEntry* after_bounds = state.find_bounds_cache(span_id);
+  if (!updated.ok || !after_layout.has_layout() || after_curve == nullptr || after_bounds == nullptr ||
+      before_layout.source_version != after_layout.entry->source_version ||
+      before_samples.size() != after_curve->detail.sample_points.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < before_samples.size(); ++i) {
+    if (!almost_equal(before_samples[i].x, after_curve->detail.sample_points[i].x, 1e-9) ||
+        !almost_equal(before_samples[i].y, after_curve->detail.sample_points[i].y, 1e-9) ||
+        !almost_equal(before_samples[i].z, after_curve->detail.sample_points[i].z, 1e-9)) {
+      return false;
+    }
+  }
+  return almost_equal(before_whole.min.x, after_bounds->whole.min.x, 1e-9) &&
+         almost_equal(before_whole.min.y, after_bounds->whole.min.y, 1e-9) &&
+         almost_equal(before_whole.min.z, after_bounds->whole.min.z, 1e-9) &&
+         almost_equal(before_whole.max.x, after_bounds->whole.max.x, 1e-9) &&
+         almost_equal(before_whole.max.y, after_bounds->whole.max.y, 1e-9) &&
+         almost_equal(before_whole.max.z, after_bounds->whole.max.z, 1e-9);
+}
+
+bool C619_bb2_reposition_updates_only_affected_spans() {
+  wire::core::CoreState state;
+  const auto out = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!out.ok || out.value.generated_span_ids.size() < 2) {
+    return false;
+  }
+  const wire::core::ObjectId first_span_id = out.value.generated_span_ids.front();
+  const wire::core::ObjectId second_span_id = out.value.generated_span_ids.back();
+  const wire::core::Span* first_span = state.view().spans().find(first_span_id);
+  if (first_span == nullptr) {
+    return false;
+  }
+  const wire::core::Port* first_port = state.view().ports().find(first_span->port_a_id);
+  const wire::core::SpanLayoutView second_before_view = state.span_layout(second_span_id);
+  if (first_port == nullptr || !second_before_view.has_layout()) {
+    return false;
+  }
+  const double old_first_y = first_port->world_position.y;
+  const wire::core::SpanLayoutEntry second_before = *second_before_view.entry;
+  const auto edited =
+      state.SetPortWorldPositionManual(first_port->id, {first_port->world_position.x, first_port->world_position.y + 1.0,
+                                                        first_port->world_position.z});
+  const wire::core::SpanLayoutView first_after = state.span_layout(first_span_id);
+  const wire::core::SpanLayoutView second_after = state.span_layout(second_span_id);
+  return edited.ok && first_after.has_layout() && second_after.has_layout() &&
+         almost_equal(first_after.entry->start.support_world.y, old_first_y + 1.0, 1e-9) &&
+         second_before.source_version == second_after.entry->source_version;
+}
+
+bool C620_bb2_update_boundary_has_no_operation_specific_kinds() {
+  std::string h;
+  std::string cpp;
+  if (!file_text(repo_root() / "core/include/wire/core/core_runtime_types.hpp", &h) ||
+      !file_text(repo_root() / "core/src/generation/bb2/derive.cpp", &cpp)) {
+    return false;
+  }
+  const std::vector<std::string> required = {"kRegenerate", "kReposition", "kReshape", "kRedraw"};
+  for (const std::string& word : required) {
+    if (!contains_text(h, word)) {
+      return false;
+    }
+  }
+  const std::vector<std::string> banned = {"PoleTilt", "PoleYaw", "PortHeight", "SagUpdate", "VisualStyleUpdate",
+                                           "support_layout_contract", "support_layout_projection", "materialization",
+                                           "ProcessDirtyQueues", "Commit("};
+  for (const std::string& word : banned) {
+    if (contains_text(h, word) || contains_text(cpp, word)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C368_bb2_smoke_line", "bb2 generates the milestone-1 line slice", "Invariant", false,
                          C368_bb2_smoke_line);
@@ -7412,6 +7639,27 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C613_bb2_port_edit_rederives_generated_span_without_recalc",
                          "bb2 port edits rederive generated span outputs without recalc", "Boundary", false,
                          C613_bb2_port_edit_rederives_generated_span_without_recalc);
+  test_registry::AddTest(tests, "C614_bb2_update_plan_uses_coarse_kinds",
+                         "bb2 update planning uses the four coarse update kinds", "Boundary", false,
+                         C614_bb2_update_plan_uses_coarse_kinds);
+  test_registry::AddTest(tests, "C615_bb2_regenerate_plan_is_not_local_fallback",
+                         "bb2 regenerate update plans do not run a local fallback", "Boundary", true,
+                         C615_bb2_regenerate_plan_is_not_local_fallback);
+  test_registry::AddTest(tests, "C616_bb2_reposition_keeps_saved_graph_identity",
+                         "bb2 reposition updates keep saved graph identity", "Boundary", false,
+                         C616_bb2_reposition_keeps_saved_graph_identity);
+  test_registry::AddTest(tests, "C617_bb2_reshape_does_not_rewrite_layout",
+                         "bb2 reshape updates do not rewrite layout", "Boundary", false,
+                         C617_bb2_reshape_does_not_rewrite_layout);
+  test_registry::AddTest(tests, "C618_bb2_redraw_does_not_rewrite_layout_or_geom",
+                         "bb2 redraw updates do not rewrite layout or geom", "Boundary", false,
+                         C618_bb2_redraw_does_not_rewrite_layout_or_geom);
+  test_registry::AddTest(tests, "C619_bb2_reposition_updates_only_affected_spans",
+                         "bb2 reposition updates only affected spans", "Boundary", false,
+                         C619_bb2_reposition_updates_only_affected_spans);
+  test_registry::AddTest(tests, "C620_bb2_update_boundary_has_no_operation_specific_kinds",
+                         "bb2 update boundary has no operation-specific update kinds", "Boundary", false,
+                         C620_bb2_update_boundary_has_no_operation_specific_kinds);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

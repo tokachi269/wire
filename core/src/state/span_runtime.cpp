@@ -195,6 +195,145 @@ void CoreState::mark_topology_related_spans_for_ports_dirty(const std::vector<Ob
   }
 }
 
+EditResult<UpdatePlan> CoreState::make_update_plan(UpdateRequest request) const {
+  EditResult<UpdatePlan> out{};
+  UpdatePlan plan{};
+  plan.kind = request.kind;
+
+  auto add_unique = [](std::vector<ObjectId>* ids, ObjectId id) {
+    if (ids == nullptr || id == kInvalidObjectId) {
+      return;
+    }
+    if (std::find(ids->begin(), ids->end(), id) == ids->end()) {
+      ids->push_back(id);
+    }
+  };
+
+  auto add_spans_for_edge_bundle = [&](ObjectId edge_bundle_id) {
+    if (edge_bundle_id == kInvalidObjectId) {
+      return;
+    }
+    const auto binding_it = runtime_.backbone_index.edge_bundle_span_bindings.find(edge_bundle_id);
+    if (binding_it == runtime_.backbone_index.edge_bundle_span_bindings.end()) {
+      return;
+    }
+    for (std::size_t binding_index : binding_it->second) {
+      if (binding_index >= authoritative_.backbone.span_bindings.size()) {
+        continue;
+      }
+      add_unique(&plan.affected.spans, authoritative_.backbone.span_bindings[binding_index].span_id);
+    }
+  };
+
+  auto add_edge_bundle = [&](ObjectId edge_bundle_id) {
+    if (edge_bundle_id != kInvalidObjectId) {
+      add_spans_for_edge_bundle(edge_bundle_id);
+    }
+  };
+
+  auto add_edge = [&](ObjectId edge_id) {
+    if (edge_id == kInvalidObjectId) {
+      return;
+    }
+    add_unique(&plan.affected.edges, edge_id);
+    const auto edge_bundle_it = runtime_.backbone_index.edge_bundles.find(edge_id);
+    if (edge_bundle_it == runtime_.backbone_index.edge_bundles.end()) {
+      return;
+    }
+    for (ObjectId edge_bundle_id : edge_bundle_it->second) {
+      add_edge_bundle(edge_bundle_id);
+    }
+  };
+
+  auto add_node = [&](ObjectId node_id) {
+    if (node_id == kInvalidObjectId) {
+      return;
+    }
+    const auto edge_it = runtime_.backbone_index.node_edges.find(node_id);
+    if (edge_it == runtime_.backbone_index.node_edges.end()) {
+      return;
+    }
+    for (ObjectId edge_id : edge_it->second) {
+      add_edge(edge_id);
+    }
+  };
+
+  switch (request.target_kind) {
+  case UpdateTargetKind::kPole: {
+    add_unique(&plan.affected.poles, request.target_id);
+    const auto ports_it = runtime_.relation_index.ports_by_pole.find(request.target_id);
+    if (ports_it != runtime_.relation_index.ports_by_pole.end()) {
+      for (ObjectId port_id : ports_it->second) {
+        add_unique(&plan.affected.ports, port_id);
+      }
+    }
+    const auto node_it = runtime_.backbone_index.pole_node.find(request.target_id);
+    if (node_it != runtime_.backbone_index.pole_node.end()) {
+      add_node(node_it->second);
+    }
+    break;
+  }
+  case UpdateTargetKind::kPort: {
+    add_unique(&plan.affected.ports, request.target_id);
+    const auto port_binding_it = runtime_.backbone_index.port_bindings_by_port.find(request.target_id);
+    if (port_binding_it != runtime_.backbone_index.port_bindings_by_port.end()) {
+      for (std::size_t binding_index : port_binding_it->second) {
+        if (binding_index >= authoritative_.backbone.port_bindings.size()) {
+          continue;
+        }
+        const SavedBackbonePortBinding& port_binding = authoritative_.backbone.port_bindings[binding_index];
+        const auto span_binding_it = runtime_.backbone_index.edge_bundle_span_bindings.find(port_binding.edge_bundle_id);
+        if (span_binding_it == runtime_.backbone_index.edge_bundle_span_bindings.end()) {
+          continue;
+        }
+        for (std::size_t span_binding_index : span_binding_it->second) {
+          if (span_binding_index >= authoritative_.backbone.span_bindings.size()) {
+            continue;
+          }
+          const SavedBackboneSpanBinding& span_binding = authoritative_.backbone.span_bindings[span_binding_index];
+          if (span_binding.lane_index == port_binding.lane_index) {
+            add_unique(&plan.affected.spans, span_binding.span_id);
+          }
+        }
+      }
+    }
+    break;
+  }
+  case UpdateTargetKind::kSpan:
+    add_unique(&plan.affected.spans, request.target_id);
+    if (const auto edge_bundle_it = runtime_.backbone_index.span_edge_bundle.find(request.target_id);
+        edge_bundle_it != runtime_.backbone_index.span_edge_bundle.end()) {
+      const ObjectId edge_bundle_id = edge_bundle_it->second;
+      const auto bundle_it =
+          std::find_if(authoritative_.backbone.edge_bundles.begin(), authoritative_.backbone.edge_bundles.end(),
+                       [&](const SavedBackboneEdgeBundle& bundle) { return bundle.edge_bundle_id == edge_bundle_id; });
+      if (bundle_it != authoritative_.backbone.edge_bundles.end()) {
+        add_unique(&plan.affected.edges, bundle_it->edge_id);
+      }
+    }
+    break;
+  case UpdateTargetKind::kAllSpans:
+    for (const SavedBackboneSpanBinding& binding : authoritative_.backbone.span_bindings) {
+      add_unique(&plan.affected.spans, binding.span_id);
+    }
+    for (const SavedBackboneEdge& edge : authoritative_.backbone.edges) {
+      add_unique(&plan.affected.edges, edge.edge_id);
+    }
+    break;
+  case UpdateTargetKind::kUnknown:
+    out.error = "bb2 update: unknown target";
+    return out;
+  }
+
+  std::sort(plan.affected.poles.begin(), plan.affected.poles.end());
+  std::sort(plan.affected.ports.begin(), plan.affected.ports.end());
+  std::sort(plan.affected.spans.begin(), plan.affected.spans.end());
+  std::sort(plan.affected.edges.begin(), plan.affected.edges.end());
+  out.value = std::move(plan);
+  out.ok = true;
+  return out;
+}
+
 void CoreState::cache_span_layout(SpanLayoutEntry layout) {
   runtime_.cache_state.span_layout_cache.store_layout(std::move(layout));
 }

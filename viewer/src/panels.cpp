@@ -22,9 +22,7 @@ std::string DirtyBitsToText(wire::core::DirtyBits bits) {
   if ((bits & wire::core::DirtyBits::kTopology) != wire::core::DirtyBits::kNone) out += "T";
   if ((bits & wire::core::DirtyBits::kDecision) != wire::core::DirtyBits::kNone) out += "D";
   if ((bits & wire::core::DirtyBits::kGeometryRefresh) != wire::core::DirtyBits::kNone) out += "G";
-  if ((bits & wire::core::DirtyBits::kBounds) != wire::core::DirtyBits::kNone) out += "B";
   if ((bits & wire::core::DirtyBits::kRenderRefresh) != wire::core::DirtyBits::kNone) out += "R";
-  if ((bits & wire::core::DirtyBits::kRaycast) != wire::core::DirtyBits::kNone) out += "X";
   return out.empty() ? std::string("-") : out;
 }
 

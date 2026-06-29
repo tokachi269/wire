@@ -27,9 +27,6 @@
 | C21 | Symptom | Generate/Edit | interval不正拒否 | PoleTypeあり | GenerateSimpleLine(interval<=0) | Exact: fail+状態不変 | error/count | 設定ミス耐性 |
 | C22 | Symptom | Generate/Edit | 存在しないPort拒否 | 空状態 | AddSpan(無効ID) | Exact: fail+状態不変 | error/count | 参照不正耐性 |
 | C23 | Symptom | Generate/Edit | Split t不正拒否 | Span1本 | SplitSpan(t=0) | Exact: fail+復帰可 | error/spans | 失敗後復帰 |
-| C24 | Symptom | Generate/Edit | 隣接Pole自動接続 | Pole列 | GenerateSpansBetweenPoles | Exact: n-1生成 | result/index | 欠線防止 |
-| C25 | Symptom | Generate/Edit | 複数パス増加 | Pole列 | GenerateSpansBetweenPoles×6 | Exact: 毎回n-1増加 | span総数 | 頭打ち回帰防止 |
-| C26 | Symptom | General | 第3候補利用 | PoleType適用列 | 低圧自動接続×3 | Invariant: 3種類以上のtemplateキー利用 | template(layer/side/role)集合 | 2本固定回帰防止 |
 | C28 | Symptom | Generate/Edit | through連続性 | 直線入力 | GenerateFromBackboneSpec | Invariant: 中間Pole同Port再利用 | span端点Port | 幹線連続維持 |
 | C29 | Symptom | Init | 表示ID採番 | 新規CoreState | Pole/Port/Span追加 | Exact: prefix別連番 | display_id | UI追跡性 |
 | C30 | Symptom | Generate/Edit | Pole文脈分類 | 直線+折れ線 | GeneratePolesAlongRoad | Invariant: Terminal/Straight/Corner | pole.context | 文脈基盤維持 |

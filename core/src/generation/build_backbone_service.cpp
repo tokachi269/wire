@@ -7,7 +7,6 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <sstream>
 #include <vector>
 
 namespace wire::core {
@@ -155,78 +154,6 @@ EditResult<std::vector<ObjectId>> CoreState::generate_poles_from_points(const Ro
   return result;
 }
 
-EditResult<std::vector<ObjectId>> CoreState::GenerateSpansBetweenPoles(const std::vector<ObjectId>& poles,
-                                                                       ConnectionCategory category) {
-  EditResult<std::vector<ObjectId>> result;
-  if (poles.size() < 2) {
-    result.error = "at least 2 poles are required";
-    return result;
-  }
-
-  const std::uint64_t session_id = next_generation_session_id_access()++;
-  std::ostringstream errors;
-  bool has_failure = false;
-  ObjectId carry_port_on_next_left = kInvalidObjectId;
-
-  for (std::size_t i = 0; i + 1 < poles.size(); ++i) {
-    AddConnectionByPoleOptions options{};
-    options.bundle_template_id = category_to_bundle_kind(category);
-    options.use_bundle_template = true;
-    options.preferred_port_a_id = carry_port_on_next_left;
-    options.branch_index = static_cast<std::uint32_t>(i);
-
-    const Pole* pole_a = edit_state_access().poles.find(poles[i]);
-    const Pole* pole_b = edit_state_access().poles.find(poles[i + 1]);
-    if (pole_a != nullptr) {
-      options.pole_context_a = pole_a->context.kind;
-      options.corner_angle_deg_a = pole_a->context.corner_angle_deg;
-      options.corner_turn_sign_a = pole_a->context.corner_turn_sign;
-    }
-    if (pole_b != nullptr) {
-      options.pole_context_b = pole_b->context.kind;
-      options.corner_angle_deg_b = pole_b->context.corner_angle_deg;
-      options.corner_turn_sign_b = pole_b->context.corner_turn_sign;
-    }
-    const bool corner_pass = (pole_a != nullptr && pole_a->context.kind == PoleContextKind::kCorner) ||
-                             (pole_b != nullptr && pole_b->context.kind == PoleContextKind::kCorner);
-    options.connection_context = corner_pass ? ConnectionContext::kCornerPass : ConnectionContext::kTrunkContinue;
-
-    EditResult<AddConnectionByPoleResult> add_result = AddConnectionByPole(poles[i], poles[i + 1], category, options);
-    if (!add_result.ok) {
-      has_failure = true;
-      errors << "[segment " << i << "] " << add_result.error << "; ";
-      carry_port_on_next_left = kInvalidObjectId;
-      continue;
-    }
-
-    carry_port_on_next_left = add_result.value.port_b_id;
-
-    Span* span = edit_state_access().spans.find(add_result.value.span_id);
-    if (span != nullptr) {
-      span->generation.generated = true;
-      span->generation.source = GenerationSource::kRoadAuto;
-      span->generation.generation_session_id = session_id;
-      span->generation.generation_order = static_cast<std::uint32_t>(i);
-      span->generated_by_rule = true;
-      add_unique_id(add_result.change_set.updated_ids, span->id);
-    }
-
-    result.value.push_back(add_result.value.span_id);
-    append_change_set(result.change_set, add_result.change_set);
-  }
-
-  if (result.value.empty()) {
-    result.error = has_failure ? errors.str() : "failed to generate spans";
-    return result;
-  }
-  if (has_failure) {
-    result.error = errors.str();
-    return result;
-  }
-
-  result.ok = true;
-  return result;
-}
 
 EditResult<GenerateSimpleLineResult> CoreState::GenerateSimpleLine(const RoadSegment& road, double interval,
                                                                    PoleTypeId pole_type_id,

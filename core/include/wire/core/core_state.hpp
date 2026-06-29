@@ -74,8 +74,6 @@ public:
                                             ConnectionCategory category = ConnectionCategory::kDrop);
   EditResult<std::vector<ObjectId>> GeneratePolesAlongRoad(const RoadSegment& road, double interval,
                                                            PoleTypeId pole_type_id);
-  EditResult<std::vector<ObjectId>> GenerateSpansBetweenPoles(const std::vector<ObjectId>& poles,
-                                                              ConnectionCategory category);
   EditResult<GenerateSimpleLineResult> GenerateSimpleLine(const RoadSegment& road, double interval,
                                                           PoleTypeId pole_type_id, ConnectionCategory category);
   EditResult<GenerateSimpleLineResult> GenerateSimpleLineFromPoints(const RoadSegment& road, PoleTypeId pole_type_id,

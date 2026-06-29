@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <string>
-#include <tuple>
 #include <vector>
 
 using namespace helpers;
@@ -145,119 +144,8 @@ bool test_split_span_invalid_t_fails_and_recovers() {
   return state.SplitSpan(span, 0.5).ok;
 }
 
-bool test_generate_spans_between_poles_basic() {
-  CoreState state;
-  const auto type_ids = sorted_pole_type_ids(state);
-  if (type_ids.empty()) {
-    return false;
-  }
 
-  std::vector<ObjectId> poles;
-  for (int i = 0; i < 4; ++i) {
-    wire::core::Transformd tf{};
-    tf.position = {static_cast<double>(i) * 10.0, 0.0, 0.0};
-    const ObjectId pole_id = state.AddPole(tf, 10.0, "P", wire::core::PoleKind::kConcrete).value;
-    if (!state.ApplyPoleType(pole_id, type_ids.front()).ok) {
-      return false;
-    }
-    poles.push_back(pole_id);
-  }
 
-  const auto result = state.GenerateSpansBetweenPoles(poles, ConnectionCategory::kLowVoltage);
-  if (!result.ok) {
-    return false;
-  }
-  if (result.value.size() != poles.size() - 1) {
-    return false;
-  }
-  for (ObjectId span_id : result.value) {
-    const auto* span = state.view().edit_state().spans.find(span_id);
-    const auto* runtime = state.view().find_span_runtime_state(span_id);
-    if (span == nullptr || runtime == nullptr) {
-      return false;
-    }
-    if (!span->generation.generated || span->generation.source != wire::core::GenerationSource::kRoadAuto) {
-      return false;
-    }
-    if (!has_dirty(runtime, DirtyBits::kDecision | DirtyBits::kGeometryRefresh)) {
-      return false;
-    }
-  }
-  return validate_now(state).ok();
-}
-
-bool test_generate_spans_between_poles_multiple_passes() {
-  CoreState state;
-  const auto type_ids = sorted_pole_type_ids(state);
-  if (type_ids.empty()) {
-    return false;
-  }
-
-  std::vector<ObjectId> poles;
-  for (int i = 0; i < 5; ++i) {
-    wire::core::Transformd tf{};
-    tf.position = {static_cast<double>(i) * 12.0, 0.0, 0.0};
-    const ObjectId pole_id = state.AddPole(tf, 10.0, "P", wire::core::PoleKind::kConcrete).value;
-    if (!state.ApplyPoleType(pole_id, type_ids.front()).ok) {
-      return false;
-    }
-    poles.push_back(pole_id);
-  }
-
-  const std::size_t per_pass = poles.size() - 1;
-  for (int pass = 0; pass < 6; ++pass) {
-    const auto result = state.GenerateSpansBetweenPoles(poles, ConnectionCategory::kLowVoltage);
-    if (!result.ok || result.value.size() != per_pass) {
-      return false;
-    }
-    const std::size_t expected_total = per_pass * static_cast<std::size_t>(pass + 1);
-    if (state.view().edit_state().spans.size() != expected_total) {
-      return false;
-    }
-  }
-  return validate_now(state).ok();
-}
-
-bool test_generate_spans_between_poles_uses_third_candidate_before_reuse() {
-  CoreState state;
-  const auto type_ids = sorted_pole_type_ids(state);
-  if (type_ids.empty()) {
-    return false;
-  }
-
-  std::vector<ObjectId> poles;
-  for (int i = 0; i < 4; ++i) {
-    wire::core::Transformd tf{};
-    tf.position = {static_cast<double>(i) * 10.0, 0.0, 0.0};
-    const ObjectId pole_id = state.AddPole(tf, 10.0, "P", wire::core::PoleKind::kConcrete).value;
-    if (!state.ApplyPoleType(pole_id, type_ids.front()).ok) {
-      return false;
-    }
-    poles.push_back(pole_id);
-  }
-
-  std::vector<std::tuple<int, int, int>> template_keys;
-  for (int pass = 0; pass < 3; ++pass) {
-    const auto result = state.GenerateSpansBetweenPoles(poles, ConnectionCategory::kLowVoltage);
-    if (!result.ok || result.value.empty()) {
-      return false;
-    }
-    const auto* first_span = state.view().edit_state().spans.find(result.value.front());
-    if (first_span == nullptr) {
-      return false;
-    }
-    const auto* first_port = state.view().edit_state().ports.find(first_span->port_a_id);
-    if (first_port == nullptr || first_port->owner_pole_id != poles.front()) {
-      return false;
-    }
-    template_keys.emplace_back(first_port->template_layer, static_cast<int>(first_port->template_side),
-                               static_cast<int>(first_port->template_role));
-  }
-
-  std::sort(template_keys.begin(), template_keys.end());
-  template_keys.erase(std::unique(template_keys.begin(), template_keys.end()), template_keys.end());
-  return template_keys.size() >= 3;
-}
 
 bool test_generate_simple_line_reuses_intermediate_ports() {
   CoreState state;
@@ -377,9 +265,6 @@ void register_workflow_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C10_AddConnectionByPole_FailSamePole", "Same-pole connect fails with diagnostics and recovers", "Exact", true, test_add_connection_same_pole_fails_and_recovers);
   test_registry::AddTest(tests, "C22_AddSpan_FailMissingPorts", "AddSpan invalid port failure leaves state recoverable", "Exact", true, test_add_span_missing_ports_fails_and_recovers);
   test_registry::AddTest(tests, "C23_SplitSpan_FailInvalidT", "SplitSpan invalid t failure leaves state recoverable", "Exact", true, test_split_span_invalid_t_fails_and_recovers);
-  test_registry::AddTest(tests, "C24_Phase45_GenerateSpansBetweenPoles_Basic", "Adjacent poles are auto connected", "Exact", false, test_generate_spans_between_poles_basic);
-  test_registry::AddTest(tests, "C25_Phase45_GenerateSpansBetweenPoles_MultiPass", "Repeated auto-connect adds more spans", "Exact", false, test_generate_spans_between_poles_multiple_passes);
-  test_registry::AddTest(tests, "C26_Phase47_AutoConnect_UsesThirdSlot", "Auto-connect uses at least third low-voltage candidate before reuse", "Invariant", false, test_generate_spans_between_poles_uses_third_candidate_before_reuse);
   test_registry::AddTest(tests, "C28_Phase45_GenerateSimpleLine_Continuity", "Intermediate poles reuse same through-port", "Invariant", false, test_generate_simple_line_reuses_intermediate_ports);
   test_registry::AddTest(tests, "C29_Phase45_DisplayId_PerPrefix", "Display IDs increment per prefix", "Exact", false, test_display_id_is_per_prefix_sequence);
   test_registry::AddTest(tests, "C304_StyleContext_DeterministicRouteCorrelated",

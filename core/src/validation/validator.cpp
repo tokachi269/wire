@@ -224,10 +224,10 @@ void validate_projected_span_layout_endpoint(ValidationResult* result, const Cor
   }
 }
 
-void validate_grouped_support_projection(ValidationResult* result, const EditState& edit_state, ObjectId span_id,
-                                         const SpanLayoutEntry& layout, const LayoutEndpoint& endpoint,
-                                         const SupportGroupCacheContract& support_groups,
-                                         SupportGroupCategoryMap* support_group_category_by_key) {
+void validate_grouped_support_layout(ValidationResult* result, const EditState& edit_state, ObjectId span_id,
+                                     const SpanLayoutEntry& layout, const LayoutEndpoint& endpoint,
+                                     const SupportGroupCache& support_groups,
+                                     SupportGroupCategoryMap* support_group_category_by_key) {
   if (result == nullptr || !endpoint_uses_grouped_lowered_support_for_validation(endpoint)) {
     return;
   }
@@ -767,19 +767,17 @@ ValidationResult CoreState::Validate() const {
   auto authoritative_pair_for_group = [](const SupportGroupDecision& group) {
     return std::pair<ObjectId, ObjectId>{group.support_pair_peer_low, group.support_pair_peer_high};
   };
-  cache_state.span_layout_cache.for_each_projected_record(
+  cache_state.span_layout_cache.for_each_layout_record(
       [&](ObjectId span_id, const SpanLayoutCacheRecord&, const SpanLayoutEntry& layout) {
         const double endpoint_attach_lift_m = insulator_lift_for_span(core, span_id);
         validate_projected_span_layout_endpoint(&result, core, edit_state, span_id, endpoint_attach_lift_m,
                                                 layout.start, "SpanLayoutStartAxisMissing");
         validate_projected_span_layout_endpoint(&result, core, edit_state, span_id, endpoint_attach_lift_m,
                                                 layout.end, "SpanLayoutEndAxisMissing");
-        validate_grouped_support_projection(&result, edit_state, span_id, layout, layout.start,
-                                            cache_state.span_layout_cache.support_groups,
-                                            &support_group_category_by_key);
-        validate_grouped_support_projection(&result, edit_state, span_id, layout, layout.end,
-                                            cache_state.span_layout_cache.support_groups,
-                                            &support_group_category_by_key);
+        validate_grouped_support_layout(&result, edit_state, span_id, layout, layout.start,
+                                        cache_state.span_layout_cache.support_groups, &support_group_category_by_key);
+        validate_grouped_support_layout(&result, edit_state, span_id, layout, layout.end,
+                                        cache_state.span_layout_cache.support_groups, &support_group_category_by_key);
       });
 
   for (const auto& [key, group_decision] : cache_state.span_layout_cache.support_groups.decision.by_key) {
@@ -868,7 +866,7 @@ ValidationResult CoreState::Validate() const {
                              kInvalidObjectId});
   }
 
-  cache_state.span_layout_cache.for_each_projected_record(
+  cache_state.span_layout_cache.for_each_layout_record(
       [&](ObjectId span_id, const SpanLayoutCacheRecord&, const SpanLayoutEntry& layout) {
         std::unordered_set<LoweredSupportGroupKey, LoweredSupportGroupKeyHash> seen_group_keys{};
         for (const LoweredSupportGroupKey& key : layout.lowered_support_group_keys) {

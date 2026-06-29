@@ -23,7 +23,7 @@
 | saved backbone graph | bb2、viewer/query、frontier、route query | mainline | yes | topology authority。span/layout/seed/curve/port position から復元しない |
 | `SavedBackboneResult` / `SavedBackboneEdges` / `FindSavedBackboneRoute` | public query、viewer、tests | mainline | no v1 fallback | saved graph backed query として維持 |
 | `span_layout_types.hpp` の endpoint/support-group decision data | neutral layout/support group data と validation | mainline | no fallback path | 旧 authority object は削除済み。decision / placement として扱う |
-| `ValidateFast` の support-group projection checks | viewer validation panel、tests | D/E | no | normal path blocker にしない。必要制約だけ neutral validation へ移す |
+| `ValidateFast` の support-group layout checks | viewer validation panel、tests | validation-only | no | normal path blocker にしない。neutral layout/support-group 制約として維持 |
 | coarse update boundary / `UpdateKind` | editing/runtime/direct derive | mainline runtime | no recalc owner | kRegenerate/kReposition/kReshape/kRedraw の4分類だけ。operation-specific dirty enum を増やさない |
 | `DirtyBits` / span runtime dirty marking | editing/runtime/viewer dirty overlay | mainline runtime | no recalc owner | mutation tracking と旧制約用。bb2 output 更新は coarse update plan + direct derive へ寄せる |
 | direct derive `DeriveGeneratedSpanOutputs` | post-edit output rederive | mainline | no recalc | saved rules/ports から layout/geom/draw を再導出。recalc へ戻さない |
@@ -75,7 +75,7 @@
 ## 次に消せる family
 
 1. dirty bits のうち direct derive と重複する更新トリガーを削り、mutation tracking だけに縮める。
-2. validation-only support-group projection checks を neutral validation 制約として残すか、退役する。
+2. `build_backbone_service.cpp` の旧 API family を、旧テスト制約単位で bb2 mainline API へ移すか退役する。
 
 ## 運用ルール
 

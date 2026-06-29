@@ -259,20 +259,20 @@ struct SpanLayoutCacheRecord {
   std::optional<SpanLayoutEntry> layout{};
   std::optional<SpanLayoutRule> rule{};
 
-  [[nodiscard]] bool has_projection() const { return layout.has_value(); }
+  [[nodiscard]] bool has_layout() const { return layout.has_value(); }
   [[nodiscard]] bool has_rule() const { return rule.has_value(); }
-  [[nodiscard]] const SpanLayoutEntry* projected_layout() const {
+  [[nodiscard]] const SpanLayoutEntry* span_layout() const {
     return layout.has_value() ? &*layout : nullptr;
   }
-  [[nodiscard]] SpanLayoutEntry* projected_layout() {
+  [[nodiscard]] SpanLayoutEntry* span_layout() {
     return layout.has_value() ? &*layout : nullptr;
   }
   [[nodiscard]] const SpanLayoutRule* span_layout_rule() const {
     return rule.has_value() ? &*rule : nullptr;
   }
 
-  void store_projection(SpanLayoutEntry layout_value) { layout = std::move(layout_value); }
-  void clear_projection() { layout.reset(); }
+  void store_layout(SpanLayoutEntry layout_value) { layout = std::move(layout_value); }
+  void clear_layout() { layout.reset(); }
   void store_rule(SpanLayoutRule rule_value) { rule = std::move(rule_value); }
 };
 
@@ -284,14 +284,14 @@ struct SupportGroupPlacementCache {
   std::unordered_map<LoweredSupportGroupKey, LoweredSupportGroupPlacement, LoweredSupportGroupKeyHash> by_key{};
 };
 
-struct SupportGroupCacheContract {
+struct SupportGroupCache {
   SupportGroupDecisionCache decision{};
   SupportGroupPlacementCache placement{};
 };
 
 struct SpanLayoutCache {
   std::unordered_map<ObjectId, SpanLayoutCacheRecord> records_by_span{};
-  SupportGroupCacheContract support_groups{};
+  SupportGroupCache support_groups{};
 
   [[nodiscard]] SpanLayoutRulesView rules_view(ObjectId span_id) const {
     const auto it = records_by_span.find(span_id);
@@ -306,7 +306,7 @@ struct SpanLayoutCache {
     if (it == records_by_span.end()) {
       return {};
     }
-    return {it->second.projected_layout()};
+    return {it->second.span_layout()};
   }
 
   [[nodiscard]] SpanLayoutState layout_state(ObjectId span_id) const {
@@ -315,22 +315,22 @@ struct SpanLayoutCache {
       return {};
     }
     const SpanLayoutCacheRecord& record = it->second;
-    return {record.span_layout_rule() != nullptr, record.projected_layout() != nullptr};
+    return {record.span_layout_rule() != nullptr, record.span_layout() != nullptr};
   }
 
   template <typename Fn>
-  void for_each_projected_record(Fn&& visitor) const {
+  void for_each_layout_record(Fn&& visitor) const {
     for (const auto& [span_id, record] : records_by_span) {
-      if (const SpanLayoutEntry* layout = record.projected_layout(); layout != nullptr) {
+      if (const SpanLayoutEntry* layout = record.span_layout(); layout != nullptr) {
         visitor(span_id, record, *layout);
       }
     }
   }
 
   template <typename Fn>
-  void for_each_projected_record(Fn&& visitor) {
+  void for_each_layout_record(Fn&& visitor) {
     for (auto& [span_id, record] : records_by_span) {
-      if (SpanLayoutEntry* layout = record.projected_layout(); layout != nullptr) {
+      if (SpanLayoutEntry* layout = record.span_layout(); layout != nullptr) {
         visitor(span_id, record, *layout);
       }
     }
@@ -341,7 +341,7 @@ struct SpanLayoutCache {
     if (it == records_by_span.end()) {
       return;
     }
-    if (!it->second.has_projection() && !it->second.has_rule()) {
+    if (!it->second.has_layout() && !it->second.has_rule()) {
       records_by_span.erase(it);
     }
   }
@@ -349,7 +349,7 @@ struct SpanLayoutCache {
   void store_layout(SpanLayoutEntry layout) {
     const ObjectId span_id = layout.span_id;
     SpanLayoutCacheRecord& record = records_by_span[span_id];
-    record.store_projection(std::move(layout));
+    record.store_layout(std::move(layout));
   }
 
   void store_rules(const SpanLayoutRules& rules) {
@@ -366,7 +366,7 @@ struct SpanLayoutCache {
     if (it == records_by_span.end()) {
       return;
     }
-    it->second.clear_projection();
+    it->second.clear_layout();
     erase_record_if_empty(span_id);
   }
 };

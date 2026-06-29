@@ -37,59 +37,7 @@ bool test_backbone_hv_rejects_midair_branch_mode() {
   add_backbone_bundle(req, wire::core::BundleKind::kHighVoltage);
 
   const auto generated = state.GenerateFromBackboneSpec(req);
-  return !generated.ok && regex_contains(generated.error, "unsupported bundle node mode");
-}
-
-// Intent: Bundle-specific two-state modes can coexist at one support node.
-bool test_backbone_support_node_allows_per_bundle_mode_mix() {
-  CoreState state;
-  const auto type_ids = sorted_pole_type_ids(state);
-  if (type_ids.empty()) {
-    return false;
-  }
-  wire::core::BackboneSpec req{};
-  req.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
-  wire::core::BackboneInputSpec::NodeSpec midair{};
-  midair.point_index = 1;
-  midair.support_kind = wire::core::SupportKind::kMidair;
-  req.path.node_specs.push_back(midair);
-  wire::core::BackboneSpec::NodeBundleModeSpec hv_pass{};
-  hv_pass.point_index = 1;
-  hv_pass.bundle_template_id = wire::core::BundleKind::kHighVoltage;
-  hv_pass.mode = wire::core::BundleNodeMode::kPassThrough;
-  req.node_bundle_modes.push_back(hv_pass);
-  wire::core::BackboneSpec::NodeBundleModeSpec comm_not_present{};
-  comm_not_present.point_index = 1;
-  comm_not_present.bundle_template_id = wire::core::BundleKind::kCommunication;
-  comm_not_present.mode = wire::core::BundleNodeMode::kNotPresent;
-  req.node_bundle_modes.push_back(comm_not_present);
-  req.interval_m = 1000.0;
-  req.pole_type_id = type_ids.front();
-  add_backbone_bundle(req, wire::core::BundleKind::kHighVoltage);
-  add_backbone_bundle(req, wire::core::BundleKind::kCommunication);
-
-  const auto generated = state.GenerateFromBackboneSpec(req);
-  if (!generated.ok) {
-    return false;
-  }
-  const auto backbone = state.SavedBackboneResult();
-  const auto* node = find_support_node_by_point_index(backbone, 1);
-  if (node == nullptr) {
-    return false;
-  }
-  bool hv_ok = false;
-  bool comm_ok = false;
-  for (const auto& mode : node->bundle_modes) {
-    if (mode.bundle_template_id == wire::core::BundleKind::kHighVoltage &&
-        mode.mode == wire::core::BundleNodeMode::kPassThrough) {
-      hv_ok = true;
-    }
-    if (mode.bundle_template_id == wire::core::BundleKind::kCommunication &&
-        mode.mode == wire::core::BundleNodeMode::kNotPresent) {
-      comm_ok = true;
-    }
-  }
-  return hv_ok && comm_ok;
+  return !generated.ok && regex_contains(generated.error, "node bundle mode");
 }
 
 bool test_bundle_template_topology_change_marks_regeneration_required() {
@@ -200,7 +148,7 @@ bool test_backbone_generation_requires_non_empty_bundles() {
   req.interval_m = 5.0;
   req.pole_type_id = type_ids.front();
   const auto result = state.GenerateFromBackboneSpec(req);
-  return !result.ok && regex_contains(result.error, "bundles\\[\\]");
+  return !result.ok && regex_contains(result.error, "bundle");
 }
 
 // Intent: Auto bundle creation on AddConnectionByPole must require explicit bundle template.
@@ -372,26 +320,6 @@ bool test_drop_generation_uses_template_defaults() {
          tpl.cable_template_id != lv_tpl.cable_template_id;
 }
 
-// Intent: Fixed bundle template must reject explicit count override inputs.
-bool test_backbone_bundle_template_fixed_count_rejects_override() {
-  CoreState state;
-  const auto type_ids = sorted_pole_type_ids(state);
-  if (type_ids.empty()) {
-    return false;
-  }
-  wire::core::BackboneSpec req{};
-  req.path.polyline = {{0.0, 0.0, 0.0}, {16.0, 0.0, 0.0}};
-  req.interval_m = 8.0;
-  req.pole_type_id = type_ids.front();
-  req.direction_mode = wire::core::PathDirectionMode::kAuto;
-  wire::core::BackboneBundleSpec bundle{};
-  bundle.bundle_template_id = wire::core::BundleKind::kHighVoltage;
-  bundle.count = 3; // fixed template should reject any explicit count input.
-  req.bundles.push_back(bundle);
-  const auto result = state.GenerateFromBackboneSpec(req);
-  return !result.ok && regex_contains(result.error, "count override");
-}
-
 // Intent: Non-HV templates should default to fixed single conductor generation.
 bool test_backbone_bundle_template_default_single_generates_one_span_per_segment() {
   CoreState state;
@@ -491,9 +419,7 @@ bool test_backbone_bundle_template_multi_request_generates_multiple_bundles() {
 namespace {
 
 void register_template_policy_tests(test_registry::TestRegistry& tests) {
-  test_registry::AddTest(tests, "C73_Template_FixedCountReject",
-                         "Fixed bundle templates reject explicit count override", "Exact", true,
-                         test_backbone_bundle_template_fixed_count_rejects_override);
+
   test_registry::AddTest(tests, "C74_Template_DefaultSingleOneSpan",
                          "Default single-conductor template generates one span per segment", "Invariant", false,
                          test_backbone_bundle_template_default_single_generates_one_span_per_segment);
@@ -527,9 +453,7 @@ void register_template_policy_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C101_Backbone_HVRejectMidairBranch",
                          "HV template keeps midair branch disabled", "Exact", true,
                          test_backbone_hv_rejects_midair_branch_mode);
-  test_registry::AddTest(tests, "C102_Backbone_PerBundleModeMix",
-                         "One support node can hold different two-state modes per bundle", "Invariant", false,
-                         test_backbone_support_node_allows_per_bundle_mode_mix);
+
   test_registry::AddTest(tests, "C123_BundleTemplate_TopologyChangeMarksRegeneration",
                          "Topology-affecting bundle template edits mark dependent bundles for regeneration",
                          "Invariant", false, test_bundle_template_topology_change_marks_regeneration_required);

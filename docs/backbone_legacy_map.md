@@ -72,6 +72,11 @@
 | junction relation / constrained solver snapshot | relation snapshot、through-pair score、solver/order decision debug | 旧 family を退役。connectivity は pair/open/row、placement は support group、観測は saved graph/layout |
 | pole-global support axis | `pole.context`、preserved trunk pair、ConnectedDirectionFit、global yaw | 旧 family を退役。row axis は connectivity、pole yaw は表示用従属値 |
 | junction session priority | `prioritized_session_id`、generation session由来のprimary/order | 旧 family を退役。public junction はSavedGraph adjacency summaryであり、connectivity authorityではない |
+| fixed-count explicit override | fixed template の exact count 指定を常に reject | 旧期待を退役。bb2 は exact count を no-op supported、mismatch は mutation 前 reject とする |
+| guide local regeneration | 同一 BackboneSpec 再実行 no-op と延長時の末端追加 | 旧 local regeneration family を退役。duplicate は saved span binding preflight で unsupported/state unchanged とする |
+| duplicate guide points | 重複 route point を成功扱いにする guide robustness | general input cleanup scenario は未採用。zero-length/不足情報は unsupported とし、新 supported scenario として定義するまで戻さない |
+| state-service override/internal mutation | override inspection、owned endpoint reuse、template mutation service の旧 internal surface | 旧 service test family を退役。bb2 direct derive / UpdateKind / neutral output の制約へ必要分だけ移植する |
+| support-node inspection by pole id | `SupportNode` id と pole id の同一視、rebuilt backbone inspection surface | 旧 inspection family を退役。SavedBackboneGraph/public saved result を正とし、support node entity は別途 neutral API で扱う |
 
 ## 削除候補と残存理由
 

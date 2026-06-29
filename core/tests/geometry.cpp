@@ -241,43 +241,6 @@ bool test_band_selection_deterministic_and_debug_integrity() {
   return has_selected_port_in_candidates(first.second);
 }
 
-bool test_generate_from_guide_with_duplicate_points_is_robust() {
-  CoreState state;
-  const auto type_ids = sorted_pole_type_ids(state);
-  if (type_ids.empty()) {
-    return false;
-  }
-  wire::core::BackboneSpec req{};
-  req.path.polyline = {
-      {0.0, 0.0, 0.0},
-      {0.0, 0.0, 0.0}, // duplicate
-      {20.0, 0.0, 0.0},
-      {20.0, 0.0, 0.0}, // duplicate
-      {40.0, 0.0, 0.0},
-  };
-  req.interval_m = 10.0;
-  req.pole_type_id = type_ids.front();
-  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
-  const auto result = state.GenerateFromBackboneSpec(req);
-  if (!result.ok || result.value.generated_pole_ids.size() < 2) {
-    return false;
-  }
-  for (ObjectId pole_id : result.value.generated_pole_ids) {
-    const auto* pole = state.view().edit_state().poles.find(pole_id);
-    if (pole == nullptr) {
-      return false;
-    }
-    const auto& p = pole->world_transform.position;
-    if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z)) {
-      return false;
-    }
-    if (!almost_equal(p.z, 0.0, 1e-9)) {
-      return false;
-    }
-  }
-  return validate_now(state).ok();
-}
-
 bool test_generate_from_guide_reverse_mode_position_symmetry() {
   auto run_mode = [](wire::core::PathDirectionMode mode) {
     CoreState state;
@@ -625,79 +588,6 @@ bool test_detail_curve_offset_endpoint_uses_offset_endpoints() {
          !almost_equal(curve.EvaluatePosition(1.0), end.point, 1e-9);
 }
 
-bool test_inspection_backbone_uses_rebuilt_result_instead_of_last_snapshot() {
-  CoreState state;
-  const auto type_ids = sorted_pole_type_ids(state);
-  if (type_ids.empty()) {
-    return false;
-  }
-
-  wire::core::BackboneSpec req_a{};
-  req_a.path.polyline = {{-8.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {8.0, 0.0, 0.0}};
-  req_a.interval_m = 8.0;
-  req_a.pole_type_id = type_ids.front();
-  helpers::add_backbone_bundle(req_a, wire::core::BundleKind::kLowVoltage);
-  if (!state.GenerateFromBackboneSpec(req_a).ok) {
-    return false;
-  }
-  const ObjectId center_id = find_pole_id_by_position(state, {0.0, 0.0, 0.0});
-  if (center_id == wire::core::kInvalidObjectId) {
-    return false;
-  }
-
-  wire::core::BackboneSpec req_b{};
-  req_b.path.polyline = {{0.0, -8.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 8.0, 0.0}};
-  req_b.interval_m = 8.0;
-  req_b.pole_type_id = type_ids.front();
-  wire::core::BackboneInputSpec::NodeSpec shared_center{};
-  shared_center.point_index = 1;
-  shared_center.support_kind = wire::core::SupportKind::kPole;
-  shared_center.node_id = center_id;
-  req_b.path.node_specs.push_back(shared_center);
-  helpers::add_backbone_bundle(req_b, wire::core::BundleKind::kLowVoltage);
-  if (!state.GenerateFromBackboneSpec(req_b).ok) {
-    return false;
-  }
-
-  const auto rebuilt_before = state.SavedBackboneResult();
-  const auto* rebuilt_junction_before = find_junction(rebuilt_before, center_id);
-  const auto rebuilt_support_node_before =
-      std::find_if(rebuilt_before.nodes.begin(), rebuilt_before.nodes.end(),
-                   [&](const wire::core::SupportNode& node) { return node.node_id == center_id; });
-  if (rebuilt_junction_before == nullptr || rebuilt_support_node_before == rebuilt_before.nodes.end()) {
-    return false;
-  }
-
-  const auto junction_view_before = state.view().inspect_junction(center_id);
-  const auto support_node_view_before =
-      state.view().describe_entity({wire::core::EntityKind::kSupportNode, center_id});
-  if (!junction_view_before.has_value() || !support_node_view_before.has_value() ||
-      junction_view_before->incidents.size() != rebuilt_junction_before->incidents.size()) {
-    return false;
-  }
-
-  wire::core::BackboneSpec req_c{};
-  req_c.path.polyline = {{40.0, 0.0, 0.0}, {48.0, 0.0, 0.0}, {56.0, 0.0, 0.0}};
-  req_c.interval_m = 8.0;
-  req_c.pole_type_id = type_ids.front();
-  helpers::add_backbone_bundle(req_c, wire::core::BundleKind::kLowVoltage);
-  if (!state.GenerateFromBackboneSpec(req_c).ok) {
-    return false;
-  }
-
-  const auto rebuilt_after = state.SavedBackboneResult();
-  const auto rebuilt_support_node_it =
-      std::find_if(rebuilt_after.nodes.begin(), rebuilt_after.nodes.end(),
-                   [&](const wire::core::SupportNode& node) { return node.node_id == center_id; });
-  if (rebuilt_support_node_it == rebuilt_after.nodes.end()) {
-    return false;
-  }
-
-  const auto support_node_view_after =
-      state.view().describe_entity({wire::core::EntityKind::kSupportNode, center_id});
-  return support_node_view_after.has_value();
-}
-
 bool test_detail_curve_acute_case_applies_quality_fallback() {
   wire::core::CurveConstraint start{};
   start.point = {0.0, 0.0, 5.0};
@@ -1017,7 +907,6 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C61_Phase48h_AcuteCorner_AutoWidenSpacing", "Acute corners auto-widen lane spacing without category-specific branching", "Invariant", false, test_acute_corner_auto_widens_lane_spacing);
   test_registry::AddTest(tests, "C32_Phase47_SlotSelection_ContextBias", "Branch context biases band choice away from trunk-only", "Invariant", false, test_band_selection_context_bias);
   test_registry::AddTest(tests, "C33_Phase47_SlotSelection_DeterministicDebug", "Band tie-break is deterministic and debug record is coherent", "Exact", false, test_band_selection_deterministic_and_debug_integrity);
-  test_registry::AddTest(tests, "C57_Phase48h_Guide_DuplicatePointsRobust", "Guide generation with duplicate points stays finite and keeps path height along world up", "Invariant", false, test_generate_from_guide_with_duplicate_points_is_robust);
   test_registry::AddTest(tests, "C58_Phase48h_Guide_ReverseSymmetry", "Guide reverse mode preserves generated pole position set", "Invariant", false, test_generate_from_guide_reverse_mode_position_symmetry);
   test_registry::AddTest(tests, "C59_Phase48h_Guide_AvoidConstraint", "Guide generation avoids forbidden radius around avoid_points", "Invariant", false, test_generate_from_guide_respects_avoid_constraints);
   test_registry::AddTest(tests, "C37_Phase48_PreferredSide_Geometry", "Preferred side is decided by peer geometry", "Invariant", false, test_preferred_side_uses_geometry);
@@ -1073,9 +962,6 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C151_Variation_WorldspaceContinuous",
                          "Worldspace variation changes continuously across nearby positions",
                          "Invariant", false, test_hierarchical_variation_worldspace_is_continuous);
-  test_registry::AddTest(tests, "C258_Inspection_Backbone_UsesRebuiltResult",
-                         "Inspection resolves junction/support-node entities from rebuilt backbone instead of stale last_generation_backbone snapshot",
-                         "Invariant", false, test_inspection_backbone_uses_rebuilt_result_instead_of_last_snapshot);
   test_registry::AddTest(tests, "C161_DetailCurve_BranchLongSpan_SuppressesSidewaysRunout",
                          "Long branch spans keep support departure local and suppress large sideways runout",
                          "Invariant", false, test_detail_curve_branch_long_span_suppresses_sideways_runout);

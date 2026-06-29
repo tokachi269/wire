@@ -224,44 +224,6 @@ bool test_generate_from_guide_keeps_manual_boundaries_stable() {
          mid_after->placement_mode == wire::core::PlacementMode::kManual;
 }
 
-bool test_generate_from_guide_local_update_no_duplicate_unchanged_segments() {
-  CoreState state;
-  const auto type_ids = sorted_pole_type_ids(state);
-  if (type_ids.empty()) {
-    return false;
-  }
-
-  wire::core::BackboneSpec req{};
-  req.path.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
-  req.interval_m = 10.0;
-  req.pole_type_id = type_ids.front();
-  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
-
-  const auto first = state.GenerateFromBackboneSpec(req);
-  if (!first.ok || first.value.generated_span_ids.empty()) {
-    return false;
-  }
-  const std::size_t spans_after_first = state.view().edit_state().spans.size();
-
-  const auto second = state.GenerateFromBackboneSpec(req);
-  if (!second.ok) {
-    return false;
-  }
-  if (!second.value.generated_span_ids.empty()) {
-    return false;
-  }
-  if (state.view().edit_state().spans.size() != spans_after_first) {
-    return false;
-  }
-
-  req.path.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}, {30.0, 0.0, 0.0}};
-  const auto third = state.GenerateFromBackboneSpec(req);
-  if (!third.ok || third.value.generated_span_ids.empty()) {
-    return false;
-  }
-  return state.view().edit_state().spans.size() > spans_after_first;
-}
-
 bool test_generate_from_guide_vertices_are_not_forced_manual_by_default() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
@@ -432,7 +394,6 @@ void register_regeneration_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C52_Phase48c_PortMode_ProtectFromRelayout", "Manual ports are not overwritten by auto pole relayout", "Invariant", false, test_manual_port_not_overwritten_by_auto_relayout);
   test_registry::AddTest(tests, "C71_Phase48k_MovePole_ReprojectAutoPreserveManual", "MovePole reprojects owned Auto ports and preserves Manual ports", "Invariant", false, test_move_pole_reprojects_auto_ports_and_preserves_manual_ports);
   test_registry::AddTest(tests, "C53_Phase48h_Guide_ManualBoundaryStable", "Guide extension keeps explicitly pinned poles fixed", "Invariant", false, test_generate_from_guide_keeps_manual_boundaries_stable);
-  test_registry::AddTest(tests, "C54_Phase48h_Guide_LocalUpdate", "Guide regeneration adds only missing segments without duplicating unchanged spans", "Invariant", false, test_generate_from_guide_local_update_no_duplicate_unchanged_segments);
   test_registry::AddTest(tests, "C64_Phase48i_Guide_NoForcedManualVertices", "Guide generation does not force manual poles by default (including endpoints)", "Exact", false, test_generate_from_guide_vertices_are_not_forced_manual_by_default);
   test_registry::AddTest(tests, "C65_Phase48i_Guide_PinVerticesOption", "Guide pin_vertices option explicitly pins intermediate vertices", "Exact", false, test_generate_from_guide_pin_vertices_option);
   test_registry::AddTest(tests, "C66_Phase48i_PolePlacementMode_Roundtrip", "Pole placement mode can round-trip Auto<->Manual by API", "Exact", false, test_set_pole_placement_mode_auto_manual_roundtrip);

@@ -3,16 +3,11 @@
 #include "../pole_orientation_utils.hpp"
 #include "detail_utils.hpp"
 
-#include <array>
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <limits>
 #include <sstream>
-#include <tuple>
-#include <unordered_set>
-#include <utility>
 #include <vector>
 
 namespace wire::core {

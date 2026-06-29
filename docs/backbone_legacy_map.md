@@ -71,6 +71,7 @@
 | session regeneration | generated span/pole の session id と cleanup 順序 | 旧 family を退役。post-edit は coarse update plan + direct derive、構造変更は明示 regenerate/unsupported |
 | junction relation / constrained solver snapshot | relation snapshot、through-pair score、solver/order decision debug | 旧 family を退役。connectivity は pair/open/row、placement は support group、観測は saved graph/layout |
 | pole-global support axis | `pole.context`、preserved trunk pair、ConnectedDirectionFit、global yaw | 旧 family を退役。row axis は connectivity、pole yaw は表示用従属値 |
+| junction session priority | `prioritized_session_id`、generation session由来のprimary/order | 旧 family を退役。public junction はSavedGraph adjacency summaryであり、connectivity authorityではない |
 
 ## 削除候補と残存理由
 

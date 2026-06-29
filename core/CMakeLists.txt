@@ -74,7 +74,6 @@ if(BUILD_TESTING)
     tests/helpers.cpp
     tests/editing.cpp
     tests/geometry.cpp
-    tests/junction.cpp
     tests/bundle_visuals.cpp
     tests/regeneration.cpp
     tests/template_policy.cpp

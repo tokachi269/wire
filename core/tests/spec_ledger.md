@@ -57,9 +57,6 @@
 | C75 | Symptom | Generate/Edit | 非HV固定テンプレcount上書き拒否 | BackboneSpec + LV既定テンプレ | GenerateFromBackboneSpec(bundle=count指定) | Exact: fail（上書き不可） | error | 固定規格の強制 |
 | C77 | Symptom | Generate/Edit | 複数テンプレ同時生成 | BackboneSpec + LV/COMM複合指定 | GenerateFromBackboneSpec(bundles複数) | Invariant: bundleが複数生成され、Span数が合算本数に一致 | result.bundle_ids/generated spans | 複数束同時入力の成立 |
 | C80 | Symptom | General | center hintのPole非重なり | center hintを持つPoleType | PoleType適用でPort生成 | Invariant: center候補由来PortはPole中心線から半径+クリアランス分だけ離れる | port local/world位置 | center PortがPoleに埋まらない |
-| C82 | Symptom | Generate/Edit | T-junction の主系統 session は public junction result 上で先着優先を維持する | 2本の DrawPath が T 字で接続 | GenerateFromBackboneSpec を 2 回実行 → SavedBackboneResult | Invariant: center junction の prioritized_session_id と primary incident/order=0 は最初の session を維持し、後続 session は primary を奪わない | BackboneResult.junctions | 後から足した経路で主系統順が壊れない |
-| C83 | Authority | Decision | Cross junction の relation/order surface は再観測しても安定する | 交差 junction を再構築できる状態 | inspect_junction を繰り返し実行 | Invariant: incident order / source session / through-pair / local relation が再観測後も安定する | JunctionInspectionView | junction 順序や relation authority が再観測で揺れない |
-| C84 | Symptom | Generate/Edit | 後続 path は junction primary session を public junction result 上で上書きしない | 既存 path + 後から追加した DrawPath | GenerateFromBackboneSpec を追加実行 → SavedBackboneResult | Invariant: center junction の prioritized_session_id は初回 path のまま維持される | BackboneResult.junctions | 後続 path で既存 junction の主従が壊れない |
 | C50 | Symptom | General | Port初期モード | 新規Port追加 | AddPort | Exact: position_mode=Auto | port fields | 新規Port生成規則の固定 |
 | C51 | Symptom | Generate/Edit | Port手修正/解除 | 接続済Port | SetPortWorldPositionManual→ResetPortPositionToAuto | Invariant: Manual化→Auto復帰 | port position/mode | 手直し維持と復帰性 |
 | C52 | Symptom | Regenerate | Manual保護 | 手修正Portあり | SetPoleFlip180 | Invariant: Manual Port位置が維持される | port position/mode | 軽微再生成で手修正消失防止 |

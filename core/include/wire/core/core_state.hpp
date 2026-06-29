@@ -74,8 +74,6 @@ public:
                                             ConnectionCategory category = ConnectionCategory::kDrop);
   // Canonical path-generation API.
   EditResult<GenerateBundleFromPathResult> GenerateFromBackboneSpec(const BackboneSpec& spec);
-  EditResult<GenerateBundleFromPathResult> RegenerateSessionAutoParts(std::uint64_t generation_session_id,
-                                                                      const BackboneSpec& spec);
   // Interprets a viewer-side pick payload and updates support-node session state when needed.
   EditResult<ResolveBranchPickResult> ResolveBranchPick(const PickResult& pick);
   EditResult<ResolveBranchPickResult> ResolveBranchPick(const PickResult& pick,

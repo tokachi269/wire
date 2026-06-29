@@ -14,7 +14,6 @@ add_library(
   src/generation/bb2/out.cpp
   src/generation/bb2/pipeline.cpp
   src/generation/generate_from_backbone.cpp
-  src/generation/rebuild_from_backbone.cpp
   src/state/backbone.cpp
   src/validation/validator.cpp
   src/geometry/detail_curve.cpp

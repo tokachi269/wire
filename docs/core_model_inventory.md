@@ -59,7 +59,7 @@ Definition Layer
 | `ConductorLaneId`, `ConductorGroupState` | `core/include/wire/core/workflow_types.hpp` | 束生成時の lane 順序管理（内部）を保持する。 | bundle ref + lane order | `SessionDebug` |
 | `ChangeSet`, `EditResult<T>` | `core/include/wire/core/core_state.hpp` | 操作結果の外部観測差分を返す。 | entity IDs + error | `SessionDebug` |
 | `GenerateSimpleLine*`, `GenerateGroupedLine*` 入出力 | `core/include/wire/core/core_state.hpp` | 生成コマンド I/O を定義する。 | entity IDs + workflow params | `SessionDebug` |
-| `GenerateBundleFromPathResult`（`GenerateFromBackboneSpec` / `RegenerateSessionAutoParts` の戻り） | `core/include/wire/core/core_state.hpp` | backbone 生成系の共通結果（生成ID群）を定義する。 | generated bundle/span/pole IDs | `SessionDebug` |
+| `GenerateBundleFromPathResult`（`GenerateFromBackboneSpec` の戻り） | `core/include/wire/core/core_state.hpp` | backbone 生成結果の生成ID群を定義する。 | generated bundle/span/pole IDs | `SessionDebug` |
 | `PathDirectionCostBreakdown`, `PathDirectionEvaluationDebug` | `core/include/wire/core/debug_types.hpp` | 経路方向評価の診断内訳を保持する。 | scoring values | `SessionDebug` |
 | `SegmentLaneAssignment` | `core/include/wire/core/debug_types.hpp` | 区間ごとの lane 対応診断を保持する。 | poles/ports/placement candidate IDs | `SessionDebug` |
 | 配置候補診断レコード群 | `core/include/wire/core/debug_types.hpp` | 配置候補の選定診断とスコア内訳を保持する。 | score fields + IDs | `SessionDebug` |

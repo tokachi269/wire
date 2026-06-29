@@ -42,6 +42,10 @@
 | `support_layout_types.hpp` ファイル名 | `span_layout_types.hpp` へ置換済み | neutral layout 型を旧 support-layout ファイル名へ戻すこと |
 | `ResolvedSupportAuthority` / `JunctionPairAuthority` / `support_authority` | 削除済み | default のまま保存型に残る旧 authority object |
 | `BuildBackboneResult` / `BuildBackboneEdges` / `FindBackboneRoute` public query 旧名 | 削除済み | span-derived fallback 名や build 名の public query を戻すこと |
+| `GeneratePolesAlongRoad` / `GenerateSpansBetweenPoles` / `GenerateSimpleLine*` | 削除済み | bb2 を包む旧 road-generation API や別 result 型 |
+| `build_backbone_service.cpp` | 削除済み | pole-only generation と旧 auto-connect allocator |
+| `RegenerateSessionAutoParts` / `rebuild_from_backbone.cpp` | 削除済み | generated span の session 走査、snapshot rollback、出力からの identity 復元 |
+| `last_generation_junction_relations` | 削除済み | SavedBackboneGraph junction と競合する inspection fallback |
 
 ## viewer 境界
 
@@ -64,6 +68,9 @@
 | support-layout authority/seed/projection | `inspect_support_layout`、authority/seed/projection fields | bb2 では SavedBackboneGraph + pair/open/row + rules/layout/support group で見る。旧 object shape は移植しない |
 | attachment/socket/full insulator visual | support-layout materialization、full visual cache parts | bb2 supported scope 外。viewer-blocking になった場合だけ新 scenario として定義 |
 | public backbone query | `SavedBackboneResult`, `SavedBackboneEdges`, `FindSavedBackboneRoute` | saved graph backed query として維持。span-derived fallback は戻さない |
+| session regeneration | generated span/pole の session id と cleanup 順序 | 旧 family を退役。post-edit は coarse update plan + direct derive、構造変更は明示 regenerate/unsupported |
+| junction relation / constrained solver snapshot | relation snapshot、through-pair score、solver/order decision debug | 旧 family を退役。connectivity は pair/open/row、placement は support group、観測は saved graph/layout |
+| pole-global support axis | `pole.context`、preserved trunk pair、ConnectedDirectionFit、global yaw | 旧 family を退役。row axis は connectivity、pole yaw は表示用従属値 |
 
 ## 削除候補と残存理由
 
@@ -71,11 +78,13 @@
 |---|---|---|
 | `bb2` namespace/name | v1 同居中の暫定名 | v1/recalc/support-layout 本流依存を削り切った後に mainline 名へ rename |
 | dirty bits | editing/runtime/viewer が読む | coarse update boundary へ寄せた後、mutation tracking と旧制約用に残す範囲をさらに削る |
+| `last_generation_lane_assignments` | viewer capture/debug と残存 lane-order tests が読む | saved graph/layout/geom で置換できる viewer 情報を先に切る |
+| `last_generation_support_nodes` | branch-pick state と残存 tests が読む | saved backbone node readへ寄せてから削除判断 |
 
 ## 次に消せる family
 
-1. dirty bits のうち direct derive と重複する更新トリガーを削り、mutation tracking だけに縮める。
-2. `build_backbone_service.cpp` の旧 API family を、旧テスト制約単位で bb2 mainline API へ移すか退役する。
+1. viewer capture/debug の `last_generation_lane_assignments` 依存を neutral layout/saved binding へ移せるか判断する。
+2. `last_generation_support_nodes` を branch-pick state として残す必要があるか、SavedBackboneGraph node readで置換可能か判断する。
 
 ## 運用ルール
 

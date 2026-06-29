@@ -40,7 +40,7 @@ double polyline_length(const std::vector<wire::core::Vec3d>& points) {
   return length;
 }
 
-bool test_generate_poles_along_road_basic() {
+bool test_bb2_interval_generates_pole_line_basic() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
   if (type_ids.empty()) {
@@ -50,28 +50,36 @@ bool test_generate_poles_along_road_basic() {
   wire::core::RoadSegment road{};
   road.id = 10;
   road.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
-  const auto result = state.GeneratePolesAlongRoad(road, 5.0, type_ids.front());
+  wire::core::BackboneSpec spec{};
+  spec.path.polyline = road.polyline;
+  spec.interval_m = 5.0;
+  spec.pole_type_id = type_ids.front();
+  wire::core::BackboneBundleSpec bundle{};
+  bundle.bundle_template_id = bundle_template_for_category_test(wire::core::ConnectionCategory::kLowVoltage);
+  spec.bundles.push_back(bundle);
+
+  const auto result = state.GenerateFromBackboneSpec(spec);
   if (!result.ok) {
     return false;
   }
-  if (result.value.size() != 5) {
+  if (result.value.generated_pole_ids.size() != 5) {
     return false;
   }
 
-  for (std::size_t i = 0; i < result.value.size(); ++i) {
-    const auto* pole = state.view().edit_state().poles.find(result.value[i]);
+  for (std::size_t i = 0; i < result.value.generated_pole_ids.size(); ++i) {
+    const auto* pole = state.view().edit_state().poles.find(result.value.generated_pole_ids[i]);
     if (pole == nullptr) {
       return false;
     }
     if (pole->pole_type_id != type_ids.front()) {
       return false;
     }
-    if (!pole->generation.generated || pole->generation.source != wire::core::GenerationSource::kRoadAuto) {
-      return false;
-    }
     if (!almost_equal(pole->world_transform.position.y, 0.0) || !almost_equal(pole->world_transform.position.z, 0.0)) {
       return false;
     }
+  }
+  if (state.view().backbone().nodes.size() != result.value.generated_pole_ids.size()) {
+    return false;
   }
   return true;
 }
@@ -1644,7 +1652,9 @@ bool test_hierarchical_variation_worldspace_is_continuous() {
 }
 
 void register_geometry_tests(test_registry::TestRegistry& tests) {
-  test_registry::AddTest(tests, "C19_Phase45_GeneratePolesAlongRoad_Basic", "Road interval generates pole line with pole type", "Invariant", false, test_generate_poles_along_road_basic);
+  test_registry::AddTest(tests, "C19_bb2_interval_generates_pole_line_basic",
+                         "bb2 interval generation creates a pole line with pole type", "Invariant", false,
+                         test_bb2_interval_generates_pole_line_basic);
   test_registry::AddTest(tests, "C30_Phase47_PoleContext_Classification", "Pole context classification marks terminal/straight/corner", "Invariant", false, test_pole_context_classification_basic);
   test_registry::AddTest(tests, "C31_Phase47_AngleCorrection_Bounds", "Angle correction side scale stays finite and bounded", "Invariant", false, test_angle_correction_bounds_and_finite);
   test_registry::AddTest(tests, "C35_Phase47_CornerTurnSign_OuterBias", "Corner turn sign expands outer side more than inner side", "Invariant", false, test_corner_turn_sign_biases_outer_side);

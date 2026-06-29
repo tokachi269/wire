@@ -22,7 +22,7 @@
 | C10 | Symptom | General | 同一Pole接続拒否 | Pole1本 | 同一Pole接続後に正常操作 | Exact: fail+復帰可 | error/後続成功 | 誤操作耐性 |
 | C11 | Symptom | Generate/Edit | 柱起点引込 | PoleType適用済 | AddDropFromPole | Invariant: service span生成 | spans/ports | 引込崩壊防止 |
 | C12 | Symptom | Generate/Edit | 線起点引込 | Span1本 | AddDropFromSpan | Invariant: split+drop整合 | spans/index | 分岐引込維持 |
-| C19 | Symptom | Generate/Edit | 道路Pole生成 | PoleTypeあり | GeneratePolesAlongRoad | Invariant: 本数/Type/RoadAuto | poles/generation | 自動配置信頼性 |
+| C19 | Symptom | Generate/Edit | interval Pole生成 | PoleTypeあり | GenerateFromBackboneSpec(interval) | Invariant: 本数/Type/saved graph node | poles/backbone | interval 自動配置信頼性 |
 | C20 | Symptom | Generate/Edit | 短polyline拒否 | PoleTypeあり | GenerateFromBackboneSpec(点1) | Exact: fail+状態不変 | error/count | 入力ミス耐性 |
 | C21 | Symptom | Generate/Edit | interval不正拒否 | PoleTypeあり | GenerateSimpleLine(interval<=0) | Exact: fail+状態不変 | error/count | 設定ミス耐性 |
 | C22 | Symptom | Generate/Edit | 存在しないPort拒否 | 空状態 | AddSpan(無効ID) | Exact: fail+状態不変 | error/count | 参照不正耐性 |

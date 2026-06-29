@@ -54,29 +54,6 @@ bool test_generate_simple_line_fails_with_short_polyline() {
       .ok;
 }
 
-bool test_generate_simple_line_fails_with_invalid_interval() {
-  CoreState state;
-  const auto type_ids = sorted_pole_type_ids(state);
-  if (type_ids.empty()) {
-    return false;
-  }
-  const CoreCounts before = snapshot_counts(state);
-  wire::core::RoadSegment road{};
-  road.id = 81;
-  road.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}};
-  const auto result = state.GenerateSimpleLine(road, 0.0, type_ids.front(), ConnectionCategory::kLowVoltage);
-  if (result.ok) {
-    return false;
-  }
-  if (result.error != "interval must be > 0") {
-    return false;
-  }
-  if (!same_counts(before, snapshot_counts(state))) {
-    return false;
-  }
-  return state.GenerateSimpleLine(road, 5.0, type_ids.front(), ConnectionCategory::kLowVoltage).ok;
-}
-
 bool test_add_connection_same_pole_fails_and_recovers() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
@@ -261,7 +238,6 @@ bool test_style_context_resolver_is_deterministic_and_route_correlated() {
 
 void register_workflow_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C20_Phase46_GenerateSimpleLine_FailShortPolyline", "Simple line short polyline fails with state unchanged", "Exact", true, test_generate_simple_line_fails_with_short_polyline);
-  test_registry::AddTest(tests, "C21_Phase46_GenerateSimpleLine_FailInvalidInterval", "Simple line invalid interval fails with state unchanged", "Exact", true, test_generate_simple_line_fails_with_invalid_interval);
   test_registry::AddTest(tests, "C10_AddConnectionByPole_FailSamePole", "Same-pole connect fails with diagnostics and recovers", "Exact", true, test_add_connection_same_pole_fails_and_recovers);
   test_registry::AddTest(tests, "C22_AddSpan_FailMissingPorts", "AddSpan invalid port failure leaves state recoverable", "Exact", true, test_add_span_missing_ports_fails_and_recovers);
   test_registry::AddTest(tests, "C23_SplitSpan_FailInvalidT", "SplitSpan invalid t failure leaves state recoverable", "Exact", true, test_split_span_invalid_t_fails_and_recovers);

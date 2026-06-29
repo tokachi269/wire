@@ -72,12 +72,6 @@ struct AddDropResult {
   ObjectId split_port_id = kInvalidObjectId;
 };
 
-struct GenerateSimpleLineResult {
-  std::vector<ObjectId> pole_ids{};
-  std::vector<ObjectId> span_ids{};
-  std::uint64_t generation_session_id = 0;
-};
-
 struct GenerateBundleFromPathResult {
   ObjectId bundle_id = kInvalidObjectId;
   std::vector<ObjectId> bundle_ids{};

@@ -24,18 +24,17 @@
 | C12 | Symptom | Generate/Edit | 線起点引込 | Span1本 | AddDropFromSpan | Invariant: split+drop整合 | spans/index | 分岐引込維持 |
 | C19 | Symptom | Generate/Edit | interval Pole生成 | PoleTypeあり | GenerateFromBackboneSpec(interval) | Invariant: 本数/Type/saved graph node | poles/backbone | interval 自動配置信頼性 |
 | C20 | Symptom | Generate/Edit | 短polyline拒否 | PoleTypeあり | GenerateFromBackboneSpec(点1) | Exact: fail+状態不変 | error/count | 入力ミス耐性 |
-| C21 | Symptom | Generate/Edit | interval不正拒否 | PoleTypeあり | GenerateSimpleLine(interval<=0) | Exact: fail+状態不変 | error/count | 設定ミス耐性 |
 | C22 | Symptom | Generate/Edit | 存在しないPort拒否 | 空状態 | AddSpan(無効ID) | Exact: fail+状態不変 | error/count | 参照不正耐性 |
 | C23 | Symptom | Generate/Edit | Split t不正拒否 | Span1本 | SplitSpan(t=0) | Exact: fail+復帰可 | error/spans | 失敗後復帰 |
 | C28 | Symptom | Generate/Edit | through連続性 | 直線入力 | GenerateFromBackboneSpec | Invariant: 中間Pole同Port再利用 | span端点Port | 幹線連続維持 |
 | C29 | Symptom | Init | 表示ID採番 | 新規CoreState | Pole/Port/Span追加 | Exact: prefix別連番 | display_id | UI追跡性 |
-| C30 | Symptom | Generate/Edit | Pole文脈分類 | 直線+折れ線 | GeneratePolesAlongRoad | Invariant: Terminal/Straight/Corner | pole.context | 文脈基盤維持 |
+| C30 | Symptom | Generate/Edit | Pole文脈分類 | 直線+折れ線 | GenerateFromBackboneSpec | Invariant: Terminal/Straight/Corner | pole.context | 文脈基盤維持 |
 | C31 | Symptom | General | 角補正有界 | 補正ON | 折れ線生成 | Invariant: sideScale有界+有限 | pole/port | 補正暴走防止 |
 | C32 | Symptom | General | 文脈別選定 | 3Pole | Trunk接続+Branch接続 | Invariant: 選定傾向差 | selected_port_id/template_side | 分岐競合低減 |
 | C33 | Symptom | Generate/Edit | 決定的タイブレーク | 同一入力2回 | AddConnectionByPole | Exact: 同一Port解決+debug整合 | port_resolution_debug_records | 再現性 |
 | C34 | Symptom | Generate/Edit | Corner文脈統合 | 折れ線 | GenerateSimpleLine | Invariant: ガイド頂点PoleがCorner文脈のまま生成される | pole.context | 角付き路線維持 |
-| C35 | Symptom | Generate/Edit | 内外補正差 | 左折/右折 | GeneratePolesAlongRoad | Invariant: 外側オフセット>内側 | turn_sign/port local座標 | 角圧縮の低減 |
-| C61 | Symptom | Generate/Edit | 鋭角自動拡幅 | 鋭角/鈍角の同一テンプレート比較 | GenerateSimpleLineFromPoints | Invariant: 鋭角の左右レーン間隔が鈍角より広い（カテゴリ非依存） | corner poleのlocal Y差 | 鋭角での線間距離不足防止 |
+| C35 | Symptom | Generate/Edit | 内外補正差 | 左折/右折 | GenerateFromBackboneSpec | Invariant: 外側オフセット>内側 | turn_sign/port local座標 | 角圧縮の低減 |
+| C61 | Symptom | Generate/Edit | 鋭角自動拡幅 | 鋭角/鈍角の同一テンプレート比較 | GenerateFromBackboneSpec | Invariant: 鋭角の左右レーン間隔が鈍角より広い（カテゴリ非依存） | corner poleのlocal Y差 | 角での線間距離不足防止 |
 | C62 | Symptom | Generate/Edit | 群レーンねじれ抑制 | U字Guide + HV3 lane | GenerateFromBackboneSpec(HV_3PH) | Invariant: 区間ごとのlane順逆転数が0 | lane assignment port local Y順 | 群配線のクロス抑制 |
 | C76 | Symptom | Generate/Edit | 鋭角コーナーlane順反転抑制 | 鋭角コーナーを含むGuide + COMM4 lane | GenerateFromBackboneSpec(COMM,count=4) | Invariant: 区間ごとのlane順逆転数が0 | lane assignmentのport local Y順 | 鋭角時の見た目破綻防止 |
 | C99 | Symptom | LanePrep | HV3キャプチャ形状の反転回帰 | ねじれ再現点列（6点）+ HV3 | GenerateFromBackboneSpec(HV_3PH) | Invariant: HV lane polyline は XY 交差も adjacent discontinuity も出さない | last_lane_assignments / Port.world_position | 実運用形状でのねじれ再発防止 |
@@ -82,13 +81,12 @@
 | C239 | Authority | LanePrep | HV3 same-level は non-fixed order decision を保持する | HV3 zigzag / through 継続 path | GenerateFromBackboneSpec(HV) | Invariant: HV3 は `PermutableHomogeneous` として扱われ、same-level 継続でも authoritative な non-fixed order decision が残る | BackboneEdgeOrientation の authoritative order-decision fields (`order_decision_*`) | HV3 を固定線順として扱い続け、junction 近傍のねじれ最小化を禁止する回帰防止 |
 | C241 | Authority | LanePrep | identity-preserving bundle は non-fixed order evaluation を使わない | HV template を `preserve_conductor_identity=true` にした zigzag path | CoreStateTestHook で template 変更→GenerateFromBackboneSpec(HV) | Invariant: conductor identity を保持する bundle では non-fixed order evaluation に入らず、order decision surface は fixed-order policy のまま残る | BackboneEdgeOrientation の authoritative order-decision fields (`order_decision_*`) | fixed-order/labeled bundle まで雑に permutation 可扱いする回帰防止 |
 | C243 | Authority | LanePrep | point-like route は order permutation 非対象 | LV 3点 path | GenerateFromBackboneSpec(LV) | Invariant: point-like route は `FixedOrder` のままで、HV3 用 order permutation policy を勝手に受けない | BackboneEdgeOrientation の authoritative order-decision fields (`order_decision_*`) | point-like まで order 最適化を誤適用する回帰防止 |
-| C36 | Symptom | Generate/Edit | DrawPath点直配置 | クリック点3 | GenerateSimpleLineFromPoints | Exact: Pole数=点数,位置一致,yaw一致 | pole position/yaw | DrawPath直感性 |
+| C36 | Symptom | Generate/Edit | DrawPath点直配置 | クリック点3 | GenerateFromBackboneSpec | Exact: Pole数=点数,位置一致,yaw一致 | pole position/yaw | DrawPath直感性 |
 | C37 | Symptom | Generate/Edit | 幾何based side選定 | 2Pole(左右) | AddConnectionByPole(Branch) | Invariant: 右手前でRight,左手前でLeft | selected port template_side | 偶奇依存排除 |
 | C38 | Symptom | Generate/Edit | 高圧3相群生成 | 有効Path | GenerateFromBackboneSpec(HV_3PH) | Invariant: 3レーン×区間数生成, lane記録あり | span数/bundle/lane_assignments | 高圧ねじれ抑制 |
 | C39 | Symptom | Generate/Edit | 方向強制モード | 有効Path | GenerateFromBackboneSpec(direction=Reverse) | Exact: Reverseが採用される | direction_debug/先頭Pole | 手動比較可能性 |
 | C40 | Symptom | General | Pole flip_180 | 接続済Pole | SetPoleFlip180(true) | Invariant: 配下Port更新 | port位置 | 局所向き修正性 |
-| C43 | Symptom | Generate/Edit | 鋭角時Port展開軸補正 | クリック点3(コーナー内角<=74°) | GenerateSimpleLineFromPoints | Invariant: 中間Poleのside軸が内角二等分線に直交し、内側へ向かない | pole yaw/context(sharp_theta,b,side_dir) | 鋭角での線間距離潰れ抑制 |
-| C108 | Symptom | LanePrep | 鋭角向きの入口間一致 | 同一acute pathをSimple/Backboneで生成 | GenerateSimpleLineFromPoints / GenerateFromBackboneSpec | Invariant: 中間Poleのyawとsharp debugが一致 | pole yaw/context(sharp_side_dir,sharp_bisector_dir) | 入口ごとの別向き決定の再混入防止 |
+| C43 | Symptom | Generate/Edit | 鋭角時Port展開軸補正 | クリック点3(コーナー内角<=74°) | GenerateFromBackboneSpec | Invariant: 中間Poleのside軸が内角二等分線に直交し、内側へ向かない | pole yaw/context(sharp_theta,b,side_dir) | 鋭角での線間距離潰れ抑制 |
 | C109 | Symptom | Generate/Edit | HV3 captureの内部共有pole順序連続 | capture再現8点 path | GenerateFromBackboneSpec(HV_3PH) | Invariant: terminal fan-out を除く内部の隣接segment間では共有pole上のlane順序が連続する | lane assignments / shared-pole local ordering | perpendicular row 方針でも内部のmain-chain continuityが崩れない回帰防止 |
 | C44 | Authority | Validate | Bundle参照API整合 | Span1本+Bundle作成 | AddBundle + AddSpan + GetSpansByBundle | Invariant: Spanがbundle参照を保持し検索整合 | span fields/query API/Validate | 複数本配線の正本一貫性維持 |
 | C45 | Symptom | Generate/Edit | 不正Bundle参照拒否 | Span1本 | AddSpan(bundle_id不正) | Exact: failし状態保全, 診断文言あり | error/span fields | 不正参照でデータ破壊しない |
@@ -120,7 +118,7 @@
 | C53 | Symptom | Generate/Edit | BackboneSpec境界手動点安定 | BackboneSpec初回生成済 | BackboneSpec延長して再GenerateFromBackboneSpec | Invariant: 既存Manual境界Poleの位置/Mode不変 | pole position/mode | 軽微変更で手直し消失防止 |
 | C54 | Symptom | Regenerate | BackboneSpec局所更新 | BackboneSpec生成済 | 同一BackboneSpec再実行→延長再実行 | Invariant: 同一入力で重複増殖なし、延長で末端のみ追加 | span数/生成結果 | 全再生成回帰防止 |
 | C55 | Symptom | General | Backbone経路 | Bundle付きSpan生成済 | SavedBackboneEdges/FindSavedBackboneRoute | Invariant: bundle付きedge構築と経路取得 | backbone edge/route | ルート計算基盤維持 |
-| C56 | Symptom | LanePrep | 鋭角閾値境界 | 非対称3点角（コーナー内角基準） | コーナー内角74度/75度/76度でGenerateSimpleLineFromPoints | Invariant: `内角<=74`で補正適用、`内角>74`で非適用 | middle pole context.sharp_orientation_applied | 閾値バグによる向き破綻防止 |
+| C56 | Symptom | LanePrep | 鋭角閾値境界 | 非対称3点角（コーナー内角基準） | コーナー内角74度/75度/76度でGenerateFromBackboneSpec | Invariant: `内角<=74`で補正適用、`内角>74`で非適用 | middle pole context.sharp_orientation_applied | 閾値バグによる向き破綻防止 |
 | C60 | Symptom | Regenerate | Guide再利用頂点の向き再評価 | 既存頂点Poleを再利用可能なGuide | 同一Guideを再生成（頂点PoleのYawを事前に崩す） | Invariant: override無しなら再利用頂点Poleのside軸が二等分線直交方向へ再評価される | vertex pole yaw/context(sharp_*) | 再生成で角向きが古いまま残る不具合防止 |
 | C57 | Symptom | Validate | Guide重複点ロバスト | PoleTypeあり | 重複点含むGuideでGenerateFromBackboneSpec | Invariant: 成功しPole座標有限、pathのworld up方向高さを維持 | generated pole positions/Validate | 入力ノイズ耐性 |
 | C58 | Symptom | Generate/Edit | Reverse対称性 | 同一Guide | Forward/ReverseでGenerateFromBackboneSpec | Invariant: 生成Pole位置集合が一致（順序非依存） | generated pole positions set | 方向モードで幾何が破綻しない |

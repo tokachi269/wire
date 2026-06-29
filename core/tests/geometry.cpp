@@ -40,6 +40,19 @@ double polyline_length(const std::vector<wire::core::Vec3d>& points) {
   return length;
 }
 
+wire::core::EditResult<wire::core::GenerateBundleFromPathResult>
+generate_road(CoreState& state, const wire::core::RoadSegment& road, double interval,
+              wire::core::PoleTypeId pole_type_id) {
+  wire::core::BackboneSpec spec{};
+  spec.path.polyline = road.polyline;
+  spec.interval_m = interval;
+  spec.pole_type_id = pole_type_id;
+  wire::core::BackboneBundleSpec bundle{};
+  bundle.bundle_template_id = wire::core::BundleKind::kLowVoltage;
+  spec.bundles.push_back(bundle);
+  return state.GenerateFromBackboneSpec(spec);
+}
+
 bool test_bb2_interval_generates_pole_line_basic() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
@@ -94,14 +107,14 @@ bool test_pole_context_classification_basic() {
   wire::core::RoadSegment straight{};
   straight.id = 901;
   straight.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
-  const auto straight_result = state.GeneratePolesAlongRoad(straight, 5.0, type_ids.front());
-  if (!straight_result.ok || straight_result.value.size() < 3) {
+  const auto straight_result = generate_road(state, straight, 5.0, type_ids.front());
+  if (!straight_result.ok || straight_result.value.generated_pole_ids.size() < 3) {
     return false;
   }
 
-  const auto* first = state.view().edit_state().poles.find(straight_result.value.front());
-  const auto* middle = state.view().edit_state().poles.find(straight_result.value[1]);
-  const auto* last = state.view().edit_state().poles.find(straight_result.value.back());
+  const auto* first = state.view().edit_state().poles.find(straight_result.value.generated_pole_ids.front());
+  const auto* middle = state.view().edit_state().poles.find(straight_result.value.generated_pole_ids[1]);
+  const auto* last = state.view().edit_state().poles.find(straight_result.value.generated_pole_ids.back());
   if (first == nullptr || middle == nullptr || last == nullptr) {
     return false;
   }
@@ -119,13 +132,13 @@ bool test_pole_context_classification_basic() {
   wire::core::RoadSegment corner{};
   corner.id = 902;
   corner.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {10.0, 10.0, 0.0}};
-  const auto corner_result = corner_state.GeneratePolesAlongRoad(corner, 5.0, corner_type_ids.front());
+  const auto corner_result = generate_road(corner_state, corner, 5.0, corner_type_ids.front());
   if (!corner_result.ok) {
     return false;
   }
 
   bool found_corner = false;
-  for (ObjectId pole_id : corner_result.value) {
+  for (ObjectId pole_id : corner_result.value.generated_pole_ids) {
     const auto* pole = corner_state.view().edit_state().poles.find(pole_id);
     if (pole != nullptr && pole->context.kind == wire::core::PoleContextKind::kCorner) {
       if (pole->context.corner_angle_deg <= 0.0 || pole->context.side_scale < 1.0) {
@@ -156,13 +169,13 @@ bool test_angle_correction_bounds_and_finite() {
   wire::core::RoadSegment road{};
   road.id = 903;
   road.polyline = {{0.0, 0.0, 0.0}, {8.0, 0.0, 0.0}, {8.0, 8.0, 0.0}};
-  const auto result = state.GeneratePolesAlongRoad(road, 4.0, type_ids.front());
+  const auto result = generate_road(state, road, 4.0, type_ids.front());
   if (!result.ok) {
     return false;
   }
 
   bool found_corrected_port = false;
-  for (ObjectId pole_id : result.value) {
+  for (ObjectId pole_id : result.value.generated_pole_ids) {
     const auto* pole = state.view().edit_state().poles.find(pole_id);
     if (pole == nullptr || pole->context.kind != wire::core::PoleContextKind::kCorner) {
       continue;
@@ -206,13 +219,13 @@ bool test_corner_turn_sign_biases_outer_side() {
     wire::core::RoadSegment road{};
     road.id = expect_left_turn_outer_right ? 905 : 906;
     road.polyline = polyline;
-    const auto result = state.GeneratePolesAlongRoad(road, 4.0, type_ids.front());
+    const auto result = generate_road(state, road, 4.0, type_ids.front());
     if (!result.ok) {
       return false;
     }
 
     const wire::core::Pole* corner_pole = nullptr;
-    for (ObjectId pole_id : result.value) {
+    for (ObjectId pole_id : result.value.generated_pole_ids) {
       const auto* pole = state.view().edit_state().poles.find(pole_id);
       if (pole != nullptr && pole->context.kind == wire::core::PoleContextKind::kCorner) {
         corner_pole = pole;
@@ -280,13 +293,12 @@ bool test_acute_corner_auto_widens_lane_spacing() {
         {10.0, 0.0, 0.0},
         {10.0 + 10.0 * std::cos(out_heading), 10.0 * std::sin(out_heading), 0.0},
     };
-    const auto gen =
-        state.GenerateSimpleLineFromPoints(road, type_ids.front(), wire::core::ConnectionCategory::kLowVoltage);
-    if (!gen.ok || gen.value.pole_ids.size() != 3) {
+    const auto gen = generate_road(state, road, polyline_length(road.polyline) + 1.0, type_ids.front());
+    if (!gen.ok || gen.value.generated_pole_ids.size() != 3) {
       return std::numeric_limits<double>::quiet_NaN();
     }
 
-    const auto* pole = state.view().edit_state().poles.find(gen.value.pole_ids[1]);
+    const auto* pole = state.view().edit_state().poles.find(gen.value.generated_pole_ids[1]);
     if (pole == nullptr) {
       return std::numeric_limits<double>::quiet_NaN();
     }
@@ -409,9 +421,8 @@ bool test_generate_simple_line_corner_context_integration() {
   wire::core::RoadSegment road{};
   road.id = 904;
   road.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}, {12.0, 12.0, 0.0}};
-  const auto result =
-      state.GenerateSimpleLine(road, 4.0, type_ids.front(), wire::core::ConnectionCategory::kLowVoltage);
-  if (!result.ok || result.value.span_ids.empty() || result.value.pole_ids.empty()) {
+  const auto result = generate_road(state, road, 4.0, type_ids.front());
+  if (!result.ok || result.value.generated_span_ids.empty() || result.value.generated_pole_ids.empty()) {
     return false;
   }
 
@@ -436,20 +447,19 @@ bool test_generate_simple_line_from_points_exact_poles_and_orientation() {
   wire::core::RoadSegment road{};
   road.id = 907;
   road.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {10.0, 10.0, 0.0}};
-  const auto result =
-      state.GenerateSimpleLineFromPoints(road, type_ids.front(), wire::core::ConnectionCategory::kLowVoltage);
+  const auto result = generate_road(state, road, polyline_length(road.polyline) + 1.0, type_ids.front());
   if (!result.ok) {
     return false;
   }
-  if (result.value.pole_ids.size() != road.polyline.size()) {
+  if (result.value.generated_pole_ids.size() != road.polyline.size()) {
     return false;
   }
-  if (result.value.span_ids.size() != road.polyline.size() - 1) {
+  if (result.value.generated_span_ids.size() != road.polyline.size() - 1) {
     return false;
   }
 
   for (std::size_t i = 0; i < road.polyline.size(); ++i) {
-    const auto* pole = state.view().edit_state().poles.find(result.value.pole_ids[i]);
+    const auto* pole = state.view().edit_state().poles.find(result.value.generated_pole_ids[i]);
     if (pole == nullptr) {
       return false;
     }
@@ -458,9 +468,9 @@ bool test_generate_simple_line_from_points_exact_poles_and_orientation() {
     }
   }
 
-  const auto* first = state.view().edit_state().poles.find(result.value.pole_ids[0]);
-  const auto* middle = state.view().edit_state().poles.find(result.value.pole_ids[1]);
-  const auto* last = state.view().edit_state().poles.find(result.value.pole_ids[2]);
+  const auto* first = state.view().edit_state().poles.find(result.value.generated_pole_ids[0]);
+  const auto* middle = state.view().edit_state().poles.find(result.value.generated_pole_ids[1]);
+  const auto* last = state.view().edit_state().poles.find(result.value.generated_pole_ids[2]);
   if (first == nullptr || middle == nullptr || last == nullptr) {
     return false;
   }
@@ -487,12 +497,12 @@ bool test_generate_simple_line_from_points_sharp_corner_perpendicular_orientatio
       {10.0, 0.0, 0.0},
       {5.0, 8.660254037844386, 0.0}, // interior ~= 60 deg at middle
   };
-  const auto result = state.GenerateSimpleLineFromPoints(road, pole_type_ids.front(), ConnectionCategory::kLowVoltage);
-  if (!result.ok || result.value.pole_ids.size() != 3) {
+  const auto result = generate_road(state, road, polyline_length(road.polyline) + 1.0, pole_type_ids.front());
+  if (!result.ok || result.value.generated_pole_ids.size() != 3) {
     return false;
   }
 
-  const auto* middle = state.view().edit_state().poles.find(result.value.pole_ids[1]);
+  const auto* middle = state.view().edit_state().poles.find(result.value.generated_pole_ids[1]);
   if (middle == nullptr) {
     return false;
   }
@@ -544,12 +554,11 @@ bool test_sharp_corner_threshold_boundary_orientation() {
         {0.0, 0.0, 0.0},
         {20.0 * std::cos(out_heading_rad), 20.0 * std::sin(out_heading_rad), 0.0},
     };
-    const auto result =
-        state.GenerateSimpleLineFromPoints(road, pole_type_ids.front(), wire::core::ConnectionCategory::kLowVoltage);
-    if (!result.ok || result.value.pole_ids.size() != 3) {
+    const auto result = generate_road(state, road, polyline_length(road.polyline) + 1.0, pole_type_ids.front());
+    if (!result.ok || result.value.generated_pole_ids.size() != 3) {
       return {std::numeric_limits<double>::quiet_NaN(), false};
     }
-    const auto* middle = state.view().edit_state().poles.find(result.value.pole_ids[1]);
+    const auto* middle = state.view().edit_state().poles.find(result.value.generated_pole_ids[1]);
     if (middle == nullptr) {
       return {std::numeric_limits<double>::quiet_NaN(), false};
     }
@@ -694,71 +703,6 @@ bool test_generate_from_guide_reused_vertex_reorients_to_corner_rule() {
   const wire::core::Vec3d bisector = normalize_xy_safe({u0.x + u1.x, u0.y + u1.y, 0.0});
   const wire::core::Vec3d side_from_yaw = local_side_axis_from_yaw(vertex->world_transform.rotation_euler_deg.z);
   return vertex->context.sharp_orientation_applied && std::abs(dot_xy(side_from_yaw, bisector)) <= 1e-6;
-}
-
-bool test_sharp_corner_orientation_consistent_across_entry_paths() {
-  const std::vector<wire::core::Vec3d> polyline = {
-      {0.0, 0.0, 0.0},
-      {10.0, 0.0, 0.0},
-      {5.0, 8.660254037844386, 0.0},
-  };
-
-  CoreState simple_state;
-  const auto simple_type_ids = sorted_pole_type_ids(simple_state);
-  if (simple_type_ids.empty()) {
-    return false;
-  }
-  wire::core::RoadSegment road{};
-  road.id = 960;
-  road.polyline = polyline;
-  const auto simple = simple_state.GenerateSimpleLineFromPoints(road, simple_type_ids.front(),
-                                                                wire::core::ConnectionCategory::kLowVoltage);
-  if (!simple.ok) {
-    return false;
-  }
-  const ObjectId simple_middle_id = find_pole_id_by_position(simple_state, polyline[1]);
-  if (simple_middle_id == wire::core::kInvalidObjectId) {
-    return false;
-  }
-  const auto* simple_middle = simple_state.view().edit_state().poles.find(simple_middle_id);
-  if (simple_middle == nullptr) {
-    return false;
-  }
-
-  CoreState backbone_state;
-  const auto backbone_type_ids = sorted_pole_type_ids(backbone_state);
-  if (backbone_type_ids.empty()) {
-    return false;
-  }
-  wire::core::BackboneSpec req{};
-  req.path.polyline = polyline;
-  req.interval_m = 1000.0;
-  req.pole_type_id = backbone_type_ids.front();
-  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
-  const auto backbone = backbone_state.GenerateFromBackboneSpec(req);
-  if (!backbone.ok) {
-    return false;
-  }
-  const ObjectId backbone_middle_id = find_pole_id_by_position(backbone_state, polyline[1]);
-  if (backbone_middle_id == wire::core::kInvalidObjectId) {
-    return false;
-  }
-  const auto* backbone_middle = backbone_state.view().edit_state().poles.find(backbone_middle_id);
-  if (backbone_middle == nullptr) {
-    return false;
-  }
-
-  const wire::core::Vec3d simple_side = normalize_xy_safe(simple_middle->context.sharp_side_dir);
-  const wire::core::Vec3d backbone_side = normalize_xy_safe(backbone_middle->context.sharp_side_dir);
-  const wire::core::Vec3d simple_bisector = normalize_xy_safe(simple_middle->context.sharp_bisector_dir);
-  const wire::core::Vec3d backbone_bisector = normalize_xy_safe(backbone_middle->context.sharp_bisector_dir);
-
-  return simple_middle->context.sharp_orientation_applied &&
-         backbone_middle->context.sharp_orientation_applied &&
-         angle_diff_abs_deg(simple_middle->world_transform.rotation_euler_deg.z,
-                            backbone_middle->world_transform.rotation_euler_deg.z) <= 1e-6 &&
-         std::abs(dot_xy(simple_side, backbone_side) - 1.0) <= 1e-6 &&
-         std::abs(dot_xy(simple_bisector, backbone_bisector) - 1.0) <= 1e-6;
 }
 
 bool test_generate_from_guide_reused_pole_reprojects_owned_ports() {
@@ -1667,7 +1611,6 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C56_Phase48h_SharpCorner_ThresholdBoundary", "Sharp-corner orientation applies at <=74deg and disables above threshold", "Invariant", false, test_sharp_corner_threshold_boundary_orientation);
   test_registry::AddTest(tests, "C60_Phase48h_Guide_ReusedVertexReorient", "Reused guide vertex pole is reoriented by sharp-corner rule when not manually overridden", "Invariant", false, test_generate_from_guide_reused_vertex_reorients_to_corner_rule);
   test_registry::AddTest(tests, "C294_Phase48h_Guide_ReusedTiltedVertexSharpCorner", "Reused tilted guide vertex keeps sharp-corner side axis perpendicular on the tilted support plane", "Invariant", false, test_generate_from_guide_reused_tilted_vertex_keeps_sharp_corner_perpendicular);
-  test_registry::AddTest(tests, "C108_Phase56_SharpCorner_EntryConsistency", "Sharp-corner pole orientation stays identical between simple-line and backbone entry paths", "Invariant", false, test_sharp_corner_orientation_consistent_across_entry_paths);
   test_registry::AddTest(tests, "C70_Phase48h_Guide_ReusedVertexPortReproject", "Reused guide vertex reprojections move template-owned ports when corner orientation changes", "Invariant", false, test_generate_from_guide_reused_pole_reprojects_owned_ports);
   test_registry::AddTest(tests, "C57_Phase48h_Guide_DuplicatePointsRobust", "Guide generation with duplicate points stays finite and keeps path height along world up", "Invariant", false, test_generate_from_guide_with_duplicate_points_is_robust);
   test_registry::AddTest(tests, "C58_Phase48h_Guide_ReverseSymmetry", "Guide reverse mode preserves generated pole position set", "Invariant", false, test_generate_from_guide_reverse_mode_position_symmetry);

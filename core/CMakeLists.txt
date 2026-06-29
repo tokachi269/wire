@@ -9,7 +9,6 @@ add_library(
   src/state/override_resolution.cpp
   src/state/template_mutation_service.cpp
   src/pole_orientation_utils.cpp
-  src/generation/build_backbone_service.cpp
   src/generation/pole_facing/pole_facing_rules.cpp
   src/generation/bb2/derive.cpp
   src/generation/bb2/out.cpp

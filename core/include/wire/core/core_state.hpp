@@ -72,12 +72,6 @@ public:
                                             ConnectionCategory category = ConnectionCategory::kDrop);
   EditResult<AddDropResult> AddDropFromSpan(ObjectId source_span_id, double t, const Vec3d& target_world_position,
                                             ConnectionCategory category = ConnectionCategory::kDrop);
-  EditResult<std::vector<ObjectId>> GeneratePolesAlongRoad(const RoadSegment& road, double interval,
-                                                           PoleTypeId pole_type_id);
-  EditResult<GenerateSimpleLineResult> GenerateSimpleLine(const RoadSegment& road, double interval,
-                                                          PoleTypeId pole_type_id, ConnectionCategory category);
-  EditResult<GenerateSimpleLineResult> GenerateSimpleLineFromPoints(const RoadSegment& road, PoleTypeId pole_type_id,
-                                                                    ConnectionCategory category);
   // Canonical path-generation API.
   EditResult<GenerateBundleFromPathResult> GenerateFromBackboneSpec(const BackboneSpec& spec);
   EditResult<GenerateBundleFromPathResult> RegenerateSessionAutoParts(std::uint64_t generation_session_id,
@@ -184,9 +178,6 @@ private:
                                       PortLayer port_layer, ObjectId port_id);
   void cache_span_rules(const SpanLayoutRules& rules);
   void remove_span_from_caches(ObjectId span_id);
-  [[nodiscard]] static std::vector<Vec3d> sample_polyline_points(const std::vector<Vec3d>& polyline, double interval);
-  EditResult<std::vector<ObjectId>> generate_poles_from_points(const RoadSegment& road, PoleTypeId pole_type_id,
-                                                               const std::vector<Vec3d>& points);
   [[nodiscard]] double effective_pole_yaw_deg(const Pole& pole) const;
   [[nodiscard]] Vec3d to_local_on_pole(const Pole& pole, const Vec3d& world) const;
   [[nodiscard]] SlotSide preferred_side_from_geometry(const Pole& pole, const Pole* peer, double eps) const;
@@ -223,10 +214,6 @@ private:
   [[nodiscard]] static bool is_valid_slot_side(SlotSide side);
   [[nodiscard]] static bool is_valid_slot_role(SlotRole role);
   [[nodiscard]] double compute_side_scale(PoleContextKind context, double corner_angle_deg) const;
-  [[nodiscard]] static double compute_corner_angle_deg(const Vec3d& prev, const Vec3d& curr, const Vec3d& next);
-  [[nodiscard]] static double compute_corner_turn_sign_xy(const Vec3d& prev, const Vec3d& curr, const Vec3d& next);
-  [[nodiscard]] PoleContextInfo classify_pole_context_from_path(const std::vector<Vec3d>& points, std::size_t index,
-                                                                std::size_t pending_degree) const;
   EditResult<ObjectId> ensure_bundle_for_template(const AddConnectionByPoleOptions& options);
   static void add_unique_id(std::vector<ObjectId>& ids, ObjectId id);
   static void index_add(std::unordered_map<ObjectId, std::vector<ObjectId>>& map, ObjectId key, ObjectId value);

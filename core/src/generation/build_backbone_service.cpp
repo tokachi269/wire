@@ -288,34 +288,4 @@ CoreState::GenerateSimpleLineFromPoints(const RoadSegment& road, PoleTypeId pole
   return result;
 }
 
-std::uint64_t CoreState::hash_path_points(const std::vector<Vec3d>& points) {
-  std::uint64_t h = 1469598103934665603ull;
-  const std::uint64_t prime = 1099511628211ull;
-  auto mix = [&](std::uint64_t v) {
-    h ^= v;
-    h *= prime;
-  };
-  mix(static_cast<std::uint64_t>(points.size()));
-  for (const Vec3d& p : points) {
-    mix(static_cast<std::uint64_t>(std::llround(p.x * 1000.0)));
-    mix(static_cast<std::uint64_t>(std::llround(p.y * 1000.0)));
-    mix(static_cast<std::uint64_t>(std::llround(p.z * 1000.0)));
-  }
-  return h;
-}
-
-int CoreState::inversion_count(const std::vector<double>& values) {
-  int inv = 0;
-  for (std::size_t i = 0; i < values.size(); ++i) {
-    for (std::size_t j = i + 1; j < values.size(); ++j) {
-      if (values[i] > values[j]) {
-        ++inv;
-      }
-    }
-  }
-  return inv;
-}
-
-
 } // namespace wire::core
-

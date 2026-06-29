@@ -189,7 +189,6 @@ private:
   [[nodiscard]] static std::vector<Vec3d> sample_polyline_points(const std::vector<Vec3d>& polyline, double interval);
   EditResult<std::vector<ObjectId>> generate_poles_from_points(const RoadSegment& road, PoleTypeId pole_type_id,
                                                                const std::vector<Vec3d>& points);
-  [[nodiscard]] static std::uint64_t hash_path_points(const std::vector<Vec3d>& points);
   [[nodiscard]] double effective_pole_yaw_deg(const Pole& pole) const;
   [[nodiscard]] Vec3d to_local_on_pole(const Pole& pole, const Vec3d& world) const;
   [[nodiscard]] SlotSide preferred_side_from_geometry(const Pole& pole, const Pole* peer, double eps) const;
@@ -225,7 +224,6 @@ private:
                                                                  std::uint32_t branch_index);
   [[nodiscard]] static bool is_valid_slot_side(SlotSide side);
   [[nodiscard]] static bool is_valid_slot_role(SlotRole role);
-  [[nodiscard]] static int inversion_count(const std::vector<double>& values);
   [[nodiscard]] double compute_side_scale(PoleContextKind context, double corner_angle_deg) const;
   [[nodiscard]] static double compute_corner_angle_deg(const Vec3d& prev, const Vec3d& curr, const Vec3d& next);
   [[nodiscard]] static double compute_corner_turn_sign_xy(const Vec3d& prev, const Vec3d& curr, const Vec3d& next);

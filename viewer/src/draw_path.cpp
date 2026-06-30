@@ -47,21 +47,6 @@ const char* CategoryLabelLocal(wire::core::ConnectionCategory category) {
   }
 }
 
-double DefaultBranchDownOffsetForCategoryLocal(wire::core::ConnectionCategory category) {
-  switch (category) {
-  case wire::core::ConnectionCategory::kHighVoltage:
-    return 0.275;
-  case wire::core::ConnectionCategory::kCommunication:
-    return 0.30;
-  case wire::core::ConnectionCategory::kOptical:
-    return 0.24;
-  case wire::core::ConnectionCategory::kLowVoltage:
-  case wire::core::ConnectionCategory::kDrop:
-  default:
-    return 0.35;
-  }
-}
-
 const char* ContextLabelLocal(wire::core::ConnectionContext context) {
   switch (context) {
   case wire::core::ConnectionContext::kTrunkContinue:
@@ -1165,9 +1150,7 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
       ofs << "draw.bundle[" << i << "].category=" << CategoryLabelLocal(tpl.category) << "\n";
       ofs << "draw.bundle[" << i << "].default_layer=" << static_cast<int>(tpl.default_layer) << "\n";
       ofs << "draw.bundle[" << i << "].enable_branch_down_offset=" << (tpl.enable_branch_down_offset ? 1 : 0) << "\n";
-      ofs << "draw.bundle[" << i << "].auto_branch_down_offset_default="
-          << (tpl.enable_branch_down_offset ? DefaultBranchDownOffsetForCategoryLocal(tpl.category) : 0.0)
-          << "\n";
+      ofs << "draw.bundle[" << i << "].branch_endpoint_offset_m=" << tpl.branch_endpoint_offset_m << "\n";
       ofs << "draw.bundle[" << i << "].count_rule=" << static_cast<int>(tpl.count_rule) << "\n";
       if (tpl.count_rule == wire::core::BundleCountRuleKind::kFixed) {
         ofs << "draw.bundle[" << i << "].count=" << tpl.fixed_count << "\n";
@@ -1473,7 +1456,7 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
           options.selected_bundle_template_ids = pick_template_ids;
           options.snap_radius_world = ui_state.draw_snap_radius_world;
           options.create_midair_node = false;
-          options.enforce_midair_template_policy = false;
+          options.enforce_midair_template_policy = true;
           resolved = viewer_core_state::ResolveBranchPick(state, pick, options);
         }
         if (resolved.ok) {
@@ -1521,7 +1504,7 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
           click_options.selected_bundle_template_ids = click_template_ids;
           click_options.snap_radius_world = ui_state.draw_snap_radius_world;
           click_options.create_midair_node = true;
-          click_options.enforce_midair_template_policy = false;
+          click_options.enforce_midair_template_policy = true;
           applied = viewer_core_state::ResolveBranchPick(state, ui_state.draw_hover_pick, click_options);
         }
         if (!applied.ok) {

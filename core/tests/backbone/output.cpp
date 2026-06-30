@@ -27,7 +27,7 @@ bool C506_backbone_support_group_is_placement_layer() {
   }
   return contains_text(h, "struct group_member") && contains_text(h, "struct group") &&
          contains_text(h, "std::vector<group_member> row_members") && contains_text(h, "Vec3d group_axis") &&
-         contains_text(h, "int vertical_order") && contains_text(h, "double lower_offset_m");
+         contains_text(h, "int vertical_order") && contains_text(h, "double endpoint_offset_m");
 }
 
 bool C507_backbone_support_group_built_after_intent() {
@@ -46,7 +46,7 @@ bool C507_backbone_support_group_built_after_intent() {
 
 bool C508_backbone_support_group_drives_lowered_rules() {
   wire::core::CoreState state;
-  const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
+  const auto first = state.GenerateFromBackboneSpec(hv_poly3_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 3) {
     return false;
   }
@@ -55,7 +55,7 @@ bool C508_backbone_support_group_drives_lowered_rules() {
   if (pole_b == nullptr) {
     return false;
   }
-  const auto second = state.GenerateFromBackboneSpec(pass_branch_req(state, b, pole_b->world_transform.position));
+  const auto second = state.GenerateFromBackboneSpec(hv_branch_req(state, b, pole_b->world_transform.position));
   if (!second.ok || second.value.generated_span_ids.empty()) {
     return false;
   }
@@ -103,7 +103,7 @@ bool C510_backbone_layout_consumes_group_offset() {
     return false;
   }
   const std::string body = h.substr(fn_pos, next_pos - fn_pos);
-  return contains_text(body, "rule.branch_down_offset_m") && contains_text(body, "dst.endpoint_world.z -= lower_offset") &&
+  return contains_text(body, "rule.endpoint_offset_z_m") && contains_text(body, "dst.endpoint_world.z += endpoint_offset") &&
          !contains_text(body, "kLowerOffsetM");
 }
 
@@ -137,7 +137,7 @@ bool C511_backbone_draw_saved_from_geom() {
 
 bool C513_backbone_support_visual_placeholder_from_layout() {
   wire::core::CoreState state;
-  const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
+  const auto first = state.GenerateFromBackboneSpec(hv_poly3_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 3) {
     return false;
   }
@@ -146,7 +146,7 @@ bool C513_backbone_support_visual_placeholder_from_layout() {
   if (pole_b == nullptr) {
     return false;
   }
-  const auto second = state.GenerateFromBackboneSpec(pass_branch_req(state, b, pole_b->world_transform.position));
+  const auto second = state.GenerateFromBackboneSpec(hv_branch_req(state, b, pole_b->world_transform.position));
   if (!second.ok || second.value.generated_span_ids.empty()) {
     return false;
   }
@@ -204,7 +204,7 @@ bool C515_backbone_rejects_existing_pole_without_saved_graph() {
 
 bool C516_backbone_generated_pole_with_saved_graph_still_connects() {
   wire::core::CoreState state;
-  const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
+  const auto first = state.GenerateFromBackboneSpec(hv_poly3_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 3) {
     return false;
   }
@@ -222,7 +222,7 @@ bool C516_backbone_generated_pole_with_saved_graph_still_connects() {
 
 bool C518_backbone_lowered_layout_keeps_support_world_at_port_height() {
   wire::core::CoreState state;
-  const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
+  const auto first = state.GenerateFromBackboneSpec(hv_poly3_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 3) {
     return false;
   }
@@ -231,7 +231,7 @@ bool C518_backbone_lowered_layout_keeps_support_world_at_port_height() {
   if (pole_b == nullptr) {
     return false;
   }
-  const auto second = state.GenerateFromBackboneSpec(pass_branch_req(state, b, pole_b->world_transform.position));
+  const auto second = state.GenerateFromBackboneSpec(hv_branch_req(state, b, pole_b->world_transform.position));
   if (!second.ok || second.value.generated_span_ids.empty()) {
     return false;
   }
@@ -277,7 +277,7 @@ bool C519_backbone_draw_placeholder_uses_layout_points() {
   }
 
   wire::core::CoreState state;
-  const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
+  const auto first = state.GenerateFromBackboneSpec(hv_poly3_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 3) {
     return false;
   }
@@ -286,7 +286,7 @@ bool C519_backbone_draw_placeholder_uses_layout_points() {
   if (pole_b == nullptr) {
     return false;
   }
-  const auto second = state.GenerateFromBackboneSpec(pass_branch_req(state, b, pole_b->world_transform.position));
+  const auto second = state.GenerateFromBackboneSpec(hv_branch_req(state, b, pole_b->world_transform.position));
   if (!second.ok || second.value.generated_span_ids.empty()) {
     return false;
   }

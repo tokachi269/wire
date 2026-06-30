@@ -210,6 +210,10 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
 
   BundleTemplate normalized = bundle_template;
   normalized.support_wire_pole_band_id = std::max(0, normalized.support_wire_pole_band_id);
+  if (!std::isfinite(normalized.branch_endpoint_offset_m)) {
+    result.error = "bundle branch endpoint offset must be finite";
+    return result;
+  }
   const CableTemplate* cable_template = state.find_cable_template(normalized.cable_template_id);
   if (normalized.grouped_support_fanout_spacing_m <= 1e-9) {
     normalized.grouped_support_fanout_spacing_m =
@@ -231,6 +235,7 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
       normalized.allow_midair_node == it->second.allow_midair_node &&
       normalized.allow_midair_branch == it->second.allow_midair_branch &&
       normalized.enable_branch_down_offset == it->second.enable_branch_down_offset &&
+      std::abs(normalized.branch_endpoint_offset_m - it->second.branch_endpoint_offset_m) <= 1e-12 &&
       normalized.order_decision_policy == it->second.order_decision_policy &&
       normalized.row_layout_axis_mode == it->second.row_layout_axis_mode &&
       normalized.support_style == it->second.support_style && normalized.branch_policy == it->second.branch_policy &&
@@ -251,6 +256,7 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
       normalized.allow_midair_node != it->second.allow_midair_node ||
       normalized.allow_midair_branch != it->second.allow_midair_branch ||
       normalized.enable_branch_down_offset != it->second.enable_branch_down_offset ||
+      std::abs(normalized.branch_endpoint_offset_m - it->second.branch_endpoint_offset_m) > 1e-12 ||
       normalized.order_decision_policy != it->second.order_decision_policy ||
       normalized.row_layout_axis_mode != it->second.row_layout_axis_mode ||
       normalized.support_style != it->second.support_style || normalized.branch_policy != it->second.branch_policy ||

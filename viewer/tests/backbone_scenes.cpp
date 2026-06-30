@@ -67,19 +67,6 @@ wire::core::BackboneInputSpec::NodeSpec pole_spec(std::size_t point_index, wire:
   return spec;
 }
 
-wire::core::BackboneSpec pass_branch_req(wire::core::CoreState& state, wire::core::ObjectId pole_id,
-                                         const wire::core::Vec3d& pole_pos) {
-  wire::core::BackboneSpec req = line_req(state, wire::core::BundleKind::kLowVoltage);
-  req.path.polyline = {pole_pos, {20.0, 0.0, 0.0}};
-  req.path.node_specs = {pole_spec(0, pole_id)};
-  wire::core::BackboneSpec::NodeBundleModeSpec mode{};
-  mode.point_index = 0;
-  mode.bundle_template_id = wire::core::BundleKind::kLowVoltage;
-  mode.mode = wire::core::BundleNodeMode::kPassThrough;
-  req.node_bundle_modes = {mode};
-  return req;
-}
-
 bool bounds_valid(const wire::core::BoundsCacheEntry& bounds) {
   return bounds.whole.min.x <= bounds.whole.max.x && bounds.whole.min.y <= bounds.whole.max.y &&
          bounds.whole.min.z <= bounds.whole.max.z;
@@ -201,9 +188,9 @@ bool test_backbone_viewer_existing_branch_uses_context_without_regenerating_it()
          viewer_outputs_exist(state, second.value.generated_span_ids);
 }
 
-bool test_backbone_viewer_pass_through_lowering_is_visible_from_layout_draw() {
+bool test_backbone_viewer_conflict_lowering_is_visible_from_layout_draw() {
   wire::core::CoreState state;
-  const auto first = state.GenerateFromBackboneSpec(poly3_req(state, wire::core::BundleKind::kLowVoltage));
+  const auto first = state.GenerateFromBackboneSpec(poly3_req(state, wire::core::BundleKind::kHighVoltage));
   if (!first.ok || first.value.generated_pole_ids.size() != 3) {
     return false;
   }
@@ -212,9 +199,18 @@ bool test_backbone_viewer_pass_through_lowering_is_visible_from_layout_draw() {
   if (pole_b == nullptr) {
     return false;
   }
-  const auto second = state.GenerateFromBackboneSpec(pass_branch_req(state, b, pole_b->world_transform.position));
+  wire::core::BackboneSpec branch = line_req(state, wire::core::BundleKind::kHighVoltage);
+  branch.path.polyline = {pole_b->world_transform.position, {20.0, 0.0, 0.0}};
+  branch.path.node_specs = {pole_spec(0, b)};
+  const auto second = state.GenerateFromBackboneSpec(branch);
   if (!second.ok || second.value.generated_span_ids.empty() ||
       !viewer_outputs_exist(state, second.value.generated_span_ids)) {
+    return false;
+  }
+  const auto template_it = state.view().bundle_templates().find(wire::core::BundleKind::kHighVoltage);
+  if (template_it == state.view().bundle_templates().end() ||
+      !template_it->second.enable_branch_down_offset ||
+      template_it->second.branch_endpoint_offset_m >= 0.0) {
     return false;
   }
   for (wire::core::ObjectId span_id : second.value.generated_span_ids) {
@@ -227,9 +223,9 @@ bool test_backbone_viewer_pass_through_lowering_is_visible_from_layout_draw() {
       if (!endpoint.lower_required && !endpoint.default_lower_required) {
         return false;
       }
-      const double lower_offset =
-          endpoint.branch_down_offset_m > 0.0 ? endpoint.branch_down_offset_m : endpoint.automatic_branch_down_offset_m;
-      if (lower_offset <= 0.0 || !almost_equal(endpoint.endpoint_world.z, endpoint.support_world.z - lower_offset)) {
+      if (!almost_equal(endpoint.endpoint_offset_z_m, template_it->second.branch_endpoint_offset_m) ||
+          !almost_equal(endpoint.endpoint_world.z,
+                        endpoint.support_world.z + template_it->second.branch_endpoint_offset_m)) {
         return false;
       }
       for (const wire::core::VisualPart& part : visual->parts) {
@@ -246,14 +242,13 @@ bool test_backbone_viewer_pass_through_lowering_is_visible_from_layout_draw() {
   return false;
 }
 
-bool test_backbone_viewer_acute_hv_corner_lowers_layout_geom() {
+bool test_backbone_viewer_acute_hv_corner_does_not_lower() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = poly3_req(state, wire::core::BundleKind::kHighVoltage);
   const auto out = state.GenerateFromBackboneSpec(req);
   if (!out.ok || out.value.generated_span_ids.empty() || !viewer_outputs_exist(state, out.value.generated_span_ids)) {
     return false;
   }
-  bool saw_lowered_endpoint = false;
   for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
     const wire::core::Span* span = state.view().spans().find(span_id);
     const wire::core::SpanLayoutView layout = state.view().span_layout(span_id);
@@ -265,15 +260,17 @@ bool test_backbone_viewer_acute_hv_corner_lowers_layout_geom() {
     if (port_a == nullptr || port_b == nullptr) {
       return false;
     }
-    const auto endpoint_lowered = [](const wire::core::LayoutEndpoint& endpoint, const wire::core::Port& port) {
-      return endpoint.default_lower_required && endpoint.lower_required &&
-             almost_equal(endpoint.support_world.z, port.world_position.z) &&
-             endpoint.endpoint_world.z < port.world_position.z - 0.1;
+    const auto endpoint_unchanged = [](const wire::core::LayoutEndpoint& endpoint, const wire::core::Port& port) {
+      return !endpoint.default_lower_required && !endpoint.lower_required &&
+             almost_equal(endpoint.support_world, port.world_position) &&
+             almost_equal(endpoint.endpoint_world, port.world_position);
     };
-    saw_lowered_endpoint = saw_lowered_endpoint || endpoint_lowered(layout.entry->start, *port_a) ||
-                           endpoint_lowered(layout.entry->end, *port_b);
+    if (!endpoint_unchanged(layout.entry->start, *port_a) ||
+        !endpoint_unchanged(layout.entry->end, *port_b)) {
+      return false;
+    }
   }
-  return saw_lowered_endpoint;
+  return true;
 }
 
 bool test_backbone_viewer_cross_pair_pair_has_display_outputs() {
@@ -467,10 +464,10 @@ void register_backbone_scene_tests(viewer_test_registry::TestRegistry& tests) {
                                 test_backbone_viewer_simple_all_templates_have_display_outputs);
   viewer_test_registry::AddTest(tests, "V17", "backbone viewer scene: existing branch uses saved context only",
                                 test_backbone_viewer_existing_branch_uses_context_without_regenerating_it);
-  viewer_test_registry::AddTest(tests, "V18", "backbone viewer scene: pass-through lowering is visible from layout/draw",
-                                test_backbone_viewer_pass_through_lowering_is_visible_from_layout_draw);
-  viewer_test_registry::AddTest(tests, "V19", "backbone viewer scene: acute HV corner lowers layout and geom",
-                                test_backbone_viewer_acute_hv_corner_lowers_layout_geom);
+  viewer_test_registry::AddTest(tests, "V18", "backbone viewer scene: conflict lowering is visible from layout/draw",
+                                test_backbone_viewer_conflict_lowering_is_visible_from_layout_draw);
+  viewer_test_registry::AddTest(tests, "V19", "backbone viewer scene: acute HV corner does not lower",
+                                test_backbone_viewer_acute_hv_corner_does_not_lower);
   viewer_test_registry::AddTest(tests, "V20", "backbone viewer scene: cross pair+pair has display outputs",
                                 test_backbone_viewer_cross_pair_pair_has_display_outputs);
   viewer_test_registry::AddTest(tests, "V21", "backbone viewer scene: segment-pick midair branch has display outputs",

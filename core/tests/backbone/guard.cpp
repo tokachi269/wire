@@ -694,11 +694,14 @@ bool C542_backbone_usable_mainline_architecture_audit_passes() {
 bool C601_backbone_context_only_bundle_policy_does_not_filter_new_route() {
   wire::core::CoreState state;
   wire::core::BackboneSpec base = line_req(state);
+  add_backbone_bundle(base, wire::core::BundleKind::kCommunication);
   const auto base_out = state.GenerateFromBackboneSpec(base);
   if (!base_out.ok || base_out.value.generated_span_ids.empty()) {
     return false;
   }
-  const auto* source_span = state.view().spans().find(base_out.value.generated_span_ids.front());
+  const wire::core::ObjectId source_span_id =
+      span_for_bundle(state, base_out.value.generated_span_ids, wire::core::BundleKind::kCommunication);
+  const auto* source_span = state.view().spans().find(source_span_id);
   if (source_span == nullptr) {
     return false;
   }
@@ -912,27 +915,34 @@ bool C567_backbone_segment_pick_midair_uses_source_span_height() {
   return false;
 }
 
-bool C568_backbone_source_edge_midair_branch_uses_source_context_for_lowering() {
+bool C568_backbone_source_edge_midair_branch_uses_saved_attachment_height() {
   wire::core::CoreState state;
   wire::core::BackboneSpec base = line_req(state);
   const auto base_out = state.GenerateFromBackboneSpec(base);
   if (!base_out.ok || base_out.value.generated_span_ids.empty() || state.view().backbone().edges.size() != 1) {
     return false;
   }
-  const auto* source_span = state.view().spans().find(base_out.value.generated_span_ids.front());
-  if (source_span == nullptr) {
+  const wire::core::SavedBackboneEdge& source_edge = state.view().backbone().edges.front();
+  const std::optional<wire::core::Vec3d> expected = state.view().backbone_attachment_world(
+      source_edge.edge_id, source_edge.node_a, wire::core::BundleKind::kLowVoltage, 0, 0.5);
+  if (!expected.has_value() || expected->z <= 0.0) {
     return false;
   }
 
   wire::core::PickResult pick{};
   pick.hit_kind = wire::core::PickHitKind::kSegment;
-  pick.hit_id = source_span->id;
+  pick.hit_id = wire::core::kInvalidObjectId;
   pick.hit_pos_world = {6.0, 0.0, 0.0};
-  pick.has_segment_endpoints = false;
+  pick.has_segment_endpoints = true;
+  pick.segment_node_a_id = source_edge.node_a;
+  pick.segment_node_b_id = source_edge.node_b;
+  pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
+  pick.segment_endpoint_b_world = {12.0, 0.0, 0.0};
   wire::core::ResolveBranchPickOptions resolve{};
   resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
-  if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
+  if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId ||
+      !almost_equal(resolved.value.position, *expected, 1e-9)) {
     return false;
   }
 
@@ -974,9 +984,10 @@ bool C568_backbone_source_edge_midair_branch_uses_source_context_for_lowering() 
     const bool start_ownerless = a->owner_pole_id == wire::core::kInvalidObjectId;
     const bool end_ownerless = b->owner_pole_id == wire::core::kInvalidObjectId;
     const wire::core::LayoutEndpoint& endpoint = start_ownerless ? layout.entry->start : layout.entry->end;
-    if ((start_ownerless || end_ownerless) && endpoint.default_lower_required && endpoint.lower_required &&
-        endpoint.branch_down_offset_m > 0.0 &&
-        almost_equal(endpoint.endpoint_world.z, endpoint.support_world.z - endpoint.branch_down_offset_m, 1e-9)) {
+    const wire::core::Port* ownerless_port = start_ownerless ? a : b;
+    if ((start_ownerless || end_ownerless) && !endpoint.default_lower_required && !endpoint.lower_required &&
+        almost_equal(ownerless_port->world_position, *expected, 1e-9) &&
+        almost_equal(endpoint.endpoint_world, *expected, 1e-9)) {
       return true;
     }
   }

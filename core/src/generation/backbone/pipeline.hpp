@@ -84,9 +84,7 @@ struct pairs {
 
 enum class intent_reason : std::uint8_t {
   none = 0,
-  node_mode_pass_through = 1,
-  conflicting_rows = 2,
-  bent_pair = 3,
+  conflicting_rows = 1,
 };
 
 struct row_intent {
@@ -95,6 +93,7 @@ struct row_intent {
   CurvePassMode pass_mode = CurvePassMode::kPassThrough;
   bool lower_required = false;
   intent_reason reason = intent_reason::none;
+  double endpoint_offset_m = 0.0;
 };
 
 struct intent {
@@ -112,7 +111,7 @@ struct group {
   std::vector<group_member> row_members{};
   Vec3d group_axis{};
   int vertical_order = 0;
-  double lower_offset_m = 0.0;
+  double endpoint_offset_m = 0.0;
 };
 
 struct groups {

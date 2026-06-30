@@ -21,6 +21,9 @@ struct BoundsSnapshot {
 
 wire::core::BackboneSpec line_req(wire::core::CoreState& state);
 wire::core::BackboneSpec poly3_req(wire::core::CoreState& state);
+wire::core::ObjectId span_for_bundle(const wire::core::CoreState& state,
+                                     const std::vector<wire::core::ObjectId>& span_ids,
+                                     wire::core::BundleKind bundle_template_id);
 int bundle_count(const wire::core::CoreState& state, wire::core::BundleKind id);
 int req_bundle_count(const wire::core::CoreState& state, const wire::core::BackboneSpec& req);
 int layer_rank(wire::core::SpanLayer layer);
@@ -56,6 +59,10 @@ bool separated_from(const std::vector<wire::core::Vec3d>& existing,
 std::vector<wire::core::Vec3d> branch_separation_points();
 wire::core::BackboneSpec pass_branch_req(wire::core::CoreState& state, wire::core::ObjectId pole_id,
                                          const wire::core::Vec3d& pole_pos);
+wire::core::BackboneSpec hv_poly3_req(wire::core::CoreState& state);
+wire::core::BackboneSpec hv_branch_req(wire::core::CoreState& state, wire::core::ObjectId pole_id,
+                                       const wire::core::Vec3d& pole_pos);
+std::vector<wire::core::ObjectId> lowering_branch_spans(wire::core::CoreState& state);
 wire::core::BackboneSpec pass_poly3_req(wire::core::CoreState& state);
 std::vector<wire::core::Vec3d> pass_intent_points();
 bool span_has_lowered_endpoint(const wire::core::CoreState& state, wire::core::ObjectId span_id);

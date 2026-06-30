@@ -1,6 +1,7 @@
 #include "wire/core/core_state.hpp"
 
 #include "wire/core/core_view.hpp"
+#include "wire/core/coord_utils.hpp"
 
 #include "../generation/support_policy.hpp"
 
@@ -98,6 +99,60 @@ std::vector<const SavedBackbonePortBinding*> CoreView::backbone_port_bindings_fo
     }
   }
   return out;
+}
+std::optional<Vec3d> CoreView::backbone_attachment_world(
+    ObjectId edge_id, ObjectId from_node_id, BundleKind bundle_template_id, std::size_t lane_index, double t) const {
+  const SavedBackboneEdge* edge = backbone_edge(edge_id);
+  if (edge == nullptr || (from_node_id != edge->node_a && from_node_id != edge->node_b)) {
+    return std::nullopt;
+  }
+  const auto edge_bundles_it = state_.runtime_.backbone_index.edge_bundles.find(edge_id);
+  if (edge_bundles_it == state_.runtime_.backbone_index.edge_bundles.end()) {
+    return std::nullopt;
+  }
+
+  const SavedBackboneEdgeBundle* matched = nullptr;
+  for (ObjectId edge_bundle_id : edge_bundles_it->second) {
+    const SavedBackboneEdgeBundle* candidate = backbone_edge_bundle(edge_bundle_id);
+    const Bundle* bundle =
+        candidate == nullptr ? nullptr : bundles().find(candidate->bundle_id);
+    if (bundle == nullptr || bundle->bundle_template_id != bundle_template_id) {
+      continue;
+    }
+    if (matched != nullptr) {
+      return std::nullopt;
+    }
+    matched = candidate;
+  }
+  if (matched == nullptr) {
+    return std::nullopt;
+  }
+
+  const SavedBackbonePortBinding* binding_a = nullptr;
+  const SavedBackbonePortBinding* binding_b = nullptr;
+  for (const SavedBackbonePortBinding* binding :
+       backbone_port_bindings_for_edge_bundle(matched->edge_bundle_id)) {
+    if (binding == nullptr || binding->lane_index != lane_index) {
+      continue;
+    }
+    const bool at_a = binding->row_key.node_id == edge->node_a;
+    const bool at_b = binding->row_key.node_id == edge->node_b;
+    if ((!at_a && !at_b) || (at_a && binding_a != nullptr) || (at_b && binding_b != nullptr)) {
+      return std::nullopt;
+    }
+    (at_a ? binding_a : binding_b) = binding;
+  }
+  if (binding_a == nullptr || binding_b == nullptr) {
+    return std::nullopt;
+  }
+  const Port* port_a = ports().find(binding_a->port_id);
+  const Port* port_b = ports().find(binding_b->port_id);
+  if (port_a == nullptr || port_b == nullptr) {
+    return std::nullopt;
+  }
+
+  const double u = from_node_id == edge->node_a ? std::clamp(t, 0.0, 1.0) : 1.0 - std::clamp(t, 0.0, 1.0);
+  return port_a->world_position + ScaleVec(port_b->world_position - port_a->world_position, u);
 }
 const GeometrySettings& CoreView::geometry_settings() const { return state_.runtime_.cache_state.geometry_settings; }
 const VisualSettings& CoreView::visual_settings() const { return state_.runtime_.cache_state.visual_settings; }

@@ -573,9 +573,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C567_backbone_segment_pick_midair_uses_source_span_height",
                          "backbone segment-pick midair branches use source span height", "Boundary", false,
                          C567_backbone_segment_pick_midair_uses_source_span_height);
-  test_registry::AddTest(tests, "C568_backbone_source_edge_midair_branch_uses_source_context_for_lowering",
-                         "backbone source-edge midair branches use saved edge context for lowering", "Boundary", false,
-                         C568_backbone_source_edge_midair_branch_uses_source_context_for_lowering);
+  test_registry::AddTest(tests, "C568_backbone_source_edge_midair_branch_uses_saved_attachment_height",
+                         "backbone source-edge midair branches use saved attachment height", "Boundary", false,
+                         C568_backbone_source_edge_midair_branch_uses_saved_attachment_height);
   test_registry::AddTest(tests, "C569_backbone_render_uses_cable_template_appearance",
                          "backbone render cache uses cable template appearance", "Boundary", false,
                          C569_backbone_render_uses_cable_template_appearance);
@@ -687,12 +687,12 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C608_backbone_saved_backbone_result_does_not_duplicate_saved_pole_nodes",
                          "backbone SavedBackboneResult does not duplicate saved pole nodes", "Boundary", false,
                          C608_backbone_saved_backbone_result_does_not_duplicate_saved_pole_nodes);
-  test_registry::AddTest(tests, "C609_backbone_acute_corner_lowers_layout_geom_without_port_lowering",
-                         "backbone acute corners lower layout and geom without lowering ports", "Boundary", false,
-                         C609_backbone_acute_corner_lowers_layout_geom_without_port_lowering);
-  test_registry::AddTest(tests, "C610_backbone_acute_corner_lowering_survives_pole_yaw_override",
-                         "backbone acute corner lowering survives pole yaw override", "Boundary", false,
-                         C610_backbone_acute_corner_lowering_survives_pole_yaw_override);
+  test_registry::AddTest(tests, "C609_backbone_ordinary_bend_does_not_lower",
+                         "backbone ordinary bends do not create lowering intent", "Boundary", false,
+                         C609_backbone_ordinary_bend_does_not_lower);
+  test_registry::AddTest(tests, "C610_backbone_conflict_lowers_eligible_bundle_endpoint_only",
+                         "backbone conflicts lower only the eligible bundle junction endpoint", "Boundary", false,
+                         C610_backbone_conflict_lowers_eligible_bundle_endpoint_only);
   test_registry::AddTest(tests, "C607_backbone_saved_backbone_result_preserves_saved_ownerless_route_index",
                          "backbone SavedBackboneResult preserves saved ownerless route index", "Boundary", false,
                          C607_backbone_saved_backbone_result_preserves_saved_ownerless_route_index);

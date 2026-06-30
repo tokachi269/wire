@@ -102,7 +102,6 @@ EditResult<GenerateBundleFromPathResult> pipeline::build() {
 namespace {
 
 constexpr double kRowSeparationM = 0.35;
-constexpr double kLowerOffsetM = 0.6;
 
 void add(ChangeSet& dst, const ChangeSet& src) {
   auto append = [](std::vector<ObjectId>& a, const std::vector<ObjectId>& b) {
@@ -426,6 +425,23 @@ SavedBackboneEdgeRef ref_for_existing_edge(const CoreState& state, const graph& 
   out.node_a = saved->node_a;
   out.node_b = saved->node_b;
   return out;
+}
+
+std::optional<Vec3d> source_attachment_for(const CoreState& state, const node& source,
+                                           BundleKind bundle_template_id, std::size_t lane) {
+  const ObjectId source_a = saved_node_id_for(state, source.source_edge_node_a);
+  const ObjectId source_b = saved_node_id_for(state, source.source_edge_node_b);
+  if (!source.has_source_edge || source_a == kInvalidObjectId || source_b == kInvalidObjectId ||
+      source_a == source_b) {
+    return std::nullopt;
+  }
+  const BackboneEdgeKey key{std::min(source_a, source_b), std::max(source_a, source_b)};
+  const auto edge_it = state.view().backbone_index().edge_by_nodes.find(key);
+  if (edge_it == state.view().backbone_index().edge_by_nodes.end()) {
+    return std::nullopt;
+  }
+  return state.view().backbone_attachment_world(edge_it->second, source_a, bundle_template_id, lane,
+                                                source.source_edge_t);
 }
 
 bool same_scope(const SavedBackbonePortBinding& binding, port_scope scope) {
@@ -1467,6 +1483,28 @@ EditResult<pairs> pipeline::make(const graph& made) const {
 }
 
 EditResult<bool> pipeline::check(const pairs& ps) const {
+  for (const node& source : g_.nodes) {
+    if (!source.has_source_edge || !ownerless_support(source.support)) {
+      continue;
+    }
+    for (std::size_t spec_index : active_bundle_indices_) {
+      if (spec_index >= spec_.bundles.size()) {
+        return unsupported("active bundle index is invalid");
+      }
+      EditResult<spec_view> v = view_for(state_, spec_.bundles[spec_index]);
+      if (!v.ok) {
+        EditResult<bool> failed{};
+        failed.error = v.error;
+        return failed;
+      }
+      for (int lane = 0; lane < v.value.count; ++lane) {
+        if (!source_attachment_for(state_, source, spec_.bundles[spec_index].bundle_template_id,
+                                   static_cast<std::size_t>(lane)).has_value()) {
+          return unsupported("source edge attachment is missing");
+        }
+      }
+    }
+  }
   for (const link& edge : ps.links) {
     if (!edge.is_new) {
       continue;
@@ -1520,7 +1558,7 @@ EditResult<bool> pipeline::check(const pairs& ps) const {
 
 EditResult<intent> pipeline::make(const pairs& ps) const {
   EditResult<intent> out{};
-  std::vector<bool> high_voltage_bundle(active_bundle_indices_.size(), false);
+  std::vector<const BundleTemplate*> bundle_templates(active_bundle_indices_.size(), nullptr);
   for (std::size_t bundle = 0; bundle < active_bundle_indices_.size(); ++bundle) {
     const std::size_t spec_index = active_bundle_indices_[bundle];
     if (spec_index >= spec_.bundles.size()) {
@@ -1532,34 +1570,24 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
       out.error = v.ok ? "backbone unsupported: bundle template not found" : v.error;
       return out;
     }
-    high_voltage_bundle[bundle] = v.value.tmpl->category == ConnectionCategory::kHighVoltage;
+    bundle_templates[bundle] = v.value.tmpl;
   }
-  auto incident_dir = [&](const link& edge, std::size_t node_id) {
-    Vec3d dir = edge.dir;
-    if (edge.b == node_id) {
-      dir = Vec3d{-dir.x, -dir.y, -dir.z};
-    }
-    return HorizontalNormalizedOr(dir);
-  };
-  auto pair_is_bent = [&](const pair& item) {
-    if (item.left >= ps.links.size() || item.right >= ps.links.size()) {
-      return false;
-    }
-    const Vec3d left = incident_dir(ps.links[item.left], item.node);
-    const Vec3d right = incident_dir(ps.links[item.right], item.node);
-    return Dot(left, right) > -0.5;
-  };
   auto add_row_intent = [&](std::size_t row_id, std::size_t bundle, intent_reason reason) {
+    const BundleTemplate* tmpl =
+        bundle < bundle_templates.size() ? bundle_templates[bundle] : nullptr;
+    const double endpoint_offset = tmpl == nullptr ? 0.0 : tmpl->branch_endpoint_offset_m;
     for (row_intent& item : out.value.rows) {
       if (item.row == row_id && item.bundle == bundle) {
         item.lower_required = true;
+        item.endpoint_offset_m = endpoint_offset;
         if (item.reason == intent_reason::none) {
           item.reason = reason;
         }
         return;
       }
     }
-    out.value.rows.push_back(row_intent{row_id, bundle, CurvePassMode::kPassThrough, true, reason});
+    out.value.rows.push_back(
+        row_intent{row_id, bundle, CurvePassMode::kPassThrough, true, reason, endpoint_offset});
   };
   for (const BackboneSpec::NodeBundleModeSpec& mode : spec_.node_bundle_modes) {
     if (mode.mode != BundleNodeMode::kPassThrough) {
@@ -1602,8 +1630,50 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
       out.error = "backbone unsupported: pass-through target row is ambiguous";
       return out;
     }
-    add_row_intent(matches.front(), bundle, intent_reason::node_mode_pass_through);
+    (void)bundle;
   }
+
+  auto row_links = [&](const row& r) {
+    std::vector<std::size_t> links{};
+    if (r.source.is_open) {
+      if (r.source.id < ps.opens.size()) {
+        links.push_back(ps.opens[r.source.id].link);
+      }
+      return links;
+    }
+    if (r.source.id < ps.joins.size()) {
+      links.push_back(ps.joins[r.source.id].left);
+      links.push_back(ps.joins[r.source.id].right);
+    }
+    return links;
+  };
+  auto saved_edge_has_bundle = [&](ObjectId edge_id, BundleKind bundle_template_id) {
+    const auto bundles_it = state_.view().backbone_index().edge_bundles.find(edge_id);
+    if (bundles_it == state_.view().backbone_index().edge_bundles.end()) {
+      return false;
+    }
+    for (ObjectId edge_bundle_id : bundles_it->second) {
+      const SavedBackboneEdgeBundle* edge_bundle = state_.view().backbone_edge_bundle(edge_bundle_id);
+      const Bundle* bundle =
+          edge_bundle == nullptr ? nullptr : state_.view().bundles().find(edge_bundle->bundle_id);
+      if (bundle != nullptr && bundle->bundle_template_id == bundle_template_id) {
+        return true;
+      }
+    }
+    return false;
+  };
+  auto row_has_bundle = [&](const row& r, BundleKind bundle_template_id) {
+    for (std::size_t link_id : row_links(r)) {
+      if (link_id >= ps.links.size()) {
+        continue;
+      }
+      const link& edge = ps.links[link_id];
+      if (edge.is_new || (edge.saved != kInvalidObjectId && saved_edge_has_bundle(edge.saved, bundle_template_id))) {
+        return true;
+      }
+    }
+    return false;
+  };
 
   std::unordered_map<std::size_t, std::vector<std::size_t>> rows_by_node{};
   for (const row& r : ps.rows) {
@@ -1625,22 +1695,34 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
     if (item.second.size() < 2) {
       continue;
     }
+    std::vector<std::size_t> active_rows{};
     for (std::size_t row_id : item.second) {
-      if (row_id >= active.size() || !active[row_id]) {
-        continue;
-      }
-      for (std::size_t bundle = 0; bundle < active_bundle_indices_.size(); ++bundle) {
-        add_row_intent(row_id, bundle, intent_reason::conflicting_rows);
+      if (row_id < active.size() && active[row_id]) {
+        active_rows.push_back(row_id);
       }
     }
-  }
-  for (const pair& item : ps.joins) {
-    if (!pair_is_bent(item)) {
+    if (active_rows.size() > 1) {
+      out.error = "backbone unsupported: multiple generated rows conflict at one node";
+      return out;
+    }
+    if (active_rows.empty()) {
       continue;
     }
+    const std::size_t selected_row = active_rows.front();
     for (std::size_t bundle = 0; bundle < active_bundle_indices_.size(); ++bundle) {
-      if (high_voltage_bundle[bundle]) {
-        add_row_intent(item.id, bundle, intent_reason::bent_pair);
+      const BundleTemplate* tmpl = bundle_templates[bundle];
+      if (tmpl == nullptr || !tmpl->enable_branch_down_offset || tmpl->branch_endpoint_offset_m == 0.0) {
+        continue;
+      }
+      bool peer_has_bundle = false;
+      for (std::size_t peer_row : item.second) {
+        if (peer_row == selected_row || peer_row >= ps.rows.size()) {
+          continue;
+        }
+        peer_has_bundle = peer_has_bundle || row_has_bundle(ps.rows[peer_row], tmpl->id);
+      }
+      if (peer_has_bundle) {
+        add_row_intent(selected_row, bundle, intent_reason::conflicting_rows);
       }
     }
   }
@@ -1676,7 +1758,11 @@ EditResult<groups> pipeline::make(const pairs& ps, const intent& intents) const 
     placed.row_members.push_back(group_member{item.row, item.bundle});
     placed.group_axis = ps.rows[item.row].axis;
     placed.vertical_order = order_by_row.contains(item.row) ? order_by_row[item.row] : 0;
-    placed.lower_offset_m = kLowerOffsetM;
+    if (item.endpoint_offset_m == 0.0) {
+      out.error = "backbone unsupported: support group offset policy is missing";
+      return out;
+    }
+    placed.endpoint_offset_m = item.endpoint_offset_m;
     out.value.items.push_back(std::move(placed));
   }
   out.ok = true;
@@ -1891,9 +1977,20 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
             (static_cast<double>(lane) - (static_cast<double>(v.value.count - 1) * 0.5)) * v.value.tmpl->default_spacing_m;
         const double offset = group_offset + lane_offset + spec_.constraints.lateral_offset_m;
         const Vec3d shift = (r.id < shifts.size()) ? shifts[r.id] : Vec3d{};
-        const double height = ownerless ? 0.0 : band.height_center_m;
-        Vec3d p = g_.nodes[r.node].pos +
-                  Vec3d{r.axis.x * offset + shift.x, r.axis.y * offset + shift.y, height};
+        Vec3d p{};
+        if (ownerless && g_.nodes[r.node].has_source_edge) {
+          const std::optional<Vec3d> attachment =
+              source_attachment_for(state_, g_.nodes[r.node], scope.bundle, static_cast<std::size_t>(lane));
+          if (!attachment.has_value()) {
+            out.error = "backbone unsupported: source edge attachment is missing";
+            return out;
+          }
+          p = *attachment;
+        } else {
+          const double height = ownerless ? 0.0 : band.height_center_m;
+          p = g_.nodes[r.node].pos +
+              Vec3d{r.axis.x * offset + shift.x, r.axis.y * offset + shift.y, height};
+        }
         const SavedBackboneRowKey row_key = key_for(ps, tr, node_id_by_local, edge_by_link);
         EditResult<ObjectId> resolved =
             resolve_port_binding(state_, tr.pole, row_key, static_cast<std::size_t>(lane), scope);
@@ -2150,8 +2247,10 @@ rules pipeline::make(const topo& made, const groups& placement) const {
       endpoint->semantic.lower_required = true;
       endpoint->semantic.lowering_blocked_by_policy = false;
       endpoint->semantic.support_group_id = static_cast<int>(source->id);
-      endpoint->branch_down_offset_m = source->lower_offset_m;
-      endpoint->automatic_branch_down_offset_m = source->lower_offset_m;
+      endpoint->endpoint_offset_z_m = source->endpoint_offset_m;
+      endpoint->automatic_endpoint_offset_z_m = source->endpoint_offset_m;
+      endpoint->branch_down_offset_m = std::max(0.0, -source->endpoint_offset_m);
+      endpoint->automatic_branch_down_offset_m = std::max(0.0, -source->endpoint_offset_m);
     };
     apply_group(start_group, &rule.start);
     apply_group(end_group, &rule.end);

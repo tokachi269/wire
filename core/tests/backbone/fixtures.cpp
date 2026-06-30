@@ -35,6 +35,22 @@ wire::core::BackboneSpec poly3_req(wire::core::CoreState& state) {
   return req;
 }
 
+wire::core::ObjectId span_for_bundle(const wire::core::CoreState& state,
+                                     const std::vector<wire::core::ObjectId>& span_ids,
+                                     wire::core::BundleKind bundle_template_id) {
+  for (wire::core::ObjectId span_id : span_ids) {
+    const auto* span = state.view().spans().find(span_id);
+    if (span == nullptr) {
+      continue;
+    }
+    const auto* bundle = state.view().bundles().find(span->bundle_id);
+    if (bundle != nullptr && bundle->bundle_template_id == bundle_template_id) {
+      return span_id;
+    }
+  }
+  return wire::core::kInvalidObjectId;
+}
+
 int bundle_count(const wire::core::CoreState& state, wire::core::BundleKind id) {
   const auto it = state.view().bundle_templates().find(id);
   if (it == state.view().bundle_templates().end()) {
@@ -512,6 +528,36 @@ wire::core::BackboneSpec pass_branch_req(wire::core::CoreState& state, wire::cor
   return branch;
 }
 
+wire::core::BackboneSpec hv_poly3_req(wire::core::CoreState& state) {
+  wire::core::BackboneSpec req = poly3_req(state);
+  req.bundles.clear();
+  add_backbone_bundle(req, wire::core::BundleKind::kHighVoltage);
+  return req;
+}
+
+wire::core::BackboneSpec hv_branch_req(wire::core::CoreState& state, wire::core::ObjectId pole_id,
+                                       const wire::core::Vec3d& pole_pos) {
+  wire::core::BackboneSpec branch = pass_branch_req(state, pole_id, pole_pos);
+  branch.bundles.clear();
+  add_backbone_bundle(branch, wire::core::BundleKind::kHighVoltage);
+  branch.node_bundle_modes.front().bundle_template_id = wire::core::BundleKind::kHighVoltage;
+  return branch;
+}
+
+std::vector<wire::core::ObjectId> lowering_branch_spans(wire::core::CoreState& state) {
+  const auto first = state.GenerateFromBackboneSpec(hv_poly3_req(state));
+  if (!first.ok || first.value.generated_pole_ids.size() != 3) {
+    return {};
+  }
+  const wire::core::ObjectId b = first.value.generated_pole_ids[1];
+  const auto* pole_b = state.view().poles().find(b);
+  if (pole_b == nullptr) {
+    return {};
+  }
+  const auto second = state.GenerateFromBackboneSpec(hv_branch_req(state, b, pole_b->world_transform.position));
+  return second.ok ? second.value.generated_span_ids : std::vector<wire::core::ObjectId>{};
+}
+
 wire::core::BackboneSpec pass_poly3_req(wire::core::CoreState& state) {
   wire::core::BackboneSpec req = poly3_req(state);
   wire::core::BackboneSpec::NodeBundleModeSpec mode{};
@@ -524,7 +570,7 @@ wire::core::BackboneSpec pass_poly3_req(wire::core::CoreState& state) {
 
 std::vector<wire::core::Vec3d> pass_intent_points() {
   wire::core::CoreState state;
-  const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
+  const auto first = state.GenerateFromBackboneSpec(hv_poly3_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 3) {
     return {};
   }
@@ -533,7 +579,7 @@ std::vector<wire::core::Vec3d> pass_intent_points() {
   if (pole_b == nullptr) {
     return {};
   }
-  const auto second = state.GenerateFromBackboneSpec(pass_branch_req(state, b, pole_b->world_transform.position));
+  const auto second = state.GenerateFromBackboneSpec(hv_branch_req(state, b, pole_b->world_transform.position));
   if (!second.ok) {
     return {};
   }
@@ -589,7 +635,7 @@ bool span_has_lowered_endpoint(const wire::core::CoreState& state, wire::core::O
 
 std::vector<wire::core::Vec3d> junction_v1_points() {
   wire::core::CoreState state;
-  const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
+  const auto first = state.GenerateFromBackboneSpec(hv_poly3_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 3) {
     return {};
   }
@@ -598,7 +644,7 @@ std::vector<wire::core::Vec3d> junction_v1_points() {
   if (pole_b == nullptr) {
     return {};
   }
-  const auto second = state.GenerateFromBackboneSpec(pass_branch_req(state, b, pole_b->world_transform.position));
+  const auto second = state.GenerateFromBackboneSpec(hv_branch_req(state, b, pole_b->world_transform.position));
   if (!second.ok) {
     return {};
   }

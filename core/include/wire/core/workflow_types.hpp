@@ -156,6 +156,7 @@ struct BundleTemplate {
   bool allow_midair_node = true;
   bool allow_midair_branch = true;
   bool enable_branch_down_offset = false;
+  double branch_endpoint_offset_m = 0.0;
   OrderDecisionPolicyKind order_decision_policy{};
   RowLayoutAxisMode row_layout_axis_mode = RowLayoutAxisMode::kPoleYaw;
   BundleSupportStyleHint support_style = BundleSupportStyleHint::kAuto;

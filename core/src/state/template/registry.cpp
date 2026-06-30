@@ -156,6 +156,7 @@ void CoreState::register_default_bundle_templates() {
   hv.allow_midair_node = true;
   hv.allow_midair_branch = false;
   hv.enable_branch_down_offset = true;
+  hv.branch_endpoint_offset_m = -0.275;
   hv.order_decision_policy = OrderDecisionPolicyKind::kPermutableHomogeneous;
   hv.row_layout_axis_mode = RowLayoutAxisMode::kSupportAxis;
   authoritative_.bundle_templates[hv.id] = hv;
@@ -180,6 +181,7 @@ void CoreState::register_default_bundle_templates() {
   lv.allow_midair_node = true;
   lv.allow_midair_branch = true;
   lv.enable_branch_down_offset = false;
+  lv.branch_endpoint_offset_m = 0.0;
   lv.order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
   authoritative_.bundle_templates[lv.id] = lv;
 
@@ -203,6 +205,7 @@ void CoreState::register_default_bundle_templates() {
   drop.allow_midair_node = true;
   drop.allow_midair_branch = true;
   drop.enable_branch_down_offset = false;
+  drop.branch_endpoint_offset_m = 0.0;
   drop.order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
   authoritative_.bundle_templates[drop.id] = drop;
 
@@ -226,6 +229,7 @@ void CoreState::register_default_bundle_templates() {
   comm.allow_midair_node = true;
   comm.allow_midair_branch = true;
   comm.enable_branch_down_offset = false;
+  comm.branch_endpoint_offset_m = 0.0;
   comm.order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
   authoritative_.bundle_templates[comm.id] = comm;
 
@@ -249,6 +253,7 @@ void CoreState::register_default_bundle_templates() {
   optical.allow_midair_node = true;
   optical.allow_midair_branch = true;
   optical.enable_branch_down_offset = false;
+  optical.branch_endpoint_offset_m = 0.0;
   optical.order_decision_policy = OrderDecisionPolicyKind::kFixedOrder;
   authoritative_.bundle_templates[optical.id] = optical;
 }
@@ -459,4 +464,3 @@ const AttachmentTemplate* CoreState::find_attachment_template(AttachmentTemplate
 
 
 } // namespace wire::core
-

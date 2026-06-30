@@ -50,6 +50,18 @@ BackboneSpec
 context linkは判断入力であり、生成・保存対象ではない。
 T/cross/branchのkind enumは作らず、pair/open/rowの組合せで表す。
 
+### row conflict と endpoint offset
+
+通常のroute bendはlowering対象ではない。
+同一nodeのrow conflictで重なりを避ける必要がある場合だけ、`BundleTemplate::enable_branch_down_offset` と
+`branch_endpoint_offset_m`を使い、対象bundleのjunction側`endpoint_world`をoffsetする。
+`support_world`とport位置は元の取付位置を保持する。
+LV/HVなどのcategory名自体はlowering条件にしない。
+
+ownerlessなmidair branchの取付位置は、saved edge、edge bundle、lane、port bindingから解決する。
+別bundleのportやnodeのground位置から高さを推測せず、解決できなければmutation前に`unsupported`とする。
+`allow_midair_branch=false`のtemplateはmidair branchの生成対象にしない。
+
 ## post-edit update
 
 更新分類は次の4種類だけとする。
@@ -83,6 +95,11 @@ viewerが不足したtopology、pair、row、loweringを推測または補正し
 
 coreはbackend非依存のcurve、bounds、primitive、style参照を出力する。
 UE、Blender、viewer、exporter固有のasset/material型はadapter側で解決する。
+
+現在のsupport visualは、lowered endpointに対する`support_world -> endpoint_world`の`SupportArm` placeholderまでである。
+crossarmはsupport group単位、insulatorはlane attachment単位の生成として未実装であり、
+`enable_insulators`や`requires_insulator`はbackbone visual出力でまだ完全には消費していない。
+viewerが不足fixtureを推測して補ってはいけない。
 
 ## wire domain境界
 

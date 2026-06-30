@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -153,6 +154,8 @@ struct LayoutEndpoint : LayoutSemantic {
   double local_departure_length_m = 0.0;
   double automatic_branch_down_offset_m = 0.0;
   double branch_down_offset_m = 0.0;
+  double automatic_endpoint_offset_z_m = 0.0;
+  double endpoint_offset_z_m = 0.0;
   bool default_lower_required = false;
   bool same_level_feasible = true;
   bool unresolved_same_level_conflict = false;
@@ -193,6 +196,8 @@ struct EndpointLayoutRule {
   CurveEndpointMode endpoint_mode = CurveEndpointMode::kDirectThrough;
   double automatic_branch_down_offset_m = 0.0;
   double branch_down_offset_m = 0.0;
+  double automatic_endpoint_offset_z_m = 0.0;
+  double endpoint_offset_z_m = 0.0;
   bool default_lower_required = false;
   bool same_level_feasible = true;
   bool unresolved_same_level_conflict = false;
@@ -222,6 +227,8 @@ inline void ApplyEndpointLayoutRule(LayoutEndpoint& dst, const EndpointLayoutRul
   dst.endpoint_mode = rule.endpoint_mode;
   dst.automatic_branch_down_offset_m = rule.automatic_branch_down_offset_m;
   dst.branch_down_offset_m = rule.branch_down_offset_m;
+  dst.automatic_endpoint_offset_z_m = rule.automatic_endpoint_offset_z_m;
+  dst.endpoint_offset_z_m = rule.endpoint_offset_z_m;
   dst.default_lower_required = rule.default_lower_required;
   dst.same_level_feasible = rule.same_level_feasible;
   dst.unresolved_same_level_conflict = rule.unresolved_same_level_conflict;
@@ -239,11 +246,13 @@ inline void ApplyEndpointLayoutRule(LayoutEndpoint& dst, const EndpointLayoutRul
   dst.support_world = port_world_position;
   dst.endpoint_world = port_world_position;
   if (rule.default_lower_required || rule.semantic.lower_required) {
-    const double lower_offset =
-        rule.branch_down_offset_m > 0.0 ? rule.branch_down_offset_m : rule.automatic_branch_down_offset_m;
-    dst.endpoint_world.z -= lower_offset;
-    dst.branch_down_offset_m = lower_offset;
-    dst.automatic_branch_down_offset_m = lower_offset;
+    const double endpoint_offset =
+        rule.endpoint_offset_z_m != 0.0 ? rule.endpoint_offset_z_m : rule.automatic_endpoint_offset_z_m;
+    dst.endpoint_world.z += endpoint_offset;
+    dst.endpoint_offset_z_m = endpoint_offset;
+    dst.automatic_endpoint_offset_z_m = endpoint_offset;
+    dst.branch_down_offset_m = std::max(0.0, -endpoint_offset);
+    dst.automatic_branch_down_offset_m = std::max(0.0, -endpoint_offset);
   }
   dst.departure_dir = {1.0, 0.0, 0.0};
 }

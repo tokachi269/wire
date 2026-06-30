@@ -415,6 +415,37 @@ bool test_bb2_viewer_selected_building_pick_generates_selected_bundle_only() {
   return true;
 }
 
+bool test_bb2_viewer_sag_uses_curved_geom_output() {
+  wire::core::CoreState state;
+  const auto out = state.GenerateFromBackboneSpec(line_req(state, wire::core::BundleKind::kLowVoltage));
+  if (!out.ok || out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId span_id = out.value.generated_span_ids.front();
+  const wire::core::SpanLayoutView layout = state.span_layout(span_id);
+  if (!layout.has_layout()) {
+    return false;
+  }
+  wire::core::GeometrySettings settings = state.view().geometry_settings();
+  settings.sag_enabled = true;
+  settings.curve_samples = std::max(9, settings.curve_samples);
+  const auto updated = state.UpdateGeometrySettings(settings);
+  const wire::core::CurveCacheEntry* curve = state.find_curve_cache(span_id);
+  const wire::core::SpanRenderCacheEntry* render = state.find_span_render_cache(span_id);
+  if (!updated.ok || curve == nullptr || render == nullptr || curve->detail.sag_amplitude_m <= 0.0 ||
+      curve->detail.sample_points.size() < 3 ||
+      render->arc_length_m_by_point.size() != curve->detail.sample_points.size()) {
+    return false;
+  }
+  const double endpoint_min_z =
+      std::min(layout.entry->start.endpoint_world.z, layout.entry->end.endpoint_world.z);
+  return almost_equal(curve->detail.EvaluatePosition(0.0), layout.entry->start.endpoint_world) &&
+         almost_equal(curve->detail.EvaluatePosition(1.0), layout.entry->end.endpoint_world) &&
+         std::find_if(curve->detail.sample_points.begin(), curve->detail.sample_points.end(),
+                      [&](const wire::core::Vec3d& point) { return point.z < endpoint_min_z; }) !=
+             curve->detail.sample_points.end();
+}
+
 bool test_span_layout_debug_panel_reads_neutral_outputs() {
   std::ifstream file("viewer/src/panels.cpp");
   if (!file.is_open()) {
@@ -448,6 +479,8 @@ void register_bb2_scene_tests(viewer_test_registry::TestRegistry& tests) {
                                 test_bb2_viewer_selected_building_pick_generates_selected_bundle_only);
   viewer_test_registry::AddTest(tests, "V23", "SpanLayout debug panel reads neutral span outputs",
                                 test_span_layout_debug_panel_reads_neutral_outputs);
+  viewer_test_registry::AddTest(tests, "V24", "bb2 viewer scene: sag uses curved geom and render output",
+                                test_bb2_viewer_sag_uses_curved_geom_output);
 }
 
 WIRE_REGISTER_VIEWER_TEST_SUITE(register_bb2_scene_tests);

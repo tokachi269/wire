@@ -107,7 +107,7 @@ EditResult<bool> CoreState::DeriveGeneratedSpanOutputs(ObjectId span_id) {
   const SpanRuntimeState* runtime = find_span_runtime_state(span_id);
   layout.source_version = (runtime == nullptr) ? 0 : runtime->data_version;
 
-  DetailCurve curve = generation::bb2::line(layout.start.endpoint_world, layout.end.endpoint_world);
+  DetailCurve curve = generation::bb2::make_curve(*this, span_id, layout);
   BoundsCacheEntry bounds = generation::bb2::bounds(curve, layout.source_version);
   SpanVisualCacheEntry visual = generation::bb2::visual(runtime_.cache_state.visual_settings, layout);
   SpanRenderCacheEntry render = generation::bb2::render(*this, span_id, curve);
@@ -135,7 +135,7 @@ EditResult<bool> CoreState::derive_generated_span_shape_outputs(ObjectId span_id
     return out;
   }
   const SpanLayoutEntry& layout = *layout_view.entry;
-  DetailCurve curve = generation::bb2::line(layout.start.endpoint_world, layout.end.endpoint_world);
+  DetailCurve curve = generation::bb2::make_curve(*this, span_id, layout);
   BoundsCacheEntry bounds = generation::bb2::bounds(curve, layout.source_version);
   SpanVisualCacheEntry visual = generation::bb2::visual(runtime_.cache_state.visual_settings, layout);
   SpanRenderCacheEntry render = generation::bb2::render(*this, span_id, curve);

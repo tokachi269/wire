@@ -2101,7 +2101,7 @@ geom pipeline::make(const layout& made) const {
   out.curves.data.reserve(made.entries.size());
   out.boxes.data.reserve(made.entries.size());
   for (const SpanLayoutEntry& entry : made.entries) {
-    DetailCurve detail = line(entry.start.endpoint_world, entry.end.endpoint_world);
+    DetailCurve detail = make_curve(state_, entry.span_id, entry);
     BoundsCacheEntry cached = bounds(detail);
     out.boxes.data.push_back({entry.span_id, std::move(cached)});
     out.curves.data.push_back({entry.span_id, std::move(detail)});

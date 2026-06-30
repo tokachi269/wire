@@ -62,6 +62,54 @@ DetailCurve line(const Vec3d& a, const Vec3d& b) {
   return out;
 }
 
+DetailCurve make_curve(const CoreState& state, ObjectId span_id, const SpanLayoutEntry& layout) {
+  const GeometrySettings& settings = state.view().geometry_settings();
+  if (!settings.sag_enabled) {
+    return line(layout.start.endpoint_world, layout.end.endpoint_world);
+  }
+
+  double sag_ratio = settings.sag_factor;
+  const Span* span = state.view().spans().find(span_id);
+  if (span != nullptr) {
+    const Bundle* bundle = state.view().bundles().find(span->bundle_id);
+    if (bundle != nullptr) {
+      const auto bundle_template = state.view().bundle_templates().find(bundle->bundle_template_id);
+      if (bundle_template != state.view().bundle_templates().end()) {
+        const auto cable = state.view().cable_templates().find(bundle_template->second.cable_template_id);
+        if (cable != state.view().cable_templates().end()) {
+          sag_ratio = cable->second.sag_factor + cable->second.slack_factor;
+        }
+      }
+    }
+  }
+  sag_ratio = std::max(0.0, sag_ratio);
+  if (sag_ratio <= 0.0) {
+    return line(layout.start.endpoint_world, layout.end.endpoint_world);
+  }
+
+  const Vec3d chord = layout.end.endpoint_world - layout.start.endpoint_world;
+  const double chord_length = length(chord);
+  if (chord_length <= 1e-9) {
+    return line(layout.start.endpoint_world, layout.end.endpoint_world);
+  }
+  const Vec3d tangent = mul(chord, 1.0 / chord_length);
+  CurveConstraint start{};
+  start.point = layout.start.endpoint_world;
+  start.tangent_dir = tangent;
+  start.sag_hint = sag_ratio * 0.5;
+  start.continuity_preference = layout.continuity_preference;
+  start.bend_stiffness_hint = layout.bend_stiffness_hint;
+  start.min_bend_radius_hint_m = layout.min_bend_radius_hint_m;
+  start.pass_mode = layout.pass_mode;
+  start.endpoint_mode = layout.start.endpoint_mode;
+  start.profile_hint = layout.detail_curve_profile_hint;
+
+  CurveConstraint end = start;
+  end.point = layout.end.endpoint_world;
+  end.endpoint_mode = layout.end.endpoint_mode;
+  return BuildDetailCurve(start, end, std::max(2, settings.curve_samples));
+}
+
 BoundsCacheEntry bounds(const DetailCurve& curve, std::uint64_t source_version) {
   BoundsCacheEntry out{};
   out.whole = box(curve.sample_points);

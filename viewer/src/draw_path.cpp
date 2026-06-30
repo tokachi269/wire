@@ -723,7 +723,7 @@ void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool
     request.path.node_specs.push_back(node_spec);
   }
   if (ui_state.draw_clicked_points_only) {
-    request.interval_m = std::max(0.001, PolylineLengthLocal(road.polyline) + 1.0);
+    request.interval_m = std::max(0.001, PolylineLengthLocal(request.path.polyline) + 1.0);
   } else {
     request.interval_m = ui_state.draw_interval_m;
   }

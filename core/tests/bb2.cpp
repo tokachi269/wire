@@ -6931,6 +6931,71 @@ bool C620_bb2_update_boundary_has_no_operation_specific_kinds() {
   return true;
 }
 
+bool C621_bb2_sag_reshape_updates_geom_only() {
+  wire::core::CoreState state;
+  const auto out = state.GenerateFromBackboneSpec(line_req(state));
+  if (!out.ok || out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId span_id = out.value.generated_span_ids.front();
+  const wire::core::SpanLayoutView before_layout_view = state.span_layout(span_id);
+  if (!before_layout_view.has_layout()) {
+    return false;
+  }
+  const wire::core::SpanLayoutEntry before_layout = *before_layout_view.entry;
+  std::vector<wire::core::ObjectId> node_ids{};
+  std::vector<wire::core::ObjectId> edge_ids{};
+  std::vector<wire::core::ObjectId> binding_spans{};
+  for (const wire::core::SavedBackboneNode& node : state.view().backbone().nodes) {
+    node_ids.push_back(node.node_id);
+  }
+  for (const wire::core::SavedBackboneEdge& edge : state.view().backbone().edges) {
+    edge_ids.push_back(edge.edge_id);
+  }
+  for (const wire::core::SavedBackboneSpanBinding& binding : state.view().backbone().span_bindings) {
+    binding_spans.push_back(binding.span_id);
+  }
+
+  wire::core::GeometrySettings settings = state.view().geometry_settings();
+  settings.sag_enabled = true;
+  settings.sag_factor = std::max(0.03, settings.sag_factor);
+  settings.curve_samples = std::max(9, settings.curve_samples);
+  const auto updated = state.UpdateGeometrySettings(settings);
+  const wire::core::SpanLayoutView after_layout = state.span_layout(span_id);
+  const wire::core::CurveCacheEntry* curve = state.find_curve_cache(span_id);
+  const wire::core::BoundsCacheEntry* bounds = state.find_bounds_cache(span_id);
+  if (!updated.ok || !after_layout.has_layout() || curve == nullptr || bounds == nullptr ||
+      curve->detail.sag_amplitude_m <= 0.0 || curve->detail.sample_points.size() < 3) {
+    return false;
+  }
+  const wire::core::Vec3d start = curve->detail.EvaluatePosition(0.0);
+  const wire::core::Vec3d end = curve->detail.EvaluatePosition(1.0);
+  const double endpoint_min_z =
+      std::min(before_layout.start.endpoint_world.z, before_layout.end.endpoint_world.z);
+  if (!almost_equal(start, before_layout.start.endpoint_world, 1e-9) ||
+      !almost_equal(end, before_layout.end.endpoint_world, 1e-9) ||
+      !(bounds->whole.min.z < endpoint_min_z)) {
+    return false;
+  }
+
+  std::vector<wire::core::ObjectId> after_node_ids{};
+  std::vector<wire::core::ObjectId> after_edge_ids{};
+  std::vector<wire::core::ObjectId> after_binding_spans{};
+  for (const wire::core::SavedBackboneNode& node : state.view().backbone().nodes) {
+    after_node_ids.push_back(node.node_id);
+  }
+  for (const wire::core::SavedBackboneEdge& edge : state.view().backbone().edges) {
+    after_edge_ids.push_back(edge.edge_id);
+  }
+  for (const wire::core::SavedBackboneSpanBinding& binding : state.view().backbone().span_bindings) {
+    after_binding_spans.push_back(binding.span_id);
+  }
+  return almost_equal(after_layout.entry->start.endpoint_world, before_layout.start.endpoint_world, 1e-9) &&
+         almost_equal(after_layout.entry->end.endpoint_world, before_layout.end.endpoint_world, 1e-9) &&
+         after_layout.entry->source_version == before_layout.source_version && node_ids == after_node_ids &&
+         edge_ids == after_edge_ids && binding_spans == after_binding_spans;
+}
+
 void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C368_bb2_smoke_line", "bb2 generates the milestone-1 line slice", "Invariant", false,
                          C368_bb2_smoke_line);
@@ -7660,6 +7725,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C620_bb2_update_boundary_has_no_operation_specific_kinds",
                          "bb2 update boundary has no operation-specific update kinds", "Boundary", false,
                          C620_bb2_update_boundary_has_no_operation_specific_kinds);
+  test_registry::AddTest(tests, "C621_bb2_sag_reshape_updates_geom_only",
+                         "bb2 sag reshapes curve and bounds without changing layout or topology", "Boundary", false,
+                         C621_bb2_sag_reshape_updates_geom_only);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

@@ -26,24 +26,21 @@
 - post-edit successがstale outputを残さない
 - wire coreが外部domain型へ依存しない
 
+## 決定済みの制限
+
+- `UpdatePoleTypeDefinition`は、対象typeをactive backbone poleが使用中ならmutation前に
+  `unsupported`を返す。非backbone poleだけが使用するtypeは従来どおり更新できる。
+- `AddConnectionByPole`、`AddDropFromPole`、`AddDropFromSpan`、`SplitSpan`はpublic API、
+  実装、専用result/options型を削除済みである。
+
+これらは未解決blockerではない。active pole typeの一括migrationや旧topology operationが必要なら、
+`SavedBackboneGraph`を更新する新しいoperationとして別途設計する。
+
 ## 残blocker
 
-### `UpdatePoleTypeDefinition`
-
-現状はdefinition更新後に既存poleへ`ApplyPoleType()`を順次適用する。
-active generated spanを含む場合に、途中失敗のatomicityとlayout/geom/drawの追随を説明し切れていない。
-次のどちらかを固定するまでmerge blockerとする。
-
-- mutation前に対象をpreflightし、全対象を`kReposition`でdirect deriveする
-- topology/identity変更が必要な場合はdefinitionを変更する前に`unsupported`を返す
-
-### legacy topology public API
-
-`AddConnectionByPole`、`AddDrop*`、`SplitSpan`はmutation前`unsupported`でstateを壊さない。
-normal pathにはいないためarchitecture blockerではないが、mainへ残すpublic surfaceとして許容するか、宣言ごと削除するかをmerge前に決める。
+source上の既知blockerはない。必須check、実画面の最終確認、mainとの差分・競合確認は必要である。
 
 ## merge可能条件
 
-上記blockerを解消または明示的に受容し、必須checkが全て通った時点でsource上はmerge可能と判断する。
+必須checkが全て通った時点でsource上はmerge可能と判断する。
 実画面の最終確認とmainとの競合確認は別途行う。
-

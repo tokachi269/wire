@@ -17,7 +17,6 @@ bool test_public_headers_offer_stable_smoke_surface() {
 
   static_assert(std::is_trivially_copyable_v<EntityRef>);
   static_assert(noexcept(EntityRef{}.valid()));
-  static_assert(std::is_default_constructible_v<AddConnectionByPoleOptions>);
   static_assert(std::is_default_constructible_v<ResolveBranchPickOptions>);
   static_assert(std::is_default_constructible_v<VariationSettings>);
   static_assert(std::is_default_constructible_v<ContextProfile>);

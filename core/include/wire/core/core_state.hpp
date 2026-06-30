@@ -59,19 +59,7 @@ public:
   EditResult<ObjectId> MoveAnchor(ObjectId anchor_id, const Vec3d& new_world_position);
   EditResult<ObjectId> DeletePole(ObjectId pole_id);
   EditResult<ObjectId> DeleteSpan(ObjectId span_id);
-  EditResult<SplitSpanResult> SplitSpan(ObjectId span_id, double t);
   EditResult<ObjectId> ApplyPoleType(ObjectId pole_id, PoleTypeId pole_type_id);
-  // When template/bundle is supplied in options, connection behavior is derived from that template,
-  // and `category` is treated as a fallback label only.
-  EditResult<AddConnectionByPoleResult> AddConnectionByPole(ObjectId pole_a_id, ObjectId pole_b_id,
-                                                            ConnectionCategory category);
-  EditResult<AddConnectionByPoleResult> AddConnectionByPole(ObjectId pole_a_id, ObjectId pole_b_id,
-                                                            ConnectionCategory category,
-                                                            const AddConnectionByPoleOptions& options);
-  EditResult<AddDropResult> AddDropFromPole(ObjectId source_pole_id, const Vec3d& target_world_position,
-                                            ConnectionCategory category = ConnectionCategory::kDrop);
-  EditResult<AddDropResult> AddDropFromSpan(ObjectId source_span_id, double t, const Vec3d& target_world_position,
-                                            ConnectionCategory category = ConnectionCategory::kDrop);
   // Canonical path-generation API.
   EditResult<GenerateBundleFromPathResult> GenerateFromBackboneSpec(const BackboneSpec& spec);
   // Interprets a viewer-side pick payload and updates support-node session state when needed.

@@ -373,39 +373,98 @@ bool C626_backbone_cable_template_updates_derive_outputs() {
          final_render->color_rgba == redraw.color_rgba;
 }
 
-bool C627_backbone_legacy_topology_apis_reject_before_mutation() {
+bool C627_backbone_legacy_topology_apis_are_removed() {
+  std::string state_header{};
+  std::string api_types{};
+  std::string cmake{};
+  if (!file_text(repo_root() / "core" / "include" / "wire" / "core" / "core_state.hpp", &state_header) ||
+      !file_text(repo_root() / "core" / "include" / "wire" / "core" / "core_state_api_types.hpp", &api_types) ||
+      !file_text(repo_root() / "core" / "CMakeLists.txt", &cmake)) {
+    return false;
+  }
+  const std::vector<std::string> retired = {
+      "AddConnectionByPole", "AddDropFromPole", "AddDropFromSpan", "SplitSpan",
+      "AddConnectionByPoleOptions", "AddConnectionByPoleResult", "AddDropResult", "SplitSpanResult",
+  };
+  for (const std::string& symbol : retired) {
+    if (contains_text(state_header, symbol) || contains_text(api_types, symbol)) {
+      return false;
+    }
+  }
+  return !contains_text(cmake, "state/legacy/topology.cpp");
+}
+
+bool C628_backbone_active_pole_type_update_rejects_unchanged() {
   wire::core::CoreState state;
   const auto generated = state.GenerateFromBackboneSpec(line_req(state));
-  if (!generated.ok || generated.value.generated_pole_ids.size() != 2 ||
+  if (!generated.ok || generated.value.generated_pole_ids.empty() ||
       generated.value.generated_span_ids.empty()) {
     return false;
   }
-  const auto counts = [&]() {
-    return std::array<std::size_t, 8>{
-        state.view().poles().size(),
-        state.view().ports().size(),
-        state.view().bundles().size(),
-        state.view().spans().size(),
-        state.view().backbone().nodes.size(),
-        state.view().backbone().edges.size(),
-        state.view().backbone().edge_bundles.size(),
-        state.view().backbone().span_bindings.size(),
-    };
-  };
-  const auto before = counts();
-  const auto connection =
-      state.AddConnectionByPole(generated.value.generated_pole_ids[0],
-                                generated.value.generated_pole_ids[1],
-                                wire::core::ConnectionCategory::kLowVoltage);
-  const auto pole_drop =
-      state.AddDropFromPole(generated.value.generated_pole_ids[0], {5.0, 4.0, 3.0});
-  const auto span_drop =
-      state.AddDropFromSpan(generated.value.generated_span_ids.front(), 0.5, {5.0, 4.0, 3.0});
-  const auto split = state.SplitSpan(generated.value.generated_span_ids.front(), 0.5);
-  return !connection.ok && !pole_drop.ok && !span_drop.ok && !split.ok &&
-         contains_text(connection.error, "unsupported") && contains_text(pole_drop.error, "unsupported") &&
-         contains_text(span_drop.error, "unsupported") && contains_text(split.error, "unsupported") &&
-         counts() == before;
+  const wire::core::ObjectId pole_id = generated.value.generated_pole_ids.front();
+  const wire::core::ObjectId span_id = generated.value.generated_span_ids.front();
+  const wire::core::Pole* pole = state.view().poles().find(pole_id);
+  const wire::core::Span* span = state.view().spans().find(span_id);
+  if (pole == nullptr || span == nullptr) {
+    return false;
+  }
+  const auto type_it = state.view().pole_types().find(pole->pole_type_id);
+  const wire::core::Port* port_a = state.view().ports().find(span->port_a_id);
+  const wire::core::Port* port_b = state.view().ports().find(span->port_b_id);
+  const wire::core::SpanLayoutView layout = state.span_layout(span_id);
+  const wire::core::CurveCacheEntry* curve = state.find_curve_cache(span_id);
+  const wire::core::SpanVisualCacheEntry* visual = state.find_span_visual_cache(span_id);
+  const wire::core::SpanRenderCacheEntry* render = state.find_span_render_cache(span_id);
+  if (type_it == state.view().pole_types().end() || port_a == nullptr || port_b == nullptr ||
+      !layout.has_layout() || curve == nullptr || visual == nullptr || render == nullptr) {
+    return false;
+  }
+
+  const wire::core::PoleTypeDefinition type_before = type_it->second;
+  const double pole_height_before = pole->height_m;
+  const wire::core::Vec3d port_a_before = port_a->world_position;
+  const wire::core::Vec3d port_b_before = port_b->world_position;
+  const wire::core::SpanLayoutEntry layout_before = *layout.entry;
+  const std::vector<wire::core::Vec3d> curve_before = curve->detail.sample_points;
+  const std::uint64_t visual_version_before = visual->source_version;
+  const std::uint64_t render_version_before = render->source_version;
+  const std::size_t node_count_before = state.view().backbone().nodes.size();
+  const std::size_t edge_count_before = state.view().backbone().edges.size();
+  const std::size_t binding_count_before = state.view().backbone().span_bindings.size();
+
+  wire::core::PoleTypeDefinition edited = type_before;
+  edited.default_height_m += 1.0;
+  const auto updated = state.UpdatePoleTypeDefinition(edited);
+  const wire::core::Pole* pole_after = state.view().poles().find(pole_id);
+  const wire::core::Port* port_a_after = state.view().ports().find(span->port_a_id);
+  const wire::core::Port* port_b_after = state.view().ports().find(span->port_b_id);
+  const wire::core::SpanLayoutView layout_after = state.span_layout(span_id);
+  const wire::core::CurveCacheEntry* curve_after = state.find_curve_cache(span_id);
+  const wire::core::SpanVisualCacheEntry* visual_after = state.find_span_visual_cache(span_id);
+  const wire::core::SpanRenderCacheEntry* render_after = state.find_span_render_cache(span_id);
+  const auto type_after = state.view().pole_types().find(type_before.id);
+  const bool curve_unchanged =
+      curve_after != nullptr && curve_after->detail.sample_points.size() == curve_before.size() &&
+      std::equal(curve_before.begin(), curve_before.end(), curve_after->detail.sample_points.begin(),
+                 [](const wire::core::Vec3d& a, const wire::core::Vec3d& b) {
+                   return almost_equal(a, b, 1e-12);
+                 });
+  return !updated.ok && contains_text(updated.error, "unsupported") &&
+         type_after != state.view().pole_types().end() &&
+         almost_equal(type_after->second.default_height_m, type_before.default_height_m, 1e-12) &&
+         pole_after != nullptr && almost_equal(pole_after->height_m, pole_height_before, 1e-12) &&
+         port_a_after != nullptr && port_b_after != nullptr &&
+         almost_equal(port_a_after->world_position, port_a_before, 1e-12) &&
+         almost_equal(port_b_after->world_position, port_b_before, 1e-12) &&
+         layout_after.has_layout() &&
+         almost_equal(layout_after.entry->start.endpoint_world, layout_before.start.endpoint_world, 1e-12) &&
+         almost_equal(layout_after.entry->end.endpoint_world, layout_before.end.endpoint_world, 1e-12) &&
+         curve_unchanged &&
+         visual_after != nullptr && visual_after->source_version == visual_version_before &&
+         render_after != nullptr && render_after->source_version == render_version_before &&
+         state.view().backbone().nodes.size() == node_count_before &&
+         state.view().backbone().edges.size() == edge_count_before &&
+         state.view().backbone().span_bindings.size() == binding_count_before;
 }
 
 bool C622_backbone_stage_timing_is_diagnostic_only() {

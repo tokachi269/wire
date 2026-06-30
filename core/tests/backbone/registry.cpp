@@ -750,9 +750,12 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C626_backbone_cable_template_updates_derive_outputs",
                          "backbone cable shape and render updates directly derive outputs", "Boundary", false,
                          C626_backbone_cable_template_updates_derive_outputs);
-  test_registry::AddTest(tests, "C627_backbone_legacy_topology_apis_reject_before_mutation",
-                         "retired topology APIs reject before mutating SavedBackboneGraph outputs", "Boundary", true,
-                         C627_backbone_legacy_topology_apis_reject_before_mutation);
+  test_registry::AddTest(tests, "C627_backbone_legacy_topology_apis_are_removed",
+                         "retired topology APIs are absent from the public surface", "Boundary", false,
+                         C627_backbone_legacy_topology_apis_are_removed);
+  test_registry::AddTest(tests, "C628_backbone_active_pole_type_update_rejects_unchanged",
+                         "active backbone pole type updates reject before mutation", "Boundary", true,
+                         C628_backbone_active_pole_type_update_rejects_unchanged);
 }
 
 

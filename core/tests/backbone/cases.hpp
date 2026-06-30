@@ -260,7 +260,8 @@ bool C623_backbone_layout_settings_reject_before_mutation();
 bool C624_backbone_variation_settings_reject_before_mutation();
 bool C625_backbone_context_profile_reject_before_mutation();
 bool C626_backbone_cable_template_updates_derive_outputs();
-bool C627_backbone_legacy_topology_apis_reject_before_mutation();
+bool C627_backbone_legacy_topology_apis_are_removed();
+bool C628_backbone_active_pole_type_update_rejects_unchanged();
 bool C622_backbone_stage_timing_is_diagnostic_only();
 
 } // namespace backbone_tests

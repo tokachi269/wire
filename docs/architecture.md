@@ -65,6 +65,9 @@ T/cross/branchのkind enumは作らず、pair/open/rowの組合せで表す。
 post-edit APIは、派生出力を更新して成功するか、mutation前に拒否する。
 staleなlayout/geom/drawを残したまま成功してはいけない。
 
+`UpdatePoleTypeDefinition`は、対象typeをactive backbone poleが使用中ならmutation前に拒否する。
+非backbone poleだけへのdefinition再適用は許可する。active objectのtemplate migrationは現行scopeに含めない。
+
 ## validationとinspection
 
 `ValidateFast()`、`Validate()`、inspectionはstateを観測して問題を報告する。
@@ -98,4 +101,3 @@ spanはport間の生成結果であり、topology authorityではない。
 - read-only query: `CoreView`とconst query
 - dependency guard: `tools/arch_lint.py`
 - test ownership guard: `tools/test_family_lint.py`
-

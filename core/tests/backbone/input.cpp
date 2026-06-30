@@ -508,6 +508,20 @@ bool C596_backbone_avoid_point_at_explicit_new_support_is_noop() {
 bool C581_backbone_inactive_bundle_missing_band_is_ignored() {
   wire::core::CoreState state;
   wire::core::BackboneSpec base = line_req(state);
+  auto it = state.view().pole_types().find(base.pole_type_id);
+  if (it == state.view().pole_types().end()) {
+    return false;
+  }
+  wire::core::PoleTypeDefinition type = it->second;
+  type.port_bands.erase(std::remove_if(type.port_bands.begin(), type.port_bands.end(),
+                                       [](const wire::core::PortPlacementBand& band) {
+                                         return band.category == wire::core::ConnectionCategory::kHighVoltage &&
+                                                band.layer == 2;
+                                       }),
+                        type.port_bands.end());
+  if (!state.UpdatePoleTypeDefinition(type).ok) {
+    return false;
+  }
   const auto base_out = state.GenerateFromBackboneSpec(base);
   if (!base_out.ok || base_out.value.generated_span_ids.empty()) {
     return false;
@@ -535,20 +549,6 @@ bool C581_backbone_inactive_bundle_missing_band_is_ignored() {
   node.node_id = resolved.value.resolved_node_id;
   branch.path.node_specs = {node};
 
-  auto it = state.view().pole_types().find(branch.pole_type_id);
-  if (it == state.view().pole_types().end()) {
-    return false;
-  }
-  wire::core::PoleTypeDefinition type = it->second;
-  type.port_bands.erase(std::remove_if(type.port_bands.begin(), type.port_bands.end(),
-                                       [](const wire::core::PortPlacementBand& band) {
-                                         return band.category == wire::core::ConnectionCategory::kHighVoltage &&
-                                                band.layer == 2;
-                                       }),
-                        type.port_bands.end());
-  if (!state.UpdatePoleTypeDefinition(type).ok) {
-    return false;
-  }
   const auto out = state.GenerateFromBackboneSpec(branch);
   return out.ok &&
          out.value.generated_span_ids.size() ==

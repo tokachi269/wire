@@ -782,7 +782,7 @@ bool C602_backbone_context_only_pole_band_does_not_filter_new_route() {
       break;
     }
   }
-  if (comm_type_id == wire::core::kInvalidPoleTypeId || !state.ApplyPoleType(b, comm_type_id).ok) {
+  if (comm_type_id == wire::core::kInvalidPoleTypeId) {
     return false;
   }
   auto type_it = state.view().pole_types().find(comm_type_id);
@@ -797,6 +797,9 @@ bool C602_backbone_context_only_pole_band_does_not_filter_new_route() {
                                             }),
                              comm_type.port_bands.end());
   if (!state.UpdatePoleTypeDefinition(comm_type).ok) {
+    return false;
+  }
+  if (!state.ApplyPoleType(b, comm_type_id).ok) {
     return false;
   }
   const auto* pole_a = state.view().poles().find(a);

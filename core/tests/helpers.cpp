@@ -740,11 +740,11 @@ std::string describe_branch_runout_metrics(const BranchRunoutMetrics& metrics) {
   return oss.str();
 }
 
-wire::core::EditResult<wire::core::AddConnectionByPoleResult>
+wire::core::EditResult<FixtureConnectionResult>
 add_connection_by_category(wire::core::CoreState& state, wire::core::ObjectId pole_a_id, wire::core::ObjectId pole_b_id,
                            wire::core::ConnectionCategory category,
-                           wire::core::AddConnectionByPoleOptions options) {
-  wire::core::EditResult<wire::core::AddConnectionByPoleResult> out{};
+                           FixtureConnectionOptions options) {
+  wire::core::EditResult<FixtureConnectionResult> out{};
   const wire::core::Pole* a = state.view().poles().find(pole_a_id);
   const wire::core::Pole* b = state.view().poles().find(pole_b_id);
   if (a == nullptr || b == nullptr || pole_a_id == pole_b_id) {

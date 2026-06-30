@@ -89,10 +89,23 @@ AxisRelationMetrics measure_pole_axis_relation_metrics(const CoreState& state, O
 BranchRunoutMetrics measure_branch_runout_metrics(const CoreState& state, ObjectId span_id);
 std::string describe_axis_relation_metrics(const AxisRelationMetrics& metrics);
 std::string describe_branch_runout_metrics(const BranchRunoutMetrics& metrics);
-wire::core::EditResult<wire::core::AddConnectionByPoleResult>
+struct FixtureConnectionOptions {
+  wire::core::BundleKind bundle_template_id = wire::core::BundleKind::kLowVoltage;
+  bool use_bundle_template = false;
+  wire::core::ConnectionContext connection_context = wire::core::ConnectionContext::kTrunkContinue;
+  std::uint32_t branch_index = 0;
+};
+
+struct FixtureConnectionResult {
+  ObjectId span_id = wire::core::kInvalidObjectId;
+  ObjectId port_a_id = wire::core::kInvalidObjectId;
+  ObjectId port_b_id = wire::core::kInvalidObjectId;
+};
+
+wire::core::EditResult<FixtureConnectionResult>
 add_connection_by_category(wire::core::CoreState& state, wire::core::ObjectId pole_a_id, wire::core::ObjectId pole_b_id,
                            wire::core::ConnectionCategory category,
-                           wire::core::AddConnectionByPoleOptions options = {});
+                           FixtureConnectionOptions options = {});
 bool has_selected_port_in_candidates(const wire::core::PortResolutionDebugRecord& record);
 bool restore_capture_request_scene(const std::filesystem::path& capture_path, CoreState& state,
                                    wire::core::BackboneSpec* remapped_spec, std::string* error = nullptr);

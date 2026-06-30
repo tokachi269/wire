@@ -1606,6 +1606,12 @@ EditResult<bool> CoreState::update_pole_type_and_refresh_instances(const PoleTyp
     result.value = false;
     return result;
   }
+  for (const Pole& pole : authoritative_.edit_state.poles.items()) {
+    if (pole.pole_type_id == pole_type.id && runtime_.backbone_index.pole_node.contains(pole.id)) {
+      result.error = "backbone unsupported: active pole type changes require regeneration";
+      return result;
+    }
+  }
   it->second = pole_type;
   result.ok = true;
   result.value = true;

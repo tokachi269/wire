@@ -185,7 +185,7 @@ bool test_band_selection_context_bias() {
     return false;
   }
 
-  wire::core::AddConnectionByPoleOptions trunk_options{};
+  FixtureConnectionOptions trunk_options{};
   trunk_options.connection_context = wire::core::ConnectionContext::kTrunkContinue;
   const auto trunk =
       add_connection_by_category(state, pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage, trunk_options);
@@ -193,7 +193,7 @@ bool test_band_selection_context_bias() {
     return false;
   }
 
-  wire::core::AddConnectionByPoleOptions branch_options{};
+  FixtureConnectionOptions branch_options{};
   branch_options.connection_context = wire::core::ConnectionContext::kBranchAdd;
   const auto branch =
       add_connection_by_category(state, pole_b, pole_c, wire::core::ConnectionCategory::kLowVoltage, branch_options);
@@ -217,7 +217,7 @@ bool test_band_selection_deterministic_and_debug_integrity() {
     (void)state.ApplyPoleType(pole_a, type_ids.front());
     (void)state.ApplyPoleType(pole_b, type_ids.front());
 
-  wire::core::AddConnectionByPoleOptions options{};
+  FixtureConnectionOptions options{};
     options.connection_context = wire::core::ConnectionContext::kCornerPass;
     options.branch_index = 3;
     const auto result = add_connection_by_category(state, pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage, options);
@@ -378,7 +378,7 @@ bool test_preferred_side_uses_geometry() {
     (void)state.ApplyPoleType(pole_b, type_ids.front());
     state.clear_port_resolution_debug_records();
 
-  wire::core::AddConnectionByPoleOptions options{};
+  FixtureConnectionOptions options{};
     options.connection_context = wire::core::ConnectionContext::kBranchAdd;
     options.branch_index = 7; // deliberately fixed; geometry should dominate.
     const auto add = add_connection_by_category(state, pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage, options);

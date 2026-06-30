@@ -7,8 +7,7 @@
 
 | family | 状態 | normal path | 消す条件 |
 |---|---|---|---|
-| `AddConnectionByPole` / `AddDrop*` / `SplitSpan` | `core/src/state/legacy/topology.cpp`でmutation前`unsupported` | いない | SavedGraphを更新する新operationを定義するか、public宣言を削除する |
-| `UpdatePoleTypeDefinition` | template更新後に既存pole/portへ再適用 | post-edit API | active generated spanを含む場合のatomicityとdirect deriveを固定する |
+| `UpdatePoleTypeDefinition` | active backbone poleが使用中ならmutation前`unsupported`。非backbone poleだけなら更新可能 | post-edit API | active objectのtemplate migrationが必要になった時だけ、SavedGraph identityを維持する新operationを設計する |
 | `pending_support_nodes` | 未保存pickを次のrequestへ渡すtransient input | DrawPath input | 保存済みnodeと混同しない限り維持 |
 
 ## 隔離
@@ -29,6 +28,7 @@
 - span/layout/curve/port位置からのtopology復元
 - capture replayとlegacy recalc UI
 - span-derived backbone public query
+- `AddConnectionByPole`、`AddDropFromPole`、`AddDropFromSpan`、`SplitSpan`のpublic API、実装、専用型
 - road/building固有のcore identity型
 
 ## 旧テストの扱い
@@ -39,4 +39,3 @@
 - v1内部構造に依存するassertはbackboneの正本・派生境界へ置き換える。
 - recalc順序、authority object、projection object自体を要求するtestは退役する。
 - 1件ずつ延命せず、family単位で移植または削除する。
-

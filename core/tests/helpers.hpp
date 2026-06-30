@@ -28,7 +28,7 @@ struct CoreCounts {
   std::size_t attachments = 0;
 };
 
-struct Bb2Fixture {
+struct BackboneFixture {
   wire::core::GenerateBundleFromPathResult generation{};
   std::vector<ObjectId> poles{};
   std::vector<ObjectId> nodes{};
@@ -61,8 +61,8 @@ bool regex_contains(const std::string& text, const std::string& pattern);
 bool contains_id(const std::vector<ObjectId>& ids, ObjectId id);
 bool almost_equal(double a, double b, double eps = 1e-9);
 bool almost_equal(const wire::core::Vec3d& a, const wire::core::Vec3d& b, double eps = 1e-9);
-wire::core::EditResult<Bb2Fixture>
-make_bb2_fixture(CoreState& state, const std::vector<wire::core::Vec3d>& points,
+wire::core::EditResult<BackboneFixture>
+make_backbone_fixture(CoreState& state, const std::vector<wire::core::Vec3d>& points,
                  const std::vector<wire::core::BundleKind>& bundles = {wire::core::BundleKind::kLowVoltage});
 wire::core::Vec3d normalize_xy_safe(const wire::core::Vec3d& v);
 double dot_xy(const wire::core::Vec3d& a, const wire::core::Vec3d& b);

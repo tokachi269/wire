@@ -21,8 +21,8 @@
       "forbidden_tokens": ["viewer/"]
     },
     {
-      "name": "generation_bb2",
-      "patterns": ["core/src/generation/bb2/*.cpp", "core/src/generation/bb2/*.hpp"],
+      "name": "generation_backbone",
+      "patterns": ["core/src/generation/backbone/*.cpp", "core/src/generation/backbone/*.hpp"],
       "forbidden_tokens": ["viewer/", "ProcessDirtyQueues", "support_layout_contract", "support_layout_projection"]
     },
     {
@@ -33,7 +33,7 @@
         "core/src/generation/pole_facing/*.cpp",
         "core/src/generation/pole_facing/*.hpp"
       ],
-      "forbidden_tokens": ["viewer/", "generation/bb2/pipeline.hpp"]
+      "forbidden_tokens": ["viewer/", "generation/backbone/pipeline.hpp"]
     },
     {
       "name": "derive_or_output",
@@ -43,12 +43,12 @@
     {
       "name": "geometry",
       "patterns": ["core/src/geometry/*.cpp", "core/src/geometry/*.hpp"],
-      "forbidden_tokens": ["generation/bb2/", "viewer/"]
+      "forbidden_tokens": ["generation/backbone/", "viewer/"]
     },
     {
       "name": "validation",
       "patterns": ["core/src/validation/*.cpp", "core/src/validation/*.hpp"],
-      "forbidden_tokens": ["AddPole(", "AddPort(", "AddSpan(", "cache_span_", "generation/bb2/"]
+      "forbidden_tokens": ["AddPole(", "AddPort(", "AddSpan(", "cache_span_", "generation/backbone/"]
     },
     {
       "name": "core_internal",

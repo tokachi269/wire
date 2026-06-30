@@ -1,5 +1,5 @@
 #include "wire/core/core_state.hpp"
-#include "bb2/pipeline.hpp"
+#include "backbone/pipeline.hpp"
 
 #include <chrono>
 
@@ -7,7 +7,7 @@ namespace wire::core {
 
 EditResult<GenerateBundleFromPathResult> CoreState::GenerateFromBackboneSpec(const BackboneSpec& spec) {
   const auto total_started = std::chrono::steady_clock::now();
-  generation::bb2::pipeline pipeline(*this, spec);
+  generation::backbone::pipeline pipeline(*this, spec);
   const auto prepare_started = std::chrono::steady_clock::now();
   EditResult<bool> prepare_out = pipeline.prepare();
   const double prepare_ms =

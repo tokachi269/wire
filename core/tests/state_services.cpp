@@ -90,7 +90,7 @@ std::vector<ObjectId> collect_ids_from_anchors(const std::vector<const wire::cor
 }
 
 bool prepare_single_low_voltage_span(CoreState& state, ObjectId* span_id, wire::core::CableTemplateId* cable_template_id) {
-  const auto fixture = helpers::make_bb2_fixture(
+  const auto fixture = helpers::make_backbone_fixture(
       state, {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}}, {wire::core::BundleKind::kLowVoltage});
   if (!fixture.ok || fixture.value.spans.empty()) return false;
   if (!state.ValidateFast().ok()) {
@@ -200,7 +200,7 @@ bool test_move_pole_updates_only_target_pole_owned_endpoints() {
 
 bool test_update_bundle_template_rejects_branch_down_offset_before_mutation() {
   CoreState state;
-  const auto fixture = helpers::make_bb2_fixture(
+  const auto fixture = helpers::make_backbone_fixture(
       state, {{0.0, 0.0, 0.0}, {8.0, 0.0, 0.0}}, {BundleKind::kHighVoltage});
   if (!fixture.ok || fixture.value.spans.empty()) return false;
   const wire::core::Span* hv_span = state.view().spans().find(fixture.value.spans.front());

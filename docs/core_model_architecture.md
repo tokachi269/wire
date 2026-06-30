@@ -3,7 +3,7 @@
 ## Authority chain
 
 `BackboneSpec`
-→ bb2 generation
+→ backbone generation
 → `SavedBackboneGraph`
 → pair/open/row
 → `SpanLayoutRules`
@@ -26,7 +26,7 @@ Generated span, layout, curve, bounds, visual, port position, or inspection outp
 
 ## Update boundary
 
-bb2 uses four coarse update kinds:
+backbone uses four coarse update kinds:
 
 - `kRegenerate`: topology or identity may change.
 - `kReposition`: layout → geom → draw.
@@ -58,7 +58,7 @@ Viewer and future export/engine adapters consume these outputs. Geometry does no
 ## Guardrails
 
 - Public API: `core/include/wire/core/**`.
-- Private bb2 scratch: `core/src/generation/bb2/**`.
+- Private backbone scratch: `core/src/generation/backbone/**`.
 - Writes go through `CoreState` operations; reads use `CoreView` or const queries.
 - No global mutable `CoreState`, SavedGraph, generation context, cache manager, validation manager, or settings singleton.
 - `tools/arch_lint.py` fails on unclassified source/header files, forbidden dependency directions, old recalc/support-layout symbols, and city-domain identity types.

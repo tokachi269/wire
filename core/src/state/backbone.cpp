@@ -63,11 +63,11 @@ EditResult<bool> CoreState::bind_backbone_node_bundle_modes(
   auto node_it = std::find_if(authoritative_.backbone.nodes.begin(), authoritative_.backbone.nodes.end(),
                               [&](const SavedBackboneNode& node) { return node.node_id == node_id; });
   if (node_it == authoritative_.backbone.nodes.end()) {
-    out.error = "bb2 graph: saved node missing for bundle policy";
+    out.error = "backbone graph: saved node missing for bundle policy";
     return out;
   }
   if (node_it->pole_id != kInvalidObjectId) {
-    out.error = "bb2 graph: pole node cannot carry bundle policy";
+    out.error = "backbone graph: pole node cannot carry bundle policy";
     return out;
   }
   for (const SupportNodeBundleMode& mode : bundle_modes) {
@@ -80,7 +80,7 @@ EditResult<bool> CoreState::bind_backbone_node_bundle_modes(
       continue;
     }
     if (mode_it->mode != mode.mode) {
-      out.error = "bb2 graph: conflicting saved node bundle policy";
+      out.error = "backbone graph: conflicting saved node bundle policy";
       return out;
     }
   }
@@ -98,7 +98,7 @@ EditResult<bool> CoreState::bind_backbone_node_path_point_index(ObjectId node_id
   auto node_it = std::find_if(authoritative_.backbone.nodes.begin(), authoritative_.backbone.nodes.end(),
                               [&](const SavedBackboneNode& node) { return node.node_id == node_id; });
   if (node_it == authoritative_.backbone.nodes.end()) {
-    out.error = "bb2 graph: saved node missing for route index";
+    out.error = "backbone graph: saved node missing for route index";
     return out;
   }
   node_it->path_point_index = path_point_index;

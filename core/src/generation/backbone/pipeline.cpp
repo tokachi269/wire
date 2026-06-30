@@ -14,7 +14,7 @@
 #include <unordered_set>
 #include <utility>
 
-namespace wire::core::generation::bb2 {
+namespace wire::core::generation::backbone {
 namespace {
 
 constexpr double kRowSeparationM = 0.35;
@@ -157,7 +157,7 @@ EditResult<spec_view> view_for(const CoreState& state, const BackboneBundleSpec&
   EditResult<spec_view> out{};
   const auto tmpl_it = state.view().bundle_templates().find(spec.bundle_template_id);
   if (tmpl_it == state.view().bundle_templates().end()) {
-    out.error = "bb2 unsupported: bundle template not found";
+    out.error = "backbone unsupported: bundle template not found";
     return out;
   }
   const BundleTemplate& tmpl = tmpl_it->second;
@@ -165,20 +165,20 @@ EditResult<spec_view> view_for(const CoreState& state, const BackboneBundleSpec&
                         ? tmpl.fixed_count
                         : ((spec.count > 0) ? spec.count : tmpl.default_count);
   if (count <= 0) {
-    out.error = "bb2 unsupported: bundle count resolved to zero";
+    out.error = "backbone unsupported: bundle count resolved to zero";
     return out;
   }
   if (tmpl.count_rule == BundleCountRuleKind::kFixed && spec.count > 0 && spec.count != tmpl.fixed_count) {
-    out.error = "bb2 unsupported: fixed bundle count override";
+    out.error = "backbone unsupported: fixed bundle count override";
     return out;
   }
   if (tmpl.count_rule == BundleCountRuleKind::kRange && (count < tmpl.min_count || count > tmpl.max_count)) {
-    out.error = "bb2 unsupported: bundle count is out of range";
+    out.error = "backbone unsupported: bundle count is out of range";
     return out;
   }
   const SpanLayer layer = (spec.layer == SpanLayer::kUnknown) ? tmpl.default_layer : spec.layer;
   if (layer == SpanLayer::kUnknown) {
-    out.error = "bb2 unsupported: bundle layer is unknown";
+    out.error = "backbone unsupported: bundle layer is unknown";
     return out;
   }
   out.value = spec_view{&spec, &tmpl, count, layer};
@@ -194,19 +194,19 @@ EditResult<PoleTypeId> pole_type_for(const CoreState& state, const BackboneSpec&
     return out;
   }
   if (spec.pole_type_id != kInvalidPoleTypeId) {
-    out.error = "bb2 unsupported: pole type not found";
+    out.error = "backbone unsupported: pole type not found";
     return out;
   }
   PoleTypeId resolved = kInvalidPoleTypeId;
   for (const BackboneBundleSpec& bundle : spec.bundles) {
     const auto tmpl_it = state.view().bundle_templates().find(bundle.bundle_template_id);
     if (tmpl_it == state.view().bundle_templates().end()) {
-      out.error = "bb2 unsupported: bundle template not found";
+      out.error = "backbone unsupported: bundle template not found";
       return out;
     }
     const PoleTypeId candidate = tmpl_it->second.related_pole_type_id;
     if (candidate == kInvalidPoleTypeId || state.view().pole_types().find(candidate) == state.view().pole_types().end()) {
-      out.error = "bb2 unsupported: pole type missing";
+      out.error = "backbone unsupported: pole type missing";
       return out;
     }
     if (resolved == kInvalidPoleTypeId) {
@@ -214,12 +214,12 @@ EditResult<PoleTypeId> pole_type_for(const CoreState& state, const BackboneSpec&
       continue;
     }
     if (resolved != candidate) {
-      out.error = "bb2 unsupported: pole type is ambiguous";
+      out.error = "backbone unsupported: pole type is ambiguous";
       return out;
     }
   }
   if (resolved == kInvalidPoleTypeId) {
-    out.error = "bb2 unsupported: pole type not found";
+    out.error = "backbone unsupported: pole type not found";
     return out;
   }
   out.value = resolved;
@@ -231,12 +231,12 @@ EditResult<PortPlacementBand> band_for(const CoreState& state, ObjectId pole_id,
   EditResult<PortPlacementBand> out{};
   const Pole* pole = state.view().poles().find(pole_id);
   if (pole == nullptr || pole->pole_type_id == kInvalidPoleTypeId) {
-    out.error = "bb2 unsupported: pole type missing";
+    out.error = "backbone unsupported: pole type missing";
     return out;
   }
   const auto type_it = state.view().pole_types().find(pole->pole_type_id);
   if (type_it == state.view().pole_types().end()) {
-    out.error = "bb2 unsupported: pole type missing";
+    out.error = "backbone unsupported: pole type missing";
     return out;
   }
   const PoleTypeDefinition& type = type_it->second;
@@ -252,7 +252,7 @@ EditResult<PortPlacementBand> band_for(const CoreState& state, ObjectId pole_id,
     }
   }
   if (best == nullptr) {
-    out.error = "bb2 unsupported: port band missing";
+    out.error = "backbone unsupported: port band missing";
     return out;
   }
   out.value = *best;
@@ -406,13 +406,13 @@ EditResult<bool> check_port_bands(const CoreState& state, const graph& made, con
       const ObjectId pole_id = item.pole;
       if (pole_id == kInvalidObjectId) {
         EditResult<bool> failed{};
-        failed.error = "bb2 unsupported: existing pole is missing";
+        failed.error = "backbone unsupported: existing pole is missing";
         return failed;
       }
       const Pole* pole = state.view().poles().find(pole_id);
       if (pole == nullptr) {
         EditResult<bool> failed{};
-        failed.error = "bb2 unsupported: existing pole is missing";
+        failed.error = "backbone unsupported: existing pole is missing";
         return failed;
       }
       pole_type_id = pole->pole_type_id;
@@ -420,13 +420,13 @@ EditResult<bool> check_port_bands(const CoreState& state, const graph& made, con
     const auto type_it = state.view().pole_types().find(pole_type_id);
     if (type_it == state.view().pole_types().end()) {
       EditResult<bool> failed{};
-      failed.error = "bb2 unsupported: pole type missing";
+      failed.error = "backbone unsupported: pole type missing";
       return failed;
     }
     for (const std::size_t bundle_index : active_bundle_indices) {
       if (bundle_index >= spec.bundles.size()) {
         EditResult<bool> failed{};
-        failed.error = "bb2 unsupported: active bundle index is invalid";
+        failed.error = "backbone unsupported: active bundle index is invalid";
         return failed;
       }
       const BackboneBundleSpec& bundle = spec.bundles[bundle_index];
@@ -438,7 +438,7 @@ EditResult<bool> check_port_bands(const CoreState& state, const graph& made, con
       }
       if (!has_band(type_it->second, checked.value)) {
         EditResult<bool> failed{};
-        failed.error = "bb2 unsupported: port band missing";
+        failed.error = "backbone unsupported: port band missing";
         return failed;
       }
     }
@@ -471,7 +471,7 @@ EditResult<ObjectId> resolve_port_binding(const CoreState& state, ObjectId pole_
       continue;
     }
     if (found != kInvalidObjectId && found != port->id) {
-      out.error = "bb2 unsupported: ambiguous backbone port binding";
+      out.error = "backbone unsupported: ambiguous backbone port binding";
       out.ok = false;
       return out;
     }
@@ -580,12 +580,12 @@ EditResult<std::size_t> avoid_detours_for_segment(const Vec3d& a, const Vec3d& b
   Vec3d ab = b - a;
   const double len2 = ab.x * ab.x + ab.y * ab.y + ab.z * ab.z;
   if (len2 <= 1e-12) {
-    out.error = "bb2 unsupported: avoid routing source segment is zero length";
+    out.error = "backbone unsupported: avoid routing source segment is zero length";
     return out;
   }
   Vec3d dir = ab;
   if (!norm_strict(&dir)) {
-    out.error = "bb2 unsupported: avoid routing source segment is zero length";
+    out.error = "backbone unsupported: avoid routing source segment is zero length";
     return out;
   }
   const Vec3d detour_axis = side(dir);
@@ -600,7 +600,7 @@ EditResult<std::size_t> avoid_detours_for_segment(const Vec3d& a, const Vec3d& b
     const double before_m = t * len_m;
     const double after_m = (1.0 - t) * len_m;
     if (radius >= before_m || radius >= after_m) {
-      out.error = "bb2 unsupported: avoid radius reaches a fixed route endpoint";
+      out.error = "backbone unsupported: avoid radius reaches a fixed route endpoint";
       return out;
     }
     double clearance = radius + kAvoidClearanceM;
@@ -655,13 +655,13 @@ bool detour_internal_vertex(Vec3d prev, Vec3d current, Vec3d next, const std::ve
 
 EditResult<bool> unsupported(std::string reason) {
   EditResult<bool> out{};
-  out.error = "bb2 unsupported: " + std::move(reason);
+  out.error = "backbone unsupported: " + std::move(reason);
   return out;
 }
 
 EditResult<pairs> unsupported_pairs(std::string reason) {
   EditResult<pairs> out{};
-  out.error = "bb2 unsupported: " + std::move(reason);
+  out.error = "backbone unsupported: " + std::move(reason);
   return out;
 }
 
@@ -748,23 +748,23 @@ EditResult<bool> pipeline::prepare() {
   spec_by_point.reserve(spec_.path.node_specs.size());
   for (const BackboneInputSpec::NodeSpec& spec : spec_.path.node_specs) {
     if (spec.point_index >= input.size()) {
-      out.error = "bb2 unsupported: node spec point index is out of range";
+      out.error = "backbone unsupported: node spec point index is out of range";
       return out;
     }
     if (spec.support_kind != SupportKind::kPole && spec.support_kind != SupportKind::kMidair &&
         spec.support_kind != SupportKind::kExternal && spec.support_kind != SupportKind::kGround) {
-      out.error = "bb2 unsupported: node specs require pole, midair, external, or ground support";
+      out.error = "backbone unsupported: node specs require pole, midair, external, or ground support";
       return out;
     }
     if (spec.has_tangent_hint) {
       Vec3d tangent = spec.tangent_hint;
       if (!norm_strict(&tangent)) {
-        out.error = "bb2 unsupported: node spec tangent hint is zero";
+        out.error = "backbone unsupported: node spec tangent hint is zero";
         return out;
       }
     }
     if (!spec_by_point.emplace(spec.point_index, &spec).second) {
-      out.error = "bb2 unsupported: duplicate node spec";
+      out.error = "backbone unsupported: duplicate node spec";
       return out;
     }
   }
@@ -1005,10 +1005,10 @@ EditResult<bool> pipeline::prepare() {
           continue;
         }
         if (saved == nullptr || saved->pole_id != kInvalidObjectId || saved->support_kind != n.support) {
-          out.error = (n.support == SupportKind::kMidair) ? "bb2 unsupported: saved midair node not found"
+          out.error = (n.support == SupportKind::kMidair) ? "backbone unsupported: saved midair node not found"
                       : (n.support == SupportKind::kExternal)
-                          ? "bb2 unsupported: saved external node not found"
-                          : "bb2 unsupported: saved ground node not found";
+                          ? "backbone unsupported: saved external node not found"
+                          : "backbone unsupported: saved ground node not found";
           return out;
         }
       }
@@ -1025,7 +1025,7 @@ EditResult<bool> pipeline::prepare() {
       }
       const Pole* pole = state_.view().poles().find(pole_id);
       if (pole == nullptr) {
-        out.error = "bb2 unsupported: node spec pole not found";
+        out.error = "backbone unsupported: node spec pole not found";
         return out;
       }
       n.pole = pole->id;
@@ -1035,7 +1035,7 @@ EditResult<bool> pipeline::prepare() {
       } else if (const SavedBackboneNode* saved = state_.view().backbone_node_for_pole(pole->id); saved != nullptr) {
         n.saved = saved->node_id;
       } else {
-        out.error = "bb2 unsupported: saved backbone graph missing for existing pole";
+        out.error = "backbone unsupported: saved backbone graph missing for existing pole";
         return out;
       }
       n.is_new = false;
@@ -1157,19 +1157,19 @@ EditResult<bool> pipeline::prepare() {
     const std::size_t a = local_for_saved(source_a);
     const std::size_t b = local_for_saved(source_b);
     if (a == bad || b == bad || n.id >= g_.nodes.size() || a == n.id || b == n.id) {
-      out.error = "bb2 unsupported: source edge context node is missing";
+      out.error = "backbone unsupported: source edge context node is missing";
       return out;
     }
     const BackboneEdgeKey key{std::min(source_a, source_b), std::max(source_a, source_b)};
     const auto edge_it = state_.view().backbone_index().edge_by_nodes.find(key);
     if (edge_it == state_.view().backbone_index().edge_by_nodes.end()) {
-      out.error = "bb2 unsupported: source edge context is missing";
+      out.error = "backbone unsupported: source edge context is missing";
       return out;
     }
     const ObjectId edge_id = edge_it->second;
     const SavedBackboneEdge* saved = state_.view().backbone_edge(edge_id);
     if (saved == nullptr) {
-      out.error = "bb2 unsupported: source edge context is missing";
+      out.error = "backbone unsupported: source edge context is missing";
       return out;
     }
     const std::size_t source_route = g_.links.size() + 1;
@@ -1424,12 +1424,12 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
   for (std::size_t bundle = 0; bundle < active_bundle_indices_.size(); ++bundle) {
     const std::size_t spec_index = active_bundle_indices_[bundle];
     if (spec_index >= spec_.bundles.size()) {
-      out.error = "bb2 unsupported: active bundle index is invalid";
+      out.error = "backbone unsupported: active bundle index is invalid";
       return out;
     }
     const EditResult<spec_view> v = view_for(state_, spec_.bundles[spec_index]);
     if (!v.ok || v.value.tmpl == nullptr) {
-      out.error = v.ok ? "bb2 unsupported: bundle template not found" : v.error;
+      out.error = v.ok ? "backbone unsupported: bundle template not found" : v.error;
       return out;
     }
     high_voltage_bundle[bundle] = v.value.tmpl->category == ConnectionCategory::kHighVoltage;
@@ -1467,20 +1467,20 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
     }
     const std::size_t local = this->local(mode.point_index);
     if (local == bad || local >= g_.nodes.size()) {
-      out.error = "bb2 unsupported: pass-through node mode point is missing";
+      out.error = "backbone unsupported: pass-through node mode point is missing";
       return out;
     }
     const auto bundle_it = std::find_if(spec_.bundles.begin(), spec_.bundles.end(), [&](const BackboneBundleSpec& spec) {
       return spec.bundle_template_id == mode.bundle_template_id;
     });
     if (bundle_it == spec_.bundles.end()) {
-      out.error = "bb2 unsupported: pass-through bundle is missing";
+      out.error = "backbone unsupported: pass-through bundle is missing";
       return out;
     }
     const std::size_t spec_index = static_cast<std::size_t>(std::distance(spec_.bundles.begin(), bundle_it));
     const auto active_it = std::find(active_bundle_indices_.begin(), active_bundle_indices_.end(), spec_index);
     if (active_it == active_bundle_indices_.end()) {
-      out.error = "bb2 unsupported: pass-through bundle is inactive";
+      out.error = "backbone unsupported: pass-through bundle is inactive";
       return out;
     }
     const std::size_t bundle = static_cast<std::size_t>(std::distance(active_bundle_indices_.begin(), active_it));
@@ -1499,7 +1499,7 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
     std::sort(matches.begin(), matches.end());
     matches.erase(std::unique(matches.begin(), matches.end()), matches.end());
     if (matches.size() != 1) {
-      out.error = "bb2 unsupported: pass-through target row is ambiguous";
+      out.error = "backbone unsupported: pass-through target row is ambiguous";
       return out;
     }
     add_row_intent(matches.front(), bundle, intent_reason::node_mode_pass_through);
@@ -1567,7 +1567,7 @@ EditResult<groups> pipeline::make(const pairs& ps, const intent& intents) const 
       continue;
     }
     if (item.row >= ps.rows.size() || item.bundle >= active_bundle_indices_.size()) {
-      out.error = "bb2 unsupported: support group row is invalid";
+      out.error = "backbone unsupported: support group row is invalid";
       return out;
     }
     group placed{};
@@ -1586,7 +1586,7 @@ EditResult<groups> pipeline::make(const pairs& ps, const intent& intents) const 
 EditResult<bool> pipeline::emit_poles(topo* made, ChangeSet* changes) {
   EditResult<bool> out{};
   if (made == nullptr || changes == nullptr) {
-    out.error = "bb2 topology: output missing";
+    out.error = "backbone topology: output missing";
     return out;
   }
   made->poles.reserve(g_.nodes.size());
@@ -1630,7 +1630,7 @@ EditResult<bool> pipeline::emit_poles(topo* made, ChangeSet* changes) {
                                                : ((next_index != bad) ? (next - g_.nodes[i].pos)
                                                                       : (g_.nodes[i].pos - prev));
     tf.rotation_euler_deg.z = yaw(dir);
-    EditResult<ObjectId> pole = state_.AddPole(tf, 10.0, "bb2-pole", PoleKind::kConcrete,
+    EditResult<ObjectId> pole = state_.AddPole(tf, 10.0, "backbone-pole", PoleKind::kConcrete,
                                                g_.nodes[i].pinned ? PlacementMode::kManual : PlacementMode::kAuto);
     if (!pole.ok) {
       out.error = pole.error;
@@ -1707,7 +1707,7 @@ EditResult<bool> pipeline::check(const pairs& ps) const {
 EditResult<bool> pipeline::emit_bundles(topo* made, ChangeSet* changes) {
   EditResult<bool> out{};
   if (made == nullptr || changes == nullptr) {
-    out.error = "bb2 topology: output missing";
+    out.error = "backbone topology: output missing";
     return out;
   }
   made->bundles.reserve(active_bundle_indices_.size());
@@ -1743,7 +1743,7 @@ EditResult<bool> pipeline::emit_bundles(topo* made, ChangeSet* changes) {
 EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* changes) {
   EditResult<bool> out{};
   if (made == nullptr || changes == nullptr) {
-    out.error = "bb2 topology: output missing";
+    out.error = "backbone topology: output missing";
     return out;
   }
 
@@ -1773,7 +1773,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
   made->rows.resize(ps.rows.size());
   for (const row& r : ps.rows) {
     if (r.node >= made->poles.size() || r.node >= g_.nodes.size()) {
-      out.error = "bb2 topology: row node missing";
+      out.error = "backbone topology: row node missing";
       return out;
     }
     trow& tr = made->rows[r.id];
@@ -1789,13 +1789,13 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
                            g_.nodes[r.node].support == SupportKind::kExternal ||
                            g_.nodes[r.node].support == SupportKind::kGround;
     if (!ownerless && tr.pole == kInvalidObjectId) {
-      out.error = "bb2 topology: active row pole missing";
+      out.error = "backbone topology: active row pole missing";
       return out;
     }
     tr.ports.resize(made->bundles.size());
     for (std::size_t bundle_index = 0; bundle_index < made->bundles.size(); ++bundle_index) {
       if (bundle_index >= made->bundle_specs.size()) {
-        out.error = "bb2 topology: bundle spec missing";
+        out.error = "backbone topology: bundle spec missing";
         return out;
       }
       const std::size_t spec_index = made->bundle_specs[bundle_index];
@@ -1858,7 +1858,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
 EditResult<bool> pipeline::emit_spans(topo* made, const pairs& ps, ChangeSet* changes) {
   EditResult<bool> out{};
   if (made == nullptr || changes == nullptr) {
-    out.error = "bb2 topology: output missing";
+    out.error = "backbone topology: output missing";
     return out;
   }
   for (const link& edge : ps.links) {
@@ -1866,12 +1866,12 @@ EditResult<bool> pipeline::emit_spans(topo* made, const pairs& ps, ChangeSet* ch
       continue;
     }
     if (edge.arow >= made->rows.size() || edge.brow >= made->rows.size()) {
-      out.error = "bb2 topology: span row missing";
+      out.error = "backbone topology: span row missing";
       return out;
     }
     for (std::size_t bundle_index = 0; bundle_index < made->bundles.size(); ++bundle_index) {
       if (bundle_index >= made->bundle_specs.size()) {
-        out.error = "bb2 topology: bundle spec missing";
+        out.error = "backbone topology: bundle spec missing";
         return out;
       }
       EditResult<spec_view> v = view_for(state_, spec_.bundles[made->bundle_specs[bundle_index]]);
@@ -1884,7 +1884,7 @@ EditResult<bool> pipeline::emit_spans(topo* made, const pairs& ps, ChangeSet* ch
             made->rows[edge.brow].ports.size() <= bundle_index ||
             made->rows[edge.arow].ports[bundle_index].size() <= static_cast<std::size_t>(lane) ||
             made->rows[edge.brow].ports[bundle_index].size() <= static_cast<std::size_t>(lane)) {
-          out.error = "bb2 topology: span port missing";
+          out.error = "backbone topology: span port missing";
           return out;
         }
         EditResult<ObjectId> span = state_.AddSpan(
@@ -2060,7 +2060,7 @@ EditResult<layout> pipeline::make(const rules& made) const {
   for (const SpanLayoutRule& rule : made.data.spans) {
     const Span* span = edit.spans.find(rule.span_id);
     if (span == nullptr) {
-      out.error = "bb2 layout: span not found";
+      out.error = "backbone layout: span not found";
       return out;
     }
     SpanLayoutEntry entry{};
@@ -2070,7 +2070,7 @@ EditResult<layout> pipeline::make(const rules& made) const {
     entry.variation_flow_key = rule.variation_flow_key;
     entry.lowering_kind = rule.lowering_kind;
     if (!endpoint(rule.start, &entry.start) || !endpoint(rule.end, &entry.end)) {
-      out.error = "bb2 layout: endpoint port not found";
+      out.error = "backbone layout: endpoint port not found";
       return out;
     }
     auto append_group_key = [&](const LayoutEndpoint& endpoint) {
@@ -2254,7 +2254,7 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
     }
     edge_by_link[edge.id] = ref_for_existing_edge(state_, g_, edge);
     if (edge_by_link[edge.id].edge_id == kInvalidObjectId) {
-      out.error = "bb2 graph: context link saved edge missing";
+      out.error = "backbone graph: context link saved edge missing";
       return out;
     }
   }
@@ -2281,18 +2281,18 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
     auto bind_port = [&](std::size_t row_index) -> bool {
       if (row_index >= made.rows.size() || span.bundle >= made.rows[row_index].ports.size() ||
           span.lane >= made.rows[row_index].ports[span.bundle].size()) {
-        out.error = "bb2 graph: port binding row missing";
+        out.error = "backbone graph: port binding row missing";
         return false;
       }
       const SavedBackboneRowKey row_key = key_for(ps, made.rows[row_index], node_id_by_local, edge_by_link);
       const Bundle* bundle = state_.view().bundles().find(made.bundles[span.bundle]);
       if (bundle == nullptr) {
-        out.error = "bb2 graph: bundle missing for port binding";
+        out.error = "backbone graph: bundle missing for port binding";
         return false;
       }
       const Port* port = state_.view().ports().find(made.rows[row_index].ports[span.bundle][span.lane]);
       if (port == nullptr) {
-        out.error = "bb2 graph: port missing for binding";
+        out.error = "backbone graph: port missing for binding";
         return false;
       }
       EditResult<bool> bound =
@@ -2397,4 +2397,4 @@ EditResult<GenerateBundleFromPathResult> pipeline::build() {
   return out;
 }
 
-} // namespace wire::core::generation::bb2
+} // namespace wire::core::generation::backbone

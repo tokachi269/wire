@@ -21,7 +21,7 @@ bool apply_endpoint(const EditState& edit_state, const EndpointLayoutRule& rule,
   const Port* port = edit_state.ports.find(rule.port_id);
   if (port == nullptr || target == nullptr) {
     if (error != nullptr) {
-      *error = "bb2 derive: endpoint port not found";
+      *error = "backbone derive: endpoint port not found";
     }
     return false;
   }
@@ -69,12 +69,12 @@ EditResult<bool> CoreState::DeriveGeneratedSpanOutputs(ObjectId span_id) {
   EditResult<bool> out{};
   const Span* span = authoritative_.edit_state.spans.find(span_id);
   if (span == nullptr) {
-    out.error = "bb2 derive: span not found";
+    out.error = "backbone derive: span not found";
     return out;
   }
   const SpanLayoutRulesView rule_view = runtime_.cache_state.span_layout_cache.rules_view(span_id);
   if (!rule_view.has_rule()) {
-    out.error = "bb2 derive: span layout rule not found";
+    out.error = "backbone derive: span layout rule not found";
     return out;
   }
   const SpanLayoutRule& rule = *rule_view.rule;
@@ -108,10 +108,10 @@ EditResult<bool> CoreState::DeriveGeneratedSpanOutputs(ObjectId span_id) {
   const SpanRuntimeState* runtime = find_span_runtime_state(span_id);
   layout.source_version = (runtime == nullptr) ? 0 : runtime->data_version;
 
-  DetailCurve curve = generation::bb2::make_curve(*this, span_id, layout);
-  BoundsCacheEntry bounds = generation::bb2::bounds(curve, layout.source_version);
-  SpanVisualCacheEntry visual = generation::bb2::visual(runtime_.cache_state.visual_settings, layout);
-  SpanRenderCacheEntry render = generation::bb2::render(*this, span_id, curve);
+  DetailCurve curve = generation::backbone::make_curve(*this, span_id, layout);
+  BoundsCacheEntry bounds = generation::backbone::bounds(curve, layout.source_version);
+  SpanVisualCacheEntry visual = generation::backbone::visual(runtime_.cache_state.visual_settings, layout);
+  SpanRenderCacheEntry render = generation::backbone::render(*this, span_id, curve);
 
   cache_span_layout(std::move(layout));
   cache_span_curve(span_id, std::move(curve));
@@ -127,19 +127,19 @@ EditResult<bool> CoreState::derive_generated_span_shape_outputs(ObjectId span_id
   EditResult<bool> out{};
   const Span* span = authoritative_.edit_state.spans.find(span_id);
   if (span == nullptr) {
-    out.error = "bb2 update: span not found";
+    out.error = "backbone update: span not found";
     return out;
   }
   const SpanLayoutView layout_view = runtime_.cache_state.span_layout_cache.layout_view(span_id);
   if (!layout_view.has_layout()) {
-    out.error = "bb2 update: span layout not found";
+    out.error = "backbone update: span layout not found";
     return out;
   }
   const SpanLayoutEntry& layout = *layout_view.entry;
-  DetailCurve curve = generation::bb2::make_curve(*this, span_id, layout);
-  BoundsCacheEntry bounds = generation::bb2::bounds(curve, layout.source_version);
-  SpanVisualCacheEntry visual = generation::bb2::visual(runtime_.cache_state.visual_settings, layout);
-  SpanRenderCacheEntry render = generation::bb2::render(*this, span_id, curve);
+  DetailCurve curve = generation::backbone::make_curve(*this, span_id, layout);
+  BoundsCacheEntry bounds = generation::backbone::bounds(curve, layout.source_version);
+  SpanVisualCacheEntry visual = generation::backbone::visual(runtime_.cache_state.visual_settings, layout);
+  SpanRenderCacheEntry render = generation::backbone::render(*this, span_id, curve);
   cache_span_curve(span_id, std::move(curve));
   cache_span_bounds(span_id, std::move(bounds));
   cache_span_visual(span_id, std::move(visual));
@@ -153,21 +153,21 @@ EditResult<bool> CoreState::derive_generated_span_draw_outputs(ObjectId span_id)
   EditResult<bool> out{};
   const Span* span = authoritative_.edit_state.spans.find(span_id);
   if (span == nullptr) {
-    out.error = "bb2 update: span not found";
+    out.error = "backbone update: span not found";
     return out;
   }
   const SpanLayoutView layout_view = runtime_.cache_state.span_layout_cache.layout_view(span_id);
   if (!layout_view.has_layout()) {
-    out.error = "bb2 update: span layout not found";
+    out.error = "backbone update: span layout not found";
     return out;
   }
   const CurveCacheEntry* curve = find_curve_cache(span_id);
   if (curve == nullptr) {
-    out.error = "bb2 update: span curve not found";
+    out.error = "backbone update: span curve not found";
     return out;
   }
-  SpanVisualCacheEntry visual = generation::bb2::visual(runtime_.cache_state.visual_settings, *layout_view.entry);
-  SpanRenderCacheEntry render = generation::bb2::render(*this, span_id, curve->detail);
+  SpanVisualCacheEntry visual = generation::backbone::visual(runtime_.cache_state.visual_settings, *layout_view.entry);
+  SpanRenderCacheEntry render = generation::backbone::render(*this, span_id, curve->detail);
   cache_span_visual(span_id, std::move(visual));
   cache_span_render(span_id, std::move(render));
   out.value = true;
@@ -186,7 +186,7 @@ EditResult<bool> CoreState::execute_update_plan(const UpdatePlan& plan) {
     timing.total_ms =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
     debug_.last_update_timing = timing;
-    out.error = "bb2 unsupported: route-local regenerate is not implemented";
+    out.error = "backbone unsupported: route-local regenerate is not implemented";
     return out;
   }
   for (ObjectId span_id : plan.affected.spans) {

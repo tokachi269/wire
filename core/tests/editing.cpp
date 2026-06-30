@@ -477,7 +477,7 @@ bool test_bundle_related_pole_type_rejects_generated_topology_before_mutation() 
     return false;
   }
 
-  const auto made = make_bb2_fixture(state, {{0.0, 0.0, 0.0}, {18.0, 0.0, 0.0}});
+  const auto made = make_backbone_fixture(state, {{0.0, 0.0, 0.0}, {18.0, 0.0, 0.0}});
   if (!made.ok || made.value.poles.size() != 2) {
     return false;
   }

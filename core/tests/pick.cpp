@@ -8,7 +8,7 @@ using namespace helpers;
 
 bool make_pick_fixture(CoreState& state, wire::core::BundleKind kind, ObjectId* span_id,
                        ObjectId* node_a, ObjectId* node_b) {
-  const auto fixture = make_bb2_fixture(state, {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}}, {kind});
+  const auto fixture = make_backbone_fixture(state, {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}}, {kind});
   if (!fixture.ok || fixture.value.spans.empty() || fixture.value.nodes.size() != 2) return false;
   *span_id = fixture.value.spans.front();
   *node_a = fixture.value.nodes[0];

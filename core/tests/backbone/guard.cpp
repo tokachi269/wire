@@ -19,8 +19,8 @@ using namespace helpers;
 
 namespace backbone_tests {
 
-bool C370_bb2_no_v1_deps() {
-  const std::filesystem::path dir = repo_root() / "core" / "src" / "generation" / "bb2";
+bool C370_backbone_no_v1_deps() {
+  const std::filesystem::path dir = repo_root() / "core" / "src" / "generation" / "backbone";
   const std::vector<std::string> banned = {
       "support_layout_",
       "JunctionRelationKind",
@@ -58,8 +58,8 @@ bool C370_bb2_no_v1_deps() {
   return true;
 }
 
-bool C387_bb2_pairs_are_single_source() {
-  const std::filesystem::path file = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+bool C387_backbone_pairs_are_single_source() {
+  const std::filesystem::path file = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string text;
   if (!file_text(file, &text)) {
     return false;
@@ -70,8 +70,8 @@ bool C387_bb2_pairs_are_single_source() {
   return contains_text(text, signature) && first != std::string::npos && text.find(call, first + call.size()) == std::string::npos;
 }
 
-bool C391_bb2_no_kind_label() {
-  const std::filesystem::path dir = repo_root() / "core" / "src" / "generation" / "bb2";
+bool C391_backbone_no_kind_label() {
+  const std::filesystem::path dir = repo_root() / "core" / "src" / "generation" / "backbone";
   const std::vector<std::string> banned = {
       "ThroughMain",
       "SideBranch",
@@ -97,8 +97,8 @@ bool C391_bb2_no_kind_label() {
   return true;
 }
 
-bool C395_bb2_is_new_does_not_affect_pairs() {
-  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+bool C395_backbone_is_new_does_not_affect_pairs() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
     return false;
@@ -112,7 +112,7 @@ bool C395_bb2_is_new_does_not_affect_pairs() {
   return !contains_text(body, ".is_new");
 }
 
-bool C396_bb2_existing_pole_does_not_read_existing_spans() {
+bool C396_backbone_existing_pole_does_not_read_existing_spans() {
   wire::core::CoreState state;
   wire::core::BackboneSpec first = line_req(state);
   const auto first_out = state.GenerateFromBackboneSpec(first);
@@ -156,7 +156,7 @@ bool C396_bb2_existing_pole_does_not_read_existing_spans() {
   return true;
 }
 
-bool C402_bb2_bundle_spec_does_not_affect_pairs() {
+bool C402_backbone_bundle_spec_does_not_affect_pairs() {
   wire::core::CoreState single;
   wire::core::BackboneSpec a = poly3_req(single);
   const std::vector<wire::core::Vec3d> pa = pole_positions_for(single, a);
@@ -176,8 +176,8 @@ bool C402_bb2_bundle_spec_does_not_affect_pairs() {
   return true;
 }
 
-bool C410_bb2_height_does_not_affect_pairs() {
-  const std::filesystem::path file = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+bool C410_backbone_height_does_not_affect_pairs() {
+  const std::filesystem::path file = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string text;
   if (!file_text(file, &text)) {
     return false;
@@ -194,8 +194,8 @@ bool C410_bb2_height_does_not_affect_pairs() {
          !contains_text(body, "spec_.bundles");
 }
 
-bool C413_bb2_lateral_offset_does_not_affect_pairs() {
-  const std::filesystem::path file = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+bool C413_backbone_lateral_offset_does_not_affect_pairs() {
+  const std::filesystem::path file = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string text;
   if (!file_text(file, &text)) {
     return false;
@@ -210,8 +210,8 @@ bool C413_bb2_lateral_offset_does_not_affect_pairs() {
   return !contains_text(body, "constraints") && !contains_text(body, "lateral_offset_m");
 }
 
-bool C420_bb2_node_mode_does_not_affect_pairs() {
-  const std::filesystem::path file = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+bool C420_backbone_node_mode_does_not_affect_pairs() {
+  const std::filesystem::path file = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string text;
   if (!file_text(file, &text)) {
     return false;
@@ -226,9 +226,9 @@ bool C420_bb2_node_mode_does_not_affect_pairs() {
   return !contains_text(body, "node_bundle_modes") && !contains_text(body, "BundleNodeMode");
 }
 
-bool C421_bb2_topo_row_carries_source() {
-  const std::filesystem::path header = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.hpp";
-  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+bool C421_backbone_topo_row_carries_source() {
+  const std::filesystem::path header = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.hpp";
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string h;
   std::string cpp;
   if (!file_text(header, &h) || !file_text(source, &cpp)) {
@@ -254,8 +254,8 @@ bool C421_bb2_topo_row_carries_source() {
          contains_text(body, "tr.source = r.source") && contains_text(body, "tr.axis = r.axis");
 }
 
-bool C439_bb2_source_still_avoids_support_layout_entrypoint() {
-  const std::filesystem::path dir = repo_root() / "core" / "src" / "generation" / "bb2";
+bool C439_backbone_source_still_avoids_support_layout_entrypoint() {
+  const std::filesystem::path dir = repo_root() / "core" / "src" / "generation" / "backbone";
   for (const auto& entry : std::filesystem::recursive_directory_iterator(dir)) {
     if (!entry.is_regular_file()) {
       continue;
@@ -271,8 +271,8 @@ bool C439_bb2_source_still_avoids_support_layout_entrypoint() {
   return true;
 }
 
-bool C440_bb2_does_not_read_authoritative_backbone_directly() {
-  const std::filesystem::path dir = repo_root() / "core" / "src" / "generation" / "bb2";
+bool C440_backbone_does_not_read_authoritative_backbone_directly() {
+  const std::filesystem::path dir = repo_root() / "core" / "src" / "generation" / "backbone";
   for (const auto& entry : std::filesystem::recursive_directory_iterator(dir)) {
     if (!entry.is_regular_file()) {
       continue;
@@ -288,7 +288,7 @@ bool C440_bb2_does_not_read_authoritative_backbone_directly() {
   return true;
 }
 
-bool C446_bb2_layout_boundary_behavior_unchanged() {
+bool C446_backbone_layout_boundary_behavior_unchanged() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   const auto out = state.GenerateFromBackboneSpec(req);
@@ -304,7 +304,7 @@ bool C446_bb2_layout_boundary_behavior_unchanged() {
   return true;
 }
 
-bool C449_bb2_layout_read_does_not_expose_authority() {
+bool C449_backbone_layout_read_does_not_expose_authority() {
   const std::filesystem::path source = repo_root() / "core" / "src" / "state" / "span_runtime.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
@@ -320,7 +320,7 @@ bool C449_bb2_layout_read_does_not_expose_authority() {
          !contains_text(body, "contract_view") && !contains_text(body, "seed");
 }
 
-bool C452_bb2_layout_state_does_not_expose_old_contract_names() {
+bool C452_backbone_layout_state_does_not_expose_old_contract_names() {
   const std::filesystem::path header = repo_root() / "core" / "include" / "wire" / "core" / "span_layout_types.hpp";
   std::string h;
   if (!file_text(header, &h)) {
@@ -335,8 +335,8 @@ bool C452_bb2_layout_state_does_not_expose_old_contract_names() {
   return !contains_text(body, "authority") && !contains_text(body, "seed") && !contains_text(body, "contract");
 }
 
-bool C456_bb2_source_avoids_old_layout_cache_names() {
-  const std::filesystem::path dir = repo_root() / "core" / "src" / "generation" / "bb2";
+bool C456_backbone_source_avoids_old_layout_cache_names() {
+  const std::filesystem::path dir = repo_root() / "core" / "src" / "generation" / "backbone";
   const std::vector<std::string> banned = {"support_layout_cache", "support_layout_projection",
                                            "support_layout_contract"};
   for (const auto& entry : std::filesystem::recursive_directory_iterator(dir)) {
@@ -356,12 +356,12 @@ bool C456_bb2_source_avoids_old_layout_cache_names() {
   return true;
 }
 
-bool C457_bb2_layout_cache_boundary_behavior_unchanged() {
-  return C446_bb2_layout_boundary_behavior_unchanged();
+bool C457_backbone_layout_cache_boundary_behavior_unchanged() {
+  return C446_backbone_layout_boundary_behavior_unchanged();
 }
 
-bool C465_bb2_duplicate_policy_does_not_read_existing_spans() {
-  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+bool C465_backbone_duplicate_policy_does_not_read_existing_spans() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
     return false;
@@ -377,7 +377,7 @@ bool C465_bb2_duplicate_policy_does_not_read_existing_spans() {
          !contains_text(body, "layout");
 }
 
-bool C470_bb2_row_port_identity_does_not_use_position_match() {
+bool C470_backbone_row_port_identity_does_not_use_position_match() {
   const std::filesystem::path source = repo_root() / "core" / "src" / "state" / "backbone.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
@@ -394,8 +394,8 @@ bool C470_bb2_row_port_identity_does_not_use_position_match() {
          !contains_text(body, "seed") && !contains_text(body, "layout") && !contains_text(body, "position");
 }
 
-bool C475_bb2_port_resolution_does_not_read_existing_layout() {
-  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+bool C475_backbone_port_resolution_does_not_read_existing_layout() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
     return false;
@@ -411,8 +411,8 @@ bool C475_bb2_port_resolution_does_not_read_existing_layout() {
          !contains_text(body, "world_position") && !contains_text(body, "position");
 }
 
-bool C479_bb2_row_separation_does_not_change_pairs() {
-  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+bool C479_backbone_row_separation_does_not_change_pairs() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
     return false;
@@ -426,8 +426,8 @@ bool C479_bb2_row_separation_does_not_change_pairs() {
   return !contains_text(body, "row_shifts") && !contains_text(body, "kRowSeparationM");
 }
 
-bool C485_bb2_lowering_intent_does_not_read_existing_spans() {
-  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+bool C485_backbone_lowering_intent_does_not_read_existing_spans() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
     return false;
@@ -442,7 +442,7 @@ bool C485_bb2_lowering_intent_does_not_read_existing_spans() {
          !contains_text(body, "span_layout") && !contains_text(body, "seed") && !contains_text(body, "layout");
 }
 
-bool C504_bb2_span_resolution_does_not_read_geometry_or_layout() {
+bool C504_backbone_span_resolution_does_not_read_geometry_or_layout() {
   const std::filesystem::path source = repo_root() / "core" / "src" / "state" / "backbone.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
@@ -459,8 +459,8 @@ bool C504_bb2_span_resolution_does_not_read_geometry_or_layout() {
          !contains_text(body, "find_curve_cache") && !contains_text(body, "world_position");
 }
 
-bool C505_bb2_save_graph_propagates_span_binding_failure() {
-  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+bool C505_backbone_save_graph_propagates_span_binding_failure() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
     return false;
@@ -475,8 +475,8 @@ bool C505_bb2_save_graph_propagates_span_binding_failure() {
          contains_text(body, "span_bound.error");
 }
 
-bool C512_bb2_draw_does_not_read_topology() {
-  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+bool C512_backbone_draw_does_not_read_topology() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
     return false;
@@ -492,8 +492,8 @@ bool C512_bb2_draw_does_not_read_topology() {
          !contains_text(body, "bind_backbone");
 }
 
-bool C517_bb2_migration_gate_does_not_infer_from_outputs() {
-  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+bool C517_backbone_migration_gate_does_not_infer_from_outputs() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
     return false;
@@ -511,8 +511,8 @@ bool C517_bb2_migration_gate_does_not_infer_from_outputs() {
          !contains_text(body, "save_backbone_node");
 }
 
-bool C520_bb2_duplicate_span_binding_preflight_before_emit() {
-  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+bool C520_backbone_duplicate_span_binding_preflight_before_emit() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
     return false;
@@ -535,55 +535,55 @@ bool C520_bb2_duplicate_span_binding_preflight_before_emit() {
          !contains_text(body, "AddBundle");
 }
 
-bool C522_bb2_supported_scope_is_documented() {
+bool C522_backbone_supported_scope_is_documented() {
   const std::filesystem::path doc = repo_root() / "redesign.md";
   std::string text;
   if (!file_text(doc, &text)) {
     return false;
   }
-  return contains_text(text, "## bb2 mainline v0") && contains_text(text, "`GenerateFromBackboneSpec`") &&
+  return contains_text(text, "## backbone mainline v0") && contains_text(text, "`GenerateFromBackboneSpec`") &&
          contains_text(text, "unsupported") && contains_text(text, "`SavedBackboneGraph`") &&
          contains_text(text, "`pairs make(graph)`") && contains_text(text, "duplicate same edge_bundle + lane") &&
          contains_text(text, "support_world") && contains_text(text, "endpoint_world") &&
          contains_text(text, "v1 fallback");
 }
 
-bool C523_bb2_scope_gate_matches_entrypoint() {
+bool C523_backbone_scope_gate_matches_entrypoint() {
   const std::filesystem::path entry = repo_root() / "core" / "src" / "generation" / "generate_from_backbone.cpp";
-  const std::filesystem::path bb2 = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+  const std::filesystem::path backbone = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string entry_text;
-  std::string bb2_text;
-  if (!file_text(entry, &entry_text) || !file_text(bb2, &bb2_text)) {
+  std::string backbone_text;
+  if (!file_text(entry, &entry_text) || !file_text(backbone, &backbone_text)) {
     return false;
   }
-  const bool entry_uses_bb2 = contains_text(entry_text, "generation::bb2::pipeline") &&
+  const bool entry_uses_backbone = contains_text(entry_text, "generation::backbone::pipeline") &&
                               contains_text(entry_text, "pipeline.prepare()") &&
                               contains_text(entry_text, "pipeline.check()") &&
                               contains_text(entry_text, "pipeline.build()");
-  const std::size_t build_pos = bb2_text.find("EditResult<GenerateBundleFromPathResult> pipeline::build()");
-  const std::size_t check_call = bb2_text.find("EditResult<bool> duplicates = check(ps.value)", build_pos);
-  const std::size_t intent_call = bb2_text.find("EditResult<intent> intents = make(ps.value)", build_pos);
-  const std::size_t emit_call = bb2_text.find("EditResult<topo> made = emit(ps.value)", build_pos);
+  const std::size_t build_pos = backbone_text.find("EditResult<GenerateBundleFromPathResult> pipeline::build()");
+  const std::size_t check_call = backbone_text.find("EditResult<bool> duplicates = check(ps.value)", build_pos);
+  const std::size_t intent_call = backbone_text.find("EditResult<intent> intents = make(ps.value)", build_pos);
+  const std::size_t emit_call = backbone_text.find("EditResult<topo> made = emit(ps.value)", build_pos);
   const bool preflight_before_emit = build_pos != std::string::npos && check_call != std::string::npos &&
                                      intent_call != std::string::npos && emit_call != std::string::npos &&
                                      check_call < intent_call && intent_call < emit_call;
-  return entry_uses_bb2 && preflight_before_emit;
+  return entry_uses_backbone && preflight_before_emit;
 }
 
-bool C493_bb2_pass_through_does_not_change_pair_open() {
-  return C420_bb2_node_mode_does_not_affect_pairs() && C479_bb2_row_separation_does_not_change_pairs();
+bool C493_backbone_pass_through_does_not_change_pair_open() {
+  return C420_backbone_node_mode_does_not_affect_pairs() && C479_backbone_row_separation_does_not_change_pairs();
 }
 
-bool C494_bb2_lowering_v1_draw_does_not_redecide() {
-  return C484_bb2_lowering_draw_uses_layout_only();
+bool C494_backbone_lowering_v1_draw_does_not_redecide() {
+  return C484_backbone_lowering_draw_uses_layout_only();
 }
 
-bool C495_bb2_lowering_v1_does_not_read_existing_spans() {
-  return C485_bb2_lowering_intent_does_not_read_existing_spans();
+bool C495_backbone_lowering_v1_does_not_read_existing_spans() {
+  return C485_backbone_lowering_intent_does_not_read_existing_spans();
 }
 
-bool C501_bb2_gate3_contract_passes() {
-  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+bool C501_backbone_gate3_contract_passes() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
     return false;
@@ -601,8 +601,8 @@ bool C501_bb2_gate3_contract_passes() {
          save_call < context_ref;
 }
 
-bool C533_bb2_build_mutation_order_is_fixed() {
-  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+bool C533_backbone_build_mutation_order_is_fixed() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
     return false;
@@ -629,13 +629,13 @@ bool C533_bb2_build_mutation_order_is_fixed() {
          layout_pos < geom_pos && geom_pos < draw_pos;
 }
 
-bool C535_bb2_duplicate_preflight_is_mutation_boundary() {
-  return C466_bb2_duplicate_reject_keeps_state_unchanged() &&
-         C520_bb2_duplicate_span_binding_preflight_before_emit();
+bool C535_backbone_duplicate_preflight_is_mutation_boundary() {
+  return C466_backbone_duplicate_reject_keeps_state_unchanged() &&
+         C520_backbone_duplicate_span_binding_preflight_before_emit();
 }
 
-bool C537_bb2_draw_source_has_no_decision_inputs() {
-  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+bool C537_backbone_draw_source_has_no_decision_inputs() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
     return false;
@@ -650,18 +650,18 @@ bool C537_bb2_draw_source_has_no_decision_inputs() {
          !contains_text(body, "support_group") && !contains_text(body, "branch_down_offset_m");
 }
 
-bool C538_bb2_viewer_deps_are_not_core_draw_gate() {
+bool C538_backbone_viewer_deps_are_not_core_draw_gate() {
   const std::filesystem::path doc = repo_root() / "redesign.md";
   std::string text;
   if (!file_text(doc, &text)) {
     return false;
   }
-  return contains_text(text, "viewer normal path") && contains_text(text, "bb2 neutral outputs") &&
+  return contains_text(text, "viewer normal path") && contains_text(text, "backbone neutral outputs") &&
          contains_text(text, "visual / render cache") &&
          contains_text(text, "topology / pair / row / lowering");
 }
 
-bool C540_bb2_unsupported_request_does_not_create_v1_outputs() {
+bool C540_backbone_unsupported_request_does_not_create_v1_outputs() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   req.bundles.clear();
@@ -679,12 +679,12 @@ bool C540_bb2_unsupported_request_does_not_create_v1_outputs() {
          state.view().backbone().edge_bundles.size() == edge_bundles;
 }
 
-bool C541_bb2_manual_existing_pole_without_graph_is_gate_rejected() {
-  return C515_bb2_rejects_existing_pole_without_saved_graph() &&
-         C517_bb2_migration_gate_does_not_infer_from_outputs();
+bool C541_backbone_manual_existing_pole_without_graph_is_gate_rejected() {
+  return C515_backbone_rejects_existing_pole_without_saved_graph() &&
+         C517_backbone_migration_gate_does_not_infer_from_outputs();
 }
 
-bool C542_bb2_usable_mainline_architecture_audit_passes() {
+bool C542_backbone_usable_mainline_architecture_audit_passes() {
   const std::filesystem::path doc = repo_root() / "redesign.md";
   std::string text;
   if (!file_text(doc, &text)) {
@@ -695,12 +695,12 @@ bool C542_bb2_usable_mainline_architecture_audit_passes() {
                       contains_text(text, "connectivity | `pairs make(graph)`") &&
                       contains_text(text, "placement | support group / row placement") &&
                       contains_text(text, "draw | visual / render cache");
-  return doc_ok && C498_bb2_saved_graph_remains_topology_authority() && C387_bb2_pairs_are_single_source() &&
-         C506_bb2_support_group_is_placement_layer() && C535_bb2_duplicate_preflight_is_mutation_boundary() &&
-         C537_bb2_draw_source_has_no_decision_inputs() && C523_bb2_scope_gate_matches_entrypoint();
+  return doc_ok && C498_backbone_saved_graph_remains_topology_authority() && C387_backbone_pairs_are_single_source() &&
+         C506_backbone_support_group_is_placement_layer() && C535_backbone_duplicate_preflight_is_mutation_boundary() &&
+         C537_backbone_draw_source_has_no_decision_inputs() && C523_backbone_scope_gate_matches_entrypoint();
 }
 
-bool C601_bb2_context_only_bundle_policy_does_not_filter_new_route() {
+bool C601_backbone_context_only_bundle_policy_does_not_filter_new_route() {
   wire::core::CoreState state;
   wire::core::BackboneSpec base = line_req(state);
   const auto base_out = state.GenerateFromBackboneSpec(base);
@@ -767,7 +767,7 @@ bool C601_bb2_context_only_bundle_policy_does_not_filter_new_route() {
          generated.contains(wire::core::BundleKind::kCommunication);
 }
 
-bool C602_bb2_context_only_pole_band_does_not_filter_new_route() {
+bool C602_backbone_context_only_pole_band_does_not_filter_new_route() {
   wire::core::CoreState state;
   const auto base = state.GenerateFromBackboneSpec(line_req(state));
   if (!base.ok || base.value.generated_pole_ids.size() != 2) {
@@ -811,7 +811,7 @@ bool C602_bb2_context_only_pole_band_does_not_filter_new_route() {
                        static_cast<std::size_t>(bundle_count(state, wire::core::BundleKind::kLowVoltage));
 }
 
-bool C603_bb2_context_node_does_not_affect_generated_endpoint_yaw() {
+bool C603_backbone_context_node_does_not_affect_generated_endpoint_yaw() {
   wire::core::CoreState state;
   const auto base = state.GenerateFromBackboneSpec(line_req(state));
   if (!base.ok || base.value.generated_pole_ids.size() != 2) {
@@ -834,7 +834,7 @@ bool C603_bb2_context_node_does_not_affect_generated_endpoint_yaw() {
   return endpoint != nullptr && almost_equal(endpoint->world_transform.rotation_euler_deg.z, 90.0, 1e-6);
 }
 
-bool C608_bb2_saved_backbone_result_does_not_duplicate_saved_pole_nodes() {
+bool C608_backbone_saved_backbone_result_does_not_duplicate_saved_pole_nodes() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   const auto out = state.GenerateFromBackboneSpec(req);
@@ -858,7 +858,7 @@ bool C608_bb2_saved_backbone_result_does_not_duplicate_saved_pole_nodes() {
   return true;
 }
 
-bool C567_bb2_segment_pick_midair_uses_source_span_height() {
+bool C567_backbone_segment_pick_midair_uses_source_span_height() {
   wire::core::CoreState state;
   wire::core::BackboneSpec base = line_req(state);
   const auto base_out = state.GenerateFromBackboneSpec(base);
@@ -918,7 +918,7 @@ bool C567_bb2_segment_pick_midair_uses_source_span_height() {
   return false;
 }
 
-bool C568_bb2_source_edge_midair_branch_uses_source_context_for_lowering() {
+bool C568_backbone_source_edge_midair_branch_uses_source_context_for_lowering() {
   wire::core::CoreState state;
   wire::core::BackboneSpec base = line_req(state);
   const auto base_out = state.GenerateFromBackboneSpec(base);
@@ -989,9 +989,9 @@ bool C568_bb2_source_edge_midair_branch_uses_source_context_for_lowering() {
   return false;
 }
 
-bool C612_bb2_direct_derive_does_not_call_recalc_paths() {
+bool C612_backbone_direct_derive_does_not_call_recalc_paths() {
   std::string text;
-  if (!file_text(repo_root() / "core/src/generation/bb2/derive.cpp", &text)) {
+  if (!file_text(repo_root() / "core/src/generation/backbone/derive.cpp", &text)) {
     return false;
   }
   const std::vector<std::string> banned = {"Commit(", "ProcessDirtyQueues", "rebuild_span_geometry",
@@ -1008,7 +1008,7 @@ bool C612_bb2_direct_derive_does_not_call_recalc_paths() {
          contains_text(text, "cache_span_visual") && contains_text(text, "cache_span_render");
 }
 
-bool C617_bb2_reshape_does_not_rewrite_layout() {
+bool C617_backbone_reshape_does_not_rewrite_layout() {
   wire::core::CoreState state;
   const auto out = state.GenerateFromBackboneSpec(line_req(state));
   if (!out.ok || out.value.generated_span_ids.empty()) {
@@ -1035,7 +1035,7 @@ bool C617_bb2_reshape_does_not_rewrite_layout() {
          before_layout.source_version == after.entry->source_version;
 }
 
-bool C618_bb2_redraw_does_not_rewrite_layout_or_geom() {
+bool C618_backbone_redraw_does_not_rewrite_layout_or_geom() {
   wire::core::CoreState state;
   const auto out = state.GenerateFromBackboneSpec(line_req(state));
   if (!out.ok || out.value.generated_span_ids.empty()) {
@@ -1077,11 +1077,11 @@ bool C618_bb2_redraw_does_not_rewrite_layout_or_geom() {
          almost_equal(before_whole.max.z, after_bounds->whole.max.z, 1e-9);
 }
 
-bool C620_bb2_update_boundary_has_no_operation_specific_kinds() {
+bool C620_backbone_update_boundary_has_no_operation_specific_kinds() {
   std::string h;
   std::string cpp;
   if (!file_text(repo_root() / "core/include/wire/core/core_runtime_types.hpp", &h) ||
-      !file_text(repo_root() / "core/src/generation/bb2/derive.cpp", &cpp)) {
+      !file_text(repo_root() / "core/src/generation/backbone/derive.cpp", &cpp)) {
     return false;
   }
   const std::vector<std::string> required = {"kRegenerate", "kReposition", "kReshape", "kRedraw"};

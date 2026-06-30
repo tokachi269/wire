@@ -42,7 +42,7 @@ bool test_backbone_hv_rejects_midair_branch_mode() {
 
 bool test_bundle_template_topology_change_is_rejected_before_mutation() {
   CoreState state;
-  const auto made = make_bb2_fixture(state, {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}});
+  const auto made = make_backbone_fixture(state, {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}});
   if (!made.ok || made.value.spans.empty()) {
     return false;
   }
@@ -239,7 +239,7 @@ void register_template_policy_tests(test_registry::TestRegistry& tests) {
                          "Topology-affecting bundle template edits reject before mutation",
                          "Invariant", true, test_bundle_template_topology_change_is_rejected_before_mutation);
   test_registry::AddTest(tests, "C124_BundleTemplate_OutputChangeRejectsManualSpan",
-                         "Bundle output changes reject when the span has no bb2 derive state",
+                         "Bundle output changes reject when the span has no backbone derive state",
                          "Invariant", true, test_bundle_template_output_change_rejects_manual_span_before_mutation);
 }
 

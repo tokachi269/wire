@@ -153,7 +153,7 @@ EditResult<bool> TemplateMutationService::UpdateCableTemplate(CoreState& state, 
     }
   }
   if (decision_change && !ordered_target_span_ids.empty()) {
-    result.error = "bb2 unsupported: cable decision changes require regeneration";
+    result.error = "backbone unsupported: cable decision changes require regeneration";
     return result;
   }
   std::vector<UpdatePlan> plans{};
@@ -268,7 +268,7 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
       continue;
     }
     if (topology_change) {
-      result.error = "bb2 unsupported: bundle topology changes require regeneration";
+      result.error = "backbone unsupported: bundle topology changes require regeneration";
       return result;
     }
     const auto spans_it = state.runtime_.relation_index.spans_by_bundle.find(existing_bundle.id);
@@ -330,7 +330,7 @@ EditResult<bool> TemplateMutationService::UpdateAttachmentTemplate(CoreState& st
   }
   for (const Attachment& attachment : state.authoritative_.edit_state.attachments.items()) {
     if (attachment.template_id == normalized.id) {
-      result.error = "bb2 unsupported: attachment template changes require regeneration";
+      result.error = "backbone unsupported: attachment template changes require regeneration";
       return result;
     }
   }

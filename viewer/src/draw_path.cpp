@@ -942,10 +942,10 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
     ofs << "capture.last_generated_span_id[" << i << "]="
         << static_cast<unsigned long long>(ui_state.last_generated_span_ids[i]) << "\n";
   }
-  ofs << "bb2.generated_span_count=" << ui_state.last_generated_span_ids.size() << "\n";
+  ofs << "backbone.generated_span_count=" << ui_state.last_generated_span_ids.size() << "\n";
   for (std::size_t generated_index = 0; generated_index < ui_state.last_generated_span_ids.size(); ++generated_index) {
     const ObjectId span_id = ui_state.last_generated_span_ids[generated_index];
-    const std::string prefix = "bb2.generated_span[" + std::to_string(generated_index) + "]";
+    const std::string prefix = "backbone.generated_span[" + std::to_string(generated_index) + "]";
     ofs << prefix << ".span_id=" << static_cast<unsigned long long>(span_id) << "\n";
 
     const auto* span = view.spans().find(span_id);

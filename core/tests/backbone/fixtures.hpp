@@ -30,10 +30,10 @@ bool span_ports_match_z(const wire::core::CoreState& state, wire::core::ObjectId
 bool contains_text(const std::string& haystack, const std::string& needle);
 std::filesystem::path repo_root();
 bool file_text(const std::filesystem::path& path, std::string* out);
-std::vector<wire::core::Vec3d> bb2_layout_points(wire::core::CoreState& state);
-CurveSnapshot bb2_curve_points(wire::core::CoreState& state);
+std::vector<wire::core::Vec3d> backbone_layout_points(wire::core::CoreState& state);
+CurveSnapshot backbone_curve_points(wire::core::CoreState& state);
 void push_box(const wire::core::AABBd& box, BoundsSnapshot* out);
-BoundsSnapshot bb2_bounds_points(wire::core::CoreState& state);
+BoundsSnapshot backbone_bounds_points(wire::core::CoreState& state);
 std::vector<wire::core::Vec3d> poly3_points(wire::core::CoreState& state);
 std::vector<wire::core::Vec3d> span_curve_points(wire::core::CoreState& state,
                                                 const std::vector<wire::core::ObjectId>& spans);

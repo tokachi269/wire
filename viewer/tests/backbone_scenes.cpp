@@ -158,7 +158,7 @@ bool endpoints_are_visually_separated(const wire::core::CoreState& state,
   return true;
 }
 
-bool test_bb2_viewer_simple_all_templates_have_display_outputs() {
+bool test_backbone_viewer_simple_all_templates_have_display_outputs() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state, wire::core::BundleKind::kLowVoltage);
   add_bundle(req, wire::core::BundleKind::kHighVoltage);
@@ -174,7 +174,7 @@ bool test_bb2_viewer_simple_all_templates_have_display_outputs() {
          endpoints_are_visually_separated(state, out.value.generated_span_ids, false);
 }
 
-bool test_bb2_viewer_existing_branch_uses_context_without_regenerating_it() {
+bool test_backbone_viewer_existing_branch_uses_context_without_regenerating_it() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(poly3_req(state, wire::core::BundleKind::kLowVoltage));
   if (!first.ok || first.value.generated_pole_ids.size() != 3 ||
@@ -201,7 +201,7 @@ bool test_bb2_viewer_existing_branch_uses_context_without_regenerating_it() {
          viewer_outputs_exist(state, second.value.generated_span_ids);
 }
 
-bool test_bb2_viewer_pass_through_lowering_is_visible_from_layout_draw() {
+bool test_backbone_viewer_pass_through_lowering_is_visible_from_layout_draw() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(poly3_req(state, wire::core::BundleKind::kLowVoltage));
   if (!first.ok || first.value.generated_pole_ids.size() != 3) {
@@ -246,7 +246,7 @@ bool test_bb2_viewer_pass_through_lowering_is_visible_from_layout_draw() {
   return false;
 }
 
-bool test_bb2_viewer_acute_hv_corner_lowers_layout_geom() {
+bool test_backbone_viewer_acute_hv_corner_lowers_layout_geom() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = poly3_req(state, wire::core::BundleKind::kHighVoltage);
   const auto out = state.GenerateFromBackboneSpec(req);
@@ -276,7 +276,7 @@ bool test_bb2_viewer_acute_hv_corner_lowers_layout_geom() {
   return saw_lowered_endpoint;
 }
 
-bool test_bb2_viewer_cross_pair_pair_has_display_outputs() {
+bool test_backbone_viewer_cross_pair_pair_has_display_outputs() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(poly3_req(state, wire::core::BundleKind::kLowVoltage));
   if (!first.ok || first.value.generated_pole_ids.size() != 3 ||
@@ -303,7 +303,7 @@ bool test_bb2_viewer_cross_pair_pair_has_display_outputs() {
          viewer_outputs_exist(state, second.value.generated_span_ids);
 }
 
-bool test_bb2_viewer_segment_pick_midair_branch_has_display_outputs() {
+bool test_backbone_viewer_segment_pick_midair_branch_has_display_outputs() {
   wire::core::CoreState state;
   const auto base = state.GenerateFromBackboneSpec(line_req(state, wire::core::BundleKind::kLowVoltage));
   if (!base.ok || base.value.generated_span_ids.empty() || !viewer_outputs_exist(state, base.value.generated_span_ids)) {
@@ -365,7 +365,7 @@ bool test_bb2_viewer_segment_pick_midair_branch_has_display_outputs() {
   return false;
 }
 
-bool test_bb2_viewer_selected_building_pick_generates_selected_bundle_only() {
+bool test_backbone_viewer_selected_building_pick_generates_selected_bundle_only() {
   wire::core::CoreState state;
   wire::core::PickResult pick{};
   pick.hit_kind = wire::core::PickHitKind::kExternal;
@@ -415,7 +415,7 @@ bool test_bb2_viewer_selected_building_pick_generates_selected_bundle_only() {
   return true;
 }
 
-bool test_bb2_viewer_sag_uses_curved_geom_output() {
+bool test_backbone_viewer_sag_uses_curved_geom_output() {
   wire::core::CoreState state;
   const auto out = state.GenerateFromBackboneSpec(line_req(state, wire::core::BundleKind::kLowVoltage));
   if (!out.ok || out.value.generated_span_ids.empty()) {
@@ -462,27 +462,27 @@ bool test_span_layout_debug_panel_reads_neutral_outputs() {
          source.find("span_frontier(") != std::string::npos;
 }
 
-void register_bb2_scene_tests(viewer_test_registry::TestRegistry& tests) {
-  viewer_test_registry::AddTest(tests, "V16", "bb2 viewer scene: simple LV/HV/Communication line has display outputs",
-                                test_bb2_viewer_simple_all_templates_have_display_outputs);
-  viewer_test_registry::AddTest(tests, "V17", "bb2 viewer scene: existing branch uses saved context only",
-                                test_bb2_viewer_existing_branch_uses_context_without_regenerating_it);
-  viewer_test_registry::AddTest(tests, "V18", "bb2 viewer scene: pass-through lowering is visible from layout/draw",
-                                test_bb2_viewer_pass_through_lowering_is_visible_from_layout_draw);
-  viewer_test_registry::AddTest(tests, "V19", "bb2 viewer scene: acute HV corner lowers layout and geom",
-                                test_bb2_viewer_acute_hv_corner_lowers_layout_geom);
-  viewer_test_registry::AddTest(tests, "V20", "bb2 viewer scene: cross pair+pair has display outputs",
-                                test_bb2_viewer_cross_pair_pair_has_display_outputs);
-  viewer_test_registry::AddTest(tests, "V21", "bb2 viewer scene: segment-pick midair branch has display outputs",
-                                test_bb2_viewer_segment_pick_midair_branch_has_display_outputs);
-  viewer_test_registry::AddTest(tests, "V22", "bb2 viewer scene: selected building pick filters bundles",
-                                test_bb2_viewer_selected_building_pick_generates_selected_bundle_only);
+void register_backbone_scene_tests(viewer_test_registry::TestRegistry& tests) {
+  viewer_test_registry::AddTest(tests, "V16", "backbone viewer scene: simple LV/HV/Communication line has display outputs",
+                                test_backbone_viewer_simple_all_templates_have_display_outputs);
+  viewer_test_registry::AddTest(tests, "V17", "backbone viewer scene: existing branch uses saved context only",
+                                test_backbone_viewer_existing_branch_uses_context_without_regenerating_it);
+  viewer_test_registry::AddTest(tests, "V18", "backbone viewer scene: pass-through lowering is visible from layout/draw",
+                                test_backbone_viewer_pass_through_lowering_is_visible_from_layout_draw);
+  viewer_test_registry::AddTest(tests, "V19", "backbone viewer scene: acute HV corner lowers layout and geom",
+                                test_backbone_viewer_acute_hv_corner_lowers_layout_geom);
+  viewer_test_registry::AddTest(tests, "V20", "backbone viewer scene: cross pair+pair has display outputs",
+                                test_backbone_viewer_cross_pair_pair_has_display_outputs);
+  viewer_test_registry::AddTest(tests, "V21", "backbone viewer scene: segment-pick midair branch has display outputs",
+                                test_backbone_viewer_segment_pick_midair_branch_has_display_outputs);
+  viewer_test_registry::AddTest(tests, "V22", "backbone viewer scene: selected building pick filters bundles",
+                                test_backbone_viewer_selected_building_pick_generates_selected_bundle_only);
   viewer_test_registry::AddTest(tests, "V23", "SpanLayout debug panel reads neutral span outputs",
                                 test_span_layout_debug_panel_reads_neutral_outputs);
-  viewer_test_registry::AddTest(tests, "V24", "bb2 viewer scene: sag uses curved geom and render output",
-                                test_bb2_viewer_sag_uses_curved_geom_output);
+  viewer_test_registry::AddTest(tests, "V24", "backbone viewer scene: sag uses curved geom and render output",
+                                test_backbone_viewer_sag_uses_curved_geom_output);
 }
 
-WIRE_REGISTER_VIEWER_TEST_SUITE(register_bb2_scene_tests);
+WIRE_REGISTER_VIEWER_TEST_SUITE(register_backbone_scene_tests);
 
 } // namespace

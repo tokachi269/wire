@@ -40,7 +40,7 @@ bool test_generate_simple_line_fails_with_short_polyline() {
   if (result.ok) {
     return false;
   }
-  if (result.error != "bb2 unsupported: path needs at least two points") {
+  if (result.error != "backbone unsupported: path needs at least two points") {
     return false;
   }
   if (!same_counts(before, snapshot_counts(state))) {

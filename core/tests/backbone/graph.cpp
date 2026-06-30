@@ -19,9 +19,9 @@ using namespace helpers;
 
 namespace backbone_tests {
 
-bool C422_bb2_rules_consume_topo_and_groups() {
-  const std::filesystem::path header = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.hpp";
-  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+bool C422_backbone_rules_consume_topo_and_groups() {
+  const std::filesystem::path header = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.hpp";
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string h;
   std::string cpp;
   if (!file_text(header, &h) || !file_text(source, &cpp)) {
@@ -40,9 +40,9 @@ bool C422_bb2_rules_consume_topo_and_groups() {
   return contains_text(body, "group_for") && !contains_text(body, "ps.links");
 }
 
-bool C423_bb2_tspan_carries_endpoint_rows() {
-  const std::filesystem::path header = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.hpp";
-  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+bool C423_backbone_tspan_carries_endpoint_rows() {
+  const std::filesystem::path header = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.hpp";
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string h;
   std::string cpp;
   if (!file_text(header, &h) || !file_text(source, &cpp)) {
@@ -66,7 +66,7 @@ bool C423_bb2_tspan_carries_endpoint_rows() {
   return contains_text(body, "edge.arow") && contains_text(body, "edge.brow") && contains_text(body, "tspan{");
 }
 
-bool C424_bb2_saves_backbone_graph_nodes_edges() {
+bool C424_backbone_saves_backbone_graph_nodes_edges() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   const auto out = state.GenerateFromBackboneSpec(req);
@@ -88,7 +88,7 @@ bool C424_bb2_saves_backbone_graph_nodes_edges() {
          node_has_pole(edge.node_a) && node_has_pole(edge.node_b);
 }
 
-bool C425_bb2_edge_carries_multiple_spans() {
+bool C425_backbone_edge_carries_multiple_spans() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   add_backbone_bundle(req, wire::core::BundleKind::kCommunication);
@@ -114,7 +114,7 @@ bool C425_bb2_edge_carries_multiple_spans() {
   return span_count == out.value.generated_span_ids.size();
 }
 
-bool C426_bb2_existing_pole_resolves_graph_node() {
+bool C426_backbone_existing_pole_resolves_graph_node() {
   wire::core::CoreState state;
   wire::core::BackboneSpec first = line_req(state);
   const auto first_out = state.GenerateFromBackboneSpec(first);
@@ -151,7 +151,7 @@ bool C426_bb2_existing_pole_resolves_graph_node() {
   return graph.nodes.size() == 3 && graph.edges.size() == 2 && matching_nodes == 1;
 }
 
-bool C427_bb2_graph_index_links_outputs() {
+bool C427_backbone_graph_index_links_outputs() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   const auto out = state.GenerateFromBackboneSpec(req);
@@ -192,7 +192,7 @@ bool C427_bb2_graph_index_links_outputs() {
   return true;
 }
 
-bool C428_bb2_pole_frontier_collects_incident_graph() {
+bool C428_backbone_pole_frontier_collects_incident_graph() {
   wire::core::CoreState state;
   wire::core::BackboneSpec first = poly3_req(state);
   const auto first_out = state.GenerateFromBackboneSpec(first);
@@ -223,7 +223,7 @@ bool C428_bb2_pole_frontier_collects_incident_graph() {
          frontier.span_ids.size() == first_out.value.generated_span_ids.size() + second_out.value.generated_span_ids.size();
 }
 
-bool C429_bb2_span_frontier_collects_edge_bundle_spans() {
+bool C429_backbone_span_frontier_collects_edge_bundle_spans() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   add_backbone_bundle(req, wire::core::BundleKind::kCommunication);
@@ -238,7 +238,7 @@ bool C429_bb2_span_frontier_collects_edge_bundle_spans() {
          frontier.span_ids.size() == out.value.generated_span_ids.size();
 }
 
-bool C430_bb2_frontier_uses_saved_graph_index() {
+bool C430_backbone_frontier_uses_saved_graph_index() {
   const std::filesystem::path source = repo_root() / "core" / "src" / "state" / "core_view.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
@@ -255,7 +255,7 @@ bool C430_bb2_frontier_uses_saved_graph_index() {
          !contains_text(body, "SavedBackboneEdges") && !contains_text(body, "spans_by_port");
 }
 
-bool C431_bb2_edge_bundle_is_saved_backbone_unit() {
+bool C431_backbone_edge_bundle_is_saved_backbone_unit() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   const auto out = state.GenerateFromBackboneSpec(req);
@@ -279,7 +279,7 @@ bool C431_bb2_edge_bundle_is_saved_backbone_unit() {
   return true;
 }
 
-bool C432_bb2_multiple_bundles_create_multiple_edge_bundles() {
+bool C432_backbone_multiple_bundles_create_multiple_edge_bundles() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   add_backbone_bundle(req, wire::core::BundleKind::kCommunication);
@@ -304,7 +304,7 @@ bool C432_bb2_multiple_bundles_create_multiple_edge_bundles() {
   return true;
 }
 
-bool C433_bb2_resolves_edge_for_same_poles() {
+bool C433_backbone_resolves_edge_for_same_poles() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(line_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 2) {
@@ -335,7 +335,7 @@ bool C433_bb2_resolves_edge_for_same_poles() {
          state.view().backbone().edge_bundles.size() == 2;
 }
 
-bool C434_bb2_reverse_duplicate_same_bundle_rejected() {
+bool C434_backbone_reverse_duplicate_same_bundle_rejected() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(line_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 2) {
@@ -365,7 +365,7 @@ bool C434_bb2_reverse_duplicate_same_bundle_rejected() {
          state.view().backbone().edge_bundles.front().span_ids.size() == first.value.generated_span_ids.size();
 }
 
-bool C435_bb2_edge_metadata_is_not_overwritten_on_duplicate_reject() {
+bool C435_backbone_edge_metadata_is_not_overwritten_on_duplicate_reject() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(line_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 2 || state.view().backbone().edges.size() != 1) {
@@ -401,7 +401,7 @@ bool C435_bb2_edge_metadata_is_not_overwritten_on_duplicate_reject() {
          almost_equal(after.dir.y, before.dir.y, 1e-9) && almost_equal(after.dir.z, before.dir.z, 1e-9);
 }
 
-bool C436_bb2_frontier_reads_edge_bundles() {
+bool C436_backbone_frontier_reads_edge_bundles() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   add_backbone_bundle(req, wire::core::BundleKind::kCommunication);
@@ -418,7 +418,7 @@ bool C436_bb2_frontier_reads_edge_bundles() {
          span_frontier.bundle_ids.size() == 2 && span_frontier.span_ids.size() == out.value.generated_span_ids.size();
 }
 
-bool C437_bb2_layout_save_is_direct() {
+bool C437_backbone_layout_save_is_direct() {
   const std::filesystem::path source = repo_root() / "core" / "src" / "state" / "span_runtime.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
@@ -435,7 +435,7 @@ bool C437_bb2_layout_save_is_direct() {
          !contains_text(body, "rebuild_lowered_support_groups_for_keys");
 }
 
-bool C438_bb2_layout_save_keeps_no_authority_contract() {
+bool C438_backbone_layout_save_keeps_no_authority_contract() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   const auto out = state.GenerateFromBackboneSpec(req);
@@ -450,7 +450,7 @@ bool C438_bb2_layout_save_keeps_no_authority_contract() {
   return true;
 }
 
-bool C441_bb2_save_backbone_edge_returns_saved_ref() {
+bool C441_backbone_save_backbone_edge_returns_saved_ref() {
   const std::filesystem::path header = repo_root() / "core" / "include" / "wire" / "core" / "core_state.hpp";
   const std::filesystem::path types = repo_root() / "core" / "include" / "wire" / "core" / "core_authoritative_types.hpp";
   std::string h;
@@ -462,8 +462,8 @@ bool C441_bb2_save_backbone_edge_returns_saved_ref() {
          contains_text(h, "SavedBackboneEdgeRef save_backbone_edge");
 }
 
-bool C442_bb2_edge_forward_uses_saved_ref() {
-  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+bool C442_backbone_edge_forward_uses_saved_ref() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
     return false;
@@ -479,12 +479,12 @@ bool C442_bb2_edge_forward_uses_saved_ref() {
          !contains_text(body, "saved_edge") && !contains_text(body, "find_if");
 }
 
-bool C443_bb2_edge_resolution_behavior_unchanged() {
-  return C434_bb2_reverse_duplicate_same_bundle_rejected();
+bool C443_backbone_edge_resolution_behavior_unchanged() {
+  return C434_backbone_reverse_duplicate_same_bundle_rejected();
 }
 
-bool C444_bb2_layout_uses_neutral_types() {
-  const std::filesystem::path dir = repo_root() / "core" / "src" / "generation" / "bb2";
+bool C444_backbone_layout_uses_neutral_types() {
+  const std::filesystem::path dir = repo_root() / "core" / "src" / "generation" / "backbone";
   const std::vector<std::string> banned = {"SpanSupportLayoutEntry", "SupportLayoutEndpoint",
                                            "SupportLayoutSemanticDecision", "SupportLayoutOriginKind",
                                            "SupportLayoutEndpointSourceKind"};
@@ -505,7 +505,7 @@ bool C444_bb2_layout_uses_neutral_types() {
   return true;
 }
 
-bool C445_bb2_cache_span_layout_accepts_neutral_entry() {
+bool C445_backbone_cache_span_layout_accepts_neutral_entry() {
   const std::filesystem::path header = repo_root() / "core" / "include" / "wire" / "core" / "core_state.hpp";
   const std::filesystem::path source = repo_root() / "core" / "src" / "state" / "span_runtime.cpp";
   std::string h;
@@ -527,7 +527,7 @@ bool C445_bb2_cache_span_layout_accepts_neutral_entry() {
          !contains_text(body, "rebuild_lowered_support_groups_for_keys");
 }
 
-bool C447_bb2_span_layout_view_reads_neutral_layout() {
+bool C447_backbone_span_layout_view_reads_neutral_layout() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   const auto out = state.GenerateFromBackboneSpec(req);
@@ -544,7 +544,7 @@ bool C447_bb2_span_layout_view_reads_neutral_layout() {
   return true;
 }
 
-bool C448_bb2_tests_use_neutral_layout_read() {
+bool C448_backbone_tests_use_neutral_layout_read() {
   const std::filesystem::path source = repo_root() / "core" / "tests" / "backbone";
   std::string cpp{};
   for (const auto& entry : std::filesystem::directory_iterator(source)) {
@@ -557,7 +557,7 @@ bool C448_bb2_tests_use_neutral_layout_read() {
   return contains_text(cpp, "span_layout(") && !contains_text(cpp, old_read);
 }
 
-bool C450_bb2_span_layout_state_is_neutral() {
+bool C450_backbone_span_layout_state_is_neutral() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   const auto out = state.GenerateFromBackboneSpec(req);
@@ -573,7 +573,7 @@ bool C450_bb2_span_layout_state_is_neutral() {
   return true;
 }
 
-bool C451_bb2_tests_do_not_read_old_contract() {
+bool C451_backbone_tests_do_not_read_old_contract() {
   const std::filesystem::path source = repo_root() / "core" / "tests" / "backbone";
   std::string cpp{};
   for (const auto& entry : std::filesystem::directory_iterator(source)) {
@@ -586,7 +586,7 @@ bool C451_bb2_tests_do_not_read_old_contract() {
   return !contains_text(cpp, old_read);
 }
 
-bool C453_bb2_layout_state_reads_existing_cache_without_seed_path() {
+bool C453_backbone_layout_state_reads_existing_cache_without_seed_path() {
   const std::filesystem::path source = repo_root() / "core" / "src" / "state" / "span_runtime.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
@@ -602,7 +602,7 @@ bool C453_bb2_layout_state_reads_existing_cache_without_seed_path() {
          !contains_text(body, "cache_span_support_layout_seed") && !contains_text(body, "contract_view");
 }
 
-bool C454_bb2_cache_state_uses_span_layout_cache() {
+bool C454_backbone_cache_state_uses_span_layout_cache() {
   const std::filesystem::path header = repo_root() / "core" / "include" / "wire" / "core" / "core_runtime_types.hpp";
   std::string h;
   if (!file_text(header, &h)) {
@@ -619,7 +619,7 @@ bool C454_bb2_cache_state_uses_span_layout_cache() {
          !contains_text(body, "support_layout_cache");
 }
 
-bool C455_bb2_neutral_layout_api_uses_span_layout_cache() {
+bool C455_backbone_neutral_layout_api_uses_span_layout_cache() {
   const std::filesystem::path source = repo_root() / "core" / "src" / "state" / "span_runtime.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
@@ -647,7 +647,7 @@ bool C455_bb2_neutral_layout_api_uses_span_layout_cache() {
          !contains_text(rules_body, "support_layout_cache");
 }
 
-bool C458_bb2_existing_branch_BD_on_ABC() {
+bool C458_backbone_existing_branch_BD_on_ABC() {
   wire::core::CoreState state;
   wire::core::BackboneSpec abc = poly3_req(state);
   const int count = req_bundle_count(state, abc);
@@ -671,7 +671,7 @@ bool C458_bb2_existing_branch_BD_on_ABC() {
          frontier.edge_ids.size() == 3 && state.view().backbone().edges.size() == 3;
 }
 
-bool C459_bb2_existing_cross_DBE_on_ABC() {
+bool C459_backbone_existing_cross_DBE_on_ABC() {
   wire::core::CoreState state;
   wire::core::BackboneSpec abc = poly3_req(state);
   const int count = req_bundle_count(state, abc);
@@ -695,7 +695,7 @@ bool C459_bb2_existing_cross_DBE_on_ABC() {
          frontier.edge_ids.size() == 4 && state.view().backbone().edges.size() == 4;
 }
 
-bool C460_bb2_context_links_are_not_emitted() {
+bool C460_backbone_context_links_are_not_emitted() {
   wire::core::CoreState state;
   wire::core::BackboneSpec abc = poly3_req(state);
   const int count = req_bundle_count(state, abc);
@@ -718,7 +718,7 @@ bool C460_bb2_context_links_are_not_emitted() {
          second.value.generated_span_ids.size() == static_cast<std::size_t>(count);
 }
 
-bool C461_bb2_same_edge_request_skips_duplicate_context() {
+bool C461_backbone_same_edge_request_skips_duplicate_context() {
   wire::core::CoreState state;
   wire::core::BackboneSpec first_req = line_req(state);
   const auto first = state.GenerateFromBackboneSpec(first_req);
@@ -743,17 +743,17 @@ bool C461_bb2_same_edge_request_skips_duplicate_context() {
          !second.value.generated_span_ids.empty();
 }
 
-bool C462_bb2_no_junction_kind_after_existing_context() {
-  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+bool C462_backbone_no_junction_kind_after_existing_context() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
     return false;
   }
-  return C391_bb2_no_kind_label() && contains_text(cpp, "has_requested_saved_pair") &&
+  return C391_backbone_no_kind_label() && contains_text(cpp, "has_requested_saved_pair") &&
          contains_text(cpp, "if (!edge.is_new)") && contains_text(cpp, "EditResult<pairs> pipeline::make");
 }
 
-bool C463_bb2_duplicate_same_edge_bundle_rejected() {
+bool C463_backbone_duplicate_same_edge_bundle_rejected() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(line_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 2 || state.view().backbone().edge_bundles.size() != 1) {
@@ -780,7 +780,7 @@ bool C463_bb2_duplicate_same_edge_bundle_rejected() {
          state.view().backbone().edge_bundles.front().span_ids.size() == saved_span_count;
 }
 
-bool C464_bb2_different_bundle_on_same_edge_allowed() {
+bool C464_backbone_different_bundle_on_same_edge_allowed() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(line_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 2 || state.view().backbone().edge_bundles.size() != 1) {
@@ -802,7 +802,7 @@ bool C464_bb2_different_bundle_on_same_edge_allowed() {
   return second_out.ok && state.view().backbone().edges.size() == 1 && state.view().backbone().edge_bundles.size() == 2;
 }
 
-bool C466_bb2_duplicate_reject_keeps_state_unchanged() {
+bool C466_backbone_duplicate_reject_keeps_state_unchanged() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(line_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 2 || state.view().backbone().edge_bundles.size() != 1) {
@@ -837,7 +837,7 @@ bool C466_bb2_duplicate_reject_keeps_state_unchanged() {
          frontier.span_ids.size() == saved_span_count;
 }
 
-bool C467_bb2_saves_row_port_bindings() {
+bool C467_backbone_saves_row_port_bindings() {
   wire::core::CoreState state;
   const auto out = state.GenerateFromBackboneSpec(line_req(state));
   const wire::core::SavedBackboneGraph& graph = state.view().backbone();
@@ -863,7 +863,7 @@ bool C467_bb2_saves_row_port_bindings() {
   return true;
 }
 
-bool C468_bb2_row_port_binding_is_stable_for_existing_context() {
+bool C468_backbone_row_port_binding_is_stable_for_existing_context() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 3) {
@@ -882,7 +882,7 @@ bool C468_bb2_row_port_binding_is_stable_for_existing_context() {
   return second.ok && state.view().backbone().port_bindings.size() == before + second.value.generated_span_ids.size() * 2;
 }
 
-bool C469_bb2_row_port_binding_rejects_duplicate_without_resolution() {
+bool C469_backbone_row_port_binding_rejects_duplicate_without_resolution() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(line_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 2) {
@@ -904,7 +904,7 @@ bool C469_bb2_row_port_binding_rejects_duplicate_without_resolution() {
          state.view().backbone().port_bindings.size() == before;
 }
 
-bool C471_bb2_resolves_existing_port_by_binding() {
+bool C471_backbone_resolves_existing_port_by_binding() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 3) {
@@ -948,7 +948,7 @@ bool C471_bb2_resolves_existing_port_by_binding() {
   return false;
 }
 
-bool C487_bb2_port_resolution_requires_bundle_compatible_scope() {
+bool C487_backbone_port_resolution_requires_bundle_compatible_scope() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(line_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 2) {
@@ -989,7 +989,7 @@ bool C487_bb2_port_resolution_requires_bundle_compatible_scope() {
   return true;
 }
 
-bool C472_bb2_port_resolution_requires_saved_binding() {
+bool C472_backbone_port_resolution_requires_saved_binding() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 3) {
@@ -1023,7 +1023,7 @@ bool C472_bb2_port_resolution_requires_saved_binding() {
   return true;
 }
 
-bool C473_bb2_resolved_port_used_by_new_span_endpoint() {
+bool C473_backbone_resolved_port_used_by_new_span_endpoint() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 3) {
@@ -1053,8 +1053,8 @@ bool C473_bb2_resolved_port_used_by_new_span_endpoint() {
   return false;
 }
 
-bool C474_bb2_port_resolution_rejects_ambiguous_binding() {
-  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+bool C474_backbone_port_resolution_rejects_ambiguous_binding() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
     return false;
@@ -1069,7 +1069,7 @@ bool C474_bb2_port_resolution_rejects_ambiguous_binding() {
          contains_text(body, "found != port->id");
 }
 
-bool C476_bb2_branch_rows_are_separated_without_branch_kind() {
+bool C476_backbone_branch_rows_are_separated_without_branch_kind() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 3) {
@@ -1086,10 +1086,10 @@ bool C476_bb2_branch_rows_are_separated_without_branch_kind() {
   branch.path.node_specs = {pole_spec(0, b)};
   const auto second = state.GenerateFromBackboneSpec(branch);
   const std::vector<wire::core::Vec3d> placed = generated_ports_on_pole(state, second.value.generated_span_ids, b);
-  return second.ok && separated_from(before, placed) && C391_bb2_no_kind_label();
+  return second.ok && separated_from(before, placed) && C391_backbone_no_kind_label();
 }
 
-bool C477_bb2_cross_rows_are_separated_without_cross_kind() {
+bool C477_backbone_cross_rows_are_separated_without_cross_kind() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 3) {
@@ -1106,10 +1106,10 @@ bool C477_bb2_cross_rows_are_separated_without_cross_kind() {
   cross.path.node_specs = {pole_spec(1, b)};
   const auto second = state.GenerateFromBackboneSpec(cross);
   const std::vector<wire::core::Vec3d> placed = generated_ports_on_pole(state, second.value.generated_span_ids, b);
-  return second.ok && separated_from(before, placed) && C391_bb2_no_kind_label();
+  return second.ok && separated_from(before, placed) && C391_backbone_no_kind_label();
 }
 
-bool C478_bb2_row_separation_is_deterministic() {
+bool C478_backbone_row_separation_is_deterministic() {
   const std::vector<wire::core::Vec3d> a = branch_separation_points();
   const std::vector<wire::core::Vec3d> b = branch_separation_points();
   if (a.empty() || a.size() != b.size()) {
@@ -1123,7 +1123,7 @@ bool C478_bb2_row_separation_is_deterministic() {
   return true;
 }
 
-bool C480_bb2_context_rows_affect_order_but_are_not_emitted() {
+bool C480_backbone_context_rows_affect_order_but_are_not_emitted() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 3) {
@@ -1141,7 +1141,7 @@ bool C480_bb2_context_rows_affect_order_but_are_not_emitted() {
   if (!second.ok) {
     return false;
   }
-  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
     return false;
@@ -1150,7 +1150,7 @@ bool C480_bb2_context_rows_affect_order_but_are_not_emitted() {
          contains_text(cpp, "if (r.id >= active_rows.size() || !active_rows[r.id])");
 }
 
-bool C481_bb2_pass_through_mode_is_accepted_in_limited_scope() {
+bool C481_backbone_pass_through_mode_is_accepted_in_limited_scope() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 3) {
@@ -1173,7 +1173,7 @@ bool C481_bb2_pass_through_mode_is_accepted_in_limited_scope() {
   return ok.ok && !bad_index_out.ok && !bad_bundle_out.ok;
 }
 
-bool C482_bb2_pass_through_creates_explicit_intent() {
+bool C482_backbone_pass_through_creates_explicit_intent() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 3) {
@@ -1199,11 +1199,11 @@ bool C482_bb2_pass_through_creates_explicit_intent() {
                  rules.rule->start.default_lower_required || rules.rule->end.default_lower_required ||
                  layout.entry->start.default_lower_required || layout.entry->end.default_lower_required;
   }
-  return saw_intent && C479_bb2_row_separation_does_not_change_pairs();
+  return saw_intent && C479_backbone_row_separation_does_not_change_pairs();
 }
 
-bool C483_bb2_pass_through_ambiguous_target_rejected() {
-  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+bool C483_backbone_pass_through_ambiguous_target_rejected() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
     return false;
@@ -1218,7 +1218,7 @@ bool C483_bb2_pass_through_ambiguous_target_rejected() {
          contains_text(body, "pass-through target row is ambiguous");
 }
 
-bool C484_bb2_lowering_draw_uses_layout_only() {
+bool C484_backbone_lowering_draw_uses_layout_only() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 3) {
@@ -1245,7 +1245,7 @@ bool C484_bb2_lowering_draw_uses_layout_only() {
   return saw_lowered_visual;
 }
 
-bool C486_bb2_pass_through_is_deterministic() {
+bool C486_backbone_pass_through_is_deterministic() {
   const std::vector<wire::core::Vec3d> a = pass_intent_points();
   const std::vector<wire::core::Vec3d> b = pass_intent_points();
   if (a.empty() || a.size() != b.size()) {
@@ -1259,7 +1259,7 @@ bool C486_bb2_pass_through_is_deterministic() {
   return true;
 }
 
-bool C488_bb2_port_resolution_accepts_same_compatible_binding() {
+bool C488_backbone_port_resolution_accepts_same_compatible_binding() {
   wire::core::CoreState state;
   const auto out = state.GenerateFromBackboneSpec(poly3_req(state));
   if (!out.ok || out.value.generated_pole_ids.size() != 3) {
@@ -1288,7 +1288,7 @@ bool C488_bb2_port_resolution_accepts_same_compatible_binding() {
   return false;
 }
 
-bool C489_bb2_port_binding_index_invariant() {
+bool C489_backbone_port_binding_index_invariant() {
   wire::core::CoreState state;
   const auto out = state.GenerateFromBackboneSpec(poly3_req(state));
   if (!out.ok) {
@@ -1314,11 +1314,11 @@ bool C489_bb2_port_binding_index_invariant() {
   return saw_multiple;
 }
 
-bool C490_bb2_duplicate_same_edge_bundle_lane_rejected() {
-  return C463_bb2_duplicate_same_edge_bundle_rejected() && C466_bb2_duplicate_reject_keeps_state_unchanged();
+bool C490_backbone_duplicate_same_edge_bundle_lane_rejected() {
+  return C463_backbone_duplicate_same_edge_bundle_rejected() && C466_backbone_duplicate_reject_keeps_state_unchanged();
 }
 
-bool C502_bb2_span_bindings_save_lane() {
+bool C502_backbone_span_bindings_save_lane() {
   wire::core::CoreState state;
   const auto out = state.GenerateFromBackboneSpec(line_req(state));
   const wire::core::SavedBackboneGraph& graph = state.view().backbone();
@@ -1347,7 +1347,7 @@ bool C502_bb2_span_bindings_save_lane() {
   return true;
 }
 
-bool C503_bb2_duplicate_span_binding_rejected_by_lane() {
+bool C503_backbone_duplicate_span_binding_rejected_by_lane() {
   const std::filesystem::path source = repo_root() / "core" / "src" / "state" / "backbone.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
@@ -1364,7 +1364,7 @@ bool C503_bb2_duplicate_span_binding_rejected_by_lane() {
          contains_text(body, "span_bindings_by_span");
 }
 
-bool C491_bb2_branch_lowering_v1_affects_geom() {
+bool C491_backbone_branch_lowering_v1_affects_geom() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 3) {
@@ -1387,7 +1387,7 @@ bool C491_bb2_branch_lowering_v1_affects_geom() {
   return false;
 }
 
-bool C492_bb2_cross_lowering_v1_affects_only_new_links() {
+bool C492_backbone_cross_lowering_v1_affects_only_new_links() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 3) {
@@ -1417,7 +1417,7 @@ bool C492_bb2_cross_lowering_v1_affects_only_new_links() {
          state.view().ports().size() > port_count;
 }
 
-bool C496_bb2_junction_v1_deterministic() {
+bool C496_backbone_junction_v1_deterministic() {
   const std::vector<wire::core::Vec3d> a = junction_v1_points();
   const std::vector<wire::core::Vec3d> b = junction_v1_points();
   if (a.empty() || a.size() != b.size()) {
@@ -1431,11 +1431,11 @@ bool C496_bb2_junction_v1_deterministic() {
   return true;
 }
 
-bool C497_bb2_context_rows_order_but_do_not_materialize() {
-  return C480_bb2_context_rows_affect_order_but_are_not_emitted();
+bool C497_backbone_context_rows_order_but_do_not_materialize() {
+  return C480_backbone_context_rows_affect_order_but_are_not_emitted();
 }
 
-bool C498_bb2_saved_graph_remains_topology_authority() {
+bool C498_backbone_saved_graph_remains_topology_authority() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 3) {
@@ -1455,7 +1455,7 @@ bool C498_bb2_saved_graph_remains_topology_authority() {
          frontier.span_ids.size() == first.value.generated_span_ids.size() + second.value.generated_span_ids.size();
 }
 
-bool C499_bb2_context_link_is_not_saved() {
+bool C499_backbone_context_link_is_not_saved() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 3 || state.view().backbone().edges.size() != 2) {
@@ -1478,8 +1478,8 @@ bool C499_bb2_context_link_is_not_saved() {
          state.view().backbone().edge_bundles.size() == 3;
 }
 
-bool C500_bb2_context_link_requires_saved_edge_ref() {
-  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+bool C500_backbone_context_link_requires_saved_edge_ref() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
     return false;

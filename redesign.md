@@ -1,20 +1,20 @@
-# Backbone / bb2 mainline 設計
+# Backbone mainline 設計
 
 ## 目的
 
-`bb2` を supported backbone generation の mainline candidate として扱う。
+`backbone` を supported generation の mainline として扱う。
+移行中は一時的に `bb2` と呼んでいたため、archive の履歴には旧名が残る。
 
 この文書は現在の設計契約だけを示す。過去の作業履歴、C 番号、実行済み plan、日付付き記録は `docs/archive/redesign_history_2026-06.md` に退避する。
 
 ## 現行方針
 
-* `GenerateFromBackboneSpec` は supported request を `bb2` で処理する。
+* `GenerateFromBackboneSpec` は supported request を `backbone` で処理する。
 * v1 fallback は許可しない。未対応入力は明示的に `unsupported` とする。
 * 正本、派生、表示を混ぜない。
 * 下流は上流の意味を再判断しない。
 * existing span / layout / seed / curve / port 位置 / materialization result から topology、pair、row、port identity、lowering、draw を推測しない。
 * supported scenario が増えた場合だけ進捗とする。docs / tests の増加だけでは進捗扱いにしない。
-* `bb2` rename は、v1 / recalc / support-layout 依存が本流から外れるまで保留する。
 
 ## レイヤと決定者
 
@@ -30,11 +30,11 @@
 | geom | curve / bounds | layout から deterministic に派生する | route geometry から意味を補完する |
 | draw | visual / render cache | layout / geom の結果を最小表示へ転写する | topology / pair / row / lowering を判断する |
 
-## bb2 mainline v0
+## backbone mainline v0
 
 ### 対応範囲
 
-`bb2` は v1 fallback なしで通る範囲だけを supported とする。
+`backbone` は v1 fallback なしで通る範囲だけを supported とする。
 
 * 2点以上の route。
 * polyline。
@@ -64,8 +64,8 @@ avoid support は simple deterministic detour に限定する。general routing�
 * general routing / collision solving / obstacle avoidance。
 * support arm / insulator / attachment の本格 semantic。
 * v1 grouped span engine。
-* v1 support-layout authority / seed / projection を bb2 の中心に戻すこと。
-* recalc / materialization を bb2 generation の通常経路にすること。
+* v1 support-layout authority / seed / projection を backbone の中心に戻すこと。
+* recalc / materialization を backbone generation の通常経路にすること。
 * draw が topology / connectivity / lowering を決めること。
 
 post-edit の route-local regenerate は明示 `unsupported`。layout / variation / context / template 更新のうち
@@ -74,7 +74,7 @@ cable shape / render、geometry、visual の安全な変更だけを `kReshape` 
 
 ### 出力保証
 
-supported request の生成直後に、bb2 は次を保存する。
+supported request の生成直後に、backbone は次を保存する。
 
 * `SavedBackboneGraph` の node / edge / edge_bundle / binding。
 * `SpanLayoutRules`。
@@ -82,11 +82,11 @@ supported request の生成直後に、bb2 は次を保存する。
 * curve / bounds。
 * 最小 visual / render cache。
 
-これらは recalc 後に揃う副作用ではなく、bb2 generation の出力である。
+これらは recalc 後に揃う副作用ではなく、backbone generation の出力である。
 
 ## 生成フロー
 
-現在の `bb2` は次の順序を守る。
+現在の `backbone` は次の順序を守る。
 
 1. `prepare`
 2. `check`
@@ -145,7 +145,7 @@ support group は placement authority。
 
 ## derive / post-edit refresh 境界
 
-Direct derive は、saved bb2 rules と ports から layout / geom / draw を再導出する入口。
+Direct derive は、saved backbone rules と ports から layout / geom / draw を再導出する入口。
 
 layout は `support_world` と `endpoint_world` を分ける。
 
@@ -157,13 +157,13 @@ layout は `support_world` と `endpoint_world` を分ける。
 * topology / pair / row を決めない。
 * support-layout contract / seed / projection を読まない。
 * recalc dirty queue / materialization を通らない。
-* generated span の post-edit refresh を bb2 direct output に戻す。
+* generated span の post-edit refresh を backbone direct output に戻す。
 
-Direct derive は recalc を強化するためではなく、bb2 が recalc に戻らないための足場。
+Direct derive は recalc を強化するためではなく、backbone が recalc に戻らないための足場。
 
 ## viewer / public query 境界
 
-viewer normal path は bb2 neutral outputs を読む。
+viewer normal path は backbone neutral outputs を読む。
 
 通常表示で読むもの:
 
@@ -195,7 +195,7 @@ viewer / UE / export adapter はこれを読む。mesh / material / profile の�
 
 ## v1 / recalc / support-layout 残存境界
 
-recalc は bb2 の通常生成経路ではない。
+recalc は backbone の通常生成経路ではない。
 
 残ってよい範囲:
 
@@ -205,7 +205,7 @@ recalc は bb2 の通常生成経路ではない。
 
 残してはいけない範囲:
 
-* bb2 generation。
+* backbone generation。
 * viewer normal path。
 * supported scenario の post-edit 更新。
 
@@ -213,11 +213,11 @@ recalc は bb2 の通常生成経路ではない。
 
 | 分類 | 判断 |
 |---|---|
-| A | bb2 本流から未使用。物理削除候補 |
+| A | backbone 本流から未使用。物理削除候補 |
 | B | viewer / public query が読む。先に neutral output へ移す |
-| C | tests だけが読む。制約を bb2 構造へ移植してから退役 |
+| C | tests だけが読む。制約を backbone 構造へ移植してから退役 |
 | D | v1 専用として隔離 |
-| E | bb2 未対応 scenario のため残っている。supported 化か unsupported 固定を決める |
+| E | backbone 未対応 scenario のため残っている。supported 化か unsupported 固定を決める |
 
 残存する旧 test/runtime family は `docs/backbone_legacy_map.md` を正とする。
 
@@ -227,15 +227,15 @@ recalc は bb2 の通常生成経路ではない。
 * `legacy` を通常経路名にする。
 * `fallback` / `infer` / `guess` / `rescue` 的な補完経路を作る。
 * `manager` / `helper` / `processor` で責務を曖昧にする。
-* v1 由来の `authority` / `seed` / `projection` を bb2 中心語に戻す。
-* old grouped span engine を bb2 の本流に戻す。
+* v1 由来の `authority` / `seed` / `projection` を backbone 中心語に戻す。
+* old grouped span engine を backbone の本流に戻す。
 * draw で topology / pair / row / lowering を判断する。
 
 ## 旧テストの扱い
 
-旧テストは捨てない。ただし旧実装詳細を bb2 の完了条件にしない。
+旧テストは捨てない。ただし旧実装詳細を backbone の完了条件にしない。
 
-bb2 に移植する制約:
+backbone に移植する制約:
 
 * unsupported 入力で state が変わらない。
 * generated object id が一貫して引ける。
@@ -244,7 +244,7 @@ bb2 に移植する制約:
 * 同じ input で deterministic。
 * public query / viewer が必要な情報を読める。
 
-bb2 に移植しない期待値:
+backbone に移植しない期待値:
 
 * authority / seed / projection object の存在そのもの。
 * grouped span engine の内部順序。
@@ -259,7 +259,7 @@ bb2 に移植しない期待値:
 
 1. viewer normal path から残った旧 inspection 依存を切る。
 2. capture / debug が必要な情報を neutral output で読めるようにする。
-3. old test family から bb2 に必要な制約だけを移植する。
+3. old test family から backbone に必要な制約だけを移植する。
 4. v1 専用化できた旧経路を物理削除する。
 5. 明確に failing な practical scenario を 1 つ supported にする。
 

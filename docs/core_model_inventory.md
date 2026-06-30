@@ -66,7 +66,7 @@ Definition Layer
 | 型 | ファイル | 責務（1行） | 主依存 | 保存分類 |
 |---|---|---|---|---|
 | `SpanRuntimeState` | `core/include/wire/core/core_state.hpp` | span 単位の dirty/version 追随状態を保持する。 | span ID + versions | `DerivedCache` |
-| `UpdateKind`, `UpdatePlan` | `core/include/wire/core/core_runtime_types.hpp` | bb2 の粗い再導出境界を定義する。 | update kind + affected IDs | `SessionDebug` |
+| `UpdateKind`, `UpdatePlan` | `core/include/wire/core/core_runtime_types.hpp` | backbone の粗い再導出境界を定義する。 | update kind + affected IDs | `SessionDebug` |
 | `SpanRuntimeState` | `core/include/wire/core/core_runtime_types.hpp` | span output の version と variation key を保持する。 | span ID + versions | `DerivedCache` |
 | `GeometrySettings` | `core/include/wire/core/core_state.hpp` | 曲線生成設定を保持する。 | scalar params | `PersistCore`（設定） |
 | `CurveCacheEntry`, `CurveCache` | `core/include/wire/core/core_state.hpp` | span 曲線サンプルを保持する。 | span IDs -> points | `DerivedCache` |

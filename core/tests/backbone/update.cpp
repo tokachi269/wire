@@ -19,7 +19,7 @@ using namespace helpers;
 
 namespace backbone_tests {
 
-bool C611_bb2_direct_derive_restores_saved_span_outputs() {
+bool C611_backbone_direct_derive_restores_saved_span_outputs() {
   wire::core::CoreState state;
   const auto out = state.GenerateFromBackboneSpec(line_req(state));
   if (!out.ok || out.value.generated_span_ids.empty()) {
@@ -46,7 +46,7 @@ bool C611_bb2_direct_derive_restores_saved_span_outputs() {
          state.find_span_render_cache(span_id) != nullptr;
 }
 
-bool C613_bb2_port_edit_rederives_generated_span_without_recalc() {
+bool C613_backbone_port_edit_rederives_generated_span_without_recalc() {
   wire::core::CoreState state;
   const auto out = state.GenerateFromBackboneSpec(line_req(state));
   if (!out.ok || out.value.generated_span_ids.empty()) {
@@ -84,7 +84,7 @@ bool C613_bb2_port_edit_rederives_generated_span_without_recalc() {
   return layout_moved && curve_moved;
 }
 
-bool C614_bb2_update_plan_uses_coarse_kinds() {
+bool C614_backbone_update_plan_uses_coarse_kinds() {
   wire::core::CoreState state;
   const auto out = state.GenerateFromBackboneSpec(line_req(state));
   if (!out.ok || out.value.generated_pole_ids.empty() || out.value.generated_span_ids.empty()) {
@@ -119,7 +119,7 @@ bool C614_bb2_update_plan_uses_coarse_kinds() {
          regen_plan.value.kind == wire::core::UpdateKind::kRegenerate;
 }
 
-bool C615_bb2_regenerate_plan_is_not_local_fallback() {
+bool C615_backbone_regenerate_plan_is_not_local_fallback() {
   wire::core::CoreState state;
   const auto out = state.GenerateFromBackboneSpec(line_req(state));
   if (!out.ok || out.value.generated_span_ids.empty()) {
@@ -135,7 +135,7 @@ bool C615_bb2_regenerate_plan_is_not_local_fallback() {
   return !executed.ok;
 }
 
-bool C616_bb2_reposition_keeps_saved_graph_identity() {
+bool C616_backbone_reposition_keeps_saved_graph_identity() {
   wire::core::CoreState state;
   const auto out = state.GenerateFromBackboneSpec(line_req(state));
   if (!out.ok || out.value.generated_span_ids.empty()) {
@@ -189,7 +189,7 @@ bool C616_bb2_reposition_keeps_saved_graph_identity() {
          before_edge_bundles == after_edge_bundles && before_span_bindings == after_span_bindings;
 }
 
-bool C619_bb2_reposition_updates_only_affected_spans() {
+bool C619_backbone_reposition_updates_only_affected_spans() {
   wire::core::CoreState state;
   const auto out = state.GenerateFromBackboneSpec(poly3_req(state));
   if (!out.ok || out.value.generated_span_ids.size() < 2) {
@@ -218,7 +218,7 @@ bool C619_bb2_reposition_updates_only_affected_spans() {
          second_before.source_version == second_after.entry->source_version;
 }
 
-bool C621_bb2_sag_reshape_updates_geom_only() {
+bool C621_backbone_sag_reshape_updates_geom_only() {
   wire::core::CoreState state;
   const auto out = state.GenerateFromBackboneSpec(line_req(state));
   if (!out.ok || out.value.generated_span_ids.empty()) {
@@ -283,7 +283,7 @@ bool C621_bb2_sag_reshape_updates_geom_only() {
          edge_ids == after_edge_ids && binding_spans == after_binding_spans;
 }
 
-bool C623_bb2_layout_settings_reject_before_mutation() {
+bool C623_backbone_layout_settings_reject_before_mutation() {
   wire::core::CoreState state;
   const auto generated = state.GenerateFromBackboneSpec(line_req(state));
   if (!generated.ok) return false;
@@ -295,7 +295,7 @@ bool C623_bb2_layout_settings_reject_before_mutation() {
          almost_equal(state.view().layout_settings().corner_threshold_deg, before.corner_threshold_deg, 1e-12);
 }
 
-bool C624_bb2_variation_settings_reject_before_mutation() {
+bool C624_backbone_variation_settings_reject_before_mutation() {
   wire::core::CoreState state;
   const auto generated = state.GenerateFromBackboneSpec(line_req(state));
   if (!generated.ok) return false;
@@ -307,7 +307,7 @@ bool C624_bb2_variation_settings_reject_before_mutation() {
          state.view().variation_settings().enabled == before.enabled;
 }
 
-bool C625_bb2_context_profile_reject_before_mutation() {
+bool C625_backbone_context_profile_reject_before_mutation() {
   wire::core::CoreState state;
   const auto generated = state.GenerateFromBackboneSpec(line_req(state));
   if (!generated.ok) return false;
@@ -320,7 +320,7 @@ bool C625_bb2_context_profile_reject_before_mutation() {
          almost_equal(state.view().context_profile().age, before.age, 1e-12);
 }
 
-bool C626_bb2_cable_template_updates_derive_outputs() {
+bool C626_backbone_cable_template_updates_derive_outputs() {
   wire::core::CoreState state;
   wire::core::GeometrySettings geometry = state.view().geometry_settings();
   geometry.sag_enabled = true;
@@ -373,7 +373,7 @@ bool C626_bb2_cable_template_updates_derive_outputs() {
          final_render->color_rgba == redraw.color_rgba;
 }
 
-bool C627_bb2_legacy_topology_apis_reject_before_mutation() {
+bool C627_backbone_legacy_topology_apis_reject_before_mutation() {
   wire::core::CoreState state;
   const auto generated = state.GenerateFromBackboneSpec(line_req(state));
   if (!generated.ok || generated.value.generated_pole_ids.size() != 2 ||
@@ -408,7 +408,7 @@ bool C627_bb2_legacy_topology_apis_reject_before_mutation() {
          counts() == before;
 }
 
-bool C622_bb2_stage_timing_is_diagnostic_only() {
+bool C622_backbone_stage_timing_is_diagnostic_only() {
   wire::core::CoreState state;
   const auto out = state.GenerateFromBackboneSpec(poly3_req(state));
   if (!out.ok || out.value.generated_span_ids.empty()) {

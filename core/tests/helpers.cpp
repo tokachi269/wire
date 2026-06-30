@@ -437,12 +437,12 @@ bool contains_id(const std::vector<ObjectId>& ids, ObjectId id) {
 
 bool almost_equal(double a, double b, double eps) { return std::abs(a - b) <= eps; }
 
-wire::core::EditResult<Bb2Fixture>
-make_bb2_fixture(CoreState& state, const std::vector<wire::core::Vec3d>& points,
+wire::core::EditResult<BackboneFixture>
+make_backbone_fixture(CoreState& state, const std::vector<wire::core::Vec3d>& points,
                  const std::vector<wire::core::BundleKind>& bundles) {
-  wire::core::EditResult<Bb2Fixture> out{};
+  wire::core::EditResult<BackboneFixture> out{};
   if (points.size() < 2 || bundles.empty()) {
-    out.error = "bb2 fixture requires points and bundles";
+    out.error = "backbone fixture requires points and bundles";
     return out;
   }
   wire::core::BackboneSpec request{};
@@ -450,14 +450,14 @@ make_bb2_fixture(CoreState& state, const std::vector<wire::core::Vec3d>& points,
   request.interval_m = 1000.0;
   const auto first_template = state.view().bundle_templates().find(bundles.front());
   if (first_template == state.view().bundle_templates().end()) {
-    out.error = "bb2 fixture bundle template not found";
+    out.error = "backbone fixture bundle template not found";
     return out;
   }
   request.pole_type_id = first_template->second.related_pole_type_id;
   if (request.pole_type_id == wire::core::kInvalidPoleTypeId) {
     const auto type_ids = sorted_pole_type_ids(state);
     if (type_ids.empty()) {
-      out.error = "bb2 fixture pole type not found";
+      out.error = "backbone fixture pole type not found";
       return out;
     }
     request.pole_type_id = type_ids.front();
@@ -477,7 +477,7 @@ make_bb2_fixture(CoreState& state, const std::vector<wire::core::Vec3d>& points,
   for (ObjectId pole_id : out.value.poles) {
     const wire::core::SavedBackboneNode* node = state.view().backbone_node_for_pole(pole_id);
     if (node == nullptr) {
-      out.error = "bb2 fixture node binding not found";
+      out.error = "backbone fixture node binding not found";
       return out;
     }
     out.value.nodes.push_back(node->node_id);

@@ -2,7 +2,7 @@
 
 #include "wire/core/core_state.hpp"
 
-namespace wire::core::generation::bb2 {
+namespace wire::core::generation::backbone {
 
 [[nodiscard]] DetailCurve line(const Vec3d& a, const Vec3d& b);
 [[nodiscard]] DetailCurve make_curve(const CoreState& state, ObjectId span_id, const SpanLayoutEntry& layout);
@@ -10,4 +10,4 @@ namespace wire::core::generation::bb2 {
 [[nodiscard]] SpanRenderCacheEntry render(const CoreState& state, ObjectId span_id, const DetailCurve& detail);
 [[nodiscard]] SpanVisualCacheEntry visual(const VisualSettings& settings, const SpanLayoutEntry& layout);
 
-} // namespace wire::core::generation::bb2
+} // namespace wire::core::generation::backbone

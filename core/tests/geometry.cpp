@@ -53,7 +53,7 @@ generate_path(CoreState& state, const wire::core::BackboneInputSpec& path, doubl
   return state.GenerateFromBackboneSpec(spec);
 }
 
-bool test_bb2_interval_generates_pole_line_basic() {
+bool test_backbone_interval_generates_pole_line_basic() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
   if (type_ids.empty()) {
@@ -899,9 +899,9 @@ bool test_hierarchical_variation_worldspace_is_continuous() {
 }
 
 void register_geometry_tests(test_registry::TestRegistry& tests) {
-  test_registry::AddTest(tests, "C19_bb2_interval_generates_pole_line_basic",
-                         "bb2 interval generation creates a pole line with pole type", "Invariant", false,
-                         test_bb2_interval_generates_pole_line_basic);
+  test_registry::AddTest(tests, "C19_backbone_interval_generates_pole_line_basic",
+                         "backbone interval generation creates a pole line with pole type", "Invariant", false,
+                         test_backbone_interval_generates_pole_line_basic);
   test_registry::AddTest(tests, "C61_Phase48h_AcuteCorner_AutoWidenSpacing", "Acute corners auto-widen lane spacing without category-specific branching", "Invariant", false, test_acute_corner_auto_widens_lane_spacing);
   test_registry::AddTest(tests, "C58_Phase48h_Guide_ReverseSymmetry", "Guide reverse mode preserves generated pole position set", "Invariant", false, test_generate_from_guide_reverse_mode_position_symmetry);
   test_registry::AddTest(tests, "C59_Phase48h_Guide_AvoidConstraint", "Guide generation avoids forbidden radius around avoid_points", "Invariant", false, test_generate_from_guide_respects_avoid_constraints);

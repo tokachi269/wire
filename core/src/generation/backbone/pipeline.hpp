@@ -7,7 +7,7 @@
 #include <utility>
 #include <vector>
 
-namespace wire::core::generation::bb2 {
+namespace wire::core::generation::backbone {
 
 inline constexpr std::size_t bad = std::numeric_limits<std::size_t>::max();
 
@@ -209,4 +209,4 @@ private:
   std::vector<std::size_t> local_by_input_{};
 };
 
-} // namespace wire::core::generation::bb2
+} // namespace wire::core::generation::backbone

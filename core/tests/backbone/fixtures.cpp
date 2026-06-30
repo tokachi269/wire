@@ -120,7 +120,7 @@ bool file_text(const std::filesystem::path& path, std::string* out) {
   return true;
 }
 
-std::vector<wire::core::Vec3d> bb2_layout_points(wire::core::CoreState& state) {
+std::vector<wire::core::Vec3d> backbone_layout_points(wire::core::CoreState& state) {
   wire::core::BackboneSpec req = line_req(state);
   const auto out = state.GenerateFromBackboneSpec(req);
   std::vector<wire::core::Vec3d> points{};
@@ -140,7 +140,7 @@ std::vector<wire::core::Vec3d> bb2_layout_points(wire::core::CoreState& state) {
   return points;
 }
 
-CurveSnapshot bb2_curve_points(wire::core::CoreState& state) {
+CurveSnapshot backbone_curve_points(wire::core::CoreState& state) {
   wire::core::BackboneSpec req = line_req(state);
   const auto out = state.GenerateFromBackboneSpec(req);
   CurveSnapshot snapshot{};
@@ -165,7 +165,7 @@ void push_box(const wire::core::AABBd& box, BoundsSnapshot* out) {
   out->pts.push_back(box.max);
 }
 
-BoundsSnapshot bb2_bounds_points(wire::core::CoreState& state) {
+BoundsSnapshot backbone_bounds_points(wire::core::CoreState& state) {
   wire::core::BackboneSpec req = line_req(state);
   const auto out = state.GenerateFromBackboneSpec(req);
   BoundsSnapshot snapshot{};

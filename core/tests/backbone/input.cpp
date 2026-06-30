@@ -19,7 +19,7 @@ using namespace helpers;
 
 namespace backbone_tests {
 
-bool C579_bb2_polyline_avoid_detour_supported() {
+bool C579_backbone_polyline_avoid_detour_supported() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = poly3_req(state);
   req.constraints.avoid_points.push_back({6.0, 0.0, 0.0});
@@ -36,7 +36,7 @@ bool C579_bb2_polyline_avoid_detour_supported() {
   return detour != state.view().backbone().nodes.end();
 }
 
-bool C580_bb2_interval_avoid_combination_orders_inserted_points() {
+bool C580_backbone_interval_avoid_combination_orders_inserted_points() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   req.interval_m = 4.0;
@@ -67,7 +67,7 @@ bool C580_bb2_interval_avoid_combination_orders_inserted_points() {
   return true;
 }
 
-bool C582_bb2_multiple_avoid_points_on_one_segment_supported() {
+bool C582_backbone_multiple_avoid_points_on_one_segment_supported() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   req.constraints.avoid_points.push_back({4.0, 0.0, 0.0});
@@ -88,7 +88,7 @@ bool C582_bb2_multiple_avoid_points_on_one_segment_supported() {
   return saw_first_detour && saw_second_detour;
 }
 
-bool C583_bb2_avoid_points_on_multiple_segments_supported() {
+bool C583_backbone_avoid_points_on_multiple_segments_supported() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = poly3_req(state);
   req.constraints.avoid_points.push_back({6.0, 0.0, 0.0});
@@ -109,7 +109,7 @@ bool C583_bb2_avoid_points_on_multiple_segments_supported() {
   return saw_first_detour && saw_second_detour;
 }
 
-bool C584_bb2_ownerless_interval_inserts_ownerless_nodes() {
+bool C584_backbone_ownerless_interval_inserts_ownerless_nodes() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   req.pole_type_id = wire::core::kInvalidPoleTypeId;
@@ -135,7 +135,7 @@ bool C584_bb2_ownerless_interval_inserts_ownerless_nodes() {
   return true;
 }
 
-bool C585_bb2_duplicate_avoid_points_are_coalesced() {
+bool C585_backbone_duplicate_avoid_points_are_coalesced() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   req.constraints.avoid_points.push_back({6.0, 0.0, 0.0});
@@ -155,7 +155,7 @@ bool C585_bb2_duplicate_avoid_points_are_coalesced() {
   return detour_count == 1;
 }
 
-bool C594_bb2_avoid_point_at_route_endpoint_is_noop() {
+bool C594_backbone_avoid_point_at_route_endpoint_is_noop() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   req.constraints.avoid_points.push_back({0.0, 0.0, 0.0});
@@ -165,7 +165,7 @@ bool C594_bb2_avoid_point_at_route_endpoint_is_noop() {
          state.view().backbone().edges.size() == 1;
 }
 
-bool C586_bb2_avoid_detour_replaces_interval_at_same_t() {
+bool C586_backbone_avoid_detour_replaces_interval_at_same_t() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   req.interval_m = 6.0;
@@ -188,7 +188,7 @@ bool C586_bb2_avoid_detour_replaces_interval_at_same_t() {
   return saw_detour;
 }
 
-bool C587_bb2_create_midair_node_without_selected_bundle_supported() {
+bool C587_backbone_create_midair_node_without_selected_bundle_supported() {
   wire::core::CoreState state;
   wire::core::BackboneSpec base = line_req(state);
   const auto base_out = state.GenerateFromBackboneSpec(base);
@@ -219,7 +219,7 @@ bool C587_bb2_create_midair_node_without_selected_bundle_supported() {
   return out.ok && !out.value.generated_span_ids.empty();
 }
 
-bool C588_bb2_corner_avoid_detour_supported() {
+bool C588_backbone_corner_avoid_detour_supported() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = poly3_req(state);
   req.constraints.avoid_radius_m = 2.0;
@@ -228,7 +228,7 @@ bool C588_bb2_corner_avoid_detour_supported() {
   return out.ok && !out.value.generated_span_ids.empty();
 }
 
-bool C589_bb2_selected_bundle_policy_blocks_unselected_bundle() {
+bool C589_backbone_selected_bundle_policy_blocks_unselected_bundle() {
   wire::core::CoreState state;
   const auto base_out = state.GenerateFromBackboneSpec(line_req(state));
   if (!base_out.ok || base_out.value.generated_span_ids.empty()) return false;
@@ -256,7 +256,7 @@ bool C589_bb2_selected_bundle_policy_blocks_unselected_bundle() {
   return bundle != nullptr && bundle->bundle_template_id == wire::core::BundleKind::kCommunication;
 }
 
-bool C590_bb2_inactive_pass_through_bundle_rejected_before_noop() {
+bool C590_backbone_inactive_pass_through_bundle_rejected_before_noop() {
   wire::core::CoreState state;
   const auto base_out = state.GenerateFromBackboneSpec(line_req(state));
   if (!base_out.ok || base_out.value.generated_span_ids.empty()) return false;
@@ -284,7 +284,7 @@ bool C590_bb2_inactive_pass_through_bundle_rejected_before_noop() {
   return !out.ok && contains_text(out.error, "inactive");
 }
 
-bool C591_bb2_saved_selected_midair_continuation_keeps_bundle_policy() {
+bool C591_backbone_saved_selected_midair_continuation_keeps_bundle_policy() {
   wire::core::CoreState state;
   const auto base_out = state.GenerateFromBackboneSpec(line_req(state));
   if (!base_out.ok || base_out.value.generated_span_ids.empty()) {
@@ -342,7 +342,7 @@ bool C591_bb2_saved_selected_midair_continuation_keeps_bundle_policy() {
   return bundle != nullptr && bundle->bundle_template_id == wire::core::BundleKind::kCommunication;
 }
 
-bool C592_bb2_saved_selected_midair_reverse_continuation_keeps_bundle_policy() {
+bool C592_backbone_saved_selected_midair_reverse_continuation_keeps_bundle_policy() {
   wire::core::CoreState state;
   const auto base_out = state.GenerateFromBackboneSpec(line_req(state));
   if (!base_out.ok || base_out.value.generated_span_ids.empty()) {
@@ -396,7 +396,7 @@ bool C592_bb2_saved_selected_midair_reverse_continuation_keeps_bundle_policy() {
   return bundle != nullptr && bundle->bundle_template_id == wire::core::BundleKind::kCommunication;
 }
 
-bool C593_bb2_saved_selected_midair_rejects_inactive_pass_through() {
+bool C593_backbone_saved_selected_midair_rejects_inactive_pass_through() {
   wire::core::CoreState state;
   const auto base_out = state.GenerateFromBackboneSpec(line_req(state));
   if (!base_out.ok || base_out.value.generated_span_ids.empty()) {
@@ -455,7 +455,7 @@ bool C593_bb2_saved_selected_midair_rejects_inactive_pass_through() {
   return !out.ok && contains_text(out.error, "inactive");
 }
 
-bool C595_bb2_avoid_point_at_explicit_existing_support_is_noop() {
+bool C595_backbone_avoid_point_at_explicit_existing_support_is_noop() {
   wire::core::CoreState state;
   const auto base = state.GenerateFromBackboneSpec(poly3_req(state));
   if (!base.ok || base.value.generated_pole_ids.size() != 3) {
@@ -485,7 +485,7 @@ bool C595_bb2_avoid_point_at_explicit_existing_support_is_noop() {
          almost_equal(same_middle->world_transform.position.y, 0.0, 1e-9);
 }
 
-bool C596_bb2_avoid_point_at_explicit_new_support_is_noop() {
+bool C596_backbone_avoid_point_at_explicit_new_support_is_noop() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = poly3_req(state);
   wire::core::BackboneInputSpec::NodeSpec middle{};
@@ -505,7 +505,7 @@ bool C596_bb2_avoid_point_at_explicit_new_support_is_noop() {
          almost_equal(generated_middle->world_transform.position.y, 0.0, 1e-9);
 }
 
-bool C581_bb2_inactive_bundle_missing_band_is_ignored() {
+bool C581_backbone_inactive_bundle_missing_band_is_ignored() {
   wire::core::CoreState state;
   wire::core::BackboneSpec base = line_req(state);
   const auto base_out = state.GenerateFromBackboneSpec(base);
@@ -555,7 +555,7 @@ bool C581_bb2_inactive_bundle_missing_band_is_ignored() {
              static_cast<std::size_t>(bundle_count(state, wire::core::BundleKind::kLowVoltage));
 }
 
-bool C543_bb2_new_route_interior_pass_through_supported() {
+bool C543_backbone_new_route_interior_pass_through_supported() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = pass_poly3_req(state);
   const int count = req_bundle_count(state, req);
@@ -580,7 +580,7 @@ bool C543_bb2_new_route_interior_pass_through_supported() {
   return saw_lowered;
 }
 
-bool C544_bb2_pole_placement_pins_generated_poles() {
+bool C544_backbone_pole_placement_pins_generated_poles() {
   wire::core::CoreState endpoints_state;
   wire::core::BackboneSpec endpoints = poly3_req(endpoints_state);
   endpoints.pole_placement.pin_endpoints = true;
@@ -630,7 +630,7 @@ bool C544_bb2_pole_placement_pins_generated_poles() {
          after->placement_mode == wire::core::PlacementMode::kAuto;
 }
 
-bool C545_bb2_interval_generates_intermediate_poles() {
+bool C545_backbone_interval_generates_intermediate_poles() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   req.interval_m = 4.0;
@@ -679,7 +679,7 @@ bool C545_bb2_interval_generates_intermediate_poles() {
   return true;
 }
 
-bool C546_bb2_explicit_new_pole_node_spec_supported() {
+bool C546_backbone_explicit_new_pole_node_spec_supported() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = poly3_req(state);
   wire::core::BackboneInputSpec::NodeSpec node{};
@@ -699,10 +699,10 @@ bool C546_bb2_explicit_new_pole_node_spec_supported() {
   const auto* middle = state.view().poles().find(out.value.generated_pole_ids[1]);
   return middle != nullptr && almost_equal(middle->world_transform.position.x, 12.0, 1e-9) &&
          almost_equal(middle->world_transform.position.y, 0.0, 1e-9) &&
-         C398_bb2_rejects_missing_existing_pole();
+         C398_backbone_rejects_missing_existing_pole();
 }
 
-bool C547_bb2_fixed_bundle_exact_count_is_supported() {
+bool C547_backbone_fixed_bundle_exact_count_is_supported() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   if (req.bundles.empty()) {
@@ -729,7 +729,7 @@ bool C547_bb2_fixed_bundle_exact_count_is_supported() {
          rejected.view().spans().size() == span_count;
 }
 
-bool C548_bb2_avoid_radius_without_points_is_noop() {
+bool C548_backbone_avoid_radius_without_points_is_noop() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   req.constraints.avoid_radius_m = 3.0;
@@ -738,7 +738,7 @@ bool C548_bb2_avoid_radius_without_points_is_noop() {
          out.value.generated_span_ids.size() == static_cast<std::size_t>(req_bundle_count(state, req));
 }
 
-bool C549_bb2_range_bundle_explicit_count_is_supported() {
+bool C549_backbone_range_bundle_explicit_count_is_supported() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   req.bundles.clear();
@@ -763,7 +763,7 @@ bool C549_bb2_range_bundle_explicit_count_is_supported() {
          rejected.view().spans().size() == span_count;
 }
 
-bool C550_bb2_generated_pole_uses_tangent_hint_yaw() {
+bool C550_backbone_generated_pole_uses_tangent_hint_yaw() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = poly3_req(state);
   wire::core::BackboneInputSpec::NodeSpec node{};
@@ -793,7 +793,7 @@ bool C550_bb2_generated_pole_uses_tangent_hint_yaw() {
          rejected.view().spans().size() == span_count;
 }
 
-bool C551_bb2_missing_pole_type_resolves_from_bundle_templates() {
+bool C551_backbone_missing_pole_type_resolves_from_bundle_templates() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   req.pole_type_id = wire::core::kInvalidPoleTypeId;
@@ -826,7 +826,7 @@ bool C551_bb2_missing_pole_type_resolves_from_bundle_templates() {
          rejected.view().spans().size() == span_count;
 }
 
-bool C552_bb2_zero_radius_avoid_points_are_noop() {
+bool C552_backbone_zero_radius_avoid_points_are_noop() {
   wire::core::CoreState plain;
   wire::core::BackboneSpec base = line_req(plain);
   const auto base_out = plain.GenerateFromBackboneSpec(base);
@@ -860,7 +860,7 @@ bool C552_bb2_zero_radius_avoid_points_are_noop() {
   return true;
 }
 
-bool C553_bb2_new_midair_route_point_is_supported() {
+bool C553_backbone_new_midair_route_point_is_supported() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = poly3_req(state);
   req.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 8.0}, {24.0, 0.0, 0.0}};
@@ -901,10 +901,10 @@ bool C553_bb2_new_midair_route_point_is_supported() {
                       (b->owner_pole_id == wire::core::kInvalidObjectId &&
                        almost_equal(b->world_position.z, 8.0, 1e-9));
   }
-  return saw_midair_port && C397_bb2_rejects_missing_saved_midair_node_spec();
+  return saw_midair_port && C397_backbone_rejects_missing_saved_midair_node_spec();
 }
 
-bool C554_bb2_existing_midair_route_point_is_supported() {
+bool C554_backbone_existing_midair_route_point_is_supported() {
   wire::core::CoreState state;
   wire::core::BackboneSpec first = poly3_req(state);
   first.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 8.0}, {24.0, 0.0, 0.0}};
@@ -963,10 +963,10 @@ bool C554_bb2_existing_midair_route_point_is_supported() {
       return false;
     }
   }
-  return C397_bb2_rejects_missing_saved_midair_node_spec();
+  return C397_backbone_rejects_missing_saved_midair_node_spec();
 }
 
-bool C555_bb2_new_building_route_point_is_supported() {
+bool C555_backbone_new_building_route_point_is_supported() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = poly3_req(state);
   req.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 6.0}, {24.0, 0.0, 0.0}};
@@ -1012,7 +1012,7 @@ bool C555_bb2_new_building_route_point_is_supported() {
   return saw_building_port;
 }
 
-bool C556_bb2_building_pick_feeds_new_building_route_point() {
+bool C556_backbone_building_pick_feeds_new_building_route_point() {
   wire::core::CoreState state;
   wire::core::PickResult pick{};
   pick.hit_kind = wire::core::PickHitKind::kExternal;
@@ -1064,7 +1064,7 @@ bool C556_bb2_building_pick_feeds_new_building_route_point() {
   return false;
 }
 
-bool C557_bb2_building_pick_without_id_is_supported() {
+bool C557_backbone_building_pick_without_id_is_supported() {
   wire::core::CoreState state;
   wire::core::PickResult pick{};
   pick.hit_kind = wire::core::PickHitKind::kExternal;
@@ -1096,7 +1096,7 @@ bool C557_bb2_building_pick_without_id_is_supported() {
   return building_it != state.view().backbone().nodes.end() && almost_equal(building_it->position.z, 5.0, 1e-9);
 }
 
-bool C558_bb2_ground_pick_feeds_new_ground_route_point() {
+bool C558_backbone_ground_pick_feeds_new_ground_route_point() {
   wire::core::CoreState state;
   wire::core::PickResult pick{};
   pick.hit_kind = wire::core::PickHitKind::kGround;
@@ -1149,7 +1149,7 @@ bool C558_bb2_ground_pick_feeds_new_ground_route_point() {
   return false;
 }
 
-bool C597_bb2_selected_building_pick_generates_selected_bundle_only() {
+bool C597_backbone_selected_building_pick_generates_selected_bundle_only() {
   wire::core::CoreState state;
   wire::core::PickResult pick{};
   pick.hit_kind = wire::core::PickHitKind::kExternal;
@@ -1193,7 +1193,7 @@ bool C597_bb2_selected_building_pick_generates_selected_bundle_only() {
   return true;
 }
 
-bool C598_bb2_selected_saved_building_node_pick_generates_selected_bundle_only() {
+bool C598_backbone_selected_saved_building_node_pick_generates_selected_bundle_only() {
   wire::core::CoreState state;
   wire::core::BackboneSpec first = poly3_req(state);
   first.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 6.0}, {24.0, 0.0, 0.0}};
@@ -1244,7 +1244,7 @@ bool C598_bb2_selected_saved_building_node_pick_generates_selected_bundle_only()
   return bundle != nullptr && bundle->bundle_template_id == wire::core::BundleKind::kCommunication;
 }
 
-bool C599_bb2_selected_saved_building_node_policy_persists_after_branch() {
+bool C599_backbone_selected_saved_building_node_policy_persists_after_branch() {
   wire::core::CoreState state;
   wire::core::BackboneSpec first = poly3_req(state);
   first.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 6.0}, {24.0, 0.0, 0.0}};
@@ -1317,7 +1317,7 @@ bool C599_bb2_selected_saved_building_node_policy_persists_after_branch() {
   return bundle != nullptr && bundle->bundle_template_id == wire::core::BundleKind::kCommunication;
 }
 
-bool C600_bb2_selected_existing_pole_pick_generates_selected_bundle_only() {
+bool C600_backbone_selected_existing_pole_pick_generates_selected_bundle_only() {
   wire::core::CoreState state;
   const auto base = state.GenerateFromBackboneSpec(poly3_req(state));
   if (!base.ok || base.value.generated_pole_ids.size() != 3) {
@@ -1368,7 +1368,7 @@ bool C600_bb2_selected_existing_pole_pick_generates_selected_bundle_only() {
   return saved_pole != nullptr && saved_pole->bundle_modes.empty();
 }
 
-bool C604_bb2_large_avoid_detour_clears_radius() {
+bool C604_backbone_large_avoid_detour_clears_radius() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   req.constraints.avoid_points = {{6.0, 0.0, 0.0}};
@@ -1390,7 +1390,7 @@ bool C604_bb2_large_avoid_detour_clears_radius() {
   return true;
 }
 
-bool C605_bb2_find_backbone_route_uses_saved_ownerless_graph() {
+bool C605_backbone_find_backbone_route_uses_saved_ownerless_graph() {
   wire::core::CoreState state;
   wire::core::BackboneSpec first = line_req(state);
   wire::core::BackboneInputSpec::NodeSpec midair{};
@@ -1414,7 +1414,7 @@ bool C605_bb2_find_backbone_route_uses_saved_ownerless_graph() {
   return route.size() == 2 && route.front() == saved_midair->node_id && route.back() == out.value.generated_pole_ids.back();
 }
 
-bool C606_bb2_saved_backbone_result_exposes_saved_ownerless_node() {
+bool C606_backbone_saved_backbone_result_exposes_saved_ownerless_node() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = poly3_req(state);
   req.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 8.0}, {24.0, 0.0, 0.0}};
@@ -1442,7 +1442,7 @@ bool C606_bb2_saved_backbone_result_exposes_saved_ownerless_node() {
   return node != result.nodes.end() && almost_equal(node->position, saved->position, 1e-9);
 }
 
-bool C607_bb2_saved_backbone_result_preserves_saved_ownerless_route_index() {
+bool C607_backbone_saved_backbone_result_preserves_saved_ownerless_route_index() {
   wire::core::CoreState state;
   wire::core::BackboneSpec first = poly3_req(state);
   first.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 6.0}, {20.0, 0.0, 0.0}};
@@ -1486,7 +1486,7 @@ bool C607_bb2_saved_backbone_result_preserves_saved_ownerless_route_index() {
   return reused_midair != second_result.nodes.end();
 }
 
-bool C560_bb2_segment_pick_without_bundle_policy_feeds_midair_route_point() {
+bool C560_backbone_segment_pick_without_bundle_policy_feeds_midair_route_point() {
   wire::core::CoreState state;
   wire::core::PickResult pick{};
   pick.hit_kind = wire::core::PickHitKind::kSegment;
@@ -1549,7 +1549,7 @@ bool C560_bb2_segment_pick_without_bundle_policy_feeds_midair_route_point() {
   return false;
 }
 
-bool C561_bb2_default_segment_pick_without_bundle_policy_is_ownerless_midair() {
+bool C561_backbone_default_segment_pick_without_bundle_policy_is_ownerless_midair() {
   wire::core::CoreState state;
   wire::core::PickResult pick{};
   pick.hit_kind = wire::core::PickHitKind::kSegment;
@@ -1601,7 +1601,7 @@ bool C561_bb2_default_segment_pick_without_bundle_policy_is_ownerless_midair() {
   return true;
 }
 
-bool C562_bb2_saved_midair_node_pick_extends_from_saved_graph_node() {
+bool C562_backbone_saved_midair_node_pick_extends_from_saved_graph_node() {
   wire::core::CoreState state;
   wire::core::BackboneSpec first = poly3_req(state);
   first.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 5.0}, {24.0, 0.0, 0.0}};
@@ -1657,7 +1657,7 @@ bool C562_bb2_saved_midair_node_pick_extends_from_saved_graph_node() {
   return true;
 }
 
-bool C563_bb2_segment_pick_snaps_to_saved_ownerless_span_endpoint() {
+bool C563_backbone_segment_pick_snaps_to_saved_ownerless_span_endpoint() {
   wire::core::CoreState state;
   wire::core::BackboneSpec first = poly3_req(state);
   first.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 5.0}, {24.0, 0.0, 0.0}};
@@ -1729,7 +1729,7 @@ bool C563_bb2_segment_pick_snaps_to_saved_ownerless_span_endpoint() {
          second_out.value.generated_span_ids.size() == static_cast<std::size_t>(req_bundle_count(state, second));
 }
 
-bool C564_bb2_selected_bundle_segment_pick_feeds_transient_midair_node() {
+bool C564_backbone_selected_bundle_segment_pick_feeds_transient_midair_node() {
   wire::core::CoreState state;
   wire::core::BackboneSpec base = line_req(state);
   const auto base_out = state.GenerateFromBackboneSpec(base);
@@ -1796,7 +1796,7 @@ bool C564_bb2_selected_bundle_segment_pick_feeds_transient_midair_node() {
   return false;
 }
 
-bool C565_bb2_mixed_selected_midair_branch_generates_allowed_bundles_only() {
+bool C565_backbone_mixed_selected_midair_branch_generates_allowed_bundles_only() {
   wire::core::CoreState state;
   wire::core::BackboneSpec base = line_req(state);
   const auto base_out = state.GenerateFromBackboneSpec(base);
@@ -1847,7 +1847,7 @@ bool C565_bb2_mixed_selected_midair_branch_generates_allowed_bundles_only() {
   return true;
 }
 
-bool C566_bb2_disallowed_selected_midair_branch_is_noop() {
+bool C566_backbone_disallowed_selected_midair_branch_is_noop() {
   wire::core::CoreState state;
   wire::core::BackboneSpec base = line_req(state);
   const auto base_out = state.GenerateFromBackboneSpec(base);
@@ -1892,7 +1892,7 @@ bool C566_bb2_disallowed_selected_midair_branch_is_noop() {
          state.view().backbone().edge_bundles.size() == saved_edge_bundle_count;
 }
 
-bool C569_bb2_render_uses_cable_template_appearance() {
+bool C569_backbone_render_uses_cable_template_appearance() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   const auto out = state.GenerateFromBackboneSpec(req);
@@ -1927,7 +1927,7 @@ bool C569_bb2_render_uses_cable_template_appearance() {
   return true;
 }
 
-bool C570_bb2_support_visual_uses_visual_settings_radius() {
+bool C570_backbone_support_visual_uses_visual_settings_radius() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = poly3_req(state);
   wire::core::BackboneSpec::NodeBundleModeSpec mode{};
@@ -1954,7 +1954,7 @@ bool C570_bb2_support_visual_uses_visual_settings_radius() {
   return false;
 }
 
-bool C571_bb2_support_visual_respects_enable_setting() {
+bool C571_backbone_support_visual_respects_enable_setting() {
   wire::core::CoreState state;
   wire::core::VisualSettings settings = state.view().visual_settings();
   settings.enable_support_structures = false;
@@ -1996,7 +1996,7 @@ bool C571_bb2_support_visual_respects_enable_setting() {
   return saw_lowered_endpoint;
 }
 
-bool C572_bb2_support_visual_radius_setting_is_mutable() {
+bool C572_backbone_support_visual_radius_setting_is_mutable() {
   wire::core::CoreState state;
   wire::core::VisualSettings settings = state.view().visual_settings();
   settings.support_arm_radius_m = 0.123;
@@ -2029,7 +2029,7 @@ bool C572_bb2_support_visual_radius_setting_is_mutable() {
   return false;
 }
 
-bool C609_bb2_acute_corner_lowers_layout_geom_without_port_lowering() {
+bool C609_backbone_acute_corner_lowers_layout_geom_without_port_lowering() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = poly3_req(state);
   req.bundles.clear();
@@ -2071,7 +2071,7 @@ bool C609_bb2_acute_corner_lowers_layout_geom_without_port_lowering() {
   return false;
 }
 
-bool C610_bb2_acute_corner_lowering_survives_pole_yaw_override() {
+bool C610_backbone_acute_corner_lowering_survives_pole_yaw_override() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = poly3_req(state);
   req.bundles.clear();
@@ -2125,8 +2125,8 @@ bool C610_bb2_acute_corner_lowering_survives_pole_yaw_override() {
   return false;
 }
 
-bool C573_bb2_saved_context_node_carries_support_metadata() {
-  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+bool C573_backbone_saved_context_node_carries_support_metadata() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string cpp;
   if (!file_text(source, &cpp)) {
     return false;
@@ -2144,7 +2144,7 @@ bool C573_bb2_saved_context_node_carries_support_metadata() {
          contains_text(body, "n.source_edge_t = saved->source_edge_t");
 }
 
-bool C574_bb2_same_edge_different_bundle_with_pass_through_is_supported() {
+bool C574_backbone_same_edge_different_bundle_with_pass_through_is_supported() {
   wire::core::CoreState state;
   const auto first = state.GenerateFromBackboneSpec(line_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 2 || state.view().backbone().edges.size() != 1) {
@@ -2180,7 +2180,7 @@ bool C574_bb2_same_edge_different_bundle_with_pass_through_is_supported() {
   return false;
 }
 
-bool C575_bb2_stale_segment_pick_midair_duplicate_rejected_unchanged() {
+bool C575_backbone_stale_segment_pick_midair_duplicate_rejected_unchanged() {
   wire::core::CoreState state;
   const auto base_out = state.GenerateFromBackboneSpec(line_req(state));
   if (!base_out.ok || base_out.value.generated_span_ids.empty()) {
@@ -2229,7 +2229,7 @@ bool C575_bb2_stale_segment_pick_midair_duplicate_rejected_unchanged() {
          state.view().backbone().edge_bundles.size() == saved_edge_bundle_count;
 }
 
-bool C576_bb2_ownerless_multiple_bundles_do_not_require_pole_type() {
+bool C576_backbone_ownerless_multiple_bundles_do_not_require_pole_type() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   req.pole_type_id = wire::core::kInvalidPoleTypeId;
@@ -2250,7 +2250,7 @@ bool C576_bb2_ownerless_multiple_bundles_do_not_require_pole_type() {
          state.view().backbone().edges.size() == 1;
 }
 
-bool C577_bb2_missing_port_band_rejects_before_mutation() {
+bool C577_backbone_missing_port_band_rejects_before_mutation() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   auto it = state.view().pole_types().find(req.pole_type_id);
@@ -2279,7 +2279,7 @@ bool C577_bb2_missing_port_band_rejects_before_mutation() {
          state.view().backbone().nodes.size() == saved_node_count && state.view().backbone().edges.size() == saved_edge_count;
 }
 
-bool C578_bb2_segment_pick_midair_pass_through_supported() {
+bool C578_backbone_segment_pick_midair_pass_through_supported() {
   wire::core::CoreState state;
   wire::core::BackboneSpec base = line_req(state);
   const auto base_out = state.GenerateFromBackboneSpec(base);
@@ -2325,7 +2325,7 @@ bool C578_bb2_segment_pick_midair_pass_through_supported() {
   return false;
 }
 
-bool C559_bb2_positive_avoid_clear_of_route_is_noop() {
+bool C559_backbone_positive_avoid_clear_of_route_is_noop() {
   wire::core::CoreState plain;
   wire::core::BackboneSpec base = line_req(plain);
   const auto base_out = plain.GenerateFromBackboneSpec(base);

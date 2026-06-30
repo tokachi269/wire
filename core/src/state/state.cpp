@@ -862,7 +862,7 @@ EditResult<ObjectId> CoreState::SetSpanEndpointSocketOverride(ObjectId span_id, 
     return result;
   }
   if (runtime_.backbone_index.span_edge_bundle.contains(span_id)) {
-    result.error = "bb2 unsupported: endpoint socket override requires regeneration";
+    result.error = "backbone unsupported: endpoint socket override requires regeneration";
     return result;
   }
   SpanEndpointOverride next = authoritative_.override_state.span_endpoint_by_span[span_id];
@@ -889,7 +889,7 @@ EditResult<ObjectId> CoreState::ClearSpanEndpointSocketOverride(ObjectId span_id
     return result;
   }
   if (runtime_.backbone_index.span_edge_bundle.contains(span_id)) {
-    result.error = "bb2 unsupported: endpoint socket override requires regeneration";
+    result.error = "backbone unsupported: endpoint socket override requires regeneration";
     return result;
   }
   auto it = authoritative_.override_state.span_endpoint_by_span.find(span_id);
@@ -922,7 +922,7 @@ EditResult<ObjectId> CoreState::SetSpanBranchDownOffsetOverride(ObjectId span_id
     return result;
   }
   if (runtime_.backbone_index.span_edge_bundle.contains(span_id)) {
-    result.error = "bb2 unsupported: branch down override requires regeneration";
+    result.error = "backbone unsupported: branch down override requires regeneration";
     return result;
   }
   if (!std::isfinite(branch_down_offset_m) || branch_down_offset_m < 0.0) {
@@ -962,7 +962,7 @@ EditResult<ObjectId> CoreState::ClearSpanBranchDownOffsetOverride(ObjectId span_
     return result;
   }
   if (runtime_.backbone_index.span_edge_bundle.contains(span_id)) {
-    result.error = "bb2 unsupported: branch down override requires regeneration";
+    result.error = "backbone unsupported: branch down override requires regeneration";
     return result;
   }
   if (authoritative_.override_state.span_support_by_span.erase(span_id) == 0) {
@@ -1335,7 +1335,7 @@ EditResult<bool> CoreState::UpdateLayoutSettings(const LayoutSettings& settings)
                        std::abs(normalized.max_side_scale - authoritative_.layout_settings.max_side_scale) > 1e-9;
 
   if (changed && !authoritative_.backbone.span_bindings.empty()) {
-    result.error = "bb2 unsupported: layout settings require regeneration";
+    result.error = "backbone unsupported: layout settings require regeneration";
     return result;
   }
   authoritative_.layout_settings = normalized;
@@ -1409,7 +1409,7 @@ EditResult<bool> CoreState::UpdateVariationSettings(const VariationSettings& set
       std::abs(normalized.branch_down_offset_variation_scale - current.branch_down_offset_variation_scale) > 1e-12;
 
   if (changed && !authoritative_.backbone.span_bindings.empty()) {
-    result.error = "bb2 unsupported: variation settings are not consumed by generated outputs";
+    result.error = "backbone unsupported: variation settings are not consumed by generated outputs";
     return result;
   }
   runtime_.cache_state.variation_settings = normalized;
@@ -1435,7 +1435,7 @@ EditResult<bool> CoreState::UpdateContextProfile(const ContextProfile& profile, 
                        normalized.style_seed != current.style_seed;
 
   if (changed && !authoritative_.backbone.span_bindings.empty()) {
-    result.error = "bb2 unsupported: context profile is not consumed by generated outputs";
+    result.error = "backbone unsupported: context profile is not consumed by generated outputs";
     return result;
   }
   authoritative_.context_profile = normalized;
@@ -1505,7 +1505,7 @@ EditResult<bool> CoreState::ApplyBundleRelatedPoleTypeToExistingPoles(BundleKind
   }
   for (ObjectId pole_id : target_pole_ids) {
     if (runtime_.backbone_index.pole_node.contains(pole_id)) {
-      result.error = "bb2 unsupported: applying related pole type requires regeneration";
+      result.error = "backbone unsupported: applying related pole type requires regeneration";
       return result;
     }
   }

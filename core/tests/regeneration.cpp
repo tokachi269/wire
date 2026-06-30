@@ -26,7 +26,7 @@ bool test_port_position_mode_defaults_auto() {
 
 bool test_port_manual_set_and_reset_to_auto() {
   CoreState state;
-  const auto fixture = make_bb2_fixture(state, {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}});
+  const auto fixture = make_backbone_fixture(state, {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}});
   if (!fixture.ok || fixture.value.spans.empty()) return false;
   const auto* span = state.view().spans().find(fixture.value.spans.front());
   if (span == nullptr) return false;
@@ -61,7 +61,7 @@ bool test_port_manual_set_and_reset_to_auto() {
 
 bool test_manual_port_not_overwritten_by_auto_relayout() {
   CoreState state;
-  const auto fixture = make_bb2_fixture(state, {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}});
+  const auto fixture = make_backbone_fixture(state, {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}});
   if (!fixture.ok || fixture.value.spans.empty() || fixture.value.poles.empty()) return false;
   const ObjectId pole_a = fixture.value.poles.front();
   const auto* span = state.view().spans().find(fixture.value.spans.front());
@@ -327,7 +327,7 @@ bool test_backbone_edges_and_route_search() {
 
 bool test_set_pole_flip180_updates_ports() {
   CoreState state;
-  const auto fixture = make_bb2_fixture(state, {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}});
+  const auto fixture = make_backbone_fixture(state, {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}});
   if (!fixture.ok || fixture.value.spans.empty() || fixture.value.poles.empty()) return false;
   const ObjectId pole_a = fixture.value.poles.front();
   const auto* span = state.view().spans().find(fixture.value.spans.front());

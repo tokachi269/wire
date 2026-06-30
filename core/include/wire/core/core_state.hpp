@@ -17,7 +17,7 @@ struct OverrideResolutionService;
 struct EndpointRefreshService;
 struct TemplateMutationService;
 }
-namespace generation::bb2 {
+namespace generation::backbone {
 class pipeline;
 }
 
@@ -130,7 +130,7 @@ private:
   friend struct CoreStateTestHook;
 #endif
   friend class CoreView;
-  friend class generation::bb2::pipeline;
+  friend class generation::backbone::pipeline;
   friend struct state_internal::OverrideResolutionService;
   friend struct state_internal::EndpointRefreshService;
   friend struct state_internal::TemplateMutationService;

@@ -42,11 +42,11 @@
 - メトリクスを通しただけで完了扱いにしない。可能なら数値観測や validator / test で不変条件を固定する。
 - test は symptom を見るものと正本を固定するものを分け、どちらを守る検証か明示する。
 - test が常に正本とは限らない。失敗を直すときは、test の期待値より観測事実とアーキテクチャ上の正しさを優先する。
-- 旧テストは捨てない。ただし旧実装詳細の期待値を bb2 の完了条件にしない。守っていた制約を抽出し、bb2 の構造で移植する。
+- 旧テストは捨てない。ただし旧実装詳細の期待値を backbone の完了条件にしない。守っていた制約を抽出し、backbone の構造で移植する。
 - viewer で違和感がある場合、core 幾何の問題か viewer 表示の問題かを切り分ける。
 
-## bb2 作業の注意
-- bb2 は v1 の整理場所ではなく、v1/recalc/materialization を読まない新本流として扱う。
+## backbone 作業の注意
+- backbone は v1 の整理場所ではなく、v1/recalc/materialization を読まない本流として扱う。
 - SavedBackboneGraph は topology authority、pair/open/row は connectivity authority、support group は placement authority とする。
 - context link は判断入力であり、生成・保存対象にしない。
 - existing span/layout/seed/position proximity から topology / pair / row / port / lowering / draw を推測しない。

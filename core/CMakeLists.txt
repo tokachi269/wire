@@ -12,9 +12,9 @@ add_library(
   src/state/template/update.cpp
   src/pole_orientation_utils.cpp
   src/generation/pole_facing/pole_facing_rules.cpp
-  src/generation/bb2/derive.cpp
-  src/generation/bb2/out.cpp
-  src/generation/bb2/pipeline.cpp
+  src/generation/backbone/derive.cpp
+  src/generation/backbone/out.cpp
+  src/generation/backbone/pipeline.cpp
   src/generation/generate_from_backbone.cpp
   src/state/backbone.cpp
   src/validation/validator.cpp

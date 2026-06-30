@@ -2,13 +2,13 @@
   "version": 1,
   "families": [
     {
-      "name": "bb2_acceptance",
+      "name": "backbone_acceptance",
       "status": "keep",
       "owner": "Backbone acceptance registration and shared fixtures",
       "sources": [
         "core/tests/backbone/fixtures.cpp",
         "core/tests/backbone/registry.cpp",
-        "viewer/tests/bb2_scenes.cpp"
+        "viewer/tests/backbone_scenes.cpp"
       ],
       "notes": "Single registration entry and shared fixture boundary."
     },
@@ -80,7 +80,7 @@
       "status": "migrated",
       "owner": "SavedGraph workflow and public unsupported boundaries",
       "sources": ["core/tests/regeneration.cpp", "core/tests/workflow.cpp"],
-      "notes": "Manual topology allocator cases are retired; current workflow uses bb2 or explicit unsupported."
+      "notes": "Manual topology allocator cases are retired; current workflow uses backbone or explicit unsupported."
     },
     {
       "name": "pick_input",
@@ -108,7 +108,7 @@
       "status": "keep",
       "owner": "Public API and type boundary",
       "sources": ["core/tests/api_surface.cpp"],
-      "notes": "Private bb2 scratch types must not leak."
+      "notes": "Private backbone scratch types must not leak."
     },
     {
       "name": "viewer_behavior",

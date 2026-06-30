@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace wire::core::generation::bb2 {
+namespace wire::core::generation::backbone {
 namespace {
 
 Vec3d mul(Vec3d v, double k) {
@@ -182,4 +182,4 @@ SpanVisualCacheEntry visual(const VisualSettings& settings, const SpanLayoutEntr
   return out;
 }
 
-} // namespace wire::core::generation::bb2
+} // namespace wire::core::generation::backbone

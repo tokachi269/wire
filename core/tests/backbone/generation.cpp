@@ -19,7 +19,7 @@ using namespace helpers;
 
 namespace backbone_tests {
 
-bool C368_bb2_smoke_line() {
+bool C368_backbone_smoke_line() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   const int count = bundle_count(state, wire::core::BundleKind::kLowVoltage);
@@ -30,7 +30,7 @@ bool C368_bb2_smoke_line() {
          state.view().spans().size() >= static_cast<std::size_t>(count);
 }
 
-bool C369_bb2_rules_saved() {
+bool C369_backbone_rules_saved() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   const auto out = state.GenerateFromBackboneSpec(req);
@@ -45,7 +45,7 @@ bool C369_bb2_rules_saved() {
   return true;
 }
 
-bool C371_bb2_rejects_unsupported() {
+bool C371_backbone_rejects_unsupported() {
   wire::core::CoreState state;
   wire::core::BackboneSpec empty = line_req(state);
   empty.bundles.clear();
@@ -64,7 +64,7 @@ bool C371_bb2_rejects_unsupported() {
   return !building_out.ok && contains_text(building_out.error, "unsupported");
 }
 
-bool C372_bb2_rules_do_not_seed() {
+bool C372_backbone_rules_do_not_seed() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   const auto out = state.GenerateFromBackboneSpec(req);
@@ -79,7 +79,7 @@ bool C372_bb2_rules_do_not_seed() {
   return true;
 }
 
-bool C373_bb2_layout_saved_without_recalc() {
+bool C373_backbone_layout_saved_without_recalc() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   const auto out = state.GenerateFromBackboneSpec(req);
@@ -97,11 +97,11 @@ bool C373_bb2_layout_saved_without_recalc() {
   return true;
 }
 
-bool C374_bb2_layout_is_deterministic() {
+bool C374_backbone_layout_is_deterministic() {
   wire::core::CoreState a;
   wire::core::CoreState b;
-  const std::vector<wire::core::Vec3d> pa = bb2_layout_points(a);
-  const std::vector<wire::core::Vec3d> pb = bb2_layout_points(b);
+  const std::vector<wire::core::Vec3d> pa = backbone_layout_points(a);
+  const std::vector<wire::core::Vec3d> pb = backbone_layout_points(b);
   if (pa.empty() || pa.size() != pb.size()) {
     return false;
   }
@@ -113,7 +113,7 @@ bool C374_bb2_layout_is_deterministic() {
   return true;
 }
 
-bool C375_bb2_curve_saved_without_recalc() {
+bool C375_backbone_curve_saved_without_recalc() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   const auto out = state.GenerateFromBackboneSpec(req);
@@ -135,11 +135,11 @@ bool C375_bb2_curve_saved_without_recalc() {
   return true;
 }
 
-bool C376_bb2_curve_is_deterministic() {
+bool C376_backbone_curve_is_deterministic() {
   wire::core::CoreState a;
   wire::core::CoreState b;
-  const CurveSnapshot ca = bb2_curve_points(a);
-  const CurveSnapshot cb = bb2_curve_points(b);
+  const CurveSnapshot ca = backbone_curve_points(a);
+  const CurveSnapshot cb = backbone_curve_points(b);
   if (ca.points.empty() || ca.points.size() != cb.points.size() || ca.lengths.size() != cb.lengths.size()) {
     return false;
   }
@@ -156,7 +156,7 @@ bool C376_bb2_curve_is_deterministic() {
   return true;
 }
 
-bool C377_bb2_bounds_saved_without_recalc() {
+bool C377_backbone_bounds_saved_without_recalc() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   const auto out = state.GenerateFromBackboneSpec(req);
@@ -181,11 +181,11 @@ bool C377_bb2_bounds_saved_without_recalc() {
   return true;
 }
 
-bool C378_bb2_bounds_is_deterministic() {
+bool C378_backbone_bounds_is_deterministic() {
   wire::core::CoreState a;
   wire::core::CoreState b;
-  const BoundsSnapshot ba = bb2_bounds_points(a);
-  const BoundsSnapshot bb = bb2_bounds_points(b);
+  const BoundsSnapshot ba = backbone_bounds_points(a);
+  const BoundsSnapshot bb = backbone_bounds_points(b);
   if (ba.pts.empty() || ba.pts.size() != bb.pts.size()) {
     return false;
   }
@@ -197,7 +197,7 @@ bool C378_bb2_bounds_is_deterministic() {
   return true;
 }
 
-bool C379_bb2_m1_required_outputs() {
+bool C379_backbone_m1_required_outputs() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   const auto out = state.GenerateFromBackboneSpec(req);
@@ -222,7 +222,7 @@ bool C379_bb2_m1_required_outputs() {
   return true;
 }
 
-bool C380_bb2_m1_draw_outputs_saved() {
+bool C380_backbone_m1_draw_outputs_saved() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   const auto out = state.GenerateFromBackboneSpec(req);
@@ -240,7 +240,7 @@ bool C380_bb2_m1_draw_outputs_saved() {
   return true;
 }
 
-bool C381_bb2_m1_no_recalc_contract() {
+bool C381_backbone_m1_no_recalc_contract() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   const auto out = state.GenerateFromBackboneSpec(req);
@@ -249,11 +249,11 @@ bool C381_bb2_m1_no_recalc_contract() {
   }
   for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
   }
-  return C370_bb2_no_v1_deps();
+  return C370_backbone_no_v1_deps();
 }
 
-bool C382_bb2_geom_is_single_pipeline_layer() {
-  const std::filesystem::path dir = repo_root() / "core" / "src" / "generation" / "bb2";
+bool C382_backbone_geom_is_single_pipeline_layer() {
+  const std::filesystem::path dir = repo_root() / "core" / "src" / "generation" / "backbone";
   bool has_geom = false;
   const std::vector<std::string> banned = {
       "make(const curve&",
@@ -278,8 +278,8 @@ bool C382_bb2_geom_is_single_pipeline_layer() {
   return has_geom;
 }
 
-bool C383_bb2_draw_is_pipeline_layer() {
-  const std::filesystem::path dir = repo_root() / "core" / "src" / "generation" / "bb2";
+bool C383_backbone_draw_is_pipeline_layer() {
+  const std::filesystem::path dir = repo_root() / "core" / "src" / "generation" / "backbone";
   bool has_draw = false;
   bool has_make = false;
   bool has_save = false;
@@ -301,8 +301,8 @@ bool C383_bb2_draw_is_pipeline_layer() {
   return has_draw && has_make && has_save;
 }
 
-bool C384_bb2_topo_is_single_output_layer() {
-  const std::filesystem::path dir = repo_root() / "core" / "src" / "generation" / "bb2";
+bool C384_backbone_topo_is_single_output_layer() {
+  const std::filesystem::path dir = repo_root() / "core" / "src" / "generation" / "backbone";
   bool has_topo = false;
   bool has_graph_poles = false;
   const std::vector<std::string> banned = {
@@ -327,8 +327,8 @@ bool C384_bb2_topo_is_single_output_layer() {
   return has_topo && !has_graph_poles;
 }
 
-bool C385_bb2_emit_is_split_by_topology_parts() {
-  const std::filesystem::path dir = repo_root() / "core" / "src" / "generation" / "bb2";
+bool C385_backbone_emit_is_split_by_topology_parts() {
+  const std::filesystem::path dir = repo_root() / "core" / "src" / "generation" / "backbone";
   bool has_poles = false;
   bool has_bundles = false;
   bool has_ports = false;
@@ -358,8 +358,8 @@ bool C385_bb2_emit_is_split_by_topology_parts() {
   return has_poles && has_bundles && has_ports && has_spans && !emit_body_has_add;
 }
 
-bool C386_bb2_link_pair_row_are_separate() {
-  const std::filesystem::path dir = repo_root() / "core" / "src" / "generation" / "bb2";
+bool C386_backbone_link_pair_row_are_separate() {
+  const std::filesystem::path dir = repo_root() / "core" / "src" / "generation" / "backbone";
   bool has_link = false;
   bool has_pair = false;
   bool has_open = false;
@@ -382,8 +382,8 @@ bool C386_bb2_link_pair_row_are_separate() {
   return has_link && has_pair && has_open && has_row && row_has_source;
 }
 
-bool C388_bb2_polyline3_pair_model() {
-  const std::filesystem::path file = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+bool C388_backbone_polyline3_pair_model() {
+  const std::filesystem::path file = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string text;
   if (!file_text(file, &text)) {
     return false;
@@ -399,8 +399,8 @@ bool C388_bb2_polyline3_pair_model() {
          out.value.generated_span_ids.size() == static_cast<std::size_t>(count * 2);
 }
 
-bool C389_bb2_row_axis_owned_by_pairs() {
-  const std::filesystem::path file = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+bool C389_backbone_row_axis_owned_by_pairs() {
+  const std::filesystem::path file = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string text;
   if (!file_text(file, &text)) {
     return false;
@@ -417,8 +417,8 @@ bool C389_bb2_row_axis_owned_by_pairs() {
          !contains_text(ports_body, "norm(");
 }
 
-bool C390_bb2_rejects_already_used_incident() {
-  const std::filesystem::path file = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+bool C390_backbone_rejects_already_used_incident() {
+  const std::filesystem::path file = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string text;
   if (!file_text(file, &text) || !contains_text(text, "incident already used")) {
     return false;
@@ -430,7 +430,7 @@ bool C390_bb2_rejects_already_used_incident() {
   return !out.ok && contains_text(out.error, "unsupported");
 }
 
-bool C392_bb2_polyline3_outputs() {
+bool C392_backbone_polyline3_outputs() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = poly3_req(state);
   const auto out = state.GenerateFromBackboneSpec(req);
@@ -451,7 +451,7 @@ bool C392_bb2_polyline3_outputs() {
   return true;
 }
 
-bool C393_bb2_polyline3_is_deterministic() {
+bool C393_backbone_polyline3_is_deterministic() {
   wire::core::CoreState a;
   wire::core::CoreState b;
   const std::vector<wire::core::Vec3d> pa = poly3_points(a);
@@ -467,7 +467,7 @@ bool C393_bb2_polyline3_is_deterministic() {
   return true;
 }
 
-bool C394_bb2_existing_pole_node_is_not_recreated() {
+bool C394_backbone_existing_pole_node_is_not_recreated() {
   wire::core::CoreState state;
   wire::core::BackboneSpec first = line_req(state);
   const auto first_out = state.GenerateFromBackboneSpec(first);
@@ -492,7 +492,7 @@ bool C394_bb2_existing_pole_node_is_not_recreated() {
          state.view().poles().size() == pole_count_before + 1;
 }
 
-bool C397_bb2_rejects_missing_saved_midair_node_spec() {
+bool C397_backbone_rejects_missing_saved_midair_node_spec() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   wire::core::BackboneInputSpec::NodeSpec node{};
@@ -504,7 +504,7 @@ bool C397_bb2_rejects_missing_saved_midair_node_spec() {
   return !out.ok && contains_text(out.error, "unsupported");
 }
 
-bool C398_bb2_rejects_missing_existing_pole() {
+bool C398_backbone_rejects_missing_existing_pole() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   wire::core::BackboneInputSpec::NodeSpec node{};
@@ -516,7 +516,7 @@ bool C398_bb2_rejects_missing_existing_pole() {
   return !out.ok && contains_text(out.error, "unsupported");
 }
 
-bool C399_bb2_existing_pole_sequence_is_deterministic() {
+bool C399_backbone_existing_pole_sequence_is_deterministic() {
   wire::core::CoreState a;
   wire::core::CoreState b;
   const std::vector<wire::core::Vec3d> pa = existing_sequence_points(a);
@@ -532,7 +532,7 @@ bool C399_bb2_existing_pole_sequence_is_deterministic() {
   return true;
 }
 
-bool C400_bb2_multiple_bundles_smoke() {
+bool C400_backbone_multiple_bundles_smoke() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   add_backbone_bundle(req, wire::core::BundleKind::kCommunication);
@@ -542,7 +542,7 @@ bool C400_bb2_multiple_bundles_smoke() {
          out.value.generated_span_ids.size() == static_cast<std::size_t>(count);
 }
 
-bool C401_bb2_multiple_bundles_polyline3_outputs() {
+bool C401_backbone_multiple_bundles_polyline3_outputs() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = poly3_req(state);
   add_backbone_bundle(req, wire::core::BundleKind::kCommunication);
@@ -561,7 +561,7 @@ bool C401_bb2_multiple_bundles_polyline3_outputs() {
   return true;
 }
 
-bool C403_bb2_existing_pole_with_multiple_bundles() {
+bool C403_backbone_existing_pole_with_multiple_bundles() {
   wire::core::CoreState state;
   wire::core::BackboneSpec first = line_req(state);
   const auto first_out = state.GenerateFromBackboneSpec(first);
@@ -589,7 +589,7 @@ bool C403_bb2_existing_pole_with_multiple_bundles() {
          out.value.generated_span_ids.size() == static_cast<std::size_t>(count);
 }
 
-bool C404_bb2_rejects_empty_bundles() {
+bool C404_backbone_rejects_empty_bundles() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   req.bundles.clear();
@@ -597,8 +597,8 @@ bool C404_bb2_rejects_empty_bundles() {
   return !out.ok && contains_text(out.error, "unsupported");
 }
 
-bool C405_bb2_no_bundle_pair_branching() {
-  const std::filesystem::path file = repo_root() / "core" / "src" / "generation" / "bb2" / "pipeline.cpp";
+bool C405_backbone_no_bundle_pair_branching() {
+  const std::filesystem::path file = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string text;
   if (!file_text(file, &text)) {
     return false;
@@ -614,7 +614,7 @@ bool C405_bb2_no_bundle_pair_branching() {
          !contains_text(body, "bundle_template");
 }
 
-bool C406_bb2_port_height_uses_pole_band() {
+bool C406_backbone_port_height_uses_pole_band() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   const double expected = band_height(state, req.pole_type_id, wire::core::BundleKind::kLowVoltage);
@@ -633,7 +633,7 @@ bool C406_bb2_port_height_uses_pole_band() {
   return true;
 }
 
-bool C407_bb2_multiple_bundle_heights_are_band_based() {
+bool C407_backbone_multiple_bundle_heights_are_band_based() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   add_backbone_bundle(req, wire::core::BundleKind::kCommunication);
@@ -673,7 +673,7 @@ bool C407_bb2_multiple_bundle_heights_are_band_based() {
   return saw_lv && saw_comm;
 }
 
-bool C408_bb2_existing_pole_uses_actual_pole_type_height() {
+bool C408_backbone_existing_pole_uses_actual_pole_type_height() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   const double request_z = band_height(state, req.pole_type_id, wire::core::BundleKind::kLowVoltage);
@@ -740,7 +740,7 @@ bool C408_bb2_existing_pole_uses_actual_pole_type_height() {
   return saw_existing && saw_new;
 }
 
-bool C409_bb2_rejects_missing_port_band() {
+bool C409_backbone_rejects_missing_port_band() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   auto it = state.view().pole_types().find(req.pole_type_id);
@@ -761,7 +761,7 @@ bool C409_bb2_rejects_missing_port_band() {
   return !out.ok && contains_text(out.error, "unsupported");
 }
 
-bool C411_bb2_lateral_offset_moves_ports_along_row_axis() {
+bool C411_backbone_lateral_offset_moves_ports_along_row_axis() {
   const std::vector<wire::core::Vec3d> zero = offset_curve_points(0.0);
   const std::vector<wire::core::Vec3d> plus = offset_curve_points(1.0);
   const std::vector<wire::core::Vec3d> minus = offset_curve_points(-1.0);
@@ -778,7 +778,7 @@ bool C411_bb2_lateral_offset_moves_ports_along_row_axis() {
   return true;
 }
 
-bool C412_bb2_lateral_offset_sign_is_deterministic() {
+bool C412_backbone_lateral_offset_sign_is_deterministic() {
   const std::vector<wire::core::Vec3d> a = offset_points(1.0);
   const std::vector<wire::core::Vec3d> b = offset_points(1.0);
   if (a.empty() || a.size() != b.size()) {
@@ -792,7 +792,7 @@ bool C412_bb2_lateral_offset_sign_is_deterministic() {
   return true;
 }
 
-bool C414_bb2_simple_avoid_detour_supported() {
+bool C414_backbone_simple_avoid_detour_supported() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   req.constraints.avoid_points.push_back({6.0, 0.0, 0.0});
@@ -809,8 +809,8 @@ bool C414_bb2_simple_avoid_detour_supported() {
   return detour != state.view().backbone().nodes.end();
 }
 
-bool C415_bb2_has_no_empty_levels_layer() {
-  const std::filesystem::path dir = repo_root() / "core" / "src" / "generation" / "bb2";
+bool C415_backbone_has_no_empty_levels_layer() {
+  const std::filesystem::path dir = repo_root() / "core" / "src" / "generation" / "backbone";
   for (const auto& entry : std::filesystem::recursive_directory_iterator(dir)) {
     if (!entry.is_regular_file()) {
       continue;
@@ -826,7 +826,7 @@ bool C415_bb2_has_no_empty_levels_layer() {
   return true;
 }
 
-bool C416_bb2_node_mode_not_present_is_noop() {
+bool C416_backbone_node_mode_not_present_is_noop() {
   const std::vector<wire::core::Vec3d> plain = node_mode_points(false);
   const std::vector<wire::core::Vec3d> no_op = node_mode_points(true);
   if (plain.empty() || plain.size() != no_op.size()) {
@@ -840,7 +840,7 @@ bool C416_bb2_node_mode_not_present_is_noop() {
   return true;
 }
 
-bool C417_bb2_node_mode_pass_through_without_target_rejected() {
+bool C417_backbone_node_mode_pass_through_without_target_rejected() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   wire::core::BackboneSpec::NodeBundleModeSpec mode{};
@@ -852,7 +852,7 @@ bool C417_bb2_node_mode_pass_through_without_target_rejected() {
   return !out.ok && contains_text(out.error, "unsupported");
 }
 
-bool C418_bb2_node_mode_unknown_bundle_rejected() {
+bool C418_backbone_node_mode_unknown_bundle_rejected() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   wire::core::BackboneSpec::NodeBundleModeSpec mode{};
@@ -864,7 +864,7 @@ bool C418_bb2_node_mode_unknown_bundle_rejected() {
   return !out.ok && contains_text(out.error, "unsupported");
 }
 
-bool C419_bb2_node_mode_point_index_rejected() {
+bool C419_backbone_node_mode_point_index_rejected() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   wire::core::BackboneSpec::NodeBundleModeSpec mode{};

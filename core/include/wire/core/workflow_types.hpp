@@ -9,15 +9,7 @@
 
 namespace wire::core {
 
-using RoadId = std::uint64_t;
-
-// Workflow input polyline for generation commands (not an entity).
-struct RoadSegment {
-  RoadId id = 0;
-  std::vector<Vec3d> polyline{};
-};
-
-// Workflow input path spec (DrawPath/road adapters share this shape).
+// Workflow input path spec.
 struct BackboneInputSpec {
   std::vector<Vec3d> polyline{};
   // Optional per-path-point support-node metadata. Missing indices are treated as Pole.

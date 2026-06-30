@@ -13,11 +13,11 @@ using wire::core::SpanKind;
 using wire::core::SpanLayer;
 
 namespace {
-wire::core::BackboneSpec simple_line_spec(const wire::core::RoadSegment& road, double interval,
+wire::core::BackboneSpec simple_line_spec(const wire::core::BackboneInputSpec& path, double interval,
                                           wire::core::PoleTypeId pole_type_id,
                                           wire::core::ConnectionCategory category) {
   wire::core::BackboneSpec spec{};
-  spec.path.polyline = road.polyline;
+  spec.path = path;
   spec.interval_m = interval;
   spec.pole_type_id = pole_type_id;
   wire::core::BackboneBundleSpec bundle{};
@@ -33,11 +33,10 @@ bool test_generate_simple_line_fails_with_short_polyline() {
     return false;
   }
   const CoreCounts before = snapshot_counts(state);
-  wire::core::RoadSegment road{};
-  road.id = 80;
-  road.polyline = {{0.0, 0.0, 0.0}};
+  wire::core::BackboneInputSpec path{};
+  path.polyline = {{0.0, 0.0, 0.0}};
   const auto result =
-      state.GenerateFromBackboneSpec(simple_line_spec(road, 5.0, type_ids.front(), ConnectionCategory::kLowVoltage));
+      state.GenerateFromBackboneSpec(simple_line_spec(path, 5.0, type_ids.front(), ConnectionCategory::kLowVoltage));
   if (result.ok) {
     return false;
   }
@@ -49,8 +48,8 @@ bool test_generate_simple_line_fails_with_short_polyline() {
   }
 
   // Recovery: next valid input should succeed.
-  road.polyline.push_back({5.0, 0.0, 0.0});
-  return state.GenerateFromBackboneSpec(simple_line_spec(road, 5.0, type_ids.front(), ConnectionCategory::kLowVoltage))
+  path.polyline.push_back({5.0, 0.0, 0.0});
+  return state.GenerateFromBackboneSpec(simple_line_spec(path, 5.0, type_ids.front(), ConnectionCategory::kLowVoltage))
       .ok;
 }
 
@@ -131,11 +130,10 @@ bool test_generate_simple_line_reuses_intermediate_ports() {
     return false;
   }
 
-  wire::core::RoadSegment road{};
-  road.id = 55;
-  road.polyline = {{0.0, 0.0, 0.0}, {40.0, 0.0, 0.0}};
+  wire::core::BackboneInputSpec path{};
+  path.polyline = {{0.0, 0.0, 0.0}, {40.0, 0.0, 0.0}};
   const auto result =
-      state.GenerateFromBackboneSpec(simple_line_spec(road, 10.0, type_ids.front(), ConnectionCategory::kLowVoltage));
+      state.GenerateFromBackboneSpec(simple_line_spec(path, 10.0, type_ids.front(), ConnectionCategory::kLowVoltage));
   if (!result.ok || result.value.generated_pole_ids.size() < 4) {
     return false;
   }

@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "scan": {
+    "roots": ["core/include", "core/src", "core/tests", "core/tools", "viewer/src", "viewer/tests", "tools"],
+    "extensions": [".cpp", ".hpp", ".py"]
+  },
+  "layers": [
+    {
+      "name": "public_api",
+      "patterns": ["core/include/wire/core/*.hpp"],
+      "forbidden_tokens": ["core/src/"]
+    },
+    {
+      "name": "state_internal",
+      "patterns": ["core/src/state/*.cpp", "core/src/state/*.hpp"],
+      "forbidden_tokens": ["viewer/"]
+    },
+    {
+      "name": "generation_bb2",
+      "patterns": ["core/src/generation/bb2/*.cpp", "core/src/generation/bb2/*.hpp"],
+      "forbidden_tokens": ["viewer/", "ProcessDirtyQueues", "support_layout_contract", "support_layout_projection"]
+    },
+    {
+      "name": "generation_input",
+      "patterns": [
+        "core/src/generation/*.cpp",
+        "core/src/generation/*.hpp",
+        "core/src/generation/pole_facing/*.cpp",
+        "core/src/generation/pole_facing/*.hpp"
+      ],
+      "forbidden_tokens": ["viewer/", "generation/bb2/pipeline.hpp"]
+    },
+    {
+      "name": "derive_or_output",
+      "patterns": [],
+      "forbidden_tokens": []
+    },
+    {
+      "name": "geometry",
+      "patterns": ["core/src/geometry/*.cpp", "core/src/geometry/*.hpp"],
+      "forbidden_tokens": ["generation/bb2/", "viewer/"]
+    },
+    {
+      "name": "validation",
+      "patterns": ["core/src/validation/*.cpp", "core/src/validation/*.hpp"],
+      "forbidden_tokens": ["AddPole(", "AddPort(", "AddSpan(", "cache_span_", "generation/bb2/"]
+    },
+    {
+      "name": "core_internal",
+      "patterns": ["core/src/pch.hpp", "core/src/pole_orientation_utils.cpp", "core/src/pole_orientation_utils.hpp"],
+      "forbidden_tokens": ["viewer/"]
+    },
+    {
+      "name": "viewer",
+      "patterns": ["viewer/src/*.cpp", "viewer/src/*.hpp"],
+      "forbidden_tokens": ["core/src/"]
+    },
+    {
+      "name": "tests",
+      "patterns": ["core/tests/*.cpp", "core/tests/*.hpp", "viewer/tests/*.cpp", "viewer/tests/*.hpp"],
+      "forbidden_tokens": []
+    },
+    {
+      "name": "tools",
+      "patterns": ["core/tools/*.cpp", "tools/*.py"],
+      "forbidden_tokens": []
+    }
+  ],
+  "guards": {
+    "forbidden_symbols": [
+      "ProcessDirtyQueues",
+      "Commit(run_recalc",
+      "support_authority",
+      "seed_projection",
+      "projection_materialization",
+      "support_layout_contract",
+      "support_layout_projection",
+      "cache_span_support_layout",
+      "generate_grouped_spans_between_support_nodes",
+      "span-derived backbone"
+    ],
+    "forbidden_core_domain_symbols": [
+      "RoadId",
+      "RoadSegment",
+      "RoadEdgeId",
+      "RailwayTrackId",
+      "BuildingId",
+      "TerrainTileId",
+      "LaneId",
+      "SidewalkWidth",
+      "TrackGauge",
+      "FacadeId"
+    ]
+  }
+}

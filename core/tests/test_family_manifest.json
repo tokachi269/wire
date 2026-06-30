@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "families": [
+    {
+      "name": "bb2_acceptance",
+      "status": "keep",
+      "owner": "SavedBackboneGraph, bb2 generation, direct derive, and architecture boundaries",
+      "sources": ["core/tests/bb2.cpp"],
+      "notes": "Main bb2 acceptance family."
+    },
+    {
+      "name": "editing_update_kind",
+      "status": "migrated",
+      "owner": "Public editing behavior and coarse update classification",
+      "sources": ["core/tests/editing.cpp"],
+      "notes": "Dirty flags are observed only as mutation markers."
+    },
+    {
+      "name": "geometry_curve",
+      "status": "keep",
+      "owner": "Coordinate and DetailCurve geometry contracts",
+      "sources": ["core/tests/geometry.cpp"],
+      "notes": "Does not own topology."
+    },
+    {
+      "name": "template_policy",
+      "status": "keep",
+      "owner": "Wire template validation and mutation policy",
+      "sources": ["core/tests/template_policy.cpp"],
+      "notes": "Old fixed-count and node snapshot expectations are retired."
+    },
+    {
+      "name": "workflow_public_behavior",
+      "status": "migrated",
+      "owner": "Public BackboneSpec and workflow behavior",
+      "sources": ["core/tests/regeneration.cpp", "core/tests/workflow.cpp"],
+      "notes": "Local v1 regeneration semantics are not retained."
+    },
+    {
+      "name": "pick_input",
+      "status": "keep",
+      "owner": "Pick resolution into wire input facts",
+      "sources": ["core/tests/pick.cpp"],
+      "notes": "No viewer or city-domain topology enters core."
+    },
+    {
+      "name": "state_services",
+      "status": "isolated",
+      "owner": "State mutation and runtime marker behavior still exposed by public operations",
+      "sources": ["core/tests/state_services.cpp"],
+      "notes": "Internal v1 service-shape tests are retired."
+    },
+    {
+      "name": "bundle_visuals",
+      "status": "keep",
+      "owner": "Abstract visual and render cache output",
+      "sources": ["core/tests/bundle_visuals.cpp"],
+      "notes": "Viewer/backend semantics are not owned here."
+    },
+    {
+      "name": "api_surface",
+      "status": "keep",
+      "owner": "Public API and type boundary",
+      "sources": ["core/tests/api_surface.cpp"],
+      "notes": "Private bb2 scratch types must not leak."
+    },
+    {
+      "name": "test_infra",
+      "status": "keep",
+      "owner": "Test registration, runner, and shared test helpers",
+      "sources": ["core/tests/registry.cpp", "core/tests/runner.cpp", "core/tests/helpers.cpp"],
+      "notes": "Contains no product contract cases."
+    },
+    {
+      "name": "legacy_retired",
+      "status": "retired",
+      "owner": "Historical v1/recalc/support-layout expectations",
+      "sources": [],
+      "notes": "Tracked by family in docs/backbone_legacy_map.md; not registered."
+    }
+  ]
+}

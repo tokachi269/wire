@@ -698,10 +698,6 @@ void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool
   const std::size_t road_type_index = ClampedTypeIndexLocal(ui_state.road_pole_type_index, type_ids.size());
   ui_state.road_pole_type_index = static_cast<int>(road_type_index);
 
-  wire::core::RoadSegment road{};
-  road.id = ui_state.road_id++;
-  road.polyline = ui_state.draw_path_points;
-
   const auto selected_templates = SelectedBundleTemplates(view, ui_state);
   if (selected_templates.empty()) {
     ui_state.last_error = "select at least one bundle template";
@@ -712,7 +708,7 @@ void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool
   ui_state.draw_direction_mode = mode_index;
 
   wire::core::BackboneSpec request{};
-  request.path.polyline = road.polyline;
+  request.path.polyline = ui_state.draw_path_points;
   for (std::size_t i = 0; i < ui_state.draw_path_points.size(); ++i) {
     const wire::core::SupportKind support_kind = ui_state.draw_path_point_support_kinds[i];
     const ObjectId node_id =

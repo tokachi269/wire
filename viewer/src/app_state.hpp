@@ -113,7 +113,6 @@ struct ViewerUiState {
   wire::core::PoleTypeId selected_pole_template_id = wire::core::kInvalidPoleTypeId;
   wire::core::PoleTypeDefinition pole_template_edit{};
   double tilt_all_max_deg = 9.5;
-  std::uint64_t road_id = 1;
   std::uint32_t draw_category_mask = (1u << static_cast<int>(wire::core::ConnectionCategory::kLowVoltage));
   std::uint32_t draw_bundle_template_mask =
       (1u << static_cast<int>(wire::core::BundleKind::kLowVoltage)) |

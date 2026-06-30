@@ -44,6 +44,22 @@ if(WIRE_ENABLE_PCH)
 endif()
 
 if(BUILD_TESTING)
+  find_package(Python3 COMPONENTS Interpreter REQUIRED)
+
+  add_custom_target(
+    wire_arch_lint
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/arch_lint.py --root ${CMAKE_SOURCE_DIR}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    VERBATIM
+  )
+
+  add_custom_target(
+    wire_test_family_lint
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/test_family_lint.py --root ${CMAKE_SOURCE_DIR}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    VERBATIM
+  )
+
   add_executable(
     wire_capture_replay
     tools/capture_replay.cpp
@@ -98,6 +114,8 @@ if(BUILD_TESTING)
     PRIVATE
     wire_core
   )
+
+  add_dependencies(wire_core_tests wire_arch_lint wire_test_family_lint)
 
   wire_enable_msvc_target_defaults(wire_core_tests)
 

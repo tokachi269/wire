@@ -24,6 +24,15 @@ build-vs18-viewer-fetch\viewer\Debug\wire_viewer.exe
 
 ```
 
+## architecture guards
+
+`wire_core_tests` build runs both guards automatically. They can also be run directly.
+
+```cmd
+python tools\test_family_lint.py
+python tools\arch_lint.py
+```
+
 If you already have `build-viewer\_deps\raylib-src`, `build-viewer\_deps\imgui-src`, and `build-viewer\_deps\rlimgui-src`, you can instead use local source directories with `WIRE_VIEWER_FETCH_DEPS=OFF`.
 
 ## notes

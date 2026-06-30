@@ -19,7 +19,6 @@ struct PathDirectionCostBreakdown {
 };
 
 struct PathDirectionEvaluationDebug {
-  RoadId road_id = 0;
   PathDirectionMode requested_mode = PathDirectionMode::kAuto;
   PathDirectionChosen chosen = PathDirectionChosen::kForward;
   PathDirectionCostBreakdown forward_cost{};
@@ -121,4 +120,3 @@ struct PortResolutionDebugRecord {
 };
 
 } // namespace wire::core
-

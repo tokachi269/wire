@@ -41,10 +41,10 @@ double polyline_length(const std::vector<wire::core::Vec3d>& points) {
 }
 
 wire::core::EditResult<wire::core::GenerateBundleFromPathResult>
-generate_road(CoreState& state, const wire::core::RoadSegment& road, double interval,
+generate_path(CoreState& state, const wire::core::BackboneInputSpec& path, double interval,
               wire::core::PoleTypeId pole_type_id) {
   wire::core::BackboneSpec spec{};
-  spec.path.polyline = road.polyline;
+  spec.path = path;
   spec.interval_m = interval;
   spec.pole_type_id = pole_type_id;
   wire::core::BackboneBundleSpec bundle{};
@@ -60,11 +60,10 @@ bool test_bb2_interval_generates_pole_line_basic() {
     return false;
   }
 
-  wire::core::RoadSegment road{};
-  road.id = 10;
-  road.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
+  wire::core::BackboneInputSpec path{};
+  path.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}};
   wire::core::BackboneSpec spec{};
-  spec.path.polyline = road.polyline;
+  spec.path = path;
   spec.interval_m = 5.0;
   spec.pole_type_id = type_ids.front();
   wire::core::BackboneBundleSpec bundle{};
@@ -116,14 +115,13 @@ bool test_acute_corner_auto_widens_lane_spacing() {
     constexpr double kPi = 3.14159265358979323846;
     const double rad = interior_deg * (kPi / 180.0);
     const double out_heading = kPi - rad;
-    wire::core::RoadSegment road{};
-    road.id = static_cast<std::uint64_t>(990 + static_cast<int>(interior_deg));
-    road.polyline = {
+    wire::core::BackboneInputSpec path{};
+    path.polyline = {
         {0.0, 0.0, 0.0},
         {10.0, 0.0, 0.0},
         {10.0 + 10.0 * std::cos(out_heading), 10.0 * std::sin(out_heading), 0.0},
     };
-    const auto gen = generate_road(state, road, polyline_length(road.polyline) + 1.0, type_ids.front());
+    const auto gen = generate_path(state, path, polyline_length(path.polyline) + 1.0, type_ids.front());
     if (!gen.ok || gen.value.generated_pole_ids.size() != 3) {
       return std::numeric_limits<double>::quiet_NaN();
     }

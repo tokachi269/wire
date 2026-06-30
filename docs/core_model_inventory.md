@@ -51,7 +51,6 @@ Definition Layer
 ### 4.3 Operation/Workflow Layer
 | 型 | ファイル | 責務（1行） | 主依存 | 保存分類 |
 |---|---|---|---|---|
-| `RoadSegment` | `core/include/wire/core/workflow_types.hpp` | 生成入力用ポリラインを運ぶ。 | `RoadId`, `Vec3d[]` | `SessionDebug` |
 | `BackboneInputSpec`, `BackboneGenerationConstraints`, `BackbonePolePlacementOptions`, `BackboneBundleSpec`, `BackboneSpec` | `core/include/wire/core/workflow_types.hpp` | 道路概念に依存しない backbone 指向の生成入力を定義する。 | path + bundles[] + constraints + mode | `SessionDebug` |
 | `BundleTemplate` | `core/include/wire/core/workflow_types.hpp` | 束テンプレ（固定本数/可変範囲、既定layer、mirror許可）と、関連 `CableTemplate` / `PoleTypeDefinition` 参照を定義する。 | template id + count rules + related refs | `PersistCore` |
 | `BackboneResult` | `core/include/wire/core/workflow_types.hpp` | 入力仕様から分離した骨格グラフ結果を保持する。 | `BackboneEdge[]` | `DerivedCache` |

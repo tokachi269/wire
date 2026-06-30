@@ -68,6 +68,9 @@ staleなlayout/geom/drawを残したまま成功してはいけない。
 `UpdatePoleTypeDefinition`は、対象typeをactive backbone poleが使用中ならmutation前に拒否する。
 非backbone poleだけへのdefinition再適用は許可する。active objectのtemplate migrationは現行scopeに含めない。
 
+`DeriveGeneratedSpanOutputs()` は、保存済み rules / layout source / `SavedBackboneGraph` binding から
+layout、geom、drawを再導出する入口である。topology、pair/open/row、port identityを再判断してはいけない。
+
 ## validationとinspection
 
 `ValidateFast()`、`Validate()`、inspectionはstateを観測して問題を報告する。

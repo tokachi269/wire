@@ -30,6 +30,12 @@
 - span-derived backbone public query
 - `AddConnectionByPole`、`AddDropFromPole`、`AddDropFromSpan`、`SplitSpan`のpublic API、実装、専用型
 - road/building固有のcore identity型
+- `SegmentLaneAssignment`、`last_generation_lane_assignments`、旧generation test suite
+
+## viewer/debug境界
+
+通常viewerとcaptureは、neutral layout / geom / draw / `SavedBackboneGraph` を読む。
+support-layout authority、seed、projectionを読む表示は通常pathではなく、退役済みdebug familyとして扱う。
 
 ## 旧テストの扱い
 

@@ -186,7 +186,7 @@ EditResult<bool> CoreState::execute_update_plan(const UpdatePlan& plan) {
     timing.total_ms =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
     debug_.last_update_timing = timing;
-    out.error = "bb2 update: regenerate is not implemented for local updates";
+    out.error = "bb2 unsupported: route-local regenerate is not implemented";
     return out;
   }
   for (ObjectId span_id : plan.affected.spans) {

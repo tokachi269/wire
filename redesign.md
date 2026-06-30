@@ -68,6 +68,9 @@ avoid support は simple deterministic detour に限定する。general routing�
 * recalc / materialization を bb2 generation の通常経路にすること。
 * draw が topology / connectivity / lowering を決めること。
 
+post-edit の route-local regenerate は明示 `unsupported`。layout / variation / context / template 更新のうち
+direct derive に接続されていないものは mainline 完了前の blocker とし、dirty marker だけで成功扱いにしない。
+
 ### 出力保証
 
 supported request の生成直後に、bb2 は次を保存する。

@@ -1265,11 +1265,11 @@ EditResult<bool> pipeline::check() const {
       continue;
     }
     if (mode.mode != BundleNodeMode::kNotPresent) {
-      return unsupported("node bundle mode is not in milestone 25");
+      return unsupported("node bundle mode is not supported");
     }
   }
   if (!route_clear_of_avoid_points(g_, spec_.constraints.avoid_points, spec_.constraints.avoid_radius_m)) {
-    return unsupported("constraints are not in milestone 1");
+    return unsupported("avoid routing cannot satisfy the requested constraints");
   }
   if (needs_pole_type(g_)) {
     EditResult<PoleTypeId> resolved_type = pole_type_for(state_, spec_);

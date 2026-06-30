@@ -28,6 +28,8 @@
 | `DirtyBits` / span runtime dirty marking | editing/runtime/viewer dirty overlay | mainline runtime | no recalc owner | mutation tracking と旧制約用。bb2 output 更新は coarse update plan + direct derive へ寄せる |
 | direct derive `DeriveGeneratedSpanOutputs` | post-edit output rederive | mainline | no recalc | saved rules/ports から layout/geom/draw を再導出。recalc へ戻さない |
 | test family manifest / architecture lint | core/viewer test build | merge guard | no | unclassified tests/files、禁止依存、旧 recalc/support-layout、city-domain identity の復活を fail する |
+| manual topology API (`AddConnectionByPole` / `AddDrop*` / `SplitSpan`) | tests、capture replay、一部 public workflow | D | no | SavedBackboneGraph を更新しない別 topology 経路。bb2 operation へ置換するか public mainline から退役する |
+| `DirtyBits` / `regeneration_required` / `TemplateDependencyState` | state mutation、viewer diagnostics、isolated tests | D | no | direct derive の owner ではない。coarse update plan へ置換後に family 単位で削除する |
 
 ## 削除済み family
 
@@ -88,6 +90,20 @@
 | `bb2` namespace/name | v1 同居中の暫定名 | v1/recalc/support-layout 本流依存を削り切った後に mainline 名へ rename |
 | dirty bits | editing/runtime/viewer が読む | coarse update boundary へ寄せた後、mutation tracking と旧制約用に残す範囲をさらに削る |
 | `pending_support_nodes` | 未保存の segment/building/pole pick を次の bb2 request へ渡す transient input | generation result を保存しない。保存後の node は SavedBackboneGraph だけを読む |
+| manual topology API family | SavedBackboneGraph を作らない public/capture/test 経路 | equivalent bb2 operation を定義するか、利用者を退役してから一括削除 |
+| regeneration marker family | viewer と template/state tests が読むが executor は無い | template/layout/context mutation を coarse update または明示 unsupported へ寄せてから一括削除 |
+
+## unsupported 境界
+
+| 対象 | 現在の扱い | 判定 |
+|---|---|---|
+| malformed path/node mode/template/count/layer/band | `prepare` / `check` で mutation 前 reject | PASS |
+| SavedBackboneGraph の無い existing node/scene | `prepare` で `unsupported` | PASS |
+| ambiguous/missing port binding、duplicate edge bundle/span lane | preflight で `unsupported` | PASS |
+| zero-length/ambiguous connectivity、解けない avoid constraints | `check` / `pairs make` で `unsupported` | PASS |
+| route-local regenerate | update executor が `unsupported` | PASS |
+| full migration、general routing、preview/undo、本格 attachment visual | public operation 自体を提供しない | scope 外 |
+| layout/variation/context/template の post-edit 更新 | 一部が marker 更新だけで成功し、direct derive されない | FAIL: merge blocker |
 
 ## 次に消せる family
 

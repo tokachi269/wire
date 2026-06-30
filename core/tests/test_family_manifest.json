@@ -10,10 +10,10 @@
     },
     {
       "name": "editing_update_kind",
-      "status": "migrated",
-      "owner": "Public editing behavior and coarse update classification",
+      "status": "isolated",
+      "owner": "Manual topology editing and mutation markers not yet unified with SavedBackboneGraph",
       "sources": ["core/tests/editing.cpp"],
-      "notes": "Dirty flags are observed only as mutation markers."
+      "notes": "AddConnection/AddDrop/SplitSpan remain outside the bb2 topology path."
     },
     {
       "name": "geometry_curve",
@@ -24,17 +24,17 @@
     },
     {
       "name": "template_policy",
-      "status": "keep",
-      "owner": "Wire template validation and mutation policy",
+      "status": "isolated",
+      "owner": "Wire template validation plus pre-bb2 regeneration markers",
       "sources": ["core/tests/template_policy.cpp"],
-      "notes": "Old fixed-count and node snapshot expectations are retired."
+      "notes": "Validation is current; regeneration_required and dirty-only update expectations are not migrated."
     },
     {
       "name": "workflow_public_behavior",
-      "status": "migrated",
-      "owner": "Public BackboneSpec and workflow behavior",
+      "status": "isolated",
+      "owner": "Mixed bb2 workflow and manual topology public behavior",
       "sources": ["core/tests/regeneration.cpp", "core/tests/workflow.cpp"],
-      "notes": "Local v1 regeneration semantics are not retained."
+      "notes": "SavedGraph-backed cases are current; AddConnection/SplitSpan and old phase cases remain isolated."
     },
     {
       "name": "pick_input",

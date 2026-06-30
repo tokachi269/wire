@@ -173,8 +173,8 @@ const char* SupportKindLabel(wire::core::SupportKind kind) {
     return "Pole";
   case wire::core::SupportKind::kMidair:
     return "Midair";
-  case wire::core::SupportKind::kBuilding:
-    return "Building";
+  case wire::core::SupportKind::kExternal:
+    return "External";
   default:
     return "Unknown";
   }
@@ -199,8 +199,8 @@ const char* PickHitKindLabel(wire::core::PickHitKind kind) {
     return "Segment";
   case wire::core::PickHitKind::kGround:
     return "Ground";
-  case wire::core::PickHitKind::kBuilding:
-    return "Building";
+  case wire::core::PickHitKind::kExternal:
+    return "External";
   case wire::core::PickHitKind::kEmpty:
   default:
     return "Empty";

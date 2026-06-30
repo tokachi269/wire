@@ -150,8 +150,8 @@ const char* SupportKindLabelLocal(wire::core::SupportKind kind) {
     return "Pole";
   case wire::core::SupportKind::kMidair:
     return "Midair";
-  case wire::core::SupportKind::kBuilding:
-    return "Building";
+  case wire::core::SupportKind::kExternal:
+    return "External";
   default:
     return "Unknown";
   }
@@ -165,8 +165,8 @@ const char* PickHitKindLabelLocal(wire::core::PickHitKind kind) {
     return "Segment";
   case wire::core::PickHitKind::kGround:
     return "Ground";
-  case wire::core::PickHitKind::kBuilding:
-    return "Building";
+  case wire::core::PickHitKind::kExternal:
+    return "External";
   default:
     return "Empty";
   }
@@ -642,7 +642,7 @@ wire::core::ResolveBranchPickResult DirectResolvedDrawPathTarget(const wire::cor
   resolved.resolution = wire::core::PickBranchResolutionKind::kNode;
   resolved.resolved_node_id = pick.hit_id;
   resolved.position = pick.hit_pos_world;
-  resolved.support_kind = (pick.hit_kind == wire::core::PickHitKind::kBuilding) ? wire::core::SupportKind::kBuilding
+  resolved.support_kind = (pick.hit_kind == wire::core::PickHitKind::kExternal) ? wire::core::SupportKind::kExternal
                                                                                  : wire::core::SupportKind::kPole;
   resolved.snapped_from_segment_endpoint = false;
   return resolved;
@@ -1467,9 +1467,9 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
             std::string("target: ") + PickHitKindLabelLocal(pick.hit_kind) + " " + PickTargetLabel(pick);
       }
       if (pick.hit_kind == wire::core::PickHitKind::kNode || pick.hit_kind == wire::core::PickHitKind::kSegment ||
-          pick.hit_kind == wire::core::PickHitKind::kBuilding) {
+          pick.hit_kind == wire::core::PickHitKind::kExternal) {
         wire::core::EditResult<wire::core::ResolveBranchPickResult> resolved{};
-        if (pick.hit_kind == wire::core::PickHitKind::kNode || pick.hit_kind == wire::core::PickHitKind::kBuilding) {
+        if (pick.hit_kind == wire::core::PickHitKind::kNode || pick.hit_kind == wire::core::PickHitKind::kExternal) {
           resolved.ok = true;
           resolved.value = DirectResolvedDrawPathTarget(pick);
         } else {
@@ -1514,7 +1514,7 @@ void UpdateDrawPathInput(CoreState& state, const Camera3D& camera, ViewerUiState
       if (ui_state.draw_hover_has_resolution) {
         wire::core::EditResult<wire::core::ResolveBranchPickResult> applied{};
         if (ui_state.draw_hover_pick.hit_kind == wire::core::PickHitKind::kNode ||
-            ui_state.draw_hover_pick.hit_kind == wire::core::PickHitKind::kBuilding ||
+            ui_state.draw_hover_pick.hit_kind == wire::core::PickHitKind::kExternal ||
             ui_state.draw_hover_resolution.resolution == wire::core::PickBranchResolutionKind::kNode) {
           applied.ok = true;
           applied.value = ui_state.draw_hover_resolution;
@@ -1575,7 +1575,7 @@ void DrawPathPreview(const ViewerUiState& ui_state) {
     Color point_color = Color{196, 156, 68, 255};
     if (support_kind == wire::core::SupportKind::kMidair) {
       point_color = Color{90, 154, 176, 255};
-    } else if (support_kind == wire::core::SupportKind::kBuilding) {
+    } else if (support_kind == wire::core::SupportKind::kExternal) {
       point_color = Color{110, 154, 100, 255};
     }
     DrawSphere(ToRaylibLocal(ui_state.draw_path_points[i]), 0.12f, point_color);
@@ -1619,11 +1619,11 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
                  wire::core::SupportKind::kMidair));
   const int building_points = static_cast<int>(
       std::count(ui_state.draw_path_point_support_kinds.begin(), ui_state.draw_path_point_support_kinds.end(),
-                 wire::core::SupportKind::kBuilding));
+                 wire::core::SupportKind::kExternal));
   const int anchored_points = static_cast<int>(
       std::count_if(ui_state.draw_path_point_node_ids.begin(), ui_state.draw_path_point_node_ids.end(),
                     [](ObjectId node_id) { return node_id != wire::core::kInvalidObjectId; }));
-  ImGui::Text("Support kind points: Midair=%d Building=%d", midair_points, building_points);
+  ImGui::Text("Support kind points: Midair=%d External=%d", midair_points, building_points);
   ImGui::Text("Anchored Backbone points: %d", anchored_points);
   if (ui_state.draw_hover_valid) {
     ImGui::Text("Hover: %.2f %.2f %.2f", ui_state.draw_hover_point.x, ui_state.draw_hover_point.y,

@@ -674,8 +674,8 @@ const char* AnchorSupportKindLabel(wire::core::AnchorSupportKind kind) {
     return "Generic";
   case wire::core::AnchorSupportKind::kGround:
     return "Ground";
-  case wire::core::AnchorSupportKind::kBuilding:
-    return "Building";
+  case wire::core::AnchorSupportKind::kExternal:
+    return "External";
   case wire::core::AnchorSupportKind::kMidair:
     return "Midair";
   default:
@@ -2791,7 +2791,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
               if (ImGui::BeginCombo("Usage", AnchorSupportKindLabel(slot.usage))) {
                 constexpr wire::core::AnchorSupportKind kUsages[] = {
                     wire::core::AnchorSupportKind::kGeneric, wire::core::AnchorSupportKind::kGround,
-                    wire::core::AnchorSupportKind::kBuilding, wire::core::AnchorSupportKind::kMidair};
+                    wire::core::AnchorSupportKind::kExternal, wire::core::AnchorSupportKind::kMidair};
                 for (auto usage : kUsages) {
                   const bool selected = (usage == slot.usage);
                   if (ImGui::Selectable(AnchorSupportKindLabel(usage), selected)) {

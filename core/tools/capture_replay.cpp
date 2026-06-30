@@ -84,7 +84,7 @@ SupportKind parse_support_kind(const std::string& text) {
     return SupportKind::kMidair;
   }
   if (text == "Building") {
-    return SupportKind::kBuilding;
+    return SupportKind::kExternal;
   }
   return SupportKind::kPole;
 }

@@ -390,7 +390,7 @@ EditResult<bool> check_port_bands(const CoreState& state, const graph& made, con
     if (!item.on_route) {
       continue;
     }
-    if (item.support == SupportKind::kMidair || item.support == SupportKind::kBuilding ||
+    if (item.support == SupportKind::kMidair || item.support == SupportKind::kExternal ||
         item.support == SupportKind::kGround) {
       continue;
     }
@@ -566,7 +566,7 @@ struct segment_insert {
 };
 
 bool ownerless_support(SupportKind kind) {
-  return kind == SupportKind::kMidair || kind == SupportKind::kBuilding || kind == SupportKind::kGround;
+  return kind == SupportKind::kMidair || kind == SupportKind::kExternal || kind == SupportKind::kGround;
 }
 
 EditResult<std::size_t> avoid_detours_for_segment(const Vec3d& a, const Vec3d& b, const std::vector<Vec3d>& points,
@@ -753,8 +753,8 @@ EditResult<bool> pipeline::prepare() {
       return out;
     }
     if (spec.support_kind != SupportKind::kPole && spec.support_kind != SupportKind::kMidair &&
-        spec.support_kind != SupportKind::kBuilding && spec.support_kind != SupportKind::kGround) {
-      out.error = "bb2 unsupported: node specs require pole, midair, building, or ground support";
+        spec.support_kind != SupportKind::kExternal && spec.support_kind != SupportKind::kGround) {
+      out.error = "bb2 unsupported: node specs require pole, midair, external, or ground support";
       return out;
     }
     if (spec.has_tangent_hint) {
@@ -952,7 +952,7 @@ EditResult<bool> pipeline::prepare() {
       }
       n.explicit_support = true;
       n.support = spec_it->second->support_kind;
-      if (n.support == SupportKind::kMidair || n.support == SupportKind::kBuilding ||
+      if (n.support == SupportKind::kMidair || n.support == SupportKind::kExternal ||
           n.support == SupportKind::kGround) {
         if (spec_it->second->node_id == kInvalidObjectId) {
           g_.nodes.push_back(n);
@@ -1007,8 +1007,8 @@ EditResult<bool> pipeline::prepare() {
         }
         if (saved == nullptr || saved->pole_id != kInvalidObjectId || saved->support_kind != n.support) {
           out.error = (n.support == SupportKind::kMidair) ? "bb2 unsupported: saved midair node not found"
-                      : (n.support == SupportKind::kBuilding)
-                          ? "bb2 unsupported: saved building node not found"
+                      : (n.support == SupportKind::kExternal)
+                          ? "bb2 unsupported: saved external node not found"
                           : "bb2 unsupported: saved ground node not found";
           return out;
         }
@@ -1601,7 +1601,7 @@ EditResult<bool> pipeline::emit_poles(topo* made, ChangeSet* changes) {
     pole_type = resolved_type.value;
   }
   for (std::size_t i = 0; i < g_.nodes.size(); ++i) {
-    if (g_.nodes[i].support == SupportKind::kMidair || g_.nodes[i].support == SupportKind::kBuilding ||
+    if (g_.nodes[i].support == SupportKind::kMidair || g_.nodes[i].support == SupportKind::kExternal ||
         g_.nodes[i].support == SupportKind::kGround) {
       made->poles.push_back(kInvalidObjectId);
       continue;
@@ -1787,7 +1787,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
       continue;
     }
     const bool ownerless = g_.nodes[r.node].support == SupportKind::kMidair ||
-                           g_.nodes[r.node].support == SupportKind::kBuilding ||
+                           g_.nodes[r.node].support == SupportKind::kExternal ||
                            g_.nodes[r.node].support == SupportKind::kGround;
     if (!ownerless && tr.pole == kInvalidObjectId) {
       out.error = "bb2 topology: active row pole missing";

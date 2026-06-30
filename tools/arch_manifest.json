@@ -85,6 +85,7 @@
       "RoadEdgeId",
       "RailwayTrackId",
       "BuildingId",
+      "kBuilding",
       "TerrainTileId",
       "LaneId",
       "SidewalkWidth",

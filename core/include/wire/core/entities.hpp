@@ -127,7 +127,7 @@ enum class PoleKind : std::uint8_t {
 enum class AnchorSupportKind : std::uint8_t {
   kGeneric = 0,
   kGround = 1,
-  kBuilding = 2,
+  kExternal = 2,
   kMidair = 3,
 };
 
@@ -176,7 +176,7 @@ enum class BundleBranchPolicyHint : std::uint8_t {
 enum class SupportKind : std::uint8_t {
   kPole = 0,
   kMidair = 1,
-  kBuilding = 2,
+  kExternal = 2,
   kGround = 3,
 };
 

@@ -41,7 +41,7 @@
 * new pole。
 * saved graph を持つ existing pole。
 * new / saved midair node。
-* building / ground / supported segment-pick route point。
+* external / ground / supported segment-pick route point。viewer の building pick は external input へ解決して渡す。
 * single bundle / multiple bundles。
 * selected bundle policy。
 * exact / range bundle count の明示指定。
@@ -50,6 +50,7 @@
 * simple deterministic avoid detour。
 * existing junction への branch / cross 追加。ただし T / cross / branch kind は作らない。
 * pass-through / lowering intent と、その layout / geom / draw 反映。
+* cable template と geometry settings による sag。layout endpoint は変えず geom / draw だけを reshape する。
 * generated span の direct derive。recalc dirty queue は通さない。
 
 avoid support は simple deterministic detour に限定する。general routing、collision solving、obstacle avoidance ではない。
@@ -126,7 +127,7 @@ support group は placement authority。
 
 許可:
 
-* saved graph node として existing pole / midair / building node を使う。
+* saved graph node として existing pole / midair / external / ground node を使う。
 * saved graph incident edge を context link として使う。
 * saved row-port binding に一致する port を使う。
 * saved edge_bundle / span binding で duplicate を検出する。
@@ -173,6 +174,21 @@ viewer normal path は bb2 neutral outputs を読む。
 
 public backbone query は saved graph を正本として読む。旧名の API が残っていても、span-derived fallback を戻してはいけない。
 
+## update / performance 境界
+
+更新分類は `kRegenerate / kReposition / kReshape / kRedraw` の4種だけとする。
+`DirtyBits` は mutation marker / viewer diagnostic であり、bb2 derive の決定者ではない。
+
+generation result と update debug view は stage timing を持つ。timing は診断専用で、生成判断には使わない。
+
+## wire / backend 境界
+
+wire core は resolved world point と wire-specific template/profile だけを受ける。
+road / rail / building / terrain / city の header、identity、query API を core に入れない。
+
+core の backend-neutral 出力は `DetailCurve`、bounds、`SpanVisualCacheEntry`、`SpanRenderCacheEntry`。
+viewer / UE / export adapter はこれを読む。mesh / material / profile の参照を追加する場合は opaque key とし、core geometry に backend 型を入れない。
+
 ## v1 / recalc / support-layout 残存境界
 
 recalc は bb2 の通常生成経路ではない。
@@ -199,13 +215,7 @@ recalc は bb2 の通常生成経路ではない。
 | D | v1 専用として隔離 |
 | E | bb2 未対応 scenario のため残っている。supported 化か unsupported 固定を決める |
 
-現在の大きい残件:
-
-* recalc pipeline。
-* support-layout materialization。
-* support-layout authority / seed / projection inspection。
-* 旧テストの v1 実装詳細 assert。
-* manual debug / capture replay の旧 inspection 依存。
+残存する旧 test/runtime family は `docs/backbone_legacy_map.md` を正とする。
 
 ## 禁止事項
 

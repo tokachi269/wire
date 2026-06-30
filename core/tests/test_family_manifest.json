@@ -5,7 +5,7 @@
       "name": "bb2_acceptance",
       "status": "keep",
       "owner": "SavedBackboneGraph, bb2 generation, direct derive, and architecture boundaries",
-      "sources": ["core/tests/bb2.cpp"],
+      "sources": ["core/tests/bb2.cpp", "viewer/tests/bb2_scenes.cpp"],
       "notes": "Main bb2 acceptance family."
     },
     {
@@ -40,7 +40,7 @@
       "name": "pick_input",
       "status": "keep",
       "owner": "Pick resolution into wire input facts",
-      "sources": ["core/tests/pick.cpp"],
+      "sources": ["core/tests/pick.cpp", "viewer/tests/pick_policy.cpp"],
       "notes": "No viewer or city-domain topology enters core."
     },
     {
@@ -65,10 +65,27 @@
       "notes": "Private bb2 scratch types must not leak."
     },
     {
+      "name": "viewer_behavior",
+      "status": "keep",
+      "owner": "Viewer input, coordinate, selection, and backbone-plane behavior",
+      "sources": [
+        "viewer/tests/app_state.cpp",
+        "viewer/tests/backbone_plane.cpp",
+        "viewer/tests/host_coords.cpp"
+      ],
+      "notes": "Viewer consumes public core outputs only."
+    },
+    {
       "name": "test_infra",
       "status": "keep",
       "owner": "Test registration, runner, and shared test helpers",
-      "sources": ["core/tests/registry.cpp", "core/tests/runner.cpp", "core/tests/helpers.cpp"],
+      "sources": [
+        "core/tests/registry.cpp",
+        "core/tests/runner.cpp",
+        "core/tests/helpers.cpp",
+        "viewer/tests/registry.cpp",
+        "viewer/tests/runner.cpp"
+      ],
       "notes": "Contains no product contract cases."
     },
     {

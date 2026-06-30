@@ -206,7 +206,7 @@ void DrawPickHighlightImpl(const wire::core::PickResult& pick, bool has_resoluti
   if (pick.hit_kind == wire::core::PickHitKind::kEmpty) {
     return;
   }
-  if (pick.hit_kind == wire::core::PickHitKind::kNode || pick.hit_kind == wire::core::PickHitKind::kBuilding) {
+  if (pick.hit_kind == wire::core::PickHitKind::kNode || pick.hit_kind == wire::core::PickHitKind::kExternal) {
     DrawSphere(ToRaylib(pick.hit_pos_world), 0.16f, Color{214, 180, 92, 215});
     DrawSphereWires(ToRaylib(pick.hit_pos_world), 0.22f, 10, 14, Color{132, 118, 88, 220});
   } else if (pick.hit_kind == wire::core::PickHitKind::kSegment) {
@@ -245,7 +245,7 @@ void DrawBackboneOverlayImpl(const wire::core::BackboneResult& backbone, const V
     if (node.support_kind == wire::core::SupportKind::kMidair) {
       color = Color{90, 154, 176, 220};
       radius = 0.14f;
-    } else if (node.support_kind == wire::core::SupportKind::kBuilding) {
+    } else if (node.support_kind == wire::core::SupportKind::kExternal) {
       color = Color{110, 154, 100, 220};
       radius = 0.14f;
     }

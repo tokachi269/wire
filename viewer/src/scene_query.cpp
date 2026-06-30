@@ -175,7 +175,7 @@ wire::core::PickResult ViewerSceneQuery::Raycast(const wire::core::CoreView& vie
   const bool segment_hit = best_segment.node_a_id != wire::core::kInvalidObjectId &&
                            best_segment.d2 <= (kBranchPickSegmentHitRadiusWorld * kBranchPickSegmentHitRadiusWorld);
   if (node_hit && (!segment_hit || best_node.d2 <= best_segment.d2)) {
-    pick.hit_kind = (best_node.support_kind == wire::core::SupportKind::kBuilding) ? wire::core::PickHitKind::kBuilding
+    pick.hit_kind = (best_node.support_kind == wire::core::SupportKind::kExternal) ? wire::core::PickHitKind::kExternal
                                                                                     : wire::core::PickHitKind::kNode;
     pick.hit_id = best_node.node_id;
     pick.hit_pos_world = best_node.position;

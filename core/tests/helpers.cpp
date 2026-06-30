@@ -197,7 +197,7 @@ wire::core::SupportKind parse_support_kind_test(const std::string& text) {
     return wire::core::SupportKind::kMidair;
   }
   if (text == "Building") {
-    return wire::core::SupportKind::kBuilding;
+    return wire::core::SupportKind::kExternal;
   }
   if (text == "Ground") {
     return wire::core::SupportKind::kGround;

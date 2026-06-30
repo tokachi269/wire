@@ -530,8 +530,8 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
     result.ok = true;
   };
 
-  if (pick.hit_kind == PickHitKind::kBuilding) {
-    resolve_ownerless_surface_pick(SupportKind::kBuilding);
+  if (pick.hit_kind == PickHitKind::kExternal) {
+    resolve_ownerless_surface_pick(SupportKind::kExternal);
     return result;
   }
 

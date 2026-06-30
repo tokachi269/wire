@@ -44,18 +44,19 @@ def main() -> int:
                 errors.append(f"{name}: missing source {source}")
 
     registered = 0
-    for source_path in sorted((root / "core/tests").glob("*.cpp")):
-        source = rel(source_path, root)
-        text = source_path.read_text(encoding="utf-8")
-        cases = CASE_RE.findall(text)
-        if cases:
-            registered += len(cases)
-            source_owners = owners.get(source, [])
-            if len(source_owners) != 1:
-                errors.append(
-                    f"{source}: {len(cases)} registered cases need exactly one family, "
-                    f"found {source_owners or 'none'}"
-                )
+    for test_root in (root / "core/tests", root / "viewer/tests"):
+        for source_path in sorted(test_root.glob("*.cpp")):
+            source = rel(source_path, root)
+            text = source_path.read_text(encoding="utf-8")
+            cases = CASE_RE.findall(text)
+            if cases:
+                registered += len(cases)
+                source_owners = owners.get(source, [])
+                if len(source_owners) != 1:
+                    errors.append(
+                        f"{source}: {len(cases)} registered cases need exactly one family, "
+                        f"found {source_owners or 'none'}"
+                    )
 
     for source, source_owners in sorted(owners.items()):
         if len(source_owners) != 1:

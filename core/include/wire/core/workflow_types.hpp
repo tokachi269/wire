@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <cstdint>
 #include <limits>
@@ -197,7 +197,7 @@ enum class PickHitKind : std::uint8_t {
   kNode = 1,
   kSegment = 2,
   kGround = 3,
-  kBuilding = 4,
+  kExternal = 4,
 };
 
 // Viewer-side raycast output passed into core commands.

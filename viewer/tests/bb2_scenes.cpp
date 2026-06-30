@@ -368,13 +368,13 @@ bool test_bb2_viewer_segment_pick_midair_branch_has_display_outputs() {
 bool test_bb2_viewer_selected_building_pick_generates_selected_bundle_only() {
   wire::core::CoreState state;
   wire::core::PickResult pick{};
-  pick.hit_kind = wire::core::PickHitKind::kBuilding;
+  pick.hit_kind = wire::core::PickHitKind::kExternal;
   pick.hit_id = wire::core::kInvalidObjectId;
   pick.hit_pos_world = {12.0, 0.0, 6.0};
   wire::core::ResolveBranchPickOptions resolve{};
   resolve.selected_bundle_template_ids = {wire::core::BundleKind::kCommunication};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
-  if (!resolved.ok || resolved.value.support_kind != wire::core::SupportKind::kBuilding) {
+  if (!resolved.ok || resolved.value.support_kind != wire::core::SupportKind::kExternal) {
     return false;
   }
 
@@ -399,7 +399,7 @@ bool test_bb2_viewer_selected_building_pick_generates_selected_bundle_only() {
       std::find_if(state.view().backbone().nodes.begin(), state.view().backbone().nodes.end(),
                    [](const wire::core::SavedBackboneNode& node) {
                      return node.pole_id == wire::core::kInvalidObjectId &&
-                            node.support_kind == wire::core::SupportKind::kBuilding;
+                            node.support_kind == wire::core::SupportKind::kExternal;
                    }) != state.view().backbone().nodes.end();
   if (!has_building_node) {
     return false;

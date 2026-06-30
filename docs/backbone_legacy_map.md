@@ -27,6 +27,7 @@
 | coarse update boundary / `UpdateKind` | editing/runtime/direct derive | mainline runtime | no recalc owner | kRegenerate/kReposition/kReshape/kRedraw の4分類だけ。operation-specific dirty enum を増やさない |
 | `DirtyBits` / span runtime dirty marking | editing/runtime/viewer dirty overlay | mainline runtime | no recalc owner | mutation tracking と旧制約用。bb2 output 更新は coarse update plan + direct derive へ寄せる |
 | direct derive `DeriveGeneratedSpanOutputs` | post-edit output rederive | mainline | no recalc | saved rules/ports から layout/geom/draw を再導出。recalc へ戻さない |
+| test family manifest / architecture lint | core/viewer test build | merge guard | no | unclassified tests/files、禁止依存、旧 recalc/support-layout、city-domain identity の復活を fail する |
 
 ## 削除済み family
 
@@ -43,6 +44,8 @@
 | `ResolvedSupportAuthority` / `JunctionPairAuthority` / `support_authority` | 削除済み | default のまま保存型に残る旧 authority object |
 | `BuildBackboneResult` / `BuildBackboneEdges` / `FindBackboneRoute` public query 旧名 | 削除済み | span-derived fallback 名や build 名の public query を戻すこと |
 | `GeneratePolesAlongRoad` / `GenerateSpansBetweenPoles` / `GenerateSimpleLine*` | 削除済み | bb2 を包む旧 road-generation API や別 result 型 |
+| `RoadSegment` / `RoadId` core workflow type | 削除済み | external road modelをwire入力型として戻すこと |
+| building-specific core support/pick enum | opaque `kExternal` へ置換済み | external adapter の対象種別を wire core に戻すこと |
 | `build_backbone_service.cpp` | 削除済み | pole-only generation と旧 auto-connect allocator |
 | `RegenerateSessionAutoParts` / `rebuild_from_backbone.cpp` | 削除済み | generated span の session 走査、snapshot rollback、出力からの identity 復元 |
 | `last_generation_junction_relations` | 削除済み | SavedBackboneGraph junction と競合する inspection fallback |

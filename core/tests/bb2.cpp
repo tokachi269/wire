@@ -195,7 +195,7 @@ bool C371_bb2_rejects_unsupported() {
   wire::core::BackboneSpec building = line_req(state);
   wire::core::BackboneInputSpec::NodeSpec node{};
   node.point_index = 0;
-  node.support_kind = wire::core::SupportKind::kBuilding;
+  node.support_kind = wire::core::SupportKind::kExternal;
   node.node_id = 1;
   building.path.node_specs.push_back(node);
   const auto building_out = state.GenerateFromBackboneSpec(building);
@@ -4941,7 +4941,7 @@ bool C555_bb2_new_building_route_point_is_supported() {
   req.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 6.0}, {24.0, 0.0, 0.0}};
   wire::core::BackboneInputSpec::NodeSpec node{};
   node.point_index = 1;
-  node.support_kind = wire::core::SupportKind::kBuilding;
+  node.support_kind = wire::core::SupportKind::kExternal;
   node.node_id = wire::core::kInvalidObjectId;
   req.path.node_specs = {node};
   const auto out = state.GenerateFromBackboneSpec(req);
@@ -4956,7 +4956,7 @@ bool C555_bb2_new_building_route_point_is_supported() {
   const auto building_it =
       std::find_if(graph.nodes.begin(), graph.nodes.end(), [](const wire::core::SavedBackboneNode& n) {
         return n.pole_id == wire::core::kInvalidObjectId &&
-               n.support_kind == wire::core::SupportKind::kBuilding;
+               n.support_kind == wire::core::SupportKind::kExternal;
       });
   if (building_it == graph.nodes.end() || !almost_equal(building_it->position.z, 6.0, 1e-9)) {
     return false;
@@ -4984,12 +4984,12 @@ bool C555_bb2_new_building_route_point_is_supported() {
 bool C556_bb2_building_pick_feeds_new_building_route_point() {
   wire::core::CoreState state;
   wire::core::PickResult pick{};
-  pick.hit_kind = wire::core::PickHitKind::kBuilding;
+  pick.hit_kind = wire::core::PickHitKind::kExternal;
   pick.hit_id = 42;
   pick.hit_pos_world = {12.0, 0.0, 7.0};
   const auto resolved = state.ResolveBranchPick(pick);
   if (!resolved.ok || resolved.value.resolution != wire::core::PickBranchResolutionKind::kMidair ||
-      resolved.value.support_kind != wire::core::SupportKind::kBuilding ||
+      resolved.value.support_kind != wire::core::SupportKind::kExternal ||
       resolved.value.resolved_node_id != wire::core::kInvalidObjectId) {
     return false;
   }
@@ -5010,7 +5010,7 @@ bool C556_bb2_building_pick_feeds_new_building_route_point() {
       std::find_if(state.view().backbone().nodes.begin(), state.view().backbone().nodes.end(),
                    [](const wire::core::SavedBackboneNode& n) {
                      return n.pole_id == wire::core::kInvalidObjectId &&
-                            n.support_kind == wire::core::SupportKind::kBuilding;
+                            n.support_kind == wire::core::SupportKind::kExternal;
                    });
   if (building_it == state.view().backbone().nodes.end() || !almost_equal(building_it->position.z, 7.0, 1e-9)) {
     return false;
@@ -5036,11 +5036,11 @@ bool C556_bb2_building_pick_feeds_new_building_route_point() {
 bool C557_bb2_building_pick_without_id_is_supported() {
   wire::core::CoreState state;
   wire::core::PickResult pick{};
-  pick.hit_kind = wire::core::PickHitKind::kBuilding;
+  pick.hit_kind = wire::core::PickHitKind::kExternal;
   pick.hit_id = wire::core::kInvalidObjectId;
   pick.hit_pos_world = {12.0, 0.0, 5.0};
   const auto resolved = state.ResolveBranchPick(pick);
-  if (!resolved.ok || resolved.value.support_kind != wire::core::SupportKind::kBuilding ||
+  if (!resolved.ok || resolved.value.support_kind != wire::core::SupportKind::kExternal ||
       resolved.value.resolved_node_id != wire::core::kInvalidObjectId) {
     return false;
   }
@@ -5060,7 +5060,7 @@ bool C557_bb2_building_pick_without_id_is_supported() {
       std::find_if(state.view().backbone().nodes.begin(), state.view().backbone().nodes.end(),
                    [](const wire::core::SavedBackboneNode& n) {
                      return n.pole_id == wire::core::kInvalidObjectId &&
-                            n.support_kind == wire::core::SupportKind::kBuilding;
+                            n.support_kind == wire::core::SupportKind::kExternal;
                    });
   return building_it != state.view().backbone().nodes.end() && almost_equal(building_it->position.z, 5.0, 1e-9);
 }
@@ -5121,13 +5121,13 @@ bool C558_bb2_ground_pick_feeds_new_ground_route_point() {
 bool C597_bb2_selected_building_pick_generates_selected_bundle_only() {
   wire::core::CoreState state;
   wire::core::PickResult pick{};
-  pick.hit_kind = wire::core::PickHitKind::kBuilding;
+  pick.hit_kind = wire::core::PickHitKind::kExternal;
   pick.hit_id = wire::core::kInvalidObjectId;
   pick.hit_pos_world = {12.0, 0.0, 6.0};
   wire::core::ResolveBranchPickOptions resolve{};
   resolve.selected_bundle_template_ids = {wire::core::BundleKind::kCommunication};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
-  if (!resolved.ok || resolved.value.support_kind != wire::core::SupportKind::kBuilding) {
+  if (!resolved.ok || resolved.value.support_kind != wire::core::SupportKind::kExternal) {
     return false;
   }
 
@@ -5168,7 +5168,7 @@ bool C598_bb2_selected_saved_building_node_pick_generates_selected_bundle_only()
   first.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 6.0}, {24.0, 0.0, 0.0}};
   wire::core::BackboneInputSpec::NodeSpec building{};
   building.point_index = 1;
-  building.support_kind = wire::core::SupportKind::kBuilding;
+  building.support_kind = wire::core::SupportKind::kExternal;
   building.node_id = wire::core::kInvalidObjectId;
   first.path.node_specs = {building};
   const auto first_out = state.GenerateFromBackboneSpec(first);
@@ -5178,7 +5178,7 @@ bool C598_bb2_selected_saved_building_node_pick_generates_selected_bundle_only()
   const auto saved_building = std::find_if(state.view().backbone().nodes.begin(), state.view().backbone().nodes.end(),
                                            [](const wire::core::SavedBackboneNode& n) {
                                              return n.pole_id == wire::core::kInvalidObjectId &&
-                                                    n.support_kind == wire::core::SupportKind::kBuilding;
+                                                    n.support_kind == wire::core::SupportKind::kExternal;
                                            });
   if (saved_building == state.view().backbone().nodes.end()) {
     return false;
@@ -5191,7 +5191,7 @@ bool C598_bb2_selected_saved_building_node_pick_generates_selected_bundle_only()
   resolve.selected_bundle_template_ids = {wire::core::BundleKind::kCommunication};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId ||
-      resolved.value.support_kind != wire::core::SupportKind::kBuilding) {
+      resolved.value.support_kind != wire::core::SupportKind::kExternal) {
     return false;
   }
 
@@ -5218,7 +5218,7 @@ bool C599_bb2_selected_saved_building_node_policy_persists_after_branch() {
   first.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 6.0}, {24.0, 0.0, 0.0}};
   wire::core::BackboneInputSpec::NodeSpec building{};
   building.point_index = 1;
-  building.support_kind = wire::core::SupportKind::kBuilding;
+  building.support_kind = wire::core::SupportKind::kExternal;
   building.node_id = wire::core::kInvalidObjectId;
   first.path.node_specs = {building};
   const auto first_out = state.GenerateFromBackboneSpec(first);
@@ -5228,7 +5228,7 @@ bool C599_bb2_selected_saved_building_node_policy_persists_after_branch() {
   const auto saved_building = std::find_if(state.view().backbone().nodes.begin(), state.view().backbone().nodes.end(),
                                            [](const wire::core::SavedBackboneNode& n) {
                                              return n.pole_id == wire::core::kInvalidObjectId &&
-                                                    n.support_kind == wire::core::SupportKind::kBuilding;
+                                                    n.support_kind == wire::core::SupportKind::kExternal;
                                            });
   if (saved_building == state.view().backbone().nodes.end()) {
     return false;
@@ -5274,7 +5274,7 @@ bool C599_bb2_selected_saved_building_node_policy_persists_after_branch() {
   second.path.polyline = {saved_pos, {12.0, -10.0, 0.0}};
   wire::core::BackboneInputSpec::NodeSpec existing{};
   existing.point_index = 0;
-  existing.support_kind = wire::core::SupportKind::kBuilding;
+  existing.support_kind = wire::core::SupportKind::kExternal;
   existing.node_id = saved_id;
   second.path.node_specs = {existing};
   const auto out = state.GenerateFromBackboneSpec(second);

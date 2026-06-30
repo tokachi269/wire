@@ -1,80 +1,67 @@
-# コアモデル設計方針
+# Wire core architecture
 
-## 目的
-`core` の責務境界を固定し、同じ意味の判定が複数層へ再発することを防ぐ。
+## Authority chain
 
-## 基本原則
-- 正本更新は `CoreState` の正規 API だけを通す。
-- 後段が前段の意味を再判定しない。
-- 旧経路を残したまま新経路を足さない。
-- viewer/inspection は補正層ではなく read-only consumer にする。
+`BackboneSpec`
+→ bb2 generation
+→ `SavedBackboneGraph`
+→ pair/open/row
+→ `SpanLayoutRules`
+→ support group / `SpanLayoutEntry`
+→ `DetailCurve` / bounds
+→ visual / render cache
+→ viewer or export adapter
 
-## パイプライン（固定）
+The owner of each decision is fixed:
 
-1. Input Normalization
-- 役割: 入力を安定化する（node/edge/incident の整列、category 正規化）。
-- 禁止: lower 判定、support 向き、group 決定、curve 形状決定。
+- `SavedBackboneGraph`: topology and identity.
+- pair/open/row: connectivity.
+- support group: placement and lowering offset only.
+- layout: world support and endpoint positions.
+- geom: curve shape and bounds from layout endpoints.
+- draw: abstract visual/render output from layout and geom.
+- viewer/inspection: read-only consumers.
 
-2. Relation / Decision
-- 役割: 意味を決める。
-- 正本: `EndpointContinuityDecision`, `SupportGroupDecision`。
-- 保持する主値: `support_group_id`, `lower_required`, `relation_kind`, `side_axis`, `chosen_side_sign`, `support_orientation_rule`, `support_orientation_basis`。
-- 禁止: world 座標の support 実体化、viewer 向け補正。
+Generated span, layout, curve, bounds, visual, port position, or inspection output must not be used to reconstruct topology.
 
-3. Layout / Placement
-- 役割: saved decision を endpoint placement へ変換する。
-- 正本: `SpanLayoutEntry` と support group placement。
-- 固定経路: `SpanLayoutRules -> SupportGroupDecision -> SpanLayoutEntry`。
-- 禁止: `support_group_id` 再計算、`lower_required` 再判定、orientation 再解釈。
+## Update boundary
 
-4. Detail Curve
-- 役割: support/endpoint 拘束から曲線詳細を作る。
-- 出力: `SpanCurveSpec`, `DetailCurve`。
-- 禁止: lower/group/orientation の再判定、support の増殖。
+bb2 uses four coarse update kinds:
 
-5. Presentation / Inspection
-- 役割: 表示・検査ビュー生成。
-- 禁止: dedupe で意味補正、group 推定、lower 再判断、orientation 再計算。
+- `kRegenerate`: topology or identity may change.
+- `kReposition`: layout → geom → draw.
+- `kReshape`: geom → draw.
+- `kRedraw`: visual/render only.
 
-## 現状のズレ
-- `core/src/recalc` と support-layout materialization は削除済み。
-- bb2 generation と direct derive は recalc / materialization / support-layout contract を読まない。
-- 残る旧語は validation-only の support-group consistency check と public query 旧名が中心。
-- viewer normal path は neutral span output と saved graph を読む。
+Operation-specific update kinds are not added. `DirtyBits` is a mutation marker and viewer diagnostic, not the bb2 derive owner.
 
-## lowered support の設計固定
-- group identity は `owner_pole_id + support_group_id`。
-- `support_group_id` は decision 正本フィールドとして保持し、downstream で再導出しない。
-- one owner pole + one support group = one authoritative placement。
-- grouped lowered support は non-radial basis を必須とする。
-- T/cross/branch kind は正本にしない。pair/open/row と support group で表す。
+Generation and update timing are diagnostic snapshots only. They do not affect decisions.
 
-## データ境界
-- Definition: テンプレート/静的定義。
-- Entity: `Pole / Port / Anchor / Bundle / Span / Attachment`。
-- Workflow: 入力 spec と決定結果。
-- Cache/Debug: 再構築可能な派生（span layout / curve / bounds / draw / inspection 用 view）。
+## Wire-domain boundary
 
-禁止する逆依存:
-- Definition -> Entity
-- Entity -> Workflow
-- Entity -> Cache/Debug
+Wire core accepts resolved world points and wire-specific specs/templates. It does not include road, rail, building, terrain, city, UE, Blender, or viewer domain headers.
 
-## 変更時チェックリスト
-- どの段の正本を更新したかを明示したか。
-- 後段で同じ意味を再判定していないか。
-- geom / draw が decision/layout recompute を抱え込んでいないか。
-- 旧経路を削除したか（未使用で放置していないか）。
-- validator/test で不変条件を固定したか。
-- direct derive 前後で意味が不変かを確認したか。
+External systems choose world positions and wire templates before calling core. Stable external identity, when introduced, must be opaque to wire and paired with a fallback world position. `SavedBackboneGraph` remains wire topology, not city topology.
 
-## 必須不変条件（最低限）
-- `support_group_id` は authoritative field で downstream 再計算しない。
-- grouped lowered support は radial basis を使わない。
-- 同一 support group で side/orientation basis が一致する。
-- direct derive 前後で次が不変:
-  - `support_group_id`
-  - `support_world`, `mount_world`, `tip_world`
-  - `support_orientation_rule`, `support_orientation_basis`
-  - `side_axis`, `chosen_side_sign`
-  - `lower_required`, `default_lower_required`, `relation_kind`
+Current wire profiles are `ContextProfile`, `CableTemplate`, `BundleTemplate`, pole definitions, layout settings, and visual settings. External adapters may choose them, but city-domain semantics do not enter core state.
+
+## Render/export boundary
+
+The current backend-neutral output is:
+
+- `DetailCurve` and bounds for wire geometry.
+- `SpanVisualCacheEntry` for abstract support primitives.
+- `SpanRenderCacheEntry` for radius, color, material style, and curve-distance attributes.
+
+Viewer and future export/engine adapters consume these outputs. Geometry does not know mesh assets. Future asset/material/profile references must be opaque keys resolved by the backend; adding a full render engine to core is out of scope.
+
+## Guardrails
+
+- Public API: `core/include/wire/core/**`.
+- Private bb2 scratch: `core/src/generation/bb2/**`.
+- Writes go through `CoreState` operations; reads use `CoreView` or const queries.
+- No global mutable `CoreState`, SavedGraph, generation context, cache manager, validation manager, or settings singleton.
+- `tools/arch_lint.py` fails on unclassified source/header files, forbidden dependency directions, old recalc/support-layout symbols, and city-domain identity types.
+- `tools/test_family_lint.py` fails when registered tests have no family owner.
+
+Old recalc, support-layout authority/seed/projection/materialization, grouped span generation, and span-derived backbone reconstruction stay deleted.

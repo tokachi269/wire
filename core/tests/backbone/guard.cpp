@@ -536,16 +536,16 @@ bool C520_backbone_duplicate_span_binding_preflight_before_emit() {
 }
 
 bool C522_backbone_supported_scope_is_documented() {
-  const std::filesystem::path doc = repo_root() / "redesign.md";
+  const std::filesystem::path doc = repo_root() / "docs" / "architecture.md";
   std::string text;
   if (!file_text(doc, &text)) {
     return false;
   }
-  return contains_text(text, "## backbone mainline v0") && contains_text(text, "`GenerateFromBackboneSpec`") &&
-         contains_text(text, "unsupported") && contains_text(text, "`SavedBackboneGraph`") &&
-         contains_text(text, "`pairs make(graph)`") && contains_text(text, "duplicate same edge_bundle + lane") &&
-         contains_text(text, "support_world") && contains_text(text, "endpoint_world") &&
-         contains_text(text, "v1 fallback");
+  return contains_text(text, "## backbone generation") && contains_text(text, "`GenerateFromBackboneSpec()`") &&
+         contains_text(text, "`unsupported`") && contains_text(text, "`SavedBackboneGraph`") &&
+         contains_text(text, "`pairs make(graph)`") && contains_text(text, "duplicate edge bundle/span binding") &&
+         contains_text(text, "`support_world`") && contains_text(text, "`endpoint_world`") &&
+         contains_text(text, "v1") && contains_text(text, "fallback");
 }
 
 bool C523_backbone_scope_gate_matches_entrypoint() {
@@ -651,14 +651,14 @@ bool C537_backbone_draw_source_has_no_decision_inputs() {
 }
 
 bool C538_backbone_viewer_deps_are_not_core_draw_gate() {
-  const std::filesystem::path doc = repo_root() / "redesign.md";
+  const std::filesystem::path doc = repo_root() / "docs" / "architecture.md";
   std::string text;
   if (!file_text(doc, &text)) {
     return false;
   }
-  return contains_text(text, "viewer normal path") && contains_text(text, "backbone neutral outputs") &&
-         contains_text(text, "visual / render cache") &&
-         contains_text(text, "topology / pair / row / lowering");
+  return contains_text(text, "viewer") && contains_text(text, "visual/render cache") &&
+         contains_text(text, "topology") && contains_text(text, "pair") &&
+         contains_text(text, "row") && contains_text(text, "lowering");
 }
 
 bool C540_backbone_unsupported_request_does_not_create_v1_outputs() {
@@ -685,16 +685,16 @@ bool C541_backbone_manual_existing_pole_without_graph_is_gate_rejected() {
 }
 
 bool C542_backbone_usable_mainline_architecture_audit_passes() {
-  const std::filesystem::path doc = repo_root() / "redesign.md";
+  const std::filesystem::path doc = repo_root() / "docs" / "architecture.md";
   std::string text;
   if (!file_text(doc, &text)) {
     return false;
   }
-  const bool doc_ok = contains_text(text, "SavedBackboneGraph") &&
-                      contains_text(text, "topology | `SavedBackboneGraph`") &&
-                      contains_text(text, "connectivity | `pairs make(graph)`") &&
-                      contains_text(text, "placement | support group / row placement") &&
-                      contains_text(text, "draw | visual / render cache");
+  const bool doc_ok = contains_text(text, "`SavedBackboneGraph`") &&
+                      contains_text(text, "| topology | `SavedBackboneGraph`") &&
+                      contains_text(text, "| connectivity | `pairs make(graph)`") &&
+                      contains_text(text, "| placement | support group / row placement") &&
+                      contains_text(text, "| draw | visual / render cache");
   return doc_ok && C498_backbone_saved_graph_remains_topology_authority() && C387_backbone_pairs_are_single_source() &&
          C506_backbone_support_group_is_placement_layer() && C535_backbone_duplicate_preflight_is_mutation_boundary() &&
          C537_backbone_draw_source_has_no_decision_inputs() && C523_backbone_scope_gate_matches_entrypoint();

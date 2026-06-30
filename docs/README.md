@@ -1,16 +1,11 @@
-# docs 目次
+# docs
 
-常に使う文書は次の 5 つだけ。
+現行情報は次の5文書を正とする。
 
-1. `wire.md`
-2. `core_model_architecture.md`
-3. `core_model_inventory.md`
-4. `command_cheatsheet.md`
-5. `chat_handoff_checklist.md`
+- [architecture.md](architecture.md): 設計契約
+- [legacy_map.md](legacy_map.md): 残存・削除済みfamily
+- [merge_readiness.md](merge_readiness.md): main merge条件
+- [testing.md](testing.md): test/lint体系
+- [operations.md](operations.md): build/testコマンド
 
-## 役割
-- 仕様の正本: `wire.md`
-- 設計規約の正本: `core_model_architecture.md`
-- 実装マップ: `core_model_inventory.md`
-- 実行コマンド: `command_cheatsheet.md`
-- 作業開始/終了チェック: `chat_handoff_checklist.md`
+作業履歴と過去planはGitで確認する。docsに日記を追加しない。

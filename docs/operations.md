@@ -1,6 +1,6 @@
 # 開発コマンド
 
-workdirは`D:\GitHub\wire`。
+コマンドはrepository rootで実行する。
 
 ## Core
 
@@ -29,4 +29,3 @@ git diff --check
 
 `wire_core_tests`のbuildはarchitecture/test-family lintも実行する。
 通常buildにNinjaは不要。
-

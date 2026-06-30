@@ -61,29 +61,6 @@ if(BUILD_TESTING)
   )
 
   add_executable(
-    wire_capture_replay
-    tools/capture_replay.cpp
-  )
-
-  target_link_libraries(
-    wire_capture_replay
-    PRIVATE
-    wire_core
-  )
-
-  wire_enable_msvc_target_defaults(wire_capture_replay)
-
-  if(WIRE_ENABLE_PCH)
-    target_precompile_headers(
-      wire_capture_replay
-      PRIVATE
-      ${CMAKE_CURRENT_SOURCE_DIR}/src/pch.hpp
-    )
-  endif()
-
-  wire_enable_builtin_vcpkg_applocal(wire_capture_replay)
-
-  add_executable(
     wire_core_tests
     tests/registry.cpp
     tests/runner.cpp

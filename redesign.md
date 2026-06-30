@@ -69,7 +69,8 @@ avoid support は simple deterministic detour に限定する。general routing�
 * draw が topology / connectivity / lowering を決めること。
 
 post-edit の route-local regenerate は明示 `unsupported`。layout / variation / context / template 更新のうち
-direct derive に接続されていないものは mainline 完了前の blocker とし、dirty marker だけで成功扱いにしない。
+direct derive に接続されていないものは mutation 前に拒否し、dirty marker だけで成功扱いにしない。
+cable shape / render、geometry、visual の安全な変更だけを `kReshape` / `kRedraw` で即時反映する。
 
 ### 出力保証
 

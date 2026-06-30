@@ -28,7 +28,7 @@
 | `DirtyBits` / span runtime dirty marking | editing/runtime/viewer dirty overlay | mainline runtime | no recalc owner | mutation tracking と旧制約用。bb2 output 更新は coarse update plan + direct derive へ寄せる |
 | direct derive `DeriveGeneratedSpanOutputs` | post-edit output rederive | mainline | no recalc | saved rules/ports から layout/geom/draw を再導出。recalc へ戻さない |
 | test family manifest / architecture lint | core/viewer test build | merge guard | no | unclassified tests/files、禁止依存、旧 recalc/support-layout、city-domain identity の復活を fail する |
-| manual topology API (`AddConnectionByPole` / `AddDrop*` / `SplitSpan`) | tests、capture replay、一部 public workflow | D | no | SavedBackboneGraph を更新しない別 topology 経路。bb2 operation へ置換するか public mainline から退役する |
+| manual topology API (`AddConnectionByPole` / `AddDrop*` / `SplitSpan`) | default tests、一部 public workflow | D | no | SavedBackboneGraph を更新しない別 topology 経路。32件のdefault制約test setup移行が必要なため今回の一括削除は停止 |
 | `DirtyBits` / `regeneration_required` / `TemplateDependencyState` | state mutation、viewer diagnostics、isolated tests | D | no | direct derive の owner ではない。coarse update plan へ置換後に family 単位で削除する |
 
 ## 削除済み family
@@ -48,6 +48,7 @@
 | `GeneratePolesAlongRoad` / `GenerateSpansBetweenPoles` / `GenerateSimpleLine*` | 削除済み | bb2 を包む旧 road-generation API や別 result 型 |
 | `RoadSegment` / `RoadId` core workflow type | 削除済み | external road modelをwire入力型として戻すこと |
 | building-specific core support/pick enum | opaque `kExternal` へ置換済み | external adapter の対象種別を wire core に戻すこと |
+| `wire_capture_replay` / replay scripts | 削除済み | legacy topology API をdebug tool都合で戻すこと |
 | `build_backbone_service.cpp` | 削除済み | pole-only generation と旧 auto-connect allocator |
 | `RegenerateSessionAutoParts` / `rebuild_from_backbone.cpp` | 削除済み | generated span の session 走査、snapshot rollback、出力からの identity 復元 |
 | `last_generation_junction_relations` | 削除済み | SavedBackboneGraph junction と競合する inspection fallback |
@@ -58,7 +59,6 @@
 |---|---|---|
 | viewer normal path | saved graph、neutral span layout、rules、geom、draw を読む | mainline |
 | selected SpanLayout debug panel | neutral span output と saved frontier を読む | mainline/debug |
-| capture / replay | neutral span layout / rules / bounds / visual / render を読む | mainline/debug |
 | validation panel | `ValidateFast` を読む | validation-only。bb2 generation の blocker にしない |
 
 ## 旧テスト family
@@ -103,7 +103,10 @@
 | zero-length/ambiguous connectivity、解けない avoid constraints | `check` / `pairs make` で `unsupported` | PASS |
 | route-local regenerate | update executor が `unsupported` | PASS |
 | full migration、general routing、preview/undo、本格 attachment visual | public operation 自体を提供しない | scope 外 |
-| layout/variation/context/template の post-edit 更新 | 一部が marker 更新だけで成功し、direct derive されない | FAIL: merge blocker |
+| layout/variation/context と bundle/cable/attachment decision の post-edit 更新 | generated outputがある場合はmutation前 `unsupported` | PASS |
+| cable sag/color、geometry、visual の安全な post-edit 更新 | `kReshape` / `kRedraw` でdirect derive | PASS |
+| pole type definition / instance reapply | context-only band編集とactive endpoint更新が未分離 | FAIL: merge blocker |
+| manual topology API と DirtyBits/regeneration marker family | default testsが依存 | FAIL: removal stopped after 32 failures |
 
 ## 次に消せる family
 

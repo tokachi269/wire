@@ -865,6 +865,10 @@ EditResult<ObjectId> CoreState::SetSpanEndpointSocketOverride(ObjectId span_id, 
     result.error = "span not found";
     return result;
   }
+  if (runtime_.backbone_index.span_edge_bundle.contains(span_id)) {
+    result.error = "bb2 unsupported: endpoint socket override requires regeneration";
+    return result;
+  }
   SpanEndpointOverride next = authoritative_.override_state.span_endpoint_by_span[span_id];
   std::optional<int>& slot = is_start_endpoint ? next.socket_a_id : next.socket_b_id;
   if (slot.has_value() && *slot == socket_id) {
@@ -887,6 +891,10 @@ EditResult<ObjectId> CoreState::ClearSpanEndpointSocketOverride(ObjectId span_id
   Span* span = authoritative_.edit_state.spans.find(span_id);
   if (span == nullptr) {
     result.error = "span not found";
+    return result;
+  }
+  if (runtime_.backbone_index.span_edge_bundle.contains(span_id)) {
+    result.error = "bb2 unsupported: endpoint socket override requires regeneration";
     return result;
   }
   auto it = authoritative_.override_state.span_endpoint_by_span.find(span_id);
@@ -917,6 +925,10 @@ EditResult<ObjectId> CoreState::SetSpanBranchDownOffsetOverride(ObjectId span_id
   Span* span = authoritative_.edit_state.spans.find(span_id);
   if (span == nullptr) {
     result.error = "span not found";
+    return result;
+  }
+  if (runtime_.backbone_index.span_edge_bundle.contains(span_id)) {
+    result.error = "bb2 unsupported: branch down override requires regeneration";
     return result;
   }
   if (!std::isfinite(branch_down_offset_m) || branch_down_offset_m < 0.0) {
@@ -954,6 +966,10 @@ EditResult<ObjectId> CoreState::ClearSpanBranchDownOffsetOverride(ObjectId span_
   Span* span = authoritative_.edit_state.spans.find(span_id);
   if (span == nullptr) {
     result.error = "span not found";
+    return result;
+  }
+  if (runtime_.backbone_index.span_edge_bundle.contains(span_id)) {
+    result.error = "bb2 unsupported: branch down override requires regeneration";
     return result;
   }
   if (authoritative_.override_state.span_support_by_span.erase(span_id) == 0) {
@@ -1863,6 +1879,12 @@ EditResult<bool> CoreState::ApplyBundleRelatedPoleTypeToExistingPoles(BundleKind
       if (port_b != nullptr && port_b->owner_pole_id != kInvalidObjectId) {
         target_pole_ids.insert(port_b->owner_pole_id);
       }
+    }
+  }
+  for (ObjectId pole_id : target_pole_ids) {
+    if (runtime_.backbone_index.pole_node.contains(pole_id)) {
+      result.error = "bb2 unsupported: applying related pole type requires regeneration";
+      return result;
     }
   }
 

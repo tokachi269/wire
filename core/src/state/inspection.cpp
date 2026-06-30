@@ -1,6 +1,7 @@
 #include "wire/core/core_state.hpp"
 
 #include "wire/core/core_view.hpp"
+#include "wire/core/coord_utils.hpp"
 #include "wire/core/style_context.hpp"
 #include "../geometry/detail_curve_input_resolution.hpp"
 
@@ -547,12 +548,9 @@ std::optional<PoleInspectionView> CoreView::inspect_pole(ObjectId pole_id) const
     result.forward_dir = it->second.adopted_forward;
     result.has_forward = true;
     result.support_axis_dir = it->second.adopted_support_axis;
-    const double support_axis_len2 = result.support_axis_dir.x * result.support_axis_dir.x +
-                                     result.support_axis_dir.y * result.support_axis_dir.y +
-                                     result.support_axis_dir.z * result.support_axis_dir.z;
+    const double support_axis_len2 = LengthSquared(result.support_axis_dir);
     result.has_support_axis = support_axis_len2 > 1e-12;
-    result.automatic_yaw_deg =
-        std::atan2(it->second.adopted_forward.y, it->second.adopted_forward.x) * (180.0 / 3.14159265358979323846);
+    result.automatic_yaw_deg = YawDegFromXY(it->second.adopted_forward);
   }
 
   std::unordered_set<std::uint64_t> seen{};
@@ -936,7 +934,7 @@ std::optional<OverrideInspectionView> CoreView::inspect_overrides(EntityRef targ
     }
     std::string auto_yaw = "n/a";
     if (const auto it = pole_orientation_debug_records().find(target.stable_id); it != pole_orientation_debug_records().end()) {
-      const double yaw_deg = std::atan2(it->second.adopted_forward.y, it->second.adopted_forward.x) * (180.0 / 3.14159265358979323846);
+      const double yaw_deg = YawDegFromXY(it->second.adopted_forward);
       auto_yaw = std::to_string(yaw_deg);
     }
     const std::optional<double> manual_yaw = state_.resolve_pole_manual_yaw_override(*pole);
@@ -1032,7 +1030,7 @@ std::vector<DecisionTraceEntry> CoreView::collect_decision_trace(EntityRef ref) 
       std::ostringstream summary;
       summary << "autoYaw=";
       if (const auto it = pole_orientation_debug_records().find(ref.stable_id); it != pole_orientation_debug_records().end()) {
-        summary << (std::atan2(it->second.adopted_forward.y, it->second.adopted_forward.x) * (180.0 / 3.14159265358979323846));
+        summary << YawDegFromXY(it->second.adopted_forward);
       } else {
         summary << "n/a";
       }

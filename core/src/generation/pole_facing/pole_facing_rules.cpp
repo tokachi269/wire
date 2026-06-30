@@ -1,7 +1,6 @@
 #include "pole_facing_rules.hpp"
 
 #include "wire/core/coord_utils.hpp"
-#include "../detail_utils.hpp"
 #include "../../pole_orientation_utils.hpp"
 
 #include <cmath>
@@ -33,8 +32,7 @@ void apply_backbone_pole_orientation_plan(const BackbonePoleOrientationApplyInpu
       continue;
     }
 
-    const double desired_yaw = normalize_yaw_deg(std::atan2(planned.adopted_forward.y, planned.adopted_forward.x) *
-                                                 (180.0 / kPi));
+    const double desired_yaw = YawDegFromXY(planned.adopted_forward);
     double yaw_delta = desired_yaw - pole->world_transform.rotation_euler_deg.z;
     yaw_delta = std::fmod(yaw_delta + 540.0, 360.0) - 180.0;
     if (std::abs(yaw_delta) <= 1e-6) {

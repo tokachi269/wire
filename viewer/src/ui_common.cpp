@@ -1,5 +1,7 @@
 #include "ui_common.hpp"
 
+#include "wire/core/coord_utils.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -441,15 +443,7 @@ BoundingBox ToRaylibBounds(const wire::core::AABBd& box_ue) {
 }
 
 double PolylineLength(const std::vector<wire::core::Vec3d>& points) {
-  if (points.size() < 2) {
-    return 0.0;
-  }
-  double length = 0.0;
-  for (std::size_t i = 0; i + 1 < points.size(); ++i) {
-    const wire::core::Vec3d d = points[i + 1] - points[i];
-    length += std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
-  }
-  return length;
+  return wire::core::PolylineLength(points);
 }
 
 void PushLog(ViewerUiState& ui_state, const std::string& line) {

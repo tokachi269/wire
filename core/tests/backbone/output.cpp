@@ -92,18 +92,18 @@ bool C509_backbone_support_group_avoids_visual_terms() {
 }
 
 bool C510_backbone_layout_consumes_group_offset() {
-  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
-  std::string cpp;
-  if (!file_text(source, &cpp)) {
+  const std::filesystem::path header = repo_root() / "core" / "include" / "wire" / "core" / "span_layout_types.hpp";
+  std::string h;
+  if (!file_text(header, &h)) {
     return false;
   }
-  const std::size_t fn_pos = cpp.find("EditResult<layout> pipeline::make(const rules& made) const");
-  const std::size_t next_pos = cpp.find("geom pipeline::make", fn_pos);
+  const std::size_t fn_pos = h.find("inline void ApplyEndpointLayoutRule");
+  const std::size_t next_pos = h.find("struct SpanLayoutRule", fn_pos);
   if (fn_pos == std::string::npos || next_pos == std::string::npos) {
     return false;
   }
-  const std::string body = cpp.substr(fn_pos, next_pos - fn_pos);
-  return contains_text(body, "rule.branch_down_offset_m") && contains_text(body, "target->endpoint_world.z -= lower_offset") &&
+  const std::string body = h.substr(fn_pos, next_pos - fn_pos);
+  return contains_text(body, "rule.branch_down_offset_m") && contains_text(body, "dst.endpoint_world.z -= lower_offset") &&
          !contains_text(body, "kLowerOffsetM");
 }
 

@@ -45,10 +45,7 @@ Color FlowTintedWireColor(Color base, wire::core::BackboneFlowKind flow_kind, bo
 }
 
 float SegmentLengthSquared(const wire::core::Vec3d& a, const wire::core::Vec3d& b) {
-  const double dx = b.x - a.x;
-  const double dy = b.y - a.y;
-  const double dz = b.z - a.z;
-  return static_cast<float>(dx * dx + dy * dy + dz * dz);
+  return static_cast<float>(wire::core::DistanceSquared(a, b));
 }
 
 float SolidVisualPartRadius(wire::core::VisualPartKind kind, double radius_m) {

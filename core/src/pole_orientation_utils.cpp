@@ -38,7 +38,7 @@ double signed_turn_about_axis(const Vec3d& axis, const Vec3d& a, const Vec3d& b)
 
 double yaw_deg_for_direction_in_tilted_frame(const Vec3d& world_dir, const Vec3d* base_rotation_euler_deg,
                                              bool align_lateral_axis) {
-  double yaw_deg = std::atan2(world_dir.y, world_dir.x) * (180.0 / kPi);
+  double yaw_deg = YawDegFromXY(world_dir);
   if (base_rotation_euler_deg != nullptr) {
     Transformd base{};
     base.rotation_euler_deg = *base_rotation_euler_deg;
@@ -49,7 +49,7 @@ double yaw_deg_for_direction_in_tilted_frame(const Vec3d& world_dir, const Vec3d
         Dot(world_dir, frame.lateral),
         Dot(world_dir, frame.up),
     };
-    yaw_deg = std::atan2(local_dir.y, local_dir.x) * (180.0 / kPi);
+    yaw_deg = YawDegFromXY(local_dir);
   }
   if (align_lateral_axis) {
     yaw_deg -= 90.0;

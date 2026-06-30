@@ -401,7 +401,7 @@ bool C475_backbone_port_resolution_does_not_read_existing_layout() {
     return false;
   }
   const std::size_t fn_pos = cpp.find("EditResult<ObjectId> resolve_port_binding");
-  const std::size_t next_pos = cpp.find("double yaw", fn_pos);
+  const std::size_t next_pos = cpp.find("bool route_clear_of_avoid_points", fn_pos);
   if (fn_pos == std::string::npos || next_pos == std::string::npos) {
     return false;
   }

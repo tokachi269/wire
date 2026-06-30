@@ -1,6 +1,9 @@
 #pragma once
 
+#include <algorithm>
+#include <cstddef>
 #include <cmath>
+#include <vector>
 
 #include "wire/core/types.hpp"
 
@@ -34,6 +37,26 @@ inline Vec3d Cross(const Vec3d& a, const Vec3d& b) {
 
 inline double LengthSquared(const Vec3d& v) { return Dot(v, v); }
 
+inline double Length(const Vec3d& v) { return std::sqrt(LengthSquared(v)); }
+
+inline double DistanceSquared(const Vec3d& a, const Vec3d& b) { return LengthSquared(a - b); }
+
+inline double DistanceSquaredXY(const Vec3d& a, const Vec3d& b) {
+  const double dx = a.x - b.x;
+  const double dy = a.y - b.y;
+  return dx * dx + dy * dy;
+}
+
+inline double DistanceSquaredToSegment(const Vec3d& point, const Vec3d& a, const Vec3d& b) {
+  const Vec3d ab = b - a;
+  const double len2 = LengthSquared(ab);
+  if (len2 <= 1e-12) {
+    return DistanceSquared(point, a);
+  }
+  const double t = std::clamp(Dot(point - a, ab) / len2, 0.0, 1.0);
+  return DistanceSquared(point, a + ScaleVec(ab, t));
+}
+
 inline bool Normalize(Vec3d* v) {
   if (v == nullptr) {
     return false;
@@ -57,6 +80,15 @@ inline bool NormalizeXY(Vec3d* v) {
   return Normalize(v);
 }
 
+inline Vec3d HorizontalNormalizedOr(Vec3d v, Vec3d fallback = WorldForward()) {
+  v.z = 0.0;
+  if (Normalize(&v)) {
+    return v;
+  }
+  fallback.z = 0.0;
+  return Normalize(&fallback) ? fallback : WorldForward();
+}
+
 inline double NormalizeYawDeg(double yaw_deg) {
   double out = std::fmod(yaw_deg, 360.0);
   if (out <= -180.0) {
@@ -65,6 +97,19 @@ inline double NormalizeYawDeg(double yaw_deg) {
     out -= 360.0;
   }
   return out;
+}
+
+inline double YawDegFromXY(Vec3d forward) {
+  forward = HorizontalNormalizedOr(forward);
+  return std::atan2(forward.y, forward.x) * (180.0 / 3.14159265358979323846);
+}
+
+inline double PolylineLength(const std::vector<Vec3d>& polyline) {
+  double total = 0.0;
+  for (std::size_t i = 0; i + 1 < polyline.size(); ++i) {
+    total += Length(polyline[i + 1] - polyline[i]);
+  }
+  return total;
 }
 
 inline Vec3d ComputeLateralAxis(const Vec3d& forward) {

@@ -1,20 +1,12 @@
 #include "out.hpp"
 
 #include "wire/core/core_view.hpp"
+#include "wire/core/coord_utils.hpp"
 
 #include <algorithm>
-#include <cmath>
 
 namespace wire::core::generation::backbone {
 namespace {
-
-Vec3d mul(Vec3d v, double k) {
-  return Vec3d{v.x * k, v.y * k, v.z * k};
-}
-
-double length(Vec3d v) {
-  return std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
-}
 
 AABBd box(const Vec3d& a, const Vec3d& b) {
   AABBd out{};
@@ -45,11 +37,11 @@ AABBd box(const std::vector<Vec3d>& pts) {
 
 DetailCurve line(const Vec3d& a, const Vec3d& b) {
   const Vec3d d = b - a;
-  const double l = length(d);
+  const double l = Length(d);
   DetailCurve out{};
   out.start_constraint.point = a;
   out.end_constraint.point = b;
-  out.control_points = {a, a + mul(d, 1.0 / 3.0), a + mul(d, 2.0 / 3.0), b};
+  out.control_points = {a, a + ScaleVec(d, 1.0 / 3.0), a + ScaleVec(d, 2.0 / 3.0), b};
   DetailCurveSegment segment{};
   segment.control_points = out.control_points;
   segment.u_start = 0.0;
@@ -88,11 +80,11 @@ DetailCurve make_curve(const CoreState& state, ObjectId span_id, const SpanLayou
   }
 
   const Vec3d chord = layout.end.endpoint_world - layout.start.endpoint_world;
-  const double chord_length = length(chord);
+  const double chord_length = Length(chord);
   if (chord_length <= 1e-9) {
     return line(layout.start.endpoint_world, layout.end.endpoint_world);
   }
-  const Vec3d tangent = mul(chord, 1.0 / chord_length);
+  const Vec3d tangent = ScaleVec(chord, 1.0 / chord_length);
   CurveConstraint start{};
   start.point = layout.start.endpoint_world;
   start.tangent_dir = tangent;
@@ -144,7 +136,7 @@ SpanRenderCacheEntry render(const CoreState& state, ObjectId span_id, const Deta
   double total = 0.0;
   for (std::size_t i = 0; i < detail.sample_points.size(); ++i) {
     if (i > 0) {
-      const double segment = length(detail.sample_points[i] - detail.sample_points[i - 1]);
+      const double segment = Length(detail.sample_points[i] - detail.sample_points[i - 1]);
       total += segment;
       out.segment_length_m.push_back(static_cast<float>(segment));
     }
@@ -167,7 +159,7 @@ SpanVisualCacheEntry visual(const VisualSettings& settings, const SpanLayoutEntr
       return;
     }
     const Vec3d support = endpoint.support_world;
-    if (length(endpoint.endpoint_world - support) <= 1e-9) {
+    if (Length(endpoint.endpoint_world - support) <= 1e-9) {
       return;
     }
     VisualPart part{};

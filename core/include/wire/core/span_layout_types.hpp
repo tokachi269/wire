@@ -113,6 +113,24 @@ inline LayoutSemantic& LayoutSemantic::operator=(const EndpointContinuityDecisio
          decision.support_group_id >= 0;
 }
 
+inline void CopyLayoutSemantic(LayoutSemantic& dst, const LayoutSemantic& src) {
+  dst.owner_pole_id = src.owner_pole_id;
+  dst.relation_kind = src.relation_kind;
+  dst.continuity_class = src.continuity_class;
+  dst.in_through_pair = src.in_through_pair;
+  dst.support_pair_peer_low = src.support_pair_peer_low;
+  dst.support_pair_peer_high = src.support_pair_peer_high;
+  dst.support_group_id = src.support_group_id;
+  dst.lower_required = src.lower_required;
+  dst.lowering_blocked_by_policy = src.lowering_blocked_by_policy;
+  dst.side_assignment_rule = src.side_assignment_rule;
+  dst.support_orientation_rule = src.support_orientation_rule;
+  dst.support_orientation_basis = src.support_orientation_basis;
+  dst.has_side_axis = src.has_side_axis;
+  dst.side_axis = src.side_axis;
+  dst.chosen_side_sign = src.chosen_side_sign;
+}
+
 struct LayoutEndpoint : LayoutSemantic {
   ObjectId endpoint_node_id = kInvalidObjectId;
   ObjectId port_id = kInvalidObjectId;
@@ -190,6 +208,45 @@ struct EndpointLayoutRule {
   bool used_junction_pair_side_assignment = false;
   HierarchicalVariationSample down_offset_variation{};
 };
+
+inline void ApplyEndpointLayoutRule(LayoutEndpoint& dst, const EndpointLayoutRule& rule,
+                                    const Vec3d& port_world_position) {
+  CopyLayoutSemantic(dst, rule.semantic);
+  dst.endpoint_node_id = rule.endpoint_node_id;
+  dst.port_id = rule.port_id;
+  dst.flow_kind = rule.flow_kind;
+  dst.origin = rule.origin;
+  dst.endpoint_source = rule.endpoint_source;
+  dst.port_source = rule.port_source;
+  dst.side = rule.side;
+  dst.endpoint_mode = rule.endpoint_mode;
+  dst.automatic_branch_down_offset_m = rule.automatic_branch_down_offset_m;
+  dst.branch_down_offset_m = rule.branch_down_offset_m;
+  dst.default_lower_required = rule.default_lower_required;
+  dst.same_level_feasible = rule.same_level_feasible;
+  dst.unresolved_same_level_conflict = rule.unresolved_same_level_conflict;
+  dst.same_level_reason = rule.same_level_reason;
+  dst.projected_spacing_topview_m = rule.projected_spacing_topview_m;
+  dst.required_clearance_m = rule.required_clearance_m;
+  dst.solver_used_same_level_constraint = rule.solver_used_same_level_constraint;
+  dst.used_special_case_ports = rule.used_special_case_ports;
+  dst.order_decision_policy = rule.order_decision_policy;
+  dst.order_decision_choice = rule.order_decision_choice;
+  dst.order_decision_choice_reason = rule.order_decision_choice_reason;
+  dst.chosen_side = rule.chosen_side;
+  dst.used_junction_pair_side_assignment = rule.used_junction_pair_side_assignment;
+  dst.down_offset_variation = rule.down_offset_variation;
+  dst.support_world = port_world_position;
+  dst.endpoint_world = port_world_position;
+  if (rule.default_lower_required || rule.semantic.lower_required) {
+    const double lower_offset =
+        rule.branch_down_offset_m > 0.0 ? rule.branch_down_offset_m : rule.automatic_branch_down_offset_m;
+    dst.endpoint_world.z -= lower_offset;
+    dst.branch_down_offset_m = lower_offset;
+    dst.automatic_branch_down_offset_m = lower_offset;
+  }
+  dst.departure_dir = {1.0, 0.0, 0.0};
+}
 
 struct SpanLayoutRule {
   ObjectId span_id = kInvalidObjectId;

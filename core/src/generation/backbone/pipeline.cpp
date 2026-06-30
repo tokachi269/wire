@@ -33,42 +33,6 @@ void add(ChangeSet& dst, const ChangeSet& src) {
   append(dst.deleted_ids, src.deleted_ids);
 }
 
-void copy_layout_semantic(LayoutSemantic& dst, const LayoutSemantic& src) {
-  dst.owner_pole_id = src.owner_pole_id;
-  dst.relation_kind = src.relation_kind;
-  dst.continuity_class = src.continuity_class;
-  dst.in_through_pair = src.in_through_pair;
-  dst.support_pair_peer_low = src.support_pair_peer_low;
-  dst.support_pair_peer_high = src.support_pair_peer_high;
-  dst.support_group_id = src.support_group_id;
-  dst.lower_required = src.lower_required;
-  dst.lowering_blocked_by_policy = src.lowering_blocked_by_policy;
-  dst.side_assignment_rule = src.side_assignment_rule;
-  dst.support_orientation_rule = src.support_orientation_rule;
-  dst.support_orientation_basis = src.support_orientation_basis;
-  dst.has_side_axis = src.has_side_axis;
-  dst.side_axis = src.side_axis;
-  dst.chosen_side_sign = src.chosen_side_sign;
-}
-
-Vec3d norm(Vec3d v) {
-  v.z = 0.0;
-  return Normalize(&v) ? v : Vec3d{1.0, 0.0, 0.0};
-}
-
-bool norm_strict(Vec3d* v) {
-  if (v == nullptr) {
-    return false;
-  }
-  v->z = 0.0;
-  return Normalize(v);
-}
-
-Vec3d side(Vec3d v) {
-  v = norm(v);
-  return Vec3d{-v.y, v.x, 0.0};
-}
-
 ObjectId saved_node_id_for(const CoreState& state, ObjectId node_or_pole_id) {
   if (node_or_pole_id == kInvalidObjectId) {
     return kInvalidObjectId;
@@ -514,34 +478,12 @@ std::vector<Vec3d> row_shifts(const pairs& ps) {
       if (row_id >= ps.rows.size()) {
         continue;
       }
-      const Vec3d sep = side(ps.rows[row_id].axis);
+      const Vec3d sep = ComputeLateralAxis(HorizontalNormalizedOr(ps.rows[row_id].axis));
       const double amount = (static_cast<double>(order) - center) * kRowSeparationM;
       shifts[row_id] = Vec3d{sep.x * amount, sep.y * amount, 0.0};
     }
   }
   return shifts;
-}
-
-double yaw(Vec3d forward) {
-  forward = norm(forward);
-  return std::atan2(forward.y, forward.x) * (180.0 / 3.14159265358979323846);
-}
-
-double len(Vec3d v) {
-  return std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
-}
-
-double dist2_to_segment(const Vec3d& p, const Vec3d& a, const Vec3d& b) {
-  const Vec3d ab = b - a;
-  const double len2 = ab.x * ab.x + ab.y * ab.y + ab.z * ab.z;
-  if (len2 <= 1e-12) {
-    const Vec3d d = p - a;
-    return d.x * d.x + d.y * d.y + d.z * d.z;
-  }
-  const double t = std::clamp(((p.x - a.x) * ab.x + (p.y - a.y) * ab.y + (p.z - a.z) * ab.z) / len2, 0.0, 1.0);
-  const Vec3d closest = {a.x + ab.x * t, a.y + ab.y * t, a.z + ab.z * t};
-  const Vec3d d = p - closest;
-  return d.x * d.x + d.y * d.y + d.z * d.z;
 }
 
 bool route_clear_of_avoid_points(const graph& made, const std::vector<Vec3d>& points, double radius) {
@@ -550,8 +492,7 @@ bool route_clear_of_avoid_points(const graph& made, const std::vector<Vec3d>& po
   }
   const double radius2 = radius * radius;
   const auto same_point = [](const Vec3d& lhs, const Vec3d& rhs) {
-    const Vec3d d = lhs - rhs;
-    return d.x * d.x + d.y * d.y + d.z * d.z <= 1e-18;
+    return DistanceSquared(lhs, rhs) <= 1e-18;
   };
   for (const Vec3d& point : points) {
     if (!made.nodes.empty() && (same_point(point, made.nodes.front().pos) || same_point(point, made.nodes.back().pos))) {
@@ -567,7 +508,7 @@ bool route_clear_of_avoid_points(const graph& made, const std::vector<Vec3d>& po
       if (!edge.is_new || edge.a >= made.nodes.size() || edge.b >= made.nodes.size()) {
         continue;
       }
-      if (dist2_to_segment(point, made.nodes[edge.a].pos, made.nodes[edge.b].pos) <= radius2) {
+      if (DistanceSquaredToSegment(point, made.nodes[edge.a].pos, made.nodes[edge.b].pos) <= radius2) {
         return false;
       }
     }
@@ -596,25 +537,25 @@ EditResult<std::size_t> avoid_detours_for_segment(const Vec3d& a, const Vec3d& b
     return out;
   }
   Vec3d ab = b - a;
-  const double len2 = ab.x * ab.x + ab.y * ab.y + ab.z * ab.z;
+  const double len2 = LengthSquared(ab);
   if (len2 <= 1e-12) {
     out.error = "backbone unsupported: avoid routing source segment is zero length";
     return out;
   }
   Vec3d dir = ab;
-  if (!norm_strict(&dir)) {
+  if (!NormalizeXY(&dir)) {
     out.error = "backbone unsupported: avoid routing source segment is zero length";
     return out;
   }
-  const Vec3d detour_axis = side(dir);
+  const Vec3d detour_axis = ComputeLateralAxis(dir);
   constexpr double kAvoidClearanceM = 0.5;
   for (const Vec3d& p : points) {
-    const double t = ((p.x - a.x) * ab.x + (p.y - a.y) * ab.y + (p.z - a.z) * ab.z) / len2;
-    if (t <= 1e-6 || t >= 1.0 - 1e-6 || dist2_to_segment(p, a, b) > radius * radius) {
+    const double t = Dot(p - a, ab) / len2;
+    if (t <= 1e-6 || t >= 1.0 - 1e-6 || DistanceSquaredToSegment(p, a, b) > radius * radius) {
       continue;
     }
     const Vec3d closest = {a.x + ab.x * t, a.y + ab.y * t, a.z + ab.z * t};
-    const double len_m = std::sqrt(len2);
+    const double len_m = Length(ab);
     const double before_m = t * len_m;
     const double after_m = (1.0 - t) * len_m;
     if (radius >= before_m || radius >= after_m) {
@@ -646,8 +587,7 @@ bool detour_internal_vertex(Vec3d prev, Vec3d current, Vec3d next, const std::ve
   const double radius2 = radius * radius;
   bool needs_detour = false;
   for (const Vec3d& point : points) {
-    const Vec3d d = point - current;
-    if (d.x * d.x + d.y * d.y + d.z * d.z <= radius2) {
+    if (DistanceSquared(point, current) <= radius2) {
       needs_detour = true;
       break;
     }
@@ -656,17 +596,17 @@ bool detour_internal_vertex(Vec3d prev, Vec3d current, Vec3d next, const std::ve
     return false;
   }
   Vec3d chord = next - prev;
-  if (!norm_strict(&chord)) {
+  if (!NormalizeXY(&chord)) {
     chord = current - prev;
-    if (!norm_strict(&chord)) {
+    if (!NormalizeXY(&chord)) {
       chord = next - current;
-      if (!norm_strict(&chord)) {
+      if (!NormalizeXY(&chord)) {
         return false;
       }
     }
   }
   constexpr double kAvoidClearanceM = 0.5;
-  const Vec3d axis = side(chord);
+  const Vec3d axis = ComputeLateralAxis(chord);
   *out = current + Vec3d{axis.x * (radius + kAvoidClearanceM), axis.y * (radius + kAvoidClearanceM), 0.0};
   return true;
 }
@@ -776,7 +716,7 @@ EditResult<bool> pipeline::prepare() {
     }
     if (spec.has_tangent_hint) {
       Vec3d tangent = spec.tangent_hint;
-      if (!norm_strict(&tangent)) {
+      if (!NormalizeXY(&tangent)) {
         out.error = "backbone unsupported: node spec tangent hint is zero";
         return out;
       }
@@ -831,7 +771,7 @@ EditResult<bool> pipeline::prepare() {
       const SupportKind inserted_support = inserted_support_for_segment(i, i + 1);
       const Vec3d seg = b - a;
       constexpr double kIntervalEps = 1e-9;
-      const double len = std::sqrt(seg.x * seg.x + seg.y * seg.y + seg.z * seg.z);
+      const double len = Length(seg);
       std::vector<segment_insert> inserts{};
       if (spec_.interval_m > 0.0 && len > kIntervalEps) {
         for (std::size_t step = 1;; ++step) {
@@ -967,7 +907,7 @@ EditResult<bool> pipeline::prepare() {
       }
       if (spec_it->second->has_tangent_hint) {
         Vec3d tangent = spec_it->second->tangent_hint;
-        (void)norm_strict(&tangent);
+        (void)NormalizeXY(&tangent);
         n.has_tangent = true;
         n.tangent = tangent;
       }
@@ -1018,7 +958,7 @@ EditResult<bool> pipeline::prepare() {
           }
           if (pending->has_tangent_hint) {
             Vec3d tangent = pending->tangent_hint;
-            if (norm_strict(&tangent)) {
+            if (NormalizeXY(&tangent)) {
               n.has_tangent = true;
               n.tangent = tangent;
             }
@@ -1331,7 +1271,7 @@ EditResult<pairs> pipeline::make(const graph& made) const {
     if (edge.a >= made.nodes.size() || edge.b >= made.nodes.size()) {
       return unsupported_pairs("link endpoint is out of range");
     }
-    if (!norm_strict(&edge.dir)) {
+    if (!NormalizeXY(&edge.dir)) {
       return unsupported_pairs("zero length link");
     }
     out_links[edge.a].push_back(edge.id);
@@ -1396,7 +1336,7 @@ EditResult<pairs> pipeline::make(const graph& made) const {
       const link& a = out.value.links[left];
       const link& b = out.value.links[matched];
       Vec3d chord = made.nodes[b.b].pos - made.nodes[a.a].pos;
-      if (!norm_strict(&chord)) {
+      if (!NormalizeXY(&chord)) {
         return unsupported_pairs("zero length pair chord");
       }
       bused[left] = true;
@@ -1404,7 +1344,7 @@ EditResult<pairs> pipeline::make(const graph& made) const {
       if (out.value.links[left].brow != bad || out.value.links[matched].arow != bad) {
         return unsupported_pairs("incident already used");
       }
-      const std::size_t row_id = add_pair(&out.value, n.id, left, matched, side(chord));
+      const std::size_t row_id = add_pair(&out.value, n.id, left, matched, ComputeLateralAxis(chord));
       out.value.links[left].brow = row_id;
       out.value.links[matched].arow = row_id;
     }
@@ -1417,7 +1357,8 @@ EditResult<pairs> pipeline::make(const graph& made) const {
       if (out.value.links[link_id].arow != bad) {
         return unsupported_pairs("incident already used");
       }
-      out.value.links[link_id].arow = add_open(&out.value, n.id, link_id, side(out.value.links[link_id].dir));
+      out.value.links[link_id].arow =
+          add_open(&out.value, n.id, link_id, ComputeLateralAxis(out.value.links[link_id].dir));
     }
     for (std::size_t link_id : incoming) {
       if (bused[link_id]) {
@@ -1427,7 +1368,8 @@ EditResult<pairs> pipeline::make(const graph& made) const {
       if (out.value.links[link_id].brow != bad) {
         return unsupported_pairs("incident already used");
       }
-      out.value.links[link_id].brow = add_open(&out.value, n.id, link_id, side(out.value.links[link_id].dir));
+      out.value.links[link_id].brow =
+          add_open(&out.value, n.id, link_id, ComputeLateralAxis(out.value.links[link_id].dir));
     }
   }
 
@@ -1461,7 +1403,7 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
     if (edge.b == node_id) {
       dir = Vec3d{-dir.x, -dir.y, -dir.z};
     }
-    return norm(dir);
+    return HorizontalNormalizedOr(dir);
   };
   auto pair_is_bent = [&](const pair& item) {
     if (item.left >= ps.links.size() || item.right >= ps.links.size()) {
@@ -1651,7 +1593,7 @@ EditResult<bool> pipeline::emit_poles(topo* made, ChangeSet* changes) {
     const Vec3d dir = g_.nodes[i].has_tangent ? g_.nodes[i].tangent
                                                : ((next_index != bad) ? (next - g_.nodes[i].pos)
                                                                       : (g_.nodes[i].pos - prev));
-    tf.rotation_euler_deg.z = yaw(dir);
+    tf.rotation_euler_deg.z = YawDegFromXY(dir);
     EditResult<ObjectId> pole = state_.AddPole(tf, 10.0, "backbone-pole", PoleKind::kConcrete,
                                                g_.nodes[i].pinned ? PlacementMode::kManual : PlacementMode::kAuto);
     if (!pole.ok) {
@@ -2019,7 +1961,7 @@ rules pipeline::make(const topo& made, const groups& placement) const {
       }
       const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint.semantic);
       SupportGroupDecision& group = rule.support_group_rules[key];
-      copy_layout_semantic(group, endpoint.semantic);
+      CopyLayoutSemantic(group, endpoint.semantic);
       group.side = endpoint.side;
       group.origin = endpoint.origin;
       group.order_decision_policy = endpoint.order_decision_policy;
@@ -2043,40 +1985,7 @@ EditResult<layout> pipeline::make(const rules& made) const {
     if (port == nullptr || target == nullptr) {
       return false;
     }
-    copy_layout_semantic(*target, rule.semantic);
-    target->endpoint_node_id = rule.endpoint_node_id;
-    target->port_id = rule.port_id;
-    target->flow_kind = rule.flow_kind;
-    target->origin = rule.origin;
-    target->endpoint_source = rule.endpoint_source;
-    target->port_source = rule.port_source;
-    target->side = rule.side;
-    target->endpoint_mode = rule.endpoint_mode;
-    target->automatic_branch_down_offset_m = rule.automatic_branch_down_offset_m;
-    target->branch_down_offset_m = rule.branch_down_offset_m;
-    target->default_lower_required = rule.default_lower_required;
-    target->same_level_feasible = rule.same_level_feasible;
-    target->unresolved_same_level_conflict = rule.unresolved_same_level_conflict;
-    target->same_level_reason = rule.same_level_reason;
-    target->projected_spacing_topview_m = rule.projected_spacing_topview_m;
-    target->required_clearance_m = rule.required_clearance_m;
-    target->solver_used_same_level_constraint = rule.solver_used_same_level_constraint;
-    target->used_special_case_ports = rule.used_special_case_ports;
-    target->order_decision_policy = rule.order_decision_policy;
-    target->order_decision_choice = rule.order_decision_choice;
-    target->order_decision_choice_reason = rule.order_decision_choice_reason;
-    target->chosen_side = rule.chosen_side;
-    target->used_junction_pair_side_assignment = rule.used_junction_pair_side_assignment;
-    target->down_offset_variation = rule.down_offset_variation;
-    target->support_world = port->world_position;
-    target->endpoint_world = port->world_position;
-    if (rule.default_lower_required || rule.semantic.lower_required) {
-      const double lower_offset = rule.branch_down_offset_m > 0.0 ? rule.branch_down_offset_m : rule.automatic_branch_down_offset_m;
-      target->endpoint_world.z -= lower_offset;
-      target->branch_down_offset_m = lower_offset;
-      target->automatic_branch_down_offset_m = lower_offset;
-    }
-    target->departure_dir = WorldForward();
+    ApplyEndpointLayoutRule(*target, rule, port->world_position);
     return true;
   };
   for (const SpanLayoutRule& rule : made.data.spans) {
@@ -2108,7 +2017,7 @@ EditResult<layout> pipeline::make(const rules& made) const {
     append_group_key(entry.start);
     append_group_key(entry.end);
     const Vec3d chord = entry.end.endpoint_world - entry.start.endpoint_world;
-    entry.basis_length_m = std::sqrt(chord.x * chord.x + chord.y * chord.y + chord.z * chord.z);
+    entry.basis_length_m = Length(chord);
     entry.effective_sag_ratio = 0.0;
     entry.continuity_preference = CableContinuityPolicyHint::kAuto;
     entry.bend_stiffness_hint = 1.0;
@@ -2173,7 +2082,7 @@ void pipeline::save(const layout& made) {
     }
     const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint);
     cached_group& item = group_for(key);
-    copy_layout_semantic(item.decision, endpoint);
+    CopyLayoutSemantic(item.decision, endpoint);
     item.decision.side = endpoint.side;
     item.decision.origin = endpoint.origin;
     item.decision.order_decision_policy = endpoint.order_decision_policy;

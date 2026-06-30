@@ -156,10 +156,6 @@ Vec3d local_to_world_on_pole(const Transformd& tf, double yaw_deg, const Vec3d& 
   return LocalPointToWorld(BuildPoleFrame(tf, yaw_deg), local);
 }
 
-double normalize_yaw_deg(double yaw_deg) {
-  return NormalizeYawDeg(yaw_deg);
-}
-
 const std::vector<ObjectId>& relation_ids_or_empty(const std::unordered_map<ObjectId, std::vector<ObjectId>>& index,
                                                    ObjectId owner_id) {
   static const std::vector<ObjectId> kEmpty;
@@ -801,4 +797,3 @@ bool CoreState::is_valid_slot_role(SlotRole role) {
 
 
 } // namespace wire::core
-

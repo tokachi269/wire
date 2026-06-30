@@ -1,5 +1,7 @@
 #include "path_pick_policy.hpp"
 
+#include "wire/core/coord_utils.hpp"
+
 #include <algorithm>
 
 namespace {
@@ -7,12 +9,6 @@ namespace {
 bool IsTemplateSelected(std::uint32_t selected_template_mask, wire::core::BundleKind kind) {
   const auto bit = (1u << static_cast<unsigned>(kind));
   return (selected_template_mask & bit) != 0;
-}
-
-double DistanceSquaredXY(const wire::core::Vec3d& a, const wire::core::Vec3d& b) {
-  const double dx = a.x - b.x;
-  const double dy = a.y - b.y;
-  return dx * dx + dy * dy;
 }
 
 double SegmentTxy(const wire::core::Vec3d& p, const wire::core::Vec3d& a, const wire::core::Vec3d& b) {
@@ -95,8 +91,8 @@ wire::core::PickResult NormalizeDrawPathPick(const wire::core::CoreView& view, c
     return pick;
   }
 
-  const double d2_a = DistanceSquaredXY(pick.hit_pos_world, pick.segment_endpoint_a_world);
-  const double d2_b = DistanceSquaredXY(pick.hit_pos_world, pick.segment_endpoint_b_world);
+  const double d2_a = wire::core::DistanceSquaredXY(pick.hit_pos_world, pick.segment_endpoint_a_world);
+  const double d2_b = wire::core::DistanceSquaredXY(pick.hit_pos_world, pick.segment_endpoint_b_world);
   if (near_start && d2_a <= endpoint_snap_r2 && d2_a <= d2_b) {
     wire::core::PickResult normalized = pick;
     if (pick.segment_node_a_id != wire::core::kInvalidObjectId) {
@@ -166,7 +162,7 @@ wire::core::PickResult PromoteGroundHoverToNearbyPolePick(const wire::core::Core
   const wire::core::Pole* best_pole = nullptr;
   double best_distance_squared = snap_radius_squared + 1.0;
   for (const wire::core::Pole& pole : view.edit_state().poles.items()) {
-    const double distance_squared = DistanceSquaredXY(pole.world_transform.position, ground_hover_world);
+    const double distance_squared = wire::core::DistanceSquaredXY(pole.world_transform.position, ground_hover_world);
     if (distance_squared > snap_radius_squared) {
       continue;
     }

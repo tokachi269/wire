@@ -1,5 +1,7 @@
 #include "../internal_services.hpp"
 
+#include "wire/core/coord_utils.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <unordered_set>
@@ -361,10 +363,7 @@ EditResult<bool> TemplateMutationService::ResetAllSpanReferenceLengths(CoreState
     if (a == nullptr || b == nullptr) {
       continue;
     }
-    const double dx = b->world_position.x - a->world_position.x;
-    const double dy = b->world_position.y - a->world_position.y;
-    const double dz = b->world_position.z - a->world_position.z;
-    const double length = std::sqrt(dx * dx + dy * dy + dz * dz);
+    const double length = Length(b->world_position - a->world_position);
     if (std::abs(span->reference_length_m - length) <= 1e-9) {
       continue;
     }

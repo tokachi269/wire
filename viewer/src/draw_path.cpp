@@ -3,6 +3,8 @@
 #include "path_pick_policy.hpp"
 #include "ui_common.hpp"
 
+#include "wire/core/coord_utils.hpp"
+
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -581,12 +583,7 @@ Vector3 ToRaylibLocal(const wire::core::Vec3d& ue_xyz) {
 }
 
 double PolylineLengthLocal(const std::vector<wire::core::Vec3d>& points) {
-  double length = 0.0;
-  for (std::size_t i = 0; i + 1 < points.size(); ++i) {
-    const wire::core::Vec3d d = points[i + 1] - points[i];
-    length += std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
-  }
-  return length;
+  return wire::core::PolylineLength(points);
 }
 
 void PushLogLocal(ViewerUiState& ui_state, const std::string& line) {

@@ -49,11 +49,6 @@ Vec3d unit_xy_from_azimuth_deg(double azimuth_deg) {
   return {std::cos(azimuth_rad), std::sin(azimuth_rad), 0.0};
 }
 
-double azimuth_deg_from_xy(const Vec3d& dir) {
-  constexpr double kPi = 3.14159265358979323846;
-  return std::atan2(dir.y, dir.x) * (180.0 / kPi);
-}
-
 Vec3d tilt_euler_xy_from_local_polar_deg(double tilt_deg, double local_azimuth_deg) {
   constexpr double kPi = 3.14159265358979323846;
   const double tilt_rad = std::clamp(tilt_deg, 0.0, 89.0) * (kPi / 180.0);
@@ -224,10 +219,6 @@ bool pole_type_definition_equals(const PoleTypeDefinition& a, const PoleTypeDefi
     }
   }
   return true;
-}
-
-double normalize_yaw_deg(double yaw_deg) {
-  return NormalizeYawDeg(yaw_deg);
 }
 
 } // namespace
@@ -402,10 +393,7 @@ EditResult<ObjectId> CoreState::AddSpan(ObjectId port_a_id, ObjectId port_b_id, 
   span.bundle_id = bundle_id;
   span.anchor_a_id = anchor_a_id;
   span.anchor_b_id = anchor_b_id;
-  const double dx = port_b->world_position.x - port_a->world_position.x;
-  const double dy = port_b->world_position.y - port_a->world_position.y;
-  const double dz = port_b->world_position.z - port_a->world_position.z;
-  span.reference_length_m = std::sqrt(dx * dx + dy * dy + dz * dz);
+  span.reference_length_m = Length(port_b->world_position - port_a->world_position);
   authoritative_.edit_state.spans.insert(span);
 
   touch_topology_related_spans_for_ports({port_a_id, port_b_id}, span.id, &result.change_set);
@@ -566,7 +554,7 @@ EditResult<bool> CoreState::ApplyPoleTilt(const std::vector<ObjectId>& pole_ids,
     Vec3d tilt_world_dir = random_world_dir;
     double pull_strength = 0.0;
     if (incident_span_count > 0) {
-      pull_strength = std::clamp(std::sqrt(LengthSquared(pull_world_dir)) / static_cast<double>(incident_span_count), 0.0, 1.0);
+      pull_strength = std::clamp(Length(pull_world_dir) / static_cast<double>(incident_span_count), 0.0, 1.0);
     }
     if (NormalizeXY(&pull_world_dir)) {
       const double pull_bias = 0.60 + 0.25 * pull_strength;
@@ -580,7 +568,7 @@ EditResult<bool> CoreState::ApplyPoleTilt(const std::vector<ObjectId>& pole_ids,
         (incident_span_count > 0) ? (0.20 + 0.80 * pull_strength) : 1.0;
     const double applied_tilt_deg = clamped_max_tilt_deg * random_tilt_factor * applied_tilt_scale;
     const double layout_yaw_deg = effective_pole_layout_yaw_deg(*pole);
-    const double local_azimuth_deg = NormalizeYawDeg(azimuth_deg_from_xy(tilt_world_dir) - layout_yaw_deg);
+    const double local_azimuth_deg = NormalizeYawDeg(YawDegFromXY(tilt_world_dir) - layout_yaw_deg);
     const Vec3d tilt_euler_deg = tilt_euler_xy_from_local_polar_deg(applied_tilt_deg, local_azimuth_deg);
     if (std::abs(pole->tilt_magnitude_deg - applied_tilt_deg) <= 1e-9 &&
         std::abs(pole->world_transform.rotation_euler_deg.x - tilt_euler_deg.x) <= 1e-9 &&
@@ -794,7 +782,7 @@ EditResult<ObjectId> CoreState::SetPoleManualYawOverride(ObjectId pole_id, doubl
   }
 
   const Pole old_pole = *pole;
-  next.manual_yaw_deg = normalize_yaw_deg(manual_yaw_deg);
+  next.manual_yaw_deg = NormalizeYawDeg(manual_yaw_deg);
   authoritative_.override_state.pole_orientation_by_pole[pole_id] = next;
   pole->world_transform.rotation_euler_deg.z = *next.manual_yaw_deg;
   finalize_pole_transform_update(pole_id, old_pole, &result.change_set);
@@ -834,7 +822,7 @@ EditResult<ObjectId> CoreState::ClearPoleOrientationOverride(ObjectId pole_id) {
     const Vec3d forward = it->second.adopted_forward;
     if ((forward.x * forward.x + forward.y * forward.y + forward.z * forward.z) > 1e-12) {
       pole->world_transform.rotation_euler_deg.z =
-          normalize_yaw_deg(std::atan2(forward.y, forward.x) * (180.0 / 3.14159265358979323846));
+          YawDegFromXY(forward);
     }
   }
   finalize_pole_transform_update(pole_id, old_pole, &result.change_set);
@@ -1685,7 +1673,7 @@ double CoreState::effective_port_layout_yaw_deg(const Pole& pole, ConnectionCate
     return effective_pole_yaw_deg(pole);
   }
   if (row_layout_yaw_override != nullptr && row_layout_yaw_override->category == category) {
-    return normalize_yaw_deg(row_layout_yaw_override->yaw_deg);
+    return NormalizeYawDeg(row_layout_yaw_override->yaw_deg);
   }
   if (const auto it = debug_.pole_orientation_debug_records.find(pole.id); it != debug_.pole_orientation_debug_records.end()) {
     const bool uses_support_axis_layout =
@@ -1696,7 +1684,7 @@ double CoreState::effective_port_layout_yaw_deg(const Pole& pole, ConnectionCate
     }
     Vec3d support_axis = it->second.adopted_support_axis;
     if (Normalize(&support_axis)) {
-      return normalize_yaw_deg(std::atan2(support_axis.y, support_axis.x) * (180.0 / 3.14159265358979323846) - 90.0);
+      return NormalizeYawDeg(YawDegFromXY(support_axis) - 90.0);
     }
   }
   return effective_pole_yaw_deg(pole);
@@ -1906,15 +1894,7 @@ std::unordered_map<ObjectId, std::vector<ObjectId>> CoreState::make_expected_spa
 }
 
 double CoreState::polyline_length(const std::vector<Vec3d>& polyline) {
-  if (polyline.size() < 2) {
-    return 0.0;
-  }
-  double total = 0.0;
-  for (std::size_t i = 0; i + 1 < polyline.size(); ++i) {
-    const Vec3d d = polyline[i + 1] - polyline[i];
-    total += std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
-  }
-  return total;
+  return PolylineLength(polyline);
 }
 
 } // namespace wire::core

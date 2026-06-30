@@ -33,6 +33,24 @@ void add(ChangeSet& dst, const ChangeSet& src) {
   append(dst.deleted_ids, src.deleted_ids);
 }
 
+void copy_layout_semantic(LayoutSemantic& dst, const LayoutSemantic& src) {
+  dst.owner_pole_id = src.owner_pole_id;
+  dst.relation_kind = src.relation_kind;
+  dst.continuity_class = src.continuity_class;
+  dst.in_through_pair = src.in_through_pair;
+  dst.support_pair_peer_low = src.support_pair_peer_low;
+  dst.support_pair_peer_high = src.support_pair_peer_high;
+  dst.support_group_id = src.support_group_id;
+  dst.lower_required = src.lower_required;
+  dst.lowering_blocked_by_policy = src.lowering_blocked_by_policy;
+  dst.side_assignment_rule = src.side_assignment_rule;
+  dst.support_orientation_rule = src.support_orientation_rule;
+  dst.support_orientation_basis = src.support_orientation_basis;
+  dst.has_side_axis = src.has_side_axis;
+  dst.side_axis = src.side_axis;
+  dst.chosen_side_sign = src.chosen_side_sign;
+}
+
 Vec3d norm(Vec3d v) {
   v.z = 0.0;
   return Normalize(&v) ? v : Vec3d{1.0, 0.0, 0.0};
@@ -816,7 +834,11 @@ EditResult<bool> pipeline::prepare() {
       const double len = std::sqrt(seg.x * seg.x + seg.y * seg.y + seg.z * seg.z);
       std::vector<segment_insert> inserts{};
       if (spec_.interval_m > 0.0 && len > kIntervalEps) {
-        for (double dist = spec_.interval_m; dist < len - kIntervalEps; dist += spec_.interval_m) {
+        for (std::size_t step = 1;; ++step) {
+          const double dist = spec_.interval_m * static_cast<double>(step);
+          if (dist >= len - kIntervalEps) {
+            break;
+          }
           const double t = std::clamp(dist / len, 0.0, 1.0);
           inserts.push_back({t, {a.x + seg.x * t, a.y + seg.y * t, a.z + seg.z * t}, inserted_support, false});
         }
@@ -1997,7 +2019,7 @@ rules pipeline::make(const topo& made, const groups& placement) const {
       }
       const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint.semantic);
       SupportGroupDecision& group = rule.support_group_rules[key];
-      static_cast<LayoutSemantic&>(group) = endpoint.semantic;
+      copy_layout_semantic(group, endpoint.semantic);
       group.side = endpoint.side;
       group.origin = endpoint.origin;
       group.order_decision_policy = endpoint.order_decision_policy;
@@ -2021,7 +2043,7 @@ EditResult<layout> pipeline::make(const rules& made) const {
     if (port == nullptr || target == nullptr) {
       return false;
     }
-    static_cast<LayoutSemantic&>(*target) = rule.semantic;
+    copy_layout_semantic(*target, rule.semantic);
     target->endpoint_node_id = rule.endpoint_node_id;
     target->port_id = rule.port_id;
     target->flow_kind = rule.flow_kind;
@@ -2151,7 +2173,7 @@ void pipeline::save(const layout& made) {
     }
     const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint);
     cached_group& item = group_for(key);
-    static_cast<LayoutSemantic&>(item.decision) = endpoint;
+    copy_layout_semantic(item.decision, endpoint);
     item.decision.side = endpoint.side;
     item.decision.origin = endpoint.origin;
     item.decision.order_decision_policy = endpoint.order_decision_policy;

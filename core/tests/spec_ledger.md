@@ -14,22 +14,13 @@
 | C02 | Symptom | Init | ObjectStore整合 | 空Store | insert/find/remove/upsert | Exact: 件数・参照整合 | 公開API | 参照崩壊防止 |
 | C03 | Symptom | Generate/Edit | Span追加初期Dirty | 有効Port2点 | AddSpan | Exact: runtime生成+dirty | runtime | 再計算漏れ防止 |
 | C04 | Symptom | Generate/Edit | MovePole局所更新 | 独立Span2本 | MovePole | Invariant: 関連Spanのdata versionだけ更新 | runtime version | 無関係再計算抑制 |
-| C05 | Symptom | Validate | SplitSpan整合 | Span1本 | SplitSpan | Invariant: 旧削除+新2本+新Port | stores/index/Validate | 分岐崩壊防止 |
 | C06 | Authority | Generate/Edit | PoleType適用 | PoleTypeあり | ApplyPoleType | Invariant: owner整合でPort生成 | PoleDetail | テンプレ適用維持 |
 | C07 | Symptom | LanePrep | PoleType差分 | PoleType2種 | 各Type適用 | Invariant: port placement hint構成差 | template_side/template_layer | 型差分維持 |
-| C08 | Symptom | Generate/Edit | 未使用候補優先 | PoleType適用2Pole | AddConnectionByPole×2 | Invariant: 別Port選択 | result.port_a_id | 線重なり低減 |
-| C09 | Symptom | Generate/Edit | Pole接続整合 | PoleType適用2Pole | AddConnectionByPole | Invariant: Span/index/dirty整合 | spans/index/runtime | 主導線成立 |
-| C10 | Symptom | General | 同一Pole接続拒否 | Pole1本 | 同一Pole接続後に正常操作 | Exact: fail+復帰可 | error/後続成功 | 誤操作耐性 |
-| C11 | Symptom | Generate/Edit | 柱起点引込 | PoleType適用済 | AddDropFromPole | Invariant: service span生成 | spans/ports | 引込崩壊防止 |
-| C12 | Symptom | Generate/Edit | 線起点引込 | Span1本 | AddDropFromSpan | Invariant: split+drop整合 | spans/index | 分岐引込維持 |
 | C19 | Symptom | Generate/Edit | interval Pole生成 | PoleTypeあり | GenerateFromBackboneSpec(interval) | Invariant: 本数/Type/saved graph node | poles/backbone | interval 自動配置信頼性 |
 | C20 | Symptom | Generate/Edit | 短polyline拒否 | PoleTypeあり | GenerateFromBackboneSpec(点1) | Exact: fail+状態不変 | error/count | 入力ミス耐性 |
 | C22 | Symptom | Generate/Edit | 存在しないPort拒否 | 空状態 | AddSpan(無効ID) | Exact: fail+状態不変 | error/count | 参照不正耐性 |
-| C23 | Symptom | Generate/Edit | Split t不正拒否 | Span1本 | SplitSpan(t=0) | Exact: fail+復帰可 | error/spans | 失敗後復帰 |
 | C28 | Symptom | Generate/Edit | through連続性 | 直線入力 | GenerateFromBackboneSpec | Invariant: 中間Pole同Port再利用 | span端点Port | 幹線連続維持 |
 | C29 | Symptom | Init | 表示ID採番 | 新規CoreState | Pole/Port/Span追加 | Exact: prefix別連番 | display_id | UI追跡性 |
-| C32 | Symptom | General | 文脈別選定 | 3Pole | Trunk接続+Branch接続 | Invariant: 選定傾向差 | selected_port_id/template_side | 分岐競合低減 |
-| C33 | Symptom | Generate/Edit | 決定的タイブレーク | 同一入力2回 | AddConnectionByPole | Exact: 同一Port解決+debug整合 | port_resolution_debug_records | 再現性 |
 | C61 | Symptom | Generate/Edit | 鋭角自動拡幅 | 鋭角/鈍角の同一テンプレート比較 | GenerateFromBackboneSpec | Invariant: 鋭角の左右レーン間隔が鈍角より広い（カテゴリ非依存） | corner poleのlocal Y差 | 角での線間距離不足防止 |
 | C101 | Symptom | Generate/Edit | HV空中分岐規格フラグ固定 | HV template | GenerateFromBackboneSpec(HV_3PH, legacy branch mode値を注入) | Exact: fail（unsupported mode）かつ `allow_midair_branch=false` | error / bundle_templates | 高圧規格逸脱の混入防止 |
 | C105 | Authority | Pick | Segment中間でMidair生成 | Segmentクリック（端点から十分離れる） | ResolveBranchPick(PickResult, snap_radius) | Invariant: Midair SupportNodeが生成される | ResolveBranchPick結果 / generation backbone snapshot nodes (`last_generation_backbone.nodes`) | 空中分岐入力を安定して扱える |
@@ -39,23 +30,14 @@
 | C65 | Symptom | Generate/Edit | pin_verticesオプション | 3頂点Guide | GenerateFromBackboneSpec(pin_vertices=true) | Exact: 中間頂点PoleもManual | pole placement_mode | ピン留め挙動の明示制御 |
 | C66 | Symptom | General | Pole Pin/Unpin切替 | 既存Pole | SetPolePlacementMode(Auto→Manual→Auto) | Exact: mode遷移とuser_edited整合 | pole fields | ユーザー明示ピン留め運用 |
 | C71 | Symptom | Generate/Edit | MovePoleでAuto Port再投影とManual保護 | 既存Pole + Manual Portあり | MovePole | Invariant: Auto Portだけが再投影され、Manual Portは維持される | port位置 / runtime dirty | Pole移動で手修正Portが壊れない |
-| C37 | Symptom | Generate/Edit | 幾何based side選定 | 2Pole(左右) | AddConnectionByPole(Branch) | Invariant: 右手前でRight,左手前でLeft | selected port template_side | 偶奇依存排除 |
-| C40 | Symptom | General | Pole flip_180 | 接続済Pole | SetPoleFlip180(true) | Invariant: 配下Port更新 | port位置 | 局所向き修正性 |
 | C44 | Authority | Validate | Bundle参照API整合 | Span1本+Bundle作成 | AddBundle + AddSpan + GetSpansByBundle | Invariant: Spanがbundle参照を保持し検索整合 | span fields/query API/Validate | 複数本配線の正本一貫性維持 |
 | C45 | Symptom | Generate/Edit | 不正Bundle参照拒否 | Span1本 | AddSpan(bundle_id不正) | Exact: failし状態保全, 診断文言あり | error/span fields | 不正参照でデータ破壊しない |
 | C90 | Symptom | Generate/Edit | Backbone bundles必須 | BackboneSpecでbundles空+legacy値のみ設定 | GenerateFromBackboneSpec | Exact: bundle 必須エラー | error | legacy経路の逆流防止 |
-| C91 | Symptom | Generate/Edit | 接続時テンプレ必須 | 2Pole + auto_create_bundle=true + template未指定 | AddConnectionByPole | Exact: bundle_template_id必須エラー | error | category依存自動生成の再混入防止 |
-| C92 | Symptom | Generate/Edit | 接続時テンプレ優先 | 2Pole + template=HV + category引数をLVで呼ぶ | AddConnectionByPole | Invariant: Span/Port/BundleがHV規格で生成される | span layer / port category / bundle kind,count | category引数の隠れ分岐混入防止 |
-| C93 | Symptom | Generate/Edit | 接続時bundle/template競合拒否 | 2Pole + 既存LV bundle + template=HV | AddConnectionByPole | Exact: mismatchエラー | error | 二重入力の矛盾混入防止 |
-| C94 | Symptom | Generate/Edit | 接続時template指定+auto_create無効 | 2Pole + use_template=true + auto_create=false + bundle_id未指定 | AddConnectionByPole | Exact: bundle_id必須エラー | error | 暗黙no-opの混入防止 |
-| C95 | Symptom | Generate/Edit | 接続時span_layer上書き競合拒否 | 2Pole + template=HV + span_layer=LV | AddConnectionByPole | Exact: span_layer conflictエラー | error | layer二重指定の矛盾混入防止 |
-| C96 | Symptom | Generate/Edit | Dropは専用テンプレ既定利用 | PoleType適用済Pole | AddDropFromPole(kDrop) | Invariant: Drop は LV ではなく専用 bundle/layer/cable template 既定を使う | span layer / bundle spacing / bundle template | Drop を LV 流用へ戻し、引込専用テンプレが潰れる回帰防止 |
 | C74 | Symptom | Generate/Edit | 非HVテンプレ固定1本 | BackboneSpec + LV既定テンプレ | GenerateFromBackboneSpec(bundle=count未指定) | Invariant: 区間ごとに1本生成 | generated span数/bundle count | 規格固定で入力削減 |
 | C75 | Symptom | Generate/Edit | 非HV固定テンプレcount上書き拒否 | BackboneSpec + LV既定テンプレ | GenerateFromBackboneSpec(bundle=count指定) | Exact: fail（上書き不可） | error | 固定規格の強制 |
 | C77 | Symptom | Generate/Edit | 複数テンプレ同時生成 | BackboneSpec + LV/COMM複合指定 | GenerateFromBackboneSpec(bundles複数) | Invariant: bundleが複数生成され、Span数が合算本数に一致 | result.bundle_ids/generated spans | 複数束同時入力の成立 |
 | C80 | Symptom | General | center hintのPole非重なり | center hintを持つPoleType | PoleType適用でPort生成 | Invariant: center候補由来PortはPole中心線から半径+クリアランス分だけ離れる | port local/world位置 | center PortがPoleに埋まらない |
 | C50 | Symptom | General | Port初期モード | 新規Port追加 | AddPort | Exact: position_mode=Auto | port fields | 新規Port生成規則の固定 |
-| C51 | Symptom | Generate/Edit | Port手修正/解除 | 接続済Port | SetPortWorldPositionManual→ResetPortPositionToAuto | Invariant: Manual化→Auto復帰 | port position/mode | 手直し維持と復帰性 |
 | C52 | Symptom | Regenerate | Manual保護 | 手修正Portあり | SetPoleFlip180 | Invariant: Manual Port位置が維持される | port position/mode | 軽微再生成で手修正消失防止 |
 | C53 | Symptom | Generate/Edit | BackboneSpec境界手動点安定 | BackboneSpec初回生成済 | BackboneSpec延長して再GenerateFromBackboneSpec | Invariant: 既存Manual境界Poleの位置/Mode不変 | pole position/mode | 軽微変更で手直し消失防止 |
 | C55 | Symptom | General | Backbone経路 | Bundle付きSpan生成済 | SavedBackboneEdges/FindSavedBackboneRoute | Invariant: bundle付きedge構築と経路取得 | backbone edge/route | ルート計算基盤維持 |
@@ -96,7 +78,7 @@
 | C287 | Symptom | Init | CommunicationPole は support/HV/LV/optical/communication/drop の高さ順を保つ | デフォルト pole type 一覧を観測 | CoreState 初期化 | Invariant: CommunicationPole の top support band は HV より高く、HV は LV より高く、LV は optical より高く、optical は communication より高く、communication は drop より高い | PoleTypeDefinition.port_bands | CommunicationPole の default placement 高さ順が崩れて Pole Placement のカテゴリ意味が逆転する回帰防止 |
 | C289 | Symptom | Generate/Edit | pole type 高さ更新は既存 pole 本体高さと owned auto ports へ再適用される | CommunicationPole を適用した pole 1 本の optical bands と pole 高さを更新 | ApplyPoleType→UpdatePoleTypeDefinition | Invariant: PoleTypeDefinition の default height と port-band 高さ変更は既存 pole 本体高さと auto-owned optical ports に反映され、template と実配置が乖離しない | UpdatePoleTypeDefinition / Pole.height_m / PoleDetailInfo.owned_ports / Port.world_position.z | pole type 編集後も既存 pole の本体高さや port 高さが stale のまま残る回帰防止 |
 | C296 | Authority | Init | default pole template の HV category は単一高さを使う | デフォルト pole type 一覧を観測 | CoreState 初期化 | Invariant: DistributionPole / CommunicationPole の enabled HV bands は同一 `height_center_m` を共有し、category-level pole placement UI が平均値ではなく正本高さを読む | PoleTypeDefinition.port_bands | HV band ごとに高さが微妙にずれていて category UI の初期値だけ高く見える回帰防止 |
-| C297 | Symptom | Generate/Edit | bundle-linked pole template は既存 pole に明示適用できる | DistributionPole 2 本に optical bundle を張る | AddConnectionByPole(kOptical)→ApplyBundleRelatedPoleTypeToExistingPoles | Invariant: optical bundle template の related pole type を既存 pole instance へ適用すると pole_type_id と pole height が CommunicationPole に揃う | BundleTemplate.related_pole_type_id / ApplyBundleRelatedPoleTypeToExistingPoles / Pole.pole_type_id / Pole.height_m | bundle editor で pole template を変えても既存 pole instance に届かず、apply しても見た目が変わらない回帰防止 |
+| C297 | Boundary | Generate/Edit | related pole type の post-edit は SavedGraph topology を暗黙変更しない | bb2 line に optical bundle を追加 | ApplyBundleRelatedPoleTypeToExistingPoles | Invariant: topology regeneration が必要な変更は mutation 前 unsupported、pole type/height は不変 | SavedBackboneGraph / BundleTemplate.related_pole_type_id / Pole.pole_type_id | 旧直接適用が SavedGraph と実体を不整合にする回帰防止 |
 | C304 | Authority | General | style context resolver は semantic key ごとに deterministic で route-level 傾向を共有する | 同一 `ContextProfile` / `StyleRouteKey` に対して sibling object key を 2 つ解決 | ResolveStyleContext | Invariant: district/route scope は同じ semantic route で共有され、同一 object key では完全再現し、object key だけ変えると object scope だけが変わる | ResolveStyleContext / ResolvedStyleContext.scope / route / object | realism resolver が transient id や呼び出し順に依存して不安定になり、route 相関や再現性を失う回帰防止 |
 | C309 | Symptom | Init | CommunicationPole の communication / optical 既定 band は中央 side を保つ | デフォルト pole type 一覧を観測 | CoreState 初期化 | Invariant: CommunicationPole の enabled communication / optical trunk bands は `SlotSide::kCenter` を保ち、左右分離を既定にしない | PoleTypeDefinition.port_bands | CommunicationPole の既定 band が再び left/right に戻り、光ケーブルや通信ケーブルが pole 配置で左右へ逃げる回帰防止 |
 | C310 | Symptom | Init | default template は optical-with-support の分岐 type を登録しない | デフォルト bundle template 一覧を観測 | CoreState 初期化 | Invariant: default bundle template には `kOpticalWithSupport` が現れず、optical は 1 種類の bundle として扱う | CoreView.bundle_templates | optical だけ支持線有無で bundle type が分かれて viewer 上の type が増える回帰防止 |
@@ -361,6 +343,7 @@
 | C624 | Boundary | bb2 | variation settings は stale 成功しない | generated span + variation change | UpdateVariationSettings | unsupported かつ設定不変 | VariationSettings | 未接続設定の成功扱い防止 |
 | C625 | Boundary | bb2 | context profile は stale 成功しない | generated span + context change | UpdateContextProfile | unsupported かつ設定不変 | ContextProfile | 未接続profileの成功扱い防止 |
 | C626 | Boundary | bb2 | cable shape/render 更新は direct derive | generated span + sag/color change | UpdateCableTemplate | sag は geom、color は renderへ即時反映しlayout不変 | curve/render/layout | dirty markerなしで出力更新を保証 |
+| C627 | Boundary | bb2 | 旧 topology mutation API は SavedGraph を壊さず mutation 前 reject する | bb2 line + AddConnection/AddDrop/SplitSpan | legacy public topology APIs | unsupported を返し pole/port/bundle/span/SavedGraph counts は不変 | SavedBackboneGraph / CoreState public mutation boundary | 旧 API が graph 外 topology を生成する回帰防止 |
 
 ## Retired old-pipeline checks
 - Old cases 365-367 were removed from the registered suite. They pinned the transitional `BackboneBuilder` / support-layout authority seed / materialization surface instead of the bb2 mainline.

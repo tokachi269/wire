@@ -744,11 +744,54 @@ wire::core::EditResult<wire::core::AddConnectionByPoleResult>
 add_connection_by_category(wire::core::CoreState& state, wire::core::ObjectId pole_a_id, wire::core::ObjectId pole_b_id,
                            wire::core::ConnectionCategory category,
                            wire::core::AddConnectionByPoleOptions options) {
-  if (!options.use_bundle_template) {
-    options.bundle_template_id = bundle_template_for_category_test(category);
-    options.use_bundle_template = true;
+  wire::core::EditResult<wire::core::AddConnectionByPoleResult> out{};
+  const wire::core::Pole* a = state.view().poles().find(pole_a_id);
+  const wire::core::Pole* b = state.view().poles().find(pole_b_id);
+  if (a == nullptr || b == nullptr || pole_a_id == pole_b_id) {
+    out.error = "fixture poles are invalid";
+    return out;
   }
-  return state.AddConnectionByPole(pole_a_id, pole_b_id, category, options);
+  const wire::core::BundleKind kind =
+      options.use_bundle_template ? options.bundle_template_id : bundle_template_for_category_test(category);
+  const auto tmpl = state.view().bundle_templates().find(kind);
+  if (tmpl == state.view().bundle_templates().end()) {
+    out.error = "fixture bundle template not found";
+    return out;
+  }
+  const int count = tmpl->second.count_rule == wire::core::BundleCountRuleKind::kFixed
+                        ? tmpl->second.fixed_count
+                        : tmpl->second.default_count;
+  const auto bundle = state.AddBundle(count, tmpl->second.default_spacing_m, kind);
+  if (!bundle.ok) {
+    out.error = bundle.error;
+    return out;
+  }
+  const wire::core::PortLayer port_layer =
+      tmpl->second.default_layer == wire::core::SpanLayer::kHighVoltage
+          ? wire::core::PortLayer::kHighVoltage
+          : tmpl->second.default_layer == wire::core::SpanLayer::kCommunication
+                ? wire::core::PortLayer::kCommunication
+                : wire::core::PortLayer::kLowVoltage;
+  const wire::core::Vec3d pa = a->world_transform.position + wire::core::Vec3d{0.0, 0.0, 9.0};
+  const wire::core::Vec3d pb = b->world_transform.position + wire::core::Vec3d{0.0, 0.0, 9.0};
+  const auto port_a = state.AddPort(pole_a_id, pa, wire::core::PortKind::kPower, port_layer);
+  const auto port_b = state.AddPort(pole_b_id, pb, wire::core::PortKind::kPower, port_layer);
+  if (!port_a.ok || !port_b.ok) {
+    out.error = "fixture port creation failed";
+    return out;
+  }
+  const auto span = state.AddSpan(port_a.value, port_b.value, wire::core::SpanKind::kDistribution,
+                                  tmpl->second.default_layer, bundle.value);
+  if (!span.ok) {
+    out.error = span.error;
+    return out;
+  }
+  out.value.span_id = span.value;
+  out.value.port_a_id = port_a.value;
+  out.value.port_b_id = port_b.value;
+  out.change_set = span.change_set;
+  out.ok = true;
+  return out;
 }
 
 bool has_selected_port_in_candidates(const wire::core::PortResolutionDebugRecord& record) {

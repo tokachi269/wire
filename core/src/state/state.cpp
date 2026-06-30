@@ -1110,73 +1110,9 @@ EditResult<ObjectId> CoreState::DeleteSpan(ObjectId span_id) {
 
 EditResult<SplitSpanResult> CoreState::SplitSpan(ObjectId span_id, double t) {
   EditResult<SplitSpanResult> result;
-  if (!(t > 0.0 && t < 1.0)) {
-    result.error = "split t must be in (0, 1)";
-    return result;
-  }
-
-  const Span* span = authoritative_.edit_state.spans.find(span_id);
-  if (span == nullptr) {
-    result.error = "span not found";
-    return result;
-  }
-  const Span old_span = *span;
-  const Port* port_a = authoritative_.edit_state.ports.find(old_span.port_a_id);
-  const Port* port_b = authoritative_.edit_state.ports.find(old_span.port_b_id);
-  if (port_a == nullptr || port_b == nullptr) {
-    result.error = "span endpoints are missing";
-    return result;
-  }
-
-  const Vec3d split_pos{
-      port_a->world_position.x + (port_b->world_position.x - port_a->world_position.x) * t,
-      port_a->world_position.y + (port_b->world_position.y - port_a->world_position.y) * t,
-      port_a->world_position.z + (port_b->world_position.z - port_a->world_position.z) * t,
-  };
-  const ConnectionCategory category = span_layer_to_category(old_span.layer);
-
-  EditResult<ObjectId> add_port_result =
-      AddPort(kInvalidObjectId, split_pos, category_to_port_kind(category), span_layer_to_port_layer(old_span.layer));
-  if (!add_port_result.ok) {
-    result.error = add_port_result.error;
-    return result;
-  }
-  if (Port* split_port = authoritative_.edit_state.ports.find(add_port_result.value); split_port != nullptr) {
-    apply_port_position_mode(*split_port, PortPositionMode::kAuto, PortPlacementSourceKind::kAerialBranch);
-    add_unique_id(add_port_result.change_set.updated_ids, split_port->id);
-  }
-
-  EditResult<ObjectId> add_span_a_result =
-      AddSpan(old_span.port_a_id, add_port_result.value, old_span.kind, old_span.layer, old_span.bundle_id,
-              old_span.anchor_a_id, kInvalidObjectId);
-  if (!add_span_a_result.ok) {
-    result.error = add_span_a_result.error;
-    return result;
-  }
-
-  EditResult<ObjectId> add_span_b_result =
-      AddSpan(add_port_result.value, old_span.port_b_id, old_span.kind, old_span.layer, old_span.bundle_id,
-              kInvalidObjectId, old_span.anchor_b_id);
-  if (!add_span_b_result.ok) {
-    result.error = add_span_b_result.error;
-    return result;
-  }
-
-  EditResult<ObjectId> delete_result = DeleteSpan(old_span.id);
-  if (!delete_result.ok) {
-    result.error = delete_result.error;
-    return result;
-  }
-
-  result.ok = true;
-  result.value.old_span_id = old_span.id;
-  result.value.new_port_id = add_port_result.value;
-  result.value.new_span_a_id = add_span_a_result.value;
-  result.value.new_span_b_id = add_span_b_result.value;
-  append_change_set(result.change_set, add_port_result.change_set);
-  append_change_set(result.change_set, add_span_a_result.change_set);
-  append_change_set(result.change_set, add_span_b_result.change_set);
-  append_change_set(result.change_set, delete_result.change_set);
+  (void)span_id;
+  (void)t;
+  result.error = "bb2 unsupported: split span requires SavedBackboneGraph topology mutation";
   return result;
 }
 
@@ -1365,223 +1301,21 @@ EditResult<AddConnectionByPoleResult>
 CoreState::AddConnectionByPole(ObjectId pole_a_id, ObjectId pole_b_id, ConnectionCategory category,
                                const AddConnectionByPoleOptions& options) {
   EditResult<AddConnectionByPoleResult> result;
-  if (authoritative_.edit_state.poles.find(pole_a_id) == nullptr || authoritative_.edit_state.poles.find(pole_b_id) == nullptr) {
-    result.error = "pole does not exist";
-    return result;
-  }
-  if (pole_a_id == pole_b_id) {
-    result.error = "cannot connect same pole";
-    return result;
-  }
-
-  ConnectionCategory resolved_category = category;
-  SpanLayer resolved_span_layer = category_to_span_layer(category);
-  const BundleTemplate* resolved_bundle_template = nullptr;
-  if (options.use_bundle_template) {
-    resolved_bundle_template = find_bundle_template(options.bundle_template_id);
-  } else if (options.bundle_id != kInvalidObjectId) {
-    const Bundle* existing_bundle = authoritative_.edit_state.bundles.find(options.bundle_id);
-    if (existing_bundle != nullptr) {
-      resolved_bundle_template = find_bundle_template(existing_bundle->bundle_template_id);
-    }
-  }
-  if (resolved_bundle_template != nullptr) {
-    resolved_category = resolved_bundle_template->category;
-    resolved_span_layer = resolved_bundle_template->default_layer;
-  }
-  if (options.span_layer != SpanLayer::kUnknown) {
-    if (resolved_bundle_template != nullptr && options.span_layer != resolved_bundle_template->default_layer) {
-      result.error = "span_layer override conflicts with bundle template default layer";
-      return result;
-    }
-    resolved_span_layer = options.span_layer;
-  }
-
-  const Pole* pole_a = authoritative_.edit_state.poles.find(pole_a_id);
-  const Pole* pole_b = authoritative_.edit_state.poles.find(pole_b_id);
-  const PoleContextKind pole_context_a = (options.pole_context_a != PoleContextKind::kStraight || (pole_a == nullptr))
-                                             ? options.pole_context_a
-                                             : pole_a->context.kind;
-  const PoleContextKind pole_context_b = (options.pole_context_b != PoleContextKind::kStraight || (pole_b == nullptr))
-                                             ? options.pole_context_b
-                                             : pole_b->context.kind;
-  const double corner_angle_a = (std::abs(options.corner_angle_deg_a) > 1e-9 || pole_a == nullptr)
-                                    ? options.corner_angle_deg_a
-                                    : pole_a->context.corner_angle_deg;
-  const double corner_angle_b = (std::abs(options.corner_angle_deg_b) > 1e-9 || pole_b == nullptr)
-                                    ? options.corner_angle_deg_b
-                                    : pole_b->context.corner_angle_deg;
-  const double corner_turn_sign_a = (std::abs(options.corner_turn_sign_a) > 1e-9 || pole_a == nullptr)
-                                        ? options.corner_turn_sign_a
-                                        : pole_a->context.corner_turn_sign;
-  const double corner_turn_sign_b = (std::abs(options.corner_turn_sign_b) > 1e-9 || pole_b == nullptr)
-                                        ? options.corner_turn_sign_b
-                                        : pole_b->context.corner_turn_sign;
-
-  auto resolve_port = [&](ObjectId pole_id, ObjectId preferred_port_id,
-                          const Port* preferred_template_port) -> EditResult<ObjectId> {
-    if (preferred_port_id != kInvalidObjectId) {
-      const Port* preferred_port = authoritative_.edit_state.ports.find(preferred_port_id);
-      if (preferred_port != nullptr && preferred_port->owner_pole_id == pole_id &&
-          (preferred_port->category == resolved_category ||
-           preferred_port->layer == category_to_port_layer(resolved_category))) {
-        EditResult<ObjectId> preferred_result;
-        preferred_result.ok = true;
-        preferred_result.value = preferred_port_id;
-        return preferred_result;
-      }
-    }
-    PortResolutionRequest request{};
-    request.pole_id = pole_id;
-    request.peer_pole_id = (pole_id == pole_a_id) ? pole_b_id : pole_a_id;
-    request.reference_span_id = options.reference_span_id;
-    request.category = resolved_category;
-    request.connection_context = options.connection_context;
-    request.pole_context = (pole_id == pole_a_id) ? pole_context_a : pole_context_b;
-    request.corner_angle_deg = (pole_id == pole_a_id) ? corner_angle_a : corner_angle_b;
-    request.corner_turn_sign = (pole_id == pole_a_id) ? corner_turn_sign_a : corner_turn_sign_b;
-    request.allow_generate_port = options.allow_generate_port;
-    if (preferred_template_port != nullptr) {
-      request.prefer_template_match = true;
-      request.preferred_template_layer = preferred_template_port->template_layer;
-      request.preferred_template_side = preferred_template_port->template_side;
-      request.preferred_template_role = preferred_template_port->template_role;
-    }
-    request.branch_index = options.branch_index;
-    return ensure_pole_connection_port(request);
-  };
-
-  EditResult<ObjectId> port_a_result = resolve_port(pole_a_id, options.preferred_port_a_id, nullptr);
-  if (!port_a_result.ok) {
-    result.error = port_a_result.error;
-    return result;
-  }
-  const Port* preferred_template_port = authoritative_.edit_state.ports.find(port_a_result.value);
-  EditResult<ObjectId> port_b_result = resolve_port(pole_b_id, options.preferred_port_b_id, preferred_template_port);
-  if (!port_b_result.ok) {
-    result.error = port_b_result.error;
-    return result;
-  }
-
-  EditResult<ObjectId> bundle_result = ensure_bundle_for_template(options);
-  if (!bundle_result.ok) {
-    result.error = bundle_result.error;
-    return result;
-  }
-
-  const SpanKind span_kind = (options.span_kind == SpanKind::kGeneric)
-                                 ? generation::detail::DefaultSpanKindForCategory(resolved_category)
-                                 : options.span_kind;
-  EditResult<ObjectId> span_result = AddSpan(port_a_result.value, port_b_result.value, span_kind,
-                                             resolved_span_layer, bundle_result.value);
-  if (!span_result.ok) {
-    result.error = span_result.error;
-    return result;
-  }
-  Span* created_span = authoritative_.edit_state.spans.find(span_result.value);
-  if (created_span != nullptr) {
-    created_span->placement_context = options.connection_context;
-    created_span->generated_by_rule = (created_span->generation.source == GenerationSource::kRoadAuto) ||
-                                      options.connection_context != ConnectionContext::kTrunkContinue;
-    add_unique_id(span_result.change_set.updated_ids, created_span->id);
-  }
-
-  result.ok = true;
-  result.value.span_id = span_result.value;
-  result.value.port_a_id = port_a_result.value;
-  result.value.port_b_id = port_b_result.value;
-  append_change_set(result.change_set, port_a_result.change_set);
-  append_change_set(result.change_set, port_b_result.change_set);
-  append_change_set(result.change_set, bundle_result.change_set);
-  append_change_set(result.change_set, span_result.change_set);
-  const auto ensure_attachments = ensure_default_endpoint_attachments_for_span(result.value.span_id);
-  if (!ensure_attachments.ok) {
-    result.ok = false;
-    result.error = ensure_attachments.error;
-    return result;
-  }
-  append_change_set(result.change_set, ensure_attachments.change_set);
+  (void)pole_a_id;
+  (void)pole_b_id;
+  (void)category;
+  (void)options;
+  result.error = "bb2 unsupported: direct pole connection requires BackboneSpec generation";
   return result;
 }
 
 EditResult<AddDropResult>
 CoreState::AddDropFromPole(ObjectId source_pole_id, const Vec3d& target_world_position, ConnectionCategory category) {
   EditResult<AddDropResult> result;
-  if (authoritative_.edit_state.poles.find(source_pole_id) == nullptr) {
-    result.error = "source pole does not exist";
-    return result;
-  }
-  const BundleTemplate* bundle_template = find_bundle_template(category_to_bundle_kind(category));
-  if (bundle_template == nullptr) {
-    result.error = "bundle template not found";
-    return result;
-  }
-  const ConnectionCategory resolved_category = bundle_template->category;
-  const SpanLayer resolved_span_layer = bundle_template->default_layer;
-  const PortLayer resolved_port_layer = span_layer_to_port_layer(resolved_span_layer);
-  const int conductor_count = (bundle_template->count_rule == BundleCountRuleKind::kFixed)
-                                  ? bundle_template->fixed_count
-                                  : bundle_template->default_count;
-  if (conductor_count <= 0) {
-    result.error = "bundle template resolved invalid conductor count";
-    return result;
-  }
-
-  PortResolutionRequest request{};
-  request.pole_id = source_pole_id;
-  request.category = resolved_category;
-  request.connection_context = ConnectionContext::kDropAdd;
-  const Pole* source_pole = authoritative_.edit_state.poles.find(source_pole_id);
-  request.pole_context = (source_pole == nullptr) ? PoleContextKind::kTerminal : source_pole->context.kind;
-  request.corner_angle_deg = (source_pole == nullptr) ? 0.0 : source_pole->context.corner_angle_deg;
-  request.corner_turn_sign = (source_pole == nullptr) ? 0.0 : source_pole->context.corner_turn_sign;
-  request.allow_generate_port = true;
-  EditResult<ObjectId> source_port_result = ensure_pole_connection_port(request);
-  if (!source_port_result.ok) {
-    result.error = source_port_result.error;
-    return result;
-  }
-  EditResult<ObjectId> target_port_result =
-      AddPort(kInvalidObjectId, target_world_position, category_to_port_kind(resolved_category), resolved_port_layer);
-  if (!target_port_result.ok) {
-    result.error = target_port_result.error;
-    return result;
-  }
-  EditResult<ObjectId> bundle_result =
-      AddBundle(conductor_count, std::max(0.01, bundle_template->default_spacing_m), bundle_template->id);
-  if (!bundle_result.ok) {
-    result.error = bundle_result.error;
-    return result;
-  }
-  EditResult<ObjectId> span_result = AddSpan(source_port_result.value, target_port_result.value, SpanKind::kService,
-                                             resolved_span_layer, bundle_result.value);
-  if (!span_result.ok) {
-    result.error = span_result.error;
-    return result;
-  }
-  Span* created_span = authoritative_.edit_state.spans.find(span_result.value);
-  if (created_span != nullptr) {
-    created_span->placement_context = ConnectionContext::kDropAdd;
-    created_span->generated_by_rule = true;
-    add_unique_id(span_result.change_set.updated_ids, created_span->id);
-  }
-
-  result.ok = true;
-  result.value.span_id = span_result.value;
-  result.value.source_port_id = source_port_result.value;
-  result.value.target_port_id = target_port_result.value;
-  result.value.split_port_id = kInvalidObjectId;
-  append_change_set(result.change_set, source_port_result.change_set);
-  append_change_set(result.change_set, target_port_result.change_set);
-  append_change_set(result.change_set, bundle_result.change_set);
-  append_change_set(result.change_set, span_result.change_set);
-  const auto ensure_attachments = ensure_default_endpoint_attachments_for_span(result.value.span_id);
-  if (!ensure_attachments.ok) {
-    result.ok = false;
-    result.error = ensure_attachments.error;
-    return result;
-  }
-  append_change_set(result.change_set, ensure_attachments.change_set);
+  (void)source_pole_id;
+  (void)target_world_position;
+  (void)category;
+  result.error = "bb2 unsupported: drop creation requires BackboneSpec generation";
   return result;
 }
 
@@ -1589,67 +1323,11 @@ EditResult<AddDropResult> CoreState::AddDropFromSpan(ObjectId source_span_id, do
                                                                 const Vec3d& target_world_position,
                                                                 ConnectionCategory category) {
   EditResult<AddDropResult> result;
-  const BundleTemplate* bundle_template = find_bundle_template(category_to_bundle_kind(category));
-  if (bundle_template == nullptr) {
-    result.error = "bundle template not found";
-    return result;
-  }
-  const ConnectionCategory resolved_category = bundle_template->category;
-  const SpanLayer resolved_span_layer = bundle_template->default_layer;
-  const PortLayer resolved_port_layer = span_layer_to_port_layer(resolved_span_layer);
-  const int conductor_count = (bundle_template->count_rule == BundleCountRuleKind::kFixed)
-                                  ? bundle_template->fixed_count
-                                  : bundle_template->default_count;
-  if (conductor_count <= 0) {
-    result.error = "bundle template resolved invalid conductor count";
-    return result;
-  }
-  EditResult<SplitSpanResult> split_result = SplitSpan(source_span_id, t);
-  if (!split_result.ok) {
-    result.error = split_result.error;
-    return result;
-  }
-  EditResult<ObjectId> target_port_result =
-      AddPort(kInvalidObjectId, target_world_position, category_to_port_kind(resolved_category), resolved_port_layer);
-  if (!target_port_result.ok) {
-    result.error = target_port_result.error;
-    return result;
-  }
-  EditResult<ObjectId> bundle_result =
-      AddBundle(conductor_count, std::max(0.01, bundle_template->default_spacing_m), bundle_template->id);
-  if (!bundle_result.ok) {
-    result.error = bundle_result.error;
-    return result;
-  }
-  EditResult<ObjectId> span_result = AddSpan(split_result.value.new_port_id, target_port_result.value,
-                                             SpanKind::kService, resolved_span_layer, bundle_result.value);
-  if (!span_result.ok) {
-    result.error = span_result.error;
-    return result;
-  }
-  Span* created_span = authoritative_.edit_state.spans.find(span_result.value);
-  if (created_span != nullptr) {
-    created_span->placement_context = ConnectionContext::kDropAdd;
-    created_span->generated_by_rule = true;
-    add_unique_id(span_result.change_set.updated_ids, created_span->id);
-  }
-
-  result.ok = true;
-  result.value.span_id = span_result.value;
-  result.value.source_port_id = split_result.value.new_port_id;
-  result.value.target_port_id = target_port_result.value;
-  result.value.split_port_id = split_result.value.new_port_id;
-  append_change_set(result.change_set, split_result.change_set);
-  append_change_set(result.change_set, target_port_result.change_set);
-  append_change_set(result.change_set, bundle_result.change_set);
-  append_change_set(result.change_set, span_result.change_set);
-  const auto ensure_attachments = ensure_default_endpoint_attachments_for_span(result.value.span_id);
-  if (!ensure_attachments.ok) {
-    result.ok = false;
-    result.error = ensure_attachments.error;
-    return result;
-  }
-  append_change_set(result.change_set, ensure_attachments.change_set);
+  (void)source_span_id;
+  (void)t;
+  (void)target_world_position;
+  (void)category;
+  result.error = "bb2 unsupported: span drop creation requires SavedBackboneGraph topology mutation";
   return result;
 }
 

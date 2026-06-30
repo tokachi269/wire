@@ -42,23 +42,8 @@ bool test_backbone_hv_rejects_midair_branch_mode() {
 
 bool test_bundle_template_topology_change_is_rejected_before_mutation() {
   CoreState state;
-  const auto type_ids = sorted_pole_type_ids(state);
-  if (type_ids.empty()) {
-    return false;
-  }
-  const ObjectId pole_a = state.AddPole({}, 10.0, "A").value;
-  wire::core::Transformd b{};
-  b.position = {10.0, 0.0, 0.0};
-  const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
-  (void)state.ApplyPoleType(pole_a, type_ids.front());
-  (void)state.ApplyPoleType(pole_b, type_ids.front());
-
-  wire::core::AddConnectionByPoleOptions options{};
-  options.auto_create_bundle = true;
-  options.use_bundle_template = true;
-  options.bundle_template_id = wire::core::BundleKind::kLowVoltage;
-  const auto add = state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kLowVoltage, options);
-  if (!add.ok) {
+  const auto made = make_bb2_fixture(state, {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}});
+  if (!made.ok || made.value.spans.empty()) {
     return false;
   }
 
@@ -71,7 +56,7 @@ bool test_bundle_template_topology_change_is_rejected_before_mutation() {
   tpl.default_layer = wire::core::SpanLayer::kCommunication;
   const auto apply = state.UpdateBundleTemplate(tpl);
   if (apply.ok || !regex_contains(apply.error, "unsupported")) return false;
-  const auto* span = state.view().edit_state().spans.find(add.value.span_id);
+  const auto* span = state.view().edit_state().spans.find(made.value.spans.front());
   if (span == nullptr) {
     return false;
   }
@@ -94,11 +79,7 @@ bool test_bundle_template_output_change_rejects_manual_span_before_mutation() {
   (void)state.ApplyPoleType(pole_a, type_ids.front());
   (void)state.ApplyPoleType(pole_b, type_ids.front());
 
-  wire::core::AddConnectionByPoleOptions options{};
-  options.auto_create_bundle = true;
-  options.use_bundle_template = true;
-  options.bundle_template_id = wire::core::BundleKind::kLowVoltage;
-  const auto add = state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kLowVoltage, options);
+  const auto add = add_connection_by_category(state, pole_a, pole_b, ConnectionCategory::kLowVoltage);
   if (!add.ok) {
     return false;
   }
@@ -136,175 +117,6 @@ bool test_backbone_generation_requires_non_empty_bundles() {
   req.pole_type_id = type_ids.front();
   const auto result = state.GenerateFromBackboneSpec(req);
   return !result.ok && regex_contains(result.error, "bundle");
-}
-
-// Intent: Auto bundle creation on AddConnectionByPole must require explicit bundle template.
-bool test_add_connection_requires_bundle_template_when_auto_create_enabled() {
-  CoreState state;
-  const auto type_ids = sorted_pole_type_ids(state);
-  if (type_ids.empty()) {
-    return false;
-  }
-  const ObjectId pole_a = state.AddPole({}, 10.0, "A").value;
-  wire::core::Transformd b{};
-  b.position = {10.0, 0.0, 0.0};
-  const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
-  (void)state.ApplyPoleType(pole_a, type_ids.front());
-  (void)state.ApplyPoleType(pole_b, type_ids.front());
-
-  wire::core::AddConnectionByPoleOptions options{};
-  options.auto_create_bundle = true;
-  options.use_bundle_template = false;
-  options.bundle_id = wire::core::kInvalidObjectId;
-  const auto result = state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kLowVoltage, options);
-  return !result.ok && regex_contains(result.error, "bundle_template_id");
-}
-
-// Intent: AddConnectionByPole should derive behavior from template/bundle, not caller category.
-bool test_add_connection_template_profile_overrides_category_fallback() {
-  CoreState state;
-  const auto type_ids = sorted_pole_type_ids(state);
-  if (type_ids.empty()) {
-    return false;
-  }
-  const ObjectId pole_a = state.AddPole({}, 10.0, "A").value;
-  wire::core::Transformd b{};
-  b.position = {10.0, 0.0, 0.0};
-  const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
-  (void)state.ApplyPoleType(pole_a, type_ids.front());
-  (void)state.ApplyPoleType(pole_b, type_ids.front());
-
-  wire::core::AddConnectionByPoleOptions options{};
-  options.auto_create_bundle = true;
-  options.use_bundle_template = true;
-  options.bundle_template_id = wire::core::BundleKind::kHighVoltage;
-  options.span_kind = SpanKind::kDistribution;
-
-  // Intentionally pass a mismatched category; template must win.
-  const auto add = state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kLowVoltage, options);
-  if (!add.ok) {
-    return false;
-  }
-
-  const auto* span = state.view().edit_state().spans.find(add.value.span_id);
-  if (span == nullptr || span->layer != SpanLayer::kHighVoltage) {
-    return false;
-  }
-  const auto* bundle = state.view().edit_state().bundles.find(span->bundle_id);
-  if (bundle == nullptr || bundle->bundle_template_id != wire::core::BundleKind::kHighVoltage ||
-      bundle->conductor_count != 3) {
-    return false;
-  }
-  const auto* port_a = state.view().edit_state().ports.find(add.value.port_a_id);
-  const auto* port_b = state.view().edit_state().ports.find(add.value.port_b_id);
-  if (port_a == nullptr || port_b == nullptr) {
-    return false;
-  }
-  return port_a->category == ConnectionCategory::kHighVoltage && port_b->category == ConnectionCategory::kHighVoltage;
-}
-
-// Intent: Explicit bundle_id and bundle_template_id mismatch must be rejected.
-bool test_add_connection_rejects_bundle_id_template_mismatch() {
-  CoreState state;
-  const auto type_ids = sorted_pole_type_ids(state);
-  if (type_ids.empty()) {
-    return false;
-  }
-  const ObjectId pole_a = state.AddPole({}, 10.0, "A").value;
-  wire::core::Transformd b{};
-  b.position = {10.0, 0.0, 0.0};
-  const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
-  (void)state.ApplyPoleType(pole_a, type_ids.front());
-  (void)state.ApplyPoleType(pole_b, type_ids.front());
-  const auto bundle = state.AddBundle(1, 0.2, wire::core::BundleKind::kLowVoltage);
-  if (!bundle.ok) {
-    return false;
-  }
-
-  wire::core::AddConnectionByPoleOptions options{};
-  options.bundle_id = bundle.value;
-  options.use_bundle_template = true;
-  options.bundle_template_id = wire::core::BundleKind::kHighVoltage;
-  options.auto_create_bundle = false;
-  const auto add = state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kLowVoltage, options);
-  return !add.ok && regex_contains(add.error, "mismatch");
-}
-
-// Intent: use_bundle_template with auto_create disabled must require explicit bundle_id.
-bool test_add_connection_template_requires_bundle_id_when_auto_create_disabled() {
-  CoreState state;
-  const auto type_ids = sorted_pole_type_ids(state);
-  if (type_ids.empty()) {
-    return false;
-  }
-  const ObjectId pole_a = state.AddPole({}, 10.0, "A").value;
-  wire::core::Transformd b{};
-  b.position = {10.0, 0.0, 0.0};
-  const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
-  (void)state.ApplyPoleType(pole_a, type_ids.front());
-  (void)state.ApplyPoleType(pole_b, type_ids.front());
-
-  wire::core::AddConnectionByPoleOptions options{};
-  options.auto_create_bundle = false;
-  options.use_bundle_template = true;
-  options.bundle_template_id = wire::core::BundleKind::kHighVoltage;
-  const auto add = state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kLowVoltage, options);
-  return !add.ok && regex_contains(add.error, "bundle_id is required");
-}
-
-// Intent: span_layer override must not conflict with bundle template default layer.
-bool test_add_connection_rejects_span_layer_override_conflict() {
-  CoreState state;
-  const auto type_ids = sorted_pole_type_ids(state);
-  if (type_ids.empty()) {
-    return false;
-  }
-  const ObjectId pole_a = state.AddPole({}, 10.0, "A").value;
-  wire::core::Transformd b{};
-  b.position = {10.0, 0.0, 0.0};
-  const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
-  (void)state.ApplyPoleType(pole_a, type_ids.front());
-  (void)state.ApplyPoleType(pole_b, type_ids.front());
-
-  wire::core::AddConnectionByPoleOptions options{};
-  options.auto_create_bundle = true;
-  options.use_bundle_template = true;
-  options.bundle_template_id = wire::core::BundleKind::kHighVoltage;
-  options.span_layer = SpanLayer::kLowVoltage;
-  const auto add = state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kLowVoltage, options);
-  return !add.ok && regex_contains(add.error, "span_layer override");
-}
-
-// Intent: Drop generation should use bundle template defaults (not hardcoded spacing/category mapping).
-bool test_drop_generation_uses_template_defaults() {
-  CoreState state;
-  const auto type_ids = sorted_pole_type_ids(state);
-  if (type_ids.empty()) {
-    return false;
-  }
-  const ObjectId pole = state.AddPole({}, 10.0, "DropSrc").value;
-  (void)state.ApplyPoleType(pole, type_ids.front());
-  const auto drop = state.AddDropFromPole(pole, {8.0, 2.0, 3.0}, ConnectionCategory::kDrop);
-  if (!drop.ok) {
-    return false;
-  }
-  const auto* span = state.view().edit_state().spans.find(drop.value.span_id);
-  if (span == nullptr || span->bundle_id == wire::core::kInvalidObjectId) {
-    return false;
-  }
-  const auto* bundle = state.view().edit_state().bundles.find(span->bundle_id);
-  const auto tpl_it = state.view().bundle_templates().find(wire::core::BundleKind::kDrop);
-  const auto lv_tpl_it = state.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
-  if (bundle == nullptr || tpl_it == state.view().bundle_templates().end() ||
-      lv_tpl_it == state.view().bundle_templates().end()) {
-    return false;
-  }
-  const auto& tpl = tpl_it->second;
-  const auto& lv_tpl = lv_tpl_it->second;
-  return span->layer == wire::core::SpanLayer::kDrop && span->layer == tpl.default_layer &&
-         bundle->bundle_template_id == wire::core::BundleKind::kDrop && bundle->bundle_template_id == tpl.id &&
-         almost_equal(bundle->phase_spacing_m, tpl.default_spacing_m, 1e-9) &&
-         tpl.cable_template_id != lv_tpl.cable_template_id;
 }
 
 // Intent: Non-HV templates should default to fixed single conductor generation.
@@ -419,24 +231,6 @@ void register_template_policy_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C90_Backbone_BundlesRequired",
                          "Backbone generation requires bundles[] and rejects legacy-only fields", "Exact", true,
                          test_backbone_generation_requires_non_empty_bundles);
-  test_registry::AddTest(tests, "C91_AddConnection_TemplateRequired",
-                         "Auto-created bundle connections require an explicit template", "Exact", true,
-                         test_add_connection_requires_bundle_template_when_auto_create_enabled);
-  test_registry::AddTest(tests, "C92_AddConnection_TemplateWins",
-                         "Bundle template drives connection behavior even if category argument mismatches",
-                         "Invariant", false, test_add_connection_template_profile_overrides_category_fallback);
-  test_registry::AddTest(tests, "C93_AddConnection_BundleTemplateMismatchReject",
-                         "Explicit bundle_id and bundle_template_id mismatch is rejected", "Exact", true,
-                         test_add_connection_rejects_bundle_id_template_mismatch);
-  test_registry::AddTest(tests, "C94_AddConnection_TemplateNeedsBundleId",
-                         "Template use without auto-create still requires explicit bundle_id", "Exact", true,
-                         test_add_connection_template_requires_bundle_id_when_auto_create_disabled);
-  test_registry::AddTest(tests, "C95_AddConnection_SpanLayerConflictReject",
-                         "Template span layer conflicts are rejected", "Exact", true,
-                         test_add_connection_rejects_span_layer_override_conflict);
-  test_registry::AddTest(tests, "C96_Drop_UsesTemplateDefaults",
-                         "Drop generation uses template defaults for spacing and layer", "Invariant", false,
-                         test_drop_generation_uses_template_defaults);
   test_registry::AddTest(tests, "C101_Backbone_HVRejectMidairBranch",
                          "HV template keeps midair branch disabled", "Exact", true,
                          test_backbone_hv_rejects_midair_branch_mode);

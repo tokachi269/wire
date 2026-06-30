@@ -1012,52 +1012,6 @@ EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolution
   return result;
 }
 
-EditResult<ObjectId> CoreState::ensure_bundle_for_template(const AddConnectionByPoleOptions& options) {
-  EditResult<ObjectId> result;
-  if (options.bundle_id != kInvalidObjectId) {
-    const Bundle* existing_bundle = authoritative_.edit_state.bundles.find(options.bundle_id);
-    if (existing_bundle == nullptr) {
-      result.error = "bundle does not exist";
-      return result;
-    }
-    if (options.use_bundle_template && existing_bundle->bundle_template_id != options.bundle_template_id) {
-      result.error = "bundle_id kind and bundle_template_id mismatch";
-      return result;
-    }
-    result.ok = true;
-    result.value = options.bundle_id;
-    return result;
-  }
-
-  if (!options.auto_create_bundle) {
-    if (options.use_bundle_template) {
-      result.error = "bundle_id is required when use_bundle_template=true and auto_create_bundle=false";
-      return result;
-    }
-    result.ok = true;
-    result.value = kInvalidObjectId;
-    return result;
-  }
-
-  if (!options.use_bundle_template) {
-    result.error = "bundle_template_id is required when auto_create_bundle is enabled";
-    return result;
-  }
-  const BundleTemplate* bundle_template = find_bundle_template(options.bundle_template_id);
-  if (bundle_template == nullptr) {
-    result.error = "bundle template not found";
-    return result;
-  }
-  const int conductor_count = (bundle_template->count_rule == BundleCountRuleKind::kFixed)
-                                  ? bundle_template->fixed_count
-                                  : bundle_template->default_count;
-  if (conductor_count <= 0) {
-    result.error = "bundle template resolved invalid conductor count";
-    return result;
-  }
-  return AddBundle(conductor_count, std::max(0.01, bundle_template->default_spacing_m), bundle_template->id);
-}
-
 std::uint8_t CoreState::deterministic_tiebreak_0_255(ObjectId pole_id, int tiebreak_key, ConnectionCategory category,
                                                       ConnectionContext context, ObjectId peer_pole_id,
                                                       ObjectId reference_span_id, std::uint32_t branch_index) {

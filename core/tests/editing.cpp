@@ -106,31 +106,6 @@ bool test_move_pole_dirties_only_related_span() {
          unrelated_after->data_version == unrelated_version;
 }
 
-bool test_split_span_creates_two_spans_and_port() {
-  CoreState state;
-  const ObjectId pole = state.AddPole({}, 9.0, "P").value;
-  const ObjectId a = state.AddPort(pole, {0.0, 0.0, 1.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
-  const ObjectId b = state.AddPort(pole, {10.0, 0.0, 1.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
-  const ObjectId span_id = state.AddSpan(a, b, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
-
-  const auto split_result = state.SplitSpan(span_id, 0.5);
-  if (!split_result.ok) {
-    return false;
-  }
-
-  if (state.view().edit_state().spans.find(span_id) != nullptr) {
-    return false;
-  }
-  if (state.view().edit_state().ports.find(split_result.value.new_port_id) == nullptr) {
-    return false;
-  }
-  if (state.view().edit_state().spans.find(split_result.value.new_span_a_id) == nullptr ||
-      state.view().edit_state().spans.find(split_result.value.new_span_b_id) == nullptr) {
-    return false;
-  }
-  return validate_now(state).ok();
-}
-
 bool test_apply_pole_type_generates_template_ports() {
   CoreState state;
   const auto pole_type_ids = sorted_pole_type_ids(state);
@@ -262,71 +237,6 @@ bool test_add_connection_by_pole_updates_dirty_version_and_indices() {
   return contains_id(it_a->second, span->id) && contains_id(it_b->second, span->id) &&
          runtime->data_version > 0 && contains_id(connection.change_set.created_ids, span->id) &&
          contains_id(connection.change_set.updated_ids, span->id);
-}
-
-bool test_add_drop_from_pole_creates_service_connection() {
-  CoreState state;
-  const auto pole_type_ids = sorted_pole_type_ids(state);
-  if (pole_type_ids.empty()) {
-    return false;
-  }
-
-  const ObjectId pole = state.AddPole({}, 10.0, "P").value;
-  (void)state.ApplyPoleType(pole, pole_type_ids[0]);
-  const auto drop = state.AddDropFromPole(pole, {5.0, 3.0, 2.0});
-  if (!drop.ok) {
-    return false;
-  }
-
-  const auto* span = state.view().edit_state().spans.find(drop.value.span_id);
-  const auto* source_port = state.view().edit_state().ports.find(drop.value.source_port_id);
-  const auto* target_port = state.view().edit_state().ports.find(drop.value.target_port_id);
-  if (span == nullptr || source_port == nullptr || target_port == nullptr) {
-    return false;
-  }
-  return source_port->owner_pole_id == pole && target_port->owner_pole_id == wire::core::kInvalidObjectId &&
-         validate_now(state).ok();
-}
-
-bool test_add_drop_from_span_splits_and_connects_drop() {
-  CoreState state;
-  const auto pole_type_ids = sorted_pole_type_ids(state);
-  if (pole_type_ids.empty()) {
-    return false;
-  }
-
-  wire::core::Transformd a{};
-  a.position = {0.0, 0.0, 0.0};
-  wire::core::Transformd b{};
-  b.position = {20.0, 0.0, 0.0};
-  const ObjectId pole_a = state.AddPole(a, 10.0, "A").value;
-  const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
-  (void)state.ApplyPoleType(pole_a, pole_type_ids[0]);
-  (void)state.ApplyPoleType(pole_b, pole_type_ids[0]);
-
-  const auto base = add_connection_by_category(state, pole_a, pole_b, ConnectionCategory::kLowVoltage);
-  if (!base.ok) {
-    return false;
-  }
-
-  const auto drop = state.AddDropFromSpan(base.value.span_id, 0.5, {10.0, 4.0, 2.0});
-  if (!drop.ok) {
-    return false;
-  }
-
-  if (state.view().edit_state().spans.find(base.value.span_id) != nullptr) {
-    return false;
-  }
-  const auto* split_port = state.view().edit_state().ports.find(drop.value.split_port_id);
-  const auto* drop_span = state.view().edit_state().spans.find(drop.value.span_id);
-  if (split_port == nullptr || drop_span == nullptr) {
-    return false;
-  }
-  auto split_it = state.view().connection_index().spans_by_port.find(drop.value.split_port_id);
-  if (split_it == state.view().connection_index().spans_by_port.end()) {
-    return false;
-  }
-  return split_it->second.size() >= 3 && validate_now(state).ok();
 }
 
 std::optional<wire::core::PoleTypeDefinition> find_pole_type_by_name(const CoreState& state, const std::string& name) {
@@ -559,7 +469,7 @@ bool test_default_pole_types_use_single_hv_height_per_template() {
   return true;
 }
 
-bool test_bundle_related_pole_type_applies_to_existing_poles() {
+bool test_bundle_related_pole_type_rejects_generated_topology_before_mutation() {
   CoreState state;
   const auto distribution_pole_type = find_pole_type_by_name(state, "DistributionPole");
   const auto communication_pole_type = find_pole_type_by_name(state, "CommunicationPole");
@@ -567,28 +477,31 @@ bool test_bundle_related_pole_type_applies_to_existing_poles() {
     return false;
   }
 
-  wire::core::Transformd a{};
-  a.position = {0.0, 0.0, 0.0};
-  wire::core::Transformd b{};
-  b.position = {18.0, 0.0, 0.0};
-  const ObjectId pole_a = state.AddPole(a, 10.0, "A").value;
-  const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
-  if (!state.ApplyPoleType(pole_a, distribution_pole_type->id).ok ||
-      !state.ApplyPoleType(pole_b, distribution_pole_type->id).ok) {
+  const auto made = make_bb2_fixture(state, {{0.0, 0.0, 0.0}, {18.0, 0.0, 0.0}});
+  if (!made.ok || made.value.poles.size() != 2) {
     return false;
   }
+  const ObjectId pole_a = made.value.poles[0];
+  const ObjectId pole_b = made.value.poles[1];
+  const auto before_a = *state.view().edit_state().poles.find(pole_a);
+  const auto before_b = *state.view().edit_state().poles.find(pole_b);
 
-  wire::core::AddConnectionByPoleOptions options{};
-  options.auto_create_bundle = true;
-  options.use_bundle_template = true;
-  options.bundle_template_id = wire::core::BundleKind::kOptical;
-  const auto add = state.AddConnectionByPole(pole_a, pole_b, wire::core::ConnectionCategory::kOptical, options);
-  if (!add.ok) {
+  wire::core::BackboneSpec add{};
+  add.path.polyline = {before_a.world_transform.position, before_b.world_transform.position};
+  add.path.node_specs.resize(2);
+  add.path.node_specs[0].point_index = 0;
+  add.path.node_specs[0].support_kind = wire::core::SupportKind::kPole;
+  add.path.node_specs[0].node_id = pole_a;
+  add.path.node_specs[1].point_index = 1;
+  add.path.node_specs[1].support_kind = wire::core::SupportKind::kPole;
+  add.path.node_specs[1].node_id = pole_b;
+  add_backbone_bundle(add, wire::core::BundleKind::kOptical);
+  if (!state.GenerateFromBackboneSpec(add).ok) {
     return false;
   }
 
   const auto apply = state.ApplyBundleRelatedPoleTypeToExistingPoles(wire::core::BundleKind::kOptical);
-  if (!apply.ok || !apply.value) {
+  if (apply.ok || !regex_contains(apply.error, "unsupported")) {
     return false;
   }
 
@@ -597,10 +510,10 @@ bool test_bundle_related_pole_type_applies_to_existing_poles() {
   if (pole_a_after == nullptr || pole_b_after == nullptr) {
     return false;
   }
-  return pole_a_after->pole_type_id == communication_pole_type->id &&
-         pole_b_after->pole_type_id == communication_pole_type->id &&
-         std::abs(pole_a_after->height_m - communication_pole_type->default_height_m) < 1e-9 &&
-         std::abs(pole_b_after->height_m - communication_pole_type->default_height_m) < 1e-9 &&
+  return pole_a_after->pole_type_id == before_a.pole_type_id &&
+         pole_b_after->pole_type_id == before_b.pole_type_id &&
+         std::abs(pole_a_after->height_m - before_a.height_m) < 1e-9 &&
+         std::abs(pole_b_after->height_m - before_b.height_m) < 1e-9 &&
          validate_now(state).ok();
 }
 
@@ -609,13 +522,8 @@ void register_editing_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C02_ObjectStore", "ObjectStore add/find/remove integrity", "Exact", false, test_object_store_integrity);
   test_registry::AddTest(tests, "C03_Phase3_SpanRuntime_Initialized", "AddSpan initializes runtime+dirty", "Exact", false, test_span_runtime_initialized_on_add);
   test_registry::AddTest(tests, "C04_Phase3_MovePole_LocalDirty", "MovePole dirties only related span", "Invariant", false, test_move_pole_dirties_only_related_span);
-  test_registry::AddTest(tests, "C05_Phase3_SplitSpan_Basic", "SplitSpan replaces structure and keeps integrity", "Invariant", false, test_split_span_creates_two_spans_and_port);
   test_registry::AddTest(tests, "C06_Phase35_ApplyPoleType_GeneratesPorts", "ApplyPoleType generates owned template ports", "Invariant", false, test_apply_pole_type_generates_template_ports);
   test_registry::AddTest(tests, "C07_Phase35_PoleType_DifferentLayouts", "Different pole types produce different port hint layout", "Invariant", false, test_different_pole_types_produce_different_port_hints);
-  test_registry::AddTest(tests, "C08_Phase35_AutoAlloc_UnusedPriority", "Auto allocation prefers unused ports", "Invariant", false, test_auto_port_allocation_prefers_unused_ports);
-  test_registry::AddTest(tests, "C09_Phase35_AddConnectionByPole_Basic", "Pole->Pole connection updates dirty/index/changeset", "Invariant", false, test_add_connection_by_pole_updates_dirty_version_and_indices);
-  test_registry::AddTest(tests, "C11_Phase35_AddDropFromPole_Basic", "Drop from pole creates service span", "Invariant", false, test_add_drop_from_pole_creates_service_connection);
-  test_registry::AddTest(tests, "C12_Phase35_AddDropFromSpan_Basic", "Drop from span splits and connects", "Invariant", false, test_add_drop_from_span_splits_and_connects_drop);
   test_registry::AddTest(tests, "C287_CommunicationPole_DefaultBandOrder", "CommunicationPole keeps support, HV, LV, optical, communication, drop in descending height order", "Invariant", false, test_communication_pole_default_band_order_places_support_hv_comm_optical_top_down);
   test_registry::AddTest(tests, "C309_CommunicationPole_CommOpticalBandsCentered",
                          "CommunicationPole keeps communication and optical default bands centered instead of split left/right",
@@ -630,9 +538,9 @@ void register_editing_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C296_DefaultPoleTypes_HVCategoryUsesSingleHeight",
                          "Default pole templates keep one HV category height so category-level editing does not average multiple defaults",
                          "Invariant", false, test_default_pole_types_use_single_hv_height_per_template);
-  test_registry::AddTest(tests, "C297_BundleTemplate_ApplyRelatedPoleTypeToExistingPoles",
-                         "Bundle-linked pole template can be applied to existing poles attached to bundles of that template",
-                         "Invariant", false, test_bundle_related_pole_type_applies_to_existing_poles);
+  test_registry::AddTest(tests, "C297_BundleTemplate_RelatedPoleTypeRejectsGeneratedTopology",
+                         "Bundle-linked pole template rejects generated topology changes before mutation",
+                         "Invariant", true, test_bundle_related_pole_type_rejects_generated_topology_before_mutation);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_editing_tests);

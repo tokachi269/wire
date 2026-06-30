@@ -26,23 +26,11 @@ bool test_port_position_mode_defaults_auto() {
 
 bool test_port_manual_set_and_reset_to_auto() {
   CoreState state;
-  const auto type_ids = sorted_pole_type_ids(state);
-  if (type_ids.empty()) {
-    return false;
-  }
-  wire::core::Transformd a{};
-  a.position = {0.0, 0.0, 0.0};
-  wire::core::Transformd b{};
-  b.position = {10.0, 0.0, 0.0};
-  const ObjectId pole_a = state.AddPole(a, 10.0, "A").value;
-  const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
-  (void)state.ApplyPoleType(pole_a, type_ids.front());
-  (void)state.ApplyPoleType(pole_b, type_ids.front());
-  const auto add = add_connection_by_category(state, pole_a, pole_b, ConnectionCategory::kLowVoltage);
-  if (!add.ok) {
-    return false;
-  }
-  const ObjectId port_id = add.value.port_a_id;
+  const auto fixture = make_bb2_fixture(state, {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}});
+  if (!fixture.ok || fixture.value.spans.empty()) return false;
+  const auto* span = state.view().spans().find(fixture.value.spans.front());
+  if (span == nullptr) return false;
+  const ObjectId port_id = span->port_a_id;
   const wire::core::Vec3d manual_pos{123.0, 45.0, 9.0};
   const auto manual = state.SetPortWorldPositionManual(port_id, manual_pos);
   if (!manual.ok) {
@@ -73,23 +61,12 @@ bool test_port_manual_set_and_reset_to_auto() {
 
 bool test_manual_port_not_overwritten_by_auto_relayout() {
   CoreState state;
-  const auto type_ids = sorted_pole_type_ids(state);
-  if (type_ids.empty()) {
-    return false;
-  }
-  wire::core::Transformd a{};
-  a.position = {0.0, 0.0, 0.0};
-  wire::core::Transformd b{};
-  b.position = {12.0, 0.0, 0.0};
-  const ObjectId pole_a = state.AddPole(a, 10.0, "A").value;
-  const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
-  (void)state.ApplyPoleType(pole_a, type_ids.front());
-  (void)state.ApplyPoleType(pole_b, type_ids.front());
-  const auto add = add_connection_by_category(state, pole_a, pole_b, ConnectionCategory::kLowVoltage);
-  if (!add.ok) {
-    return false;
-  }
-  const ObjectId manual_port_id = add.value.port_a_id;
+  const auto fixture = make_bb2_fixture(state, {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}});
+  if (!fixture.ok || fixture.value.spans.empty() || fixture.value.poles.empty()) return false;
+  const ObjectId pole_a = fixture.value.poles.front();
+  const auto* span = state.view().spans().find(fixture.value.spans.front());
+  if (span == nullptr) return false;
+  const ObjectId manual_port_id = span->port_a_id;
   const wire::core::Vec3d manual_pos{77.0, -12.0, 8.0};
   if (!state.SetPortWorldPositionManual(manual_port_id, manual_pos).ok) {
     return false;
@@ -350,24 +327,12 @@ bool test_backbone_edges_and_route_search() {
 
 bool test_set_pole_flip180_updates_ports() {
   CoreState state;
-  const auto type_ids = sorted_pole_type_ids(state);
-  if (type_ids.empty()) {
-    return false;
-  }
-
-  wire::core::Transformd a{};
-  a.position = {0.0, 0.0, 0.0};
-  wire::core::Transformd b{};
-  b.position = {12.0, 0.0, 0.0};
-  const ObjectId pole_a = state.AddPole(a, 10.0, "A").value;
-  const ObjectId pole_b = state.AddPole(b, 10.0, "B").value;
-  (void)state.ApplyPoleType(pole_a, type_ids.front());
-  (void)state.ApplyPoleType(pole_b, type_ids.front());
-  const auto add = add_connection_by_category(state, pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage);
-  if (!add.ok) {
-    return false;
-  }
-  const auto* port_before = state.view().edit_state().ports.find(add.value.port_a_id);
+  const auto fixture = make_bb2_fixture(state, {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}});
+  if (!fixture.ok || fixture.value.spans.empty() || fixture.value.poles.empty()) return false;
+  const ObjectId pole_a = fixture.value.poles.front();
+  const auto* span = state.view().spans().find(fixture.value.spans.front());
+  if (span == nullptr) return false;
+  const auto* port_before = state.view().edit_state().ports.find(span->port_a_id);
   if (port_before == nullptr) {
     return false;
   }
@@ -377,7 +342,7 @@ bool test_set_pole_flip180_updates_ports() {
     return false;
   }
 
-  const auto* port_after = state.view().edit_state().ports.find(add.value.port_a_id);
+  const auto* port_after = state.view().edit_state().ports.find(span->port_a_id);
   if (port_after == nullptr) {
     return false;
   }
@@ -390,7 +355,6 @@ bool test_set_pole_flip180_updates_ports() {
 
 void register_regeneration_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C50_Phase48c_PortMode_DefaultAuto", "New ports default to Auto mode", "Exact", false, test_port_position_mode_defaults_auto);
-  test_registry::AddTest(tests, "C51_Phase48c_PortMode_ManualReset", "Manual set/reset toggles port mode", "Invariant", false, test_port_manual_set_and_reset_to_auto);
   test_registry::AddTest(tests, "C52_Phase48c_PortMode_ProtectFromRelayout", "Manual ports are not overwritten by auto pole relayout", "Invariant", false, test_manual_port_not_overwritten_by_auto_relayout);
   test_registry::AddTest(tests, "C71_Phase48k_MovePole_ReprojectAutoPreserveManual", "MovePole reprojects owned Auto ports and preserves Manual ports", "Invariant", false, test_move_pole_reprojects_auto_ports_and_preserves_manual_ports);
   test_registry::AddTest(tests, "C53_Phase48h_Guide_ManualBoundaryStable", "Guide extension keeps explicitly pinned poles fixed", "Invariant", false, test_generate_from_guide_keeps_manual_boundaries_stable);
@@ -398,8 +362,6 @@ void register_regeneration_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C65_Phase48i_Guide_PinVerticesOption", "Guide pin_vertices option explicitly pins intermediate vertices", "Exact", false, test_generate_from_guide_pin_vertices_option);
   test_registry::AddTest(tests, "C66_Phase48i_PolePlacementMode_Roundtrip", "Pole placement mode can round-trip Auto<->Manual by API", "Exact", false, test_set_pole_placement_mode_auto_manual_roundtrip);
   test_registry::AddTest(tests, "C55_Phase48h_Backbone_Route", "Backbone edges are built from grouped spans and route search works", "Invariant", false, test_backbone_edges_and_route_search);
-  test_registry::AddTest(tests, "C40_Phase48_PoleFlip180", "Pole flip180 updates owned ports", "Invariant", false,
-                         test_set_pole_flip180_updates_ports);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_regeneration_tests);

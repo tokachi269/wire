@@ -102,27 +102,6 @@ bool test_add_span_missing_ports_fails_and_recovers() {
   return state.AddSpan(a, b, SpanKind::kDistribution, SpanLayer::kLowVoltage).ok;
 }
 
-bool test_split_span_invalid_t_fails_and_recovers() {
-  CoreState state;
-  const ObjectId pole_a = state.AddPole({}, 9.0, "A").value;
-  const ObjectId pole_b = state.AddPole({}, 9.0, "B").value;
-  const ObjectId a = state.AddPort(pole_a, {0.0, 0.0, 3.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
-  const ObjectId b = state.AddPort(pole_b, {6.0, 0.0, 3.0}, PortKind::kPower, PortLayer::kLowVoltage).value;
-  const ObjectId span = state.AddSpan(a, b, SpanKind::kDistribution, SpanLayer::kLowVoltage).value;
-
-  const auto bad = state.SplitSpan(span, 0.0);
-  if (bad.ok || bad.error != "split t must be in (0, 1)") {
-    return false;
-  }
-  if (state.view().edit_state().spans.find(span) == nullptr) {
-    return false;
-  }
-  return state.SplitSpan(span, 0.5).ok;
-}
-
-
-
-
 bool test_generate_simple_line_reuses_intermediate_ports() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
@@ -236,9 +215,7 @@ bool test_style_context_resolver_is_deterministic_and_route_correlated() {
 
 void register_workflow_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C20_Phase46_GenerateSimpleLine_FailShortPolyline", "Simple line short polyline fails with state unchanged", "Exact", true, test_generate_simple_line_fails_with_short_polyline);
-  test_registry::AddTest(tests, "C10_AddConnectionByPole_FailSamePole", "Same-pole connect fails with diagnostics and recovers", "Exact", true, test_add_connection_same_pole_fails_and_recovers);
   test_registry::AddTest(tests, "C22_AddSpan_FailMissingPorts", "AddSpan invalid port failure leaves state recoverable", "Exact", true, test_add_span_missing_ports_fails_and_recovers);
-  test_registry::AddTest(tests, "C23_SplitSpan_FailInvalidT", "SplitSpan invalid t failure leaves state recoverable", "Exact", true, test_split_span_invalid_t_fails_and_recovers);
   test_registry::AddTest(tests, "C28_Phase45_GenerateSimpleLine_Continuity", "Intermediate poles reuse same through-port", "Invariant", false, test_generate_simple_line_reuses_intermediate_ports);
   test_registry::AddTest(tests, "C29_Phase45_DisplayId_PerPrefix", "Display IDs increment per prefix", "Exact", false, test_display_id_is_per_prefix_sequence);
   test_registry::AddTest(tests, "C304_StyleContext_DeterministicRouteCorrelated",

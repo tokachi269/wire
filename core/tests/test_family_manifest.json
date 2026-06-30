@@ -10,10 +10,10 @@
     },
     {
       "name": "editing_update_kind",
-      "status": "isolated",
-      "owner": "Manual topology editing and mutation markers not yet unified with SavedBackboneGraph",
+      "status": "migrated",
+      "owner": "Entity edits, coarse updates, and explicit unsupported topology mutation boundaries",
       "sources": ["core/tests/editing.cpp"],
-      "notes": "AddConnection/AddDrop/SplitSpan remain outside the bb2 topology path."
+      "notes": "Manual topology allocator cases are retired; current topology tests use SavedBackboneGraph."
     },
     {
       "name": "geometry_curve",
@@ -24,17 +24,17 @@
     },
     {
       "name": "template_policy",
-      "status": "isolated",
-      "owner": "Wire template validation plus pre-bb2 regeneration markers",
+      "status": "migrated",
+      "owner": "Wire template validation and mutation-safe generated output policy",
       "sources": ["core/tests/template_policy.cpp"],
       "notes": "Validation is current; topology-changing edits reject before mutation."
     },
     {
       "name": "workflow_public_behavior",
-      "status": "isolated",
-      "owner": "Mixed bb2 workflow and manual topology public behavior",
+      "status": "migrated",
+      "owner": "SavedGraph workflow and public unsupported boundaries",
       "sources": ["core/tests/regeneration.cpp", "core/tests/workflow.cpp"],
-      "notes": "SavedGraph-backed cases are current; AddConnection/SplitSpan and old phase cases remain isolated."
+      "notes": "Manual topology allocator cases are retired; current workflow uses bb2 or explicit unsupported."
     },
     {
       "name": "pick_input",

@@ -7086,6 +7086,41 @@ bool C626_bb2_cable_template_updates_derive_outputs() {
          final_render->color_rgba == redraw.color_rgba;
 }
 
+bool C627_bb2_legacy_topology_apis_reject_before_mutation() {
+  wire::core::CoreState state;
+  const auto generated = state.GenerateFromBackboneSpec(line_req(state));
+  if (!generated.ok || generated.value.generated_pole_ids.size() != 2 ||
+      generated.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const auto counts = [&]() {
+    return std::array<std::size_t, 8>{
+        state.view().poles().size(),
+        state.view().ports().size(),
+        state.view().bundles().size(),
+        state.view().spans().size(),
+        state.view().backbone().nodes.size(),
+        state.view().backbone().edges.size(),
+        state.view().backbone().edge_bundles.size(),
+        state.view().backbone().span_bindings.size(),
+    };
+  };
+  const auto before = counts();
+  const auto connection =
+      state.AddConnectionByPole(generated.value.generated_pole_ids[0],
+                                generated.value.generated_pole_ids[1],
+                                wire::core::ConnectionCategory::kLowVoltage);
+  const auto pole_drop =
+      state.AddDropFromPole(generated.value.generated_pole_ids[0], {5.0, 4.0, 3.0});
+  const auto span_drop =
+      state.AddDropFromSpan(generated.value.generated_span_ids.front(), 0.5, {5.0, 4.0, 3.0});
+  const auto split = state.SplitSpan(generated.value.generated_span_ids.front(), 0.5);
+  return !connection.ok && !pole_drop.ok && !span_drop.ok && !split.ok &&
+         contains_text(connection.error, "unsupported") && contains_text(pole_drop.error, "unsupported") &&
+         contains_text(span_drop.error, "unsupported") && contains_text(split.error, "unsupported") &&
+         counts() == before;
+}
+
 bool C622_bb2_stage_timing_is_diagnostic_only() {
   wire::core::CoreState state;
   const auto out = state.GenerateFromBackboneSpec(poly3_req(state));
@@ -7859,6 +7894,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C626_bb2_cable_template_updates_derive_outputs",
                          "bb2 cable shape and render updates directly derive outputs", "Boundary", false,
                          C626_bb2_cable_template_updates_derive_outputs);
+  test_registry::AddTest(tests, "C627_bb2_legacy_topology_apis_reject_before_mutation",
+                         "retired topology APIs reject before mutating SavedBackboneGraph outputs", "Boundary", true,
+                         C627_bb2_legacy_topology_apis_reject_before_mutation);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

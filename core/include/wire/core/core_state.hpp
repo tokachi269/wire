@@ -210,7 +210,6 @@ private:
   [[nodiscard]] static bool is_valid_slot_side(SlotSide side);
   [[nodiscard]] static bool is_valid_slot_role(SlotRole role);
   [[nodiscard]] double compute_side_scale(PoleContextKind context, double corner_angle_deg) const;
-  EditResult<ObjectId> ensure_bundle_for_template(const AddConnectionByPoleOptions& options);
   static void add_unique_id(std::vector<ObjectId>& ids, ObjectId id);
   static void index_add(std::unordered_map<ObjectId, std::vector<ObjectId>>& map, ObjectId key, ObjectId value);
   static void index_remove(std::unordered_map<ObjectId, std::vector<ObjectId>>& map, ObjectId key, ObjectId value);

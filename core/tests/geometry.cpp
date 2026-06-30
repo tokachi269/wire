@@ -903,11 +903,8 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
                          "bb2 interval generation creates a pole line with pole type", "Invariant", false,
                          test_bb2_interval_generates_pole_line_basic);
   test_registry::AddTest(tests, "C61_Phase48h_AcuteCorner_AutoWidenSpacing", "Acute corners auto-widen lane spacing without category-specific branching", "Invariant", false, test_acute_corner_auto_widens_lane_spacing);
-  test_registry::AddTest(tests, "C32_Phase47_SlotSelection_ContextBias", "Branch context biases band choice away from trunk-only", "Invariant", false, test_band_selection_context_bias);
-  test_registry::AddTest(tests, "C33_Phase47_SlotSelection_DeterministicDebug", "Band tie-break is deterministic and debug record is coherent", "Exact", false, test_band_selection_deterministic_and_debug_integrity);
   test_registry::AddTest(tests, "C58_Phase48h_Guide_ReverseSymmetry", "Guide reverse mode preserves generated pole position set", "Invariant", false, test_generate_from_guide_reverse_mode_position_symmetry);
   test_registry::AddTest(tests, "C59_Phase48h_Guide_AvoidConstraint", "Guide generation avoids forbidden radius around avoid_points", "Invariant", false, test_generate_from_guide_respects_avoid_constraints);
-  test_registry::AddTest(tests, "C37_Phase48_PreferredSide_Geometry", "Preferred side is decided by peer geometry", "Invariant", false, test_preferred_side_uses_geometry);
   test_registry::AddTest(tests, "C126_Coord_WorldUpLateralConsistency",
                          "WorldUp and ComputeLateralAxis stay perpendicular and normalized by property",
                          "Invariant", false, test_world_up_and_lateral_axis_are_consistent);

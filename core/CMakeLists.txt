@@ -2,6 +2,7 @@ add_library(
   wire_core
   STATIC
   src/state/state.cpp
+  src/state/legacy/topology.cpp
   src/state/templates.cpp
   src/state/core_view.cpp
   src/state/inspection.cpp

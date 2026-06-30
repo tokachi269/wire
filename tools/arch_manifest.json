@@ -12,7 +12,12 @@
     },
     {
       "name": "state_internal",
-      "patterns": ["core/src/state/*.cpp", "core/src/state/*.hpp"],
+      "patterns": [
+        "core/src/state/*.cpp",
+        "core/src/state/*.hpp",
+        "core/src/state/**/*.cpp",
+        "core/src/state/**/*.hpp"
+      ],
       "forbidden_tokens": ["viewer/"]
     },
     {

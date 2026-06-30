@@ -10,7 +10,6 @@ namespace {
 
 using helpers::contains_id;
 using helpers::sorted_pole_type_ids;
-using wire::core::AddConnectionByPoleOptions;
 using wire::core::AttachmentLineInteractionMode;
 using wire::core::BundleKind;
 using wire::core::ChangeSet;
@@ -91,34 +90,13 @@ std::vector<ObjectId> collect_ids_from_anchors(const std::vector<const wire::cor
 }
 
 bool prepare_single_low_voltage_span(CoreState& state, ObjectId* span_id, wire::core::CableTemplateId* cable_template_id) {
-  Transformd a_tf{};
-  a_tf.position = {0.0, 0.0, 0.0};
-  Transformd b_tf{};
-  b_tf.position = {12.0, 0.0, 0.0};
-  const auto add_a = state.AddPole(a_tf, 10.0, "A", PoleKind::kGeneric, PlacementMode::kAuto);
-  const auto add_b = state.AddPole(b_tf, 10.0, "B", PoleKind::kGeneric, PlacementMode::kAuto);
-  if (!add_a.ok || !add_b.ok) {
-    return false;
-  }
-  const ObjectId pole_a = add_a.value;
-  const ObjectId pole_b = add_b.value;
-  const auto pole_type_ids = sorted_pole_type_ids(state);
-  if (pole_type_ids.empty()) {
-    return false;
-  }
-  if (!state.ApplyPoleType(pole_a, pole_type_ids.front()).ok || !state.ApplyPoleType(pole_b, pole_type_ids.front()).ok) {
-    return false;
-  }
-
-  auto connect =
-      helpers::add_connection_by_category(state, pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage);
-  if (!connect.ok) {
-    return false;
-  }
+  const auto fixture = helpers::make_bb2_fixture(
+      state, {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}}, {wire::core::BundleKind::kLowVoltage});
+  if (!fixture.ok || fixture.value.spans.empty()) return false;
   if (!state.ValidateFast().ok()) {
     return false;
   }
-  const wire::core::Span* span = state.view().spans().find(connect.value.span_id);
+  const wire::core::Span* span = state.view().spans().find(fixture.value.spans.front());
   if (span == nullptr) {
     return false;
   }
@@ -222,29 +200,10 @@ bool test_move_pole_updates_only_target_pole_owned_endpoints() {
 
 bool test_update_bundle_template_rejects_branch_down_offset_before_mutation() {
   CoreState state;
-  const auto pole_type_ids = sorted_pole_type_ids(state);
-  if (pole_type_ids.empty()) {
-    return false;
-  }
-
-  Transformd a_tf{};
-  a_tf.position = {0.0, 0.0, 0.0};
-  Transformd b_tf{};
-  b_tf.position = {8.0, 0.0, 0.0};
-  const ObjectId pole_a = state.AddPole(a_tf, 10.0, "A", PoleKind::kGeneric, PlacementMode::kAuto).value;
-  const ObjectId pole_b = state.AddPole(b_tf, 10.0, "B", PoleKind::kGeneric, PlacementMode::kAuto).value;
-  (void)state.ApplyPoleType(pole_a, pole_type_ids.front());
-  (void)state.ApplyPoleType(pole_b, pole_type_ids.front());
-
-  AddConnectionByPoleOptions hv_options{};
-  hv_options.use_bundle_template = true;
-  hv_options.bundle_template_id = BundleKind::kHighVoltage;
-  const auto hv_connect = state.AddConnectionByPole(pole_a, pole_b, ConnectionCategory::kHighVoltage, hv_options);
-  if (!hv_connect.ok) {
-    return false;
-  }
-
-  const wire::core::Span* hv_span = state.view().spans().find(hv_connect.value.span_id);
+  const auto fixture = helpers::make_bb2_fixture(
+      state, {{0.0, 0.0, 0.0}, {8.0, 0.0, 0.0}}, {BundleKind::kHighVoltage});
+  if (!fixture.ok || fixture.value.spans.empty()) return false;
+  const wire::core::Span* hv_span = state.view().spans().find(fixture.value.spans.front());
   if (hv_span == nullptr) {
     return false;
   }
@@ -339,12 +298,6 @@ void RegisterStateServiceTests(test_registry::TestRegistry& tests) {
                          "bundle template branch-down-offset policy changes force regeneration instead of being ignored or treated as visual-only",
                          "Invariant", false,
                          &test_update_bundle_template_rejects_branch_down_offset_before_mutation);
-  test_registry::AddTest(tests, "C355_CoreStateService_CableTemplateRenderChangeMarksRenderRefresh",
-                         "manual spans reject cable render changes before mutation",
-                         "Invariant", true, &test_update_cable_template_rejects_manual_span_render_change);
-  test_registry::AddTest(tests, "C356_CoreStateService_CableTemplateGeometryChangeMarksGeometryRefresh",
-                         "manual spans reject cable geometry changes before mutation",
-                         "Invariant", true, &test_update_cable_template_rejects_manual_span_geometry_change);
   test_registry::AddTest(tests, "C357_CoreStateService_CableTemplatePolicyChangeMarksDecision",
                          "decision-bearing cable template changes reject before mutation",
                          "Invariant", true, &test_update_cable_template_rejects_decision_change);

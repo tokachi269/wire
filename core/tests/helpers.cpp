@@ -437,6 +437,57 @@ bool contains_id(const std::vector<ObjectId>& ids, ObjectId id) {
 
 bool almost_equal(double a, double b, double eps) { return std::abs(a - b) <= eps; }
 
+wire::core::EditResult<Bb2Fixture>
+make_bb2_fixture(CoreState& state, const std::vector<wire::core::Vec3d>& points,
+                 const std::vector<wire::core::BundleKind>& bundles) {
+  wire::core::EditResult<Bb2Fixture> out{};
+  if (points.size() < 2 || bundles.empty()) {
+    out.error = "bb2 fixture requires points and bundles";
+    return out;
+  }
+  wire::core::BackboneSpec request{};
+  request.path.polyline = points;
+  request.interval_m = 1000.0;
+  const auto first_template = state.view().bundle_templates().find(bundles.front());
+  if (first_template == state.view().bundle_templates().end()) {
+    out.error = "bb2 fixture bundle template not found";
+    return out;
+  }
+  request.pole_type_id = first_template->second.related_pole_type_id;
+  if (request.pole_type_id == wire::core::kInvalidPoleTypeId) {
+    const auto type_ids = sorted_pole_type_ids(state);
+    if (type_ids.empty()) {
+      out.error = "bb2 fixture pole type not found";
+      return out;
+    }
+    request.pole_type_id = type_ids.front();
+  }
+  for (wire::core::BundleKind kind : bundles) {
+    wire::core::BackboneBundleSpec spec{};
+    spec.bundle_template_id = kind;
+    request.bundles.push_back(spec);
+  }
+  auto generated = state.GenerateFromBackboneSpec(request);
+  if (!generated.ok) {
+    out.error = generated.error;
+    return out;
+  }
+  out.value.generation = generated.value;
+  out.value.poles = generated.value.generated_pole_ids;
+  for (ObjectId pole_id : out.value.poles) {
+    const wire::core::SavedBackboneNode* node = state.view().backbone_node_for_pole(pole_id);
+    if (node == nullptr) {
+      out.error = "bb2 fixture node binding not found";
+      return out;
+    }
+    out.value.nodes.push_back(node->node_id);
+  }
+  out.value.spans = generated.value.generated_span_ids;
+  out.value.bundles = generated.value.bundle_ids;
+  out.ok = true;
+  return out;
+}
+
 bool almost_equal(const wire::core::Vec3d& a, const wire::core::Vec3d& b, double eps) {
   return almost_equal(a.x, b.x, eps) && almost_equal(a.y, b.y, eps) && almost_equal(a.z, b.z, eps);
 }

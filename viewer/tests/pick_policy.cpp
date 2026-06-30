@@ -33,17 +33,17 @@ wire::core::ObjectId CreatePole(wire::core::CoreState& state, const wire::core::
 
 wire::core::ObjectId CreateTemplateSpan(wire::core::CoreState& state, wire::core::PoleTypeId type_id,
                                         wire::core::BundleKind kind) {
-  const wire::core::ObjectId pole_a = CreatePole(state, {0.0, 0.0, 0.0}, type_id, "A");
-  const wire::core::ObjectId pole_b = CreatePole(state, {10.0, 0.0, 0.0}, type_id, "B");
-  if (pole_a == wire::core::kInvalidObjectId || pole_b == wire::core::kInvalidObjectId) {
-    return wire::core::kInvalidObjectId;
-  }
-  wire::core::AddConnectionByPoleOptions options{};
-  options.use_bundle_template = true;
-  options.bundle_template_id = kind;
-  const auto result =
-      state.AddConnectionByPole(pole_a, pole_b, wire::core::ConnectionCategory::kLowVoltage, options);
-  return result.ok ? result.value.span_id : wire::core::kInvalidObjectId;
+  wire::core::BackboneSpec request{};
+  request.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}};
+  request.interval_m = 1000.0;
+  request.pole_type_id = type_id;
+  wire::core::BackboneBundleSpec bundle{};
+  bundle.bundle_template_id = kind;
+  request.bundles.push_back(bundle);
+  const auto result = state.GenerateFromBackboneSpec(request);
+  return result.ok && !result.value.generated_span_ids.empty()
+             ? result.value.generated_span_ids.front()
+             : wire::core::kInvalidObjectId;
 }
 
 std::uint32_t TemplateMask(wire::core::BundleKind kind) {

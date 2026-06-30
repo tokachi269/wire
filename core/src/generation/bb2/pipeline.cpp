@@ -6,6 +6,7 @@
 #include "out.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <string>
@@ -2316,17 +2317,26 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
 
 EditResult<GenerateBundleFromPathResult> pipeline::build() {
   EditResult<GenerateBundleFromPathResult> out{};
+  auto elapsed_ms = [](const auto& started) {
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+  };
+  auto started = std::chrono::steady_clock::now();
   EditResult<pairs> ps = make(g_);
+  out.value.timing.pairs_ms = elapsed_ms(started);
   if (!ps.ok) {
     out.error = ps.error;
     return out;
   }
+  started = std::chrono::steady_clock::now();
   EditResult<bool> duplicates = check(ps.value);
+  out.value.timing.preflight_ms = elapsed_ms(started);
   if (!duplicates.ok) {
     out.error = duplicates.error;
     return out;
   }
+  started = std::chrono::steady_clock::now();
   EditResult<intent> intents = make(ps.value);
+  out.value.timing.intent_ms = elapsed_ms(started);
   if (!intents.ok) {
     out.error = intents.error;
     return out;
@@ -2335,31 +2345,45 @@ EditResult<GenerateBundleFromPathResult> pipeline::build() {
     out.ok = true;
     return out;
   }
+  started = std::chrono::steady_clock::now();
   EditResult<groups> placement = make(ps.value, intents.value);
+  out.value.timing.support_groups_ms = elapsed_ms(started);
   if (!placement.ok) {
     out.error = placement.error;
     return out;
   }
+  started = std::chrono::steady_clock::now();
   EditResult<topo> made = emit(ps.value);
+  out.value.timing.emit_ms = elapsed_ms(started);
   if (!made.ok) {
     out.error = made.error;
     return out;
   }
+  started = std::chrono::steady_clock::now();
   EditResult<bool> graph_saved = save_graph(made.value, ps.value);
+  out.value.timing.save_graph_ms = elapsed_ms(started);
   if (!graph_saved.ok) {
     out.error = graph_saved.error;
     return out;
   }
+  started = std::chrono::steady_clock::now();
   rules saved = make(made.value, placement.value);
   save(saved);
+  out.value.timing.rules_ms = elapsed_ms(started);
+  started = std::chrono::steady_clock::now();
   EditResult<layout> placed = make(saved);
   if (!placed.ok) {
     out.error = placed.error;
     return out;
   }
   save(placed.value);
+  out.value.timing.layout_ms = elapsed_ms(started);
+  started = std::chrono::steady_clock::now();
   geom shaped = make(placed.value);
+  out.value.timing.geom_ms = elapsed_ms(started);
+  started = std::chrono::steady_clock::now();
   draw drawn = make(placed.value, shaped);
+  out.value.timing.draw_ms = elapsed_ms(started);
   save(std::move(shaped));
   save(std::move(drawn));
   out.change_set = std::move(made.change_set);

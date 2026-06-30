@@ -49,6 +49,7 @@ struct CoreStateDebugStorage {
   std::vector<BackboneEdgeOrientation> last_generation_edge_orientations{};
   ObjectId next_virtual_support_node_id = 0x9000000000000000ull;
   std::vector<PortResolutionDebugRecord> port_resolution_debug_records{};
+  UpdateTiming last_update_timing{};
 };
 
 } // namespace wire::core

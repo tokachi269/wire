@@ -228,6 +228,15 @@ struct AffectedSet {
 struct UpdatePlan {
   UpdateKind kind = UpdateKind::kRegenerate;
   AffectedSet affected{};
+  double plan_ms = 0.0;
+};
+
+struct UpdateTiming {
+  UpdateKind kind = UpdateKind::kRegenerate;
+  std::size_t affected_span_count = 0;
+  double plan_ms = 0.0;
+  double derive_ms = 0.0;
+  double total_ms = 0.0;
 };
 
 struct SpanRuntimeState {

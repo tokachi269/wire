@@ -4129,7 +4129,7 @@ bool C523_bb2_scope_gate_matches_entrypoint() {
   const bool entry_uses_bb2 = contains_text(entry_text, "generation::bb2::pipeline") &&
                               contains_text(entry_text, "pipeline.prepare()") &&
                               contains_text(entry_text, "pipeline.check()") &&
-                              contains_text(entry_text, "return pipeline.build();");
+                              contains_text(entry_text, "pipeline.build()");
   const std::size_t build_pos = bb2_text.find("EditResult<GenerateBundleFromPathResult> pipeline::build()");
   const std::size_t check_call = bb2_text.find("EditResult<bool> duplicates = check(ps.value)", build_pos);
   const std::size_t intent_call = bb2_text.find("EditResult<intent> intents = make(ps.value)", build_pos);
@@ -6996,6 +6996,32 @@ bool C621_bb2_sag_reshape_updates_geom_only() {
          edge_ids == after_edge_ids && binding_spans == after_binding_spans;
 }
 
+bool C622_bb2_stage_timing_is_diagnostic_only() {
+  wire::core::CoreState state;
+  const auto out = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!out.ok || out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const wire::core::GenerationTiming& timing = out.value.timing;
+  const std::vector<double> stages = {
+      timing.prepare_ms,       timing.check_ms,       timing.pairs_ms, timing.preflight_ms,
+      timing.intent_ms,        timing.support_groups_ms, timing.emit_ms, timing.save_graph_ms,
+      timing.rules_ms,         timing.layout_ms,      timing.geom_ms,  timing.draw_ms,
+  };
+  if (timing.total_ms <= 0.0 ||
+      std::find_if(stages.begin(), stages.end(), [](double value) { return value < 0.0; }) != stages.end()) {
+    return false;
+  }
+
+  wire::core::GeometrySettings settings = state.view().geometry_settings();
+  settings.sag_enabled = true;
+  const auto updated = state.UpdateGeometrySettings(settings);
+  const wire::core::UpdateTiming& update = state.view().last_update_timing();
+  return updated.ok && update.kind == wire::core::UpdateKind::kReshape &&
+         update.affected_span_count == out.value.generated_span_ids.size() && update.plan_ms >= 0.0 &&
+         update.derive_ms >= 0.0 && update.total_ms >= update.derive_ms;
+}
+
 void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C368_bb2_smoke_line", "bb2 generates the milestone-1 line slice", "Invariant", false,
                          C368_bb2_smoke_line);
@@ -7728,6 +7754,9 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C621_bb2_sag_reshape_updates_geom_only",
                          "bb2 sag reshapes curve and bounds without changing layout or topology", "Boundary", false,
                          C621_bb2_sag_reshape_updates_geom_only);
+  test_registry::AddTest(tests, "C622_bb2_stage_timing_is_diagnostic_only",
+                         "bb2 reports generation and update stage timing without changing decisions", "Boundary", false,
+                         C622_bb2_stage_timing_is_diagnostic_only);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

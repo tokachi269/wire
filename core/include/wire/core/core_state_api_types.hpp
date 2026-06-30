@@ -72,11 +72,28 @@ struct AddDropResult {
   ObjectId split_port_id = kInvalidObjectId;
 };
 
+struct GenerationTiming {
+  double prepare_ms = 0.0;
+  double check_ms = 0.0;
+  double pairs_ms = 0.0;
+  double preflight_ms = 0.0;
+  double intent_ms = 0.0;
+  double support_groups_ms = 0.0;
+  double emit_ms = 0.0;
+  double save_graph_ms = 0.0;
+  double rules_ms = 0.0;
+  double layout_ms = 0.0;
+  double geom_ms = 0.0;
+  double draw_ms = 0.0;
+  double total_ms = 0.0;
+};
+
 struct GenerateBundleFromPathResult {
   ObjectId bundle_id = kInvalidObjectId;
   std::vector<ObjectId> bundle_ids{};
   std::vector<ObjectId> generated_span_ids{};
   std::vector<ObjectId> generated_pole_ids{};
+  GenerationTiming timing{};
 };
 
 struct BackboneFrontier {

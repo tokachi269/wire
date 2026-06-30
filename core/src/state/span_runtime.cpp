@@ -1,6 +1,7 @@
 #include "wire/core/core_state.hpp"
 #include "wire/core/core_view.hpp"
 #include <algorithm>
+#include <chrono>
 #include <unordered_set>
 #include <vector>
 
@@ -196,6 +197,7 @@ void CoreState::mark_topology_related_spans_for_ports_dirty(const std::vector<Ob
 }
 
 EditResult<UpdatePlan> CoreState::make_update_plan(UpdateRequest request) const {
+  const auto started = std::chrono::steady_clock::now();
   EditResult<UpdatePlan> out{};
   UpdatePlan plan{};
   plan.kind = request.kind;
@@ -329,6 +331,8 @@ EditResult<UpdatePlan> CoreState::make_update_plan(UpdateRequest request) const 
   std::sort(plan.affected.ports.begin(), plan.affected.ports.end());
   std::sort(plan.affected.spans.begin(), plan.affected.spans.end());
   std::sort(plan.affected.edges.begin(), plan.affected.edges.end());
+  plan.plan_ms =
+      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
   out.value = std::move(plan);
   out.ok = true;
   return out;

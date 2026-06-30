@@ -5,6 +5,7 @@
 #include "out.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <string>
 
@@ -175,8 +176,16 @@ EditResult<bool> CoreState::derive_generated_span_draw_outputs(ObjectId span_id)
 }
 
 EditResult<bool> CoreState::execute_update_plan(const UpdatePlan& plan) {
+  const auto started = std::chrono::steady_clock::now();
+  UpdateTiming timing{};
+  timing.kind = plan.kind;
+  timing.affected_span_count = plan.affected.spans.size();
+  timing.plan_ms = plan.plan_ms;
   EditResult<bool> out{};
   if (plan.kind == UpdateKind::kRegenerate) {
+    timing.total_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+    debug_.last_update_timing = timing;
     out.error = "bb2 update: regenerate is not implemented for local updates";
     return out;
   }
@@ -185,6 +194,7 @@ EditResult<bool> CoreState::execute_update_plan(const UpdatePlan& plan) {
       continue;
     }
     EditResult<bool> derived{};
+    const auto derive_started = std::chrono::steady_clock::now();
     switch (plan.kind) {
     case UpdateKind::kReposition:
       derived = DeriveGeneratedSpanOutputs(span_id);
@@ -198,11 +208,19 @@ EditResult<bool> CoreState::execute_update_plan(const UpdatePlan& plan) {
     case UpdateKind::kRegenerate:
       break;
     }
+    timing.derive_ms +=
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - derive_started).count();
     if (!derived.ok) {
+      timing.total_ms =
+          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+      debug_.last_update_timing = timing;
       out.error = derived.error;
       return out;
     }
   }
+  timing.total_ms =
+      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+  debug_.last_update_timing = timing;
   out.value = true;
   out.ok = true;
   return out;

@@ -359,6 +359,7 @@
 | C619 | Boundary | bb2 | kReposition は affected span だけ更新する | 3点 bb2 route 後に端点 port を移動 | SetPortWorldPositionManual | Boundary: moved port に接続する span だけ layout が更新され、無関係 span の layout source は変わらない | SavedBackboneGraph bindings / SpanLayoutEntry | affected set が全 span 更新に戻る回帰防止 |
 | C620 | Boundary | bb2 | update boundary に操作別 kind を作らない | source scan | wire_core_tests bb2 | Boundary: `UpdateKind` は kRegenerate/kReposition/kReshape/kRedraw に限定し、derive は recalc/materialization/support-layout contract を呼ばない | source text | PoleTilt/PoleYaw/Sag 等の細粒度 enum が増殖する回帰防止 |
 | C621 | Boundary | bb2 | sag は geom/draw だけを reshape する | 2点 bb2 route + sag enabled | UpdateGeometrySettings | Boundary: layout endpoint と SavedBackboneGraph identity は不変のまま DetailCurve に sag が付き bounds が追従する | SpanLayoutEntry / DetailCurve / BoundsCacheEntry / SavedBackboneGraph | bb2 wire が直線固定へ戻る、または sag が topology/layout を再決定する回帰防止 |
+| C622 | Boundary | bb2 | pipeline/update timing は診断専用 | 3点 bb2 route + reshape update | GenerateFromBackboneSpec / UpdateGeometrySettings | Boundary: generation stage と update plan/derive の timing が非負で、UpdateKind と affected span 数に追従する | GenerationTiming / UpdateTiming | global profiler や timing 起点の生成分岐を作らず性能観測の入口を固定する |
 
 ## Retired old-pipeline checks
 - Old cases 365-367 were removed from the registered suite. They pinned the transitional `BackboneBuilder` / support-layout authority seed / materialization surface instead of the bb2 mainline.

@@ -161,36 +161,6 @@ struct BackboneIndex {
   std::unordered_map<ObjectId, ObjectId> pole_node;
 };
 
-enum class DirtyBits : std::uint32_t {
-  kNone = 0,
-  kTopology = 1u << 0,
-  kDecision = 1u << 1,
-  kGeometryRefresh = 1u << 2,
-  kRenderRefresh = 1u << 4,
-};
-
-inline DirtyBits operator|(DirtyBits a, DirtyBits b) {
-  using T = std::underlying_type_t<DirtyBits>;
-  return static_cast<DirtyBits>(static_cast<T>(a) | static_cast<T>(b));
-}
-
-inline DirtyBits operator&(DirtyBits a, DirtyBits b) {
-  using T = std::underlying_type_t<DirtyBits>;
-  return static_cast<DirtyBits>(static_cast<T>(a) & static_cast<T>(b));
-}
-
-inline DirtyBits operator~(DirtyBits a) {
-  using T = std::underlying_type_t<DirtyBits>;
-  return static_cast<DirtyBits>(~static_cast<T>(a));
-}
-
-inline DirtyBits& operator|=(DirtyBits& a, DirtyBits b) {
-  a = a | b;
-  return a;
-}
-
-inline bool any(DirtyBits bits, DirtyBits flag) { return (bits & flag) != DirtyBits::kNone; }
-
 enum class UpdateKind : std::uint8_t {
   kRegenerate = 0,
   kReposition = 1,
@@ -242,7 +212,6 @@ struct SpanRuntimeState {
   std::uint64_t render_version = 0;
   std::uint64_t raycast_version = 0;
   std::uint64_t variation_flow_key = 0;
-  DirtyBits dirty_bits = DirtyBits::kNone;
 };
 
 } // namespace wire::core

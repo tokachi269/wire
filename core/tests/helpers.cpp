@@ -431,10 +431,6 @@ bool regex_contains(const std::string& text, const std::string& pattern) {
   return std::regex_search(text, std::regex(pattern));
 }
 
-bool has_dirty(const wire::core::SpanRuntimeState* state, DirtyBits bits) {
-  return state != nullptr && wire::core::any(state->dirty_bits, bits);
-}
-
 bool contains_id(const std::vector<ObjectId>& ids, ObjectId id) {
   return std::find(ids.begin(), ids.end(), id) != ids.end();
 }

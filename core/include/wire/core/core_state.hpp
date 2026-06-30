@@ -137,17 +137,17 @@ private:
   void remove_span_from_indexes(const Span& span);
   void add_span_to_index(const Span& span);
   void initialize_span_runtime_state(ObjectId span_id);
-  void mark_span_dirty(ObjectId span_id, DirtyBits dirty_bits, bool bump_data_version);
-  void mark_connected_spans_dirty_from_port(ObjectId port_id, DirtyBits dirty_bits, ChangeSet* change_set);
-  void mark_connected_spans_dirty_from_anchor(ObjectId anchor_id, DirtyBits dirty_bits, ChangeSet* change_set);
+  void touch_span(ObjectId span_id, bool bump_data_version);
+  void touch_connected_spans_from_port(ObjectId port_id, ChangeSet* change_set);
+  void touch_connected_spans_from_anchor(ObjectId anchor_id, ChangeSet* change_set);
   EditResult<bool> derive_generated_span_shape_outputs(ObjectId span_id);
   EditResult<bool> derive_generated_span_draw_outputs(ObjectId span_id);
   [[nodiscard]] EditResult<UpdatePlan> make_update_plan(UpdateRequest request) const;
   EditResult<bool> execute_update_plan(const UpdatePlan& plan);
   [[nodiscard]] std::vector<ObjectId> collect_topology_related_spans_for_ports(const std::vector<ObjectId>& port_ids,
                                                                                 ObjectId exclude_span_id) const;
-  void mark_topology_related_spans_for_ports_dirty(const std::vector<ObjectId>& port_ids, ObjectId exclude_span_id,
-                                                   DirtyBits dirty_bits, ChangeSet* change_set);
+  void touch_topology_related_spans_for_ports(const std::vector<ObjectId>& port_ids, ObjectId exclude_span_id,
+                                              ChangeSet* change_set);
   void cache_span_layout(SpanLayoutEntry layout);
   void cache_span_curve(ObjectId span_id, DetailCurve detail);
   void cache_span_bounds(ObjectId span_id, BoundsCacheEntry bounds);

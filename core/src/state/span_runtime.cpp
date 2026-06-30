@@ -96,11 +96,10 @@ void CoreState::initialize_span_runtime_state(ObjectId span_id) {
   runtime.render_version = 0;
   runtime.raycast_version = 0;
   runtime.variation_flow_key = 0;
-  runtime.dirty_bits = DirtyBits::kNone;
   runtime_.span_runtime_states[span_id] = runtime;
 }
 
-void CoreState::mark_span_dirty(ObjectId span_id, DirtyBits dirty_bits, bool bump_data_version) {
+void CoreState::touch_span(ObjectId span_id, bool bump_data_version) {
   if (authoritative_.edit_state.spans.find(span_id) == nullptr) {
     return;
   }
@@ -111,33 +110,29 @@ void CoreState::mark_span_dirty(ObjectId span_id, DirtyBits dirty_bits, bool bum
   if (bump_data_version || runtime.data_version == 0) {
     runtime.data_version = identity_.next_data_version++;
   }
-  runtime.dirty_bits |= dirty_bits;
 }
 
-void CoreState::mark_connected_spans_dirty_from_port(ObjectId port_id, DirtyBits dirty_bits, ChangeSet* change_set) {
+void CoreState::touch_connected_spans_from_port(ObjectId port_id, ChangeSet* change_set) {
   auto it = runtime_.connection_index.spans_by_port.find(port_id);
   if (it == runtime_.connection_index.spans_by_port.end()) {
     return;
   }
   for (ObjectId span_id : it->second) {
-    mark_span_dirty(span_id, dirty_bits, true);
+    touch_span(span_id, true);
     if (change_set != nullptr) {
-      add_unique_id(change_set->dirty_span_ids, span_id);
       add_unique_id(change_set->updated_ids, span_id);
     }
   }
 }
 
-void CoreState::mark_connected_spans_dirty_from_anchor(ObjectId anchor_id, DirtyBits dirty_bits,
-                                                       ChangeSet* change_set) {
+void CoreState::touch_connected_spans_from_anchor(ObjectId anchor_id, ChangeSet* change_set) {
   auto it = runtime_.connection_index.spans_by_anchor.find(anchor_id);
   if (it == runtime_.connection_index.spans_by_anchor.end()) {
     return;
   }
   for (ObjectId span_id : it->second) {
-    mark_span_dirty(span_id, dirty_bits, true);
+    touch_span(span_id, true);
     if (change_set != nullptr) {
-      add_unique_id(change_set->dirty_span_ids, span_id);
       add_unique_id(change_set->updated_ids, span_id);
     }
   }
@@ -184,13 +179,12 @@ std::vector<ObjectId> CoreState::collect_topology_related_spans_for_ports(const 
   return std::vector<ObjectId>(related_span_ids.begin(), related_span_ids.end());
 }
 
-void CoreState::mark_topology_related_spans_for_ports_dirty(const std::vector<ObjectId>& port_ids, ObjectId exclude_span_id,
-                                                            DirtyBits dirty_bits, ChangeSet* change_set) {
+void CoreState::touch_topology_related_spans_for_ports(const std::vector<ObjectId>& port_ids, ObjectId exclude_span_id,
+                                                       ChangeSet* change_set) {
   const std::vector<ObjectId> related_span_ids = collect_topology_related_spans_for_ports(port_ids, exclude_span_id);
   for (ObjectId related_span_id : related_span_ids) {
-    mark_span_dirty(related_span_id, dirty_bits, true);
+    touch_span(related_span_id, true);
     if (change_set != nullptr) {
-      add_unique_id(change_set->dirty_span_ids, related_span_id);
       add_unique_id(change_set->updated_ids, related_span_id);
     }
   }

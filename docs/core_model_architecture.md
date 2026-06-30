@@ -33,7 +33,7 @@ bb2 uses four coarse update kinds:
 - `kReshape`: geom → draw.
 - `kRedraw`: visual/render only.
 
-Operation-specific update kinds are not added. `DirtyBits` is a mutation marker and viewer diagnostic, not the bb2 derive owner.
+Operation-specific update kinds are not added. The old `DirtyBits` marker family is deleted; updates use `UpdatePlan`, direct derive, or pre-mutation rejection.
 
 Generation and update timing are diagnostic snapshots only. They do not affect decisions.
 

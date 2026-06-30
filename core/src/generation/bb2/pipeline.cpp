@@ -31,7 +31,6 @@ void add(ChangeSet& dst, const ChangeSet& src) {
   append(dst.created_ids, src.created_ids);
   append(dst.updated_ids, src.updated_ids);
   append(dst.deleted_ids, src.deleted_ids);
-  append(dst.dirty_span_ids, src.dirty_span_ids);
 }
 
 Vec3d norm(Vec3d v) {

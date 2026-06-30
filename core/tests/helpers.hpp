@@ -16,7 +16,6 @@ namespace helpers {
 
 using wire::core::ConnectionCategory;
 using wire::core::CoreState;
-using wire::core::DirtyBits;
 using wire::core::ObjectId;
 using wire::core::PoleTypeId;
 
@@ -51,7 +50,6 @@ struct BranchRunoutMetrics {
 CoreCounts snapshot_counts(const CoreState& state);
 bool same_counts(const CoreCounts& a, const CoreCounts& b);
 bool regex_contains(const std::string& text, const std::string& pattern);
-bool has_dirty(const wire::core::SpanRuntimeState* state, DirtyBits bits);
 bool contains_id(const std::vector<ObjectId>& ids, ObjectId id);
 bool almost_equal(double a, double b, double eps = 1e-9);
 bool almost_equal(const wire::core::Vec3d& a, const wire::core::Vec3d& b, double eps = 1e-9);

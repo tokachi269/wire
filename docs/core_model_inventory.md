@@ -67,7 +67,7 @@ Definition Layer
 |---|---|---|---|---|
 | `SpanRuntimeState` | `core/include/wire/core/core_state.hpp` | span 単位の dirty/version 追随状態を保持する。 | span ID + versions | `DerivedCache` |
 | `UpdateKind`, `UpdatePlan` | `core/include/wire/core/core_runtime_types.hpp` | bb2 の粗い再導出境界を定義する。 | update kind + affected IDs | `SessionDebug` |
-| `DirtyBits` / `SpanRuntimeState` | `core/include/wire/core/core_runtime_types.hpp` | mutation tracking と viewer dirty overlay 用の span runtime 状態を保持する。 | span ID + dirty flags | `DerivedCache` |
+| `SpanRuntimeState` | `core/include/wire/core/core_runtime_types.hpp` | span output の version と variation key を保持する。 | span ID + versions | `DerivedCache` |
 | `GeometrySettings` | `core/include/wire/core/core_state.hpp` | 曲線生成設定を保持する。 | scalar params | `PersistCore`（設定） |
 | `CurveCacheEntry`, `CurveCache` | `core/include/wire/core/core_state.hpp` | span 曲線サンプルを保持する。 | span IDs -> points | `DerivedCache` |
 | `BoundsCacheEntry`, `BoundsCache` | `core/include/wire/core/core_state.hpp` | span/区間 AABB を保持する。 | span IDs -> AABBs | `DerivedCache` |

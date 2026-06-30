@@ -181,7 +181,7 @@ public backbone query は saved graph を正本として読む。旧名の API �
 ## update / performance 境界
 
 更新分類は `kRegenerate / kReposition / kReshape / kRedraw` の4種だけとする。
-`DirtyBits` は mutation marker / viewer diagnostic であり、bb2 derive の決定者ではない。
+旧 `DirtyBits` family は削除済み。更新は `UpdateKind` / `UpdatePlan` と direct derive、または mutation 前 `unsupported` だけを使う。
 
 generation result と update debug view は stage timing を持つ。timing は診断専用で、生成判断には使わない。
 

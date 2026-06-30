@@ -25,11 +25,9 @@
 | `span_layout_types.hpp` の endpoint/support-group decision data | neutral layout/support group data と validation | mainline | no fallback path | 旧 authority object は削除済み。decision / placement として扱う |
 | `ValidateFast` の support-group layout checks | viewer validation panel、tests | validation-only | no | normal path blocker にしない。neutral layout/support-group 制約として維持 |
 | coarse update boundary / `UpdateKind` | editing/runtime/direct derive | mainline runtime | no recalc owner | kRegenerate/kReposition/kReshape/kRedraw の4分類だけ。operation-specific dirty enum を増やさない |
-| `DirtyBits` / span runtime dirty marking | editing/runtime/viewer dirty overlay | mainline runtime | no recalc owner | mutation tracking と旧制約用。bb2 output 更新は coarse update plan + direct derive へ寄せる |
 | direct derive `DeriveGeneratedSpanOutputs` | post-edit output rederive | mainline | no recalc | saved rules/ports から layout/geom/draw を再導出。recalc へ戻さない |
 | test family manifest / architecture lint | core/viewer test build | merge guard | no | unclassified tests/files、禁止依存、旧 recalc/support-layout、city-domain identity の復活を fail する |
 | manual topology API (`AddConnectionByPole` / `AddDrop*` / `SplitSpan`) | default tests、一部 public workflow | D | no | SavedBackboneGraph を更新しない別 topology 経路。32件のdefault制約test setup移行が必要なため今回の一括削除は停止 |
-| `DirtyBits` | state mutation、viewer diagnostics、isolated tests | D | no | direct derive の owner ではない。manual topology test family移行後に一括削除する |
 
 ## 削除済み family
 
@@ -50,6 +48,7 @@
 | building-specific core support/pick enum | opaque `kExternal` へ置換済み | external adapter の対象種別を wire core に戻すこと |
 | `wire_capture_replay` / replay scripts | 削除済み | legacy topology API をdebug tool都合で戻すこと |
 | `regeneration_required` / `TemplateDependencyState` | 削除済み | executorのないmarker-only成功を戻すこと |
+| `DirtyBits` / `dirty_span_ids` / viewer dirty overlay | 削除済み | marker-only updateや新しいdirty queueを戻すこと |
 | `build_backbone_service.cpp` | 削除済み | pole-only generation と旧 auto-connect allocator |
 | `RegenerateSessionAutoParts` / `rebuild_from_backbone.cpp` | 削除済み | generated span の session 走査、snapshot rollback、出力からの identity 復元 |
 | `last_generation_junction_relations` | 削除済み | SavedBackboneGraph junction と競合する inspection fallback |
@@ -89,10 +88,8 @@
 | 対象 | 状態 | 削除条件 |
 |---|---|---|
 | `bb2` namespace/name | v1 同居中の暫定名 | v1/recalc/support-layout 本流依存を削り切った後に mainline 名へ rename |
-| dirty bits | editing/runtime/viewer が読む | coarse update boundary へ寄せた後、mutation tracking と旧制約用に残す範囲をさらに削る |
 | `pending_support_nodes` | 未保存の segment/building/pole pick を次の bb2 request へ渡す transient input | generation result を保存しない。保存後の node は SavedBackboneGraph だけを読む |
 | manual topology API family | SavedBackboneGraph を作らない public/capture/test 経路 | equivalent bb2 operation を定義するか、利用者を退役してから一括削除 |
-| `DirtyBits` family | viewer とmanual topology testsが読む | manual topology test setup移行後に一括削除 |
 
 ## unsupported 境界
 
@@ -107,7 +104,7 @@
 | layout/variation/context と bundle/cable/attachment decision の post-edit 更新 | generated outputがある場合はmutation前 `unsupported` | PASS |
 | cable sag/color、geometry、visual の安全な post-edit 更新 | `kReshape` / `kRedraw` でdirect derive | PASS |
 | pole type definition / instance reapply | context-only band編集とactive endpoint更新が未分離 | FAIL: merge blocker |
-| manual topology API と DirtyBits/regeneration marker family | default testsが依存 | FAIL: removal stopped after 32 failures |
+| manual topology API family | default testsが依存 | FAIL: removal stopped after 32 failures |
 
 ## 次に消せる family
 

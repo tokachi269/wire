@@ -11,7 +11,6 @@ struct ChangeSet {
   std::vector<ObjectId> created_ids;
   std::vector<ObjectId> updated_ids;
   std::vector<ObjectId> deleted_ids;
-  std::vector<ObjectId> dirty_span_ids;
 };
 
 template <typename TValue> struct EditResult {

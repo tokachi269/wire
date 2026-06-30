@@ -17,15 +17,6 @@
 
 namespace {
 
-std::string DirtyBitsToText(wire::core::DirtyBits bits) {
-  std::string out;
-  if ((bits & wire::core::DirtyBits::kTopology) != wire::core::DirtyBits::kNone) out += "T";
-  if ((bits & wire::core::DirtyBits::kDecision) != wire::core::DirtyBits::kNone) out += "D";
-  if ((bits & wire::core::DirtyBits::kGeometryRefresh) != wire::core::DirtyBits::kNone) out += "G";
-  if ((bits & wire::core::DirtyBits::kRenderRefresh) != wire::core::DirtyBits::kNone) out += "R";
-  return out.empty() ? std::string("-") : out;
-}
-
 const char* SpanLayerLabel(wire::core::SpanLayer layer) {
   switch (layer) {
   case wire::core::SpanLayer::kHighVoltage:
@@ -1540,7 +1531,6 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
       ImGui::Text("geometryVersion: %llu", static_cast<unsigned long long>(runtime_state->geometry_version));
       ImGui::Text("boundsVersion: %llu", static_cast<unsigned long long>(runtime_state->bounds_version));
       ImGui::Text("renderVersion: %llu", static_cast<unsigned long long>(runtime_state->render_version));
-      ImGui::Text("dirtyBits: %s", DirtyBitsToText(runtime_state->dirty_bits).c_str());
     }
     if (const auto span_view = view.inspect_span(span->id); span_view.has_value()) {
       const auto layout_view = view.span_layout(span->id);
@@ -2423,8 +2413,8 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
           ui_state.last_error.clear();
           LoadCableTemplateState(viewer_core_state::View(state), ui_state, tpl.id);
           PushLog(ui_state, "Cable template updated; visible-first=" +
-                                    std::to_string(ui_state.preferred_visible_span_count) + " dirty spans=" +
-                                    std::to_string(apply.change_set.dirty_span_ids.size()));
+                                    std::to_string(ui_state.preferred_visible_span_count) + " affected spans=" +
+                                    std::to_string(apply.change_set.updated_ids.size()));
         }
       }
     }
@@ -2842,8 +2832,8 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
             }
             ui_state.last_error.clear();
             LoadPoleTemplateState(viewer_core_state::View(state), ui_state, pole_type.id);
-            PushLog(ui_state, "Pole template updated; dirty spans=" +
-                                  std::to_string(apply.change_set.dirty_span_ids.size()) + " related apply updates=" +
+            PushLog(ui_state, "Pole template updated; affected objects=" +
+                                  std::to_string(apply.change_set.updated_ids.size()) + " related apply updates=" +
                                   std::to_string(apply_related_poles.change_set.updated_ids.size()));
           }
         }

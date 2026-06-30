@@ -162,7 +162,6 @@ void append_change_set(ChangeSet& dst, const ChangeSet& src) {
   append_unique(dst.created_ids, src.created_ids);
   append_unique(dst.updated_ids, src.updated_ids);
   append_unique(dst.deleted_ids, src.deleted_ids);
-  append_unique(dst.dirty_span_ids, src.dirty_span_ids);
 }
 
 Vec3d local_to_world_on_pole(const Transformd& tf, double yaw_deg, const Vec3d& local) {
@@ -1287,4 +1286,3 @@ const AttachmentTemplate* CoreState::find_attachment_template(AttachmentTemplate
 }
 
 } // namespace wire::core
-

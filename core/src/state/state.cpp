@@ -183,7 +183,6 @@ void append_change_set(ChangeSet& dst, const ChangeSet& src) {
   append_unique(dst.created_ids, src.created_ids);
   append_unique(dst.updated_ids, src.updated_ids);
   append_unique(dst.deleted_ids, src.deleted_ids);
-  append_unique(dst.dirty_span_ids, src.dirty_span_ids);
 }
 
 Vec3d local_to_world_on_pole(const Transformd& tf, double yaw_deg, const Vec3d& local) {
@@ -409,16 +408,14 @@ EditResult<ObjectId> CoreState::AddSpan(ObjectId port_a_id, ObjectId port_b_id, 
   span.reference_length_m = std::sqrt(dx * dx + dy * dy + dz * dz);
   authoritative_.edit_state.spans.insert(span);
 
-  mark_topology_related_spans_for_ports_dirty({port_a_id, port_b_id}, span.id,
-                                              DirtyBits::kTopology | DirtyBits::kDecision, &result.change_set);
+  touch_topology_related_spans_for_ports({port_a_id, port_b_id}, span.id, &result.change_set);
   add_span_to_index(span);
   initialize_span_runtime_state(span.id);
-  mark_span_dirty(span.id, DirtyBits::kTopology | DirtyBits::kDecision, true);
+  touch_span(span.id, true);
 
   result.ok = true;
   result.value = span.id;
   result.change_set.created_ids.push_back(span.id);
-  result.change_set.dirty_span_ids.push_back(span.id);
   return result;
 }
 
@@ -470,13 +467,12 @@ EditResult<ObjectId> CoreState::AddAttachment(ObjectId span_id, double t, Attach
   attachment.display_offset_m = display_offset_m;
   authoritative_.edit_state.attachments.insert(attachment);
   index_add(runtime_.relation_index.attachments_by_span, span_id, attachment.id);
-  mark_span_dirty(span_id, DirtyBits::kDecision, true);
+  touch_span(span_id, true);
 
   result.ok = true;
   result.value = attachment.id;
   result.change_set.created_ids.push_back(attachment.id);
   result.change_set.updated_ids.push_back(span_id);
-  result.change_set.dirty_span_ids.push_back(span_id);
   return result;
 }
 
@@ -643,7 +639,7 @@ EditResult<ObjectId> CoreState::SetPortWorldPositionManual(ObjectId port_id, con
   port->world_position = new_world_position;
   apply_port_position_mode(*port, PortPositionMode::kManual, PortPlacementSourceKind::kManualEdit);
   result.change_set.updated_ids.push_back(port_id);
-  mark_connected_spans_dirty_from_port(port_id, DirtyBits::kGeometryRefresh, &result.change_set);
+  touch_connected_spans_from_port(port_id, &result.change_set);
   const auto plan = make_update_plan({UpdateKind::kReposition, UpdateTargetKind::kPort, port_id});
   if (!plan.ok) {
     result.error = plan.error;
@@ -723,7 +719,7 @@ EditResult<ObjectId> CoreState::ResetPortPositionToAuto(ObjectId port_id) {
   }
 
   result.change_set.updated_ids.push_back(port_id);
-  mark_connected_spans_dirty_from_port(port_id, DirtyBits::kGeometryRefresh, &result.change_set);
+  touch_connected_spans_from_port(port_id, &result.change_set);
   const auto plan = make_update_plan({UpdateKind::kReposition, UpdateTargetKind::kPort, port_id});
   if (!plan.ok) {
     result.error = plan.error;
@@ -748,7 +744,7 @@ EditResult<ObjectId> CoreState::MoveAnchor(ObjectId anchor_id, const Vec3d& new_
   }
   anchor->world_position = new_world_position;
   result.change_set.updated_ids.push_back(anchor_id);
-  mark_connected_spans_dirty_from_anchor(anchor_id, DirtyBits::kGeometryRefresh, &result.change_set);
+  touch_connected_spans_from_anchor(anchor_id, &result.change_set);
   result.ok = true;
   result.value = anchor_id;
   return result;
@@ -878,9 +874,8 @@ EditResult<ObjectId> CoreState::SetSpanEndpointSocketOverride(ObjectId span_id, 
   }
   slot = socket_id;
   authoritative_.override_state.span_endpoint_by_span[span_id] = next;
-  mark_span_dirty(span_id, DirtyBits::kDecision, true);
+  touch_span(span_id, true);
   add_unique_id(result.change_set.updated_ids, span_id);
-  add_unique_id(result.change_set.dirty_span_ids, span_id);
   result.ok = true;
   result.value = span_id;
   return result;
@@ -912,9 +907,8 @@ EditResult<ObjectId> CoreState::ClearSpanEndpointSocketOverride(ObjectId span_id
     result.value = span_id;
     return result;
   }
-  mark_span_dirty(span_id, DirtyBits::kDecision, true);
+  touch_span(span_id, true);
   add_unique_id(result.change_set.updated_ids, span_id);
-  add_unique_id(result.change_set.dirty_span_ids, span_id);
   result.ok = true;
   result.value = span_id;
   return result;
@@ -943,9 +937,8 @@ EditResult<ObjectId> CoreState::SetSpanBranchDownOffsetOverride(ObjectId span_id
   }
   next.branch_down_offset_m = branch_down_offset_m;
   authoritative_.override_state.span_support_by_span[span_id] = next;
-  mark_span_dirty(span_id, DirtyBits::kDecision, true);
+  touch_span(span_id, true);
   add_unique_id(result.change_set.updated_ids, span_id);
-  add_unique_id(result.change_set.dirty_span_ids, span_id);
   const auto plan = make_update_plan({UpdateKind::kReposition, UpdateTargetKind::kSpan, span_id});
   if (!plan.ok) {
     result.error = plan.error;
@@ -977,9 +970,8 @@ EditResult<ObjectId> CoreState::ClearSpanBranchDownOffsetOverride(ObjectId span_
     result.value = span_id;
     return result;
   }
-  mark_span_dirty(span_id, DirtyBits::kDecision, true);
+  touch_span(span_id, true);
   add_unique_id(result.change_set.updated_ids, span_id);
-  add_unique_id(result.change_set.dirty_span_ids, span_id);
   const auto plan = make_update_plan({UpdateKind::kReposition, UpdateTargetKind::kSpan, span_id});
   if (!plan.ok) {
     result.error = plan.error;
@@ -1094,8 +1086,7 @@ EditResult<ObjectId> CoreState::DeleteSpan(ObjectId span_id) {
   }
 
   const Span copy = *span;
-  mark_topology_related_spans_for_ports_dirty({copy.port_a_id, copy.port_b_id}, copy.id,
-                                              DirtyBits::kTopology | DirtyBits::kDecision, &result.change_set);
+  touch_topology_related_spans_for_ports({copy.port_a_id, copy.port_b_id}, copy.id, &result.change_set);
   remove_span_from_indexes(copy);
   authoritative_.edit_state.spans.remove(span_id);
   runtime_.span_runtime_states.erase(span_id);
@@ -1272,7 +1263,7 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
         existing_port->side_scale_applied = apply_angle_correction ? applied_scale : 1.0;
         apply_port_position_mode(*existing_port, PortPositionMode::kAuto, PortPlacementSourceKind::kPlacementBand);
         add_unique_id(result.change_set.updated_ids, existing_port->id);
-        mark_connected_spans_dirty_from_port(existing_port->id, DirtyBits::kGeometryRefresh, &result.change_set);
+        touch_connected_spans_from_port(existing_port->id, &result.change_set);
       }
     }
   }

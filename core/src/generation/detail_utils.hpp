@@ -25,7 +25,6 @@ inline void append_change_set(ChangeSet& dst, const ChangeSet& src) {
   append_unique(dst.created_ids, src.created_ids);
   append_unique(dst.updated_ids, src.updated_ids);
   append_unique(dst.deleted_ids, src.deleted_ids);
-  append_unique(dst.dirty_span_ids, src.dirty_span_ids);
 }
 
 inline double normalize_yaw_deg(double yaw_deg) { return wire::core::NormalizeYawDeg(yaw_deg); }

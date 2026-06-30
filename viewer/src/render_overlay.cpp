@@ -172,18 +172,8 @@ void DrawWirePolyline(const std::vector<wire::core::Vec3d>& points, float wire_r
   }
 }
 
-Color DirtyColorForSpan(const wire::core::SpanRuntimeState* runtime_state) {
-  if (runtime_state == nullptr) {
-    return Color{92, 96, 102, 255};
-  }
-  if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kTopology))
-    return Color{126, 102, 145, 255};
-  if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kDecision))
-    return Color{186, 132, 96, 255};
-  if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kGeometryRefresh))
-    return Color{164, 140, 62, 255};
-  if (wire::core::any(runtime_state->dirty_bits, wire::core::DirtyBits::kRenderRefresh))
-    return Color{146, 86, 79, 255};
+Color SpanDebugColor(const wire::core::SpanRuntimeState* runtime_state) {
+  if (runtime_state == nullptr) return Color{92, 96, 102, 255};
   return Color{96, 112, 128, 255};
 }
 
@@ -371,7 +361,7 @@ void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
       continue;
     }
     const wire::core::SpanRuntimeState* runtime_state = view.find_span_runtime_state(span.id);
-    Color color = DirtyColorForSpan(runtime_state);
+    Color color = SpanDebugColor(runtime_state);
     if (SelectionContains(ui_state, SelectedType::kSpan, span.id)) {
       color = GOLD;
     } else if (ui_state.show_selected_bundle_highlight && selected_bundle_id != wire::core::kInvalidObjectId &&

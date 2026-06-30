@@ -130,10 +130,6 @@ bool prepare_single_low_voltage_span(CoreState& state, ObjectId* span_id, wire::
   if (bundle_template_it == state.view().bundle_templates().end()) {
     return false;
   }
-  auto runtime_it = wire::core::CoreStateTestHook::span_runtime_states(state).find(span->id);
-  if (runtime_it != wire::core::CoreStateTestHook::span_runtime_states(state).end()) {
-    runtime_it->second.dirty_bits = wire::core::DirtyBits::kNone;
-  }
   if (span_id != nullptr) {
     *span_id = span->id;
   }

@@ -164,7 +164,6 @@ const std::unordered_map<BundleKind, BundleTemplate>& CoreView::bundle_templates
 const std::unordered_map<AttachmentTemplateId, AttachmentTemplate>& CoreView::attachment_templates() const {
   return state_.authoritative_.attachment_templates;
 }
-const TemplateDependencyState& CoreView::template_dependency_state() const { return state_.authoritative_.template_dependency_state; }
 const std::vector<PortResolutionDebugRecord>& CoreView::port_resolution_debug_records() const {
   return state_.debug_.port_resolution_debug_records;
 }

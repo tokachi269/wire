@@ -2659,7 +2659,7 @@ bool C454_bb2_cache_state_uses_span_layout_cache() {
     return false;
   }
   const std::size_t type_pos = h.find("struct CacheState");
-  const std::size_t next_pos = h.find("struct TemplateDependencyState", type_pos);
+  const std::size_t next_pos = h.find("inline constexpr double kDefaultCornerThresholdDeg", type_pos);
   if (type_pos == std::string::npos || next_pos == std::string::npos) {
     return false;
   }

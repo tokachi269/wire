@@ -332,7 +332,6 @@ struct Bundle {
   int conductor_count = 1;
   double phase_spacing_m = 0.3;
   BundleKind bundle_template_id = BundleKind::kLowVoltage;
-  bool regeneration_required = false;
 };
 
 // Entity-layer connection edge.

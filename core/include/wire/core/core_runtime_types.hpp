@@ -112,12 +112,6 @@ struct CacheState {
   RenderCache render_cache{};
 };
 
-struct TemplateDependencyState {
-  // Topology-affecting template edits must not be applied as render-only cache updates.
-  std::vector<ObjectId> bundles_requiring_regeneration{};
-  std::vector<std::uint64_t> sessions_requiring_regeneration{};
-};
-
 inline constexpr double kDefaultCornerThresholdDeg = 70.0;
 
 struct LayoutSettings {

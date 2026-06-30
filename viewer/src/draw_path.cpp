@@ -1399,7 +1399,6 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
     ofs << prefix << ".bundle_template_id=" << static_cast<int>(bundle.bundle_template_id) << "\n";
     ofs << prefix << ".conductor_count=" << bundle.conductor_count << "\n";
     ofs << prefix << ".phase_spacing_m=" << bundle.phase_spacing_m << "\n";
-    ofs << prefix << ".regeneration_required=" << (bundle.regeneration_required ? 1 : 0) << "\n";
     ++current_bundle_index;
   }
 

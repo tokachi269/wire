@@ -27,7 +27,7 @@
       "status": "isolated",
       "owner": "Wire template validation plus pre-bb2 regeneration markers",
       "sources": ["core/tests/template_policy.cpp"],
-      "notes": "Validation is current; regeneration_required and dirty-only update expectations are not migrated."
+      "notes": "Validation is current; topology-changing edits reject before mutation."
     },
     {
       "name": "workflow_public_behavior",

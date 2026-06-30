@@ -29,7 +29,7 @@
 | direct derive `DeriveGeneratedSpanOutputs` | post-edit output rederive | mainline | no recalc | saved rules/ports から layout/geom/draw を再導出。recalc へ戻さない |
 | test family manifest / architecture lint | core/viewer test build | merge guard | no | unclassified tests/files、禁止依存、旧 recalc/support-layout、city-domain identity の復活を fail する |
 | manual topology API (`AddConnectionByPole` / `AddDrop*` / `SplitSpan`) | default tests、一部 public workflow | D | no | SavedBackboneGraph を更新しない別 topology 経路。32件のdefault制約test setup移行が必要なため今回の一括削除は停止 |
-| `DirtyBits` / `regeneration_required` / `TemplateDependencyState` | state mutation、viewer diagnostics、isolated tests | D | no | direct derive の owner ではない。coarse update plan へ置換後に family 単位で削除する |
+| `DirtyBits` | state mutation、viewer diagnostics、isolated tests | D | no | direct derive の owner ではない。manual topology test family移行後に一括削除する |
 
 ## 削除済み family
 
@@ -49,6 +49,7 @@
 | `RoadSegment` / `RoadId` core workflow type | 削除済み | external road modelをwire入力型として戻すこと |
 | building-specific core support/pick enum | opaque `kExternal` へ置換済み | external adapter の対象種別を wire core に戻すこと |
 | `wire_capture_replay` / replay scripts | 削除済み | legacy topology API をdebug tool都合で戻すこと |
+| `regeneration_required` / `TemplateDependencyState` | 削除済み | executorのないmarker-only成功を戻すこと |
 | `build_backbone_service.cpp` | 削除済み | pole-only generation と旧 auto-connect allocator |
 | `RegenerateSessionAutoParts` / `rebuild_from_backbone.cpp` | 削除済み | generated span の session 走査、snapshot rollback、出力からの identity 復元 |
 | `last_generation_junction_relations` | 削除済み | SavedBackboneGraph junction と競合する inspection fallback |
@@ -91,7 +92,7 @@
 | dirty bits | editing/runtime/viewer が読む | coarse update boundary へ寄せた後、mutation tracking と旧制約用に残す範囲をさらに削る |
 | `pending_support_nodes` | 未保存の segment/building/pole pick を次の bb2 request へ渡す transient input | generation result を保存しない。保存後の node は SavedBackboneGraph だけを読む |
 | manual topology API family | SavedBackboneGraph を作らない public/capture/test 経路 | equivalent bb2 operation を定義するか、利用者を退役してから一括削除 |
-| regeneration marker family | viewer と template/state tests が読むが executor は無い | template/layout/context mutation を coarse update または明示 unsupported へ寄せてから一括削除 |
+| `DirtyBits` family | viewer とmanual topology testsが読む | manual topology test setup移行後に一括削除 |
 
 ## unsupported 境界
 

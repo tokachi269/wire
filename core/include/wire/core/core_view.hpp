@@ -59,7 +59,6 @@ public:
   [[nodiscard]] const std::unordered_map<CableTemplateId, CableTemplate>& cable_templates() const;
   [[nodiscard]] const std::unordered_map<BundleKind, BundleTemplate>& bundle_templates() const;
   [[nodiscard]] const std::unordered_map<AttachmentTemplateId, AttachmentTemplate>& attachment_templates() const;
-  [[nodiscard]] const TemplateDependencyState& template_dependency_state() const;
   [[nodiscard]] const std::vector<PortResolutionDebugRecord>& port_resolution_debug_records() const;
   [[nodiscard]] const UpdateTiming& last_update_timing() const;
   [[nodiscard]] const std::unordered_map<ObjectId, SpanRuntimeState>& span_runtime_states() const;

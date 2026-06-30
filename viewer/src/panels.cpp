@@ -2594,16 +2594,9 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
             return;
           }
           ui_state.last_error.clear();
-          const auto& deps = viewer_core_state::View(state).template_dependency_state();
-          if (!deps.bundles_requiring_regeneration.empty() || !deps.sessions_requiring_regeneration.empty()) {
-            PushLog(ui_state, "Bundle template updated; regeneration required bundles=" +
-                                      std::to_string(deps.bundles_requiring_regeneration.size()) + " sessions=" +
-                                      std::to_string(deps.sessions_requiring_regeneration.size()));
-          } else {
-            PushLog(ui_state, "Bundle template updated; dirty spans=" +
-                                      std::to_string(apply.change_set.dirty_span_ids.size()) + " related apply updates=" +
-                                      std::to_string(apply_related_poles.change_set.updated_ids.size()));
-          }
+          PushLog(ui_state, "Bundle template updated; affected spans=" +
+                                    std::to_string(apply.change_set.updated_ids.size()) + " related apply updates=" +
+                                    std::to_string(apply_related_poles.change_set.updated_ids.size()));
           LoadBundleTemplateState(viewer_core_state::View(state), ui_state, tpl.id);
         }
       }
@@ -2858,10 +2851,6 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
     } else {
       ImGui::TextUnformatted("No pole templates");
     }
-    const auto& template_deps = view.template_dependency_state();
-    ImGui::Text("Regen Required Bundles: %d", static_cast<int>(template_deps.bundles_requiring_regeneration.size()));
-    ImGui::Text("Regen Required Sessions: %d", static_cast<int>(template_deps.sessions_requiring_regeneration.size()));
-
     ImGui::Separator();
     ImGui::Checkbox("Enable Support Structures", &ui_state.visual_enable_support_structures);
     ImGui::Checkbox("Enable Insulators", &ui_state.visual_enable_insulators);

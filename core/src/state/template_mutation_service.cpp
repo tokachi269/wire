@@ -129,11 +129,6 @@ EditResult<bool> TemplateMutationService::UpdateCableTemplate(CoreState& state, 
     return result;
   }
 
-  normalized.version += 1;
-  it->second = normalized;
-  result.ok = true;
-  result.value = true;
-
   std::vector<ObjectId> ordered_target_span_ids{};
   std::unordered_set<ObjectId> target_span_ids{};
   ordered_target_span_ids.reserve(preferred_visible_span_ids.size() + state.runtime_.relation_index.spans_by_bundle.size());
@@ -157,23 +152,39 @@ EditResult<bool> TemplateMutationService::UpdateCableTemplate(CoreState& state, 
       }
     }
   }
+  if (decision_change && !ordered_target_span_ids.empty()) {
+    result.error = "bb2 unsupported: cable decision changes require regeneration";
+    return result;
+  }
+  std::vector<UpdatePlan> plans{};
+  if (geometry_change || render_change) {
+    const UpdateKind kind = geometry_change ? UpdateKind::kReshape : UpdateKind::kRedraw;
+    plans.reserve(ordered_target_span_ids.size());
+    for (ObjectId span_id : ordered_target_span_ids) {
+      auto plan = state.make_update_plan({kind, UpdateTargetKind::kSpan, span_id});
+      if (!plan.ok) {
+        result.error = plan.error;
+        return result;
+      }
+      plans.push_back(std::move(plan.value));
+    }
+  }
+
+  normalized.version += 1;
+  it->second = normalized;
+  result.ok = true;
+  result.value = true;
+
+  for (const UpdatePlan& plan : plans) {
+    auto updated = state.execute_update_plan(plan);
+    if (!updated.ok) {
+      result.ok = false;
+      result.error = updated.error;
+      return result;
+    }
+  }
   for (ObjectId span_id : ordered_target_span_ids) {
-    DirtyBits bits = DirtyBits::kNone;
-    if (decision_change) {
-      bits |= DirtyBits::kDecision;
-    } else {
-      if (geometry_change) {
-        bits |= DirtyBits::kGeometryRefresh;
-      }
-      if (render_change) {
-        bits |= DirtyBits::kRenderRefresh;
-      }
-    }
-    if (bits != DirtyBits::kNone) {
-      state.mark_span_dirty(span_id, bits, true);
-      CoreState::add_unique_id(result.change_set.dirty_span_ids, span_id);
-      CoreState::add_unique_id(result.change_set.updated_ids, span_id);
-    }
+    CoreState::add_unique_id(result.change_set.updated_ids, span_id);
   }
   return result;
 }
@@ -251,57 +262,51 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
     return result;
   }
 
-  normalized.version += 1;
-  it->second = normalized;
-  result.ok = true;
-  result.value = true;
-
-  state.authoritative_.template_dependency_state.bundles_requiring_regeneration.clear();
-  state.authoritative_.template_dependency_state.sessions_requiring_regeneration.clear();
-
+  std::vector<ObjectId> affected_spans{};
   for (const Bundle& existing_bundle : state.authoritative_.edit_state.bundles.items()) {
     if (existing_bundle.bundle_template_id != normalized.id) {
       continue;
     }
-    Bundle* bundle = state.authoritative_.edit_state.bundles.find(existing_bundle.id);
-    if (bundle == nullptr) {
-      continue;
-    }
-    CoreState::add_unique_id(result.change_set.updated_ids, bundle->id);
-    if (visual_only_change || detail_change) {
-      auto spans_it = state.runtime_.relation_index.spans_by_bundle.find(bundle->id);
-      if (spans_it == state.runtime_.relation_index.spans_by_bundle.end()) {
-        continue;
-      }
-      for (ObjectId span_id : spans_it->second) {
-        state.mark_span_dirty(span_id, DirtyBits::kDecision, true);
-        CoreState::add_unique_id(result.change_set.dirty_span_ids, span_id);
-        CoreState::add_unique_id(result.change_set.updated_ids, span_id);
-      }
-      continue;
-    }
     if (topology_change) {
-      bundle->regeneration_required = true;
-      CoreState::add_unique_id(state.authoritative_.template_dependency_state.bundles_requiring_regeneration, bundle->id);
-      auto spans_it = state.runtime_.relation_index.spans_by_bundle.find(bundle->id);
-      if (spans_it == state.runtime_.relation_index.spans_by_bundle.end()) {
-        continue;
-      }
-      for (ObjectId span_id : spans_it->second) {
-        const Span* span = state.authoritative_.edit_state.spans.find(span_id);
-        if (span == nullptr || span->generation.generation_session_id == 0) {
-          continue;
-        }
-        CoreState::add_unique_id(state.authoritative_.template_dependency_state.sessions_requiring_regeneration,
-                                 span->generation.generation_session_id);
-      }
+      result.error = "bb2 unsupported: bundle topology changes require regeneration";
+      return result;
+    }
+    const auto spans_it = state.runtime_.relation_index.spans_by_bundle.find(existing_bundle.id);
+    if (spans_it != state.runtime_.relation_index.spans_by_bundle.end()) {
+      append_unique(affected_spans, spans_it->second);
     }
   }
-  if (topology_change) {
-    for (ObjectId bundle_id : state.authoritative_.template_dependency_state.bundles_requiring_regeneration) {
-      CoreState::add_unique_id(result.change_set.updated_ids, bundle_id);
+  std::vector<UpdatePlan> plans{};
+  if (visual_only_change || detail_change) {
+    plans.reserve(affected_spans.size());
+    for (ObjectId span_id : affected_spans) {
+      auto plan = state.make_update_plan({UpdateKind::kReshape, UpdateTargetKind::kSpan, span_id});
+      if (!plan.ok) {
+        result.error = plan.error;
+        return result;
+      }
+      plans.push_back(std::move(plan.value));
     }
   }
+
+  normalized.version += 1;
+  it->second = normalized;
+  result.ok = true;
+  result.value = true;
+  for (const Bundle& existing_bundle : state.authoritative_.edit_state.bundles.items()) {
+    if (existing_bundle.bundle_template_id == normalized.id) {
+      CoreState::add_unique_id(result.change_set.updated_ids, existing_bundle.id);
+    }
+  }
+  for (const UpdatePlan& plan : plans) {
+    auto updated = state.execute_update_plan(plan);
+    if (!updated.ok) {
+      result.ok = false;
+      result.error = updated.error;
+      return result;
+    }
+  }
+  append_unique(result.change_set.updated_ids, affected_spans);
   return result;
 }
 
@@ -323,28 +328,28 @@ EditResult<bool> TemplateMutationService::UpdateAttachmentTemplate(CoreState& st
     result.value = false;
     return result;
   }
+  for (const Attachment& attachment : state.authoritative_.edit_state.attachments.items()) {
+    if (attachment.template_id == normalized.id) {
+      result.error = "bb2 unsupported: attachment template changes require regeneration";
+      return result;
+    }
+  }
 
   normalized.version += 1;
   it->second = normalized;
   result.ok = true;
   result.value = true;
 
-  if (!mark_dependent_spans_dirty) {
-    return result;
-  }
-  for (const Attachment& attachment : state.authoritative_.edit_state.attachments.items()) {
-    if (attachment.template_id != normalized.id) {
-      continue;
-    }
-    state.mark_span_dirty(attachment.span_id, DirtyBits::kDecision, true);
-    CoreState::add_unique_id(result.change_set.dirty_span_ids, attachment.span_id);
-    CoreState::add_unique_id(result.change_set.updated_ids, attachment.span_id);
-  }
   return result;
 }
 
 EditResult<bool> TemplateMutationService::ResetAllSpanReferenceLengths(CoreState& state, bool mark_all_spans_dirty) {
   EditResult<bool> result;
+  auto plan = state.make_update_plan({UpdateKind::kReshape, UpdateTargetKind::kAllSpans, kInvalidObjectId});
+  if (!plan.ok) {
+    result.error = plan.error;
+    return result;
+  }
   bool changed = false;
   for (const Span& existing_span : state.authoritative_.edit_state.spans.items()) {
     Span* span = state.authoritative_.edit_state.spans.find(existing_span.id);
@@ -367,12 +372,13 @@ EditResult<bool> TemplateMutationService::ResetAllSpanReferenceLengths(CoreState
     changed = true;
     CoreState::add_unique_id(result.change_set.updated_ids, span->id);
   }
-  if (changed && mark_all_spans_dirty) {
-    for (const Span& span : state.authoritative_.edit_state.spans.items()) {
-      state.mark_span_dirty(span.id, DirtyBits::kGeometryRefresh, true);
-      CoreState::add_unique_id(result.change_set.dirty_span_ids, span.id);
-      CoreState::add_unique_id(result.change_set.updated_ids, span.id);
+  if (changed) {
+    const auto updated = state.execute_update_plan(plan.value);
+    if (!updated.ok) {
+      result.error = updated.error;
+      return result;
     }
+    append_unique(result.change_set.updated_ids, plan.value.affected.spans);
   }
   result.ok = true;
   result.value = changed;

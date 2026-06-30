@@ -6996,6 +6996,96 @@ bool C621_bb2_sag_reshape_updates_geom_only() {
          edge_ids == after_edge_ids && binding_spans == after_binding_spans;
 }
 
+bool C623_bb2_layout_settings_reject_before_mutation() {
+  wire::core::CoreState state;
+  const auto generated = state.GenerateFromBackboneSpec(line_req(state));
+  if (!generated.ok) return false;
+  const wire::core::LayoutSettings before = state.view().layout_settings();
+  wire::core::LayoutSettings edited = before;
+  edited.corner_threshold_deg = std::max(1.0, before.corner_threshold_deg - 1.0);
+  const auto updated = state.UpdateLayoutSettings(edited);
+  return !updated.ok && contains_text(updated.error, "unsupported") &&
+         almost_equal(state.view().layout_settings().corner_threshold_deg, before.corner_threshold_deg, 1e-12);
+}
+
+bool C624_bb2_variation_settings_reject_before_mutation() {
+  wire::core::CoreState state;
+  const auto generated = state.GenerateFromBackboneSpec(line_req(state));
+  if (!generated.ok) return false;
+  const wire::core::VariationSettings before = state.view().variation_settings();
+  wire::core::VariationSettings edited = before;
+  edited.enabled = !before.enabled;
+  const auto updated = state.UpdateVariationSettings(edited);
+  return !updated.ok && contains_text(updated.error, "unsupported") &&
+         state.view().variation_settings().enabled == before.enabled;
+}
+
+bool C625_bb2_context_profile_reject_before_mutation() {
+  wire::core::CoreState state;
+  const auto generated = state.GenerateFromBackboneSpec(line_req(state));
+  if (!generated.ok) return false;
+  const wire::core::ContextProfile before = state.view().context_profile();
+  wire::core::ContextProfile edited = before;
+  edited.age = std::clamp(before.age + 0.1, 0.0, 1.0);
+  if (almost_equal(edited.age, before.age, 1e-12)) edited.age = std::max(0.0, before.age - 0.1);
+  const auto updated = state.UpdateContextProfile(edited);
+  return !updated.ok && contains_text(updated.error, "unsupported") &&
+         almost_equal(state.view().context_profile().age, before.age, 1e-12);
+}
+
+bool C626_bb2_cable_template_updates_derive_outputs() {
+  wire::core::CoreState state;
+  wire::core::GeometrySettings geometry = state.view().geometry_settings();
+  geometry.sag_enabled = true;
+  geometry.curve_samples = std::max(9, geometry.curve_samples);
+  if (!state.UpdateGeometrySettings(geometry).ok) return false;
+  const auto generated = state.GenerateFromBackboneSpec(line_req(state));
+  if (!generated.ok || generated.value.generated_span_ids.empty()) return false;
+  const wire::core::ObjectId span_id = generated.value.generated_span_ids.front();
+  const wire::core::Span* span = state.view().spans().find(span_id);
+  const wire::core::Bundle* bundle =
+      span == nullptr ? nullptr : state.view().bundles().find(span->bundle_id);
+  if (bundle == nullptr) return false;
+  const auto bundle_template = state.view().bundle_templates().find(bundle->bundle_template_id);
+  if (bundle_template == state.view().bundle_templates().end()) return false;
+  const auto cable_it = state.view().cable_templates().find(bundle_template->second.cable_template_id);
+  const wire::core::SpanLayoutView before_layout = state.span_layout(span_id);
+  const wire::core::CurveCacheEntry* before_curve = state.find_curve_cache(span_id);
+  const wire::core::SpanRenderCacheEntry* before_render = state.find_span_render_cache(span_id);
+  if (cable_it == state.view().cable_templates().end() || !before_layout.has_layout() ||
+      before_curve == nullptr || before_render == nullptr) return false;
+  const wire::core::SpanLayoutEntry layout_copy = *before_layout.entry;
+  const double sag_before = before_curve->detail.sag_amplitude_m;
+
+  wire::core::CableTemplate reshape = cable_it->second;
+  reshape.sag_factor += 0.02;
+  const auto reshaped = state.UpdateCableTemplate(reshape);
+  const wire::core::CurveCacheEntry* reshaped_curve = state.find_curve_cache(span_id);
+  if (!reshaped.ok || reshaped_curve == nullptr ||
+      !(reshaped_curve->detail.sag_amplitude_m > sag_before) ||
+      !almost_equal(state.span_layout(span_id).entry->start.endpoint_world, layout_copy.start.endpoint_world, 1e-9)) {
+    return false;
+  }
+
+  wire::core::CableTemplate redraw = state.view().cable_templates().at(reshape.id);
+  redraw.color_rgba ^= 0x000000FFu;
+  const std::vector<wire::core::Vec3d> samples_after_reshape = reshaped_curve->detail.sample_points;
+  const auto redrawn = state.UpdateCableTemplate(redraw);
+  const wire::core::CurveCacheEntry* final_curve = state.find_curve_cache(span_id);
+  const wire::core::SpanRenderCacheEntry* final_render = state.find_span_render_cache(span_id);
+  const auto same_points = [](const std::vector<wire::core::Vec3d>& a,
+                              const std::vector<wire::core::Vec3d>& b) {
+    if (a.size() != b.size()) return false;
+    for (std::size_t i = 0; i < a.size(); ++i) {
+      if (!almost_equal(a[i], b[i], 1e-9)) return false;
+    }
+    return true;
+  };
+  return redrawn.ok && final_curve != nullptr && final_render != nullptr &&
+         same_points(final_curve->detail.sample_points, samples_after_reshape) &&
+         final_render->color_rgba == redraw.color_rgba;
+}
+
 bool C622_bb2_stage_timing_is_diagnostic_only() {
   wire::core::CoreState state;
   const auto out = state.GenerateFromBackboneSpec(poly3_req(state));
@@ -7757,6 +7847,18 @@ void register_bb2_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C622_bb2_stage_timing_is_diagnostic_only",
                          "bb2 reports generation and update stage timing without changing decisions", "Boundary", false,
                          C622_bb2_stage_timing_is_diagnostic_only);
+  test_registry::AddTest(tests, "C623_bb2_layout_settings_reject_before_mutation",
+                         "bb2 layout settings reject before mutation when regeneration is required", "Boundary", true,
+                         C623_bb2_layout_settings_reject_before_mutation);
+  test_registry::AddTest(tests, "C624_bb2_variation_settings_reject_before_mutation",
+                         "bb2 variation settings reject before mutation while unsupported", "Boundary", true,
+                         C624_bb2_variation_settings_reject_before_mutation);
+  test_registry::AddTest(tests, "C625_bb2_context_profile_reject_before_mutation",
+                         "bb2 context profile rejects before mutation while unsupported", "Boundary", true,
+                         C625_bb2_context_profile_reject_before_mutation);
+  test_registry::AddTest(tests, "C626_bb2_cable_template_updates_derive_outputs",
+                         "bb2 cable shape and render updates directly derive outputs", "Boundary", false,
+                         C626_bb2_cable_template_updates_derive_outputs);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_bb2_tests);

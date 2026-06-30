@@ -224,7 +224,7 @@ bool test_move_pole_updates_only_target_pole_owned_endpoints() {
          !contains_id(move.change_set.updated_ids, anchor_b);
 }
 
-bool test_update_bundle_template_treats_branch_down_offset_policy_as_topology_change() {
+bool test_update_bundle_template_rejects_branch_down_offset_before_mutation() {
   CoreState state;
   const auto pole_type_ids = sorted_pole_type_ids(state);
   if (pole_type_ids.empty()) {
@@ -261,20 +261,15 @@ bool test_update_bundle_template_treats_branch_down_offset_policy_as_topology_ch
   }
 
   wire::core::BundleTemplate edited = *hv_template;
+  const bool original_policy = hv_template->enable_branch_down_offset;
   edited.enable_branch_down_offset = !edited.enable_branch_down_offset;
   const auto update = state.UpdateBundleTemplate(edited);
-  if (!update.ok || !update.value) {
-    return false;
-  }
-
-  const wire::core::Bundle* hv_bundle_after = state.view().bundles().find(hv_bundle->id);
-  return hv_bundle_after != nullptr && hv_bundle_after->regeneration_required &&
-         contains_id(update.change_set.updated_ids, hv_bundle_after->id) &&
-         contains_id(state.view().template_dependency_state().bundles_requiring_regeneration, hv_bundle_after->id) &&
-         !contains_id(update.change_set.dirty_span_ids, hv_span->id);
+  const auto current = state.view().bundle_templates().find(BundleKind::kHighVoltage);
+  return !update.ok && current != state.view().bundle_templates().end() &&
+         current->second.enable_branch_down_offset == original_policy;
 }
 
-bool test_update_cable_template_marks_render_refresh_only_for_render_change() {
+bool test_update_cable_template_rejects_manual_span_render_change() {
   CoreState state;
   ObjectId span_id = wire::core::kInvalidObjectId;
   wire::core::CableTemplateId cable_id = wire::core::kInvalidCableTemplateId;
@@ -286,22 +281,15 @@ bool test_update_cable_template_marks_render_refresh_only_for_render_change() {
     return false;
   }
   wire::core::CableTemplate edited = cable_it->second;
+  const std::uint32_t original_color = cable_it->second.color_rgba;
   edited.color_rgba ^= 0x0000FF00u;
   const auto update = state.UpdateCableTemplate(edited);
-  if (!update.ok) {
-    return false;
-  }
-  const auto runtime_it = wire::core::CoreStateTestHook::span_runtime_states(state).find(span_id);
-  if (runtime_it == wire::core::CoreStateTestHook::span_runtime_states(state).end()) {
-    return false;
-  }
-  return contains_id(update.change_set.dirty_span_ids, span_id) &&
-         helpers::has_dirty(&runtime_it->second, wire::core::DirtyBits::kRenderRefresh) &&
-         !helpers::has_dirty(&runtime_it->second, wire::core::DirtyBits::kGeometryRefresh) &&
-         !helpers::has_dirty(&runtime_it->second, wire::core::DirtyBits::kDecision);
+  const auto current = state.view().cable_templates().find(cable_id);
+  return !update.ok && current != state.view().cable_templates().end() &&
+         current->second.color_rgba == original_color;
 }
 
-bool test_update_cable_template_marks_geometry_refresh_only_for_geometry_change() {
+bool test_update_cable_template_rejects_manual_span_geometry_change() {
   CoreState state;
   ObjectId span_id = wire::core::kInvalidObjectId;
   wire::core::CableTemplateId cable_id = wire::core::kInvalidCableTemplateId;
@@ -313,22 +301,15 @@ bool test_update_cable_template_marks_geometry_refresh_only_for_geometry_change(
     return false;
   }
   wire::core::CableTemplate edited = cable_it->second;
+  const double original_sag = cable_it->second.sag_factor;
   edited.sag_factor += 0.01;
   const auto update = state.UpdateCableTemplate(edited);
-  if (!update.ok) {
-    return false;
-  }
-  const auto runtime_it = wire::core::CoreStateTestHook::span_runtime_states(state).find(span_id);
-  if (runtime_it == wire::core::CoreStateTestHook::span_runtime_states(state).end()) {
-    return false;
-  }
-  return contains_id(update.change_set.dirty_span_ids, span_id) &&
-         helpers::has_dirty(&runtime_it->second, wire::core::DirtyBits::kGeometryRefresh) &&
-         !helpers::has_dirty(&runtime_it->second, wire::core::DirtyBits::kRenderRefresh) &&
-         !helpers::has_dirty(&runtime_it->second, wire::core::DirtyBits::kDecision);
+  const auto current = state.view().cable_templates().find(cable_id);
+  return !update.ok && current != state.view().cable_templates().end() &&
+         current->second.sag_factor == original_sag;
 }
 
-bool test_update_cable_template_marks_decision_for_policy_change() {
+bool test_update_cable_template_rejects_decision_change() {
   CoreState state;
   ObjectId span_id = wire::core::kInvalidObjectId;
   wire::core::CableTemplateId cable_id = wire::core::kInvalidCableTemplateId;
@@ -340,21 +321,15 @@ bool test_update_cable_template_marks_decision_for_policy_change() {
     return false;
   }
   wire::core::CableTemplate edited = cable_it->second;
+  const auto original_policy = cable_it->second.continuity_policy;
   edited.continuity_policy = (edited.continuity_policy == wire::core::CableContinuityPolicyHint::kPreferG1)
                                  ? wire::core::CableContinuityPolicyHint::kPreferG2
                                  : wire::core::CableContinuityPolicyHint::kPreferG1;
   const auto update = state.UpdateCableTemplate(edited);
-  if (!update.ok) {
-    return false;
-  }
-  const auto runtime_it = wire::core::CoreStateTestHook::span_runtime_states(state).find(span_id);
-  if (runtime_it == wire::core::CoreStateTestHook::span_runtime_states(state).end()) {
-    return false;
-  }
-  return contains_id(update.change_set.dirty_span_ids, span_id) &&
-         helpers::has_dirty(&runtime_it->second, wire::core::DirtyBits::kDecision) &&
-         !helpers::has_dirty(&runtime_it->second, wire::core::DirtyBits::kGeometryRefresh) &&
-         !helpers::has_dirty(&runtime_it->second, wire::core::DirtyBits::kRenderRefresh);
+  const auto current = state.view().cable_templates().find(cable_id);
+  return !update.ok && update.error.find("unsupported") != std::string::npos &&
+         current != state.view().cable_templates().end() &&
+         current->second.continuity_policy == original_policy;
 }
 
 void RegisterStateServiceTests(test_registry::TestRegistry& tests) {
@@ -367,16 +342,16 @@ void RegisterStateServiceTests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C200_CoreStateService_TemplateMutation_BranchDownOffsetPolicyIsTopology",
                          "bundle template branch-down-offset policy changes force regeneration instead of being ignored or treated as visual-only",
                          "Invariant", false,
-                         &test_update_bundle_template_treats_branch_down_offset_policy_as_topology_change);
+                         &test_update_bundle_template_rejects_branch_down_offset_before_mutation);
   test_registry::AddTest(tests, "C355_CoreStateService_CableTemplateRenderChangeMarksRenderRefresh",
-                         "render-only cable template changes dirty spans with RenderRefresh only",
-                         "Invariant", false, &test_update_cable_template_marks_render_refresh_only_for_render_change);
+                         "manual spans reject cable render changes before mutation",
+                         "Invariant", true, &test_update_cable_template_rejects_manual_span_render_change);
   test_registry::AddTest(tests, "C356_CoreStateService_CableTemplateGeometryChangeMarksGeometryRefresh",
-                         "geometry-only cable template changes dirty spans with GeometryRefresh only",
-                         "Invariant", false, &test_update_cable_template_marks_geometry_refresh_only_for_geometry_change);
+                         "manual spans reject cable geometry changes before mutation",
+                         "Invariant", true, &test_update_cable_template_rejects_manual_span_geometry_change);
   test_registry::AddTest(tests, "C357_CoreStateService_CableTemplatePolicyChangeMarksDecision",
-                         "decision-bearing cable template changes dirty spans with Decision only",
-                         "Invariant", false, &test_update_cable_template_marks_decision_for_policy_change);
+                         "decision-bearing cable template changes reject before mutation",
+                         "Invariant", true, &test_update_cable_template_rejects_decision_change);
 }
 
 WIRE_REGISTER_TEST_SUITE(RegisterStateServiceTests);

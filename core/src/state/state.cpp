@@ -1660,28 +1660,26 @@ EditResult<bool> CoreState::UpdateGeometrySettings(const GeometrySettings& setti
                        std::abs(normalized.sag_factor - runtime_.cache_state.geometry_settings.sag_factor) > 1e-12 ||
                        std::abs(normalized.pole_clearance_m - runtime_.cache_state.geometry_settings.pole_clearance_m) > 1e-12;
 
+  EditResult<UpdatePlan> plan{};
+  if (changed) {
+    plan = make_update_plan({UpdateKind::kReshape, UpdateTargetKind::kAllSpans, kInvalidObjectId});
+    if (!plan.ok) {
+      result.error = plan.error;
+      return result;
+    }
+  }
   runtime_.cache_state.geometry_settings = normalized;
   result.ok = true;
   result.value = changed;
 
-  if (changed && mark_all_spans_dirty) {
-    for (const Span& span : authoritative_.edit_state.spans.items()) {
-      mark_span_dirty(span.id, DirtyBits::kGeometryRefresh, true);
-      add_unique_id(result.change_set.dirty_span_ids, span.id);
-      add_unique_id(result.change_set.updated_ids, span.id);
-    }
-    const auto plan = make_update_plan({UpdateKind::kReshape, UpdateTargetKind::kAllSpans, kInvalidObjectId});
-    if (!plan.ok) {
-      result.error = plan.error;
-      result.ok = false;
-      return result;
-    }
+  if (changed) {
     const auto updated = execute_update_plan(plan.value);
     if (!updated.ok) {
       result.error = updated.error;
       result.ok = false;
       return result;
     }
+    result.change_set.updated_ids = plan.value.affected.spans;
   }
   return result;
 }
@@ -1698,6 +1696,10 @@ EditResult<bool> CoreState::UpdateLayoutSettings(const LayoutSettings& settings)
                        std::abs(normalized.min_side_scale - authoritative_.layout_settings.min_side_scale) > 1e-9 ||
                        std::abs(normalized.max_side_scale - authoritative_.layout_settings.max_side_scale) > 1e-9;
 
+  if (changed && !authoritative_.backbone.span_bindings.empty()) {
+    result.error = "bb2 unsupported: layout settings require regeneration";
+    return result;
+  }
   authoritative_.layout_settings = normalized;
   result.ok = true;
   result.value = changed;
@@ -1722,27 +1724,25 @@ EditResult<bool> CoreState::UpdateVisualSettings(const VisualSettings& settings,
                        std::abs(normalized.insulator_radius_m - runtime_.cache_state.visual_settings.insulator_radius_m) > 1e-12 ||
                        std::abs(normalized.insulator_length_m - runtime_.cache_state.visual_settings.insulator_length_m) > 1e-12;
 
+  EditResult<UpdatePlan> plan{};
+  if (changed) {
+    plan = make_update_plan({UpdateKind::kRedraw, UpdateTargetKind::kAllSpans, kInvalidObjectId});
+    if (!plan.ok) {
+      result.error = plan.error;
+      return result;
+    }
+  }
   runtime_.cache_state.visual_settings = normalized;
   result.ok = true;
   result.value = changed;
-  if (changed && mark_all_spans_dirty) {
-    for (const Span& span : authoritative_.edit_state.spans.items()) {
-      mark_span_dirty(span.id, DirtyBits::kRenderRefresh, true);
-      add_unique_id(result.change_set.dirty_span_ids, span.id);
-      add_unique_id(result.change_set.updated_ids, span.id);
-    }
-    const auto plan = make_update_plan({UpdateKind::kRedraw, UpdateTargetKind::kAllSpans, kInvalidObjectId});
-    if (!plan.ok) {
-      result.error = plan.error;
-      result.ok = false;
-      return result;
-    }
+  if (changed) {
     const auto updated = execute_update_plan(plan.value);
     if (!updated.ok) {
       result.error = updated.error;
       result.ok = false;
       return result;
     }
+    result.change_set.updated_ids = plan.value.affected.spans;
   }
   return result;
 }
@@ -1770,16 +1770,13 @@ EditResult<bool> CoreState::UpdateVariationSettings(const VariationSettings& set
       std::abs(normalized.sag_variation_scale - current.sag_variation_scale) > 1e-12 ||
       std::abs(normalized.branch_down_offset_variation_scale - current.branch_down_offset_variation_scale) > 1e-12;
 
+  if (changed && !authoritative_.backbone.span_bindings.empty()) {
+    result.error = "bb2 unsupported: variation settings are not consumed by generated outputs";
+    return result;
+  }
   runtime_.cache_state.variation_settings = normalized;
   result.ok = true;
   result.value = changed;
-  if (changed && mark_all_spans_dirty) {
-    for (const Span& span : authoritative_.edit_state.spans.items()) {
-      mark_span_dirty(span.id, DirtyBits::kDecision, true);
-      add_unique_id(result.change_set.dirty_span_ids, span.id);
-      add_unique_id(result.change_set.updated_ids, span.id);
-    }
-  }
   return result;
 }
 
@@ -1799,16 +1796,13 @@ EditResult<bool> CoreState::UpdateContextProfile(const ContextProfile& profile, 
                        std::abs(normalized.service_mix - current.service_mix) > 1e-12 ||
                        normalized.style_seed != current.style_seed;
 
+  if (changed && !authoritative_.backbone.span_bindings.empty()) {
+    result.error = "bb2 unsupported: context profile is not consumed by generated outputs";
+    return result;
+  }
   authoritative_.context_profile = normalized;
   result.ok = true;
   result.value = changed;
-  if (changed && mark_all_spans_dirty) {
-    for (const Span& span : authoritative_.edit_state.spans.items()) {
-      mark_span_dirty(span.id, DirtyBits::kDecision, true);
-      add_unique_id(result.change_set.dirty_span_ids, span.id);
-      add_unique_id(result.change_set.updated_ids, span.id);
-    }
-  }
   return result;
 }
 

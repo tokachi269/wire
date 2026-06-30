@@ -40,7 +40,7 @@ bool test_backbone_hv_rejects_midair_branch_mode() {
   return !generated.ok && regex_contains(generated.error, "node bundle mode");
 }
 
-bool test_bundle_template_topology_change_marks_regeneration_required() {
+bool test_bundle_template_topology_change_is_rejected_before_mutation() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
   if (type_ids.empty()) {
@@ -67,25 +67,21 @@ bool test_bundle_template_topology_change_marks_regeneration_required() {
     return false;
   }
   wire::core::BundleTemplate tpl = tpl_it->second;
+  const wire::core::SpanLayer original_layer = tpl.default_layer;
   tpl.default_layer = wire::core::SpanLayer::kCommunication;
   const auto apply = state.UpdateBundleTemplate(tpl);
-  if (!apply.ok || !apply.value) {
-    return false;
-  }
+  if (apply.ok || !regex_contains(apply.error, "unsupported")) return false;
   const auto* span = state.view().edit_state().spans.find(add.value.span_id);
   if (span == nullptr) {
     return false;
   }
   const auto* bundle = state.view().edit_state().bundles.find(span->bundle_id);
-  if (bundle == nullptr || !bundle->regeneration_required) {
-    return false;
-  }
-  const auto& deps = state.view().template_dependency_state();
-  return std::find(deps.bundles_requiring_regeneration.begin(), deps.bundles_requiring_regeneration.end(), bundle->id) !=
-         deps.bundles_requiring_regeneration.end();
+  const auto current = state.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  return bundle != nullptr && current != state.view().bundle_templates().end() &&
+         current->second.default_layer == original_layer;
 }
 
-bool test_bundle_template_visual_change_updates_dirty_spans_without_regeneration() {
+bool test_bundle_template_output_change_rejects_manual_span_before_mutation() {
   CoreState state;
   const auto type_ids = sorted_pole_type_ids(state);
   if (type_ids.empty()) {
@@ -112,27 +108,18 @@ bool test_bundle_template_visual_change_updates_dirty_spans_without_regeneration
     return false;
   }
   wire::core::BundleTemplate tpl = tpl_it->second;
+  const wire::core::CableTemplateId original_cable = tpl.cable_template_id;
   tpl.cable_template_id = wire::core::CableTemplateId{3};
   const auto apply = state.UpdateBundleTemplate(tpl);
-  if (!apply.ok || !apply.value) {
-    return false;
-  }
+  if (apply.ok) return false;
   const auto* span = state.view().edit_state().spans.find(add.value.span_id);
   if (span == nullptr) {
     return false;
   }
   const auto* bundle = state.view().edit_state().bundles.find(span->bundle_id);
-  if (bundle == nullptr || bundle->regeneration_required) {
-    return false;
-  }
-  const auto* runtime = state.view().find_span_runtime_state(span->id);
-  if (!has_dirty(runtime, wire::core::DirtyBits::kDecision | wire::core::DirtyBits::kGeometryRefresh |
-                            wire::core::DirtyBits::kRenderRefresh)) {
-    return false;
-  }
-  const auto& deps = state.view().template_dependency_state();
-  return deps.bundles_requiring_regeneration.empty() && deps.sessions_requiring_regeneration.empty() &&
-         contains_id(apply.change_set.dirty_span_ids, span->id);
+  const auto current = state.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  return bundle != nullptr && current != state.view().bundle_templates().end() &&
+         current->second.cable_template_id == original_cable;
 }
 
 // Intent: Detailed generation should not crash when path includes non-pole support nodes.
@@ -454,12 +441,12 @@ void register_template_policy_tests(test_registry::TestRegistry& tests) {
                          "HV template keeps midair branch disabled", "Exact", true,
                          test_backbone_hv_rejects_midair_branch_mode);
 
-  test_registry::AddTest(tests, "C123_BundleTemplate_TopologyChangeMarksRegeneration",
-                         "Topology-affecting bundle template edits mark dependent bundles for regeneration",
-                         "Invariant", false, test_bundle_template_topology_change_marks_regeneration_required);
-  test_registry::AddTest(tests, "C124_BundleTemplate_VisualChangeMarksDirtyOnly",
-                         "Visual-only bundle template edits dirty dependent spans without forcing regeneration",
-                         "Invariant", false, test_bundle_template_visual_change_updates_dirty_spans_without_regeneration);
+  test_registry::AddTest(tests, "C123_BundleTemplate_TopologyChangeRejected",
+                         "Topology-affecting bundle template edits reject before mutation",
+                         "Invariant", true, test_bundle_template_topology_change_is_rejected_before_mutation);
+  test_registry::AddTest(tests, "C124_BundleTemplate_OutputChangeRejectsManualSpan",
+                         "Bundle output changes reject when the span has no bb2 derive state",
+                         "Invariant", true, test_bundle_template_output_change_rejects_manual_span_before_mutation);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_template_policy_tests);

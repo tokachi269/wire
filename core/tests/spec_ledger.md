@@ -360,6 +360,10 @@
 | C620 | Boundary | bb2 | update boundary に操作別 kind を作らない | source scan | wire_core_tests bb2 | Boundary: `UpdateKind` は kRegenerate/kReposition/kReshape/kRedraw に限定し、derive は recalc/materialization/support-layout contract を呼ばない | source text | PoleTilt/PoleYaw/Sag 等の細粒度 enum が増殖する回帰防止 |
 | C621 | Boundary | bb2 | sag は geom/draw だけを reshape する | 2点 bb2 route + sag enabled | UpdateGeometrySettings | Boundary: layout endpoint と SavedBackboneGraph identity は不変のまま DetailCurve に sag が付き bounds が追従する | SpanLayoutEntry / DetailCurve / BoundsCacheEntry / SavedBackboneGraph | bb2 wire が直線固定へ戻る、または sag が topology/layout を再決定する回帰防止 |
 | C622 | Boundary | bb2 | pipeline/update timing は診断専用 | 3点 bb2 route + reshape update | GenerateFromBackboneSpec / UpdateGeometrySettings | Boundary: generation stage と update plan/derive の timing が非負で、UpdateKind と affected span 数に追従する | GenerationTiming / UpdateTiming | global profiler や timing 起点の生成分岐を作らず性能観測の入口を固定する |
+| C623 | Boundary | bb2 | layout settings は stale 成功しない | generated span + layout setting change | UpdateLayoutSettings | unsupported かつ設定不変 | LayoutSettings | regenerate 未実装時の marker-only success 防止 |
+| C624 | Boundary | bb2 | variation settings は stale 成功しない | generated span + variation change | UpdateVariationSettings | unsupported かつ設定不変 | VariationSettings | 未接続設定の成功扱い防止 |
+| C625 | Boundary | bb2 | context profile は stale 成功しない | generated span + context change | UpdateContextProfile | unsupported かつ設定不変 | ContextProfile | 未接続profileの成功扱い防止 |
+| C626 | Boundary | bb2 | cable shape/render 更新は direct derive | generated span + sag/color change | UpdateCableTemplate | sag は geom、color は renderへ即時反映しlayout不変 | curve/render/layout | dirty markerなしで出力更新を保証 |
 
 ## Retired old-pipeline checks
 - Old cases 365-367 were removed from the registered suite. They pinned the transitional `BackboneBuilder` / support-layout authority seed / materialization surface instead of the bb2 mainline.

@@ -45,7 +45,7 @@ def main() -> int:
 
     registered = 0
     for test_root in (root / "core/tests", root / "viewer/tests"):
-        for source_path in sorted(test_root.glob("*.cpp")):
+        for source_path in sorted(test_root.rglob("*.cpp")):
             source = rel(source_path, root)
             text = source_path.read_text(encoding="utf-8")
             cases = CASE_RE.findall(text)

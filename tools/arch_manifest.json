@@ -57,7 +57,14 @@
     },
     {
       "name": "tests",
-      "patterns": ["core/tests/*.cpp", "core/tests/*.hpp", "viewer/tests/*.cpp", "viewer/tests/*.hpp"],
+      "patterns": [
+        "core/tests/*.cpp",
+        "core/tests/*.hpp",
+        "core/tests/**/*.cpp",
+        "core/tests/**/*.hpp",
+        "viewer/tests/*.cpp",
+        "viewer/tests/*.hpp"
+      ],
       "forbidden_tokens": []
     },
     {

@@ -4,9 +4,55 @@
     {
       "name": "bb2_acceptance",
       "status": "keep",
-      "owner": "SavedBackboneGraph, bb2 generation, direct derive, and architecture boundaries",
-      "sources": ["core/tests/bb2.cpp", "viewer/tests/bb2_scenes.cpp"],
-      "notes": "Main bb2 acceptance family."
+      "owner": "Backbone acceptance registration and shared fixtures",
+      "sources": [
+        "core/tests/backbone/fixtures.cpp",
+        "core/tests/backbone/registry.cpp",
+        "viewer/tests/bb2_scenes.cpp"
+      ],
+      "notes": "Single registration entry and shared fixture boundary."
+    },
+    {
+      "name": "backbone_generation",
+      "status": "keep",
+      "owner": "Backbone generation and connectivity scenarios",
+      "sources": ["core/tests/backbone/generation.cpp"],
+      "notes": "Generation results without downstream source inference."
+    },
+    {
+      "name": "backbone_graph",
+      "status": "keep",
+      "owner": "SavedBackboneGraph identity, binding, and frontier contracts",
+      "sources": ["core/tests/backbone/graph.cpp"],
+      "notes": "Topology authority and saved identity."
+    },
+    {
+      "name": "backbone_input",
+      "status": "keep",
+      "owner": "Backbone input, pick, avoid, and support-node scenarios",
+      "sources": ["core/tests/backbone/input.cpp"],
+      "notes": "Input validation and supported scenario coverage."
+    },
+    {
+      "name": "backbone_output",
+      "status": "keep",
+      "owner": "Rules, layout, geometry, draw, and support-group outputs",
+      "sources": ["core/tests/backbone/output.cpp"],
+      "notes": "Derived outputs remain consumers of saved decisions."
+    },
+    {
+      "name": "backbone_update",
+      "status": "keep",
+      "owner": "Coarse UpdateKind and direct derive contracts",
+      "sources": ["core/tests/backbone/update.cpp"],
+      "notes": "Post-edit output freshness without recalc."
+    },
+    {
+      "name": "backbone_guard",
+      "status": "keep",
+      "owner": "Architecture and negative boundary guards",
+      "sources": ["core/tests/backbone/guard.cpp"],
+      "notes": "Stable source and authority boundaries only."
     },
     {
       "name": "editing_update_kind",

@@ -74,7 +74,14 @@ if(BUILD_TESTING)
     tests/pick.cpp
     tests/workflow.cpp
     tests/api_surface.cpp
-    tests/bb2.cpp
+    tests/backbone/fixtures.cpp
+    tests/backbone/generation.cpp
+    tests/backbone/graph.cpp
+    tests/backbone/guard.cpp
+    tests/backbone/input.cpp
+    tests/backbone/output.cpp
+    tests/backbone/update.cpp
+    tests/backbone/registry.cpp
   )
 
   if(WIRE_ENABLE_UNITY_BUILD)

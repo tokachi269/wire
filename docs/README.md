@@ -6,6 +6,6 @@
 - [legacy_map.md](legacy_map.md): 残存・削除済みfamily
 - [merge_readiness.md](merge_readiness.md): main merge条件
 - [testing.md](testing.md): test/lint体系
-- [operations.md](operations.md): build/testコマンド
+- [command_cheatsheet.md](command_cheatsheet.md): 実績あるローカル実行コマンド
 
 作業履歴と過去planはGitで確認する。docsに日記を追加しない。

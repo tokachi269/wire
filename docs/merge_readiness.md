@@ -13,7 +13,7 @@
 - `git diff --check`が通る
 - working treeが意図した状態である
 
-実行コマンドは[operations.md](operations.md)を参照する。
+実行コマンドは[command_cheatsheet.md](command_cheatsheet.md)を参照する。
 
 ## architecture条件
 

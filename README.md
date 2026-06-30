@@ -18,7 +18,7 @@ viewerは不足したtopologyやplacementを推測しない。
 2. [legacy map](docs/legacy_map.md)
 3. [merge readiness](docs/merge_readiness.md)
 4. [testing](docs/testing.md)
-5. [operations](docs/operations.md)
+5. [command cheatsheet](docs/command_cheatsheet.md)
 
 ## Quick check
 
@@ -29,4 +29,4 @@ python tools\test_family_lint.py
 & .\build-vs18-coretests\core\Debug\wire_core_tests.exe backbone
 ```
 
-詳細なbuild/viewerコマンドは[operations.md](docs/operations.md)を参照する。
+詳細なbuild/viewerコマンドは[command_cheatsheet.md](docs/command_cheatsheet.md)を参照する。

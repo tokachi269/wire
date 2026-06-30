@@ -3,12 +3,13 @@ add_library(
   STATIC
   src/state/state.cpp
   src/state/legacy/topology.cpp
-  src/state/templates.cpp
+  src/state/template/registry.cpp
+  src/state/template/ports.cpp
   src/state/core_view.cpp
   src/state/inspection.cpp
   src/state/endpoint_refresh_service.cpp
   src/state/override_resolution.cpp
-  src/state/template_mutation_service.cpp
+  src/state/template/update.cpp
   src/pole_orientation_utils.cpp
   src/generation/pole_facing/pole_facing_rules.cpp
   src/generation/bb2/derive.cpp

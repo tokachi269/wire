@@ -3,16 +3,35 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from pathlib import Path
 
 
-CASE_RE = re.compile(r'AddTest\s*\(\s*[^,]+,\s*"(?P<case>[^"]+)"', re.MULTILINE)
-
-
 def rel(path: Path, root: Path) -> str:
     return path.resolve().relative_to(root.resolve()).as_posix()
+
+
+def registered_cases(text: str) -> list[str]:
+    cases: list[str] = []
+    start = 0
+    while True:
+        add_test = text.find("AddTest", start)
+        if add_test < 0:
+            break
+        line_start = text.rfind("\n", 0, add_test) + 1
+        if text[line_start:add_test].strip().startswith("void"):
+            start = add_test + len("AddTest")
+            continue
+        open_paren = text.find("(", add_test)
+        first_comma = text.find(",", open_paren)
+        first_quote = text.find('"', first_comma)
+        second_quote = text.find('"', first_quote + 1)
+        if open_paren < 0 or first_comma < 0 or first_quote < 0 or second_quote < 0:
+            start = add_test + len("AddTest")
+            continue
+        cases.append(text[first_quote + 1 : second_quote])
+        start = second_quote + 1
+    return cases
 
 
 def main() -> int:
@@ -48,7 +67,7 @@ def main() -> int:
         for source_path in sorted(test_root.rglob("*.cpp")):
             source = rel(source_path, root)
             text = source_path.read_text(encoding="utf-8")
-            cases = CASE_RE.findall(text)
+            cases = registered_cases(text)
             if cases:
                 registered += len(cases)
                 source_owners = owners.get(source, [])

@@ -603,13 +603,10 @@ bool C405_backbone_no_bundle_pair_branching() {
   if (!file_text(file, &text)) {
     return false;
   }
-  const std::string marker = "EditResult<pairs> pipeline::make(const graph& made) const";
-  const std::size_t start = text.find(marker);
-  if (start == std::string::npos) {
+  std::string body;
+  if (!function_body(text, "EditResult<pairs> pipeline::make(const graph& made) const", &body)) {
     return false;
   }
-  const std::size_t end = text.find("EditResult<intent> pipeline::make", start);
-  const std::string body = text.substr(start, end == std::string::npos ? std::string::npos : end - start);
   return !contains_text(body, "spec_.bundles") && !contains_text(body, "BundleTemplate") &&
          !contains_text(body, "bundle_template");
 }

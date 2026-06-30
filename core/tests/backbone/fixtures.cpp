@@ -120,6 +120,29 @@ bool file_text(const std::filesystem::path& path, std::string* out) {
   return true;
 }
 
+bool function_body(const std::string& source, const std::string& signature, std::string* out) {
+  if (out == nullptr) {
+    return false;
+  }
+  const std::size_t signature_pos = source.find(signature);
+  const std::size_t body_begin = source.find('{', signature_pos);
+  if (signature_pos == std::string::npos || body_begin == std::string::npos) {
+    return false;
+  }
+  std::size_t depth = 0;
+  for (std::size_t i = body_begin; i < source.size(); ++i) {
+    if (source[i] == '{') {
+      ++depth;
+    } else if (source[i] == '}') {
+      if (--depth == 0) {
+        *out = source.substr(signature_pos, i - signature_pos + 1);
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 std::vector<wire::core::Vec3d> backbone_layout_points(wire::core::CoreState& state) {
   wire::core::BackboneSpec req = line_req(state);
   const auto out = state.GenerateFromBackboneSpec(req);

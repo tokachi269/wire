@@ -15,6 +15,90 @@
 #include <utility>
 
 namespace wire::core::generation::backbone {
+
+EditResult<GenerateBundleFromPathResult> pipeline::build() {
+  EditResult<GenerateBundleFromPathResult> out{};
+  auto elapsed_ms = [](const auto& started) {
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+  };
+  auto started = std::chrono::steady_clock::now();
+  EditResult<pairs> ps = make(g_);
+  out.value.timing.pairs_ms = elapsed_ms(started);
+  if (!ps.ok) {
+    out.error = ps.error;
+    return out;
+  }
+  started = std::chrono::steady_clock::now();
+  EditResult<bool> duplicates = check(ps.value);
+  out.value.timing.preflight_ms = elapsed_ms(started);
+  if (!duplicates.ok) {
+    out.error = duplicates.error;
+    return out;
+  }
+  started = std::chrono::steady_clock::now();
+  EditResult<intent> intents = make(ps.value);
+  out.value.timing.intent_ms = elapsed_ms(started);
+  if (!intents.ok) {
+    out.error = intents.error;
+    return out;
+  }
+  if (active_bundle_indices_.empty()) {
+    out.ok = true;
+    return out;
+  }
+  started = std::chrono::steady_clock::now();
+  EditResult<groups> placement = make(ps.value, intents.value);
+  out.value.timing.support_groups_ms = elapsed_ms(started);
+  if (!placement.ok) {
+    out.error = placement.error;
+    return out;
+  }
+  started = std::chrono::steady_clock::now();
+  EditResult<topo> made = emit(ps.value);
+  out.value.timing.emit_ms = elapsed_ms(started);
+  if (!made.ok) {
+    out.error = made.error;
+    return out;
+  }
+  started = std::chrono::steady_clock::now();
+  EditResult<bool> graph_saved = save_graph(made.value, ps.value);
+  out.value.timing.save_graph_ms = elapsed_ms(started);
+  if (!graph_saved.ok) {
+    out.error = graph_saved.error;
+    return out;
+  }
+  started = std::chrono::steady_clock::now();
+  rules saved = make(made.value, placement.value);
+  save(saved);
+  out.value.timing.rules_ms = elapsed_ms(started);
+  started = std::chrono::steady_clock::now();
+  EditResult<layout> placed = make(saved);
+  if (!placed.ok) {
+    out.error = placed.error;
+    return out;
+  }
+  save(placed.value);
+  out.value.timing.layout_ms = elapsed_ms(started);
+  started = std::chrono::steady_clock::now();
+  geom shaped = make(placed.value);
+  out.value.timing.geom_ms = elapsed_ms(started);
+  started = std::chrono::steady_clock::now();
+  draw drawn = make(placed.value, shaped);
+  out.value.timing.draw_ms = elapsed_ms(started);
+  save(std::move(shaped));
+  save(std::move(drawn));
+  out.change_set = std::move(made.change_set);
+  out.value.generated_pole_ids = made.value.new_poles;
+  out.value.bundle_ids = made.value.bundles;
+  out.value.bundle_id = made.value.bundles.empty() ? kInvalidObjectId : made.value.bundles.front();
+  out.value.generated_span_ids.reserve(made.value.spans.size());
+  for (const tspan& span : made.value.spans) {
+    out.value.generated_span_ids.push_back(span.id);
+  }
+  out.ok = true;
+  return out;
+}
+
 namespace {
 
 constexpr double kRowSeparationM = 0.35;
@@ -1382,6 +1466,58 @@ EditResult<pairs> pipeline::make(const graph& made) const {
   return out;
 }
 
+EditResult<bool> pipeline::check(const pairs& ps) const {
+  for (const link& edge : ps.links) {
+    if (!edge.is_new) {
+      continue;
+    }
+    const ObjectId edge_id = saved_edge_for(state_, g_, edge);
+    if (edge_id == kInvalidObjectId) {
+      continue;
+    }
+    const auto bundles_it = state_.view().backbone_index().edge_bundles.find(edge_id);
+    if (bundles_it == state_.view().backbone_index().edge_bundles.end()) {
+      continue;
+    }
+    for (std::size_t spec_index : active_bundle_indices_) {
+      const BackboneBundleSpec& spec = spec_.bundles[spec_index];
+      for (ObjectId edge_bundle_id : bundles_it->second) {
+        const SavedBackboneEdgeBundle* edge_bundle = state_.view().backbone_edge_bundle(edge_bundle_id);
+        if (edge_bundle == nullptr) {
+          continue;
+        }
+        const Bundle* bundle = state_.view().bundles().find(edge_bundle->bundle_id);
+        if (bundle != nullptr && bundle->bundle_template_id == spec.bundle_template_id) {
+          const auto spans_it = state_.view().backbone_index().edge_bundle_span_bindings.find(edge_bundle_id);
+          if (spans_it != state_.view().backbone_index().edge_bundle_span_bindings.end()) {
+            const SavedBackboneGraph& graph = state_.view().backbone();
+            EditResult<spec_view> v = view_for(state_, spec);
+            if (!v.ok) {
+              EditResult<bool> error{};
+              error.error = v.error;
+              return error;
+            }
+            for (std::size_t index : spans_it->second) {
+              if (index >= graph.span_bindings.size()) {
+                continue;
+              }
+              const SavedBackboneSpanBinding& binding = graph.span_bindings[index];
+              if (binding.lane_index < static_cast<std::size_t>(v.value.count)) {
+                return unsupported("duplicate saved span binding");
+              }
+            }
+          }
+          return unsupported("duplicate saved edge bundle");
+        }
+      }
+    }
+  }
+  EditResult<bool> out{};
+  out.value = true;
+  out.ok = true;
+  return out;
+}
+
 EditResult<intent> pipeline::make(const pairs& ps) const {
   EditResult<intent> out{};
   std::vector<bool> high_voltage_bundle(active_bundle_indices_.size(), false);
@@ -1547,6 +1683,25 @@ EditResult<groups> pipeline::make(const pairs& ps, const intent& intents) const 
   return out;
 }
 
+EditResult<topo> pipeline::emit(const pairs& ps) {
+  EditResult<topo> out{};
+  topo made{};
+  auto step = [&](EditResult<bool> result) -> bool {
+    if (!result.ok) {
+      out.error = result.error;
+      return false;
+    }
+    return true;
+  };
+  if (!step(emit_poles(&made, &out.change_set)) || !step(emit_bundles(&made, &out.change_set)) ||
+      !step(emit_ports(&made, ps, &out.change_set)) || !step(emit_spans(&made, ps, &out.change_set))) {
+    return out;
+  }
+  out.value = std::move(made);
+  out.ok = true;
+  return out;
+}
+
 EditResult<bool> pipeline::emit_poles(topo* made, ChangeSet* changes) {
   EditResult<bool> out{};
   if (made == nullptr || changes == nullptr) {
@@ -1611,58 +1766,6 @@ EditResult<bool> pipeline::emit_poles(topo* made, ChangeSet* changes) {
     made->new_poles.push_back(pole.value);
   }
 
-  out.value = true;
-  out.ok = true;
-  return out;
-}
-
-EditResult<bool> pipeline::check(const pairs& ps) const {
-  for (const link& edge : ps.links) {
-    if (!edge.is_new) {
-      continue;
-    }
-    const ObjectId edge_id = saved_edge_for(state_, g_, edge);
-    if (edge_id == kInvalidObjectId) {
-      continue;
-    }
-    const auto bundles_it = state_.view().backbone_index().edge_bundles.find(edge_id);
-    if (bundles_it == state_.view().backbone_index().edge_bundles.end()) {
-      continue;
-    }
-    for (std::size_t spec_index : active_bundle_indices_) {
-      const BackboneBundleSpec& spec = spec_.bundles[spec_index];
-      for (ObjectId edge_bundle_id : bundles_it->second) {
-        const SavedBackboneEdgeBundle* edge_bundle = state_.view().backbone_edge_bundle(edge_bundle_id);
-        if (edge_bundle == nullptr) {
-          continue;
-        }
-        const Bundle* bundle = state_.view().bundles().find(edge_bundle->bundle_id);
-        if (bundle != nullptr && bundle->bundle_template_id == spec.bundle_template_id) {
-          const auto spans_it = state_.view().backbone_index().edge_bundle_span_bindings.find(edge_bundle_id);
-          if (spans_it != state_.view().backbone_index().edge_bundle_span_bindings.end()) {
-            const SavedBackboneGraph& graph = state_.view().backbone();
-            EditResult<spec_view> v = view_for(state_, spec);
-            if (!v.ok) {
-              EditResult<bool> error{};
-              error.error = v.error;
-              return error;
-            }
-            for (std::size_t index : spans_it->second) {
-              if (index >= graph.span_bindings.size()) {
-                continue;
-              }
-              const SavedBackboneSpanBinding& binding = graph.span_bindings[index];
-              if (binding.lane_index < static_cast<std::size_t>(v.value.count)) {
-                return unsupported("duplicate saved span binding");
-              }
-            }
-          }
-          return unsupported("duplicate saved edge bundle");
-        }
-      }
-    }
-  }
-  EditResult<bool> out{};
   out.value = true;
   out.ok = true;
   return out;
@@ -1877,21 +1980,118 @@ EditResult<bool> pipeline::emit_spans(topo* made, const pairs& ps, ChangeSet* ch
   return out;
 }
 
-EditResult<topo> pipeline::emit(const pairs& ps) {
-  EditResult<topo> out{};
-  topo made{};
-  auto step = [&](EditResult<bool> result) -> bool {
-    if (!result.ok) {
-      out.error = result.error;
-      return false;
+EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
+  EditResult<bool> out{};
+  std::vector<int> path_index_by_local(g_.nodes.size(), -1);
+  for (std::size_t input_index = 0; input_index < local_by_input_.size(); ++input_index) {
+    const std::size_t local = local_by_input_[input_index];
+    if (local < path_index_by_local.size()) {
+      path_index_by_local[local] = static_cast<int>(input_index);
     }
-    return true;
-  };
-  if (!step(emit_poles(&made, &out.change_set)) || !step(emit_bundles(&made, &out.change_set)) ||
-      !step(emit_ports(&made, ps, &out.change_set)) || !step(emit_spans(&made, ps, &out.change_set))) {
-    return out;
   }
-  out.value = std::move(made);
+
+  std::vector<ObjectId> node_id_by_local(g_.nodes.size(), kInvalidObjectId);
+  for (std::size_t i = 0; i < g_.nodes.size() && i < made.poles.size(); ++i) {
+    const ObjectId source_a = saved_node_id_for(state_, g_.nodes[i].source_edge_node_a);
+    const ObjectId source_b = saved_node_id_for(state_, g_.nodes[i].source_edge_node_b);
+    if (g_.nodes[i].saved != kInvalidObjectId) {
+      node_id_by_local[i] = g_.nodes[i].saved;
+      if (g_.nodes[i].on_route && i < path_index_by_local.size()) {
+        EditResult<bool> indexed =
+            state_.bind_backbone_node_path_point_index(node_id_by_local[i], path_index_by_local[i]);
+        if (!indexed.ok) {
+          out.error = indexed.error;
+          return out;
+        }
+      }
+      if (g_.nodes[i].pole == kInvalidObjectId) {
+        EditResult<bool> bound = state_.bind_backbone_node_bundle_modes(g_.nodes[i].saved, g_.nodes[i].bundle_modes);
+        if (!bound.ok) {
+          out.error = bound.error;
+          return out;
+        }
+      }
+      continue;
+    }
+    node_id_by_local[i] = state_.save_backbone_node(made.poles[i], g_.nodes[i].pos, g_.nodes[i].support, source_a,
+                                                    source_b, g_.nodes[i].source_edge_t, g_.nodes[i].bundle_modes);
+    if (g_.nodes[i].on_route && i < path_index_by_local.size()) {
+      EditResult<bool> indexed =
+          state_.bind_backbone_node_path_point_index(node_id_by_local[i], path_index_by_local[i]);
+      if (!indexed.ok) {
+        out.error = indexed.error;
+        return out;
+      }
+    }
+  }
+
+  std::vector<SavedBackboneEdgeRef> edge_by_link(ps.links.size());
+  for (const link& edge : ps.links) {
+    if (edge.a >= node_id_by_local.size() || edge.b >= node_id_by_local.size() || edge.id >= edge_by_link.size()) {
+      continue;
+    }
+    if (edge.is_new) {
+      edge_by_link[edge.id] =
+          state_.save_backbone_edge(node_id_by_local[edge.a], node_id_by_local[edge.b], edge.route, edge.order, edge.dir);
+      continue;
+    }
+    edge_by_link[edge.id] = ref_for_existing_edge(state_, g_, edge);
+    if (edge_by_link[edge.id].edge_id == kInvalidObjectId) {
+      out.error = "backbone graph: context link saved edge missing";
+      return out;
+    }
+  }
+
+  for (const tspan& span : made.spans) {
+    if (span.link >= edge_by_link.size() || span.link >= ps.links.size() || span.bundle >= made.bundles.size()) {
+      continue;
+    }
+    const link& edge = ps.links[span.link];
+    const SavedBackboneEdgeRef& stored = edge_by_link[span.link];
+    if (stored.edge_id == kInvalidObjectId || edge.a >= node_id_by_local.size() || edge.b >= node_id_by_local.size()) {
+      continue;
+    }
+    const bool edge_forward =
+        stored.node_a == node_id_by_local[edge.a] && stored.node_b == node_id_by_local[edge.b];
+    const ObjectId edge_bundle_id =
+        state_.bind_backbone_bundle(stored.edge_id, made.bundles[span.bundle], edge_forward, edge.route, edge.order, edge.dir);
+    EditResult<bool> span_bound = state_.bind_backbone_span(edge_bundle_id, span.lane, span.id);
+    if (!span_bound.ok) {
+      out.error = span_bound.error;
+      return out;
+    }
+    auto bind_port = [&](std::size_t row_index) -> bool {
+      if (row_index >= made.rows.size() || span.bundle >= made.rows[row_index].ports.size() ||
+          span.lane >= made.rows[row_index].ports[span.bundle].size()) {
+        out.error = "backbone graph: port binding row missing";
+        return false;
+      }
+      const SavedBackboneRowKey row_key = key_for(ps, made.rows[row_index], node_id_by_local, edge_by_link);
+      const Bundle* bundle = state_.view().bundles().find(made.bundles[span.bundle]);
+      if (bundle == nullptr) {
+        out.error = "backbone graph: bundle missing for port binding";
+        return false;
+      }
+      const Port* port = state_.view().ports().find(made.rows[row_index].ports[span.bundle][span.lane]);
+      if (port == nullptr) {
+        out.error = "backbone graph: port missing for binding";
+        return false;
+      }
+      EditResult<bool> bound =
+          state_.bind_backbone_port(edge_bundle_id, row_key, span.lane, bundle->bundle_template_id, port->kind,
+                                    port->layer, port->id);
+      if (!bound.ok) {
+        out.error = bound.error;
+        return false;
+      }
+      return true;
+    };
+    if (!bind_port(span.arow) || !bind_port(span.brow)) {
+      return out;
+    }
+  }
+
+  out.value = true;
   out.ok = true;
   return out;
 }
@@ -2126,206 +2326,6 @@ void pipeline::save(draw made) {
   for (auto& item : made.renders) {
     state_.cache_span_render(item.first, std::move(item.second));
   }
-}
-
-EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
-  EditResult<bool> out{};
-  std::vector<int> path_index_by_local(g_.nodes.size(), -1);
-  for (std::size_t input_index = 0; input_index < local_by_input_.size(); ++input_index) {
-    const std::size_t local = local_by_input_[input_index];
-    if (local < path_index_by_local.size()) {
-      path_index_by_local[local] = static_cast<int>(input_index);
-    }
-  }
-
-  std::vector<ObjectId> node_id_by_local(g_.nodes.size(), kInvalidObjectId);
-  for (std::size_t i = 0; i < g_.nodes.size() && i < made.poles.size(); ++i) {
-    const ObjectId source_a = saved_node_id_for(state_, g_.nodes[i].source_edge_node_a);
-    const ObjectId source_b = saved_node_id_for(state_, g_.nodes[i].source_edge_node_b);
-    if (g_.nodes[i].saved != kInvalidObjectId) {
-      node_id_by_local[i] = g_.nodes[i].saved;
-      if (g_.nodes[i].on_route && i < path_index_by_local.size()) {
-        EditResult<bool> indexed =
-            state_.bind_backbone_node_path_point_index(node_id_by_local[i], path_index_by_local[i]);
-        if (!indexed.ok) {
-          out.error = indexed.error;
-          return out;
-        }
-      }
-      if (g_.nodes[i].pole == kInvalidObjectId) {
-        EditResult<bool> bound = state_.bind_backbone_node_bundle_modes(g_.nodes[i].saved, g_.nodes[i].bundle_modes);
-        if (!bound.ok) {
-          out.error = bound.error;
-          return out;
-        }
-      }
-      continue;
-    }
-    node_id_by_local[i] = state_.save_backbone_node(made.poles[i], g_.nodes[i].pos, g_.nodes[i].support, source_a,
-                                                    source_b, g_.nodes[i].source_edge_t, g_.nodes[i].bundle_modes);
-    if (g_.nodes[i].on_route && i < path_index_by_local.size()) {
-      EditResult<bool> indexed =
-          state_.bind_backbone_node_path_point_index(node_id_by_local[i], path_index_by_local[i]);
-      if (!indexed.ok) {
-        out.error = indexed.error;
-        return out;
-      }
-    }
-  }
-
-  std::vector<SavedBackboneEdgeRef> edge_by_link(ps.links.size());
-  for (const link& edge : ps.links) {
-    if (edge.a >= node_id_by_local.size() || edge.b >= node_id_by_local.size() || edge.id >= edge_by_link.size()) {
-      continue;
-    }
-    if (edge.is_new) {
-      edge_by_link[edge.id] =
-          state_.save_backbone_edge(node_id_by_local[edge.a], node_id_by_local[edge.b], edge.route, edge.order, edge.dir);
-      continue;
-    }
-    edge_by_link[edge.id] = ref_for_existing_edge(state_, g_, edge);
-    if (edge_by_link[edge.id].edge_id == kInvalidObjectId) {
-      out.error = "backbone graph: context link saved edge missing";
-      return out;
-    }
-  }
-
-
-  for (const tspan& span : made.spans) {
-    if (span.link >= edge_by_link.size() || span.link >= ps.links.size() || span.bundle >= made.bundles.size()) {
-      continue;
-    }
-    const link& edge = ps.links[span.link];
-    const SavedBackboneEdgeRef& stored = edge_by_link[span.link];
-    if (stored.edge_id == kInvalidObjectId || edge.a >= node_id_by_local.size() || edge.b >= node_id_by_local.size()) {
-      continue;
-    }
-    const bool edge_forward =
-        stored.node_a == node_id_by_local[edge.a] && stored.node_b == node_id_by_local[edge.b];
-    const ObjectId edge_bundle_id =
-        state_.bind_backbone_bundle(stored.edge_id, made.bundles[span.bundle], edge_forward, edge.route, edge.order, edge.dir);
-    EditResult<bool> span_bound = state_.bind_backbone_span(edge_bundle_id, span.lane, span.id);
-    if (!span_bound.ok) {
-      out.error = span_bound.error;
-      return out;
-    }
-    auto bind_port = [&](std::size_t row_index) -> bool {
-      if (row_index >= made.rows.size() || span.bundle >= made.rows[row_index].ports.size() ||
-          span.lane >= made.rows[row_index].ports[span.bundle].size()) {
-        out.error = "backbone graph: port binding row missing";
-        return false;
-      }
-      const SavedBackboneRowKey row_key = key_for(ps, made.rows[row_index], node_id_by_local, edge_by_link);
-      const Bundle* bundle = state_.view().bundles().find(made.bundles[span.bundle]);
-      if (bundle == nullptr) {
-        out.error = "backbone graph: bundle missing for port binding";
-        return false;
-      }
-      const Port* port = state_.view().ports().find(made.rows[row_index].ports[span.bundle][span.lane]);
-      if (port == nullptr) {
-        out.error = "backbone graph: port missing for binding";
-        return false;
-      }
-      EditResult<bool> bound =
-          state_.bind_backbone_port(edge_bundle_id, row_key, span.lane, bundle->bundle_template_id, port->kind,
-                                    port->layer, port->id);
-      if (!bound.ok) {
-        out.error = bound.error;
-        return false;
-      }
-      return true;
-    };
-    if (!bind_port(span.arow) || !bind_port(span.brow)) {
-      return out;
-    }
-  }
-
-  out.value = true;
-  out.ok = true;
-  return out;
-}
-
-EditResult<GenerateBundleFromPathResult> pipeline::build() {
-  EditResult<GenerateBundleFromPathResult> out{};
-  auto elapsed_ms = [](const auto& started) {
-    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
-  };
-  auto started = std::chrono::steady_clock::now();
-  EditResult<pairs> ps = make(g_);
-  out.value.timing.pairs_ms = elapsed_ms(started);
-  if (!ps.ok) {
-    out.error = ps.error;
-    return out;
-  }
-  started = std::chrono::steady_clock::now();
-  EditResult<bool> duplicates = check(ps.value);
-  out.value.timing.preflight_ms = elapsed_ms(started);
-  if (!duplicates.ok) {
-    out.error = duplicates.error;
-    return out;
-  }
-  started = std::chrono::steady_clock::now();
-  EditResult<intent> intents = make(ps.value);
-  out.value.timing.intent_ms = elapsed_ms(started);
-  if (!intents.ok) {
-    out.error = intents.error;
-    return out;
-  }
-  if (active_bundle_indices_.empty()) {
-    out.ok = true;
-    return out;
-  }
-  started = std::chrono::steady_clock::now();
-  EditResult<groups> placement = make(ps.value, intents.value);
-  out.value.timing.support_groups_ms = elapsed_ms(started);
-  if (!placement.ok) {
-    out.error = placement.error;
-    return out;
-  }
-  started = std::chrono::steady_clock::now();
-  EditResult<topo> made = emit(ps.value);
-  out.value.timing.emit_ms = elapsed_ms(started);
-  if (!made.ok) {
-    out.error = made.error;
-    return out;
-  }
-  started = std::chrono::steady_clock::now();
-  EditResult<bool> graph_saved = save_graph(made.value, ps.value);
-  out.value.timing.save_graph_ms = elapsed_ms(started);
-  if (!graph_saved.ok) {
-    out.error = graph_saved.error;
-    return out;
-  }
-  started = std::chrono::steady_clock::now();
-  rules saved = make(made.value, placement.value);
-  save(saved);
-  out.value.timing.rules_ms = elapsed_ms(started);
-  started = std::chrono::steady_clock::now();
-  EditResult<layout> placed = make(saved);
-  if (!placed.ok) {
-    out.error = placed.error;
-    return out;
-  }
-  save(placed.value);
-  out.value.timing.layout_ms = elapsed_ms(started);
-  started = std::chrono::steady_clock::now();
-  geom shaped = make(placed.value);
-  out.value.timing.geom_ms = elapsed_ms(started);
-  started = std::chrono::steady_clock::now();
-  draw drawn = make(placed.value, shaped);
-  out.value.timing.draw_ms = elapsed_ms(started);
-  save(std::move(shaped));
-  save(std::move(drawn));
-  out.change_set = std::move(made.change_set);
-  out.value.generated_pole_ids = made.value.new_poles;
-  out.value.bundle_ids = made.value.bundles;
-  out.value.bundle_id = made.value.bundles.empty() ? kInvalidObjectId : made.value.bundles.front();
-  out.value.generated_span_ids.reserve(made.value.spans.size());
-  for (const tspan& span : made.value.spans) {
-    out.value.generated_span_ids.push_back(span.id);
-  }
-  out.ok = true;
-  return out;
 }
 
 } // namespace wire::core::generation::backbone

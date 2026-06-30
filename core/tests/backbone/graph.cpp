@@ -57,12 +57,11 @@ bool C423_backbone_tspan_carries_endpoint_rows() {
   if (!contains_text(tspan_body, "std::size_t arow") || !contains_text(tspan_body, "std::size_t brow")) {
     return false;
   }
-  const std::size_t spans_pos = cpp.find("EditResult<bool> pipeline::emit_spans");
-  const std::size_t emit_pos = cpp.find("EditResult<topo> pipeline::emit", spans_pos);
-  if (spans_pos == std::string::npos || emit_pos == std::string::npos) {
+  std::string body;
+  if (!function_body(cpp, "EditResult<bool> pipeline::emit_spans(topo* made, const pairs& ps, ChangeSet* changes)",
+                     &body)) {
     return false;
   }
-  const std::string body = cpp.substr(spans_pos, emit_pos - spans_pos);
   return contains_text(body, "edge.arow") && contains_text(body, "edge.brow") && contains_text(body, "tspan{");
 }
 
@@ -468,15 +467,13 @@ bool C442_backbone_edge_forward_uses_saved_ref() {
   if (!file_text(source, &cpp)) {
     return false;
   }
-  const std::size_t fn_pos = cpp.find("EditResult<bool> pipeline::save_graph");
-  const std::size_t build_pos = cpp.find("EditResult<GenerateBundleFromPathResult> pipeline::build", fn_pos);
-  if (fn_pos == std::string::npos || build_pos == std::string::npos) {
+  std::string body;
+  if (!function_body(cpp, "EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps)", &body)) {
     return false;
   }
-  const std::string body = cpp.substr(fn_pos, build_pos - fn_pos);
   return contains_text(body, "std::vector<SavedBackboneEdgeRef>") && contains_text(body, "stored.node_a") &&
          contains_text(body, "stored.node_b") && !contains_text(body, "authoritative_.backbone") &&
-         !contains_text(body, "saved_edge") && !contains_text(body, "find_if");
+         !contains_text(body, "const SavedBackboneEdge*") && !contains_text(body, "find_if");
 }
 
 bool C443_backbone_edge_resolution_behavior_unchanged() {
@@ -1484,16 +1481,12 @@ bool C500_backbone_context_link_requires_saved_edge_ref() {
   if (!file_text(source, &cpp)) {
     return false;
   }
-  const std::size_t ref_pos = cpp.find("SavedBackboneEdgeRef ref_for_existing_edge");
-  const std::size_t next_pos = cpp.find("bool same_scope", ref_pos);
-  const std::size_t save_pos = cpp.find("EditResult<bool> pipeline::save_graph");
-  const std::size_t build_pos = cpp.find("EditResult<GenerateBundleFromPathResult> pipeline::build", save_pos);
-  if (ref_pos == std::string::npos || next_pos == std::string::npos || save_pos == std::string::npos ||
-      build_pos == std::string::npos) {
+  std::string ref_body;
+  std::string save_body;
+  if (!function_body(cpp, "SavedBackboneEdgeRef ref_for_existing_edge", &ref_body) ||
+      !function_body(cpp, "EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps)", &save_body)) {
     return false;
   }
-  const std::string ref_body = cpp.substr(ref_pos, next_pos - ref_pos);
-  const std::string save_body = cpp.substr(save_pos, build_pos - save_pos);
   return contains_text(ref_body, "edge.saved == kInvalidObjectId") && !contains_text(ref_body, "saved_edge_for") &&
          contains_text(save_body, "context link saved edge missing");
 }

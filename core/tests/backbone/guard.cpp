@@ -103,12 +103,10 @@ bool C395_backbone_is_new_does_not_affect_pairs() {
   if (!file_text(source, &cpp)) {
     return false;
   }
-  const std::size_t make_pos = cpp.find("EditResult<pairs> pipeline::make");
-  const std::size_t check_pos = cpp.find("EditResult<intent> pipeline::make", make_pos);
-  if (make_pos == std::string::npos || check_pos == std::string::npos) {
+  std::string body;
+  if (!function_body(cpp, "EditResult<pairs> pipeline::make(const graph& made) const", &body)) {
     return false;
   }
-  const std::string body = cpp.substr(make_pos, check_pos - make_pos);
   return !contains_text(body, ".is_new");
 }
 
@@ -182,13 +180,10 @@ bool C410_backbone_height_does_not_affect_pairs() {
   if (!file_text(file, &text)) {
     return false;
   }
-  const std::string marker = "EditResult<pairs> pipeline::make(const graph& made) const";
-  const std::size_t start = text.find(marker);
-  if (start == std::string::npos) {
+  std::string body;
+  if (!function_body(text, "EditResult<pairs> pipeline::make(const graph& made) const", &body)) {
     return false;
   }
-  const std::size_t end = text.find("EditResult<intent> pipeline::make", start);
-  const std::string body = text.substr(start, end == std::string::npos ? std::string::npos : end - start);
   return !contains_text(body, "pole_type") && !contains_text(body, "PortPlacementBand") &&
          !contains_text(body, "height") && !contains_text(body, "BundleTemplate") &&
          !contains_text(body, "spec_.bundles");
@@ -465,12 +460,10 @@ bool C505_backbone_save_graph_propagates_span_binding_failure() {
   if (!file_text(source, &cpp)) {
     return false;
   }
-  const std::size_t fn_pos = cpp.find("EditResult<bool> pipeline::save_graph");
-  const std::size_t next_pos = cpp.find("EditResult<GenerateBundleFromPathResult> pipeline::build", fn_pos);
-  if (fn_pos == std::string::npos || next_pos == std::string::npos) {
+  std::string body;
+  if (!function_body(cpp, "EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps)", &body)) {
     return false;
   }
-  const std::string body = cpp.substr(fn_pos, next_pos - fn_pos);
   return contains_text(body, "bind_backbone_span(edge_bundle_id, span.lane, span.id)") &&
          contains_text(body, "span_bound.error");
 }
@@ -588,12 +581,10 @@ bool C501_backbone_gate3_contract_passes() {
   if (!file_text(source, &cpp)) {
     return false;
   }
-  const std::size_t save_pos = cpp.find("EditResult<bool> pipeline::save_graph");
-  const std::size_t build_pos = cpp.find("EditResult<GenerateBundleFromPathResult> pipeline::build", save_pos);
-  if (save_pos == std::string::npos || build_pos == std::string::npos) {
+  std::string body;
+  if (!function_body(cpp, "EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps)", &body)) {
     return false;
   }
-  const std::string body = cpp.substr(save_pos, build_pos - save_pos);
   const std::size_t new_gate = body.find("if (edge.is_new)");
   const std::size_t save_call = body.find("state_.save_backbone_edge", new_gate);
   const std::size_t context_ref = body.find("ref_for_existing_edge", save_call);

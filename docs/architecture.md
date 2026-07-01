@@ -107,9 +107,13 @@ cable centerlineの正本はBezier制御点ではなく、attachment endpoint、
 canonical direction、curve familyである。`core/src/geometry/curve`がこの意味入力からsample、arc length、
 frame、boundsを生成し、具体的な計算方式は`CurveMethod`で差し替える。
 
-main spanの既定方式はparabolic sagとし、中心線へ横揺れnoiseを入れない。
+main spanは同一bundle/lane/routeの隣接spanをcontinuous runとして扱い、内部nodeの接線を前後の
+attachment位置から解決する。既定方式はcubic Hermite baseへ端点で値と微分が0になるsmooth sagを加える。
+continuous run内はG1相当を要求するが、G2の曲率連続までは要求しない。
+support groupによるlowering、insulator、clamp、jumper、leadなど物理的に別部品となる境界だけG0を許可する。
+中心線へ横揺れnoiseを入れない。
 bundle lane、band、helix、noiseは安定したcenterlineとcanonical direction基準frameからvisual layerで展開する。
-G2接続は現時点の必須条件ではない。support/insulator leadとjumperはmain spanとは別のcurve familyとして扱い、
+support/insulator leadとjumperはmain spanとは別のcurve familyとして扱い、
 未対応familyは別方式へsilent fallbackせず明示的に拒否する。
 
 ## wire domain境界

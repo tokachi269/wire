@@ -19,6 +19,7 @@ enum class CurveFamily : std::uint8_t {
 
 enum class CurveMethod : std::uint8_t {
   kParabolicSag = 0,
+  kCubicHermiteSag = 1,
 };
 
 struct TessellationPolicy {
@@ -48,6 +49,7 @@ struct CableCurveSample {
   Vec3d tangent{};
   Vec3d normal{};
   Vec3d binormal{};
+  double speed_m_per_u = 0.0;
   double arc_length_m = 0.0;
 };
 

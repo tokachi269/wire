@@ -350,6 +350,9 @@
 | C631 | Invariant | geometry | reverse traversalでもcanonical lateral frameを維持する | 同一edgeをforward/reverseで生成 | BuildCableCurve | 対応sampleのposition/binormalが一致 | CableCurveSample | save/loadやedge traversal反転でlane左右が反転する回帰防止 |
 | C632 | Invariant | geometry | tessellationはlength/sagに応じる | short/long/high-sag input | ResolveSegmentCount | longまたはhigh-sagでsegment数増加、policy範囲内 | TessellationPolicy | caller固定sample countへの逆戻り防止 |
 | C633 | Invariant | geometry | zero-length/vertical curveを決定的に処理する | degenerate/vertical/unknown method | BuildCableCurve | finite deterministic frame、unknown methodは明示reject | CableCurveOutput / EditResult | near-world-up fallback不定・silent method fallback防止 |
+| C634 | Invariant | geometry | Hermite sagはendpoint tangentを壊さない | distinct start/end tangent + sag | BuildCableCurve | endpoint位置と接線が入力に一致 | CableCurveOutput / DetailCurve adapter | span内sagを加えてrun接続点のG1を壊す回帰防止 |
+| C635 | Invariant | backbone | continuous run内はG1相当で接続する | 同一bundle/laneの3点route | GenerateFromBackboneSpec | 前span終端と次span始端の保存接線・curve接線が一致 | EndpointLayoutRule / SpanLayoutEntry / DetailCurve | span単位の独立sagへ戻り内部nodeで折れる回帰防止 |
+| C636 | Invariant | backbone | fixture boundaryはcontext runへG1接続しない | HV routeへlowered branch追加 | GenerateFromBackboneSpec | lowered endpointはbranch自身のchord接線を持つ | support group / EndpointLayoutRule | insulator/clamp相当の物理境界をcontinuous runとして誤結合する回帰防止 |
 
 ## Retired old-pipeline checks
 - Old cases 365-367 were removed from the registered suite. They pinned the transitional `BackboneBuilder` / support-layout authority seed / materialization surface instead of the backbone mainline.

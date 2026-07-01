@@ -185,6 +185,7 @@ struct SupportGroupDecision : LayoutSemantic {
 struct EndpointLayoutRule {
   ObjectId endpoint_node_id = kInvalidObjectId;
   ObjectId port_id = kInvalidObjectId;
+  Vec3d tangent_dir{};
   LayoutSemantic semantic{};
   EndpointAttachmentRequest attachment_request{};
   std::optional<int> resolved_socket_id{};
@@ -254,7 +255,7 @@ inline void ApplyEndpointLayoutRule(LayoutEndpoint& dst, const EndpointLayoutRul
     dst.branch_down_offset_m = std::max(0.0, -endpoint_offset);
     dst.automatic_branch_down_offset_m = std::max(0.0, -endpoint_offset);
   }
-  dst.departure_dir = {1.0, 0.0, 0.0};
+  dst.departure_dir = rule.tangent_dir;
 }
 
 struct SpanLayoutRule {

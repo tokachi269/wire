@@ -60,16 +60,58 @@ void align_frame(const Vec3d& preferred_lateral, CableCurveSample* sample) {
   sample->binormal = ScaleVec(sample->binormal, -1.0);
 }
 
-Vec3d position_at(const CableCurveInput& input, const Vec3d& gravity, double t) {
-  const Vec3d chord = input.end - input.start;
-  return input.start + ScaleVec(chord, t) +
-         ScaleVec(gravity, std::max(0.0, input.sag_m) * 4.0 * t * (1.0 - t));
+double smooth_sag_weight(double t) {
+  return 16.0 * t * t * (1.0 - t) * (1.0 - t);
 }
 
-Vec3d tangent_at(const CableCurveInput& input, const Vec3d& gravity, double t) {
-  const Vec3d derivative =
-      (input.end - input.start) + ScaleVec(gravity, std::max(0.0, input.sag_m) * 4.0 * (1.0 - 2.0 * t));
-  return normalized_or(derivative, input.end - input.start);
+double smooth_sag_derivative(double t) {
+  return 32.0 * t * (1.0 - t) * (1.0 - 2.0 * t);
+}
+
+Vec3d hermite_position(const CableCurveInput& input, double t) {
+  const Vec3d chord = input.end - input.start;
+  const double length = Length(chord);
+  const Vec3d chord_dir = normalized_or(chord, input.canonical_dir);
+  const Vec3d start_tangent = normalized_or(input.start_tangent_hint, chord_dir);
+  const Vec3d end_tangent = normalized_or(input.end_tangent_hint, chord_dir);
+  const Vec3d m0 = ScaleVec(start_tangent, length);
+  const Vec3d m1 = ScaleVec(end_tangent, length);
+  const double t2 = t * t;
+  const double t3 = t2 * t;
+  return ScaleVec(input.start, 2.0 * t3 - 3.0 * t2 + 1.0) +
+         ScaleVec(m0, t3 - 2.0 * t2 + t) +
+         ScaleVec(input.end, -2.0 * t3 + 3.0 * t2) +
+         ScaleVec(m1, t3 - t2);
+}
+
+Vec3d hermite_derivative(const CableCurveInput& input, double t) {
+  const Vec3d chord = input.end - input.start;
+  const double length = Length(chord);
+  const Vec3d chord_dir = normalized_or(chord, input.canonical_dir);
+  const Vec3d m0 = ScaleVec(normalized_or(input.start_tangent_hint, chord_dir), length);
+  const Vec3d m1 = ScaleVec(normalized_or(input.end_tangent_hint, chord_dir), length);
+  const double t2 = t * t;
+  return ScaleVec(input.start, 6.0 * t2 - 6.0 * t) +
+         ScaleVec(m0, 3.0 * t2 - 4.0 * t + 1.0) +
+         ScaleVec(input.end, -6.0 * t2 + 6.0 * t) +
+         ScaleVec(m1, 3.0 * t2 - 2.0 * t);
+}
+
+Vec3d position_at(const CableCurveInput& input, const Vec3d& gravity, double t) {
+  const double sag = std::max(0.0, input.sag_m);
+  if (input.method == CurveMethod::kCubicHermiteSag) {
+    return hermite_position(input, t) + ScaleVec(gravity, sag * smooth_sag_weight(t));
+  }
+  const Vec3d chord = input.end - input.start;
+  return input.start + ScaleVec(chord, t) + ScaleVec(gravity, sag * 4.0 * t * (1.0 - t));
+}
+
+Vec3d derivative_at(const CableCurveInput& input, const Vec3d& gravity, double t) {
+  const double sag = std::max(0.0, input.sag_m);
+  if (input.method == CurveMethod::kCubicHermiteSag) {
+    return hermite_derivative(input, t) + ScaleVec(gravity, sag * smooth_sag_derivative(t));
+  }
+  return (input.end - input.start) + ScaleVec(gravity, sag * 4.0 * (1.0 - 2.0 * t));
 }
 
 void expand_bounds(const Vec3d& point, double radius, AABBd* bounds) {
@@ -101,7 +143,7 @@ std::size_t ResolveSegmentCount(const CableCurveInput& input) {
 
 EditResult<CableCurveOutput> BuildCableCurve(const CableCurveInput& input) {
   EditResult<CableCurveOutput> result{};
-  if (input.method != CurveMethod::kParabolicSag) {
+  if (input.method != CurveMethod::kParabolicSag && input.method != CurveMethod::kCubicHermiteSag) {
     result.error = "cable curve method is unsupported";
     return result;
   }
@@ -130,7 +172,9 @@ EditResult<CableCurveOutput> BuildCableCurve(const CableCurveInput& input) {
     const double t = static_cast<double>(index) / static_cast<double>(segments);
     CableCurveSample sample{};
     sample.position = position_at(input, gravity, t);
-    sample.tangent = tangent_at(input, gravity, t);
+    const Vec3d derivative = derivative_at(input, gravity, t);
+    sample.speed_m_per_u = Length(derivative);
+    sample.tangent = normalized_or(derivative, input.end - input.start);
     if (output.samples.empty()) {
       sample.normal = projected_normal(up, sample.tangent);
     } else {
@@ -151,7 +195,8 @@ EditResult<CableCurveOutput> BuildCableCurve(const CableCurveInput& input) {
   output.bounds.max = output.samples.front().position + Vec3d{input.radius_m, input.radius_m, input.radius_m};
   for (const CableCurveSample& sample : output.samples) {
     if (!finite(sample.position) || !finite(sample.tangent) || !finite(sample.normal) ||
-        !finite(sample.binormal) || !std::isfinite(sample.arc_length_m)) {
+        !finite(sample.binormal) || !std::isfinite(sample.speed_m_per_u) ||
+        !std::isfinite(sample.arc_length_m)) {
       result.error = "cable curve output is invalid";
       result.value = {};
       return result;
@@ -167,16 +212,27 @@ DetailCurve ToDetailCurve(const CableCurveInput& input, const CableCurveOutput& 
   if (output.samples.size() < 2) {
     return detail;
   }
-  const Vec3d gravity = normalized_or(input.gravity_dir, {0.0, 0.0, -1.0});
-  const Vec3d chord = input.end - input.start;
-  const Vec3d sag_control_offset = ScaleVec(gravity, std::max(0.0, input.sag_m) * (4.0 / 3.0));
   detail.start_constraint.point = input.start;
   detail.start_constraint.tangent_dir = output.samples.front().tangent;
   detail.end_constraint.point = input.end;
   detail.end_constraint.tangent_dir = output.samples.back().tangent;
-  detail.control_points = {input.start, input.start + ScaleVec(chord, 1.0 / 3.0) + sag_control_offset,
-                           input.start + ScaleVec(chord, 2.0 / 3.0) + sag_control_offset, input.end};
-  detail.segments.push_back({detail.control_points, 0.0, 1.0});
+  const double u_step = 1.0 / static_cast<double>(output.samples.size() - 1);
+  detail.segments.reserve(output.samples.size() - 1);
+  for (std::size_t index = 0; index + 1 < output.samples.size(); ++index) {
+    const CableCurveSample& a = output.samples[index];
+    const CableCurveSample& b = output.samples[index + 1];
+    DetailCurveSegment segment{};
+    segment.control_points = {
+        a.position,
+        a.position + ScaleVec(a.tangent, a.speed_m_per_u * u_step / 3.0),
+        b.position - ScaleVec(b.tangent, b.speed_m_per_u * u_step / 3.0),
+        b.position,
+    };
+    segment.u_start = static_cast<double>(index) * u_step;
+    segment.u_end = static_cast<double>(index + 1) * u_step;
+    detail.segments.push_back(segment);
+  }
+  detail.control_points = detail.segments.front().control_points;
   detail.sag_amplitude_m = std::max(0.0, input.sag_m);
   detail.sag_application = DetailCurveSagApplication::kBakedIntoControlCurve;
   detail.sample_points.reserve(output.samples.size());

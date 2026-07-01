@@ -991,6 +991,114 @@ bool test_cable_curve_degenerate_and_vertical_inputs_are_deterministic() {
          almost_equal(first.value.samples.front().binormal, second.value.samples.front().binormal);
 }
 
+bool test_cable_curve_hermite_sag_preserves_endpoint_tangents() {
+  namespace cable_curve = wire::core::geometry::curve;
+  cable_curve::CableCurveInput input{};
+  input.start = {0.0, 0.0, 8.0};
+  input.end = {18.0, 2.0, 9.0};
+  input.start_tangent_hint = {1.0, 0.35, 0.1};
+  input.end_tangent_hint = {1.0, -0.20, 0.05};
+  input.canonical_dir = {1.0, 0.0, 0.0};
+  input.sag_m = 1.1;
+  input.method = cable_curve::CurveMethod::kCubicHermiteSag;
+  const auto built = cable_curve::BuildCableCurve(input);
+  if (!built.ok || built.value.samples.size() < 3) {
+    return false;
+  }
+  wire::core::Vec3d expected_start = input.start_tangent_hint;
+  wire::core::Vec3d expected_end = input.end_tangent_hint;
+  wire::core::Normalize(&expected_start);
+  wire::core::Normalize(&expected_end);
+  const wire::core::DetailCurve detail = cable_curve::ToDetailCurve(input, built.value);
+  return almost_equal(built.value.samples.front().position, input.start) &&
+         almost_equal(built.value.samples.back().position, input.end) &&
+         almost_equal(built.value.samples.front().tangent, expected_start, 1e-9) &&
+         almost_equal(built.value.samples.back().tangent, expected_end, 1e-9) &&
+         almost_equal(detail.EvaluateTangent(0.0), expected_start, 1e-9) &&
+         almost_equal(detail.EvaluateTangent(1.0), expected_end, 1e-9);
+}
+
+bool test_backbone_continuous_run_is_g1_at_internal_node() {
+  wire::core::CoreState state;
+  wire::core::GeometrySettings geometry = state.view().geometry_settings();
+  geometry.sag_enabled = true;
+  geometry.sag_factor = 0.04;
+  if (!state.UpdateGeometrySettings(geometry).ok) {
+    return false;
+  }
+  wire::core::BackboneSpec req{};
+  req.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}, {18.0, 8.0, 0.0}};
+  const std::vector<wire::core::PoleTypeId> pole_types = sorted_pole_type_ids(state);
+  if (pole_types.empty()) {
+    return false;
+  }
+  req.pole_type_id = pole_types.front();
+  add_backbone_bundle(req, wire::core::BundleKind::kLowVoltage);
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  if (!generated.ok || generated.value.generated_span_ids.size() != 2) {
+    return false;
+  }
+  const auto* first = state.find_curve_cache(generated.value.generated_span_ids[0]);
+  const auto* second = state.find_curve_cache(generated.value.generated_span_ids[1]);
+  const auto first_layout = state.span_layout(generated.value.generated_span_ids[0]);
+  const auto second_layout = state.span_layout(generated.value.generated_span_ids[1]);
+  if (first == nullptr || second == nullptr || !first_layout.has_layout() || !second_layout.has_layout()) {
+    return false;
+  }
+  const wire::core::Vec3d incoming = first->detail.EvaluateTangent(1.0);
+  const wire::core::Vec3d outgoing = second->detail.EvaluateTangent(0.0);
+  return wire::core::Dot(incoming, outgoing) > 1.0 - 1e-9 &&
+         almost_equal(first_layout.entry->end.departure_dir,
+                      second_layout.entry->start.departure_dir, 1e-9);
+}
+
+bool test_backbone_fixture_boundary_does_not_join_context_run_tangent() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec base{};
+  base.path.polyline = {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}, {12.0, 8.0, 0.0}};
+  const std::vector<wire::core::PoleTypeId> pole_types = sorted_pole_type_ids(state);
+  if (pole_types.empty()) {
+    return false;
+  }
+  base.pole_type_id = pole_types.front();
+  add_backbone_bundle(base, wire::core::BundleKind::kHighVoltage);
+  const auto first = state.GenerateFromBackboneSpec(base);
+  if (!first.ok || first.value.generated_pole_ids.size() != 3) {
+    return false;
+  }
+  const wire::core::ObjectId junction = first.value.generated_pole_ids[1];
+  const wire::core::Pole* pole = state.view().poles().find(junction);
+  if (pole == nullptr) {
+    return false;
+  }
+  wire::core::BackboneSpec branch{};
+  branch.path.polyline = {pole->world_transform.position, {20.0, 0.0, 0.0}};
+  branch.pole_type_id = base.pole_type_id;
+  wire::core::BackboneInputSpec::NodeSpec existing{};
+  existing.point_index = 0;
+  existing.support_kind = wire::core::SupportKind::kPole;
+  existing.node_id = junction;
+  branch.path.node_specs = {existing};
+  add_backbone_bundle(branch, wire::core::BundleKind::kHighVoltage);
+  const auto generated = state.GenerateFromBackboneSpec(branch);
+  if (!generated.ok || generated.value.generated_span_ids.empty()) {
+    return false;
+  }
+  for (wire::core::ObjectId span_id : generated.value.generated_span_ids) {
+    const auto layout = state.span_layout(span_id);
+    if (!layout.has_layout() || !layout.entry->start.lower_required) {
+      return false;
+    }
+    wire::core::Vec3d branch_chord =
+        layout.entry->end.support_world - layout.entry->start.support_world;
+    if (!wire::core::Normalize(&branch_chord) ||
+        !almost_equal(layout.entry->start.departure_dir, branch_chord, 1e-9)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool test_hierarchical_variation_worldspace_is_continuous() {
   wire::core::VariationSettings settings{};
   settings.enabled = true;
@@ -1099,6 +1207,15 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C633_CableCurve_DegenerateVerticalDeterministic",
                          "CableCurve handles zero-length and vertical spans deterministically and rejects unknown methods",
                          "Invariant", false, test_cable_curve_degenerate_and_vertical_inputs_are_deterministic);
+  test_registry::AddTest(tests, "C634_CableCurve_HermiteSagPreservesEndpointTangents",
+                         "Hermite sag keeps configured endpoint tangent directions", "Invariant", false,
+                         test_cable_curve_hermite_sag_preserves_endpoint_tangents);
+  test_registry::AddTest(tests, "C635_Backbone_ContinuousRunIsG1",
+                         "Continuous bundle lane route spans share the internal-node tangent", "Invariant", false,
+                         test_backbone_continuous_run_is_g1_at_internal_node);
+  test_registry::AddTest(tests, "C636_Backbone_FixtureBoundaryStaysG0",
+                         "Lowered fixture boundaries do not borrow context-run tangents", "Invariant", false,
+                         test_backbone_fixture_boundary_does_not_join_context_run_tangent);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_geometry_tests);

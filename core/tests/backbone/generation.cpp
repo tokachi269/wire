@@ -128,7 +128,12 @@ bool C375_backbone_curve_saved_without_recalc() {
       return false;
     }
     const auto* curve = state.find_curve_cache(span_id);
-    if (curve == nullptr || curve->detail.sample_points.size() != 2 || curve->points.size() != 2) {
+    if (curve == nullptr || curve->detail.sample_points.size() < 2 ||
+        curve->points.size() != curve->detail.sample_points.size() ||
+        !std::equal(curve->points.begin(), curve->points.end(), curve->detail.sample_points.begin(),
+                    [](const wire::core::Vec3d& a, const wire::core::Vec3d& b) {
+                      return almost_equal(a, b, 1e-12);
+                    })) {
       return false;
     }
   }

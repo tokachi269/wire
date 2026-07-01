@@ -3,6 +3,8 @@
 #include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
 
+#include "../../geometry/curve/curve.hpp"
+
 #include <algorithm>
 
 namespace wire::core::generation::backbone {
@@ -35,32 +37,12 @@ AABBd box(const std::vector<Vec3d>& pts) {
 
 } // namespace
 
-DetailCurve line(const Vec3d& a, const Vec3d& b) {
-  const Vec3d d = b - a;
-  const double l = Length(d);
-  DetailCurve out{};
-  out.start_constraint.point = a;
-  out.end_constraint.point = b;
-  out.control_points = {a, a + ScaleVec(d, 1.0 / 3.0), a + ScaleVec(d, 2.0 / 3.0), b};
-  DetailCurveSegment segment{};
-  segment.control_points = out.control_points;
-  segment.u_start = 0.0;
-  segment.u_end = 1.0;
-  out.segments.push_back(segment);
-  out.sample_points = {a, b};
-  out.arc_length_table = {{0.0, 0.0}, {1.0, l}};
-  out.visible_intervals = {{0.0, l}};
-  out.total_length_m = l;
-  return out;
-}
-
-DetailCurve make_curve(const CoreState& state, ObjectId span_id, const SpanLayoutEntry& layout) {
+EditResult<DetailCurve> make_curve(const CoreState& state, ObjectId span_id, const SpanLayoutEntry& layout) {
+  EditResult<DetailCurve> result{};
   const GeometrySettings& settings = state.view().geometry_settings();
-  if (!settings.sag_enabled) {
-    return line(layout.start.endpoint_world, layout.end.endpoint_world);
-  }
 
   double sag_ratio = settings.sag_factor;
+  double radius_m = 0.0;
   const Span* span = state.view().spans().find(span_id);
   if (span != nullptr) {
     const Bundle* bundle = state.view().bundles().find(span->bundle_id);
@@ -70,36 +52,42 @@ DetailCurve make_curve(const CoreState& state, ObjectId span_id, const SpanLayou
         const auto cable = state.view().cable_templates().find(bundle_template->second.cable_template_id);
         if (cable != state.view().cable_templates().end()) {
           sag_ratio = cable->second.sag_factor + cable->second.slack_factor;
+          radius_m = std::max(0.0, cable->second.outer_diameter_m * 0.5);
         }
       }
     }
   }
   sag_ratio = std::max(0.0, sag_ratio);
-  if (sag_ratio <= 0.0) {
-    return line(layout.start.endpoint_world, layout.end.endpoint_world);
-  }
 
   const Vec3d chord = layout.end.endpoint_world - layout.start.endpoint_world;
   const double chord_length = Length(chord);
-  if (chord_length <= 1e-9) {
-    return line(layout.start.endpoint_world, layout.end.endpoint_world);
+  const Vec3d tangent = chord_length > 1e-9 ? ScaleVec(chord, 1.0 / chord_length) : Vec3d{1.0, 0.0, 0.0};
+  geometry::curve::CableCurveInput input{};
+  input.start = layout.start.endpoint_world;
+  input.end = layout.end.endpoint_world;
+  input.start_tangent_hint = tangent;
+  input.end_tangent_hint = tangent;
+  input.gravity_dir = {0.0, 0.0, -1.0};
+  input.canonical_dir = tangent;
+  const BackboneFrontier frontier = state.view().span_frontier(span_id);
+  if (const SavedBackboneEdge* edge = state.view().backbone_edge(frontier.edge_id);
+      edge != nullptr && Length(edge->dir) > 1e-9) {
+    input.canonical_dir = edge->dir;
   }
-  const Vec3d tangent = ScaleVec(chord, 1.0 / chord_length);
-  CurveConstraint start{};
-  start.point = layout.start.endpoint_world;
-  start.tangent_dir = tangent;
-  start.sag_hint = sag_ratio * 0.5;
-  start.continuity_preference = layout.continuity_preference;
-  start.bend_stiffness_hint = layout.bend_stiffness_hint;
-  start.min_bend_radius_hint_m = layout.min_bend_radius_hint_m;
-  start.pass_mode = layout.pass_mode;
-  start.endpoint_mode = layout.start.endpoint_mode;
-  start.profile_hint = layout.detail_curve_profile_hint;
-
-  CurveConstraint end = start;
-  end.point = layout.end.endpoint_world;
-  end.endpoint_mode = layout.end.endpoint_mode;
-  return BuildDetailCurve(start, end, std::max(2, settings.curve_samples));
+  input.sag_m = settings.sag_enabled ? sag_ratio * chord_length : 0.0;
+  input.radius_m = radius_m;
+  input.family = geometry::curve::CurveFamily::kMainSpan;
+  input.method = geometry::curve::CurveMethod::kParabolicSag;
+  input.tessellation.max_segments =
+      std::max(input.tessellation.min_segments, static_cast<std::size_t>(std::max(2, settings.curve_samples) - 1));
+  const EditResult<geometry::curve::CableCurveOutput> built = geometry::curve::BuildCableCurve(input);
+  if (!built.ok) {
+    result.error = built.error;
+    return result;
+  }
+  result.value = geometry::curve::ToDetailCurve(input, built.value);
+  result.ok = true;
+  return result;
 }
 
 BoundsCacheEntry bounds(const DetailCurve& curve, std::uint64_t source_version) {

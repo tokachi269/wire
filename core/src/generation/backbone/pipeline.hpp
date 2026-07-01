@@ -191,7 +191,7 @@ private:
   [[nodiscard]] EditResult<bool> emit_spans(topo* made, const pairs& ps, ChangeSet* changes);
   [[nodiscard]] rules make(const topo& made, const groups& placement) const;
   [[nodiscard]] EditResult<layout> make(const rules& made) const;
-  [[nodiscard]] geom make(const layout& made) const;
+  [[nodiscard]] EditResult<geom> make(const layout& made) const;
   [[nodiscard]] draw make(const layout& placed, const geom& shaped) const;
   void save(const rules& made);
   void save(const layout& made);

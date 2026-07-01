@@ -18,6 +18,7 @@ add_library(
   src/state/backbone.cpp
   src/validation/validator.cpp
   src/geometry/detail_curve.cpp
+  src/geometry/curve/curve.cpp
   src/geometry/detail_curve_input_resolution.cpp
   src/geometry/detail_curve_postprocess.cpp
   src/geometry/style_context.cpp

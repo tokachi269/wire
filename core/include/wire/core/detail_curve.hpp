@@ -62,6 +62,11 @@ enum class DetailCurveEndpointTangentRule : std::uint8_t {
   kAttachmentEndpointPriority = 4,
 };
 
+enum class DetailCurveSagApplication : std::uint8_t {
+  kSeparateProfile = 0,
+  kBakedIntoControlCurve = 1,
+};
+
 struct CurveConstraint {
   Vec3d point{};
   Vec3d tangent_dir{};
@@ -157,6 +162,7 @@ struct DetailCurve {
   std::array<Vec3d, 4> control_points{};
   std::vector<DetailCurveSegment> segments{};
   double sag_amplitude_m = 0.0;
+  DetailCurveSagApplication sag_application = DetailCurveSagApplication::kSeparateProfile;
   std::vector<Vec3d> sample_points{};
   std::vector<CurveLengthSample> arc_length_table{};
   std::vector<CurveLengthInterval> visible_intervals{};

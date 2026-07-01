@@ -4,8 +4,8 @@
 
 namespace wire::core::generation::backbone {
 
-[[nodiscard]] DetailCurve line(const Vec3d& a, const Vec3d& b);
-[[nodiscard]] DetailCurve make_curve(const CoreState& state, ObjectId span_id, const SpanLayoutEntry& layout);
+[[nodiscard]] EditResult<DetailCurve> make_curve(const CoreState& state, ObjectId span_id,
+                                                 const SpanLayoutEntry& layout);
 [[nodiscard]] BoundsCacheEntry bounds(const DetailCurve& curve, std::uint64_t source_version = 0);
 [[nodiscard]] SpanRenderCacheEntry render(const CoreState& state, ObjectId span_id, const DetailCurve& detail);
 [[nodiscard]] SpanVisualCacheEntry visual(const VisualSettings& settings, const SpanLayoutEntry& layout);

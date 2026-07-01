@@ -80,12 +80,16 @@ EditResult<GenerateBundleFromPathResult> pipeline::build() {
   save(placed.value);
   out.value.timing.layout_ms = elapsed_ms(started);
   started = std::chrono::steady_clock::now();
-  geom shaped = make(placed.value);
+  EditResult<geom> shaped = make(placed.value);
+  if (!shaped.ok) {
+    out.error = shaped.error;
+    return out;
+  }
   out.value.timing.geom_ms = elapsed_ms(started);
   started = std::chrono::steady_clock::now();
-  draw drawn = make(placed.value, shaped);
+  draw drawn = make(placed.value, shaped.value);
   out.value.timing.draw_ms = elapsed_ms(started);
-  save(std::move(shaped));
+  save(std::move(shaped.value));
   save(std::move(drawn));
   out.change_set = std::move(made.change_set);
   out.value.generated_pole_ids = made.value.new_poles;
@@ -2326,16 +2330,21 @@ EditResult<layout> pipeline::make(const rules& made) const {
   return out;
 }
 
-geom pipeline::make(const layout& made) const {
-  geom out{};
-  out.curves.data.reserve(made.entries.size());
-  out.boxes.data.reserve(made.entries.size());
+EditResult<geom> pipeline::make(const layout& made) const {
+  EditResult<geom> out{};
+  out.value.curves.data.reserve(made.entries.size());
+  out.value.boxes.data.reserve(made.entries.size());
   for (const SpanLayoutEntry& entry : made.entries) {
-    DetailCurve detail = make_curve(state_, entry.span_id, entry);
-    BoundsCacheEntry cached = bounds(detail);
-    out.boxes.data.push_back({entry.span_id, std::move(cached)});
-    out.curves.data.push_back({entry.span_id, std::move(detail)});
+    EditResult<DetailCurve> detail = make_curve(state_, entry.span_id, entry);
+    if (!detail.ok) {
+      out.error = detail.error;
+      return out;
+    }
+    BoundsCacheEntry cached = bounds(detail.value);
+    out.value.boxes.data.push_back({entry.span_id, std::move(cached)});
+    out.value.curves.data.push_back({entry.span_id, std::move(detail.value)});
   }
+  out.ok = true;
   return out;
 }
 

@@ -3,6 +3,8 @@
 #include "wire/core/core_test_hook.hpp"
 #include "wire/core/coord_utils.hpp"
 
+#include "../src/geometry/curve/curve.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -873,6 +875,122 @@ bool test_detail_curve_via_attachment_policy_uses_offset_endpoint_and_g1() {
          almost_equal(curve.EvaluatePosition(1.0), end.point + end.endpoint_offset, 1e-9);
 }
 
+bool test_cable_curve_parabolic_sag_has_exact_semantics() {
+  namespace cable_curve = wire::core::geometry::curve;
+  cable_curve::CableCurveInput input{};
+  input.start = {0.0, 2.0, 8.0};
+  input.end = {20.0, 2.0, 10.0};
+  input.canonical_dir = {1.0, 0.0, 0.0};
+  input.sag_m = 1.25;
+  const auto built = cable_curve::BuildCableCurve(input);
+  if (!built.ok || built.value.samples.size() < 3) {
+    return false;
+  }
+  const auto& midpoint = built.value.samples[built.value.samples.size() / 2];
+  const wire::core::Vec3d linear_midpoint = wire::core::ScaleVec(input.start + input.end, 0.5);
+  const wire::core::DetailCurve detail = cable_curve::ToDetailCurve(input, built.value);
+  const bool finite_bounds = std::isfinite(built.value.bounds.min.x) && std::isfinite(built.value.bounds.min.y) &&
+                             std::isfinite(built.value.bounds.min.z) && std::isfinite(built.value.bounds.max.x) &&
+                             std::isfinite(built.value.bounds.max.y) && std::isfinite(built.value.bounds.max.z) &&
+                             built.value.bounds.min.x <= built.value.bounds.max.x &&
+                             built.value.bounds.min.y <= built.value.bounds.max.y &&
+                             built.value.bounds.min.z <= built.value.bounds.max.z;
+  return almost_equal(built.value.samples.front().position, input.start) &&
+         almost_equal(built.value.samples.back().position, input.end) &&
+         almost_equal(midpoint.position, linear_midpoint + wire::core::Vec3d{0.0, 0.0, -input.sag_m}, 1e-9) &&
+         almost_equal(midpoint.position.y, 2.0, 1e-9) &&
+         almost_equal(detail.EvaluatePosition(0.5), midpoint.position, 1e-9) &&
+         almost_equal(detail.sag_amplitude_m, input.sag_m, 1e-9) && finite_bounds &&
+         detail.arc_length_table.size() == built.value.samples.size() &&
+         detail.distance_attributes.arc_length_m.size() == built.value.samples.size();
+}
+
+bool test_cable_curve_samples_have_stable_orthonormal_frames() {
+  namespace cable_curve = wire::core::geometry::curve;
+  cable_curve::CableCurveInput input{};
+  input.start = {-3.0, 4.0, 9.0};
+  input.end = {17.0, 4.0, 11.0};
+  input.canonical_dir = {1.0, 0.0, 0.0};
+  input.sag_m = 0.8;
+  const auto built = cable_curve::BuildCableCurve(input);
+  if (!built.ok) {
+    return false;
+  }
+  for (const cable_curve::CableCurveSample& sample : built.value.samples) {
+    const auto finite = [](const wire::core::Vec3d& value) {
+      return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+    };
+    if (!finite(sample.tangent) || !finite(sample.normal) || !finite(sample.binormal) ||
+        !almost_equal(wire::core::Length(sample.tangent), 1.0, 1e-9) ||
+        !almost_equal(wire::core::Length(sample.normal), 1.0, 1e-9) ||
+        !almost_equal(wire::core::Length(sample.binormal), 1.0, 1e-9) ||
+        std::abs(wire::core::Dot(sample.tangent, sample.normal)) > 1e-9 ||
+        std::abs(wire::core::Dot(sample.tangent, sample.binormal)) > 1e-9 ||
+        std::abs(wire::core::Dot(sample.normal, sample.binormal)) > 1e-9) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool test_cable_curve_reverse_keeps_canonical_lateral_frame() {
+  namespace cable_curve = wire::core::geometry::curve;
+  cable_curve::CableCurveInput forward{};
+  forward.start = {0.0, 0.0, 7.0};
+  forward.end = {16.0, 0.0, 7.0};
+  forward.canonical_dir = {1.0, 0.0, 0.0};
+  forward.sag_m = 0.5;
+  cable_curve::CableCurveInput reverse = forward;
+  std::swap(reverse.start, reverse.end);
+  const auto a = cable_curve::BuildCableCurve(forward);
+  const auto b = cable_curve::BuildCableCurve(reverse);
+  if (!a.ok || !b.ok || a.value.samples.size() != b.value.samples.size()) {
+    return false;
+  }
+  for (std::size_t index = 0; index < a.value.samples.size(); ++index) {
+    const std::size_t reverse_index = b.value.samples.size() - 1 - index;
+    if (!almost_equal(a.value.samples[index].position, b.value.samples[reverse_index].position, 1e-9) ||
+        !almost_equal(a.value.samples[index].binormal, b.value.samples[reverse_index].binormal, 1e-9)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool test_cable_curve_tessellation_grows_with_length_and_sag() {
+  namespace cable_curve = wire::core::geometry::curve;
+  cable_curve::CableCurveInput short_flat{};
+  short_flat.end = {4.0, 0.0, 0.0};
+  cable_curve::CableCurveInput long_flat = short_flat;
+  long_flat.end = {40.0, 0.0, 0.0};
+  cable_curve::CableCurveInput short_sag = short_flat;
+  short_sag.sag_m = 2.0;
+  const std::size_t short_count = cable_curve::ResolveSegmentCount(short_flat);
+  return cable_curve::ResolveSegmentCount(long_flat) > short_count &&
+         cable_curve::ResolveSegmentCount(short_sag) > short_count;
+}
+
+bool test_cable_curve_degenerate_and_vertical_inputs_are_deterministic() {
+  namespace cable_curve = wire::core::geometry::curve;
+  cable_curve::CableCurveInput point{};
+  point.start = {2.0, 3.0, 4.0};
+  point.end = point.start;
+  point.canonical_dir = {0.0, 0.0, 1.0};
+  const auto point_curve = cable_curve::BuildCableCurve(point);
+  cable_curve::CableCurveInput vertical = point;
+  vertical.end = {2.0, 3.0, 14.0};
+  const auto first = cable_curve::BuildCableCurve(vertical);
+  const auto second = cable_curve::BuildCableCurve(vertical);
+  cable_curve::CableCurveInput unsupported = vertical;
+  unsupported.method = static_cast<cable_curve::CurveMethod>(255);
+  const auto rejected = cable_curve::BuildCableCurve(unsupported);
+  return point_curve.ok && first.ok && second.ok && !rejected.ok &&
+         point_curve.value.samples.size() >= 2 && almost_equal(point_curve.value.length_m, 0.0) &&
+         first.value.samples.size() == second.value.samples.size() &&
+         almost_equal(first.value.samples.front().normal, second.value.samples.front().normal) &&
+         almost_equal(first.value.samples.front().binormal, second.value.samples.front().binormal);
+}
+
 bool test_hierarchical_variation_worldspace_is_continuous() {
   wire::core::VariationSettings settings{};
   settings.enabled = true;
@@ -966,6 +1084,21 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C163_DetailCurve_MainSag_StrongerThanBranch",
                          "Main spans keep a stronger sag read than branch spans without breaking endpoint constraints",
                          "Invariant", false, test_detail_curve_main_sag_reads_stronger_than_branch);
+  test_registry::AddTest(tests, "C629_CableCurve_ParabolicSagSemantics",
+                         "CableCurve preserves endpoints, applies exact midpoint sag, and has no top-view drift",
+                         "Invariant", false, test_cable_curve_parabolic_sag_has_exact_semantics);
+  test_registry::AddTest(tests, "C630_CableCurve_StableOrthonormalFrames",
+                         "CableCurve samples expose finite normalized low-twist frames", "Invariant", false,
+                         test_cable_curve_samples_have_stable_orthonormal_frames);
+  test_registry::AddTest(tests, "C631_CableCurve_ReverseCanonicalFrame",
+                         "CableCurve reverse traversal keeps canonical lateral frame orientation", "Invariant", false,
+                         test_cable_curve_reverse_keeps_canonical_lateral_frame);
+  test_registry::AddTest(tests, "C632_CableCurve_AdaptiveTessellation",
+                         "CableCurve tessellation grows with curve length or sag", "Invariant", false,
+                         test_cable_curve_tessellation_grows_with_length_and_sag);
+  test_registry::AddTest(tests, "C633_CableCurve_DegenerateVerticalDeterministic",
+                         "CableCurve handles zero-length and vertical spans deterministically and rejects unknown methods",
+                         "Invariant", false, test_cable_curve_degenerate_and_vertical_inputs_are_deterministic);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_geometry_tests);

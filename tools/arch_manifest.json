@@ -42,7 +42,12 @@
     },
     {
       "name": "geometry",
-      "patterns": ["core/src/geometry/*.cpp", "core/src/geometry/*.hpp"],
+      "patterns": [
+        "core/src/geometry/*.cpp",
+        "core/src/geometry/*.hpp",
+        "core/src/geometry/**/*.cpp",
+        "core/src/geometry/**/*.hpp"
+      ],
       "forbidden_tokens": ["generation/backbone/", "viewer/"]
     },
     {

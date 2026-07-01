@@ -912,7 +912,8 @@ void PopulateLengthData(DetailCurve* curve) {
 
 Vec3d DetailCurve::EvaluatePosition(double u) const {
   Vec3d point = EvaluateCurveBasePosition(*this, u);
-  if (std::abs(sag_amplitude_m) > kZeroLengthEps) {
+  if (sag_application == DetailCurveSagApplication::kSeparateProfile &&
+      std::abs(sag_amplitude_m) > kZeroLengthEps) {
     OffsetAlongWorldUp(&point, -sag_amplitude_m * SagShape(u));
   }
   return point;
@@ -920,7 +921,8 @@ Vec3d DetailCurve::EvaluatePosition(double u) const {
 
 Vec3d DetailCurve::EvaluateTangent(double u) const {
   Vec3d tangent = EvaluateCurveBaseDerivative(*this, u);
-  if (std::abs(sag_amplitude_m) > kZeroLengthEps) {
+  if (sag_application == DetailCurveSagApplication::kSeparateProfile &&
+      std::abs(sag_amplitude_m) > kZeroLengthEps) {
     tangent = tangent + ScaleVec(WorldUp(), -sag_amplitude_m * SagShapeDerivative(u));
   }
   Normalize(&tangent);

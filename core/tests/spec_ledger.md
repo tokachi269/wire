@@ -345,6 +345,11 @@
 | C626 | Boundary | backbone | cable shape/render 更新は direct derive | generated span + sag/color change | UpdateCableTemplate | sag は geom、color は renderへ即時反映しlayout不変 | curve/render/layout | dirty markerなしで出力更新を保証 |
 | C627 | Boundary | backbone | 旧 topology mutation API は public surface に残さない | public header / CMake source scan | wire_core_tests | AddConnection/AddDrop/SplitSpan と専用 result/options 型が存在しない | CoreState / core_state_api_types / CMake | 旧 API が graph 外 topology 経路として復活する回帰防止 |
 | C628 | Boundary | backbone | active backbone pole が使う pole type の変更は mutation 前に拒否する | generated line の pole type を変更 | GenerateFromBackboneSpec→UpdatePoleTypeDefinition | unsupported、definition/pole/port/layout/geom/draw/SavedBackboneGraph が不変 | pole type / generated outputs / SavedBackboneGraph | template migration 未対応時に stale output を残す成功を防止 |
+| C629 | Invariant | geometry | parabolic main-span curve の意味入力を固定する | horizontal span + sag | BuildCableCurve | endpoint exact、midpoint sag exact、top-view lateral driftなし | CableCurveOutput / DetailCurve adapter | caller側Bezier handleや横揺れをauthorityにする回帰防止 |
+| C630 | Invariant | geometry | curve sample frame はfiniteかつorthonormal | sloped span + sag | BuildCableCurve | tangent/normal/binormalがfinite、unit、相互直交 | CableCurveSample | Frenet由来のnear-straight twistやNaN防止 |
+| C631 | Invariant | geometry | reverse traversalでもcanonical lateral frameを維持する | 同一edgeをforward/reverseで生成 | BuildCableCurve | 対応sampleのposition/binormalが一致 | CableCurveSample | save/loadやedge traversal反転でlane左右が反転する回帰防止 |
+| C632 | Invariant | geometry | tessellationはlength/sagに応じる | short/long/high-sag input | ResolveSegmentCount | longまたはhigh-sagでsegment数増加、policy範囲内 | TessellationPolicy | caller固定sample countへの逆戻り防止 |
+| C633 | Invariant | geometry | zero-length/vertical curveを決定的に処理する | degenerate/vertical/unknown method | BuildCableCurve | finite deterministic frame、unknown methodは明示reject | CableCurveOutput / EditResult | near-world-up fallback不定・silent method fallback防止 |
 
 ## Retired old-pipeline checks
 - Old cases 365-367 were removed from the registered suite. They pinned the transitional `BackboneBuilder` / support-layout authority seed / materialization surface instead of the backbone mainline.

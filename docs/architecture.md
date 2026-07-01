@@ -101,6 +101,17 @@ crossarmはsupport group単位、insulatorはlane attachment単位の生成と�
 `enable_insulators`や`requires_insulator`はbackbone visual出力でまだ完全には消費していない。
 viewerが不足fixtureを推測して補ってはいけない。
 
+## cable curve
+
+cable centerlineの正本はBezier制御点ではなく、attachment endpoint、gravity、sag、tangent policy、
+canonical direction、curve familyである。`core/src/geometry/curve`がこの意味入力からsample、arc length、
+frame、boundsを生成し、具体的な計算方式は`CurveMethod`で差し替える。
+
+main spanの既定方式はparabolic sagとし、中心線へ横揺れnoiseを入れない。
+bundle lane、band、helix、noiseは安定したcenterlineとcanonical direction基準frameからvisual layerで展開する。
+G2接続は現時点の必須条件ではない。support/insulator leadとjumperはmain spanとは別のcurve familyとして扱い、
+未対応familyは別方式へsilent fallbackせず明示的に拒否する。
+
 ## wire domain境界
 
 wire coreはroad、rail、building、terrain、cityのdomain型を知らない。

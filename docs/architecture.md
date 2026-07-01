@@ -108,12 +108,18 @@ canonical direction、curve familyである。`core/src/geometry/curve`がこの
 frame、boundsを生成し、具体的な計算方式は`CurveMethod`で差し替える。
 
 main spanは同一bundle/lane/routeの隣接spanをcontinuous runとして扱い、内部nodeの接線を前後の
-attachment位置から解決する。既定方式はcubic Hermite baseへ端点で値と微分が0になるsmooth sagを加える。
-continuous run内はG1相当を要求するが、G2の曲率連続までは要求しない。
-support groupによるlowering、insulator、clamp、jumper、leadなど物理的に別部品となる境界だけG0を許可する。
-curveはstart attachment blend / main span / end attachment blendへ分ける。main spanは重力・張力由来の
-ゆったりしたsagだけを持ち、接続部の向き合わせは短いblend領域へ限定して最小曲げ半径とplan-view deviationで
-制限する。上面視のmain spanは基本直線とし、中心線へ横揺れnoiseを入れない。
+attachment位置から解決する。現状productionはspanごとにcurveを生成するが、endpoint boundaryと隣接接線を
+`SpanLayoutEntry`から渡してG1相当を保つ。G2の曲率連続までは要求しない。
+
+endpoint boundaryは`Direct`、`Continuous`、`Fixture`に分ける。`Direct`はroute端や隣接same-run spanがない端点で、
+attachment blendを使わず直接つなぐ。`Continuous`だけが隣接span方向からplan-view bendを局所的に使える。
+`Fixture`はinsulator、clamp、jumper、leadなど物理的に別部品となる境界だが、明示orientationがないmain cableでは
+fixture向きを推測せずblendしない。
+
+curveはstart blend / main span / end blendへ分ける。blend長は固定1mではなく、角度、span長、bend radius、
+最大span比率から局所的に決める。main spanは重力・張力由来のゆったりしたsagだけを持ち、上面視のmain spanは
+基本直線とし、中心線へ横揺れnoiseを入れない。曲がるregionにはsampleを追加し、viewerのpolyline描画でも曲率が
+見えるようにする。
 
 `CableRunShape`はsample、arc length、stable frame、attachment regionを一度だけ生成する。
 messenger、conductor、sheathなど複数memberは同じrun shapeからframe offsetで展開し、独立curveを再計算しない。

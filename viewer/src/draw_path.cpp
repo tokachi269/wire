@@ -114,6 +114,43 @@ const char* CableAttachmentStyleLabelLocal(wire::core::CableAttachmentStyleHint 
   }
 }
 
+const char* CableEndpointBoundaryLabelLocal(wire::core::CableEndpointBoundary boundary) {
+  switch (boundary) {
+  case wire::core::CableEndpointBoundary::kDirect:
+    return "Direct";
+  case wire::core::CableEndpointBoundary::kContinuous:
+    return "Continuous";
+  case wire::core::CableEndpointBoundary::kFixture:
+    return "Fixture";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* CableCurveSampleRegionLabelLocal(wire::core::CableCurveSampleRegion region) {
+  switch (region) {
+  case wire::core::CableCurveSampleRegion::kStartAttachment:
+    return "StartAttachment";
+  case wire::core::CableCurveSampleRegion::kMainSpan:
+    return "MainSpan";
+  case wire::core::CableCurveSampleRegion::kEndAttachment:
+    return "EndAttachment";
+  default:
+    return "Unknown";
+  }
+}
+
+const char* CableCurveMethodDebugLabelLocal(wire::core::CableCurveMethodDebug method) {
+  switch (method) {
+  case wire::core::CableCurveMethodDebug::kParabolicSag:
+    return "ParabolicSag";
+  case wire::core::CableCurveMethodDebug::kCubicHermiteSag:
+    return "CubicHermiteSag";
+  default:
+    return "Unknown";
+  }
+}
+
 const char* StyleObjectKindLabelLocal(wire::core::StyleObjectKind kind) {
   switch (kind) {
   case wire::core::StyleObjectKind::kSpan:
@@ -487,6 +524,7 @@ void WriteLayoutEndpointCaptureLocal(std::ofstream& ofs, const std::string& pref
   ofs << prefix << ".endpoint_source=" << static_cast<int>(endpoint.endpoint_source) << "\n";
   ofs << prefix << ".port_source=" << static_cast<int>(endpoint.port_source) << "\n";
   ofs << prefix << ".local_departure=" << endpoint.local_departure_length_m << "\n";
+  ofs << prefix << ".cable_boundary=" << CableEndpointBoundaryLabelLocal(endpoint.cable_boundary) << "\n";
   ofs << prefix << ".branch_down_offset_m=" << endpoint.branch_down_offset_m << "\n";
   ofs << prefix << ".automatic_branch_down_offset_m=" << endpoint.automatic_branch_down_offset_m << "\n";
   ofs << prefix << ".relation=" << JunctionRelationLabelLocal(endpoint.relation_kind) << "\n";
@@ -965,11 +1003,29 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
       ofs << prefix << ".layout.lowering_kind=" << LoweringKindLabelLocal(layout_view.entry->lowering_kind) << "\n";
       ofs << prefix << ".layout.start.lower_required=" << (layout_view.entry->start.lower_required ? 1 : 0) << "\n";
       ofs << prefix << ".layout.end.lower_required=" << (layout_view.entry->end.lower_required ? 1 : 0) << "\n";
+      ofs << prefix << ".layout.start.cable_boundary="
+          << CableEndpointBoundaryLabelLocal(layout_view.entry->start.cable_boundary) << "\n";
+      ofs << prefix << ".layout.end.cable_boundary="
+          << CableEndpointBoundaryLabelLocal(layout_view.entry->end.cable_boundary) << "\n";
     }
     if (curve != nullptr) {
+      ofs << prefix << ".curve.method=" << CableCurveMethodDebugLabelLocal(curve->detail.method_debug) << "\n";
+      ofs << prefix << ".curve.start_boundary=" << CableEndpointBoundaryLabelLocal(curve->detail.start_boundary) << "\n";
+      ofs << prefix << ".curve.end_boundary=" << CableEndpointBoundaryLabelLocal(curve->detail.end_boundary) << "\n";
+      ofs << prefix << ".curve.start_blend_length_m=" << curve->detail.start_blend_length_m << "\n";
+      ofs << prefix << ".curve.end_blend_length_m=" << curve->detail.end_blend_length_m << "\n";
+      ofs << prefix << ".curve.sag_m=" << curve->detail.sag_amplitude_m << "\n";
       ofs << prefix << ".curve.sample_count=" << curve->detail.sample_points.size() << "\n";
       ofs << prefix << ".curve.segment_count=" << curve->detail.segments.size() << "\n";
       ofs << prefix << ".curve.total_length_m=" << curve->detail.total_length_m << "\n";
+      for (std::size_t sample_index = 0; sample_index < curve->detail.sample_points.size(); ++sample_index) {
+        write_vec3(prefix + ".curve.sample[" + std::to_string(sample_index) + "].position",
+                   curve->detail.sample_points[sample_index]);
+        if (sample_index < curve->detail.sample_regions.size()) {
+          ofs << prefix << ".curve.sample[" << sample_index << "].region="
+              << CableCurveSampleRegionLabelLocal(curve->detail.sample_regions[sample_index]) << "\n";
+        }
+      }
     }
     if (bounds != nullptr) {
       write_vec3(prefix + ".bounds.min", bounds->whole.min);

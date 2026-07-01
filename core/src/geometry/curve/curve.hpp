@@ -41,6 +41,8 @@ struct CableCurveProfile {
   double attachment_min_bend_radius_m = 0.25;
   double plan_view_blend_length_m = 0.75;
   double plan_view_max_deviation_m = 0.35;
+  double max_blend_fraction_per_side = 0.20;
+  double nearly_straight_angle_rad = 0.035;
   AttachmentCurveMethod attachment_method = AttachmentCurveMethod::kCubicHermite;
 };
 
@@ -56,6 +58,8 @@ struct CableCurveInput {
   Vec3d end{};
   Vec3d start_tangent_hint{};
   Vec3d end_tangent_hint{};
+  CableEndpointBoundary start_boundary = CableEndpointBoundary::kDirect;
+  CableEndpointBoundary end_boundary = CableEndpointBoundary::kDirect;
   Vec3d gravity_dir{0.0, 0.0, -1.0};
   Vec3d canonical_dir{1.0, 0.0, 0.0};
   double sag_m = 0.0;
@@ -99,6 +103,8 @@ struct CableRunShape {
   AABBd bounds{};
   std::vector<AttachmentRegion> attachment_regions{};
   std::vector<CableRunSection> sections{};
+  double start_blend_length_m = 0.0;
+  double end_blend_length_m = 0.0;
   StableFramePolicy frame_policy = StableFramePolicy::kParallelTransportCanonical;
 };
 

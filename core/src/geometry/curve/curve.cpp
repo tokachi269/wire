@@ -150,6 +150,23 @@ struct PiecewisePolicy {
   Vec3d main_end{};
 };
 
+double boundary_blend_length(CableEndpointBoundary boundary, const Vec3d& raw_tangent,
+                             const Vec3d& chord_dir, double span_length,
+                             const CableCurveProfile& profile) {
+  if (boundary != CableEndpointBoundary::kContinuous || span_length <= kEpsilon) {
+    return 0.0;
+  }
+  const double angle = angle_between(raw_tangent, chord_dir);
+  if (angle <= std::max(0.0, profile.nearly_straight_angle_rad)) {
+    return 0.0;
+  }
+  const double radius = std::max(0.0, profile.attachment_min_bend_radius_m);
+  const double angle_length = radius > kEpsilon ? angle * radius : 0.0;
+  const double profile_length = std::max(0.0, profile.plan_view_blend_length_m);
+  const double side_limit = std::max(0.0, profile.max_blend_fraction_per_side) * span_length;
+  return std::min({std::max(angle_length, profile_length), side_limit, span_length * 0.45});
+}
+
 PiecewisePolicy resolve_piecewise_policy(const CableCurveInput& input) {
   PiecewisePolicy policy{};
   const Vec3d chord = input.end - input.start;
@@ -162,14 +179,11 @@ PiecewisePolicy resolve_piecewise_policy(const CableCurveInput& input) {
     policy.end_tangent = policy.chord_dir;
     return policy;
   }
-  const double requested =
-      std::max(0.0, std::max(input.profile.attachment_blend_length_m, input.profile.plan_view_blend_length_m));
   const Vec3d raw_start = normalized_or(input.start_tangent_hint, policy.chord_dir);
   const Vec3d raw_end = normalized_or(input.end_tangent_hint, policy.chord_dir);
-  const double radius = std::max(0.0, input.profile.attachment_min_bend_radius_m);
-  policy.start_blend_m = std::max(requested, angle_between(raw_start, policy.chord_dir) * radius);
-  policy.end_blend_m = std::max(requested, angle_between(raw_end, policy.chord_dir) * radius);
-  const double max_blend_total = length * 0.8;
+  policy.start_blend_m = boundary_blend_length(input.start_boundary, raw_start, policy.chord_dir, length, input.profile);
+  policy.end_blend_m = boundary_blend_length(input.end_boundary, raw_end, policy.chord_dir, length, input.profile);
+  const double max_blend_total = length * 0.60;
   const double blend_total = policy.start_blend_m + policy.end_blend_m;
   if (blend_total > max_blend_total && blend_total > kEpsilon) {
     const double scale = max_blend_total / blend_total;
@@ -178,10 +192,14 @@ PiecewisePolicy resolve_piecewise_policy(const CableCurveInput& input) {
   }
   policy.start_fraction = policy.start_blend_m / length;
   policy.end_fraction = 1.0 - policy.end_blend_m / length;
-  policy.start_tangent =
-      constrained_attachment_tangent(raw_start, policy.chord_dir, policy.start_blend_m, input.profile);
-  policy.end_tangent =
-      constrained_attachment_tangent(raw_end, policy.chord_dir, policy.end_blend_m, input.profile);
+  policy.start_tangent = policy.start_blend_m > kEpsilon
+                             ? constrained_attachment_tangent(raw_start, policy.chord_dir, policy.start_blend_m,
+                                                             input.profile)
+                             : policy.chord_dir;
+  policy.end_tangent = policy.end_blend_m > kEpsilon
+                           ? constrained_attachment_tangent(raw_end, policy.chord_dir, policy.end_blend_m,
+                                                           input.profile)
+                           : policy.chord_dir;
   policy.main_start = input.start + ScaleVec(policy.chord_dir, policy.start_blend_m);
   policy.main_end = input.end - ScaleVec(policy.chord_dir, policy.end_blend_m);
   return policy;
@@ -287,7 +305,11 @@ EditResult<CableCurveOutput> BuildCableCurve(const CableCurveInput& input) {
       !std::isfinite(input.profile.plan_view_blend_length_m) ||
       input.profile.plan_view_blend_length_m < 0.0 ||
       !std::isfinite(input.profile.plan_view_max_deviation_m) ||
-      input.profile.plan_view_max_deviation_m < 0.0) {
+      input.profile.plan_view_max_deviation_m < 0.0 ||
+      !std::isfinite(input.profile.max_blend_fraction_per_side) ||
+      input.profile.max_blend_fraction_per_side < 0.0 ||
+      !std::isfinite(input.profile.nearly_straight_angle_rad) ||
+      input.profile.nearly_straight_angle_rad < 0.0) {
     result.error = "cable curve input is invalid";
     return result;
   }
@@ -301,13 +323,29 @@ EditResult<CableCurveOutput> BuildCableCurve(const CableCurveInput& input) {
   const std::size_t segments = ResolveSegmentCount(input);
   const PiecewisePolicy piecewise = resolve_piecewise_policy(input);
   std::vector<double> parameters{};
-  parameters.reserve(segments + 3);
+  parameters.reserve(segments + 12);
+  auto push_parameter = [&](double value) {
+    if (value >= -kEpsilon && value <= 1.0 + kEpsilon) {
+      parameters.push_back(std::clamp(value, 0.0, 1.0));
+    }
+  };
   for (std::size_t index = 0; index <= segments; ++index) {
-    parameters.push_back(static_cast<double>(index) / static_cast<double>(segments));
+    push_parameter(static_cast<double>(index) / static_cast<double>(segments));
   }
   if (input.method == CurveMethod::kCubicHermiteSag) {
-    parameters.push_back(piecewise.start_fraction);
-    parameters.push_back(piecewise.end_fraction);
+    push_parameter(piecewise.start_fraction);
+    push_parameter(piecewise.end_fraction);
+    if (piecewise.start_fraction > kEpsilon) {
+      push_parameter(piecewise.start_fraction * 0.25);
+      push_parameter(piecewise.start_fraction * 0.50);
+      push_parameter(piecewise.start_fraction * 0.75);
+    }
+    if (piecewise.end_fraction < 1.0 - kEpsilon) {
+      const double end_len = 1.0 - piecewise.end_fraction;
+      push_parameter(piecewise.end_fraction + end_len * 0.25);
+      push_parameter(piecewise.end_fraction + end_len * 0.50);
+      push_parameter(piecewise.end_fraction + end_len * 0.75);
+    }
   }
   std::sort(parameters.begin(), parameters.end());
   parameters.erase(std::unique(parameters.begin(), parameters.end(), [](double a, double b) {
@@ -341,6 +379,8 @@ EditResult<CableCurveOutput> BuildCableCurve(const CableCurveInput& input) {
   }
 
   output.length_m = output.samples.back().arc_length_m;
+  output.start_blend_length_m = piecewise.start_blend_m;
+  output.end_blend_length_m = piecewise.end_blend_m;
   output.bounds.min = output.samples.front().position - Vec3d{input.radius_m, input.radius_m, input.radius_m};
   output.bounds.max = output.samples.front().position + Vec3d{input.radius_m, input.radius_m, input.radius_m};
   for (const CableCurveSample& sample : output.samples) {
@@ -461,6 +501,12 @@ DetailCurve ToDetailCurve(const CableCurveInput& input, const CableCurveOutput& 
   detail.start_constraint.tangent_dir = output.samples.front().tangent;
   detail.end_constraint.point = input.end;
   detail.end_constraint.tangent_dir = output.samples.back().tangent;
+  detail.method_debug = input.method == CurveMethod::kCubicHermiteSag ? CableCurveMethodDebug::kCubicHermiteSag
+                                                                     : CableCurveMethodDebug::kParabolicSag;
+  detail.start_boundary = input.start_boundary;
+  detail.end_boundary = input.end_boundary;
+  detail.start_blend_length_m = output.start_blend_length_m;
+  detail.end_blend_length_m = output.end_blend_length_m;
   detail.segments.reserve(output.samples.size() - 1);
   for (std::size_t index = 0; index + 1 < output.samples.size(); ++index) {
     const CableCurveSample& a = output.samples[index];
@@ -489,6 +535,7 @@ DetailCurve ToDetailCurve(const CableCurveInput& input, const CableCurveOutput& 
     const CableCurveSample& sample = output.samples[index];
     const double u = sample.parameter;
     detail.sample_points.push_back(sample.position);
+    detail.sample_regions.push_back(static_cast<CableCurveSampleRegion>(sample.region));
     detail.arc_length_table.push_back({u, sample.arc_length_m});
     detail.distance_attributes.arc_length_m.push_back(static_cast<float>(sample.arc_length_m));
     detail.distance_attributes.arc_length_normalized.push_back(

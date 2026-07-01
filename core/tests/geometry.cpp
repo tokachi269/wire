@@ -998,6 +998,8 @@ bool test_cable_curve_hermite_sag_preserves_endpoint_tangents() {
   input.end = {18.0, 2.0, 9.0};
   input.start_tangent_hint = {1.0, 0.35, 0.1};
   input.end_tangent_hint = {1.0, -0.20, 0.05};
+  input.start_boundary = wire::core::CableEndpointBoundary::kContinuous;
+  input.end_boundary = wire::core::CableEndpointBoundary::kContinuous;
   input.canonical_dir = {1.0, 0.0, 0.0};
   input.sag_m = 1.1;
   input.method = cable_curve::CurveMethod::kCubicHermiteSag;
@@ -1115,6 +1117,7 @@ bool test_cable_curve_piecewise_curvature_is_localized() {
   input.end = {24.0, 0.0, 9.0};
   input.start_tangent_hint = {0.65, 0.76, 0.0};
   input.end_tangent_hint = {1.0, 0.0, 0.0};
+  input.start_boundary = wire::core::CableEndpointBoundary::kContinuous;
   input.canonical_dir = {1.0, 0.0, 0.0};
   input.sag_m = 0.8;
   input.method = cable_curve::CurveMethod::kCubicHermiteSag;
@@ -1157,6 +1160,8 @@ bool test_cable_curve_short_span_stays_finite_and_monotonic() {
   input.end = {0.45, 0.0, 3.0};
   input.start_tangent_hint = {0.2, 1.0, 0.0};
   input.end_tangent_hint = {0.2, -1.0, 0.0};
+  input.start_boundary = wire::core::CableEndpointBoundary::kContinuous;
+  input.end_boundary = wire::core::CableEndpointBoundary::kContinuous;
   input.canonical_dir = {1.0, 0.0, 0.0};
   input.sag_m = 0.08;
   input.method = cable_curve::CurveMethod::kCubicHermiteSag;
@@ -1228,6 +1233,103 @@ bool test_cable_members_share_run_parameterization() {
     }
   }
   return true;
+}
+
+bool test_cable_curve_direct_endpoint_has_no_blend() {
+  namespace cable_curve = wire::core::geometry::curve;
+  cable_curve::CableCurveInput input{};
+  input.start = {0.0, 0.0, 5.0};
+  input.end = {10.0, 0.0, 5.0};
+  input.start_tangent_hint = {0.0, 1.0, 0.0};
+  input.end_tangent_hint = {0.0, -1.0, 0.0};
+  input.start_boundary = wire::core::CableEndpointBoundary::kDirect;
+  input.end_boundary = wire::core::CableEndpointBoundary::kDirect;
+  input.method = cable_curve::CurveMethod::kCubicHermiteSag;
+  const auto built = cable_curve::BuildCableCurve(input);
+  if (!built.ok || !built.value.attachment_regions.empty()) {
+    return false;
+  }
+  return almost_equal(built.value.start_blend_length_m, 0.0) &&
+         almost_equal(built.value.end_blend_length_m, 0.0) &&
+         built.value.samples.front().region == cable_curve::CurveRegionKind::kMainSpan &&
+         built.value.samples.back().region == cable_curve::CurveRegionKind::kMainSpan;
+}
+
+bool test_cable_curve_continuous_endpoint_uses_local_bend_samples() {
+  namespace cable_curve = wire::core::geometry::curve;
+  cable_curve::CableCurveInput input{};
+  input.start = {0.0, 0.0, 5.0};
+  input.end = {12.0, 0.0, 5.0};
+  input.start_tangent_hint = {0.35, 1.0, 0.0};
+  input.end_tangent_hint = {1.0, 0.0, 0.0};
+  input.start_boundary = wire::core::CableEndpointBoundary::kContinuous;
+  input.end_boundary = wire::core::CableEndpointBoundary::kDirect;
+  input.method = cable_curve::CurveMethod::kCubicHermiteSag;
+  input.profile.plan_view_blend_length_m = 1.0;
+  input.profile.max_blend_fraction_per_side = 0.2;
+  const auto built = cable_curve::BuildCableCurve(input);
+  if (!built.ok || built.value.start_blend_length_m <= 0.0 || built.value.end_blend_length_m != 0.0) {
+    return false;
+  }
+  std::size_t start_samples = 0;
+  for (const auto& sample : built.value.samples) {
+    if (sample.region == cable_curve::CurveRegionKind::kStartAttachment) {
+      ++start_samples;
+    }
+  }
+  return start_samples >= 4 && built.value.attachment_regions.size() == 1 &&
+         built.value.start_blend_length_m <= 12.0 * input.profile.max_blend_fraction_per_side + 1e-9;
+}
+
+bool test_cable_curve_short_span_keeps_meaningful_main_region() {
+  namespace cable_curve = wire::core::geometry::curve;
+  cable_curve::CableCurveInput input{};
+  input.start = {0.0, 0.0, 5.0};
+  input.end = {1.4, 0.0, 5.0};
+  input.start_tangent_hint = {0.2, 1.0, 0.0};
+  input.end_tangent_hint = {0.2, -1.0, 0.0};
+  input.start_boundary = wire::core::CableEndpointBoundary::kContinuous;
+  input.end_boundary = wire::core::CableEndpointBoundary::kContinuous;
+  input.method = cable_curve::CurveMethod::kCubicHermiteSag;
+  input.profile.plan_view_blend_length_m = 1.0;
+  input.profile.max_blend_fraction_per_side = 0.2;
+  const auto built = cable_curve::BuildCableCurve(input);
+  if (!built.ok) {
+    return false;
+  }
+  std::size_t main_samples = 0;
+  for (const auto& sample : built.value.samples) {
+    if (sample.region == cable_curve::CurveRegionKind::kMainSpan) {
+      ++main_samples;
+    }
+  }
+  const double total_blend = built.value.start_blend_length_m + built.value.end_blend_length_m;
+  return built.value.start_blend_length_m <= 0.28 + 1e-9 && built.value.end_blend_length_m <= 0.28 + 1e-9 &&
+         total_blend <= 1.4 * 0.4 + 1e-9 && main_samples >= 2;
+}
+
+bool test_cable_curve_nearly_straight_continuous_node_has_no_exaggerated_bend() {
+  namespace cable_curve = wire::core::geometry::curve;
+  cable_curve::CableCurveInput input{};
+  input.start = {0.0, 0.0, 5.0};
+  input.end = {18.0, 0.0, 5.0};
+  input.start_tangent_hint = {1.0, 0.001, 0.0};
+  input.start_boundary = wire::core::CableEndpointBoundary::kContinuous;
+  input.method = cable_curve::CurveMethod::kCubicHermiteSag;
+  const auto built = cable_curve::BuildCableCurve(input);
+  return built.ok && almost_equal(built.value.start_blend_length_m, 0.0) && built.value.attachment_regions.empty();
+}
+
+bool test_cable_curve_fixture_without_orientation_does_not_guess_blend() {
+  namespace cable_curve = wire::core::geometry::curve;
+  cable_curve::CableCurveInput input{};
+  input.start = {0.0, 0.0, 5.0};
+  input.end = {10.0, 0.0, 5.0};
+  input.start_tangent_hint = {0.0, 1.0, 0.0};
+  input.start_boundary = wire::core::CableEndpointBoundary::kFixture;
+  input.method = cable_curve::CurveMethod::kCubicHermiteSag;
+  const auto built = cable_curve::BuildCableCurve(input);
+  return built.ok && almost_equal(built.value.start_blend_length_m, 0.0) && built.value.attachment_regions.empty();
 }
 
 bool test_hierarchical_variation_worldspace_is_continuous() {
@@ -1356,6 +1458,21 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C639_CableMember_SharedRunParameterization",
                          "Cable members share run samples and arc-length basis without mutating the run", "Invariant",
                          false, test_cable_members_share_run_parameterization);
+  test_registry::AddTest(tests, "C640_CableCurve_DirectEndpointNoBlend",
+                         "Direct cable endpoints do not receive fake attachment blend", "Invariant", false,
+                         test_cable_curve_direct_endpoint_has_no_blend);
+  test_registry::AddTest(tests, "C641_CableCurve_ContinuousEndpointSamplesBend",
+                         "Continuous endpoints use local bend samples while direct endpoints stay unblended", "Invariant",
+                         false, test_cable_curve_continuous_endpoint_uses_local_bend_samples);
+  test_registry::AddTest(tests, "C642_CableCurve_ShortSpanKeepsMainRegion",
+                         "Short spans do not spend most of their length in endpoint blend", "Invariant", false,
+                         test_cable_curve_short_span_keeps_meaningful_main_region);
+  test_registry::AddTest(tests, "C643_CableCurve_NearlyStraightNoExaggeratedBend",
+                         "Nearly straight continuous endpoints do not create visible fake bend", "Invariant", false,
+                         test_cable_curve_nearly_straight_continuous_node_has_no_exaggerated_bend);
+  test_registry::AddTest(tests, "C644_CableCurve_FixtureWithoutOrientationNoBlend",
+                         "Fixture endpoints without explicit orientation do not guess attachment blend", "Invariant", false,
+                         test_cable_curve_fixture_without_orientation_does_not_guess_blend);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_geometry_tests);

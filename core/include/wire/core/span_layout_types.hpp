@@ -150,6 +150,7 @@ struct LayoutEndpoint : LayoutSemantic {
   Vec3d support_world{};
   Vec3d endpoint_world{};
   Vec3d departure_dir{};
+  CableEndpointBoundary cable_boundary = CableEndpointBoundary::kDirect;
   Vec3d endpoint_offset{};
   double local_departure_length_m = 0.0;
   double automatic_branch_down_offset_m = 0.0;
@@ -186,6 +187,7 @@ struct EndpointLayoutRule {
   ObjectId endpoint_node_id = kInvalidObjectId;
   ObjectId port_id = kInvalidObjectId;
   Vec3d tangent_dir{};
+  CableEndpointBoundary cable_boundary = CableEndpointBoundary::kDirect;
   LayoutSemantic semantic{};
   EndpointAttachmentRequest attachment_request{};
   std::optional<int> resolved_socket_id{};
@@ -256,6 +258,7 @@ inline void ApplyEndpointLayoutRule(LayoutEndpoint& dst, const EndpointLayoutRul
     dst.automatic_branch_down_offset_m = std::max(0.0, -endpoint_offset);
   }
   dst.departure_dir = rule.tangent_dir;
+  dst.cable_boundary = rule.cable_boundary;
 }
 
 struct SpanLayoutRule {

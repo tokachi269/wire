@@ -2276,11 +2276,13 @@ rules pipeline::make(const topo& made, const groups& placement) const {
       rule.pass_mode = CurvePassMode::kBranch;
       rule.lowering_kind = BackboneLoweringKind::kBranchSupport;
     }
-    auto endpoint = [&](ObjectId pole_id, ObjectId port_id, const Vec3d& tangent) {
+    auto endpoint = [&](ObjectId pole_id, ObjectId port_id, const Vec3d& tangent,
+                        CableEndpointBoundary boundary) {
       EndpointLayoutRule e{};
       e.endpoint_node_id = pole_id;
       e.port_id = port_id;
       e.tangent_dir = tangent;
+      e.cable_boundary = boundary;
       e.semantic.owner_pole_id = pole_id;
       e.flow_kind = BackboneFlowKind::kMain;
       e.origin = LayoutOriginKind::kMainSupport;
@@ -2291,10 +2293,20 @@ rules pipeline::make(const topo& made, const groups& placement) const {
       e.same_level_feasible = true;
       return e;
     };
+    const CableEndpointBoundary start_boundary = start_group != nullptr
+                                                     ? CableEndpointBoundary::kFixture
+                                                     : (adjacent_span(span, true) != nullptr
+                                                            ? CableEndpointBoundary::kContinuous
+                                                            : CableEndpointBoundary::kDirect);
+    const CableEndpointBoundary end_boundary = end_group != nullptr
+                                                   ? CableEndpointBoundary::kFixture
+                                                   : (adjacent_span(span, false) != nullptr
+                                                          ? CableEndpointBoundary::kContinuous
+                                                          : CableEndpointBoundary::kDirect);
     rule.start = endpoint(arow.pole, arow.ports[span.bundle][span.lane],
-                          tangent_for(span, true, start_group != nullptr));
+                          tangent_for(span, true, start_group != nullptr), start_boundary);
     rule.end = endpoint(brow.pole, brow.ports[span.bundle][span.lane],
-                        tangent_for(span, false, end_group != nullptr));
+                        tangent_for(span, false, end_group != nullptr), end_boundary);
     auto apply_group = [](const group* source, EndpointLayoutRule* endpoint) {
       if (source == nullptr || endpoint == nullptr) {
         return;

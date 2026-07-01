@@ -67,6 +67,8 @@ EditResult<DetailCurve> make_curve(const CoreState& state, ObjectId span_id, con
   input.end = layout.end.endpoint_world;
   input.start_tangent_hint = Length(layout.start.departure_dir) > 1e-9 ? layout.start.departure_dir : tangent;
   input.end_tangent_hint = Length(layout.end.departure_dir) > 1e-9 ? layout.end.departure_dir : tangent;
+  input.start_boundary = layout.start.cable_boundary;
+  input.end_boundary = layout.end.cable_boundary;
   input.gravity_dir = {0.0, 0.0, -1.0};
   input.canonical_dir = tangent;
   const BackboneFrontier frontier = state.view().span_frontier(span_id);

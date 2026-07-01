@@ -60,6 +60,26 @@ void align_frame(const Vec3d& preferred_lateral, CableCurveSample* sample) {
   sample->binormal = ScaleVec(sample->binormal, -1.0);
 }
 
+void rebuild_frames(std::vector<CableCurveSample>* samples, const Vec3d& canonical_dir,
+                    const Vec3d& gravity_dir) {
+  if (samples == nullptr || samples->empty()) {
+    return;
+  }
+  const Vec3d gravity = normalized_or(gravity_dir, {0.0, 0.0, -1.0});
+  const Vec3d up = ScaleVec(gravity, -1.0);
+  const Vec3d canonical = normalized_or(canonical_dir, samples->front().tangent);
+  const Vec3d preferred_lateral = canonical_lateral(canonical, up);
+  for (std::size_t index = 0; index < samples->size(); ++index) {
+    CableCurveSample& sample = (*samples)[index];
+    sample.normal =
+        index == 0 ? projected_normal(up, sample.tangent)
+                   : projected_normal((*samples)[index - 1].normal, sample.tangent);
+    sample.binormal = normalized_or(Cross(sample.tangent, sample.normal), preferred_lateral);
+    sample.normal = normalized_or(Cross(sample.binormal, sample.tangent), sample.normal);
+    align_frame(preferred_lateral, &sample);
+  }
+}
+
 double smooth_sag_weight(double t) {
   return 16.0 * t * t * (1.0 - t) * (1.0 - t);
 }
@@ -68,50 +88,152 @@ double smooth_sag_derivative(double t) {
   return 32.0 * t * (1.0 - t) * (1.0 - 2.0 * t);
 }
 
-Vec3d hermite_position(const CableCurveInput& input, double t) {
-  const Vec3d chord = input.end - input.start;
-  const double length = Length(chord);
-  const Vec3d chord_dir = normalized_or(chord, input.canonical_dir);
-  const Vec3d start_tangent = normalized_or(input.start_tangent_hint, chord_dir);
-  const Vec3d end_tangent = normalized_or(input.end_tangent_hint, chord_dir);
-  const Vec3d m0 = ScaleVec(start_tangent, length);
-  const Vec3d m1 = ScaleVec(end_tangent, length);
+Vec3d hermite_position(const Vec3d& p0, const Vec3d& p1, const Vec3d& m0, const Vec3d& m1, double t) {
   const double t2 = t * t;
   const double t3 = t2 * t;
-  return ScaleVec(input.start, 2.0 * t3 - 3.0 * t2 + 1.0) +
+  return ScaleVec(p0, 2.0 * t3 - 3.0 * t2 + 1.0) +
          ScaleVec(m0, t3 - 2.0 * t2 + t) +
-         ScaleVec(input.end, -2.0 * t3 + 3.0 * t2) +
+         ScaleVec(p1, -2.0 * t3 + 3.0 * t2) +
          ScaleVec(m1, t3 - t2);
 }
 
-Vec3d hermite_derivative(const CableCurveInput& input, double t) {
-  const Vec3d chord = input.end - input.start;
-  const double length = Length(chord);
-  const Vec3d chord_dir = normalized_or(chord, input.canonical_dir);
-  const Vec3d m0 = ScaleVec(normalized_or(input.start_tangent_hint, chord_dir), length);
-  const Vec3d m1 = ScaleVec(normalized_or(input.end_tangent_hint, chord_dir), length);
+Vec3d hermite_derivative(const Vec3d& p0, const Vec3d& p1, const Vec3d& m0, const Vec3d& m1, double t) {
   const double t2 = t * t;
-  return ScaleVec(input.start, 6.0 * t2 - 6.0 * t) +
+  return ScaleVec(p0, 6.0 * t2 - 6.0 * t) +
          ScaleVec(m0, 3.0 * t2 - 4.0 * t + 1.0) +
-         ScaleVec(input.end, -6.0 * t2 + 6.0 * t) +
+         ScaleVec(p1, -6.0 * t2 + 6.0 * t) +
          ScaleVec(m1, 3.0 * t2 - 2.0 * t);
 }
 
-Vec3d position_at(const CableCurveInput& input, const Vec3d& gravity, double t) {
-  const double sag = std::max(0.0, input.sag_m);
-  if (input.method == CurveMethod::kCubicHermiteSag) {
-    return hermite_position(input, t) + ScaleVec(gravity, sag * smooth_sag_weight(t));
-  }
-  const Vec3d chord = input.end - input.start;
-  return input.start + ScaleVec(chord, t) + ScaleVec(gravity, sag * 4.0 * t * (1.0 - t));
+double angle_between(const Vec3d& a, const Vec3d& b) {
+  return std::acos(std::clamp(Dot(a, b), -1.0, 1.0));
 }
 
-Vec3d derivative_at(const CableCurveInput& input, const Vec3d& gravity, double t) {
+Vec3d constrained_attachment_tangent(const Vec3d& hint, const Vec3d& chord_dir, double blend_length,
+                                     const CableCurveProfile& profile) {
+  Vec3d tangent = normalized_or(hint, chord_dir);
+  if (Dot(tangent, chord_dir) <= 0.0) {
+    tangent = chord_dir;
+  }
+  const double radius = std::max(0.0, profile.attachment_min_bend_radius_m);
+  const double max_angle = radius > kEpsilon ? std::min(1.5707963267948966, blend_length / radius)
+                                             : 1.5707963267948966;
+  const double angle = angle_between(tangent, chord_dir);
+  if (angle > max_angle && angle > kEpsilon) {
+    tangent = normalized_or(ScaleVec(chord_dir, 1.0 - max_angle / angle) +
+                                ScaleVec(tangent, max_angle / angle),
+                            chord_dir);
+  }
+  const Vec3d horizontal_chord = normalized_or({chord_dir.x, chord_dir.y, 0.0}, chord_dir);
+  Vec3d horizontal_tangent = normalized_or({tangent.x, tangent.y, 0.0}, horizontal_chord);
+  const Vec3d lateral = horizontal_tangent - ScaleVec(horizontal_chord, Dot(horizontal_tangent, horizontal_chord));
+  const double lateral_length = Length(lateral);
+  const double max_deviation = std::max(0.0, profile.plan_view_max_deviation_m);
+  if (lateral_length > kEpsilon && blend_length * lateral_length / 3.0 > max_deviation) {
+    const double scale = max_deviation * 3.0 / (blend_length * lateral_length);
+    horizontal_tangent =
+        normalized_or(horizontal_chord + ScaleVec(lateral, std::clamp(scale, 0.0, 1.0)), horizontal_chord);
+    tangent = normalized_or({horizontal_tangent.x, horizontal_tangent.y, tangent.z}, chord_dir);
+  }
+  return tangent;
+}
+
+struct PiecewisePolicy {
+  double start_fraction = 0.0;
+  double end_fraction = 1.0;
+  double start_blend_m = 0.0;
+  double end_blend_m = 0.0;
+  Vec3d chord_dir{1.0, 0.0, 0.0};
+  Vec3d start_tangent{1.0, 0.0, 0.0};
+  Vec3d end_tangent{1.0, 0.0, 0.0};
+  Vec3d main_start{};
+  Vec3d main_end{};
+};
+
+PiecewisePolicy resolve_piecewise_policy(const CableCurveInput& input) {
+  PiecewisePolicy policy{};
+  const Vec3d chord = input.end - input.start;
+  const double length = Length(chord);
+  policy.chord_dir = normalized_or(chord, input.canonical_dir);
+  if (length <= kEpsilon) {
+    policy.main_start = input.start;
+    policy.main_end = input.end;
+    policy.start_tangent = policy.chord_dir;
+    policy.end_tangent = policy.chord_dir;
+    return policy;
+  }
+  const double requested =
+      std::max(0.0, std::max(input.profile.attachment_blend_length_m, input.profile.plan_view_blend_length_m));
+  const Vec3d raw_start = normalized_or(input.start_tangent_hint, policy.chord_dir);
+  const Vec3d raw_end = normalized_or(input.end_tangent_hint, policy.chord_dir);
+  const double radius = std::max(0.0, input.profile.attachment_min_bend_radius_m);
+  policy.start_blend_m = std::max(requested, angle_between(raw_start, policy.chord_dir) * radius);
+  policy.end_blend_m = std::max(requested, angle_between(raw_end, policy.chord_dir) * radius);
+  const double max_blend_total = length * 0.8;
+  const double blend_total = policy.start_blend_m + policy.end_blend_m;
+  if (blend_total > max_blend_total && blend_total > kEpsilon) {
+    const double scale = max_blend_total / blend_total;
+    policy.start_blend_m *= scale;
+    policy.end_blend_m *= scale;
+  }
+  policy.start_fraction = policy.start_blend_m / length;
+  policy.end_fraction = 1.0 - policy.end_blend_m / length;
+  policy.start_tangent =
+      constrained_attachment_tangent(raw_start, policy.chord_dir, policy.start_blend_m, input.profile);
+  policy.end_tangent =
+      constrained_attachment_tangent(raw_end, policy.chord_dir, policy.end_blend_m, input.profile);
+  policy.main_start = input.start + ScaleVec(policy.chord_dir, policy.start_blend_m);
+  policy.main_end = input.end - ScaleVec(policy.chord_dir, policy.end_blend_m);
+  return policy;
+}
+
+struct EvaluatedPoint {
+  Vec3d position{};
+  Vec3d derivative{};
+  CurveRegionKind region = CurveRegionKind::kMainSpan;
+};
+
+EvaluatedPoint evaluate_piecewise(const CableCurveInput& input, const PiecewisePolicy& policy,
+                                  const Vec3d& gravity, double t) {
+  const double sag = std::max(0.0, input.sag_m);
+  if (policy.start_fraction > kEpsilon && t < policy.start_fraction) {
+    const double local = t / policy.start_fraction;
+    const Vec3d m0 = ScaleVec(policy.start_tangent, policy.start_blend_m);
+    const Vec3d m1 = ScaleVec(policy.chord_dir, policy.start_blend_m);
+    return {hermite_position(input.start, policy.main_start, m0, m1, local),
+            ScaleVec(hermite_derivative(input.start, policy.main_start, m0, m1, local),
+                     1.0 / policy.start_fraction),
+            CurveRegionKind::kStartAttachment};
+  }
+  if (policy.end_fraction < 1.0 - kEpsilon && t > policy.end_fraction) {
+    const double fraction = 1.0 - policy.end_fraction;
+    const double local = (t - policy.end_fraction) / fraction;
+    const Vec3d m0 = ScaleVec(policy.chord_dir, policy.end_blend_m);
+    const Vec3d m1 = ScaleVec(policy.end_tangent, policy.end_blend_m);
+    return {hermite_position(policy.main_end, input.end, m0, m1, local),
+            ScaleVec(hermite_derivative(policy.main_end, input.end, m0, m1, local), 1.0 / fraction),
+            CurveRegionKind::kEndAttachment};
+  }
+  const double main_fraction = std::max(kEpsilon, policy.end_fraction - policy.start_fraction);
+  const double local = std::clamp((t - policy.start_fraction) / main_fraction, 0.0, 1.0);
+  const Vec3d main_chord = policy.main_end - policy.main_start;
+  return {policy.main_start + ScaleVec(main_chord, local) +
+              ScaleVec(gravity, sag * smooth_sag_weight(local)),
+          ScaleVec(main_chord + ScaleVec(gravity, sag * smooth_sag_derivative(local)),
+                   1.0 / main_fraction),
+          CurveRegionKind::kMainSpan};
+}
+
+EvaluatedPoint evaluate_at(const CableCurveInput& input, const PiecewisePolicy& policy,
+                           const Vec3d& gravity, double t) {
   const double sag = std::max(0.0, input.sag_m);
   if (input.method == CurveMethod::kCubicHermiteSag) {
-    return hermite_derivative(input, t) + ScaleVec(gravity, sag * smooth_sag_derivative(t));
+    return evaluate_piecewise(input, policy, gravity, t);
   }
-  return (input.end - input.start) + ScaleVec(gravity, sag * 4.0 * (1.0 - 2.0 * t));
+  const Vec3d chord = input.end - input.start;
+  return {input.start + ScaleVec(chord, t) + ScaleVec(gravity, sag * 4.0 * t * (1.0 - t)),
+          chord + ScaleVec(gravity, sag * 4.0 * (1.0 - 2.0 * t)),
+          CurveRegionKind::kMainSpan};
 }
 
 void expand_bounds(const Vec3d& point, double radius, AABBd* bounds) {
@@ -151,9 +273,21 @@ EditResult<CableCurveOutput> BuildCableCurve(const CableCurveInput& input) {
     result.error = "cable curve family is unsupported";
     return result;
   }
+  if (input.profile.attachment_method != AttachmentCurveMethod::kCubicHermite) {
+    result.error = "attachment curve method is unsupported";
+    return result;
+  }
   if (!finite(input.start) || !finite(input.end) || !finite(input.gravity_dir) ||
       !finite(input.canonical_dir) || !std::isfinite(input.sag_m) || input.sag_m < 0.0 ||
-      !std::isfinite(input.radius_m) || input.radius_m < 0.0) {
+      !std::isfinite(input.radius_m) || input.radius_m < 0.0 ||
+      !std::isfinite(input.profile.attachment_blend_length_m) ||
+      input.profile.attachment_blend_length_m < 0.0 ||
+      !std::isfinite(input.profile.attachment_min_bend_radius_m) ||
+      input.profile.attachment_min_bend_radius_m < 0.0 ||
+      !std::isfinite(input.profile.plan_view_blend_length_m) ||
+      input.profile.plan_view_blend_length_m < 0.0 ||
+      !std::isfinite(input.profile.plan_view_max_deviation_m) ||
+      input.profile.plan_view_max_deviation_m < 0.0) {
     result.error = "cable curve input is invalid";
     return result;
   }
@@ -165,16 +299,32 @@ EditResult<CableCurveOutput> BuildCableCurve(const CableCurveInput& input) {
   const Vec3d canonical = normalized_or(input.canonical_dir, chord_dir);
   const Vec3d preferred_lateral = canonical_lateral(canonical, up);
   const std::size_t segments = ResolveSegmentCount(input);
+  const PiecewisePolicy piecewise = resolve_piecewise_policy(input);
+  std::vector<double> parameters{};
+  parameters.reserve(segments + 3);
+  for (std::size_t index = 0; index <= segments; ++index) {
+    parameters.push_back(static_cast<double>(index) / static_cast<double>(segments));
+  }
+  if (input.method == CurveMethod::kCubicHermiteSag) {
+    parameters.push_back(piecewise.start_fraction);
+    parameters.push_back(piecewise.end_fraction);
+  }
+  std::sort(parameters.begin(), parameters.end());
+  parameters.erase(std::unique(parameters.begin(), parameters.end(), [](double a, double b) {
+                     return std::abs(a - b) <= kEpsilon;
+                   }),
+                   parameters.end());
 
   CableCurveOutput& output = result.value;
-  output.samples.reserve(segments + 1);
-  for (std::size_t index = 0; index <= segments; ++index) {
-    const double t = static_cast<double>(index) / static_cast<double>(segments);
+  output.samples.reserve(parameters.size());
+  for (double t : parameters) {
     CableCurveSample sample{};
-    sample.position = position_at(input, gravity, t);
-    const Vec3d derivative = derivative_at(input, gravity, t);
-    sample.speed_m_per_u = Length(derivative);
-    sample.tangent = normalized_or(derivative, input.end - input.start);
+    sample.parameter = t;
+    const EvaluatedPoint evaluated = evaluate_at(input, piecewise, gravity, t);
+    sample.position = evaluated.position;
+    sample.speed_m_per_u = Length(evaluated.derivative);
+    sample.tangent = normalized_or(evaluated.derivative, input.end - input.start);
+    sample.region = evaluated.region;
     if (output.samples.empty()) {
       sample.normal = projected_normal(up, sample.tangent);
     } else {
@@ -203,6 +353,101 @@ EditResult<CableCurveOutput> BuildCableCurve(const CableCurveInput& input) {
     }
     expand_bounds(sample.position, input.radius_m, &output.bounds);
   }
+  auto append_region = [&](CurveRegionKind kind) {
+    const auto first = std::find_if(output.samples.begin(), output.samples.end(),
+                                    [&](const CableCurveSample& sample) { return sample.region == kind; });
+    if (first == output.samples.end()) {
+      return;
+    }
+    const auto last = std::find_if(output.samples.rbegin(), output.samples.rend(),
+                                   [&](const CableCurveSample& sample) { return sample.region == kind; });
+    const std::size_t first_index = static_cast<std::size_t>(std::distance(output.samples.begin(), first));
+    const std::size_t last_index =
+        output.samples.size() - 1 - static_cast<std::size_t>(std::distance(output.samples.rbegin(), last));
+    output.attachment_regions.push_back(
+        {kind, first_index, last_index, first->arc_length_m, output.samples[last_index].arc_length_m});
+  };
+  append_region(CurveRegionKind::kStartAttachment);
+  append_region(CurveRegionKind::kEndAttachment);
+  output.sections.push_back({0, output.samples.size() - 1, 0.0, output.length_m});
+  result.ok = true;
+  return result;
+}
+
+EditResult<CableRunShape> BuildCableRun(const std::vector<CableCurveInput>& sections) {
+  EditResult<CableRunShape> result{};
+  if (sections.empty()) {
+    result.error = "cable run has no sections";
+    return result;
+  }
+  for (const CableCurveInput& input : sections) {
+    const EditResult<CableCurveOutput> built = BuildCableCurve(input);
+    if (!built.ok) {
+      result.error = built.error;
+      return result;
+    }
+    if (result.value.sections.empty()) {
+      result.value.bounds = built.value.bounds;
+    } else {
+      expand_bounds(built.value.bounds.min, 0.0, &result.value.bounds);
+      expand_bounds(built.value.bounds.max, 0.0, &result.value.bounds);
+    }
+    std::size_t source_begin = 0;
+    if (!result.value.samples.empty()) {
+      if (Length(result.value.samples.back().position - built.value.samples.front().position) > kEpsilon) {
+        result.error = "cable run sections are disconnected";
+        return result;
+      }
+      if (Dot(result.value.samples.back().tangent, built.value.samples.front().tangent) < 1.0 - 1e-6) {
+        result.error = "cable run sections are not G1 continuous";
+        return result;
+      }
+      source_begin = 1;
+    }
+    const std::size_t first_sample = result.value.samples.empty() ? 0 : result.value.samples.size() - 1;
+    const double arc_offset = result.value.samples.empty() ? 0.0 : result.value.samples.back().arc_length_m;
+    for (std::size_t index = source_begin; index < built.value.samples.size(); ++index) {
+      CableCurveSample sample = built.value.samples[index];
+      sample.arc_length_m += arc_offset;
+      result.value.samples.push_back(sample);
+    }
+    const std::size_t last_sample = result.value.samples.size() - 1;
+    result.value.sections.push_back(
+        {first_sample, last_sample, arc_offset, result.value.samples.back().arc_length_m});
+    for (const AttachmentRegion& source : built.value.attachment_regions) {
+      if (source.last_sample < source_begin) {
+        continue;
+      }
+      const std::size_t index_offset = first_sample;
+      const std::size_t adjusted_first =
+          source.first_sample < source_begin ? first_sample : index_offset + source.first_sample - source_begin;
+      const std::size_t adjusted_last = index_offset + source.last_sample - source_begin;
+      result.value.attachment_regions.push_back(
+          {source.kind, adjusted_first, adjusted_last, source.start_arc_length_m + arc_offset,
+           source.end_arc_length_m + arc_offset});
+    }
+  }
+  rebuild_frames(&result.value.samples, sections.front().canonical_dir, sections.front().gravity_dir);
+  result.value.length_m = result.value.samples.back().arc_length_m;
+  result.ok = true;
+  return result;
+}
+
+EditResult<CableMemberShape> ExpandCableMember(const CableRunShape& run, const CableMemberProfile& profile) {
+  EditResult<CableMemberShape> result{};
+  if (!std::isfinite(profile.frame_offset_normal_m) ||
+      !std::isfinite(profile.frame_offset_binormal_m) || run.samples.empty()) {
+    result.error = "cable member profile or run is invalid";
+    return result;
+  }
+  result.value.positions.reserve(run.samples.size());
+  result.value.arc_length_m.reserve(run.samples.size());
+  for (const CableCurveSample& sample : run.samples) {
+    result.value.positions.push_back(
+        sample.position + ScaleVec(sample.normal, profile.frame_offset_normal_m) +
+        ScaleVec(sample.binormal, profile.frame_offset_binormal_m));
+    result.value.arc_length_m.push_back(sample.arc_length_m);
+  }
   result.ok = true;
   return result;
 }
@@ -216,11 +461,11 @@ DetailCurve ToDetailCurve(const CableCurveInput& input, const CableCurveOutput& 
   detail.start_constraint.tangent_dir = output.samples.front().tangent;
   detail.end_constraint.point = input.end;
   detail.end_constraint.tangent_dir = output.samples.back().tangent;
-  const double u_step = 1.0 / static_cast<double>(output.samples.size() - 1);
   detail.segments.reserve(output.samples.size() - 1);
   for (std::size_t index = 0; index + 1 < output.samples.size(); ++index) {
     const CableCurveSample& a = output.samples[index];
     const CableCurveSample& b = output.samples[index + 1];
+    const double u_step = std::max(kEpsilon, b.parameter - a.parameter);
     DetailCurveSegment segment{};
     segment.control_points = {
         a.position,
@@ -228,8 +473,8 @@ DetailCurve ToDetailCurve(const CableCurveInput& input, const CableCurveOutput& 
         b.position - ScaleVec(b.tangent, b.speed_m_per_u * u_step / 3.0),
         b.position,
     };
-    segment.u_start = static_cast<double>(index) * u_step;
-    segment.u_end = static_cast<double>(index + 1) * u_step;
+    segment.u_start = a.parameter;
+    segment.u_end = b.parameter;
     detail.segments.push_back(segment);
   }
   detail.control_points = detail.segments.front().control_points;
@@ -242,7 +487,7 @@ DetailCurve ToDetailCurve(const CableCurveInput& input, const CableCurveOutput& 
   detail.distance_attributes.segment_length_m.reserve(output.samples.size() - 1);
   for (std::size_t index = 0; index < output.samples.size(); ++index) {
     const CableCurveSample& sample = output.samples[index];
-    const double u = static_cast<double>(index) / static_cast<double>(output.samples.size() - 1);
+    const double u = sample.parameter;
     detail.sample_points.push_back(sample.position);
     detail.arc_length_table.push_back({u, sample.arc_length_m});
     detail.distance_attributes.arc_length_m.push_back(static_cast<float>(sample.arc_length_m));

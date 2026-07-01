@@ -111,8 +111,13 @@ main spanは同一bundle/lane/routeの隣接spanをcontinuous runとして扱い
 attachment位置から解決する。既定方式はcubic Hermite baseへ端点で値と微分が0になるsmooth sagを加える。
 continuous run内はG1相当を要求するが、G2の曲率連続までは要求しない。
 support groupによるlowering、insulator、clamp、jumper、leadなど物理的に別部品となる境界だけG0を許可する。
-中心線へ横揺れnoiseを入れない。
-bundle lane、band、helix、noiseは安定したcenterlineとcanonical direction基準frameからvisual layerで展開する。
+curveはstart attachment blend / main span / end attachment blendへ分ける。main spanは重力・張力由来の
+ゆったりしたsagだけを持ち、接続部の向き合わせは短いblend領域へ限定して最小曲げ半径とplan-view deviationで
+制限する。上面視のmain spanは基本直線とし、中心線へ横揺れnoiseを入れない。
+
+`CableRunShape`はsample、arc length、stable frame、attachment regionを一度だけ生成する。
+messenger、conductor、sheathなど複数memberは同じrun shapeからframe offsetで展開し、独立curveを再計算しない。
+bundle lane、band、helix、noiseも安定したcenterlineとcanonical direction基準frameからvisual layerで展開する。
 support/insulator leadとjumperはmain spanとは別のcurve familyとして扱い、
 未対応familyは別方式へsilent fallbackせず明示的に拒否する。
 

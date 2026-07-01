@@ -1099,6 +1099,137 @@ bool test_backbone_fixture_boundary_does_not_join_context_run_tangent() {
   return true;
 }
 
+double sample_curvature(const wire::core::geometry::curve::CableCurveSample& a,
+                        const wire::core::geometry::curve::CableCurveSample& b) {
+  const double ds = b.arc_length_m - a.arc_length_m;
+  if (ds <= 1e-9) {
+    return 0.0;
+  }
+  return std::acos(std::clamp(wire::core::Dot(a.tangent, b.tangent), -1.0, 1.0)) / ds;
+}
+
+bool test_cable_curve_piecewise_curvature_is_localized() {
+  namespace cable_curve = wire::core::geometry::curve;
+  cable_curve::CableCurveInput input{};
+  input.start = {0.0, 0.0, 9.0};
+  input.end = {24.0, 0.0, 9.0};
+  input.start_tangent_hint = {0.65, 0.76, 0.0};
+  input.end_tangent_hint = {1.0, 0.0, 0.0};
+  input.canonical_dir = {1.0, 0.0, 0.0};
+  input.sag_m = 0.8;
+  input.method = cable_curve::CurveMethod::kCubicHermiteSag;
+  input.profile.attachment_blend_length_m = 1.4;
+  input.profile.attachment_min_bend_radius_m = 0.30;
+  input.profile.plan_view_blend_length_m = 1.0;
+  input.profile.plan_view_max_deviation_m = 0.25;
+  const auto built = cable_curve::BuildCableCurve(input);
+  if (!built.ok || built.value.attachment_regions.empty()) {
+    return false;
+  }
+  double max_attachment_curvature = 0.0;
+  double max_main_curvature = 0.0;
+  double max_plan_deviation = 0.0;
+  for (std::size_t index = 1; index < built.value.samples.size(); ++index) {
+    const auto& a = built.value.samples[index - 1];
+    const auto& b = built.value.samples[index];
+    const double curvature = sample_curvature(a, b);
+    if (a.region == cable_curve::CurveRegionKind::kMainSpan &&
+        b.region == cable_curve::CurveRegionKind::kMainSpan) {
+      max_main_curvature = std::max(max_main_curvature, curvature);
+    } else {
+      max_attachment_curvature = std::max(max_attachment_curvature, curvature);
+    }
+    max_plan_deviation = std::max(max_plan_deviation, std::abs(b.position.y));
+    if (b.region == cable_curve::CurveRegionKind::kMainSpan && std::abs(b.position.y) > 1e-9) {
+      return false;
+    }
+  }
+  const cable_curve::AttachmentRegion& start_region = built.value.attachment_regions.front();
+  return max_attachment_curvature > max_main_curvature * 2.0 &&
+         start_region.end_arc_length_m <= input.profile.attachment_blend_length_m * 2.0 &&
+         max_plan_deviation <= input.profile.plan_view_max_deviation_m + 1e-9;
+}
+
+bool test_cable_curve_short_span_stays_finite_and_monotonic() {
+  namespace cable_curve = wire::core::geometry::curve;
+  cable_curve::CableCurveInput input{};
+  input.start = {0.0, 0.0, 3.0};
+  input.end = {0.45, 0.0, 3.0};
+  input.start_tangent_hint = {0.2, 1.0, 0.0};
+  input.end_tangent_hint = {0.2, -1.0, 0.0};
+  input.canonical_dir = {1.0, 0.0, 0.0};
+  input.sag_m = 0.08;
+  input.method = cable_curve::CurveMethod::kCubicHermiteSag;
+  input.profile.attachment_blend_length_m = 1.0;
+  input.profile.plan_view_blend_length_m = 1.0;
+  const auto built = cable_curve::BuildCableCurve(input);
+  if (!built.ok || built.value.samples.size() < 2) {
+    return false;
+  }
+  double previous_projection = -1.0;
+  double previous_arc = -1.0;
+  for (const auto& sample : built.value.samples) {
+    const bool finite = std::isfinite(sample.position.x) && std::isfinite(sample.position.y) &&
+                        std::isfinite(sample.position.z) && std::isfinite(sample.arc_length_m);
+    const double projection = sample.position.x - input.start.x;
+    if (!finite || projection + 1e-9 < previous_projection ||
+        sample.arc_length_m + 1e-9 < previous_arc) {
+      return false;
+    }
+    previous_projection = projection;
+    previous_arc = sample.arc_length_m;
+  }
+  return almost_equal(built.value.samples.front().position, input.start) &&
+         almost_equal(built.value.samples.back().position, input.end);
+}
+
+bool test_cable_members_share_run_parameterization() {
+  namespace cable_curve = wire::core::geometry::curve;
+  cable_curve::CableCurveInput input{};
+  input.start = {0.0, 0.0, 7.0};
+  input.end = {15.0, 0.0, 7.0};
+  input.start_tangent_hint = {1.0, 0.25, 0.0};
+  input.end_tangent_hint = {1.0, 0.0, 0.0};
+  input.canonical_dir = {1.0, 0.0, 0.0};
+  input.sag_m = 0.5;
+  input.method = cable_curve::CurveMethod::kCubicHermiteSag;
+  cable_curve::CableCurveInput second = input;
+  second.start = input.end;
+  second.end = {28.0, 0.0, 7.0};
+  second.start_tangent_hint = input.end_tangent_hint;
+  const auto run = cable_curve::BuildCableRun({input, second});
+  cable_curve::CableCurveInput disconnected = second;
+  disconnected.start.y += 1.0;
+  const auto rejected = cable_curve::BuildCableRun({input, disconnected});
+  if (!run.ok || run.value.sections.size() != 2 ||
+      run.value.sections[0].last_sample != run.value.sections[1].first_sample || rejected.ok) {
+    return false;
+  }
+  std::vector<wire::core::Vec3d> base_positions{};
+  for (const auto& sample : run.value.samples) {
+    base_positions.push_back(sample.position);
+  }
+  cable_curve::CableMemberProfile messenger{};
+  messenger.frame_offset_normal_m = 0.12;
+  cable_curve::CableMemberProfile conductor{};
+  conductor.frame_offset_binormal_m = -0.08;
+  const auto a = cable_curve::ExpandCableMember(run.value, messenger);
+  const auto b = cable_curve::ExpandCableMember(run.value, conductor);
+  if (!a.ok || !b.ok || a.value.positions.size() != run.value.samples.size() ||
+      b.value.positions.size() != run.value.samples.size() ||
+      a.value.arc_length_m != b.value.arc_length_m) {
+    return false;
+  }
+  for (std::size_t index = 0; index < run.value.samples.size(); ++index) {
+    if (!almost_equal(run.value.samples[index].position, base_positions[index]) ||
+        !almost_equal(a.value.arc_length_m[index], run.value.samples[index].arc_length_m) ||
+        almost_equal(a.value.positions[index], b.value.positions[index])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool test_hierarchical_variation_worldspace_is_continuous() {
   wire::core::VariationSettings settings{};
   settings.enabled = true;
@@ -1216,6 +1347,15 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C636_Backbone_FixtureBoundaryStaysG0",
                          "Lowered fixture boundaries do not borrow context-run tangents", "Invariant", false,
                          test_backbone_fixture_boundary_does_not_join_context_run_tangent);
+  test_registry::AddTest(tests, "C637_CableCurve_PiecewiseCurvatureLocalized",
+                         "Attachment curvature is local and stronger than main-span curvature", "Invariant", false,
+                         test_cable_curve_piecewise_curvature_is_localized);
+  test_registry::AddTest(tests, "C638_CableCurve_ShortSpanFiniteMonotonic",
+                         "Short piecewise spans stay finite and do not loop", "Invariant", false,
+                         test_cable_curve_short_span_stays_finite_and_monotonic);
+  test_registry::AddTest(tests, "C639_CableMember_SharedRunParameterization",
+                         "Cable members share run samples and arc-length basis without mutating the run", "Invariant",
+                         false, test_cable_members_share_run_parameterization);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_geometry_tests);

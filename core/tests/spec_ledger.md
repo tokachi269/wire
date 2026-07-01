@@ -353,6 +353,9 @@
 | C634 | Invariant | geometry | Hermite sagはendpoint tangentを壊さない | distinct start/end tangent + sag | BuildCableCurve | endpoint位置と接線が入力に一致 | CableCurveOutput / DetailCurve adapter | span内sagを加えてrun接続点のG1を壊す回帰防止 |
 | C635 | Invariant | backbone | continuous run内はG1相当で接続する | 同一bundle/laneの3点route | GenerateFromBackboneSpec | 前span終端と次span始端の保存接線・curve接線が一致 | EndpointLayoutRule / SpanLayoutEntry / DetailCurve | span単位の独立sagへ戻り内部nodeで折れる回帰防止 |
 | C636 | Invariant | backbone | fixture boundaryはcontext runへG1接続しない | HV routeへlowered branch追加 | GenerateFromBackboneSpec | lowered endpointはbranch自身のchord接線を持つ | support group / EndpointLayoutRule | insulator/clamp相当の物理境界をcontinuous runとして誤結合する回帰防止 |
+| C637 | Invariant | geometry | attachment/main/plan-viewの曲率役割を分離する | angled endpoint + long sagging span | BuildCableCurve | attachment曲率はmainより高く局所化、main横揺れなし、plan deviation上限内 | CableRunShape / AttachmentRegion | span全体を1本のover-smooth curveで丸める回帰防止 |
+| C638 | Invariant | geometry | short piecewise spanはloopしない | blend長より短いspan + opposing lateral hints | BuildCableCurve | finite、arc/projection単調、endpoint exact | CableRunShape | blend領域が重なってloop/NaNを作る回帰防止 |
+| C639 | Invariant | geometry | 複数cable memberはrun parameterizationを共有する | messenger/conductor offset profiles | ExpandCableMember | sample count/arc length共通、member offsetでbase run不変 | CableRunShape / CableMemberShape | memberごとに独立curveを再計算してdriftする回帰防止 |
 
 ## Retired old-pipeline checks
 - Old cases 365-367 were removed from the registered suite. They pinned the transitional `BackboneBuilder` / support-layout authority seed / materialization surface instead of the backbone mainline.

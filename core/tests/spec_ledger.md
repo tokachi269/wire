@@ -364,6 +364,9 @@
 | C645 | Boundary | backbone | NodePatch内側filletは局所曲率を維持する | 3点 route + sag | GenerateFromBackboneSpec | Boundary: 1区間cubicの両controlはboundary chordから離れる | visual_curve_parts controls | filletがstraight chordへ退化する回帰防止 |
 | C646 | Boundary | backbone | NodePatchはturn内側で単調に曲がる | 3点 route + sag | GenerateFromBackboneSpec | Boundary: sampleはboundary-attachment三角形内に留まり、接線回転符号が反転しない | visual_curve_parts samples | 左折前に右へ外振りする回帰防止 |
 | C647 | Boundary | backbone | NodePatchはincident cableのappearanceを使う | 3点 route | GenerateFromBackboneSpec | Boundary: node-owned patchは架空のspan ownershipを持たず、接続するEdgeBodyと半径・色・material styleが一致する | visual_curve_parts appearance | source_span_idを持たないpatchだけviewer既定の太さ・色へ落ちる回帰防止 |
+| C655 | Boundary | backbone | NodePatch grouping は band identity を含む | source scan | wire_core_tests backbone | Boundary: node/template/lane/memberだけでなくpole typeとband idをcontinuity keyに含める | curve_patch_key / same_key | 上下bandや別placement slotを同じ接続部としてpatch化する回帰防止 |
+| C656 | Boundary | backbone | NodePatch は base member と extra member を混ぜない | experimental span member enabled + 3点 route | GenerateFromBackboneSpec | Boundary: 1つのNodePatchが接続するEdgeBodyはbase/extra familyを跨がない | VisualCurvePart.span_member_key | base線とpopulation線がjunctionで接続される回帰防止 |
+| C657 | Boundary | backbone | NodePatch は continuity 未証明の extra member を接続しない | 2 extra members + 3点 route | GenerateFromBackboneSpec | Boundary: span-local random extra member は共有nodeでendpoint位置が一致しない限りNodePatchを作らない | SpanMemberKey.instance_index / endpoint_world | extra instance 0 と 1、または高さ違いextraがjunctionでつながる回帰防止 |
 | C648 | Invariant | backbone experimental | 同じexplicit seedは同じspan member populationを返す | pure population input | populate_span_members | Invariant: requested count、member key、両endpoint位置が一致し、横位置は固定で高さだけ変わる | SpanMemberPopulationOutput | redrawで追加線が並べ替わる回帰防止 |
 | C649 | Invariant | backbone experimental | logical span identityは配置seedに入る | span idだけ異なるpure input | populate_span_members | Invariant: member endpoint位置が変わる | SpanMemberLayout | unrelated spanが同じ乱数列を共有する回帰防止 |
 | C650 | Invariant | backbone experimental | reserveはcandidate pairを拒否する | band全体を覆うreserve | populate_span_members | Invariant: accepted=0、requested分をomit | population diagnostic | reserved領域へ線を置く回帰防止 |
@@ -371,6 +374,7 @@
 | C652 | Boundary | backbone experimental | 片endpoint失敗はmember全体をomitする | endpoint B unavailable | populate_span_members | Boundary: 片側だけ生成せず全requested memberをomit | population diagnostic | endpointを独立solveして線がねじれる回帰防止 |
 | C653 | Boundary | backbone experimental | band identity重複を拒否する | 同じPoleType内にduplicate band_id | has_duplicate_band_ids | Boundary: duplicateを検出する | PortPlacementBand | vector順で曖昧bandを選ぶ回帰防止 |
 | C654 | Boundary | backbone experimental | span member populationはlogical topologyを変更しない | control/experimental fresh state | GenerateFromBackboneSpec | Boundary: Pole/Port/Bundle/Span/SavedGraph counts一致、base/extraが同じEdgeBody visual経路を使う | CoreView / VisualCurvePartCache | 見た目用追加線がtopologyまたは別curve familyになる回帰防止 |
+| C658 | Boundary | geometry | CableCurve は endpoint tangent hints を実サンプルに使う | explicit tangent hints + sag | BuildCableCurve | Boundary: start/end sample tangent が指定hintと一致し、hint無しの既存parabolic pathとは分かれる | CableCurveInput / CableCurveOutput | NodePatch境界tangentをEdgeBodyがmetadataだけ持ち、描画samplesでは無視する回帰防止 |
 
 ## Retired old-pipeline checks
 - Old cases 365-367 were removed from the registered suite. They pinned the transitional `BackboneBuilder` / support-layout authority seed / materialization surface instead of the backbone mainline.

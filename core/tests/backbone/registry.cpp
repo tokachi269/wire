@@ -798,6 +798,15 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C647_backbone_node_patch_uses_incident_cable_appearance",
                          "backbone node patch uses the same cable appearance as incident edge bodies", "Boundary",
                          false, C647_backbone_node_patch_uses_incident_cable_appearance);
+  test_registry::AddTest(tests, "C655_backbone_node_patch_grouping_uses_band_identity",
+                         "backbone node patch grouping includes local band identity", "Boundary", false,
+                         C655_backbone_node_patch_grouping_uses_band_identity);
+  test_registry::AddTest(tests, "C656_backbone_node_patch_does_not_mix_base_and_extra_members",
+                         "backbone node patch does not connect base and populated span members", "Boundary", false,
+                         C656_backbone_node_patch_does_not_mix_base_and_extra_members);
+  test_registry::AddTest(tests, "C657_backbone_node_patch_does_not_mix_extra_instance_indices",
+                         "backbone node patch does not connect different populated member instances", "Boundary",
+                         false, C657_backbone_node_patch_does_not_mix_extra_instance_indices);
   test_registry::AddTest(tests, "C648_experimental_population_same_seed_is_stable",
                          "experimental physical line population is stable for the same explicit seed", "Invariant",
                          false, C648_experimental_population_same_seed_is_stable);

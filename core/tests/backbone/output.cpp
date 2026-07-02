@@ -536,6 +536,38 @@ bool sampled_xy_turn_is_monotonic(const wire::core::VisualCurvePart& patch) {
   return true;
 }
 
+bool touches_patch_boundary(const wire::core::VisualCurvePart& body, const wire::core::VisualCurvePart& patch) {
+  return almost_equal(body.boundary_a, patch.boundary_a, 1e-9) ||
+         almost_equal(body.boundary_b, patch.boundary_a, 1e-9) ||
+         almost_equal(body.boundary_a, patch.boundary_b, 1e-9) ||
+         almost_equal(body.boundary_b, patch.boundary_b, 1e-9);
+}
+
+bool same_visual_member_family(const wire::core::SpanMemberKey& a, const wire::core::SpanMemberKey& b) {
+  return a.is_base() == b.is_base() && a.rule_owner_id == b.rule_owner_id &&
+         a.rule_id == b.rule_id && a.instance_index == b.instance_index;
+}
+
+wire::core::ExperimentalSpanMemberPopulationConfig two_extra_lv_population_config() {
+  wire::core::ExperimentalSpanMemberPopulationConfig config{};
+  config.enabled = true;
+  config.explicit_seed = 1234;
+  wire::core::ExperimentalSpanMemberRule rule{};
+  rule.rule_id = 11;
+  rule.bundle_template_id = wire::core::BundleKind::kLowVoltage;
+  rule.priority = 10;
+  rule.min_extra_count = 2;
+  rule.max_extra_count = 2;
+  rule.min_spacing_m = 0.01;
+  rule.lateral_min_m = -2.0;
+  rule.lateral_max_m = 2.0;
+  rule.height_min_m = 0.0;
+  rule.height_max_m = 20.0;
+  rule.randomness = 0.6;
+  config.rules.push_back(rule);
+  return config;
+}
+
 } // namespace
 
 bool C634_backbone_terminal_nodes_create_no_node_patch_curve() {
@@ -922,6 +954,99 @@ bool C647_backbone_node_patch_uses_incident_cable_appearance() {
     return matching_bodies == 2;
   }
   return false;
+}
+
+bool C655_backbone_node_patch_grouping_uses_band_identity() {
+  const std::filesystem::path source = repo_root() / "core" / "src" / "generation" / "backbone" / "curve_parts.cpp";
+  std::string cpp;
+  if (!file_text(source, &cpp)) {
+    return false;
+  }
+  std::string key_body;
+  if (!function_body(cpp, "bool same_key(const curve_patch_key& a, const curve_patch_key& b)", &key_body)) {
+    return false;
+  }
+  return contains_text(cpp, "int band_id = 0") && contains_text(cpp, "PoleTypeId pole_type_id") &&
+         contains_text(key_body, "a.band_id == b.band_id") &&
+         contains_text(key_body, "a.pole_type_id == b.pole_type_id");
+}
+
+bool C656_backbone_node_patch_does_not_mix_base_and_extra_members() {
+  wire::core::CoreState state;
+  if (!state.UpdateExperimentalSpanMemberPopulationConfig(two_extra_lv_population_config()).ok) {
+    return false;
+  }
+  const auto generated = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!generated.ok) {
+    return false;
+  }
+  bool saw_patch = false;
+  for (const wire::core::VisualCurvePart& patch : state.view().visual_curve_parts().parts) {
+    if (patch.kind != wire::core::VisualCurvePartKind::kNodePatch) {
+      continue;
+    }
+    saw_patch = true;
+    bool have_reference = false;
+    wire::core::SpanMemberKey reference{};
+    for (const wire::core::VisualCurvePart& body : state.view().visual_curve_parts().parts) {
+      if (body.kind != wire::core::VisualCurvePartKind::kEdgeBody || !body.has_span_member_key ||
+          !touches_patch_boundary(body, patch)) {
+        continue;
+      }
+      if (!have_reference) {
+        reference = body.span_member_key;
+        have_reference = true;
+      } else if (!same_visual_member_family(reference, body.span_member_key)) {
+        return false;
+      }
+    }
+  }
+  return saw_patch;
+}
+
+bool C657_backbone_node_patch_does_not_mix_extra_instance_indices() {
+  wire::core::CoreState state;
+  if (!state.UpdateExperimentalSpanMemberPopulationConfig(two_extra_lv_population_config()).ok) {
+    return false;
+  }
+  const auto generated = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!generated.ok) {
+    return false;
+  }
+  bool saw_extra_body = false;
+  for (const wire::core::VisualCurvePart& body : state.view().visual_curve_parts().parts) {
+    saw_extra_body = saw_extra_body || (body.kind == wire::core::VisualCurvePartKind::kEdgeBody &&
+                                        body.has_span_member_key && !body.span_member_key.is_base());
+  }
+  if (!saw_extra_body) {
+    return false;
+  }
+  for (const wire::core::VisualCurvePart& patch : state.view().visual_curve_parts().parts) {
+    if (patch.kind != wire::core::VisualCurvePartKind::kNodePatch) {
+      continue;
+    }
+    std::size_t extra_instance_index = 0;
+    bool saw_extra = false;
+    for (const wire::core::VisualCurvePart& body : state.view().visual_curve_parts().parts) {
+      if (body.kind != wire::core::VisualCurvePartKind::kEdgeBody || !body.has_span_member_key ||
+          body.span_member_key.is_base() || !touches_patch_boundary(body, patch)) {
+        continue;
+      }
+      if (!saw_extra) {
+        extra_instance_index = body.span_member_key.instance_index;
+        saw_extra = true;
+      } else if (extra_instance_index != body.span_member_key.instance_index) {
+        return false;
+      }
+    }
+    // The current experimental population is span-local. If an extra member endpoint does not
+    // resolve to the exact same support position across adjacent spans, continuity is unproven,
+    // so no node patch should connect that extra member.
+    if (saw_extra) {
+      return false;
+    }
+  }
+  return true;
 }
 
 } // namespace backbone_tests

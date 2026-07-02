@@ -26,6 +26,8 @@ struct curve_endpoint_ref {
   ObjectId bundle_id = kInvalidObjectId;
   BundleKind bundle_template_id = BundleKind::kLowVoltage;
   std::size_t lane_index = 0;
+  PoleTypeId pole_type_id = kInvalidPoleTypeId;
+  int band_id = 0;
   Vec3d point{};
   Vec3d away_from_node{};
   double span_length_m = 0.0;
@@ -37,6 +39,8 @@ struct curve_patch_key {
   ObjectId node_id = kInvalidObjectId;
   BundleKind bundle_template_id = BundleKind::kLowVoltage;
   std::size_t lane_index = 0;
+  PoleTypeId pole_type_id = kInvalidPoleTypeId;
+  int band_id = 0;
   std::uint64_t rule_owner_id = 0;
   SpanMemberRuleId rule_id = 0;
   std::size_t instance_index = 0;
@@ -72,7 +76,8 @@ bool same_member(const SpanMemberKey& a, const SpanMemberKey& b) {
 
 bool same_key(const curve_patch_key& a, const curve_patch_key& b) {
   return a.node_id == b.node_id && a.bundle_template_id == b.bundle_template_id &&
-         a.lane_index == b.lane_index && a.rule_owner_id == b.rule_owner_id &&
+         a.lane_index == b.lane_index && a.pole_type_id == b.pole_type_id &&
+         a.band_id == b.band_id && a.rule_owner_id == b.rule_owner_id &&
          a.rule_id == b.rule_id && a.instance_index == b.instance_index;
 }
 
@@ -161,6 +166,42 @@ ObjectId saved_node_id_for_endpoint(const CoreState& state, ObjectId endpoint_no
     return node->node_id;
   }
   return endpoint_node_id;
+}
+
+PoleTypeId pole_type_for_port(const CoreState& state, ObjectId port_id) {
+  const Port* port = state.view().ports().find(port_id);
+  if (port == nullptr || port->owner_pole_id == kInvalidObjectId) {
+    return kInvalidPoleTypeId;
+  }
+  const Pole* pole = state.view().poles().find(port->owner_pole_id);
+  return pole == nullptr ? kInvalidPoleTypeId : pole->pole_type_id;
+}
+
+int band_id_for_port(const CoreState& state, ObjectId port_id) {
+  const Port* port = state.view().ports().find(port_id);
+  if (port == nullptr || port->owner_pole_id == kInvalidObjectId) {
+    return 0;
+  }
+  const Pole* pole = state.view().poles().find(port->owner_pole_id);
+  if (pole == nullptr || pole->pole_type_id == kInvalidPoleTypeId) {
+    return 0;
+  }
+  const auto type_it = state.view().pole_types().find(pole->pole_type_id);
+  if (type_it == state.view().pole_types().end()) {
+    return 0;
+  }
+  const PortPlacementBand* best = nullptr;
+  for (const PortPlacementBand& band : type_it->second.port_bands) {
+    if (!band.enabled || band.category != port->category || band.layer != port->template_layer ||
+        band.side != port->template_side || band.role != port->template_role) {
+      continue;
+    }
+    if (best == nullptr || band.priority > best->priority ||
+        (band.priority == best->priority && band.band_id < best->band_id)) {
+      best = &band;
+    }
+  }
+  return best == nullptr ? 0 : best->band_id;
 }
 
 void add_unique_incident(ObjectId edge_id, std::vector<ObjectId>* ids) {
@@ -283,6 +324,10 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     member.layout.key.edge_bundle_id = binding->edge_bundle_id;
     member.layout.endpoint_a = entry.start.endpoint_world;
     member.layout.endpoint_b = entry.end.endpoint_world;
+    member.layout.endpoint_a_pole_type_id = pole_type_for_port(state, entry.start.port_id);
+    member.layout.endpoint_b_pole_type_id = pole_type_for_port(state, entry.end.port_id);
+    member.layout.endpoint_a_band_id = band_id_for_port(state, entry.start.port_id);
+    member.layout.endpoint_b_band_id = band_id_for_port(state, entry.end.port_id);
     member.start_node_id = entry.start.endpoint_node_id;
     member.end_node_id = entry.end.endpoint_node_id;
     members.push_back(member);
@@ -333,6 +378,8 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     start.bundle_id = span->bundle_id;
     start.bundle_template_id = template_id;
     start.lane_index = binding->lane_index;
+    start.pole_type_id = entry.endpoint_a_pole_type_id;
+    start.band_id = entry.endpoint_a_band_id;
     start.point = entry.endpoint_a;
     start.away_from_node = start_away;
     start.span_length_m = span_length;
@@ -342,6 +389,8 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
 
     curve_endpoint_ref end = start;
     end.node_id = saved_node_id_for_endpoint(state, member.end_node_id);
+    end.pole_type_id = entry.endpoint_b_pole_type_id;
+    end.band_id = entry.endpoint_b_band_id;
     end.point = entry.endpoint_b;
     end.away_from_node = end_away;
     end.is_start = false;
@@ -353,6 +402,7 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
   std::vector<curve_patch_key> processed_patch_keys{};
   for (const curve_endpoint_ref& first : endpoints) {
     const curve_patch_key key{first.node_id, first.bundle_template_id, first.lane_index,
+                              first.pole_type_id, first.band_id,
                               first.member_key.rule_owner_id, first.member_key.rule_id,
                               first.member_key.instance_index};
     if (std::find_if(processed_patch_keys.begin(), processed_patch_keys.end(),
@@ -364,6 +414,7 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     std::vector<curve_endpoint_ref> group{};
     for (const curve_endpoint_ref& endpoint : endpoints) {
       if (same_key(key, {endpoint.node_id, endpoint.bundle_template_id, endpoint.lane_index,
+                         endpoint.pole_type_id, endpoint.band_id,
                          endpoint.member_key.rule_owner_id, endpoint.member_key.rule_id,
                          endpoint.member_key.instance_index})) {
         group.push_back(endpoint);
@@ -371,6 +422,9 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     }
     if (group.size() != 2 || group[0].edge_id == group[1].edge_id ||
         !group[0].has_curve_tangent || !group[1].has_curve_tangent) {
+      continue;
+    }
+    if (Length(group[0].point - group[1].point) > 1e-6) {
       continue;
     }
     const double a_len =
@@ -417,8 +471,11 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
       }
       const Vec3d start = has_start_patch ? start_boundary.point : entry.endpoint_a;
       const Vec3d end = has_end_patch ? end_boundary.point : entry.endpoint_b;
+      const Vec3d end_param_tangent = ScaleVec(end_boundary.tangent, -1.0);
       const EditResult<DetailCurve> curve =
-          make_curve_between(state, entry.key.logical_span_id, start, end);
+          make_curve_between_with_tangent_hints(state, entry.key.logical_span_id, start, end,
+                                                has_start_patch ? &start_boundary.tangent : nullptr,
+                                                has_end_patch ? &end_param_tangent : nullptr);
       if (!curve.ok || curve.value.sample_points.size() < 2) {
         continue;
       }
@@ -452,8 +509,11 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     const bool has_end_patch = boundary_for(boundaries, entry.key, false, &end_boundary);
     const Vec3d start = has_start_patch ? start_boundary.point : entry.endpoint_a;
     const Vec3d end = has_end_patch ? end_boundary.point : entry.endpoint_b;
+    const Vec3d end_boundary_param_tangent = ScaleVec(end_boundary.tangent, -1.0);
     const EditResult<DetailCurve> curve =
-        make_curve_between(state, entry.key.logical_span_id, start, end);
+        make_curve_between_with_tangent_hints(state, entry.key.logical_span_id, start, end,
+                                              has_start_patch ? &start_boundary.tangent : nullptr,
+                                              has_end_patch ? &end_boundary_param_tangent : nullptr);
     if (!curve.ok || curve.value.sample_points.size() < 2) {
       continue;
     }

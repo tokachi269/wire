@@ -991,6 +991,31 @@ bool test_cable_curve_degenerate_and_vertical_inputs_are_deterministic() {
          almost_equal(first.value.samples.front().binormal, second.value.samples.front().binormal);
 }
 
+bool test_cable_curve_uses_endpoint_tangent_hints_when_provided() {
+  namespace cable_curve = wire::core::geometry::curve;
+  cable_curve::CableCurveInput input{};
+  input.start = {0.0, 0.0, 6.0};
+  input.end = {8.0, 4.0, 5.0};
+  input.canonical_dir = {1.0, 0.0, 0.0};
+  input.start_tangent_hint = {0.0, 1.0, -0.2};
+  input.end_tangent_hint = {1.0, 0.0, 0.1};
+  input.has_start_tangent_hint = true;
+  input.has_end_tangent_hint = true;
+  input.sag_m = 0.8;
+  const auto built = cable_curve::BuildCableCurve(input);
+  if (!built.ok || built.value.samples.size() < 4) {
+    return false;
+  }
+  wire::core::Vec3d expected_start = input.start_tangent_hint;
+  wire::core::Vec3d expected_end = input.end_tangent_hint;
+  (void)wire::core::Normalize(&expected_start);
+  (void)wire::core::Normalize(&expected_end);
+  const wire::core::Vec3d start_tangent = built.value.samples.front().tangent;
+  const wire::core::Vec3d end_tangent = built.value.samples.back().tangent;
+  return wire::core::Dot(start_tangent, expected_start) > 0.999 &&
+         wire::core::Dot(end_tangent, expected_end) > 0.999;
+}
+
 bool test_hierarchical_variation_worldspace_is_continuous() {
   wire::core::VariationSettings settings{};
   settings.enabled = true;
@@ -1097,8 +1122,11 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
                          "CableCurve tessellation grows with curve length or sag", "Invariant", false,
                          test_cable_curve_tessellation_grows_with_length_and_sag);
   test_registry::AddTest(tests, "C633_CableCurve_DegenerateVerticalDeterministic",
-                         "CableCurve handles zero-length and vertical spans deterministically and rejects unknown methods",
-                         "Invariant", false, test_cable_curve_degenerate_and_vertical_inputs_are_deterministic);
+                          "CableCurve handles zero-length and vertical spans deterministically and rejects unknown methods",
+                          "Invariant", false, test_cable_curve_degenerate_and_vertical_inputs_are_deterministic);
+  test_registry::AddTest(tests, "C658_CableCurve_EndpointTangentHintsAffectSamples",
+                         "CableCurve consumes endpoint tangent hints in the generated samples", "Boundary", false,
+                         test_cable_curve_uses_endpoint_tangent_hints_when_provided);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_geometry_tests);

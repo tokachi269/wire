@@ -141,6 +141,7 @@ bundle template、明示rule id、instance indexから作り、両endpointは同
 
 viewerではDraw Path panelの`Experimental > Physical Line Population`を有効にしてから、
 CommunicationまたはOpticalを含む2点以上のpathを生成する。既存線の近くに同じmaterial/太さの追加線が表示される。
+検証用ruleは高さ方向を主軸にstable random配置し、横方向は小さいjitterだけを加える。
 `Save Repro Capture`にはinstance key、両端band id、requested/accepted/omitted数を出力する。
 
 ## wire domain境界

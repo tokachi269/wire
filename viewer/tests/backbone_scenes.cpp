@@ -488,15 +488,25 @@ bool test_experimental_population_produces_viewer_curve_parts() {
   }
   std::size_t physical_count = 0;
   bool has_original_edge_body = false;
+  wire::core::Vec3d original_endpoint{};
   for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
     if (part.kind == wire::core::VisualCurvePartKind::kEdgeBody && part.source_span_id == span_id) {
       has_original_edge_body = true;
+      original_endpoint = part.boundary_a;
+      break;
     }
+  }
+  for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
     if (part.kind != wire::core::VisualCurvePartKind::kExperimentalPhysicalLine) {
       continue;
     }
     if (!part.has_physical_line_key || part.source_span_id != span_id || part.samples.size() < 2 ||
         !almost_equal(part.wire_radius_m, render->wire_radius_m) || part.color_rgba != render->color_rgba) {
+      return false;
+    }
+    const double lateral_delta = std::abs(part.boundary_a.y - original_endpoint.y);
+    const double vertical_delta = std::abs(part.boundary_a.z - original_endpoint.z);
+    if (vertical_delta <= lateral_delta) {
       return false;
     }
     ++physical_count;

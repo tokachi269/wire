@@ -85,9 +85,9 @@ Vec3d candidate_local(const PhysicalLinePopulationEndpoint& endpoint, const Expe
   const double side = ((ordinal & 1u) == 0u) ? 1.0 : -1.0;
   const double ring = static_cast<double>((ordinal / 2u) + 1u);
   const double jitter = 1.0 + centered(combine(seed, 1)) * rule.randomness * 0.35;
-  const double lateral_delta = side * std::max(rule.min_spacing_m, 0.01) * ring * jitter;
-  const double height_delta =
-      centered(combine(seed, 2)) * std::max(rule.min_spacing_m, 0.01) * rule.randomness * 0.75;
+  const double height_delta = side * std::max(rule.min_spacing_m, 0.01) * ring * jitter;
+  const double lateral_delta =
+      centered(combine(seed, 2)) * std::max(rule.min_spacing_m, 0.01) * rule.randomness * 0.25;
   return {endpoint.original_local.x, endpoint.original_local.y + lateral_delta,
           endpoint.original_local.z + height_delta};
 }

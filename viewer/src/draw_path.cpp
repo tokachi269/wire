@@ -720,9 +720,9 @@ wire::core::ExperimentalLinePopulationConfig ExperimentalLinePopulationConfigLoc
     rule.randomness = 0.65;
     config.rules.push_back(rule);
   };
-  add_rule(1001, wire::core::BundleKind::kLowVoltage, 10, 0, 1, 0.055);
-  add_rule(1002, wire::core::BundleKind::kCommunication, 20, 2, 6, 0.045);
-  add_rule(1003, wire::core::BundleKind::kOptical, 15, 1, 3, 0.050);
+  add_rule(1001, wire::core::BundleKind::kLowVoltage, 10, 0, 1, 0.030);
+  add_rule(1002, wire::core::BundleKind::kCommunication, 20, 2, 6, 0.030);
+  add_rule(1003, wire::core::BundleKind::kOptical, 15, 1, 3, 0.030);
   return config;
 }
 

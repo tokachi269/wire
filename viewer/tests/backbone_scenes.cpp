@@ -487,7 +487,11 @@ bool test_experimental_population_produces_viewer_curve_parts() {
     return false;
   }
   std::size_t physical_count = 0;
+  bool has_original_edge_body = false;
   for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
+    if (part.kind == wire::core::VisualCurvePartKind::kEdgeBody && part.source_span_id == span_id) {
+      has_original_edge_body = true;
+    }
     if (part.kind != wire::core::VisualCurvePartKind::kExperimentalPhysicalLine) {
       continue;
     }
@@ -497,7 +501,7 @@ bool test_experimental_population_produces_viewer_curve_parts() {
     }
     ++physical_count;
   }
-  return physical_count == 3;
+  return has_original_edge_body && physical_count == 3;
 }
 
 void register_backbone_scene_tests(viewer_test_registry::TestRegistry& tests) {

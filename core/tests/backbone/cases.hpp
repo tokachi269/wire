@@ -263,5 +263,10 @@ bool C626_backbone_cable_template_updates_derive_outputs();
 bool C627_backbone_legacy_topology_apis_are_removed();
 bool C628_backbone_active_pole_type_update_rejects_unchanged();
 bool C622_backbone_stage_timing_is_diagnostic_only();
+bool C634_backbone_terminal_nodes_create_no_node_patch_curve();
+bool C635_backbone_simple_continuous_node_creates_node_patch_curve();
+bool C636_backbone_edge_body_stops_at_node_patch_boundaries();
+bool C637_backbone_node_patch_edge_body_boundary_tangents_are_g1();
+bool C638_backbone_visual_curve_parts_are_finite();
 
 } // namespace backbone_tests

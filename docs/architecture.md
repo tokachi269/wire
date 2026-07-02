@@ -113,11 +113,17 @@ G2接続は現時点の必須条件ではない。support/insulator leadとjumpe
 未対応familyは別方式へsilent fallbackせず明示的に拒否する。
 
 span-local attachment blend方式は採用しない。continuousな本線接続部を各span端に個別に押し込むと、
-sample polyline上でG1が崩れやすく、main spanから接続部へ不自然に切り替わる。terminal endpointには
-接続部curveを作らず、continuous endpointもfixtureとして扱わない。次の候補は、junction周辺の
-`NodePatchCurve`、その外側を結ぶ`EdgeBodyCurve`、fixture/lead/jumper用の別curveを分ける方式である。
-ただし長いrun全体を毎回正本として再計算する方式にはせず、dirty node + incident edge + 必要な1-hop程度の
-更新範囲に抑える。
+sample polyline上でG1が崩れやすく、main spanから接続部へ不自然に切り替わる。
+
+現在は派生debug/cacheとして`VisualCurvePart`を持ち、最小単位を`NodePatchCurve`と`EdgeBodyCurve`へ分ける。
+terminal endpointには`NodePatchCurve`を作らない。simpleな2-edge continuous nodeだけ、node / bundle template /
+lane単位で`NodePatchCurve`を作り、その外側を`EdgeBodyCurve`が結ぶ。branch/multi-edgeやfixture境界は、明示的な
+fixture/lead/jumper仕様が入るまでpatchを推測しない。
+
+`NodePatchCurve`と`EdgeBodyCurve`はtopology正本ではない。source node / edge / span / bundle / lane、boundary point、
+boundary tangentをdebug/captureで見えるようにするための派生出力である。描画やexport用に分割してもよいが、
+分割後のspan片が接続部curveのauthorityになってはいけない。長いrun全体を毎回正本として再計算する方式にはせず、
+dirty node + incident edge + 必要な1-hop程度の更新範囲に抑える。
 
 ## wire domain境界
 

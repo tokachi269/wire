@@ -73,6 +73,7 @@ public:
   [[nodiscard]] SpanLayoutRulesView span_layout_rules(ObjectId span_id) const;
   [[nodiscard]] const SpanVisualCacheEntry* find_span_visual_cache(ObjectId span_id) const;
   [[nodiscard]] const SpanRenderCacheEntry* find_span_render_cache(ObjectId span_id) const;
+  [[nodiscard]] const VisualCurvePartCache& visual_curve_parts() const;
   [[nodiscard]] BackboneFrontier pole_frontier(ObjectId pole_id) const;
   [[nodiscard]] BackboneFrontier span_frontier(ObjectId span_id) const;
   [[nodiscard]] const AttachmentTemplate* find_attachment_template(AttachmentTemplateId attachment_template_id) const;

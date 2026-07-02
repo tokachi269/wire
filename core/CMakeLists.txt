@@ -11,6 +11,7 @@ add_library(
   src/state/template/update.cpp
   src/pole_orientation_utils.cpp
   src/generation/pole_facing/pole_facing_rules.cpp
+  src/generation/backbone/curve_parts.cpp
   src/generation/backbone/derive.cpp
   src/generation/backbone/out.cpp
   src/generation/backbone/pipeline.cpp

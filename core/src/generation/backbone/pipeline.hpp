@@ -164,6 +164,7 @@ struct bounds {
 struct geom {
   curve curves{};
   bounds boxes{};
+  VisualCurvePartCache visual_curves{};
 };
 
 struct draw {

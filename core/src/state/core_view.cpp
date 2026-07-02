@@ -250,6 +250,9 @@ const SpanVisualCacheEntry* CoreView::find_span_visual_cache(ObjectId span_id) c
 const SpanRenderCacheEntry* CoreView::find_span_render_cache(ObjectId span_id) const {
   return state_.find_span_render_cache(span_id);
 }
+const VisualCurvePartCache& CoreView::visual_curve_parts() const {
+  return state_.visual_curve_parts();
+}
 
 namespace {
 

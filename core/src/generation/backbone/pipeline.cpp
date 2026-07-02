@@ -3,6 +3,7 @@
 #include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
 
+#include "curve_parts.hpp"
 #include "out.hpp"
 
 #include <algorithm>
@@ -2344,6 +2345,7 @@ EditResult<geom> pipeline::make(const layout& made) const {
     out.value.boxes.data.push_back({entry.span_id, std::move(cached)});
     out.value.curves.data.push_back({entry.span_id, std::move(detail.value)});
   }
+  out.value.visual_curves = make_visual_curve_parts(state_, made);
   out.ok = true;
   return out;
 }
@@ -2425,6 +2427,7 @@ void pipeline::save(geom made) {
   for (auto& item : made.boxes.data) {
     state_.cache_span_bounds(item.first, std::move(item.second));
   }
+  state_.cache_visual_curve_parts(std::move(made.visual_curves));
 }
 
 void pipeline::save(draw made) {

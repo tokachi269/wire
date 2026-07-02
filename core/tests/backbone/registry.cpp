@@ -756,6 +756,21 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C628_backbone_active_pole_type_update_rejects_unchanged",
                          "active backbone pole type updates reject before mutation", "Boundary", true,
                          C628_backbone_active_pole_type_update_rejects_unchanged);
+  test_registry::AddTest(tests, "C634_backbone_terminal_nodes_create_no_node_patch_curve",
+                         "terminal backbone nodes do not create node patch curves", "Boundary", false,
+                         C634_backbone_terminal_nodes_create_no_node_patch_curve);
+  test_registry::AddTest(tests, "C635_backbone_simple_continuous_node_creates_node_patch_curve",
+                         "simple continuous backbone nodes create one local node patch curve", "Boundary", false,
+                         C635_backbone_simple_continuous_node_creates_node_patch_curve);
+  test_registry::AddTest(tests, "C636_backbone_edge_body_stops_at_node_patch_boundaries",
+                         "backbone edge bodies stop at node patch boundaries", "Boundary", false,
+                         C636_backbone_edge_body_stops_at_node_patch_boundaries);
+  test_registry::AddTest(tests, "C637_backbone_node_patch_edge_body_boundary_tangents_are_g1",
+                         "backbone node patch and edge body boundary tangents are G1-compatible", "Boundary", false,
+                         C637_backbone_node_patch_edge_body_boundary_tangents_are_g1);
+  test_registry::AddTest(tests, "C638_backbone_visual_curve_parts_are_finite",
+                         "backbone visual curve part samples are finite", "Boundary", false,
+                         C638_backbone_visual_curve_parts_are_finite);
 }
 
 

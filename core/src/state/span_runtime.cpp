@@ -51,6 +51,10 @@ const SpanRenderCacheEntry* CoreState::find_span_render_cache(ObjectId span_id) 
   return &it->second;
 }
 
+const VisualCurvePartCache& CoreState::visual_curve_parts() const {
+  return runtime_.cache_state.visual_curve_part_cache;
+}
+
 const SpanRuntimeState* CoreState::find_span_runtime_state(ObjectId span_id) const {
   auto it = runtime_.span_runtime_states.find(span_id);
   if (it == runtime_.span_runtime_states.end()) {
@@ -395,6 +399,10 @@ void CoreState::cache_span_render(ObjectId span_id, SpanRenderCacheEntry render)
   runtime_.cache_state.render_cache.by_span[span_id] = std::move(render);
 }
 
+void CoreState::cache_visual_curve_parts(VisualCurvePartCache visual_curves) {
+  runtime_.cache_state.visual_curve_part_cache = std::move(visual_curves);
+}
+
 void CoreState::cache_span_rules(const SpanLayoutRules& rules) {
   runtime_.cache_state.span_layout_cache.store_rules(rules);
 }
@@ -405,6 +413,10 @@ void CoreState::remove_span_from_caches(ObjectId span_id) {
   runtime_.cache_state.span_layout_cache.clear_layout(span_id);
   runtime_.cache_state.visual_cache.by_span.erase(span_id);
   runtime_.cache_state.render_cache.by_span.erase(span_id);
+  auto& parts = runtime_.cache_state.visual_curve_part_cache.parts;
+  parts.erase(std::remove_if(parts.begin(), parts.end(),
+                             [&](const VisualCurvePart& part) { return part.source_span_id == span_id; }),
+              parts.end());
 }
 
 } // namespace wire::core

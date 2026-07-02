@@ -90,6 +90,44 @@ struct RenderCache {
   std::unordered_map<ObjectId, SpanRenderCacheEntry> by_span{};
 };
 
+enum class VisualCurvePartKind : std::uint8_t {
+  kEdgeBody = 0,
+  kNodePatch = 1,
+  kLead = 2,
+  kJumper = 3,
+};
+
+enum class NodePatchClassification : std::uint8_t {
+  kNone = 0,
+  kTerminal = 1,
+  kSimpleContinuous = 2,
+  kMultiIncidentUnsupported = 3,
+  kFixtureBoundaryUnsupported = 4,
+};
+
+struct VisualCurvePart {
+  VisualCurvePartKind kind = VisualCurvePartKind::kEdgeBody;
+  NodePatchClassification node_patch_classification = NodePatchClassification::kNone;
+  ObjectId source_node_id = kInvalidObjectId;
+  ObjectId source_edge_id = kInvalidObjectId;
+  ObjectId source_span_id = kInvalidObjectId;
+  ObjectId source_bundle_id = kInvalidObjectId;
+  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  std::size_t lane_index = 0;
+  std::vector<ObjectId> incident_edge_ids{};
+  Vec3d boundary_a{};
+  Vec3d boundary_b{};
+  Vec3d tangent_a{};
+  Vec3d tangent_b{};
+  std::vector<Vec3d> samples{};
+  AABBd bounds{};
+  std::uint64_t source_version = 0;
+};
+
+struct VisualCurvePartCache {
+  std::vector<VisualCurvePart> parts{};
+};
+
 struct VisualSettings {
   bool enable_support_structures = true;
   bool enable_insulators = true;
@@ -110,6 +148,7 @@ struct CacheState {
   SpanLayoutCache span_layout_cache{};
   VisualCache visual_cache{};
   RenderCache render_cache{};
+  VisualCurvePartCache visual_curve_part_cache{};
 };
 
 inline constexpr double kDefaultCornerThresholdDeg = 70.0;

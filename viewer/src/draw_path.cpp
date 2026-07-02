@@ -114,6 +114,38 @@ const char* CableAttachmentStyleLabelLocal(wire::core::CableAttachmentStyleHint 
   }
 }
 
+const char* VisualCurvePartKindLabelLocal(wire::core::VisualCurvePartKind kind) {
+  switch (kind) {
+  case wire::core::VisualCurvePartKind::kEdgeBody:
+    return "edge_body";
+  case wire::core::VisualCurvePartKind::kNodePatch:
+    return "node_patch";
+  case wire::core::VisualCurvePartKind::kLead:
+    return "lead";
+  case wire::core::VisualCurvePartKind::kJumper:
+    return "jumper";
+  default:
+    return "unknown";
+  }
+}
+
+const char* NodePatchClassificationLabelLocal(wire::core::NodePatchClassification kind) {
+  switch (kind) {
+  case wire::core::NodePatchClassification::kNone:
+    return "none";
+  case wire::core::NodePatchClassification::kTerminal:
+    return "terminal";
+  case wire::core::NodePatchClassification::kSimpleContinuous:
+    return "simple_continuous";
+  case wire::core::NodePatchClassification::kMultiIncidentUnsupported:
+    return "multi_incident_unsupported";
+  case wire::core::NodePatchClassification::kFixtureBoundaryUnsupported:
+    return "fixture_boundary_unsupported";
+  default:
+    return "unknown";
+  }
+}
+
 const char* StyleObjectKindLabelLocal(wire::core::StyleObjectKind kind) {
   switch (kind) {
   case wire::core::StyleObjectKind::kSpan:
@@ -1297,6 +1329,40 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
                wire::core::EntityRef{wire::core::EntityKind::kSpan, span.id});
     ++current_span_index;
     }
+
+  const auto& visual_curve_parts = view.visual_curve_parts().parts;
+  ofs << "result.visual_curve_part_count=" << visual_curve_parts.size() << "\n";
+  for (std::size_t i = 0; i < visual_curve_parts.size(); ++i) {
+    const wire::core::VisualCurvePart& part = visual_curve_parts[i];
+    const std::string prefix = std::format("result.visual_curve_part[{}]", i);
+    ofs << prefix << ".kind=" << VisualCurvePartKindLabelLocal(part.kind) << "\n";
+    ofs << prefix << ".node_patch_classification="
+        << NodePatchClassificationLabelLocal(part.node_patch_classification) << "\n";
+    ofs << prefix << ".source_node_id=" << static_cast<unsigned long long>(part.source_node_id) << "\n";
+    ofs << prefix << ".source_edge_id=" << static_cast<unsigned long long>(part.source_edge_id) << "\n";
+    ofs << prefix << ".source_span_id=" << static_cast<unsigned long long>(part.source_span_id) << "\n";
+    ofs << prefix << ".source_bundle_id=" << static_cast<unsigned long long>(part.source_bundle_id) << "\n";
+    ofs << prefix << ".bundle_template_id=" << static_cast<int>(part.bundle_template_id) << "\n";
+    ofs << prefix << ".lane_index=" << part.lane_index << "\n";
+    ofs << prefix << ".boundary_a=" << part.boundary_a.x << "," << part.boundary_a.y << "," << part.boundary_a.z
+        << "\n";
+    ofs << prefix << ".boundary_b=" << part.boundary_b.x << "," << part.boundary_b.y << "," << part.boundary_b.z
+        << "\n";
+    ofs << prefix << ".tangent_a=" << part.tangent_a.x << "," << part.tangent_a.y << "," << part.tangent_a.z
+        << "\n";
+    ofs << prefix << ".tangent_b=" << part.tangent_b.x << "," << part.tangent_b.y << "," << part.tangent_b.z
+        << "\n";
+    ofs << prefix << ".sample_count=" << part.samples.size() << "\n";
+    ofs << prefix << ".bounds.min=" << part.bounds.min.x << "," << part.bounds.min.y << "," << part.bounds.min.z
+        << "\n";
+    ofs << prefix << ".bounds.max=" << part.bounds.max.x << "," << part.bounds.max.y << "," << part.bounds.max.z
+        << "\n";
+    ofs << prefix << ".incident_edge_count=" << part.incident_edge_ids.size() << "\n";
+    for (std::size_t edge_index = 0; edge_index < part.incident_edge_ids.size(); ++edge_index) {
+      ofs << prefix << ".incident_edge[" << edge_index
+          << "]=" << static_cast<unsigned long long>(part.incident_edge_ids[edge_index]) << "\n";
+    }
+  }
 
   std::map<std::pair<wire::core::ObjectId, int>, wire::core::LoweredSupportGroupKey> layout_lowered_support_keys{};
   for (const auto& span : view.edit_state().spans.items()) {

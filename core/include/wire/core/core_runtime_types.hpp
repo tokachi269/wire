@@ -119,6 +119,7 @@ struct VisualCurvePart {
   Vec3d boundary_b{};
   Vec3d tangent_a{};
   Vec3d tangent_b{};
+  std::vector<Vec3d> bezier_control_points{};
   std::vector<Vec3d> samples{};
   AABBd bounds{};
   std::uint64_t source_version = 0;

@@ -574,4 +574,23 @@ bool C639_backbone_node_patch_curve_is_not_straight_chord() {
   return false;
 }
 
+bool C640_backbone_node_patch_exposes_bezier_debug_controls() {
+  wire::core::CoreState state;
+  const auto out = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!out.ok) {
+    return false;
+  }
+  for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
+    if (part.kind != wire::core::VisualCurvePartKind::kNodePatch) {
+      continue;
+    }
+    if (part.bezier_control_points.size() != 4) {
+      return false;
+    }
+    return almost_equal(part.bezier_control_points.front(), part.boundary_a, 1e-9) &&
+           almost_equal(part.bezier_control_points.back(), part.boundary_b, 1e-9);
+  }
+  return false;
+}
+
 } // namespace backbone_tests

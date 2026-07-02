@@ -78,6 +78,20 @@ void DrawSupportSegment(const wire::core::Vec3d& a, const wire::core::Vec3d& b, 
   DrawLine3D(ToRaylib(a), ToRaylib(b), color);
 }
 
+void DrawCurveControls(const std::vector<wire::core::Vec3d>& controls) {
+  if (controls.empty()) {
+    return;
+  }
+  const Color point_color{230, 80, 46, 230};
+  const Color handle_color{230, 150, 58, 190};
+  for (std::size_t i = 0; i + 1 < controls.size(); ++i) {
+    DrawLine3D(ToRaylib(controls[i]), ToRaylib(controls[i + 1]), handle_color);
+  }
+  for (const wire::core::Vec3d& point : controls) {
+    DrawSphere(ToRaylib(point), 0.07f, point_color);
+  }
+}
+
 static wire::core::Vec3d PoleTopPoint(const wire::core::Pole& pole, double layout_yaw_deg) {
   const wire::core::PoleFrame frame =
       wire::core::BuildPoleFrame(pole.world_transform, layout_yaw_deg);
@@ -386,6 +400,9 @@ void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
       wire_color = Color{154, 112, 56, 255};
     }
     DrawWirePolyline(part.samples, wire_radius, wire_color);
+    if (ui_state.show_visual_curve_controls) {
+      DrawCurveControls(part.bezier_control_points);
+    }
   }
 
   for (const wire::core::Span& span : edit.spans.items()) {

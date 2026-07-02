@@ -356,6 +356,7 @@
 | C637 | Boundary | backbone | NodePatchCurve と EdgeBodyCurve の境界 tangent は G1 互換 | 3点 backbone route | GenerateFromBackboneSpec | Boundary: boundary point と tangent を explicit に保存し、edge body と patch が同じ方向を共有する | VisualCurvePart tangent | 接続部で G0 的に折れ、span 側と node 側が別々に方向を決める回帰防止 |
 | C638 | Boundary | backbone | visual curve part samples は finite | 3点 backbone route | GenerateFromBackboneSpec | Boundary: derived visual curve part は topology authority ではないが、debug/render 可能な finite samples と bounds を持つ | VisualCurvePart samples / bounds | NodePatch/EdgeBody 導入で NaN/inf や空 debug geometry を保存する回帰防止 |
 | C639 | Boundary | backbone | NodePatchCurve は直線 chord ではない | 3点 backbone route | GenerateFromBackboneSpec | Boundary: simple continuous patch は折れ線や straight chord ではなく local curve samples を持つ | VisualCurvePart samples / boundary | 接続部の丸みが消え、patch が debug 名だけの折れ線に戻る回帰防止 |
+| C640 | Boundary | backbone | NodePatchCurve の Bezier debug controls を観測できる | 3点 backbone route | GenerateFromBackboneSpec | Boundary: Bezier 制御点は topology 正本ではなく visual debug 用の派生情報として観測可能にする | VisualCurvePart bezier_control_points | 見た目違和感の調査で viewer 側が推測や補正を始める回帰防止 |
 
 ## Retired old-pipeline checks
 - Old cases 365-367 were removed from the registered suite. They pinned the transitional `BackboneBuilder` / support-layout authority seed / materialization surface instead of the backbone mainline.

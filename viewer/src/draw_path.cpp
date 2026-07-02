@@ -1352,6 +1352,12 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
         << "\n";
     ofs << prefix << ".tangent_b=" << part.tangent_b.x << "," << part.tangent_b.y << "," << part.tangent_b.z
         << "\n";
+    ofs << prefix << ".bezier_control_count=" << part.bezier_control_points.size() << "\n";
+    for (std::size_t control_index = 0; control_index < part.bezier_control_points.size(); ++control_index) {
+      const wire::core::Vec3d& control = part.bezier_control_points[control_index];
+      ofs << prefix << ".bezier_control[" << control_index << "]=" << control.x << "," << control.y << ","
+          << control.z << "\n";
+    }
     ofs << prefix << ".sample_count=" << part.samples.size() << "\n";
     ofs << prefix << ".bounds.min=" << part.bounds.min.x << "," << part.bounds.min.y << "," << part.bounds.min.z
         << "\n";

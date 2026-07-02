@@ -64,6 +64,7 @@ struct ViewerUiState {
   bool show_debug_labels = false;
   bool show_whole_aabb = false;
   bool show_segment_aabb = false;
+  bool show_visual_curve_controls = false;
   bool show_selected_bundle_highlight = true;
   bool geometry_settings_loaded = false;
   int geometry_samples = 8;

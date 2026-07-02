@@ -2871,6 +2871,7 @@ void DrawDiagnosticsContent(CoreState& state, ViewerUiState& ui_state) {
   if (ImGui::CollapsingHeader("Debug View", ImGuiTreeNodeFlags_DefaultOpen)) {
     ImGui::Checkbox("Show Span AABB", &ui_state.show_whole_aabb);
     ImGui::Checkbox("Show Segment AABB", &ui_state.show_segment_aabb);
+    ImGui::Checkbox("Show Visual Curve Controls", &ui_state.show_visual_curve_controls);
     ImGui::Checkbox("Highlight Selected Bundle", &ui_state.show_selected_bundle_highlight);
     const wire::core::ValidationResult validation = viewer_core_state::ValidateFast(state);
     ImGui::Text("Validation: %s", validation.ok() ? "OK" : "ERROR");

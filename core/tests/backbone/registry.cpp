@@ -774,6 +774,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C639_backbone_node_patch_curve_is_not_straight_chord",
                          "backbone node patch curve is not straight chord", "Boundary", false,
                          C639_backbone_node_patch_curve_is_not_straight_chord);
+  test_registry::AddTest(tests, "C640_backbone_node_patch_exposes_bezier_debug_controls",
+                         "backbone node patch exposes Bezier debug controls", "Boundary", false,
+                         C640_backbone_node_patch_exposes_bezier_debug_controls);
 }
 
 

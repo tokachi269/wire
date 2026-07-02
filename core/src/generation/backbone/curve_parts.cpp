@@ -162,6 +162,19 @@ std::vector<Vec3d> node_patch_samples(const curve_boundary& a, const curve_bound
   return samples;
 }
 
+std::vector<Vec3d> node_patch_bezier_controls(const curve_boundary& a, const curve_boundary& b) {
+  const double chord_len = Length(b.point - a.point);
+  const double handle = std::max(0.0, chord_len * 0.5);
+  const Vec3d start_tangent = ScaleVec(a.tangent, -handle);
+  const Vec3d end_tangent = ScaleVec(b.tangent, handle);
+  return {
+      a.point,
+      a.point + ScaleVec(start_tangent, 1.0 / 3.0),
+      b.point - ScaleVec(end_tangent, 1.0 / 3.0),
+      b.point,
+  };
+}
+
 layout merged_visual_curve_layouts(const CoreState& state, const layout& made) {
   layout merged{};
   merged.entries = made.entries;
@@ -281,6 +294,7 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     patch.boundary_b = b_boundary.point;
     patch.tangent_a = a_boundary.tangent;
     patch.tangent_b = b_boundary.tangent;
+    patch.bezier_control_points = node_patch_bezier_controls(a_boundary, b_boundary);
     patch.samples = node_patch_samples(a_boundary, b_boundary);
     patch.bounds = curve_part_bounds(patch.samples);
     out.parts.push_back(std::move(patch));

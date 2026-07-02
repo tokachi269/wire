@@ -582,13 +582,29 @@ EditResult<bool> CoreState::ApplyPoleTilt(const std::vector<ObjectId>& pole_ids,
     add_unique_id(changed_poles, pole->id);
     changed = true;
   }
+  UpdatePlan combined_plan{};
+  combined_plan.kind = UpdateKind::kReposition;
+  auto append_unique = [](std::vector<ObjectId>* target, const std::vector<ObjectId>& source) {
+    for (ObjectId id : source) {
+      if (std::find(target->begin(), target->end(), id) == target->end()) {
+        target->push_back(id);
+      }
+    }
+  };
   for (ObjectId pole_id : changed_poles) {
     const auto plan = make_update_plan({UpdateKind::kReposition, UpdateTargetKind::kPole, pole_id});
     if (!plan.ok) {
       result.error = plan.error;
       return result;
     }
-    const auto updated = execute_update_plan(plan.value);
+    append_unique(&combined_plan.affected.poles, plan.value.affected.poles);
+    append_unique(&combined_plan.affected.ports, plan.value.affected.ports);
+    append_unique(&combined_plan.affected.spans, plan.value.affected.spans);
+    append_unique(&combined_plan.affected.edges, plan.value.affected.edges);
+    combined_plan.plan_ms += plan.value.plan_ms;
+  }
+  if (!changed_poles.empty()) {
+    const auto updated = execute_update_plan(combined_plan);
     if (!updated.ok) {
       result.error = updated.error;
       return result;

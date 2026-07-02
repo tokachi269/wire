@@ -777,6 +777,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C640_backbone_node_patch_exposes_bezier_debug_controls",
                          "backbone node patch exposes Bezier debug controls", "Boundary", false,
                          C640_backbone_node_patch_exposes_bezier_debug_controls);
+  test_registry::AddTest(tests, "C641_backbone_pole_tilt_refreshes_visual_curve_parts",
+                         "backbone pole tilt refreshes visual curve parts from moved endpoints", "Boundary", false,
+                         C641_backbone_pole_tilt_refreshes_visual_curve_parts);
 }
 
 

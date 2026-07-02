@@ -424,6 +424,60 @@ bool tangent_compatible(const wire::core::Vec3d& a, const wire::core::Vec3d& b) 
   return dot > 0.999;
 }
 
+bool sampled_boundary_is_g1(const wire::core::VisualCurvePart& a, const wire::core::VisualCurvePart& b,
+                            const wire::core::Vec3d& boundary) {
+  auto direction_into_part = [&](const wire::core::VisualCurvePart& part, wire::core::Vec3d* out) {
+    if (part.samples.size() < 3 || out == nullptr) {
+      return false;
+    }
+    if (almost_equal(part.samples.front(), boundary, 1e-9)) {
+      *out = {-3.0 * part.samples[0].x + 4.0 * part.samples[1].x - part.samples[2].x,
+              -3.0 * part.samples[0].y + 4.0 * part.samples[1].y - part.samples[2].y,
+              -3.0 * part.samples[0].z + 4.0 * part.samples[1].z - part.samples[2].z};
+      return true;
+    }
+    if (almost_equal(part.samples.back(), boundary, 1e-9)) {
+      const std::size_t last = part.samples.size() - 1;
+      *out = {-3.0 * part.samples[last].x + 4.0 * part.samples[last - 1].x - part.samples[last - 2].x,
+              -3.0 * part.samples[last].y + 4.0 * part.samples[last - 1].y - part.samples[last - 2].y,
+              -3.0 * part.samples[last].z + 4.0 * part.samples[last - 1].z - part.samples[last - 2].z};
+      return true;
+    }
+    return false;
+  };
+
+  wire::core::Vec3d a_direction{};
+  wire::core::Vec3d b_direction{};
+  if (!direction_into_part(a, &a_direction) || !direction_into_part(b, &b_direction)) {
+    return false;
+  }
+  return tangent_compatible(a_direction, {-b_direction.x, -b_direction.y, -b_direction.z});
+}
+
+double sampled_curve_length(const wire::core::VisualCurvePart& part) {
+  double length = 0.0;
+  for (std::size_t i = 1; i < part.samples.size(); ++i) {
+    const wire::core::Vec3d delta{part.samples[i].x - part.samples[i - 1].x,
+                                  part.samples[i].y - part.samples[i - 1].y,
+                                  part.samples[i].z - part.samples[i - 1].z};
+    length += std::sqrt(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
+  }
+  return length;
+}
+
+wire::core::Vec3d evaluate_cubic_bezier(const std::vector<wire::core::Vec3d>& controls, double t) {
+  const double u = 1.0 - t;
+  const double b0 = u * u * u;
+  const double b1 = 3.0 * u * u * t;
+  const double b2 = 3.0 * u * t * t;
+  const double b3 = t * t * t;
+  return {
+      controls[0].x * b0 + controls[1].x * b1 + controls[2].x * b2 + controls[3].x * b3,
+      controls[0].y * b0 + controls[1].y * b1 + controls[2].y * b2 + controls[3].y * b3,
+      controls[0].z * b0 + controls[1].z * b1 + controls[2].z * b2 + controls[3].z * b3,
+  };
+}
+
 bool finite_visual_curve_parts(const wire::core::CoreState& state) {
   for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
     for (const wire::core::Vec3d& p : part.samples) {
@@ -514,6 +568,13 @@ bool C636_backbone_edge_body_stops_at_node_patch_boundaries() {
 
 bool C637_backbone_node_patch_edge_body_boundary_tangents_are_g1() {
   wire::core::CoreState state;
+  wire::core::GeometrySettings settings = state.view().geometry_settings();
+  settings.sag_enabled = true;
+  settings.sag_factor = 0.03;
+  settings.curve_samples = 64;
+  if (!state.UpdateGeometrySettings(settings).ok) {
+    return false;
+  }
   const auto out = state.GenerateFromBackboneSpec(poly3_req(state));
   if (!out.ok) {
     return false;
@@ -529,16 +590,16 @@ bool C637_backbone_node_patch_edge_body_boundary_tangents_are_g1() {
         continue;
       }
       if (almost_equal(body.boundary_a, patch.boundary_a, 1e-9)) {
-        a_ok = a_ok || tangent_compatible(body.tangent_a, patch.tangent_a);
+        a_ok = a_ok || sampled_boundary_is_g1(body, patch, patch.boundary_a);
       }
       if (almost_equal(body.boundary_b, patch.boundary_a, 1e-9)) {
-        a_ok = a_ok || tangent_compatible(body.tangent_b, patch.tangent_a);
+        a_ok = a_ok || sampled_boundary_is_g1(body, patch, patch.boundary_a);
       }
       if (almost_equal(body.boundary_a, patch.boundary_b, 1e-9)) {
-        b_ok = b_ok || tangent_compatible(body.tangent_a, patch.tangent_b);
+        b_ok = b_ok || sampled_boundary_is_g1(body, patch, patch.boundary_b);
       }
       if (almost_equal(body.boundary_b, patch.boundary_b, 1e-9)) {
-        b_ok = b_ok || tangent_compatible(body.tangent_b, patch.tangent_b);
+        b_ok = b_ok || sampled_boundary_is_g1(body, patch, patch.boundary_b);
       }
     }
     return a_ok && b_ok;
@@ -548,8 +609,21 @@ bool C637_backbone_node_patch_edge_body_boundary_tangents_are_g1() {
 
 bool C638_backbone_visual_curve_parts_are_finite() {
   wire::core::CoreState state;
-  const auto out = state.GenerateFromBackboneSpec(poly3_req(state));
-  return out.ok && !state.view().visual_curve_parts().parts.empty() && finite_visual_curve_parts(state);
+  wire::core::BackboneSpec req = poly3_req(state);
+  req.path.polyline = {{0.0, 0.0, 0.0}, {0.5, 0.0, 0.0}, {0.5, 0.5, 0.0}};
+  const auto out = state.GenerateFromBackboneSpec(req);
+  if (!out.ok || state.view().visual_curve_parts().parts.empty() || !finite_visual_curve_parts(state)) {
+    return false;
+  }
+  for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
+    const wire::core::Vec3d chord{part.boundary_b.x - part.boundary_a.x, part.boundary_b.y - part.boundary_a.y,
+                                  part.boundary_b.z - part.boundary_a.z};
+    const double chord_length = std::sqrt(chord.x * chord.x + chord.y * chord.y + chord.z * chord.z);
+    if (chord_length > 1e-9 && sampled_curve_length(part) > chord_length * 2.0) {
+      return false;
+    }
+  }
+  return true;
 }
 
 bool C639_backbone_node_patch_curve_is_not_straight_chord() {
@@ -587,10 +661,57 @@ bool C640_backbone_node_patch_exposes_bezier_debug_controls() {
     if (part.bezier_control_points.size() != 4) {
       return false;
     }
+    const std::size_t middle = part.samples.size() / 2;
+    const double t = static_cast<double>(middle) / static_cast<double>(part.samples.size() - 1);
     return almost_equal(part.bezier_control_points.front(), part.boundary_a, 1e-9) &&
-           almost_equal(part.bezier_control_points.back(), part.boundary_b, 1e-9);
+           almost_equal(part.bezier_control_points.back(), part.boundary_b, 1e-9) &&
+           almost_equal(evaluate_cubic_bezier(part.bezier_control_points, t), part.samples[middle], 1e-9);
   }
   return false;
+}
+
+bool C641_backbone_pole_tilt_refreshes_visual_curve_parts() {
+  wire::core::CoreState state;
+  const auto generated = state.GenerateFromBackboneSpec(line_req(state));
+  if (!generated.ok || generated.value.generated_pole_ids.empty() || generated.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId pole_id = generated.value.generated_pole_ids.front();
+  const wire::core::ObjectId span_id = generated.value.generated_span_ids.front();
+  const wire::core::VisualCurvePart* before_body = nullptr;
+  for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
+    if (part.kind == wire::core::VisualCurvePartKind::kEdgeBody && part.source_span_id == span_id) {
+      before_body = &part;
+      break;
+    }
+  }
+  if (before_body == nullptr) {
+    return false;
+  }
+  const wire::core::Vec3d before_boundary = before_body->boundary_a;
+  const auto tilted = state.ApplyPoleTilt({pole_id}, 12.0);
+  if (!tilted.ok || !tilted.value) {
+    return false;
+  }
+  const wire::core::SpanLayoutView layout = state.span_layout(span_id);
+  if (!layout.has_layout()) {
+    return false;
+  }
+  const wire::core::VisualCurvePart* after_body = nullptr;
+  for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
+    if (part.kind == wire::core::VisualCurvePartKind::kEdgeBody && part.source_span_id == span_id) {
+      after_body = &part;
+      break;
+    }
+  }
+  if (after_body == nullptr) {
+    return false;
+  }
+  const bool pole_is_start = layout.entry->start.endpoint_node_id == pole_id;
+  const wire::core::Vec3d expected =
+      pole_is_start ? layout.entry->start.endpoint_world : layout.entry->end.endpoint_world;
+  const wire::core::Vec3d actual = pole_is_start ? after_body->boundary_a : after_body->boundary_b;
+  return !almost_equal(before_boundary, actual, 1e-9) && almost_equal(actual, expected, 1e-9);
 }
 
 } // namespace backbone_tests

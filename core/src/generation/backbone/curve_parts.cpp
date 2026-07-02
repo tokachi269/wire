@@ -119,21 +119,6 @@ void add_unique_incident(ObjectId edge_id, std::vector<ObjectId>* ids) {
   }
 }
 
-std::vector<Vec3d> edge_body_samples(const Vec3d& a, const Vec3d& b, const GeometrySettings& settings) {
-  const int count = std::max(3, settings.curve_samples);
-  const Vec3d chord = b - a;
-  const double len = Length(chord);
-  const double sag = settings.sag_enabled ? std::max(0.0, settings.sag_factor) * len : 0.0;
-  std::vector<Vec3d> samples{};
-  samples.reserve(static_cast<std::size_t>(count));
-  for (int i = 0; i < count; ++i) {
-    const double t = count <= 1 ? 0.0 : static_cast<double>(i) / static_cast<double>(count - 1);
-    const double sag_weight = 16.0 * t * t * (1.0 - t) * (1.0 - t);
-    samples.push_back({a.x + chord.x * t, a.y + chord.y * t, a.z + chord.z * t - sag * sag_weight});
-  }
-  return samples;
-}
-
 Vec3d cubic_hermite(const Vec3d& p0, const Vec3d& m0, const Vec3d& p1, const Vec3d& m1, double t) {
   const double t2 = t * t;
   const double t3 = t2 * t;
@@ -148,11 +133,49 @@ Vec3d cubic_hermite(const Vec3d& p0, const Vec3d& m0, const Vec3d& p1, const Vec
   };
 }
 
-std::vector<Vec3d> node_patch_samples(const curve_boundary& a, const curve_boundary& b) {
+double node_patch_control_distance(const curve_boundary& a, const curve_boundary& b) {
   const double chord_len = Length(b.point - a.point);
-  const double handle = std::max(0.0, chord_len * 0.5);
-  const Vec3d start_tangent = ScaleVec(a.tangent, -handle);
-  const Vec3d end_tangent = ScaleVec(b.tangent, handle);
+  if (chord_len <= kCurveEps) {
+    return 0.0;
+  }
+  const Vec3d start_direction = safe_unit(ScaleVec(a.tangent, -1.0), {1.0, 0.0, 0.0});
+  const Vec3d end_direction = safe_unit(b.tangent, start_direction);
+  const double dot =
+      std::clamp(start_direction.x * end_direction.x + start_direction.y * end_direction.y +
+                     start_direction.z * end_direction.z,
+                 -1.0, 1.0);
+  const double turn_angle = std::acos(dot);
+  // Cubic circular-arc approximation expressed from chord length and tangent turn angle.
+  const double cos_quarter = std::cos(turn_angle * 0.25);
+  const double denominator = 3.0 * cos_quarter * cos_quarter;
+  return denominator <= kCurveEps ? chord_len / 3.0 : chord_len / denominator;
+}
+
+std::vector<Vec3d> edge_body_samples(const Vec3d& a, const Vec3d& b, const Vec3d& start_direction,
+                                     const Vec3d& end_direction, const GeometrySettings& settings) {
+  const int count = std::max(3, settings.curve_samples);
+  const Vec3d chord = b - a;
+  const double len = Length(chord);
+  const Vec3d chord_direction = safe_unit(chord, {1.0, 0.0, 0.0});
+  const Vec3d start_tangent = ScaleVec(safe_unit(start_direction, chord_direction), len);
+  const Vec3d end_tangent = ScaleVec(safe_unit(end_direction, chord_direction), len);
+  const double sag = settings.sag_enabled ? std::max(0.0, settings.sag_factor) * len : 0.0;
+  std::vector<Vec3d> samples{};
+  samples.reserve(static_cast<std::size_t>(count));
+  for (int i = 0; i < count; ++i) {
+    const double t = count <= 1 ? 0.0 : static_cast<double>(i) / static_cast<double>(count - 1);
+    const double sag_weight = 16.0 * t * t * (1.0 - t) * (1.0 - t);
+    Vec3d sample = cubic_hermite(a, start_tangent, b, end_tangent, t);
+    sample.z -= sag * sag_weight;
+    samples.push_back(sample);
+  }
+  return samples;
+}
+
+std::vector<Vec3d> node_patch_samples(const curve_boundary& a, const curve_boundary& b) {
+  const double derivative_length = node_patch_control_distance(a, b) * 3.0;
+  const Vec3d start_tangent = ScaleVec(a.tangent, -derivative_length);
+  const Vec3d end_tangent = ScaleVec(b.tangent, derivative_length);
   std::vector<Vec3d> samples{};
   samples.reserve(kNodePatchSampleCount);
   for (int i = 0; i < kNodePatchSampleCount; ++i) {
@@ -163,14 +186,11 @@ std::vector<Vec3d> node_patch_samples(const curve_boundary& a, const curve_bound
 }
 
 std::vector<Vec3d> node_patch_bezier_controls(const curve_boundary& a, const curve_boundary& b) {
-  const double chord_len = Length(b.point - a.point);
-  const double handle = std::max(0.0, chord_len * 0.5);
-  const Vec3d start_tangent = ScaleVec(a.tangent, -handle);
-  const Vec3d end_tangent = ScaleVec(b.tangent, handle);
+  const double control_distance = node_patch_control_distance(a, b);
   return {
       a.point,
-      a.point + ScaleVec(start_tangent, 1.0 / 3.0),
-      b.point - ScaleVec(end_tangent, 1.0 / 3.0),
+      a.point + ScaleVec(a.tangent, -control_distance),
+      b.point - ScaleVec(b.tangent, control_distance),
       b.point,
   };
 }
@@ -318,6 +338,8 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     const Vec3d chord = entry.end.endpoint_world - entry.start.endpoint_world;
     const Vec3d start_tangent = has_start_patch ? start_boundary.tangent : safe_unit(chord, fallback_dir);
     const Vec3d end_tangent = has_end_patch ? end_boundary.tangent : safe_unit(ScaleVec(chord, -1.0), fallback_dir);
+    const Vec3d start_direction = start_tangent;
+    const Vec3d end_direction = has_end_patch ? ScaleVec(end_tangent, -1.0) : safe_unit(chord, fallback_dir);
     const Vec3d start = has_start_patch ? start_boundary.point : entry.start.endpoint_world;
     const Vec3d end = has_end_patch ? end_boundary.point : entry.end.endpoint_world;
 
@@ -332,7 +354,7 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     body.boundary_b = end;
     body.tangent_a = start_tangent;
     body.tangent_b = end_tangent;
-    body.samples = edge_body_samples(start, end, settings);
+    body.samples = edge_body_samples(start, end, start_direction, end_direction, settings);
     body.bounds = curve_part_bounds(body.samples);
     if (!body.samples.empty() && finite_point(body.samples.front()) && finite_point(body.samples.back())) {
       if (const SpanRuntimeState* runtime = state.view().find_span_runtime_state(entry.span_id); runtime != nullptr) {

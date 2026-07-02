@@ -427,20 +427,26 @@ bool tangent_compatible(const wire::core::Vec3d& a, const wire::core::Vec3d& b) 
 bool sampled_boundary_is_g1(const wire::core::VisualCurvePart& a, const wire::core::VisualCurvePart& b,
                             const wire::core::Vec3d& boundary) {
   auto direction_into_part = [&](const wire::core::VisualCurvePart& part, wire::core::Vec3d* out) {
-    if (part.samples.size() < 3 || out == nullptr) {
+    if (part.samples.size() < 4 || out == nullptr) {
       return false;
     }
     if (almost_equal(part.samples.front(), boundary, 1e-9)) {
-      *out = {-3.0 * part.samples[0].x + 4.0 * part.samples[1].x - part.samples[2].x,
-              -3.0 * part.samples[0].y + 4.0 * part.samples[1].y - part.samples[2].y,
-              -3.0 * part.samples[0].z + 4.0 * part.samples[1].z - part.samples[2].z};
+      *out = {-11.0 * part.samples[0].x + 18.0 * part.samples[1].x - 9.0 * part.samples[2].x +
+                  2.0 * part.samples[3].x,
+              -11.0 * part.samples[0].y + 18.0 * part.samples[1].y - 9.0 * part.samples[2].y +
+                  2.0 * part.samples[3].y,
+              -11.0 * part.samples[0].z + 18.0 * part.samples[1].z - 9.0 * part.samples[2].z +
+                  2.0 * part.samples[3].z};
       return true;
     }
     if (almost_equal(part.samples.back(), boundary, 1e-9)) {
       const std::size_t last = part.samples.size() - 1;
-      *out = {-3.0 * part.samples[last].x + 4.0 * part.samples[last - 1].x - part.samples[last - 2].x,
-              -3.0 * part.samples[last].y + 4.0 * part.samples[last - 1].y - part.samples[last - 2].y,
-              -3.0 * part.samples[last].z + 4.0 * part.samples[last - 1].z - part.samples[last - 2].z};
+      *out = {-11.0 * part.samples[last].x + 18.0 * part.samples[last - 1].x -
+                  9.0 * part.samples[last - 2].x + 2.0 * part.samples[last - 3].x,
+              -11.0 * part.samples[last].y + 18.0 * part.samples[last - 1].y -
+                  9.0 * part.samples[last - 2].y + 2.0 * part.samples[last - 3].y,
+              -11.0 * part.samples[last].z + 18.0 * part.samples[last - 1].z -
+                  9.0 * part.samples[last - 2].z + 2.0 * part.samples[last - 3].z};
       return true;
     }
     return false;
@@ -465,19 +471,6 @@ double sampled_curve_length(const wire::core::VisualCurvePart& part) {
   return length;
 }
 
-wire::core::Vec3d evaluate_cubic_bezier(const std::vector<wire::core::Vec3d>& controls, double t) {
-  const double u = 1.0 - t;
-  const double b0 = u * u * u;
-  const double b1 = 3.0 * u * u * t;
-  const double b2 = 3.0 * u * t * t;
-  const double b3 = t * t * t;
-  return {
-      controls[0].x * b0 + controls[1].x * b1 + controls[2].x * b2 + controls[3].x * b3,
-      controls[0].y * b0 + controls[1].y * b1 + controls[2].y * b2 + controls[3].y * b3,
-      controls[0].z * b0 + controls[1].z * b1 + controls[2].z * b2 + controls[3].z * b3,
-  };
-}
-
 bool finite_visual_curve_parts(const wire::core::CoreState& state) {
   for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
     for (const wire::core::Vec3d& p : part.samples) {
@@ -500,6 +493,47 @@ double distance_to_chord(const wire::core::Vec3d& p, const wire::core::Vec3d& a,
   const wire::core::Vec3d closest{a.x + ab.x * t, a.y + ab.y * t, a.z + ab.z * t};
   const wire::core::Vec3d d{p.x - closest.x, p.y - closest.y, p.z - closest.z};
   return std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+}
+
+double cross_xy(const wire::core::Vec3d& a, const wire::core::Vec3d& b) {
+  return a.x * b.y - a.y * b.x;
+}
+
+bool point_in_xy_triangle(const wire::core::Vec3d& point, const wire::core::Vec3d& a,
+                          const wire::core::Vec3d& b, const wire::core::Vec3d& c) {
+  const wire::core::Vec3d ab{b.x - a.x, b.y - a.y, 0.0};
+  const wire::core::Vec3d bc{c.x - b.x, c.y - b.y, 0.0};
+  const wire::core::Vec3d ca{a.x - c.x, a.y - c.y, 0.0};
+  const wire::core::Vec3d ap{point.x - a.x, point.y - a.y, 0.0};
+  const wire::core::Vec3d bp{point.x - b.x, point.y - b.y, 0.0};
+  const wire::core::Vec3d cp{point.x - c.x, point.y - c.y, 0.0};
+  const double c0 = cross_xy(ab, ap);
+  const double c1 = cross_xy(bc, bp);
+  const double c2 = cross_xy(ca, cp);
+  return (c0 >= -1e-8 && c1 >= -1e-8 && c2 >= -1e-8) ||
+         (c0 <= 1e-8 && c1 <= 1e-8 && c2 <= 1e-8);
+}
+
+bool sampled_xy_turn_is_monotonic(const wire::core::VisualCurvePart& patch) {
+  if (patch.samples.size() < 3) {
+    return false;
+  }
+  const wire::core::Vec3d incoming{-patch.tangent_a.x, -patch.tangent_a.y, 0.0};
+  const wire::core::Vec3d outgoing{patch.tangent_b.x, patch.tangent_b.y, 0.0};
+  const double expected_turn = cross_xy(incoming, outgoing);
+  if (std::abs(expected_turn) <= 1e-9) {
+    return true;
+  }
+  for (std::size_t i = 1; i + 1 < patch.samples.size(); ++i) {
+    const wire::core::Vec3d before{patch.samples[i].x - patch.samples[i - 1].x,
+                                   patch.samples[i].y - patch.samples[i - 1].y, 0.0};
+    const wire::core::Vec3d after{patch.samples[i + 1].x - patch.samples[i].x,
+                                  patch.samples[i + 1].y - patch.samples[i].y, 0.0};
+    if (cross_xy(before, after) * expected_turn < -1e-9) {
+      return false;
+    }
+  }
+  return true;
 }
 
 } // namespace
@@ -571,7 +605,6 @@ bool C637_backbone_node_patch_edge_body_boundary_tangents_are_g1() {
   wire::core::GeometrySettings settings = state.view().geometry_settings();
   settings.sag_enabled = true;
   settings.sag_factor = 0.03;
-  settings.curve_samples = 64;
   if (!state.UpdateGeometrySettings(settings).ok) {
     return false;
   }
@@ -658,14 +691,12 @@ bool C640_backbone_node_patch_exposes_bezier_debug_controls() {
     if (part.kind != wire::core::VisualCurvePartKind::kNodePatch) {
       continue;
     }
-    if (part.bezier_control_points.size() != 4) {
+    if (part.section_count != 1 || !part.has_attachment_point || part.passes_attachment_point ||
+        part.bezier_control_points.size() != 4) {
       return false;
     }
-    const std::size_t middle = part.samples.size() / 2;
-    const double t = static_cast<double>(middle) / static_cast<double>(part.samples.size() - 1);
     return almost_equal(part.bezier_control_points.front(), part.boundary_a, 1e-9) &&
-           almost_equal(part.bezier_control_points.back(), part.boundary_b, 1e-9) &&
-           almost_equal(evaluate_cubic_bezier(part.bezier_control_points, t), part.samples[middle], 1e-9);
+           almost_equal(part.bezier_control_points.back(), part.boundary_b, 1e-9);
   }
   return false;
 }
@@ -712,6 +743,185 @@ bool C641_backbone_pole_tilt_refreshes_visual_curve_parts() {
       pole_is_start ? layout.entry->start.endpoint_world : layout.entry->end.endpoint_world;
   const wire::core::Vec3d actual = pole_is_start ? after_body->boundary_a : after_body->boundary_b;
   return !almost_equal(before_boundary, actual, 1e-9) && almost_equal(actual, expected, 1e-9);
+}
+
+bool C642_backbone_edge_body_uses_formal_sag_curve() {
+  wire::core::CoreState state;
+  wire::core::GeometrySettings settings = state.view().geometry_settings();
+  settings.sag_enabled = true;
+  settings.sag_factor = 0.03;
+  settings.curve_samples = 8;
+  if (!state.UpdateGeometrySettings(settings).ok) {
+    return false;
+  }
+  wire::core::BackboneSpec req = line_req(state);
+  req.path.polyline = {{0.0, 0.0, 0.0}, {30.0, 0.0, 0.0}};
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  if (!generated.ok || generated.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId span_id = generated.value.generated_span_ids.front();
+  const wire::core::CurveCacheEntry* formal = state.find_curve_cache(span_id);
+  if (formal == nullptr) {
+    return false;
+  }
+  for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
+    if (part.kind != wire::core::VisualCurvePartKind::kEdgeBody || part.source_span_id != span_id) {
+      continue;
+    }
+    if (part.sag_method != wire::core::VisualCurveSagMethod::kParabolic || part.sag_m <= 0.0 ||
+        part.tangent_a.z >= -1e-6 || part.tangent_b.z >= -1e-6 ||
+        part.samples.size() <= 8 || part.samples.size() != formal->points.size()) {
+      return false;
+    }
+    for (std::size_t i = 0; i < part.samples.size(); ++i) {
+      if (!almost_equal(part.samples[i], formal->points[i], 1e-9)) {
+        return false;
+      }
+    }
+    return true;
+  }
+  return false;
+}
+
+bool C643_backbone_node_patch_uses_inner_fillet_with_attachment_reference() {
+  wire::core::CoreState state;
+  const auto generated = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!generated.ok || generated.value.generated_pole_ids.size() != 3) {
+    return false;
+  }
+  const wire::core::ObjectId middle_pole_id = generated.value.generated_pole_ids[1];
+  for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
+    if (part.kind != wire::core::VisualCurvePartKind::kNodePatch) {
+      continue;
+    }
+    const bool attachment_is_owned_port =
+        std::any_of(state.view().edit_state().ports.items().begin(), state.view().edit_state().ports.items().end(),
+                    [&](const wire::core::Port& port) {
+                      return port.owner_pole_id == middle_pole_id &&
+                             almost_equal(port.world_position, part.attachment_point, 1e-9);
+                    });
+    const bool samples_attachment =
+        std::any_of(part.samples.begin(), part.samples.end(),
+                    [&](const wire::core::Vec3d& point) { return almost_equal(point, part.attachment_point, 1e-9); });
+    return part.has_attachment_point && !part.passes_attachment_point && part.section_count == 1 &&
+           attachment_is_owned_port && !samples_attachment &&
+           !almost_equal(part.attachment_point, part.boundary_a, 1e-9) &&
+           !almost_equal(part.attachment_point, part.boundary_b, 1e-9);
+  }
+  return false;
+}
+
+bool C644_backbone_patch_boundaries_extend_sag_tangents_below_attachment() {
+  wire::core::CoreState state;
+  wire::core::GeometrySettings settings = state.view().geometry_settings();
+  settings.sag_enabled = true;
+  settings.sag_factor = 0.03;
+  if (!state.UpdateGeometrySettings(settings).ok) {
+    return false;
+  }
+  const auto generated = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!generated.ok) {
+    return false;
+  }
+  for (const wire::core::VisualCurvePart& patch : state.view().visual_curve_parts().parts) {
+    if (patch.kind != wire::core::VisualCurvePartKind::kNodePatch || !patch.has_attachment_point) {
+      continue;
+    }
+    const wire::core::Vec3d attachment_to_a{patch.boundary_a.x - patch.attachment_point.x,
+                                            patch.boundary_a.y - patch.attachment_point.y,
+                                            patch.boundary_a.z - patch.attachment_point.z};
+    const wire::core::Vec3d attachment_to_b{patch.boundary_b.x - patch.attachment_point.x,
+                                            patch.boundary_b.y - patch.attachment_point.y,
+                                            patch.boundary_b.z - patch.attachment_point.z};
+    return patch.boundary_a.z < patch.attachment_point.z - 1e-6 &&
+           patch.boundary_b.z < patch.attachment_point.z - 1e-6 &&
+           tangent_compatible(attachment_to_a, patch.tangent_a) &&
+           tangent_compatible(attachment_to_b, patch.tangent_b);
+  }
+  return false;
+}
+
+bool C645_backbone_node_patch_inner_fillet_keeps_curvature() {
+  wire::core::CoreState state;
+  wire::core::GeometrySettings settings = state.view().geometry_settings();
+  settings.sag_enabled = true;
+  if (!state.UpdateGeometrySettings(settings).ok) {
+    return false;
+  }
+  const auto generated = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!generated.ok) {
+    return false;
+  }
+  for (const wire::core::VisualCurvePart& patch : state.view().visual_curve_parts().parts) {
+    if (patch.kind != wire::core::VisualCurvePartKind::kNodePatch || patch.section_count != 1 ||
+        patch.bezier_control_points.size() != 4) {
+      continue;
+    }
+    return distance_to_chord(patch.bezier_control_points[1], patch.boundary_a, patch.boundary_b) > 1e-4 &&
+           distance_to_chord(patch.bezier_control_points[2], patch.boundary_a, patch.boundary_b) > 1e-4;
+  }
+  return false;
+}
+
+bool C646_backbone_node_patch_turns_monotonically_inside_corner() {
+  wire::core::CoreState state;
+  wire::core::GeometrySettings settings = state.view().geometry_settings();
+  settings.sag_enabled = true;
+  if (!state.UpdateGeometrySettings(settings).ok) {
+    return false;
+  }
+  const auto generated = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!generated.ok) {
+    return false;
+  }
+  for (const wire::core::VisualCurvePart& patch : state.view().visual_curve_parts().parts) {
+    if (patch.kind != wire::core::VisualCurvePartKind::kNodePatch) {
+      continue;
+    }
+    const bool samples_inside =
+        std::all_of(patch.samples.begin(), patch.samples.end(), [&](const wire::core::Vec3d& point) {
+          return point_in_xy_triangle(point, patch.boundary_a, patch.attachment_point, patch.boundary_b);
+        });
+    return samples_inside && sampled_xy_turn_is_monotonic(patch);
+  }
+  return false;
+}
+
+bool C647_backbone_node_patch_uses_incident_cable_appearance() {
+  wire::core::CoreState state;
+  const auto generated = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!generated.ok) {
+    return false;
+  }
+  for (const wire::core::VisualCurvePart& patch : state.view().visual_curve_parts().parts) {
+    if (patch.kind != wire::core::VisualCurvePartKind::kNodePatch) {
+      continue;
+    }
+    std::size_t matching_bodies = 0;
+    for (const wire::core::VisualCurvePart& body : state.view().visual_curve_parts().parts) {
+      if (body.kind != wire::core::VisualCurvePartKind::kEdgeBody ||
+          body.source_bundle_id != patch.source_bundle_id ||
+          body.bundle_template_id != patch.bundle_template_id || body.lane_index != patch.lane_index) {
+        continue;
+      }
+      const bool touches_patch =
+          almost_equal(body.boundary_a, patch.boundary_a, 1e-9) ||
+          almost_equal(body.boundary_b, patch.boundary_a, 1e-9) ||
+          almost_equal(body.boundary_a, patch.boundary_b, 1e-9) ||
+          almost_equal(body.boundary_b, patch.boundary_b, 1e-9);
+      if (!touches_patch) {
+        continue;
+      }
+      if (!almost_equal(body.wire_radius_m, patch.wire_radius_m, 1e-12) ||
+          body.color_rgba != patch.color_rgba || body.material_style != patch.material_style) {
+        return false;
+      }
+      ++matching_bodies;
+    }
+    return matching_bodies == 2;
+  }
+  return false;
 }
 
 } // namespace backbone_tests

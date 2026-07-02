@@ -37,7 +37,8 @@ AABBd box(const std::vector<Vec3d>& pts) {
 
 } // namespace
 
-EditResult<DetailCurve> make_curve(const CoreState& state, ObjectId span_id, const SpanLayoutEntry& layout) {
+EditResult<DetailCurve> make_curve_between(const CoreState& state, ObjectId span_id, const Vec3d& start,
+                                          const Vec3d& end) {
   EditResult<DetailCurve> result{};
   const GeometrySettings& settings = state.view().geometry_settings();
 
@@ -59,12 +60,12 @@ EditResult<DetailCurve> make_curve(const CoreState& state, ObjectId span_id, con
   }
   sag_ratio = std::max(0.0, sag_ratio);
 
-  const Vec3d chord = layout.end.endpoint_world - layout.start.endpoint_world;
+  const Vec3d chord = end - start;
   const double chord_length = Length(chord);
   const Vec3d tangent = chord_length > 1e-9 ? ScaleVec(chord, 1.0 / chord_length) : Vec3d{1.0, 0.0, 0.0};
   geometry::curve::CableCurveInput input{};
-  input.start = layout.start.endpoint_world;
-  input.end = layout.end.endpoint_world;
+  input.start = start;
+  input.end = end;
   input.start_tangent_hint = tangent;
   input.end_tangent_hint = tangent;
   input.gravity_dir = {0.0, 0.0, -1.0};
@@ -78,7 +79,7 @@ EditResult<DetailCurve> make_curve(const CoreState& state, ObjectId span_id, con
   input.radius_m = radius_m;
   input.family = geometry::curve::CurveFamily::kMainSpan;
   input.method = geometry::curve::CurveMethod::kParabolicSag;
-  input.tessellation.max_segments =
+  input.tessellation.min_segments =
       std::max(input.tessellation.min_segments, static_cast<std::size_t>(std::max(2, settings.curve_samples) - 1));
   const EditResult<geometry::curve::CableCurveOutput> built = geometry::curve::BuildCableCurve(input);
   if (!built.ok) {
@@ -88,6 +89,10 @@ EditResult<DetailCurve> make_curve(const CoreState& state, ObjectId span_id, con
   result.value = geometry::curve::ToDetailCurve(input, built.value);
   result.ok = true;
   return result;
+}
+
+EditResult<DetailCurve> make_curve(const CoreState& state, ObjectId span_id, const SpanLayoutEntry& layout) {
+  return make_curve_between(state, span_id, layout.start.endpoint_world, layout.end.endpoint_world);
 }
 
 BoundsCacheEntry bounds(const DetailCurve& curve, std::uint64_t source_version) {

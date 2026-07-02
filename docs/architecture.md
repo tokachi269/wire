@@ -107,7 +107,8 @@ cable centerlineの正本はBezier制御点ではなく、attachment endpoint、
 canonical direction、curve familyである。`core/src/geometry/curve`がこの意味入力からsample、arc length、
 frame、boundsを生成し、具体的な計算方式は`CurveMethod`で差し替える。
 
-main spanの既定方式はparabolic sagとし、中心線へ横揺れnoiseを入れない。
+main spanの既定方式はparabolic sagとし、支持点でsag勾配を持つ実接線を維持する。
+端点微分が0になるdecorative offsetをmain cable centerlineへ使わない。中心線へ横揺れnoiseを入れない。
 bundle lane、band、helix、noiseは安定したcenterlineとcanonical direction基準frameからvisual layerで展開する。
 G2接続は現時点の必須条件ではない。support/insulator leadとjumperはmain spanとは別のcurve familyとして扱い、
 未対応familyは別方式へsilent fallbackせず明示的に拒否する。
@@ -117,7 +118,12 @@ sample polyline上でG1が崩れやすく、main spanから接続部へ不自然
 
 現在は派生debug/cacheとして`VisualCurvePart`を持ち、最小単位を`NodePatchCurve`と`EdgeBodyCurve`へ分ける。
 terminal endpointには`NodePatchCurve`を作らない。simpleな2-edge continuous nodeだけ、node / bundle template /
-lane単位で`NodePatchCurve`を作り、その外側を`EdgeBodyCurve`が結ぶ。branch/multi-edgeやfixture境界は、明示的な
+lane単位で`NodePatchCurve`を作る。main cable patchはattachmentを通過せず、incoming/outgoing boundary間を
+turn内側で単調に結ぶ1区間filletとする。境界では`EdgeBodyCurve`のparabolic sag実接線とG1接続する。
+attachmentは参照として保持し、insulator/clampへの接続は将来の別`LeadCurve`が所有する。
+`EdgeBodyCurve`は正式`CableCurve`とadaptive
+tessellationを共有する。attachmentは動かさず、boundaryはmain spanの外向き実接線を所定の水平距離まで
+延長した位置へ置く。短いspanでは水平距離をspan長の25%以下に制限する。branch/multi-edgeやfixture境界は、明示的な
 fixture/lead/jumper仕様が入るまでpatchを推測しない。
 
 `NodePatchCurve`と`EdgeBodyCurve`はtopology正本ではない。source node / edge / span / bundle / lane、boundary point、

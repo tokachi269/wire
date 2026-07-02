@@ -105,6 +105,11 @@ enum class NodePatchClassification : std::uint8_t {
   kFixtureBoundaryUnsupported = 4,
 };
 
+enum class VisualCurveSagMethod : std::uint8_t {
+  kNone = 0,
+  kParabolic = 1,
+};
+
 struct VisualCurvePart {
   VisualCurvePartKind kind = VisualCurvePartKind::kEdgeBody;
   NodePatchClassification node_patch_classification = NodePatchClassification::kNone;
@@ -119,6 +124,16 @@ struct VisualCurvePart {
   Vec3d boundary_b{};
   Vec3d tangent_a{};
   Vec3d tangent_b{};
+  Vec3d attachment_point{};
+  bool has_attachment_point = false;
+  bool passes_attachment_point = false;
+  bool has_explicit_attachment_orientation = false;
+  std::size_t section_count = 1;
+  VisualCurveSagMethod sag_method = VisualCurveSagMethod::kNone;
+  double sag_m = 0.0;
+  double wire_radius_m = 0.015;
+  std::uint32_t color_rgba = 0xFFFFFFFFu;
+  CableMaterialStyleKind material_style = CableMaterialStyleKind::kGeneric;
   std::vector<Vec3d> bezier_control_points{};
   std::vector<Vec3d> samples{};
   AABBd bounds{};

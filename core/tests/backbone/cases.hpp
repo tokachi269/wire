@@ -271,5 +271,11 @@ bool C638_backbone_visual_curve_parts_are_finite();
 bool C639_backbone_node_patch_curve_is_not_straight_chord();
 bool C640_backbone_node_patch_exposes_bezier_debug_controls();
 bool C641_backbone_pole_tilt_refreshes_visual_curve_parts();
+bool C642_backbone_edge_body_uses_formal_sag_curve();
+bool C643_backbone_node_patch_uses_inner_fillet_with_attachment_reference();
+bool C644_backbone_patch_boundaries_extend_sag_tangents_below_attachment();
+bool C645_backbone_node_patch_inner_fillet_keeps_curvature();
+bool C646_backbone_node_patch_turns_monotonically_inside_corner();
+bool C647_backbone_node_patch_uses_incident_cable_appearance();
 
 } // namespace backbone_tests

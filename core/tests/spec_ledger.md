@@ -358,6 +358,12 @@
 | C639 | Boundary | backbone | NodePatchCurve は直線 chord ではない | 3点 backbone route | GenerateFromBackboneSpec | Boundary: simple continuous patch は折れ線や straight chord ではなく local curve samples を持つ | VisualCurvePart samples / boundary | 接続部の丸みが消え、patch が debug 名だけの折れ線に戻る回帰防止 |
 | C640 | Boundary | backbone | NodePatchCurve の Bezier debug controls を観測できる | 3点 backbone route | GenerateFromBackboneSpec | Boundary: Bezier 制御点は topology 正本ではなく visual debug 用の派生情報として観測可能にする | VisualCurvePart bezier_control_points | 見た目違和感の調査で viewer 側が推測や補正を始める回帰防止 |
 | C641 | Boundary | backbone | Pole tilt 後も visual curve parts が所有 endpoint に追従する | 2点 backbone route + generated pole | ApplyPoleTilt | Boundary: layout endpoint と EdgeBodyCurve boundary が同時に移動して一致する | span_layout / visual_curve_parts | direct derive 後に古い curve part cache を残さない |
+| C642 | Boundary | backbone | EdgeBodyCurve は正式 sag curve を共有する | 30m 2点 route + sag | GenerateFromBackboneSpec | Boundary: support tangent は非水平で、sample列は formal curve と一致し、長さに応じて8点を超える | curve_cache / visual_curve_parts | quartic sag 二重実装と固定8 sampleへの回帰防止 |
+| C643 | Boundary | backbone | NodePatchCurve はattachment参照を保持した内側fillet | 3点 route | GenerateFromBackboneSpec | Boundary: attachmentはmiddle pole所有portとして保持するがmain cable sampleは通過しない | ports / visual_curve_parts | attachment通過制約による外振りへの回帰防止 |
+| C644 | Boundary | backbone | patch boundary は main sag実接線の延長上でattachmentより下がる | 3点 route + sag | GenerateFromBackboneSpec | Boundary: attachmentは固定し、両boundaryは外向き実接線方向へ水平距離ぶん延長される | visual_curve_parts | attachmentと同高の水平patchや固定down offsetへの回帰防止 |
+| C645 | Boundary | backbone | NodePatch内側filletは局所曲率を維持する | 3点 route + sag | GenerateFromBackboneSpec | Boundary: 1区間cubicの両controlはboundary chordから離れる | visual_curve_parts controls | filletがstraight chordへ退化する回帰防止 |
+| C646 | Boundary | backbone | NodePatchはturn内側で単調に曲がる | 3点 route + sag | GenerateFromBackboneSpec | Boundary: sampleはboundary-attachment三角形内に留まり、接線回転符号が反転しない | visual_curve_parts samples | 左折前に右へ外振りする回帰防止 |
+| C647 | Boundary | backbone | NodePatchはincident cableのappearanceを使う | 3点 route | GenerateFromBackboneSpec | Boundary: node-owned patchは架空のspan ownershipを持たず、接続するEdgeBodyと半径・色・material styleが一致する | visual_curve_parts appearance | source_span_idを持たないpatchだけviewer既定の太さ・色へ落ちる回帰防止 |
 
 ## Retired old-pipeline checks
 - Old cases 365-367 were removed from the registered suite. They pinned the transitional `BackboneBuilder` / support-layout authority seed / materialization surface instead of the backbone mainline.

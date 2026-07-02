@@ -372,15 +372,10 @@ void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
     if (part.samples.size() < 2) {
       continue;
     }
-    float wire_radius = 0.01f;
-    Color wire_color = ViewerWireColor(DARKGRAY);
+    float wire_radius = static_cast<float>(std::max(0.0005, part.wire_radius_m));
+    Color wire_color = ViewerWireColor(ColorFromRgba(part.color_rgba));
     if (part.source_span_id != wire::core::kInvalidObjectId) {
       const wire::core::Span* part_span = edit.spans.find(part.source_span_id);
-      if (const wire::core::SpanRenderCacheEntry* render = view.find_span_render_cache(part.source_span_id);
-          render != nullptr) {
-        wire_radius = static_cast<float>(std::max(0.0005, render->wire_radius_m));
-        wire_color = ViewerWireColor(ColorFromRgba(render->color_rgba));
-      }
       const auto part_layout_view = view.span_layout(part.source_span_id);
       const wire::core::BackboneFlowKind part_flow_kind =
           (!part_layout_view.has_layout()) ? wire::core::BackboneFlowKind::kMain : part_layout_view.entry->flow_kind;

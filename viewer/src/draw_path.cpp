@@ -1352,6 +1352,21 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
         << "\n";
     ofs << prefix << ".tangent_b=" << part.tangent_b.x << "," << part.tangent_b.y << "," << part.tangent_b.z
         << "\n";
+    ofs << prefix << ".sag_method="
+        << (part.sag_method == wire::core::VisualCurveSagMethod::kParabolic ? "parabolic" : "none") << "\n";
+    ofs << prefix << ".sag_m=" << part.sag_m << "\n";
+    ofs << prefix << ".wire_radius_m=" << part.wire_radius_m << "\n";
+    ofs << prefix << ".color_rgba=" << part.color_rgba << "\n";
+    ofs << prefix << ".material_style=" << static_cast<int>(part.material_style) << "\n";
+    ofs << prefix << ".section_count=" << part.section_count << "\n";
+    ofs << prefix << ".has_attachment_point=" << (part.has_attachment_point ? 1 : 0) << "\n";
+    ofs << prefix << ".passes_attachment_point=" << (part.passes_attachment_point ? 1 : 0) << "\n";
+    if (part.has_attachment_point) {
+      ofs << prefix << ".attachment_point=" << part.attachment_point.x << "," << part.attachment_point.y << ","
+          << part.attachment_point.z << "\n";
+    }
+    ofs << prefix << ".has_explicit_attachment_orientation="
+        << (part.has_explicit_attachment_orientation ? 1 : 0) << "\n";
     ofs << prefix << ".bezier_control_count=" << part.bezier_control_points.size() << "\n";
     for (std::size_t control_index = 0; control_index < part.bezier_control_points.size(); ++control_index) {
       const wire::core::Vec3d& control = part.bezier_control_points[control_index];

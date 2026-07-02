@@ -780,6 +780,24 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C641_backbone_pole_tilt_refreshes_visual_curve_parts",
                          "backbone pole tilt refreshes visual curve parts from moved endpoints", "Boundary", false,
                          C641_backbone_pole_tilt_refreshes_visual_curve_parts);
+  test_registry::AddTest(tests, "C642_backbone_edge_body_uses_formal_sag_curve",
+                         "backbone edge body shares formal sag samples and non-horizontal support tangents",
+                         "Boundary", false, C642_backbone_edge_body_uses_formal_sag_curve);
+  test_registry::AddTest(tests, "C643_backbone_node_patch_uses_inner_fillet_with_attachment_reference",
+                         "backbone node patch uses an inner fillet while retaining attachment reference", "Boundary",
+                         false, C643_backbone_node_patch_uses_inner_fillet_with_attachment_reference);
+  test_registry::AddTest(tests, "C644_backbone_patch_boundaries_extend_sag_tangents_below_attachment",
+                         "backbone patch boundaries extend main sag tangents below fixed attachments", "Boundary",
+                         false, C644_backbone_patch_boundaries_extend_sag_tangents_below_attachment);
+  test_registry::AddTest(tests, "C645_backbone_node_patch_inner_fillet_keeps_curvature",
+                         "backbone node patch inner fillet keeps local curvature", "Boundary", false,
+                         C645_backbone_node_patch_inner_fillet_keeps_curvature);
+  test_registry::AddTest(tests, "C646_backbone_node_patch_turns_monotonically_inside_corner",
+                         "backbone node patch turns monotonically inside the corner", "Boundary", false,
+                         C646_backbone_node_patch_turns_monotonically_inside_corner);
+  test_registry::AddTest(tests, "C647_backbone_node_patch_uses_incident_cable_appearance",
+                         "backbone node patch uses the same cable appearance as incident edge bodies", "Boundary",
+                         false, C647_backbone_node_patch_uses_incident_cable_appearance);
 }
 
 

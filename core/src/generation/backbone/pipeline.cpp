@@ -2199,7 +2199,6 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
 
 rules pipeline::make(const topo& made, const groups& placement) const {
   rules out{};
-  const EditState& edit = state_.view().edit_state();
   auto group_for = [&](std::size_t row, std::size_t bundle) -> const group* {
     for (const group& item : placement.items) {
       for (const group_member& member : item.row_members) {
@@ -2209,58 +2208,6 @@ rules pipeline::make(const topo& made, const groups& placement) const {
       }
     }
     return nullptr;
-  };
-  auto port_position = [&](const tspan& span, bool start) -> const Vec3d* {
-    const std::size_t row_id = start ? span.arow : span.brow;
-    if (row_id >= made.rows.size() || span.bundle >= made.rows[row_id].ports.size() ||
-        span.lane >= made.rows[row_id].ports[span.bundle].size()) {
-      return nullptr;
-    }
-    const Port* port = edit.ports.find(made.rows[row_id].ports[span.bundle][span.lane]);
-    return port == nullptr ? nullptr : &port->world_position;
-  };
-  auto adjacent_span = [&](const tspan& span, bool previous) -> const tspan* {
-    if (span.link >= g_.links.size()) {
-      return nullptr;
-    }
-    const link& edge = g_.links[span.link];
-    for (const tspan& candidate : made.spans) {
-      if (candidate.id == span.id || candidate.bundle != span.bundle || candidate.lane != span.lane ||
-          candidate.link >= g_.links.size()) {
-        continue;
-      }
-      const link& other = g_.links[candidate.link];
-      const bool order_match =
-          previous ? other.order + 1 == edge.order : edge.order + 1 == other.order;
-      const bool node_match = previous ? other.b == edge.a : edge.b == other.a;
-      if (other.route == edge.route && order_match && node_match) {
-        return &candidate;
-      }
-    }
-    return nullptr;
-  };
-  auto tangent_for = [&](const tspan& span, bool start, bool fixture_boundary) {
-    const Vec3d* current_start = port_position(span, true);
-    const Vec3d* current_end = port_position(span, false);
-    if (current_start == nullptr || current_end == nullptr) {
-      return Vec3d{};
-    }
-    Vec3d tangent = *current_end - *current_start;
-    if (!fixture_boundary) {
-      if (start) {
-        if (const tspan* previous = adjacent_span(span, true); previous != nullptr) {
-          if (const Vec3d* previous_start = port_position(*previous, true); previous_start != nullptr) {
-            tangent = *current_end - *previous_start;
-          }
-        }
-      } else if (const tspan* next = adjacent_span(span, false); next != nullptr) {
-        if (const Vec3d* next_end = port_position(*next, false); next_end != nullptr) {
-          tangent = *next_end - *current_start;
-        }
-      }
-    }
-    Normalize(&tangent);
-    return tangent;
   };
   for (const tspan& span : made.spans) {
     const trow& arow = made.rows[span.arow];
@@ -2276,13 +2223,10 @@ rules pipeline::make(const topo& made, const groups& placement) const {
       rule.pass_mode = CurvePassMode::kBranch;
       rule.lowering_kind = BackboneLoweringKind::kBranchSupport;
     }
-    auto endpoint = [&](ObjectId pole_id, ObjectId port_id, const Vec3d& tangent,
-                        CableEndpointBoundary boundary) {
+    auto endpoint = [&](ObjectId pole_id, ObjectId port_id) {
       EndpointLayoutRule e{};
       e.endpoint_node_id = pole_id;
       e.port_id = port_id;
-      e.tangent_dir = tangent;
-      e.cable_boundary = boundary;
       e.semantic.owner_pole_id = pole_id;
       e.flow_kind = BackboneFlowKind::kMain;
       e.origin = LayoutOriginKind::kMainSupport;
@@ -2293,20 +2237,8 @@ rules pipeline::make(const topo& made, const groups& placement) const {
       e.same_level_feasible = true;
       return e;
     };
-    const CableEndpointBoundary start_boundary = start_group != nullptr
-                                                     ? CableEndpointBoundary::kFixture
-                                                     : (adjacent_span(span, true) != nullptr
-                                                            ? CableEndpointBoundary::kContinuous
-                                                            : CableEndpointBoundary::kDirect);
-    const CableEndpointBoundary end_boundary = end_group != nullptr
-                                                   ? CableEndpointBoundary::kFixture
-                                                   : (adjacent_span(span, false) != nullptr
-                                                          ? CableEndpointBoundary::kContinuous
-                                                          : CableEndpointBoundary::kDirect);
-    rule.start = endpoint(arow.pole, arow.ports[span.bundle][span.lane],
-                          tangent_for(span, true, start_group != nullptr), start_boundary);
-    rule.end = endpoint(brow.pole, brow.ports[span.bundle][span.lane],
-                        tangent_for(span, false, end_group != nullptr), end_boundary);
+    rule.start = endpoint(arow.pole, arow.ports[span.bundle][span.lane]);
+    rule.end = endpoint(brow.pole, brow.ports[span.bundle][span.lane]);
     auto apply_group = [](const group* source, EndpointLayoutRule* endpoint) {
       if (source == nullptr || endpoint == nullptr) {
         return;

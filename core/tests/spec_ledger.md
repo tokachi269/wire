@@ -350,18 +350,6 @@
 | C631 | Invariant | geometry | reverse traversalでもcanonical lateral frameを維持する | 同一edgeをforward/reverseで生成 | BuildCableCurve | 対応sampleのposition/binormalが一致 | CableCurveSample | save/loadやedge traversal反転でlane左右が反転する回帰防止 |
 | C632 | Invariant | geometry | tessellationはlength/sagに応じる | short/long/high-sag input | ResolveSegmentCount | longまたはhigh-sagでsegment数増加、policy範囲内 | TessellationPolicy | caller固定sample countへの逆戻り防止 |
 | C633 | Invariant | geometry | zero-length/vertical curveを決定的に処理する | degenerate/vertical/unknown method | BuildCableCurve | finite deterministic frame、unknown methodは明示reject | CableCurveOutput / EditResult | near-world-up fallback不定・silent method fallback防止 |
-| C634 | Invariant | geometry | Hermite sagはendpoint tangentを壊さない | distinct start/end tangent + sag | BuildCableCurve | endpoint位置と接線が入力に一致 | CableCurveOutput / DetailCurve adapter | span内sagを加えてrun接続点のG1を壊す回帰防止 |
-| C635 | Invariant | backbone | continuous run内はG1相当で接続する | 同一bundle/laneの3点route | GenerateFromBackboneSpec | 前span終端と次span始端の保存接線・curve接線が一致 | EndpointLayoutRule / SpanLayoutEntry / DetailCurve | span単位の独立sagへ戻り内部nodeで折れる回帰防止 |
-| C636 | Invariant | backbone | fixture boundaryはcontext runへG1接続しない | HV routeへlowered branch追加 | GenerateFromBackboneSpec | lowered endpointはbranch自身のchord接線を持つ | support group / EndpointLayoutRule | insulator/clamp相当の物理境界をcontinuous runとして誤結合する回帰防止 |
-| C637 | Invariant | geometry | attachment/main/plan-viewの曲率役割を分離する | angled endpoint + long sagging span | BuildCableCurve | attachment曲率はmainより高く局所化、main横揺れなし、plan deviation上限内 | CableRunShape / AttachmentRegion | span全体を1本のover-smooth curveで丸める回帰防止 |
-| C638 | Invariant | geometry | short piecewise spanはloopしない | blend長より短いspan + opposing lateral hints | BuildCableCurve | finite、arc/projection単調、endpoint exact | CableRunShape | blend領域が重なってloop/NaNを作る回帰防止 |
-| C639 | Invariant | geometry | 複数cable memberはrun parameterizationを共有する | messenger/conductor offset profiles | ExpandCableMember | sample count/arc length共通、member offsetでbase run不変 | CableRunShape / CableMemberShape | memberごとに独立curveを再計算してdriftする回帰防止 |
-
-| C640 | Invariant | geometry | direct endpoint は attachment blend を持たない | direct start/end + angled tangent hints | BuildCableCurve | start/end blend length は 0、attachment region は空、全sampleはmain | CableEndpointBoundary / CableRunShape | route端点や隣接なし端点に fake attachment blend が入る回帰防止 |
-| C641 | Invariant | geometry | continuous endpoint は局所bend sampleを持つ | continuous start + direct end + angled tangent | BuildCableCurve | start側だけblendし、bend region内に内部sampleを複数持つ | CableEndpointBoundary / CableCurveSample.region | bend数式はあるがviewer polylineでは直線に見える undersampling 回帰防止 |
-| C642 | Invariant | geometry | short span はblendでmain spanを失わない | 約1.4m span + continuous両端 | BuildCableCurve | 各blendはspan長比率内、合計blendは過大でなくmain sampleが残る | CableCurveProfile / CableRunShape | 短いspanが両端0.56m blendでmain spanほぼ消失する回帰防止 |
-| C643 | Invariant | geometry | nearly straight continuous endpoint は誇張bendを作らない | 微小角度のcontinuous endpoint | BuildCableCurve | blend length 0、attachment region空 | CableCurveProfile.nearly_straight_angle_rad | ほぼ直線の通過点に視認できる不要bendを作る回帰防止 |
-| C644 | Invariant | geometry | explicit orientationなしfixtureはblendを推測しない | fixture boundary + angled tangent hint | BuildCableCurve | fixtureでも明示orientationなしならblend length 0、attachment region空 | CableEndpointBoundary::kFixture | pole/supportに付いているだけでfixture向きを推測してmain cableを曲げる回帰防止 |
 
 ## Retired old-pipeline checks
 - Old cases 365-367 were removed from the registered suite. They pinned the transitional `BackboneBuilder` / support-layout authority seed / materialization surface instead of the backbone mainline.

@@ -15,23 +15,6 @@ enum class CurveEndpointMode : std::uint8_t {
   kOffsetEndpoint = 1,
 };
 
-enum class CableEndpointBoundary : std::uint8_t {
-  kDirect = 0,
-  kContinuous = 1,
-  kFixture = 2,
-};
-
-enum class CableCurveSampleRegion : std::uint8_t {
-  kStartAttachment = 0,
-  kMainSpan = 1,
-  kEndAttachment = 2,
-};
-
-enum class CableCurveMethodDebug : std::uint8_t {
-  kParabolicSag = 0,
-  kCubicHermiteSag = 1,
-};
-
 enum class CurvePassMode : std::uint8_t {
   kPassThrough = 0,
   kBranch = 1,
@@ -178,15 +161,9 @@ struct DetailCurve {
   CurveConstraint end_constraint{};
   std::array<Vec3d, 4> control_points{};
   std::vector<DetailCurveSegment> segments{};
-  CableCurveMethodDebug method_debug = CableCurveMethodDebug::kParabolicSag;
-  CableEndpointBoundary start_boundary = CableEndpointBoundary::kDirect;
-  CableEndpointBoundary end_boundary = CableEndpointBoundary::kDirect;
-  double start_blend_length_m = 0.0;
-  double end_blend_length_m = 0.0;
   double sag_amplitude_m = 0.0;
   DetailCurveSagApplication sag_application = DetailCurveSagApplication::kSeparateProfile;
   std::vector<Vec3d> sample_points{};
-  std::vector<CableCurveSampleRegion> sample_regions{};
   std::vector<CurveLengthSample> arc_length_table{};
   std::vector<CurveLengthInterval> visible_intervals{};
   std::vector<CurveLengthInterval> hidden_intervals{};

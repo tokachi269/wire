@@ -107,25 +107,17 @@ cable centerlineの正本はBezier制御点ではなく、attachment endpoint、
 canonical direction、curve familyである。`core/src/geometry/curve`がこの意味入力からsample、arc length、
 frame、boundsを生成し、具体的な計算方式は`CurveMethod`で差し替える。
 
-main spanは同一bundle/lane/routeの隣接spanをcontinuous runとして扱い、内部nodeの接線を前後の
-attachment位置から解決する。現状productionはspanごとにcurveを生成するが、endpoint boundaryと隣接接線を
-`SpanLayoutEntry`から渡してG1相当を保つ。G2の曲率連続までは要求しない。
-
-endpoint boundaryは`Direct`、`Continuous`、`Fixture`に分ける。`Direct`はroute端や隣接same-run spanがない端点で、
-attachment blendを使わず直接つなぐ。`Continuous`だけが隣接span方向からplan-view bendを局所的に使える。
-`Fixture`はinsulator、clamp、jumper、leadなど物理的に別部品となる境界だが、明示orientationがないmain cableでは
-fixture向きを推測せずblendしない。
-
-curveはstart blend / main span / end blendへ分ける。blend長は固定1mではなく、角度、span長、bend radius、
-最大span比率から局所的に決める。main spanは重力・張力由来のゆったりしたsagだけを持ち、上面視のmain spanは
-基本直線とし、中心線へ横揺れnoiseを入れない。曲がるregionにはsampleを追加し、viewerのpolyline描画でも曲率が
-見えるようにする。
-
-`CableRunShape`はsample、arc length、stable frame、attachment regionを一度だけ生成する。
-messenger、conductor、sheathなど複数memberは同じrun shapeからframe offsetで展開し、独立curveを再計算しない。
-bundle lane、band、helix、noiseも安定したcenterlineとcanonical direction基準frameからvisual layerで展開する。
-support/insulator leadとjumperはmain spanとは別のcurve familyとして扱い、
+main spanの既定方式はparabolic sagとし、中心線へ横揺れnoiseを入れない。
+bundle lane、band、helix、noiseは安定したcenterlineとcanonical direction基準frameからvisual layerで展開する。
+G2接続は現時点の必須条件ではない。support/insulator leadとjumperはmain spanとは別のcurve familyとして扱い、
 未対応familyは別方式へsilent fallbackせず明示的に拒否する。
+
+span-local attachment blend方式は採用しない。continuousな本線接続部を各span端に個別に押し込むと、
+sample polyline上でG1が崩れやすく、main spanから接続部へ不自然に切り替わる。terminal endpointには
+接続部curveを作らず、continuous endpointもfixtureとして扱わない。次の候補は、junction周辺の
+`NodePatchCurve`、その外側を結ぶ`EdgeBodyCurve`、fixture/lead/jumper用の別curveを分ける方式である。
+ただし長いrun全体を毎回正本として再計算する方式にはせず、dirty node + incident edge + 必要な1-hop程度の
+更新範囲に抑える。
 
 ## wire domain境界
 

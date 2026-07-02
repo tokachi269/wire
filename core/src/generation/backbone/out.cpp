@@ -65,10 +65,8 @@ EditResult<DetailCurve> make_curve(const CoreState& state, ObjectId span_id, con
   geometry::curve::CableCurveInput input{};
   input.start = layout.start.endpoint_world;
   input.end = layout.end.endpoint_world;
-  input.start_tangent_hint = Length(layout.start.departure_dir) > 1e-9 ? layout.start.departure_dir : tangent;
-  input.end_tangent_hint = Length(layout.end.departure_dir) > 1e-9 ? layout.end.departure_dir : tangent;
-  input.start_boundary = layout.start.cable_boundary;
-  input.end_boundary = layout.end.cable_boundary;
+  input.start_tangent_hint = tangent;
+  input.end_tangent_hint = tangent;
   input.gravity_dir = {0.0, 0.0, -1.0};
   input.canonical_dir = tangent;
   const BackboneFrontier frontier = state.view().span_frontier(span_id);
@@ -79,7 +77,7 @@ EditResult<DetailCurve> make_curve(const CoreState& state, ObjectId span_id, con
   input.sag_m = settings.sag_enabled ? sag_ratio * chord_length : 0.0;
   input.radius_m = radius_m;
   input.family = geometry::curve::CurveFamily::kMainSpan;
-  input.method = geometry::curve::CurveMethod::kCubicHermiteSag;
+  input.method = geometry::curve::CurveMethod::kParabolicSag;
   input.tessellation.max_segments =
       std::max(input.tessellation.min_segments, static_cast<std::size_t>(std::max(2, settings.curve_samples) - 1));
   const EditResult<geometry::curve::CableCurveOutput> built = geometry::curve::BuildCableCurve(input);

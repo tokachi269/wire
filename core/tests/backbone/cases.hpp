@@ -268,5 +268,6 @@ bool C635_backbone_simple_continuous_node_creates_node_patch_curve();
 bool C636_backbone_edge_body_stops_at_node_patch_boundaries();
 bool C637_backbone_node_patch_edge_body_boundary_tangents_are_g1();
 bool C638_backbone_visual_curve_parts_are_finite();
+bool C639_backbone_node_patch_curve_is_not_straight_chord();
 
 } // namespace backbone_tests

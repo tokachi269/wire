@@ -771,6 +771,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C638_backbone_visual_curve_parts_are_finite",
                          "backbone visual curve part samples are finite", "Boundary", false,
                          C638_backbone_visual_curve_parts_are_finite);
+  test_registry::AddTest(tests, "C639_backbone_node_patch_curve_is_not_straight_chord",
+                         "backbone node patch curve is not straight chord", "Boundary", false,
+                         C639_backbone_node_patch_curve_is_not_straight_chord);
 }
 
 

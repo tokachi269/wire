@@ -435,6 +435,19 @@ bool finite_visual_curve_parts(const wire::core::CoreState& state) {
   return true;
 }
 
+double distance_to_chord(const wire::core::Vec3d& p, const wire::core::Vec3d& a, const wire::core::Vec3d& b) {
+  const wire::core::Vec3d ab{b.x - a.x, b.y - a.y, b.z - a.z};
+  const wire::core::Vec3d ap{p.x - a.x, p.y - a.y, p.z - a.z};
+  const double ab_len2 = ab.x * ab.x + ab.y * ab.y + ab.z * ab.z;
+  if (ab_len2 <= 1e-12) {
+    return 0.0;
+  }
+  const double t = std::clamp((ap.x * ab.x + ap.y * ab.y + ap.z * ab.z) / ab_len2, 0.0, 1.0);
+  const wire::core::Vec3d closest{a.x + ab.x * t, a.y + ab.y * t, a.z + ab.z * t};
+  const wire::core::Vec3d d{p.x - closest.x, p.y - closest.y, p.z - closest.z};
+  return std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+}
+
 } // namespace
 
 bool C634_backbone_terminal_nodes_create_no_node_patch_curve() {
@@ -537,6 +550,28 @@ bool C638_backbone_visual_curve_parts_are_finite() {
   wire::core::CoreState state;
   const auto out = state.GenerateFromBackboneSpec(poly3_req(state));
   return out.ok && !state.view().visual_curve_parts().parts.empty() && finite_visual_curve_parts(state);
+}
+
+bool C639_backbone_node_patch_curve_is_not_straight_chord() {
+  wire::core::CoreState state;
+  const auto out = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!out.ok) {
+    return false;
+  }
+  for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
+    if (part.kind != wire::core::VisualCurvePartKind::kNodePatch) {
+      continue;
+    }
+    if (part.samples.size() < 5) {
+      return false;
+    }
+    double max_distance = 0.0;
+    for (std::size_t i = 1; i + 1 < part.samples.size(); ++i) {
+      max_distance = std::max(max_distance, distance_to_chord(part.samples[i], part.boundary_a, part.boundary_b));
+    }
+    return max_distance > 0.02;
+  }
+  return false;
 }
 
 } // namespace backbone_tests

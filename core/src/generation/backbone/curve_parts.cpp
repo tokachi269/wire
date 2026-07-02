@@ -11,6 +11,7 @@ namespace {
 
 constexpr double kNodePatchLengthM = 0.35;
 constexpr double kCurveEps = 1e-9;
+constexpr int kNodePatchSampleCount = 9;
 
 struct curve_endpoint_ref {
   ObjectId span_id = kInvalidObjectId;
@@ -129,6 +130,34 @@ std::vector<Vec3d> edge_body_samples(const Vec3d& a, const Vec3d& b, const Geome
     const double t = count <= 1 ? 0.0 : static_cast<double>(i) / static_cast<double>(count - 1);
     const double sag_weight = 16.0 * t * t * (1.0 - t) * (1.0 - t);
     samples.push_back({a.x + chord.x * t, a.y + chord.y * t, a.z + chord.z * t - sag * sag_weight});
+  }
+  return samples;
+}
+
+Vec3d cubic_hermite(const Vec3d& p0, const Vec3d& m0, const Vec3d& p1, const Vec3d& m1, double t) {
+  const double t2 = t * t;
+  const double t3 = t2 * t;
+  const double h00 = 2.0 * t3 - 3.0 * t2 + 1.0;
+  const double h10 = t3 - 2.0 * t2 + t;
+  const double h01 = -2.0 * t3 + 3.0 * t2;
+  const double h11 = t3 - t2;
+  return {
+      p0.x * h00 + m0.x * h10 + p1.x * h01 + m1.x * h11,
+      p0.y * h00 + m0.y * h10 + p1.y * h01 + m1.y * h11,
+      p0.z * h00 + m0.z * h10 + p1.z * h01 + m1.z * h11,
+  };
+}
+
+std::vector<Vec3d> node_patch_samples(const curve_boundary& a, const curve_boundary& b) {
+  const double chord_len = Length(b.point - a.point);
+  const double handle = std::max(0.0, chord_len * 0.5);
+  const Vec3d start_tangent = ScaleVec(a.tangent, -handle);
+  const Vec3d end_tangent = ScaleVec(b.tangent, handle);
+  std::vector<Vec3d> samples{};
+  samples.reserve(kNodePatchSampleCount);
+  for (int i = 0; i < kNodePatchSampleCount; ++i) {
+    const double t = static_cast<double>(i) / static_cast<double>(kNodePatchSampleCount - 1);
+    samples.push_back(cubic_hermite(a.point, start_tangent, b.point, end_tangent, t));
   }
   return samples;
 }
@@ -252,7 +281,7 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     patch.boundary_b = b_boundary.point;
     patch.tangent_a = a_boundary.tangent;
     patch.tangent_b = b_boundary.tangent;
-    patch.samples = {patch.boundary_a, group[0].point, patch.boundary_b};
+    patch.samples = node_patch_samples(a_boundary, b_boundary);
     patch.bounds = curve_part_bounds(patch.samples);
     out.parts.push_back(std::move(patch));
   }

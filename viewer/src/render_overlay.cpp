@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cmath>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "host_coords.hpp"
 #include "ui_common.hpp"
@@ -351,6 +352,42 @@ void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
     }
   }
 
+  std::unordered_set<wire::core::ObjectId> spans_drawn_as_visual_parts{};
+  const wire::core::VisualCurvePartCache& visual_curve_parts = view.visual_curve_parts();
+  for (const wire::core::VisualCurvePart& part : visual_curve_parts.parts) {
+    if (part.samples.size() < 2) {
+      continue;
+    }
+    float wire_radius = 0.01f;
+    Color wire_color = ViewerWireColor(DARKGRAY);
+    if (part.source_span_id != wire::core::kInvalidObjectId) {
+      const wire::core::Span* part_span = edit.spans.find(part.source_span_id);
+      if (const wire::core::SpanRenderCacheEntry* render = view.find_span_render_cache(part.source_span_id);
+          render != nullptr) {
+        wire_radius = static_cast<float>(std::max(0.0005, render->wire_radius_m));
+        wire_color = ViewerWireColor(ColorFromRgba(render->color_rgba));
+      }
+      const auto part_layout_view = view.span_layout(part.source_span_id);
+      const wire::core::BackboneFlowKind part_flow_kind =
+          (!part_layout_view.has_layout()) ? wire::core::BackboneFlowKind::kMain : part_layout_view.entry->flow_kind;
+      const bool part_uses_branch_support =
+          part_layout_view.has_layout() &&
+          part_layout_view.entry->lowering_kind == wire::core::BackboneLoweringKind::kBranchSupport;
+      wire_color = FlowTintedWireColor(wire_color, part_flow_kind, part_uses_branch_support);
+      if (SelectionContains(ui_state, SelectedType::kSpan, part.source_span_id)) {
+        wire_color = Color{182, 142, 48, 255};
+      } else if (ui_state.show_selected_bundle_highlight && selected_bundle_id != wire::core::kInvalidObjectId &&
+                 part_span != nullptr && part_span->bundle_id == selected_bundle_id) {
+        wire_color = Color{154, 112, 56, 255};
+      }
+      spans_drawn_as_visual_parts.insert(part.source_span_id);
+    } else if (ui_state.show_selected_bundle_highlight &&
+               selected_bundle_id != wire::core::kInvalidObjectId && part.source_bundle_id == selected_bundle_id) {
+      wire_color = Color{154, 112, 56, 255};
+    }
+    DrawWirePolyline(part.samples, wire_radius, wire_color);
+  }
+
   for (const wire::core::Span& span : edit.spans.items()) {
     const wire::core::Port* start_port = edit.ports.find(span.port_a_id);
     const wire::core::Port* end_port = edit.ports.find(span.port_b_id);
@@ -384,23 +421,27 @@ void DrawCore(const wire::core::CoreView& view, const ViewerUiState& ui_state) {
                span.bundle_id == selected_bundle_id) {
       wire_color = Color{154, 112, 56, 255};
     }
-    if (curve != nullptr && curve->points.size() >= 2) {
-      if (!curve->detail.visible_intervals.empty()) {
-        for (const wire::core::CurveLengthInterval& interval : curve->detail.visible_intervals) {
-          DrawWirePolyline(SampleCurveInterval(curve->detail, interval.start_m, interval.end_m), wire_radius, wire_color);
+    const bool wire_drawn_as_visual_part = spans_drawn_as_visual_parts.find(span.id) != spans_drawn_as_visual_parts.end();
+    if (!wire_drawn_as_visual_part) {
+      if (curve != nullptr && curve->points.size() >= 2) {
+        if (!curve->detail.visible_intervals.empty()) {
+          for (const wire::core::CurveLengthInterval& interval : curve->detail.visible_intervals) {
+            DrawWirePolyline(SampleCurveInterval(curve->detail, interval.start_m, interval.end_m), wire_radius,
+                             wire_color);
+          }
+        } else {
+          DrawWirePolyline(curve->points, wire_radius, wire_color);
+        }
+        for (const wire::core::DetailReplacementPath& replacement : curve->detail.replacement_paths) {
+          DrawWirePolyline(replacement.points, wire_radius, wire_color);
+        }
+        for (const wire::core::DetailSupplementalPath& supplemental : curve->detail.supplemental_paths) {
+          DrawWirePolyline(supplemental.points, wire_radius, wire_color);
         }
       } else {
-        DrawWirePolyline(curve->points, wire_radius, wire_color);
+        DrawCylinderEx(ToRaylib(start_port->world_position), ToRaylib(end_port->world_position), wire_radius,
+                       wire_radius, 8, wire_color);
       }
-      for (const wire::core::DetailReplacementPath& replacement : curve->detail.replacement_paths) {
-        DrawWirePolyline(replacement.points, wire_radius, wire_color);
-      }
-      for (const wire::core::DetailSupplementalPath& supplemental : curve->detail.supplemental_paths) {
-        DrawWirePolyline(supplemental.points, wire_radius, wire_color);
-      }
-    } else {
-      DrawCylinderEx(ToRaylib(start_port->world_position), ToRaylib(end_port->world_position), wire_radius, wire_radius,
-                     8, wire_color);
     }
 
     const wire::core::BoundsCacheEntry* bounds = view.find_bounds_cache(span.id);

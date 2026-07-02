@@ -5,7 +5,7 @@
 
 namespace wire::core::generation::backbone {
 
-struct PhysicalLinePopulationEndpoint {
+struct SpanMemberPopulationEndpoint {
   bool valid = false;
   std::string failure_reason{};
   PoleTypeId pole_type_id = kInvalidPoleTypeId;
@@ -19,26 +19,32 @@ struct PhysicalLinePopulationEndpoint {
   double height_max_m = 0.0;
 };
 
-struct PhysicalLinePopulationInput {
-  PhysicalLineInstanceKey key{};
-  ExperimentalPhysicalLineRule rule{};
+struct SpanMemberPopulationInput {
+  SpanMemberKey key{};
+  ExperimentalSpanMemberRule rule{};
   std::uint64_t explicit_seed = 1;
-  PhysicalLinePopulationEndpoint endpoint_a{};
-  PhysicalLinePopulationEndpoint endpoint_b{};
+  SpanMemberPopulationEndpoint endpoint_a{};
+  SpanMemberPopulationEndpoint endpoint_b{};
   std::vector<ExperimentalPlacementReserve> reserves{};
   std::vector<Vec3d> occupied_a_local{};
   std::vector<Vec3d> occupied_b_local{};
 };
 
-struct PhysicalLinePopulationOutput {
-  std::vector<PhysicalLineInstance> instances{};
-  PhysicalLinePopulationDiagnostic diagnostic{};
+struct SpanMemberPopulationOutput {
+  std::vector<SpanMemberLayout> members{};
+  SpanMemberPopulationDiagnostic diagnostic{};
 };
 
 [[nodiscard]] bool has_duplicate_band_ids(const PoleTypeDefinition& pole_type);
-[[nodiscard]] EditResult<PhysicalLinePopulationOutput> populate_physical_lines(
-    const PhysicalLinePopulationInput& input);
-void append_experimental_physical_lines(const CoreState& state, const std::vector<SpanLayoutEntry>& layouts,
-                                        VisualCurvePartCache* output);
+[[nodiscard]] EditResult<SpanMemberPopulationOutput> populate_span_members(
+    const SpanMemberPopulationInput& input);
+
+struct ExperimentalSpanMemberPopulation {
+  std::vector<SpanMemberLayout> members{};
+  std::vector<SpanMemberPopulationDiagnostic> diagnostics{};
+};
+
+[[nodiscard]] ExperimentalSpanMemberPopulation make_experimental_span_members(
+    const CoreState& state, const std::vector<SpanLayoutEntry>& layouts);
 
 } // namespace wire::core::generation::backbone

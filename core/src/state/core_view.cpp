@@ -157,8 +157,8 @@ std::optional<Vec3d> CoreView::backbone_attachment_world(
 const GeometrySettings& CoreView::geometry_settings() const { return state_.runtime_.cache_state.geometry_settings; }
 const VisualSettings& CoreView::visual_settings() const { return state_.runtime_.cache_state.visual_settings; }
 const VariationSettings& CoreView::variation_settings() const { return state_.runtime_.cache_state.variation_settings; }
-const ExperimentalLinePopulationConfig& CoreView::experimental_line_population_config() const {
-  return state_.runtime_.cache_state.experimental_line_population;
+const ExperimentalSpanMemberPopulationConfig& CoreView::experimental_span_member_population_config() const {
+  return state_.runtime_.cache_state.experimental_span_member_population;
 }
 const ContextProfile& CoreView::context_profile() const { return state_.authoritative_.context_profile; }
 const LayoutSettings& CoreView::layout_settings() const { return state_.authoritative_.layout_settings; }

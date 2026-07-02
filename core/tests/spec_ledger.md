@@ -364,13 +364,13 @@
 | C645 | Boundary | backbone | NodePatch内側filletは局所曲率を維持する | 3点 route + sag | GenerateFromBackboneSpec | Boundary: 1区間cubicの両controlはboundary chordから離れる | visual_curve_parts controls | filletがstraight chordへ退化する回帰防止 |
 | C646 | Boundary | backbone | NodePatchはturn内側で単調に曲がる | 3点 route + sag | GenerateFromBackboneSpec | Boundary: sampleはboundary-attachment三角形内に留まり、接線回転符号が反転しない | visual_curve_parts samples | 左折前に右へ外振りする回帰防止 |
 | C647 | Boundary | backbone | NodePatchはincident cableのappearanceを使う | 3点 route | GenerateFromBackboneSpec | Boundary: node-owned patchは架空のspan ownershipを持たず、接続するEdgeBodyと半径・色・material styleが一致する | visual_curve_parts appearance | source_span_idを持たないpatchだけviewer既定の太さ・色へ落ちる回帰防止 |
-| C648 | Invariant | backbone experimental | 同じexplicit seedは同じphysical populationを返す | pure population input | populate_physical_lines | Invariant: requested count、instance key、両endpoint位置が一致する | PhysicalLinePopulationOutput | redrawで追加線が並べ替わる回帰防止 |
-| C649 | Invariant | backbone experimental | logical span identityは配置seedに入る | span idだけ異なるpure input | populate_physical_lines | Invariant: physical endpoint位置が変わる | PhysicalLineInstance | unrelated spanが同じ乱数列を共有する回帰防止 |
-| C650 | Invariant | backbone experimental | reserveはcandidate pairを拒否する | band全体を覆うreserve | populate_physical_lines | Invariant: accepted=0、requested分をomit | population diagnostic | reserved領域へ線を置く回帰防止 |
-| C651 | Invariant | backbone experimental | spacing不足はcandidateを拒否する | 狭いband + 大きいspacing | populate_physical_lines | Invariant: overlap candidateをacceptしない | PhysicalLineInstance | 密集線が同位置へ重なる回帰防止 |
-| C652 | Boundary | backbone experimental | 片endpoint失敗はinstance全体をomitする | endpoint B unavailable | populate_physical_lines | Boundary: 片側だけ生成せず全requested instanceをomit | population diagnostic | endpointを独立solveして線がねじれる回帰防止 |
+| C648 | Invariant | backbone experimental | 同じexplicit seedは同じspan member populationを返す | pure population input | populate_span_members | Invariant: requested count、member key、両endpoint位置が一致し、横位置は固定で高さだけ変わる | SpanMemberPopulationOutput | redrawで追加線が並べ替わる回帰防止 |
+| C649 | Invariant | backbone experimental | logical span identityは配置seedに入る | span idだけ異なるpure input | populate_span_members | Invariant: member endpoint位置が変わる | SpanMemberLayout | unrelated spanが同じ乱数列を共有する回帰防止 |
+| C650 | Invariant | backbone experimental | reserveはcandidate pairを拒否する | band全体を覆うreserve | populate_span_members | Invariant: accepted=0、requested分をomit | population diagnostic | reserved領域へ線を置く回帰防止 |
+| C651 | Invariant | backbone experimental | spacing不足はcandidateを拒否する | 狭いband + 大きいspacing | populate_span_members | Invariant: overlap candidateをacceptしない | SpanMemberLayout | 密集線が同位置へ重なる回帰防止 |
+| C652 | Boundary | backbone experimental | 片endpoint失敗はmember全体をomitする | endpoint B unavailable | populate_span_members | Boundary: 片側だけ生成せず全requested memberをomit | population diagnostic | endpointを独立solveして線がねじれる回帰防止 |
 | C653 | Boundary | backbone experimental | band identity重複を拒否する | 同じPoleType内にduplicate band_id | has_duplicate_band_ids | Boundary: duplicateを検出する | PortPlacementBand | vector順で曖昧bandを選ぶ回帰防止 |
-| C654 | Boundary | backbone experimental | physical populationはlogical topologyを変更しない | control/experimental fresh state | GenerateFromBackboneSpec | Boundary: Pole/Port/Bundle/Span/SavedGraph counts一致、experimental visualだけ増える | CoreView / VisualCurvePartCache | 見た目用追加線がtopologyになる回帰防止 |
+| C654 | Boundary | backbone experimental | span member populationはlogical topologyを変更しない | control/experimental fresh state | GenerateFromBackboneSpec | Boundary: Pole/Port/Bundle/Span/SavedGraph counts一致、base/extraが同じEdgeBody visual経路を使う | CoreView / VisualCurvePartCache | 見た目用追加線がtopologyまたは別curve familyになる回帰防止 |
 
 ## Retired old-pipeline checks
 - Old cases 365-367 were removed from the registered suite. They pinned the transitional `BackboneBuilder` / support-layout authority seed / materialization surface instead of the backbone mainline.

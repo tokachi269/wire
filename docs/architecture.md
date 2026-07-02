@@ -131,17 +131,18 @@ boundary tangentをdebug/captureで見えるようにするための派生出力
 分割後のspan片が接続部curveのauthorityになってはいけない。長いrun全体を毎回正本として再計算する方式にはせず、
 dirty node + incident edge + 必要な1-hop程度の更新範囲に抑える。
 
-### experimental physical line population
+### experimental span member population
 
 `codex/placement-population-design`では、logical spanから見た目用の追加線を作る実験機能を持つ。
 defaultは無効で、`SavedBackboneGraph`、`Span`、`Port`を増やさず、layout後に
-`kExperimentalPhysicalLine`の`VisualCurvePart`だけを追加する。identityはlogical span、edge bundle、
-bundle template、明示rule id、instance indexから作り、両endpointは同じinstance indexとlocal offsetを使う。
+base spanと追加線を`SpanMemberLayout`へ揃え、同じ`EdgeBodyCurve` / `NodePatchCurve`生成へ渡す。
+追加線専用のcurve、tessellation、render経路は持たない。identityはlogical span、edge bundle、
+bundle template、明示rule id、instance indexから作り、両endpointは同じinstance indexで対応させる。
 配置不能時はsupportやrouteを作らずomit diagnosticを残す。
 
 viewerではDraw Path panelの`Experimental > Physical Line Population`を有効にしてから、
 CommunicationまたはOpticalを含む2点以上のpathを生成する。既存線の近くに同じmaterial/太さの追加線が表示される。
-検証用ruleは高さ方向を主軸にstable random配置し、横方向は小さいjitterだけを加える。
+検証用ruleは横位置を固定し、高さ方向だけにstable random配置する。
 `Save Repro Capture`にはinstance key、両端band id、requested/accepted/omitted数を出力する。
 
 ## wire domain境界

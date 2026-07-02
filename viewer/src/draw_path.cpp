@@ -124,8 +124,6 @@ const char* VisualCurvePartKindLabelLocal(wire::core::VisualCurvePartKind kind) 
     return "lead";
   case wire::core::VisualCurvePartKind::kJumper:
     return "jumper";
-  case wire::core::VisualCurvePartKind::kExperimentalPhysicalLine:
-    return "experimental_physical_line";
   default:
     return "unknown";
   }
@@ -697,8 +695,9 @@ bool ExecuteBackboneRequest(CoreState& state, ViewerUiState& ui_state, const wir
   return true;
 }
 
-wire::core::ExperimentalLinePopulationConfig ExperimentalLinePopulationConfigLocal(const ViewerUiState& ui_state) {
-  wire::core::ExperimentalLinePopulationConfig config{};
+wire::core::ExperimentalSpanMemberPopulationConfig
+ExperimentalSpanMemberPopulationConfigLocal(const ViewerUiState& ui_state) {
+  wire::core::ExperimentalSpanMemberPopulationConfig config{};
   config.enabled = ui_state.experimental_line_population_enabled;
   config.explicit_seed = ui_state.experimental_line_population_seed;
   if (!config.enabled) {
@@ -706,7 +705,7 @@ wire::core::ExperimentalLinePopulationConfig ExperimentalLinePopulationConfigLoc
   }
   auto add_rule = [&](std::uint64_t rule_id, wire::core::BundleKind bundle_template_id, int priority,
                       int min_count, int max_count, double spacing_m) {
-    wire::core::ExperimentalPhysicalLineRule rule{};
+    wire::core::ExperimentalSpanMemberRule rule{};
     rule.rule_id = rule_id;
     rule.bundle_template_id = bundle_template_id;
     rule.priority = priority;
@@ -748,8 +747,8 @@ void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool
     ui_state.last_error = "select at least one bundle template";
     return;
   }
-  const auto population_config = viewer_core_state::UpdateExperimentalLinePopulationConfig(
-      state, ExperimentalLinePopulationConfigLocal(ui_state));
+  const auto population_config = viewer_core_state::UpdateExperimentalSpanMemberPopulationConfig(
+      state, ExperimentalSpanMemberPopulationConfigLocal(ui_state));
   if (!population_config.ok) {
     ui_state.last_error = population_config.error;
     return;
@@ -1395,17 +1394,17 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
     ofs << prefix << ".wire_radius_m=" << part.wire_radius_m << "\n";
     ofs << prefix << ".color_rgba=" << part.color_rgba << "\n";
     ofs << prefix << ".material_style=" << static_cast<int>(part.material_style) << "\n";
-    ofs << prefix << ".has_physical_line_key=" << (part.has_physical_line_key ? 1 : 0) << "\n";
-    if (part.has_physical_line_key) {
-      ofs << prefix << ".physical.logical_span_id="
-          << static_cast<unsigned long long>(part.physical_line_key.logical_span_id) << "\n";
-      ofs << prefix << ".physical.edge_bundle_id="
-          << static_cast<unsigned long long>(part.physical_line_key.edge_bundle_id) << "\n";
-      ofs << prefix << ".physical.rule_owner_id="
-          << static_cast<unsigned long long>(part.physical_line_key.rule_owner_id) << "\n";
-      ofs << prefix << ".physical.rule_id="
-          << static_cast<unsigned long long>(part.physical_line_key.rule_id) << "\n";
-      ofs << prefix << ".physical.instance_index=" << part.physical_line_key.instance_index << "\n";
+    ofs << prefix << ".has_span_member_key=" << (part.has_span_member_key ? 1 : 0) << "\n";
+    if (part.has_span_member_key) {
+      ofs << prefix << ".member.logical_span_id="
+          << static_cast<unsigned long long>(part.span_member_key.logical_span_id) << "\n";
+      ofs << prefix << ".member.edge_bundle_id="
+          << static_cast<unsigned long long>(part.span_member_key.edge_bundle_id) << "\n";
+      ofs << prefix << ".member.rule_owner_id="
+          << static_cast<unsigned long long>(part.span_member_key.rule_owner_id) << "\n";
+      ofs << prefix << ".member.rule_id="
+          << static_cast<unsigned long long>(part.span_member_key.rule_id) << "\n";
+      ofs << prefix << ".member.instance_index=" << part.span_member_key.instance_index << "\n";
       ofs << prefix << ".physical.endpoint_a_pole_type_id="
           << static_cast<unsigned long long>(part.endpoint_a_pole_type_id) << "\n";
       ofs << prefix << ".physical.endpoint_b_pole_type_id="
@@ -1439,7 +1438,7 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
           << "]=" << static_cast<unsigned long long>(part.incident_edge_ids[edge_index]) << "\n";
     }
   }
-  const auto& population_config = viewer_core_state::ExperimentalLinePopulationConfig(state);
+  const auto& population_config = viewer_core_state::ExperimentalSpanMemberPopulationConfig(state);
   ofs << "result.experimental_line_population.enabled=" << (population_config.enabled ? 1 : 0) << "\n";
   ofs << "result.experimental_line_population.explicit_seed="
       << static_cast<unsigned long long>(population_config.explicit_seed) << "\n";

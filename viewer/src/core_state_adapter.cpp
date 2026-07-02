@@ -79,13 +79,14 @@ wire::core::EditResult<bool> UpdateVisualSettings(CoreState& state, const wire::
 }
 
 wire::core::EditResult<bool>
-UpdateExperimentalLinePopulationConfig(CoreState& state,
-                                       const wire::core::ExperimentalLinePopulationConfig& config) {
-  return state.UpdateExperimentalLinePopulationConfig(config);
+UpdateExperimentalSpanMemberPopulationConfig(
+    CoreState& state, const wire::core::ExperimentalSpanMemberPopulationConfig& config) {
+  return state.UpdateExperimentalSpanMemberPopulationConfig(config);
 }
 
-const wire::core::ExperimentalLinePopulationConfig& ExperimentalLinePopulationConfig(const CoreState& state) {
-  return state.view().experimental_line_population_config();
+const wire::core::ExperimentalSpanMemberPopulationConfig&
+ExperimentalSpanMemberPopulationConfig(const CoreState& state) {
+  return state.view().experimental_span_member_population_config();
 }
 
 wire::core::ValidationResult ValidateFast(const CoreState& state) {

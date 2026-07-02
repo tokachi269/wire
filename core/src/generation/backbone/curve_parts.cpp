@@ -19,7 +19,7 @@ constexpr double kPatchMetersPerSegment = 0.08;
 constexpr double kPatchRadiansPerSegment = 0.17453292519943295;
 
 struct curve_endpoint_ref {
-  ObjectId span_id = kInvalidObjectId;
+  SpanMemberKey member_key{};
   ObjectId node_id = kInvalidObjectId;
   ObjectId edge_id = kInvalidObjectId;
   ObjectId edge_bundle_id = kInvalidObjectId;
@@ -37,10 +37,13 @@ struct curve_patch_key {
   ObjectId node_id = kInvalidObjectId;
   BundleKind bundle_template_id = BundleKind::kLowVoltage;
   std::size_t lane_index = 0;
+  std::uint64_t rule_owner_id = 0;
+  SpanMemberRuleId rule_id = 0;
+  std::size_t instance_index = 0;
 };
 
 struct curve_boundary {
-  ObjectId span_id = kInvalidObjectId;
+  SpanMemberKey member_key{};
   bool is_start = true;
   Vec3d attachment_point{};
   double horizontal_length_m = 0.0;
@@ -55,8 +58,22 @@ struct curve_patch_spec {
   Vec3d attachment_point{};
 };
 
+struct visual_span_member {
+  SpanMemberLayout layout{};
+  ObjectId start_node_id = kInvalidObjectId;
+  ObjectId end_node_id = kInvalidObjectId;
+};
+
+bool same_member(const SpanMemberKey& a, const SpanMemberKey& b) {
+  return a.logical_span_id == b.logical_span_id && a.edge_bundle_id == b.edge_bundle_id &&
+         a.rule_owner_id == b.rule_owner_id && a.rule_id == b.rule_id &&
+         a.instance_index == b.instance_index;
+}
+
 bool same_key(const curve_patch_key& a, const curve_patch_key& b) {
-  return a.node_id == b.node_id && a.bundle_template_id == b.bundle_template_id && a.lane_index == b.lane_index;
+  return a.node_id == b.node_id && a.bundle_template_id == b.bundle_template_id &&
+         a.lane_index == b.lane_index && a.rule_owner_id == b.rule_owner_id &&
+         a.rule_id == b.rule_id && a.instance_index == b.instance_index;
 }
 
 AABBd curve_part_bounds(const std::vector<Vec3d>& pts) {
@@ -102,10 +119,10 @@ const SavedBackboneSpanBinding* span_binding_for(const CoreState& state, ObjectI
   return &graph.span_bindings[index];
 }
 
-bool boundary_for(const std::vector<curve_boundary>& boundaries, ObjectId span_id, bool is_start,
+bool boundary_for(const std::vector<curve_boundary>& boundaries, const SpanMemberKey& member_key, bool is_start,
                   curve_boundary* out) {
   for (const curve_boundary& boundary : boundaries) {
-    if (boundary.span_id == span_id && boundary.is_start == is_start) {
+    if (same_member(boundary.member_key, member_key) && boundary.is_start == is_start) {
       if (out != nullptr) {
         *out = boundary;
       }
@@ -115,12 +132,13 @@ bool boundary_for(const std::vector<curve_boundary>& boundaries, ObjectId span_i
   return false;
 }
 
-curve_boundary* mutable_boundary_for(std::vector<curve_boundary>* boundaries, ObjectId span_id, bool is_start) {
+curve_boundary* mutable_boundary_for(std::vector<curve_boundary>* boundaries,
+                                     const SpanMemberKey& member_key, bool is_start) {
   if (boundaries == nullptr) {
     return nullptr;
   }
   for (curve_boundary& boundary : *boundaries) {
-    if (boundary.span_id == span_id && boundary.is_start == is_start) {
+    if (same_member(boundary.member_key, member_key) && boundary.is_start == is_start) {
       return &boundary;
     }
   }
@@ -253,13 +271,42 @@ layout merged_visual_curve_layouts(const CoreState& state, const layout& made) {
 VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layout& made) {
   const layout placed = merged_visual_curve_layouts(state, made);
   VisualCurvePartCache out{};
+  std::vector<visual_span_member> members{};
+  members.reserve(placed.entries.size());
+  for (const SpanLayoutEntry& entry : placed.entries) {
+    const SavedBackboneSpanBinding* binding = span_binding_for(state, entry.span_id);
+    if (binding == nullptr) {
+      continue;
+    }
+    visual_span_member member{};
+    member.layout.key.logical_span_id = entry.span_id;
+    member.layout.key.edge_bundle_id = binding->edge_bundle_id;
+    member.layout.endpoint_a = entry.start.endpoint_world;
+    member.layout.endpoint_b = entry.end.endpoint_world;
+    member.start_node_id = entry.start.endpoint_node_id;
+    member.end_node_id = entry.end.endpoint_node_id;
+    members.push_back(member);
+  }
+  ExperimentalSpanMemberPopulation population = make_experimental_span_members(state, placed.entries);
+  out.experimental_population_diagnostics = std::move(population.diagnostics);
+  for (SpanMemberLayout& extra : population.members) {
+    const auto source = std::find_if(placed.entries.begin(), placed.entries.end(), [&](const SpanLayoutEntry& entry) {
+      return entry.span_id == extra.key.logical_span_id;
+    });
+    if (source == placed.entries.end()) {
+      continue;
+    }
+    members.push_back({std::move(extra), source->start.endpoint_node_id, source->end.endpoint_node_id});
+  }
+
   std::vector<curve_endpoint_ref> endpoints{};
-  endpoints.reserve(placed.entries.size() * 2);
+  endpoints.reserve(members.size() * 2);
   const Vec3d fallback_dir{1.0, 0.0, 0.0};
 
-  for (const SpanLayoutEntry& entry : placed.entries) {
-    const Span* span = state.view().spans().find(entry.span_id);
-    const SavedBackboneSpanBinding* binding = span_binding_for(state, entry.span_id);
+  for (const visual_span_member& member : members) {
+    const SpanMemberLayout& entry = member.layout;
+    const Span* span = state.view().spans().find(entry.key.logical_span_id);
+    const SavedBackboneSpanBinding* binding = span_binding_for(state, entry.key.logical_span_id);
     const SavedBackboneEdgeBundle* edge_bundle =
         binding == nullptr ? nullptr : state.view().backbone_edge_bundle(binding->edge_bundle_id);
     if (span == nullptr || binding == nullptr || edge_bundle == nullptr) {
@@ -267,10 +314,10 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     }
     const Bundle* bundle = state.view().bundles().find(span->bundle_id);
     const BundleKind template_id = bundle == nullptr ? BundleKind::kLowVoltage : bundle->bundle_template_id;
-    const Vec3d chord = entry.end.endpoint_world - entry.start.endpoint_world;
+    const Vec3d chord = entry.endpoint_b - entry.endpoint_a;
     const double span_length = Length(chord);
     const EditResult<DetailCurve> full_curve =
-        make_curve_between(state, entry.span_id, entry.start.endpoint_world, entry.end.endpoint_world);
+        make_curve_between(state, entry.key.logical_span_id, entry.endpoint_a, entry.endpoint_b);
     const bool has_curve_tangent = full_curve.ok && full_curve.value.sample_points.size() >= 2;
     const Vec3d start_away =
         has_curve_tangent ? full_curve.value.start_constraint.tangent_dir : safe_unit(chord, fallback_dir);
@@ -279,14 +326,14 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
                               : safe_unit(ScaleVec(chord, -1.0), ScaleVec(fallback_dir, -1.0));
 
     curve_endpoint_ref start{};
-    start.span_id = entry.span_id;
-    start.node_id = saved_node_id_for_endpoint(state, entry.start.endpoint_node_id);
+    start.member_key = entry.key;
+    start.node_id = saved_node_id_for_endpoint(state, member.start_node_id);
     start.edge_id = edge_bundle->edge_id;
     start.edge_bundle_id = edge_bundle->edge_bundle_id;
     start.bundle_id = span->bundle_id;
     start.bundle_template_id = template_id;
     start.lane_index = binding->lane_index;
-    start.point = entry.start.endpoint_world;
+    start.point = entry.endpoint_a;
     start.away_from_node = start_away;
     start.span_length_m = span_length;
     start.has_curve_tangent = has_curve_tangent;
@@ -294,8 +341,8 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     endpoints.push_back(start);
 
     curve_endpoint_ref end = start;
-    end.node_id = saved_node_id_for_endpoint(state, entry.end.endpoint_node_id);
-    end.point = entry.end.endpoint_world;
+    end.node_id = saved_node_id_for_endpoint(state, member.end_node_id);
+    end.point = entry.endpoint_b;
     end.away_from_node = end_away;
     end.is_start = false;
     endpoints.push_back(end);
@@ -305,7 +352,9 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
   std::vector<curve_patch_spec> patch_specs{};
   std::vector<curve_patch_key> processed_patch_keys{};
   for (const curve_endpoint_ref& first : endpoints) {
-    const curve_patch_key key{first.node_id, first.bundle_template_id, first.lane_index};
+    const curve_patch_key key{first.node_id, first.bundle_template_id, first.lane_index,
+                              first.member_key.rule_owner_id, first.member_key.rule_id,
+                              first.member_key.instance_index};
     if (std::find_if(processed_patch_keys.begin(), processed_patch_keys.end(),
                      [&](const curve_patch_key& processed) { return same_key(processed, key); }) !=
         processed_patch_keys.end()) {
@@ -314,7 +363,9 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     processed_patch_keys.push_back(key);
     std::vector<curve_endpoint_ref> group{};
     for (const curve_endpoint_ref& endpoint : endpoints) {
-      if (same_key(key, {endpoint.node_id, endpoint.bundle_template_id, endpoint.lane_index})) {
+      if (same_key(key, {endpoint.node_id, endpoint.bundle_template_id, endpoint.lane_index,
+                         endpoint.member_key.rule_owner_id, endpoint.member_key.rule_id,
+                         endpoint.member_key.instance_index})) {
         group.push_back(endpoint);
       }
     }
@@ -322,10 +373,6 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
         !group[0].has_curve_tangent || !group[1].has_curve_tangent) {
       continue;
     }
-    if (Length(group[1].point - group[0].point) > 1e-6) {
-      continue;
-    }
-
     const double a_len =
         std::min(kNodePatchHorizontalLengthM, group[0].span_length_m * kNodePatchMaxSpanFraction);
     const double b_len =
@@ -335,50 +382,52 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     }
 
     curve_boundary a_boundary{};
-    a_boundary.span_id = group[0].span_id;
+    a_boundary.member_key = group[0].member_key;
     a_boundary.is_start = group[0].is_start;
     a_boundary.attachment_point = group[0].point;
     a_boundary.horizontal_length_m = a_len;
     a_boundary.point = boundary_from_tangent(group[0].point, group[0].away_from_node, a_len);
     a_boundary.tangent = group[0].away_from_node;
-    if (!boundary_for(boundaries, a_boundary.span_id, a_boundary.is_start, nullptr)) {
+    if (!boundary_for(boundaries, a_boundary.member_key, a_boundary.is_start, nullptr)) {
       boundaries.push_back(a_boundary);
     }
 
     curve_boundary b_boundary{};
-    b_boundary.span_id = group[1].span_id;
+    b_boundary.member_key = group[1].member_key;
     b_boundary.is_start = group[1].is_start;
     b_boundary.attachment_point = group[1].point;
     b_boundary.horizontal_length_m = b_len;
     b_boundary.point = boundary_from_tangent(group[1].point, group[1].away_from_node, b_len);
     b_boundary.tangent = group[1].away_from_node;
-    if (!boundary_for(boundaries, b_boundary.span_id, b_boundary.is_start, nullptr)) {
+    if (!boundary_for(boundaries, b_boundary.member_key, b_boundary.is_start, nullptr)) {
       boundaries.push_back(b_boundary);
     }
-    patch_specs.push_back({key, group[0], group[1], group[0].point});
+    patch_specs.push_back({key, group[0], group[1], ScaleVec(group[0].point + group[1].point, 0.5)});
   }
 
   for (int iteration = 0; iteration < 2; ++iteration) {
-    for (const SpanLayoutEntry& entry : placed.entries) {
+    for (const visual_span_member& member : members) {
+      const SpanMemberLayout& entry = member.layout;
       curve_boundary start_boundary{};
       curve_boundary end_boundary{};
-      const bool has_start_patch = boundary_for(boundaries, entry.span_id, true, &start_boundary);
-      const bool has_end_patch = boundary_for(boundaries, entry.span_id, false, &end_boundary);
+      const bool has_start_patch = boundary_for(boundaries, entry.key, true, &start_boundary);
+      const bool has_end_patch = boundary_for(boundaries, entry.key, false, &end_boundary);
       if (!has_start_patch && !has_end_patch) {
         continue;
       }
-      const Vec3d start = has_start_patch ? start_boundary.point : entry.start.endpoint_world;
-      const Vec3d end = has_end_patch ? end_boundary.point : entry.end.endpoint_world;
-      const EditResult<DetailCurve> curve = make_curve_between(state, entry.span_id, start, end);
+      const Vec3d start = has_start_patch ? start_boundary.point : entry.endpoint_a;
+      const Vec3d end = has_end_patch ? end_boundary.point : entry.endpoint_b;
+      const EditResult<DetailCurve> curve =
+          make_curve_between(state, entry.key.logical_span_id, start, end);
       if (!curve.ok || curve.value.sample_points.size() < 2) {
         continue;
       }
-      if (curve_boundary* boundary = mutable_boundary_for(&boundaries, entry.span_id, true); boundary != nullptr) {
+      if (curve_boundary* boundary = mutable_boundary_for(&boundaries, entry.key, true); boundary != nullptr) {
         boundary->tangent = curve.value.start_constraint.tangent_dir;
         boundary->point =
             boundary_from_tangent(boundary->attachment_point, boundary->tangent, boundary->horizontal_length_m);
       }
-      if (curve_boundary* boundary = mutable_boundary_for(&boundaries, entry.span_id, false); boundary != nullptr) {
+      if (curve_boundary* boundary = mutable_boundary_for(&boundaries, entry.key, false); boundary != nullptr) {
         boundary->tangent = ScaleVec(curve.value.end_constraint.tangent_dir, -1.0);
         boundary->point =
             boundary_from_tangent(boundary->attachment_point, boundary->tangent, boundary->horizontal_length_m);
@@ -386,9 +435,10 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     }
   }
 
-  for (const SpanLayoutEntry& entry : placed.entries) {
-    const Span* span = state.view().spans().find(entry.span_id);
-    const SavedBackboneSpanBinding* binding = span_binding_for(state, entry.span_id);
+  for (const visual_span_member& member : members) {
+    const SpanMemberLayout& entry = member.layout;
+    const Span* span = state.view().spans().find(entry.key.logical_span_id);
+    const SavedBackboneSpanBinding* binding = span_binding_for(state, entry.key.logical_span_id);
     const SavedBackboneEdgeBundle* edge_bundle =
         binding == nullptr ? nullptr : state.view().backbone_edge_bundle(binding->edge_bundle_id);
     if (span == nullptr || binding == nullptr || edge_bundle == nullptr) {
@@ -398,11 +448,12 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     const BundleKind template_id = bundle == nullptr ? BundleKind::kLowVoltage : bundle->bundle_template_id;
     curve_boundary start_boundary{};
     curve_boundary end_boundary{};
-    const bool has_start_patch = boundary_for(boundaries, entry.span_id, true, &start_boundary);
-    const bool has_end_patch = boundary_for(boundaries, entry.span_id, false, &end_boundary);
-    const Vec3d start = has_start_patch ? start_boundary.point : entry.start.endpoint_world;
-    const Vec3d end = has_end_patch ? end_boundary.point : entry.end.endpoint_world;
-    const EditResult<DetailCurve> curve = make_curve_between(state, entry.span_id, start, end);
+    const bool has_start_patch = boundary_for(boundaries, entry.key, true, &start_boundary);
+    const bool has_end_patch = boundary_for(boundaries, entry.key, false, &end_boundary);
+    const Vec3d start = has_start_patch ? start_boundary.point : entry.endpoint_a;
+    const Vec3d end = has_end_patch ? end_boundary.point : entry.endpoint_b;
+    const EditResult<DetailCurve> curve =
+        make_curve_between(state, entry.key.logical_span_id, start, end);
     if (!curve.ok || curve.value.sample_points.size() < 2) {
       continue;
     }
@@ -410,31 +461,39 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     const Vec3d end_param_tangent = curve.value.end_constraint.tangent_dir;
     const Vec3d start_outward_tangent = start_param_tangent;
     const Vec3d end_outward_tangent = ScaleVec(end_param_tangent, -1.0);
-    if (curve_boundary* boundary = mutable_boundary_for(&boundaries, entry.span_id, true); boundary != nullptr) {
+    if (curve_boundary* boundary = mutable_boundary_for(&boundaries, entry.key, true); boundary != nullptr) {
       boundary->tangent = start_outward_tangent;
     }
-    if (curve_boundary* boundary = mutable_boundary_for(&boundaries, entry.span_id, false); boundary != nullptr) {
+    if (curve_boundary* boundary = mutable_boundary_for(&boundaries, entry.key, false); boundary != nullptr) {
       boundary->tangent = end_outward_tangent;
     }
 
     VisualCurvePart body{};
     body.kind = VisualCurvePartKind::kEdgeBody;
     body.source_edge_id = edge_bundle->edge_id;
-    body.source_span_id = entry.span_id;
+    body.source_span_id = entry.key.logical_span_id;
     body.source_bundle_id = span->bundle_id;
     body.bundle_template_id = template_id;
     body.lane_index = binding->lane_index;
+    body.has_span_member_key = true;
+    body.span_member_key = entry.key;
+    body.endpoint_a_pole_type_id = entry.endpoint_a_pole_type_id;
+    body.endpoint_b_pole_type_id = entry.endpoint_b_pole_type_id;
+    body.endpoint_a_band_id = entry.endpoint_a_band_id;
+    body.endpoint_b_band_id = entry.endpoint_b_band_id;
     body.boundary_a = start;
     body.boundary_b = end;
     body.tangent_a = start_outward_tangent;
     body.tangent_b = end_outward_tangent;
     body.sag_method = VisualCurveSagMethod::kParabolic;
     body.sag_m = curve.value.sag_amplitude_m;
-    copy_span_appearance(state, entry.span_id, &body);
+    copy_span_appearance(state, entry.key.logical_span_id, &body);
     body.samples = curve.value.sample_points;
     body.bounds = curve_part_bounds(body.samples);
     if (!body.samples.empty() && finite_point(body.samples.front()) && finite_point(body.samples.back())) {
-      if (const SpanRuntimeState* runtime = state.view().find_span_runtime_state(entry.span_id); runtime != nullptr) {
+      if (const SpanRuntimeState* runtime =
+              state.view().find_span_runtime_state(entry.key.logical_span_id);
+          runtime != nullptr) {
         body.source_version = runtime->data_version;
       }
       out.parts.push_back(std::move(body));
@@ -444,8 +503,8 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
   for (const curve_patch_spec& spec : patch_specs) {
     curve_boundary a_boundary{};
     curve_boundary b_boundary{};
-    if (!boundary_for(boundaries, spec.a.span_id, spec.a.is_start, &a_boundary) ||
-        !boundary_for(boundaries, spec.b.span_id, spec.b.is_start, &b_boundary)) {
+    if (!boundary_for(boundaries, spec.a.member_key, spec.a.is_start, &a_boundary) ||
+        !boundary_for(boundaries, spec.b.member_key, spec.b.is_start, &b_boundary)) {
       continue;
     }
     const Vec3d incoming = ScaleVec(a_boundary.tangent, -1.0);
@@ -469,13 +528,12 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     patch.has_attachment_point = true;
     patch.passes_attachment_point = false;
     patch.section_count = 1;
-    copy_span_appearance(state, spec.a.span_id, &patch);
+    copy_span_appearance(state, spec.a.member_key.logical_span_id, &patch);
     append_patch_section(a_boundary.point, incoming, b_boundary.point, outgoing, true,
                          &patch.bezier_control_points, &patch.samples);
     patch.bounds = curve_part_bounds(patch.samples);
     out.parts.push_back(std::move(patch));
   }
-  append_experimental_physical_lines(state, placed.entries, &out);
   return out;
 }
 

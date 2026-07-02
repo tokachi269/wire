@@ -29,11 +29,11 @@ bool apply_endpoint(const EditState& edit_state, const EndpointLayoutRule& rule,
 
 } // namespace
 
-EditResult<bool> CoreState::UpdateExperimentalLinePopulationConfig(
-    const ExperimentalLinePopulationConfig& config) {
+EditResult<bool> CoreState::UpdateExperimentalSpanMemberPopulationConfig(
+    const ExperimentalSpanMemberPopulationConfig& config) {
   EditResult<bool> out{};
-  std::vector<std::pair<BundleKind, PhysicalLineRuleId>> rule_keys{};
-  for (const ExperimentalPhysicalLineRule& rule : config.rules) {
+  std::vector<std::pair<BundleKind, SpanMemberRuleId>> rule_keys{};
+  for (const ExperimentalSpanMemberRule& rule : config.rules) {
     const auto key = std::make_pair(rule.bundle_template_id, rule.rule_id);
     if (rule.rule_id == 0 || std::find(rule_keys.begin(), rule_keys.end(), key) != rule_keys.end()) {
       out.error = "experimental line population: rule ids must be nonzero and unique per bundle template";
@@ -80,8 +80,8 @@ EditResult<bool> CoreState::UpdateExperimentalLinePopulationConfig(
     }
   }
 
-  runtime_.cache_state.experimental_line_population = config;
-  runtime_.cache_state.experimental_line_population.explicit_seed =
+  runtime_.cache_state.experimental_span_member_population = config;
+  runtime_.cache_state.experimental_span_member_population.explicit_seed =
       config.explicit_seed == 0 ? 1 : config.explicit_seed;
   cache_visual_curve_parts(generation::backbone::make_visual_curve_parts(*this, {}));
   out.value = true;

@@ -1,7 +1,5 @@
 #include "population.hpp"
 
-#include "out.hpp"
-
 #include "wire/core/core_view.hpp"
 
 #include <algorithm>
@@ -26,7 +24,7 @@ std::uint64_t combine(std::uint64_t seed, std::uint64_t value) {
   return mix64(seed ^ (value + 0x9E3779B97F4A7C15ull + (seed << 6) + (seed >> 2)));
 }
 
-std::uint64_t key_seed(const PhysicalLinePopulationInput& input, std::size_t instance_index,
+std::uint64_t key_seed(const SpanMemberPopulationInput& input, std::size_t instance_index,
                        std::size_t attempt) {
   std::uint64_t seed = mix64(input.explicit_seed);
   seed = combine(seed, input.key.logical_span_id);
@@ -52,7 +50,7 @@ bool inside(double value, double min_value, double max_value) {
   return value >= min_value - kEps && value <= max_value + kEps;
 }
 
-bool blocked_by_reserve(const PhysicalLinePopulationEndpoint& endpoint,
+bool blocked_by_reserve(const SpanMemberPopulationEndpoint& endpoint,
                         const std::vector<ExperimentalPlacementReserve>& reserves, const Vec3d& local) {
   return std::any_of(reserves.begin(), reserves.end(), [&](const ExperimentalPlacementReserve& reserve) {
     return reserve.pole_type_id == endpoint.pole_type_id && reserve.band_id == endpoint.band_id &&
@@ -70,7 +68,7 @@ bool spacing_satisfied(const Vec3d& candidate, const std::vector<Vec3d>& occupie
   });
 }
 
-int requested_count(const PhysicalLinePopulationInput& input) {
+int requested_count(const SpanMemberPopulationInput& input) {
   const int count_range = input.rule.max_extra_count - input.rule.min_extra_count + 1;
   if (count_range <= 1) {
     return input.rule.min_extra_count;
@@ -79,20 +77,17 @@ int requested_count(const PhysicalLinePopulationInput& input) {
   return input.rule.min_extra_count + static_cast<int>(seed % static_cast<std::uint64_t>(count_range));
 }
 
-Vec3d candidate_local(const PhysicalLinePopulationEndpoint& endpoint, const ExperimentalPhysicalLineRule& rule,
+Vec3d candidate_local(const SpanMemberPopulationEndpoint& endpoint, const ExperimentalSpanMemberRule& rule,
                       std::size_t instance_index, std::size_t attempt, std::uint64_t seed) {
   const std::size_t ordinal = instance_index + attempt;
   const double side = ((ordinal & 1u) == 0u) ? 1.0 : -1.0;
   const double ring = static_cast<double>((ordinal / 2u) + 1u);
   const double jitter = 1.0 + centered(combine(seed, 1)) * rule.randomness * 0.35;
   const double height_delta = side * std::max(rule.min_spacing_m, 0.01) * ring * jitter;
-  const double lateral_delta =
-      centered(combine(seed, 2)) * std::max(rule.min_spacing_m, 0.01) * rule.randomness * 0.25;
-  return {endpoint.original_local.x, endpoint.original_local.y + lateral_delta,
-          endpoint.original_local.z + height_delta};
+  return {endpoint.original_local.x, endpoint.original_local.y, endpoint.original_local.z + height_delta};
 }
 
-bool candidate_allowed(const PhysicalLinePopulationEndpoint& endpoint,
+bool candidate_allowed(const SpanMemberPopulationEndpoint& endpoint,
                        const std::vector<ExperimentalPlacementReserve>& reserves,
                        const std::vector<Vec3d>& occupied, double min_spacing_m, const Vec3d& local) {
   return inside(local.y, endpoint.lateral_min_m, endpoint.lateral_max_m) &&
@@ -109,10 +104,10 @@ const SavedBackboneSpanBinding* span_binding_for(const CoreState& state, ObjectI
   return nullptr;
 }
 
-const ExperimentalPhysicalLineRule* rule_for(const ExperimentalLinePopulationConfig& config,
+const ExperimentalSpanMemberRule* rule_for(const ExperimentalSpanMemberPopulationConfig& config,
                                              BundleKind bundle_template_id, std::size_t index) {
-  std::vector<const ExperimentalPhysicalLineRule*> matches{};
-  for (const ExperimentalPhysicalLineRule& rule : config.rules) {
+  std::vector<const ExperimentalSpanMemberRule*> matches{};
+  for (const ExperimentalSpanMemberRule& rule : config.rules) {
     if (rule.bundle_template_id == bundle_template_id) {
       matches.push_back(&rule);
     }
@@ -126,10 +121,10 @@ const ExperimentalPhysicalLineRule* rule_for(const ExperimentalLinePopulationCon
   return index < matches.size() ? matches[index] : nullptr;
 }
 
-PhysicalLinePopulationEndpoint resolve_endpoint(const CoreState& state, const LayoutEndpoint& layout,
-                                                const BundleTemplate& bundle_template,
-                                                const ExperimentalPhysicalLineRule& rule) {
-  PhysicalLinePopulationEndpoint out{};
+SpanMemberPopulationEndpoint resolve_endpoint(const CoreState& state, const LayoutEndpoint& layout,
+                                               const BundleTemplate& bundle_template,
+                                               const ExperimentalSpanMemberRule& rule) {
+  SpanMemberPopulationEndpoint out{};
   const Port* port = state.view().ports().find(layout.port_id);
   if (port == nullptr || port->owner_pole_id == kInvalidObjectId) {
     out.failure_reason = "endpoint has no pole-owned port";
@@ -210,16 +205,6 @@ PhysicalLinePopulationEndpoint resolve_endpoint(const CoreState& state, const La
   return out;
 }
 
-void apply_appearance(const CoreState& state, ObjectId span_id, VisualCurvePart* part) {
-  if (part == nullptr) {
-    return;
-  }
-  const SpanRenderCacheEntry appearance = render(state, span_id, {});
-  part->wire_radius_m = appearance.wire_radius_m;
-  part->color_rgba = appearance.color_rgba;
-  part->material_style = appearance.material_style;
-}
-
 } // namespace
 
 bool has_duplicate_band_ids(const PoleTypeDefinition& pole_type) {
@@ -232,9 +217,9 @@ bool has_duplicate_band_ids(const PoleTypeDefinition& pole_type) {
   return false;
 }
 
-EditResult<PhysicalLinePopulationOutput> populate_physical_lines(const PhysicalLinePopulationInput& input) {
-  EditResult<PhysicalLinePopulationOutput> out{};
-  PhysicalLinePopulationDiagnostic& diagnostic = out.value.diagnostic;
+EditResult<SpanMemberPopulationOutput> populate_span_members(const SpanMemberPopulationInput& input) {
+  EditResult<SpanMemberPopulationOutput> out{};
+  SpanMemberPopulationDiagnostic& diagnostic = out.value.diagnostic;
   diagnostic.logical_span_id = input.key.logical_span_id;
   diagnostic.edge_bundle_id = input.key.edge_bundle_id;
   diagnostic.rule_id = input.key.rule_id;
@@ -262,16 +247,18 @@ EditResult<PhysicalLinePopulationOutput> populate_physical_lines(const PhysicalL
         continue;
       }
 
-      PhysicalLineInstance instance{};
-      instance.key = input.key;
-      instance.key.instance_index = static_cast<std::size_t>(index);
-      instance.endpoint_a = LocalPointToWorld(input.endpoint_a.frame, local_a) + input.endpoint_a.endpoint_offset_world;
-      instance.endpoint_b = LocalPointToWorld(input.endpoint_b.frame, local_b) + input.endpoint_b.endpoint_offset_world;
-      instance.endpoint_a_pole_type_id = input.endpoint_a.pole_type_id;
-      instance.endpoint_b_pole_type_id = input.endpoint_b.pole_type_id;
-      instance.endpoint_a_band_id = input.endpoint_a.band_id;
-      instance.endpoint_b_band_id = input.endpoint_b.band_id;
-      out.value.instances.push_back(instance);
+      SpanMemberLayout member{};
+      member.key = input.key;
+      member.key.instance_index = static_cast<std::size_t>(index) + 1;
+      member.endpoint_a =
+          LocalPointToWorld(input.endpoint_a.frame, local_a) + input.endpoint_a.endpoint_offset_world;
+      member.endpoint_b =
+          LocalPointToWorld(input.endpoint_b.frame, local_b) + input.endpoint_b.endpoint_offset_world;
+      member.endpoint_a_pole_type_id = input.endpoint_a.pole_type_id;
+      member.endpoint_b_pole_type_id = input.endpoint_b.pole_type_id;
+      member.endpoint_a_band_id = input.endpoint_a.band_id;
+      member.endpoint_b_band_id = input.endpoint_b.band_id;
+      out.value.members.push_back(member);
       occupied_a.push_back(local_a);
       occupied_b.push_back(local_b);
       accepted = true;
@@ -281,20 +268,19 @@ EditResult<PhysicalLinePopulationOutput> populate_physical_lines(const PhysicalL
       ++diagnostic.omitted_count;
     }
   }
-  diagnostic.extra_count_accepted = static_cast<int>(out.value.instances.size());
+  diagnostic.extra_count_accepted = static_cast<int>(out.value.members.size());
   diagnostic.reason = diagnostic.omitted_count == 0 ? "ok" : "candidate conflict";
   out.ok = true;
   return out;
 }
 
-void append_experimental_physical_lines(const CoreState& state, const std::vector<SpanLayoutEntry>& layouts,
-                                        VisualCurvePartCache* output) {
-  if (output == nullptr) {
-    return;
-  }
-  const ExperimentalLinePopulationConfig& config = state.view().experimental_line_population_config();
+ExperimentalSpanMemberPopulation make_experimental_span_members(
+    const CoreState& state, const std::vector<SpanLayoutEntry>& layouts) {
+  ExperimentalSpanMemberPopulation output{};
+  const ExperimentalSpanMemberPopulationConfig& config =
+      state.view().experimental_span_member_population_config();
   if (!config.enabled) {
-    return;
+    return output;
   }
 
   for (const SpanLayoutEntry& layout : layouts) {
@@ -315,9 +301,9 @@ void append_experimental_physical_lines(const CoreState& state, const std::vecto
     std::vector<Vec3d> occupied_a{};
     std::vector<Vec3d> occupied_b{};
     std::size_t rule_index = 0;
-    while (const ExperimentalPhysicalLineRule* rule =
+    while (const ExperimentalSpanMemberRule* rule =
                rule_for(config, bundle->bundle_template_id, rule_index++)) {
-      PhysicalLinePopulationInput input{};
+      SpanMemberPopulationInput input{};
       input.key.logical_span_id = layout.span_id;
       input.key.edge_bundle_id = binding->edge_bundle_id;
       input.key.rule_owner_id = static_cast<std::uint64_t>(bundle->bundle_template_id);
@@ -336,64 +322,27 @@ void append_experimental_physical_lines(const CoreState& state, const std::vecto
         input.occupied_b_local.push_back(input.endpoint_b.original_local);
       }
 
-      EditResult<PhysicalLinePopulationOutput> populated = populate_physical_lines(input);
+      EditResult<SpanMemberPopulationOutput> populated = populate_span_members(input);
       if (!populated.ok) {
-        PhysicalLinePopulationDiagnostic diagnostic{};
+        SpanMemberPopulationDiagnostic diagnostic{};
         diagnostic.logical_span_id = layout.span_id;
         diagnostic.edge_bundle_id = binding->edge_bundle_id;
         diagnostic.rule_id = rule->rule_id;
         diagnostic.reason = populated.error;
-        output->experimental_population_diagnostics.push_back(std::move(diagnostic));
+        output.diagnostics.push_back(std::move(diagnostic));
         continue;
       }
-      PhysicalLinePopulationDiagnostic diagnostic = populated.value.diagnostic;
-      std::vector<PhysicalLineInstance> rendered_instances{};
-      for (const PhysicalLineInstance& instance : populated.value.instances) {
-        EditResult<DetailCurve> curve =
-            make_curve_between(state, layout.span_id, instance.endpoint_a, instance.endpoint_b);
-        if (!curve.ok) {
-          diagnostic.reason = "curve generation failed";
-          continue;
-        }
-        VisualCurvePart part{};
-        part.kind = VisualCurvePartKind::kExperimentalPhysicalLine;
-        part.source_span_id = layout.span_id;
-        part.source_bundle_id = span->bundle_id;
-        part.bundle_template_id = bundle->bundle_template_id;
-        part.lane_index = binding->lane_index;
-        part.boundary_a = instance.endpoint_a;
-        part.boundary_b = instance.endpoint_b;
-        part.samples = curve.value.sample_points;
-        part.sag_method = VisualCurveSagMethod::kParabolic;
-        part.sag_m = curve.value.sag_amplitude_m;
-        part.has_physical_line_key = true;
-        part.physical_line_key = instance.key;
-        part.endpoint_a_pole_type_id = instance.endpoint_a_pole_type_id;
-        part.endpoint_b_pole_type_id = instance.endpoint_b_pole_type_id;
-        part.endpoint_a_band_id = instance.endpoint_a_band_id;
-        part.endpoint_b_band_id = instance.endpoint_b_band_id;
-        apply_appearance(state, layout.span_id, &part);
-        part.bounds = bounds(curve.value).whole;
-        output->parts.push_back(std::move(part));
-        rendered_instances.push_back(instance);
-      }
-
-      diagnostic.extra_count_accepted = static_cast<int>(rendered_instances.size());
-      diagnostic.omitted_count = diagnostic.extra_count_requested - diagnostic.extra_count_accepted;
-      if (diagnostic.omitted_count == 0) {
-        diagnostic.reason = "ok";
-      } else if (diagnostic.reason == "ok") {
-        diagnostic.reason = "candidate conflict";
-      }
-      output->experimental_population_diagnostics.push_back(std::move(diagnostic));
-      for (const PhysicalLineInstance& instance : rendered_instances) {
+      output.diagnostics.push_back(populated.value.diagnostic);
+      output.members.insert(output.members.end(), populated.value.members.begin(), populated.value.members.end());
+      for (const SpanMemberLayout& member : populated.value.members) {
         occupied_a.push_back(WorldPointToLocal(input.endpoint_a.frame,
-                                              instance.endpoint_a - input.endpoint_a.endpoint_offset_world));
+                                              member.endpoint_a - input.endpoint_a.endpoint_offset_world));
         occupied_b.push_back(WorldPointToLocal(input.endpoint_b.frame,
-                                              instance.endpoint_b - input.endpoint_b.endpoint_offset_world));
+                                              member.endpoint_b - input.endpoint_b.endpoint_offset_world));
       }
     }
   }
+  return output;
 }
 
 } // namespace wire::core::generation::backbone

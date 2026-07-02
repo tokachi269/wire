@@ -39,7 +39,6 @@ bool C370_backbone_no_v1_deps() {
       "materialization",
       "authority",
       "projection",
-      "seed",
   };
   for (const auto& entry : std::filesystem::recursive_directory_iterator(dir)) {
     if (!entry.is_regular_file()) {

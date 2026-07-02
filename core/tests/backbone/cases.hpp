@@ -277,5 +277,12 @@ bool C644_backbone_patch_boundaries_extend_sag_tangents_below_attachment();
 bool C645_backbone_node_patch_inner_fillet_keeps_curvature();
 bool C646_backbone_node_patch_turns_monotonically_inside_corner();
 bool C647_backbone_node_patch_uses_incident_cable_appearance();
+bool C648_experimental_population_same_seed_is_stable();
+bool C649_experimental_population_span_identity_changes_placement();
+bool C650_experimental_population_reserve_blocks_candidates();
+bool C651_experimental_population_spacing_rejects_overlap();
+bool C652_experimental_population_endpoint_failure_omits_pair();
+bool C653_experimental_population_rejects_duplicate_band_identity();
+bool C654_experimental_population_does_not_mutate_logical_topology();
 
 } // namespace backbone_tests

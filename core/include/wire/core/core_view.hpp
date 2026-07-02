@@ -48,6 +48,7 @@ public:
   [[nodiscard]] const GeometrySettings& geometry_settings() const;
   [[nodiscard]] const VisualSettings& visual_settings() const;
   [[nodiscard]] const VariationSettings& variation_settings() const;
+  [[nodiscard]] const ExperimentalLinePopulationConfig& experimental_line_population_config() const;
   [[nodiscard]] const ContextProfile& context_profile() const;
   [[nodiscard]] const LayoutSettings& layout_settings() const;
   [[nodiscard]] const PathDirectionEvaluationDebug& last_path_direction_debug() const;

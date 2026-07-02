@@ -14,6 +14,7 @@ add_library(
   src/generation/backbone/curve_parts.cpp
   src/generation/backbone/derive.cpp
   src/generation/backbone/out.cpp
+  src/generation/backbone/population.cpp
   src/generation/backbone/pipeline.cpp
   src/generation/generate_from_backbone.cpp
   src/state/backbone.cpp
@@ -83,6 +84,7 @@ if(BUILD_TESTING)
     tests/backbone/guard.cpp
     tests/backbone/input.cpp
     tests/backbone/output.cpp
+    tests/backbone/population.cpp
     tests/backbone/update.cpp
     tests/backbone/registry.cpp
   )

@@ -4,6 +4,7 @@
 #include "wire/core/coord_utils.hpp"
 
 #include "out.hpp"
+#include "population.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -474,6 +475,7 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     patch.bounds = curve_part_bounds(patch.samples);
     out.parts.push_back(std::move(patch));
   }
+  append_experimental_physical_lines(state, placed.entries, &out);
   return out;
 }
 

@@ -798,6 +798,27 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C647_backbone_node_patch_uses_incident_cable_appearance",
                          "backbone node patch uses the same cable appearance as incident edge bodies", "Boundary",
                          false, C647_backbone_node_patch_uses_incident_cable_appearance);
+  test_registry::AddTest(tests, "C648_experimental_population_same_seed_is_stable",
+                         "experimental physical line population is stable for the same explicit seed", "Invariant",
+                         false, C648_experimental_population_same_seed_is_stable);
+  test_registry::AddTest(tests, "C649_experimental_population_span_identity_changes_placement",
+                         "experimental physical line placement is keyed by logical span identity", "Invariant",
+                         false, C649_experimental_population_span_identity_changes_placement);
+  test_registry::AddTest(tests, "C650_experimental_population_reserve_blocks_candidates",
+                         "experimental physical line reserves block candidate pairs", "Invariant", false,
+                         C650_experimental_population_reserve_blocks_candidates);
+  test_registry::AddTest(tests, "C651_experimental_population_spacing_rejects_overlap",
+                         "experimental physical line spacing rejects overlapping candidates", "Invariant", false,
+                         C651_experimental_population_spacing_rejects_overlap);
+  test_registry::AddTest(tests, "C652_experimental_population_endpoint_failure_omits_pair",
+                         "experimental physical line endpoint failure omits the whole pair", "Boundary", true,
+                         C652_experimental_population_endpoint_failure_omits_pair);
+  test_registry::AddTest(tests, "C653_experimental_population_rejects_duplicate_band_identity",
+                         "experimental physical line population rejects duplicate local band identity", "Boundary",
+                         true, C653_experimental_population_rejects_duplicate_band_identity);
+  test_registry::AddTest(tests, "C654_experimental_population_does_not_mutate_logical_topology",
+                         "experimental physical line population changes visual output only", "Boundary", false,
+                         C654_experimental_population_does_not_mutate_logical_topology);
 }
 
 

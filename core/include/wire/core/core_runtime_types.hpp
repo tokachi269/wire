@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <string>
 #include <type_traits>
 #include <unordered_map>
 #include <vector>
@@ -95,6 +96,7 @@ enum class VisualCurvePartKind : std::uint8_t {
   kNodePatch = 1,
   kLead = 2,
   kJumper = 3,
+  kExperimentalPhysicalLine = 4,
 };
 
 enum class NodePatchClassification : std::uint8_t {
@@ -108,6 +110,68 @@ enum class NodePatchClassification : std::uint8_t {
 enum class VisualCurveSagMethod : std::uint8_t {
   kNone = 0,
   kParabolic = 1,
+};
+
+using PhysicalLineRuleId = std::uint64_t;
+using PlacementReserveId = std::uint64_t;
+
+struct ExperimentalPhysicalLineRule {
+  PhysicalLineRuleId rule_id = 0;
+  BundleKind bundle_template_id = BundleKind::kCommunication;
+  int priority = 0;
+  int min_extra_count = 0;
+  int max_extra_count = 0;
+  double min_spacing_m = 0.05;
+  double lateral_min_m = -1.0;
+  double lateral_max_m = 1.0;
+  double height_min_m = 0.0;
+  double height_max_m = 20.0;
+  double randomness = 0.25;
+};
+
+struct ExperimentalPlacementReserve {
+  PlacementReserveId reserve_id = 0;
+  PoleTypeId pole_type_id = kInvalidPoleTypeId;
+  int band_id = 0;
+  double lateral_min_m = 0.0;
+  double lateral_max_m = 0.0;
+  double height_min_m = 0.0;
+  double height_max_m = 0.0;
+};
+
+struct ExperimentalLinePopulationConfig {
+  bool enabled = false;
+  std::uint64_t explicit_seed = 1;
+  std::vector<ExperimentalPhysicalLineRule> rules{};
+  std::vector<ExperimentalPlacementReserve> reserves{};
+};
+
+struct PhysicalLineInstanceKey {
+  ObjectId logical_span_id = kInvalidObjectId;
+  ObjectId edge_bundle_id = kInvalidObjectId;
+  std::uint64_t rule_owner_id = 0;
+  PhysicalLineRuleId rule_id = 0;
+  std::size_t instance_index = 0;
+};
+
+struct PhysicalLineInstance {
+  PhysicalLineInstanceKey key{};
+  Vec3d endpoint_a{};
+  Vec3d endpoint_b{};
+  PoleTypeId endpoint_a_pole_type_id = kInvalidPoleTypeId;
+  PoleTypeId endpoint_b_pole_type_id = kInvalidPoleTypeId;
+  int endpoint_a_band_id = 0;
+  int endpoint_b_band_id = 0;
+};
+
+struct PhysicalLinePopulationDiagnostic {
+  ObjectId logical_span_id = kInvalidObjectId;
+  ObjectId edge_bundle_id = kInvalidObjectId;
+  PhysicalLineRuleId rule_id = 0;
+  int extra_count_requested = 0;
+  int extra_count_accepted = 0;
+  int omitted_count = 0;
+  std::string reason{};
 };
 
 struct VisualCurvePart {
@@ -131,6 +195,12 @@ struct VisualCurvePart {
   std::size_t section_count = 1;
   VisualCurveSagMethod sag_method = VisualCurveSagMethod::kNone;
   double sag_m = 0.0;
+  bool has_physical_line_key = false;
+  PhysicalLineInstanceKey physical_line_key{};
+  PoleTypeId endpoint_a_pole_type_id = kInvalidPoleTypeId;
+  PoleTypeId endpoint_b_pole_type_id = kInvalidPoleTypeId;
+  int endpoint_a_band_id = 0;
+  int endpoint_b_band_id = 0;
   double wire_radius_m = 0.015;
   std::uint32_t color_rgba = 0xFFFFFFFFu;
   CableMaterialStyleKind material_style = CableMaterialStyleKind::kGeneric;
@@ -142,6 +212,7 @@ struct VisualCurvePart {
 
 struct VisualCurvePartCache {
   std::vector<VisualCurvePart> parts{};
+  std::vector<PhysicalLinePopulationDiagnostic> experimental_population_diagnostics{};
 };
 
 struct VisualSettings {
@@ -161,6 +232,7 @@ struct CacheState {
   BoundsCache bounds_cache{};
   VisualSettings visual_settings{};
   VariationSettings variation_settings{};
+  ExperimentalLinePopulationConfig experimental_line_population{};
   SpanLayoutCache span_layout_cache{};
   VisualCache visual_cache{};
   RenderCache render_cache{};

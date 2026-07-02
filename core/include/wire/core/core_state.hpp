@@ -84,6 +84,7 @@ public:
   EditResult<bool> UpdateLayoutSettings(const LayoutSettings& settings);
   EditResult<bool> UpdateVisualSettings(const VisualSettings& settings, bool mark_all_spans_dirty = true);
   EditResult<bool> UpdateVariationSettings(const VariationSettings& settings, bool mark_all_spans_dirty = true);
+  EditResult<bool> UpdateExperimentalLinePopulationConfig(const ExperimentalLinePopulationConfig& config);
   EditResult<bool> UpdateContextProfile(const ContextProfile& profile, bool mark_all_spans_dirty = true);
   EditResult<bool> UpdateCableTemplate(const CableTemplate& cable_template);
   EditResult<bool> UpdateCableTemplate(const CableTemplate& cable_template,

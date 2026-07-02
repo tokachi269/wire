@@ -459,6 +459,47 @@ bool test_span_layout_debug_panel_reads_neutral_outputs() {
          source.find("span_frontier(") != std::string::npos;
 }
 
+bool test_experimental_population_produces_viewer_curve_parts() {
+  wire::core::CoreState state;
+  wire::core::ExperimentalLinePopulationConfig config{};
+  config.enabled = true;
+  config.explicit_seed = 42;
+  wire::core::ExperimentalPhysicalLineRule rule{};
+  rule.rule_id = 1;
+  rule.bundle_template_id = wire::core::BundleKind::kCommunication;
+  rule.min_extra_count = 3;
+  rule.max_extra_count = 3;
+  rule.min_spacing_m = 0.04;
+  rule.lateral_min_m = -2.0;
+  rule.lateral_max_m = 2.0;
+  rule.height_min_m = 0.0;
+  rule.height_max_m = 20.0;
+  rule.randomness = 0.5;
+  config.rules.push_back(rule);
+  const auto configured = state.UpdateExperimentalLinePopulationConfig(config);
+  const auto generated = state.GenerateFromBackboneSpec(line_req(state, wire::core::BundleKind::kCommunication));
+  if (!configured.ok || !generated.ok || generated.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId span_id = generated.value.generated_span_ids.front();
+  const wire::core::SpanRenderCacheEntry* render = state.find_span_render_cache(span_id);
+  if (render == nullptr) {
+    return false;
+  }
+  std::size_t physical_count = 0;
+  for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
+    if (part.kind != wire::core::VisualCurvePartKind::kExperimentalPhysicalLine) {
+      continue;
+    }
+    if (!part.has_physical_line_key || part.source_span_id != span_id || part.samples.size() < 2 ||
+        !almost_equal(part.wire_radius_m, render->wire_radius_m) || part.color_rgba != render->color_rgba) {
+      return false;
+    }
+    ++physical_count;
+  }
+  return physical_count == 3;
+}
+
 void register_backbone_scene_tests(viewer_test_registry::TestRegistry& tests) {
   viewer_test_registry::AddTest(tests, "V16", "backbone viewer scene: simple LV/HV/Communication line has display outputs",
                                 test_backbone_viewer_simple_all_templates_have_display_outputs);
@@ -478,6 +519,8 @@ void register_backbone_scene_tests(viewer_test_registry::TestRegistry& tests) {
                                 test_span_layout_debug_panel_reads_neutral_outputs);
   viewer_test_registry::AddTest(tests, "V24", "backbone viewer scene: sag uses curved geom and render output",
                                 test_backbone_viewer_sag_uses_curved_geom_output);
+  viewer_test_registry::AddTest(tests, "V25", "backbone viewer scene: experimental population adds physical curve parts",
+                                test_experimental_population_produces_viewer_curve_parts);
 }
 
 WIRE_REGISTER_VIEWER_TEST_SUITE(register_backbone_scene_tests);

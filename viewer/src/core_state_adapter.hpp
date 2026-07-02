@@ -48,6 +48,11 @@ wire::core::EditResult<bool> UpdatePoleTypeDefinition(CoreState& state,
 
 wire::core::EditResult<bool> UpdateVisualSettings(CoreState& state, const wire::core::VisualSettings& settings,
                                                   bool mark_all_spans_dirty);
+wire::core::EditResult<bool>
+UpdateExperimentalLinePopulationConfig(CoreState& state,
+                                       const wire::core::ExperimentalLinePopulationConfig& config);
+[[nodiscard]] const wire::core::ExperimentalLinePopulationConfig&
+ExperimentalLinePopulationConfig(const CoreState& state);
 
 [[nodiscard]] wire::core::ValidationResult ValidateFast(const CoreState& state);
 

@@ -124,6 +124,8 @@ const char* VisualCurvePartKindLabelLocal(wire::core::VisualCurvePartKind kind) 
     return "lead";
   case wire::core::VisualCurvePartKind::kJumper:
     return "jumper";
+  case wire::core::VisualCurvePartKind::kExperimentalPhysicalLine:
+    return "experimental_physical_line";
   default:
     return "unknown";
   }
@@ -695,6 +697,35 @@ bool ExecuteBackboneRequest(CoreState& state, ViewerUiState& ui_state, const wir
   return true;
 }
 
+wire::core::ExperimentalLinePopulationConfig ExperimentalLinePopulationConfigLocal(const ViewerUiState& ui_state) {
+  wire::core::ExperimentalLinePopulationConfig config{};
+  config.enabled = ui_state.experimental_line_population_enabled;
+  config.explicit_seed = ui_state.experimental_line_population_seed;
+  if (!config.enabled) {
+    return config;
+  }
+  auto add_rule = [&](std::uint64_t rule_id, wire::core::BundleKind bundle_template_id, int priority,
+                      int min_count, int max_count, double spacing_m) {
+    wire::core::ExperimentalPhysicalLineRule rule{};
+    rule.rule_id = rule_id;
+    rule.bundle_template_id = bundle_template_id;
+    rule.priority = priority;
+    rule.min_extra_count = min_count;
+    rule.max_extra_count = max_count;
+    rule.min_spacing_m = spacing_m;
+    rule.lateral_min_m = -2.0;
+    rule.lateral_max_m = 2.0;
+    rule.height_min_m = 0.0;
+    rule.height_max_m = 20.0;
+    rule.randomness = 0.65;
+    config.rules.push_back(rule);
+  };
+  add_rule(1001, wire::core::BundleKind::kLowVoltage, 10, 0, 1, 0.055);
+  add_rule(1002, wire::core::BundleKind::kCommunication, 20, 2, 6, 0.045);
+  add_rule(1003, wire::core::BundleKind::kOptical, 15, 1, 3, 0.050);
+  return config;
+}
+
 void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool from_enter_key) {
   const auto view = viewer_core_state::View(state);
   EnsureDrawPathPointKinds(ui_state);
@@ -715,6 +746,12 @@ void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool
   const auto selected_templates = SelectedBundleTemplates(view, ui_state);
   if (selected_templates.empty()) {
     ui_state.last_error = "select at least one bundle template";
+    return;
+  }
+  const auto population_config = viewer_core_state::UpdateExperimentalLinePopulationConfig(
+      state, ExperimentalLinePopulationConfigLocal(ui_state));
+  if (!population_config.ok) {
+    ui_state.last_error = population_config.error;
     return;
   }
 
@@ -1358,6 +1395,24 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
     ofs << prefix << ".wire_radius_m=" << part.wire_radius_m << "\n";
     ofs << prefix << ".color_rgba=" << part.color_rgba << "\n";
     ofs << prefix << ".material_style=" << static_cast<int>(part.material_style) << "\n";
+    ofs << prefix << ".has_physical_line_key=" << (part.has_physical_line_key ? 1 : 0) << "\n";
+    if (part.has_physical_line_key) {
+      ofs << prefix << ".physical.logical_span_id="
+          << static_cast<unsigned long long>(part.physical_line_key.logical_span_id) << "\n";
+      ofs << prefix << ".physical.edge_bundle_id="
+          << static_cast<unsigned long long>(part.physical_line_key.edge_bundle_id) << "\n";
+      ofs << prefix << ".physical.rule_owner_id="
+          << static_cast<unsigned long long>(part.physical_line_key.rule_owner_id) << "\n";
+      ofs << prefix << ".physical.rule_id="
+          << static_cast<unsigned long long>(part.physical_line_key.rule_id) << "\n";
+      ofs << prefix << ".physical.instance_index=" << part.physical_line_key.instance_index << "\n";
+      ofs << prefix << ".physical.endpoint_a_pole_type_id="
+          << static_cast<unsigned long long>(part.endpoint_a_pole_type_id) << "\n";
+      ofs << prefix << ".physical.endpoint_b_pole_type_id="
+          << static_cast<unsigned long long>(part.endpoint_b_pole_type_id) << "\n";
+      ofs << prefix << ".physical.endpoint_a_band_id=" << part.endpoint_a_band_id << "\n";
+      ofs << prefix << ".physical.endpoint_b_band_id=" << part.endpoint_b_band_id << "\n";
+    }
     ofs << prefix << ".section_count=" << part.section_count << "\n";
     ofs << prefix << ".has_attachment_point=" << (part.has_attachment_point ? 1 : 0) << "\n";
     ofs << prefix << ".passes_attachment_point=" << (part.passes_attachment_point ? 1 : 0) << "\n";
@@ -1383,6 +1438,24 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
       ofs << prefix << ".incident_edge[" << edge_index
           << "]=" << static_cast<unsigned long long>(part.incident_edge_ids[edge_index]) << "\n";
     }
+  }
+  const auto& population_config = viewer_core_state::ExperimentalLinePopulationConfig(state);
+  ofs << "result.experimental_line_population.enabled=" << (population_config.enabled ? 1 : 0) << "\n";
+  ofs << "result.experimental_line_population.explicit_seed="
+      << static_cast<unsigned long long>(population_config.explicit_seed) << "\n";
+  ofs << "result.experimental_line_population.rule_count=" << population_config.rules.size() << "\n";
+  const auto& population_diagnostics = view.visual_curve_parts().experimental_population_diagnostics;
+  ofs << "result.experimental_line_population.diagnostic_count=" << population_diagnostics.size() << "\n";
+  for (std::size_t i = 0; i < population_diagnostics.size(); ++i) {
+    const auto& diagnostic = population_diagnostics[i];
+    const std::string prefix = std::format("result.experimental_line_population.diagnostic[{}]", i);
+    ofs << prefix << ".logical_span_id=" << static_cast<unsigned long long>(diagnostic.logical_span_id) << "\n";
+    ofs << prefix << ".edge_bundle_id=" << static_cast<unsigned long long>(diagnostic.edge_bundle_id) << "\n";
+    ofs << prefix << ".rule_id=" << static_cast<unsigned long long>(diagnostic.rule_id) << "\n";
+    ofs << prefix << ".requested=" << diagnostic.extra_count_requested << "\n";
+    ofs << prefix << ".accepted=" << diagnostic.extra_count_accepted << "\n";
+    ofs << prefix << ".omitted=" << diagnostic.omitted_count << "\n";
+    ofs << prefix << ".reason=" << diagnostic.reason << "\n";
   }
 
   std::map<std::pair<wire::core::ObjectId, int>, wire::core::LoweredSupportGroupKey> layout_lowered_support_keys{};
@@ -1678,6 +1751,9 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
   ImGui::Checkbox("Clicked Points Only (No Intermediate Pole)", &ui_state.draw_clicked_points_only);
   ImGui::Checkbox("Show Preview", &ui_state.draw_show_preview);
   ImGui::Checkbox("Keep Path After Generate", &ui_state.draw_keep_path_after_generate);
+  ImGui::SeparatorText("Experimental");
+  ImGui::Checkbox("Physical Line Population", &ui_state.experimental_line_population_enabled);
+  ImGui::InputScalar("Population Seed", ImGuiDataType_U64, &ui_state.experimental_line_population_seed);
   ImGui::TextUnformatted("Template-driven bundle generation");
   ImGui::Text("Path points: %d", static_cast<int>(ui_state.draw_path_points.size()));
   const int midair_points = static_cast<int>(

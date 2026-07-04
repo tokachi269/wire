@@ -264,11 +264,6 @@ struct PoleContextInfo {
   double corner_turn_sign = 0.0; // -1:right turn, +1:left turn, 0:undefined/straight
   double side_scale = 1.0;
   bool angle_correction_applied = false;
-  // Sharp-corner (theta <= threshold) orientation diagnostics.
-  bool sharp_orientation_applied = false;
-  double sharp_theta_deg = 0.0;
-  Vec3d sharp_bisector_dir{};
-  Vec3d sharp_side_dir{};
 };
 
 // Entity-layer support object.

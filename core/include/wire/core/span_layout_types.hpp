@@ -135,6 +135,7 @@ inline void CopyLayoutSemantic(LayoutSemantic& dst, const LayoutSemantic& src) {
 struct LayoutEndpoint : LayoutSemantic {
   ObjectId endpoint_node_id = kInvalidObjectId;
   ObjectId port_id = kInvalidObjectId;
+  ObjectId jumper_peer_port_id = kInvalidObjectId;
   EndpointAttachmentRequest attachment_request{};
   std::optional<int> resolved_socket_id{};
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
@@ -185,6 +186,7 @@ struct SupportGroupDecision : LayoutSemantic {
 struct EndpointLayoutRule {
   ObjectId endpoint_node_id = kInvalidObjectId;
   ObjectId port_id = kInvalidObjectId;
+  ObjectId jumper_peer_port_id = kInvalidObjectId;
   LayoutSemantic semantic{};
   EndpointAttachmentRequest attachment_request{};
   std::optional<int> resolved_socket_id{};
@@ -219,6 +221,7 @@ inline void ApplyEndpointLayoutRule(LayoutEndpoint& dst, const EndpointLayoutRul
   CopyLayoutSemantic(dst, rule.semantic);
   dst.endpoint_node_id = rule.endpoint_node_id;
   dst.port_id = rule.port_id;
+  dst.jumper_peer_port_id = rule.jumper_peer_port_id;
   dst.flow_kind = rule.flow_kind;
   dst.origin = rule.origin;
   dst.endpoint_source = rule.endpoint_source;

@@ -13,6 +13,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -56,6 +57,49 @@ bool prepare_two_lane_low_voltage(wire::core::CoreState& state) {
   tpl.min_count = std::min(tpl.min_count, 2);
   tpl.max_count = std::max(tpl.max_count, 2);
   return state.UpdateBundleTemplate(tpl).ok;
+}
+
+const wire::core::SavedBackboneSpanBinding* saved_span_binding(const wire::core::CoreState& state,
+                                                                wire::core::ObjectId span_id) {
+  const auto it = state.view().backbone_index().span_bindings_by_span.find(span_id);
+  if (it == state.view().backbone_index().span_bindings_by_span.end() || it->second.size() != 1 ||
+      it->second.front() >= state.view().backbone().span_bindings.size()) {
+    return nullptr;
+  }
+  return &state.view().backbone().span_bindings[it->second.front()];
+}
+
+bool two_lane_edge_bundles_do_not_twist(const wire::core::CoreState& state,
+                                        const std::vector<wire::core::ObjectId>& span_ids) {
+  std::unordered_map<wire::core::ObjectId, std::array<wire::core::ObjectId, 2>> spans_by_edge_bundle{};
+  for (wire::core::ObjectId span_id : span_ids) {
+    const wire::core::SavedBackboneSpanBinding* binding = saved_span_binding(state, span_id);
+    if (binding == nullptr || binding->lane_index >= 2) {
+      return false;
+    }
+    spans_by_edge_bundle[binding->edge_bundle_id][binding->lane_index] = span_id;
+  }
+  for (const auto& [edge_bundle_id, lanes] : spans_by_edge_bundle) {
+    (void)edge_bundle_id;
+    const wire::core::Span* lane0 = state.view().spans().find(lanes[0]);
+    const wire::core::Span* lane1 = state.view().spans().find(lanes[1]);
+    if (lane0 == nullptr || lane1 == nullptr) {
+      return false;
+    }
+    const wire::core::Port* a0 = state.view().ports().find(lane0->port_a_id);
+    const wire::core::Port* a1 = state.view().ports().find(lane1->port_a_id);
+    const wire::core::Port* b0 = state.view().ports().find(lane0->port_b_id);
+    const wire::core::Port* b1 = state.view().ports().find(lane1->port_b_id);
+    if (a0 == nullptr || a1 == nullptr || b0 == nullptr || b1 == nullptr) {
+      return false;
+    }
+    const wire::core::Vec3d axis_a = normalize_xy(a1->world_position - a0->world_position);
+    const wire::core::Vec3d axis_b = normalize_xy(b1->world_position - b0->world_position);
+    if (dot_xy(axis_a, axis_b) <= 0.0) {
+      return false;
+    }
+  }
+  return !spans_by_edge_bundle.empty();
 }
 
 wire::core::ObjectId pole_at(const wire::core::CoreState& state,
@@ -897,7 +941,112 @@ bool C662_backbone_pair_row_axis_does_not_flip_lane_order() {
     row_axis = {-row_axis.x, -row_axis.y, -row_axis.z};
   }
   return dot_xy(row_axis, lateral_xy(incoming)) > 0.0 &&
-         dot_xy(row_axis, lateral_xy(outgoing)) > 0.0;
+         dot_xy(row_axis, lateral_xy(outgoing)) > 0.0 &&
+         two_lane_edge_bundles_do_not_twist(state, generated.value.generated_span_ids);
+}
+
+bool C663_backbone_sharp_corner_uses_dead_end_rows_and_jumpers() {
+  wire::core::CoreState state;
+  if (!prepare_two_lane_low_voltage(state)) {
+    return false;
+  }
+  wire::core::BackboneSpec req = line_req(state);
+  req.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {5.0, 8.660254037844386, 0.0}};
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  const wire::core::ObjectId corner_pole = pole_at(state, generated.value.generated_pole_ids, {10.0, 0.0, 0.0});
+  const wire::core::SavedBackboneNode* corner_node = state.view().backbone_node_for_pole(corner_pole);
+  if (!generated.ok || generated.value.generated_span_ids.size() != 4 ||
+      state.view().backbone().edges.size() != 2 || corner_node == nullptr) {
+    return false;
+  }
+
+  std::unordered_map<wire::core::ObjectId, std::vector<wire::core::Vec3d>> rows{};
+  std::unordered_set<wire::core::ObjectId> corner_ports{};
+  for (wire::core::ObjectId span_id : generated.value.generated_span_ids) {
+    const wire::core::Span* span = state.view().spans().find(span_id);
+    if (span == nullptr) {
+      return false;
+    }
+    for (wire::core::ObjectId port_id : {span->port_a_id, span->port_b_id}) {
+      const wire::core::Port* port = state.view().ports().find(port_id);
+      if (port == nullptr || port->owner_pole_id != corner_pole || !corner_ports.insert(port_id).second) {
+        continue;
+      }
+      const wire::core::SavedBackbonePortBinding* binding = state.view().backbone_port_binding_for_port(port_id);
+      if (binding == nullptr || !binding->row_key.source_is_open ||
+          binding->row_key.node_id != corner_node->node_id ||
+          binding->row_key.source_edge_b != wire::core::kInvalidObjectId ||
+          std::abs(port->side_scale_applied - 1.0) > 1e-9) {
+        return false;
+      }
+      rows[binding->row_key.source_edge_a].push_back(port->world_position);
+    }
+  }
+  if (corner_ports.size() != 4 || rows.size() != 2) {
+    return false;
+  }
+  for (const auto& [edge_id, ports] : rows) {
+    const wire::core::SavedBackboneEdge* edge = state.view().backbone_edge(edge_id);
+    if (edge == nullptr || ports.size() != 2) {
+      return false;
+    }
+    const wire::core::Vec3d row_axis = normalize_xy(ports[1] - ports[0]);
+    const double alignment = abs_dot_xy(row_axis, lateral_xy(edge->dir));
+    const double spacing = std::sqrt((ports[1].x - ports[0].x) * (ports[1].x - ports[0].x) +
+                                     (ports[1].y - ports[0].y) * (ports[1].y - ports[0].y) +
+                                     (ports[1].z - ports[0].z) * (ports[1].z - ports[0].z));
+    if (alignment < 0.999 || spacing < 0.19) {
+      return false;
+    }
+  }
+
+  std::size_t jumper_count = 0;
+  for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
+    if (part.source_node_id != corner_node->node_id) {
+      continue;
+    }
+    if (part.kind == wire::core::VisualCurvePartKind::kNodePatch) {
+      return false;
+    }
+    if (part.kind == wire::core::VisualCurvePartKind::kJumper) {
+      if (part.incident_edge_ids.size() != 2 || part.samples.size() < 2 ||
+          !std::isfinite(part.bounds.min.x) || !std::isfinite(part.bounds.max.z)) {
+        return false;
+      }
+      ++jumper_count;
+    }
+  }
+  return jumper_count == 2 &&
+         two_lane_edge_bundles_do_not_twist(state, generated.value.generated_span_ids);
+}
+
+bool C664_backbone_sharp_pole_facing_consumes_pair_decision() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = line_req(state);
+  req.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {5.0, 8.660254037844386, 0.0}};
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  const wire::core::ObjectId corner_pole_id =
+      pole_at(state, generated.value.generated_pole_ids, {10.0, 0.0, 0.0});
+  const wire::core::Pole* corner_pole = state.view().poles().find(corner_pole_id);
+  if (!generated.ok || corner_pole == nullptr) {
+    return false;
+  }
+  const double yaw_rad = corner_pole->world_transform.rotation_euler_deg.z *
+                         (3.14159265358979323846 / 180.0);
+  const wire::core::Vec3d actual{std::cos(yaw_rad), std::sin(yaw_rad), 0.0};
+  const wire::core::Vec3d expected = normalize_xy((req.path.polyline[0] - req.path.polyline[1]) +
+                                                  (req.path.polyline[2] - req.path.polyline[1]));
+  if (abs_dot_xy(actual, expected) < 0.999) {
+    return false;
+  }
+
+  std::string source;
+  std::string body;
+  const std::filesystem::path file = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
+  return file_text(file, &source) &&
+         function_body(source, "EditResult<bool> pipeline::emit_poles(topo* made, const pairs& ps", &body) &&
+         contains_text(body, "ps.jumpers") && contains_text(body, "node_forward") &&
+         !contains_text(body, "acos") && !contains_text(body, "kSharpCornerInteriorAngleMaxDeg");
 }
 
 bool C414_backbone_simple_avoid_detour_supported() {

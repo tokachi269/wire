@@ -136,7 +136,7 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "backbone topology rows carry pair row source", "Boundary", false,
                          C421_backbone_topo_row_carries_source);
   test_registry::AddTest(tests, "C422_backbone_rules_consume_topo_and_groups",
-                         "backbone rules consume topology and groups without pairs", "Boundary", false,
+                         "backbone rules consume topology, placement, and explicit jumper relations", "Boundary", false,
                          C422_backbone_rules_consume_topo_and_groups);
   test_registry::AddTest(tests, "C423_backbone_tspan_carries_endpoint_rows",
                          "backbone topology spans carry endpoint row indices", "Boundary", false,
@@ -842,6 +842,12 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C662_backbone_pair_row_axis_does_not_flip_lane_order",
                          "backbone pair row axis remains inside the incident span no-flip wedge",
                          "Invariant", false, C662_backbone_pair_row_axis_does_not_flip_lane_order);
+  test_registry::AddTest(tests, "C663_backbone_sharp_corner_uses_dead_end_rows_and_jumpers",
+                         "backbone sharp corners use per-edge dead-end rows and derived jumper curves",
+                         "Invariant", false, C663_backbone_sharp_corner_uses_dead_end_rows_and_jumpers);
+  test_registry::AddTest(tests, "C664_backbone_sharp_pole_facing_consumes_pair_decision",
+                         "backbone sharp pole facing consumes the connectivity-owned corner decision",
+                         "Boundary", false, C664_backbone_sharp_pole_facing_consumes_pair_decision);
 }
 
 

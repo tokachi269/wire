@@ -604,7 +604,7 @@ bool C533_backbone_build_mutation_order_is_fixed() {
   const std::size_t group_pos = cpp.find("EditResult<groups> placement = make(ps.value, intents.value)", build_pos);
   const std::size_t emit_pos = cpp.find("EditResult<topo> made = emit(ps.value)", build_pos);
   const std::size_t graph_pos = cpp.find("EditResult<bool> graph_saved = save_graph(made.value, ps.value)", build_pos);
-  const std::size_t rules_pos = cpp.find("rules saved = make(made.value, placement.value)", build_pos);
+  const std::size_t rules_pos = cpp.find("rules saved = make(made.value, ps.value, placement.value)", build_pos);
   const std::size_t layout_pos = cpp.find("EditResult<layout> placed = make(saved)", build_pos);
   const std::size_t geom_pos = cpp.find("EditResult<geom> shaped = make(placed.value)", build_pos);
   const std::size_t draw_pos = cpp.find("draw drawn = make(placed.value, shaped.value)", build_pos);

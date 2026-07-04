@@ -27,17 +27,18 @@ bool C422_backbone_rules_consume_topo_and_groups() {
   if (!file_text(header, &h) || !file_text(source, &cpp)) {
     return false;
   }
-  if (!contains_text(h, "rules make(const topo& made, const groups& placement) const") ||
-      contains_text(h, "rules make(const topo& made, const pairs& ps) const")) {
+  if (!contains_text(h, "rules make(const topo& made, const pairs& ps, const groups& placement) const")) {
     return false;
   }
-  const std::size_t rules_pos = cpp.find("rules pipeline::make(const topo& made, const groups& placement) const");
+  const std::size_t rules_pos =
+      cpp.find("rules pipeline::make(const topo& made, const pairs& ps, const groups& placement) const");
   const std::size_t layout_pos = cpp.find("EditResult<layout> pipeline::make", rules_pos);
   if (rules_pos == std::string::npos || layout_pos == std::string::npos) {
     return false;
   }
   const std::string body = cpp.substr(rules_pos, layout_pos - rules_pos);
-  return contains_text(body, "group_for") && !contains_text(body, "ps.links");
+  return contains_text(body, "group_for") && contains_text(body, "ps.jumpers") &&
+         !contains_text(body, "ps.links");
 }
 
 bool C423_backbone_tspan_carries_endpoint_rows() {

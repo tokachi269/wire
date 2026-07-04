@@ -24,6 +24,8 @@ struct curve_endpoint_ref {
   ObjectId edge_id = kInvalidObjectId;
   ObjectId edge_bundle_id = kInvalidObjectId;
   ObjectId bundle_id = kInvalidObjectId;
+  ObjectId port_id = kInvalidObjectId;
+  ObjectId jumper_peer_port_id = kInvalidObjectId;
   BundleKind bundle_template_id = BundleKind::kLowVoltage;
   std::size_t lane_index = 0;
   PoleTypeId pole_type_id = kInvalidPoleTypeId;
@@ -66,6 +68,10 @@ struct visual_cable_section {
   CableSectionLayout layout{};
   ObjectId start_node_id = kInvalidObjectId;
   ObjectId end_node_id = kInvalidObjectId;
+  ObjectId start_port_id = kInvalidObjectId;
+  ObjectId end_port_id = kInvalidObjectId;
+  ObjectId start_jumper_peer_port_id = kInvalidObjectId;
+  ObjectId end_jumper_peer_port_id = kInvalidObjectId;
 };
 
 bool same_cable_instance(const CableInstanceKey& a, const CableInstanceKey& b) {
@@ -282,6 +288,35 @@ void append_patch_section(const Vec3d& a, const Vec3d& start_direction, const Ve
   }
 }
 
+void append_jumper_section(const Vec3d& a, const Vec3d& b, std::vector<Vec3d>* controls,
+                           std::vector<Vec3d>* samples) {
+  const Vec3d chord = b - a;
+  const double length = Length(chord);
+  if (length <= kCurveEps || controls == nullptr || samples == nullptr) {
+    return;
+  }
+  const Vec3d along = ScaleVec(chord, 1.0 / length);
+  const Vec3d down{0.0, 0.0, -1.0};
+  const double handle = std::clamp(length * 0.45, 0.08, 0.35);
+  const Vec3d start_direction = safe_unit(along + down, along);
+  const Vec3d end_direction = safe_unit(along - down, along);
+  const Vec3d start_tangent = ScaleVec(start_direction, handle * 3.0);
+  const Vec3d end_tangent = ScaleVec(end_direction, handle * 3.0);
+  controls->assign({
+      a,
+      a + ScaleVec(start_tangent, 1.0 / 3.0),
+      b - ScaleVec(end_tangent, 1.0 / 3.0),
+      b,
+  });
+  const std::size_t segments = std::clamp<std::size_t>(
+      static_cast<std::size_t>(std::ceil(length / kPatchMetersPerSegment)), 4, 24);
+  samples->reserve(segments + 1);
+  for (std::size_t index = 0; index <= segments; ++index) {
+    const double t = static_cast<double>(index) / static_cast<double>(segments);
+    samples->push_back(cubic_hermite(a, start_tangent, b, end_tangent, t));
+  }
+}
+
 void copy_span_appearance(const CoreState& state, ObjectId span_id, VisualCurvePart* part) {
   if (part == nullptr) {
     return;
@@ -330,6 +365,10 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     section.layout.endpoint_b_band_id = band_id_for_port(state, entry.end.port_id);
     section.start_node_id = entry.start.endpoint_node_id;
     section.end_node_id = entry.end.endpoint_node_id;
+    section.start_port_id = entry.start.port_id;
+    section.end_port_id = entry.end.port_id;
+    section.start_jumper_peer_port_id = entry.start.jumper_peer_port_id;
+    section.end_jumper_peer_port_id = entry.end.jumper_peer_port_id;
     sections.push_back(section);
   }
   ExperimentalCablePopulation population = make_experimental_cable_population(state, placed.entries);
@@ -376,6 +415,8 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     start.edge_id = edge_bundle->edge_id;
     start.edge_bundle_id = edge_bundle->edge_bundle_id;
     start.bundle_id = span->bundle_id;
+    start.port_id = section.start_port_id;
+    start.jumper_peer_port_id = section.start_jumper_peer_port_id;
     start.bundle_template_id = template_id;
     start.lane_index = binding->lane_index;
     start.pole_type_id = entry.endpoint_a_pole_type_id;
@@ -389,6 +430,8 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
 
     curve_endpoint_ref end = start;
     end.node_id = saved_node_id_for_endpoint(state, section.end_node_id);
+    end.port_id = section.end_port_id;
+    end.jumper_peer_port_id = section.end_jumper_peer_port_id;
     end.pole_type_id = entry.endpoint_b_pole_type_id;
     end.band_id = entry.endpoint_b_band_id;
     end.point = entry.endpoint_b;
@@ -422,6 +465,10 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     }
     if (group.size() != 2 || group[0].edge_id == group[1].edge_id ||
         !group[0].has_curve_tangent || !group[1].has_curve_tangent) {
+      continue;
+    }
+    if (group[0].jumper_peer_port_id != kInvalidObjectId ||
+        group[1].jumper_peer_port_id != kInvalidObjectId) {
       continue;
     }
     if (Length(group[0].point - group[1].point) > 1e-6) {
@@ -593,6 +640,48 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
                          &patch.bezier_control_points, &patch.samples);
     patch.bounds = curve_part_bounds(patch.samples);
     out.parts.push_back(std::move(patch));
+  }
+  std::vector<ObjectId> emitted_jumper_ports{};
+  for (const curve_endpoint_ref& endpoint : endpoints) {
+    if (endpoint.port_id == kInvalidObjectId || endpoint.jumper_peer_port_id == kInvalidObjectId ||
+        std::find(emitted_jumper_ports.begin(), emitted_jumper_ports.end(), endpoint.port_id) !=
+            emitted_jumper_ports.end()) {
+      continue;
+    }
+    const auto peer = std::find_if(endpoints.begin(), endpoints.end(), [&](const curve_endpoint_ref& candidate) {
+      return candidate.port_id == endpoint.jumper_peer_port_id &&
+             candidate.jumper_peer_port_id == endpoint.port_id && candidate.node_id == endpoint.node_id &&
+             candidate.bundle_template_id == endpoint.bundle_template_id &&
+             candidate.lane_index == endpoint.lane_index;
+    });
+    if (peer == endpoints.end() || Length(peer->point - endpoint.point) <= kCurveEps) {
+      continue;
+    }
+
+    VisualCurvePart jumper_part{};
+    jumper_part.kind = VisualCurvePartKind::kJumper;
+    jumper_part.source_node_id = endpoint.node_id;
+    jumper_part.source_bundle_id = endpoint.bundle_id;
+    jumper_part.bundle_template_id = endpoint.bundle_template_id;
+    jumper_part.lane_index = endpoint.lane_index;
+    add_unique_incident(endpoint.edge_id, &jumper_part.incident_edge_ids);
+    add_unique_incident(peer->edge_id, &jumper_part.incident_edge_ids);
+    std::sort(jumper_part.incident_edge_ids.begin(), jumper_part.incident_edge_ids.end());
+    jumper_part.boundary_a = endpoint.point;
+    jumper_part.boundary_b = peer->point;
+    jumper_part.tangent_a = safe_unit(peer->point - endpoint.point, {1.0, 0.0, 0.0});
+    jumper_part.tangent_b = jumper_part.tangent_a;
+    jumper_part.section_count = 1;
+    copy_span_appearance(state, endpoint.cable_instance_key.logical_span_id, &jumper_part);
+    append_jumper_section(jumper_part.boundary_a, jumper_part.boundary_b,
+                          &jumper_part.bezier_control_points, &jumper_part.samples);
+    jumper_part.bounds = curve_part_bounds(jumper_part.samples);
+    if (jumper_part.samples.size() >= 2 && finite_point(jumper_part.samples.front()) &&
+        finite_point(jumper_part.samples.back())) {
+      out.parts.push_back(std::move(jumper_part));
+      emitted_jumper_ports.push_back(endpoint.port_id);
+      emitted_jumper_ports.push_back(peer->port_id);
+    }
   }
   return out;
 }

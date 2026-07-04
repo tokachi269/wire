@@ -291,5 +291,7 @@ bool C654_experimental_population_does_not_mutate_logical_topology();
 bool C660_backbone_bundle_count_regenerate_updates_downstream_only();
 bool C661_backbone_pair_row_axis_uses_unit_tangent_bisector();
 bool C662_backbone_pair_row_axis_does_not_flip_lane_order();
+bool C663_backbone_sharp_corner_uses_dead_end_rows_and_jumpers();
+bool C664_backbone_sharp_pole_facing_consumes_pair_decision();
 
 } // namespace backbone_tests

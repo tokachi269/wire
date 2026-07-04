@@ -1283,13 +1283,6 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
           ofs << "result.backbone.node[" << i << "].support_axis=" << pole_view->support_axis_dir.x << ","
               << pole_view->support_axis_dir.y << "," << pole_view->support_axis_dir.z << "\n";
         }
-        ofs << "result.backbone.node[" << i
-            << "].sharp_orientation_applied=" << (pole->context.sharp_orientation_applied ? 1 : 0) << "\n";
-        ofs << "result.backbone.node[" << i << "].sharp_theta_deg=" << pole->context.sharp_theta_deg << "\n";
-        ofs << "result.backbone.node[" << i << "].sharp_bisector_dir=" << pole->context.sharp_bisector_dir.x << ","
-            << pole->context.sharp_bisector_dir.y << "," << pole->context.sharp_bisector_dir.z << "\n";
-        ofs << "result.backbone.node[" << i << "].sharp_side_dir=" << pole->context.sharp_side_dir.x << ","
-            << pole->context.sharp_side_dir.y << "," << pole->context.sharp_side_dir.z << "\n";
       }
     }
   }
@@ -1495,12 +1488,6 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
     ofs << prefix << ".tilt_magnitude_deg=" << pole.tilt_magnitude_deg << "\n";
     ofs << prefix << ".placement_mode=" << EnumOrdinal(pole.placement_mode) << "\n";
     ofs << prefix << ".context_kind=" << EnumOrdinal(pole.context.kind) << "\n";
-    ofs << prefix << ".sharp_orientation_applied=" << (pole.context.sharp_orientation_applied ? 1 : 0) << "\n";
-    ofs << prefix << ".sharp_theta_deg=" << pole.context.sharp_theta_deg << "\n";
-    ofs << prefix << ".sharp_bisector_dir=" << pole.context.sharp_bisector_dir.x << ","
-        << pole.context.sharp_bisector_dir.y << "," << pole.context.sharp_bisector_dir.z << "\n";
-    ofs << prefix << ".sharp_side_dir=" << pole.context.sharp_side_dir.x << "," << pole.context.sharp_side_dir.y
-        << "," << pole.context.sharp_side_dir.z << "\n";
     if (const auto pole_view = view.inspect_pole(pole.id); pole_view.has_value()) {
       ofs << prefix << ".layout_yaw_deg=" << pole_view->layout_yaw_deg << "\n";
       ofs << prefix << ".support_axis_rule=" << static_cast<int>(pole_view->support_axis_rule) << "\n";

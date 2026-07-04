@@ -51,9 +51,13 @@ context linkは判断入力であり、生成・保存対象ではない。
 T/cross/branchのkind enumは作らず、pair/open/rowの組合せで表す。
 
 pair row axisは`pairs make(graph)`だけが決める。
-pass-through cornerでは前後linkの単位接線和から二等分方向を作り、その直交方向をrow axisにする。
+通常cornerでは前後linkの単位接線和から二等分方向を作り、その直交方向をrow axisにする。
 径間長の差でrow axisを回さず、各incident spanのlane順が反転しない範囲に保つ。
-鋭角をdead-end/jumper化する場合も、bundle templateではなく幾何と明示fixture境界で決める。
+鋭角cornerは共有pair rowにせず、各incident edgeに直交する2つのopen rowと明示jumper relationへ分ける。
+jumperはlayout ruleにpeer port identityを保存したderived visualであり、logical spanやSavedBackboneGraph edgeを増やさない。
+この判定はbundle templateを読まず、connectivity段の局所幾何だけで決める。
+pole facingはこのcorner decisionの`node_forward`を消費し、角度や二等分線を再計算しない。
+旧angle correctionは緩角向けの補助に限定し、倍率上限は`kMaxCornerSideScale`(1.7)とする。
 
 ### row conflict と endpoint offset
 

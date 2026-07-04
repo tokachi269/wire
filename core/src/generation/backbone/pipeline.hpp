@@ -68,6 +68,14 @@ struct open {
   Vec3d axis{};
 };
 
+struct jumper {
+  std::size_t node = bad;
+  std::size_t row_a = bad;
+  std::size_t row_b = bad;
+  double interior_angle_deg = 0.0;
+  Vec3d node_forward{};
+};
+
 struct row {
   std::size_t id = bad;
   std::size_t node = bad;
@@ -79,6 +87,7 @@ struct pairs {
   std::vector<link> links{};
   std::vector<pair> joins{};
   std::vector<open> opens{};
+  std::vector<jumper> jumpers{};
   std::vector<row> rows{};
 };
 
@@ -186,11 +195,11 @@ private:
   [[nodiscard]] EditResult<groups> make(const pairs& ps, const intent& intents) const;
   [[nodiscard]] EditResult<bool> check(const pairs& ps) const;
   [[nodiscard]] EditResult<topo> emit(const pairs& ps);
-  [[nodiscard]] EditResult<bool> emit_poles(topo* made, ChangeSet* changes);
+  [[nodiscard]] EditResult<bool> emit_poles(topo* made, const pairs& ps, ChangeSet* changes);
   [[nodiscard]] EditResult<bool> emit_bundles(topo* made, ChangeSet* changes);
   [[nodiscard]] EditResult<bool> emit_ports(topo* made, const pairs& ps, ChangeSet* changes);
   [[nodiscard]] EditResult<bool> emit_spans(topo* made, const pairs& ps, ChangeSet* changes);
-  [[nodiscard]] rules make(const topo& made, const groups& placement) const;
+  [[nodiscard]] rules make(const topo& made, const pairs& ps, const groups& placement) const;
   [[nodiscard]] EditResult<layout> make(const rules& made) const;
   [[nodiscard]] EditResult<geom> make(const layout& made) const;
   [[nodiscard]] draw make(const layout& placed, const geom& shaped) const;

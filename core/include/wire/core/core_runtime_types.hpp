@@ -241,12 +241,13 @@ struct CacheState {
 };
 
 inline constexpr double kDefaultCornerThresholdDeg = 70.0;
+inline constexpr double kMaxCornerSideScale = 1.7;
 
 struct LayoutSettings {
   bool angle_correction_enabled = true;
   double corner_threshold_deg = kDefaultCornerThresholdDeg;
   double min_side_scale = 1.0;
-  double max_side_scale = 1.8;
+  double max_side_scale = kMaxCornerSideScale;
 };
 
 struct ConnectionIndex {

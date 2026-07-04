@@ -21,7 +21,7 @@
 | C22 | Symptom | Generate/Edit | 存在しないPort拒否 | 空状態 | AddSpan(無効ID) | Exact: fail+状態不変 | error/count | 参照不正耐性 |
 | C28 | Symptom | Generate/Edit | through連続性 | 直線入力 | GenerateFromBackboneSpec | Invariant: 中間Pole同Port再利用 | span端点Port | 幹線連続維持 |
 | C29 | Symptom | Init | 表示ID採番 | 新規CoreState | Pole/Port/Span追加 | Exact: prefix別連番 | display_id | UI追跡性 |
-| C61 | Symptom | Generate/Edit | 鋭角自動拡幅 | 鋭角/鈍角の同一テンプレート比較 | GenerateFromBackboneSpec | Invariant: 鋭角の左右レーン間隔が鈍角より広い（カテゴリ非依存） | corner poleのlocal Y差 | 角での線間距離不足防止 |
+| C61 | Invariant | Generate/Edit | 鋭角は倍率拡幅ではなく径間別rowで実幅を保つ | 45度/120度の同一2-lane template比較 | GenerateFromBackboneSpec | Invariant: 鋭角は2 open row、緩角は1 pair row、port side scaleは1（カテゴリ非依存） | SavedBackboneRowKey / Port.side_scale_applied | 鋭角でゼロへ近づく投影幅を大倍率で追う回帰防止 |
 | C101 | Symptom | Generate/Edit | HV空中分岐規格フラグ固定 | HV template | GenerateFromBackboneSpec(HV_3PH, legacy branch mode値を注入) | Exact: fail（unsupported mode）かつ `allow_midair_branch=false` | error / bundle_templates | 高圧規格逸脱の混入防止 |
 | C105 | Authority | Pick | Segment中間でMidair生成 | Segmentクリック（端点から十分離れる） | ResolveBranchPick(PickResult, snap_radius) | Invariant: Midair SupportNodeが生成される | ResolveBranchPick結果 / generation backbone snapshot nodes (`last_generation_backbone.nodes`) | 空中分岐入力を安定して扱える |
 | C106 | Authority | Pick | Pick経由HV空中分岐禁止 | Segment中間クリック + HV template | ResolveBranchPick(PickResult, HV) | Exact: fail（midair branch禁止） | error | 高圧規格逸脱の混入防止 |
@@ -390,3 +390,5 @@
 - モック過多か: モック未使用。
 - 異常系が入っているか: C10/C20/C21/C22/C23/C49で失敗診断・状態保全・復帰を検証。
 - フレーク要因がないか: 実時間待ち/非決定乱数なし。
+| C663 | Invariant | backbone | 鋭角 continuity は共有 pair row ではなく径間別 dead-end row と jumper で表す | 60度 corner + 2 lane bundle | GenerateFromBackboneSpec | Invariant: corner は4 port/2 open row、各 row は自 edge 直交、laneごとに jumper、NodePatchなし、SavedGraph edge/span数は不変 | SavedBackboneGraph / SpanLayoutRule / VisualCurvePart | 鋭角で横間隔を倍率補正し続ける、lane twist、または線が途切れる回帰防止 |
+| C664 | Boundary | backbone | 鋭角pole facingはpairsのcorner decisionを消費し再判定しない | 60度 corner | GenerateFromBackboneSpec + source guard | Boundary: pole yawはjumper relationのnode_forwardと一致し、emit_polesに角度閾値/acosが無い | Pole.world_transform / pipeline source | pole yawとrow/jumperが別々に鋭角を解釈する回帰防止 |

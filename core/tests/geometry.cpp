@@ -99,19 +99,29 @@ bool test_backbone_interval_generates_pole_line_basic() {
 }
 
 bool test_acute_corner_auto_widens_lane_spacing() {
-  auto lane_width_for_interior = [](double interior_deg) -> double {
+  auto row_count_for_interior = [](double interior_deg, bool expect_open) -> std::size_t {
     CoreState state;
-    wire::core::LayoutSettings layout{};
-    layout.angle_correction_enabled = true;
-    layout.corner_threshold_deg = 5.0;
-    layout.min_side_scale = 1.0;
-    layout.max_side_scale = 1.8;
-    if (!state.UpdateLayoutSettings(layout).ok) {
-      return std::numeric_limits<double>::quiet_NaN();
+    const wire::core::BundleKind bundle_kind =
+        bundle_template_for_category_test(wire::core::ConnectionCategory::kLowVoltage);
+    wire::core::LayoutSettings layout = state.view().layout_settings();
+    layout.max_side_scale = 6.0;
+    if (!state.UpdateLayoutSettings(layout).ok ||
+        state.view().layout_settings().max_side_scale > wire::core::kMaxCornerSideScale + 1e-9) {
+      return 0;
     }
+    const auto bundle_it = state.view().bundle_templates().find(bundle_kind);
     const auto type_ids = sorted_pole_type_ids(state);
-    if (type_ids.empty()) {
-      return std::numeric_limits<double>::quiet_NaN();
+    if (bundle_it == state.view().bundle_templates().end() || type_ids.empty()) {
+      return 0;
+    }
+    wire::core::BundleTemplate bundle = bundle_it->second;
+    bundle.count_rule = wire::core::BundleCountRuleKind::kFixed;
+    bundle.fixed_count = 2;
+    bundle.default_count = 2;
+    bundle.min_count = std::min(bundle.min_count, 2);
+    bundle.max_count = std::max(bundle.max_count, 2);
+    if (!state.UpdateBundleTemplate(bundle).ok) {
+      return 0;
     }
 
     constexpr double kPi = 3.14159265358979323846;
@@ -123,47 +133,34 @@ bool test_acute_corner_auto_widens_lane_spacing() {
         {10.0, 0.0, 0.0},
         {10.0 + 10.0 * std::cos(out_heading), 10.0 * std::sin(out_heading), 0.0},
     };
-    const auto gen = generate_path(state, path, polyline_length(path.polyline) + 1.0, type_ids.front());
-    if (!gen.ok || gen.value.generated_pole_ids.size() != 3) {
-      return std::numeric_limits<double>::quiet_NaN();
+    const auto generated = generate_path(state, path, polyline_length(path.polyline) + 1.0, type_ids.front());
+    if (!generated.ok || generated.value.generated_pole_ids.size() != 3) {
+      return 0;
+    }
+    const wire::core::ObjectId corner_pole = generated.value.generated_pole_ids[1];
+    const wire::core::SavedBackboneNode* node = state.view().backbone_node_for_pole(corner_pole);
+    if (node == nullptr) {
+      return 0;
     }
 
-    const auto* pole = state.view().edit_state().poles.find(gen.value.generated_pole_ids[1]);
-    if (pole == nullptr) {
-      return std::numeric_limits<double>::quiet_NaN();
-    }
-    const wire::core::Port* p_left = nullptr;
-    const wire::core::Port* p_right = nullptr;
-    for (const auto& port : state.view().edit_state().ports.items()) {
-      if (port.owner_pole_id != pole->id) {
+    std::vector<wire::core::SavedBackboneRowKey> rows{};
+    for (const wire::core::Port& port : state.view().ports().items()) {
+      if (port.owner_pole_id != corner_pole) {
         continue;
       }
-      if (port.template_side == wire::core::SlotSide::kLeft) {
-        p_left = &port;
-      } else if (port.template_side == wire::core::SlotSide::kRight) {
-        p_right = &port;
+      const wire::core::SavedBackbonePortBinding* binding = state.view().backbone_port_binding_for_port(port.id);
+      if (binding == nullptr || binding->row_key.node_id != node->node_id ||
+          binding->row_key.source_is_open != expect_open || std::abs(port.side_scale_applied - 1.0) > 1e-9) {
+        continue;
+      }
+      if (std::find(rows.begin(), rows.end(), binding->row_key) == rows.end()) {
+        rows.push_back(binding->row_key);
       }
     }
-    if (p_left == nullptr || p_right == nullptr) {
-      return std::numeric_limits<double>::quiet_NaN();
-    }
-    double layout_yaw_deg = effective_pole_yaw_deg_test(*pole);
-    if (const auto pole_view = state.view().inspect_pole(pole->id); pole_view.has_value() && pole_view->has_layout_yaw) {
-      layout_yaw_deg = pole_view->layout_yaw_deg;
-    }
-    const wire::core::PoleFrame frame = wire::core::BuildPoleFrame(pole->world_transform, layout_yaw_deg);
-    const wire::core::Vec3d local_left = wire::core::WorldPointToLocal(frame, p_left->world_position);
-    const wire::core::Vec3d local_right = wire::core::WorldPointToLocal(frame, p_right->world_position);
-    return std::abs(local_right.y - local_left.y);
+    return rows.size();
   };
 
-  const double width_acute = lane_width_for_interior(45.0);
-  const double width_obtuse = lane_width_for_interior(120.0);
-  if (!std::isfinite(width_acute) || !std::isfinite(width_obtuse)) {
-    return false;
-  }
-  // Base template width is 0.8m between band centers -0.4 and +0.4.
-  return width_acute > width_obtuse && width_acute > 0.8 + 1e-6;
+  return row_count_for_interior(45.0, true) == 2 && row_count_for_interior(120.0, false) == 1;
 }
 
 bool test_band_selection_context_bias() {
@@ -1045,7 +1042,9 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C19_backbone_interval_generates_pole_line_basic",
                          "backbone interval generation creates a pole line with pole type", "Invariant", false,
                          test_backbone_interval_generates_pole_line_basic);
-  test_registry::AddTest(tests, "C61_Phase48h_AcuteCorner_AutoWidenSpacing", "Acute corners auto-widen lane spacing without category-specific branching", "Invariant", false, test_acute_corner_auto_widens_lane_spacing);
+  test_registry::AddTest(tests, "C61_Phase48h_AcuteCorner_AutoWidenSpacing",
+                         "Acute corners use per-edge rows without category-specific scaling", "Invariant", false,
+                         test_acute_corner_auto_widens_lane_spacing);
   test_registry::AddTest(tests, "C58_Phase48h_Guide_ReverseSymmetry", "Guide reverse mode preserves generated pole position set", "Invariant", false, test_generate_from_guide_reverse_mode_position_symmetry);
   test_registry::AddTest(tests, "C59_Phase48h_Guide_AvoidConstraint", "Guide generation avoids forbidden radius around avoid_points", "Invariant", false, test_generate_from_guide_respects_avoid_constraints);
   test_registry::AddTest(tests, "C126_Coord_WorldUpLateralConsistency",

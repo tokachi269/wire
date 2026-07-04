@@ -1406,8 +1406,9 @@ EditResult<bool> CoreState::UpdateLayoutSettings(const LayoutSettings& settings)
   EditResult<bool> result;
   LayoutSettings normalized = settings;
   normalized.corner_threshold_deg = std::clamp(normalized.corner_threshold_deg, 0.0, 179.0);
-  normalized.min_side_scale = std::clamp(normalized.min_side_scale, 0.5, 4.0);
-  normalized.max_side_scale = std::clamp(normalized.max_side_scale, normalized.min_side_scale, 6.0);
+  normalized.min_side_scale = std::clamp(normalized.min_side_scale, 0.5, kMaxCornerSideScale);
+  normalized.max_side_scale =
+      std::clamp(normalized.max_side_scale, normalized.min_side_scale, kMaxCornerSideScale);
 
   const bool changed = normalized.angle_correction_enabled != authoritative_.layout_settings.angle_correction_enabled ||
                        std::abs(normalized.corner_threshold_deg - authoritative_.layout_settings.corner_threshold_deg) > 1e-9 ||

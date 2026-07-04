@@ -392,10 +392,7 @@ ValidationResult CoreState::Validate() const {
           {ValidationSeverity::kError, "PoleTypeMissing", "Pole references unknown PoleType", pole.id});
     }
     if (!std::isfinite(pole.context.corner_angle_deg) || !std::isfinite(pole.context.corner_turn_sign) ||
-        !std::isfinite(pole.context.side_scale) || !std::isfinite(pole.context.sharp_theta_deg) ||
-        !std::isfinite(pole.context.sharp_bisector_dir.x) || !std::isfinite(pole.context.sharp_bisector_dir.y) ||
-        !std::isfinite(pole.context.sharp_bisector_dir.z) || !std::isfinite(pole.context.sharp_side_dir.x) ||
-        !std::isfinite(pole.context.sharp_side_dir.y) || !std::isfinite(pole.context.sharp_side_dir.z)) {
+        !std::isfinite(pole.context.side_scale)) {
       result.issues.push_back(
           {ValidationSeverity::kError, "PoleContextInvalid", "Pole context has non-finite value", pole.id});
     }

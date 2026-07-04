@@ -57,7 +57,7 @@
     },
     {
       "name": "core_internal",
-      "patterns": ["core/src/pch.hpp", "core/src/pole_orientation_utils.cpp", "core/src/pole_orientation_utils.hpp"],
+      "patterns": ["core/src/pch.hpp"],
       "forbidden_tokens": ["viewer/"]
     },
     {

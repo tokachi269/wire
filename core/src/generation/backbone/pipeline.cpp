@@ -69,7 +69,7 @@ EditResult<GenerateBundleFromPathResult> pipeline::build() {
     return out;
   }
   started = std::chrono::steady_clock::now();
-  rules saved = make(made.value, placement.value);
+  rules saved = make(made.value, ps.value, placement.value);
   save(saved);
   out.value.timing.rules_ms = elapsed_ms(started);
   started = std::chrono::steady_clock::now();
@@ -107,6 +107,8 @@ EditResult<GenerateBundleFromPathResult> pipeline::build() {
 namespace {
 
 constexpr double kRowSeparationM = 0.35;
+constexpr double kSharpCornerInteriorAngleMaxDeg = 74.0;
+constexpr double kRadiansToDegrees = 57.2957795130823208768;
 
 void add(ChangeSet& dst, const ChangeSet& src) {
   auto append = [](std::vector<ObjectId>& a, const std::vector<ObjectId>& b) {
@@ -826,6 +828,11 @@ std::size_t add_pair(pairs* out, std::size_t node_id, std::size_t left, std::siz
   return row_id;
 }
 
+double interior_angle_deg(const link& incoming, const link& outgoing) {
+  const double dot = std::clamp(Dot(ScaleVec(incoming.dir, -1.0), outgoing.dir), -1.0, 1.0);
+  return std::acos(dot) * kRadiansToDegrees;
+}
+
 } // namespace
 
 std::size_t pipeline::local(std::size_t input_point) const {
@@ -1472,6 +1479,29 @@ EditResult<pairs> pipeline::make(const graph& made) const {
       }
       const link& a = out.value.links[left];
       const link& b = out.value.links[matched];
+      const double interior_angle = interior_angle_deg(a, b);
+      if (interior_angle <= 1e-6) {
+        return unsupported_pairs("zero angle route reversal");
+      }
+      if (interior_angle <= kSharpCornerInteriorAngleMaxDeg + 1e-6) {
+        bused[left] = true;
+        aused[matched] = true;
+        if (out.value.links[left].brow != bad || out.value.links[matched].arow != bad) {
+          return unsupported_pairs("incident already used");
+        }
+        const std::size_t left_row =
+            add_open(&out.value, n.id, left, ComputeLateralAxis(out.value.links[left].dir));
+        const std::size_t right_row =
+            add_open(&out.value, n.id, matched, ComputeLateralAxis(out.value.links[matched].dir));
+        out.value.links[left].brow = left_row;
+        out.value.links[matched].arow = right_row;
+        Vec3d node_forward = ScaleVec(a.dir, -1.0) + b.dir;
+        if (!NormalizeXY(&node_forward)) {
+          return unsupported_pairs("zero length sharp corner bisector");
+        }
+        out.value.jumpers.push_back(jumper{n.id, left_row, right_row, interior_angle, node_forward});
+        continue;
+      }
       Vec3d pair_axis = out.value.links[left].dir + out.value.links[matched].dir;
       if (!NormalizeXY(&pair_axis)) {
         return unsupported_pairs("zero length pair tangent sum");
@@ -1739,8 +1769,15 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
       }
     }
     if (active_rows.size() > 1) {
-      out.error = "backbone unsupported: multiple generated rows conflict at one node";
-      return out;
+      const bool resolved_by_jumper = active_rows.size() == 2 &&
+          std::any_of(ps.jumpers.begin(), ps.jumpers.end(), [&](const jumper& connection) {
+            return (connection.row_a == active_rows[0] && connection.row_b == active_rows[1]) ||
+                   (connection.row_a == active_rows[1] && connection.row_b == active_rows[0]);
+          });
+      if (!resolved_by_jumper) {
+        out.error = "backbone unsupported: multiple generated rows conflict at one node";
+        return out;
+      }
     }
     if (active_rows.empty()) {
       continue;
@@ -1816,7 +1853,7 @@ EditResult<topo> pipeline::emit(const pairs& ps) {
     }
     return true;
   };
-  if (!step(emit_poles(&made, &out.change_set)) || !step(emit_bundles(&made, &out.change_set)) ||
+  if (!step(emit_poles(&made, ps, &out.change_set)) || !step(emit_bundles(&made, &out.change_set)) ||
       !step(emit_ports(&made, ps, &out.change_set)) || !step(emit_spans(&made, ps, &out.change_set))) {
     return out;
   }
@@ -1825,7 +1862,7 @@ EditResult<topo> pipeline::emit(const pairs& ps) {
   return out;
 }
 
-EditResult<bool> pipeline::emit_poles(topo* made, ChangeSet* changes) {
+EditResult<bool> pipeline::emit_poles(topo* made, const pairs& ps, ChangeSet* changes) {
   EditResult<bool> out{};
   if (made == nullptr || changes == nullptr) {
     out.error = "backbone topology: output missing";
@@ -1868,9 +1905,16 @@ EditResult<bool> pipeline::emit_poles(topo* made, ChangeSet* changes) {
     }
     const Vec3d next = (next_index != bad && next_index < g_.nodes.size()) ? g_.nodes[next_index].pos : g_.nodes[i].pos;
     const Vec3d prev = (prev_index != bad && prev_index < g_.nodes.size()) ? g_.nodes[prev_index].pos : g_.nodes[i].pos;
-    const Vec3d dir = g_.nodes[i].has_tangent ? g_.nodes[i].tangent
-                                               : ((next_index != bad) ? (next - g_.nodes[i].pos)
-                                                                      : (g_.nodes[i].pos - prev));
+    Vec3d dir = (next_index != bad) ? (next - g_.nodes[i].pos) : (g_.nodes[i].pos - prev);
+    if (g_.nodes[i].has_tangent) {
+      dir = g_.nodes[i].tangent;
+    } else {
+      const auto sharp = std::find_if(ps.jumpers.begin(), ps.jumpers.end(),
+                                      [&](const jumper& connection) { return connection.node == i; });
+      if (sharp != ps.jumpers.end()) {
+        dir = sharp->node_forward;
+      }
+    }
     tf.rotation_euler_deg.z = YawDegFromXY(dir);
     EditResult<ObjectId> pole = state_.AddPole(tf, 10.0, "backbone-pole", PoleKind::kConcrete,
                                                g_.nodes[i].pinned ? PlacementMode::kManual : PlacementMode::kAuto);
@@ -2246,7 +2290,7 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
   return out;
 }
 
-rules pipeline::make(const topo& made, const groups& placement) const {
+rules pipeline::make(const topo& made, const pairs& ps, const groups& placement) const {
   rules out{};
   auto group_for = [&](std::size_t row, std::size_t bundle) -> const group* {
     for (const group& item : placement.items) {
@@ -2288,6 +2332,29 @@ rules pipeline::make(const topo& made, const groups& placement) const {
     };
     rule.start = endpoint(arow.pole, arow.ports[span.bundle][span.lane]);
     rule.end = endpoint(brow.pole, brow.ports[span.bundle][span.lane]);
+    auto apply_jumper = [&](std::size_t row_id, EndpointLayoutRule* endpoint) {
+      if (endpoint == nullptr) {
+        return;
+      }
+      for (const jumper& connection : ps.jumpers) {
+        std::size_t peer_row = bad;
+        if (connection.row_a == row_id) {
+          peer_row = connection.row_b;
+        } else if (connection.row_b == row_id) {
+          peer_row = connection.row_a;
+        } else {
+          continue;
+        }
+        if (peer_row >= made.rows.size() || span.bundle >= made.rows[peer_row].ports.size() ||
+            span.lane >= made.rows[peer_row].ports[span.bundle].size()) {
+          continue;
+        }
+        endpoint->jumper_peer_port_id = made.rows[peer_row].ports[span.bundle][span.lane];
+        return;
+      }
+    };
+    apply_jumper(span.arow, &rule.start);
+    apply_jumper(span.brow, &rule.end);
     auto apply_group = [](const group* source, EndpointLayoutRule* endpoint) {
       if (source == nullptr || endpoint == nullptr) {
         return;

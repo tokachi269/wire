@@ -151,7 +151,7 @@ struct ViewerUiState {
   bool layout_angle_correction_enabled = true;
   double layout_corner_threshold_deg = wire::core::kDefaultCornerThresholdDeg;
   double layout_min_side_scale = 1.0;
-  double layout_max_side_scale = 1.8;
+  double layout_max_side_scale = wire::core::kMaxCornerSideScale;
   std::string last_repro_capture_path{};
   std::vector<ObjectId> preferred_visible_span_ids{};
   int preferred_visible_span_count = 0;

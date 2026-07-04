@@ -1432,12 +1432,6 @@ void DrawSelectedInfo(CoreState& state, ViewerUiState& ui_state) {
     ImGui::Text("cornerTurnSign: %.0f", pole->context.corner_turn_sign);
     ImGui::Text("sideScale: %.3f", pole->context.side_scale);
     ImGui::Text("angleCorrectionApplied: %s", pole->context.angle_correction_applied ? "true" : "false");
-    ImGui::Text("sharpOrientationApplied: %s", pole->context.sharp_orientation_applied ? "true" : "false");
-    ImGui::Text("sharpTheta: %.2f", pole->context.sharp_theta_deg);
-    ImGui::Text("sharpBisector: %.3f %.3f %.3f", pole->context.sharp_bisector_dir.x, pole->context.sharp_bisector_dir.y,
-                pole->context.sharp_bisector_dir.z);
-    ImGui::Text("sharpSideDir: %.3f %.3f %.3f", pole->context.sharp_side_dir.x, pole->context.sharp_side_dir.y,
-                pole->context.sharp_side_dir.z);
     ImGui::Text("placementOverride: %s", pole->placement_override_flag ? "true" : "false");
     if (const auto pole_view = view.inspect_pole(pole->id); pole_view.has_value()) {
       const auto override_view = view.inspect_overrides({wire::core::EntityKind::kPole, pole->id});

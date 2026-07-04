@@ -763,7 +763,8 @@ EditResult<ObjectId> CoreState::ResetPortPositionToAuto(ObjectId port_id) {
       (port->generated_from_template || backbone_binding != nullptr)) {
     const PortPlacementBand* band_ptr = resolved_band;
           const PoleFrame frame =
-              BuildPoleFrame(owner->world_transform, effective_port_layout_yaw_deg(*owner, port->category));
+              BuildPoleFrame(owner->world_transform,
+                             effective_port_layout_yaw_deg(*owner, port->id, port->category));
           const Vec3d current_local = WorldPointToLocal(frame, port->world_position);
           Vec3d adjusted_local{
               0.0,
@@ -783,7 +784,8 @@ EditResult<ObjectId> CoreState::ResetPortPositionToAuto(ObjectId port_id) {
           }
           adjusted_local = apply_pole_clearance_to_local(*owner, adjusted_local, band_ptr->side);
           port->world_position =
-              local_to_world_on_pole(owner->world_transform, effective_port_layout_yaw_deg(*owner, port->category),
+              local_to_world_on_pole(owner->world_transform,
+                                     effective_port_layout_yaw_deg(*owner, port->id, port->category),
                                      adjusted_local);
           port->angle_correction_applied = apply_angle_correction;
           port->side_scale_applied = apply_angle_correction ? applied_scale : 1.0;
@@ -835,6 +837,9 @@ EditResult<ObjectId> CoreState::SetPoleFlip180(ObjectId pole_id, bool flip_180) 
     return result;
   }
   PoleOrientationOverride next = authoritative_.override_state.pole_orientation_by_pole[pole_id];
+  if (!next.base_yaw_deg.has_value()) {
+    next.base_yaw_deg = pole->world_transform.rotation_euler_deg.z;
+  }
   if (next.flip_180.has_value() && *next.flip_180 == flip_180) {
     result.ok = true;
     result.value = pole_id;
@@ -864,6 +869,9 @@ EditResult<ObjectId> CoreState::SetPoleManualYawOverride(ObjectId pole_id, doubl
   }
 
   PoleOrientationOverride next = authoritative_.override_state.pole_orientation_by_pole[pole_id];
+  if (!next.base_yaw_deg.has_value()) {
+    next.base_yaw_deg = pole->world_transform.rotation_euler_deg.z;
+  }
   if (next.manual_yaw_deg.has_value() && std::abs(*next.manual_yaw_deg - manual_yaw_deg) <= 1e-9) {
     result.ok = true;
     result.value = pole_id;
@@ -899,20 +907,18 @@ EditResult<ObjectId> CoreState::ClearPoleOrientationOverride(ObjectId pole_id) {
     return result;
   }
 
-  const bool had_override = authoritative_.override_state.pole_orientation_by_pole.erase(pole_id) > 0;
-  if (!had_override) {
+  const auto override_it = authoritative_.override_state.pole_orientation_by_pole.find(pole_id);
+  if (override_it == authoritative_.override_state.pole_orientation_by_pole.end()) {
     result.ok = true;
     result.value = pole_id;
     return result;
   }
 
+  const PoleOrientationOverride previous_override = override_it->second;
+  authoritative_.override_state.pole_orientation_by_pole.erase(override_it);
   const Pole old_pole = *pole;
-  if (const auto it = debug_.pole_orientation_debug_records.find(pole_id); it != debug_.pole_orientation_debug_records.end()) {
-    const Vec3d forward = it->second.adopted_forward;
-    if ((forward.x * forward.x + forward.y * forward.y + forward.z * forward.z) > 1e-12) {
-      pole->world_transform.rotation_euler_deg.z =
-          YawDegFromXY(forward);
-    }
+  if (previous_override.base_yaw_deg.has_value()) {
+    pole->world_transform.rotation_euler_deg.z = *previous_override.base_yaw_deg;
   }
   finalize_pole_transform_update(pole_id, old_pole, &result.change_set);
   const auto plan = make_update_plan({UpdateKind::kReposition, UpdateTargetKind::kPole, pole_id});
@@ -1263,7 +1269,8 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
       const Vec3d adjusted_local = recompute_band_local(*band_ptr, &applied_scale, &apply_angle_correction);
       const Vec3d world_position =
           local_to_world_on_pole(pole->world_transform,
-                                 effective_port_layout_yaw_deg(*pole, existing_port->category), adjusted_local);
+                                 effective_port_layout_yaw_deg(*pole, existing_port->id, existing_port->category),
+                                 adjusted_local);
       if (LengthSquared(existing_port->world_position - world_position) > 1e-12 ||
           existing_port->angle_correction_applied != apply_angle_correction ||
           std::abs(existing_port->side_scale_applied - applied_scale) > 1e-12) {
@@ -1297,7 +1304,9 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
     bool apply_angle_correction = false;
     const Vec3d adjusted_local = recompute_band_local(band, &applied_scale, &apply_angle_correction);
     const Vec3d world_position =
-        local_to_world_on_pole(pole->world_transform, effective_port_layout_yaw_deg(*pole, band.category), adjusted_local);
+        local_to_world_on_pole(pole->world_transform,
+                               effective_port_layout_yaw_deg(*pole, kInvalidObjectId, band.category),
+                               adjusted_local);
     EditResult<ObjectId> add_port_result = AddPort(pole_id, world_position, category_to_port_kind(band.category),
                                                    category_to_port_layer(band.category), band.local_direction);
     if (!add_port_result.ok) {
@@ -1788,7 +1797,8 @@ EditResult<bool> CoreState::update_pole_type_and_refresh_instances(const PoleTyp
         adjusted_local = apply_pole_clearance_to_local(*pole, adjusted_local, band_ptr->side);
         const Vec3d world_position =
             local_to_world_on_pole(pole->world_transform,
-                                   effective_port_layout_yaw_deg(*pole, existing_port->category), adjusted_local);
+                                   effective_port_layout_yaw_deg(*pole, existing_port->id, existing_port->category),
+                                   adjusted_local);
         if (LengthSquared(existing_port->world_position - world_position) > 1e-12 ||
             existing_port->angle_correction_applied != apply_angle_correction ||
             std::abs(existing_port->side_scale_applied - applied_scale) > 1e-12) {
@@ -1882,7 +1892,8 @@ double CoreState::effective_pole_layout_yaw_deg(const Pole& pole) const {
   return effective_pole_yaw_deg(pole);
 }
 
-double CoreState::effective_port_layout_yaw_deg(const Pole& pole, ConnectionCategory category,
+double CoreState::effective_port_layout_yaw_deg(const Pole& pole, ObjectId port_id,
+                                                ConnectionCategory category,
                                                 const PortLayoutYawOverride* row_layout_yaw_override) const {
   if (has_pole_orientation_override(pole.id)) {
     return effective_pole_yaw_deg(pole);
@@ -1890,17 +1901,9 @@ double CoreState::effective_port_layout_yaw_deg(const Pole& pole, ConnectionCate
   if (row_layout_yaw_override != nullptr && row_layout_yaw_override->category == category) {
     return NormalizeYawDeg(row_layout_yaw_override->yaw_deg);
   }
-  if (const auto it = debug_.pole_orientation_debug_records.find(pole.id); it != debug_.pole_orientation_debug_records.end()) {
-    const bool uses_support_axis_layout =
-        it->second.row_layout_axis_mode == RowLayoutAxisMode::kSupportAxis &&
-        it->second.row_layout_axis_category == category;
-    if (!uses_support_axis_layout) {
-      return effective_pole_yaw_deg(pole);
-    }
-    Vec3d support_axis = it->second.adopted_support_axis;
-    if (Normalize(&support_axis)) {
-      return NormalizeYawDeg(YawDegFromXY(support_axis) - 90.0);
-    }
+  if (const SavedBackbonePortBinding* binding = view().backbone_port_binding_for_port(port_id);
+      binding != nullptr) {
+    return NormalizeYawDeg(binding->layout_yaw_deg);
   }
   return effective_pole_yaw_deg(pole);
 }

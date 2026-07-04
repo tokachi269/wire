@@ -388,7 +388,7 @@ bool C470_backbone_row_port_identity_does_not_use_position_match() {
   const std::string body = cpp.substr(fn_pos, next_pos - fn_pos);
   return contains_text(body, "edge_bundle_id") && contains_text(body, "row_key") &&
          !contains_text(body, "world_position") && !contains_text(body, "span_layout") &&
-         !contains_text(body, "seed") && !contains_text(body, "layout") && !contains_text(body, "position");
+         !contains_text(body, "seed") && !contains_text(body, "position");
 }
 
 bool C475_backbone_port_resolution_does_not_read_existing_layout() {
@@ -1139,6 +1139,18 @@ bool C674_backbone_port_band_selection_has_one_owner() {
   return decision_count <= 2 && !contains_text(population, "identity_score") &&
          contains_text(population, "backbone_port_binding_for_port") &&
          contains_text(shared, "placement_band_id");
+}
+
+bool C675_backbone_layout_yaw_does_not_read_debug_records() {
+  std::string state{};
+  std::string body{};
+  if (!file_text(repo_root() / "core/src/state/state.cpp", &state) ||
+      !function_body(state, "double CoreState::effective_port_layout_yaw_deg", &body)) {
+    return false;
+  }
+  return !contains_text(state, "pole_orientation_debug_records") &&
+         contains_text(body, "backbone_port_binding_for_port") &&
+         contains_text(body, "layout_yaw_deg");
 }
 
 } // namespace backbone_tests

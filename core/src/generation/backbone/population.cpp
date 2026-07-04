@@ -148,7 +148,8 @@ CablePopulationEndpoint resolve_endpoint(const CoreState& state, const LayoutEnd
 
   out.pole_type_id = pole->pole_type_id;
   out.frame =
-      BuildPoleFrame(pole->world_transform, state.effective_port_layout_yaw_deg(*pole, bundle_template.category));
+      BuildPoleFrame(pole->world_transform,
+                     state.effective_port_layout_yaw_deg(*pole, port->id, bundle_template.category));
   out.original_local = WorldPointToLocal(out.frame, layout.support_world);
   out.endpoint_offset_world = layout.endpoint_world - layout.support_world;
 

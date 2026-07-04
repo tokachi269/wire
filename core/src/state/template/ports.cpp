@@ -336,7 +336,8 @@ EditResult<ObjectId> CoreState::ensure_pole_connection_port(const PortResolution
   const PoleTypeDefinition* pole_type = find_pole_type(pole->pole_type_id);
   if (pole_type != nullptr) {
     auto bands = sorted_port_bands(*pole_type, request.category);
-    const double layout_yaw = effective_port_layout_yaw_deg(*pole, request.category);
+    const double layout_yaw =
+        effective_port_layout_yaw_deg(*pole, kInvalidObjectId, request.category);
     const PoleFrame pole_frame = BuildPoleFrame(pole->world_transform, layout_yaw);
 
     struct BandSolveResult {

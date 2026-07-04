@@ -883,6 +883,41 @@ bool C673_backbone_bundle_count_regenerate_rejects_user_attachments() {
   return !updated && contains_text(error, "attachments") && same_counts(before, count_snapshot(state));
 }
 
+bool C676_backbone_noop_move_preserves_port_positions_exactly() {
+  wire::core::CoreState state;
+  const auto generated = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!generated.ok || generated.value.generated_pole_ids.empty()) {
+    return false;
+  }
+  std::vector<std::pair<wire::core::ObjectId, wire::core::Vec3d>> before{};
+  for (const wire::core::Port& port : state.view().ports().items()) {
+    if (state.view().backbone_port_binding_for_port(port.id) != nullptr) {
+      before.push_back({port.id, port.world_position});
+    }
+  }
+  if (before.empty()) {
+    return false;
+  }
+  for (wire::core::ObjectId pole_id : generated.value.generated_pole_ids) {
+    const wire::core::Pole* pole = state.view().poles().find(pole_id);
+    if (pole == nullptr) {
+      return false;
+    }
+    const auto moved = state.MovePole(pole_id, pole->world_transform);
+    if (!moved.ok) {
+      return false;
+    }
+  }
+  for (const auto& [port_id, position] : before) {
+    const wire::core::Port* port = state.view().ports().find(port_id);
+    if (port == nullptr || port->world_position.x != position.x ||
+        port->world_position.y != position.y || port->world_position.z != position.z) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool C622_backbone_stage_timing_is_diagnostic_only() {
   wire::core::CoreState state;
   const auto out = state.GenerateFromBackboneSpec(poly3_req(state));

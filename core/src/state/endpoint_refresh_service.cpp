@@ -101,11 +101,11 @@ void EndpointRefreshService::RefreshOwnedEndpointsFromPole(CoreState& state, Obj
     if (port == nullptr || port->position_mode == PortPositionMode::kManual) {
       continue;
     }
-    const double layout_yaw = state.effective_port_layout_yaw_deg(*pole, port->category);
+    const double layout_yaw = state.effective_port_layout_yaw_deg(*pole, port->id, port->category);
     const double previous_layout_yaw =
         (previous_pole == nullptr)
             ? effective_yaw
-            : state.effective_port_layout_yaw_deg(*previous_pole, port->category,
+            : state.effective_port_layout_yaw_deg(*previous_pole, port->id, port->category,
                                                   previous_row_layout_yaw_override);
     Vec3d new_world = port->world_position;
     bool apply_angle_correction = false;

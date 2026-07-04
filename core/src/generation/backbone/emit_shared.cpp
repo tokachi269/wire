@@ -63,6 +63,11 @@ double BundleGroupOffset(std::size_t bundle_index, std::size_t bundle_count, int
          (spacing_m * static_cast<double>(lane_count + 1));
 }
 
+double PortLayoutYawDeg(const Vec3d& row_axis) {
+  const Vec3d axis = HorizontalNormalizedOr(row_axis);
+  return YawDegFromXY(ScaleVec(ComputeLateralAxis(axis), -1.0));
+}
+
 EditResult<PortPlacementBand> SelectPortPlacementBand(const PoleTypeDefinition& pole_type, ConnectionCategory category,
                                                       SpanLayer layer) {
   EditResult<PortPlacementBand> out{};
@@ -98,8 +103,7 @@ Vec3d PortWorldPosition(const Pole& pole, const Vec3d& row_axis, const PortPlace
                         std::size_t lane_index, int lane_count, double spacing_m, double group_offset_m,
                         double lateral_offset_m, const Vec3d& shift) {
   const Vec3d axis = HorizontalNormalizedOr(row_axis);
-  const Vec3d forward_axis = ScaleVec(ComputeLateralAxis(axis), -1.0);
-  const double layout_yaw_deg = YawDegFromXY(forward_axis);
+  const double layout_yaw_deg = PortLayoutYawDeg(axis);
   return LocalPointToWorld(BuildPoleFrame(pole.world_transform, layout_yaw_deg),
                            PortLocalPosition(axis, band, lane_index, lane_count, spacing_m, group_offset_m,
                                              lateral_offset_m, shift));

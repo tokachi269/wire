@@ -879,6 +879,12 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C674_backbone_port_band_selection_has_one_owner",
                          "backbone and post-edit port band selection use saved binding or one shared selector",
                          "Boundary", false, C674_backbone_port_band_selection_has_one_owner);
+  test_registry::AddTest(tests, "C675_backbone_layout_yaw_does_not_read_debug_records",
+                         "production port layout yaw reads saved binding instead of debug records",
+                         "Boundary", false, C675_backbone_layout_yaw_does_not_read_debug_records);
+  test_registry::AddTest(tests, "C676_backbone_noop_move_preserves_port_positions_exactly",
+                         "no-op pole movement preserves generated backbone port positions exactly",
+                         "Invariant", false, C676_backbone_noop_move_preserves_port_positions_exactly);
 }
 
 

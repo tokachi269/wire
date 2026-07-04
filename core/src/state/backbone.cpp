@@ -1,5 +1,6 @@
 #include "wire/core/core_state.hpp"
 #include "wire/core/core_view.hpp"
+#include "wire/core/coord_utils.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -225,7 +226,7 @@ EditResult<bool> CoreState::bind_backbone_span(ObjectId edge_bundle_id, std::siz
 EditResult<bool> CoreState::bind_backbone_port(ObjectId edge_bundle_id, const SavedBackboneRowKey& row_key,
                                                std::size_t lane_index, BundleKind bundle_template_id,
                                                PortKind port_kind, PortLayer port_layer, int placement_band_id,
-                                               ObjectId port_id) {
+                                               double layout_yaw_deg, ObjectId port_id) {
   EditResult<bool> out{};
   if (edge_bundle_id == kInvalidObjectId || port_id == kInvalidObjectId || row_key.node_id == kInvalidObjectId ||
       row_key.source_edge_a == kInvalidObjectId) {
@@ -253,7 +254,8 @@ EditResult<bool> CoreState::bind_backbone_port(ObjectId edge_bundle_id, const Sa
       }
       const SavedBackbonePortBinding& binding = authoritative_.backbone.port_bindings[index];
       if (binding.bundle_template_id != bundle_template_id || binding.port_kind != port_kind ||
-          binding.port_layer != port_layer || binding.placement_band_id != placement_band_id) {
+          binding.port_layer != port_layer || binding.placement_band_id != placement_band_id ||
+          std::abs(NormalizeYawDeg(binding.layout_yaw_deg - layout_yaw_deg)) > 1e-9) {
         out.error = "incompatible backbone port binding";
         return out;
       }
@@ -268,6 +270,7 @@ EditResult<bool> CoreState::bind_backbone_port(ObjectId edge_bundle_id, const Sa
   binding.port_kind = port_kind;
   binding.port_layer = port_layer;
   binding.placement_band_id = placement_band_id;
+  binding.layout_yaw_deg = NormalizeYawDeg(layout_yaw_deg);
   binding.port_id = port_id;
   const std::size_t index = authoritative_.backbone.port_bindings.size();
   authoritative_.backbone.port_bindings.push_back(binding);

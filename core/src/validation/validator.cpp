@@ -451,7 +451,7 @@ ValidationResult CoreState::Validate() const {
           bool matched_hint = false;
           const PoleFrame frame =
               BuildPoleFrame(owner_pole->world_transform,
-                             effective_port_layout_yaw_deg(*owner_pole, port.category));
+                             effective_port_layout_yaw_deg(*owner_pole, port.id, port.category));
           const Vec3d local = WorldPointToLocal(frame, port.world_position);
           for (const PortPlacementBand& band : pole_type_it->second.port_bands) {
             if (!band.enabled) {

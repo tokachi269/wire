@@ -218,8 +218,10 @@ std::vector<Vec3d> build_cable_supplemental_points(const CableSupplementalPathTe
       return points;
     }
 
-    const double layout_yaw_a = state.effective_port_layout_yaw_deg(*pole_a, port_a->category);
-    const double layout_yaw_b = state.effective_port_layout_yaw_deg(*pole_b, port_b->category);
+    const double layout_yaw_a =
+        state.effective_port_layout_yaw_deg(*pole_a, port_a->id, port_a->category);
+    const double layout_yaw_b =
+        state.effective_port_layout_yaw_deg(*pole_b, port_b->id, port_b->category);
     const double lateral_a =
         pole_band_chord_lateral_m(state, span, true, *pole_a, layout_yaw_a, *port_a, band_a->lateral_center_m);
     const double lateral_b =

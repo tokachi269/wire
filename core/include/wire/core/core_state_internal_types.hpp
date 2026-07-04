@@ -12,6 +12,7 @@
 namespace wire::core {
 
 struct PoleOrientationOverride {
+  std::optional<double> base_yaw_deg{};
   std::optional<double> manual_yaw_deg{};
   std::optional<bool> flip_180{};
   std::uint64_t version = 1;

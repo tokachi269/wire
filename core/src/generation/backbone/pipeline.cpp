@@ -2368,6 +2368,7 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
                                     span.bundle < made.rows[row_index].placement_band_ids.size()
                                         ? made.rows[row_index].placement_band_ids[span.bundle]
                                         : 0,
+                                    PortLayoutYawDeg(made.rows[row_index].axis),
                                     port->id);
       if (!bound.ok) {
         out.error = bound.error;

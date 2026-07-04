@@ -107,7 +107,8 @@ public:
   [[nodiscard]] const AttachmentTemplate* find_attachment_template(AttachmentTemplateId attachment_template_id) const;
   [[nodiscard]] ValidationResult ValidateFast() const;
   [[nodiscard]] double effective_pole_layout_yaw_deg(const Pole& pole) const;
-  [[nodiscard]] double effective_port_layout_yaw_deg(const Pole& pole, ConnectionCategory category,
+  [[nodiscard]] double effective_port_layout_yaw_deg(const Pole& pole, ObjectId port_id,
+                                                     ConnectionCategory category,
                                                      const PortLayoutYawOverride* row_layout_yaw_override = nullptr) const;
 
   [[nodiscard]] ObjectId next_id() const { return identity_.id_generator.peek(); }
@@ -163,7 +164,8 @@ private:
   EditResult<bool> bind_backbone_span(ObjectId edge_bundle_id, std::size_t lane_index, ObjectId span_id);
   EditResult<bool> bind_backbone_port(ObjectId edge_bundle_id, const SavedBackboneRowKey& row_key,
                                       std::size_t lane_index, BundleKind bundle_template_id, PortKind port_kind,
-                                      PortLayer port_layer, int placement_band_id, ObjectId port_id);
+                                      PortLayer port_layer, int placement_band_id, double layout_yaw_deg,
+                                      ObjectId port_id);
   EditResult<bool> regenerate_backbone_bundle_count_change(BundleKind bundle_template_id,
                                                            const BundleTemplate& previous_template,
                                                            const BundleTemplate& next_template,

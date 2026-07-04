@@ -11,6 +11,7 @@ int TemplateLayerForSpanLayer(SpanLayer layer);
 
 double LaneOffset(std::size_t lane_index, int count, double spacing_m);
 double BundleGroupOffset(std::size_t bundle_index, std::size_t bundle_count, int lane_count, double spacing_m);
+double PortLayoutYawDeg(const Vec3d& row_axis);
 
 EditResult<PortPlacementBand> SelectPortPlacementBand(const PoleTypeDefinition& pole_type, ConnectionCategory category,
                                                       SpanLayer layer);

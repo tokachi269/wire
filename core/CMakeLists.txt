@@ -8,6 +8,7 @@ add_library(
   src/state/inspection.cpp
   src/state/endpoint_refresh_service.cpp
   src/state/override_resolution.cpp
+  src/state/template/regenerate.cpp
   src/state/template/update.cpp
   src/pole_orientation_utils.cpp
   src/generation/pole_facing/pole_facing_rules.cpp

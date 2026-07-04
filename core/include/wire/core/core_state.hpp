@@ -164,6 +164,10 @@ private:
   EditResult<bool> bind_backbone_port(ObjectId edge_bundle_id, const SavedBackboneRowKey& row_key,
                                       std::size_t lane_index, BundleKind bundle_template_id, PortKind port_kind,
                                       PortLayer port_layer, ObjectId port_id);
+  EditResult<bool> regenerate_backbone_bundle_count_change(BundleKind bundle_template_id,
+                                                           const BundleTemplate& previous_template,
+                                                           const BundleTemplate& next_template,
+                                                           ChangeSet* change_set);
   void cache_span_rules(const SpanLayoutRules& rules);
   void remove_span_from_caches(ObjectId span_id);
   [[nodiscard]] double effective_pole_yaw_deg(const Pole& pole) const;

@@ -376,6 +376,7 @@
 | C653 | Boundary | backbone experimental | band identity重複を拒否する | 同じPoleType内にduplicate band_id | has_duplicate_band_ids | Boundary: duplicateを検出する | PortPlacementBand | vector順で曖昧bandを選ぶ回帰防止 |
 | C654 | Boundary | backbone experimental | span section populationはlogical topologyを変更しない | control/experimental fresh state | GenerateFromBackboneSpec | Boundary: Pole/Port/Bundle/Span/SavedGraph counts一致、base/extraが同じEdgeBody visual経路を使う | CoreView / VisualCurvePartCache | 見た目用追加線がtopologyまたは別curve familyになる回帰防止 |
 | C658 | Boundary | geometry | CableCurve は endpoint tangent hints を実サンプルに使う | explicit tangent hints + sag | BuildCableCurve | Boundary: start/end sample tangent が指定hintと一致し、hint無しの既存parabolic pathとは分かれる | CableCurveInput / CableCurveOutput | NodePatch境界tangentをEdgeBodyがmetadataだけ持ち、描画samplesでは無視する回帰防止 |
+| C660 | Boundary | backbone | bundle count regenerate は SavedGraph identity を維持して下流だけ更新する | 2点 route + LowVoltage fixed count 1→2 | GenerateFromBackboneSpec→UpdateBundleTemplate | Boundary: node/edge/edge_bundle id は不変、span binding と rules/layout/geom/draw は count に合わせて更新 | SavedBackboneGraph / SpanLayoutEntry / curve / draw | route-local regenerate が入力replayや位置推測でgraphを作り直す回帰防止 |
 
 ## Retired old-pipeline checks
 - Old cases 365-367 were removed from the registered suite. They pinned the transitional `BackboneBuilder` / support-layout authority seed / materialization surface instead of the backbone mainline.

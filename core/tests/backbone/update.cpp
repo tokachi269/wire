@@ -64,6 +64,34 @@ bool same_pole_type(const wire::core::PoleTypeDefinition& a, const wire::core::P
                     });
 }
 
+std::vector<wire::core::Vec3d> bound_port_positions(const wire::core::CoreState& state) {
+  std::vector<wire::core::Vec3d> out{};
+  if (state.view().backbone().edge_bundles.empty()) {
+    return out;
+  }
+  const wire::core::ObjectId edge_bundle_id = state.view().backbone().edge_bundles.front().edge_bundle_id;
+  for (const wire::core::SavedBackbonePortBinding* binding :
+       state.view().backbone_port_bindings_for_edge_bundle(edge_bundle_id)) {
+    if (binding == nullptr) {
+      continue;
+    }
+    const wire::core::Port* port = state.view().ports().find(binding->port_id);
+    if (port != nullptr) {
+      out.push_back(port->world_position);
+    }
+  }
+  std::sort(out.begin(), out.end(), [](const wire::core::Vec3d& lhs, const wire::core::Vec3d& rhs) {
+    if (!almost_equal(lhs.x, rhs.x, 1e-12)) {
+      return lhs.x < rhs.x;
+    }
+    if (!almost_equal(lhs.y, rhs.y, 1e-12)) {
+      return lhs.y < rhs.y;
+    }
+    return lhs.z < rhs.z;
+  });
+  return out;
+}
+
 } // namespace
 
 bool C611_backbone_direct_derive_restores_saved_span_outputs() {
@@ -537,6 +565,93 @@ bool C628_backbone_active_pole_type_update_repositions_or_rejects_structure() {
          same_pole_type(type_after_reject->second, before_structural_reject) &&
          port_a_after_reject != nullptr &&
          almost_equal(port_a_after_reject->world_position, port_a_before_reject, 1e-12);
+}
+
+bool C660_backbone_bundle_count_regenerate_updates_downstream_only() {
+  wire::core::CoreState state;
+  const auto generated = state.GenerateFromBackboneSpec(line_req(state));
+  if (!generated.ok || generated.value.generated_span_ids.size() != 1) {
+    return false;
+  }
+  const auto template_it = state.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  if (template_it == state.view().bundle_templates().end() ||
+      template_it->second.count_rule != wire::core::BundleCountRuleKind::kFixed ||
+      template_it->second.fixed_count != 1) {
+    return false;
+  }
+
+  const std::vector<wire::core::SavedBackboneNode> nodes_before = state.view().backbone().nodes;
+  const std::vector<wire::core::SavedBackboneEdge> edges_before = state.view().backbone().edges;
+  const std::vector<wire::core::SavedBackboneEdgeBundle> edge_bundles_before =
+      state.view().backbone().edge_bundles;
+  const std::size_t span_count_before = state.view().spans().size();
+
+  wire::core::BundleTemplate edited = template_it->second;
+  edited.fixed_count = 2;
+  const auto updated = state.UpdateBundleTemplate(edited);
+  if (!updated.ok || !updated.value) {
+    return false;
+  }
+  if (state.view().backbone().nodes.size() != nodes_before.size() ||
+      state.view().backbone().edges.size() != edges_before.size() ||
+      state.view().backbone().edge_bundles.size() != edge_bundles_before.size() ||
+      state.view().spans().size() != span_count_before + 1) {
+    return false;
+  }
+  for (std::size_t i = 0; i < nodes_before.size(); ++i) {
+    if (state.view().backbone().nodes[i].node_id != nodes_before[i].node_id) {
+      return false;
+    }
+  }
+  for (std::size_t i = 0; i < edges_before.size(); ++i) {
+    if (state.view().backbone().edges[i].edge_id != edges_before[i].edge_id) {
+      return false;
+    }
+  }
+  for (std::size_t i = 0; i < edge_bundles_before.size(); ++i) {
+    if (state.view().backbone().edge_bundles[i].edge_bundle_id !=
+        edge_bundles_before[i].edge_bundle_id) {
+      return false;
+    }
+  }
+  const wire::core::SavedBackboneEdgeBundle& bundle = state.view().backbone().edge_bundles.front();
+  if (bundle.span_ids.size() != 2) {
+    return false;
+  }
+  for (wire::core::ObjectId span_id : bundle.span_ids) {
+    if (!state.span_layout(span_id).has_layout() ||
+        state.find_curve_cache(span_id) == nullptr ||
+        state.find_span_visual_cache(span_id) == nullptr ||
+        state.find_span_render_cache(span_id) == nullptr) {
+      return false;
+    }
+  }
+
+  wire::core::CoreState fresh;
+  const auto fresh_template_it = fresh.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  if (fresh_template_it == fresh.view().bundle_templates().end()) {
+    return false;
+  }
+  wire::core::BundleTemplate fresh_template = fresh_template_it->second;
+  fresh_template.fixed_count = 2;
+  const auto fresh_updated = fresh.UpdateBundleTemplate(fresh_template);
+  const auto fresh_generated = fresh.GenerateFromBackboneSpec(line_req(fresh));
+  if (!fresh_updated.ok || !fresh_generated.ok || fresh_generated.value.generated_span_ids.size() != 2 ||
+      fresh.view().backbone().edge_bundles.empty() ||
+      fresh.view().backbone().edge_bundles.front().span_ids.size() != bundle.span_ids.size()) {
+    return false;
+  }
+  const std::vector<wire::core::Vec3d> regenerated_ports = bound_port_positions(state);
+  const std::vector<wire::core::Vec3d> fresh_ports = bound_port_positions(fresh);
+  if (regenerated_ports.size() != fresh_ports.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < regenerated_ports.size(); ++i) {
+    if (!same_vec3(regenerated_ports[i], fresh_ports[i])) {
+      return false;
+    }
+  }
+  return true;
 }
 
 bool C622_backbone_stage_timing_is_diagnostic_only() {

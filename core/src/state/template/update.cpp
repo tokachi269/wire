@@ -261,6 +261,28 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
       normalized.row_layout_axis_mode != it->second.row_layout_axis_mode ||
       normalized.support_style != it->second.support_style || normalized.branch_policy != it->second.branch_policy ||
       normalized.continuity_policy != it->second.continuity_policy;
+  const bool fixed_count_increase_only =
+      normalized.count_rule == BundleCountRuleKind::kFixed &&
+      it->second.count_rule == BundleCountRuleKind::kFixed &&
+      normalized.fixed_count > it->second.fixed_count &&
+      normalized.category == it->second.category &&
+      normalized.default_layer == it->second.default_layer &&
+      normalized.preserve_conductor_identity == it->second.preserve_conductor_identity &&
+      normalized.min_count == it->second.min_count &&
+      normalized.max_count == it->second.max_count &&
+      normalized.default_count == it->second.default_count &&
+      std::abs(normalized.default_spacing_m - it->second.default_spacing_m) <= 1e-12 &&
+      std::abs(normalized.grouped_support_fanout_spacing_m - it->second.grouped_support_fanout_spacing_m) <= 1e-12 &&
+      normalized.allow_mirror == it->second.allow_mirror &&
+      normalized.allow_midair_node == it->second.allow_midair_node &&
+      normalized.allow_midair_branch == it->second.allow_midair_branch &&
+      normalized.enable_branch_down_offset == it->second.enable_branch_down_offset &&
+      std::abs(normalized.branch_endpoint_offset_m - it->second.branch_endpoint_offset_m) <= 1e-12 &&
+      normalized.order_decision_policy == it->second.order_decision_policy &&
+      normalized.row_layout_axis_mode == it->second.row_layout_axis_mode &&
+      normalized.support_style == it->second.support_style &&
+      normalized.branch_policy == it->second.branch_policy &&
+      normalized.continuity_policy == it->second.continuity_policy;
 
   changed = visual_only_change || topology_change || detail_change || normalized.name != it->second.name ||
             normalized.related_pole_type_id != it->second.related_pole_type_id;
@@ -275,7 +297,7 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
     if (existing_bundle.bundle_template_id != normalized.id) {
       continue;
     }
-    if (topology_change) {
+    if (topology_change && !fixed_count_increase_only) {
       result.error = "backbone unsupported: bundle topology changes require regeneration";
       return result;
     }
@@ -298,6 +320,15 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
   }
 
   normalized.version += 1;
+  const BundleTemplate previous = it->second;
+  if (topology_change && fixed_count_increase_only) {
+    auto regenerated = state.regenerate_backbone_bundle_count_change(normalized.id, previous, normalized,
+                                                                     &result.change_set);
+    if (!regenerated.ok) {
+      result.error = regenerated.error;
+      return result;
+    }
+  }
   it->second = normalized;
   result.ok = true;
   result.value = true;

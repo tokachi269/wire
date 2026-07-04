@@ -288,5 +288,6 @@ bool C651_experimental_population_spacing_rejects_overlap();
 bool C652_experimental_population_endpoint_failure_omits_pair();
 bool C653_experimental_population_rejects_duplicate_band_identity();
 bool C654_experimental_population_does_not_mutate_logical_topology();
+bool C660_backbone_bundle_count_regenerate_updates_downstream_only();
 
 } // namespace backbone_tests

@@ -832,6 +832,10 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C654_experimental_population_does_not_mutate_logical_topology",
                          "experimental physical line population changes visual output only", "Boundary", false,
                          C654_experimental_population_does_not_mutate_logical_topology);
+  test_registry::AddTest(tests, "C660_backbone_bundle_count_regenerate_updates_downstream_only",
+                         "backbone route-local regenerate updates bundle count downstream without graph identity changes",
+                         "Boundary", false,
+                         C660_backbone_bundle_count_regenerate_updates_downstream_only);
 }
 
 

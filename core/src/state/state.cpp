@@ -1741,15 +1741,21 @@ EditResult<bool> CoreState::update_pole_type_and_refresh_instances(const PoleTyp
     if (owned_port_ids_it != runtime_.relation_index.ports_by_pole.end()) {
       for (ObjectId port_id : owned_port_ids_it->second) {
         Port* existing_port = authoritative_.edit_state.ports.find(port_id);
-        if (existing_port == nullptr || !existing_port->generated_from_template ||
+        const bool backbone_bound_port = runtime_.backbone_index.port_bindings_by_port.contains(port_id);
+        if (existing_port == nullptr || (!existing_port->generated_from_template && !backbone_bound_port) ||
             existing_port->position_mode == PortPositionMode::kManual) {
           continue;
         }
         const PortPlacementBand* band_ptr = nullptr;
         for (const PortPlacementBand& band : pole_type.port_bands) {
-          if (!band.enabled || band.category != existing_port->category ||
-              band.layer != existing_port->template_layer || band.side != existing_port->template_side ||
-              band.role != existing_port->template_role) {
+          const bool band_matches_port =
+              backbone_bound_port
+                  ? (band.enabled && band.category == existing_port->category &&
+                     band.layer == existing_port->template_layer)
+                  : (band.enabled && band.category == existing_port->category &&
+                     band.layer == existing_port->template_layer && band.side == existing_port->template_side &&
+                     band.role == existing_port->template_role);
+          if (!band_matches_port) {
             continue;
           }
           if (band_ptr == nullptr || band.priority > band_ptr->priority ||

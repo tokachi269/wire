@@ -543,16 +543,16 @@ bool touches_patch_boundary(const wire::core::VisualCurvePart& body, const wire:
          almost_equal(body.boundary_b, patch.boundary_b, 1e-9);
 }
 
-bool same_visual_member_family(const wire::core::SpanMemberKey& a, const wire::core::SpanMemberKey& b) {
+bool same_visual_cable_instance_family(const wire::core::CableInstanceKey& a, const wire::core::CableInstanceKey& b) {
   return a.is_base() == b.is_base() && a.rule_owner_id == b.rule_owner_id &&
          a.rule_id == b.rule_id && a.instance_index == b.instance_index;
 }
 
-wire::core::ExperimentalSpanMemberPopulationConfig two_extra_lv_population_config() {
-  wire::core::ExperimentalSpanMemberPopulationConfig config{};
+wire::core::ExperimentalCablePopulationConfig two_extra_lv_population_config() {
+  wire::core::ExperimentalCablePopulationConfig config{};
   config.enabled = true;
   config.explicit_seed = 1234;
-  wire::core::ExperimentalSpanMemberRule rule{};
+  wire::core::ExperimentalCableInstanceRule rule{};
   rule.rule_id = 11;
   rule.bundle_template_id = wire::core::BundleKind::kLowVoltage;
   rule.priority = 10;
@@ -777,6 +777,80 @@ bool C641_backbone_pole_tilt_refreshes_visual_curve_parts() {
   return !almost_equal(before_boundary, actual, 1e-9) && almost_equal(actual, expected, 1e-9);
 }
 
+bool C659_backbone_draw_time_tilt_materializes_ports_before_spans() {
+  wire::core::CoreState untilted_state;
+  wire::core::BackboneSpec untilted_req = line_req(untilted_state);
+  const auto untilted = untilted_state.GenerateFromBackboneSpec(untilted_req);
+  if (!untilted.ok || untilted.value.generated_pole_ids.empty() || untilted.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId untilted_pole_id = untilted.value.generated_pole_ids.front();
+  const wire::core::ObjectId untilted_span_id = untilted.value.generated_span_ids.front();
+  const wire::core::Pole* untilted_pole = untilted_state.view().poles().find(untilted_pole_id);
+  const wire::core::SpanLayoutView untilted_layout = untilted_state.span_layout(untilted_span_id);
+  if (untilted_pole == nullptr || !untilted_layout.has_layout() || untilted_pole->tilt_magnitude_deg != 0.0) {
+    return false;
+  }
+
+  wire::core::CoreState generated_state;
+  wire::core::BackboneSpec generated_req = line_req(generated_state);
+  generated_req.pole_placement.enable_tilt = true;
+  generated_req.pole_placement.max_tilt_deg = 12.0;
+  const auto generated = generated_state.GenerateFromBackboneSpec(generated_req);
+  if (!generated.ok || generated.value.generated_pole_ids.empty() || generated.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId generated_pole_id = generated.value.generated_pole_ids.front();
+  const wire::core::ObjectId generated_span_id = generated.value.generated_span_ids.front();
+  const wire::core::Pole* generated_pole = generated_state.view().poles().find(generated_pole_id);
+  const wire::core::Span* generated_span = generated_state.view().spans().find(generated_span_id);
+  const wire::core::SpanLayoutView generated_layout = generated_state.span_layout(generated_span_id);
+  if (generated_pole == nullptr || generated_span == nullptr || !generated_layout.has_layout() ||
+      generated_pole->tilt_magnitude_deg <= 0.0) {
+    return false;
+  }
+  const wire::core::Port* generated_port_a = generated_state.view().ports().find(generated_span->port_a_id);
+  const wire::core::Port* generated_port_b = generated_state.view().ports().find(generated_span->port_b_id);
+  if (generated_port_a == nullptr || generated_port_b == nullptr) {
+    return false;
+  }
+  const bool generated_pole_is_start = generated_port_a->owner_pole_id == generated_pole_id;
+  const wire::core::Port* generated_port = generated_pole_is_start ? generated_port_a : generated_port_b;
+  if (generated_port->owner_pole_id != generated_pole_id) {
+    return false;
+  }
+  const wire::core::Vec3d generated_endpoint =
+      generated_pole_is_start ? generated_layout.entry->start.endpoint_world : generated_layout.entry->end.endpoint_world;
+  const wire::core::Span* untilted_span = untilted_state.view().spans().find(untilted_span_id);
+  if (untilted_span == nullptr) {
+    return false;
+  }
+  const wire::core::Port* untilted_port_a = untilted_state.view().ports().find(untilted_span->port_a_id);
+  const bool untilted_pole_is_start = untilted_port_a != nullptr && untilted_port_a->owner_pole_id == untilted_pole_id;
+  const wire::core::Vec3d untilted_endpoint =
+      untilted_pole_is_start ? untilted_layout.entry->start.endpoint_world : untilted_layout.entry->end.endpoint_world;
+  if (!almost_equal(generated_endpoint, generated_port->world_position, 1e-9) ||
+      almost_equal(generated_endpoint, untilted_endpoint, 1e-6)) {
+    return false;
+  }
+
+  wire::core::CoreState apply_state;
+  const auto apply_generated = apply_state.GenerateFromBackboneSpec(line_req(apply_state));
+  if (!apply_generated.ok || apply_generated.value.generated_pole_ids.empty()) {
+    return false;
+  }
+  const auto applied = apply_state.ApplyPoleTilt({apply_generated.value.generated_pole_ids.front()}, 12.0);
+  const wire::core::Pole* applied_pole = apply_state.view().poles().find(apply_generated.value.generated_pole_ids.front());
+  if (!applied.ok || !applied.value || applied_pole == nullptr) {
+    return false;
+  }
+  return almost_equal(generated_pole->tilt_magnitude_deg, applied_pole->tilt_magnitude_deg, 1e-9) &&
+         almost_equal(generated_pole->world_transform.rotation_euler_deg.x,
+                      applied_pole->world_transform.rotation_euler_deg.x, 1e-9) &&
+         almost_equal(generated_pole->world_transform.rotation_euler_deg.y,
+                      applied_pole->world_transform.rotation_euler_deg.y, 1e-9);
+}
+
 bool C642_backbone_edge_body_uses_formal_sag_curve() {
   wire::core::CoreState state;
   wire::core::GeometrySettings settings = state.view().geometry_settings();
@@ -971,9 +1045,9 @@ bool C655_backbone_node_patch_grouping_uses_band_identity() {
          contains_text(key_body, "a.pole_type_id == b.pole_type_id");
 }
 
-bool C656_backbone_node_patch_does_not_mix_base_and_extra_members() {
+bool C656_backbone_node_patch_does_not_mix_base_and_extra_sections() {
   wire::core::CoreState state;
-  if (!state.UpdateExperimentalSpanMemberPopulationConfig(two_extra_lv_population_config()).ok) {
+  if (!state.UpdateExperimentalCablePopulationConfig(two_extra_lv_population_config()).ok) {
     return false;
   }
   const auto generated = state.GenerateFromBackboneSpec(poly3_req(state));
@@ -987,16 +1061,16 @@ bool C656_backbone_node_patch_does_not_mix_base_and_extra_members() {
     }
     saw_patch = true;
     bool have_reference = false;
-    wire::core::SpanMemberKey reference{};
+    wire::core::CableInstanceKey reference{};
     for (const wire::core::VisualCurvePart& body : state.view().visual_curve_parts().parts) {
-      if (body.kind != wire::core::VisualCurvePartKind::kEdgeBody || !body.has_span_member_key ||
+      if (body.kind != wire::core::VisualCurvePartKind::kEdgeBody || !body.has_cable_instance_key ||
           !touches_patch_boundary(body, patch)) {
         continue;
       }
       if (!have_reference) {
-        reference = body.span_member_key;
+        reference = body.cable_instance_key;
         have_reference = true;
-      } else if (!same_visual_member_family(reference, body.span_member_key)) {
+      } else if (!same_visual_cable_instance_family(reference, body.cable_instance_key)) {
         return false;
       }
     }
@@ -1006,7 +1080,7 @@ bool C656_backbone_node_patch_does_not_mix_base_and_extra_members() {
 
 bool C657_backbone_node_patch_does_not_mix_extra_instance_indices() {
   wire::core::CoreState state;
-  if (!state.UpdateExperimentalSpanMemberPopulationConfig(two_extra_lv_population_config()).ok) {
+  if (!state.UpdateExperimentalCablePopulationConfig(two_extra_lv_population_config()).ok) {
     return false;
   }
   const auto generated = state.GenerateFromBackboneSpec(poly3_req(state));
@@ -1016,7 +1090,7 @@ bool C657_backbone_node_patch_does_not_mix_extra_instance_indices() {
   bool saw_extra_body = false;
   for (const wire::core::VisualCurvePart& body : state.view().visual_curve_parts().parts) {
     saw_extra_body = saw_extra_body || (body.kind == wire::core::VisualCurvePartKind::kEdgeBody &&
-                                        body.has_span_member_key && !body.span_member_key.is_base());
+                                        body.has_cable_instance_key && !body.cable_instance_key.is_base());
   }
   if (!saw_extra_body) {
     return false;
@@ -1028,20 +1102,20 @@ bool C657_backbone_node_patch_does_not_mix_extra_instance_indices() {
     std::size_t extra_instance_index = 0;
     bool saw_extra = false;
     for (const wire::core::VisualCurvePart& body : state.view().visual_curve_parts().parts) {
-      if (body.kind != wire::core::VisualCurvePartKind::kEdgeBody || !body.has_span_member_key ||
-          body.span_member_key.is_base() || !touches_patch_boundary(body, patch)) {
+      if (body.kind != wire::core::VisualCurvePartKind::kEdgeBody || !body.has_cable_instance_key ||
+          body.cable_instance_key.is_base() || !touches_patch_boundary(body, patch)) {
         continue;
       }
       if (!saw_extra) {
-        extra_instance_index = body.span_member_key.instance_index;
+        extra_instance_index = body.cable_instance_key.instance_index;
         saw_extra = true;
-      } else if (extra_instance_index != body.span_member_key.instance_index) {
+      } else if (extra_instance_index != body.cable_instance_key.instance_index) {
         return false;
       }
     }
-    // The current experimental population is span-local. If an extra member endpoint does not
+    // The current experimental population is span-local. If an extra section endpoint does not
     // resolve to the exact same support position across adjacent spans, continuity is unproven,
-    // so no node patch should connect that extra member.
+    // so no node patch should connect that extra section.
     if (saw_extra) {
       return false;
     }

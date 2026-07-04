@@ -33,6 +33,9 @@ struct BackbonePolePlacementOptions {
   // Do not force manual poles from guide by default; users pin explicitly.
   bool pin_endpoints = false;
   bool pin_vertices = false;
+  // Applies instance tilt before generated ports/bands are materialized.
+  bool enable_tilt = false;
+  double max_tilt_deg = 0.0;
   // Session-scoped regeneration can restrict pole reuse to the target session.
   bool restrict_reuse_to_session = false;
   std::uint64_t reuse_session_id = 0;

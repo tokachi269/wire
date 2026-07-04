@@ -131,11 +131,13 @@ boundary tangentをdebug/captureで見えるようにするための派生出力
 分割後のspan片が接続部curveのauthorityになってはいけない。長いrun全体を毎回正本として再計算する方式にはせず、
 dirty node + incident edge + 必要な1-hop程度の更新範囲に抑える。
 
-### experimental span member population
+### experimental cable population
+
+CableInstance / CableSection / carrier の設計語は docs/cable_instance_section.md を参照する。現行の `CableInstanceKey.logical_span_id` は span-fragment scope であり、run-level identity は未実装である。
 
 `codex/placement-population-design`では、logical spanから見た目用の追加線を作る実験機能を持つ。
 defaultは無効で、`SavedBackboneGraph`、`Span`、`Port`を増やさず、layout後に
-base spanと追加線を`SpanMemberLayout`へ揃え、同じ`EdgeBodyCurve` / `NodePatchCurve`生成へ渡す。
+base spanと追加線を`CableSectionLayout`へ揃え、同じ`EdgeBodyCurve` / `NodePatchCurve`生成へ渡す。
 追加線専用のcurve、tessellation、render経路は持たない。identityはlogical span、edge bundle、
 bundle template、明示rule id、instance indexから作り、両endpointは同じinstance indexで対応させる。
 配置不能時はsupportやrouteを作らずomit diagnosticを残す。

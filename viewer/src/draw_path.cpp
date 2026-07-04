@@ -695,9 +695,9 @@ bool ExecuteBackboneRequest(CoreState& state, ViewerUiState& ui_state, const wir
   return true;
 }
 
-wire::core::ExperimentalSpanMemberPopulationConfig
-ExperimentalSpanMemberPopulationConfigLocal(const ViewerUiState& ui_state) {
-  wire::core::ExperimentalSpanMemberPopulationConfig config{};
+wire::core::ExperimentalCablePopulationConfig
+ExperimentalCablePopulationConfigLocal(const ViewerUiState& ui_state) {
+  wire::core::ExperimentalCablePopulationConfig config{};
   config.enabled = ui_state.experimental_line_population_enabled;
   config.explicit_seed = ui_state.experimental_line_population_seed;
   if (!config.enabled) {
@@ -705,7 +705,7 @@ ExperimentalSpanMemberPopulationConfigLocal(const ViewerUiState& ui_state) {
   }
   auto add_rule = [&](std::uint64_t rule_id, wire::core::BundleKind bundle_template_id, int priority,
                       int min_count, int max_count, double spacing_m) {
-    wire::core::ExperimentalSpanMemberRule rule{};
+    wire::core::ExperimentalCableInstanceRule rule{};
     rule.rule_id = rule_id;
     rule.bundle_template_id = bundle_template_id;
     rule.priority = priority;
@@ -747,8 +747,8 @@ void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool
     ui_state.last_error = "select at least one bundle template";
     return;
   }
-  const auto population_config = viewer_core_state::UpdateExperimentalSpanMemberPopulationConfig(
-      state, ExperimentalSpanMemberPopulationConfigLocal(ui_state));
+  const auto population_config = viewer_core_state::UpdateExperimentalCablePopulationConfig(
+      state, ExperimentalCablePopulationConfigLocal(ui_state));
   if (!population_config.ok) {
     ui_state.last_error = population_config.error;
     return;
@@ -778,6 +778,8 @@ void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool
     request.interval_m = ui_state.draw_interval_m;
   }
   request.pole_type_id = type_ids[ui_state.road_pole_type_index];
+  request.pole_placement.enable_tilt = ui_state.tilt_all_max_deg > 0.0;
+  request.pole_placement.max_tilt_deg = ui_state.tilt_all_max_deg;
   request.direction_mode = static_cast<wire::core::PathDirectionMode>(mode_index);
   for (wire::core::BundleKind kind : selected_templates) {
     const auto it = view.bundle_templates().find(kind);
@@ -1394,17 +1396,17 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
     ofs << prefix << ".wire_radius_m=" << part.wire_radius_m << "\n";
     ofs << prefix << ".color_rgba=" << part.color_rgba << "\n";
     ofs << prefix << ".material_style=" << static_cast<int>(part.material_style) << "\n";
-    ofs << prefix << ".has_span_member_key=" << (part.has_span_member_key ? 1 : 0) << "\n";
-    if (part.has_span_member_key) {
-      ofs << prefix << ".member.logical_span_id="
-          << static_cast<unsigned long long>(part.span_member_key.logical_span_id) << "\n";
-      ofs << prefix << ".member.edge_bundle_id="
-          << static_cast<unsigned long long>(part.span_member_key.edge_bundle_id) << "\n";
-      ofs << prefix << ".member.rule_owner_id="
-          << static_cast<unsigned long long>(part.span_member_key.rule_owner_id) << "\n";
-      ofs << prefix << ".member.rule_id="
-          << static_cast<unsigned long long>(part.span_member_key.rule_id) << "\n";
-      ofs << prefix << ".member.instance_index=" << part.span_member_key.instance_index << "\n";
+    ofs << prefix << ".has_cable_instance_key=" << (part.has_cable_instance_key ? 1 : 0) << "\n";
+    if (part.has_cable_instance_key) {
+      ofs << prefix << ".section.logical_span_id="
+          << static_cast<unsigned long long>(part.cable_instance_key.logical_span_id) << "\n";
+      ofs << prefix << ".section.edge_bundle_id="
+          << static_cast<unsigned long long>(part.cable_instance_key.edge_bundle_id) << "\n";
+      ofs << prefix << ".section.rule_owner_id="
+          << static_cast<unsigned long long>(part.cable_instance_key.rule_owner_id) << "\n";
+      ofs << prefix << ".section.rule_id="
+          << static_cast<unsigned long long>(part.cable_instance_key.rule_id) << "\n";
+      ofs << prefix << ".section.instance_index=" << part.cable_instance_key.instance_index << "\n";
       ofs << prefix << ".physical.endpoint_a_pole_type_id="
           << static_cast<unsigned long long>(part.endpoint_a_pole_type_id) << "\n";
       ofs << prefix << ".physical.endpoint_b_pole_type_id="
@@ -1438,7 +1440,7 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
           << "]=" << static_cast<unsigned long long>(part.incident_edge_ids[edge_index]) << "\n";
     }
   }
-  const auto& population_config = viewer_core_state::ExperimentalSpanMemberPopulationConfig(state);
+  const auto& population_config = viewer_core_state::ExperimentalCablePopulationConfig(state);
   ofs << "result.experimental_line_population.enabled=" << (population_config.enabled ? 1 : 0) << "\n";
   ofs << "result.experimental_line_population.explicit_seed="
       << static_cast<unsigned long long>(population_config.explicit_seed) << "\n";

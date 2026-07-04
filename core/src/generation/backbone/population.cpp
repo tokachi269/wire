@@ -24,7 +24,7 @@ std::uint64_t combine(std::uint64_t seed, std::uint64_t value) {
   return mix64(seed ^ (value + 0x9E3779B97F4A7C15ull + (seed << 6) + (seed >> 2)));
 }
 
-std::uint64_t key_seed(const SpanMemberPopulationInput& input, std::size_t instance_index,
+std::uint64_t key_seed(const CablePopulationInput& input, std::size_t instance_index,
                        std::size_t attempt) {
   std::uint64_t seed = mix64(input.explicit_seed);
   seed = combine(seed, input.key.logical_span_id);
@@ -50,7 +50,7 @@ bool inside(double value, double min_value, double max_value) {
   return value >= min_value - kEps && value <= max_value + kEps;
 }
 
-bool blocked_by_reserve(const SpanMemberPopulationEndpoint& endpoint,
+bool blocked_by_reserve(const CablePopulationEndpoint& endpoint,
                         const std::vector<ExperimentalPlacementReserve>& reserves, const Vec3d& local) {
   return std::any_of(reserves.begin(), reserves.end(), [&](const ExperimentalPlacementReserve& reserve) {
     return reserve.pole_type_id == endpoint.pole_type_id && reserve.band_id == endpoint.band_id &&
@@ -68,7 +68,7 @@ bool spacing_satisfied(const Vec3d& candidate, const std::vector<Vec3d>& occupie
   });
 }
 
-int requested_count(const SpanMemberPopulationInput& input) {
+int requested_count(const CablePopulationInput& input) {
   const int count_range = input.rule.max_extra_count - input.rule.min_extra_count + 1;
   if (count_range <= 1) {
     return input.rule.min_extra_count;
@@ -77,7 +77,7 @@ int requested_count(const SpanMemberPopulationInput& input) {
   return input.rule.min_extra_count + static_cast<int>(seed % static_cast<std::uint64_t>(count_range));
 }
 
-Vec3d candidate_local(const SpanMemberPopulationEndpoint& endpoint, const ExperimentalSpanMemberRule& rule,
+Vec3d candidate_local(const CablePopulationEndpoint& endpoint, const ExperimentalCableInstanceRule& rule,
                       std::size_t instance_index, std::size_t attempt, std::uint64_t seed) {
   const std::size_t ordinal = instance_index + attempt;
   const double side = ((ordinal & 1u) == 0u) ? 1.0 : -1.0;
@@ -87,7 +87,7 @@ Vec3d candidate_local(const SpanMemberPopulationEndpoint& endpoint, const Experi
   return {endpoint.original_local.x, endpoint.original_local.y, endpoint.original_local.z + height_delta};
 }
 
-bool candidate_allowed(const SpanMemberPopulationEndpoint& endpoint,
+bool candidate_allowed(const CablePopulationEndpoint& endpoint,
                        const std::vector<ExperimentalPlacementReserve>& reserves,
                        const std::vector<Vec3d>& occupied, double min_spacing_m, const Vec3d& local) {
   return inside(local.y, endpoint.lateral_min_m, endpoint.lateral_max_m) &&
@@ -104,10 +104,10 @@ const SavedBackboneSpanBinding* span_binding_for(const CoreState& state, ObjectI
   return nullptr;
 }
 
-const ExperimentalSpanMemberRule* rule_for(const ExperimentalSpanMemberPopulationConfig& config,
+const ExperimentalCableInstanceRule* rule_for(const ExperimentalCablePopulationConfig& config,
                                              BundleKind bundle_template_id, std::size_t index) {
-  std::vector<const ExperimentalSpanMemberRule*> matches{};
-  for (const ExperimentalSpanMemberRule& rule : config.rules) {
+  std::vector<const ExperimentalCableInstanceRule*> matches{};
+  for (const ExperimentalCableInstanceRule& rule : config.rules) {
     if (rule.bundle_template_id == bundle_template_id) {
       matches.push_back(&rule);
     }
@@ -121,10 +121,10 @@ const ExperimentalSpanMemberRule* rule_for(const ExperimentalSpanMemberPopulatio
   return index < matches.size() ? matches[index] : nullptr;
 }
 
-SpanMemberPopulationEndpoint resolve_endpoint(const CoreState& state, const LayoutEndpoint& layout,
+CablePopulationEndpoint resolve_endpoint(const CoreState& state, const LayoutEndpoint& layout,
                                                const BundleTemplate& bundle_template,
-                                               const ExperimentalSpanMemberRule& rule) {
-  SpanMemberPopulationEndpoint out{};
+                                               const ExperimentalCableInstanceRule& rule) {
+  CablePopulationEndpoint out{};
   const Port* port = state.view().ports().find(layout.port_id);
   if (port == nullptr || port->owner_pole_id == kInvalidObjectId) {
     out.failure_reason = "endpoint has no pole-owned port";
@@ -217,9 +217,9 @@ bool has_duplicate_band_ids(const PoleTypeDefinition& pole_type) {
   return false;
 }
 
-EditResult<SpanMemberPopulationOutput> populate_span_members(const SpanMemberPopulationInput& input) {
-  EditResult<SpanMemberPopulationOutput> out{};
-  SpanMemberPopulationDiagnostic& diagnostic = out.value.diagnostic;
+EditResult<CablePopulationOutput> populate_cable_sections(const CablePopulationInput& input) {
+  EditResult<CablePopulationOutput> out{};
+  CablePopulationDiagnostic& diagnostic = out.value.diagnostic;
   diagnostic.logical_span_id = input.key.logical_span_id;
   diagnostic.edge_bundle_id = input.key.edge_bundle_id;
   diagnostic.rule_id = input.key.rule_id;
@@ -247,18 +247,18 @@ EditResult<SpanMemberPopulationOutput> populate_span_members(const SpanMemberPop
         continue;
       }
 
-      SpanMemberLayout member{};
-      member.key = input.key;
-      member.key.instance_index = static_cast<std::size_t>(index) + 1;
-      member.endpoint_a =
+      CableSectionLayout section{};
+      section.key = input.key;
+      section.key.instance_index = static_cast<std::size_t>(index) + 1;
+      section.endpoint_a =
           LocalPointToWorld(input.endpoint_a.frame, local_a) + input.endpoint_a.endpoint_offset_world;
-      member.endpoint_b =
+      section.endpoint_b =
           LocalPointToWorld(input.endpoint_b.frame, local_b) + input.endpoint_b.endpoint_offset_world;
-      member.endpoint_a_pole_type_id = input.endpoint_a.pole_type_id;
-      member.endpoint_b_pole_type_id = input.endpoint_b.pole_type_id;
-      member.endpoint_a_band_id = input.endpoint_a.band_id;
-      member.endpoint_b_band_id = input.endpoint_b.band_id;
-      out.value.members.push_back(member);
+      section.endpoint_a_pole_type_id = input.endpoint_a.pole_type_id;
+      section.endpoint_b_pole_type_id = input.endpoint_b.pole_type_id;
+      section.endpoint_a_band_id = input.endpoint_a.band_id;
+      section.endpoint_b_band_id = input.endpoint_b.band_id;
+      out.value.sections.push_back(section);
       occupied_a.push_back(local_a);
       occupied_b.push_back(local_b);
       accepted = true;
@@ -268,17 +268,17 @@ EditResult<SpanMemberPopulationOutput> populate_span_members(const SpanMemberPop
       ++diagnostic.omitted_count;
     }
   }
-  diagnostic.extra_count_accepted = static_cast<int>(out.value.members.size());
+  diagnostic.extra_count_accepted = static_cast<int>(out.value.sections.size());
   diagnostic.reason = diagnostic.omitted_count == 0 ? "ok" : "candidate conflict";
   out.ok = true;
   return out;
 }
 
-ExperimentalSpanMemberPopulation make_experimental_span_members(
+ExperimentalCablePopulation make_experimental_cable_population(
     const CoreState& state, const std::vector<SpanLayoutEntry>& layouts) {
-  ExperimentalSpanMemberPopulation output{};
-  const ExperimentalSpanMemberPopulationConfig& config =
-      state.view().experimental_span_member_population_config();
+  ExperimentalCablePopulation output{};
+  const ExperimentalCablePopulationConfig& config =
+      state.view().experimental_cable_population_config();
   if (!config.enabled) {
     return output;
   }
@@ -301,9 +301,9 @@ ExperimentalSpanMemberPopulation make_experimental_span_members(
     std::vector<Vec3d> occupied_a{};
     std::vector<Vec3d> occupied_b{};
     std::size_t rule_index = 0;
-    while (const ExperimentalSpanMemberRule* rule =
+    while (const ExperimentalCableInstanceRule* rule =
                rule_for(config, bundle->bundle_template_id, rule_index++)) {
-      SpanMemberPopulationInput input{};
+      CablePopulationInput input{};
       input.key.logical_span_id = layout.span_id;
       input.key.edge_bundle_id = binding->edge_bundle_id;
       input.key.rule_owner_id = static_cast<std::uint64_t>(bundle->bundle_template_id);
@@ -322,9 +322,9 @@ ExperimentalSpanMemberPopulation make_experimental_span_members(
         input.occupied_b_local.push_back(input.endpoint_b.original_local);
       }
 
-      EditResult<SpanMemberPopulationOutput> populated = populate_span_members(input);
+      EditResult<CablePopulationOutput> populated = populate_cable_sections(input);
       if (!populated.ok) {
-        SpanMemberPopulationDiagnostic diagnostic{};
+        CablePopulationDiagnostic diagnostic{};
         diagnostic.logical_span_id = layout.span_id;
         diagnostic.edge_bundle_id = binding->edge_bundle_id;
         diagnostic.rule_id = rule->rule_id;
@@ -333,12 +333,12 @@ ExperimentalSpanMemberPopulation make_experimental_span_members(
         continue;
       }
       output.diagnostics.push_back(populated.value.diagnostic);
-      output.members.insert(output.members.end(), populated.value.members.begin(), populated.value.members.end());
-      for (const SpanMemberLayout& member : populated.value.members) {
+      output.sections.insert(output.sections.end(), populated.value.sections.begin(), populated.value.sections.end());
+      for (const CableSectionLayout& section : populated.value.sections) {
         occupied_a.push_back(WorldPointToLocal(input.endpoint_a.frame,
-                                              member.endpoint_a - input.endpoint_a.endpoint_offset_world));
+                                              section.endpoint_a - input.endpoint_a.endpoint_offset_world));
         occupied_b.push_back(WorldPointToLocal(input.endpoint_b.frame,
-                                              member.endpoint_b - input.endpoint_b.endpoint_offset_world));
+                                              section.endpoint_b - input.endpoint_b.endpoint_offset_world));
       }
     }
   }

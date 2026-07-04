@@ -61,6 +61,36 @@ Vec3d tilt_euler_xy_from_local_polar_deg(double tilt_deg, double local_azimuth_d
   return {tilt_x_rad * (180.0 / kPi), tilt_y_rad * (180.0 / kPi), 0.0};
 }
 
+struct PoleTiltResolution {
+  double magnitude_deg = 0.0;
+  Vec3d rotation_euler_xy_deg{};
+};
+
+PoleTiltResolution resolve_pole_tilt_from_pull(ObjectId pole_id, double max_tilt_deg, double layout_yaw_deg,
+                                               const Vec3d& pull_world_dir, std::size_t incident_span_count) {
+  const double clamped_max_tilt_deg = std::clamp(max_tilt_deg, 0.0, 45.0);
+  const double random_tilt_factor = deterministic_pole_tilt_factor(pole_id);
+  const Vec3d random_world_dir = unit_xy_from_azimuth_deg(deterministic_pole_tilt_azimuth_deg(pole_id));
+  Vec3d resolved_pull = pull_world_dir;
+  resolved_pull.z = 0.0;
+  Vec3d tilt_world_dir = random_world_dir;
+  double pull_strength = 0.0;
+  if (incident_span_count > 0) {
+    pull_strength = std::clamp(Length(resolved_pull) / static_cast<double>(incident_span_count), 0.0, 1.0);
+  }
+  if (NormalizeXY(&resolved_pull)) {
+    const double pull_bias = 0.60 + 0.25 * pull_strength;
+    tilt_world_dir = ScaleVec(resolved_pull, pull_bias) + ScaleVec(random_world_dir, 1.0 - pull_bias);
+    if (!NormalizeXY(&tilt_world_dir)) {
+      tilt_world_dir = resolved_pull;
+    }
+  }
+  const double applied_tilt_scale = (incident_span_count > 0) ? (0.20 + 0.80 * pull_strength) : 1.0;
+  const double applied_tilt_deg = clamped_max_tilt_deg * random_tilt_factor * applied_tilt_scale;
+  const double local_azimuth_deg = NormalizeYawDeg(YawDegFromXY(tilt_world_dir) - layout_yaw_deg);
+  return {applied_tilt_deg, tilt_euler_xy_from_local_polar_deg(applied_tilt_deg, local_azimuth_deg)};
+}
+
 ConnectionCategory port_layer_to_category(PortLayer layer) {
   switch (layer) {
   case PortLayer::kHighVoltage:
@@ -493,6 +523,36 @@ EditResult<ObjectId> CoreState::MovePole(ObjectId pole_id, const Transformd& new
   return result;
 }
 
+EditResult<bool> CoreState::apply_pole_tilt_from_pull(ObjectId pole_id, double max_tilt_deg,
+                                                      const Vec3d& pull_world_dir,
+                                                      std::size_t incident_span_count, ChangeSet* change_set) {
+  EditResult<bool> result{};
+  Pole* pole = authoritative_.edit_state.poles.find(pole_id);
+  if (pole == nullptr) {
+    result.error = "pole not found";
+    return result;
+  }
+  const PoleTiltResolution resolved =
+      resolve_pole_tilt_from_pull(pole_id, max_tilt_deg, effective_pole_layout_yaw_deg(*pole), pull_world_dir,
+                                  incident_span_count);
+  if (std::abs(pole->tilt_magnitude_deg - resolved.magnitude_deg) <= 1e-9 &&
+      std::abs(pole->world_transform.rotation_euler_deg.x - resolved.rotation_euler_xy_deg.x) <= 1e-9 &&
+      std::abs(pole->world_transform.rotation_euler_deg.y - resolved.rotation_euler_xy_deg.y) <= 1e-9) {
+    result.ok = true;
+    result.value = false;
+    return result;
+  }
+  pole->tilt_magnitude_deg = resolved.magnitude_deg;
+  pole->world_transform.rotation_euler_deg.x = resolved.rotation_euler_xy_deg.x;
+  pole->world_transform.rotation_euler_deg.y = resolved.rotation_euler_xy_deg.y;
+  if (change_set != nullptr) {
+    add_unique_id(change_set->updated_ids, pole_id);
+  }
+  result.ok = true;
+  result.value = true;
+  return result;
+}
+
 EditResult<bool> CoreState::ApplyPoleTilt(const std::vector<ObjectId>& pole_ids, double max_tilt_deg) {
   EditResult<bool> result;
   std::vector<ObjectId> targets = pole_ids;
@@ -502,7 +562,6 @@ EditResult<bool> CoreState::ApplyPoleTilt(const std::vector<ObjectId>& pole_ids,
       targets.push_back(pole.id);
     }
   }
-  const double clamped_max_tilt_deg = std::clamp(max_tilt_deg, 0.0, 45.0);
   bool changed = false;
   std::vector<ObjectId> changed_poles{};
   for (ObjectId pole_id : targets) {
@@ -513,12 +572,11 @@ EditResult<bool> CoreState::ApplyPoleTilt(const std::vector<ObjectId>& pole_ids,
       return result;
     }
     const Pole old_pole = *pole;
-    const double random_tilt_factor = deterministic_pole_tilt_factor(pole_id);
-    const Vec3d random_world_dir = unit_xy_from_azimuth_deg(deterministic_pole_tilt_azimuth_deg(pole_id));
     Vec3d pull_world_dir{};
     std::unordered_set<ObjectId> seen_spans{};
     std::size_t incident_span_count = 0;
-    if (const auto ports_it = runtime_.relation_index.ports_by_pole.find(pole_id); ports_it != runtime_.relation_index.ports_by_pole.end()) {
+    if (const auto ports_it = runtime_.relation_index.ports_by_pole.find(pole_id);
+        ports_it != runtime_.relation_index.ports_by_pole.end()) {
       for (ObjectId port_id : ports_it->second) {
         const auto spans_it = runtime_.connection_index.spans_by_port.find(port_id);
         if (spans_it == runtime_.connection_index.spans_by_port.end()) {
@@ -532,8 +590,8 @@ EditResult<bool> CoreState::ApplyPoleTilt(const std::vector<ObjectId>& pole_ids,
           if (span == nullptr) {
             continue;
           }
-          const ObjectId other_port_id =
-              (span->port_a_id == port_id) ? span->port_b_id : (span->port_b_id == port_id ? span->port_a_id : kInvalidObjectId);
+          const ObjectId other_port_id = (span->port_a_id == port_id) ? span->port_b_id
+                                      : (span->port_b_id == port_id ? span->port_a_id : kInvalidObjectId);
           if (other_port_id == kInvalidObjectId) {
             continue;
           }
@@ -551,35 +609,18 @@ EditResult<bool> CoreState::ApplyPoleTilt(const std::vector<ObjectId>& pole_ids,
         }
       }
     }
-    Vec3d tilt_world_dir = random_world_dir;
-    double pull_strength = 0.0;
-    if (incident_span_count > 0) {
-      pull_strength = std::clamp(Length(pull_world_dir) / static_cast<double>(incident_span_count), 0.0, 1.0);
+    const auto applied = apply_pole_tilt_from_pull(pole_id, max_tilt_deg, pull_world_dir, incident_span_count,
+                                                   &result.change_set);
+    if (!applied.ok) {
+      result.error = applied.error;
+      result.ok = false;
+      return result;
     }
-    if (NormalizeXY(&pull_world_dir)) {
-      const double pull_bias = 0.60 + 0.25 * pull_strength;
-      tilt_world_dir =
-          ScaleVec(pull_world_dir, pull_bias) + ScaleVec(random_world_dir, 1.0 - pull_bias);
-      if (!NormalizeXY(&tilt_world_dir)) {
-        tilt_world_dir = pull_world_dir;
-      }
-    }
-    const double applied_tilt_scale =
-        (incident_span_count > 0) ? (0.20 + 0.80 * pull_strength) : 1.0;
-    const double applied_tilt_deg = clamped_max_tilt_deg * random_tilt_factor * applied_tilt_scale;
-    const double layout_yaw_deg = effective_pole_layout_yaw_deg(*pole);
-    const double local_azimuth_deg = NormalizeYawDeg(YawDegFromXY(tilt_world_dir) - layout_yaw_deg);
-    const Vec3d tilt_euler_deg = tilt_euler_xy_from_local_polar_deg(applied_tilt_deg, local_azimuth_deg);
-    if (std::abs(pole->tilt_magnitude_deg - applied_tilt_deg) <= 1e-9 &&
-        std::abs(pole->world_transform.rotation_euler_deg.x - tilt_euler_deg.x) <= 1e-9 &&
-        std::abs(pole->world_transform.rotation_euler_deg.y - tilt_euler_deg.y) <= 1e-9) {
+    if (!applied.value) {
       continue;
     }
-    pole->tilt_magnitude_deg = applied_tilt_deg;
-    pole->world_transform.rotation_euler_deg.x = tilt_euler_deg.x;
-    pole->world_transform.rotation_euler_deg.y = tilt_euler_deg.y;
-    finalize_pole_transform_update(pole->id, old_pole, &result.change_set);
-    add_unique_id(changed_poles, pole->id);
+    finalize_pole_transform_update(pole_id, old_pole, &result.change_set);
+    add_unique_id(changed_poles, pole_id);
     changed = true;
   }
   UpdatePlan combined_plan{};

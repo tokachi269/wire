@@ -121,6 +121,38 @@ void add(ChangeSet& dst, const ChangeSet& src) {
   append(dst.deleted_ids, src.deleted_ids);
 }
 
+struct pole_pull {
+  Vec3d dir{};
+  std::size_t incident_count = 0;
+};
+
+pole_pull pull_for_node(const graph& made, std::size_t node_index) {
+  pole_pull out{};
+  if (node_index >= made.nodes.size()) {
+    return out;
+  }
+  const Vec3d origin = made.nodes[node_index].pos;
+  for (const link& edge : made.links) {
+    std::size_t other = bad;
+    if (edge.a == node_index) {
+      other = edge.b;
+    } else if (edge.b == node_index) {
+      other = edge.a;
+    }
+    if (other == bad || other >= made.nodes.size()) {
+      continue;
+    }
+    Vec3d dir = made.nodes[other].pos - origin;
+    dir.z = 0.0;
+    if (!NormalizeXY(&dir)) {
+      continue;
+    }
+    out.dir = out.dir + dir;
+    ++out.incident_count;
+  }
+  return out;
+}
+
 ObjectId saved_node_id_for(const CoreState& state, ObjectId node_or_pole_id) {
   if (node_or_pole_id == kInvalidObjectId) {
     return kInvalidObjectId;
@@ -1847,6 +1879,15 @@ EditResult<bool> pipeline::emit_poles(topo* made, ChangeSet* changes) {
       return out;
     }
     add(*changes, pole.change_set);
+    if (spec_.pole_placement.enable_tilt && spec_.pole_placement.max_tilt_deg > 0.0) {
+      const pole_pull pull = pull_for_node(g_, i);
+      EditResult<bool> tilted = state_.apply_pole_tilt_from_pull(pole.value, spec_.pole_placement.max_tilt_deg,
+                                                                  pull.dir, pull.incident_count, changes);
+      if (!tilted.ok) {
+        out.error = tilted.error;
+        return out;
+      }
+    }
     EditResult<ObjectId> typed = state_.ApplyPoleType(pole.value, pole_type);
     if (!typed.ok) {
       out.error = typed.error;
@@ -1992,9 +2033,16 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
           }
           p = *attachment;
         } else {
-          const double height = ownerless ? 0.0 : band.height_center_m;
-          p = g_.nodes[r.node].pos +
-              Vec3d{r.axis.x * offset + shift.x, r.axis.y * offset + shift.y, height};
+          const Pole* pole = state_.edit_state_access().poles.find(tr.pole);
+          if (pole == nullptr) {
+            out.error = "backbone topology: active row pole missing";
+            return out;
+          }
+          const Vec3d row_axis = HorizontalNormalizedOr(r.axis);
+          const Vec3d forward_axis = ScaleVec(ComputeLateralAxis(row_axis), -1.0);
+          const double layout_yaw_deg = YawDegFromXY(forward_axis);
+          const Vec3d local{Dot(shift, forward_axis), offset + Dot(shift, row_axis), band.height_center_m};
+          p = LocalPointToWorld(BuildPoleFrame(pole->world_transform, layout_yaw_deg), local);
         }
         const SavedBackboneRowKey row_key = key_for(ps, tr, node_id_by_local, edge_by_link);
         EditResult<ObjectId> resolved =

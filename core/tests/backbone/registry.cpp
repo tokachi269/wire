@@ -780,6 +780,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C641_backbone_pole_tilt_refreshes_visual_curve_parts",
                          "backbone pole tilt refreshes visual curve parts from moved endpoints", "Boundary", false,
                          C641_backbone_pole_tilt_refreshes_visual_curve_parts);
+  test_registry::AddTest(tests, "C659_backbone_draw_time_tilt_materializes_ports_before_spans",
+                         "backbone draw-time tilt materializes ports and spans from tilted support frame",
+                         "Boundary", false, C659_backbone_draw_time_tilt_materializes_ports_before_spans);
   test_registry::AddTest(tests, "C642_backbone_edge_body_uses_formal_sag_curve",
                          "backbone edge body shares formal sag samples and non-horizontal support tangents",
                          "Boundary", false, C642_backbone_edge_body_uses_formal_sag_curve);
@@ -801,11 +804,11 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C655_backbone_node_patch_grouping_uses_band_identity",
                          "backbone node patch grouping includes local band identity", "Boundary", false,
                          C655_backbone_node_patch_grouping_uses_band_identity);
-  test_registry::AddTest(tests, "C656_backbone_node_patch_does_not_mix_base_and_extra_members",
-                         "backbone node patch does not connect base and populated span members", "Boundary", false,
-                         C656_backbone_node_patch_does_not_mix_base_and_extra_members);
+  test_registry::AddTest(tests, "C656_backbone_node_patch_does_not_mix_base_and_extra_sections",
+                         "backbone node patch does not connect base and populated span sections", "Boundary", false,
+                         C656_backbone_node_patch_does_not_mix_base_and_extra_sections);
   test_registry::AddTest(tests, "C657_backbone_node_patch_does_not_mix_extra_instance_indices",
-                         "backbone node patch does not connect different populated member instances", "Boundary",
+                         "backbone node patch does not connect different populated section instances", "Boundary",
                          false, C657_backbone_node_patch_does_not_mix_extra_instance_indices);
   test_registry::AddTest(tests, "C648_experimental_population_same_seed_is_stable",
                          "experimental physical line population is stable for the same explicit seed", "Invariant",

@@ -49,10 +49,10 @@ wire::core::EditResult<bool> UpdatePoleTypeDefinition(CoreState& state,
 wire::core::EditResult<bool> UpdateVisualSettings(CoreState& state, const wire::core::VisualSettings& settings,
                                                   bool mark_all_spans_dirty);
 wire::core::EditResult<bool>
-UpdateExperimentalSpanMemberPopulationConfig(
-    CoreState& state, const wire::core::ExperimentalSpanMemberPopulationConfig& config);
-[[nodiscard]] const wire::core::ExperimentalSpanMemberPopulationConfig&
-ExperimentalSpanMemberPopulationConfig(const CoreState& state);
+UpdateExperimentalCablePopulationConfig(
+    CoreState& state, const wire::core::ExperimentalCablePopulationConfig& config);
+[[nodiscard]] const wire::core::ExperimentalCablePopulationConfig&
+ExperimentalCablePopulationConfig(const CoreState& state);
 
 [[nodiscard]] wire::core::ValidationResult ValidateFast(const CoreState& state);
 

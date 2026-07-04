@@ -84,8 +84,8 @@ public:
   EditResult<bool> UpdateLayoutSettings(const LayoutSettings& settings);
   EditResult<bool> UpdateVisualSettings(const VisualSettings& settings, bool mark_all_spans_dirty = true);
   EditResult<bool> UpdateVariationSettings(const VariationSettings& settings, bool mark_all_spans_dirty = true);
-  EditResult<bool> UpdateExperimentalSpanMemberPopulationConfig(
-      const ExperimentalSpanMemberPopulationConfig& config);
+  EditResult<bool> UpdateExperimentalCablePopulationConfig(
+      const ExperimentalCablePopulationConfig& config);
   EditResult<bool> UpdateContextProfile(const ContextProfile& profile, bool mark_all_spans_dirty = true);
   EditResult<bool> UpdateCableTemplate(const CableTemplate& cable_template);
   EditResult<bool> UpdateCableTemplate(const CableTemplate& cable_template,
@@ -209,6 +209,8 @@ private:
   static void apply_port_position_mode(Port& port, PortPositionMode mode, PortPlacementSourceKind source_hint);
   [[nodiscard]] double pole_radius_at_height_m(const Pole& pole, double local_z_m) const;
   [[nodiscard]] Vec3d apply_pole_clearance_to_local(const Pole& pole, const Vec3d& local, SlotSide side) const;
+  EditResult<bool> apply_pole_tilt_from_pull(ObjectId pole_id, double max_tilt_deg, const Vec3d& pull_world_dir,
+                                             std::size_t incident_span_count, ChangeSet* change_set);
   void finalize_pole_transform_update(ObjectId pole_id, const Pole& old_pole, ChangeSet* change_set);
   std::string next_display_id(std::string_view prefix);
   void refresh_owned_endpoints_from_pole(ObjectId pole_id, ChangeSet* change_set, const Pole* previous_pole = nullptr,

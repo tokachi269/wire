@@ -111,11 +111,11 @@ enum class VisualCurveSagMethod : std::uint8_t {
   kParabolic = 1,
 };
 
-using SpanMemberRuleId = std::uint64_t;
+using CableInstanceRuleId = std::uint64_t;
 using PlacementReserveId = std::uint64_t;
 
-struct ExperimentalSpanMemberRule {
-  SpanMemberRuleId rule_id = 0;
+struct ExperimentalCableInstanceRule {
+  CableInstanceRuleId rule_id = 0;
   BundleKind bundle_template_id = BundleKind::kCommunication;
   int priority = 0;
   int min_extra_count = 0;
@@ -138,25 +138,25 @@ struct ExperimentalPlacementReserve {
   double height_max_m = 0.0;
 };
 
-struct ExperimentalSpanMemberPopulationConfig {
+struct ExperimentalCablePopulationConfig {
   bool enabled = false;
   std::uint64_t explicit_seed = 1;
-  std::vector<ExperimentalSpanMemberRule> rules{};
+  std::vector<ExperimentalCableInstanceRule> rules{};
   std::vector<ExperimentalPlacementReserve> reserves{};
 };
 
-struct SpanMemberKey {
+struct CableInstanceKey {
   ObjectId logical_span_id = kInvalidObjectId;
   ObjectId edge_bundle_id = kInvalidObjectId;
   std::uint64_t rule_owner_id = 0;
-  SpanMemberRuleId rule_id = 0;
+  CableInstanceRuleId rule_id = 0;
   std::size_t instance_index = 0;
 
   [[nodiscard]] bool is_base() const { return rule_owner_id == 0 && rule_id == 0 && instance_index == 0; }
 };
 
-struct SpanMemberLayout {
-  SpanMemberKey key{};
+struct CableSectionLayout {
+  CableInstanceKey key{};
   Vec3d endpoint_a{};
   Vec3d endpoint_b{};
   PoleTypeId endpoint_a_pole_type_id = kInvalidPoleTypeId;
@@ -165,10 +165,10 @@ struct SpanMemberLayout {
   int endpoint_b_band_id = 0;
 };
 
-struct SpanMemberPopulationDiagnostic {
+struct CablePopulationDiagnostic {
   ObjectId logical_span_id = kInvalidObjectId;
   ObjectId edge_bundle_id = kInvalidObjectId;
-  SpanMemberRuleId rule_id = 0;
+  CableInstanceRuleId rule_id = 0;
   int extra_count_requested = 0;
   int extra_count_accepted = 0;
   int omitted_count = 0;
@@ -196,8 +196,8 @@ struct VisualCurvePart {
   std::size_t section_count = 1;
   VisualCurveSagMethod sag_method = VisualCurveSagMethod::kNone;
   double sag_m = 0.0;
-  bool has_span_member_key = false;
-  SpanMemberKey span_member_key{};
+  bool has_cable_instance_key = false;
+  CableInstanceKey cable_instance_key{};
   PoleTypeId endpoint_a_pole_type_id = kInvalidPoleTypeId;
   PoleTypeId endpoint_b_pole_type_id = kInvalidPoleTypeId;
   int endpoint_a_band_id = 0;
@@ -213,7 +213,7 @@ struct VisualCurvePart {
 
 struct VisualCurvePartCache {
   std::vector<VisualCurvePart> parts{};
-  std::vector<SpanMemberPopulationDiagnostic> experimental_population_diagnostics{};
+  std::vector<CablePopulationDiagnostic> experimental_population_diagnostics{};
 };
 
 struct VisualSettings {
@@ -233,7 +233,7 @@ struct CacheState {
   BoundsCache bounds_cache{};
   VisualSettings visual_settings{};
   VariationSettings variation_settings{};
-  ExperimentalSpanMemberPopulationConfig experimental_span_member_population{};
+  ExperimentalCablePopulationConfig experimental_cable_population{};
   SpanLayoutCache span_layout_cache{};
   VisualCache visual_cache{};
   RenderCache render_cache{};

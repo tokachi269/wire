@@ -18,11 +18,11 @@ wire::core::PoleFrame identity_frame(const wire::core::Vec3d& origin) {
   return frame;
 }
 
-wire::core::generation::backbone::SpanMemberPopulationInput population_input(
+wire::core::generation::backbone::CablePopulationInput population_input(
     wire::core::ObjectId span_id = 101, std::uint64_t seed = 77) {
   using namespace wire::core;
   using namespace wire::core::generation::backbone;
-  SpanMemberPopulationInput input{};
+  CablePopulationInput input{};
   input.key.logical_span_id = span_id;
   input.key.edge_bundle_id = 202;
   input.key.rule_owner_id = static_cast<std::uint64_t>(BundleKind::kCommunication);
@@ -54,8 +54,8 @@ wire::core::generation::backbone::SpanMemberPopulationInput population_input(
   return input;
 }
 
-bool same_instances(const std::vector<wire::core::SpanMemberLayout>& lhs,
-                    const std::vector<wire::core::SpanMemberLayout>& rhs) {
+bool same_instances(const std::vector<wire::core::CableSectionLayout>& lhs,
+                    const std::vector<wire::core::CableSectionLayout>& rhs) {
   if (lhs.size() != rhs.size()) {
     return false;
   }
@@ -72,11 +72,11 @@ bool same_instances(const std::vector<wire::core::SpanMemberLayout>& lhs,
   return true;
 }
 
-wire::core::ExperimentalSpanMemberPopulationConfig lv_population_config() {
-  wire::core::ExperimentalSpanMemberPopulationConfig config{};
+wire::core::ExperimentalCablePopulationConfig lv_population_config() {
+  wire::core::ExperimentalCablePopulationConfig config{};
   config.enabled = true;
   config.explicit_seed = 1234;
-  wire::core::ExperimentalSpanMemberRule rule{};
+  wire::core::ExperimentalCableInstanceRule rule{};
   rule.rule_id = 1;
   rule.bundle_template_id = wire::core::BundleKind::kLowVoltage;
   rule.priority = 10;
@@ -96,26 +96,26 @@ wire::core::ExperimentalSpanMemberPopulationConfig lv_population_config() {
 
 bool C648_experimental_population_same_seed_is_stable() {
   const auto input = population_input();
-  const auto first = wire::core::generation::backbone::populate_span_members(input);
-  const auto second = wire::core::generation::backbone::populate_span_members(input);
+  const auto first = wire::core::generation::backbone::populate_cable_sections(input);
+  const auto second = wire::core::generation::backbone::populate_cable_sections(input);
   if (!first.ok || !second.ok ||
       first.value.diagnostic.extra_count_requested != second.value.diagnostic.extra_count_requested ||
-      !same_instances(first.value.members, second.value.members)) {
+      !same_instances(first.value.sections, second.value.sections)) {
     return false;
   }
-  return std::all_of(first.value.members.begin(), first.value.members.end(), [](const auto& member) {
-    return std::abs(member.endpoint_a.y) <= 1e-12 && std::abs(member.endpoint_b.y) <= 1e-12 &&
-           std::abs(member.endpoint_a.z - 6.0) > 1e-12 && std::abs(member.endpoint_b.z - 6.0) > 1e-12;
+  return std::all_of(first.value.sections.begin(), first.value.sections.end(), [](const auto& section) {
+    return std::abs(section.endpoint_a.y) <= 1e-12 && std::abs(section.endpoint_b.y) <= 1e-12 &&
+           std::abs(section.endpoint_a.z - 6.0) > 1e-12 && std::abs(section.endpoint_b.z - 6.0) > 1e-12;
   });
 }
 
 bool C649_experimental_population_span_identity_changes_placement() {
-  const auto first = wire::core::generation::backbone::populate_span_members(population_input(101));
-  const auto second = wire::core::generation::backbone::populate_span_members(population_input(102));
-  if (!first.ok || !second.ok || first.value.members.empty() || second.value.members.empty()) {
+  const auto first = wire::core::generation::backbone::populate_cable_sections(population_input(101));
+  const auto second = wire::core::generation::backbone::populate_cable_sections(population_input(102));
+  if (!first.ok || !second.ok || first.value.sections.empty() || second.value.sections.empty()) {
     return false;
   }
-  return dist2(first.value.members.front().endpoint_a, second.value.members.front().endpoint_a) > 1e-12;
+  return dist2(first.value.sections.front().endpoint_a, second.value.sections.front().endpoint_a) > 1e-12;
 }
 
 bool C650_experimental_population_reserve_blocks_candidates() {
@@ -129,8 +129,8 @@ bool C650_experimental_population_reserve_blocks_candidates() {
   reserve.height_min_m = 5.0;
   reserve.height_max_m = 7.0;
   input.reserves.push_back(reserve);
-  const auto result = wire::core::generation::backbone::populate_span_members(input);
-  return result.ok && result.value.members.empty() && result.value.diagnostic.extra_count_requested > 0 &&
+  const auto result = wire::core::generation::backbone::populate_cable_sections(input);
+  return result.ok && result.value.sections.empty() && result.value.diagnostic.extra_count_requested > 0 &&
          result.value.diagnostic.omitted_count == result.value.diagnostic.extra_count_requested;
 }
 
@@ -147,16 +147,16 @@ bool C651_experimental_population_spacing_rejects_overlap() {
   input.endpoint_b.lateral_max_m = 0.1;
   input.endpoint_b.height_min_m = 5.9;
   input.endpoint_b.height_max_m = 6.1;
-  const auto result = wire::core::generation::backbone::populate_span_members(input);
-  return result.ok && result.value.members.empty() && result.value.diagnostic.omitted_count == 1;
+  const auto result = wire::core::generation::backbone::populate_cable_sections(input);
+  return result.ok && result.value.sections.empty() && result.value.diagnostic.omitted_count == 1;
 }
 
 bool C652_experimental_population_endpoint_failure_omits_pair() {
   auto input = population_input();
   input.endpoint_b.valid = false;
   input.endpoint_b.failure_reason = "test endpoint unavailable";
-  const auto result = wire::core::generation::backbone::populate_span_members(input);
-  return result.ok && result.value.members.empty() &&
+  const auto result = wire::core::generation::backbone::populate_cable_sections(input);
+  return result.ok && result.value.sections.empty() &&
          result.value.diagnostic.omitted_count == result.value.diagnostic.extra_count_requested &&
          result.value.diagnostic.reason == "test endpoint unavailable";
 }
@@ -176,7 +176,7 @@ bool C653_experimental_population_rejects_duplicate_band_identity() {
     return false;
   }
   const auto updated = state.UpdatePoleTypeDefinition(duplicate_type);
-  const auto configured = state.UpdateExperimentalSpanMemberPopulationConfig(lv_population_config());
+  const auto configured = state.UpdateExperimentalCablePopulationConfig(lv_population_config());
   wire::core::BackboneSpec request = line_req(state);
   request.pole_type_id = duplicate_type.id;
   const auto generated = state.GenerateFromBackboneSpec(request);
@@ -187,12 +187,12 @@ bool C653_experimental_population_rejects_duplicate_band_identity() {
       state.view().visual_curve_parts().parts.begin(), state.view().visual_curve_parts().parts.end(),
       [](const wire::core::VisualCurvePart& part) {
         return part.kind == wire::core::VisualCurvePartKind::kEdgeBody &&
-               part.has_span_member_key && !part.span_member_key.is_base();
+               part.has_cable_instance_key && !part.cable_instance_key.is_base();
       });
   const bool diagnosed = std::any_of(
       state.view().visual_curve_parts().experimental_population_diagnostics.begin(),
       state.view().visual_curve_parts().experimental_population_diagnostics.end(),
-      [](const wire::core::SpanMemberPopulationDiagnostic& diagnostic) {
+      [](const wire::core::CablePopulationDiagnostic& diagnostic) {
         return diagnostic.reason == "duplicate band_id in endpoint pole type" &&
                diagnostic.omitted_count == diagnostic.extra_count_requested;
       });
@@ -202,7 +202,7 @@ bool C653_experimental_population_rejects_duplicate_band_identity() {
 bool C654_experimental_population_does_not_mutate_logical_topology() {
   wire::core::CoreState control;
   wire::core::CoreState experimental;
-  const auto configured = experimental.UpdateExperimentalSpanMemberPopulationConfig(lv_population_config());
+  const auto configured = experimental.UpdateExperimentalCablePopulationConfig(lv_population_config());
   if (!configured.ok) {
     return false;
   }
@@ -217,7 +217,7 @@ bool C654_experimental_population_does_not_mutate_logical_topology() {
       control.view().visual_curve_parts().parts.begin(), control.view().visual_curve_parts().parts.end(),
       [](const wire::core::VisualCurvePart& part) {
         return part.kind == wire::core::VisualCurvePartKind::kEdgeBody &&
-               part.has_span_member_key && !part.span_member_key.is_base();
+               part.has_cable_instance_key && !part.cable_instance_key.is_base();
       });
   const bool topology_equal =
       control_result.value.generated_pole_ids == experimental_result.value.generated_pole_ids &&
@@ -254,7 +254,7 @@ bool C654_experimental_population_does_not_mutate_logical_topology() {
       experimental.view().visual_curve_parts().parts.begin(), experimental.view().visual_curve_parts().parts.end(),
       [](const wire::core::VisualCurvePart& part) {
         return part.kind == wire::core::VisualCurvePartKind::kEdgeBody &&
-               part.has_span_member_key && !part.span_member_key.is_base();
+               part.has_cable_instance_key && !part.cable_instance_key.is_base();
       });
   return !control_has_extra_visual && graph_identity_equal && has_extra_visual;
 }

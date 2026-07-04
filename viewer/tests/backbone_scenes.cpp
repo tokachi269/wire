@@ -461,10 +461,10 @@ bool test_span_layout_debug_panel_reads_neutral_outputs() {
 
 bool test_experimental_population_produces_viewer_curve_parts() {
   wire::core::CoreState state;
-  wire::core::ExperimentalSpanMemberPopulationConfig config{};
+  wire::core::ExperimentalCablePopulationConfig config{};
   config.enabled = true;
   config.explicit_seed = 42;
-  wire::core::ExperimentalSpanMemberRule rule{};
+  wire::core::ExperimentalCableInstanceRule rule{};
   rule.rule_id = 1;
   rule.bundle_template_id = wire::core::BundleKind::kCommunication;
   rule.min_extra_count = 3;
@@ -476,7 +476,7 @@ bool test_experimental_population_produces_viewer_curve_parts() {
   rule.height_max_m = 20.0;
   rule.randomness = 0.5;
   config.rules.push_back(rule);
-  const auto configured = state.UpdateExperimentalSpanMemberPopulationConfig(config);
+  const auto configured = state.UpdateExperimentalCablePopulationConfig(config);
   const auto generated = state.GenerateFromBackboneSpec(line_req(state, wire::core::BundleKind::kCommunication));
   if (!configured.ok || !generated.ok || generated.value.generated_span_ids.empty()) {
     return false;
@@ -498,7 +498,7 @@ bool test_experimental_population_produces_viewer_curve_parts() {
   }
   for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
     if (part.kind != wire::core::VisualCurvePartKind::kEdgeBody ||
-        !part.has_span_member_key || part.span_member_key.is_base()) {
+        !part.has_cable_instance_key || part.cable_instance_key.is_base()) {
       continue;
     }
     if (part.source_span_id != span_id || part.samples.size() < 2 ||

@@ -19,7 +19,7 @@ constexpr double kPatchMetersPerSegment = 0.08;
 constexpr double kPatchRadiansPerSegment = 0.17453292519943295;
 
 struct curve_endpoint_ref {
-  SpanMemberKey member_key{};
+  CableInstanceKey cable_instance_key{};
   ObjectId node_id = kInvalidObjectId;
   ObjectId edge_id = kInvalidObjectId;
   ObjectId edge_bundle_id = kInvalidObjectId;
@@ -42,12 +42,12 @@ struct curve_patch_key {
   PoleTypeId pole_type_id = kInvalidPoleTypeId;
   int band_id = 0;
   std::uint64_t rule_owner_id = 0;
-  SpanMemberRuleId rule_id = 0;
+  CableInstanceRuleId rule_id = 0;
   std::size_t instance_index = 0;
 };
 
 struct curve_boundary {
-  SpanMemberKey member_key{};
+  CableInstanceKey cable_instance_key{};
   bool is_start = true;
   Vec3d attachment_point{};
   double horizontal_length_m = 0.0;
@@ -62,13 +62,13 @@ struct curve_patch_spec {
   Vec3d attachment_point{};
 };
 
-struct visual_span_member {
-  SpanMemberLayout layout{};
+struct visual_cable_section {
+  CableSectionLayout layout{};
   ObjectId start_node_id = kInvalidObjectId;
   ObjectId end_node_id = kInvalidObjectId;
 };
 
-bool same_member(const SpanMemberKey& a, const SpanMemberKey& b) {
+bool same_cable_instance(const CableInstanceKey& a, const CableInstanceKey& b) {
   return a.logical_span_id == b.logical_span_id && a.edge_bundle_id == b.edge_bundle_id &&
          a.rule_owner_id == b.rule_owner_id && a.rule_id == b.rule_id &&
          a.instance_index == b.instance_index;
@@ -124,10 +124,10 @@ const SavedBackboneSpanBinding* span_binding_for(const CoreState& state, ObjectI
   return &graph.span_bindings[index];
 }
 
-bool boundary_for(const std::vector<curve_boundary>& boundaries, const SpanMemberKey& member_key, bool is_start,
+bool boundary_for(const std::vector<curve_boundary>& boundaries, const CableInstanceKey& cable_instance_key, bool is_start,
                   curve_boundary* out) {
   for (const curve_boundary& boundary : boundaries) {
-    if (same_member(boundary.member_key, member_key) && boundary.is_start == is_start) {
+    if (same_cable_instance(boundary.cable_instance_key, cable_instance_key) && boundary.is_start == is_start) {
       if (out != nullptr) {
         *out = boundary;
       }
@@ -138,12 +138,12 @@ bool boundary_for(const std::vector<curve_boundary>& boundaries, const SpanMembe
 }
 
 curve_boundary* mutable_boundary_for(std::vector<curve_boundary>* boundaries,
-                                     const SpanMemberKey& member_key, bool is_start) {
+                                     const CableInstanceKey& cable_instance_key, bool is_start) {
   if (boundaries == nullptr) {
     return nullptr;
   }
   for (curve_boundary& boundary : *boundaries) {
-    if (same_member(boundary.member_key, member_key) && boundary.is_start == is_start) {
+    if (same_cable_instance(boundary.cable_instance_key, cable_instance_key) && boundary.is_start == is_start) {
       return &boundary;
     }
   }
@@ -312,44 +312,44 @@ layout merged_visual_curve_layouts(const CoreState& state, const layout& made) {
 VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layout& made) {
   const layout placed = merged_visual_curve_layouts(state, made);
   VisualCurvePartCache out{};
-  std::vector<visual_span_member> members{};
-  members.reserve(placed.entries.size());
+  std::vector<visual_cable_section> sections{};
+  sections.reserve(placed.entries.size());
   for (const SpanLayoutEntry& entry : placed.entries) {
     const SavedBackboneSpanBinding* binding = span_binding_for(state, entry.span_id);
     if (binding == nullptr) {
       continue;
     }
-    visual_span_member member{};
-    member.layout.key.logical_span_id = entry.span_id;
-    member.layout.key.edge_bundle_id = binding->edge_bundle_id;
-    member.layout.endpoint_a = entry.start.endpoint_world;
-    member.layout.endpoint_b = entry.end.endpoint_world;
-    member.layout.endpoint_a_pole_type_id = pole_type_for_port(state, entry.start.port_id);
-    member.layout.endpoint_b_pole_type_id = pole_type_for_port(state, entry.end.port_id);
-    member.layout.endpoint_a_band_id = band_id_for_port(state, entry.start.port_id);
-    member.layout.endpoint_b_band_id = band_id_for_port(state, entry.end.port_id);
-    member.start_node_id = entry.start.endpoint_node_id;
-    member.end_node_id = entry.end.endpoint_node_id;
-    members.push_back(member);
+    visual_cable_section section{};
+    section.layout.key.logical_span_id = entry.span_id;
+    section.layout.key.edge_bundle_id = binding->edge_bundle_id;
+    section.layout.endpoint_a = entry.start.endpoint_world;
+    section.layout.endpoint_b = entry.end.endpoint_world;
+    section.layout.endpoint_a_pole_type_id = pole_type_for_port(state, entry.start.port_id);
+    section.layout.endpoint_b_pole_type_id = pole_type_for_port(state, entry.end.port_id);
+    section.layout.endpoint_a_band_id = band_id_for_port(state, entry.start.port_id);
+    section.layout.endpoint_b_band_id = band_id_for_port(state, entry.end.port_id);
+    section.start_node_id = entry.start.endpoint_node_id;
+    section.end_node_id = entry.end.endpoint_node_id;
+    sections.push_back(section);
   }
-  ExperimentalSpanMemberPopulation population = make_experimental_span_members(state, placed.entries);
+  ExperimentalCablePopulation population = make_experimental_cable_population(state, placed.entries);
   out.experimental_population_diagnostics = std::move(population.diagnostics);
-  for (SpanMemberLayout& extra : population.members) {
+  for (CableSectionLayout& extra : population.sections) {
     const auto source = std::find_if(placed.entries.begin(), placed.entries.end(), [&](const SpanLayoutEntry& entry) {
       return entry.span_id == extra.key.logical_span_id;
     });
     if (source == placed.entries.end()) {
       continue;
     }
-    members.push_back({std::move(extra), source->start.endpoint_node_id, source->end.endpoint_node_id});
+    sections.push_back({std::move(extra), source->start.endpoint_node_id, source->end.endpoint_node_id});
   }
 
   std::vector<curve_endpoint_ref> endpoints{};
-  endpoints.reserve(members.size() * 2);
+  endpoints.reserve(sections.size() * 2);
   const Vec3d fallback_dir{1.0, 0.0, 0.0};
 
-  for (const visual_span_member& member : members) {
-    const SpanMemberLayout& entry = member.layout;
+  for (const visual_cable_section& section : sections) {
+    const CableSectionLayout& entry = section.layout;
     const Span* span = state.view().spans().find(entry.key.logical_span_id);
     const SavedBackboneSpanBinding* binding = span_binding_for(state, entry.key.logical_span_id);
     const SavedBackboneEdgeBundle* edge_bundle =
@@ -371,8 +371,8 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
                               : safe_unit(ScaleVec(chord, -1.0), ScaleVec(fallback_dir, -1.0));
 
     curve_endpoint_ref start{};
-    start.member_key = entry.key;
-    start.node_id = saved_node_id_for_endpoint(state, member.start_node_id);
+    start.cable_instance_key = entry.key;
+    start.node_id = saved_node_id_for_endpoint(state, section.start_node_id);
     start.edge_id = edge_bundle->edge_id;
     start.edge_bundle_id = edge_bundle->edge_bundle_id;
     start.bundle_id = span->bundle_id;
@@ -388,7 +388,7 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     endpoints.push_back(start);
 
     curve_endpoint_ref end = start;
-    end.node_id = saved_node_id_for_endpoint(state, member.end_node_id);
+    end.node_id = saved_node_id_for_endpoint(state, section.end_node_id);
     end.pole_type_id = entry.endpoint_b_pole_type_id;
     end.band_id = entry.endpoint_b_band_id;
     end.point = entry.endpoint_b;
@@ -403,8 +403,8 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
   for (const curve_endpoint_ref& first : endpoints) {
     const curve_patch_key key{first.node_id, first.bundle_template_id, first.lane_index,
                               first.pole_type_id, first.band_id,
-                              first.member_key.rule_owner_id, first.member_key.rule_id,
-                              first.member_key.instance_index};
+                              first.cable_instance_key.rule_owner_id, first.cable_instance_key.rule_id,
+                              first.cable_instance_key.instance_index};
     if (std::find_if(processed_patch_keys.begin(), processed_patch_keys.end(),
                      [&](const curve_patch_key& processed) { return same_key(processed, key); }) !=
         processed_patch_keys.end()) {
@@ -415,8 +415,8 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     for (const curve_endpoint_ref& endpoint : endpoints) {
       if (same_key(key, {endpoint.node_id, endpoint.bundle_template_id, endpoint.lane_index,
                          endpoint.pole_type_id, endpoint.band_id,
-                         endpoint.member_key.rule_owner_id, endpoint.member_key.rule_id,
-                         endpoint.member_key.instance_index})) {
+                         endpoint.cable_instance_key.rule_owner_id, endpoint.cable_instance_key.rule_id,
+                         endpoint.cable_instance_key.instance_index})) {
         group.push_back(endpoint);
       }
     }
@@ -436,32 +436,32 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     }
 
     curve_boundary a_boundary{};
-    a_boundary.member_key = group[0].member_key;
+    a_boundary.cable_instance_key = group[0].cable_instance_key;
     a_boundary.is_start = group[0].is_start;
     a_boundary.attachment_point = group[0].point;
     a_boundary.horizontal_length_m = a_len;
     a_boundary.point = boundary_from_tangent(group[0].point, group[0].away_from_node, a_len);
     a_boundary.tangent = group[0].away_from_node;
-    if (!boundary_for(boundaries, a_boundary.member_key, a_boundary.is_start, nullptr)) {
+    if (!boundary_for(boundaries, a_boundary.cable_instance_key, a_boundary.is_start, nullptr)) {
       boundaries.push_back(a_boundary);
     }
 
     curve_boundary b_boundary{};
-    b_boundary.member_key = group[1].member_key;
+    b_boundary.cable_instance_key = group[1].cable_instance_key;
     b_boundary.is_start = group[1].is_start;
     b_boundary.attachment_point = group[1].point;
     b_boundary.horizontal_length_m = b_len;
     b_boundary.point = boundary_from_tangent(group[1].point, group[1].away_from_node, b_len);
     b_boundary.tangent = group[1].away_from_node;
-    if (!boundary_for(boundaries, b_boundary.member_key, b_boundary.is_start, nullptr)) {
+    if (!boundary_for(boundaries, b_boundary.cable_instance_key, b_boundary.is_start, nullptr)) {
       boundaries.push_back(b_boundary);
     }
     patch_specs.push_back({key, group[0], group[1], ScaleVec(group[0].point + group[1].point, 0.5)});
   }
 
   for (int iteration = 0; iteration < 2; ++iteration) {
-    for (const visual_span_member& member : members) {
-      const SpanMemberLayout& entry = member.layout;
+    for (const visual_cable_section& section : sections) {
+      const CableSectionLayout& entry = section.layout;
       curve_boundary start_boundary{};
       curve_boundary end_boundary{};
       const bool has_start_patch = boundary_for(boundaries, entry.key, true, &start_boundary);
@@ -492,8 +492,8 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     }
   }
 
-  for (const visual_span_member& member : members) {
-    const SpanMemberLayout& entry = member.layout;
+  for (const visual_cable_section& section : sections) {
+    const CableSectionLayout& entry = section.layout;
     const Span* span = state.view().spans().find(entry.key.logical_span_id);
     const SavedBackboneSpanBinding* binding = span_binding_for(state, entry.key.logical_span_id);
     const SavedBackboneEdgeBundle* edge_bundle =
@@ -535,8 +535,8 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     body.source_bundle_id = span->bundle_id;
     body.bundle_template_id = template_id;
     body.lane_index = binding->lane_index;
-    body.has_span_member_key = true;
-    body.span_member_key = entry.key;
+    body.has_cable_instance_key = true;
+    body.cable_instance_key = entry.key;
     body.endpoint_a_pole_type_id = entry.endpoint_a_pole_type_id;
     body.endpoint_b_pole_type_id = entry.endpoint_b_pole_type_id;
     body.endpoint_a_band_id = entry.endpoint_a_band_id;
@@ -563,8 +563,8 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
   for (const curve_patch_spec& spec : patch_specs) {
     curve_boundary a_boundary{};
     curve_boundary b_boundary{};
-    if (!boundary_for(boundaries, spec.a.member_key, spec.a.is_start, &a_boundary) ||
-        !boundary_for(boundaries, spec.b.member_key, spec.b.is_start, &b_boundary)) {
+    if (!boundary_for(boundaries, spec.a.cable_instance_key, spec.a.is_start, &a_boundary) ||
+        !boundary_for(boundaries, spec.b.cable_instance_key, spec.b.is_start, &b_boundary)) {
       continue;
     }
     const Vec3d incoming = ScaleVec(a_boundary.tangent, -1.0);
@@ -588,7 +588,7 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     patch.has_attachment_point = true;
     patch.passes_attachment_point = false;
     patch.section_count = 1;
-    copy_span_appearance(state, spec.a.member_key.logical_span_id, &patch);
+    copy_span_appearance(state, spec.a.cable_instance_key.logical_span_id, &patch);
     append_patch_section(a_boundary.point, incoming, b_boundary.point, outgoing, true,
                          &patch.bezier_control_points, &patch.samples);
     patch.bounds = curve_part_bounds(patch.samples);

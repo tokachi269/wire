@@ -134,6 +134,7 @@ struct trow {
   Vec3d axis{};
   ObjectId pole = kInvalidObjectId;
   std::vector<std::vector<ObjectId>> ports{};
+  std::vector<int> placement_band_ids{};
 };
 
 struct tspan {

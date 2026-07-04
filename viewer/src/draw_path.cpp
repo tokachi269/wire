@@ -1433,6 +1433,17 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
           << "]=" << static_cast<unsigned long long>(part.incident_edge_ids[edge_index]) << "\n";
     }
   }
+  const auto& curve_diagnostics = view.visual_curve_parts().diagnostics;
+  ofs << "result.visual_curve_diagnostic_count=" << curve_diagnostics.size() << "\n";
+  for (std::size_t i = 0; i < curve_diagnostics.size(); ++i) {
+    const wire::core::VisualCurveDiagnostic& diagnostic = curve_diagnostics[i];
+    const std::string prefix = std::format("result.visual_curve_diagnostic[{}]", i);
+    ofs << prefix << ".source_node_id=" << static_cast<unsigned long long>(diagnostic.source_node_id) << "\n";
+    ofs << prefix << ".source_span_id=" << static_cast<unsigned long long>(diagnostic.source_span_id) << "\n";
+    ofs << prefix << ".bundle_template_id=" << static_cast<int>(diagnostic.bundle_template_id) << "\n";
+    ofs << prefix << ".lane_index=" << diagnostic.lane_index << "\n";
+    ofs << prefix << ".reason=" << diagnostic.reason << "\n";
+  }
   const auto& population_config = viewer_core_state::ExperimentalCablePopulationConfig(state);
   ofs << "result.experimental_line_population.enabled=" << (population_config.enabled ? 1 : 0) << "\n";
   ofs << "result.experimental_line_population.explicit_seed="

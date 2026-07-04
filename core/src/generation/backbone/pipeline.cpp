@@ -255,6 +255,7 @@ struct port_scope {
   BundleKind bundle = BundleKind::kLowVoltage;
   PortKind kind = PortKind::kGeneric;
   PortLayer layer = PortLayer::kUnknown;
+  int placement_band_id = 0;
 };
 
 EditResult<spec_view> view_for(const CoreState& state, const BackboneBundleSpec& spec) {
@@ -485,7 +486,7 @@ std::optional<Vec3d> source_attachment_for(const CoreState& state, const node& s
 
 bool same_scope(const SavedBackbonePortBinding& binding, port_scope scope) {
   return binding.bundle_template_id == scope.bundle && binding.port_kind == scope.kind &&
-         binding.port_layer == scope.layer;
+         binding.port_layer == scope.layer && binding.placement_band_id == scope.placement_band_id;
 }
 
 bool makes_pole(const node& item) {
@@ -1214,7 +1215,8 @@ EditResult<bool> pipeline::prepare() {
   std::unordered_set<ObjectId> context_edges{};
   const std::size_t route_node_count = pts.size();
   for (std::size_t i = 0; i < route_node_count && i < g_.nodes.size(); ++i) {
-    const node& n = g_.nodes[i];
+    // local_for_saved may append context nodes and reallocate g_.nodes.
+    const node n = g_.nodes[i];
     if (n.saved == kInvalidObjectId) {
       continue;
     }
@@ -1233,10 +1235,18 @@ EditResult<bool> pipeline::prepare() {
       if (has_requested_saved_pair(saved->node_a, saved->node_b)) {
         continue;
       }
-      const std::size_t a = local_for_saved(saved->node_a);
-      const std::size_t b = local_for_saved(saved->node_b);
+      std::size_t a = local_for_saved(saved->node_a);
+      std::size_t b = local_for_saved(saved->node_b);
       if (a == bad || b == bad || a == b) {
         continue;
+      }
+      bool reversed_context = false;
+      // A route endpoint with exactly one saved incident edge is a continuation candidate.
+      // Orient that context edge toward the route start or away from the route end so pairs
+      // can decide continuity without changing saved edge direction or identity.
+      if ((i == 0 && b != n.id) || (i + 1 == route_node_count && a != n.id)) {
+        std::swap(a, b);
+        reversed_context = true;
       }
       link edge{};
       edge.id = g_.links.size();
@@ -1245,6 +1255,9 @@ EditResult<bool> pipeline::prepare() {
       edge.route = saved->route + 1;
       edge.order = saved->order;
       edge.dir = saved->dir;
+      if (reversed_context) {
+        edge.dir = ScaleVec(edge.dir, -1.0);
+      }
       edge.saved = saved->edge_id;
       edge.is_new = false;
       g_.links.push_back(edge);
@@ -1440,13 +1453,21 @@ EditResult<pairs> pipeline::make(const graph& made) const {
     };
     std::sort(incoming.begin(), incoming.end(), link_less);
     std::sort(outgoing.begin(), outgoing.end(), link_less);
+    const bool degree_two = incoming.size() + outgoing.size() == 2;
+    auto is_continuation = [&](const link& a, const link& b) {
+      const bool same_route = a.route == b.route && a.order + 1 == b.order;
+      const bool terminal_extension =
+          degree_two && n.on_route && a.route != b.route && (a.route == 0 || b.route == 0) &&
+          interior_angle_deg(a, b) > 1e-6;
+      return same_route || terminal_extension;
+    };
 
     for (std::size_t right : outgoing) {
       int candidates = 0;
       for (std::size_t left : incoming) {
         const link& a = out.value.links[left];
         const link& b = out.value.links[right];
-        if (a.route == b.route && a.order + 1 == b.order) {
+        if (is_continuation(a, b)) {
           ++candidates;
         }
       }
@@ -1466,7 +1487,7 @@ EditResult<pairs> pipeline::make(const graph& made) const {
         }
         const link& a = out.value.links[left];
         const link& b = out.value.links[right];
-        if (a.route != b.route || a.order + 1 != b.order) {
+        if (!is_continuation(a, b)) {
           continue;
         }
         if (matched != bad) {
@@ -2036,6 +2057,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
       return out;
     }
     tr.ports.resize(made->bundles.size());
+    tr.placement_band_ids.resize(made->bundles.size());
     for (std::size_t bundle_index = 0; bundle_index < made->bundles.size(); ++bundle_index) {
       if (bundle_index >= made->bundle_specs.size()) {
         out.error = "backbone topology: bundle spec missing";
@@ -2060,8 +2082,9 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
         }
         band = resolved_band.value;
       }
+      tr.placement_band_ids[bundle_index] = band.band_id;
       const port_scope scope{spec_.bundles[spec_index].bundle_template_id, port_kind(v.value.tmpl->category),
-                             port_layer(v.value.layer)};
+                             port_layer(v.value.layer), band.band_id};
       for (int lane = 0; lane < v.value.count; ++lane) {
         const double lane_offset =
             (static_cast<double>(lane) - (static_cast<double>(v.value.count - 1) * 0.5)) * v.value.tmpl->default_spacing_m;
@@ -2273,7 +2296,11 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
       }
       EditResult<bool> bound =
           state_.bind_backbone_port(edge_bundle_id, row_key, span.lane, bundle->bundle_template_id, port->kind,
-                                    port->layer, port->id);
+                                    port->layer,
+                                    span.bundle < made.rows[row_index].placement_band_ids.size()
+                                        ? made.rows[row_index].placement_band_ids[span.bundle]
+                                        : 0,
+                                    port->id);
       if (!bound.ok) {
         out.error = bound.error;
         return false;

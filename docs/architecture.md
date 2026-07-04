@@ -129,14 +129,18 @@ span-local attachment blend方式は採用しない。continuousな本線接続�
 sample polyline上でG1が崩れやすく、main spanから接続部へ不自然に切り替わる。
 
 現在は派生debug/cacheとして`VisualCurvePart`を持ち、最小単位を`NodePatchCurve`と`EdgeBodyCurve`へ分ける。
-terminal endpointには`NodePatchCurve`を作らない。simpleな2-edge continuous nodeだけ、node / bundle template /
-lane単位で`NodePatchCurve`を作る。main cable patchはattachmentを通過せず、incoming/outgoing boundary間を
+未接続のterminal endpointには`NodePatchCurve`を作らない。末端へ新しいedgeを延長した場合は、
+`pairs make(graph)`がdegree 2のsaved/new edgeをcontinuationとして確定し、そのpair rowをpatchが消費する。
+branch追加後もmulti-incident全体を丸めず、pair rowが明示するthrough 2-edgeだけを維持する。
+node / bundle template / lane / 保存済みplacement band単位でpatchを分離し、位置近似やband再探索で接続を推測しない。
+main cable patchはattachmentを通過せず、incoming/outgoing boundary間を
 turn内側で単調に結ぶ1区間filletとする。境界では`EdgeBodyCurve`のparabolic sag実接線とG1接続する。
 attachmentは参照として保持し、insulator/clampへの接続は将来の別`LeadCurve`が所有する。
 `EdgeBodyCurve`は正式`CableCurve`とadaptive
 tessellationを共有する。attachmentは動かさず、boundaryはmain spanの外向き実接線を所定の水平距離まで
-延長した位置へ置く。短いspanでは水平距離をspan長の25%以下に制限する。branch/multi-edgeやfixture境界は、明示的な
-fixture/lead/jumper仕様が入るまでpatchを推測しない。
+延長した位置へ置く。短いspanでは水平距離をspan長の25%以下に制限する。branch自体やfixture境界は、明示的な
+fixture/lead/jumper仕様が入るまでpatchを推測しない。source-edge途中分岐のattachment位置は
+SavedBackboneSpanBindingから解決した派生curveを評価し、port間chordで補間しない。
 
 `NodePatchCurve`と`EdgeBodyCurve`はtopology正本ではない。source node / edge / span / bundle / lane、boundary point、
 boundary tangentをdebug/captureで見えるようにするための派生出力である。描画やexport用に分割してもよいが、

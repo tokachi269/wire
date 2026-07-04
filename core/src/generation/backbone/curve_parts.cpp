@@ -30,6 +30,7 @@ struct curve_endpoint_ref {
   std::size_t lane_index = 0;
   PoleTypeId pole_type_id = kInvalidPoleTypeId;
   int band_id = 0;
+  SavedBackboneRowKey row_key{};
   Vec3d point{};
   Vec3d away_from_node{};
   double span_length_m = 0.0;
@@ -72,6 +73,8 @@ struct visual_cable_section {
   ObjectId end_port_id = kInvalidObjectId;
   ObjectId start_jumper_peer_port_id = kInvalidObjectId;
   ObjectId end_jumper_peer_port_id = kInvalidObjectId;
+  SavedBackboneRowKey start_row_key{};
+  SavedBackboneRowKey end_row_key{};
 };
 
 bool same_cable_instance(const CableInstanceKey& a, const CableInstanceKey& b) {
@@ -85,6 +88,15 @@ bool same_key(const curve_patch_key& a, const curve_patch_key& b) {
          a.lane_index == b.lane_index && a.pole_type_id == b.pole_type_id &&
          a.band_id == b.band_id && a.rule_owner_id == b.rule_owner_id &&
          a.rule_id == b.rule_id && a.instance_index == b.instance_index;
+}
+
+bool row_pairs_edges(const SavedBackboneRowKey& row_key, ObjectId edge_a, ObjectId edge_b) {
+  if (row_key.source_is_open || row_key.source_edge_a == kInvalidObjectId ||
+      row_key.source_edge_b == kInvalidObjectId) {
+    return false;
+  }
+  return std::min(row_key.source_edge_a, row_key.source_edge_b) == std::min(edge_a, edge_b) &&
+         std::max(row_key.source_edge_a, row_key.source_edge_b) == std::max(edge_a, edge_b);
 }
 
 AABBd curve_part_bounds(const std::vector<Vec3d>& pts) {
@@ -183,31 +195,21 @@ PoleTypeId pole_type_for_port(const CoreState& state, ObjectId port_id) {
   return pole == nullptr ? kInvalidPoleTypeId : pole->pole_type_id;
 }
 
-int band_id_for_port(const CoreState& state, ObjectId port_id) {
-  const Port* port = state.view().ports().find(port_id);
-  if (port == nullptr || port->owner_pole_id == kInvalidObjectId) {
-    return 0;
-  }
-  const Pole* pole = state.view().poles().find(port->owner_pole_id);
-  if (pole == nullptr || pole->pole_type_id == kInvalidPoleTypeId) {
-    return 0;
-  }
-  const auto type_it = state.view().pole_types().find(pole->pole_type_id);
-  if (type_it == state.view().pole_types().end()) {
-    return 0;
-  }
-  const PortPlacementBand* best = nullptr;
-  for (const PortPlacementBand& band : type_it->second.port_bands) {
-    if (!band.enabled || band.category != port->category || band.layer != port->template_layer ||
-        band.side != port->template_side || band.role != port->template_role) {
+const SavedBackbonePortBinding* port_binding_for(const CoreState& state, ObjectId edge_bundle_id,
+                                                 std::size_t lane_index, ObjectId port_id) {
+  const std::vector<const SavedBackbonePortBinding*> bindings =
+      state.view().backbone_port_bindings_for_edge_bundle(edge_bundle_id);
+  const SavedBackbonePortBinding* found = nullptr;
+  for (const SavedBackbonePortBinding* binding : bindings) {
+    if (binding == nullptr || binding->lane_index != lane_index || binding->port_id != port_id) {
       continue;
     }
-    if (best == nullptr || band.priority > best->priority ||
-        (band.priority == best->priority && band.band_id < best->band_id)) {
-      best = &band;
+    if (found != nullptr) {
+      return nullptr;
     }
+    found = binding;
   }
-  return best == nullptr ? 0 : best->band_id;
+  return found;
 }
 
 void add_unique_incident(ObjectId edge_id, std::vector<ObjectId>* ids) {
@@ -352,6 +354,25 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
   for (const SpanLayoutEntry& entry : placed.entries) {
     const SavedBackboneSpanBinding* binding = span_binding_for(state, entry.span_id);
     if (binding == nullptr) {
+      out.diagnostics.push_back(
+          {kInvalidObjectId, entry.span_id, BundleKind::kLowVoltage, 0, "span binding missing"});
+      continue;
+    }
+    const Span* span = state.view().spans().find(entry.span_id);
+    const Bundle* bundle = span == nullptr ? nullptr : state.view().bundles().find(span->bundle_id);
+    if (span == nullptr || bundle == nullptr) {
+      out.diagnostics.push_back(
+          {kInvalidObjectId, entry.span_id, BundleKind::kLowVoltage, binding->lane_index, "span bundle missing"});
+      continue;
+    }
+    const SavedBackbonePortBinding* start_binding =
+        port_binding_for(state, binding->edge_bundle_id, binding->lane_index, entry.start.port_id);
+    const SavedBackbonePortBinding* end_binding =
+        port_binding_for(state, binding->edge_bundle_id, binding->lane_index, entry.end.port_id);
+    if (start_binding == nullptr || end_binding == nullptr) {
+      out.diagnostics.push_back(
+          {kInvalidObjectId, entry.span_id, bundle->bundle_template_id, binding->lane_index,
+           "endpoint port binding missing or ambiguous"});
       continue;
     }
     visual_cable_section section{};
@@ -361,14 +382,16 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     section.layout.endpoint_b = entry.end.endpoint_world;
     section.layout.endpoint_a_pole_type_id = pole_type_for_port(state, entry.start.port_id);
     section.layout.endpoint_b_pole_type_id = pole_type_for_port(state, entry.end.port_id);
-    section.layout.endpoint_a_band_id = band_id_for_port(state, entry.start.port_id);
-    section.layout.endpoint_b_band_id = band_id_for_port(state, entry.end.port_id);
+    section.layout.endpoint_a_band_id = start_binding->placement_band_id;
+    section.layout.endpoint_b_band_id = end_binding->placement_band_id;
     section.start_node_id = entry.start.endpoint_node_id;
     section.end_node_id = entry.end.endpoint_node_id;
     section.start_port_id = entry.start.port_id;
     section.end_port_id = entry.end.port_id;
     section.start_jumper_peer_port_id = entry.start.jumper_peer_port_id;
     section.end_jumper_peer_port_id = entry.end.jumper_peer_port_id;
+    section.start_row_key = start_binding->row_key;
+    section.end_row_key = end_binding->row_key;
     sections.push_back(section);
   }
   ExperimentalCablePopulation population = make_experimental_cable_population(state, placed.entries);
@@ -380,7 +403,20 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     if (source == placed.entries.end()) {
       continue;
     }
-    sections.push_back({std::move(extra), source->start.endpoint_node_id, source->end.endpoint_node_id});
+    visual_cable_section section{};
+    section.layout = std::move(extra);
+    section.start_node_id = source->start.endpoint_node_id;
+    section.end_node_id = source->end.endpoint_node_id;
+    const auto base_section =
+        std::find_if(sections.begin(), sections.end(), [&](const visual_cable_section& candidate) {
+          return candidate.layout.key.logical_span_id == section.layout.key.logical_span_id &&
+                 candidate.layout.key.is_base();
+        });
+    if (base_section != sections.end()) {
+      section.start_row_key = base_section->start_row_key;
+      section.end_row_key = base_section->end_row_key;
+    }
+    sections.push_back(std::move(section));
   }
 
   std::vector<curve_endpoint_ref> endpoints{};
@@ -394,10 +430,19 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     const SavedBackboneEdgeBundle* edge_bundle =
         binding == nullptr ? nullptr : state.view().backbone_edge_bundle(binding->edge_bundle_id);
     if (span == nullptr || binding == nullptr || edge_bundle == nullptr) {
+      out.diagnostics.push_back(
+          {kInvalidObjectId, entry.key.logical_span_id, BundleKind::kLowVoltage, 0,
+           "curve source identity missing"});
       continue;
     }
     const Bundle* bundle = state.view().bundles().find(span->bundle_id);
-    const BundleKind template_id = bundle == nullptr ? BundleKind::kLowVoltage : bundle->bundle_template_id;
+    if (bundle == nullptr) {
+      out.diagnostics.push_back(
+          {kInvalidObjectId, entry.key.logical_span_id, BundleKind::kLowVoltage, binding->lane_index,
+           "curve source bundle missing"});
+      continue;
+    }
+    const BundleKind template_id = bundle->bundle_template_id;
     const Vec3d chord = entry.endpoint_b - entry.endpoint_a;
     const double span_length = Length(chord);
     const EditResult<DetailCurve> full_curve =
@@ -421,6 +466,7 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     start.lane_index = binding->lane_index;
     start.pole_type_id = entry.endpoint_a_pole_type_id;
     start.band_id = entry.endpoint_a_band_id;
+    start.row_key = section.start_row_key;
     start.point = entry.endpoint_a;
     start.away_from_node = start_away;
     start.span_length_m = span_length;
@@ -434,6 +480,7 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     end.jumper_peer_port_id = section.end_jumper_peer_port_id;
     end.pole_type_id = entry.endpoint_b_pole_type_id;
     end.band_id = entry.endpoint_b_band_id;
+    end.row_key = section.end_row_key;
     end.point = entry.endpoint_b;
     end.away_from_node = end_away;
     end.is_start = false;
@@ -463,47 +510,77 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
         group.push_back(endpoint);
       }
     }
-    if (group.size() != 2 || group[0].edge_id == group[1].edge_id ||
-        !group[0].has_curve_tangent || !group[1].has_curve_tangent) {
+    std::vector<std::pair<std::size_t, std::size_t>> candidates{};
+    for (std::size_t a = 0; a < group.size(); ++a) {
+      for (std::size_t b = a + 1; b < group.size(); ++b) {
+        if (group[a].edge_id == group[b].edge_id) {
+          continue;
+        }
+        const bool shared_port =
+            group[a].port_id != kInvalidObjectId && group[a].port_id == group[b].port_id;
+        const bool explicit_pair = row_pairs_edges(group[a].row_key, group[a].edge_id, group[b].edge_id) ||
+                                   row_pairs_edges(group[b].row_key, group[a].edge_id, group[b].edge_id);
+        if (shared_port || explicit_pair) {
+          candidates.push_back({a, b});
+        }
+      }
+    }
+    if (candidates.size() != 1) {
+      out.diagnostics.push_back(
+          {key.node_id, kInvalidObjectId, key.bundle_template_id, key.lane_index,
+           candidates.empty() ? (group.size() < 2 ? "terminal node has no patch peer"
+                                                  : "no connectivity-owned patch pair")
+                              : "multiple connectivity-owned patch pairs"});
       continue;
     }
-    if (group[0].jumper_peer_port_id != kInvalidObjectId ||
-        group[1].jumper_peer_port_id != kInvalidObjectId) {
+    const curve_endpoint_ref& patch_a = group[candidates.front().first];
+    const curve_endpoint_ref& patch_b = group[candidates.front().second];
+    if (!patch_a.has_curve_tangent || !patch_b.has_curve_tangent) {
+      out.diagnostics.push_back(
+          {key.node_id, kInvalidObjectId, key.bundle_template_id, key.lane_index,
+           "patch endpoint tangent missing"});
       continue;
     }
-    if (Length(group[0].point - group[1].point) > 1e-6) {
+    if (patch_a.jumper_peer_port_id != kInvalidObjectId ||
+        patch_b.jumper_peer_port_id != kInvalidObjectId) {
+      out.diagnostics.push_back(
+          {key.node_id, kInvalidObjectId, key.bundle_template_id, key.lane_index,
+           "explicit jumper owns this connection"});
       continue;
     }
     const double a_len =
-        std::min(kNodePatchHorizontalLengthM, group[0].span_length_m * kNodePatchMaxSpanFraction);
+        std::min(kNodePatchHorizontalLengthM, patch_a.span_length_m * kNodePatchMaxSpanFraction);
     const double b_len =
-        std::min(kNodePatchHorizontalLengthM, group[1].span_length_m * kNodePatchMaxSpanFraction);
+        std::min(kNodePatchHorizontalLengthM, patch_b.span_length_m * kNodePatchMaxSpanFraction);
     if (a_len <= kCurveEps || b_len <= kCurveEps) {
+      out.diagnostics.push_back(
+          {key.node_id, kInvalidObjectId, key.bundle_template_id, key.lane_index,
+           "patch boundary length is zero"});
       continue;
     }
 
     curve_boundary a_boundary{};
-    a_boundary.cable_instance_key = group[0].cable_instance_key;
-    a_boundary.is_start = group[0].is_start;
-    a_boundary.attachment_point = group[0].point;
+    a_boundary.cable_instance_key = patch_a.cable_instance_key;
+    a_boundary.is_start = patch_a.is_start;
+    a_boundary.attachment_point = patch_a.point;
     a_boundary.horizontal_length_m = a_len;
-    a_boundary.point = boundary_from_tangent(group[0].point, group[0].away_from_node, a_len);
-    a_boundary.tangent = group[0].away_from_node;
+    a_boundary.point = boundary_from_tangent(patch_a.point, patch_a.away_from_node, a_len);
+    a_boundary.tangent = patch_a.away_from_node;
     if (!boundary_for(boundaries, a_boundary.cable_instance_key, a_boundary.is_start, nullptr)) {
       boundaries.push_back(a_boundary);
     }
 
     curve_boundary b_boundary{};
-    b_boundary.cable_instance_key = group[1].cable_instance_key;
-    b_boundary.is_start = group[1].is_start;
-    b_boundary.attachment_point = group[1].point;
+    b_boundary.cable_instance_key = patch_b.cable_instance_key;
+    b_boundary.is_start = patch_b.is_start;
+    b_boundary.attachment_point = patch_b.point;
     b_boundary.horizontal_length_m = b_len;
-    b_boundary.point = boundary_from_tangent(group[1].point, group[1].away_from_node, b_len);
-    b_boundary.tangent = group[1].away_from_node;
+    b_boundary.point = boundary_from_tangent(patch_b.point, patch_b.away_from_node, b_len);
+    b_boundary.tangent = patch_b.away_from_node;
     if (!boundary_for(boundaries, b_boundary.cable_instance_key, b_boundary.is_start, nullptr)) {
       boundaries.push_back(b_boundary);
     }
-    patch_specs.push_back({key, group[0], group[1], ScaleVec(group[0].point + group[1].point, 0.5)});
+    patch_specs.push_back({key, patch_a, patch_b, ScaleVec(patch_a.point + patch_b.point, 0.5)});
   }
 
   for (int iteration = 0; iteration < 2; ++iteration) {
@@ -549,7 +626,10 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
       continue;
     }
     const Bundle* bundle = state.view().bundles().find(span->bundle_id);
-    const BundleKind template_id = bundle == nullptr ? BundleKind::kLowVoltage : bundle->bundle_template_id;
+    if (bundle == nullptr) {
+      continue;
+    }
+    const BundleKind template_id = bundle->bundle_template_id;
     curve_boundary start_boundary{};
     curve_boundary end_boundary{};
     const bool has_start_patch = boundary_for(boundaries, entry.key, true, &start_boundary);

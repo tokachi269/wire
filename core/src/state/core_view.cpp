@@ -145,14 +145,35 @@ std::optional<Vec3d> CoreView::backbone_attachment_world(
   if (binding_a == nullptr || binding_b == nullptr) {
     return std::nullopt;
   }
-  const Port* port_a = ports().find(binding_a->port_id);
-  const Port* port_b = ports().find(binding_b->port_id);
-  if (port_a == nullptr || port_b == nullptr) {
+  const auto span_bindings_it =
+      state_.runtime_.backbone_index.edge_bundle_span_bindings.find(matched->edge_bundle_id);
+  if (span_bindings_it == state_.runtime_.backbone_index.edge_bundle_span_bindings.end()) {
+    return std::nullopt;
+  }
+  const SavedBackboneSpanBinding* span_binding = nullptr;
+  for (std::size_t index : span_bindings_it->second) {
+    if (index >= state_.authoritative_.backbone.span_bindings.size()) {
+      return std::nullopt;
+    }
+    const SavedBackboneSpanBinding& candidate = state_.authoritative_.backbone.span_bindings[index];
+    if (candidate.lane_index != lane_index) {
+      continue;
+    }
+    if (span_binding != nullptr) {
+      return std::nullopt;
+    }
+    span_binding = &candidate;
+  }
+  if (span_binding == nullptr) {
+    return std::nullopt;
+  }
+  const CurveCacheEntry* curve = find_curve_cache(span_binding->span_id);
+  if (curve == nullptr || curve->detail.sample_points.size() < 2) {
     return std::nullopt;
   }
 
   const double u = from_node_id == edge->node_a ? std::clamp(t, 0.0, 1.0) : 1.0 - std::clamp(t, 0.0, 1.0);
-  return port_a->world_position + ScaleVec(port_b->world_position - port_a->world_position, u);
+  return curve->detail.EvaluatePosition(u);
 }
 const GeometrySettings& CoreView::geometry_settings() const { return state_.runtime_.cache_state.geometry_settings; }
 const VisualSettings& CoreView::visual_settings() const { return state_.runtime_.cache_state.visual_settings; }

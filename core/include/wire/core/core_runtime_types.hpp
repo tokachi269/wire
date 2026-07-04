@@ -175,6 +175,14 @@ struct CablePopulationDiagnostic {
   std::string reason{};
 };
 
+struct VisualCurveDiagnostic {
+  ObjectId source_node_id = kInvalidObjectId;
+  ObjectId source_span_id = kInvalidObjectId;
+  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  std::size_t lane_index = 0;
+  std::string reason{};
+};
+
 struct VisualCurvePart {
   VisualCurvePartKind kind = VisualCurvePartKind::kEdgeBody;
   NodePatchClassification node_patch_classification = NodePatchClassification::kNone;
@@ -213,6 +221,7 @@ struct VisualCurvePart {
 
 struct VisualCurvePartCache {
   std::vector<VisualCurvePart> parts{};
+  std::vector<VisualCurveDiagnostic> diagnostics{};
   std::vector<CablePopulationDiagnostic> experimental_population_diagnostics{};
 };
 

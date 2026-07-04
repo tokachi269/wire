@@ -293,5 +293,8 @@ bool C661_backbone_pair_row_axis_uses_unit_tangent_bisector();
 bool C662_backbone_pair_row_axis_does_not_flip_lane_order();
 bool C663_backbone_sharp_corner_uses_dead_end_rows_and_jumpers();
 bool C664_backbone_sharp_pole_facing_consumes_pair_decision();
+bool C665_backbone_midair_attachment_uses_derived_curve();
+bool C666_backbone_terminal_extension_creates_connectivity_patch();
+bool C667_backbone_branch_preserves_through_patch();
 
 } // namespace backbone_tests

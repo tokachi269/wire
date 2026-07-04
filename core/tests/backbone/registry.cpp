@@ -848,6 +848,15 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C664_backbone_sharp_pole_facing_consumes_pair_decision",
                          "backbone sharp pole facing consumes the connectivity-owned corner decision",
                          "Boundary", false, C664_backbone_sharp_pole_facing_consumes_pair_decision);
+  test_registry::AddTest(tests, "C665_backbone_midair_attachment_uses_derived_curve",
+                         "backbone midair attachment evaluates the saved span curve instead of its chord",
+                         "Boundary", false, C665_backbone_midair_attachment_uses_derived_curve);
+  test_registry::AddTest(tests, "C666_backbone_terminal_extension_creates_connectivity_patch",
+                         "backbone terminal extension connects separate generation rows through saved pair identity",
+                         "Boundary", false, C666_backbone_terminal_extension_creates_connectivity_patch);
+  test_registry::AddTest(tests, "C667_backbone_branch_preserves_through_patch",
+                         "backbone branch addition preserves the connectivity-owned through patch",
+                         "Boundary", false, C667_backbone_branch_preserves_through_patch);
 }
 
 

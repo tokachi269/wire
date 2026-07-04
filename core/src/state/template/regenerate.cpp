@@ -344,7 +344,8 @@ EditResult<bool> CoreState::regenerate_backbone_bundle_count_change(BundleKind b
             append_unique(change_set->created_ids, added.change_set.created_ids);
           }
           EditResult<bool> bound = bind_backbone_port(target.edge_bundle_id, target.rows[side].row_key, lane,
-                                                      bundle_template_id, port_kind, port_layer, port_id);
+                                                      bundle_template_id, port_kind, port_layer,
+                                                      target.rows[side].band.band_id, port_id);
           if (!bound.ok) {
             return fail(bound.error);
           }

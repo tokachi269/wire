@@ -163,7 +163,7 @@ private:
   EditResult<bool> bind_backbone_span(ObjectId edge_bundle_id, std::size_t lane_index, ObjectId span_id);
   EditResult<bool> bind_backbone_port(ObjectId edge_bundle_id, const SavedBackboneRowKey& row_key,
                                       std::size_t lane_index, BundleKind bundle_template_id, PortKind port_kind,
-                                      PortLayer port_layer, ObjectId port_id);
+                                      PortLayer port_layer, int placement_band_id, ObjectId port_id);
   EditResult<bool> regenerate_backbone_bundle_count_change(BundleKind bundle_template_id,
                                                            const BundleTemplate& previous_template,
                                                            const BundleTemplate& next_template,

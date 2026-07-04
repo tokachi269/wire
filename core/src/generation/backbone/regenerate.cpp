@@ -92,6 +92,7 @@ struct regenerate_row_target {
   ObjectId pole_id = kInvalidObjectId;
   Vec3d row_axis{};
   PortPlacementBand previous_band{};
+  PortPlacementBand next_band{};
 };
 
 struct regenerate_target {
@@ -105,14 +106,19 @@ struct regenerate_target {
 };
 
 Vec3d expected_port_world(const CoreState& state, const regenerate_row_target& row,
-                          const BundleTemplate& bundle_template, std::size_t lane_index) {
+                          const BundleTemplate& bundle_template, const PortPlacementBand& band,
+                          std::size_t lane_index) {
   const Pole* pole = state.view().poles().find(row.pole_id);
   if (pole == nullptr) {
     return {};
   }
-  return generation::backbone::PortWorldPosition(*pole, row.row_axis, row.previous_band, lane_index,
+  return generation::backbone::PortWorldPosition(*pole, row.row_axis, band, lane_index,
                                                  bundle_template.fixed_count, bundle_template.default_spacing_m,
                                                  0.0, 0.0, {});
+}
+
+bool finite(const Vec3d& value) {
+  return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
 }
 
 } // namespace
@@ -134,6 +140,9 @@ EditResult<bool> CoreState::regenerate_backbone_bundle_count_change(BundleKind b
   }
   if (next_template.default_layer == SpanLayer::kUnknown) {
     return fail("backbone unsupported: bundle count regenerate requires a known layer");
+  }
+  if (!std::isfinite(next_template.default_spacing_m) || next_template.default_spacing_m <= 0.0) {
+    return fail("backbone unsupported: bundle count regenerate requires positive finite spacing");
   }
 
   std::vector<ObjectId> affected_edge_bundle_ids{};
@@ -275,15 +284,16 @@ EditResult<bool> CoreState::regenerate_backbone_bundle_count_change(BundleKind b
       if (!previous_band.ok) {
         return fail(previous_band.error);
       }
-      if (!generation::backbone::SelectPortPlacementBand(pole_type_it->second, next_template.category,
-                                                         next_template.default_layer).ok) {
+      const EditResult<PortPlacementBand> next_band = generation::backbone::SelectPortPlacementBand(
+          pole_type_it->second, next_template.category, next_template.default_layer);
+      if (!next_band.ok) {
         return fail("backbone unsupported: port band missing");
       }
       if (row_keys[i].node_id != edge->node_a && row_keys[i].node_id != edge->node_b) {
         return fail("backbone regenerate: row node is not on edge");
       }
       target.rows[i] = regenerate_row_target{row_keys[i], node->pole_id, ComputeLateralAxis(edge->dir),
-                                             previous_band.value};
+                                             previous_band.value, next_band.value};
     }
     targets.push_back(target);
   }
@@ -312,10 +322,21 @@ EditResult<bool> CoreState::regenerate_backbone_bundle_count_change(BundleKind b
         if (port == nullptr) {
           return fail("backbone regenerate: bound port missing");
         }
-        const Vec3d expected = expected_port_world(*this, row, previous_template, lane);
+        const Vec3d expected =
+            expected_port_world(*this, row, previous_template, row.previous_band, lane);
         if (LengthSquared(port->world_position - expected) > 1e-12) {
           return fail("backbone unsupported: bundle count regenerate cannot reconstruct existing port placement");
         }
+      }
+    }
+    for (std::size_t lane = static_cast<std::size_t>(previous_template.fixed_count);
+         lane < static_cast<std::size_t>(next_template.fixed_count); ++lane) {
+      const Vec3d start =
+          expected_port_world(*this, target.rows[0], next_template, target.rows[0].next_band, lane);
+      const Vec3d end =
+          expected_port_world(*this, target.rows[1], next_template, target.rows[1].next_band, lane);
+      if (!finite(start) || !finite(end) || LengthSquared(end - start) <= 1e-18) {
+        return fail("backbone unsupported: bundle count regenerate cannot create finite nonzero span geometry");
       }
     }
   }

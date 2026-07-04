@@ -194,6 +194,11 @@ public:
       graph made, std::vector<std::size_t> active_bundle_indices);
 
 private:
+  enum class build_mode {
+    generation,
+    regenerate,
+  };
+
   [[nodiscard]] EditResult<pairs> make(const graph& made) const;
   [[nodiscard]] EditResult<intent> make(const pairs& ps) const;
   [[nodiscard]] EditResult<groups> make(const pairs& ps, const intent& intents) const;
@@ -217,7 +222,7 @@ private:
   CoreState& state_;
   const BackboneSpec& spec_;
   bool ready_ = false;
-  bool refresh_resolved_ports_ = false;
+  build_mode mode_ = build_mode::generation;
   graph g_{};
   std::vector<std::size_t> active_bundle_indices_{};
   std::vector<std::size_t> local_by_input_{};

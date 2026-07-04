@@ -265,8 +265,10 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
       normalized.count_rule == BundleCountRuleKind::kFixed &&
       it->second.count_rule == BundleCountRuleKind::kFixed &&
       normalized.fixed_count > it->second.fixed_count &&
+      normalized.cable_template_id == it->second.cable_template_id &&
       normalized.category == it->second.category &&
       normalized.default_layer == it->second.default_layer &&
+      normalized.related_pole_type_id == it->second.related_pole_type_id &&
       normalized.preserve_conductor_identity == it->second.preserve_conductor_identity &&
       normalized.min_count == it->second.min_count &&
       normalized.max_count == it->second.max_count &&

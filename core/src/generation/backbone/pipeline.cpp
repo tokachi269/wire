@@ -19,7 +19,7 @@
 namespace wire::core::generation::backbone {
 
 EditResult<GenerateBundleFromPathResult> pipeline::build() {
-  refresh_resolved_ports_ = false;
+  mode_ = build_mode::generation;
   EditResult<GenerateBundleFromPathResult> out{};
   auto elapsed_ms = [](const auto& started) {
     return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
@@ -112,7 +112,7 @@ EditResult<GenerateBundleFromPathResult> pipeline::build_prepared_regenerate(
   g_ = std::move(made_graph);
   active_bundle_indices_ = std::move(active_bundle_indices);
   local_by_input_.clear();
-  refresh_resolved_ports_ = true;
+  mode_ = build_mode::regenerate;
   ready_ = true;
 
   EditResult<pairs> ps = make(g_);
@@ -2151,7 +2151,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
           return out;
         }
         if (resolved.value != kInvalidObjectId) {
-          if (refresh_resolved_ports_) {
+          if (mode_ == build_mode::regenerate) {
             Port* existing_port = state_.edit_state_access().ports.find(resolved.value);
             if (existing_port == nullptr) {
               out.error = "backbone topology: resolved port missing";
@@ -2266,7 +2266,7 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
     const ObjectId source_b = saved_node_id_for(state_, g_.nodes[i].source_edge_node_b);
     if (g_.nodes[i].saved != kInvalidObjectId) {
       node_id_by_local[i] = g_.nodes[i].saved;
-      if (g_.nodes[i].on_route && i < path_index_by_local.size()) {
+      if (mode_ == build_mode::generation && g_.nodes[i].on_route && i < path_index_by_local.size()) {
         EditResult<bool> indexed =
             state_.bind_backbone_node_path_point_index(node_id_by_local[i], path_index_by_local[i]);
         if (!indexed.ok) {

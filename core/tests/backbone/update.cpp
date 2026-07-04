@@ -151,6 +151,48 @@ bool same_span_curve_signatures(const std::vector<SpanCurveSignature>& lhs,
   return true;
 }
 
+bool same_saved_nodes(const std::vector<wire::core::SavedBackboneNode>& lhs,
+                      const std::vector<wire::core::SavedBackboneNode>& rhs) {
+  if (lhs.size() != rhs.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < lhs.size(); ++i) {
+    const auto& a = lhs[i];
+    const auto& b = rhs[i];
+    const bool same_modes =
+        a.bundle_modes.size() == b.bundle_modes.size() &&
+        std::equal(a.bundle_modes.begin(), a.bundle_modes.end(), b.bundle_modes.begin(),
+                   [](const wire::core::SupportNodeBundleMode& x,
+                      const wire::core::SupportNodeBundleMode& y) {
+                     return x.bundle_template_id == y.bundle_template_id && x.mode == y.mode;
+                   });
+    if (a.node_id != b.node_id || a.pole_id != b.pole_id || a.support_kind != b.support_kind ||
+        !same_vec3(a.position, b.position) || a.has_source_edge != b.has_source_edge ||
+        a.source_edge_node_a != b.source_edge_node_a || a.source_edge_node_b != b.source_edge_node_b ||
+        !almost_equal(a.source_edge_t, b.source_edge_t, 1e-12) ||
+        a.path_point_index != b.path_point_index || !same_modes) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool same_saved_edges(const std::vector<wire::core::SavedBackboneEdge>& lhs,
+                      const std::vector<wire::core::SavedBackboneEdge>& rhs) {
+  if (lhs.size() != rhs.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < lhs.size(); ++i) {
+    const auto& a = lhs[i];
+    const auto& b = rhs[i];
+    if (a.edge_id != b.edge_id || a.node_a != b.node_a || a.node_b != b.node_b ||
+        a.route != b.route || a.order != b.order || !same_vec3(a.dir, b.dir)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 struct CountSnapshot {
   std::size_t poles = 0;
   std::size_t ports = 0;
@@ -701,25 +743,18 @@ bool C660_backbone_bundle_count_regenerate_updates_downstream_only() {
   if (!updated.ok || !updated.value) {
     return false;
   }
-  if (state.view().backbone().nodes.size() != nodes_before.size() ||
-      state.view().backbone().edges.size() != edges_before.size() ||
+  if (!same_saved_nodes(state.view().backbone().nodes, nodes_before) ||
+      !same_saved_edges(state.view().backbone().edges, edges_before) ||
       state.view().backbone().edge_bundles.size() != edge_bundles_before.size() ||
       state.view().spans().size() != span_count_before + 1) {
     return false;
   }
-  for (std::size_t i = 0; i < nodes_before.size(); ++i) {
-    if (state.view().backbone().nodes[i].node_id != nodes_before[i].node_id) {
-      return false;
-    }
-  }
-  for (std::size_t i = 0; i < edges_before.size(); ++i) {
-    if (state.view().backbone().edges[i].edge_id != edges_before[i].edge_id) {
-      return false;
-    }
-  }
   for (std::size_t i = 0; i < edge_bundles_before.size(); ++i) {
-    if (state.view().backbone().edge_bundles[i].edge_bundle_id !=
-        edge_bundles_before[i].edge_bundle_id) {
+    const auto& after = state.view().backbone().edge_bundles[i];
+    const auto& before = edge_bundles_before[i];
+    if (after.edge_bundle_id != before.edge_bundle_id || after.edge_id != before.edge_id ||
+        after.bundle_id != before.bundle_id || after.edge_forward != before.edge_forward ||
+        after.route != before.route || after.order != before.order || !same_vec3(after.dir, before.dir)) {
       return false;
     }
   }

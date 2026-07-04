@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -18,6 +19,58 @@
 using namespace helpers;
 
 namespace backbone_tests {
+
+namespace {
+
+wire::core::Vec3d normalize_xy(wire::core::Vec3d value) {
+  value.z = 0.0;
+  const double len = std::sqrt(value.x * value.x + value.y * value.y);
+  if (len <= 1e-12) {
+    return {};
+  }
+  return {value.x / len, value.y / len, 0.0};
+}
+
+wire::core::Vec3d lateral_xy(const wire::core::Vec3d& value) {
+  const wire::core::Vec3d dir = normalize_xy(value);
+  return {-dir.y, dir.x, 0.0};
+}
+
+double abs_dot_xy(const wire::core::Vec3d& a, const wire::core::Vec3d& b) {
+  return std::abs(a.x * b.x + a.y * b.y);
+}
+
+double dot_xy(const wire::core::Vec3d& a, const wire::core::Vec3d& b) {
+  return a.x * b.x + a.y * b.y;
+}
+
+bool prepare_two_lane_low_voltage(wire::core::CoreState& state) {
+  const auto it = state.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  if (it == state.view().bundle_templates().end()) {
+    return false;
+  }
+  wire::core::BundleTemplate tpl = it->second;
+  tpl.count_rule = wire::core::BundleCountRuleKind::kFixed;
+  tpl.fixed_count = 2;
+  tpl.default_count = 2;
+  tpl.min_count = std::min(tpl.min_count, 2);
+  tpl.max_count = std::max(tpl.max_count, 2);
+  return state.UpdateBundleTemplate(tpl).ok;
+}
+
+wire::core::ObjectId pole_at(const wire::core::CoreState& state,
+                             const std::vector<wire::core::ObjectId>& pole_ids,
+                             const wire::core::Vec3d& position) {
+  for (wire::core::ObjectId pole_id : pole_ids) {
+    const wire::core::Pole* pole = state.view().poles().find(pole_id);
+    if (pole != nullptr && almost_equal(pole->world_transform.position, position, 1e-9)) {
+      return pole_id;
+    }
+  }
+  return wire::core::kInvalidObjectId;
+}
+
+} // namespace
 
 bool C368_backbone_smoke_line() {
   wire::core::CoreState state;
@@ -792,6 +845,59 @@ bool C412_backbone_lateral_offset_sign_is_deterministic() {
     }
   }
   return true;
+}
+
+bool C661_backbone_pair_row_axis_uses_unit_tangent_bisector() {
+  wire::core::CoreState state;
+  if (!prepare_two_lane_low_voltage(state)) {
+    return false;
+  }
+  wire::core::BackboneSpec req = line_req(state);
+  req.path.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}, {20.0, 2.0, 0.0}};
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  const wire::core::ObjectId corner_pole = pole_at(state, generated.value.generated_pole_ids, {20.0, 0.0, 0.0});
+  if (!generated.ok || corner_pole == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  const std::vector<wire::core::Vec3d> ports =
+      generated_ports_on_pole(state, generated.value.generated_span_ids, corner_pole);
+  if (ports.size() != 2) {
+    return false;
+  }
+  const wire::core::Vec3d actual = normalize_xy(ports[1] - ports[0]);
+  const wire::core::Vec3d incoming = normalize_xy(req.path.polyline[1] - req.path.polyline[0]);
+  const wire::core::Vec3d outgoing = normalize_xy(req.path.polyline[2] - req.path.polyline[1]);
+  const wire::core::Vec3d expected = lateral_xy(incoming + outgoing);
+  const wire::core::Vec3d old_chord_axis = lateral_xy(req.path.polyline[2] - req.path.polyline[0]);
+  return abs_dot_xy(actual, expected) > 0.999 && abs_dot_xy(actual, old_chord_axis) < 0.95;
+}
+
+bool C662_backbone_pair_row_axis_does_not_flip_lane_order() {
+  wire::core::CoreState state;
+  if (!prepare_two_lane_low_voltage(state)) {
+    return false;
+  }
+  wire::core::BackboneSpec req = line_req(state);
+  req.path.polyline = {{0.0, 0.0, 0.0}, {20.0, 0.0, 0.0}, {20.0, 2.0, 0.0}};
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  const wire::core::ObjectId corner_pole = pole_at(state, generated.value.generated_pole_ids, {20.0, 0.0, 0.0});
+  if (!generated.ok || corner_pole == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  const std::vector<wire::core::Vec3d> ports =
+      generated_ports_on_pole(state, generated.value.generated_span_ids, corner_pole);
+  if (ports.size() != 2) {
+    return false;
+  }
+  wire::core::Vec3d row_axis = normalize_xy(ports[1] - ports[0]);
+  const wire::core::Vec3d incoming = normalize_xy(req.path.polyline[1] - req.path.polyline[0]);
+  const wire::core::Vec3d outgoing = normalize_xy(req.path.polyline[2] - req.path.polyline[1]);
+  const wire::core::Vec3d expected = lateral_xy(incoming + outgoing);
+  if (dot_xy(row_axis, expected) < 0.0) {
+    row_axis = {-row_axis.x, -row_axis.y, -row_axis.z};
+  }
+  return dot_xy(row_axis, lateral_xy(incoming)) > 0.0 &&
+         dot_xy(row_axis, lateral_xy(outgoing)) > 0.0;
 }
 
 bool C414_backbone_simple_avoid_detour_supported() {

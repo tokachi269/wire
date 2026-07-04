@@ -836,6 +836,12 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "backbone route-local regenerate updates bundle count downstream without graph identity changes",
                          "Boundary", false,
                          C660_backbone_bundle_count_regenerate_updates_downstream_only);
+  test_registry::AddTest(tests, "C661_backbone_pair_row_axis_uses_unit_tangent_bisector",
+                         "backbone pair row axis uses unit tangent bisector instead of chord length",
+                         "Invariant", false, C661_backbone_pair_row_axis_uses_unit_tangent_bisector);
+  test_registry::AddTest(tests, "C662_backbone_pair_row_axis_does_not_flip_lane_order",
+                         "backbone pair row axis remains inside the incident span no-flip wedge",
+                         "Invariant", false, C662_backbone_pair_row_axis_does_not_flip_lane_order);
 }
 
 

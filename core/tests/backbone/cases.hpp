@@ -289,5 +289,7 @@ bool C652_experimental_population_endpoint_failure_omits_pair();
 bool C653_experimental_population_rejects_duplicate_band_identity();
 bool C654_experimental_population_does_not_mutate_logical_topology();
 bool C660_backbone_bundle_count_regenerate_updates_downstream_only();
+bool C661_backbone_pair_row_axis_uses_unit_tangent_bisector();
+bool C662_backbone_pair_row_axis_does_not_flip_lane_order();
 
 } // namespace backbone_tests

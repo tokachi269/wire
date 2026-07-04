@@ -1472,16 +1472,16 @@ EditResult<pairs> pipeline::make(const graph& made) const {
       }
       const link& a = out.value.links[left];
       const link& b = out.value.links[matched];
-      Vec3d chord = made.nodes[b.b].pos - made.nodes[a.a].pos;
-      if (!NormalizeXY(&chord)) {
-        return unsupported_pairs("zero length pair chord");
+      Vec3d pair_axis = out.value.links[left].dir + out.value.links[matched].dir;
+      if (!NormalizeXY(&pair_axis)) {
+        return unsupported_pairs("zero length pair tangent sum");
       }
       bused[left] = true;
       aused[matched] = true;
       if (out.value.links[left].brow != bad || out.value.links[matched].arow != bad) {
         return unsupported_pairs("incident already used");
       }
-      const std::size_t row_id = add_pair(&out.value, n.id, left, matched, ComputeLateralAxis(chord));
+      const std::size_t row_id = add_pair(&out.value, n.id, left, matched, ComputeLateralAxis(pair_axis));
       out.value.links[left].brow = row_id;
       out.value.links[matched].arow = row_id;
     }

@@ -50,6 +50,11 @@ BackboneSpec
 context linkは判断入力であり、生成・保存対象ではない。
 T/cross/branchのkind enumは作らず、pair/open/rowの組合せで表す。
 
+pair row axisは`pairs make(graph)`だけが決める。
+pass-through cornerでは前後linkの単位接線和から二等分方向を作り、その直交方向をrow axisにする。
+径間長の差でrow axisを回さず、各incident spanのlane順が反転しない範囲に保つ。
+鋭角をdead-end/jumper化する場合も、bundle templateではなく幾何と明示fixture境界で決める。
+
 ### row conflict と endpoint offset
 
 通常のroute bendはlowering対象ではない。

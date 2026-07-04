@@ -261,7 +261,7 @@ bool C624_backbone_variation_settings_reject_before_mutation();
 bool C625_backbone_context_profile_reject_before_mutation();
 bool C626_backbone_cable_template_updates_derive_outputs();
 bool C627_backbone_legacy_topology_apis_are_removed();
-bool C628_backbone_active_pole_type_update_rejects_unchanged();
+bool C628_backbone_active_pole_type_update_repositions_or_rejects_structure();
 bool C622_backbone_stage_timing_is_diagnostic_only();
 bool C634_backbone_terminal_nodes_create_no_node_patch_curve();
 bool C635_backbone_simple_continuous_node_creates_node_patch_curve();

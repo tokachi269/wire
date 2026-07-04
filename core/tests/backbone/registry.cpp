@@ -753,9 +753,10 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C627_backbone_legacy_topology_apis_are_removed",
                          "retired topology APIs are absent from the public surface", "Boundary", false,
                          C627_backbone_legacy_topology_apis_are_removed);
-  test_registry::AddTest(tests, "C628_backbone_active_pole_type_update_rejects_unchanged",
-                         "active backbone pole type updates reject before mutation", "Boundary", true,
-                         C628_backbone_active_pole_type_update_rejects_unchanged);
+  test_registry::AddTest(tests, "C628_backbone_active_pole_type_update_repositions_or_rejects_structure",
+                         "active backbone pole type placement updates derive outputs and structural edits reject",
+                         "Boundary", true,
+                         C628_backbone_active_pole_type_update_repositions_or_rejects_structure);
   test_registry::AddTest(tests, "C634_backbone_terminal_nodes_create_no_node_patch_curve",
                          "terminal backbone nodes do not create node patch curves", "Boundary", false,
                          C634_backbone_terminal_nodes_create_no_node_patch_curve);

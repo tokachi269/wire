@@ -28,13 +28,31 @@
 
 ## 決定済みの制限
 
-- `UpdatePoleTypeDefinition`は、対象typeをactive backbone poleが使用中ならmutation前に
-  `unsupported`を返す。非backbone poleだけが使用するtypeは従来どおり更新できる。
 - `AddConnectionByPole`、`AddDropFromPole`、`AddDropFromSpan`、`SplitSpan`はpublic API、
   実装、専用result/options型を削除済みである。
 
-これらは未解決blockerではない。active pole typeの一括migrationや旧topology operationが必要なら、
+これらは未解決blockerではない。旧topology operationが必要なら、
 `SavedBackboneGraph`を更新する新しいoperationとして別途設計する。
+
+## unsupported保留の一覧
+
+pipelineの入力validation系`unsupported`(不正入力の恒久拒否)はこの表の対象外。
+ここに載るのは「実装が無いため止めている」操作だけで、根本原因は
+`execute_update_plan`の`kRegenerate`未実装(`route-local regenerate is not implemented`)に集約される。
+viewerはこれらを事前に判別せず、Apply後のerror logで初めてunsupportedが見える。
+
+| 操作 | viewer到達 | 拒否条件 | 解除条件 |
+|---|---|---|---|
+| `UpdatePoleTypeDefinition` | `Apply Pole Template`(Pole Placement含む) | active backbone poleが対象typeを使用 | placement-only差分(band高さ/横位置、pole高さ)はkReposition化して通す方針を決定済み。band増減・side変更などの構造差分はregenerate実装まで保留 |
+| `UpdateBundleTemplate` | `Apply Bundle Template` | topology級差分 + 既存bundleあり | regenerate実装。visual-only/detail差分は現状も通る |
+| `UpdateCableTemplate` | `Apply Cable Template` | decision差分(continuity policy / default endpoint attachment) + 対象spanあり | regenerate実装(C357)。geometry/render差分は現状も通る |
+| `ApplyBundleRelatedPoleTypeToExistingPoles` | template Apply後に自動呼出 | 対象poleがbackbone node | regenerate実装(C297) |
+| `UpdateLayoutSettings` | `Apply Layout` | backbone span bindingが1つでも存在 | generation入力のためregenerate級。state全体一括拒否の粒度は再検討候補 |
+| `SetSpanEndpointSocketOverride` / Clear | 非backbone span向けのみ | backbone span | socketはgeneration所有。regenerate実装 |
+| `SetSpanBranchDownOffsetOverride` / Clear | 非backbone span向けのみ | backbone span | 同上 |
+| `UpdateAttachmentTemplate` | viewer未接続 | 使用中attachmentあり | regenerate実装 |
+| `UpdateVariationSettings` | viewer未接続 | backbone spanあり | regenerateではない。backbone派生がvariation settingsを消費した時点で解除 |
+| `UpdateContextProfile` | viewer未接続 | backbone spanあり | 同上。生成側が`ResolveStyleContext`を消費した時点で解除 |
 
 ## 残blocker
 

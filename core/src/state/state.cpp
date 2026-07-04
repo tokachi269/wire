@@ -251,6 +251,41 @@ bool pole_type_definition_equals(const PoleTypeDefinition& a, const PoleTypeDefi
   return true;
 }
 
+bool vec3_equals(const Vec3d& a, const Vec3d& b) {
+  return std::abs(a.x - b.x) <= 1e-12 && std::abs(a.y - b.y) <= 1e-12 &&
+         std::abs(a.z - b.z) <= 1e-12;
+}
+
+bool frame_equals(const Frame3d& a, const Frame3d& b) {
+  return vec3_equals(a.origin, b.origin) && vec3_equals(a.forward, b.forward) &&
+         vec3_equals(a.right, b.right) && vec3_equals(a.up, b.up);
+}
+
+bool port_band_placement_only_change(const PortPlacementBand& a, const PortPlacementBand& b) {
+  return a.band_id == b.band_id && a.category == b.category && frame_equals(a.local_direction, b.local_direction) &&
+         a.layer == b.layer && a.side == b.side && a.role == b.role && a.priority == b.priority &&
+         std::abs(a.min_spacing_m - b.min_spacing_m) <= 1e-12 && a.allow_multiple == b.allow_multiple &&
+         a.overflow_policy == b.overflow_policy && a.enabled == b.enabled;
+}
+
+bool pole_type_placement_only_change(const PoleTypeDefinition& before, const PoleTypeDefinition& after) {
+  if (before.id != after.id || before.port_bands.size() != after.port_bands.size() ||
+      before.anchor_slots.size() != after.anchor_slots.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < before.anchor_slots.size(); ++i) {
+    if (!anchor_slot_equals(before.anchor_slots[i], after.anchor_slots[i])) {
+      return false;
+    }
+  }
+  for (std::size_t i = 0; i < before.port_bands.size(); ++i) {
+    if (!port_band_placement_only_change(before.port_bands[i], after.port_bands[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 } // namespace
 
 CoreState::CoreState() {
@@ -1651,24 +1686,129 @@ EditResult<bool> CoreState::update_pole_type_and_refresh_instances(const PoleTyp
     result.value = false;
     return result;
   }
+
+  const PoleTypeDefinition before = it->second;
+  std::vector<ObjectId> pole_ids{};
+  std::vector<ObjectId> active_backbone_pole_ids{};
+  pole_ids.reserve(authoritative_.edit_state.poles.size());
   for (const Pole& pole : authoritative_.edit_state.poles.items()) {
-    if (pole.pole_type_id == pole_type.id && runtime_.backbone_index.pole_node.contains(pole.id)) {
-      result.error = "backbone unsupported: active pole type changes require regeneration";
-      return result;
+    if (pole.pole_type_id != pole_type.id) {
+      continue;
+    }
+    pole_ids.push_back(pole.id);
+    if (runtime_.backbone_index.pole_node.contains(pole.id)) {
+      active_backbone_pole_ids.push_back(pole.id);
     }
   }
+
+  UpdatePlan active_plan{};
+  active_plan.kind = UpdateKind::kReposition;
+  if (!active_backbone_pole_ids.empty()) {
+    if (!pole_type_placement_only_change(before, pole_type)) {
+      result.error = "backbone unsupported: active pole type structural changes require regeneration";
+      return result;
+    }
+    for (ObjectId pole_id : active_backbone_pole_ids) {
+      EditResult<UpdatePlan> plan = make_update_plan({UpdateKind::kReposition, UpdateTargetKind::kPole, pole_id});
+      if (!plan.ok) {
+        result.error = plan.error;
+        return result;
+      }
+      append_unique(active_plan.affected.poles, plan.value.affected.poles);
+      append_unique(active_plan.affected.ports, plan.value.affected.ports);
+      append_unique(active_plan.affected.spans, plan.value.affected.spans);
+      append_unique(active_plan.affected.edges, plan.value.affected.edges);
+    }
+  }
+
   it->second = pole_type;
   result.ok = true;
   result.value = true;
 
-  std::vector<ObjectId> pole_ids{};
-  pole_ids.reserve(authoritative_.edit_state.poles.size());
-  for (const Pole& pole : authoritative_.edit_state.poles.items()) {
-    if (pole.pole_type_id == pole_type.id) {
-      pole_ids.push_back(pole.id);
+  auto apply_active_backbone_placement = [&](ObjectId pole_id) -> EditResult<bool> {
+    EditResult<bool> applied{};
+    Pole* pole = authoritative_.edit_state.poles.find(pole_id);
+    if (pole == nullptr) {
+      applied.error = "pole not found";
+      return applied;
     }
-  }
+    if (std::abs(pole->height_m - pole_type.default_height_m) > 1e-12) {
+      pole->height_m = pole_type.default_height_m;
+      add_unique_id(result.change_set.updated_ids, pole_id);
+      applied.value = true;
+    }
+    const auto owned_port_ids_it = runtime_.relation_index.ports_by_pole.find(pole_id);
+    if (owned_port_ids_it != runtime_.relation_index.ports_by_pole.end()) {
+      for (ObjectId port_id : owned_port_ids_it->second) {
+        Port* existing_port = authoritative_.edit_state.ports.find(port_id);
+        if (existing_port == nullptr || !existing_port->generated_from_template ||
+            existing_port->position_mode == PortPositionMode::kManual) {
+          continue;
+        }
+        const PortPlacementBand* band_ptr = nullptr;
+        for (const PortPlacementBand& band : pole_type.port_bands) {
+          if (!band.enabled || band.category != existing_port->category ||
+              band.layer != existing_port->template_layer || band.side != existing_port->template_side ||
+              band.role != existing_port->template_role) {
+            continue;
+          }
+          if (band_ptr == nullptr || band.priority > band_ptr->priority ||
+              (band.priority == band_ptr->priority && band.band_id < band_ptr->band_id)) {
+            band_ptr = &band;
+          }
+        }
+        if (band_ptr == nullptr) {
+          applied.error = "backbone unsupported: active pole port band no longer resolves";
+          return applied;
+        }
+
+        Vec3d adjusted_local{0.0, band_ptr->lateral_center_m, band_ptr->height_center_m};
+        const bool apply_angle_correction = authoritative_.layout_settings.angle_correction_enabled &&
+                                            pole->context.kind == PoleContextKind::kCorner &&
+                                            band_ptr->side != SlotSide::kCenter;
+        double applied_scale = 1.0;
+        if (apply_angle_correction) {
+          adjusted_local.y = apply_corner_side_scale(adjusted_local.y, band_ptr->side,
+                                                     pole->context.corner_turn_sign, pole->context.side_scale);
+          if (std::abs(band_ptr->lateral_center_m) > 1e-9) {
+            applied_scale = std::abs(adjusted_local.y / band_ptr->lateral_center_m);
+          }
+        }
+        adjusted_local.y = std::clamp(adjusted_local.y, band_ptr->lateral_min_m, band_ptr->lateral_max_m);
+        adjusted_local.z = std::clamp(adjusted_local.z, band_ptr->height_min_m, band_ptr->height_max_m);
+        adjusted_local = apply_pole_clearance_to_local(*pole, adjusted_local, band_ptr->side);
+        const Vec3d world_position =
+            local_to_world_on_pole(pole->world_transform,
+                                   effective_port_layout_yaw_deg(*pole, existing_port->category), adjusted_local);
+        if (LengthSquared(existing_port->world_position - world_position) > 1e-12 ||
+            existing_port->angle_correction_applied != apply_angle_correction ||
+            std::abs(existing_port->side_scale_applied - applied_scale) > 1e-12) {
+          existing_port->world_position = world_position;
+          existing_port->angle_correction_applied = apply_angle_correction;
+          existing_port->side_scale_applied = apply_angle_correction ? applied_scale : 1.0;
+          apply_port_position_mode(*existing_port, PortPositionMode::kAuto, PortPlacementSourceKind::kPlacementBand);
+          add_unique_id(result.change_set.updated_ids, existing_port->id);
+          touch_connected_spans_from_port(existing_port->id, &result.change_set);
+          applied.value = true;
+        }
+      }
+    }
+    applied.ok = true;
+    return applied;
+  };
+
   for (ObjectId pole_id : pole_ids) {
+    if (std::find(active_backbone_pole_ids.begin(), active_backbone_pole_ids.end(), pole_id) !=
+        active_backbone_pole_ids.end()) {
+      const auto apply = apply_active_backbone_placement(pole_id);
+      if (!apply.ok) {
+        result.ok = false;
+        result.error = apply.error;
+        return result;
+      }
+      result.value = result.value || apply.value;
+      continue;
+    }
     const auto apply = ApplyPoleType(pole_id, pole_type.id);
     if (!apply.ok) {
       result.ok = false;
@@ -1677,6 +1817,15 @@ EditResult<bool> CoreState::update_pole_type_and_refresh_instances(const PoleTyp
     }
     append_change_set(result.change_set, apply.change_set);
     add_unique_id(result.change_set.updated_ids, pole_id);
+  }
+  if (!active_backbone_pole_ids.empty() && !active_plan.affected.spans.empty()) {
+    const auto derived = execute_update_plan(active_plan);
+    if (!derived.ok) {
+      result.ok = false;
+      result.error = derived.error;
+      return result;
+    }
+    append_unique(result.change_set.updated_ids, active_plan.affected.spans);
   }
   return result;
 }

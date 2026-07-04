@@ -7,7 +7,7 @@
 
 | family | 状態 | normal path | 消す条件 |
 |---|---|---|---|
-| `UpdatePoleTypeDefinition` | active backbone poleが使用中ならmutation前`unsupported`。非backbone poleだけなら更新可能 | post-edit API | active objectのtemplate migrationが必要になった時だけ、SavedGraph identityを維持する新operationを設計する |
+| `UpdatePoleTypeDefinition` | active backbone pole使用中でもplacement-only差分は`kReposition`で反映。構造差分はmutation前`unsupported` | post-edit API | band増減やrole/side変更などの構造差分を扱うtemplate migrationが必要になった時だけ、SavedGraph identityを維持する新operationを設計する |
 | `pending_support_nodes` | 未保存pickを次のrequestへ渡すtransient input | DrawPath input | 保存済みnodeと混同しない限り維持 |
 
 ## 隔離

@@ -77,8 +77,11 @@ ownerlessなmidair branchの取付位置は、saved edge、edge bundle、lane、
 post-edit APIは、派生出力を更新して成功するか、mutation前に拒否する。
 staleなlayout/geom/drawを残したまま成功してはいけない。
 
-`UpdatePoleTypeDefinition`は、対象typeをactive backbone poleが使用中ならmutation前に拒否する。
-非backbone poleだけへのdefinition再適用は許可する。active objectのtemplate migrationは現行scopeに含めない。
+`UpdatePoleTypeDefinition`は、対象typeをactive backbone poleが使用中でもplacement-only差分なら
+`kReposition`として既存auto portを再配置し、layout -> geom -> drawを再導出する。
+band追加・削除、enabled/side/layer/role/priority変更、anchor slot変更などの構造差分は
+route-local regenerateまたはtemplate migrationが必要なのでmutation前に`unsupported`で拒否する。
+manual portはtemplate placement更新では動かさない。
 
 `DeriveGeneratedSpanOutputs()` は、保存済み rules / layout source / `SavedBackboneGraph` binding から
 layout、geom、drawを再導出する入口である。topology、pair/open/row、port identityを再判断してはいけない。

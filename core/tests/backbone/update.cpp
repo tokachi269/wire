@@ -19,6 +19,53 @@ using namespace helpers;
 
 namespace backbone_tests {
 
+namespace {
+
+bool same_vec3(const wire::core::Vec3d& a, const wire::core::Vec3d& b) {
+  return almost_equal(a.x, b.x, 1e-12) && almost_equal(a.y, b.y, 1e-12) &&
+         almost_equal(a.z, b.z, 1e-12);
+}
+
+bool same_frame(const wire::core::Frame3d& a, const wire::core::Frame3d& b) {
+  return same_vec3(a.origin, b.origin) && same_vec3(a.forward, b.forward) &&
+         same_vec3(a.right, b.right) && same_vec3(a.up, b.up);
+}
+
+bool same_band(const wire::core::PortPlacementBand& a, const wire::core::PortPlacementBand& b) {
+  return a.band_id == b.band_id && a.category == b.category && same_frame(a.local_direction, b.local_direction) &&
+         a.layer == b.layer && a.side == b.side && a.role == b.role &&
+         almost_equal(a.lateral_center_m, b.lateral_center_m, 1e-12) &&
+         almost_equal(a.lateral_min_m, b.lateral_min_m, 1e-12) &&
+         almost_equal(a.lateral_max_m, b.lateral_max_m, 1e-12) &&
+         almost_equal(a.height_center_m, b.height_center_m, 1e-12) &&
+         almost_equal(a.height_min_m, b.height_min_m, 1e-12) &&
+         almost_equal(a.height_max_m, b.height_max_m, 1e-12) && a.priority == b.priority &&
+         almost_equal(a.min_spacing_m, b.min_spacing_m, 1e-12) && a.allow_multiple == b.allow_multiple &&
+         a.overflow_policy == b.overflow_policy && a.enabled == b.enabled;
+}
+
+bool same_pole_type(const wire::core::PoleTypeDefinition& a, const wire::core::PoleTypeDefinition& b) {
+  if (a.id != b.id || a.name != b.name || a.description != b.description ||
+      !almost_equal(a.default_height_m, b.default_height_m, 1e-12) ||
+      a.port_bands.size() != b.port_bands.size() || a.anchor_slots.size() != b.anchor_slots.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < a.port_bands.size(); ++i) {
+    if (!same_band(a.port_bands[i], b.port_bands[i])) {
+      return false;
+    }
+  }
+  return std::equal(a.anchor_slots.begin(), a.anchor_slots.end(), b.anchor_slots.begin(),
+                    [](const wire::core::AnchorSlotTemplate& lhs,
+                       const wire::core::AnchorSlotTemplate& rhs) {
+                      return lhs.slot_id == rhs.slot_id && lhs.usage == rhs.usage &&
+                             same_vec3(lhs.local_position, rhs.local_position) &&
+                             lhs.priority == rhs.priority && lhs.enabled == rhs.enabled;
+                    });
+}
+
+} // namespace
+
 bool C611_backbone_direct_derive_restores_saved_span_outputs() {
   wire::core::CoreState state;
   const auto out = state.GenerateFromBackboneSpec(line_req(state));
@@ -394,7 +441,7 @@ bool C627_backbone_legacy_topology_apis_are_removed() {
   return !contains_text(cmake, "state/legacy/topology.cpp");
 }
 
-bool C628_backbone_active_pole_type_update_rejects_unchanged() {
+bool C628_backbone_active_pole_type_update_repositions_or_rejects_structure() {
   wire::core::CoreState state;
   const auto generated = state.GenerateFromBackboneSpec(line_req(state));
   if (!generated.ok || generated.value.generated_pole_ids.empty() ||
@@ -433,7 +480,15 @@ bool C628_backbone_active_pole_type_update_rejects_unchanged() {
   const std::size_t binding_count_before = state.view().backbone().span_bindings.size();
 
   wire::core::PoleTypeDefinition edited = type_before;
-  edited.default_height_m += 1.0;
+  edited.default_height_m += 0.35;
+  for (wire::core::PortPlacementBand& band : edited.port_bands) {
+    if (!band.enabled) {
+      continue;
+    }
+    band.height_center_m += 0.75;
+    band.height_min_m += 0.75;
+    band.height_max_m += 0.75;
+  }
   const auto updated = state.UpdatePoleTypeDefinition(edited);
   const wire::core::Pole* pole_after = state.view().poles().find(pole_id);
   const wire::core::Port* port_a_after = state.view().ports().find(span->port_a_id);
@@ -443,28 +498,45 @@ bool C628_backbone_active_pole_type_update_rejects_unchanged() {
   const wire::core::SpanVisualCacheEntry* visual_after = state.find_span_visual_cache(span_id);
   const wire::core::SpanRenderCacheEntry* render_after = state.find_span_render_cache(span_id);
   const auto type_after = state.view().pole_types().find(type_before.id);
-  const bool curve_unchanged =
+  const bool curve_changed =
       curve_after != nullptr && curve_after->detail.sample_points.size() == curve_before.size() &&
-      std::equal(curve_before.begin(), curve_before.end(), curve_after->detail.sample_points.begin(),
-                 [](const wire::core::Vec3d& a, const wire::core::Vec3d& b) {
-                   return almost_equal(a, b, 1e-12);
-                 });
-  return !updated.ok && contains_text(updated.error, "unsupported") &&
-         type_after != state.view().pole_types().end() &&
-         almost_equal(type_after->second.default_height_m, type_before.default_height_m, 1e-12) &&
-         pole_after != nullptr && almost_equal(pole_after->height_m, pole_height_before, 1e-12) &&
-         port_a_after != nullptr && port_b_after != nullptr &&
-         almost_equal(port_a_after->world_position, port_a_before, 1e-12) &&
-         almost_equal(port_b_after->world_position, port_b_before, 1e-12) &&
-         layout_after.has_layout() &&
-         almost_equal(layout_after.entry->start.endpoint_world, layout_before.start.endpoint_world, 1e-12) &&
-         almost_equal(layout_after.entry->end.endpoint_world, layout_before.end.endpoint_world, 1e-12) &&
-         curve_unchanged &&
-         visual_after != nullptr && visual_after->source_version == visual_version_before &&
-         render_after != nullptr && render_after->source_version == render_version_before &&
-         state.view().backbone().nodes.size() == node_count_before &&
-         state.view().backbone().edges.size() == edge_count_before &&
-         state.view().backbone().span_bindings.size() == binding_count_before;
+      !std::equal(curve_before.begin(), curve_before.end(), curve_after->detail.sample_points.begin(),
+                  [](const wire::core::Vec3d& a, const wire::core::Vec3d& b) {
+                    return almost_equal(a, b, 1e-12);
+                  });
+  if (!updated.ok || type_after == state.view().pole_types().end() ||
+      !almost_equal(type_after->second.default_height_m, edited.default_height_m, 1e-12) ||
+      pole_after == nullptr || !almost_equal((pole_after->height_m - pole_height_before), 0.35, 1e-12) ||
+      port_a_after == nullptr || port_b_after == nullptr ||
+      almost_equal(port_a_after->world_position, port_a_before, 1e-12) ||
+      almost_equal(port_b_after->world_position, port_b_before, 1e-12) ||
+      !layout_after.has_layout() ||
+      almost_equal(layout_after.entry->start.endpoint_world, layout_before.start.endpoint_world, 1e-12) ||
+      almost_equal(layout_after.entry->end.endpoint_world, layout_before.end.endpoint_world, 1e-12) ||
+      !curve_changed ||
+      visual_after == nullptr || visual_after->source_version == visual_version_before ||
+      render_after == nullptr || render_after->source_version == render_version_before ||
+      state.view().backbone().nodes.size() != node_count_before ||
+      state.view().backbone().edges.size() != edge_count_before ||
+      state.view().backbone().span_bindings.size() != binding_count_before) {
+    return false;
+  }
+
+  const wire::core::PoleTypeDefinition before_structural_reject = type_after->second;
+  const wire::core::Vec3d port_a_before_reject = port_a_after->world_position;
+  wire::core::PoleTypeDefinition structural = before_structural_reject;
+  if (structural.port_bands.empty()) {
+    return false;
+  }
+  structural.port_bands.front().enabled = !structural.port_bands.front().enabled;
+  const auto rejected = state.UpdatePoleTypeDefinition(structural);
+  const auto type_after_reject = state.view().pole_types().find(type_before.id);
+  const wire::core::Port* port_a_after_reject = state.view().ports().find(span->port_a_id);
+  return !rejected.ok && contains_text(rejected.error, "unsupported") &&
+         type_after_reject != state.view().pole_types().end() &&
+         same_pole_type(type_after_reject->second, before_structural_reject) &&
+         port_a_after_reject != nullptr &&
+         almost_equal(port_a_after_reject->world_position, port_a_before_reject, 1e-12);
 }
 
 bool C622_backbone_stage_timing_is_diagnostic_only() {

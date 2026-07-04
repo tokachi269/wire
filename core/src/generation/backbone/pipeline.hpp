@@ -144,6 +144,7 @@ struct tspan {
   std::size_t lane = bad;
   std::size_t arow = bad;
   std::size_t brow = bad;
+  bool is_new = true;
 };
 
 struct topo {
@@ -189,6 +190,8 @@ public:
   [[nodiscard]] EditResult<bool> prepare();
   [[nodiscard]] EditResult<bool> check() const;
   [[nodiscard]] EditResult<GenerateBundleFromPathResult> build();
+  [[nodiscard]] EditResult<GenerateBundleFromPathResult> build_prepared_regenerate(
+      graph made, std::vector<std::size_t> active_bundle_indices);
 
 private:
   [[nodiscard]] EditResult<pairs> make(const graph& made) const;
@@ -214,6 +217,7 @@ private:
   CoreState& state_;
   const BackboneSpec& spec_;
   bool ready_ = false;
+  bool refresh_resolved_ports_ = false;
   graph g_{};
   std::vector<std::size_t> active_bundle_indices_{};
   std::vector<std::size_t> local_by_input_{};

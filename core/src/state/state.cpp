@@ -1749,14 +1749,9 @@ EditResult<bool> CoreState::update_pole_type_and_refresh_instances(const PoleTyp
         }
         const PortPlacementBand* band_ptr = nullptr;
         for (const PortPlacementBand& band : pole_type.port_bands) {
-          const bool band_matches_port =
-              backbone_bound_port
-                  ? (band.enabled && band.category == existing_port->category &&
-                     band.layer == existing_port->template_layer)
-                  : (band.enabled && band.category == existing_port->category &&
-                     band.layer == existing_port->template_layer && band.side == existing_port->template_side &&
-                     band.role == existing_port->template_role);
-          if (!band_matches_port) {
+          if (!band.enabled || band.category != existing_port->category ||
+              band.layer != existing_port->template_layer || band.side != existing_port->template_side ||
+              band.role != existing_port->template_role) {
             continue;
           }
           if (band_ptr == nullptr || band.priority > band_ptr->priority ||

@@ -857,6 +857,25 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C667_backbone_branch_preserves_through_patch",
                          "backbone branch addition preserves the connectivity-owned through patch",
                          "Boundary", false, C667_backbone_branch_preserves_through_patch);
+  test_registry::AddTest(tests, "C668_backbone_bundle_count_regenerate_rejects_unreconstructable_lateral_offset",
+                         "backbone bundle count regenerate rejects saved spans whose port placement cannot be reconstructed",
+                         "Boundary", false,
+                         C668_backbone_bundle_count_regenerate_rejects_unreconstructable_lateral_offset);
+  test_registry::AddTest(tests, "C669_backbone_bundle_count_regenerate_rejects_multi_bundle_group_offset",
+                         "backbone bundle count regenerate rejects multi-bundle group offsets before mutation",
+                         "Boundary", false, C669_backbone_bundle_count_regenerate_rejects_multi_bundle_group_offset);
+  test_registry::AddTest(tests, "C670_backbone_bundle_count_regenerate_rejects_pair_rows",
+                         "backbone bundle count regenerate rejects pair rows before mutation",
+                         "Boundary", false, C670_backbone_bundle_count_regenerate_rejects_pair_rows);
+  test_registry::AddTest(tests, "C671_backbone_bundle_count_regenerate_reuses_pipeline_stages",
+                         "backbone bundle count regenerate reuses pipeline stages instead of local emit copies",
+                         "Boundary", false, C671_backbone_bundle_count_regenerate_reuses_pipeline_stages);
+  test_registry::AddTest(tests, "C672_backbone_bundle_count_regenerate_rejects_manual_ports",
+                         "backbone bundle count regenerate rejects manual ports before mutation",
+                         "Boundary", false, C672_backbone_bundle_count_regenerate_rejects_manual_ports);
+  test_registry::AddTest(tests, "C673_backbone_bundle_count_regenerate_rejects_user_attachments",
+                         "backbone bundle count regenerate rejects user attachments before mutation",
+                         "Boundary", false, C673_backbone_bundle_count_regenerate_rejects_user_attachments);
 }
 
 

@@ -92,6 +92,115 @@ std::vector<wire::core::Vec3d> bound_port_positions(const wire::core::CoreState&
   return out;
 }
 
+struct SpanCurveSignature {
+  std::size_t lane = 0;
+  wire::core::Vec3d port_a{};
+  wire::core::Vec3d port_b{};
+  std::vector<wire::core::Vec3d> samples{};
+};
+
+std::vector<SpanCurveSignature> span_curve_signatures(const wire::core::CoreState& state) {
+  std::vector<SpanCurveSignature> out{};
+  if (state.view().backbone().edge_bundles.empty()) {
+    return out;
+  }
+  const wire::core::ObjectId edge_bundle_id = state.view().backbone().edge_bundles.front().edge_bundle_id;
+  for (const wire::core::SavedBackboneSpanBinding& binding : state.view().backbone().span_bindings) {
+    if (binding.edge_bundle_id != edge_bundle_id) {
+      continue;
+    }
+    const wire::core::Span* span = state.view().spans().find(binding.span_id);
+    const auto* curve = state.find_curve_cache(binding.span_id);
+    if (span == nullptr || curve == nullptr) {
+      return {};
+    }
+    const wire::core::Port* port_a = state.view().ports().find(span->port_a_id);
+    const wire::core::Port* port_b = state.view().ports().find(span->port_b_id);
+    if (port_a == nullptr || port_b == nullptr) {
+      return {};
+    }
+    SpanCurveSignature item{};
+    item.lane = binding.lane_index;
+    item.port_a = port_a->world_position;
+    item.port_b = port_b->world_position;
+    item.samples = curve->detail.sample_points;
+    out.push_back(std::move(item));
+  }
+  std::sort(out.begin(), out.end(), [](const SpanCurveSignature& lhs, const SpanCurveSignature& rhs) {
+    return lhs.lane < rhs.lane;
+  });
+  return out;
+}
+
+bool same_span_curve_signatures(const std::vector<SpanCurveSignature>& lhs,
+                                const std::vector<SpanCurveSignature>& rhs) {
+  if (lhs.size() != rhs.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < lhs.size(); ++i) {
+    if (lhs[i].lane != rhs[i].lane || !same_vec3(lhs[i].port_a, rhs[i].port_a) ||
+        !same_vec3(lhs[i].port_b, rhs[i].port_b) || lhs[i].samples.size() != rhs[i].samples.size()) {
+      return false;
+    }
+    for (std::size_t j = 0; j < lhs[i].samples.size(); ++j) {
+      if (!same_vec3(lhs[i].samples[j], rhs[i].samples[j])) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+struct CountSnapshot {
+  std::size_t poles = 0;
+  std::size_t ports = 0;
+  std::size_t bundles = 0;
+  std::size_t spans = 0;
+  std::size_t nodes = 0;
+  std::size_t edges = 0;
+  std::size_t edge_bundles = 0;
+  std::size_t port_bindings = 0;
+  std::size_t span_bindings = 0;
+  int fixed_count = 0;
+};
+
+CountSnapshot count_snapshot(const wire::core::CoreState& state) {
+  CountSnapshot out{};
+  out.poles = state.view().poles().size();
+  out.ports = state.view().ports().size();
+  out.bundles = state.view().bundles().size();
+  out.spans = state.view().spans().size();
+  out.nodes = state.view().backbone().nodes.size();
+  out.edges = state.view().backbone().edges.size();
+  out.edge_bundles = state.view().backbone().edge_bundles.size();
+  out.port_bindings = state.view().backbone().port_bindings.size();
+  out.span_bindings = state.view().backbone().span_bindings.size();
+  const auto it = state.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  out.fixed_count = it == state.view().bundle_templates().end() ? 0 : it->second.fixed_count;
+  return out;
+}
+
+bool same_counts(const CountSnapshot& a, const CountSnapshot& b) {
+  return a.poles == b.poles && a.ports == b.ports && a.bundles == b.bundles && a.spans == b.spans &&
+         a.nodes == b.nodes && a.edges == b.edges && a.edge_bundles == b.edge_bundles &&
+         a.port_bindings == b.port_bindings && a.span_bindings == b.span_bindings &&
+         a.fixed_count == b.fixed_count;
+}
+
+bool update_low_voltage_count_to_two(wire::core::CoreState& state, std::string* error = nullptr) {
+  const auto template_it = state.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  if (template_it == state.view().bundle_templates().end()) {
+    return false;
+  }
+  wire::core::BundleTemplate edited = template_it->second;
+  edited.fixed_count = 2;
+  const auto updated = state.UpdateBundleTemplate(edited);
+  if (error != nullptr) {
+    *error = updated.error;
+  }
+  return updated.ok && updated.value;
+}
+
 } // namespace
 
 bool C611_backbone_direct_derive_restores_saved_span_outputs() {
@@ -641,17 +750,102 @@ bool C660_backbone_bundle_count_regenerate_updates_downstream_only() {
       fresh.view().backbone().edge_bundles.front().span_ids.size() != bundle.span_ids.size()) {
     return false;
   }
-  const std::vector<wire::core::Vec3d> regenerated_ports = bound_port_positions(state);
-  const std::vector<wire::core::Vec3d> fresh_ports = bound_port_positions(fresh);
-  if (regenerated_ports.size() != fresh_ports.size()) {
+  return same_span_curve_signatures(span_curve_signatures(state), span_curve_signatures(fresh));
+}
+
+bool C668_backbone_bundle_count_regenerate_rejects_unreconstructable_lateral_offset() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = line_req(state);
+  req.constraints.lateral_offset_m = 0.35;
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  if (!generated.ok || generated.value.generated_span_ids.empty()) {
     return false;
   }
-  for (std::size_t i = 0; i < regenerated_ports.size(); ++i) {
-    if (!same_vec3(regenerated_ports[i], fresh_ports[i])) {
-      return false;
-    }
+  const CountSnapshot before = count_snapshot(state);
+  std::string error{};
+  const bool updated = update_low_voltage_count_to_two(state, &error);
+  return !updated && contains_text(error, "cannot reconstruct existing port placement") &&
+         same_counts(before, count_snapshot(state));
+}
+
+bool C669_backbone_bundle_count_regenerate_rejects_multi_bundle_group_offset() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = line_req(state);
+  add_backbone_bundle(req, wire::core::BundleKind::kCommunication);
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  if (!generated.ok || generated.value.generated_span_ids.size() < 2) {
+    return false;
   }
-  return true;
+  const CountSnapshot before = count_snapshot(state);
+  std::string error{};
+  const bool updated = update_low_voltage_count_to_two(state, &error);
+  return !updated && contains_text(error, "cannot reconstruct existing port placement") &&
+         same_counts(before, count_snapshot(state));
+}
+
+bool C670_backbone_bundle_count_regenerate_rejects_pair_rows() {
+  wire::core::CoreState state;
+  const auto generated = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!generated.ok || generated.value.generated_span_ids.size() < 2) {
+    return false;
+  }
+  const CountSnapshot before = count_snapshot(state);
+  std::string error{};
+  const bool updated = update_low_voltage_count_to_two(state, &error);
+  return !updated && contains_text(error, "simple open rows only") && same_counts(before, count_snapshot(state));
+}
+
+
+bool C671_backbone_bundle_count_regenerate_reuses_pipeline_stages() {
+  std::string source{};
+  if (!file_text(repo_root() / "core/src/generation/backbone/regenerate.cpp", &source)) {
+    return false;
+  }
+  return source.find("build_prepared_regenerate") != std::string::npos &&
+         source.find("AddPort(") == std::string::npos && source.find("AddSpan(") == std::string::npos &&
+         source.find("SpanLayoutRule") == std::string::npos && source.find("save_backbone_node") == std::string::npos &&
+         source.find("save_backbone_edge") == std::string::npos;
+}
+
+bool C672_backbone_bundle_count_regenerate_rejects_manual_ports() {
+  wire::core::CoreState state;
+  const auto generated = state.GenerateFromBackboneSpec(line_req(state));
+  if (!generated.ok || generated.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const wire::core::Span* span = state.view().spans().find(generated.value.generated_span_ids.front());
+  if (span == nullptr) {
+    return false;
+  }
+  const wire::core::Port* port = state.view().ports().find(span->port_a_id);
+  if (port == nullptr) {
+    return false;
+  }
+  const auto moved = state.MovePort(port->id, {port->world_position.x + 0.1, port->world_position.y,
+                                               port->world_position.z});
+  if (!moved.ok) {
+    return false;
+  }
+  const CountSnapshot before = count_snapshot(state);
+  std::string error{};
+  const bool updated = update_low_voltage_count_to_two(state, &error);
+  return !updated && contains_text(error, "manual ports") && same_counts(before, count_snapshot(state));
+}
+
+bool C673_backbone_bundle_count_regenerate_rejects_user_attachments() {
+  wire::core::CoreState state;
+  const auto generated = state.GenerateFromBackboneSpec(line_req(state));
+  if (!generated.ok || generated.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const auto attachment = state.AddAttachment(generated.value.generated_span_ids.front(), 0.5);
+  if (!attachment.ok) {
+    return false;
+  }
+  const CountSnapshot before = count_snapshot(state);
+  std::string error{};
+  const bool updated = update_low_voltage_count_to_two(state, &error);
+  return !updated && contains_text(error, "attachments") && same_counts(before, count_snapshot(state));
 }
 
 bool C622_backbone_stage_timing_is_diagnostic_only() {

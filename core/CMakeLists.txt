@@ -8,12 +8,13 @@ add_library(
   src/state/inspection.cpp
   src/state/endpoint_refresh_service.cpp
   src/state/override_resolution.cpp
-  src/state/template/regenerate.cpp
   src/state/template/update.cpp
   src/generation/backbone/curve_parts.cpp
   src/generation/backbone/derive.cpp
+  src/generation/backbone/emit_shared.cpp
   src/generation/backbone/out.cpp
   src/generation/backbone/population.cpp
+  src/generation/backbone/regenerate.cpp
   src/generation/backbone/pipeline.cpp
   src/generation/generate_from_backbone.cpp
   src/state/backbone.cpp

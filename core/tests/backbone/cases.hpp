@@ -296,5 +296,11 @@ bool C664_backbone_sharp_pole_facing_consumes_pair_decision();
 bool C665_backbone_midair_attachment_uses_derived_curve();
 bool C666_backbone_terminal_extension_creates_connectivity_patch();
 bool C667_backbone_branch_preserves_through_patch();
+bool C668_backbone_bundle_count_regenerate_rejects_unreconstructable_lateral_offset();
+bool C669_backbone_bundle_count_regenerate_rejects_multi_bundle_group_offset();
+bool C670_backbone_bundle_count_regenerate_rejects_pair_rows();
+bool C671_backbone_bundle_count_regenerate_reuses_pipeline_stages();
+bool C672_backbone_bundle_count_regenerate_rejects_manual_ports();
+bool C673_backbone_bundle_count_regenerate_rejects_user_attachments();
 
 } // namespace backbone_tests

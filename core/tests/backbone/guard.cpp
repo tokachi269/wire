@@ -64,9 +64,12 @@ bool C387_backbone_pairs_are_single_source() {
     return false;
   }
   const std::string signature = "EditResult<pairs> pipeline::make(const graph& made) const";
-  const std::string call = "EditResult<pairs> ps = make(g_)";
-  const std::size_t first = text.find(call);
-  return contains_text(text, signature) && first != std::string::npos && text.find(call, first + call.size()) == std::string::npos;
+  const std::size_t first = text.find(signature);
+  if (first == std::string::npos || text.find(signature, first + signature.size()) != std::string::npos) {
+    return false;
+  }
+  return !contains_text(text, "make_pairs") && !contains_text(text, "build_pairs") &&
+         !contains_text(text, "regenerate_pairs");
 }
 
 bool C391_backbone_no_kind_label() {

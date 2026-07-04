@@ -2125,14 +2125,18 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
       for (int lane = 0; lane < v.value.count; ++lane) {
         const Vec3d shift = (r.id < shifts.size()) ? shifts[r.id] : Vec3d{};
         Vec3d p{};
-        if (ownerless && g_.nodes[r.node].has_source_edge) {
-          const std::optional<Vec3d> attachment =
-              source_attachment_for(state_, g_.nodes[r.node], scope.bundle, static_cast<std::size_t>(lane));
-          if (!attachment.has_value()) {
-            out.error = "backbone unsupported: source edge attachment is missing";
-            return out;
+        if (ownerless) {
+          if (g_.nodes[r.node].has_source_edge) {
+            const std::optional<Vec3d> attachment =
+                source_attachment_for(state_, g_.nodes[r.node], scope.bundle, static_cast<std::size_t>(lane));
+            if (!attachment.has_value()) {
+              out.error = "backbone unsupported: source edge attachment is missing";
+              return out;
+            }
+            p = *attachment;
+          } else {
+            p = g_.nodes[r.node].pos;
           }
-          p = *attachment;
         } else {
           const Pole* pole = state_.edit_state_access().poles.find(tr.pole);
           if (pole == nullptr) {

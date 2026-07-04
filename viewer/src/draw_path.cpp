@@ -719,9 +719,9 @@ ExperimentalCablePopulationConfigLocal(const ViewerUiState& ui_state) {
     rule.randomness = 0.65;
     config.rules.push_back(rule);
   };
-  add_rule(1001, wire::core::BundleKind::kLowVoltage, 10, 0, 1, 0.030);
-  add_rule(1002, wire::core::BundleKind::kCommunication, 20, 2, 6, 0.030);
-  add_rule(1003, wire::core::BundleKind::kOptical, 15, 1, 3, 0.030);
+  add_rule(1001, wire::core::BundleKind::kLowVoltage, 10, 0, 1, 0.050);
+  add_rule(1002, wire::core::BundleKind::kCommunication, 20, 4, 8, 0.075);
+  add_rule(1003, wire::core::BundleKind::kOptical, 15, 3, 5, 0.070);
   return config;
 }
 

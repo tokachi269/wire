@@ -14,26 +14,6 @@ Vec3d local_to_world_on_pole(const Transformd& tf, double yaw_deg, const Vec3d& 
   return LocalPointToWorld(BuildPoleFrame(tf, yaw_deg), local);
 }
 
-double apply_corner_side_scale(double local_y, SlotSide slot_side, double turn_sign, double side_scale) {
-  if (slot_side == SlotSide::kCenter) {
-    return local_y;
-  }
-  const double inner_scale = 1.0 + (side_scale - 1.0) * 0.35;
-  SlotSide inner_side = SlotSide::kCenter;
-  if (turn_sign > 1e-9) {
-    inner_side = SlotSide::kLeft;
-  } else if (turn_sign < -1e-9) {
-    inner_side = SlotSide::kRight;
-  }
-  if (inner_side == SlotSide::kCenter) {
-    return local_y * side_scale;
-  }
-  if (slot_side == inner_side) {
-    return local_y * inner_scale;
-  }
-  return local_y * side_scale;
-}
-
 const AnchorSlotTemplate* find_anchor_hint(const PoleTypeDefinition* pole_type, const Anchor& anchor,
                                            const Pole& pole, double pole_yaw_deg) {
   if (pole_type == nullptr) {
@@ -133,7 +113,8 @@ void EndpointRefreshService::RefreshOwnedEndpointsFromPole(CoreState& state, Obj
                                  pole->context.kind == PoleContextKind::kCorner && band->side != SlotSide::kCenter;
         if (apply_angle_correction) {
           adjusted_local.y =
-              apply_corner_side_scale(adjusted_local.y, band->side, pole->context.corner_turn_sign, pole->context.side_scale);
+              state_internal::apply_corner_side_scale(
+                  adjusted_local.y, band->side, pole->context.corner_turn_sign, pole->context.side_scale);
           if (std::abs(reference_local.y) > 1e-9) {
             applied_scale = std::abs(adjusted_local.y / reference_local.y);
           }

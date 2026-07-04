@@ -35,4 +35,30 @@ const PortPlacementBand* FindPortPlacementBandForPort(
   return best;
 }
 
+SlotSide inner_side_for_turn(double turn_sign) {
+  if (turn_sign > 1e-9) {
+    return SlotSide::kLeft;
+  }
+  if (turn_sign < -1e-9) {
+    return SlotSide::kRight;
+  }
+  return SlotSide::kCenter;
+}
+
+double apply_corner_side_scale(
+    double local_y, SlotSide slot_side, double turn_sign, double side_scale) {
+  if (slot_side == SlotSide::kCenter) {
+    return local_y;
+  }
+  const double inner_scale = 1.0 + (side_scale - 1.0) * 0.35;
+  const SlotSide inner_side = inner_side_for_turn(turn_sign);
+  if (inner_side == SlotSide::kCenter) {
+    return local_y * side_scale;
+  }
+  if (slot_side == inner_side) {
+    return local_y * inner_scale;
+  }
+  return local_y * side_scale;
+}
+
 } // namespace wire::core::state_internal

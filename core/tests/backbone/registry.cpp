@@ -885,6 +885,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C676_backbone_noop_move_preserves_port_positions_exactly",
                          "no-op pole movement preserves generated backbone port positions exactly",
                          "Invariant", false, C676_backbone_noop_move_preserves_port_positions_exactly);
+  test_registry::AddTest(tests, "C677_backbone_corner_scale_has_one_definition",
+                         "corner side scale and inner turn side each have one production definition",
+                         "Boundary", false, C677_backbone_corner_scale_has_one_definition);
 }
 
 

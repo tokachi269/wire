@@ -172,32 +172,6 @@ int role_score_for_context(SlotRole role, ConnectionContext context) {
   }
 }
 
-SlotSide inner_side_for_turn(double turn_sign) {
-  if (turn_sign > 1e-9) {
-    return SlotSide::kLeft;
-  }
-  if (turn_sign < -1e-9) {
-    return SlotSide::kRight;
-  }
-  return SlotSide::kCenter;
-}
-
-double apply_corner_side_scale(double local_y, SlotSide slot_side, double turn_sign, double side_scale) {
-  if (slot_side == SlotSide::kCenter) {
-    return local_y;
-  }
-  // Always widen non-center lanes for clearance; keep outer side wider than inner side.
-  const double inner_scale = 1.0 + (side_scale - 1.0) * 0.35;
-  const SlotSide inner_side = inner_side_for_turn(turn_sign);
-  if (inner_side == SlotSide::kCenter) {
-    return local_y * side_scale;
-  }
-  if (slot_side == inner_side) {
-    return local_y * inner_scale;
-  }
-  return local_y * side_scale;
-}
-
 template <typename TValue> void append_unique(std::vector<TValue>& dst, const std::vector<TValue>& src) {
   for (const TValue& value : src) {
     if (std::find(dst.begin(), dst.end(), value) == dst.end()) {
@@ -776,8 +750,8 @@ EditResult<ObjectId> CoreState::ResetPortPositionToAuto(ObjectId port_id) {
                                               band_ptr->side != SlotSide::kCenter;
           double applied_scale = 1.0;
           if (apply_angle_correction) {
-            adjusted_local.y = apply_corner_side_scale(adjusted_local.y, band_ptr->side,
-                                                       owner->context.corner_turn_sign, owner->context.side_scale);
+            adjusted_local.y = state_internal::apply_corner_side_scale(
+                adjusted_local.y, band_ptr->side, owner->context.corner_turn_sign, owner->context.side_scale);
             if (std::abs(current_local.y) > 1e-9) {
               applied_scale = std::abs(adjusted_local.y / current_local.y);
             }
@@ -1232,7 +1206,8 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
     double applied_scale = 1.0;
     if (apply_angle_correction) {
       adjusted_local.y =
-          apply_corner_side_scale(adjusted_local.y, band.side, pole->context.corner_turn_sign, pole->context.side_scale);
+          state_internal::apply_corner_side_scale(
+              adjusted_local.y, band.side, pole->context.corner_turn_sign, pole->context.side_scale);
       if (std::abs(band.lateral_center_m) > 1e-9) {
         applied_scale = std::abs(adjusted_local.y / band.lateral_center_m);
       }
@@ -1786,8 +1761,8 @@ EditResult<bool> CoreState::update_pole_type_and_refresh_instances(const PoleTyp
                                             band_ptr->side != SlotSide::kCenter;
         double applied_scale = 1.0;
         if (apply_angle_correction) {
-          adjusted_local.y = apply_corner_side_scale(adjusted_local.y, band_ptr->side,
-                                                     pole->context.corner_turn_sign, pole->context.side_scale);
+          adjusted_local.y = state_internal::apply_corner_side_scale(
+              adjusted_local.y, band_ptr->side, pole->context.corner_turn_sign, pole->context.side_scale);
           if (std::abs(band_ptr->lateral_center_m) > 1e-9) {
             applied_scale = std::abs(adjusted_local.y / band_ptr->lateral_center_m);
           }

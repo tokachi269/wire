@@ -1153,4 +1153,30 @@ bool C675_backbone_layout_yaw_does_not_read_debug_records() {
          contains_text(body, "layout_yaw_deg");
 }
 
+bool C677_backbone_corner_scale_has_one_definition() {
+  std::size_t scale_definitions = 0;
+  std::size_t side_definitions = 0;
+  const std::filesystem::path root = repo_root() / "core/src";
+  for (const auto& entry : std::filesystem::recursive_directory_iterator(root)) {
+    if (!entry.is_regular_file() || entry.path().extension() != ".cpp") {
+      continue;
+    }
+    std::string source{};
+    if (!file_text(entry.path(), &source)) {
+      return false;
+    }
+    for (std::size_t pos = source.find("double apply_corner_side_scale(");
+         pos != std::string::npos;
+         pos = source.find("double apply_corner_side_scale(", pos + 1)) {
+      ++scale_definitions;
+    }
+    for (std::size_t pos = source.find("SlotSide inner_side_for_turn(");
+         pos != std::string::npos;
+         pos = source.find("SlotSide inner_side_for_turn(", pos + 1)) {
+      ++side_definitions;
+    }
+  }
+  return scale_definitions == 1 && side_definitions == 1;
+}
+
 } // namespace backbone_tests

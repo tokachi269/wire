@@ -1,6 +1,7 @@
 #include "population.hpp"
 
 #include "wire/core/core_view.hpp"
+#include "../../state/port_placement.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -151,35 +152,15 @@ CablePopulationEndpoint resolve_endpoint(const CoreState& state, const LayoutEnd
   out.original_local = WorldPointToLocal(out.frame, layout.support_world);
   out.endpoint_offset_world = layout.endpoint_world - layout.support_world;
 
-  const PortPlacementBand* selected = nullptr;
-  int selected_identity_score = std::numeric_limits<int>::min();
-  double selected_distance2 = std::numeric_limits<double>::max();
-  for (const PortPlacementBand& band : pole_type_it->second.port_bands) {
-    if (!band.enabled || band.category != bundle_template.category || band.layer != port->template_layer) {
-      continue;
-    }
-    int identity_score = 0;
-    if (band.side == port->template_side) {
-      identity_score += 2;
-    }
-    if (port->template_role != SlotRole::kNeutral && band.role == port->template_role) {
-      identity_score += 1;
-    }
-    const double dy = out.original_local.y - band.lateral_center_m;
-    const double dz = out.original_local.z - band.height_center_m;
-    const double distance2 = dy * dy + dz * dz;
-    if (selected == nullptr || identity_score > selected_identity_score ||
-        (identity_score == selected_identity_score && distance2 < selected_distance2 - kEps) ||
-        (identity_score == selected_identity_score && std::abs(distance2 - selected_distance2) <= kEps &&
-         (band.priority > selected->priority ||
-          (band.priority == selected->priority && band.band_id < selected->band_id)))) {
-      selected = &band;
-      selected_identity_score = identity_score;
-      selected_distance2 = distance2;
-    }
+  const SavedBackbonePortBinding* binding = state.view().backbone_port_binding_for_port(port->id);
+  if (binding == nullptr) {
+    out.failure_reason = "endpoint port has no saved backbone binding";
+    return out;
   }
+  const PortPlacementBand* selected =
+      state_internal::FindPortPlacementBandById(pole_type_it->second, binding->placement_band_id);
   if (selected == nullptr) {
-    out.failure_reason = "no placement band matches endpoint template identity";
+    out.failure_reason = "saved placement band is missing from endpoint pole type";
     return out;
   }
 

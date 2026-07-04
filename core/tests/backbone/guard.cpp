@@ -795,7 +795,9 @@ bool C602_backbone_context_only_pole_band_does_not_filter_new_route() {
   if (!state.UpdatePoleTypeDefinition(comm_type).ok) {
     return false;
   }
-  if (!state.ApplyPoleType(b, comm_type_id).ok) {
+  const auto rejected = state.ApplyPoleType(b, comm_type_id);
+  const auto* unchanged_b = state.view().poles().find(b);
+  if (rejected.ok || unchanged_b == nullptr || unchanged_b->pole_type_id == comm_type_id) {
     return false;
   }
   const auto* pole_a = state.view().poles().find(a);
@@ -1106,6 +1108,37 @@ bool C620_backbone_update_boundary_has_no_operation_specific_kinds() {
     }
   }
   return true;
+}
+
+bool C674_backbone_port_band_selection_has_one_owner() {
+  const auto occurrences = [](const std::string& text, const std::string& needle) {
+    std::size_t count = 0;
+    for (std::size_t pos = text.find(needle); pos != std::string::npos;
+         pos = text.find(needle, pos + needle.size())) {
+      ++count;
+    }
+    return count;
+  };
+  std::string state{};
+  std::string endpoint{};
+  std::string population{};
+  std::string shared{};
+  std::string emit{};
+  if (!file_text(repo_root() / "core/src/state/state.cpp", &state) ||
+      !file_text(repo_root() / "core/src/state/endpoint_refresh_service.cpp", &endpoint) ||
+      !file_text(repo_root() / "core/src/generation/backbone/population.cpp", &population) ||
+      !file_text(repo_root() / "core/src/state/port_placement.cpp", &shared) ||
+      !file_text(repo_root() / "core/src/generation/backbone/emit_shared.cpp", &emit)) {
+    return false;
+  }
+  const std::string priority_decision = "band.priority >";
+  const std::size_t decision_count =
+      occurrences(state, priority_decision) + occurrences(endpoint, priority_decision) +
+      occurrences(population, priority_decision) + occurrences(shared, priority_decision) +
+      occurrences(emit, priority_decision);
+  return decision_count <= 2 && !contains_text(population, "identity_score") &&
+         contains_text(population, "backbone_port_binding_for_port") &&
+         contains_text(shared, "placement_band_id");
 }
 
 } // namespace backbone_tests

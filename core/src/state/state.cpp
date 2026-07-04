@@ -1,6 +1,8 @@
 #include "wire/core/core_state.hpp"
+#include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
 #include "internal_services.hpp"
+#include "port_placement.hpp"
 #include "../generation/support_policy.hpp"
 
 #include <algorithm>
@@ -743,28 +745,25 @@ EditResult<ObjectId> CoreState::ResetPortPositionToAuto(ObjectId port_id) {
     return result;
   }
 
-  apply_port_position_mode(*port, PortPositionMode::kAuto, port->placement_source);
+  const SavedBackbonePortBinding* backbone_binding = view().backbone_port_binding_for_port(port_id);
+  const Pole* owner = port->owner_pole_id == kInvalidObjectId
+                          ? nullptr
+                          : authoritative_.edit_state.poles.find(port->owner_pole_id);
+  const PoleTypeDefinition* owner_type =
+      owner == nullptr ? nullptr : find_pole_type(owner->pole_type_id);
+  const PortPlacementBand* resolved_band =
+      owner_type == nullptr ? nullptr : state_internal::FindPortPlacementBandForPort(*this, *owner_type, *port);
+  if (backbone_binding != nullptr && resolved_band == nullptr) {
+    result.error = "backbone unsupported: saved placement band is missing from pole type";
+    return result;
+  }
 
   bool recomputed = false;
-  if (port->owner_pole_id != kInvalidObjectId && port->generated_from_template) {
-    const Pole* pole = authoritative_.edit_state.poles.find(port->owner_pole_id);
-    if (pole != nullptr) {
-      const PoleTypeDefinition* pole_type = find_pole_type(pole->pole_type_id);
-      if (pole_type != nullptr) {
-        const PortPlacementBand* band_ptr = nullptr;
-        for (const PortPlacementBand& band : pole_type->port_bands) {
-          if (!band.enabled || band.category != port->category || band.layer != port->template_layer ||
-              band.side != port->template_side || band.role != port->template_role) {
-            continue;
-          }
-          if (band_ptr == nullptr || band.priority > band_ptr->priority ||
-              (band.priority == band_ptr->priority && band.band_id < band_ptr->band_id)) {
-            band_ptr = &band;
-          }
-        }
-        if (band_ptr != nullptr) {
+  if (owner != nullptr && resolved_band != nullptr &&
+      (port->generated_from_template || backbone_binding != nullptr)) {
+    const PortPlacementBand* band_ptr = resolved_band;
           const PoleFrame frame =
-              BuildPoleFrame(pole->world_transform, effective_port_layout_yaw_deg(*pole, port->category));
+              BuildPoleFrame(owner->world_transform, effective_port_layout_yaw_deg(*owner, port->category));
           const Vec3d current_local = WorldPointToLocal(frame, port->world_position);
           Vec3d adjusted_local{
               0.0,
@@ -772,28 +771,26 @@ EditResult<ObjectId> CoreState::ResetPortPositionToAuto(ObjectId port_id) {
               std::clamp(current_local.z, band_ptr->height_min_m, band_ptr->height_max_m),
           };
           const bool apply_angle_correction = authoritative_.layout_settings.angle_correction_enabled &&
-                                              pole->context.kind == PoleContextKind::kCorner &&
+                                              owner->context.kind == PoleContextKind::kCorner &&
                                               band_ptr->side != SlotSide::kCenter;
           double applied_scale = 1.0;
           if (apply_angle_correction) {
-            adjusted_local.y = apply_corner_side_scale(adjusted_local.y, band_ptr->side, pole->context.corner_turn_sign,
-                                                       pole->context.side_scale);
+            adjusted_local.y = apply_corner_side_scale(adjusted_local.y, band_ptr->side,
+                                                       owner->context.corner_turn_sign, owner->context.side_scale);
             if (std::abs(current_local.y) > 1e-9) {
               applied_scale = std::abs(adjusted_local.y / current_local.y);
             }
           }
-          adjusted_local = apply_pole_clearance_to_local(*pole, adjusted_local, band_ptr->side);
+          adjusted_local = apply_pole_clearance_to_local(*owner, adjusted_local, band_ptr->side);
           port->world_position =
-              local_to_world_on_pole(pole->world_transform, effective_port_layout_yaw_deg(*pole, port->category),
+              local_to_world_on_pole(owner->world_transform, effective_port_layout_yaw_deg(*owner, port->category),
                                      adjusted_local);
           port->angle_correction_applied = apply_angle_correction;
           port->side_scale_applied = apply_angle_correction ? applied_scale : 1.0;
           apply_port_position_mode(*port, PortPositionMode::kAuto, PortPlacementSourceKind::kPlacementBand);
           recomputed = true;
-        }
-      }
-    }
   }
+  apply_port_position_mode(*port, PortPositionMode::kAuto, port->placement_source);
   if (!recomputed && port->placement_source == PortPlacementSourceKind::kManualEdit) {
     apply_port_position_mode(*port, PortPositionMode::kAuto, PortPlacementSourceKind::kGenerated);
   }
@@ -1200,6 +1197,19 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
     result.error = "pole type not found";
     return result;
   }
+  if (const auto ports_it = runtime_.relation_index.ports_by_pole.find(pole_id);
+      ports_it != runtime_.relation_index.ports_by_pole.end()) {
+    for (ObjectId port_id : ports_it->second) {
+      const Port* port = authoritative_.edit_state.ports.find(port_id);
+      if (port == nullptr || state_internal::FindPortPlacementBandForPort(*this, *pole_type, *port) != nullptr) {
+        continue;
+      }
+      if (view().backbone_port_binding_for_port(port_id) != nullptr) {
+        result.error = "backbone unsupported: saved placement band is missing from target pole type";
+        return result;
+      }
+    }
+  }
 
   pole->pole_type_id = pole_type_id;
   result.change_set.updated_ids.push_back(pole_id);
@@ -1242,17 +1252,8 @@ EditResult<ObjectId> CoreState::ApplyPoleType(ObjectId pole_id, PoleTypeId pole_
         continue;
       }
 
-      const PortPlacementBand* band_ptr = nullptr;
-      for (const PortPlacementBand& band : pole_type->port_bands) {
-        if (!band.enabled || band.category != existing_port->category || band.layer != existing_port->template_layer ||
-            band.side != existing_port->template_side || band.role != existing_port->template_role) {
-          continue;
-        }
-        if (band_ptr == nullptr || band.priority > band_ptr->priority ||
-            (band.priority == band_ptr->priority && band.band_id < band_ptr->band_id)) {
-          band_ptr = &band;
-        }
-      }
+      const PortPlacementBand* band_ptr =
+          state_internal::FindPortPlacementBandForPort(*this, *pole_type, *existing_port);
       if (band_ptr == nullptr) {
         continue;
       }
@@ -1720,6 +1721,22 @@ EditResult<bool> CoreState::update_pole_type_and_refresh_instances(const PoleTyp
       append_unique(active_plan.affected.spans, plan.value.affected.spans);
       append_unique(active_plan.affected.edges, plan.value.affected.edges);
     }
+    for (ObjectId pole_id : active_backbone_pole_ids) {
+      const auto ports_it = runtime_.relation_index.ports_by_pole.find(pole_id);
+      if (ports_it == runtime_.relation_index.ports_by_pole.end()) {
+        continue;
+      }
+      for (ObjectId port_id : ports_it->second) {
+        const Port* port = authoritative_.edit_state.ports.find(port_id);
+        if (port == nullptr || view().backbone_port_binding_for_port(port_id) == nullptr) {
+          continue;
+        }
+        if (state_internal::FindPortPlacementBandForPort(*this, pole_type, *port) == nullptr) {
+          result.error = "backbone unsupported: active pole saved placement band no longer exists";
+          return result;
+        }
+      }
+    }
   }
 
   it->second = pole_type;
@@ -1747,18 +1764,8 @@ EditResult<bool> CoreState::update_pole_type_and_refresh_instances(const PoleTyp
             existing_port->position_mode == PortPositionMode::kManual) {
           continue;
         }
-        const PortPlacementBand* band_ptr = nullptr;
-        for (const PortPlacementBand& band : pole_type.port_bands) {
-          if (!band.enabled || band.category != existing_port->category ||
-              band.layer != existing_port->template_layer || band.side != existing_port->template_side ||
-              band.role != existing_port->template_role) {
-            continue;
-          }
-          if (band_ptr == nullptr || band.priority > band_ptr->priority ||
-              (band.priority == band_ptr->priority && band.band_id < band_ptr->band_id)) {
-            band_ptr = &band;
-          }
-        }
+        const PortPlacementBand* band_ptr =
+            state_internal::FindPortPlacementBandForPort(*this, pole_type, *existing_port);
         if (band_ptr == nullptr) {
           applied.error = "backbone unsupported: active pole port band no longer resolves";
           return applied;

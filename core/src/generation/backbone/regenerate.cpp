@@ -4,6 +4,7 @@
 
 #include "emit_shared.hpp"
 #include "pipeline.hpp"
+#include "../../state/port_placement.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -63,13 +64,14 @@ ObjectId span_for_lane(const CoreState& state, ObjectId edge_bundle_id, std::siz
   return found;
 }
 
-ObjectId port_for_lane(const CoreState& state, ObjectId edge_bundle_id, const SavedBackboneRowKey& row_key,
-                       std::size_t lane_index, BundleKind bundle_template_id) {
+const SavedBackbonePortBinding* port_binding_for_lane(
+    const CoreState& state, ObjectId edge_bundle_id, const SavedBackboneRowKey& row_key,
+    std::size_t lane_index, BundleKind bundle_template_id) {
   const auto it = state.view().backbone_index().edge_bundle_ports.find(edge_bundle_id);
   if (it == state.view().backbone_index().edge_bundle_ports.end()) {
-    return kInvalidObjectId;
+    return nullptr;
   }
-  ObjectId found = kInvalidObjectId;
+  const SavedBackbonePortBinding* found = nullptr;
   for (std::size_t binding_index : it->second) {
     if (binding_index >= state.view().backbone().port_bindings.size()) {
       continue;
@@ -79,12 +81,19 @@ ObjectId port_for_lane(const CoreState& state, ObjectId edge_bundle_id, const Sa
         binding.bundle_template_id != bundle_template_id) {
       continue;
     }
-    if (found != kInvalidObjectId && found != binding.port_id) {
-      return kInvalidObjectId;
+    if (found != nullptr && found->port_id != binding.port_id) {
+      return nullptr;
     }
-    found = binding.port_id;
+    found = &binding;
   }
   return found;
+}
+
+ObjectId port_for_lane(const CoreState& state, ObjectId edge_bundle_id, const SavedBackboneRowKey& row_key,
+                       std::size_t lane_index, BundleKind bundle_template_id) {
+  const SavedBackbonePortBinding* binding =
+      port_binding_for_lane(state, edge_bundle_id, row_key, lane_index, bundle_template_id);
+  return binding == nullptr ? kInvalidObjectId : binding->port_id;
 }
 
 struct regenerate_row_target {
@@ -279,21 +288,23 @@ EditResult<bool> CoreState::regenerate_backbone_bundle_count_change(BundleKind b
       if (pole_type_it == view().pole_types().end()) {
         return fail("backbone regenerate: endpoint pole type missing");
       }
-      const EditResult<PortPlacementBand> previous_band = generation::backbone::SelectPortPlacementBand(
-          pole_type_it->second, previous_template.category, previous_template.default_layer);
-      if (!previous_band.ok) {
-        return fail(previous_band.error);
+      const SavedBackbonePortBinding* existing_binding =
+          port_binding_for_lane(*this, edge_bundle_id, row_keys[i], 0, bundle_template_id);
+      if (existing_binding == nullptr) {
+        return fail("backbone regenerate: endpoint port binding missing");
       }
-      const EditResult<PortPlacementBand> next_band = generation::backbone::SelectPortPlacementBand(
-          pole_type_it->second, next_template.category, next_template.default_layer);
-      if (!next_band.ok) {
+      const PortPlacementBand* previous_band = state_internal::FindPortPlacementBandById(
+          pole_type_it->second, existing_binding->placement_band_id);
+      const PortPlacementBand* next_band = state_internal::FindPortPlacementBandById(
+          pole_type_it->second, existing_binding->placement_band_id);
+      if (previous_band == nullptr || next_band == nullptr) {
         return fail("backbone unsupported: port band missing");
       }
       if (row_keys[i].node_id != edge->node_a && row_keys[i].node_id != edge->node_b) {
         return fail("backbone regenerate: row node is not on edge");
       }
       target.rows[i] = regenerate_row_target{row_keys[i], node->pole_id, ComputeLateralAxis(edge->dir),
-                                             previous_band.value, next_band.value};
+                                             *previous_band, *next_band};
     }
     targets.push_back(target);
   }

@@ -673,7 +673,7 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "backbone context-only selected bundle policy does not filter new route bundles",
                          "Boundary", false, C601_backbone_context_only_bundle_policy_does_not_filter_new_route);
   test_registry::AddTest(tests, "C602_backbone_context_only_pole_band_does_not_filter_new_route",
-                         "backbone context-only pole bands do not filter new route bundles",
+                         "backbone rejects missing saved bands without affecting unrelated route generation",
                          "Boundary", false, C602_backbone_context_only_pole_band_does_not_filter_new_route);
   test_registry::AddTest(tests, "C603_backbone_context_node_does_not_affect_generated_endpoint_yaw",
                          "backbone context nodes do not affect generated endpoint pole yaw",
@@ -876,6 +876,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C673_backbone_bundle_count_regenerate_rejects_user_attachments",
                          "backbone bundle count regenerate rejects user attachments before mutation",
                          "Boundary", false, C673_backbone_bundle_count_regenerate_rejects_user_attachments);
+  test_registry::AddTest(tests, "C674_backbone_port_band_selection_has_one_owner",
+                         "backbone and post-edit port band selection use saved binding or one shared selector",
+                         "Boundary", false, C674_backbone_port_band_selection_has_one_owner);
 }
 
 

@@ -302,5 +302,6 @@ bool C670_backbone_bundle_count_regenerate_rejects_pair_rows();
 bool C671_backbone_bundle_count_regenerate_reuses_pipeline_stages();
 bool C672_backbone_bundle_count_regenerate_rejects_manual_ports();
 bool C673_backbone_bundle_count_regenerate_rejects_user_attachments();
+bool C674_backbone_port_band_selection_has_one_owner();
 
 } // namespace backbone_tests

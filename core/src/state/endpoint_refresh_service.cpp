@@ -1,4 +1,5 @@
 #include "internal_services.hpp"
+#include "port_placement.hpp"
 #include "wire/core/coord_utils.hpp"
 
 #include <algorithm>
@@ -31,24 +32,6 @@ double apply_corner_side_scale(double local_y, SlotSide slot_side, double turn_s
     return local_y * inner_scale;
   }
   return local_y * side_scale;
-}
-
-const PortPlacementBand* find_port_band(const PoleTypeDefinition* pole_type, const Port& port) {
-  if (pole_type == nullptr) {
-    return nullptr;
-  }
-  const PortPlacementBand* best = nullptr;
-  for (const PortPlacementBand& band : pole_type->port_bands) {
-    if (!band.enabled || band.category != port.category || band.layer != port.template_layer ||
-        band.side != port.template_side || band.role != port.template_role) {
-      continue;
-    }
-    if (best == nullptr || band.priority > best->priority ||
-        (band.priority == best->priority && band.band_id < best->band_id)) {
-      best = &band;
-    }
-  }
-  return best;
 }
 
 const AnchorSlotTemplate* find_anchor_hint(const PoleTypeDefinition* pole_type, const Anchor& anchor,
@@ -130,7 +113,8 @@ void EndpointRefreshService::RefreshOwnedEndpointsFromPole(CoreState& state, Obj
     PortPlacementSourceKind refresh_source = port->placement_source;
     if (port->placement_source == PortPlacementSourceKind::kPlacementBand ||
         port->placement_source == PortPlacementSourceKind::kPlacementBandConstrained) {
-      const PortPlacementBand* band = find_port_band(pole_type, *port);
+      const PortPlacementBand* band =
+          pole_type == nullptr ? nullptr : FindPortPlacementBandForPort(state, *pole_type, *port);
       if (band != nullptr) {
         const Vec3d reference_local =
             (previous_pole != nullptr)

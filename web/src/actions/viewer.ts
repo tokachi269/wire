@@ -347,6 +347,7 @@ export class ViewerActions {
   }
 
   commitBundleTemplate(template: BundleTemplateInfo): void {
+    this.finishInteractionBeforeCommit();
     this.store.update((current) => ({
       ...current,
       bundleTemplates: current.bundleTemplates.map((candidate) =>
@@ -355,6 +356,65 @@ export class ViewerActions {
     }));
     const result = this.bridge.updateBundleTemplate(template);
     this.finishTemplateOperation(result, `bundle template ${template.id} updated`);
+  }
+
+  previewBundleTemplate(
+    template: BundleTemplateInfo,
+    controlId: string,
+    param: string,
+    startValue: number,
+    value: number
+  ): void {
+    const before = this.readSnapshot();
+    if (before.interaction === null) {
+      const original = before.bundleTemplates.find(
+        (candidate) => candidate.id === template.id
+      );
+      if (original === undefined) {
+        this.store.setError("bundle template is not selected");
+        return;
+      }
+      this.store.update((current) => ({
+        ...current,
+        interaction: { controlId, param, startValue }
+      }));
+      this.interactionFrames = [];
+      this.interactionActive = true;
+      this.activeCancel = () => {
+        this.store.update((current) => ({
+          ...current,
+          bundleTemplates: current.bundleTemplates.map((candidate) =>
+            candidate.id === original.id ? original : candidate
+          ),
+          interaction: null
+        }));
+        const rollback = this.bridge.updateBundleTemplate(original);
+        if (rollback.ok) this.refreshScene();
+        else this.store.setError(rollback.error);
+      };
+    }
+    this.store.update((current) => ({
+      ...current,
+      bundleTemplates: current.bundleTemplates.map((candidate) =>
+        candidate.id === template.id ? template : candidate
+      )
+    }));
+    this.clearPendingPreview();
+    this.pendingPreview = setTimeout(() => {
+      this.pendingPreview = null;
+      const current = this.selectedBundleTemplate();
+      const result =
+        current === null
+          ? { ok: false, error: "bundle template is not selected" }
+          : this.bridge.updateBundleTemplate(current);
+      if (!result.ok) {
+        const error = result.error;
+        this.cancel();
+        this.store.setError(error);
+        return;
+      }
+      this.refreshScene();
+    }, 33);
   }
 
   applyRelatedPoleType(bundleTemplateId: number): void {
@@ -644,6 +704,15 @@ export class ViewerActions {
     return (
       current.cableTemplates.find(
         (template) => template.id === current.selectedCableTemplateId
+      ) ?? null
+    );
+  }
+
+  private selectedBundleTemplate(): BundleTemplateInfo | null {
+    const current = this.readSnapshot();
+    return (
+      current.bundleTemplates.find(
+        (template) => template.id === current.selectedBundleTemplateId
       ) ?? null
     );
   }

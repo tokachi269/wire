@@ -53,7 +53,8 @@ describe("viewer actions", () => {
           cableTemplateId: 2, relatedPoleTypeId: 1, defaultLayer: 2,
           allowMirror: true, allowMidairNode: true, allowMidairBranch: true,
           groupedSupportFanoutSpacing: 0.2, supportStyle: 0, branchPolicy: 0,
-          continuityPolicy: 0
+          continuityPolicy: 0,
+          populationRules: []
         }
       ],
       cableTemplates: () => [],
@@ -113,7 +114,8 @@ describe("viewer actions", () => {
           cableTemplateId: 2, relatedPoleTypeId: 1, defaultLayer: 2,
           allowMirror: true, allowMidairNode: true, allowMidairBranch: true,
           groupedSupportFanoutSpacing: 0.2, supportStyle: 0, branchPolicy: 0,
-          continuityPolicy: 0
+          continuityPolicy: 0,
+          populationRules: []
         }
       ],
       generate: (points: Float64Array) => {
@@ -160,7 +162,8 @@ describe("viewer actions", () => {
           cableTemplateId: 2, relatedPoleTypeId: 1, defaultLayer: 2,
           allowMirror: true, allowMidairNode: true, allowMidairBranch: true,
           groupedSupportFanoutSpacing: 0.2, supportStyle: 0, branchPolicy: 0,
-          continuityPolicy: 0
+          continuityPolicy: 0,
+          populationRules: []
         }
       ],
       selectedBundleTemplateId: 0,
@@ -193,7 +196,8 @@ const bundleTemplate: BundleTemplateInfo = {
   groupedSupportFanoutSpacing: 0.2,
   supportStyle: 0,
   branchPolicy: 0,
-  continuityPolicy: 0
+  continuityPolicy: 0,
+  populationRules: []
 };
 
 const cableTemplate: CableTemplateInfo = {
@@ -403,6 +407,91 @@ describe("P1 action contracts", () => {
 
     actions.applyRelatedPoleType(bundleTemplate.id);
     expect(applyRelated).toHaveBeenCalledWith(bundleTemplate.id);
+  });
+
+  it("sends population rules through bundle template update", () => {
+    const update = vi.fn(() => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(
+      actionBridge({ updateBundleTemplate: update }),
+      store
+    );
+    actions.initialize();
+
+    actions.commitBundleTemplate({
+      ...bundleTemplate,
+      populationRules: [
+        {
+          ruleId: 7,
+          explicitSeed: 11,
+          priority: 2,
+          minExtraCount: 1,
+          maxExtraCount: 3,
+          minSpacing: 0.08,
+          lateralMin: -0.4,
+          lateralMax: 0.4,
+          heightMin: 5,
+          heightMax: 6,
+          randomness: 0.5
+        }
+      ]
+    });
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        populationRules: [
+          expect.objectContaining({ ruleId: 7, maxExtraCount: 3, minSpacing: 0.08 })
+        ]
+      })
+    );
+  });
+
+  it("previews bundle population numeric edits without logging a commit", async () => {
+    vi.useFakeTimers();
+    const update = vi.fn(() => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(
+      actionBridge({ updateBundleTemplate: update }),
+      store
+    );
+    actions.initialize();
+    const template = {
+      ...bundleTemplate,
+      populationRules: [
+        {
+          ruleId: 1,
+          explicitSeed: 1,
+          priority: 0,
+          minExtraCount: 1,
+          maxExtraCount: 1,
+          minSpacing: 0.09,
+          lateralMin: -1,
+          lateralMax: 1,
+          heightMin: 0,
+          heightMax: 20,
+          randomness: 0.25
+        }
+      ]
+    };
+
+    actions.previewBundleTemplate(
+      template,
+      "bundle.population.1.minSpacing",
+      "minSpacing",
+      0.05,
+      0.09
+    );
+    await vi.advanceTimersByTimeAsync(33);
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        populationRules: [
+          expect.objectContaining({ ruleId: 1, minSpacing: 0.09 })
+        ]
+      })
+    );
+    expect(current(store).logs).toEqual([]);
+    vi.useRealTimers();
   });
 
   it("sends cable shape updates with the selected template", () => {

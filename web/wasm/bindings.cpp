@@ -277,6 +277,24 @@ public:
     output.set("supportStyle", static_cast<int>(bundle_template.support_style));
     output.set("branchPolicy", static_cast<int>(bundle_template.branch_policy));
     output.set("continuityPolicy", static_cast<int>(bundle_template.continuity_policy));
+    val population_rules = val::array();
+    for (std::size_t index = 0; index < bundle_template.population_rules.size(); ++index) {
+      const auto& rule = bundle_template.population_rules[index];
+      val item = val::object();
+      item.set("ruleId", static_cast<double>(rule.rule_id));
+      item.set("explicitSeed", static_cast<double>(rule.explicit_seed));
+      item.set("priority", rule.priority);
+      item.set("minExtraCount", rule.min_extra_count);
+      item.set("maxExtraCount", rule.max_extra_count);
+      item.set("minSpacing", rule.min_spacing_m);
+      item.set("lateralMin", rule.lateral_min_m);
+      item.set("lateralMax", rule.lateral_max_m);
+      item.set("heightMin", rule.height_min_m);
+      item.set("heightMax", rule.height_max_m);
+      item.set("randomness", rule.randomness);
+      population_rules.set(index, item);
+    }
+    output.set("populationRules", population_rules);
     return output;
   }
 
@@ -301,6 +319,26 @@ public:
         static_cast<wire::core::BundleBranchPolicyHint>(property<int>(input, "branchPolicy"));
     bundle_template.continuity_policy =
         static_cast<wire::core::CableContinuityPolicyHint>(property<int>(input, "continuityPolicy"));
+    bundle_template.population_rules.clear();
+    const val population_rules = input["populationRules"];
+    const std::size_t population_rule_count = population_rules["length"].as<std::size_t>();
+    bundle_template.population_rules.reserve(population_rule_count);
+    for (std::size_t index = 0; index < population_rule_count; ++index) {
+      const val item = population_rules[index];
+      wire::core::CablePopulationRule rule{};
+      rule.rule_id = property<wire::core::CableInstanceRuleId>(item, "ruleId");
+      rule.explicit_seed = property<std::uint64_t>(item, "explicitSeed");
+      rule.priority = property<int>(item, "priority");
+      rule.min_extra_count = property<int>(item, "minExtraCount");
+      rule.max_extra_count = property<int>(item, "maxExtraCount");
+      rule.min_spacing_m = property<double>(item, "minSpacing");
+      rule.lateral_min_m = property<double>(item, "lateralMin");
+      rule.lateral_max_m = property<double>(item, "lateralMax");
+      rule.height_min_m = property<double>(item, "heightMin");
+      rule.height_max_m = property<double>(item, "heightMax");
+      rule.randomness = property<double>(item, "randomness");
+      bundle_template.population_rules.push_back(rule);
+    }
     const auto updated = state_->UpdateBundleTemplate(bundle_template);
     return result_value(updated.ok, updated.error);
   }

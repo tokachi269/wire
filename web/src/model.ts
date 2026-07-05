@@ -82,6 +82,21 @@ export interface BundleTemplateInfo {
   supportStyle: number;
   branchPolicy: number;
   continuityPolicy: number;
+  populationRules: PopulationRuleInfo[];
+}
+
+export interface PopulationRuleInfo {
+  ruleId: number;
+  explicitSeed: number;
+  priority: number;
+  minExtraCount: number;
+  maxExtraCount: number;
+  minSpacing: number;
+  lateralMin: number;
+  lateralMax: number;
+  heightMin: number;
+  heightMax: number;
+  randomness: number;
 }
 
 export interface CableTemplateInfo {

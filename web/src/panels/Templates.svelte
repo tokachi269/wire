@@ -4,6 +4,7 @@
     BundleTemplateInfo,
     CableTemplateInfo,
     PoleTemplateInfo,
+    PopulationRuleInfo,
     PortBandInfo
   } from "../model";
   import type { ViewerSnapshot } from "../store/viewer";
@@ -70,6 +71,40 @@
     value: BundleTemplateInfo[K]
   ): BundleTemplateInfo {
     return { ...template, [key]: value };
+  }
+
+  function updateBundle(
+    template: BundleTemplateInfo,
+    change: (draft: BundleTemplateInfo) => void
+  ): void {
+    const draft = structuredClone(template);
+    change(draft);
+    actions.commitBundleTemplate(draft);
+  }
+
+  function updatePopulationRule(
+    template: BundleTemplateInfo,
+    ruleId: number,
+    change: (rule: PopulationRuleInfo) => void,
+    preview = false,
+    control = "population",
+    param = "population",
+    startValue = 0,
+    value = 0
+  ): void {
+    const draft = structuredClone(template);
+    const rule = draft.populationRules.find((candidate) => candidate.ruleId === ruleId);
+    if (rule === undefined) return;
+    change(rule);
+    if (preview) {
+      actions.previewBundleTemplate(draft, control, param, startValue, value);
+    } else {
+      actions.commitBundleTemplate(draft);
+    }
+  }
+
+  function nextPopulationRuleId(template: BundleTemplateInfo): number {
+    return Math.max(0, ...template.populationRules.map((rule) => rule.ruleId)) + 1;
   }
 
   function updatePole(
@@ -425,6 +460,65 @@
       <button class="secondary" type="button" onclick={() => actions.applyRelatedPoleType(bundle.id)}>
         related poleを既存へ適用
       </button>
+      <details>
+        <summary>Population rules ({bundle.populationRules.length})</summary>
+        {#each bundle.populationRules as rule (rule.ruleId)}
+          <div class="record">
+            <strong>Rule {rule.ruleId} · extra {rule.minExtraCount}-{rule.maxExtraCount}</strong>
+            {#each [
+              ["ruleId", "Rule id"], ["explicitSeed", "Seed"], ["priority", "Priority"],
+              ["minExtraCount", "Min extra"], ["maxExtraCount", "Max extra"]
+            ] as field}
+              <label>{field[1]}<input type="number" value={rule[field[0] as keyof PopulationRuleInfo] as number}
+                onchange={(event) => updatePopulationRule(bundle, rule.ruleId, (draft) => {
+                  (draft[field[0] as keyof PopulationRuleInfo] as number) = Math.trunc(numberValue(event));
+                })} /></label>
+            {/each}
+            {#each [
+              ["minSpacing", "Min spacing", 0.01],
+              ["lateralMin", "Lateral min", 0.02], ["lateralMax", "Lateral max", 0.02],
+              ["heightMin", "Height min", 0.05], ["heightMax", "Height max", 0.05],
+              ["randomness", "Randomness", 0.05]
+            ] as field}
+              <label>{field[1]}<input type="number" step={field[2]} value={fmt(rule[field[0] as keyof PopulationRuleInfo] as number)}
+                oninput={(event) => updatePopulationRule(
+                  bundle,
+                  rule.ruleId,
+                  (draft) => {
+                    (draft[field[0] as keyof PopulationRuleInfo] as number) = round6(numberValue(event));
+                  },
+                  true,
+                  `bundle.population.${rule.ruleId}.${field[0]}`,
+                  field[0],
+                  rule[field[0] as keyof PopulationRuleInfo] as number,
+                  numberValue(event)
+                )}
+                onblur={(event) => updatePopulationRule(bundle, rule.ruleId, (draft) => {
+                  (draft[field[0] as keyof PopulationRuleInfo] as number) = round6(numberValue(event));
+                })} /></label>
+            {/each}
+            <button class="secondary" type="button" onclick={() => updateBundle(bundle, (draft) => {
+              draft.populationRules = draft.populationRules.filter((item) => item.ruleId !== rule.ruleId);
+            })}>Rule削除</button>
+          </div>
+        {/each}
+        <button type="button" onclick={() => updateBundle(bundle, (draft) => {
+          const ruleId = nextPopulationRuleId(draft);
+          draft.populationRules.push({
+            ruleId,
+            explicitSeed: 1,
+            priority: 0,
+            minExtraCount: 1,
+            maxExtraCount: 1,
+            minSpacing: 0.05,
+            lateralMin: -1,
+            lateralMax: 1,
+            heightMin: 0,
+            heightMax: 20,
+            randomness: 0.25
+          });
+        })}>Rule追加</button>
+      </details>
     {/if}
   </section>
 

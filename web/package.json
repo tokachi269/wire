@@ -7,7 +7,9 @@
     "wasm:configure": "emcmake cmake -S wasm -B wasm/build -G Ninja -DBUILD_TESTING=OFF -DWIRE_ENABLE_PCH=OFF",
     "wasm:build": "npm run wasm:configure && cmake --build wasm/build --target wire_web_core -j 8",
     "test": "npm run wasm:build && vitest run",
-    "build": "npm run wasm:build && tsc --noEmit"
+    "build": "npm run wasm:build && vite build",
+    "dev": "vite",
+    "check": "tsc --noEmit"
   },
   "dependencies": {
     "svelte": "^5.0.0",

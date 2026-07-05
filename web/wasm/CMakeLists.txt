@@ -40,5 +40,6 @@ set_target_properties(
   wire_web_core
   PROPERTIES
   OUTPUT_NAME "wire_web_core"
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../src/wasm-generated"
   SUFFIX ".js"
 )

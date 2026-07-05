@@ -64,3 +64,11 @@ npm run build
 Set-Location web
 npm run wasm:build
 ```
+
+開発 server:
+
+```powershell
+Set-Location web
+npm run wasm:build
+npm run dev
+```

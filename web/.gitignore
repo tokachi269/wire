@@ -1,3 +1,5 @@
 node_modules/
 dist/
 wasm/build/
+src/wasm-generated/
+web-dev.log

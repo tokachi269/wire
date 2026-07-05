@@ -35,6 +35,16 @@ button:active {
   box-shadow: 2px 2px 0 #17201d;
 }
 
+.secondary {
+  background: #f5f2e8;
+}
+
+.header-actions,
+.path-actions {
+  display: flex;
+  gap: 0.65rem;
+}
+
 main {
   display: grid;
   grid-template-rows: auto minmax(420px, 1fr) auto;
@@ -64,12 +74,66 @@ h1 {
   text-transform: uppercase;
 }
 
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 0.8rem;
+  height: max(420px, calc(100vh - 190px));
+  min-height: 0;
+}
+
 .viewport {
-  min-height: 420px;
+  height: 100%;
+  min-height: 0;
   overflow: hidden;
   border: 2px solid #17201d;
   background: #dce8e7;
   box-shadow: 7px 7px 0 rgba(23, 32, 29, 0.85);
+}
+
+.draw-panel {
+  border: 2px solid #17201d;
+  background: #f5f2e8;
+  padding: 1rem;
+  box-shadow: 5px 5px 0 #17201d;
+}
+
+.panel-label {
+  margin: 0 0 1rem;
+  color: #3d655b;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+}
+
+label {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+
+select {
+  width: 100%;
+  border: 1px solid #17201d;
+  background: white;
+  padding: 0.55rem;
+  font: inherit;
+}
+
+.hint {
+  margin: 1rem 0 0.35rem;
+  color: #55615d;
+  font-size: 0.72rem;
+}
+
+.point-count {
+  display: block;
+  margin-bottom: 1rem;
+  font-size: 1.25rem;
+}
+
+.path-actions {
+  flex-direction: column;
 }
 
 .viewport canvas {
@@ -108,5 +172,15 @@ aside span,
 
   main {
     grid-template-rows: auto minmax(55vh, 1fr) auto;
+  }
+
+  .workspace {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(55vh, 1fr) auto;
+    height: auto;
+  }
+
+  .viewport {
+    min-height: 55vh;
   }
 }

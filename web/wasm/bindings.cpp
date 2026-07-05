@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -154,6 +155,31 @@ public:
     return output;
   }
 
+  [[nodiscard]] std::size_t bundle_template_count() const {
+    return CoreView(*state_).bundle_templates().size();
+  }
+
+  [[nodiscard]] val bundle_template(std::size_t index) const {
+    const auto& templates = CoreView(*state_).bundle_templates();
+    std::vector<BundleKind> ids{};
+    ids.reserve(templates.size());
+    for (const auto& [id, bundle_template] : templates) {
+      (void)bundle_template;
+      ids.push_back(id);
+    }
+    std::ranges::sort(ids, {}, [](BundleKind id) { return static_cast<int>(id); });
+    if (index >= ids.size()) {
+      throw std::out_of_range("bundle template index is out of range");
+    }
+    const auto& bundle_template = templates.at(ids[index]);
+    val output = val::object();
+    output.set("id", static_cast<int>(bundle_template.id));
+    output.set("name", bundle_template.name);
+    output.set("defaultCount", bundle_template.default_count);
+    output.set("fixedCount", bundle_template.count_rule == wire::core::BundleCountRuleKind::kFixed);
+    return output;
+  }
+
 private:
   std::unique_ptr<CoreState> state_;
   std::vector<double> sample_buffer_{};
@@ -169,5 +195,7 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .function("visualPart", &WireState::visual_part)
       .function("visualPartSamples", &WireState::visual_part_samples)
       .function("poleCount", &WireState::pole_count)
-      .function("pole", &WireState::pole);
+      .function("pole", &WireState::pole)
+      .function("bundleTemplateCount", &WireState::bundle_template_count)
+      .function("bundleTemplate", &WireState::bundle_template);
 }

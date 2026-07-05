@@ -15,7 +15,10 @@
     parts: [],
     poles: [],
     error: "",
-    generationMs: null
+    generationMs: null,
+    pathPoints: [],
+    bundleTemplates: [],
+    selectedBundleTemplateId: null
   });
 
   onMount(() => {
@@ -40,12 +43,41 @@
       <p class="eyebrow">WIRE / DERIVED OUTPUT</p>
       <h1>Backbone field viewer</h1>
     </div>
-    <button type="button" onclick={() => actions.generateSample()}>
-      サンプル route 生成
-    </button>
+    <div class="header-actions">
+      <button class="secondary" type="button" onclick={() => actions.generateSample()}>
+        サンプル
+      </button>
+      <button type="button" onclick={() => actions.generatePath()}>
+        Path生成
+      </button>
+    </div>
   </header>
 
-  <section class="viewport" bind:this={sceneHost}></section>
+  <section class="workspace">
+    <div class="viewport" bind:this={sceneHost}></div>
+    <div class="draw-panel">
+      <p class="panel-label">DRAW PATH</p>
+      <label>
+        Bundle
+        <select
+          value={snapshot.selectedBundleTemplateId ?? ""}
+          onchange={(event) =>
+            actions.selectBundleTemplate(Number(event.currentTarget.value))}
+        >
+          {#each snapshot.bundleTemplates as template}
+            <option value={template.id}>{template.name}</option>
+          {/each}
+        </select>
+      </label>
+      <p class="hint">地面をクリックして点を追加</p>
+      <strong class="point-count">{snapshot.pathPoints.length} points</strong>
+      <div class="path-actions">
+        <button class="secondary" type="button" onclick={() => actions.clearPath()}>
+          クリア
+        </button>
+      </div>
+    </div>
+  </section>
 
   <aside>
     <span>parts <strong>{snapshot.parts.length}</strong></span>

@@ -33,6 +33,13 @@ export interface PoleInfo {
   scaleZ: number;
 }
 
+export interface BundleTemplateInfo {
+  id: number;
+  name: string;
+  defaultCount: number;
+  fixedCount: boolean;
+}
+
 export interface WireStateHandle {
   generate(
     points: Float64Array,
@@ -46,6 +53,8 @@ export interface WireStateHandle {
   visualPartSamples(index: number): Float64Array;
   poleCount(): number;
   pole(index: number): PoleInfo;
+  bundleTemplateCount(): number;
+  bundleTemplate(index: number): BundleTemplateInfo;
   delete(): void;
 }
 

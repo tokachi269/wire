@@ -14,7 +14,8 @@ if (target === null) {
 const store = new ViewerStore();
 const bridge = await WireBridge.create();
 const actions = new ViewerActions(bridge, store);
-const scene = new WireScene(store);
+actions.initialize();
+const scene = new WireScene(store, (point) => actions.addPathPoint(point));
 
 mount(App, {
   target,

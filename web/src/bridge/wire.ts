@@ -1,5 +1,6 @@
 import {
   loadWireModule,
+  type BundleTemplateInfo,
   type EditResult,
   type PoleInfo,
   type VisualPartInfo,
@@ -32,6 +33,14 @@ export class WireBridge {
     count = 0
   ): EditResult {
     return this.state.generate(points, bundleTemplateId, intervalM, poleTypeId, count);
+  }
+
+  bundleTemplates(): BundleTemplateInfo[] {
+    const templates: BundleTemplateInfo[] = [];
+    for (let index = 0; index < this.state.bundleTemplateCount(); index += 1) {
+      templates.push(this.state.bundleTemplate(index));
+    }
+    return templates;
   }
 
   scene(): SceneData {

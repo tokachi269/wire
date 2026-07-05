@@ -1,5 +1,7 @@
 import { writable, type Readable } from "svelte/store";
-import type { PoleInfo, VisualPartInfo } from "../bridge/wasm";
+import type { BundleTemplateInfo, PoleInfo, VisualPartInfo } from "../bridge/wasm";
+
+export type WorldPoint = [number, number, number];
 
 export interface VisualPart {
   info: VisualPartInfo;
@@ -11,13 +13,19 @@ export interface ViewerSnapshot {
   poles: PoleInfo[];
   error: string;
   generationMs: number | null;
+  pathPoints: WorldPoint[];
+  bundleTemplates: BundleTemplateInfo[];
+  selectedBundleTemplateId: number | null;
 }
 
 const initialSnapshot: ViewerSnapshot = {
   parts: [],
   poles: [],
   error: "",
-  generationMs: null
+  generationMs: null,
+  pathPoints: [],
+  bundleTemplates: [],
+  selectedBundleTemplateId: null
 };
 
 export class ViewerStore {
@@ -34,5 +42,9 @@ export class ViewerStore {
 
   setError(error: string): void {
     this.writable.update((current) => ({ ...current, error }));
+  }
+
+  update(change: (current: ViewerSnapshot) => ViewerSnapshot): void {
+    this.writable.update(change);
   }
 }

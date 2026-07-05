@@ -146,6 +146,101 @@ bool C678_model_descriptor_merge_is_deterministic_and_reports_conflicts() {
          first.report.conflicts.front().message == second.report.conflicts.front().message;
 }
 
+wire::core::AttachmentTemplateId find_replace_attachment_template_id(const CoreState& state) {
+  for (const auto& [template_id, attachment_template] : state.view().attachment_templates()) {
+    if (attachment_template.line_interaction_mode == wire::core::AttachmentLineInteractionMode::kReplaceWithInternalPath &&
+        !attachment_template.internal_paths.empty()) {
+      return template_id;
+    }
+  }
+  return wire::core::kInvalidAttachmentTemplateId;
+}
+
+bool replacement_first_point(const CoreState& state, ObjectId span_id, wire::core::Vec3d* out) {
+  const wire::core::CurveCacheEntry* curve = state.find_curve_cache(span_id);
+  if (curve == nullptr || curve->detail.replacement_paths.empty() ||
+      curve->detail.replacement_paths.front().points.empty() || out == nullptr) {
+    return false;
+  }
+  *out = curve->detail.replacement_paths.front().points.front();
+  return true;
+}
+
+bool C679_attachment_template_geometry_update_rederives_used_span() {
+  CoreState state;
+  const auto made = make_backbone_fixture(state, {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}});
+  if (!made.ok || made.value.spans.empty()) {
+    return false;
+  }
+  const wire::core::AttachmentTemplateId template_id = find_replace_attachment_template_id(state);
+  const wire::core::AttachmentTemplate* before_template = state.find_attachment_template(template_id);
+  if (before_template == nullptr || before_template->sockets.empty()) {
+    return false;
+  }
+  const auto attachment =
+      state.AddAttachment(made.value.spans.front(), 0.5, before_template->kind, 0.0, template_id);
+  if (!attachment.ok || !state.DeriveGeneratedSpanOutputs(made.value.spans.front()).ok) {
+    return false;
+  }
+
+  wire::core::Vec3d before_point{};
+  if (!replacement_first_point(state, made.value.spans.front(), &before_point)) {
+    return false;
+  }
+
+  wire::core::AttachmentTemplate changed = *before_template;
+  changed.sockets.front().local_position.x -= 0.08;
+  const auto update = state.UpdateAttachmentTemplate(changed);
+  if (!update.ok || !update.value) {
+    return false;
+  }
+
+  wire::core::Vec3d after_point{};
+  if (!replacement_first_point(state, made.value.spans.front(), &after_point)) {
+    return false;
+  }
+  if (almost_equal(before_point, after_point, 1e-9)) {
+    return false;
+  }
+  return true;
+}
+
+bool C680_attachment_template_structure_update_rejects_used_span_unchanged() {
+  CoreState state;
+  const auto made = make_backbone_fixture(state, {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}});
+  if (!made.ok || made.value.spans.empty()) {
+    return false;
+  }
+  const wire::core::AttachmentTemplateId template_id = find_replace_attachment_template_id(state);
+  const wire::core::AttachmentTemplate* before_template = state.find_attachment_template(template_id);
+  if (before_template == nullptr || before_template->sockets.empty()) {
+    return false;
+  }
+  const auto attachment =
+      state.AddAttachment(made.value.spans.front(), 0.5, before_template->kind, 0.0, template_id);
+  if (!attachment.ok || !state.DeriveGeneratedSpanOutputs(made.value.spans.front()).ok) {
+    return false;
+  }
+  wire::core::Vec3d before_point{};
+  if (!replacement_first_point(state, made.value.spans.front(), &before_point)) {
+    return false;
+  }
+
+  wire::core::AttachmentTemplate changed = *before_template;
+  wire::core::AttachmentSocketTemplate added = changed.sockets.front();
+  added.id += 100;
+  changed.sockets.push_back(added);
+  const auto update = state.UpdateAttachmentTemplate(changed);
+  const wire::core::AttachmentTemplate* after_template = state.find_attachment_template(template_id);
+  wire::core::Vec3d after_point{};
+  if (update.ok || !regex_contains(update.error, "structural") || after_template == nullptr ||
+      after_template->sockets.size() != before_template->sockets.size() ||
+      !replacement_first_point(state, made.value.spans.front(), &after_point)) {
+    return false;
+  }
+  return almost_equal(before_point, after_point, 1e-9);
+}
+
 // Intent: Detailed generation should not crash when path includes non-pole support nodes.
 
 bool test_backbone_generation_requires_non_empty_bundles() {
@@ -287,6 +382,12 @@ void register_template_policy_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C678_ModelDescriptor_Merge",
                          "ModelDescriptor merge applies valid overrides and reports missing marker conflicts",
                          "Invariant", true, C678_model_descriptor_merge_is_deterministic_and_reports_conflicts);
+  test_registry::AddTest(tests, "C679_AttachmentTemplate_GeometryUpdateRederivesUsedSpan",
+                         "Attachment template geometry edits rederive curves for used spans",
+                         "Invariant", false, C679_attachment_template_geometry_update_rederives_used_span);
+  test_registry::AddTest(tests, "C680_AttachmentTemplate_StructureUpdateRejectsUsedSpan",
+                         "Attachment template structural edits reject before mutation with used spans unchanged",
+                         "Invariant", true, C680_attachment_template_structure_update_rejects_used_span_unchanged);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_template_policy_tests);

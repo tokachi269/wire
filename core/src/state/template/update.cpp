@@ -62,6 +62,90 @@ bool attachment_template_equals(const AttachmentTemplate& a, const AttachmentTem
   return true;
 }
 
+bool attachment_socket_geometry_equals(const AttachmentSocketTemplate& a, const AttachmentSocketTemplate& b) {
+  const auto same_vec = [](const Vec3d& lhs, const Vec3d& rhs) {
+    return std::abs(lhs.x - rhs.x) <= 1e-12 && std::abs(lhs.y - rhs.y) <= 1e-12 && std::abs(lhs.z - rhs.z) <= 1e-12;
+  };
+  return same_vec(a.local_position, b.local_position) && same_vec(a.tangent_dir, b.tangent_dir) &&
+         same_vec(a.normal_dir, b.normal_dir) && same_vec(a.binormal_dir, b.binormal_dir);
+}
+
+bool attachment_socket_identity_equals(const AttachmentSocketTemplate& a, const AttachmentSocketTemplate& b) {
+  return a.id == b.id && a.has_normal == b.has_normal && a.has_binormal == b.has_binormal && a.kind == b.kind;
+}
+
+bool attachment_internal_path_geometry_equals(const AttachmentInternalPathTemplate& a,
+                                              const AttachmentInternalPathTemplate& b) {
+  if (a.local_points.size() != b.local_points.size() ||
+      std::abs(a.coil_radius_m - b.coil_radius_m) > 1e-12 || a.coil_turn_count != b.coil_turn_count ||
+      a.coil_samples_per_turn != b.coil_samples_per_turn) {
+    return false;
+  }
+  for (std::size_t i = 0; i < a.local_points.size(); ++i) {
+    const Vec3d& lhs = a.local_points[i];
+    const Vec3d& rhs = b.local_points[i];
+    if (std::abs(lhs.x - rhs.x) > 1e-12 || std::abs(lhs.y - rhs.y) > 1e-12 || std::abs(lhs.z - rhs.z) > 1e-12) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool attachment_internal_path_identity_equals(const AttachmentInternalPathTemplate& a,
+                                              const AttachmentInternalPathTemplate& b) {
+  return a.start_socket_id == b.start_socket_id && a.end_socket_id == b.end_socket_id &&
+         a.profile_kind == b.profile_kind;
+}
+
+struct AttachmentTemplateDiff {
+  bool changed = false;
+  bool metadata_only = false;
+  bool geometry_only = false;
+  bool structural = false;
+};
+
+AttachmentTemplateDiff classify_attachment_template_diff(const AttachmentTemplate& next,
+                                                         const AttachmentTemplate& current) {
+  AttachmentTemplateDiff diff{};
+  diff.changed = !attachment_template_equals(next, current);
+  if (!diff.changed) {
+    return diff;
+  }
+  if (next.id != current.id || next.kind != current.kind ||
+      next.line_interaction_mode != current.line_interaction_mode || next.sockets.size() != current.sockets.size() ||
+      next.internal_paths.size() != current.internal_paths.size()) {
+    diff.structural = true;
+    return diff;
+  }
+
+  bool geometry_changed = false;
+  for (std::size_t i = 0; i < next.sockets.size(); ++i) {
+    if (!attachment_socket_identity_equals(next.sockets[i], current.sockets[i])) {
+      diff.structural = true;
+      return diff;
+    }
+    if (!attachment_socket_geometry_equals(next.sockets[i], current.sockets[i])) {
+      geometry_changed = true;
+    }
+  }
+  for (std::size_t i = 0; i < next.internal_paths.size(); ++i) {
+    if (!attachment_internal_path_identity_equals(next.internal_paths[i], current.internal_paths[i])) {
+      diff.structural = true;
+      return diff;
+    }
+    if (!attachment_internal_path_geometry_equals(next.internal_paths[i], current.internal_paths[i])) {
+      geometry_changed = true;
+    }
+  }
+
+  diff.geometry_only = geometry_changed;
+  diff.metadata_only = !geometry_changed && next.name != current.name;
+  if (!diff.geometry_only && !diff.metadata_only) {
+    diff.structural = true;
+  }
+  return diff;
+}
+
 bool cable_supplemental_path_equals(const CableSupplementalPathTemplate& a, const CableSupplementalPathTemplate& b) {
   return a.anchor_mode == b.anchor_mode && a.profile_kind == b.profile_kind && a.pole_band_id == b.pole_band_id &&
          std::abs(a.endpoint_trim_m - b.endpoint_trim_m) <= 1e-12 &&
@@ -363,16 +447,34 @@ EditResult<bool> TemplateMutationService::UpdateAttachmentTemplate(CoreState& st
 
   AttachmentTemplate normalized = attachment_template;
   normalized.version = it->second.version;
-  const bool changed = !attachment_template_equals(normalized, it->second);
-  if (!changed) {
+  const AttachmentTemplateDiff diff = classify_attachment_template_diff(normalized, it->second);
+  if (!diff.changed) {
     result.ok = true;
     result.value = false;
     return result;
   }
+
+  std::vector<ObjectId> affected_spans{};
   for (const Attachment& attachment : state.authoritative_.edit_state.attachments.items()) {
     if (attachment.template_id == normalized.id) {
-      result.error = "backbone unsupported: attachment template changes require regeneration";
-      return result;
+      if (diff.structural) {
+        result.error = "backbone unsupported: attachment template structural changes require regeneration";
+        return result;
+      }
+      CoreState::add_unique_id(affected_spans, attachment.span_id);
+    }
+  }
+
+  std::vector<UpdatePlan> plans{};
+  if (diff.geometry_only) {
+    plans.reserve(affected_spans.size());
+    for (ObjectId span_id : affected_spans) {
+      auto plan = state.make_update_plan({UpdateKind::kReshape, UpdateTargetKind::kSpan, span_id});
+      if (!plan.ok) {
+        result.error = plan.error;
+        return result;
+      }
+      plans.push_back(std::move(plan.value));
     }
   }
 
@@ -380,6 +482,15 @@ EditResult<bool> TemplateMutationService::UpdateAttachmentTemplate(CoreState& st
   it->second = normalized;
   result.ok = true;
   result.value = true;
+  for (const UpdatePlan& plan : plans) {
+    auto updated = state.execute_update_plan(plan);
+    if (!updated.ok) {
+      result.ok = false;
+      result.error = updated.error;
+      return result;
+    }
+  }
+  append_unique(result.change_set.updated_ids, affected_spans);
 
   return result;
 }

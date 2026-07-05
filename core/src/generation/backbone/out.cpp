@@ -4,6 +4,7 @@
 #include "wire/core/coord_utils.hpp"
 
 #include "../../geometry/curve/curve.hpp"
+#include "../../geometry/detail_curve_postprocess.hpp"
 
 #include <algorithm>
 
@@ -88,6 +89,7 @@ EditResult<DetailCurve> make_curve_between_impl(const CoreState& state, ObjectId
     return result;
   }
   result.value = geometry::curve::ToDetailCurve(input, built.value);
+  apply_attachment_line_effects_to_curve(state, span_id, &result.value);
   result.ok = true;
   return result;
 }

@@ -9,5 +9,6 @@
 - [command_cheatsheet.md](command_cheatsheet.md): 実績あるローカル実行コマンド
 - [cable_instance_section.md](cable_instance_section.md): CableInstance / CableSection / carrier の設計語
 - [models.md](models.md): 自作モデル/descriptor方針
+- [viewer_operations.md](viewer_operations.md): web viewerへ移す操作の監査表
 
 作業履歴と過去planはGitで確認する。docsに日記を追加しない。

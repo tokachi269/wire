@@ -124,8 +124,8 @@ export class WireScene {
     this.camera.updateProjectionMatrix();
     this.content.visible = snapshot.showBackboneOverlay;
     this.guide.visible = snapshot.showPreview;
-    this.content.clear();
-    this.guide.clear();
+    this.disposeGroup(this.content);
+    this.disposeGroup(this.guide);
 
     for (const part of snapshot.parts) {
       const positions = new Float32Array(part.samples.length);
@@ -181,6 +181,24 @@ export class WireScene {
         marker.position.copy(point);
         this.guide.add(marker);
       }
+    }
+  }
+
+  private disposeGroup(group: THREE.Group): void {
+    for (const child of [...group.children]) {
+      child.traverse((object) => {
+        if (!(object instanceof THREE.Mesh || object instanceof THREE.Line)) {
+          return;
+        }
+        object.geometry.dispose();
+        const materials = Array.isArray(object.material)
+          ? object.material
+          : [object.material];
+        for (const material of materials) {
+          material.dispose();
+        }
+      });
+      group.remove(child);
     }
   }
 }

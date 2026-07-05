@@ -352,7 +352,8 @@ describe("P1 action contracts", () => {
     actions.commitCableTemplate({ ...cableTemplate, sagFactor: 0.08 });
 
     expect(update).toHaveBeenCalledWith(
-      expect.objectContaining({ id: cableTemplate.id, sagFactor: 0.08 })
+      expect.objectContaining({ id: cableTemplate.id, sagFactor: 0.08 }),
+      []
     );
   });
 
@@ -403,6 +404,10 @@ describe("P1 action contracts", () => {
     const store = new ViewerStore();
     const actions = new ViewerActions(bridge, store);
     actions.initialize();
+    store.update((current) => ({
+      ...current,
+      poles: bridge.scene().poles
+    }));
 
     actions.applyTiltToAll(3);
     expect(tilt).toHaveBeenCalledWith(["42"], 3);

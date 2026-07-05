@@ -214,7 +214,7 @@ export class ViewerActions {
   }
 
   applyTiltToAll(maxTiltDeg: number): void {
-    const ids = this.bridge.scene().poles.map((pole) => pole.id);
+    const ids = this.readSnapshot().poles.map((pole) => pole.id);
     this.finishOperation(
       this.bridge.applyPoleTilt(ids, maxTiltDeg),
       `tilt max=${maxTiltDeg.toFixed(2)}`
@@ -287,7 +287,7 @@ export class ViewerActions {
         const current = this.selectedCableTemplate();
         return current === null
           ? { ok: false, error: "cable template is not selected" }
-          : this.bridge.updateCableTemplate(current);
+          : this.bridge.updateCableTemplate(current, this.preferredSpanIds());
       }
     );
   }
@@ -300,7 +300,7 @@ export class ViewerActions {
         candidate.id === template.id ? template : candidate
       )
     }));
-    const result = this.bridge.updateCableTemplate(template);
+    const result = this.bridge.updateCableTemplate(template, this.preferredSpanIds());
     this.finishTemplateOperation(result, `cable template ${template.id} updated`);
   }
 
@@ -622,6 +622,16 @@ export class ViewerActions {
       cableTemplates,
       poleTemplates
     }));
+  }
+
+  private preferredSpanIds(): string[] {
+    return [
+      ...new Set(
+        this.readSnapshot()
+          .parts.map((part) => part.info.sourceSpanId)
+          .filter((id) => id !== "0")
+      )
+    ];
   }
 
   private refreshScene(): void {

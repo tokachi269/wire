@@ -81,14 +81,10 @@ export class WireBridge {
     return templates;
   }
 
-  updateCableTemplate(template: CableTemplateInfo): OperationResult {
-    const preferredSpanIds = [
-      ...new Set(
-        this.scene()
-          .parts.map((part) => part.info.sourceSpanId)
-          .filter((id) => id !== "0")
-      )
-    ];
+  updateCableTemplate(
+    template: CableTemplateInfo,
+    preferredSpanIds: string[]
+  ): OperationResult {
     return this.state.updateCableTemplate(template, preferredSpanIds);
   }
 

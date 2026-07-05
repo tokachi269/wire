@@ -198,16 +198,16 @@ public:
     return output;
   }
 
-  [[nodiscard]] std::size_t support_node_count() const {
-    return state_->SavedBackboneResult().nodes.size();
+  [[nodiscard]] std::size_t support_node_count() {
+    support_nodes_ = state_->SavedBackboneResult().nodes;
+    return support_nodes_.size();
   }
 
   [[nodiscard]] val support_node(std::size_t index) const {
-    const auto nodes = state_->SavedBackboneResult().nodes;
-    if (index >= nodes.size()) {
+    if (index >= support_nodes_.size()) {
       throw std::out_of_range("support node index is out of range");
     }
-    const auto& node = nodes[index];
+    const auto& node = support_nodes_[index];
     val output = val::object();
     output.set("id", std::to_string(node.node_id));
     output.set("kind", static_cast<int>(node.support_kind));
@@ -605,6 +605,7 @@ public:
 private:
   std::unique_ptr<CoreState> state_;
   std::vector<double> sample_buffer_{};
+  std::vector<wire::core::SupportNode> support_nodes_{};
 };
 
 } // namespace

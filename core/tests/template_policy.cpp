@@ -304,6 +304,100 @@ bool C682_replaced_intervals_overlap_is_validation_error() {
   return has_validation_issue(wire::core::CoreStateTestHook::validate(state), "AttachmentReplacementIntervalOverlap");
 }
 
+wire::core::ModelDescriptor make_ball_insulator_descriptor() {
+  wire::core::ModelDescriptor descriptor{};
+  descriptor.measurement.name = "ball_insulator";
+  descriptor.measurement.version = 1;
+  descriptor.measurement.replace_length_m = 0.32;
+  descriptor.measurement.sockets.push_back(
+      {"line_in", wire::core::ModelSocketRole::kLineIn, {-0.16, 0.0, 0.0}, {-1.0, 0.0, 0.0}});
+  descriptor.measurement.sockets.push_back(
+      {"line_out", wire::core::ModelSocketRole::kLineOut, {0.16, 0.0, 0.0}, {1.0, 0.0, 0.0}});
+  return descriptor;
+}
+
+wire::core::ModelDescriptor make_terminal_box_descriptor() {
+  wire::core::ModelDescriptor descriptor{};
+  descriptor.measurement.name = "terminal_box";
+  descriptor.measurement.version = 3;
+  descriptor.measurement.replace_length_m = 0.46;
+  descriptor.measurement.sockets.push_back(
+      {"line_in", wire::core::ModelSocketRole::kLineIn, {-0.23, 0.0, 0.0}, {-1.0, 0.0, 0.0}});
+  descriptor.measurement.sockets.push_back(
+      {"line_out", wire::core::ModelSocketRole::kLineOut, {0.23, 0.0, 0.0}, {1.0, 0.0, 0.0}});
+  descriptor.measurement.sockets.push_back(
+      {"drop", wire::core::ModelSocketRole::kDrop, {0.0, -0.12, -0.18}, {0.0, -1.0, -0.2}});
+  return descriptor;
+}
+
+bool C683_model_descriptor_builds_pathless_attachment_template() {
+  const wire::core::ModelDescriptor descriptor = make_ball_insulator_descriptor();
+  const wire::core::ModelAttachmentTemplateBuildResult built =
+      wire::core::build_attachment_template(descriptor, wire::core::AttachmentTemplateId{42});
+  if (!built.report.conflicts.empty()) {
+    return false;
+  }
+  return built.attachment_template.id == wire::core::AttachmentTemplateId{42} &&
+         built.attachment_template.name == "ball_insulator" &&
+         built.attachment_template.kind == wire::core::AttachmentKind::kSpacer &&
+         built.attachment_template.line_interaction_mode ==
+             wire::core::AttachmentLineInteractionMode::kReplaceWithInternalPath &&
+         built.attachment_template.sockets.size() == 2 && built.attachment_template.internal_paths.empty() &&
+         built.attachment_template.sockets[0].id == 0 && built.attachment_template.sockets[1].id == 1;
+}
+
+bool C684_terminal_box_descriptor_keeps_drop_socket_without_internal_path() {
+  const wire::core::ModelDescriptor descriptor = make_terminal_box_descriptor();
+  const wire::core::ModelAttachmentTemplateBuildResult built =
+      wire::core::build_attachment_template(descriptor, wire::core::AttachmentTemplateId{43});
+  if (!built.report.conflicts.empty() || built.attachment_template.sockets.size() != 3 ||
+      !built.attachment_template.internal_paths.empty()) {
+    return false;
+  }
+  return built.attachment_template.sockets[0].id == 0 && built.attachment_template.sockets[1].id == 1 &&
+         built.attachment_template.sockets[2].kind == wire::core::AttachmentSocketKind::kGeneric;
+}
+
+bool C685_descriptor_attachment_template_updates_used_span_and_reload_geometry() {
+  CoreState state;
+  const auto made = make_backbone_fixture(state, {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}});
+  const wire::core::AttachmentTemplateId template_id = find_replace_attachment_template_id(state);
+  if (!made.ok || made.value.spans.empty()) {
+    return false;
+  }
+
+  wire::core::ModelDescriptor descriptor = make_ball_insulator_descriptor();
+  wire::core::ModelAttachmentTemplateBuildResult built = wire::core::build_attachment_template(descriptor, template_id);
+  if (!built.report.conflicts.empty() || !state.UpdateAttachmentTemplate(built.attachment_template).ok) {
+    return false;
+  }
+  const wire::core::AttachmentTemplate* first_template = state.find_attachment_template(template_id);
+  if (first_template == nullptr) {
+    return false;
+  }
+  const auto attachment =
+      state.AddAttachment(made.value.spans.front(), 0.5, first_template->kind, 0.0, template_id);
+  if (!attachment.ok || !state.DeriveGeneratedSpanOutputs(made.value.spans.front()).ok) {
+    return false;
+  }
+  const wire::core::CurveCacheEntry* before_curve = state.find_curve_cache(made.value.spans.front());
+  if (before_curve == nullptr || before_curve->detail.hidden_intervals.empty() ||
+      !before_curve->detail.replacement_paths.empty()) {
+    return false;
+  }
+  const double before_start = before_curve->detail.hidden_intervals.front().start_m;
+
+  descriptor.measurement.version += 1;
+  descriptor.measurement.sockets[0].local_position.x = -0.24;
+  built = wire::core::build_attachment_template(descriptor, template_id);
+  const auto update = state.UpdateAttachmentTemplate(built.attachment_template);
+  const wire::core::CurveCacheEntry* after_curve = state.find_curve_cache(made.value.spans.front());
+  if (!update.ok || after_curve == nullptr || after_curve->detail.hidden_intervals.empty()) {
+    return false;
+  }
+  return std::abs(after_curve->detail.hidden_intervals.front().start_m - before_start) > 1e-6;
+}
+
 // Intent: Detailed generation should not crash when path includes non-pole support nodes.
 
 bool test_backbone_generation_requires_non_empty_bundles() {
@@ -457,6 +551,15 @@ void register_template_policy_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C682_AttachmentReplacementIntervalOverlap",
                          "Overlapping replacement intervals on one span are validation errors",
                          "Invariant", true, C682_replaced_intervals_overlap_is_validation_error);
+  test_registry::AddTest(tests, "C683_ModelDescriptor_BuildsPathlessAttachmentTemplate",
+                         "Model descriptor builds a pathless replacement AttachmentTemplate for inline fixtures",
+                         "Invariant", false, C683_model_descriptor_builds_pathless_attachment_template);
+  test_registry::AddTest(tests, "C684_ModelDescriptor_TerminalBoxKeepsDropSocket",
+                         "Terminal box descriptor keeps drop socket while replacing only the main line interval",
+                         "Invariant", false, C684_terminal_box_descriptor_keeps_drop_socket_without_internal_path);
+  test_registry::AddTest(tests, "C685_ModelDescriptor_AttachmentTemplateReloadUpdatesCurve",
+                         "Descriptor-built attachment template updates an existing span through the normal template path",
+                         "Invariant", false, C685_descriptor_attachment_template_updates_used_span_and_reload_geometry);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_template_policy_tests);

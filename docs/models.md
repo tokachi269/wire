@@ -39,11 +39,15 @@ bbox等の抽出はdescriptorを生成するimportツールの仕事で、core�
 - core templateへの反映は既存post-edit経路に乗せる。placement-only差分はkReposition/kReshape、
   構造差分はunsupported/regenerate。**モデル再読込専用の更新経路は作らない。**
 
-## テーパー
+## 断面とテーパー
 
-- descriptorにradius(h)を数点サンプル(接地・各band高さ・頂部)で持つ。連続関数や断面解析はしない。
-- coreはbandごとのradius値として消費する(center hintのclearance等、既存C80系)。
+- 電柱は円柱に限定しない(四角柱等がある)。descriptorにはsection(h)を数点サンプル
+  (接地・各band高さ・頂部)で持つ: shape(circle / rect / octagon等)+ 寸法。連続関数や断面解析はしない。
+- coreはbandごとの外接円半径として消費する(center hintのclearance等、既存C80系)。
+  方位依存の半径はv1では扱わず、見た目上必要になった時に精緻化する。
+- 四角柱は面が向きを持つため、バンド・広告のplacementを面にスナップする拡張は将来課題としてメモに留める。
 - 精度が要る高さだけoverrideで補正する。
+- 手続きベルトは円周ではなく断面外周に沿って生成する(入力はsection(h))。
 
 ## 自作と手続き生成の境界
 
@@ -70,9 +74,13 @@ bbox等の抽出はdescriptorを生成するimportツールの仕事で、core�
 
 - 正体は span 上の Attachment + socket + `AttachmentLineInteractionMode::kReplaceWithInternalPath`。
   元curveの`replaced_interval`をhiddenにし、socket間をつなぎ直す。
+- `internal_path`が無い置換は合法。モデル本体が区間を埋める前提として、元curveの区間だけをhiddenにする。
 - 玉碍子: socket 2つ + 区間置換。線はsocket Aで終端し、碍子長ぶんhidden、socket Bから再開。
 - 端子函: in/out socketで幹線を函へ落として出す。引込線用socketを追加すれば降り線の接続点になる。
 - socket位置はmodel descriptorのmarkerから供給する(上記3層構造と同一の経路)。
+- descriptorから`AttachmentTemplate`へはpure functionで変換する。`line_in` / `line_out` markerを
+  main line置換の必須socketとし、`drop` markerは補助socketとして保持する。欠けたmarkerは補完せずconflictにする。
+- 既存sceneへの反映は`UpdateAttachmentTemplate`を使う。モデル再読込専用の登録・更新経路は作らない。
 
 ### 決定済みの派生規則
 
@@ -82,8 +90,6 @@ bbox等の抽出はdescriptorを生成するimportツールの仕事で、core�
 
 ### 未決(別タスクで決める)
 
-- internal path無しの置換(モデル本体が区間を埋める)を合法にするか。現状validatorはReplace/Addに
-  internal pathを要求する。玉碍子はpath無しが正しいため、許可する方向で検討する。
 - 点荷重によるsag変形(重い函で弛みが折れ線化)は現行scope外。やる場合はcurve profile hint拡張(C277系)。
 
 ## 依存する解除項目
@@ -94,6 +100,17 @@ merge_readiness.mdのunsupported保留一覧のうち、モデル対応を進め
 |---|---|
 | `UpdateAttachmentTemplate`の使用中拒否 | モデル再読込でsocket位置が変わるたびに拒否に当たる。幾何のみの差分はkReshapeで通す緩和が必要 |
 | regenerateのuser attachment保持 | span上の玉碍子・端子函が増えるほど「置いた線はtemplate編集不可」の面が広がる。attachmentはspan id + 弧長キーで引き継ぐ設計を別milestoneで積む |
+
+## レンダラ移行との順序
+
+wasm + three.js への移行を予定しているため、モデル作業を2つに分ける。
+
+- エンジン非依存部分(descriptor契約、marker規約、socket接続、replaced_interval、表面占有)は
+  レンダラを待たずに進める。
+- mesh を画面に出す部分(glTF load、instancing、material、LOD、手続きベルトの実geometry)は
+  three.js 側で初実装する。**desktop viewer(raylib)に mesh loading を実装しない**(捨てる投資になる)。
+- three.js 化自体は、既存出力(VisualCurvePart / render cache / placeholder)だけを描く最小縦スライスを
+  モデルより先に通す。wasm境界を渡るのは core の派生出力のみとし、JS側に判断を持たせない。
 
 ## 進め方
 

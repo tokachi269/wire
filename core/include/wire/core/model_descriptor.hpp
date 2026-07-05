@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "wire/core/types.hpp"
+#include "wire/core/workflow_types.hpp"
 
 namespace wire::core {
 
@@ -136,6 +137,13 @@ struct ModelMergeResult {
   bool operator==(const ModelMergeResult&) const = default;
 };
 
+struct ModelAttachmentTemplateBuildResult {
+  AttachmentTemplate attachment_template{};
+  ModelMergeReport report{};
+
+  bool operator==(const ModelAttachmentTemplateBuildResult&) const = default;
+};
+
 namespace model_descriptor_detail {
 
 inline ModelSocket* find_socket(std::vector<ModelSocket>& sockets, const std::string& name) {
@@ -160,6 +168,28 @@ inline void add_conflict(ModelMergeReport& report, std::string marker_name, std:
                          std::string message) {
   report.conflicts.push_back(
       ModelMergeReport::Conflict{std::move(marker_name), std::move(item_name), std::move(message)});
+}
+
+inline AttachmentSocketKind attachment_socket_kind(ModelSocketRole role) {
+  switch (role) {
+  case ModelSocketRole::kLineIn:
+    return AttachmentSocketKind::kInput;
+  case ModelSocketRole::kLineOut:
+    return AttachmentSocketKind::kOutput;
+  case ModelSocketRole::kDrop:
+  case ModelSocketRole::kMount:
+    return AttachmentSocketKind::kGeneric;
+  }
+  return AttachmentSocketKind::kGeneric;
+}
+
+inline bool has_socket_role(const std::vector<ModelSocket>& sockets, ModelSocketRole role) {
+  for (const ModelSocket& socket : sockets) {
+    if (socket.role == role) {
+      return true;
+    }
+  }
+  return false;
 }
 
 } // namespace model_descriptor_detail
@@ -210,6 +240,37 @@ inline ModelMergeResult merge(const ModelMeasurement& measurement, const ModelOv
                                             override_dimension.item_name,
                                             "ModelOverride references an unknown section dimension");
     }
+  }
+
+  return result;
+}
+
+inline ModelAttachmentTemplateBuildResult build_attachment_template(const ModelDescriptor& descriptor,
+                                                                    AttachmentTemplateId attachment_template_id) {
+  ModelAttachmentTemplateBuildResult result{};
+  result.attachment_template.id = attachment_template_id;
+  result.attachment_template.name = descriptor.measurement.name;
+  result.attachment_template.kind = AttachmentKind::kSpacer;
+  result.attachment_template.line_interaction_mode = AttachmentLineInteractionMode::kReplaceWithInternalPath;
+  result.attachment_template.version = descriptor.measurement.version == 0 ? 1 : descriptor.measurement.version;
+
+  int next_socket_id = 0;
+  for (const ModelSocket& socket : descriptor.measurement.sockets) {
+    AttachmentSocketTemplate attachment_socket{};
+    attachment_socket.id = next_socket_id++;
+    attachment_socket.local_position = socket.local_position;
+    attachment_socket.tangent_dir = socket.local_direction;
+    attachment_socket.kind = model_descriptor_detail::attachment_socket_kind(socket.role);
+    result.attachment_template.sockets.push_back(attachment_socket);
+  }
+
+  if (!model_descriptor_detail::has_socket_role(descriptor.measurement.sockets, ModelSocketRole::kLineIn)) {
+    model_descriptor_detail::add_conflict(result.report, descriptor.measurement.name, "socket.line_in",
+                                          "ModelDescriptor is missing a line_in socket");
+  }
+  if (!model_descriptor_detail::has_socket_role(descriptor.measurement.sockets, ModelSocketRole::kLineOut)) {
+    model_descriptor_detail::add_conflict(result.report, descriptor.measurement.name, "socket.line_out",
+                                          "ModelDescriptor is missing a line_out socket");
   }
 
   return result;

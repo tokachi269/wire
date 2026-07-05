@@ -56,7 +56,32 @@
     mountScene(sceneHost);
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        actions.cancel();
+        event.preventDefault();
+        const active = event.target;
+        if (
+          snapshot.interaction &&
+          active instanceof HTMLInputElement &&
+          (typeof snapshot.interaction.startValue === "number" ||
+            typeof snapshot.interaction.startValue === "boolean")
+        ) {
+          if (active.type === "checkbox") {
+            active.checked = Boolean(snapshot.interaction.startValue);
+          } else {
+            active.value = String(snapshot.interaction.startValue);
+          }
+        }
+        actions.cancel(
+          active instanceof HTMLInputElement ||
+          active instanceof HTMLSelectElement ||
+          active instanceof HTMLTextAreaElement
+        );
+        if (
+          active instanceof HTMLInputElement ||
+          active instanceof HTMLSelectElement ||
+          active instanceof HTMLTextAreaElement
+        ) {
+          active.blur();
+        }
         return;
       }
       const target = event.target as HTMLElement | null;
@@ -201,7 +226,7 @@
             <input type="number" step="0.1" value={snapshot.drawPlaneZ}
               onchange={(event) => actions.setDrawOption("drawPlaneZ", Number(event.currentTarget.value))} />
           </label>
-          <p class="hint">LMB: 点追加 / Enter: 生成 / Esc: 取消</p>
+          <p class="hint">LMB: 点追加 / RMB: 1点戻す / Enter: 生成 / Esc: 取消</p>
           <strong class="point-count">{snapshot.pathPoints.length} points</strong>
           <div class="path-actions">
             <button class="secondary" type="button" onclick={() => actions.undoPathPoint()}>

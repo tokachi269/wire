@@ -20,6 +20,7 @@ export class ViewerActions {
   private activeCancel: (() => void) | null = null;
   private interactionFrames: number[] = [];
   private interactionActive = false;
+  private suppressNextCommit = false;
 
   constructor(
     private readonly bridge: WireBridge,
@@ -335,6 +336,7 @@ export class ViewerActions {
   }
 
   commitCableTemplate(template: CableTemplateInfo): void {
+    if (this.consumeCancelledCommit()) return;
     this.finishInteractionBeforeCommit();
     this.store.update((current) => ({
       ...current,
@@ -347,6 +349,7 @@ export class ViewerActions {
   }
 
   commitBundleTemplate(template: BundleTemplateInfo): void {
+    if (this.consumeCancelledCommit()) return;
     this.finishInteractionBeforeCommit();
     this.store.update((current) => ({
       ...current,
@@ -511,6 +514,7 @@ export class ViewerActions {
   }
 
   commitPoleTemplate(template: PoleTemplateInfo): void {
+    if (this.consumeCancelledCommit()) return;
     this.finishInteractionBeforeCommit();
     this.store.update((current) => ({
       ...current,
@@ -522,11 +526,13 @@ export class ViewerActions {
     this.finishTemplateOperation(result, `pole template ${template.id} updated`);
   }
 
-  cancel(): void {
+  cancel(suppressBlurCommit = false): void {
+    const hadInteraction = this.readSnapshot().interaction !== null;
     this.clearPendingPreview();
     this.activeCancel?.();
     this.activeCancel = null;
     this.finishFrameMeasurement();
+    this.suppressNextCommit = hadInteraction && suppressBlurCommit;
   }
 
   recordFrame(deltaMs: number): void {
@@ -664,6 +670,7 @@ export class ViewerActions {
     apply: () => OperationResult,
     recover: () => void
   ): void {
+    if (this.consumeCancelledCommit()) return;
     this.clearPendingPreview();
     this.store.update((current) => write(current, value));
     const result = apply();
@@ -674,6 +681,12 @@ export class ViewerActions {
       recover();
     }
     this.finishOperation(result, `${controlId}=${String(value)}`);
+  }
+
+  private consumeCancelledCommit(): boolean {
+    if (!this.suppressNextCommit) return false;
+    this.suppressNextCommit = false;
+    return true;
   }
 
   private finishOperation(result: OperationResult, log: string): void {

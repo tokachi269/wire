@@ -69,6 +69,10 @@ export interface WireModule {
   WireState: new () => WireStateHandle;
 }
 
-export async function loadWireModule(): Promise<WireModule> {
-  return createWireModule() as Promise<WireModule>;
+export interface WireModuleOptions {
+  wasmBinary?: Uint8Array;
+}
+
+export async function loadWireModule(options?: WireModuleOptions): Promise<WireModule> {
+  return createWireModule(options) as Promise<WireModule>;
 }

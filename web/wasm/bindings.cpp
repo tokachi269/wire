@@ -154,6 +154,7 @@ public:
     }
     val output = val::object();
     output.set("id", std::to_string(pole->id));
+    output.set("poleTypeId", static_cast<int>(pole->pole_type_id));
     output.set("height", pole->height_m);
     output.set("positionX", pole->world_transform.position.x);
     output.set("positionY", pole->world_transform.position.y);

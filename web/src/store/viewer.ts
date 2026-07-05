@@ -118,7 +118,7 @@ export function createViewerSnapshot(): ViewerSnapshot {
     cameraFov: 48,
     showBackboneOverlay: true,
     showPreview: true,
-    keepPathAfterGenerate: true,
+    keepPathAfterGenerate: false,
     drawPlaneZ: 0,
     intervalM: 0,
     clickedPointsOnly: true,

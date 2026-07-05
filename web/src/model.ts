@@ -26,6 +26,7 @@ export interface VisualPartInfo {
 
 export interface PoleInfo {
   id: string;
+  poleTypeId?: number;
   height: number;
   positionX: number;
   positionY: number;

@@ -3,9 +3,11 @@ import { loadWireModule, type WireStateHandle } from "../src/bridge/wasm";
 
 describe("wire wasm smoke", () => {
   let state: WireStateHandle;
+  let createState: () => WireStateHandle;
 
   beforeAll(async () => {
     const module = await loadWireModule();
+    createState = () => new module.WireState();
     state = new module.WireState();
   });
 
@@ -97,32 +99,70 @@ describe("wire wasm smoke", () => {
     expect(regenerate.error.length).toBeGreaterThan(0);
   });
 
-  it("round-trips placement-only pole template edits", () => {
+  it("applies pole category height edits to ports and curve endpoints", () => {
+    const placementState = createState();
     const templates = Array.from(
-      { length: state.poleTemplateCount() },
-      (_, index) => state.poleTemplate(index)
+      { length: placementState.poleTemplateCount() },
+      (_, index) => placementState.poleTemplate(index)
     );
     const original = templates.find((template) => template.name === "CommunicationPole");
     expect(original).toBeDefined();
-    const edited = structuredClone(original!);
-    expect(edited.portBands.length).toBeGreaterThan(0);
-    edited.portBands[0].heightCenter += 0.1;
-    edited.portBands[0].heightMin += 0.1;
-    edited.portBands[0].heightMax += 0.1;
+    const generated = placementState.generate(
+      new Float64Array([0, 0, 0, 20, 0, 0]),
+      [1],
+      0,
+      original!.id,
+      [0],
+      0
+    );
+    expect(generated.ok, generated.error).toBe(true);
 
-    const update = state.updatePoleTemplate(edited);
-    expect(update.ok, update.error).toBe(true);
-
-    const refreshed = Array.from(
-      { length: state.poleTemplateCount() },
-      (_, index) => state.poleTemplate(index)
-    ).find((template) => template.id === edited.id);
-    expect(refreshed?.portBands[0].heightCenter).toBeCloseTo(
-      edited.portBands[0].heightCenter,
-      8
+    const portsBefore = Array.from(
+      { length: placementState.portCount() },
+      (_, index) => placementState.port(index)
+    ).filter((port) => port.category === 0);
+    expect(portsBefore.length).toBeGreaterThan(0);
+    const partsBefore = Array.from(
+      { length: placementState.visualPartCount() },
+      (_, index) => new Float64Array(placementState.visualPartSamples(index))
     );
 
-    const restore = state.updatePoleTemplate(original!);
-    expect(restore.ok, restore.error).toBe(true);
+    const edited = structuredClone(original!);
+    for (const band of edited.portBands.filter((candidate) => candidate.category === 0)) {
+      band.heightCenter += 1;
+      band.heightMin += 1;
+      band.heightMax += 1;
+    }
+
+    const update = placementState.updatePoleTemplate(edited);
+    expect(update.ok, update.error).toBe(true);
+
+    const portsAfter = Array.from(
+      { length: placementState.portCount() },
+      (_, index) => placementState.port(index)
+    ).filter((port) => port.category === 0);
+    expect(portsAfter).toHaveLength(portsBefore.length);
+    for (const before of portsBefore) {
+      const after = portsAfter.find((candidate) => candidate.id === before.id);
+      expect(after?.z).toBeCloseTo(before.z + 1, 8);
+    }
+
+    const partsAfter = Array.from(
+      { length: placementState.visualPartCount() },
+      (_, index) => new Float64Array(placementState.visualPartSamples(index))
+    );
+    expect(partsAfter).toHaveLength(partsBefore.length);
+    expect(
+      partsAfter.some((samples, index) =>
+        Math.abs(samples[2] - partsBefore[index][2] - 1) < 1e-8 ||
+        Math.abs(
+          samples[samples.length - 1] -
+          partsBefore[index][partsBefore[index].length - 1] -
+          1
+        ) < 1e-8
+      )
+    ).toBe(true);
+    placementState.delete();
   });
+
 });

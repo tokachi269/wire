@@ -1754,8 +1754,28 @@ EditResult<bool> CoreState::update_pole_type_and_refresh_instances(const PoleTyp
           applied.error = "backbone unsupported: active pole port band no longer resolves";
           return applied;
         }
+        const PortPlacementBand* previous_band_ptr =
+            state_internal::FindPortPlacementBandById(before, band_ptr->band_id);
+        if (previous_band_ptr == nullptr) {
+          applied.error = "backbone unsupported: active pole previous port band no longer resolves";
+          return applied;
+        }
+        if (port_band_equals(*previous_band_ptr, *band_ptr)) {
+          continue;
+        }
 
-        Vec3d adjusted_local{0.0, band_ptr->lateral_center_m, band_ptr->height_center_m};
+        const double layout_yaw =
+            effective_port_layout_yaw_deg(*pole, existing_port->id, existing_port->category);
+        const Vec3d current_local =
+            WorldPointToLocal(BuildPoleFrame(pole->world_transform, layout_yaw),
+                              existing_port->world_position);
+        Vec3d adjusted_local{
+            0.0,
+            current_local.y +
+                (band_ptr->lateral_center_m - previous_band_ptr->lateral_center_m),
+            current_local.z +
+                (band_ptr->height_center_m - previous_band_ptr->height_center_m),
+        };
         const bool apply_angle_correction = authoritative_.layout_settings.angle_correction_enabled &&
                                             pole->context.kind == PoleContextKind::kCorner &&
                                             band_ptr->side != SlotSide::kCenter;
@@ -1767,12 +1787,10 @@ EditResult<bool> CoreState::update_pole_type_and_refresh_instances(const PoleTyp
             applied_scale = std::abs(adjusted_local.y / band_ptr->lateral_center_m);
           }
         }
-        adjusted_local.y = std::clamp(adjusted_local.y, band_ptr->lateral_min_m, band_ptr->lateral_max_m);
-        adjusted_local.z = std::clamp(adjusted_local.z, band_ptr->height_min_m, band_ptr->height_max_m);
         adjusted_local = apply_pole_clearance_to_local(*pole, adjusted_local, band_ptr->side);
         const Vec3d world_position =
             local_to_world_on_pole(pole->world_transform,
-                                   effective_port_layout_yaw_deg(*pole, existing_port->id, existing_port->category),
+                                   layout_yaw,
                                    adjusted_local);
         if (LengthSquared(existing_port->world_position - world_position) > 1e-12 ||
             existing_port->angle_correction_applied != apply_angle_correction ||

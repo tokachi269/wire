@@ -1,5 +1,6 @@
 import {
   loadWireModule,
+  type WireModuleOptions,
   type WireStateHandle
 } from "./wasm";
 import type {
@@ -34,8 +35,8 @@ export interface SceneData {
 export class WireBridge {
   private constructor(private readonly state: WireStateHandle) {}
 
-  static async create(): Promise<WireBridge> {
-    const module = await loadWireModule();
+  static async create(options?: WireModuleOptions): Promise<WireBridge> {
+    const module = await loadWireModule(options);
     return new WireBridge(new module.WireState());
   }
 

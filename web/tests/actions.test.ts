@@ -565,10 +565,12 @@ describe("P1 action contracts", () => {
 
     actions.applyTiltToAll(3);
     expect(tilt).toHaveBeenCalledWith(["42"], 3);
+    actions.select("pole", "42");
+    actions.applyTiltToSelection(4);
+    expect(tilt).toHaveBeenCalledWith(["42"], 4);
     actions.resetSpanReferenceLengths();
     expect(reset).toHaveBeenCalledOnce();
 
-    actions.select("pole", "42");
     actions.clearSelectedOverride("pole");
     expect(clearPole).toHaveBeenCalledWith("42");
     actions.select("span", "77");
@@ -598,5 +600,36 @@ describe("P1 action contracts", () => {
     );
     actions.clearSelection();
     expect(current(store).selection).toBeNull();
+  });
+
+  it("starts a new path after generation by default and undoes one point", () => {
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({
+      generate: () => ({
+        ok: true,
+        error: "",
+        generatedPoleCount: 2,
+        generatedSpanCount: 1,
+        totalMs: 1
+      }),
+      scene: () => ({
+        parts: [],
+        poles: [],
+        ports: [],
+        spans: [],
+        supportNodes: []
+      })
+    }), store);
+    actions.initialize();
+    actions.addPathPoint([0, 0, 0]);
+    actions.addPathPoint([10, 0, 0]);
+
+    actions.generatePath();
+    expect(current(store).pathPoints).toEqual([]);
+
+    actions.addPathPoint([20, 0, 0]);
+    actions.addPathPoint([30, 0, 0]);
+    actions.undoPathPoint();
+    expect(current(store).pathPoints).toEqual([[20, 0, 0]]);
   });
 });

@@ -211,6 +211,14 @@
     <button
       class="secondary"
       type="button"
+      disabled={snapshot.selection?.kind !== "pole"}
+      onclick={() => actions.applyTiltToSelection(maxTiltDeg)}
+    >
+      選択poleへtilt適用
+    </button>
+    <button
+      class="secondary"
+      type="button"
       onclick={() => actions.resetSpanReferenceLengths()}
     >
       span基準長をreset

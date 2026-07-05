@@ -56,6 +56,10 @@
     snapshot.poleTemplates.find(
       (template) => template.id === snapshot.selectedPoleTemplateId
     );
+  const selectedPoleUsage = () =>
+    snapshot.poles.filter(
+      (pole) => pole.poleTypeId === snapshot.selectedPoleTemplateId
+    ).length;
 
   function patchCable<K extends keyof CableTemplateInfo>(
     template: CableTemplateInfo,
@@ -73,11 +77,26 @@
     return { ...template, [key]: value };
   }
 
+  function cloneBundle(template: BundleTemplateInfo): BundleTemplateInfo {
+    return {
+      ...template,
+      populationRules: template.populationRules.map((rule) => ({ ...rule }))
+    };
+  }
+
+  function clonePole(template: PoleTemplateInfo): PoleTemplateInfo {
+    return {
+      ...template,
+      portBands: template.portBands.map((band) => ({ ...band })),
+      anchorSlots: template.anchorSlots.map((slot) => ({ ...slot }))
+    };
+  }
+
   function updateBundle(
     template: BundleTemplateInfo,
     change: (draft: BundleTemplateInfo) => void
   ): void {
-    const draft = structuredClone(template);
+    const draft = cloneBundle(template);
     change(draft);
     actions.commitBundleTemplate(draft);
   }
@@ -92,7 +111,7 @@
     startValue = 0,
     value = 0
   ): void {
-    const draft = structuredClone(template);
+    const draft = cloneBundle(template);
     const rule = draft.populationRules.find((candidate) => candidate.ruleId === ruleId);
     if (rule === undefined) return;
     change(rule);
@@ -111,7 +130,7 @@
     template: PoleTemplateInfo,
     change: (draft: PoleTemplateInfo) => void
   ): void {
-    const draft = structuredClone(template);
+    const draft = clonePole(template);
     change(draft);
     actions.commitPoleTemplate(draft);
   }
@@ -155,7 +174,7 @@
     preview = false
   ): void {
     const start = categoryAverage(template, category, "heightCenter");
-    const draft = structuredClone(template);
+    const draft = clonePole(template);
     for (const band of draft.portBands.filter((item) => item.category === category)) {
       const half = Math.max(0, (band.heightMax - band.heightMin) / 2);
       band.heightCenter = round6(height);
@@ -176,7 +195,7 @@
     preview = false
   ): void {
     const oldCenter = categoryAverage(template, category, "lateralCenter");
-    const draft = structuredClone(template);
+    const draft = clonePole(template);
     for (const band of draft.portBands.filter((item) => item.category === category)) {
       const delta = offset - oldCenter;
       band.lateralCenter = round6(band.lateralCenter + delta);
@@ -199,7 +218,7 @@
     const bands = categoryBands(template, category);
     const center = categoryAverage(template, category, "lateralCenter");
     const ordered = [...bands].sort((a, b) => a.lateralCenter - b.lateralCenter);
-    const draft = structuredClone(template);
+    const draft = clonePole(template);
     ordered.forEach((original, index) => {
       const target = draft.portBands.find((band) => band.bandId === original.bandId);
       if (target === undefined) return;
@@ -240,6 +259,12 @@
     </select>
     {#if selectedPole()}
       {@const pole = selectedPole()!}
+      <p class:warning={selectedPoleUsage() === 0}>
+        使用中 pole: {selectedPoleUsage()}本
+        {#if selectedPoleUsage() === 0}
+          · この template の変更は現在の画面には反映されません
+        {/if}
+      </p>
       <label>Default height
         <input type="number" step="0.05" value={fmt(pole.defaultHeight)}
           oninput={(event) => actions.previewPoleDefaultHeight(numberValue(event))}

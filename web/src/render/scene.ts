@@ -22,12 +22,14 @@ export class WireScene {
   private readonly unsubscribe: () => void;
   private frame = 0;
   private resizeObserver: ResizeObserver | null = null;
+  private detachInput: (() => void) | null = null;
   private snapshot: ViewerSnapshot | null = null;
   private lastFrameTime: number | null = null;
 
   constructor(
     private readonly store: ViewerStore,
     private readonly onGroundClick: (point: WorldPoint) => void,
+    private readonly onUndoPathPoint: () => void,
     private readonly onFrame: (deltaMs: number) => void
   ) {
     this.scene.background = new THREE.Color(0xc8d6e4);
@@ -56,7 +58,9 @@ export class WireScene {
       button: number;
       mode: "orbit" | "pan" | "dolly" | "draw";
     } | null = null;
-    this.renderer.domElement.addEventListener("pointerdown", (event) => {
+    const canvas = this.renderer.domElement;
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0 && event.button !== 1) return;
       this.renderer.domElement.focus();
       const mode =
         event.button === 1
@@ -71,8 +75,8 @@ export class WireScene {
         event.preventDefault();
         this.renderer.domElement.setPointerCapture(event.pointerId);
       }
-    });
-    this.renderer.domElement.addEventListener("pointermove", (event) => {
+    };
+    const onPointerMove = (event: PointerEvent) => {
       if (pointerDown === null || pointerDown.button !== 1) return;
       const dx = event.clientX - pointerDown.x;
       const dy = event.clientY - pointerDown.y;
@@ -81,8 +85,8 @@ export class WireScene {
       if (pointerDown.mode === "orbit") this.orbit(dx, dy);
       if (pointerDown.mode === "pan") this.pan(dx, dy);
       if (pointerDown.mode === "dolly") this.dolly(dy * 0.01);
-    });
-    this.renderer.domElement.addEventListener("pointerup", (event) => {
+    };
+    const onPointerUp = (event: PointerEvent) => {
       if (
         event.button !== 0 ||
         pointerDown === null ||
@@ -109,12 +113,32 @@ export class WireScene {
           this.onGroundClick([hit.x, hit.y, hit.z]);
         }
       }
-    });
-    this.renderer.domElement.addEventListener("contextmenu", (event) => event.preventDefault());
-    this.renderer.domElement.addEventListener("wheel", (event) => {
+    };
+    const onPointerCancel = () => {
+      pointerDown = null;
+    };
+    const onContextMenu = (event: MouseEvent) => {
+      event.preventDefault();
+      this.onUndoPathPoint();
+    };
+    const onWheel = (event: WheelEvent) => {
       event.preventDefault();
       this.dolly(event.deltaY * 0.0012);
-    }, { passive: false });
+    };
+    canvas.addEventListener("pointerdown", onPointerDown);
+    canvas.addEventListener("pointermove", onPointerMove);
+    canvas.addEventListener("pointerup", onPointerUp);
+    canvas.addEventListener("pointercancel", onPointerCancel);
+    canvas.addEventListener("contextmenu", onContextMenu);
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+    this.detachInput = () => {
+      canvas.removeEventListener("pointerdown", onPointerDown);
+      canvas.removeEventListener("pointermove", onPointerMove);
+      canvas.removeEventListener("pointerup", onPointerUp);
+      canvas.removeEventListener("pointercancel", onPointerCancel);
+      canvas.removeEventListener("contextmenu", onContextMenu);
+      canvas.removeEventListener("wheel", onWheel);
+    };
     this.resizeObserver = new ResizeObserver(() => this.resize(host));
     this.resizeObserver.observe(host);
     this.resize(host);
@@ -124,6 +148,7 @@ export class WireScene {
   dispose(): void {
     cancelAnimationFrame(this.frame);
     this.resizeObserver?.disconnect();
+    this.detachInput?.();
     this.unsubscribe();
     this.renderer.dispose();
     this.renderer.domElement.remove();

@@ -394,8 +394,8 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     section.end_row_key = end_binding->row_key;
     sections.push_back(section);
   }
-  ExperimentalCablePopulation population = make_experimental_cable_population(state, placed.entries);
-  out.experimental_population_diagnostics = std::move(population.diagnostics);
+  CablePopulation population = make_cable_population(state, placed.entries);
+  out.population_diagnostics = std::move(population.diagnostics);
   for (CableSectionLayout& extra : population.sections) {
     const auto source = std::find_if(placed.entries.begin(), placed.entries.end(), [&](const SpanLayoutEntry& entry) {
       return entry.span_id == extra.key.logical_span_id;

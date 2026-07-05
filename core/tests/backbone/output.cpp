@@ -548,13 +548,10 @@ bool same_visual_cable_instance_family(const wire::core::CableInstanceKey& a, co
          a.rule_id == b.rule_id && a.instance_index == b.instance_index;
 }
 
-wire::core::ExperimentalCablePopulationConfig two_extra_lv_population_config() {
-  wire::core::ExperimentalCablePopulationConfig config{};
-  config.enabled = true;
-  config.explicit_seed = 1234;
-  wire::core::ExperimentalCableInstanceRule rule{};
+wire::core::CablePopulationRule two_extra_lv_population_rule() {
+  wire::core::CablePopulationRule rule{};
   rule.rule_id = 11;
-  rule.bundle_template_id = wire::core::BundleKind::kLowVoltage;
+  rule.explicit_seed = 1234;
   rule.priority = 10;
   rule.min_extra_count = 2;
   rule.max_extra_count = 2;
@@ -564,8 +561,13 @@ wire::core::ExperimentalCablePopulationConfig two_extra_lv_population_config() {
   rule.height_min_m = 0.0;
   rule.height_max_m = 20.0;
   rule.randomness = 0.6;
-  config.rules.push_back(rule);
-  return config;
+  return rule;
+}
+
+bool enable_two_extra_lv_population(wire::core::CoreState& state) {
+  wire::core::BundleTemplate lv_template = state.view().bundle_templates().at(wire::core::BundleKind::kLowVoltage);
+  lv_template.population_rules.push_back(two_extra_lv_population_rule());
+  return state.UpdateBundleTemplate(lv_template).ok;
 }
 
 } // namespace
@@ -1048,7 +1050,7 @@ bool C655_backbone_node_patch_grouping_uses_band_identity() {
 
 bool C656_backbone_node_patch_does_not_mix_base_and_extra_sections() {
   wire::core::CoreState state;
-  if (!state.UpdateExperimentalCablePopulationConfig(two_extra_lv_population_config()).ok) {
+  if (!enable_two_extra_lv_population(state)) {
     return false;
   }
   const auto generated = state.GenerateFromBackboneSpec(poly3_req(state));
@@ -1081,7 +1083,7 @@ bool C656_backbone_node_patch_does_not_mix_base_and_extra_sections() {
 
 bool C657_backbone_node_patch_does_not_mix_extra_instance_indices() {
   wire::core::CoreState state;
-  if (!state.UpdateExperimentalCablePopulationConfig(two_extra_lv_population_config()).ok) {
+  if (!enable_two_extra_lv_population(state)) {
     return false;
   }
   const auto generated = state.GenerateFromBackboneSpec(poly3_req(state));

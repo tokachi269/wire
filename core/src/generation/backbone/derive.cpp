@@ -29,66 +29,6 @@ bool apply_endpoint(const EditState& edit_state, const EndpointLayoutRule& rule,
 
 } // namespace
 
-EditResult<bool> CoreState::UpdateExperimentalCablePopulationConfig(
-    const ExperimentalCablePopulationConfig& config) {
-  EditResult<bool> out{};
-  std::vector<std::pair<BundleKind, CableInstanceRuleId>> rule_keys{};
-  for (const ExperimentalCableInstanceRule& rule : config.rules) {
-    const auto key = std::make_pair(rule.bundle_template_id, rule.rule_id);
-    if (rule.rule_id == 0 || std::find(rule_keys.begin(), rule_keys.end(), key) != rule_keys.end()) {
-      out.error = "experimental line population: rule ids must be nonzero and unique per bundle template";
-      return out;
-    }
-    rule_keys.push_back(key);
-    if (rule.min_extra_count < 0 || rule.max_extra_count < rule.min_extra_count ||
-        !std::isfinite(rule.min_spacing_m) || rule.min_spacing_m < 0.0 ||
-        !std::isfinite(rule.lateral_min_m) || !std::isfinite(rule.lateral_max_m) ||
-        rule.lateral_min_m > rule.lateral_max_m || !std::isfinite(rule.height_min_m) ||
-        !std::isfinite(rule.height_max_m) || rule.height_min_m > rule.height_max_m ||
-        !std::isfinite(rule.randomness) || rule.randomness < 0.0 || rule.randomness > 1.0) {
-      out.error = "experimental line population: invalid rule range";
-      return out;
-    }
-    if (authoritative_.bundle_templates.find(rule.bundle_template_id) == authoritative_.bundle_templates.end()) {
-      out.error = "experimental line population: rule references unknown bundle template";
-      return out;
-    }
-  }
-  std::unordered_set<PlacementReserveId> reserve_ids{};
-  for (const ExperimentalPlacementReserve& reserve : config.reserves) {
-    if (reserve.reserve_id == 0 || !reserve_ids.insert(reserve.reserve_id).second ||
-        !std::isfinite(reserve.lateral_min_m) || !std::isfinite(reserve.lateral_max_m) ||
-        reserve.lateral_min_m > reserve.lateral_max_m || !std::isfinite(reserve.height_min_m) ||
-        !std::isfinite(reserve.height_max_m) || reserve.height_min_m > reserve.height_max_m) {
-      out.error = "experimental line population: invalid placement reserve";
-      return out;
-    }
-    const auto pole_type_it = authoritative_.pole_types.find(reserve.pole_type_id);
-    if (pole_type_it == authoritative_.pole_types.end()) {
-      out.error = "experimental line population: reserve references unknown pole type";
-      return out;
-    }
-    const std::size_t matching_bands =
-        static_cast<std::size_t>(std::count_if(pole_type_it->second.port_bands.begin(),
-                                              pole_type_it->second.port_bands.end(),
-                                              [&](const PortPlacementBand& band) {
-                                                return band.band_id == reserve.band_id;
-                                              }));
-    if (matching_bands != 1) {
-      out.error = "experimental line population: reserve band identity must resolve exactly once";
-      return out;
-    }
-  }
-
-  runtime_.cache_state.experimental_cable_population = config;
-  runtime_.cache_state.experimental_cable_population.explicit_seed =
-      config.explicit_seed == 0 ? 1 : config.explicit_seed;
-  cache_visual_curve_parts(generation::backbone::make_visual_curve_parts(*this, {}));
-  out.value = true;
-  out.ok = true;
-  return out;
-}
-
 EditResult<bool> CoreState::DeriveGeneratedSpanOutputs(ObjectId span_id) {
   EditResult<bool> out{};
   const Span* span = authoritative_.edit_state.spans.find(span_id);

@@ -78,17 +78,6 @@ wire::core::EditResult<bool> UpdateVisualSettings(CoreState& state, const wire::
   return state.UpdateVisualSettings(settings, mark_all_spans_dirty);
 }
 
-wire::core::EditResult<bool>
-UpdateExperimentalCablePopulationConfig(
-    CoreState& state, const wire::core::ExperimentalCablePopulationConfig& config) {
-  return state.UpdateExperimentalCablePopulationConfig(config);
-}
-
-const wire::core::ExperimentalCablePopulationConfig&
-ExperimentalCablePopulationConfig(const CoreState& state) {
-  return state.view().experimental_cable_population_config();
-}
-
 wire::core::ValidationResult ValidateFast(const CoreState& state) {
   return state.ValidateFast();
 }

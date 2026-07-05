@@ -166,6 +166,7 @@ struct BundleTemplate {
   BundleBranchPolicyHint branch_policy = BundleBranchPolicyHint::kAuto;
   CableContinuityPolicyHint continuity_policy = CableContinuityPolicyHint::kAuto;
   int support_wire_pole_band_id = 0;
+  std::vector<CablePopulationRule> population_rules{};
   std::uint64_t version = 1;
 };
 

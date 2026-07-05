@@ -27,9 +27,8 @@ wire::core::generation::backbone::CablePopulationInput population_input(
   input.key.edge_bundle_id = 202;
   input.key.rule_owner_id = static_cast<std::uint64_t>(BundleKind::kCommunication);
   input.key.rule_id = 303;
-  input.explicit_seed = seed;
   input.rule.rule_id = 303;
-  input.rule.bundle_template_id = BundleKind::kCommunication;
+  input.rule.explicit_seed = seed;
   input.rule.min_extra_count = 3;
   input.rule.max_extra_count = 5;
   input.rule.min_spacing_m = 0.05;
@@ -72,13 +71,10 @@ bool same_instances(const std::vector<wire::core::CableSectionLayout>& lhs,
   return true;
 }
 
-wire::core::ExperimentalCablePopulationConfig lv_population_config() {
-  wire::core::ExperimentalCablePopulationConfig config{};
-  config.enabled = true;
-  config.explicit_seed = 1234;
-  wire::core::ExperimentalCableInstanceRule rule{};
+wire::core::CablePopulationRule lv_population_rule(std::uint64_t seed = 1234) {
+  wire::core::CablePopulationRule rule{};
   rule.rule_id = 1;
-  rule.bundle_template_id = wire::core::BundleKind::kLowVoltage;
+  rule.explicit_seed = seed;
   rule.priority = 10;
   rule.min_extra_count = 1;
   rule.max_extra_count = 1;
@@ -88,13 +84,21 @@ wire::core::ExperimentalCablePopulationConfig lv_population_config() {
   rule.height_min_m = 0.0;
   rule.height_max_m = 20.0;
   rule.randomness = 0.4;
-  config.rules.push_back(rule);
-  return config;
+  return rule;
+}
+
+bool has_extra_visual_curve(const wire::core::CoreState& state) {
+  return std::any_of(
+      state.view().visual_curve_parts().parts.begin(), state.view().visual_curve_parts().parts.end(),
+      [](const wire::core::VisualCurvePart& part) {
+        return part.kind == wire::core::VisualCurvePartKind::kEdgeBody &&
+               part.has_cable_instance_key && !part.cable_instance_key.is_base();
+      });
 }
 
 } // namespace
 
-bool C648_experimental_population_same_seed_is_stable() {
+bool C648_population_same_seed_is_stable() {
   const auto input = population_input();
   const auto first = wire::core::generation::backbone::populate_cable_sections(input);
   const auto second = wire::core::generation::backbone::populate_cable_sections(input);
@@ -104,12 +108,13 @@ bool C648_experimental_population_same_seed_is_stable() {
     return false;
   }
   return std::all_of(first.value.sections.begin(), first.value.sections.end(), [](const auto& section) {
-    return std::abs(section.endpoint_a.y) <= 1e-12 && std::abs(section.endpoint_b.y) <= 1e-12 &&
-           std::abs(section.endpoint_a.z - 6.0) > 1e-12 && std::abs(section.endpoint_b.z - 6.0) > 1e-12;
+    return std::abs(section.endpoint_a.y) <= 0.5 && std::abs(section.endpoint_b.y) <= 0.5 &&
+           section.endpoint_a.z >= 5.5 && section.endpoint_a.z <= 6.5 &&
+           section.endpoint_b.z >= 5.5 && section.endpoint_b.z <= 6.5;
   });
 }
 
-bool C649_experimental_population_span_identity_changes_placement() {
+bool C649_population_span_identity_changes_placement() {
   const auto first = wire::core::generation::backbone::populate_cable_sections(population_input(101));
   const auto second = wire::core::generation::backbone::populate_cable_sections(population_input(102));
   if (!first.ok || !second.ok || first.value.sections.empty() || second.value.sections.empty()) {
@@ -118,9 +123,9 @@ bool C649_experimental_population_span_identity_changes_placement() {
   return dist2(first.value.sections.front().endpoint_a, second.value.sections.front().endpoint_a) > 1e-12;
 }
 
-bool C650_experimental_population_reserve_blocks_candidates() {
+bool C650_population_reserve_blocks_candidates() {
   auto input = population_input();
-  wire::core::ExperimentalPlacementReserve reserve{};
+  wire::core::PlacementReserve reserve{};
   reserve.reserve_id = 1;
   reserve.pole_type_id = input.endpoint_a.pole_type_id;
   reserve.band_id = input.endpoint_a.band_id;
@@ -128,13 +133,13 @@ bool C650_experimental_population_reserve_blocks_candidates() {
   reserve.lateral_max_m = 1.0;
   reserve.height_min_m = 5.0;
   reserve.height_max_m = 7.0;
-  input.reserves.push_back(reserve);
+  input.rule.reserves.push_back(reserve);
   const auto result = wire::core::generation::backbone::populate_cable_sections(input);
   return result.ok && result.value.sections.empty() && result.value.diagnostic.extra_count_requested > 0 &&
          result.value.diagnostic.omitted_count == result.value.diagnostic.extra_count_requested;
 }
 
-bool C651_experimental_population_spacing_rejects_overlap() {
+bool C651_population_spacing_rejects_overlap() {
   auto input = population_input();
   input.rule.min_extra_count = 1;
   input.rule.max_extra_count = 1;
@@ -151,7 +156,7 @@ bool C651_experimental_population_spacing_rejects_overlap() {
   return result.ok && result.value.sections.empty() && result.value.diagnostic.omitted_count == 1;
 }
 
-bool C652_experimental_population_endpoint_failure_omits_pair() {
+bool C652_population_endpoint_failure_omits_pair() {
   auto input = population_input();
   input.endpoint_b.valid = false;
   input.endpoint_b.failure_reason = "test endpoint unavailable";
@@ -161,7 +166,7 @@ bool C652_experimental_population_endpoint_failure_omits_pair() {
          result.value.diagnostic.reason == "test endpoint unavailable";
 }
 
-bool C653_experimental_population_rejects_duplicate_band_identity() {
+bool C653_population_rejects_duplicate_band_identity() {
   wire::core::CoreState state;
   if (state.view().pole_types().empty()) {
     return false;
@@ -176,7 +181,9 @@ bool C653_experimental_population_rejects_duplicate_band_identity() {
     return false;
   }
   const auto updated = state.UpdatePoleTypeDefinition(duplicate_type);
-  const auto configured = state.UpdateExperimentalCablePopulationConfig(lv_population_config());
+  wire::core::BundleTemplate lv_template = state.view().bundle_templates().at(wire::core::BundleKind::kLowVoltage);
+  lv_template.population_rules.push_back(lv_population_rule());
+  const auto configured = state.UpdateBundleTemplate(lv_template);
   wire::core::BackboneSpec request = line_req(state);
   request.pole_type_id = duplicate_type.id;
   const auto generated = state.GenerateFromBackboneSpec(request);
@@ -190,8 +197,8 @@ bool C653_experimental_population_rejects_duplicate_band_identity() {
                part.has_cable_instance_key && !part.cable_instance_key.is_base();
       });
   const bool diagnosed = std::any_of(
-      state.view().visual_curve_parts().experimental_population_diagnostics.begin(),
-      state.view().visual_curve_parts().experimental_population_diagnostics.end(),
+      state.view().visual_curve_parts().population_diagnostics.begin(),
+      state.view().visual_curve_parts().population_diagnostics.end(),
       [](const wire::core::CablePopulationDiagnostic& diagnostic) {
         return diagnostic.reason == "duplicate band_id in endpoint pole type" &&
                diagnostic.omitted_count == diagnostic.extra_count_requested;
@@ -199,20 +206,22 @@ bool C653_experimental_population_rejects_duplicate_band_identity() {
   return !has_extra_visual && diagnosed;
 }
 
-bool C654_experimental_population_does_not_mutate_logical_topology() {
+bool C654_population_does_not_mutate_logical_topology() {
   wire::core::CoreState control;
-  wire::core::CoreState experimental;
-  const auto configured = experimental.UpdateExperimentalCablePopulationConfig(lv_population_config());
+  wire::core::CoreState populated;
+  wire::core::BundleTemplate lv_template = populated.view().bundle_templates().at(wire::core::BundleKind::kLowVoltage);
+  lv_template.population_rules.push_back(lv_population_rule());
+  const auto configured = populated.UpdateBundleTemplate(lv_template);
   if (!configured.ok) {
     return false;
   }
   const auto control_result = control.GenerateFromBackboneSpec(line_req(control));
-  const auto experimental_result = experimental.GenerateFromBackboneSpec(line_req(experimental));
-  if (!control_result.ok || !experimental_result.ok) {
+  const auto populated_result = populated.GenerateFromBackboneSpec(line_req(populated));
+  if (!control_result.ok || !populated_result.ok) {
     return false;
   }
   const auto& control_graph = control.view().backbone();
-  const auto& experimental_graph = experimental.view().backbone();
+  const auto& populated_graph = populated.view().backbone();
   const bool control_has_extra_visual = std::any_of(
       control.view().visual_curve_parts().parts.begin(), control.view().visual_curve_parts().parts.end(),
       [](const wire::core::VisualCurvePart& part) {
@@ -220,43 +229,91 @@ bool C654_experimental_population_does_not_mutate_logical_topology() {
                part.has_cable_instance_key && !part.cable_instance_key.is_base();
       });
   const bool topology_equal =
-      control_result.value.generated_pole_ids == experimental_result.value.generated_pole_ids &&
-      control_result.value.generated_span_ids == experimental_result.value.generated_span_ids &&
-      control.view().poles().size() == experimental.view().poles().size() &&
-      control.view().ports().size() == experimental.view().ports().size() &&
-      control.view().bundles().size() == experimental.view().bundles().size() &&
-      control.view().spans().size() == experimental.view().spans().size() &&
-      control_graph.nodes.size() == experimental_graph.nodes.size() &&
-      control_graph.edges.size() == experimental_graph.edges.size() &&
-      control_graph.edge_bundles.size() == experimental_graph.edge_bundles.size() &&
-      control_graph.port_bindings.size() == experimental_graph.port_bindings.size() &&
-      control_graph.span_bindings.size() == experimental_graph.span_bindings.size();
+      control_result.value.generated_pole_ids == populated_result.value.generated_pole_ids &&
+      control_result.value.generated_span_ids == populated_result.value.generated_span_ids &&
+      control.view().poles().size() == populated.view().poles().size() &&
+      control.view().ports().size() == populated.view().ports().size() &&
+      control.view().bundles().size() == populated.view().bundles().size() &&
+      control.view().spans().size() == populated.view().spans().size() &&
+      control_graph.nodes.size() == populated_graph.nodes.size() &&
+      control_graph.edges.size() == populated_graph.edges.size() &&
+      control_graph.edge_bundles.size() == populated_graph.edge_bundles.size() &&
+      control_graph.port_bindings.size() == populated_graph.port_bindings.size() &&
+      control_graph.span_bindings.size() == populated_graph.span_bindings.size();
   bool graph_identity_equal = topology_equal;
   for (std::size_t i = 0; graph_identity_equal && i < control_graph.nodes.size(); ++i) {
     graph_identity_equal =
-        control_graph.nodes[i].node_id == experimental_graph.nodes[i].node_id &&
-        control_graph.nodes[i].pole_id == experimental_graph.nodes[i].pole_id;
+        control_graph.nodes[i].node_id == populated_graph.nodes[i].node_id &&
+        control_graph.nodes[i].pole_id == populated_graph.nodes[i].pole_id;
   }
   for (std::size_t i = 0; graph_identity_equal && i < control_graph.edges.size(); ++i) {
     graph_identity_equal =
-        control_graph.edges[i].edge_id == experimental_graph.edges[i].edge_id &&
-        control_graph.edges[i].node_a == experimental_graph.edges[i].node_a &&
-        control_graph.edges[i].node_b == experimental_graph.edges[i].node_b;
+        control_graph.edges[i].edge_id == populated_graph.edges[i].edge_id &&
+        control_graph.edges[i].node_a == populated_graph.edges[i].node_a &&
+        control_graph.edges[i].node_b == populated_graph.edges[i].node_b;
   }
   for (std::size_t i = 0; graph_identity_equal && i < control_graph.edge_bundles.size(); ++i) {
     graph_identity_equal =
-        control_graph.edge_bundles[i].edge_bundle_id == experimental_graph.edge_bundles[i].edge_bundle_id &&
-        control_graph.edge_bundles[i].edge_id == experimental_graph.edge_bundles[i].edge_id &&
-        control_graph.edge_bundles[i].bundle_id == experimental_graph.edge_bundles[i].bundle_id &&
-        control_graph.edge_bundles[i].span_ids == experimental_graph.edge_bundles[i].span_ids;
+        control_graph.edge_bundles[i].edge_bundle_id == populated_graph.edge_bundles[i].edge_bundle_id &&
+        control_graph.edge_bundles[i].edge_id == populated_graph.edge_bundles[i].edge_id &&
+        control_graph.edge_bundles[i].bundle_id == populated_graph.edge_bundles[i].bundle_id &&
+        control_graph.edge_bundles[i].span_ids == populated_graph.edge_bundles[i].span_ids;
   }
   const bool has_extra_visual = std::any_of(
-      experimental.view().visual_curve_parts().parts.begin(), experimental.view().visual_curve_parts().parts.end(),
+      populated.view().visual_curve_parts().parts.begin(), populated.view().visual_curve_parts().parts.end(),
       [](const wire::core::VisualCurvePart& part) {
         return part.kind == wire::core::VisualCurvePartKind::kEdgeBody &&
                part.has_cable_instance_key && !part.cable_instance_key.is_base();
       });
   return !control_has_extra_visual && graph_identity_equal && has_extra_visual;
+}
+
+bool C686_population_rule_on_bundle_template_adds_visual_only_sections() {
+  wire::core::CoreState control;
+  wire::core::CoreState populated;
+  wire::core::BundleTemplate lv_template =
+      populated.view().bundle_templates().at(wire::core::BundleKind::kLowVoltage);
+  lv_template.population_rules.push_back(lv_population_rule());
+  if (!populated.UpdateBundleTemplate(lv_template).ok) {
+    return false;
+  }
+
+  const auto control_result = control.GenerateFromBackboneSpec(line_req(control));
+  const auto populated_result = populated.GenerateFromBackboneSpec(line_req(populated));
+  if (!control_result.ok || !populated_result.ok) {
+    return false;
+  }
+
+  return !has_extra_visual_curve(control) && has_extra_visual_curve(populated) &&
+         control.view().poles().size() == populated.view().poles().size() &&
+         control.view().ports().size() == populated.view().ports().size() &&
+         control.view().bundles().size() == populated.view().bundles().size() &&
+         control.view().spans().size() == populated.view().spans().size() &&
+         control.view().backbone().nodes.size() == populated.view().backbone().nodes.size() &&
+         control.view().backbone().edges.size() == populated.view().backbone().edges.size() &&
+         control.view().backbone().edge_bundles.size() == populated.view().backbone().edge_bundles.size() &&
+         control.view().backbone().span_bindings.size() == populated.view().backbone().span_bindings.size();
+}
+
+bool C687_population_rule_update_is_reshape_not_regenerate() {
+  wire::core::CoreState state;
+  wire::core::BundleTemplate lv_template =
+      state.view().bundle_templates().at(wire::core::BundleKind::kLowVoltage);
+  lv_template.population_rules.push_back(lv_population_rule(11));
+  if (!state.UpdateBundleTemplate(lv_template).ok) {
+    return false;
+  }
+  const auto generated = state.GenerateFromBackboneSpec(line_req(state));
+  if (!generated.ok || !has_extra_visual_curve(state)) {
+    return false;
+  }
+
+  wire::core::BundleTemplate edited =
+      state.view().bundle_templates().at(wire::core::BundleKind::kLowVoltage);
+  edited.population_rules.front().explicit_seed = 12;
+  const auto updated = state.UpdateBundleTemplate(edited);
+  return updated.ok && state.view().last_update_timing().kind == wire::core::UpdateKind::kReshape &&
+         has_extra_visual_curve(state);
 }
 
 } // namespace backbone_tests

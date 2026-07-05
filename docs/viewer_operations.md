@@ -49,7 +49,7 @@ desktop viewer の実装を写経せず、`panels -> store/actions -> bridge -> 
 | Direction Mode / Flip Direction | generation action input | select / button | `kRegenerate` | release commit | そのまま | `BackboneSpec` の明示入力 | P1 |
 | Generate From Path | `GenerateFromBackboneSpec` | button | `kRegenerate` | commit | 直して移植 | W3 の action。`EditResult.error`を必ず表示する | P1 |
 | Undo Last Point / Clear Path | draw store | button | UI | 即時 | そのまま | committed core state は変更しない | P1 |
-| Physical Line Population / Population Seed | `UpdateExperimentalCablePopulationConfig` | toggle / integer | experimental | - | 捨てる | 実験経路であり W0-W4 の current mainline ではない | P2 |
+| Bundle Population Rules | `UpdateBundleTemplate(population_rules)` | folded rule editor | `kReshape` | number preview / count commit | 直して移植 | population は BundleTemplate の性質。Draw Path の global toggle/seed は置かず、rule が空なら追加線なし | P1 |
 | Save Repro Capture | なし | button | debug/capture | - | 捨てる | filesystem capture は desktop debug 固有 | P2 |
 
 ## Geometry / layout / orientation
@@ -173,4 +173,4 @@ P1 だが意図的に除外した項目:
 - Unified UI toggle: webは単一workspaceを唯一の構成とし、旧window modeを持たない。
 - direct object edit: desktop側も無効であり、Draw Pathと明示template/update actionだけを入口にする。
 
-P2 の debug/capture、physical line population、walk modeは未実装である。
+P2 の debug/capture、walk modeは未実装である。

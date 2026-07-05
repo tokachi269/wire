@@ -74,7 +74,8 @@ section boundary は必ずしも span boundary ではない。
 `VisualCurvePartKind::kEdgeBody` と `kNodePatch` は派生 visual curve の分割であり、topology 正本ではない。
 `kLead` と `kJumper` は将来の別curve family用の分類であり、main cable continuity を代替しない。
 
-実験populationの runtime 名は `CableInstanceKey` / `CableSectionLayout` / `ExperimentalCablePopulationConfig` へ寄せる。
+population は wrap しない追加平行線の `CableInstance` であり、carrier / wrap / 途中トリムは含めない。
+現行 population の runtime 名は `CableInstanceKey` / `CableSectionLayout` に寄せる。
 ただし現時点の `CableInstanceKey.logical_span_id` は span-fragment scope であり、run-level identity は未実装である。
 
 `CableContinuityPolicyHint`、NodePatch continuity、span / bundle / lane binding は現在の近い continuity 情報である。

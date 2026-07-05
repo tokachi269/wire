@@ -140,6 +140,34 @@ enum class BundleKind : std::uint8_t {
   kOpticalWithSupport = 5,
 };
 
+using CableInstanceRuleId = std::uint64_t;
+using PlacementReserveId = std::uint64_t;
+
+struct PlacementReserve {
+  PlacementReserveId reserve_id = 0;
+  PoleTypeId pole_type_id = kInvalidPoleTypeId;
+  int band_id = 0;
+  double lateral_min_m = 0.0;
+  double lateral_max_m = 0.0;
+  double height_min_m = 0.0;
+  double height_max_m = 0.0;
+};
+
+struct CablePopulationRule {
+  CableInstanceRuleId rule_id = 0;
+  std::uint64_t explicit_seed = 1;
+  int priority = 0;
+  int min_extra_count = 0;
+  int max_extra_count = 0;
+  double min_spacing_m = 0.05;
+  double lateral_min_m = -1.0;
+  double lateral_max_m = 1.0;
+  double height_min_m = 0.0;
+  double height_max_m = 20.0;
+  double randomness = 0.25;
+  std::vector<PlacementReserve> reserves{};
+};
+
 enum class CableMaterialStyleKind : std::uint8_t {
   kGeneric = 0,
   kBareConductor = 1,

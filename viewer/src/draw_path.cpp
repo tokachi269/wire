@@ -695,36 +695,6 @@ bool ExecuteBackboneRequest(CoreState& state, ViewerUiState& ui_state, const wir
   return true;
 }
 
-wire::core::ExperimentalCablePopulationConfig
-ExperimentalCablePopulationConfigLocal(const ViewerUiState& ui_state) {
-  wire::core::ExperimentalCablePopulationConfig config{};
-  config.enabled = ui_state.experimental_line_population_enabled;
-  config.explicit_seed = ui_state.experimental_line_population_seed;
-  if (!config.enabled) {
-    return config;
-  }
-  auto add_rule = [&](std::uint64_t rule_id, wire::core::BundleKind bundle_template_id, int priority,
-                      int min_count, int max_count, double spacing_m) {
-    wire::core::ExperimentalCableInstanceRule rule{};
-    rule.rule_id = rule_id;
-    rule.bundle_template_id = bundle_template_id;
-    rule.priority = priority;
-    rule.min_extra_count = min_count;
-    rule.max_extra_count = max_count;
-    rule.min_spacing_m = spacing_m;
-    rule.lateral_min_m = -2.0;
-    rule.lateral_max_m = 2.0;
-    rule.height_min_m = 0.0;
-    rule.height_max_m = 20.0;
-    rule.randomness = 0.65;
-    config.rules.push_back(rule);
-  };
-  add_rule(1001, wire::core::BundleKind::kLowVoltage, 10, 0, 1, 0.050);
-  add_rule(1002, wire::core::BundleKind::kCommunication, 20, 4, 8, 0.075);
-  add_rule(1003, wire::core::BundleKind::kOptical, 15, 3, 5, 0.070);
-  return config;
-}
-
 void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool from_enter_key) {
   const auto view = viewer_core_state::View(state);
   EnsureDrawPathPointKinds(ui_state);
@@ -745,12 +715,6 @@ void ExecuteGenerateFromDrawPath(CoreState& state, ViewerUiState& ui_state, bool
   const auto selected_templates = SelectedBundleTemplates(view, ui_state);
   if (selected_templates.empty()) {
     ui_state.last_error = "select at least one bundle template";
-    return;
-  }
-  const auto population_config = viewer_core_state::UpdateExperimentalCablePopulationConfig(
-      state, ExperimentalCablePopulationConfigLocal(ui_state));
-  if (!population_config.ok) {
-    ui_state.last_error = population_config.error;
     return;
   }
 
@@ -1444,16 +1408,11 @@ bool SaveDrawPathReproCapture(const CoreState& state, const ViewerUiState& ui_st
     ofs << prefix << ".lane_index=" << diagnostic.lane_index << "\n";
     ofs << prefix << ".reason=" << diagnostic.reason << "\n";
   }
-  const auto& population_config = viewer_core_state::ExperimentalCablePopulationConfig(state);
-  ofs << "result.experimental_line_population.enabled=" << (population_config.enabled ? 1 : 0) << "\n";
-  ofs << "result.experimental_line_population.explicit_seed="
-      << static_cast<unsigned long long>(population_config.explicit_seed) << "\n";
-  ofs << "result.experimental_line_population.rule_count=" << population_config.rules.size() << "\n";
-  const auto& population_diagnostics = view.visual_curve_parts().experimental_population_diagnostics;
-  ofs << "result.experimental_line_population.diagnostic_count=" << population_diagnostics.size() << "\n";
+  const auto& population_diagnostics = view.visual_curve_parts().population_diagnostics;
+  ofs << "result.cable_population.diagnostic_count=" << population_diagnostics.size() << "\n";
   for (std::size_t i = 0; i < population_diagnostics.size(); ++i) {
     const auto& diagnostic = population_diagnostics[i];
-    const std::string prefix = std::format("result.experimental_line_population.diagnostic[{}]", i);
+    const std::string prefix = std::format("result.cable_population.diagnostic[{}]", i);
     ofs << prefix << ".logical_span_id=" << static_cast<unsigned long long>(diagnostic.logical_span_id) << "\n";
     ofs << prefix << ".edge_bundle_id=" << static_cast<unsigned long long>(diagnostic.edge_bundle_id) << "\n";
     ofs << prefix << ".rule_id=" << static_cast<unsigned long long>(diagnostic.rule_id) << "\n";
@@ -1750,9 +1709,6 @@ void DrawPathModePanel(CoreState& state, ViewerUiState& ui_state) {
   ImGui::Checkbox("Clicked Points Only (No Intermediate Pole)", &ui_state.draw_clicked_points_only);
   ImGui::Checkbox("Show Preview", &ui_state.draw_show_preview);
   ImGui::Checkbox("Keep Path After Generate", &ui_state.draw_keep_path_after_generate);
-  ImGui::SeparatorText("Experimental");
-  ImGui::Checkbox("Physical Line Population", &ui_state.experimental_line_population_enabled);
-  ImGui::InputScalar("Population Seed", ImGuiDataType_U64, &ui_state.experimental_line_population_seed);
   ImGui::TextUnformatted("Template-driven bundle generation");
   ImGui::Text("Path points: %d", static_cast<int>(ui_state.draw_path_points.size()));
   const int midair_points = static_cast<int>(

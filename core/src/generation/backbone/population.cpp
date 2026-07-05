@@ -27,7 +27,7 @@ std::uint64_t combine(std::uint64_t seed, std::uint64_t value) {
 
 std::uint64_t key_seed(const CablePopulationInput& input, std::size_t instance_index,
                        std::size_t attempt) {
-  std::uint64_t seed = mix64(input.explicit_seed);
+  std::uint64_t seed = mix64(input.rule.explicit_seed == 0 ? 1 : input.rule.explicit_seed);
   seed = combine(seed, input.key.logical_span_id);
   seed = combine(seed, input.key.edge_bundle_id);
   seed = combine(seed, input.key.rule_owner_id);
@@ -52,8 +52,8 @@ bool inside(double value, double min_value, double max_value) {
 }
 
 bool blocked_by_reserve(const CablePopulationEndpoint& endpoint,
-                        const std::vector<ExperimentalPlacementReserve>& reserves, const Vec3d& local) {
-  return std::any_of(reserves.begin(), reserves.end(), [&](const ExperimentalPlacementReserve& reserve) {
+                        const std::vector<PlacementReserve>& reserves, const Vec3d& local) {
+  return std::any_of(reserves.begin(), reserves.end(), [&](const PlacementReserve& reserve) {
     return reserve.pole_type_id == endpoint.pole_type_id && reserve.band_id == endpoint.band_id &&
            inside(local.y, reserve.lateral_min_m, reserve.lateral_max_m) &&
            inside(local.z, reserve.height_min_m, reserve.height_max_m);
@@ -78,18 +78,19 @@ int requested_count(const CablePopulationInput& input) {
   return input.rule.min_extra_count + static_cast<int>(seed % static_cast<std::uint64_t>(count_range));
 }
 
-Vec3d candidate_local(const CablePopulationEndpoint& endpoint, const ExperimentalCableInstanceRule& rule,
+Vec3d candidate_local(const CablePopulationEndpoint& endpoint, const CablePopulationRule& rule,
                       std::size_t instance_index, std::size_t attempt, std::uint64_t seed) {
-  const std::size_t ordinal = instance_index + attempt;
-  const double side = ((ordinal & 1u) == 0u) ? 1.0 : -1.0;
-  const double ring = static_cast<double>((ordinal / 2u) + 1u);
-  const double jitter = 1.0 + centered(combine(seed, 1)) * rule.randomness * 0.35;
-  const double height_delta = side * std::max(rule.min_spacing_m, 0.01) * ring * jitter;
-  return {endpoint.original_local.x, endpoint.original_local.y, endpoint.original_local.z + height_delta};
+  (void)instance_index;
+  (void)attempt;
+  const double lateral = endpoint.lateral_min_m + unit(combine(seed, 1)) *
+                                                    (endpoint.lateral_max_m - endpoint.lateral_min_m);
+  const double height = endpoint.height_min_m + unit(combine(seed, 2)) *
+                                                (endpoint.height_max_m - endpoint.height_min_m);
+  return {endpoint.original_local.x, lateral, height};
 }
 
 bool candidate_allowed(const CablePopulationEndpoint& endpoint,
-                       const std::vector<ExperimentalPlacementReserve>& reserves,
+                       const std::vector<PlacementReserve>& reserves,
                        const std::vector<Vec3d>& occupied, double min_spacing_m, const Vec3d& local) {
   return inside(local.y, endpoint.lateral_min_m, endpoint.lateral_max_m) &&
          inside(local.z, endpoint.height_min_m, endpoint.height_max_m) &&
@@ -105,13 +106,11 @@ const SavedBackboneSpanBinding* span_binding_for(const CoreState& state, ObjectI
   return nullptr;
 }
 
-const ExperimentalCableInstanceRule* rule_for(const ExperimentalCablePopulationConfig& config,
-                                             BundleKind bundle_template_id, std::size_t index) {
-  std::vector<const ExperimentalCableInstanceRule*> matches{};
-  for (const ExperimentalCableInstanceRule& rule : config.rules) {
-    if (rule.bundle_template_id == bundle_template_id) {
-      matches.push_back(&rule);
-    }
+std::vector<const CablePopulationRule*> sorted_rules(const BundleTemplate& bundle_template) {
+  std::vector<const CablePopulationRule*> matches{};
+  matches.reserve(bundle_template.population_rules.size());
+  for (const CablePopulationRule& rule : bundle_template.population_rules) {
+    matches.push_back(&rule);
   }
   std::sort(matches.begin(), matches.end(), [](const auto* lhs, const auto* rhs) {
     if (lhs->priority != rhs->priority) {
@@ -119,12 +118,12 @@ const ExperimentalCableInstanceRule* rule_for(const ExperimentalCablePopulationC
     }
     return lhs->rule_id < rhs->rule_id;
   });
-  return index < matches.size() ? matches[index] : nullptr;
+  return matches;
 }
 
 CablePopulationEndpoint resolve_endpoint(const CoreState& state, const LayoutEndpoint& layout,
                                                const BundleTemplate& bundle_template,
-                                               const ExperimentalCableInstanceRule& rule) {
+                                               const CablePopulationRule& rule) {
   CablePopulationEndpoint out{};
   const Port* port = state.view().ports().find(layout.port_id);
   if (port == nullptr || port->owner_pole_id == kInvalidObjectId) {
@@ -224,8 +223,8 @@ EditResult<CablePopulationOutput> populate_cable_sections(const CablePopulationI
           candidate_local(input.endpoint_a, input.rule, static_cast<std::size_t>(index), attempt, seed);
       const Vec3d local_b =
           candidate_local(input.endpoint_b, input.rule, static_cast<std::size_t>(index), attempt, seed);
-      if (!candidate_allowed(input.endpoint_a, input.reserves, occupied_a, input.rule.min_spacing_m, local_a) ||
-          !candidate_allowed(input.endpoint_b, input.reserves, occupied_b, input.rule.min_spacing_m, local_b)) {
+      if (!candidate_allowed(input.endpoint_a, input.rule.reserves, occupied_a, input.rule.min_spacing_m, local_a) ||
+          !candidate_allowed(input.endpoint_b, input.rule.reserves, occupied_b, input.rule.min_spacing_m, local_b)) {
         continue;
       }
 
@@ -256,15 +255,9 @@ EditResult<CablePopulationOutput> populate_cable_sections(const CablePopulationI
   return out;
 }
 
-ExperimentalCablePopulation make_experimental_cable_population(
+CablePopulation make_cable_population(
     const CoreState& state, const std::vector<SpanLayoutEntry>& layouts) {
-  ExperimentalCablePopulation output{};
-  const ExperimentalCablePopulationConfig& config =
-      state.view().experimental_cable_population_config();
-  if (!config.enabled) {
-    return output;
-  }
-
+  CablePopulation output{};
   for (const SpanLayoutEntry& layout : layouts) {
     const Span* span = state.view().spans().find(layout.span_id);
     const SavedBackboneSpanBinding* binding = span_binding_for(state, layout.span_id);
@@ -280,21 +273,21 @@ ExperimentalCablePopulation make_experimental_cable_population(
       continue;
     }
 
+    if (bundle_template_it->second.population_rules.empty()) {
+      continue;
+    }
+
     std::vector<Vec3d> occupied_a{};
     std::vector<Vec3d> occupied_b{};
-    std::size_t rule_index = 0;
-    while (const ExperimentalCableInstanceRule* rule =
-               rule_for(config, bundle->bundle_template_id, rule_index++)) {
+    for (const CablePopulationRule* rule : sorted_rules(bundle_template_it->second)) {
       CablePopulationInput input{};
       input.key.logical_span_id = layout.span_id;
       input.key.edge_bundle_id = binding->edge_bundle_id;
       input.key.rule_owner_id = static_cast<std::uint64_t>(bundle->bundle_template_id);
       input.key.rule_id = rule->rule_id;
       input.rule = *rule;
-      input.explicit_seed = config.explicit_seed;
       input.endpoint_a = resolve_endpoint(state, layout.start, bundle_template_it->second, *rule);
       input.endpoint_b = resolve_endpoint(state, layout.end, bundle_template_it->second, *rule);
-      input.reserves = config.reserves;
       input.occupied_a_local = occupied_a;
       input.occupied_b_local = occupied_b;
       if (input.endpoint_a.valid) {

@@ -145,8 +145,6 @@ struct ViewerUiState {
   bool draw_clicked_points_only = true;
   double draw_interval_m = 8.0;
   int draw_direction_mode = static_cast<int>(wire::core::PathDirectionMode::kAuto);
-  bool experimental_line_population_enabled = false;
-  std::uint64_t experimental_line_population_seed = 20260703;
   bool layout_settings_loaded = false;
   bool layout_angle_correction_enabled = true;
   double layout_corner_threshold_deg = wire::core::kDefaultCornerThresholdDeg;

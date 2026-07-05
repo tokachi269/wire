@@ -147,21 +147,22 @@ boundary tangentをdebug/captureで見えるようにするための派生出力
 分割後のspan片が接続部curveのauthorityになってはいけない。長いrun全体を毎回正本として再計算する方式にはせず、
 dirty node + incident edge + 必要な1-hop程度の更新範囲に抑える。
 
-### experimental cable population
+### cable population
 
 CableInstance / CableSection / carrier の設計語は docs/cable_instance_section.md を参照する。現行の `CableInstanceKey.logical_span_id` は span-fragment scope であり、run-level identity は未実装である。
 
-`codex/placement-population-design`では、logical spanから見た目用の追加線を作る実験機能を持つ。
-defaultは無効で、`SavedBackboneGraph`、`Span`、`Port`を増やさず、layout後に
-base spanと追加線を`CableSectionLayout`へ揃え、同じ`EdgeBodyCurve` / `NodePatchCurve`生成へ渡す。
-追加線専用のcurve、tessellation、render経路は持たない。identityはlogical span、edge bundle、
-bundle template、明示rule id、instance indexから作り、両endpointは同じinstance indexで対応させる。
-配置不能時はsupportやrouteを作らずomit diagnosticを残す。
+`BundleTemplate.population_rules` は、その bundle が派生させる追加の平行線を定義する。
+rules が空なら追加線は無い。global enable や global seed は持たない。
 
-viewerではDraw Path panelの`Experimental > Physical Line Population`を有効にしてから、
-CommunicationまたはOpticalを含む2点以上のpathを生成する。既存線の近くに同じmaterial/太さの追加線が表示される。
-検証用ruleは横位置を固定し、高さ方向だけにstable random配置する。
-`Save Repro Capture`にはinstance key、両端band id、requested/accepted/omitted数を出力する。
+population は derived output であり、`SavedBackboneGraph`、`Span`、`Port`を増やさない。
+layout後に base span と追加線を `CableSectionLayout` へ揃え、同じ `EdgeBodyCurve` /
+`NodePatchCurve` 生成へ渡す。追加線専用の curve、tessellation、render 経路は持たない。
+identity は logical span、edge bundle、bundle template、明示 rule id、instance index から作り、
+両 endpoint は同じ instance index で対応させる。配置不能時は support や route を作らず omit diagnostic を残す。
+
+rule 変更は `UpdateBundleTemplate` の `kReshape` 差分であり、topology/regenerate 差分にしない。
+配置は rule の explicit seed、logical span、edge bundle、rule id、instance index から決定的に導出する。
+lateral / height は rule 範囲と endpoint band 範囲の交差内で stable random 配置する。
 
 ## wire domain境界
 

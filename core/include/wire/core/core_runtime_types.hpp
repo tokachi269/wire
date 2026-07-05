@@ -111,40 +111,6 @@ enum class VisualCurveSagMethod : std::uint8_t {
   kParabolic = 1,
 };
 
-using CableInstanceRuleId = std::uint64_t;
-using PlacementReserveId = std::uint64_t;
-
-struct ExperimentalCableInstanceRule {
-  CableInstanceRuleId rule_id = 0;
-  BundleKind bundle_template_id = BundleKind::kCommunication;
-  int priority = 0;
-  int min_extra_count = 0;
-  int max_extra_count = 0;
-  double min_spacing_m = 0.05;
-  double lateral_min_m = -1.0;
-  double lateral_max_m = 1.0;
-  double height_min_m = 0.0;
-  double height_max_m = 20.0;
-  double randomness = 0.25;
-};
-
-struct ExperimentalPlacementReserve {
-  PlacementReserveId reserve_id = 0;
-  PoleTypeId pole_type_id = kInvalidPoleTypeId;
-  int band_id = 0;
-  double lateral_min_m = 0.0;
-  double lateral_max_m = 0.0;
-  double height_min_m = 0.0;
-  double height_max_m = 0.0;
-};
-
-struct ExperimentalCablePopulationConfig {
-  bool enabled = false;
-  std::uint64_t explicit_seed = 1;
-  std::vector<ExperimentalCableInstanceRule> rules{};
-  std::vector<ExperimentalPlacementReserve> reserves{};
-};
-
 struct CableInstanceKey {
   ObjectId logical_span_id = kInvalidObjectId;
   ObjectId edge_bundle_id = kInvalidObjectId;
@@ -222,7 +188,7 @@ struct VisualCurvePart {
 struct VisualCurvePartCache {
   std::vector<VisualCurvePart> parts{};
   std::vector<VisualCurveDiagnostic> diagnostics{};
-  std::vector<CablePopulationDiagnostic> experimental_population_diagnostics{};
+  std::vector<CablePopulationDiagnostic> population_diagnostics{};
 };
 
 struct VisualSettings {
@@ -242,7 +208,6 @@ struct CacheState {
   BoundsCache bounds_cache{};
   VisualSettings visual_settings{};
   VariationSettings variation_settings{};
-  ExperimentalCablePopulationConfig experimental_cable_population{};
   SpanLayoutCache span_layout_cache{};
   VisualCache visual_cache{};
   RenderCache render_cache{};

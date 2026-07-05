@@ -811,27 +811,33 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C657_backbone_node_patch_does_not_mix_extra_instance_indices",
                          "backbone node patch does not connect different populated section instances", "Boundary",
                          false, C657_backbone_node_patch_does_not_mix_extra_instance_indices);
-  test_registry::AddTest(tests, "C648_experimental_population_same_seed_is_stable",
-                         "experimental physical line population is stable for the same explicit seed", "Invariant",
-                         false, C648_experimental_population_same_seed_is_stable);
-  test_registry::AddTest(tests, "C649_experimental_population_span_identity_changes_placement",
-                         "experimental physical line placement is keyed by logical span identity", "Invariant",
-                         false, C649_experimental_population_span_identity_changes_placement);
-  test_registry::AddTest(tests, "C650_experimental_population_reserve_blocks_candidates",
-                         "experimental physical line reserves block candidate pairs", "Invariant", false,
-                         C650_experimental_population_reserve_blocks_candidates);
-  test_registry::AddTest(tests, "C651_experimental_population_spacing_rejects_overlap",
-                         "experimental physical line spacing rejects overlapping candidates", "Invariant", false,
-                         C651_experimental_population_spacing_rejects_overlap);
-  test_registry::AddTest(tests, "C652_experimental_population_endpoint_failure_omits_pair",
-                         "experimental physical line endpoint failure omits the whole pair", "Boundary", true,
-                         C652_experimental_population_endpoint_failure_omits_pair);
-  test_registry::AddTest(tests, "C653_experimental_population_rejects_duplicate_band_identity",
-                         "experimental physical line population rejects duplicate local band identity", "Boundary",
-                         true, C653_experimental_population_rejects_duplicate_band_identity);
-  test_registry::AddTest(tests, "C654_experimental_population_does_not_mutate_logical_topology",
-                         "experimental physical line population changes visual output only", "Boundary", false,
-                         C654_experimental_population_does_not_mutate_logical_topology);
+  test_registry::AddTest(tests, "C648_population_same_seed_is_stable",
+                         "cable population is stable for the same explicit seed", "Invariant", false,
+                         C648_population_same_seed_is_stable);
+  test_registry::AddTest(tests, "C649_population_span_identity_changes_placement",
+                         "cable population placement is keyed by logical span identity", "Invariant", false,
+                         C649_population_span_identity_changes_placement);
+  test_registry::AddTest(tests, "C650_population_reserve_blocks_candidates",
+                         "cable population reserves block candidate pairs", "Invariant", false,
+                         C650_population_reserve_blocks_candidates);
+  test_registry::AddTest(tests, "C651_population_spacing_rejects_overlap",
+                         "cable population spacing rejects overlapping candidates", "Invariant", false,
+                         C651_population_spacing_rejects_overlap);
+  test_registry::AddTest(tests, "C652_population_endpoint_failure_omits_pair",
+                         "cable population endpoint failure omits the whole pair", "Boundary", true,
+                         C652_population_endpoint_failure_omits_pair);
+  test_registry::AddTest(tests, "C653_population_rejects_duplicate_band_identity",
+                         "cable population rejects duplicate local band identity", "Boundary", true,
+                         C653_population_rejects_duplicate_band_identity);
+  test_registry::AddTest(tests, "C654_population_does_not_mutate_logical_topology",
+                         "cable population changes visual output only", "Boundary", false,
+                         C654_population_does_not_mutate_logical_topology);
+  test_registry::AddTest(tests, "C686_population_rule_on_bundle_template_adds_visual_only_sections",
+                         "bundle template population rules add derived visual sections without topology mutation",
+                         "Boundary", false, C686_population_rule_on_bundle_template_adds_visual_only_sections);
+  test_registry::AddTest(tests, "C687_population_rule_update_is_reshape_not_regenerate",
+                         "bundle template population rule edits are reshape updates instead of regenerate",
+                         "Boundary", false, C687_population_rule_update_is_reshape_not_regenerate);
   test_registry::AddTest(tests, "C660_backbone_bundle_count_regenerate_updates_downstream_only",
                          "backbone route-local regenerate updates bundle count downstream without graph identity changes",
                          "Boundary", false,

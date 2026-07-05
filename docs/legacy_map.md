@@ -8,7 +8,7 @@
 | family | 状態 | normal path | 消す条件 |
 |---|---|---|---|
 | `UpdatePoleTypeDefinition` | active backbone pole使用中でもplacement-only差分は`kReposition`で反映。構造差分はmutation前`unsupported` | post-edit API | band増減やrole/side変更などの構造差分を扱うtemplate migrationが必要になった時だけ、SavedGraph identityを維持する新operationを設計する |
-| `UpdateBundleTemplate` | fixed count増加、かつ単純 open row の 2-pole route だけ、SavedGraph identityを維持して pipeline 段を部分再実行し、port/span/rules/layout/geom/drawを再生成する | post-edit API | count減少、range化、policy変更、3点以上route、lateral/group/loweringを保存していない配置を扱うroute-local regenerateが必要になった時だけ拡張する |
+| `UpdateBundleTemplate` | fixed count増加、かつ単純 open row の 2-pole route だけ、SavedGraph identityを維持して pipeline 段を部分再実行し、port/span/rules/layout/geom/drawを再生成する。`population_rules` 差分はtemplate-owned derived outputとして`kReshape`で反映する | post-edit API | count減少、range化、policy変更、3点以上route、lateral/group/loweringを保存していない配置を扱うroute-local regenerateが必要になった時だけ拡張する |
 | `pending_support_nodes` | 未保存pickを次のrequestへ渡すtransient input | DrawPath input | 保存済みnodeと混同しない限り維持 |
 
 ## 隔離
@@ -29,6 +29,7 @@
 - span/layout/curve/port位置からのtopology復元
 - capture replayとlegacy recalc UI
 - span-derived backbone public query
+- global cable population config / enable flag / seed
 - `AddConnectionByPole`、`AddDropFromPole`、`AddDropFromSpan`、`SplitSpan`のpublic API、実装、専用型
 - road/building固有のcore identity型
 - `SegmentLaneAssignment`、`last_generation_lane_assignments`、旧generation test suite

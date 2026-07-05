@@ -21,11 +21,9 @@ struct CablePopulationEndpoint {
 
 struct CablePopulationInput {
   CableInstanceKey key{};
-  ExperimentalCableInstanceRule rule{};
-  std::uint64_t explicit_seed = 1;
+  CablePopulationRule rule{};
   CablePopulationEndpoint endpoint_a{};
   CablePopulationEndpoint endpoint_b{};
-  std::vector<ExperimentalPlacementReserve> reserves{};
   std::vector<Vec3d> occupied_a_local{};
   std::vector<Vec3d> occupied_b_local{};
 };
@@ -39,12 +37,12 @@ struct CablePopulationOutput {
 [[nodiscard]] EditResult<CablePopulationOutput> populate_cable_sections(
     const CablePopulationInput& input);
 
-struct ExperimentalCablePopulation {
+struct CablePopulation {
   std::vector<CableSectionLayout> sections{};
   std::vector<CablePopulationDiagnostic> diagnostics{};
 };
 
-[[nodiscard]] ExperimentalCablePopulation make_experimental_cable_population(
+[[nodiscard]] CablePopulation make_cable_population(
     const CoreState& state, const std::vector<SpanLayoutEntry>& layouts);
 
 } // namespace wire::core::generation::backbone

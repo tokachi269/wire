@@ -1,5 +1,6 @@
 #include "../internal_services.hpp"
 
+#include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
 
 #include <algorithm>
@@ -156,6 +157,92 @@ bool cable_supplemental_path_equals(const CableSupplementalPathTemplate& a, cons
          a.coil_samples_per_turn == b.coil_samples_per_turn;
 }
 
+bool placement_reserve_equals(const PlacementReserve& a, const PlacementReserve& b) {
+  return a.reserve_id == b.reserve_id && a.pole_type_id == b.pole_type_id && a.band_id == b.band_id &&
+         std::abs(a.lateral_min_m - b.lateral_min_m) <= 1e-12 &&
+         std::abs(a.lateral_max_m - b.lateral_max_m) <= 1e-12 &&
+         std::abs(a.height_min_m - b.height_min_m) <= 1e-12 &&
+         std::abs(a.height_max_m - b.height_max_m) <= 1e-12;
+}
+
+bool population_rule_equals(const CablePopulationRule& a, const CablePopulationRule& b) {
+  if (a.rule_id != b.rule_id || a.explicit_seed != b.explicit_seed || a.priority != b.priority ||
+      a.min_extra_count != b.min_extra_count || a.max_extra_count != b.max_extra_count ||
+      std::abs(a.min_spacing_m - b.min_spacing_m) > 1e-12 ||
+      std::abs(a.lateral_min_m - b.lateral_min_m) > 1e-12 ||
+      std::abs(a.lateral_max_m - b.lateral_max_m) > 1e-12 ||
+      std::abs(a.height_min_m - b.height_min_m) > 1e-12 ||
+      std::abs(a.height_max_m - b.height_max_m) > 1e-12 ||
+      std::abs(a.randomness - b.randomness) > 1e-12 || a.reserves.size() != b.reserves.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < a.reserves.size(); ++i) {
+    if (!placement_reserve_equals(a.reserves[i], b.reserves[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool population_rules_equal(const std::vector<CablePopulationRule>& a,
+                            const std::vector<CablePopulationRule>& b) {
+  if (a.size() != b.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < a.size(); ++i) {
+    if (!population_rule_equals(a[i], b[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool validate_population_rules(const CoreState& state, const std::vector<CablePopulationRule>& rules,
+                               std::string* error) {
+  std::unordered_set<CableInstanceRuleId> rule_ids{};
+  for (const CablePopulationRule& rule : rules) {
+    if (rule.rule_id == 0 || !rule_ids.insert(rule.rule_id).second) {
+      *error = "cable population: rule ids must be nonzero and unique per bundle template";
+      return false;
+    }
+    if (rule.min_extra_count < 0 || rule.max_extra_count < rule.min_extra_count ||
+        !std::isfinite(rule.min_spacing_m) || rule.min_spacing_m < 0.0 ||
+        !std::isfinite(rule.lateral_min_m) || !std::isfinite(rule.lateral_max_m) ||
+        rule.lateral_min_m > rule.lateral_max_m || !std::isfinite(rule.height_min_m) ||
+        !std::isfinite(rule.height_max_m) || rule.height_min_m > rule.height_max_m ||
+        !std::isfinite(rule.randomness) || rule.randomness < 0.0 || rule.randomness > 1.0) {
+      *error = "cable population: invalid rule range";
+      return false;
+    }
+    std::unordered_set<PlacementReserveId> reserve_ids{};
+    for (const PlacementReserve& reserve : rule.reserves) {
+      if (reserve.reserve_id == 0 || !reserve_ids.insert(reserve.reserve_id).second ||
+          !std::isfinite(reserve.lateral_min_m) || !std::isfinite(reserve.lateral_max_m) ||
+          reserve.lateral_min_m > reserve.lateral_max_m || !std::isfinite(reserve.height_min_m) ||
+          !std::isfinite(reserve.height_max_m) || reserve.height_min_m > reserve.height_max_m) {
+        *error = "cable population: invalid placement reserve";
+        return false;
+      }
+      const auto pole_type_it = state.view().pole_types().find(reserve.pole_type_id);
+      if (pole_type_it == state.view().pole_types().end()) {
+        *error = "cable population: reserve references unknown pole type";
+        return false;
+      }
+      const std::size_t matching_bands =
+          static_cast<std::size_t>(std::count_if(pole_type_it->second.port_bands.begin(),
+                                                pole_type_it->second.port_bands.end(),
+                                                [&](const PortPlacementBand& band) {
+                                                  return band.band_id == reserve.band_id;
+                                                }));
+      if (matching_bands != 1) {
+        *error = "cable population: reserve band identity must resolve exactly once";
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 } // namespace
 
 EditResult<bool> TemplateMutationService::UpdateCableTemplate(CoreState& state, const CableTemplate& cable_template,
@@ -294,6 +381,14 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
 
   BundleTemplate normalized = bundle_template;
   normalized.support_wire_pole_band_id = std::max(0, normalized.support_wire_pole_band_id);
+  for (CablePopulationRule& rule : normalized.population_rules) {
+    if (rule.explicit_seed == 0) {
+      rule.explicit_seed = 1;
+    }
+  }
+  if (!validate_population_rules(state, normalized.population_rules, &result.error)) {
+    return result;
+  }
   if (!std::isfinite(normalized.branch_endpoint_offset_m)) {
     result.error = "bundle branch endpoint offset must be finite";
     return result;
@@ -324,9 +419,12 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
       normalized.row_layout_axis_mode == it->second.row_layout_axis_mode &&
       normalized.support_style == it->second.support_style && normalized.branch_policy == it->second.branch_policy &&
       normalized.continuity_policy == it->second.continuity_policy &&
-      normalized.support_wire_pole_band_id == it->second.support_wire_pole_band_id && normalized.name == it->second.name;
+      normalized.support_wire_pole_band_id == it->second.support_wire_pole_band_id &&
+      population_rules_equal(normalized.population_rules, it->second.population_rules) &&
+      normalized.name == it->second.name;
 
-  const bool detail_change = normalized.support_wire_pole_band_id != it->second.support_wire_pole_band_id;
+  const bool detail_change = normalized.support_wire_pole_band_id != it->second.support_wire_pole_band_id ||
+                             !population_rules_equal(normalized.population_rules, it->second.population_rules);
 
   const bool topology_change =
       normalized.category != it->second.category || normalized.default_layer != it->second.default_layer ||
@@ -368,7 +466,8 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
       normalized.row_layout_axis_mode == it->second.row_layout_axis_mode &&
       normalized.support_style == it->second.support_style &&
       normalized.branch_policy == it->second.branch_policy &&
-      normalized.continuity_policy == it->second.continuity_policy;
+      normalized.continuity_policy == it->second.continuity_policy &&
+      population_rules_equal(normalized.population_rules, it->second.population_rules);
 
   changed = visual_only_change || topology_change || detail_change || normalized.name != it->second.name ||
             normalized.related_pole_type_id != it->second.related_pole_type_id;

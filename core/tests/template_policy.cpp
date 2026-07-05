@@ -1,6 +1,8 @@
 #include <vector>
 
 #include <iostream>
+#include "wire/core/model_descriptor.hpp"
+
 #include "registry.hpp"
 #include "helpers.hpp"
 
@@ -101,6 +103,47 @@ bool test_bundle_template_output_change_rejects_manual_span_before_mutation() {
   const auto current = state.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
   return bundle != nullptr && current != state.view().bundle_templates().end() &&
          current->second.cable_template_id == original_cable;
+}
+
+bool C678_model_descriptor_merge_is_deterministic_and_reports_conflicts() {
+  wire::core::ModelMeasurement measurement{};
+  measurement.name = "terminal_box";
+  measurement.version = 7;
+  measurement.total_height_m = 1.2;
+  measurement.replace_length_m = 0.4;
+  measurement.sockets.push_back({"line_in", wire::core::ModelSocketRole::kLineIn, {-0.2, 0.0, 0.1}, {-1.0, 0.0, 0.0}});
+  measurement.sockets.push_back({"line_out", wire::core::ModelSocketRole::kLineOut, {0.2, 0.0, 0.1}, {1.0, 0.0, 0.0}});
+  measurement.sections.push_back({0.0, wire::core::ModelSectionShape::kRect, 0.0, 0.3, 0.2});
+  measurement.keep_out_zones.push_back({0.0, 0.2, -15.0, 15.0});
+
+  const wire::core::ModelMeasurement original_measurement = measurement;
+  wire::core::ModelOverride override_values{};
+  override_values.socket_position_overrides.push_back({"line_in", {-0.3, 0.0, 0.12}});
+  override_values.socket_position_overrides.push_back({"deleted_socket", {1.0, 2.0, 3.0}});
+  const wire::core::ModelOverride original_override = override_values;
+
+  const wire::core::ModelMergeResult first = wire::core::merge(measurement, override_values);
+  const wire::core::ModelMergeResult second = wire::core::merge(measurement, override_values);
+  if (first.report.conflicts.size() != 1 || second.report.conflicts.size() != 1) {
+    return false;
+  }
+  if (first.report.conflicts.front().marker_name != "deleted_socket" ||
+      first.report.conflicts.front().item_name != "socket.local_position") {
+    return false;
+  }
+  if (first.descriptor.measurement.sockets.size() != 2 || second.descriptor.measurement.sockets.size() != 2) {
+    return false;
+  }
+  if (first.descriptor.measurement.sockets.front().local_position.x != -0.3 ||
+      second.descriptor.measurement.sockets.front().local_position.x != -0.3) {
+    return false;
+  }
+  if (measurement.sockets.front().local_position.x != original_measurement.sockets.front().local_position.x ||
+      override_values.socket_position_overrides != original_override.socket_position_overrides) {
+    return false;
+  }
+  return first.descriptor.measurement.sockets == second.descriptor.measurement.sockets &&
+         first.report.conflicts.front().message == second.report.conflicts.front().message;
 }
 
 // Intent: Detailed generation should not crash when path includes non-pole support nodes.
@@ -241,6 +284,9 @@ void register_template_policy_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C124_BundleTemplate_OutputChangeRejectsManualSpan",
                          "Bundle output changes reject when the span has no backbone derive state",
                          "Invariant", true, test_bundle_template_output_change_rejects_manual_span_before_mutation);
+  test_registry::AddTest(tests, "C678_ModelDescriptor_Merge",
+                         "ModelDescriptor merge applies valid overrides and reports missing marker conflicts",
+                         "Invariant", true, C678_model_descriptor_merge_is_deterministic_and_reports_conflicts);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_template_policy_tests);

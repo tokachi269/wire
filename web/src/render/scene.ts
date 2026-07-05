@@ -56,25 +56,20 @@ export class WireScene {
       x: number;
       y: number;
       button: number;
-      mode: "orbit" | "pan" | "dolly" | "draw";
+      mode: "orbit" | "pan" | "dolly";
     } | null = null;
     const canvas = this.renderer.domElement;
     const onPointerDown = (event: PointerEvent) => {
       if (event.button !== 0 && event.button !== 1) return;
       this.renderer.domElement.focus();
-      const mode =
-        event.button === 1
-          ? event.shiftKey
-            ? "pan"
-            : event.ctrlKey
-              ? "dolly"
-              : "orbit"
-          : "draw";
-      pointerDown = { x: event.clientX, y: event.clientY, button: event.button, mode };
-      if (event.button === 1) {
-        event.preventDefault();
-        this.renderer.domElement.setPointerCapture(event.pointerId);
+      if (event.button === 0) {
+        this.addGroundPoint(event);
+        return;
       }
+      const mode = event.shiftKey ? "pan" : event.ctrlKey ? "dolly" : "orbit";
+      pointerDown = { x: event.clientX, y: event.clientY, button: event.button, mode };
+      event.preventDefault();
+      this.renderer.domElement.setPointerCapture(event.pointerId);
     };
     const onPointerMove = (event: PointerEvent) => {
       if (pointerDown === null || pointerDown.button !== 1) return;
@@ -87,32 +82,8 @@ export class WireScene {
       if (pointerDown.mode === "dolly") this.dolly(dy * 0.01);
     };
     const onPointerUp = (event: PointerEvent) => {
-      if (
-        event.button !== 0 ||
-        pointerDown === null ||
-        Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y) > 4
-      ) {
-        pointerDown = null;
-        return;
-      }
+      if (event.button !== 1) return;
       pointerDown = null;
-      const bounds = this.renderer.domElement.getBoundingClientRect();
-      const pointer = new THREE.Vector2(
-        ((event.clientX - bounds.left) / bounds.width) * 2 - 1,
-        -((event.clientY - bounds.top) / bounds.height) * 2 + 1
-      );
-      const ray = new THREE.Raycaster();
-      ray.setFromCamera(pointer, this.camera);
-      const hit = new THREE.Vector3();
-      const planeZ = this.snapshot?.drawPlaneZ ?? 0;
-      if (ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), -planeZ), hit)) {
-        if (event.altKey) {
-          this.cameraTarget.copy(hit);
-          this.camera.lookAt(this.cameraTarget);
-        } else {
-          this.onGroundClick([hit.x, hit.y, hit.z]);
-        }
-      }
     };
     const onPointerCancel = () => {
       pointerDown = null;
@@ -160,6 +131,27 @@ export class WireScene {
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height);
+  }
+
+  private addGroundPoint(event: PointerEvent): void {
+    const bounds = this.renderer.domElement.getBoundingClientRect();
+    const pointer = new THREE.Vector2(
+      ((event.clientX - bounds.left) / bounds.width) * 2 - 1,
+      -((event.clientY - bounds.top) / bounds.height) * 2 + 1
+    );
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(pointer, this.camera);
+    const hit = new THREE.Vector3();
+    const planeZ = this.snapshot?.drawPlaneZ ?? 0;
+    if (!ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), -planeZ), hit)) {
+      return;
+    }
+    if (event.altKey) {
+      this.cameraTarget.copy(hit);
+      this.camera.lookAt(this.cameraTarget);
+      return;
+    }
+    this.onGroundClick([hit.x, hit.y, hit.z]);
   }
 
   private animate = (time: number): void => {

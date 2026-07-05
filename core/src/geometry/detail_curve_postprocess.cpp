@@ -375,6 +375,12 @@ void apply_attachment_line_effects_to_curve(const CoreState& state, ObjectId spa
         continue;
       }
 
+      if (attachment_template->line_interaction_mode == AttachmentLineInteractionMode::kReplaceWithInternalPath &&
+          internal_path == nullptr) {
+        hidden.push_back({start_s, end_s});
+        continue;
+      }
+
       if ((attachment_template->line_interaction_mode != AttachmentLineInteractionMode::kReplaceWithInternalPath &&
            attachment_template->line_interaction_mode != AttachmentLineInteractionMode::kAddInternalPath) ||
           internal_path == nullptr) {

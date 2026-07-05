@@ -241,6 +241,69 @@ bool C680_attachment_template_structure_update_rejects_used_span_unchanged() {
   return almost_equal(before_point, after_point, 1e-9);
 }
 
+bool has_validation_issue(const wire::core::ValidationResult& result, const std::string& code) {
+  return std::any_of(result.issues.begin(), result.issues.end(), [&](const wire::core::ValidationIssue& issue) {
+    return issue.code == code;
+  });
+}
+
+bool install_pathless_replace_template(CoreState& state, wire::core::AttachmentTemplateId* out_template_id) {
+  const wire::core::AttachmentTemplateId template_id = find_replace_attachment_template_id(state);
+  const wire::core::AttachmentTemplate* before_template = state.find_attachment_template(template_id);
+  if (before_template == nullptr) {
+    return false;
+  }
+  wire::core::AttachmentTemplate pathless = *before_template;
+  pathless.internal_paths.clear();
+  const auto update = state.UpdateAttachmentTemplate(pathless);
+  if (!update.ok) {
+    return false;
+  }
+  if (out_template_id != nullptr) {
+    *out_template_id = template_id;
+  }
+  return true;
+}
+
+bool C681_pathless_replace_hides_interval_without_replacement_path() {
+  CoreState state;
+  wire::core::AttachmentTemplateId template_id = wire::core::kInvalidAttachmentTemplateId;
+  if (!install_pathless_replace_template(state, &template_id)) {
+    return false;
+  }
+  const auto made = make_backbone_fixture(state, {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}});
+  const wire::core::AttachmentTemplate* attachment_template = state.find_attachment_template(template_id);
+  if (!made.ok || made.value.spans.empty() || attachment_template == nullptr) {
+    return false;
+  }
+  const auto attachment =
+      state.AddAttachment(made.value.spans.front(), 0.5, attachment_template->kind, 0.0, template_id);
+  if (!attachment.ok || !state.DeriveGeneratedSpanOutputs(made.value.spans.front()).ok) {
+    return false;
+  }
+  const wire::core::CurveCacheEntry* curve = state.find_curve_cache(made.value.spans.front());
+  return curve != nullptr && !curve->detail.hidden_intervals.empty() && curve->detail.replacement_paths.empty();
+}
+
+bool C682_replaced_intervals_overlap_is_validation_error() {
+  CoreState state;
+  wire::core::AttachmentTemplateId template_id = wire::core::kInvalidAttachmentTemplateId;
+  if (!install_pathless_replace_template(state, &template_id)) {
+    return false;
+  }
+  const auto made = make_backbone_fixture(state, {{0.0, 0.0, 0.0}, {12.0, 0.0, 0.0}});
+  const wire::core::AttachmentTemplate* attachment_template = state.find_attachment_template(template_id);
+  if (!made.ok || made.value.spans.empty() || attachment_template == nullptr) {
+    return false;
+  }
+  const auto first = state.AddAttachment(made.value.spans.front(), 0.50, attachment_template->kind, 0.0, template_id);
+  const auto second = state.AddAttachment(made.value.spans.front(), 0.51, attachment_template->kind, 0.0, template_id);
+  if (!first.ok || !second.ok) {
+    return false;
+  }
+  return has_validation_issue(wire::core::CoreStateTestHook::validate(state), "AttachmentReplacementIntervalOverlap");
+}
+
 // Intent: Detailed generation should not crash when path includes non-pole support nodes.
 
 bool test_backbone_generation_requires_non_empty_bundles() {
@@ -388,6 +451,12 @@ void register_template_policy_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C680_AttachmentTemplate_StructureUpdateRejectsUsedSpan",
                          "Attachment template structural edits reject before mutation with used spans unchanged",
                          "Invariant", true, C680_attachment_template_structure_update_rejects_used_span_unchanged);
+  test_registry::AddTest(tests, "C681_AttachmentTemplate_PathlessReplaceHidesInterval",
+                         "Pathless ReplaceWithInternalPath hides the replaced interval without replacement points",
+                         "Invariant", false, C681_pathless_replace_hides_interval_without_replacement_path);
+  test_registry::AddTest(tests, "C682_AttachmentReplacementIntervalOverlap",
+                         "Overlapping replacement intervals on one span are validation errors",
+                         "Invariant", true, C682_replaced_intervals_overlap_is_validation_error);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_template_policy_tests);

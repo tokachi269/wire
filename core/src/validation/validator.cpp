@@ -58,6 +58,43 @@ bool is_finite_xy_validation(const Vec3d& v) {
   return std::isfinite(v.x) && std::isfinite(v.y);
 }
 
+const AttachmentSocketTemplate* find_attachment_socket_for_validation(const AttachmentTemplate& attachment_template,
+                                                                      int socket_id) {
+  for (const AttachmentSocketTemplate& socket : attachment_template.sockets) {
+    if (socket.id == socket_id) {
+      return &socket;
+    }
+  }
+  return nullptr;
+}
+
+bool replacement_interval_for_validation(const Attachment& attachment, const AttachmentTemplate& attachment_template,
+                                         double span_length_m, CurveLengthInterval* out) {
+  if (out == nullptr || attachment_template.line_interaction_mode != AttachmentLineInteractionMode::kReplaceWithInternalPath ||
+      span_length_m <= 1e-9) {
+    return false;
+  }
+  const AttachmentSocketTemplate* socket_a = nullptr;
+  const AttachmentSocketTemplate* socket_b = nullptr;
+  if (!attachment_template.internal_paths.empty()) {
+    const AttachmentInternalPathTemplate& path = attachment_template.internal_paths.front();
+    socket_a = find_attachment_socket_for_validation(attachment_template, path.start_socket_id);
+    socket_b = find_attachment_socket_for_validation(attachment_template, path.end_socket_id);
+  } else if (attachment_template.sockets.size() >= 2) {
+    socket_a = &attachment_template.sockets[0];
+    socket_b = &attachment_template.sockets[1];
+  }
+  if (socket_a == nullptr || socket_b == nullptr) {
+    return false;
+  }
+  const double center_s = std::clamp(span_length_m * attachment.t, 0.0, span_length_m);
+  out->start_m =
+      std::clamp(center_s + std::min(socket_a->local_position.x, socket_b->local_position.x), 0.0, span_length_m);
+  out->end_m =
+      std::clamp(center_s + std::max(socket_a->local_position.x, socket_b->local_position.x), 0.0, span_length_m);
+  return out->end_m - out->start_m > 1e-9;
+}
+
 Vec3d safe_horizontal_normalized_validation(Vec3d v) {
   v.z = 0.0;
   if (Normalize(&v) && is_finite_xy_validation(v)) {
@@ -695,6 +732,44 @@ ValidationResult CoreState::Validate() const {
     if (attachment_templates.find(attachment.template_id) == attachment_templates.end()) {
       result.issues.push_back({ValidationSeverity::kError, "AttachmentTemplateMissing",
                                "Attachment references unknown AttachmentTemplate", attachment.id});
+    }
+  }
+
+  for (const auto& [span_id, attachment_ids] : relation_index.attachments_by_span) {
+    const Span* span = edit_state.spans.find(span_id);
+    if (span == nullptr) {
+      continue;
+    }
+    const Port* port_a = edit_state.ports.find(span->port_a_id);
+    const Port* port_b = edit_state.ports.find(span->port_b_id);
+    if (port_a == nullptr || port_b == nullptr) {
+      continue;
+    }
+    const double span_length_m = Length(port_b->world_position - port_a->world_position);
+    std::vector<std::pair<CurveLengthInterval, ObjectId>> intervals{};
+    for (ObjectId attachment_id : attachment_ids) {
+      const Attachment* attachment = edit_state.attachments.find(attachment_id);
+      if (attachment == nullptr) {
+        continue;
+      }
+      const auto template_it = attachment_templates.find(attachment->template_id);
+      if (template_it == attachment_templates.end()) {
+        continue;
+      }
+      CurveLengthInterval interval{};
+      if (replacement_interval_for_validation(*attachment, template_it->second, span_length_m, &interval)) {
+        intervals.push_back({interval, attachment_id});
+      }
+    }
+    std::sort(intervals.begin(), intervals.end(), [](const auto& a, const auto& b) {
+      return a.first.start_m < b.first.start_m;
+    });
+    for (std::size_t i = 1; i < intervals.size(); ++i) {
+      if (intervals[i].first.start_m < intervals[i - 1].first.end_m - 1e-6) {
+        result.issues.push_back({ValidationSeverity::kError, "AttachmentReplacementIntervalOverlap",
+                                 "Replacement attachment intervals on one span must not overlap",
+                                 intervals[i].second});
+      }
     }
   }
 

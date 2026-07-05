@@ -46,3 +46,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\prepare_clang_uml_comp
 "C:\Program Files\clang-uml\bin\clang-uml.exe" -c .clang-uml -l
 "C:\Program Files\clang-uml\bin\clang-uml.exe" -c .clang-uml -n core_packages -g plantuml -p
 ```
+
+## web viewer wasm
+
+`emcc` / `emcmake` が PATH にある Emscripten shell で実行する。
+
+```powershell
+Set-Location web
+npm install
+npm test
+npm run build
+```
+
+個別に wasm だけを再構築する場合:
+
+```powershell
+Set-Location web
+npm run wasm:build
+```

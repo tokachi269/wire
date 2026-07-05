@@ -1,8 +1,14 @@
 {
   "version": 1,
   "scan": {
-    "roots": ["core/include", "core/src", "core/tests", "core/tools", "viewer/src", "viewer/tests", "tools"],
-    "extensions": [".cpp", ".hpp", ".py"]
+    "roots": ["core/include", "core/src", "core/tests", "core/tools", "viewer/src", "viewer/tests", "web/src", "web/tests", "web/wasm", "tools"],
+    "extensions": [".cpp", ".hpp", ".py", ".ts", ".svelte"],
+    "exclude_patterns": [
+      "web/wasm/build/**",
+      "web/wasm/build/**/*",
+      "web/src/wasm-generated/**",
+      "web/src/wasm-generated/**/*"
+    ]
   },
   "layers": [
     {
@@ -75,6 +81,51 @@
         "viewer/tests/*.cpp",
         "viewer/tests/*.hpp"
       ],
+      "forbidden_tokens": []
+    },
+    {
+      "name": "web_binding",
+      "patterns": ["web/wasm/*.cpp"],
+      "forbidden_tokens": ["core/src/", "viewer/"]
+    },
+    {
+      "name": "web_model",
+      "patterns": ["web/src/model.ts"],
+      "forbidden_tokens": ["./bridge/", "./actions/", "./render/", "wire/core", "viewer/"]
+    },
+    {
+      "name": "web_bridge",
+      "patterns": ["web/src/bridge/*.ts"],
+      "forbidden_tokens": ["viewer/", "core/src/"]
+    },
+    {
+      "name": "web_store",
+      "patterns": ["web/src/store/*.ts"],
+      "forbidden_tokens": ["../actions/", "../render/", "viewer/"]
+    },
+    {
+      "name": "web_actions",
+      "patterns": ["web/src/actions/*.ts"],
+      "forbidden_tokens": ["../render/", "viewer/"]
+    },
+    {
+      "name": "web_render",
+      "patterns": ["web/src/render/*.ts"],
+      "forbidden_tokens": ["../bridge/", "../actions/", "wire/core", "viewer/"]
+    },
+    {
+      "name": "web_panels",
+      "patterns": ["web/src/*.svelte", "web/src/panels/*.svelte"],
+      "forbidden_tokens": ["/bridge/", "wire/core", "viewer/"]
+    },
+    {
+      "name": "web_entry",
+      "patterns": ["web/src/main.ts"],
+      "forbidden_tokens": ["wire/core", "viewer/"]
+    },
+    {
+      "name": "web_tests",
+      "patterns": ["web/tests/*.ts"],
       "forbidden_tokens": []
     },
     {

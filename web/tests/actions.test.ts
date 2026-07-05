@@ -1,6 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ViewerActions } from "../src/actions/viewer";
 import type { SceneData, WireBridge } from "../src/bridge/wire";
+import type {
+  BundleTemplateInfo,
+  CableTemplateInfo,
+  PoleTemplateInfo
+} from "../src/model";
 import { ViewerStore, type ViewerSnapshot } from "../src/store/viewer";
 
 function current(store: ViewerStore): ViewerSnapshot {
@@ -35,12 +40,43 @@ describe("viewer actions", () => {
           samples: new Float64Array([0, 0, 2, 10, 0, 2])
         }
       ],
-      poles: []
+      poles: [],
+      ports: [],
+      spans: [],
+      supportNodes: []
     };
     const bridge = {
       bundleTemplates: () => [
-        { id: 0, name: "DEFAULT_SINGLE", defaultCount: 1, fixedCount: true }
+        {
+          id: 0, name: "DEFAULT_SINGLE", defaultCount: 1, fixedCount: true,
+          cableTemplateId: 2, relatedPoleTypeId: 1, defaultLayer: 2,
+          allowMirror: true, allowMidairNode: true, allowMidairBranch: true,
+          groupedSupportFanoutSpacing: 0.2, supportStyle: 0, branchPolicy: 0,
+          continuityPolicy: 0
+        }
       ],
+      cableTemplates: () => [],
+      poleTemplates: () => [],
+      geometrySettings: () => ({
+        curveSamples: 16,
+        sagEnabled: true,
+        sagFactor: 0.03,
+        poleClearance: 0.05
+      }),
+      layoutSettings: () => ({
+        angleCorrectionEnabled: true,
+        cornerThresholdDeg: 70,
+        minSideScale: 1,
+        maxSideScale: 1.7
+      }),
+      visualSettings: () => ({
+        enableSupportStructures: true,
+        enableInsulators: true,
+        supportCenterThreshold: 0.03,
+        supportArmExtra: 0.2,
+        insulatorRadius: 0.07,
+        insulatorLength: 0.16
+      }),
       generate: () => ({
         ok: true,
         error: "",
@@ -67,7 +103,13 @@ describe("viewer actions", () => {
     let generatedPoints: Float64Array | undefined;
     const bridge = {
       bundleTemplates: () => [
-        { id: 0, name: "DEFAULT_SINGLE", defaultCount: 1, fixedCount: true }
+        {
+          id: 0, name: "DEFAULT_SINGLE", defaultCount: 1, fixedCount: true,
+          cableTemplateId: 2, relatedPoleTypeId: 1, defaultLayer: 2,
+          allowMirror: true, allowMidairNode: true, allowMidairBranch: true,
+          groupedSupportFanoutSpacing: 0.2, supportStyle: 0, branchPolicy: 0,
+          continuityPolicy: 0
+        }
       ],
       generate: (points: Float64Array) => {
         generatedPoints = points;
@@ -99,20 +141,24 @@ describe("viewer actions", () => {
       },
       samples: new Float64Array([0, 0, 2, 10, 0, 2])
     };
-    store.replace({
+    store.update((current) => ({
+      ...current,
       parts: [existingPart],
-      poles: [],
-      error: "",
-      generationMs: null,
       pathPoints: [
         [0, 0, 0],
         [10, 0, 0]
       ],
       bundleTemplates: [
-        { id: 0, name: "DEFAULT_SINGLE", defaultCount: 1, fixedCount: true }
+        {
+          id: 0, name: "DEFAULT_SINGLE", defaultCount: 1, fixedCount: true,
+          cableTemplateId: 2, relatedPoleTypeId: 1, defaultLayer: 2,
+          allowMirror: true, allowMidairNode: true, allowMidairBranch: true,
+          groupedSupportFanoutSpacing: 0.2, supportStyle: 0, branchPolicy: 0,
+          continuityPolicy: 0
+        }
       ],
       selectedBundleTemplateId: 0
-    });
+    }));
 
     new ViewerActions(bridge, store).generatePath();
 
@@ -120,5 +166,278 @@ describe("viewer actions", () => {
     expect(generatedPoints).toEqual(new Float64Array([0, 0, 0, 10, 0, 0]));
     expect(snapshot.parts).toEqual([existingPart]);
     expect(snapshot.error).toBe("backbone unsupported: test failure");
+  });
+});
+
+const bundleTemplate: BundleTemplateInfo = {
+  id: 0,
+  name: "DEFAULT_SINGLE",
+  defaultCount: 1,
+  fixedCount: true,
+  cableTemplateId: 2,
+  relatedPoleTypeId: 1,
+  defaultLayer: 2,
+  allowMirror: true,
+  allowMidairNode: true,
+  allowMidairBranch: true,
+  groupedSupportFanoutSpacing: 0.2,
+  supportStyle: 0,
+  branchPolicy: 0,
+  continuityPolicy: 0
+};
+
+const cableTemplate: CableTemplateInfo = {
+  id: 2,
+  name: "LV",
+  outerDiameter: 0.03,
+  bendStiffness: 1,
+  minBendRadius: 0.2,
+  materialStyle: 2,
+  requiresInsulator: false,
+  insulatorAttachmentHeight: 0,
+  sagFactor: 0.03,
+  slackFactor: 0,
+  groupedFanoutSpacing: 0.2,
+  continuityPolicy: 0,
+  supplementalEnabled: false,
+  supplementalLateralOffset: 0,
+  supplementalVerticalOffset: 0,
+  supplementalWobbleAmplitude: 0,
+  supplementalWobbleWavelength: 0,
+  supplementalWobblePhase: 0,
+  supplementalEndpointEnvelope: 0
+};
+
+const poleTemplate: PoleTemplateInfo = {
+  id: 1,
+  name: "DistributionPole",
+  description: "default",
+  defaultHeight: 10,
+  portBands: [],
+  anchorSlots: []
+};
+
+function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
+  const emptyScene: SceneData = {
+    parts: [],
+    poles: [],
+    ports: [],
+    spans: [],
+    supportNodes: []
+  };
+  return {
+    bundleTemplates: () => [bundleTemplate],
+    cableTemplates: () => [cableTemplate],
+    poleTemplates: () => [poleTemplate],
+    geometrySettings: () => ({
+      curveSamples: 16,
+      sagEnabled: true,
+      sagFactor: 0.03,
+      poleClearance: 0.05
+    }),
+    layoutSettings: () => ({
+      angleCorrectionEnabled: true,
+      cornerThresholdDeg: 70,
+      minSideScale: 1,
+      maxSideScale: 1.7
+    }),
+    visualSettings: () => ({
+      enableSupportStructures: true,
+      enableInsulators: true,
+      supportCenterThreshold: 0.03,
+      supportArmExtra: 0.2,
+      insulatorRadius: 0.07,
+      insulatorLength: 0.16
+    }),
+    scene: () => emptyScene,
+    ...overrides
+  } as WireBridge;
+}
+
+describe("P1 action contracts", () => {
+  it("sends geometry preview and logs only its commit", async () => {
+    vi.useFakeTimers();
+    const update = vi.fn(() => ({ ok: true, error: "" }));
+    const bridge = actionBridge({ updateGeometrySettings: update });
+    const store = new ViewerStore();
+    const actions = new ViewerActions(bridge, store);
+    actions.initialize();
+
+    actions.previewGeometry("sagFactor", 0.05);
+    expect(current(store).logs).toEqual([]);
+    actions.recordFrame(16);
+    actions.recordFrame(42);
+    await vi.advanceTimersByTimeAsync(33);
+    expect(update).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sagFactor: 0.05 })
+    );
+
+    actions.commitGeometry("sagFactor", 0.06);
+    expect(update).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sagFactor: 0.06 })
+    );
+    expect(current(store).logs).toHaveLength(1);
+    expect(current(store).lastInteractionFrames).toEqual({
+      sampleCount: 2,
+      maxFrameMs: 42,
+      longFrameCount: 1
+    });
+    vi.useRealTimers();
+  });
+
+  it("routes layout failure to the visible error", () => {
+    const update = vi.fn(() => ({ ok: false, error: "layout unsupported" }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(
+      actionBridge({ updateLayoutSettings: update }),
+      store
+    );
+    actions.initialize();
+
+    actions.commitLayout("cornerThresholdDeg", 55);
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ cornerThresholdDeg: 55 })
+    );
+    expect(current(store).error).toBe("layout unsupported");
+    expect(current(store).layout.cornerThresholdDeg).toBe(70);
+  });
+
+  it("sends visual settings through the visual API", () => {
+    const update = vi.fn(() => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(
+      actionBridge({ updateVisualSettings: update }),
+      store
+    );
+    actions.initialize();
+
+    actions.commitVisual("enableInsulators", false);
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ enableInsulators: false })
+    );
+  });
+
+  it("keeps related pole application independent from bundle update", () => {
+    const updateBundle = vi.fn(() => ({ ok: true, error: "" }));
+    const applyRelated = vi.fn(() => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(
+      actionBridge({
+        updateBundleTemplate: updateBundle,
+        applyRelatedPoleType: applyRelated
+      }),
+      store
+    );
+    actions.initialize();
+
+    actions.commitBundleTemplate({ ...bundleTemplate, allowMirror: false });
+    expect(updateBundle).toHaveBeenCalledOnce();
+    expect(applyRelated).not.toHaveBeenCalled();
+
+    actions.applyRelatedPoleType(bundleTemplate.id);
+    expect(applyRelated).toHaveBeenCalledWith(bundleTemplate.id);
+  });
+
+  it("sends cable shape updates with the selected template", () => {
+    const update = vi.fn(() => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(
+      actionBridge({ updateCableTemplate: update }),
+      store
+    );
+    actions.initialize();
+
+    actions.commitCableTemplate({ ...cableTemplate, sagFactor: 0.08 });
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ id: cableTemplate.id, sagFactor: 0.08 })
+    );
+  });
+
+  it("sends pole placement updates through pole template update", () => {
+    const update = vi.fn(() => ({ ok: true, error: "" }));
+    const store = new ViewerStore();
+    const actions = new ViewerActions(
+      actionBridge({ updatePoleTemplate: update }),
+      store
+    );
+    actions.initialize();
+
+    actions.commitPoleTemplate({ ...poleTemplate, defaultHeight: 11 });
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ id: poleTemplate.id, defaultHeight: 11 })
+    );
+  });
+
+  it("routes tilt, reset, and override operations explicitly", () => {
+    const tilt = vi.fn(() => ({ ok: true, error: "" }));
+    const reset = vi.fn(() => ({ ok: true, error: "" }));
+    const clearPole = vi.fn(() => ({ ok: true, error: "" }));
+    const clearSocket = vi.fn(() => ({ ok: true, error: "" }));
+    const clearBranch = vi.fn(() => ({ ok: true, error: "" }));
+    const bridge = actionBridge({
+      scene: () => ({
+        parts: [],
+        poles: [
+          {
+            id: "42",
+            height: 10,
+            positionX: 0, positionY: 0, positionZ: 0,
+            rotationX: 0, rotationY: 0, rotationZ: 0,
+            scaleX: 1, scaleY: 1, scaleZ: 1
+          }
+        ],
+        ports: [],
+        spans: [],
+        supportNodes: []
+      }),
+      applyPoleTilt: tilt,
+      resetSpanReferenceLengths: reset,
+      clearPoleOrientationOverride: clearPole,
+      clearSpanSocketOverride: clearSocket,
+      clearSpanBranchDownOverride: clearBranch
+    });
+    const store = new ViewerStore();
+    const actions = new ViewerActions(bridge, store);
+    actions.initialize();
+
+    actions.applyTiltToAll(3);
+    expect(tilt).toHaveBeenCalledWith(["42"], 3);
+    actions.resetSpanReferenceLengths();
+    expect(reset).toHaveBeenCalledOnce();
+
+    actions.select("pole", "42");
+    actions.clearSelectedOverride("pole");
+    expect(clearPole).toHaveBeenCalledWith("42");
+    actions.select("span", "77");
+    actions.clearSelectedOverride("socketA");
+    actions.clearSelectedOverride("socketB");
+    actions.clearSelectedOverride("branchDown");
+    expect(clearSocket).toHaveBeenNthCalledWith(1, "77", true);
+    expect(clearSocket).toHaveBeenNthCalledWith(2, "77", false);
+    expect(clearBranch).toHaveBeenCalledWith("77");
+  });
+
+  it("updates draw and selection state without touching the bridge", () => {
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge(), store);
+    actions.initialize();
+
+    actions.setDrawOption("directionMode", 2);
+    actions.setDrawOption("showPreview", false);
+    actions.select("span", "8");
+
+    expect(current(store)).toEqual(
+      expect.objectContaining({
+        directionMode: 2,
+        showPreview: false,
+        selection: { kind: "span", id: "8" }
+      })
+    );
+    actions.clearSelection();
+    expect(current(store).selection).toBeNull();
   });
 });

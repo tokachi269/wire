@@ -15,7 +15,11 @@ const store = new ViewerStore();
 const bridge = await WireBridge.create();
 const actions = new ViewerActions(bridge, store);
 actions.initialize();
-const scene = new WireScene(store, (point) => actions.addPathPoint(point));
+const scene = new WireScene(
+  store,
+  (point) => actions.addPathPoint(point),
+  (deltaMs) => actions.recordFrame(deltaMs)
+);
 
 mount(App, {
   target,

@@ -1,11 +1,22 @@
 import {
   loadWireModule,
-  type BundleTemplateInfo,
-  type EditResult,
-  type PoleInfo,
-  type VisualPartInfo,
   type WireStateHandle
 } from "./wasm";
+import type {
+  BundleTemplateInfo,
+  CableTemplateInfo,
+  EditResult,
+  GeometrySettings,
+  LayoutSettings,
+  OperationResult,
+  PoleInfo,
+  PoleTemplateInfo,
+  PortInfo,
+  SpanInfo,
+  SupportNodeInfo,
+  VisualPartInfo,
+  VisualSettings
+} from "../model";
 
 export interface VisualPartData {
   info: VisualPartInfo;
@@ -15,6 +26,9 @@ export interface VisualPartData {
 export interface SceneData {
   parts: VisualPartData[];
   poles: PoleInfo[];
+  ports: PortInfo[];
+  spans: SpanInfo[];
+  supportNodes: SupportNodeInfo[];
 }
 
 export class WireBridge {
@@ -30,9 +44,17 @@ export class WireBridge {
     bundleTemplateId = 0,
     intervalM = 0,
     poleTypeId = 1,
-    count = 0
+    count = 0,
+    directionMode = 0
   ): EditResult {
-    return this.state.generate(points, bundleTemplateId, intervalM, poleTypeId, count);
+    return this.state.generate(
+      points,
+      bundleTemplateId,
+      intervalM,
+      poleTypeId,
+      count,
+      directionMode
+    );
   }
 
   bundleTemplates(): BundleTemplateInfo[] {
@@ -41,6 +63,77 @@ export class WireBridge {
       templates.push(this.state.bundleTemplate(index));
     }
     return templates;
+  }
+
+  updateBundleTemplate(template: BundleTemplateInfo): OperationResult {
+    return this.state.updateBundleTemplate(template);
+  }
+
+  applyRelatedPoleType(bundleTemplateId: number): OperationResult {
+    return this.state.applyRelatedPoleType(bundleTemplateId);
+  }
+
+  cableTemplates(): CableTemplateInfo[] {
+    const templates: CableTemplateInfo[] = [];
+    for (let index = 0; index < this.state.cableTemplateCount(); index += 1) {
+      templates.push(this.state.cableTemplate(index));
+    }
+    return templates;
+  }
+
+  updateCableTemplate(template: CableTemplateInfo): OperationResult {
+    const preferredSpanIds = [
+      ...new Set(
+        this.scene()
+          .parts.map((part) => part.info.sourceSpanId)
+          .filter((id) => id !== "0")
+      )
+    ];
+    return this.state.updateCableTemplate(template, preferredSpanIds);
+  }
+
+  poleTemplates(): PoleTemplateInfo[] {
+    const templates: PoleTemplateInfo[] = [];
+    for (let index = 0; index < this.state.poleTemplateCount(); index += 1) {
+      templates.push(this.state.poleTemplate(index));
+    }
+    return templates;
+  }
+
+  updatePoleTemplate(template: PoleTemplateInfo): OperationResult {
+    return this.state.updatePoleTemplate(template);
+  }
+
+  geometrySettings(): GeometrySettings {
+    return this.state.geometrySettings();
+  }
+
+  updateGeometrySettings(settings: GeometrySettings): OperationResult {
+    return this.state.updateGeometrySettings(settings);
+  }
+
+  layoutSettings(): LayoutSettings {
+    return this.state.layoutSettings();
+  }
+
+  updateLayoutSettings(settings: LayoutSettings): OperationResult {
+    return this.state.updateLayoutSettings(settings);
+  }
+
+  visualSettings(): VisualSettings {
+    return this.state.visualSettings();
+  }
+
+  updateVisualSettings(settings: VisualSettings): OperationResult {
+    return this.state.updateVisualSettings(settings);
+  }
+
+  applyPoleTilt(poleIds: string[], maxTiltDeg: number): OperationResult {
+    return this.state.applyPoleTilt(poleIds, maxTiltDeg);
+  }
+
+  resetSpanReferenceLengths(): OperationResult {
+    return this.state.resetSpanReferenceLengths();
   }
 
   scene(): SceneData {
@@ -56,7 +149,31 @@ export class WireBridge {
     for (let index = 0; index < this.state.poleCount(); index += 1) {
       poles.push(this.state.pole(index));
     }
-    return { parts, poles };
+    const ports: PortInfo[] = [];
+    for (let index = 0; index < this.state.portCount(); index += 1) {
+      ports.push(this.state.port(index));
+    }
+    const spans: SpanInfo[] = [];
+    for (let index = 0; index < this.state.spanCount(); index += 1) {
+      spans.push(this.state.span(index));
+    }
+    const supportNodes: SupportNodeInfo[] = [];
+    for (let index = 0; index < this.state.supportNodeCount(); index += 1) {
+      supportNodes.push(this.state.supportNode(index));
+    }
+    return { parts, poles, ports, spans, supportNodes };
+  }
+
+  clearPoleOrientationOverride(poleId: string): OperationResult {
+    return this.state.clearPoleOrientationOverride(poleId);
+  }
+
+  clearSpanSocketOverride(spanId: string, isStartEndpoint: boolean): OperationResult {
+    return this.state.clearSpanSocketOverride(spanId, isStartEndpoint);
+  }
+
+  clearSpanBranchDownOverride(spanId: string): OperationResult {
+    return this.state.clearSpanBranchDownOverride(spanId);
   }
 
   dispose(): void {

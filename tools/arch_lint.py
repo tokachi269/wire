@@ -22,6 +22,14 @@ def word_present(text: str, symbol: str) -> bool:
     return symbol in text
 
 
+def excluded(path: str, patterns: list[str]) -> bool:
+    return any(
+        matches(path, pattern)
+        or (pattern.endswith("/**") and path.startswith(pattern[:-2]))
+        for pattern in patterns
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Fail-closed wire architecture lint.")
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
@@ -34,12 +42,18 @@ def main() -> int:
         manifest = json.load(stream)
 
     extensions = set(manifest["scan"]["extensions"])
+    exclude_patterns = manifest["scan"].get("exclude_patterns", [])
     files: list[Path] = []
     for scan_root in manifest["scan"]["roots"]:
         base = root / scan_root
         if not base.exists():
             continue
         files.extend(path for path in base.rglob("*") if path.is_file() and path.suffix in extensions)
+    files = [
+        path
+        for path in files
+        if not excluded(rel(path, root), exclude_patterns)
+    ]
 
     errors: list[str] = []
     classified: dict[str, str] = {}

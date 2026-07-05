@@ -38,7 +38,7 @@ desktop viewer の実装を写経せず、`panels -> store/actions -> bridge -> 
 |---|---|---|---|---|---|---|---|
 | Enable DrawPath Pick | draw store | toggle | UI | 生反映 | 直して移植 | W3 では Draw Path tool の有効状態として扱う | P1 |
 | Show Backbone Overlay | renderer store | toggle | `kRedraw`相当 | 生反映 | そのまま | store 内の派生出力表示切替だけ | P1 |
-| Draw Snap Radius | draw action input | number | UI | 生反映 | そのまま | `ResolveBranchPick`を移すまで地面入力の許容値として保持 | P1 |
+| Draw Snap Radius | `ResolveBranchPick` | number | UI | 生反映 | 直して移植 | W4では意図的に除外。web側のscene hit idを公開pick payloadへ渡す境界が未実装で、半径だけ置くと無効controlになる | P1 |
 | Draw Plane Z | draw store | number | UI | 生反映 | そのまま | ray-plane 交差だけに使う | P1 |
 | Path Interval | `GenerateFromBackboneSpec` | number | `kRegenerate` | release commit | そのまま | generation input | P1 |
 | Clicked Points Only | `GenerateFromBackboneSpec` | toggle | `kRegenerate` | release commit | そのまま | `interval_m` の有無へ変換する | P1 |
@@ -72,7 +72,7 @@ desktop viewer の実装を写経せず、`panels -> store/actions -> bridge -> 
 
 | UI 項目 | 呼ぶ core API | control | 更新クラス | drag policy | 判定 | 理由 | 優先度 |
 |---|---|---|---|---|---|---|---|
-| Cable Template / Name / Description | template read / `UpdateCableTemplate` | select / text | mixed | release commit | そのまま | stable id で選択し全 template 値を送る | P1 |
+| Cable Template / Name | template read / `UpdateCableTemplate` | select / read-only text | mixed | release commit | そのまま | stable id で選択する。現行desktopもnameはread-only | P1 |
 | Outer Diameter / Bend Stiffness / Min Bend Radius | `UpdateCableTemplate` | number | `kReshape` | 約30 Hz | そのまま | `preferred_visible_span_ids` を必ず渡す | P1 |
 | Cable Material | `UpdateCableTemplate` | select | `kRedraw` | 約30 Hz | そのまま | render/visual のみ | P1 |
 | Requires Insulator / Insulator Attach Height | `UpdateCableTemplate` | toggle / number | decision / `kRegenerate` | release commit | そのまま | 使用中 span で unsupported の場合は error 表示 | P1 |
@@ -150,3 +150,27 @@ outliner として監査した。
 - web viewer では template 更新と related pole 適用を別 action / button にし、各 `EditResult.error` を表示する。
 - `UpdateLayoutSettings`、template の decision/structure 差分、span override は
   [merge_readiness.md](merge_readiness.md) の条件で unsupported になり得る。事前推測せず core の error を表示する。
+
+## W4 実装結果
+
+P1 の実装済み family:
+
+- Draw Path: ground click、pole/bundle選択、count、interval、clicked-only、direction、preview、
+  overlay、keep path、undo、clear、generation error。
+- camera/workspace: OrbitControls、FOV、panel表示、panel幅。
+- geometry/layout/visual: 更新クラスに従う preview/commit、Esc cancel、error表示。
+- orientation: selected/all pole tilt、span reference length reset、selection filter。
+- Cable/Bundle/Pole template: current値の読込と明示 update。Pole band/anchor slotを含む。
+- related pole type: 独立button。Bundle/Pole template updateから暗黙呼出ししない。
+- outliner/inspection: pole/port/span/midair一覧、主要値、選択解除。
+- override clear: pole orientation、span socket A/B、branch down。
+
+P1 だが意図的に除外した項目:
+
+- Draw Snap Radius / branch pick: W1のwasm境界はscene raycast/pick idを公開していない。
+  JSで既存span/nodeを近傍推測しないため、地面clickだけに限定する。
+- Related entity links: W1の最小inspection境界にlinkを含めていない。ID関係をJSで再構成しない。
+- Unified UI toggle: webは単一workspaceを唯一の構成とし、旧window modeを持たない。
+- direct object edit: desktop側も無効であり、Draw Pathと明示template/update actionだけを入口にする。
+
+P2 の debug/capture、physical line population、walk modeは未実装である。

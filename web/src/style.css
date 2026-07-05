@@ -45,6 +45,16 @@ button:active {
   gap: 0.65rem;
 }
 
+.top-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.workspace-width {
+  width: 110px;
+}
+
 main {
   display: grid;
   grid-template-rows: auto minmax(420px, 1fr) auto;
@@ -96,6 +106,16 @@ h1 {
   background: #f5f2e8;
   padding: 1rem;
   box-shadow: 5px 5px 0 #17201d;
+}
+
+.draw-panel .check {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.draw-panel .check input {
+  width: auto;
 }
 
 .panel-label {
@@ -160,6 +180,197 @@ aside span,
   background: #ffe1d7;
 }
 
+.settings {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(190px, 1fr));
+  gap: 0.8rem;
+}
+
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(260px, 1fr));
+  gap: 0.8rem;
+}
+
+.outliner {
+  border: 1px solid #17201d;
+  background: rgba(245, 242, 232, 0.92);
+  padding: 0.8rem;
+}
+
+.outliner-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.outliner h2,
+.outliner h3 {
+  margin: 0 0 0.5rem;
+  font: 600 0.72rem "IBM Plex Mono", monospace;
+  color: #3d655b;
+  text-transform: uppercase;
+}
+
+.entity-lists {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 0.6rem;
+}
+
+.entity-lists button,
+.inspector button,
+.outliner-title button {
+  width: 100%;
+  margin: 0.15rem 0;
+  padding: 0.4rem;
+  font-size: 0.66rem;
+  box-shadow: none;
+}
+
+.entity-lists button.active {
+  background: #e4ff54;
+}
+
+.inspector {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-top: 0.7rem;
+  border-top: 1px solid #8d9691;
+  padding-top: 0.7rem;
+  font-size: 0.72rem;
+}
+
+.inspector button {
+  width: auto;
+}
+
+.template-grid section {
+  border: 1px solid #17201d;
+  background: rgba(245, 242, 232, 0.92);
+  padding: 0.8rem;
+}
+
+.template-grid .pole-template {
+  grid-column: 1 / -1;
+}
+
+.template-grid h2,
+.template-grid h3 {
+  margin: 0 0 0.7rem;
+  font: 600 0.72rem "IBM Plex Mono", monospace;
+  color: #3d655b;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.template-grid label {
+  margin-top: 0.45rem;
+}
+
+.template-grid input,
+.template-grid select {
+  width: 100%;
+}
+
+.template-grid .check {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.template-grid .check input {
+  width: auto;
+}
+
+.template-grid button {
+  margin-top: 0.65rem;
+  padding: 0.55rem;
+  font-size: 0.7rem;
+}
+
+.category-row {
+  display: grid;
+  grid-template-columns: 60px repeat(3, 1fr);
+  gap: 0.4rem;
+  margin-bottom: 0.4rem;
+}
+
+details {
+  margin-top: 0.8rem;
+  border-top: 1px solid #8d9691;
+  padding-top: 0.55rem;
+}
+
+summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.record {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  gap: 0.4rem;
+  margin-top: 0.65rem;
+  padding: 0.6rem;
+  background: white;
+}
+
+.settings section {
+  border: 1px solid #17201d;
+  background: rgba(245, 242, 232, 0.92);
+  padding: 0.8rem;
+}
+
+.settings h2 {
+  margin: 0 0 0.7rem;
+  font: 600 0.72rem "IBM Plex Mono", monospace;
+  color: #3d655b;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.settings label {
+  margin-top: 0.55rem;
+}
+
+.settings input[type="number"],
+.settings input[type="range"] {
+  width: 100%;
+}
+
+.settings .check {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.settings button {
+  width: 100%;
+  margin-top: 0.65rem;
+  padding: 0.55rem;
+  font-size: 0.7rem;
+}
+
+.interaction {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  padding: 0.55rem 0.7rem;
+  background: #17201d;
+  color: #e4ff54;
+  font-size: 0.72rem;
+}
+
+.last-log {
+  border-left: 4px solid #3d655b;
+  padding: 0.45rem 0.65rem;
+  background: rgba(255, 255, 255, 0.58);
+  font-size: 0.72rem;
+}
+
 @media (max-width: 700px) {
   header {
     align-items: stretch;
@@ -182,5 +393,22 @@ aside span,
 
   .viewport {
     min-height: 55vh;
+  }
+
+  .settings {
+    grid-template-columns: 1fr;
+  }
+
+  .template-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .entity-lists {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .record,
+  .category-row {
+    grid-template-columns: 1fr;
   }
 }

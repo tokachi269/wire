@@ -24,10 +24,13 @@ export class WireScene {
   private readonly unsubscribe: () => void;
   private frame = 0;
   private resizeObserver: ResizeObserver | null = null;
+  private snapshot: ViewerSnapshot | null = null;
+  private lastFrameTime: number | null = null;
 
   constructor(
     private readonly store: ViewerStore,
-    private readonly onGroundClick: (point: WorldPoint) => void
+    private readonly onGroundClick: (point: WorldPoint) => void,
+    private readonly onFrame: (deltaMs: number) => void
   ) {
     this.scene.background = new THREE.Color(0xdde7e7);
     this.scene.add(this.content);
@@ -72,14 +75,20 @@ export class WireScene {
       const ray = new THREE.Raycaster();
       ray.setFromCamera(pointer, this.camera);
       const hit = new THREE.Vector3();
-      if (ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), hit)) {
+      const planeZ = this.snapshot?.drawPlaneZ ?? 0;
+      if (
+        ray.ray.intersectPlane(
+          new THREE.Plane(new THREE.Vector3(0, 0, 1), -planeZ),
+          hit
+        )
+      ) {
         this.onGroundClick([hit.x, hit.y, hit.z]);
       }
     });
     this.resizeObserver = new ResizeObserver(() => this.resize(host));
     this.resizeObserver.observe(host);
     this.resize(host);
-    this.animate();
+    this.frame = requestAnimationFrame(this.animate);
   }
 
   dispose(): void {
@@ -99,13 +108,22 @@ export class WireScene {
     this.renderer.setSize(width, height, false);
   }
 
-  private animate = (): void => {
+  private animate = (time: number): void => {
+    if (this.lastFrameTime !== null) {
+      this.onFrame(time - this.lastFrameTime);
+    }
+    this.lastFrameTime = time;
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
     this.frame = requestAnimationFrame(this.animate);
   };
 
   private rebuild(snapshot: ViewerSnapshot): void {
+    this.snapshot = snapshot;
+    this.camera.fov = snapshot.cameraFov;
+    this.camera.updateProjectionMatrix();
+    this.content.visible = snapshot.showBackboneOverlay;
+    this.guide.visible = snapshot.showPreview;
     this.content.clear();
     this.guide.clear();
 
@@ -130,7 +148,8 @@ export class WireScene {
       geometry.translate(0, 0, pole.height / 2);
       const material = new THREE.MeshStandardMaterial({
         color: 0x434b48,
-        roughness: 0.88
+        roughness: 0.88,
+        wireframe: !snapshot.solidSupportRender
       });
       const mesh = new THREE.Mesh(geometry, material);
       mesh.position.set(pole.positionX, pole.positionY, pole.positionZ);

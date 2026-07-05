@@ -30,29 +30,53 @@ export class ViewerActions {
     const bundleTemplates = this.bridge.bundleTemplates();
     const cableTemplates = this.bridge.cableTemplates();
     const poleTemplates = this.bridge.poleTemplates();
+    const geometry = this.bridge.geometrySettings();
+    if (!geometry.sagEnabled) {
+      geometry.sagEnabled = true;
+      const result = this.bridge.updateGeometrySettings(geometry);
+      if (!result.ok) {
+        this.store.setError(result.error);
+      }
+    }
+    const defaultBundleId =
+      bundleTemplates.find((template) => template.id === 1)?.id ??
+      bundleTemplates[0]?.id ??
+      null;
+    const defaultCableId =
+      cableTemplates.find((template) => template.name === "HV_BARE")?.id ??
+      cableTemplates[0]?.id ??
+      null;
+    const defaultPoleId =
+      poleTemplates.find((template) => template.name === "CommunicationPole")?.id ??
+      poleTemplates[0]?.id ??
+      null;
     this.store.update((current) => ({
       ...current,
       bundleTemplates,
       selectedBundleTemplateId:
-        current.selectedBundleTemplateId ?? bundleTemplates[0]?.id ?? null,
+        current.selectedBundleTemplateId ?? defaultBundleId,
+      selectedDrawBundleTemplateIds:
+        current.selectedDrawBundleTemplateIds.length > 0
+          ? current.selectedDrawBundleTemplateIds
+          : bundleTemplates
+              .filter((template) => [0, 1, 2, 3].includes(template.id))
+              .map((template) => template.id),
+      drawBundleCounts: Object.fromEntries(
+        bundleTemplates.map((template) => [
+          template.id,
+          current.drawBundleCounts[template.id] ?? template.defaultCount
+        ])
+      ),
       cableTemplates,
       selectedCableTemplateId:
-        current.selectedCableTemplateId ?? cableTemplates[0]?.id ?? null,
+        current.selectedCableTemplateId ?? defaultCableId,
       poleTemplates,
       selectedPoleTemplateId:
-        current.selectedPoleTemplateId ?? poleTemplates[0]?.id ?? null,
+        current.selectedPoleTemplateId ?? defaultPoleId,
       geometry: this.bridge.geometrySettings(),
       layout: this.bridge.layoutSettings(),
       visual: this.bridge.visualSettings()
     }));
-  }
-
-  generateSample(): void {
-    this.generatePoints([
-      [0, 0, 0],
-      [16, 2, 0],
-      [32, 0, 0]
-    ]);
   }
 
   addPathPoint(point: WorldPoint): void {
@@ -85,12 +109,14 @@ export class ViewerActions {
       | "intervalM"
       | "clickedPointsOnly"
       | "directionMode"
-      | "bundleCount"
       | "solidSupportRender"
       | "selectionIncludePoles"
       | "selectionIncludeMidair"
       | "selectionIncludeSpans"
       | "showWorkspace"
+      | "showLeftPanel"
+      | "showRightPanel"
+      | "workspaceLeftWidth"
       | "workspaceWidth",
     value: number | boolean
   ): void {
@@ -109,6 +135,22 @@ export class ViewerActions {
     this.store.update((current) => ({
       ...current,
       selectedBundleTemplateId: id
+    }));
+  }
+
+  toggleDrawBundleTemplate(id: number): void {
+    this.store.update((current) => ({
+      ...current,
+      selectedDrawBundleTemplateIds: current.selectedDrawBundleTemplateIds.includes(id)
+        ? current.selectedDrawBundleTemplateIds.filter((candidate) => candidate !== id)
+        : [...current.selectedDrawBundleTemplateIds, id]
+    }));
+  }
+
+  setDrawBundleCount(id: number, count: number): void {
+    this.store.update((current) => ({
+      ...current,
+      drawBundleCounts: { ...current.drawBundleCounts, [id]: count }
     }));
   }
 
@@ -436,33 +478,36 @@ export class ViewerActions {
   private generatePoints(points: WorldPoint[]): void {
     const actionStart = performance.now();
     const before = this.readSnapshot();
-    const selectedBundleTemplateId = before.selectedBundleTemplateId;
+    const selectedBundleTemplateIds = before.selectedDrawBundleTemplateIds;
     const bundleTemplates: BundleTemplateInfo[] = before.bundleTemplates;
 
     if (points.length < 2) {
       this.store.setError("path needs at least 2 points");
       return;
     }
-    if (selectedBundleTemplateId === null) {
-      this.store.setError("bundle template is not selected");
+    if (selectedBundleTemplateIds.length === 0) {
+      this.store.setError("select at least one bundle template");
       return;
     }
-    const selectedTemplate = bundleTemplates.find(
-      (template) => template.id === selectedBundleTemplateId
+    const selectedTemplates = selectedBundleTemplateIds.map((id) =>
+      bundleTemplates.find((template) => template.id === id)
     );
-    if (selectedTemplate === undefined) {
+    if (selectedTemplates.some((template) => template === undefined)) {
       this.store.setError("selected bundle template is not available");
       return;
     }
-
     const flatPoints = new Float64Array(points.length * 3);
     points.forEach((point, index) => flatPoints.set(point, index * 3));
     const result = this.bridge.generate(
       flatPoints,
-      selectedTemplate.id,
+      selectedTemplates.map((template) => template!.id),
       before.clickedPointsOnly ? 0 : before.intervalM,
       before.selectedPoleTemplateId ?? 1,
-      selectedTemplate.fixedCount ? 0 : before.bundleCount,
+      selectedTemplates.map((template) =>
+        template!.fixedCount
+          ? 0
+          : before.drawBundleCounts[template!.id] ?? template!.defaultCount
+      ),
       before.directionMode
     );
     if (!result.ok) {
@@ -482,7 +527,7 @@ export class ViewerActions {
       generationMs: result.totalMs,
       pathPoints: before.keepPathAfterGenerate ? points : [],
       bundleTemplates,
-      selectedBundleTemplateId
+      selectedDrawBundleTemplateIds: selectedBundleTemplateIds
     }));
     const sceneUpdateMs = performance.now() - actionStart;
     this.store.update((current) => ({

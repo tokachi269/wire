@@ -64,8 +64,8 @@ class WireState {
 public:
   WireState() : state_(std::make_unique<CoreState>()) {}
 
-  val generate(const val& flat_points, int bundle_template_id, double interval_m, int pole_type_id, int count,
-               int direction_mode) {
+  val generate(const val& flat_points, const val& bundle_template_ids, double interval_m, int pole_type_id,
+               const val& counts, int direction_mode) {
     const std::size_t value_count = flat_points["length"].as<std::size_t>();
     if (value_count % 3 != 0) {
       return result_value(false, "point array length must be divisible by 3");
@@ -82,11 +82,17 @@ public:
     spec.pole_type_id = static_cast<PoleTypeId>(pole_type_id);
     spec.direction_mode = static_cast<wire::core::PathDirectionMode>(direction_mode);
 
-    try {
-      const BundleKind kind = bundle_kind(bundle_template_id);
-      spec.bundles.push_back(BackboneBundleSpec{kind, span_layer(kind), count});
-    } catch (const std::invalid_argument& error) {
-      return result_value(false, error.what());
+    const std::size_t bundle_count = bundle_template_ids["length"].as<std::size_t>();
+    if (bundle_count == 0 || counts["length"].as<std::size_t>() != bundle_count) {
+      return result_value(false, "bundle template ids and counts must be non-empty and aligned");
+    }
+    for (std::size_t index = 0; index < bundle_count; ++index) {
+      try {
+        const BundleKind kind = bundle_kind(bundle_template_ids[index].as<int>());
+        spec.bundles.push_back(BackboneBundleSpec{kind, span_layer(kind), counts[index].as<int>()});
+      } catch (const std::invalid_argument& error) {
+        return result_value(false, error.what());
+      }
     }
 
     const auto generated = state_->GenerateFromBackboneSpec(spec);
@@ -258,6 +264,9 @@ public:
     output.set("name", bundle_template.name);
     output.set("defaultCount", bundle_template.default_count);
     output.set("fixedCount", bundle_template.count_rule == wire::core::BundleCountRuleKind::kFixed);
+    output.set("fixedCountValue", bundle_template.fixed_count);
+    output.set("minCount", bundle_template.min_count);
+    output.set("maxCount", bundle_template.max_count);
     output.set("cableTemplateId", bundle_template.cable_template_id);
     output.set("relatedPoleTypeId", bundle_template.related_pole_type_id);
     output.set("defaultLayer", static_cast<int>(bundle_template.default_layer));
@@ -330,6 +339,7 @@ public:
     output.set("bendStiffness", cable_template.bend_stiffness);
     output.set("minBendRadius", cable_template.min_bend_radius_m);
     output.set("materialStyle", static_cast<int>(cable_template.material_style));
+    output.set("colorRgba", cable_template.color_rgba);
     output.set("requiresInsulator", cable_template.requires_insulator);
     output.set("insulatorAttachmentHeight", cable_template.insulator_attachment_height_m);
     output.set("sagFactor", cable_template.sag_factor);
@@ -365,6 +375,7 @@ public:
     cable_template.min_bend_radius_m = property<double>(input, "minBendRadius");
     cable_template.material_style =
         static_cast<wire::core::CableMaterialStyleKind>(property<int>(input, "materialStyle"));
+    cable_template.color_rgba = property<std::uint32_t>(input, "colorRgba");
     cable_template.requires_insulator = property<bool>(input, "requiresInsulator");
     cable_template.insulator_attachment_height_m = property<double>(input, "insulatorAttachmentHeight");
     cable_template.sag_factor = property<double>(input, "sagFactor");

@@ -75,9 +75,9 @@ desktop viewer の実装を写経せず、`panels -> store/actions -> bridge -> 
 | Cable Template / Name | template read / `UpdateCableTemplate` | select / read-only text | mixed | release commit | そのまま | stable id で選択する。現行desktopもnameはread-only | P1 |
 | Outer Diameter / Bend Stiffness / Min Bend Radius | `UpdateCableTemplate` | number | `kReshape` | 約30 Hz | そのまま | `preferred_visible_span_ids` を必ず渡す | P1 |
 | Cable Material | `UpdateCableTemplate` | select | `kRedraw` | 約30 Hz | そのまま | render/visual のみ | P1 |
-| Requires Insulator / Insulator Attach Height | `UpdateCableTemplate` | toggle / number | decision / `kRegenerate` | release commit | そのまま | 使用中 span で unsupported の場合は error 表示 | P1 |
+| Requires Insulator / Insulator Attach Height | `UpdateCableTemplate` | toggle / number | `kRedraw` | commit | そのまま | render 差分で unsupported にならない。現行 backbone visual は insulator を未消費のため commit のみ | P1 |
 | Sag Factor / Slack Factor | `UpdateCableTemplate` | number | `kReshape` | 約30 Hz | そのまま | geom/draw の再導出 | P1 |
-| Default Grouped Fanout Spacing | `UpdateCableTemplate` | number | decision / `kRegenerate` | release commit | そのまま | topology/placement decision 差分は unsupported を許容 | P1 |
+| Default Grouped Fanout Spacing | `UpdateCableTemplate` | number | `kReshape` | 約30 Hz | そのまま | geometry 差分で unsupported にならない。live 反映する | P1 |
 | Cable Continuity | `UpdateCableTemplate` | select | `kRegenerate` | release commit | そのまま | decision 差分。現行保留条件を表示する | P1 |
 | CurveOffset Straight Supplemental | `UpdateCableTemplate` | toggle | `kReshape` | 約30 Hz | そのまま | explicit supplemental visual setting | P1 |
 | Supplemental Lateral / Vertical Offset | `UpdateCableTemplate` | number | `kReshape` | 約30 Hz | そのまま | JS で offset geometry を作らない | P1 |

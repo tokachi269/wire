@@ -115,7 +115,7 @@
     },
     {
       "name": "web_panels",
-      "patterns": ["web/src/*.svelte", "web/src/panels/*.svelte"],
+      "patterns": ["web/src/*.svelte", "web/src/panels/*.svelte", "web/src/labels.ts"],
       "forbidden_tokens": ["/bridge/", "wire/core", "viewer/"]
     },
     {

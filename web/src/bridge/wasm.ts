@@ -21,10 +21,10 @@ import createWireModule from "../wasm-generated/wire_web_core.js";
 export interface WireStateHandle {
   generate(
     points: Float64Array,
-    bundleTemplateId: number,
+    bundleTemplateIds: number[],
     intervalM: number,
     poleTypeId: number,
-    count: number,
+    counts: number[],
     directionMode: number
   ): EditResult;
   visualPartCount(): number;

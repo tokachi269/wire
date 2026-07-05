@@ -10,5 +10,6 @@
 - [cable_instance_section.md](cable_instance_section.md): CableInstance / CableSection / carrier の設計語
 - [models.md](models.md): 自作モデル/descriptor方針
 - [viewer_operations.md](viewer_operations.md): web viewerへ移す操作の監査表
+- [viewer_layout.md](viewer_layout.md): web viewerのリージョン構成と配置方針
 
 作業履歴と過去planはGitで確認する。docsに日記を追加しない。

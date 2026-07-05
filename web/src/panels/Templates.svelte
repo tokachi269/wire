@@ -7,6 +7,23 @@
     PortBandInfo
   } from "../model";
   import type { ViewerSnapshot } from "../store/viewer";
+  import {
+    ANCHOR_USAGE_LABELS,
+    BRANCH_POLICY_LABELS,
+    CATEGORY_LABELS,
+    CONTINUITY_LABELS,
+    MATERIAL_LABELS,
+    OVERFLOW_LABELS,
+    ROLE_LABELS,
+    SIDE_LABELS,
+    SPAN_LAYER_LABELS,
+    SUPPORT_STYLE_LABELS,
+    categoryLabel,
+    categoryShort,
+    fmt,
+    labelOf,
+    round6
+  } from "../labels";
 
   interface Props {
     actions: ViewerActions;
@@ -21,6 +38,10 @@
     (event.currentTarget as HTMLInputElement).value;
   const checkedValue = (event: Event) =>
     (event.currentTarget as HTMLInputElement).checked;
+  const colorValue = (rgba: number) =>
+    `#${((rgba >>> 8) & 0xffffff).toString(16).padStart(6, "0")}`;
+  const rgbaValue = (hex: string, current: number) =>
+    ((Number.parseInt(hex.slice(1), 16) << 8) | (current & 0xff)) >>> 0;
 
   const selectedCable = () =>
     snapshot.cableTemplates.find(
@@ -64,6 +85,16 @@
     return template.portBands.filter((band) => band.category === category);
   }
 
+  function sortedBands(template: PoleTemplateInfo): PortBandInfo[] {
+    return [...template.portBands].sort(
+      (a, b) => a.category - b.category || b.heightCenter - a.heightCenter || a.bandId - b.bandId
+    );
+  }
+
+  function bandTitle(band: PortBandInfo): string {
+    return `Band ${band.bandId} · ${categoryShort(band.category)} / ${labelOf(SIDE_LABELS, band.side)} / h${fmt(band.heightCenter, 2)}`;
+  }
+
   function categoryAverage(
     template: PoleTemplateInfo,
     category: number,
@@ -92,9 +123,9 @@
     const draft = structuredClone(template);
     for (const band of draft.portBands.filter((item) => item.category === category)) {
       const half = Math.max(0, (band.heightMax - band.heightMin) / 2);
-      band.heightCenter = height;
-      band.heightMin = height - half;
-      band.heightMax = height + half;
+      band.heightCenter = round6(height);
+      band.heightMin = round6(height - half);
+      band.heightMax = round6(height + half);
     }
     if (preview) {
       actions.previewPoleTemplate(draft, `pole.category.${category}.height`, "height", start, height);
@@ -113,9 +144,9 @@
     const draft = structuredClone(template);
     for (const band of draft.portBands.filter((item) => item.category === category)) {
       const delta = offset - oldCenter;
-      band.lateralCenter += delta;
-      band.lateralMin += delta;
-      band.lateralMax += delta;
+      band.lateralCenter = round6(band.lateralCenter + delta);
+      band.lateralMin = round6(band.lateralMin + delta);
+      band.lateralMax = round6(band.lateralMax + delta);
     }
     if (preview) {
       actions.previewPoleTemplate(draft, `pole.category.${category}.offset`, "offset", oldCenter, offset);
@@ -139,9 +170,9 @@
       if (target === undefined) return;
       const t = ordered.length === 1 ? 0 : index / (ordered.length - 1) * 2 - 1;
       const half = Math.max(0, (target.lateralMax - target.lateralMin) / 2);
-      target.lateralCenter = center + t * Math.max(0, spread);
-      target.lateralMin = target.lateralCenter - half;
-      target.lateralMax = target.lateralCenter + half;
+      target.lateralCenter = round6(center + t * Math.max(0, spread));
+      target.lateralMin = round6(target.lateralCenter - half);
+      target.lateralMax = round6(target.lateralCenter + half);
     });
     if (preview) {
       actions.previewPoleTemplate(
@@ -166,87 +197,170 @@
 </script>
 
 <div class="template-grid">
-  <section>
-    <h2>Cable template</h2>
-    <select
-      value={snapshot.selectedCableTemplateId ?? ""}
-      onchange={(event) => actions.selectCableTemplate(numberValue(event))}
-    >
-      {#each snapshot.cableTemplates as template}
-        <option value={template.id}>{template.name}</option>
-      {/each}
+  <section class="pole-template">
+    <h2>Pole template</h2>
+    <select value={snapshot.selectedPoleTemplateId ?? ""}
+      onchange={(event) => actions.selectPoleTemplate(numberValue(event))}>
+      {#each snapshot.poleTemplates as template}<option value={template.id}>{template.name}</option>{/each}
     </select>
-    {#if selectedCable()}
-      {@const cable = selectedCable()!}
-      <label>Outer diameter
-        <input type="number" step="0.001" value={cable.outerDiameter}
-          oninput={(event) => actions.previewCableTemplate("outerDiameter", numberValue(event))}
-          onblur={(event) => actions.commitCableTemplate(patchCable(cable, "outerDiameter", numberValue(event)))} />
+    {#if selectedPole()}
+      {@const pole = selectedPole()!}
+      <label>Default height
+        <input type="number" step="0.05" value={fmt(pole.defaultHeight)}
+          oninput={(event) => actions.previewPoleDefaultHeight(numberValue(event))}
+          onblur={(event) => updatePole(pole, (draft) => draft.defaultHeight = round6(numberValue(event)))} />
       </label>
-      <label>Bend stiffness
-        <input type="number" step="0.1" value={cable.bendStiffness}
-          oninput={(event) => actions.previewCableTemplate("bendStiffness", numberValue(event))}
-          onblur={(event) => actions.commitCableTemplate(patchCable(cable, "bendStiffness", numberValue(event)))} />
-      </label>
-      <label>Min bend radius
-        <input type="number" step="0.01" value={cable.minBendRadius}
-          oninput={(event) => actions.previewCableTemplate("minBendRadius", numberValue(event))}
-          onblur={(event) => actions.commitCableTemplate(patchCable(cable, "minBendRadius", numberValue(event)))} />
-      </label>
-      <label>Material
-        <select value={cable.materialStyle}
-          onchange={(event) => actions.commitCableTemplate(patchCable(cable, "materialStyle", numberValue(event)))}>
-          <option value="0">Generic</option><option value="1">Bare</option>
-          <option value="2">Insulated</option><option value="3">Optical</option>
-        </select>
-      </label>
-      <label class="check"><input type="checkbox" checked={cable.requiresInsulator}
-        onchange={(event) => actions.commitCableTemplate(patchCable(cable, "requiresInsulator", checkedValue(event)))} />
-        Requires insulator</label>
-      <label>Insulator attach height
-        <input type="number" step="0.005" value={cable.insulatorAttachmentHeight}
-          onchange={(event) => actions.commitCableTemplate(patchCable(cable, "insulatorAttachmentHeight", numberValue(event)))} />
-      </label>
-      <label>Sag factor
-        <input type="number" step="0.005" value={cable.sagFactor}
-          oninput={(event) => actions.previewCableTemplate("sagFactor", numberValue(event))}
-          onblur={(event) => actions.commitCableTemplate(patchCable(cable, "sagFactor", numberValue(event)))} />
-      </label>
-      <label>Slack factor
-        <input type="number" step="0.005" value={cable.slackFactor}
-          oninput={(event) => actions.previewCableTemplate("slackFactor", numberValue(event))}
-          onblur={(event) => actions.commitCableTemplate(patchCable(cable, "slackFactor", numberValue(event)))} />
-      </label>
-      <label>Grouped fanout
-        <input type="number" step="0.01" value={cable.groupedFanoutSpacing}
-          onchange={(event) => actions.commitCableTemplate(patchCable(cable, "groupedFanoutSpacing", numberValue(event)))} />
-      </label>
-      <label>Continuity
-        <select value={cable.continuityPolicy}
-          onchange={(event) => actions.commitCableTemplate(patchCable(cable, "continuityPolicy", numberValue(event)))}>
-          <option value="0">Auto</option><option value="1">G1</option><option value="2">G2</option>
-        </select>
-      </label>
-      <label class="check"><input type="checkbox" checked={cable.supplementalEnabled}
-        onchange={(event) => actions.commitCableTemplate(patchCable(cable, "supplementalEnabled", checkedValue(event)))} />
-        Straight supplemental</label>
-      {#if cable.supplementalEnabled}
-        {#each [
-          ["supplementalLateralOffset", "Lateral offset"],
-          ["supplementalVerticalOffset", "Vertical offset"],
-          ["supplementalWobbleAmplitude", "Wobble amplitude"],
-          ["supplementalWobbleWavelength", "Wobble wavelength"],
-          ["supplementalWobblePhase", "Wobble phase"],
-          ["supplementalEndpointEnvelope", "Endpoint envelope"]
-        ] as field}
-          <label>{field[1]}
-            <input type="number" step="0.01" value={cable[field[0] as keyof CableTemplateInfo] as number}
-              onchange={(event) => actions.commitCableTemplate(
-                patchCable(cable, field[0] as keyof CableTemplateInfo, numberValue(event) as never)
-              )} />
-          </label>
+
+      <h3>Placement by category</h3>
+      <div class="category-row category-head">
+        <span>Category</span>
+        <span>Height</span>
+        <span>Offset</span>
+        <span>Spread</span>
+      </div>
+      {#each [0, 1, 2, 3, 4] as category}
+        {#if categoryBands(pole, category).length > 0}
+          <div class="category-row">
+            <strong title={categoryLabel(category)}>{categoryShort(category)}</strong>
+            <input aria-label={`${categoryLabel(category)} height`} type="number" step="0.05"
+              value={fmt(categoryAverage(pole, category, "heightCenter"))}
+              oninput={(event) => setCategoryHeight(pole, category, numberValue(event), true)}
+              onblur={(event) => setCategoryHeight(pole, category, numberValue(event))} />
+            <input aria-label={`${categoryLabel(category)} offset`} type="number" step="0.02"
+              value={fmt(categoryAverage(pole, category, "lateralCenter"))}
+              oninput={(event) => setCategoryOffset(pole, category, numberValue(event), true)}
+              onblur={(event) => setCategoryOffset(pole, category, numberValue(event))} />
+            <input aria-label={`${categoryLabel(category)} spread`} type="number" step="0.02"
+              value={fmt(categorySpread(pole, category))}
+              oninput={(event) => setCategorySpread(pole, category, numberValue(event), true)}
+              onblur={(event) => setCategorySpread(pole, category, numberValue(event))} />
+          </div>
+        {/if}
+      {/each}
+
+      <details>
+        <summary>Name / description</summary>
+        <label>Name
+          <input value={pole.name}
+            onchange={(event) => updatePole(pole, (draft) => draft.name = textValue(event))} />
+        </label>
+        <label>Description
+          <input value={pole.description}
+            onchange={(event) => updatePole(pole, (draft) => draft.description = textValue(event))} />
+        </label>
+      </details>
+
+      <details>
+        <summary>Port bands ({pole.portBands.length})</summary>
+        {#each sortedBands(pole) as band (band.bandId)}
+          <div class="record">
+            <strong>{bandTitle(band)}</strong>
+            <label>Category
+              <select value={band.category}
+                onchange={(event) => updateBand(pole, band.bandId, (draft) => {
+                  draft.category = numberValue(event);
+                })}>
+                {#each CATEGORY_LABELS as label, category}
+                  <option value={category}>{label}</option>
+                {/each}
+              </select>
+            </label>
+            <label>Side
+              <select value={band.side}
+                onchange={(event) => updateBand(pole, band.bandId, (draft) => {
+                  draft.side = numberValue(event);
+                })}>
+                {#each SIDE_LABELS as label, side}<option value={side}>{label}</option>{/each}
+              </select>
+            </label>
+            <label>Role
+              <select value={band.role}
+                onchange={(event) => updateBand(pole, band.bandId, (draft) => {
+                  draft.role = numberValue(event);
+                })}>
+                {#each ROLE_LABELS as label, role}<option value={role}>{label}</option>{/each}
+              </select>
+            </label>
+            <label>Overflow
+              <select value={band.overflowPolicy}
+                onchange={(event) => updateBand(pole, band.bandId, (draft) => {
+                  draft.overflowPolicy = numberValue(event);
+                })}>
+                {#each OVERFLOW_LABELS as label, policy}<option value={policy}>{label}</option>{/each}
+              </select>
+            </label>
+            {#each [
+              ["bandId", "Id"], ["layer", "Layer"],
+              ["lateralCenter", "Lateral center"],
+              ["lateralMin", "Lateral min"], ["lateralMax", "Lateral max"],
+              ["heightCenter", "Height center"], ["heightMin", "Height min"],
+              ["heightMax", "Height max"], ["priority", "Priority"], ["minSpacing", "Min spacing"]
+            ] as field}
+              <label>{field[1]}<input type="number" value={fmt(band[field[0] as keyof PortBandInfo] as number)}
+                onchange={(event) => updateBand(pole, band.bandId, (draft) => {
+                  (draft[field[0] as keyof PortBandInfo] as number) = round6(numberValue(event));
+                })} /></label>
+            {/each}
+            <label class="check"><input type="checkbox" checked={band.allowMultiple}
+              onchange={(event) => updateBand(pole, band.bandId, (draft) => draft.allowMultiple = checkedValue(event))} />Allow multiple</label>
+            <label class="check"><input type="checkbox" checked={band.enabled}
+              onchange={(event) => updateBand(pole, band.bandId, (draft) => draft.enabled = checkedValue(event))} />Enabled</label>
+            <button class="secondary" type="button" onclick={() => updatePole(pole, (draft) => {
+              draft.portBands = draft.portBands.filter((item) => item.bandId !== band.bandId);
+            })}>Band削除</button>
+          </div>
         {/each}
-      {/if}
+        <button type="button" onclick={() => updatePole(pole, (draft) => {
+          const nextId = Math.max(0, ...draft.portBands.map((band) => band.bandId)) + 1;
+          draft.portBands.push({
+            bandId: nextId, category: 1, layer: 1, side: 1, role: 0,
+            lateralCenter: 0, lateralMin: -0.1, lateralMax: 0.1,
+            heightCenter: draft.defaultHeight, heightMin: draft.defaultHeight - 0.1,
+            heightMax: draft.defaultHeight + 0.1, priority: 0, minSpacing: 0.2,
+            allowMultiple: false, overflowPolicy: 2, enabled: true
+          });
+        })}>Band追加</button>
+      </details>
+
+      <details>
+        <summary>Anchor slots ({pole.anchorSlots.length})</summary>
+        {#each pole.anchorSlots as slot (slot.slotId)}
+          <div class="record">
+            <strong>Slot {slot.slotId} · {labelOf(ANCHOR_USAGE_LABELS, slot.usage)}</strong>
+            <label>Usage
+              <select value={slot.usage}
+                onchange={(event) => updatePole(pole, (draft) => {
+                  const target = draft.anchorSlots.find((item) => item.slotId === slot.slotId);
+                  if (target) target.usage = numberValue(event);
+                })}>
+                {#each ANCHOR_USAGE_LABELS as label, usage}<option value={usage}>{label}</option>{/each}
+              </select>
+            </label>
+            {#each [
+              ["slotId", "Id"], ["localX", "Local X"],
+              ["localY", "Local Y"], ["localZ", "Local Z"], ["priority", "Priority"]
+            ] as field}
+              <label>{field[1]}<input type="number" value={fmt(slot[field[0] as keyof typeof slot] as number)}
+                onchange={(event) => updatePole(pole, (draft) => {
+                  const target = draft.anchorSlots.find((item) => item.slotId === slot.slotId);
+                  if (target) (target[field[0] as keyof typeof target] as number) = round6(numberValue(event));
+                })} /></label>
+            {/each}
+            <label class="check"><input type="checkbox" checked={slot.enabled}
+              onchange={(event) => updatePole(pole, (draft) => {
+                const target = draft.anchorSlots.find((item) => item.slotId === slot.slotId);
+                if (target) target.enabled = checkedValue(event);
+              })} />Enabled</label>
+            <button class="secondary" type="button" onclick={() => updatePole(pole, (draft) => {
+              draft.anchorSlots = draft.anchorSlots.filter((item) => item.slotId !== slot.slotId);
+            })}>Slot削除</button>
+          </div>
+        {/each}
+        <button type="button" onclick={() => updatePole(pole, (draft) => {
+          const nextId = Math.max(0, ...draft.anchorSlots.map((slot) => slot.slotId)) + 1;
+          draft.anchorSlots.push({slotId: nextId, usage: 0, localX: 0, localY: 0, localZ: 0, priority: 0, enabled: true});
+        })}>Slot追加</button>
+      </details>
     {/if}
   </section>
 
@@ -275,7 +389,9 @@
       <label>Default layer
         <select value={bundle.defaultLayer}
           onchange={(event) => actions.commitBundleTemplate(patchBundle(bundle, "defaultLayer", numberValue(event)))}>
-          {#each [1, 2, 3, 4, 5] as layer}<option value={layer}>{layer}</option>{/each}
+          {#each [1, 2, 3, 4, 5] as layer}
+            <option value={layer}>{labelOf(SPAN_LAYER_LABELS, layer)}</option>
+          {/each}
         </select>
       </label>
       {#each [
@@ -289,20 +405,20 @@
           )} />{field[1]}</label>
       {/each}
       <label>Grouped fanout
-        <input type="number" step="0.01" value={bundle.groupedSupportFanoutSpacing}
+        <input type="number" step="0.01" value={fmt(bundle.groupedSupportFanoutSpacing)}
           onchange={(event) => actions.commitBundleTemplate(patchBundle(bundle, "groupedSupportFanoutSpacing", numberValue(event)))} />
       </label>
       {#each [
-        ["supportStyle", "Support style", [0, 1, 2]],
-        ["branchPolicy", "Branch policy", [0, 1, 2]],
-        ["continuityPolicy", "Continuity", [0, 1, 2]]
-      ] as field}
+        ["supportStyle", "Support style", SUPPORT_STYLE_LABELS],
+        ["branchPolicy", "Branch policy", BRANCH_POLICY_LABELS],
+        ["continuityPolicy", "Continuity", CONTINUITY_LABELS]
+      ] as const as field}
         <label>{field[1]}
           <select value={bundle[field[0] as keyof BundleTemplateInfo] as number}
             onchange={(event) => actions.commitBundleTemplate(
               patchBundle(bundle, field[0] as keyof BundleTemplateInfo, numberValue(event) as never)
             )}>
-            {#each field[2] as option}<option value={option}>{option}</option>{/each}
+            {#each field[2] as label, option}<option value={option}>{label}</option>{/each}
           </select>
         </label>
       {/each}
@@ -312,118 +428,95 @@
     {/if}
   </section>
 
-  <section class="pole-template">
-    <h2>Pole template</h2>
-    <select value={snapshot.selectedPoleTemplateId ?? ""}
-      onchange={(event) => actions.selectPoleTemplate(numberValue(event))}>
-      {#each snapshot.poleTemplates as template}<option value={template.id}>{template.name}</option>{/each}
-    </select>
-    {#if selectedPole()}
-      {@const pole = selectedPole()!}
-      <label>Name
-        <input value={pole.name}
-          onchange={(event) => updatePole(pole, (draft) => draft.name = textValue(event))} />
-      </label>
-      <label>Description
-        <input value={pole.description}
-          onchange={(event) => updatePole(pole, (draft) => draft.description = textValue(event))} />
-      </label>
-      <label>Default height
-        <input type="number" step="0.05" value={pole.defaultHeight}
-          oninput={(event) => actions.previewPoleDefaultHeight(numberValue(event))}
-          onblur={(event) => updatePole(pole, (draft) => draft.defaultHeight = numberValue(event))} />
-      </label>
-
-      <h3>Placement by category</h3>
-      {#each [0, 1, 2, 3, 4] as category}
-        {#if categoryBands(pole, category).length > 0}
-          <div class="category-row">
-            <strong>C{category}</strong>
-            <input aria-label={`Category ${category} height`} type="number" step="0.05"
-              value={categoryAverage(pole, category, "heightCenter")}
-              oninput={(event) => setCategoryHeight(pole, category, numberValue(event), true)}
-              onblur={(event) => setCategoryHeight(pole, category, numberValue(event))} />
-            <input aria-label={`Category ${category} offset`} type="number" step="0.02"
-              value={categoryAverage(pole, category, "lateralCenter")}
-              oninput={(event) => setCategoryOffset(pole, category, numberValue(event), true)}
-              onblur={(event) => setCategoryOffset(pole, category, numberValue(event))} />
-            <input aria-label={`Category ${category} spread`} type="number" step="0.02"
-              value={categorySpread(pole, category)}
-              oninput={(event) => setCategorySpread(pole, category, numberValue(event), true)}
-              onblur={(event) => setCategorySpread(pole, category, numberValue(event))} />
-          </div>
-        {/if}
+  <section>
+    <h2>Cable template</h2>
+    <select
+      value={snapshot.selectedCableTemplateId ?? ""}
+      onchange={(event) => actions.selectCableTemplate(numberValue(event))}
+    >
+      {#each snapshot.cableTemplates as template}
+        <option value={template.id}>{template.name}</option>
       {/each}
-
-      <details>
-        <summary>Port bands</summary>
-        {#each pole.portBands as band}
-          <div class="record">
-            <strong>Band {band.bandId}</strong>
-            {#each [
-              ["bandId", "Id"], ["category", "Category"], ["layer", "Layer"],
-              ["side", "Side"], ["role", "Role"], ["lateralCenter", "Lateral center"],
-              ["lateralMin", "Lateral min"], ["lateralMax", "Lateral max"],
-              ["heightCenter", "Height center"], ["heightMin", "Height min"],
-              ["heightMax", "Height max"], ["priority", "Priority"], ["minSpacing", "Min spacing"],
-              ["overflowPolicy", "Overflow"]
-            ] as field}
-              <label>{field[1]}<input type="number" value={band[field[0] as keyof PortBandInfo] as number}
-                onchange={(event) => updateBand(pole, band.bandId, (draft) => {
-                  (draft[field[0] as keyof PortBandInfo] as number) = numberValue(event);
-                })} /></label>
-            {/each}
-            <label class="check"><input type="checkbox" checked={band.allowMultiple}
-              onchange={(event) => updateBand(pole, band.bandId, (draft) => draft.allowMultiple = checkedValue(event))} />Allow multiple</label>
-            <label class="check"><input type="checkbox" checked={band.enabled}
-              onchange={(event) => updateBand(pole, band.bandId, (draft) => draft.enabled = checkedValue(event))} />Enabled</label>
-            <button class="secondary" type="button" onclick={() => updatePole(pole, (draft) => {
-              draft.portBands = draft.portBands.filter((item) => item.bandId !== band.bandId);
-            })}>Band削除</button>
-          </div>
+    </select>
+    {#if selectedCable()}
+      {@const cable = selectedCable()!}
+      <label>Outer diameter
+        <input type="number" step="0.001" value={fmt(cable.outerDiameter)}
+          oninput={(event) => actions.previewCableTemplate("outerDiameter", numberValue(event))}
+          onblur={(event) => actions.commitCableTemplate(patchCable(cable, "outerDiameter", numberValue(event)))} />
+      </label>
+      <label>Bend stiffness
+        <input type="number" step="0.1" value={fmt(cable.bendStiffness)}
+          oninput={(event) => actions.previewCableTemplate("bendStiffness", numberValue(event))}
+          onblur={(event) => actions.commitCableTemplate(patchCable(cable, "bendStiffness", numberValue(event)))} />
+      </label>
+      <label>Min bend radius
+        <input type="number" step="0.01" value={fmt(cable.minBendRadius)}
+          oninput={(event) => actions.previewCableTemplate("minBendRadius", numberValue(event))}
+          onblur={(event) => actions.commitCableTemplate(patchCable(cable, "minBendRadius", numberValue(event)))} />
+      </label>
+      <label>Material
+        <select value={cable.materialStyle}
+          onchange={(event) => actions.commitCableTemplate(patchCable(cable, "materialStyle", numberValue(event)))}>
+          {#each MATERIAL_LABELS as label, style}<option value={style}>{label}</option>{/each}
+        </select>
+      </label>
+      <label>Wire color
+        <input type="color" value={colorValue(cable.colorRgba)}
+          onchange={(event) => actions.commitCableTemplate(
+            patchCable(cable, "colorRgba", rgbaValue(textValue(event), cable.colorRgba))
+          )} />
+      </label>
+      <label class="check"><input type="checkbox" checked={cable.requiresInsulator}
+        onchange={(event) => actions.commitCableTemplate(patchCable(cable, "requiresInsulator", checkedValue(event)))} />
+        Requires insulator</label>
+      <label>Insulator attach height
+        <input type="number" step="0.005" value={fmt(cable.insulatorAttachmentHeight)}
+          onchange={(event) => actions.commitCableTemplate(patchCable(cable, "insulatorAttachmentHeight", numberValue(event)))} />
+      </label>
+      <label>Sag factor
+        <input type="number" step="0.005" value={fmt(cable.sagFactor)}
+          oninput={(event) => actions.previewCableTemplate("sagFactor", numberValue(event))}
+          onblur={(event) => actions.commitCableTemplate(patchCable(cable, "sagFactor", numberValue(event)))} />
+      </label>
+      <label>Slack factor
+        <input type="number" step="0.005" value={fmt(cable.slackFactor)}
+          oninput={(event) => actions.previewCableTemplate("slackFactor", numberValue(event))}
+          onblur={(event) => actions.commitCableTemplate(patchCable(cable, "slackFactor", numberValue(event)))} />
+      </label>
+      <label>Grouped fanout
+        <input type="number" step="0.01" value={fmt(cable.groupedFanoutSpacing)}
+          oninput={(event) => actions.previewCableTemplate("groupedFanoutSpacing", numberValue(event))}
+          onblur={(event) => actions.commitCableTemplate(patchCable(cable, "groupedFanoutSpacing", numberValue(event)))} />
+      </label>
+      <label>Continuity
+        <select value={cable.continuityPolicy}
+          onchange={(event) => actions.commitCableTemplate(patchCable(cable, "continuityPolicy", numberValue(event)))}>
+          {#each CONTINUITY_LABELS as label, policy}<option value={policy}>{label}</option>{/each}
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" checked={cable.supplementalEnabled}
+        onchange={(event) => actions.commitCableTemplate(patchCable(cable, "supplementalEnabled", checkedValue(event)))} />
+        Straight supplemental</label>
+      {#if cable.supplementalEnabled}
+        {#each [
+          ["supplementalLateralOffset", "Lateral offset"],
+          ["supplementalVerticalOffset", "Vertical offset"],
+          ["supplementalWobbleAmplitude", "Wobble amplitude"],
+          ["supplementalWobbleWavelength", "Wobble wavelength"],
+          ["supplementalWobblePhase", "Wobble phase"],
+          ["supplementalEndpointEnvelope", "Endpoint envelope"]
+        ] as field}
+          <label>{field[1]}
+            <input type="number" step="0.01" value={fmt(cable[field[0] as keyof CableTemplateInfo] as number)}
+              oninput={(event) =>
+                actions.previewCableTemplate(field[0] as keyof CableTemplateInfo, numberValue(event) as never)}
+              onblur={(event) => actions.commitCableTemplate(
+                patchCable(cable, field[0] as keyof CableTemplateInfo, numberValue(event) as never)
+              )} />
+          </label>
         {/each}
-        <button type="button" onclick={() => updatePole(pole, (draft) => {
-          const nextId = Math.max(0, ...draft.portBands.map((band) => band.bandId)) + 1;
-          draft.portBands.push({
-            bandId: nextId, category: 1, layer: 1, side: 1, role: 0,
-            lateralCenter: 0, lateralMin: -0.1, lateralMax: 0.1,
-            heightCenter: draft.defaultHeight, heightMin: draft.defaultHeight - 0.1,
-            heightMax: draft.defaultHeight + 0.1, priority: 0, minSpacing: 0.2,
-            allowMultiple: false, overflowPolicy: 2, enabled: true
-          });
-        })}>Band追加</button>
-      </details>
-
-      <details>
-        <summary>Anchor slots</summary>
-        {#each pole.anchorSlots as slot}
-          <div class="record">
-            <strong>Slot {slot.slotId}</strong>
-            {#each [
-              ["slotId", "Id"], ["usage", "Usage"], ["localX", "Local X"],
-              ["localY", "Local Y"], ["localZ", "Local Z"], ["priority", "Priority"]
-            ] as field}
-              <label>{field[1]}<input type="number" value={slot[field[0] as keyof typeof slot] as number}
-                onchange={(event) => updatePole(pole, (draft) => {
-                  const target = draft.anchorSlots.find((item) => item.slotId === slot.slotId);
-                  if (target) (target[field[0] as keyof typeof target] as number) = numberValue(event);
-                })} /></label>
-            {/each}
-            <label class="check"><input type="checkbox" checked={slot.enabled}
-              onchange={(event) => updatePole(pole, (draft) => {
-                const target = draft.anchorSlots.find((item) => item.slotId === slot.slotId);
-                if (target) target.enabled = checkedValue(event);
-              })} />Enabled</label>
-            <button class="secondary" type="button" onclick={() => updatePole(pole, (draft) => {
-              draft.anchorSlots = draft.anchorSlots.filter((item) => item.slotId !== slot.slotId);
-            })}>Slot削除</button>
-          </div>
-        {/each}
-        <button type="button" onclick={() => updatePole(pole, (draft) => {
-          const nextId = Math.max(0, ...draft.anchorSlots.map((slot) => slot.slotId)) + 1;
-          draft.anchorSlots.push({slotId: nextId, usage: 0, localX: 0, localY: 0, localZ: 0, priority: 0, enabled: true});
-        })}>Slot追加</button>
-      </details>
+      {/if}
     {/if}
   </section>
 </div>

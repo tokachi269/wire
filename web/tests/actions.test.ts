@@ -21,7 +21,7 @@ function current(store: ViewerStore): ViewerSnapshot {
 }
 
 describe("viewer actions", () => {
-  it("refreshes finite scene data after sample generation", () => {
+  it("refreshes finite scene data after path generation", () => {
     const scene: SceneData = {
       parts: [
         {
@@ -49,6 +49,7 @@ describe("viewer actions", () => {
       bundleTemplates: () => [
         {
           id: 0, name: "DEFAULT_SINGLE", defaultCount: 1, fixedCount: true,
+          fixedCountValue: 1, minCount: 1, maxCount: 1,
           cableTemplateId: 2, relatedPoleTypeId: 1, defaultLayer: 2,
           allowMirror: true, allowMidairNode: true, allowMidairBranch: true,
           groupedSupportFanoutSpacing: 0.2, supportStyle: 0, branchPolicy: 0,
@@ -90,7 +91,10 @@ describe("viewer actions", () => {
     const actions = new ViewerActions(bridge, store);
     actions.initialize();
 
-    actions.generateSample();
+    actions.addPathPoint([0, 0, 0]);
+    actions.addPathPoint([16, 2, 0]);
+    actions.addPathPoint([32, 0, 0]);
+    actions.generatePath();
 
     const snapshot = current(store);
     expect(snapshot.parts).toHaveLength(1);
@@ -105,6 +109,7 @@ describe("viewer actions", () => {
       bundleTemplates: () => [
         {
           id: 0, name: "DEFAULT_SINGLE", defaultCount: 1, fixedCount: true,
+          fixedCountValue: 1, minCount: 1, maxCount: 1,
           cableTemplateId: 2, relatedPoleTypeId: 1, defaultLayer: 2,
           allowMirror: true, allowMidairNode: true, allowMidairBranch: true,
           groupedSupportFanoutSpacing: 0.2, supportStyle: 0, branchPolicy: 0,
@@ -151,13 +156,15 @@ describe("viewer actions", () => {
       bundleTemplates: [
         {
           id: 0, name: "DEFAULT_SINGLE", defaultCount: 1, fixedCount: true,
+          fixedCountValue: 1, minCount: 1, maxCount: 1,
           cableTemplateId: 2, relatedPoleTypeId: 1, defaultLayer: 2,
           allowMirror: true, allowMidairNode: true, allowMidairBranch: true,
           groupedSupportFanoutSpacing: 0.2, supportStyle: 0, branchPolicy: 0,
           continuityPolicy: 0
         }
       ],
-      selectedBundleTemplateId: 0
+      selectedBundleTemplateId: 0,
+      selectedDrawBundleTemplateIds: [0]
     }));
 
     new ViewerActions(bridge, store).generatePath();
@@ -174,6 +181,9 @@ const bundleTemplate: BundleTemplateInfo = {
   name: "DEFAULT_SINGLE",
   defaultCount: 1,
   fixedCount: true,
+  fixedCountValue: 1,
+  minCount: 1,
+  maxCount: 1,
   cableTemplateId: 2,
   relatedPoleTypeId: 1,
   defaultLayer: 2,
@@ -193,6 +203,7 @@ const cableTemplate: CableTemplateInfo = {
   bendStiffness: 1,
   minBendRadius: 0.2,
   materialStyle: 2,
+  colorRgba: 0xffffffff,
   requiresInsulator: false,
   insulatorAttachmentHeight: 0,
   sagFactor: 0.03,
@@ -255,6 +266,60 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
 }
 
 describe("P1 action contracts", () => {
+  it("uses the desktop viewer template defaults", () => {
+    const store = new ViewerStore();
+    const actions = new ViewerActions(
+      actionBridge({
+        bundleTemplates: () => [
+          bundleTemplate,
+          { ...bundleTemplate, id: 1, name: "HV_3PH" }
+        ],
+        cableTemplates: () => [
+          cableTemplate,
+          { ...cableTemplate, id: 7, name: "HV_BARE" }
+        ],
+        poleTemplates: () => [
+          poleTemplate,
+          { ...poleTemplate, id: 9, name: "CommunicationPole" }
+        ]
+      }),
+      store
+    );
+
+    actions.initialize();
+
+    const snapshot = current(store);
+    expect(snapshot.selectedBundleTemplateId).toBe(1);
+    expect(snapshot.selectedCableTemplateId).toBe(7);
+    expect(snapshot.selectedPoleTemplateId).toBe(9);
+  });
+  it("enables sag on startup like the desktop viewer", () => {
+    let geometry = {
+      curveSamples: 8,
+      sagEnabled: false,
+      sagFactor: 0.03,
+      poleClearance: 0.05
+    };
+    const update = vi.fn((next: typeof geometry) => {
+      geometry = { ...next };
+      return { ok: true, error: "" };
+    });
+    const store = new ViewerStore();
+    const actions = new ViewerActions(
+      actionBridge({
+        geometrySettings: () => geometry,
+        updateGeometrySettings: update
+      }),
+      store
+    );
+
+    actions.initialize();
+
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ sagEnabled: true }));
+    expect(current(store).geometry.sagEnabled).toBe(true);
+  });
+
+
   it("sends geometry preview and logs only its commit", async () => {
     vi.useFakeTimers();
     const update = vi.fn(() => ({ ok: true, error: "" }));

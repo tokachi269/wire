@@ -69,6 +69,9 @@ export interface BundleTemplateInfo {
   name: string;
   defaultCount: number;
   fixedCount: boolean;
+  fixedCountValue: number;
+  minCount: number;
+  maxCount: number;
   cableTemplateId: number;
   relatedPoleTypeId: number;
   defaultLayer: number;
@@ -88,6 +91,7 @@ export interface CableTemplateInfo {
   bendStiffness: number;
   minBendRadius: number;
   materialStyle: number;
+  colorRgba: number;
   requiresInsulator: boolean;
   insulatorAttachmentHeight: number;
   sagFactor: number;

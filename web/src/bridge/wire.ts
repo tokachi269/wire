@@ -41,18 +41,18 @@ export class WireBridge {
 
   generate(
     points: Float64Array,
-    bundleTemplateId = 0,
+    bundleTemplateIds: number[] = [0],
     intervalM = 0,
     poleTypeId = 1,
-    count = 0,
+    counts: number[] = [0],
     directionMode = 0
   ): EditResult {
     return this.state.generate(
       points,
-      bundleTemplateId,
+      bundleTemplateIds,
       intervalM,
       poleTypeId,
-      count,
+      counts,
       directionMode
     );
   }

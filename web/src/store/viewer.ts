@@ -33,6 +33,8 @@ export interface ViewerSnapshot {
   pathPoints: WorldPoint[];
   bundleTemplates: BundleTemplateInfo[];
   selectedBundleTemplateId: number | null;
+  selectedDrawBundleTemplateIds: number[];
+  drawBundleCounts: Record<number, number>;
   cableTemplates: CableTemplateInfo[];
   selectedCableTemplateId: number | null;
   poleTemplates: PoleTemplateInfo[];
@@ -55,12 +57,14 @@ export interface ViewerSnapshot {
   intervalM: number;
   clickedPointsOnly: boolean;
   directionMode: number;
-  bundleCount: number;
   solidSupportRender: boolean;
   selectionIncludePoles: boolean;
   selectionIncludeMidair: boolean;
   selectionIncludeSpans: boolean;
   showWorkspace: boolean;
+  showLeftPanel: boolean;
+  showRightPanel: boolean;
+  workspaceLeftWidth: number;
   workspaceWidth: number;
   lastInteractionFrames: {
     sampleCount: number;
@@ -82,6 +86,8 @@ export function createViewerSnapshot(): ViewerSnapshot {
     pathPoints: [],
     bundleTemplates: [],
     selectedBundleTemplateId: null,
+    selectedDrawBundleTemplateIds: [],
+    drawBundleCounts: {},
     cableTemplates: [],
     selectedCableTemplateId: null,
     poleTemplates: [],
@@ -117,13 +123,15 @@ export function createViewerSnapshot(): ViewerSnapshot {
     intervalM: 0,
     clickedPointsOnly: true,
     directionMode: 0,
-    bundleCount: 1,
     solidSupportRender: true,
     selectionIncludePoles: true,
     selectionIncludeMidair: true,
     selectionIncludeSpans: true,
     showWorkspace: true,
-    workspaceWidth: 220,
+    showLeftPanel: true,
+    showRightPanel: true,
+    workspaceLeftWidth: 220,
+    workspaceWidth: 320,
     lastInteractionFrames: null
   };
 }

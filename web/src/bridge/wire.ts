@@ -46,7 +46,8 @@ export class WireBridge {
     intervalM = 0,
     poleTypeId = 1,
     counts: number[] = [0],
-    directionMode = 0
+    directionMode = 0,
+    maxTiltDeg = 0
   ): EditResult {
     return this.state.generate(
       points,
@@ -54,7 +55,8 @@ export class WireBridge {
       intervalM,
       poleTypeId,
       counts,
-      directionMode
+      directionMode,
+      maxTiltDeg
     );
   }
 

@@ -25,7 +25,8 @@ export interface WireStateHandle {
     intervalM: number,
     poleTypeId: number,
     counts: number[],
-    directionMode: number
+    directionMode: number,
+    maxTiltDeg: number
   ): EditResult;
   visualPartCount(): number;
   visualPart(index: number): VisualPartInfo;

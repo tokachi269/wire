@@ -110,6 +110,7 @@ export class ViewerActions {
       | "intervalM"
       | "clickedPointsOnly"
       | "directionMode"
+      | "maxTiltDeg"
       | "solidSupportRender"
       | "selectionIncludePoles"
       | "selectionIncludeMidair"
@@ -574,7 +575,8 @@ export class ViewerActions {
           ? 0
           : before.drawBundleCounts[template!.id] ?? template!.defaultCount
       ),
-      before.directionMode
+      before.directionMode,
+      before.maxTiltDeg
     );
     if (!result.ok) {
       this.store.setError(result.error);

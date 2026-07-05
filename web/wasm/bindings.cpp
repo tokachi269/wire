@@ -65,7 +65,7 @@ public:
   WireState() : state_(std::make_unique<CoreState>()) {}
 
   val generate(const val& flat_points, const val& bundle_template_ids, double interval_m, int pole_type_id,
-               const val& counts, int direction_mode) {
+               const val& counts, int direction_mode, double max_tilt_deg) {
     const std::size_t value_count = flat_points["length"].as<std::size_t>();
     if (value_count % 3 != 0) {
       return result_value(false, "point array length must be divisible by 3");
@@ -81,6 +81,8 @@ public:
     spec.interval_m = interval_m;
     spec.pole_type_id = static_cast<PoleTypeId>(pole_type_id);
     spec.direction_mode = static_cast<wire::core::PathDirectionMode>(direction_mode);
+    spec.pole_placement.enable_tilt = max_tilt_deg > 0.0;
+    spec.pole_placement.max_tilt_deg = max_tilt_deg;
 
     const std::size_t bundle_count = bundle_template_ids["length"].as<std::size_t>();
     if (bundle_count == 0 || counts["length"].as<std::size_t>() != bundle_count) {

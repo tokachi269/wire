@@ -57,6 +57,7 @@ export interface ViewerSnapshot {
   intervalM: number;
   clickedPointsOnly: boolean;
   directionMode: number;
+  maxTiltDeg: number;
   solidSupportRender: boolean;
   selectionIncludePoles: boolean;
   selectionIncludeMidair: boolean;
@@ -123,6 +124,7 @@ export function createViewerSnapshot(): ViewerSnapshot {
     intervalM: 0,
     clickedPointsOnly: true,
     directionMode: 0,
+    maxTiltDeg: 9.5,
     solidSupportRender: true,
     selectionIncludePoles: true,
     selectionIncludeMidair: true,

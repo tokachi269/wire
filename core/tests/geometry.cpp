@@ -1013,6 +1013,52 @@ bool test_cable_curve_uses_endpoint_tangent_hints_when_provided() {
          wire::core::Dot(end_tangent, expected_end) > 0.999;
 }
 
+bool test_cable_curve_one_sided_hint_keeps_natural_far_end() {
+  namespace cable_curve = wire::core::geometry::curve;
+  cable_curve::CableCurveInput reference{};
+  reference.start = {0.0, 0.0, 6.0};
+  reference.end = {32.0, 0.0, 6.0};
+  reference.canonical_dir = {1.0, 0.0, 0.0};
+  reference.sag_m = 0.96;
+  const auto plain = cable_curve::BuildCableCurve(reference);
+  if (!plain.ok || plain.value.samples.size() < 5) {
+    return false;
+  }
+  const wire::core::Vec3d natural_start = plain.value.samples.front().tangent;
+  const wire::core::Vec3d natural_end = plain.value.samples.back().tangent;
+
+  cable_curve::CableCurveInput hinted = reference;
+  hinted.start_tangent_hint = {0.9, 0.3, -0.12};
+  hinted.has_start_tangent_hint = true;
+  const auto built = cable_curve::BuildCableCurve(hinted);
+  if (!built.ok || built.value.samples.size() < 5) {
+    return false;
+  }
+  const wire::core::Vec3d far_end = built.value.samples.back().tangent;
+  if (wire::core::Dot(far_end, natural_end) <= 0.9999) {
+    return false;
+  }
+  if (far_end.z <= 0.05) {
+    return false;
+  }
+
+  cable_curve::CableCurveInput natural_hinted = reference;
+  natural_hinted.start_tangent_hint = natural_start;
+  natural_hinted.has_start_tangent_hint = true;
+  const auto equivalent = cable_curve::BuildCableCurve(natural_hinted);
+  if (!equivalent.ok || equivalent.value.samples.size() != plain.value.samples.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < plain.value.samples.size(); ++i) {
+    const wire::core::Vec3d delta =
+        equivalent.value.samples[i].position - plain.value.samples[i].position;
+    if (wire::core::Length(delta) > reference.sag_m * 0.05) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool test_hierarchical_variation_worldspace_is_continuous() {
   wire::core::VariationSettings settings{};
   settings.enabled = true;
@@ -1126,6 +1172,10 @@ void register_geometry_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C658_CableCurve_EndpointTangentHintsAffectSamples",
                          "CableCurve consumes endpoint tangent hints in the generated samples", "Boundary", false,
                          test_cable_curve_uses_endpoint_tangent_hints_when_provided);
+  test_registry::AddTest(tests, "C688_CableCurve_OneSidedHintKeepsNaturalFarEnd",
+                         "CableCurve keeps the natural parabolic support tangent on the un-hinted end and matches the "
+                         "plain sag path when the hint equals the natural tangent",
+                         "Invariant", false, test_cable_curve_one_sided_hint_keeps_natural_far_end);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_geometry_tests);

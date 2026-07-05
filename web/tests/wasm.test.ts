@@ -16,7 +16,7 @@ describe("wire wasm smoke", () => {
   });
 
   it("generates a finite two-point route", () => {
-    const result = state.generate(new Float64Array([0, 0, 0, 20, 0, 0]), [0], 0, 1, [0], 0);
+    const result = state.generate(new Float64Array([0, 0, 0, 20, 0, 0]), [0], 0, 1, [0], 0, 0);
 
     expect(result.ok, result.error).toBe(true);
     expect(result.generatedPoleCount).toBe(2);
@@ -32,6 +32,33 @@ describe("wire wasm smoke", () => {
     }
   });
 
+  it("applies generation-time tilt when a max tilt is requested", () => {
+    const tilted = createState();
+    const generated = tilted.generate(
+      new Float64Array([0, 0, 0, 20, 0, 0]), [0], 0, 1, [0], 0, 9.5
+    );
+    expect(generated.ok, generated.error).toBe(true);
+    const poles = Array.from({ length: tilted.poleCount() }, (_, index) => tilted.pole(index));
+    expect(poles.length).toBeGreaterThan(0);
+    expect(
+      poles.some((pole) => Math.abs(pole.rotationX) > 0.01 || Math.abs(pole.rotationY) > 0.01)
+    ).toBe(true);
+    tilted.delete();
+
+    const flat = createState();
+    const plain = flat.generate(
+      new Float64Array([0, 0, 0, 20, 0, 0]), [0], 0, 1, [0], 0, 0
+    );
+    expect(plain.ok, plain.error).toBe(true);
+    const plainPoles = Array.from({ length: flat.poleCount() }, (_, index) => flat.pole(index));
+    expect(
+      plainPoles.every(
+        (pole) => Math.abs(pole.rotationX) < 1e-9 && Math.abs(pole.rotationY) < 1e-9
+      )
+    ).toBe(true);
+    flat.delete();
+  });
+
   it("generates the viewer default bundle selection together", () => {
     const result = state.generate(
       new Float64Array([0, 10, 0, 20, 10, 0]),
@@ -39,6 +66,7 @@ describe("wire wasm smoke", () => {
       0,
       1,
       [0, 0, 0, 0],
+      0,
       0
     );
 
@@ -54,7 +82,7 @@ describe("wire wasm smoke", () => {
     });
     expect(update.ok, update.error).toBe(true);
 
-    const result = state.generate(new Float64Array([0, 20, 0, 40, 20, 0]), [0], 0, 1, [0], 0);
+    const result = state.generate(new Float64Array([0, 20, 0, 40, 20, 0]), [0], 0, 1, [0], 0, 0);
     expect(result.ok, result.error).toBe(true);
 
     let maxDrop = 0;
@@ -75,7 +103,7 @@ describe("wire wasm smoke", () => {
 
 
   it("returns an explicit error for a one-point route", () => {
-    const result = state.generate(new Float64Array([0, 0, 0]), [0], 0, 1, [0], 0);
+    const result = state.generate(new Float64Array([0, 0, 0]), [0], 0, 1, [0], 0, 0);
 
     expect(result.ok).toBe(false);
     expect(result.error.length).toBeGreaterThan(0);
@@ -113,6 +141,7 @@ describe("wire wasm smoke", () => {
       0,
       original!.id,
       [0],
+      0,
       0
     );
     expect(generated.ok, generated.error).toBe(true);

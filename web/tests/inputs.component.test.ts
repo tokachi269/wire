@@ -143,6 +143,7 @@ describe("viewer numeric inputs", () => {
     const store = new ViewerStore();
     const actions = new ViewerActions(bridge, store);
     actions.initialize();
+    actions.setDrawOption("maxTiltDeg", 0);
     actions.addPathPoint([0, 0, 0]);
     actions.addPathPoint([20, 0, 0]);
     actions.generatePath();

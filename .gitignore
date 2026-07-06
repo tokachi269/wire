@@ -2,6 +2,8 @@ build/
 build-*/
 out/
 captures/
+node_modules/
+.claude/
 docs/diagrams/clang-uml/
 imgui.ini
 viewer_state.ini

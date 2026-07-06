@@ -20,7 +20,7 @@ struct CablePopulationEndpoint {
 };
 
 struct CablePopulationInput {
-  CableInstanceKey key{};
+  CableSectionKey key{};
   CablePopulationRule rule{};
   CablePopulationEndpoint endpoint_a{};
   CablePopulationEndpoint endpoint_b{};

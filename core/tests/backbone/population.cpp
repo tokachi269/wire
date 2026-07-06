@@ -92,7 +92,7 @@ bool has_extra_visual_curve(const wire::core::CoreState& state) {
       state.view().visual_curve_parts().parts.begin(), state.view().visual_curve_parts().parts.end(),
       [](const wire::core::VisualCurvePart& part) {
         return part.kind == wire::core::VisualCurvePartKind::kEdgeBody &&
-               part.has_cable_instance_key && !part.cable_instance_key.is_base();
+               part.has_section_key && !part.section_key.is_base();
       });
 }
 
@@ -194,7 +194,7 @@ bool C653_population_rejects_duplicate_band_identity() {
       state.view().visual_curve_parts().parts.begin(), state.view().visual_curve_parts().parts.end(),
       [](const wire::core::VisualCurvePart& part) {
         return part.kind == wire::core::VisualCurvePartKind::kEdgeBody &&
-               part.has_cable_instance_key && !part.cable_instance_key.is_base();
+               part.has_section_key && !part.section_key.is_base();
       });
   const bool diagnosed = std::any_of(
       state.view().visual_curve_parts().population_diagnostics.begin(),
@@ -226,7 +226,7 @@ bool C654_population_does_not_mutate_logical_topology() {
       control.view().visual_curve_parts().parts.begin(), control.view().visual_curve_parts().parts.end(),
       [](const wire::core::VisualCurvePart& part) {
         return part.kind == wire::core::VisualCurvePartKind::kEdgeBody &&
-               part.has_cable_instance_key && !part.cable_instance_key.is_base();
+               part.has_section_key && !part.section_key.is_base();
       });
   const bool topology_equal =
       control_result.value.generated_pole_ids == populated_result.value.generated_pole_ids &&
@@ -263,7 +263,7 @@ bool C654_population_does_not_mutate_logical_topology() {
       populated.view().visual_curve_parts().parts.begin(), populated.view().visual_curve_parts().parts.end(),
       [](const wire::core::VisualCurvePart& part) {
         return part.kind == wire::core::VisualCurvePartKind::kEdgeBody &&
-               part.has_cable_instance_key && !part.cable_instance_key.is_base();
+               part.has_section_key && !part.section_key.is_base();
       });
   return !control_has_extra_visual && graph_identity_equal && has_extra_visual;
 }
@@ -353,8 +353,8 @@ double point_to_polyline_distance(const wire::core::Vec3d& point,
 
 const wire::core::VisualCurvePart* find_part(const wire::core::CoreState& state, bool base) {
   for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
-    if (part.kind == wire::core::VisualCurvePartKind::kEdgeBody && part.has_cable_instance_key &&
-        part.cable_instance_key.is_base() == base) {
+    if (part.kind == wire::core::VisualCurvePartKind::kEdgeBody && part.has_section_key &&
+        part.section_key.is_base() == base) {
       return &part;
     }
   }
@@ -388,7 +388,7 @@ bool C689_wrap_rule_derives_carried_helix_without_topology() {
   const wire::core::VisualCurvePart* base = find_part(wrapped, true);
   const wire::core::VisualCurvePart* wrap = find_part(wrapped, false);
   if (base == nullptr || wrap == nullptr || wrap->samples.size() < 8 ||
-      wrap->cable_instance_key.rule_id != 2) {
+      wrap->section_key.rule_id != 2) {
     return false;
   }
   for (const wire::core::Vec3d& sample : wrap->samples) {
@@ -448,7 +448,7 @@ bool C690_wrap_sections_do_not_join_node_patches() {
                          state.view().visual_curve_parts().parts.end(),
                          [](const wire::core::VisualCurvePart& part) {
                            return part.kind == wire::core::VisualCurvePartKind::kEdgeBody &&
-                                  part.has_cable_instance_key && !part.cable_instance_key.is_base();
+                                  part.has_section_key && !part.section_key.is_base();
                          });
   };
   const auto& diagnostics = wrapped.view().visual_curve_parts().diagnostics;

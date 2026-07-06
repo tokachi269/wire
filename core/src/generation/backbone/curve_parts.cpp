@@ -21,7 +21,7 @@ constexpr double kPatchMetersPerSegment = 0.08;
 constexpr double kPatchRadiansPerSegment = 0.17453292519943295;
 
 struct curve_endpoint_ref {
-  CableInstanceKey cable_instance_key{};
+  CableSectionKey section_key{};
   ObjectId node_id = kInvalidObjectId;
   ObjectId edge_id = kInvalidObjectId;
   ObjectId edge_bundle_id = kInvalidObjectId;
@@ -47,12 +47,12 @@ struct curve_patch_key {
   PoleTypeId pole_type_id = kInvalidPoleTypeId;
   int band_id = 0;
   std::uint64_t rule_owner_id = 0;
-  CableInstanceRuleId rule_id = 0;
+  CableSectionRuleId rule_id = 0;
   std::size_t instance_index = 0;
 };
 
 struct curve_boundary {
-  CableInstanceKey cable_instance_key{};
+  CableSectionKey section_key{};
   bool is_start = true;
   Vec3d attachment_point{};
   double horizontal_length_m = 0.0;
@@ -79,7 +79,7 @@ struct visual_cable_section {
   SavedBackboneRowKey end_row_key{};
 };
 
-bool same_cable_instance(const CableInstanceKey& a, const CableInstanceKey& b) {
+bool same_cable_section(const CableSectionKey& a, const CableSectionKey& b) {
   return a.logical_span_id == b.logical_span_id && a.edge_bundle_id == b.edge_bundle_id &&
          a.rule_owner_id == b.rule_owner_id && a.rule_id == b.rule_id &&
          a.instance_index == b.instance_index;
@@ -144,10 +144,10 @@ const SavedBackboneSpanBinding* span_binding_for(const CoreState& state, ObjectI
   return &graph.span_bindings[index];
 }
 
-bool boundary_for(const std::vector<curve_boundary>& boundaries, const CableInstanceKey& cable_instance_key, bool is_start,
+bool boundary_for(const std::vector<curve_boundary>& boundaries, const CableSectionKey& section_key, bool is_start,
                   curve_boundary* out) {
   for (const curve_boundary& boundary : boundaries) {
-    if (same_cable_instance(boundary.cable_instance_key, cable_instance_key) && boundary.is_start == is_start) {
+    if (same_cable_section(boundary.section_key, section_key) && boundary.is_start == is_start) {
       if (out != nullptr) {
         *out = boundary;
       }
@@ -158,12 +158,12 @@ bool boundary_for(const std::vector<curve_boundary>& boundaries, const CableInst
 }
 
 curve_boundary* mutable_boundary_for(std::vector<curve_boundary>* boundaries,
-                                     const CableInstanceKey& cable_instance_key, bool is_start) {
+                                     const CableSectionKey& section_key, bool is_start) {
   if (boundaries == nullptr) {
     return nullptr;
   }
   for (curve_boundary& boundary : *boundaries) {
-    if (same_cable_instance(boundary.cable_instance_key, cable_instance_key) && boundary.is_start == is_start) {
+    if (same_cable_section(boundary.section_key, section_key) && boundary.is_start == is_start) {
       return &boundary;
     }
   }
@@ -460,7 +460,7 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
                               : safe_unit(ScaleVec(chord, -1.0), ScaleVec(fallback_dir, -1.0));
 
     curve_endpoint_ref start{};
-    start.cable_instance_key = entry.key;
+    start.section_key = entry.key;
     start.node_id = saved_node_id_for_endpoint(state, section.start_node_id);
     start.edge_id = edge_bundle->edge_id;
     start.edge_bundle_id = edge_bundle->edge_bundle_id;
@@ -498,8 +498,8 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
   for (const curve_endpoint_ref& first : endpoints) {
     const curve_patch_key key{first.node_id, first.bundle_template_id, first.lane_index,
                               first.pole_type_id, first.band_id,
-                              first.cable_instance_key.rule_owner_id, first.cable_instance_key.rule_id,
-                              first.cable_instance_key.instance_index};
+                              first.section_key.rule_owner_id, first.section_key.rule_id,
+                              first.section_key.instance_index};
     if (std::find_if(processed_patch_keys.begin(), processed_patch_keys.end(),
                      [&](const curve_patch_key& processed) { return same_key(processed, key); }) !=
         processed_patch_keys.end()) {
@@ -510,8 +510,8 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     for (const curve_endpoint_ref& endpoint : endpoints) {
       if (same_key(key, {endpoint.node_id, endpoint.bundle_template_id, endpoint.lane_index,
                          endpoint.pole_type_id, endpoint.band_id,
-                         endpoint.cable_instance_key.rule_owner_id, endpoint.cable_instance_key.rule_id,
-                         endpoint.cable_instance_key.instance_index})) {
+                         endpoint.section_key.rule_owner_id, endpoint.section_key.rule_id,
+                         endpoint.section_key.instance_index})) {
         group.push_back(endpoint);
       }
     }
@@ -565,24 +565,24 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     }
 
     curve_boundary a_boundary{};
-    a_boundary.cable_instance_key = patch_a.cable_instance_key;
+    a_boundary.section_key = patch_a.section_key;
     a_boundary.is_start = patch_a.is_start;
     a_boundary.attachment_point = patch_a.point;
     a_boundary.horizontal_length_m = a_len;
     a_boundary.point = boundary_from_tangent(patch_a.point, patch_a.away_from_node, a_len);
     a_boundary.tangent = patch_a.away_from_node;
-    if (!boundary_for(boundaries, a_boundary.cable_instance_key, a_boundary.is_start, nullptr)) {
+    if (!boundary_for(boundaries, a_boundary.section_key, a_boundary.is_start, nullptr)) {
       boundaries.push_back(a_boundary);
     }
 
     curve_boundary b_boundary{};
-    b_boundary.cable_instance_key = patch_b.cable_instance_key;
+    b_boundary.section_key = patch_b.section_key;
     b_boundary.is_start = patch_b.is_start;
     b_boundary.attachment_point = patch_b.point;
     b_boundary.horizontal_length_m = b_len;
     b_boundary.point = boundary_from_tangent(patch_b.point, patch_b.away_from_node, b_len);
     b_boundary.tangent = patch_b.away_from_node;
-    if (!boundary_for(boundaries, b_boundary.cable_instance_key, b_boundary.is_start, nullptr)) {
+    if (!boundary_for(boundaries, b_boundary.section_key, b_boundary.is_start, nullptr)) {
       boundaries.push_back(b_boundary);
     }
     patch_specs.push_back({key, patch_a, patch_b, ScaleVec(patch_a.point + patch_b.point, 0.5)});
@@ -664,8 +664,8 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
       body.source_bundle_id = span->bundle_id;
       body.bundle_template_id = template_id;
       body.lane_index = binding->lane_index;
-      body.has_cable_instance_key = true;
-      body.cable_instance_key = entry.key;
+      body.has_section_key = true;
+      body.section_key = entry.key;
       body.boundary_a = helix.front();
       body.boundary_b = helix.back();
       body.tangent_a = carrier.EvaluateTangent(carrier.LengthToU(trim_m));
@@ -719,8 +719,8 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     body.source_bundle_id = span->bundle_id;
     body.bundle_template_id = template_id;
     body.lane_index = binding->lane_index;
-    body.has_cable_instance_key = true;
-    body.cable_instance_key = entry.key;
+    body.has_section_key = true;
+    body.section_key = entry.key;
     body.endpoint_a_pole_type_id = entry.endpoint_a_pole_type_id;
     body.endpoint_b_pole_type_id = entry.endpoint_b_pole_type_id;
     body.endpoint_a_band_id = entry.endpoint_a_band_id;
@@ -747,8 +747,8 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
   for (const curve_patch_spec& spec : patch_specs) {
     curve_boundary a_boundary{};
     curve_boundary b_boundary{};
-    if (!boundary_for(boundaries, spec.a.cable_instance_key, spec.a.is_start, &a_boundary) ||
-        !boundary_for(boundaries, spec.b.cable_instance_key, spec.b.is_start, &b_boundary)) {
+    if (!boundary_for(boundaries, spec.a.section_key, spec.a.is_start, &a_boundary) ||
+        !boundary_for(boundaries, spec.b.section_key, spec.b.is_start, &b_boundary)) {
       continue;
     }
     const Vec3d incoming = ScaleVec(a_boundary.tangent, -1.0);
@@ -772,7 +772,7 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     patch.has_attachment_point = true;
     patch.passes_attachment_point = false;
     patch.section_count = 1;
-    copy_span_appearance(state, spec.a.cable_instance_key.logical_span_id, &patch);
+    copy_span_appearance(state, spec.a.section_key.logical_span_id, &patch);
     append_patch_section(a_boundary.point, incoming, b_boundary.point, outgoing, true,
                          &patch.bezier_control_points, &patch.samples);
     patch.bounds = curve_part_bounds(patch.samples);
@@ -809,7 +809,7 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     jumper_part.tangent_a = safe_unit(peer->point - endpoint.point, {1.0, 0.0, 0.0});
     jumper_part.tangent_b = jumper_part.tangent_a;
     jumper_part.section_count = 1;
-    copy_span_appearance(state, endpoint.cable_instance_key.logical_span_id, &jumper_part);
+    copy_span_appearance(state, endpoint.section_key.logical_span_id, &jumper_part);
     append_jumper_section(jumper_part.boundary_a, jumper_part.boundary_b,
                           &jumper_part.bezier_control_points, &jumper_part.samples);
     jumper_part.bounds = curve_part_bounds(jumper_part.samples);

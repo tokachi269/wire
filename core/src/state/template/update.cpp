@@ -203,7 +203,7 @@ bool population_rules_equal(const std::vector<CablePopulationRule>& a,
 
 bool validate_population_rules(const CoreState& state, const std::vector<CablePopulationRule>& rules,
                                std::string* error) {
-  std::unordered_set<CableInstanceRuleId> rule_ids{};
+  std::unordered_set<CableSectionRuleId> rule_ids{};
   for (const CablePopulationRule& rule : rules) {
     if (rule.rule_id == 0 || !rule_ids.insert(rule.rule_id).second) {
       *error = "cable population: rule ids must be nonzero and unique per bundle template";

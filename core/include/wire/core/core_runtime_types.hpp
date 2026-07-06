@@ -111,18 +111,18 @@ enum class VisualCurveSagMethod : std::uint8_t {
   kParabolic = 1,
 };
 
-struct CableInstanceKey {
+struct CableSectionKey {
   ObjectId logical_span_id = kInvalidObjectId;
   ObjectId edge_bundle_id = kInvalidObjectId;
   std::uint64_t rule_owner_id = 0;
-  CableInstanceRuleId rule_id = 0;
+  CableSectionRuleId rule_id = 0;
   std::size_t instance_index = 0;
 
   [[nodiscard]] bool is_base() const { return rule_owner_id == 0 && rule_id == 0 && instance_index == 0; }
 };
 
 struct CableSectionLayout {
-  CableInstanceKey key{};
+  CableSectionKey key{};
   Vec3d endpoint_a{};
   Vec3d endpoint_b{};
   PoleTypeId endpoint_a_pole_type_id = kInvalidPoleTypeId;
@@ -142,7 +142,7 @@ struct CableSectionLayout {
 struct CablePopulationDiagnostic {
   ObjectId logical_span_id = kInvalidObjectId;
   ObjectId edge_bundle_id = kInvalidObjectId;
-  CableInstanceRuleId rule_id = 0;
+  CableSectionRuleId rule_id = 0;
   int extra_count_requested = 0;
   int extra_count_accepted = 0;
   int omitted_count = 0;
@@ -178,8 +178,8 @@ struct VisualCurvePart {
   std::size_t section_count = 1;
   VisualCurveSagMethod sag_method = VisualCurveSagMethod::kNone;
   double sag_m = 0.0;
-  bool has_cable_instance_key = false;
-  CableInstanceKey cable_instance_key{};
+  bool has_section_key = false;
+  CableSectionKey section_key{};
   PoleTypeId endpoint_a_pole_type_id = kInvalidPoleTypeId;
   PoleTypeId endpoint_b_pole_type_id = kInvalidPoleTypeId;
   int endpoint_a_band_id = 0;

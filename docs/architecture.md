@@ -149,7 +149,7 @@ dirty node + incident edge + 必要な1-hop程度の更新範囲に抑える。
 
 ### cable population
 
-CableInstance / CableSection / carrier の設計語は docs/cable_instance_section.md を参照する。現行の `CableInstanceKey.logical_span_id` は span-fragment scope であり、run-level identity は未実装である。
+CableInstance / CableSection / carrier の設計語は docs/cable_instance_section.md を参照する。現行の `CableSectionKey.logical_span_id` は span-fragment scope であり、run-level identity は未実装である。
 
 `BundleTemplate.population_rules` は、その bundle が派生させる追加の平行線を定義する。
 rules が空なら追加線は無い。global enable や global seed は持たない。

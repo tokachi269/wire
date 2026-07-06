@@ -140,7 +140,7 @@ enum class BundleKind : std::uint8_t {
   kOpticalWithSupport = 5,
 };
 
-using CableInstanceRuleId = std::uint64_t;
+using CableSectionRuleId = std::uint64_t;
 using PlacementReserveId = std::uint64_t;
 
 struct PlacementReserve {
@@ -162,7 +162,7 @@ enum class CableSectionProfile : std::uint8_t {
 };
 
 struct CablePopulationRule {
-  CableInstanceRuleId rule_id = 0;
+  CableSectionRuleId rule_id = 0;
   std::uint64_t explicit_seed = 1;
   int priority = 0;
   int min_extra_count = 0;

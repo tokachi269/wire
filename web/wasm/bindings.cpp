@@ -335,7 +335,7 @@ public:
     for (std::size_t index = 0; index < population_rule_count; ++index) {
       const val item = population_rules[index];
       wire::core::CablePopulationRule rule{};
-      rule.rule_id = property<wire::core::CableInstanceRuleId>(item, "ruleId");
+      rule.rule_id = property<wire::core::CableSectionRuleId>(item, "ruleId");
       rule.explicit_seed = property<std::uint64_t>(item, "explicitSeed");
       rule.priority = property<int>(item, "priority");
       rule.min_extra_count = property<int>(item, "minExtraCount");

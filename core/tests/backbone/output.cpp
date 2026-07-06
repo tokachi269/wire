@@ -543,7 +543,7 @@ bool touches_patch_boundary(const wire::core::VisualCurvePart& body, const wire:
          almost_equal(body.boundary_b, patch.boundary_b, 1e-9);
 }
 
-bool same_visual_cable_instance_family(const wire::core::CableInstanceKey& a, const wire::core::CableInstanceKey& b) {
+bool same_visual_cable_section_family(const wire::core::CableSectionKey& a, const wire::core::CableSectionKey& b) {
   return a.is_base() == b.is_base() && a.rule_owner_id == b.rule_owner_id &&
          a.rule_id == b.rule_id && a.instance_index == b.instance_index;
 }
@@ -1064,16 +1064,16 @@ bool C656_backbone_node_patch_does_not_mix_base_and_extra_sections() {
     }
     saw_patch = true;
     bool have_reference = false;
-    wire::core::CableInstanceKey reference{};
+    wire::core::CableSectionKey reference{};
     for (const wire::core::VisualCurvePart& body : state.view().visual_curve_parts().parts) {
-      if (body.kind != wire::core::VisualCurvePartKind::kEdgeBody || !body.has_cable_instance_key ||
+      if (body.kind != wire::core::VisualCurvePartKind::kEdgeBody || !body.has_section_key ||
           !touches_patch_boundary(body, patch)) {
         continue;
       }
       if (!have_reference) {
-        reference = body.cable_instance_key;
+        reference = body.section_key;
         have_reference = true;
-      } else if (!same_visual_cable_instance_family(reference, body.cable_instance_key)) {
+      } else if (!same_visual_cable_section_family(reference, body.section_key)) {
         return false;
       }
     }
@@ -1093,7 +1093,7 @@ bool C657_backbone_node_patch_does_not_mix_extra_instance_indices() {
   bool saw_extra_body = false;
   for (const wire::core::VisualCurvePart& body : state.view().visual_curve_parts().parts) {
     saw_extra_body = saw_extra_body || (body.kind == wire::core::VisualCurvePartKind::kEdgeBody &&
-                                        body.has_cable_instance_key && !body.cable_instance_key.is_base());
+                                        body.has_section_key && !body.section_key.is_base());
   }
   if (!saw_extra_body) {
     return false;
@@ -1107,14 +1107,14 @@ bool C657_backbone_node_patch_does_not_mix_extra_instance_indices() {
     std::size_t matching_extra_bodies = 0;
     bool saw_extra = false;
     for (const wire::core::VisualCurvePart& body : state.view().visual_curve_parts().parts) {
-      if (body.kind != wire::core::VisualCurvePartKind::kEdgeBody || !body.has_cable_instance_key ||
-          body.cable_instance_key.is_base() || !touches_patch_boundary(body, patch)) {
+      if (body.kind != wire::core::VisualCurvePartKind::kEdgeBody || !body.has_section_key ||
+          body.section_key.is_base() || !touches_patch_boundary(body, patch)) {
         continue;
       }
       if (!saw_extra) {
-        extra_instance_index = body.cable_instance_key.instance_index;
+        extra_instance_index = body.section_key.instance_index;
         saw_extra = true;
-      } else if (extra_instance_index != body.cable_instance_key.instance_index) {
+      } else if (extra_instance_index != body.section_key.instance_index) {
         return false;
       }
       ++matching_extra_bodies;

@@ -81,8 +81,8 @@ wrap section は carrier の最終 curve から `sample_wrap_helix_points` で c
 node patch へ参加しない。位相は instance index で等分、巻き方向は rule の +1/-1。carrier は
 rule 宣言から解決する(近傍探索禁止は上記のまま)。span を跨いで連続する wrap と、別 instance を
 carrier とする wrap は run-level identity が入るまで実装しない。
-現行 population の runtime 名は `CableInstanceKey` / `CableSectionLayout` に寄せる。
-ただし現時点の `CableInstanceKey.logical_span_id` は span-fragment scope であり、run-level identity は未実装である。
+現行 population の runtime 名は `CableSectionKey` / `CableSectionLayout` に寄せる。
+ただし現時点の `CableSectionKey.logical_span_id` は span-fragment scope であり、run-level identity は未実装である。
 
 `CableContinuityPolicyHint`、NodePatch continuity、span / bundle / lane binding は現在の近い continuity 情報である。
 `CableInstance` はこの既存 continuity 結果から派生するべきであり、別レイヤで新しい continuity solver を作らない。
@@ -102,5 +102,5 @@ carrier とする wrap は run-level identity が入るまで実装しない。
 - run-level の `CableInstance` identity と section range の派生元を固定する
 - carrier declaration を template / rule / lane で表す最小形を決める
 - carried section が carrier の arc length / frame を使う境界を決める
-- run-level identity が入るまでは、`CableInstanceKey.logical_span_id` が span-fragment scope であることを明示し続ける
+- run-level identity が入るまでは、`CableSectionKey.logical_span_id` が span-fragment scope であることを明示し続ける
 - existing `kCoiledCable` surface detail と real carrier-following wrap cable を同じ経路で混ぜない

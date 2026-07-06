@@ -74,7 +74,13 @@ section boundary は必ずしも span boundary ではない。
 `VisualCurvePartKind::kEdgeBody` と `kNodePatch` は派生 visual curve の分割であり、topology 正本ではない。
 `kLead` と `kJumper` は将来の別curve family用の分類であり、main cable continuity を代替しない。
 
-population は wrap しない追加平行線の `CableInstance` であり、carrier / wrap / 途中トリムは含めない。
+population rule は `CableSectionProfile` で free / wrap を宣言する。`kFree` は追加平行線、
+`kWrap` は「同じ span の base cable」を carrier とする巻き付き実線である(A型のspan-local MVP)。
+wrap section は carrier の最終 curve から `sample_wrap_helix_points` で centerline を派生し、
+独自 sag と band 配置を持たず、`end_trim_m`(= `trim_before_support` の実装)で support 手前に留まり、
+node patch へ参加しない。位相は instance index で等分、巻き方向は rule の +1/-1。carrier は
+rule 宣言から解決する(近傍探索禁止は上記のまま)。span を跨いで連続する wrap と、別 instance を
+carrier とする wrap は run-level identity が入るまで実装しない。
 現行 population の runtime 名は `CableInstanceKey` / `CableSectionLayout` に寄せる。
 ただし現時点の `CableInstanceKey.logical_span_id` は span-fragment scope であり、run-level identity は未実装である。
 

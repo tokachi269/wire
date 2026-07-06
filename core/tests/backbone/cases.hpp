@@ -290,6 +290,8 @@ bool C653_population_rejects_duplicate_band_identity();
 bool C654_population_does_not_mutate_logical_topology();
 bool C686_population_rule_on_bundle_template_adds_visual_only_sections();
 bool C687_population_rule_update_is_reshape_not_regenerate();
+bool C689_wrap_rule_derives_carried_helix_without_topology();
+bool C690_wrap_sections_do_not_join_node_patches();
 bool C660_backbone_bundle_count_regenerate_updates_downstream_only();
 bool C661_backbone_pair_row_axis_uses_unit_tangent_bisector();
 bool C662_backbone_pair_row_axis_does_not_flip_lane_order();

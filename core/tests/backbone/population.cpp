@@ -316,4 +316,148 @@ bool C687_population_rule_update_is_reshape_not_regenerate() {
          has_extra_visual_curve(state);
 }
 
+namespace {
+
+wire::core::CablePopulationRule wrap_population_rule() {
+  wire::core::CablePopulationRule rule{};
+  rule.rule_id = 2;
+  rule.explicit_seed = 5;
+  rule.priority = 5;
+  rule.min_extra_count = 1;
+  rule.max_extra_count = 1;
+  rule.profile = wire::core::CableSectionProfile::kWrap;
+  rule.wrap_radius_m = 0.05;
+  rule.wrap_turns_per_meter = 1.5;
+  rule.wrap_direction = 1;
+  rule.end_trim_m = 0.5;
+  return rule;
+}
+
+double point_to_segment_distance(const wire::core::Vec3d& point, const wire::core::Vec3d& a,
+                                 const wire::core::Vec3d& b) {
+  const wire::core::Vec3d ab = b - a;
+  const double ab2 = wire::core::Dot(ab, ab);
+  const double t = ab2 <= 1e-12 ? 0.0 : std::clamp(wire::core::Dot(point - a, ab) / ab2, 0.0, 1.0);
+  const wire::core::Vec3d closest = a + wire::core::ScaleVec(ab, t);
+  return wire::core::Length(point - closest);
+}
+
+double point_to_polyline_distance(const wire::core::Vec3d& point,
+                                  const std::vector<wire::core::Vec3d>& polyline) {
+  double best = std::numeric_limits<double>::max();
+  for (std::size_t i = 0; i + 1 < polyline.size(); ++i) {
+    best = std::min(best, point_to_segment_distance(point, polyline[i], polyline[i + 1]));
+  }
+  return best;
+}
+
+const wire::core::VisualCurvePart* find_part(const wire::core::CoreState& state, bool base) {
+  for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
+    if (part.kind == wire::core::VisualCurvePartKind::kEdgeBody && part.has_cable_instance_key &&
+        part.cable_instance_key.is_base() == base) {
+      return &part;
+    }
+  }
+  return nullptr;
+}
+
+} // namespace
+
+bool C689_wrap_rule_derives_carried_helix_without_topology() {
+  wire::core::CoreState control;
+  wire::core::CoreState wrapped;
+  wire::core::BundleTemplate lv_template =
+      wrapped.view().bundle_templates().at(wire::core::BundleKind::kLowVoltage);
+  lv_template.population_rules.push_back(wrap_population_rule());
+  if (!wrapped.UpdateBundleTemplate(lv_template).ok) {
+    return false;
+  }
+  const auto control_result = control.GenerateFromBackboneSpec(line_req(control));
+  const auto wrapped_result = wrapped.GenerateFromBackboneSpec(line_req(wrapped));
+  if (!control_result.ok || !wrapped_result.ok) {
+    return false;
+  }
+  if (control.view().poles().size() != wrapped.view().poles().size() ||
+      control.view().ports().size() != wrapped.view().ports().size() ||
+      control.view().spans().size() != wrapped.view().spans().size() ||
+      control.view().backbone().nodes.size() != wrapped.view().backbone().nodes.size() ||
+      control.view().backbone().edges.size() != wrapped.view().backbone().edges.size()) {
+    return false;
+  }
+
+  const wire::core::VisualCurvePart* base = find_part(wrapped, true);
+  const wire::core::VisualCurvePart* wrap = find_part(wrapped, false);
+  if (base == nullptr || wrap == nullptr || wrap->samples.size() < 8 ||
+      wrap->cable_instance_key.rule_id != 2) {
+    return false;
+  }
+  for (const wire::core::Vec3d& sample : wrap->samples) {
+    const double distance = point_to_polyline_distance(sample, base->samples);
+    if (distance < 0.02 || distance > 0.09) {
+      return false;
+    }
+  }
+  if (wire::core::Length(wrap->samples.front() - base->samples.front()) < 0.3 ||
+      wire::core::Length(wrap->samples.back() - base->samples.back()) < 0.3) {
+    return false;
+  }
+
+  wire::core::CoreState repeat;
+  wire::core::BundleTemplate repeat_template =
+      repeat.view().bundle_templates().at(wire::core::BundleKind::kLowVoltage);
+  repeat_template.population_rules.push_back(wrap_population_rule());
+  if (!repeat.UpdateBundleTemplate(repeat_template).ok ||
+      !repeat.GenerateFromBackboneSpec(line_req(repeat)).ok) {
+    return false;
+  }
+  const wire::core::VisualCurvePart* repeat_wrap = find_part(repeat, false);
+  if (repeat_wrap == nullptr || repeat_wrap->samples.size() != wrap->samples.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < wrap->samples.size(); ++i) {
+    if (wire::core::Length(repeat_wrap->samples[i] - wrap->samples[i]) > 1e-9) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool C690_wrap_sections_do_not_join_node_patches() {
+  wire::core::CoreState control;
+  wire::core::CoreState wrapped;
+  wire::core::BundleTemplate lv_template =
+      wrapped.view().bundle_templates().at(wire::core::BundleKind::kLowVoltage);
+  lv_template.population_rules.push_back(wrap_population_rule());
+  if (!wrapped.UpdateBundleTemplate(lv_template).ok) {
+    return false;
+  }
+  const auto control_result = control.GenerateFromBackboneSpec(poly3_req(control));
+  const auto wrapped_result = wrapped.GenerateFromBackboneSpec(poly3_req(wrapped));
+  if (!control_result.ok || !wrapped_result.ok) {
+    return false;
+  }
+  const auto patch_count = [](const wire::core::CoreState& state) {
+    return std::count_if(state.view().visual_curve_parts().parts.begin(),
+                         state.view().visual_curve_parts().parts.end(),
+                         [](const wire::core::VisualCurvePart& part) {
+                           return part.kind == wire::core::VisualCurvePartKind::kNodePatch;
+                         });
+  };
+  const auto wrap_count = [](const wire::core::CoreState& state) {
+    return std::count_if(state.view().visual_curve_parts().parts.begin(),
+                         state.view().visual_curve_parts().parts.end(),
+                         [](const wire::core::VisualCurvePart& part) {
+                           return part.kind == wire::core::VisualCurvePartKind::kEdgeBody &&
+                                  part.has_cable_instance_key && !part.cable_instance_key.is_base();
+                         });
+  };
+  const auto& diagnostics = wrapped.view().visual_curve_parts().diagnostics;
+  const bool carrier_missing = std::any_of(
+      diagnostics.begin(), diagnostics.end(), [](const wire::core::VisualCurveDiagnostic& diagnostic) {
+        return diagnostic.reason == "wrap carrier curve missing";
+      });
+  return patch_count(control) > 0 && patch_count(wrapped) == patch_count(control) &&
+         wrap_count(wrapped) == 2 && !carrier_missing;
+}
+
 } // namespace backbone_tests

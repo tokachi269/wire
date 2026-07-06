@@ -98,6 +98,12 @@ export interface PopulationRuleInfo {
   heightMin: number;
   heightMax: number;
   randomness: number;
+  profile: number;
+  wrapRadius: number;
+  wrapTurnsPerMeter: number;
+  wrapPhase: number;
+  wrapDirection: number;
+  endTrim: number;
 }
 
 export interface CableTemplateInfo {

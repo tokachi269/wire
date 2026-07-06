@@ -173,7 +173,11 @@ bool population_rule_equals(const CablePopulationRule& a, const CablePopulationR
       std::abs(a.lateral_max_m - b.lateral_max_m) > 1e-12 ||
       std::abs(a.height_min_m - b.height_min_m) > 1e-12 ||
       std::abs(a.height_max_m - b.height_max_m) > 1e-12 ||
-      std::abs(a.randomness - b.randomness) > 1e-12 || a.reserves.size() != b.reserves.size()) {
+      std::abs(a.randomness - b.randomness) > 1e-12 || a.profile != b.profile ||
+      std::abs(a.wrap_radius_m - b.wrap_radius_m) > 1e-12 ||
+      std::abs(a.wrap_turns_per_meter - b.wrap_turns_per_meter) > 1e-12 ||
+      std::abs(a.wrap_phase - b.wrap_phase) > 1e-12 || a.wrap_direction != b.wrap_direction ||
+      std::abs(a.end_trim_m - b.end_trim_m) > 1e-12 || a.reserves.size() != b.reserves.size()) {
     return false;
   }
   for (std::size_t i = 0; i < a.reserves.size(); ++i) {
@@ -212,6 +216,21 @@ bool validate_population_rules(const CoreState& state, const std::vector<CablePo
         !std::isfinite(rule.height_max_m) || rule.height_min_m > rule.height_max_m ||
         !std::isfinite(rule.randomness) || rule.randomness < 0.0 || rule.randomness > 1.0) {
       *error = "cable population: invalid rule range";
+      return false;
+    }
+    if (rule.profile == CableSectionProfile::kWrap) {
+      if (!std::isfinite(rule.wrap_radius_m) || rule.wrap_radius_m <= 1e-6 ||
+          !std::isfinite(rule.wrap_turns_per_meter) || rule.wrap_turns_per_meter <= 1e-6 ||
+          !std::isfinite(rule.wrap_phase) ||
+          (rule.wrap_direction != 1 && rule.wrap_direction != -1) ||
+          !std::isfinite(rule.end_trim_m) || rule.end_trim_m < 0.0) {
+        *error = "cable population: wrap rule requires positive radius and turns-per-meter, "
+                 "direction +1/-1, and non-negative end trim";
+        return false;
+      }
+    } else if (std::abs(rule.wrap_radius_m) > 1e-12 || std::abs(rule.wrap_turns_per_meter) > 1e-12 ||
+               std::abs(rule.wrap_phase) > 1e-12 || std::abs(rule.end_trim_m) > 1e-12) {
+      *error = "cable population: only wrap rules may set wrap parameters";
       return false;
     }
     std::unordered_set<PlacementReserveId> reserve_ids{};

@@ -489,4 +489,38 @@ void apply_attachment_line_effects_to_curve(const CoreState& state, ObjectId spa
   curve->supplemental_paths = std::move(supplemental_paths);
 }
 
+std::vector<Vec3d> sample_wrap_helix_points(const DetailCurve& carrier, double start_s, double end_s,
+                                            double radius_m, double turns_per_meter, double phase,
+                                            double direction_sign) {
+  std::vector<Vec3d> points{};
+  const double carrier_length = carrier.Length();
+  const double clamped_start = std::clamp(start_s, 0.0, carrier_length);
+  const double clamped_end = std::clamp(end_s, 0.0, carrier_length);
+  const double visible_length_m = clamped_end - clamped_start;
+  if (visible_length_m <= kZeroLengthEps || radius_m <= 0.0 || turns_per_meter <= 0.0) {
+    return points;
+  }
+  constexpr int kSamplesPerTurn = 16;
+  const int sample_count =
+      std::max(16, static_cast<int>(std::ceil(visible_length_m * turns_per_meter * kSamplesPerTurn)));
+  const double direction = direction_sign < 0.0 ? -1.0 : 1.0;
+  points.reserve(static_cast<std::size_t>(sample_count + 1));
+  for (int i = 0; i <= sample_count; ++i) {
+    const double t = static_cast<double>(i) / static_cast<double>(sample_count);
+    const double s = clamped_start + visible_length_m * t;
+    const Vec3d base = carrier.PositionAtLength(s);
+    const Vec3d tangent = carrier.EvaluateTangent(carrier.LengthToU(s));
+    Vec3d forward{};
+    Vec3d lateral{};
+    Vec3d up{};
+    if (!build_attachment_frame(tangent, &forward, &lateral, &up)) {
+      continue;
+    }
+    const double angle = phase + direction * kTwoPi * turns_per_meter * (s - clamped_start);
+    points.push_back(base + ScaleVec(lateral, std::cos(angle) * radius_m) +
+                     ScaleVec(up, std::sin(angle) * radius_m));
+  }
+  return points;
+}
+
 } // namespace wire::core

@@ -432,7 +432,13 @@ describe("P1 action contracts", () => {
           lateralMax: 0.4,
           heightMin: 5,
           heightMax: 6,
-          randomness: 0.5
+          randomness: 0.5,
+        profile: 0,
+        wrapRadius: 0,
+        wrapTurnsPerMeter: 0,
+        wrapPhase: 0,
+        wrapDirection: 1,
+        endTrim: 0
         }
       ]
     });
@@ -469,7 +475,13 @@ describe("P1 action contracts", () => {
           lateralMax: 1,
           heightMin: 0,
           heightMax: 20,
-          randomness: 0.25
+          randomness: 0.25,
+        profile: 0,
+        wrapRadius: 0,
+        wrapTurnsPerMeter: 0,
+        wrapPhase: 0,
+        wrapDirection: 1,
+        endTrim: 0
         }
       ]
     };

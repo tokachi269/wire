@@ -489,7 +489,48 @@
         <summary>Population rules ({bundle.populationRules.length})</summary>
         {#each bundle.populationRules as rule (rule.ruleId)}
           <div class="record">
-            <strong>Rule {rule.ruleId} · extra {rule.minExtraCount}-{rule.maxExtraCount}</strong>
+            <strong>Rule {rule.ruleId} · {rule.profile === 1 ? "wrap" : "free"} · extra {rule.minExtraCount}-{rule.maxExtraCount}</strong>
+            <label>Profile
+              <select value={rule.profile}
+                onchange={(event) => updatePopulationRule(bundle, rule.ruleId, (draft) => {
+                  draft.profile = numberValue(event);
+                  if (draft.profile === 1) {
+                    if (draft.wrapRadius <= 0) draft.wrapRadius = 0.05;
+                    if (draft.wrapTurnsPerMeter <= 0) draft.wrapTurnsPerMeter = 1.5;
+                    if (draft.endTrim <= 0) draft.endTrim = 0.5;
+                  } else {
+                    draft.wrapRadius = 0;
+                    draft.wrapTurnsPerMeter = 0;
+                    draft.wrapPhase = 0;
+                    draft.endTrim = 0;
+                  }
+                })}>
+                <option value="0">Free (parallel)</option>
+                <option value="1">Wrap (carrier)</option>
+              </select>
+            </label>
+            {#if rule.profile === 1}
+              {#each [
+                ["wrapRadius", "Wrap radius", 0.005],
+                ["wrapTurnsPerMeter", "Turns / m", 0.1],
+                ["wrapPhase", "Phase", 0.1],
+                ["endTrim", "End trim", 0.05]
+              ] as field}
+                <label>{field[1]}<input type="number" step={field[2]} value={fmt(rule[field[0] as keyof PopulationRuleInfo] as number)}
+                  onchange={(event) => updatePopulationRule(bundle, rule.ruleId, (draft) => {
+                    (draft[field[0] as keyof PopulationRuleInfo] as number) = round6(numberValue(event));
+                  })} /></label>
+              {/each}
+              <label>Direction
+                <select value={rule.wrapDirection}
+                  onchange={(event) => updatePopulationRule(bundle, rule.ruleId, (draft) => {
+                    draft.wrapDirection = numberValue(event);
+                  })}>
+                  <option value="1">S (+1)</option>
+                  <option value="-1">Z (-1)</option>
+                </select>
+              </label>
+            {/if}
             {#each [
               ["ruleId", "Rule id"], ["explicitSeed", "Seed"], ["priority", "Priority"],
               ["minExtraCount", "Min extra"], ["maxExtraCount", "Max extra"]
@@ -540,7 +581,13 @@
             lateralMax: 1,
             heightMin: 0,
             heightMax: 20,
-            randomness: 0.25
+            randomness: 0.25,
+            profile: 0,
+            wrapRadius: 0,
+            wrapTurnsPerMeter: 0,
+            wrapPhase: 0,
+            wrapDirection: 1,
+            endTrim: 0
           });
         })}>Rule追加</button>
       </details>

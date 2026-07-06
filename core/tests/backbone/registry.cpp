@@ -838,6 +838,12 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C687_population_rule_update_is_reshape_not_regenerate",
                          "bundle template population rule edits are reshape updates instead of regenerate",
                          "Boundary", false, C687_population_rule_update_is_reshape_not_regenerate);
+  test_registry::AddTest(tests, "C689_wrap_rule_derives_carried_helix_without_topology",
+                         "wrap population rules derive a carried helix around the base cable without topology mutation",
+                         "Invariant", false, C689_wrap_rule_derives_carried_helix_without_topology);
+  test_registry::AddTest(tests, "C690_wrap_sections_do_not_join_node_patches",
+                         "wrap sections stay trimmed off the supports and never join node patches",
+                         "Boundary", false, C690_wrap_sections_do_not_join_node_patches);
   test_registry::AddTest(tests, "C660_backbone_bundle_count_regenerate_updates_downstream_only",
                          "backbone route-local regenerate updates bundle count downstream without graph identity changes",
                          "Boundary", false,

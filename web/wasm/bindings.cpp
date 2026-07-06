@@ -295,6 +295,12 @@ public:
       item.set("heightMin", rule.height_min_m);
       item.set("heightMax", rule.height_max_m);
       item.set("randomness", rule.randomness);
+      item.set("profile", static_cast<int>(rule.profile));
+      item.set("wrapRadius", rule.wrap_radius_m);
+      item.set("wrapTurnsPerMeter", rule.wrap_turns_per_meter);
+      item.set("wrapPhase", rule.wrap_phase);
+      item.set("wrapDirection", rule.wrap_direction);
+      item.set("endTrim", rule.end_trim_m);
       population_rules.set(index, item);
     }
     output.set("populationRules", population_rules);
@@ -340,6 +346,12 @@ public:
       rule.height_min_m = property<double>(item, "heightMin");
       rule.height_max_m = property<double>(item, "heightMax");
       rule.randomness = property<double>(item, "randomness");
+      rule.profile = static_cast<wire::core::CableSectionProfile>(property<int>(item, "profile"));
+      rule.wrap_radius_m = property<double>(item, "wrapRadius");
+      rule.wrap_turns_per_meter = property<double>(item, "wrapTurnsPerMeter");
+      rule.wrap_phase = property<double>(item, "wrapPhase");
+      rule.wrap_direction = property<int>(item, "wrapDirection");
+      rule.end_trim_m = property<double>(item, "endTrim");
       bundle_template.population_rules.push_back(rule);
     }
     const auto updated = state_->UpdateBundleTemplate(bundle_template);

@@ -115,7 +115,13 @@ describe("viewer numeric inputs", () => {
           lateralMax: 1,
           heightMin: 0,
           heightMax: 20,
-          randomness: 0.25
+          randomness: 0.25,
+        profile: 0,
+        wrapRadius: 0,
+        wrapTurnsPerMeter: 0,
+        wrapPhase: 0,
+        wrapDirection: 1,
+        endTrim: 0
         }]
       });
       await tick();

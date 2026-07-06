@@ -206,6 +206,30 @@ EditResult<CablePopulationOutput> populate_cable_sections(const CablePopulationI
   diagnostic.rule_id = input.key.rule_id;
   diagnostic.extra_count_requested = requested_count(input);
 
+  if (input.rule.profile == CableSectionProfile::kWrap) {
+    constexpr double kTwoPi = 6.283185307179586;
+    const int count = diagnostic.extra_count_requested;
+    for (int index = 0; index < count; ++index) {
+      CableSectionLayout section{};
+      section.key = input.key;
+      section.key.instance_index = static_cast<std::size_t>(index) + 1;
+      section.endpoint_a = input.endpoint_a_world;
+      section.endpoint_b = input.endpoint_b_world;
+      section.profile = CableSectionProfile::kWrap;
+      section.wrap_radius_m = input.rule.wrap_radius_m;
+      section.wrap_turns_per_meter = input.rule.wrap_turns_per_meter;
+      section.wrap_phase =
+          input.rule.wrap_phase + kTwoPi * static_cast<double>(index) / static_cast<double>(std::max(1, count));
+      section.wrap_direction = input.rule.wrap_direction;
+      section.end_trim_m = input.rule.end_trim_m;
+      out.value.sections.push_back(section);
+    }
+    diagnostic.extra_count_accepted = static_cast<int>(out.value.sections.size());
+    diagnostic.reason = "ok";
+    out.ok = true;
+    return out;
+  }
+
   if (!input.endpoint_a.valid || !input.endpoint_b.valid) {
     diagnostic.omitted_count = diagnostic.extra_count_requested;
     diagnostic.reason = !input.endpoint_a.valid ? input.endpoint_a.failure_reason : input.endpoint_b.failure_reason;
@@ -288,6 +312,8 @@ CablePopulation make_cable_population(
       input.rule = *rule;
       input.endpoint_a = resolve_endpoint(state, layout.start, bundle_template_it->second, *rule);
       input.endpoint_b = resolve_endpoint(state, layout.end, bundle_template_it->second, *rule);
+      input.endpoint_a_world = layout.start.endpoint_world;
+      input.endpoint_b_world = layout.end.endpoint_world;
       input.occupied_a_local = occupied_a;
       input.occupied_b_local = occupied_b;
       if (input.endpoint_a.valid) {
@@ -309,11 +335,13 @@ CablePopulation make_cable_population(
       }
       output.diagnostics.push_back(populated.value.diagnostic);
       output.sections.insert(output.sections.end(), populated.value.sections.begin(), populated.value.sections.end());
-      for (const CableSectionLayout& section : populated.value.sections) {
-        occupied_a.push_back(WorldPointToLocal(input.endpoint_a.frame,
-                                              section.endpoint_a - input.endpoint_a.endpoint_offset_world));
-        occupied_b.push_back(WorldPointToLocal(input.endpoint_b.frame,
-                                              section.endpoint_b - input.endpoint_b.endpoint_offset_world));
+      if (rule->profile != CableSectionProfile::kWrap) {
+        for (const CableSectionLayout& section : populated.value.sections) {
+          occupied_a.push_back(WorldPointToLocal(input.endpoint_a.frame,
+                                                section.endpoint_a - input.endpoint_a.endpoint_offset_world));
+          occupied_b.push_back(WorldPointToLocal(input.endpoint_b.frame,
+                                                section.endpoint_b - input.endpoint_b.endpoint_offset_world));
+        }
       }
     }
   }

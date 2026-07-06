@@ -24,6 +24,10 @@ struct CablePopulationInput {
   CablePopulationRule rule{};
   CablePopulationEndpoint endpoint_a{};
   CablePopulationEndpoint endpoint_b{};
+  // Carrier endpoints of the base span. Wrap sections attach to these instead of solving a
+  // band placement of their own.
+  Vec3d endpoint_a_world{};
+  Vec3d endpoint_b_world{};
   std::vector<Vec3d> occupied_a_local{};
   std::vector<Vec3d> occupied_b_local{};
 };

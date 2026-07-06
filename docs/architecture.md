@@ -164,6 +164,13 @@ rule 変更は `UpdateBundleTemplate` の `kReshape` 差分であり、topology/
 配置は rule の explicit seed、logical span、edge bundle、rule id、instance index から決定的に導出する。
 lateral / height は rule 範囲と endpoint band 範囲の交差内で stable random 配置する。
 
+rule は `CableSectionProfile` を持つ。`kFree` は自前の endpoint と sag で吊る平行線、
+`kWrap` は同じ span の base cable を carrier とする巻き付き実線である。wrap section は
+carrier の最終 curve(boundary 適用後)から `sample_wrap_helix_points` で centerline を派生し、
+独自の sag や band 配置を持たず、`end_trim_m` で support 手前に留まり、node patch へ参加しない。
+carrier は rule 宣言から解決し、geometry 近傍から探さない。位相は instance index で等分し、
+巻き方向は rule の +1/-1 で明示する(C689/C690)。
+
 ## wire domain境界
 
 wire coreはroad、rail、building、terrain、cityのdomain型を知らない。

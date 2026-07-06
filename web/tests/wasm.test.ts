@@ -59,6 +59,24 @@ describe("wire wasm smoke", () => {
     flat.delete();
   });
 
+  it("exposes a shared run id for through edge bodies", () => {
+    const runState = createState();
+    const result = runState.generate(
+      new Float64Array([0, 0, 0, 20, 0, 0, 20, 10, 0]), [0], 0, 1, [0], 0, 0
+    );
+    expect(result.ok, result.error).toBe(true);
+
+    const edgeBodies = Array.from(
+      { length: runState.visualPartCount() },
+      (_, index) => runState.visualPart(index)
+    ).filter((part) => part.kind === 0 && part.bundleTemplateId === 0 && part.laneIndex === 0);
+
+    expect(edgeBodies).toHaveLength(2);
+    expect(edgeBodies[0].runId).toBeGreaterThan(0);
+    expect(edgeBodies[1].runId).toBe(edgeBodies[0].runId);
+    runState.delete();
+  });
+
   it("generates the viewer default bundle selection together", () => {
     const result = state.generate(
       new Float64Array([0, 10, 0, 20, 10, 0]),

@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "wasm:configure": "emcmake cmake -S wasm -B wasm/build -DBUILD_TESTING=OFF -DWIRE_ENABLE_PCH=OFF",
-    "wasm:build": "npm run wasm:configure && cmake --build wasm/build --target wire_web_core -j 8",
+    "wasm:configure": "scripts\\wasm-nmake-build.cmd configure",
+    "wasm:build": "npm run wasm:configure && scripts\\wasm-nmake-build.cmd build",
     "test": "npm run wasm:build && vitest run",
     "build": "npm run wasm:build && vite build",
     "dev": "vite",

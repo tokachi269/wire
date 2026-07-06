@@ -21,6 +21,7 @@ export interface VisualPartInfo {
   sourceBundleId: string;
   bundleTemplateId: number;
   laneIndex: number;
+  runId: number;
   sampleCount: number;
 }
 

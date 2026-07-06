@@ -125,6 +125,7 @@ public:
     output.set("sourceBundleId", std::to_string(part.source_bundle_id));
     output.set("bundleTemplateId", static_cast<int>(part.bundle_template_id));
     output.set("laneIndex", part.lane_index);
+    output.set("runId", static_cast<double>(part.cable_run_id));
     output.set("sampleCount", part.samples.size());
     return output;
   }

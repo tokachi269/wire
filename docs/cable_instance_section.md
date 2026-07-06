@@ -1,7 +1,8 @@
 # CableInstance / CableSection
 
 このドキュメントは、追加線・束ね線・光ケーブルのぐるぐる表現を扱うための設計語を固定する。
-production の carrier / wrap 生成はまだ実装しない。
+span-local な carrier / wrap 生成は実装済みである。span を跨ぐ wrap と別 instance を carrier にする
+wrap は次の milestone で扱う。
 
 ## 基本語
 
@@ -35,7 +36,9 @@ support wire は `CableInstance` の role または cable template の性質で�
 
 同じケーブルの表面模様、補助helix、coiled appearance は `CableInstance` を増やさない。
 これは visual detail であり、現行の `CableSupplementalPathTemplate::ProfileKind::kCoiledCable` はこの分類に入る。
-現在の実装は carrier を持たず、既存の curve 上に offset / coil sample を追加するため、real carrier-following wrap cable ではない。
+`CableSupplementalPathTemplate::ProfileKind::kCoiledCable` は carrier を持たず、既存の curve 上に
+offset / coil sample を追加する surface detail である。population `kWrap` は実ケーブルとして
+同じ span の base cable を carrier にする。
 
 ## carrier ownership
 
@@ -80,13 +83,15 @@ wrap section は carrier の最終 curve から `sample_wrap_helix_points` で c
 独自 sag と band 配置を持たず、`end_trim_m`(= `trim_before_support` の実装)で support 手前に留まり、
 node patch へ参加しない。位相は instance index で等分、巻き方向は rule の +1/-1。carrier は
 rule 宣言から解決する(近傍探索禁止は上記のまま)。span を跨いで連続する wrap と、別 instance を
-carrier とする wrap は run-level identity が入るまで実装しない。
+carrier とする wrap は次の milestone で実装する。
 現行 population の runtime 名は `CableSectionKey` / `CableSectionLayout` に寄せる。
-ただし現時点の `CableSectionKey.logical_span_id` は span-fragment scope であり、run-level identity は未実装である。
+`CableSectionKey.logical_span_id` は section scope であり、run identity ではない。run は採用済み
+NodePatch pair で接続された section の連結成分として visual derive 層で派生する。`cable_run_id` は
+成分内で最小の `(edge_bundle_id, logical_span_id, rule_owner_id, rule_id, instance_index)` を canonical key
+として hash した派生値であり、`SavedBackboneGraph` / binding / template には保存しない。
 
 `CableContinuityPolicyHint`、NodePatch continuity、span / bundle / lane binding は現在の近い continuity 情報である。
 `CableInstance` はこの既存 continuity 結果から派生するべきであり、別レイヤで新しい continuity solver を作らない。
-現時点では run-level の安定した `CableInstance` identity は未実装であり、production carrier / wrap の blocker である。
 
 ## 禁止する実装
 
@@ -97,10 +102,9 @@ carrier とする wrap は run-level identity が入るまで実装しない。
 - `CableMember`、`CableMemberGroup`、`MemberGroup`、`Group`、`WrapCable`、`SupportWire`、`CableTermination`、`CableRef` を新しい中心語として増やす
 - viewer 側で wrap / carrier / continuity を補正する
 
-## production 前の blocker
+## 次の milestone
 
-- run-level の `CableInstance` identity と section range の派生元を固定する
 - carrier declaration を template / rule / lane で表す最小形を決める
 - carried section が carrier の arc length / frame を使う境界を決める
-- run-level identity が入るまでは、`CableSectionKey.logical_span_id` が span-fragment scope であることを明示し続ける
+- span を跨ぐ wrap と別 instance carrier を実装する
 - existing `kCoiledCable` surface detail と real carrier-following wrap cable を同じ経路で混ぜない

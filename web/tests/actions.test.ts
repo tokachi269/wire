@@ -35,6 +35,7 @@ describe("viewer actions", () => {
             sourceBundleId: "3",
             bundleTemplateId: 0,
             laneIndex: 0,
+            runId: 1,
             sampleCount: 2
           },
           samples: new Float64Array([0, 0, 2, 10, 0, 2])
@@ -144,6 +145,7 @@ describe("viewer actions", () => {
         sourceBundleId: "3",
         bundleTemplateId: 0,
         laneIndex: 0,
+        runId: 1,
         sampleCount: 2
       },
       samples: new Float64Array([0, 0, 2, 10, 0, 2])

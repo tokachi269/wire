@@ -149,7 +149,12 @@ dirty node + incident edge + 必要な1-hop程度の更新範囲に抑える。
 
 ### cable population
 
-CableInstance / CableSection / carrier の設計語は docs/cable_instance_section.md を参照する。現行の `CableSectionKey.logical_span_id` は span-fragment scope であり、run-level identity は未実装である。
+CableInstance / CableSection / carrier の設計語は docs/cable_instance_section.md を参照する。
+`CableSectionKey` は section scope の識別子であり、`logical_span_id` を含む。見た目上連続する1本の
+identity は `VisualCurvePart.cable_run_id` として visual derive 層で派生する。run は採用済み
+NodePatch pair で接続された section の連結成分で、canonical key は成分内最小の
+`(edge_bundle_id, logical_span_id, rule_owner_id, rule_id, instance_index)` である。run id は
+`SavedBackboneGraph`、binding、template に保存しない。
 
 `BundleTemplate.population_rules` は、その bundle が派生させる追加の平行線を定義する。
 rules が空なら追加線は無い。global enable や global seed は持たない。
@@ -157,7 +162,7 @@ rules が空なら追加線は無い。global enable や global seed は持た�
 population は derived output であり、`SavedBackboneGraph`、`Span`、`Port`を増やさない。
 layout後に base span と追加線を `CableSectionLayout` へ揃え、同じ `EdgeBodyCurve` /
 `NodePatchCurve` 生成へ渡す。追加線専用の curve、tessellation、render 経路は持たない。
-identity は logical span、edge bundle、bundle template、明示 rule id、instance index から作り、
+section identity は logical span、edge bundle、bundle template、明示 rule id、instance index から作り、
 両 endpoint は同じ instance index で対応させる。配置不能時は support や route を作らず omit diagnostic を残す。
 
 rule 変更は `UpdateBundleTemplate` の `kReshape` 差分であり、topology/regenerate 差分にしない。

@@ -85,6 +85,112 @@ bool same_cable_section(const CableSectionKey& a, const CableSectionKey& b) {
          a.instance_index == b.instance_index;
 }
 
+bool cable_section_less_for_run(const CableSectionKey& a, const CableSectionKey& b) {
+  if (a.edge_bundle_id != b.edge_bundle_id) {
+    return a.edge_bundle_id < b.edge_bundle_id;
+  }
+  if (a.logical_span_id != b.logical_span_id) {
+    return a.logical_span_id < b.logical_span_id;
+  }
+  if (a.rule_owner_id != b.rule_owner_id) {
+    return a.rule_owner_id < b.rule_owner_id;
+  }
+  if (a.rule_id != b.rule_id) {
+    return a.rule_id < b.rule_id;
+  }
+  return a.instance_index < b.instance_index;
+}
+
+std::uint64_t splitmix64(std::uint64_t x) {
+  x += 0x9E3779B97F4A7C15ull;
+  x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ull;
+  x = (x ^ (x >> 27)) * 0x94D049BB133111EBull;
+  return x ^ (x >> 31);
+}
+
+std::uint64_t hash_combine(std::uint64_t seed, std::uint64_t value) {
+  return splitmix64(seed ^ (value + 0x9E3779B97F4A7C15ull + (seed << 6) + (seed >> 2)));
+}
+
+CableRunId run_id_from_canonical_section(const CableSectionKey& key) {
+  std::uint64_t hash = hash_combine(0, static_cast<std::uint64_t>(key.edge_bundle_id));
+  hash = hash_combine(hash, static_cast<std::uint64_t>(key.logical_span_id));
+  hash = hash_combine(hash, key.rule_owner_id);
+  hash = hash_combine(hash, static_cast<std::uint64_t>(key.rule_id));
+  hash = hash_combine(hash, static_cast<std::uint64_t>(key.instance_index));
+  return hash == 0 ? 1 : hash;
+}
+
+struct cable_run_assignment {
+  CableSectionKey section_key{};
+  std::size_t parent = 0;
+  CableSectionKey canonical_key{};
+  CableRunId run_id = 0;
+};
+
+std::size_t find_run_root(std::vector<cable_run_assignment>* assignments, std::size_t index) {
+  std::size_t parent = (*assignments)[index].parent;
+  if (parent != index) {
+    parent = find_run_root(assignments, parent);
+    (*assignments)[index].parent = parent;
+  }
+  return parent;
+}
+
+std::size_t ensure_run_section(std::vector<cable_run_assignment>* assignments, const CableSectionKey& key) {
+  for (std::size_t i = 0; i < assignments->size(); ++i) {
+    if (same_cable_section((*assignments)[i].section_key, key)) {
+      return i;
+    }
+  }
+  const std::size_t index = assignments->size();
+  assignments->push_back({key, index, key, 0});
+  return index;
+}
+
+void union_run_sections(std::vector<cable_run_assignment>* assignments, const CableSectionKey& a,
+                        const CableSectionKey& b) {
+  const std::size_t a_index = ensure_run_section(assignments, a);
+  const std::size_t b_index = ensure_run_section(assignments, b);
+  const std::size_t a_root = find_run_root(assignments, a_index);
+  const std::size_t b_root = find_run_root(assignments, b_index);
+  if (a_root == b_root) {
+    return;
+  }
+  const CableSectionKey canonical =
+      cable_section_less_for_run((*assignments)[a_root].canonical_key, (*assignments)[b_root].canonical_key)
+          ? (*assignments)[a_root].canonical_key
+          : (*assignments)[b_root].canonical_key;
+  (*assignments)[b_root].parent = a_root;
+  (*assignments)[a_root].canonical_key = canonical;
+}
+
+std::vector<cable_run_assignment> derive_cable_run_ids(const std::vector<visual_cable_section>& sections,
+                                                       const std::vector<curve_patch_spec>& patch_specs) {
+  std::vector<cable_run_assignment> assignments{};
+  for (const visual_cable_section& section : sections) {
+    ensure_run_section(&assignments, section.layout.key);
+  }
+  for (const curve_patch_spec& spec : patch_specs) {
+    union_run_sections(&assignments, spec.a.section_key, spec.b.section_key);
+  }
+  for (cable_run_assignment& assignment : assignments) {
+    const std::size_t root = find_run_root(&assignments, &assignment - assignments.data());
+    const CableSectionKey& canonical = assignments[root].canonical_key;
+    assignment.run_id = run_id_from_canonical_section(canonical);
+  }
+  return assignments;
+}
+
+CableRunId run_id_for_section(const std::vector<cable_run_assignment>& assignments, const CableSectionKey& key) {
+  for (const cable_run_assignment& assignment : assignments) {
+    if (same_cable_section(assignment.section_key, key)) {
+      return assignment.run_id;
+    }
+  }
+  return 0;
+}
+
 bool same_key(const curve_patch_key& a, const curve_patch_key& b) {
   return a.node_id == b.node_id && a.bundle_template_id == b.bundle_template_id &&
          a.lane_index == b.lane_index && a.pole_type_id == b.pole_type_id &&
@@ -621,6 +727,8 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     }
   }
 
+  const std::vector<cable_run_assignment> cable_runs = derive_cable_run_ids(sections, patch_specs);
+
   // Base bodies land before population extras in `sections`, so a wrap section can always read
   // its carrier's final (boundary-trimmed) curve from this map.
   std::unordered_map<ObjectId, DetailCurve> base_final_curves{};
@@ -673,6 +781,7 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
           ScaleVec(carrier.EvaluateTangent(carrier.LengthToU(carrier.Length() - trim_m)), -1.0);
       body.sag_method = VisualCurveSagMethod::kNone;
       body.sag_m = 0.0;
+      body.cable_run_id = run_id_for_section(cable_runs, entry.key);
       copy_span_appearance(state, entry.key.logical_span_id, &body);
       body.samples = helix;
       body.bounds = curve_part_bounds(body.samples);
@@ -721,6 +830,7 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     body.lane_index = binding->lane_index;
     body.has_section_key = true;
     body.section_key = entry.key;
+    body.cable_run_id = run_id_for_section(cable_runs, entry.key);
     body.endpoint_a_pole_type_id = entry.endpoint_a_pole_type_id;
     body.endpoint_b_pole_type_id = entry.endpoint_b_pole_type_id;
     body.endpoint_a_band_id = entry.endpoint_a_band_id;
@@ -772,6 +882,14 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     patch.has_attachment_point = true;
     patch.passes_attachment_point = false;
     patch.section_count = 1;
+    const CableRunId a_run_id = run_id_for_section(cable_runs, spec.a.section_key);
+    const CableRunId b_run_id = run_id_for_section(cable_runs, spec.b.section_key);
+    patch.cable_run_id = a_run_id == b_run_id ? a_run_id : 0;
+    if (patch.cable_run_id == 0) {
+      out.diagnostics.push_back({spec.key.node_id, spec.a.section_key.logical_span_id,
+                                 spec.key.bundle_template_id, spec.key.lane_index,
+                                 "node patch cable run mismatch"});
+    }
     copy_span_appearance(state, spec.a.section_key.logical_span_id, &patch);
     append_patch_section(a_boundary.point, incoming, b_boundary.point, outgoing, true,
                          &patch.bezier_control_points, &patch.samples);

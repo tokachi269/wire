@@ -844,6 +844,24 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C690_wrap_sections_do_not_join_node_patches",
                          "wrap sections stay trimmed off the supports and never join node patches",
                          "Boundary", false, C690_wrap_sections_do_not_join_node_patches);
+  test_registry::AddTest(tests, "C691_cable_run_id_connects_through_sections",
+                         "cable run id connects through base edge bodies and their node patch",
+                         "Invariant", false, C691_cable_run_id_connects_through_sections);
+  test_registry::AddTest(tests, "C692_cable_run_id_connects_terminal_extension",
+                         "cable run id connects an existing terminal span to the extension span",
+                         "Invariant", false, C692_cable_run_id_connects_terminal_extension);
+  test_registry::AddTest(tests, "C693_cable_run_id_keeps_branch_and_dead_end_separate",
+                         "cable run id keeps branch spans and sharp dead-end sides separate",
+                         "Invariant", false, C693_cable_run_id_keeps_branch_and_dead_end_separate);
+  test_registry::AddTest(tests, "C694_cable_run_id_connects_population_instances",
+                         "cable run id connects each population instance across through spans without merging base",
+                         "Invariant", false, C694_cable_run_id_connects_population_instances);
+  test_registry::AddTest(tests, "C695_cable_run_id_is_deterministic",
+                         "cable run id assignment is deterministic for identical fresh states",
+                         "Invariant", false, C695_cable_run_id_is_deterministic);
+  test_registry::AddTest(tests, "C696_cable_run_id_is_visual_derived_only",
+                         "cable run id is derived in curve parts and not stored in authoritative backbone state",
+                         "Boundary", false, C696_cable_run_id_is_visual_derived_only);
   test_registry::AddTest(tests, "C660_backbone_bundle_count_regenerate_updates_downstream_only",
                          "backbone route-local regenerate updates bundle count downstream without graph identity changes",
                          "Boundary", false,

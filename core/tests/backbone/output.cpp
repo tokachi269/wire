@@ -570,6 +570,61 @@ bool enable_two_extra_lv_population(wire::core::CoreState& state) {
   return state.UpdateBundleTemplate(lv_template).ok;
 }
 
+bool prepare_two_lane_low_voltage_for_run_test(wire::core::CoreState& state) {
+  wire::core::BundleTemplate lv_template = state.view().bundle_templates().at(wire::core::BundleKind::kLowVoltage);
+  lv_template.count_rule = wire::core::BundleCountRuleKind::kFixed;
+  lv_template.fixed_count = 2;
+  lv_template.default_count = 2;
+  return state.UpdateBundleTemplate(lv_template).ok;
+}
+
+std::vector<const wire::core::VisualCurvePart*> base_edge_bodies(const wire::core::CoreState& state) {
+  std::vector<const wire::core::VisualCurvePart*> bodies{};
+  for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
+    if (part.kind == wire::core::VisualCurvePartKind::kEdgeBody && part.has_section_key &&
+        part.section_key.is_base()) {
+      bodies.push_back(&part);
+    }
+  }
+  return bodies;
+}
+
+std::vector<const wire::core::VisualCurvePart*> extra_edge_bodies(const wire::core::CoreState& state,
+                                                                  std::size_t instance_index) {
+  std::vector<const wire::core::VisualCurvePart*> bodies{};
+  for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
+    if (part.kind == wire::core::VisualCurvePartKind::kEdgeBody && part.has_section_key &&
+        !part.section_key.is_base() && part.section_key.instance_index == instance_index) {
+      bodies.push_back(&part);
+    }
+  }
+  return bodies;
+}
+
+bool all_same_nonzero_run(const std::vector<const wire::core::VisualCurvePart*>& parts) {
+  if (parts.empty() || parts.front()->cable_run_id == 0) {
+    return false;
+  }
+  const wire::core::CableRunId run_id = parts.front()->cable_run_id;
+  return std::all_of(parts.begin(), parts.end(), [&](const wire::core::VisualCurvePart* part) {
+    return part->cable_run_id == run_id;
+  });
+}
+
+bool all_distinct_nonzero_runs(const std::vector<const wire::core::VisualCurvePart*>& parts) {
+  std::unordered_set<wire::core::CableRunId> seen{};
+  for (const wire::core::VisualCurvePart* part : parts) {
+    if (part->cable_run_id == 0 || !seen.insert(part->cable_run_id).second) {
+      return false;
+    }
+  }
+  return !parts.empty();
+}
+
+bool contains_span(const std::vector<wire::core::ObjectId>& ids, wire::core::ObjectId id) {
+  return std::find(ids.begin(), ids.end(), id) != ids.end();
+}
+
 } // namespace
 
 bool C634_backbone_terminal_nodes_create_no_node_patch_curve() {
@@ -1228,6 +1283,162 @@ bool C667_backbone_branch_preserves_through_patch() {
                part.source_node_id == branch_node_id && part.incident_edge_ids.size() == 2;
       });
   return found;
+}
+
+bool C691_cable_run_id_connects_through_sections() {
+  wire::core::CoreState state;
+  const auto generated = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!generated.ok) {
+    return false;
+  }
+  const auto bodies = base_edge_bodies(state);
+  if (bodies.size() != 2 || !all_same_nonzero_run(bodies)) {
+    return false;
+  }
+  const wire::core::CableRunId run_id = bodies.front()->cable_run_id;
+  for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
+    if (part.kind == wire::core::VisualCurvePartKind::kNodePatch && part.cable_run_id != run_id) {
+      return false;
+    }
+  }
+  return visual_curve_part_count(state, wire::core::VisualCurvePartKind::kNodePatch) > 0;
+}
+
+bool C692_cable_run_id_connects_terminal_extension() {
+  wire::core::CoreState state;
+  const auto first = state.GenerateFromBackboneSpec(line_req(state));
+  if (!first.ok || first.value.generated_pole_ids.size() != 2) {
+    return false;
+  }
+  const auto endpoint_it = std::max_element(
+      first.value.generated_pole_ids.begin(), first.value.generated_pole_ids.end(),
+      [&](wire::core::ObjectId a, wire::core::ObjectId b) {
+        return state.view().poles().find(a)->world_transform.position.x <
+               state.view().poles().find(b)->world_transform.position.x;
+      });
+  const wire::core::ObjectId endpoint_pole_id = *endpoint_it;
+  const wire::core::Pole* endpoint_pole = state.view().poles().find(endpoint_pole_id);
+  if (endpoint_pole == nullptr) {
+    return false;
+  }
+  wire::core::BackboneSpec extension = line_req(state);
+  extension.path.polyline = {endpoint_pole->world_transform.position, {24.0, 6.0, 0.0}};
+  extension.path.node_specs = {pole_spec(0, endpoint_pole_id)};
+  const auto second = state.GenerateFromBackboneSpec(extension);
+  const auto bodies = base_edge_bodies(state);
+  return second.ok && bodies.size() >= 2 && all_same_nonzero_run(bodies);
+}
+
+bool C693_cable_run_id_keeps_branch_and_dead_end_separate() {
+  wire::core::CoreState branch_state;
+  const auto first = branch_state.GenerateFromBackboneSpec(poly3_req(branch_state));
+  if (!first.ok || first.value.generated_pole_ids.size() != 3) {
+    return false;
+  }
+  const auto through_bodies = base_edge_bodies(branch_state);
+  if (through_bodies.size() != 2 || !all_same_nonzero_run(through_bodies)) {
+    return false;
+  }
+  const wire::core::CableRunId through_run_id = through_bodies.front()->cable_run_id;
+  const wire::core::ObjectId branch_pole_id = first.value.generated_pole_ids[1];
+  const wire::core::Pole* branch_pole = branch_state.view().poles().find(branch_pole_id);
+  if (branch_pole == nullptr) {
+    return false;
+  }
+  wire::core::BackboneSpec branch = line_req(branch_state);
+  branch.path.polyline = {branch_pole->world_transform.position, {20.0, -6.0, 0.0}};
+  branch.path.node_specs = {pole_spec(0, branch_pole_id)};
+  const auto second = branch_state.GenerateFromBackboneSpec(branch);
+  if (!second.ok || second.value.generated_span_ids.empty()) {
+    return false;
+  }
+  for (const wire::core::VisualCurvePart& part : branch_state.view().visual_curve_parts().parts) {
+    if (part.kind == wire::core::VisualCurvePartKind::kEdgeBody &&
+        contains_span(second.value.generated_span_ids, part.source_span_id) &&
+        part.cable_run_id == through_run_id) {
+      return false;
+    }
+  }
+
+  wire::core::CoreState sharp_state;
+  if (!prepare_two_lane_low_voltage_for_run_test(sharp_state)) {
+    return false;
+  }
+  wire::core::BackboneSpec sharp = line_req(sharp_state);
+  sharp.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {5.0, 8.660254037844386, 0.0}};
+  const auto sharp_generated = sharp_state.GenerateFromBackboneSpec(sharp);
+  const auto sharp_bodies = base_edge_bodies(sharp_state);
+  return sharp_generated.ok && sharp_bodies.size() == 4 && all_distinct_nonzero_runs(sharp_bodies);
+}
+
+bool C694_cable_run_id_connects_population_instances() {
+  wire::core::CoreState state;
+  if (!enable_two_extra_lv_population(state)) {
+    return false;
+  }
+  const auto generated = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!generated.ok) {
+    return false;
+  }
+  const auto base = base_edge_bodies(state);
+  const auto extra1 = extra_edge_bodies(state, 1);
+  const auto extra2 = extra_edge_bodies(state, 2);
+  if (base.size() != 2 || extra1.size() != 2 || extra2.size() != 2 ||
+      !all_same_nonzero_run(base) || !all_same_nonzero_run(extra1) || !all_same_nonzero_run(extra2)) {
+    return false;
+  }
+  return base.front()->cable_run_id != extra1.front()->cable_run_id &&
+         base.front()->cable_run_id != extra2.front()->cable_run_id &&
+         extra1.front()->cable_run_id != extra2.front()->cable_run_id;
+}
+
+bool C695_cable_run_id_is_deterministic() {
+  wire::core::CoreState a;
+  wire::core::CoreState b;
+  if (!enable_two_extra_lv_population(a) || !enable_two_extra_lv_population(b)) {
+    return false;
+  }
+  const auto generated_a = a.GenerateFromBackboneSpec(poly3_req(a));
+  const auto generated_b = b.GenerateFromBackboneSpec(poly3_req(b));
+  if (!generated_a.ok || !generated_b.ok ||
+      a.view().visual_curve_parts().parts.size() != b.view().visual_curve_parts().parts.size()) {
+    return false;
+  }
+  std::vector<std::string> snapshot_a{};
+  std::vector<std::string> snapshot_b{};
+  const auto collect = [](const wire::core::CoreState& state, std::vector<std::string>* out) {
+    for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
+      if (part.cable_run_id == 0) {
+        return false;
+      }
+      std::ostringstream ss;
+      ss << static_cast<int>(part.kind) << ":" << part.source_span_id << ":" << part.lane_index << ":"
+         << (part.has_section_key ? part.section_key.instance_index : 0) << ":" << part.cable_run_id;
+      out->push_back(ss.str());
+    }
+    std::sort(out->begin(), out->end());
+    return true;
+  };
+  return collect(a, &snapshot_a) && collect(b, &snapshot_b) && snapshot_a == snapshot_b;
+}
+
+bool C696_cable_run_id_is_visual_derived_only() {
+  const std::filesystem::path source =
+      repo_root() / "core" / "src" / "generation" / "backbone" / "curve_parts.cpp";
+  const std::filesystem::path runtime_header =
+      repo_root() / "core" / "include" / "wire" / "core" / "core_runtime_types.hpp";
+  std::string cpp;
+  std::string runtime;
+  if (!file_text(source, &cpp) || !file_text(runtime_header, &runtime)) {
+    return false;
+  }
+  std::string derive_body;
+  if (!function_body(cpp, "std::vector<cable_run_assignment> derive_cable_run_ids", &derive_body)) {
+    return false;
+  }
+  return contains_text(cpp, "cable_run_id") && contains_text(runtime, "CableRunId cable_run_id") &&
+         contains_text(derive_body, "patch_specs") && !contains_text(derive_body, "SavedBackboneGraph") &&
+         !contains_text(derive_body, "state.view()") && !contains_text(derive_body, "save_backbone");
 }
 
 } // namespace backbone_tests

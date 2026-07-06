@@ -16,6 +16,8 @@
 
 namespace wire::core {
 
+using CableRunId = std::uint64_t;
+
 struct AttachmentDebugLineEffect {
   ObjectId attachment_id = kInvalidObjectId;
   AttachmentTemplateId template_id = kInvalidAttachmentTemplateId;
@@ -180,6 +182,7 @@ struct VisualCurvePart {
   double sag_m = 0.0;
   bool has_section_key = false;
   CableSectionKey section_key{};
+  CableRunId cable_run_id = 0;
   PoleTypeId endpoint_a_pole_type_id = kInvalidPoleTypeId;
   PoleTypeId endpoint_b_pole_type_id = kInvalidPoleTypeId;
   int endpoint_a_band_id = 0;

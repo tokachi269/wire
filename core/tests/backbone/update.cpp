@@ -247,6 +247,74 @@ bool update_low_voltage_count_to_two(wire::core::CoreState& state, std::string* 
   return updated.ok && updated.value;
 }
 
+bool update_low_voltage_count_to_one(wire::core::CoreState& state, std::string* error = nullptr) {
+  const auto template_it = state.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  if (template_it == state.view().bundle_templates().end()) {
+    return false;
+  }
+  wire::core::BundleTemplate edited = template_it->second;
+  edited.fixed_count = 1;
+  const auto updated = state.UpdateBundleTemplate(edited);
+  if (error != nullptr) {
+    *error = updated.error;
+  }
+  return updated.ok && updated.value;
+}
+
+bool set_low_voltage_count_before_generation(wire::core::CoreState& state, int fixed_count) {
+  const auto template_it = state.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  if (template_it == state.view().bundle_templates().end()) {
+    return false;
+  }
+  wire::core::BundleTemplate edited = template_it->second;
+  edited.fixed_count = fixed_count;
+  const auto updated = state.UpdateBundleTemplate(edited);
+  return updated.ok && updated.value;
+}
+
+std::vector<wire::core::ObjectId> span_ids_for_lane(const wire::core::CoreState& state, std::size_t lane) {
+  std::vector<wire::core::ObjectId> out{};
+  for (const wire::core::SavedBackboneSpanBinding& binding : state.view().backbone().span_bindings) {
+    if (binding.lane_index == lane) {
+      out.push_back(binding.span_id);
+    }
+  }
+  return out;
+}
+
+std::vector<wire::core::ObjectId> port_ids_for_lane(const wire::core::CoreState& state, std::size_t lane) {
+  std::vector<wire::core::ObjectId> out{};
+  for (const wire::core::SavedBackbonePortBinding& binding : state.view().backbone().port_bindings) {
+    if (binding.lane_index == lane) {
+      out.push_back(binding.port_id);
+    }
+  }
+  return out;
+}
+
+bool no_binding_references(const wire::core::CoreState& state,
+                           const std::vector<wire::core::ObjectId>& retired_spans,
+                           const std::vector<wire::core::ObjectId>& retired_ports) {
+  for (const wire::core::SavedBackboneSpanBinding& binding : state.view().backbone().span_bindings) {
+    if (std::find(retired_spans.begin(), retired_spans.end(), binding.span_id) != retired_spans.end()) {
+      return false;
+    }
+  }
+  for (const wire::core::SavedBackbonePortBinding& binding : state.view().backbone().port_bindings) {
+    if (std::find(retired_ports.begin(), retired_ports.end(), binding.port_id) != retired_ports.end()) {
+      return false;
+    }
+  }
+  for (const wire::core::SavedBackboneEdgeBundle& edge_bundle : state.view().backbone().edge_bundles) {
+    for (wire::core::ObjectId span_id : edge_bundle.span_ids) {
+      if (std::find(retired_spans.begin(), retired_spans.end(), span_id) != retired_spans.end()) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 } // namespace
 
 bool C611_backbone_direct_derive_restores_saved_span_outputs() {
@@ -865,9 +933,6 @@ bool C670_backbone_bundle_count_migration_rejects_pair_rows() {
 
 
 bool C671_backbone_bundle_count_migration_reuses_pipeline_stages() {
-  if (std::filesystem::exists(repo_root() / "core/src/generation/backbone/regenerate.cpp")) {
-    return false;
-  }
   std::string source{};
   if (!file_text(repo_root() / "core/src/generation/backbone/bundle_count_migration.cpp", &source)) {
     return false;
@@ -923,6 +988,126 @@ bool C673_backbone_bundle_count_migration_rejects_user_attachments() {
   std::string error{};
   const bool updated = update_low_voltage_count_to_two(state, &error);
   return !updated && contains_text(error, "attachments") && same_counts(before, count_snapshot(state));
+}
+
+bool C698_backbone_regenerate_fixed_count_decrease_retires_lanes() {
+  wire::core::CoreState state;
+  if (!set_low_voltage_count_before_generation(state, 2)) {
+    return false;
+  }
+  const auto generated = state.GenerateFromBackboneSpec(line_req(state));
+  if (!generated.ok || generated.value.generated_span_ids.size() != 2 ||
+      state.view().backbone().edge_bundles.empty()) {
+    return false;
+  }
+  const std::vector<wire::core::SavedBackboneNode> nodes_before = state.view().backbone().nodes;
+  const std::vector<wire::core::SavedBackboneEdge> edges_before = state.view().backbone().edges;
+  const std::vector<wire::core::SavedBackboneEdgeBundle> edge_bundles_before =
+      state.view().backbone().edge_bundles;
+  const std::vector<wire::core::ObjectId> retired_spans = span_ids_for_lane(state, 1);
+  const std::vector<wire::core::ObjectId> retired_ports = port_ids_for_lane(state, 1);
+  const std::size_t span_count_before = state.view().spans().size();
+  if (retired_spans.size() != 1 || retired_ports.size() != 2) {
+    return false;
+  }
+
+  const bool updated = update_low_voltage_count_to_one(state);
+  if (!updated || state.view().spans().size() != span_count_before - 1 ||
+      !same_saved_nodes(state.view().backbone().nodes, nodes_before) ||
+      !same_saved_edges(state.view().backbone().edges, edges_before) ||
+      state.view().backbone().edge_bundles.size() != edge_bundles_before.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < edge_bundles_before.size(); ++i) {
+    const auto& after = state.view().backbone().edge_bundles[i];
+    const auto& before = edge_bundles_before[i];
+    if (after.edge_bundle_id != before.edge_bundle_id || after.edge_id != before.edge_id ||
+        after.bundle_id != before.bundle_id || after.edge_forward != before.edge_forward ||
+        after.route != before.route || after.order != before.order || !same_vec3(after.dir, before.dir)) {
+      return false;
+    }
+  }
+  for (wire::core::ObjectId span_id : retired_spans) {
+    if (state.view().spans().find(span_id) != nullptr || state.find_curve_cache(span_id) != nullptr ||
+        state.find_span_visual_cache(span_id) != nullptr || state.find_span_render_cache(span_id) != nullptr) {
+      return false;
+    }
+  }
+  for (wire::core::ObjectId port_id : retired_ports) {
+    if (state.view().ports().find(port_id) != nullptr) {
+      return false;
+    }
+  }
+  if (!no_binding_references(state, retired_spans, retired_ports)) {
+    return false;
+  }
+
+  wire::core::CoreState fresh;
+  const auto fresh_generated = fresh.GenerateFromBackboneSpec(line_req(fresh));
+  return fresh_generated.ok && fresh_generated.value.generated_span_ids.size() == 1 &&
+         same_span_curve_signatures(span_curve_signatures(state), span_curve_signatures(fresh));
+}
+
+bool C699_backbone_regenerate_fixed_count_decrease_preserves_lateral_offset() {
+  wire::core::CoreState state;
+  if (!set_low_voltage_count_before_generation(state, 2)) {
+    return false;
+  }
+  wire::core::BackboneSpec req = line_req(state);
+  req.constraints.lateral_offset_m = 1.0;
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  if (!generated.ok || generated.value.generated_span_ids.size() != 2) {
+    return false;
+  }
+  if (!update_low_voltage_count_to_one(state)) {
+    return false;
+  }
+
+  wire::core::CoreState fresh;
+  wire::core::BackboneSpec fresh_req = line_req(fresh);
+  fresh_req.constraints.lateral_offset_m = 1.0;
+  const auto fresh_generated = fresh.GenerateFromBackboneSpec(fresh_req);
+  wire::core::CoreState fresh_default;
+  const auto fresh_default_generated = fresh_default.GenerateFromBackboneSpec(line_req(fresh_default));
+  return fresh_generated.ok && fresh_generated.value.generated_span_ids.size() == 1 &&
+         fresh_default_generated.ok && fresh_default_generated.value.generated_span_ids.size() == 1 &&
+         state.view().backbone().edges.size() == 1 &&
+         almost_equal(state.view().backbone().edges.front().lateral_offset_m, 1.0, 1e-12) &&
+         !same_span_curve_signatures(span_curve_signatures(state), span_curve_signatures(fresh_default)) &&
+         same_span_curve_signatures(span_curve_signatures(state), span_curve_signatures(fresh));
+}
+
+bool C700_backbone_regenerate_fixed_count_decrease_rejects_retired_attachment() {
+  wire::core::CoreState state;
+  if (!set_low_voltage_count_before_generation(state, 2)) {
+    return false;
+  }
+  const auto generated = state.GenerateFromBackboneSpec(line_req(state));
+  const std::vector<wire::core::ObjectId> retired_spans = span_ids_for_lane(state, 1);
+  if (!generated.ok || retired_spans.size() != 1) {
+    return false;
+  }
+  const auto attachment = state.AddAttachment(retired_spans.front(), 0.5);
+  if (!attachment.ok) {
+    return false;
+  }
+  const CountSnapshot before = count_snapshot(state);
+  std::string error{};
+  const bool updated = update_low_voltage_count_to_one(state, &error);
+  return !updated && contains_text(error, "attachments") && same_counts(before, count_snapshot(state));
+}
+
+bool C701_backbone_regenerate_source_does_not_infer_topology_from_outputs() {
+  std::string source{};
+  if (!file_text(repo_root() / "core/src/generation/backbone/regenerate.cpp", &source)) {
+    return false;
+  }
+  return source.find("build_prepared_migration") != std::string::npos &&
+         source.find("span_layout(") == std::string::npos &&
+         source.find("find_curve_cache") == std::string::npos &&
+         source.find("find_span_visual_cache") == std::string::npos &&
+         source.find("find_span_render_cache") == std::string::npos &&
+         source.find("world_position") == std::string::npos;
 }
 
 bool C676_backbone_noop_move_preserves_port_positions_exactly() {

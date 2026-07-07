@@ -168,6 +168,10 @@ private:
                                                            const BundleTemplate& previous_template,
                                                            const BundleTemplate& next_template,
                                                            ChangeSet* change_set);
+  EditResult<bool> regenerate_backbone_edge_bundles(BundleKind bundle_template_id,
+                                                    const BundleTemplate& previous_template,
+                                                    const BundleTemplate& next_template,
+                                                    ChangeSet* change_set);
   void cache_span_rules(const SpanLayoutRules& rules);
   void remove_span_from_caches(ObjectId span_id);
   [[nodiscard]] double effective_pole_yaw_deg(const Pole& pole) const;

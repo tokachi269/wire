@@ -909,6 +909,21 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C673_backbone_bundle_count_migration_rejects_user_attachments",
                          "backbone bundle count migration rejects user attachments before mutation",
                          "Boundary", false, C673_backbone_bundle_count_migration_rejects_user_attachments);
+  test_registry::AddTest(tests, "C698_backbone_regenerate_fixed_count_decrease_retires_lanes",
+                         "backbone regenerate fixed count decrease retires removed lanes",
+                         "Invariant", false, C698_backbone_regenerate_fixed_count_decrease_retires_lanes);
+  test_registry::AddTest(tests, "C699_backbone_regenerate_fixed_count_decrease_preserves_lateral_offset",
+                         "backbone regenerate fixed count decrease preserves saved lateral offset",
+                         "Invariant", false,
+                         C699_backbone_regenerate_fixed_count_decrease_preserves_lateral_offset);
+  test_registry::AddTest(tests, "C700_backbone_regenerate_fixed_count_decrease_rejects_retired_attachment",
+                         "backbone regenerate fixed count decrease rejects attachments on retired lanes",
+                         "Boundary", false,
+                         C700_backbone_regenerate_fixed_count_decrease_rejects_retired_attachment);
+  test_registry::AddTest(tests, "C701_backbone_regenerate_source_does_not_infer_topology_from_outputs",
+                         "backbone regenerate source does not infer topology from derived outputs",
+                         "Boundary", false,
+                         C701_backbone_regenerate_source_does_not_infer_topology_from_outputs);
   test_registry::AddTest(tests, "C674_backbone_port_band_selection_has_one_owner",
                          "backbone and post-edit port band selection use saved binding or one shared selector",
                          "Boundary", false, C674_backbone_port_band_selection_has_one_owner);

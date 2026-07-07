@@ -190,13 +190,13 @@ public:
   [[nodiscard]] EditResult<bool> prepare();
   [[nodiscard]] EditResult<bool> check() const;
   [[nodiscard]] EditResult<GenerateBundleFromPathResult> build();
-  [[nodiscard]] EditResult<GenerateBundleFromPathResult> build_prepared_regenerate(
+  [[nodiscard]] EditResult<GenerateBundleFromPathResult> build_prepared_migration(
       graph made, std::vector<std::size_t> active_bundle_indices);
 
 private:
   enum class build_mode {
     generation,
-    regenerate,
+    migration,
   };
 
   [[nodiscard]] EditResult<pairs> make(const graph& made) const;

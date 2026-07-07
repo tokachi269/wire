@@ -526,10 +526,10 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
   normalized.version += 1;
   const BundleTemplate previous = it->second;
   if (topology_change && fixed_count_increase_only) {
-    auto regenerated = state.regenerate_backbone_bundle_count_change(normalized.id, previous, normalized,
-                                                                     &result.change_set);
-    if (!regenerated.ok) {
-      result.error = regenerated.error;
+    auto migrated = state.migrate_backbone_bundle_fixed_count_increase(normalized.id, previous, normalized,
+                                                                       &result.change_set);
+    if (!migrated.ok) {
+      result.error = migrated.error;
       return result;
     }
   }

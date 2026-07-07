@@ -718,7 +718,7 @@ bool C628_backbone_active_pole_type_update_repositions_or_rejects_structure() {
          almost_equal(port_a_after_reject->world_position, port_a_before_reject, 1e-12);
 }
 
-bool C660_backbone_bundle_count_regenerate_updates_downstream_only() {
+bool C660_backbone_bundle_fixed_count_migration_updates_downstream_only() {
   wire::core::CoreState state;
   const auto generated = state.GenerateFromBackboneSpec(line_req(state));
   if (!generated.ok || generated.value.generated_span_ids.size() != 1) {
@@ -788,7 +788,7 @@ bool C660_backbone_bundle_count_regenerate_updates_downstream_only() {
   return same_span_curve_signatures(span_curve_signatures(state), span_curve_signatures(fresh));
 }
 
-bool C668_backbone_bundle_count_regenerate_rejects_unreconstructable_lateral_offset() {
+bool C668_backbone_bundle_count_migration_rejects_unreconstructable_lateral_offset() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   req.constraints.lateral_offset_m = 0.35;
@@ -803,7 +803,7 @@ bool C668_backbone_bundle_count_regenerate_rejects_unreconstructable_lateral_off
          same_counts(before, count_snapshot(state));
 }
 
-bool C669_backbone_bundle_count_regenerate_rejects_multi_bundle_group_offset() {
+bool C669_backbone_bundle_count_migration_rejects_multi_bundle_group_offset() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);
   add_backbone_bundle(req, wire::core::BundleKind::kCommunication);
@@ -818,7 +818,7 @@ bool C669_backbone_bundle_count_regenerate_rejects_multi_bundle_group_offset() {
          same_counts(before, count_snapshot(state));
 }
 
-bool C670_backbone_bundle_count_regenerate_rejects_pair_rows() {
+bool C670_backbone_bundle_count_migration_rejects_pair_rows() {
   wire::core::CoreState state;
   const auto generated = state.GenerateFromBackboneSpec(poly3_req(state));
   if (!generated.ok || generated.value.generated_span_ids.size() < 2) {
@@ -831,18 +831,22 @@ bool C670_backbone_bundle_count_regenerate_rejects_pair_rows() {
 }
 
 
-bool C671_backbone_bundle_count_regenerate_reuses_pipeline_stages() {
-  std::string source{};
-  if (!file_text(repo_root() / "core/src/generation/backbone/regenerate.cpp", &source)) {
+bool C671_backbone_bundle_count_migration_reuses_pipeline_stages() {
+  if (std::filesystem::exists(repo_root() / "core/src/generation/backbone/regenerate.cpp")) {
     return false;
   }
-  return source.find("build_prepared_regenerate") != std::string::npos &&
+  std::string source{};
+  if (!file_text(repo_root() / "core/src/generation/backbone/bundle_count_migration.cpp", &source)) {
+    return false;
+  }
+  return source.find("build_prepared_migration") != std::string::npos &&
+         source.find("regenerate_backbone") == std::string::npos &&
          source.find("AddPort(") == std::string::npos && source.find("AddSpan(") == std::string::npos &&
          source.find("SpanLayoutRule") == std::string::npos && source.find("save_backbone_node") == std::string::npos &&
          source.find("save_backbone_edge") == std::string::npos;
 }
 
-bool C672_backbone_bundle_count_regenerate_rejects_manual_ports() {
+bool C672_backbone_bundle_count_migration_rejects_manual_ports() {
   wire::core::CoreState state;
   const auto generated = state.GenerateFromBackboneSpec(line_req(state));
   if (!generated.ok || generated.value.generated_span_ids.empty()) {
@@ -867,7 +871,7 @@ bool C672_backbone_bundle_count_regenerate_rejects_manual_ports() {
   return !updated && contains_text(error, "manual ports") && same_counts(before, count_snapshot(state));
 }
 
-bool C673_backbone_bundle_count_regenerate_rejects_user_attachments() {
+bool C673_backbone_bundle_count_migration_rejects_user_attachments() {
   wire::core::CoreState state;
   const auto generated = state.GenerateFromBackboneSpec(line_req(state));
   if (!generated.ok || generated.value.generated_span_ids.empty()) {

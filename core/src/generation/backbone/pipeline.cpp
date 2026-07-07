@@ -106,13 +106,13 @@ EditResult<GenerateBundleFromPathResult> pipeline::build() {
   return out;
 }
 
-EditResult<GenerateBundleFromPathResult> pipeline::build_prepared_regenerate(
+EditResult<GenerateBundleFromPathResult> pipeline::build_prepared_migration(
     graph made_graph, std::vector<std::size_t> active_bundle_indices) {
   EditResult<GenerateBundleFromPathResult> out{};
   g_ = std::move(made_graph);
   active_bundle_indices_ = std::move(active_bundle_indices);
   local_by_input_.clear();
-  mode_ = build_mode::regenerate;
+  mode_ = build_mode::migration;
   ready_ = true;
 
   EditResult<pairs> ps = make(g_);
@@ -1617,7 +1617,8 @@ EditResult<bool> pipeline::check(const pairs& ps) const {
       if (spec_index >= spec_.bundles.size()) {
         return unsupported("active bundle index is invalid");
       }
-      EditResult<spec_view> v = view_for(state_, spec_.bundles[spec_index]);
+      const BackboneBundleSpec& bundle_spec = spec_.bundles[spec_index];
+      EditResult<spec_view> v = view_for(state_, bundle_spec);
       if (!v.ok) {
         EditResult<bool> failed{};
         failed.error = v.error;
@@ -1691,7 +1692,9 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
       out.error = "backbone unsupported: active bundle index is invalid";
       return out;
     }
-    const EditResult<spec_view> v = view_for(state_, spec_.bundles[spec_index]);
+    const BackboneBundleSpec& bundle_spec = spec_.bundles[spec_index];
+    const EditResult<spec_view> v =
+        view_for(state_, bundle_spec);
     if (!v.ok || v.value.tmpl == nullptr) {
       out.error = v.ok ? "backbone unsupported: bundle template not found" : v.error;
       return out;
@@ -2102,7 +2105,8 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
         return out;
       }
       const std::size_t spec_index = made->bundle_specs[bundle_index];
-      EditResult<spec_view> v = view_for(state_, spec_.bundles[spec_index]);
+      const BackboneBundleSpec& bundle_spec = spec_.bundles[spec_index];
+      EditResult<spec_view> v = view_for(state_, bundle_spec);
       if (!v.ok) {
         out.error = v.error;
         return out;
@@ -2155,7 +2159,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
           return out;
         }
         if (resolved.value != kInvalidObjectId) {
-          if (mode_ == build_mode::regenerate) {
+          if (mode_ == build_mode::migration) {
             Port* existing_port = state_.edit_state_access().ports.find(resolved.value);
             if (existing_port == nullptr) {
               out.error = "backbone topology: resolved port missing";
@@ -2206,7 +2210,8 @@ EditResult<bool> pipeline::emit_spans(topo* made, const pairs& ps, ChangeSet* ch
         out.error = "backbone topology: bundle spec missing";
         return out;
       }
-      EditResult<spec_view> v = view_for(state_, spec_.bundles[made->bundle_specs[bundle_index]]);
+      const BackboneBundleSpec& bundle_spec = spec_.bundles[made->bundle_specs[bundle_index]];
+      EditResult<spec_view> v = view_for(state_, bundle_spec);
       if (!v.ok) {
         out.error = v.error;
         return out;

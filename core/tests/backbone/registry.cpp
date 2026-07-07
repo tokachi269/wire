@@ -715,7 +715,7 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "backbone update planning uses the four coarse update kinds", "Boundary", false,
                          C614_backbone_update_plan_uses_coarse_kinds);
   test_registry::AddTest(tests, "C615_backbone_regenerate_plan_is_not_local_fallback",
-                         "backbone regenerate update plans do not run a local fallback", "Boundary", true,
+                         "backbone migration update plans do not run a local fallback", "Boundary", true,
                          C615_backbone_regenerate_plan_is_not_local_fallback);
   test_registry::AddTest(tests, "C616_backbone_reposition_keeps_saved_graph_identity",
                          "backbone reposition updates keep saved graph identity", "Boundary", false,
@@ -862,10 +862,10 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C696_cable_run_id_is_visual_derived_only",
                          "cable run id is derived in curve parts and not stored in authoritative backbone state",
                          "Boundary", false, C696_cable_run_id_is_visual_derived_only);
-  test_registry::AddTest(tests, "C660_backbone_bundle_count_regenerate_updates_downstream_only",
-                         "backbone route-local regenerate updates bundle count downstream without graph identity changes",
+  test_registry::AddTest(tests, "C660_backbone_bundle_fixed_count_migration_updates_downstream_only",
+                         "backbone bundle fixed count migration updates downstream without graph identity changes",
                          "Boundary", false,
-                         C660_backbone_bundle_count_regenerate_updates_downstream_only);
+                         C660_backbone_bundle_fixed_count_migration_updates_downstream_only);
   test_registry::AddTest(tests, "C661_backbone_pair_row_axis_uses_unit_tangent_bisector",
                          "backbone pair row axis uses unit tangent bisector instead of chord length",
                          "Invariant", false, C661_backbone_pair_row_axis_uses_unit_tangent_bisector);
@@ -887,25 +887,25 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C667_backbone_branch_preserves_through_patch",
                          "backbone branch addition preserves the connectivity-owned through patch",
                          "Boundary", false, C667_backbone_branch_preserves_through_patch);
-  test_registry::AddTest(tests, "C668_backbone_bundle_count_regenerate_rejects_unreconstructable_lateral_offset",
-                         "backbone bundle count regenerate rejects saved spans whose port placement cannot be reconstructed",
+  test_registry::AddTest(tests, "C668_backbone_bundle_count_migration_rejects_unreconstructable_lateral_offset",
+                         "backbone bundle count migration rejects saved spans whose port placement cannot be reconstructed",
                          "Boundary", false,
-                         C668_backbone_bundle_count_regenerate_rejects_unreconstructable_lateral_offset);
-  test_registry::AddTest(tests, "C669_backbone_bundle_count_regenerate_rejects_multi_bundle_group_offset",
-                         "backbone bundle count regenerate rejects multi-bundle group offsets before mutation",
-                         "Boundary", false, C669_backbone_bundle_count_regenerate_rejects_multi_bundle_group_offset);
-  test_registry::AddTest(tests, "C670_backbone_bundle_count_regenerate_rejects_pair_rows",
-                         "backbone bundle count regenerate rejects pair rows before mutation",
-                         "Boundary", false, C670_backbone_bundle_count_regenerate_rejects_pair_rows);
-  test_registry::AddTest(tests, "C671_backbone_bundle_count_regenerate_reuses_pipeline_stages",
-                         "backbone bundle count regenerate reuses pipeline stages instead of local emit copies",
-                         "Boundary", false, C671_backbone_bundle_count_regenerate_reuses_pipeline_stages);
-  test_registry::AddTest(tests, "C672_backbone_bundle_count_regenerate_rejects_manual_ports",
-                         "backbone bundle count regenerate rejects manual ports before mutation",
-                         "Boundary", false, C672_backbone_bundle_count_regenerate_rejects_manual_ports);
-  test_registry::AddTest(tests, "C673_backbone_bundle_count_regenerate_rejects_user_attachments",
-                         "backbone bundle count regenerate rejects user attachments before mutation",
-                         "Boundary", false, C673_backbone_bundle_count_regenerate_rejects_user_attachments);
+                         C668_backbone_bundle_count_migration_rejects_unreconstructable_lateral_offset);
+  test_registry::AddTest(tests, "C669_backbone_bundle_count_migration_rejects_multi_bundle_group_offset",
+                         "backbone bundle count migration rejects multi-bundle group offsets before mutation",
+                         "Boundary", false, C669_backbone_bundle_count_migration_rejects_multi_bundle_group_offset);
+  test_registry::AddTest(tests, "C670_backbone_bundle_count_migration_rejects_pair_rows",
+                         "backbone bundle count migration rejects pair rows before mutation",
+                         "Boundary", false, C670_backbone_bundle_count_migration_rejects_pair_rows);
+  test_registry::AddTest(tests, "C671_backbone_bundle_count_migration_reuses_pipeline_stages",
+                         "backbone bundle count migration reuses pipeline stages instead of local emit copies",
+                         "Boundary", false, C671_backbone_bundle_count_migration_reuses_pipeline_stages);
+  test_registry::AddTest(tests, "C672_backbone_bundle_count_migration_rejects_manual_ports",
+                         "backbone bundle count migration rejects manual ports before mutation",
+                         "Boundary", false, C672_backbone_bundle_count_migration_rejects_manual_ports);
+  test_registry::AddTest(tests, "C673_backbone_bundle_count_migration_rejects_user_attachments",
+                         "backbone bundle count migration rejects user attachments before mutation",
+                         "Boundary", false, C673_backbone_bundle_count_migration_rejects_user_attachments);
   test_registry::AddTest(tests, "C674_backbone_port_band_selection_has_one_owner",
                          "backbone and post-edit port band selection use saved binding or one shared selector",
                          "Boundary", false, C674_backbone_port_band_selection_has_one_owner);

@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import type { PathPickInfo, SupportNodeInfo } from "../model";
 import type { ViewerSnapshot, ViewerStore } from "../store/viewer";
 import type { WorldPoint } from "../store/viewer";
 
@@ -15,6 +16,7 @@ function colorFromRgba(rgba: number): { color: THREE.Color; opacity: number } {
 const POLE_TOP_DIAMETER_M = 0.190;
 const POLE_TAPER_RATIO = 75;
 const POLE_RENDER_SIDES = 16;
+const BACKBONE_DISPLAY_PLANE_Z = 0.0;
 
 class SampledWireCurve extends THREE.Curve<THREE.Vector3> {
   private readonly lengths: number[] = [0];
@@ -54,6 +56,7 @@ export class WireScene {
   private readonly renderer = new THREE.WebGLRenderer({ antialias: true });
   private readonly cameraTarget = new THREE.Vector3(16, 0, 5);
   private readonly content = new THREE.Group();
+  private readonly backbone = new THREE.Group();
   private readonly guide = new THREE.Group();
   private readonly unsubscribe: () => void;
   private frame = 0;
@@ -64,11 +67,12 @@ export class WireScene {
 
   constructor(
     private readonly store: ViewerStore,
-    private readonly onGroundClick: (point: WorldPoint) => void,
+    private readonly onGroundClick: (point: WorldPoint, pick?: PathPickInfo) => void,
     private readonly onUndoPathPoint: () => void,
     private readonly onFrame: (deltaMs: number) => void
   ) {
     this.scene.background = new THREE.Color(0xc8d6e4);
+    this.scene.add(this.backbone);
     this.scene.add(this.content);
     this.scene.add(this.guide);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -262,7 +266,13 @@ export class WireScene {
       -((event.clientY - bounds.top) / bounds.height) * 2 + 1
     );
     const ray = new THREE.Raycaster();
+    ray.params.Line = { threshold: 0.35 };
     ray.setFromCamera(pointer, this.camera);
+    const backboneHit = this.pickBackbonePoint(ray);
+    if (backboneHit !== null) {
+      this.onGroundClick(backboneHit.point, backboneHit.pick);
+      return;
+    }
     const hit = new THREE.Vector3();
     const planeZ = this.snapshot?.drawPlaneZ ?? 0;
     if (!ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), -planeZ), hit)) {
@@ -274,6 +284,85 @@ export class WireScene {
       return;
     }
     this.onGroundClick([hit.x, hit.y, hit.z]);
+  }
+
+  private pickBackbonePoint(ray: THREE.Raycaster): { point: WorldPoint; pick: PathPickInfo } | null {
+    if (this.snapshot?.showBackboneOverlay !== true) return null;
+    const hits = ray.intersectObjects(this.backbone.children, true)
+      .filter((hit) => hit.object.userData.pickableBackbone);
+    const hit = hits[0];
+    if (hit === undefined) return null;
+    const data = hit.object.userData;
+    let point: WorldPoint = [hit.point.x, hit.point.y, BACKBONE_DISPLAY_PLANE_Z];
+    const defaultPick = {
+      hitKind: 0,
+      hitId: "0",
+      hitX: point[0],
+      hitY: point[1],
+      hitZ: point[2],
+      hasSegmentEndpoints: false,
+      segmentNodeAId: "0",
+      segmentNodeBId: "0",
+      segmentEndpointAX: 0,
+      segmentEndpointAY: 0,
+      segmentEndpointAZ: 0,
+      segmentEndpointBX: 0,
+      segmentEndpointBY: 0,
+      segmentEndpointBZ: 0
+    };
+    if (data.pickKind === "node") {
+      return {
+        point,
+        pick: {
+          ...defaultPick,
+          hitKind: 1,
+          hitId: data.hitId ?? "0"
+        }
+      };
+    }
+    if (data.pickKind === "edge") {
+      const endpointA = data.endpointA as WorldPoint;
+      const endpointB = data.endpointB as WorldPoint;
+      point = this.closestBackbonePointXY(point, endpointA, endpointB);
+      return {
+        point,
+        pick: {
+          ...defaultPick,
+          hitKind: 2,
+          hitX: point[0],
+          hitY: point[1],
+          hitZ: point[2],
+          hasSegmentEndpoints: true,
+          segmentNodeAId: data.nodeAId ?? "0",
+          segmentNodeBId: data.nodeBId ?? "0",
+          segmentEndpointAX: endpointA[0],
+          segmentEndpointAY: endpointA[1],
+          segmentEndpointAZ: endpointA[2],
+          segmentEndpointBX: endpointB[0],
+          segmentEndpointBY: endpointB[1],
+          segmentEndpointBZ: endpointB[2]
+        }
+      };
+    }
+    return null;
+  }
+
+  private closestBackbonePointXY(point: WorldPoint, endpointA: WorldPoint, endpointB: WorldPoint): WorldPoint {
+    const dx = endpointB[0] - endpointA[0];
+    const dy = endpointB[1] - endpointA[1];
+    const length2 = dx * dx + dy * dy;
+    const t = length2 > 0
+      ? THREE.MathUtils.clamp(
+          ((point[0] - endpointA[0]) * dx + (point[1] - endpointA[1]) * dy) / length2,
+          0,
+          1
+        )
+      : 0;
+    return [
+      endpointA[0] + dx * t,
+      endpointA[1] + dy * t,
+      BACKBONE_DISPLAY_PLANE_Z
+    ];
   }
 
   private animate = (time: number): void => {
@@ -318,8 +407,10 @@ export class WireScene {
     this.snapshot = snapshot;
     this.camera.fov = snapshot.cameraFov;
     this.camera.updateProjectionMatrix();
-    this.content.visible = snapshot.showBackboneOverlay;
+    this.content.visible = true;
+    this.backbone.visible = snapshot.showBackboneOverlay;
     this.guide.visible = snapshot.showPreview;
+    this.disposeGroup(this.backbone);
     this.disposeGroup(this.content);
     this.disposeGroup(this.guide);
 
@@ -351,6 +442,8 @@ export class WireScene {
       mesh.receiveShadow = true;
       this.content.add(mesh);
     }
+
+    this.buildBackboneOverlay(snapshot);
 
     for (const pole of snapshot.poles) {
       const topRadius = POLE_TOP_DIAMETER_M / 2;
@@ -395,6 +488,61 @@ export class WireScene {
         marker.position.copy(point);
         this.guide.add(marker);
       }
+    }
+  }
+
+  private buildBackboneOverlay(snapshot: ViewerSnapshot): void {
+    const nodeById = new Map<string, SupportNodeInfo>();
+    for (const node of snapshot.supportNodes) {
+      nodeById.set(node.id, node);
+    }
+    const lineMaterial = new THREE.LineBasicMaterial({
+      color: 0x1f6f88,
+      transparent: true,
+      opacity: 0.9,
+      depthTest: false,
+      depthWrite: false
+    });
+    const nodeMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffc247,
+      depthTest: false,
+      depthWrite: false
+    });
+    for (const edge of snapshot.backboneEdges) {
+      const nodeA = nodeById.get(edge.nodeAId);
+      const nodeB = nodeById.get(edge.nodeBId);
+      if (nodeA === undefined || nodeB === undefined) continue;
+      const endpointA: WorldPoint = [nodeA.x, nodeA.y, BACKBONE_DISPLAY_PLANE_Z];
+      const endpointB: WorldPoint = [nodeB.x, nodeB.y, BACKBONE_DISPLAY_PLANE_Z];
+      const geometry = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(...endpointA),
+        new THREE.Vector3(...endpointB)
+      ]);
+      const line = new THREE.Line(geometry, lineMaterial.clone());
+      line.renderOrder = 20;
+      line.userData = {
+        pickableBackbone: true,
+        pickKind: "edge",
+        nodeAId: edge.nodeAId,
+        nodeBId: edge.nodeBId,
+        endpointA,
+        endpointB
+      };
+      this.backbone.add(line);
+    }
+    for (const node of snapshot.supportNodes) {
+      const marker = new THREE.Mesh(
+        new THREE.SphereGeometry(0.14, 10, 8),
+        nodeMaterial.clone()
+      );
+      marker.position.set(node.x, node.y, BACKBONE_DISPLAY_PLANE_Z);
+      marker.renderOrder = 21;
+      marker.userData = {
+        pickableBackbone: true,
+        pickKind: "node",
+        hitId: node.kind === 0 && node.poleId !== "0" ? node.poleId : node.id
+      };
+      this.backbone.add(marker);
     }
   }
 

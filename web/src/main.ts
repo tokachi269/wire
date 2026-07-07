@@ -17,7 +17,7 @@ const actions = new ViewerActions(bridge, store);
 actions.initialize();
 const scene = new WireScene(
   store,
-  (point) => actions.addPathPoint(point),
+  (point, pick) => actions.addPathPoint(point, pick),
   () => actions.undoPathPoint(),
   (deltaMs) => actions.recordFrame(deltaMs)
 );

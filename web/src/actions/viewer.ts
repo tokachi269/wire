@@ -5,10 +5,12 @@ import type {
   GeometrySettings,
   LayoutSettings,
   OperationResult,
+  PathPickInfo,
   PoleTemplateInfo,
   VisualSettings
 } from "../model";
 import type {
+  PathPointSpec,
   SelectionKind,
   ViewerSnapshot,
   ViewerStore,
@@ -229,33 +231,57 @@ export class ViewerActions {
     }));
   }
 
-  addPathPoint(point: WorldPoint): void {
+  addPathPoint(point: WorldPoint, pick?: PathPickInfo): void {
+    let nextPoint = point;
+    let nextSpec: PathPointSpec | null = null;
+    if (pick !== undefined) {
+      const before = this.readSnapshot();
+      const resolved = this.bridge.resolveBranchPick(pick, before.selectedDrawBundleTemplateIds);
+      if (!resolved.ok) {
+        this.store.setError(resolved.error);
+        return;
+      }
+      nextPoint = [resolved.positionX, resolved.positionY, resolved.positionZ];
+      nextSpec = {
+        supportKind: resolved.supportKind,
+        nodeId: resolved.nodeId
+      };
+    }
     this.store.update((current) => {
+      const anchoredIndex = current.pathPointSpecs.findIndex((spec) => spec !== null);
+      const anchoredZ = anchoredIndex >= 0
+        ? current.pathPoints[anchoredIndex]?.[2]
+        : undefined;
+      const appendPoint: WorldPoint = pick === undefined && anchoredZ !== undefined
+        ? [nextPoint[0], nextPoint[1], anchoredZ]
+        : nextPoint;
       const previous = current.pathPoints.at(-1);
       if (previous !== undefined) {
-        const dx = point[0] - previous[0];
-        const dy = point[1] - previous[1];
-        const dz = point[2] - previous[2];
+        const dx = appendPoint[0] - previous[0];
+        const dy = appendPoint[1] - previous[1];
+        const dz = appendPoint[2] - previous[2];
         if (dx * dx + dy * dy + dz * dz <= 1e-18) {
           return current;
         }
       }
       return {
         ...current,
-        pathPoints: [...current.pathPoints, point],
+        pathPoints: [...current.pathPoints, appendPoint],
+        pathPointSpecs: [...current.pathPointSpecs, nextSpec],
         error: ""
       };
     });
   }
 
   clearPath(): void {
-    this.store.update((current) => ({ ...current, pathPoints: [], error: "" }));
+    this.store.update((current) => ({ ...current, pathPoints: [], pathPointSpecs: [], error: "" }));
   }
 
   undoPathPoint(): void {
     this.store.update((current) => ({
       ...current,
       pathPoints: current.pathPoints.slice(0, -1),
+      pathPointSpecs: current.pathPointSpecs.slice(0, -1),
       error: ""
     }));
   }
@@ -725,6 +751,13 @@ export class ViewerActions {
     }
     const flatPoints = new Float64Array(points.length * 3);
     points.forEach((point, index) => flatPoints.set(point, index * 3));
+    const nodeSpecs = before.pathPointSpecs
+      .map((spec, index) => spec === null ? null : {
+        pointIndex: index,
+        supportKind: spec.supportKind,
+        nodeId: spec.nodeId
+      })
+      .filter((spec): spec is { pointIndex: number; supportKind: number; nodeId: string } => spec !== null);
     const result = this.bridge.generate(
       flatPoints,
       selectedTemplates.map((template) => template!.id),
@@ -736,7 +769,8 @@ export class ViewerActions {
           : before.drawBundleCounts[template!.id] ?? template!.defaultCount
       ),
       before.directionMode,
-      before.maxTiltDeg
+      before.maxTiltDeg,
+      nodeSpecs
     );
     if (!result.ok) {
       this.store.setError(result.error);
@@ -751,9 +785,11 @@ export class ViewerActions {
       ports: scene.ports,
       spans: scene.spans,
       supportNodes: scene.supportNodes,
+      backboneEdges: scene.backboneEdges,
       error: "",
       generationMs: result.totalMs,
       pathPoints: before.keepPathAfterGenerate ? points : [],
+      pathPointSpecs: before.keepPathAfterGenerate ? before.pathPointSpecs : [],
       showBackboneOverlay: true,
       bundleTemplates,
       selectedDrawBundleTemplateIds: selectedBundleTemplateIds
@@ -932,7 +968,8 @@ export class ViewerActions {
       poles: scene.poles,
       ports: scene.ports,
       spans: scene.spans,
-      supportNodes: scene.supportNodes
+      supportNodes: scene.supportNodes,
+      backboneEdges: scene.backboneEdges
     }));
   }
 

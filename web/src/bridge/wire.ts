@@ -4,15 +4,18 @@ import {
   type WireStateHandle
 } from "./wasm";
 import type {
+  BackboneEdgeInfo,
   BundleTemplateInfo,
   CableTemplateInfo,
   EditResult,
   GeometrySettings,
   LayoutSettings,
   OperationResult,
+  PathPickInfo,
   PoleInfo,
   PoleTemplateInfo,
   PortInfo,
+  ResolvedPathPointInfo,
   SpanInfo,
   SupportNodeInfo,
   VisualPartInfo,
@@ -30,6 +33,7 @@ export interface SceneData {
   ports: PortInfo[];
   spans: SpanInfo[];
   supportNodes: SupportNodeInfo[];
+  backboneEdges: BackboneEdgeInfo[];
 }
 
 export class WireBridge {
@@ -47,7 +51,8 @@ export class WireBridge {
     poleTypeId = 1,
     counts: number[] = [0],
     directionMode = 0,
-    maxTiltDeg = 0
+    maxTiltDeg = 0,
+    nodeSpecs: Array<{ pointIndex: number; supportKind: number; nodeId: string }> = []
   ): EditResult {
     return this.state.generate(
       points,
@@ -56,8 +61,16 @@ export class WireBridge {
       poleTypeId,
       counts,
       directionMode,
-      maxTiltDeg
+      maxTiltDeg,
+      nodeSpecs
     );
+  }
+
+  resolveBranchPick(
+    input: PathPickInfo,
+    selectedBundleTemplateIds: number[]
+  ): ResolvedPathPointInfo {
+    return this.state.resolveBranchPick(input, selectedBundleTemplateIds);
   }
 
   bundleTemplates(): BundleTemplateInfo[] {
@@ -160,7 +173,11 @@ export class WireBridge {
     for (let index = 0; index < this.state.supportNodeCount(); index += 1) {
       supportNodes.push(this.state.supportNode(index));
     }
-    return { parts, poles, ports, spans, supportNodes };
+    const backboneEdges: BackboneEdgeInfo[] = [];
+    for (let index = 0; index < this.state.backboneEdgeCount(); index += 1) {
+      backboneEdges.push(this.state.backboneEdge(index));
+    }
+    return { parts, poles, ports, spans, supportNodes, backboneEdges };
   }
 
   clearPoleOrientationOverride(poleId: string): OperationResult {

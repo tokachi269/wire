@@ -1,13 +1,16 @@
 import type {
   BundleTemplateInfo,
   CableTemplateInfo,
+  BackboneEdgeInfo,
   EditResult,
   GeometrySettings,
   LayoutSettings,
   OperationResult,
+  PathPickInfo,
   PoleInfo,
   PoleTemplateInfo,
   PortInfo,
+  ResolvedPathPointInfo,
   SpanInfo,
   SupportNodeInfo,
   VisualPartInfo,
@@ -26,8 +29,13 @@ export interface WireStateHandle {
     poleTypeId: number,
     counts: number[],
     directionMode: number,
-    maxTiltDeg: number
+    maxTiltDeg: number,
+    nodeSpecs?: Array<{ pointIndex: number; supportKind: number; nodeId: string }>
   ): EditResult;
+  resolveBranchPick(
+    input: PathPickInfo,
+    selectedBundleTemplateIds: number[]
+  ): ResolvedPathPointInfo;
   visualPartCount(): number;
   visualPart(index: number): VisualPartInfo;
   visualPartSamples(index: number): Float64Array;
@@ -39,6 +47,8 @@ export interface WireStateHandle {
   span(index: number): SpanInfo;
   supportNodeCount(): number;
   supportNode(index: number): SupportNodeInfo;
+  backboneEdgeCount(): number;
+  backboneEdge(index: number): BackboneEdgeInfo;
   clearPoleOrientationOverride(poleId: string): OperationResult;
   clearSpanSocketOverride(spanId: string, isStartEndpoint: boolean): OperationResult;
   clearSpanBranchDownOverride(spanId: string): OperationResult;

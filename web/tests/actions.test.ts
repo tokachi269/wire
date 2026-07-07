@@ -44,7 +44,8 @@ describe("viewer actions", () => {
       poles: [],
       ports: [],
       spans: [],
-      supportNodes: []
+      supportNodes: [],
+      backboneEdges: []
     };
     const bridge = {
       bundleTemplates: () => [
@@ -240,7 +241,8 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
     poles: [],
     ports: [],
     spans: [],
-    supportNodes: []
+    supportNodes: [],
+    backboneEdges: []
   };
   return {
     bundleTemplates: () => [bundleTemplate],
@@ -628,7 +630,8 @@ describe("P1 action contracts", () => {
         ],
         ports: [],
         spans: [],
-        supportNodes: []
+        supportNodes: [],
+        backboneEdges: []
       }),
       applyPoleTilt: tilt,
       resetSpanReferenceLengths: reset,
@@ -708,7 +711,8 @@ describe("P1 action contracts", () => {
         poles: [],
         ports: [],
         spans: [],
-        supportNodes: []
+        supportNodes: [],
+        backboneEdges: []
       })
     }), store);
     actions.initialize();

@@ -66,6 +66,39 @@ export interface SupportNodeInfo {
   z: number;
 }
 
+export interface BackboneEdgeInfo {
+  nodeAId: string;
+  nodeBId: string;
+  bundleIds: string[];
+}
+
+export interface PathPickInfo {
+  hitKind: number;
+  hitId: string;
+  hitX: number;
+  hitY: number;
+  hitZ: number;
+  hasSegmentEndpoints: boolean;
+  segmentNodeAId: string;
+  segmentNodeBId: string;
+  segmentEndpointAX: number;
+  segmentEndpointAY: number;
+  segmentEndpointAZ: number;
+  segmentEndpointBX: number;
+  segmentEndpointBY: number;
+  segmentEndpointBZ: number;
+}
+
+export interface ResolvedPathPointInfo {
+  ok: boolean;
+  error: string;
+  positionX: number;
+  positionY: number;
+  positionZ: number;
+  supportKind: number;
+  nodeId: string;
+}
+
 export interface BundleTemplateInfo {
   id: number;
   name: string;

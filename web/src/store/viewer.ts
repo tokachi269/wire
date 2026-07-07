@@ -2,6 +2,7 @@ import { writable, type Readable } from "svelte/store";
 import type {
   BundleTemplateInfo,
   CableTemplateInfo,
+  BackboneEdgeInfo,
   GeometrySettings,
   LayoutSettings,
   PoleInfo,
@@ -21,16 +22,23 @@ export interface VisualPart {
   samples: Float64Array;
 }
 
+export interface PathPointSpec {
+  supportKind: number;
+  nodeId: string;
+}
+
 export interface ViewerSnapshot {
   parts: VisualPart[];
   poles: PoleInfo[];
   ports: PortInfo[];
   spans: SpanInfo[];
   supportNodes: SupportNodeInfo[];
+  backboneEdges: BackboneEdgeInfo[];
   error: string;
   generationMs: number | null;
   sceneUpdateMs: number | null;
   pathPoints: WorldPoint[];
+  pathPointSpecs: Array<PathPointSpec | null>;
   bundleTemplates: BundleTemplateInfo[];
   selectedBundleTemplateId: number | null;
   selectedDrawBundleTemplateIds: number[];
@@ -81,10 +89,12 @@ export function createViewerSnapshot(): ViewerSnapshot {
     ports: [],
     spans: [],
     supportNodes: [],
+    backboneEdges: [],
     error: "",
     generationMs: null,
     sceneUpdateMs: null,
     pathPoints: [],
+    pathPointSpecs: [],
     bundleTemplates: [],
     selectedBundleTemplateId: null,
     selectedDrawBundleTemplateIds: [],

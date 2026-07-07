@@ -16,12 +16,18 @@ namespace {
 
 using emscripten::val;
 using wire::core::BackboneBundleSpec;
+using wire::core::BackboneInputSpec;
 using wire::core::BackboneSpec;
 using wire::core::BundleKind;
 using wire::core::CoreState;
 using wire::core::CoreView;
+using wire::core::ObjectId;
+using wire::core::PickHitKind;
+using wire::core::PickResult;
 using wire::core::PoleTypeId;
+using wire::core::ResolveBranchPickOptions;
 using wire::core::SpanLayer;
+using wire::core::SupportKind;
 using wire::core::Vec3d;
 
 [[nodiscard]] val result_value(bool ok, const std::string& error) {
@@ -65,7 +71,7 @@ public:
   WireState() : state_(std::make_unique<CoreState>()) {}
 
   val generate(const val& flat_points, const val& bundle_template_ids, double interval_m, int pole_type_id,
-               const val& counts, int direction_mode, double max_tilt_deg) {
+               const val& counts, int direction_mode, double max_tilt_deg, const val& node_specs = val::undefined()) {
     const std::size_t value_count = flat_points["length"].as<std::size_t>();
     if (value_count % 3 != 0) {
       return result_value(false, "point array length must be divisible by 3");
@@ -77,6 +83,20 @@ public:
       spec.path.polyline.push_back(
           Vec3d{flat_points[index].as<double>(), flat_points[index + 1].as<double>(),
                 flat_points[index + 2].as<double>()});
+    }
+    if (!node_specs.isUndefined() && !node_specs.isNull()) {
+      const std::size_t node_spec_count = node_specs["length"].as<std::size_t>();
+      for (std::size_t index = 0; index < node_spec_count; ++index) {
+        const val item = node_specs[index];
+        BackboneInputSpec::NodeSpec node_spec{};
+        node_spec.point_index = item["pointIndex"].as<std::size_t>();
+        node_spec.support_kind = static_cast<SupportKind>(item["supportKind"].as<int>());
+        const std::string node_id = item["nodeId"].as<std::string>();
+        if (!node_id.empty() && node_id != "0") {
+          node_spec.node_id = static_cast<ObjectId>(std::stoull(node_id));
+        }
+        spec.path.node_specs.push_back(node_spec);
+      }
     }
     spec.interval_m = interval_m;
     spec.pole_type_id = static_cast<PoleTypeId>(pole_type_id);
@@ -103,6 +123,57 @@ public:
     result.set("generatedSpanCount", generated.value.generated_span_ids.size());
     result.set("totalMs", generated.value.timing.total_ms);
     return result;
+  }
+
+  val resolve_branch_pick(const val& input, const val& selected_bundle_template_ids) {
+    PickResult pick{};
+    pick.hit_kind = static_cast<PickHitKind>(property<int>(input, "hitKind"));
+    const std::string hit_id = property<std::string>(input, "hitId");
+    if (!hit_id.empty() && hit_id != "0") {
+      pick.hit_id = static_cast<ObjectId>(std::stoull(hit_id));
+    }
+    pick.hit_pos_world = Vec3d{
+        property<double>(input, "hitX"),
+        property<double>(input, "hitY"),
+        property<double>(input, "hitZ"),
+    };
+    pick.has_segment_endpoints = property<bool>(input, "hasSegmentEndpoints");
+    const std::string segment_node_a_id = property<std::string>(input, "segmentNodeAId");
+    const std::string segment_node_b_id = property<std::string>(input, "segmentNodeBId");
+    if (!segment_node_a_id.empty() && segment_node_a_id != "0") {
+      pick.segment_node_a_id = static_cast<ObjectId>(std::stoull(segment_node_a_id));
+    }
+    if (!segment_node_b_id.empty() && segment_node_b_id != "0") {
+      pick.segment_node_b_id = static_cast<ObjectId>(std::stoull(segment_node_b_id));
+    }
+    pick.segment_endpoint_a_world = Vec3d{
+        property<double>(input, "segmentEndpointAX"),
+        property<double>(input, "segmentEndpointAY"),
+        property<double>(input, "segmentEndpointAZ"),
+    };
+    pick.segment_endpoint_b_world = Vec3d{
+        property<double>(input, "segmentEndpointBX"),
+        property<double>(input, "segmentEndpointBY"),
+        property<double>(input, "segmentEndpointBZ"),
+    };
+
+    ResolveBranchPickOptions options{};
+    options.create_midair_node = true;
+    options.create_midair_node_set = true;
+    const std::size_t selected_count = selected_bundle_template_ids["length"].as<std::size_t>();
+    options.selected_bundle_template_ids.reserve(selected_count);
+    for (std::size_t index = 0; index < selected_count; ++index) {
+      options.selected_bundle_template_ids.push_back(bundle_kind(selected_bundle_template_ids[index].as<int>()));
+    }
+
+    const auto resolved = state_->ResolveBranchPick(pick, options);
+    val output = result_value(resolved.ok, resolved.error);
+    output.set("positionX", resolved.value.position.x);
+    output.set("positionY", resolved.value.position.y);
+    output.set("positionZ", resolved.value.position.z);
+    output.set("supportKind", static_cast<int>(resolved.value.support_kind));
+    output.set("nodeId", std::to_string(resolved.value.resolved_node_id));
+    return output;
   }
 
   [[nodiscard]] std::size_t visual_part_count() const {
@@ -225,6 +296,27 @@ public:
     output.set("x", node.position.x);
     output.set("y", node.position.y);
     output.set("z", node.position.z);
+    return output;
+  }
+
+  [[nodiscard]] std::size_t backbone_edge_count() {
+    backbone_edges_ = state_->SavedBackboneEdges();
+    return backbone_edges_.size();
+  }
+
+  [[nodiscard]] val backbone_edge(std::size_t index) const {
+    if (index >= backbone_edges_.size()) {
+      throw std::out_of_range("backbone edge index is out of range");
+    }
+    const auto& edge = backbone_edges_[index];
+    val output = val::object();
+    output.set("nodeAId", std::to_string(edge.node_a));
+    output.set("nodeBId", std::to_string(edge.node_b));
+    val bundles = val::array();
+    for (std::size_t bundle_index = 0; bundle_index < edge.bundles.size(); ++bundle_index) {
+      bundles.set(bundle_index, std::to_string(edge.bundles[bundle_index]));
+    }
+    output.set("bundleIds", bundles);
     return output;
   }
 
@@ -671,6 +763,7 @@ private:
   std::unique_ptr<CoreState> state_;
   std::vector<double> sample_buffer_{};
   std::vector<wire::core::SupportNode> support_nodes_{};
+  std::vector<wire::core::BackboneEdge> backbone_edges_{};
 };
 
 } // namespace
@@ -679,6 +772,7 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
   emscripten::class_<WireState>("WireState")
       .constructor<>()
       .function("generate", &WireState::generate)
+      .function("resolveBranchPick", &WireState::resolve_branch_pick)
       .function("visualPartCount", &WireState::visual_part_count)
       .function("visualPart", &WireState::visual_part)
       .function("visualPartSamples", &WireState::visual_part_samples)
@@ -690,6 +784,8 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .function("span", &WireState::span)
       .function("supportNodeCount", &WireState::support_node_count)
       .function("supportNode", &WireState::support_node)
+      .function("backboneEdgeCount", &WireState::backbone_edge_count)
+      .function("backboneEdge", &WireState::backbone_edge)
       .function("clearPoleOrientationOverride", &WireState::clear_pole_orientation_override)
       .function("clearSpanSocketOverride", &WireState::clear_span_socket_override)
       .function("clearSpanBranchDownOverride", &WireState::clear_span_branch_down_override)

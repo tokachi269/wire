@@ -320,6 +320,8 @@ bool C701_backbone_regenerate_source_does_not_infer_topology_from_outputs();
 bool C702_backbone_regenerate_fixed_count_roundtrip_matches_fresh();
 bool C703_backbone_regenerate_removes_migration_symbols();
 bool C704_backbone_regenerate_uses_per_api_entrypoint_not_plan_execution();
+bool C705_backbone_edge_bundle_order_matches_bundle_spec_order();
+bool C706_backbone_regenerate_multi_bundle_count_change_matches_fresh();
 bool C674_backbone_port_band_selection_has_one_owner();
 bool C675_backbone_layout_yaw_does_not_read_debug_records();
 bool C676_backbone_noop_move_preserves_port_positions_exactly();

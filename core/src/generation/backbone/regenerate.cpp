@@ -146,10 +146,6 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleKind bundle_t
   if (edge == nullptr) {
     return fail("backbone regenerate: edge missing");
   }
-  const auto edge_bundles_it = runtime_.backbone_index.edge_bundles.find(edge->edge_id);
-  if (edge_bundles_it != runtime_.backbone_index.edge_bundles.end() && edge_bundles_it->second.size() != 1) {
-    return fail("backbone unsupported: regenerate does not preserve multi-bundle group offsets yet");
-  }
   target.edge_id = edge->edge_id;
   target.edge = edge;
   target.node_a = saved_node_by_id(graph, edge->node_a);
@@ -257,16 +253,38 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleKind bundle_t
   BackboneSpec spec{};
   spec.pole_type_id = kInvalidPoleTypeId;
   spec.constraints.lateral_offset_m = edge->lateral_offset_m;
-  BackboneBundleSpec bundle_spec{};
-  bundle_spec.bundle_template_id = bundle_template_id;
-  bundle_spec.layer = next_template.default_layer;
-  spec.bundles.push_back(bundle_spec);
+  std::vector<std::size_t> active_bundle_indices{};
+  for (const SavedBackboneEdgeBundle& scoped_edge_bundle : graph.edge_bundles) {
+    if (scoped_edge_bundle.edge_id != target.edge_id) {
+      continue;
+    }
+    const Bundle* scoped_bundle = view().bundles().find(scoped_edge_bundle.bundle_id);
+    if (scoped_bundle == nullptr) {
+      return fail("backbone regenerate: scoped bundle missing");
+    }
+    const auto template_it = authoritative_.bundle_templates.find(scoped_bundle->bundle_template_id);
+    if (template_it == authoritative_.bundle_templates.end()) {
+      return fail("backbone regenerate: scoped bundle template missing");
+    }
+    BackboneBundleSpec bundle_spec{};
+    bundle_spec.bundle_template_id = scoped_bundle->bundle_template_id;
+    bundle_spec.layer = template_it->second.default_layer;
+    spec.bundles.push_back(bundle_spec);
+    active_bundle_indices.push_back(spec.bundles.size() - 1);
+  }
+  auto target_spec_it = std::find_if(spec.bundles.begin(), spec.bundles.end(),
+                                    [&](const BackboneBundleSpec& item) {
+                                      return item.bundle_template_id == bundle_template_id;
+                                    });
+  if (target_spec_it == spec.bundles.end()) {
+    return fail("backbone regenerate: target bundle spec missing");
+  }
 
   std::vector<BundleTemplate> template_overrides{next_template};
   CoreState trial = *this;
   generation::backbone::pipeline trial_pipeline(trial, spec);
   EditResult<GenerateBundleFromPathResult> replay =
-      trial_pipeline.build_prepared_regenerate(made_graph, {0}, template_overrides);
+      trial_pipeline.build_prepared_regenerate(made_graph, active_bundle_indices, template_overrides);
   if (!replay.ok) {
     return fail(replay.error);
   }

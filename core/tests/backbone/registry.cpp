@@ -894,9 +894,9 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "backbone regenerate fixed count increase preserves saved lateral offset",
                          "Boundary", false,
                          C668_backbone_bundle_count_migration_rejects_unreconstructable_lateral_offset);
-  test_registry::AddTest(tests, "C669_backbone_regenerate_rejects_multi_bundle_group_offset",
-                         "backbone regenerate rejects multi-bundle group offsets before mutation",
-                         "Boundary", false, C669_backbone_bundle_count_migration_rejects_multi_bundle_group_offset);
+  test_registry::AddTest(tests, "C669_backbone_regenerate_multi_bundle_decrease_matches_fresh",
+                         "backbone regenerate multi-bundle count decrease matches fresh generation",
+                         "Invariant", false, C669_backbone_bundle_count_migration_rejects_multi_bundle_group_offset);
   test_registry::AddTest(tests, "C670_backbone_regenerate_rejects_pair_rows",
                          "backbone regenerate rejects pair rows before mutation",
                          "Boundary", false, C670_backbone_bundle_count_migration_rejects_pair_rows);
@@ -936,6 +936,14 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "backbone regenerate uses per API entrypoint instead of update plan execution",
                          "Boundary", false,
                          C704_backbone_regenerate_uses_per_api_entrypoint_not_plan_execution);
+  test_registry::AddTest(tests, "C705_backbone_edge_bundle_order_matches_bundle_spec_order",
+                         "backbone saved edge bundle order matches request bundle spec order",
+                         "Invariant", false,
+                         C705_backbone_edge_bundle_order_matches_bundle_spec_order);
+  test_registry::AddTest(tests, "C706_backbone_regenerate_multi_bundle_count_change_matches_fresh",
+                         "backbone regenerate multi-bundle count change matches fresh generation",
+                         "Invariant", false,
+                         C706_backbone_regenerate_multi_bundle_count_change_matches_fresh);
   test_registry::AddTest(tests, "C674_backbone_port_band_selection_has_one_owner",
                          "backbone and post-edit port band selection use saved binding or one shared selector",
                          "Boundary", false, C674_backbone_port_band_selection_has_one_owner);

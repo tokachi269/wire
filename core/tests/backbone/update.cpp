@@ -152,6 +152,110 @@ bool same_span_curve_signatures(const std::vector<SpanCurveSignature>& lhs,
   return true;
 }
 
+std::vector<SpanCurveSignature> span_curve_signatures_for_edge_bundle(const wire::core::CoreState& state,
+                                                                      wire::core::ObjectId edge_bundle_id) {
+  std::vector<SpanCurveSignature> out{};
+  for (const wire::core::SavedBackboneSpanBinding& binding : state.view().backbone().span_bindings) {
+    if (binding.edge_bundle_id != edge_bundle_id) {
+      continue;
+    }
+    const wire::core::Span* span = state.view().spans().find(binding.span_id);
+    const auto* curve = state.find_curve_cache(binding.span_id);
+    if (span == nullptr || curve == nullptr) {
+      return {};
+    }
+    const wire::core::Port* port_a = state.view().ports().find(span->port_a_id);
+    const wire::core::Port* port_b = state.view().ports().find(span->port_b_id);
+    if (port_a == nullptr || port_b == nullptr) {
+      return {};
+    }
+    SpanCurveSignature item{};
+    item.lane = binding.lane_index;
+    item.port_a = port_a->world_position;
+    item.port_b = port_b->world_position;
+    item.samples = curve->detail.sample_points;
+    out.push_back(std::move(item));
+  }
+  std::sort(out.begin(), out.end(), [](const SpanCurveSignature& lhs, const SpanCurveSignature& rhs) {
+    return lhs.lane < rhs.lane;
+  });
+  return out;
+}
+
+wire::core::ObjectId edge_bundle_id_for_template(const wire::core::CoreState& state,
+                                                 wire::core::BundleKind bundle_template_id) {
+  for (const wire::core::SavedBackboneEdgeBundle& edge_bundle : state.view().backbone().edge_bundles) {
+    const wire::core::Bundle* bundle = state.view().bundles().find(edge_bundle.bundle_id);
+    if (bundle != nullptr && bundle->bundle_template_id == bundle_template_id) {
+      return edge_bundle.edge_bundle_id;
+    }
+  }
+  return wire::core::kInvalidObjectId;
+}
+
+struct EdgeBundleIdentitySnapshot {
+  std::vector<wire::core::ObjectId> span_ids{};
+  std::vector<std::pair<std::size_t, wire::core::ObjectId>> port_ids{};
+  std::vector<std::pair<std::size_t, wire::core::Vec3d>> port_positions{};
+};
+
+EdgeBundleIdentitySnapshot edge_bundle_identity_snapshot(const wire::core::CoreState& state,
+                                                         wire::core::ObjectId edge_bundle_id) {
+  EdgeBundleIdentitySnapshot out{};
+  const wire::core::SavedBackboneEdgeBundle* edge_bundle = nullptr;
+  for (const wire::core::SavedBackboneEdgeBundle& candidate : state.view().backbone().edge_bundles) {
+    if (candidate.edge_bundle_id == edge_bundle_id) {
+      edge_bundle = &candidate;
+      break;
+    }
+  }
+  if (edge_bundle != nullptr) {
+    out.span_ids = edge_bundle->span_ids;
+  }
+  for (const wire::core::SavedBackbonePortBinding* binding :
+       state.view().backbone_port_bindings_for_edge_bundle(edge_bundle_id)) {
+    if (binding == nullptr) {
+      continue;
+    }
+    out.port_ids.push_back({binding->lane_index, binding->port_id});
+    const wire::core::Port* port = state.view().ports().find(binding->port_id);
+    if (port != nullptr) {
+      out.port_positions.push_back({binding->lane_index, port->world_position});
+    }
+  }
+  std::sort(out.span_ids.begin(), out.span_ids.end());
+  std::sort(out.port_ids.begin(), out.port_ids.end());
+  std::sort(out.port_positions.begin(), out.port_positions.end(),
+            [](const auto& lhs, const auto& rhs) {
+              if (lhs.first != rhs.first) {
+                return lhs.first < rhs.first;
+              }
+              if (!almost_equal(lhs.second.x, rhs.second.x, 1e-12)) {
+                return lhs.second.x < rhs.second.x;
+              }
+              if (!almost_equal(lhs.second.y, rhs.second.y, 1e-12)) {
+                return lhs.second.y < rhs.second.y;
+              }
+              return lhs.second.z < rhs.second.z;
+            });
+  return out;
+}
+
+bool same_edge_bundle_identity_snapshot(const EdgeBundleIdentitySnapshot& lhs,
+                                        const EdgeBundleIdentitySnapshot& rhs) {
+  if (lhs.span_ids != rhs.span_ids || lhs.port_ids != rhs.port_ids ||
+      lhs.port_positions.size() != rhs.port_positions.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < lhs.port_positions.size(); ++i) {
+    if (lhs.port_positions[i].first != rhs.port_positions[i].first ||
+        !same_vec3(lhs.port_positions[i].second, rhs.port_positions[i].second)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool same_saved_nodes(const std::vector<wire::core::SavedBackboneNode>& lhs,
                       const std::vector<wire::core::SavedBackboneNode>& rhs) {
   if (lhs.size() != rhs.size()) {
@@ -915,17 +1019,41 @@ bool C668_backbone_bundle_count_migration_rejects_unreconstructable_lateral_offs
 
 bool C669_backbone_bundle_count_migration_rejects_multi_bundle_group_offset() {
   wire::core::CoreState state;
+  if (!set_low_voltage_count_before_generation(state, 2)) {
+    return false;
+  }
   wire::core::BackboneSpec req = line_req(state);
   add_backbone_bundle(req, wire::core::BundleKind::kCommunication);
   const auto generated = state.GenerateFromBackboneSpec(req);
-  if (!generated.ok || generated.value.generated_span_ids.size() < 2) {
+  const wire::core::ObjectId lv_edge_bundle =
+      edge_bundle_id_for_template(state, wire::core::BundleKind::kLowVoltage);
+  const wire::core::ObjectId comm_edge_bundle =
+      edge_bundle_id_for_template(state, wire::core::BundleKind::kCommunication);
+  if (!generated.ok || lv_edge_bundle == wire::core::kInvalidObjectId ||
+      comm_edge_bundle == wire::core::kInvalidObjectId) {
     return false;
   }
-  const CountSnapshot before = count_snapshot(state);
-  std::string error{};
-  const bool updated = update_low_voltage_count_to_two(state, &error);
-  return !updated && contains_text(error, "multi-bundle group offsets") &&
-         same_counts(before, count_snapshot(state));
+  const EdgeBundleIdentitySnapshot comm_before = edge_bundle_identity_snapshot(state, comm_edge_bundle);
+  if (!update_low_voltage_count_to_one(state)) {
+    return false;
+  }
+  if (!same_edge_bundle_identity_snapshot(comm_before, edge_bundle_identity_snapshot(state, comm_edge_bundle))) {
+    return false;
+  }
+
+  wire::core::CoreState fresh;
+  wire::core::BackboneSpec fresh_req = line_req(fresh);
+  add_backbone_bundle(fresh_req, wire::core::BundleKind::kCommunication);
+  const auto fresh_generated = fresh.GenerateFromBackboneSpec(fresh_req);
+  const wire::core::ObjectId fresh_lv =
+      edge_bundle_id_for_template(fresh, wire::core::BundleKind::kLowVoltage);
+  const wire::core::ObjectId fresh_comm =
+      edge_bundle_id_for_template(fresh, wire::core::BundleKind::kCommunication);
+  return fresh_generated.ok &&
+         same_span_curve_signatures(span_curve_signatures_for_edge_bundle(state, lv_edge_bundle),
+                                    span_curve_signatures_for_edge_bundle(fresh, fresh_lv)) &&
+         same_span_curve_signatures(span_curve_signatures_for_edge_bundle(state, comm_edge_bundle),
+                                    span_curve_signatures_for_edge_bundle(fresh, fresh_comm));
 }
 
 bool C670_backbone_bundle_count_migration_rejects_pair_rows() {
@@ -1187,6 +1315,68 @@ bool C704_backbone_regenerate_uses_per_api_entrypoint_not_plan_execution() {
          regenerate_source.find(old_entry) == std::string::npos &&
          regenerate_source.find("build_prepared_regenerate") != std::string::npos &&
          reject != std::string::npos && loop != std::string::npos && reject < loop;
+}
+
+bool C705_backbone_edge_bundle_order_matches_bundle_spec_order() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = line_req(state);
+  add_backbone_bundle(req, wire::core::BundleKind::kCommunication);
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  if (!generated.ok || state.view().backbone().edge_bundles.size() != req.bundles.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < req.bundles.size(); ++i) {
+    const wire::core::SavedBackboneEdgeBundle& edge_bundle = state.view().backbone().edge_bundles[i];
+    const wire::core::Bundle* bundle = state.view().bundles().find(edge_bundle.bundle_id);
+    if (bundle == nullptr || bundle->bundle_template_id != req.bundles[i].bundle_template_id) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool C706_backbone_regenerate_multi_bundle_count_change_matches_fresh() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = line_req(state);
+  add_backbone_bundle(req, wire::core::BundleKind::kCommunication);
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  const wire::core::ObjectId lv_edge_bundle =
+      edge_bundle_id_for_template(state, wire::core::BundleKind::kLowVoltage);
+  const wire::core::ObjectId comm_edge_bundle =
+      edge_bundle_id_for_template(state, wire::core::BundleKind::kCommunication);
+  if (!generated.ok || lv_edge_bundle == wire::core::kInvalidObjectId ||
+      comm_edge_bundle == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  const EdgeBundleIdentitySnapshot comm_before = edge_bundle_identity_snapshot(state, comm_edge_bundle);
+  if (!update_low_voltage_count_to_two(state)) {
+    return false;
+  }
+  const wire::core::ObjectId lv_after =
+      edge_bundle_id_for_template(state, wire::core::BundleKind::kLowVoltage);
+  const wire::core::ObjectId comm_after =
+      edge_bundle_id_for_template(state, wire::core::BundleKind::kCommunication);
+  if (lv_after != lv_edge_bundle || comm_after != comm_edge_bundle ||
+      !same_edge_bundle_identity_snapshot(comm_before, edge_bundle_identity_snapshot(state, comm_edge_bundle))) {
+    return false;
+  }
+
+  wire::core::CoreState fresh;
+  if (!set_low_voltage_count_before_generation(fresh, 2)) {
+    return false;
+  }
+  wire::core::BackboneSpec fresh_req = line_req(fresh);
+  add_backbone_bundle(fresh_req, wire::core::BundleKind::kCommunication);
+  const auto fresh_generated = fresh.GenerateFromBackboneSpec(fresh_req);
+  const wire::core::ObjectId fresh_lv =
+      edge_bundle_id_for_template(fresh, wire::core::BundleKind::kLowVoltage);
+  const wire::core::ObjectId fresh_comm =
+      edge_bundle_id_for_template(fresh, wire::core::BundleKind::kCommunication);
+  return fresh_generated.ok &&
+         same_span_curve_signatures(span_curve_signatures_for_edge_bundle(state, lv_edge_bundle),
+                                    span_curve_signatures_for_edge_bundle(fresh, fresh_lv)) &&
+         same_span_curve_signatures(span_curve_signatures_for_edge_bundle(state, comm_edge_bundle),
+                                    span_curve_signatures_for_edge_bundle(fresh, fresh_comm));
 }
 
 bool C676_backbone_noop_move_preserves_port_positions_exactly() {

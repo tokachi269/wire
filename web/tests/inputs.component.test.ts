@@ -170,6 +170,20 @@ describe("viewer numeric inputs", () => {
     expect(snapshot.showBackboneOverlay).toBe(true);
   });
 
+  it("clears the in-progress draw path with Escape", async () => {
+    const mounted = await mountViewer();
+    const generatedParts = current(mounted.store).parts;
+    mounted.actions.addPathPoint([1, 0, 0]);
+    mounted.actions.addPathPoint([2, 0, 0]);
+    expect(current(mounted.store).pathPoints).toHaveLength(2);
+
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await tick();
+
+    expect(current(mounted.store).pathPoints).toEqual([]);
+    expect(current(mounted.store).parts).toEqual(generatedParts);
+  });
+
   async function mountViewer() {
     const wasmBinary = await readFile(resolve("src/wasm-generated/wire_web_core.wasm"));
     bridge = await WireBridge.create({ wasmBinary });

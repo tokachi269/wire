@@ -104,8 +104,8 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleKind bundle_t
 
   if (previous_template.count_rule != BundleCountRuleKind::kFixed ||
       next_template.count_rule != BundleCountRuleKind::kFixed || previous_template.fixed_count <= 0 ||
-      next_template.fixed_count <= 0 || next_template.fixed_count >= previous_template.fixed_count) {
-    return fail("backbone unsupported: regenerate supports fixed count decreases only");
+      next_template.fixed_count <= 0 || next_template.fixed_count == previous_template.fixed_count) {
+    return fail("backbone unsupported: regenerate supports fixed count changes only");
   }
   if (next_template.default_layer == SpanLayer::kUnknown) {
     return fail("backbone unsupported: regenerate requires a known layer");
@@ -145,6 +145,10 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleKind bundle_t
   const SavedBackboneEdge* edge = saved_edge_by_id(graph, edge_bundle->edge_id);
   if (edge == nullptr) {
     return fail("backbone regenerate: edge missing");
+  }
+  const auto edge_bundles_it = runtime_.backbone_index.edge_bundles.find(edge->edge_id);
+  if (edge_bundles_it != runtime_.backbone_index.edge_bundles.end() && edge_bundles_it->second.size() != 1) {
+    return fail("backbone unsupported: regenerate does not preserve multi-bundle group offsets yet");
   }
   target.edge_id = edge->edge_id;
   target.edge = edge;

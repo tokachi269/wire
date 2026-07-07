@@ -164,10 +164,6 @@ private:
                                       std::size_t lane_index, BundleKind bundle_template_id, PortKind port_kind,
                                       PortLayer port_layer, int placement_band_id, double layout_yaw_deg,
                                       ObjectId port_id);
-  EditResult<bool> migrate_backbone_bundle_fixed_count_increase(BundleKind bundle_template_id,
-                                                           const BundleTemplate& previous_template,
-                                                           const BundleTemplate& next_template,
-                                                           ChangeSet* change_set);
   EditResult<bool> regenerate_backbone_edge_bundles(BundleKind bundle_template_id,
                                                     const BundleTemplate& previous_template,
                                                     const BundleTemplate& next_template,

@@ -897,11 +897,20 @@ bool C668_backbone_bundle_count_migration_rejects_unreconstructable_lateral_offs
   if (!generated.ok || generated.value.generated_span_ids.empty()) {
     return false;
   }
-  const CountSnapshot before = count_snapshot(state);
-  std::string error{};
-  const bool updated = update_low_voltage_count_to_two(state, &error);
-  return !updated && contains_text(error, "cannot reconstruct existing port placement") &&
-         same_counts(before, count_snapshot(state));
+  const bool updated = update_low_voltage_count_to_two(state);
+  wire::core::CoreState fresh;
+  const auto fresh_template_it = fresh.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  if (fresh_template_it == fresh.view().bundle_templates().end()) {
+    return false;
+  }
+  wire::core::BundleTemplate fresh_template = fresh_template_it->second;
+  fresh_template.fixed_count = 2;
+  const auto fresh_updated = fresh.UpdateBundleTemplate(fresh_template);
+  wire::core::BackboneSpec fresh_req = line_req(fresh);
+  fresh_req.constraints.lateral_offset_m = 0.35;
+  const auto fresh_generated = fresh.GenerateFromBackboneSpec(fresh_req);
+  return updated && fresh_updated.ok && fresh_generated.ok &&
+         same_span_curve_signatures(span_curve_signatures(state), span_curve_signatures(fresh));
 }
 
 bool C669_backbone_bundle_count_migration_rejects_multi_bundle_group_offset() {
@@ -915,7 +924,7 @@ bool C669_backbone_bundle_count_migration_rejects_multi_bundle_group_offset() {
   const CountSnapshot before = count_snapshot(state);
   std::string error{};
   const bool updated = update_low_voltage_count_to_two(state, &error);
-  return !updated && contains_text(error, "cannot reconstruct existing port placement") &&
+  return !updated && contains_text(error, "multi-bundle group offsets") &&
          same_counts(before, count_snapshot(state));
 }
 
@@ -928,22 +937,22 @@ bool C670_backbone_bundle_count_migration_rejects_pair_rows() {
   const CountSnapshot before = count_snapshot(state);
   std::string error{};
   const bool updated = update_low_voltage_count_to_two(state, &error);
-  return !updated && contains_text(error, "simple open rows only") && same_counts(before, count_snapshot(state));
+  return !updated && contains_text(error, "one edge bundle only") && same_counts(before, count_snapshot(state));
 }
 
 
 bool C671_backbone_bundle_count_migration_reuses_pipeline_stages() {
   std::string source{};
-  if (!file_text(repo_root() / "core/src/generation/backbone/bundle_count_migration.cpp", &source)) {
+  if (!file_text(repo_root() / "core/src/generation/backbone/regenerate.cpp", &source)) {
     return false;
   }
-  const std::size_t transaction_boundary = source.find("Transaction boundary");
-  if (transaction_boundary == std::string::npos ||
-      source.find("fail(", transaction_boundary) != std::string::npos) {
+  const std::size_t replay = source.find("build_prepared_migration");
+  const std::size_t mutation = source.find("trial.authoritative_", replay);
+  if (replay == std::string::npos || mutation == std::string::npos) {
     return false;
   }
   return source.find("build_prepared_migration") != std::string::npos &&
-         source.find("regenerate_backbone") == std::string::npos &&
+         source.find("return fail", mutation) == std::string::npos &&
          source.find("AddPort(") == std::string::npos && source.find("AddSpan(") == std::string::npos &&
          source.find("SpanLayoutRule") == std::string::npos && source.find("save_backbone_node") == std::string::npos &&
          source.find("save_backbone_edge") == std::string::npos;
@@ -1045,6 +1054,7 @@ bool C698_backbone_regenerate_fixed_count_decrease_retires_lanes() {
   wire::core::CoreState fresh;
   const auto fresh_generated = fresh.GenerateFromBackboneSpec(line_req(fresh));
   return fresh_generated.ok && fresh_generated.value.generated_span_ids.size() == 1 &&
+         !std::filesystem::exists(repo_root() / "core/src/generation/backbone/bundle_count_migration.cpp") &&
          same_span_curve_signatures(span_curve_signatures(state), span_curve_signatures(fresh));
 }
 
@@ -1108,6 +1118,54 @@ bool C701_backbone_regenerate_source_does_not_infer_topology_from_outputs() {
          source.find("find_span_visual_cache") == std::string::npos &&
          source.find("find_span_render_cache") == std::string::npos &&
          source.find("world_position") == std::string::npos;
+}
+
+bool C702_backbone_regenerate_fixed_count_roundtrip_matches_fresh() {
+  wire::core::CoreState state;
+  if (!set_low_voltage_count_before_generation(state, 2)) {
+    return false;
+  }
+  const auto generated = state.GenerateFromBackboneSpec(line_req(state));
+  if (!generated.ok || generated.value.generated_span_ids.size() != 2) {
+    return false;
+  }
+  const auto template_it = state.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  if (template_it == state.view().bundle_templates().end()) {
+    return false;
+  }
+  wire::core::BundleTemplate edited = template_it->second;
+  edited.fixed_count = 3;
+  const auto increased = state.UpdateBundleTemplate(edited);
+  if (!increased.ok || !increased.value || state.view().spans().size() != 3) {
+    return false;
+  }
+  if (!update_low_voltage_count_to_one(state) || state.view().spans().size() != 1) {
+    return false;
+  }
+
+  wire::core::CoreState fresh;
+  const auto fresh_generated = fresh.GenerateFromBackboneSpec(line_req(fresh));
+  return fresh_generated.ok && fresh_generated.value.generated_span_ids.size() == 1 &&
+         !std::filesystem::exists(repo_root() / "core/src/generation/backbone/bundle_count_migration.cpp") &&
+         same_span_curve_signatures(span_curve_signatures(state), span_curve_signatures(fresh));
+}
+
+bool C703_backbone_regenerate_removes_migration_symbols() {
+  const std::filesystem::path src = repo_root() / "core/src";
+  for (const auto& entry : std::filesystem::recursive_directory_iterator(src)) {
+    if (!entry.is_regular_file()) {
+      continue;
+    }
+    std::string source{};
+    if (!file_text(entry.path(), &source)) {
+      return false;
+    }
+    if (contains_text(source, "migrate_backbone_bundle") ||
+        contains_text(source, "regenerate_backbone_bundle_count_change")) {
+      return false;
+    }
+  }
+  return !std::filesystem::exists(repo_root() / "core/src/generation/backbone/bundle_count_migration.cpp");
 }
 
 bool C676_backbone_noop_move_preserves_port_positions_exactly() {

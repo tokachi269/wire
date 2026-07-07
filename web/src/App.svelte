@@ -61,6 +61,10 @@
       snapshot = value;
     });
     mountScene(sceneHost);
+    if (typeof window.matchMedia === "function" && window.matchMedia("(max-width: 700px)").matches) {
+      actions.setDrawOption("showLeftPanel", false);
+      actions.setDrawOption("showRightPanel", false);
+    }
     const handleFocusIn = (event: FocusEvent) => {
       const target = event.target;
       if (
@@ -84,6 +88,10 @@
       if (event.key === "Escape") {
         event.preventDefault();
         const active = event.target;
+        const editing =
+          active instanceof HTMLInputElement ||
+          active instanceof HTMLSelectElement ||
+          active instanceof HTMLTextAreaElement;
         if (
           snapshot.interaction &&
           active instanceof HTMLInputElement &&
@@ -100,17 +108,11 @@
           if (active instanceof HTMLInputElement && editStart.checked !== null) {
             active.checked = editStart.checked;
           }
+        } else if (!editing && snapshot.pathPoints.length > 0) {
+          actions.clearPath();
         }
-        actions.cancel(
-          active instanceof HTMLInputElement ||
-          active instanceof HTMLSelectElement ||
-          active instanceof HTMLTextAreaElement
-        );
-        if (
-          active instanceof HTMLInputElement ||
-          active instanceof HTMLSelectElement ||
-          active instanceof HTMLTextAreaElement
-        ) {
+        actions.cancel(editing);
+        if (editing) {
           active.blur();
         }
         return;

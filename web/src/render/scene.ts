@@ -111,40 +111,103 @@ export class WireScene {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.domElement.tabIndex = 0;
     host.appendChild(this.renderer.domElement);
+    const activePointers = new Map<number, { x: number; y: number }>();
     let pointerDown: {
       x: number;
       y: number;
+      startX: number;
+      startY: number;
       button: number;
       mode: "orbit" | "pan" | "dolly";
+      moved: boolean;
+    } | null = null;
+    let pinch: {
+      distance: number;
+      centerX: number;
+      centerY: number;
     } | null = null;
     const canvas = this.renderer.domElement;
+    canvas.style.touchAction = "none";
+    const currentPinch = () => {
+      const pointers = [...activePointers.values()];
+      if (pointers.length < 2) return null;
+      const [a, b] = pointers;
+      return {
+        distance: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)),
+        centerX: (a.x + b.x) / 2,
+        centerY: (a.y + b.y) / 2
+      };
+    };
     const onPointerDown = (event: PointerEvent) => {
       if (event.button !== 0 && event.button !== 1) return;
       this.renderer.domElement.focus();
-      if (event.button === 0) {
+      if (event.pointerType === "mouse" && event.button === 0) {
         this.addGroundPoint(event);
         return;
       }
-      const mode = event.shiftKey ? "pan" : event.ctrlKey ? "dolly" : "orbit";
-      pointerDown = { x: event.clientX, y: event.clientY, button: event.button, mode };
+      activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (activePointers.size >= 2) {
+        pinch = currentPinch();
+        pointerDown = null;
+        event.preventDefault();
+        this.renderer.domElement.setPointerCapture(event.pointerId);
+        return;
+      }
+      const mode = event.button === 1
+        ? event.shiftKey ? "pan" : event.ctrlKey ? "dolly" : "orbit"
+        : "orbit";
+      pointerDown = {
+        x: event.clientX,
+        y: event.clientY,
+        startX: event.clientX,
+        startY: event.clientY,
+        button: event.button,
+        mode,
+        moved: false
+      };
       event.preventDefault();
       this.renderer.domElement.setPointerCapture(event.pointerId);
     };
     const onPointerMove = (event: PointerEvent) => {
-      if (pointerDown === null || pointerDown.button !== 1) return;
+      if (activePointers.has(event.pointerId)) {
+        activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      }
+      if (activePointers.size >= 2) {
+        const next = currentPinch();
+        if (pinch !== null && next !== null) {
+          this.dolly(-Math.log(next.distance / pinch.distance));
+          this.pan(next.centerX - pinch.centerX, next.centerY - pinch.centerY);
+        }
+        pinch = next;
+        event.preventDefault();
+        return;
+      }
+      if (pointerDown === null) return;
       const dx = event.clientX - pointerDown.x;
       const dy = event.clientY - pointerDown.y;
+      const totalDx = event.clientX - pointerDown.startX;
+      const totalDy = event.clientY - pointerDown.startY;
       pointerDown.x = event.clientX;
       pointerDown.y = event.clientY;
+      pointerDown.moved ||= Math.hypot(totalDx, totalDy) > 6;
+      if (!pointerDown.moved) return;
       if (pointerDown.mode === "orbit") this.orbit(dx, dy);
       if (pointerDown.mode === "pan") this.pan(dx, dy);
       if (pointerDown.mode === "dolly") this.dolly(dy * 0.01);
+      event.preventDefault();
     };
     const onPointerUp = (event: PointerEvent) => {
-      if (event.button !== 1) return;
+      const finished = pointerDown;
+      activePointers.delete(event.pointerId);
+      pinch = activePointers.size >= 2 ? currentPinch() : null;
+      if (finished !== null && event.button === 0 && !finished.moved) {
+        this.addGroundPoint(event);
+      }
       pointerDown = null;
     };
     const onPointerCancel = () => {
+      activePointers.clear();
+      pinch = null;
       pointerDown = null;
     };
     const onContextMenu = (event: MouseEvent) => {

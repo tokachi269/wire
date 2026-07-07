@@ -317,6 +317,8 @@ bool C698_backbone_regenerate_fixed_count_decrease_retires_lanes();
 bool C699_backbone_regenerate_fixed_count_decrease_preserves_lateral_offset();
 bool C700_backbone_regenerate_fixed_count_decrease_rejects_retired_attachment();
 bool C701_backbone_regenerate_source_does_not_infer_topology_from_outputs();
+bool C702_backbone_regenerate_fixed_count_roundtrip_matches_fresh();
+bool C703_backbone_regenerate_removes_migration_symbols();
 bool C674_backbone_port_band_selection_has_one_owner();
 bool C675_backbone_layout_yaw_does_not_read_debug_records();
 bool C676_backbone_noop_move_preserves_port_positions_exactly();

@@ -545,6 +545,29 @@ summary {
 @media (max-width: 700px) {
   header {
     align-items: center;
+    top: 4px;
+    left: 4px;
+    right: 4px;
+    min-height: 34px;
+    padding: 4px;
+  }
+
+  h1 {
+    font-size: 0.78rem;
+  }
+
+  .eyebrow {
+    margin-right: 0.25rem;
+    font-size: 0.58rem;
+  }
+
+  .header-actions {
+    gap: 0.3rem;
+  }
+
+  button {
+    padding: 0.38rem 0.48rem;
+    font-size: 0.68rem;
   }
 
   .workspace {
@@ -552,11 +575,17 @@ summary {
   }
 
   .left-region {
-    width: min(var(--left-width), calc(100vw - 12px));
+    top: 46px;
+    bottom: auto;
+    max-height: 42vh;
+    width: min(var(--left-width), calc(100vw - 8px));
   }
 
   .right-region {
-    width: min(var(--right-width), calc(100vw - 12px));
+    top: 46px;
+    bottom: 44px;
+    width: min(var(--right-width), calc(100vw - 8px));
+    max-height: calc(100vh - 92px);
   }
 
   .resize-handle {
@@ -565,6 +594,21 @@ summary {
 
   .viewport {
     min-height: 100vh;
+  }
+
+  .bottom-region {
+    left: 4px;
+    right: 4px;
+    bottom: 4px;
+  }
+
+  aside {
+    gap: 0.3rem;
+  }
+
+  aside span {
+    padding: 0.24rem 0.36rem;
+    font-size: 0.62rem;
   }
 
   .settings {

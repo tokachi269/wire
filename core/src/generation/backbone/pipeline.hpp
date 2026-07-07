@@ -190,14 +190,14 @@ public:
   [[nodiscard]] EditResult<bool> prepare();
   [[nodiscard]] EditResult<bool> check() const;
   [[nodiscard]] EditResult<GenerateBundleFromPathResult> build();
-  [[nodiscard]] EditResult<GenerateBundleFromPathResult> build_prepared_migration(
+  [[nodiscard]] EditResult<GenerateBundleFromPathResult> build_prepared_regenerate(
       graph made, std::vector<std::size_t> active_bundle_indices,
       std::vector<BundleTemplate> template_overrides = {});
 
 private:
   enum class build_mode {
     generation,
-    migration,
+    regenerate,
   };
 
   [[nodiscard]] EditResult<pairs> make(const graph& made) const;

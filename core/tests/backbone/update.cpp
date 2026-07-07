@@ -946,12 +946,12 @@ bool C671_backbone_bundle_count_migration_reuses_pipeline_stages() {
   if (!file_text(repo_root() / "core/src/generation/backbone/regenerate.cpp", &source)) {
     return false;
   }
-  const std::size_t replay = source.find("build_prepared_migration");
+  const std::size_t replay = source.find("build_prepared_regenerate");
   const std::size_t mutation = source.find("trial.authoritative_", replay);
   if (replay == std::string::npos || mutation == std::string::npos) {
     return false;
   }
-  return source.find("build_prepared_migration") != std::string::npos &&
+  return source.find("build_prepared_regenerate") != std::string::npos &&
          source.find("return fail", mutation) == std::string::npos &&
          source.find("AddPort(") == std::string::npos && source.find("AddSpan(") == std::string::npos &&
          source.find("SpanLayoutRule") == std::string::npos && source.find("save_backbone_node") == std::string::npos &&
@@ -1112,7 +1112,7 @@ bool C701_backbone_regenerate_source_does_not_infer_topology_from_outputs() {
   if (!file_text(repo_root() / "core/src/generation/backbone/regenerate.cpp", &source)) {
     return false;
   }
-  return source.find("build_prepared_migration") != std::string::npos &&
+  return source.find("build_prepared_regenerate") != std::string::npos &&
          source.find("span_layout(") == std::string::npos &&
          source.find("find_curve_cache") == std::string::npos &&
          source.find("find_span_visual_cache") == std::string::npos &&
@@ -1166,6 +1166,27 @@ bool C703_backbone_regenerate_removes_migration_symbols() {
     }
   }
   return !std::filesystem::exists(repo_root() / "core/src/generation/backbone/bundle_count_migration.cpp");
+}
+
+bool C704_backbone_regenerate_uses_per_api_entrypoint_not_plan_execution() {
+  std::string pipeline_header{};
+  std::string pipeline_source{};
+  std::string regenerate_source{};
+  std::string derive_source{};
+  if (!file_text(repo_root() / "core/src/generation/backbone/pipeline.hpp", &pipeline_header) ||
+      !file_text(repo_root() / "core/src/generation/backbone/pipeline.cpp", &pipeline_source) ||
+      !file_text(repo_root() / "core/src/generation/backbone/regenerate.cpp", &regenerate_source) ||
+      !file_text(repo_root() / "core/src/generation/backbone/derive.cpp", &derive_source)) {
+    return false;
+  }
+  const std::size_t reject = derive_source.find("plan.kind == UpdateKind::kRegenerate");
+  const std::size_t loop = derive_source.find("for (ObjectId span_id");
+  const std::string old_entry = std::string("build_prepared_") + "migration";
+  return pipeline_header.find(old_entry) == std::string::npos &&
+         pipeline_source.find(old_entry) == std::string::npos &&
+         regenerate_source.find(old_entry) == std::string::npos &&
+         regenerate_source.find("build_prepared_regenerate") != std::string::npos &&
+         reject != std::string::npos && loop != std::string::npos && reject < loop;
 }
 
 bool C676_backbone_noop_move_preserves_port_positions_exactly() {

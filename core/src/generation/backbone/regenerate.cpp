@@ -266,7 +266,7 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleKind bundle_t
   CoreState trial = *this;
   generation::backbone::pipeline trial_pipeline(trial, spec);
   EditResult<GenerateBundleFromPathResult> replay =
-      trial_pipeline.build_prepared_migration(made_graph, {0}, template_overrides);
+      trial_pipeline.build_prepared_regenerate(made_graph, {0}, template_overrides);
   if (!replay.ok) {
     return fail(replay.error);
   }

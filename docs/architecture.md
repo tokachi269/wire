@@ -86,8 +86,9 @@ ownerlessなmidair branchの取付位置は、saved edge、edge bundle、lane、
 post-edit APIは、派生出力を更新して成功するか、mutation前に拒否する。
 staleなlayout/geom/drawを残したまま成功してはいけない。
 `kRegenerate` は topology / identity / connectivity 級差分を分類し、通常更新経路で拒否する境界である。
-`execute_update_plan` の `kRegenerate` は統一 regenerate へ接続予定の分類であり、汎用 fallback にはしない。
-接続自体は現時点の対象外である。
+`execute_update_plan` は `kRegenerate` を恒久的に拒否する。
+regenerate は各 post-edit API が編集差分を添えて統一入口を直接呼ぶ。
+`UpdatePlan` は差分入力を運ばないため、plan 経由の regenerate 実行は設計として採用しない。
 
 統一 regenerate は、編集差分から影響 scope を解決し、保存済み入力から scope の pipeline graph を組み直し、
 既存 pipeline を部分再実行して binding を reconcile する。既存 binding は再利用し、増えたものは生成し、

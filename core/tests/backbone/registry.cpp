@@ -932,6 +932,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "backbone regenerate removes bundle count migration symbols from core src",
                          "Boundary", false,
                          C703_backbone_regenerate_removes_migration_symbols);
+  test_registry::AddTest(tests, "C704_backbone_regenerate_uses_per_api_entrypoint_not_plan_execution",
+                         "backbone regenerate uses per API entrypoint instead of update plan execution",
+                         "Boundary", false,
+                         C704_backbone_regenerate_uses_per_api_entrypoint_not_plan_execution);
   test_registry::AddTest(tests, "C674_backbone_port_band_selection_has_one_owner",
                          "backbone and post-edit port band selection use saved binding or one shared selector",
                          "Boundary", false, C674_backbone_port_band_selection_has_one_owner);

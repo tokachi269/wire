@@ -106,7 +106,7 @@ EditResult<GenerateBundleFromPathResult> pipeline::build() {
   return out;
 }
 
-EditResult<GenerateBundleFromPathResult> pipeline::build_prepared_migration(
+EditResult<GenerateBundleFromPathResult> pipeline::build_prepared_regenerate(
     graph made_graph, std::vector<std::size_t> active_bundle_indices,
     std::vector<BundleTemplate> template_overrides) {
   EditResult<GenerateBundleFromPathResult> out{};
@@ -114,7 +114,7 @@ EditResult<GenerateBundleFromPathResult> pipeline::build_prepared_migration(
   active_bundle_indices_ = std::move(active_bundle_indices);
   template_overrides_ = std::move(template_overrides);
   local_by_input_.clear();
-  mode_ = build_mode::migration;
+  mode_ = build_mode::regenerate;
   ready_ = true;
 
   EditResult<pairs> ps = make(g_);
@@ -2179,7 +2179,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
           return out;
         }
         if (resolved.value != kInvalidObjectId) {
-          if (mode_ == build_mode::migration) {
+          if (mode_ == build_mode::regenerate) {
             Port* existing_port = state_.edit_state_access().ports.find(resolved.value);
             if (existing_port == nullptr) {
               out.error = "backbone topology: resolved port missing";

@@ -44,7 +44,7 @@ viewerはこれらを事前に判別せず、Apply後のerror logで初めてuns
 | 操作 | viewer到達 | 拒否条件 | 解除条件 |
 |---|---|---|---|
 | `UpdatePoleTypeDefinition` | `Apply Pole Template`(Pole Placement含む) | active backbone poleが対象typeを使用 | placement-only差分(band高さ/横位置、pole高さ)はkReposition化して通す方針を決定済み。band増減・side変更などの構造差分は該当 family の migration 実装まで保留 |
-| `UpdateBundleTemplate` | `Apply Bundle Template` | topology級差分 + 既存bundleあり | fixed count増減は open row の 2-pole route に限り統一 regenerate で対応。同一 edge の multi-bundle 配置も saved edge_bundles 順から group offset を再構成する。range化、policy変更、3点以上route、pair row は scenario 未対応。visual-only/detail差分は現状も通る |
+| `UpdateBundleTemplate` | `Apply Bundle Template` | topology級差分 + 既存bundleあり | fixed count増減は単一 saved route に限り統一 regenerate で対応。multi-bundle と pair row を含む3点以上routeも saved graph から再構成する。range化、policy変更は scenario 未対応。visual-only/detail差分は現状も通る |
 | `UpdateCableTemplate` | `Apply Cable Template` | decision差分(continuity policy / default endpoint attachment) + 対象spanあり | 該当 family の migration 実装(C357)。geometry/render差分は現状も通る |
 | `ApplyBundleRelatedPoleTypeToExistingPoles` | template Apply後に自動呼出 | 対象poleがbackbone node | 該当 family の migration 実装(C297) |
 | `UpdateLayoutSettings` | `Apply Layout` | backbone span bindingが1つでも存在 | generation入力のためregenerate級。state全体一括拒否の粒度は再検討候補 |

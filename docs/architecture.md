@@ -93,9 +93,10 @@ regenerate は各 post-edit API が編集差分を添えて統一入口を直接
 統一 regenerate は、編集差分から影響 scope を解決し、保存済み入力から scope の pipeline graph を組み直し、
 既存 pipeline を部分再実行して binding を reconcile する。既存 binding は再利用し、増えたものは生成し、
 消えたものは退役する。差分別の migration operation は作らず、対応範囲は scenario 単位で拡張する。
-現対応は `UpdateBundleTemplate` の fixed count 増減で、open row の 2-pole route を扱う。
+現対応は `UpdateBundleTemplate` の fixed count 増減で、単一 saved route を扱う。
 同一 edge に複数 edge_bundle がある場合は saved edge_bundles 順を生成時の bundle spec 順として扱い、
-group offset を再構成する。
+group offset を再構成する。3点以上routeのpair rowは、saved edge の route/order と saved node から
+pipeline graph を復元して再確定する。
 
 `UpdatePoleTypeDefinition`は、対象typeをactive backbone poleが使用中でもplacement-only差分なら
 `kReposition`として既存auto portを再配置し、layout -> geom -> drawを再導出する。

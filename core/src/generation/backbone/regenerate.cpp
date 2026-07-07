@@ -2,6 +2,7 @@
 #include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
 
+#include "curve_parts.hpp"
 #include "pipeline.hpp"
 
 #include <algorithm>
@@ -53,6 +54,7 @@ const SavedBackboneEdgeBundle* saved_edge_bundle_by_id(const SavedBackboneGraph&
 
 struct RegenerateTarget {
   ObjectId edge_bundle_id = kInvalidObjectId;
+  std::vector<ObjectId> edge_bundle_ids{};
   ObjectId bundle_id = kInvalidObjectId;
   ObjectId edge_id = kInvalidObjectId;
   const SavedBackboneEdge* edge = nullptr;
@@ -64,7 +66,7 @@ struct RegenerateTarget {
 
 bool port_is_retired_only(const CoreState& state, ObjectId port_id,
                           const std::vector<ObjectId>& retired_spans,
-                          ObjectId edge_bundle_id,
+                          const std::vector<ObjectId>& edge_bundle_ids,
                           std::size_t next_count) {
   const auto spans_it = state.view().connection_index().spans_by_port.find(port_id);
   if (spans_it != state.view().connection_index().spans_by_port.end()) {
@@ -83,7 +85,7 @@ bool port_is_retired_only(const CoreState& state, ObjectId port_id,
       return false;
     }
     const SavedBackbonePortBinding& binding = state.view().backbone().port_bindings[binding_index];
-    if (binding.edge_bundle_id != edge_bundle_id || binding.lane_index < next_count) {
+    if (!contains_id(edge_bundle_ids, binding.edge_bundle_id) || binding.lane_index < next_count) {
       return false;
     }
   }
@@ -126,13 +128,11 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleKind bundle_t
     result.value = true;
     return result;
   }
-  if (affected_edge_bundle_ids.size() != 1) {
-    return fail("backbone unsupported: regenerate supports one edge bundle only");
-  }
 
   const SavedBackboneGraph& graph = view().backbone();
   RegenerateTarget target{};
   target.edge_bundle_id = affected_edge_bundle_ids.front();
+  target.edge_bundle_ids = affected_edge_bundle_ids;
   const SavedBackboneEdgeBundle* edge_bundle = saved_edge_bundle_by_id(graph, target.edge_bundle_id);
   if (edge_bundle == nullptr) {
     return fail("backbone regenerate: edge bundle missing");
@@ -146,116 +146,147 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleKind bundle_t
   if (edge == nullptr) {
     return fail("backbone regenerate: edge missing");
   }
+  const std::size_t route_id = edge->route;
+  std::vector<const SavedBackboneEdge*> route_edges{};
+  for (const SavedBackboneEdge& candidate : graph.edges) {
+    if (candidate.route == route_id) {
+      route_edges.push_back(&candidate);
+    }
+  }
+  std::sort(route_edges.begin(), route_edges.end(), [](const SavedBackboneEdge* lhs, const SavedBackboneEdge* rhs) {
+    return lhs->order < rhs->order;
+  });
+  if (route_edges.empty()) {
+    return fail("backbone regenerate: route edges missing");
+  }
+  for (ObjectId affected_edge_bundle_id : affected_edge_bundle_ids) {
+    const SavedBackboneEdgeBundle* affected_edge_bundle = saved_edge_bundle_by_id(graph, affected_edge_bundle_id);
+    const SavedBackboneEdge* affected_edge =
+        affected_edge_bundle == nullptr ? nullptr : saved_edge_by_id(graph, affected_edge_bundle->edge_id);
+    if (affected_edge_bundle == nullptr || affected_edge == nullptr || affected_edge->route != route_id) {
+      return fail("backbone unsupported: regenerate supports one saved route at a time");
+    }
+    if (affected_edge_bundle->bundle_id != target.bundle_id) {
+      return fail("backbone unsupported: regenerate requires one route-local bundle instance");
+    }
+  }
   target.edge_id = edge->edge_id;
   target.edge = edge;
-  target.node_a = saved_node_by_id(graph, edge->node_a);
-  target.node_b = saved_node_by_id(graph, edge->node_b);
-  if (target.node_a == nullptr || target.node_b == nullptr ||
-      target.node_a->pole_id == kInvalidObjectId || target.node_b->pole_id == kInvalidObjectId) {
-    return fail("backbone unsupported: regenerate supports pole-owned endpoints only");
+  std::vector<const SavedBackboneNode*> route_nodes{};
+  for (std::size_t edge_index = 0; edge_index < route_edges.size(); ++edge_index) {
+    const SavedBackboneEdge& route_edge = *route_edges[edge_index];
+    if (edge_index == 0) {
+      route_nodes.push_back(saved_node_by_id(graph, route_edge.node_a));
+    } else if (route_edges[edge_index - 1]->node_b != route_edge.node_a) {
+      return fail("backbone unsupported: regenerate requires contiguous saved route edges");
+    }
+    route_nodes.push_back(saved_node_by_id(graph, route_edge.node_b));
+  }
+  for (const SavedBackboneNode* node : route_nodes) {
+    if (node == nullptr || node->pole_id == kInvalidObjectId) {
+      return fail("backbone unsupported: regenerate supports pole-owned endpoints only");
+    }
   }
 
-  const auto span_binding_it = runtime_.backbone_index.edge_bundle_span_bindings.find(target.edge_bundle_id);
-  if (span_binding_it == runtime_.backbone_index.edge_bundle_span_bindings.end()) {
-    return fail("backbone regenerate: span binding missing");
-  }
-  std::vector<bool> seen_lanes(static_cast<std::size_t>(previous_template.fixed_count), false);
-  for (std::size_t binding_index : span_binding_it->second) {
-    if (binding_index >= graph.span_bindings.size()) {
-      return fail("backbone regenerate: span binding index invalid");
+  for (ObjectId scoped_edge_bundle_id : target.edge_bundle_ids) {
+    const auto span_binding_it = runtime_.backbone_index.edge_bundle_span_bindings.find(scoped_edge_bundle_id);
+    if (span_binding_it == runtime_.backbone_index.edge_bundle_span_bindings.end()) {
+      return fail("backbone regenerate: span binding missing");
     }
-    const SavedBackboneSpanBinding& binding = graph.span_bindings[binding_index];
-    if (binding.lane_index >= seen_lanes.size()) {
-      return fail("backbone unsupported: existing span lane is outside previous bundle count");
+    std::vector<bool> seen_lanes(static_cast<std::size_t>(previous_template.fixed_count), false);
+    for (std::size_t binding_index : span_binding_it->second) {
+      if (binding_index >= graph.span_bindings.size()) {
+        return fail("backbone regenerate: span binding index invalid");
+      }
+      const SavedBackboneSpanBinding& binding = graph.span_bindings[binding_index];
+      if (binding.lane_index >= seen_lanes.size()) {
+        return fail("backbone unsupported: existing span lane is outside previous bundle count");
+      }
+      seen_lanes[binding.lane_index] = true;
+      if (binding.lane_index >= static_cast<std::size_t>(next_template.fixed_count)) {
+        target.retired_spans.push_back(binding.span_id);
+      }
+      const auto attachment_it = runtime_.relation_index.attachments_by_span.find(binding.span_id);
+      if (attachment_it != runtime_.relation_index.attachments_by_span.end() && !attachment_it->second.empty()) {
+        return fail("backbone unsupported: regenerate does not preserve user attachments yet");
+      }
     }
-    seen_lanes[binding.lane_index] = true;
-    if (binding.lane_index >= static_cast<std::size_t>(next_template.fixed_count)) {
-      target.retired_spans.push_back(binding.span_id);
+    if (std::find(seen_lanes.begin(), seen_lanes.end(), false) != seen_lanes.end()) {
+      return fail("backbone regenerate: previous bundle lanes are incomplete");
     }
-    const auto attachment_it = runtime_.relation_index.attachments_by_span.find(binding.span_id);
-    if (attachment_it != runtime_.relation_index.attachments_by_span.end() && !attachment_it->second.empty()) {
-      return fail("backbone unsupported: regenerate does not preserve user attachments yet");
-    }
-  }
-  if (std::find(seen_lanes.begin(), seen_lanes.end(), false) != seen_lanes.end()) {
-    return fail("backbone regenerate: previous bundle lanes are incomplete");
   }
 
   std::vector<SavedBackboneRowKey> row_keys{};
-  const auto port_binding_it = runtime_.backbone_index.edge_bundle_ports.find(target.edge_bundle_id);
-  if (port_binding_it == runtime_.backbone_index.edge_bundle_ports.end()) {
-    return fail("backbone regenerate: port binding missing");
+  for (ObjectId scoped_edge_bundle_id : target.edge_bundle_ids) {
+    const auto port_binding_it = runtime_.backbone_index.edge_bundle_ports.find(scoped_edge_bundle_id);
+    if (port_binding_it == runtime_.backbone_index.edge_bundle_ports.end()) {
+      return fail("backbone regenerate: port binding missing");
+    }
+    for (std::size_t binding_index : port_binding_it->second) {
+      if (binding_index >= graph.port_bindings.size()) {
+        return fail("backbone regenerate: port binding index invalid");
+      }
+      const SavedBackbonePortBinding& binding = graph.port_bindings[binding_index];
+      const Port* port = view().ports().find(binding.port_id);
+      if (port == nullptr) {
+        return fail("backbone regenerate: bound port missing");
+      }
+      if (port->position_mode == PortPositionMode::kManual || port->user_edited_position) {
+        return fail("backbone unsupported: regenerate does not move manual ports");
+      }
+      if (std::find(row_keys.begin(), row_keys.end(), binding.row_key) == row_keys.end()) {
+        row_keys.push_back(binding.row_key);
+      }
+      if (binding.lane_index >= static_cast<std::size_t>(next_template.fixed_count) &&
+          !contains_id(target.retired_ports, binding.port_id)) {
+        target.retired_ports.push_back(binding.port_id);
+      }
+    }
   }
-  for (std::size_t binding_index : port_binding_it->second) {
-    if (binding_index >= graph.port_bindings.size()) {
-      return fail("backbone regenerate: port binding index invalid");
-    }
-    const SavedBackbonePortBinding& binding = graph.port_bindings[binding_index];
-    const Port* port = view().ports().find(binding.port_id);
-    if (port == nullptr) {
-      return fail("backbone regenerate: bound port missing");
-    }
-    if (port->position_mode == PortPositionMode::kManual || port->user_edited_position) {
-      return fail("backbone unsupported: regenerate does not move manual ports");
-    }
-    if (!binding.row_key.source_is_open || binding.row_key.source_edge_a != edge_bundle->edge_id ||
-        binding.row_key.source_edge_b != kInvalidObjectId) {
-      return fail("backbone unsupported: regenerate supports simple open rows only");
-    }
-    if (std::find(row_keys.begin(), row_keys.end(), binding.row_key) == row_keys.end()) {
-      row_keys.push_back(binding.row_key);
-    }
-    if (binding.lane_index >= static_cast<std::size_t>(next_template.fixed_count)) {
-      target.retired_ports.push_back(binding.port_id);
-    }
-  }
-  if (row_keys.size() != 2) {
-    return fail("backbone unsupported: regenerate requires two endpoint rows");
+  if (row_keys.size() < 2) {
+    return fail("backbone unsupported: regenerate requires route rows");
   }
   for (ObjectId port_id : target.retired_ports) {
-    if (!port_is_retired_only(*this, port_id, target.retired_spans, target.edge_bundle_id,
+    if (!port_is_retired_only(*this, port_id, target.retired_spans, target.edge_bundle_ids,
                               static_cast<std::size_t>(next_template.fixed_count))) {
       return fail("backbone unsupported: regenerate requires retired ports to be lane-local");
     }
   }
 
   generation::backbone::graph made_graph{};
-  generation::backbone::node a{};
-  a.id = 0;
-  a.pos = target.node_a->position;
-  a.support = target.node_a->support_kind;
-  a.pole = target.node_a->pole_id;
-  a.saved = target.node_a->node_id;
-  a.is_new = false;
-  a.on_route = true;
-  a.bundle_modes = target.node_a->bundle_modes;
-  generation::backbone::node b{};
-  b.id = 1;
-  b.pos = target.node_b->position;
-  b.support = target.node_b->support_kind;
-  b.pole = target.node_b->pole_id;
-  b.saved = target.node_b->node_id;
-  b.is_new = false;
-  b.on_route = true;
-  b.bundle_modes = target.node_b->bundle_modes;
-  generation::backbone::link link{};
-  link.id = 0;
-  link.a = 0;
-  link.b = 1;
-  link.route = edge->route;
-  link.order = edge->order;
-  link.dir = edge->dir;
-  link.saved = edge->edge_id;
-  link.is_new = true;
-  made_graph.nodes = {a, b};
-  made_graph.links = {link};
+  for (std::size_t node_index = 0; node_index < route_nodes.size(); ++node_index) {
+    const SavedBackboneNode& saved_node = *route_nodes[node_index];
+    generation::backbone::node made_node{};
+    made_node.id = static_cast<int>(node_index);
+    made_node.pos = saved_node.position;
+    made_node.support = saved_node.support_kind;
+    made_node.pole = saved_node.pole_id;
+    made_node.saved = saved_node.node_id;
+    made_node.is_new = false;
+    made_node.on_route = true;
+    made_node.bundle_modes = saved_node.bundle_modes;
+    made_graph.nodes.push_back(std::move(made_node));
+  }
+  for (std::size_t edge_index = 0; edge_index < route_edges.size(); ++edge_index) {
+    const SavedBackboneEdge& saved_edge = *route_edges[edge_index];
+    generation::backbone::link made_link{};
+    made_link.id = static_cast<int>(edge_index);
+    made_link.a = static_cast<int>(edge_index);
+    made_link.b = static_cast<int>(edge_index + 1);
+    made_link.route = saved_edge.route;
+    made_link.order = saved_edge.order;
+    made_link.dir = saved_edge.dir;
+    made_link.saved = saved_edge.edge_id;
+    made_link.is_new = true;
+    made_graph.links.push_back(std::move(made_link));
+  }
 
   BackboneSpec spec{};
   spec.pole_type_id = kInvalidPoleTypeId;
   spec.constraints.lateral_offset_m = edge->lateral_offset_m;
   std::vector<std::size_t> active_bundle_indices{};
   for (const SavedBackboneEdgeBundle& scoped_edge_bundle : graph.edge_bundles) {
-    if (scoped_edge_bundle.edge_id != target.edge_id) {
+    if (scoped_edge_bundle.edge_id != route_edges.front()->edge_id) {
       continue;
     }
     const Bundle* scoped_bundle = view().bundles().find(scoped_edge_bundle.bundle_id);
@@ -368,7 +399,7 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleKind bundle_t
     }
     auto& auth = trial.authoritative_;
     for (SavedBackboneEdgeBundle& item : auth.backbone.edge_bundles) {
-      if (item.edge_bundle_id == target.edge_bundle_id) {
+      if (contains_id(target.edge_bundle_ids, item.edge_bundle_id)) {
         erase_ids(item.span_ids, target.retired_spans);
       }
     }
@@ -389,6 +420,7 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleKind bundle_t
     rebuild_backbone_index();
   };
   retire_from_trial();
+  trial.cache_visual_curve_parts(generation::backbone::make_visual_curve_parts(trial, {}));
 
   identity_ = trial.identity_;
   authoritative_ = trial.authoritative_;

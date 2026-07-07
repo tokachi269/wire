@@ -193,6 +193,47 @@ wire::core::ObjectId edge_bundle_id_for_template(const wire::core::CoreState& st
   return wire::core::kInvalidObjectId;
 }
 
+std::vector<wire::core::ObjectId> edge_bundle_ids_for_template(const wire::core::CoreState& state,
+                                                               wire::core::BundleKind bundle_template_id) {
+  std::vector<wire::core::ObjectId> out{};
+  for (const wire::core::SavedBackboneEdgeBundle& edge_bundle : state.view().backbone().edge_bundles) {
+    const wire::core::Bundle* bundle = state.view().bundles().find(edge_bundle.bundle_id);
+    if (bundle != nullptr && bundle->bundle_template_id == bundle_template_id) {
+      out.push_back(edge_bundle.edge_bundle_id);
+    }
+  }
+  return out;
+}
+
+std::vector<std::vector<SpanCurveSignature>> route_bundle_signatures(const wire::core::CoreState& state,
+                                                                     wire::core::BundleKind bundle_template_id) {
+  std::vector<std::vector<SpanCurveSignature>> out{};
+  for (wire::core::ObjectId edge_bundle_id : edge_bundle_ids_for_template(state, bundle_template_id)) {
+    out.push_back(span_curve_signatures_for_edge_bundle(state, edge_bundle_id));
+  }
+  return out;
+}
+
+bool same_route_bundle_signatures(const std::vector<std::vector<SpanCurveSignature>>& lhs,
+                                  const std::vector<std::vector<SpanCurveSignature>>& rhs) {
+  if (lhs.size() != rhs.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < lhs.size(); ++i) {
+    if (!same_span_curve_signatures(lhs[i], rhs[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+std::size_t visual_part_count(const wire::core::CoreState& state, wire::core::VisualCurvePartKind kind) {
+  return static_cast<std::size_t>(
+      std::count_if(state.view().visual_curve_parts().parts.begin(),
+                    state.view().visual_curve_parts().parts.end(),
+                    [&](const wire::core::VisualCurvePart& part) { return part.kind == kind; }));
+}
+
 struct EdgeBundleIdentitySnapshot {
   std::vector<wire::core::ObjectId> span_ids{};
   std::vector<std::pair<std::size_t, wire::core::ObjectId>> port_ids{};
@@ -1059,13 +1100,20 @@ bool C669_backbone_bundle_count_migration_rejects_multi_bundle_group_offset() {
 bool C670_backbone_bundle_count_migration_rejects_pair_rows() {
   wire::core::CoreState state;
   const auto generated = state.GenerateFromBackboneSpec(poly3_req(state));
-  if (!generated.ok || generated.value.generated_span_ids.size() < 2) {
+  if (!generated.ok || edge_bundle_ids_for_template(state, wire::core::BundleKind::kLowVoltage).size() != 2) {
     return false;
   }
-  const CountSnapshot before = count_snapshot(state);
-  std::string error{};
-  const bool updated = update_low_voltage_count_to_two(state, &error);
-  return !updated && contains_text(error, "one edge bundle only") && same_counts(before, count_snapshot(state));
+  if (!update_low_voltage_count_to_two(state)) {
+    return false;
+  }
+  wire::core::CoreState fresh;
+  if (!set_low_voltage_count_before_generation(fresh, 2)) {
+    return false;
+  }
+  const auto fresh_generated = fresh.GenerateFromBackboneSpec(poly3_req(fresh));
+  return fresh_generated.ok &&
+         same_route_bundle_signatures(route_bundle_signatures(state, wire::core::BundleKind::kLowVoltage),
+                                      route_bundle_signatures(fresh, wire::core::BundleKind::kLowVoltage));
 }
 
 
@@ -1377,6 +1425,90 @@ bool C706_backbone_regenerate_multi_bundle_count_change_matches_fresh() {
                                     span_curve_signatures_for_edge_bundle(fresh, fresh_lv)) &&
          same_span_curve_signatures(span_curve_signatures_for_edge_bundle(state, comm_edge_bundle),
                                     span_curve_signatures_for_edge_bundle(fresh, fresh_comm));
+}
+
+bool C707_backbone_saved_edges_reconstruct_route_order() {
+  wire::core::CoreState state;
+  const auto generated = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!generated.ok || state.view().backbone().edges.size() != 2) {
+    return false;
+  }
+  const std::vector<wire::core::SavedBackboneEdge>& edges = state.view().backbone().edges;
+  return edges[0].route == edges[1].route && edges[0].order == 0 && edges[1].order == 1 &&
+         edges[0].node_b == edges[1].node_a;
+}
+
+bool C708_backbone_regenerate_polyline_decrease_matches_fresh() {
+  wire::core::CoreState state;
+  if (!set_low_voltage_count_before_generation(state, 2)) {
+    return false;
+  }
+  const auto generated = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!generated.ok || edge_bundle_ids_for_template(state, wire::core::BundleKind::kLowVoltage).size() != 2) {
+    return false;
+  }
+  if (!update_low_voltage_count_to_one(state)) {
+    return false;
+  }
+
+  wire::core::CoreState fresh;
+  const auto fresh_generated = fresh.GenerateFromBackboneSpec(poly3_req(fresh));
+  return fresh_generated.ok &&
+         same_route_bundle_signatures(route_bundle_signatures(state, wire::core::BundleKind::kLowVoltage),
+                                      route_bundle_signatures(fresh, wire::core::BundleKind::kLowVoltage)) &&
+         visual_part_count(state, wire::core::VisualCurvePartKind::kNodePatch) ==
+             visual_part_count(fresh, wire::core::VisualCurvePartKind::kNodePatch);
+}
+
+bool C709_backbone_regenerate_polyline_increase_matches_fresh() {
+  wire::core::CoreState state;
+  const auto generated = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!generated.ok || edge_bundle_ids_for_template(state, wire::core::BundleKind::kLowVoltage).size() != 2) {
+    return false;
+  }
+  if (!update_low_voltage_count_to_two(state)) {
+    return false;
+  }
+
+  wire::core::CoreState fresh;
+  if (!set_low_voltage_count_before_generation(fresh, 2)) {
+    return false;
+  }
+  const auto fresh_generated = fresh.GenerateFromBackboneSpec(poly3_req(fresh));
+  return fresh_generated.ok &&
+         same_route_bundle_signatures(route_bundle_signatures(state, wire::core::BundleKind::kLowVoltage),
+                                      route_bundle_signatures(fresh, wire::core::BundleKind::kLowVoltage)) &&
+         visual_part_count(state, wire::core::VisualCurvePartKind::kNodePatch) ==
+             visual_part_count(fresh, wire::core::VisualCurvePartKind::kNodePatch);
+}
+
+bool C710_backbone_regenerate_polyline_multi_bundle_matches_fresh() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = poly3_req(state);
+  add_backbone_bundle(req, wire::core::BundleKind::kCommunication);
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  if (!generated.ok || edge_bundle_ids_for_template(state, wire::core::BundleKind::kLowVoltage).size() != 2 ||
+      edge_bundle_ids_for_template(state, wire::core::BundleKind::kCommunication).size() != 2) {
+    return false;
+  }
+  if (!update_low_voltage_count_to_two(state)) {
+    return false;
+  }
+
+  wire::core::CoreState fresh;
+  if (!set_low_voltage_count_before_generation(fresh, 2)) {
+    return false;
+  }
+  wire::core::BackboneSpec fresh_req = poly3_req(fresh);
+  add_backbone_bundle(fresh_req, wire::core::BundleKind::kCommunication);
+  const auto fresh_generated = fresh.GenerateFromBackboneSpec(fresh_req);
+  return fresh_generated.ok &&
+         same_route_bundle_signatures(route_bundle_signatures(state, wire::core::BundleKind::kLowVoltage),
+                                      route_bundle_signatures(fresh, wire::core::BundleKind::kLowVoltage)) &&
+         same_route_bundle_signatures(route_bundle_signatures(state, wire::core::BundleKind::kCommunication),
+                                      route_bundle_signatures(fresh, wire::core::BundleKind::kCommunication)) &&
+         visual_part_count(state, wire::core::VisualCurvePartKind::kNodePatch) ==
+             visual_part_count(fresh, wire::core::VisualCurvePartKind::kNodePatch);
 }
 
 bool C676_backbone_noop_move_preserves_port_positions_exactly() {

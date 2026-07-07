@@ -897,9 +897,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C669_backbone_regenerate_multi_bundle_decrease_matches_fresh",
                          "backbone regenerate multi-bundle count decrease matches fresh generation",
                          "Invariant", false, C669_backbone_bundle_count_migration_rejects_multi_bundle_group_offset);
-  test_registry::AddTest(tests, "C670_backbone_regenerate_rejects_pair_rows",
-                         "backbone regenerate rejects pair rows before mutation",
-                         "Boundary", false, C670_backbone_bundle_count_migration_rejects_pair_rows);
+  test_registry::AddTest(tests, "C670_backbone_regenerate_pair_rows_match_fresh",
+                         "backbone regenerate pair rows match fresh generation",
+                         "Invariant", false, C670_backbone_bundle_count_migration_rejects_pair_rows);
   test_registry::AddTest(tests, "C671_backbone_regenerate_reuses_pipeline_stages",
                          "backbone regenerate reuses pipeline stages instead of local emit copies",
                          "Boundary", false, C671_backbone_bundle_count_migration_reuses_pipeline_stages);
@@ -944,6 +944,22 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "backbone regenerate multi-bundle count change matches fresh generation",
                          "Invariant", false,
                          C706_backbone_regenerate_multi_bundle_count_change_matches_fresh);
+  test_registry::AddTest(tests, "C707_backbone_saved_edges_reconstruct_route_order",
+                         "backbone saved edges reconstruct route order",
+                         "Invariant", false,
+                         C707_backbone_saved_edges_reconstruct_route_order);
+  test_registry::AddTest(tests, "C708_backbone_regenerate_polyline_decrease_matches_fresh",
+                         "backbone regenerate polyline count decrease matches fresh generation",
+                         "Invariant", false,
+                         C708_backbone_regenerate_polyline_decrease_matches_fresh);
+  test_registry::AddTest(tests, "C709_backbone_regenerate_polyline_increase_matches_fresh",
+                         "backbone regenerate polyline count increase matches fresh generation",
+                         "Invariant", false,
+                         C709_backbone_regenerate_polyline_increase_matches_fresh);
+  test_registry::AddTest(tests, "C710_backbone_regenerate_polyline_multi_bundle_matches_fresh",
+                         "backbone regenerate polyline multi-bundle count change matches fresh generation",
+                         "Invariant", false,
+                         C710_backbone_regenerate_polyline_multi_bundle_matches_fresh);
   test_registry::AddTest(tests, "C674_backbone_port_band_selection_has_one_owner",
                          "backbone and post-edit port band selection use saved binding or one shared selector",
                          "Boundary", false, C674_backbone_port_band_selection_has_one_owner);

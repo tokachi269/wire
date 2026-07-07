@@ -97,6 +97,8 @@ regenerate は各 post-edit API が編集差分を添えて統一入口を直接
 同一 edge に複数 edge_bundle がある場合は saved edge_bundles 順を生成時の bundle spec 順として扱い、
 group offset を再構成する。3点以上routeのpair rowは、saved edge の route/order と saved node から
 pipeline graph を復元して再確定する。
+存続する span の attachment は span id とともに保持する。退役する span に attachment がある場合だけ、
+暗黙削除せず mutation 前に `unsupported` で拒否する。
 
 `UpdatePoleTypeDefinition`は、対象typeをactive backbone poleが使用中でもplacement-only差分なら
 `kReposition`として既存auto portを再配置し、layout -> geom -> drawを再導出する。

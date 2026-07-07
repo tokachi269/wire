@@ -1165,14 +1165,19 @@ bool C673_backbone_bundle_count_migration_rejects_user_attachments() {
   if (!generated.ok || generated.value.generated_span_ids.empty()) {
     return false;
   }
-  const auto attachment = state.AddAttachment(generated.value.generated_span_ids.front(), 0.5);
+  const wire::core::ObjectId span_id = generated.value.generated_span_ids.front();
+  const auto attachment = state.AddAttachment(span_id, 0.5);
   if (!attachment.ok) {
     return false;
   }
-  const CountSnapshot before = count_snapshot(state);
-  std::string error{};
-  const bool updated = update_low_voltage_count_to_two(state, &error);
-  return !updated && contains_text(error, "attachments") && same_counts(before, count_snapshot(state));
+  if (!update_low_voltage_count_to_two(state)) {
+    return false;
+  }
+  const wire::core::Attachment* found = state.view().attachments().find(attachment.value);
+  const auto attachment_it = state.view().relation_index().attachments_by_span.find(span_id);
+  return found != nullptr && found->span_id == span_id &&
+         attachment_it != state.view().relation_index().attachments_by_span.end() &&
+         contains_id(attachment_it->second, attachment.value);
 }
 
 bool C698_backbone_regenerate_fixed_count_decrease_retires_lanes() {
@@ -1509,6 +1514,33 @@ bool C710_backbone_regenerate_polyline_multi_bundle_matches_fresh() {
                                       route_bundle_signatures(fresh, wire::core::BundleKind::kCommunication)) &&
          visual_part_count(state, wire::core::VisualCurvePartKind::kNodePatch) ==
              visual_part_count(fresh, wire::core::VisualCurvePartKind::kNodePatch);
+}
+
+bool C711_backbone_regenerate_decrease_preserves_surviving_attachment() {
+  wire::core::CoreState state;
+  if (!set_low_voltage_count_before_generation(state, 2)) {
+    return false;
+  }
+  const auto generated = state.GenerateFromBackboneSpec(line_req(state));
+  if (!generated.ok || generated.value.generated_span_ids.size() != 2) {
+    return false;
+  }
+  const std::vector<wire::core::ObjectId> lane0_spans = span_ids_for_lane(state, 0);
+  if (lane0_spans.size() != 1) {
+    return false;
+  }
+  const auto attachment = state.AddAttachment(lane0_spans.front(), 0.5);
+  if (!attachment.ok) {
+    return false;
+  }
+  if (!update_low_voltage_count_to_one(state)) {
+    return false;
+  }
+  const wire::core::Attachment* found = state.view().attachments().find(attachment.value);
+  const auto attachment_it = state.view().relation_index().attachments_by_span.find(lane0_spans.front());
+  return found != nullptr && found->span_id == lane0_spans.front() &&
+         attachment_it != state.view().relation_index().attachments_by_span.end() &&
+         contains_id(attachment_it->second, attachment.value);
 }
 
 bool C676_backbone_noop_move_preserves_port_positions_exactly() {

@@ -8,7 +8,7 @@
 | family | 状態 | normal path | 消す条件 |
 |---|---|---|---|
 | `UpdatePoleTypeDefinition` | active backbone pole使用中でもplacement-only差分は`kReposition`で反映。構造差分はmutation前`unsupported` | post-edit API | band増減やrole/side変更などの構造差分を扱う regenerate scenario が必要になった時だけ、SavedGraph identityを維持する対応を追加する |
-| `UpdateBundleTemplate` | fixed count増減は単一 saved route に限り、統一 regenerate でSavedGraph identityを維持して pipeline 段を部分再実行し、port/span/rules/layout/geom/drawを再生成または退役する。multi-bundle は saved edge_bundles 順で group offset を再構成し、pair row は saved route/order から再確定する。`population_rules` 差分はtemplate-owned derived outputとして`kReshape`で反映する | post-edit API | range化、policy変更を扱う scenario が必要になった時だけ拡張する |
+| `UpdateBundleTemplate` | fixed count増減は単一 saved route に限り、統一 regenerate でSavedGraph identityを維持して pipeline 段を部分再実行し、port/span/rules/layout/geom/drawを再生成または退役する。multi-bundle は saved edge_bundles 順で group offset を再構成し、pair row は saved route/order から再確定する。存続spanのattachmentは保持し、退役spanのattachmentは拒否する。`population_rules` 差分はtemplate-owned derived outputとして`kReshape`で反映する | post-edit API | range化、policy変更を扱う scenario が必要になった時だけ拡張する |
 | `pending_support_nodes` | 未保存pickを次のrequestへ渡すtransient input | DrawPath input | 保存済みnodeと混同しない限り維持 |
 
 ## 隔離

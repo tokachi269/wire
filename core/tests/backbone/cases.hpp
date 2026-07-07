@@ -326,6 +326,7 @@ bool C707_backbone_saved_edges_reconstruct_route_order();
 bool C708_backbone_regenerate_polyline_decrease_matches_fresh();
 bool C709_backbone_regenerate_polyline_increase_matches_fresh();
 bool C710_backbone_regenerate_polyline_multi_bundle_matches_fresh();
+bool C711_backbone_regenerate_decrease_preserves_surviving_attachment();
 bool C674_backbone_port_band_selection_has_one_owner();
 bool C675_backbone_layout_yaw_does_not_read_debug_records();
 bool C676_backbone_noop_move_preserves_port_positions_exactly();

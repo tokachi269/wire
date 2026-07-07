@@ -906,9 +906,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C672_backbone_regenerate_rejects_manual_ports",
                          "backbone regenerate rejects manual ports before mutation",
                          "Boundary", false, C672_backbone_bundle_count_migration_rejects_manual_ports);
-  test_registry::AddTest(tests, "C673_backbone_regenerate_rejects_user_attachments",
-                         "backbone regenerate rejects user attachments before mutation",
-                         "Boundary", false, C673_backbone_bundle_count_migration_rejects_user_attachments);
+  test_registry::AddTest(tests, "C673_backbone_regenerate_preserves_surviving_attachment",
+                         "backbone regenerate preserves attachments on surviving spans",
+                         "Invariant", false, C673_backbone_bundle_count_migration_rejects_user_attachments);
   test_registry::AddTest(tests, "C698_backbone_regenerate_fixed_count_decrease_retires_lanes",
                          "backbone regenerate fixed count decrease retires removed lanes",
                          "Invariant", false, C698_backbone_regenerate_fixed_count_decrease_retires_lanes);
@@ -960,6 +960,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "backbone regenerate polyline multi-bundle count change matches fresh generation",
                          "Invariant", false,
                          C710_backbone_regenerate_polyline_multi_bundle_matches_fresh);
+  test_registry::AddTest(tests, "C711_backbone_regenerate_decrease_preserves_surviving_attachment",
+                         "backbone regenerate count decrease preserves attachments on surviving spans",
+                         "Invariant", false,
+                         C711_backbone_regenerate_decrease_preserves_surviving_attachment);
   test_registry::AddTest(tests, "C674_backbone_port_band_selection_has_one_owner",
                          "backbone and post-edit port band selection use saved binding or one shared selector",
                          "Boundary", false, C674_backbone_port_band_selection_has_one_owner);

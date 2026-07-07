@@ -205,10 +205,10 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleKind bundle_t
       seen_lanes[binding.lane_index] = true;
       if (binding.lane_index >= static_cast<std::size_t>(next_template.fixed_count)) {
         target.retired_spans.push_back(binding.span_id);
-      }
-      const auto attachment_it = runtime_.relation_index.attachments_by_span.find(binding.span_id);
-      if (attachment_it != runtime_.relation_index.attachments_by_span.end() && !attachment_it->second.empty()) {
-        return fail("backbone unsupported: regenerate does not preserve user attachments yet");
+        const auto attachment_it = runtime_.relation_index.attachments_by_span.find(binding.span_id);
+        if (attachment_it != runtime_.relation_index.attachments_by_span.end() && !attachment_it->second.empty()) {
+          return fail("backbone unsupported: regenerate does not preserve user attachments on retired spans yet");
+        }
       }
     }
     if (std::find(seen_lanes.begin(), seen_lanes.end(), false) != seen_lanes.end()) {

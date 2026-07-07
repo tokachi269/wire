@@ -391,16 +391,21 @@ EditResult<bool> CoreState::migrate_backbone_bundle_fixed_count_increase(BundleK
   bundle_spec.layer = next_template.default_layer;
   spec.bundles.push_back(bundle_spec);
 
-  authoritative_.bundle_templates[bundle_template_id] = next_template;
-  generation::backbone::pipeline pipeline(*this, spec);
-  EditResult<GenerateBundleFromPathResult> rebuilt = pipeline.build_prepared_migration(std::move(made_graph), {0});
-  if (!rebuilt.ok) {
-    authoritative_.bundle_templates[bundle_template_id] = previous_template;
-    return fail(rebuilt.error);
+  std::vector<BundleTemplate> template_overrides{next_template};
+  CoreState trial = *this;
+  generation::backbone::pipeline trial_pipeline(trial, spec);
+  EditResult<GenerateBundleFromPathResult> preflight =
+      trial_pipeline.build_prepared_migration(made_graph, {0}, template_overrides);
+  if (!preflight.ok) {
+    return fail(preflight.error);
   }
 
+  // Transaction boundary: the same migration pipeline has succeeded on a copied state, so adopting
+  // that copy cannot leave the authoritative state partially migrated.
+  trial.authoritative_.bundle_templates[bundle_template_id] = next_template;
+
   for (const migration_target& item : targets) {
-    Bundle* bundle = authoritative_.edit_state.bundles.find(item.bundle_id);
+    Bundle* bundle = trial.authoritative_.edit_state.bundles.find(item.bundle_id);
     if (bundle != nullptr) {
       bundle->conductor_count = next_template.fixed_count;
       bundle->phase_spacing_m = next_template.default_spacing_m;
@@ -410,10 +415,15 @@ EditResult<bool> CoreState::migrate_backbone_bundle_fixed_count_increase(BundleK
     }
   }
   if (change_set != nullptr) {
-    append_unique(change_set->created_ids, rebuilt.change_set.created_ids);
-    append_unique(change_set->updated_ids, rebuilt.change_set.updated_ids);
-    append_unique(change_set->deleted_ids, rebuilt.change_set.deleted_ids);
+    append_unique(change_set->created_ids, preflight.change_set.created_ids);
+    append_unique(change_set->updated_ids, preflight.change_set.updated_ids);
+    append_unique(change_set->deleted_ids, preflight.change_set.deleted_ids);
   }
+
+  identity_ = trial.identity_;
+  authoritative_ = trial.authoritative_;
+  runtime_ = trial.runtime_;
+  debug_ = trial.debug_;
 
   result.ok = true;
   result.value = true;

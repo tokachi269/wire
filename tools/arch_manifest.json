@@ -6,6 +6,8 @@
     "exclude_patterns": [
       "web/wasm/build/**",
       "web/wasm/build/**/*",
+      "web/wasm/build-nmake/**",
+      "web/wasm/build-nmake/**/*",
       "web/src/wasm-generated/**",
       "web/src/wasm-generated/**/*"
     ]

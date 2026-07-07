@@ -191,7 +191,8 @@ public:
   [[nodiscard]] EditResult<bool> check() const;
   [[nodiscard]] EditResult<GenerateBundleFromPathResult> build();
   [[nodiscard]] EditResult<GenerateBundleFromPathResult> build_prepared_migration(
-      graph made, std::vector<std::size_t> active_bundle_indices);
+      graph made, std::vector<std::size_t> active_bundle_indices,
+      std::vector<BundleTemplate> template_overrides = {});
 
 private:
   enum class build_mode {
@@ -218,6 +219,7 @@ private:
   void save(draw made);
   [[nodiscard]] EditResult<bool> save_graph(const topo& made, const pairs& ps);
   [[nodiscard]] std::size_t local(std::size_t input_point) const;
+  [[nodiscard]] const BundleTemplate* template_override(BundleKind id) const;
 
   CoreState& state_;
   const BackboneSpec& spec_;
@@ -226,6 +228,7 @@ private:
   graph g_{};
   std::vector<std::size_t> active_bundle_indices_{};
   std::vector<std::size_t> local_by_input_{};
+  std::vector<BundleTemplate> template_overrides_{};
 };
 
 } // namespace wire::core::generation::backbone

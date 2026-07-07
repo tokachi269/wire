@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -204,6 +205,7 @@ struct CountSnapshot {
   std::size_t port_bindings = 0;
   std::size_t span_bindings = 0;
   int fixed_count = 0;
+  std::uint64_t template_version = 0;
 };
 
 CountSnapshot count_snapshot(const wire::core::CoreState& state) {
@@ -219,6 +221,7 @@ CountSnapshot count_snapshot(const wire::core::CoreState& state) {
   out.span_bindings = state.view().backbone().span_bindings.size();
   const auto it = state.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
   out.fixed_count = it == state.view().bundle_templates().end() ? 0 : it->second.fixed_count;
+  out.template_version = it == state.view().bundle_templates().end() ? 0 : it->second.version;
   return out;
 }
 
@@ -226,7 +229,7 @@ bool same_counts(const CountSnapshot& a, const CountSnapshot& b) {
   return a.poles == b.poles && a.ports == b.ports && a.bundles == b.bundles && a.spans == b.spans &&
          a.nodes == b.nodes && a.edges == b.edges && a.edge_bundles == b.edge_bundles &&
          a.port_bindings == b.port_bindings && a.span_bindings == b.span_bindings &&
-         a.fixed_count == b.fixed_count;
+         a.fixed_count == b.fixed_count && a.template_version == b.template_version;
 }
 
 bool update_low_voltage_count_to_two(wire::core::CoreState& state, std::string* error = nullptr) {
@@ -837,6 +840,11 @@ bool C671_backbone_bundle_count_migration_reuses_pipeline_stages() {
   }
   std::string source{};
   if (!file_text(repo_root() / "core/src/generation/backbone/bundle_count_migration.cpp", &source)) {
+    return false;
+  }
+  const std::size_t transaction_boundary = source.find("Transaction boundary");
+  if (transaction_boundary == std::string::npos ||
+      source.find("fail(", transaction_boundary) != std::string::npos) {
     return false;
   }
   return source.find("build_prepared_migration") != std::string::npos &&

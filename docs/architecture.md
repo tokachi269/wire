@@ -86,14 +86,18 @@ ownerlessなmidair branchの取付位置は、saved edge、edge bundle、lane、
 post-edit APIは、派生出力を更新して成功するか、mutation前に拒否する。
 staleなlayout/geom/drawを残したまま成功してはいけない。
 `kRegenerate` は topology / identity / connectivity 級差分を分類し、通常更新経路で拒否する境界である。
-`execute_update_plan` に regenerate executor は置かない。SavedGraph identity を維持して下流だけ作り直せる場合は、
-差分 family ごとの migration operation として実装する。第1号は
-`migrate_backbone_bundle_fixed_count_increase` で、単純 open row の bundle fixed count 増加だけを扱う。
+`execute_update_plan` の `kRegenerate` は統一 regenerate へ接続予定の分類であり、汎用 fallback にはしない。
+接続自体は現時点の対象外である。
+
+統一 regenerate は、編集差分から影響 scope を解決し、保存済み入力から scope の pipeline graph を組み直し、
+既存 pipeline を部分再実行して binding を reconcile する。既存 binding は再利用し、増えたものは生成し、
+消えたものは退役する。差分別の migration operation は作らず、対応範囲は scenario 単位で拡張する。
+現対応は `UpdateBundleTemplate` の fixed count 増減で、単純 open row の 2-pole route だけを扱う。
 
 `UpdatePoleTypeDefinition`は、対象typeをactive backbone poleが使用中でもplacement-only差分なら
 `kReposition`として既存auto portを再配置し、layout -> geom -> drawを再導出する。
 band追加・削除、enabled/side/layer/role/priority変更、anchor slot変更などの構造差分は
-route-local migrationまたはtemplate migrationが必要なのでmutation前に`unsupported`で拒否する。
+該当 scenario の regenerate 対応が必要なのでmutation前に`unsupported`で拒否する。
 manual portはtemplate placement更新では動かさない。
 
 `DeriveGeneratedSpanOutputs()` は、保存済み rules / layout source / `SavedBackboneGraph` binding から

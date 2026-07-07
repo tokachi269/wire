@@ -7,8 +7,8 @@
 
 | family | 状態 | normal path | 消す条件 |
 |---|---|---|---|
-| `UpdatePoleTypeDefinition` | active backbone pole使用中でもplacement-only差分は`kReposition`で反映。構造差分はmutation前`unsupported` | post-edit API | band増減やrole/side変更などの構造差分を扱うtemplate migrationが必要になった時だけ、SavedGraph identityを維持する新operationを設計する |
-| `UpdateBundleTemplate` | fixed count増加、かつ単純 open row の 2-pole route だけ、SavedGraph identityを維持して pipeline 段を部分再実行し、port/span/rules/layout/geom/drawを再生成する。`population_rules` 差分はtemplate-owned derived outputとして`kReshape`で反映する | post-edit API | count減少、range化、policy変更、3点以上route、lateral/group/loweringを保存していない配置を扱うroute-local migrationが必要になった時だけ拡張する |
+| `UpdatePoleTypeDefinition` | active backbone pole使用中でもplacement-only差分は`kReposition`で反映。構造差分はmutation前`unsupported` | post-edit API | band増減やrole/side変更などの構造差分を扱う regenerate scenario が必要になった時だけ、SavedGraph identityを維持する対応を追加する |
+| `UpdateBundleTemplate` | fixed count増減、かつ単純 open row の 2-pole route だけ、統一 regenerate でSavedGraph identityを維持して pipeline 段を部分再実行し、port/span/rules/layout/geom/drawを再生成または退役する。`population_rules` 差分はtemplate-owned derived outputとして`kReshape`で反映する | post-edit API | range化、policy変更、3点以上route、pair row、multi-bundle group offset 付き配置を扱う scenario が必要になった時だけ拡張する |
 | `pending_support_nodes` | 未保存pickを次のrequestへ渡すtransient input | DrawPath input | 保存済みnodeと混同しない限り維持 |
 
 ## 隔離
@@ -24,6 +24,7 @@
 
 - recalc directory、dirty queue、`ProcessDirtyQueues`
 - `DirtyBits`、`regeneration_required`、`TemplateDependencyState`
+- `migrate_backbone_bundle_fixed_count_increase`、`bundle_count_migration.cpp`
 - support-layout authority / seed / projection / materialization
 - grouped span generation、旧backbone pipeline
 - span/layout/curve/port位置からのtopology復元

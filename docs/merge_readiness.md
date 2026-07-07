@@ -38,13 +38,13 @@
 
 pipelineの入力validation系`unsupported`(不正入力の恒久拒否)はこの表の対象外。
 ここに載るのは「実装が無いため止めている」操作だけで、根本原因は
-`execute_update_plan`の`kRegenerate`未実装(`route-local migration is not implemented`)に集約される。
+`execute_update_plan`の`kRegenerate`未接続、または該当 scenario の統一 regenerate 未対応に集約される。
 viewerはこれらを事前に判別せず、Apply後のerror logで初めてunsupportedが見える。
 
 | 操作 | viewer到達 | 拒否条件 | 解除条件 |
 |---|---|---|---|
 | `UpdatePoleTypeDefinition` | `Apply Pole Template`(Pole Placement含む) | active backbone poleが対象typeを使用 | placement-only差分(band高さ/横位置、pole高さ)はkReposition化して通す方針を決定済み。band増減・side変更などの構造差分は該当 family の migration 実装まで保留 |
-| `UpdateBundleTemplate` | `Apply Bundle Template` | topology級差分 + 既存bundleあり | fixed count増加は単純 open row の 2-pole route に限りSavedGraph identityを維持して pipeline 段を部分再実行する。count減少、range化、policy変更、3点以上route、lateral/group/loweringを保存していない配置は引き続き該当 family の migration 保留。visual-only/detail差分は現状も通る |
+| `UpdateBundleTemplate` | `Apply Bundle Template` | topology級差分 + 既存bundleあり | fixed count増減は単純 open row の 2-pole route に限り統一 regenerate で対応。range化、policy変更、3点以上route、pair row、multi-bundle group offset 付き配置は scenario 未対応。visual-only/detail差分は現状も通る |
 | `UpdateCableTemplate` | `Apply Cable Template` | decision差分(continuity policy / default endpoint attachment) + 対象spanあり | 該当 family の migration 実装(C357)。geometry/render差分は現状も通る |
 | `ApplyBundleRelatedPoleTypeToExistingPoles` | template Apply後に自動呼出 | 対象poleがbackbone node | 該当 family の migration 実装(C297) |
 | `UpdateLayoutSettings` | `Apply Layout` | backbone span bindingが1つでも存在 | generation入力のためregenerate級。state全体一括拒否の粒度は再検討候補 |

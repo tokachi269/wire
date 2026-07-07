@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import App from "../src/App.svelte";
 import { ViewerActions } from "../src/actions/viewer";
 import { WireBridge } from "../src/bridge/wire";
-import { ViewerStore } from "../src/store/viewer";
+import { ViewerStore, type ViewerSnapshot } from "../src/store/viewer";
 
 describe("viewer numeric inputs", () => {
   let bridge: WireBridge | null = null;
@@ -143,6 +143,33 @@ describe("viewer numeric inputs", () => {
       ?.minSpacing).toBeCloseTo(next, 8);
   });
 
+  it("restores an uncommitted number input with Escape before blur", async () => {
+    const mounted = await mountViewer();
+    const input = inputForLabel("Max tilt");
+    const before = current(mounted.store).maxTiltDeg;
+
+    input.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    input.value = String(before + 7);
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    input.dispatchEvent(new FocusEvent("blur", { bubbles: true }));
+    await tick();
+
+    expect(input.value).toBe(String(before));
+    expect(current(mounted.store).maxTiltDeg).toBe(before);
+  });
+
+  it("keeps generated backbone visible after generation", async () => {
+    const mounted = await mountViewer();
+    mounted.actions.setDrawOption("showBackboneOverlay", false);
+    mounted.actions.addPathPoint([0, 0, 0]);
+    mounted.actions.addPathPoint([8, 0, 0]);
+    mounted.actions.generatePath();
+
+    const snapshot = current(mounted.store);
+    expect(snapshot.parts.length).toBeGreaterThan(0);
+    expect(snapshot.showBackboneOverlay).toBe(true);
+  });
+
   async function mountViewer() {
     const wasmBinary = await readFile(resolve("src/wasm-generated/wire_web_core.wasm"));
     bridge = await WireBridge.create({ wasmBinary });
@@ -171,6 +198,18 @@ function requiredInput(selector: string): HTMLInputElement {
     throw new Error(`input not found: ${selector}`);
   }
   return input;
+}
+
+function current(store: ViewerStore): ViewerSnapshot {
+  let snapshot: ViewerSnapshot | undefined;
+  const unsubscribe = store.value.subscribe((value) => {
+    snapshot = value;
+  });
+  unsubscribe();
+  if (snapshot === undefined) {
+    throw new Error("store did not emit");
+  }
+  return snapshot;
 }
 
 async function editNumberInput(

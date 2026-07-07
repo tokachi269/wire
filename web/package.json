@@ -10,7 +10,7 @@
     "build": "npm run wasm:build && vite build",
     "dev": "vite",
     "check": "tsc --noEmit",
-    "deploy": "npm run build && wait-on dist/index.html && gh-pages -d dist"
+    "deploy": "npm run build && wait-on dist/index.html && gh-pages -d dist --no-history"
   },
   "dependencies": {
     "svelte": "^5.0.0",

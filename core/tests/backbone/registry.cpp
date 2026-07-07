@@ -862,6 +862,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C696_cable_run_id_is_visual_derived_only",
                          "cable run id is derived in curve parts and not stored in authoritative backbone state",
                          "Boundary", false, C696_cable_run_id_is_visual_derived_only);
+  test_registry::AddTest(tests, "C697_backbone_edge_saves_lateral_offset_echo",
+                         "backbone saved edge echoes lateral offset generation input",
+                         "Invariant", false, C697_backbone_edge_saves_lateral_offset_echo);
   test_registry::AddTest(tests, "C660_backbone_bundle_fixed_count_migration_updates_downstream_only",
                          "backbone bundle fixed count migration updates downstream without graph identity changes",
                          "Boundary", false,

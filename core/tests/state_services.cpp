@@ -4,7 +4,11 @@
 #include "../src/state/internal_services.hpp"
 #include "helpers.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <iostream>
+#include <limits>
+#include <vector>
 
 namespace {
 

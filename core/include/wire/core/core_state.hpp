@@ -156,7 +156,7 @@ private:
                                                    const std::vector<SupportNodeBundleMode>& bundle_modes);
   EditResult<bool> bind_backbone_node_path_point_index(ObjectId node_id, int path_point_index);
   SavedBackboneEdgeRef save_backbone_edge(ObjectId node_a, ObjectId node_b, std::size_t route, std::size_t order,
-                                          const Vec3d& dir);
+                                          const Vec3d& dir, double lateral_offset_m);
   ObjectId bind_backbone_bundle(ObjectId edge_id, ObjectId bundle_id, bool edge_forward, std::size_t route,
                                 std::size_t order, const Vec3d& dir);
   EditResult<bool> bind_backbone_span(ObjectId edge_bundle_id, std::size_t lane_index, ObjectId span_id);

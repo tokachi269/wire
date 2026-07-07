@@ -187,7 +187,8 @@ bool same_saved_edges(const std::vector<wire::core::SavedBackboneEdge>& lhs,
     const auto& a = lhs[i];
     const auto& b = rhs[i];
     if (a.edge_id != b.edge_id || a.node_a != b.node_a || a.node_b != b.node_b ||
-        a.route != b.route || a.order != b.order || !same_vec3(a.dir, b.dir)) {
+        a.route != b.route || a.order != b.order || !same_vec3(a.dir, b.dir) ||
+        !almost_equal(a.lateral_offset_m, b.lateral_offset_m, 1e-12)) {
       return false;
     }
   }
@@ -721,6 +722,35 @@ bool C628_backbone_active_pole_type_update_repositions_or_rejects_structure() {
          almost_equal(port_a_after_reject->world_position, port_a_before_reject, 1e-12);
 }
 
+bool C697_backbone_edge_saves_lateral_offset_echo() {
+  wire::core::CoreState offset_state;
+  wire::core::BackboneSpec offset_req = line_req(offset_state);
+  offset_req.constraints.lateral_offset_m = 1.0;
+  const auto offset_generated = offset_state.GenerateFromBackboneSpec(offset_req);
+  if (!offset_generated.ok || offset_state.view().backbone().edges.size() != 1) {
+    return false;
+  }
+  if (!almost_equal(offset_state.view().backbone().edges.front().lateral_offset_m, 1.0, 1e-12)) {
+    return false;
+  }
+
+  wire::core::CoreState default_state;
+  const auto default_generated = default_state.GenerateFromBackboneSpec(line_req(default_state));
+  if (!default_generated.ok || default_state.view().backbone().edges.size() != 1) {
+    return false;
+  }
+  if (!almost_equal(default_state.view().backbone().edges.front().lateral_offset_m, 0.0, 1e-12)) {
+    return false;
+  }
+
+  wire::core::CoreState repeat_state;
+  wire::core::BackboneSpec repeat_req = line_req(repeat_state);
+  repeat_req.constraints.lateral_offset_m = 1.0;
+  const auto repeat_generated = repeat_state.GenerateFromBackboneSpec(repeat_req);
+  return repeat_generated.ok && repeat_state.view().backbone().edges.size() == 1 &&
+         almost_equal(repeat_state.view().backbone().edges.front().lateral_offset_m,
+                      offset_state.view().backbone().edges.front().lateral_offset_m, 1e-12);
+}
 bool C660_backbone_bundle_fixed_count_migration_updates_downstream_only() {
   wire::core::CoreState state;
   const auto generated = state.GenerateFromBackboneSpec(line_req(state));

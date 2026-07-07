@@ -15,6 +15,133 @@ import type {
   WorldPoint
 } from "../store/viewer";
 
+const JAPAN_DISTRIBUTION_PRIMITIVE = {
+  poleVisibleHeightM: 10.0,
+  highVoltageZ: 9.2,
+  lowVoltageZ: 7.4,
+  communicationZMin: 4.8,
+  communicationZMax: 5.8,
+  serviceDropZMin: 4.5,
+  serviceDropZMax: 6.5,
+  highVoltageX: [-0.75, 0.0, 0.75],
+  lowVoltageX: [-0.45, 0.0, 0.45],
+  communicationX: [-0.55, -0.18, 0.18, 0.55],
+  opticalX: [-0.35, 0.35],
+  cableDiameterM: {
+    HV_BARE: 0.024,
+    LV_INSULATED: 0.020,
+    COMM_MULTI: 0.016,
+    OPTICAL_FIBER: 0.012,
+    DROP_SERVICE: 0.016
+  }
+} as const;
+
+function patchedCableTemplate(template: CableTemplateInfo): CableTemplateInfo {
+  const diameter = JAPAN_DISTRIBUTION_PRIMITIVE.cableDiameterM[
+    template.name as keyof typeof JAPAN_DISTRIBUTION_PRIMITIVE.cableDiameterM
+  ];
+  if (diameter === undefined) {
+    return template;
+  }
+  const requiresInsulator = template.name === "HV_BARE" || template.name === "LV_INSULATED";
+  return {
+    ...template,
+    outerDiameter: diameter,
+    requiresInsulator,
+    insulatorAttachmentHeight: template.name === "HV_BARE"
+      ? 0.18
+      : template.name === "LV_INSULATED"
+        ? 0.10
+        : 0.0
+  };
+}
+
+function patchedPoleTemplate(template: PoleTemplateInfo): PoleTemplateInfo {
+  if (template.name !== "DistributionPole" && template.name !== "CommunicationPole") {
+    return template;
+  }
+  const nextByCategory = new Map<number, number>();
+  const nextPosition = (
+    category: number,
+    positions: readonly number[],
+    fallback: number
+  ) => positions[nextByCategory.get(category) ?? 0] ?? fallback;
+  const consumePosition = (category: number) => {
+    nextByCategory.set(category, (nextByCategory.get(category) ?? 0) + 1);
+  };
+
+  return {
+    ...template,
+    defaultHeight: JAPAN_DISTRIBUTION_PRIMITIVE.poleVisibleHeightM,
+    portBands: template.portBands.map((band) => {
+      if (band.category === 0) {
+        const lateral = nextPosition(0, JAPAN_DISTRIBUTION_PRIMITIVE.highVoltageX, band.lateralCenter);
+        consumePosition(0);
+        return {
+          ...band,
+          lateralCenter: lateral,
+          lateralMin: lateral - 0.08,
+          lateralMax: lateral + 0.08,
+          heightCenter: JAPAN_DISTRIBUTION_PRIMITIVE.highVoltageZ,
+          heightMin: JAPAN_DISTRIBUTION_PRIMITIVE.highVoltageZ - 0.06,
+          heightMax: JAPAN_DISTRIBUTION_PRIMITIVE.highVoltageZ + 0.06,
+          minSpacing: Math.max(band.minSpacing, 0.36)
+        };
+      }
+      if (band.category === 1) {
+        const lateral = nextPosition(1, JAPAN_DISTRIBUTION_PRIMITIVE.lowVoltageX, band.lateralCenter);
+        consumePosition(1);
+        return {
+          ...band,
+          lateralCenter: lateral,
+          lateralMin: lateral - 0.07,
+          lateralMax: lateral + 0.07,
+          heightCenter: JAPAN_DISTRIBUTION_PRIMITIVE.lowVoltageZ,
+          heightMin: JAPAN_DISTRIBUTION_PRIMITIVE.lowVoltageZ - 0.06,
+          heightMax: JAPAN_DISTRIBUTION_PRIMITIVE.lowVoltageZ + 0.06,
+          minSpacing: Math.max(band.minSpacing, 0.24)
+        };
+      }
+      if (band.category === 2 || band.category === 3) {
+        const positions = band.category === 2
+          ? JAPAN_DISTRIBUTION_PRIMITIVE.communicationX
+          : JAPAN_DISTRIBUTION_PRIMITIVE.opticalX;
+        const lateral = nextPosition(band.category, positions, band.lateralCenter);
+        consumePosition(band.category);
+        const heightCenter =
+          (JAPAN_DISTRIBUTION_PRIMITIVE.communicationZMin +
+            JAPAN_DISTRIBUTION_PRIMITIVE.communicationZMax) / 2;
+        return {
+          ...band,
+          lateralCenter: lateral,
+          lateralMin: JAPAN_DISTRIBUTION_PRIMITIVE.communicationX[0],
+          lateralMax: JAPAN_DISTRIBUTION_PRIMITIVE.communicationX[3],
+          heightCenter,
+          heightMin: JAPAN_DISTRIBUTION_PRIMITIVE.communicationZMin,
+          heightMax: JAPAN_DISTRIBUTION_PRIMITIVE.communicationZMax,
+          minSpacing: Math.max(band.minSpacing, 0.20)
+        };
+      }
+      if (band.category === 4) {
+        const heightCenter =
+          (JAPAN_DISTRIBUTION_PRIMITIVE.serviceDropZMin +
+            JAPAN_DISTRIBUTION_PRIMITIVE.serviceDropZMax) / 2;
+        return {
+          ...band,
+          heightCenter,
+          heightMin: JAPAN_DISTRIBUTION_PRIMITIVE.serviceDropZMin,
+          heightMax: JAPAN_DISTRIBUTION_PRIMITIVE.serviceDropZMax
+        };
+      }
+      return band;
+    })
+  };
+}
+
+function shallowEqual<T extends object>(a: T, b: T): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 export class ViewerActions {
   private pendingPreview: ReturnType<typeof setTimeout> | null = null;
   private activeCancel: (() => void) | null = null;
@@ -29,8 +156,8 @@ export class ViewerActions {
 
   initialize(): void {
     const bundleTemplates = this.bridge.bundleTemplates();
-    const cableTemplates = this.bridge.cableTemplates();
-    const poleTemplates = this.bridge.poleTemplates();
+    let cableTemplates = this.bridge.cableTemplates();
+    let poleTemplates = this.bridge.poleTemplates();
     const geometry = this.bridge.geometrySettings();
     if (!geometry.sagEnabled) {
       geometry.sagEnabled = true;
@@ -39,6 +166,28 @@ export class ViewerActions {
         this.store.setError(result.error);
       }
     }
+    cableTemplates = cableTemplates.map((template) => {
+      const patched = patchedCableTemplate(template);
+      if (!shallowEqual(template, patched)) {
+        const result = this.bridge.updateCableTemplate(patched, []);
+        if (!result.ok) {
+          this.store.setError(result.error);
+          return template;
+        }
+      }
+      return patched;
+    });
+    poleTemplates = poleTemplates.map((template) => {
+      const patched = patchedPoleTemplate(template);
+      if (!shallowEqual(template, patched)) {
+        const result = this.bridge.updatePoleTemplate(patched);
+        if (!result.ok) {
+          this.store.setError(result.error);
+          return template;
+        }
+      }
+      return patched;
+    });
     const defaultBundleId =
       bundleTemplates.find((template) => template.id === 1)?.id ??
       bundleTemplates[0]?.id ??
@@ -81,11 +230,22 @@ export class ViewerActions {
   }
 
   addPathPoint(point: WorldPoint): void {
-    this.store.update((current) => ({
-      ...current,
-      pathPoints: [...current.pathPoints, point],
-      error: ""
-    }));
+    this.store.update((current) => {
+      const previous = current.pathPoints.at(-1);
+      if (previous !== undefined) {
+        const dx = point[0] - previous[0];
+        const dy = point[1] - previous[1];
+        const dz = point[2] - previous[2];
+        if (dx * dx + dy * dy + dz * dz <= 1e-18) {
+          return current;
+        }
+      }
+      return {
+        ...current,
+        pathPoints: [...current.pathPoints, point],
+        error: ""
+      };
+    });
   }
 
   clearPath(): void {
@@ -533,7 +693,7 @@ export class ViewerActions {
     this.activeCancel?.();
     this.activeCancel = null;
     this.finishFrameMeasurement();
-    this.suppressNextCommit = hadInteraction && suppressBlurCommit;
+    this.suppressNextCommit = suppressBlurCommit;
   }
 
   recordFrame(deltaMs: number): void {
@@ -594,6 +754,7 @@ export class ViewerActions {
       error: "",
       generationMs: result.totalMs,
       pathPoints: before.keepPathAfterGenerate ? points : [],
+      showBackboneOverlay: true,
       bundleTemplates,
       selectedDrawBundleTemplateIds: selectedBundleTemplateIds
     }));

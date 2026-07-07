@@ -12,6 +12,42 @@ function colorFromRgba(rgba: number): { color: THREE.Color; opacity: number } {
   return { color: charcoal.lerp(source, 0.22), opacity: Math.max(210, alpha) / 255 };
 }
 
+const POLE_TOP_DIAMETER_M = 0.190;
+const POLE_TAPER_RATIO = 75;
+const POLE_RENDER_SIDES = 16;
+
+class SampledWireCurve extends THREE.Curve<THREE.Vector3> {
+  private readonly lengths: number[] = [0];
+  private readonly totalLength: number;
+
+  constructor(private readonly points: THREE.Vector3[]) {
+    super();
+    for (let index = 1; index < points.length; index += 1) {
+      this.lengths[index] = this.lengths[index - 1] + points[index].distanceTo(points[index - 1]);
+    }
+    this.totalLength = this.lengths[this.lengths.length - 1] ?? 0;
+  }
+
+  override getPoint(t: number, target = new THREE.Vector3()): THREE.Vector3 {
+    if (this.points.length === 0) return target.set(0, 0, 0);
+    if (this.points.length === 1 || this.totalLength <= 0) return target.copy(this.points[0]);
+
+    const distance = THREE.MathUtils.clamp(t, 0, 1) * this.totalLength;
+    let index = 1;
+    while (index < this.lengths.length - 1 && this.lengths[index] < distance) {
+      index += 1;
+    }
+
+    const start = this.points[index - 1];
+    const end = this.points[index];
+    const segmentLength = this.lengths[index] - this.lengths[index - 1];
+    const segmentT = segmentLength > 0
+      ? (distance - this.lengths[index - 1]) / segmentLength
+      : 0;
+    return target.copy(start).lerp(end, segmentT);
+  }
+}
+
 export class WireScene {
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(48, 1, 0.05, 2000);
@@ -35,7 +71,30 @@ export class WireScene {
     this.scene.background = new THREE.Color(0xc8d6e4);
     this.scene.add(this.content);
     this.scene.add(this.guide);
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x6f776f, 2.1));
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x6f776f, 1.45));
+
+    const sun = new THREE.DirectionalLight(0xfff5e4, 3.1);
+    sun.position.set(-18, -24, 42);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.near = 1;
+    sun.shadow.camera.far = 120;
+    sun.shadow.camera.left = -42;
+    sun.shadow.camera.right = 42;
+    sun.shadow.camera.top = 42;
+    sun.shadow.camera.bottom = -42;
+    this.scene.add(sun);
+
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(90, 90),
+      new THREE.ShadowMaterial({ color: 0x45515a, opacity: 0.24 })
+    );
+    ground.position.z = -0.01;
+    ground.receiveShadow = true;
+    this.scene.add(ground);
 
     const grid = new THREE.GridHelper(80, 40, 0x587288, 0x72889a);
     grid.rotateX(Math.PI / 2);
@@ -202,22 +261,38 @@ export class WireScene {
     this.disposeGroup(this.guide);
 
     for (const part of snapshot.parts) {
-      const positions = new Float32Array(part.samples.length);
-      positions.set(part.samples);
-      const geometry = new THREE.BufferGeometry();
-      geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      const points: THREE.Vector3[] = [];
+      for (let index = 0; index + 2 < part.samples.length; index += 3) {
+        points.push(new THREE.Vector3(
+          part.samples[index],
+          part.samples[index + 1],
+          part.samples[index + 2]
+        ));
+      }
+      if (points.length < 2) continue;
+
+      const curve = new SampledWireCurve(points);
+      const radius = THREE.MathUtils.clamp(part.info.wireRadius, 0.006, 0.08);
+      const segments = Math.max(4, points.length - 1);
+      const geometry = new THREE.TubeGeometry(curve, segments, radius, 10, false);
       const appearance = colorFromRgba(part.info.colorRgba);
-      const material = new THREE.LineBasicMaterial({
+      const material = new THREE.MeshStandardMaterial({
         color: appearance.color,
+        metalness: 0.12,
+        roughness: 0.58,
         opacity: appearance.opacity,
-        transparent: appearance.opacity < 1,
-        linewidth: Math.max(1, part.info.wireRadius * 100)
+        transparent: appearance.opacity < 1
       });
-      this.content.add(new THREE.Line(geometry, material));
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      this.content.add(mesh);
     }
 
     for (const pole of snapshot.poles) {
-      const geometry = new THREE.CylinderGeometry(0.15, 0.22, pole.height, 10);
+      const topRadius = POLE_TOP_DIAMETER_M / 2;
+      const groundRadius = (POLE_TOP_DIAMETER_M + pole.height / POLE_TAPER_RATIO) / 2;
+      const geometry = new THREE.CylinderGeometry(topRadius, groundRadius, pole.height, POLE_RENDER_SIDES);
       geometry.rotateX(Math.PI / 2);
       geometry.translate(0, 0, pole.height / 2);
       const material = new THREE.MeshStandardMaterial({
@@ -233,6 +308,8 @@ export class WireScene {
         THREE.MathUtils.degToRad(pole.rotationZ)
       );
       mesh.scale.set(pole.scaleX, pole.scaleY, pole.scaleZ);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
       this.content.add(mesh);
     }
 

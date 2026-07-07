@@ -29,6 +29,7 @@ struct SavedBackboneEdge {
   std::size_t route = 0;
   std::size_t order = 0;
   Vec3d dir{};
+  double lateral_offset_m = 0.0;
 };
 
 struct SavedBackboneEdgeRef {

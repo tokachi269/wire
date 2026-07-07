@@ -110,7 +110,7 @@ EditResult<bool> CoreState::bind_backbone_node_path_point_index(ObjectId node_id
 }
 
 SavedBackboneEdgeRef CoreState::save_backbone_edge(ObjectId node_a, ObjectId node_b, std::size_t route,
-                                                   std::size_t order, const Vec3d& dir) {
+                                                   std::size_t order, const Vec3d& dir, double lateral_offset_m) {
   SavedBackboneEdgeRef out{};
   if (node_a == kInvalidObjectId || node_b == kInvalidObjectId || node_a == node_b) {
     return out;
@@ -136,6 +136,7 @@ SavedBackboneEdgeRef CoreState::save_backbone_edge(ObjectId node_a, ObjectId nod
   edge.route = route;
   edge.order = order;
   edge.dir = dir;
+  edge.lateral_offset_m = lateral_offset_m;
   authoritative_.backbone.edges.push_back(edge);
   index_add(runtime_.backbone_index.node_edges, node_a, edge.edge_id);
   index_add(runtime_.backbone_index.node_edges, node_b, edge.edge_id);

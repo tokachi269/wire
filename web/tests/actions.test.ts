@@ -266,6 +266,8 @@ function actionBridge(overrides: Partial<WireBridge> = {}): WireBridge {
       insulatorRadius: 0.07,
       insulatorLength: 0.16
     }),
+    updateCableTemplate: () => ({ ok: true, error: "" }),
+    updatePoleTemplate: () => ({ ok: true, error: "" }),
     scene: () => emptyScene,
     ...overrides
   } as WireBridge;
@@ -298,6 +300,71 @@ describe("P1 action contracts", () => {
     expect(snapshot.selectedBundleTemplateId).toBe(1);
     expect(snapshot.selectedCableTemplateId).toBe(7);
     expect(snapshot.selectedPoleTemplateId).toBe(9);
+  });
+
+  it("applies the Japan distribution primitive placement set on startup", () => {
+    const cableUpdates: CableTemplateInfo[] = [];
+    const poleUpdates: PoleTemplateInfo[] = [];
+    const store = new ViewerStore();
+    const actions = new ViewerActions(
+      actionBridge({
+        cableTemplates: () => [
+          { ...cableTemplate, id: 1, name: "HV_BARE", outerDiameter: 0.03 },
+          { ...cableTemplate, id: 2, name: "LV_INSULATED", outerDiameter: 0.03 },
+          { ...cableTemplate, id: 3, name: "COMM_MULTI", outerDiameter: 0.03 },
+          { ...cableTemplate, id: 4, name: "OPTICAL_FIBER", outerDiameter: 0.03 }
+        ],
+        poleTemplates: () => [{
+          ...poleTemplate,
+          name: "CommunicationPole",
+          defaultHeight: 11.35,
+          portBands: [
+            { bandId: 1, category: 0, layer: 2, side: 0, role: 1, lateralCenter: -0.6, lateralMin: -0.8, lateralMax: -0.4, heightCenter: 9, heightMin: 8.8, heightMax: 9.2, priority: 3, minSpacing: 0.2, allowMultiple: false, overflowPolicy: 0, enabled: true },
+            { bandId: 2, category: 0, layer: 2, side: 1, role: 1, lateralCenter: 0, lateralMin: -0.2, lateralMax: 0.2, heightCenter: 9, heightMin: 8.8, heightMax: 9.2, priority: 2, minSpacing: 0.2, allowMultiple: false, overflowPolicy: 0, enabled: true },
+            { bandId: 3, category: 0, layer: 2, side: 2, role: 1, lateralCenter: 0.6, lateralMin: 0.4, lateralMax: 0.8, heightCenter: 9, heightMin: 8.8, heightMax: 9.2, priority: 1, minSpacing: 0.2, allowMultiple: false, overflowPolicy: 0, enabled: true },
+            { bandId: 4, category: 1, layer: 1, side: 0, role: 1, lateralCenter: -0.4, lateralMin: -0.5, lateralMax: -0.3, heightCenter: 8, heightMin: 7.8, heightMax: 8.2, priority: 1, minSpacing: 0.2, allowMultiple: true, overflowPolicy: 2, enabled: true },
+            { bandId: 5, category: 2, layer: 1, side: 1, role: 1, lateralCenter: 0.2, lateralMin: 0, lateralMax: 0.4, heightCenter: 6.2, heightMin: 6, heightMax: 6.4, priority: 1, minSpacing: 0.2, allowMultiple: true, overflowPolicy: 2, enabled: true },
+            { bandId: 6, category: 3, layer: 1, side: 1, role: 1, lateralCenter: 0.1, lateralMin: 0, lateralMax: 0.4, heightCenter: 6.6, heightMin: 6.4, heightMax: 6.8, priority: 1, minSpacing: 0.2, allowMultiple: true, overflowPolicy: 2, enabled: true },
+            { bandId: 7, category: 4, layer: 0, side: 1, role: 3, lateralCenter: 0, lateralMin: -0.1, lateralMax: 0.1, heightCenter: 4.2, heightMin: 4.1, heightMax: 4.3, priority: 1, minSpacing: 0.2, allowMultiple: true, overflowPolicy: 2, enabled: true }
+          ]
+        }],
+        updateCableTemplate: (template) => {
+          cableUpdates.push(template);
+          return { ok: true, error: "" };
+        },
+        updatePoleTemplate: (template) => {
+          poleUpdates.push(template);
+          return { ok: true, error: "" };
+        }
+      }),
+      store
+    );
+
+    actions.initialize();
+
+    expect(cableUpdates.map((template) => [template.name, template.outerDiameter])).toEqual([
+      ["HV_BARE", 0.024],
+      ["LV_INSULATED", 0.020],
+      ["COMM_MULTI", 0.016],
+      ["OPTICAL_FIBER", 0.012]
+    ]);
+    expect(poleUpdates).toHaveLength(1);
+    expect(poleUpdates[0].defaultHeight).toBe(10);
+    expect(poleUpdates[0].portBands.filter((band) => band.category === 0).map((band) => band.lateralCenter)).toEqual([
+      -0.75,
+      0,
+      0.75
+    ]);
+    expect(poleUpdates[0].portBands.find((band) => band.category === 1)?.heightCenter).toBe(7.4);
+    expect(poleUpdates[0].portBands.find((band) => band.category === 2)).toEqual(
+      expect.objectContaining({ heightMin: 4.8, heightMax: 5.8 })
+    );
+    expect(poleUpdates[0].portBands.find((band) => band.category === 3)).toEqual(
+      expect.objectContaining({ heightMin: 4.8, heightMax: 5.8 })
+    );
+    expect(poleUpdates[0].portBands.find((band) => band.category === 4)).toEqual(
+      expect.objectContaining({ heightMin: 4.5, heightMax: 6.5 })
+    );
   });
   it("enables sag on startup like the desktop viewer", () => {
     let geometry = {
@@ -616,6 +683,16 @@ describe("P1 action contracts", () => {
     expect(current(store).selection).toBeNull();
   });
 
+  it("ignores a path point that overlaps the previous point", () => {
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge(), store);
+    actions.initialize();
+
+    actions.addPathPoint([1, 2, 3]);
+    actions.addPathPoint([1, 2, 3]);
+
+    expect(current(store).pathPoints).toEqual([[1, 2, 3]]);
+  });
   it("starts a new path after generation by default and undoes one point", () => {
     const store = new ViewerStore();
     const actions = new ViewerActions(actionBridge({

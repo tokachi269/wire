@@ -2332,7 +2332,8 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
     if (edge.is_new) {
       if (edge.saved == kInvalidObjectId) {
         edge_by_link[edge.id] = state_.save_backbone_edge(node_id_by_local[edge.a], node_id_by_local[edge.b],
-                                                          edge.route, edge.order, edge.dir);
+                                                          edge.route, edge.order, edge.dir,
+                                                          spec_.constraints.lateral_offset_m);
         continue;
       }
       edge_by_link[edge.id] = ref_for_existing_edge(state_, g_, edge);

@@ -21,6 +21,13 @@
   let sceneHost: HTMLElement;
   let snapshot: ViewerSnapshot = $state(createViewerSnapshot());
   let stopResize: (() => void) | null = null;
+  let editStart:
+    | {
+        element: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
+        value: string;
+        checked: boolean | null;
+      }
+    | null = null;
 
   function beginResize(side: "left" | "right", event: PointerEvent): void {
     event.preventDefault();
@@ -54,6 +61,25 @@
       snapshot = value;
     });
     mountScene(sceneHost);
+    const handleFocusIn = (event: FocusEvent) => {
+      const target = event.target;
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLSelectElement ||
+        target instanceof HTMLTextAreaElement
+      ) {
+        editStart = {
+          element: target,
+          value: target.value,
+          checked: target instanceof HTMLInputElement ? target.checked : null
+        };
+      }
+    };
+    const handleFocusOut = (event: FocusEvent) => {
+      if (event.target === editStart?.element) {
+        editStart = null;
+      }
+    };
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -68,6 +94,11 @@
             active.checked = Boolean(snapshot.interaction.startValue);
           } else {
             active.value = String(snapshot.interaction.startValue);
+          }
+        } else if (active === editStart?.element) {
+          active.value = editStart.value;
+          if (active instanceof HTMLInputElement && editStart.checked !== null) {
+            active.checked = editStart.checked;
           }
         }
         actions.cancel(
@@ -95,10 +126,14 @@
         actions.generatePath();
       }
     };
+    window.addEventListener("focusin", handleFocusIn);
+    window.addEventListener("focusout", handleFocusOut);
     window.addEventListener("keydown", handleKey);
     return () => {
       unsubscribe();
       stopResize?.();
+      window.removeEventListener("focusin", handleFocusIn);
+      window.removeEventListener("focusout", handleFocusOut);
       window.removeEventListener("keydown", handleKey);
     };
   });

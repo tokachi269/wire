@@ -298,6 +298,7 @@ bool C693_cable_run_id_keeps_branch_and_dead_end_separate();
 bool C694_cable_run_id_connects_population_instances();
 bool C695_cable_run_id_is_deterministic();
 bool C696_cable_run_id_is_visual_derived_only();
+bool C697_backbone_edge_saves_lateral_offset_echo();
 bool C660_backbone_bundle_fixed_count_migration_updates_downstream_only();
 bool C661_backbone_pair_row_axis_uses_unit_tangent_bisector();
 bool C662_backbone_pair_row_axis_does_not_flip_lane_order();

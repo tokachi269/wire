@@ -2,6 +2,7 @@ build/
 build-*/
 out/
 captures/
+assets/generated/
 node_modules/
 .claude/
 docs/diagrams/clang-uml/

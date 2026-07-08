@@ -200,6 +200,16 @@ private:
     regenerate,
   };
 
+  struct route {
+    bool active = false;
+    ChangeSet change_set{};
+    pairs ps{};
+    groups placement{};
+    topo made{};
+  };
+
+  [[nodiscard]] EditResult<route> emit_route(bool run_preflight, GenerationTiming*);
+  [[nodiscard]] EditResult<bool> save_derived(const route&, GenerationTiming*);
   [[nodiscard]] EditResult<pairs> make(const graph& made) const;
   [[nodiscard]] EditResult<intent> make(const pairs& ps) const;
   [[nodiscard]] EditResult<groups> make(const pairs& ps, const intent& intents) const;

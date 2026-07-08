@@ -18,90 +18,60 @@
 
 namespace wire::core::generation::backbone {
 
+namespace {
+
+double elapsed_ms_since(std::chrono::steady_clock::time_point started) {
+  return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+}
+
+template <typename Fn>
+auto timed(GenerationTiming* timing, double GenerationTiming::*field, Fn&& fn) {
+  const auto started = std::chrono::steady_clock::now();
+  auto result = fn();
+  if (timing != nullptr) {
+    timing->*field = elapsed_ms_since(started);
+  }
+  return result;
+}
+
+void write_route_result(EditResult<GenerateBundleFromPathResult>* out, ChangeSet&& change_set, topo&& made,
+                        bool include_new_poles) {
+  out->change_set = std::move(change_set);
+  if (include_new_poles) {
+    out->value.generated_pole_ids = made.new_poles;
+  }
+  out->value.bundle_ids = made.bundles;
+  out->value.bundle_id = made.bundles.empty() ? kInvalidObjectId : made.bundles.front();
+  out->value.generated_span_ids.reserve(made.spans.size());
+  for (const tspan& span : made.spans) {
+    out->value.generated_span_ids.push_back(span.id);
+  }
+}
+
+} // namespace
+
 EditResult<GenerateBundleFromPathResult> pipeline::build() {
   mode_ = build_mode::generation;
   EditResult<GenerateBundleFromPathResult> out{};
-  auto elapsed_ms = [](const auto& started) {
-    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
-  };
-  auto started = std::chrono::steady_clock::now();
-  EditResult<pairs> ps = make(g_);
-  out.value.timing.pairs_ms = elapsed_ms(started);
-  if (!ps.ok) {
-    out.error = ps.error;
-    return out;
-  }
-  started = std::chrono::steady_clock::now();
-  EditResult<bool> duplicates = check(ps.value);
-  out.value.timing.preflight_ms = elapsed_ms(started);
-  if (!duplicates.ok) {
-    out.error = duplicates.error;
-    return out;
-  }
-  started = std::chrono::steady_clock::now();
-  EditResult<intent> intents = make(ps.value);
-  out.value.timing.intent_ms = elapsed_ms(started);
-  if (!intents.ok) {
-    out.error = intents.error;
-    return out;
-  }
-  if (active_bundle_indices_.empty()) {
-    out.ok = true;
-    return out;
-  }
-  started = std::chrono::steady_clock::now();
-  EditResult<groups> placement = make(ps.value, intents.value);
-  out.value.timing.support_groups_ms = elapsed_ms(started);
-  if (!placement.ok) {
-    out.error = placement.error;
-    return out;
-  }
-  started = std::chrono::steady_clock::now();
-  EditResult<topo> made = emit(ps.value);
-  out.value.timing.emit_ms = elapsed_ms(started);
+
+  // Create topology and save the graph authority.
+  EditResult<route> made = emit_route(true, &out.value.timing);
   if (!made.ok) {
     out.error = made.error;
     return out;
   }
-  started = std::chrono::steady_clock::now();
-  EditResult<bool> graph_saved = save_graph(made.value, ps.value);
-  out.value.timing.save_graph_ms = elapsed_ms(started);
-  if (!graph_saved.ok) {
-    out.error = graph_saved.error;
+  if (!made.value.active) {
+    out.ok = true;
     return out;
   }
-  started = std::chrono::steady_clock::now();
-  rules saved = make(made.value, ps.value, placement.value);
-  save(saved);
-  out.value.timing.rules_ms = elapsed_ms(started);
-  started = std::chrono::steady_clock::now();
-  EditResult<layout> placed = make(saved);
-  if (!placed.ok) {
-    out.error = placed.error;
+
+  // Derive rules, layout, curves, and draw caches.
+  EditResult<bool> derived = save_derived(made.value, &out.value.timing);
+  if (!derived.ok) {
+    out.error = derived.error;
     return out;
   }
-  save(placed.value);
-  out.value.timing.layout_ms = elapsed_ms(started);
-  started = std::chrono::steady_clock::now();
-  EditResult<geom> shaped = make(placed.value);
-  if (!shaped.ok) {
-    out.error = shaped.error;
-    return out;
-  }
-  out.value.timing.geom_ms = elapsed_ms(started);
-  started = std::chrono::steady_clock::now();
-  draw drawn = make(placed.value, shaped.value);
-  out.value.timing.draw_ms = elapsed_ms(started);
-  save(std::move(shaped.value));
-  save(std::move(drawn));
-  out.change_set = std::move(made.change_set);
-  out.value.generated_pole_ids = made.value.new_poles;
-  out.value.bundle_ids = made.value.bundles;
-  out.value.bundle_id = made.value.bundles.empty() ? kInvalidObjectId : made.value.bundles.front();
-  out.value.generated_span_ids.reserve(made.value.spans.size());
-  for (const tspan& span : made.value.spans) {
-    out.value.generated_span_ids.push_back(span.id);
-  }
+  write_route_result(&out, std::move(made.value.change_set), std::move(made.value.made), true);
   out.ok = true;
   return out;
 }
@@ -117,56 +87,100 @@ EditResult<GenerateBundleFromPathResult> pipeline::build_prepared_regenerate(
   mode_ = build_mode::regenerate;
   ready_ = true;
 
-  EditResult<pairs> ps = make(g_);
-  if (!ps.ok) {
-    out.error = ps.error;
-    return out;
-  }
-  EditResult<intent> intents = make(ps.value);
-  if (!intents.ok) {
-    out.error = intents.error;
-    return out;
-  }
-  EditResult<groups> placement = make(ps.value, intents.value);
-  if (!placement.ok) {
-    out.error = placement.error;
-    return out;
-  }
-  EditResult<topo> made = emit(ps.value);
+  // Replay the prepared graph through topology.
+  EditResult<route> made = emit_route(false, nullptr);
   if (!made.ok) {
     out.error = made.error;
     return out;
   }
-  EditResult<bool> graph_saved = save_graph(made.value, ps.value);
+  if (made.value.active) {
+    // Derive rules, layout, curves, and draw caches.
+    EditResult<bool> derived = save_derived(made.value, nullptr);
+    if (!derived.ok) {
+      out.error = derived.error;
+      return out;
+    }
+    write_route_result(&out, std::move(made.value.change_set), std::move(made.value.made), false);
+  }
+  out.ok = true;
+  return out;
+}
+
+EditResult<pipeline::route> pipeline::emit_route(bool run_preflight, GenerationTiming* timing) {
+  EditResult<route> out{};
+  EditResult<pairs> ps = timed(timing, &GenerationTiming::pairs_ms, [&] { return make(g_); });
+  if (!ps.ok) {
+    out.error = ps.error;
+    return out;
+  }
+  if (run_preflight) {
+    EditResult<bool> duplicates = timed(timing, &GenerationTiming::preflight_ms, [&] { return check(ps.value); });
+    if (!duplicates.ok) {
+      out.error = duplicates.error;
+      return out;
+    }
+  }
+  EditResult<intent> intents = timed(timing, &GenerationTiming::intent_ms, [&] { return make(ps.value); });
+  if (!intents.ok) {
+    out.error = intents.error;
+    return out;
+  }
+  if (active_bundle_indices_.empty()) {
+    out.value.ps = std::move(ps.value);
+    out.ok = true;
+    return out;
+  }
+
+  EditResult<groups> placement =
+      timed(timing, &GenerationTiming::support_groups_ms, [&] { return make(ps.value, intents.value); });
+  if (!placement.ok) {
+    out.error = placement.error;
+    return out;
+  }
+  EditResult<topo> made = timed(timing, &GenerationTiming::emit_ms, [&] { return emit(ps.value); });
+  if (!made.ok) {
+    out.error = made.error;
+    return out;
+  }
+  EditResult<bool> graph_saved =
+      timed(timing, &GenerationTiming::save_graph_ms, [&] { return save_graph(made.value, ps.value); });
   if (!graph_saved.ok) {
     out.error = graph_saved.error;
     return out;
   }
-  rules saved = make(made.value, ps.value, placement.value);
-  save(saved);
-  EditResult<layout> placed = make(saved);
+
+  out.value.active = true;
+  out.value.change_set = std::move(made.change_set);
+  out.value.ps = std::move(ps.value);
+  out.value.placement = std::move(placement.value);
+  out.value.made = std::move(made.value);
+  out.ok = true;
+  return out;
+}
+
+EditResult<bool> pipeline::save_derived(const route& route, GenerationTiming* timing) {
+  EditResult<bool> out{};
+  rules saved = timed(timing, &GenerationTiming::rules_ms, [&] {
+    rules next = make(route.made, route.ps, route.placement);
+    save(next);
+    return next;
+  });
+  EditResult<layout> placed = timed(timing, &GenerationTiming::layout_ms, [&] { return make(saved); });
   if (!placed.ok) {
     out.error = placed.error;
     return out;
   }
   save(placed.value);
-  EditResult<geom> shaped = make(placed.value);
+  EditResult<geom> shaped = timed(timing, &GenerationTiming::geom_ms, [&] { return make(placed.value); });
   if (!shaped.ok) {
     out.error = shaped.error;
     return out;
   }
-  draw drawn = make(placed.value, shaped.value);
+  draw drawn = timed(timing, &GenerationTiming::draw_ms, [&] { return make(placed.value, shaped.value); });
   save(std::move(shaped.value));
   save(std::move(drawn));
-
-  out.change_set = std::move(made.change_set);
-  out.value.bundle_ids = made.value.bundles;
-  out.value.bundle_id = made.value.bundles.empty() ? kInvalidObjectId : made.value.bundles.front();
-  out.value.generated_span_ids.reserve(made.value.spans.size());
-  for (const tspan& span : made.value.spans) {
-    out.value.generated_span_ids.push_back(span.id);
-  }
   out.ok = true;
+  out.value = true;
   return out;
 }
 

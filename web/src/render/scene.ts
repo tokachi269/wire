@@ -469,26 +469,87 @@ export class WireScene {
       this.content.add(mesh);
     }
 
-    if (snapshot.pathPoints.length > 0) {
-      const guidePoints = snapshot.pathPoints.map(
-        (point) => new THREE.Vector3(point[0], point[1], point[2] + 0.03)
-      );
-      const guideGeometry = new THREE.BufferGeometry().setFromPoints(guidePoints);
-      this.guide.add(
-        new THREE.Line(
-          guideGeometry,
-          new THREE.LineBasicMaterial({ color: 0x5a9ab0 })
-        )
-      );
-      for (const point of guidePoints) {
-        const marker = new THREE.Mesh(
-          new THREE.SphereGeometry(0.18, 10, 8),
-          new THREE.MeshBasicMaterial({ color: 0x5a9ab0 })
-        );
-        marker.position.copy(point);
-        this.guide.add(marker);
+    this.buildPathGuide(snapshot);
+  }
+
+  private buildPathGuide(snapshot: ViewerSnapshot): void {
+    if (snapshot.pathPoints.length === 0) return;
+
+    const guidePoints = snapshot.pathPoints.map(
+      (point) => new THREE.Vector3(point[0], point[1], point[2] + 0.12)
+    );
+    const guideLine = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(guidePoints),
+      new THREE.LineBasicMaterial({
+        color: 0x4db6d1,
+        transparent: true,
+        opacity: 0.92,
+        depthTest: false,
+        depthWrite: false
+      })
+    );
+    guideLine.renderOrder = 40;
+    this.guide.add(guideLine);
+
+    for (let index = 0; index < guidePoints.length; index += 1) {
+      const point = guidePoints[index];
+      const snapped = snapshot.pathPointSpecs[index] !== null;
+      if (snapped) {
+        this.addSnappedPathMarker(point);
+        continue;
       }
+      const marker = new THREE.Mesh(
+        new THREE.SphereGeometry(0.18, 10, 8),
+        new THREE.MeshBasicMaterial({
+          color: 0x4db6d1,
+          depthTest: false,
+          depthWrite: false
+        })
+      );
+      marker.position.copy(point);
+      marker.renderOrder = 41;
+      this.guide.add(marker);
     }
+  }
+
+  private addSnappedPathMarker(point: THREE.Vector3): void {
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(0.52, 0.035, 8, 40),
+      new THREE.MeshBasicMaterial({
+        color: 0xffb13b,
+        depthTest: false,
+        depthWrite: false
+      })
+    );
+    ring.position.copy(point);
+    ring.renderOrder = 44;
+    this.guide.add(ring);
+
+    const beaconTop = point.clone().add(new THREE.Vector3(0, 0, 1.15));
+    const beacon = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([point, beaconTop]),
+      new THREE.LineBasicMaterial({
+        color: 0xffb13b,
+        transparent: true,
+        opacity: 0.95,
+        depthTest: false,
+        depthWrite: false
+      })
+    );
+    beacon.renderOrder = 43;
+    this.guide.add(beacon);
+
+    const lifted = new THREE.Mesh(
+      new THREE.SphereGeometry(0.22, 12, 8),
+      new THREE.MeshBasicMaterial({
+        color: 0xffd36f,
+        depthTest: false,
+        depthWrite: false
+      })
+    );
+    lifted.position.copy(beaconTop);
+    lifted.renderOrder = 45;
+    this.guide.add(lifted);
   }
 
   private buildBackboneOverlay(snapshot: ViewerSnapshot): void {

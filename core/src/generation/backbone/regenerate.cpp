@@ -97,17 +97,30 @@ bool port_is_retired_only(const CoreState& state, ObjectId port_id,
 EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleKind bundle_template_id,
                                                              const BundleTemplate& previous_template,
                                                              const BundleTemplate& next_template,
-                                                             ChangeSet* change_set) {
+                                                             ChangeSet* change_set,
+                                                             const CableTemplate* cable_template_override,
+                                                             const std::vector<ObjectId>* scoped_edge_bundle_ids,
+                                                             const PoleTypeDefinition* pole_type_override) {
   EditResult<bool> result{};
   auto fail = [&](std::string message) {
     result.error = std::move(message);
     return result;
   };
 
+  const bool count_changes = next_template.fixed_count != previous_template.fixed_count;
   if (previous_template.count_rule != BundleCountRuleKind::kFixed ||
       next_template.count_rule != BundleCountRuleKind::kFixed || previous_template.fixed_count <= 0 ||
-      next_template.fixed_count <= 0 || next_template.fixed_count == previous_template.fixed_count) {
-    return fail("backbone unsupported: regenerate supports fixed count changes only");
+      next_template.fixed_count <= 0 ||
+      (!count_changes && cable_template_override == nullptr && pole_type_override == nullptr)) {
+    return fail("backbone unsupported: regenerate requires fixed count, cable decision, or pole type changes");
+  }
+  if (cable_template_override != nullptr &&
+      authoritative_.cable_templates.find(cable_template_override->id) == authoritative_.cable_templates.end()) {
+    return fail("backbone regenerate: cable template override missing");
+  }
+  if (pole_type_override != nullptr &&
+      authoritative_.pole_types.find(pole_type_override->id) == authoritative_.pole_types.end()) {
+    return fail("backbone regenerate: pole type override missing");
   }
   if (next_template.default_layer == SpanLayer::kUnknown) {
     return fail("backbone unsupported: regenerate requires a known layer");
@@ -117,10 +130,21 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleKind bundle_t
   }
 
   std::vector<ObjectId> affected_edge_bundle_ids{};
-  for (const SavedBackboneEdgeBundle& edge_bundle : view().backbone().edge_bundles) {
-    const Bundle* bundle = view().bundles().find(edge_bundle.bundle_id);
-    if (bundle != nullptr && bundle->bundle_template_id == bundle_template_id) {
-      affected_edge_bundle_ids.push_back(edge_bundle.edge_bundle_id);
+  if (scoped_edge_bundle_ids != nullptr) {
+    affected_edge_bundle_ids = *scoped_edge_bundle_ids;
+    for (ObjectId edge_bundle_id : affected_edge_bundle_ids) {
+      const SavedBackboneEdgeBundle* edge_bundle = saved_edge_bundle_by_id(view().backbone(), edge_bundle_id);
+      const Bundle* bundle = edge_bundle == nullptr ? nullptr : view().bundles().find(edge_bundle->bundle_id);
+      if (bundle == nullptr || bundle->bundle_template_id != bundle_template_id) {
+        return fail("backbone regenerate: scoped edge bundle does not match bundle template");
+      }
+    }
+  } else {
+    for (const SavedBackboneEdgeBundle& edge_bundle : view().backbone().edge_bundles) {
+      const Bundle* bundle = view().bundles().find(edge_bundle.bundle_id);
+      if (bundle != nullptr && bundle->bundle_template_id == bundle_template_id) {
+        affected_edge_bundle_ids.push_back(edge_bundle.edge_bundle_id);
+      }
     }
   }
   if (affected_edge_bundle_ids.empty()) {
@@ -313,6 +337,12 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleKind bundle_t
 
   std::vector<BundleTemplate> template_overrides{next_template};
   CoreState trial = *this;
+  if (cable_template_override != nullptr) {
+    trial.authoritative_.cable_templates[cable_template_override->id] = *cable_template_override;
+  }
+  if (pole_type_override != nullptr) {
+    trial.authoritative_.pole_types[pole_type_override->id] = *pole_type_override;
+  }
   generation::backbone::pipeline trial_pipeline(trial, spec);
   EditResult<GenerateBundleFromPathResult> replay =
       trial_pipeline.build_prepared_regenerate(made_graph, active_bundle_indices, template_overrides);

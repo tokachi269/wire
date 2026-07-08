@@ -1569,16 +1569,129 @@ EditResult<bool> CoreState::ApplyBundleRelatedPoleTypeToExistingPoles(BundleKind
       }
     }
   }
-  for (ObjectId pole_id : target_pole_ids) {
+  std::vector<ObjectId> ordered_target_pole_ids(target_pole_ids.begin(), target_pole_ids.end());
+  std::sort(ordered_target_pole_ids.begin(), ordered_target_pole_ids.end());
+
+  std::vector<ObjectId> active_backbone_pole_ids{};
+  for (ObjectId pole_id : ordered_target_pole_ids) {
     if (runtime_.backbone_index.pole_node.contains(pole_id)) {
-      result.error = "backbone unsupported: applying related pole type requires regeneration";
+      active_backbone_pole_ids.push_back(pole_id);
+    }
+  }
+
+  if (!active_backbone_pole_ids.empty()) {
+    struct RelatedPoleRegenerateScope {
+      BundleKind bundle_template_id = BundleKind::kLowVoltage;
+      std::size_t route = 0;
+      ObjectId bundle_id = kInvalidObjectId;
+      std::vector<ObjectId> edge_bundle_ids{};
+    };
+
+    std::vector<RelatedPoleRegenerateScope> scopes{};
+    auto add_scope_seed = [&](BundleKind scoped_template_id, std::size_t route, ObjectId bundle_id) {
+      const auto existing = std::find_if(scopes.begin(), scopes.end(), [&](const RelatedPoleRegenerateScope& scope) {
+        return scope.bundle_template_id == scoped_template_id && scope.route == route && scope.bundle_id == bundle_id;
+      });
+      if (existing == scopes.end()) {
+        RelatedPoleRegenerateScope scope{};
+        scope.bundle_template_id = scoped_template_id;
+        scope.route = route;
+        scope.bundle_id = bundle_id;
+        scopes.push_back(std::move(scope));
+      }
+    };
+
+    for (ObjectId pole_id : active_backbone_pole_ids) {
+      const BackboneFrontier frontier = view().pole_frontier(pole_id);
+      for (ObjectId edge_bundle_id : frontier.edge_bundle_ids) {
+        const SavedBackboneEdgeBundle* edge_bundle = view().backbone_edge_bundle(edge_bundle_id);
+        const SavedBackboneEdge* edge = edge_bundle == nullptr ? nullptr : view().backbone_edge(edge_bundle->edge_id);
+        const Bundle* bundle = edge_bundle == nullptr ? nullptr : view().bundles().find(edge_bundle->bundle_id);
+        if (edge_bundle == nullptr || edge == nullptr || bundle == nullptr) {
+          result.error = "backbone regenerate: related pole type scope is incomplete";
+          return result;
+        }
+        add_scope_seed(bundle->bundle_template_id, edge->route, edge_bundle->bundle_id);
+      }
+    }
+
+    for (RelatedPoleRegenerateScope& scope : scopes) {
+      for (const SavedBackboneEdgeBundle& edge_bundle : view().backbone().edge_bundles) {
+        const SavedBackboneEdge* edge = view().backbone_edge(edge_bundle.edge_id);
+        const Bundle* bundle = view().bundles().find(edge_bundle.bundle_id);
+        if (edge != nullptr && bundle != nullptr && edge->route == scope.route &&
+            edge_bundle.bundle_id == scope.bundle_id && bundle->bundle_template_id == scope.bundle_template_id) {
+          add_unique_id(scope.edge_bundle_ids, edge_bundle.edge_bundle_id);
+        }
+      }
+      if (scope.edge_bundle_ids.empty()) {
+        result.error = "backbone regenerate: related pole type scope has no edge bundles";
+        return result;
+      }
+    }
+
+    const PoleTypeDefinition* related_type = find_pole_type(bundle_template->related_pole_type_id);
+    if (related_type == nullptr) {
+      result.error = "related pole type not found";
       return result;
     }
+
+    CoreState trial = *this;
+    ChangeSet trial_changes{};
+    for (ObjectId pole_id : ordered_target_pole_ids) {
+      if (std::find(active_backbone_pole_ids.begin(), active_backbone_pole_ids.end(), pole_id) !=
+          active_backbone_pole_ids.end()) {
+        Pole* pole = trial.authoritative_.edit_state.poles.find(pole_id);
+        if (pole == nullptr) {
+          result.error = "pole not found";
+          return result;
+        }
+        pole->pole_type_id = bundle_template->related_pole_type_id;
+        if (std::abs(pole->height_m - related_type->default_height_m) > 1e-12) {
+          pole->height_m = related_type->default_height_m;
+        }
+        add_unique_id(trial_changes.updated_ids, pole_id);
+        continue;
+      }
+      const auto apply = trial.ApplyPoleType(pole_id, bundle_template->related_pole_type_id);
+      if (!apply.ok) {
+        result.error = apply.error;
+        return result;
+      }
+      append_change_set(trial_changes, apply.change_set);
+    }
+
+    ChangeSet regenerated_changes{};
+    for (const RelatedPoleRegenerateScope& scope : scopes) {
+      const auto bundle_template_it = trial.authoritative_.bundle_templates.find(scope.bundle_template_id);
+      if (bundle_template_it == trial.authoritative_.bundle_templates.end()) {
+        result.error = "bundle template not found";
+        return result;
+      }
+      const BundleTemplate previous = bundle_template_it->second;
+      auto regenerated = trial.regenerate_backbone_edge_bundles(scope.bundle_template_id, previous, previous,
+                                                                &regenerated_changes, nullptr,
+                                                                &scope.edge_bundle_ids, related_type);
+      if (!regenerated.ok) {
+        result.error = regenerated.error;
+        return result;
+      }
+    }
+
+    identity_ = trial.identity_;
+    authoritative_ = trial.authoritative_;
+    runtime_ = trial.runtime_;
+    debug_ = trial.debug_;
+    append_change_set(result.change_set, trial_changes);
+    append_change_set(result.change_set, regenerated_changes);
+    result.ok = true;
+    result.value = true;
+    return result;
   }
 
   result.ok = true;
   result.value = false;
-  for (ObjectId pole_id : target_pole_ids) {
+  for (ObjectId pole_id : ordered_target_pole_ids) {
     const auto apply = ApplyPoleType(pole_id, bundle_template->related_pole_type_id);
     if (!apply.ok) {
       result.ok = false;
@@ -1687,13 +1800,111 @@ EditResult<bool> CoreState::update_pole_type_and_refresh_instances(const PoleTyp
     }
   }
 
+  if (!active_backbone_pole_ids.empty() && !pole_type_placement_only_change(before, pole_type)) {
+    struct PoleTypeRegenerateScope {
+      BundleKind bundle_template_id = BundleKind::kLowVoltage;
+      std::size_t route = 0;
+      ObjectId bundle_id = kInvalidObjectId;
+      std::vector<ObjectId> edge_bundle_ids{};
+    };
+
+    std::vector<PoleTypeRegenerateScope> scopes{};
+    auto add_scope_seed = [&](BundleKind bundle_template_id, std::size_t route, ObjectId bundle_id) {
+      const auto existing = std::find_if(scopes.begin(), scopes.end(), [&](const PoleTypeRegenerateScope& scope) {
+        return scope.bundle_template_id == bundle_template_id && scope.route == route && scope.bundle_id == bundle_id;
+      });
+      if (existing == scopes.end()) {
+        PoleTypeRegenerateScope scope{};
+        scope.bundle_template_id = bundle_template_id;
+        scope.route = route;
+        scope.bundle_id = bundle_id;
+        scopes.push_back(std::move(scope));
+      }
+    };
+
+    for (ObjectId pole_id : active_backbone_pole_ids) {
+      const BackboneFrontier frontier = view().pole_frontier(pole_id);
+      for (ObjectId edge_bundle_id : frontier.edge_bundle_ids) {
+        const SavedBackboneEdgeBundle* edge_bundle = view().backbone_edge_bundle(edge_bundle_id);
+        const SavedBackboneEdge* edge = edge_bundle == nullptr ? nullptr : view().backbone_edge(edge_bundle->edge_id);
+        const Bundle* bundle = edge_bundle == nullptr ? nullptr : view().bundles().find(edge_bundle->bundle_id);
+        if (edge_bundle == nullptr || edge == nullptr || bundle == nullptr) {
+          result.error = "backbone regenerate: pole type scope is incomplete";
+          return result;
+        }
+        add_scope_seed(bundle->bundle_template_id, edge->route, edge_bundle->bundle_id);
+      }
+    }
+
+    for (PoleTypeRegenerateScope& scope : scopes) {
+      for (const SavedBackboneEdgeBundle& edge_bundle : view().backbone().edge_bundles) {
+        const SavedBackboneEdge* edge = view().backbone_edge(edge_bundle.edge_id);
+        const Bundle* bundle = view().bundles().find(edge_bundle.bundle_id);
+        if (edge != nullptr && bundle != nullptr && edge->route == scope.route &&
+            edge_bundle.bundle_id == scope.bundle_id && bundle->bundle_template_id == scope.bundle_template_id) {
+          add_unique_id(scope.edge_bundle_ids, edge_bundle.edge_bundle_id);
+        }
+      }
+      if (scope.edge_bundle_ids.empty()) {
+        result.error = "backbone regenerate: pole type scope has no edge bundles";
+        return result;
+      }
+    }
+
+    CoreState trial = *this;
+    trial.authoritative_.pole_types[pole_type.id] = pole_type;
+    for (ObjectId pole_id : pole_ids) {
+      Pole* pole = trial.authoritative_.edit_state.poles.find(pole_id);
+      if (pole == nullptr) {
+        result.error = "pole not found";
+        return result;
+      }
+      if (std::abs(pole->height_m - pole_type.default_height_m) > 1e-12) {
+        pole->height_m = pole_type.default_height_m;
+        add_unique_id(result.change_set.updated_ids, pole_id);
+      }
+      if (std::find(active_backbone_pole_ids.begin(), active_backbone_pole_ids.end(), pole_id) ==
+          active_backbone_pole_ids.end()) {
+        const auto apply = trial.ApplyPoleType(pole_id, pole_type.id);
+        if (!apply.ok) {
+          result.error = apply.error;
+          return result;
+        }
+        append_change_set(result.change_set, apply.change_set);
+      }
+    }
+
+    ChangeSet regenerated_changes{};
+    for (const PoleTypeRegenerateScope& scope : scopes) {
+      const auto bundle_template_it = trial.authoritative_.bundle_templates.find(scope.bundle_template_id);
+      if (bundle_template_it == trial.authoritative_.bundle_templates.end()) {
+        result.error = "bundle template not found";
+        return result;
+      }
+      const BundleTemplate previous = bundle_template_it->second;
+      auto regenerated = trial.regenerate_backbone_edge_bundles(scope.bundle_template_id, previous, previous,
+                                                                &regenerated_changes, nullptr,
+                                                                &scope.edge_bundle_ids, &pole_type);
+      if (!regenerated.ok) {
+        result.error = regenerated.error;
+        return result;
+      }
+    }
+
+    identity_ = trial.identity_;
+    authoritative_ = trial.authoritative_;
+    runtime_ = trial.runtime_;
+    debug_ = trial.debug_;
+    append_change_set(result.change_set, regenerated_changes);
+    add_unique_id(result.change_set.updated_ids, pole_type.id);
+    result.ok = true;
+    result.value = true;
+    return result;
+  }
+
   UpdatePlan active_plan{};
   active_plan.kind = UpdateKind::kReposition;
   if (!active_backbone_pole_ids.empty()) {
-    if (!pole_type_placement_only_change(before, pole_type)) {
-      result.error = "backbone unsupported: active pole type structural changes require regeneration";
-      return result;
-    }
     for (ObjectId pole_id : active_backbone_pole_ids) {
       EditResult<UpdatePlan> plan = make_update_plan({UpdateKind::kReposition, UpdateTargetKind::kPole, pole_id});
       if (!plan.ok) {

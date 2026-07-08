@@ -43,10 +43,10 @@ viewerはこれらを事前に判別せず、Apply後のerror logで初めてuns
 
 | 操作 | viewer到達 | 拒否条件 | 解除条件 |
 |---|---|---|---|
-| `UpdatePoleTypeDefinition` | `Apply Pole Template`(Pole Placement含む) | active backbone poleが対象typeを使用 | placement-only差分(band高さ/横位置、pole高さ)はkReposition化して通す方針を決定済み。band増減・side変更などの構造差分は該当 family の migration 実装まで保留 |
+| `UpdatePoleTypeDefinition` | `Apply Pole Template`(Pole Placement含む) | active backbone poleが対象typeを使用 | placement-only差分(band高さ/横位置、pole高さ)はkRepositionで通す。band増減・enabled/side/layer/role/priority変更、anchor slot変更などの構造差分は統一 regenerate で対応済み(C713)。manual port を含む scope は現行 regenerate 境界どおり unsupported |
 | `UpdateBundleTemplate` | `Apply Bundle Template` | topology級差分 + 既存bundleあり | fixed count増減は単一 saved route に限り統一 regenerate で対応。multi-bundle と pair row を含む3点以上routeも saved graph から再構成する。存続spanのattachmentは保持し、退役spanのattachmentはmutation前に拒否する。range化、policy変更は scenario 未対応。visual-only/detail差分は現状も通る |
-| `UpdateCableTemplate` | `Apply Cable Template` | decision差分(continuity policy / default endpoint attachment) + 対象spanあり | 該当 family の migration 実装(C357)。geometry/render差分は現状も通る |
-| `ApplyBundleRelatedPoleTypeToExistingPoles` | template Apply後に自動呼出 | 対象poleがbackbone node | 該当 family の migration 実装(C297) |
+| `UpdateCableTemplate` | `Apply Cable Template` | non-backbone span を含む decision差分 / default endpoint attachment の構造影響 | backbone span の continuity policy decision差分は統一 regenerate で対応済み(C357/C712)。geometry/render差分は現状も通る。non-backbone 対象と default endpoint attachment の構造影響は mutation前 unsupported |
+| `ApplyBundleRelatedPoleTypeToExistingPoles` | template Apply後に自動呼出 | 対象poleがbackbone node | 対象 pole の type 差し替え + incident edge の統一 regenerate で対応済み(C297)。暗黙連結ではなく独立 API |
 | `UpdateLayoutSettings` | `Apply Layout` | backbone span bindingが1つでも存在 | generation入力のためregenerate級。state全体一括拒否の粒度は再検討候補 |
 | `SetSpanEndpointSocketOverride` / Clear | 非backbone span向けのみ | backbone span | socketはgeneration所有。該当 family の migration 実装 |
 | `SetSpanBranchDownOffsetOverride` / Clear | 非backbone span向けのみ | backbone span | 同上 |

@@ -19,6 +19,56 @@ template <typename TValue> void append_unique(std::vector<TValue>& dst, const st
   }
 }
 
+struct CableDecisionRegenerateScope {
+  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  std::size_t route = 0;
+  std::vector<ObjectId> edge_bundle_ids{};
+};
+
+const SavedBackboneEdge* saved_edge_by_id(const SavedBackboneGraph& graph, ObjectId edge_id) {
+  const auto it = std::find_if(graph.edges.begin(), graph.edges.end(),
+                               [&](const SavedBackboneEdge& edge) { return edge.edge_id == edge_id; });
+  return it == graph.edges.end() ? nullptr : &*it;
+}
+
+bool collect_cable_decision_regenerate_scopes(const CoreState& state,
+                                              CableTemplateId cable_template_id,
+                                              std::vector<CableDecisionRegenerateScope>* scopes,
+                                              std::string* error) {
+  const SavedBackboneGraph& graph = state.view().backbone();
+  for (const SavedBackboneEdgeBundle& edge_bundle : graph.edge_bundles) {
+    const Bundle* bundle = state.view().bundles().find(edge_bundle.bundle_id);
+    const auto bundle_template_it = bundle == nullptr ? state.view().bundle_templates().end()
+                                                   : state.view().bundle_templates().find(bundle->bundle_template_id);
+    if (bundle_template_it == state.view().bundle_templates().end() ||
+        bundle_template_it->second.cable_template_id != cable_template_id) {
+      continue;
+    }
+    const SavedBackboneEdge* edge = saved_edge_by_id(graph, edge_bundle.edge_id);
+    if (edge == nullptr) {
+      if (error != nullptr) {
+        *error = "backbone regenerate: edge missing";
+      }
+      return false;
+    }
+    auto scope_it = std::find_if(scopes->begin(), scopes->end(),
+                                 [&](const CableDecisionRegenerateScope& scope) {
+                                   return scope.bundle_template_id == bundle->bundle_template_id &&
+                                          scope.route == edge->route;
+                                 });
+    if (scope_it == scopes->end()) {
+      CableDecisionRegenerateScope scope{};
+      scope.bundle_template_id = bundle->bundle_template_id;
+      scope.route = edge->route;
+      scope.edge_bundle_ids.push_back(edge_bundle.edge_bundle_id);
+      scopes->push_back(std::move(scope));
+    } else {
+      scope_it->edge_bundle_ids.push_back(edge_bundle.edge_bundle_id);
+    }
+  }
+  return true;
+}
+
 bool attachment_socket_equals(const AttachmentSocketTemplate& a, const AttachmentSocketTemplate& b) {
   const auto same_vec = [](const Vec3d& lhs, const Vec3d& rhs) {
     return std::abs(lhs.x - rhs.x) <= 1e-12 && std::abs(lhs.y - rhs.y) <= 1e-12 && std::abs(lhs.z - rhs.z) <= 1e-12;
@@ -345,7 +395,49 @@ EditResult<bool> TemplateMutationService::UpdateCableTemplate(CoreState& state, 
     }
   }
   if (decision_change && !ordered_target_span_ids.empty()) {
-    result.error = "backbone unsupported: cable decision changes require regeneration";
+    for (ObjectId span_id : ordered_target_span_ids) {
+      if (state.runtime_.backbone_index.span_edge_bundle.find(span_id) ==
+          state.runtime_.backbone_index.span_edge_bundle.end()) {
+        result.error = "backbone unsupported: cable decision changes require regeneration";
+        return result;
+      }
+    }
+
+    std::vector<CableDecisionRegenerateScope> scopes{};
+    if (!collect_cable_decision_regenerate_scopes(state, normalized.id, &scopes, &result.error)) {
+      return result;
+    }
+    if (scopes.empty()) {
+      result.error = "backbone unsupported: cable decision changes require regeneration";
+      return result;
+    }
+
+    normalized.version += 1;
+    CoreState trial = state;
+    ChangeSet regenerated_changes{};
+    for (const CableDecisionRegenerateScope& scope : scopes) {
+      const auto bundle_template_it = trial.authoritative_.bundle_templates.find(scope.bundle_template_id);
+      if (bundle_template_it == trial.authoritative_.bundle_templates.end()) {
+        result.error = "bundle template not found";
+        return result;
+      }
+      const BundleTemplate previous = bundle_template_it->second;
+      auto regenerated = trial.regenerate_backbone_edge_bundles(scope.bundle_template_id, previous, previous,
+                                                                &regenerated_changes, &normalized,
+                                                                &scope.edge_bundle_ids);
+      if (!regenerated.ok) {
+        result.error = regenerated.error;
+        return result;
+      }
+    }
+
+    state.identity_ = trial.identity_;
+    state.authoritative_ = trial.authoritative_;
+    state.runtime_ = trial.runtime_;
+    state.debug_ = trial.debug_;
+    result.ok = true;
+    result.value = true;
+    result.change_set = std::move(regenerated_changes);
     return result;
   }
   std::vector<UpdatePlan> plans{};

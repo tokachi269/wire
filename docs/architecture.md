@@ -93,17 +93,17 @@ regenerate は各 post-edit API が編集差分を添えて統一入口を直接
 統一 regenerate は、編集差分から影響 scope を解決し、保存済み入力から scope の pipeline graph を組み直し、
 既存 pipeline を部分再実行して binding を reconcile する。既存 binding は再利用し、増えたものは生成し、
 消えたものは退役する。差分別の migration operation は作らず、対応範囲は scenario 単位で拡張する。
-現対応は `UpdateBundleTemplate` の fixed count 増減で、単一 saved route を扱う。
+現対応は `UpdateBundleTemplate` の fixed count 増減、`UpdateCableTemplate` の backbone continuity policy decision 差分、`UpdatePoleTypeDefinition` の active backbone pole 構造差分、`ApplyBundleRelatedPoleTypeToExistingPoles` の related pole type 適用である。
 同一 edge に複数 edge_bundle がある場合は saved edge_bundles 順を生成時の bundle spec 順として扱い、
 group offset を再構成する。3点以上routeのpair rowは、saved edge の route/order と saved node から
 pipeline graph を復元して再確定する。
 存続する span の attachment は span id とともに保持する。退役する span に attachment がある場合だけ、
-暗黙削除せず mutation 前に `unsupported` で拒否する。
+暗黙削除せず mutation 前に `unsupported` で拒否する。`UpdateCableTemplate` の continuity policy は route scope ごとに同じ入口を通し、既存 span の curve decision を編集後 cable template で再導出する。non-backbone span を含む decision 差分と default endpoint attachment の構造影響は未対応として拒否する。
 
 `UpdatePoleTypeDefinition`は、対象typeをactive backbone poleが使用中でもplacement-only差分なら
 `kReposition`として既存auto portを再配置し、layout -> geom -> drawを再導出する。
 band追加・削除、enabled/side/layer/role/priority変更、anchor slot変更などの構造差分は
-該当 scenario の regenerate 対応が必要なのでmutation前に`unsupported`で拒否する。
+対象 pole の incident edge を route-local bundle scope に展開し、統一 regenerate で emit から再解決する。
 manual portはtemplate placement更新では動かさない。
 
 `DeriveGeneratedSpanOutputs()` は、保存済み rules / layout source / `SavedBackboneGraph` binding から

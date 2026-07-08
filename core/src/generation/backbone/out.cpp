@@ -44,6 +44,9 @@ EditResult<DetailCurve> make_curve_between_impl(const CoreState& state, ObjectId
 
   double sag_ratio = settings.sag_factor;
   double radius_m = 0.0;
+  CableContinuityPolicyHint continuity_policy = CableContinuityPolicyHint::kAuto;
+  double bend_stiffness_hint = 1.0;
+  double min_bend_radius_hint_m = 0.0;
   const Span* span = state.view().spans().find(span_id);
   if (span != nullptr) {
     const Bundle* bundle = state.view().bundles().find(span->bundle_id);
@@ -54,6 +57,9 @@ EditResult<DetailCurve> make_curve_between_impl(const CoreState& state, ObjectId
         if (cable != state.view().cable_templates().end()) {
           sag_ratio = cable->second.sag_factor + cable->second.slack_factor;
           radius_m = std::max(0.0, cable->second.outer_diameter_m * 0.5);
+          continuity_policy = cable->second.continuity_policy;
+          bend_stiffness_hint = cable->second.bend_stiffness;
+          min_bend_radius_hint_m = cable->second.min_bend_radius_m;
         }
       }
     }
@@ -77,18 +83,34 @@ EditResult<DetailCurve> make_curve_between_impl(const CoreState& state, ObjectId
       edge != nullptr && Length(edge->dir) > 1e-9) {
     input.canonical_dir = edge->dir;
   }
-  input.sag_m = settings.sag_enabled ? sag_ratio * chord_length : 0.0;
-  input.radius_m = radius_m;
-  input.family = geometry::curve::CurveFamily::kMainSpan;
-  input.method = geometry::curve::CurveMethod::kParabolicSag;
-  input.tessellation.min_segments =
-      std::max(input.tessellation.min_segments, static_cast<std::size_t>(std::max(2, settings.curve_samples) - 1));
-  const EditResult<geometry::curve::CableCurveOutput> built = geometry::curve::BuildCableCurve(input);
-  if (!built.ok) {
-    result.error = built.error;
-    return result;
+  if (continuity_policy != CableContinuityPolicyHint::kAuto) {
+    CurveConstraint start_constraint{};
+    start_constraint.point = start;
+    start_constraint.tangent_dir = input.start_tangent_hint;
+    start_constraint.tangent_length_hint_m = std::max(0.0, chord_length / 3.0);
+    start_constraint.sag_hint = settings.sag_enabled ? sag_ratio : 0.0;
+    start_constraint.continuity_preference = continuity_policy;
+    start_constraint.bend_stiffness_hint = bend_stiffness_hint;
+    start_constraint.min_bend_radius_hint_m = min_bend_radius_hint_m;
+
+    CurveConstraint end_constraint = start_constraint;
+    end_constraint.point = end;
+    end_constraint.tangent_dir = input.end_tangent_hint;
+    result.value = BuildDetailCurve(start_constraint, end_constraint, std::max(2, settings.curve_samples));
+  } else {
+    input.sag_m = settings.sag_enabled ? sag_ratio * chord_length : 0.0;
+    input.radius_m = radius_m;
+    input.family = geometry::curve::CurveFamily::kMainSpan;
+    input.method = geometry::curve::CurveMethod::kParabolicSag;
+    input.tessellation.min_segments =
+        std::max(input.tessellation.min_segments, static_cast<std::size_t>(std::max(2, settings.curve_samples) - 1));
+    const EditResult<geometry::curve::CableCurveOutput> built = geometry::curve::BuildCableCurve(input);
+    if (!built.ok) {
+      result.error = built.error;
+      return result;
+    }
+    result.value = geometry::curve::ToDetailCurve(input, built.value);
   }
-  result.value = geometry::curve::ToDetailCurve(input, built.value);
   apply_attachment_line_effects_to_curve(state, span_id, &result.value);
   result.ok = true;
   return result;

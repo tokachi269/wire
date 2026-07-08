@@ -469,7 +469,7 @@ bool test_default_pole_types_use_single_hv_height_per_template() {
   return true;
 }
 
-bool test_bundle_related_pole_type_rejects_generated_topology_before_mutation() {
+bool test_bundle_related_pole_type_regenerates_generated_topology() {
   CoreState state;
   const auto distribution_pole_type = find_pole_type_by_name(state, "DistributionPole");
   const auto communication_pole_type = find_pole_type_by_name(state, "CommunicationPole");
@@ -501,7 +501,7 @@ bool test_bundle_related_pole_type_rejects_generated_topology_before_mutation() 
   }
 
   const auto apply = state.ApplyBundleRelatedPoleTypeToExistingPoles(wire::core::BundleKind::kOptical);
-  if (apply.ok || !regex_contains(apply.error, "unsupported")) {
+  if (!apply.ok || !apply.value) {
     return false;
   }
 
@@ -510,10 +510,12 @@ bool test_bundle_related_pole_type_rejects_generated_topology_before_mutation() 
   if (pole_a_after == nullptr || pole_b_after == nullptr) {
     return false;
   }
-  return pole_a_after->pole_type_id == before_a.pole_type_id &&
-         pole_b_after->pole_type_id == before_b.pole_type_id &&
-         std::abs(pole_a_after->height_m - before_a.height_m) < 1e-9 &&
-         std::abs(pole_b_after->height_m - before_b.height_m) < 1e-9 &&
+  return pole_a_after->pole_type_id == communication_pole_type->id &&
+         pole_b_after->pole_type_id == communication_pole_type->id &&
+         std::abs(pole_a_after->height_m - communication_pole_type->default_height_m) < 1e-9 &&
+         std::abs(pole_b_after->height_m - communication_pole_type->default_height_m) < 1e-9 &&
+         pole_a_after->pole_type_id != before_a.pole_type_id &&
+         pole_b_after->pole_type_id != before_b.pole_type_id &&
          validate_now(state).ok();
 }
 
@@ -538,9 +540,9 @@ void register_editing_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C296_DefaultPoleTypes_HVCategoryUsesSingleHeight",
                          "Default pole templates keep one HV category height so category-level editing does not average multiple defaults",
                          "Invariant", false, test_default_pole_types_use_single_hv_height_per_template);
-  test_registry::AddTest(tests, "C297_BundleTemplate_RelatedPoleTypeRejectsGeneratedTopology",
-                         "Bundle-linked pole template rejects generated topology changes before mutation",
-                         "Invariant", true, test_bundle_related_pole_type_rejects_generated_topology_before_mutation);
+  test_registry::AddTest(tests, "C297_BundleTemplate_RelatedPoleTypeRegeneratesGeneratedTopology",
+                         "Bundle-linked pole template regenerates generated topology",
+                         "Invariant", true, test_bundle_related_pole_type_regenerates_generated_topology);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_editing_tests);

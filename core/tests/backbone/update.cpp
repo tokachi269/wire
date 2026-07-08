@@ -234,6 +234,23 @@ std::size_t visual_part_count(const wire::core::CoreState& state, wire::core::Vi
                     [&](const wire::core::VisualCurvePart& part) { return part.kind == kind; }));
 }
 
+bool route_bundle_curves_request_policy(const wire::core::CoreState& state,
+                                        wire::core::BundleKind bundle_template_id,
+                                        wire::core::CableContinuityPolicyHint policy) {
+  for (wire::core::ObjectId edge_bundle_id : edge_bundle_ids_for_template(state, bundle_template_id)) {
+    for (const wire::core::SavedBackboneSpanBinding& binding : state.view().backbone().span_bindings) {
+      if (binding.edge_bundle_id != edge_bundle_id) {
+        continue;
+      }
+      const wire::core::CurveCacheEntry* curve = state.find_curve_cache(binding.span_id);
+      if (curve == nullptr || curve->detail.quality.requested_policy != policy) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 struct EdgeBundleIdentitySnapshot {
   std::vector<wire::core::ObjectId> span_ids{};
   std::vector<std::pair<std::size_t, wire::core::ObjectId>> port_ids{};
@@ -837,7 +854,7 @@ bool C627_backbone_legacy_topology_apis_are_removed() {
   return !contains_text(cmake, "state/legacy/topology.cpp");
 }
 
-bool C628_backbone_active_pole_type_update_repositions_or_rejects_structure() {
+bool C628_backbone_active_pole_type_update_repositions() {
   wire::core::CoreState state;
   const auto generated = state.GenerateFromBackboneSpec(line_req(state));
   if (!generated.ok || generated.value.generated_pole_ids.empty() ||
@@ -918,21 +935,7 @@ bool C628_backbone_active_pole_type_update_repositions_or_rejects_structure() {
     return false;
   }
 
-  const wire::core::PoleTypeDefinition before_structural_reject = type_after->second;
-  const wire::core::Vec3d port_a_before_reject = port_a_after->world_position;
-  wire::core::PoleTypeDefinition structural = before_structural_reject;
-  if (structural.port_bands.empty()) {
-    return false;
-  }
-  structural.port_bands.front().enabled = !structural.port_bands.front().enabled;
-  const auto rejected = state.UpdatePoleTypeDefinition(structural);
-  const auto type_after_reject = state.view().pole_types().find(type_before.id);
-  const wire::core::Port* port_a_after_reject = state.view().ports().find(span->port_a_id);
-  return !rejected.ok && contains_text(rejected.error, "unsupported") &&
-         type_after_reject != state.view().pole_types().end() &&
-         same_pole_type(type_after_reject->second, before_structural_reject) &&
-         port_a_after_reject != nullptr &&
-         almost_equal(port_a_after_reject->world_position, port_a_before_reject, 1e-12);
+  return true;
 }
 
 bool C697_backbone_edge_saves_lateral_offset_echo() {
@@ -1541,6 +1544,113 @@ bool C711_backbone_regenerate_decrease_preserves_surviving_attachment() {
   return found != nullptr && found->span_id == lane0_spans.front() &&
          attachment_it != state.view().relation_index().attachments_by_span.end() &&
          contains_id(attachment_it->second, attachment.value);
+}
+
+bool C712_backbone_regenerate_cable_decision_matches_fresh() {
+  wire::core::CoreState state;
+  const auto generated = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!generated.ok || edge_bundle_ids_for_template(state, wire::core::BundleKind::kLowVoltage).size() != 2) {
+    return false;
+  }
+  const auto bundle_template_it = state.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  if (bundle_template_it == state.view().bundle_templates().end()) {
+    return false;
+  }
+  const auto cable_it = state.view().cable_templates().find(bundle_template_it->second.cable_template_id);
+  if (cable_it == state.view().cable_templates().end()) {
+    return false;
+  }
+  wire::core::CableTemplate edited = cable_it->second;
+  edited.continuity_policy = wire::core::CableContinuityPolicyHint::kPreferG1;
+  const auto updated = state.UpdateCableTemplate(edited);
+  if (!updated.ok || !updated.value ||
+      state.view().cable_templates().at(edited.id).continuity_policy != edited.continuity_policy ||
+      !route_bundle_curves_request_policy(state, wire::core::BundleKind::kLowVoltage, edited.continuity_policy)) {
+    return false;
+  }
+
+  wire::core::CoreState fresh;
+  const auto fresh_bundle_template_it = fresh.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  if (fresh_bundle_template_it == fresh.view().bundle_templates().end()) {
+    return false;
+  }
+  auto fresh_cable_it = fresh.view().cable_templates().find(fresh_bundle_template_it->second.cable_template_id);
+  if (fresh_cable_it == fresh.view().cable_templates().end()) {
+    return false;
+  }
+  wire::core::CableTemplate fresh_edited = fresh_cable_it->second;
+  fresh_edited.continuity_policy = edited.continuity_policy;
+  const auto fresh_template_update = fresh.UpdateCableTemplate(fresh_edited);
+  const auto fresh_generated = fresh.GenerateFromBackboneSpec(poly3_req(fresh));
+  return fresh_template_update.ok && fresh_generated.ok &&
+         same_route_bundle_signatures(route_bundle_signatures(state, wire::core::BundleKind::kLowVoltage),
+                                      route_bundle_signatures(fresh, wire::core::BundleKind::kLowVoltage)) &&
+         visual_part_count(state, wire::core::VisualCurvePartKind::kNodePatch) ==
+             visual_part_count(fresh, wire::core::VisualCurvePartKind::kNodePatch);
+}
+
+bool C713_backbone_regenerate_pole_type_structure_matches_fresh() {
+  wire::core::CoreState state;
+  const auto generated = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!generated.ok || generated.value.generated_pole_ids.empty()) {
+    return false;
+  }
+  const wire::core::Pole* pole = state.view().poles().find(generated.value.generated_pole_ids.front());
+  if (pole == nullptr) {
+    return false;
+  }
+  const auto type_it = state.view().pole_types().find(pole->pole_type_id);
+  if (type_it == state.view().pole_types().end()) {
+    return false;
+  }
+
+  wire::core::PoleTypeDefinition edited = type_it->second;
+  bool edited_band = false;
+  for (wire::core::PortPlacementBand& band : edited.port_bands) {
+    if (band.enabled && band.category == wire::core::ConnectionCategory::kLowVoltage &&
+        band.role == wire::core::SlotRole::kTrunkPreferred && band.side == wire::core::SlotSide::kLeft) {
+      band.side = wire::core::SlotSide::kCenter;
+      band.lateral_center_m = 0.0;
+      band.lateral_min_m = -0.18;
+      band.lateral_max_m = 0.18;
+      edited_band = true;
+      break;
+    }
+  }
+  if (!edited_band) {
+    return false;
+  }
+
+  const auto updated = state.UpdatePoleTypeDefinition(edited);
+  if (!updated.ok) {
+    return false;
+  }
+
+  wire::core::CoreState fresh;
+  const auto fresh_type_it = fresh.view().pole_types().find(edited.id);
+  if (fresh_type_it == fresh.view().pole_types().end()) {
+    return false;
+  }
+  wire::core::PoleTypeDefinition fresh_edited = fresh_type_it->second;
+  bool fresh_edited_band = false;
+  for (wire::core::PortPlacementBand& band : fresh_edited.port_bands) {
+    if (band.enabled && band.category == wire::core::ConnectionCategory::kLowVoltage &&
+        band.role == wire::core::SlotRole::kTrunkPreferred && band.side == wire::core::SlotSide::kLeft) {
+      band.side = wire::core::SlotSide::kCenter;
+      band.lateral_center_m = 0.0;
+      band.lateral_min_m = -0.18;
+      band.lateral_max_m = 0.18;
+      fresh_edited_band = true;
+      break;
+    }
+  }
+  const auto fresh_template_update = fresh.UpdatePoleTypeDefinition(fresh_edited);
+  const auto fresh_generated = fresh.GenerateFromBackboneSpec(poly3_req(fresh));
+  return fresh_edited_band && fresh_template_update.ok && fresh_generated.ok &&
+         same_route_bundle_signatures(route_bundle_signatures(state, wire::core::BundleKind::kLowVoltage),
+                                      route_bundle_signatures(fresh, wire::core::BundleKind::kLowVoltage)) &&
+         visual_part_count(state, wire::core::VisualCurvePartKind::kNodePatch) ==
+             visual_part_count(fresh, wire::core::VisualCurvePartKind::kNodePatch);
 }
 
 bool C676_backbone_noop_move_preserves_port_positions_exactly() {

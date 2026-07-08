@@ -7,8 +7,9 @@
 
 | family | 状態 | normal path | 消す条件 |
 |---|---|---|---|
-| `UpdatePoleTypeDefinition` | active backbone pole使用中でもplacement-only差分は`kReposition`で反映。構造差分はmutation前`unsupported` | post-edit API | band増減やrole/side変更などの構造差分を扱う regenerate scenario が必要になった時だけ、SavedGraph identityを維持する対応を追加する |
-| `UpdateBundleTemplate` | fixed count増減は単一 saved route に限り、統一 regenerate でSavedGraph identityを維持して pipeline 段を部分再実行し、port/span/rules/layout/geom/drawを再生成または退役する。multi-bundle は saved edge_bundles 順で group offset を再構成し、pair row は saved route/order から再確定する。存続spanのattachmentは保持し、退役spanのattachmentは拒否する。`population_rules` 差分はtemplate-owned derived outputとして`kReshape`で反映する | post-edit API | range化、policy変更を扱う scenario が必要になった時だけ拡張する |
+| `UpdatePoleTypeDefinition` | active backbone pole使用中でもplacement-only差分は`kReposition`で反映。構造差分は対象 pole の incident edge を統一 regenerate し、SavedGraph identityを維持して port/span/rules/layout/geom/draw を再導出する | post-edit API | manual port 保持は別 scenario として残る |
+| `UpdateCableTemplate` | backbone span の continuity policy decision差分は統一 regenerate で route scope を再生成し、既存 span の curve decision を編集後 cable template に合わせる。non-backbone span を含む decision差分と default endpoint attachment の構造影響は mutation前 unsupported | post-edit API | default endpoint attachment の生成/退役規則を扱う scenario が必要になった時だけ拡張する |
+| `UpdateBundleTemplate` | fixed count増減は単一 saved route に限り、統一 regenerate でSavedGraph identityを維持して pipeline 段を部分再実行し、port/span/rules/layout/geom/drawを再生成または退役する。multi-bundle は saved edge_bundles 順で group offset を再構成し、pair row は saved route/order から再確定する。存続spanのattachmentは保持し、退役spanのattachmentは拒否する。`population_rules` 差分はtemplate-owned derived outputとして`kReshape`で反映する | post-edit API | range化、bundle policy変更を扱う scenario が必要になった時だけ拡張する |
 | `pending_support_nodes` | 未保存pickを次のrequestへ渡すtransient input | DrawPath input | 保存済みnodeと混同しない限り維持 |
 
 ## 隔離

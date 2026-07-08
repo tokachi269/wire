@@ -753,10 +753,10 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C627_backbone_legacy_topology_apis_are_removed",
                          "retired topology APIs are absent from the public surface", "Boundary", false,
                          C627_backbone_legacy_topology_apis_are_removed);
-  test_registry::AddTest(tests, "C628_backbone_active_pole_type_update_repositions_or_rejects_structure",
-                         "active backbone pole type placement updates derive outputs and structural edits reject",
+  test_registry::AddTest(tests, "C628_backbone_active_pole_type_update_repositions",
+                         "active backbone pole type placement updates derive outputs",
                          "Boundary", true,
-                         C628_backbone_active_pole_type_update_repositions_or_rejects_structure);
+                         C628_backbone_active_pole_type_update_repositions);
   test_registry::AddTest(tests, "C634_backbone_terminal_nodes_create_no_node_patch_curve",
                          "terminal backbone nodes do not create node patch curves", "Boundary", false,
                          C634_backbone_terminal_nodes_create_no_node_patch_curve);
@@ -964,6 +964,14 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "backbone regenerate count decrease preserves attachments on surviving spans",
                          "Invariant", false,
                          C711_backbone_regenerate_decrease_preserves_surviving_attachment);
+  test_registry::AddTest(tests, "C712_backbone_regenerate_cable_decision_matches_fresh",
+                         "backbone cable decision updates regenerate and match fresh output",
+                         "Invariant", false,
+                         C712_backbone_regenerate_cable_decision_matches_fresh);
+  test_registry::AddTest(tests, "C713_backbone_regenerate_pole_type_structure_matches_fresh",
+                         "backbone pole type structural updates regenerate and match fresh output",
+                         "Invariant", false,
+                         C713_backbone_regenerate_pole_type_structure_matches_fresh);
   test_registry::AddTest(tests, "C674_backbone_port_band_selection_has_one_owner",
                          "backbone and post-edit port band selection use saved binding or one shared selector",
                          "Boundary", false, C674_backbone_port_band_selection_has_one_owner);

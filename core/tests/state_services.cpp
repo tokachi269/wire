@@ -268,7 +268,7 @@ bool test_update_cable_template_rejects_manual_span_geometry_change() {
          current->second.sag_factor == original_sag;
 }
 
-bool test_update_cable_template_rejects_decision_change() {
+bool test_update_cable_template_decision_change_regenerates_backbone() {
   CoreState state;
   ObjectId span_id = wire::core::kInvalidObjectId;
   wire::core::CableTemplateId cable_id = wire::core::kInvalidCableTemplateId;
@@ -280,15 +280,15 @@ bool test_update_cable_template_rejects_decision_change() {
     return false;
   }
   wire::core::CableTemplate edited = cable_it->second;
-  const auto original_policy = cable_it->second.continuity_policy;
   edited.continuity_policy = (edited.continuity_policy == wire::core::CableContinuityPolicyHint::kPreferG1)
                                  ? wire::core::CableContinuityPolicyHint::kPreferG2
                                  : wire::core::CableContinuityPolicyHint::kPreferG1;
   const auto update = state.UpdateCableTemplate(edited);
   const auto current = state.view().cable_templates().find(cable_id);
-  return !update.ok && update.error.find("unsupported") != std::string::npos &&
-         current != state.view().cable_templates().end() &&
-         current->second.continuity_policy == original_policy;
+  const wire::core::CurveCacheEntry* curve = state.find_curve_cache(span_id);
+  return update.ok && update.value && current != state.view().cable_templates().end() &&
+         current->second.continuity_policy == edited.continuity_policy && curve != nullptr &&
+         curve->detail.quality.requested_policy == edited.continuity_policy;
 }
 
 void RegisterStateServiceTests(test_registry::TestRegistry& tests) {
@@ -302,9 +302,9 @@ void RegisterStateServiceTests(test_registry::TestRegistry& tests) {
                          "bundle template branch-down-offset policy changes force regeneration instead of being ignored or treated as visual-only",
                          "Invariant", false,
                          &test_update_bundle_template_rejects_branch_down_offset_before_mutation);
-  test_registry::AddTest(tests, "C357_CoreStateService_CableTemplatePolicyChangeMarksDecision",
-                         "decision-bearing cable template changes reject before mutation",
-                         "Invariant", true, &test_update_cable_template_rejects_decision_change);
+  test_registry::AddTest(tests, "C357_CoreStateService_CableTemplatePolicyChangeRegenerates",
+                         "decision-bearing cable template changes regenerate backbone outputs",
+                         "Invariant", false, &test_update_cable_template_decision_change_regenerates_backbone);
 }
 
 WIRE_REGISTER_TEST_SUITE(RegisterStateServiceTests);

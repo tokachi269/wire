@@ -58,6 +58,7 @@ export class WireScene {
   private readonly content = new THREE.Group();
   private readonly backbone = new THREE.Group();
   private readonly guide = new THREE.Group();
+  private readonly snapPreview = new THREE.Group();
   private readonly unsubscribe: () => void;
   private frame = 0;
   private resizeObserver: ResizeObserver | null = null;
@@ -75,6 +76,7 @@ export class WireScene {
     this.scene.add(this.backbone);
     this.scene.add(this.content);
     this.scene.add(this.guide);
+    this.scene.add(this.snapPreview);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -145,6 +147,7 @@ export class WireScene {
     const onPointerDown = (event: PointerEvent) => {
       if (event.button !== 0 && event.button !== 1) return;
       this.renderer.domElement.focus();
+      this.clearSnapPreview();
       if (event.pointerType === "mouse" && event.button === 0) {
         this.addGroundPoint(event);
         return;
@@ -186,7 +189,13 @@ export class WireScene {
         event.preventDefault();
         return;
       }
-      if (pointerDown === null) return;
+      if (pointerDown === null) {
+        if (event.pointerType === "mouse") {
+          this.updateSnapPreview(event);
+        }
+        return;
+      }
+      this.clearSnapPreview();
       const dx = event.clientX - pointerDown.x;
       const dy = event.clientY - pointerDown.y;
       const totalDx = event.clientX - pointerDown.startX;
@@ -213,6 +222,7 @@ export class WireScene {
       activePointers.clear();
       pinch = null;
       pointerDown = null;
+      this.clearSnapPreview();
     };
     const onContextMenu = (event: MouseEvent) => {
       event.preventDefault();
@@ -224,6 +234,7 @@ export class WireScene {
     };
     canvas.addEventListener("pointerdown", onPointerDown);
     canvas.addEventListener("pointermove", onPointerMove);
+    canvas.addEventListener("pointerleave", onPointerCancel);
     canvas.addEventListener("pointerup", onPointerUp);
     canvas.addEventListener("pointercancel", onPointerCancel);
     canvas.addEventListener("contextmenu", onContextMenu);
@@ -231,6 +242,7 @@ export class WireScene {
     this.detachInput = () => {
       canvas.removeEventListener("pointerdown", onPointerDown);
       canvas.removeEventListener("pointermove", onPointerMove);
+      canvas.removeEventListener("pointerleave", onPointerCancel);
       canvas.removeEventListener("pointerup", onPointerUp);
       canvas.removeEventListener("pointercancel", onPointerCancel);
       canvas.removeEventListener("contextmenu", onContextMenu);
@@ -413,6 +425,7 @@ export class WireScene {
     this.disposeGroup(this.backbone);
     this.disposeGroup(this.content);
     this.disposeGroup(this.guide);
+    this.clearSnapPreview();
 
     for (const part of snapshot.parts) {
       const points: THREE.Vector3[] = [];
@@ -550,6 +563,49 @@ export class WireScene {
     lifted.position.copy(beaconTop);
     lifted.renderOrder = 45;
     this.guide.add(lifted);
+  }
+
+  private updateSnapPreview(event: PointerEvent): void {
+    this.clearSnapPreview();
+    const bounds = this.renderer.domElement.getBoundingClientRect();
+    const pointer = new THREE.Vector2(
+      ((event.clientX - bounds.left) / bounds.width) * 2 - 1,
+      -((event.clientY - bounds.top) / bounds.height) * 2 + 1
+    );
+    const ray = new THREE.Raycaster();
+    ray.params.Line = { threshold: 0.35 };
+    ray.setFromCamera(pointer, this.camera);
+    const hit = this.pickBackbonePoint(ray);
+    if (hit === null) return;
+
+    const point = new THREE.Vector3(hit.point[0], hit.point[1], hit.point[2] + 0.08);
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(0.28, 0.018, 8, 32),
+      new THREE.MeshBasicMaterial({
+        color: 0xffb13b,
+        depthTest: false,
+        depthWrite: false
+      })
+    );
+    ring.position.copy(point);
+    ring.renderOrder = 60;
+    this.snapPreview.add(ring);
+
+    const dot = new THREE.Mesh(
+      new THREE.SphereGeometry(0.08, 10, 8),
+      new THREE.MeshBasicMaterial({
+        color: 0xffd36f,
+        depthTest: false,
+        depthWrite: false
+      })
+    );
+    dot.position.copy(point);
+    dot.renderOrder = 61;
+    this.snapPreview.add(dot);
+  }
+
+  private clearSnapPreview(): void {
+    this.disposeGroup(this.snapPreview);
   }
 
   private buildBackboneOverlay(snapshot: ViewerSnapshot): void {

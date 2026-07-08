@@ -696,6 +696,63 @@ describe("P1 action contracts", () => {
 
     expect(current(store).pathPoints).toEqual([[1, 2, 3]]);
   });
+
+  it("passes resolved source snap node identity through to generation", () => {
+    let nodeSpecs: Array<{ pointIndex: number; supportKind: number; nodeId: string }> | undefined;
+    const store = new ViewerStore();
+    const actions = new ViewerActions(actionBridge({
+      resolveBranchPick: () => ({
+        ok: true,
+        error: "",
+        positionX: 5,
+        positionY: 0,
+        positionZ: 4,
+        supportKind: 1,
+        nodeId: "9001"
+      }),
+      generate: (_points, _templates, _interval, _poleType, _counts, _direction, _tilt, specs) => {
+        nodeSpecs = specs;
+        return {
+          ok: true,
+          error: "",
+          generatedPoleCount: 1,
+          generatedSpanCount: 1,
+          totalMs: 1
+        };
+      },
+      scene: () => ({
+        parts: [],
+        poles: [],
+        ports: [],
+        spans: [],
+        supportNodes: [],
+        backboneEdges: []
+      })
+    }), store);
+    actions.initialize();
+
+    actions.addPathPoint([5, 0, 0], {
+      hitKind: 2,
+      hitId: "0",
+      hitX: 5,
+      hitY: 0,
+      hitZ: 0,
+      hasSegmentEndpoints: true,
+      segmentNodeAId: "10",
+      segmentNodeBId: "11",
+      segmentEndpointAX: 0,
+      segmentEndpointAY: 0,
+      segmentEndpointAZ: 0,
+      segmentEndpointBX: 10,
+      segmentEndpointBY: 0,
+      segmentEndpointBZ: 0
+    });
+    actions.addPathPoint([5, 8, 0]);
+    actions.generatePath();
+
+    expect(nodeSpecs).toEqual([{ pointIndex: 0, supportKind: 1, nodeId: "9001" }]);
+  });
+
   it("starts a new path after generation by default and undoes one point", () => {
     const store = new ViewerStore();
     const actions = new ViewerActions(actionBridge({

@@ -918,13 +918,33 @@ EditResult<ObjectId> CoreState::SetSpanEndpointSocketOverride(ObjectId span_id, 
     result.error = "span not found";
     return result;
   }
-  if (runtime_.backbone_index.span_edge_bundle.contains(span_id)) {
-    result.error = "backbone unsupported: endpoint socket override requires regeneration";
-    return result;
+  SpanEndpointOverride next{};
+  if (const auto existing = authoritative_.override_state.span_endpoint_by_span.find(span_id);
+      existing != authoritative_.override_state.span_endpoint_by_span.end()) {
+    next = existing->second;
   }
-  SpanEndpointOverride next = authoritative_.override_state.span_endpoint_by_span[span_id];
   std::optional<int>& slot = is_start_endpoint ? next.socket_a_id : next.socket_b_id;
   if (slot.has_value() && *slot == socket_id) {
+    result.ok = true;
+    result.value = span_id;
+    return result;
+  }
+  if (runtime_.backbone_index.span_edge_bundle.contains(span_id)) {
+    slot = socket_id;
+    CoreState trial = *this;
+    trial.authoritative_.override_state.span_endpoint_by_span[span_id] = next;
+    ChangeSet regenerated_changes{};
+    const auto regenerated = trial.regenerate_backbone_span_override(span_id, &regenerated_changes);
+    if (!regenerated.ok) {
+      result.error = regenerated.error;
+      return result;
+    }
+    identity_ = trial.identity_;
+    authoritative_ = trial.authoritative_;
+    runtime_ = trial.runtime_;
+    debug_ = trial.debug_;
+    result.change_set = std::move(regenerated_changes);
+    add_unique_id(result.change_set.updated_ids, span_id);
     result.ok = true;
     result.value = span_id;
     return result;
@@ -945,24 +965,45 @@ EditResult<ObjectId> CoreState::ClearSpanEndpointSocketOverride(ObjectId span_id
     result.error = "span not found";
     return result;
   }
-  if (runtime_.backbone_index.span_edge_bundle.contains(span_id)) {
-    result.error = "backbone unsupported: endpoint socket override requires regeneration";
-    return result;
-  }
   auto it = authoritative_.override_state.span_endpoint_by_span.find(span_id);
-  bool changed = false;
-  if (it != authoritative_.override_state.span_endpoint_by_span.end()) {
-    std::optional<int>& slot = is_start_endpoint ? it->second.socket_a_id : it->second.socket_b_id;
-    changed = slot.has_value();
-    slot.reset();
-    if (!it->second.socket_a_id.has_value() && !it->second.socket_b_id.has_value()) {
-      authoritative_.override_state.span_endpoint_by_span.erase(it);
-    }
-  }
+  const bool changed = it != authoritative_.override_state.span_endpoint_by_span.end() &&
+                       (is_start_endpoint ? it->second.socket_a_id.has_value()
+                                          : it->second.socket_b_id.has_value());
   if (!changed) {
     result.ok = true;
     result.value = span_id;
     return result;
+  }
+  if (runtime_.backbone_index.span_edge_bundle.contains(span_id)) {
+    CoreState trial = *this;
+    auto trial_it = trial.authoritative_.override_state.span_endpoint_by_span.find(span_id);
+    if (trial_it != trial.authoritative_.override_state.span_endpoint_by_span.end()) {
+      std::optional<int>& trial_slot = is_start_endpoint ? trial_it->second.socket_a_id : trial_it->second.socket_b_id;
+      trial_slot.reset();
+      if (!trial_it->second.socket_a_id.has_value() && !trial_it->second.socket_b_id.has_value()) {
+        trial.authoritative_.override_state.span_endpoint_by_span.erase(trial_it);
+      }
+    }
+    ChangeSet regenerated_changes{};
+    const auto regenerated = trial.regenerate_backbone_span_override(span_id, &regenerated_changes);
+    if (!regenerated.ok) {
+      result.error = regenerated.error;
+      return result;
+    }
+    identity_ = trial.identity_;
+    authoritative_ = trial.authoritative_;
+    runtime_ = trial.runtime_;
+    debug_ = trial.debug_;
+    result.change_set = std::move(regenerated_changes);
+    add_unique_id(result.change_set.updated_ids, span_id);
+    result.ok = true;
+    result.value = span_id;
+    return result;
+  }
+  std::optional<int>& slot = is_start_endpoint ? it->second.socket_a_id : it->second.socket_b_id;
+  slot.reset();
+  if (!it->second.socket_a_id.has_value() && !it->second.socket_b_id.has_value()) {
+    authoritative_.override_state.span_endpoint_by_span.erase(it);
   }
   touch_span(span_id, true);
   add_unique_id(result.change_set.updated_ids, span_id);
@@ -978,16 +1019,36 @@ EditResult<ObjectId> CoreState::SetSpanBranchDownOffsetOverride(ObjectId span_id
     result.error = "span not found";
     return result;
   }
-  if (runtime_.backbone_index.span_edge_bundle.contains(span_id)) {
-    result.error = "backbone unsupported: branch down override requires regeneration";
-    return result;
-  }
   if (!std::isfinite(branch_down_offset_m) || branch_down_offset_m < 0.0) {
     result.error = "branch down offset override must be finite and >= 0";
     return result;
   }
-  SpanSupportOverride next = authoritative_.override_state.span_support_by_span[span_id];
+  SpanSupportOverride next{};
+  if (const auto existing = authoritative_.override_state.span_support_by_span.find(span_id);
+      existing != authoritative_.override_state.span_support_by_span.end()) {
+    next = existing->second;
+  }
   if (next.branch_down_offset_m.has_value() && std::abs(*next.branch_down_offset_m - branch_down_offset_m) <= 1e-9) {
+    result.ok = true;
+    result.value = span_id;
+    return result;
+  }
+  if (runtime_.backbone_index.span_edge_bundle.contains(span_id)) {
+    next.branch_down_offset_m = branch_down_offset_m;
+    CoreState trial = *this;
+    trial.authoritative_.override_state.span_support_by_span[span_id] = next;
+    ChangeSet regenerated_changes{};
+    const auto regenerated = trial.regenerate_backbone_span_override(span_id, &regenerated_changes);
+    if (!regenerated.ok) {
+      result.error = regenerated.error;
+      return result;
+    }
+    identity_ = trial.identity_;
+    authoritative_ = trial.authoritative_;
+    runtime_ = trial.runtime_;
+    debug_ = trial.debug_;
+    result.change_set = std::move(regenerated_changes);
+    add_unique_id(result.change_set.updated_ids, span_id);
     result.ok = true;
     result.value = span_id;
     return result;
@@ -1018,15 +1079,32 @@ EditResult<ObjectId> CoreState::ClearSpanBranchDownOffsetOverride(ObjectId span_
     result.error = "span not found";
     return result;
   }
-  if (runtime_.backbone_index.span_edge_bundle.contains(span_id)) {
-    result.error = "backbone unsupported: branch down override requires regeneration";
-    return result;
-  }
-  if (authoritative_.override_state.span_support_by_span.erase(span_id) == 0) {
+  if (authoritative_.override_state.span_support_by_span.find(span_id) ==
+      authoritative_.override_state.span_support_by_span.end()) {
     result.ok = true;
     result.value = span_id;
     return result;
   }
+  if (runtime_.backbone_index.span_edge_bundle.contains(span_id)) {
+    CoreState trial = *this;
+    trial.authoritative_.override_state.span_support_by_span.erase(span_id);
+    ChangeSet regenerated_changes{};
+    const auto regenerated = trial.regenerate_backbone_span_override(span_id, &regenerated_changes);
+    if (!regenerated.ok) {
+      result.error = regenerated.error;
+      return result;
+    }
+    identity_ = trial.identity_;
+    authoritative_ = trial.authoritative_;
+    runtime_ = trial.runtime_;
+    debug_ = trial.debug_;
+    result.change_set = std::move(regenerated_changes);
+    add_unique_id(result.change_set.updated_ids, span_id);
+    result.ok = true;
+    result.value = span_id;
+    return result;
+  }
+  authoritative_.override_state.span_support_by_span.erase(span_id);
   touch_span(span_id, true);
   add_unique_id(result.change_set.updated_ids, span_id);
   const auto plan = make_update_plan({UpdateKind::kReposition, UpdateTargetKind::kSpan, span_id});

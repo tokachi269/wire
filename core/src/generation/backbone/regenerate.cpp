@@ -100,7 +100,8 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleKind bundle_t
                                                              ChangeSet* change_set,
                                                              const CableTemplate* cable_template_override,
                                                              const std::vector<ObjectId>* scoped_edge_bundle_ids,
-                                                             const PoleTypeDefinition* pole_type_override) {
+                                                             const PoleTypeDefinition* pole_type_override,
+                                                             BackboneRegenerateCause cause) {
   EditResult<bool> result{};
   auto fail = [&](std::string message) {
     result.error = std::move(message);
@@ -111,7 +112,8 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleKind bundle_t
   if (previous_template.count_rule != BundleCountRuleKind::kFixed ||
       next_template.count_rule != BundleCountRuleKind::kFixed || previous_template.fixed_count <= 0 ||
       next_template.fixed_count <= 0 ||
-      (!count_changes && cable_template_override == nullptr && pole_type_override == nullptr)) {
+      (!count_changes && cable_template_override == nullptr && pole_type_override == nullptr &&
+       cause != BackboneRegenerateCause::kSpanOverride)) {
     return fail("backbone unsupported: regenerate requires fixed count, cable decision, or pole type changes");
   }
   if (cable_template_override != nullptr &&
@@ -171,17 +173,53 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleKind bundle_t
     return fail("backbone regenerate: edge missing");
   }
   const std::size_t route_id = edge->route;
-  std::vector<const SavedBackboneEdge*> route_edges{};
-  for (const SavedBackboneEdge& candidate : graph.edges) {
-    if (candidate.route == route_id) {
-      route_edges.push_back(&candidate);
+  std::vector<const SavedBackboneEdge*> route_edges{edge};
+  auto find_adjacent_edge = [&](const SavedBackboneEdge& anchor, bool forward,
+                                bool* ambiguous) -> const SavedBackboneEdge* {
+    const SavedBackboneEdge* match = nullptr;
+    if (ambiguous != nullptr) {
+      *ambiguous = false;
     }
+    for (const SavedBackboneEdge& candidate : graph.edges) {
+      if (candidate.edge_id == anchor.edge_id || candidate.route != route_id) {
+        continue;
+      }
+      const bool adjacent = forward ? (candidate.order == anchor.order + 1 && candidate.node_a == anchor.node_b)
+                                    : (anchor.order == candidate.order + 1 && candidate.node_b == anchor.node_a);
+      if (!adjacent) {
+        continue;
+      }
+      if (match != nullptr) {
+        if (ambiguous != nullptr) {
+          *ambiguous = true;
+        }
+        return nullptr;
+      }
+      match = &candidate;
+    }
+    return match;
+  };
+  for (;;) {
+    bool ambiguous = false;
+    const SavedBackboneEdge* previous = find_adjacent_edge(*route_edges.front(), false, &ambiguous);
+    if (ambiguous) {
+      return fail("backbone unsupported: regenerate route adjacency is ambiguous");
+    }
+    if (previous == nullptr) {
+      break;
+    }
+    route_edges.insert(route_edges.begin(), previous);
   }
-  std::sort(route_edges.begin(), route_edges.end(), [](const SavedBackboneEdge* lhs, const SavedBackboneEdge* rhs) {
-    return lhs->order < rhs->order;
-  });
-  if (route_edges.empty()) {
-    return fail("backbone regenerate: route edges missing");
+  for (;;) {
+    bool ambiguous = false;
+    const SavedBackboneEdge* next = find_adjacent_edge(*route_edges.back(), true, &ambiguous);
+    if (ambiguous) {
+      return fail("backbone unsupported: regenerate route adjacency is ambiguous");
+    }
+    if (next == nullptr) {
+      break;
+    }
+    route_edges.push_back(next);
   }
   for (ObjectId affected_edge_bundle_id : affected_edge_bundle_ids) {
     const SavedBackboneEdgeBundle* affected_edge_bundle = saved_edge_bundle_by_id(graph, affected_edge_bundle_id);
@@ -461,6 +499,30 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleKind bundle_t
   result.ok = true;
   result.value = true;
   return result;
+}
+
+EditResult<bool> CoreState::regenerate_backbone_span_override(ObjectId span_id, ChangeSet* change_set) {
+  EditResult<bool> result{};
+  const auto backbone_it = runtime_.backbone_index.span_edge_bundle.find(span_id);
+  if (backbone_it == runtime_.backbone_index.span_edge_bundle.end()) {
+    result.error = "backbone regenerate: span is not bound to an edge bundle";
+    return result;
+  }
+  const SavedBackboneEdgeBundle* edge_bundle = view().backbone_edge_bundle(backbone_it->second);
+  const Bundle* bundle = edge_bundle == nullptr ? nullptr : view().bundles().find(edge_bundle->bundle_id);
+  if (edge_bundle == nullptr || bundle == nullptr) {
+    result.error = "backbone regenerate: span override scope is incomplete";
+    return result;
+  }
+  const auto bundle_template_it = authoritative_.bundle_templates.find(bundle->bundle_template_id);
+  if (bundle_template_it == authoritative_.bundle_templates.end()) {
+    result.error = "bundle template not found";
+    return result;
+  }
+  const std::vector<ObjectId> scope{edge_bundle->edge_bundle_id};
+  return regenerate_backbone_edge_bundles(bundle->bundle_template_id, bundle_template_it->second,
+                                          bundle_template_it->second, change_set, nullptr, &scope, nullptr,
+                                          BackboneRegenerateCause::kSpanOverride);
 }
 
 } // namespace wire::core

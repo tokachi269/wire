@@ -330,6 +330,8 @@ bool C711_backbone_regenerate_decrease_preserves_surviving_attachment();
 bool C712_backbone_regenerate_cable_decision_matches_fresh();
 bool C713_backbone_regenerate_pole_type_structure_matches_fresh();
 bool C714_backbone_regenerate_rejects_retired_manual_port();
+bool C715_backbone_span_branch_down_override_regenerates();
+bool C716_backbone_span_socket_override_regenerates();
 bool C674_backbone_port_band_selection_has_one_owner();
 bool C675_backbone_layout_yaw_does_not_read_debug_records();
 bool C676_backbone_noop_move_preserves_port_positions_exactly();

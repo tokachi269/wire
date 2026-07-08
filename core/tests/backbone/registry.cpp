@@ -976,6 +976,12 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "backbone regenerate rejects manual ports on retired lanes",
                          "Boundary", false,
                          C714_backbone_regenerate_rejects_retired_manual_port);
+  test_registry::AddTest(tests, "C715_backbone_span_branch_down_override_regenerates",
+                         "backbone span branch-down override regenerates span layout and curve",
+                         "Invariant", false, C715_backbone_span_branch_down_override_regenerates);
+  test_registry::AddTest(tests, "C716_backbone_span_socket_override_regenerates",
+                         "backbone span endpoint socket override regenerates span layout",
+                         "Invariant", false, C716_backbone_span_socket_override_regenerates);
   test_registry::AddTest(tests, "C674_backbone_port_band_selection_has_one_owner",
                          "backbone and post-edit port band selection use saved binding or one shared selector",
                          "Boundary", false, C674_backbone_port_band_selection_has_one_owner);

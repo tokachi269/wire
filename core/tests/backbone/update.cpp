@@ -1205,6 +1205,73 @@ bool C714_backbone_regenerate_rejects_retired_manual_port() {
   return !updated && contains_text(error, "manual ports") && same_counts(before, count_snapshot(state));
 }
 
+bool C715_backbone_span_branch_down_override_regenerates() {
+  wire::core::CoreState state;
+  const std::vector<wire::core::ObjectId> spans = lowering_branch_spans(state);
+  if (spans.empty()) {
+    return false;
+  }
+  wire::core::ObjectId span_id = wire::core::kInvalidObjectId;
+  for (wire::core::ObjectId candidate : spans) {
+    if (span_has_lowered_endpoint(state, candidate)) {
+      span_id = candidate;
+      break;
+    }
+  }
+  const wire::core::SpanLayoutView before_layout = state.span_layout(span_id);
+  const wire::core::CurveCacheEntry* before_curve = state.find_curve_cache(span_id);
+  if (!before_layout.has_layout() || before_curve == nullptr) {
+    return false;
+  }
+  const std::vector<wire::core::Vec3d> before_points = before_curve->detail.sample_points;
+  const double override_down = 1.25;
+  const auto updated = state.SetSpanBranchDownOffsetOverride(span_id, override_down);
+  const wire::core::SpanLayoutView after_layout = state.span_layout(span_id);
+  const wire::core::CurveCacheEntry* after_curve = state.find_curve_cache(span_id);
+  if (!updated.ok || !after_layout.has_layout() || after_curve == nullptr) {
+    return false;
+  }
+  const double start_down = after_layout.entry->start.branch_down_offset_m;
+  const double end_down = after_layout.entry->end.branch_down_offset_m;
+  const bool layout_consumed_override =
+      almost_equal(start_down, override_down, 1e-9) || almost_equal(end_down, override_down, 1e-9);
+  const bool curve_changed =
+      after_curve->detail.sample_points.size() == before_points.size() &&
+      !std::equal(before_points.begin(), before_points.end(), after_curve->detail.sample_points.begin(),
+                  [](const wire::core::Vec3d& a, const wire::core::Vec3d& b) {
+                    return almost_equal(a, b, 1e-12);
+                  });
+  const auto cleared = state.ClearSpanBranchDownOffsetOverride(span_id);
+  const wire::core::SpanLayoutView cleared_layout = state.span_layout(span_id);
+  return layout_consumed_override && curve_changed && cleared.ok && cleared_layout.has_layout() &&
+         !almost_equal(std::max(cleared_layout.entry->start.branch_down_offset_m,
+                                cleared_layout.entry->end.branch_down_offset_m),
+                       override_down, 1e-9);
+}
+
+bool C716_backbone_span_socket_override_regenerates() {
+  wire::core::CoreState state;
+  const auto generated = state.GenerateFromBackboneSpec(line_req(state));
+  if (!generated.ok || generated.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId span_id = generated.value.generated_span_ids.front();
+  const wire::core::SpanLayoutView before_layout = state.span_layout(span_id);
+  if (!before_layout.has_layout() || before_layout.entry->start.resolved_socket_id.has_value()) {
+    return false;
+  }
+  const auto updated = state.SetSpanEndpointSocketOverride(span_id, true, 0);
+  const wire::core::SpanLayoutView after_layout = state.span_layout(span_id);
+  if (!updated.ok || !after_layout.has_layout() || !after_layout.entry->start.resolved_socket_id.has_value() ||
+      *after_layout.entry->start.resolved_socket_id != 0 ||
+      after_layout.entry->start.endpoint_source != wire::core::LayoutEndpointSourceKind::kAttachmentSocketOverride) {
+    return false;
+  }
+  const auto cleared = state.ClearSpanEndpointSocketOverride(span_id, true);
+  const wire::core::SpanLayoutView cleared_layout = state.span_layout(span_id);
+  return cleared.ok && cleared_layout.has_layout() && !cleared_layout.entry->start.resolved_socket_id.has_value();
+}
+
 bool C673_backbone_bundle_count_migration_rejects_user_attachments() {
   wire::core::CoreState state;
   const auto generated = state.GenerateFromBackboneSpec(line_req(state));

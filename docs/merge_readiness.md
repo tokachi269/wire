@@ -48,8 +48,8 @@ viewerはこれらを事前に判別せず、Apply後のerror logで初めてuns
 | `UpdateCableTemplate` | `Apply Cable Template` | non-backbone span を含む decision差分 / default endpoint attachment の構造影響 | backbone span の continuity policy decision差分は統一 regenerate で対応済み(C357/C712)。geometry/render差分は現状も通る。non-backbone 対象と default endpoint attachment の構造影響は mutation前 unsupported |
 | `ApplyBundleRelatedPoleTypeToExistingPoles` | template Apply後に自動呼出 | 対象poleがbackbone node | 対象 pole の type 差し替え + incident edge の統一 regenerate で対応済み(C297)。暗黙連結ではなく独立 API |
 | `UpdateLayoutSettings` | `Apply Layout` | backbone span bindingが1つでも存在 | generation入力のためregenerate級。state全体一括拒否の粒度は再検討候補 |
-| `SetSpanEndpointSocketOverride` / Clear | 非backbone span向けのみ | backbone span | socketはgeneration所有。該当 family の migration 実装 |
-| `SetSpanBranchDownOffsetOverride` / Clear | 非backbone span向けのみ | backbone span | 同上 |
+| `SetSpanEndpointSocketOverride` / Clear | span override UI | なし(backbone span対応済み) | backbone span は override_state を正本として更新し、対象 span の edge を統一 regenerate して layout に socket を反映する(C716) |
+| `SetSpanBranchDownOffsetOverride` / Clear | span override UI | なし(backbone span対応済み) | backbone span は override_state を正本として更新し、対象 span の edge を統一 regenerate して layout/curve に branch-down を反映する(C715) |
 | `UpdateAttachmentTemplate` | viewer未接続 | 使用中attachmentあり + 構造差分(socket増減/id変更、mode変更、internal path本数/socket参照/kind変更) | 幾何差分(socket位置/方向、internal path local_points/coil値)はkReshapeで対象spanを再導出する。構造差分は該当 family の migration 実装まで保留 |
 | `UpdateVariationSettings` | viewer未接続 | backbone spanあり | regenerateではない。backbone派生がvariation settingsを消費した時点で解除 |
 | `UpdateContextProfile` | viewer未接続 | backbone spanあり | 同上。生成側が`ResolveStyleContext`を消費した時点で解除 |

@@ -164,13 +164,21 @@ private:
                                       std::size_t lane_index, BundleKind bundle_template_id, PortKind port_kind,
                                       PortLayer port_layer, int placement_band_id, double layout_yaw_deg,
                                       ObjectId port_id);
+  enum class BackboneRegenerateCause : std::uint8_t {
+    kBundleCount,
+    kCableDecision,
+    kPoleType,
+    kSpanOverride,
+  };
   EditResult<bool> regenerate_backbone_edge_bundles(BundleKind bundle_template_id,
                                                     const BundleTemplate& previous_template,
                                                     const BundleTemplate& next_template,
                                                     ChangeSet* change_set,
                                                     const CableTemplate* cable_template_override = nullptr,
                                                     const std::vector<ObjectId>* scoped_edge_bundle_ids = nullptr,
-                                                    const PoleTypeDefinition* pole_type_override = nullptr);
+                                                    const PoleTypeDefinition* pole_type_override = nullptr,
+                                                    BackboneRegenerateCause cause = BackboneRegenerateCause::kBundleCount);
+  EditResult<bool> regenerate_backbone_span_override(ObjectId span_id, ChangeSet* change_set);
   void cache_span_rules(const SpanLayoutRules& rules);
   void remove_span_from_caches(ObjectId span_id);
   [[nodiscard]] double effective_pole_yaw_deg(const Pole& pole) const;

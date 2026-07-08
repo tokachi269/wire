@@ -222,6 +222,8 @@ inline void ApplyEndpointLayoutRule(LayoutEndpoint& dst, const EndpointLayoutRul
   dst.endpoint_node_id = rule.endpoint_node_id;
   dst.port_id = rule.port_id;
   dst.jumper_peer_port_id = rule.jumper_peer_port_id;
+  dst.attachment_request = rule.attachment_request;
+  dst.resolved_socket_id = rule.resolved_socket_id;
   dst.flow_kind = rule.flow_kind;
   dst.origin = rule.origin;
   dst.endpoint_source = rule.endpoint_source;
@@ -249,13 +251,16 @@ inline void ApplyEndpointLayoutRule(LayoutEndpoint& dst, const EndpointLayoutRul
   dst.support_world = port_world_position;
   dst.endpoint_world = port_world_position;
   if (rule.default_lower_required || rule.semantic.lower_required) {
-    const double endpoint_offset =
-        rule.endpoint_offset_z_m != 0.0 ? rule.endpoint_offset_z_m : rule.automatic_endpoint_offset_z_m;
+    const double endpoint_offset = rule.endpoint_offset_z_m != 0.0 ? rule.endpoint_offset_z_m
+                                                                   : rule.automatic_endpoint_offset_z_m;
     dst.endpoint_world.z += endpoint_offset;
     dst.endpoint_offset_z_m = endpoint_offset;
-    dst.automatic_endpoint_offset_z_m = endpoint_offset;
-    dst.branch_down_offset_m = std::max(0.0, -endpoint_offset);
-    dst.automatic_branch_down_offset_m = std::max(0.0, -endpoint_offset);
+    dst.automatic_endpoint_offset_z_m = rule.automatic_endpoint_offset_z_m;
+    dst.branch_down_offset_m = rule.branch_down_offset_m != 0.0 ? rule.branch_down_offset_m
+                                                                : std::max(0.0, -endpoint_offset);
+    dst.automatic_branch_down_offset_m = rule.automatic_branch_down_offset_m != 0.0
+                                             ? rule.automatic_branch_down_offset_m
+                                             : std::max(0.0, -rule.automatic_endpoint_offset_z_m);
   }
   dst.departure_dir = {1.0, 0.0, 0.0};
 }

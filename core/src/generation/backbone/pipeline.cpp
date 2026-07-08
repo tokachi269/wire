@@ -2479,10 +2479,15 @@ rules pipeline::make(const topo& made, const pairs& ps, const groups& placement)
     };
     apply_jumper(span.arow, &rule.start);
     apply_jumper(span.brow, &rule.end);
-    auto apply_group = [](const group* source, EndpointLayoutRule* endpoint) {
+    const Span* state_span = state_.view().spans().find(span.id);
+    auto apply_group = [&](const group* source, EndpointLayoutRule* endpoint) {
       if (source == nullptr || endpoint == nullptr) {
         return;
       }
+      const double automatic_down_offset = std::max(0.0, -source->endpoint_offset_m);
+      const double resolved_down_offset =
+          state_span == nullptr ? automatic_down_offset
+                                : state_.resolve_span_branch_down_offset_m(*state_span, automatic_down_offset);
       endpoint->flow_kind = BackboneFlowKind::kBranch;
       endpoint->origin = LayoutOriginKind::kBranchSupport;
       endpoint->default_lower_required = true;
@@ -2491,13 +2496,48 @@ rules pipeline::make(const topo& made, const pairs& ps, const groups& placement)
       endpoint->semantic.lower_required = true;
       endpoint->semantic.lowering_blocked_by_policy = false;
       endpoint->semantic.support_group_id = static_cast<int>(source->id);
-      endpoint->endpoint_offset_z_m = source->endpoint_offset_m;
+      endpoint->endpoint_offset_z_m = -resolved_down_offset;
       endpoint->automatic_endpoint_offset_z_m = source->endpoint_offset_m;
-      endpoint->branch_down_offset_m = std::max(0.0, -source->endpoint_offset_m);
-      endpoint->automatic_branch_down_offset_m = std::max(0.0, -source->endpoint_offset_m);
+      endpoint->branch_down_offset_m = resolved_down_offset;
+      endpoint->automatic_branch_down_offset_m = automatic_down_offset;
     };
     apply_group(start_group, &rule.start);
     apply_group(end_group, &rule.end);
+    auto apply_branch_down_override = [&](EndpointLayoutRule* endpoint) {
+      if (state_span == nullptr || endpoint == nullptr || !state_.has_span_branch_down_offset_override(span.id)) {
+        return;
+      }
+      const double automatic_down = endpoint->automatic_branch_down_offset_m;
+      const double resolved_down = state_.resolve_span_branch_down_offset_m(*state_span, automatic_down);
+      if (resolved_down <= 0.0) {
+        return;
+      }
+      endpoint->default_lower_required = true;
+      endpoint->semantic.lower_required = true;
+      endpoint->semantic.lowering_blocked_by_policy = false;
+      endpoint->same_level_feasible = false;
+      endpoint->same_level_reason = SameLevelFeasibilityReason::kBundleRule;
+      endpoint->endpoint_offset_z_m = -resolved_down;
+      endpoint->branch_down_offset_m = resolved_down;
+      endpoint->automatic_branch_down_offset_m = automatic_down;
+    };
+    apply_branch_down_override(&rule.start);
+    apply_branch_down_override(&rule.end);
+    auto apply_socket_override = [&](bool is_start_endpoint, EndpointLayoutRule* endpoint) {
+      if (state_span == nullptr || endpoint == nullptr) {
+        return;
+      }
+      const int socket_id = state_.resolve_span_endpoint_socket_id(*state_span, is_start_endpoint);
+      if (socket_id < 0) {
+        return;
+      }
+      endpoint->endpoint_source = LayoutEndpointSourceKind::kAttachmentSocketOverride;
+      endpoint->attachment_request.kind = EndpointAttachmentRequestKind::kAttachmentSocket;
+      endpoint->attachment_request.requested_socket_id = socket_id;
+      endpoint->resolved_socket_id = socket_id;
+    };
+    apply_socket_override(true, &rule.start);
+    apply_socket_override(false, &rule.end);
     auto append_group_rule = [&](const EndpointLayoutRule& endpoint) {
       if (!UsesAuthoritativeGroupedLoweredSupport(endpoint.semantic)) {
         return;

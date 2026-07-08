@@ -169,6 +169,7 @@ private:
     kCableDecision,
     kPoleType,
     kSpanOverride,
+    kLayoutSettings,
   };
   EditResult<bool> regenerate_backbone_edge_bundles(BundleKind bundle_template_id,
                                                     const BundleTemplate& previous_template,

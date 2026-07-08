@@ -93,7 +93,7 @@ regenerate は各 post-edit API が編集差分を添えて統一入口を直接
 統一 regenerate は、編集差分から影響 scope を解決し、保存済み入力から scope の pipeline graph を組み直し、
 既存 pipeline を部分再実行して binding を reconcile する。既存 binding は再利用し、増えたものは生成し、
 消えたものは退役する。差分別の migration operation は作らず、対応範囲は scenario 単位で拡張する。
-現対応は `UpdateBundleTemplate` の fixed count 増減、`UpdateCableTemplate` の backbone continuity policy decision 差分、`UpdatePoleTypeDefinition` の active backbone pole 構造差分、`ApplyBundleRelatedPoleTypeToExistingPoles` の related pole type 適用、backbone span の endpoint socket / branch-down override である。
+現対応は `UpdateBundleTemplate` の fixed count 増減、`UpdateCableTemplate` の backbone continuity policy decision 差分、`UpdatePoleTypeDefinition` の active backbone pole 構造差分、`ApplyBundleRelatedPoleTypeToExistingPoles` の related pole type 適用、backbone span の endpoint socket / branch-down override、`UpdateLayoutSettings` の全 backbone route 再導出である。
 同一 edge に複数 edge_bundle がある場合は saved edge_bundles 順を生成時の bundle spec 順として扱い、
 group offset を再構成する。3点以上routeのpair rowは、saved edge の route/order と saved node から
 pipeline graph を復元して再確定する。
@@ -110,6 +110,9 @@ world position と manual marker を保持し、退役 lane の manual port は 
 backbone span の endpoint socket / branch-down override は `override_state` が正本である。
 API は本 state を直接書かず、trial state に override を入れて対象 span の edge を統一 regenerate する。
 layout rule は override 解決を消費し、socket は endpoint source / resolved socket、branch-down は endpoint offset と curve に反映する。
+
+`UpdateLayoutSettings` は layout settings を trial state に入れ、保存済み edge の route/order/node 連続 component と bundle instance ごとの scope を統一 regenerate する。
+route番号だけでは別 generation の edge が混ざるため、scope 復元は同一 route 番号に加えて隣接 node と order の連続性を要求する。
 
 `DeriveGeneratedSpanOutputs()` は、保存済み rules / layout source / `SavedBackboneGraph` binding から
 layout、geom、drawを再導出する入口である。topology、pair/open/row、port identityを再判断してはいけない。

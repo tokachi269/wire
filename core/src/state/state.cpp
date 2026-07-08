@@ -1478,13 +1478,161 @@ EditResult<bool> CoreState::UpdateLayoutSettings(const LayoutSettings& settings)
                        std::abs(normalized.min_side_scale - authoritative_.layout_settings.min_side_scale) > 1e-9 ||
                        std::abs(normalized.max_side_scale - authoritative_.layout_settings.max_side_scale) > 1e-9;
 
-  if (changed && !authoritative_.backbone.span_bindings.empty()) {
-    result.error = "backbone unsupported: layout settings require regeneration";
+  if (!changed) {
+    result.ok = true;
+    result.value = false;
     return result;
   }
+
+  if (!authoritative_.backbone.span_bindings.empty()) {
+    struct LayoutRegenerateScope {
+      BundleKind bundle_template_id = BundleKind::kLowVoltage;
+      ObjectId bundle_id = kInvalidObjectId;
+      std::vector<ObjectId> edge_bundle_ids{};
+    };
+
+    const SavedBackboneGraph& graph = view().backbone();
+    auto edge_by_id = [&](ObjectId edge_id) -> const SavedBackboneEdge* {
+      for (const SavedBackboneEdge& edge : graph.edges) {
+        if (edge.edge_id == edge_id) {
+          return &edge;
+        }
+      }
+      return nullptr;
+    };
+    auto edge_id_in = [](const std::vector<const SavedBackboneEdge*>& edges, ObjectId edge_id) {
+      return std::any_of(edges.begin(), edges.end(), [&](const SavedBackboneEdge* edge) {
+        return edge != nullptr && edge->edge_id == edge_id;
+      });
+    };
+    auto vector_has_id = [](const std::vector<ObjectId>& ids, ObjectId id) {
+      return std::find(ids.begin(), ids.end(), id) != ids.end();
+    };
+    auto component_edges = [&](const SavedBackboneEdge& seed) {
+      std::vector<const SavedBackboneEdge*> edges{&seed};
+      auto find_adjacent = [&](const SavedBackboneEdge& anchor, bool forward,
+                               bool* ambiguous) -> const SavedBackboneEdge* {
+        const SavedBackboneEdge* match = nullptr;
+        if (ambiguous != nullptr) {
+          *ambiguous = false;
+        }
+        for (const SavedBackboneEdge& candidate : graph.edges) {
+          if (candidate.edge_id == anchor.edge_id || candidate.route != seed.route) {
+            continue;
+          }
+          const bool adjacent = forward ? (candidate.order == anchor.order + 1 && candidate.node_a == anchor.node_b)
+                                        : (anchor.order == candidate.order + 1 && candidate.node_b == anchor.node_a);
+          if (!adjacent) {
+            continue;
+          }
+          if (match != nullptr) {
+            if (ambiguous != nullptr) {
+              *ambiguous = true;
+            }
+            return nullptr;
+          }
+          match = &candidate;
+        }
+        return match;
+      };
+      for (;;) {
+        bool ambiguous = false;
+        const SavedBackboneEdge* previous = find_adjacent(*edges.front(), false, &ambiguous);
+        if (ambiguous) {
+          result.error = "backbone unsupported: layout settings route adjacency is ambiguous";
+          return std::vector<const SavedBackboneEdge*>{};
+        }
+        if (previous == nullptr) {
+          break;
+        }
+        edges.insert(edges.begin(), previous);
+      }
+      for (;;) {
+        bool ambiguous = false;
+        const SavedBackboneEdge* next = find_adjacent(*edges.back(), true, &ambiguous);
+        if (ambiguous) {
+          result.error = "backbone unsupported: layout settings route adjacency is ambiguous";
+          return std::vector<const SavedBackboneEdge*>{};
+        }
+        if (next == nullptr) {
+          break;
+        }
+        edges.push_back(next);
+      }
+      return edges;
+    };
+
+    std::vector<LayoutRegenerateScope> scopes{};
+    std::vector<ObjectId> covered_edge_bundle_ids{};
+    for (const SavedBackboneEdgeBundle& seed_edge_bundle : graph.edge_bundles) {
+      if (vector_has_id(covered_edge_bundle_ids, seed_edge_bundle.edge_bundle_id)) {
+        continue;
+      }
+      const SavedBackboneEdge* seed_edge = edge_by_id(seed_edge_bundle.edge_id);
+      const Bundle* seed_bundle = view().bundles().find(seed_edge_bundle.bundle_id);
+      if (seed_edge == nullptr || seed_bundle == nullptr) {
+        result.error = "backbone regenerate: layout settings scope is incomplete";
+        return result;
+      }
+      std::vector<const SavedBackboneEdge*> edges = component_edges(*seed_edge);
+      if (!result.error.empty()) {
+        return result;
+      }
+      LayoutRegenerateScope scope{};
+      scope.bundle_template_id = seed_bundle->bundle_template_id;
+      scope.bundle_id = seed_edge_bundle.bundle_id;
+      for (const SavedBackboneEdgeBundle& edge_bundle : graph.edge_bundles) {
+        const Bundle* bundle = view().bundles().find(edge_bundle.bundle_id);
+        if (bundle != nullptr && edge_bundle.bundle_id == scope.bundle_id &&
+            bundle->bundle_template_id == scope.bundle_template_id &&
+            edge_id_in(edges, edge_bundle.edge_id)) {
+          if (!vector_has_id(scope.edge_bundle_ids, edge_bundle.edge_bundle_id)) {
+            scope.edge_bundle_ids.push_back(edge_bundle.edge_bundle_id);
+          }
+          if (!vector_has_id(covered_edge_bundle_ids, edge_bundle.edge_bundle_id)) {
+            covered_edge_bundle_ids.push_back(edge_bundle.edge_bundle_id);
+          }
+        }
+      }
+      if (scope.edge_bundle_ids.empty()) {
+        result.error = "backbone regenerate: layout settings scope has no edge bundles";
+        return result;
+      }
+      scopes.push_back(std::move(scope));
+    }
+
+    CoreState trial = *this;
+    trial.authoritative_.layout_settings = normalized;
+    ChangeSet regenerated_changes{};
+    for (const LayoutRegenerateScope& scope : scopes) {
+      const auto bundle_template_it = trial.authoritative_.bundle_templates.find(scope.bundle_template_id);
+      if (bundle_template_it == trial.authoritative_.bundle_templates.end()) {
+        result.error = "bundle template not found";
+        return result;
+      }
+      const BundleTemplate previous = bundle_template_it->second;
+      const auto regenerated = trial.regenerate_backbone_edge_bundles(scope.bundle_template_id, previous, previous,
+                                                                      &regenerated_changes, nullptr,
+                                                                      &scope.edge_bundle_ids, nullptr,
+                                                                      BackboneRegenerateCause::kLayoutSettings);
+      if (!regenerated.ok) {
+        result.error = regenerated.error;
+        return result;
+      }
+    }
+    identity_ = trial.identity_;
+    authoritative_ = trial.authoritative_;
+    runtime_ = trial.runtime_;
+    debug_ = trial.debug_;
+    result.change_set = std::move(regenerated_changes);
+    result.ok = true;
+    result.value = true;
+    return result;
+  }
+
   authoritative_.layout_settings = normalized;
   result.ok = true;
-  result.value = changed;
+  result.value = true;
   return result;
 }
 

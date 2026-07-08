@@ -745,14 +745,15 @@ bool C621_backbone_sag_reshape_updates_geom_only() {
 
 bool C623_backbone_layout_settings_reject_before_mutation() {
   wire::core::CoreState state;
-  const auto generated = state.GenerateFromBackboneSpec(line_req(state));
+  const auto generated = state.GenerateFromBackboneSpec(poly3_req(state));
   if (!generated.ok) return false;
-  const wire::core::LayoutSettings before = state.view().layout_settings();
-  wire::core::LayoutSettings edited = before;
-  edited.corner_threshold_deg = std::max(1.0, before.corner_threshold_deg - 1.0);
+  wire::core::LayoutSettings edited = state.view().layout_settings();
+  edited.min_side_scale = 1.0;
+  edited.max_side_scale = 1.0;
   const auto updated = state.UpdateLayoutSettings(edited);
-  return !updated.ok && contains_text(updated.error, "unsupported") &&
-         almost_equal(state.view().layout_settings().corner_threshold_deg, before.corner_threshold_deg, 1e-12);
+  return updated.ok && updated.value &&
+         almost_equal(state.view().layout_settings().max_side_scale, edited.max_side_scale, 1e-12) &&
+         !updated.change_set.updated_ids.empty();
 }
 
 bool C624_backbone_variation_settings_reject_before_mutation() {
@@ -1270,6 +1271,31 @@ bool C716_backbone_span_socket_override_regenerates() {
   const auto cleared = state.ClearSpanEndpointSocketOverride(span_id, true);
   const wire::core::SpanLayoutView cleared_layout = state.span_layout(span_id);
   return cleared.ok && cleared_layout.has_layout() && !cleared_layout.entry->start.resolved_socket_id.has_value();
+}
+
+bool C717_backbone_layout_settings_regenerate_matches_fresh() {
+  wire::core::CoreState state;
+  const auto generated = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!generated.ok || generated.value.generated_span_ids.empty()) {
+    return false;
+  }
+  wire::core::LayoutSettings edited = state.view().layout_settings();
+  edited.min_side_scale = 1.0;
+  edited.max_side_scale = 1.0;
+  const auto updated = state.UpdateLayoutSettings(edited);
+  if (!updated.ok || !updated.value) {
+    return false;
+  }
+
+  wire::core::CoreState fresh;
+  wire::core::LayoutSettings fresh_settings = fresh.view().layout_settings();
+  fresh_settings.min_side_scale = edited.min_side_scale;
+  fresh_settings.max_side_scale = edited.max_side_scale;
+  const auto fresh_updated = fresh.UpdateLayoutSettings(fresh_settings);
+  const auto fresh_generated = fresh.GenerateFromBackboneSpec(poly3_req(fresh));
+  return fresh_updated.ok && fresh_generated.ok &&
+         same_route_bundle_signatures(route_bundle_signatures(state, wire::core::BundleKind::kLowVoltage),
+                                      route_bundle_signatures(fresh, wire::core::BundleKind::kLowVoltage));
 }
 
 bool C673_backbone_bundle_count_migration_rejects_user_attachments() {

@@ -47,7 +47,7 @@ viewerはこれらを事前に判別せず、Apply後のerror logで初めてuns
 | `UpdateBundleTemplate` | `Apply Bundle Template` | topology級差分 + 既存bundleあり | fixed count増減は単一 saved route に限り統一 regenerate で対応。multi-bundle と pair row を含む3点以上routeも saved graph から再構成する。存続spanのattachmentは保持し、退役spanのattachmentはmutation前に拒否する。range化、policy変更は scenario 未対応。visual-only/detail差分は現状も通る |
 | `UpdateCableTemplate` | `Apply Cable Template` | non-backbone span を含む decision差分 / default endpoint attachment の構造影響 | backbone span の continuity policy decision差分は統一 regenerate で対応済み(C357/C712)。geometry/render差分は現状も通る。non-backbone 対象と default endpoint attachment の構造影響は mutation前 unsupported |
 | `ApplyBundleRelatedPoleTypeToExistingPoles` | template Apply後に自動呼出 | 対象poleがbackbone node | 対象 pole の type 差し替え + incident edge の統一 regenerate で対応済み(C297)。暗黙連結ではなく独立 API |
-| `UpdateLayoutSettings` | `Apply Layout` | backbone span bindingが1つでも存在 | generation入力のためregenerate級。state全体一括拒否の粒度は再検討候補 |
+| `UpdateLayoutSettings` | `Apply Layout` | なし(backbone span対応済み) | backbone span がある場合は全 route/bundle scope を統一 regenerate し、編集後 settings の fresh 生成と一致させる(C623/C717) |
 | `SetSpanEndpointSocketOverride` / Clear | span override UI | なし(backbone span対応済み) | backbone span は override_state を正本として更新し、対象 span の edge を統一 regenerate して layout に socket を反映する(C716) |
 | `SetSpanBranchDownOffsetOverride` / Clear | span override UI | なし(backbone span対応済み) | backbone span は override_state を正本として更新し、対象 span の edge を統一 regenerate して layout/curve に branch-down を反映する(C715) |
 | `UpdateAttachmentTemplate` | viewer未接続 | 使用中attachmentあり + 構造差分(socket増減/id変更、mode変更、internal path本数/socket参照/kind変更) | 幾何差分(socket位置/方向、internal path local_points/coil値)はkReshapeで対象spanを再導出する。構造差分は該当 family の migration 実装まで保留 |

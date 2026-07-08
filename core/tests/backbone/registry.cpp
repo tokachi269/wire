@@ -739,7 +739,7 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "backbone reports generation and update stage timing without changing decisions", "Boundary", false,
                          C622_backbone_stage_timing_is_diagnostic_only);
   test_registry::AddTest(tests, "C623_backbone_layout_settings_reject_before_mutation",
-                         "backbone layout settings reject before mutation when regeneration is required", "Boundary", true,
+                         "backbone layout settings regenerate derived outputs", "Boundary", false,
                          C623_backbone_layout_settings_reject_before_mutation);
   test_registry::AddTest(tests, "C624_backbone_variation_settings_reject_before_mutation",
                          "backbone variation settings reject before mutation while unsupported", "Boundary", true,
@@ -982,6 +982,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C716_backbone_span_socket_override_regenerates",
                          "backbone span endpoint socket override regenerates span layout",
                          "Invariant", false, C716_backbone_span_socket_override_regenerates);
+  test_registry::AddTest(tests, "C717_backbone_layout_settings_regenerate_matches_fresh",
+                         "backbone layout settings regenerate and match fresh generation",
+                         "Invariant", false, C717_backbone_layout_settings_regenerate_matches_fresh);
   test_registry::AddTest(tests, "C674_backbone_port_band_selection_has_one_owner",
                          "backbone and post-edit port band selection use saved binding or one shared selector",
                          "Boundary", false, C674_backbone_port_band_selection_has_one_owner);

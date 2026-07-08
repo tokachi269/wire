@@ -113,7 +113,7 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleKind bundle_t
       next_template.count_rule != BundleCountRuleKind::kFixed || previous_template.fixed_count <= 0 ||
       next_template.fixed_count <= 0 ||
       (!count_changes && cable_template_override == nullptr && pole_type_override == nullptr &&
-       cause != BackboneRegenerateCause::kSpanOverride)) {
+       cause != BackboneRegenerateCause::kSpanOverride && cause != BackboneRegenerateCause::kLayoutSettings)) {
     return fail("backbone unsupported: regenerate requires fixed count, cable decision, or pole type changes");
   }
   if (cable_template_override != nullptr &&

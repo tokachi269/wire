@@ -60,8 +60,8 @@ desktop viewer の実装を写経せず、`panels -> store/actions -> bridge -> 
 | Sag Enabled / Sag Factor | `UpdateGeometrySettings` | toggle / number | `kReshape` | 約30 Hz | そのまま | layout endpoint は変えず geom/draw を更新する | P1 |
 | Pole Clearance | `UpdateGeometrySettings` | number | `kReshape` | 約30 Hz | 直して移植 | API が受ける設定値としてのみ扱い、JS で clearance を解かない | P1 |
 | Apply Geometry | `UpdateGeometrySettings` | button | `kReshape` | commit | 直して移植 | web では各 control の preview/commit actionへ分解し、Apply button は置かない | P1 |
-| Angle Correction Enabled / Corner Threshold / Min-Max Side Scale | `UpdateLayoutSettings` | toggle / number | `kRegenerate` | release commit | そのまま | backbone span 存在時は現在 unsupported。error を表示する | P1 |
-| Apply Layout | `UpdateLayoutSettings` | button | `kRegenerate` | commit | 直して移植 | form commit action とし unsupported を隠さない | P1 |
+| Angle Correction Enabled / Corner Threshold / Min-Max Side Scale | `UpdateLayoutSettings` | toggle / number | `kRegenerate` | release commit | そのまま | backbone span 存在時も統一 regenerate で反映する。error は core 結果を表示する | P1 |
+| Apply Layout | `UpdateLayoutSettings` | button | `kRegenerate` | commit | 直して移植 | form commit action とする。unsupported を隠さない | P1 |
 | Max Tilt | generation input / `ApplyPoleTilt` | number | `kReposition` | 約15 Hz | 直して移植 | 新規 Draw Path は `BackboneSpec.pole_placement`、既存 pole 編集は独立 action | P1 |
 | Apply Tilt To Selected Poles | `ApplyPoleTilt(selected ids)` | button | `kReposition` | commit | そのまま | 選択対象を明示する | P1 |
 | Select Poles / Midair / Spans | selection filter store | toggle | UI | 生反映 | そのまま | core mutation なし | P1 |
@@ -148,8 +148,8 @@ outliner として監査した。
 - `Apply Pole Template` も成功後に同 API を暗黙実行する。
 - 後段が失敗すると先行した template 更新は既に成功しているのに、UI は一つの Apply が失敗したように見える。
 - web viewer では template 更新と related pole 適用を別 action / button にし、各 `EditResult.error` を表示する。
-- `UpdateLayoutSettings`、template の decision/structure 差分、span override は
-  [merge_readiness.md](merge_readiness.md) の条件で unsupported になり得る。事前推測せず core の error を表示する。
+- template の未対応 decision/structure 差分は [merge_readiness.md](merge_readiness.md) の条件で unsupported になり得る。
+  `UpdateLayoutSettings` と span override は backbone span でも統一 regenerate で反映する。事前推測せず core の error を表示する。
 
 ## W4 実装結果
 

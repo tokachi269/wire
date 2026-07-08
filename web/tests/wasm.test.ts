@@ -16,7 +16,7 @@ describe("wire wasm smoke", () => {
   });
 
   it("generates a finite two-point route", () => {
-    const result = state.generate(new Float64Array([0, 0, 0, 20, 0, 0]), [0], 0, 1, [0], 0, 0);
+    const result = state.generate(new Float64Array([0, 0, 0, 20, 0, 0]), [0], 0, 1, [0], 0, 0, []);
 
     expect(result.ok, result.error).toBe(true);
     expect(result.generatedPoleCount).toBe(2);
@@ -35,7 +35,7 @@ describe("wire wasm smoke", () => {
   it("applies generation-time tilt when a max tilt is requested", () => {
     const tilted = createState();
     const generated = tilted.generate(
-      new Float64Array([0, 0, 0, 20, 0, 0]), [0], 0, 1, [0], 0, 9.5
+      new Float64Array([0, 0, 0, 20, 0, 0]), [0], 0, 1, [0], 0, 9.5, []
     );
     expect(generated.ok, generated.error).toBe(true);
     const poles = Array.from({ length: tilted.poleCount() }, (_, index) => tilted.pole(index));
@@ -47,7 +47,7 @@ describe("wire wasm smoke", () => {
 
     const flat = createState();
     const plain = flat.generate(
-      new Float64Array([0, 0, 0, 20, 0, 0]), [0], 0, 1, [0], 0, 0
+      new Float64Array([0, 0, 0, 20, 0, 0]), [0], 0, 1, [0], 0, 0, []
     );
     expect(plain.ok, plain.error).toBe(true);
     const plainPoles = Array.from({ length: flat.poleCount() }, (_, index) => flat.pole(index));
@@ -62,7 +62,7 @@ describe("wire wasm smoke", () => {
   it("exposes a shared run id for through edge bodies", () => {
     const runState = createState();
     const result = runState.generate(
-      new Float64Array([0, 0, 0, 20, 0, 0, 20, 10, 0]), [0], 0, 1, [0], 0, 0
+      new Float64Array([0, 0, 0, 20, 0, 0, 20, 10, 0]), [0], 0, 1, [0], 0, 0, []
     );
     expect(result.ok, result.error).toBe(true);
 
@@ -85,7 +85,8 @@ describe("wire wasm smoke", () => {
       1,
       [0, 0, 0, 0],
       0,
-      0
+      0,
+      []
     );
 
     expect(result.ok, result.error).toBe(true);
@@ -100,7 +101,7 @@ describe("wire wasm smoke", () => {
     });
     expect(update.ok, update.error).toBe(true);
 
-    const result = state.generate(new Float64Array([0, 20, 0, 40, 20, 0]), [0], 0, 1, [0], 0, 0);
+    const result = state.generate(new Float64Array([0, 20, 0, 40, 20, 0]), [0], 0, 1, [0], 0, 0, []);
     expect(result.ok, result.error).toBe(true);
 
     let maxDrop = 0;
@@ -121,28 +122,51 @@ describe("wire wasm smoke", () => {
 
 
   it("returns an explicit error for a one-point route", () => {
-    const result = state.generate(new Float64Array([0, 0, 0]), [0], 0, 1, [0], 0, 0);
+    const result = state.generate(new Float64Array([0, 0, 0]), [0], 0, 1, [0], 0, 0, []);
 
     expect(result.ok).toBe(false);
     expect(result.error.length).toBeGreaterThan(0);
   });
 
-  it("updates reshape settings and reports unsupported layout edits", () => {
-    const geometry = state.geometrySettings();
-    const reshape = state.updateGeometrySettings({
+  it("updates reshape settings and regenerates layout edits", () => {
+    const layoutState = createState();
+    const bundleTemplates = Array.from(
+      { length: layoutState.bundleTemplateCount() },
+      (_, index) => layoutState.bundleTemplate(index)
+    );
+    const lowVoltage = bundleTemplates.find(
+      (template) => template.name === "DEFAULT_SINGLE" && template.fixedCount
+    );
+    expect(lowVoltage).toBeDefined();
+
+    const generated = layoutState.generate(
+      new Float64Array([0, 30, 0, 20, 30, 0, 20, 40, 0]),
+      [lowVoltage!.id],
+      0,
+      1,
+      [0],
+      0,
+      0,
+      []
+    );
+    expect(generated.ok, generated.error).toBe(true);
+
+    const geometry = layoutState.geometrySettings();
+    const reshape = layoutState.updateGeometrySettings({
       ...geometry,
       sagFactor: geometry.sagFactor + 0.005
     });
     expect(reshape.ok, reshape.error).toBe(true);
-    expect(state.visualPartCount()).toBeGreaterThan(0);
+    expect(layoutState.visualPartCount()).toBeGreaterThan(0);
 
-    const layout = state.layoutSettings();
-    const regenerate = state.updateLayoutSettings({
+    const layout = layoutState.layoutSettings();
+    const regenerate = layoutState.updateLayoutSettings({
       ...layout,
       cornerThresholdDeg: layout.cornerThresholdDeg - 1
     });
-    expect(regenerate.ok).toBe(false);
-    expect(regenerate.error.length).toBeGreaterThan(0);
+    expect(regenerate.ok, regenerate.error).toBe(true);
+    expect(layoutState.visualPartCount()).toBeGreaterThan(0);
+    layoutState.delete();
   });
 
   it("applies pole category height edits to ports and curve endpoints", () => {
@@ -160,7 +184,8 @@ describe("wire wasm smoke", () => {
       original!.id,
       [0],
       0,
-      0
+      0,
+      []
     );
     expect(generated.ok, generated.error).toBe(true);
 

@@ -38,19 +38,14 @@
 
 pipelineの入力validation系`unsupported`(不正入力の恒久拒否)はこの表の対象外。
 ここに載るのは「実装が無いため止めている」操作だけで、根本原因は
-`execute_update_plan`の`kRegenerate`未接続、または該当 scenario の統一 regenerate 未対応に集約される。
+該当 scenario の統一 regenerate 未対応、または variation/context の生成入力未消費に集約される。
 viewerはこれらを事前に判別せず、Apply後のerror logで初めてunsupportedが見える。
 
 | 操作 | viewer到達 | 拒否条件 | 解除条件 |
 |---|---|---|---|
-| `UpdatePoleTypeDefinition` | `Apply Pole Template`(Pole Placement含む) | active backbone poleが対象typeを使用 | placement-only差分(band高さ/横位置、pole高さ)はkRepositionで通す。band増減・enabled/side/layer/role/priority変更、anchor slot変更などの構造差分は統一 regenerate で対応済み(C713)。存続 lane の manual port は保持し、退役 lane の manual port は mutation 前に拒否する(C672/C714) |
-| `UpdateBundleTemplate` | `Apply Bundle Template` | topology級差分 + 既存bundleあり | fixed count増減は単一 saved route に限り統一 regenerate で対応。multi-bundle と pair row を含む3点以上routeも saved graph から再構成する。存続spanのattachmentは保持し、退役spanのattachmentはmutation前に拒否する。range化、policy変更は scenario 未対応。visual-only/detail差分は現状も通る |
+| `UpdateBundleTemplate` | `Apply Bundle Template` | range化、bundle policy変更 | fixed count増減、multi-bundle、3点以上route、存続attachment保持、退役attachment拒否は対応済み。range/policy を実用 scenario として扱う時点で統一 regenerate の scope と fresh 等価性を追加する |
 | `UpdateCableTemplate` | `Apply Cable Template` | non-backbone span を含む decision差分 / default endpoint attachment の構造影響 | backbone span の continuity policy decision差分は統一 regenerate で対応済み(C357/C712)。geometry/render差分は現状も通る。non-backbone 対象と default endpoint attachment の構造影響は mutation前 unsupported |
-| `ApplyBundleRelatedPoleTypeToExistingPoles` | template Apply後に自動呼出 | 対象poleがbackbone node | 対象 pole の type 差し替え + incident edge の統一 regenerate で対応済み(C297)。暗黙連結ではなく独立 API |
-| `UpdateLayoutSettings` | `Apply Layout` | なし(backbone span対応済み) | backbone span がある場合は全 route/bundle scope を統一 regenerate し、編集後 settings の fresh 生成と一致させる(C623/C717) |
-| `SetSpanEndpointSocketOverride` / Clear | span override UI | なし(backbone span対応済み) | backbone span は override_state を正本として更新し、対象 span の edge を統一 regenerate して layout に socket を反映する(C716) |
-| `SetSpanBranchDownOffsetOverride` / Clear | span override UI | なし(backbone span対応済み) | backbone span は override_state を正本として更新し、対象 span の edge を統一 regenerate して layout/curve に branch-down を反映する(C715) |
-| `UpdateAttachmentTemplate` | viewer未接続 | 使用中attachmentあり + 構造差分(socket増減/id変更、mode変更、internal path本数/socket参照/kind変更) | 幾何差分(socket位置/方向、internal path local_points/coil値)はkReshapeで対象spanを再導出する。構造差分は該当 family の migration 実装まで保留 |
+| `UpdateAttachmentTemplate` | viewer未接続 | 使用中attachmentあり + 構造差分(socket増減/id変更、mode変更、internal path本数/socket参照/kind変更) | 幾何差分(socket位置/方向、internal path local_points/coil値)はkReshapeで対象spanを再導出する。構造差分は実用 scenario が出た時点で正本と退役規則を設計する |
 | `UpdateVariationSettings` | viewer未接続 | backbone spanあり | regenerateではない。backbone派生がvariation settingsを消費した時点で解除 |
 | `UpdateContextProfile` | viewer未接続 | backbone spanあり | 同上。生成側が`ResolveStyleContext`を消費した時点で解除 |
 

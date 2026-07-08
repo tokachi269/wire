@@ -1117,6 +1117,251 @@ bool C719_source_edge_branch_endpoint_follows_current_curve_projection() {
   return projection_changed && has_ref && endpoint_matches;
 }
 
+bool C721_source_edge_identity_survives_projection_update() {
+  wire::core::CoreState state;
+  const auto base_out = state.GenerateFromBackboneSpec(line_req(state));
+  if (!base_out.ok || base_out.value.generated_span_ids.size() != 1 || state.view().backbone().edges.size() != 1) {
+    return false;
+  }
+  const wire::core::SavedBackboneEdge source_edge = state.view().backbone().edges.front();
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = wire::core::kInvalidObjectId;
+  pick.hit_pos_world = {6.0, 0.0, 0.0};
+  pick.has_segment_endpoints = true;
+  pick.segment_node_a_id = source_edge.node_a;
+  pick.segment_node_b_id = source_edge.node_b;
+  pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
+  pick.segment_endpoint_b_world = {12.0, 0.0, 0.0};
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
+  const auto resolved = state.ResolveBranchPick(pick, resolve);
+  if (!resolved.ok) {
+    return false;
+  }
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {resolved.value.position, {6.0, 8.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  branch.path.node_specs = {node};
+  const auto branch_out = state.GenerateFromBackboneSpec(branch);
+  if (!branch_out.ok || branch_out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId branch_span_id = branch_out.value.generated_span_ids.front();
+  const wire::core::SpanLayoutView before_layout = state.span_layout(branch_span_id);
+  if (!before_layout.has_layout()) {
+    return false;
+  }
+  const wire::core::LayoutEndpoint& before_endpoint =
+      before_layout.entry->start.source_projection.valid() ? before_layout.entry->start : before_layout.entry->end;
+  const wire::core::SourceEdgeProjectionRef before_ref = before_endpoint.source_projection;
+  if (!before_ref.valid()) {
+    return false;
+  }
+  const auto saved_node_before = std::find_if(state.view().backbone().nodes.begin(), state.view().backbone().nodes.end(),
+                                             [&](const wire::core::SavedBackboneNode& saved) {
+                                               return saved.pole_id == wire::core::kInvalidObjectId &&
+                                                      saved.has_source_edge && saved.source_edge_node_a == source_edge.node_a &&
+                                                      saved.source_edge_node_b == source_edge.node_b;
+                                             });
+  if (saved_node_before == state.view().backbone().nodes.end()) {
+    return false;
+  }
+  const wire::core::ObjectId source_node_id = saved_node_before->node_id;
+
+  wire::core::GeometrySettings geometry = state.view().geometry_settings();
+  geometry.sag_enabled = true;
+  geometry.sag_factor = std::max(geometry.sag_factor, 0.08);
+  if (!state.UpdateGeometrySettings(geometry).ok) {
+    return false;
+  }
+  const wire::core::SpanLayoutView after_layout = state.span_layout(branch_span_id);
+  if (!after_layout.has_layout()) {
+    return false;
+  }
+  const wire::core::LayoutEndpoint& after_endpoint =
+      after_layout.entry->start.source_projection.valid() ? after_layout.entry->start : after_layout.entry->end;
+  const wire::core::SourceEdgeProjectionRef after_ref = after_endpoint.source_projection;
+  const auto* saved_node_after = state.view().backbone_node(source_node_id);
+  return saved_node_after != nullptr && saved_node_after->has_source_edge &&
+         saved_node_after->source_edge_node_a == source_edge.node_a &&
+         saved_node_after->source_edge_node_b == source_edge.node_b &&
+         almost_equal(saved_node_after->source_edge_t, 0.5, 1e-12) &&
+         after_ref.source_edge_id == before_ref.source_edge_id && after_ref.from_node_id == before_ref.from_node_id &&
+         after_ref.bundle_template_id == before_ref.bundle_template_id && after_ref.lane_index == before_ref.lane_index &&
+         almost_equal(after_ref.t, before_ref.t, 1e-12);
+}
+
+bool C722_unresolved_source_edge_reference_fails_before_mutation() {
+  wire::core::CoreState state;
+  const auto base_out = state.GenerateFromBackboneSpec(line_req(state));
+  if (!base_out.ok || state.view().backbone().nodes.size() < 2) {
+    return false;
+  }
+  const std::size_t pole_count = state.view().poles().size();
+  const std::size_t port_count = state.view().ports().size();
+  const std::size_t span_count = state.view().spans().size();
+  const std::size_t bundle_count_before = state.view().bundles().size();
+  const std::size_t saved_node_count = state.view().backbone().nodes.size();
+  const std::size_t saved_edge_count = state.view().backbone().edges.size();
+
+  wire::core::SupportNode pending{};
+  pending.node_id = state.next_id();
+  pending.support_kind = wire::core::SupportKind::kMidair;
+  pending.position = {4.0, 0.0, 5.0};
+  pending.has_source_edge = true;
+  pending.source_edge_node_a_id = state.view().backbone().nodes.front().node_id;
+  pending.source_edge_node_b_id = wire::core::kInvalidObjectId;
+  pending.source_edge_t = 0.5;
+  wire::core::CoreStateTestHook::pending_support_nodes(state).push_back(pending);
+
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {pending.position, {4.0, 8.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = pending.support_kind;
+  node.node_id = pending.node_id;
+  branch.path.node_specs = {node};
+  const auto out = state.GenerateFromBackboneSpec(branch);
+  return !out.ok && contains_text(out.error, "unsupported") && state.view().poles().size() == pole_count &&
+         state.view().ports().size() == port_count && state.view().spans().size() == span_count &&
+         state.view().bundles().size() == bundle_count_before && state.view().backbone().nodes.size() == saved_node_count &&
+         state.view().backbone().edges.size() == saved_edge_count;
+}
+
+bool C723_source_edge_branch_does_not_change_source_sag() {
+  wire::core::CoreState state;
+  wire::core::GeometrySettings geometry = state.view().geometry_settings();
+  geometry.sag_enabled = true;
+  geometry.sag_factor = std::max(geometry.sag_factor, 0.08);
+  if (!state.UpdateGeometrySettings(geometry).ok) {
+    return false;
+  }
+  const auto base_out = state.GenerateFromBackboneSpec(line_req(state));
+  if (!base_out.ok || base_out.value.generated_span_ids.size() != 1 || state.view().backbone().edges.size() != 1) {
+    return false;
+  }
+  const wire::core::ObjectId source_span_id = base_out.value.generated_span_ids.front();
+  const wire::core::CurveCacheEntry* before_curve = state.find_curve_cache(source_span_id);
+  if (before_curve == nullptr || before_curve->detail.sample_points.empty()) {
+    return false;
+  }
+  const std::vector<wire::core::Vec3d> before_samples = before_curve->detail.sample_points;
+  const double before_sag = before_curve->detail.sag_amplitude_m;
+  const wire::core::SavedBackboneEdge source_edge = state.view().backbone().edges.front();
+
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = wire::core::kInvalidObjectId;
+  pick.hit_pos_world = {6.0, 0.0, 0.0};
+  pick.has_segment_endpoints = true;
+  pick.segment_node_a_id = source_edge.node_a;
+  pick.segment_node_b_id = source_edge.node_b;
+  pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
+  pick.segment_endpoint_b_world = {12.0, 0.0, 0.0};
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
+  const auto resolved = state.ResolveBranchPick(pick, resolve);
+  if (!resolved.ok) {
+    return false;
+  }
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {resolved.value.position, {6.0, 8.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  branch.path.node_specs = {node};
+  const auto branch_out = state.GenerateFromBackboneSpec(branch);
+  const wire::core::CurveCacheEntry* after_curve = state.find_curve_cache(source_span_id);
+  if (!branch_out.ok || after_curve == nullptr || after_curve->detail.sample_points.size() != before_samples.size() ||
+      !almost_equal(after_curve->detail.sag_amplitude_m, before_sag, 1e-12)) {
+    return false;
+  }
+  for (std::size_t i = 0; i < before_samples.size(); ++i) {
+    if (!almost_equal(after_curve->detail.sample_points[i], before_samples[i], 1e-12)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool C724_source_template_sag_change_updates_branch_projection() {
+  wire::core::CoreState state;
+  wire::core::GeometrySettings geometry = state.view().geometry_settings();
+  geometry.sag_enabled = true;
+  geometry.sag_factor = std::max(geometry.sag_factor, 0.04);
+  if (!state.UpdateGeometrySettings(geometry).ok) {
+    return false;
+  }
+  const auto base_out = state.GenerateFromBackboneSpec(line_req(state));
+  if (!base_out.ok || base_out.value.generated_span_ids.size() != 1 || state.view().backbone().edges.size() != 1) {
+    return false;
+  }
+  const wire::core::ObjectId source_span_id = base_out.value.generated_span_ids.front();
+  const wire::core::Span* source_span = state.view().spans().find(source_span_id);
+  const wire::core::Bundle* source_bundle = source_span == nullptr ? nullptr : state.view().bundles().find(source_span->bundle_id);
+  const auto bundle_template_it = source_bundle == nullptr ? state.view().bundle_templates().end()
+                                                           : state.view().bundle_templates().find(source_bundle->bundle_template_id);
+  const auto cable_template_it = bundle_template_it == state.view().bundle_templates().end()
+                                     ? state.view().cable_templates().end()
+                                     : state.view().cable_templates().find(bundle_template_it->second.cable_template_id);
+  if (source_span == nullptr || source_bundle == nullptr || bundle_template_it == state.view().bundle_templates().end() ||
+      cable_template_it == state.view().cable_templates().end()) {
+    return false;
+  }
+  const wire::core::SavedBackboneEdge source_edge = state.view().backbone().edges.front();
+  const auto before_projection = state.view().backbone_attachment_world(
+      source_edge.edge_id, source_edge.node_a, wire::core::BundleKind::kLowVoltage, 0, 0.5);
+  if (!before_projection.has_value()) {
+    return false;
+  }
+
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = wire::core::kInvalidObjectId;
+  pick.hit_pos_world = {6.0, 0.0, 0.0};
+  pick.has_segment_endpoints = true;
+  pick.segment_node_a_id = source_edge.node_a;
+  pick.segment_node_b_id = source_edge.node_b;
+  pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
+  pick.segment_endpoint_b_world = {12.0, 0.0, 0.0};
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
+  const auto resolved = state.ResolveBranchPick(pick, resolve);
+  if (!resolved.ok) {
+    return false;
+  }
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {resolved.value.position, {6.0, 8.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  branch.path.node_specs = {node};
+  const auto branch_out = state.GenerateFromBackboneSpec(branch);
+  if (!branch_out.ok || branch_out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId branch_span_id = branch_out.value.generated_span_ids.front();
+
+  wire::core::CableTemplate edited = cable_template_it->second;
+  edited.sag_factor += 0.08;
+  const auto updated = state.UpdateCableTemplate(edited);
+  const auto after_projection = state.view().backbone_attachment_world(
+      source_edge.edge_id, source_edge.node_a, wire::core::BundleKind::kLowVoltage, 0, 0.5);
+  const wire::core::SpanLayoutView branch_layout = state.span_layout(branch_span_id);
+  if (!updated.ok || !after_projection.has_value() || !branch_layout.has_layout() ||
+      almost_equal(*before_projection, *after_projection, 1e-4)) {
+    return false;
+  }
+  const wire::core::LayoutEndpoint& endpoint =
+      branch_layout.entry->start.source_projection.valid() ? branch_layout.entry->start : branch_layout.entry->end;
+  return endpoint.source_projection.valid() && almost_equal(endpoint.endpoint_world, *after_projection, 1e-9);
+}
 bool C720_source_edge_pipeline_front_half_does_not_read_curve_projection() {
   std::string text;
   if (!file_text(repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp", &text)) {

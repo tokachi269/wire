@@ -74,6 +74,7 @@ world接続点はそのsource identityからcurrent curve projectionとして導
 pipeline前半(pairs/intent/groups/topo/emit/save_graph)はsource cableのcurve座標を要求しない。
 source-edge由来のownerless portをmaterializeする場合も、その`world_position`はpreview/cacheであり正本ではない。
 layout/derive段でsource identityをcurrent curve projectionへ解決し、branch endpointを現在のsource curveへ追従させる。
+既存source edgeからのbranchは、事前curve座標をpipeline前半の入力にしない。source edge自体とそこから伸びるbranchを同じ`BackboneSpec`で同時に表す入力形式は現APIにはまだ無いので、二度pipeline実行で補わない。
 viewerは後追いでsnap targetを明示し、source-edge snapではhit worldではなくsource edge/t/bundle/laneを渡す。
 
 ## post-edit update

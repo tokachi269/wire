@@ -994,6 +994,18 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C720_source_edge_pipeline_front_half_does_not_read_curve_projection",
                          "source-edge pipeline front half does not read curve projection",
                          "Boundary", false, C720_source_edge_pipeline_front_half_does_not_read_curve_projection);
+  test_registry::AddTest(tests, "C721_source_edge_identity_survives_projection_update",
+                         "source-edge identity survives projection update",
+                         "Invariant", false, C721_source_edge_identity_survives_projection_update);
+  test_registry::AddTest(tests, "C722_unresolved_source_edge_reference_fails_before_mutation",
+                         "unresolved source-edge reference fails before mutation",
+                         "Boundary", true, C722_unresolved_source_edge_reference_fails_before_mutation);
+  test_registry::AddTest(tests, "C723_source_edge_branch_does_not_change_source_sag",
+                         "source-edge branch does not change source sag",
+                         "Invariant", false, C723_source_edge_branch_does_not_change_source_sag);
+  test_registry::AddTest(tests, "C724_source_template_sag_change_updates_branch_projection",
+                         "source template sag change updates branch projection",
+                         "Invariant", false, C724_source_template_sag_change_updates_branch_projection);
   test_registry::AddTest(tests, "C674_backbone_port_band_selection_has_one_owner",
                          "backbone and post-edit port band selection use saved binding or one shared selector",
                          "Boundary", false, C674_backbone_port_band_selection_has_one_owner);

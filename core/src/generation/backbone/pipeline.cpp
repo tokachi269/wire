@@ -2185,8 +2185,10 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
               out.error = "backbone topology: resolved port missing";
               return out;
             }
-            existing_port->world_position = p;
-            ApplyPortBandTemplateFields(existing_port, band);
+            if (existing_port->position_mode != PortPositionMode::kManual && !existing_port->user_edited_position) {
+              existing_port->world_position = p;
+              ApplyPortBandTemplateFields(existing_port, band);
+            }
             CoreState::add_unique_id(changes->updated_ids, existing_port->id);
           }
           tr.ports[bundle_index].push_back(resolved.value);

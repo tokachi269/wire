@@ -104,7 +104,8 @@ pipeline graph を復元して再確定する。
 `kReposition`として既存auto portを再配置し、layout -> geom -> drawを再導出する。
 band追加・削除、enabled/side/layer/role/priority変更、anchor slot変更などの構造差分は
 対象 pole の incident edge を route-local bundle scope に展開し、統一 regenerate で emit から再解決する。
-manual portはtemplate placement更新では動かさない。
+manual portはtemplate placement更新では動かさない。統一 regenerate でも存続 lane の manual port は
+world position と manual marker を保持し、退役 lane の manual port は mutation 前に拒否する。
 
 `DeriveGeneratedSpanOutputs()` は、保存済み rules / layout source / `SavedBackboneGraph` binding から
 layout、geom、drawを再導出する入口である。topology、pair/open/row、port identityを再判断してはいけない。

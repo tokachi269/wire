@@ -255,15 +255,16 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleKind bundle_t
       if (port == nullptr) {
         return fail("backbone regenerate: bound port missing");
       }
-      if (port->position_mode == PortPositionMode::kManual || port->user_edited_position) {
-        return fail("backbone unsupported: regenerate does not move manual ports");
-      }
       if (std::find(row_keys.begin(), row_keys.end(), binding.row_key) == row_keys.end()) {
         row_keys.push_back(binding.row_key);
       }
-      if (binding.lane_index >= static_cast<std::size_t>(next_template.fixed_count) &&
-          !contains_id(target.retired_ports, binding.port_id)) {
-        target.retired_ports.push_back(binding.port_id);
+      if (binding.lane_index >= static_cast<std::size_t>(next_template.fixed_count)) {
+        if (port->position_mode == PortPositionMode::kManual || port->user_edited_position) {
+          return fail("backbone unsupported: regenerate cannot retire manual ports");
+        }
+        if (!contains_id(target.retired_ports, binding.port_id)) {
+          target.retired_ports.push_back(binding.port_id);
+        }
       }
     }
   }

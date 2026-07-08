@@ -1137,7 +1137,7 @@ bool C671_backbone_bundle_count_migration_reuses_pipeline_stages() {
          source.find("save_backbone_edge") == std::string::npos;
 }
 
-bool C672_backbone_bundle_count_migration_rejects_manual_ports() {
+bool C672_backbone_regenerate_preserves_manual_ports_on_surviving_lanes() {
   wire::core::CoreState state;
   const auto generated = state.GenerateFromBackboneSpec(line_req(state));
   if (!generated.ok || generated.value.generated_span_ids.empty()) {
@@ -1156,9 +1156,52 @@ bool C672_backbone_bundle_count_migration_rejects_manual_ports() {
   if (!moved.ok) {
     return false;
   }
+  const wire::core::Port* manual = state.view().ports().find(port->id);
+  if (manual == nullptr) {
+    return false;
+  }
+  const wire::core::Vec3d manual_position = manual->world_position;
+  const CountSnapshot before = count_snapshot(state);
+  const bool updated = update_low_voltage_count_to_two(state);
+  const wire::core::Port* after = state.view().ports().find(port->id);
+  return updated && after != nullptr && after->position_mode == wire::core::PortPositionMode::kManual &&
+         after->user_edited_position && same_vec3(after->world_position, manual_position) &&
+         state.view().spans().size() == before.spans + 1;
+}
+
+bool C714_backbone_regenerate_rejects_retired_manual_port() {
+  wire::core::CoreState state;
+  if (!set_low_voltage_count_before_generation(state, 2)) {
+    return false;
+  }
+  const auto generated = state.GenerateFromBackboneSpec(line_req(state));
+  if (!generated.ok || generated.value.generated_span_ids.size() != 2) {
+    return false;
+  }
+  wire::core::ObjectId lane_one_port_id = wire::core::kInvalidObjectId;
+  for (const wire::core::SavedBackboneSpanBinding& binding : state.view().backbone().span_bindings) {
+    if (binding.lane_index != 1) {
+      continue;
+    }
+    const wire::core::Span* span = state.view().spans().find(binding.span_id);
+    if (span == nullptr) {
+      return false;
+    }
+    lane_one_port_id = span->port_a_id;
+    break;
+  }
+  const wire::core::Port* port = state.view().ports().find(lane_one_port_id);
+  if (port == nullptr) {
+    return false;
+  }
+  const auto moved = state.MovePort(port->id, {port->world_position.x + 0.1, port->world_position.y,
+                                               port->world_position.z});
+  if (!moved.ok) {
+    return false;
+  }
   const CountSnapshot before = count_snapshot(state);
   std::string error{};
-  const bool updated = update_low_voltage_count_to_two(state, &error);
+  const bool updated = update_low_voltage_count_to_one(state, &error);
   return !updated && contains_text(error, "manual ports") && same_counts(before, count_snapshot(state));
 }
 

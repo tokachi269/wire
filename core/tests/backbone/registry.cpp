@@ -903,9 +903,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C671_backbone_regenerate_reuses_pipeline_stages",
                          "backbone regenerate reuses pipeline stages instead of local emit copies",
                          "Boundary", false, C671_backbone_bundle_count_migration_reuses_pipeline_stages);
-  test_registry::AddTest(tests, "C672_backbone_regenerate_rejects_manual_ports",
-                         "backbone regenerate rejects manual ports before mutation",
-                         "Boundary", false, C672_backbone_bundle_count_migration_rejects_manual_ports);
+  test_registry::AddTest(tests, "C672_backbone_regenerate_preserves_manual_ports_on_surviving_lanes",
+                         "backbone regenerate preserves manual ports on surviving lanes",
+                         "Invariant", false, C672_backbone_regenerate_preserves_manual_ports_on_surviving_lanes);
   test_registry::AddTest(tests, "C673_backbone_regenerate_preserves_surviving_attachment",
                          "backbone regenerate preserves attachments on surviving spans",
                          "Invariant", false, C673_backbone_bundle_count_migration_rejects_user_attachments);
@@ -972,6 +972,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "backbone pole type structural updates regenerate and match fresh output",
                          "Invariant", false,
                          C713_backbone_regenerate_pole_type_structure_matches_fresh);
+  test_registry::AddTest(tests, "C714_backbone_regenerate_rejects_retired_manual_port",
+                         "backbone regenerate rejects manual ports on retired lanes",
+                         "Boundary", false,
+                         C714_backbone_regenerate_rejects_retired_manual_port);
   test_registry::AddTest(tests, "C674_backbone_port_band_selection_has_one_owner",
                          "backbone and post-edit port band selection use saved binding or one shared selector",
                          "Boundary", false, C674_backbone_port_band_selection_has_one_owner);

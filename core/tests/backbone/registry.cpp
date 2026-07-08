@@ -1006,6 +1006,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C724_source_template_sag_change_updates_branch_projection",
                          "source template sag change updates branch projection",
                          "Invariant", false, C724_source_template_sag_change_updates_branch_projection);
+  test_registry::AddTest(tests, "C725_source_layout_settings_update_keeps_branch_projection_current",
+                         "source layout settings update keeps branch projection current",
+                         "Invariant", false, C725_source_layout_settings_update_keeps_branch_projection_current);
   test_registry::AddTest(tests, "C674_backbone_port_band_selection_has_one_owner",
                          "backbone and post-edit port band selection use saved binding or one shared selector",
                          "Boundary", false, C674_backbone_port_band_selection_has_one_owner);

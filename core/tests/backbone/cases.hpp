@@ -340,6 +340,7 @@ bool C721_source_edge_identity_survives_projection_update();
 bool C722_unresolved_source_edge_reference_fails_before_mutation();
 bool C723_source_edge_branch_does_not_change_source_sag();
 bool C724_source_template_sag_change_updates_branch_projection();
+bool C725_source_layout_settings_update_keeps_branch_projection_current();
 bool C674_backbone_port_band_selection_has_one_owner();
 bool C675_backbone_layout_yaw_does_not_read_debug_records();
 bool C676_backbone_noop_move_preserves_port_positions_exactly();

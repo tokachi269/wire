@@ -245,7 +245,7 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleKind bundle_t
     route_nodes.push_back(saved_node_by_id(graph, route_edge.node_b));
   }
   for (const SavedBackboneNode* node : route_nodes) {
-    if (node == nullptr || node->pole_id == kInvalidObjectId) {
+    if (node == nullptr || (node->pole_id == kInvalidObjectId && !node->has_source_edge)) {
       return fail("backbone unsupported: regenerate supports pole-owned endpoints only");
     }
   }
@@ -325,6 +325,10 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleKind bundle_t
     made_node.support = saved_node.support_kind;
     made_node.pole = saved_node.pole_id;
     made_node.saved = saved_node.node_id;
+    made_node.has_source_edge = saved_node.has_source_edge;
+    made_node.source_edge_node_a = saved_node.source_edge_node_a;
+    made_node.source_edge_node_b = saved_node.source_edge_node_b;
+    made_node.source_edge_t = saved_node.source_edge_t;
     made_node.is_new = false;
     made_node.on_route = true;
     made_node.bundle_modes = saved_node.bundle_modes;

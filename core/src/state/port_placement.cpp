@@ -1,5 +1,6 @@
 #include "port_placement.hpp"
 
+#include "wire/core/core_state.hpp"
 #include "wire/core/core_view.hpp"
 
 namespace wire::core::state_internal {

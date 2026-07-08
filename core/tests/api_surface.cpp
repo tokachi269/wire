@@ -4,6 +4,7 @@
 #include "wire/core/core_state_api_types.hpp"
 #include "wire/core/core_view.hpp"
 #include "wire/core/inspection.hpp"
+#include "wire/core/model_descriptor.hpp"
 #include "wire/core/style_context.hpp"
 #include "wire/core/variation.hpp"
 #include "wire/core/workflow_types.hpp"
@@ -60,6 +61,16 @@ bool test_public_headers_offer_stable_smoke_surface() {
   BackboneBundleSpec bundle{};
   bundle.bundle_template_id = BundleKind::kLowVoltage;
   spec.bundles.push_back(bundle);
+
+  ModelMeasurement measurement{};
+  measurement.name = "consumer-smoke";
+  measurement.sockets.push_back(ModelSocket{"line_in", ModelSocketRole::kLineIn, {}, {1.0, 0.0, 0.0}});
+  measurement.sockets.push_back(ModelSocket{"line_out", ModelSocketRole::kLineOut, {}, {1.0, 0.0, 0.0}});
+  const ModelMergeResult merged = merge(measurement, ModelOverride{});
+  const ModelAttachmentTemplateBuildResult attachment = build_attachment_template(merged.descriptor, 1);
+  if (!merged.report.conflicts.empty() || attachment.attachment_template.sockets.size() != 2) {
+    return false;
+  }
 
   ContextProfile profile{};
   profile.style_seed = 7;

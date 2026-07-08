@@ -18,7 +18,7 @@
 
 namespace wire::core {
 
-// Layout boundary types consumed by geometry and inspection.
+// Derived span-layout boundary types consumed by geometry and inspection.
 enum class LayoutOriginKind : std::uint8_t {
   kMainSupport = 0,
   kBranchSupport = 1,

@@ -9,6 +9,7 @@
 
 namespace wire::core {
 
+// Workflow and template input types used by generation and editing commands.
 // Workflow input path spec.
 struct BackboneInputSpec {
   std::vector<Vec3d> polyline{};

@@ -1,8 +1,12 @@
 #pragma once
 
-#include "wire/core/core_state.hpp"
+#include "wire/core/entities.hpp"
 
-namespace wire::core::state_internal {
+namespace wire::core {
+
+class CoreState;
+
+namespace state_internal {
 
 [[nodiscard]] const PortPlacementBand* FindPortPlacementBandById(
     const PoleTypeDefinition& pole_type, int placement_band_id);
@@ -14,4 +18,5 @@ namespace wire::core::state_internal {
 [[nodiscard]] double apply_corner_side_scale(
     double local_y, SlotSide slot_side, double turn_sign, double side_scale);
 
-} // namespace wire::core::state_internal
+} // namespace state_internal
+} // namespace wire::core

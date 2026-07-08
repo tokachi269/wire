@@ -13,6 +13,7 @@
 
 namespace wire::core {
 
+// CoreState storage layout. Exposed by the current header shape, but not a stable consumer API.
 struct CoreStateIdentityStorage {
   IdGenerator id_generator{};
   std::uint64_t next_data_version = 1;

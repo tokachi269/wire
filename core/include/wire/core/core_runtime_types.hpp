@@ -16,6 +16,7 @@
 
 namespace wire::core {
 
+// Runtime/cache types used by CoreState and CoreView. These are derived state, not source input.
 using CableRunId = std::uint64_t;
 
 struct AttachmentDebugLineEffect {

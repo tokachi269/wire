@@ -10,6 +10,7 @@
 
 namespace wire::core {
 
+// Experimental model measurement input used to build templates from external assets.
 namespace model_descriptor_detail {
 
 inline bool same_vec3d(const Vec3d& a, const Vec3d& b) {

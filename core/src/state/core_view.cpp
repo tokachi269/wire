@@ -100,7 +100,7 @@ std::vector<const SavedBackbonePortBinding*> CoreView::backbone_port_bindings_fo
   }
   return out;
 }
-std::optional<Vec3d> CoreView::backbone_attachment_world(
+std::optional<Vec3d> CoreView::source_edge_projection_world(
     ObjectId edge_id, ObjectId from_node_id, BundleKind bundle_template_id, std::size_t lane_index, double t) const {
   const SavedBackboneEdge* edge = backbone_edge(edge_id);
   if (edge == nullptr || (from_node_id != edge->node_a && from_node_id != edge->node_b)) {

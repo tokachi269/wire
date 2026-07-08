@@ -633,11 +633,7 @@ SourceEdgeProjectionRef source_projection_for(const CoreState& state, const node
 }
 
 std::optional<Vec3d> source_projection_world(const CoreState& state, const SourceEdgeProjectionRef& ref) {
-  if (!ref.valid()) {
-    return std::nullopt;
-  }
-  return state.view().backbone_attachment_world(ref.source_edge_id, ref.from_node_id,
-                                                ref.bundle_template_id, ref.lane_index, ref.t);
+  return source_edge_projection_world(state, ref);
 }
 
 bool same_scope(const SavedBackbonePortBinding& binding, port_scope scope) {

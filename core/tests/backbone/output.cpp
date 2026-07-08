@@ -1199,8 +1199,8 @@ bool C665_backbone_midair_attachment_uses_derived_curve() {
   const wire::core::CurveCacheEntry* curve = state.find_curve_cache(span_id);
   const wire::core::SavedBackboneEdge& edge = state.view().backbone().edges.front();
   const auto attachment =
-      state.view().backbone_attachment_world(edge.edge_id, edge.node_a,
-                                             wire::core::BundleKind::kLowVoltage, 0, 0.5);
+      state.view().source_edge_projection_world(edge.edge_id, edge.node_a,
+                                                wire::core::BundleKind::kLowVoltage, 0, 0.5);
   if (curve == nullptr || !attachment.has_value()) {
     return false;
   }

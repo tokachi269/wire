@@ -636,7 +636,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
           continue;
         }
         const std::optional<Vec3d> attachment =
-            view().backbone_attachment_world(edge_it->second, node_a_id, selected.id, 0, source_edge_t);
+            view().source_edge_projection_world(edge_it->second, node_a_id, selected.id, 0, source_edge_t);
         if (!attachment.has_value()) {
           continue;
         }

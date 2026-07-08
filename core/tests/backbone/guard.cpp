@@ -928,7 +928,7 @@ bool C568_backbone_source_edge_midair_branch_uses_source_curve_projection() {
     return false;
   }
   const wire::core::SavedBackboneEdge& source_edge = state.view().backbone().edges.front();
-  const std::optional<wire::core::Vec3d> expected = state.view().backbone_attachment_world(
+  const std::optional<wire::core::Vec3d> expected = state.view().source_edge_projection_world(
       source_edge.edge_id, source_edge.node_a, wire::core::BundleKind::kLowVoltage, 0, 0.5);
   if (!expected.has_value() || expected->z <= 0.0) {
     return false;
@@ -1006,7 +1006,7 @@ bool C718_viewer_hit_world_height_is_not_source_edge_branch_authority() {
     return false;
   }
   const wire::core::SavedBackboneEdge& source_edge = state.view().backbone().edges.front();
-  const auto expected = state.view().backbone_attachment_world(
+  const auto expected = state.view().source_edge_projection_world(
       source_edge.edge_id, source_edge.node_a, wire::core::BundleKind::kLowVoltage, 0, 0.5);
   if (!expected.has_value()) {
     return false;
@@ -1057,7 +1057,7 @@ bool C719_source_edge_branch_endpoint_follows_current_curve_projection() {
   const wire::core::ObjectId source_edge_id = source_edge.edge_id;
   const wire::core::ObjectId source_node_a = source_edge.node_a;
   const wire::core::ObjectId source_node_b = source_edge.node_b;
-  const auto initial_projection = state.view().backbone_attachment_world(
+  const auto initial_projection = state.view().source_edge_projection_world(
       source_edge_id, source_node_a, wire::core::BundleKind::kLowVoltage, 0, 0.5);
   if (!initial_projection.has_value()) {
     return false;
@@ -1100,7 +1100,7 @@ bool C719_source_edge_branch_endpoint_follows_current_curve_projection() {
     return false;
   }
   const wire::core::CurveCacheEntry* source_curve = state.find_curve_cache(source_span_id);
-  const auto current_projection = state.view().backbone_attachment_world(
+  const auto current_projection = state.view().source_edge_projection_world(
       source_edge_id, source_node_a, wire::core::BundleKind::kLowVoltage, 0, 0.5);
   const wire::core::SpanLayoutView branch_layout = state.span_layout(branch_span_id);
   const wire::core::Span* branch_span = state.view().spans().find(branch_span_id);
@@ -1314,7 +1314,7 @@ bool C724_source_template_sag_change_updates_branch_projection() {
     return false;
   }
   const wire::core::SavedBackboneEdge source_edge = state.view().backbone().edges.front();
-  const auto before_projection = state.view().backbone_attachment_world(
+  const auto before_projection = state.view().source_edge_projection_world(
       source_edge.edge_id, source_edge.node_a, wire::core::BundleKind::kLowVoltage, 0, 0.5);
   if (!before_projection.has_value()) {
     return false;
@@ -1351,7 +1351,7 @@ bool C724_source_template_sag_change_updates_branch_projection() {
   wire::core::CableTemplate edited = cable_template_it->second;
   edited.sag_factor += 0.08;
   const auto updated = state.UpdateCableTemplate(edited);
-  const auto after_projection = state.view().backbone_attachment_world(
+  const auto after_projection = state.view().source_edge_projection_world(
       source_edge.edge_id, source_edge.node_a, wire::core::BundleKind::kLowVoltage, 0, 0.5);
   const wire::core::SpanLayoutView branch_layout = state.span_layout(branch_span_id);
   if (!updated.ok || !after_projection.has_value() || !branch_layout.has_layout() ||
@@ -1371,7 +1371,7 @@ bool C725_source_layout_settings_update_keeps_branch_projection_current() {
   }
   const wire::core::SavedBackboneEdge source_edge = state.view().backbone().edges.front();
   constexpr double kSourceT = 11.0 / 12.0;
-  const auto before_projection = state.view().backbone_attachment_world(
+  const auto before_projection = state.view().source_edge_projection_world(
       source_edge.edge_id, source_edge.node_a, wire::core::BundleKind::kLowVoltage, 0, kSourceT);
   if (!before_projection.has_value()) {
     return false;
@@ -1409,7 +1409,7 @@ bool C725_source_layout_settings_update_keeps_branch_projection_current() {
   edited.min_side_scale = 0.5;
   edited.max_side_scale = 0.5;
   const auto updated = state.UpdateLayoutSettings(edited);
-  const auto after_projection = state.view().backbone_attachment_world(
+  const auto after_projection = state.view().source_edge_projection_world(
       source_edge.edge_id, source_edge.node_a, wire::core::BundleKind::kLowVoltage, 0, kSourceT);
   const wire::core::SpanLayoutView branch_layout = state.span_layout(branch_span_id);
   if (!updated.ok || !updated.value || !after_projection.has_value() || !branch_layout.has_layout()) {
@@ -1421,6 +1421,66 @@ bool C725_source_layout_settings_update_keeps_branch_projection_current() {
   return endpoint.source_projection.valid() && endpoint_matches &&
          almost_equal(endpoint.source_projection.t, kSourceT, 1e-6);
 }
+
+bool C726_source_edge_branch_projection_does_not_require_prior_curve_cache() {
+  wire::core::CoreState state;
+  const auto base_out = state.GenerateFromBackboneSpec(line_req(state));
+  if (!base_out.ok || base_out.value.generated_span_ids.size() != 1 || state.view().backbone().edges.size() != 1) {
+    return false;
+  }
+  const wire::core::ObjectId source_span_id = base_out.value.generated_span_ids.front();
+  const wire::core::SpanLayoutView source_layout = state.span_layout(source_span_id);
+  if (!source_layout.has_layout()) {
+    return false;
+  }
+  const wire::core::SavedBackboneEdge source_edge = state.view().backbone().edges.front();
+  constexpr double kSourceT = 0.5;
+  const wire::core::Vec3d expected{
+      source_layout.entry->start.endpoint_world.x +
+          (source_layout.entry->end.endpoint_world.x - source_layout.entry->start.endpoint_world.x) * kSourceT,
+      source_layout.entry->start.endpoint_world.y +
+          (source_layout.entry->end.endpoint_world.y - source_layout.entry->start.endpoint_world.y) * kSourceT,
+      source_layout.entry->start.endpoint_world.z +
+          (source_layout.entry->end.endpoint_world.z - source_layout.entry->start.endpoint_world.z) * kSourceT,
+  };
+
+  wire::core::CacheState& cache = wire::core::CoreStateTestHook::cache_state(state);
+  cache.curve_cache.by_span.erase(source_span_id);
+  if (state.find_curve_cache(source_span_id) != nullptr) {
+    return false;
+  }
+
+  wire::core::SupportNode pending{};
+  pending.node_id = state.next_id();
+  pending.support_kind = wire::core::SupportKind::kMidair;
+  pending.position = {6.0, 0.0, 0.0};
+  pending.has_source_edge = true;
+  pending.source_edge_node_a_id = source_edge.node_a;
+  pending.source_edge_node_b_id = source_edge.node_b;
+  pending.source_edge_t = kSourceT;
+  wire::core::CoreStateTestHook::pending_support_nodes(state).push_back(pending);
+
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {pending.position, {6.0, 8.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = pending.support_kind;
+  node.node_id = pending.node_id;
+  branch.path.node_specs = {node};
+  const auto branch_out = state.GenerateFromBackboneSpec(branch);
+  if (!branch_out.ok || branch_out.value.generated_span_ids.empty()) {
+    return false;
+  }
+
+  const wire::core::SpanLayoutView branch_layout = state.span_layout(branch_out.value.generated_span_ids.front());
+  if (!branch_layout.has_layout()) {
+    return false;
+  }
+  const wire::core::LayoutEndpoint& endpoint =
+      branch_layout.entry->start.source_projection.valid() ? branch_layout.entry->start : branch_layout.entry->end;
+  return endpoint.source_projection.valid() && almost_equal(endpoint.endpoint_world, expected, 1e-9);
+}
+
 bool C720_source_edge_pipeline_front_half_does_not_read_curve_projection() {
   std::string text;
   if (!file_text(repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp", &text)) {
@@ -1433,7 +1493,7 @@ bool C720_source_edge_pipeline_front_half_does_not_read_curve_projection() {
                      &emit_ports_body)) {
     return false;
   }
-  const std::vector<std::string> banned = {"backbone_attachment_world", "find_curve_cache", "CurveCacheEntry",
+  const std::vector<std::string> banned = {"source_edge_projection_world", "find_curve_cache", "CurveCacheEntry",
                                            "EvaluatePosition"};
   for (const std::string& token : banned) {
     if (contains_text(check_body, token) || contains_text(emit_ports_body, token)) {

@@ -26,9 +26,7 @@ bool apply_endpoint(const EditState& edit_state, const EndpointLayoutRule& rule,
   }
   Vec3d endpoint_world = port->world_position;
   if (rule.source_projection.valid()) {
-    const std::optional<Vec3d> projection = state.view().backbone_attachment_world(
-        rule.source_projection.source_edge_id, rule.source_projection.from_node_id,
-        rule.source_projection.bundle_template_id, rule.source_projection.lane_index, rule.source_projection.t);
+    const std::optional<Vec3d> projection = generation::backbone::source_edge_projection_world(state, rule.source_projection);
     if (!projection.has_value()) {
       if (error != nullptr) {
         *error = "backbone derive: source edge projection missing";

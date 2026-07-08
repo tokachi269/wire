@@ -1009,6 +1009,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C725_source_layout_settings_update_keeps_branch_projection_current",
                          "source layout settings update keeps branch projection current",
                          "Invariant", false, C725_source_layout_settings_update_keeps_branch_projection_current);
+  test_registry::AddTest(tests, "C726_source_edge_branch_projection_does_not_require_prior_curve_cache",
+                         "source-edge branch projection does not require prior curve cache",
+                         "Boundary", false, C726_source_edge_branch_projection_does_not_require_prior_curve_cache);
   test_registry::AddTest(tests, "C674_backbone_port_band_selection_has_one_owner",
                          "backbone and post-edit port band selection use saved binding or one shared selector",
                          "Boundary", false, C674_backbone_port_band_selection_has_one_owner);

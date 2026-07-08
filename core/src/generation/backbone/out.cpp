@@ -36,6 +36,72 @@ AABBd box(const std::vector<Vec3d>& pts) {
   return out;
 }
 
+const SavedBackboneSpanBinding* source_span_binding_for(const CoreState& state,
+                                                        const SourceEdgeProjectionRef& ref) {
+  const CoreView& view = state.view();
+  const SavedBackboneEdge* edge = view.backbone_edge(ref.source_edge_id);
+  if (edge == nullptr || (ref.from_node_id != edge->node_a && ref.from_node_id != edge->node_b)) {
+    return nullptr;
+  }
+  const auto edge_bundles_it = view.backbone_index().edge_bundles.find(ref.source_edge_id);
+  if (edge_bundles_it == view.backbone_index().edge_bundles.end()) {
+    return nullptr;
+  }
+
+  const SavedBackboneEdgeBundle* matched = nullptr;
+  for (ObjectId edge_bundle_id : edge_bundles_it->second) {
+    const SavedBackboneEdgeBundle* candidate = view.backbone_edge_bundle(edge_bundle_id);
+    const Bundle* bundle = candidate == nullptr ? nullptr : view.bundles().find(candidate->bundle_id);
+    if (bundle == nullptr || bundle->bundle_template_id != ref.bundle_template_id) {
+      continue;
+    }
+    if (matched != nullptr) {
+      return nullptr;
+    }
+    matched = candidate;
+  }
+  if (matched == nullptr) {
+    return nullptr;
+  }
+
+  const SavedBackbonePortBinding* binding_a = nullptr;
+  const SavedBackbonePortBinding* binding_b = nullptr;
+  for (const SavedBackbonePortBinding* binding : view.backbone_port_bindings_for_edge_bundle(matched->edge_bundle_id)) {
+    if (binding == nullptr || binding->lane_index != ref.lane_index) {
+      continue;
+    }
+    const bool at_a = binding->row_key.node_id == edge->node_a;
+    const bool at_b = binding->row_key.node_id == edge->node_b;
+    if ((!at_a && !at_b) || (at_a && binding_a != nullptr) || (at_b && binding_b != nullptr)) {
+      return nullptr;
+    }
+    (at_a ? binding_a : binding_b) = binding;
+  }
+  if (binding_a == nullptr || binding_b == nullptr) {
+    return nullptr;
+  }
+
+  const auto span_bindings_it = view.backbone_index().edge_bundle_span_bindings.find(matched->edge_bundle_id);
+  if (span_bindings_it == view.backbone_index().edge_bundle_span_bindings.end()) {
+    return nullptr;
+  }
+  const SavedBackboneSpanBinding* span_binding = nullptr;
+  for (std::size_t index : span_bindings_it->second) {
+    if (index >= view.backbone().span_bindings.size()) {
+      return nullptr;
+    }
+    const SavedBackboneSpanBinding& candidate = view.backbone().span_bindings[index];
+    if (candidate.lane_index != ref.lane_index) {
+      continue;
+    }
+    if (span_binding != nullptr) {
+      return nullptr;
+    }
+    span_binding = &candidate;
+  }
+  return span_binding;
+}
+
 EditResult<DetailCurve> make_curve_between_impl(const CoreState& state, ObjectId span_id, const Vec3d& start,
                                                 const Vec3d& end, const Vec3d* start_tangent_hint,
                                                 const Vec3d* end_tangent_hint) {
@@ -137,6 +203,35 @@ EditResult<DetailCurve> make_curve_between_with_tangent_hints(
 
 EditResult<DetailCurve> make_curve(const CoreState& state, ObjectId span_id, const SpanLayoutEntry& layout) {
   return make_curve_between(state, span_id, layout.start.endpoint_world, layout.end.endpoint_world);
+}
+
+std::optional<Vec3d> source_edge_projection_world(const CoreState& state, const SourceEdgeProjectionRef& ref) {
+  if (!ref.valid()) {
+    return std::nullopt;
+  }
+  if (const std::optional<Vec3d> cached = state.view().source_edge_projection_world(
+          ref.source_edge_id, ref.from_node_id, ref.bundle_template_id, ref.lane_index, ref.t);
+      cached.has_value()) {
+    return cached;
+  }
+
+  const SavedBackboneEdge* edge = state.view().backbone_edge(ref.source_edge_id);
+  const SavedBackboneSpanBinding* binding = source_span_binding_for(state, ref);
+  if (edge == nullptr || binding == nullptr) {
+    return std::nullopt;
+  }
+  const SpanLayoutView layout = state.span_layout(binding->span_id);
+  if (!layout.has_layout()) {
+    return std::nullopt;
+  }
+  EditResult<DetailCurve> curve = make_curve(state, binding->span_id, *layout.entry);
+  if (!curve.ok || curve.value.sample_points.size() < 2) {
+    return std::nullopt;
+  }
+
+  const double t = std::clamp(ref.t, 0.0, 1.0);
+  const double u = ref.from_node_id == edge->node_a ? t : 1.0 - t;
+  return curve.value.EvaluatePosition(u);
 }
 
 BoundsCacheEntry bounds(const DetailCurve& curve, std::uint64_t source_version) {

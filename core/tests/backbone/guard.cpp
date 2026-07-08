@@ -10,6 +10,7 @@
 #include <array>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <unordered_set>
@@ -26,7 +27,6 @@ bool C370_backbone_no_v1_deps() {
       "JunctionRelationKind",
       "SpanSupportLayoutDecisionSeed",
       "Authority",
-      "Projection",
       "Materialization",
       "generate_span_curve",
       "cache_rebuilt_span_geometry",
@@ -38,7 +38,6 @@ bool C370_backbone_no_v1_deps() {
       "recalc",
       "materialization",
       "authority",
-      "projection",
   };
   for (const auto& entry : std::filesystem::recursive_directory_iterator(dir)) {
     if (!entry.is_regular_file()) {
@@ -176,7 +175,7 @@ bool C402_backbone_bundle_spec_does_not_affect_pairs() {
   return true;
 }
 
-bool C410_backbone_height_does_not_affect_pairs() {
+bool C410_placement_height_does_not_affect_pairs() {
   const std::filesystem::path file = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
   std::string text;
   if (!file_text(file, &text)) {
@@ -512,10 +511,10 @@ bool C520_backbone_duplicate_span_binding_preflight_before_emit() {
   if (!file_text(source, &cpp)) {
     return false;
   }
-  const std::size_t build_pos = cpp.find("EditResult<GenerateBundleFromPathResult> pipeline::build()");
-  const std::size_t check_call = cpp.find("EditResult<bool> duplicates = check(ps.value)", build_pos);
-  const std::size_t emit_call = cpp.find("EditResult<topo> made = emit(ps.value)", build_pos);
-  if (build_pos == std::string::npos || check_call == std::string::npos || emit_call == std::string::npos ||
+  const std::size_t route_pos = cpp.find("EditResult<pipeline::route> pipeline::emit_route");
+  const std::size_t check_call = cpp.find("return check(ps.value)", route_pos);
+  const std::size_t emit_call = cpp.find("return emit(ps.value)", route_pos);
+  if (route_pos == std::string::npos || check_call == std::string::npos || emit_call == std::string::npos ||
       check_call > emit_call) {
     return false;
   }
@@ -555,11 +554,11 @@ bool C523_backbone_scope_gate_matches_entrypoint() {
                               contains_text(entry_text, "pipeline.prepare()") &&
                               contains_text(entry_text, "pipeline.check()") &&
                               contains_text(entry_text, "pipeline.build()");
-  const std::size_t build_pos = backbone_text.find("EditResult<GenerateBundleFromPathResult> pipeline::build()");
-  const std::size_t check_call = backbone_text.find("EditResult<bool> duplicates = check(ps.value)", build_pos);
-  const std::size_t intent_call = backbone_text.find("EditResult<intent> intents = make(ps.value)", build_pos);
-  const std::size_t emit_call = backbone_text.find("EditResult<topo> made = emit(ps.value)", build_pos);
-  const bool preflight_before_emit = build_pos != std::string::npos && check_call != std::string::npos &&
+  const std::size_t route_pos = backbone_text.find("EditResult<pipeline::route> pipeline::emit_route");
+  const std::size_t check_call = backbone_text.find("return check(ps.value)", route_pos);
+  const std::size_t intent_call = backbone_text.find("return make(ps.value)", route_pos);
+  const std::size_t emit_call = backbone_text.find("return emit(ps.value)", route_pos);
+  const bool preflight_before_emit = route_pos != std::string::npos && check_call != std::string::npos &&
                                      intent_call != std::string::npos && emit_call != std::string::npos &&
                                      check_call < intent_call && intent_call < emit_call;
   return entry_uses_backbone && preflight_before_emit;
@@ -600,18 +599,20 @@ bool C533_backbone_build_mutation_order_is_fixed() {
   if (!file_text(source, &cpp)) {
     return false;
   }
-  const std::size_t build_pos = cpp.find("EditResult<GenerateBundleFromPathResult> pipeline::build()");
-  const std::size_t pairs_pos = cpp.find("EditResult<pairs> ps = make(g_)", build_pos);
-  const std::size_t check_pos = cpp.find("EditResult<bool> duplicates = check(ps.value)", build_pos);
-  const std::size_t intent_pos = cpp.find("EditResult<intent> intents = make(ps.value)", build_pos);
-  const std::size_t group_pos = cpp.find("EditResult<groups> placement = make(ps.value, intents.value)", build_pos);
-  const std::size_t emit_pos = cpp.find("EditResult<topo> made = emit(ps.value)", build_pos);
-  const std::size_t graph_pos = cpp.find("EditResult<bool> graph_saved = save_graph(made.value, ps.value)", build_pos);
-  const std::size_t rules_pos = cpp.find("rules saved = make(made.value, ps.value, placement.value)", build_pos);
-  const std::size_t layout_pos = cpp.find("EditResult<layout> placed = make(saved)", build_pos);
-  const std::size_t geom_pos = cpp.find("EditResult<geom> shaped = make(placed.value)", build_pos);
-  const std::size_t draw_pos = cpp.find("draw drawn = make(placed.value, shaped.value)", build_pos);
-  if (build_pos == std::string::npos || pairs_pos == std::string::npos || check_pos == std::string::npos ||
+  const std::size_t route_pos = cpp.find("EditResult<pipeline::route> pipeline::emit_route");
+  const std::size_t derived_pos = cpp.find("EditResult<bool> pipeline::save_derived", route_pos);
+  const std::size_t pairs_pos = cpp.find("return make(g_)", route_pos);
+  const std::size_t check_pos = cpp.find("return check(ps.value)", route_pos);
+  const std::size_t intent_pos = cpp.find("return make(ps.value)", route_pos);
+  const std::size_t group_pos = cpp.find("return make(ps.value, intents.value)", route_pos);
+  const std::size_t emit_pos = cpp.find("return emit(ps.value)", route_pos);
+  const std::size_t graph_pos = cpp.find("return save_graph(made.value, ps.value)", route_pos);
+  const std::size_t rules_pos = cpp.find("rules next = make(route.made, route.ps, route.placement)", derived_pos);
+  const std::size_t layout_pos = cpp.find("return make(saved)", derived_pos);
+  const std::size_t geom_pos = cpp.find("return make(placed.value)", derived_pos);
+  const std::size_t draw_pos = cpp.find("return make(placed.value, shaped.value)", derived_pos);
+  if (route_pos == std::string::npos || derived_pos == std::string::npos || pairs_pos == std::string::npos ||
+      check_pos == std::string::npos ||
       intent_pos == std::string::npos || group_pos == std::string::npos || emit_pos == std::string::npos ||
       graph_pos == std::string::npos || rules_pos == std::string::npos || layout_pos == std::string::npos ||
       geom_pos == std::string::npos || draw_pos == std::string::npos) {
@@ -919,7 +920,7 @@ bool C567_backbone_segment_pick_midair_uses_source_span_height() {
   return false;
 }
 
-bool C568_backbone_source_edge_midair_branch_uses_saved_attachment_height() {
+bool C568_backbone_source_edge_midair_branch_uses_source_curve_projection() {
   wire::core::CoreState state;
   wire::core::BackboneSpec base = line_req(state);
   const auto base_out = state.GenerateFromBackboneSpec(base);
@@ -996,6 +997,147 @@ bool C568_backbone_source_edge_midair_branch_uses_saved_attachment_height() {
     }
   }
   return false;
+}
+
+bool C718_viewer_hit_world_height_is_not_source_edge_branch_authority() {
+  wire::core::CoreState state;
+  const auto base_out = state.GenerateFromBackboneSpec(line_req(state));
+  if (!base_out.ok || base_out.value.generated_span_ids.empty() || state.view().backbone().edges.size() != 1) {
+    return false;
+  }
+  const wire::core::SavedBackboneEdge& source_edge = state.view().backbone().edges.front();
+  const auto expected = state.view().backbone_attachment_world(
+      source_edge.edge_id, source_edge.node_a, wire::core::BundleKind::kLowVoltage, 0, 0.5);
+  if (!expected.has_value()) {
+    return false;
+  }
+
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = wire::core::kInvalidObjectId;
+  pick.hit_pos_world = {6.0, 0.0, 123.0};
+  pick.has_segment_endpoints = true;
+  pick.segment_node_a_id = source_edge.node_a;
+  pick.segment_node_b_id = source_edge.node_b;
+  pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
+  pick.segment_endpoint_b_world = {12.0, 0.0, 0.0};
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
+  const auto resolved = state.ResolveBranchPick(pick, resolve);
+  if (!resolved.ok || almost_equal(resolved.value.position.z, pick.hit_pos_world.z, 1e-9) ||
+      !almost_equal(resolved.value.position, *expected, 1e-9)) {
+    return false;
+  }
+
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {resolved.value.position, {6.0, 8.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  branch.path.node_specs = {node};
+  const auto out = state.GenerateFromBackboneSpec(branch);
+  if (!out.ok || out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const wire::core::SavedBackboneGraph& graph = state.view().backbone();
+  return std::any_of(graph.nodes.begin(), graph.nodes.end(), [](const wire::core::SavedBackboneNode& saved) {
+    return saved.pole_id == wire::core::kInvalidObjectId && saved.has_source_edge;
+  });
+}
+
+bool C719_source_edge_branch_endpoint_follows_current_curve_projection() {
+  wire::core::CoreState state;
+  const auto base_out = state.GenerateFromBackboneSpec(line_req(state));
+  if (!base_out.ok || base_out.value.generated_span_ids.size() != 1 || state.view().backbone().edges.size() != 1) {
+    return false;
+  }
+  const wire::core::ObjectId source_span_id = base_out.value.generated_span_ids.front();
+  const wire::core::SavedBackboneEdge& source_edge = state.view().backbone().edges.front();
+  const wire::core::ObjectId source_edge_id = source_edge.edge_id;
+  const wire::core::ObjectId source_node_a = source_edge.node_a;
+  const wire::core::ObjectId source_node_b = source_edge.node_b;
+  const auto initial_projection = state.view().backbone_attachment_world(
+      source_edge_id, source_node_a, wire::core::BundleKind::kLowVoltage, 0, 0.5);
+  if (!initial_projection.has_value()) {
+    return false;
+  }
+
+  wire::core::PickResult pick{};
+  pick.hit_kind = wire::core::PickHitKind::kSegment;
+  pick.hit_id = wire::core::kInvalidObjectId;
+  pick.hit_pos_world = {6.0, 0.0, 0.0};
+  pick.has_segment_endpoints = true;
+  pick.segment_node_a_id = source_node_a;
+  pick.segment_node_b_id = source_node_b;
+  pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
+  pick.segment_endpoint_b_world = {12.0, 0.0, 0.0};
+  wire::core::ResolveBranchPickOptions resolve{};
+  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
+  const auto resolved = state.ResolveBranchPick(pick, resolve);
+  if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {resolved.value.position, {6.0, 8.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec node{};
+  node.point_index = 0;
+  node.support_kind = resolved.value.support_kind;
+  node.node_id = resolved.value.resolved_node_id;
+  branch.path.node_specs = {node};
+  const auto branch_out = state.GenerateFromBackboneSpec(branch);
+  if (!branch_out.ok || branch_out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId branch_span_id = branch_out.value.generated_span_ids.front();
+
+  wire::core::GeometrySettings geometry = state.view().geometry_settings();
+  geometry.sag_enabled = true;
+  geometry.sag_factor = std::max(geometry.sag_factor, 0.08);
+  const auto updated = state.UpdateGeometrySettings(geometry);
+  if (!updated.ok) {
+    return false;
+  }
+  const wire::core::CurveCacheEntry* source_curve = state.find_curve_cache(source_span_id);
+  const auto current_projection = state.view().backbone_attachment_world(
+      source_edge_id, source_node_a, wire::core::BundleKind::kLowVoltage, 0, 0.5);
+  const wire::core::SpanLayoutView branch_layout = state.span_layout(branch_span_id);
+  const wire::core::Span* branch_span = state.view().spans().find(branch_span_id);
+  if (source_curve == nullptr || !current_projection.has_value() || !branch_layout.has_layout() ||
+      branch_span == nullptr) {
+    return false;
+  }
+  const wire::core::Port* start_port = state.view().ports().find(branch_layout.entry->start.port_id);
+  const bool start_ownerless = start_port != nullptr && start_port->owner_pole_id == wire::core::kInvalidObjectId;
+  const wire::core::LayoutEndpoint& endpoint = start_ownerless ? branch_layout.entry->start : branch_layout.entry->end;
+  const bool projection_changed = !almost_equal(*initial_projection, *current_projection, 1e-4);
+  const bool has_ref = endpoint.source_projection.valid();
+  const bool endpoint_matches = almost_equal(endpoint.endpoint_world, *current_projection, 1e-9);
+  return projection_changed && has_ref && endpoint_matches;
+}
+
+bool C720_source_edge_pipeline_front_half_does_not_read_curve_projection() {
+  std::string text;
+  if (!file_text(repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp", &text)) {
+    return false;
+  }
+  std::string check_body;
+  std::string emit_ports_body;
+  if (!function_body(text, "EditResult<bool> pipeline::check(const pairs& ps) const", &check_body) ||
+      !function_body(text, "EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* changes)",
+                     &emit_ports_body)) {
+    return false;
+  }
+  const std::vector<std::string> banned = {"backbone_attachment_world", "find_curve_cache", "CurveCacheEntry",
+                                           "EvaluatePosition"};
+  for (const std::string& token : banned) {
+    if (contains_text(check_body, token) || contains_text(emit_ports_body, token)) {
+      return false;
+    }
+  }
+  return contains_text(check_body, "source_projection_binding_exists") &&
+         contains_text(emit_ports_body, "source_projection_binding_exists");
 }
 
 bool C612_backbone_direct_derive_does_not_call_recalc_paths() {

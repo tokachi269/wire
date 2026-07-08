@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <optional>
 #include <string>
 #include <unordered_set>
 
@@ -15,7 +16,7 @@ namespace wire::core {
 namespace {
 
 bool apply_endpoint(const EditState& edit_state, const EndpointLayoutRule& rule, LayoutEndpoint* target,
-                    std::string* error) {
+                    const CoreState& state, std::string* error) {
   const Port* port = edit_state.ports.find(rule.port_id);
   if (port == nullptr || target == nullptr) {
     if (error != nullptr) {
@@ -23,7 +24,20 @@ bool apply_endpoint(const EditState& edit_state, const EndpointLayoutRule& rule,
     }
     return false;
   }
-  ApplyEndpointLayoutRule(*target, rule, port->world_position);
+  Vec3d endpoint_world = port->world_position;
+  if (rule.source_projection.valid()) {
+    const std::optional<Vec3d> projection = state.view().backbone_attachment_world(
+        rule.source_projection.source_edge_id, rule.source_projection.from_node_id,
+        rule.source_projection.bundle_template_id, rule.source_projection.lane_index, rule.source_projection.t);
+    if (!projection.has_value()) {
+      if (error != nullptr) {
+        *error = "backbone derive: source edge projection missing";
+      }
+      return false;
+    }
+    endpoint_world = *projection;
+  }
+  ApplyEndpointLayoutRule(*target, rule, endpoint_world);
   return true;
 }
 
@@ -48,8 +62,8 @@ EditResult<bool> CoreState::DeriveGeneratedSpanOutputs(ObjectId span_id) {
   layout.pass_mode = rule.pass_mode;
   layout.variation_flow_key = rule.variation_flow_key;
   layout.lowering_kind = rule.lowering_kind;
-  if (!apply_endpoint(authoritative_.edit_state, rule.start, &layout.start, &out.error) ||
-      !apply_endpoint(authoritative_.edit_state, rule.end, &layout.end, &out.error)) {
+  if (!apply_endpoint(authoritative_.edit_state, rule.start, &layout.start, *this, &out.error) ||
+      !apply_endpoint(authoritative_.edit_state, rule.end, &layout.end, *this, &out.error)) {
     return out;
   }
   auto append_group_key = [&](const LayoutEndpoint& endpoint) {

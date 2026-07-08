@@ -99,9 +99,9 @@ void register_tests(test_registry::TestRegistry& tests) {
                          C408_backbone_existing_pole_uses_actual_pole_type_height);
   test_registry::AddTest(tests, "C409_backbone_rejects_missing_port_band", "backbone rejects missing port bands", "Boundary",
                          true, C409_backbone_rejects_missing_port_band);
-  test_registry::AddTest(tests, "C410_backbone_height_does_not_affect_pairs",
-                         "backbone height selection does not affect pairs", "Boundary", false,
-                         C410_backbone_height_does_not_affect_pairs);
+  test_registry::AddTest(tests, "C410_placement_height_does_not_affect_pairs",
+                         "placement height selection does not affect pairs", "Boundary", false,
+                         C410_placement_height_does_not_affect_pairs);
   test_registry::AddTest(tests, "C411_backbone_lateral_offset_moves_ports_along_row_axis",
                          "backbone lateral offset moves generated output along row axis", "Invariant", false,
                          C411_backbone_lateral_offset_moves_ports_along_row_axis);
@@ -573,9 +573,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C567_backbone_segment_pick_midair_uses_source_span_height",
                          "backbone segment-pick midair branches use source span height", "Boundary", false,
                          C567_backbone_segment_pick_midair_uses_source_span_height);
-  test_registry::AddTest(tests, "C568_backbone_source_edge_midair_branch_uses_saved_attachment_height",
-                         "backbone source-edge midair branches use saved attachment height", "Boundary", false,
-                         C568_backbone_source_edge_midair_branch_uses_saved_attachment_height);
+  test_registry::AddTest(tests, "C568_backbone_source_edge_midair_branch_uses_source_curve_projection",
+                         "backbone source-edge midair branches use current source curve projection", "Boundary", false,
+                         C568_backbone_source_edge_midair_branch_uses_source_curve_projection);
   test_registry::AddTest(tests, "C569_backbone_render_uses_cable_template_appearance",
                          "backbone render cache uses cable template appearance", "Boundary", false,
                          C569_backbone_render_uses_cable_template_appearance);
@@ -985,6 +985,15 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C717_backbone_layout_settings_regenerate_matches_fresh",
                          "backbone layout settings regenerate and match fresh generation",
                          "Invariant", false, C717_backbone_layout_settings_regenerate_matches_fresh);
+  test_registry::AddTest(tests, "C718_viewer_hit_world_height_is_not_source_edge_branch_authority",
+                         "viewer hit world height is not source-edge branch authority",
+                         "Boundary", false, C718_viewer_hit_world_height_is_not_source_edge_branch_authority);
+  test_registry::AddTest(tests, "C719_source_edge_branch_endpoint_follows_current_curve_projection",
+                         "source-edge branch endpoint follows current curve projection",
+                         "Invariant", false, C719_source_edge_branch_endpoint_follows_current_curve_projection);
+  test_registry::AddTest(tests, "C720_source_edge_pipeline_front_half_does_not_read_curve_projection",
+                         "source-edge pipeline front half does not read curve projection",
+                         "Boundary", false, C720_source_edge_pipeline_front_half_does_not_read_curve_projection);
   test_registry::AddTest(tests, "C674_backbone_port_band_selection_has_one_owner",
                          "backbone and post-edit port band selection use saved binding or one shared selector",
                          "Boundary", false, C674_backbone_port_band_selection_has_one_owner);

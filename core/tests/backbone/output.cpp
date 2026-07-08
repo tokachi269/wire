@@ -42,7 +42,7 @@ bool C507_backbone_support_group_built_after_intent() {
   return contains_text(h, "EditResult<groups> make(const pairs& ps, const intent& intents) const") &&
          contains_text(h, "rules make(const topo& made, const pairs& ps, const groups& placement) const") &&
          !contains_text(h, "rules make(const topo& made, const intent& intents) const") &&
-         contains_text(cpp, "EditResult<groups> placement = make(ps.value, intents.value)");
+         contains_text(cpp, "return make(ps.value, intents.value)");
 }
 
 bool C508_backbone_support_group_drives_lowered_rules() {

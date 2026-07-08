@@ -67,9 +67,14 @@ pole facingはこのcorner decisionの`node_forward`を消費し、角度や二�
 `support_world`とport位置は元の取付位置を保持する。
 LV/HVなどのcategory名自体はlowering条件にしない。
 
-ownerlessなmidair branchの取付位置は、saved edge、edge bundle、lane、port bindingから解決する。
-別bundleのportやnodeのground位置から高さを推測せず、解決できなければmutation前に`unsupported`とする。
+ownerlessなmidair branchのsource identityは、saved edge、edge bundle、lane、port bindingから特定する。
+world接続点はそのsource identityからcurrent curve projectionとして導出する派生値である。
+別bundleのportやviewer hit worldから接続点を推測せず、source identityを解決できなければmutation前に`unsupported`とする。
 `allow_midair_branch=false`のtemplateはmidair branchの生成対象にしない。
+pipeline前半(pairs/intent/groups/topo/emit/save_graph)はsource cableのcurve座標を要求しない。
+source-edge由来のownerless portをmaterializeする場合も、その`world_position`はpreview/cacheであり正本ではない。
+layout/derive段でsource identityをcurrent curve projectionへ解決し、branch endpointを現在のsource curveへ追従させる。
+viewerは後追いでsnap targetを明示し、source-edge snapではhit worldではなくsource edge/t/bundle/laneを渡す。
 
 ## post-edit update
 

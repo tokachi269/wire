@@ -54,7 +54,7 @@ EditResult<GenerateBundleFromPathResult> pipeline::build() {
   mode_ = build_mode::generation;
   EditResult<GenerateBundleFromPathResult> out{};
 
-  // Create topology and save the graph authority.
+  // Create topology and save the graph source.
   EditResult<route> made = emit_route(true, &out.value.timing);
   if (!made.ok) {
     out.error = made.error;
@@ -543,21 +543,101 @@ SavedBackboneEdgeRef ref_for_existing_edge(const CoreState& state, const graph& 
   return out;
 }
 
-std::optional<Vec3d> source_attachment_for(const CoreState& state, const node& source,
-                                           BundleKind bundle_template_id, std::size_t lane) {
+bool source_projection_binding_exists(const CoreState& state, const SourceEdgeProjectionRef& ref) {
+  if (!ref.valid()) {
+    return false;
+  }
+  const SavedBackboneEdge* edge = state.view().backbone_edge(ref.source_edge_id);
+  if (edge == nullptr || (ref.from_node_id != edge->node_a && ref.from_node_id != edge->node_b)) {
+    return false;
+  }
+  const auto edge_bundles_it = state.view().backbone_index().edge_bundles.find(ref.source_edge_id);
+  if (edge_bundles_it == state.view().backbone_index().edge_bundles.end()) {
+    return false;
+  }
+  const SavedBackboneEdgeBundle* matched = nullptr;
+  for (ObjectId edge_bundle_id : edge_bundles_it->second) {
+    const SavedBackboneEdgeBundle* candidate = state.view().backbone_edge_bundle(edge_bundle_id);
+    const Bundle* bundle = candidate == nullptr ? nullptr : state.view().bundles().find(candidate->bundle_id);
+    if (bundle == nullptr || bundle->bundle_template_id != ref.bundle_template_id) {
+      continue;
+    }
+    if (matched != nullptr) {
+      return false;
+    }
+    matched = candidate;
+  }
+  if (matched == nullptr) {
+    return false;
+  }
+
+  const SavedBackbonePortBinding* binding_a = nullptr;
+  const SavedBackbonePortBinding* binding_b = nullptr;
+  for (const SavedBackbonePortBinding* binding :
+       state.view().backbone_port_bindings_for_edge_bundle(matched->edge_bundle_id)) {
+    if (binding == nullptr || binding->lane_index != ref.lane_index) {
+      continue;
+    }
+    const bool at_a = binding->row_key.node_id == edge->node_a;
+    const bool at_b = binding->row_key.node_id == edge->node_b;
+    if ((!at_a && !at_b) || (at_a && binding_a != nullptr) || (at_b && binding_b != nullptr)) {
+      return false;
+    }
+    (at_a ? binding_a : binding_b) = binding;
+  }
+  if (binding_a == nullptr || binding_b == nullptr) {
+    return false;
+  }
+
+  const auto span_bindings_it = state.view().backbone_index().edge_bundle_span_bindings.find(matched->edge_bundle_id);
+  if (span_bindings_it == state.view().backbone_index().edge_bundle_span_bindings.end()) {
+    return false;
+  }
+  bool found_span = false;
+  for (std::size_t index : span_bindings_it->second) {
+    const SavedBackboneGraph& graph = state.view().backbone();
+    if (index >= graph.span_bindings.size()) {
+      return false;
+    }
+    if (graph.span_bindings[index].lane_index != ref.lane_index) {
+      continue;
+    }
+    if (found_span) {
+      return false;
+    }
+    found_span = true;
+  }
+  return found_span;
+}
+
+SourceEdgeProjectionRef source_projection_for(const CoreState& state, const node& source,
+                                              BundleKind bundle_template_id, std::size_t lane) {
+  SourceEdgeProjectionRef out{};
   const ObjectId source_a = saved_node_id_for(state, source.source_edge_node_a);
   const ObjectId source_b = saved_node_id_for(state, source.source_edge_node_b);
   if (!source.has_source_edge || source_a == kInvalidObjectId || source_b == kInvalidObjectId ||
       source_a == source_b) {
-    return std::nullopt;
+    return out;
   }
   const BackboneEdgeKey key{std::min(source_a, source_b), std::max(source_a, source_b)};
   const auto edge_it = state.view().backbone_index().edge_by_nodes.find(key);
   if (edge_it == state.view().backbone_index().edge_by_nodes.end()) {
+    return out;
+  }
+  out.source_edge_id = edge_it->second;
+  out.from_node_id = source_a;
+  out.bundle_template_id = bundle_template_id;
+  out.lane_index = lane;
+  out.t = source.source_edge_t;
+  return out;
+}
+
+std::optional<Vec3d> source_projection_world(const CoreState& state, const SourceEdgeProjectionRef& ref) {
+  if (!ref.valid()) {
     return std::nullopt;
   }
-  return state.view().backbone_attachment_world(edge_it->second, source_a, bundle_template_id, lane,
-                                                source.source_edge_t);
+  return state.view().backbone_attachment_world(ref.source_edge_id, ref.from_node_id,
+                                                ref.bundle_template_id, ref.lane_index, ref.t);
 }
 
 bool same_scope(const SavedBackbonePortBinding& binding, port_scope scope) {
@@ -1659,8 +1739,9 @@ EditResult<bool> pipeline::check(const pairs& ps) const {
         return failed;
       }
       for (int lane = 0; lane < v.value.count; ++lane) {
-        if (!source_attachment_for(state_, source, spec_.bundles[spec_index].bundle_template_id,
-                                   static_cast<std::size_t>(lane)).has_value()) {
+        const SourceEdgeProjectionRef ref = source_projection_for(
+            state_, source, spec_.bundles[spec_index].bundle_template_id, static_cast<std::size_t>(lane));
+        if (!source_projection_binding_exists(state_, ref)) {
           return unsupported("source edge attachment is missing");
         }
       }
@@ -2165,13 +2246,13 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
         Vec3d p{};
         if (ownerless) {
           if (g_.nodes[r.node].has_source_edge) {
-            const std::optional<Vec3d> attachment =
-                source_attachment_for(state_, g_.nodes[r.node], scope.bundle, static_cast<std::size_t>(lane));
-            if (!attachment.has_value()) {
+            const SourceEdgeProjectionRef ref =
+                source_projection_for(state_, g_.nodes[r.node], scope.bundle, static_cast<std::size_t>(lane));
+            if (!source_projection_binding_exists(state_, ref)) {
               out.error = "backbone unsupported: source edge attachment is missing";
               return out;
             }
-            p = *attachment;
+            p = g_.nodes[r.node].pos;
           } else {
             p = g_.nodes[r.node].pos;
           }
@@ -2454,11 +2535,11 @@ rules pipeline::make(const topo& made, const pairs& ps, const groups& placement)
       rule.pass_mode = CurvePassMode::kBranch;
       rule.lowering_kind = BackboneLoweringKind::kBranchSupport;
     }
-    auto endpoint = [&](ObjectId pole_id, ObjectId port_id) {
+    auto endpoint = [&](const trow& row, ObjectId port_id) {
       EndpointLayoutRule e{};
-      e.endpoint_node_id = pole_id;
+      e.endpoint_node_id = row.pole;
       e.port_id = port_id;
-      e.semantic.owner_pole_id = pole_id;
+      e.semantic.owner_pole_id = row.pole;
       e.flow_kind = BackboneFlowKind::kMain;
       e.origin = LayoutOriginKind::kMainSupport;
       e.endpoint_source = LayoutEndpointSourceKind::kPlainSupport;
@@ -2466,10 +2547,15 @@ rules pipeline::make(const topo& made, const pairs& ps, const groups& placement)
       e.side = SlotSide::kCenter;
       e.endpoint_mode = CurveEndpointMode::kDirectThrough;
       e.same_level_feasible = true;
+      if (row.node < g_.nodes.size() && g_.nodes[row.node].has_source_edge) {
+        e.source_projection = source_projection_for(
+            state_, g_.nodes[row.node], spec_.bundles[made.bundle_specs[span.bundle]].bundle_template_id,
+            span.lane);
+      }
       return e;
     };
-    rule.start = endpoint(arow.pole, arow.ports[span.bundle][span.lane]);
-    rule.end = endpoint(brow.pole, brow.ports[span.bundle][span.lane]);
+    rule.start = endpoint(arow, arow.ports[span.bundle][span.lane]);
+    rule.end = endpoint(brow, brow.ports[span.bundle][span.lane]);
     auto apply_jumper = [&](std::size_t row_id, EndpointLayoutRule* endpoint) {
       if (endpoint == nullptr) {
         return;
@@ -2577,12 +2663,26 @@ rules pipeline::make(const topo& made, const pairs& ps, const groups& placement)
 EditResult<layout> pipeline::make(const rules& made) const {
   EditResult<layout> out{};
   const EditState& edit = state_.view().edit_state();
-  auto endpoint = [&](const EndpointLayoutRule& rule, LayoutEndpoint* target) -> bool {
+  auto endpoint = [&](const EndpointLayoutRule& rule, LayoutEndpoint* target, std::string* error) -> bool {
     const Port* port = edit.ports.find(rule.port_id);
     if (port == nullptr || target == nullptr) {
+      if (error != nullptr) {
+        *error = "backbone layout: endpoint port not found";
+      }
       return false;
     }
-    ApplyEndpointLayoutRule(*target, rule, port->world_position);
+    Vec3d endpoint_world = port->world_position;
+    if (rule.source_projection.valid()) {
+      const std::optional<Vec3d> projection = source_projection_world(state_, rule.source_projection);
+      if (!projection.has_value()) {
+        if (error != nullptr) {
+          *error = "backbone layout: source edge projection missing";
+        }
+        return false;
+      }
+      endpoint_world = *projection;
+    }
+    ApplyEndpointLayoutRule(*target, rule, endpoint_world);
     return true;
   };
   for (const SpanLayoutRule& rule : made.data.spans) {
@@ -2597,8 +2697,7 @@ EditResult<layout> pipeline::make(const rules& made) const {
     entry.pass_mode = rule.pass_mode;
     entry.variation_flow_key = rule.variation_flow_key;
     entry.lowering_kind = rule.lowering_kind;
-    if (!endpoint(rule.start, &entry.start) || !endpoint(rule.end, &entry.end)) {
-      out.error = "backbone layout: endpoint port not found";
+    if (!endpoint(rule.start, &entry.start, &out.error) || !endpoint(rule.end, &entry.end, &out.error)) {
       return out;
     }
     auto append_group_key = [&](const LayoutEndpoint& endpoint) {

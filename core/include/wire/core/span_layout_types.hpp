@@ -132,10 +132,23 @@ inline void CopyLayoutSemantic(LayoutSemantic& dst, const LayoutSemantic& src) {
   dst.chosen_side_sign = src.chosen_side_sign;
 }
 
+struct SourceEdgeProjectionRef {
+  ObjectId source_edge_id = kInvalidObjectId;
+  ObjectId from_node_id = kInvalidObjectId;
+  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  std::size_t lane_index = 0;
+  double t = 0.0;
+
+  [[nodiscard]] bool valid() const noexcept {
+    return source_edge_id != kInvalidObjectId && from_node_id != kInvalidObjectId;
+  }
+};
+
 struct LayoutEndpoint : LayoutSemantic {
   ObjectId endpoint_node_id = kInvalidObjectId;
   ObjectId port_id = kInvalidObjectId;
   ObjectId jumper_peer_port_id = kInvalidObjectId;
+  SourceEdgeProjectionRef source_projection{};
   EndpointAttachmentRequest attachment_request{};
   std::optional<int> resolved_socket_id{};
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
@@ -187,6 +200,7 @@ struct EndpointLayoutRule {
   ObjectId endpoint_node_id = kInvalidObjectId;
   ObjectId port_id = kInvalidObjectId;
   ObjectId jumper_peer_port_id = kInvalidObjectId;
+  SourceEdgeProjectionRef source_projection{};
   LayoutSemantic semantic{};
   EndpointAttachmentRequest attachment_request{};
   std::optional<int> resolved_socket_id{};
@@ -222,6 +236,7 @@ inline void ApplyEndpointLayoutRule(LayoutEndpoint& dst, const EndpointLayoutRul
   dst.endpoint_node_id = rule.endpoint_node_id;
   dst.port_id = rule.port_id;
   dst.jumper_peer_port_id = rule.jumper_peer_port_id;
+  dst.source_projection = rule.source_projection;
   dst.attachment_request = rule.attachment_request;
   dst.resolved_socket_id = rule.resolved_socket_id;
   dst.flow_kind = rule.flow_kind;

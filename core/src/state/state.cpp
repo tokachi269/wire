@@ -1443,7 +1443,19 @@ EditResult<bool> CoreState::UpdateGeometrySettings(const GeometrySettings& setti
 
   EditResult<UpdatePlan> plan{};
   if (changed) {
-    plan = make_update_plan({UpdateKind::kReshape, UpdateTargetKind::kAllSpans, kInvalidObjectId});
+    bool has_source_projection_endpoint = false;
+    for (const SavedBackboneSpanBinding& binding : authoritative_.backbone.span_bindings) {
+      const SpanLayoutRulesView rules = span_layout_rules(binding.span_id);
+      if (!rules.has_rule()) {
+        continue;
+      }
+      if (rules.rule->start.source_projection.valid() || rules.rule->end.source_projection.valid()) {
+        has_source_projection_endpoint = true;
+        break;
+      }
+    }
+    plan = make_update_plan({has_source_projection_endpoint ? UpdateKind::kReposition : UpdateKind::kReshape,
+                             UpdateTargetKind::kAllSpans, kInvalidObjectId});
     if (!plan.ok) {
       result.error = plan.error;
       return result;

@@ -167,7 +167,7 @@ attachmentは参照として保持し、insulator/clampへの接続は将来の�
 `EdgeBodyCurve`は正式`CableCurve`とadaptive
 tessellationを共有する。attachmentは動かさず、boundaryはmain spanの外向き実接線を所定の水平距離まで
 延長した位置へ置く。短いspanでは水平距離をspan長の25%以下に制限する。branch自体やfixture境界は、明示的な
-fixture/lead/jumper仕様が入るまでpatchを推測しない。source-edge途中分岐のattachment位置は
+fixture/lead/jumper仕様が入るまでpatchを推測しない。source-edge途中分岐のsource projectionは
 SavedBackboneSpanBindingから解決した派生curveを評価し、port間chordで補間しない。
 
 `NodePatchCurve`と`EdgeBodyCurve`はtopology正本ではない。source node / edge / span / bundle / lane、boundary point、

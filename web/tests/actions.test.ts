@@ -4,6 +4,7 @@ import type { SceneData, WireBridge } from "../src/bridge/wire";
 import type {
   BundleTemplateInfo,
   CableTemplateInfo,
+  GenerationTiming,
   PoleTemplateInfo
 } from "../src/model";
 import { ViewerStore, type ViewerSnapshot } from "../src/store/viewer";
@@ -18,6 +19,24 @@ function current(store: ViewerStore): ViewerSnapshot {
     throw new Error("store did not emit");
   }
   return snapshot;
+}
+
+function timing(totalMs: number): GenerationTiming {
+  return {
+    prepareMs: 0.1,
+    checkMs: 0.1,
+    pairsMs: 0.1,
+    preflightMs: 0.1,
+    intentMs: 0.1,
+    supportGroupsMs: 0.1,
+    emitMs: 0.1,
+    saveGraphMs: 0.1,
+    rulesMs: 0.1,
+    layoutMs: 0.1,
+    geomMs: 0.1,
+    drawMs: 0.1,
+    totalMs
+  };
 }
 
 describe("viewer actions", () => {
@@ -86,7 +105,8 @@ describe("viewer actions", () => {
         error: "",
         generatedPoleCount: 2,
         generatedSpanCount: 1,
-        totalMs: 1.25
+        totalMs: 1.25,
+        timing: timing(1.25)
       }),
       scene: () => scene
     } as unknown as WireBridge;
@@ -127,7 +147,8 @@ describe("viewer actions", () => {
           error: "backbone unsupported: test failure",
           generatedPoleCount: 0,
           generatedSpanCount: 0,
-          totalMs: 0
+          totalMs: 0,
+          timing: timing(0)
         };
       },
       scene: () => {
@@ -718,7 +739,8 @@ describe("P1 action contracts", () => {
           error: "",
           generatedPoleCount: 1,
           generatedSpanCount: 1,
-          totalMs: 1
+          totalMs: 1,
+          timing: timing(1)
         };
       },
       scene: () => ({
@@ -762,7 +784,8 @@ describe("P1 action contracts", () => {
         error: "",
         generatedPoleCount: 2,
         generatedSpanCount: 1,
-        totalMs: 1
+        totalMs: 1,
+        timing: timing(1)
       }),
       scene: () => ({
         parts: [],

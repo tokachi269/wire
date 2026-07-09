@@ -22,6 +22,7 @@ using wire::core::BundleKind;
 using wire::core::BundleTemplateId;
 using wire::core::CoreState;
 using wire::core::CoreView;
+using wire::core::GenerationTiming;
 using wire::core::ObjectId;
 using wire::core::PickHitKind;
 using wire::core::PickResult;
@@ -30,6 +31,24 @@ using wire::core::ResolveBranchPickOptions;
 using wire::core::SpanLayer;
 using wire::core::SupportKind;
 using wire::core::Vec3d;
+
+[[nodiscard]] val generation_timing_value(const GenerationTiming& timing) {
+  val result = val::object();
+  result.set("prepareMs", timing.prepare_ms);
+  result.set("checkMs", timing.check_ms);
+  result.set("pairsMs", timing.pairs_ms);
+  result.set("preflightMs", timing.preflight_ms);
+  result.set("intentMs", timing.intent_ms);
+  result.set("supportGroupsMs", timing.support_groups_ms);
+  result.set("emitMs", timing.emit_ms);
+  result.set("saveGraphMs", timing.save_graph_ms);
+  result.set("rulesMs", timing.rules_ms);
+  result.set("layoutMs", timing.layout_ms);
+  result.set("geomMs", timing.geom_ms);
+  result.set("drawMs", timing.draw_ms);
+  result.set("totalMs", timing.total_ms);
+  return result;
+}
 
 [[nodiscard]] val result_value(bool ok, const std::string& error) {
   val result = val::object();
@@ -105,6 +124,7 @@ public:
     result.set("generatedPoleCount", generated.value.generated_pole_ids.size());
     result.set("generatedSpanCount", generated.value.generated_span_ids.size());
     result.set("totalMs", generated.value.timing.total_ms);
+    result.set("timing", generation_timing_value(generated.value.timing));
     return result;
   }
 

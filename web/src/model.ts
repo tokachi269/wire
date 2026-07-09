@@ -1,9 +1,26 @@
+export interface GenerationTiming {
+  prepareMs: number;
+  checkMs: number;
+  pairsMs: number;
+  preflightMs: number;
+  intentMs: number;
+  supportGroupsMs: number;
+  emitMs: number;
+  saveGraphMs: number;
+  rulesMs: number;
+  layoutMs: number;
+  geomMs: number;
+  drawMs: number;
+  totalMs: number;
+}
+
 export interface EditResult {
   ok: boolean;
   error: string;
   generatedPoleCount: number;
   generatedSpanCount: number;
   totalMs: number;
+  timing: GenerationTiming;
 }
 
 export interface OperationResult {

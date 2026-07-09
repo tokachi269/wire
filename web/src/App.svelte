@@ -5,6 +5,8 @@
   import Templates from "./panels/Templates.svelte";
   import Outliner from "./panels/Outliner.svelte";
   import SelectionInspector from "./panels/SelectionInspector.svelte";
+  import { buildInfo } from "./buildInfo";
+  import type { GenerationTiming } from "./model";
   import {
     createViewerSnapshot,
     type ViewerSnapshot,
@@ -28,6 +30,40 @@
         checked: boolean | null;
       }
     | null = null;
+
+  const generationTimingRows: Array<[string, keyof GenerationTiming]> = [
+    ["prepare", "prepareMs"],
+    ["check", "checkMs"],
+    ["pairs", "pairsMs"],
+    ["preflight", "preflightMs"],
+    ["intent", "intentMs"],
+    ["support groups", "supportGroupsMs"],
+    ["emit", "emitMs"],
+    ["save graph", "saveGraphMs"],
+    ["rules", "rulesMs"],
+    ["layout", "layoutMs"],
+    ["geom", "geomMs"],
+    ["draw", "drawMs"],
+    ["total", "totalMs"]
+  ];
+
+  function formatMs(value: number | null | undefined): string {
+    return value === null || value === undefined || !Number.isFinite(value)
+      ? "—"
+      : `${value.toFixed(2)} ms`;
+  }
+
+  function formatBuildTime(value: string): string {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  }
+
+  function overheadMs(total: number | null, core: number | null): number | null {
+    if (total === null || core === null) {
+      return null;
+    }
+    return Math.max(0, total - core);
+  }
 
   function beginResize(side: "left" | "right", event: PointerEvent): void {
     event.preventDefault();
@@ -285,14 +321,50 @@
     <aside>
       <span>parts <strong>{snapshot.parts.length}</strong></span>
       <span>poles <strong>{snapshot.poles.length}</strong></span>
-      <span>
+      <button class="metric metric-button" type="button" aria-label="generation timing details">
         generation
-        <strong>{snapshot.generationMs === null ? "—" : `${snapshot.generationMs.toFixed(2)} ms`}</strong>
-      </span>
-      <span>
+        <strong>{formatMs(snapshot.generationMs)}</strong>
+        <span class="metric-tooltip" role="tooltip">
+          <strong>core pipeline</strong>
+          {#if snapshot.generationTiming}
+            <span class="metric-grid">
+              {#each generationTimingRows as [label, key]}
+                <span>{label}</span>
+                <strong>{formatMs(snapshot.generationTiming[key])}</strong>
+              {/each}
+            </span>
+            <span class="metric-line">
+              <span>wasm call</span>
+              <strong>{formatMs(snapshot.generationCallMs)}</strong>
+            </span>
+            <span class="metric-line">
+              <span>js/wasm overhead</span>
+              <strong>{formatMs(overheadMs(snapshot.generationCallMs, snapshot.generationMs))}</strong>
+            </span>
+          {:else}
+            <em>no generation yet</em>
+          {/if}
+        </span>
+      </button>
+      <button class="metric metric-button" type="button" aria-label="scene update timing details">
         scene update
-        <strong>{snapshot.sceneUpdateMs === null ? "—" : `${snapshot.sceneUpdateMs.toFixed(2)} ms`}</strong>
-      </span>
+        <strong>{formatMs(snapshot.sceneUpdateMs)}</strong>
+        <span class="metric-tooltip" role="tooltip">
+          <strong>viewer / wasm</strong>
+          <span class="metric-line">
+            <span>scene read + store</span>
+            <strong>{formatMs(snapshot.sceneUpdateMs)}</strong>
+          </span>
+          <span class="metric-line">
+            <span>generate action total</span>
+            <strong>{formatMs(snapshot.viewerUpdateMs)}</strong>
+          </span>
+          <span class="metric-line">
+            <span>core reported</span>
+            <strong>{formatMs(snapshot.generationMs)}</strong>
+          </span>
+        </span>
+      </button>
       <span>
         interaction frames
         <strong>
@@ -301,6 +373,25 @@
             : `${snapshot.lastInteractionFrames.longFrameCount}/${snapshot.lastInteractionFrames.sampleCount} long · max ${snapshot.lastInteractionFrames.maxFrameMs.toFixed(1)} ms`}
         </strong>
       </span>
+      <button class="metric metric-button build" type="button" aria-label="build identity details">
+        build
+        <strong>{buildInfo.commit}</strong>
+        <span class="metric-tooltip" role="tooltip">
+          <strong>deployed build</strong>
+          <span class="metric-line">
+            <span>commit</span>
+            <strong>{buildInfo.commit}</strong>
+          </span>
+          <span class="metric-line">
+            <span>built</span>
+            <strong>{formatBuildTime(buildInfo.builtAt)}</strong>
+          </span>
+          <span class="metric-line">
+            <span>web</span>
+            <strong>v{buildInfo.packageVersion}</strong>
+          </span>
+        </span>
+      </button>
     </aside>
 
     {#if snapshot.error}

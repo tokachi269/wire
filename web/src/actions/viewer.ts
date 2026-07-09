@@ -738,7 +738,6 @@ export class ViewerActions {
   }
 
   private generatePoints(points: WorldPoint[]): void {
-    const actionStart = performance.now();
     const before = this.readSnapshot();
     const selectedBundleTemplateIds = before.selectedDrawBundleTemplateIds;
     const bundleTemplates: BundleTemplateInfo[] = before.bundleTemplates;
@@ -767,6 +766,7 @@ export class ViewerActions {
         nodeId: spec.nodeId
       })
       .filter((spec): spec is { pointIndex: number; supportKind: number; nodeId: string } => spec !== null);
+    const generateStart = performance.now();
     const result = this.bridge.generate(
       flatPoints,
       selectedTemplates.map((template) => template!.id),
@@ -781,11 +781,13 @@ export class ViewerActions {
       before.maxTiltDeg,
       nodeSpecs
     );
+    const generateEnd = performance.now();
     if (!result.ok) {
       this.store.setError(result.error);
       return;
     }
 
+    const sceneStart = performance.now();
     const scene = this.bridge.scene();
     this.store.update((current) => ({
       ...current,
@@ -797,16 +799,20 @@ export class ViewerActions {
       backboneEdges: scene.backboneEdges,
       error: "",
       generationMs: result.totalMs,
+      generationTiming: result.timing,
+      generationCallMs: generateEnd - generateStart,
       pathPoints: before.keepPathAfterGenerate ? points : [],
       pathPointSpecs: before.keepPathAfterGenerate ? before.pathPointSpecs : [],
       showBackboneOverlay: true,
       bundleTemplates,
       selectedDrawBundleTemplateIds: selectedBundleTemplateIds
     }));
-    const sceneUpdateMs = performance.now() - actionStart;
+    const sceneUpdateMs = performance.now() - sceneStart;
+    const viewerUpdateMs = performance.now() - generateStart;
     this.store.update((current) => ({
       ...current,
       sceneUpdateMs,
+      viewerUpdateMs,
       logs: [
         ...current.logs,
         `route generated: ${result.generatedPoleCount} poles / ${result.generatedSpanCount} spans`

@@ -3,6 +3,7 @@ import type {
   BundleTemplateInfo,
   CableTemplateInfo,
   BackboneEdgeInfo,
+  GenerationTiming,
   GeometrySettings,
   LayoutSettings,
   PoleInfo,
@@ -36,7 +37,10 @@ export interface ViewerSnapshot {
   backboneEdges: BackboneEdgeInfo[];
   error: string;
   generationMs: number | null;
+  generationTiming: GenerationTiming | null;
+  generationCallMs: number | null;
   sceneUpdateMs: number | null;
+  viewerUpdateMs: number | null;
   pathPoints: WorldPoint[];
   pathPointSpecs: Array<PathPointSpec | null>;
   bundleTemplates: BundleTemplateInfo[];
@@ -92,7 +96,10 @@ export function createViewerSnapshot(): ViewerSnapshot {
     backboneEdges: [],
     error: "",
     generationMs: null,
+    generationTiming: null,
+    generationCallMs: null,
     sceneUpdateMs: null,
+    viewerUpdateMs: null,
     pathPoints: [],
     pathPointSpecs: [],
     bundleTemplates: [],

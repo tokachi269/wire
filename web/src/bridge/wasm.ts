@@ -36,10 +36,6 @@ export interface WireStateHandle {
     input: PathPickInfo,
     selectedBundleTemplateIds: number[]
   ): ResolvedPathPointInfo;
-  previewBranchPick(
-    input: PathPickInfo,
-    selectedBundleTemplateIds: number[]
-  ): ResolvedPathPointInfo;
   visualPartCount(): number;
   visualPart(index: number): VisualPartInfo;
   visualPartSamples(index: number): Float64Array;

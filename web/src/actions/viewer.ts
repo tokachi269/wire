@@ -231,11 +231,6 @@ export class ViewerActions {
     }));
   }
 
-  previewPathPick(pick: PathPickInfo): WorldPoint | null {
-    const resolved = this.bridge.previewBranchPick(pick, this.readSnapshot().selectedDrawBundleTemplateIds);
-    return resolved.ok ? [resolved.positionX, resolved.positionY, resolved.positionZ] : null;
-  }
-
   addPathPoint(point: WorldPoint, pick?: PathPickInfo): void {
     let nextPoint = point;
     let nextSpec: PathPointSpec | null = null;

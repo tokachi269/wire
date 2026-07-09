@@ -125,7 +125,7 @@ public:
     return result;
   }
 
-  val resolve_branch_pick_impl(const val& input, const val& selected_bundle_template_ids, bool create_midair_node) {
+  val resolve_branch_pick(const val& input, const val& selected_bundle_template_ids) {
     PickResult pick{};
     pick.hit_kind = static_cast<PickHitKind>(property<int>(input, "hitKind"));
     const std::string hit_id = property<std::string>(input, "hitId");
@@ -158,7 +158,7 @@ public:
     };
 
     ResolveBranchPickOptions options{};
-    options.create_midair_node = create_midair_node;
+    options.create_midair_node = true;
     options.create_midair_node_set = true;
     const std::size_t selected_count = selected_bundle_template_ids["length"].as<std::size_t>();
     options.selected_bundle_template_ids.reserve(selected_count);
@@ -176,13 +176,7 @@ public:
     return output;
   }
 
-  val resolve_branch_pick(const val& input, const val& selected_bundle_template_ids) {
-    return resolve_branch_pick_impl(input, selected_bundle_template_ids, true);
-  }
 
-  val preview_branch_pick(const val& input, const val& selected_bundle_template_ids) {
-    return resolve_branch_pick_impl(input, selected_bundle_template_ids, false);
-  }
 
   [[nodiscard]] std::size_t visual_part_count() const {
     return state_->visual_curve_parts().parts.size();
@@ -781,7 +775,6 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .constructor<>()
       .function("generate", &WireState::generate)
       .function("resolveBranchPick", &WireState::resolve_branch_pick)
-      .function("previewBranchPick", &WireState::preview_branch_pick)
       .function("visualPartCount", &WireState::visual_part_count)
       .function("visualPart", &WireState::visual_part)
       .function("visualPartSamples", &WireState::visual_part_samples)

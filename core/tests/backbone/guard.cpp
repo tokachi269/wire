@@ -947,7 +947,8 @@ bool C568_backbone_source_edge_midair_branch_uses_source_curve_projection() {
   resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId ||
-      !almost_equal(resolved.value.position, *expected, 1e-9)) {
+      !almost_equal(resolved.value.position.z, 0.0, 1e-9) ||
+      almost_equal(resolved.value.position, *expected, 1e-9)) {
     return false;
   }
 
@@ -971,7 +972,7 @@ bool C568_backbone_source_edge_midair_branch_uses_source_curve_projection() {
                                            return saved.pole_id == wire::core::kInvalidObjectId &&
                                                   saved.has_source_edge;
                                          });
-  if (saved_midair == graph.nodes.end()) {
+  if (saved_midair == graph.nodes.end() || !almost_equal(saved_midair->position.z, 0.0, 1e-9)) {
     return false;
   }
 
@@ -991,7 +992,7 @@ bool C568_backbone_source_edge_midair_branch_uses_source_curve_projection() {
     const wire::core::LayoutEndpoint& endpoint = start_ownerless ? layout.entry->start : layout.entry->end;
     const wire::core::Port* ownerless_port = start_ownerless ? a : b;
     if ((start_ownerless || end_ownerless) && !endpoint.default_lower_required && !endpoint.lower_required &&
-        almost_equal(ownerless_port->world_position, *expected, 1e-9) &&
+        almost_equal(ownerless_port->world_position.z, 0.0, 1e-9) &&
         almost_equal(endpoint.endpoint_world, *expected, 1e-9)) {
       return true;
     }
@@ -1025,7 +1026,8 @@ bool C718_viewer_hit_world_height_is_not_source_edge_branch_authority() {
   resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || almost_equal(resolved.value.position.z, pick.hit_pos_world.z, 1e-9) ||
-      !almost_equal(resolved.value.position, *expected, 1e-9)) {
+      !almost_equal(resolved.value.position.z, 0.0, 1e-9) ||
+      almost_equal(resolved.value.position, *expected, 1e-9)) {
     return false;
   }
 
@@ -1041,9 +1043,24 @@ bool C718_viewer_hit_world_height_is_not_source_edge_branch_authority() {
     return false;
   }
   const wire::core::SavedBackboneGraph& graph = state.view().backbone();
-  return std::any_of(graph.nodes.begin(), graph.nodes.end(), [](const wire::core::SavedBackboneNode& saved) {
-    return saved.pole_id == wire::core::kInvalidObjectId && saved.has_source_edge;
+  const bool saved_source = std::any_of(graph.nodes.begin(), graph.nodes.end(), [](const wire::core::SavedBackboneNode& saved) {
+    return saved.pole_id == wire::core::kInvalidObjectId && saved.has_source_edge &&
+           almost_equal(saved.position.z, 0.0, 1e-9);
   });
+  if (!saved_source) {
+    return false;
+  }
+  for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
+    const auto layout = state.span_layout(span_id);
+    if (!layout.has_layout()) {
+      return false;
+    }
+    if (almost_equal(layout.entry->start.endpoint_world, *expected, 1e-9) ||
+        almost_equal(layout.entry->end.endpoint_world, *expected, 1e-9)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 bool C719_source_edge_branch_endpoint_follows_current_curve_projection() {

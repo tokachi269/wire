@@ -73,13 +73,6 @@ export class WireBridge {
     return this.state.resolveBranchPick(input, selectedBundleTemplateIds);
   }
 
-  previewBranchPick(
-    input: PathPickInfo,
-    selectedBundleTemplateIds: number[]
-  ): ResolvedPathPointInfo {
-    return this.state.previewBranchPick(input, selectedBundleTemplateIds);
-  }
-
   bundleTemplates(): BundleTemplateInfo[] {
     const templates: BundleTemplateInfo[] = [];
     for (let index = 0; index < this.state.bundleTemplateCount(); index += 1) {

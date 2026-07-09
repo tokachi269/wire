@@ -627,6 +627,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
       branch_position.z = pa->world_position.z + (pb->world_position.z - pa->world_position.z) * t;
     }
   } else if (has_endpoints) {
+    branch_position.z = endpoint_a.z + (endpoint_b.z - endpoint_a.z) * source_edge_t;
     bool resolved_attachment = false;
     const BackboneEdgeKey key{std::min(node_a_id, node_b_id), std::max(node_a_id, node_b_id)};
     const auto edge_it = runtime_.backbone_index.edge_by_nodes.find(key);
@@ -640,7 +641,6 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
         if (!attachment.has_value()) {
           continue;
         }
-        branch_position = *attachment;
         resolved_attachment = true;
         break;
       }
@@ -649,9 +649,7 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
         return result;
       }
     }
-    if (!resolved_attachment) {
-      branch_position.z = endpoint_a.z + (endpoint_b.z - endpoint_a.z) * source_edge_t;
-    }
+
   }
   if (has_endpoints && options.snap_radius_world > 0.0) {
     const double snap_r2 = options.snap_radius_world * options.snap_radius_world;

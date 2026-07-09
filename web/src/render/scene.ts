@@ -69,7 +69,6 @@ export class WireScene {
   constructor(
     private readonly store: ViewerStore,
     private readonly onGroundClick: (point: WorldPoint, pick?: PathPickInfo) => void,
-    private readonly onPreviewPathPick: (pick: PathPickInfo) => WorldPoint | null,
     private readonly onContextAction: () => void,
     private readonly onFrame: (deltaMs: number) => void
   ) {
@@ -573,8 +572,7 @@ export class WireScene {
     const hit = this.pickBackbonePoint(ray);
     if (hit === null) return;
 
-    const preview = this.onPreviewPathPick(hit.pick) ?? hit.point;
-    const point = new THREE.Vector3(preview[0], preview[1], preview[2] + 0.08);
+    const point = new THREE.Vector3(hit.point[0], hit.point[1], hit.point[2] + 0.08);
     const ring = new THREE.Mesh(
       new THREE.TorusGeometry(0.28, 0.018, 8, 32),
       new THREE.MeshBasicMaterial({

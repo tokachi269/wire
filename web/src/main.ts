@@ -18,7 +18,6 @@ actions.initialize();
 const scene = new WireScene(
   store,
   (point, pick) => actions.addPathPoint(point, pick),
-  (pick) => actions.previewPathPick(pick),
   () => actions.undoPathPointOrClearSelection(),
   (deltaMs) => actions.recordFrame(deltaMs)
 );

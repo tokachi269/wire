@@ -50,12 +50,17 @@ void write_route_result(EditResult<GenerateBundleFromPathResult>* out, ChangeSet
 
 } // namespace
 
-EditResult<GenerateBundleFromPathResult> pipeline::build() {
-  mode_ = build_mode::generation;
-  EditResult<GenerateBundleFromPathResult> out{};
+EditResult<GenerateBundleFromPathResult> pipeline::run(run_input input) {
+  g_ = std::move(input.made);
+  active_bundle_indices_ = std::move(input.active_bundle_indices);
+  local_by_input_ = std::move(input.local_by_input);
+  template_overrides_ = std::move(input.template_overrides);
+  mode_ = input.mode;
+  ready_ = input.ready;
 
-  // Create topology and save the graph source.
-  EditResult<route> made = emit_route(true, &out.value.timing);
+  EditResult<GenerateBundleFromPathResult> out{};
+  GenerationTiming* timing = input.timing == nullptr ? &out.value.timing : input.timing;
+  EditResult<route> made = emit_route(input.run_preflight, timing);
   if (!made.ok) {
     out.error = made.error;
     return out;
@@ -65,45 +70,40 @@ EditResult<GenerateBundleFromPathResult> pipeline::build() {
     return out;
   }
 
-  // Derive rules, layout, curves, and draw caches.
-  EditResult<bool> derived = save_derived(made.value, &out.value.timing);
+  EditResult<bool> derived = save_derived(made.value, timing);
   if (!derived.ok) {
     out.error = derived.error;
     return out;
   }
-  write_route_result(&out, std::move(made.value.change_set), std::move(made.value.made), true);
+  write_route_result(&out, std::move(made.value.change_set), std::move(made.value.made), input.include_new_poles);
   out.ok = true;
   return out;
 }
 
-EditResult<GenerateBundleFromPathResult> pipeline::build_prepared_regenerate(
-    graph made_graph, std::vector<std::size_t> active_bundle_indices,
-    std::vector<BundleTemplate> template_overrides) {
-  EditResult<GenerateBundleFromPathResult> out{};
-  g_ = std::move(made_graph);
-  active_bundle_indices_ = std::move(active_bundle_indices);
-  template_overrides_ = std::move(template_overrides);
-  local_by_input_.clear();
-  mode_ = build_mode::regenerate;
-  ready_ = true;
+pipeline::run_input pipeline::make_run_input_from_spec() const {
+  run_input input{};
+  input.made = g_;
+  input.active_bundle_indices = active_bundle_indices_;
+  input.local_by_input = local_by_input_;
+  input.mode = run_mode::generation;
+  input.ready = ready_;
+  input.run_preflight = true;
+  input.include_new_poles = true;
+  return input;
+}
 
-  // Replay the prepared graph through topology.
-  EditResult<route> made = emit_route(false, nullptr);
-  if (!made.ok) {
-    out.error = made.error;
-    return out;
-  }
-  if (made.value.active) {
-    // Derive rules, layout, curves, and draw caches.
-    EditResult<bool> derived = save_derived(made.value, nullptr);
-    if (!derived.ok) {
-      out.error = derived.error;
-      return out;
-    }
-    write_route_result(&out, std::move(made.value.change_set), std::move(made.value.made), false);
-  }
-  out.ok = true;
-  return out;
+pipeline::run_input pipeline::make_run_input_from_saved_scope(
+    graph made_graph, std::vector<std::size_t> active_bundle_indices,
+    std::vector<BundleTemplate> template_overrides) const {
+  run_input input{};
+  input.made = std::move(made_graph);
+  input.active_bundle_indices = std::move(active_bundle_indices);
+  input.template_overrides = std::move(template_overrides);
+  input.mode = run_mode::saved_scope;
+  input.ready = true;
+  input.run_preflight = false;
+  input.include_new_poles = false;
+  return input;
 }
 
 EditResult<pipeline::route> pipeline::emit_route(bool run_preflight, GenerationTiming* timing) {
@@ -2270,7 +2270,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
           return out;
         }
         if (resolved.value != kInvalidObjectId) {
-          if (mode_ == build_mode::regenerate) {
+          if (mode_ == run_mode::saved_scope) {
             Port* existing_port = state_.edit_state_access().ports.find(resolved.value);
             if (existing_port == nullptr) {
               out.error = "backbone topology: resolved port missing";
@@ -2388,7 +2388,7 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
     const ObjectId source_b = saved_node_id_for(state_, g_.nodes[i].source_edge_node_b);
     if (g_.nodes[i].saved != kInvalidObjectId) {
       node_id_by_local[i] = g_.nodes[i].saved;
-      if (mode_ == build_mode::generation && g_.nodes[i].on_route && i < path_index_by_local.size()) {
+      if (mode_ == run_mode::generation && g_.nodes[i].on_route && i < path_index_by_local.size()) {
         EditResult<bool> indexed =
             state_.bind_backbone_node_path_point_index(node_id_by_local[i], path_index_by_local[i]);
         if (!indexed.ok) {

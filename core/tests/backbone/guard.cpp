@@ -542,6 +542,32 @@ bool C522_backbone_supported_scope_is_documented() {
          contains_text(text, "v1") && contains_text(text, "fallback");
 }
 
+bool C736_unsupported_hold_docs_do_not_restore_supported_backbone_updates() {
+  std::string viewer{};
+  std::string readiness{};
+  if (!file_text(repo_root() / "docs" / "viewer_operations.md", &viewer) ||
+      !file_text(repo_root() / "docs" / "merge_readiness.md", &readiness)) {
+    return false;
+  }
+  const std::vector<std::string> stale_viewer_phrases{
+      "backbone span \xE3\x81\xAF\x20\x75\x6E\x73\x75\x70\x70\x6F\x72\x74\x65\x64",
+      "active backbone \xE4\xBD\xBF\xE7\x94\xA8\xE6\x99\x82\xE3\x81\xAF\x20\x75\x6E\x73\x75\x70\x70\x6F\x72\x74\x65\x64",
+      "\x64\x65\x63\x69\x73\x69\x6F\x6E\x20\xE5\xB7\xAE\xE5\x88\x86\xE3\x81\xAF\x20\x75\x6E\x73\x75\x70\x70\x6F\x72\x74\x65\x64\x20\xE3\x82\x92\xE8\xA1\xA8\xE7\xA4\xBA\xE3\x81\x99\xE3\x82\x8B",
+  };
+  for (const std::string& phrase : stale_viewer_phrases) {
+    if (contains_text(viewer, phrase)) {
+      return false;
+    }
+  }
+  return !contains_text(readiness, "| `UpdateLayoutSettings` |") &&
+         !contains_text(readiness, "| `SetSpanEndpointSocketOverride`") &&
+         !contains_text(readiness, "| `SetSpanBranchDownOffsetOverride`") &&
+         contains_text(readiness, "\x72\x61\x6E\x67\x65\xE5\x8C\x96\x3A") &&
+         contains_text(readiness, "\x62\x75\x6E\x64\x6C\x65\x20\x70\x6F\x6C\x69\x63\x79\xE5\xA4\x89\xE6\x9B\xB4\x3A") &&
+         contains_text(readiness, "\xE6\x97\xA2\xE3\x81\xAB\xE4\xBF\x9D\xE7\x95\x99\xE3\x81\x8B\xE3\x82\x89\xE5\xA4\x96\xE3\x81\x97\xE3\x81\x9F\xE3\x82\x82\xE3\x81\xAE") &&
+         contains_text(readiness, "`UpdateLayoutSettings`");
+}
+
 bool C523_backbone_scope_gate_matches_entrypoint() {
   const std::filesystem::path entry = repo_root() / "core" / "src" / "generation" / "generate_from_backbone.cpp";
   const std::filesystem::path backbone = repo_root() / "core" / "src" / "generation" / "backbone" / "pipeline.cpp";
@@ -553,7 +579,7 @@ bool C523_backbone_scope_gate_matches_entrypoint() {
   const bool entry_uses_backbone = contains_text(entry_text, "generation::backbone::pipeline") &&
                               contains_text(entry_text, "pipeline.prepare()") &&
                               contains_text(entry_text, "pipeline.check()") &&
-                              contains_text(entry_text, "pipeline.build()");
+                              contains_text(entry_text, "pipeline.run(pipeline.make_run_input_from_spec())");
   const std::size_t route_pos = backbone_text.find("EditResult<pipeline::route> pipeline::emit_route");
   const std::size_t check_call = backbone_text.find("return check(ps.value)", route_pos);
   const std::size_t intent_call = backbone_text.find("return make(ps.value)", route_pos);

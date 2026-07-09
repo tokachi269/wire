@@ -187,19 +187,32 @@ class pipeline {
 public:
   pipeline(CoreState& state, const BackboneSpec& spec) : state_(state), spec_(spec) {}
 
-  [[nodiscard]] EditResult<bool> prepare();
-  [[nodiscard]] EditResult<bool> check() const;
-  [[nodiscard]] EditResult<GenerateBundleFromPathResult> build();
-  [[nodiscard]] EditResult<GenerateBundleFromPathResult> build_prepared_regenerate(
-      graph made, std::vector<std::size_t> active_bundle_indices,
-      std::vector<BundleTemplate> template_overrides = {});
-
-private:
-  enum class build_mode {
+  enum class run_mode {
     generation,
-    regenerate,
+    saved_scope,
   };
 
+  struct run_input {
+    graph made{};
+    std::vector<std::size_t> active_bundle_indices{};
+    std::vector<std::size_t> local_by_input{};
+    std::vector<BundleTemplate> template_overrides{};
+    run_mode mode = run_mode::generation;
+    bool ready = false;
+    bool run_preflight = true;
+    bool include_new_poles = true;
+    GenerationTiming* timing = nullptr;
+  };
+
+  [[nodiscard]] EditResult<bool> prepare();
+  [[nodiscard]] EditResult<bool> check() const;
+  [[nodiscard]] run_input make_run_input_from_spec() const;
+  [[nodiscard]] run_input make_run_input_from_saved_scope(
+      graph made, std::vector<std::size_t> active_bundle_indices,
+      std::vector<BundleTemplate> template_overrides = {}) const;
+  [[nodiscard]] EditResult<GenerateBundleFromPathResult> run(run_input input);
+
+private:
   struct route {
     bool active = false;
     ChangeSet change_set{};
@@ -234,7 +247,7 @@ private:
   CoreState& state_;
   const BackboneSpec& spec_;
   bool ready_ = false;
-  build_mode mode_ = build_mode::generation;
+  run_mode mode_ = run_mode::generation;
   graph g_{};
   std::vector<std::size_t> active_bundle_indices_{};
   std::vector<std::size_t> local_by_input_{};

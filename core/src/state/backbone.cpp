@@ -635,12 +635,25 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
     const double db2 = sqr_dist(pick.hit_pos_world, endpoint_b);
     if ((da2 <= snap_r2 && node_a_id != kInvalidObjectId) || (db2 <= snap_r2 && node_b_id != kInvalidObjectId)) {
       const bool use_a = (da2 <= db2);
+      ObjectId resolved_node_id = use_a ? node_a_id : node_b_id;
+      SupportKind resolved_kind = SupportKind::kPole;
+      Vec3d resolved_position = use_a ? endpoint_a : endpoint_b;
+      (void)resolve_node_info(resolved_node_id, &resolved_kind, &resolved_position);
+      const auto saved_it = std::find_if(authoritative_.backbone.nodes.begin(), authoritative_.backbone.nodes.end(),
+                                         [&](const SavedBackboneNode& node) {
+                                           return node.node_id == resolved_node_id &&
+                                                  node.pole_id != kInvalidObjectId &&
+                                                  resolved_kind == SupportKind::kPole;
+                                         });
+      if (saved_it != authoritative_.backbone.nodes.end()) {
+        resolved_node_id = saved_it->pole_id;
+        resolved_position = saved_it->position;
+      }
       result.value.resolution = PickBranchResolutionKind::kNode;
-      result.value.resolved_node_id = use_a ? node_a_id : node_b_id;
-      result.value.position = use_a ? endpoint_a : endpoint_b;
-      result.value.support_kind = SupportKind::kPole;
+      result.value.resolved_node_id = resolved_node_id;
+      result.value.position = resolved_position;
+      result.value.support_kind = resolved_kind;
       result.value.snapped_from_segment_endpoint = true;
-      (void)resolve_node_info(result.value.resolved_node_id, &result.value.support_kind, &result.value.position);
       result.ok = true;
       return result;
     }

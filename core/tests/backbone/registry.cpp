@@ -862,6 +862,12 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C735_bundle_template_id_source_guard",
                          "source guard rejects BundleKind as bundle template identity",
                          "Boundary", false, C735_bundle_template_id_source_guard);
+  test_registry::AddTest(tests, "C736_unsupported_hold_docs_do_not_restore_supported_backbone_updates",
+                         "source guard keeps supported backbone updates out of the unsupported hold list",
+                         "Boundary", false, C736_unsupported_hold_docs_do_not_restore_supported_backbone_updates);
+  test_registry::AddTest(tests, "C737_backbone_overlay_edge_endpoint_snap_returns_pole_node_spec_id",
+                         "backbone overlay edge endpoint snap returns a node id usable by GenerateFromBackboneSpec",
+                         "Boundary", false, C737_backbone_overlay_edge_endpoint_snap_returns_pole_node_spec_id);
   test_registry::AddTest(tests, "C691_cable_run_id_connects_through_sections",
                          "cable run id connects through base edge bodies and their node patch",
                          "Invariant", false, C691_cable_run_id_connects_through_sections);
@@ -986,6 +992,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "backbone cable decision updates regenerate and match fresh output",
                          "Invariant", false,
                          C712_backbone_regenerate_cable_decision_matches_fresh);
+  test_registry::AddTest(tests, "C738_cable_default_endpoint_attachment_change_rejects_before_mutation",
+                         "cable default endpoint attachment changes reject before mutation on existing backbone spans",
+                         "Boundary", false,
+                         C738_cable_default_endpoint_attachment_change_rejects_before_mutation);
   test_registry::AddTest(tests, "C713_backbone_regenerate_pole_type_structure_matches_fresh",
                          "backbone pole type structural updates regenerate and match fresh output",
                          "Invariant", false,
@@ -1000,12 +1010,15 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C716_backbone_span_socket_override_regenerates",
                          "backbone span endpoint socket override regenerates span layout",
                          "Invariant", false, C716_backbone_span_socket_override_regenerates);
+  test_registry::AddTest(tests, "C739_span_override_keeps_unrelated_route_outputs_unchanged",
+                         "span override regenerate keeps unrelated route outputs unchanged",
+                         "Invariant", false, C739_span_override_keeps_unrelated_route_outputs_unchanged);
   test_registry::AddTest(tests, "C717_backbone_layout_settings_regenerate_matches_fresh",
                          "backbone layout settings regenerate and match fresh generation",
                          "Invariant", false, C717_backbone_layout_settings_regenerate_matches_fresh);
-  test_registry::AddTest(tests, "C727_backbone_regenerate_entry_is_prepared_graph_adapter",
-                         "backbone regenerate entry is a prepared graph adapter for shared stages",
-                         "Boundary", false, C727_backbone_regenerate_entry_is_prepared_graph_adapter);
+  test_registry::AddTest(tests, "C727_backbone_pipeline_execution_entry_is_run_input",
+                         "pipeline execution entry is run(run_input) only",
+                         "Boundary", false, C727_backbone_pipeline_execution_entry_is_run_input);
   test_registry::AddTest(tests, "C728_backbone_regenerate_mode_only_updates_existing_ports",
                          "backbone regenerate mode only updates existing reusable ports",
                          "Boundary", false, C728_backbone_regenerate_mode_only_updates_existing_ports);

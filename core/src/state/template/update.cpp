@@ -394,6 +394,12 @@ EditResult<bool> TemplateMutationService::UpdateCableTemplate(CoreState& state, 
       }
     }
   }
+  const bool endpoint_attachment_change =
+      normalized.default_endpoint_attachment_template_id != it->second.default_endpoint_attachment_template_id;
+  if (endpoint_attachment_change && !ordered_target_span_ids.empty()) {
+    result.error = "backbone unsupported: default endpoint attachment changes are not consumed by regenerate";
+    return result;
+  }
   if (decision_change && !ordered_target_span_ids.empty()) {
     for (ObjectId span_id : ordered_target_span_ids) {
       if (state.runtime_.backbone_index.span_edge_bundle.find(span_id) ==

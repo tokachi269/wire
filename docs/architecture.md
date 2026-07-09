@@ -79,11 +79,21 @@ viewerは後追いでsnap targetを明示し、source-edge snapではhit world�
 
 ## pipeline regenerate entry
 
-`pipeline::build_prepared_regenerate` は第2 pipelineではなく、prepared graphを共通stageへ渡す入口 adapter とする。
-保存済み backbone identity から復元した graph を受け取り、`build_mode::regenerate` を設定したうえで、通常生成と同じ `emit_route(false)` と `save_derived()` を通す。
+backbone pipeline の実行入口は `run(run_input)` だけである。通常生成と saved-scope 再生成は pipeline の別実装ではなく、
+`run_input` の違いだけである。regenerate は CoreState の post-edit operation 側の概念であり、
+pipeline stage の概念ではない。
+
+`run_input` は graph、active bundle scope、template override、local path mapping、実行modeを明示的に持つ。
+通常生成は `prepare` 済み graph から `make_run_input_from_spec` で入力を作り、saved-scope 再生成は
+保存済み backbone identity から復元した graph を `make_run_input_from_saved_scope` で入力にする。
+`run()` 実行時点では、graph / scope / mode は `run_input` が運ぶ。
+ただし `prepare()` はまだ pipeline member に graph を構築する既存構造を残している。
+次段階で必要なら、`prepare()` 自体を `run_input` 生成器へ寄せる。
+`run` は pairs -> intent -> groups -> topo/emit -> save_graph -> rules -> layout -> geom -> draw の共通stage列を通す。
 adapter は pair / emit / rules / layout / geom / draw の判断を持たない。
-`build_mode::regenerate` の分岐は、共有 emit stage 内で saved identity を再利用し、manual でない既存 port を更新する範囲に限定する。
+`run_mode::saved_scope` の分岐は、共有 emit stage 内で saved identity を再利用し、manual でない既存 port を更新する範囲に限定する。
 operation 固有の差分は post-edit API と `regenerate_backbone_edge_bundles` 側に留め、pipeline へ別stageや専用fallbackとして持ち込まない。
+
 ## post-edit update
 
 更新分類は次の4種類だけとする。
@@ -111,7 +121,7 @@ regenerate は各 post-edit API が編集差分を添えて統一入口を直接
 group offset を再構成する。3点以上routeのpair rowは、saved edge の route/order と saved node から
 pipeline graph を復元して再確定する。
 存続する span の attachment は span id とともに保持する。退役する span に attachment がある場合だけ、
-暗黙削除せず mutation 前に `unsupported` で拒否する。`UpdateCableTemplate` の continuity policy は route scope ごとに同じ入口を通し、既存 span の curve decision を編集後 cable template で再導出する。non-backbone span を含む decision 差分と default endpoint attachment の構造影響は未対応として拒否する。
+暗黙削除せず mutation 前に `unsupported` で拒否する。`UpdateCableTemplate` の continuity policy は route scope ごとに同じ入口を通し、既存 span の curve decision を編集後 cable template で再導出する。non-backbone span を含む decision 差分は未対応として拒否する。default endpoint attachment 変更は post-edit 経路で attachment 生成/退役/置換をまだ消費しないため、構造反映の実用 scenario まで保留する。
 
 `UpdatePoleTypeDefinition`は、対象typeをactive backbone poleが使用中でもplacement-only差分なら
 `kReposition`として既存auto portを再配置し、layout -> geom -> drawを再導出する。

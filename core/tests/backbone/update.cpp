@@ -1128,12 +1128,13 @@ bool C671_backbone_bundle_count_migration_reuses_pipeline_stages() {
   if (!file_text(repo_root() / "core/src/generation/backbone/regenerate.cpp", &source)) {
     return false;
   }
-  const std::size_t replay = source.find("build_prepared_regenerate");
+  const std::size_t replay = source.find("make_run_input_from_saved_scope");
   const std::size_t mutation = source.find("trial.authoritative_", replay);
   if (replay == std::string::npos || mutation == std::string::npos) {
     return false;
   }
-  return source.find("build_prepared_regenerate") != std::string::npos &&
+  return source.find("trial_pipeline.run(") != std::string::npos &&
+         source.find("make_run_input_from_saved_scope") != std::string::npos &&
          source.find("return fail", mutation) == std::string::npos &&
          source.find("AddPort(") == std::string::npos && source.find("AddSpan(") == std::string::npos &&
          source.find("SpanLayoutRule") == std::string::npos && source.find("save_backbone_node") == std::string::npos &&
@@ -1273,6 +1274,40 @@ bool C716_backbone_span_socket_override_regenerates() {
   const auto cleared = state.ClearSpanEndpointSocketOverride(span_id, true);
   const wire::core::SpanLayoutView cleared_layout = state.span_layout(span_id);
   return cleared.ok && cleared_layout.has_layout() && !cleared_layout.entry->start.resolved_socket_id.has_value();
+}
+
+bool C739_span_override_keeps_unrelated_route_outputs_unchanged() {
+  wire::core::CoreState state;
+  const auto first = state.GenerateFromBackboneSpec(line_req(state));
+  wire::core::BackboneSpec second_req = line_req(state);
+  for (wire::core::Vec3d& point : second_req.path.polyline) {
+    point.y += 12.0;
+  }
+  const auto second = state.GenerateFromBackboneSpec(second_req);
+  if (!first.ok || !second.ok || first.value.generated_span_ids.empty() || second.value.generated_span_ids.empty() ||
+      state.view().backbone().edge_bundles.size() < 2) {
+    return false;
+  }
+  const auto second_binding_it = std::find_if(
+      state.view().backbone().span_bindings.begin(), state.view().backbone().span_bindings.end(),
+      [&](const wire::core::SavedBackboneSpanBinding& binding) {
+        return binding.span_id == second.value.generated_span_ids.front();
+      });
+  if (second_binding_it == state.view().backbone().span_bindings.end()) {
+    return false;
+  }
+  const wire::core::ObjectId second_edge_bundle_id = second_binding_it->edge_bundle_id;
+  const EdgeBundleIdentitySnapshot second_identity_before =
+      edge_bundle_identity_snapshot(state, second_edge_bundle_id);
+  const std::vector<SpanCurveSignature> second_curves_before =
+      span_curve_signatures_for_edge_bundle(state, second_edge_bundle_id);
+
+  const auto updated = state.SetSpanBranchDownOffsetOverride(first.value.generated_span_ids.front(), 0.75);
+  return updated.ok &&
+         same_edge_bundle_identity_snapshot(second_identity_before,
+                                            edge_bundle_identity_snapshot(state, second_edge_bundle_id)) &&
+         same_span_curve_signatures(second_curves_before,
+                                    span_curve_signatures_for_edge_bundle(state, second_edge_bundle_id));
 }
 
 bool C717_backbone_layout_settings_regenerate_matches_fresh() {
@@ -1434,7 +1469,8 @@ bool C701_backbone_regenerate_source_does_not_infer_topology_from_outputs() {
   if (!file_text(repo_root() / "core/src/generation/backbone/regenerate.cpp", &source)) {
     return false;
   }
-  return source.find("build_prepared_regenerate") != std::string::npos &&
+  return source.find("make_run_input_from_saved_scope") != std::string::npos &&
+         source.find("trial_pipeline.run(") != std::string::npos &&
          source.find("span_layout(") == std::string::npos &&
          source.find("find_curve_cache") == std::string::npos &&
          source.find("find_span_visual_cache") == std::string::npos &&
@@ -1507,39 +1543,48 @@ bool C704_backbone_regenerate_uses_per_api_entrypoint_not_plan_execution() {
   return pipeline_header.find(old_entry) == std::string::npos &&
          pipeline_source.find(old_entry) == std::string::npos &&
          regenerate_source.find(old_entry) == std::string::npos &&
-         regenerate_source.find("build_prepared_regenerate") != std::string::npos &&
+         pipeline_header.find("build_prepared_regenerate") == std::string::npos &&
+         pipeline_source.find("build_prepared_regenerate") == std::string::npos &&
+         regenerate_source.find("build_prepared_regenerate") == std::string::npos &&
+         regenerate_source.find("make_run_input_from_saved_scope") != std::string::npos &&
+         regenerate_source.find("trial_pipeline.run(") != std::string::npos &&
          reject != std::string::npos && loop != std::string::npos && reject < loop;
 }
 
-bool C727_backbone_regenerate_entry_is_prepared_graph_adapter() {
+bool C727_backbone_pipeline_execution_entry_is_run_input() {
   std::string source{};
-  if (!file_text(repo_root() / "core/src/generation/backbone/pipeline.cpp", &source)) {
+  std::string header{};
+  std::string regenerate_source{};
+  if (!file_text(repo_root() / "core/src/generation/backbone/pipeline.cpp", &source) ||
+      !file_text(repo_root() / "core/src/generation/backbone/pipeline.hpp", &header) ||
+      !file_text(repo_root() / "core/src/generation/backbone/regenerate.cpp", &regenerate_source)) {
     return false;
   }
-  std::string body{};
-  if (!function_body(source, "EditResult<GenerateBundleFromPathResult> pipeline::build_prepared_regenerate", &body)) {
-    return false;
-  }
-  const auto count = [&](const std::string& needle) {
-    std::size_t n = 0;
-    std::size_t pos = body.find(needle);
-    while (pos != std::string::npos) {
-      ++n;
-      pos = body.find(needle, pos + needle.size());
-    }
-    return n;
-  };
-  const std::vector<std::string> banned = {
-      "make(g_", "make(ps", "make(route", "emit(ps", "emit_poles", "emit_ports",
-      "emit_spans", "save_graph", "AddPort(", "AddSpan("};
-  for (const std::string& token : banned) {
-    if (contains_text(body, token)) {
+  const std::vector<std::string> operation_names = {
+      "UpdateBundleTemplate", "UpdateCableTemplate", "UpdatePoleTypeDefinition", "UpdateLayoutSettings",
+      "ApplyBundleRelatedPoleTypeToExistingPoles", "SetSpanEndpointSocketOverride",
+      "ClearSpanEndpointSocketOverride", "SetSpanBranchDownOffsetOverride", "ClearSpanBranchDownOffsetOverride"};
+  for (const std::string& name : operation_names) {
+    if (contains_text(source, name) || contains_text(header, name)) {
       return false;
     }
   }
-  return count("emit_route(false, nullptr)") == 1 && count("save_derived(made.value, nullptr)") == 1 &&
-         contains_text(body, "mode_ = build_mode::regenerate") &&
-         contains_text(body, "write_route_result(&out");
+  if (contains_text(header, "build_prepared_regenerate") || contains_text(source, "build_prepared_regenerate") ||
+      contains_text(header, "build()") || contains_text(source, "pipeline::build(")) {
+    return false;
+  }
+  return contains_text(header, "struct run_input") &&
+         contains_text(header, "graph made{}") &&
+         contains_text(header, "std::vector<std::size_t> active_bundle_indices{}") &&
+         contains_text(header, "std::vector<std::size_t> local_by_input{}") &&
+         contains_text(header, "std::vector<BundleTemplate> template_overrides{}") &&
+         contains_text(header, "run_mode mode = run_mode::generation") &&
+         contains_text(header, "make_run_input_from_spec") &&
+         contains_text(header, "make_run_input_from_saved_scope") &&
+         contains_text(header, "EditResult<GenerateBundleFromPathResult> run(run_input input)") &&
+         contains_text(source, "GenerationTiming* timing = input.timing == nullptr ? &out.value.timing : input.timing") &&
+         contains_text(regenerate_source, "trial_pipeline.run(") &&
+         contains_text(regenerate_source, "make_run_input_from_saved_scope");
 }
 
 bool C728_backbone_regenerate_mode_only_updates_existing_ports() {
@@ -1547,7 +1592,7 @@ bool C728_backbone_regenerate_mode_only_updates_existing_ports() {
   if (!file_text(repo_root() / "core/src/generation/backbone/pipeline.cpp", &source)) {
     return false;
   }
-  const std::string token = "mode_ == build_mode::regenerate";
+  const std::string token = "mode_ == run_mode::saved_scope";
   const std::size_t first = source.find(token);
   if (first == std::string::npos || source.find(token, first + token.size()) != std::string::npos) {
     return false;
@@ -1584,7 +1629,8 @@ bool C729_backbone_regenerate_source_does_not_handbuild_outputs() {
       return false;
     }
   }
-  return contains_text(source, "build_prepared_regenerate") &&
+  return contains_text(source, "trial_pipeline.run(") &&
+         contains_text(source, "make_run_input_from_saved_scope") &&
          contains_text(source, "CoreState trial = *this") &&
          contains_text(source, "remove_span_from_caches") &&
          contains_text(source, "retire_from_trial");
@@ -1803,6 +1849,48 @@ bool C712_backbone_regenerate_cable_decision_matches_fresh() {
                                       route_bundle_signatures(fresh, wire::core::BundleKind::kLowVoltage)) &&
          visual_part_count(state, wire::core::VisualCurvePartKind::kNodePatch) ==
              visual_part_count(fresh, wire::core::VisualCurvePartKind::kNodePatch);
+}
+
+bool C738_cable_default_endpoint_attachment_change_rejects_before_mutation() {
+  wire::core::CoreState state;
+  const auto generated = state.GenerateFromBackboneSpec(line_req(state));
+  if (!generated.ok || generated.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const auto bundle_template_it =
+      state.view().bundle_templates().find(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
+  if (bundle_template_it == state.view().bundle_templates().end()) {
+    return false;
+  }
+  const auto cable_it = state.view().cable_templates().find(bundle_template_it->second.cable_template_id);
+  if (cable_it == state.view().cable_templates().end()) {
+    return false;
+  }
+  wire::core::AttachmentTemplateId attachment_template_id = wire::core::kInvalidAttachmentTemplateId;
+  for (const auto& [template_id, attachment_template] : state.view().attachment_templates()) {
+    (void)attachment_template;
+    attachment_template_id = template_id;
+    break;
+  }
+  if (attachment_template_id == wire::core::kInvalidAttachmentTemplateId) {
+    return false;
+  }
+
+  const CountSnapshot before_counts = count_snapshot(state);
+  const std::size_t before_attachments = state.view().attachments().size();
+  const std::uint64_t before_cable_version = cable_it->second.version;
+  const std::vector<SpanCurveSignature> before_curves = span_curve_signatures(state);
+  wire::core::CableTemplate edited = cable_it->second;
+  edited.default_endpoint_attachment_template_id = attachment_template_id;
+  const auto updated = state.UpdateCableTemplate(edited);
+  const auto after_cable_it = state.view().cable_templates().find(edited.id);
+  return !updated.ok && contains_text(updated.error, "default endpoint attachment") &&
+         same_counts(before_counts, count_snapshot(state)) &&
+         state.view().attachments().size() == before_attachments &&
+         after_cable_it != state.view().cable_templates().end() &&
+         after_cable_it->second.default_endpoint_attachment_template_id != attachment_template_id &&
+         after_cable_it->second.version == before_cable_version &&
+         same_span_curve_signatures(before_curves, span_curve_signatures(state));
 }
 
 bool C713_backbone_regenerate_pole_type_structure_matches_fresh() {

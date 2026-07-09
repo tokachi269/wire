@@ -92,7 +92,7 @@ desktop viewer の実装を写経せず、`panels -> store/actions -> bridge -> 
 | Bundle Cable Template / Related Pole Template / Default Layer | `UpdateBundleTemplate` | select | `kRegenerate` | release commit | 直して移植 | definition 更新だけを行い related pole 適用を暗黙に呼ばない | P1 |
 | Allow Mirror / Midair Node / Midair Branch | `UpdateBundleTemplate` | toggle | `kRegenerate` | release commit | そのまま | generation decision | P1 |
 | Grouped Fanout Spacing | `UpdateBundleTemplate` | number | `kRegenerate` | release commit | そのまま | placement decision | P1 |
-| Support Style / Branch Policy / Continuity | `UpdateBundleTemplate` | select | `kRegenerate` | release commit | そのまま | decision 差分は unsupported を表示する | P1 |
+| Support Style / Branch Policy / Continuity | `UpdateBundleTemplate` | select | `kRegenerate` | release commit | そのまま | 未対応 policy 差分は core の error を表示する | P1 |
 | Apply Bundle Template | `UpdateBundleTemplate` | button | mixed | commit | 直して移植 | `ApplyBundleRelatedPoleTypeToExistingPoles` の自動呼出を禁止する | P1 |
 | Apply related pole type | `ApplyBundleRelatedPoleTypeToExistingPoles` | 独立 button | `kRegenerate` | commit | 直して移植 | 現行は Bundle/Pole Apply 後に暗黙実行される。web では独立操作にし error を表示する | P1 |
 
@@ -106,9 +106,9 @@ desktop viewer の実装を写経せず、`panels -> store/actions -> bridge -> 
 | Advanced Port Bands: Band Id / Category / Layer / Side / Role | `UpdatePoleTypeDefinition` | integer / select | `kRegenerate` | release commit | そのまま | identity/placement structure 差分 | P1 |
 | Advanced Port Bands: Lateral Center-Min-Max / Height Center-Min-Max / Priority / Min Spacing | `UpdatePoleTypeDefinition` | number | mixed | release commit | そのまま |既存構造内の位置差分だけなら reposition、その他は core の判定に従う | P1 |
 | Advanced Port Bands: Allow Multiple / Overflow Policy / Enabled | `UpdatePoleTypeDefinition` | toggle / select | `kRegenerate` | release commit | そのまま | structure/decision 差分 | P1 |
-| Add / Remove Port Band | `UpdatePoleTypeDefinition` | button | `kRegenerate` | commit | そのまま | active backbone 使用時は unsupported を表示する | P1 |
+| Add / Remove Port Band | `UpdatePoleTypeDefinition` | button | `kRegenerate` | commit | そのまま | active backbone 使用時も統一 regenerate で反映する。error は core 結果を表示する | P1 |
 | Anchor Slot: Slot Id / Usage / Local XYZ / Priority / Enabled | `UpdatePoleTypeDefinition` | integer / select / number / toggle | `kRegenerate` | release commit | そのまま | support structure 差分 | P1 |
-| Add / Remove Anchor Slot | `UpdatePoleTypeDefinition` | button | `kRegenerate` | commit | そのまま | active backbone 使用時は unsupported を表示する | P1 |
+| Add / Remove Anchor Slot | `UpdatePoleTypeDefinition` | button | `kRegenerate` | commit | そのまま | active backbone 使用時も統一 regenerate で反映する。error は core 結果を表示する | P1 |
 | Apply Pole Template | `UpdatePoleTypeDefinition` | button | mixed | commit | 直して移植 | `ApplyBundleRelatedPoleTypeToExistingPoles` の自動呼出を禁止する | P1 |
 
 ## Visual / inspection
@@ -120,8 +120,8 @@ desktop viewer の実装を写経せず、`panels -> store/actions -> bridge -> 
 | Solid Support Render | renderer store | toggle | `kRedraw` | 生反映 | そのまま | backend 表示方式だけ | P1 |
 | Apply Visual Cache Settings | `UpdateVisualSettings` | button | `kRedraw` | commit | 直して移植 | web では各 control の preview/commit に分解する | P1 |
 | Clear Pole Orientation Override | `ClearPoleOrientationOverride` | button | `kReposition` | commit | そのまま | 独立操作、error 表示必須 | P1 |
-| Clear Span Socket Override A/B | `ClearSpanEndpointSocketOverride` | button | `kRegenerate` | commit | そのまま | backbone span は unsupported。error を表示する | P1 |
-| Clear Branch Down Offset Override | `ClearSpanBranchDownOffsetOverride` | button | `kRegenerate` | commit | そのまま | backbone span は unsupported。error を表示する | P1 |
+| Clear Span Socket Override A/B | `ClearSpanEndpointSocketOverride` | button | `kRegenerate` | commit | そのまま | backbone span でも統一 regenerate で反映する。error は core 結果を表示する | P1 |
+| Clear Branch Down Offset Override | `ClearSpanBranchDownOffsetOverride` | button | `kRegenerate` | commit | そのまま | backbone span でも統一 regenerate で反映する。error は core 結果を表示する | P1 |
 | Selected entity summary / neutral span output | 公開 `CoreView` / wasm read model | read-only | read | - | 直して移植 | W2/W4 では主要 id・種類・出力有無に絞り、desktop の全文 dump は移さない | P1 |
 | Pole Height Debug: Show Ports / Supports / Bundles | なし | toggle | debug | - | 捨てる | debug canvas 専用 | P2 |
 | Pole Height marker drag | `SetPortWorldPositionManual` | invisible drag | `kReposition` | - | 捨てる | debug canvas から正本を手動化する操作で通常編集ではない | P2 |

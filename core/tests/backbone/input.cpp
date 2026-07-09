@@ -2368,4 +2368,69 @@ bool C559_backbone_positive_avoid_clear_of_route_is_noop() {
   return true;
 }
 
+bool C737_backbone_overlay_edge_endpoint_snap_returns_pole_node_spec_id() {
+  wire::core::CoreState state;
+  const auto base_out = state.GenerateFromBackboneSpec(line_req(state));
+  if (!base_out.ok || base_out.value.generated_span_ids.empty() || state.view().backbone().edges.empty()) {
+    return false;
+  }
+
+  wire::core::PickResult source_pick{};
+  source_pick.hit_kind = wire::core::PickHitKind::kSegment;
+  source_pick.hit_id = base_out.value.generated_span_ids.front();
+  source_pick.hit_pos_world = {6.0, 0.0, 0.0};
+  wire::core::ResolveBranchPickOptions source_resolve{};
+  source_resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
+  const auto source_resolved = state.ResolveBranchPick(source_pick, source_resolve);
+  if (!source_resolved.ok || source_resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  wire::core::BackboneSpec branch = line_req(state);
+  branch.path.polyline = {source_resolved.value.position, {6.0, 8.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec branch_node{};
+  branch_node.point_index = 0;
+  branch_node.support_kind = source_resolved.value.support_kind;
+  branch_node.node_id = source_resolved.value.resolved_node_id;
+  branch.path.node_specs = {branch_node};
+  const auto branch_out = state.GenerateFromBackboneSpec(branch);
+  if (!branch_out.ok || branch_out.value.generated_span_ids.empty()) {
+    return false;
+  }
+
+  const wire::core::SavedBackboneEdge source_edge = state.view().backbone().edges.front();
+  const wire::core::SavedBackboneNode* node_a = state.view().backbone_node(source_edge.node_a);
+  const wire::core::SavedBackboneNode* node_b = state.view().backbone_node(source_edge.node_b);
+  if (node_a == nullptr || node_b == nullptr || node_a->pole_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+
+  wire::core::PickResult endpoint_pick{};
+  endpoint_pick.hit_kind = wire::core::PickHitKind::kSegment;
+  endpoint_pick.hit_id = wire::core::kInvalidObjectId;
+  endpoint_pick.hit_pos_world = node_a->position;
+  endpoint_pick.has_segment_endpoints = true;
+  endpoint_pick.segment_node_a_id = node_a->node_id;
+  endpoint_pick.segment_node_b_id = node_b->node_id;
+  endpoint_pick.segment_endpoint_a_world = node_a->position;
+  endpoint_pick.segment_endpoint_b_world = node_b->position;
+  wire::core::ResolveBranchPickOptions endpoint_resolve{};
+  endpoint_resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
+  const auto endpoint_resolved = state.ResolveBranchPick(endpoint_pick, endpoint_resolve);
+  if (!endpoint_resolved.ok || endpoint_resolved.value.support_kind != wire::core::SupportKind::kPole ||
+      endpoint_resolved.value.resolved_node_id != node_a->pole_id ||
+      !endpoint_resolved.value.snapped_from_segment_endpoint) {
+    return false;
+  }
+
+  wire::core::BackboneSpec extension = line_req(state);
+  extension.path.polyline = {endpoint_resolved.value.position, {-6.0, 0.0, 0.0}};
+  wire::core::BackboneInputSpec::NodeSpec endpoint_node{};
+  endpoint_node.point_index = 0;
+  endpoint_node.support_kind = endpoint_resolved.value.support_kind;
+  endpoint_node.node_id = endpoint_resolved.value.resolved_node_id;
+  extension.path.node_specs = {endpoint_node};
+  const auto extension_out = state.GenerateFromBackboneSpec(extension);
+  return extension_out.ok && !extension_out.value.generated_span_ids.empty();
+}
+
 } // namespace backbone_tests

@@ -645,15 +645,15 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C590_backbone_inactive_pass_through_bundle_rejected_before_noop",
                          "backbone rejects pass-through modes for bundles made inactive by selected policy", "Boundary",
                          false, C590_backbone_inactive_pass_through_bundle_rejected_before_noop);
-  test_registry::AddTest(tests, "C591_backbone_saved_selected_midair_continuation_keeps_bundle_policy",
-                         "backbone saved selected midair continuation keeps bundle policy", "Boundary", false,
-                         C591_backbone_saved_selected_midair_continuation_keeps_bundle_policy);
-  test_registry::AddTest(tests, "C592_backbone_saved_selected_midair_reverse_continuation_keeps_bundle_policy",
-                         "backbone saved selected midair reverse continuation keeps bundle policy", "Boundary", false,
-                         C592_backbone_saved_selected_midair_reverse_continuation_keeps_bundle_policy);
-  test_registry::AddTest(tests, "C593_backbone_saved_selected_midair_rejects_inactive_pass_through",
-                         "backbone saved selected midair rejects inactive pass-through", "Boundary", false,
-                         C593_backbone_saved_selected_midair_rejects_inactive_pass_through);
+  test_registry::AddTest(tests, "C591_backbone_saved_selected_midair_continuation_uses_request_bundles",
+                         "backbone saved selected midair continuation uses request bundles", "Boundary", false,
+                         C591_backbone_saved_selected_midair_continuation_uses_request_bundles);
+  test_registry::AddTest(tests, "C592_backbone_saved_selected_midair_reverse_continuation_uses_request_bundles",
+                         "backbone saved selected midair reverse continuation uses request bundles", "Boundary", false,
+                         C592_backbone_saved_selected_midair_reverse_continuation_uses_request_bundles);
+  test_registry::AddTest(tests, "C593_backbone_saved_selected_midair_allows_request_pass_through",
+                         "backbone saved selected midair allows request pass-through", "Boundary", false,
+                         C593_backbone_saved_selected_midair_allows_request_pass_through);
   test_registry::AddTest(tests, "C595_backbone_avoid_point_at_explicit_existing_support_is_noop",
                          "backbone treats an avoid point exactly at an explicit existing support as no-op", "Boundary",
                          false, C595_backbone_avoid_point_at_explicit_existing_support_is_noop);

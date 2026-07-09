@@ -5,6 +5,7 @@ captures/
 assets/generated/
 node_modules/
 .claude/
+.codex-remote-attachments/
 docs/diagrams/clang-uml/
 imgui.ini
 viewer_state.ini

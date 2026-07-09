@@ -1509,6 +1509,84 @@ bool C704_backbone_regenerate_uses_per_api_entrypoint_not_plan_execution() {
          reject != std::string::npos && loop != std::string::npos && reject < loop;
 }
 
+bool C727_backbone_regenerate_entry_is_prepared_graph_adapter() {
+  std::string source{};
+  if (!file_text(repo_root() / "core/src/generation/backbone/pipeline.cpp", &source)) {
+    return false;
+  }
+  std::string body{};
+  if (!function_body(source, "EditResult<GenerateBundleFromPathResult> pipeline::build_prepared_regenerate", &body)) {
+    return false;
+  }
+  const auto count = [&](const std::string& needle) {
+    std::size_t n = 0;
+    std::size_t pos = body.find(needle);
+    while (pos != std::string::npos) {
+      ++n;
+      pos = body.find(needle, pos + needle.size());
+    }
+    return n;
+  };
+  const std::vector<std::string> banned = {
+      "make(g_", "make(ps", "make(route", "emit(ps", "emit_poles", "emit_ports",
+      "emit_spans", "save_graph", "AddPort(", "AddSpan("};
+  for (const std::string& token : banned) {
+    if (contains_text(body, token)) {
+      return false;
+    }
+  }
+  return count("emit_route(false, nullptr)") == 1 && count("save_derived(made.value, nullptr)") == 1 &&
+         contains_text(body, "mode_ = build_mode::regenerate") &&
+         contains_text(body, "write_route_result(&out");
+}
+
+bool C728_backbone_regenerate_mode_only_updates_existing_ports() {
+  std::string source{};
+  if (!file_text(repo_root() / "core/src/generation/backbone/pipeline.cpp", &source)) {
+    return false;
+  }
+  const std::string token = "mode_ == build_mode::regenerate";
+  const std::size_t first = source.find(token);
+  if (first == std::string::npos || source.find(token, first + token.size()) != std::string::npos) {
+    return false;
+  }
+  std::string body{};
+  if (!function_body(source, "EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* changes)",
+                     &body)) {
+    return false;
+  }
+  const std::size_t branch = body.find(token);
+  const std::size_t end = body.find("tr.ports", branch);
+  if (branch == std::string::npos || end == std::string::npos) {
+    return false;
+  }
+  const std::string regenerate_branch = body.substr(branch, end - branch);
+  return contains_text(regenerate_branch, "Port* existing_port") &&
+         contains_text(regenerate_branch, "existing_port->world_position = p") &&
+         contains_text(regenerate_branch, "ApplyPortBandTemplateFields(existing_port, band)") &&
+         contains_text(regenerate_branch, "changes->updated_ids") &&
+         !contains_text(regenerate_branch, "AddPort(") && !contains_text(regenerate_branch, "AddSpan(") &&
+         !contains_text(regenerate_branch, "save(") && !contains_text(regenerate_branch, "make(");
+}
+
+bool C729_backbone_regenerate_source_does_not_handbuild_outputs() {
+  std::string source{};
+  if (!file_text(repo_root() / "core/src/generation/backbone/regenerate.cpp", &source)) {
+    return false;
+  }
+  const std::vector<std::string> banned = {
+      "AddPort(", "AddSpan(", "SpanLayoutRule", "SpanLayoutEntry", "store_rules",
+      "store_layout", "cache_span_curve", "cache_span_bounds", "execute_update_plan"};
+  for (const std::string& token : banned) {
+    if (contains_text(source, token)) {
+      return false;
+    }
+  }
+  return contains_text(source, "build_prepared_regenerate") &&
+         contains_text(source, "CoreState trial = *this") &&
+         contains_text(source, "remove_span_from_caches") &&
+         contains_text(source, "retire_from_trial");
+}
 bool C705_backbone_edge_bundle_order_matches_bundle_spec_order() {
   wire::core::CoreState state;
   wire::core::BackboneSpec req = line_req(state);

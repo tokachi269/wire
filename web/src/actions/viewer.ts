@@ -286,6 +286,15 @@ export class ViewerActions {
     }));
   }
 
+  undoPathPointOrClearSelection(): void {
+    const current = this.readSnapshot();
+    if (current.pathPoints.length > 0) {
+      this.undoPathPoint();
+      return;
+    }
+    this.clearSelection();
+  }
+
   setDrawOption(
     param:
       | "cameraFov"

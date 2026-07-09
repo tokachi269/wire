@@ -69,7 +69,7 @@ export class WireScene {
   constructor(
     private readonly store: ViewerStore,
     private readonly onGroundClick: (point: WorldPoint, pick?: PathPickInfo) => void,
-    private readonly onUndoPathPoint: () => void,
+    private readonly onContextAction: () => void,
     private readonly onFrame: (deltaMs: number) => void
   ) {
     this.scene.background = new THREE.Color(0xc8d6e4);
@@ -226,7 +226,7 @@ export class WireScene {
     };
     const onContextMenu = (event: MouseEvent) => {
       event.preventDefault();
-      this.onUndoPathPoint();
+      this.onContextAction();
     };
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
@@ -305,10 +305,10 @@ export class WireScene {
     const hit = hits[0];
     if (hit === undefined) return null;
     const data = hit.object.userData;
-    let point: WorldPoint = [hit.point.x, hit.point.y, BACKBONE_DISPLAY_PLANE_Z];
-    const defaultPick = {
-      hitKind: 0,
-      hitId: "0",
+    const displayPoint: WorldPoint = [hit.point.x, hit.point.y, BACKBONE_DISPLAY_PLANE_Z];
+    const makePick = (point: WorldPoint, hitKind: number, hitId: string): PathPickInfo => ({
+      hitKind,
+      hitId,
       hitX: point[0],
       hitY: point[1],
       hitZ: point[2],
@@ -321,29 +321,22 @@ export class WireScene {
       segmentEndpointBX: 0,
       segmentEndpointBY: 0,
       segmentEndpointBZ: 0
-    };
+    });
     if (data.pickKind === "node") {
+      const point = (data.worldPoint as WorldPoint | undefined) ?? displayPoint;
       return {
         point,
-        pick: {
-          ...defaultPick,
-          hitKind: 1,
-          hitId: data.hitId ?? "0"
-        }
+        pick: makePick(point, 1, data.hitId ?? "0")
       };
     }
     if (data.pickKind === "edge") {
       const endpointA = data.endpointA as WorldPoint;
       const endpointB = data.endpointB as WorldPoint;
-      point = this.closestBackbonePointXY(point, endpointA, endpointB);
+      const point = this.closestBackbonePointXY(displayPoint, endpointA, endpointB);
       return {
         point,
         pick: {
-          ...defaultPick,
-          hitKind: 2,
-          hitX: point[0],
-          hitY: point[1],
-          hitZ: point[2],
+          ...makePick(point, 2, data.hitId ?? "0"),
           hasSegmentEndpoints: true,
           segmentNodeAId: data.nodeAId ?? "0",
           segmentNodeBId: data.nodeBId ?? "0",
@@ -362,6 +355,7 @@ export class WireScene {
   private closestBackbonePointXY(point: WorldPoint, endpointA: WorldPoint, endpointB: WorldPoint): WorldPoint {
     const dx = endpointB[0] - endpointA[0];
     const dy = endpointB[1] - endpointA[1];
+    const dz = endpointB[2] - endpointA[2];
     const length2 = dx * dx + dy * dy;
     const t = length2 > 0
       ? THREE.MathUtils.clamp(
@@ -373,7 +367,7 @@ export class WireScene {
     return [
       endpointA[0] + dx * t,
       endpointA[1] + dy * t,
-      BACKBONE_DISPLAY_PLANE_Z
+      endpointA[2] + dz * t
     ];
   }
 
@@ -629,11 +623,13 @@ export class WireScene {
       const nodeA = nodeById.get(edge.nodeAId);
       const nodeB = nodeById.get(edge.nodeBId);
       if (nodeA === undefined || nodeB === undefined) continue;
-      const endpointA: WorldPoint = [nodeA.x, nodeA.y, BACKBONE_DISPLAY_PLANE_Z];
-      const endpointB: WorldPoint = [nodeB.x, nodeB.y, BACKBONE_DISPLAY_PLANE_Z];
+      const endpointA: WorldPoint = [nodeA.x, nodeA.y, nodeA.z];
+      const endpointB: WorldPoint = [nodeB.x, nodeB.y, nodeB.z];
+      const displayA: WorldPoint = [nodeA.x, nodeA.y, BACKBONE_DISPLAY_PLANE_Z];
+      const displayB: WorldPoint = [nodeB.x, nodeB.y, BACKBONE_DISPLAY_PLANE_Z];
       const geometry = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(...endpointA),
-        new THREE.Vector3(...endpointB)
+        new THREE.Vector3(...displayA),
+        new THREE.Vector3(...displayB)
       ]);
       const line = new THREE.Line(geometry, lineMaterial.clone());
       line.renderOrder = 20;
@@ -657,7 +653,8 @@ export class WireScene {
       marker.userData = {
         pickableBackbone: true,
         pickKind: "node",
-        hitId: node.kind === 0 && node.poleId !== "0" ? node.poleId : node.id
+        hitId: node.kind === 0 && node.poleId !== "0" ? node.poleId : node.id,
+        worldPoint: [node.x, node.y, node.z]
       };
       this.backbone.add(marker);
     }

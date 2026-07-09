@@ -77,6 +77,13 @@ layout/derive段でsource identityをcurrent curve projectionへ解決し、bran
 既存source edgeからのbranchは、事前curve座標をpipeline前半の入力にしない。source edge自体とそこから伸びるbranchを同じ`BackboneSpec`で同時に表す入力形式は現APIにはまだ無いので、二度pipeline実行で補わない。
 viewerは後追いでsnap targetを明示し、source-edge snapではhit worldではなくsource edge/t/bundle/laneを渡す。
 
+## pipeline regenerate entry
+
+`pipeline::build_prepared_regenerate` は第2 pipelineではなく、prepared graphを共通stageへ渡す入口 adapter とする。
+保存済み backbone identity から復元した graph を受け取り、`build_mode::regenerate` を設定したうえで、通常生成と同じ `emit_route(false)` と `save_derived()` を通す。
+adapter は pair / emit / rules / layout / geom / draw の判断を持たない。
+`build_mode::regenerate` の分岐は、共有 emit stage 内で saved identity を再利用し、manual でない既存 port を更新する範囲に限定する。
+operation 固有の差分は post-edit API と `regenerate_backbone_edge_bundles` 側に留め、pipeline へ別stageや専用fallbackとして持ち込まない。
 ## post-edit update
 
 更新分類は次の4種類だけとする。

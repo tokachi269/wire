@@ -985,6 +985,15 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C717_backbone_layout_settings_regenerate_matches_fresh",
                          "backbone layout settings regenerate and match fresh generation",
                          "Invariant", false, C717_backbone_layout_settings_regenerate_matches_fresh);
+  test_registry::AddTest(tests, "C727_backbone_regenerate_entry_is_prepared_graph_adapter",
+                         "backbone regenerate entry is a prepared graph adapter for shared stages",
+                         "Boundary", false, C727_backbone_regenerate_entry_is_prepared_graph_adapter);
+  test_registry::AddTest(tests, "C728_backbone_regenerate_mode_only_updates_existing_ports",
+                         "backbone regenerate mode only updates existing reusable ports",
+                         "Boundary", false, C728_backbone_regenerate_mode_only_updates_existing_ports);
+  test_registry::AddTest(tests, "C729_backbone_regenerate_source_does_not_handbuild_outputs",
+                         "backbone regenerate source does not handbuild pipeline outputs",
+                         "Boundary", false, C729_backbone_regenerate_source_does_not_handbuild_outputs);
   test_registry::AddTest(tests, "C718_viewer_hit_world_height_is_not_source_edge_branch_authority",
                          "viewer hit world height is not source-edge branch authority",
                          "Boundary", false, C718_viewer_hit_world_height_is_not_source_edge_branch_authority);

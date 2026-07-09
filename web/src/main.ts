@@ -18,7 +18,7 @@ actions.initialize();
 const scene = new WireScene(
   store,
   (point, pick) => actions.addPathPoint(point, pick),
-  () => actions.undoPathPoint(),
+  () => actions.undoPathPointOrClearSelection(),
   (deltaMs) => actions.recordFrame(deltaMs)
 );
 

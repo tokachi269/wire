@@ -191,7 +191,7 @@ export class ViewerActions {
       return patched;
     });
     const defaultBundleId =
-      bundleTemplates.find((template) => template.id === 1)?.id ??
+      bundleTemplates.find((template) => template.kind === 0)?.id ??
       bundleTemplates[0]?.id ??
       null;
     const defaultCableId =
@@ -211,7 +211,7 @@ export class ViewerActions {
         current.selectedDrawBundleTemplateIds.length > 0
           ? current.selectedDrawBundleTemplateIds
           : bundleTemplates
-              .filter((template) => [0, 1, 2, 3].includes(template.id))
+              .filter((template) => [0, 1, 2, 3].includes(template.kind))
               .map((template) => template.id),
       drawBundleCounts: Object.fromEntries(
         bundleTemplates.map((template) => [

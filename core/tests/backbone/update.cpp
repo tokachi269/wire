@@ -184,9 +184,10 @@ std::vector<SpanCurveSignature> span_curve_signatures_for_edge_bundle(const wire
 
 wire::core::ObjectId edge_bundle_id_for_template(const wire::core::CoreState& state,
                                                  wire::core::BundleKind bundle_template_id) {
+  const wire::core::BundleTemplateId template_id = wire::core::DefaultBundleTemplateId(bundle_template_id);
   for (const wire::core::SavedBackboneEdgeBundle& edge_bundle : state.view().backbone().edge_bundles) {
     const wire::core::Bundle* bundle = state.view().bundles().find(edge_bundle.bundle_id);
-    if (bundle != nullptr && bundle->bundle_template_id == bundle_template_id) {
+    if (bundle != nullptr && bundle->bundle_template_id == template_id) {
       return edge_bundle.edge_bundle_id;
     }
   }
@@ -195,10 +196,11 @@ wire::core::ObjectId edge_bundle_id_for_template(const wire::core::CoreState& st
 
 std::vector<wire::core::ObjectId> edge_bundle_ids_for_template(const wire::core::CoreState& state,
                                                                wire::core::BundleKind bundle_template_id) {
+  const wire::core::BundleTemplateId template_id = wire::core::DefaultBundleTemplateId(bundle_template_id);
   std::vector<wire::core::ObjectId> out{};
   for (const wire::core::SavedBackboneEdgeBundle& edge_bundle : state.view().backbone().edge_bundles) {
     const wire::core::Bundle* bundle = state.view().bundles().find(edge_bundle.bundle_id);
-    if (bundle != nullptr && bundle->bundle_template_id == bundle_template_id) {
+    if (bundle != nullptr && bundle->bundle_template_id == template_id) {
       out.push_back(edge_bundle.edge_bundle_id);
     }
   }
@@ -382,7 +384,7 @@ CountSnapshot count_snapshot(const wire::core::CoreState& state) {
   out.edge_bundles = state.view().backbone().edge_bundles.size();
   out.port_bindings = state.view().backbone().port_bindings.size();
   out.span_bindings = state.view().backbone().span_bindings.size();
-  const auto it = state.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  const auto it = state.view().bundle_templates().find(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
   out.fixed_count = it == state.view().bundle_templates().end() ? 0 : it->second.fixed_count;
   out.template_version = it == state.view().bundle_templates().end() ? 0 : it->second.version;
   return out;
@@ -396,7 +398,7 @@ bool same_counts(const CountSnapshot& a, const CountSnapshot& b) {
 }
 
 bool update_low_voltage_count_to_two(wire::core::CoreState& state, std::string* error = nullptr) {
-  const auto template_it = state.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  const auto template_it = state.view().bundle_templates().find(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
   if (template_it == state.view().bundle_templates().end()) {
     return false;
   }
@@ -410,7 +412,7 @@ bool update_low_voltage_count_to_two(wire::core::CoreState& state, std::string* 
 }
 
 bool update_low_voltage_count_to_one(wire::core::CoreState& state, std::string* error = nullptr) {
-  const auto template_it = state.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  const auto template_it = state.view().bundle_templates().find(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
   if (template_it == state.view().bundle_templates().end()) {
     return false;
   }
@@ -424,7 +426,7 @@ bool update_low_voltage_count_to_one(wire::core::CoreState& state, std::string* 
 }
 
 bool set_low_voltage_count_before_generation(wire::core::CoreState& state, int fixed_count) {
-  const auto template_it = state.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  const auto template_it = state.view().bundle_templates().find(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
   if (template_it == state.view().bundle_templates().end()) {
     return false;
   }
@@ -974,7 +976,7 @@ bool C660_backbone_bundle_fixed_count_migration_updates_downstream_only() {
   if (!generated.ok || generated.value.generated_span_ids.size() != 1) {
     return false;
   }
-  const auto template_it = state.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  const auto template_it = state.view().bundle_templates().find(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
   if (template_it == state.view().bundle_templates().end() ||
       template_it->second.count_rule != wire::core::BundleCountRuleKind::kFixed ||
       template_it->second.fixed_count != 1) {
@@ -1022,7 +1024,7 @@ bool C660_backbone_bundle_fixed_count_migration_updates_downstream_only() {
   }
 
   wire::core::CoreState fresh;
-  const auto fresh_template_it = fresh.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  const auto fresh_template_it = fresh.view().bundle_templates().find(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
   if (fresh_template_it == fresh.view().bundle_templates().end()) {
     return false;
   }
@@ -1048,7 +1050,7 @@ bool C668_backbone_bundle_count_migration_rejects_unreconstructable_lateral_offs
   }
   const bool updated = update_low_voltage_count_to_two(state);
   wire::core::CoreState fresh;
-  const auto fresh_template_it = fresh.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  const auto fresh_template_it = fresh.view().bundle_templates().find(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
   if (fresh_template_it == fresh.view().bundle_templates().end()) {
     return false;
   }
@@ -1449,7 +1451,7 @@ bool C702_backbone_regenerate_fixed_count_roundtrip_matches_fresh() {
   if (!generated.ok || generated.value.generated_span_ids.size() != 2) {
     return false;
   }
-  const auto template_it = state.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  const auto template_it = state.view().bundle_templates().find(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
   if (template_it == state.view().bundle_templates().end()) {
     return false;
   }
@@ -1766,7 +1768,7 @@ bool C712_backbone_regenerate_cable_decision_matches_fresh() {
   if (!generated.ok || edge_bundle_ids_for_template(state, wire::core::BundleKind::kLowVoltage).size() != 2) {
     return false;
   }
-  const auto bundle_template_it = state.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  const auto bundle_template_it = state.view().bundle_templates().find(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
   if (bundle_template_it == state.view().bundle_templates().end()) {
     return false;
   }
@@ -1784,7 +1786,7 @@ bool C712_backbone_regenerate_cable_decision_matches_fresh() {
   }
 
   wire::core::CoreState fresh;
-  const auto fresh_bundle_template_it = fresh.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  const auto fresh_bundle_template_it = fresh.view().bundle_templates().find(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
   if (fresh_bundle_template_it == fresh.view().bundle_templates().end()) {
     return false;
   }

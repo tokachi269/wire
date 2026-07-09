@@ -713,7 +713,7 @@ bool C601_backbone_context_only_bundle_policy_does_not_filter_new_route() {
   pick.hit_id = source_span->id;
   pick.hit_pos_world = {6.0, 0.0, 4.0};
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kCommunication};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
     return false;
@@ -734,7 +734,7 @@ bool C601_backbone_context_only_bundle_policy_does_not_filter_new_route() {
     return false;
   }
   const auto* branch_bundle = state.view().bundles().find(branch_out.value.bundle_ids.front());
-  if (branch_bundle == nullptr || branch_bundle->bundle_template_id != wire::core::BundleKind::kCommunication) {
+  if (branch_bundle == nullptr || branch_bundle->bundle_template_id != wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)) {
     return false;
   }
 
@@ -753,15 +753,15 @@ bool C601_backbone_context_only_bundle_policy_does_not_filter_new_route() {
   if (!out.ok || out.value.bundle_ids.size() != 2) {
     return false;
   }
-  std::unordered_set<wire::core::BundleKind> generated{};
+  std::unordered_set<wire::core::BundleTemplateId> generated{};
   for (wire::core::ObjectId bundle_id : out.value.bundle_ids) {
     const auto* bundle = state.view().bundles().find(bundle_id);
     if (bundle != nullptr) {
       generated.insert(bundle->bundle_template_id);
     }
   }
-  return generated.contains(wire::core::BundleKind::kLowVoltage) &&
-         generated.contains(wire::core::BundleKind::kCommunication);
+  return generated.contains(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)) &&
+         generated.contains(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication));
 }
 
 bool C602_backbone_context_only_pole_band_does_not_filter_new_route() {
@@ -884,7 +884,7 @@ bool C567_backbone_segment_pick_midair_uses_source_span_height() {
   pick.hit_pos_world = {6.0, 0.0, 0.0};
   pick.has_segment_endpoints = false;
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId ||
       !almost_equal(resolved.value.position.z, expected_z, 1e-9)) {
@@ -929,7 +929,7 @@ bool C568_backbone_source_edge_midair_branch_uses_source_curve_projection() {
   }
   const wire::core::SavedBackboneEdge& source_edge = state.view().backbone().edges.front();
   const std::optional<wire::core::Vec3d> expected = state.view().source_edge_projection_world(
-      source_edge.edge_id, source_edge.node_a, wire::core::BundleKind::kLowVoltage, 0, 0.5);
+      source_edge.edge_id, source_edge.node_a, wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage), 0, 0.5);
   if (!expected.has_value() || expected->z <= 0.0) {
     return false;
   }
@@ -944,7 +944,7 @@ bool C568_backbone_source_edge_midair_branch_uses_source_curve_projection() {
   pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
   pick.segment_endpoint_b_world = {12.0, 0.0, 0.0};
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId ||
       !almost_equal(resolved.value.position.z, 0.0, 1e-9) ||
@@ -1008,7 +1008,7 @@ bool C718_viewer_hit_world_height_is_not_source_edge_branch_authority() {
   }
   const wire::core::SavedBackboneEdge& source_edge = state.view().backbone().edges.front();
   const auto expected = state.view().source_edge_projection_world(
-      source_edge.edge_id, source_edge.node_a, wire::core::BundleKind::kLowVoltage, 0, 0.5);
+      source_edge.edge_id, source_edge.node_a, wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage), 0, 0.5);
   if (!expected.has_value()) {
     return false;
   }
@@ -1023,7 +1023,7 @@ bool C718_viewer_hit_world_height_is_not_source_edge_branch_authority() {
   pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
   pick.segment_endpoint_b_world = {12.0, 0.0, 0.0};
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || almost_equal(resolved.value.position.z, pick.hit_pos_world.z, 1e-9) ||
       !almost_equal(resolved.value.position.z, 0.0, 1e-9) ||
@@ -1075,7 +1075,7 @@ bool C719_source_edge_branch_endpoint_follows_current_curve_projection() {
   const wire::core::ObjectId source_node_a = source_edge.node_a;
   const wire::core::ObjectId source_node_b = source_edge.node_b;
   const auto initial_projection = state.view().source_edge_projection_world(
-      source_edge_id, source_node_a, wire::core::BundleKind::kLowVoltage, 0, 0.5);
+      source_edge_id, source_node_a, wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage), 0, 0.5);
   if (!initial_projection.has_value()) {
     return false;
   }
@@ -1090,7 +1090,7 @@ bool C719_source_edge_branch_endpoint_follows_current_curve_projection() {
   pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
   pick.segment_endpoint_b_world = {12.0, 0.0, 0.0};
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
     return false;
@@ -1118,7 +1118,7 @@ bool C719_source_edge_branch_endpoint_follows_current_curve_projection() {
   }
   const wire::core::CurveCacheEntry* source_curve = state.find_curve_cache(source_span_id);
   const auto current_projection = state.view().source_edge_projection_world(
-      source_edge_id, source_node_a, wire::core::BundleKind::kLowVoltage, 0, 0.5);
+      source_edge_id, source_node_a, wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage), 0, 0.5);
   const wire::core::SpanLayoutView branch_layout = state.span_layout(branch_span_id);
   const wire::core::Span* branch_span = state.view().spans().find(branch_span_id);
   if (source_curve == nullptr || !current_projection.has_value() || !branch_layout.has_layout() ||
@@ -1151,7 +1151,7 @@ bool C721_source_edge_identity_survives_projection_update() {
   pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
   pick.segment_endpoint_b_world = {12.0, 0.0, 0.0};
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok) {
     return false;
@@ -1280,7 +1280,7 @@ bool C723_source_edge_branch_does_not_change_source_sag() {
   pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
   pick.segment_endpoint_b_world = {12.0, 0.0, 0.0};
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok) {
     return false;
@@ -1332,7 +1332,7 @@ bool C724_source_template_sag_change_updates_branch_projection() {
   }
   const wire::core::SavedBackboneEdge source_edge = state.view().backbone().edges.front();
   const auto before_projection = state.view().source_edge_projection_world(
-      source_edge.edge_id, source_edge.node_a, wire::core::BundleKind::kLowVoltage, 0, 0.5);
+      source_edge.edge_id, source_edge.node_a, wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage), 0, 0.5);
   if (!before_projection.has_value()) {
     return false;
   }
@@ -1347,7 +1347,7 @@ bool C724_source_template_sag_change_updates_branch_projection() {
   pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
   pick.segment_endpoint_b_world = {12.0, 0.0, 0.0};
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok) {
     return false;
@@ -1369,7 +1369,7 @@ bool C724_source_template_sag_change_updates_branch_projection() {
   edited.sag_factor += 0.08;
   const auto updated = state.UpdateCableTemplate(edited);
   const auto after_projection = state.view().source_edge_projection_world(
-      source_edge.edge_id, source_edge.node_a, wire::core::BundleKind::kLowVoltage, 0, 0.5);
+      source_edge.edge_id, source_edge.node_a, wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage), 0, 0.5);
   const wire::core::SpanLayoutView branch_layout = state.span_layout(branch_span_id);
   if (!updated.ok || !after_projection.has_value() || !branch_layout.has_layout() ||
       almost_equal(*before_projection, *after_projection, 1e-4)) {
@@ -1389,7 +1389,7 @@ bool C725_source_layout_settings_update_keeps_branch_projection_current() {
   const wire::core::SavedBackboneEdge source_edge = state.view().backbone().edges.front();
   constexpr double kSourceT = 11.0 / 12.0;
   const auto before_projection = state.view().source_edge_projection_world(
-      source_edge.edge_id, source_edge.node_a, wire::core::BundleKind::kLowVoltage, 0, kSourceT);
+      source_edge.edge_id, source_edge.node_a, wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage), 0, kSourceT);
   if (!before_projection.has_value()) {
     return false;
   }
@@ -1404,7 +1404,7 @@ bool C725_source_layout_settings_update_keeps_branch_projection_current() {
   pick.segment_endpoint_a_world = {0.0, 0.0, 0.0};
   pick.segment_endpoint_b_world = {12.0, 0.0, 0.0};
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok) {
     return false;
@@ -1427,7 +1427,7 @@ bool C725_source_layout_settings_update_keeps_branch_projection_current() {
   edited.max_side_scale = 0.5;
   const auto updated = state.UpdateLayoutSettings(edited);
   const auto after_projection = state.view().source_edge_projection_world(
-      source_edge.edge_id, source_edge.node_a, wire::core::BundleKind::kLowVoltage, 0, kSourceT);
+      source_edge.edge_id, source_edge.node_a, wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage), 0, kSourceT);
   const wire::core::SpanLayoutView branch_layout = state.span_layout(branch_span_id);
   if (!updated.ok || !updated.value || !after_projection.has_value() || !branch_layout.has_layout()) {
     return false;

@@ -26,7 +26,7 @@ struct CoreStateAuthoritativeStorage {
   SavedBackboneGraph backbone{};
   std::unordered_map<PoleTypeId, PoleTypeDefinition> pole_types{};
   std::unordered_map<CableTemplateId, CableTemplate> cable_templates{};
-  std::unordered_map<BundleKind, BundleTemplate> bundle_templates{};
+  std::unordered_map<BundleTemplateId, BundleTemplate> bundle_templates{};
   std::unordered_map<AttachmentTemplateId, AttachmentTemplate> attachment_templates{};
   ContextProfile context_profile{};
   OverrideState override_state{};

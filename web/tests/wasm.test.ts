@@ -16,7 +16,7 @@ describe("wire wasm smoke", () => {
   });
 
   it("generates a finite two-point route", () => {
-    const result = state.generate(new Float64Array([0, 0, 0, 20, 0, 0]), [0], 0, 1, [0], 0, 0, []);
+    const result = state.generate(new Float64Array([0, 0, 0, 20, 0, 0]), [102], 0, 1, [0], 0, 0, []);
 
     expect(result.ok, result.error).toBe(true);
     expect(result.generatedPoleCount).toBe(2);
@@ -35,7 +35,7 @@ describe("wire wasm smoke", () => {
   it("applies generation-time tilt when a max tilt is requested", () => {
     const tilted = createState();
     const generated = tilted.generate(
-      new Float64Array([0, 0, 0, 20, 0, 0]), [0], 0, 1, [0], 0, 9.5, []
+      new Float64Array([0, 0, 0, 20, 0, 0]), [102], 0, 1, [0], 0, 9.5, []
     );
     expect(generated.ok, generated.error).toBe(true);
     const poles = Array.from({ length: tilted.poleCount() }, (_, index) => tilted.pole(index));
@@ -47,7 +47,7 @@ describe("wire wasm smoke", () => {
 
     const flat = createState();
     const plain = flat.generate(
-      new Float64Array([0, 0, 0, 20, 0, 0]), [0], 0, 1, [0], 0, 0, []
+      new Float64Array([0, 0, 0, 20, 0, 0]), [102], 0, 1, [0], 0, 0, []
     );
     expect(plain.ok, plain.error).toBe(true);
     const plainPoles = Array.from({ length: flat.poleCount() }, (_, index) => flat.pole(index));
@@ -62,14 +62,14 @@ describe("wire wasm smoke", () => {
   it("exposes a shared run id for through edge bodies", () => {
     const runState = createState();
     const result = runState.generate(
-      new Float64Array([0, 0, 0, 20, 0, 0, 20, 10, 0]), [0], 0, 1, [0], 0, 0, []
+      new Float64Array([0, 0, 0, 20, 0, 0, 20, 10, 0]), [102], 0, 1, [0], 0, 0, []
     );
     expect(result.ok, result.error).toBe(true);
 
     const edgeBodies = Array.from(
       { length: runState.visualPartCount() },
       (_, index) => runState.visualPart(index)
-    ).filter((part) => part.kind === 0 && part.bundleTemplateId === 0 && part.laneIndex === 0);
+    ).filter((part) => part.kind === 0 && part.bundleTemplateId === 102 && part.laneIndex === 0);
 
     expect(edgeBodies).toHaveLength(2);
     expect(edgeBodies[0].runId).toBeGreaterThan(0);
@@ -80,7 +80,7 @@ describe("wire wasm smoke", () => {
   it("generates the viewer default bundle selection together", () => {
     const result = state.generate(
       new Float64Array([0, 10, 0, 20, 10, 0]),
-      [0, 1, 2, 3],
+      [102, 101, 104, 105],
       0,
       1,
       [0, 0, 0, 0],
@@ -101,7 +101,7 @@ describe("wire wasm smoke", () => {
     });
     expect(update.ok, update.error).toBe(true);
 
-    const result = state.generate(new Float64Array([0, 20, 0, 40, 20, 0]), [0], 0, 1, [0], 0, 0, []);
+    const result = state.generate(new Float64Array([0, 20, 0, 40, 20, 0]), [102], 0, 1, [0], 0, 0, []);
     expect(result.ok, result.error).toBe(true);
 
     let maxDrop = 0;
@@ -122,7 +122,7 @@ describe("wire wasm smoke", () => {
 
 
   it("returns an explicit error for a one-point route", () => {
-    const result = state.generate(new Float64Array([0, 0, 0]), [0], 0, 1, [0], 0, 0, []);
+    const result = state.generate(new Float64Array([0, 0, 0]), [102], 0, 1, [0], 0, 0, []);
 
     expect(result.ok).toBe(false);
     expect(result.error.length).toBeGreaterThan(0);
@@ -179,7 +179,7 @@ describe("wire wasm smoke", () => {
     expect(original).toBeDefined();
     const generated = placementState.generate(
       new Float64Array([0, 0, 0, 20, 0, 0]),
-      [1],
+      [101],
       0,
       original!.id,
       [0],

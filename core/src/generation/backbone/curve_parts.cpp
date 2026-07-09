@@ -28,7 +28,7 @@ struct curve_endpoint_ref {
   ObjectId bundle_id = kInvalidObjectId;
   ObjectId port_id = kInvalidObjectId;
   ObjectId jumper_peer_port_id = kInvalidObjectId;
-  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
   std::size_t lane_index = 0;
   PoleTypeId pole_type_id = kInvalidPoleTypeId;
   int band_id = 0;
@@ -42,7 +42,7 @@ struct curve_endpoint_ref {
 
 struct curve_patch_key {
   ObjectId node_id = kInvalidObjectId;
-  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
   std::size_t lane_index = 0;
   PoleTypeId pole_type_id = kInvalidPoleTypeId;
   int band_id = 0;
@@ -463,14 +463,14 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     const SavedBackboneSpanBinding* binding = span_binding_for(state, entry.span_id);
     if (binding == nullptr) {
       out.diagnostics.push_back(
-          {kInvalidObjectId, entry.span_id, BundleKind::kLowVoltage, 0, "span binding missing"});
+          {kInvalidObjectId, entry.span_id, kInvalidBundleTemplateId, 0, "span binding missing"});
       continue;
     }
     const Span* span = state.view().spans().find(entry.span_id);
     const Bundle* bundle = span == nullptr ? nullptr : state.view().bundles().find(span->bundle_id);
     if (span == nullptr || bundle == nullptr) {
       out.diagnostics.push_back(
-          {kInvalidObjectId, entry.span_id, BundleKind::kLowVoltage, binding->lane_index, "span bundle missing"});
+          {kInvalidObjectId, entry.span_id, kInvalidBundleTemplateId, binding->lane_index, "span bundle missing"});
       continue;
     }
     const SavedBackbonePortBinding* start_binding =
@@ -542,18 +542,18 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
         binding == nullptr ? nullptr : state.view().backbone_edge_bundle(binding->edge_bundle_id);
     if (span == nullptr || binding == nullptr || edge_bundle == nullptr) {
       out.diagnostics.push_back(
-          {kInvalidObjectId, entry.key.logical_span_id, BundleKind::kLowVoltage, 0,
+          {kInvalidObjectId, entry.key.logical_span_id, kInvalidBundleTemplateId, 0,
            "curve source identity missing"});
       continue;
     }
     const Bundle* bundle = state.view().bundles().find(span->bundle_id);
     if (bundle == nullptr) {
       out.diagnostics.push_back(
-          {kInvalidObjectId, entry.key.logical_span_id, BundleKind::kLowVoltage, binding->lane_index,
+          {kInvalidObjectId, entry.key.logical_span_id, kInvalidBundleTemplateId, binding->lane_index,
            "curve source bundle missing"});
       continue;
     }
-    const BundleKind template_id = bundle->bundle_template_id;
+    const BundleTemplateId template_id = bundle->bundle_template_id;
     const Vec3d chord = entry.endpoint_b - entry.endpoint_a;
     const double span_length = Length(chord);
     const EditResult<DetailCurve> full_curve =
@@ -745,7 +745,7 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     if (bundle == nullptr) {
       continue;
     }
-    const BundleKind template_id = bundle->bundle_template_id;
+    const BundleTemplateId template_id = bundle->bundle_template_id;
     if (entry.profile == CableSectionProfile::kWrap) {
       const auto carrier_it = base_final_curves.find(entry.key.logical_span_id);
       if (carrier_it == base_final_curves.end()) {

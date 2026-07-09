@@ -368,7 +368,8 @@ EditResult<ObjectId> CoreState::AddAnchor(ObjectId owner_pole_id, const Vec3d& w
   return result;
 }
 
-EditResult<ObjectId> CoreState::AddBundle(int conductor_count, double phase_spacing_m, BundleKind kind) {
+EditResult<ObjectId> CoreState::AddBundle(int conductor_count, double phase_spacing_m,
+                                          BundleTemplateId bundle_template_id) {
   EditResult<ObjectId> result;
   if (conductor_count <= 0) {
     result.error = "conductor count must be > 0";
@@ -384,7 +385,7 @@ EditResult<ObjectId> CoreState::AddBundle(int conductor_count, double phase_spac
   bundle.display_id = next_display_id("B");
   bundle.conductor_count = conductor_count;
   bundle.phase_spacing_m = phase_spacing_m;
-  bundle.bundle_template_id = kind;
+  bundle.bundle_template_id = bundle_template_id;
   authoritative_.edit_state.bundles.insert(bundle);
 
   result.ok = true;
@@ -1498,7 +1499,7 @@ EditResult<bool> CoreState::UpdateLayoutSettings(const LayoutSettings& settings)
 
   if (!authoritative_.backbone.span_bindings.empty()) {
     struct LayoutRegenerateScope {
-      BundleKind bundle_template_id = BundleKind::kLowVoltage;
+      BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
       ObjectId bundle_id = kInvalidObjectId;
       std::vector<ObjectId> edge_bundle_ids{};
     };
@@ -1766,7 +1767,7 @@ EditResult<bool> CoreState::UpdateBundleTemplate(const BundleTemplate& bundle_te
   return state_internal::TemplateMutationService::UpdateBundleTemplate(*this, bundle_template);
 }
 
-EditResult<bool> CoreState::ApplyBundleRelatedPoleTypeToExistingPoles(BundleKind bundle_template_id) {
+EditResult<bool> CoreState::ApplyBundleRelatedPoleTypeToExistingPoles(BundleTemplateId bundle_template_id) {
   EditResult<bool> result;
   const BundleTemplate* bundle_template = find_bundle_template(bundle_template_id);
   if (bundle_template == nullptr) {
@@ -1819,14 +1820,14 @@ EditResult<bool> CoreState::ApplyBundleRelatedPoleTypeToExistingPoles(BundleKind
 
   if (!active_backbone_pole_ids.empty()) {
     struct RelatedPoleRegenerateScope {
-      BundleKind bundle_template_id = BundleKind::kLowVoltage;
+      BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
       std::size_t route = 0;
       ObjectId bundle_id = kInvalidObjectId;
       std::vector<ObjectId> edge_bundle_ids{};
     };
 
     std::vector<RelatedPoleRegenerateScope> scopes{};
-    auto add_scope_seed = [&](BundleKind scoped_template_id, std::size_t route, ObjectId bundle_id) {
+    auto add_scope_seed = [&](BundleTemplateId scoped_template_id, std::size_t route, ObjectId bundle_id) {
       const auto existing = std::find_if(scopes.begin(), scopes.end(), [&](const RelatedPoleRegenerateScope& scope) {
         return scope.bundle_template_id == scoped_template_id && scope.route == route && scope.bundle_id == bundle_id;
       });
@@ -2040,14 +2041,14 @@ EditResult<bool> CoreState::update_pole_type_and_refresh_instances(const PoleTyp
 
   if (!active_backbone_pole_ids.empty() && !pole_type_placement_only_change(before, pole_type)) {
     struct PoleTypeRegenerateScope {
-      BundleKind bundle_template_id = BundleKind::kLowVoltage;
+      BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
       std::size_t route = 0;
       ObjectId bundle_id = kInvalidObjectId;
       std::vector<ObjectId> edge_bundle_ids{};
     };
 
     std::vector<PoleTypeRegenerateScope> scopes{};
-    auto add_scope_seed = [&](BundleKind bundle_template_id, std::size_t route, ObjectId bundle_id) {
+    auto add_scope_seed = [&](BundleTemplateId bundle_template_id, std::size_t route, ObjectId bundle_id) {
       const auto existing = std::find_if(scopes.begin(), scopes.end(), [&](const PoleTypeRegenerateScope& scope) {
         return scope.bundle_template_id == bundle_template_id && scope.route == route && scope.bundle_id == bundle_id;
       });

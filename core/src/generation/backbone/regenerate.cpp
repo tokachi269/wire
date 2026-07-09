@@ -94,7 +94,7 @@ bool port_is_retired_only(const CoreState& state, ObjectId port_id,
 
 } // namespace
 
-EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleKind bundle_template_id,
+EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bundle_template_id,
                                                              const BundleTemplate& previous_template,
                                                              const BundleTemplate& next_template,
                                                              ChangeSet* change_set,

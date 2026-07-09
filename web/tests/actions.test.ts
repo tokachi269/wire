@@ -50,7 +50,7 @@ describe("viewer actions", () => {
     const bridge = {
       bundleTemplates: () => [
         {
-          id: 0, name: "DEFAULT_SINGLE", defaultCount: 1, fixedCount: true,
+          id: 102, kind: 0, name: "DEFAULT_SINGLE", defaultCount: 1, fixedCount: true,
           fixedCountValue: 1, minCount: 1, maxCount: 1,
           cableTemplateId: 2, relatedPoleTypeId: 1, defaultLayer: 2,
           allowMirror: true, allowMidairNode: true, allowMidairBranch: true,
@@ -111,7 +111,7 @@ describe("viewer actions", () => {
     const bridge = {
       bundleTemplates: () => [
         {
-          id: 0, name: "DEFAULT_SINGLE", defaultCount: 1, fixedCount: true,
+          id: 102, kind: 0, name: "DEFAULT_SINGLE", defaultCount: 1, fixedCount: true,
           fixedCountValue: 1, minCount: 1, maxCount: 1,
           cableTemplateId: 2, relatedPoleTypeId: 1, defaultLayer: 2,
           allowMirror: true, allowMidairNode: true, allowMidairBranch: true,
@@ -160,7 +160,7 @@ describe("viewer actions", () => {
       ],
       bundleTemplates: [
         {
-          id: 0, name: "DEFAULT_SINGLE", defaultCount: 1, fixedCount: true,
+          id: 102, kind: 0, name: "DEFAULT_SINGLE", defaultCount: 1, fixedCount: true,
           fixedCountValue: 1, minCount: 1, maxCount: 1,
           cableTemplateId: 2, relatedPoleTypeId: 1, defaultLayer: 2,
           allowMirror: true, allowMidairNode: true, allowMidairBranch: true,
@@ -169,8 +169,8 @@ describe("viewer actions", () => {
           populationRules: []
         }
       ],
-      selectedBundleTemplateId: 0,
-      selectedDrawBundleTemplateIds: [0]
+      selectedBundleTemplateId: 102,
+      selectedDrawBundleTemplateIds: [102]
     }));
 
     new ViewerActions(bridge, store).generatePath();
@@ -183,7 +183,8 @@ describe("viewer actions", () => {
 });
 
 const bundleTemplate: BundleTemplateInfo = {
-  id: 0,
+  id: 102,
+  kind: 0,
   name: "DEFAULT_SINGLE",
   defaultCount: 1,
   fixedCount: true,
@@ -299,7 +300,7 @@ describe("P1 action contracts", () => {
     actions.initialize();
 
     const snapshot = current(store);
-    expect(snapshot.selectedBundleTemplateId).toBe(1);
+    expect(snapshot.selectedBundleTemplateId).toBe(102);
     expect(snapshot.selectedCableTemplateId).toBe(7);
     expect(snapshot.selectedPoleTemplateId).toBe(9);
   });

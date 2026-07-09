@@ -46,7 +46,7 @@ export class WireBridge {
 
   generate(
     points: Float64Array,
-    bundleTemplateIds: number[] = [0],
+    bundleTemplateIds: number[] = [102],
     intervalM = 0,
     poleTypeId = 1,
     counts: number[] = [0],

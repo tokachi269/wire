@@ -25,6 +25,7 @@
 - unsupported requestがmutation前に拒否される
 - post-edit successがstale outputを残さない
 - wire coreが外部domain型へ依存しない
+- bundle template identity は `BundleTemplateId` であり、`BundleKind` は category/tag としてのみ使う
 
 ## 決定済みの制限
 

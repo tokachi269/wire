@@ -101,6 +101,7 @@ export interface ResolvedPathPointInfo {
 
 export interface BundleTemplateInfo {
   id: number;
+  kind: number;
   name: string;
   defaultCount: number;
   fixedCount: boolean;

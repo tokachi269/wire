@@ -844,6 +844,24 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C690_wrap_sections_do_not_join_node_patches",
                          "wrap sections stay trimmed off the supports and never join node patches",
                          "Boundary", false, C690_wrap_sections_do_not_join_node_patches);
+  test_registry::AddTest(tests, "C730_same_kind_bundle_templates_can_coexist",
+                         "bundle template identity is separate from BundleKind category",
+                         "Invariant", false, C730_same_kind_bundle_templates_can_coexist);
+  test_registry::AddTest(tests, "C731_backbone_spec_references_duplicate_kind_templates",
+                         "backbone spec can generate two templates with the same BundleKind",
+                         "Invariant", false, C731_backbone_spec_references_duplicate_kind_templates);
+  test_registry::AddTest(tests, "C732_population_rule_owner_is_bundle_template_id",
+                         "population rules are owned by BundleTemplateId, not BundleKind",
+                         "Invariant", false, C732_population_rule_owner_is_bundle_template_id);
+  test_registry::AddTest(tests, "C733_regenerate_scope_uses_bundle_template_id",
+                         "bundle template regenerate scope matches BundleTemplateId only",
+                         "Invariant", false, C733_regenerate_scope_uses_bundle_template_id);
+  test_registry::AddTest(tests, "C734_cable_template_lookup_is_not_kind_based",
+                         "duplicate-kind bundle templates use their own cable template",
+                         "Invariant", false, C734_cable_template_lookup_is_not_kind_based);
+  test_registry::AddTest(tests, "C735_bundle_template_id_source_guard",
+                         "source guard rejects BundleKind as bundle template identity",
+                         "Boundary", false, C735_bundle_template_id_source_guard);
   test_registry::AddTest(tests, "C691_cable_run_id_connects_through_sections",
                          "cable run id connects through base edge bodies and their node patch",
                          "Invariant", false, C691_cable_run_id_connects_through_sections);

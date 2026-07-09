@@ -135,7 +135,7 @@ inline void CopyLayoutSemantic(LayoutSemantic& dst, const LayoutSemantic& src) {
 struct SourceEdgeProjectionRef {
   ObjectId source_edge_id = kInvalidObjectId;
   ObjectId from_node_id = kInvalidObjectId;
-  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
   std::size_t lane_index = 0;
   double t = 0.0;
 

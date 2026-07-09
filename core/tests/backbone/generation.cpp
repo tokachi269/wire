@@ -46,7 +46,7 @@ double dot_xy(const wire::core::Vec3d& a, const wire::core::Vec3d& b) {
 }
 
 bool prepare_two_lane_low_voltage(wire::core::CoreState& state) {
-  const auto it = state.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  const auto it = state.view().bundle_templates().find(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
   if (it == state.view().bundle_templates().end()) {
     return false;
   }
@@ -756,13 +756,13 @@ bool C407_backbone_multiple_bundle_heights_are_band_based() {
     if (bundle == nullptr) {
       return false;
     }
-    if (bundle->bundle_template_id == wire::core::BundleKind::kLowVoltage) {
+    if (bundle->bundle_template_id == wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)) {
       saw_lv = true;
       if (!span_ports_match_z(state, span_id, lv_z)) {
         return false;
       }
     }
-    if (bundle->bundle_template_id == wire::core::BundleKind::kCommunication) {
+    if (bundle->bundle_template_id == wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)) {
       saw_comm = true;
       if (!span_ports_match_z(state, span_id, comm_z)) {
         return false;
@@ -1102,7 +1102,7 @@ bool C417_backbone_node_mode_pass_through_without_target_rejected() {
   wire::core::BackboneSpec req = line_req(state);
   wire::core::BackboneSpec::NodeBundleModeSpec mode{};
   mode.point_index = 0;
-  mode.bundle_template_id = wire::core::BundleKind::kLowVoltage;
+  mode.bundle_template_id = wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage);
   mode.mode = wire::core::BundleNodeMode::kPassThrough;
   req.node_bundle_modes.push_back(mode);
   const auto out = state.GenerateFromBackboneSpec(req);
@@ -1114,7 +1114,7 @@ bool C418_backbone_node_mode_unknown_bundle_rejected() {
   wire::core::BackboneSpec req = line_req(state);
   wire::core::BackboneSpec::NodeBundleModeSpec mode{};
   mode.point_index = 0;
-  mode.bundle_template_id = wire::core::BundleKind::kHighVoltage;
+  mode.bundle_template_id = wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kHighVoltage);
   mode.mode = wire::core::BundleNodeMode::kNotPresent;
   req.node_bundle_modes.push_back(mode);
   const auto out = state.GenerateFromBackboneSpec(req);
@@ -1126,7 +1126,7 @@ bool C419_backbone_node_mode_point_index_rejected() {
   wire::core::BackboneSpec req = line_req(state);
   wire::core::BackboneSpec::NodeBundleModeSpec mode{};
   mode.point_index = req.path.polyline.size();
-  mode.bundle_template_id = wire::core::BundleKind::kLowVoltage;
+  mode.bundle_template_id = wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage);
   mode.mode = wire::core::BundleNodeMode::kNotPresent;
   req.node_bundle_modes.push_back(mode);
   const auto out = state.GenerateFromBackboneSpec(req);

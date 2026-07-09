@@ -139,9 +139,34 @@ enum class RowLayoutAxisMode : std::uint8_t {
   kSupportAxis = 1,
 };
 
+constexpr BundleTemplateId kDefaultHighVoltageBundleTemplateId = 101;
+constexpr BundleTemplateId kDefaultLowVoltageBundleTemplateId = 102;
+constexpr BundleTemplateId kDefaultDropBundleTemplateId = 103;
+constexpr BundleTemplateId kDefaultCommunicationBundleTemplateId = 104;
+constexpr BundleTemplateId kDefaultOpticalBundleTemplateId = 105;
+
+[[nodiscard]] constexpr BundleTemplateId DefaultBundleTemplateId(BundleKind kind) noexcept {
+  switch (kind) {
+  case BundleKind::kHighVoltage:
+    return kDefaultHighVoltageBundleTemplateId;
+  case BundleKind::kLowVoltage:
+    return kDefaultLowVoltageBundleTemplateId;
+  case BundleKind::kDrop:
+    return kDefaultDropBundleTemplateId;
+  case BundleKind::kCommunication:
+    return kDefaultCommunicationBundleTemplateId;
+  case BundleKind::kOptical:
+    return kDefaultOpticalBundleTemplateId;
+  case BundleKind::kOpticalWithSupport:
+    return kInvalidBundleTemplateId;
+  }
+  return kInvalidBundleTemplateId;
+}
+
 struct BundleTemplate {
   // Bundle/system rule set. Topology policy lives here, not on CableTemplate.
-  BundleKind id = BundleKind::kLowVoltage;
+  BundleTemplateId id = kInvalidBundleTemplateId;
+  BundleKind kind = BundleKind::kLowVoltage;
   std::string name{};
   ConnectionCategory category = ConnectionCategory::kLowVoltage;
   CableTemplateId cable_template_id = kInvalidCableTemplateId;
@@ -178,7 +203,7 @@ enum class BundleNodeMode : std::uint8_t {
 };
 
 struct SupportNodeBundleMode {
-  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
   BundleNodeMode mode = BundleNodeMode::kNotPresent;
 };
 
@@ -220,7 +245,7 @@ struct PickResult {
 };
 
 struct BackboneBundleSpec {
-  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
   SpanLayer layer = SpanLayer::kUnknown;
   // Used only for variable-count templates. Fixed templates reject count input.
   int count = 0;
@@ -234,7 +259,7 @@ struct BackboneSpec {
   // Optional per-node per-bundle connection mode hints.
   struct NodeBundleModeSpec {
     std::size_t point_index = std::numeric_limits<std::size_t>::max();
-    BundleKind bundle_template_id = BundleKind::kLowVoltage;
+    BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
     BundleNodeMode mode = BundleNodeMode::kNotPresent;
   };
   std::vector<NodeBundleModeSpec> node_bundle_modes{};
@@ -279,7 +304,7 @@ struct ContextProfile {
 // Stable style keys should be derived from route/segment/lane semantics, not transient object ids.
 struct StyleRouteKey {
   std::uint64_t family_id = 0;
-  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
   ConnectionCategory category = ConnectionCategory::kLowVoltage;
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
 };
@@ -575,7 +600,7 @@ struct BackboneLoweringPolicy {
 struct BackboneEdgeOrientation {
   ObjectId node_a_id = kInvalidObjectId;
   ObjectId node_b_id = kInvalidObjectId;
-  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
   std::uint64_t variation_flow_key = 0;
   BackboneFlowKind flow_kind = BackboneFlowKind::kMain;
   BackboneFlowDecisionRule flow_decision_rule = BackboneFlowDecisionRule::kDefaultMain;

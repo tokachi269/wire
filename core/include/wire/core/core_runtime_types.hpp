@@ -155,7 +155,7 @@ struct CablePopulationDiagnostic {
 struct VisualCurveDiagnostic {
   ObjectId source_node_id = kInvalidObjectId;
   ObjectId source_span_id = kInvalidObjectId;
-  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
   std::size_t lane_index = 0;
   std::string reason{};
 };
@@ -167,7 +167,7 @@ struct VisualCurvePart {
   ObjectId source_edge_id = kInvalidObjectId;
   ObjectId source_span_id = kInvalidObjectId;
   ObjectId source_bundle_id = kInvalidObjectId;
-  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
   std::size_t lane_index = 0;
   std::vector<ObjectId> incident_edge_ids{};
   Vec3d boundary_a{};

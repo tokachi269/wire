@@ -82,7 +82,7 @@ ObjectId find_pole_id_by_position(const CoreState& state, const wire::core::Vec3
 bool is_monotonic(const std::vector<double>& values);
 void add_backbone_bundle(wire::core::BackboneSpec& req, wire::core::BundleKind template_id,
                          wire::core::SpanLayer layer = wire::core::SpanLayer::kUnknown, int count = 0);
-wire::core::BundleKind bundle_template_for_category_test(wire::core::ConnectionCategory category);
+wire::core::BundleTemplateId bundle_template_for_category_test(wire::core::ConnectionCategory category);
 AxisRelationMetrics measure_pole_axis_relation_metrics(const CoreState& state, ObjectId pole_id,
                                                        wire::core::PortLayer layer,
                                                        const wire::core::Vec3d& span_axis);
@@ -90,7 +90,7 @@ BranchRunoutMetrics measure_branch_runout_metrics(const CoreState& state, Object
 std::string describe_axis_relation_metrics(const AxisRelationMetrics& metrics);
 std::string describe_branch_runout_metrics(const BranchRunoutMetrics& metrics);
 struct FixtureConnectionOptions {
-  wire::core::BundleKind bundle_template_id = wire::core::BundleKind::kLowVoltage;
+  wire::core::BundleTemplateId bundle_template_id = wire::core::kDefaultLowVoltageBundleTemplateId;
   bool use_bundle_template = false;
   wire::core::ConnectionContext connection_context = wire::core::ConnectionContext::kTrunkContinue;
   std::uint32_t branch_index = 0;

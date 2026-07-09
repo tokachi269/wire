@@ -13,6 +13,8 @@ using PoleTypeId = std::uint32_t;
 constexpr PoleTypeId kInvalidPoleTypeId = 0;
 using CableTemplateId = std::uint32_t;
 constexpr CableTemplateId kInvalidCableTemplateId = 0;
+using BundleTemplateId = std::uint32_t;
+constexpr BundleTemplateId kInvalidBundleTemplateId = 0;
 using AttachmentTemplateId = std::uint32_t;
 constexpr AttachmentTemplateId kInvalidAttachmentTemplateId = 0;
 enum class ConnectionCategory : std::uint8_t {
@@ -368,7 +370,7 @@ struct Bundle {
   std::string display_id{};
   int conductor_count = 1;
   double phase_spacing_m = 0.3;
-  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
 };
 
 // Entity-layer connection edge.

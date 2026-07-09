@@ -565,13 +565,13 @@ wire::core::CablePopulationRule two_extra_lv_population_rule() {
 }
 
 bool enable_two_extra_lv_population(wire::core::CoreState& state) {
-  wire::core::BundleTemplate lv_template = state.view().bundle_templates().at(wire::core::BundleKind::kLowVoltage);
+  wire::core::BundleTemplate lv_template = state.view().bundle_templates().at(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
   lv_template.population_rules.push_back(two_extra_lv_population_rule());
   return state.UpdateBundleTemplate(lv_template).ok;
 }
 
 bool prepare_two_lane_low_voltage_for_run_test(wire::core::CoreState& state) {
-  wire::core::BundleTemplate lv_template = state.view().bundle_templates().at(wire::core::BundleKind::kLowVoltage);
+  wire::core::BundleTemplate lv_template = state.view().bundle_templates().at(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
   lv_template.count_rule = wire::core::BundleCountRuleKind::kFixed;
   lv_template.fixed_count = 2;
   lv_template.default_count = 2;
@@ -1200,7 +1200,7 @@ bool C665_backbone_midair_attachment_uses_derived_curve() {
   const wire::core::SavedBackboneEdge& edge = state.view().backbone().edges.front();
   const auto attachment =
       state.view().source_edge_projection_world(edge.edge_id, edge.node_a,
-                                                wire::core::BundleKind::kLowVoltage, 0, 0.5);
+                                                wire::core::kDefaultLowVoltageBundleTemplateId, 0, 0.5);
   if (curve == nullptr || !attachment.has_value()) {
     return false;
   }

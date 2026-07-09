@@ -17,7 +17,7 @@ struct CoreStateTestHook {
     return state.runtime_.span_runtime_states;
   }
   static ValidationResult validate(CoreState& state) { return state.Validate(); }
-  static std::unordered_map<BundleKind, BundleTemplate>& bundle_templates(CoreState& state) {
+  static std::unordered_map<BundleTemplateId, BundleTemplate>& bundle_templates(CoreState& state) {
     return state.authoritative_.bundle_templates;
   }
   static std::unordered_map<CableTemplateId, CableTemplate>& cable_templates(CoreState& state) {

@@ -20,7 +20,7 @@ template <typename TValue> void append_unique(std::vector<TValue>& dst, const st
 }
 
 struct CableDecisionRegenerateScope {
-  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
   std::size_t route = 0;
   std::vector<ObjectId> edge_bundle_ids{};
 };

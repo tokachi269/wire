@@ -178,7 +178,7 @@ bool test_style_context_resolver_is_deterministic_and_route_correlated() {
 
   wire::core::StyleRouteKey route_key{};
   route_key.family_id = 1001;
-  route_key.bundle_template_id = wire::core::BundleKind::kCommunication;
+  route_key.bundle_template_id = wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication);
   route_key.category = wire::core::ConnectionCategory::kCommunication;
   route_key.flow_kind = wire::core::BackboneFlowKind::kMain;
 

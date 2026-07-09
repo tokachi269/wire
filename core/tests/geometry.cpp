@@ -50,7 +50,7 @@ generate_path(CoreState& state, const wire::core::BackboneInputSpec& path, doubl
   spec.interval_m = interval;
   spec.pole_type_id = pole_type_id;
   wire::core::BackboneBundleSpec bundle{};
-  bundle.bundle_template_id = wire::core::BundleKind::kLowVoltage;
+  bundle.bundle_template_id = wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage);
   spec.bundles.push_back(bundle);
   return state.GenerateFromBackboneSpec(spec);
 }
@@ -101,7 +101,7 @@ bool test_backbone_interval_generates_pole_line_basic() {
 bool test_acute_corner_auto_widens_lane_spacing() {
   auto row_count_for_interior = [](double interior_deg, bool expect_open) -> std::size_t {
     CoreState state;
-    const wire::core::BundleKind bundle_kind =
+    const wire::core::BundleTemplateId bundle_kind =
         bundle_template_for_category_test(wire::core::ConnectionCategory::kLowVoltage);
     wire::core::LayoutSettings layout = state.view().layout_settings();
     layout.max_side_scale = 6.0;

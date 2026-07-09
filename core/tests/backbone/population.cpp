@@ -2,9 +2,13 @@
 #include "cases.hpp"
 
 #include "../../src/generation/backbone/population.hpp"
+#include "wire/core/core_test_hook.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
 
 namespace backbone_tests {
 namespace {
@@ -25,7 +29,7 @@ wire::core::generation::backbone::CablePopulationInput population_input(
   CablePopulationInput input{};
   input.key.logical_span_id = span_id;
   input.key.edge_bundle_id = 202;
-  input.key.rule_owner_id = static_cast<std::uint64_t>(BundleKind::kCommunication);
+  input.key.rule_owner_id = static_cast<std::uint64_t>(kDefaultCommunicationBundleTemplateId);
   input.key.rule_id = 303;
   input.rule.rule_id = 303;
   input.rule.explicit_seed = seed;
@@ -85,6 +89,82 @@ wire::core::CablePopulationRule lv_population_rule(std::uint64_t seed = 1234) {
   rule.height_max_m = 20.0;
   rule.randomness = 0.4;
   return rule;
+}
+
+struct DuplicateLvTemplates {
+  wire::core::BundleTemplateId a = 9001;
+  wire::core::BundleTemplateId b = 9002;
+};
+
+DuplicateLvTemplates install_duplicate_low_voltage_templates(wire::core::CoreState& state) {
+  DuplicateLvTemplates ids{};
+  wire::core::BundleTemplate a =
+      state.view().bundle_templates().at(wire::core::kDefaultLowVoltageBundleTemplateId);
+  wire::core::BundleTemplate b = a;
+  a.id = ids.a;
+  a.kind = wire::core::BundleKind::kLowVoltage;
+  a.name = "LV duplicate A";
+  a.fixed_count = 1;
+  a.default_count = 1;
+  b.id = ids.b;
+  b.kind = wire::core::BundleKind::kLowVoltage;
+  b.name = "LV duplicate B";
+  b.fixed_count = 2;
+  b.default_count = 2;
+  auto& templates = wire::core::CoreStateTestHook::bundle_templates(state);
+  templates[a.id] = a;
+  templates[b.id] = b;
+  return ids;
+}
+
+wire::core::BackboneSpec duplicate_template_line_req(wire::core::CoreState& state,
+                                                     const DuplicateLvTemplates& ids) {
+  wire::core::BackboneSpec request = line_req(state);
+  request.bundles.clear();
+  wire::core::BackboneBundleSpec a{};
+  a.bundle_template_id = ids.a;
+  wire::core::BackboneBundleSpec b{};
+  b.bundle_template_id = ids.b;
+  request.bundles = {a, b};
+  return request;
+}
+
+const wire::core::Bundle* find_bundle_by_template(const wire::core::CoreState& state,
+                                                  const wire::core::EditResult<wire::core::GenerateBundleFromPathResult>& result,
+                                                  wire::core::BundleTemplateId template_id) {
+  if (!result.ok) {
+    return nullptr;
+  }
+  for (wire::core::ObjectId bundle_id : result.value.bundle_ids) {
+    const wire::core::Bundle* bundle = state.view().bundles().find(bundle_id);
+    if (bundle != nullptr && bundle->bundle_template_id == template_id) {
+      return bundle;
+    }
+  }
+  return nullptr;
+}
+
+const wire::core::Bundle* find_current_bundle_by_template(const wire::core::CoreState& state,
+                                                          wire::core::BundleTemplateId template_id) {
+  for (const wire::core::Bundle& bundle : state.view().bundles().items()) {
+    if (bundle.bundle_template_id == template_id) {
+      return &bundle;
+    }
+  }
+  return nullptr;
+}
+
+bool source_contains_any(const std::filesystem::path& path, const std::vector<std::string>& banned) {
+  std::ifstream in(path);
+  if (!in.is_open()) {
+    return true;
+  }
+  std::ostringstream buffer;
+  buffer << in.rdbuf();
+  const std::string text = buffer.str();
+  return std::any_of(banned.begin(), banned.end(), [&](const std::string& pattern) {
+    return text.find(pattern) != std::string::npos;
+  });
 }
 
 bool has_extra_visual_curve(const wire::core::CoreState& state) {
@@ -181,7 +261,7 @@ bool C653_population_rejects_duplicate_band_identity() {
     return false;
   }
   const auto updated = state.UpdatePoleTypeDefinition(duplicate_type);
-  wire::core::BundleTemplate lv_template = state.view().bundle_templates().at(wire::core::BundleKind::kLowVoltage);
+  wire::core::BundleTemplate lv_template = state.view().bundle_templates().at(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
   lv_template.population_rules.push_back(lv_population_rule());
   const auto configured = state.UpdateBundleTemplate(lv_template);
   wire::core::BackboneSpec request = line_req(state);
@@ -209,7 +289,7 @@ bool C653_population_rejects_duplicate_band_identity() {
 bool C654_population_does_not_mutate_logical_topology() {
   wire::core::CoreState control;
   wire::core::CoreState populated;
-  wire::core::BundleTemplate lv_template = populated.view().bundle_templates().at(wire::core::BundleKind::kLowVoltage);
+  wire::core::BundleTemplate lv_template = populated.view().bundle_templates().at(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
   lv_template.population_rules.push_back(lv_population_rule());
   const auto configured = populated.UpdateBundleTemplate(lv_template);
   if (!configured.ok) {
@@ -272,7 +352,7 @@ bool C686_population_rule_on_bundle_template_adds_visual_only_sections() {
   wire::core::CoreState control;
   wire::core::CoreState populated;
   wire::core::BundleTemplate lv_template =
-      populated.view().bundle_templates().at(wire::core::BundleKind::kLowVoltage);
+      populated.view().bundle_templates().at(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
   lv_template.population_rules.push_back(lv_population_rule());
   if (!populated.UpdateBundleTemplate(lv_template).ok) {
     return false;
@@ -298,7 +378,7 @@ bool C686_population_rule_on_bundle_template_adds_visual_only_sections() {
 bool C687_population_rule_update_is_reshape_not_regenerate() {
   wire::core::CoreState state;
   wire::core::BundleTemplate lv_template =
-      state.view().bundle_templates().at(wire::core::BundleKind::kLowVoltage);
+      state.view().bundle_templates().at(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
   lv_template.population_rules.push_back(lv_population_rule(11));
   if (!state.UpdateBundleTemplate(lv_template).ok) {
     return false;
@@ -309,7 +389,7 @@ bool C687_population_rule_update_is_reshape_not_regenerate() {
   }
 
   wire::core::BundleTemplate edited =
-      state.view().bundle_templates().at(wire::core::BundleKind::kLowVoltage);
+      state.view().bundle_templates().at(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
   edited.population_rules.front().explicit_seed = 12;
   const auto updated = state.UpdateBundleTemplate(edited);
   return updated.ok && state.view().last_update_timing().kind == wire::core::UpdateKind::kReshape &&
@@ -367,7 +447,7 @@ bool C689_wrap_rule_derives_carried_helix_without_topology() {
   wire::core::CoreState control;
   wire::core::CoreState wrapped;
   wire::core::BundleTemplate lv_template =
-      wrapped.view().bundle_templates().at(wire::core::BundleKind::kLowVoltage);
+      wrapped.view().bundle_templates().at(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
   lv_template.population_rules.push_back(wrap_population_rule());
   if (!wrapped.UpdateBundleTemplate(lv_template).ok) {
     return false;
@@ -404,7 +484,7 @@ bool C689_wrap_rule_derives_carried_helix_without_topology() {
 
   wire::core::CoreState repeat;
   wire::core::BundleTemplate repeat_template =
-      repeat.view().bundle_templates().at(wire::core::BundleKind::kLowVoltage);
+      repeat.view().bundle_templates().at(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
   repeat_template.population_rules.push_back(wrap_population_rule());
   if (!repeat.UpdateBundleTemplate(repeat_template).ok ||
       !repeat.GenerateFromBackboneSpec(line_req(repeat)).ok) {
@@ -426,7 +506,7 @@ bool C690_wrap_sections_do_not_join_node_patches() {
   wire::core::CoreState control;
   wire::core::CoreState wrapped;
   wire::core::BundleTemplate lv_template =
-      wrapped.view().bundle_templates().at(wire::core::BundleKind::kLowVoltage);
+      wrapped.view().bundle_templates().at(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
   lv_template.population_rules.push_back(wrap_population_rule());
   if (!wrapped.UpdateBundleTemplate(lv_template).ok) {
     return false;
@@ -458,6 +538,128 @@ bool C690_wrap_sections_do_not_join_node_patches() {
       });
   return patch_count(control) > 0 && patch_count(wrapped) == patch_count(control) &&
          wrap_count(wrapped) == 2 && !carrier_missing;
+}
+
+bool C730_same_kind_bundle_templates_can_coexist() {
+  wire::core::CoreState state;
+  const DuplicateLvTemplates ids = install_duplicate_low_voltage_templates(state);
+  const auto& templates = state.view().bundle_templates();
+  const auto a = templates.find(ids.a);
+  const auto b = templates.find(ids.b);
+  return a != templates.end() && b != templates.end() &&
+         a->second.id != b->second.id &&
+         a->second.kind == wire::core::BundleKind::kLowVoltage &&
+         b->second.kind == wire::core::BundleKind::kLowVoltage;
+}
+
+bool C731_backbone_spec_references_duplicate_kind_templates() {
+  wire::core::CoreState state;
+  const DuplicateLvTemplates ids = install_duplicate_low_voltage_templates(state);
+  const auto generated = state.GenerateFromBackboneSpec(duplicate_template_line_req(state, ids));
+  const wire::core::Bundle* a = find_bundle_by_template(state, generated, ids.a);
+  const wire::core::Bundle* b = find_bundle_by_template(state, generated, ids.b);
+  return generated.ok && a != nullptr && b != nullptr && a->id != b->id &&
+         a->bundle_template_id == ids.a && b->bundle_template_id == ids.b;
+}
+
+bool C732_population_rule_owner_is_bundle_template_id() {
+  wire::core::CoreState state;
+  const DuplicateLvTemplates ids = install_duplicate_low_voltage_templates(state);
+  wire::core::BundleTemplate a = state.view().bundle_templates().at(ids.a);
+  a.population_rules.push_back(lv_population_rule(31));
+  if (!state.UpdateBundleTemplate(a).ok) {
+    return false;
+  }
+  const auto generated = state.GenerateFromBackboneSpec(duplicate_template_line_req(state, ids));
+  if (!generated.ok) {
+    return false;
+  }
+  bool saw_a = false;
+  bool saw_b = false;
+  for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
+    if (part.kind != wire::core::VisualCurvePartKind::kEdgeBody || !part.has_section_key ||
+        part.section_key.is_base()) {
+      continue;
+    }
+    saw_a = saw_a || part.section_key.rule_owner_id == ids.a;
+    saw_b = saw_b || part.section_key.rule_owner_id == ids.b;
+  }
+  return saw_a && !saw_b;
+}
+
+bool C733_regenerate_scope_uses_bundle_template_id() {
+  wire::core::CoreState state;
+  const DuplicateLvTemplates ids = install_duplicate_low_voltage_templates(state);
+  const auto generated = state.GenerateFromBackboneSpec(duplicate_template_line_req(state, ids));
+  const wire::core::Bundle* a_before = find_bundle_by_template(state, generated, ids.a);
+  const wire::core::Bundle* b_before = find_bundle_by_template(state, generated, ids.b);
+  if (!generated.ok || a_before == nullptr || b_before == nullptr ||
+      a_before->conductor_count != 1 || b_before->conductor_count != 2) {
+    return false;
+  }
+  const wire::core::ObjectId b_bundle_id = b_before->id;
+  wire::core::BundleTemplate a = state.view().bundle_templates().at(ids.a);
+  a.fixed_count = 3;
+  const auto updated = state.UpdateBundleTemplate(a);
+  const wire::core::Bundle* a_after = find_current_bundle_by_template(state, ids.a);
+  const wire::core::Bundle* b_after = state.view().bundles().find(b_bundle_id);
+  return updated.ok && a_after != nullptr && b_after != nullptr &&
+         a_after->conductor_count == 3 && b_after->conductor_count == 2;
+}
+
+bool C734_cable_template_lookup_is_not_kind_based() {
+  wire::core::CoreState state;
+  const DuplicateLvTemplates ids = install_duplicate_low_voltage_templates(state);
+  wire::core::CableTemplate cable_b =
+      state.view().cable_templates().at(state.view().bundle_templates().at(ids.a).cable_template_id);
+  cable_b.id = 9101;
+  cable_b.color_rgba = 0x11223344u;
+  wire::core::CoreStateTestHook::cable_templates(state)[cable_b.id] = cable_b;
+  wire::core::BundleTemplate b = state.view().bundle_templates().at(ids.b);
+  b.cable_template_id = cable_b.id;
+  if (!state.UpdateBundleTemplate(b).ok) {
+    return false;
+  }
+  const auto generated = state.GenerateFromBackboneSpec(duplicate_template_line_req(state, ids));
+  if (!generated.ok) {
+    return false;
+  }
+  bool saw_b_color = false;
+  bool saw_a_other_color = false;
+  for (const wire::core::VisualCurvePart& part : state.view().visual_curve_parts().parts) {
+    if (part.kind != wire::core::VisualCurvePartKind::kEdgeBody ||
+        (part.has_section_key && !part.section_key.is_base())) {
+      continue;
+    }
+    if (part.bundle_template_id == ids.b) {
+      saw_b_color = saw_b_color || part.color_rgba == cable_b.color_rgba;
+    }
+    if (part.bundle_template_id == ids.a) {
+      saw_a_other_color = saw_a_other_color || part.color_rgba != cable_b.color_rgba;
+    }
+  }
+  return saw_b_color && saw_a_other_color;
+}
+
+bool C735_bundle_template_id_source_guard() {
+  const std::vector<std::filesystem::path> paths = {
+      "core/include/wire/core/core_state_storage_types.hpp",
+      "core/include/wire/core/entities.hpp",
+      "core/include/wire/core/workflow_types.hpp",
+      "core/include/wire/core/core_authoritative_types.hpp",
+      "core/src/generation/backbone/regenerate.cpp",
+      "core/src/generation/backbone/population.cpp",
+      "core/src/state/template/update.cpp"};
+  const std::vector<std::string> banned = {
+      "std::unordered_map<BundleKind, BundleTemplate>",
+      "std::map<BundleKind, BundleTemplate>",
+      "BundleKind bundle_template_id",
+      "rule_owner_id = static_cast<std::uint64_t>(BundleKind",
+      "bundle_template_id = BundleKind::",
+      "bundle->bundle_template_id == BundleKind::"};
+  return std::none_of(paths.begin(), paths.end(), [&](const std::filesystem::path& path) {
+    return source_contains_any(path, banned);
+  });
 }
 
 } // namespace backbone_tests

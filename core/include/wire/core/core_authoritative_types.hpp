@@ -65,7 +65,7 @@ struct SavedBackbonePortBinding {
   ObjectId edge_bundle_id = kInvalidObjectId;
   SavedBackboneRowKey row_key{};
   std::size_t lane_index = 0;
-  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;
   PortKind port_kind = PortKind::kGeneric;
   PortLayer port_layer = PortLayer::kUnknown;
   int placement_band_id = 0;

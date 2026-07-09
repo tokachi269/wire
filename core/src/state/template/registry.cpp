@@ -137,7 +137,8 @@ void CoreState::register_default_bundle_templates() {
     return cable_template->default_grouped_support_fanout_spacing_m;
   };
   BundleTemplate hv{};
-  hv.id = BundleKind::kHighVoltage;
+  hv.id = kDefaultHighVoltageBundleTemplateId;
+  hv.kind = BundleKind::kHighVoltage;
   hv.name = "HV_3PH";
   hv.category = ConnectionCategory::kHighVoltage;
   hv.cable_template_id = kHighVoltageCableTemplate;
@@ -162,7 +163,8 @@ void CoreState::register_default_bundle_templates() {
   authoritative_.bundle_templates[hv.id] = hv;
 
   BundleTemplate lv{};
-  lv.id = BundleKind::kLowVoltage;
+  lv.id = kDefaultLowVoltageBundleTemplateId;
+  lv.kind = BundleKind::kLowVoltage;
   lv.name = "DEFAULT_SINGLE";
   lv.category = ConnectionCategory::kLowVoltage;
   lv.cable_template_id = kLowVoltageCableTemplate;
@@ -186,7 +188,8 @@ void CoreState::register_default_bundle_templates() {
   authoritative_.bundle_templates[lv.id] = lv;
 
   BundleTemplate drop{};
-  drop.id = BundleKind::kDrop;
+  drop.id = kDefaultDropBundleTemplateId;
+  drop.kind = BundleKind::kDrop;
   drop.name = "DROP_SERVICE";
   drop.category = ConnectionCategory::kDrop;
   drop.cable_template_id = kDropCableTemplate;
@@ -210,7 +213,8 @@ void CoreState::register_default_bundle_templates() {
   authoritative_.bundle_templates[drop.id] = drop;
 
   BundleTemplate comm{};
-  comm.id = BundleKind::kCommunication;
+  comm.id = kDefaultCommunicationBundleTemplateId;
+  comm.kind = BundleKind::kCommunication;
   comm.name = "COMM_BUNDLE";
   comm.category = ConnectionCategory::kCommunication;
   comm.cable_template_id = kCommunicationCableTemplate;
@@ -234,7 +238,8 @@ void CoreState::register_default_bundle_templates() {
   authoritative_.bundle_templates[comm.id] = comm;
 
   BundleTemplate optical{};
-  optical.id = BundleKind::kOptical;
+  optical.id = kDefaultOpticalBundleTemplateId;
+  optical.kind = BundleKind::kOptical;
   optical.name = "OPTICAL";
   optical.category = ConnectionCategory::kOptical;
   optical.cable_template_id = kOpticalCableTemplate;
@@ -258,7 +263,7 @@ void CoreState::register_default_bundle_templates() {
   authoritative_.bundle_templates[optical.id] = optical;
 }
 
-const BundleTemplate* CoreState::find_bundle_template(BundleKind bundle_template_id) const {
+const BundleTemplate* CoreState::find_bundle_template(BundleTemplateId bundle_template_id) const {
   auto it = authoritative_.bundle_templates.find(bundle_template_id);
   if (it == authoritative_.bundle_templates.end()) {
     return nullptr;

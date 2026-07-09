@@ -59,7 +59,7 @@ bool test_public_headers_offer_stable_smoke_surface() {
   BackboneSpec spec{};
   spec.interval_m = 20.0;
   BackboneBundleSpec bundle{};
-  bundle.bundle_template_id = BundleKind::kLowVoltage;
+  bundle.bundle_template_id = kDefaultLowVoltageBundleTemplateId;
   spec.bundles.push_back(bundle);
 
   ModelMeasurement measurement{};

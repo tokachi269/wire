@@ -23,13 +23,13 @@ describe("viewer numeric inputs", () => {
     const mounted = await mountViewer();
     const polesBefore = mounted.bridge.scene().poles.map((pole) => pole.id);
     const hvPartsBefore = mounted.bridge.scene().parts
-      .filter((part) => part.info.bundleTemplateId === 1)
+      .filter((part) => part.info.bundleTemplateId === 101)
       .map((part) => `${part.info.sourceSpanId}:${part.info.laneIndex}`)
       .sort();
     const nonHvPortsBefore = mounted.bridge.scene().ports
       .filter((port) => port.category !== 0);
     const nonHvPartsBefore = mounted.bridge.scene().parts
-      .filter((part) => part.info.bundleTemplateId !== 1)
+      .filter((part) => part.info.bundleTemplateId !== 101)
       .map((part) => ({
         key: `${part.info.bundleTemplateId}:${part.info.sourceSpanId}:${part.info.laneIndex}`,
         samples: [...part.samples]
@@ -44,7 +44,7 @@ describe("viewer numeric inputs", () => {
     expect(mounted.bridge.scene().poles.map((pole) => pole.id)).toEqual(polesBefore);
     expect(
       mounted.bridge.scene().parts
-        .filter((part) => part.info.bundleTemplateId === 1)
+        .filter((part) => part.info.bundleTemplateId === 101)
         .map((part) => `${part.info.sourceSpanId}:${part.info.laneIndex}`)
         .sort()
     ).toEqual(hvPartsBefore);
@@ -52,7 +52,7 @@ describe("viewer numeric inputs", () => {
       .filter((port) => port.category !== 0);
     expect(nonHvPortsAfter).toEqual(nonHvPortsBefore);
     const nonHvPartsAfter = mounted.bridge.scene().parts
-      .filter((part) => part.info.bundleTemplateId !== 1)
+      .filter((part) => part.info.bundleTemplateId !== 101)
       .map((part) => ({
         key: `${part.info.bundleTemplateId}:${part.info.sourceSpanId}:${part.info.laneIndex}`,
         samples: [...part.samples]
@@ -60,7 +60,7 @@ describe("viewer numeric inputs", () => {
       .sort((a, b) => a.key.localeCompare(b.key));
     expect(nonHvPartsAfter).toEqual(nonHvPartsBefore);
     const hvSamplesAfter = mounted.bridge.scene().parts
-      .filter((part) => part.info.bundleTemplateId === 1)
+      .filter((part) => part.info.bundleTemplateId === 101)
       .map((part) => [...part.samples]);
     expect(new Set(hvSamplesAfter.map((samples) => samples.join(","))).size)
       .toBe(hvSamplesAfter.length);

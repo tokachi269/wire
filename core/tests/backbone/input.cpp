@@ -242,7 +242,7 @@ bool C589_backbone_selected_bundle_policy_blocks_unselected_bundle() {
   pick.hit_id = source_span;
   pick.hit_pos_world = {6.0, 0.0, 0.0};
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kCommunication};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) return false;
   wire::core::BackboneSpec branch = line_req(state);
@@ -258,7 +258,7 @@ bool C589_backbone_selected_bundle_policy_blocks_unselected_bundle() {
   const auto out = state.GenerateFromBackboneSpec(branch);
   if (!out.ok || out.value.bundle_ids.size() != 1 || out.value.generated_span_ids.empty()) return false;
   const auto* bundle = state.view().bundles().find(out.value.bundle_ids.front());
-  return bundle != nullptr && bundle->bundle_template_id == wire::core::BundleKind::kCommunication;
+  return bundle != nullptr && bundle->bundle_template_id == wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication);
 }
 
 bool C590_backbone_inactive_pass_through_bundle_rejected_before_noop() {
@@ -270,7 +270,7 @@ bool C590_backbone_inactive_pass_through_bundle_rejected_before_noop() {
   pick.hit_id = base_out.value.generated_span_ids.front();
   pick.hit_pos_world = {6.0, 0.0, 0.0};
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kCommunication};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) return false;
   wire::core::BackboneSpec branch = line_req(state);
@@ -307,7 +307,7 @@ bool C591_backbone_saved_selected_midair_continuation_uses_request_bundles() {
   pick.hit_id = source_span;
   pick.hit_pos_world = {6.0, 0.0, 0.0};
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kCommunication};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
     return false;
@@ -327,7 +327,7 @@ bool C591_backbone_saved_selected_midair_continuation_uses_request_bundles() {
     return false;
   }
   const auto* first_bundle = state.view().bundles().find(first_branch.value.bundle_ids.front());
-  if (first_bundle == nullptr || first_bundle->bundle_template_id != wire::core::BundleKind::kCommunication) {
+  if (first_bundle == nullptr || first_bundle->bundle_template_id != wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)) {
     return false;
   }
   const auto saved_midair = std::find_if(state.view().backbone().nodes.begin(), state.view().backbone().nodes.end(),
@@ -350,15 +350,15 @@ bool C591_backbone_saved_selected_midair_continuation_uses_request_bundles() {
   if (!out.ok || out.value.bundle_ids.size() != 2 || out.value.generated_span_ids.empty()) {
     return false;
   }
-  std::unordered_set<wire::core::BundleKind> generated{};
+  std::unordered_set<wire::core::BundleTemplateId> generated{};
   for (wire::core::ObjectId bundle_id : out.value.bundle_ids) {
     const auto* bundle = state.view().bundles().find(bundle_id);
     if (bundle != nullptr) {
       generated.insert(bundle->bundle_template_id);
     }
   }
-  return generated.contains(wire::core::BundleKind::kLowVoltage) &&
-         generated.contains(wire::core::BundleKind::kCommunication);
+  return generated.contains(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)) &&
+         generated.contains(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication));
 }
 
 bool C592_backbone_saved_selected_midair_reverse_continuation_uses_request_bundles() {
@@ -379,7 +379,7 @@ bool C592_backbone_saved_selected_midair_reverse_continuation_uses_request_bundl
   pick.hit_id = source_span;
   pick.hit_pos_world = {6.0, 0.0, 0.0};
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kCommunication};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
     return false;
@@ -418,15 +418,15 @@ bool C592_backbone_saved_selected_midair_reverse_continuation_uses_request_bundl
   if (!out.ok || out.value.bundle_ids.size() != 2 || out.value.generated_span_ids.empty()) {
     return false;
   }
-  std::unordered_set<wire::core::BundleKind> generated{};
+  std::unordered_set<wire::core::BundleTemplateId> generated{};
   for (wire::core::ObjectId bundle_id : out.value.bundle_ids) {
     const auto* bundle = state.view().bundles().find(bundle_id);
     if (bundle != nullptr) {
       generated.insert(bundle->bundle_template_id);
     }
   }
-  return generated.contains(wire::core::BundleKind::kLowVoltage) &&
-         generated.contains(wire::core::BundleKind::kCommunication);
+  return generated.contains(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)) &&
+         generated.contains(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication));
 }
 
 bool C593_backbone_saved_selected_midair_allows_request_pass_through() {
@@ -448,7 +448,7 @@ bool C593_backbone_saved_selected_midair_allows_request_pass_through() {
   pick.hit_id = source_span->id;
   pick.hit_pos_world = {6.0, 0.0, 0.0};
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kCommunication};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
     return false;
@@ -569,7 +569,7 @@ bool C581_backbone_inactive_bundle_missing_band_is_ignored() {
   pick.hit_id = base_out.value.generated_span_ids.front();
   pick.hit_pos_world = {6.0, 0.0, 4.0};
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage, wire::core::BundleKind::kHighVoltage};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage), wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kHighVoltage)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
     return false;
@@ -837,7 +837,7 @@ bool C551_backbone_missing_pole_type_resolves_from_bundle_templates() {
   req.pole_type_id = wire::core::kInvalidPoleTypeId;
   req.bundles.clear();
   add_backbone_bundle(req, wire::core::BundleKind::kCommunication);
-  const auto tmpl_it = state.view().bundle_templates().find(wire::core::BundleKind::kCommunication);
+  const auto tmpl_it = state.view().bundle_templates().find(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication));
   if (tmpl_it == state.view().bundle_templates().end() ||
       tmpl_it->second.related_pole_type_id == wire::core::kInvalidPoleTypeId) {
     return false;
@@ -1194,7 +1194,7 @@ bool C597_backbone_selected_building_pick_generates_selected_bundle_only() {
   pick.hit_id = wire::core::kInvalidObjectId;
   pick.hit_pos_world = {12.0, 0.0, 6.0};
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kCommunication};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.support_kind != wire::core::SupportKind::kExternal) {
     return false;
@@ -1215,7 +1215,7 @@ bool C597_backbone_selected_building_pick_generates_selected_bundle_only() {
     return false;
   }
   const auto* bundle = state.view().bundles().find(out.value.bundle_ids.front());
-  if (bundle == nullptr || bundle->bundle_template_id != wire::core::BundleKind::kCommunication) {
+  if (bundle == nullptr || bundle->bundle_template_id != wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)) {
     return false;
   }
   for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
@@ -1224,7 +1224,7 @@ bool C597_backbone_selected_building_pick_generates_selected_bundle_only() {
       return false;
     }
     const auto* span_bundle = state.view().bundles().find(span->bundle_id);
-    if (span_bundle == nullptr || span_bundle->bundle_template_id != wire::core::BundleKind::kCommunication) {
+    if (span_bundle == nullptr || span_bundle->bundle_template_id != wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)) {
       return false;
     }
   }
@@ -1257,7 +1257,7 @@ bool C598_backbone_selected_saved_building_node_pick_generates_selected_bundle_o
   pick.hit_id = saved_building->node_id;
   pick.hit_pos_world = saved_building->position;
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kCommunication};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId ||
       resolved.value.support_kind != wire::core::SupportKind::kExternal) {
@@ -1279,7 +1279,7 @@ bool C598_backbone_selected_saved_building_node_pick_generates_selected_bundle_o
     return false;
   }
   const auto* bundle = state.view().bundles().find(out.value.bundle_ids.front());
-  return bundle != nullptr && bundle->bundle_template_id == wire::core::BundleKind::kCommunication;
+  return bundle != nullptr && bundle->bundle_template_id == wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication);
 }
 
 bool C599_backbone_selected_saved_building_node_policy_persists_after_branch() {
@@ -1311,7 +1311,7 @@ bool C599_backbone_selected_saved_building_node_policy_persists_after_branch() {
   pick.hit_id = saved_id;
   pick.hit_pos_world = saved_pos;
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kCommunication};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
     return false;
@@ -1335,7 +1335,7 @@ bool C599_backbone_selected_saved_building_node_policy_persists_after_branch() {
   if (saved_after_branch == nullptr ||
       std::none_of(saved_after_branch->bundle_modes.begin(), saved_after_branch->bundle_modes.end(),
                    [](const wire::core::SupportNodeBundleMode& mode) {
-                     return mode.bundle_template_id == wire::core::BundleKind::kCommunication;
+                     return mode.bundle_template_id == wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication);
                    })) {
     return false;
   }
@@ -1352,7 +1352,7 @@ bool C599_backbone_selected_saved_building_node_policy_persists_after_branch() {
     return false;
   }
   const auto* bundle = state.view().bundles().find(out.value.bundle_ids.front());
-  return bundle != nullptr && bundle->bundle_template_id == wire::core::BundleKind::kCommunication;
+  return bundle != nullptr && bundle->bundle_template_id == wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication);
 }
 
 bool C600_backbone_selected_existing_pole_pick_generates_selected_bundle_only() {
@@ -1371,7 +1371,7 @@ bool C600_backbone_selected_existing_pole_pick_generates_selected_bundle_only() 
   pick.hit_id = b;
   pick.hit_pos_world = pole->world_transform.position;
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kCommunication};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
     return false;
@@ -1392,13 +1392,13 @@ bool C600_backbone_selected_existing_pole_pick_generates_selected_bundle_only() 
     return false;
   }
   const auto* bundle = state.view().bundles().find(out.value.bundle_ids.front());
-  if (bundle == nullptr || bundle->bundle_template_id != wire::core::BundleKind::kCommunication) {
+  if (bundle == nullptr || bundle->bundle_template_id != wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)) {
     return false;
   }
   for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
     const auto* span = state.view().spans().find(span_id);
     const auto* span_bundle = span == nullptr ? nullptr : state.view().bundles().find(span->bundle_id);
-    if (span_bundle == nullptr || span_bundle->bundle_template_id != wire::core::BundleKind::kCommunication) {
+    if (span_bundle == nullptr || span_bundle->bundle_template_id != wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)) {
       return false;
     }
   }
@@ -1781,7 +1781,7 @@ bool C564_backbone_selected_bundle_segment_pick_feeds_transient_midair_node() {
   pick.hit_pos_world = {6.0, 0.0, 4.0};
   pick.has_segment_endpoints = false;
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolution != wire::core::PickBranchResolutionKind::kMidair ||
       resolved.value.support_kind != wire::core::SupportKind::kMidair ||
@@ -1847,7 +1847,7 @@ bool C565_backbone_mixed_selected_midair_branch_generates_allowed_bundles_only()
   pick.hit_id = base_out.value.generated_span_ids.front();
   pick.hit_pos_world = {6.0, 0.0, 4.0};
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage, wire::core::BundleKind::kHighVoltage};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage), wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kHighVoltage)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
     return false;
@@ -1869,7 +1869,7 @@ bool C565_backbone_mixed_selected_midair_branch_generates_allowed_bundles_only()
     return false;
   }
   const auto* bundle = state.view().bundles().find(out.value.bundle_ids.front());
-  if (bundle == nullptr || bundle->bundle_template_id != wire::core::BundleKind::kLowVoltage) {
+  if (bundle == nullptr || bundle->bundle_template_id != wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)) {
     return false;
   }
   for (wire::core::ObjectId span_id : out.value.generated_span_ids) {
@@ -1878,7 +1878,7 @@ bool C565_backbone_mixed_selected_midair_branch_generates_allowed_bundles_only()
       return false;
     }
     const auto* span_bundle = state.view().bundles().find(span->bundle_id);
-    if (span_bundle == nullptr || span_bundle->bundle_template_id != wire::core::BundleKind::kLowVoltage) {
+    if (span_bundle == nullptr || span_bundle->bundle_template_id != wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)) {
       return false;
     }
   }
@@ -1898,7 +1898,7 @@ bool C566_backbone_disallowed_selected_midair_branch_is_noop() {
   pick.hit_id = base_out.value.generated_span_ids.front();
   pick.hit_pos_world = {6.0, 0.0, 4.0};
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage, wire::core::BundleKind::kHighVoltage};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage), wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kHighVoltage)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
     return false;
@@ -2100,7 +2100,7 @@ bool C610_backbone_conflict_lowers_eligible_bundle_endpoint_only() {
   if (!out.ok || out.value.generated_span_ids.size() != 6) {
     return false;
   }
-  const auto hv_template = state.view().bundle_templates().find(wire::core::BundleKind::kHighVoltage);
+  const auto hv_template = state.view().bundle_templates().find(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kHighVoltage));
   if (hv_template == state.view().bundle_templates().end() || !hv_template->second.enable_branch_down_offset ||
       hv_template->second.branch_endpoint_offset_m >= 0.0) {
     return false;
@@ -2114,7 +2114,7 @@ bool C610_backbone_conflict_lowers_eligible_bundle_endpoint_only() {
     if (bundle == nullptr || !layout.has_layout()) {
       return false;
     }
-    const bool eligible = bundle->bundle_template_id == wire::core::BundleKind::kHighVoltage;
+    const bool eligible = bundle->bundle_template_id == wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kHighVoltage);
     const auto endpoint_ok = [&](const wire::core::LayoutEndpoint& endpoint) {
       const bool at_junction = endpoint.endpoint_node_id == junction;
       const bool lowered = endpoint.default_lower_required || endpoint.lower_required;
@@ -2205,7 +2205,7 @@ bool C575_backbone_stale_segment_pick_midair_duplicate_rejected_unchanged() {
   pick.hit_pos_world = {6.0, 0.0, 0.0};
   pick.has_segment_endpoints = false;
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
     return false;
@@ -2305,7 +2305,7 @@ bool C578_backbone_segment_pick_midair_pass_through_supported() {
   pick.hit_pos_world = {6.0, 0.0, 0.0};
   pick.has_segment_endpoints = false;
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok || resolved.value.resolved_node_id == wire::core::kInvalidObjectId) {
     return false;

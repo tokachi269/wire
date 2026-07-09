@@ -101,7 +101,7 @@ std::vector<const SavedBackbonePortBinding*> CoreView::backbone_port_bindings_fo
   return out;
 }
 std::optional<Vec3d> CoreView::source_edge_projection_world(
-    ObjectId edge_id, ObjectId from_node_id, BundleKind bundle_template_id, std::size_t lane_index, double t) const {
+    ObjectId edge_id, ObjectId from_node_id, BundleTemplateId bundle_template_id, std::size_t lane_index, double t) const {
   const SavedBackboneEdge* edge = backbone_edge(edge_id);
   if (edge == nullptr || (from_node_id != edge->node_a && from_node_id != edge->node_b)) {
     return std::nullopt;
@@ -234,7 +234,7 @@ double CoreView::port_category_base_z_for_pole(const Pole& pole, ConnectionCateg
 const std::unordered_map<CableTemplateId, CableTemplate>& CoreView::cable_templates() const {
   return state_.authoritative_.cable_templates;
 }
-const std::unordered_map<BundleKind, BundleTemplate>& CoreView::bundle_templates() const {
+const std::unordered_map<BundleTemplateId, BundleTemplate>& CoreView::bundle_templates() const {
   return state_.authoritative_.bundle_templates;
 }
 const std::unordered_map<AttachmentTemplateId, AttachmentTemplate>& CoreView::attachment_templates() const {

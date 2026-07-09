@@ -184,7 +184,7 @@ EditResult<bool> pipeline::save_derived(const route& route, GenerationTiming* ti
   return out;
 }
 
-const BundleTemplate* pipeline::template_override(BundleKind id) const {
+const BundleTemplate* pipeline::template_override(BundleTemplateId id) const {
   for (const BundleTemplate& item : template_overrides_) {
     if (item.id == id) {
       return &item;
@@ -290,7 +290,7 @@ struct spec_view {
 };
 
 struct port_scope {
-  BundleKind bundle = BundleKind::kLowVoltage;
+  BundleTemplateId bundle = kInvalidBundleTemplateId;
   PortKind kind = PortKind::kGeneric;
   PortLayer layer = PortLayer::kUnknown;
   int placement_band_id = 0;
@@ -611,7 +611,7 @@ bool source_projection_binding_exists(const CoreState& state, const SourceEdgePr
 }
 
 SourceEdgeProjectionRef source_projection_for(const CoreState& state, const node& source,
-                                              BundleKind bundle_template_id, std::size_t lane) {
+                                              BundleTemplateId bundle_template_id, std::size_t lane) {
   SourceEdgeProjectionRef out{};
   const ObjectId source_a = saved_node_id_for(state, source.source_edge_node_a);
   const ObjectId source_b = saved_node_id_for(state, source.source_edge_node_b);
@@ -1458,7 +1458,7 @@ EditResult<bool> pipeline::prepare() {
   active_bundle_indices_.reserve(spec_.bundles.size());
   for (std::size_t bundle_index = 0; bundle_index < spec_.bundles.size(); ++bundle_index) {
     bool allowed = true;
-    const BundleKind bundle_template_id = spec_.bundles[bundle_index].bundle_template_id;
+    const BundleTemplateId bundle_template_id = spec_.bundles[bundle_index].bundle_template_id;
     for (const node& n : g_.nodes) {
       if (!n.on_route) {
         continue;
@@ -1887,7 +1887,7 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
     }
     return links;
   };
-  auto saved_edge_has_bundle = [&](ObjectId edge_id, BundleKind bundle_template_id) {
+  auto saved_edge_has_bundle = [&](ObjectId edge_id, BundleTemplateId bundle_template_id) {
     const auto bundles_it = state_.view().backbone_index().edge_bundles.find(edge_id);
     if (bundles_it == state_.view().backbone_index().edge_bundles.end()) {
       return false;
@@ -1902,7 +1902,7 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
     }
     return false;
   };
-  auto row_has_bundle = [&](const row& r, BundleKind bundle_template_id) {
+  auto row_has_bundle = [&](const row& r, BundleTemplateId bundle_template_id) {
     for (std::size_t link_id : row_links(r)) {
       if (link_id >= ps.links.size()) {
         continue;

@@ -191,6 +191,16 @@ NodePatch pair で接続された section の連結成分で、canonical key は
 `(edge_bundle_id, logical_span_id, rule_owner_id, rule_id, instance_index)` である。run id は
 `SavedBackboneGraph`、binding、template に保存しない。
 
+## BundleTemplate identity
+
+`BundleTemplateId` が bundle template の永続 identity である。`BundleKind` は LowVoltage /
+Communication などの default category/tag であり、identity ではない。同じ `BundleKind` を持つ
+`BundleTemplate` は複数存在できる。
+
+`bundle_templates` の key、`Bundle.bundle_template_id`、backbone spec / saved graph / binding、
+population rule owner、regenerate scope は `BundleTemplateId` を使う。`BundleKind` から一意の
+template を引く API は持たない。kind で探す場合は grouping/filter として複数 id を返す。
+
 `BundleTemplate.population_rules` は、その bundle が派生させる追加の平行線を定義する。
 rules が空なら追加線は無い。global enable や global seed は持たない。
 

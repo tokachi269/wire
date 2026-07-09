@@ -229,7 +229,7 @@ private:
   void save(draw made);
   [[nodiscard]] EditResult<bool> save_graph(const topo& made, const pairs& ps);
   [[nodiscard]] std::size_t local(std::size_t input_point) const;
-  [[nodiscard]] const BundleTemplate* template_override(BundleKind id) const;
+  [[nodiscard]] const BundleTemplate* template_override(BundleTemplateId id) const;
 
   CoreState& state_;
   const BackboneSpec& spec_;

@@ -32,7 +32,7 @@ bool test_branch_pick_segment_near_endpoint_snaps_to_node() {
   pick.segment_endpoint_b_world = {10.0, 0.0, 0.0};
 
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
   resolve.snap_radius_world = 0.5;
   const CoreCounts before = snapshot_counts(state);
   const auto resolved = state.ResolveBranchPick(pick, resolve);
@@ -61,7 +61,7 @@ bool test_branch_pick_segment_midpoint_creates_midair_node() {
   pick.segment_endpoint_b_world = {10.0, 0.0, 0.0};
 
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
   resolve.snap_radius_world = 0.5;
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   if (!resolved.ok) {
@@ -97,7 +97,7 @@ bool test_branch_pick_segment_midpoint_dryrun_keeps_state_unchanged() {
   pick.segment_endpoint_b_world = {10.0, 0.0, 0.0};
 
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kLowVoltage};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)};
   resolve.snap_radius_world = 0.5;
   resolve.create_midair_node = false;
   const auto resolved = state.ResolveBranchPick(pick, resolve);
@@ -129,7 +129,7 @@ bool test_branch_pick_hv_template_blocks_midair_branch() {
   pick.segment_endpoint_b_world = {10.0, 0.0, 0.0};
 
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kHighVoltage};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kHighVoltage)};
   resolve.snap_radius_world = 0.5;
   const auto resolved = state.ResolveBranchPick(pick, resolve);
   return !resolved.ok && regex_contains(resolved.error, "midair branch");
@@ -152,7 +152,7 @@ bool test_branch_pick_hv_template_allows_midair_when_policy_not_enforced() {
   pick.segment_endpoint_b_world = {10.0, 0.0, 0.0};
 
   wire::core::ResolveBranchPickOptions resolve{};
-  resolve.selected_bundle_template_ids = {wire::core::BundleKind::kHighVoltage};
+  resolve.selected_bundle_template_ids = {wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kHighVoltage)};
   resolve.snap_radius_world = 0.5;
   resolve.enforce_midair_template_policy = false;
   const auto resolved = state.ResolveBranchPick(pick, resolve);

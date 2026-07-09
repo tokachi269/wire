@@ -136,7 +136,7 @@ struct ParsedCaptureRequest {
   };
   struct CurrentBundle {
     ObjectId bundle_id = wire::core::kInvalidObjectId;
-    wire::core::BundleKind bundle_template_id = wire::core::BundleKind::kLowVoltage;
+    wire::core::BundleTemplateId bundle_template_id = wire::core::kDefaultLowVoltageBundleTemplateId;
   };
   struct CurrentPole {
     ObjectId pole_id = wire::core::kInvalidObjectId;
@@ -294,7 +294,7 @@ std::optional<ParsedCaptureRequest> parse_capture_request_test(const std::filesy
     if (parse_indexed_key_test(key, "request.bundle[", &index, &suffix)) {
       auto& bundle = bundles[index];
       if (suffix == ".kind") {
-        bundle.bundle_template_id = static_cast<wire::core::BundleKind>(std::stoi(value));
+        bundle.bundle_template_id = wire::core::DefaultBundleTemplateId(static_cast<wire::core::BundleKind>(std::stoi(value)));
       } else if (suffix == ".layer") {
         bundle.layer = static_cast<wire::core::SpanLayer>(std::stoi(value));
       } else if (suffix == ".count") {
@@ -343,7 +343,7 @@ std::optional<ParsedCaptureRequest> parse_capture_request_test(const std::filesy
       if (suffix == ".bundle_id") {
         bundle.bundle_id = static_cast<ObjectId>(std::stoull(value));
       } else if (suffix == ".bundle_template_id") {
-        bundle.bundle_template_id = static_cast<wire::core::BundleKind>(std::stoi(value));
+        bundle.bundle_template_id = static_cast<wire::core::BundleTemplateId>(std::stoul(value));
       }
       continue;
     }
@@ -448,7 +448,7 @@ make_backbone_fixture(CoreState& state, const std::vector<wire::core::Vec3d>& po
   wire::core::BackboneSpec request{};
   request.path.polyline = points;
   request.interval_m = 1000.0;
-  const auto first_template = state.view().bundle_templates().find(bundles.front());
+  const auto first_template = state.view().bundle_templates().find(wire::core::DefaultBundleTemplateId(bundles.front()));
   if (first_template == state.view().bundle_templates().end()) {
     out.error = "backbone fixture bundle template not found";
     return out;
@@ -464,7 +464,7 @@ make_backbone_fixture(CoreState& state, const std::vector<wire::core::Vec3d>& po
   }
   for (wire::core::BundleKind kind : bundles) {
     wire::core::BackboneBundleSpec spec{};
-    spec.bundle_template_id = kind;
+    spec.bundle_template_id = wire::core::DefaultBundleTemplateId(kind);
     request.bundles.push_back(spec);
   }
   auto generated = state.GenerateFromBackboneSpec(request);
@@ -604,39 +604,39 @@ bool is_monotonic(const std::vector<double>& values) {
 void add_backbone_bundle(wire::core::BackboneSpec& req, wire::core::BundleKind template_id,
                          wire::core::SpanLayer layer, int count) {
   wire::core::BackboneBundleSpec bundle{};
-  bundle.bundle_template_id = template_id;
+  bundle.bundle_template_id = wire::core::DefaultBundleTemplateId(template_id);
   bundle.layer = layer;
   bundle.count = count;
   req.bundles.push_back(bundle);
 }
 
-wire::core::BundleKind bundle_template_for_category_test(wire::core::ConnectionCategory category) {
+wire::core::BundleTemplateId bundle_template_for_category_test(wire::core::ConnectionCategory category) {
   switch (category) {
   case wire::core::ConnectionCategory::kHighVoltage:
-    return wire::core::BundleKind::kHighVoltage;
+    return wire::core::kDefaultHighVoltageBundleTemplateId;
   case wire::core::ConnectionCategory::kCommunication:
-    return wire::core::BundleKind::kCommunication;
+    return wire::core::kDefaultCommunicationBundleTemplateId;
   case wire::core::ConnectionCategory::kOptical:
-    return wire::core::BundleKind::kOptical;
+    return wire::core::kDefaultOpticalBundleTemplateId;
   case wire::core::ConnectionCategory::kDrop:
-    return wire::core::BundleKind::kDrop;
+    return wire::core::kDefaultDropBundleTemplateId;
   case wire::core::ConnectionCategory::kLowVoltage:
   default:
-    return wire::core::BundleKind::kLowVoltage;
+    return wire::core::kDefaultLowVoltageBundleTemplateId;
   }
 }
 
-wire::core::ConnectionCategory category_for_bundle_template_test(wire::core::BundleKind bundle_template_id) {
+wire::core::ConnectionCategory category_for_bundle_template_test(wire::core::BundleTemplateId bundle_template_id) {
   switch (bundle_template_id) {
-  case wire::core::BundleKind::kHighVoltage:
+  case wire::core::kDefaultHighVoltageBundleTemplateId:
     return wire::core::ConnectionCategory::kHighVoltage;
-  case wire::core::BundleKind::kCommunication:
+  case wire::core::kDefaultCommunicationBundleTemplateId:
     return wire::core::ConnectionCategory::kCommunication;
-  case wire::core::BundleKind::kOptical:
+  case wire::core::kDefaultOpticalBundleTemplateId:
     return wire::core::ConnectionCategory::kOptical;
-  case wire::core::BundleKind::kDrop:
+  case wire::core::kDefaultDropBundleTemplateId:
     return wire::core::ConnectionCategory::kDrop;
-  case wire::core::BundleKind::kLowVoltage:
+  case wire::core::kDefaultLowVoltageBundleTemplateId:
   default:
     return wire::core::ConnectionCategory::kLowVoltage;
   }
@@ -751,7 +751,7 @@ add_connection_by_category(wire::core::CoreState& state, wire::core::ObjectId po
     out.error = "fixture poles are invalid";
     return out;
   }
-  const wire::core::BundleKind kind =
+  const wire::core::BundleTemplateId kind =
       options.use_bundle_template ? options.bundle_template_id : bundle_template_for_category_test(category);
   const auto tmpl = state.view().bundle_templates().find(kind);
   if (tmpl == state.view().bundle_templates().end()) {
@@ -832,20 +832,24 @@ bool restore_capture_request_scene(const std::filesystem::path& capture_path, Co
     return false;
   }
 
-  std::unordered_map<ObjectId, wire::core::BundleKind> bundle_templates_by_id{};
+  std::unordered_map<ObjectId, wire::core::BundleTemplateId> bundle_templates_by_id{};
   for (const auto& bundle : parsed->current_bundles) {
     if (bundle.bundle_id != wire::core::kInvalidObjectId) {
       bundle_templates_by_id[bundle.bundle_id] = bundle.bundle_template_id;
     }
   }
-  std::unordered_map<std::uint64_t, std::vector<wire::core::BundleKind>> restore_templates_by_edge{};
+  std::unordered_map<std::uint64_t, std::vector<wire::core::BundleTemplateId>> restore_templates_by_edge{};
   wire::core::PoleTypeId restore_pole_type_id = wire::core::kInvalidPoleTypeId;
-  auto supports_bundle_template = [&](wire::core::PoleTypeId pole_type_id, wire::core::BundleKind template_id) {
+  auto supports_bundle_template = [&](wire::core::PoleTypeId pole_type_id, wire::core::BundleTemplateId template_id) {
+    const auto template_it = view.bundle_templates().find(template_id);
+    if (template_it != view.bundle_templates().end()) {
+      return view.count_port_bands(pole_type_id, template_it->second.category) > 0;
+    }
     return view.count_port_bands(pole_type_id, category_for_bundle_template_test(template_id)) > 0;
   };
   auto supports_restore_templates = [&](wire::core::PoleTypeId pole_type_id) {
     if (bundle_templates_by_id.empty()) {
-      return supports_bundle_template(pole_type_id, wire::core::BundleKind::kLowVoltage);
+      return supports_bundle_template(pole_type_id, wire::core::kDefaultLowVoltageBundleTemplateId);
     }
     for (const auto& [_, template_id] : bundle_templates_by_id) {
       if (!supports_bundle_template(pole_type_id, template_id)) {
@@ -977,9 +981,9 @@ bool restore_capture_request_scene(const std::filesystem::path& capture_path, Co
       continue;
     }
     auto templates_it = restore_templates_by_edge.find(stable_edge_key_test(edge.node_a_id, edge.node_b_id));
-    std::vector<wire::core::BundleKind> restore_templates =
+    std::vector<wire::core::BundleTemplateId> restore_templates =
         (templates_it == restore_templates_by_edge.end() || templates_it->second.empty())
-            ? std::vector<wire::core::BundleKind>{wire::core::BundleKind::kLowVoltage}
+            ? std::vector<wire::core::BundleTemplateId>{wire::core::kDefaultLowVoltageBundleTemplateId}
             : templates_it->second;
     const auto pos_a_it = backbone_positions_by_node_id.find(edge.node_a_id);
     const auto pos_b_it = backbone_positions_by_node_id.find(edge.node_b_id);
@@ -1001,8 +1005,10 @@ bool restore_capture_request_scene(const std::filesystem::path& capture_path, Co
     end.node_id = it_b->second;
     edge_request.path.node_specs.push_back(start);
     edge_request.path.node_specs.push_back(end);
-    for (wire::core::BundleKind bundle_template_id : restore_templates) {
-      add_backbone_bundle(edge_request, bundle_template_id);
+    for (wire::core::BundleTemplateId bundle_template_id : restore_templates) {
+      wire::core::BackboneBundleSpec bundle{};
+      bundle.bundle_template_id = bundle_template_id;
+      edge_request.bundles.push_back(bundle);
     }
     const auto replay_edge = state.GenerateFromBackboneSpec(edge_request);
     if (!replay_edge.ok) {
@@ -1013,7 +1019,7 @@ bool restore_capture_request_scene(const std::filesystem::path& capture_path, Co
           if (i > 0) {
             oss << ",";
           }
-          oss << static_cast<int>(restore_templates[i]);
+          oss << restore_templates[i];
         }
         oss << " error=" << replay_edge.error;
         *error = oss.str();

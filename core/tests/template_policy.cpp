@@ -16,7 +16,7 @@ bool test_backbone_hv_rejects_midair_branch_mode() {
   if (type_ids.empty()) {
     return false;
   }
-  const auto it_template = state.view().bundle_templates().find(wire::core::BundleKind::kHighVoltage);
+  const auto it_template = state.view().bundle_templates().find(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kHighVoltage));
   if (it_template == state.view().bundle_templates().end()) {
     return false;
   }
@@ -31,7 +31,7 @@ bool test_backbone_hv_rejects_midair_branch_mode() {
   req.path.node_specs.push_back(midair);
   wire::core::BackboneSpec::NodeBundleModeSpec hv_branch{};
   hv_branch.point_index = 1;
-  hv_branch.bundle_template_id = wire::core::BundleKind::kHighVoltage;
+  hv_branch.bundle_template_id = wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kHighVoltage);
   hv_branch.mode = static_cast<wire::core::BundleNodeMode>(2);
   req.node_bundle_modes.push_back(hv_branch);
   req.interval_m = 1000.0;
@@ -49,7 +49,7 @@ bool test_bundle_template_topology_change_is_rejected_before_mutation() {
     return false;
   }
 
-  const auto tpl_it = state.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  const auto tpl_it = state.view().bundle_templates().find(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
   if (tpl_it == state.view().bundle_templates().end()) {
     return false;
   }
@@ -63,7 +63,7 @@ bool test_bundle_template_topology_change_is_rejected_before_mutation() {
     return false;
   }
   const auto* bundle = state.view().edit_state().bundles.find(span->bundle_id);
-  const auto current = state.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  const auto current = state.view().bundle_templates().find(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
   return bundle != nullptr && current != state.view().bundle_templates().end() &&
          current->second.default_layer == original_layer;
 }
@@ -86,7 +86,7 @@ bool test_bundle_template_output_change_rejects_manual_span_before_mutation() {
     return false;
   }
 
-  const auto tpl_it = state.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  const auto tpl_it = state.view().bundle_templates().find(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
   if (tpl_it == state.view().bundle_templates().end()) {
     return false;
   }
@@ -100,7 +100,7 @@ bool test_bundle_template_output_change_rejects_manual_span_before_mutation() {
     return false;
   }
   const auto* bundle = state.view().edit_state().bundles.find(span->bundle_id);
-  const auto current = state.view().bundle_templates().find(wire::core::BundleKind::kLowVoltage);
+  const auto current = state.view().bundle_templates().find(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
   return bundle != nullptr && current != state.view().bundle_templates().end() &&
          current->second.cable_template_id == original_cable;
 }
@@ -426,7 +426,7 @@ bool test_backbone_bundle_template_default_single_generates_one_span_per_segment
   req.interval_m = 6.0;
   req.pole_type_id = type_ids.front();
   wire::core::BackboneBundleSpec lv{};
-  lv.bundle_template_id = wire::core::BundleKind::kLowVoltage;
+  lv.bundle_template_id = wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage);
   req.bundles.push_back(lv);
   const auto result = state.GenerateFromBackboneSpec(req);
   if (!result.ok || result.value.generated_pole_ids.size() < 2 || result.value.bundle_id == wire::core::kInvalidObjectId) {
@@ -452,7 +452,7 @@ bool test_backbone_bundle_template_default_single_rejects_count_override() {
   req.interval_m = 8.0;
   req.pole_type_id = type_ids.front();
   wire::core::BackboneBundleSpec bundle{};
-  bundle.bundle_template_id = wire::core::BundleKind::kLowVoltage;
+  bundle.bundle_template_id = wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage);
   bundle.count = 2;
   req.bundles.push_back(bundle);
   const auto result = state.GenerateFromBackboneSpec(req);
@@ -473,11 +473,11 @@ bool test_backbone_bundle_template_multi_request_generates_multiple_bundles() {
   req.pole_type_id = type_ids.front();
 
   wire::core::BackboneBundleSpec lv{};
-  lv.bundle_template_id = wire::core::BundleKind::kLowVoltage;
+  lv.bundle_template_id = wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage);
   req.bundles.push_back(lv);
 
   wire::core::BackboneBundleSpec comm{};
-  comm.bundle_template_id = wire::core::BundleKind::kCommunication;
+  comm.bundle_template_id = wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication);
   req.bundles.push_back(comm);
 
   const auto result = state.GenerateFromBackboneSpec(req);
@@ -501,9 +501,9 @@ bool test_backbone_bundle_template_multi_request_generates_multiple_bundles() {
     if (bundle == nullptr) {
       return false;
     }
-    if (bundle->bundle_template_id == wire::core::BundleKind::kLowVoltage) {
+    if (bundle->bundle_template_id == wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage)) {
       ++low_voltage_bundle_count;
-    } else if (bundle->bundle_template_id == wire::core::BundleKind::kCommunication) {
+    } else if (bundle->bundle_template_id == wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kCommunication)) {
       ++communication_bundle_count;
     }
   }

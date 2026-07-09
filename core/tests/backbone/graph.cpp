@@ -1166,7 +1166,7 @@ bool C481_backbone_pass_through_mode_is_accepted_in_limited_scope() {
   const auto bad_index_out = state.GenerateFromBackboneSpec(bad_index);
 
   wire::core::BackboneSpec bad_bundle = pass_branch_req(state, b, pole_b->world_transform.position);
-  bad_bundle.node_bundle_modes.front().bundle_template_id = static_cast<wire::core::BundleKind>(999);
+  bad_bundle.node_bundle_modes.front().bundle_template_id = 999;
   const auto bad_bundle_out = state.GenerateFromBackboneSpec(bad_bundle);
   return ok.ok && !bad_index_out.ok && !bad_bundle_out.ok;
 }

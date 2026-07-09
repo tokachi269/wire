@@ -397,7 +397,7 @@ bool test_communication_pole_default_category_placement_values_match_viewer_defa
 
 bool test_default_templates_do_not_register_optical_with_support_bundle() {
   CoreState state;
-  return state.view().bundle_templates().find(wire::core::BundleKind::kOpticalWithSupport) ==
+  return state.view().bundle_templates().find(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kOpticalWithSupport)) ==
          state.view().bundle_templates().end();
 }
 
@@ -500,7 +500,8 @@ bool test_bundle_related_pole_type_regenerates_generated_topology() {
     return false;
   }
 
-  const auto apply = state.ApplyBundleRelatedPoleTypeToExistingPoles(wire::core::BundleKind::kOptical);
+  const auto apply = state.ApplyBundleRelatedPoleTypeToExistingPoles(
+      wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kOptical));
   if (!apply.ok || !apply.value) {
     return false;
   }

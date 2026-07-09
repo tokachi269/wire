@@ -20,6 +20,7 @@ using wire::core::ChangeSet;
 using wire::core::ConnectionCategory;
 using wire::core::CoreState;
 using wire::core::CoreStateTestHook;
+using wire::core::kDefaultHighVoltageBundleTemplateId;
 using wire::core::ObjectId;
 using wire::core::PlacementMode;
 using wire::core::PoleKind;
@@ -212,8 +213,9 @@ bool test_update_bundle_template_rejects_branch_down_offset_before_mutation() {
     return false;
   }
   const wire::core::Bundle* hv_bundle = state.view().bundles().find(hv_span->bundle_id);
-  const wire::core::BundleTemplate* hv_template = state.view().bundle_templates().contains(BundleKind::kHighVoltage)
-                                                      ? &state.view().bundle_templates().at(BundleKind::kHighVoltage)
+  const wire::core::BundleTemplate* hv_template =
+      state.view().bundle_templates().contains(kDefaultHighVoltageBundleTemplateId)
+          ? &state.view().bundle_templates().at(kDefaultHighVoltageBundleTemplateId)
                                                       : nullptr;
   if (hv_bundle == nullptr || hv_template == nullptr) {
     return false;
@@ -223,7 +225,7 @@ bool test_update_bundle_template_rejects_branch_down_offset_before_mutation() {
   const bool original_policy = hv_template->enable_branch_down_offset;
   edited.enable_branch_down_offset = !edited.enable_branch_down_offset;
   const auto update = state.UpdateBundleTemplate(edited);
-  const auto current = state.view().bundle_templates().find(BundleKind::kHighVoltage);
+  const auto current = state.view().bundle_templates().find(kDefaultHighVoltageBundleTemplateId);
   return !update.ok && current != state.view().bundle_templates().end() &&
          current->second.enable_branch_down_offset == original_policy;
 }

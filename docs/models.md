@@ -20,6 +20,10 @@ core template              PoleTypeDefinition / AttachmentTemplate等。descript
 descriptorはengine非依存の数値契約であり、エンジン決定前に固定できる。
 bbox等の抽出はdescriptorを生成するimportツールの仕事で、coreには入れない。
 
+BundleTemplate の identity は `BundleTemplateId` とし、`BundleKind` は分類タグとしてだけ使う。
+asset / descriptor / viewer は kind から template を一意に推測しない。同じ kind の template が複数ある場合も、
+参照・編集・population/regenerate scope は必ず `BundleTemplateId` で渡す。
+
 ## 接続点: markerを正、bboxは粗い初期値
 
 - 接続点(socket)はDCC内のnamed marker(empty等)と命名規約を正本にする。

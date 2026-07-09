@@ -19,6 +19,7 @@ using wire::core::BackboneBundleSpec;
 using wire::core::BackboneInputSpec;
 using wire::core::BackboneSpec;
 using wire::core::BundleKind;
+using wire::core::BundleTemplateId;
 using wire::core::CoreState;
 using wire::core::CoreView;
 using wire::core::ObjectId;
@@ -41,29 +42,8 @@ template <typename T> [[nodiscard]] T property(const val& object, const char* na
   return object[name].as<T>();
 }
 
-[[nodiscard]] BundleKind bundle_kind(int raw) {
-  if (raw < static_cast<int>(BundleKind::kLowVoltage) ||
-      raw > static_cast<int>(BundleKind::kOpticalWithSupport)) {
-    throw std::invalid_argument("bundle template id is out of range");
-  }
-  return static_cast<BundleKind>(raw);
-}
-
-[[nodiscard]] SpanLayer span_layer(BundleKind kind) {
-  switch (kind) {
-  case BundleKind::kHighVoltage:
-    return SpanLayer::kHighVoltage;
-  case BundleKind::kCommunication:
-    return SpanLayer::kCommunication;
-  case BundleKind::kOptical:
-  case BundleKind::kOpticalWithSupport:
-    return SpanLayer::kOptical;
-  case BundleKind::kDrop:
-    return SpanLayer::kDrop;
-  case BundleKind::kLowVoltage:
-  default:
-    return SpanLayer::kLowVoltage;
-  }
+[[nodiscard]] BundleTemplateId bundle_template_id(int raw) {
+  return raw <= 0 ? wire::core::kInvalidBundleTemplateId : static_cast<BundleTemplateId>(raw);
 }
 
 class WireState {
@@ -109,12 +89,15 @@ public:
       return result_value(false, "bundle template ids and counts must be non-empty and aligned");
     }
     for (std::size_t index = 0; index < bundle_count; ++index) {
-      try {
-        const BundleKind kind = bundle_kind(bundle_template_ids[index].as<int>());
-        spec.bundles.push_back(BackboneBundleSpec{kind, span_layer(kind), counts[index].as<int>()});
-      } catch (const std::invalid_argument& error) {
-        return result_value(false, error.what());
+      const BundleTemplateId id = bundle_template_id(bundle_template_ids[index].as<int>());
+      if (id == wire::core::kInvalidBundleTemplateId) {
+        return result_value(false, "bundle template id is invalid");
       }
+      const auto template_it = CoreView(*state_).bundle_templates().find(id);
+      if (template_it == CoreView(*state_).bundle_templates().end()) {
+        return result_value(false, "bundle template is missing");
+      }
+      spec.bundles.push_back(BackboneBundleSpec{id, template_it->second.default_layer, counts[index].as<int>()});
     }
 
     const auto generated = state_->GenerateFromBackboneSpec(spec);
@@ -163,7 +146,10 @@ public:
     const std::size_t selected_count = selected_bundle_template_ids["length"].as<std::size_t>();
     options.selected_bundle_template_ids.reserve(selected_count);
     for (std::size_t index = 0; index < selected_count; ++index) {
-      options.selected_bundle_template_ids.push_back(bundle_kind(selected_bundle_template_ids[index].as<int>()));
+      const BundleTemplateId id = bundle_template_id(selected_bundle_template_ids[index].as<int>());
+      if (id != wire::core::kInvalidBundleTemplateId) {
+        options.selected_bundle_template_ids.push_back(id);
+      }
     }
 
     const auto resolved = state_->ResolveBranchPick(pick, options);
@@ -346,19 +332,20 @@ public:
 
   [[nodiscard]] val bundle_template(std::size_t index) const {
     const auto& templates = CoreView(*state_).bundle_templates();
-    std::vector<BundleKind> ids{};
+    std::vector<BundleTemplateId> ids{};
     ids.reserve(templates.size());
     for (const auto& [id, bundle_template] : templates) {
       (void)bundle_template;
       ids.push_back(id);
     }
-    std::ranges::sort(ids, {}, [](BundleKind id) { return static_cast<int>(id); });
+    std::ranges::sort(ids);
     if (index >= ids.size()) {
       throw std::out_of_range("bundle template index is out of range");
     }
     const auto& bundle_template = templates.at(ids[index]);
     val output = val::object();
     output.set("id", static_cast<int>(bundle_template.id));
+    output.set("kind", static_cast<int>(bundle_template.kind));
     output.set("name", bundle_template.name);
     output.set("defaultCount", bundle_template.default_count);
     output.set("fixedCount", bundle_template.count_rule == wire::core::BundleCountRuleKind::kFixed);
@@ -403,7 +390,10 @@ public:
   }
 
   val update_bundle_template(const val& input) {
-    const BundleKind id = bundle_kind(property<int>(input, "id"));
+    const BundleTemplateId id = bundle_template_id(property<int>(input, "id"));
+    if (id == wire::core::kInvalidBundleTemplateId) {
+      return result_value(false, "bundle template id is invalid");
+    }
     const auto& templates = CoreView(*state_).bundle_templates();
     const auto it = templates.find(id);
     if (it == templates.end()) {
@@ -454,13 +444,12 @@ public:
   }
 
   val apply_related_pole_type(int bundle_template_id) {
-    try {
-      const auto updated =
-          state_->ApplyBundleRelatedPoleTypeToExistingPoles(bundle_kind(bundle_template_id));
-      return result_value(updated.ok, updated.error);
-    } catch (const std::invalid_argument& error) {
-      return result_value(false, error.what());
+    const BundleTemplateId id = ::bundle_template_id(bundle_template_id);
+    if (id == wire::core::kInvalidBundleTemplateId) {
+      return result_value(false, "bundle template id is invalid");
     }
+    const auto updated = state_->ApplyBundleRelatedPoleTypeToExistingPoles(id);
+    return result_value(updated.ok, updated.error);
   }
 
   [[nodiscard]] std::size_t cable_template_count() const {

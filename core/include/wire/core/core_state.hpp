@@ -41,7 +41,7 @@ public:
                                  AnchorSupportKind support_kind = AnchorSupportKind::kGeneric,
                                  double support_strength = 1.0);
   EditResult<ObjectId> AddBundle(int conductor_count, double phase_spacing_m,
-                                 BundleKind kind = BundleKind::kLowVoltage);
+                                 BundleTemplateId bundle_template_id = kInvalidBundleTemplateId);
   EditResult<ObjectId> AddSpan(ObjectId port_a_id, ObjectId port_b_id, SpanKind kind = SpanKind::kGeneric,
                                SpanLayer layer = SpanLayer::kUnknown, ObjectId bundle_id = kInvalidObjectId,
                                ObjectId anchor_a_id = kInvalidObjectId, ObjectId anchor_b_id = kInvalidObjectId);
@@ -90,7 +90,7 @@ public:
                                        const std::vector<ObjectId>& preferred_visible_span_ids);
   EditResult<bool> UpdatePoleTypeDefinition(const PoleTypeDefinition& pole_type);
   EditResult<bool> UpdateBundleTemplate(const BundleTemplate& bundle_template);
-  EditResult<bool> ApplyBundleRelatedPoleTypeToExistingPoles(BundleKind bundle_template_id);
+  EditResult<bool> ApplyBundleRelatedPoleTypeToExistingPoles(BundleTemplateId bundle_template_id);
   EditResult<bool> UpdateAttachmentTemplate(const AttachmentTemplate& attachment_template,
                                             bool mark_dependent_spans_dirty = true);
   EditResult<bool> ResetAllSpanReferenceLengths(bool mark_all_spans_dirty = true);
@@ -161,7 +161,7 @@ private:
                                 std::size_t order, const Vec3d& dir);
   EditResult<bool> bind_backbone_span(ObjectId edge_bundle_id, std::size_t lane_index, ObjectId span_id);
   EditResult<bool> bind_backbone_port(ObjectId edge_bundle_id, const SavedBackboneRowKey& row_key,
-                                      std::size_t lane_index, BundleKind bundle_template_id, PortKind port_kind,
+                                      std::size_t lane_index, BundleTemplateId bundle_template_id, PortKind port_kind,
                                       PortLayer port_layer, int placement_band_id, double layout_yaw_deg,
                                       ObjectId port_id);
   enum class BackboneRegenerateCause : std::uint8_t {
@@ -171,7 +171,7 @@ private:
     kSpanOverride,
     kLayoutSettings,
   };
-  EditResult<bool> regenerate_backbone_edge_bundles(BundleKind bundle_template_id,
+  EditResult<bool> regenerate_backbone_edge_bundles(BundleTemplateId bundle_template_id,
                                                     const BundleTemplate& previous_template,
                                                     const BundleTemplate& next_template,
                                                     ChangeSet* change_set,
@@ -205,7 +205,7 @@ private:
   void register_default_attachment_templates();
   [[nodiscard]] const PoleTypeDefinition* find_pole_type(PoleTypeId pole_type_id) const;
   [[nodiscard]] const CableTemplate* find_cable_template(CableTemplateId cable_template_id) const;
-  [[nodiscard]] const BundleTemplate* find_bundle_template(BundleKind bundle_template_id) const;
+  [[nodiscard]] const BundleTemplate* find_bundle_template(BundleTemplateId bundle_template_id) const;
   [[nodiscard]] std::vector<PortPlacementBand> sorted_port_bands(const PoleTypeDefinition& pole_type,
                                                                  ConnectionCategory category) const;
   [[nodiscard]] bool is_port_band_used(ObjectId pole_id, const PortPlacementBand& band) const;

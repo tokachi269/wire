@@ -19,7 +19,7 @@ namespace {
 
 ObjectId CoreState::save_backbone_node(ObjectId pole_id, const Vec3d& position, SupportKind support_kind,
                                        ObjectId source_edge_node_a, ObjectId source_edge_node_b,
-                                       double source_edge_t, std::vector<SupportNodeBundleMode>) {
+                                       double source_edge_t, std::vector<SupportNodeBundleMode> bundle_modes) {
   if (pole_id != kInvalidObjectId) {
     const auto existing = runtime_.backbone_index.pole_node.find(pole_id);
     if (existing != runtime_.backbone_index.pole_node.end()) {
@@ -37,6 +37,9 @@ ObjectId CoreState::save_backbone_node(ObjectId pole_id, const Vec3d& position, 
   node.source_edge_node_a = node.has_source_edge ? source_edge_node_a : kInvalidObjectId;
   node.source_edge_node_b = node.has_source_edge ? source_edge_node_b : kInvalidObjectId;
   node.source_edge_t = node.has_source_edge ? source_edge_t : 0.0;
+  if (node.support_kind == SupportKind::kExternal) {
+    node.bundle_modes = std::move(bundle_modes);
+  }
   authoritative_.backbone.nodes.push_back(node);
   if (pole_id != kInvalidObjectId) {
     runtime_.backbone_index.pole_node[pole_id] = node.node_id;
@@ -56,12 +59,14 @@ void CoreState::cache_support_group(SupportGroupDecision decision, LoweredSuppor
 EditResult<bool> CoreState::bind_backbone_node_bundle_modes(
     ObjectId node_id, const std::vector<SupportNodeBundleMode>& bundle_modes) {
   EditResult<bool> out{};
-  (void)bundle_modes;
   auto node_it = std::find_if(authoritative_.backbone.nodes.begin(), authoritative_.backbone.nodes.end(),
                               [&](const SavedBackboneNode& node) { return node.node_id == node_id; });
   if (node_it == authoritative_.backbone.nodes.end()) {
     out.error = "backbone graph: saved node missing for bundle policy";
     return out;
+  }
+  if (node_it->support_kind == SupportKind::kExternal) {
+    node_it->bundle_modes = bundle_modes;
   }
   out.ok = true;
   out.value = true;
@@ -198,7 +203,7 @@ EditResult<bool> CoreState::bind_backbone_span(ObjectId edge_bundle_id, std::siz
 }
 
 EditResult<bool> CoreState::bind_backbone_port(ObjectId edge_bundle_id, const SavedBackboneRowKey& row_key,
-                                               std::size_t lane_index, BundleKind bundle_template_id,
+                                               std::size_t lane_index, BundleTemplateId bundle_template_id,
                                                PortKind port_kind, PortLayer port_layer, int placement_band_id,
                                                double layout_yaw_deg, ObjectId port_id) {
   EditResult<bool> out{};
@@ -316,20 +321,20 @@ CoreState::ResolveBranchPick(const PickResult& pick, const ResolveBranchPickOpti
     return result;
   }
 
-  std::vector<BundleKind> selected_template_ids = options.selected_bundle_template_ids;
+  std::vector<BundleTemplateId> selected_template_ids = options.selected_bundle_template_ids;
   std::sort(selected_template_ids.begin(), selected_template_ids.end(),
-            [](BundleKind a, BundleKind b) { return static_cast<int>(a) < static_cast<int>(b); });
+            [](BundleTemplateId a, BundleTemplateId b) { return a < b; });
   selected_template_ids.erase(std::unique(selected_template_ids.begin(), selected_template_ids.end()),
                               selected_template_ids.end());
 
   struct SelectedTemplatePolicy {
-    BundleKind id = BundleKind::kLowVoltage;
+    BundleTemplateId id = kInvalidBundleTemplateId;
     const BundleTemplate* bundle_template = nullptr;
     bool allow_midair_path = true;
   };
   std::vector<SelectedTemplatePolicy> selected_templates{};
   selected_templates.reserve(selected_template_ids.size());
-  for (BundleKind bundle_template_id : selected_template_ids) {
+  for (BundleTemplateId bundle_template_id : selected_template_ids) {
     const BundleTemplate* bundle_template = find_bundle_template(bundle_template_id);
     if (bundle_template == nullptr) {
       result.error = "bundle template not found";

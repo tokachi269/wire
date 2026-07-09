@@ -825,7 +825,7 @@ std::optional<TemplateInspectionView> CoreView::inspect_cable_template(CableTemp
   return result;
 }
 
-std::optional<TemplateInspectionView> CoreView::inspect_bundle_template(BundleKind bundle_template_id) const {
+std::optional<TemplateInspectionView> CoreView::inspect_bundle_template(BundleTemplateId bundle_template_id) const {
   const auto it = bundle_templates().find(bundle_template_id);
   if (it == bundle_templates().end()) {
     return std::nullopt;

@@ -95,7 +95,7 @@ ResolvedStyleContext resolve_style_context_for_span(const CoreState& state, cons
 
   StyleRouteKey route_key{};
   route_key.family_id = variation_flow_key;
-  route_key.bundle_template_id = (bundle != nullptr) ? bundle->bundle_template_id : BundleKind::kLowVoltage;
+  route_key.bundle_template_id = (bundle != nullptr) ? bundle->bundle_template_id : kInvalidBundleTemplateId;
   route_key.category = (bundle_template != nullptr) ? bundle_template->category : category_from_span_layer(span.layer);
   route_key.flow_kind = flow_kind;
 

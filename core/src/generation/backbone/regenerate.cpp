@@ -2,6 +2,7 @@
 #include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
 
+#include "../../collection_utils.hpp"
 #include "curve_parts.hpp"
 #include "pipeline.hpp"
 
@@ -14,13 +15,7 @@
 namespace wire::core {
 namespace {
 
-template <typename TValue> void append_unique(std::vector<TValue>& dst, const std::vector<TValue>& src) {
-  for (const TValue& value : src) {
-    if (std::find(dst.begin(), dst.end(), value) == dst.end()) {
-      dst.push_back(value);
-    }
-  }
-}
+using detail::append_unique;
 
 bool contains_id(const std::vector<ObjectId>& ids, ObjectId id) {
   return std::find(ids.begin(), ids.end(), id) != ids.end();

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../collection_utils.hpp"
 #include "wire/core/coord_utils.hpp"
 #include "wire/core/core_edit_types.hpp"
 
@@ -12,14 +13,7 @@ namespace wire::core::generation::detail {
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kZeroLengthEps = 1e-9;
 
-template <typename TValue>
-void append_unique(std::vector<TValue>& dst, const std::vector<TValue>& src) {
-  for (const TValue& value : src) {
-    if (std::find(dst.begin(), dst.end(), value) == dst.end()) {
-      dst.push_back(value);
-    }
-  }
-}
+using wire::core::detail::append_unique;
 
 inline void append_change_set(ChangeSet& dst, const ChangeSet& src) {
   append_unique(dst.created_ids, src.created_ids);

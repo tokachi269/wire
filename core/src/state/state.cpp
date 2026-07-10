@@ -1,6 +1,7 @@
 #include "wire/core/core_state.hpp"
 #include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
+#include "../collection_utils.hpp"
 #include "internal_services.hpp"
 #include "port_placement.hpp"
 #include "../generation/support_policy.hpp"
@@ -172,13 +173,7 @@ int role_score_for_context(SlotRole role, ConnectionContext context) {
   }
 }
 
-template <typename TValue> void append_unique(std::vector<TValue>& dst, const std::vector<TValue>& src) {
-  for (const TValue& value : src) {
-    if (std::find(dst.begin(), dst.end(), value) == dst.end()) {
-      dst.push_back(value);
-    }
-  }
-}
+using detail::append_unique;
 
 void append_change_set(ChangeSet& dst, const ChangeSet& src) {
   append_unique(dst.created_ids, src.created_ids);

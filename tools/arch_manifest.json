@@ -65,7 +65,7 @@
     },
     {
       "name": "core_internal",
-      "patterns": ["core/src/pch.hpp"],
+      "patterns": ["core/src/pch.hpp", "core/src/collection_utils.hpp"],
       "forbidden_tokens": ["viewer/"]
     },
     {

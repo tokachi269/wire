@@ -1,5 +1,7 @@
 #include "../internal_services.hpp"
 
+#include "../../collection_utils.hpp"
+
 #include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
 
@@ -14,13 +16,7 @@ namespace wire::core::state_internal {
 
 namespace {
 
-template <typename TValue> void append_unique(std::vector<TValue>& dst, const std::vector<TValue>& src) {
-  for (const TValue& value : src) {
-    if (std::find(dst.begin(), dst.end(), value) == dst.end()) {
-      dst.push_back(value);
-    }
-  }
-}
+using wire::core::detail::append_unique;
 
 struct CableDecisionRegenerateScope {
   BundleTemplateId bundle_template_id = kInvalidBundleTemplateId;

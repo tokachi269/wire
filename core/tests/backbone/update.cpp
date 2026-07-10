@@ -216,6 +216,16 @@ std::vector<std::vector<SpanCurveSignature>> route_bundle_signatures(const wire:
   return out;
 }
 
+std::vector<std::vector<SpanCurveSignature>> route_bundle_signatures_for_ids(
+    const wire::core::CoreState& state, const std::vector<wire::core::ObjectId>& edge_bundle_ids) {
+  std::vector<std::vector<SpanCurveSignature>> out{};
+  out.reserve(edge_bundle_ids.size());
+  for (wire::core::ObjectId edge_bundle_id : edge_bundle_ids) {
+    out.push_back(span_curve_signatures_for_edge_bundle(state, edge_bundle_id));
+  }
+  return out;
+}
+
 bool same_route_bundle_signatures(const std::vector<std::vector<SpanCurveSignature>>& lhs,
                                   const std::vector<std::vector<SpanCurveSignature>>& rhs) {
   if (lhs.size() != rhs.size()) {
@@ -1735,6 +1745,18 @@ bool C708_backbone_regenerate_polyline_decrease_matches_fresh() {
   if (!generated.ok || edge_bundle_ids_for_template(state, wire::core::BundleKind::kLowVoltage).size() != 2) {
     return false;
   }
+  const auto target_edge_bundle_ids = edge_bundle_ids_for_template(state, wire::core::BundleKind::kLowVoltage);
+  wire::core::BackboneSpec outside_req = line_req(state);
+  outside_req.bundles.clear();
+  add_backbone_bundle(outside_req, wire::core::BundleKind::kCommunication);
+  for (wire::core::Vec3d& point : outside_req.path.polyline) {
+    point.y += 30.0;
+  }
+  const auto outside = state.GenerateFromBackboneSpec(outside_req);
+  if (!outside.ok || outside.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const auto outside_before = snapshot_span_outputs(state, outside.value.generated_span_ids);
   if (!update_low_voltage_count_to_one(state)) {
     return false;
   }
@@ -1742,8 +1764,9 @@ bool C708_backbone_regenerate_polyline_decrease_matches_fresh() {
   wire::core::CoreState fresh;
   const auto fresh_generated = fresh.GenerateFromBackboneSpec(poly3_req(fresh));
   return fresh_generated.ok &&
-         same_route_bundle_signatures(route_bundle_signatures(state, wire::core::BundleKind::kLowVoltage),
+         same_route_bundle_signatures(route_bundle_signatures_for_ids(state, target_edge_bundle_ids),
                                       route_bundle_signatures(fresh, wire::core::BundleKind::kLowVoltage)) &&
+         same_span_output_snapshots(outside_before, state) &&
          visual_part_count(state, wire::core::VisualCurvePartKind::kNodePatch) ==
              visual_part_count(fresh, wire::core::VisualCurvePartKind::kNodePatch);
 }
@@ -1754,6 +1777,18 @@ bool C709_backbone_regenerate_polyline_increase_matches_fresh() {
   if (!generated.ok || edge_bundle_ids_for_template(state, wire::core::BundleKind::kLowVoltage).size() != 2) {
     return false;
   }
+  const auto target_edge_bundle_ids = edge_bundle_ids_for_template(state, wire::core::BundleKind::kLowVoltage);
+  wire::core::BackboneSpec outside_req = line_req(state);
+  outside_req.bundles.clear();
+  add_backbone_bundle(outside_req, wire::core::BundleKind::kCommunication);
+  for (wire::core::Vec3d& point : outside_req.path.polyline) {
+    point.y += 30.0;
+  }
+  const auto outside = state.GenerateFromBackboneSpec(outside_req);
+  if (!outside.ok || outside.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const auto outside_before = snapshot_span_outputs(state, outside.value.generated_span_ids);
   if (!update_low_voltage_count_to_two(state)) {
     return false;
   }
@@ -1764,8 +1799,9 @@ bool C709_backbone_regenerate_polyline_increase_matches_fresh() {
   }
   const auto fresh_generated = fresh.GenerateFromBackboneSpec(poly3_req(fresh));
   return fresh_generated.ok &&
-         same_route_bundle_signatures(route_bundle_signatures(state, wire::core::BundleKind::kLowVoltage),
+         same_route_bundle_signatures(route_bundle_signatures_for_ids(state, target_edge_bundle_ids),
                                       route_bundle_signatures(fresh, wire::core::BundleKind::kLowVoltage)) &&
+         same_span_output_snapshots(outside_before, state) &&
          visual_part_count(state, wire::core::VisualCurvePartKind::kNodePatch) ==
              visual_part_count(fresh, wire::core::VisualCurvePartKind::kNodePatch);
 }
@@ -1779,6 +1815,19 @@ bool C710_backbone_regenerate_polyline_multi_bundle_matches_fresh() {
       edge_bundle_ids_for_template(state, wire::core::BundleKind::kCommunication).size() != 2) {
     return false;
   }
+  const auto target_lv_edge_bundle_ids = edge_bundle_ids_for_template(state, wire::core::BundleKind::kLowVoltage);
+  const auto target_comm_edge_bundle_ids = edge_bundle_ids_for_template(state, wire::core::BundleKind::kCommunication);
+  wire::core::BackboneSpec outside_req = line_req(state);
+  outside_req.bundles.clear();
+  add_backbone_bundle(outside_req, wire::core::BundleKind::kOptical);
+  for (wire::core::Vec3d& point : outside_req.path.polyline) {
+    point.y += 30.0;
+  }
+  const auto outside = state.GenerateFromBackboneSpec(outside_req);
+  if (!outside.ok || outside.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const auto outside_before = snapshot_span_outputs(state, outside.value.generated_span_ids);
   if (!update_low_voltage_count_to_two(state)) {
     return false;
   }
@@ -1791,10 +1840,11 @@ bool C710_backbone_regenerate_polyline_multi_bundle_matches_fresh() {
   add_backbone_bundle(fresh_req, wire::core::BundleKind::kCommunication);
   const auto fresh_generated = fresh.GenerateFromBackboneSpec(fresh_req);
   return fresh_generated.ok &&
-         same_route_bundle_signatures(route_bundle_signatures(state, wire::core::BundleKind::kLowVoltage),
+         same_route_bundle_signatures(route_bundle_signatures_for_ids(state, target_lv_edge_bundle_ids),
                                       route_bundle_signatures(fresh, wire::core::BundleKind::kLowVoltage)) &&
-         same_route_bundle_signatures(route_bundle_signatures(state, wire::core::BundleKind::kCommunication),
+         same_route_bundle_signatures(route_bundle_signatures_for_ids(state, target_comm_edge_bundle_ids),
                                       route_bundle_signatures(fresh, wire::core::BundleKind::kCommunication)) &&
+         same_span_output_snapshots(outside_before, state) &&
          visual_part_count(state, wire::core::VisualCurvePartKind::kNodePatch) ==
              visual_part_count(fresh, wire::core::VisualCurvePartKind::kNodePatch);
 }

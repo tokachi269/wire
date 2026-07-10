@@ -632,7 +632,8 @@ bool C736_unsupported_hold_docs_do_not_restore_supported_backbone_updates() {
   return !contains_text(readiness, "| `UpdateLayoutSettings` |") &&
          !contains_text(readiness, "| `SetSpanEndpointSocketOverride`") &&
          !contains_text(readiness, "| `SetSpanBranchDownOffsetOverride`") &&
-         contains_text(readiness, "\x72\x61\x6E\x67\x65\xE5\x8C\x96\x3A") &&
+         !contains_text(readiness, "| A. Regenerate scenario pending | `UpdateBundleTemplate` | `Apply Bundle Template` | range") &&
+         contains_text(readiness, "count_rule` fixed/range") &&
          contains_text(readiness, "\x62\x75\x6E\x64\x6C\x65\x20\x70\x6F\x6C\x69\x63\x79\xE5\xA4\x89\xE6\x9B\xB4\x3A") &&
          contains_text(readiness, "\xE6\x97\xA2\xE3\x81\xAB\xE4\xBF\x9D\xE7\x95\x99\xE3\x81\x8B\xE3\x82\x89\xE5\xA4\x96\xE3\x81\x97\xE3\x81\x9F\xE3\x82\x82\xE3\x81\xAE") &&
          contains_text(readiness, "`UpdateLayoutSettings`");

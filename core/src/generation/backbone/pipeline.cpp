@@ -150,7 +150,6 @@ EditResult<bool> pipeline::save_derived(const route& route, GenerationTiming* ti
   EditResult<bool> out{};
   rules saved = timed(timing, &GenerationTiming::rules_ms, [&] {
     rules next = make(route.made, route.ps, route.placement);
-    save(next);
     return next;
   });
   EditResult<layout> placed = timed(timing, &GenerationTiming::layout_ms, [&] { return make(saved); });
@@ -158,13 +157,14 @@ EditResult<bool> pipeline::save_derived(const route& route, GenerationTiming* ti
     out.error = placed.error;
     return out;
   }
-  save(placed.value);
   EditResult<geom> shaped = timed(timing, &GenerationTiming::geom_ms, [&] { return make(placed.value); });
   if (!shaped.ok) {
     out.error = shaped.error;
     return out;
   }
   draw drawn = timed(timing, &GenerationTiming::draw_ms, [&] { return make(placed.value, shaped.value); });
+  save(saved);
+  save(placed.value);
   save(std::move(shaped.value));
   save(std::move(drawn));
   out.ok = true;

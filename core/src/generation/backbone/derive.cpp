@@ -3,43 +3,15 @@
 #include "wire/core/coord_utils.hpp"
 
 #include "curve_parts.hpp"
+#include "derive_span_layout.hpp"
 #include "out.hpp"
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <optional>
 #include <string>
-#include <unordered_set>
 
 namespace wire::core {
-namespace {
-
-bool apply_endpoint(const EditState& edit_state, const EndpointLayoutRule& rule, LayoutEndpoint* target,
-                    const CoreState& state, std::string* error) {
-  const Port* port = edit_state.ports.find(rule.port_id);
-  if (port == nullptr || target == nullptr) {
-    if (error != nullptr) {
-      *error = "backbone derive: endpoint port not found";
-    }
-    return false;
-  }
-  Vec3d endpoint_world = port->world_position;
-  if (rule.source_projection.valid()) {
-    const std::optional<Vec3d> projection = generation::backbone::source_edge_projection_world(state, rule.source_projection);
-    if (!projection.has_value()) {
-      if (error != nullptr) {
-        *error = "backbone derive: source edge projection missing";
-      }
-      return false;
-    }
-    endpoint_world = *projection;
-  }
-  ApplyEndpointLayoutRule(*target, rule, endpoint_world);
-  return true;
-}
-
-} // namespace
 
 EditResult<bool> CoreState::DeriveGeneratedSpanOutputs(ObjectId span_id) {
   EditResult<bool> out{};
@@ -54,46 +26,27 @@ EditResult<bool> CoreState::DeriveGeneratedSpanOutputs(ObjectId span_id) {
     return out;
   }
   const SpanLayoutRule& rule = *rule_view.rule;
-  SpanLayoutEntry layout{};
-  layout.span_id = rule.span_id;
-  layout.flow_kind = rule.flow_kind;
-  layout.pass_mode = rule.pass_mode;
-  layout.variation_flow_key = rule.variation_flow_key;
-  layout.lowering_kind = rule.lowering_kind;
-  if (!apply_endpoint(authoritative_.edit_state, rule.start, &layout.start, *this, &out.error) ||
-      !apply_endpoint(authoritative_.edit_state, rule.end, &layout.end, *this, &out.error)) {
+  const SpanRuntimeState* runtime = find_span_runtime_state(span_id);
+  const auto endpoint_resolver = [&](const EndpointLayoutRule& endpoint) {
+    return generation::backbone::resolve_span_layout_endpoint(*this, authoritative_.edit_state, endpoint);
+  };
+  EditResult<SpanLayoutEntry> layout = generation::backbone::derive_span_layout(
+      rule, endpoint_resolver, (runtime == nullptr) ? 0 : runtime->data_version);
+  if (!layout.ok) {
+    out.error = layout.error;
     return out;
   }
-  auto append_group_key = [&](const LayoutEndpoint& endpoint) {
-    if (!UsesAuthoritativeGroupedLoweredSupport(endpoint)) {
-      return;
-    }
-    const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint);
-    if (std::find(layout.lowered_support_group_keys.begin(), layout.lowered_support_group_keys.end(), key) ==
-        layout.lowered_support_group_keys.end()) {
-      layout.lowered_support_group_keys.push_back(key);
-    }
-  };
-  append_group_key(layout.start);
-  append_group_key(layout.end);
-  const Vec3d chord = layout.end.endpoint_world - layout.start.endpoint_world;
-  layout.basis_length_m = Length(chord);
-  layout.effective_sag_ratio = 0.0;
-  layout.continuity_preference = CableContinuityPolicyHint::kAuto;
-  layout.bend_stiffness_hint = 1.0;
-  const SpanRuntimeState* runtime = find_span_runtime_state(span_id);
-  layout.source_version = (runtime == nullptr) ? 0 : runtime->data_version;
 
-  EditResult<DetailCurve> curve = generation::backbone::make_curve(*this, span_id, layout);
+  EditResult<DetailCurve> curve = generation::backbone::make_curve(*this, span_id, layout.value);
   if (!curve.ok) {
     out.error = curve.error;
     return out;
   }
-  BoundsCacheEntry bounds = generation::backbone::bounds(curve.value, layout.source_version);
-  SpanVisualCacheEntry visual = generation::backbone::visual(runtime_.cache_state.visual_settings, layout);
+  BoundsCacheEntry bounds = generation::backbone::bounds(curve.value, layout.value.source_version);
+  SpanVisualCacheEntry visual = generation::backbone::visual(runtime_.cache_state.visual_settings, layout.value);
   SpanRenderCacheEntry render = generation::backbone::render(*this, span_id, curve.value);
 
-  cache_span_layout(std::move(layout));
+  cache_span_layout(std::move(layout.value));
   cache_span_curve(span_id, std::move(curve.value));
   cache_span_bounds(span_id, std::move(bounds));
   cache_span_visual(span_id, std::move(visual));

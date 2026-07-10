@@ -2072,4 +2072,29 @@ bool C743_backbone_bundle_template_change_classification_has_one_field_owner() {
          update_body.find("it->second.") == std::string::npos;
 }
 
+bool C744_backbone_span_layout_group_keys_have_one_definition() {
+  const std::filesystem::path root = repo_root() / "core/src/generation/backbone";
+  std::size_t definitions = 0;
+  for (const auto& entry : std::filesystem::recursive_directory_iterator(root)) {
+    if (!entry.is_regular_file() || entry.path().extension() != ".cpp") {
+      continue;
+    }
+    std::string source{};
+    if (!file_text(entry.path(), &source)) {
+      return false;
+    }
+    std::size_t offset = 0;
+    while ((offset = source.find("auto append_group_key =", offset)) != std::string::npos) {
+      ++definitions;
+      offset += std::string_view("auto append_group_key =").size();
+    }
+  }
+  std::string pipeline{};
+  std::string derive{};
+  return definitions == 1 && file_text(root / "pipeline.cpp", &pipeline) &&
+         file_text(root / "derive.cpp", &derive) &&
+         contains_text(pipeline, "derive_span_layout(rule, endpoint_resolver, 0)") &&
+         contains_text(derive, "derive_span_layout(");
+}
+
 } // namespace backbone_tests

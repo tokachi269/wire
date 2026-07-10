@@ -4,6 +4,7 @@
 #include "wire/core/coord_utils.hpp"
 
 #include "curve_parts.hpp"
+#include "derive_span_layout.hpp"
 #include "emit_shared.hpp"
 #include "out.hpp"
 
@@ -615,10 +616,6 @@ SourceEdgeProjectionRef source_projection_for(const CoreState& state, const node
   out.lane_index = lane;
   out.t = source.source_edge_t;
   return out;
-}
-
-std::optional<Vec3d> source_projection_world(const CoreState& state, const SourceEdgeProjectionRef& ref) {
-  return source_edge_projection_world(state, ref);
 }
 
 bool same_scope(const SavedBackbonePortBinding& binding, port_scope scope) {
@@ -2897,27 +2894,8 @@ rules pipeline::make(const topo& made, const pairs& ps, const groups& placement)
 EditResult<layout> pipeline::make(const rules& made) const {
   EditResult<layout> out{};
   const EditState& edit = state_.view().edit_state();
-  auto endpoint = [&](const EndpointLayoutRule& rule, LayoutEndpoint* target, std::string* error) -> bool {
-    const Port* port = edit.ports.find(rule.port_id);
-    if (port == nullptr || target == nullptr) {
-      if (error != nullptr) {
-        *error = "backbone layout: endpoint port not found";
-      }
-      return false;
-    }
-    Vec3d endpoint_world = port->world_position;
-    if (rule.source_projection.valid()) {
-      const std::optional<Vec3d> projection = source_projection_world(state_, rule.source_projection);
-      if (!projection.has_value()) {
-        if (error != nullptr) {
-          *error = "backbone layout: source edge projection missing";
-        }
-        return false;
-      }
-      endpoint_world = *projection;
-    }
-    ApplyEndpointLayoutRule(*target, rule, endpoint_world);
-    return true;
+  const auto endpoint_resolver = [&](const EndpointLayoutRule& endpoint) {
+    return resolve_span_layout_endpoint(state_, edit, endpoint);
   };
   for (const SpanLayoutRule& rule : made.data.spans) {
     const Span* span = edit.spans.find(rule.span_id);
@@ -2925,33 +2903,12 @@ EditResult<layout> pipeline::make(const rules& made) const {
       out.error = "backbone layout: span not found";
       return out;
     }
-    SpanLayoutEntry entry{};
-    entry.span_id = rule.span_id;
-    entry.flow_kind = rule.flow_kind;
-    entry.pass_mode = rule.pass_mode;
-    entry.variation_flow_key = rule.variation_flow_key;
-    entry.lowering_kind = rule.lowering_kind;
-    if (!endpoint(rule.start, &entry.start, &out.error) || !endpoint(rule.end, &entry.end, &out.error)) {
+    EditResult<SpanLayoutEntry> entry = derive_span_layout(rule, endpoint_resolver, 0);
+    if (!entry.ok) {
+      out.error = entry.error;
       return out;
     }
-    auto append_group_key = [&](const LayoutEndpoint& endpoint) {
-      if (!UsesAuthoritativeGroupedLoweredSupport(endpoint)) {
-        return;
-      }
-      const LoweredSupportGroupKey key = LoweredSupportGroupKeyFromDecision(endpoint);
-      if (std::find(entry.lowered_support_group_keys.begin(), entry.lowered_support_group_keys.end(), key) ==
-          entry.lowered_support_group_keys.end()) {
-        entry.lowered_support_group_keys.push_back(key);
-      }
-    };
-    append_group_key(entry.start);
-    append_group_key(entry.end);
-    const Vec3d chord = entry.end.endpoint_world - entry.start.endpoint_world;
-    entry.basis_length_m = Length(chord);
-    entry.effective_sag_ratio = 0.0;
-    entry.continuity_preference = CableContinuityPolicyHint::kAuto;
-    entry.bend_stiffness_hint = 1.0;
-    out.value.entries.push_back(std::move(entry));
+    out.value.entries.push_back(std::move(entry.value));
   }
   out.ok = true;
   return out;

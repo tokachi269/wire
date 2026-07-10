@@ -960,6 +960,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "bundle template fields are compared only by the change classifier",
                          "Boundary", false,
                          C743_backbone_bundle_template_change_classification_has_one_field_owner);
+  test_registry::AddTest(tests, "C744_backbone_span_layout_group_keys_have_one_definition",
+                         "span layout group-key collection has one shared definition",
+                         "Boundary", false,
+                         C744_backbone_span_layout_group_keys_have_one_definition);
   test_registry::AddTest(tests, "C703_backbone_regenerate_removes_migration_symbols",
                          "backbone regenerate removes bundle count migration symbols from core src",
                          "Boundary", false,

@@ -1870,6 +1870,116 @@ EditResult<bool> pipeline::check(const pairs& ps) const {
       }
     }
   }
+  std::vector<ObjectId> node_id_by_local(g_.nodes.size(), kInvalidObjectId);
+  for (std::size_t i = 0; i < g_.nodes.size(); ++i) {
+    node_id_by_local[i] = g_.nodes[i].saved;
+    if (g_.nodes[i].saved != kInvalidObjectId && state_.view().backbone_node(g_.nodes[i].saved) == nullptr) {
+      return unsupported("saved backbone node is missing");
+    }
+  }
+  std::vector<SavedBackboneEdgeRef> edge_by_link(ps.links.size());
+  for (const link& edge : ps.links) {
+    if (edge.id >= edge_by_link.size()) {
+      continue;
+    }
+    edge_by_link[edge.id] = ref_for_existing_edge(state_, g_, edge);
+    if (edge.saved != kInvalidObjectId && edge_by_link[edge.id].edge_id == kInvalidObjectId) {
+      EditResult<bool> failed{};
+      failed.error = "backbone graph: context link saved edge missing";
+      return failed;
+    }
+  }
+  std::vector<bool> active_rows(ps.rows.size(), false);
+  for (const link& edge : ps.links) {
+    if (!edge.is_new) {
+      continue;
+    }
+    if (edge.arow < active_rows.size()) {
+      active_rows[edge.arow] = true;
+    }
+    if (edge.brow < active_rows.size()) {
+      active_rows[edge.brow] = true;
+    }
+  }
+  for (const row& r : ps.rows) {
+    if (r.node >= g_.nodes.size()) {
+      return unsupported("row node missing");
+    }
+    if (r.id >= active_rows.size() || !active_rows[r.id]) {
+      continue;
+    }
+    const bool ownerless = ownerless_support(g_.nodes[r.node].support);
+    ObjectId pole_id = kInvalidObjectId;
+    const PoleTypeDefinition* new_pole_type = nullptr;
+    if (!ownerless && g_.nodes[r.node].is_new) {
+      EditResult<PoleTypeId> resolved_type = pole_type_for(state_, spec_);
+      if (!resolved_type.ok) {
+        EditResult<bool> failed{};
+        failed.error = resolved_type.error;
+        return failed;
+      }
+      const auto type_it = state_.view().pole_types().find(resolved_type.value);
+      if (type_it == state_.view().pole_types().end()) {
+        return unsupported("pole type missing");
+      }
+      new_pole_type = &type_it->second;
+    } else if (!ownerless) {
+      pole_id = g_.nodes[r.node].pole;
+      if (pole_id == kInvalidObjectId || state_.view().poles().find(pole_id) == nullptr) {
+        return unsupported("active row pole missing");
+      }
+    }
+    for (std::size_t bundle_index = 0; bundle_index < active_bundle_indices_.size(); ++bundle_index) {
+      const std::size_t spec_index = active_bundle_indices_[bundle_index];
+      if (spec_index >= spec_.bundles.size()) {
+        return unsupported("active bundle index is invalid");
+      }
+      const BackboneBundleSpec& bundle_spec = spec_.bundles[spec_index];
+      EditResult<spec_view> v = view_for(state_, bundle_spec);
+      if (!v.ok) {
+        EditResult<bool> failed{};
+        failed.error = v.error;
+        return failed;
+      }
+      PortPlacementBand band{};
+      if (!ownerless) {
+        EditResult<PortPlacementBand> resolved_band =
+            new_pole_type == nullptr ? band_for(state_, pole_id, v.value)
+                                     : SelectPortPlacementBand(*new_pole_type, v.value.tmpl->category, v.value.layer);
+        if (!resolved_band.ok) {
+          EditResult<bool> failed{};
+          failed.error = resolved_band.error;
+          return failed;
+        }
+        band = resolved_band.value;
+      }
+      const port_scope scope{bundle_spec.bundle_template_id, PortKindForCategory(v.value.tmpl->category),
+                             PortLayerForSpanLayer(v.value.layer), band.band_id};
+      trow preflight_row{};
+      preflight_row.row = r.id;
+      preflight_row.node = r.node;
+      preflight_row.source = r.source;
+      preflight_row.axis = r.axis;
+      preflight_row.pole = pole_id;
+      const SavedBackboneRowKey row_key = key_for(ps, preflight_row, node_id_by_local, edge_by_link);
+      for (int lane = 0; lane < v.value.count; ++lane) {
+        if (ownerless && g_.nodes[r.node].has_source_edge) {
+          const SourceEdgeProjectionRef ref =
+              source_projection_for(state_, g_.nodes[r.node], scope.bundle, static_cast<std::size_t>(lane));
+          if (!source_projection_binding_exists(state_, ref)) {
+            return unsupported("source edge attachment is missing");
+          }
+        }
+        EditResult<ObjectId> resolved =
+            resolve_port_binding(state_, pole_id, row_key, static_cast<std::size_t>(lane), scope);
+        if (!resolved.ok) {
+          EditResult<bool> failed{};
+          failed.error = resolved.error;
+          return failed;
+        }
+      }
+    }
+  }
   for (const link& edge : ps.links) {
     if (!edge.is_new) {
       continue;

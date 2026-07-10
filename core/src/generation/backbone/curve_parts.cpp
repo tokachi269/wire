@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace wire::core::generation::backbone {
 namespace {
@@ -49,6 +50,11 @@ struct curve_patch_key {
   std::uint64_t rule_owner_id = 0;
   CableSectionRuleId rule_id = 0;
   std::size_t instance_index = 0;
+};
+
+struct curve_boundary_key {
+  CableSectionKey section_key{};
+  bool is_start = true;
 };
 
 struct curve_boundary {
@@ -198,6 +204,54 @@ bool same_key(const curve_patch_key& a, const curve_patch_key& b) {
          a.rule_id == b.rule_id && a.instance_index == b.instance_index;
 }
 
+curve_patch_key patch_key_for(const curve_endpoint_ref& endpoint) {
+  return {endpoint.node_id, endpoint.bundle_template_id, endpoint.lane_index,
+          endpoint.pole_type_id, endpoint.band_id, endpoint.section_key.rule_owner_id,
+          endpoint.section_key.rule_id, endpoint.section_key.instance_index};
+}
+
+struct curve_patch_key_hash {
+  std::size_t operator()(const curve_patch_key& key) const {
+    std::uint64_t hash = hash_combine(0, static_cast<std::uint64_t>(key.node_id));
+    hash = hash_combine(hash, static_cast<std::uint64_t>(key.bundle_template_id));
+    hash = hash_combine(hash, static_cast<std::uint64_t>(key.lane_index));
+    hash = hash_combine(hash, static_cast<std::uint64_t>(key.pole_type_id));
+    hash = hash_combine(hash, static_cast<std::uint64_t>(key.band_id));
+    hash = hash_combine(hash, key.rule_owner_id);
+    hash = hash_combine(hash, static_cast<std::uint64_t>(key.rule_id));
+    hash = hash_combine(hash, static_cast<std::uint64_t>(key.instance_index));
+    return static_cast<std::size_t>(hash);
+  }
+};
+
+struct curve_patch_key_equal {
+  bool operator()(const curve_patch_key& a, const curve_patch_key& b) const {
+    return same_key(a, b);
+  }
+};
+
+bool same_boundary_key(const curve_boundary_key& a, const curve_boundary_key& b) {
+  return same_cable_section(a.section_key, b.section_key) && a.is_start == b.is_start;
+}
+
+struct curve_boundary_key_hash {
+  std::size_t operator()(const curve_boundary_key& key) const {
+    std::uint64_t hash = hash_combine(0, static_cast<std::uint64_t>(key.section_key.edge_bundle_id));
+    hash = hash_combine(hash, static_cast<std::uint64_t>(key.section_key.logical_span_id));
+    hash = hash_combine(hash, key.section_key.rule_owner_id);
+    hash = hash_combine(hash, static_cast<std::uint64_t>(key.section_key.rule_id));
+    hash = hash_combine(hash, static_cast<std::uint64_t>(key.section_key.instance_index));
+    hash = hash_combine(hash, key.is_start ? 1u : 0u);
+    return static_cast<std::size_t>(hash);
+  }
+};
+
+struct curve_boundary_key_equal {
+  bool operator()(const curve_boundary_key& a, const curve_boundary_key& b) const {
+    return same_boundary_key(a, b);
+  }
+};
+
 bool row_pairs_edges(const SavedBackboneRowKey& row_key, ObjectId edge_a, ObjectId edge_b) {
   if (row_key.source_is_open || row_key.source_edge_a == kInvalidObjectId ||
       row_key.source_edge_b == kInvalidObjectId) {
@@ -250,30 +304,44 @@ const SavedBackboneSpanBinding* span_binding_for(const CoreState& state, ObjectI
   return &graph.span_bindings[index];
 }
 
-bool boundary_for(const std::vector<curve_boundary>& boundaries, const CableSectionKey& section_key, bool is_start,
-                  curve_boundary* out) {
-  for (const curve_boundary& boundary : boundaries) {
-    if (same_cable_section(boundary.section_key, section_key) && boundary.is_start == is_start) {
-      if (out != nullptr) {
-        *out = boundary;
-      }
-      return true;
-    }
+using boundary_index_map = std::unordered_map<curve_boundary_key, std::size_t, curve_boundary_key_hash,
+                                              curve_boundary_key_equal>;
+
+bool boundary_for(const std::vector<curve_boundary>& boundaries, const boundary_index_map& index,
+                  const CableSectionKey& section_key, bool is_start, curve_boundary* out) {
+  const auto it = index.find({section_key, is_start});
+  if (it == index.end() || it->second >= boundaries.size()) {
+    return false;
   }
-  return false;
+  if (out != nullptr) {
+    *out = boundaries[it->second];
+  }
+  return true;
 }
 
-curve_boundary* mutable_boundary_for(std::vector<curve_boundary>* boundaries,
+curve_boundary* mutable_boundary_for(std::vector<curve_boundary>* boundaries, const boundary_index_map& index,
                                      const CableSectionKey& section_key, bool is_start) {
   if (boundaries == nullptr) {
     return nullptr;
   }
-  for (curve_boundary& boundary : *boundaries) {
-    if (same_cable_section(boundary.section_key, section_key) && boundary.is_start == is_start) {
-      return &boundary;
-    }
+  const auto it = index.find({section_key, is_start});
+  if (it == index.end() || it->second >= boundaries->size()) {
+    return nullptr;
   }
-  return nullptr;
+  return &(*boundaries)[it->second];
+}
+
+void insert_boundary_once(std::vector<curve_boundary>* boundaries, boundary_index_map* index,
+                          const curve_boundary& boundary) {
+  if (boundaries == nullptr || index == nullptr) {
+    return;
+  }
+  const curve_boundary_key key{boundary.section_key, boundary.is_start};
+  if (index->find(key) != index->end()) {
+    return;
+  }
+  (*index)[key] = boundaries->size();
+  boundaries->push_back(boundary);
 }
 
 Vec3d boundary_from_tangent(const Vec3d& attachment, const Vec3d& outward_tangent, double horizontal_length_m) {
@@ -599,38 +667,41 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
   }
 
   std::vector<curve_boundary> boundaries{};
+  boundary_index_map boundary_index{};
   std::vector<curve_patch_spec> patch_specs{};
-  std::vector<curve_patch_key> processed_patch_keys{};
-  for (const curve_endpoint_ref& first : endpoints) {
-    const curve_patch_key key{first.node_id, first.bundle_template_id, first.lane_index,
-                              first.pole_type_id, first.band_id,
-                              first.section_key.rule_owner_id, first.section_key.rule_id,
-                              first.section_key.instance_index};
-    if (std::find_if(processed_patch_keys.begin(), processed_patch_keys.end(),
-                     [&](const curve_patch_key& processed) { return same_key(processed, key); }) !=
-        processed_patch_keys.end()) {
+
+  std::vector<curve_patch_key> patch_key_order{};
+  std::unordered_set<curve_patch_key, curve_patch_key_hash, curve_patch_key_equal> seen_patch_keys{};
+  std::unordered_map<curve_patch_key, std::vector<std::size_t>, curve_patch_key_hash, curve_patch_key_equal>
+      endpoints_by_patch_key{};
+  patch_key_order.reserve(endpoints.size());
+  endpoints_by_patch_key.reserve(endpoints.size());
+  for (std::size_t endpoint_index = 0; endpoint_index < endpoints.size(); ++endpoint_index) {
+    const curve_patch_key key = patch_key_for(endpoints[endpoint_index]);
+    if (seen_patch_keys.insert(key).second) {
+      patch_key_order.push_back(key);
+    }
+    endpoints_by_patch_key[key].push_back(endpoint_index);
+  }
+
+  for (const curve_patch_key& key : patch_key_order) {
+    const auto group_it = endpoints_by_patch_key.find(key);
+    if (group_it == endpoints_by_patch_key.end()) {
       continue;
     }
-    processed_patch_keys.push_back(key);
-    std::vector<curve_endpoint_ref> group{};
-    for (const curve_endpoint_ref& endpoint : endpoints) {
-      if (same_key(key, {endpoint.node_id, endpoint.bundle_template_id, endpoint.lane_index,
-                         endpoint.pole_type_id, endpoint.band_id,
-                         endpoint.section_key.rule_owner_id, endpoint.section_key.rule_id,
-                         endpoint.section_key.instance_index})) {
-        group.push_back(endpoint);
-      }
-    }
+    const std::vector<std::size_t>& group = group_it->second;
     std::vector<std::pair<std::size_t, std::size_t>> candidates{};
     for (std::size_t a = 0; a < group.size(); ++a) {
       for (std::size_t b = a + 1; b < group.size(); ++b) {
-        if (group[a].edge_id == group[b].edge_id) {
+        const curve_endpoint_ref& endpoint_a = endpoints[group[a]];
+        const curve_endpoint_ref& endpoint_b = endpoints[group[b]];
+        if (endpoint_a.edge_id == endpoint_b.edge_id) {
           continue;
         }
         const bool shared_port =
-            group[a].port_id != kInvalidObjectId && group[a].port_id == group[b].port_id;
-        const bool explicit_pair = row_pairs_edges(group[a].row_key, group[a].edge_id, group[b].edge_id) ||
-                                   row_pairs_edges(group[b].row_key, group[a].edge_id, group[b].edge_id);
+            endpoint_a.port_id != kInvalidObjectId && endpoint_a.port_id == endpoint_b.port_id;
+        const bool explicit_pair = row_pairs_edges(endpoint_a.row_key, endpoint_a.edge_id, endpoint_b.edge_id) ||
+                                   row_pairs_edges(endpoint_b.row_key, endpoint_a.edge_id, endpoint_b.edge_id);
         if (shared_port || explicit_pair) {
           candidates.push_back({a, b});
         }
@@ -644,8 +715,8 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
                               : "multiple connectivity-owned patch pairs"});
       continue;
     }
-    const curve_endpoint_ref& patch_a = group[candidates.front().first];
-    const curve_endpoint_ref& patch_b = group[candidates.front().second];
+    const curve_endpoint_ref& patch_a = endpoints[group[candidates.front().first]];
+    const curve_endpoint_ref& patch_b = endpoints[group[candidates.front().second]];
     if (!patch_a.has_curve_tangent || !patch_b.has_curve_tangent) {
       out.diagnostics.push_back(
           {key.node_id, kInvalidObjectId, key.bundle_template_id, key.lane_index,
@@ -677,9 +748,7 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     a_boundary.horizontal_length_m = a_len;
     a_boundary.point = boundary_from_tangent(patch_a.point, patch_a.away_from_node, a_len);
     a_boundary.tangent = patch_a.away_from_node;
-    if (!boundary_for(boundaries, a_boundary.section_key, a_boundary.is_start, nullptr)) {
-      boundaries.push_back(a_boundary);
-    }
+    insert_boundary_once(&boundaries, &boundary_index, a_boundary);
 
     curve_boundary b_boundary{};
     b_boundary.section_key = patch_b.section_key;
@@ -688,9 +757,7 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     b_boundary.horizontal_length_m = b_len;
     b_boundary.point = boundary_from_tangent(patch_b.point, patch_b.away_from_node, b_len);
     b_boundary.tangent = patch_b.away_from_node;
-    if (!boundary_for(boundaries, b_boundary.section_key, b_boundary.is_start, nullptr)) {
-      boundaries.push_back(b_boundary);
-    }
+    insert_boundary_once(&boundaries, &boundary_index, b_boundary);
     patch_specs.push_back({key, patch_a, patch_b, ScaleVec(patch_a.point + patch_b.point, 0.5)});
   }
 
@@ -699,8 +766,8 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
       const CableSectionLayout& entry = section.layout;
       curve_boundary start_boundary{};
       curve_boundary end_boundary{};
-      const bool has_start_patch = boundary_for(boundaries, entry.key, true, &start_boundary);
-      const bool has_end_patch = boundary_for(boundaries, entry.key, false, &end_boundary);
+      const bool has_start_patch = boundary_for(boundaries, boundary_index, entry.key, true, &start_boundary);
+      const bool has_end_patch = boundary_for(boundaries, boundary_index, entry.key, false, &end_boundary);
       if (!has_start_patch && !has_end_patch) {
         continue;
       }
@@ -714,12 +781,14 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
       if (!constraints.ok) {
         continue;
       }
-      if (curve_boundary* boundary = mutable_boundary_for(&boundaries, entry.key, true); boundary != nullptr) {
+      if (curve_boundary* boundary = mutable_boundary_for(&boundaries, boundary_index, entry.key, true);
+          boundary != nullptr) {
         boundary->tangent = constraints.value.start.tangent_dir;
         boundary->point =
             boundary_from_tangent(boundary->attachment_point, boundary->tangent, boundary->horizontal_length_m);
       }
-      if (curve_boundary* boundary = mutable_boundary_for(&boundaries, entry.key, false); boundary != nullptr) {
+      if (curve_boundary* boundary = mutable_boundary_for(&boundaries, boundary_index, entry.key, false);
+          boundary != nullptr) {
         boundary->tangent = ScaleVec(constraints.value.end.tangent_dir, -1.0);
         boundary->point =
             boundary_from_tangent(boundary->attachment_point, boundary->tangent, boundary->horizontal_length_m);
@@ -795,8 +864,8 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     }
     curve_boundary start_boundary{};
     curve_boundary end_boundary{};
-    const bool has_start_patch = boundary_for(boundaries, entry.key, true, &start_boundary);
-    const bool has_end_patch = boundary_for(boundaries, entry.key, false, &end_boundary);
+    const bool has_start_patch = boundary_for(boundaries, boundary_index, entry.key, true, &start_boundary);
+    const bool has_end_patch = boundary_for(boundaries, boundary_index, entry.key, false, &end_boundary);
     const Vec3d start = has_start_patch ? start_boundary.point : entry.endpoint_a;
     const Vec3d end = has_end_patch ? end_boundary.point : entry.endpoint_b;
     const Vec3d end_boundary_param_tangent = ScaleVec(end_boundary.tangent, -1.0);
@@ -814,10 +883,12 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     const Vec3d end_param_tangent = curve.value.end_constraint.tangent_dir;
     const Vec3d start_outward_tangent = start_param_tangent;
     const Vec3d end_outward_tangent = ScaleVec(end_param_tangent, -1.0);
-    if (curve_boundary* boundary = mutable_boundary_for(&boundaries, entry.key, true); boundary != nullptr) {
+    if (curve_boundary* boundary = mutable_boundary_for(&boundaries, boundary_index, entry.key, true);
+        boundary != nullptr) {
       boundary->tangent = start_outward_tangent;
     }
-    if (curve_boundary* boundary = mutable_boundary_for(&boundaries, entry.key, false); boundary != nullptr) {
+    if (curve_boundary* boundary = mutable_boundary_for(&boundaries, boundary_index, entry.key, false);
+        boundary != nullptr) {
       boundary->tangent = end_outward_tangent;
     }
 
@@ -857,8 +928,8 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
   for (const curve_patch_spec& spec : patch_specs) {
     curve_boundary a_boundary{};
     curve_boundary b_boundary{};
-    if (!boundary_for(boundaries, spec.a.section_key, spec.a.is_start, &a_boundary) ||
-        !boundary_for(boundaries, spec.b.section_key, spec.b.is_start, &b_boundary)) {
+    if (!boundary_for(boundaries, boundary_index, spec.a.section_key, spec.a.is_start, &a_boundary) ||
+        !boundary_for(boundaries, boundary_index, spec.b.section_key, spec.b.is_start, &b_boundary)) {
       continue;
     }
     const Vec3d incoming = ScaleVec(a_boundary.tangent, -1.0);

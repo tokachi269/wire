@@ -1301,13 +1301,16 @@ bool C739_span_override_keeps_unrelated_route_outputs_unchanged() {
       edge_bundle_identity_snapshot(state, second_edge_bundle_id);
   const std::vector<SpanCurveSignature> second_curves_before =
       span_curve_signatures_for_edge_bundle(state, second_edge_bundle_id);
+  const std::vector<SpanOutputSnapshot> second_outputs_before =
+      snapshot_span_outputs(state, second.value.generated_span_ids);
 
   const auto updated = state.SetSpanBranchDownOffsetOverride(first.value.generated_span_ids.front(), 0.75);
   return updated.ok &&
          same_edge_bundle_identity_snapshot(second_identity_before,
                                             edge_bundle_identity_snapshot(state, second_edge_bundle_id)) &&
          same_span_curve_signatures(second_curves_before,
-                                    span_curve_signatures_for_edge_bundle(state, second_edge_bundle_id));
+                                    span_curve_signatures_for_edge_bundle(state, second_edge_bundle_id)) &&
+         same_span_output_snapshots(second_outputs_before, state);
 }
 
 bool C717_backbone_layout_settings_regenerate_matches_fresh() {

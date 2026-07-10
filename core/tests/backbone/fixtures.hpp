@@ -19,6 +19,20 @@ struct BoundsSnapshot {
   std::vector<wire::core::Vec3d> pts{};
 };
 
+struct SpanOutputSnapshot {
+  wire::core::ObjectId span_id = wire::core::kInvalidObjectId;
+  std::uint64_t data_version = 0;
+  std::uint64_t layout_source_version = 0;
+  wire::core::Vec3d layout_start_support{};
+  wire::core::Vec3d layout_start_endpoint{};
+  wire::core::Vec3d layout_end_support{};
+  wire::core::Vec3d layout_end_endpoint{};
+  std::uint64_t curve_source_version = 0;
+  std::vector<wire::core::Vec3d> curve_samples{};
+  std::uint64_t bounds_source_version = 0;
+  wire::core::AABBd bounds{};
+};
+
 wire::core::BackboneSpec line_req(wire::core::CoreState& state);
 wire::core::BackboneSpec poly3_req(wire::core::CoreState& state);
 wire::core::ObjectId span_for_bundle(const wire::core::CoreState& state,
@@ -67,5 +81,9 @@ wire::core::BackboneSpec pass_poly3_req(wire::core::CoreState& state);
 std::vector<wire::core::Vec3d> pass_intent_points();
 bool span_has_lowered_endpoint(const wire::core::CoreState& state, wire::core::ObjectId span_id);
 std::vector<wire::core::Vec3d> junction_v1_points();
+std::vector<SpanOutputSnapshot> snapshot_span_outputs(const wire::core::CoreState& state,
+                                                       const std::vector<wire::core::ObjectId>& span_ids);
+bool same_span_output_snapshots(const std::vector<SpanOutputSnapshot>& before,
+                                const wire::core::CoreState& state);
 
 } // namespace backbone_tests

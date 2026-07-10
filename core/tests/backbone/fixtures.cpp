@@ -665,4 +665,59 @@ std::vector<wire::core::Vec3d> junction_v1_points() {
   return out;
 }
 
+std::vector<SpanOutputSnapshot> snapshot_span_outputs(const wire::core::CoreState& state,
+                                                       const std::vector<wire::core::ObjectId>& span_ids) {
+  std::vector<SpanOutputSnapshot> out{};
+  out.reserve(span_ids.size());
+  for (wire::core::ObjectId span_id : span_ids) {
+    const wire::core::SpanLayoutView layout = state.span_layout(span_id);
+    const wire::core::CurveCacheEntry* curve = state.find_curve_cache(span_id);
+    const wire::core::BoundsCacheEntry* bounds = state.find_bounds_cache(span_id);
+    const wire::core::SpanRuntimeState* runtime = state.view().find_span_runtime_state(span_id);
+    if (!layout.has_layout() || curve == nullptr || bounds == nullptr || runtime == nullptr) {
+      return {};
+    }
+    out.push_back({span_id,
+                   runtime->data_version,
+                   layout.entry->source_version,
+                   layout.entry->start.support_world,
+                   layout.entry->start.endpoint_world,
+                   layout.entry->end.support_world,
+                   layout.entry->end.endpoint_world,
+                   curve->source_version,
+                   curve->detail.sample_points,
+                   bounds->source_version,
+                   bounds->whole});
+  }
+  return out;
+}
+
+bool same_span_output_snapshots(const std::vector<SpanOutputSnapshot>& before,
+                                const wire::core::CoreState& state) {
+  for (const SpanOutputSnapshot& expected : before) {
+    const wire::core::SpanLayoutView layout = state.span_layout(expected.span_id);
+    const wire::core::CurveCacheEntry* curve = state.find_curve_cache(expected.span_id);
+    const wire::core::BoundsCacheEntry* bounds = state.find_bounds_cache(expected.span_id);
+    const wire::core::SpanRuntimeState* runtime = state.view().find_span_runtime_state(expected.span_id);
+    if (!layout.has_layout() || curve == nullptr || bounds == nullptr || runtime == nullptr ||
+        runtime->data_version != expected.data_version || layout.entry->source_version != expected.layout_source_version ||
+        !almost_equal(layout.entry->start.support_world, expected.layout_start_support, 1e-12) ||
+        !almost_equal(layout.entry->start.endpoint_world, expected.layout_start_endpoint, 1e-12) ||
+        !almost_equal(layout.entry->end.support_world, expected.layout_end_support, 1e-12) ||
+        !almost_equal(layout.entry->end.endpoint_world, expected.layout_end_endpoint, 1e-12) ||
+        curve->source_version != expected.curve_source_version || bounds->source_version != expected.bounds_source_version ||
+        !almost_equal(bounds->whole.min, expected.bounds.min, 1e-12) ||
+        !almost_equal(bounds->whole.max, expected.bounds.max, 1e-12) ||
+        curve->detail.sample_points.size() != expected.curve_samples.size()) {
+      return false;
+    }
+    for (std::size_t i = 0; i < expected.curve_samples.size(); ++i) {
+      if (!almost_equal(curve->detail.sample_points[i], expected.curve_samples[i], 1e-12)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 } // namespace backbone_tests

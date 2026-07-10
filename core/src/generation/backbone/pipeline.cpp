@@ -69,6 +69,7 @@ EditResult<GenerateBundleFromPathResult> pipeline::run(run_input input) {
     out.error = derived.error;
     return out;
   }
+  retire_untouched(&made.value);
   write_route_result(&out, std::move(made.value.change_set), std::move(made.value.made));
   out.ok = true;
   return out;
@@ -183,6 +184,16 @@ void add(ChangeSet& dst, const ChangeSet& src) {
   append(dst.created_ids, src.created_ids);
   append(dst.updated_ids, src.updated_ids);
   append(dst.deleted_ids, src.deleted_ids);
+}
+
+bool contains_id(const std::vector<ObjectId>& ids, ObjectId id) {
+  return std::find(ids.begin(), ids.end(), id) != ids.end();
+}
+
+void erase_ids(std::vector<ObjectId>& ids, const std::vector<ObjectId>& removed) {
+  ids.erase(std::remove_if(ids.begin(), ids.end(),
+                           [&](ObjectId id) { return contains_id(removed, id); }),
+            ids.end());
 }
 
 struct pole_pull {
@@ -607,7 +618,7 @@ std::optional<Vec3d> source_projection_world(const CoreState& state, const Sourc
 
 bool same_scope(const SavedBackbonePortBinding& binding, port_scope scope) {
   return binding.bundle_template_id == scope.bundle && binding.port_kind == scope.kind &&
-         binding.port_layer == scope.layer && binding.placement_band_id == scope.placement_band_id;
+         binding.port_layer == scope.layer;
 }
 
 bool makes_pole(const node& item) {
@@ -957,6 +968,147 @@ bool moved_more_than_epsilon(const Vec3d& lhs, const Vec3d& rhs) {
 }
 
 } // namespace
+
+void pipeline::retire_untouched(route* route) {
+  if (route == nullptr) {
+    return;
+  }
+  auto add_id = [](std::vector<ObjectId>& ids, ObjectId id) {
+    if (id != kInvalidObjectId && !contains_id(ids, id)) {
+      ids.push_back(id);
+    }
+  };
+  for (const tspan& span : route->made.spans) {
+    add_id(route->touched_span_ids, span.id);
+    if (span.arow < route->made.rows.size() && span.bundle < route->made.rows[span.arow].ports.size() &&
+        span.lane < route->made.rows[span.arow].ports[span.bundle].size()) {
+      add_id(route->touched_port_ids, route->made.rows[span.arow].ports[span.bundle][span.lane]);
+    }
+    if (span.brow < route->made.rows.size() && span.bundle < route->made.rows[span.brow].ports.size() &&
+        span.lane < route->made.rows[span.brow].ports[span.bundle].size()) {
+      add_id(route->touched_port_ids, route->made.rows[span.brow].ports[span.bundle][span.lane]);
+    }
+  }
+  for (const link& edge : route->ps.links) {
+    if (edge.saved == kInvalidObjectId) {
+      continue;
+    }
+    for (ObjectId bundle_id : route->made.bundles) {
+      add_id(route->scope_edge_bundle_ids, edge_bundle_for(state_, g_, edge, bundle_id));
+    }
+  }
+  if (route->scope_edge_bundle_ids.empty()) {
+    return;
+  }
+
+  std::vector<ObjectId> retired_spans{};
+  std::vector<ObjectId> retired_ports{};
+  const SavedBackboneGraph& saved = state_.view().backbone();
+  for (ObjectId edge_bundle_id : route->scope_edge_bundle_ids) {
+    const auto span_binding_it = state_.runtime_.backbone_index.edge_bundle_span_bindings.find(edge_bundle_id);
+    if (span_binding_it != state_.runtime_.backbone_index.edge_bundle_span_bindings.end()) {
+      for (std::size_t binding_index : span_binding_it->second) {
+        if (binding_index >= saved.span_bindings.size()) {
+          continue;
+        }
+        ObjectId span_id = saved.span_bindings[binding_index].span_id;
+        if (!contains_id(route->touched_span_ids, span_id)) {
+          add_id(retired_spans, span_id);
+        }
+      }
+    }
+    const auto port_binding_it = state_.runtime_.backbone_index.edge_bundle_ports.find(edge_bundle_id);
+    if (port_binding_it != state_.runtime_.backbone_index.edge_bundle_ports.end()) {
+      for (std::size_t binding_index : port_binding_it->second) {
+        if (binding_index >= saved.port_bindings.size()) {
+          continue;
+        }
+        ObjectId port_id = saved.port_bindings[binding_index].port_id;
+        if (!contains_id(route->touched_port_ids, port_id)) {
+          add_id(retired_ports, port_id);
+        }
+      }
+    }
+  }
+  if (retired_spans.empty() && retired_ports.empty()) {
+    return;
+  }
+
+  for (ObjectId span_id : retired_spans) {
+    const Span* span = state_.authoritative_.edit_state.spans.find(span_id);
+    if (span == nullptr) {
+      continue;
+    }
+    const Span copy = *span;
+    state_.remove_span_from_indexes(copy);
+    state_.authoritative_.edit_state.spans.remove(span_id);
+    state_.runtime_.span_runtime_states.erase(span_id);
+    state_.remove_span_from_caches(span_id);
+    state_.runtime_.relation_index.attachments_by_span.erase(span_id);
+    CoreState::add_unique_id(route->change_set.deleted_ids, span_id);
+  }
+  for (ObjectId port_id : retired_ports) {
+    const Port* port = state_.authoritative_.edit_state.ports.find(port_id);
+    if (port == nullptr) {
+      continue;
+    }
+    CoreState::index_remove(state_.runtime_.relation_index.ports_by_pole, port->owner_pole_id, port_id);
+    state_.runtime_.connection_index.spans_by_port.erase(port_id);
+    state_.authoritative_.edit_state.ports.remove(port_id);
+    CoreState::add_unique_id(route->change_set.deleted_ids, port_id);
+  }
+
+  SavedBackboneGraph& graph = state_.authoritative_.backbone;
+  for (SavedBackboneEdgeBundle& item : graph.edge_bundles) {
+    if (contains_id(route->scope_edge_bundle_ids, item.edge_bundle_id)) {
+      erase_ids(item.span_ids, retired_spans);
+    }
+  }
+  graph.span_bindings.erase(
+      std::remove_if(graph.span_bindings.begin(), graph.span_bindings.end(),
+                     [&](const SavedBackboneSpanBinding& binding) {
+                       return contains_id(retired_spans, binding.span_id);
+                     }),
+      graph.span_bindings.end());
+  graph.port_bindings.erase(
+      std::remove_if(graph.port_bindings.begin(), graph.port_bindings.end(),
+                     [&](const SavedBackbonePortBinding& binding) {
+                       return contains_id(retired_ports, binding.port_id);
+                     }),
+      graph.port_bindings.end());
+
+  BackboneIndex rebuilt{};
+  for (const SavedBackboneNode& node : graph.nodes) {
+    if (node.pole_id != kInvalidObjectId) {
+      rebuilt.pole_node[node.pole_id] = node.node_id;
+    }
+  }
+  for (const SavedBackboneEdge& item : graph.edges) {
+    CoreState::index_add(rebuilt.node_edges, item.node_a, item.edge_id);
+    CoreState::index_add(rebuilt.node_edges, item.node_b, item.edge_id);
+    const BackboneEdgeKey key{std::min(item.node_a, item.node_b), std::max(item.node_a, item.node_b)};
+    rebuilt.edge_by_nodes[key] = item.edge_id;
+  }
+  for (const SavedBackboneEdgeBundle& item : graph.edge_bundles) {
+    CoreState::index_add(rebuilt.edge_bundles, item.edge_id, item.edge_bundle_id);
+    CoreState::index_add(rebuilt.bundle_edge, item.bundle_id, item.edge_id);
+    for (ObjectId span_id : item.span_ids) {
+      CoreState::index_add(rebuilt.edge_bundle_spans, item.edge_bundle_id, span_id);
+      rebuilt.span_edge_bundle[span_id] = item.edge_bundle_id;
+    }
+  }
+  for (std::size_t i = 0; i < graph.span_bindings.size(); ++i) {
+    const SavedBackboneSpanBinding& binding = graph.span_bindings[i];
+    rebuilt.edge_bundle_span_bindings[binding.edge_bundle_id].push_back(i);
+    rebuilt.span_bindings_by_span[binding.span_id].push_back(i);
+  }
+  for (std::size_t i = 0; i < graph.port_bindings.size(); ++i) {
+    const SavedBackbonePortBinding& binding = graph.port_bindings[i];
+    rebuilt.edge_bundle_ports[binding.edge_bundle_id].push_back(i);
+    rebuilt.port_bindings_by_port[binding.port_id].push_back(i);
+  }
+  state_.runtime_.backbone_index = std::move(rebuilt);
+}
 
 std::size_t pipeline::local(std::size_t input_point) const {
   return input_point < local_by_input_.size() ? local_by_input_[input_point] : bad;

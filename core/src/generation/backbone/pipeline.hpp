@@ -213,10 +213,14 @@ private:
     pairs ps{};
     groups placement{};
     topo made{};
+    std::vector<ObjectId> scope_edge_bundle_ids{};
+    std::vector<ObjectId> touched_span_ids{};
+    std::vector<ObjectId> touched_port_ids{};
   };
 
   [[nodiscard]] EditResult<route> emit_route(GenerationTiming*);
   [[nodiscard]] EditResult<bool> save_derived(const route&, GenerationTiming*);
+  void retire_untouched(route* made);
   [[nodiscard]] EditResult<pairs> make(const graph& made) const;
   [[nodiscard]] EditResult<intent> make(const pairs& ps) const;
   [[nodiscard]] EditResult<groups> make(const pairs& ps, const intent& intents) const;

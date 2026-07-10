@@ -1628,12 +1628,15 @@ bool C728_backbone_pipeline_has_no_run_mode_flags() {
 
 bool C729_backbone_regenerate_source_does_not_handbuild_outputs() {
   std::string source{};
-  if (!file_text(repo_root() / "core/src/generation/backbone/regenerate.cpp", &source)) {
+  std::string pipeline_source{};
+  if (!file_text(repo_root() / "core/src/generation/backbone/regenerate.cpp", &source) ||
+      !file_text(repo_root() / "core/src/generation/backbone/pipeline.cpp", &pipeline_source)) {
     return false;
   }
   const std::vector<std::string> banned = {
       "AddPort(", "AddSpan(", "SpanLayoutRule", "SpanLayoutEntry", "store_rules",
-      "store_layout", "cache_span_curve", "cache_span_bounds", "execute_update_plan"};
+      "store_layout", "cache_span_curve", "cache_span_bounds", "execute_update_plan",
+      "retire_from_trial", "remove_span_from_caches"};
   for (const std::string& token : banned) {
     if (contains_text(source, token)) {
       return false;
@@ -1642,8 +1645,9 @@ bool C729_backbone_regenerate_source_does_not_handbuild_outputs() {
   return contains_text(source, "trial_pipeline.run(") &&
          contains_text(source, "make_run_input_from_saved_scope") &&
          contains_text(source, "CoreState trial = *this") &&
-         contains_text(source, "remove_span_from_caches") &&
-         contains_text(source, "retire_from_trial");
+         contains_text(pipeline_source, "retire_untouched(&made.value)") &&
+         contains_text(pipeline_source, "void pipeline::retire_untouched(route* route)") &&
+         contains_text(pipeline_source, "state_.remove_span_from_caches(span_id)");
 }
 bool C705_backbone_edge_bundle_order_matches_bundle_spec_order() {
   wire::core::CoreState state;

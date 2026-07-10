@@ -26,12 +26,6 @@ bool contains_id(const std::vector<ObjectId>& ids, ObjectId id) {
   return std::find(ids.begin(), ids.end(), id) != ids.end();
 }
 
-void erase_ids(std::vector<ObjectId>& ids, const std::vector<ObjectId>& removed) {
-  ids.erase(std::remove_if(ids.begin(), ids.end(),
-                           [&](ObjectId id) { return contains_id(removed, id); }),
-            ids.end());
-}
-
 const SavedBackboneNode* saved_node_by_id(const SavedBackboneGraph& graph, ObjectId node_id) {
   const auto it = std::find_if(graph.nodes.begin(), graph.nodes.end(),
                                [&](const SavedBackboneNode& node) { return node.node_id == node_id; });
@@ -406,92 +400,6 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
     append_unique(change_set->updated_ids, replay.change_set.updated_ids);
     append_unique(change_set->deleted_ids, replay.change_set.deleted_ids);
   }
-  auto rebuild_backbone_index = [&]() {
-    BackboneIndex rebuilt{};
-    auto& auth = trial.authoritative_;
-    const SavedBackboneGraph& saved = auth.backbone;
-    for (const SavedBackboneNode& node : saved.nodes) {
-      if (node.pole_id != kInvalidObjectId) {
-        rebuilt.pole_node[node.pole_id] = node.node_id;
-      }
-    }
-    for (const SavedBackboneEdge& item : saved.edges) {
-      index_add(rebuilt.node_edges, item.node_a, item.edge_id);
-      index_add(rebuilt.node_edges, item.node_b, item.edge_id);
-      const BackboneEdgeKey key{std::min(item.node_a, item.node_b), std::max(item.node_a, item.node_b)};
-      rebuilt.edge_by_nodes[key] = item.edge_id;
-    }
-    for (const SavedBackboneEdgeBundle& item : saved.edge_bundles) {
-      index_add(rebuilt.edge_bundles, item.edge_id, item.edge_bundle_id);
-      index_add(rebuilt.bundle_edge, item.bundle_id, item.edge_id);
-      for (ObjectId span_id : item.span_ids) {
-        index_add(rebuilt.edge_bundle_spans, item.edge_bundle_id, span_id);
-        rebuilt.span_edge_bundle[span_id] = item.edge_bundle_id;
-      }
-    }
-    for (std::size_t i = 0; i < saved.span_bindings.size(); ++i) {
-      const SavedBackboneSpanBinding& binding = saved.span_bindings[i];
-      rebuilt.edge_bundle_span_bindings[binding.edge_bundle_id].push_back(i);
-      rebuilt.span_bindings_by_span[binding.span_id].push_back(i);
-    }
-    for (std::size_t i = 0; i < saved.port_bindings.size(); ++i) {
-      const SavedBackbonePortBinding& binding = saved.port_bindings[i];
-      rebuilt.edge_bundle_ports[binding.edge_bundle_id].push_back(i);
-      rebuilt.port_bindings_by_port[binding.port_id].push_back(i);
-    }
-    trial.runtime_.backbone_index = std::move(rebuilt);
-  };
-  auto retire_from_trial = [&]() {
-    for (ObjectId span_id : target.retired_spans) {
-      const Span* span = trial.authoritative_.edit_state.spans.find(span_id);
-      if (span == nullptr) {
-        continue;
-      }
-      const Span copy = *span;
-      trial.remove_span_from_indexes(copy);
-      trial.authoritative_.edit_state.spans.remove(span_id);
-      trial.runtime_.span_runtime_states.erase(span_id);
-      trial.remove_span_from_caches(span_id);
-      trial.runtime_.relation_index.attachments_by_span.erase(span_id);
-      if (change_set != nullptr) {
-        add_unique_id(change_set->deleted_ids, span_id);
-      }
-    }
-    for (ObjectId port_id : target.retired_ports) {
-      const Port* port = trial.authoritative_.edit_state.ports.find(port_id);
-      if (port == nullptr) {
-        continue;
-      }
-      index_remove(trial.runtime_.relation_index.ports_by_pole, port->owner_pole_id, port_id);
-      trial.runtime_.connection_index.spans_by_port.erase(port_id);
-      trial.authoritative_.edit_state.ports.remove(port_id);
-      if (change_set != nullptr) {
-        add_unique_id(change_set->deleted_ids, port_id);
-      }
-    }
-    auto& auth = trial.authoritative_;
-    for (SavedBackboneEdgeBundle& item : auth.backbone.edge_bundles) {
-      if (contains_id(target.edge_bundle_ids, item.edge_bundle_id)) {
-        erase_ids(item.span_ids, target.retired_spans);
-      }
-    }
-    auth.backbone.span_bindings.erase(
-        std::remove_if(auth.backbone.span_bindings.begin(),
-                       auth.backbone.span_bindings.end(),
-                       [&](const SavedBackboneSpanBinding& binding) {
-                         return contains_id(target.retired_spans, binding.span_id);
-                       }),
-        auth.backbone.span_bindings.end());
-    auth.backbone.port_bindings.erase(
-        std::remove_if(auth.backbone.port_bindings.begin(),
-                       auth.backbone.port_bindings.end(),
-                       [&](const SavedBackbonePortBinding& binding) {
-                         return contains_id(target.retired_ports, binding.port_id);
-                       }),
-        auth.backbone.port_bindings.end());
-    rebuild_backbone_index();
-  };
-  retire_from_trial();
   trial.cache_visual_curve_parts(generation::backbone::make_visual_curve_parts(trial, {}));
 
   identity_ = trial.identity_;

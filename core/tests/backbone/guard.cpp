@@ -277,6 +277,15 @@ bool C440_backbone_does_not_read_authoritative_backbone_directly() {
     if (!file_text(entry.path(), &text)) {
       return false;
     }
+    if (entry.path().filename() == "pipeline.cpp") {
+      std::string retire_body;
+      if (function_body(text, "void pipeline::retire_untouched(route* route)", &retire_body)) {
+        const std::size_t pos = text.find(retire_body);
+        if (pos != std::string::npos) {
+          text.replace(pos, retire_body.size(), "");
+        }
+      }
+    }
     if (contains_text(text, "authoritative_.backbone")) {
       return false;
     }

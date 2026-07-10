@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <unordered_set>
 
 namespace wire::core::state_internal {
@@ -249,6 +250,52 @@ bool population_rules_equal(const std::vector<CablePopulationRule>& a,
     }
   }
   return true;
+}
+
+enum BundleTemplateChange : std::uint32_t {
+  kMetadata = 1u << 0,
+  kDefinition = 1u << 1,
+  kDraw = 1u << 2,
+  kDetail = 1u << 3,
+  kCount = 1u << 4,
+  kTopology = 1u << 5,
+};
+
+std::uint32_t classify_bundle_template_changes(const BundleTemplate& before,
+                                                const BundleTemplate& after) {
+  std::uint32_t changes = 0;
+  if (before.name != after.name) {
+    changes |= kMetadata;
+  }
+  if (before.related_pole_type_id != after.related_pole_type_id) {
+    changes |= kDefinition;
+  }
+  if (before.cable_template_id != after.cable_template_id) {
+    changes |= kDraw;
+  }
+  if (before.support_wire_pole_band_id != after.support_wire_pole_band_id ||
+      !population_rules_equal(before.population_rules, after.population_rules)) {
+    changes |= kDetail;
+  }
+  if (before.count_rule != after.count_rule || before.fixed_count != after.fixed_count ||
+      before.min_count != after.min_count || before.max_count != after.max_count ||
+      before.default_count != after.default_count) {
+    changes |= kCount;
+  }
+  if (before.category != after.category || before.default_layer != after.default_layer ||
+      before.preserve_conductor_identity != after.preserve_conductor_identity ||
+      std::abs(before.default_spacing_m - after.default_spacing_m) > 1e-12 ||
+      std::abs(before.grouped_support_fanout_spacing_m - after.grouped_support_fanout_spacing_m) > 1e-12 ||
+      before.allow_mirror != after.allow_mirror || before.allow_midair_node != after.allow_midair_node ||
+      before.allow_midair_branch != after.allow_midair_branch ||
+      before.enable_branch_down_offset != after.enable_branch_down_offset ||
+      std::abs(before.branch_endpoint_offset_m - after.branch_endpoint_offset_m) > 1e-12 ||
+      before.order_decision_policy != after.order_decision_policy ||
+      before.row_layout_axis_mode != after.row_layout_axis_mode || before.support_style != after.support_style ||
+      before.branch_policy != after.branch_policy || before.continuity_policy != after.continuity_policy) {
+    changes |= kTopology;
+  }
+  return changes;
 }
 
 bool validate_population_rules(const CoreState& state, const std::vector<CablePopulationRule>& rules,
@@ -515,107 +562,10 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
     normalized.grouped_support_fanout_spacing_m =
         (cable_template == nullptr) ? normalized.default_spacing_m : cable_template->default_grouped_support_fanout_spacing_m;
   }
-  normalized.version = it->second.version;
-  bool changed = false;
-  const bool visual_only_change =
-      normalized.cable_template_id != it->second.cable_template_id && normalized.category == it->second.category &&
-      normalized.default_layer == it->second.default_layer &&
-      normalized.related_pole_type_id == it->second.related_pole_type_id &&
-      normalized.preserve_conductor_identity == it->second.preserve_conductor_identity &&
-      normalized.count_rule == it->second.count_rule && normalized.fixed_count == it->second.fixed_count &&
-      normalized.min_count == it->second.min_count && normalized.max_count == it->second.max_count &&
-      normalized.default_count == it->second.default_count &&
-      std::abs(normalized.default_spacing_m - it->second.default_spacing_m) <= 1e-12 &&
-      std::abs(normalized.grouped_support_fanout_spacing_m - it->second.grouped_support_fanout_spacing_m) <= 1e-12 &&
-      normalized.allow_mirror == it->second.allow_mirror &&
-      normalized.allow_midair_node == it->second.allow_midair_node &&
-      normalized.allow_midair_branch == it->second.allow_midair_branch &&
-      normalized.enable_branch_down_offset == it->second.enable_branch_down_offset &&
-      std::abs(normalized.branch_endpoint_offset_m - it->second.branch_endpoint_offset_m) <= 1e-12 &&
-      normalized.order_decision_policy == it->second.order_decision_policy &&
-      normalized.row_layout_axis_mode == it->second.row_layout_axis_mode &&
-      normalized.support_style == it->second.support_style && normalized.branch_policy == it->second.branch_policy &&
-      normalized.continuity_policy == it->second.continuity_policy &&
-      normalized.support_wire_pole_band_id == it->second.support_wire_pole_band_id &&
-      population_rules_equal(normalized.population_rules, it->second.population_rules) &&
-      normalized.name == it->second.name;
-
-  const bool detail_change = normalized.support_wire_pole_band_id != it->second.support_wire_pole_band_id ||
-                             !population_rules_equal(normalized.population_rules, it->second.population_rules);
-
-  const bool topology_change =
-      normalized.category != it->second.category || normalized.default_layer != it->second.default_layer ||
-      normalized.preserve_conductor_identity != it->second.preserve_conductor_identity ||
-      normalized.count_rule != it->second.count_rule || normalized.fixed_count != it->second.fixed_count ||
-      normalized.min_count != it->second.min_count || normalized.max_count != it->second.max_count ||
-      normalized.default_count != it->second.default_count ||
-      std::abs(normalized.default_spacing_m - it->second.default_spacing_m) > 1e-12 ||
-      std::abs(normalized.grouped_support_fanout_spacing_m - it->second.grouped_support_fanout_spacing_m) > 1e-12 ||
-      normalized.allow_mirror != it->second.allow_mirror ||
-      normalized.allow_midair_node != it->second.allow_midair_node ||
-      normalized.allow_midair_branch != it->second.allow_midair_branch ||
-      normalized.enable_branch_down_offset != it->second.enable_branch_down_offset ||
-      std::abs(normalized.branch_endpoint_offset_m - it->second.branch_endpoint_offset_m) > 1e-12 ||
-      normalized.order_decision_policy != it->second.order_decision_policy ||
-      normalized.row_layout_axis_mode != it->second.row_layout_axis_mode ||
-      normalized.support_style != it->second.support_style || normalized.branch_policy != it->second.branch_policy ||
-      normalized.continuity_policy != it->second.continuity_policy;
-  const bool fixed_count_increase_only =
-      normalized.count_rule == BundleCountRuleKind::kFixed &&
-      it->second.count_rule == BundleCountRuleKind::kFixed &&
-      normalized.fixed_count > it->second.fixed_count &&
-      normalized.cable_template_id == it->second.cable_template_id &&
-      normalized.category == it->second.category &&
-      normalized.default_layer == it->second.default_layer &&
-      normalized.related_pole_type_id == it->second.related_pole_type_id &&
-      normalized.preserve_conductor_identity == it->second.preserve_conductor_identity &&
-      normalized.min_count == it->second.min_count &&
-      normalized.max_count == it->second.max_count &&
-      normalized.default_count == it->second.default_count &&
-      std::abs(normalized.default_spacing_m - it->second.default_spacing_m) <= 1e-12 &&
-      std::abs(normalized.grouped_support_fanout_spacing_m - it->second.grouped_support_fanout_spacing_m) <= 1e-12 &&
-      normalized.allow_mirror == it->second.allow_mirror &&
-      normalized.allow_midair_node == it->second.allow_midair_node &&
-      normalized.allow_midair_branch == it->second.allow_midair_branch &&
-      normalized.enable_branch_down_offset == it->second.enable_branch_down_offset &&
-      std::abs(normalized.branch_endpoint_offset_m - it->second.branch_endpoint_offset_m) <= 1e-12 &&
-      normalized.order_decision_policy == it->second.order_decision_policy &&
-      normalized.row_layout_axis_mode == it->second.row_layout_axis_mode &&
-      normalized.support_style == it->second.support_style &&
-      normalized.branch_policy == it->second.branch_policy &&
-      normalized.continuity_policy == it->second.continuity_policy &&
-      population_rules_equal(normalized.population_rules, it->second.population_rules);
-  const bool fixed_count_decrease_only =
-      normalized.count_rule == BundleCountRuleKind::kFixed &&
-      it->second.count_rule == BundleCountRuleKind::kFixed &&
-      normalized.fixed_count > 0 &&
-      normalized.fixed_count < it->second.fixed_count &&
-      normalized.cable_template_id == it->second.cable_template_id &&
-      normalized.category == it->second.category &&
-      normalized.default_layer == it->second.default_layer &&
-      normalized.related_pole_type_id == it->second.related_pole_type_id &&
-      normalized.preserve_conductor_identity == it->second.preserve_conductor_identity &&
-      normalized.min_count == it->second.min_count &&
-      normalized.max_count == it->second.max_count &&
-      normalized.default_count == it->second.default_count &&
-      std::abs(normalized.default_spacing_m - it->second.default_spacing_m) <= 1e-12 &&
-      std::abs(normalized.grouped_support_fanout_spacing_m - it->second.grouped_support_fanout_spacing_m) <= 1e-12 &&
-      normalized.allow_mirror == it->second.allow_mirror &&
-      normalized.allow_midair_node == it->second.allow_midair_node &&
-      normalized.allow_midair_branch == it->second.allow_midair_branch &&
-      normalized.enable_branch_down_offset == it->second.enable_branch_down_offset &&
-      std::abs(normalized.branch_endpoint_offset_m - it->second.branch_endpoint_offset_m) <= 1e-12 &&
-      normalized.order_decision_policy == it->second.order_decision_policy &&
-      normalized.row_layout_axis_mode == it->second.row_layout_axis_mode &&
-      normalized.support_style == it->second.support_style &&
-      normalized.branch_policy == it->second.branch_policy &&
-      normalized.continuity_policy == it->second.continuity_policy &&
-      population_rules_equal(normalized.population_rules, it->second.population_rules) &&
-      normalized.name == it->second.name;
-
-  changed = visual_only_change || topology_change || detail_change || normalized.name != it->second.name ||
-            normalized.related_pole_type_id != it->second.related_pole_type_id;
-  if (!changed) {
+  const BundleTemplate previous = it->second;
+  normalized.version = previous.version;
+  const std::uint32_t changes = classify_bundle_template_changes(previous, normalized);
+  if (changes == 0) {
     result.ok = true;
     result.value = false;
     return result;
@@ -626,7 +576,14 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
     if (existing_bundle.bundle_template_id != normalized.id) {
       continue;
     }
-    if (topology_change && !fixed_count_increase_only && !fixed_count_decrease_only) {
+    const bool count_change = (changes & kCount) != 0;
+    const bool fixed_count_change =
+        count_change && previous.count_rule == BundleCountRuleKind::kFixed &&
+        normalized.count_rule == BundleCountRuleKind::kFixed && normalized.fixed_count > 0 &&
+        normalized.fixed_count != previous.fixed_count;
+    constexpr std::uint32_t kRegenerateChangeMask = kMetadata | kDefinition | kCount;
+    if ((changes & kTopology) != 0 ||
+        (count_change && (!fixed_count_change || (changes & ~kRegenerateChangeMask) != 0))) {
       result.error = "backbone unsupported: bundle topology changes require regeneration";
       return result;
     }
@@ -636,10 +593,11 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
     }
   }
   std::vector<UpdatePlan> plans{};
-  if (visual_only_change || detail_change) {
+  if ((changes & (kDraw | kDetail)) != 0) {
+    const UpdateKind kind = (changes & kDetail) != 0 ? UpdateKind::kReshape : UpdateKind::kRedraw;
     plans.reserve(affected_spans.size());
     for (ObjectId span_id : affected_spans) {
-      auto plan = state.make_update_plan({UpdateKind::kReshape, UpdateTargetKind::kSpan, span_id});
+      auto plan = state.make_update_plan({kind, UpdateTargetKind::kSpan, span_id});
       if (!plan.ok) {
         result.error = plan.error;
         return result;
@@ -649,15 +607,9 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
   }
 
   normalized.version += 1;
-  const BundleTemplate previous = it->second;
-  if (topology_change && fixed_count_increase_only) {
-    auto regenerated = state.regenerate_backbone_edge_bundles(normalized.id, previous, normalized,
-                                                              &result.change_set);
-    if (!regenerated.ok) {
-      result.error = regenerated.error;
-      return result;
-    }
-  } else if (topology_change && fixed_count_decrease_only) {
+  if ((changes & kCount) != 0 && previous.count_rule == BundleCountRuleKind::kFixed &&
+      normalized.count_rule == BundleCountRuleKind::kFixed && normalized.fixed_count > 0 &&
+      normalized.fixed_count != previous.fixed_count) {
     auto regenerated = state.regenerate_backbone_edge_bundles(normalized.id, previous, normalized,
                                                               &result.change_set);
     if (!regenerated.ok) {

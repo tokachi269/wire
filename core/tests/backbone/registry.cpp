@@ -952,6 +952,14 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "backbone regenerate fixed count roundtrip matches fresh count one",
                          "Invariant", false,
                          C702_backbone_regenerate_fixed_count_roundtrip_matches_fresh);
+  test_registry::AddTest(tests, "C742_backbone_bundle_count_decrease_allows_metadata_change",
+                         "backbone fixed count decrease permits a simultaneous metadata rename",
+                         "Invariant", false,
+                         C742_backbone_bundle_count_decrease_allows_metadata_change);
+  test_registry::AddTest(tests, "C743_backbone_bundle_template_change_classification_has_one_field_owner",
+                         "bundle template fields are compared only by the change classifier",
+                         "Boundary", false,
+                         C743_backbone_bundle_template_change_classification_has_one_field_owner);
   test_registry::AddTest(tests, "C703_backbone_regenerate_removes_migration_symbols",
                          "backbone regenerate removes bundle count migration symbols from core src",
                          "Boundary", false,

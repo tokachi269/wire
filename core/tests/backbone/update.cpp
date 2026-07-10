@@ -2033,4 +2033,43 @@ bool C622_backbone_stage_timing_is_diagnostic_only() {
          update.derive_ms >= 0.0 && update.total_ms >= update.derive_ms;
 }
 
+bool C742_backbone_bundle_count_decrease_allows_metadata_change() {
+  wire::core::CoreState state;
+  if (!set_low_voltage_count_before_generation(state, 2)) {
+    return false;
+  }
+  const auto generated = state.GenerateFromBackboneSpec(line_req(state));
+  if (!generated.ok || generated.value.generated_span_ids.size() != 2) {
+    return false;
+  }
+  const auto template_it = state.view().bundle_templates().find(
+      wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
+  if (template_it == state.view().bundle_templates().end()) {
+    return false;
+  }
+  wire::core::BundleTemplate edited = template_it->second;
+  edited.fixed_count = 1;
+  edited.name += " renamed";
+  const auto updated = state.UpdateBundleTemplate(edited);
+  const auto after = state.view().bundle_templates().find(edited.id);
+  return updated.ok && updated.value && state.view().spans().size() == 1 &&
+         after != state.view().bundle_templates().end() && after->second.name == edited.name &&
+         after->second.fixed_count == 1;
+}
+
+bool C743_backbone_bundle_template_change_classification_has_one_field_owner() {
+  std::string source{};
+  if (!file_text(repo_root() / "core/src/state/template/update.cpp", &source)) {
+    return false;
+  }
+  const std::size_t begin = source.find("TemplateMutationService::UpdateBundleTemplate");
+  const std::size_t end = source.find("TemplateMutationService::UpdateAttachmentTemplate", begin);
+  if (begin == std::string::npos || end == std::string::npos) {
+    return false;
+  }
+  const std::string update_body = source.substr(begin, end - begin);
+  return update_body.find("classify_bundle_template_changes(previous, normalized)") != std::string::npos &&
+         update_body.find("it->second.") == std::string::npos;
+}
+
 } // namespace backbone_tests

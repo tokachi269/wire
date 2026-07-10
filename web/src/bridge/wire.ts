@@ -8,6 +8,7 @@ import type {
   BundleTemplateInfo,
   CableTemplateInfo,
   EditResult,
+  GenerationTiming,
   GeometrySettings,
   LayoutSettings,
   OperationResult,
@@ -34,6 +35,7 @@ export interface SceneData {
   spans: SpanInfo[];
   supportNodes: SupportNodeInfo[];
   backboneEdges: BackboneEdgeInfo[];
+  lastGenerationTiming?: GenerationTiming | null;
 }
 
 export class WireBridge {
@@ -177,7 +179,9 @@ export class WireBridge {
     for (let index = 0; index < this.state.backboneEdgeCount(); index += 1) {
       backboneEdges.push(this.state.backboneEdge(index));
     }
-    return { parts, poles, ports, spans, supportNodes, backboneEdges };
+    const timing = this.state.lastGenerationTiming();
+    const lastGenerationTiming = timing.totalMs > 0 ? timing : null;
+    return { parts, poles, ports, spans, supportNodes, backboneEdges, lastGenerationTiming };
   }
 
   clearPoleOrientationOverride(poleId: string): OperationResult {

@@ -32,6 +32,7 @@ EditResult<GenerateBundleFromPathResult> CoreState::GenerateFromBackboneSpec(con
     out.value.timing.check_ms = check_ms;
     out.value.timing.total_ms =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - total_started).count();
+    debug_.last_generation_timing = out.value.timing;
   }
   return out;
 }

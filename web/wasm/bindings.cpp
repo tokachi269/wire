@@ -182,6 +182,10 @@ public:
     return output;
   }
 
+  [[nodiscard]] val last_generation_timing() const {
+    return generation_timing_value(CoreView(*state_).last_generation_timing());
+  }
+
 
 
   [[nodiscard]] std::size_t visual_part_count() const {
@@ -784,6 +788,7 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .constructor<>()
       .function("generate", &WireState::generate)
       .function("resolveBranchPick", &WireState::resolve_branch_pick)
+      .function("lastGenerationTiming", &WireState::last_generation_timing)
       .function("visualPartCount", &WireState::visual_part_count)
       .function("visualPart", &WireState::visual_part)
       .function("visualPartSamples", &WireState::visual_part_samples)

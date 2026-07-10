@@ -3,6 +3,7 @@ import type {
   CableTemplateInfo,
   BackboneEdgeInfo,
   EditResult,
+  GenerationTiming,
   GeometrySettings,
   LayoutSettings,
   OperationResult,
@@ -36,6 +37,7 @@ export interface WireStateHandle {
     input: PathPickInfo,
     selectedBundleTemplateIds: number[]
   ): ResolvedPathPointInfo;
+  lastGenerationTiming(): GenerationTiming;
   visualPartCount(): number;
   visualPart(index: number): VisualPartInfo;
   visualPartSamples(index: number): Float64Array;

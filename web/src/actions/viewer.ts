@@ -984,7 +984,9 @@ export class ViewerActions {
       ports: scene.ports,
       spans: scene.spans,
       supportNodes: scene.supportNodes,
-      backboneEdges: scene.backboneEdges
+      backboneEdges: scene.backboneEdges,
+      generationMs: scene.lastGenerationTiming?.totalMs ?? current.generationMs,
+      generationTiming: scene.lastGenerationTiming ?? current.generationTiming
     }));
   }
 

@@ -190,6 +190,7 @@ const std::unordered_map<ObjectId, PoleOrientationDebugRecord>& CoreView::pole_o
 const std::vector<BackboneEdgeOrientation>& CoreView::last_generation_edge_orientations() const {
   return state_.debug_.last_generation_edge_orientations;
 }
+const GenerationTiming& CoreView::last_generation_timing() const { return state_.debug_.last_generation_timing; }
 const UpdateTiming& CoreView::last_update_timing() const { return state_.debug_.last_update_timing; }
 const CacheState& CoreView::cache_state() const { return state_.runtime_.cache_state; }
 const std::unordered_map<PoleTypeId, PoleTypeDefinition>& CoreView::pole_types() const { return state_.authoritative_.pole_types; }

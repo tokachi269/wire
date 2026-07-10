@@ -54,6 +54,7 @@ public:
   [[nodiscard]] const std::vector<PathDirectionEvaluationDebug>& path_direction_debug_records() const;
   [[nodiscard]] const std::unordered_map<ObjectId, PoleOrientationDebugRecord>& pole_orientation_debug_records() const;
   [[nodiscard]] const std::vector<BackboneEdgeOrientation>& last_generation_edge_orientations() const;
+  [[nodiscard]] const GenerationTiming& last_generation_timing() const;
   [[nodiscard]] const CacheState& cache_state() const;
   [[nodiscard]] const std::unordered_map<PoleTypeId, PoleTypeDefinition>& pole_types() const;
   [[nodiscard]] int count_port_bands(PoleTypeId pole_type_id, ConnectionCategory category) const;

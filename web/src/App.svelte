@@ -321,8 +321,8 @@
     <aside>
       <span>parts <strong>{snapshot.parts.length}</strong></span>
       <span>poles <strong>{snapshot.poles.length}</strong></span>
-      <button class="metric metric-button" type="button" aria-label="generation timing details">
-        generation
+      <button class="metric metric-button" type="button" aria-label="pipeline timing details">
+        pipeline
         <strong>{formatMs(snapshot.generationMs)}</strong>
         <span class="metric-tooltip" role="tooltip">
           <strong>core pipeline</strong>
@@ -360,7 +360,7 @@
             <strong>{formatMs(snapshot.viewerUpdateMs)}</strong>
           </span>
           <span class="metric-line">
-            <span>core reported</span>
+            <span>core pipeline</span>
             <strong>{formatMs(snapshot.generationMs)}</strong>
           </span>
         </span>

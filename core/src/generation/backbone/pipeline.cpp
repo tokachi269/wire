@@ -48,6 +48,7 @@ void write_route_result(EditResult<GenerateBundleFromPathResult>* out, ChangeSet
 } // namespace
 
 EditResult<GenerateBundleFromPathResult> pipeline::run(run_input input) {
+  const auto total_started = std::chrono::steady_clock::now();
   g_ = std::move(input.made);
   active_bundle_indices_ = std::move(input.active_bundle_indices);
   local_by_input_ = std::move(input.local_by_input);
@@ -71,6 +72,10 @@ EditResult<GenerateBundleFromPathResult> pipeline::run(run_input input) {
   }
   retire_untouched(&made.value);
   write_route_result(&out, std::move(made.value.change_set), std::move(made.value.made));
+  if (timing != nullptr) {
+    timing->total_ms = elapsed_ms_since(total_started);
+    state_.debug_.last_generation_timing = *timing;
+  }
   out.ok = true;
   return out;
 }

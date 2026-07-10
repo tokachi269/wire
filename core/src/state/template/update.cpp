@@ -296,6 +296,30 @@ std::uint32_t classify_bundle_template_changes(const BundleTemplate& before,
   return changes;
 }
 
+bool valid_bundle_count_policy(const BundleTemplate& bundle_template, std::string* error) {
+  if (bundle_template.count_rule == BundleCountRuleKind::kFixed) {
+    if (bundle_template.fixed_count > 0) {
+      return true;
+    }
+    *error = "bundle fixed count must be positive";
+    return false;
+  }
+  if (bundle_template.min_count <= 0 || bundle_template.max_count < bundle_template.min_count ||
+      bundle_template.default_count < bundle_template.min_count ||
+      bundle_template.default_count > bundle_template.max_count) {
+    *error = "bundle count range is invalid";
+    return false;
+  }
+  return true;
+}
+
+bool bundle_count_matches_policy(const Bundle& bundle, const BundleTemplate& bundle_template) {
+  if (bundle_template.count_rule == BundleCountRuleKind::kFixed) {
+    return bundle.conductor_count == bundle_template.fixed_count;
+  }
+  return bundle.conductor_count >= bundle_template.min_count && bundle.conductor_count <= bundle_template.max_count;
+}
+
 bool validate_population_rules(const CoreState& state, const std::vector<CablePopulationRule>& rules,
                                std::string* error) {
   std::unordered_set<CableSectionRuleId> rule_ids{};
@@ -550,6 +574,9 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
     normalized.grouped_support_fanout_spacing_m =
         (cable_template == nullptr) ? normalized.default_spacing_m : cable_template->default_grouped_support_fanout_spacing_m;
   }
+  if (!valid_bundle_count_policy(normalized, &result.error)) {
+    return result;
+  }
   const BundleTemplate previous = it->second;
   normalized.version = previous.version;
   const std::uint32_t changes = classify_bundle_template_changes(previous, normalized);
@@ -559,19 +586,36 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
     return result;
   }
 
+  const bool count_change = (changes & kCount) != 0;
+  const bool range_count_policy_change =
+      count_change && (previous.count_rule == BundleCountRuleKind::kRange ||
+                       normalized.count_rule == BundleCountRuleKind::kRange);
+  if (range_count_policy_change) {
+    for (const Bundle& existing_bundle : state.authoritative_.edit_state.bundles.items()) {
+      if (existing_bundle.bundle_template_id != normalized.id) {
+        continue;
+      }
+      if (!bundle_count_matches_policy(existing_bundle, normalized)) {
+        result.error = "backbone unsupported: bundle count policy excludes bundle " +
+                       std::to_string(existing_bundle.id);
+        return result;
+      }
+    }
+  }
+
   std::vector<ObjectId> affected_spans{};
   for (const Bundle& existing_bundle : state.authoritative_.edit_state.bundles.items()) {
     if (existing_bundle.bundle_template_id != normalized.id) {
       continue;
     }
-    const bool count_change = (changes & kCount) != 0;
     const bool fixed_count_change =
         count_change && previous.count_rule == BundleCountRuleKind::kFixed &&
         normalized.count_rule == BundleCountRuleKind::kFixed && normalized.fixed_count > 0 &&
         normalized.fixed_count != previous.fixed_count;
     constexpr std::uint32_t kRegenerateChangeMask = kMetadata | kDefinition | kCount;
     if ((changes & kTopology) != 0 ||
-        (count_change && (!fixed_count_change || (changes & ~kRegenerateChangeMask) != 0))) {
+        (count_change && !range_count_policy_change &&
+         (!fixed_count_change || (changes & ~kRegenerateChangeMask) != 0))) {
       result.error = "backbone unsupported: bundle topology changes require regeneration";
       return result;
     }
@@ -626,7 +670,11 @@ EditResult<bool> TemplateMutationService::UpdateBundleTemplate(CoreState& state,
       return result;
     }
   }
-  append_unique(result.change_set.updated_ids, affected_spans);
+  const bool range_policy_only =
+      range_count_policy_change && (changes & ~(kMetadata | kDefinition | kCount)) == 0;
+  if (!range_policy_only) {
+    append_unique(result.change_set.updated_ids, affected_spans);
+  }
   return result;
 }
 

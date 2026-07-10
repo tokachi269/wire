@@ -2131,4 +2131,66 @@ bool C746_backbone_generation_trial_copy_stays_under_cost_gate() {
          measured.value.timing.state_copy_ms / measured.value.timing.total_ms <= 0.20;
 }
 
+bool C747_backbone_range_count_policy_validates_without_regenerate() {
+  wire::core::CoreState accepted_state;
+  const auto generated = accepted_state.GenerateFromBackboneSpec(line_req(accepted_state));
+  if (!generated.ok || generated.value.generated_span_ids.empty() || accepted_state.view().backbone().edge_bundles.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId edge_bundle_id = accepted_state.view().backbone().edge_bundles.front().edge_bundle_id;
+  const EdgeBundleIdentitySnapshot identity_before = edge_bundle_identity_snapshot(accepted_state, edge_bundle_id);
+  const auto curves_before = span_curve_signatures(accepted_state);
+  const auto template_it = accepted_state.view().bundle_templates().find(
+      wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
+  if (template_it == accepted_state.view().bundle_templates().end()) {
+    return false;
+  }
+  wire::core::BundleTemplate accepted = template_it->second;
+  accepted.count_rule = wire::core::BundleCountRuleKind::kRange;
+  accepted.fixed_count = 0;
+  accepted.min_count = 1;
+  accepted.max_count = 3;
+  accepted.default_count = 2;
+  const auto accepted_out = accepted_state.UpdateBundleTemplate(accepted);
+  const auto accepted_after = accepted_state.view().bundle_templates().find(accepted.id);
+  if (!accepted_out.ok || !accepted_out.value || accepted_after == accepted_state.view().bundle_templates().end() ||
+      accepted_after->second.count_rule != wire::core::BundleCountRuleKind::kRange ||
+      accepted_after->second.min_count != 1 || accepted_after->second.max_count != 3 ||
+      accepted_after->second.default_count != 2 ||
+      !same_edge_bundle_identity_snapshot(identity_before, edge_bundle_identity_snapshot(accepted_state, edge_bundle_id)) ||
+      !same_span_curve_signatures(curves_before, span_curve_signatures(accepted_state)) ||
+      std::any_of(generated.value.generated_span_ids.begin(), generated.value.generated_span_ids.end(),
+                  [&](wire::core::ObjectId span_id) { return contains_id(accepted_out.change_set.updated_ids, span_id); })) {
+    return false;
+  }
+
+  wire::core::CoreState rejected_state;
+  const auto rejected_generated = rejected_state.GenerateFromBackboneSpec(line_req(rejected_state));
+  if (!rejected_generated.ok || rejected_state.view().backbone().edge_bundles.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId rejected_edge_bundle_id = rejected_state.view().backbone().edge_bundles.front().edge_bundle_id;
+  const EdgeBundleIdentitySnapshot rejected_identity_before =
+      edge_bundle_identity_snapshot(rejected_state, rejected_edge_bundle_id);
+  const auto rejected_curves_before = span_curve_signatures(rejected_state);
+  const auto rejected_template_it = rejected_state.view().bundle_templates().find(
+      wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
+  if (rejected_template_it == rejected_state.view().bundle_templates().end()) {
+    return false;
+  }
+  wire::core::BundleTemplate rejected = rejected_template_it->second;
+  rejected.count_rule = wire::core::BundleCountRuleKind::kRange;
+  rejected.fixed_count = 0;
+  rejected.min_count = 2;
+  rejected.max_count = 3;
+  rejected.default_count = 2;
+  const auto rejected_out = rejected_state.UpdateBundleTemplate(rejected);
+  return !rejected_out.ok && contains_text(rejected_out.error, std::to_string(rejected_state.view().bundles().items().front().id)) &&
+         same_edge_bundle_identity_snapshot(rejected_identity_before,
+                                            edge_bundle_identity_snapshot(rejected_state, rejected_edge_bundle_id)) &&
+         same_span_curve_signatures(rejected_curves_before, span_curve_signatures(rejected_state)) &&
+         rejected_state.view().bundle_templates().find(rejected.id)->second.count_rule ==
+             wire::core::BundleCountRuleKind::kFixed;
+}
+
 } // namespace backbone_tests

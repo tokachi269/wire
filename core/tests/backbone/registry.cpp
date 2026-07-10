@@ -972,6 +972,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "generation trial copy stays within the 66-pole cost gate",
                          "Invariant", false,
                          C746_backbone_generation_trial_copy_stays_under_cost_gate);
+  test_registry::AddTest(tests, "C747_backbone_range_count_policy_validates_without_regenerate",
+                         "range count policy validates existing bundles without regenerating outputs",
+                         "Invariant", false,
+                         C747_backbone_range_count_policy_validates_without_regenerate);
   test_registry::AddTest(tests, "C703_backbone_regenerate_removes_migration_symbols",
                          "backbone regenerate removes bundle count migration symbols from core src",
                          "Boundary", false,

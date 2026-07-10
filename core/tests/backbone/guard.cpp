@@ -588,7 +588,7 @@ bool C523_backbone_scope_gate_matches_entrypoint() {
   const bool entry_uses_backbone = contains_text(entry_text, "generation::backbone::pipeline") &&
                               contains_text(entry_text, "pipeline.prepare()") &&
                               contains_text(entry_text, "pipeline.check()") &&
-                              contains_text(entry_text, "pipeline.run(pipeline.make_run_input_from_spec())");
+                              contains_text(entry_text, "pipeline.build(pipeline.build_input_from_spec())");
   const std::size_t route_pos = backbone_text.find("EditResult<pipeline::route> pipeline::emit_route");
   const std::size_t check_call = backbone_text.find("return check(ps.value)", route_pos);
   const std::size_t intent_call = backbone_text.find("return make(ps.value)", route_pos);

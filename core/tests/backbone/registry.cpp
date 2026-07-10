@@ -1016,9 +1016,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C717_backbone_layout_settings_regenerate_matches_fresh",
                          "backbone layout settings regenerate and match fresh generation",
                          "Invariant", false, C717_backbone_layout_settings_regenerate_matches_fresh);
-  test_registry::AddTest(tests, "C727_backbone_pipeline_execution_entry_is_run_input",
-                         "pipeline execution entry is run(run_input) only",
-                         "Boundary", false, C727_backbone_pipeline_execution_entry_is_run_input);
+  test_registry::AddTest(tests, "C727_backbone_pipeline_execution_entry_is_build_input",
+                         "pipeline execution entry is build(build_input) only",
+                         "Boundary", false, C727_backbone_pipeline_execution_entry_is_build_input);
   test_registry::AddTest(tests, "C728_backbone_pipeline_has_no_run_mode_flags",
                          "backbone pipeline has no run mode or skip flags",
                          "Boundary", false, C728_backbone_pipeline_has_no_run_mode_flags);

@@ -47,7 +47,7 @@ void write_route_result(EditResult<GenerateBundleFromPathResult>* out, ChangeSet
 
 } // namespace
 
-EditResult<GenerateBundleFromPathResult> pipeline::run(run_input input) {
+EditResult<GenerateBundleFromPathResult> pipeline::build(build_input input) {
   const auto total_started = std::chrono::steady_clock::now();
   g_ = std::move(input.made);
   active_bundle_indices_ = std::move(input.active_bundle_indices);
@@ -80,17 +80,17 @@ EditResult<GenerateBundleFromPathResult> pipeline::run(run_input input) {
   return out;
 }
 
-pipeline::run_input pipeline::make_run_input_from_spec() const {
-  run_input input{};
+pipeline::build_input pipeline::build_input_from_spec() const {
+  build_input input{};
   input.made = g_;
   input.active_bundle_indices = active_bundle_indices_;
   input.local_by_input = local_by_input_;
   return input;
 }
 
-pipeline::run_input pipeline::make_run_input_from_saved_scope(
+pipeline::build_input pipeline::build_input_from_saved_scope(
     graph made_graph, std::vector<std::size_t> active_bundle_indices) const {
-  run_input input{};
+  build_input input{};
   input.made = std::move(made_graph);
   input.active_bundle_indices = std::move(active_bundle_indices);
   return input;

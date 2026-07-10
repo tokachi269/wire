@@ -26,7 +26,7 @@ EditResult<GenerateBundleFromPathResult> CoreState::GenerateFromBackboneSpec(con
     out.error = check_out.error;
     return out;
   }
-  EditResult<GenerateBundleFromPathResult> out = pipeline.run(pipeline.make_run_input_from_spec());
+  EditResult<GenerateBundleFromPathResult> out = pipeline.build(pipeline.build_input_from_spec());
   if (out.ok) {
     out.value.timing.prepare_ms = prepare_ms;
     out.value.timing.check_ms = check_ms;

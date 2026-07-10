@@ -187,9 +187,9 @@ class pipeline {
 public:
   pipeline(CoreState& state, const BackboneSpec& spec) : state_(state), spec_(spec) {}
 
-  struct run_input {
+  struct build_input {
   private:
-    run_input() = default;
+    build_input() = default;
     friend class pipeline;
 
   public:
@@ -201,10 +201,10 @@ public:
 
   [[nodiscard]] EditResult<bool> prepare();
   [[nodiscard]] EditResult<bool> check() const;
-  [[nodiscard]] run_input make_run_input_from_spec() const;
-  [[nodiscard]] run_input make_run_input_from_saved_scope(
+  [[nodiscard]] build_input build_input_from_spec() const;
+  [[nodiscard]] build_input build_input_from_saved_scope(
       graph made, std::vector<std::size_t> active_bundle_indices) const;
-  [[nodiscard]] EditResult<GenerateBundleFromPathResult> run(run_input input);
+  [[nodiscard]] EditResult<GenerateBundleFromPathResult> build(build_input input);
 
 private:
   struct route {

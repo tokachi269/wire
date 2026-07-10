@@ -1128,13 +1128,13 @@ bool C671_backbone_bundle_count_migration_reuses_pipeline_stages() {
   if (!file_text(repo_root() / "core/src/generation/backbone/regenerate.cpp", &source)) {
     return false;
   }
-  const std::size_t replay = source.find("make_run_input_from_saved_scope");
+  const std::size_t replay = source.find("build_input_from_saved_scope");
   const std::size_t mutation = source.find("trial.authoritative_", replay);
   if (replay == std::string::npos || mutation == std::string::npos) {
     return false;
   }
-  return source.find("trial_pipeline.run(") != std::string::npos &&
-         source.find("make_run_input_from_saved_scope") != std::string::npos &&
+  return source.find("trial_pipeline.build(") != std::string::npos &&
+         source.find("build_input_from_saved_scope") != std::string::npos &&
          source.find("return fail", mutation) == std::string::npos &&
          source.find("AddPort(") == std::string::npos && source.find("AddSpan(") == std::string::npos &&
          source.find("SpanLayoutRule") == std::string::npos && source.find("save_backbone_node") == std::string::npos &&
@@ -1469,8 +1469,8 @@ bool C701_backbone_regenerate_source_does_not_infer_topology_from_outputs() {
   if (!file_text(repo_root() / "core/src/generation/backbone/regenerate.cpp", &source)) {
     return false;
   }
-  return source.find("make_run_input_from_saved_scope") != std::string::npos &&
-         source.find("trial_pipeline.run(") != std::string::npos &&
+  return source.find("build_input_from_saved_scope") != std::string::npos &&
+         source.find("trial_pipeline.build(") != std::string::npos &&
          source.find("span_layout(") == std::string::npos &&
          source.find("find_curve_cache") == std::string::npos &&
          source.find("find_span_visual_cache") == std::string::npos &&
@@ -1546,12 +1546,12 @@ bool C704_backbone_regenerate_uses_per_api_entrypoint_not_plan_execution() {
          pipeline_header.find("build_prepared_regenerate") == std::string::npos &&
          pipeline_source.find("build_prepared_regenerate") == std::string::npos &&
          regenerate_source.find("build_prepared_regenerate") == std::string::npos &&
-         regenerate_source.find("make_run_input_from_saved_scope") != std::string::npos &&
-         regenerate_source.find("trial_pipeline.run(") != std::string::npos &&
+         regenerate_source.find("build_input_from_saved_scope") != std::string::npos &&
+         regenerate_source.find("trial_pipeline.build(") != std::string::npos &&
          reject != std::string::npos && loop != std::string::npos && reject < loop;
 }
 
-bool C727_backbone_pipeline_execution_entry_is_run_input() {
+bool C727_backbone_pipeline_execution_entry_is_build_input() {
   std::string source{};
   std::string header{};
   std::string regenerate_source{};
@@ -1570,16 +1570,17 @@ bool C727_backbone_pipeline_execution_entry_is_run_input() {
     }
   }
   if (contains_text(header, "build_prepared_regenerate") || contains_text(source, "build_prepared_regenerate") ||
-      contains_text(header, "build()") || contains_text(source, "pipeline::build(")) {
+      contains_text(header, "run(") || contains_text(source, "pipeline::run(") ||
+      contains_text(header, "run_input") || contains_text(source, "run_input")) {
     return false;
   }
-  return contains_text(header, "struct run_input") &&
+  return contains_text(header, "struct build_input") &&
          contains_text(header, "graph made{}") &&
          contains_text(header, "std::vector<std::size_t> active_bundle_indices{}") &&
          contains_text(header, "std::vector<std::size_t> local_by_input{}") &&
          !contains_text(header, "template_overrides") && !contains_text(source, "template_overrides") &&
          !contains_text(header, "template_override(") && !contains_text(source, "template_override(") &&
-         contains_text(header, "run_input() = default") &&
+         contains_text(header, "build_input() = default") &&
          contains_text(header, "friend class pipeline") &&
          !contains_text(header, "run_mode") && !contains_text(source, "run_mode") &&
          !contains_text(header, "mode_") && !contains_text(source, "mode_") &&
@@ -1587,13 +1588,13 @@ bool C727_backbone_pipeline_execution_entry_is_run_input() {
          !contains_text(header, "run_preflight") && !contains_text(source, "run_preflight") &&
          !contains_text(header, "ready_") && !contains_text(source, "ready_") &&
          !contains_text(header, "bool ready") &&
-         contains_text(header, "make_run_input_from_spec") &&
-         contains_text(header, "make_run_input_from_saved_scope") &&
-         contains_text(header, "EditResult<GenerateBundleFromPathResult> run(run_input input)") &&
+         contains_text(header, "build_input_from_spec") &&
+         contains_text(header, "build_input_from_saved_scope") &&
+         contains_text(header, "EditResult<GenerateBundleFromPathResult> build(build_input input)") &&
          contains_text(source, "GenerationTiming* timing = input.timing == nullptr ? &out.value.timing : input.timing") &&
          contains_text(regenerate_source, "trial.authoritative_.bundle_templates[bundle_template_id] = next_template") &&
-         contains_text(regenerate_source, "trial_pipeline.run(") &&
-         contains_text(regenerate_source, "make_run_input_from_saved_scope");
+         contains_text(regenerate_source, "trial_pipeline.build(") &&
+         contains_text(regenerate_source, "build_input_from_saved_scope");
 }
 
 bool C728_backbone_pipeline_has_no_run_mode_flags() {
@@ -1642,8 +1643,8 @@ bool C729_backbone_regenerate_source_does_not_handbuild_outputs() {
       return false;
     }
   }
-  return contains_text(source, "trial_pipeline.run(") &&
-         contains_text(source, "make_run_input_from_saved_scope") &&
+  return contains_text(source, "trial_pipeline.build(") &&
+         contains_text(source, "build_input_from_saved_scope") &&
          contains_text(source, "CoreState trial = *this") &&
          contains_text(pipeline_source, "retire_untouched(&made.value)") &&
          contains_text(pipeline_source, "void pipeline::retire_untouched(route* route)") &&

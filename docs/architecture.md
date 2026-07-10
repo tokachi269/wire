@@ -77,22 +77,27 @@ layout/derive段でsource identityをcurrent curve projectionへ解決し、bran
 既存source edgeからのbranchは、事前curve座標をpipeline前半の入力にしない。source edge自体とそこから伸びるbranchを同じ`BackboneSpec`で同時に表す入力形式は現APIにはまだ無いので、二度pipeline実行で補わない。
 viewerは後追いでsnap targetを明示し、source-edge snapではhit worldではなくsource edge/t/bundle/laneを渡す。
 
-## pipeline regenerate entry
+## pipeline build entry
 
-backbone pipeline の実行入口は `run(run_input)` だけである。通常生成と saved-scope 再生成は pipeline の別実装ではなく、
-`run_input` の違いだけである。regenerate は CoreState の post-edit operation 側の概念であり、
+backbone pipeline の実行入口は `build(build_input)` だけである。通常生成と saved-scope 再生成は pipeline の別実装ではなく、
+`build_input` の違いだけである。regenerate は CoreState の post-edit operation 側の概念であり、
 pipeline stage の概念ではない。
 
-`run_input` は graph、active bundle scope、template override、local path mapping、実行modeを明示的に持つ。
-通常生成は `prepare` 済み graph から `make_run_input_from_spec` で入力を作り、saved-scope 再生成は
-保存済み backbone identity から復元した graph を `make_run_input_from_saved_scope` で入力にする。
-`run()` 実行時点では、graph / scope / mode は `run_input` が運ぶ。
+`build_input` は graph、active bundle scope、local path mapping を運ぶ。通常生成は `prepare` 済み graph から
+`build_input_from_spec` で入力を作り、saved-scope 再生成は保存済み backbone identity から復元した graph を
+`build_input_from_saved_scope` で入力にする。bundle template や pole type の差分は pipeline input に override として持たせず、
+trial/proposal 側の state に反映してから同じ `build` を通す。
 ただし `prepare()` はまだ pipeline member に graph を構築する既存構造を残している。
-次段階で必要なら、`prepare()` 自体を `run_input` 生成器へ寄せる。
-`run` は pairs -> intent -> groups -> topo/emit -> save_graph -> rules -> layout -> geom -> draw の共通stage列を通す。
+次段階で必要なら、`prepare()` 自体を `build_input` 生成器へ寄せる。
+`build` は pairs -> intent -> groups -> topo/emit -> save_graph -> rules -> layout -> geom -> draw の共通stage列を通す。
 adapter は pair / emit / rules / layout / geom / draw の判断を持たない。
-`run_mode::saved_scope` の分岐は、共有 emit stage 内で saved identity を再利用し、manual でない既存 port を更新する範囲に限定する。
 operation 固有の差分は post-edit API と `regenerate_backbone_edge_bundles` 側に留め、pipeline へ別stageや専用fallbackとして持ち込まない。
+
+pipeline の preflight は、入力・identity・binding・構造上その時点で判定できる失敗だけを早期検出する。
+source edge の current curve projection や `EvaluatePosition(source_t)` のように後半の派生 geometry が必要な失敗は、
+preflight へ移さない。atomicity は preflight の完全性ではなく、全 stage 成功後にだけ本 state へ反映する
+trial/proposal 境界で守る。trial を削除できるのは、MutationPlan、copy-on-write state、rollback journal、
+または immutable proposal などの transaction 方式に置換できた場合だけである。
 
 ## post-edit update
 

@@ -343,7 +343,7 @@ bool C715_backbone_span_branch_down_override_regenerates();
 bool C716_backbone_span_socket_override_regenerates();
 bool C739_span_override_keeps_unrelated_route_outputs_unchanged();
 bool C717_backbone_layout_settings_regenerate_matches_fresh();
-bool C727_backbone_pipeline_execution_entry_is_run_input();
+bool C727_backbone_pipeline_execution_entry_is_build_input();
 bool C728_backbone_pipeline_has_no_run_mode_flags();
 bool C729_backbone_regenerate_source_does_not_handbuild_outputs();
 bool C718_viewer_hit_world_height_is_not_source_edge_branch_authority();

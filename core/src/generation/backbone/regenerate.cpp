@@ -381,8 +381,8 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
     trial.authoritative_.pole_types[pole_type_override->id] = *pole_type_override;
   }
   generation::backbone::pipeline trial_pipeline(trial, spec);
-  EditResult<GenerateBundleFromPathResult> replay = trial_pipeline.run(
-      trial_pipeline.make_run_input_from_saved_scope(std::move(made_graph), std::move(active_bundle_indices)));
+  EditResult<GenerateBundleFromPathResult> replay = trial_pipeline.build(
+      trial_pipeline.build_input_from_saved_scope(std::move(made_graph), std::move(active_bundle_indices)));
   if (!replay.ok) {
     return fail(replay.error);
   }

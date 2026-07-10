@@ -5,6 +5,7 @@
 
 #include "out.hpp"
 #include "population.hpp"
+#include "section_behavior.hpp"
 #include "../../geometry/detail_curve_postprocess.hpp"
 
 #include <algorithm>
@@ -757,7 +758,7 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
 
   for (const visual_cable_section& section : sections) {
     const CableSectionLayout& entry = section.layout;
-    if (entry.profile == CableSectionProfile::kWrap) {
+    if (!participates_in_node_patch(entry)) {
       continue;
     }
     const Span* span = state.view().spans().find(entry.key.logical_span_id);
@@ -975,7 +976,7 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
       continue;
     }
     const BundleTemplateId template_id = bundle->bundle_template_id;
-    if (entry.profile == CableSectionProfile::kWrap) {
+    if (!participates_in_node_patch(entry)) {
       const auto carrier_it = base_final_curves.find(entry.key.logical_span_id);
       if (carrier_it == base_final_curves.end()) {
         out.diagnostics.push_back(
@@ -983,43 +984,18 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
              "wrap carrier curve missing"});
         continue;
       }
-      const DetailCurve& carrier = carrier_it->second;
-      const double trim_m = std::max(0.0, entry.end_trim_m);
-      const std::vector<Vec3d> helix = sample_wrap_helix_points(
-          carrier, trim_m, carrier.Length() - trim_m, entry.wrap_radius_m,
-          entry.wrap_turns_per_meter, entry.wrap_phase, static_cast<double>(entry.wrap_direction));
-      if (helix.size() < 2 || !finite_point(helix.front()) || !finite_point(helix.back())) {
+      const SpanRuntimeState* runtime = state.view().find_span_runtime_state(entry.key.logical_span_id);
+      const behavior_curve_part_input behavior_input{
+          state, entry, carrier_it->second, edge_bundle->edge_id, span->bundle_id, template_id,
+          binding->lane_index, run_id_for_section(cable_runs, entry.key), runtime == nullptr ? 0 : runtime->data_version};
+      EditResult<VisualCurvePart> body = build_behavior_curve_part(behavior_input);
+      if (!body.ok) {
         out.diagnostics.push_back(
             {kInvalidObjectId, entry.key.logical_span_id, template_id, binding->lane_index,
-             "wrap trim leaves no visible section"});
+             body.error});
         continue;
       }
-      VisualCurvePart body{};
-      body.kind = VisualCurvePartKind::kEdgeBody;
-      body.source_edge_id = edge_bundle->edge_id;
-      body.source_span_id = entry.key.logical_span_id;
-      body.source_bundle_id = span->bundle_id;
-      body.bundle_template_id = template_id;
-      body.lane_index = binding->lane_index;
-      body.has_section_key = true;
-      body.section_key = entry.key;
-      body.boundary_a = helix.front();
-      body.boundary_b = helix.back();
-      body.tangent_a = carrier.EvaluateTangent(carrier.LengthToU(trim_m));
-      body.tangent_b =
-          ScaleVec(carrier.EvaluateTangent(carrier.LengthToU(carrier.Length() - trim_m)), -1.0);
-      body.sag_method = VisualCurveSagMethod::kNone;
-      body.sag_m = 0.0;
-      body.cable_run_id = run_id_for_section(cable_runs, entry.key);
-      copy_span_appearance(state, entry.key.logical_span_id, &body);
-      body.samples = helix;
-      body.bounds = curve_part_bounds(body.samples);
-      if (const SpanRuntimeState* runtime =
-              state.view().find_span_runtime_state(entry.key.logical_span_id);
-          runtime != nullptr) {
-        body.source_version = runtime->data_version;
-      }
-      out.parts.push_back(std::move(body));
+      out.parts.push_back(std::move(body.value));
       continue;
     }
     curve_boundary start_boundary{};

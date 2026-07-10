@@ -2097,4 +2097,21 @@ bool C744_backbone_span_layout_group_keys_have_one_definition() {
          contains_text(derive, "derive_span_layout(");
 }
 
+bool C745_wrap_behavior_has_one_production_owner() {
+  const std::vector<std::filesystem::path> forbidden = {
+      repo_root() / "core/src/generation/backbone/population.cpp",
+      repo_root() / "core/src/generation/backbone/curve_parts.cpp",
+      repo_root() / "core/src/state/template/update.cpp",
+  };
+  for (const std::filesystem::path& path : forbidden) {
+    std::string source{};
+    if (!file_text(path, &source) || contains_text(source, "kWrap")) {
+      return false;
+    }
+  }
+  std::string behavior{};
+  return file_text(repo_root() / "core/src/generation/backbone/section_behavior.cpp", &behavior) &&
+         contains_text(behavior, "kWrap") && contains_text(behavior, "build_behavior_curve_part");
+}
+
 } // namespace backbone_tests

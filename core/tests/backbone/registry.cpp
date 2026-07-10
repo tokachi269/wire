@@ -964,6 +964,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "span layout group-key collection has one shared definition",
                          "Boundary", false,
                          C744_backbone_span_layout_group_keys_have_one_definition);
+  test_registry::AddTest(tests, "C745_wrap_behavior_has_one_production_owner",
+                         "wrap profile behavior is owned only by section behavior",
+                         "Boundary", false,
+                         C745_wrap_behavior_has_one_production_owner);
   test_registry::AddTest(tests, "C703_backbone_regenerate_removes_migration_symbols",
                          "backbone regenerate removes bundle count migration symbols from core src",
                          "Boundary", false,

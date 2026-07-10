@@ -1,4 +1,5 @@
 #include "population.hpp"
+#include "section_behavior.hpp"
 
 #include "wire/core/core_view.hpp"
 #include "../../state/port_placement.hpp"
@@ -206,24 +207,8 @@ EditResult<CablePopulationOutput> populate_cable_sections(const CablePopulationI
   diagnostic.rule_id = input.key.rule_id;
   diagnostic.extra_count_requested = requested_count(input);
 
-  if (input.rule.profile == CableSectionProfile::kWrap) {
-    constexpr double kTwoPi = 6.283185307179586;
-    const int count = diagnostic.extra_count_requested;
-    for (int index = 0; index < count; ++index) {
-      CableSectionLayout section{};
-      section.key = input.key;
-      section.key.instance_index = static_cast<std::size_t>(index) + 1;
-      section.endpoint_a = input.endpoint_a_world;
-      section.endpoint_b = input.endpoint_b_world;
-      section.profile = CableSectionProfile::kWrap;
-      section.wrap_radius_m = input.rule.wrap_radius_m;
-      section.wrap_turns_per_meter = input.rule.wrap_turns_per_meter;
-      section.wrap_phase =
-          input.rule.wrap_phase + kTwoPi * static_cast<double>(index) / static_cast<double>(std::max(1, count));
-      section.wrap_direction = input.rule.wrap_direction;
-      section.end_trim_m = input.rule.end_trim_m;
-      out.value.sections.push_back(section);
-    }
+  out.value.sections = make_behavior_sections(input, diagnostic.extra_count_requested);
+  if (input.rule.profile != CableSectionProfile::kFree) {
     diagnostic.extra_count_accepted = static_cast<int>(out.value.sections.size());
     diagnostic.reason = "ok";
     out.ok = true;
@@ -335,7 +320,7 @@ CablePopulation make_cable_population(
       }
       output.diagnostics.push_back(populated.value.diagnostic);
       output.sections.insert(output.sections.end(), populated.value.sections.begin(), populated.value.sections.end());
-      if (rule->profile != CableSectionProfile::kWrap) {
+      if (!populated.value.sections.empty() && participates_in_node_patch(populated.value.sections.front())) {
         for (const CableSectionLayout& section : populated.value.sections) {
           occupied_a.push_back(WorldPointToLocal(input.endpoint_a.frame,
                                                 section.endpoint_a - input.endpoint_a.endpoint_offset_world));

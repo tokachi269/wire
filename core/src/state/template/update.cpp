@@ -3,6 +3,8 @@
 #include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
 
+#include "../../generation/backbone/section_behavior.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -315,19 +317,9 @@ bool validate_population_rules(const CoreState& state, const std::vector<CablePo
       *error = "cable population: invalid rule range";
       return false;
     }
-    if (rule.profile == CableSectionProfile::kWrap) {
-      if (!std::isfinite(rule.wrap_radius_m) || rule.wrap_radius_m <= 1e-6 ||
-          !std::isfinite(rule.wrap_turns_per_meter) || rule.wrap_turns_per_meter <= 1e-6 ||
-          !std::isfinite(rule.wrap_phase) ||
-          (rule.wrap_direction != 1 && rule.wrap_direction != -1) ||
-          !std::isfinite(rule.end_trim_m) || rule.end_trim_m < 0.0) {
-        *error = "cable population: wrap rule requires positive radius and turns-per-meter, "
-                 "direction +1/-1, and non-negative end trim";
-        return false;
-      }
-    } else if (std::abs(rule.wrap_radius_m) > 1e-12 || std::abs(rule.wrap_turns_per_meter) > 1e-12 ||
-               std::abs(rule.wrap_phase) > 1e-12 || std::abs(rule.end_trim_m) > 1e-12) {
-      *error = "cable population: only wrap rules may set wrap parameters";
+    const std::string behavior_error = generation::backbone::validate_population_rule_behavior(rule);
+    if (!behavior_error.empty()) {
+      *error = behavior_error;
       return false;
     }
     std::unordered_set<PlacementReserveId> reserve_ids{};

@@ -54,7 +54,6 @@ EditResult<GenerateBundleFromPathResult> pipeline::run(run_input input) {
   g_ = std::move(input.made);
   active_bundle_indices_ = std::move(input.active_bundle_indices);
   local_by_input_ = std::move(input.local_by_input);
-  template_overrides_ = std::move(input.template_overrides);
   mode_ = input.mode;
   ready_ = input.ready;
 
@@ -93,12 +92,10 @@ pipeline::run_input pipeline::make_run_input_from_spec() const {
 }
 
 pipeline::run_input pipeline::make_run_input_from_saved_scope(
-    graph made_graph, std::vector<std::size_t> active_bundle_indices,
-    std::vector<BundleTemplate> template_overrides) const {
+    graph made_graph, std::vector<std::size_t> active_bundle_indices) const {
   run_input input{};
   input.made = std::move(made_graph);
   input.active_bundle_indices = std::move(active_bundle_indices);
-  input.template_overrides = std::move(template_overrides);
   input.mode = run_mode::saved_scope;
   input.ready = true;
   input.run_preflight = false;
@@ -184,14 +181,6 @@ EditResult<bool> pipeline::save_derived(const route& route, GenerationTiming* ti
   return out;
 }
 
-const BundleTemplate* pipeline::template_override(BundleTemplateId id) const {
-  for (const BundleTemplate& item : template_overrides_) {
-    if (item.id == id) {
-      return &item;
-    }
-  }
-  return nullptr;
-}
 namespace {
 
 constexpr double kRowSeparationM = 0.35;
@@ -296,21 +285,16 @@ struct port_scope {
   int placement_band_id = 0;
 };
 
-EditResult<spec_view> view_for(const CoreState& state, const BackboneBundleSpec& spec,
-                               const BundleTemplate* override_template = nullptr) {
+EditResult<spec_view> view_for(const CoreState& state, const BackboneBundleSpec& spec) {
   EditResult<spec_view> out{};
-  const BundleTemplate* tmpl_ptr = override_template;
-  if (tmpl_ptr == nullptr) {
-    const auto tmpl_it = state.view().bundle_templates().find(spec.bundle_template_id);
-    if (tmpl_it == state.view().bundle_templates().end()) {
-      out.error = "backbone unsupported: bundle template not found";
-      return out;
-    }
-    tmpl_ptr = &tmpl_it->second;
+  const auto tmpl_it = state.view().bundle_templates().find(spec.bundle_template_id);
+  if (tmpl_it == state.view().bundle_templates().end()) {
+    out.error = "backbone unsupported: bundle template not found";
+    return out;
   }
-  const BundleTemplate& tmpl = *tmpl_ptr;
+  const BundleTemplate& tmpl = tmpl_it->second;
   if (tmpl.id != spec.bundle_template_id) {
-    out.error = "backbone unsupported: bundle template override mismatch";
+    out.error = "backbone unsupported: bundle template id mismatch";
     return out;
   }
   const int count = (tmpl.count_rule == BundleCountRuleKind::kFixed)
@@ -1546,7 +1530,7 @@ EditResult<bool> pipeline::check() const {
     }
   }
   for (const BackboneBundleSpec& spec : spec_.bundles) {
-    EditResult<spec_view> checked = view_for(state_, spec, template_override(spec.bundle_template_id));
+    EditResult<spec_view> checked = view_for(state_, spec);
     if (!checked.ok) {
       EditResult<bool> failed{};
       failed.error = checked.error;
@@ -1728,7 +1712,7 @@ EditResult<bool> pipeline::check(const pairs& ps) const {
         return unsupported("active bundle index is invalid");
       }
       const BackboneBundleSpec& bundle_spec = spec_.bundles[spec_index];
-      EditResult<spec_view> v = view_for(state_, bundle_spec, template_override(bundle_spec.bundle_template_id));
+      EditResult<spec_view> v = view_for(state_, bundle_spec);
       if (!v.ok) {
         EditResult<bool> failed{};
         failed.error = v.error;
@@ -1767,7 +1751,7 @@ EditResult<bool> pipeline::check(const pairs& ps) const {
           const auto spans_it = state_.view().backbone_index().edge_bundle_span_bindings.find(edge_bundle_id);
           if (spans_it != state_.view().backbone_index().edge_bundle_span_bindings.end()) {
             const SavedBackboneGraph& graph = state_.view().backbone();
-            EditResult<spec_view> v = view_for(state_, spec, template_override(spec.bundle_template_id));
+            EditResult<spec_view> v = view_for(state_, spec);
             if (!v.ok) {
               EditResult<bool> error{};
               error.error = v.error;
@@ -1804,8 +1788,7 @@ EditResult<intent> pipeline::make(const pairs& ps) const {
       return out;
     }
     const BackboneBundleSpec& bundle_spec = spec_.bundles[spec_index];
-    const EditResult<spec_view> v =
-        view_for(state_, bundle_spec, template_override(bundle_spec.bundle_template_id));
+    const EditResult<spec_view> v = view_for(state_, bundle_spec);
     if (!v.ok || v.value.tmpl == nullptr) {
       out.error = v.ok ? "backbone unsupported: bundle template not found" : v.error;
       return out;
@@ -2130,7 +2113,7 @@ EditResult<bool> pipeline::emit_bundles(topo* made, ChangeSet* changes) {
   made->bundle_specs.reserve(active_bundle_indices_.size());
   for (std::size_t spec_index : active_bundle_indices_) {
     const BackboneBundleSpec& spec = spec_.bundles[spec_index];
-    EditResult<spec_view> v = view_for(state_, spec, template_override(spec.bundle_template_id));
+    EditResult<spec_view> v = view_for(state_, spec);
     if (!v.ok) {
       out.error = v.error;
       return out;
@@ -2217,7 +2200,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
       }
       const std::size_t spec_index = made->bundle_specs[bundle_index];
       const BackboneBundleSpec& bundle_spec = spec_.bundles[spec_index];
-      EditResult<spec_view> v = view_for(state_, bundle_spec, template_override(bundle_spec.bundle_template_id));
+      EditResult<spec_view> v = view_for(state_, bundle_spec);
       if (!v.ok) {
         out.error = v.error;
         return out;
@@ -2324,7 +2307,7 @@ EditResult<bool> pipeline::emit_spans(topo* made, const pairs& ps, ChangeSet* ch
         return out;
       }
       const BackboneBundleSpec& bundle_spec = spec_.bundles[made->bundle_specs[bundle_index]];
-      EditResult<spec_view> v = view_for(state_, bundle_spec, template_override(bundle_spec.bundle_template_id));
+      EditResult<spec_view> v = view_for(state_, bundle_spec);
       if (!v.ok) {
         out.error = v.error;
         return out;

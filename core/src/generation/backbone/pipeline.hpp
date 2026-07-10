@@ -196,7 +196,6 @@ public:
     graph made{};
     std::vector<std::size_t> active_bundle_indices{};
     std::vector<std::size_t> local_by_input{};
-    std::vector<BundleTemplate> template_overrides{};
     run_mode mode = run_mode::generation;
     bool ready = false;
     bool run_preflight = true;
@@ -208,8 +207,7 @@ public:
   [[nodiscard]] EditResult<bool> check() const;
   [[nodiscard]] run_input make_run_input_from_spec() const;
   [[nodiscard]] run_input make_run_input_from_saved_scope(
-      graph made, std::vector<std::size_t> active_bundle_indices,
-      std::vector<BundleTemplate> template_overrides = {}) const;
+      graph made, std::vector<std::size_t> active_bundle_indices) const;
   [[nodiscard]] EditResult<GenerateBundleFromPathResult> run(run_input input);
 
 private:
@@ -242,7 +240,6 @@ private:
   void save(draw made);
   [[nodiscard]] EditResult<bool> save_graph(const topo& made, const pairs& ps);
   [[nodiscard]] std::size_t local(std::size_t input_point) const;
-  [[nodiscard]] const BundleTemplate* template_override(BundleTemplateId id) const;
 
   CoreState& state_;
   const BackboneSpec& spec_;
@@ -251,7 +248,6 @@ private:
   graph g_{};
   std::vector<std::size_t> active_bundle_indices_{};
   std::vector<std::size_t> local_by_input_{};
-  std::vector<BundleTemplate> template_overrides_{};
 };
 
 } // namespace wire::core::generation::backbone

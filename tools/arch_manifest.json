@@ -101,6 +101,11 @@
       "forbidden_tokens": ["viewer/", "core/src/"]
     },
     {
+      "name": "web_build",
+      "patterns": ["web/src/buildInfo.ts"],
+      "forbidden_tokens": ["viewer/", "core/src/", "wire/core"]
+    },
+    {
       "name": "web_store",
       "patterns": ["web/src/store/*.ts"],
       "forbidden_tokens": ["../actions/", "../render/", "viewer/"]

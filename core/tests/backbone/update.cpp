@@ -1577,12 +1577,14 @@ bool C727_backbone_pipeline_execution_entry_is_run_input() {
          contains_text(header, "graph made{}") &&
          contains_text(header, "std::vector<std::size_t> active_bundle_indices{}") &&
          contains_text(header, "std::vector<std::size_t> local_by_input{}") &&
-         contains_text(header, "std::vector<BundleTemplate> template_overrides{}") &&
+         !contains_text(header, "template_overrides") && !contains_text(source, "template_overrides") &&
+         !contains_text(header, "template_override(") && !contains_text(source, "template_override(") &&
          contains_text(header, "run_mode mode = run_mode::generation") &&
          contains_text(header, "make_run_input_from_spec") &&
          contains_text(header, "make_run_input_from_saved_scope") &&
          contains_text(header, "EditResult<GenerateBundleFromPathResult> run(run_input input)") &&
          contains_text(source, "GenerationTiming* timing = input.timing == nullptr ? &out.value.timing : input.timing") &&
+         contains_text(regenerate_source, "trial.authoritative_.bundle_templates[bundle_template_id] = next_template") &&
          contains_text(regenerate_source, "trial_pipeline.run(") &&
          contains_text(regenerate_source, "make_run_input_from_saved_scope");
 }

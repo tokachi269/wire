@@ -378,8 +378,8 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
     return fail("backbone regenerate: target bundle spec missing");
   }
 
-  std::vector<BundleTemplate> template_overrides{next_template};
   CoreState trial = *this;
+  trial.authoritative_.bundle_templates[bundle_template_id] = next_template;
   if (cable_template_override != nullptr) {
     trial.authoritative_.cable_templates[cable_template_override->id] = *cable_template_override;
   }
@@ -388,13 +388,11 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
   }
   generation::backbone::pipeline trial_pipeline(trial, spec);
   EditResult<GenerateBundleFromPathResult> replay = trial_pipeline.run(
-      trial_pipeline.make_run_input_from_saved_scope(std::move(made_graph), std::move(active_bundle_indices),
-                                                     std::move(template_overrides)));
+      trial_pipeline.make_run_input_from_saved_scope(std::move(made_graph), std::move(active_bundle_indices)));
   if (!replay.ok) {
     return fail(replay.error);
   }
 
-  trial.authoritative_.bundle_templates[bundle_template_id] = next_template;
   Bundle* edited_bundle = trial.authoritative_.edit_state.bundles.find(target.bundle_id);
   if (edited_bundle != nullptr) {
     edited_bundle->conductor_count = next_template.fixed_count;

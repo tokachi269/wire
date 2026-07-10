@@ -112,18 +112,59 @@ bool C395_backbone_is_new_does_not_affect_pairs() {
 }
 
 bool C396_backbone_existing_pole_does_not_read_existing_spans() {
+  struct snapshot {
+    wire::core::SpanLayoutRule rule{};
+    wire::core::SpanLayoutEntry layout{};
+    wire::core::CurveCacheEntry curve{};
+    wire::core::BoundsCacheEntry bounds{};
+    wire::core::SpanVisualCacheEntry visual{};
+    wire::core::SpanRenderCacheEntry render{};
+    std::uint64_t runtime_version = 0;
+  };
+  const auto same_points = [](const std::vector<wire::core::Vec3d>& lhs,
+                              const std::vector<wire::core::Vec3d>& rhs) {
+    if (lhs.size() != rhs.size()) return false;
+    for (std::size_t i = 0; i < lhs.size(); ++i) {
+      if (!almost_equal(lhs[i], rhs[i], 1e-12)) return false;
+    }
+    return true;
+  };
+  const auto same_rule = [](const wire::core::SpanLayoutRule& lhs, const wire::core::SpanLayoutRule& rhs) {
+    return lhs.span_id == rhs.span_id && lhs.flow_kind == rhs.flow_kind && lhs.pass_mode == rhs.pass_mode &&
+           lhs.variation_flow_key == rhs.variation_flow_key && lhs.lowering_kind == rhs.lowering_kind &&
+           lhs.start.endpoint_node_id == rhs.start.endpoint_node_id && lhs.start.port_id == rhs.start.port_id &&
+           lhs.start.jumper_peer_port_id == rhs.start.jumper_peer_port_id && lhs.end.endpoint_node_id == rhs.end.endpoint_node_id &&
+           lhs.end.port_id == rhs.end.port_id && lhs.end.jumper_peer_port_id == rhs.end.jumper_peer_port_id;
+  };
+  const auto same_layout = [](const wire::core::SpanLayoutEntry& lhs, const wire::core::SpanLayoutEntry& rhs) {
+    return lhs.span_id == rhs.span_id && lhs.flow_kind == rhs.flow_kind && lhs.pass_mode == rhs.pass_mode &&
+           lhs.variation_flow_key == rhs.variation_flow_key && lhs.lowering_kind == rhs.lowering_kind &&
+           lhs.source_version == rhs.source_version && almost_equal(lhs.basis_length_m, rhs.basis_length_m, 1e-12) &&
+           almost_equal(lhs.start.support_world, rhs.start.support_world, 1e-12) &&
+           almost_equal(lhs.start.endpoint_world, rhs.start.endpoint_world, 1e-12) &&
+           almost_equal(lhs.end.support_world, rhs.end.support_world, 1e-12) &&
+           almost_equal(lhs.end.endpoint_world, rhs.end.endpoint_world, 1e-12);
+  };
   wire::core::CoreState state;
   wire::core::BackboneSpec first = line_req(state);
   const auto first_out = state.GenerateFromBackboneSpec(first);
   if (!first_out.ok || first_out.value.generated_pole_ids.empty() || first_out.value.generated_span_ids.empty()) {
     return false;
   }
-  std::vector<const wire::core::SpanLayoutEntry*> before{};
+  std::vector<snapshot> before{};
   for (wire::core::ObjectId span_id : first_out.value.generated_span_ids) {
-    before.push_back(state.span_layout(span_id).entry);
-    if (before.back() == nullptr) {
+    const auto rules = state.span_layout_rules(span_id);
+    const auto layout = state.span_layout(span_id);
+    const auto* curve = state.find_curve_cache(span_id);
+    const auto* bounds = state.find_bounds_cache(span_id);
+    const auto* visual = state.find_span_visual_cache(span_id);
+    const auto* render = state.find_span_render_cache(span_id);
+    const auto* runtime = state.view().find_span_runtime_state(span_id);
+    if (!rules.has_rule() || !layout.has_layout() || curve == nullptr || bounds == nullptr || visual == nullptr ||
+        render == nullptr || runtime == nullptr) {
       return false;
     }
+    before.push_back({*rules.rule, *layout.entry, *curve, *bounds, *visual, *render, runtime->data_version});
   }
   const wire::core::ObjectId existing = first_out.value.generated_pole_ids.front();
   const auto* existing_pole = state.view().poles().find(existing);
@@ -148,7 +189,27 @@ bool C396_backbone_existing_pole_does_not_read_existing_spans() {
     }
   }
   for (std::size_t i = 0; i < first_out.value.generated_span_ids.size(); ++i) {
-    if (state.span_layout(first_out.value.generated_span_ids[i]).entry != before[i]) {
+    const wire::core::ObjectId span_id = first_out.value.generated_span_ids[i];
+    const auto rules = state.span_layout_rules(span_id);
+    const auto layout = state.span_layout(span_id);
+    const auto* curve = state.find_curve_cache(span_id);
+    const auto* bounds = state.find_bounds_cache(span_id);
+    const auto* visual = state.find_span_visual_cache(span_id);
+    const auto* render = state.find_span_render_cache(span_id);
+    const auto* runtime = state.view().find_span_runtime_state(span_id);
+    const bool changed = std::find(second_out.change_set.updated_ids.begin(), second_out.change_set.updated_ids.end(), span_id) !=
+                             second_out.change_set.updated_ids.end() ||
+                         std::find(second_out.change_set.deleted_ids.begin(), second_out.change_set.deleted_ids.end(), span_id) !=
+                             second_out.change_set.deleted_ids.end();
+    if (!rules.has_rule() || !layout.has_layout() || curve == nullptr || bounds == nullptr || visual == nullptr ||
+        render == nullptr || runtime == nullptr || changed || !same_rule(*rules.rule, before[i].rule) ||
+        !same_layout(*layout.entry, before[i].layout) || curve->source_version != before[i].curve.source_version ||
+        !same_points(curve->detail.sample_points, before[i].curve.detail.sample_points) ||
+        bounds->source_version != before[i].bounds.source_version ||
+        !almost_equal(bounds->whole.min, before[i].bounds.whole.min, 1e-12) ||
+        !almost_equal(bounds->whole.max, before[i].bounds.whole.max, 1e-12) ||
+        bounds->segments.size() != before[i].bounds.segments.size() || visual->source_version != before[i].visual.source_version ||
+        render->source_version != before[i].render.source_version || runtime->data_version != before[i].runtime_version) {
       return false;
     }
   }

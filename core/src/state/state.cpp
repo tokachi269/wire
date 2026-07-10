@@ -438,7 +438,6 @@ EditResult<ObjectId> CoreState::AddSpan(ObjectId port_a_id, ObjectId port_b_id, 
   span.reference_length_m = Length(port_b->world_position - port_a->world_position);
   authoritative_.edit_state.spans.insert(span);
 
-  touch_topology_related_spans_for_ports({port_a_id, port_b_id}, span.id, &result.change_set);
   add_span_to_index(span);
   initialize_span_runtime_state(span.id);
   touch_span(span.id, true);

@@ -139,6 +139,27 @@ Vec3d tangent_at(const CableCurveInput& input, const Vec3d& gravity, double t) {
   return normalized_or(derivative, chord);
 }
 
+EditResult<bool> validate_input(const CableCurveInput& input) {
+  EditResult<bool> result{};
+  if (input.method != CurveMethod::kParabolicSag) {
+    result.error = "cable curve method is unsupported";
+    return result;
+  }
+  if (input.family != CurveFamily::kMainSpan) {
+    result.error = "cable curve family is unsupported";
+    return result;
+  }
+  if (!finite(input.start) || !finite(input.end) || !finite(input.gravity_dir) ||
+      !finite(input.canonical_dir) || !std::isfinite(input.sag_m) || input.sag_m < 0.0 ||
+      !std::isfinite(input.radius_m) || input.radius_m < 0.0) {
+    result.error = "cable curve input is invalid";
+    return result;
+  }
+  result.ok = true;
+  result.value = true;
+  return result;
+}
+
 void expand_bounds(const Vec3d& point, double radius, AABBd* bounds) {
   bounds->min.x = std::min(bounds->min.x, point.x - radius);
   bounds->min.y = std::min(bounds->min.y, point.y - radius);
@@ -166,20 +187,25 @@ std::size_t ResolveSegmentCount(const CableCurveInput& input) {
   return std::clamp(std::max({minimum, length_segments, sag_segments}), minimum, maximum);
 }
 
+EditResult<CableEndpointTangents> EvaluateEndpointTangents(const CableCurveInput& input) {
+  EditResult<CableEndpointTangents> result{};
+  const EditResult<bool> valid = validate_input(input);
+  if (!valid.ok) {
+    result.error = valid.error;
+    return result;
+  }
+  const Vec3d gravity = normalized_or(input.gravity_dir, {0.0, 0.0, -1.0});
+  result.value.start_tangent = tangent_at(input, gravity, 0.0);
+  result.value.end_tangent = tangent_at(input, gravity, 1.0);
+  result.ok = true;
+  return result;
+}
+
 EditResult<CableCurveOutput> BuildCableCurve(const CableCurveInput& input) {
   EditResult<CableCurveOutput> result{};
-  if (input.method != CurveMethod::kParabolicSag) {
-    result.error = "cable curve method is unsupported";
-    return result;
-  }
-  if (input.family != CurveFamily::kMainSpan) {
-    result.error = "cable curve family is unsupported";
-    return result;
-  }
-  if (!finite(input.start) || !finite(input.end) || !finite(input.gravity_dir) ||
-      !finite(input.canonical_dir) || !std::isfinite(input.sag_m) || input.sag_m < 0.0 ||
-      !std::isfinite(input.radius_m) || input.radius_m < 0.0) {
-    result.error = "cable curve input is invalid";
+  const EditResult<bool> valid = validate_input(input);
+  if (!valid.ok) {
+    result.error = valid.error;
     return result;
   }
 

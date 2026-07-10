@@ -59,7 +59,13 @@ struct CableCurveOutput {
   AABBd bounds{};
 };
 
+struct CableEndpointTangents {
+  Vec3d start_tangent{};
+  Vec3d end_tangent{};
+};
+
 [[nodiscard]] std::size_t ResolveSegmentCount(const CableCurveInput& input);
+[[nodiscard]] EditResult<CableEndpointTangents> EvaluateEndpointTangents(const CableCurveInput& input);
 [[nodiscard]] EditResult<CableCurveOutput> BuildCableCurve(const CableCurveInput& input);
 [[nodiscard]] DetailCurve ToDetailCurve(const CableCurveInput& input, const CableCurveOutput& output);
 

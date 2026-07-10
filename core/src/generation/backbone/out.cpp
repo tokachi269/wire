@@ -36,6 +36,82 @@ AABBd box(const std::vector<Vec3d>& pts) {
   return out;
 }
 
+struct curve_input_data {
+  geometry::curve::CableCurveInput input{};
+  CableContinuityPolicyHint continuity_policy = CableContinuityPolicyHint::kAuto;
+  double bend_stiffness_hint = 1.0;
+  double min_bend_radius_hint_m = 0.0;
+  double chord_length = 0.0;
+};
+
+curve_input_data make_curve_input_data(const CoreState& state, ObjectId span_id, const Vec3d& start,
+                                       const Vec3d& end, const Vec3d* start_tangent_hint,
+                                       const Vec3d* end_tangent_hint) {
+  const GeometrySettings& settings = state.view().geometry_settings();
+
+  double sag_ratio = settings.sag_factor;
+  double radius_m = 0.0;
+  curve_input_data data{};
+  const Span* span = state.view().spans().find(span_id);
+  if (span != nullptr) {
+    const Bundle* bundle = state.view().bundles().find(span->bundle_id);
+    if (bundle != nullptr) {
+      const auto bundle_template = state.view().bundle_templates().find(bundle->bundle_template_id);
+      if (bundle_template != state.view().bundle_templates().end()) {
+        const auto cable = state.view().cable_templates().find(bundle_template->second.cable_template_id);
+        if (cable != state.view().cable_templates().end()) {
+          sag_ratio = cable->second.sag_factor + cable->second.slack_factor;
+          radius_m = std::max(0.0, cable->second.outer_diameter_m * 0.5);
+          data.continuity_policy = cable->second.continuity_policy;
+          data.bend_stiffness_hint = cable->second.bend_stiffness;
+          data.min_bend_radius_hint_m = cable->second.min_bend_radius_m;
+        }
+      }
+    }
+  }
+  sag_ratio = std::max(0.0, sag_ratio);
+
+  const Vec3d chord = end - start;
+  data.chord_length = Length(chord);
+  const Vec3d tangent = data.chord_length > 1e-9 ? ScaleVec(chord, 1.0 / data.chord_length) : Vec3d{1.0, 0.0, 0.0};
+  geometry::curve::CableCurveInput& input = data.input;
+  input.start = start;
+  input.end = end;
+  input.start_tangent_hint = start_tangent_hint == nullptr ? tangent : *start_tangent_hint;
+  input.end_tangent_hint = end_tangent_hint == nullptr ? tangent : *end_tangent_hint;
+  input.has_start_tangent_hint = start_tangent_hint != nullptr;
+  input.has_end_tangent_hint = end_tangent_hint != nullptr;
+  input.gravity_dir = {0.0, 0.0, -1.0};
+  input.canonical_dir = tangent;
+  const BackboneFrontier frontier = state.view().span_frontier(span_id);
+  if (const SavedBackboneEdge* edge = state.view().backbone_edge(frontier.edge_id);
+      edge != nullptr && Length(edge->dir) > 1e-9) {
+    input.canonical_dir = edge->dir;
+  }
+  input.sag_m = settings.sag_enabled ? sag_ratio * data.chord_length : 0.0;
+  input.radius_m = radius_m;
+  input.family = geometry::curve::CurveFamily::kMainSpan;
+  input.method = geometry::curve::CurveMethod::kParabolicSag;
+  input.tessellation.min_segments =
+      std::max(input.tessellation.min_segments, static_cast<std::size_t>(std::max(2, settings.curve_samples) - 1));
+  return data;
+}
+
+CurveConstraint detail_curve_constraint(const Vec3d& point, const Vec3d& tangent, const GeometrySettings& settings,
+                                        double sag_ratio, CableContinuityPolicyHint continuity_policy,
+                                        double bend_stiffness_hint, double min_bend_radius_hint_m,
+                                        double chord_length) {
+  CurveConstraint constraint{};
+  constraint.point = point;
+  constraint.tangent_dir = tangent;
+  constraint.tangent_length_hint_m = std::max(0.0, chord_length / 3.0);
+  constraint.sag_hint = settings.sag_enabled ? sag_ratio : 0.0;
+  constraint.continuity_preference = continuity_policy;
+  constraint.bend_stiffness_hint = bend_stiffness_hint;
+  constraint.min_bend_radius_hint_m = min_bend_radius_hint_m;
+  return constraint;
+}
+
 const SavedBackboneSpanBinding* source_span_binding_for(const CoreState& state,
                                                         const SourceEdgeProjectionRef& ref) {
   const CoreView& view = state.view();
@@ -107,75 +183,37 @@ EditResult<DetailCurve> make_curve_between_impl(const CoreState& state, ObjectId
                                                 const Vec3d* end_tangent_hint) {
   EditResult<DetailCurve> result{};
   const GeometrySettings& settings = state.view().geometry_settings();
-
-  double sag_ratio = settings.sag_factor;
-  double radius_m = 0.0;
-  CableContinuityPolicyHint continuity_policy = CableContinuityPolicyHint::kAuto;
-  double bend_stiffness_hint = 1.0;
-  double min_bend_radius_hint_m = 0.0;
-  const Span* span = state.view().spans().find(span_id);
-  if (span != nullptr) {
-    const Bundle* bundle = state.view().bundles().find(span->bundle_id);
-    if (bundle != nullptr) {
-      const auto bundle_template = state.view().bundle_templates().find(bundle->bundle_template_id);
-      if (bundle_template != state.view().bundle_templates().end()) {
-        const auto cable = state.view().cable_templates().find(bundle_template->second.cable_template_id);
-        if (cable != state.view().cable_templates().end()) {
-          sag_ratio = cable->second.sag_factor + cable->second.slack_factor;
-          radius_m = std::max(0.0, cable->second.outer_diameter_m * 0.5);
-          continuity_policy = cable->second.continuity_policy;
-          bend_stiffness_hint = cable->second.bend_stiffness;
-          min_bend_radius_hint_m = cable->second.min_bend_radius_m;
+  const curve_input_data data = make_curve_input_data(state, span_id, start, end, start_tangent_hint, end_tangent_hint);
+  if (data.continuity_policy != CableContinuityPolicyHint::kAuto) {
+    double sag_ratio = settings.sag_factor;
+    const Span* span = state.view().spans().find(span_id);
+    if (span != nullptr) {
+      const Bundle* bundle = state.view().bundles().find(span->bundle_id);
+      if (bundle != nullptr) {
+        const auto bundle_template = state.view().bundle_templates().find(bundle->bundle_template_id);
+        if (bundle_template != state.view().bundle_templates().end()) {
+          const auto cable = state.view().cable_templates().find(bundle_template->second.cable_template_id);
+          if (cable != state.view().cable_templates().end()) {
+            sag_ratio = cable->second.sag_factor + cable->second.slack_factor;
+          }
         }
       }
     }
-  }
-  sag_ratio = std::max(0.0, sag_ratio);
-
-  const Vec3d chord = end - start;
-  const double chord_length = Length(chord);
-  const Vec3d tangent = chord_length > 1e-9 ? ScaleVec(chord, 1.0 / chord_length) : Vec3d{1.0, 0.0, 0.0};
-  geometry::curve::CableCurveInput input{};
-  input.start = start;
-  input.end = end;
-  input.start_tangent_hint = start_tangent_hint == nullptr ? tangent : *start_tangent_hint;
-  input.end_tangent_hint = end_tangent_hint == nullptr ? tangent : *end_tangent_hint;
-  input.has_start_tangent_hint = start_tangent_hint != nullptr;
-  input.has_end_tangent_hint = end_tangent_hint != nullptr;
-  input.gravity_dir = {0.0, 0.0, -1.0};
-  input.canonical_dir = tangent;
-  const BackboneFrontier frontier = state.view().span_frontier(span_id);
-  if (const SavedBackboneEdge* edge = state.view().backbone_edge(frontier.edge_id);
-      edge != nullptr && Length(edge->dir) > 1e-9) {
-    input.canonical_dir = edge->dir;
-  }
-  if (continuity_policy != CableContinuityPolicyHint::kAuto) {
-    CurveConstraint start_constraint{};
-    start_constraint.point = start;
-    start_constraint.tangent_dir = input.start_tangent_hint;
-    start_constraint.tangent_length_hint_m = std::max(0.0, chord_length / 3.0);
-    start_constraint.sag_hint = settings.sag_enabled ? sag_ratio : 0.0;
-    start_constraint.continuity_preference = continuity_policy;
-    start_constraint.bend_stiffness_hint = bend_stiffness_hint;
-    start_constraint.min_bend_radius_hint_m = min_bend_radius_hint_m;
-
-    CurveConstraint end_constraint = start_constraint;
-    end_constraint.point = end;
-    end_constraint.tangent_dir = input.end_tangent_hint;
+    sag_ratio = std::max(0.0, sag_ratio);
+    const CurveConstraint start_constraint =
+        detail_curve_constraint(start, data.input.start_tangent_hint, settings, sag_ratio, data.continuity_policy,
+                                data.bend_stiffness_hint, data.min_bend_radius_hint_m, data.chord_length);
+    CurveConstraint end_constraint =
+        detail_curve_constraint(end, data.input.end_tangent_hint, settings, sag_ratio, data.continuity_policy,
+                                data.bend_stiffness_hint, data.min_bend_radius_hint_m, data.chord_length);
     result.value = BuildDetailCurve(start_constraint, end_constraint, std::max(2, settings.curve_samples));
   } else {
-    input.sag_m = settings.sag_enabled ? sag_ratio * chord_length : 0.0;
-    input.radius_m = radius_m;
-    input.family = geometry::curve::CurveFamily::kMainSpan;
-    input.method = geometry::curve::CurveMethod::kParabolicSag;
-    input.tessellation.min_segments =
-        std::max(input.tessellation.min_segments, static_cast<std::size_t>(std::max(2, settings.curve_samples) - 1));
-    const EditResult<geometry::curve::CableCurveOutput> built = geometry::curve::BuildCableCurve(input);
+    const EditResult<geometry::curve::CableCurveOutput> built = geometry::curve::BuildCableCurve(data.input);
     if (!built.ok) {
       result.error = built.error;
       return result;
     }
-    result.value = geometry::curve::ToDetailCurve(input, built.value);
+    result.value = geometry::curve::ToDetailCurve(data.input, built.value);
   }
   apply_attachment_line_effects_to_curve(state, span_id, &result.value);
   result.ok = true;
@@ -183,6 +221,54 @@ EditResult<DetailCurve> make_curve_between_impl(const CoreState& state, ObjectId
 }
 
 } // namespace
+
+EditResult<CurveConstraints> make_curve_constraints(
+    const CoreState& state, ObjectId span_id, const Vec3d& start, const Vec3d& end,
+    const Vec3d* start_tangent, const Vec3d* end_tangent) {
+  EditResult<CurveConstraints> result{};
+  const GeometrySettings& settings = state.view().geometry_settings();
+  const curve_input_data data = make_curve_input_data(state, span_id, start, end, start_tangent, end_tangent);
+  if (data.continuity_policy != CableContinuityPolicyHint::kAuto) {
+    double sag_ratio = settings.sag_factor;
+    const Span* span = state.view().spans().find(span_id);
+    if (span != nullptr) {
+      const Bundle* bundle = state.view().bundles().find(span->bundle_id);
+      if (bundle != nullptr) {
+        const auto bundle_template = state.view().bundle_templates().find(bundle->bundle_template_id);
+        if (bundle_template != state.view().bundle_templates().end()) {
+          const auto cable = state.view().cable_templates().find(bundle_template->second.cable_template_id);
+          if (cable != state.view().cable_templates().end()) {
+            sag_ratio = cable->second.sag_factor + cable->second.slack_factor;
+          }
+        }
+      }
+    }
+    sag_ratio = std::max(0.0, sag_ratio);
+    DetailCurve curve = BuildDetailCurve(
+        detail_curve_constraint(start, data.input.start_tangent_hint, settings, sag_ratio, data.continuity_policy,
+                                data.bend_stiffness_hint, data.min_bend_radius_hint_m, data.chord_length),
+        detail_curve_constraint(end, data.input.end_tangent_hint, settings, sag_ratio, data.continuity_policy,
+                                data.bend_stiffness_hint, data.min_bend_radius_hint_m, data.chord_length),
+        2);
+    result.value.start = curve.start_constraint;
+    result.value.end = curve.end_constraint;
+    result.ok = true;
+    return result;
+  }
+
+  const EditResult<geometry::curve::CableEndpointTangents> tangents =
+      geometry::curve::EvaluateEndpointTangents(data.input);
+  if (!tangents.ok) {
+    result.error = tangents.error;
+    return result;
+  }
+  result.value.start.point = start;
+  result.value.start.tangent_dir = tangents.value.start_tangent;
+  result.value.end.point = end;
+  result.value.end.tangent_dir = tangents.value.end_tangent;
+  result.ok = true;
+  return result;
+}
 
 EditResult<DetailCurve> make_curve_between(const CoreState& state, ObjectId span_id, const Vec3d& start,
                                           const Vec3d& end) {

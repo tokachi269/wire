@@ -556,13 +556,13 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     const BundleTemplateId template_id = bundle->bundle_template_id;
     const Vec3d chord = entry.endpoint_b - entry.endpoint_a;
     const double span_length = Length(chord);
-    const EditResult<DetailCurve> full_curve =
-        make_curve_between(state, entry.key.logical_span_id, entry.endpoint_a, entry.endpoint_b);
-    const bool has_curve_tangent = full_curve.ok && full_curve.value.sample_points.size() >= 2;
+    const EditResult<CurveConstraints> constraints =
+        make_curve_constraints(state, entry.key.logical_span_id, entry.endpoint_a, entry.endpoint_b, nullptr, nullptr);
+    const bool has_curve_tangent = constraints.ok;
     const Vec3d start_away =
-        has_curve_tangent ? full_curve.value.start_constraint.tangent_dir : safe_unit(chord, fallback_dir);
+        has_curve_tangent ? constraints.value.start.tangent_dir : safe_unit(chord, fallback_dir);
     const Vec3d end_away = has_curve_tangent
-                              ? ScaleVec(full_curve.value.end_constraint.tangent_dir, -1.0)
+                              ? ScaleVec(constraints.value.end.tangent_dir, -1.0)
                               : safe_unit(ScaleVec(chord, -1.0), ScaleVec(fallback_dir, -1.0));
 
     curve_endpoint_ref start{};
@@ -707,20 +707,20 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
       const Vec3d start = has_start_patch ? start_boundary.point : entry.endpoint_a;
       const Vec3d end = has_end_patch ? end_boundary.point : entry.endpoint_b;
       const Vec3d end_param_tangent = ScaleVec(end_boundary.tangent, -1.0);
-      const EditResult<DetailCurve> curve =
-          make_curve_between_with_tangent_hints(state, entry.key.logical_span_id, start, end,
-                                                has_start_patch ? &start_boundary.tangent : nullptr,
-                                                has_end_patch ? &end_param_tangent : nullptr);
-      if (!curve.ok || curve.value.sample_points.size() < 2) {
+      const EditResult<CurveConstraints> constraints =
+          make_curve_constraints(state, entry.key.logical_span_id, start, end,
+                                 has_start_patch ? &start_boundary.tangent : nullptr,
+                                 has_end_patch ? &end_param_tangent : nullptr);
+      if (!constraints.ok) {
         continue;
       }
       if (curve_boundary* boundary = mutable_boundary_for(&boundaries, entry.key, true); boundary != nullptr) {
-        boundary->tangent = curve.value.start_constraint.tangent_dir;
+        boundary->tangent = constraints.value.start.tangent_dir;
         boundary->point =
             boundary_from_tangent(boundary->attachment_point, boundary->tangent, boundary->horizontal_length_m);
       }
       if (curve_boundary* boundary = mutable_boundary_for(&boundaries, entry.key, false); boundary != nullptr) {
-        boundary->tangent = ScaleVec(curve.value.end_constraint.tangent_dir, -1.0);
+        boundary->tangent = ScaleVec(constraints.value.end.tangent_dir, -1.0);
         boundary->point =
             boundary_from_tangent(boundary->attachment_point, boundary->tangent, boundary->horizontal_length_m);
       }

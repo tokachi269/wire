@@ -6,8 +6,16 @@
 
 namespace wire::core::generation::backbone {
 
+struct CurveConstraints {
+  CurveConstraint start{};
+  CurveConstraint end{};
+};
+
 [[nodiscard]] EditResult<DetailCurve> make_curve(const CoreState& state, ObjectId span_id,
                                                  const SpanLayoutEntry& layout);
+[[nodiscard]] EditResult<CurveConstraints> make_curve_constraints(
+    const CoreState& state, ObjectId span_id, const Vec3d& start, const Vec3d& end,
+    const Vec3d* start_tangent, const Vec3d* end_tangent);
 [[nodiscard]] EditResult<DetailCurve> make_curve_between(const CoreState& state, ObjectId span_id,
                                                          const Vec3d& start, const Vec3d& end);
 [[nodiscard]] EditResult<DetailCurve> make_curve_between(const CoreState& state, ObjectId span_id,

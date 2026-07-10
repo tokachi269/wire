@@ -187,19 +187,15 @@ class pipeline {
 public:
   pipeline(CoreState& state, const BackboneSpec& spec) : state_(state), spec_(spec) {}
 
-  enum class run_mode {
-    generation,
-    saved_scope,
-  };
-
   struct run_input {
+  private:
+    run_input() = default;
+    friend class pipeline;
+
+  public:
     graph made{};
     std::vector<std::size_t> active_bundle_indices{};
     std::vector<std::size_t> local_by_input{};
-    run_mode mode = run_mode::generation;
-    bool ready = false;
-    bool run_preflight = true;
-    bool include_new_poles = true;
     GenerationTiming* timing = nullptr;
   };
 
@@ -219,7 +215,7 @@ private:
     topo made{};
   };
 
-  [[nodiscard]] EditResult<route> emit_route(bool run_preflight, GenerationTiming*);
+  [[nodiscard]] EditResult<route> emit_route(GenerationTiming*);
   [[nodiscard]] EditResult<bool> save_derived(const route&, GenerationTiming*);
   [[nodiscard]] EditResult<pairs> make(const graph& made) const;
   [[nodiscard]] EditResult<intent> make(const pairs& ps) const;
@@ -243,8 +239,6 @@ private:
 
   CoreState& state_;
   const BackboneSpec& spec_;
-  bool ready_ = false;
-  run_mode mode_ = run_mode::generation;
   graph g_{};
   std::vector<std::size_t> active_bundle_indices_{};
   std::vector<std::size_t> local_by_input_{};

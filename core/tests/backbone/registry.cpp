@@ -1019,9 +1019,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C727_backbone_pipeline_execution_entry_is_run_input",
                          "pipeline execution entry is run(run_input) only",
                          "Boundary", false, C727_backbone_pipeline_execution_entry_is_run_input);
-  test_registry::AddTest(tests, "C728_backbone_regenerate_mode_only_updates_existing_ports",
-                         "backbone regenerate mode only updates existing reusable ports",
-                         "Boundary", false, C728_backbone_regenerate_mode_only_updates_existing_ports);
+  test_registry::AddTest(tests, "C728_backbone_pipeline_has_no_run_mode_flags",
+                         "backbone pipeline has no run mode or skip flags",
+                         "Boundary", false, C728_backbone_pipeline_has_no_run_mode_flags);
   test_registry::AddTest(tests, "C729_backbone_regenerate_source_does_not_handbuild_outputs",
                          "backbone regenerate source does not handbuild pipeline outputs",
                          "Boundary", false, C729_backbone_regenerate_source_does_not_handbuild_outputs);

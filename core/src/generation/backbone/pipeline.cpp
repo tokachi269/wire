@@ -34,12 +34,9 @@ auto timed(GenerationTiming* timing, double GenerationTiming::*field, Fn&& fn) {
   return result;
 }
 
-void write_route_result(EditResult<GenerateBundleFromPathResult>* out, ChangeSet&& change_set, topo&& made,
-                        bool include_new_poles) {
+void write_route_result(EditResult<GenerateBundleFromPathResult>* out, ChangeSet&& change_set, topo&& made) {
   out->change_set = std::move(change_set);
-  if (include_new_poles) {
-    out->value.generated_pole_ids = made.new_poles;
-  }
+  out->value.generated_pole_ids = made.new_poles;
   out->value.bundle_ids = made.bundles;
   out->value.bundle_id = made.bundles.empty() ? kInvalidObjectId : made.bundles.front();
   out->value.generated_span_ids.reserve(made.spans.size());
@@ -54,12 +51,10 @@ EditResult<GenerateBundleFromPathResult> pipeline::run(run_input input) {
   g_ = std::move(input.made);
   active_bundle_indices_ = std::move(input.active_bundle_indices);
   local_by_input_ = std::move(input.local_by_input);
-  mode_ = input.mode;
-  ready_ = input.ready;
 
   EditResult<GenerateBundleFromPathResult> out{};
   GenerationTiming* timing = input.timing == nullptr ? &out.value.timing : input.timing;
-  EditResult<route> made = emit_route(input.run_preflight, timing);
+  EditResult<route> made = emit_route(timing);
   if (!made.ok) {
     out.error = made.error;
     return out;
@@ -74,7 +69,7 @@ EditResult<GenerateBundleFromPathResult> pipeline::run(run_input input) {
     out.error = derived.error;
     return out;
   }
-  write_route_result(&out, std::move(made.value.change_set), std::move(made.value.made), input.include_new_poles);
+  write_route_result(&out, std::move(made.value.change_set), std::move(made.value.made));
   out.ok = true;
   return out;
 }
@@ -84,10 +79,6 @@ pipeline::run_input pipeline::make_run_input_from_spec() const {
   input.made = g_;
   input.active_bundle_indices = active_bundle_indices_;
   input.local_by_input = local_by_input_;
-  input.mode = run_mode::generation;
-  input.ready = ready_;
-  input.run_preflight = true;
-  input.include_new_poles = true;
   return input;
 }
 
@@ -96,26 +87,20 @@ pipeline::run_input pipeline::make_run_input_from_saved_scope(
   run_input input{};
   input.made = std::move(made_graph);
   input.active_bundle_indices = std::move(active_bundle_indices);
-  input.mode = run_mode::saved_scope;
-  input.ready = true;
-  input.run_preflight = false;
-  input.include_new_poles = false;
   return input;
 }
 
-EditResult<pipeline::route> pipeline::emit_route(bool run_preflight, GenerationTiming* timing) {
+EditResult<pipeline::route> pipeline::emit_route(GenerationTiming* timing) {
   EditResult<route> out{};
   EditResult<pairs> ps = timed(timing, &GenerationTiming::pairs_ms, [&] { return make(g_); });
   if (!ps.ok) {
     out.error = ps.error;
     return out;
   }
-  if (run_preflight) {
-    EditResult<bool> duplicates = timed(timing, &GenerationTiming::preflight_ms, [&] { return check(ps.value); });
-    if (!duplicates.ok) {
-      out.error = duplicates.error;
-      return out;
-    }
+  EditResult<bool> duplicates = timed(timing, &GenerationTiming::preflight_ms, [&] { return check(ps.value); });
+  if (!duplicates.ok) {
+    out.error = duplicates.error;
+    return out;
   }
   EditResult<intent> intents = timed(timing, &GenerationTiming::intent_ms, [&] { return make(ps.value); });
   if (!intents.ok) {
@@ -966,6 +951,11 @@ double interior_angle_deg(const link& incoming, const link& outgoing) {
   return std::acos(dot) * kRadiansToDegrees;
 }
 
+bool moved_more_than_epsilon(const Vec3d& lhs, const Vec3d& rhs) {
+  const Vec3d d = lhs - rhs;
+  return d.x * d.x + d.y * d.y + d.z * d.z > 1e-18;
+}
+
 } // namespace
 
 std::size_t pipeline::local(std::size_t input_point) const {
@@ -1447,15 +1437,15 @@ EditResult<bool> pipeline::prepare() {
       if (!n.on_route) {
         continue;
       }
-      const auto mode_it = std::find_if(n.bundle_modes.begin(), n.bundle_modes.end(),
-                                        [&](const SupportNodeBundleMode& mode) {
-                                          return mode.bundle_template_id == bundle_template_id;
-                                        });
-      if (!n.bundle_modes.empty() && mode_it == n.bundle_modes.end()) {
+      const auto bundle_mode = std::find_if(n.bundle_modes.begin(), n.bundle_modes.end(),
+                                            [&](const SupportNodeBundleMode& mode) {
+                                              return mode.bundle_template_id == bundle_template_id;
+                                            });
+      if (!n.bundle_modes.empty() && bundle_mode == n.bundle_modes.end()) {
         allowed = false;
         break;
       }
-      if (mode_it != n.bundle_modes.end() && mode_it->mode == BundleNodeMode::kNotPresent) {
+      if (bundle_mode != n.bundle_modes.end() && bundle_mode->mode == BundleNodeMode::kNotPresent) {
         allowed = false;
         break;
       }
@@ -1464,16 +1454,12 @@ EditResult<bool> pipeline::prepare() {
       active_bundle_indices_.push_back(bundle_index);
     }
   }
-  ready_ = true;
   out.value = true;
   out.ok = true;
   return out;
 }
 
 EditResult<bool> pipeline::check() const {
-  if (!ready_) {
-    return unsupported("pipeline is not prepared");
-  }
   if (g_.nodes.size() < 2 || g_.links.empty()) {
     return unsupported("path needs at least two points");
   }
@@ -1729,6 +1715,9 @@ EditResult<bool> pipeline::check(const pairs& ps) const {
   }
   for (const link& edge : ps.links) {
     if (!edge.is_new) {
+      continue;
+    }
+    if (edge.saved != kInvalidObjectId) {
       continue;
     }
     const ObjectId edge_id = saved_edge_for(state_, g_, edge);
@@ -2253,16 +2242,15 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
           return out;
         }
         if (resolved.value != kInvalidObjectId) {
-          if (mode_ == run_mode::saved_scope) {
-            Port* existing_port = state_.edit_state_access().ports.find(resolved.value);
-            if (existing_port == nullptr) {
-              out.error = "backbone topology: resolved port missing";
-              return out;
-            }
-            if (existing_port->position_mode != PortPositionMode::kManual && !existing_port->user_edited_position) {
-              existing_port->world_position = p;
-              ApplyPortBandTemplateFields(existing_port, band);
-            }
+          Port* existing_port = state_.edit_state_access().ports.find(resolved.value);
+          if (existing_port == nullptr) {
+            out.error = "backbone topology: resolved port missing";
+            return out;
+          }
+          if (existing_port->position_mode != PortPositionMode::kManual && !existing_port->user_edited_position &&
+              moved_more_than_epsilon(existing_port->world_position, p)) {
+            existing_port->world_position = p;
+            ApplyPortBandTemplateFields(existing_port, band);
             CoreState::add_unique_id(changes->updated_ids, existing_port->id);
           }
           tr.ports[bundle_index].push_back(resolved.value);
@@ -2371,7 +2359,7 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
     const ObjectId source_b = saved_node_id_for(state_, g_.nodes[i].source_edge_node_b);
     if (g_.nodes[i].saved != kInvalidObjectId) {
       node_id_by_local[i] = g_.nodes[i].saved;
-      if (mode_ == run_mode::generation && g_.nodes[i].on_route && i < path_index_by_local.size()) {
+      if (g_.nodes[i].on_route && i < path_index_by_local.size() && path_index_by_local[i] >= 0) {
         EditResult<bool> indexed =
             state_.bind_backbone_node_path_point_index(node_id_by_local[i], path_index_by_local[i]);
         if (!indexed.ok) {
@@ -2390,7 +2378,7 @@ EditResult<bool> pipeline::save_graph(const topo& made, const pairs& ps) {
     }
     node_id_by_local[i] = state_.save_backbone_node(made.poles[i], g_.nodes[i].pos, g_.nodes[i].support, source_a,
                                                     source_b, g_.nodes[i].source_edge_t, g_.nodes[i].bundle_modes);
-    if (g_.nodes[i].on_route && i < path_index_by_local.size()) {
+    if (g_.nodes[i].on_route && i < path_index_by_local.size() && path_index_by_local[i] >= 0) {
       EditResult<bool> indexed =
           state_.bind_backbone_node_path_point_index(node_id_by_local[i], path_index_by_local[i]);
       if (!indexed.ok) {

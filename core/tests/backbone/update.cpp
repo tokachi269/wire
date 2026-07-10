@@ -1579,7 +1579,14 @@ bool C727_backbone_pipeline_execution_entry_is_run_input() {
          contains_text(header, "std::vector<std::size_t> local_by_input{}") &&
          !contains_text(header, "template_overrides") && !contains_text(source, "template_overrides") &&
          !contains_text(header, "template_override(") && !contains_text(source, "template_override(") &&
-         contains_text(header, "run_mode mode = run_mode::generation") &&
+         contains_text(header, "run_input() = default") &&
+         contains_text(header, "friend class pipeline") &&
+         !contains_text(header, "run_mode") && !contains_text(source, "run_mode") &&
+         !contains_text(header, "mode_") && !contains_text(source, "mode_") &&
+         !contains_text(header, "include_new_poles") && !contains_text(source, "include_new_poles") &&
+         !contains_text(header, "run_preflight") && !contains_text(source, "run_preflight") &&
+         !contains_text(header, "ready_") && !contains_text(source, "ready_") &&
+         !contains_text(header, "bool ready") &&
          contains_text(header, "make_run_input_from_spec") &&
          contains_text(header, "make_run_input_from_saved_scope") &&
          contains_text(header, "EditResult<GenerateBundleFromPathResult> run(run_input input)") &&
@@ -1589,14 +1596,22 @@ bool C727_backbone_pipeline_execution_entry_is_run_input() {
          contains_text(regenerate_source, "make_run_input_from_saved_scope");
 }
 
-bool C728_backbone_regenerate_mode_only_updates_existing_ports() {
+bool C728_backbone_pipeline_has_no_run_mode_flags() {
   std::string source{};
-  if (!file_text(repo_root() / "core/src/generation/backbone/pipeline.cpp", &source)) {
+  std::string header{};
+  if (!file_text(repo_root() / "core/src/generation/backbone/pipeline.cpp", &source) ||
+      !file_text(repo_root() / "core/src/generation/backbone/pipeline.hpp", &header)) {
     return false;
   }
-  const std::string token = "mode_ == run_mode::saved_scope";
-  const std::size_t first = source.find(token);
-  if (first == std::string::npos || source.find(token, first + token.size()) != std::string::npos) {
+  const std::vector<std::string> banned = {
+      "run_mode", "mode_", "include_new_poles", "run_preflight", "ready_", "bool ready"};
+  for (const std::string& token : banned) {
+    if (contains_text(source, token) || contains_text(header, token)) {
+      return false;
+    }
+  }
+  if (!contains_text(source, "moved_more_than_epsilon(existing_port->world_position, p)") ||
+      !contains_text(source, "path_index_by_local[i] >= 0")) {
     return false;
   }
   std::string body{};
@@ -1604,18 +1619,11 @@ bool C728_backbone_regenerate_mode_only_updates_existing_ports() {
                      &body)) {
     return false;
   }
-  const std::size_t branch = body.find(token);
-  const std::size_t end = body.find("tr.ports", branch);
-  if (branch == std::string::npos || end == std::string::npos) {
-    return false;
-  }
-  const std::string regenerate_branch = body.substr(branch, end - branch);
-  return contains_text(regenerate_branch, "Port* existing_port") &&
-         contains_text(regenerate_branch, "existing_port->world_position = p") &&
-         contains_text(regenerate_branch, "ApplyPortBandTemplateFields(existing_port, band)") &&
-         contains_text(regenerate_branch, "changes->updated_ids") &&
-         !contains_text(regenerate_branch, "AddPort(") && !contains_text(regenerate_branch, "AddSpan(") &&
-         !contains_text(regenerate_branch, "save(") && !contains_text(regenerate_branch, "make(");
+  return contains_text(body, "Port* existing_port") &&
+         contains_text(body, "existing_port->world_position = p") &&
+         contains_text(body, "ApplyPortBandTemplateFields(existing_port, band)") &&
+         contains_text(body, "changes->updated_ids") &&
+         !contains_text(body, "mode_") && !contains_text(body, "run_mode");
 }
 
 bool C729_backbone_regenerate_source_does_not_handbuild_outputs() {

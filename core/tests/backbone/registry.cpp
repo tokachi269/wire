@@ -968,6 +968,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "wrap profile behavior is owned only by section behavior",
                          "Boundary", false,
                          C745_wrap_behavior_has_one_production_owner);
+  test_registry::AddTest(tests, "C746_backbone_generation_trial_copy_stays_under_cost_gate",
+                         "generation trial copy stays within the 66-pole cost gate",
+                         "Invariant", false,
+                         C746_backbone_generation_trial_copy_stays_under_cost_gate);
   test_registry::AddTest(tests, "C703_backbone_regenerate_removes_migration_symbols",
                          "backbone regenerate removes bundle count migration symbols from core src",
                          "Boundary", false,

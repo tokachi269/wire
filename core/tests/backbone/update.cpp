@@ -2015,7 +2015,7 @@ bool C622_backbone_stage_timing_is_diagnostic_only() {
   }
   const wire::core::GenerationTiming& timing = out.value.timing;
   const std::vector<double> stages = {
-      timing.prepare_ms,       timing.check_ms,       timing.pairs_ms, timing.preflight_ms,
+      timing.state_copy_ms,    timing.prepare_ms,     timing.check_ms, timing.pairs_ms, timing.preflight_ms,
       timing.intent_ms,        timing.support_groups_ms, timing.emit_ms, timing.save_graph_ms,
       timing.rules_ms,         timing.layout_ms,      timing.geom_ms,  timing.draw_ms,
   };
@@ -2112,6 +2112,23 @@ bool C745_wrap_behavior_has_one_production_owner() {
   std::string behavior{};
   return file_text(repo_root() / "core/src/generation/backbone/section_behavior.cpp", &behavior) &&
          contains_text(behavior, "kWrap") && contains_text(behavior, "build_behavior_curve_part");
+}
+
+bool C746_backbone_generation_trial_copy_stays_under_cost_gate() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec first = line_req(state);
+  first.path.polyline = {{0.0, 0.0, 0.0}, {650.0, 0.0, 0.0}};
+  first.interval_m = 10.0;
+  const auto populated = state.GenerateFromBackboneSpec(first);
+  if (!populated.ok || populated.value.generated_pole_ids.size() < 66) {
+    return false;
+  }
+  wire::core::BackboneSpec second = line_req(state);
+  second.path.polyline = {{0.0, 100.0, 0.0}, {650.0, 100.0, 0.0}};
+  second.interval_m = 10.0;
+  const auto measured = state.GenerateFromBackboneSpec(second);
+  return measured.ok && measured.value.generated_pole_ids.size() >= 66 && measured.value.timing.total_ms > 0.0 &&
+         measured.value.timing.state_copy_ms / measured.value.timing.total_ms <= 0.20;
 }
 
 } // namespace backbone_tests

@@ -751,15 +751,16 @@ bool C547_backbone_fixed_bundle_exact_count_is_supported() {
       tmpl_it->second.count_rule != wire::core::BundleCountRuleKind::kFixed || tmpl_it->second.fixed_count <= 0) {
     return false;
   }
-  req.bundles.front().count = tmpl_it->second.fixed_count;
+  const int fixed_count = tmpl_it->second.fixed_count;
+  req.bundles.front().count = fixed_count;
   const auto out = state.GenerateFromBackboneSpec(req);
-  if (!out.ok || out.value.generated_span_ids.size() != static_cast<std::size_t>(tmpl_it->second.fixed_count)) {
+  if (!out.ok || out.value.generated_span_ids.size() != static_cast<std::size_t>(fixed_count)) {
     return false;
   }
 
   wire::core::CoreState rejected;
   wire::core::BackboneSpec bad = line_req(rejected);
-  bad.bundles.front().count = tmpl_it->second.fixed_count + 1;
+  bad.bundles.front().count = fixed_count + 1;
   const std::size_t pole_count = rejected.view().poles().size();
   const std::size_t span_count = rejected.view().spans().size();
   const auto bad_out = rejected.GenerateFromBackboneSpec(bad);
@@ -842,13 +843,14 @@ bool C551_backbone_missing_pole_type_resolves_from_bundle_templates() {
       tmpl_it->second.related_pole_type_id == wire::core::kInvalidPoleTypeId) {
     return false;
   }
+  const wire::core::PoleTypeId related_pole_type_id = tmpl_it->second.related_pole_type_id;
   const auto out = state.GenerateFromBackboneSpec(req);
   if (!out.ok || out.value.generated_pole_ids.size() != 2 || out.value.generated_span_ids.empty()) {
     return false;
   }
   for (wire::core::ObjectId pole_id : out.value.generated_pole_ids) {
     const auto* pole = state.view().poles().find(pole_id);
-    if (pole == nullptr || pole->pole_type_id != tmpl_it->second.related_pole_type_id) {
+    if (pole == nullptr || pole->pole_type_id != related_pole_type_id) {
       return false;
     }
   }

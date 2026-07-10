@@ -1159,13 +1159,14 @@ bool C481_backbone_pass_through_mode_is_accepted_in_limited_scope() {
   if (pole_b == nullptr) {
     return false;
   }
-  const auto ok = state.GenerateFromBackboneSpec(pass_branch_req(state, b, pole_b->world_transform.position));
+  const wire::core::Vec3d pole_b_position = pole_b->world_transform.position;
+  const auto ok = state.GenerateFromBackboneSpec(pass_branch_req(state, b, pole_b_position));
 
-  wire::core::BackboneSpec bad_index = pass_branch_req(state, b, pole_b->world_transform.position);
+  wire::core::BackboneSpec bad_index = pass_branch_req(state, b, pole_b_position);
   bad_index.node_bundle_modes.front().point_index = 9;
   const auto bad_index_out = state.GenerateFromBackboneSpec(bad_index);
 
-  wire::core::BackboneSpec bad_bundle = pass_branch_req(state, b, pole_b->world_transform.position);
+  wire::core::BackboneSpec bad_bundle = pass_branch_req(state, b, pole_b_position);
   bad_bundle.node_bundle_modes.front().bundle_template_id = 999;
   const auto bad_bundle_out = state.GenerateFromBackboneSpec(bad_bundle);
   return ok.ok && !bad_index_out.ok && !bad_bundle_out.ok;

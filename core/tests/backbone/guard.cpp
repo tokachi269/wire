@@ -1426,6 +1426,7 @@ bool C724_source_template_sag_change_updates_branch_projection() {
       cable_template_it == state.view().cable_templates().end()) {
     return false;
   }
+  wire::core::CableTemplate edited_cable_template = cable_template_it->second;
   const wire::core::SavedBackboneEdge source_edge = state.view().backbone().edges.front();
   const auto before_projection = state.view().source_edge_projection_world(
       source_edge.edge_id, source_edge.node_a, wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage), 0, 0.5);
@@ -1461,9 +1462,8 @@ bool C724_source_template_sag_change_updates_branch_projection() {
   }
   const wire::core::ObjectId branch_span_id = branch_out.value.generated_span_ids.front();
 
-  wire::core::CableTemplate edited = cable_template_it->second;
-  edited.sag_factor += 0.08;
-  const auto updated = state.UpdateCableTemplate(edited);
+  edited_cable_template.sag_factor += 0.08;
+  const auto updated = state.UpdateCableTemplate(edited_cable_template);
   const auto after_projection = state.view().source_edge_projection_world(
       source_edge.edge_id, source_edge.node_a, wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage), 0, 0.5);
   const wire::core::SpanLayoutView branch_layout = state.span_layout(branch_span_id);

@@ -39,6 +39,7 @@ struct ResolveBranchPickOptions {
 };
 
 struct GenerationTiming {
+  double state_copy_ms = 0.0;
   double prepare_ms = 0.0;
   double check_ms = 0.0;
   double pairs_ms = 0.0;

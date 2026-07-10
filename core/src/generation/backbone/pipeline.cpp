@@ -175,7 +175,7 @@ EditResult<bool> pipeline::save_derived(const route& route, GenerationTiming* ti
 
 namespace {
 
-constexpr double kRowSeparationM = 0.35;
+constexpr double kRowHeightSeparationM = 0.35;
 constexpr double kSharpCornerInteriorAngleMaxDeg = 74.0;
 constexpr double kRadiansToDegrees = 57.2957795130823208768;
 
@@ -733,8 +733,8 @@ EditResult<ObjectId> resolve_port_binding(const CoreState& state, ObjectId pole_
   return out;
 }
 
-std::vector<Vec3d> row_shifts(const pairs& ps) {
-  std::vector<Vec3d> shifts(ps.rows.size(), Vec3d{});
+std::vector<Vec3d> row_height_offsets(const pairs& ps) {
+  std::vector<Vec3d> offsets(ps.rows.size(), Vec3d{});
   std::unordered_map<std::size_t, std::vector<std::size_t>> rows_by_node{};
   for (const row& r : ps.rows) {
     rows_by_node[r.node].push_back(r.id);
@@ -748,12 +748,11 @@ std::vector<Vec3d> row_shifts(const pairs& ps) {
       if (row_id >= ps.rows.size()) {
         continue;
       }
-      const Vec3d sep = ComputeLateralAxis(HorizontalNormalizedOr(ps.rows[row_id].axis));
-      const double amount = (static_cast<double>(order) - center) * kRowSeparationM;
-      shifts[row_id] = Vec3d{sep.x * amount, sep.y * amount, 0.0};
+      const double amount = (static_cast<double>(order) - center) * kRowHeightSeparationM;
+      offsets[row_id] = Vec3d{0.0, 0.0, amount};
     }
   }
-  return shifts;
+  return offsets;
 }
 
 bool route_clear_of_avoid_points(const graph& made, const std::vector<Vec3d>& points, double radius) {
@@ -2421,7 +2420,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
       active_rows[edge.brow] = true;
     }
   }
-  const std::vector<Vec3d> shifts = row_shifts(ps);
+  const std::vector<Vec3d> row_offsets = row_height_offsets(ps);
   made->rows.resize(ps.rows.size());
   for (const row& r : ps.rows) {
     if (r.node >= made->poles.size() || r.node >= g_.nodes.size()) {
@@ -2474,7 +2473,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
       const port_scope scope{spec_.bundles[spec_index].bundle_template_id, PortKindForCategory(v.value.tmpl->category),
                              PortLayerForSpanLayer(v.value.layer), band.band_id};
       for (int lane = 0; lane < v.value.count; ++lane) {
-        const Vec3d shift = (r.id < shifts.size()) ? shifts[r.id] : Vec3d{};
+        const Vec3d row_offset = (r.id < row_offsets.size()) ? row_offsets[r.id] : Vec3d{};
         Vec3d p{};
         if (ownerless) {
           if (g_.nodes[r.node].has_source_edge) {
@@ -2496,7 +2495,7 @@ EditResult<bool> pipeline::emit_ports(topo* made, const pairs& ps, ChangeSet* ch
           }
           p = PortWorldPosition(*pole, r.axis, band, static_cast<std::size_t>(lane), v.value.count,
                                 v.value.tmpl->default_spacing_m, group_offset,
-                                spec_.constraints.lateral_offset_m, shift);
+                                spec_.constraints.lateral_offset_m, row_offset);
         }
         const SavedBackboneRowKey row_key = key_for(ps, tr, node_id_by_local, edge_by_link);
         EditResult<ObjectId> resolved =

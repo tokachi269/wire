@@ -96,7 +96,7 @@ Vec3d PortLocalPosition(const Vec3d& row_axis, const PortPlacementBand& band, st
   const Vec3d axis = HorizontalNormalizedOr(row_axis);
   const Vec3d forward_axis = ScaleVec(ComputeLateralAxis(axis), -1.0);
   const double offset = group_offset_m + LaneOffset(lane_index, lane_count, spacing_m) + lateral_offset_m;
-  return {Dot(shift, forward_axis), offset + Dot(shift, axis), band.height_center_m};
+  return {Dot(shift, forward_axis), offset + Dot(shift, axis), band.height_center_m + shift.z};
 }
 
 Vec3d PortWorldPosition(const Pole& pole, const Vec3d& row_axis, const PortPlacementBand& band,

@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -1069,22 +1070,43 @@ bool C474_backbone_port_resolution_rejects_ambiguous_binding() {
 
 bool C476_backbone_branch_rows_are_separated_without_branch_kind() {
   wire::core::CoreState state;
-  const auto first = state.GenerateFromBackboneSpec(poly3_req(state));
+  const auto first = state.GenerateFromBackboneSpec(hv_poly3_req(state));
   if (!first.ok || first.value.generated_pole_ids.size() != 3) {
     return false;
   }
   const wire::core::ObjectId b = first.value.generated_pole_ids[1];
   const std::vector<wire::core::Vec3d> before = pole_port_positions(state, b);
+  const std::vector<wire::core::Vec3d> main_row_ports =
+      generated_ports_on_pole(state, first.value.generated_span_ids, b);
   const auto* pole_b = state.view().poles().find(b);
-  if (pole_b == nullptr) {
+  if (pole_b == nullptr || main_row_ports.empty()) {
     return false;
   }
-  wire::core::BackboneSpec branch = line_req(state);
-  branch.path.polyline = {pole_b->world_transform.position, {20.0, 0.0, 0.0}};
-  branch.path.node_specs = {pole_spec(0, b)};
-  const auto second = state.GenerateFromBackboneSpec(branch);
+  const wire::core::Vec3d pole_b_position = pole_b->world_transform.position;
+  const auto second = state.GenerateFromBackboneSpec(hv_branch_req(state, b, pole_b_position));
   const std::vector<wire::core::Vec3d> placed = generated_ports_on_pole(state, second.value.generated_span_ids, b);
-  return second.ok && separated_from(before, placed) && C391_backbone_no_kind_label();
+  if (!second.ok || !separated_from(before, placed) || placed.empty()) {
+    return false;
+  }
+  wire::core::Vec3d center{};
+  for (const wire::core::Vec3d& point : placed) {
+    center.x += point.x;
+    center.y += point.y;
+  }
+  center.x /= static_cast<double>(placed.size());
+  center.y /= static_cast<double>(placed.size());
+  double main_height = 0.0;
+  double branch_height = 0.0;
+  for (const wire::core::Vec3d& point : main_row_ports) {
+    main_height += point.z;
+  }
+  for (const wire::core::Vec3d& point : placed) {
+    branch_height += point.z;
+  }
+  main_height /= static_cast<double>(main_row_ports.size());
+  branch_height /= static_cast<double>(placed.size());
+  return almost_equal(center.x, pole_b_position.x, 1e-9) && almost_equal(center.y, pole_b_position.y, 1e-9) &&
+         std::abs(branch_height - main_height) > 0.1 && C391_backbone_no_kind_label();
 }
 
 bool C477_backbone_cross_rows_are_separated_without_cross_kind() {
@@ -1144,7 +1166,7 @@ bool C480_backbone_context_rows_affect_order_but_are_not_emitted() {
   if (!file_text(source, &cpp)) {
     return false;
   }
-  return !second.value.generated_span_ids.empty() && contains_text(cpp, "row_shifts(ps)") &&
+  return !second.value.generated_span_ids.empty() && contains_text(cpp, "row_height_offsets(ps)") &&
          contains_text(cpp, "if (r.id >= active_rows.size() || !active_rows[r.id])");
 }
 

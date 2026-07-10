@@ -65,6 +65,10 @@ export class WireScene {
   private detachInput: (() => void) | null = null;
   private snapshot: ViewerSnapshot | null = null;
   private lastFrameTime: number | null = null;
+  private contentSignature = "";
+  private backboneSignature = "";
+  private guideSignature = "";
+  private cameraFov: number | null = null;
 
   constructor(
     private readonly store: ViewerStore,
@@ -110,7 +114,7 @@ export class WireScene {
     this.camera.position.set(24, -30, 20);
     this.camera.lookAt(this.cameraTarget);
 
-    this.unsubscribe = this.store.value.subscribe((snapshot) => this.rebuild(snapshot));
+    this.unsubscribe = this.store.value.subscribe((snapshot) => this.applySnapshot(snapshot));
   }
 
   mount(host: HTMLElement): void {
@@ -409,17 +413,98 @@ export class WireScene {
     this.camera.position.copy(this.cameraTarget).add(offset.normalize().multiplyScalar(distance));
   }
 
-  private rebuild(snapshot: ViewerSnapshot): void {
+  private applySnapshot(snapshot: ViewerSnapshot): void {
     this.snapshot = snapshot;
-    this.camera.fov = snapshot.cameraFov;
-    this.camera.updateProjectionMatrix();
     this.content.visible = true;
     this.backbone.visible = snapshot.showBackboneOverlay;
     this.guide.visible = snapshot.showPreview;
-    this.disposeGroup(this.backbone);
+
+    if (this.cameraFov !== snapshot.cameraFov) {
+      this.cameraFov = snapshot.cameraFov;
+      this.camera.fov = snapshot.cameraFov;
+      this.camera.updateProjectionMatrix();
+    }
+
+    const nextContentSignature = this.sceneContentSignature(snapshot);
+    if (this.contentSignature !== nextContentSignature) {
+      this.contentSignature = nextContentSignature;
+      this.rebuildContent(snapshot);
+      this.clearSnapPreview();
+    }
+
+    const nextBackboneSignature = this.sceneBackboneSignature(snapshot);
+    if (this.backboneSignature !== nextBackboneSignature) {
+      this.backboneSignature = nextBackboneSignature;
+      this.rebuildBackbone(snapshot);
+      this.clearSnapPreview();
+    }
+
+    const nextGuideSignature = this.sceneGuideSignature(snapshot);
+    if (this.guideSignature !== nextGuideSignature) {
+      this.guideSignature = nextGuideSignature;
+      this.rebuildGuide(snapshot);
+    }
+  }
+
+  private sceneContentSignature(snapshot: ViewerSnapshot): string {
+    const partKey = snapshot.parts.map((part) => [
+      part.info.kind,
+      part.info.wireRadius,
+      part.info.colorRgba,
+      part.info.sourceSpanId,
+      part.info.sourceNodeId,
+      part.info.sourceEdgeId,
+      part.info.sourceBundleId,
+      part.info.bundleTemplateId,
+      part.info.laneIndex,
+      part.info.runId,
+      part.info.sampleCount,
+      part.samples.join(",")
+    ].join(":")).join("|");
+    const poleKey = snapshot.poles.map((pole) => [
+      pole.id,
+      pole.poleTypeId,
+      pole.positionX,
+      pole.positionY,
+      pole.positionZ,
+      pole.rotationX,
+      pole.rotationY,
+      pole.rotationZ,
+      pole.scaleX,
+      pole.scaleY,
+      pole.scaleZ,
+      pole.height
+    ].join(":")).join("|");
+    return `${snapshot.solidSupportRender ? 1 : 0};${partKey};${poleKey}`;
+  }
+
+  private sceneBackboneSignature(snapshot: ViewerSnapshot): string {
+    const nodeKey = snapshot.supportNodes.map((node) => [
+      node.id,
+      node.kind,
+      node.poleId,
+      node.x,
+      node.y,
+      node.z
+    ].join(":")).join("|");
+    const edgeKey = snapshot.backboneEdges.map((edge) => [
+      edge.nodeAId,
+      edge.nodeBId,
+      edge.bundleIds.join(",")
+    ].join(":")).join("|");
+    return `${nodeKey};${edgeKey}`;
+  }
+
+  private sceneGuideSignature(snapshot: ViewerSnapshot): string {
+    const points = snapshot.pathPoints.map((point) => point.join(":")).join("|");
+    const specs = snapshot.pathPointSpecs.map((spec) =>
+      spec === null ? "null" : `${spec.supportKind}:${spec.nodeId}`
+    ).join("|");
+    return `${points};${specs}`;
+  }
+
+  private rebuildContent(snapshot: ViewerSnapshot): void {
     this.disposeGroup(this.content);
-    this.disposeGroup(this.guide);
-    this.clearSnapPreview();
 
     for (const part of snapshot.parts) {
       const points: THREE.Vector3[] = [];
@@ -450,8 +535,6 @@ export class WireScene {
       this.content.add(mesh);
     }
 
-    this.buildBackboneOverlay(snapshot);
-
     for (const pole of snapshot.poles) {
       const topRadius = POLE_TOP_DIAMETER_M / 2;
       const groundRadius = (POLE_TOP_DIAMETER_M + pole.height / POLE_TAPER_RATIO) / 2;
@@ -475,7 +558,15 @@ export class WireScene {
       mesh.receiveShadow = true;
       this.content.add(mesh);
     }
+  }
 
+  private rebuildBackbone(snapshot: ViewerSnapshot): void {
+    this.disposeGroup(this.backbone);
+    this.buildBackboneOverlay(snapshot);
+  }
+
+  private rebuildGuide(snapshot: ViewerSnapshot): void {
+    this.disposeGroup(this.guide);
     this.buildPathGuide(snapshot);
   }
 

@@ -13,6 +13,7 @@
 | `SetSpanEndpointSocketOverride` / `SetSpanBranchDownOffsetOverride` | backbone span でも `override_state` を正本として trial に書き、対象 span の edge を統一 regenerate して layout/geom/draw を再導出する | post-edit API | override の対象範囲を span-local 以外へ広げる場合だけ別 scenario として扱う |
 | `UpdateLayoutSettings` | backbone span が存在しても、layout settings を trial に書いて全 route/bundle scope を統一 regenerate し、保存済み topology identity を維持して layout/geom/draw を再導出する | post-edit API | layout settings が新しい生成入力を持つ場合は同じ scope 収集に追加する |
 | `pending_support_nodes` | 未保存pickを次のrequestへ渡すtransient input | DrawPath input | 保存済みnodeと混同しない限り維持 |
+| M4 trial削除 | 撤回済み。preflight を増やしても trial は削除せず、同等の failure 保証を持つ代替 transaction 方式へ置換できた場合だけ退役する | transaction 契約 | MutationPlan / journal / copy-on-write 等で全 stage failure 時の本 state 不変を保証できたとき |
 
 ## 隔離
 

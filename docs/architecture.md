@@ -118,6 +118,15 @@ staleなlayout/geom/drawを残したまま成功してはいけない。
 regenerate は各 post-edit API が編集差分を添えて統一入口を直接呼ぶ。
 `UpdatePlan` は差分入力を運ばないため、plan 経由の regenerate 実行は設計として採用しない。
 
+### transaction 契約
+
+preflight は、入力・identity・binding・構造条件の失敗を mutation 前に検出する。
+pipeline 後半では projection 評価など派生 geometry 固有の失敗が起こり得る。
+これを preflight へ移すことは C720（front half は curve projection を読まない）に反するため行わない。
+commit は全 stage が成功したときだけ本 state へ反映する。どの stage で失敗しても、本 state は変更前と同一でなければならない。
+trial（state copy）はこの failure 保証の現行実装であり、MutationPlan / journal / copy-on-write 等の代替 transaction 方式へ置換できた場合だけ削除できる。
+preflight を増やしたことを理由に本 state 直接変更へ戻すことは禁止する。
+
 統一 regenerate は、編集差分から影響 scope を解決し、保存済み入力から scope の pipeline graph を組み直し、
 既存 pipeline を部分再実行して binding を reconcile する。既存 binding は再利用し、増えたものは生成し、
 消えたものは退役する。差分別の migration operation は作らず、対応範囲は scenario 単位で拡張する。

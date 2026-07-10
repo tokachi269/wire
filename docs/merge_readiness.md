@@ -22,7 +22,7 @@
 - layout/geom/drawが上流判断を再実行しない
 - viewer/inspectionがstateを補正しない
 - v1/recalc/materializationへのfallbackがない
-- input / identity / binding / 構造条件を満たさない unsupported request が mutation 前に拒否される。派生 geometry 固有の後半失敗も、本 state を変更せず失敗する
+- post-edit regenerate は input / identity / binding / 構造条件を満たさない unsupported request を mutation 前に拒否し、派生 geometry 固有の後半失敗でも本 state を変更しない。通常生成 `GenerateFromBackboneSpec` の transaction 境界は未完であり、完了条件として通過扱いにしない
 - post-edit successがstale outputを残さない
 - wire coreが外部domain型へ依存しない
 - bundle template identity は `BundleTemplateId` であり、`BundleKind` は category/tag としてのみ使う

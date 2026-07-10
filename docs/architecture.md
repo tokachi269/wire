@@ -95,9 +95,26 @@ operation 固有の差分は post-edit API と `regenerate_backbone_edge_bundles
 
 pipeline の preflight は、入力・identity・binding・構造上その時点で判定できる失敗だけを早期検出する。
 source edge の current curve projection や `EvaluatePosition(source_t)` のように後半の派生 geometry が必要な失敗は、
-preflight へ移さない。atomicity は preflight の完全性ではなく、全 stage 成功後にだけ本 state へ反映する
+preflight へ移さない。post-edit regenerate の atomicity は preflight の完全性ではなく、全 stage 成功後にだけ本 state へ反映する
 trial/proposal 境界で守る。trial を削除できるのは、MutationPlan、copy-on-write state、rollback journal、
-または immutable proposal などの transaction 方式に置換できた場合だけである。
+または immutable proposal などの transaction 方式に置換できた場合だけである。通常生成の transaction 境界は未完である。
+
+## public view の参照寿命
+
+`CoreState` / `CoreView` から取得した pointer、reference、view は、同じ `CoreState` に対する次の non-const operation
+まで有効である。non-const operation の成功・失敗を跨いだアドレス同一性は保証しない。長期保持が必要な consumer は
+`ObjectId` を保持し、操作後に再取得する。
+
+| API / result | 参照元 storage | 無効になり得る操作 | mutation 跨ぎ安定性 |
+|---|---|---|---|
+| `SpanLayoutView` / `SpanLayoutRulesView` | `SpanLayoutCache.records_by_span` の `unordered_map` 内 `optional` | record erase、layout/rule 再保存、storage 代入。insert の rehash は iterator を無効化する | 保証しない |
+| `CoreView` の Pole / Port / Span / Bundle / Attachment pointer、`PoleDetailInfo` | `EditState` の `ObjectStore` | vector の insert/reallocation、erase の末尾要素移動、storage 代入 | 保証しない |
+| backbone node / edge / binding pointer と CoreView の map/vector reference | `SavedBackboneGraph`、runtime index、debug vector/map | vector insert/erase、map erase/rehash、storage 代入 | 保証しない |
+| curve / bounds / visual / render cache pointer、visual curve cache reference | runtime cache の `unordered_map` / vector | cache entry erase/再保存、vector 更新、storage 代入。rehash は iterator を無効化する | 保証しない |
+| inspection result 内 pointer (`PoleDetailInfo` 等) | 上記 view が指す storage | 上記と同じ | 保証しない |
+
+現在 public contract として mutation を跨ぐ参照安定性を保証する consumer はない。既存 test も value / id / ChangeSet を観測し、
+pointer address を invariant にしてはならない。
 
 ## post-edit update
 
@@ -123,9 +140,12 @@ regenerate は各 post-edit API が編集差分を添えて統一入口を直接
 preflight は、入力・identity・binding・構造条件の失敗を mutation 前に検出する。
 pipeline 後半では projection 評価など派生 geometry 固有の失敗が起こり得る。
 これを preflight へ移すことは C720（front half は curve projection を読まない）に反するため行わない。
-commit は全 stage が成功したときだけ本 state へ反映する。どの stage で失敗しても、本 state は変更前と同一でなければならない。
+post-edit regenerate の commit は全 stage が成功したときだけ本 state へ反映する。どの stage で失敗しても、本 state は変更前と同一でなければならない。
 trial（state copy）はこの failure 保証の現行実装であり、MutationPlan / journal / copy-on-write 等の代替 transaction 方式へ置換できた場合だけ削除できる。
 preflight を増やしたことを理由に本 state 直接変更へ戻すことは禁止する。
+
+通常生成の `GenerateFromBackboneSpec` は transaction 境界の適用が未完であり、pipeline 後半失敗時の本 state 不変をまだ保証していない。
+これは既知の暫定例外であり、preflight だけで安全と見なしてはならない。
 
 統一 regenerate は、編集差分から影響 scope を解決し、保存済み入力から scope の pipeline graph を組み直し、
 既存 pipeline を部分再実行して binding を reconcile する。既存 binding は再利用し、増えたものは生成し、

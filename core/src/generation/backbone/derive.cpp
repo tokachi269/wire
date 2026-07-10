@@ -203,7 +203,7 @@ EditResult<bool> CoreState::execute_update_plan(const UpdatePlan& plan) {
     }
   }
   if (plan.kind == UpdateKind::kReposition || plan.kind == UpdateKind::kReshape) {
-    cache_visual_curve_parts(generation::backbone::make_visual_curve_parts(*this, {}));
+    cache_visual_curve_parts(generation::backbone::make_visual_curve_parts(*this, {}, plan.affected.spans));
   }
   timing.total_ms =
       std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();

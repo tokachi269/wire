@@ -2971,7 +2971,12 @@ EditResult<geom> pipeline::make(const layout& made) const {
     out.value.boxes.data.push_back({entry.span_id, std::move(cached)});
     out.value.curves.data.push_back({entry.span_id, std::move(detail.value)});
   }
-  out.value.visual_curves = make_visual_curve_parts(state_, made);
+  std::vector<ObjectId> visual_scope_span_ids{};
+  visual_scope_span_ids.reserve(made.entries.size());
+  for (const SpanLayoutEntry& entry : made.entries) {
+    visual_scope_span_ids.push_back(entry.span_id);
+  }
+  out.value.visual_curves = make_visual_curve_parts(state_, made, visual_scope_span_ids);
   out.ok = true;
   return out;
 }

@@ -1016,6 +1016,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C740_visual_curve_part_stats_count_full_curve_builds",
                          "visual curve part stats count only final full curve builds",
                          "Invariant", false, C740_visual_curve_part_stats_count_full_curve_builds);
+  test_registry::AddTest(tests, "C741_scoped_visual_curve_rebuild_matches_full_rebuild",
+                         "scoped visual curve rebuild matches full rebuild",
+                         "Invariant", false, C741_scoped_visual_curve_rebuild_matches_full_rebuild);
   test_registry::AddTest(tests, "C717_backbone_layout_settings_regenerate_matches_fresh",
                          "backbone layout settings regenerate and match fresh generation",
                          "Invariant", false, C717_backbone_layout_settings_regenerate_matches_fresh);

@@ -6,6 +6,8 @@
 #include "wire/core/core_test_hook.hpp"
 #include "wire/core/core_view.hpp"
 
+#include "../../src/generation/backbone/curve_parts.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -191,6 +193,54 @@ bool C740_visual_curve_part_stats_count_full_curve_builds() {
   const wire::core::VisualCurvePartCache& cache = state.visual_curve_parts();
   const std::size_t expected_sections = out.value.generated_span_ids.size();
   return cache.stats.sections == expected_sections && cache.stats.curve_builds == expected_sections;
+}
+
+std::vector<std::string> visual_part_snapshot(const wire::core::VisualCurvePartCache& cache) {
+  std::vector<std::string> out{};
+  out.reserve(cache.parts.size());
+  for (const wire::core::VisualCurvePart& part : cache.parts) {
+    std::ostringstream ss;
+    ss << static_cast<int>(part.kind) << ":" << part.source_node_id << ":" << part.source_edge_id << ":"
+       << part.source_span_id << ":" << part.source_bundle_id << ":" << part.bundle_template_id << ":"
+       << part.lane_index << ":" << part.has_section_key << ":";
+    if (part.has_section_key) {
+      ss << part.section_key.logical_span_id << ":" << part.section_key.edge_bundle_id << ":"
+         << part.section_key.rule_owner_id << ":" << part.section_key.rule_id << ":"
+         << part.section_key.instance_index;
+    }
+    ss << ":" << part.cable_run_id << ":" << part.samples.size() << ":" << part.bezier_control_points.size();
+    if (!part.samples.empty()) {
+      const wire::core::Vec3d& first = part.samples.front();
+      const wire::core::Vec3d& last = part.samples.back();
+      ss << ":" << first.x << "," << first.y << "," << first.z << ":" << last.x << "," << last.y << ","
+         << last.z;
+    }
+    out.push_back(ss.str());
+  }
+  return out;
+}
+
+bool C741_scoped_visual_curve_rebuild_matches_full_rebuild() {
+  wire::core::CoreState state;
+  const auto first = state.GenerateFromBackboneSpec(line_req(state));
+  if (!first.ok || first.value.generated_pole_ids.size() < 2) {
+    return false;
+  }
+  const wire::core::ObjectId terminal_pole = first.value.generated_pole_ids.back();
+  const auto* pole = state.view().poles().find(terminal_pole);
+  if (pole == nullptr) {
+    return false;
+  }
+  wire::core::BackboneSpec extension = line_req(state);
+  extension.path.polyline = {pole->world_transform.position, {24.0, 0.0, 0.0}};
+  extension.path.node_specs = {pole_spec(0, terminal_pole)};
+  const auto second = state.GenerateFromBackboneSpec(extension);
+  if (!second.ok || second.value.generated_span_ids.size() != 1) {
+    return false;
+  }
+  const wire::core::VisualCurvePartCache scoped = state.visual_curve_parts();
+  const wire::core::VisualCurvePartCache full = wire::core::generation::backbone::make_visual_curve_parts(state, {});
+  return scoped.stats.curve_builds == 2 && visual_part_snapshot(scoped) == visual_part_snapshot(full);
 }
 
 bool C515_backbone_rejects_existing_pole_without_saved_graph() {

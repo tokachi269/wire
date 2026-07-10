@@ -520,10 +520,165 @@ layout merged_visual_curve_layouts(const CoreState& state, const layout& made) {
   return merged;
 }
 
+std::unordered_set<ObjectId> span_set_from(const std::vector<ObjectId>& span_ids) {
+  std::unordered_set<ObjectId> out{};
+  out.reserve(span_ids.size());
+  for (ObjectId span_id : span_ids) {
+    if (span_id != kInvalidObjectId) {
+      out.insert(span_id);
+    }
+  }
+  return out;
+}
+
+std::unordered_set<ObjectId> saved_nodes_for_spans(const CoreState& state, const std::unordered_set<ObjectId>& span_ids) {
+  std::unordered_set<ObjectId> nodes{};
+  for (ObjectId span_id : span_ids) {
+    const SavedBackboneSpanBinding* binding = span_binding_for(state, span_id);
+    const SavedBackboneEdgeBundle* edge_bundle =
+        binding == nullptr ? nullptr : state.view().backbone_edge_bundle(binding->edge_bundle_id);
+    const SavedBackboneEdge* edge = edge_bundle == nullptr ? nullptr : state.view().backbone_edge(edge_bundle->edge_id);
+    if (edge == nullptr) {
+      continue;
+    }
+    nodes.insert(edge->node_a);
+    nodes.insert(edge->node_b);
+  }
+  return nodes;
+}
+
+std::unordered_set<ObjectId> scoped_visual_spans(const CoreState& state, const std::vector<ObjectId>& scope_span_ids) {
+  std::unordered_set<ObjectId> spans = span_set_from(scope_span_ids);
+  if (spans.empty()) {
+    return spans;
+  }
+  const std::unordered_set<ObjectId> nodes = saved_nodes_for_spans(state, spans);
+  if (nodes.empty()) {
+    return spans;
+  }
+  const SavedBackboneGraph& graph = state.view().backbone();
+  for (const SavedBackboneSpanBinding& binding : graph.span_bindings) {
+    const SavedBackboneEdgeBundle* edge_bundle = state.view().backbone_edge_bundle(binding.edge_bundle_id);
+    const SavedBackboneEdge* edge = edge_bundle == nullptr ? nullptr : state.view().backbone_edge(edge_bundle->edge_id);
+    if (edge == nullptr) {
+      continue;
+    }
+    if (nodes.contains(edge->node_a) || nodes.contains(edge->node_b)) {
+      spans.insert(binding.span_id);
+    }
+  }
+  return spans;
+}
+
+layout filter_layouts_to_spans(const layout& placed, const std::unordered_set<ObjectId>& span_ids) {
+  if (span_ids.empty()) {
+    return placed;
+  }
+  layout filtered{};
+  for (const SpanLayoutEntry& entry : placed.entries) {
+    if (span_ids.contains(entry.span_id)) {
+      filtered.entries.push_back(entry);
+    }
+  }
+  return filtered;
+}
+
+int visual_part_kind_order(VisualCurvePartKind kind) {
+  switch (kind) {
+  case VisualCurvePartKind::kEdgeBody:
+    return 0;
+  case VisualCurvePartKind::kNodePatch:
+    return 1;
+  case VisualCurvePartKind::kJumper:
+    return 2;
+  }
+  return 3;
+}
+
+bool section_key_less(const CableSectionKey& a, const CableSectionKey& b) {
+  if (a.logical_span_id != b.logical_span_id) {
+    return a.logical_span_id < b.logical_span_id;
+  }
+  if (a.edge_bundle_id != b.edge_bundle_id) {
+    return a.edge_bundle_id < b.edge_bundle_id;
+  }
+  if (a.rule_owner_id != b.rule_owner_id) {
+    return a.rule_owner_id < b.rule_owner_id;
+  }
+  if (a.rule_id != b.rule_id) {
+    return a.rule_id < b.rule_id;
+  }
+  return a.instance_index < b.instance_index;
+}
+
+bool visual_part_less(const VisualCurvePart& a, const VisualCurvePart& b) {
+  const int kind_a = visual_part_kind_order(a.kind);
+  const int kind_b = visual_part_kind_order(b.kind);
+  if (kind_a != kind_b) {
+    return kind_a < kind_b;
+  }
+  if (a.source_span_id != b.source_span_id) {
+    return a.source_span_id < b.source_span_id;
+  }
+  if (a.source_node_id != b.source_node_id) {
+    return a.source_node_id < b.source_node_id;
+  }
+  if (a.bundle_template_id != b.bundle_template_id) {
+    return a.bundle_template_id < b.bundle_template_id;
+  }
+  if (a.lane_index != b.lane_index) {
+    return a.lane_index < b.lane_index;
+  }
+  if (a.has_section_key != b.has_section_key) {
+    return a.has_section_key;
+  }
+  if (a.has_section_key && !same_cable_section(a.section_key, b.section_key)) {
+    return section_key_less(a.section_key, b.section_key);
+  }
+  return a.cable_run_id < b.cable_run_id;
+}
+
+void sort_visual_parts(VisualCurvePartCache* cache) {
+  if (cache == nullptr) {
+    return;
+  }
+  std::sort(cache->parts.begin(), cache->parts.end(), visual_part_less);
+}
+
+VisualCurvePartCache merge_scoped_visual_curve_parts(const CoreState& state, VisualCurvePartCache rebuilt,
+                                                     const std::unordered_set<ObjectId>& rebuilt_spans) {
+  if (rebuilt_spans.empty()) {
+    sort_visual_parts(&rebuilt);
+    return rebuilt;
+  }
+  const std::unordered_set<ObjectId> affected_nodes = saved_nodes_for_spans(state, rebuilt_spans);
+  VisualCurvePartCache merged = state.view().visual_curve_parts();
+  merged.parts.erase(std::remove_if(merged.parts.begin(), merged.parts.end(), [&](const VisualCurvePart& part) {
+                       if (part.source_span_id != kInvalidObjectId && rebuilt_spans.contains(part.source_span_id)) {
+                         return true;
+                       }
+                       if (part.has_section_key && rebuilt_spans.contains(part.section_key.logical_span_id)) {
+                         return true;
+                       }
+                       return part.source_node_id != kInvalidObjectId && affected_nodes.contains(part.source_node_id);
+                     }),
+                     merged.parts.end());
+  merged.parts.insert(merged.parts.end(), std::make_move_iterator(rebuilt.parts.begin()),
+                      std::make_move_iterator(rebuilt.parts.end()));
+  merged.diagnostics = std::move(rebuilt.diagnostics);
+  merged.population_diagnostics = std::move(rebuilt.population_diagnostics);
+  merged.stats = rebuilt.stats;
+  sort_visual_parts(&merged);
+  return merged;
+}
+
 } // namespace
 
-VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layout& made) {
-  const layout placed = merged_visual_curve_layouts(state, made);
+VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layout& made,
+                                             const std::vector<ObjectId>& scope_span_ids) {
+  const layout merged_layout = merged_visual_curve_layouts(state, made);
+  const std::unordered_set<ObjectId> scoped_spans = scoped_visual_spans(state, scope_span_ids);
+  const layout placed = filter_layouts_to_spans(merged_layout, scoped_spans);
   VisualCurvePartCache out{};
   std::vector<visual_cable_section> sections{};
   sections.reserve(placed.entries.size());
@@ -716,8 +871,12 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
                               : "multiple connectivity-owned patch pairs"});
       continue;
     }
-    const curve_endpoint_ref& patch_a = endpoints[group[candidates.front().first]];
-    const curve_endpoint_ref& patch_b = endpoints[group[candidates.front().second]];
+    const curve_endpoint_ref& raw_patch_a = endpoints[group[candidates.front().first]];
+    const curve_endpoint_ref& raw_patch_b = endpoints[group[candidates.front().second]];
+    const curve_endpoint_ref& patch_a =
+        section_key_less(raw_patch_a.section_key, raw_patch_b.section_key) ? raw_patch_a : raw_patch_b;
+    const curve_endpoint_ref& patch_b =
+        section_key_less(raw_patch_a.section_key, raw_patch_b.section_key) ? raw_patch_b : raw_patch_a;
     if (!patch_a.has_curve_tangent || !patch_b.has_curve_tangent) {
       out.diagnostics.push_back(
           {key.node_id, kInvalidObjectId, key.bundle_template_id, key.lane_index,
@@ -1011,6 +1170,10 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
       emitted_jumper_ports.push_back(peer->port_id);
     }
   }
+  if (!scoped_spans.empty()) {
+    return merge_scoped_visual_curve_parts(state, std::move(out), scoped_spans);
+  }
+  sort_visual_parts(&out);
   return out;
 }
 

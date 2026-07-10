@@ -400,6 +400,7 @@ EditResult<bool> CoreState::regenerate_backbone_edge_bundles(BundleTemplateId bu
     append_unique(change_set->updated_ids, replay.change_set.updated_ids);
     append_unique(change_set->deleted_ids, replay.change_set.deleted_ids);
   }
+  // TODO: pass a scoped span set after regenerate stops rebuilding through the trial-state boundary.
   trial.cache_visual_curve_parts(generation::backbone::make_visual_curve_parts(trial, {}));
 
   identity_ = trial.identity_;

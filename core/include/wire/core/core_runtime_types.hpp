@@ -197,10 +197,17 @@ struct VisualCurvePart {
   std::uint64_t source_version = 0;
 };
 
+struct VisualCurvePartStats {
+  // Derived-cache diagnostics only; not authoritative topology or geometry state.
+  std::size_t curve_builds = 0;
+  std::size_t sections = 0;
+};
+
 struct VisualCurvePartCache {
   std::vector<VisualCurvePart> parts{};
   std::vector<VisualCurveDiagnostic> diagnostics{};
   std::vector<CablePopulationDiagnostic> population_diagnostics{};
+  VisualCurvePartStats stats{};
 };
 
 struct VisualSettings {

@@ -182,6 +182,17 @@ bool C514_backbone_draw_save_is_direct() {
          !contains_text(body, "cache_rebuilt_span_geometry") && !contains_text(body, "dirty");
 }
 
+bool C740_visual_curve_part_stats_count_full_curve_builds() {
+  wire::core::CoreState state;
+  const auto out = state.GenerateFromBackboneSpec(poly3_req(state));
+  if (!out.ok || out.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const wire::core::VisualCurvePartCache& cache = state.visual_curve_parts();
+  const std::size_t expected_sections = out.value.generated_span_ids.size();
+  return cache.stats.sections == expected_sections && cache.stats.curve_builds == expected_sections;
+}
+
 bool C515_backbone_rejects_existing_pole_without_saved_graph() {
   wire::core::CoreState state;
   wire::core::Transformd tf{};

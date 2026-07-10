@@ -594,6 +594,7 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     }
     sections.push_back(std::move(section));
   }
+  out.stats.sections = sections.size();
 
   std::vector<curve_endpoint_ref> endpoints{};
   endpoints.reserve(sections.size() * 2);
@@ -873,6 +874,7 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
         make_curve_between_with_tangent_hints(state, entry.key.logical_span_id, start, end,
                                               has_start_patch ? &start_boundary.tangent : nullptr,
                                               has_end_patch ? &end_boundary_param_tangent : nullptr);
+    ++out.stats.curve_builds;
     if (!curve.ok || curve.value.sample_points.size() < 2) {
       continue;
     }

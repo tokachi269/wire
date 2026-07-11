@@ -247,6 +247,9 @@ public:
     writer_.value(key, input);
     return true;
   }
+  template <typename T> bool field(const std::string& prefix, std::string_view name, const T& input) {
+    return value(child(prefix, name), input);
+  }
 
   bool string_value(const std::string& key, const std::string& input) {
     writer_.string_value(key, input);
@@ -275,6 +278,9 @@ public:
 
   template <typename T> bool value(const std::string& key, T& output) {
     return reader_.value(key, &output);
+  }
+  template <typename T> bool field(const std::string& prefix, std::string_view name, T& output) {
+    return value(child(prefix, name), output);
   }
 
   bool string_value(const std::string& key, std::string& output) {
@@ -615,115 +621,117 @@ WRITE_POLE_TEMPLATE_WRAPPER(pole_type, PoleTypeDefinition)
 
 #undef WRITE_POLE_TEMPLATE_WRAPPER
 
+template <typename Archive, typename Value>
+bool archive_supplemental_path(Archive& ar, const std::string& p, Value& v) {
+  return ar.field(p, "anchor_mode", v.anchor_mode) && ar.field(p, "profile_kind", v.profile_kind) &&
+         ar.field(p, "interaction_mode", v.interaction_mode) && ar.field(p, "pole_band_id", v.pole_band_id) &&
+         ar.field(p, "endpoint_trim_m", v.endpoint_trim_m) && ar.field(p, "lateral_offset_m", v.lateral_offset_m) &&
+         ar.field(p, "vertical_offset_m", v.vertical_offset_m) && ar.field(p, "wobble_amplitude_m", v.wobble_amplitude_m) &&
+         ar.field(p, "wobble_wavelength_m", v.wobble_wavelength_m) && ar.field(p, "wobble_phase_bias", v.wobble_phase_bias) &&
+         ar.field(p, "endpoint_envelope_ratio", v.endpoint_envelope_ratio) && ar.field(p, "coil_radius_m", v.coil_radius_m) &&
+         ar.field(p, "coil_turns_per_meter", v.coil_turns_per_meter) && ar.field(p, "coil_samples_per_turn", v.coil_samples_per_turn);
+}
+
+template <typename Archive, typename Value>
+bool archive_cable_template(Archive& ar, const std::string& p, Value& v) {
+  if (!ar.field(p, "id", v.id) || !ar.string_value(child(p, "name"), v.name) ||
+      !ar.field(p, "outer_diameter_m", v.outer_diameter_m) ||
+      !ar.field(p, "default_grouped_support_fanout_spacing_m", v.default_grouped_support_fanout_spacing_m) ||
+      !ar.field(p, "bend_stiffness", v.bend_stiffness) || !ar.field(p, "min_bend_radius_m", v.min_bend_radius_m) ||
+      !ar.field(p, "material_style", v.material_style) || !ar.field(p, "color_rgba", v.color_rgba) ||
+      !ar.field(p, "requires_insulator", v.requires_insulator) ||
+      !ar.field(p, "insulator_attachment_height_m", v.insulator_attachment_height_m) ||
+      !ar.field(p, "sag_factor", v.sag_factor) || !ar.field(p, "slack_factor", v.slack_factor) ||
+      !ar.field(p, "continuity_policy", v.continuity_policy) || !ar.field(p, "attachment_style", v.attachment_style) ||
+      !ar.field(p, "default_endpoint_attachment_template_id", v.default_endpoint_attachment_template_id)) return false;
+  std::size_t count = v.supplemental_paths.size();
+  if (!ar.count(child(p, "supplemental_paths.count"), count)) return false;
+  if constexpr (Archive::loading) v.supplemental_paths.resize(count);
+  for (std::size_t i = 0; i < count; ++i) {
+    if (!archive_supplemental_path(ar, indexed(child(p, "supplemental_paths"), i), v.supplemental_paths[i])) return false;
+  }
+  return ar.field(p, "version", v.version);
+}
+
+template <typename Archive, typename Value>
+bool archive_reserve(Archive& ar, const std::string& p, Value& v) {
+  return ar.field(p, "reserve_id", v.reserve_id) && ar.field(p, "pole_type_id", v.pole_type_id) &&
+         ar.field(p, "band_id", v.band_id) && ar.field(p, "lateral_min_m", v.lateral_min_m) &&
+         ar.field(p, "lateral_max_m", v.lateral_max_m) && ar.field(p, "height_min_m", v.height_min_m) &&
+         ar.field(p, "height_max_m", v.height_max_m);
+}
+
+template <typename Archive, typename Value>
+bool archive_population_rule(Archive& ar, const std::string& p, Value& v) {
+  if (!ar.field(p, "rule_id", v.rule_id) || !ar.field(p, "explicit_seed", v.explicit_seed) ||
+      !ar.field(p, "priority", v.priority) || !ar.field(p, "min_extra_count", v.min_extra_count) ||
+      !ar.field(p, "max_extra_count", v.max_extra_count) || !ar.field(p, "min_spacing_m", v.min_spacing_m) ||
+      !ar.field(p, "lateral_min_m", v.lateral_min_m) || !ar.field(p, "lateral_max_m", v.lateral_max_m) ||
+      !ar.field(p, "height_min_m", v.height_min_m) || !ar.field(p, "height_max_m", v.height_max_m) ||
+      !ar.field(p, "randomness", v.randomness) || !ar.field(p, "profile", v.profile) ||
+      !ar.field(p, "wrap_radius_m", v.wrap_radius_m) || !ar.field(p, "wrap_turns_per_meter", v.wrap_turns_per_meter) ||
+      !ar.field(p, "wrap_phase", v.wrap_phase) || !ar.field(p, "wrap_direction", v.wrap_direction) ||
+      !ar.field(p, "end_trim_m", v.end_trim_m)) return false;
+  std::size_t count = v.reserves.size();
+  if (!ar.count(child(p, "reserves.count"), count)) return false;
+  if constexpr (Archive::loading) v.reserves.resize(count);
+  for (std::size_t i = 0; i < count; ++i) {
+    if (!archive_reserve(ar, indexed(child(p, "reserves"), i), v.reserves[i])) return false;
+  }
+  return true;
+}
+
+template <typename Archive, typename Value>
+bool archive_bundle_template(Archive& ar, const std::string& p, Value& v) {
+  if (!ar.field(p, "id", v.id) || !ar.field(p, "kind", v.kind) || !ar.string_value(child(p, "name"), v.name) ||
+      !ar.field(p, "category", v.category) || !ar.field(p, "cable_template_id", v.cable_template_id) ||
+      !ar.field(p, "default_layer", v.default_layer) || !ar.field(p, "related_pole_type_id", v.related_pole_type_id) ||
+      !ar.field(p, "preserve_conductor_identity", v.preserve_conductor_identity) || !ar.field(p, "count_rule", v.count_rule) ||
+      !ar.field(p, "fixed_count", v.fixed_count) || !ar.field(p, "min_count", v.min_count) ||
+      !ar.field(p, "max_count", v.max_count) || !ar.field(p, "default_count", v.default_count) ||
+      !ar.field(p, "default_spacing_m", v.default_spacing_m) ||
+      !ar.field(p, "grouped_support_fanout_spacing_m", v.grouped_support_fanout_spacing_m) ||
+      !ar.field(p, "allow_mirror", v.allow_mirror) || !ar.field(p, "allow_midair_node", v.allow_midair_node) ||
+      !ar.field(p, "allow_midair_branch", v.allow_midair_branch) ||
+      !ar.field(p, "enable_branch_down_offset", v.enable_branch_down_offset) ||
+      !ar.field(p, "branch_endpoint_offset_m", v.branch_endpoint_offset_m) ||
+      !ar.field(p, "order_decision_policy", v.order_decision_policy) ||
+      !ar.field(p, "row_layout_axis_mode", v.row_layout_axis_mode) || !ar.field(p, "support_style", v.support_style) ||
+      !ar.field(p, "branch_policy", v.branch_policy) || !ar.field(p, "continuity_policy", v.continuity_policy) ||
+      !ar.field(p, "support_wire_pole_band_id", v.support_wire_pole_band_id)) return false;
+  std::size_t count = v.population_rules.size();
+  if (!ar.count(child(p, "population_rules.count"), count)) return false;
+  if constexpr (Archive::loading) v.population_rules.resize(count);
+  for (std::size_t i = 0; i < count; ++i) {
+    if (!archive_population_rule(ar, indexed(child(p, "population_rules"), i), v.population_rules[i])) return false;
+  }
+  return ar.field(p, "version", v.version);
+}
+
 void write_supplemental_path(StateWriter& writer, const std::string& prefix,
                              const CableSupplementalPathTemplate& value) {
-  writer.value(child(prefix, "anchor_mode"), value.anchor_mode);
-  writer.value(child(prefix, "profile_kind"), value.profile_kind);
-  writer.value(child(prefix, "interaction_mode"), value.interaction_mode);
-  writer.value(child(prefix, "pole_band_id"), value.pole_band_id);
-  writer.value(child(prefix, "endpoint_trim_m"), value.endpoint_trim_m);
-  writer.value(child(prefix, "lateral_offset_m"), value.lateral_offset_m);
-  writer.value(child(prefix, "vertical_offset_m"), value.vertical_offset_m);
-  writer.value(child(prefix, "wobble_amplitude_m"), value.wobble_amplitude_m);
-  writer.value(child(prefix, "wobble_wavelength_m"), value.wobble_wavelength_m);
-  writer.value(child(prefix, "wobble_phase_bias"), value.wobble_phase_bias);
-  writer.value(child(prefix, "endpoint_envelope_ratio"), value.endpoint_envelope_ratio);
-  writer.value(child(prefix, "coil_radius_m"), value.coil_radius_m);
-  writer.value(child(prefix, "coil_turns_per_meter"), value.coil_turns_per_meter);
-  writer.value(child(prefix, "coil_samples_per_turn"), value.coil_samples_per_turn);
+  WriteFieldArchive archive(writer);
+  static_cast<void>(archive_supplemental_path(archive, prefix, value));
 }
 
 void write_cable_template(StateWriter& writer, const std::string& prefix, const CableTemplate& value) {
-  writer.value(child(prefix, "id"), value.id);
-  writer.string_value(child(prefix, "name"), value.name);
-  writer.value(child(prefix, "outer_diameter_m"), value.outer_diameter_m);
-  writer.value(child(prefix, "default_grouped_support_fanout_spacing_m"),
-               value.default_grouped_support_fanout_spacing_m);
-  writer.value(child(prefix, "bend_stiffness"), value.bend_stiffness);
-  writer.value(child(prefix, "min_bend_radius_m"), value.min_bend_radius_m);
-  writer.value(child(prefix, "material_style"), value.material_style);
-  writer.value(child(prefix, "color_rgba"), value.color_rgba);
-  writer.value(child(prefix, "requires_insulator"), value.requires_insulator);
-  writer.value(child(prefix, "insulator_attachment_height_m"), value.insulator_attachment_height_m);
-  writer.value(child(prefix, "sag_factor"), value.sag_factor);
-  writer.value(child(prefix, "slack_factor"), value.slack_factor);
-  writer.value(child(prefix, "continuity_policy"), value.continuity_policy);
-  writer.value(child(prefix, "attachment_style"), value.attachment_style);
-  writer.value(child(prefix, "default_endpoint_attachment_template_id"),
-               value.default_endpoint_attachment_template_id);
-  writer.value(child(prefix, "supplemental_paths.count"), value.supplemental_paths.size());
-  for (std::size_t i = 0; i < value.supplemental_paths.size(); ++i) {
-    write_supplemental_path(writer, indexed(child(prefix, "supplemental_paths"), i), value.supplemental_paths[i]);
-  }
-  writer.value(child(prefix, "version"), value.version);
+  WriteFieldArchive archive(writer);
+  static_cast<void>(archive_cable_template(archive, prefix, value));
 }
 
 void write_reserve(StateWriter& writer, const std::string& prefix, const PlacementReserve& value) {
-  writer.value(child(prefix, "reserve_id"), value.reserve_id);
-  writer.value(child(prefix, "pole_type_id"), value.pole_type_id);
-  writer.value(child(prefix, "band_id"), value.band_id);
-  writer.value(child(prefix, "lateral_min_m"), value.lateral_min_m);
-  writer.value(child(prefix, "lateral_max_m"), value.lateral_max_m);
-  writer.value(child(prefix, "height_min_m"), value.height_min_m);
-  writer.value(child(prefix, "height_max_m"), value.height_max_m);
+  WriteFieldArchive archive(writer);
+  static_cast<void>(archive_reserve(archive, prefix, value));
 }
 
 void write_population_rule(StateWriter& writer, const std::string& prefix, const CablePopulationRule& value) {
-  writer.value(child(prefix, "rule_id"), value.rule_id);
-  writer.value(child(prefix, "explicit_seed"), value.explicit_seed);
-  writer.value(child(prefix, "priority"), value.priority);
-  writer.value(child(prefix, "min_extra_count"), value.min_extra_count);
-  writer.value(child(prefix, "max_extra_count"), value.max_extra_count);
-  writer.value(child(prefix, "min_spacing_m"), value.min_spacing_m);
-  writer.value(child(prefix, "lateral_min_m"), value.lateral_min_m);
-  writer.value(child(prefix, "lateral_max_m"), value.lateral_max_m);
-  writer.value(child(prefix, "height_min_m"), value.height_min_m);
-  writer.value(child(prefix, "height_max_m"), value.height_max_m);
-  writer.value(child(prefix, "randomness"), value.randomness);
-  writer.value(child(prefix, "profile"), value.profile);
-  writer.value(child(prefix, "wrap_radius_m"), value.wrap_radius_m);
-  writer.value(child(prefix, "wrap_turns_per_meter"), value.wrap_turns_per_meter);
-  writer.value(child(prefix, "wrap_phase"), value.wrap_phase);
-  writer.value(child(prefix, "wrap_direction"), value.wrap_direction);
-  writer.value(child(prefix, "end_trim_m"), value.end_trim_m);
-  writer.value(child(prefix, "reserves.count"), value.reserves.size());
-  for (std::size_t i = 0; i < value.reserves.size(); ++i) {
-    write_reserve(writer, indexed(child(prefix, "reserves"), i), value.reserves[i]);
-  }
+  WriteFieldArchive archive(writer);
+  static_cast<void>(archive_population_rule(archive, prefix, value));
 }
 
 void write_bundle_template(StateWriter& writer, const std::string& prefix, const BundleTemplate& value) {
-  writer.value(child(prefix, "id"), value.id);
-  writer.value(child(prefix, "kind"), value.kind);
-  writer.string_value(child(prefix, "name"), value.name);
-  writer.value(child(prefix, "category"), value.category);
-  writer.value(child(prefix, "cable_template_id"), value.cable_template_id);
-  writer.value(child(prefix, "default_layer"), value.default_layer);
-  writer.value(child(prefix, "related_pole_type_id"), value.related_pole_type_id);
-  writer.value(child(prefix, "preserve_conductor_identity"), value.preserve_conductor_identity);
-  writer.value(child(prefix, "count_rule"), value.count_rule);
-  writer.value(child(prefix, "fixed_count"), value.fixed_count);
-  writer.value(child(prefix, "min_count"), value.min_count);
-  writer.value(child(prefix, "max_count"), value.max_count);
-  writer.value(child(prefix, "default_count"), value.default_count);
-  writer.value(child(prefix, "default_spacing_m"), value.default_spacing_m);
-  writer.value(child(prefix, "grouped_support_fanout_spacing_m"), value.grouped_support_fanout_spacing_m);
-  writer.value(child(prefix, "allow_mirror"), value.allow_mirror);
-  writer.value(child(prefix, "allow_midair_node"), value.allow_midair_node);
-  writer.value(child(prefix, "allow_midair_branch"), value.allow_midair_branch);
-  writer.value(child(prefix, "enable_branch_down_offset"), value.enable_branch_down_offset);
-  writer.value(child(prefix, "branch_endpoint_offset_m"), value.branch_endpoint_offset_m);
-  writer.value(child(prefix, "order_decision_policy"), value.order_decision_policy);
-  writer.value(child(prefix, "row_layout_axis_mode"), value.row_layout_axis_mode);
-  writer.value(child(prefix, "support_style"), value.support_style);
-  writer.value(child(prefix, "branch_policy"), value.branch_policy);
-  writer.value(child(prefix, "continuity_policy"), value.continuity_policy);
-  writer.value(child(prefix, "support_wire_pole_band_id"), value.support_wire_pole_band_id);
-  writer.value(child(prefix, "population_rules.count"), value.population_rules.size());
-  for (std::size_t i = 0; i < value.population_rules.size(); ++i) {
-    write_population_rule(writer, indexed(child(prefix, "population_rules"), i), value.population_rules[i]);
-  }
-  writer.value(child(prefix, "version"), value.version);
+  WriteFieldArchive archive(writer);
+  static_cast<void>(archive_bundle_template(archive, prefix, value));
 }
 
 #define ARCHIVE_VALUE(field) archive.value(child(prefix, #field), value.field)

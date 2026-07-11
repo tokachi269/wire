@@ -247,6 +247,11 @@ public:
     return true;
   }
 
+  bool string_value(const std::string& key, const std::string& input) {
+    writer_.string_value(key, input);
+    return true;
+  }
+
   template <typename T> bool optional(const std::string& prefix, const std::optional<T>& input) {
     writer_.value(child(prefix, "has"), input.has_value());
     if (input.has_value()) writer_.value(child(prefix, "value"), *input);
@@ -263,6 +268,10 @@ public:
 
   template <typename T> bool value(const std::string& key, T& output) {
     return reader_.value(key, &output);
+  }
+
+  bool string_value(const std::string& key, std::string& output) {
+    return reader_.string_value(key, &output);
   }
 
   template <typename T> bool optional(const std::string& prefix, std::optional<T>& output) {
@@ -282,129 +291,116 @@ private:
   StateReader& reader_;
 };
 
-void write_vec3(StateWriter& writer, const std::string& prefix, const Vec3d& value) {
-  writer.value(child(prefix, "x"), value.x);
-  writer.value(child(prefix, "y"), value.y);
-  writer.value(child(prefix, "z"), value.z);
+#define ARCHIVE_VALUE(field) archive.value(child(prefix, #field), value.field)
+#define ARCHIVE_STRING(field) archive.string_value(child(prefix, #field), value.field)
+
+template <typename Archive, typename Value>
+bool archive_vec3(Archive& archive, const std::string& prefix, Value& value) {
+  return ARCHIVE_VALUE(x) && ARCHIVE_VALUE(y) && ARCHIVE_VALUE(z);
 }
 
-void write_transform(StateWriter& writer, const std::string& prefix, const Transformd& value) {
-  write_vec3(writer, child(prefix, "position"), value.position);
-  write_vec3(writer, child(prefix, "rotation_euler_deg"), value.rotation_euler_deg);
-  write_vec3(writer, child(prefix, "scale"), value.scale);
+template <typename Archive, typename Value>
+bool archive_transform(Archive& archive, const std::string& prefix, Value& value) {
+  return archive_vec3(archive, child(prefix, "position"), value.position) &&
+         archive_vec3(archive, child(prefix, "rotation_euler_deg"), value.rotation_euler_deg) &&
+         archive_vec3(archive, child(prefix, "scale"), value.scale);
 }
 
-void write_frame(StateWriter& writer, const std::string& prefix, const Frame3d& value) {
-  write_vec3(writer, child(prefix, "origin"), value.origin);
-  write_vec3(writer, child(prefix, "forward"), value.forward);
-  write_vec3(writer, child(prefix, "right"), value.right);
-  write_vec3(writer, child(prefix, "up"), value.up);
+template <typename Archive, typename Value>
+bool archive_frame(Archive& archive, const std::string& prefix, Value& value) {
+  return archive_vec3(archive, child(prefix, "origin"), value.origin) &&
+         archive_vec3(archive, child(prefix, "forward"), value.forward) &&
+         archive_vec3(archive, child(prefix, "right"), value.right) &&
+         archive_vec3(archive, child(prefix, "up"), value.up);
 }
 
-void write_generation(StateWriter& writer, const std::string& prefix, const GenerationMeta& value) {
-  writer.value(child(prefix, "generated"), value.generated);
-  writer.value(child(prefix, "source"), value.source);
-  writer.value(child(prefix, "generation_session_id"), value.generation_session_id);
-  writer.value(child(prefix, "generation_order"), value.generation_order);
+template <typename Archive, typename Value>
+bool archive_generation(Archive& archive, const std::string& prefix, Value& value) {
+  return ARCHIVE_VALUE(generated) && ARCHIVE_VALUE(source) && ARCHIVE_VALUE(generation_session_id) &&
+         ARCHIVE_VALUE(generation_order);
 }
 
-void write_pole_context(StateWriter& writer, const std::string& prefix, const PoleContextInfo& value) {
-  writer.value(child(prefix, "kind"), value.kind);
-  writer.value(child(prefix, "corner_angle_deg"), value.corner_angle_deg);
-  writer.value(child(prefix, "corner_turn_sign"), value.corner_turn_sign);
-  writer.value(child(prefix, "side_scale"), value.side_scale);
-  writer.value(child(prefix, "angle_correction_applied"), value.angle_correction_applied);
+template <typename Archive, typename Value>
+bool archive_pole_context(Archive& archive, const std::string& prefix, Value& value) {
+  return ARCHIVE_VALUE(kind) && ARCHIVE_VALUE(corner_angle_deg) && ARCHIVE_VALUE(corner_turn_sign) &&
+         ARCHIVE_VALUE(side_scale) && ARCHIVE_VALUE(angle_correction_applied);
 }
 
-void write_pole(StateWriter& writer, const std::string& prefix, const Pole& value) {
-  writer.value(child(prefix, "id"), value.id);
-  writer.string_value(child(prefix, "display_id"), value.display_id);
-  writer.string_value(child(prefix, "name"), value.name);
-  write_transform(writer, child(prefix, "world_transform"), value.world_transform);
-  writer.value(child(prefix, "tilt_magnitude_deg"), value.tilt_magnitude_deg);
-  writer.value(child(prefix, "height_m"), value.height_m);
-  writer.value(child(prefix, "kind"), value.kind);
-  writer.value(child(prefix, "pole_type_id"), value.pole_type_id);
-  write_pole_context(writer, child(prefix, "context"), value.context);
-  writer.value(child(prefix, "placement_mode"), value.placement_mode);
-  writer.value(child(prefix, "user_edited"), value.user_edited);
-  writer.value(child(prefix, "placement_override_flag"), value.placement_override_flag);
-  write_generation(writer, child(prefix, "generation"), value.generation);
+template <typename Archive, typename Value>
+bool archive_pole(Archive& archive, const std::string& prefix, Value& value) {
+  return ARCHIVE_VALUE(id) && ARCHIVE_STRING(display_id) && ARCHIVE_STRING(name) &&
+         archive_transform(archive, child(prefix, "world_transform"), value.world_transform) &&
+         ARCHIVE_VALUE(tilt_magnitude_deg) && ARCHIVE_VALUE(height_m) && ARCHIVE_VALUE(kind) &&
+         ARCHIVE_VALUE(pole_type_id) && archive_pole_context(archive, child(prefix, "context"), value.context) &&
+         ARCHIVE_VALUE(placement_mode) && ARCHIVE_VALUE(user_edited) && ARCHIVE_VALUE(placement_override_flag) &&
+         archive_generation(archive, child(prefix, "generation"), value.generation);
 }
 
-void write_port(StateWriter& writer, const std::string& prefix, const Port& value) {
-  writer.value(child(prefix, "id"), value.id);
-  writer.string_value(child(prefix, "display_id"), value.display_id);
-  writer.value(child(prefix, "owner_pole_id"), value.owner_pole_id);
-  write_vec3(writer, child(prefix, "world_position"), value.world_position);
-  writer.value(child(prefix, "kind"), value.kind);
-  writer.value(child(prefix, "layer"), value.layer);
-  write_frame(writer, child(prefix, "direction"), value.direction);
-  writer.value(child(prefix, "category"), value.category);
-  writer.value(child(prefix, "template_layer"), value.template_layer);
-  writer.value(child(prefix, "template_side"), value.template_side);
-  writer.value(child(prefix, "template_role"), value.template_role);
-  writer.value(child(prefix, "generated_from_template"), value.generated_from_template);
-  writer.value(child(prefix, "generated_by_rule"), value.generated_by_rule);
-  writer.value(child(prefix, "placement_context"), value.placement_context);
-  writer.value(child(prefix, "angle_correction_applied"), value.angle_correction_applied);
-  writer.value(child(prefix, "side_scale_applied"), value.side_scale_applied);
-  writer.value(child(prefix, "position_mode"), value.position_mode);
-  writer.value(child(prefix, "placement_source"), value.placement_source);
-  writer.value(child(prefix, "user_edited_position"), value.user_edited_position);
-  writer.value(child(prefix, "placement_override_flag"), value.placement_override_flag);
-  writer.value(child(prefix, "orientation_override_flag"), value.orientation_override_flag);
+template <typename Archive, typename Value>
+bool archive_port(Archive& archive, const std::string& prefix, Value& value) {
+  return ARCHIVE_VALUE(id) && ARCHIVE_STRING(display_id) && ARCHIVE_VALUE(owner_pole_id) &&
+         archive_vec3(archive, child(prefix, "world_position"), value.world_position) && ARCHIVE_VALUE(kind) &&
+         ARCHIVE_VALUE(layer) && archive_frame(archive, child(prefix, "direction"), value.direction) &&
+         ARCHIVE_VALUE(category) && ARCHIVE_VALUE(template_layer) && ARCHIVE_VALUE(template_side) &&
+         ARCHIVE_VALUE(template_role) && ARCHIVE_VALUE(generated_from_template) && ARCHIVE_VALUE(generated_by_rule) &&
+         ARCHIVE_VALUE(placement_context) && ARCHIVE_VALUE(angle_correction_applied) &&
+         ARCHIVE_VALUE(side_scale_applied) && ARCHIVE_VALUE(position_mode) && ARCHIVE_VALUE(placement_source) &&
+         ARCHIVE_VALUE(user_edited_position) && ARCHIVE_VALUE(placement_override_flag) &&
+         ARCHIVE_VALUE(orientation_override_flag);
 }
 
-void write_anchor(StateWriter& writer, const std::string& prefix, const Anchor& value) {
-  writer.value(child(prefix, "id"), value.id);
-  writer.string_value(child(prefix, "display_id"), value.display_id);
-  writer.value(child(prefix, "owner_pole_id"), value.owner_pole_id);
-  write_vec3(writer, child(prefix, "world_position"), value.world_position);
-  writer.value(child(prefix, "support_kind"), value.support_kind);
-  writer.value(child(prefix, "support_strength"), value.support_strength);
-  writer.value(child(prefix, "generated_from_template"), value.generated_from_template);
+template <typename Archive, typename Value>
+bool archive_anchor(Archive& archive, const std::string& prefix, Value& value) {
+  return ARCHIVE_VALUE(id) && ARCHIVE_STRING(display_id) && ARCHIVE_VALUE(owner_pole_id) &&
+         archive_vec3(archive, child(prefix, "world_position"), value.world_position) &&
+         ARCHIVE_VALUE(support_kind) && ARCHIVE_VALUE(support_strength) && ARCHIVE_VALUE(generated_from_template);
 }
 
-void write_bundle(StateWriter& writer, const std::string& prefix, const Bundle& value) {
-  writer.value(child(prefix, "id"), value.id);
-  writer.string_value(child(prefix, "display_id"), value.display_id);
-  writer.value(child(prefix, "conductor_count"), value.conductor_count);
-  writer.value(child(prefix, "phase_spacing_m"), value.phase_spacing_m);
-  writer.value(child(prefix, "bundle_template_id"), value.bundle_template_id);
+template <typename Archive, typename Value>
+bool archive_bundle(Archive& archive, const std::string& prefix, Value& value) {
+  return ARCHIVE_VALUE(id) && ARCHIVE_STRING(display_id) && ARCHIVE_VALUE(conductor_count) &&
+         ARCHIVE_VALUE(phase_spacing_m) && ARCHIVE_VALUE(bundle_template_id);
 }
 
-void write_span(StateWriter& writer, const std::string& prefix, const Span& value) {
-  writer.value(child(prefix, "id"), value.id);
-  writer.string_value(child(prefix, "display_id"), value.display_id);
-  writer.value(child(prefix, "port_a_id"), value.port_a_id);
-  writer.value(child(prefix, "port_b_id"), value.port_b_id);
-  writer.value(child(prefix, "endpoint_node_a_id"), value.endpoint_node_a_id);
-  writer.value(child(prefix, "endpoint_node_b_id"), value.endpoint_node_b_id);
-  writer.value(child(prefix, "kind"), value.kind);
-  writer.value(child(prefix, "layer"), value.layer);
-  writer.value(child(prefix, "bundle_id"), value.bundle_id);
-  writer.value(child(prefix, "anchor_a_id"), value.anchor_a_id);
-  writer.value(child(prefix, "anchor_b_id"), value.anchor_b_id);
-  writer.value(child(prefix, "endpoint_attachment_a_id"), value.endpoint_attachment_a_id);
-  writer.value(child(prefix, "endpoint_attachment_b_id"), value.endpoint_attachment_b_id);
-  writer.value(child(prefix, "placement_context"), value.placement_context);
-  writer.value(child(prefix, "generated_by_rule"), value.generated_by_rule);
-  writer.value(child(prefix, "placement_override_flag"), value.placement_override_flag);
-  writer.value(child(prefix, "reference_length_m"), value.reference_length_m);
-  write_generation(writer, child(prefix, "generation"), value.generation);
+template <typename Archive, typename Value>
+bool archive_span(Archive& archive, const std::string& prefix, Value& value) {
+  return ARCHIVE_VALUE(id) && ARCHIVE_STRING(display_id) && ARCHIVE_VALUE(port_a_id) &&
+         ARCHIVE_VALUE(port_b_id) && ARCHIVE_VALUE(endpoint_node_a_id) && ARCHIVE_VALUE(endpoint_node_b_id) &&
+         ARCHIVE_VALUE(kind) && ARCHIVE_VALUE(layer) && ARCHIVE_VALUE(bundle_id) && ARCHIVE_VALUE(anchor_a_id) &&
+         ARCHIVE_VALUE(anchor_b_id) && ARCHIVE_VALUE(endpoint_attachment_a_id) &&
+         ARCHIVE_VALUE(endpoint_attachment_b_id) && ARCHIVE_VALUE(placement_context) &&
+         ARCHIVE_VALUE(generated_by_rule) && ARCHIVE_VALUE(placement_override_flag) &&
+         ARCHIVE_VALUE(reference_length_m) && archive_generation(archive, child(prefix, "generation"), value.generation);
 }
 
-void write_attachment(StateWriter& writer, const std::string& prefix, const Attachment& value) {
-  writer.value(child(prefix, "id"), value.id);
-  writer.string_value(child(prefix, "display_id"), value.display_id);
-  writer.value(child(prefix, "span_id"), value.span_id);
-  writer.value(child(prefix, "template_id"), value.template_id);
-  writer.value(child(prefix, "t"), value.t);
-  writer.value(child(prefix, "kind"), value.kind);
-  writer.value(child(prefix, "display_offset_m"), value.display_offset_m);
-  writer.value(child(prefix, "origin"), value.origin);
+template <typename Archive, typename Value>
+bool archive_attachment(Archive& archive, const std::string& prefix, Value& value) {
+  return ARCHIVE_VALUE(id) && ARCHIVE_STRING(display_id) && ARCHIVE_VALUE(span_id) && ARCHIVE_VALUE(template_id) &&
+         ARCHIVE_VALUE(t) && ARCHIVE_VALUE(kind) && ARCHIVE_VALUE(display_offset_m) && ARCHIVE_VALUE(origin);
 }
+
+#undef ARCHIVE_VALUE
+#undef ARCHIVE_STRING
+
+#define WRITE_ENTITY_WRAPPER(name, type)                                                                               \
+  void write_##name(StateWriter& writer, const std::string& prefix, const type& value) {                              \
+    WriteFieldArchive archive(writer);                                                                                 \
+    static_cast<void>(archive_##name(archive, prefix, value));                                                         \
+  }
+
+WRITE_ENTITY_WRAPPER(vec3, Vec3d)
+WRITE_ENTITY_WRAPPER(transform, Transformd)
+WRITE_ENTITY_WRAPPER(frame, Frame3d)
+WRITE_ENTITY_WRAPPER(generation, GenerationMeta)
+WRITE_ENTITY_WRAPPER(pole_context, PoleContextInfo)
+WRITE_ENTITY_WRAPPER(pole, Pole)
+WRITE_ENTITY_WRAPPER(port, Port)
+WRITE_ENTITY_WRAPPER(anchor, Anchor)
+WRITE_ENTITY_WRAPPER(bundle, Bundle)
+WRITE_ENTITY_WRAPPER(span, Span)
+WRITE_ENTITY_WRAPPER(attachment, Attachment)
+
+#undef WRITE_ENTITY_WRAPPER
 
 template <typename T, typename Write>
 void write_object_store(StateWriter& writer, const std::string& prefix, const ObjectStore<T>& store, Write write) {
@@ -860,136 +856,25 @@ void write_variation_settings(StateWriter& writer, const VariationSettings& valu
 #define READ_STRING(field)                                                                                             \
   if (!reader.string_value(child(prefix, #field), &value->field)) return false
 
-bool read_vec3(StateReader& reader, const std::string& prefix, Vec3d* value) {
-  READ_VALUE(x);
-  READ_VALUE(y);
-  READ_VALUE(z);
-  return true;
-}
+#define READ_ENTITY_WRAPPER(name, type)                                                                                \
+  bool read_##name(StateReader& reader, const std::string& prefix, type* value) {                                     \
+    ReadFieldArchive archive(reader);                                                                                  \
+    return archive_##name(archive, prefix, *value);                                                                    \
+  }
 
-bool read_transform(StateReader& reader, const std::string& prefix, Transformd* value) {
-  return read_vec3(reader, child(prefix, "position"), &value->position) &&
-         read_vec3(reader, child(prefix, "rotation_euler_deg"), &value->rotation_euler_deg) &&
-         read_vec3(reader, child(prefix, "scale"), &value->scale);
-}
+READ_ENTITY_WRAPPER(vec3, Vec3d)
+READ_ENTITY_WRAPPER(transform, Transformd)
+READ_ENTITY_WRAPPER(frame, Frame3d)
+READ_ENTITY_WRAPPER(generation, GenerationMeta)
+READ_ENTITY_WRAPPER(pole_context, PoleContextInfo)
+READ_ENTITY_WRAPPER(pole, Pole)
+READ_ENTITY_WRAPPER(port, Port)
+READ_ENTITY_WRAPPER(anchor, Anchor)
+READ_ENTITY_WRAPPER(bundle, Bundle)
+READ_ENTITY_WRAPPER(span, Span)
+READ_ENTITY_WRAPPER(attachment, Attachment)
 
-bool read_frame(StateReader& reader, const std::string& prefix, Frame3d* value) {
-  return read_vec3(reader, child(prefix, "origin"), &value->origin) &&
-         read_vec3(reader, child(prefix, "forward"), &value->forward) &&
-         read_vec3(reader, child(prefix, "right"), &value->right) &&
-         read_vec3(reader, child(prefix, "up"), &value->up);
-}
-
-bool read_generation(StateReader& reader, const std::string& prefix, GenerationMeta* value) {
-  READ_VALUE(generated);
-  READ_VALUE(source);
-  READ_VALUE(generation_session_id);
-  READ_VALUE(generation_order);
-  return true;
-}
-
-bool read_pole_context(StateReader& reader, const std::string& prefix, PoleContextInfo* value) {
-  READ_VALUE(kind);
-  READ_VALUE(corner_angle_deg);
-  READ_VALUE(corner_turn_sign);
-  READ_VALUE(side_scale);
-  READ_VALUE(angle_correction_applied);
-  return true;
-}
-
-bool read_pole(StateReader& reader, const std::string& prefix, Pole* value) {
-  READ_VALUE(id);
-  READ_STRING(display_id);
-  READ_STRING(name);
-  if (!read_transform(reader, child(prefix, "world_transform"), &value->world_transform)) return false;
-  READ_VALUE(tilt_magnitude_deg);
-  READ_VALUE(height_m);
-  READ_VALUE(kind);
-  READ_VALUE(pole_type_id);
-  if (!read_pole_context(reader, child(prefix, "context"), &value->context)) return false;
-  READ_VALUE(placement_mode);
-  READ_VALUE(user_edited);
-  READ_VALUE(placement_override_flag);
-  return read_generation(reader, child(prefix, "generation"), &value->generation);
-}
-
-bool read_port(StateReader& reader, const std::string& prefix, Port* value) {
-  READ_VALUE(id);
-  READ_STRING(display_id);
-  READ_VALUE(owner_pole_id);
-  if (!read_vec3(reader, child(prefix, "world_position"), &value->world_position)) return false;
-  READ_VALUE(kind);
-  READ_VALUE(layer);
-  if (!read_frame(reader, child(prefix, "direction"), &value->direction)) return false;
-  READ_VALUE(category);
-  READ_VALUE(template_layer);
-  READ_VALUE(template_side);
-  READ_VALUE(template_role);
-  READ_VALUE(generated_from_template);
-  READ_VALUE(generated_by_rule);
-  READ_VALUE(placement_context);
-  READ_VALUE(angle_correction_applied);
-  READ_VALUE(side_scale_applied);
-  READ_VALUE(position_mode);
-  READ_VALUE(placement_source);
-  READ_VALUE(user_edited_position);
-  READ_VALUE(placement_override_flag);
-  READ_VALUE(orientation_override_flag);
-  return true;
-}
-
-bool read_anchor(StateReader& reader, const std::string& prefix, Anchor* value) {
-  READ_VALUE(id);
-  READ_STRING(display_id);
-  READ_VALUE(owner_pole_id);
-  if (!read_vec3(reader, child(prefix, "world_position"), &value->world_position)) return false;
-  READ_VALUE(support_kind);
-  READ_VALUE(support_strength);
-  READ_VALUE(generated_from_template);
-  return true;
-}
-
-bool read_bundle(StateReader& reader, const std::string& prefix, Bundle* value) {
-  READ_VALUE(id);
-  READ_STRING(display_id);
-  READ_VALUE(conductor_count);
-  READ_VALUE(phase_spacing_m);
-  READ_VALUE(bundle_template_id);
-  return true;
-}
-
-bool read_span(StateReader& reader, const std::string& prefix, Span* value) {
-  READ_VALUE(id);
-  READ_STRING(display_id);
-  READ_VALUE(port_a_id);
-  READ_VALUE(port_b_id);
-  READ_VALUE(endpoint_node_a_id);
-  READ_VALUE(endpoint_node_b_id);
-  READ_VALUE(kind);
-  READ_VALUE(layer);
-  READ_VALUE(bundle_id);
-  READ_VALUE(anchor_a_id);
-  READ_VALUE(anchor_b_id);
-  READ_VALUE(endpoint_attachment_a_id);
-  READ_VALUE(endpoint_attachment_b_id);
-  READ_VALUE(placement_context);
-  READ_VALUE(generated_by_rule);
-  READ_VALUE(placement_override_flag);
-  READ_VALUE(reference_length_m);
-  return read_generation(reader, child(prefix, "generation"), &value->generation);
-}
-
-bool read_attachment(StateReader& reader, const std::string& prefix, Attachment* value) {
-  READ_VALUE(id);
-  READ_STRING(display_id);
-  READ_VALUE(span_id);
-  READ_VALUE(template_id);
-  READ_VALUE(t);
-  READ_VALUE(kind);
-  READ_VALUE(display_offset_m);
-  READ_VALUE(origin);
-  return true;
-}
+#undef READ_ENTITY_WRAPPER
 
 template <typename T, typename Read>
 bool read_object_store(StateReader& reader, const std::string& prefix, ObjectStore<T>* store, Read read) {

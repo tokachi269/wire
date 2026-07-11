@@ -590,10 +590,12 @@ int visual_part_kind_order(VisualCurvePartKind kind) {
     return 0;
   case VisualCurvePartKind::kNodePatch:
     return 1;
-  case VisualCurvePartKind::kJumper:
+  case VisualCurvePartKind::kLead:
     return 2;
+  case VisualCurvePartKind::kJumper:
+    return 3;
   }
-  return 3;
+  return 4;
 }
 
 bool section_key_less(const CableSectionKey& a, const CableSectionKey& b) {

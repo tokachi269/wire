@@ -43,10 +43,15 @@ viewerはこれらを事前に判別せず、Apply後のerror logで初めてuns
 
 | 分類 | 操作 | viewer到達 | 残る条件 | 解除条件 |
 |---|---|---|---|---|
-| B. Non-backbone update path pending | `UpdateCableTemplate` | `Apply Cable Template` | non-backbone span を含む decision差分 | backbone span の continuity policy decision差分は統一 regenerate で対応済み(C357/C712)。non-backbone の構造 decision 更新は別経路を設計する |
-| C. Structural template lifecycle pending | `UpdateAttachmentTemplate` | viewer未接続 | 使用中attachmentあり + 構造差分(socket増減/id変更、mode変更、internal path本数/socket参照/kind変更) | 幾何差分(socket位置/方向、internal path local_points/coil値)はkReshapeで対象spanを再導出する。構造差分は実用 scenario が出た時点で正本と退役規則を設計する |
-| D. Generator input not consumed | `UpdateVariationSettings` | viewer未接続 | backbone spanあり | regenerateではない。backbone派生がvariation settingsを実際の出力生成で消費した時点で解除する。現在の拒否は stale success 防止 |
-| D. Generator input not consumed | `UpdateContextProfile` | viewer未接続 | backbone spanあり | regenerateではない。生成側が`ResolveStyleContext`を実際の出力生成で消費した時点で解除する。現在の拒否は stale success 防止 |
+| D2. Generator input not consumed | `UpdateVariationSettings` | viewer未接続 | backbone spanあり | regenerateではない。backbone派生がvariation settingsを実際の出力生成で消費した時点で解除する。現在の拒否は stale success 防止 |
+| D3. Generator input not consumed | `UpdateContextProfile` | viewer未接続 | backbone spanあり | regenerateではない。生成側が`ResolveStyleContext`を実際の出力生成で消費した時点で解除する。現在の拒否は stale success 防止 |
+
+## 決定済みの制限
+
+| 操作 | 制限 | 正本 |
+|---|---|---|
+| `UpdateCableTemplate` | non-backbone span を含む decision差分は mutation 前に unsupported。backbone-only scope は統一 regenerate が所有する | architecture.md の transaction / regenerate 契約 |
+| `UpdateAttachmentTemplate` | 使用中 attachment の構造差分(socket増減/id変更、mode変更、internal path本数/socket参照/kind変更)は、モデル再読込 conflict として解決するまで mutation 前に unsupported | [models.md](models.md) の `UpdateAttachmentTemplate` 構造差分 |
 
 既に保留から外したもの: `UpdateBundleTemplate` の fixed count 増減、`kTopology` policy差分、range化(`count_rule` fixed/range、`min_count` / `max_count` / `default_count`: 保存済み`conductor_count`が新policy内なら出力不変、外ならmutation前拒否)、multi-bundle、3点以上route、存続attachment保持、退役attachment拒否、存続manual port保持、退役manual port拒否、`population_rules` / `support_wire_pole_band_id` / `cable_template_id` detail差分、`related_pole_type_id` の定義更新のみ、metadata/name、`UpdateCableTemplate` の backbone continuity policy decision差分、geometry/render差分、source-edge branch projection追従、`UpdatePoleTypeDefinition` の active backbone pole 構造差分、`ApplyBundleRelatedPoleTypeToExistingPoles`、backbone span の endpoint socket / branch-down override、`UpdateLayoutSettings`。
 

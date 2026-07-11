@@ -92,6 +92,36 @@ describe("wire wasm smoke", () => {
     expect(result.ok, result.error).toBe(true);
     expect(result.generatedSpanCount).toBeGreaterThanOrEqual(4);
   });
+
+  it("roundtrips visual parts through authoritative save and load", () => {
+    const savedState = createState();
+    const generated = savedState.generate(
+      new Float64Array([0, 0, 0, 20, 0, 0, 20, 10, 0]), [102], 0, 1, [0], 0, 0, []
+    );
+    expect(generated.ok, generated.error).toBe(true);
+    const expected = Array.from(
+      { length: savedState.visualPartCount() },
+      (_, index) => ({
+        info: savedState.visualPart(index),
+        samples: [...new Float64Array(savedState.visualPartSamples(index))]
+      })
+    );
+
+    const text = savedState.saveState();
+    expect(text.startsWith("wire_state_v1\n")).toBe(true);
+    const loadedState = createState();
+    const loaded = loadedState.loadState(text);
+    expect(loaded.ok, loaded.error).toBe(true);
+    expect(loadedState.visualPartCount()).toBe(expected.length);
+    for (let index = 0; index < expected.length; index += 1) {
+      expect(loadedState.visualPart(index)).toEqual(expected[index].info);
+      expect([...new Float64Array(loadedState.visualPartSamples(index))]).toEqual(
+        expected[index].samples
+      );
+    }
+    savedState.delete();
+    loadedState.delete();
+  });
   it("returns sagged visual samples when sag is enabled", () => {
     const geometry = state.geometrySettings();
     const update = state.updateGeometrySettings({

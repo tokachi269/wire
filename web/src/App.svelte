@@ -21,6 +21,7 @@
 
   let { actions, store, mountScene }: Props = $props();
   let sceneHost: HTMLElement;
+  let stateFileInput: HTMLInputElement;
   let snapshot: ViewerSnapshot = $state(createViewerSnapshot());
   let stopResize: (() => void) | null = null;
   let editStart:
@@ -63,6 +64,15 @@
       return null;
     }
     return Math.max(0, total - core);
+  }
+
+  async function loadStateFile(event: Event): Promise<void> {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    if (file !== undefined) {
+      actions.loadState(await file.text());
+    }
+    input.value = "";
   }
 
   function beginResize(side: "left" | "right", event: PointerEvent): void {
@@ -202,6 +212,19 @@
       <button class="secondary" type="button" onclick={() => actions.exportReproCapture()}>
         Repro capture
       </button>
+      <button class="secondary" type="button" onclick={() => actions.saveState()}>
+        Save
+      </button>
+      <button class="secondary" type="button" onclick={() => stateFileInput.click()}>
+        Load
+      </button>
+      <input
+        class="state-file-input"
+        type="file"
+        accept="text/plain,.txt"
+        bind:this={stateFileInput}
+        onchange={loadStateFile}
+      />
       <button type="button" onclick={() => actions.generatePath()}>
         Path生成
       </button>

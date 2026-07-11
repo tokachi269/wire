@@ -774,6 +774,17 @@ public:
     return result_value(updated.ok, updated.error);
   }
 
+  std::string save_state() const {
+    std::string text{};
+    const auto saved = state_->SerializeAuthoritative(&text);
+    return saved.ok ? text : std::string{};
+  }
+
+  val load_state(const std::string& text) {
+    const auto loaded = state_->DeserializeAuthoritative(text);
+    return result_value(loaded.ok, loaded.error);
+  }
+
 private:
   std::unique_ptr<CoreState> state_;
   std::vector<double> sample_buffer_{};
@@ -822,5 +833,7 @@ EMSCRIPTEN_BINDINGS(wire_web_core) {
       .function("visualSettings", &WireState::visual_settings)
       .function("updateVisualSettings", &WireState::update_visual_settings)
       .function("applyPoleTilt", &WireState::apply_pole_tilt)
-      .function("resetSpanReferenceLengths", &WireState::reset_span_reference_lengths);
+      .function("resetSpanReferenceLengths", &WireState::reset_span_reference_lengths)
+      .function("saveState", &WireState::save_state)
+      .function("loadState", &WireState::load_state);
 }

@@ -75,6 +75,8 @@ export interface WireStateHandle {
   updateVisualSettings(settings: VisualSettings): OperationResult;
   applyPoleTilt(poleIds: string[], maxTiltDeg: number): OperationResult;
   resetSpanReferenceLengths(): OperationResult;
+  saveState(): string;
+  loadState(text: string): OperationResult;
   delete(): void;
 }
 

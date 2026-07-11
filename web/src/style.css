@@ -59,6 +59,10 @@ button:hover {
   gap: 0.65rem;
 }
 
+.state-file-input {
+  display: none;
+}
+
 .top-toggle {
   display: flex;
   align-items: center;

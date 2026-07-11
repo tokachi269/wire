@@ -150,6 +150,14 @@ export class WireBridge {
     return this.state.resetSpanReferenceLengths();
   }
 
+  saveState(): string {
+    return this.state.saveState();
+  }
+
+  loadState(text: string): OperationResult {
+    return this.state.loadState(text);
+  }
+
   scene(): SceneData {
     const parts: VisualPartData[] = [];
     for (let index = 0; index < this.state.visualPartCount(); index += 1) {

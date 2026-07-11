@@ -306,12 +306,10 @@ private:
   StateReader& reader_;
 };
 
-#define ARCHIVE_VALUE(field) archive.value(child(prefix, #field), value.field)
-#define ARCHIVE_STRING(field) archive.string_value(child(prefix, #field), value.field)
 
 template <typename Archive, typename Value>
 bool archive_vec3(Archive& archive, const std::string& prefix, Value& value) {
-  return ARCHIVE_VALUE(x) && ARCHIVE_VALUE(y) && ARCHIVE_VALUE(z);
+  return archive.field(prefix, "x", value.x) && archive.field(prefix, "y", value.y) && archive.field(prefix, "z", value.z);
 }
 
 template <typename Archive, typename Value>
@@ -331,71 +329,68 @@ bool archive_frame(Archive& archive, const std::string& prefix, Value& value) {
 
 template <typename Archive, typename Value>
 bool archive_generation(Archive& archive, const std::string& prefix, Value& value) {
-  return ARCHIVE_VALUE(generated) && ARCHIVE_VALUE(source) && ARCHIVE_VALUE(generation_session_id) &&
-         ARCHIVE_VALUE(generation_order);
+  return archive.field(prefix, "generated", value.generated) && archive.field(prefix, "source", value.source) && archive.field(prefix, "generation_session_id", value.generation_session_id) &&
+         archive.field(prefix, "generation_order", value.generation_order);
 }
 
 template <typename Archive, typename Value>
 bool archive_pole_context(Archive& archive, const std::string& prefix, Value& value) {
-  return ARCHIVE_VALUE(kind) && ARCHIVE_VALUE(corner_angle_deg) && ARCHIVE_VALUE(corner_turn_sign) &&
-         ARCHIVE_VALUE(side_scale) && ARCHIVE_VALUE(angle_correction_applied);
+  return archive.field(prefix, "kind", value.kind) && archive.field(prefix, "corner_angle_deg", value.corner_angle_deg) && archive.field(prefix, "corner_turn_sign", value.corner_turn_sign) &&
+         archive.field(prefix, "side_scale", value.side_scale) && archive.field(prefix, "angle_correction_applied", value.angle_correction_applied);
 }
 
 template <typename Archive, typename Value>
 bool archive_pole(Archive& archive, const std::string& prefix, Value& value) {
-  return ARCHIVE_VALUE(id) && ARCHIVE_STRING(display_id) && ARCHIVE_STRING(name) &&
+  return archive.field(prefix, "id", value.id) && archive.string_value(child(prefix, "display_id"), value.display_id) && archive.string_value(child(prefix, "name"), value.name) &&
          archive_transform(archive, child(prefix, "world_transform"), value.world_transform) &&
-         ARCHIVE_VALUE(tilt_magnitude_deg) && ARCHIVE_VALUE(height_m) && ARCHIVE_VALUE(kind) &&
-         ARCHIVE_VALUE(pole_type_id) && archive_pole_context(archive, child(prefix, "context"), value.context) &&
-         ARCHIVE_VALUE(placement_mode) && ARCHIVE_VALUE(user_edited) && ARCHIVE_VALUE(placement_override_flag) &&
+         archive.field(prefix, "tilt_magnitude_deg", value.tilt_magnitude_deg) && archive.field(prefix, "height_m", value.height_m) && archive.field(prefix, "kind", value.kind) &&
+         archive.field(prefix, "pole_type_id", value.pole_type_id) && archive_pole_context(archive, child(prefix, "context"), value.context) &&
+         archive.field(prefix, "placement_mode", value.placement_mode) && archive.field(prefix, "user_edited", value.user_edited) && archive.field(prefix, "placement_override_flag", value.placement_override_flag) &&
          archive_generation(archive, child(prefix, "generation"), value.generation);
 }
 
 template <typename Archive, typename Value>
 bool archive_port(Archive& archive, const std::string& prefix, Value& value) {
-  return ARCHIVE_VALUE(id) && ARCHIVE_STRING(display_id) && ARCHIVE_VALUE(owner_pole_id) &&
-         archive_vec3(archive, child(prefix, "world_position"), value.world_position) && ARCHIVE_VALUE(kind) &&
-         ARCHIVE_VALUE(layer) && archive_frame(archive, child(prefix, "direction"), value.direction) &&
-         ARCHIVE_VALUE(category) && ARCHIVE_VALUE(template_layer) && ARCHIVE_VALUE(template_side) &&
-         ARCHIVE_VALUE(template_role) && ARCHIVE_VALUE(generated_from_template) && ARCHIVE_VALUE(generated_by_rule) &&
-         ARCHIVE_VALUE(placement_context) && ARCHIVE_VALUE(angle_correction_applied) &&
-         ARCHIVE_VALUE(side_scale_applied) && ARCHIVE_VALUE(position_mode) && ARCHIVE_VALUE(placement_source) &&
-         ARCHIVE_VALUE(user_edited_position) && ARCHIVE_VALUE(placement_override_flag) &&
-         ARCHIVE_VALUE(orientation_override_flag);
+  return archive.field(prefix, "id", value.id) && archive.string_value(child(prefix, "display_id"), value.display_id) && archive.field(prefix, "owner_pole_id", value.owner_pole_id) &&
+         archive_vec3(archive, child(prefix, "world_position"), value.world_position) && archive.field(prefix, "kind", value.kind) &&
+         archive.field(prefix, "layer", value.layer) && archive_frame(archive, child(prefix, "direction"), value.direction) &&
+         archive.field(prefix, "category", value.category) && archive.field(prefix, "template_layer", value.template_layer) && archive.field(prefix, "template_side", value.template_side) &&
+         archive.field(prefix, "template_role", value.template_role) && archive.field(prefix, "generated_from_template", value.generated_from_template) && archive.field(prefix, "generated_by_rule", value.generated_by_rule) &&
+         archive.field(prefix, "placement_context", value.placement_context) && archive.field(prefix, "angle_correction_applied", value.angle_correction_applied) &&
+         archive.field(prefix, "side_scale_applied", value.side_scale_applied) && archive.field(prefix, "position_mode", value.position_mode) && archive.field(prefix, "placement_source", value.placement_source) &&
+         archive.field(prefix, "user_edited_position", value.user_edited_position) && archive.field(prefix, "placement_override_flag", value.placement_override_flag) &&
+         archive.field(prefix, "orientation_override_flag", value.orientation_override_flag);
 }
 
 template <typename Archive, typename Value>
 bool archive_anchor(Archive& archive, const std::string& prefix, Value& value) {
-  return ARCHIVE_VALUE(id) && ARCHIVE_STRING(display_id) && ARCHIVE_VALUE(owner_pole_id) &&
+  return archive.field(prefix, "id", value.id) && archive.string_value(child(prefix, "display_id"), value.display_id) && archive.field(prefix, "owner_pole_id", value.owner_pole_id) &&
          archive_vec3(archive, child(prefix, "world_position"), value.world_position) &&
-         ARCHIVE_VALUE(support_kind) && ARCHIVE_VALUE(support_strength) && ARCHIVE_VALUE(generated_from_template);
+         archive.field(prefix, "support_kind", value.support_kind) && archive.field(prefix, "support_strength", value.support_strength) && archive.field(prefix, "generated_from_template", value.generated_from_template);
 }
 
 template <typename Archive, typename Value>
 bool archive_bundle(Archive& archive, const std::string& prefix, Value& value) {
-  return ARCHIVE_VALUE(id) && ARCHIVE_STRING(display_id) && ARCHIVE_VALUE(conductor_count) &&
-         ARCHIVE_VALUE(phase_spacing_m) && ARCHIVE_VALUE(bundle_template_id);
+  return archive.field(prefix, "id", value.id) && archive.string_value(child(prefix, "display_id"), value.display_id) && archive.field(prefix, "conductor_count", value.conductor_count) &&
+         archive.field(prefix, "phase_spacing_m", value.phase_spacing_m) && archive.field(prefix, "bundle_template_id", value.bundle_template_id);
 }
 
 template <typename Archive, typename Value>
 bool archive_span(Archive& archive, const std::string& prefix, Value& value) {
-  return ARCHIVE_VALUE(id) && ARCHIVE_STRING(display_id) && ARCHIVE_VALUE(port_a_id) &&
-         ARCHIVE_VALUE(port_b_id) && ARCHIVE_VALUE(endpoint_node_a_id) && ARCHIVE_VALUE(endpoint_node_b_id) &&
-         ARCHIVE_VALUE(kind) && ARCHIVE_VALUE(layer) && ARCHIVE_VALUE(bundle_id) && ARCHIVE_VALUE(anchor_a_id) &&
-         ARCHIVE_VALUE(anchor_b_id) && ARCHIVE_VALUE(endpoint_attachment_a_id) &&
-         ARCHIVE_VALUE(endpoint_attachment_b_id) && ARCHIVE_VALUE(placement_context) &&
-         ARCHIVE_VALUE(generated_by_rule) && ARCHIVE_VALUE(placement_override_flag) &&
-         ARCHIVE_VALUE(reference_length_m) && archive_generation(archive, child(prefix, "generation"), value.generation);
+  return archive.field(prefix, "id", value.id) && archive.string_value(child(prefix, "display_id"), value.display_id) && archive.field(prefix, "port_a_id", value.port_a_id) &&
+         archive.field(prefix, "port_b_id", value.port_b_id) && archive.field(prefix, "endpoint_node_a_id", value.endpoint_node_a_id) && archive.field(prefix, "endpoint_node_b_id", value.endpoint_node_b_id) &&
+         archive.field(prefix, "kind", value.kind) && archive.field(prefix, "layer", value.layer) && archive.field(prefix, "bundle_id", value.bundle_id) && archive.field(prefix, "anchor_a_id", value.anchor_a_id) &&
+         archive.field(prefix, "anchor_b_id", value.anchor_b_id) && archive.field(prefix, "endpoint_attachment_a_id", value.endpoint_attachment_a_id) &&
+         archive.field(prefix, "endpoint_attachment_b_id", value.endpoint_attachment_b_id) && archive.field(prefix, "placement_context", value.placement_context) &&
+         archive.field(prefix, "generated_by_rule", value.generated_by_rule) && archive.field(prefix, "placement_override_flag", value.placement_override_flag) &&
+         archive.field(prefix, "reference_length_m", value.reference_length_m) && archive_generation(archive, child(prefix, "generation"), value.generation);
 }
 
 template <typename Archive, typename Value>
 bool archive_attachment(Archive& archive, const std::string& prefix, Value& value) {
-  return ARCHIVE_VALUE(id) && ARCHIVE_STRING(display_id) && ARCHIVE_VALUE(span_id) && ARCHIVE_VALUE(template_id) &&
-         ARCHIVE_VALUE(t) && ARCHIVE_VALUE(kind) && ARCHIVE_VALUE(display_offset_m) && ARCHIVE_VALUE(origin);
+  return archive.field(prefix, "id", value.id) && archive.string_value(child(prefix, "display_id"), value.display_id) && archive.field(prefix, "span_id", value.span_id) && archive.field(prefix, "template_id", value.template_id) &&
+         archive.field(prefix, "t", value.t) && archive.field(prefix, "kind", value.kind) && archive.field(prefix, "display_offset_m", value.display_offset_m) && archive.field(prefix, "origin", value.origin);
 }
-
-#undef ARCHIVE_VALUE
-#undef ARCHIVE_STRING
 
 #define WRITE_ENTITY_WRAPPER(name, type)                                                                               \
   void write_##name(StateWriter& writer, const std::string& prefix, const type& value) {                              \
@@ -440,19 +435,18 @@ void write_edit_state(StateWriter& writer, const EditState& state) {
   write_object_store(writer, "authoritative.edit_state.attachments", state.attachments, write_attachment);
 }
 
-#define ARCHIVE_VALUE(field) archive.value(child(prefix, #field), value.field)
 
 template <typename Archive, typename Value>
 bool archive_bundle_mode(Archive& archive, const std::string& prefix, Value& value) {
-  return ARCHIVE_VALUE(bundle_template_id) && ARCHIVE_VALUE(mode);
+  return archive.field(prefix, "bundle_template_id", value.bundle_template_id) && archive.field(prefix, "mode", value.mode);
 }
 
 template <typename Archive, typename Value>
 bool archive_saved_node(Archive& archive, const std::string& prefix, Value& value) {
-  if (!ARCHIVE_VALUE(node_id) || !ARCHIVE_VALUE(pole_id) || !ARCHIVE_VALUE(support_kind) ||
-      !archive_vec3(archive, child(prefix, "position"), value.position) || !ARCHIVE_VALUE(has_source_edge) ||
-      !ARCHIVE_VALUE(source_edge_node_a) || !ARCHIVE_VALUE(source_edge_node_b) ||
-      !ARCHIVE_VALUE(source_edge_t) || !ARCHIVE_VALUE(path_point_index)) return false;
+  if (!archive.field(prefix, "node_id", value.node_id) || !archive.field(prefix, "pole_id", value.pole_id) || !archive.field(prefix, "support_kind", value.support_kind) ||
+      !archive_vec3(archive, child(prefix, "position"), value.position) || !archive.field(prefix, "has_source_edge", value.has_source_edge) ||
+      !archive.field(prefix, "source_edge_node_a", value.source_edge_node_a) || !archive.field(prefix, "source_edge_node_b", value.source_edge_node_b) ||
+      !archive.field(prefix, "source_edge_t", value.source_edge_t) || !archive.field(prefix, "path_point_index", value.path_point_index)) return false;
   std::size_t count = value.bundle_modes.size();
   if (!archive.count(child(prefix, "bundle_modes.count"), count)) return false;
   if constexpr (Archive::loading) value.bundle_modes.resize(count);
@@ -464,15 +458,15 @@ bool archive_saved_node(Archive& archive, const std::string& prefix, Value& valu
 
 template <typename Archive, typename Value>
 bool archive_saved_edge(Archive& archive, const std::string& prefix, Value& value) {
-  return ARCHIVE_VALUE(edge_id) && ARCHIVE_VALUE(node_a) && ARCHIVE_VALUE(node_b) && ARCHIVE_VALUE(route) &&
-         ARCHIVE_VALUE(order) && archive_vec3(archive, child(prefix, "dir"), value.dir) &&
-         ARCHIVE_VALUE(lateral_offset_m);
+  return archive.field(prefix, "edge_id", value.edge_id) && archive.field(prefix, "node_a", value.node_a) && archive.field(prefix, "node_b", value.node_b) && archive.field(prefix, "route", value.route) &&
+         archive.field(prefix, "order", value.order) && archive_vec3(archive, child(prefix, "dir"), value.dir) &&
+         archive.field(prefix, "lateral_offset_m", value.lateral_offset_m);
 }
 
 template <typename Archive, typename Value>
 bool archive_saved_edge_bundle(Archive& archive, const std::string& prefix, Value& value) {
-  if (!ARCHIVE_VALUE(edge_bundle_id) || !ARCHIVE_VALUE(edge_id) || !ARCHIVE_VALUE(bundle_id) ||
-      !ARCHIVE_VALUE(edge_forward) || !ARCHIVE_VALUE(route) || !ARCHIVE_VALUE(order) ||
+  if (!archive.field(prefix, "edge_bundle_id", value.edge_bundle_id) || !archive.field(prefix, "edge_id", value.edge_id) || !archive.field(prefix, "bundle_id", value.bundle_id) ||
+      !archive.field(prefix, "edge_forward", value.edge_forward) || !archive.field(prefix, "route", value.route) || !archive.field(prefix, "order", value.order) ||
       !archive_vec3(archive, child(prefix, "dir"), value.dir)) return false;
   std::size_t count = value.span_ids.size();
   if (!archive.count(child(prefix, "span_ids.count"), count)) return false;
@@ -485,24 +479,22 @@ bool archive_saved_edge_bundle(Archive& archive, const std::string& prefix, Valu
 
 template <typename Archive, typename Value>
 bool archive_row_key(Archive& archive, const std::string& prefix, Value& value) {
-  return ARCHIVE_VALUE(node_id) && ARCHIVE_VALUE(source_is_open) && ARCHIVE_VALUE(source_edge_a) &&
-         ARCHIVE_VALUE(source_edge_b);
+  return archive.field(prefix, "node_id", value.node_id) && archive.field(prefix, "source_is_open", value.source_is_open) && archive.field(prefix, "source_edge_a", value.source_edge_a) &&
+         archive.field(prefix, "source_edge_b", value.source_edge_b);
 }
 
 template <typename Archive, typename Value>
 bool archive_saved_port_binding(Archive& archive, const std::string& prefix, Value& value) {
-  return ARCHIVE_VALUE(edge_bundle_id) && archive_row_key(archive, child(prefix, "row_key"), value.row_key) &&
-         ARCHIVE_VALUE(lane_index) && ARCHIVE_VALUE(bundle_template_id) && ARCHIVE_VALUE(port_kind) &&
-         ARCHIVE_VALUE(port_layer) && ARCHIVE_VALUE(placement_band_id) && ARCHIVE_VALUE(layout_yaw_deg) &&
-         ARCHIVE_VALUE(port_id);
+  return archive.field(prefix, "edge_bundle_id", value.edge_bundle_id) && archive_row_key(archive, child(prefix, "row_key"), value.row_key) &&
+         archive.field(prefix, "lane_index", value.lane_index) && archive.field(prefix, "bundle_template_id", value.bundle_template_id) && archive.field(prefix, "port_kind", value.port_kind) &&
+         archive.field(prefix, "port_layer", value.port_layer) && archive.field(prefix, "placement_band_id", value.placement_band_id) && archive.field(prefix, "layout_yaw_deg", value.layout_yaw_deg) &&
+         archive.field(prefix, "port_id", value.port_id);
 }
 
 template <typename Archive, typename Value>
 bool archive_saved_span_binding(Archive& archive, const std::string& prefix, Value& value) {
-  return ARCHIVE_VALUE(edge_bundle_id) && ARCHIVE_VALUE(lane_index) && ARCHIVE_VALUE(span_id);
+  return archive.field(prefix, "edge_bundle_id", value.edge_bundle_id) && archive.field(prefix, "lane_index", value.lane_index) && archive.field(prefix, "span_id", value.span_id);
 }
-
-#undef ARCHIVE_VALUE
 
 #define WRITE_BACKBONE_WRAPPER(name, type)                                                                             \
   void write_##name(StateWriter& writer, const std::string& prefix, const type& value) {                              \
@@ -566,31 +558,29 @@ void write_backbone(StateWriter& writer, const SavedBackboneGraph& graph) {
                        }, write_saved_span_binding);
 }
 
-#define ARCHIVE_VALUE(field) archive.value(child(prefix, #field), value.field)
-#define ARCHIVE_STRING(field) archive.string_value(child(prefix, #field), value.field)
 
 template <typename Archive, typename Value>
 bool archive_port_band(Archive& archive, const std::string& prefix, Value& value) {
-  return ARCHIVE_VALUE(band_id) && ARCHIVE_VALUE(category) &&
+  return archive.field(prefix, "band_id", value.band_id) && archive.field(prefix, "category", value.category) &&
          archive_frame(archive, child(prefix, "local_direction"), value.local_direction) &&
-         ARCHIVE_VALUE(layer) && ARCHIVE_VALUE(side) && ARCHIVE_VALUE(role) &&
-         ARCHIVE_VALUE(lateral_center_m) && ARCHIVE_VALUE(lateral_min_m) && ARCHIVE_VALUE(lateral_max_m) &&
-         ARCHIVE_VALUE(height_center_m) && ARCHIVE_VALUE(height_min_m) && ARCHIVE_VALUE(height_max_m) &&
-         ARCHIVE_VALUE(priority) && ARCHIVE_VALUE(min_spacing_m) && ARCHIVE_VALUE(allow_multiple) &&
-         ARCHIVE_VALUE(overflow_policy) && ARCHIVE_VALUE(enabled);
+         archive.field(prefix, "layer", value.layer) && archive.field(prefix, "side", value.side) && archive.field(prefix, "role", value.role) &&
+         archive.field(prefix, "lateral_center_m", value.lateral_center_m) && archive.field(prefix, "lateral_min_m", value.lateral_min_m) && archive.field(prefix, "lateral_max_m", value.lateral_max_m) &&
+         archive.field(prefix, "height_center_m", value.height_center_m) && archive.field(prefix, "height_min_m", value.height_min_m) && archive.field(prefix, "height_max_m", value.height_max_m) &&
+         archive.field(prefix, "priority", value.priority) && archive.field(prefix, "min_spacing_m", value.min_spacing_m) && archive.field(prefix, "allow_multiple", value.allow_multiple) &&
+         archive.field(prefix, "overflow_policy", value.overflow_policy) && archive.field(prefix, "enabled", value.enabled);
 }
 
 template <typename Archive, typename Value>
 bool archive_anchor_slot(Archive& archive, const std::string& prefix, Value& value) {
-  return ARCHIVE_VALUE(slot_id) && ARCHIVE_VALUE(usage) &&
+  return archive.field(prefix, "slot_id", value.slot_id) && archive.field(prefix, "usage", value.usage) &&
          archive_vec3(archive, child(prefix, "local_position"), value.local_position) &&
-         ARCHIVE_VALUE(priority) && ARCHIVE_VALUE(enabled);
+         archive.field(prefix, "priority", value.priority) && archive.field(prefix, "enabled", value.enabled);
 }
 
 template <typename Archive, typename Value>
 bool archive_pole_type(Archive& archive, const std::string& prefix, Value& value) {
-  if (!ARCHIVE_VALUE(id) || !ARCHIVE_STRING(name) || !ARCHIVE_STRING(description) ||
-      !ARCHIVE_VALUE(default_height_m)) return false;
+  if (!archive.field(prefix, "id", value.id) || !archive.string_value(child(prefix, "name"), value.name) || !archive.string_value(child(prefix, "description"), value.description) ||
+      !archive.field(prefix, "default_height_m", value.default_height_m)) return false;
   std::size_t port_band_count = value.port_bands.size();
   if (!archive.count(child(prefix, "port_bands.count"), port_band_count)) return false;
   if constexpr (Archive::loading) value.port_bands.resize(port_band_count);
@@ -605,9 +595,6 @@ bool archive_pole_type(Archive& archive, const std::string& prefix, Value& value
   }
   return true;
 }
-
-#undef ARCHIVE_VALUE
-#undef ARCHIVE_STRING
 
 #define WRITE_POLE_TEMPLATE_WRAPPER(name, type)                                                                        \
   void write_##name(StateWriter& writer, const std::string& prefix, const type& value) {                              \
@@ -734,33 +721,31 @@ void write_bundle_template(StateWriter& writer, const std::string& prefix, const
   static_cast<void>(archive_bundle_template(archive, prefix, value));
 }
 
-#define ARCHIVE_VALUE(field) archive.value(child(prefix, #field), value.field)
-#define ARCHIVE_STRING(field) archive.string_value(child(prefix, #field), value.field)
 
 template <typename Archive, typename Value>
 bool archive_attachment_socket(Archive& archive, const std::string& prefix, Value& value) {
-  return ARCHIVE_VALUE(id) && archive_vec3(archive, child(prefix, "local_position"), value.local_position) &&
-         archive_vec3(archive, child(prefix, "tangent_dir"), value.tangent_dir) && ARCHIVE_VALUE(has_normal) &&
-         archive_vec3(archive, child(prefix, "normal_dir"), value.normal_dir) && ARCHIVE_VALUE(has_binormal) &&
-         archive_vec3(archive, child(prefix, "binormal_dir"), value.binormal_dir) && ARCHIVE_VALUE(kind);
+  return archive.field(prefix, "id", value.id) && archive_vec3(archive, child(prefix, "local_position"), value.local_position) &&
+         archive_vec3(archive, child(prefix, "tangent_dir"), value.tangent_dir) && archive.field(prefix, "has_normal", value.has_normal) &&
+         archive_vec3(archive, child(prefix, "normal_dir"), value.normal_dir) && archive.field(prefix, "has_binormal", value.has_binormal) &&
+         archive_vec3(archive, child(prefix, "binormal_dir"), value.binormal_dir) && archive.field(prefix, "kind", value.kind);
 }
 
 template <typename Archive, typename Value>
 bool archive_internal_path(Archive& archive, const std::string& prefix, Value& value) {
-  if (!ARCHIVE_VALUE(start_socket_id) || !ARCHIVE_VALUE(end_socket_id) || !ARCHIVE_VALUE(profile_kind)) return false;
+  if (!archive.field(prefix, "start_socket_id", value.start_socket_id) || !archive.field(prefix, "end_socket_id", value.end_socket_id) || !archive.field(prefix, "profile_kind", value.profile_kind)) return false;
   std::size_t point_count = value.local_points.size();
   if (!archive.count(child(prefix, "local_points.count"), point_count)) return false;
   if constexpr (Archive::loading) value.local_points.resize(point_count);
   for (std::size_t i = 0; i < point_count; ++i) {
     if (!archive_vec3(archive, indexed(child(prefix, "local_points"), i), value.local_points[i])) return false;
   }
-  return ARCHIVE_VALUE(coil_radius_m) && ARCHIVE_VALUE(coil_turn_count) && ARCHIVE_VALUE(coil_samples_per_turn);
+  return archive.field(prefix, "coil_radius_m", value.coil_radius_m) && archive.field(prefix, "coil_turn_count", value.coil_turn_count) && archive.field(prefix, "coil_samples_per_turn", value.coil_samples_per_turn);
 }
 
 template <typename Archive, typename Value>
 bool archive_attachment_template(Archive& archive, const std::string& prefix, Value& value) {
-  if (!ARCHIVE_VALUE(id) || !ARCHIVE_STRING(name) || !ARCHIVE_VALUE(kind) ||
-      !ARCHIVE_VALUE(line_interaction_mode)) return false;
+  if (!archive.field(prefix, "id", value.id) || !archive.string_value(child(prefix, "name"), value.name) || !archive.field(prefix, "kind", value.kind) ||
+      !archive.field(prefix, "line_interaction_mode", value.line_interaction_mode)) return false;
   std::size_t socket_count = value.sockets.size();
   if (!archive.count(child(prefix, "sockets.count"), socket_count)) return false;
   if constexpr (Archive::loading) value.sockets.resize(socket_count);
@@ -773,11 +758,8 @@ bool archive_attachment_template(Archive& archive, const std::string& prefix, Va
   for (std::size_t i = 0; i < path_count; ++i) {
     if (!archive_internal_path(archive, indexed(child(prefix, "internal_paths"), i), value.internal_paths[i])) return false;
   }
-  return ARCHIVE_VALUE(version);
+  return archive.field(prefix, "version", value.version);
 }
-
-#undef ARCHIVE_VALUE
-#undef ARCHIVE_STRING
 
 #define WRITE_ATTACHMENT_TEMPLATE_WRAPPER(name, type)                                                                  \
   void write_##name(StateWriter& writer, const std::string& prefix, const type& value) {                              \
@@ -827,43 +809,40 @@ bool archive_span_support_override(Archive& archive, const std::string& prefix, 
          archive.value(child(prefix, "version"), value.version);
 }
 
-#define ARCHIVE_FIELD(field) archive.value(child(prefix, #field), value.field)
 
 template <typename Archive, typename Value>
 bool archive_context_profile(Archive& archive, const std::string& prefix, Value& value) {
-  return ARCHIVE_FIELD(age) && ARCHIVE_FIELD(clutter) && ARCHIVE_FIELD(regularity) &&
-         ARCHIVE_FIELD(service_mix) && ARCHIVE_FIELD(style_seed);
+  return archive.field(prefix, "age", value.age) && archive.field(prefix, "clutter", value.clutter) && archive.field(prefix, "regularity", value.regularity) &&
+         archive.field(prefix, "service_mix", value.service_mix) && archive.field(prefix, "style_seed", value.style_seed);
 }
 
 template <typename Archive, typename Value>
 bool archive_layout_settings(Archive& archive, const std::string& prefix, Value& value) {
-  return ARCHIVE_FIELD(angle_correction_enabled) && ARCHIVE_FIELD(corner_threshold_deg) &&
-         ARCHIVE_FIELD(min_side_scale) && ARCHIVE_FIELD(max_side_scale);
+  return archive.field(prefix, "angle_correction_enabled", value.angle_correction_enabled) && archive.field(prefix, "corner_threshold_deg", value.corner_threshold_deg) &&
+         archive.field(prefix, "min_side_scale", value.min_side_scale) && archive.field(prefix, "max_side_scale", value.max_side_scale);
 }
 
 template <typename Archive, typename Value>
 bool archive_geometry_settings(Archive& archive, const std::string& prefix, Value& value) {
-  return ARCHIVE_FIELD(curve_samples) && ARCHIVE_FIELD(sag_enabled) && ARCHIVE_FIELD(sag_factor) &&
-         ARCHIVE_FIELD(pole_clearance_m);
+  return archive.field(prefix, "curve_samples", value.curve_samples) && archive.field(prefix, "sag_enabled", value.sag_enabled) && archive.field(prefix, "sag_factor", value.sag_factor) &&
+         archive.field(prefix, "pole_clearance_m", value.pole_clearance_m);
 }
 
 template <typename Archive, typename Value>
 bool archive_visual_settings(Archive& archive, const std::string& prefix, Value& value) {
-  return ARCHIVE_FIELD(enable_support_structures) && ARCHIVE_FIELD(enable_insulators) &&
-         ARCHIVE_FIELD(support_center_threshold_m) && ARCHIVE_FIELD(support_arm_extra_m) &&
-         ARCHIVE_FIELD(support_arm_radius_m) && ARCHIVE_FIELD(insulator_radius_m) &&
-         ARCHIVE_FIELD(insulator_length_m);
+  return archive.field(prefix, "enable_support_structures", value.enable_support_structures) && archive.field(prefix, "enable_insulators", value.enable_insulators) &&
+         archive.field(prefix, "support_center_threshold_m", value.support_center_threshold_m) && archive.field(prefix, "support_arm_extra_m", value.support_arm_extra_m) &&
+         archive.field(prefix, "support_arm_radius_m", value.support_arm_radius_m) && archive.field(prefix, "insulator_radius_m", value.insulator_radius_m) &&
+         archive.field(prefix, "insulator_length_m", value.insulator_length_m);
 }
 
 template <typename Archive, typename Value>
 bool archive_variation_settings(Archive& archive, const std::string& prefix, Value& value) {
-  return ARCHIVE_FIELD(enabled) && ARCHIVE_FIELD(global_seed) && ARCHIVE_FIELD(world_cell_size_m) &&
-         ARCHIVE_FIELD(world_bias_scale) && ARCHIVE_FIELD(flow_bias_scale) &&
-         ARCHIVE_FIELD(pole_delta_scale) && ARCHIVE_FIELD(local_jitter_scale) &&
-         ARCHIVE_FIELD(sag_variation_scale) && ARCHIVE_FIELD(branch_down_offset_variation_scale);
+  return archive.field(prefix, "enabled", value.enabled) && archive.field(prefix, "global_seed", value.global_seed) && archive.field(prefix, "world_cell_size_m", value.world_cell_size_m) &&
+         archive.field(prefix, "world_bias_scale", value.world_bias_scale) && archive.field(prefix, "flow_bias_scale", value.flow_bias_scale) &&
+         archive.field(prefix, "pole_delta_scale", value.pole_delta_scale) && archive.field(prefix, "local_jitter_scale", value.local_jitter_scale) &&
+         archive.field(prefix, "sag_variation_scale", value.sag_variation_scale) && archive.field(prefix, "branch_down_offset_variation_scale", value.branch_down_offset_variation_scale);
 }
-
-#undef ARCHIVE_FIELD
 
 #define WRITE_ARCHIVE_WRAPPER(name, type)                                                                             \
   void write_##name(StateWriter& writer, const std::string& prefix, const type& value) {                              \
@@ -901,11 +880,6 @@ void write_variation_settings(StateWriter& writer, const VariationSettings& valu
   WriteFieldArchive archive(writer);
   static_cast<void>(archive_variation_settings(archive, "authoritative.variation_settings", value));
 }
-
-#define READ_VALUE(field)                                                                                              \
-  if (!reader.value(child(prefix, #field), &value->field)) return false
-#define READ_STRING(field)                                                                                             \
-  if (!reader.string_value(child(prefix, #field), &value->field)) return false
 
 #define READ_ENTITY_WRAPPER(name, type)                                                                                \
   bool read_##name(StateReader& reader, const std::string& prefix, type* value) {                                     \
@@ -1018,127 +992,19 @@ READ_POLE_TEMPLATE_WRAPPER(pole_type, PoleTypeDefinition)
 
 #undef READ_POLE_TEMPLATE_WRAPPER
 
-bool read_supplemental_path(StateReader& reader, const std::string& prefix,
-                            CableSupplementalPathTemplate* value) {
-  READ_VALUE(anchor_mode);
-  READ_VALUE(profile_kind);
-  READ_VALUE(interaction_mode);
-  READ_VALUE(pole_band_id);
-  READ_VALUE(endpoint_trim_m);
-  READ_VALUE(lateral_offset_m);
-  READ_VALUE(vertical_offset_m);
-  READ_VALUE(wobble_amplitude_m);
-  READ_VALUE(wobble_wavelength_m);
-  READ_VALUE(wobble_phase_bias);
-  READ_VALUE(endpoint_envelope_ratio);
-  READ_VALUE(coil_radius_m);
-  READ_VALUE(coil_turns_per_meter);
-  READ_VALUE(coil_samples_per_turn);
-  return true;
-}
-
-bool read_cable_template(StateReader& reader, const std::string& prefix, CableTemplate* value) {
-  READ_VALUE(id);
-  READ_STRING(name);
-  READ_VALUE(outer_diameter_m);
-  READ_VALUE(default_grouped_support_fanout_spacing_m);
-  READ_VALUE(bend_stiffness);
-  READ_VALUE(min_bend_radius_m);
-  READ_VALUE(material_style);
-  READ_VALUE(color_rgba);
-  READ_VALUE(requires_insulator);
-  READ_VALUE(insulator_attachment_height_m);
-  READ_VALUE(sag_factor);
-  READ_VALUE(slack_factor);
-  READ_VALUE(continuity_policy);
-  READ_VALUE(attachment_style);
-  READ_VALUE(default_endpoint_attachment_template_id);
-  std::size_t count = 0;
-  if (!reader.count(child(prefix, "supplemental_paths.count"), &count)) return false;
-  value->supplemental_paths.resize(count);
-  for (std::size_t i = 0; i < count; ++i) {
-    if (!read_supplemental_path(reader, indexed(child(prefix, "supplemental_paths"), i),
-                                &value->supplemental_paths[i])) return false;
+#define READ_CABLE_TEMPLATE_WRAPPER(name, type)                                                                        \
+  bool read_##name(StateReader& reader, const std::string& prefix, type* value) {                                     \
+    ReadFieldArchive archive(reader);                                                                                  \
+    return archive_##name(archive, prefix, *value);                                                                    \
   }
-  READ_VALUE(version);
-  return true;
-}
 
-bool read_reserve(StateReader& reader, const std::string& prefix, PlacementReserve* value) {
-  READ_VALUE(reserve_id);
-  READ_VALUE(pole_type_id);
-  READ_VALUE(band_id);
-  READ_VALUE(lateral_min_m);
-  READ_VALUE(lateral_max_m);
-  READ_VALUE(height_min_m);
-  READ_VALUE(height_max_m);
-  return true;
-}
+READ_CABLE_TEMPLATE_WRAPPER(supplemental_path, CableSupplementalPathTemplate)
+READ_CABLE_TEMPLATE_WRAPPER(cable_template, CableTemplate)
+READ_CABLE_TEMPLATE_WRAPPER(reserve, PlacementReserve)
+READ_CABLE_TEMPLATE_WRAPPER(population_rule, CablePopulationRule)
+READ_CABLE_TEMPLATE_WRAPPER(bundle_template, BundleTemplate)
 
-bool read_population_rule(StateReader& reader, const std::string& prefix, CablePopulationRule* value) {
-  READ_VALUE(rule_id);
-  READ_VALUE(explicit_seed);
-  READ_VALUE(priority);
-  READ_VALUE(min_extra_count);
-  READ_VALUE(max_extra_count);
-  READ_VALUE(min_spacing_m);
-  READ_VALUE(lateral_min_m);
-  READ_VALUE(lateral_max_m);
-  READ_VALUE(height_min_m);
-  READ_VALUE(height_max_m);
-  READ_VALUE(randomness);
-  READ_VALUE(profile);
-  READ_VALUE(wrap_radius_m);
-  READ_VALUE(wrap_turns_per_meter);
-  READ_VALUE(wrap_phase);
-  READ_VALUE(wrap_direction);
-  READ_VALUE(end_trim_m);
-  std::size_t count = 0;
-  if (!reader.count(child(prefix, "reserves.count"), &count)) return false;
-  value->reserves.resize(count);
-  for (std::size_t i = 0; i < count; ++i) {
-    if (!read_reserve(reader, indexed(child(prefix, "reserves"), i), &value->reserves[i])) return false;
-  }
-  return true;
-}
-
-bool read_bundle_template(StateReader& reader, const std::string& prefix, BundleTemplate* value) {
-  READ_VALUE(id);
-  READ_VALUE(kind);
-  READ_STRING(name);
-  READ_VALUE(category);
-  READ_VALUE(cable_template_id);
-  READ_VALUE(default_layer);
-  READ_VALUE(related_pole_type_id);
-  READ_VALUE(preserve_conductor_identity);
-  READ_VALUE(count_rule);
-  READ_VALUE(fixed_count);
-  READ_VALUE(min_count);
-  READ_VALUE(max_count);
-  READ_VALUE(default_count);
-  READ_VALUE(default_spacing_m);
-  READ_VALUE(grouped_support_fanout_spacing_m);
-  READ_VALUE(allow_mirror);
-  READ_VALUE(allow_midair_node);
-  READ_VALUE(allow_midair_branch);
-  READ_VALUE(enable_branch_down_offset);
-  READ_VALUE(branch_endpoint_offset_m);
-  READ_VALUE(order_decision_policy);
-  READ_VALUE(row_layout_axis_mode);
-  READ_VALUE(support_style);
-  READ_VALUE(branch_policy);
-  READ_VALUE(continuity_policy);
-  READ_VALUE(support_wire_pole_band_id);
-  std::size_t count = 0;
-  if (!reader.count(child(prefix, "population_rules.count"), &count)) return false;
-  value->population_rules.resize(count);
-  for (std::size_t i = 0; i < count; ++i) {
-    if (!read_population_rule(reader, indexed(child(prefix, "population_rules"), i),
-                              &value->population_rules[i])) return false;
-  }
-  READ_VALUE(version);
-  return true;
-}
+#undef READ_CABLE_TEMPLATE_WRAPPER
 
 #define READ_ATTACHMENT_TEMPLATE_WRAPPER(name, type)                                                                   \
   bool read_##name(StateReader& reader, const std::string& prefix, type* value) {                                     \
@@ -1263,9 +1129,6 @@ bool read_authoritative(StateReader& reader, CoreStateAuthoritativeStorage* auth
          read_visual_settings(reader, &authoritative->visual_settings) &&
          read_variation_settings(reader, &authoritative->variation_settings);
 }
-
-#undef READ_VALUE
-#undef READ_STRING
 
 } // namespace
 

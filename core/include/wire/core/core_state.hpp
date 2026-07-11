@@ -183,6 +183,7 @@ private:
                                                     const PoleTypeDefinition* pole_type_override = nullptr,
                                                     BackboneRegenerateCause cause = BackboneRegenerateCause::kBundleCount);
   EditResult<bool> regenerate_backbone_span_override(ObjectId span_id, ChangeSet* change_set);
+  EditResult<bool> rebuild_loaded_outputs();
   void cache_span_rules(const SpanLayoutRules& rules);
   void remove_span_from_caches(ObjectId span_id);
   [[nodiscard]] double effective_pole_yaw_deg(const Pole& pole) const;

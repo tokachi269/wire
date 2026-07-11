@@ -443,4 +443,106 @@ EditResult<bool> CoreState::regenerate_backbone_span_override(ObjectId span_id, 
                                           BackboneRegenerateCause::kSpanOverride);
 }
 
+EditResult<bool> CoreState::rebuild_loaded_outputs() {
+  EditResult<bool> result{};
+  const SavedBackboneGraph saved = view().backbone();
+  std::vector<std::size_t> routes{};
+  for (const SavedBackboneEdge& edge : saved.edges) routes.push_back(edge.route);
+  std::sort(routes.begin(), routes.end());
+  routes.erase(std::unique(routes.begin(), routes.end()), routes.end());
+
+  for (std::size_t route_id : routes) {
+    std::vector<const SavedBackboneEdge*> edges{};
+    for (const SavedBackboneEdge& edge : saved.edges) {
+      if (edge.route == route_id) edges.push_back(&edge);
+    }
+    std::sort(edges.begin(), edges.end(), [](const SavedBackboneEdge* a, const SavedBackboneEdge* b) {
+      return a->order < b->order;
+    });
+    if (edges.empty()) continue;
+
+    generation::backbone::graph graph{};
+    for (std::size_t i = 0; i <= edges.size(); ++i) {
+      const ObjectId node_id = i == 0 ? edges.front()->node_a : edges[i - 1]->node_b;
+      if (i > 0 && i < edges.size() && edges[i]->node_a != node_id) {
+        result.error = "authoritative deserialization: saved route is not contiguous";
+        return result;
+      }
+      const SavedBackboneNode* saved_node = saved_node_by_id(saved, node_id);
+      if (saved_node == nullptr) {
+        result.error = "authoritative deserialization: saved route node is missing";
+        return result;
+      }
+      generation::backbone::node node{};
+      node.id = static_cast<int>(i);
+      node.pos = saved_node->position;
+      node.support = saved_node->support_kind;
+      node.pole = saved_node->pole_id;
+      node.saved = saved_node->node_id;
+      node.has_source_edge = saved_node->has_source_edge;
+      node.source_edge_node_a = saved_node->source_edge_node_a;
+      node.source_edge_node_b = saved_node->source_edge_node_b;
+      node.source_edge_t = saved_node->source_edge_t;
+      node.is_new = false;
+      node.on_route = true;
+      node.bundle_modes = saved_node->bundle_modes;
+      graph.nodes.push_back(std::move(node));
+    }
+    for (std::size_t i = 0; i < edges.size(); ++i) {
+      generation::backbone::link link{};
+      link.id = static_cast<int>(i);
+      link.a = static_cast<int>(i);
+      link.b = static_cast<int>(i + 1);
+      link.route = edges[i]->route;
+      link.order = edges[i]->order;
+      link.dir = edges[i]->dir;
+      link.saved = edges[i]->edge_id;
+      link.is_new = true;
+      graph.links.push_back(std::move(link));
+    }
+
+    BackboneSpec spec{};
+    spec.pole_type_id = kInvalidPoleTypeId;
+    spec.constraints.lateral_offset_m = edges.front()->lateral_offset_m;
+    std::vector<std::size_t> active_bundle_indices{};
+    for (const SavedBackboneEdgeBundle& edge_bundle : saved.edge_bundles) {
+      if (edge_bundle.edge_id != edges.front()->edge_id) continue;
+      const Bundle* bundle = authoritative_.edit_state.bundles.find(edge_bundle.bundle_id);
+      if (bundle == nullptr) {
+        result.error = "authoritative deserialization: saved edge bundle is missing its bundle";
+        return result;
+      }
+      const auto template_it = authoritative_.bundle_templates.find(bundle->bundle_template_id);
+      if (template_it == authoritative_.bundle_templates.end()) {
+        result.error = "authoritative deserialization: saved bundle template is missing";
+        return result;
+      }
+      BackboneBundleSpec bundle_spec{};
+      bundle_spec.bundle_template_id = bundle->bundle_template_id;
+      bundle_spec.layer = template_it->second.default_layer;
+      if (template_it->second.count_rule == BundleCountRuleKind::kRange) {
+        bundle_spec.count = bundle->conductor_count;
+      }
+      spec.bundles.push_back(bundle_spec);
+      active_bundle_indices.push_back(spec.bundles.size() - 1);
+    }
+    if (spec.bundles.empty()) {
+      result.error = "authoritative deserialization: saved route has no bundles";
+      return result;
+    }
+    generation::backbone::pipeline pipeline(*this, spec);
+    const auto replay = pipeline.build(
+        pipeline.build_input_from_saved_scope(std::move(graph), std::move(active_bundle_indices)));
+    if (!replay.ok) {
+      result.error = replay.error;
+      return result;
+    }
+  }
+
+  cache_visual_curve_parts(generation::backbone::make_visual_curve_parts(*this, {}));
+  result.ok = true;
+  result.value = true;
+  return result;
+}
+
 } // namespace wire::core

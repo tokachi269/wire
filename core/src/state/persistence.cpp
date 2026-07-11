@@ -238,6 +238,50 @@ std::string indexed(const std::string& prefix, std::size_t index) {
   return prefix + "." + std::to_string(index);
 }
 
+class WriteFieldArchive {
+public:
+  explicit WriteFieldArchive(StateWriter& writer) : writer_(writer) {}
+
+  template <typename T> bool value(const std::string& key, const T& input) {
+    writer_.value(key, input);
+    return true;
+  }
+
+  template <typename T> bool optional(const std::string& prefix, const std::optional<T>& input) {
+    writer_.value(child(prefix, "has"), input.has_value());
+    if (input.has_value()) writer_.value(child(prefix, "value"), *input);
+    return true;
+  }
+
+private:
+  StateWriter& writer_;
+};
+
+class ReadFieldArchive {
+public:
+  explicit ReadFieldArchive(StateReader& reader) : reader_(reader) {}
+
+  template <typename T> bool value(const std::string& key, T& output) {
+    return reader_.value(key, &output);
+  }
+
+  template <typename T> bool optional(const std::string& prefix, std::optional<T>& output) {
+    bool has = false;
+    if (!reader_.value(child(prefix, "has"), &has)) return false;
+    if (!has) {
+      output.reset();
+      return true;
+    }
+    T parsed{};
+    if (!reader_.value(child(prefix, "value"), &parsed)) return false;
+    output = parsed;
+    return true;
+  }
+
+private:
+  StateReader& reader_;
+};
+
 void write_vec3(StateWriter& writer, const std::string& prefix, const Vec3d& value) {
   writer.value(child(prefix, "x"), value.x);
   writer.value(child(prefix, "y"), value.y);
@@ -715,76 +759,100 @@ void write_map(StateWriter& writer, const std::string& prefix, const std::unorde
   }
 }
 
-void write_pole_orientation_override(StateWriter& writer, const std::string& prefix,
-                                     const PoleOrientationOverride& value) {
-  writer.value(child(prefix, "base_yaw_deg.has"), value.base_yaw_deg.has_value());
-  if (value.base_yaw_deg.has_value()) writer.value(child(prefix, "base_yaw_deg.value"), *value.base_yaw_deg);
-  writer.value(child(prefix, "manual_yaw_deg.has"), value.manual_yaw_deg.has_value());
-  if (value.manual_yaw_deg.has_value()) writer.value(child(prefix, "manual_yaw_deg.value"), *value.manual_yaw_deg);
-  writer.value(child(prefix, "flip_180.has"), value.flip_180.has_value());
-  if (value.flip_180.has_value()) writer.value(child(prefix, "flip_180.value"), *value.flip_180);
-  writer.value(child(prefix, "version"), value.version);
+template <typename Archive, typename Value>
+bool archive_pole_orientation_override(Archive& archive, const std::string& prefix, Value& value) {
+  return archive.optional(child(prefix, "base_yaw_deg"), value.base_yaw_deg) &&
+         archive.optional(child(prefix, "manual_yaw_deg"), value.manual_yaw_deg) &&
+         archive.optional(child(prefix, "flip_180"), value.flip_180) &&
+         archive.value(child(prefix, "version"), value.version);
 }
 
-void write_span_endpoint_override(StateWriter& writer, const std::string& prefix, const SpanEndpointOverride& value) {
-  writer.value(child(prefix, "socket_a_id.has"), value.socket_a_id.has_value());
-  if (value.socket_a_id.has_value()) writer.value(child(prefix, "socket_a_id.value"), *value.socket_a_id);
-  writer.value(child(prefix, "socket_b_id.has"), value.socket_b_id.has_value());
-  if (value.socket_b_id.has_value()) writer.value(child(prefix, "socket_b_id.value"), *value.socket_b_id);
-  writer.value(child(prefix, "version"), value.version);
+template <typename Archive, typename Value>
+bool archive_span_endpoint_override(Archive& archive, const std::string& prefix, Value& value) {
+  return archive.optional(child(prefix, "socket_a_id"), value.socket_a_id) &&
+         archive.optional(child(prefix, "socket_b_id"), value.socket_b_id) &&
+         archive.value(child(prefix, "version"), value.version);
 }
 
-void write_span_support_override(StateWriter& writer, const std::string& prefix, const SpanSupportOverride& value) {
-  writer.value(child(prefix, "branch_down_offset_m.has"), value.branch_down_offset_m.has_value());
-  if (value.branch_down_offset_m.has_value()) {
-    writer.value(child(prefix, "branch_down_offset_m.value"), *value.branch_down_offset_m);
+template <typename Archive, typename Value>
+bool archive_span_support_override(Archive& archive, const std::string& prefix, Value& value) {
+  return archive.optional(child(prefix, "branch_down_offset_m"), value.branch_down_offset_m) &&
+         archive.value(child(prefix, "version"), value.version);
+}
+
+#define ARCHIVE_FIELD(field) archive.value(child(prefix, #field), value.field)
+
+template <typename Archive, typename Value>
+bool archive_context_profile(Archive& archive, const std::string& prefix, Value& value) {
+  return ARCHIVE_FIELD(age) && ARCHIVE_FIELD(clutter) && ARCHIVE_FIELD(regularity) &&
+         ARCHIVE_FIELD(service_mix) && ARCHIVE_FIELD(style_seed);
+}
+
+template <typename Archive, typename Value>
+bool archive_layout_settings(Archive& archive, const std::string& prefix, Value& value) {
+  return ARCHIVE_FIELD(angle_correction_enabled) && ARCHIVE_FIELD(corner_threshold_deg) &&
+         ARCHIVE_FIELD(min_side_scale) && ARCHIVE_FIELD(max_side_scale);
+}
+
+template <typename Archive, typename Value>
+bool archive_geometry_settings(Archive& archive, const std::string& prefix, Value& value) {
+  return ARCHIVE_FIELD(curve_samples) && ARCHIVE_FIELD(sag_enabled) && ARCHIVE_FIELD(sag_factor) &&
+         ARCHIVE_FIELD(pole_clearance_m);
+}
+
+template <typename Archive, typename Value>
+bool archive_visual_settings(Archive& archive, const std::string& prefix, Value& value) {
+  return ARCHIVE_FIELD(enable_support_structures) && ARCHIVE_FIELD(enable_insulators) &&
+         ARCHIVE_FIELD(support_center_threshold_m) && ARCHIVE_FIELD(support_arm_extra_m) &&
+         ARCHIVE_FIELD(support_arm_radius_m) && ARCHIVE_FIELD(insulator_radius_m) &&
+         ARCHIVE_FIELD(insulator_length_m);
+}
+
+template <typename Archive, typename Value>
+bool archive_variation_settings(Archive& archive, const std::string& prefix, Value& value) {
+  return ARCHIVE_FIELD(enabled) && ARCHIVE_FIELD(global_seed) && ARCHIVE_FIELD(world_cell_size_m) &&
+         ARCHIVE_FIELD(world_bias_scale) && ARCHIVE_FIELD(flow_bias_scale) &&
+         ARCHIVE_FIELD(pole_delta_scale) && ARCHIVE_FIELD(local_jitter_scale) &&
+         ARCHIVE_FIELD(sag_variation_scale) && ARCHIVE_FIELD(branch_down_offset_variation_scale);
+}
+
+#undef ARCHIVE_FIELD
+
+#define WRITE_ARCHIVE_WRAPPER(name, type)                                                                             \
+  void write_##name(StateWriter& writer, const std::string& prefix, const type& value) {                              \
+    WriteFieldArchive archive(writer);                                                                                 \
+    static_cast<void>(archive_##name(archive, prefix, value));                                                         \
   }
-  writer.value(child(prefix, "version"), value.version);
-}
+
+WRITE_ARCHIVE_WRAPPER(pole_orientation_override, PoleOrientationOverride)
+WRITE_ARCHIVE_WRAPPER(span_endpoint_override, SpanEndpointOverride)
+WRITE_ARCHIVE_WRAPPER(span_support_override, SpanSupportOverride)
+
+#undef WRITE_ARCHIVE_WRAPPER
 
 void write_context_profile(StateWriter& writer, const ContextProfile& value) {
-  writer.value("authoritative.context_profile.age", value.age);
-  writer.value("authoritative.context_profile.clutter", value.clutter);
-  writer.value("authoritative.context_profile.regularity", value.regularity);
-  writer.value("authoritative.context_profile.service_mix", value.service_mix);
-  writer.value("authoritative.context_profile.style_seed", value.style_seed);
+  WriteFieldArchive archive(writer);
+  static_cast<void>(archive_context_profile(archive, "authoritative.context_profile", value));
 }
 
 void write_layout_settings(StateWriter& writer, const LayoutSettings& value) {
-  writer.value("authoritative.layout_settings.angle_correction_enabled", value.angle_correction_enabled);
-  writer.value("authoritative.layout_settings.corner_threshold_deg", value.corner_threshold_deg);
-  writer.value("authoritative.layout_settings.min_side_scale", value.min_side_scale);
-  writer.value("authoritative.layout_settings.max_side_scale", value.max_side_scale);
+  WriteFieldArchive archive(writer);
+  static_cast<void>(archive_layout_settings(archive, "authoritative.layout_settings", value));
 }
 
 void write_geometry_settings(StateWriter& writer, const GeometrySettings& value) {
-  writer.value("authoritative.geometry_settings.curve_samples", value.curve_samples);
-  writer.value("authoritative.geometry_settings.sag_enabled", value.sag_enabled);
-  writer.value("authoritative.geometry_settings.sag_factor", value.sag_factor);
-  writer.value("authoritative.geometry_settings.pole_clearance_m", value.pole_clearance_m);
+  WriteFieldArchive archive(writer);
+  static_cast<void>(archive_geometry_settings(archive, "authoritative.geometry_settings", value));
 }
 
 void write_visual_settings(StateWriter& writer, const VisualSettings& value) {
-  writer.value("authoritative.visual_settings.enable_support_structures", value.enable_support_structures);
-  writer.value("authoritative.visual_settings.enable_insulators", value.enable_insulators);
-  writer.value("authoritative.visual_settings.support_center_threshold_m", value.support_center_threshold_m);
-  writer.value("authoritative.visual_settings.support_arm_extra_m", value.support_arm_extra_m);
-  writer.value("authoritative.visual_settings.support_arm_radius_m", value.support_arm_radius_m);
-  writer.value("authoritative.visual_settings.insulator_radius_m", value.insulator_radius_m);
-  writer.value("authoritative.visual_settings.insulator_length_m", value.insulator_length_m);
+  WriteFieldArchive archive(writer);
+  static_cast<void>(archive_visual_settings(archive, "authoritative.visual_settings", value));
 }
 
 void write_variation_settings(StateWriter& writer, const VariationSettings& value) {
-  writer.value("authoritative.variation_settings.enabled", value.enabled);
-  writer.value("authoritative.variation_settings.global_seed", value.global_seed);
-  writer.value("authoritative.variation_settings.world_cell_size_m", value.world_cell_size_m);
-  writer.value("authoritative.variation_settings.world_bias_scale", value.world_bias_scale);
-  writer.value("authoritative.variation_settings.flow_bias_scale", value.flow_bias_scale);
-  writer.value("authoritative.variation_settings.pole_delta_scale", value.pole_delta_scale);
-  writer.value("authoritative.variation_settings.local_jitter_scale", value.local_jitter_scale);
-  writer.value("authoritative.variation_settings.sag_variation_scale", value.sag_variation_scale);
-  writer.value("authoritative.variation_settings.branch_down_offset_variation_scale",
-               value.branch_down_offset_variation_scale);
+  WriteFieldArchive archive(writer);
+  static_cast<void>(archive_variation_settings(archive, "authoritative.variation_settings", value));
 }
 
 #define READ_VALUE(field)                                                                                              \
@@ -1304,65 +1372,20 @@ bool read_map(StateReader& reader, const std::string& prefix, std::unordered_map
   return true;
 }
 
-bool read_optional_double(StateReader& reader, const std::string& prefix, std::optional<double>* value) {
-  bool has = false;
-  if (!reader.value(child(prefix, "has"), &has)) return false;
-  if (!has) {
-    value->reset();
-    return true;
-  }
-  double parsed = 0.0;
-  if (!reader.value(child(prefix, "value"), &parsed)) return false;
-  *value = parsed;
-  return true;
-}
-
-bool read_optional_int(StateReader& reader, const std::string& prefix, std::optional<int>* value) {
-  bool has = false;
-  if (!reader.value(child(prefix, "has"), &has)) return false;
-  if (!has) {
-    value->reset();
-    return true;
-  }
-  int parsed = 0;
-  if (!reader.value(child(prefix, "value"), &parsed)) return false;
-  *value = parsed;
-  return true;
-}
-
-bool read_optional_bool(StateReader& reader, const std::string& prefix, std::optional<bool>* value) {
-  bool has = false;
-  if (!reader.value(child(prefix, "has"), &has)) return false;
-  if (!has) {
-    value->reset();
-    return true;
-  }
-  bool parsed = false;
-  if (!reader.value(child(prefix, "value"), &parsed)) return false;
-  *value = parsed;
-  return true;
-}
-
 bool read_pole_orientation_override(StateReader& reader, const std::string& prefix,
                                     PoleOrientationOverride* value) {
-  if (!read_optional_double(reader, child(prefix, "base_yaw_deg"), &value->base_yaw_deg) ||
-      !read_optional_double(reader, child(prefix, "manual_yaw_deg"), &value->manual_yaw_deg) ||
-      !read_optional_bool(reader, child(prefix, "flip_180"), &value->flip_180)) return false;
-  READ_VALUE(version);
-  return true;
+  ReadFieldArchive archive(reader);
+  return archive_pole_orientation_override(archive, prefix, *value);
 }
 
 bool read_span_endpoint_override(StateReader& reader, const std::string& prefix, SpanEndpointOverride* value) {
-  if (!read_optional_int(reader, child(prefix, "socket_a_id"), &value->socket_a_id) ||
-      !read_optional_int(reader, child(prefix, "socket_b_id"), &value->socket_b_id)) return false;
-  READ_VALUE(version);
-  return true;
+  ReadFieldArchive archive(reader);
+  return archive_span_endpoint_override(archive, prefix, *value);
 }
 
 bool read_span_support_override(StateReader& reader, const std::string& prefix, SpanSupportOverride* value) {
-  if (!read_optional_double(reader, child(prefix, "branch_down_offset_m"), &value->branch_down_offset_m)) return false;
-  READ_VALUE(version);
-  return true;
+  ReadFieldArchive archive(reader);
+  return archive_span_support_override(archive, prefix, *value);
 }
 
 template <typename V, typename Read>
@@ -1381,57 +1404,28 @@ bool read_object_id_map(StateReader& reader, const std::string& prefix,
 }
 
 bool read_context_profile(StateReader& reader, ContextProfile* value) {
-  const std::string prefix = "authoritative.context_profile";
-  READ_VALUE(age);
-  READ_VALUE(clutter);
-  READ_VALUE(regularity);
-  READ_VALUE(service_mix);
-  READ_VALUE(style_seed);
-  return true;
+  ReadFieldArchive archive(reader);
+  return archive_context_profile(archive, "authoritative.context_profile", *value);
 }
 
 bool read_layout_settings(StateReader& reader, LayoutSettings* value) {
-  const std::string prefix = "authoritative.layout_settings";
-  READ_VALUE(angle_correction_enabled);
-  READ_VALUE(corner_threshold_deg);
-  READ_VALUE(min_side_scale);
-  READ_VALUE(max_side_scale);
-  return true;
+  ReadFieldArchive archive(reader);
+  return archive_layout_settings(archive, "authoritative.layout_settings", *value);
 }
 
 bool read_geometry_settings(StateReader& reader, GeometrySettings* value) {
-  const std::string prefix = "authoritative.geometry_settings";
-  READ_VALUE(curve_samples);
-  READ_VALUE(sag_enabled);
-  READ_VALUE(sag_factor);
-  READ_VALUE(pole_clearance_m);
-  return true;
+  ReadFieldArchive archive(reader);
+  return archive_geometry_settings(archive, "authoritative.geometry_settings", *value);
 }
 
 bool read_visual_settings(StateReader& reader, VisualSettings* value) {
-  const std::string prefix = "authoritative.visual_settings";
-  READ_VALUE(enable_support_structures);
-  READ_VALUE(enable_insulators);
-  READ_VALUE(support_center_threshold_m);
-  READ_VALUE(support_arm_extra_m);
-  READ_VALUE(support_arm_radius_m);
-  READ_VALUE(insulator_radius_m);
-  READ_VALUE(insulator_length_m);
-  return true;
+  ReadFieldArchive archive(reader);
+  return archive_visual_settings(archive, "authoritative.visual_settings", *value);
 }
 
 bool read_variation_settings(StateReader& reader, VariationSettings* value) {
-  const std::string prefix = "authoritative.variation_settings";
-  READ_VALUE(enabled);
-  READ_VALUE(global_seed);
-  READ_VALUE(world_cell_size_m);
-  READ_VALUE(world_bias_scale);
-  READ_VALUE(flow_bias_scale);
-  READ_VALUE(pole_delta_scale);
-  READ_VALUE(local_jitter_scale);
-  READ_VALUE(sag_variation_scale);
-  READ_VALUE(branch_down_offset_variation_scale);
-  return true;
+  ReadFieldArchive archive(reader);
+  return archive_variation_settings(archive, "authoritative.variation_settings", *value);
 }
 
 bool read_identity(StateReader& reader, CoreStateIdentityStorage* identity) {

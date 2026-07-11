@@ -392,26 +392,6 @@ bool archive_attachment(Archive& archive, const std::string& prefix, Value& valu
          archive.field(prefix, "t", value.t) && archive.field(prefix, "kind", value.kind) && archive.field(prefix, "display_offset_m", value.display_offset_m) && archive.field(prefix, "origin", value.origin);
 }
 
-#define WRITE_ENTITY_WRAPPER(name, type)                                                                               \
-  void write_##name(StateWriter& writer, const std::string& prefix, const type& value) {                              \
-    WriteFieldArchive archive(writer);                                                                                 \
-    static_cast<void>(archive_##name(archive, prefix, value));                                                         \
-  }
-
-WRITE_ENTITY_WRAPPER(vec3, Vec3d)
-WRITE_ENTITY_WRAPPER(transform, Transformd)
-WRITE_ENTITY_WRAPPER(frame, Frame3d)
-WRITE_ENTITY_WRAPPER(generation, GenerationMeta)
-WRITE_ENTITY_WRAPPER(pole_context, PoleContextInfo)
-WRITE_ENTITY_WRAPPER(pole, Pole)
-WRITE_ENTITY_WRAPPER(port, Port)
-WRITE_ENTITY_WRAPPER(anchor, Anchor)
-WRITE_ENTITY_WRAPPER(bundle, Bundle)
-WRITE_ENTITY_WRAPPER(span, Span)
-WRITE_ENTITY_WRAPPER(attachment, Attachment)
-
-#undef WRITE_ENTITY_WRAPPER
-
 template <typename T, typename Write>
 void write_object_store(StateWriter& writer, const std::string& prefix, const ObjectStore<T>& store, Write write) {
   std::vector<const T*> ordered{};
@@ -427,12 +407,18 @@ void write_object_store(StateWriter& writer, const std::string& prefix, const Ob
 }
 
 void write_edit_state(StateWriter& writer, const EditState& state) {
-  write_object_store(writer, "authoritative.edit_state.poles", state.poles, write_pole);
-  write_object_store(writer, "authoritative.edit_state.ports", state.ports, write_port);
-  write_object_store(writer, "authoritative.edit_state.anchors", state.anchors, write_anchor);
-  write_object_store(writer, "authoritative.edit_state.bundles", state.bundles, write_bundle);
-  write_object_store(writer, "authoritative.edit_state.spans", state.spans, write_span);
-  write_object_store(writer, "authoritative.edit_state.attachments", state.attachments, write_attachment);
+  write_object_store(writer, "authoritative.edit_state.poles", state.poles,
+                     [](auto& out, const auto& prefix, const Pole& value) { WriteFieldArchive a(out); (void)archive_pole(a, prefix, value); });
+  write_object_store(writer, "authoritative.edit_state.ports", state.ports,
+                     [](auto& out, const auto& prefix, const Port& value) { WriteFieldArchive a(out); (void)archive_port(a, prefix, value); });
+  write_object_store(writer, "authoritative.edit_state.anchors", state.anchors,
+                     [](auto& out, const auto& prefix, const Anchor& value) { WriteFieldArchive a(out); (void)archive_anchor(a, prefix, value); });
+  write_object_store(writer, "authoritative.edit_state.bundles", state.bundles,
+                     [](auto& out, const auto& prefix, const Bundle& value) { WriteFieldArchive a(out); (void)archive_bundle(a, prefix, value); });
+  write_object_store(writer, "authoritative.edit_state.spans", state.spans,
+                     [](auto& out, const auto& prefix, const Span& value) { WriteFieldArchive a(out); (void)archive_span(a, prefix, value); });
+  write_object_store(writer, "authoritative.edit_state.attachments", state.attachments,
+                     [](auto& out, const auto& prefix, const Attachment& value) { WriteFieldArchive a(out); (void)archive_attachment(a, prefix, value); });
 }
 
 
@@ -496,22 +482,6 @@ bool archive_saved_span_binding(Archive& archive, const std::string& prefix, Val
   return archive.field(prefix, "edge_bundle_id", value.edge_bundle_id) && archive.field(prefix, "lane_index", value.lane_index) && archive.field(prefix, "span_id", value.span_id);
 }
 
-#define WRITE_BACKBONE_WRAPPER(name, type)                                                                             \
-  void write_##name(StateWriter& writer, const std::string& prefix, const type& value) {                              \
-    WriteFieldArchive archive(writer);                                                                                 \
-    static_cast<void>(archive_##name(archive, prefix, value));                                                         \
-  }
-
-WRITE_BACKBONE_WRAPPER(bundle_mode, SupportNodeBundleMode)
-WRITE_BACKBONE_WRAPPER(saved_node, SavedBackboneNode)
-WRITE_BACKBONE_WRAPPER(saved_edge, SavedBackboneEdge)
-WRITE_BACKBONE_WRAPPER(saved_edge_bundle, SavedBackboneEdgeBundle)
-WRITE_BACKBONE_WRAPPER(row_key, SavedBackboneRowKey)
-WRITE_BACKBONE_WRAPPER(saved_port_binding, SavedBackbonePortBinding)
-WRITE_BACKBONE_WRAPPER(saved_span_binding, SavedBackboneSpanBinding)
-
-#undef WRITE_BACKBONE_WRAPPER
-
 template <typename T, typename Id, typename Write>
 void write_id_vector(StateWriter& writer, const std::string& prefix, const std::vector<T>& values, Id id, Write write) {
   std::vector<const T*> ordered{};
@@ -539,23 +509,36 @@ void write_ordered_vector(StateWriter& writer, const std::string& prefix, const 
 
 void write_backbone(StateWriter& writer, const SavedBackboneGraph& graph) {
   write_id_vector(writer, "authoritative.backbone.nodes", graph.nodes,
-                  [](const SavedBackboneNode& value) { return value.node_id; }, write_saved_node);
+                  [](const SavedBackboneNode& value) { return value.node_id; },
+                  [](auto& out, const auto& prefix, const SavedBackboneNode& value) {
+                    WriteFieldArchive a(out); (void)archive_saved_node(a, prefix, value);
+                  });
   write_id_vector(writer, "authoritative.backbone.edges", graph.edges,
-                  [](const SavedBackboneEdge& value) { return value.edge_id; }, write_saved_edge);
+                  [](const SavedBackboneEdge& value) { return value.edge_id; },
+                  [](auto& out, const auto& prefix, const SavedBackboneEdge& value) {
+                    WriteFieldArchive a(out); (void)archive_saved_edge(a, prefix, value);
+                  });
   write_id_vector(writer, "authoritative.backbone.edge_bundles", graph.edge_bundles,
-                  [](const SavedBackboneEdgeBundle& value) { return value.edge_bundle_id; }, write_saved_edge_bundle);
+                  [](const SavedBackboneEdgeBundle& value) { return value.edge_bundle_id; },
+                  [](auto& out, const auto& prefix, const SavedBackboneEdgeBundle& value) {
+                    WriteFieldArchive a(out); (void)archive_saved_edge_bundle(a, prefix, value);
+                  });
   write_ordered_vector(writer, "authoritative.backbone.port_bindings", graph.port_bindings,
                        [](const SavedBackbonePortBinding& a, const SavedBackbonePortBinding& b) {
                          return std::tie(a.edge_bundle_id, a.row_key.node_id, a.row_key.source_is_open,
                                          a.row_key.source_edge_a, a.row_key.source_edge_b, a.lane_index, a.port_id) <
                                 std::tie(b.edge_bundle_id, b.row_key.node_id, b.row_key.source_is_open,
                                          b.row_key.source_edge_a, b.row_key.source_edge_b, b.lane_index, b.port_id);
-                       }, write_saved_port_binding);
+                       }, [](auto& out, const auto& prefix, const SavedBackbonePortBinding& value) {
+                         WriteFieldArchive a(out); (void)archive_saved_port_binding(a, prefix, value);
+                       });
   write_ordered_vector(writer, "authoritative.backbone.span_bindings", graph.span_bindings,
                        [](const SavedBackboneSpanBinding& a, const SavedBackboneSpanBinding& b) {
                          return std::tie(a.edge_bundle_id, a.lane_index, a.span_id) <
                                 std::tie(b.edge_bundle_id, b.lane_index, b.span_id);
-                       }, write_saved_span_binding);
+                       }, [](auto& out, const auto& prefix, const SavedBackboneSpanBinding& value) {
+                         WriteFieldArchive a(out); (void)archive_saved_span_binding(a, prefix, value);
+                       });
 }
 
 
@@ -595,18 +578,6 @@ bool archive_pole_type(Archive& archive, const std::string& prefix, Value& value
   }
   return true;
 }
-
-#define WRITE_POLE_TEMPLATE_WRAPPER(name, type)                                                                        \
-  void write_##name(StateWriter& writer, const std::string& prefix, const type& value) {                              \
-    WriteFieldArchive archive(writer);                                                                                 \
-    static_cast<void>(archive_##name(archive, prefix, value));                                                         \
-  }
-
-WRITE_POLE_TEMPLATE_WRAPPER(port_band, PortPlacementBand)
-WRITE_POLE_TEMPLATE_WRAPPER(anchor_slot, AnchorSlotTemplate)
-WRITE_POLE_TEMPLATE_WRAPPER(pole_type, PoleTypeDefinition)
-
-#undef WRITE_POLE_TEMPLATE_WRAPPER
 
 template <typename Archive, typename Value>
 bool archive_supplemental_path(Archive& ar, const std::string& p, Value& v) {
@@ -695,32 +666,6 @@ bool archive_bundle_template(Archive& ar, const std::string& p, Value& v) {
   return ar.field(p, "version", v.version);
 }
 
-void write_supplemental_path(StateWriter& writer, const std::string& prefix,
-                             const CableSupplementalPathTemplate& value) {
-  WriteFieldArchive archive(writer);
-  static_cast<void>(archive_supplemental_path(archive, prefix, value));
-}
-
-void write_cable_template(StateWriter& writer, const std::string& prefix, const CableTemplate& value) {
-  WriteFieldArchive archive(writer);
-  static_cast<void>(archive_cable_template(archive, prefix, value));
-}
-
-void write_reserve(StateWriter& writer, const std::string& prefix, const PlacementReserve& value) {
-  WriteFieldArchive archive(writer);
-  static_cast<void>(archive_reserve(archive, prefix, value));
-}
-
-void write_population_rule(StateWriter& writer, const std::string& prefix, const CablePopulationRule& value) {
-  WriteFieldArchive archive(writer);
-  static_cast<void>(archive_population_rule(archive, prefix, value));
-}
-
-void write_bundle_template(StateWriter& writer, const std::string& prefix, const BundleTemplate& value) {
-  WriteFieldArchive archive(writer);
-  static_cast<void>(archive_bundle_template(archive, prefix, value));
-}
-
 
 template <typename Archive, typename Value>
 bool archive_attachment_socket(Archive& archive, const std::string& prefix, Value& value) {
@@ -760,18 +705,6 @@ bool archive_attachment_template(Archive& archive, const std::string& prefix, Va
   }
   return archive.field(prefix, "version", value.version);
 }
-
-#define WRITE_ATTACHMENT_TEMPLATE_WRAPPER(name, type)                                                                  \
-  void write_##name(StateWriter& writer, const std::string& prefix, const type& value) {                              \
-    WriteFieldArchive archive(writer);                                                                                 \
-    static_cast<void>(archive_##name(archive, prefix, value));                                                         \
-  }
-
-WRITE_ATTACHMENT_TEMPLATE_WRAPPER(attachment_socket, AttachmentSocketTemplate)
-WRITE_ATTACHMENT_TEMPLATE_WRAPPER(internal_path, AttachmentInternalPathTemplate)
-WRITE_ATTACHMENT_TEMPLATE_WRAPPER(attachment_template, AttachmentTemplate)
-
-#undef WRITE_ATTACHMENT_TEMPLATE_WRAPPER
 
 template <typename K, typename V, typename Write>
 void write_map(StateWriter& writer, const std::string& prefix, const std::unordered_map<K, V>& values, Write write) {
@@ -844,63 +777,6 @@ bool archive_variation_settings(Archive& archive, const std::string& prefix, Val
          archive.field(prefix, "sag_variation_scale", value.sag_variation_scale) && archive.field(prefix, "branch_down_offset_variation_scale", value.branch_down_offset_variation_scale);
 }
 
-#define WRITE_ARCHIVE_WRAPPER(name, type)                                                                             \
-  void write_##name(StateWriter& writer, const std::string& prefix, const type& value) {                              \
-    WriteFieldArchive archive(writer);                                                                                 \
-    static_cast<void>(archive_##name(archive, prefix, value));                                                         \
-  }
-
-WRITE_ARCHIVE_WRAPPER(pole_orientation_override, PoleOrientationOverride)
-WRITE_ARCHIVE_WRAPPER(span_endpoint_override, SpanEndpointOverride)
-WRITE_ARCHIVE_WRAPPER(span_support_override, SpanSupportOverride)
-
-#undef WRITE_ARCHIVE_WRAPPER
-
-void write_context_profile(StateWriter& writer, const ContextProfile& value) {
-  WriteFieldArchive archive(writer);
-  static_cast<void>(archive_context_profile(archive, "authoritative.context_profile", value));
-}
-
-void write_layout_settings(StateWriter& writer, const LayoutSettings& value) {
-  WriteFieldArchive archive(writer);
-  static_cast<void>(archive_layout_settings(archive, "authoritative.layout_settings", value));
-}
-
-void write_geometry_settings(StateWriter& writer, const GeometrySettings& value) {
-  WriteFieldArchive archive(writer);
-  static_cast<void>(archive_geometry_settings(archive, "authoritative.geometry_settings", value));
-}
-
-void write_visual_settings(StateWriter& writer, const VisualSettings& value) {
-  WriteFieldArchive archive(writer);
-  static_cast<void>(archive_visual_settings(archive, "authoritative.visual_settings", value));
-}
-
-void write_variation_settings(StateWriter& writer, const VariationSettings& value) {
-  WriteFieldArchive archive(writer);
-  static_cast<void>(archive_variation_settings(archive, "authoritative.variation_settings", value));
-}
-
-#define READ_ENTITY_WRAPPER(name, type)                                                                                \
-  bool read_##name(StateReader& reader, const std::string& prefix, type* value) {                                     \
-    ReadFieldArchive archive(reader);                                                                                  \
-    return archive_##name(archive, prefix, *value);                                                                    \
-  }
-
-READ_ENTITY_WRAPPER(vec3, Vec3d)
-READ_ENTITY_WRAPPER(transform, Transformd)
-READ_ENTITY_WRAPPER(frame, Frame3d)
-READ_ENTITY_WRAPPER(generation, GenerationMeta)
-READ_ENTITY_WRAPPER(pole_context, PoleContextInfo)
-READ_ENTITY_WRAPPER(pole, Pole)
-READ_ENTITY_WRAPPER(port, Port)
-READ_ENTITY_WRAPPER(anchor, Anchor)
-READ_ENTITY_WRAPPER(bundle, Bundle)
-READ_ENTITY_WRAPPER(span, Span)
-READ_ENTITY_WRAPPER(attachment, Attachment)
-
-#undef READ_ENTITY_WRAPPER
-
 template <typename T, typename Read>
 bool read_object_store(StateReader& reader, const std::string& prefix, ObjectStore<T>* store, Read read) {
   std::size_t count = 0;
@@ -916,29 +792,19 @@ bool read_object_store(StateReader& reader, const std::string& prefix, ObjectSto
 }
 
 bool read_edit_state(StateReader& reader, EditState* state) {
-  return read_object_store(reader, "authoritative.edit_state.poles", &state->poles, read_pole) &&
-         read_object_store(reader, "authoritative.edit_state.ports", &state->ports, read_port) &&
-         read_object_store(reader, "authoritative.edit_state.anchors", &state->anchors, read_anchor) &&
-         read_object_store(reader, "authoritative.edit_state.bundles", &state->bundles, read_bundle) &&
-         read_object_store(reader, "authoritative.edit_state.spans", &state->spans, read_span) &&
-         read_object_store(reader, "authoritative.edit_state.attachments", &state->attachments, read_attachment);
+  return read_object_store(reader, "authoritative.edit_state.poles", &state->poles,
+                           [](auto& in, const auto& prefix, Pole* value) { ReadFieldArchive a(in); return archive_pole(a, prefix, *value); }) &&
+         read_object_store(reader, "authoritative.edit_state.ports", &state->ports,
+                           [](auto& in, const auto& prefix, Port* value) { ReadFieldArchive a(in); return archive_port(a, prefix, *value); }) &&
+         read_object_store(reader, "authoritative.edit_state.anchors", &state->anchors,
+                           [](auto& in, const auto& prefix, Anchor* value) { ReadFieldArchive a(in); return archive_anchor(a, prefix, *value); }) &&
+         read_object_store(reader, "authoritative.edit_state.bundles", &state->bundles,
+                           [](auto& in, const auto& prefix, Bundle* value) { ReadFieldArchive a(in); return archive_bundle(a, prefix, *value); }) &&
+         read_object_store(reader, "authoritative.edit_state.spans", &state->spans,
+                           [](auto& in, const auto& prefix, Span* value) { ReadFieldArchive a(in); return archive_span(a, prefix, *value); }) &&
+         read_object_store(reader, "authoritative.edit_state.attachments", &state->attachments,
+                           [](auto& in, const auto& prefix, Attachment* value) { ReadFieldArchive a(in); return archive_attachment(a, prefix, *value); });
 }
-
-#define READ_BACKBONE_WRAPPER(name, type)                                                                              \
-  bool read_##name(StateReader& reader, const std::string& prefix, type* value) {                                     \
-    ReadFieldArchive archive(reader);                                                                                  \
-    return archive_##name(archive, prefix, *value);                                                                    \
-  }
-
-READ_BACKBONE_WRAPPER(bundle_mode, SupportNodeBundleMode)
-READ_BACKBONE_WRAPPER(saved_node, SavedBackboneNode)
-READ_BACKBONE_WRAPPER(saved_edge, SavedBackboneEdge)
-READ_BACKBONE_WRAPPER(saved_edge_bundle, SavedBackboneEdgeBundle)
-READ_BACKBONE_WRAPPER(row_key, SavedBackboneRowKey)
-READ_BACKBONE_WRAPPER(saved_port_binding, SavedBackbonePortBinding)
-READ_BACKBONE_WRAPPER(saved_span_binding, SavedBackboneSpanBinding)
-
-#undef READ_BACKBONE_WRAPPER
 
 template <typename T, typename Id, typename Read>
 bool read_id_vector(StateReader& reader, const std::string& prefix, std::vector<T>* values, Id id, Read read) {
@@ -957,66 +823,38 @@ bool read_id_vector(StateReader& reader, const std::string& prefix, std::vector<
 
 bool read_backbone(StateReader& reader, SavedBackboneGraph* graph) {
   if (!read_id_vector(reader, "authoritative.backbone.nodes", &graph->nodes,
-                      [](const SavedBackboneNode& value) { return value.node_id; }, read_saved_node) ||
+                      [](const SavedBackboneNode& value) { return value.node_id; },
+                      [](auto& in, const auto& prefix, SavedBackboneNode* value) {
+                        ReadFieldArchive a(in); return archive_saved_node(a, prefix, *value);
+                      }) ||
       !read_id_vector(reader, "authoritative.backbone.edges", &graph->edges,
-                      [](const SavedBackboneEdge& value) { return value.edge_id; }, read_saved_edge) ||
+                      [](const SavedBackboneEdge& value) { return value.edge_id; },
+                      [](auto& in, const auto& prefix, SavedBackboneEdge* value) {
+                        ReadFieldArchive a(in); return archive_saved_edge(a, prefix, *value);
+                      }) ||
       !read_id_vector(reader, "authoritative.backbone.edge_bundles", &graph->edge_bundles,
                       [](const SavedBackboneEdgeBundle& value) { return value.edge_bundle_id; },
-                      read_saved_edge_bundle)) return false;
+                      [](auto& in, const auto& prefix, SavedBackboneEdgeBundle* value) {
+                        ReadFieldArchive a(in); return archive_saved_edge_bundle(a, prefix, *value);
+                      })) return false;
   std::size_t port_count = 0;
   if (!reader.count("authoritative.backbone.port_bindings.count", &port_count)) return false;
   graph->port_bindings.resize(port_count);
   for (std::size_t i = 0; i < port_count; ++i) {
-    if (!read_saved_port_binding(reader, indexed("authoritative.backbone.port_bindings", i),
-                                 &graph->port_bindings[i])) return false;
+    ReadFieldArchive archive(reader);
+    if (!archive_saved_port_binding(archive, indexed("authoritative.backbone.port_bindings", i),
+                                    graph->port_bindings[i])) return false;
   }
   std::size_t span_count = 0;
   if (!reader.count("authoritative.backbone.span_bindings.count", &span_count)) return false;
   graph->span_bindings.resize(span_count);
   for (std::size_t i = 0; i < span_count; ++i) {
-    if (!read_saved_span_binding(reader, indexed("authoritative.backbone.span_bindings", i),
-                                 &graph->span_bindings[i])) return false;
+    ReadFieldArchive archive(reader);
+    if (!archive_saved_span_binding(archive, indexed("authoritative.backbone.span_bindings", i),
+                                    graph->span_bindings[i])) return false;
   }
   return true;
 }
-
-#define READ_POLE_TEMPLATE_WRAPPER(name, type)                                                                         \
-  bool read_##name(StateReader& reader, const std::string& prefix, type* value) {                                     \
-    ReadFieldArchive archive(reader);                                                                                  \
-    return archive_##name(archive, prefix, *value);                                                                    \
-  }
-
-READ_POLE_TEMPLATE_WRAPPER(port_band, PortPlacementBand)
-READ_POLE_TEMPLATE_WRAPPER(anchor_slot, AnchorSlotTemplate)
-READ_POLE_TEMPLATE_WRAPPER(pole_type, PoleTypeDefinition)
-
-#undef READ_POLE_TEMPLATE_WRAPPER
-
-#define READ_CABLE_TEMPLATE_WRAPPER(name, type)                                                                        \
-  bool read_##name(StateReader& reader, const std::string& prefix, type* value) {                                     \
-    ReadFieldArchive archive(reader);                                                                                  \
-    return archive_##name(archive, prefix, *value);                                                                    \
-  }
-
-READ_CABLE_TEMPLATE_WRAPPER(supplemental_path, CableSupplementalPathTemplate)
-READ_CABLE_TEMPLATE_WRAPPER(cable_template, CableTemplate)
-READ_CABLE_TEMPLATE_WRAPPER(reserve, PlacementReserve)
-READ_CABLE_TEMPLATE_WRAPPER(population_rule, CablePopulationRule)
-READ_CABLE_TEMPLATE_WRAPPER(bundle_template, BundleTemplate)
-
-#undef READ_CABLE_TEMPLATE_WRAPPER
-
-#define READ_ATTACHMENT_TEMPLATE_WRAPPER(name, type)                                                                   \
-  bool read_##name(StateReader& reader, const std::string& prefix, type* value) {                                     \
-    ReadFieldArchive archive(reader);                                                                                  \
-    return archive_##name(archive, prefix, *value);                                                                    \
-  }
-
-READ_ATTACHMENT_TEMPLATE_WRAPPER(attachment_socket, AttachmentSocketTemplate)
-READ_ATTACHMENT_TEMPLATE_WRAPPER(internal_path, AttachmentInternalPathTemplate)
-READ_ATTACHMENT_TEMPLATE_WRAPPER(attachment_template, AttachmentTemplate)
-
-#undef READ_ATTACHMENT_TEMPLATE_WRAPPER
 
 template <typename K, typename V, typename Read>
 bool read_map(StateReader& reader, const std::string& prefix, std::unordered_map<K, V>* values, Read read) {
@@ -1111,11 +949,22 @@ bool read_identity(StateReader& reader, CoreStateIdentityStorage* identity) {
 bool read_authoritative(StateReader& reader, CoreStateAuthoritativeStorage* authoritative) {
   return read_edit_state(reader, &authoritative->edit_state) &&
          read_backbone(reader, &authoritative->backbone) &&
-         read_map(reader, "authoritative.pole_types", &authoritative->pole_types, read_pole_type) &&
-         read_map(reader, "authoritative.cable_templates", &authoritative->cable_templates, read_cable_template) &&
-         read_map(reader, "authoritative.bundle_templates", &authoritative->bundle_templates, read_bundle_template) &&
+         read_map(reader, "authoritative.pole_types", &authoritative->pole_types,
+                  [](auto& in, const auto& prefix, PoleTypeDefinition* value) {
+                    ReadFieldArchive a(in); return archive_pole_type(a, prefix, *value);
+                  }) &&
+         read_map(reader, "authoritative.cable_templates", &authoritative->cable_templates,
+                  [](auto& in, const auto& prefix, CableTemplate* value) {
+                    ReadFieldArchive a(in); return archive_cable_template(a, prefix, *value);
+                  }) &&
+         read_map(reader, "authoritative.bundle_templates", &authoritative->bundle_templates,
+                  [](auto& in, const auto& prefix, BundleTemplate* value) {
+                    ReadFieldArchive a(in); return archive_bundle_template(a, prefix, *value);
+                  }) &&
          read_map(reader, "authoritative.attachment_templates", &authoritative->attachment_templates,
-                  read_attachment_template) &&
+                  [](auto& in, const auto& prefix, AttachmentTemplate* value) {
+                    ReadFieldArchive a(in); return archive_attachment_template(a, prefix, *value);
+                  }) &&
          read_context_profile(reader, &authoritative->context_profile) &&
          read_object_id_map(reader, "authoritative.override_state.pole_orientation_by_pole",
                             &authoritative->override_state.pole_orientation_by_pole,
@@ -1159,22 +1008,42 @@ EditResult<bool> CoreState::SerializeAuthoritative(std::string* out) const {
 
   write_edit_state(writer, authoritative_.edit_state);
   write_backbone(writer, authoritative_.backbone);
-  write_map(writer, "authoritative.pole_types", authoritative_.pole_types, write_pole_type);
-  write_map(writer, "authoritative.cable_templates", authoritative_.cable_templates, write_cable_template);
-  write_map(writer, "authoritative.bundle_templates", authoritative_.bundle_templates, write_bundle_template);
+  write_map(writer, "authoritative.pole_types", authoritative_.pole_types,
+            [](auto& out, const auto& prefix, const PoleTypeDefinition& value) {
+              WriteFieldArchive a(out); (void)archive_pole_type(a, prefix, value);
+            });
+  write_map(writer, "authoritative.cable_templates", authoritative_.cable_templates,
+            [](auto& out, const auto& prefix, const CableTemplate& value) {
+              WriteFieldArchive a(out); (void)archive_cable_template(a, prefix, value);
+            });
+  write_map(writer, "authoritative.bundle_templates", authoritative_.bundle_templates,
+            [](auto& out, const auto& prefix, const BundleTemplate& value) {
+              WriteFieldArchive a(out); (void)archive_bundle_template(a, prefix, value);
+            });
   write_map(writer, "authoritative.attachment_templates", authoritative_.attachment_templates,
-            write_attachment_template);
-  write_context_profile(writer, authoritative_.context_profile);
+            [](auto& out, const auto& prefix, const AttachmentTemplate& value) {
+              WriteFieldArchive a(out); (void)archive_attachment_template(a, prefix, value);
+            });
+  { WriteFieldArchive a(writer); (void)archive_context_profile(a, "authoritative.context_profile", authoritative_.context_profile); }
   write_map(writer, "authoritative.override_state.pole_orientation_by_pole",
-            authoritative_.override_state.pole_orientation_by_pole, write_pole_orientation_override);
+            authoritative_.override_state.pole_orientation_by_pole,
+            [](auto& out, const auto& prefix, const PoleOrientationOverride& value) {
+              WriteFieldArchive a(out); (void)archive_pole_orientation_override(a, prefix, value);
+            });
   write_map(writer, "authoritative.override_state.span_endpoint_by_span",
-            authoritative_.override_state.span_endpoint_by_span, write_span_endpoint_override);
+            authoritative_.override_state.span_endpoint_by_span,
+            [](auto& out, const auto& prefix, const SpanEndpointOverride& value) {
+              WriteFieldArchive a(out); (void)archive_span_endpoint_override(a, prefix, value);
+            });
   write_map(writer, "authoritative.override_state.span_support_by_span",
-            authoritative_.override_state.span_support_by_span, write_span_support_override);
-  write_layout_settings(writer, authoritative_.layout_settings);
-  write_geometry_settings(writer, authoritative_.geometry_settings);
-  write_visual_settings(writer, authoritative_.visual_settings);
-  write_variation_settings(writer, authoritative_.variation_settings);
+            authoritative_.override_state.span_support_by_span,
+            [](auto& out, const auto& prefix, const SpanSupportOverride& value) {
+              WriteFieldArchive a(out); (void)archive_span_support_override(a, prefix, value);
+            });
+  { WriteFieldArchive a(writer); (void)archive_layout_settings(a, "authoritative.layout_settings", authoritative_.layout_settings); }
+  { WriteFieldArchive a(writer); (void)archive_geometry_settings(a, "authoritative.geometry_settings", authoritative_.geometry_settings); }
+  { WriteFieldArchive a(writer); (void)archive_visual_settings(a, "authoritative.visual_settings", authoritative_.visual_settings); }
+  { WriteFieldArchive a(writer); (void)archive_variation_settings(a, "authoritative.variation_settings", authoritative_.variation_settings); }
 
   *out = std::move(writer).finish();
   result.ok = true;

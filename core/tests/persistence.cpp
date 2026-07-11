@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <bit>
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -277,6 +278,18 @@ bool C754_authoritative_load_rejects_invalid_text_without_mutation() {
   return true;
 }
 
+bool C756_persistence_has_no_type_specific_write_read_wrappers() {
+  const std::filesystem::path source = backbone_tests::repo_root() / "core" / "src" / "state" / "persistence.cpp";
+  std::string text{};
+  if (!backbone_tests::file_text(source, &text)) return false;
+  return text.find("#define WRITE_") == std::string::npos &&
+         text.find("#define READ_") == std::string::npos &&
+         text.find("void write_pole(") == std::string::npos &&
+         text.find("bool read_pole(") == std::string::npos &&
+         text.find("void write_bundle_template(") == std::string::npos &&
+         text.find("bool read_bundle_template(") == std::string::npos;
+}
+
 void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C750_authoritative_save_is_deterministic_and_changes_after_edit",
                          "authoritative save is versioned, deterministic, and changes after state edit",
@@ -293,6 +306,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C754_authoritative_load_rejects_invalid_text_without_mutation",
                          "authoritative load rejects version, unknown-key, and truncation errors without mutation",
                          "Boundary", true, C754_authoritative_load_rejects_invalid_text_without_mutation);
+  test_registry::AddTest(tests, "C756_persistence_has_no_type_specific_write_read_wrappers",
+                         "persistence derives write and read from type archive visitors",
+                         "Boundary", false, C756_persistence_has_no_type_specific_write_read_wrappers);
 }
 
 WIRE_REGISTER_TEST_SUITE(register_tests);

@@ -240,6 +240,7 @@ std::string indexed(const std::string& prefix, std::size_t index) {
 
 class WriteFieldArchive {
 public:
+  static constexpr bool loading = false;
   explicit WriteFieldArchive(StateWriter& writer) : writer_(writer) {}
 
   template <typename T> bool value(const std::string& key, const T& input) {
@@ -249,6 +250,11 @@ public:
 
   bool string_value(const std::string& key, const std::string& input) {
     writer_.string_value(key, input);
+    return true;
+  }
+
+  bool count(const std::string& key, std::size_t& input) {
+    writer_.value(key, input);
     return true;
   }
 
@@ -264,6 +270,7 @@ private:
 
 class ReadFieldArchive {
 public:
+  static constexpr bool loading = true;
   explicit ReadFieldArchive(StateReader& reader) : reader_(reader) {}
 
   template <typename T> bool value(const std::string& key, T& output) {
@@ -273,6 +280,8 @@ public:
   bool string_value(const std::string& key, std::string& output) {
     return reader_.string_value(key, &output);
   }
+
+  bool count(const std::string& key, std::size_t& output) { return reader_.count(key, &output); }
 
   template <typename T> bool optional(const std::string& prefix, std::optional<T>& output) {
     bool has = false;
@@ -425,78 +434,85 @@ void write_edit_state(StateWriter& writer, const EditState& state) {
   write_object_store(writer, "authoritative.edit_state.attachments", state.attachments, write_attachment);
 }
 
-void write_bundle_mode(StateWriter& writer, const std::string& prefix, const SupportNodeBundleMode& value) {
-  writer.value(child(prefix, "bundle_template_id"), value.bundle_template_id);
-  writer.value(child(prefix, "mode"), value.mode);
+#define ARCHIVE_VALUE(field) archive.value(child(prefix, #field), value.field)
+
+template <typename Archive, typename Value>
+bool archive_bundle_mode(Archive& archive, const std::string& prefix, Value& value) {
+  return ARCHIVE_VALUE(bundle_template_id) && ARCHIVE_VALUE(mode);
 }
 
-void write_saved_node(StateWriter& writer, const std::string& prefix, const SavedBackboneNode& value) {
-  writer.value(child(prefix, "node_id"), value.node_id);
-  writer.value(child(prefix, "pole_id"), value.pole_id);
-  writer.value(child(prefix, "support_kind"), value.support_kind);
-  write_vec3(writer, child(prefix, "position"), value.position);
-  writer.value(child(prefix, "has_source_edge"), value.has_source_edge);
-  writer.value(child(prefix, "source_edge_node_a"), value.source_edge_node_a);
-  writer.value(child(prefix, "source_edge_node_b"), value.source_edge_node_b);
-  writer.value(child(prefix, "source_edge_t"), value.source_edge_t);
-  writer.value(child(prefix, "path_point_index"), value.path_point_index);
-  writer.value(child(prefix, "bundle_modes.count"), value.bundle_modes.size());
-  for (std::size_t i = 0; i < value.bundle_modes.size(); ++i) {
-    write_bundle_mode(writer, indexed(child(prefix, "bundle_modes"), i), value.bundle_modes[i]);
+template <typename Archive, typename Value>
+bool archive_saved_node(Archive& archive, const std::string& prefix, Value& value) {
+  if (!ARCHIVE_VALUE(node_id) || !ARCHIVE_VALUE(pole_id) || !ARCHIVE_VALUE(support_kind) ||
+      !archive_vec3(archive, child(prefix, "position"), value.position) || !ARCHIVE_VALUE(has_source_edge) ||
+      !ARCHIVE_VALUE(source_edge_node_a) || !ARCHIVE_VALUE(source_edge_node_b) ||
+      !ARCHIVE_VALUE(source_edge_t) || !ARCHIVE_VALUE(path_point_index)) return false;
+  std::size_t count = value.bundle_modes.size();
+  if (!archive.count(child(prefix, "bundle_modes.count"), count)) return false;
+  if constexpr (Archive::loading) value.bundle_modes.resize(count);
+  for (std::size_t i = 0; i < count; ++i) {
+    if (!archive_bundle_mode(archive, indexed(child(prefix, "bundle_modes"), i), value.bundle_modes[i])) return false;
   }
+  return true;
 }
 
-void write_saved_edge(StateWriter& writer, const std::string& prefix, const SavedBackboneEdge& value) {
-  writer.value(child(prefix, "edge_id"), value.edge_id);
-  writer.value(child(prefix, "node_a"), value.node_a);
-  writer.value(child(prefix, "node_b"), value.node_b);
-  writer.value(child(prefix, "route"), value.route);
-  writer.value(child(prefix, "order"), value.order);
-  write_vec3(writer, child(prefix, "dir"), value.dir);
-  writer.value(child(prefix, "lateral_offset_m"), value.lateral_offset_m);
+template <typename Archive, typename Value>
+bool archive_saved_edge(Archive& archive, const std::string& prefix, Value& value) {
+  return ARCHIVE_VALUE(edge_id) && ARCHIVE_VALUE(node_a) && ARCHIVE_VALUE(node_b) && ARCHIVE_VALUE(route) &&
+         ARCHIVE_VALUE(order) && archive_vec3(archive, child(prefix, "dir"), value.dir) &&
+         ARCHIVE_VALUE(lateral_offset_m);
 }
 
-void write_saved_edge_bundle(StateWriter& writer, const std::string& prefix,
-                             const SavedBackboneEdgeBundle& value) {
-  writer.value(child(prefix, "edge_bundle_id"), value.edge_bundle_id);
-  writer.value(child(prefix, "edge_id"), value.edge_id);
-  writer.value(child(prefix, "bundle_id"), value.bundle_id);
-  writer.value(child(prefix, "edge_forward"), value.edge_forward);
-  writer.value(child(prefix, "route"), value.route);
-  writer.value(child(prefix, "order"), value.order);
-  write_vec3(writer, child(prefix, "dir"), value.dir);
-  writer.value(child(prefix, "span_ids.count"), value.span_ids.size());
-  for (std::size_t i = 0; i < value.span_ids.size(); ++i) {
-    writer.value(indexed(child(prefix, "span_ids"), i), value.span_ids[i]);
+template <typename Archive, typename Value>
+bool archive_saved_edge_bundle(Archive& archive, const std::string& prefix, Value& value) {
+  if (!ARCHIVE_VALUE(edge_bundle_id) || !ARCHIVE_VALUE(edge_id) || !ARCHIVE_VALUE(bundle_id) ||
+      !ARCHIVE_VALUE(edge_forward) || !ARCHIVE_VALUE(route) || !ARCHIVE_VALUE(order) ||
+      !archive_vec3(archive, child(prefix, "dir"), value.dir)) return false;
+  std::size_t count = value.span_ids.size();
+  if (!archive.count(child(prefix, "span_ids.count"), count)) return false;
+  if constexpr (Archive::loading) value.span_ids.resize(count);
+  for (std::size_t i = 0; i < count; ++i) {
+    if (!archive.value(indexed(child(prefix, "span_ids"), i), value.span_ids[i])) return false;
   }
+  return true;
 }
 
-void write_row_key(StateWriter& writer, const std::string& prefix, const SavedBackboneRowKey& value) {
-  writer.value(child(prefix, "node_id"), value.node_id);
-  writer.value(child(prefix, "source_is_open"), value.source_is_open);
-  writer.value(child(prefix, "source_edge_a"), value.source_edge_a);
-  writer.value(child(prefix, "source_edge_b"), value.source_edge_b);
+template <typename Archive, typename Value>
+bool archive_row_key(Archive& archive, const std::string& prefix, Value& value) {
+  return ARCHIVE_VALUE(node_id) && ARCHIVE_VALUE(source_is_open) && ARCHIVE_VALUE(source_edge_a) &&
+         ARCHIVE_VALUE(source_edge_b);
 }
 
-void write_saved_port_binding(StateWriter& writer, const std::string& prefix,
-                              const SavedBackbonePortBinding& value) {
-  writer.value(child(prefix, "edge_bundle_id"), value.edge_bundle_id);
-  write_row_key(writer, child(prefix, "row_key"), value.row_key);
-  writer.value(child(prefix, "lane_index"), value.lane_index);
-  writer.value(child(prefix, "bundle_template_id"), value.bundle_template_id);
-  writer.value(child(prefix, "port_kind"), value.port_kind);
-  writer.value(child(prefix, "port_layer"), value.port_layer);
-  writer.value(child(prefix, "placement_band_id"), value.placement_band_id);
-  writer.value(child(prefix, "layout_yaw_deg"), value.layout_yaw_deg);
-  writer.value(child(prefix, "port_id"), value.port_id);
+template <typename Archive, typename Value>
+bool archive_saved_port_binding(Archive& archive, const std::string& prefix, Value& value) {
+  return ARCHIVE_VALUE(edge_bundle_id) && archive_row_key(archive, child(prefix, "row_key"), value.row_key) &&
+         ARCHIVE_VALUE(lane_index) && ARCHIVE_VALUE(bundle_template_id) && ARCHIVE_VALUE(port_kind) &&
+         ARCHIVE_VALUE(port_layer) && ARCHIVE_VALUE(placement_band_id) && ARCHIVE_VALUE(layout_yaw_deg) &&
+         ARCHIVE_VALUE(port_id);
 }
 
-void write_saved_span_binding(StateWriter& writer, const std::string& prefix,
-                              const SavedBackboneSpanBinding& value) {
-  writer.value(child(prefix, "edge_bundle_id"), value.edge_bundle_id);
-  writer.value(child(prefix, "lane_index"), value.lane_index);
-  writer.value(child(prefix, "span_id"), value.span_id);
+template <typename Archive, typename Value>
+bool archive_saved_span_binding(Archive& archive, const std::string& prefix, Value& value) {
+  return ARCHIVE_VALUE(edge_bundle_id) && ARCHIVE_VALUE(lane_index) && ARCHIVE_VALUE(span_id);
 }
+
+#undef ARCHIVE_VALUE
+
+#define WRITE_BACKBONE_WRAPPER(name, type)                                                                             \
+  void write_##name(StateWriter& writer, const std::string& prefix, const type& value) {                              \
+    WriteFieldArchive archive(writer);                                                                                 \
+    static_cast<void>(archive_##name(archive, prefix, value));                                                         \
+  }
+
+WRITE_BACKBONE_WRAPPER(bundle_mode, SupportNodeBundleMode)
+WRITE_BACKBONE_WRAPPER(saved_node, SavedBackboneNode)
+WRITE_BACKBONE_WRAPPER(saved_edge, SavedBackboneEdge)
+WRITE_BACKBONE_WRAPPER(saved_edge_bundle, SavedBackboneEdgeBundle)
+WRITE_BACKBONE_WRAPPER(row_key, SavedBackboneRowKey)
+WRITE_BACKBONE_WRAPPER(saved_port_binding, SavedBackbonePortBinding)
+WRITE_BACKBONE_WRAPPER(saved_span_binding, SavedBackboneSpanBinding)
+
+#undef WRITE_BACKBONE_WRAPPER
 
 template <typename T, typename Id, typename Write>
 void write_id_vector(StateWriter& writer, const std::string& prefix, const std::vector<T>& values, Id id, Write write) {
@@ -899,86 +915,21 @@ bool read_edit_state(StateReader& reader, EditState* state) {
          read_object_store(reader, "authoritative.edit_state.attachments", &state->attachments, read_attachment);
 }
 
-bool read_bundle_mode(StateReader& reader, const std::string& prefix, SupportNodeBundleMode* value) {
-  READ_VALUE(bundle_template_id);
-  READ_VALUE(mode);
-  return true;
-}
-
-bool read_saved_node(StateReader& reader, const std::string& prefix, SavedBackboneNode* value) {
-  READ_VALUE(node_id);
-  READ_VALUE(pole_id);
-  READ_VALUE(support_kind);
-  if (!read_vec3(reader, child(prefix, "position"), &value->position)) return false;
-  READ_VALUE(has_source_edge);
-  READ_VALUE(source_edge_node_a);
-  READ_VALUE(source_edge_node_b);
-  READ_VALUE(source_edge_t);
-  READ_VALUE(path_point_index);
-  std::size_t count = 0;
-  if (!reader.count(child(prefix, "bundle_modes.count"), &count)) return false;
-  value->bundle_modes.resize(count);
-  for (std::size_t i = 0; i < count; ++i) {
-    if (!read_bundle_mode(reader, indexed(child(prefix, "bundle_modes"), i), &value->bundle_modes[i])) return false;
+#define READ_BACKBONE_WRAPPER(name, type)                                                                              \
+  bool read_##name(StateReader& reader, const std::string& prefix, type* value) {                                     \
+    ReadFieldArchive archive(reader);                                                                                  \
+    return archive_##name(archive, prefix, *value);                                                                    \
   }
-  return true;
-}
 
-bool read_saved_edge(StateReader& reader, const std::string& prefix, SavedBackboneEdge* value) {
-  READ_VALUE(edge_id);
-  READ_VALUE(node_a);
-  READ_VALUE(node_b);
-  READ_VALUE(route);
-  READ_VALUE(order);
-  if (!read_vec3(reader, child(prefix, "dir"), &value->dir)) return false;
-  READ_VALUE(lateral_offset_m);
-  return true;
-}
+READ_BACKBONE_WRAPPER(bundle_mode, SupportNodeBundleMode)
+READ_BACKBONE_WRAPPER(saved_node, SavedBackboneNode)
+READ_BACKBONE_WRAPPER(saved_edge, SavedBackboneEdge)
+READ_BACKBONE_WRAPPER(saved_edge_bundle, SavedBackboneEdgeBundle)
+READ_BACKBONE_WRAPPER(row_key, SavedBackboneRowKey)
+READ_BACKBONE_WRAPPER(saved_port_binding, SavedBackbonePortBinding)
+READ_BACKBONE_WRAPPER(saved_span_binding, SavedBackboneSpanBinding)
 
-bool read_saved_edge_bundle(StateReader& reader, const std::string& prefix, SavedBackboneEdgeBundle* value) {
-  READ_VALUE(edge_bundle_id);
-  READ_VALUE(edge_id);
-  READ_VALUE(bundle_id);
-  READ_VALUE(edge_forward);
-  READ_VALUE(route);
-  READ_VALUE(order);
-  if (!read_vec3(reader, child(prefix, "dir"), &value->dir)) return false;
-  std::size_t count = 0;
-  if (!reader.count(child(prefix, "span_ids.count"), &count)) return false;
-  value->span_ids.resize(count);
-  for (std::size_t i = 0; i < count; ++i) {
-    if (!reader.value(indexed(child(prefix, "span_ids"), i), &value->span_ids[i])) return false;
-  }
-  return true;
-}
-
-bool read_row_key(StateReader& reader, const std::string& prefix, SavedBackboneRowKey* value) {
-  READ_VALUE(node_id);
-  READ_VALUE(source_is_open);
-  READ_VALUE(source_edge_a);
-  READ_VALUE(source_edge_b);
-  return true;
-}
-
-bool read_saved_port_binding(StateReader& reader, const std::string& prefix, SavedBackbonePortBinding* value) {
-  READ_VALUE(edge_bundle_id);
-  if (!read_row_key(reader, child(prefix, "row_key"), &value->row_key)) return false;
-  READ_VALUE(lane_index);
-  READ_VALUE(bundle_template_id);
-  READ_VALUE(port_kind);
-  READ_VALUE(port_layer);
-  READ_VALUE(placement_band_id);
-  READ_VALUE(layout_yaw_deg);
-  READ_VALUE(port_id);
-  return true;
-}
-
-bool read_saved_span_binding(StateReader& reader, const std::string& prefix, SavedBackboneSpanBinding* value) {
-  READ_VALUE(edge_bundle_id);
-  READ_VALUE(lane_index);
-  READ_VALUE(span_id);
-  return true;
-}
+#undef READ_BACKBONE_WRAPPER
 
 template <typename T, typename Id, typename Read>
 bool read_id_vector(StateReader& reader, const std::string& prefix, std::vector<T>* values, Id id, Read read) {

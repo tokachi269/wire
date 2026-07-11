@@ -1919,12 +1919,8 @@ bool C712_backbone_regenerate_cable_decision_matches_fresh() {
              visual_part_count(fresh, wire::core::VisualCurvePartKind::kNodePatch);
 }
 
-bool C738_cable_default_endpoint_attachment_change_rejects_before_mutation() {
+bool C738_cable_default_endpoint_attachment_change_reconciles_auto_endpoints() {
   wire::core::CoreState state;
-  const auto generated = state.GenerateFromBackboneSpec(line_req(state));
-  if (!generated.ok || generated.value.generated_span_ids.empty()) {
-    return false;
-  }
   const auto bundle_template_it =
       state.view().bundle_templates().find(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
   if (bundle_template_it == state.view().bundle_templates().end()) {
@@ -1934,31 +1930,106 @@ bool C738_cable_default_endpoint_attachment_change_rejects_before_mutation() {
   if (cable_it == state.view().cable_templates().end()) {
     return false;
   }
-  wire::core::AttachmentTemplateId attachment_template_id = wire::core::kInvalidAttachmentTemplateId;
+  wire::core::AttachmentTemplateId initial_attachment_template_id = wire::core::kInvalidAttachmentTemplateId;
+  wire::core::AttachmentTemplateId replacement_attachment_template_id = wire::core::kInvalidAttachmentTemplateId;
+  wire::core::AttachmentKind initial_attachment_kind = wire::core::AttachmentKind::kGeneric;
   for (const auto& [template_id, attachment_template] : state.view().attachment_templates()) {
-    (void)attachment_template;
-    attachment_template_id = template_id;
+    if (initial_attachment_template_id == wire::core::kInvalidAttachmentTemplateId) {
+      initial_attachment_template_id = template_id;
+      initial_attachment_kind = attachment_template.kind;
+      continue;
+    }
+    replacement_attachment_template_id = template_id;
     break;
   }
-  if (attachment_template_id == wire::core::kInvalidAttachmentTemplateId) {
+  if (initial_attachment_template_id == wire::core::kInvalidAttachmentTemplateId ||
+      replacement_attachment_template_id == wire::core::kInvalidAttachmentTemplateId) {
     return false;
   }
 
-  const CountSnapshot before_counts = count_snapshot(state);
-  const std::size_t before_attachments = state.view().attachments().size();
-  const std::uint64_t before_cable_version = cable_it->second.version;
-  const std::vector<SpanCurveSignature> before_curves = span_curve_signatures(state);
   wire::core::CableTemplate edited = cable_it->second;
-  edited.default_endpoint_attachment_template_id = attachment_template_id;
+  edited.default_endpoint_attachment_template_id = initial_attachment_template_id;
+  if (!state.UpdateCableTemplate(edited).ok) {
+    return false;
+  }
+  const auto generated = state.GenerateFromBackboneSpec(line_req(state));
+  if (!generated.ok || generated.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const wire::core::ObjectId span_id = generated.value.generated_span_ids.front();
+  const wire::core::Span* generated_span = state.view().spans().find(span_id);
+  if (generated_span == nullptr || generated_span->endpoint_attachment_a_id == wire::core::kInvalidObjectId ||
+      generated_span->endpoint_attachment_b_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  const wire::core::ObjectId initial_endpoint_a_id = generated_span->endpoint_attachment_a_id;
+  const wire::core::ObjectId initial_endpoint_b_id = generated_span->endpoint_attachment_b_id;
+  const auto user_attachment = state.AddAttachment(span_id, 0.5, initial_attachment_kind, 0.0,
+                                                   initial_attachment_template_id);
+  if (!user_attachment.ok) {
+    return false;
+  }
+
+  wire::core::BackboneSpec outside = line_req(state);
+  outside.path.polyline = {{0.0, 100.0, 0.0}, {12.0, 100.0, 0.0}};
+  outside.bundles.clear();
+  add_backbone_bundle(outside, wire::core::BundleKind::kCommunication);
+  const auto outside_generated = state.GenerateFromBackboneSpec(outside);
+  if (!outside_generated.ok || outside_generated.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const std::vector<SpanOutputSnapshot> outside_before =
+      snapshot_span_outputs(state, outside_generated.value.generated_span_ids);
+
+  edited.default_endpoint_attachment_template_id = replacement_attachment_template_id;
   const auto updated = state.UpdateCableTemplate(edited);
-  const auto after_cable_it = state.view().cable_templates().find(edited.id);
-  return !updated.ok && contains_text(updated.error, "default endpoint attachment") &&
-         same_counts(before_counts, count_snapshot(state)) &&
-         state.view().attachments().size() == before_attachments &&
-         after_cable_it != state.view().cable_templates().end() &&
-         after_cable_it->second.default_endpoint_attachment_template_id != attachment_template_id &&
-         after_cable_it->second.version == before_cable_version &&
-         same_span_curve_signatures(before_curves, span_curve_signatures(state));
+  const wire::core::Span* after_span = state.view().spans().find(span_id);
+  const wire::core::Attachment* user_after = state.view().attachments().find(user_attachment.value);
+  if (!updated.ok || !updated.value || after_span == nullptr || user_after == nullptr ||
+      user_after->span_id != span_id || user_after->template_id != initial_attachment_template_id ||
+      user_after->origin != wire::core::AttachmentOrigin::kUser || !almost_equal(user_after->t, 0.5, 1e-12) ||
+      after_span->endpoint_attachment_a_id == wire::core::kInvalidObjectId ||
+      after_span->endpoint_attachment_b_id == wire::core::kInvalidObjectId) {
+    return false;
+  }
+  const wire::core::Attachment* endpoint_a = state.view().attachments().find(after_span->endpoint_attachment_a_id);
+  const wire::core::Attachment* endpoint_b = state.view().attachments().find(after_span->endpoint_attachment_b_id);
+  if (endpoint_a == nullptr || endpoint_b == nullptr || endpoint_a->origin != wire::core::AttachmentOrigin::kDefaultEndpoint ||
+      endpoint_b->origin != wire::core::AttachmentOrigin::kDefaultEndpoint ||
+      endpoint_a->template_id != replacement_attachment_template_id || endpoint_b->template_id != replacement_attachment_template_id ||
+      state.view().attachments().find(initial_endpoint_a_id) != nullptr ||
+      state.view().attachments().find(initial_endpoint_b_id) != nullptr ||
+      !same_span_output_snapshots(outside_before, state)) {
+    return false;
+  }
+
+  wire::core::CoreState fresh;
+  const auto fresh_bundle_it =
+      fresh.view().bundle_templates().find(wire::core::DefaultBundleTemplateId(wire::core::BundleKind::kLowVoltage));
+  if (fresh_bundle_it == fresh.view().bundle_templates().end()) {
+    return false;
+  }
+  const auto fresh_cable_it = fresh.view().cable_templates().find(fresh_bundle_it->second.cable_template_id);
+  if (fresh_cable_it == fresh.view().cable_templates().end()) {
+    return false;
+  }
+  wire::core::CableTemplate fresh_edited = fresh_cable_it->second;
+  fresh_edited.default_endpoint_attachment_template_id = replacement_attachment_template_id;
+  const auto fresh_updated = fresh.UpdateCableTemplate(fresh_edited);
+  const auto fresh_generated = fresh.GenerateFromBackboneSpec(line_req(fresh));
+  if (!fresh_updated.ok || !fresh_generated.ok || fresh_generated.value.generated_span_ids.empty()) {
+    return false;
+  }
+  const wire::core::Span* fresh_span = fresh.view().spans().find(fresh_generated.value.generated_span_ids.front());
+  if (fresh_span == nullptr) {
+    return false;
+  }
+  const wire::core::Attachment* fresh_a = fresh.view().attachments().find(fresh_span->endpoint_attachment_a_id);
+  const wire::core::Attachment* fresh_b = fresh.view().attachments().find(fresh_span->endpoint_attachment_b_id);
+  return fresh_a != nullptr && fresh_b != nullptr && fresh_a->origin == wire::core::AttachmentOrigin::kDefaultEndpoint &&
+         fresh_b->origin == wire::core::AttachmentOrigin::kDefaultEndpoint && fresh_a->template_id == endpoint_a->template_id &&
+         fresh_b->template_id == endpoint_b->template_id && almost_equal(fresh_a->t, endpoint_a->t, 1e-12) &&
+         almost_equal(fresh_b->t, endpoint_b->t, 1e-12);
 }
 
 bool C713_backbone_regenerate_pole_type_structure_matches_fresh() {

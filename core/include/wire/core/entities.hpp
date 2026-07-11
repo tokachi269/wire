@@ -396,6 +396,11 @@ struct Span {
   GenerationMeta generation{};
 };
 
+enum class AttachmentOrigin : std::uint8_t {
+  kUser = 0,
+  kDefaultEndpoint = 1,
+};
+
 // Entity-layer span attachment.
 struct Attachment {
   ObjectId id = kInvalidObjectId;
@@ -405,6 +410,7 @@ struct Attachment {
   double t = 0.0;
   AttachmentKind kind = AttachmentKind::kGeneric;
   double display_offset_m = 0.0;
+  AttachmentOrigin origin = AttachmentOrigin::kUser;
 };
 
 // Backbone route edge (NodeId refers to SupportNode id).

@@ -1016,10 +1016,10 @@ void register_tests(test_registry::TestRegistry& tests) {
                          "backbone cable decision updates regenerate and match fresh output",
                          "Invariant", false,
                          C712_backbone_regenerate_cable_decision_matches_fresh);
-  test_registry::AddTest(tests, "C738_cable_default_endpoint_attachment_change_rejects_before_mutation",
-                         "cable default endpoint attachment changes reject before mutation on existing backbone spans",
-                         "Boundary", false,
-                         C738_cable_default_endpoint_attachment_change_rejects_before_mutation);
+  test_registry::AddTest(tests, "C738_cable_default_endpoint_attachment_change_reconciles_auto_endpoints",
+                         "cable default endpoint attachment changes reconcile generated endpoints without touching user or outside spans",
+                         "Invariant", false,
+                         C738_cable_default_endpoint_attachment_change_reconciles_auto_endpoints);
   test_registry::AddTest(tests, "C713_backbone_regenerate_pole_type_structure_matches_fresh",
                          "backbone pole type structural updates regenerate and match fresh output",
                          "Invariant", false,

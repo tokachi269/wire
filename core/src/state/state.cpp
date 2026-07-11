@@ -1966,36 +1966,62 @@ EditResult<bool> CoreState::ensure_default_endpoint_attachments_for_span(ObjectI
     return result;
   }
   const CableTemplate* cable_template = find_cable_template(bundle_template->cable_template_id);
-  if (cable_template == nullptr || cable_template->default_endpoint_attachment_template_id == kInvalidAttachmentTemplateId) {
-    result.ok = true;
-    result.value = false;
+  if (cable_template == nullptr) {
+    result.error = "cable template not found";
     return result;
   }
-  const AttachmentTemplate* attachment_template =
-      find_attachment_template(cable_template->default_endpoint_attachment_template_id);
-  if (attachment_template == nullptr) {
+  const AttachmentTemplateId desired_template_id = cable_template->default_endpoint_attachment_template_id;
+  const AttachmentTemplate* attachment_template = desired_template_id == kInvalidAttachmentTemplateId
+                                                     ? nullptr
+                                                     : find_attachment_template(desired_template_id);
+  if (desired_template_id != kInvalidAttachmentTemplateId && attachment_template == nullptr) {
     result.error = "default endpoint attachment template not found";
     return result;
   }
 
-  Span* span_edit = authoritative_.edit_state.spans.find(span_id);
-  if (span_edit == nullptr) {
-    result.error = "span not found";
-    return result;
-  }
-
   auto ensure_endpoint_attachment = [&](bool is_start_endpoint, double t) -> bool {
+    Span* span_edit = authoritative_.edit_state.spans.find(span_id);
+    if (span_edit == nullptr) {
+      result.error = "span not found";
+      return false;
+    }
     ObjectId& attachment_slot = is_start_endpoint ? span_edit->endpoint_attachment_a_id : span_edit->endpoint_attachment_b_id;
     if (attachment_slot != kInvalidObjectId) {
+      const Attachment* existing = authoritative_.edit_state.attachments.find(attachment_slot);
+      if (existing == nullptr) {
+        result.error = "endpoint attachment not found";
+        return false;
+      }
+      if (existing->origin == AttachmentOrigin::kUser || existing->template_id == desired_template_id) {
+        return true;
+      }
+      const ObjectId old_attachment_id = existing->id;
+      authoritative_.edit_state.attachments.remove(old_attachment_id);
+      index_remove(runtime_.relation_index.attachments_by_span, span_id, old_attachment_id);
+      attachment_slot = kInvalidObjectId;
+      touch_span(span_id, true);
+      add_unique_id(result.change_set.deleted_ids, old_attachment_id);
+      add_unique_id(result.change_set.updated_ids, span_id);
+      result.value = true;
+    }
+    if (desired_template_id == kInvalidAttachmentTemplateId) {
       return true;
     }
     const auto add_attachment =
-        AddAttachment(span_id, t, attachment_template->kind, 0.0, cable_template->default_endpoint_attachment_template_id);
+        AddAttachment(span_id, t, attachment_template->kind, 0.0, desired_template_id);
     if (!add_attachment.ok) {
       result.error = add_attachment.error;
       return false;
     }
-    attachment_slot = add_attachment.value;
+    Attachment* added = authoritative_.edit_state.attachments.find(add_attachment.value);
+    Span* updated_span = authoritative_.edit_state.spans.find(span_id);
+    if (added == nullptr || updated_span == nullptr) {
+      result.error = "default endpoint attachment creation failed";
+      return false;
+    }
+    added->origin = AttachmentOrigin::kDefaultEndpoint;
+    ObjectId& updated_slot = is_start_endpoint ? updated_span->endpoint_attachment_a_id : updated_span->endpoint_attachment_b_id;
+    updated_slot = add_attachment.value;
     append_change_set(result.change_set, add_attachment.change_set);
     add_unique_id(result.change_set.updated_ids, span_id);
     result.value = true;

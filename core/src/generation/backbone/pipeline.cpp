@@ -1,5 +1,6 @@
 #include "pipeline.hpp"
 
+#include "../../collection_utils.hpp"
 #include "wire/core/core_view.hpp"
 #include "wire/core/coord_utils.hpp"
 
@@ -20,6 +21,8 @@
 namespace wire::core::generation::backbone {
 
 namespace {
+
+using detail::append_unique;
 
 double elapsed_ms_since(std::chrono::steady_clock::time_point started) {
   return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
@@ -64,6 +67,17 @@ EditResult<GenerateBundleFromPathResult> pipeline::build(build_input input) {
   if (!made.value.active) {
     out.ok = true;
     return out;
+  }
+
+  for (const tspan& span : made.value.made.spans) {
+    const EditResult<bool> attachments = state_.ensure_default_endpoint_attachments_for_span(span.id);
+    if (!attachments.ok) {
+      out.error = attachments.error;
+      return out;
+    }
+    append_unique(made.value.change_set.created_ids, attachments.change_set.created_ids);
+    append_unique(made.value.change_set.updated_ids, attachments.change_set.updated_ids);
+    append_unique(made.value.change_set.deleted_ids, attachments.change_set.deleted_ids);
   }
 
   EditResult<bool> derived = save_derived(made.value, timing);
@@ -1041,10 +1055,20 @@ void pipeline::retire_untouched(route* route) {
       continue;
     }
     const Span copy = *span;
+    std::vector<ObjectId> attachment_ids{};
+    if (const auto attachments_it = state_.runtime_.relation_index.attachments_by_span.find(span_id);
+        attachments_it != state_.runtime_.relation_index.attachments_by_span.end()) {
+      attachment_ids = attachments_it->second;
+    }
     state_.remove_span_from_indexes(copy);
     state_.authoritative_.edit_state.spans.remove(span_id);
     state_.runtime_.span_runtime_states.erase(span_id);
     state_.remove_span_from_caches(span_id);
+    for (ObjectId attachment_id : attachment_ids) {
+      if (state_.authoritative_.edit_state.attachments.remove(attachment_id)) {
+        CoreState::add_unique_id(route->change_set.deleted_ids, attachment_id);
+      }
+    }
     state_.runtime_.relation_index.attachments_by_span.erase(span_id);
     CoreState::add_unique_id(route->change_set.deleted_ids, span_id);
   }

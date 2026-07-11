@@ -336,7 +336,7 @@ bool C709_backbone_regenerate_polyline_increase_matches_fresh();
 bool C710_backbone_regenerate_polyline_multi_bundle_matches_fresh();
 bool C711_backbone_regenerate_decrease_preserves_surviving_attachment();
 bool C712_backbone_regenerate_cable_decision_matches_fresh();
-bool C738_cable_default_endpoint_attachment_change_rejects_before_mutation();
+bool C738_cable_default_endpoint_attachment_change_reconciles_auto_endpoints();
 bool C713_backbone_regenerate_pole_type_structure_matches_fresh();
 bool C714_backbone_regenerate_rejects_retired_manual_port();
 bool C715_backbone_span_branch_down_override_regenerates();

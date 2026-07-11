@@ -112,7 +112,7 @@ merge_readiness.mdのunsupported保留一覧のうち、モデル対応を進め
 |---|---|
 | `UpdateAttachmentTemplate`の構造差分 | socket追加/削除/id変更、mode変更、internal path本数/socket参照/kind変更は、モデル再読込で避けるべき構造差分とする。使用中 attachment の意味を変えるため、構造 lifecycle として別設計にする |
 | `UpdateAttachmentTemplate`の幾何差分 | socket位置/方向、internal path local_points/coil値は既存更新経路でkReshapeし、対象spanを再導出する |
-| endpoint attachment生成/退役規則 | `CableTemplate.default_endpoint_attachment_template_id` は post-edit 経路で endpoint attachment の生成/退役/置換をまだ消費しない |
+| endpoint attachment生成/退役規則 | `CableTemplate.default_endpoint_attachment_template_id` は backbone pipeline が `AttachmentOrigin::kDefaultEndpoint` の endpoint attachment だけを reconcile する。user attachment は保持し、退役spanにuser attachmentがあれば regenerate は mutation 前に unsupported とする |
 
 ## レンダラ移行との順序
 

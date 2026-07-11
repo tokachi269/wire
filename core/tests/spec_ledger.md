@@ -7,6 +7,7 @@
 - 時間/並行: 実時間待ち・非決定並行を使わない。
 - 分類ルール: `分類=Symptom` は最終症状やユーザ価値を直接固定する行、`分類=Authority` は正本・ownership・decision origin を固定する行。
 - Stage ルール: `Init / Pick / Decision / LanePrep / SupportLayout / Curve/Render / Commit / Refresh / Regenerate / Validate / Generate/Edit / General` の coarse 区分で、主に契約が切り替わる段を付ける。
+- 永続化 Boundary: `CoreStateAuthoritativeStorage` へ field を追加する変更は、serializer・deserializer・roundtrip test の更新を伴う。
 
 | Case ID | 分類 | Stage | 目的 | 前提 | 入力 | 期待結果 | 観測点 | 壊れた時に守りたいユーザ価値 |
 |---|---|---|---|---|---|---|---|---|

@@ -12,6 +12,7 @@
 - `tools/test_family_lint.py`が通る
 - `git diff --check`が通る
 - working treeが意図した状態である
+- authoritative state の save -> load が、再保存byteと再導出した layout / curve / bounds / visual のbit-exact roundtrip testを通る
 
 実行コマンドは[command_cheatsheet.md](command_cheatsheet.md)を参照する。
 

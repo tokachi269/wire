@@ -34,6 +34,17 @@ BackboneSpec
 同じ意味を複数段で再判断せず、下流は上流の決定済み値だけを消費する。
 ユーザーが Update API で設定し derived 出力に影響する値は authoritative に置き、runtime cache に mirror を持たない。
 
+## 永続化契約
+
+保存対象は identity と authoritative storage のみとし、runtime cache と debug storage は保存しない。
+load は保存済み topology / binding / settings から既存 pipeline を通して layout、curve、bounds、visual を再導出する。
+同一stateの save -> load では authoritative の再保存byteが一致し、派生出力の意味値と浮動小数bitが一致することを
+roundtrip等価性とする。runtime固有のversionや計測値、container addressは等価性に含めない。
+
+永続形式はversionを完全一致で判定する。未知field、必須field欠落、truncation、重複field、構文不正は拒否し、
+部分的に読み飛ばさない。loadは新しいtrial stateでparse、index再構築、派生再導出、validationを完了してから
+member-wise move commitする。どの段階で失敗しても、本stateは変更前と同一でなければならない。
+
 ## backbone generation
 
 `GenerateFromBackboneSpec()` は `core/src/generation/backbone` のpipelineだけを呼ぶ。

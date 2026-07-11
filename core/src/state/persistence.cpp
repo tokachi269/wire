@@ -872,22 +872,6 @@ bool read_map(StateReader& reader, const std::string& prefix, std::unordered_map
   return true;
 }
 
-bool read_pole_orientation_override(StateReader& reader, const std::string& prefix,
-                                    PoleOrientationOverride* value) {
-  ReadFieldArchive archive(reader);
-  return archive_pole_orientation_override(archive, prefix, *value);
-}
-
-bool read_span_endpoint_override(StateReader& reader, const std::string& prefix, SpanEndpointOverride* value) {
-  ReadFieldArchive archive(reader);
-  return archive_span_endpoint_override(archive, prefix, *value);
-}
-
-bool read_span_support_override(StateReader& reader, const std::string& prefix, SpanSupportOverride* value) {
-  ReadFieldArchive archive(reader);
-  return archive_span_support_override(archive, prefix, *value);
-}
-
 template <typename V, typename Read>
 bool read_object_id_map(StateReader& reader, const std::string& prefix,
                         std::unordered_map<ObjectId, V>* values, Read read) {
@@ -901,31 +885,6 @@ bool read_object_id_map(StateReader& reader, const std::string& prefix,
     values->emplace(key, std::move(value));
   }
   return true;
-}
-
-bool read_context_profile(StateReader& reader, ContextProfile* value) {
-  ReadFieldArchive archive(reader);
-  return archive_context_profile(archive, "authoritative.context_profile", *value);
-}
-
-bool read_layout_settings(StateReader& reader, LayoutSettings* value) {
-  ReadFieldArchive archive(reader);
-  return archive_layout_settings(archive, "authoritative.layout_settings", *value);
-}
-
-bool read_geometry_settings(StateReader& reader, GeometrySettings* value) {
-  ReadFieldArchive archive(reader);
-  return archive_geometry_settings(archive, "authoritative.geometry_settings", *value);
-}
-
-bool read_visual_settings(StateReader& reader, VisualSettings* value) {
-  ReadFieldArchive archive(reader);
-  return archive_visual_settings(archive, "authoritative.visual_settings", *value);
-}
-
-bool read_variation_settings(StateReader& reader, VariationSettings* value) {
-  ReadFieldArchive archive(reader);
-  return archive_variation_settings(archive, "authoritative.variation_settings", *value);
 }
 
 bool read_identity(StateReader& reader, CoreStateIdentityStorage* identity) {
@@ -947,7 +906,7 @@ bool read_identity(StateReader& reader, CoreStateIdentityStorage* identity) {
 }
 
 bool read_authoritative(StateReader& reader, CoreStateAuthoritativeStorage* authoritative) {
-  return read_edit_state(reader, &authoritative->edit_state) &&
+  if (!(read_edit_state(reader, &authoritative->edit_state) &&
          read_backbone(reader, &authoritative->backbone) &&
          read_map(reader, "authoritative.pole_types", &authoritative->pole_types,
                   [](auto& in, const auto& prefix, PoleTypeDefinition* value) {
@@ -964,19 +923,29 @@ bool read_authoritative(StateReader& reader, CoreStateAuthoritativeStorage* auth
          read_map(reader, "authoritative.attachment_templates", &authoritative->attachment_templates,
                   [](auto& in, const auto& prefix, AttachmentTemplate* value) {
                     ReadFieldArchive a(in); return archive_attachment_template(a, prefix, *value);
-                  }) &&
-         read_context_profile(reader, &authoritative->context_profile) &&
-         read_object_id_map(reader, "authoritative.override_state.pole_orientation_by_pole",
+                  }))) return false;
+  ReadFieldArchive fields(reader);
+  if (!archive_context_profile(fields, "authoritative.context_profile", authoritative->context_profile) ||
+      !read_object_id_map(reader, "authoritative.override_state.pole_orientation_by_pole",
                             &authoritative->override_state.pole_orientation_by_pole,
-                            read_pole_orientation_override) &&
-         read_object_id_map(reader, "authoritative.override_state.span_endpoint_by_span",
-                            &authoritative->override_state.span_endpoint_by_span, read_span_endpoint_override) &&
-         read_object_id_map(reader, "authoritative.override_state.span_support_by_span",
-                            &authoritative->override_state.span_support_by_span, read_span_support_override) &&
-         read_layout_settings(reader, &authoritative->layout_settings) &&
-         read_geometry_settings(reader, &authoritative->geometry_settings) &&
-         read_visual_settings(reader, &authoritative->visual_settings) &&
-         read_variation_settings(reader, &authoritative->variation_settings);
+                            [](auto& in, const auto& prefix, PoleOrientationOverride* value) {
+                              ReadFieldArchive a(in); return archive_pole_orientation_override(a, prefix, *value);
+                            }) ||
+      !read_object_id_map(reader, "authoritative.override_state.span_endpoint_by_span",
+                          &authoritative->override_state.span_endpoint_by_span,
+                          [](auto& in, const auto& prefix, SpanEndpointOverride* value) {
+                            ReadFieldArchive a(in); return archive_span_endpoint_override(a, prefix, *value);
+                          }) ||
+      !read_object_id_map(reader, "authoritative.override_state.span_support_by_span",
+                          &authoritative->override_state.span_support_by_span,
+                          [](auto& in, const auto& prefix, SpanSupportOverride* value) {
+                            ReadFieldArchive a(in); return archive_span_support_override(a, prefix, *value);
+                          }) ||
+      !archive_layout_settings(fields, "authoritative.layout_settings", authoritative->layout_settings) ||
+      !archive_geometry_settings(fields, "authoritative.geometry_settings", authoritative->geometry_settings) ||
+      !archive_visual_settings(fields, "authoritative.visual_settings", authoritative->visual_settings) ||
+      !archive_variation_settings(fields, "authoritative.variation_settings", authoritative->variation_settings)) return false;
+  return true;
 }
 
 } // namespace

@@ -11,6 +11,7 @@
 
 | Case ID | 分類 | Stage | 目的 | 前提 | 入力 | 期待結果 | 観測点 | 壊れた時に守りたいユーザ価値 |
 |---|---|---|---|---|---|---|---|---|
+| C750 | Invariant | Commit | authoritative save は version 付きで決定的かつ編集を反映する | 66 pole級 route を生成済み | SerializeAuthoritative x2 → 別route生成 → SerializeAuthoritative | Invariant: header は `wire_state_v1`、同一stateはbyte一致、編集後はbyte差分 | serialized text | 保存結果の非決定性と編集の取りこぼしを防ぐ |
 | C01 | Symptom | Init | ID生成の単調増加 | 新規IdGenerator | next/peek/reset | Exact: 連番・重複なし | 戻り値 | 永続ID衝突防止 |
 | C02 | Symptom | Init | ObjectStore整合 | 空Store | insert/find/remove/upsert | Exact: 件数・参照整合 | 公開API | 参照崩壊防止 |
 | C03 | Symptom | Generate/Edit | Span追加初期Dirty | 有効Port2点 | AddSpan | Exact: runtime生成+dirty | runtime | 再計算漏れ防止 |

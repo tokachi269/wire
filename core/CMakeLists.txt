@@ -30,6 +30,7 @@ add_library(
   src/geometry/variation.cpp
   src/geometry/curve_support.cpp
   src/state/span_runtime.cpp
+  src/state/persistence.cpp
 )
 
 option(WIRE_ENABLE_PCH "Enable precompiled headers for core targets" ON)
@@ -81,6 +82,7 @@ if(BUILD_TESTING)
     tests/pick.cpp
     tests/workflow.cpp
     tests/api_surface.cpp
+    tests/persistence.cpp
     tests/backbone/fixtures.cpp
     tests/backbone/generation.cpp
     tests/backbone/graph.cpp

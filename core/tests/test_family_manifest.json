@@ -118,6 +118,13 @@
       "notes": "Private backbone scratch types must not leak."
     },
     {
+      "name": "state_persistence",
+      "status": "keep",
+      "owner": "Authoritative state serialization, transactional load, and roundtrip equivalence",
+      "sources": ["core/tests/persistence.cpp"],
+      "notes": "Runtime and debug outputs are rebuilt rather than serialized."
+    },
+    {
       "name": "viewer_behavior",
       "status": "keep",
       "owner": "Viewer input, coordinate, selection, and backbone-plane behavior",

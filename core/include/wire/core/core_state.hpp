@@ -94,6 +94,8 @@ public:
   EditResult<bool> UpdateAttachmentTemplate(const AttachmentTemplate& attachment_template,
                                             bool mark_dependent_spans_dirty = true);
   EditResult<bool> ResetAllSpanReferenceLengths(bool mark_all_spans_dirty = true);
+  [[nodiscard]] EditResult<bool> SerializeAuthoritative(std::string* out) const;
+  EditResult<bool> DeserializeAuthoritative(const std::string& text);
   [[nodiscard]] const CurveCacheEntry* find_curve_cache(ObjectId span_id) const;
   [[nodiscard]] const BoundsCacheEntry* find_bounds_cache(ObjectId span_id) const;
   [[nodiscard]] SpanLayoutView span_layout(ObjectId span_id) const;

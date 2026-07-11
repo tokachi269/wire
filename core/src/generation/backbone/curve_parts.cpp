@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -38,6 +39,7 @@ struct curve_endpoint_ref {
   Vec3d point{};
   Vec3d away_from_node{};
   double span_length_m = 0.0;
+  std::size_t source_curve_index = std::numeric_limits<std::size_t>::max();
   bool has_curve_tangent = false;
   bool is_start = true;
 };
@@ -345,12 +347,33 @@ void insert_boundary_once(std::vector<curve_boundary>* boundaries, boundary_inde
   boundaries->push_back(boundary);
 }
 
-Vec3d boundary_from_tangent(const Vec3d& attachment, const Vec3d& outward_tangent, double horizontal_length_m) {
-  const double horizontal = std::hypot(outward_tangent.x, outward_tangent.y);
-  if (horizontal <= kCurveEps) {
-    return attachment;
+curve_boundary boundary_from_source_curve(const curve_endpoint_ref& endpoint,
+                                          const DetailCurve& curve,
+                                          double horizontal_length_m) {
+  curve_boundary boundary{};
+  boundary.section_key = endpoint.section_key;
+  boundary.is_start = endpoint.is_start;
+  boundary.attachment_point = endpoint.point;
+  boundary.horizontal_length_m = horizontal_length_m;
+  double low = endpoint.is_start ? 0.0 : 0.5;
+  double high = endpoint.is_start ? 0.5 : 1.0;
+  for (int iteration = 0; iteration < 60; ++iteration) {
+    const double u = (low + high) * 0.5;
+    const Vec3d point = curve.EvaluatePosition(u);
+    const double distance_xy = std::hypot(point.x - endpoint.point.x, point.y - endpoint.point.y);
+    if ((distance_xy < horizontal_length_m) == endpoint.is_start) {
+      low = u;
+    } else {
+      high = u;
+    }
   }
-  return attachment + ScaleVec(outward_tangent, horizontal_length_m / horizontal);
+  const double u = (low + high) * 0.5;
+  boundary.point = curve.EvaluatePosition(u);
+  boundary.tangent = curve.EvaluateTangent(u);
+  if (!endpoint.is_start) {
+    boundary.tangent = ScaleVec(boundary.tangent, -1.0);
+  }
+  return boundary;
 }
 
 ObjectId saved_node_id_for_endpoint(const CoreState& state, ObjectId endpoint_node_id) {
@@ -462,35 +485,6 @@ void append_patch_section(const Vec3d& a, const Vec3d& start_direction, const Ve
   controls->insert(controls->end(), section_controls.begin() + (include_start ? 0 : 1), section_controls.end());
   const std::size_t segments = patch_segment_count(a, start_direction, b, end_direction);
   for (std::size_t index = include_start ? 0 : 1; index <= segments; ++index) {
-    const double t = static_cast<double>(index) / static_cast<double>(segments);
-    samples->push_back(cubic_hermite(a, start_tangent, b, end_tangent, t));
-  }
-}
-
-void append_jumper_section(const Vec3d& a, const Vec3d& b, std::vector<Vec3d>* controls,
-                           std::vector<Vec3d>* samples) {
-  const Vec3d chord = b - a;
-  const double length = Length(chord);
-  if (length <= kCurveEps || controls == nullptr || samples == nullptr) {
-    return;
-  }
-  const Vec3d along = ScaleVec(chord, 1.0 / length);
-  const Vec3d down{0.0, 0.0, -1.0};
-  const double handle = std::clamp(length * 0.45, 0.08, 0.35);
-  const Vec3d start_direction = safe_unit(along + down, along);
-  const Vec3d end_direction = safe_unit(along - down, along);
-  const Vec3d start_tangent = ScaleVec(start_direction, handle * 3.0);
-  const Vec3d end_tangent = ScaleVec(end_direction, handle * 3.0);
-  controls->assign({
-      a,
-      a + ScaleVec(start_tangent, 1.0 / 3.0),
-      b - ScaleVec(end_tangent, 1.0 / 3.0),
-      b,
-  });
-  const std::size_t segments = std::clamp<std::size_t>(
-      static_cast<std::size_t>(std::ceil(length / kPatchMetersPerSegment)), 4, 24);
-  samples->reserve(segments + 1);
-  for (std::size_t index = 0; index <= segments; ++index) {
     const double t = static_cast<double>(index) / static_cast<double>(segments);
     samples->push_back(cubic_hermite(a, start_tangent, b, end_tangent, t));
   }
@@ -755,7 +749,9 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
   out.stats.sections = sections.size();
 
   std::vector<curve_endpoint_ref> endpoints{};
+  std::vector<DetailCurve> source_curves{};
   endpoints.reserve(sections.size() * 2);
+  source_curves.reserve(sections.size());
   const Vec3d fallback_dir{1.0, 0.0, 0.0};
 
   for (const visual_cable_section& section : sections) {
@@ -783,13 +779,32 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     const BundleTemplateId template_id = bundle->bundle_template_id;
     const Vec3d chord = entry.endpoint_b - entry.endpoint_a;
     const double span_length = Length(chord);
-    const EditResult<CurveConstraints> constraints =
-        make_curve_constraints(state, entry.key.logical_span_id, entry.endpoint_a, entry.endpoint_b, nullptr, nullptr);
-    const bool has_curve_tangent = constraints.ok;
+    DetailCurve source_curve{};
+    bool has_curve_tangent = false;
+    if (entry.key.is_base()) {
+      if (const CurveCacheEntry* cached = state.find_curve_cache(entry.key.logical_span_id);
+          cached != nullptr && cached->detail.sample_points.size() >= 2) {
+        source_curve = cached->detail;
+        has_curve_tangent = true;
+      }
+    }
+    if (!has_curve_tangent) {
+      const EditResult<DetailCurve> built =
+          make_curve_between(state, entry.key.logical_span_id, entry.endpoint_a, entry.endpoint_b);
+      if (built.ok && built.value.sample_points.size() >= 2) {
+        source_curve = built.value;
+        has_curve_tangent = true;
+      }
+    }
+    const std::size_t source_curve_index = source_curves.size();
+    if (has_curve_tangent) {
+      source_curves.push_back(std::move(source_curve));
+    }
     const Vec3d start_away =
-        has_curve_tangent ? constraints.value.start.tangent_dir : safe_unit(chord, fallback_dir);
+        has_curve_tangent ? source_curves[source_curve_index].start_constraint.tangent_dir
+                          : safe_unit(chord, fallback_dir);
     const Vec3d end_away = has_curve_tangent
-                              ? ScaleVec(constraints.value.end.tangent_dir, -1.0)
+                              ? ScaleVec(source_curves[source_curve_index].end_constraint.tangent_dir, -1.0)
                               : safe_unit(ScaleVec(chord, -1.0), ScaleVec(fallback_dir, -1.0));
 
     curve_endpoint_ref start{};
@@ -808,6 +823,7 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     start.point = entry.endpoint_a;
     start.away_from_node = start_away;
     start.span_length_m = span_length;
+    start.source_curve_index = source_curve_index;
     start.has_curve_tangent = has_curve_tangent;
     start.is_start = true;
     endpoints.push_back(start);
@@ -904,59 +920,14 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
       continue;
     }
 
-    curve_boundary a_boundary{};
-    a_boundary.section_key = patch_a.section_key;
-    a_boundary.is_start = patch_a.is_start;
-    a_boundary.attachment_point = patch_a.point;
-    a_boundary.horizontal_length_m = a_len;
-    a_boundary.point = boundary_from_tangent(patch_a.point, patch_a.away_from_node, a_len);
-    a_boundary.tangent = patch_a.away_from_node;
+    curve_boundary a_boundary = boundary_from_source_curve(
+        patch_a, source_curves[patch_a.source_curve_index], a_len);
     insert_boundary_once(&boundaries, &boundary_index, a_boundary);
 
-    curve_boundary b_boundary{};
-    b_boundary.section_key = patch_b.section_key;
-    b_boundary.is_start = patch_b.is_start;
-    b_boundary.attachment_point = patch_b.point;
-    b_boundary.horizontal_length_m = b_len;
-    b_boundary.point = boundary_from_tangent(patch_b.point, patch_b.away_from_node, b_len);
-    b_boundary.tangent = patch_b.away_from_node;
+    curve_boundary b_boundary = boundary_from_source_curve(
+        patch_b, source_curves[patch_b.source_curve_index], b_len);
     insert_boundary_once(&boundaries, &boundary_index, b_boundary);
     patch_specs.push_back({key, patch_a, patch_b, ScaleVec(patch_a.point + patch_b.point, 0.5)});
-  }
-
-  for (int iteration = 0; iteration < 2; ++iteration) {
-    for (const visual_cable_section& section : sections) {
-      const CableSectionLayout& entry = section.layout;
-      curve_boundary start_boundary{};
-      curve_boundary end_boundary{};
-      const bool has_start_patch = boundary_for(boundaries, boundary_index, entry.key, true, &start_boundary);
-      const bool has_end_patch = boundary_for(boundaries, boundary_index, entry.key, false, &end_boundary);
-      if (!has_start_patch && !has_end_patch) {
-        continue;
-      }
-      const Vec3d start = has_start_patch ? start_boundary.point : entry.endpoint_a;
-      const Vec3d end = has_end_patch ? end_boundary.point : entry.endpoint_b;
-      const Vec3d end_param_tangent = ScaleVec(end_boundary.tangent, -1.0);
-      const EditResult<CurveConstraints> constraints =
-          make_curve_constraints(state, entry.key.logical_span_id, start, end,
-                                 has_start_patch ? &start_boundary.tangent : nullptr,
-                                 has_end_patch ? &end_param_tangent : nullptr);
-      if (!constraints.ok) {
-        continue;
-      }
-      if (curve_boundary* boundary = mutable_boundary_for(&boundaries, boundary_index, entry.key, true);
-          boundary != nullptr) {
-        boundary->tangent = constraints.value.start.tangent_dir;
-        boundary->point =
-            boundary_from_tangent(boundary->attachment_point, boundary->tangent, boundary->horizontal_length_m);
-      }
-      if (curve_boundary* boundary = mutable_boundary_for(&boundaries, boundary_index, entry.key, false);
-          boundary != nullptr) {
-        boundary->tangent = ScaleVec(constraints.value.end.tangent_dir, -1.0);
-        boundary->point =
-            boundary_from_tangent(boundary->attachment_point, boundary->tangent, boundary->horizontal_length_m);
-      }
-    }
   }
 
   const std::vector<cable_run_assignment> cable_runs = derive_cable_run_ids(sections, patch_specs);
@@ -1134,12 +1105,15 @@ VisualCurvePartCache make_visual_curve_parts(const CoreState& state, const layou
     std::sort(jumper_part.incident_edge_ids.begin(), jumper_part.incident_edge_ids.end());
     jumper_part.boundary_a = endpoint.point;
     jumper_part.boundary_b = peer->point;
-    jumper_part.tangent_a = safe_unit(peer->point - endpoint.point, {1.0, 0.0, 0.0});
-    jumper_part.tangent_b = jumper_part.tangent_a;
+    const Vec3d start_direction = ScaleVec(endpoint.away_from_node, -1.0);
+    const Vec3d end_direction = peer->away_from_node;
+    jumper_part.tangent_a = start_direction;
+    jumper_part.tangent_b = ScaleVec(end_direction, -1.0);
     jumper_part.section_count = 1;
     copy_span_appearance(state, endpoint.section_key.logical_span_id, &jumper_part);
-    append_jumper_section(jumper_part.boundary_a, jumper_part.boundary_b,
-                          &jumper_part.bezier_control_points, &jumper_part.samples);
+    append_patch_section(jumper_part.boundary_a, start_direction, jumper_part.boundary_b,
+                         end_direction, true, &jumper_part.bezier_control_points,
+                         &jumper_part.samples);
     jumper_part.bounds = curve_part_bounds(jumper_part.samples);
     if (jumper_part.samples.size() >= 2 && finite_point(jumper_part.samples.front()) &&
         finite_point(jumper_part.samples.back())) {

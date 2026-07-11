@@ -521,6 +521,38 @@ bool sampled_boundary_is_g1(const wire::core::VisualCurvePart& a, const wire::co
   return tangent_compatible(a_direction, {-b_direction.x, -b_direction.y, -b_direction.z});
 }
 
+bool boundary_matches_source_curve(const wire::core::CoreState& state,
+                                   const wire::core::VisualCurvePart& body,
+                                   const wire::core::Vec3d& boundary) {
+  const wire::core::CurveCacheEntry* source = state.find_curve_cache(body.source_span_id);
+  if (source == nullptr) return false;
+  const wire::core::DetailCurve& curve = source->detail;
+  const wire::core::Vec3d start = curve.EvaluatePosition(0.0);
+  const wire::core::Vec3d end = curve.EvaluatePosition(1.0);
+  const auto distance = [](const wire::core::Vec3d& a, const wire::core::Vec3d& b) {
+    return std::hypot(std::hypot(a.x - b.x, a.y - b.y), a.z - b.z);
+  };
+  const bool from_start = distance(boundary, start) < distance(boundary, end);
+  const wire::core::Vec3d attachment = from_start ? start : end;
+  const double target_xy = std::hypot(boundary.x - attachment.x, boundary.y - attachment.y);
+  double low = from_start ? 0.0 : 0.5;
+  double high = from_start ? 0.5 : 1.0;
+  for (int iteration = 0; iteration < 60; ++iteration) {
+    const double u = (low + high) * 0.5;
+    const wire::core::Vec3d point = curve.EvaluatePosition(u);
+    const double distance_xy = std::hypot(point.x - attachment.x, point.y - attachment.y);
+    if ((distance_xy < target_xy) == from_start) low = u;
+    else high = u;
+  }
+  const double u = (low + high) * 0.5;
+  wire::core::Vec3d expected_tangent = curve.EvaluateTangent(u);
+  if (!from_start) expected_tangent = {-expected_tangent.x, -expected_tangent.y, -expected_tangent.z};
+  const wire::core::Vec3d body_tangent =
+      almost_equal(body.boundary_a, boundary, 1e-9) ? body.tangent_a : body.tangent_b;
+  return almost_equal(boundary, curve.EvaluatePosition(u), 1e-6) &&
+         tangent_compatible(body_tangent, expected_tangent);
+}
+
 double sampled_curve_length(const wire::core::VisualCurvePart& part) {
   double length = 0.0;
   for (std::size_t i = 1; i < part.samples.size(); ++i) {
@@ -768,21 +800,53 @@ bool C637_backbone_node_patch_edge_body_boundary_tangents_are_g1() {
     }
     bool a_ok = false;
     bool b_ok = false;
+    bool a_source_ok = false;
+    bool b_source_ok = false;
     for (const wire::core::VisualCurvePart& body : state.view().visual_curve_parts().parts) {
       if (body.kind != wire::core::VisualCurvePartKind::kEdgeBody) {
         continue;
       }
       if (almost_equal(body.boundary_a, patch.boundary_a, 1e-9)) {
         a_ok = a_ok || sampled_boundary_is_g1(body, patch, patch.boundary_a);
+        a_source_ok = a_source_ok || boundary_matches_source_curve(state, body, patch.boundary_a);
       }
       if (almost_equal(body.boundary_b, patch.boundary_a, 1e-9)) {
         a_ok = a_ok || sampled_boundary_is_g1(body, patch, patch.boundary_a);
+        a_source_ok = a_source_ok || boundary_matches_source_curve(state, body, patch.boundary_a);
       }
       if (almost_equal(body.boundary_a, patch.boundary_b, 1e-9)) {
         b_ok = b_ok || sampled_boundary_is_g1(body, patch, patch.boundary_b);
+        b_source_ok = b_source_ok || boundary_matches_source_curve(state, body, patch.boundary_b);
       }
       if (almost_equal(body.boundary_b, patch.boundary_b, 1e-9)) {
         b_ok = b_ok || sampled_boundary_is_g1(body, patch, patch.boundary_b);
+        b_source_ok = b_source_ok || boundary_matches_source_curve(state, body, patch.boundary_b);
+      }
+    }
+    return a_ok && b_ok && a_source_ok && b_source_ok;
+  }
+  return false;
+}
+
+bool C755_backbone_sharp_jumper_boundaries_are_g1_with_edge_bodies() {
+  wire::core::CoreState state;
+  wire::core::BackboneSpec req = line_req(state);
+  req.path.polyline = {{0.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {5.0, 8.660254037844386, 0.0}};
+  const auto generated = state.GenerateFromBackboneSpec(req);
+  if (!generated.ok) return false;
+  for (const wire::core::VisualCurvePart& jumper : state.view().visual_curve_parts().parts) {
+    if (jumper.kind != wire::core::VisualCurvePartKind::kJumper) continue;
+    bool a_ok = false;
+    bool b_ok = false;
+    for (const wire::core::VisualCurvePart& body : state.view().visual_curve_parts().parts) {
+      if (body.kind != wire::core::VisualCurvePartKind::kEdgeBody) continue;
+      if (almost_equal(body.boundary_a, jumper.boundary_a, 1e-9) ||
+          almost_equal(body.boundary_b, jumper.boundary_a, 1e-9)) {
+        a_ok = a_ok || sampled_boundary_is_g1(body, jumper, jumper.boundary_a);
+      }
+      if (almost_equal(body.boundary_a, jumper.boundary_b, 1e-9) ||
+          almost_equal(body.boundary_b, jumper.boundary_b, 1e-9)) {
+        b_ok = b_ok || sampled_boundary_is_g1(body, jumper, jumper.boundary_b);
       }
     }
     return a_ok && b_ok;

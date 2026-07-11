@@ -369,5 +369,6 @@ bool C674_backbone_port_band_selection_has_one_owner();
 bool C675_backbone_layout_yaw_does_not_read_debug_records();
 bool C676_backbone_noop_move_preserves_port_positions_exactly();
 bool C677_backbone_corner_scale_has_one_definition();
+bool C755_backbone_sharp_jumper_boundaries_are_g1_with_edge_bodies();
 
 } // namespace backbone_tests

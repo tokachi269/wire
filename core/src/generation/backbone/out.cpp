@@ -222,54 +222,6 @@ EditResult<DetailCurve> make_curve_between_impl(const CoreState& state, ObjectId
 
 } // namespace
 
-EditResult<CurveConstraints> make_curve_constraints(
-    const CoreState& state, ObjectId span_id, const Vec3d& start, const Vec3d& end,
-    const Vec3d* start_tangent, const Vec3d* end_tangent) {
-  EditResult<CurveConstraints> result{};
-  const GeometrySettings& settings = state.view().geometry_settings();
-  const curve_input_data data = make_curve_input_data(state, span_id, start, end, start_tangent, end_tangent);
-  if (data.continuity_policy != CableContinuityPolicyHint::kAuto) {
-    double sag_ratio = settings.sag_factor;
-    const Span* span = state.view().spans().find(span_id);
-    if (span != nullptr) {
-      const Bundle* bundle = state.view().bundles().find(span->bundle_id);
-      if (bundle != nullptr) {
-        const auto bundle_template = state.view().bundle_templates().find(bundle->bundle_template_id);
-        if (bundle_template != state.view().bundle_templates().end()) {
-          const auto cable = state.view().cable_templates().find(bundle_template->second.cable_template_id);
-          if (cable != state.view().cable_templates().end()) {
-            sag_ratio = cable->second.sag_factor + cable->second.slack_factor;
-          }
-        }
-      }
-    }
-    sag_ratio = std::max(0.0, sag_ratio);
-    DetailCurve curve = BuildDetailCurve(
-        detail_curve_constraint(start, data.input.start_tangent_hint, settings, sag_ratio, data.continuity_policy,
-                                data.bend_stiffness_hint, data.min_bend_radius_hint_m, data.chord_length),
-        detail_curve_constraint(end, data.input.end_tangent_hint, settings, sag_ratio, data.continuity_policy,
-                                data.bend_stiffness_hint, data.min_bend_radius_hint_m, data.chord_length),
-        2);
-    result.value.start = curve.start_constraint;
-    result.value.end = curve.end_constraint;
-    result.ok = true;
-    return result;
-  }
-
-  const EditResult<geometry::curve::CableEndpointTangents> tangents =
-      geometry::curve::EvaluateEndpointTangents(data.input);
-  if (!tangents.ok) {
-    result.error = tangents.error;
-    return result;
-  }
-  result.value.start.point = start;
-  result.value.start.tangent_dir = tangents.value.start_tangent;
-  result.value.end.point = end;
-  result.value.end.tangent_dir = tangents.value.end_tangent;
-  result.ok = true;
-  return result;
-}
-
 EditResult<DetailCurve> make_curve_between(const CoreState& state, ObjectId span_id, const Vec3d& start,
                                           const Vec3d& end) {
   return make_curve_between_impl(state, span_id, start, end, nullptr, nullptr);

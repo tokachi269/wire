@@ -1102,6 +1102,9 @@ void register_tests(test_registry::TestRegistry& tests) {
   test_registry::AddTest(tests, "C677_backbone_corner_scale_has_one_definition",
                          "corner side scale and inner turn side each have one production definition",
                          "Boundary", false, C677_backbone_corner_scale_has_one_definition);
+  test_registry::AddTest(tests, "C755_backbone_sharp_jumper_boundaries_are_g1_with_edge_bodies",
+                         "sharp-corner jumper boundaries are G1 with incident edge bodies",
+                         "Invariant", false, C755_backbone_sharp_jumper_boundaries_are_g1_with_edge_bodies);
 }
 
 

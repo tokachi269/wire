@@ -57,7 +57,7 @@ panels.cpp の1:1移植は禁止する。
 
 ## 累進的開示
 
-- Advanced Port Bands、Anchor Slots、Junction Debug、Visual Cache 内部値、capture は既定折りたたみ。
+- Advanced Port Bands、Anchor Slots、Junction Debug、Visual Cache 内部値、capture の詳細は既定折りたたみ。Repro Trace の保存ボタンだけは top bar に置く。
 - P1(編集操作と主要表示)を最初に見せる。P2(debug/capture 系)は畳む。
 
 ## 反映モデル

@@ -1,3 +1,4 @@
+import { ReproTrace } from "./reproTrace";
 import type { WireBridge } from "../bridge/wire";
 import type {
   BundleTemplateInfo,
@@ -150,6 +151,7 @@ export class ViewerActions {
   private interactionFrames: number[] = [];
   private interactionActive = false;
   private suppressNextCommit = false;
+  private readonly reproTrace = new ReproTrace();
 
   constructor(
     private readonly bridge: WireBridge,
@@ -232,6 +234,7 @@ export class ViewerActions {
   }
 
   addPathPoint(point: WorldPoint, pick?: PathPickInfo): void {
+    const previousPointCount = this.readSnapshot().pathPoints.length;
     let nextPoint = point;
     let nextSpec: PathPointSpec | null = null;
     if (pick !== undefined) {
@@ -271,19 +274,28 @@ export class ViewerActions {
         error: ""
       };
     });
+    const after = this.readSnapshot();
+    if (after.pathPoints.length > previousPointCount) {
+      const index = after.pathPoints.length - 1;
+      this.reproTrace.recordPathPoint(point, after.pathPoints[index], pick, after.pathPointSpecs[index]);
+    }
   }
 
   clearPath(): void {
+    const hadPoints = this.readSnapshot().pathPoints.length > 0;
     this.store.update((current) => ({ ...current, pathPoints: [], pathPointSpecs: [], error: "" }));
+    if (hadPoints) this.reproTrace.recordPathEdit("clear-path");
   }
 
   undoPathPoint(): void {
+    const hadPoints = this.readSnapshot().pathPoints.length > 0;
     this.store.update((current) => ({
       ...current,
       pathPoints: current.pathPoints.slice(0, -1),
       pathPointSpecs: current.pathPointSpecs.slice(0, -1),
       error: ""
     }));
+    if (hadPoints) this.reproTrace.recordPathEdit("undo-path-point");
   }
 
   undoPathPointOrClearSelection(): void {
@@ -357,6 +369,22 @@ export class ViewerActions {
 
   selectPoleTemplate(id: number): void {
     this.store.update((current) => ({ ...current, selectedPoleTemplateId: id }));
+  }
+
+  exportReproCapture(): void {
+    const text = this.reproTrace.toText(this.readSnapshot());
+    const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `wire-repro-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    this.store.update((current) => ({
+      ...current,
+      logs: [...current.logs, "repro trace downloaded"]
+    }));
   }
 
   generatePath(): void {
@@ -783,6 +811,7 @@ export class ViewerActions {
     );
     const generateEnd = performance.now();
     if (!result.ok) {
+      this.reproTrace.recordGeneration(before, points, result);
       this.store.setError(result.error);
       return;
     }
@@ -807,6 +836,7 @@ export class ViewerActions {
       bundleTemplates,
       selectedDrawBundleTemplateIds: selectedBundleTemplateIds
     }));
+    this.reproTrace.recordGeneration(before, points, result, this.readSnapshot());
     const sceneUpdateMs = performance.now() - sceneStart;
     const viewerUpdateMs = performance.now() - generateStart;
     this.store.update((current) => ({
@@ -905,6 +935,7 @@ export class ViewerActions {
 
   private finishOperation(result: OperationResult, log: string): void {
     if (!result.ok) {
+      this.reproTrace.recordFailure(log, result.error);
       this.store.setError(result.error);
       return;
     }
@@ -914,10 +945,12 @@ export class ViewerActions {
       error: "",
       logs: [...current.logs, log]
     }));
+    this.reproTrace.recordOperation(log, this.readSnapshot());
   }
 
   private finishTemplateOperation(result: OperationResult, log: string): void {
     if (!result.ok) {
+      this.reproTrace.recordFailure(log, result.error);
       this.refreshCatalogs();
       this.store.setError(result.error);
       return;

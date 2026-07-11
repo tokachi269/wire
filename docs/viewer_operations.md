@@ -50,7 +50,7 @@ desktop viewer の実装を写経せず、`panels -> store/actions -> bridge -> 
 | Generate From Path | `GenerateFromBackboneSpec` | button | `kRegenerate` | commit | 直して移植 | W3 の action。`EditResult.error`を必ず表示する | P1 |
 | Undo Last Point / Clear Path | draw store | button | UI | 即時 | そのまま | committed core state は変更しない | P1 |
 | Bundle Population Rules | `UpdateBundleTemplate(population_rules)` | folded rule editor | `kReshape` | number preview / count commit | 直して移植 | population は BundleTemplate の性質。Draw Path の global toggle/seed は置かず、rule が空なら追加線なし | P1 |
-| Save Repro Capture | なし | button | debug/capture | - | 捨てる | filesystem capture は desktop debug 固有 | P2 |
+| Save Repro Trace | web viewer action | header button | debug/capture | explicit | 直して移植 | 操作順、生成入力、anchor と VisualCurvePart の種類別件数だけを text download する。curve sample と UI log は含めない | P2 |
 
 ## Geometry / layout / orientation
 
@@ -173,4 +173,4 @@ P1 だが意図的に除外した項目:
 - Unified UI toggle: webは単一workspaceを唯一の構成とし、旧window modeを持たない。
 - direct object edit: desktop側も無効であり、Draw Pathと明示template/update actionだけを入口にする。
 
-P2 の debug/capture、walk modeは未実装である。
+P2 は Repro Trace のみ実装済みである。walk modeは未実装である。

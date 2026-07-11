@@ -199,6 +199,9 @@
         onclick={() => actions.setDrawOption("showRightPanel", !snapshot.showRightPanel)}>
         Inspector
       </button>
+      <button class="secondary" type="button" onclick={() => actions.exportReproCapture()}>
+        Repro capture
+      </button>
       <button type="button" onclick={() => actions.generatePath()}>
         Path生成
       </button>
